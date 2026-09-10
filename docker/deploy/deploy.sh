@@ -790,8 +790,15 @@ create_directories() {
     DEPLOYMENT_PHASE="directory-setup"
     log_info "创建必要目录..."
     mkdir -p ssl media logs backups config
-    [ -d migrations ] || {
-        log_error "migrations 目录不存在"
+    # P3-fix: migrations are no longer a hand-synced copy under docker/deploy/.
+    # The migrator mounts the canonical $PROJECT_ROOT/migrations directly, so that
+    # is what must exist (and contain a baseline) before we start containers.
+    [ -d "$PROJECT_ROOT/migrations" ] || {
+        log_error "canonical migrations 目录不存在: $PROJECT_ROOT/migrations"
+        exit 1
+    }
+    ls "$PROJECT_ROOT"/migrations/00000000_unified_schema_v*.sql >/dev/null 2>&1 || {
+        log_error "canonical migrations 目录缺少统一基线脚本 (00000000_unified_schema_v*.sql)"
         exit 1
     }
     [ -f config/homeserver.yaml ] || {

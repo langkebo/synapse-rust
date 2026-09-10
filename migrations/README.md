@@ -1,6 +1,30 @@
 # 数据库迁移说明
 
-> 最后更新: 2026-09-04
+> 最后更新: 2026-09-11
+
+## 唯一真相源（single source of truth）
+
+`migrations/` 是**唯一**的迁移目录。`docker/deploy/` 的 migrator 直接绑定挂载本目录：
+
+```yaml
+# docker/deploy/docker-compose.yml
+- ../../migrations:/migrations:ro
+```
+
+历史上 `docker/deploy/migrations/` 曾是一份**手工同步的副本**，并因此静默漂移：
+它携带 42 个已废弃 v7 血统文件，同时**缺失 13 个新迁移**
+（`schema_p1_federation_and_integrity`、`schema_p2_data_integrity`、`schema_p3_perf`、
+`schema_cleanup_dedup_and_dead_code`、`extend_room_version_check`、
+`event_relations_pagination_index` 等），
+导致**全新部署建出的 schema 缺少这些修复**。该副本已删除（2026-09-11）。
+
+> ⚠️ **不要再创建 `docker/deploy/migrations/` 副本。**
+> `scripts/check_migration_consistency.py` 会在检测到陈旧副本或 compose 未挂载权威目录时失败，
+> 该检查是 CI 的阻塞步骤（`.github/workflows/ci.yml` 的 `Migration consistency`）。
+
+> ℹ️ 曾尝试用符号链接替代副本，**不可行**：BSD/macOS `find` 不跟随作为搜索根的符号链接，
+> `find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '00000000_unified_schema_v*.sql'`
+> 会匹配为空，migrator 直接报 "找不到统一基线脚本"。
 
 ## 目录结构
 
@@ -8,22 +32,42 @@
 migrations/
 ├── 00000000_unified_schema_v11.sql           # v11 统一基线（当前活跃，新环境唯一建库入口）
 ├── 00000001_extensions_v10.sql               # Feature-gated: 扩展表（沿用 v10 extension 文件，未随 v11 改名）
-├── 2026XXXXXXXXXX_*.sql (+ .undo.sql)        # 27 个增量迁移 + 对应 undo（按时间戳追加，append-only）
+├── 2026XXXXXXXXXX_*.sql (+ .undo.sql)        # 36 个增量迁移 + 33 个 undo（按时间戳追加，append-only）
 ├── archive/                                  # v8 历史基线（仅 `ci_schema_health_check.sh` 用于历史 schema 健康回归，不再作为活跃链路）
 │   ├── 00000000_unified_schema_v8.sql
 │   ├── 00000001_extensions_v8.sql
 │   ├── 20260605120000_megolm_vodozemac_dual_write_v8.sql
 │   └── 20260606120000_m26_drop_redundant_module_columns.sql
 ├── INDEXES.md                                # 索引治理文档（部分索引/复合索引/设计原则）
-├── README.md                                 # 本文件
-├── build_sqlx_migration_source.py            # 脚本：生成 forward-only migration source
-├── check_baseline_consolidation.py           # 脚本：检查 v* baseline 是否吸收所有增量迁移
-└── check_migration_consistency.py            # 脚本：检查 undo 配对与命名一致性
+├── extension_map.conf                        # 扩展迁移过滤映射（由 container-migrate.sh 读取，见下）
+└── README.md                                 # 本文件
 ```
 
-**当前活跃链路**: `v11 baseline + 1 extension + 27 个时间戳迁移 = 29 个 forward 文件 + 27 个 undo 文件`。
+**当前活跃链路**: `v11 baseline + 1 extension + 36 个时间戳迁移 = 38 个 forward 文件 + 33 个 undo 文件`。
 
-> v8 系列已归档至 `archive/`，不再作为活跃迁移链路。新环境应使用 v11 基线建库。`extension_map.conf` 已废弃（最后生效于 v8 baseline），目前没有调用方引用。
+> 校验脚本位于 **`scripts/`**（本目录下没有）：
+> - `scripts/check_migration_consistency.py` — 检查单一真相源、compose 挂载、undo 配对与命名一致性
+> - `scripts/check_baseline_consolidation.py` — 检查 v* baseline 是否吸收所有增量迁移
+> - `scripts/build_sqlx_migration_source.py` — 生成 forward-only migration source
+
+> v8 系列已归档至 `archive/`，不再作为活跃迁移链路。新环境应使用 v11 基线建库。
+
+### ⚠️ `extension_map.conf` 仍在被读取
+
+`docker/deploy/scripts/container-migrate.sh` 的 `should_apply_migration()` **实际会读取**
+`$MIGRATIONS_DIR/extension_map.conf`，其语义是：
+
+- 文件**不在** map 中 → 视为 core → **总是应用**
+- 文件**在** map 中 → 仅当 `ENABLED_EXTENSIONS` 包含其 feature 时才应用
+
+当前 map 只有一行 `00000001_extensions_v8.sql=extensions-core`，而该文件已移入 `archive/`
+（陈旧映射）；实际的 `00000001_extensions_v10.sql` **不在 map 中**，因此
+**无论 `ENABLED_EXTENSIONS` 设为何值都会被创建**（该文件内含 `cas-sso`/`saml-sso`/`friends`/
+`voice-extended` 四组特性表）。即：**`ENABLED_EXTENSIONS=none` 无法阻止这些扩展表被建出**。
+
+> 这是已知缺陷（尚未修复）。map 的格式只能把**整个文件**映射到**单个** feature，
+> 而 `extensions_v10.sql` 捆绑了 4 个独立特性，因此若要真正实现按特性过滤，
+> 需要把该文件拆分回 per-feature 文件。
 
 ## 新增迁移流程（务必同步折入 baseline）
 

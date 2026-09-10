@@ -125,12 +125,23 @@ docker/deploy/
 │   ├── generate-secrets.sh  # 密钥生成
 │   ├── backup.sh / restore.sh
 │   └── init-db.sql
-├── migrations/             # 数据库迁移脚本（与根目录同步）
 ├── logs/                   # 部署日志
 └── media/                  # 媒体文件持久化
 ```
 
-> **配置同步约定**：`config/`、`migrations/` 下的文件是运行版本；`docker/config/` 为镜像内建版本。修改 canonical 后需同步（`cp docker/config/<file> config/<file>`）。
+> **迁移不再有副本（2026-09-11）**：`docker-compose.yml` 的 migrator 直接绑定挂载
+> 仓库根的 canonical 目录 `../../migrations:/migrations:ro`。
+> 此处**没有** `migrations/` 子目录 —— 也不要再创建。
+>
+> 历史上这里有一份手工同步的副本，它静默漂移：多出 42 个废弃 v7 文件、
+> 少了 13 个新迁移，导致全新部署的 schema 缺少这些修复。
+> `scripts/check_migration_consistency.py`（CI 阻塞步骤）会拦截副本重新出现。
+>
+> ⚠️ 曾尝试用符号链接替代副本，**不可行**：BSD/macOS `find` 不跟随作为搜索根的符号链接，
+> migrator 的基线探测会失败并报 "找不到统一基线脚本"。
+> `deploy.sh` 本来就以 `PROJECT_ROOT=$SCRIPT_DIR/../..` 构建镜像，因此仓库根必然存在。
+
+> **配置同步约定**：`config/` 下的文件是运行版本；`docker/config/` 为镜像内建版本。修改 canonical 后需同步（`cp docker/config/<file> config/<file>`）。
 
 ---
 

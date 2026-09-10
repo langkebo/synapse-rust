@@ -110,7 +110,24 @@ services:
       - /scripts/container-migrate.sh
     command: ["migrate"]
     volumes:
-      - ./migrations:/migrations:ro
+      # P3-fix: mount the canonical migrations directory directly.
+      #
+      # This used to be `./migrations`, a hand-synced copy under docker/deploy/.
+      # That copy silently drifted: it carried 42 files from a dead v7 lineage
+      # and was missing 13 recent migrations (schema_p1_federation_and_integrity,
+      # schema_p2_data_integrity, schema_p3_perf, schema_cleanup_dedup_and_dead_code,
+      # extend_room_version_check, event_relations_pagination_index, ...), so a
+      # fresh deploy built a schema without those fixes. `check_migration_consistency.py`
+      # failed in CI on exactly this (`missing_deploy_mirror` x8).
+      #
+      # A symlink was tried first and does NOT work here: BSD/macOS `find` does not
+      # follow a symlink given as the search root, so `find "$MIGRATIONS_DIR" -maxdepth 1
+      # -type f -name '00000000_unified_schema_v*.sql'` matched nothing and the
+      # migrator aborted with "找不到统一基线脚本".
+      #
+      # `deploy.sh` already resolves PROJECT_ROOT as `$SCRIPT_DIR/../..` and builds
+      # the image from there, so the repo root is always present in this deploy path.
+      - ../../migrations:/migrations:ro
       - ./scripts/container-migrate.sh:/scripts/container-migrate.sh:ro
       - ./logs:/logs
     logging:
