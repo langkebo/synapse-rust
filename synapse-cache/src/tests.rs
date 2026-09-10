@@ -158,6 +158,61 @@ async fn test_cache_manager_delete() {
     assert!(manager.get::<String>("test_key").await.unwrap().is_none());
 }
 
+/// P1 regression guard: `set()` must bound the **local** tier by the
+/// per-write `ttl`, not by the builder-wide `CacheConfig::time_to_live`.
+///
+/// Before the fix, `set()` called `local.set_raw`, which has no TTL argument
+/// and fell back to the builder TTL. Callers therefore got a different L1
+/// lifetime than they asked for — the login-lockout counter
+/// (`LOGIN_LOCKOUT_TTL_SECS = 900`) was retained for the full builder TTL
+/// instead. See `docs/audit/P1_security_2026-09-10.md`.
+#[tokio::test]
+#[allow(missing_docs)]
+async fn set_honours_per_write_ttl_for_local_tier() {
+    use std::time::Duration;
+
+    let mut config = CacheConfig::default();
+    config.time_to_live = 3600; // builder-wide L1 TTL is an hour...
+    let manager = CacheManager::new(&config);
+
+    // ...but this write asks for one second.
+    manager.set("p1:ttl:probe", &42u32, 1).await.expect("set must succeed");
+    assert_eq!(manager.get::<u32>("p1:ttl:probe").await.unwrap(), Some(42), "value must be readable immediately");
+
+    tokio::time::sleep(Duration::from_millis(2000)).await;
+
+    assert_eq!(
+        manager.get::<u32>("p1:ttl:probe").await.unwrap(),
+        None,
+        "the L1 entry must expire on the per-write ttl (1s), not the builder ttl (3600s)"
+    );
+}
+
+/// P1 regression guard: the plain `get()` intentionally treats a backend
+/// failure as a cache miss (`Ok(None)`), so callers **cannot** detect an
+/// outage through it. Security-critical callers must use `get_checked`.
+///
+/// This pins the contract that made the original audit suspicion about
+/// `check_login_lockout`'s `_ => Ok(())` arm unreachable.
+#[tokio::test]
+#[allow(missing_docs)]
+async fn get_returns_ok_none_when_redis_is_unreachable() {
+    use deadpool_redis::{Config as RedisPoolConfig, Runtime as RedisRuntime};
+
+    const BROKEN_URL: &str = "redis://127.0.0.1:1";
+    let pool = RedisPoolConfig::from_url(BROKEN_URL)
+        .create_pool(Some(RedisRuntime::Tokio1))
+        .expect("failed to build Redis pool for broken-backend test");
+    let manager = CacheManager::with_redis_pool_and_url(pool, &CacheConfig::default(), BROKEN_URL);
+    assert!(manager.is_redis_enabled(), "the manager is configured for Redis…");
+
+    // …but the backend is dead, and `get` still reports a clean miss.
+    assert_eq!(manager.get::<u32>("p1:broken:probe").await.expect("get must not surface the outage"), None);
+    // Writes succeed because L1 accepts them.
+    manager.set("p1:broken:probe", &7u32, 60).await.expect("set must succeed via L1");
+    assert_eq!(manager.get::<u32>("p1:broken:probe").await.unwrap(), Some(7));
+}
+
 // C-3: Batch set/get eliminates N+1 cache writes.
 #[tokio::test]
 #[allow(missing_docs)]

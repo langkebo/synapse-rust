@@ -706,3 +706,119 @@ pub(crate) async fn login_fallback_page(
 fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&#x27;")
 }
+
+// ---------------------------------------------------------------------------
+// P1 login-lockout hardening — tests
+// ---------------------------------------------------------------------------
+//
+// Background: `docs/audit/P1_security_2026-09-10.md`.
+//
+// The audit initially suspected that `check_login_lockout`'s `_ => Ok(())` arm
+// let a Redis outage disable the brute-force lock. Direct measurement showed
+// otherwise: `CacheManager::get()` **never** surfaces backend failures (it logs
+// an L1 miss and returns `Ok(None)`), so that arm is unreachable and the local
+// (L1) tier is what keeps the lock alive. These tests pin that real behaviour —
+// and the `CacheManager::set` TTL defect it exposed, which is guarded separately
+// in `synapse-cache`.
+#[cfg(test)]
+mod lockout_degradation_tests {
+    use super::*;
+    use deadpool_redis::{Config as RedisPoolConfig, Runtime as RedisRuntime};
+
+    /// Build a `CacheManager` whose Redis backend is unreachable.
+    ///
+    /// Port 1 is reserved (tcpmux) and never listening, so connect attempts fail
+    /// immediately instead of hanging.
+    fn cache_with_unreachable_redis() -> crate::cache::CacheManager {
+        const BROKEN_URL: &str = "redis://127.0.0.1:1";
+        let pool = RedisPoolConfig::from_url(BROKEN_URL)
+            .create_pool(Some(RedisRuntime::Tokio1))
+            .expect("failed to build Redis pool for degraded-lockout test");
+        crate::cache::CacheManager::with_redis_pool_and_url(pool, &crate::cache::CacheConfig::default(), BROKEN_URL)
+    }
+
+    /// Build a `Config` whose lockout policy is fail-closed.
+    fn fail_closed_config() -> crate::common::config::Config {
+        let mut config = crate::common::config::Config::default();
+        config.security.login_lockout_fail_open_on_redis_error = false;
+        config
+    }
+
+    /// Regression guard: the lockout must keep working while Redis is down.
+    ///
+    /// It survives on the L1 tier rather than through the `_ => Ok(())` arm that
+    /// the audit originally flagged. If a refactor ever routes the counter away
+    /// from L1 without adding an equivalent fallback, this fails.
+    #[tokio::test]
+    async fn lockout_engages_while_redis_is_down() {
+        let cache = cache_with_unreachable_redis();
+        let config = fail_closed_config();
+        let (ip, username) = ("203.0.113.20", "local-tier-victim");
+
+        assert!(
+            check_login_lockout(&cache, &config, ip, username).await.is_ok(),
+            "a fresh identifier must not be locked out"
+        );
+
+        for _ in 0..LOGIN_MAX_ATTEMPTS {
+            record_login_failure(&cache, &config, ip, username).await;
+        }
+
+        let err = check_login_lockout(&cache, &config, ip, username)
+            .await
+            .expect_err("threshold reached ⇒ lock must engage even without Redis");
+        assert_eq!(err.kind, crate::common::ApiErrorKind::RateLimited);
+    }
+
+    /// The counter is scoped per `(ip, username)`: one victim's failures must not
+    /// lock out unrelated identifiers.
+    #[tokio::test]
+    async fn lockout_counter_is_scoped_per_ip_and_username() {
+        let cache = cache_with_unreachable_redis();
+        let config = fail_closed_config();
+
+        for _ in 0..LOGIN_MAX_ATTEMPTS {
+            record_login_failure(&cache, &config, "203.0.113.8", "scoped-victim").await;
+        }
+
+        assert!(
+            check_login_lockout(&cache, &config, "203.0.113.8", "scoped-victim").await.is_err(),
+            "the targeted identifier must be locked"
+        );
+        assert!(
+            check_login_lockout(&cache, &config, "203.0.113.8", "other-user").await.is_ok(),
+            "a different username from the same IP must not inherit the lock"
+        );
+        assert!(
+            check_login_lockout(&cache, &config, "198.51.100.9", "scoped-victim").await.is_ok(),
+            "the same username from a different IP must not inherit the lock"
+        );
+    }
+
+    /// When Redis is simply not configured at all, the pre-existing
+    /// `login_lockout_fail_open_on_redis_error` semantics stay in force — this is
+    /// the one path that flag actually governs.
+    #[tokio::test]
+    async fn lockout_is_skipped_when_redis_is_unconfigured() {
+        let cache = crate::cache::CacheManager::new(&crate::cache::CacheConfig::default());
+        assert!(!cache.is_redis_enabled(), "in-memory cache must report Redis as disabled");
+
+        let mut lenient = crate::common::config::Config::default();
+        lenient.security.login_lockout_fail_open_on_redis_error = true;
+
+        for _ in 0..(LOGIN_MAX_ATTEMPTS * 3) {
+            record_login_failure(&cache, &lenient, "203.0.113.10", "no-redis").await;
+        }
+        assert!(
+            check_login_lockout(&cache, &lenient, "203.0.113.10", "no-redis").await.is_ok(),
+            "fail_open_on_redis_error=true keeps the documented allow-through behaviour"
+        );
+
+        let mut strict = crate::common::config::Config::default();
+        strict.security.login_lockout_fail_open_on_redis_error = false;
+        assert!(
+            check_login_lockout(&cache, &strict, "203.0.113.11", "no-redis-strict").await.is_err(),
+            "fail_open_on_redis_error=false must refuse login while the backend is unavailable"
+        );
+    }
+}

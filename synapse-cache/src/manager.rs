@@ -626,7 +626,12 @@ impl CacheManager {
     /// Security-critical callers must use [`set_checked`](Self::set_checked).
     pub async fn set<T: Serialize>(&self, key: &str, value: T, ttl: u64) -> Result<(), ApiError> {
         if let Ok(val) = serde_json::to_string(&value) {
-            self.local.set_raw(key, &val);
+            // P1: honour the per-write `ttl` for the local tier too. Previously
+            // this called `local.set_raw`, which ignores `ttl` and falls back to
+            // the builder-wide `CacheConfig::time_to_live`; callers that pass a
+            // short TTL (or a lockout window such as 900s) silently got a
+            // different L1 lifetime than they asked for.
+            self.local.set_raw_with_ttl(key, &val, Duration::from_secs(ttl));
             if self.use_redis {
                 if let Some(redis) = &self.redis {
                     let _ = redis.set(key, &val, ttl).await;
@@ -640,7 +645,8 @@ impl CacheManager {
     /// swallowing them. Security-critical callers (e.g. account lockout) must
     /// fail closed on Redis outage rather than leaving the lock unset.
     pub async fn set_checked(&self, key: &str, value: &str, ttl: u64) -> Result<(), ApiError> {
-        self.local.set_raw(key, value);
+        // P1: same per-write TTL guarantee as `set`.
+        self.local.set_raw_with_ttl(key, value, Duration::from_secs(ttl));
         if self.use_redis {
             if let Some(redis) = &self.redis {
                 redis
