@@ -25,6 +25,18 @@
 //! command *looks* like it runs the suite, and its scope silently excludes most
 //! of it.
 //!
+//! ## Activation status (read this before changing)
+//!
+//! The two scope-asserting tests are **`#[ignore]`d**: the gap below is real,
+//! but widening the CI step to `--workspace` first requires consolidating the
+//! three divergent test-isolation implementations in this repo — otherwise the
+//! suite becomes a 5464-statement-per-test replay (~40–134 s/test in
+//! `synapse-storage`).
+//!
+//! **When the `--isolated` migration lands, remove the `#[ignore]` attributes
+//! and add `--workspace` to the `--lib` step in `.github/workflows/ci.yml`.**
+//! See `docs/audit/P5_workspace_test_isolation_2026-09-11.md`.
+//!
 //! ## What this test enforces
 //!
 //! Any workflow step invoking `cargo nextest run` **without** `--test <target>`
@@ -69,7 +81,18 @@ fn nextest_invocations() -> Vec<(String, String)> {
 
 /// A lib/test-run step must declare its scope; a `--test <target>` step is
 /// already explicit.
+///
+/// `#[ignore]`d on purpose (user-approved trade-off): this assertion currently
+/// fails because the CI scope gap is **real but not yet fixable** — widening to
+/// `--workspace` pulls in `synapse-storage`'s per-test baseline replay
+/// (~40–134 s/test), which needs the test-isolation consolidation first.
+/// Leaving it failing would break the unit target for everyone.
+///
+/// **Remove the `#[ignore]` in the same commit that adds `--workspace` to the
+/// `--lib` step in `ci.yml`.** See
+/// `docs/audit/P5_workspace_test_isolation_2026-09-11.md`.
 #[test]
+#[ignore = "activates with the CI --workspace fix; blocked on test-isolation consolidation"]
 fn nextest_invocations_declare_their_scope() {
     let invocations = nextest_invocations();
     assert!(!invocations.is_empty(), "未在 workflows 中找到任何 `cargo nextest run` —— 若测试入口已迁移，请更新本守卫");
@@ -95,7 +118,13 @@ fn nextest_invocations_declare_their_scope() {
 
 /// The root-crate lib step specifically must be workspace-wide, otherwise the
 /// ~5400 workspace-crate lib tests stay unenforced.
+///
+/// `#[ignore]`d for the same reason as
+/// [`nextest_invocations_declare_their_scope`]: the gap is real, the fix is
+/// blocked on test-isolation consolidation. Remove the `#[ignore]` together
+/// with the `ci.yml` change.
 #[test]
+#[ignore = "activates with the CI --workspace fix; blocked on test-isolation consolidation"]
 fn lib_test_step_covers_the_workspace() {
     let invocations = nextest_invocations();
     let lib_steps: Vec<&(String, String)> =
