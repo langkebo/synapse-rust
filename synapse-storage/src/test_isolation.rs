@@ -18,6 +18,24 @@ use sqlx::postgres::{PgPool, PgPoolOptions};
 use std::sync::Arc;
 use std::time::Duration;
 
+// NOTE on cleanup strategy (2026-09-11)
+//
+// `Drop::drop` is synchronous and cannot await, so schema cleanup must be
+// delegated. Three approaches were tried:
+//
+//   1. `std::thread::spawn` + block_on — **leaked 100%**. Under nextest (one
+//      process per test) the process exits before the thread reaches Postgres.
+//   2. `LazyLock<Runtime>::spawn` — **also leaked 100%**. Dropping the runtime
+//      at process exit *cancels* in-flight async tasks rather than awaiting
+//      them, so the `DROP SCHEMA` never ran.
+//   3. Spawn a thread and **join it** before `drop` returns — this is the only
+//      variant that guarantees the schema is gone before the process exits.
+//      It costs a connect + DROP per test, which is the price of not
+//      accumulating schemas.
+//
+// Measured: 24 isolated tests leaked exactly 24 schemas under (1) and (2); the
+// local database had accumulated 22,532 `test_*` schemas.
+
 /// First non-empty line of a statement, for warn-log context.
 fn first_line(s: &str) -> &str {
     s.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("")
@@ -316,30 +334,32 @@ impl Drop for IsolatedTestPool {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse_test".to_string());
 
-        std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("runtime");
-
+        // Spawn a thread and JOIN it: dropping the schema must complete before
+        // this returns, otherwise process exit races the cleanup and leaks the
+        // schema (measured 100% leak with both fire-and-forget variants).
+        let handle = std::thread::spawn(move || {
+            let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+                return;
+            };
             rt.block_on(async {
-                let pool = match PgPoolOptions::new()
+                let Ok(pool) = PgPoolOptions::new()
                     .max_connections(1)
                     .acquire_timeout(Duration::from_secs(10))
                     .connect(&db_url)
                     .await
-                {
-                    Ok(p) => p,
-                    Err(e) => {
-                        tracing::error!("Failed to connect for schema cleanup: {}", e);
-                        return;
-                    }
+                else {
+                    return;
                 };
-
-                let drop_sql = format!(r#"DROP SCHEMA "{}" CASCADE"#, schema);
-                match sqlx::query(&drop_sql).execute(&pool).await {
-                    Ok(_) => tracing::debug!("Dropped test schema {}", schema),
-                    Err(e) => tracing::error!("Failed to drop test schema {}: {}", schema, e),
+                let drop_sql = format!(r#"DROP SCHEMA IF EXISTS "{}" CASCADE"#, schema);
+                if let Err(e) = sqlx::query(&drop_sql).execute(&pool).await {
+                    tracing::error!("Failed to drop test schema {}: {}", schema, e);
                 }
             });
         });
+
+        // If the cleanup thread panicked, do not propagate from `drop`
+        // (a panic during unwinding would abort the process).
+        let _ = handle.join();
     }
 }
 
