@@ -359,19 +359,43 @@ jobs:
 
       - name: Download baseline benchmark results
         uses: dawidd6/action-download-artifact@v3
-        continue-on-error: true
+        # ⚠️ 不得设 continue-on-error: true。
+        # 历史上这里容忍下载失败，而脚本在缺基线时打印 "PASSED (baseline
+        # comparison skipped)" —— 二者叠加使「基线没下到」永久伪装成「没有回归」。
+        # 现在缺基线会让门禁明确失败（首次在 main 上跑完后即有基线）。
         with:
           workflow: benchmark.yml
           name: benchmark-results
           path: baseline
+          # 基线必须是 Criterion **文本**格式。benchmark.txt 是
+          # --output-format bencher 的产物，本门禁的解析器读不了。
           check_artifacts: true
           search_artifacts: true
+
+      - name: Locate baseline (Criterion text format)
+        id: baseline
+        run: |
+          set -euo pipefail
+          # benchmark.yml 上传的 artifact 同时含 benchmark.txt（bencher 格式）
+          # 与 benchmark_standard.txt（Criterion 文本格式，覆盖 federation +
+          # membership，与本门禁运行的基准一致）。
+          if [ -f baseline/benchmark_standard.txt ]; then
+            echo "path=baseline/benchmark_standard.txt" >> "$GITHUB_OUTPUT"
+            echo "Using baseline/benchmark_standard.txt"
+          else
+            echo "::error::未找到 Criterion 文本格式基线 baseline/benchmark_standard.txt。"
+            echo "::error::benchmark.txt 使用 --output-format bencher，与本门禁解析器不兼容。"
+            echo "::error::请先在 main 上跑一次 benchmark.yml 以生成基线。"
+            exit 1
+          fi
 
       - name: Run PR benchmark gate
         run: bash scripts/ci/benchmark_pr_gate.sh
         env:
           BENCH_THRESHOLD_PERCENT: 15
-          BENCH_BASELINE_PATH: baseline/benchmark.txt
+          BENCH_BASELINE_PATH: ${{ steps.baseline.outputs.path }}
+          # 必须与录制基线时使用的 profile 一致（benchmark.yml 用 release-perf）。
+          BENCH_PROFILE: release-perf
 
       - name: Upload benchmark results
         if: always()
