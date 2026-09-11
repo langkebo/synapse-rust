@@ -235,9 +235,26 @@ jobs:
             exit 1
           fi
 
-      - name: Run doc tests
+      # P5-fix: this gate used to be `cargo test --doc --locked`, which only
+      # compiles the ROOT package. The root package has zero doc tests, so the
+      # step reported `running 0 tests` and passed unconditionally — it verified
+      # nothing, and a real rustdoc-only compile error shipped green through it:
+      #   error[E0106]: missing lifetime specifiers
+      #   --> src/federation/edu.rs  fn validate_profile_update_content(...) -> Option<(&str, ...)>
+      # `cargo build`/`check`/`clippy` never flagged it (the returned lifetimes were
+      # unconstrained); only rustdoc compiles doc examples and caught it.
+      #
+      # `--workspace` compiles every crate's documentation, which is what makes this
+      # gate able to catch that class of error.
+      #
+      # Known limitation (do not mistake this gate for doc-test coverage): the whole
+      # workspace currently contains only 4 doc tests and ALL of them are `#[ignore]`d,
+      # so no doc example is actually executed. This step is a rustdoc COMPILE gate,
+      # not execution coverage. Treat `cargo doc`'s ~3.5k unresolved-intra-doc-link
+      # warnings as separate, pre-existing debt.
+      - name: Run doc tests (workspace — rustdoc compile gate)
         if: matrix.features-args == '--all-features'
-        run: cargo test --doc --locked
+        run: cargo test --doc --locked --workspace
 
       - name: Run library unit tests (--lib)
         if: matrix.features-args == '--all-features'
