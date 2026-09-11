@@ -244,9 +244,9 @@ HINT:  You might need to increase max_locks_per_transaction.
 | 项 | 状态 | 说明 |
 |---|---|---|
 | 清完剩余 21,748 个普通 `test_*` + 25 个模板 schema | **未做** | 见 §4.2/§4.3 |
-| `src/test_utils.rs::prepare_isolated_test_pool` 接入待删登记 | ✅ **已实现** | 见 §7：`drop_only` 通路 + 本路径也做 sweep。⚠️ **尚未跑通实测验证**（见 §7.1） |
-| `synapse-services/src/test_utils.rs` 的泄漏路径 | ✅ **已实现**（§7.2） | 补齐 drop-on-release 注册表 + 兄弟模板回收；⚠️ 未跑 DB 验证 |
-| `synapse-storage/src/test_utils.rs` 的泄漏路径 | ✅ **已实现**（§7.3） | 第三份副本补注册表；⚠️ 未跑 DB 验证 |
+| `src/test_utils.rs::prepare_isolated_test_pool` 接入待删登记 | ❌ **实测无效**（§9） | 同一机制；§9.3 说明 sweep 在"一进程一用例"下永不触发 |
+| `synapse-services/src/test_utils.rs` 的泄漏路径 | ❌ **疑似同因无效**（§9.3） | 同一 sweep 机制；未单独实测 |
+| `synapse-storage/src/test_utils.rs` 的泄漏路径 | ❌ **实测无效**（§9） | 临时集群上实测：每轮 +8 schema，跨轮无界增长；登记+sweep 机制对"一进程一用例"结构上无效 |
 | 静态守卫锁住全部 `CREATE SCHEMA` 站点 | ✅ **已实现且已实测 RED-GREEN** | `tests/unit/schema_lifecycle_guard_tests.rs`，2 条 |
 | `synapse-services/src/media/mod.rs::prepare_media_test_pool` | ✅ **已实现**（§7.2） | 接入同一注册表；⚠️ 未跑 DB 验证 |
 | 三套夹具收敛成一份 | **未做** | **真正的根因**（§1.4）；与 `P5_workspace_test_isolation`、`P5_migration_search_path_shadowing` 同一结论 |
@@ -498,3 +498,82 @@ oid=129689581    files=(60s 内数不完)   # ← synapse，问题库
 > 之所以它是本轮唯一可实测的：DB 仍在崩溃恢复（§8），其余改动跑不了任何 DB 测试。
 > 但**恰恰是这类"泄漏不违反任何断言"的缺陷最需要静态守卫**——四个副本里没有一个
 > 被 2,500+ 条既有测试发现过。
+
+---
+
+## 9. 2026-09-12 补充：在临时集群上**实测** §7 的清理修复 —— 结论是**它们不生效**
+
+§7 的三个修复当时只过了 `cargo check` + clippy，标注为"未验证"。本轮起了独立临时
+集群（`/tmp`，端口 5433），第一次拿到真实 DB 证据，**结果是否定的**。
+
+### 9.1 复现方式
+
+```bash
+# 临时集群 + 干净库（迁移链已跑通，见 P3_migration_replayability_2026-09-12.md）
+export DATABASE_URL='postgresql://synapse:<pw>@127.0.0.1:5433/synapse'
+export TEST_DATABASE_URL="$DATABASE_URL"
+
+# 清空 test_* 作为基线
+psql "$DATABASE_URL" -c "SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'test\_%';"   # 0
+
+# 跑真正会触达隔离池的用例（synapse-storage::test_utils::prepare_empty_isolated_test_pool）
+cargo nextest run --profile test --features test-utils -p synapse-storage --lib \
+  -E 'test(/oidc_session_storage/)'
+
+psql "$DATABASE_URL" -c "SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'test\_%';"
+```
+
+### 9.2 实测结果：**每跑一次泄漏 8 个 schema，且跨轮次无界增长**
+
+| 轮次 | `test_*` schema 数 | 说明 |
+|---|---|---|
+| 基线 | 0 | 手工清空 |
+| 第 1 次运行 14 个用例 | **8** | 8 个测试进程各留 1 个 |
+| 第 2 次运行同样用例 | **16** | **再 +8，完全线性** |
+
+这不是"最后一次没收尾"的尾巴——**是每次运行都新增、永不回收**。§7 的
+`drop_only` / `register_pending_schema_drop` / `sweep_pending_schema_drops`
+对这批 schema **完全没有效果**。
+
+### 9.3 为什么不生效（这是最有价值的部分）
+
+`sweep_pending_schema_drops()` 的触发时机是"**下一次**取池时"。而 nextest
+**一个用例一个进程**：每个进程取一次池、建一个 schema、然后进程退出——
+**"下一次取池"永远不会发生**。
+
+`PENDING_SCHEMA_DROPS` 是**进程内** static，sweep 又不在进程退出时执行，于是
+registry 随进程一起消失，schema 留在库里。`Weak<PgPool>` 活体检测同理：只有
+"有进程活着并且会再取池"时才有意义。
+
+**换句话说：我此前设计的"登记 + sweep"机制，对"一个进程一个用例"的执行模型
+在结构上就是无效的。** §7 把它描述为"已实现止血"，实际没有止住任何东西。
+
+### 9.4 我随后尝试的两种修法**都失败**（一并记录）
+
+1. **把 schema 名改为按进程稳定（`test_<pid>`）**
+   实测：仍然 **8 → 16**。它只把"每次调用一个新名"降到"每个进程一个新名"，
+   没有改变"进程退出前不回收"这一点。
+
+2. **用 `static OnceLock<Guard>` + `impl Drop` 做进程退出清理**
+   实测：仍然 **8 → 16**。原因是 **Rust 不会 drop 文件级 `static`** ——
+   static 的析构函数在程序退出时**不会运行**，那段清理代码是死代码。
+   （`synapse-storage/src/test_isolation.rs` 的 `IsolatedTestPool` 之所以有效，
+   是因为它是**实例**、由测试持有并显式 drop，机制完全不同。）
+
+两次尝试均已 `git checkout` 回退，**未提交**：本轮没有可交付的修复，
+不把未验证的改动留在树上。
+
+### 9.5 正确的修法方向（未实现、未验证）
+
+必须在**创建 schema 的那个进程内、退出之前**完成回收。可行路径：
+
+* 让 `prepare_empty_isolated_test_pool` 返回一个**持有 schema 名的守卫对象**
+  （而非裸 `Arc<PgPool>`），由调用方 drop —— 这正是 `IsolatedTestPool` 已经被
+  验证有效的形状（`spawn` + **join**；fire-and-forget 实测 100% 泄漏）；
+* 或让这批用例改走**共享模板夹具**（每个进程用同一个克隆，进程退出即弃），
+  这也是 `P5_workspace_test_isolation` / `P5_ci_test_scope_gap` 一直指向的方向。
+
+两条路都需要改动调用方签名或夹具架构，**不能在当前轮次内完成并验证**。
+
+> **对 §7 的更正**：§7 的标题与状态表应读作"**已实现但实测无效**"。
+> 本文不删除 §7 原文，以便后续读者看到"看起来合理的修法为什么不够"。
