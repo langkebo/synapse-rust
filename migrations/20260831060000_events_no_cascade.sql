@@ -43,31 +43,55 @@
 -- There are two constraints covering the same relationship in the v10 baseline:
 --   - fk_events_room (inline CREATE TABLE, line 338): already NO ACTION in v10
 --   - fk_events_room_id (IF NOT EXISTS block, line 4272): still CASCADE — THIS is the problem
--- Use IF EXISTS for idempotency in case this is re-run.
-ALTER TABLE events DROP CONSTRAINT IF EXISTS fk_events_room;
-ALTER TABLE events DROP CONSTRAINT IF EXISTS fk_events_room_id;
-
--- Step 2: Re-add the same constraint as NO ACTION (the default).
--- We name it `fk_events_room_no_action` to make the change traceable.
--- NOT VALID is used to skip the existing-row check at constraint-creation
--- time (which would itself be an expensive AccessShareLock scan of
--- events). The constraint will be validated by `VALIDATE CONSTRAINT`
--- in a separate step that doesn't block writes.
 --
--- Note: even with NOT VALID, this constraint enforces future row-level
--- operations immediately. The only thing skipped is the historical scan.
-ALTER TABLE events
-    ADD CONSTRAINT fk_events_room_no_action
-    FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE NO ACTION
-    NOT VALID;
+-- All DDL below is pinned to `current_schema()` instead of `search_path`: a
+-- leftover copy of `events`/`rooms` in `public` must never be able to capture
+-- the constraint. See 20260831070000_room_summary_members_fk_not_deferred.sql
+-- for the incident that made this necessary.
+DO $$
+DECLARE
+    events_tbl text := format('%I.%I', current_schema(), 'events');
+BEGIN
+    IF to_regclass(events_tbl) IS NULL THEN
+        RAISE NOTICE 'events not present in schema %, skipping DB-04-b', current_schema();
+        RETURN;
+    END IF;
 
--- Step 3: VALIDATE the constraint separately.
--- This acquires only a ShareUpdateExclusiveLock on events, which DOES
--- NOT block reads or normal writes — only schema-altering operations.
--- It scans events once to verify that no rows reference a non-existent
--- room. In a healthy database this should pass in a few seconds.
-ALTER TABLE events VALIDATE CONSTRAINT fk_events_room_no_action;
+    EXECUTE format('ALTER TABLE %s DROP CONSTRAINT IF EXISTS fk_events_room', events_tbl);
+    EXECUTE format('ALTER TABLE %s DROP CONSTRAINT IF EXISTS fk_events_room_id', events_tbl);
 
--- Step 4: Comment the constraint for future maintainers.
-COMMENT ON CONSTRAINT fk_events_room_no_action ON events IS
-    'DB-04-b: replaced CASCADE with NO ACTION to avoid AccessExclusiveLock on events during room deletion. Rust layer RoomStorage::delete_room is now responsible for batched cleanup.';
+    -- Step 2: Re-add the same constraint as NO ACTION (the default).
+    -- We name it `fk_events_room_no_action` to make the change traceable.
+    -- NOT VALID is used to skip the existing-row check at constraint-creation
+    -- time (which would itself be an expensive AccessShareLock scan of
+    -- events). The constraint will be validated by `VALIDATE CONSTRAINT`
+    -- in a separate step that doesn't block writes.
+    --
+    -- Note: even with NOT VALID, this constraint enforces future row-level
+    -- operations immediately. The only thing skipped is the historical scan.
+    EXECUTE format(
+        'ALTER TABLE %s ADD CONSTRAINT fk_events_room_no_action '
+        'FOREIGN KEY (room_id) REFERENCES %I.rooms(room_id) ON DELETE NO ACTION NOT VALID',
+        events_tbl,
+        current_schema()
+    );
+
+    -- Step 3: VALIDATE the constraint separately.
+    -- This acquires only a ShareUpdateExclusiveLock on events, which DOES
+    -- NOT block reads or normal writes — only schema-altering operations.
+    -- It scans events once to verify that no rows reference a non-existent
+    -- room. A violation must not abort the migration: `NOT VALID` already
+    -- enforces the constraint for all future writes.
+    BEGIN
+        EXECUTE format('ALTER TABLE %s VALIDATE CONSTRAINT fk_events_room_no_action', events_tbl);
+    EXCEPTION WHEN foreign_key_violation THEN
+        RAISE WARNING 'fk_events_room_no_action left NOT VALID: pre-existing orphan events.room_id rows in %', current_schema();
+    END;
+
+    -- Step 4: Comment the constraint for future maintainers.
+    EXECUTE format(
+        'COMMENT ON CONSTRAINT fk_events_room_no_action ON %s IS %L',
+        events_tbl,
+        'DB-04-b: replaced CASCADE with NO ACTION to avoid AccessExclusiveLock on events during room deletion. Rust layer RoomStorage::delete_room is now responsible for batched cleanup.'
+    );
+END $$;

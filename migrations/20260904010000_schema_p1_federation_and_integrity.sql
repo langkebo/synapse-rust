@@ -46,15 +46,27 @@ END $$;
 -- ============================================================
 -- 使用 SET NULL 而非 CASCADE，因为已存在的孤儿 prev_event_id 需要被宽容处理
 -- production 可选: ON DELETE SET NULL 改为 ON DELETE NO ACTION + Rust 层清理
+--
+-- 表名一律用 current_schema() 显式限定，绝不依赖 search_path —— public 中若
+-- 残留同名表，未限定的 REFERENCES 会静默绑定到 public 副本。
+-- 事故背景见 20260831070000_room_summary_members_fk_not_deferred.sql 头部。
 DO $$
+DECLARE
+    edges_tbl  text := format('%I.%I', current_schema(), 'event_edges');
+    events_tbl text := format('%I.%I', current_schema(), 'events');
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_event_edges_prev'
-    ) THEN
-        ALTER TABLE event_edges
-            ADD CONSTRAINT fk_event_edges_prev
-            FOREIGN KEY (prev_event_id) REFERENCES events(event_id)
-            ON DELETE SET NULL;
+    IF to_regclass(edges_tbl) IS NULL OR to_regclass(events_tbl) IS NULL THEN
+        RAISE NOTICE 'event_edges/events not present in schema %, skipping P1-3', current_schema();
+        RETURN;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_event_edges_prev') THEN
+        EXECUTE format(
+            'ALTER TABLE %s ADD CONSTRAINT fk_event_edges_prev '
+            'FOREIGN KEY (prev_event_id) REFERENCES %I.events(event_id) ON DELETE SET NULL',
+            edges_tbl,
+            current_schema()
+        );
     END IF;
 END $$;
 
@@ -66,13 +78,20 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_event_edges_prev_room
 -- P1-4: events.redacted_by FK（bonus：同一表的 self-referential FK）
 -- ============================================================
 DO $$
+DECLARE
+    events_tbl text := format('%I.%I', current_schema(), 'events');
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_events_redacted_by'
-    ) THEN
-        ALTER TABLE events
-            ADD CONSTRAINT fk_events_redacted_by
-            FOREIGN KEY (redacted_by) REFERENCES events(event_id)
-            ON DELETE SET NULL;
+    IF to_regclass(events_tbl) IS NULL THEN
+        RAISE NOTICE 'events not present in schema %, skipping P1-4', current_schema();
+        RETURN;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_events_redacted_by') THEN
+        EXECUTE format(
+            'ALTER TABLE %s ADD CONSTRAINT fk_events_redacted_by '
+            'FOREIGN KEY (redacted_by) REFERENCES %I.events(event_id) ON DELETE SET NULL',
+            events_tbl,
+            current_schema()
+        );
     END IF;
 END $$;

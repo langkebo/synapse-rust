@@ -493,6 +493,28 @@ async fn init_template_schema(database_url: &str, template_name: &str) -> Result
     let _ = sqlx::query("DROP SCHEMA IF EXISTS public CASCADE").execute(&admin_pool).await;
     let _ = sqlx::query("CREATE SCHEMA IF NOT EXISTS public").execute(&admin_pool).await;
 
+    // Heal `public` against cross-schema foreign keys left behind by the
+    // search_path-shadowing incident (2026-09-12).
+    //
+    // A migration that adds a constraint with unqualified
+    // `ALTER TABLE t ADD CONSTRAINT ... REFERENCES p(x)` binds `t` and `p`
+    // through `search_path`. When a leftover `public` copy of the table already
+    // existed, `CREATE TABLE IF NOT EXISTS` in the baseline silently skipped
+    // creating it in the target schema, and the constraint ended up attached to
+    // `public.t` while pointing at a *transient test schema*. Every suite that
+    // reaches the table through `public` then failed with SQLSTATE 23503 for a
+    // row that demonstrably existed.
+    //
+    // Rebuilding the template from the now schema-pinned migrations fixes this
+    // for fresh clones, but `public` is only cleaned above when the template is
+    // rebuilt — so a database that already carries the corruption would stay
+    // broken until its migration fingerprint changed. Re-point any such
+    // constraint at the same-named table inside `public` so the repair is
+    // idempotent and does not depend on a rebuild being triggered.
+    if let Err(error) = heal_public_cross_schema_foreign_keys(&admin_pool).await {
+        tracing::warn!("failed to heal public-schema shadowed foreign keys: {error}");
+    }
+
     sqlx::query(&format!("CREATE SCHEMA IF NOT EXISTS {template_name}"))
         .execute(&admin_pool)
         .await
@@ -566,6 +588,153 @@ async fn init_template_schema(database_url: &str, template_name: &str) -> Result
     let _ = sqlx::query("SELECT pg_advisory_unlock($1)").bind(template_lock_key).execute(&admin_pool).await;
 
     Ok(())
+}
+
+/// Repair foreign keys in the `public` schema whose parent table lives in a
+/// different schema — the signature of the 2026-09-12 search_path-shadowing
+/// incident (see the call site in `init_template_schema`).
+///
+/// Each offending constraint is rebuilt as `public.<child> -> public.<parent>`,
+/// where `<parent>` keeps the original parent *table name*. Constraints whose
+/// parent table has no same-named counterpart in `public` are left alone and
+/// reported, because silently dropping them would remove enforcement rather
+/// than fix it.
+///
+/// Idempotent: after a successful pass there are no cross-schema FKs left in
+/// `public`, so the scan matches nothing on the next call.
+async fn heal_public_cross_schema_foreign_keys(admin_pool: &PgPool) -> Result<(), String> {
+    heal_cross_schema_foreign_keys_in(admin_pool, "public").await
+}
+
+/// Implementation of [`heal_public_cross_schema_foreign_keys`], parameterised by
+/// the schema to scan so it can be exercised against a throwaway schema in
+/// tests without mutating the shared `public` schema.
+///
+/// Public so `tests/unit/` can build a corrupted schema, point this at it, and
+/// assert the repair — the shared `public` schema must never be used as the test
+/// fixture, because nextest runs tests in parallel processes against one
+/// database.
+pub async fn heal_cross_schema_foreign_keys_in(admin_pool: &PgPool, scan_schema: &str) -> Result<(), String> {
+    #[derive(sqlx::FromRow)]
+    struct ShadowedFk {
+        conname: String,
+        child: String,
+        parent_name: String,
+        parent_schema: String,
+        delete_action: String,
+        is_deferrable: bool,
+        is_deferred: bool,
+        columns: Vec<String>,
+        parent_columns: Vec<String>,
+    }
+
+    let rows: Vec<ShadowedFk> = sqlx::query_as(
+        r"
+        SELECT
+            c.conname,
+            c.conrelid::regclass::text AS child,
+            parent.relname AS parent_name,
+            parent_ns.nspname AS parent_schema,
+            c.confdeltype::text AS delete_action,
+            c.condeferrable AS is_deferrable,
+            c.condeferred AS is_deferred,
+            ARRAY(
+                SELECT a.attname FROM unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
+                JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum
+                ORDER BY k.ord
+            ) AS columns,
+            ARRAY(
+                SELECT a.attname FROM unnest(c.confkey) WITH ORDINALITY AS k(attnum, ord)
+                JOIN pg_attribute a ON a.attrelid = c.confrelid AND a.attnum = k.attnum
+                ORDER BY k.ord
+            ) AS parent_columns
+        FROM pg_constraint c
+        JOIN pg_class child_cls ON child_cls.oid = c.conrelid
+        JOIN pg_namespace child_ns ON child_ns.oid = child_cls.relnamespace
+        JOIN pg_class parent ON parent.oid = c.confrelid
+        JOIN pg_namespace parent_ns ON parent_ns.oid = parent.relnamespace
+        WHERE c.contype = 'f'
+          AND child_ns.nspname = $1
+          AND parent_ns.nspname <> $1
+        ORDER BY c.conname
+        ",
+    )
+    .bind(scan_schema)
+    .fetch_all(admin_pool)
+    .await
+    .map_err(|error| format!("failed to query cross-schema foreign keys in {scan_schema}: {error}"))?;
+
+    for row in rows {
+        // Only tables that still exist inside the scan schema can be re-pointed;
+        // the referenced parent must also exist there.
+        let parent_exists: Option<String> = sqlx::query_scalar("SELECT to_regclass($1)::text")
+            .bind(format!("{scan_schema}.{}", row.parent_name))
+            .fetch_one(admin_pool)
+            .await
+            .map_err(|e| format!("to_regclass failed: {e}"))?;
+        if parent_exists.is_none() {
+            tracing::warn!(
+                constraint = %row.conname,
+                child = %row.child,
+                dangling_parent = format!("{}.{}", row.parent_schema, row.parent_name),
+                "foreign key points at another schema and {scan_schema} has no same-named parent; leaving it for manual review"
+            );
+            continue;
+        }
+
+        let on_delete = match row.delete_action.as_str() {
+            "c" => " ON DELETE CASCADE",
+            "n" => " ON DELETE SET NULL",
+            "d" => " ON DELETE SET DEFAULT",
+            "r" => " ON DELETE RESTRICT",
+            _ => "",
+        };
+        let deferrable = if row.is_deferrable {
+            if row.is_deferred {
+                " DEFERRABLE INITIALLY DEFERRED"
+            } else {
+                " DEFERRABLE INITIALLY IMMEDIATE"
+            }
+        } else {
+            ""
+        };
+
+        let mut tx = admin_pool.begin().await.map_err(|error| format!("failed to open heal transaction: {error}"))?;
+        sqlx::query(&format!("ALTER TABLE {} DROP CONSTRAINT {}", row.child, quote_ident(&row.conname)))
+            .execute(&mut *tx)
+            .await
+            .map_err(|error| format!("failed to drop shadowed FK {}: {error}", row.conname))?;
+        sqlx::query(&format!(
+            "ALTER TABLE {} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {}.{} ({}){}{}",
+            row.child,
+            quote_ident(&row.conname),
+            row.columns.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", "),
+            quote_ident(scan_schema),
+            quote_ident(&row.parent_name),
+            row.parent_columns.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", "),
+            on_delete,
+            deferrable
+        ))
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| format!("failed to rebuild shadowed FK {}: {error}", row.conname))?;
+        tx.commit().await.map_err(|error| format!("failed to commit heal of {}: {error}", row.conname))?;
+
+        tracing::warn!(
+            constraint = %row.conname,
+            child = %row.child,
+            was_parent = format!("{}.{}", row.parent_schema, row.parent_name),
+            "repaired search_path-shadowed foreign key in {scan_schema} schema"
+        );
+    }
+
+    Ok(())
+}
+
+/// Quote a SQL identifier for interpolation into DDL built with `format!`.
+/// Mirrors what `format('%I')` does server-side.
+fn quote_ident(ident: &str) -> String {
+    format!("\"{}\"", ident.replace('"', "\"\""))
 }
 
 async fn ensure_template_schema_exists(database_url: &str, schema_name: &str) -> Result<(), String> {

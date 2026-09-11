@@ -37,8 +37,15 @@ room_summary_members violates foreign key constraint fk_room_summary_members_roo
 Key (room_id)=(...) is not present in table "rooms"
 ```
 
-这个报错指向**成员插入**，而真正出错的是**之前的房间插入**。
+这个报错指向**成员插入**，而看起来出错的是**之前的房间插入**。
 真实原因被 `.ok()` 挡住，消耗了相当长的排查时间。
+
+> **⚠️ 2026-09-12 更正**：本节当时把上面这次失败归因于「房间插入被吞掉」。
+> 第 29 轮复现后证明**归因错误**，见
+> [§3.1](#31-根因已定位2026-09-12db-06-迁移的-search_path-遮蔽)。
+> `.ok()` 确实是一类真实缺陷（本文 §1 的修复照旧成立），
+> 但**不是**该用例失败的原因：`ensure_test_room` 的 INSERT 一直是成功的，
+> 真正的原因是 `public` 里的 FK 指向了另一个临时 schema。
 
 ---
 
@@ -153,7 +160,14 @@ Summary 2522 tests run: 2522 passed (1 slow), 4 skipped
 
 ---
 
-## 3. 未解决：`room_summary::db_tests::test_add_member_creates_record`
+## 3. `room_summary::db_tests::test_add_member_creates_record` —— 已定位并修复（2026-09-12）
+
+> **状态**：根因已定位、已修复、30/30 `room_summary::db_tests` 通过。
+> 完整报告见
+> [`P5_migration_search_path_shadowing_2026-09-12.md`](P5_migration_search_path_shadowing_2026-09-12.md)。
+> 本节保留当时的排查记录，并说明**当时哪一步走错了**。
+
+### 3.0 当时的（错误）判断
 
 修掉吞错后暴露出的真实顺序更清楚了，但**该用例仍然失败**，且原因尚未定位：
 
@@ -166,7 +180,44 @@ Summary 2522 tests run: 2522 passed (1 slow), 4 skipped
 `SELECT count(*) FROM rooms WHERE room_id = $1` 来确认插入与读取是否落在同一
 search_path）。
 
-本轮**未**把它标记为已修复，也未改动其断言。
+### 3.1 根因已定位（2026-09-12）：DB-06 迁移的 search_path 遮蔽
+
+上面那句「下一步建议」其实**已经把答案写在问题里**了：插入与读取**不在**
+同一个 search_path 上——但更准确地说，是**外键约束的父表**不在。
+
+按当时的建议加探针后，一次运行就给出了决定性数据：
+
+```
+[DEBUG-a4f2] current_schema=public rooms=1 users=1 members=0
+→ 随后 add_member panic: 23503, Key (room_id)=(...) is not present in table "rooms"
+```
+
+房间**确实存在**（`rooms=1`），却被 FK 判定不存在。矛盾只能由「FK 指向别处」
+解释。直接查询约束定义证实了这一点：
+
+```sql
+SELECT conname, confrelid::regclass::text AS parent, convalidated
+FROM pg_constraint
+WHERE conrelid='public.room_summary_members'::regclass AND contype='f';
+
+ fk_room_summary_members_room | test_51027_403_1788832624579288000.rooms | f
+ fk_room_summary_members_user | test_51027_403_1788832624579288000.users | f
+```
+
+`public.room_summary_members` 的 FK 指向一个 **2026-07 的临时测试 schema**，
+而不是 `public.rooms`。该迁移（`20260831070000`）用未限定的
+`ALTER TABLE room_summary_members ADD CONSTRAINT ... REFERENCES rooms(room_id)`
+——两个表名都由 `search_path` 解析，于是在构建测试 schema 时被固化成
+`test_51027_403.rooms`，同时**污染了 `public` 的同名表**。
+
+**当时走错的那一步**：把「`rooms=1` 但 FK 报不存在」当成应用层 bug 去查
+（怀疑 order、事务、并发放置），而正确的下一步是**直接读约束的
+`confrelid`**——它一行就能否掉整个方向。教训：当两个事实互相矛盾时，
+先去怀疑承载这个矛盾的那个**声明**（约束定义本身），而不是继续给它找解释。
+
+修复过程与回归证据见
+[`P5_migration_search_path_shadowing_2026-09-12.md`](P5_migration_search_path_shadowing_2026-09-12.md)，
+本文不再重复。
 
 ---
 
@@ -195,10 +246,10 @@ cargo nextest run --profile test --features test-utils --test unit \
 # 列出当前仍存在的夹具吞错（应为空）
 grep -rn "\.execute(.*)\.await\.ok()" --include='*db_tests*.rs' synapse-storage/src/ || echo "(none)"
 
-# 该用例的未定位失败
+# 该用例（已修复）：见 P5_migration_search_path_shadowing_2026-09-12.md
 export TEST_DATABASE_URL='postgresql://synapse:<pw>@localhost:5432/synapse'
 cargo nextest run -p synapse-storage --lib \
-  -E 'test(/room_summary::db_tests::test_add_member_creates_record/)' --test-threads 1
+  -E 'test(/room_summary::db_tests/)'
 ```
 
 ---

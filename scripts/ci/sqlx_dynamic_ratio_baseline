@@ -48,7 +48,7 @@
 # 历史对照：2026-06-03 审计记录动态占比 99.6%（含测试代码口径）；
 # 本基线口径（仅 workspace 生产目录，含内联测试模块）为 95.90%。
 
-BASELINE_DYNAMIC=1432
+BASELINE_DYNAMIC=1436
 BASELINE_STATIC=61
 
 # ── 基线调整记录 ─────────────────────────────────────────────────────────────
@@ -60,3 +60,19 @@ BASELINE_STATIC=61
 #      repository.rs 保持 32 处（HEAD 与当前一致）。
 #   同时该函数的 4 处 `.ok()` 改为错误传播 + 单事务，属于修复而非新增查询。
 #   若后续要收紧，应优先把测试夹具改为更少的语句，而不是放宽阈值。
+#
+# 2026-09-12  +4  (1432 → 1436)
+#   来源：src/test_utils.rs 新增 `heal_cross_schema_foreign_keys_in`，修复
+#   `public` 中指向临时 test schema 的外键（search_path 遮蔽事故，详见
+#   migrations/20260831070000_room_summary_members_fk_not_deferred.sql 头部）。
+#   4 处动态查询分别是：扫描 pg_constraint、to_regclass 探测同名父表、
+#   DROP CONSTRAINT、ADD CONSTRAINT —— 全部必须以
+#   format!/quote_ident 拼接表名与约束名，无法静态化。
+#   ⚠️ 该函数**不是生产代码**：位于 `#[cfg(any(test, feature = "test-utils"))]`
+#      门控的 test_utils 模块内，只在测试夹具初始化时运行。
+#   修复本身不引入任何新查询语义：同类修复若不落地，`public` 会永久残留
+#   跨 schema 外键，使依赖 `public` 的 synapse-storage 套件以 SQLSTATE 23503
+#   假性失败（`room_summary::db_tests::test_add_member_creates_record` 即为
+#   已知受害者）。收紧方向应是等 22k 残留 test schema 清理完成后，把这批
+#   手工 test_pool() 迁到共享 schema 隔离夹具，从而删掉本函数的用武之地。
+

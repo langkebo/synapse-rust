@@ -40,6 +40,7 @@ mod media_quota_api_tests;
 mod media_service_tests;
 mod megolm_dual_write_metrics_tests;
 mod migration_consistency_tests;
+mod migration_search_path_tests;
 mod module_api_tests;
 mod msc4108_rendezvous_route_tests;
 mod msc_tests;

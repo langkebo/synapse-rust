@@ -54,14 +54,26 @@ BEGIN
     END IF;
 END $$;
 
+-- 表名用 current_schema() 显式限定，不依赖 search_path：public 中若残留同名
+-- 表（rooms 由 `CREATE TABLE IF NOT EXISTS` 创建，可能被静默跳过），未限定的
+-- REFERENCES 会绑定到 public 副本。事故背景见
+-- 20260831070000_room_summary_members_fk_not_deferred.sql 头部。
 DO $$
+DECLARE
+    backup_keys_tbl text := format('%I.%I', current_schema(), 'backup_keys');
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_backup_keys_room'
-    ) THEN
-        ALTER TABLE backup_keys
-            ADD CONSTRAINT fk_backup_keys_room
-            FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
+    IF to_regclass(backup_keys_tbl) IS NULL OR to_regclass(format('%I.%I', current_schema(), 'rooms')) IS NULL THEN
+        RAISE NOTICE 'backup_keys/rooms not present in schema %, skipping P3 FK', current_schema();
+        RETURN;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_backup_keys_room') THEN
+        EXECUTE format(
+            'ALTER TABLE %s ADD CONSTRAINT fk_backup_keys_room '
+            'FOREIGN KEY (room_id) REFERENCES %I.rooms(room_id) ON DELETE CASCADE',
+            backup_keys_tbl,
+            current_schema()
+        );
     END IF;
 END $$;
 
