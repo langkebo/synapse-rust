@@ -69,31 +69,62 @@ EXIT=0
 
 本地单进程 6 并发下的这个速率与 CI runner（通常更弱）相比只会更慢。
 
-### 4.2 成本来源（已定位到代码）
+### 4.2 成本来源：先做了实测，结果**修正了我的初判**
 
-`src/test_utils.rs::clone_schema_from_template` 为**每个用例**克隆模板 schema。
-这**不是**简单地复制 257 张表 —— 单个 `DO $$` 块内还要：
-
-1. `CREATE TABLE ... (LIKE ... INCLUDING ALL)` × **257** 张表；
-2. **把所有自动生成名字的索引 DROP 掉，再按模板定义重建** ——
-   当前 schema 有 **778 个索引**；
-3. 对若干引用表补插种子行。
-
-第 2 步的存在理由是：`LIKE ... INCLUDING ALL` 复制的索引会得到自动生成的名字，
-而 `schema_contract_p0_tests_migrated.rs` 通过 `has_index_named()` 断言**具体索引名**
+`src/test_utils.rs::clone_schema_from_template` 为**每个用例**克隆模板 schema：
+`CREATE TABLE ... (LIKE ... INCLUDING ALL)` × 257 张表，再把自动命名的索引
+DROP 掉并按模板定义重建（当前 schema 有 778 个索引，其中 387 个非约束索引），
+最后补插若干种子行。索引重建的存在理由是：
+`schema_contract_p0_tests_migrated.rs` 用 `has_index_named()` 断言**具体索引名**
 （该文件内 23 处调用）。
 
-### 4.3 为什么本轮不动它
+我原以为"778 个索引的 DROP+CREATE"是主要成本，于是在一次性 schema 里**实测各阶段**：
 
-* 它是**共享测试基础设施**：改错会让全部 1427 个用例的语义发生变化，而
-  验证改动需要跑完整套件 —— 恰恰是当前跑不完的那个套件，风险与反馈闭环不匹配；
-* 存在明显更廉价的实现路径：保留 `LIKE ... INCLUDING ALL` 的索引，用
-  `ALTER INDEX ... RENAME TO` 把自动名改成模板名（O(778) 次 rename，
-  对比现状的 DROP+CREATE 全量重建），或仅对需要断言索引名的那一个套件
-  走"完整还原"路径。但我**未实测**该方案，因此不把它写成结论。
+```sql
+-- 阶段 1：CREATE SCHEMA + 257 张 CREATE TABLE ... LIKE INCLUDING ALL
+DO ... Time: 2112.437 ms
 
-**结论定位**：这是**已量化、已定位、未验证解法**的性能观察，不是缺陷断言。
-它直接影响 P4「性能基线」与开发者体验（每个用例 8.2 秒的反馈延迟）。
+-- 阶段 2：DROP 全部 387 个非约束索引
+DO ... NOTICE: dropped 387 indexes
+DO ... Time: 94.697 ms
+```
+
+**实测结论与初判相反**：表克隆约 **2.1 秒**，索引 DROP 约 **95 毫秒**，
+索引重建同量级（数百毫秒）。合计约 **2–3 秒/用例**，
+**不足以解释**观测到的 ~8.2 秒/用例（1011.7s ÷ 123）。
+
+因此正确的表述是：**每用例约 2–3 秒用于 schema 克隆，其余主要花在用例体本身**
+（真实路由 + 真实 PostgreSQL 的端到端流程）。我先前把成本归因于索引重建是
+**过度归因**，此处更正。
+
+### 4.3 顺带发现（低危，未修）
+
+实测时索引重建阶段报错：
+
+```console
+ERROR: relation "perf_probe.rooms_summaries_mv" does not exist
+CONTEXT: CREATE UNIQUE INDEX idx_rooms_summaries_mv_room_id ON perf_probe.rooms_summaries_mv ...
+```
+
+`schema = public` 里有两个**物化视图**（`rooms_summaries_mv`、`public_room_directory`），
+而克隆只遍历 `pg_tables`（不含物化视图），所以它们**从未被克隆到测试 schema**。
+重建其索引自然失败 —— 但该失败被循环内的 `EXCEPTION WHEN OTHERS THEN NULL`
+**静默吞掉**，因此从未有人注意到。
+
+**当前无实际影响**：`grep` 全仓（`src/`、`synapse-services/src/`、`synapse-storage/src/`、`tests/`）
+**没有任何代码引用**这两个物化视图，仅出现在迁移与文档里 —— 属未使用的遗留对象。
+故记为低危观察，不做改动。
+
+> 附带确认：本轮检查本地库 `test_%` schema 残留为 **0**，
+> 说明 schema 清理路径工作正常 —— 与 CLAUDE.md 记录的"1363 个残留 schema"
+> 历史问题不同，当前不存在该问题。
+
+### 4.4 为什么本轮不动克隆路径
+
+* 它是**共享测试基础设施**：改错会波及全部 1427 个用例的语义，
+  而验证需要跑完整套件 —— 恰恰是当前跑不完的那个；
+* 实测已表明索引重建**不是**主要瓶颈，去掉它也拿不到数量级收益，
+  收益/风险比不足以支撑在没有全量验证的前提下改动。
 
 > 附带确认：本轮检查本地库 `test_%` schema 残留为 **0**，
 > 说明 schema 清理路径工作正常 —— 与 CLAUDE.md 记录的"1363 个残留 schema"
