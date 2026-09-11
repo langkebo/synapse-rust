@@ -24,7 +24,12 @@ pub enum RateLimitConfigError {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 /// Token-bucket rule: sustained refill rate + peak burst capacity.
+///
+/// `deny_unknown_fields`: a misspelled key (e.g. `per_sec` for `per_second`)
+/// must be a hard error. Silently dropping it removes a limit while the
+/// operator believes it is enforced.
 pub struct RateLimitRule {
     #[serde(default = "default_per_second")]
     /// Sustained refill rate (tokens per second).
@@ -60,7 +65,10 @@ pub enum RateLimitMatchType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 /// Per-path rate-limit override.
+///
+/// `deny_unknown_fields`: see [`RateLimitRule`].
 pub struct RateLimitEndpointRule {
     /// Endpoint path pattern.
     pub path: String,
@@ -86,7 +94,12 @@ pub enum RateLimitBackend {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 /// Top-level YAML config for rate limiting.
+///
+/// `deny_unknown_fields`: this file is the **live** rate-limit config (it
+/// replaces the `rate_limit:` section of `homeserver.yaml`), so a misspelled
+/// key must fail loudly instead of silently dropping a limit.
 pub struct RateLimitConfigFile {
     #[serde(default = "default_enabled")]
     /// Global on/off switch for rate limiting.
@@ -142,7 +155,12 @@ pub struct RateLimitConfigFile {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 /// `/sync`-specific rate-limit overrides (initial + incremental bursts).
+///
+/// `deny_unknown_fields`: a misspelled key here silently disables the only
+/// limiter `/sync` has (the route is exempt from the generic IP limiter), so
+/// strictness matters more than usual.
 pub struct SyncRateLimitConfigFile {
     #[serde(default)]
     /// Enables `/sync` rate limiting.
@@ -801,5 +819,98 @@ mod degradation_tests {
         // Operators grep these labels; renaming is a breaking change.
         assert_eq!(ConfigSource::File.as_str(), "file");
         assert_eq!(ConfigSource::Defaults.as_str(), "defaults");
+    }
+}
+
+#[cfg(test)]
+mod strictness_tests {
+    //! `rate_limit.yaml` is the **live** rate-limit configuration (see
+    //! `src/web/middleware/rate_limit.rs`: the file replaces the whole
+    //! `rate_limit:` section of `homeserver.yaml`).
+    //!
+    //! Before this, the struct used serde's default behaviour: unknown keys were
+    //! **silently ignored**. A one-character typo therefore removed a limit with
+    //! no error, no warning, and no health signal — the operator would believe
+    //! the rule was enforced while it was simply dropped.
+    //!
+    //! Concrete near-miss: `per_second` mistyped as `per_sec` parses cleanly and
+    //! silently falls back to the `Default` value.
+    //!
+    //! These tests pin `deny_unknown_fields` on the live config, at both the
+    //! top level and inside the `sync` sub-section.
+
+    use super::*;
+
+    #[test]
+    fn unknown_top_level_key_is_rejected() {
+        // `per_sec` is not a field; before the fix this parsed and the limit vanished.
+        let yaml = "\
+enabled: true
+default:
+  per_second: 10
+  burst_size: 20
+bogus_hypothetical_key: 5
+";
+        let result: Result<RateLimitConfigFile, _> = serde_yaml::from_str(yaml);
+        let err = result.expect_err("未知顶层键必须被拒绝，否则配置写错会被静默忽略");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("bogus_hypothetical_key") || msg.contains("unknown field"),
+            "错误信息应指出是未知字段，实际: {msg}"
+        );
+    }
+
+    #[test]
+    fn unknown_key_inside_sync_is_rejected() {
+        let yaml = "\
+enabled: true
+sync:
+  enabled: true
+  typo_here: 3
+";
+        let result: Result<RateLimitConfigFile, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err(), "sync 段内的未知键同样必须被拒绝");
+    }
+
+    #[test]
+    fn unknown_key_inside_a_rule_is_rejected() {
+        // The most likely real-world typo: a misspelled rule key.
+        let yaml = "\
+enabled: true
+default:
+  per_sec: 10
+  burst_size: 20
+";
+        let result: Result<RateLimitConfigFile, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err(), "限流规则内的拼写错误必须被拒绝");
+    }
+
+    #[test]
+    fn the_shipped_config_still_parses() {
+        // Strictness must not reject the configuration we actually ship.
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../docker/config/rate_limit.yaml");
+        let text = std::fs::read_to_string(path).expect("shipped rate_limit.yaml must be readable");
+        let parsed: RateLimitConfigFile =
+            serde_yaml::from_str(&text).expect("shipped rate_limit.yaml must parse under strict rules");
+        assert!(parsed.default.per_second > 0, "应解析出默认限流规则");
+    }
+
+    #[test]
+    fn the_deploy_config_still_parses() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../docker/deploy/config/rate_limit.yaml");
+        let text = std::fs::read_to_string(path).expect("deploy rate_limit.yaml must be readable");
+        let parsed: RateLimitConfigFile =
+            serde_yaml::from_str(&text).expect("deploy rate_limit.yaml must parse under strict rules");
+        assert!(parsed.sync.enabled, "生产配置的 sync 限流应为启用（见 S 系列修复）");
+    }
+
+    #[test]
+    fn default_config_round_trips_through_yaml() {
+        // `RateLimitConfigFile::default()` is the fallback when the file is
+        // missing; it must satisfy the same strict schema.
+        let text = serde_yaml::to_string(&RateLimitConfigFile::default()).expect("serialize");
+        let reparsed: RateLimitConfigFile =
+            serde_yaml::from_str(&text).expect("默认配置必须能通过严格校验（否则缺失文件时无法回退）");
+        assert_eq!(reparsed.enabled, RateLimitConfigFile::default().enabled);
     }
 }
