@@ -165,3 +165,42 @@ grep -n "nextest run" .github/workflows/*.yml | grep -E "\-p |--workspace" || ec
 | 3 | 全量集成套件完整跑一次（~3.3h） | 中 |
 | 4 | 真实 CI 首跑确认（仓库 private、`gh` token 失效 → 本环境不可达） | **高** |
 | 5 | presence stream 游标 / 联邦 knock / `get_raw` 改名 | S 系列 P2/P3 |
+
+---
+
+## 6. 2026-09-12 补充：阻塞项的**确切范围**已定位
+
+第 1 项（"解决 synapse-storage 库级 DB 测试并发隔离"）此前只定位到"6 个用例在
+高并发下失败"。进一步清点后，阻塞项的边界是明确的：
+
+**`synapse-storage` 里有 57 个模块手写自己的 `test_pool()`**（
+
+```
+$ grep -rln "async fn test_pool" --include='*.rs' synapse-storage/src/ | wc -l
+57
+```
+
+），它们全部直接连 `TEST_DATABASE_URL` 并使用 `public` schema，靠
+`unique_suffix()` + 手工 `clean_*()` 做数据隔离，**不使用**根包集成测试那套
+"每用例一个隔离 schema"的机制（`prepare_isolated_test_pool` / 共享模板克隆）。
+
+这解释了三件事，且指向同一个根因：
+
+1. **为什么 `--workspace` 会红**：57 个套件在 `public` 上并发写，彼此干扰；
+2. **为什么 `public` 会残留跨 schema 外键**（见
+   `P5_migration_search_path_shadowing_2026-09-12.md`）：这些套件从不建 schema，
+   也就从不清理 schema，`public` 里的表是它们唯一的落脚点，长期被多轮迁移反复
+   `ALTER`；
+3. **为什么 schema 会累积到 23,662 个**（见
+   `P5_test_schema_accumulation_2026-09-12.md`）：建 schema 的那几条路径与不建
+   schema 的这 57 个套件是两套并存的隔离哲学。
+
+**因此第 1 项的正确形态不是"给那 6 个用例加 `--test-threads 1`"，而是让这 57 个
+模块改走共享的隔离 schema 夹具。** 这也正是
+`P5_workspace_test_isolation_2026-09-11.md`、`P5_migration_search_path_shadowing`
+与 `P5_test_schema_accumulation` 三份报告共同指向的同一项结构性改造。
+
+> ⚠️ 本项的落地**无法在当前环境验证**：本地 PostgreSQL 自 2026-09-12 22:01 起处于
+> 崩溃恢复（成因即 schema 累积导致的数百万文件 fsync，见
+> `P5_test_schema_accumulation_2026-09-12.md` §8），集群不可连接。在能跑
+> `--workspace --lib` 之前，不应改动 CI 范围——只做 (1) 会让 CI 变红。
