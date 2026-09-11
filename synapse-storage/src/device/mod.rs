@@ -1509,7 +1509,7 @@ mod tests {
     #[tokio::test]
     async fn test_lazy_loaded_members_are_cleaned_up_with_device_lifecycle() {
         let pool = match crate::test_utils::prepare_empty_isolated_test_pool().await {
-            Ok(pool) => pool,
+            Ok(guard) => guard.pool(),
             Err(error) => {
                 tracing::warn!(
                     "Skipping device lazy-loaded-members test because test database is unavailable: {error}"

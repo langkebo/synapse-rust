@@ -90,6 +90,10 @@ pub mod server_metrics;
 pub mod task_queue;
 /// Module `telemetry_config`.
 pub mod telemetry_config;
+/// Module `test_schema_guard`. Compiled unconditionally (not gated behind
+/// `test-utils`) so that `#[cfg(test)]` fixture code in dependent crates can
+/// register cleanups even when built without the feature.
+pub mod test_schema_guard;
 /// Module `time`.
 pub mod time;
 /// Module `tracing`.

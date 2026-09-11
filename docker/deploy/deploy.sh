@@ -15,10 +15,21 @@
 #   ./deploy.sh --install-deps    # 自动安装缺失依赖 (brew/apt/yum)
 #   ./deploy.sh --no-turn         # 跳过本地 coturn TURN 检查
 #   ./deploy.sh --image REF       # 使用指定的远程镜像（跳过本地构建，自动 pull）
+#   ./deploy.sh --keep-images     # 保留历史项目镜像（默认全量删除旧镜像）
+#   ./deploy.sh --no-strict-warnings # 未知 WARNING 不阻断部署（默认阻断）
+#   ./deploy.sh --no-rollback     # 失败时不自动回滚（默认自动回滚）
+#   ./deploy.sh --stop-timeout 30 # 容器优雅停止(SIGTERM)等待秒数，默认 30
 #
-# 完整流程: 环境检查 → 依赖安装(可选) → 配置检查 → SSL 证书自动生成 →
-#           /etc/hosts 检查 → 本地 coturn 检查/启动 → 备份 → 缓存清理 →
-#           镜像构建 → 数据库迁移 → 服务启动 → 健康/HTTPS 验证 → 日志检查
+# 完整流程: 环境检查 → 依赖安装(可选) → 配置检查 → 功能选择 → 目录准备 →
+#           SSL 证书自动生成 → /etc/hosts 检查 → 本地 coturn 检查/启动 →
+#           部署前备份 → 缓存清理 → 项目编译 → 容器优雅停止 →
+#           移除旧部署 → 旧镜像清理 → 镜像构建 → 服务启动(含迁移) →
+#           数据库连接验证 → DB 版本一致性校验 → 健康/HTTPS 验证 →
+#           日志告警分析 → 状态与访问信息
+#
+# 可靠性: 全部步骤经 run_step 包装，失败时打印失败的步骤/命令/行号/退出码，
+#         并按 ROLLBACK_ENABLED 自动回滚（恢复旧镜像标签 + 还原数据库备份
+#         + 以旧镜像重启服务）；任一步骤失败即停止后续步骤，避免半成品部署。
 #
 # 可用扩展功能:
 #   friends, voice-extended, saml-sso, cas-sso,
@@ -55,6 +66,17 @@ REMOTE_IMAGE=""
 USE_REMOTE_IMAGE=false
 INSTALL_DEPS=false
 CHECK_TURN=true
+# 旧项目镜像清理：默认全量删除（保留当前镜像与本次回滚标签）
+KEEP_IMAGES=false
+# 未知 WARNING 是否阻断部署：默认阻断（部署门禁要求"日志无未知告警"）
+STRICT_WARNINGS="${STRICT_WARNINGS:-true}"
+# 容器优雅停止（SIGTERM）等待秒数
+STOP_TIMEOUT="${STOP_TIMEOUT:-30}"
+# 表数漂移容忍阈值，与 schema_health_check 的 DB-02 检查保持一致(±10)
+DB_DRIFT_TOLERANCE="${DB_DRIFT_TOLERANCE:-10}"
+# 当前步骤与已完成步骤（用于失败上下文与回滚决策）
+CURRENT_STEP=""
+COMPLETED_STEPS=()
 
 # Extension features — order matches Cargo.toml
 ALL_EXTENSIONS=(
@@ -147,6 +169,22 @@ parse_args() {
             --no-turn)
                 CHECK_TURN=false
                 ;;
+            --keep-images)
+                KEEP_IMAGES=true
+                ;;
+            --no-strict-warnings)
+                STRICT_WARNINGS=false
+                ;;
+            --strict-warnings)
+                STRICT_WARNINGS=true
+                ;;
+            --no-rollback)
+                ROLLBACK_ENABLED=false
+                ;;
+            --stop-timeout)
+                shift
+                STOP_TIMEOUT="${1:?'--stop-timeout 需要参数，如: 30'}"
+                ;;
             --image)
                 shift
                 REMOTE_IMAGE="${1:?'--image 需要参数，如: docker.io/vmuser232922/mysynapse:latest'}"
@@ -180,6 +218,11 @@ show_usage() {
   --install-deps    自动安装缺失的依赖 (macOS: brew / Linux: apt/yum)
   --no-turn         跳过本地 coturn TURN 服务检查与启动
   --image REF       使用指定的远程镜像（自动 docker pull，跳过本地构建）
+  --keep-images     保留历史项目镜像（默认删除所有旧项目镜像以释放空间）
+  --no-strict-warnings 未知 WARNING 仅提示、不阻断部署（默认阻断）
+  --strict-warnings 未知 WARNING 阻断部署（默认行为）
+  --no-rollback     失败时不自动回滚（默认自动回滚）
+  --stop-timeout N  容器优雅停止(SIGTERM)等待秒数，默认 30
   --help            显示帮助信息
 
 如果不指定功能参数，脚本将显示交互式功能选择菜单。
@@ -354,11 +397,52 @@ cleanup_logging() {
 on_error() {
     local line_no="$1"
     local exit_code="${2:-1}"
-    log_error "部署失败: phase=${DEPLOYMENT_PHASE}, line=${line_no}, exit_code=${exit_code}"
+    local failed_step="${CURRENT_STEP:-$DEPLOYMENT_PHASE}"
+    local done_steps="无"
+    if [ ${#COMPLETED_STEPS[@]} -gt 0 ]; then
+        done_steps="${COMPLETED_STEPS[*]}"
+    fi
+
+    log_error "=========================================================="
+    log_error "部署失败"
+    log_error "  失败步骤 : ${failed_step}"
+    log_error "  失败命令 : ${BASH_COMMAND:-<unknown>}"
+    log_error "  脚本行号 : ${line_no}"
+    log_error "  退出码   : ${exit_code}"
+    log_error "  已完成步骤(共 ${#COMPLETED_STEPS[@]}): ${done_steps}"
+    log_error "  完整日志 : ${LOG_FILE}"
+    log_error "=========================================================="
+
     if [ "$ROLLBACK_ENABLED" = "true" ] && [ "$ROLLBACK_IN_PROGRESS" = "false" ]; then
         rollback_deployment || true
+    else
+        log_warning "未执行自动回滚（ROLLBACK_ENABLED=$ROLLBACK_ENABLED）；排障指引:"
+        log_warning "  1) 查看失败步骤日志: $LOG_FILE"
+        log_warning "  2) 当前容器状态: docker compose ps"
+        log_warning "  3) 重新部署: ./deploy.sh --all"
     fi
     exit "$exit_code"
+}
+
+# 统一的步骤执行包装：记录步骤边界与进度，失败时由 ERR trap 统一报告与回滚。
+# 关键约束：目标函数必须"直接调用"，绝不能放进 if/&&/|| 等条件表达式中——
+# 一旦放进条件，`set -e` 会在被调用函数内部被整体禁用，函数内部的任意子命令
+# 失败都将被静默忽略（部署脚本漏报失败的典型根因）。直接调用可确保任意子命令
+# 失败立即触发 ERR trap -> on_error，并携带 CURRENT_STEP 上下文。
+run_step() {
+    local name="$1"
+    shift
+    CURRENT_STEP="$name"
+    DEPLOYMENT_PHASE="$name"
+    log_info "▶ 步骤: ${name}"
+
+    local start_ts
+    start_ts="$(date +%s)"
+
+    "$@"
+
+    COMPLETED_STEPS+=("$name")
+    log_success "✔ 步骤完成: ${name} ($(( $(date +%s) - start_ts ))s)"
 }
 
 trap 'on_error "$LINENO" "$?"' ERR
@@ -822,7 +906,21 @@ backup_current_state() {
 
     local current_image
     current_image="$(local_image_ref)"
+
+    # 回滚源选择：优先使用镜像标签；若标签不存在（上一次部署已删除本地标签）但旧
+    # 容器仍在运行，则回退到旧容器实际使用的镜像 ID。否则本次部署将失去可用的
+    # 回滚目标，失败时只能"无回滚"，可靠性无法保证。
+    local rollback_source=""
     if docker image inspect "$current_image" >/dev/null 2>&1; then
+        rollback_source="$current_image"
+    elif docker inspect synapse-app >/dev/null 2>&1; then
+        rollback_source="$(docker inspect synapse-app --format '{{.Image}}' 2>/dev/null || true)"
+        if [ -n "$rollback_source" ]; then
+            log_warning "本地标签 $current_image 不存在，改用运行中 synapse-app 容器的镜像作为回滚源"
+        fi
+    fi
+
+    if [ -n "$rollback_source" ]; then
         # 清理历史 rollback 标签：每次部署仅保留即将创建的最新一个，避免
         # rollback-* 镜像无限累积（每个约 200MB）。仅按 tag 名删除，不会误删
         # 当前 ${current_image} 指向的镜像。
@@ -831,8 +929,14 @@ backup_current_state() {
             docker rmi -f "$old_rollback" >/dev/null 2>&1 || true
         done
         ROLLBACK_IMAGE_TAG="${current_image%:*}:rollback-${TIMESTAMP}"
-        docker tag "$current_image" "$ROLLBACK_IMAGE_TAG"
-        log_info "已保存旧镜像标签: $ROLLBACK_IMAGE_TAG"
+        if docker tag "$rollback_source" "$ROLLBACK_IMAGE_TAG"; then
+            log_info "已保存旧镜像标签: $ROLLBACK_IMAGE_TAG"
+        else
+            ROLLBACK_IMAGE_TAG=""
+            log_warning "创建回滚镜像标签失败，本次部署将无镜像回滚目标"
+        fi
+    else
+        log_info "无可用的旧镜像作为回滚目标（疑似首次部署）"
     fi
 
     if compose ps --status running 2>/dev/null | grep -Eq 'postgres|redis|synapse|nginx'; then
@@ -853,16 +957,37 @@ clear_project_caches() {
     DEPLOYMENT_PHASE="cache-clean"
     if [ "$SKIP_BUILD" = "true" ]; then
         log_info "跳过缓存清理 (--skip-build)"
-        return
+        return 0
     fi
-    log_info "清理项目缓存与 Docker 构建缓存..."
+    log_info "彻底清理项目缓存（编译缓存 / 临时文件 / Docker 构建缓存）..."
 
-    (cd "$PROJECT_ROOT" && cargo clean)
+    # 1) Rust 编译缓存（cargo clean + 兜底删除残留 target 目录）
+    if command -v cargo >/dev/null 2>&1; then
+        (cd "$PROJECT_ROOT" && cargo clean) || log_warning "cargo clean 返回非零，继续兜底清理"
+    else
+        log_warning "未找到 cargo，跳过 cargo clean"
+    fi
+    rm -rf "$PROJECT_ROOT/target"
+
+    # 2) 部署临时文件：日志管道 + 历史部署日志只保留最近 10 份
+    find "$LOG_DIR" -maxdepth 1 -name '.deploy_*.pipe' -delete 2>/dev/null || true
+    local old_logs
+    old_logs="$(ls -1t "$LOG_DIR"/deploy_*.log 2>/dev/null | tail -n +11 || true)"
+    if [ -n "$old_logs" ]; then
+        # shellcheck disable=SC2086
+        echo "$old_logs" | xargs -r rm -f
+        log_info "已清理历史部署日志: $(echo "$old_logs" | wc -l | tr -d ' ') 份"
+    fi
+
+    # 3) 系统临时目录中本项目产生的临时文件
+    find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'synapse-rust-*' -exec rm -rf {} + 2>/dev/null || true
+    find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'deploy_*.pipe' -delete 2>/dev/null || true
+
+    # 4) Docker 构建缓存与悬空镜像
     # 注意：不清理 npm/yarn/pnpm 全局缓存——本项目为 Rust 后端，这些 JS 包管理器
     # 缓存与构建无关，且 `pnpm store prune` 会触发环境 safe-delete hook
     # （删除 ~/.cache 下大量文件），故明确移除，仅清理项目级与 Docker 缓存。
-
-    docker builder prune -af >/dev/null
+    docker builder prune -af >/dev/null 2>&1 || true
     docker buildx prune -af >/dev/null 2>&1 || true
 
     log_success "缓存清理完成"
@@ -894,17 +1019,126 @@ rebuild_project() {
     log_success "项目编译完成"
 }
 
+# 安全停止所有后端容器：先 SIGTERM 优雅停机（等待 STOP_TIMEOUT 秒），
+# 再校验是否仍存活，最后才进入删除阶段。避免直接 `down` 造成数据/连接突断。
+stop_services_gracefully() {
+    DEPLOYMENT_PHASE="stop-services"
+    local project="${COMPOSE_PROJECT_NAME:-synapse}"
+
+    local running
+    running="$(docker ps --filter "label=com.docker.compose.project=${project}" --format '{{.Names}}' 2>/dev/null || true)"
+    if [ -z "$running" ]; then
+        log_info "未检测到运行中的后端容器（project=${project}），跳过停止"
+        return 0
+    fi
+
+    log_info "优雅停止后端容器 (SIGTERM，最长等待 ${STOP_TIMEOUT}s): $(echo "$running" | tr '\n' ' ')"
+    if ! compose stop -t "${STOP_TIMEOUT}" >/dev/null 2>&1; then
+        log_warning "compose stop 返回非零，改用逐容器 docker stop 兜底"
+    fi
+
+    local still
+    still="$(docker ps --filter "label=com.docker.compose.project=${project}" --format '{{.Names}}' 2>/dev/null || true)"
+    if [ -n "$still" ]; then
+        log_warning "以下容器在 ${STOP_TIMEOUT}s 内未退出，将缩短超时强制停止: $(echo "$still" | tr '\n' ' ')"
+        # shellcheck disable=SC2086
+        echo "$still" | xargs -r docker stop -t 5 >/dev/null 2>&1 || true
+        sleep 1
+        still="$(docker ps --filter "label=com.docker.compose.project=${project}" --format '{{.Names}}' 2>/dev/null || true)"
+        if [ -n "$still" ]; then
+            log_error "容器无法停止: $(echo "$still" | tr '\n' ' ')"
+            return 1
+        fi
+    fi
+
+    log_success "所有后端容器已安全停止"
+}
+
 remove_existing_deployment() {
     DEPLOYMENT_PHASE="remove-old-deployment"
-    log_info "停止并删除旧容器与关联镜像..."
+    log_info "删除旧容器、网络与关联资源..."
 
     compose down --remove-orphans || true
     docker rm -f synapse-postgres synapse-redis synapse-migrator synapse-app synapse-nginx >/dev/null 2>&1 || true
+
+    # 显式清理项目网络：若同名网络残留（例如上次部署被中断、或容器未带 compose
+    # 项目标签导致 `compose down` 未回收），后续 `compose up` 会报
+    # "network with name X already exists" 并连带引发容器重名冲突，使启动步骤
+    # 失败。此处仅在网络已无容器占用时删除，避免误删其它项目在用的网络。
+    local net="${COMPOSE_PROJECT_NAME:-synapse}_network"
+    if docker network inspect "$net" >/dev/null 2>&1; then
+        local attached
+        attached="$(docker network inspect "$net" --format '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null || true)"
+        if [ -z "${attached// /}" ]; then
+            docker network rm "$net" >/dev/null 2>&1 || true
+            log_info "已清理残留项目网络: $net"
+        else
+            log_warning "项目网络 $net 仍被占用，保留: ${attached}"
+        fi
+    fi
+
+    # 启动前兜底校验：确保目标容器名与网络均不再残留，否则立即失败并给出明确原因。
+    local leftover
+    leftover="$(docker ps -a --filter 'name=^/synapse-(postgres|redis|migrator|app|nginx)$' --format '{{.Names}}' 2>/dev/null || true)"
+    if [ -n "$leftover" ]; then
+        log_error "存在无法清除的残留容器，会导致后续启动冲突: $(echo "$leftover" | tr '\n' ' ')"
+        log_error "修复: docker rm -f $(echo "$leftover" | tr '\n' ' ')"
+        return 1
+    fi
+
     if [ "$USE_REMOTE_IMAGE" != "true" ] && [ "$SKIP_BUILD" != "true" ]; then
         docker image rm -f "$(local_image_ref)" synapse-rust-tools:local >/dev/null 2>&1 || true
     fi
 
     log_success "旧部署资源清理完成"
+}
+
+# 删除历史项目镜像，释放磁盘空间。安全约束：
+#   - 保留 $(local_image_ref)（本次构建目标）
+#   - 保留 ROLLBACK_IMAGE_TAG（本次回滚标签）
+#   - 保留正在被容器引用/使用的镜像（docker rmi 本身会拒绝，force 前先判断用途）
+remove_old_project_images() {
+    DEPLOYMENT_PHASE="cleanup-old-images"
+    if [ "$KEEP_IMAGES" = "true" ]; then
+        log_info "跳过旧项目镜像清理 (--keep-images)"
+        return 0
+    fi
+    log_info "清理历史项目镜像..."
+
+    local keep_current keep_rollback
+    keep_current="$(local_image_ref)"
+    keep_rollback="${ROLLBACK_IMAGE_TAG:-}"
+
+    # 注意：此处刻意不使用 `docker system df`。Docker Desktop 上该命令需要遍历
+    # 全部镜像/层来计算磁盘占用，实测可阻塞 6 分钟以上，会让清理步骤看起来"卡死"。
+    # 改为统计项目镜像数量（docker images 为本地元数据查询，毫秒级返回）。
+    local images_before
+    images_before="$(docker images --format '{{.Repository}}' 2>/dev/null | grep -c 'synapse-rust' || true)"
+
+    local removed=0 skipped=0 ref repo
+    while IFS= read -r ref; do
+        [ -n "$ref" ] || continue
+        repo="${ref%%:*}"
+        case "$repo" in
+            *synapse-rust*) ;;
+            *) continue ;;
+        esac
+        if [ "$ref" = "$keep_current" ] || { [ -n "$keep_rollback" ] && [ "$ref" = "$keep_rollback" ]; }; then
+            skipped=$((skipped + 1))
+            continue
+        fi
+        if docker rmi -f "$ref" >/dev/null 2>&1; then
+            removed=$((removed + 1))
+            log_info "已删除旧镜像: $ref"
+        else
+            log_warning "未能删除镜像（可能仍被容器占用）: $ref"
+        fi
+    done < <(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -E ':.*$' || true)
+
+    # 悬空镜像（<none>:<none>）一并回收
+    docker image prune -f >/dev/null 2>&1 || true
+
+    log_success "旧镜像清理完成: 删除 ${removed} 个，保留 ${skipped} 个 (清理前项目镜像数=${images_before:-0})"
 }
 
 build_images() {
@@ -1010,6 +1244,90 @@ verify_database() {
     log_success "数据库连接正常"
 }
 
+# 数据库结构与项目版本一致性校验（部署门禁）：
+#   1) canonical 迁移集合（migrations/*.sql，排除 .undo.sql）必须全部已应用；
+#      历史折叠进 baseline 的旧版本号允许存在于 schema_migrations 中（不算差异）。
+#   2) schema_migrations 中不得存在执行失败（is_success ≠ true）的迁移。
+#   3) public 表数相对 baseline（00000000_unified_schema_v*.sql 的 CREATE TABLE 数）
+#      的漂移不得超过 DB_DRIFT_TOLERANCE（与 schema_health_check DB-02 阈值一致）。
+verify_db_version_consistency() {
+    DEPLOYMENT_PHASE="verify-db-version"
+    log_info "校验数据库结构与项目版本一致性..."
+
+    local pg_user="${POSTGRES_USER:-postgres}"
+    local pg_db="${POSTGRES_DB:-synapse}"
+
+    local psql_cmd=(compose exec -T postgres psql -U "$pg_user" -d "$pg_db" -At)
+
+    local tmp_canonical="$LOG_DIR/.dbcheck_canonical.$$"
+    local tmp_applied="$LOG_DIR/.dbcheck_applied.$$"
+
+    if ! (cd "$PROJECT_ROOT/migrations" && ls -1 ./*.sql 2>/dev/null | sed 's#^\./##; s/\.sql$//' | grep -v '\.undo$' | sort -u) >"$tmp_canonical"; then
+        rm -f "$tmp_canonical" "$tmp_applied"
+        log_error "无法枚举 canonical 迁移文件: $PROJECT_ROOT/migrations"
+        return 1
+    fi
+    if ! "${psql_cmd[@]}" -c "SELECT version FROM schema_migrations ORDER BY version;" 2>/dev/null |
+        sed '/^[[:space:]]*$/d' | sort -u >"$tmp_applied"; then
+        rm -f "$tmp_canonical" "$tmp_applied"
+        log_error "无法读取 schema_migrations（数据库迁移记录表），请确认迁移已执行"
+        return 1
+    fi
+
+    local canonical_count applied_count
+    canonical_count="$(wc -l <"$tmp_canonical" | tr -d ' ')"
+    applied_count="$(wc -l <"$tmp_applied" | tr -d ' ')"
+
+    # 1) canonical 迁移是否全部应用
+    local missing
+    missing="$(comm -23 "$tmp_canonical" "$tmp_applied" || true)"
+    if [ -n "$missing" ]; then
+        log_error "以下 canonical 迁移未应用到数据库（版本不一致）:"
+        echo "$missing" | sed 's/^/    - /'
+        log_error "修复: 重新执行迁移 (compose run --rm migrator migrate) 后重试部署"
+        rm -f "$tmp_canonical" "$tmp_applied"
+        return 1
+    fi
+
+    # 2) 是否存在失败迁移
+    local failed
+    failed="$("${psql_cmd[@]}" -c "SELECT version FROM schema_migrations WHERE is_success IS NOT TRUE ORDER BY version;" 2>/dev/null | sed '/^[[:space:]]*$/d' || true)"
+    if [ -n "$failed" ]; then
+        log_error "检测到执行失败的迁移记录（is_success=false）:"
+        echo "$failed" | sed 's/^/    - /'
+        log_error "修复: 检查应用日志中 '迁移语句执行失败' 定位具体语句，修正后重新部署"
+        rm -f "$tmp_canonical" "$tmp_applied"
+        return 1
+    fi
+
+    # 3) 表数漂移（相对 baseline 声明）
+    local baseline_expected actual_count drift
+    baseline_expected="$(
+        grep -hcE '^CREATE TABLE (IF NOT EXISTS )?[a-zA-Z_][a-zA-Z0-9_]*' \
+            "$PROJECT_ROOT"/migrations/00000000_unified_schema_v*.sql 2>/dev/null |
+            awk '{s += $1} END {print s + 0}'
+    )"
+    actual_count="$("${psql_cmd[@]}" -c \
+        "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE';" 2>/dev/null |
+        sed '/^[[:space:]]*$/d' | head -1 || true)"
+
+    rm -f "$tmp_canonical" "$tmp_applied"
+
+    if [ -n "$baseline_expected" ] && [ "$baseline_expected" -gt 0 ] && [ -n "$actual_count" ]; then
+        drift=$((actual_count - baseline_expected))
+        if [ "${drift#-}" -gt "$DB_DRIFT_TOLERANCE" ]; then
+            log_error "数据库结构与项目版本不一致: baseline 期望 ${baseline_expected} 张表，实际 ${actual_count} 张 (drift=${drift}，阈值 ±${DB_DRIFT_TOLERANCE})"
+            log_error "修复: 确认是否存在残留废弃表（如 *_legacy）或缺失迁移，再重新部署"
+            return 1
+        fi
+        log_info "表数一致性: baseline=${baseline_expected}, 实际=${actual_count}, drift=${drift} (阈值 ±${DB_DRIFT_TOLERANCE})"
+    else
+        log_warning "无法计算 baseline 表数（缺少 00000000_unified_schema_v*.sql），跳过表数漂移校验"
+    fi
+
+    log_success "数据库与项目版本一致性校验通过 (canonical=${canonical_count}, 已应用记录=${applied_count}, 失败=0)"
+}
+
 verify_health_endpoints() {
     DEPLOYMENT_PHASE="verify-health"
     log_info "验证健康检查接口..."
@@ -1021,12 +1339,29 @@ verify_health_endpoints() {
     log_success "健康检查与 API 基础接口验证通过"
 }
 
+# 已知告警白名单（格式: 匹配子串|原因）。
+# 这些告警来自基础镜像或宿主 Docker 环境，与本次部署正确性无关；任何不在白名单
+# 内的 WARNING 都被视为"需要修复的问题"。新增条目必须写明可核实的原因。
+LOG_WARNING_ALLOWLIST=(
+    'no usable system locales|基础镜像未生成 locale，仅影响 psql/i18n 输出格式'
+    'enabling "trust" authentication|容器内网 pg_hba trust 认证（5432 未对外暴露）'
+    'DOCKER_INSECURE_NO_IPTABLES_RAW|宿主 Docker Desktop 环境变量，非本项目设置'
+    'forcibly turning on oci-mediatype|buildkit 对缺少 mediatype 的镜像提示'
+    '_sqlx_migrations|sqlx-cli 迁移表探测提示（本项目使用 schema_migrations）'
+    'Missing indexes|启动期索引建议（非必需索引），已由 schema 健康检查覆盖'
+    'update-alternatives|基础镜像包安装信息'
+    'rehash: warning: skipping ca-certificates.crt|基础镜像 ca-certificates 提示'
+)
+
+# 日志告警分析：区分 ERROR（一律阻断）、已知 WARNING（附原因，仅提示）、
+# 未知 WARNING（默认阻断，可 --no-strict-warnings 降级为提示）。
 verify_logs_clean() {
     DEPLOYMENT_PHASE="verify-logs"
-    log_info "检查容器日志中是否存在异常 ERROR，WARNING 仅做提示..."
+    log_info "分析容器日志中的 ERROR / WARNING..."
 
     local log_dump
     log_dump="$(compose logs --no-color --tail=400 2>&1 || true)"
+
     local errors
     errors="$(echo "$log_dump" | grep -Ei '\b(ERROR)\b' |
         grep -v 'no usable system locales' |
@@ -1036,26 +1371,54 @@ verify_logs_clean() {
         grep -v 'forcibly turning on oci-mediatype' |
         grep -v '_sqlx_migrations' ||
         true)"
+
+    local warn_lines
+    warn_lines="$(echo "$log_dump" | grep -Ei '\bWARN(ING)?\b' || true)"
+
+    local allowed_summary="" unknown_warnings=""
+    local allowed_count=0 unknown_count=0
+    local line entry matched
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        matched=""
+        for entry in "${LOG_WARNING_ALLOWLIST[@]}"; do
+            if [[ "$line" == *"${entry%%|*}"* ]]; then
+                matched="${entry#*|}"
+                break
+            fi
+        done
+        if [ -n "$matched" ]; then
+            allowed_count=$((allowed_count + 1))
+            allowed_summary+="    [已知] ${matched}"$'\n'
+        else
+            unknown_count=$((unknown_count + 1))
+            unknown_warnings+="    ${line}"$'\n'
+        fi
+    done <<<"$warn_lines"
+
     if [ -n "$errors" ]; then
-        log_error "检测到 ERROR 日志:"
+        log_error "检测到 ERROR 日志（部署门禁不通过）:"
         echo "$errors"
         return 1
     fi
 
-    local warnings
-    warnings="$(echo "$log_dump" | grep -Ei '\bWARN(ING)?\b' |
-        grep -v 'no usable system locales' |
-        grep -v 'enabling "trust" authentication' |
-        grep -v 'Missing indexes' |
-        grep -v 'DOCKER_INSECURE_NO_IPTABLES_RAW' |
-        grep -v 'forcibly turning on oci-mediatype' |
-        grep -v '_sqlx_migrations' ||
-        true)"
-    if [ -n "$warnings" ]; then
-        log_warning "检测到 WARNING 日志（不阻断部署）:"
-        echo "$warnings"
+    log_info "告警统计: 已知=${allowed_count}, 未知=${unknown_count}"
+
+    if [ "$allowed_count" -gt 0 ]; then
+        log_info "已知告警（匹配白名单，已确认无需处理）:"
+        printf '%s' "$allowed_summary" | sort -u
+    fi
+
+    if [ "$unknown_count" -gt 0 ]; then
+        log_warning "检测到未知 WARNING（需要修复）:"
+        printf '%s' "$unknown_warnings" | sort -u
+        if [ "$STRICT_WARNINGS" = "true" ]; then
+            log_error "STRICT_WARNINGS=true: 未知告警视为部署失败；修复后重试，或临时使用 --no-strict-warnings"
+            return 1
+        fi
+        log_warning "STRICT_WARNINGS=false: 未知告警不阻断部署"
     else
-        log_success "未发现 ERROR/WARNING 级别日志"
+        log_success "未发现 ERROR，且无未知 WARNING"
     fi
 }
 
@@ -1069,21 +1432,44 @@ show_status() {
 rollback_deployment() {
     DEPLOYMENT_PHASE="rollback"
     ROLLBACK_IN_PROGRESS=true
-    log_warning "开始执行回滚..."
+    log_warning "=========================================================="
+    log_warning "开始回滚（失败步骤: ${CURRENT_STEP:-unknown}）"
+    log_warning "=========================================================="
 
-    compose down --remove-orphans >/dev/null 2>&1 || true
-
+    # 1) 恢复旧镜像标签（构建失败/新镜像不可用时，先让旧镜像恢复可用）
     if [ -n "$ROLLBACK_IMAGE_TAG" ] && docker image inspect "$ROLLBACK_IMAGE_TAG" >/dev/null 2>&1; then
-        docker tag "$ROLLBACK_IMAGE_TAG" "$(local_image_ref)" || true
+        if docker tag "$ROLLBACK_IMAGE_TAG" "$(local_image_ref)"; then
+            log_success "已恢复旧镜像: $ROLLBACK_IMAGE_TAG -> $(local_image_ref)"
+        else
+            log_error "恢复旧镜像失败: $ROLLBACK_IMAGE_TAG"
+        fi
+    else
+        log_warning "无可用回滚镜像标签，跳过镜像回滚"
     fi
 
+    # 2) 数据回滚（部署前 pg_dump 备份）
     if [ -n "$ROLLBACK_BACKUP" ] && [ -f "$ROLLBACK_BACKUP" ]; then
         chmod +x scripts/restore.sh
-        RESTORE_FORCE=true ./scripts/restore.sh "$ROLLBACK_BACKUP" || true
-        log_warning "已尝试恢复到备份状态"
+        if RESTORE_FORCE=true ./scripts/restore.sh "$ROLLBACK_BACKUP"; then
+            log_success "已从备份恢复数据库: $ROLLBACK_BACKUP"
+        else
+            log_error "数据库恢复失败，请手动处理备份: $ROLLBACK_BACKUP"
+        fi
     else
-        log_warning "没有可用备份，跳过数据回滚"
+        log_warning "无可用数据库备份，跳过数据回滚"
     fi
+
+    # 3) 用旧镜像尝试恢复服务
+    if [ -n "$ROLLBACK_IMAGE_TAG" ] && docker image inspect "$ROLLBACK_IMAGE_TAG" >/dev/null 2>&1; then
+        log_info "尝试以旧镜像恢复服务..."
+        if compose up -d postgres redis >/dev/null 2>&1 && compose up -d synapse nginx >/dev/null 2>&1; then
+            log_success "旧版本服务已重新启动"
+        else
+            log_warning "旧版本服务未完全启动，请检查: docker compose ps / docker compose logs"
+        fi
+    fi
+
+    log_warning "回滚流程结束；若服务仍异常，请查看 ${LOG_FILE} 与 'docker compose ps'"
 }
 
 show_access_info() {
@@ -1112,30 +1498,44 @@ main() {
     parse_args "$@"
     setup_logging
     show_banner
-    check_dependencies
+
+    # --- 前置准备（只读/本地操作，失败即停止，不会破坏现有部署） ---
+    run_step "环境依赖检查" check_dependencies
     if [ "$INSTALL_DEPS" = "true" ]; then
-        install_missing_deps
+        run_step "安装缺失依赖" install_missing_deps
     fi
-    check_env_file
-    select_features
-    show_feature_summary
-    create_directories
-    ensure_ssl_certs
-    ensure_hosts_entry
-    check_local_turn
-    backup_current_state
-    clear_project_caches
-    rebuild_project
-    remove_existing_deployment
-    build_images
-    start_services
-    verify_database
-    verify_health_endpoints
-    verify_https_endpoints
-    verify_logs_clean
+    run_step "配置文件检查" check_env_file
+    run_step "功能选择" select_features
+    run_step "功能摘要" show_feature_summary
+    run_step "目录准备" create_directories
+    run_step "SSL 证书准备" ensure_ssl_certs
+    run_step "hosts 检查" ensure_hosts_entry
+    run_step "本地 TURN 检查" check_local_turn
+
+    # --- 备份与清理（此时旧服务仍在运行，可安全备份与回滚） ---
+    run_step "部署前备份" backup_current_state
+    run_step "缓存清理" clear_project_caches
+    run_step "项目编译" rebuild_project
+
+    # --- 安全下线旧部署 ---
+    run_step "优雅停止后端容器" stop_services_gracefully
+    run_step "移除旧部署资源" remove_existing_deployment
+    run_step "清理旧项目镜像" remove_old_project_images
+
+    # --- 构建与启动 ---
+    run_step "构建/拉取镜像" build_images
+    run_step "启动服务与迁移" start_services
+
+    # --- 一致性校验与验证 ---
+    run_step "数据库连接验证" verify_database
+    run_step "数据库版本一致性校验" verify_db_version_consistency
+    run_step "健康检查验证" verify_health_endpoints
+    run_step "HTTPS 接口验证" verify_https_endpoints
+    run_step "日志告警分析" verify_logs_clean
+
     show_status
     show_access_info
-    log_success "重建、优化部署与验证全部完成"
+    log_success "重建、优化部署与验证全部完成（共 ${#COMPLETED_STEPS[@]} 个步骤）"
 }
 
 main "$@"

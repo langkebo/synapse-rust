@@ -90,6 +90,10 @@ ammonia = "4.1"
 hex = "0.4.3"
 dns-lookup = "3.0.1"
 ipnet = "2.12.0"
+# atexit hook for the test-schema janitor (test_schema_guard module): the only
+# deterministic way to finish schema cleanup before process exit under
+# nextest's one-process-per-test model.
+libc = "0.2"
 
 utoipa = { version = "5", features = ["axum_extras"], optional = true }
 

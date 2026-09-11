@@ -17,8 +17,12 @@
 --   含这些表，故此迁移在全新库上为幂等空操作。
 --   注意: 老库中的 worker_type_statistics 视图仍引用已废弃的
 --   worker_connections / worker_load_stats（v8 前定义），导致直接 DROP
---   失败。须先将其重建为 v11 baseline 的 canonical 定义（仅读 workers，
---   聚合列恒为 NULL/0，见 baseline 第 4109-4124 行注释），再删除残留表。
+--   失败（历史告警: cannot drop table worker_connections because other
+--   objects depend on it）。此处先将其重建为 v11 baseline 的 canonical
+--   定义（仅读 workers，聚合列恒为 NULL/0，见 baseline 第 4109-4124 行
+--   注释）；同时所有 DROP 均使用 CASCADE，以确保老库中任何其它历史
+--   依赖对象（视图/约束/规则）不会再次阻塞删除——这些表本身无任何
+--   现行代码引用，级联删除不会波及 canonical schema。
 -- =====================================================================
 
 -- 1) 重建 worker_type_statistics 为 canonical 定义，解除对废弃表的依赖
@@ -37,10 +41,13 @@ FROM workers w
 GROUP BY w.worker_type;
 
 -- 2) 删除 v8/v10 已废弃的残留表
-DROP TABLE IF EXISTS deleted_events_index;
-DROP TABLE IF EXISTS retention_cleanup_logs;
-DROP TABLE IF EXISTS retention_cleanup_queue;
-DROP TABLE IF EXISTS retention_stats;
-DROP TABLE IF EXISTS room_children;
-DROP TABLE IF EXISTS worker_connections;
-DROP TABLE IF EXISTS worker_load_stats;
+--    全部使用 CASCADE：老库中可能仍存在其它历史依赖对象（视图/约束/规则），
+--    不加 CASCADE 会以 "cannot drop table X because other objects depend on it"
+--    告警形式失败；这些表无任何现行代码引用，级联删除不会波及 canonical schema。
+DROP TABLE IF EXISTS deleted_events_index CASCADE;
+DROP TABLE IF EXISTS retention_cleanup_logs CASCADE;
+DROP TABLE IF EXISTS retention_cleanup_queue CASCADE;
+DROP TABLE IF EXISTS retention_stats CASCADE;
+DROP TABLE IF EXISTS room_children CASCADE;
+DROP TABLE IF EXISTS worker_connections CASCADE;
+DROP TABLE IF EXISTS worker_load_stats CASCADE;

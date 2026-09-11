@@ -4790,6 +4790,7 @@ dependencies = [
  "hmac 0.12.1",
  "http",
  "ipnet",
+ "libc",
  "metrics",
  "mockall",
  "moka",

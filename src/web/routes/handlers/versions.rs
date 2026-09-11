@@ -146,28 +146,12 @@ pub async fn get_capabilities(
     Query(_): Query<EmptyQuery>,
 ) -> Json<serde_json::Value> {
     let governance = build_governance(&ctx.config);
-    let mut response = governance.build_capabilities_response(auth.user_id.is_some());
-    // P-051: Include a `rooms` field with room version information so clients
-    // can discover the default and available room versions. Per Matrix spec,
-    // this goes inside the `capabilities` object, not at the top level.
-    //
-    // Both `m.room_versions` (built by capability governance from
-    // `DEFAULT_ROOM_VERSION`) and this `rooms` block describe the SAME thing, so
-    // both are derived from `client_room_versions_capability()`. This block used
-    // to hard-code `"default": "11"` with a single-entry `available`, which made
-    // the response contradict itself: `m.room_versions.default` said "10" while
-    // `rooms.room_versions.default` said "11", and the server actually created
-    // v10 rooms. Measured on the deployed server 2026-09-12 (a room created
-    // without an explicit version came back as `room_version = 10`).
-    if let Some(obj) = response.as_object_mut() {
-        let caps = obj.entry("capabilities").or_insert_with(|| json!({}));
-        if let Some(caps_obj) = caps.as_object_mut() {
-            caps_obj.insert(
-                "rooms".to_string(),
-                json!({ "room_versions": synapse_common::room_versions::client_room_versions_capability() }),
-            );
-        }
-    }
+    // Room versions are advertised at the official spec location,
+    // `capabilities.m.room_versions`, which CapabilityGovernance builds. There
+    // is no `capabilities.rooms.room_versions` field in the Matrix spec; a
+    // non-standard `rooms` block here would duplicate the information, and
+    // clients do not read it. Removed to keep a single source of truth.
+    let response = governance.build_capabilities_response(auth.user_id.is_some());
     Json(response)
 }
 

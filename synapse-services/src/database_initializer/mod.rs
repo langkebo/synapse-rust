@@ -519,7 +519,13 @@ impl DatabaseInitService {
                                 "迁移语句超时"
                             );
                             file_success = false;
-                            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                            // 迁移文件默认以 autocommit 执行（文件内不含 BEGIN/COMMIT）：
+                            // 只有事务确实被中止时才需要 ROLLBACK，否则 PostgreSQL 会回
+                            // "there is no transaction in progress" NOTICE，被 sqlx 记为
+                            // WARN 并污染部署日志与告警门禁。
+                            if err_str.contains("current transaction is aborted") {
+                                let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                            }
                             break;
                         } else {
                             let preview: String = trimmed.chars().take(100).collect();
@@ -531,7 +537,13 @@ impl DatabaseInitService {
                                 "迁移语句执行失败"
                             );
                             file_success = false;
-                            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                            // 迁移文件默认以 autocommit 执行（文件内不含 BEGIN/COMMIT）：
+                            // 只有事务确实被中止时才需要 ROLLBACK，否则 PostgreSQL 会回
+                            // "there is no transaction in progress" NOTICE，被 sqlx 记为
+                            // WARN 并污染部署日志与告警门禁。
+                            if err_str.contains("current transaction is aborted") {
+                                let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                            }
                             break;
                         }
                     }

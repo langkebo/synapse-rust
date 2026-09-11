@@ -1425,7 +1425,7 @@ mod tests {
 
     async fn get_rt_test_pool() -> Option<Arc<PgPool>> {
         match crate::test_utils::prepare_empty_isolated_test_pool().await {
-            Ok(pool) => Some(pool),
+            Ok(guard) => Some(guard.pool()),
             Err(error) => {
                 tracing::warn!("Skipping refresh_token DB test because test database is unavailable: {error}");
                 None

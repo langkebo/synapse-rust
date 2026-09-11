@@ -402,7 +402,7 @@ mod tests {
     #[tokio::test]
     async fn test_delete_token_by_id_removes_verification_session() {
         let pool = match crate::test_utils::prepare_empty_isolated_test_pool().await {
-            Ok(pool) => pool,
+            Ok(guard) => guard.pool(),
             Err(error) => {
                 tracing::warn!(
                     "Skipping email verification delete-token test because test database is unavailable: {error}"

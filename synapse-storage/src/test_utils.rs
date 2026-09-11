@@ -7,94 +7,29 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use synapse_common::test_schema_guard::{SchemaCleanup, TestSchemaGuard};
 
 static TEST_SCHEMA_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 // ============================================================================
-// Drop-on-release registry
+// Schema lifecycle
 // ============================================================================
 //
-// This module is a third copy of the schema-lifecycle helper (the root crate and
-// `synapse-services` each have one), and like the `synapse-services` copy it
-// lost the cleanup half: `prepare_empty_isolated_test_pool` created a schema per
-// call and never dropped it, so every caller leaked one `test_*` schema. See
-// docs/audit/P5_test_schema_accumulation_2026-09-12.md.
+// This module used to keep its own `PENDING_SCHEMA_DROPS` registry — a third
+// copy of a mechanism that was copy-pasted across three crates and could
+// never converge. The registry+sweep design is fundamentally broken under
+// nextest's one-process-per-test model (the sweep only ran on the *next*
+// pool acquisition, which never happens in the creating process), which is
+// how the local test database reached 23,662 leftover schemas
+// (docs/audit/P5_test_schema_accumulation_2026-09-12.md).
 //
-// Schemas here hold no reusable baseline (callers create their own tables), so
-// the correct lifetime is simply "drop when the pool is released" — no pool, no
-// TRUNCATE-and-reseed.
-
-struct PendingSchemaDrop {
-    schema_name: String,
-    database_url: String,
-    weak: Weak<PgPool>,
-}
-
-static PENDING_SCHEMA_DROPS: LazyLock<Mutex<Vec<PendingSchemaDrop>>> = LazyLock::new(|| Mutex::new(Vec::new()));
-
-// Cleanup cannot run on the caller's runtime: the case being handled is exactly
-// "the test that owned the pool has finished and its runtime is going away".
-//
-// `Option` rather than a panicking `LazyLock<Runtime>`: this crate denies
-// `clippy::panic` / `expect_used` / `unwrap_used` even in test support, and a
-// failed cleanup runtime must degrade to "leak this schema" rather than abort
-// the test process.
-static CLEANUP_RUNTIME: LazyLock<Option<tokio::runtime::Runtime>> =
-    LazyLock::new(|| tokio::runtime::Builder::new_current_thread().enable_all().build().ok());
-
-fn register_pending_schema_drop(pool: &Arc<PgPool>, schema_name: String, database_url: String) {
-    PENDING_SCHEMA_DROPS.lock().unwrap_or_else(|e| e.into_inner()).push(PendingSchemaDrop {
-        schema_name,
-        database_url,
-        weak: Arc::downgrade(pool),
-    });
-}
-
-/// Drop every registered schema whose owning pool has been released.
-///
-/// Called opportunistically on each pool acquisition so cleanup is amortized
-/// onto the next test's setup and schemas never outlive the process that made
-/// them by more than the run itself.
-pub fn sweep_pending_schema_drops() {
-    let dead: Vec<PendingSchemaDrop> = {
-        let mut guard = PENDING_SCHEMA_DROPS.lock().unwrap_or_else(|e| e.into_inner());
-        let mut dead = Vec::new();
-        let mut i = 0;
-        while i < guard.len() {
-            if guard[i].weak.upgrade().is_none() {
-                dead.push(guard.swap_remove(i));
-            } else {
-                i += 1;
-            }
-        }
-        dead
-    };
-    for entry in dead {
-        let Some(runtime) = CLEANUP_RUNTIME.as_ref() else {
-            eprintln!("test schema drop: no cleanup runtime; {} left in place", entry.schema_name);
-            continue;
-        };
-        runtime.spawn(async move {
-            let Ok(pool) = PgPoolOptions::new()
-                .max_connections(1)
-                .acquire_timeout(Duration::from_secs(5))
-                .connect(&entry.database_url)
-                .await
-            else {
-                eprintln!("test schema drop: could not connect to drop {}; schema orphaned", entry.schema_name);
-                return;
-            };
-            if let Err(error) =
-                sqlx::query(&format!("DROP SCHEMA IF EXISTS {} CASCADE", entry.schema_name)).execute(&pool).await
-            {
-                eprintln!("test schema drop: failed to drop {}: {error}", entry.schema_name);
-            }
-            pool.close().await;
-        });
-    }
-}
+// Cleanup is now owned by the shared engine in
+// `synapse_common::test_schema_guard`: the janitor watches the pool's weak
+// reference and runs `DROP SCHEMA ... CASCADE` as soon as the last
+// `Arc<PgPool>` is released, with an atexit join as the deterministic
+// backstop. The guard returned below is the caller-visible ownership handle.
 
 /// Queue of pre-prepared test pools that can be reused by tests.
 static PREPARED_TEST_POOLS: LazyLock<Mutex<Vec<Arc<PgPool>>>> = LazyLock::new(|| Mutex::new(Vec::new()));
@@ -166,11 +101,14 @@ fn candidate_database_urls() -> Vec<String> {
 /// This is used by tests that create their own tables from scratch within
 /// a fresh PostgreSQL schema. The schema is named uniquely per test run
 /// and uses `SET search_path` so all queries are isolated.
-pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
+///
+/// The returned [`TestSchemaGuard`] owns the schema's lifecycle: the shared
+/// janitor drops the schema once the last `Arc<PgPool>` clone is released
+/// (at the latest, before the process exits). Hold the guard for the test's
+/// duration, or take `guard.pool()` and let the janitor track the pool.
+pub async fn prepare_empty_isolated_test_pool() -> Result<TestSchemaGuard, String> {
     let database_url = resolve_test_database_url().await?;
     let schema_name = next_test_schema_name();
-    // Reap schemas whose owning pool from an earlier test has been released.
-    sweep_pending_schema_drops();
 
     let admin_pool = PgPoolOptions::new()
         .max_connections(1)
@@ -209,8 +147,12 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
         .map_err(|error| format!("failed to connect isolated pool for {schema_name}: {error}"))?;
 
     let pool = Arc::new(pool);
-    register_pending_schema_drop(&pool, schema_name, database_url);
-    Ok(pool)
+    let guard = TestSchemaGuard::new_registered(
+        pool,
+        schema_name.clone(),
+        SchemaCleanup::drop_only(&database_url, &schema_name),
+    );
+    Ok(guard)
 }
 
 fn next_test_schema_name() -> String {
