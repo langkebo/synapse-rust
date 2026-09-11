@@ -217,8 +217,12 @@ impl crate::registration_token::RegistrationTokenStoreApi for InMemoryRegistrati
                 .into_iter();
         }
         let rows: Vec<_> = iter.take((limit + 1) as usize).collect();
+        // P5-fix: anchor the cursor to the LAST RETURNED row, not `get(limit)`.
+        // Using the (limit+1)-th row — never returned — combined with the strict
+        // `> cursor` skip predicate made the next page skip that row entirely.
+        // See P5 report §3.5.
         let cursor = if rows.len() > limit as usize {
-            rows.get(limit as usize).map(|t| {
+            rows.get(limit.saturating_sub(1) as usize).map(|t| {
                 crate::registration_token::encode_registration_token_cursor(
                     &crate::registration_token::RegistrationTokenCursor { created_ts: t.created_ts, id: t.id },
                 )

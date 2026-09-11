@@ -414,12 +414,81 @@ impl crate::room::api::RoomStoreApi for InMemoryRoomStore {
         from: Option<crate::room::RoomSearchCursor>,
         order_by: crate::room::RoomSearchOrder,
     ) -> Result<(Vec<(crate::room::Room, i64)>, Option<String>), sqlx::Error> {
+        // P5-fix: this mock previously ignored BOTH `from` and `order_by` and always
+        // returned `None` for next_batch, so cursor pagination was untestable — a
+        // caller paging would receive page 1 again instead of the next slice. It now
+        // mirrors the real query's rules (room/mod.rs):
+        //   * keyset predicate is the strict `< (…key…)` for the active order
+        //   * `LIMIT limit + 1` probes for a further page
+        //   * `next_batch` anchors on the LAST RETURNED row (see P5 report §3.5)
+        // Note: the real query filtering is `WHERE 1 = 1` — it does NOT restrict to
+        // public rooms (that is `count_public_rooms`), so neither does this mock.
+        use crate::room::{RoomSearchCursor, RoomSearchOrder};
+
         let rooms = self.rooms.read().await;
         let mut filtered: Vec<(crate::room::Room, i64)> = rooms.values().map(|r| (r.clone(), r.member_count)).collect();
-        filtered.sort_by(|a, b| b.0.created_ts.cmp(&a.0.created_ts));
-        let _ = (from, order_by);
-        filtered.truncate(limit as usize);
-        Ok((filtered, None))
+
+        match (order_by, from.as_ref()) {
+            (RoomSearchOrder::Created, Some(RoomSearchCursor::Created { created_ts, room_id })) => {
+                filtered.retain(|(r, _)| (r.created_ts, r.room_id.as_str()) < (*created_ts, room_id.as_str()));
+            }
+            (RoomSearchOrder::Name, Some(RoomSearchCursor::Name { name, created_ts, room_id })) => {
+                filtered.retain(|(r, _)| {
+                    (r.name.as_deref(), r.created_ts, r.room_id.as_str())
+                        < (name.as_deref(), *created_ts, room_id.as_str())
+                });
+            }
+            (RoomSearchOrder::Size, Some(RoomSearchCursor::Size { member_count, created_ts, room_id })) => {
+                filtered.retain(|(r, _)| {
+                    (r.member_count, r.created_ts, r.room_id.as_str()) < (*member_count, *created_ts, room_id.as_str())
+                });
+            }
+            _ => {}
+        }
+
+        match order_by {
+            RoomSearchOrder::Created => {
+                filtered.sort_by(|a, b| b.0.created_ts.cmp(&a.0.created_ts).then_with(|| b.0.room_id.cmp(&a.0.room_id)))
+            }
+            RoomSearchOrder::Name => filtered.sort_by(|a, b| {
+                b.0.name
+                    .cmp(&a.0.name)
+                    .then_with(|| b.0.created_ts.cmp(&a.0.created_ts))
+                    .then_with(|| b.0.room_id.cmp(&a.0.room_id))
+            }),
+            RoomSearchOrder::Size => filtered.sort_by(|a, b| {
+                b.1.cmp(&a.1)
+                    .then_with(|| b.0.created_ts.cmp(&a.0.created_ts))
+                    .then_with(|| b.0.room_id.cmp(&a.0.room_id))
+            }),
+        }
+
+        let next_batch = if filtered.len() as i64 > limit {
+            filtered.get(limit.saturating_sub(1) as usize).map(|(last_room, last_count)| {
+                let cursor = match order_by {
+                    RoomSearchOrder::Created => RoomSearchCursor::Created {
+                        created_ts: last_room.created_ts,
+                        room_id: last_room.room_id.clone(),
+                    },
+                    RoomSearchOrder::Name => RoomSearchCursor::Name {
+                        name: last_room.name.clone(),
+                        created_ts: last_room.created_ts,
+                        room_id: last_room.room_id.clone(),
+                    },
+                    RoomSearchOrder::Size => RoomSearchCursor::Size {
+                        member_count: *last_count,
+                        created_ts: last_room.created_ts,
+                        room_id: last_room.room_id.clone(),
+                    },
+                };
+                crate::room::encode_room_search_cursor(&cursor)
+            })
+        } else {
+            None
+        };
+
+        filtered.truncate(limit.max(0) as usize);
+        Ok((filtered, next_batch))
     }
 
     async fn get_user_room_list_summary(
@@ -574,5 +643,67 @@ impl crate::room::api::RoomStoreApi for InMemoryRoomStore {
     ) -> Result<Vec<String>, sqlx::Error> {
         // InMemoryRoomStore does not track memberships; return empty.
         Ok(Vec::new())
+    }
+}
+
+#[cfg(test)]
+mod pagination_tests {
+    use super::InMemoryRoomStore;
+    use crate::room::api::RoomStoreApi;
+    use crate::room::{decode_room_search_cursor, RoomSearchOrder};
+
+    /// Walk every page of a room search with the returned cursor and assert all
+    /// rooms are visited exactly once.
+    ///
+    /// Regression guard for the gap documented in the P5 report §3.5: this mock
+    /// used to ignore `from`/`order_by` entirely and always return `None` for
+    /// next_batch, so a caller paging received page 1 again (and no test could
+    /// exercise cursor pagination at all).
+    #[tokio::test]
+    async fn room_search_pagination_visits_every_room_exactly_once() {
+        let store = InMemoryRoomStore::new();
+        let mut expected = Vec::new();
+        for i in 0..5 {
+            let room_id = format!("!r{i}:t");
+            store.create_room(&room_id, "@creator:t", "public", "10", true).await.unwrap();
+            expected.push(room_id);
+        }
+
+        let mut seen: Vec<String> = Vec::new();
+        let mut cursor = None;
+        for _ in 0..10 {
+            let (page, next) =
+                store.get_all_rooms_with_members(2, cursor.clone(), RoomSearchOrder::Created).await.unwrap();
+            if page.is_empty() {
+                break;
+            }
+            seen.extend(page.into_iter().map(|(r, _)| r.room_id));
+            match next {
+                Some(token) => cursor = decode_room_search_cursor(Some(&token)),
+                None => break,
+            }
+        }
+
+        seen.sort();
+        expected.sort();
+        assert_eq!(seen, expected, "cursor pagination must visit every room exactly once");
+    }
+
+    /// A limit smaller than the set must produce a next_batch token; a limit at or
+    /// above the set size must not.
+    #[tokio::test]
+    async fn room_search_next_batch_presence_follows_limit() {
+        let store = InMemoryRoomStore::new();
+        for i in 0..3 {
+            store.create_room(&format!("!n{i}:t"), "@creator:t", "public", "10", true).await.unwrap();
+        }
+
+        let (page, next) = store.get_all_rooms_with_members(2, None, RoomSearchOrder::Created).await.unwrap();
+        assert_eq!(page.len(), 2, "page honours the limit");
+        assert!(next.is_some(), "a truncated page must yield next_batch");
+
+        let (page_all, next_all) = store.get_all_rooms_with_members(10, None, RoomSearchOrder::Created).await.unwrap();
+        assert_eq!(page_all.len(), 3, "limit above set size returns everything");
+        assert!(next_all.is_none(), "a complete page must not yield next_batch");
     }
 }
