@@ -101,7 +101,24 @@ impl DeviceListStoreApi for InMemoryDeviceListStore {
         _to: i64,
         _requester_id: &str,
     ) -> Result<Vec<String>, sqlx::Error> {
-        // Simplified: return all users that have devices
+        // ⚠️ SIMPLIFIED STUB — NOT behaviourally equivalent to storage.
+        //
+        // The real implementation (device/mod.rs) selects users whose device-list
+        // changed inside a stream window, excluding the requester, ordered and
+        // capped:
+        //     SELECT DISTINCT user_id … WHERE stream_id > $1 AND stream_id <= $2
+        //       AND user_id <> $3 ORDER BY user_id LIMIT 100
+        //
+        // This mock ignores `from`/`to`/`requester_id` and returns EVERY user that
+        // has a device, unordered and uncapped. It therefore cannot be used to test
+        // stream-window semantics (which changes a `/sync` result reports as
+        // changed), the requester exclusion, the ordering, or the LIMIT 100 cap —
+        // and it will never surface a drift in any of them.
+        //
+        // Why it is not fixed here: the store keeps a single global `stream_id`
+        // counter and no per-device stream position, so honouring the window needs a
+        // data-model change (record the stream position at device write time). That
+        // is a deliberate, larger task. See docs/audit/P5_engineering_2026-09-11.md.
         let user_ids: Vec<String> = self.devices.read().await.values().map(|d| d.user_id.clone()).collect();
         Ok(user_ids)
     }
