@@ -138,9 +138,9 @@ workspace `--all-targets` 下的非阻塞警告：
 
 以下项属 P5 范围但**本会话未实测**，不得引用为结论：
 
-1. **god-file 漂移**：已知 `synapse-storage/src/room/mod.rs` 2,270 行、
-   `device/mod.rs` 2,192 行、`refresh_token/mod.rs` 2,186 行；
-   未评估拆分收益与风险。
+1. **god-file 漂移** —— ✅ **本轮已量化**（见 §3.2）。结论：标题行数**显著高估**了
+   生产代码体量，因为大文件约一半是内联测试；最大的纯生产文件是
+   `friend_room_service/mod.rs`（1,831 行）。**未执行拆分**（理由见 §3.2）。
 2. **mock 漂移**：`test_mocks` 与真实实现的行为等价性未验证
    （这是 false-green 的常见来源）。
 3. **构建产物治理**：`target/` 92G + `docker/deploy` 18G + `target_amd64` 4.0G
@@ -179,6 +179,41 @@ CARGO_TARGET_DIR=/tmp/verify cargo test --doc --locked --workspace
 
 > 建议：若不需要并行协作，应停掉第二个 agent；否则所有门禁结论都必须附
 > "是否使用了隔离 target 目录 / 是否存在并发构建"。
+
+### 3.2 god-file 量化（本轮实测）
+
+**关键区分：标题行数包含内联测试段，生产代码体量远小于表面数字。**
+
+| 文件 | 总行数 | 测试段起始 | 生产代码约 | 性质 |
+|---|---|---|---|---|
+| `src/web/api_doc/client_server.rs` | 5,056 | — | — | **自动生成的 OpenAPI 文档**，非维护对象 |
+| `src/web/api_doc/admin.rs` | 2,504 | — | — | 同上（`api_doc/` 合计 ~3,400 行） |
+| `synapse-services/src/sync_service/tests.rs` | 2,371 | — | — | **纯测试文件** |
+| `synapse-storage/src/event/db_tests.rs` | 2,183 | — | — | **纯测试文件** |
+| `synapse-storage/src/room/mod.rs` | 2,270 | 1,449 | **1,448** | 生产（含内联测试） |
+| `synapse-storage/src/device/mod.rs` | 2,192 | 1,316 | **1,315** | 同上 |
+| `synapse-storage/src/refresh_token/mod.rs` | 2,186 | 1,101 | **1,100** | 同上 |
+| `synapse-storage/src/membership/mod.rs` | 2,105 | 1,068 | **1,067** | 同上 |
+| `synapse-services/src/friend_room_service/mod.rs` | 1,833 | 1,832 | **1,831** | 生产（几乎无内联测试） |
+
+**判定**：
+- 表面最"god"的两个 5K/2.5K 文件是**生成产物**（`api_doc/`），不应计入债务
+- 其次两个 2.3K/2.2K 文件是**纯测试文件**，拆分收益低
+- **真正值得关注的是 4 个 1,000–1,450 行的生产文件**
+  （`room`/`device`/`refresh_token`/`membership` 的 `mod.rs`）
+  以及 **1,831 行的 `friend_room_service/mod.rs`**（几乎无内联测试）
+
+**为什么本轮不执行拆分**：
+1. 本仓已有拆分先例（`room/service.rs` + `room/storage.rs`、`synapse-cache` 从 2,500 行
+   拆为 `local`/`remote`/`manager`、`src/web/routes/handlers/`），因此**方向可行**；
+2. 但 1,000–1,800 行属于**可控区间**，不是 5,000 行的维护灾难；
+3. 大规模文件重排会与工作区中并发的提交产生冲突，并可能影响
+   `scripts/shell_routes_allowlist.txt` 这类**基于行号**的豁免（本仓已知脆弱点）；
+4. 拆分属**独立重构决策**，应有明确收益目标（如降低合并冲突率、提升可导航性），
+   而非为了满足行数阈值。
+
+**建议**：若确要拆分，优先 `friend_room_service/mod.rs`（1,831 行且无测试分担），
+按领域拆为 `friends`/`requests`/`groups` 子模块，并在同一变更中更新 route manifest 与快照。
 
 ---
 
