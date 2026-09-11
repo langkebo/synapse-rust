@@ -38,7 +38,7 @@ pub fn get_federation_version_doc() -> axum::Json<serde_json::Value> {
                 "capabilities": {
                     "m.change_password": true,
                     "m.room_versions": {
-                        "default": "10",
+                        "default": "11",
                         "available": {
                             "1": "stable",
                             "2": "stable",

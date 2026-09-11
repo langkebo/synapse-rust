@@ -1,5 +1,6 @@
 ---
 source: tests/integration/api_route_snapshots_tests.rs
+assertion_line: 175
 expression: body
 ---
 {
@@ -41,7 +42,7 @@ expression: body
         "8": "stable",
         "9": "stable"
       },
-      "default": "10"
+      "default": "11"
     },
     "m.set_avatar_url": {
       "enabled": true
@@ -58,7 +59,19 @@ expression: body
     "rooms": {
       "room_versions": {
         "available": {
-          "11": "stable"
+          "1": "stable",
+          "10": "stable",
+          "11": "stable",
+          "12": "stable",
+          "13": "stable",
+          "2": "stable",
+          "3": "stable",
+          "4": "stable",
+          "5": "stable",
+          "6": "stable",
+          "7": "stable",
+          "8": "stable",
+          "9": "stable"
         },
         "default": "11"
       }

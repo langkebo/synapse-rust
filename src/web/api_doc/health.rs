@@ -76,7 +76,7 @@ pub fn get_well_known_server() -> axum::Json<serde_json::Value> {
                     "m.set_avatar_url": { "enabled": true },
                     "m.3pid_changes": { "enabled": true },
                     "m.room_versions": {
-                        "default": "10",
+                        "default": "11",
                         "available": {
                             "1": "stable",
                             "2": "stable",

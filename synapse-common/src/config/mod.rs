@@ -1675,7 +1675,10 @@ pub struct RoomsConfig {
 }
 
 fn default_room_version() -> String {
-    "10".to_string()
+    // Single source of truth: synapse_common::room_versions::DEFAULT_ROOM_VERSION.
+    // Hard-coding "11" (or "10") here as well is how this project ended up with
+    // two contradictory defaults in the same capabilities response.
+    crate::room_versions::DEFAULT_ROOM_VERSION.to_string()
 }
 
 fn default_state_event_limit() -> u64 {

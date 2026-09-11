@@ -73,7 +73,20 @@ impl RoomVersionCapability {
 }
 
 /// Constant `DEFAULT_ROOM_VERSION`.
-pub const DEFAULT_ROOM_VERSION: &str = "10";
+///
+/// **Deliberate divergence from Element/Synapse**, whose `default_room_version`
+/// still defaults to `"10"` (Synapse changed it 9→10 in v1.76, and it has not
+/// moved since) — see
+/// <https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#default_room_version>.
+/// This project defaults to `"11"` by product decision (2026-09-12).
+///
+/// Consequences to keep in mind when reviewing federation behaviour:
+/// version 11 uses the MSC2174/MSC3820 redaction format (`content.redacts`)
+/// and permits self-redaction by the original author, so events created by
+/// default here are not byte-identical to those a stock Synapse would create.
+/// A remote server that does not support v11 cannot join a room created with
+/// this default.
+pub const DEFAULT_ROOM_VERSION: &str = "11";
 
 /// Constant `SUPPORTED_ROOM_VERSIONS`.
 pub const SUPPORTED_ROOM_VERSIONS: &[RoomVersionCapability] = &[
@@ -173,6 +186,20 @@ mod tests {
     #[test]
     fn default_room_version_is_advertised_as_supported() {
         assert!(is_supported_room_version(DEFAULT_ROOM_VERSION));
+    }
+
+    #[test]
+    fn default_room_version_is_11() {
+        // Pinned to a literal ON PURPOSE (not `DEFAULT_ROOM_VERSION`) so that
+        // changing the constant is a deliberate, reviewed act. It also pins the
+        // divergence from Element/Synapse, whose `default_room_version` still
+        // defaults to "10" (Synapse docs, changed 9→10 in Synapse 1.76):
+        // https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#default_room_version
+        assert_eq!(DEFAULT_ROOM_VERSION, "11");
+        assert_eq!(resolve_room_version(None), Some("11"));
+        // Every room-version surface must agree on the same literal.
+        let capability = client_room_versions_capability();
+        assert_eq!(capability["default"], "11");
     }
 
     #[test]

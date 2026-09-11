@@ -289,6 +289,15 @@ pub struct RateLimitConfigManager {
     /// and the health endpoint observe the same state.
     /// endpoint observe the same state.
     degradation: Arc<parking_lot::Mutex<RateLimitDegradation>>,
+    /// Raw bytes of the last successfully-read config file, used to decide
+    /// whether a periodic reload actually changed anything.
+    ///
+    /// The watcher polls every `reload_interval_seconds` (default 30s) forever.
+    /// Without this, each tick re-parsed the file, took the config write lock and
+    /// logged an INFO line even when the file was byte-identical — measured on the
+    /// deployed server 2026-09-12: **480 identical**
+    /// `Rate limit configuration reloaded` lines in 4 hours (~2,880/day).
+    loaded_contents: Arc<parking_lot::Mutex<Option<String>>>,
 }
 
 /// Where the currently-effective rate-limit configuration came from.
@@ -355,13 +364,19 @@ impl RateLimitConfigManager {
                 total_failures: 0,
                 last_error: None,
             })),
+            // Nothing read yet. The first successful `reload()` on this instance
+            // must count as a change, so that a manager booted on defaults starts
+            // honouring the file the moment it becomes readable.
+            loaded_contents: Arc::new(parking_lot::Mutex::new(None)),
         }
     }
 
     /// Constructs from file.
     pub async fn from_file<P: Into<PathBuf>>(path: P) -> Result<Self, RateLimitConfigError> {
         let path = path.into();
-        let config = RateLimitConfigFile::load(&path).await?;
+        let contents = tokio::fs::read_to_string(&path).await.map_err(RateLimitConfigError::ReadError)?;
+        let config: RateLimitConfigFile = serde_yaml::from_str(&contents).map_err(RateLimitConfigError::ParseError)?;
+        config.validate()?;
         let manager = Self {
             config: Arc::new(RwLock::new(config)),
             config_path: path,
@@ -371,6 +386,9 @@ impl RateLimitConfigManager {
                 total_failures: 0,
                 last_error: None,
             })),
+            // Seeded with the bytes we just parsed, so the first watcher tick
+            // does not re-log an unchanged file.
+            loaded_contents: Arc::new(parking_lot::Mutex::new(Some(contents))),
         };
         Ok(manager)
     }
@@ -400,30 +418,87 @@ impl RateLimitConfigManager {
     /// On success the degradation counters reset; on failure the previous
     /// config stays in effect and the failure is recorded (see
     /// [`RateLimitDegradation`]) instead of being visible only as a log line.
+    ///
+    /// **Idempotent when the file is unchanged**: the watcher polls every
+    /// `reload_interval_seconds` (default 30s) forever, so this method compares
+    /// the raw bytes against what it last applied and returns early — no config
+    /// write lock, no log line — when nothing changed.
     pub async fn reload(&self) -> Result<(), RateLimitConfigError> {
-        let loaded = RateLimitConfigFile::load(&self.config_path).await;
-        let new_config = match loaded {
-            Ok(config) => config,
+        // Read raw bytes first: comparing them is what makes this idempotent.
+        // Comparing the *parsed* config would need `PartialEq` on every
+        // rate-limit struct; the bytes are exact and free.
+        let contents = match tokio::fs::read_to_string(&self.config_path).await {
+            Ok(contents) => contents,
             Err(e) => {
+                let error = RateLimitConfigError::ReadError(e);
                 let mut state = self.degradation.lock();
                 state.consecutive_failures += 1;
                 state.total_failures += 1;
-                state.last_error = Some(e.to_string());
-                return Err(e);
+                state.last_error = Some(error.to_string());
+                return Err(error);
             }
         };
+
+        let new_config = match serde_yaml::from_str::<RateLimitConfigFile>(&contents) {
+            Ok(config) => config,
+            Err(e) => {
+                let error = RateLimitConfigError::ParseError(e);
+                let mut state = self.degradation.lock();
+                state.consecutive_failures += 1;
+                state.total_failures += 1;
+                state.last_error = Some(error.to_string());
+                return Err(error);
+            }
+        };
+        if let Err(e) = new_config.validate() {
+            let mut state = self.degradation.lock();
+            state.consecutive_failures += 1;
+            state.total_failures += 1;
+            state.last_error = Some(e.to_string());
+            return Err(e);
+        }
+
+        // Decide whether anything changed BEFORE taking the config write lock, so
+        // an unchanged file costs one read + one parse and nothing else.
+        let changed = {
+            let mut loaded = self.loaded_contents.lock();
+            if loaded.as_deref() == Some(contents.as_str()) {
+                false
+            } else {
+                *loaded = Some(contents);
+                true
+            }
+        };
+
+        let was_degraded = {
+            let mut state = self.degradation.lock();
+            // A successful read means the file is being honoured again, so the
+            // source is File even if we booted on defaults.
+            let was_degraded = state.consecutive_failures > 0 || state.source != ConfigSource::File;
+            state.source = ConfigSource::File;
+            state.consecutive_failures = 0;
+            state.last_error = None;
+            was_degraded
+        };
+
+        if !changed {
+            // Recovery deserves a line even when the bytes match the last read;
+            // a steady-state tick deserves silence.
+            if was_degraded {
+                tracing::info!(
+                    path = %self.config_path.display(),
+                    "Rate limit configuration readable again; unchanged contents reapplied"
+                );
+            }
+            return Ok(());
+        }
+
         {
             let mut config = self.config.write();
             *config = new_config;
         }
-        {
-            let mut state = self.degradation.lock();
-            // A successful reload means the file is being honoured again, so the
-            // source is File even if we booted on defaults.
-            state.source = ConfigSource::File;
-            state.consecutive_failures = 0;
-            state.last_error = None;
-        }
+        // Only on an actual change. This is the line that used to fire every
+        // `reload_interval_seconds` forever (measured: 480 identical lines in 4h).
         tracing::info!("Rate limit configuration reloaded from {:?}", self.config_path);
         Ok(())
     }
@@ -817,6 +892,74 @@ mod degradation_tests {
         assert!(clone.reload().await.is_err());
 
         assert_eq!(manager.degradation().consecutive_failures, 1);
+    }
+
+    #[tokio::test]
+    async fn reload_is_a_noop_when_the_file_is_unchanged() {
+        // The watcher polls every `reload_interval_seconds` (default 30s) forever.
+        // Re-applying an identical file is pure cost: it took the config write
+        // lock and emitted an INFO line every tick — measured 480 identical lines
+        // in 4 hours on the deployed server 2026-09-12.
+        //
+        // `from_file` seeds the change-detector with the bytes it parsed, so a
+        // freshly constructed manager is already "in sync". That makes the very
+        // first watcher tick the common case, not an edge case.
+        let file = NamedTempFile::new().expect("temp file");
+        std::fs::write(file.path(), serde_yaml::to_string(&RateLimitConfigFile::default()).expect("ser"))
+            .expect("write");
+        let manager = RateLimitConfigManager::from_file(file.path()).await.expect("load");
+
+        // Plant a marker in memory. If `reload()` re-applied the (unchanged) file
+        // it would overwrite this marker with the file's value.
+        let shared = manager.get_config_ref();
+        {
+            let mut cfg = shared.write();
+            cfg.default.per_second = 123_456;
+        }
+
+        for attempt in 1..=3 {
+            manager.reload().await.expect("reload of an unchanged file must succeed");
+            assert_eq!(
+                manager.get_config().default.per_second,
+                123_456,
+                "reload #{attempt} re-applied a byte-identical file: every watcher tick would then take                  the config write lock and log a line for nothing"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn reload_applies_an_actual_content_change() {
+        let file = NamedTempFile::new().expect("temp file");
+        std::fs::write(file.path(), serde_yaml::to_string(&RateLimitConfigFile::default()).expect("ser"))
+            .expect("write");
+        let manager = RateLimitConfigManager::from_file(file.path()).await.expect("load");
+
+        let mut changed = RateLimitConfigFile::default();
+        changed.default.per_second = 42;
+        std::fs::write(file.path(), serde_yaml::to_string(&changed).expect("ser")).expect("rewrite");
+        manager.reload().await.expect("reload after real change");
+
+        assert_eq!(manager.get_config().default.per_second, 42, "a real content change must be picked up");
+    }
+
+    #[tokio::test]
+    async fn reload_after_recovery_is_applied_even_if_contents_match_defaults() {
+        // Boot on defaults (file absent), then create the file. Its contents equal
+        // the built-in defaults, so change-detection must not mistake "we now
+        // honour the file" for "nothing changed".
+        let file = NamedTempFile::new().expect("temp file");
+        let path = file.path().to_path_buf();
+        std::fs::write(&path, serde_yaml::to_string(&RateLimitConfigFile::default()).expect("ser")).expect("write");
+
+        let manager = RateLimitConfigManager::new(RateLimitConfigFile::default(), path);
+        assert_eq!(manager.degradation().source, ConfigSource::Defaults);
+
+        manager.reload().await.expect("reload should adopt the file");
+        assert_eq!(
+            manager.degradation().source,
+            ConfigSource::File,
+            "a successful read must move the source to File even when the contents equal the defaults"
+        );
     }
 
     #[test]

@@ -58,7 +58,7 @@ pub struct CreateRoomConfig {
     /// `predecessor`). Merged into the create content.
     pub creation_content: Option<serde_json::Value>,
     /// Room version to record on m.room.create. Defaults to the server's
-    /// capabilities default ("10") when None.
+    /// `synapse_common::room_versions::DEFAULT_ROOM_VERSION` when None.
     pub room_version: Option<String>,
     /// Power level overrides applied on top of the spec defaults.
     pub power_level_content_override: Option<serde_json::Value>,

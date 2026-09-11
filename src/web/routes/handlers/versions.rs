@@ -150,19 +150,21 @@ pub async fn get_capabilities(
     // P-051: Include a `rooms` field with room version information so clients
     // can discover the default and available room versions. Per Matrix spec,
     // this goes inside the `capabilities` object, not at the top level.
+    //
+    // Both `m.room_versions` (built by capability governance from
+    // `DEFAULT_ROOM_VERSION`) and this `rooms` block describe the SAME thing, so
+    // both are derived from `client_room_versions_capability()`. This block used
+    // to hard-code `"default": "11"` with a single-entry `available`, which made
+    // the response contradict itself: `m.room_versions.default` said "10" while
+    // `rooms.room_versions.default` said "11", and the server actually created
+    // v10 rooms. Measured on the deployed server 2026-09-12 (a room created
+    // without an explicit version came back as `room_version = 10`).
     if let Some(obj) = response.as_object_mut() {
         let caps = obj.entry("capabilities").or_insert_with(|| json!({}));
         if let Some(caps_obj) = caps.as_object_mut() {
             caps_obj.insert(
                 "rooms".to_string(),
-                json!({
-                    "room_versions": {
-                        "default": "11",
-                        "available": {
-                            "11": "stable"
-                        }
-                    }
-                }),
+                json!({ "room_versions": synapse_common::room_versions::client_room_versions_capability() }),
             );
         }
     }
