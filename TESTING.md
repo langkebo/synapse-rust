@@ -575,6 +575,35 @@ bash scripts/cleanup_test_schemas.sh --apply
 >
 > 完整报告与实测原始输出：`docs/audit/P5_test_schema_accumulation_2026-09-12.md`。
 
+#### ⚠️ 目前**没有**自动回收机制，泄漏仍在持续
+
+2026-09-12 在独立临时集群上实测（干净库，跑 14 个 `oidc_session_storage` 用例）：
+
+| 轮次 | `test_*` schema 数 |
+|---|---|
+| 基线 | 0 |
+| 第 1 次运行 | **8** |
+| 第 2 次运行 | **16** |
+
+**每轮 +8，跨轮线性增长，永不回收。**
+
+代码里看起来存在三套"drop-on-release 登记 + sweep"机制
+（`src/test_utils.rs`、`synapse-services/src/test_utils.rs`、
+`synapse-storage/src/test_utils.rs`），但它们**对本场景无效**：
+
+* `sweep` 的触发时机是"**下一次**取池时"；
+* 而 nextest **一个用例一个进程** —— 进程取一次池、建一个 schema、然后退出，
+  **"下一次取池"永远不会发生**；
+* 登记表是**进程内** static，sweep 又不在进程退出时执行，于是随进程一起消失。
+
+**因此不要依赖代码自动回收，必须定期跑上面的清理脚本（或重建测试库）。**
+正确修法（未实现）是让 `prepare_empty_isolated_test_pool` 返回一个持有 schema 名
+的**守卫对象**由调用方 drop（即 `synapse-storage/src/test_isolation.rs` 里
+`IsolatedTestPool` 已被验证有效的形状：`spawn` + **join**），或让这批用例改走共享
+模板夹具。详见报告 §9（含"为什么两种看起来合理的修法都失败"的记录：
+按进程稳定命名只把泄漏从"每次调用"降到"每进程"；而 `static` + `impl Drop` 是死代码
+——**Rust 不会 drop 文件级 static**）。
+
 ### 9.2 CI测试环境
 
 - **操作系统**: Ubuntu 22.04 LTS
