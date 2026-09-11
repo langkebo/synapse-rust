@@ -699,6 +699,11 @@ mod tests {
 
     async fn prepare_media_test_pool() -> Result<Arc<sqlx::PgPool>, String> {
         let database_url = test_utils::resolve_test_database_url().await?;
+        // Reap schemas whose owning pool from an earlier media test has been
+        // released. This function used to mint a schema per call and never drop
+        // it: 1,033 orphaned `media_test_*` schemas had accumulated by
+        // 2026-09-12 (docs/audit/P5_test_schema_accumulation_2026-09-12.md).
+        test_utils::sweep_pending_schema_drops();
         let schema_name = format!(
             "media_test_{}_{}",
             std::process::id(),
@@ -879,7 +884,9 @@ mod tests {
         .await
         .map_err(|error| format!("failed to create media test schema objects in {schema_name}: {error}"))?;
 
-        Ok(Arc::new(pool))
+        let pool = Arc::new(pool);
+        test_utils::register_pending_schema_drop_for_media(&pool, schema_name, database_url);
+        Ok(pool)
     }
 
     async fn setup_test_media_domain_users_with_quota(

@@ -4,12 +4,105 @@ use sqlx::PgPool;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 use tokio::sync::OnceCell;
 use tokio::sync::{Mutex as TokioMutex, Semaphore};
 
 static PREPARED_TEST_POOLS: LazyLock<Mutex<VecDeque<Arc<PgPool>>>> = LazyLock::new(|| Mutex::new(VecDeque::new()));
+
+// ============================================================================
+// Drop-on-release registry
+// ============================================================================
+//
+// This module is a *fork* of the root crate's `src/test_utils.rs`, and the fork
+// lost the schema-lifecycle machinery: it has no `PENDING_SCHEMA_RETURNS`, no
+// `SCHEMA_POOL`, and no sweep. Every schema it creates therefore leaked until a
+// human ran `scripts/cleanup_test_schemas.sh`. Combined with the root harness's
+// own leak, this is how the local test database reached 23,662 leftover schemas
+// (docs/audit/P5_test_schema_accumulation_2026-09-12.md §1.3).
+//
+// Rather than copy the root crate's pool-and-reuse design (which would fork the
+// fork a third time), this uses the minimal correct lifetime for schemas that
+// cannot be safely reused: **drop them once the last `Arc<PgPool>` is released**.
+// As with the root crate, liveness is tracked with `Weak<PgPool>` because each
+// `#[tokio::test]` owns its own runtime and a pool cannot outlive it.
+
+struct PendingSchemaDrop {
+    schema_name: String,
+    database_url: String,
+    weak: Weak<PgPool>,
+}
+
+static PENDING_SCHEMA_DROPS: LazyLock<Mutex<Vec<PendingSchemaDrop>>> = LazyLock::new(|| Mutex::new(Vec::new()));
+
+/// Register `schema_name` to be dropped once every `Arc<PgPool>` clone of `pool`
+/// has been released.
+fn register_pending_schema_drop(pool: &Arc<PgPool>, schema_name: String, database_url: String) {
+    PENDING_SCHEMA_DROPS.lock().unwrap_or_else(|e| e.into_inner()).push(PendingSchemaDrop {
+        schema_name,
+        database_url,
+        weak: Arc::downgrade(pool),
+    });
+}
+
+/// Register an arbitrary test schema for drop-on-release.
+///
+/// Exposed for test modules that build their own schema outside this module
+/// (e.g. `media::prepare_media_test_pool`). Keeps the lifetime rule in one
+/// place instead of letting each module re-invent it.
+pub fn register_pending_schema_drop_for_media(pool: &Arc<PgPool>, schema_name: String, database_url: String) {
+    register_pending_schema_drop(pool, schema_name, database_url);
+}
+
+/// Drop every registered schema whose owning pool has been released.
+///
+/// Called opportunistically at the start of each pool acquisition, so cleanup
+/// is amortized onto the next test's setup and nothing accumulates past the
+/// lifetime of the process that created it. Also flushes the registry of
+/// still-live entries' dead peers on every call.
+pub fn sweep_pending_schema_drops() {
+    let dead: Vec<PendingSchemaDrop> = {
+        let mut guard = PENDING_SCHEMA_DROPS.lock().unwrap_or_else(|e| e.into_inner());
+        let mut dead = Vec::new();
+        let mut i = 0;
+        while i < guard.len() {
+            if guard[i].weak.upgrade().is_none() {
+                dead.push(guard.swap_remove(i));
+            } else {
+                i += 1;
+            }
+        }
+        dead
+    };
+    if dead.is_empty() {
+        return;
+    }
+    // A dedicated runtime: the caller's runtime may be in the middle of its own
+    // teardown (this is precisely the case we are cleaning up after).
+    let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+        return;
+    };
+    runtime.block_on(async move {
+        for entry in dead {
+            drop_schema_at_url(&entry.database_url, &entry.schema_name).await;
+        }
+    });
+}
+
+/// Best-effort `DROP SCHEMA ... CASCADE` on a fresh single connection.
+async fn drop_schema_at_url(database_url: &str, schema_name: &str) {
+    let Ok(pool) =
+        PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(database_url).await
+    else {
+        eprintln!("test schema drop: could not connect to drop {schema_name}; schema orphaned");
+        return;
+    };
+    if let Err(error) = sqlx::query(&format!("DROP SCHEMA IF EXISTS {schema_name} CASCADE")).execute(&pool).await {
+        eprintln!("test schema drop: failed to drop {schema_name}: {error}");
+    }
+    pool.close().await;
+}
 /// Static `TEST_ENV_LOCK`.
 pub static TEST_ENV_LOCK: LazyLock<TokioMutex<()>> = LazyLock::new(|| TokioMutex::new(()));
 static TEST_SCHEMA_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -177,6 +270,9 @@ pub fn configured_test_db_template_schema() -> Option<String> {
 pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     let database_url = resolve_test_database_url().await?;
     let schema_name = next_test_schema_name();
+    // Reap schemas whose owning pool from an earlier test in this process has
+    // already been released. Without this the fork never reclaimed anything.
+    sweep_pending_schema_drops();
 
     let connect_timeout = configured_test_pool_connect_timeout();
     let admin_pool = tokio::time::timeout(
@@ -242,6 +338,11 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
 
     ensure_test_schema_contract(&pool).await?;
 
+    // This schema was built by replaying every migration into it, not by cloning
+    // the template, so it cannot be safely TRUNCATEd-and-reused. Dropping it on
+    // release is its correct bounded lifetime.
+    register_pending_schema_drop(&pool, schema_name, database_url);
+
     Ok(pool)
 }
 
@@ -262,8 +363,12 @@ pub async fn prepare_shared_test_pool() -> Result<Arc<PgPool>, String> {
 
     // Step 2: Clone template into a fresh per-test schema
     let _permit = SHARED_CLONE_SEMAPHORE.acquire().await.map_err(|_| "shared clone semaphore closed".to_string())?;
-    let pool = clone_schema_from_template(&database_url, &template).await?;
+    sweep_pending_schema_drops();
+    let (pool, schema_name) = clone_schema_from_template(&database_url, &template).await?;
     ensure_test_schema_contract(&pool).await?;
+    // The root crate returns clones to a reuse pool; this fork has none, so a
+    // clone is dropped on release instead. Either way it must not leak.
+    register_pending_schema_drop(&pool, schema_name, database_url);
     Ok(pool)
 }
 
@@ -335,7 +440,45 @@ async fn init_template_schema(database_url: &str) -> Result<String, String> {
     // Close the template pool — we only need it for initialization
     pool.close().await;
 
+    // Drop template schemas left behind by *earlier test processes*, whose
+    // lifetime is the process that created them (the name embeds the pid).
+    //
+    // These cannot go through `register_pending_schema_drop`: the template pool
+    // is closed here while clones still reference the template, so a
+    // `Weak<PgPool>` would expire and the template would vanish mid-run. Instead
+    // each process reaps its dead predecessors at init — which is exactly the
+    // pattern the root crate uses for its fingerprint-named templates.
+    drop_stale_sibling_templates(&admin_pool, &template_name).await;
+
     Ok(template_name)
+}
+
+/// Drop `test_template_<pid>` schemas that are not `keep`.
+///
+/// The pattern is anchored to digits only, so it can never match the root
+/// crate's `test_template_v<rev>_<hex>` family nor the
+/// `synapse_test_template_ready_*` marker names.
+async fn drop_stale_sibling_templates(admin_pool: &PgPool, keep: &str) {
+    let stale: Result<Vec<String>, sqlx::Error> = sqlx::query_scalar(
+        "SELECT nspname FROM pg_namespace
+         WHERE nspname ~ '^test_template_[0-9]+$'
+           AND nspname <> $1
+         ORDER BY nspname",
+    )
+    .bind(keep)
+    .fetch_all(admin_pool)
+    .await;
+
+    let Ok(stale) = stale else {
+        return;
+    };
+    for schema in stale {
+        // Best-effort housekeeping: never fail template init over it.
+        match sqlx::query(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE")).execute(admin_pool).await {
+            Ok(_) => eprintln!("test schema pool: dropped stale sibling template {schema}"),
+            Err(error) => eprintln!("test schema pool: failed to drop stale template {schema}: {error}"),
+        }
+    }
 }
 
 async fn ensure_template_schema_exists(database_url: &str, schema_name: &str) -> Result<(), String> {
@@ -369,7 +512,7 @@ async fn ensure_template_schema_exists(database_url: &str, schema_name: &str) ->
     Ok(())
 }
 
-async fn clone_schema_from_template(database_url: &str, template_name: &str) -> Result<Arc<PgPool>, String> {
+async fn clone_schema_from_template(database_url: &str, template_name: &str) -> Result<(Arc<PgPool>, String), String> {
     let schema_name = next_test_schema_name();
     let connect_timeout = configured_test_pool_connect_timeout();
 
@@ -439,13 +582,14 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
 
     let pool = Arc::new(pool);
     ensure_test_schema_contract(&pool).await?;
-    Ok(pool)
+    Ok((pool, schema_name))
 }
 
 /// See [`prepare_empty_isolated_test_pool`].
 pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     let database_url = resolve_test_database_url().await?;
     let schema_name = next_test_schema_name();
+    sweep_pending_schema_drops();
 
     let connect_timeout = configured_test_pool_connect_timeout();
     let admin_pool = tokio::time::timeout(
@@ -492,6 +636,7 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     .map_err(|error| format!("failed to connect isolated pool for {schema_name}: {error}"))?;
 
     let pool = Arc::new(pool);
+    register_pending_schema_drop(&pool, schema_name, database_url);
     Ok(pool)
 }
 

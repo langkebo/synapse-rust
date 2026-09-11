@@ -237,8 +237,8 @@ HINT:  You might need to increase max_locks_per_transaction.
 |---|---|---|
 | 清完剩余 21,748 个普通 `test_*` + 25 个模板 schema | **未做** | 见 §4.2/§4.3 |
 | `src/test_utils.rs::prepare_isolated_test_pool` 接入待删登记 | ✅ **已实现** | 见 §7：`drop_only` 通路 + 本路径也做 sweep。⚠️ **尚未跑通实测验证**（见 §7.1） |
-| `synapse-services/src/test_utils.rs` 的 4 处 `CREATE SCHEMA` | **未做** | 该副本**完全没有任何清理机制**，需要与根 crate 收敛（§1.4） |
-| `synapse-services/src/media/mod.rs::prepare_media_test_pool` | **未做** | 同上 |
+| `synapse-services/src/test_utils.rs` 的泄漏路径 | ✅ **已实现**（§7.2） | 补齐 drop-on-release 注册表 + 兄弟模板回收；⚠️ 未跑 DB 验证 |
+| `synapse-services/src/media/mod.rs::prepare_media_test_pool` | ✅ **已实现**（§7.2） | 接入同一注册表；⚠️ 未跑 DB 验证 |
 | 三套夹具收敛成一份 | **未做** | **真正的根因**（§1.4）；与 `P5_workspace_test_isolation`、`P5_migration_search_path_shadowing` 同一结论 |
 | `synapse_test_template_*` 旧家族的创建方 | **未定位** | 前缀与 `synapse_test_template_ready` *标记*同名易混；已随 `synapse_test_*` 一并删除，但创建方仍未查明 |
 
@@ -341,6 +341,34 @@ SHOW max_connections;            -- 100
 > （EXIT=0），但**没有**跑过任何 DB 测试——执行时集群正处于 §8 的崩溃恢复中。
 > 在跑通 `prepare_isolated_test_pool` 相关用例并观察到 schema 数不再增长之前，
 > 不得声称这条止血已生效。
+
+### 7.2 `synapse-services` 分叉副本（已实现，未验证）
+
+同一批里补齐了该副本**完全缺失**的生命周期机制：
+
+* 新增 `PendingSchemaDrop` 注册表 + `sweep_pending_schema_drops()`，用
+  `Weak<PgPool>` 做活体检测，池全部释放后在**独立 current-thread runtime** 上
+  执行 `DROP SCHEMA`（不能用调用方的 runtime——要清理的恰恰是它已 teardown 的
+  场景）；
+* `prepare_isolated_test_pool` / `prepare_empty_isolated_test_pool` /
+  `prepare_shared_test_pool` 三处全部接入（入口 sweep + 末尾登记）；
+* `clone_schema_from_template` 改为返回 `(Arc<PgPool>, String)`，让调用方能登记
+  自己刚克隆出来的 schema 名；
+* `media::prepare_media_test_pool` 经
+  `test_utils::register_pending_schema_drop_for_media` 接入，并在入口 sweep；
+* 该副本的模板名是 `test_template_<pid>`（**按进程**，与根 crate 的
+  `test_template_v<rev>_<hex>` 指纹命名不同），且模板池在 `init_template_schema`
+  末尾就 `close()` 而克隆仍在引用它——因此**不能**走 `Weak` 登记（会中途过期），
+  改为在 init 时回收**兄弟进程**遗留的 `test_template_<digits>`。正则锚定到纯数字，
+  结构上不可能误伤根 crate 的指纹模板或 `synapse_test_template_ready_*` 标记名。
+
+为什么没有直接把根 crate 那套（含池化复用）复制过来：那会把"分叉"变成"第三次
+分叉"，正是 §1.4 的根因。这里选的是该副本**正确且最小**的语义——它不需要复用，
+只需要"用完即删"。
+
+> ⚠️ 同样**未验证**：`cargo check -p synapse-services --all-features --tests` 与
+> clippy 均通过（EXIT=0，15 警告 = 基线），但未跑过任何 DB 测试。
+> sqlx 动态比棘轮 1439→1442（+3，理由已记入 baseline 文件）。
 
 ---
 
