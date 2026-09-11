@@ -142,6 +142,16 @@ docker/deploy/
 > `deploy.sh` 本来就以 `PROJECT_ROOT=$SCRIPT_DIR/../..` 构建镜像，因此仓库根必然存在。
 
 > **配置同步约定**：`config/` 下的文件是运行版本；`docker/config/` 为镜像内建版本。修改 canonical 后需同步（`cp docker/config/<file> config/<file>`）。
+>
+> ⚠️ **该约定已由 CI 强制检查**（2026-09-11 起）：`scripts/check_config_consistency.py`
+> 做**语义**比较（注释差异不报），并接入 `.github/workflows/ci.yml` 的 `repo-sanity` job。
+> 有意的开发/生产差异必须登记在脚本的 `ALLOWED_DIFFERENCES` 白名单里并写明理由
+> （目前仅 `rate_limit.yaml` 的 `sync.enabled`：开发 `false` / 生产 `true`）。
+>
+> 为什么需要：这两份配置靠手工 `cp` 同步，历史上**确实漂移过** —— 两侧
+> `rate_limit.yaml` 的 `sync.enabled` 不一致，导致 `/sync` 完全失去限流
+> （实测 120/120 请求全 200；详见 `docs/audit/S_series_verification_2026-09-11.md` §2）。
+> 这与迁移双副本（`2b16dc3c` 已根治：单一真相源 + 阻塞检查）是**同一类**缺陷。
 
 ---
 

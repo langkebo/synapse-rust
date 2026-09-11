@@ -113,6 +113,16 @@ jobs:
           python3 scripts/check_migration_consistency.py \
             --json-report artifacts/migration_consistency.json
 
+      # 配置双副本一致性：docker/config/ 与 docker/deploy/config/ 靠手工 cp 同步，
+      # 无检查时曾漂移出 /sync 零限流（见 docs/audit/S_series_verification_2026-09-11.md §2）。
+      # 与迁移双副本（2b16dc3c 已根治）同型问题 —— 本步骤是它的配置侧对等物。
+      # 语义比较，注释差异不报；有意的开发/生产差异登记在脚本的 ALLOWED_DIFFERENCES。
+      - name: Config consistency (dev vs deploy trees)
+        run: |
+          mkdir -p artifacts
+          python3 scripts/check_config_consistency.py \
+            --json-report artifacts/config_consistency.json
+
       - name: Route ↔ storage boundary gate
         run: bash scripts/ci/check_route_storage_boundary.sh
 
