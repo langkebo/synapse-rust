@@ -651,7 +651,7 @@ sed -n '108,111p' src/server/mod.rs
 |---|---|---|---|
 | 1 | **加 metric/health 信号 + 告警**反映限流配置降级（§5.7） | **高** | ✅ **已完成**（提交 `4111d9eb`，见 `docs/audit/P4_rate_limit_observability_2026-09-11.md`） |
 | 2 | 单文件 bind mount → 目录挂载（§5.6 的**根因**；§8.2 #1 只是让它可观测） | 中 | ✅ **已完成**（提交 `e1aa439c`，见 `docs/audit/P4_bind_mount_fix_2026-09-11.md`） |
-| 3 | 重新标定并落实 `TESTING.md` 的 P95 阈值，或删除以免误导（§5.1） | 中 | ⬜ 待办（需决策） |
+| 3 | 重新标定并落实 `TESTING.md` 的 P95 阈值，或删除以免误导（§5.1） | 中 | ✅ **已完成**（提交 `99a63d47`，见 `docs/audit/P4_perf_gate_honesty_2026-09-11.md`） |
 | 4 | 以 §4.3 / §4.4 为锚点，同机同参数比对回归（注意 §4.5 限制） | 中 | ⬜ 待办 |
 | 5 | 采集 `performance_sliding_sync_benchmarks`（8 个，需服务/DB） | 低 | ⬜ 待办 |
 | 6 | 在真实 CI 上确认 `sliding-sync-perf-gate` job 首跑结果（本地无法完整复现 runner 环境） | 中 | ⬜ 待办 |
