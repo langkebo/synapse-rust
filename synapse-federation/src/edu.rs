@@ -239,8 +239,13 @@ mod tests {
 
     // --- Display / FromStr round-trip (template §1: 三张表必须同步) ---
 
+    /// Returns `Result` instead of panicking: this crate sets `panic = "deny"` and
+    /// grants test code an exemption for `unwrap_used`/`expect_used` only, so
+    /// `panic!`/`expect`/`unwrap` are all rejected in `--tests` builds.
+    /// Returning `Result` keeps the failure message rich (`?` propagates
+    /// `UnknownEduType`, which names the offending string) with zero panics.
     #[test]
-    fn test_edu_type_display_matches_from_str() {
+    fn test_edu_type_display_matches_from_str() -> Result<(), UnknownEduType> {
         let all = [
             EduType::Typing,
             EduType::Presence,
@@ -254,10 +259,10 @@ mod tests {
             // Display 产出的字符串必须能被 FromStr 解析回同一变体，
             // 保证 `EduType` / `FromStr` / `Display` 三处映射始终一致。
             let s = variant.to_string();
-            let parsed = EduType::from_str(&s)
-                .unwrap_or_else(|e| panic!("FromStr rejected Display output {s:?} for {variant:?}: {e}"));
+            let parsed = EduType::from_str(&s)?;
             assert_eq!(parsed, variant, "round-trip mismatch for {variant:?} -> {s:?}");
         }
+        Ok(())
     }
 
     #[test]
