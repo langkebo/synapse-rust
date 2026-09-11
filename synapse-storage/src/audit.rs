@@ -219,8 +219,13 @@ impl AuditEventStorage {
 
         let events = query.build_query_as::<AuditEvent>().fetch_all(&*self.pool).await?;
 
+        // P5-fix: anchor the cursor to the LAST RETURNED row, not `get(limit)`.
+        // The query fetches `LIMIT limit + 1` to detect a further page, and the
+        // continue predicate is the strict `... < cursor`. Using the (limit+1)-th
+        // row — which was never returned — made the next page skip it entirely
+        // (5 rows with limit=2 yielded pages of 2 + 2 + 0). See P5 report §3.5.
         let next_batch = if events.len() > filters.limit as usize {
-            events.get(filters.limit as usize).map(|event| {
+            events.get(filters.limit.saturating_sub(1) as usize).map(|event| {
                 encode_audit_event_cursor(&AuditEventCursor {
                     created_ts: event.created_ts,
                     event_id: event.event_id.clone(),

@@ -259,8 +259,13 @@ impl RegistrationTokenStorage {
             .await?
         };
 
+        // P5-fix: anchor the cursor to the LAST RETURNED row, not `get(limit)`.
+        // The query fetches `LIMIT limit + 1` to detect a further page, and the
+        // continue predicate is the strict `... < cursor`. Using the (limit+1)-th
+        // row — which was never returned — made the next page skip it entirely
+        // (5 rows with limit=2 yielded pages of 2 + 2 + 0). See P5 report §3.5.
         let next_batch = if rows.len() > limit as usize {
-            rows.get(limit as usize).map(|last_token| {
+            rows.get(limit.saturating_sub(1) as usize).map(|last_token| {
                 encode_registration_token_cursor(&RegistrationTokenCursor {
                     created_ts: last_token.created_ts,
                     id: last_token.id,

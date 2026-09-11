@@ -79,8 +79,11 @@ impl AuditEventStoreApi for InMemoryAuditEventStore {
             results.retain(|e| (e.created_ts, e.event_id.as_str()) < (cursor.created_ts, cursor.event_id.as_str()));
         }
 
+        // P5-fix: anchor the cursor to the LAST RETURNED row (see audit.rs). Using
+        // `get(limit)` — the (limit+1)-th row, which is never returned — combined
+        // with the strict `< cursor` predicate made the next page skip that row.
         let next_batch = if results.len() > filters.limit as usize {
-            results.get(filters.limit as usize).map(|event| {
+            results.get(filters.limit.saturating_sub(1) as usize).map(|event| {
                 encode_audit_event_cursor(&AuditEventCursor {
                     created_ts: event.created_ts,
                     event_id: event.event_id.clone(),
@@ -105,7 +108,7 @@ impl AuditEventStoreApi for InMemoryAuditEventStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::audit::{AuditEventCursor, AuditEventFilters, AuditEventStoreApi, CreateAuditEventRequest};
+    use crate::audit::{AuditEventFilters, AuditEventStoreApi, CreateAuditEventRequest};
 
     fn request(resource_id: &str) -> CreateAuditEventRequest {
         CreateAuditEventRequest {
@@ -163,13 +166,12 @@ mod tests {
             "total must NOT shrink with the cursor — production computes it with a \
              cursor-independent COUNT(*)"
         );
-        // NOTE: page2 is EMPTY, not 1. With 3 rows and limit=2 this mock (like the
-        // real PostgreSQL implementation) sets the next_batch cursor to the
-        // (limit+1)-th row — the row that was NOT returned — while the continue
-        // predicate is the strict `(created_ts, event_id) < cursor`. That row is
-        // therefore skipped entirely. Pinned here so the behaviour cannot change
-        // silently; see the P5 report §3.3.
-        assert_eq!(page2.len(), 0, "documents the (limit+1)-th-row cursor convention");
+        // The second page must hold the remaining row: the cursor is anchored to
+        // the LAST RETURNED row, so the strict `< cursor` predicate resumes exactly
+        // where the previous page stopped. (Before the fix the cursor pointed at the
+        // (limit+1)-th row, which was never returned, and page 2 came back empty —
+        // the row was skipped. See P5 report §3.5.)
+        assert_eq!(page2.len(), 1, "second page holds the remaining row (no skip)");
         assert!(next2.is_none(), "no further page expected");
     }
 
@@ -192,5 +194,77 @@ mod tests {
         let (page, total, _) = store.list_events(&filters).await.unwrap();
         assert_eq!(page.len(), 0, "limit 0 yields an empty page");
         assert_eq!(total, 2, "total still reflects the matching rows");
+    }
+}
+
+#[cfg(test)]
+mod pagination_invariant_tests {
+    use super::*;
+    use crate::audit::{AuditEventCursor, AuditEventFilters, AuditEventStoreApi, CreateAuditEventRequest};
+
+    fn request(tag: &str) -> CreateAuditEventRequest {
+        CreateAuditEventRequest {
+            actor_id: format!("@page-{tag}:t"),
+            action: "page.test".to_string(),
+            resource_type: "event".to_string(),
+            resource_id: "res".to_string(),
+            result: "success".to_string(),
+            request_id: "req".to_string(),
+            details: None,
+        }
+    }
+
+    /// Walk every page with the returned cursor and assert the visited set equals
+    /// the inserted set — i.e. every row is seen EXACTLY once, none skipped.
+    ///
+    /// This is the invariant that the previous `get(limit)` cursor convention
+    /// violated: with 5 rows and limit=2 it produced pages of 2 + 2 + 0, silently
+    /// dropping the 5th row (P5 report §3.5).
+    #[tokio::test]
+    async fn paginating_visits_every_row_exactly_once() {
+        let store = InMemoryAuditEventStore::new();
+        let actor = "@walker:t";
+        let mut expected = Vec::new();
+        for i in 0..5i64 {
+            let id = format!("$w{i}");
+            let mut req = request("walker");
+            req.actor_id = actor.to_string();
+            store.create_event(&id, 1_000 - i, &req).await.unwrap();
+            expected.push(id);
+        }
+
+        let mut seen: Vec<String> = Vec::new();
+        let mut cursor: Option<AuditEventCursor> = None;
+        for _ in 0..10 {
+            let filters = AuditEventFilters {
+                actor_id: Some(actor.to_string()),
+                action: None,
+                resource_type: None,
+                resource_id: None,
+                result: None,
+                limit: 2,
+                from: cursor.clone(),
+            };
+            let (page, _total, next) = store.list_events(&filters).await.unwrap();
+            if page.is_empty() {
+                break;
+            }
+            seen.extend(page.into_iter().map(|e| e.event_id));
+            match next {
+                Some(token) => {
+                    cursor = crate::audit::decode_audit_event_cursor(Some(&token));
+                    assert!(cursor.is_some(), "next_batch token must decode");
+                }
+                None => break,
+            }
+        }
+
+        seen.sort();
+        expected.sort();
+        assert_eq!(
+            seen, expected,
+            "paginating must visit every row exactly once; a missing id means the \
+             cursor convention skipped it"
+        );
     }
 }

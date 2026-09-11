@@ -423,8 +423,13 @@ impl RoomStorage {
 
         let rows: Vec<RoomWithMembersRecord> = query_builder.build_query_as().fetch_all(&*self.pool).await?;
 
+        // P5-fix: anchor the cursor to the LAST RETURNED row, not `get(limit)`.
+        // The query fetches `LIMIT limit + 1` to detect a further page, and the
+        // continue predicate is the strict `... < cursor`. Using the (limit+1)-th
+        // row — which was never returned — made the next page skip it entirely
+        // (5 rows with limit=2 yielded pages of 2 + 2 + 0). See P5 report §3.5.
         let next_batch = if rows.len() > limit as usize {
-            rows.get(limit as usize).map(|last_room| {
+            rows.get(limit.saturating_sub(1) as usize).map(|last_room| {
                 let cursor = match order_by {
                     RoomSearchOrder::Created => RoomSearchCursor::Created {
                         created_ts: last_room.created_ts,
