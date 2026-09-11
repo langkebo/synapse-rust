@@ -290,10 +290,15 @@ mod tests {
         };
 
         let result = service.add_member(member_request).await;
-        if result.is_err() {
-            eprintln!("Skipping test_add_member assertion: database operation failed");
-            return;
-        }
+        // The table-availability guard above already established that the schema
+        // exists and the pool works, so a failure here is NOT environmental — it
+        // is a real defect. This used to `eprintln!("Skipping ... assertion")` and
+        // `return`, silently converting a genuine failure into a green test.
+        assert!(
+            result.is_ok(),
+            "room_summary service.add_member must succeed against an available schema, got: {:?}",
+            result.as_ref().err()
+        );
 
         let member = result.unwrap();
         assert_eq!(member.membership, "join");

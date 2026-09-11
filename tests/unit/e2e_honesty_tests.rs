@@ -203,3 +203,73 @@ fn ignored_tests_must_carry_a_reason() {
 
     assert!(offenders.is_empty(), "tests skipped without a stated reason:\n  {}", offenders.join("\n  "));
 }
+
+// ── assertions must not be skippable ────────────────────────────────────
+
+/// A test that skips its **assertion** when a database operation fails is worse
+/// than no test: it reports green while the operation is broken, and it destroys
+/// the signal that would have found the bug.
+///
+/// This is a distinct, narrower failure than the ordinary "skip because the
+/// environment is unavailable" guard (which legitimately precedes it): by the
+/// time execution reaches the assertion, the schema and pool have already been
+/// verified to exist, so a failure there is a real defect, not a missing
+/// dependency.
+///
+/// Two such sites existed on 2026-09-12:
+///   * `tests/unit/worker_tests.rs` — `Skipping test_heartbeat assertion:
+///     database operation failed`
+///   * `tests/unit/room_summary_tests.rs` — `Skipping test_add_member assertion:
+///     database operation failed`
+///
+/// Both now assert. This guard keeps the pattern out.
+#[test]
+fn tests_must_not_skip_their_own_assertions() {
+    fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(path);
+            }
+        }
+    }
+
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut files = Vec::new();
+    walk(&root.join("tests"), &mut files);
+    assert!(!files.is_empty(), "scanner found no test .rs files");
+
+    let mut offenders = Vec::new();
+    for path in files {
+        let Ok(source) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        for (idx, line) in source.lines().enumerate() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("//") {
+                continue;
+            }
+            if !trimmed.contains("eprintln!") {
+                continue;
+            }
+            let lower = trimmed.to_ascii_lowercase();
+            // Only the "assertion" flavour: skipping because a dependency is
+            // missing is a separate (legitimate) concern.
+            if lower.contains("skipping") && lower.contains("assertion") {
+                offenders.push(format!(
+                    "{}:{} — skips its own assertion when the operation fails; assert instead: {}",
+                    path.strip_prefix(&root).unwrap_or(&path).display(),
+                    idx + 1,
+                    trimmed
+                ));
+            }
+        }
+    }
+
+    assert!(offenders.is_empty(), "tests that silently skip their assertions:\n  {}", offenders.join("\n  "));
+}

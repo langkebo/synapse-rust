@@ -386,10 +386,15 @@ mod tests {
             )
             .await;
 
-        if result.is_err() {
-            eprintln!("Skipping test_heartbeat assertion: database operation failed");
-            return;
-        }
+        // The table-availability guard above already established that the schema
+        // exists and the pool works, so a failure here is NOT environmental — it
+        // is a real defect. This used to `eprintln!("Skipping ... assertion")` and
+        // `return`, silently converting a genuine failure into a green test.
+        assert!(
+            result.is_ok(),
+            "worker_manager.heartbeat must succeed against an available schema, got: {:?}",
+            result.err()
+        );
     }
 
     #[tokio::test]
