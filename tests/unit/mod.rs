@@ -92,6 +92,7 @@ mod worker_coverage_tests;
 mod benchmark_pr_gate_tests;
 mod prelude_module_tests;
 mod room_domain_refactor_tests;
+mod schema_lifecycle_guard_tests;
 mod services_remaining_domains_refactor_tests;
 mod services_sync_domain_refactor_tests;
 mod sliding_sync_perf_gate_tests;

@@ -48,7 +48,7 @@
 # 历史对照：2026-06-03 审计记录动态占比 99.6%（含测试代码口径）；
 # 本基线口径（仅 workspace 生产目录，含内联测试模块）为 95.90%。
 
-BASELINE_DYNAMIC=1442
+BASELINE_DYNAMIC=1443
 BASELINE_STATIC=61
 
 # ── 基线调整记录 ─────────────────────────────────────────────────────────────
@@ -119,3 +119,18 @@ BASELINE_STATIC=61
 #
 #   收紧方向：真正的收敛是让这份分叉消失（三套夹具合并成一份，见报告 §1.4），
 #   届时这 3 处随之消失。仅靠把第 2 处改成宏，收益有限。
+#
+# 2026-09-12  +1  (1442 → 1443)
+#   来源：synapse-storage/src/test_utils.rs 的 prepare_empty_isolated_test_pool
+#   同样缺清理（schema 生命周期 helper 的**第三份**副本），补齐 drop-on-release
+#   注册表。唯一新增动态查询是
+#   `DROP SCHEMA IF EXISTS {schema} CASCADE` —— 标识符必须 format! 拼接，
+#   **无法**静态化（与根 crate、synapse-services 两处同型）。
+#
+#   ⚠️ 同样位于 `#[cfg(any(test, feature = "test-utils"))]` 门控模块，非生产代码。
+#
+#   至此 5 个 CREATE SCHEMA 站点（含 media 委托）全部具备清理路径，并由
+#   tests/unit/schema_lifecycle_guard_tests.rs 静态守卫锁住——该守卫已用
+#   git checkout 回滚实测过 RED（2/2 失败）。
+#
+#   收紧方向同前：把三/四份副本收敛成一份，这些动态调用自然消失。
