@@ -93,6 +93,7 @@ mod sliding_sync_perf_gate_tests;
 mod sqlx_ratio_gate_tests;
 mod storage_admin_domain_refactor_tests;
 mod storage_remaining_domains_refactor_tests;
+mod sync_rate_limit_config_tests;
 
 // P-096 route tests (12 files)
 mod account_compat_route_tests;

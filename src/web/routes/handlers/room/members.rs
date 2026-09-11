@@ -8,11 +8,81 @@ use crate::web::routes::{
 };
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
-    extract::{Json, Path, State},
+    extract::{Json, Path, Query, State},
     http::HeaderMap,
 };
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
+
+/// Percent-decodes a single application/x-www-form-urlencoded component.
+///
+/// `+` is decoded as a space (form encoding), and malformed `%` sequences are
+/// passed through verbatim rather than rejected — a bad `via` hint must not
+/// turn a join into a 400.
+fn percent_decode_component(raw: &str) -> String {
+    let bytes = raw.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            b'%' if i + 2 < bytes.len() => {
+                let hi = (bytes[i + 1] as char).to_digit(16);
+                let lo = (bytes[i + 2] as char).to_digit(16);
+                match (hi, lo) {
+                    (Some(hi), Some(lo)) => {
+                        out.push((hi * 16 + lo) as u8);
+                        i += 3;
+                    }
+                    _ => {
+                        out.push(bytes[i]);
+                        i += 1;
+                    }
+                }
+            }
+            b => {
+                out.push(b);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Extracts the spec-defined `via` server list for join/knock.
+///
+/// Matrix `POST /_matrix/client/v3/join/{roomIdOrAlias}` and
+/// `POST /_matrix/client/v3/knock/{roomIdOrAlias}` take `via` as a **repeated
+/// query parameter** (`?via=srv1&via=srv2`), not as a JSON body field — see
+/// ruma's `join_room_by_id_or_alias` and MSC4156 (`server_name` → `via`).
+///
+/// Before this fix the join handler read a non-standard body key
+/// `via_servers`, so the standard client payload `{"via":[...]}` was silently
+/// ignored and federated joins fell back to the room-id domain. `knock`
+/// ignored `via` entirely.
+///
+/// `legacy_body_via_servers` is retained as a back-compat fallback so
+/// deployments already sending the old shape keep working; `via` always wins.
+pub(crate) fn extract_via_servers(query: &[(String, String)], legacy_body_via_servers: Option<&Value>) -> Vec<String> {
+    let from_query: Vec<String> = query
+        .iter()
+        .filter(|(k, _)| k == "via")
+        .map(|(_, v)| percent_decode_component(v))
+        .filter(|v| !v.is_empty())
+        .collect();
+
+    if !from_query.is_empty() {
+        return from_query;
+    }
+
+    legacy_body_via_servers
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str()).map(str::to_string).collect())
+        .unwrap_or_default()
+}
 
 /// See [`join_room`].
 pub(crate) async fn join_room(
@@ -35,9 +105,16 @@ pub(crate) async fn join_room_by_id_or_alias(
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_id_or_alias): Path<String>,
+    Query(query): Query<Vec<(String, String)>>,
     body: Option<Json<serde_json::Value>>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
+
+    // Spec-defined `via` hint (`?via=srv`), with the pre-fix body key
+    // `via_servers` kept as a back-compat fallback. See
+    // [`extract_via_servers`].
+    let legacy_via = body.as_ref().and_then(|b| b.get("via_servers"));
+    let via_servers = extract_via_servers(&query, legacy_via);
 
     let room_id = if room_id_or_alias.starts_with('!') {
         validate_room_id(&room_id_or_alias)?;
@@ -82,13 +159,6 @@ pub(crate) async fn join_room_by_id_or_alias(
             .map_err(|e| ApiError::not_found(format!("Room alias not found: {e}")))?
             .ok_or_else(|| ApiError::not_found("Room ID not found for alias".to_string()))?
     };
-
-    let via_servers: Vec<String> = body
-        .and_then(|b| b.get("via_servers").and_then(|v| v.as_array()).cloned())
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|v| v.as_str().map(|s| s.to_string()))
-        .collect();
 
     ::tracing::info!(
         request_id = %request_id,
@@ -151,9 +221,19 @@ pub(crate) async fn knock_room(
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_id_or_alias): Path<String>,
+    Query(query): Query<Vec<(String, String)>>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
+
+    // MSC4156 / spec: `knock` takes `via` as a repeated query parameter, same
+    // as `join`. This server's knock path is currently local-only (it resolves
+    // aliases against local state and never federates the knock), so `via`
+    // cannot yet influence destination selection — but the parameter is
+    // *accepted* rather than silently dropped, and logged so an operator can
+    // see that a client asked for federated knock. When federated knocking is
+    // implemented, thread this into the service call.
+    let via_servers = extract_via_servers(&query, body.get("via_servers"));
 
     let room_id = if room_id_or_alias.starts_with('!') {
         validate_room_id(&room_id_or_alias)?;
@@ -181,6 +261,7 @@ pub(crate) async fn knock_room(
         request_id = %request_id,
         user_id = %auth_user.user_id,
         room_id = %room_id,
+        via_servers = ?via_servers,
         "User knocking on room"
     );
 
@@ -634,4 +715,124 @@ pub(crate) async fn unban_user(
     ctx.room_service.membership().unban_user(&room_id, target, &auth_user.user_id).await?;
 
     Ok(Json(json!({})))
+}
+
+#[cfg(test)]
+mod via_servers_tests {
+    //! MSC4156 / spec `via` extraction for `join` and `knock`.
+    //!
+    //! Regression context: the join handler previously read a **non-standard
+    //! body key** `via_servers`, so the standard client payload
+    //! `{"via":[...]}` (and the spec's `?via=` query parameter) was silently
+    //! ignored and federated joins fell back to the room-id domain. `knock`
+    //! ignored `via` entirely.
+    //!
+    //! Reference: ruma `join_room_by_id_or_alias` (via is a repeated query
+    //! parameter) and MSC4156 ("Migrate server_name to via").
+
+    use super::{extract_via_servers, percent_decode_component};
+    use serde_json::json;
+
+    fn q(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+        pairs.iter().map(|(k, v)| ((*k).to_string(), (*v).to_string())).collect()
+    }
+
+    // ------------------------------------------------------------------
+    // percent decoding
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn percent_decode_leaves_plain_text_untouched() {
+        assert_eq!(percent_decode_component("matrix.org"), "matrix.org");
+    }
+
+    #[test]
+    fn percent_decode_handles_encoded_characters() {
+        assert_eq!(percent_decode_component("a%2Eb"), "a.b");
+        // `%3A` is ':' — a port-bearing server name would arrive encoded.
+        assert_eq!(percent_decode_component("srv%3A8448"), "srv:8448");
+    }
+
+    #[test]
+    fn percent_decode_treats_plus_as_space() {
+        assert_eq!(percent_decode_component("a+b"), "a b");
+    }
+
+    #[test]
+    fn percent_decode_passes_malformed_sequences_through() {
+        // A bad `via` hint must not turn a join into a 400.
+        assert_eq!(percent_decode_component("100%"), "100%");
+        assert_eq!(percent_decode_component("%zz"), "%zz");
+    }
+
+    // ------------------------------------------------------------------
+    // spec-defined query parameter
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn reads_repeated_via_query_parameter() {
+        let query = q(&[("via", "srv1.example"), ("via", "srv2.example")]);
+        assert_eq!(extract_via_servers(&query, None), vec!["srv1.example", "srv2.example"]);
+    }
+
+    #[test]
+    fn reads_percent_encoded_via_query_parameter() {
+        let query = q(&[("via", "srv%3A8448")]);
+        assert_eq!(extract_via_servers(&query, None), vec!["srv:8448"]);
+    }
+
+    #[test]
+    fn empty_via_values_are_dropped() {
+        let query = q(&[("via", ""), ("via", "srv1.example")]);
+        assert_eq!(extract_via_servers(&query, None), vec!["srv1.example"]);
+    }
+
+    // ------------------------------------------------------------------
+    // back-compat: pre-fix body key
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn falls_back_to_legacy_body_key_when_no_query_via() {
+        let legacy = json!(["legacy.example"]);
+        assert_eq!(extract_via_servers(&[], Some(&legacy)), vec!["legacy.example"]);
+    }
+
+    #[test]
+    fn query_via_wins_over_legacy_body_key() {
+        let query = q(&[("via", "query.example")]);
+        let legacy = json!(["legacy.example"]);
+        assert_eq!(
+            extract_via_servers(&query, Some(&legacy)),
+            vec!["query.example"],
+            "规范参数 `via` 必须优先于遗留 body 键 `via_servers`"
+        );
+    }
+
+    #[test]
+    fn legacy_body_key_ignores_non_string_entries() {
+        let legacy = json!(["ok.example", 42, null, {"nested": true}]);
+        assert_eq!(extract_via_servers(&[], Some(&legacy)), vec!["ok.example"]);
+    }
+
+    #[test]
+    fn legacy_body_key_that_is_not_an_array_yields_empty() {
+        let legacy = json!("srv1.example");
+        assert!(extract_via_servers(&[], Some(&legacy)).is_empty());
+    }
+
+    // ------------------------------------------------------------------
+    // no hints at all
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn returns_empty_when_no_via_anywhere() {
+        assert!(extract_via_servers(&[], None).is_empty());
+        assert!(extract_via_servers(&[], Some(&json!([]))).is_empty());
+    }
+
+    #[test]
+    fn unrelated_query_parameters_are_ignored() {
+        let query = q(&[("limit", "10"), ("dir", "f"), ("via", "srv1.example")]);
+        assert_eq!(extract_via_servers(&query, None), vec!["srv1.example"]);
+    }
 }

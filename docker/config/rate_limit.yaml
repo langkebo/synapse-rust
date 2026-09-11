@@ -69,9 +69,13 @@ exempt_path_prefixes:
 endpoint_aliases: {}
 fail_open_on_error: false
 sync:
-  # Sliding sync performs long-polling and bursty catch-up after login. Disabling
-  # the dedicated sync limiter avoids false-positive 429s during local use of
-  # https://matrix.test while keeping the general limiter enabled elsewhere.
+  # 本地开发用宽松值：关闭专用 sync 限流，避免在 https://matrix.test 上
+  # 反复登录/抓包/压力试验时吃假阳性 429。
+  #
+  # ⚠️ 这**不是**生产设置。`/sync` 被路由 ledger 标记为 rate_limit_exempt，
+  # 不受通用 IP 限流约束，因此本段是它唯一的限流来源；关闭后 `timeout=0`
+  # 紧循环可无限刷（实测 120/120 全 200）。
+  # 生产取值见 `docker/deploy/config/rate_limit.yaml`（enabled: true）。
   enabled: false
   initial:
     per_second: 5

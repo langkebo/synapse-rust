@@ -149,7 +149,13 @@ pub fn create_thread_routes(state: AppState) -> Router<AppState> {
             "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads",
             get(list_threads_legacy_search),
         )
-        // MSC4155 / MSC4156 unstable compat stubs (same handlers as v1)
+        // MSC4155 unstable compat stub (same handlers as v1).
+        //
+        // ⚠️ 这里**不再**把 `.../msc4156/threads/subscribed` 标注为 MSC4156 兼容。
+        // MSC4156 = "Migrate server_name to via"（join/knock 的 via 参数），
+        // 与线程无关；线程订阅是用户私有态（account_data），不跨服务器同步。
+        // 该 unstable 路径保留仅为已发布客户端的向后兼容，**不是** MSC4156 表面；
+        // 真正的 MSC4156 支持见 members.rs 的 `extract_via_servers`。
         .route(
             "/_matrix/client/unstable/org.matrix.msc4155/rooms/{room_id}/threads",
             get(list_threads),
@@ -237,7 +243,10 @@ pub fn thread_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEnt
         (Method::GET, "/_matrix/client/v1/threads/subscribed"),
         (Method::GET, "/_matrix/client/v1/threads/unread"),
         (Method::GET, "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads"),
-        // MSC4155 / MSC4156 unstable compat stubs (same handlers as v1)
+        // MSC4155 unstable compat stub (same handlers as v1) + legacy
+        // `.../msc4156/...` path kept for already-published clients.
+        // MSC4156 itself is the server_name→via migration (see members.rs),
+        // NOT a thread surface.
         (Method::GET, "/_matrix/client/unstable/org.matrix.msc4155/rooms/{room_id}/threads"),
         (Method::GET, "/_matrix/client/unstable/org.matrix.msc4156/threads/subscribed"),
         (Method::POST, "/_matrix/client/v1/rooms/{room_id}/threads"),

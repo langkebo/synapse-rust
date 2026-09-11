@@ -36,30 +36,11 @@ rate_limit:
   default:
     per_second: 20
     burst_size: 40
-  # Endpoint-specific overrides: more restrictive limits for auth endpoints.
-  # POST /login and POST /register accept a burst of 3 then throttle to 5/s,
-  # preventing credential-stuffing bots from hammering auth infrastructure.
-  endpoints:
-    - path: "/_matrix/client/v3/login"
-      match_type: exact
-      rule:
-        per_second: 5
-        burst_size: 3
-    - path: "/_matrix/client/r0/login"
-      match_type: exact
-      rule:
-        per_second: 5
-        burst_size: 3
-    - path: "/_matrix/client/v3/register"
-      match_type: exact
-      rule:
-        per_second: 5
-        burst_size: 3
-    - path: "/_matrix/client/r0/register"
-      match_type: exact
-      rule:
-        per_second: 5
-        burst_size: 3
+  # ⚠️ 本段在运行时**不生效**：服务以 RATE_LIMIT_CONFIG_PATH 指向的
+  # `rate_limit.yaml` 整体**替换**（replace，不是字段级合并）整个 `rate_limit:`
+  # 段（见 src/web/middleware/rate_limit.rs）。
+  # 保留仅作文档/兜底说明。真正的生效值见 `config/rate_limit.yaml`。
+  endpoints: []
   ip_header_priority:
     - "x-forwarded-for"
     - "x-real-ip"
