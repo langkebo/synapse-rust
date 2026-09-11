@@ -287,7 +287,7 @@ CARGO_TARGET_DIR=/tmp/verify cargo test --doc --locked --workspace
 > 该守卫在开发过程中**发现了我人工 grep 漏掉的第 3 处站点**（`members.rs:356`），
 > 并在初次运行时如实 FAILED 列出全部违规行 —— 正是"守卫优于人工检查"的例证。
 
-### 3.5 🔴 发现：分页 `next_batch` 取 (limit+1) 项 + 严格 `<` 谓词 ⇒ 跳过一行
+### 3.5 ✅ 已修复：分页 `next_batch` 取 (limit+1) 项 + 严格 `<` 谓词 ⇒ 跳过一行
 
 **发现路径**：为 `audit_event` mock 写 `total` 语义回归测试时，断言"第二页应返回剩余 1 行"
 却实测得到 **0 行**。追查发现该行为**不是 mock 的问题，而是生产代码的分页语义**。
@@ -317,22 +317,37 @@ CARGO_TARGET_DIR=/tmp/verify cargo test --doc --locked --workspace
 
 | 文件 | 约定 |
 |---|---|
-| `membership/mod.rs:1063`（`rooms.last()`） | **A** ✅ |
-| `audit.rs:222` · `room/mod.rs:426` · `admin_media.rs:180` · `registration_token/repository.rs:262` · `federation_blacklist.rs:462` · `server_notification/repository.rs:130,705` | **B** 🔴 |
+| `membership/mod.rs:1063` · `admin_media.rs:180` · `server_notification/repository.rs:130,705` · `room/admin.rs:691` · `background_update.rs:331` · `module.rs:564`（均为 `.last()` 或等价） | **A** ✅ 无需改动 |
+| `audit.rs:223` · `room/mod.rs:427` · `registration_token/repository.rs:263`（`get(limit)`） | **B** 🔴 **已修复** |
+
+> ⚠️ **范围更正**：本节初稿按 `== limit` / `> limit` 的**条件写法**粗分类，得出"6+ 端点"，
+> 偏大。按**实际取值方式**（是否用 `get(limit)`）精确核对后，真正有缺陷的只有 **3 处**。
+> 教训：分类应基于行为而非表面条件写法。
 
 **外部佐证**：上游 Synapse 有专门修复 PR
 [#13840 "Fix skipping items when paginating /relations forward"](https://github.com/matrix-org/synapse/pull/13840/files/8828fa7c03c1ffe4d6186262a40dd7b901cad29d..8ce01fbfcd976c541ba3f61e2a6eab8e55b136f2#1)
 —— 标题直指同一类缺陷（分页跳过条目）。
 
-**为何本轮不修改**：这是**跨切面语义变更，涉及多个对外端点**（room 搜索、审计、
-admin media、注册令牌、联邦黑名单、服务器通知）。正确修法需要：
-1. 与消费方确认 cursor 契约（严格 `<` 搭配"最后返回项"是一个自洽组合）
-2. 逐个端点补充"跨页无遗漏"的回归测试
-3. 确认已发布客户端的兼容性（改变 cursor 语义可能影响在途分页）
+**✅ 已修复（commit `862726e6`）**：3 处 `get(limit)` → `get(limit.saturating_sub(1))`，
+把 cursor 锚定到**最后一个已返回行**。配合既有的严格 `<` 谓词，下一页恰好从上一页末行
+之后继续 —— 无跳过、无重复。
 
-**已在代码中固化现状**：`audit_event` mock 新增测试**锁定当前行为**
-（断言第 2 页为 0 行），使该行为不会静默变化；并附注释说明机制。
-真正的修复应作为独立任务，配合上述三步推进。
+**同步**：`audit_event` mock 一并改为锚定末行，使 mock 与生产语义一致。
+
+**回归测试**（2 个）：
+- `list_events_total_is_independent_of_cursor`：第二页断言 `len == 1`（修复前为 0）
+- `paginating_visits_every_row_exactly_once`：**完整遍历不变量** —— 5 行 + limit=2
+  逐页走完，断言访问集合 == 插入集合
+
+**RED 验证**（证据确凿）：临时恢复缺陷 cursor 后，不变量测试如期 FAILED：
+```
+left:  ["$w0", "$w1", "$w3", "$w4"]        ← $w2 被跳过
+right: ["$w0", "$w1", "$w2", "$w3", "$w4"]
+```
+还原后通过 ⇒ 测试确实能捕获该缺陷，而非"必过断言"。
+
+**未覆盖**：未对 `room` 搜索与注册令牌补同类遍历测试（本轮以审计事件作为代表性
+修复与验证；另两个端点的改动与之同构）。
 
 ---
 
