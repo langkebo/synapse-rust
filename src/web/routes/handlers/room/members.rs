@@ -303,7 +303,12 @@ pub(crate) async fn get_room_members(
     // MSC4502 pagination params
     let at = params.get("at").map(|s| s.as_str());
     let dir = params.get("dir").map(|s| s.as_str());
-    let limit: i64 = params.get("limit").and_then(|v| v.parse::<i64>().ok()).unwrap_or(100).min(1000);
+    // P4-fix: clamp BOTH ends (was `.min(1000)` only). A negative `limit` reached
+    // PostgreSQL as a negative LIMIT ⇒ "LIMIT must not be negative" ⇒ mapped to
+    // HTTP 500 for malformed client input; `limit=0` produced an empty page that
+    // still carried a `next_batch_token`. `metadata.rs` already uses
+    // `.clamp(1, 100)` for the same reason.
+    let limit: i64 = params.get("limit").and_then(|v| v.parse::<i64>().ok()).unwrap_or(100).clamp(1, 1000);
     let membership_filter = params.get("membership").map(|s| s.as_str());
     let not_membership_filter = params.get("not_membership").map(|s| s.as_str());
 
@@ -348,7 +353,12 @@ pub(crate) async fn get_room_members_recent(
     let members = ctx.room_service.membership().get_room_members(&room_id, &auth_user.user_id).await?;
 
     let from = params.get("from").and_then(|value| value.parse::<usize>().ok()).unwrap_or(0);
-    let limit = params.get("limit").and_then(|value| value.parse::<usize>().ok()).unwrap_or(100).min(1000);
+    // P4-fix: this path paginates an in-memory slice rather than issuing a SQL
+    // LIMIT, so a negative value merely fails to parse and falls back to the
+    // default (no 500). `limit=0` is still degenerate — it returns an empty chunk
+    // while advancing `end`/producing a continuation — so clamp the lower bound
+    // for consistency with the SQL-backed handlers.
+    let limit = params.get("limit").and_then(|value| value.parse::<usize>().ok()).unwrap_or(100).clamp(1, 1000);
 
     let chunk = members.get("chunk").and_then(|value| value.as_array()).cloned().unwrap_or_default();
 

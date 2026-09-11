@@ -143,8 +143,18 @@ pub(crate) async fn get_mutual_rooms(
         return Err(ApiError::forbidden("You cannot query mutual rooms with yourself".to_string()));
     }
 
-    // Limit handling with default
-    let limit: i64 = params.get("limit").and_then(|v| v.parse::<i64>().ok()).unwrap_or(100).min(1000);
+    // Limit handling with default.
+    //
+    // P4-fix: clamp BOTH ends. This previously used `.min(1000)` only, so a
+    // client-supplied `?limit=-1` reached PostgreSQL as a negative LIMIT, which
+    // errors ("LIMIT must not be negative"). That error was mapped to
+    // ApiError::database_with_context ⇒ HTTP 500 — i.e. malformed client input
+    // produced a server error instead of a sane clamped page. `limit=0` was
+    // equally wrong in the other direction: the query fetches `limit + 1`
+    // rows and reports has_more, so 0 returned an empty page *with* a
+    // next_batch_token, inviting an infinite client pagination loop.
+    // `metadata.rs` already uses `.clamp(1, 100)` for the same reason.
+    let limit: i64 = params.get("limit").and_then(|v| v.parse::<i64>().ok()).unwrap_or(100).clamp(1, 1000);
 
     // Pagination: supports both `from` and `batch_token` query param names
     let after = params.get("from").or_else(|| params.get("batch_token")).map(|s| s.as_str());
