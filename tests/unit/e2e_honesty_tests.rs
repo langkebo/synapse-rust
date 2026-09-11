@@ -135,3 +135,71 @@ fn user_flow_tests_remain_an_explicit_opt_in() {
     assert!(src.contains("E2E_RUN"), "user_flow_tests.rs 的用例应由 E2E_RUN 显式开启，而不是在 CI 中默认运行");
     assert!(src.contains("#[ignore"), "user_flow_tests.rs 需要 `#[ignore]` 标注，否则会在没有 homeserver 的环境里失败");
 }
+
+// ── skipped tests must say why ──────────────────────────────────────────
+
+/// A bare `#[ignore]` is a permanently-silent test: nothing records why it is
+/// skipped, what would unblock it, or how to run it on purpose. Such a test rots
+/// invisibly and still inflates the "test count" a reader trusts.
+///
+/// This repo reached 25 `#[ignore]` sites, 14 of which were bare (`grep -c` on
+/// 2026-09-12). The four genuine ones — load/latency smoke tests whose assertions
+/// depend on wall-clock timing and therefore cannot run in CI — now carry an
+/// explicit reason **and the exact command to run them**. This guard keeps it
+/// that way.
+///
+/// Note the scan deliberately matches a *real* attribute line, not the string
+/// `#[ignore]` inside a comment or a `contains("#[ignore")` assertion — 10 of the
+/// 14 original hits were prose.
+#[test]
+fn ignored_tests_must_carry_a_reason() {
+    fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(path);
+            }
+        }
+    }
+
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut files = Vec::new();
+    for rel in [
+        "src",
+        "tests",
+        "synapse-common/src",
+        "synapse-storage/src",
+        "synapse-services/src",
+        "synapse-e2ee/src",
+        "synapse-cache/src",
+        "synapse-federation/src",
+    ] {
+        walk(&root.join(rel), &mut files);
+    }
+    assert!(!files.is_empty(), "scanner found no .rs files");
+
+    let mut offenders = Vec::new();
+    for path in files {
+        let Ok(source) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        for (idx, line) in source.lines().enumerate() {
+            let trimmed = line.trim();
+            // A real attribute: the line is exactly `#[ignore]`.
+            if trimmed == "#[ignore]" {
+                offenders.push(format!(
+                    "{}:{} — bare `#[ignore]`; use `#[ignore = \"<why, and how to run it>\"]`",
+                    path.strip_prefix(&root).unwrap_or(&path).display(),
+                    idx + 1
+                ));
+            }
+        }
+    }
+
+    assert!(offenders.is_empty(), "tests skipped without a stated reason:\n  {}", offenders.join("\n  "));
+}

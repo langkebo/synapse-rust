@@ -233,7 +233,7 @@ async fn post_sliding_sync_with_latency(app: axum::Router, token: String) -> (St
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore]
+#[ignore = "手工负载冒烟：200 请求 / 20 并发，并按墙钟时间断言 p95/p99。结果依赖机器负载，在 CI 上会假失败。显式运行：cargo nextest run --all-features --test performance_manual --run-ignored ignored-only sliding_sync_poc_load_smoke -- --nocapture"]
 async fn sliding_sync_poc_load_smoke() {
     let Some(app) = setup_test_app().await else {
         return;
@@ -302,7 +302,7 @@ async fn sliding_sync_poc_load_smoke() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore]
+#[ignore = "手工负载冒烟：热点房间反压（预期出现 429），按墙钟时间断言时延分位。结果依赖机器负载，在 CI 上会假失败。显式运行：cargo nextest run --all-features --test performance_manual --run-ignored ignored-only beacon_hot_room_backpressure_load_smoke -- --nocapture"]
 async fn beacon_hot_room_backpressure_load_smoke() {
     let Some(app) = setup_test_app().await else {
         return;
