@@ -665,7 +665,13 @@ mod db_tests {
         assert_eq!(captcha.user_agent.as_deref(), Some("test-agent/1.0"));
 
         // Cleanup
-        sqlx::query("DELETE FROM registration_captcha WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM registration_captcha WHERE target = $1")
+            .bind(&sql_target)
+            .execute(&*pool)
+            .await
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
     }
 
     #[tokio::test]
@@ -694,7 +700,13 @@ mod db_tests {
         assert_eq!(captcha.max_attempts, 5);
         assert_eq!(captcha.metadata, serde_json::json!({}));
 
-        sqlx::query("DELETE FROM registration_captcha WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM registration_captcha WHERE target = $1")
+            .bind(&sql_target)
+            .execute(&*pool)
+            .await
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
     }
 
     // ---------------------------------------------------------------------------
@@ -716,7 +728,13 @@ mod db_tests {
         assert_eq!(found.captcha_id, created.captcha_id);
         assert_eq!(found.code, "abcd");
 
-        sqlx::query("DELETE FROM registration_captcha WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM registration_captcha WHERE target = $1")
+            .bind(&sql_target)
+            .execute(&*pool)
+            .await
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
     }
 
     #[tokio::test]
@@ -750,7 +768,13 @@ mod db_tests {
         assert_eq!(latest.code, "bbbbb");
         assert_eq!(latest.status, "pending");
 
-        sqlx::query("DELETE FROM registration_captcha WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM registration_captcha WHERE target = $1")
+            .bind(&sql_target)
+            .execute(&*pool)
+            .await
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
     }
 
     #[tokio::test]
@@ -773,7 +797,13 @@ mod db_tests {
         assert_eq!(latest.captcha_id, second.captcha_id);
         assert_eq!(latest.code, "second");
 
-        sqlx::query("DELETE FROM registration_captcha WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM registration_captcha WHERE target = $1")
+            .bind(&sql_target)
+            .execute(&*pool)
+            .await
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
     }
 
     #[tokio::test]
@@ -811,7 +841,13 @@ mod db_tests {
         assert!(updated.verified_ts.is_some());
         assert!(updated.used_ts.is_some());
 
-        sqlx::query("DELETE FROM registration_captcha WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM registration_captcha WHERE target = $1")
+            .bind(&sql_target)
+            .execute(&*pool)
+            .await
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
     }
 
     #[tokio::test]
@@ -833,7 +869,13 @@ mod db_tests {
         assert_eq!(updated.status, "pending");
         assert_eq!(updated.attempt_count, 1);
 
-        sqlx::query("DELETE FROM registration_captcha WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM registration_captcha WHERE target = $1")
+            .bind(&sql_target)
+            .execute(&*pool)
+            .await
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
     }
 
     #[tokio::test]
@@ -886,7 +928,13 @@ mod db_tests {
         assert!(updated.is_some());
         assert_eq!(updated.unwrap().status, "expired");
 
-        sqlx::query("DELETE FROM registration_captcha WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM registration_captcha WHERE target = $1")
+            .bind(&sql_target)
+            .execute(&*pool)
+            .await
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
     }
 
     #[tokio::test]
@@ -922,7 +970,13 @@ mod db_tests {
         assert!(updated.is_some());
         assert_eq!(updated.unwrap().status, "exhausted");
 
-        sqlx::query("DELETE FROM registration_captcha WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM registration_captcha WHERE target = $1")
+            .bind(&sql_target)
+            .execute(&*pool)
+            .await
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
     }
 
     // ---------------------------------------------------------------------------
@@ -946,7 +1000,13 @@ mod db_tests {
         assert_eq!(updated.status, "used");
         assert!(updated.used_ts.is_some());
 
-        sqlx::query("DELETE FROM registration_captcha WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM registration_captcha WHERE target = $1")
+            .bind(&sql_target)
+            .execute(&*pool)
+            .await
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
     }
 
     // ---------------------------------------------------------------------------
@@ -985,7 +1045,9 @@ mod db_tests {
         assert!(log.error_message.is_none());
         assert_eq!(log.provider.as_deref(), Some("aws-sns"));
 
-        sqlx::query("DELETE FROM captcha_send_log WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM captcha_send_log WHERE target = $1").bind(&sql_target).execute(&*pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 
     #[tokio::test]
@@ -1012,7 +1074,9 @@ mod db_tests {
         assert_eq!(log.error_message.as_deref(), Some("SMTP connection refused"));
         assert!(log.captcha_id.is_none());
 
-        sqlx::query("DELETE FROM captcha_send_log WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM captcha_send_log WHERE target = $1").bind(&sql_target).execute(&*pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 
     // ---------------------------------------------------------------------------
@@ -1046,7 +1110,9 @@ mod db_tests {
         let within = storage.check_rate_limit(&target, "sms", 2).await.expect("check rate limit");
         assert!(within);
 
-        sqlx::query("DELETE FROM captcha_send_log WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM captcha_send_log WHERE target = $1").bind(&sql_target).execute(&*pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 
     #[tokio::test]
@@ -1076,7 +1142,9 @@ mod db_tests {
         let within = storage.check_rate_limit(&target, "sms", 1).await.expect("check rate limit");
         assert!(!within);
 
-        sqlx::query("DELETE FROM captcha_send_log WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM captcha_send_log WHERE target = $1").bind(&sql_target).execute(&*pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 
     #[tokio::test]
@@ -1120,7 +1188,9 @@ mod db_tests {
         let within = storage.check_ip_rate_limit("192.168.50.1", 2).await.expect("check IP rate limit");
         assert!(within);
 
-        sqlx::query("DELETE FROM captcha_send_log WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM captcha_send_log WHERE target = $1").bind(&sql_target).execute(&*pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 
     #[tokio::test]
@@ -1149,7 +1219,9 @@ mod db_tests {
         let within = storage.check_ip_rate_limit("10.10.10.10", 1).await.expect("check IP rate limit");
         assert!(!within);
 
-        sqlx::query("DELETE FROM captcha_send_log WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM captcha_send_log WHERE target = $1").bind(&sql_target).execute(&*pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 
     // ---------------------------------------------------------------------------
@@ -1188,7 +1260,9 @@ mod db_tests {
             .bind(&template_name)
             .execute(&*pool)
             .await
-            .ok();
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
     }
 
     #[tokio::test]
@@ -1218,7 +1292,9 @@ mod db_tests {
             .bind(&template_name)
             .execute(&*pool)
             .await
-            .ok();
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
     }
 
     #[tokio::test]
@@ -1268,7 +1344,9 @@ mod db_tests {
             .bind(&template_name)
             .execute(&*pool)
             .await
-            .ok();
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
     }
 
     #[tokio::test]
@@ -1300,7 +1378,9 @@ mod db_tests {
             .bind(&template_name)
             .execute(&*pool)
             .await
-            .ok();
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
     }
 
     // ---------------------------------------------------------------------------
@@ -1326,7 +1406,9 @@ mod db_tests {
         let result = storage.get_config(&config_key).await.expect("get_config should succeed");
         assert_eq!(result, Some("42".to_string()));
 
-        sqlx::query("DELETE FROM captcha_config WHERE config_key = $1").bind(&config_key).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM captcha_config WHERE config_key = $1").bind(&config_key).execute(&*pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 
     #[tokio::test]
@@ -1357,7 +1439,9 @@ mod db_tests {
         let value = storage.get_config_as_int(&config_key, 0).await.expect("get_config_as_int should succeed");
         assert_eq!(value, 99);
 
-        sqlx::query("DELETE FROM captcha_config WHERE config_key = $1").bind(&config_key).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM captcha_config WHERE config_key = $1").bind(&config_key).execute(&*pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 
     #[tokio::test]
@@ -1389,7 +1473,9 @@ mod db_tests {
         let value = storage.get_config_as_int(&config_key, 7).await.expect("get_config_as_int should succeed");
         assert_eq!(value, 7);
 
-        sqlx::query("DELETE FROM captcha_config WHERE config_key = $1").bind(&config_key).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM captcha_config WHERE config_key = $1").bind(&config_key).execute(&*pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 
     // ---------------------------------------------------------------------------
@@ -1442,7 +1528,13 @@ mod db_tests {
         assert!(after.is_none());
 
         // Cleanup any leftovers
-        sqlx::query("DELETE FROM registration_captcha WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM registration_captcha WHERE target = $1")
+            .bind(&sql_target)
+            .execute(&*pool)
+            .await
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
     }
 
     #[tokio::test]
@@ -1494,7 +1586,13 @@ mod db_tests {
         assert!(after.is_some());
         assert_eq!(after.unwrap().status, "expired");
 
-        sqlx::query("DELETE FROM registration_captcha WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM registration_captcha WHERE target = $1")
+            .bind(&sql_target)
+            .execute(&*pool)
+            .await
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
     }
 
     #[tokio::test]

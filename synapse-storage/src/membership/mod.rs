@@ -1306,10 +1306,18 @@ mod db_tests {
 
     async fn cleanup_membership_data(pool: &sqlx::PgPool, suffix: &str) {
         let pattern = format!("%{suffix}%");
-        sqlx::query("DELETE FROM room_memberships WHERE user_id LIKE $1").bind(&pattern).execute(pool).await.ok();
-        sqlx::query("DELETE FROM room_memberships WHERE room_id LIKE $1").bind(&pattern).execute(pool).await.ok();
-        sqlx::query("DELETE FROM rooms WHERE room_id LIKE $1").bind(&pattern).execute(pool).await.ok();
-        sqlx::query("DELETE FROM users WHERE user_id LIKE $1").bind(&pattern).execute(pool).await.ok();
+        sqlx::query("DELETE FROM room_memberships WHERE user_id LIKE $1").bind(&pattern).execute(pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
+        sqlx::query("DELETE FROM room_memberships WHERE room_id LIKE $1").bind(&pattern).execute(pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
+        sqlx::query("DELETE FROM rooms WHERE room_id LIKE $1").bind(&pattern).execute(pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
+        sqlx::query("DELETE FROM users WHERE user_id LIKE $1").bind(&pattern).execute(pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 
     // ── 1. add_member ─────────────────────────────────────────────

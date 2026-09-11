@@ -152,7 +152,7 @@ mod db_tests {
         .bind(username)
         .execute(pool)
         .await
-        .ok();
+        .expect("test fixture: insert must succeed — a swallowed error here surfaces later as an unrelated failure");
     }
 
     fn make_suffix() -> String {

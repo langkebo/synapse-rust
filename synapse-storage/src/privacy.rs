@@ -1023,7 +1023,7 @@ mod db_tests {
         )
         .execute(&*pool)
         .await
-        .ok();
+        .expect("test fixture: statement must succeed — a swallowed error here surfaces later as an unrelated failure");
 
         let storage = PrivacyStorage::new(pool.clone());
         let user_a = format!("@batch_a_{}:test.com", suffix);

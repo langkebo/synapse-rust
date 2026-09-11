@@ -842,17 +842,23 @@ mod db_tests {
             .bind(server_name)
             .execute(pool)
             .await
-            .ok();
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
         sqlx::query("DELETE FROM federation_access_stats WHERE server_name = $1")
             .bind(server_name)
             .execute(pool)
             .await
-            .ok();
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
         sqlx::query("DELETE FROM federation_blacklist WHERE server_name = $1")
             .bind(server_name)
             .execute(pool)
             .await
-            .ok();
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
     }
 
     async fn cleanup_rule_by_name(pool: &PgPool, rule_name_like: &str) {
@@ -860,7 +866,9 @@ mod db_tests {
             .bind(rule_name_like)
             .execute(pool)
             .await
-            .ok();
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
     }
 
     // 1. add_to_blacklist inserts a new record and returns it.

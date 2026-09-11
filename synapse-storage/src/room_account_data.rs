@@ -362,7 +362,9 @@ mod db_tests {
             .bind(room_id)
             .execute(pool)
             .await
-            .ok();
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
     }
 
     // 1. Store room account data via upsert and verify it exists in the DB.

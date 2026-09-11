@@ -86,6 +86,46 @@ later as an unrelated failure")`，让失败在**发生处**点名自己。
 
 ---
 
+
+---
+
+## 1bis. 范围扩展：内联 `#[cfg(test)]` 模块（第二轮）
+
+第一版守卫只按**文件名**判断测试支持（`*db_tests*.rs` / `test_mocks/*` /
+`_tests.rs`），因此漏掉了大量**内联** `#[cfg(test)] mod db_tests { ... }`
+写法 —— 它们位于 `captcha.rs`、`voice.rs`、`privacy.rs` 等生产文件名之下。
+
+补上 `cfg_test_mask()`：按行跟踪 `#[cfg(test)]` 模块的括号深度，
+据此判断某一行是否属于测试代码。扩展后守卫从 32 处增到 **107 处**（15 个文件）：
+
+| 文件 | 处数 |
+|---|---|
+| `captcha.rs` | 25 |
+| `voice.rs` | 16 |
+| `state_groups.rs` | 7 |
+| `federation_blacklist.rs` | 4 |
+| `burn_after_read.rs` | 4 |
+| `membership/mod.rs` | 4 |
+| `invite_blocklist.rs` | 3 |
+| `admin_federation.rs` | 3 |
+| `widget.rs` / `account_data/mod.rs` | 各 2 |
+| `qr_login.rs` / `search_index.rs` / `room_account_data.rs` / `privacy.rs` / `rate_limit.rs` | 各 1 |
+
+另含第一轮的 6 个文件（friend_room 12 / media_quota 6 / thread 5 / saml 5 /
+registration_token 3 / server_notification 1）与手工修的 room_summary 2 处。
+
+**已逐项核对改动位置确实落在测试区域内**（例如 `privacy.rs` 首个改动行 1026，
+其所在模块为 `mod db_tests`；`rate_limit.rs` 首个改动行 155 位于
+`#[cfg(test)] mod db_tests` 内）—— 75 处机械替换的爆炸半径较大，
+这一步是必要的自检，不是走过场。
+
+验证：
+
+```console
+$ cargo nextest run -p synapse-storage --lib     -E 'test(/captcha|voice|state_groups|federation_blacklist|burn_after_read|invite_blocklist|admin_federation|widget|privacy|rate_limit|search_index|room_account_data|qr_login/)' --test-threads 4
+    Summary [699.489s] 176 tests run: 176 passed (21 slow)
+```
+
 ## 2. 验证
 
 ```console
@@ -136,7 +176,7 @@ search_path）。
 |---|---|---|
 | 生产代码 `.ok()` | 113 | 多为正当用法，需逐个判断，不宜机械替换 |
 | 生产代码 `let _ = <query/execute>` | 83 | 同上 |
-| 其他 crate 的测试夹具 | 未统计 | 本次只覆盖 `synapse-storage`（守卫的扫描范围已含全部 crate，会持续拦截新增） |
+| 其他 crate 的测试夹具 | 已归零 | 守卫扫描全部 crate（含内联 `#[cfg(test)]` 模块），当前为 0 命中 |
 
 守卫已就位，因此**新增**的夹具吞错会被拦住；存量则按需逐个处理（每条都需要
 判断"这个失败是否真的可以忽略"，机械替换有把"刻意 best-effort"变成硬失败的风险）。

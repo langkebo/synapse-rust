@@ -424,7 +424,9 @@ mod db_tests {
         let room_id = format!("!room_{suffix}:test.com");
 
         // Cleanup at start (previous failed run)
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
 
         let id = storage
             .record_upload(&user_id, Some(&room_id), &media_id, "audio/ogg", 5000, 102400)
@@ -433,7 +435,9 @@ mod db_tests {
         assert!(id > 0);
 
         // Cleanup at end
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 
     #[tokio::test]
@@ -446,7 +450,9 @@ mod db_tests {
         let room_id = format!("!room_get_{suffix}:test.com");
 
         // Cleanup at start
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
 
         // Not found for non-existent media_id
         let result = storage.get_by_media_id("nonexistent_media_id_12345").await.expect("query should succeed");
@@ -468,7 +474,9 @@ mod db_tests {
         assert_eq!(found.size_bytes, 51200);
 
         // Cleanup at end
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 
     #[tokio::test]
@@ -480,7 +488,9 @@ mod db_tests {
         let room_id = format!("!room_msgs_{suffix}:test.com");
 
         // Cleanup at start
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
 
         // Record 3 messages for the same room
         for i in 0..3 {
@@ -502,7 +512,9 @@ mod db_tests {
         assert!(msgs[0].created_ts >= msgs[1].created_ts);
 
         // Cleanup at end
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 
     #[tokio::test]
@@ -514,7 +526,9 @@ mod db_tests {
         let media_id = format!("user_media_{suffix}");
 
         // Cleanup at start
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
 
         storage
             .record_upload(&user_id, None, &media_id, "audio/ogg", 7000, 204800)
@@ -529,7 +543,9 @@ mod db_tests {
         assert!(msgs[0].room_id.is_none());
 
         // Cleanup at end
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 
     #[tokio::test]
@@ -540,7 +556,9 @@ mod db_tests {
         let user_id = format!("@voice_ustats_{suffix}:test.com");
 
         // Cleanup at start
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
 
         // Record 3 uploads
         for i in 0..3 {
@@ -558,7 +576,9 @@ mod db_tests {
         assert!(stats.uploads_today >= 0);
 
         // Cleanup at end
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 
     #[tokio::test]
@@ -570,7 +590,9 @@ mod db_tests {
         let room_id = format!("!room_stats_{suffix}:test.com");
 
         // Cleanup at start
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
 
         // Record 2 uploads in the same room
         for i in 0..2 {
@@ -594,7 +616,9 @@ mod db_tests {
         assert_eq!(stats.total_size_bytes, 200000);
 
         // Cleanup at end
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 
     #[tokio::test]
@@ -605,7 +629,9 @@ mod db_tests {
         let user_id = format!("@voice_deluser_{suffix}:test.com");
 
         // Cleanup at start
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
 
         storage
             .record_upload(&user_id, None, &format!("del_media_{suffix}"), "audio/ogg", 1000, 1024)
@@ -620,7 +646,9 @@ mod db_tests {
         assert_eq!(stats.total_uploads, 0);
 
         // Cleanup at end (already deleted, but safe to re-run)
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 
     #[tokio::test]
@@ -633,7 +661,9 @@ mod db_tests {
         let room_id = format!("!rt_room_{suffix}:test.com");
 
         // Cleanup at start
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
 
         let id = storage
             .record_upload(&user_id, Some(&room_id), &media_id, "audio/ogg; codecs=opus", 42000, 987654)
@@ -665,6 +695,8 @@ mod db_tests {
         assert_eq!(global_stats.total_size_bytes, 987654);
 
         // Cleanup at end
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 }

@@ -668,12 +668,16 @@ mod db_tests {
     /// Hard-delete a widget and everything that cascades from it
     /// (widget_permissions, widget_sessions). Idempotent.
     async fn cleanup_widget(pool: &PgPool, widget_id: &str) {
-        sqlx::query("DELETE FROM widgets WHERE widget_id = $1").bind(widget_id).execute(pool).await.ok();
+        sqlx::query("DELETE FROM widgets WHERE widget_id = $1").bind(widget_id).execute(pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 
     /// Hard-delete a specific session. Idempotent.
     async fn cleanup_session(pool: &PgPool, session_id: &str) {
-        sqlx::query("DELETE FROM widget_sessions WHERE session_id = $1").bind(session_id).execute(pool).await.ok();
+        sqlx::query("DELETE FROM widget_sessions WHERE session_id = $1").bind(session_id).execute(pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 
     // ——— Widget CRUD ————————————————————————————————————————————————

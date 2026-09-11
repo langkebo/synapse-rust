@@ -130,7 +130,7 @@ mod db_tests {
         .bind(username)
         .execute(pool)
         .await
-        .ok();
+        .expect("test fixture: insert must succeed — a swallowed error here surfaces later as an unrelated failure");
     }
 
     async fn clean_account_data(pool: &PgPool, suffix: &str) {
@@ -139,7 +139,9 @@ mod db_tests {
             .bind(&pattern)
             .execute(pool)
             .await
-            .ok();
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
     }
 
     #[tokio::test]

@@ -1132,7 +1132,7 @@ mod db_tests {
         .bind(room_id)
         .execute(pool)
         .await
-        .ok();
+        .expect("test fixture: insert must succeed — a swallowed error here surfaces later as an unrelated failure");
     }
 
     async fn cleanup_room_and_events(pool: &PgPool, suffix: &str) {

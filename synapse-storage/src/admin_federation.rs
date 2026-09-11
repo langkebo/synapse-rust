@@ -441,15 +441,25 @@ mod db_tests {
     }
 
     async fn cleanup_server_prefix(pool: &PgPool, prefix: &str) {
-        sqlx::query("DELETE FROM federation_servers WHERE server_name LIKE $1").bind(prefix).execute(pool).await.ok();
+        sqlx::query("DELETE FROM federation_servers WHERE server_name LIKE $1")
+            .bind(prefix)
+            .execute(pool)
+            .await
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
     }
 
     async fn cleanup_queue_prefix(pool: &PgPool, prefix: &str) {
-        sqlx::query("DELETE FROM federation_queue WHERE destination LIKE $1").bind(prefix).execute(pool).await.ok();
+        sqlx::query("DELETE FROM federation_queue WHERE destination LIKE $1").bind(prefix).execute(pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 
     async fn cleanup_cache_prefix(pool: &PgPool, prefix: &str) {
-        sqlx::query("DELETE FROM federation_cache WHERE key LIKE $1").bind(prefix).execute(pool).await.ok();
+        sqlx::query("DELETE FROM federation_cache WHERE key LIKE $1").bind(prefix).execute(pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 
     async fn insert_test_server(pool: &PgPool, server_name: &str, status: &str, updated_ts: i64) {

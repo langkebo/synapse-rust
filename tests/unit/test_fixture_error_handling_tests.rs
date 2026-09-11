@@ -67,6 +67,44 @@ fn rust_files(root: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+/// Returns, for each line index, whether it sits inside a `#[cfg(test)]` module.
+///
+/// Test fixtures also live in inline `#[cfg(test)] mod tests { ... }` blocks
+/// inside otherwise-production files (e.g. `synapse-storage/src/widget.rs`,
+/// `invite_blocklist.rs`). A file-name check alone misses those, and they carry
+/// the same swallowed-setup-error hazard.
+fn cfg_test_mask(lines: &[&str]) -> Vec<bool> {
+    let mut mask = vec![false; lines.len()];
+    let mut depth: i32 = 0; // brace depth once inside a cfg(test) module
+    let mut armed = false; // saw `#[cfg(test)]`, waiting for its `{`
+
+    for (i, raw) in lines.iter().enumerate() {
+        let line = raw.trim();
+        if line.starts_with("#[cfg(test)]") || line.starts_with("#[cfg(all(test") {
+            armed = true;
+        }
+        if armed || depth > 0 {
+            mask[i] = true;
+        }
+        if armed && line.contains('{') {
+            depth += line.matches('{').count() as i32;
+            armed = false;
+            if depth <= 0 {
+                depth = 0;
+            }
+            continue;
+        }
+        if depth > 0 {
+            depth += line.matches('{').count() as i32;
+            depth -= line.matches('}').count() as i32;
+            if depth < 0 {
+                depth = 0;
+            }
+        }
+    }
+    mask
+}
+
 /// Lines where a DB write's result is discarded.
 ///
 /// Matches the two spellings in use:
@@ -111,11 +149,30 @@ fn test_fixtures_do_not_swallow_database_writes() {
     }
 
     let mut offenders: Vec<String> = Vec::new();
-    for path in files.iter().filter(|p| is_test_support(p)) {
+    for path in files.iter() {
         let Ok(source) = fs::read_to_string(path) else { continue };
-        for hit in swallowed_write_lines(&source) {
+        let lines: Vec<&str> = source.lines().collect();
+        let in_cfg_test = cfg_test_mask(&lines);
+        // Test support is either a whole-file property (named fixtures) or a
+        // per-line property (inline `#[cfg(test)]` modules).
+        let whole_file = is_test_support(path);
+        let mut file_offenders: Vec<String> = Vec::new();
+        for (i, hit) in swallowed_write_lines(&source).into_iter().enumerate() {
+            let _ = i;
+            // Recover the 1-based line number from the hit text.
+            let lineno: usize =
+                hit.split_whitespace().nth(1).and_then(|t| t.trim_end_matches(':').parse().ok()).unwrap_or(0);
+            let idx = lineno.saturating_sub(1);
+            let in_test_block = in_cfg_test.get(idx).copied().unwrap_or(false);
+            if whole_file || in_test_block {
+                file_offenders.push(hit);
+            }
+        }
+        if !file_offenders.is_empty() {
             let rel = path.strip_prefix(&root).unwrap_or(path);
-            offenders.push(format!("{}: {hit}", rel.display()));
+            for hit in file_offenders {
+                offenders.push(format!("{}: {hit}", rel.display()));
+            }
         }
     }
 

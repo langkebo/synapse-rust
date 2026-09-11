@@ -684,7 +684,9 @@ mod db_tests {
             .bind(room_id)
             .execute(pool)
             .await
-            .ok();
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
     }
 
     async fn cleanup_burn_pending(pool: &PgPool, user_id: &str, room_id: &str) {
@@ -693,11 +695,15 @@ mod db_tests {
             .bind(room_id)
             .execute(pool)
             .await
-            .ok();
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
     }
 
     async fn cleanup_burn_log(pool: &PgPool, user_id: &str) {
-        sqlx::query("DELETE FROM burn_after_read_log WHERE user_id = $1").bind(user_id).execute(pool).await.ok();
+        sqlx::query("DELETE FROM burn_after_read_log WHERE user_id = $1").bind(user_id).execute(pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 
     async fn cleanup_burn_user_defaults(pool: &PgPool, user_id: &str) {
@@ -705,7 +711,9 @@ mod db_tests {
             .bind(user_id)
             .execute(pool)
             .await
-            .ok();
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
     }
 
     // 1. Set burn settings and retrieve them.

@@ -629,21 +629,27 @@ mod db_tests {
         .bind(room_id)
         .execute(pool)
         .await
-        .ok();
+        .expect("test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure");
         sqlx::query("DELETE FROM event_to_state_groups WHERE state_group_id IN (SELECT id FROM state_groups WHERE room_id = $1)")
-            .bind(room_id).execute(pool).await.ok();
+            .bind(room_id).execute(pool).await.expect("test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure");
         sqlx::query(
             "DELETE FROM state_group_edges WHERE state_group_id IN (SELECT id FROM state_groups WHERE room_id = $1)",
         )
         .bind(room_id)
         .execute(pool)
         .await
-        .ok();
+        .expect("test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure");
         sqlx::query("DELETE FROM state_group_edges WHERE prev_state_group_id IN (SELECT id FROM state_groups WHERE room_id = $1)")
-            .bind(room_id).execute(pool).await.ok();
-        sqlx::query("DELETE FROM state_groups WHERE room_id = $1").bind(room_id).execute(pool).await.ok();
-        sqlx::query("DELETE FROM events WHERE room_id = $1").bind(room_id).execute(pool).await.ok();
-        sqlx::query("DELETE FROM rooms WHERE room_id = $1").bind(room_id).execute(pool).await.ok();
+            .bind(room_id).execute(pool).await.expect("test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure");
+        sqlx::query("DELETE FROM state_groups WHERE room_id = $1").bind(room_id).execute(pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
+        sqlx::query("DELETE FROM events WHERE room_id = $1").bind(room_id).execute(pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
+        sqlx::query("DELETE FROM rooms WHERE room_id = $1").bind(room_id).execute(pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 
     // ---- state_groups CRUD ---- //

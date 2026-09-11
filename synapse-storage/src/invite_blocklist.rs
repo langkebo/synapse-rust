@@ -310,18 +310,28 @@ mod db_tests {
 
     /// Cleanup blocklist rows for a given room (idempotent, skips errors).
     async fn cleanup_blocklist(pool: &PgPool, room_id: &str) {
-        sqlx::query("DELETE FROM room_invite_blocklist WHERE room_id = $1").bind(room_id).execute(pool).await.ok();
+        sqlx::query("DELETE FROM room_invite_blocklist WHERE room_id = $1").bind(room_id).execute(pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 
     /// Cleanup allowlist rows for a given room (idempotent, skips errors).
     async fn cleanup_allowlist(pool: &PgPool, room_id: &str) {
-        sqlx::query("DELETE FROM room_invite_allowlist WHERE room_id = $1").bind(room_id).execute(pool).await.ok();
+        sqlx::query("DELETE FROM room_invite_allowlist WHERE room_id = $1").bind(room_id).execute(pool).await.expect(
+            "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+        );
     }
 
     /// Cleanup allowlist rows by suffix pattern (for test isolation).
     async fn cleanup_allowlist_by_suffix(pool: &PgPool, suffix: &uuid::Uuid) {
         let pattern = format!("%{suffix}%");
-        sqlx::query("DELETE FROM room_invite_allowlist WHERE room_id LIKE $1").bind(&pattern).execute(pool).await.ok();
+        sqlx::query("DELETE FROM room_invite_allowlist WHERE room_id LIKE $1")
+            .bind(&pattern)
+            .execute(pool)
+            .await
+            .expect(
+                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
+            );
     }
 
     #[tokio::test]
