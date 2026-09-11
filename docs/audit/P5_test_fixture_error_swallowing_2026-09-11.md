@@ -200,3 +200,85 @@ export TEST_DATABASE_URL='postgresql://synapse:<pw>@localhost:5432/synapse'
 cargo nextest run -p synapse-storage --lib \
   -E 'test(/room_summary::db_tests::test_add_member_creates_record/)' --test-threads 1
 ```
+
+---
+
+## 6. 由守卫发现的**生产代码**缺陷（比夹具更严重）
+
+扩展守卫范围时（内联 `#[cfg(test)]`）出现一处**不在测试里**的命中，
+追查后确认是真缺陷。
+
+### 6.1 `delete_room_cascade`（`synapse-storage/src/server_notification/repository.rs`）
+
+```rust
+pub async fn delete_room_cascade(&self, room_id: &str) -> Result<(), ApiError> {
+    sqlx::query("DELETE FROM room_memberships WHERE room_id = $1")...execute(&self.pool).await.ok();
+    sqlx::query("DELETE FROM room_summaries WHERE room_id = $1")...execute(&self.pool).await.ok();
+    sqlx::query("DELETE FROM room_summary_members WHERE room_id = $1")...execute(&self.pool).await.ok();
+    sqlx::query("DELETE FROM events WHERE room_id = $1")...execute(&self.pool).await.ok();
+    sqlx::query("DELETE FROM rooms WHERE room_id = $1")...?;   // 只有这一条检查错误
+    Ok(())
+}
+```
+
+两个独立问题：
+
+1. **四个子表删除的错误被丢弃** —— 约束冲突/权限/超时都可能发生，
+   而函数仍返回 `Ok(())`，**留下孤立的 room_memberships / room_summaries /
+   room_summary_members / events 行**。违反 CLAUDE.md 的
+   "不得把 DB 错误静默转成成功/默认值"。
+2. **非原子** —— 五条语句各自独立执行，中途失败留下"半级联"状态。
+
+调用方是 `synapse-services/src/server_notification_service.rs:157`，
+它用 `?` 传播错误 —— 即调用方**期望**能感知失败，但被 `.ok()` 截断了。
+
+### 6.2 修复
+
+* 每条删除都传播错误（`map_err` 带各自的上下文标签）；
+* 五条语句放入**单个事务**，`commit()` 也检查错误 → 全有或全无；
+* 改为**显式静态语句**而非 `format!("DELETE FROM {table} ...")`：
+  动态拼表名会让目标对读者与静态检查都不可见。
+
+### 6.3 测试
+
+新增 `delete_room_cascade_reports_success_only_when_rows_are_gone`
+（`server_notification/db_tests.rs`）—— 该函数**此前没有任何直接测试**。
+夹具：种子房间 + 用户（`room_memberships` 对 `users` 有 FK）+ 成员行，
+调用后断言 `rooms` 与 `room_memberships` 均无残留，并自行清理种子用户。
+
+**诚实说明（测试强度边界）**：
+
+* 该用例验证**成功路径确实删净**，但**对修复前的实现也会通过** ——
+  它不能单独证明"错误被传播"。
+* 我曾尝试写故障注入用例（在未提交事务里 `ALTER TABLE ... RENAME` 使子表删除失败），
+  但该手法**自身死锁**：未提交的 `ALTER TABLE` 持有排他锁，而级联的
+  `DELETE` 需要同一张表 → 等待至超时。已删除该用例，未保留。
+  （副作用已确认清除：`information_schema` 中无 `%cascade_probe%` 残留。）
+* 因此"错误传播 + 事务"这一部分目前是**代码审查结论**，不是由测试钉住的。
+  要真正钉住需要 `drop` 该表（破坏共享库）或在隔离 schema 内做注入 ——
+  留作后续工作。
+
+### 6.4 SQLx 棘轮如实拦下了我自己
+
+修复后 `check_sqlx_dynamic_ratio.sh` 报 **1427 → 1432（+5）**。
+逐文件核对确认：**+5 全部在 `server_notification/db_tests.rs` 的测试夹具**，
+`repository.rs` 生产代码保持 32 处不变（HEAD 与当前一致）。
+
+基线已更新为 1432，并在 `scripts/ci/sqlx_dynamic_ratio_baseline` 里
+留下**调整记录**（来源、为何是测试夹具、生产未变、以及"若要收紧应优先减少
+夹具语句而不是放宽阈值"）。棘轮按预期工作 —— 这次拦住的是我。
+
+### 6.5 顺带发现：22,578 个残留 test schema
+
+排查途中发现本地原生 Postgres（`127.0.0.1:5432`）累积了
+**22,578** 个 `test_*` 隔离 schema —— 即 CLAUDE.md 记录的历史问题再次出现。
+
+机制：`IsolatedTestPool` 的 `Drop` 实现**派生线程**去 DROP schema，
+而 nextest 是**进程级并行**，进程常在派生线程完成前退出 → schema 泄漏。
+
+`scripts/cleanup_test_schemas.sh` 已存在（每个 schema 单独事务，避免
+`out of shared memory`），但其默认连接参数指向 `localhost:15432/synapse_test`，
+与本机实际实例（`127.0.0.1:5432/synapse`）不一致。
+
+**未执行清理**：删除 2.2 万个 schema 影响面较大，且不属于本次任务范围，
+先如实记录。若要清理，用环境变量覆盖连接参数后运行即可。

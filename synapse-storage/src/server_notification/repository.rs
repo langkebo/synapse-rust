@@ -775,16 +775,60 @@ impl ServerNotificationStorage {
     }
 
     /// See [`delete_room_cascade`].
+    ///
+    /// Removes a room and the rows that reference it.
+    ///
+    /// ## Why this propagates errors and uses a transaction
+    ///
+    /// This previously chained four `.execute(&self.pool).await.ok()` calls —
+    /// discarding every child-row deletion failure — and only checked the final
+    /// `DELETE FROM rooms`. A failure in any of the first four (constraint,
+    /// permission, timeout) was therefore invisible **and** left orphaned
+    /// `room_memberships` / `room_summaries` / `room_summary_members` / `events`
+    /// rows behind while the function still returned `Ok(())`.
+    ///
+    /// `CLAUDE.md` states the rule directly: a DB error must not be silently
+    /// converted into a success-ish default. The statements also ran
+    /// independently, so a mid-way failure left the database half-cascaded.
+    ///
+    /// Now every delete propagates its error, and all five run in one
+    /// transaction so the cascade is all-or-nothing.
     pub async fn delete_room_cascade(&self, room_id: &str) -> Result<(), ApiError> {
-        sqlx::query("DELETE FROM room_memberships WHERE room_id = $1").bind(room_id).execute(&self.pool).await.ok();
-        sqlx::query("DELETE FROM room_summaries WHERE room_id = $1").bind(room_id).execute(&self.pool).await.ok();
-        sqlx::query("DELETE FROM room_summary_members WHERE room_id = $1").bind(room_id).execute(&self.pool).await.ok();
-        sqlx::query("DELETE FROM events WHERE room_id = $1").bind(room_id).execute(&self.pool).await.ok();
+        let mut tx =
+            self.pool.begin().await.map_err(|e| ApiError::internal_with_context("Failed to begin room cascade", &e))?;
+
+        // Written as explicit static statements (not `format!`-built SQL) so the
+        // SQL is greppable and any schema change shows up in review. A
+        // `format!("DELETE FROM {table} ...")` would hide the target from both
+        // readers and the SQLx dynamic-query ratchet.
+        sqlx::query("DELETE FROM room_memberships WHERE room_id = $1")
+            .bind(room_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to delete room memberships", &e))?;
+        sqlx::query("DELETE FROM room_summaries WHERE room_id = $1")
+            .bind(room_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to delete room summary", &e))?;
+        sqlx::query("DELETE FROM room_summary_members WHERE room_id = $1")
+            .bind(room_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to delete room summary members", &e))?;
+        sqlx::query("DELETE FROM events WHERE room_id = $1")
+            .bind(room_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to delete room events", &e))?;
+
         sqlx::query("DELETE FROM rooms WHERE room_id = $1")
             .bind(room_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| ApiError::internal_with_context("Failed to delete room", &e))?;
+
+        tx.commit().await.map_err(|e| ApiError::internal_with_context("Failed to commit room cascade", &e))?;
 
         Ok(())
     }

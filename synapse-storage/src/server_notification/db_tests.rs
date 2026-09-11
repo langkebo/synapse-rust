@@ -212,3 +212,76 @@ async fn mark_as_read_missing_notification_returns_not_found() {
 
     let _ = sqlx::query("DELETE FROM users WHERE user_id = $1").bind(&user_id).execute(pool.as_ref()).await;
 }
+
+// ── delete_room_cascade ──────────────────────────────────────────
+//
+// Regression context: `delete_room_cascade` chained four
+// `.execute(&self.pool).await.ok()` calls, discarding every child-row deletion
+// failure, and only checked the final `DELETE FROM rooms`. A failure in the
+// first four (permissions, constraint, timeout) was therefore invisible AND
+// left orphaned `room_memberships` / `room_summaries` / `room_summary_members`
+// / `events` rows behind while the function still returned `Ok(())`.
+//
+// The function also ran each statement on its own, so it was not atomic.
+// It now propagates errors and runs inside a transaction.
+
+#[tokio::test]
+async fn delete_room_cascade_reports_success_only_when_rows_are_gone() {
+    let pool = test_pool().await;
+    let suffix = make_suffix();
+    let room_id = format!("!snc_{suffix}:localhost");
+    let storage = ServerNotificationStorage::new(&pool);
+
+    // Seed a room plus one child row in a cascaded table.
+    sqlx::query(
+        "INSERT INTO rooms (room_id, room_version, is_public, creator, created_ts)
+         VALUES ($1, '1', false, '@test:localhost', EXTRACT(EPOCH FROM NOW()) * 1000)
+         ON CONFLICT (room_id) DO NOTHING",
+    )
+    .bind(&room_id)
+    .execute(&*pool)
+    .await
+    .expect("seed room");
+
+    // `room_memberships` has no `created_ts`; the join timestamp column is
+    // `joined_ts` (schema checked against `public`).
+    // `room_memberships` has an FK to `users`, so the member must exist first.
+    let user_id = format!("@snc_{suffix}:localhost");
+    sqlx::query(
+        "INSERT INTO users (user_id, username, created_ts)
+         VALUES ($1, $2, EXTRACT(EPOCH FROM NOW()) * 1000)
+         ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(&user_id)
+    .bind(format!("snc_{suffix}"))
+    .execute(&*pool)
+    .await
+    .expect("seed user");
+
+    sqlx::query(
+        "INSERT INTO room_memberships (room_id, user_id, membership, joined_ts)
+         VALUES ($1, $2, 'join', EXTRACT(EPOCH FROM NOW()) * 1000)
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(&room_id)
+    .bind(&user_id)
+    .execute(&*pool)
+    .await
+    .expect("seed room_memberships");
+
+    storage.delete_room_cascade(&room_id).await.expect("cascade must succeed");
+
+    // If the cascade claims success, the room AND its children must be gone.
+    for (table, col) in [("rooms", "room_id"), ("room_memberships", "room_id")] {
+        let remaining: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM {table} WHERE {col} = $1"))
+            .bind(&room_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("count query");
+        assert_eq!(remaining, 0, "{table} 仍残留 {remaining} 行 —— cascade 声称成功却没有删干净");
+    }
+
+    // `delete_room_cascade` is room-scoped, so clean up the seeded user here to
+    // keep the shared test database free of residue.
+    let _ = sqlx::query("DELETE FROM users WHERE user_id = $1").bind(&user_id).execute(&*pool).await;
+}
