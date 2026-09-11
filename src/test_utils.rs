@@ -69,6 +69,10 @@ struct PendingSchemaReturn {
     template_name: String,
     database_url: String,
     weak: Weak<PgPool>,
+    /// `true` → DROP the schema on release; `false` → TRUNCATE and return it to
+    /// `SCHEMA_POOL` for reuse. Only template-cloned schemas are safe to reuse;
+    /// see `prepare_isolated_test_pool`.
+    drop_only: bool,
 }
 
 static PENDING_SCHEMA_RETURNS: LazyLock<Mutex<Vec<PendingSchemaReturn>>> = LazyLock::new(|| Mutex::new(Vec::new()));
@@ -292,6 +296,14 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     let database_url = resolve_test_database_url().await?;
     let schema_name = next_test_schema_name();
 
+    // Opportunistically reap schemas whose owning pool has already been dropped.
+    // Without this, a run that only exercises the isolated path never sweeps
+    // (the sweep used to live only on the shared/clone path), so every isolated
+    // schema survived the whole run and only ever vanished via the manual
+    // scripts/cleanup_test_schemas.sh — which is how this database reached
+    // 23,662 leftover schemas (docs/audit/P5_test_schema_accumulation_2026-09-12.md).
+    schedule_pending_schema_cleanup();
+
     let connect_timeout = configured_test_pool_connect_timeout();
     let admin_pool = tokio::time::timeout(
         connect_timeout,
@@ -351,6 +363,19 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     }
 
     ensure_test_schema_contract(&pool).await?;
+
+    // Register for DROP (not TRUNCATE-and-reuse) once the last Arc is released.
+    //
+    // `poisoned = true` is deliberate: this schema was built by replaying every
+    // migration into it, not by cloning the template, so `truncate_and_reseed_
+    // schema` (which TRUNCATEs every template table and re-seeds the baseline)
+    // is not a safe way to reset it. Dropping is the correctly-bounded lifetime
+    // for a schema this expensive — the leak was never the *cost*, it was that
+    // nothing ever removed them.
+    //
+    // The template name is unused on the drop path but the registration type is
+    // shared, so pass the configured/default name.
+    register_pending_schema_drop(&pool, schema_name, database_url);
 
     Ok(pool)
 }
@@ -1238,7 +1263,25 @@ fn register_pending_schema_return(
     template_name: String,
     database_url: String,
 ) {
-    let entry = PendingSchemaReturn { schema_name, template_name, database_url, weak: Arc::downgrade(pool) };
+    let entry =
+        PendingSchemaReturn { schema_name, template_name, database_url, weak: Arc::downgrade(pool), drop_only: false };
+    PENDING_SCHEMA_RETURNS.lock().unwrap_or_else(|e| e.into_inner()).push(entry);
+}
+
+/// Register a schema for **DROP** once the last `Arc<PgPool>` is released.
+///
+/// Used by paths that cannot reuse their schema (see
+/// `prepare_isolated_test_pool`). Modelled on `register_pending_schema_return`,
+/// but the sweep routes it to `cleanup_schema(.., poisoned = true)`, which drops
+/// instead of TRUNCATE-and-reseeding.
+fn register_pending_schema_drop(pool: &Arc<PgPool>, schema_name: String, database_url: String) {
+    let entry = PendingSchemaReturn {
+        schema_name,
+        template_name: String::new(),
+        database_url,
+        weak: Arc::downgrade(pool),
+        drop_only: true,
+    };
     PENDING_SCHEMA_RETURNS.lock().unwrap_or_else(|e| e.into_inner()).push(entry);
 }
 
@@ -1262,7 +1305,12 @@ fn schedule_pending_schema_cleanup() {
         dead
     };
     for entry in dead {
-        CLEANUP_RUNTIME.spawn(cleanup_schema(entry.database_url, entry.schema_name, entry.template_name, false));
+        CLEANUP_RUNTIME.spawn(cleanup_schema(
+            entry.database_url,
+            entry.schema_name,
+            entry.template_name,
+            entry.drop_only,
+        ));
     }
 }
 

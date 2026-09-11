@@ -62,6 +62,39 @@ TRUNCATE 回池），但这两条路径**绕过了它**。
 > 约 30 个模块手写自己的 `test_pool()`，不走共享夹具。那次是"测试口径不统一"，
 > 这次是"schema 无限增长"，同一个根因的两种症状。
 
+### 1.3 泄漏面比原先记录的更大：`synapse-services` 有**第三套**夹具
+
+清点后发现 `CREATE SCHEMA` 出现在**三个**地方，而不是两个：
+
+| 文件 | `CREATE SCHEMA` 处数 | 是否有清理 |
+|---|---|---|
+| `src/test_utils.rs` | 7 | 共享路径有；隔离路径**本次才补上** |
+| `synapse-services/src/test_utils.rs` | 4 | ❌ **完全没有** pending-return/清理机制 |
+| `synapse-services/src/media/mod.rs` | 1 | ❌ `prepare_media_test_pool` 裸建裸弃 |
+
+`synapse-services/src/test_utils.rs` 是根 crate `src/test_utils.rs` 的**分叉副本**：
+同为 597 行，同样有 `prepare_isolated_test_pool` / `prepare_shared_test_pool` /
+`init_template_schema` / `clone_schema_from_template` / `next_test_schema_name`，
+但**完全没有** `PENDING_SCHEMA_RETURNS` / `SCHEMA_POOL` / `CLEANUP_RUNTIME` /
+`schedule_pending_schema_cleanup`。也就是说，凡是走 `synapse-services` 那套夹具的
+测试，造的 schema **100% 泄漏**。
+
+> 这解释了一个此前没解释清的数字：为什么 `media_test_*` 会有 1,033 个而
+> `test_*` 有 22,568 个——两套夹具各自独立泄漏，比例大致对应各自的使用量。
+>
+> **这也意味着 §3 的"止血"只覆盖了其中一条路径。** 见 §5。
+
+### 1.4 更高层的根因：同一份测试基础设施被分叉了三次
+
+真正的根因不是"忘了写 Drop"，而是**同一份 schema 生命周期逻辑被复制了三份，
+只有一份在持续演进**。根 crate 那套有清理、有池化、有中毒检测；`synapse-services`
+那份停在早期版本；`media` 那份干脆自己手写。
+
+任何"在各处分别补 Drop"的做法都只是延缓第三次分叉。**正确的修法是收敛成
+一份**（新 crate 或把生命周期抽到 `synapse-common` 的 test 侧），这也是
+`P5_workspace_test_isolation` 与 `P5_migration_search_path_shadowing` 共同的
+结构性结论。
+
 ---
 
 ## 2. 清理脚本的 4 个缺陷（已修）
@@ -202,11 +235,12 @@ HINT:  You might need to increase max_locks_per_transaction.
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| 清完剩余 21,748 个普通 `test_*` + 25 个模板 schema | **未做** | 见 §4.2/§4.3：逐 DROP 需 ~18h，模板撞 `max_locks_per_transaction`。需用户在 A–D 中选一条 |
-| `prepare_isolated_test_pool` / `prepare_media_test_pool` 接入 `register_pending_schema_return` | **未做** | 真正的止血：让这两条路径也 TRUNCATE 回池 |
-| 约 30 个手写 `test_pool()` 模块迁移到共享夹具 | **未做** | 根治；同日 `P5_migration_search_path_shadowing` 与
-`P5_workspace_test_isolation` 都指向它 |
-| `synapse_test_template_*` 旧家族的创建方 | **未定位** | 48 个，前缀与 `synapse_test_template_ready` *标记*同名易混；本次已随 `synapse_test_*` 一并删除，但创建方仍未查明 |
+| 清完剩余 21,748 个普通 `test_*` + 25 个模板 schema | **未做** | 见 §4.2/§4.3 |
+| `src/test_utils.rs::prepare_isolated_test_pool` 接入待删登记 | ✅ **已实现** | 见 §7：`drop_only` 通路 + 本路径也做 sweep。⚠️ **尚未跑通实测验证**（见 §7.1） |
+| `synapse-services/src/test_utils.rs` 的 4 处 `CREATE SCHEMA` | **未做** | 该副本**完全没有任何清理机制**，需要与根 crate 收敛（§1.4） |
+| `synapse-services/src/media/mod.rs::prepare_media_test_pool` | **未做** | 同上 |
+| 三套夹具收敛成一份 | **未做** | **真正的根因**（§1.4）；与 `P5_workspace_test_isolation`、`P5_migration_search_path_shadowing` 同一结论 |
+| `synapse_test_template_*` 旧家族的创建方 | **未定位** | 前缀与 `synapse_test_template_ready` *标记*同名易混；已随 `synapse_test_*` 一并删除，但创建方仍未查明 |
 
 > **不宣称已完成**：本次只做掉了"存量清道夫 + 模板自动剪枝"，**没有**堵住
 > `test_*` / `media_test_*` 的持续泄漏。清理后如果照常跑测试，这两个家族仍会
@@ -280,3 +314,92 @@ real    0m12.020s
 SHOW max_locks_per_transaction;  -- 256
 SHOW max_connections;            -- 100
 ```
+
+---
+
+## 7. 实施止血：`drop_only` 通路（已实现，未验证）
+
+### 7.1 改动
+
+根 crate `src/test_utils.rs`：
+
+1. `PendingSchemaReturn` 增加 `drop_only: bool`；`schedule_pending_schema_cleanup()`
+   把它透传给既有的 `cleanup_schema(.., poisoned)`；
+2. 新增 `register_pending_schema_drop(pool, schema_name, database_url)`；
+3. `prepare_isolated_test_pool` 末尾登记待删，**并在入口调用
+   `schedule_pending_schema_cleanup()`**。
+
+第 3 点里的 sweep 调用是关键：原来 sweep 只挂在共享/clone 路径上，所以一个
+**只跑隔离路径**的测试进程从不回收，隔离 schema 会活到进程结束都无人清理。
+
+为什么用 DROP 而不是 TRUNCATE 回池：隔离 schema 是**逐条重放迁移**建起来的，
+不是从模板克隆的，`truncate_and_reseed_schema`（按模板表 TRUNCATE + 重种基线）
+对它不安全。DROP 是它正确且有限的寿命——泄漏从来不是"造得太贵"，而是
+"从来没人删"。
+
+> ⚠️ **未验证**：改动通过 `cargo check -p synapse-rust --all-features --tests`
+> （EXIT=0），但**没有**跑过任何 DB 测试——执行时集群正处于 §8 的崩溃恢复中。
+> 在跑通 `prepare_isolated_test_pool` 相关用例并观察到 schema 数不再增长之前，
+> 不得声称这条止血已生效。
+
+---
+
+## 8. 事故记录：`DROP DATABASE` 卡死与集群崩溃恢复（2026-09-12）
+
+记录下来，因为**事故本身就是本缺陷最有说服力的证据**。
+
+### 8.1 经过
+
+按 §4.3 方案 A 重建测试库：
+
+1. `DROP DATABASE synapse WITH (FORCE)` → 失败（`synapse` 角色不在
+   `pg_signal_backend`，无权终止别的后端）；
+2. 改用先 `pg_terminate_backend` 再 `DROP DATABASE` → **`DROP` 挂住 30 分钟
+   不返回**，`synapse` 库拒绝所有新连接；
+3. `pg_ctl -m fast` / `-m immediate` 均**无法停库**（`server does not shut down`）；
+4. 只能 `kill` postmaster → 集群进入**崩溃恢复**；
+5. 恢复过程暴露出真正的瓶颈：
+
+```
+LOG: syncing data directory (pre-fsync), elapsed time: 2860.14 s,
+     current path: ./base/129689581/136938290
+```
+
+### 8.2 关键发现：真正的瓶颈是**数据目录的文件数**
+
+PostgreSQL 15 硬崩溃恢复的第一步 `SyncDataDirectory()` 对数据目录中
+**每一个文件**单独调一次 `pg_fsync`。而为了给 21,778 个 test schema 建表，
+数据目录里已经堆了**数百万个文件**（每 schema 658–1,229 个对象 + 索引 + 序列）。
+
+实测同步速率约 **10 文件/秒**，单是 pre-fsync 就跑了 **47 分钟以上**仍未结束。
+
+这一条**单独**就解释了本轮此前所有"莫名其妙"的现象，无需任何"磁盘故障"假设：
+
+| 现象 | 真实机制 |
+|---|---|
+| `pg_database_size()` 超时 | 要统计数百万文件 |
+| `DROP SCHEMA ... CASCADE` 报 out of shared memory | 1,197 个对象 > `max_locks_per_transaction=256` |
+| `DROP DATABASE` 挂 30 分钟 | 要 `unlink` 数百万文件 |
+| 单用例 133s；catalog 缩小 8% 后同用例 162s→108s | 每次 fsync / 目录遍历都要走文件树 |
+| `du -sh`、`ls | wc -l` 在单个库目录都超时 | 文件数本身 |
+
+**结论：本缺陷不只是"catalog 膨胀"，而是"文件系统 inode 膨胀"。** 这抬高了
+它的严重度——它会让**任何** PostgreSQL 重启（包括正常维护重启）变成小时级事件。
+
+### 8.3 我在事故中的两个错误
+
+1. 用 `WITH (FORCE)` 前没确认当前角色是否有 `pg_signal_backend`；
+2. **诊断阶段反复查询**（`pg_database_size()`、`pg_stat_activity`、`pg_locks`、
+   `ls`、`du`），与一个正在做海量 fsync 的进程抢同一份资源，反而拖慢了它。
+   每次被拒的连接还会往日志里写一条 `FATAL` —— 日志因此涨到 **260 万行 / 236MB**。
+
+### 8.4 纠正与教训
+
+* **不要**在恢复期间反复探测。正确做法是只在日志里等
+  `database system is ready to accept connections`，或极低频（≥60s）探一次真实连接；
+* 崩溃恢复的 pre-fsync **不可中断地重来**：中途再 kill 只会让 47 分钟从头开始。
+  发现恢复在跑之后，唯一正确的动作是**等**；
+* 想跳过 pre-fsync 需要 `fsync=off`，但
+  `/opt/homebrew/var/postgresql@15/postgresql.conf` 在本会话文件沙箱外
+  （`Operation not permitted`），改不了；同理
+  `max_locks_per_transaction` 也调不了。**这是本会话的一个硬约束**。
