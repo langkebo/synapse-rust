@@ -339,6 +339,13 @@ impl crate::membership::api::MemberStoreApi for InMemoryMemberStore {
             .cloned()
             .collect();
         filtered.sort_by(|a, b| a.user_id.cmp(&b.user_id));
+        // P5-fix: clamp like the sibling `_with_profiles` mock below (and like the
+        // real PostgreSQL implementation's callers). Without this, a negative
+        // `limit` became `-1 as usize` = usize::MAX and the mock silently returned
+        // EVERY member, whereas PostgreSQL raises "LIMIT must not be negative"
+        // (⇒ HTTP 500). That divergence left the mock unable to surface the
+        // negative-limit defect class; see P5 report §3.3.
+        let limit = limit.clamp(1, 1000);
         filtered.truncate(limit as usize);
         Ok(filtered)
     }
@@ -683,6 +690,34 @@ mod tests {
         }
         let (rooms, _) = store.get_mutual_rooms_between("@alice:t", "@bob:t", 100, Some("!r1:t")).await.unwrap();
         assert_eq!(rooms, vec!["!r2:t".to_string(), "!r3:t".to_string()], "after cursor must exclude !r1:t itself");
+    }
+
+    /// The mock must not silently accept a nonsensical limit.
+    ///
+    /// Regression guard for the divergence documented in
+    /// `docs/audit/P5_engineering_2026-09-11.md` §3.3: this mock used to do
+    /// `truncate(limit as usize)`, so `limit = -1` became `usize::MAX` and the
+    /// mock returned **every** member while the real PostgreSQL implementation
+    /// raised "LIMIT must not be negative" (surfacing as HTTP 500). A mock that
+    /// behaves *better* than production hides the defect instead of exposing it.
+    #[tokio::test]
+    async fn paginated_mock_clamps_non_positive_and_huge_limits() {
+        let store = InMemoryMemberStore::new();
+        for uid in ["@a:t", "@b:t", "@c:t"] {
+            store.add_member("!r:t", uid, "join", None).await.unwrap();
+        }
+
+        // Negative must clamp to the floor (1), NOT degenerate into "return all".
+        let page = store.get_room_members_paginated("!r:t", "join", -1, None).await.unwrap();
+        assert_eq!(page.len(), 1, "negative limit must clamp to 1, not return every member");
+
+        // Zero must clamp to the floor too.
+        let page = store.get_room_members_paginated("!r:t", "join", 0, None).await.unwrap();
+        assert_eq!(page.len(), 1, "zero limit must clamp to 1");
+
+        // Oversized must clamp to the ceiling (1000) — here simply bounded by rows.
+        let page = store.get_room_members_paginated("!r:t", "join", i64::MAX, None).await.unwrap();
+        assert_eq!(page.len(), 3, "huge limit must not overflow; returns all available rows");
     }
 }
 
