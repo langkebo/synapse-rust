@@ -224,18 +224,27 @@ should_apply_migration() {
         return 0
     fi
 
-    # In the map — check if the feature is enabled
+    # In the map — check if the feature is enabled.
+    #
+    # `required_feature` may be a comma-separated list, meaning OR: the file is
+    # applied when ANY of the listed features is enabled. This exists because a
+    # consolidated extension file (e.g. `00000001_extensions_v10.sql`) bundles
+    # several independent features (cas-sso, saml-sso, friends, voice-extended),
+    # while the map format maps a whole file to a feature. Without OR support
+    # such a file could only be mapped to one feature — or, as before, mapped to
+    # nothing and therefore treated as core and applied unconditionally.
     if [ "$ENABLED_EXTENSIONS" = "none" ]; then
         log INFO "跳过扩展迁移 (feature=$required_feature): $filename"
         return 1
     fi
 
-    # Check comma-separated list
-    case ",$ENABLED_EXTENSIONS," in
-        *",$required_feature,"*)
-            return 0
-            ;;
-    esac
+    for feature in $(printf '%s' "$required_feature" | tr ',' ' '); do
+        case ",$ENABLED_EXTENSIONS," in
+            *",$feature,")
+                return 0
+                ;;
+        esac
+    done
 
     log INFO "跳过扩展迁移 (feature=$required_feature 未启用): $filename"
     return 1

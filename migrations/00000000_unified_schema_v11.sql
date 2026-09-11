@@ -353,6 +353,31 @@ CREATE TABLE IF NOT EXISTS events (
 );
 ALTER SEQUENCE events_stream_ordering_seq OWNED BY events.stream_ordering;
 
+-- B-8: soft-fail flag for duplicate events (folded from
+-- `20260906010000_add_events_soft_failed.sql`).
+--
+-- Replaces the hard-delete pattern in txn_dedup.rs, where losing duplicates
+-- from concurrent client txn_id races were physically deleted, risking FK
+-- violations, broken prev_events DAG chains, and audit/compliance loss.
+-- Consumer read paths filter `WHERE soft_failed = FALSE`; the row and its FK
+-- children are retained so a retention job can purge them later.
+--
+-- NOTE: `20260906010000` also issues `CREATE INDEX CONCURRENTLY IF NOT EXISTS
+-- idx_events_stream_ordering ON events (room_id, stream_ordering DESC) WHERE
+-- soft_failed = FALSE`, but this baseline already defines
+-- `idx_events_stream_ordering` as `ON events(stream_ordering)` further below,
+-- so that partial index is silently never created on a baseline-built database
+-- (IF NOT EXISTS matches the existing name). The name is therefore NOT repeated
+-- here; the hot path is covered by `idx_events_room_stream_ordering_not_redacted`
+-- plus the soft-fail filter.
+ALTER TABLE events ADD COLUMN IF NOT EXISTS soft_failed BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Partial index for the soft-fail aware consumer read path:
+--   `SELECT ... FROM events WHERE room_id = $1 AND soft_failed = FALSE ORDER BY ...`
+CREATE INDEX IF NOT EXISTS idx_events_room_soft_failed
+    ON events (room_id, soft_failed)
+    WHERE soft_failed = FALSE;
+
 CREATE TABLE IF NOT EXISTS event_relations (
     id BIGSERIAL PRIMARY KEY,
     room_id TEXT NOT NULL,

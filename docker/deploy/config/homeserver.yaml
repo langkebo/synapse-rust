@@ -20,12 +20,25 @@ server:
   megolm_encryption_key_path: "/app/data/megolm.key"
   suppress_r0_deprecation_warning: true
   suppress_vendor_endpoint_warning: true
+  # Background-task tuning (seconds). Defaults shown; 0 falls back to compile-time constant.
+  # federation_retry_max_count: 5
+  # drain_timeout_secs: 30
+  # megolm_cleanup_interval_secs: 21600
+  # pruning_interval_secs: 86400
+  # Scheduled DB housekeeping intervals (seconds).
+  # health_check_interval_secs: 10
+  # performance_check_interval_secs: 300
+  # integrity_check_interval_secs: 3600
+  # maintenance_interval_secs: 86400
 
 rate_limit:
   enabled: true
   default:
     per_second: 20
     burst_size: 40
+  # NOTE: the effective endpoint rules live in `rate_limit.yaml`, which the server
+  # loads via RATE_LIMIT_CONFIG_PATH and which *replaces* this whole section.
+  # `endpoints` here is therefore inert; kept as an empty list for clarity.
   endpoints: []
   ip_header_priority:
     - "x-forwarded-for"
@@ -57,6 +70,14 @@ database:
   max_size: 50
   min_idle: 10
   connection_timeout: 60
+  # Pool lifetime / idle timeout (seconds). Defaults shown.
+  max_lifetime_secs: 1800
+  idle_timeout_secs: 600
+  min_idle_floor: 5
+  # PG session-level timeouts (seconds). 0 disables.
+  statement_timeout_secs: 30
+  lock_timeout_secs: 10
+  idle_in_transaction_timeout_secs: 60
 
 redis:
   host: "redis"
@@ -171,7 +192,7 @@ voip:
     - "turn:matrix.test:3478?transport=tcp"
     - "turns:matrix.test:5349?transport=tcp"
   # 必须与本地 coturn 的 static-auth-secret 一致（见 /Users/ljf/Desktop/hu_ts/coturn/turnserver.conf）
-  turn_shared_secret: "dev-turn-secret"
+  turn_shared_secret: "${TURN_SHARED_SECRET:-dev-turn-secret}"
   turn_user_lifetime: "1h"
   turn_allow_guests: false
   stun_uris:

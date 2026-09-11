@@ -52,22 +52,40 @@ migrations/
 
 > v8 系列已归档至 `archive/`，不再作为活跃迁移链路。新环境应使用 v11 基线建库。
 
-### ⚠️ `extension_map.conf` 仍在被读取
+### ⚠️ `extension_map.conf` 与 `ENABLED_EXTENSIONS` 的真实效力
 
-`docker/deploy/scripts/container-migrate.sh` 的 `should_apply_migration()` **实际会读取**
-`$MIGRATIONS_DIR/extension_map.conf`，其语义是：
+`docker/deploy/scripts/container-migrate.sh` 的 `should_apply_migration()` **会读取**
+`$MIGRATIONS_DIR/extension_map.conf`，语义为：
 
 - 文件**不在** map 中 → 视为 core → **总是应用**
-- 文件**在** map 中 → 仅当 `ENABLED_EXTENSIONS` 包含其 feature 时才应用
+- 文件**在** map 中 → 当所列 feature **任一**被启用时应用（逗号分隔 = OR）
+- `ENABLED_EXTENSIONS=none` → 所有在 map 中的文件都跳过
 
-当前 map 只有一行 `00000001_extensions_v8.sql=extensions-core`，而该文件已移入 `archive/`
-（陈旧映射）；实际的 `00000001_extensions_v10.sql` **不在 map 中**，因此
-**无论 `ENABLED_EXTENSIONS` 设为何值都会被创建**（该文件内含 `cas-sso`/`saml-sso`/`friends`/
-`voice-extended` 四组特性表）。即：**`ENABLED_EXTENSIONS=none` 无法阻止这些扩展表被建出**。
+**但必须理解关键事实：`ENABLED_EXTENSIONS` 无法控制扩展表是否被创建。**
 
-> 这是已知缺陷（尚未修复）。map 的格式只能把**整个文件**映射到**单个** feature，
-> 而 `extensions_v10.sql` 捆绑了 4 个独立特性，因此若要真正实现按特性过滤，
-> 需要把该文件拆分回 per-feature 文件。
+`00000000_unified_schema_v11.sql` 是**全特性基线**，已包含全部 15 张扩展表。
+`00000001_extensions_v10.sql` 与之**逐表完全重复**（已核对：15/15 均在 baseline 中定义，
+且两者都用 `IF NOT EXISTS`）。实测结果：
+
+| `ENABLED_EXTENSIONS` | 扩展表是否存在 | extensions 文件是否执行 |
+|---|---|---|
+| `none` | ✅ **存在**（由 baseline 创建） | 跳过 |
+| `friends,burn-after-read`（默认） | ✅ 存在 | 执行 |
+| `all` | ✅ 存在 | 执行 |
+
+所以 `ENABLED_EXTENSIONS` 实际控制两件事：**冗余 extensions 文件是否执行**，
+以及 `deploy.sh` 用它**选择编译哪些 cargo feature**。后者才是真正的特性裁剪手段 ——
+**表结构层面的裁剪需要在 baseline 中拆分扩展表，目前不存在。**
+
+> **2026-09-11 修复**：`extension_map.conf` 此前映射的是已归档的
+> `00000001_extensions_v8.sql`（陈旧映射），而实际的 `00000001_extensions_v10.sql`
+> 因"不在 map 中即视为 core"被**无条件应用**。现已映射到它真正包含的四个特性
+> `cas-sso,saml-sso,friends,voice-extended`（OR 语义），并让 `container-migrate.sh`
+> 支持逗号分隔的多特性。
+>
+> **仍存在的局限**：map 只能表达"整个文件 ↔ 特性集合"，无法做到"只应用文件里的
+> cas-sso 部分"。若要实现**按特性的表裁剪**，需把该文件拆回 per-feature 文件
+> **并从 baseline 中移除这些表**。这属于结构性变更，尚未进行。
 
 ## 新增迁移流程（务必同步折入 baseline）
 
