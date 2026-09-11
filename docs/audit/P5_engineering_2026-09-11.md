@@ -141,8 +141,9 @@ workspace `--all-targets` 下的非阻塞警告：
 1. **god-file 漂移** —— ✅ **本轮已量化**（见 §3.2）。结论：标题行数**显著高估**了
    生产代码体量，因为大文件约一半是内联测试；最大的纯生产文件是
    `friend_room_service/mod.rs`（1,831 行）。**未执行拆分**（理由见 §3.2）。
-2. **mock 漂移**：`test_mocks` 与真实实现的行为等价性未验证
-   （这是 false-green 的常见来源）。
+2. **mock 漂移** —— 🟡 **本轮已抽样核查**（见 §3.3）：`get_mutual_rooms_between`
+   的 mock 与 PostgreSQL 实现**逐条规则一致**；但发现 mock 对**负 limit** 的行为
+   与真实实现**相反**（详见 §3.3）。
 3. **构建产物治理**：`target/` 92G + `docker/deploy` 18G + `target_amd64` 4.0G
    + `target_arm64` 3.8G ≈ **118G**；未处理（属环境清理，且 `docker/deploy` 可能含部署数据，
    贸然清理有风险）。
@@ -214,6 +215,59 @@ CARGO_TARGET_DIR=/tmp/verify cargo test --doc --locked --workspace
 
 **建议**：若确要拆分，优先 `friend_room_service/mod.rs`（1,831 行且无测试分担），
 按领域拆为 `friends`/`requests`/`groups` 子模块，并在同一变更中更新 route manifest 与快照。
+
+### 3.3 mock 漂移抽样核查（本轮）
+
+`test_mocks` 共 **33 个模块、约 11,000 行**（最大 `event.rs` 1,246、
+`tests.rs` 1,186、`member.rs` 700）。无法逐一核查，故按"**业务规则最易漂移**"
+（排序/分页/过滤/边界）抽样。
+
+**抽检对象**：`get_mutual_rooms_between`（近期新增特性，mock 与真实实现并存）。
+
+| 规则 | PostgreSQL 实现 | Mock 实现 | 一致 |
+|---|---|---|---|
+| 仅 `membership = 'join'` | `a.membership='join' AND b.membership='join'` | 两侧 filter `== "join"` | ✅ |
+| 求交集 | 自连接 | `HashSet::intersection` | ✅ |
+| 排序 | `ORDER BY a.room_id` | `rooms.sort()` | ✅ |
+| 游标过滤 | `a.room_id > $3` | `retain(|r| r.as_str() > after)` | ✅ |
+| `has_more` 探测 | `LIMIT limit+1` 后比较 | `len() > limit` | ✅ |
+| `next_batch_token` | `rooms.last().cloned()` | `result.last().cloned()` | ✅ |
+
+⇒ **该接口的 mock 忠实反映了真实行为。**
+
+**🔴 但发现一处方向相反的漂移**：对**负 `limit`**：
+
+| | 行为 |
+|---|---|
+| PostgreSQL | `ERROR: LIMIT must not be negative` ⇒ 经映射成为 **HTTP 500** |
+| Mock | `take(limit as usize)` ⇒ `-1 as usize` = `usize::MAX` ⇒ **返回全部数据** |
+
+⇒ **任何依赖 mock 的测试都无法发现负 limit 的 500 问题**（mock 会"成功地"返回全部）。
+这正是 mock 漂移导致 false-green 的典型形态。
+
+**该漂移已通过另一路径暴露并修复**（见 §3.4）：源码级守卫测试而非 mock 行为测试。
+
+### 3.4 顺带发现并修复：分页 `limit` 缺下界 ⇒ 客户端输入触发 500
+
+**发现路径**：核查 mock 时注意到 `take(limit as usize)`，反查 handler 的 `limit` 解析，
+发现 `.min(1000)` **缺下界**（commit `0e0bf0e9`）。
+
+**缺陷**：`?limit=-1` → 负 LIMIT → DB 报错 → `database_with_context` → **HTTP 500**；
+`?limit=0` → 返回**空页却带 `next_batch_token`** → 诱导客户端无限翻页。
+
+**修复 3 处**（与已被认可的 `metadata.rs` `.clamp(1, 100)` 一致）：
+
+| 位置 | 形态 |
+|---|---|
+| `room/members.rs:306` | `i64` + SQL 分页 |
+| `room/management/query.rs:147` | `i64` + SQL 分页 |
+| `room/members.rs:356` | `usize` + 内存 slice 分页 |
+
+**新增源码级守卫** `tests/unit/test_pagination_limit_clamp_tests.rs`：
+扫描所有"解析 limit 查询参数"的行，断言必须含 `.clamp(`。
+
+> 该守卫在开发过程中**发现了我人工 grep 漏掉的第 3 处站点**（`members.rs:356`），
+> 并在初次运行时如实 FAILED 列出全部违规行 —— 正是"守卫优于人工检查"的例证。
 
 ---
 
