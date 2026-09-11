@@ -14,7 +14,7 @@
 | **DB 连接池** | 🔴 **发现真实缺陷并已修复**（添加预算守卫 + 修正误导注释） | §1 |
 | 缓存读写对称 | ✅ **已验证正确**，无缺陷 | §2 |
 | 硬编码超时 | ✅ **已被前序工作修复**（配置化） | §3 |
-| 后台任务裁剪 | ⚪ **未完成** | §4 |
+| 后台任务裁剪 | 🟡 **已核实**；发现 `quarantined_media_changes` 无界增长 | §4 |
 | 性能基线 | ⚪ **未采集**（Criterion 需较长运行） | §5 |
 
 > **P4 最有价值的产出是 §1**：它给出了 P0 阶段记录的
@@ -141,19 +141,74 @@ round1 侦察（`docs/后端问题真实性审查-2026-09-06.md` 的 B-2.2）曾
 
 ---
 
-## 4. ⚪ 后台任务裁剪 —— 未完成
+## 4. 🟡 后台任务裁剪 —— 已核实；发现 1 个无界增长表
 
-AGENTS.md 的上游教训：长运行部署需要为 device list changes、presence-like state、
-media quarantine history 等 append-only 流提供 pruning / background-update 路径。
+### 4.1 既有裁剪机制（实现良好）
 
-**本会话未核实**：
-- `background_update.rs`（1,656 行）的任务是否都有界
-- device list / presence / media quarantine 等增长型表是否有裁剪任务与保留策略
-- `ScheduledTasks` 各任务的失败处理与背压
+`synapse-storage/src/pruning.rs` 提供 **8 个**裁剪函数，全部由
+`src/server/mod.rs:571-604` 的定时循环调用：
 
-列为后续项。
+| 裁剪目标 | 函数 |
+|---|---|
+| device list changes | `prune_old_device_list_changes(retention_days)` |
+| device lists stream | `prune_old_device_lists_stream` |
+| device list outbound pokes | `prune_sent_device_lists_outbound_pokes` |
+| presence | `prune_expired_presence` |
+| one-time keys | `prune_expired_one_time_keys` |
+| to-device transactions | `prune_old_to_device_transactions` |
+| token blacklist | `prune_expired_token_blacklist` |
+| federation queue | `prune_old_federation_queue` |
 
----
+循环质量：可配间隔（`pruning_interval_secs`，0 则回落常量）、
+`MissedTickBehavior::Skip`、`tokio::select!` 内响应 shutdown token。
+
+**✅ 多实例归属校验存在**：该循环位于 `src/server/mod.rs:560` 的
+`if run_global_maintenance { … }` 块内（`eval_maintenance_state()` 依据
+`worker_type` 与 `maintenance_owner` 判定）⇒ 满足 AGENTS.md 的
+"worker deployments need explicit ownership validation for background jobs"。
+`RetentionService`（`cleanup_audit_events` 等）同样在该块内被调度
+（`src/server/mod.rs:332/336/430`）。
+
+### 4.2 逐表核对结果
+
+| 增长型表 | 裁剪/保留 | 依据 |
+|---|---|---|
+| presence / device_list* / one_time_keys / to_device / federation_queue / token_blacklist | ✅ | `pruning.rs` |
+| `audit_events` | ✅ | `RetentionService::cleanup_audit_events`，由 `audit_retention_days` 驱动 |
+| `event_relations` | ✅ | 随房间删除级联（`fk_event_relations_room … ON DELETE CASCADE`） |
+| **`quarantined_media_changes`** | 🔴 **无** | 见 §4.3 |
+
+### 4.3 🔴 发现：`quarantined_media_changes` 无界增长
+
+**事实**（逐项核实）：
+
+| 项 | 结果 |
+|---|---|
+| 全仓 `DELETE FROM quarantined_media_changes` | **0 处** |
+| `pruning.rs` 覆盖 | ❌ 无 |
+| `retention_service.rs` 覆盖 | ❌ 无 |
+| 表上有 TTL 列 | ❌ 无 |
+| 写入路径 | ✅ 存在（每次隔离/解除隔离追加一行） |
+
+⇒ **该表只会增长，永不收缩**。这正是 AGENTS.md 记录的上游 Synapse 教训
+（"media quarantine history and other append-only streams need pruning paths"）。
+
+**为什么我没有立即修复**：该表是**游标流**
+（`get_quarantined_media_changes(since_stream_id, limit)` /
+`get_changes_by_media(media_id, since_stream_id, limit)`）。
+裁剪旧行会与游标语义交互 —— 客户端用陈旧 `since_stream_id` 恢复时，
+被裁掉的行会造成**静默跳过**。因此正确修复需要先确定一个**保留窗口**约定
+（以及"游标过旧"时应返回什么），这属于产品/协议决策而非机械改动。
+
+**建议修复**（待决策后再实施）：
+
+1. 在 `RetentionConfig` 增 `quarantined_media_changes_retention_days`
+   （与既有 `audit_retention_days` 同构）
+2. `pruning.rs` 增 `prune_old_quarantined_media_changes(retention_days)`，
+   并有界删除（`LIMIT` 分批，避免长事务持锁）
+3. 加入 `src/server/mod.rs` 的同一 `if run_global_maintenance` 裁剪循环
+4. 明确游标过旧时的契约（沿用现有分页边界行为，或返回明确的 "token too old"）
+5. 迁移 + **同步折入 baseline**（本仓要求：新增迁移必须折入 baseline 并同步 `.undo.sql`）
 
 ## 5. ⚪ 性能基线 —— 未采集
 
