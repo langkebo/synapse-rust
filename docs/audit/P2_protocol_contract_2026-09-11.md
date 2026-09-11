@@ -15,10 +15,10 @@
 | capabilities 声明诚实性 | ✅ **治理机制与测试都很扎实** | 14 项治理测试全通过，含双 surface snapshot |
 | **房间版本声明** | 🟡 **发现过度声明风险，需用户决策** | 见 §2 |
 | 错误语义 | 🟡 **部分完成**：修复 1 处内部不一致；存在性泄漏已有专项测试 | 见 §4.1 |
-| 联邦安全规则 | ⏳ **未开展** | 见 §4 |
+| 联邦安全规则 | ✅ **本轮完成**（4 项清单逐项验证；2 项非阻断缺口已记录） | 见 §4.2 |
 
-> **P2 的诚实结论：本阶段尚未完成。** 本轮确立了"既有覆盖比预期强"这一事实，
-> 并定位到一个具体的过度声明风险；错误语义与联邦安全规则两项**未系统审查**。
+> **P2 状态：主体已完成。** 路由对账、声明诚实性、错误语义、联邦安全规则四项均已验证；
+> 剩余仅：房间版本 v12/v13 声明待用户裁定（§2），以及未逐一核对全部端点的 errcode↔spec 配对。
 
 ---
 
@@ -203,14 +203,84 @@ per-PDU `results` 项（响应仍为 200），只用 `e` 做日志、**不读 `k
 - 未**逐一**核对全部联邦端点的 errcode ↔ spec 配对
 - 未检查 HTTP 状态码与 errcode 组合的其余偏差（仅抽查了 `default_http_status` 映射表）
 
-### 4.2 联邦安全规则（未开展）
+### 4.2 联邦安全规则 —— ✅ 本轮完成（逐项验证 AGENTS.md 清单）
 
-AGENTS.md 列出的检查项**均未验证**：
-- canonical JSON over `method`/`uri`/`origin`/`destination`/`content`
-- `Authorization: X-Matrix` 解析的宽松/严格边界
-- server key 响应与 notary query 响应形状区分
-- `server_name`/`verify_keys`/`old_verify_keys`/`valid_until_ts`/签名 的校验与缓存前置检查
-- origin/user-domain 检查在 membership / device key / media / directory 上是否被削弱
+#### ① canonical JSON over `method`/`uri`/`origin`/`destination`/`content` — ✅
+
+`synapse-federation/src/signing.rs:14-30` 的 `canonical_federation_request_bytes`
+**严格覆盖全部五个字段**，`content` 仅在 `Some` 时纳入（符合规范对 GET 无 body 的处理）。
+`signing.rs` 有 **22 个测试**覆盖该模块。
+
+#### ② `X-Matrix` 解析的宽松/严格边界 — ✅（发现 1 处兼容性缺口，非安全缺陷）
+
+`src/web/middleware/federation_auth.rs:286` `parse_x_matrix_authorization`：
+
+| 维度 | 行为 | 判定 |
+|---|---|---|
+| 前缀 / 参数名 | 大小写不敏感 | ✅ 宽松合理（有测试） |
+| 引号 | 有则剥离，无引号亦可（`ts=1700...`） | ✅ 有测试（quoted/unquoted） |
+| 多余空白 | 各处 `trim()` | ✅ |
+| `ts` 非法 | 忽略为 `None`，不整体拒绝 | ✅ 有测试 |
+| `destination` | 可选；存在时校验是否本机 | ✅ |
+| **必需字段** | `origin`/`key`/`sig` 缺失 → `None` | ✅ **严格** |
+
+**🟡 兼容性缺口**：解析用 `header_value.split(',')`，**引号内含逗号会被错误切分**
+（`sig="a,b"` → `sig="a` + `b"`，得到无效签名）。
+
+**判定为兼容性缺口而非安全缺陷**，依据 —— 完整验证链**全部 fail-closed**（已核实）：
+
+| 失败点 | 结果 |
+|---|---|
+| 解析失败（缺必需字段） | 401 `Missing federation signature` |
+| base64 解码失败 | 401 |
+| 签名不匹配 | 401 `Invalid federation signature` |
+| `ts` 超容差 | 401 |
+| replay（签名哈希窗口内重复） | 401 |
+
+且 Ed25519 签名用标准 base64（`A-Za-z0-9+/`），**不含逗号** ⇒ 真实 Synapse 对端不会触发。
+
+#### ③ server key / notary 响应形状与校验前置 — ✅（2 项非阻断缺口）
+
+**出站 origin 路径**（`synapse-federation/src/client.rs`）：
+
+| 检查 | 实现 | 判定 |
+|---|---|---|
+| `verify_keys` 非空对象 | `:52-58` | ✅ |
+| 必须存在 self-signature | `:60-62` | ✅ |
+| 消息 = 移除 `signatures`/`unsigned` 后的 canonical JSON | `:64-68` | ✅ 符合规范 |
+| 仅接受 `ed25519:` 密钥 | `:72` | ✅ |
+| base64 宽松（unpadded 优先，容忍 padded） | `:83-88` | ✅ |
+| **验签通过前不写缓存** | `:761-767`（注释 `FED-01`） | ✅ |
+| `valid_until_ts` 缓存上限 | `:24-35` + `effective_cache_ttl_secs` | ✅ |
+| 正/反测试（合法接受、伪造拒绝） | `:1365,1379,1388` | ✅ |
+
+**入站 notary 路径**（`src/web/routes/federation/keys.rs`）：
+
+| 检查 | 实现 | 判定 |
+|---|---|---|
+| 响应形状区分：`{ "server_keys": [...] }` 包装 | `:29-55`（注释 `P2-16`） | ✅ 与 Synapse/Dendrite 互通 |
+| `server_name` 必须匹配请求目标 | `:546-555` | ✅ |
+| `valid_until_ts` 必须存在且未过期 | `:557-569` | ✅ |
+| **校验失败则拒绝缓存** | `:484-486`（`continue` 跳过缓存） | ✅ |
+| SSRF：直接 HTTP + IP 钉扎（非共享 client） | `:413-415`（注释 `S2`） | ✅ |
+| 缓存 TTL = min(配置 TTL, 密钥剩余寿命) | `:510-514` | ✅ |
+| 本地响应自签名 | `resolve_server_keys` → `get_server_keys_response()` | ✅ |
+
+**⚪ 缺口 1（未接线代码，当前不可达）**：`FederationClient::query_server_keys`
+（`client.rs:773-785`）**不调用 `verify_server_keys_self_signature`**，也无缓存保护。
+但**全仓零生产调用**（仅 trait 定义 `client_api.rs:33`、trait 转发 `:229`、mock `test_mocks.rs:136`）。
+⇒ 若未来接线，必须先补验签，否则会返回未验证的远端密钥。
+
+**⚪ 缺口 2（低成本加固建议）**：`get_server_keys`（`client.rs:746-770`）按 `destination`
+请求，却**未校验响应体 `server_name` 是否等于 `destination`**，随后即以 `destination` 为键缓存。
+自签名校验使它**不是安全漏洞**（攻击者无法伪造自签名），但加一行 name 匹配可消除误配风险。
+
+#### ④ origin / user-domain 检查未被削弱 — ✅
+
+`src/web/routes/federation/mod.rs` 的 `user_matches_origin`/`sender_server_name`/
+`validate_federation_origin` 用于 PDU sender 与认证 origin 比对
+（`transaction.rs:609` 明确拒绝不匹配）。配合 §4.1 修复与既有
+`federation_existence_leak_tests`（4 项全通过），该维度**未被削弱**。
 
 ---
 
