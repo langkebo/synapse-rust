@@ -457,8 +457,7 @@ fn keyset_page_checksum(rows: &[SyntheticReportRow], cursor: SyntheticReportRow,
                 .then_with(|| probe.received_ts.cmp(&cursor.received_ts).reverse())
                 .then_with(|| probe.id.cmp(&cursor.id).reverse())
         })
-        .map(|index| index + 1)
-        .unwrap_or_else(|index| index);
+        .map_or_else(|index| index, |index| index + 1);
 
     rows[start..].iter().take(limit).map(|row| row.id ^ row.received_ts).sum()
 }

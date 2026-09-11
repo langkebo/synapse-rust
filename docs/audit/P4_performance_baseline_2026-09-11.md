@@ -85,15 +85,20 @@ cd docker/deploy && docker compose config --services
 
 ### 1.3 取得 bench token
 
-`docker/config` 与 `docker/deploy/config` 的 `homeserver.yaml` 均开启 `enable_registration: true`，
-可直接注册临时用户（本次为 `@benchprobe:matrix.test`，**已在 §6 记录为残留副作用**）：
+`docker/deploy/config/homeserver.yaml` 开启 `enable_registration: true`，
+可直接注册一个临时用户取 token（本次为 `@benchprobe:matrix.test`，
+**采集结束后已按 §6 删除**）：
 
 ```bash
-curl -s -X POST http://localhost:8008/_matrix/client/v3/register \
+BENCH_ADMIN_TOKEN=$(curl -s -X POST http://localhost:8008/_matrix/client/v3/register \
   -H 'Content-Type: application/json' \
-  -d '{"username":"benchprobe","password":"...","device_id":"BENCH",
-       "auth":{"type":"m.login.dummy"}}'
+  -d '{"username":"benchprobe","password":"<临时强口令>","device_id":"BENCH",
+       "auth":{"type":"m.login.dummy"}}' | python3 -c 'import json,sys;print(json.load(sys.stdin)["access_token"])')
+export BENCH_ADMIN_TOKEN
 ```
+
+> ⚠️ 该 token 是**真实凭据**，不要写进文档或提交历史。
+> 采集完成后请删除临时用户（见 §6）。
 
 ---
 
@@ -574,15 +579,18 @@ $ grep -rn "reload_fail\|config_degraded\|rate_limit.*health" --include='*.rs' s
 | `docker/deploy/config/rate_limit.yaml` 临时 `enabled: false` | ✅ 已 `git checkout --` 恢复，SHA256 与备份逐字节一致（`cb876d870d16d8ed…`） |
 | `docker/config/rate_limit.yaml` 误改（非实际挂载文件） | ✅ 已从备份恢复，SHA256 一致；`git status` 干净 |
 | 容器重启（2 次） | ✅ 已恢复，`healthy`，限流重新生效（实测 35×200 / 25×429），reload 错误 0 |
-| 临时用户 `@benchprobe:matrix.test` | ⚠️ **残留在本地 dev 库**。24h token 到期后自动失效；如需删除见下 |
-| 临时 token | ⚠️ 仍在 §1.3 使用过；不建议入库（本文档未记录明文 token） |
+| 临时用户 `@benchprobe:matrix.test` | ✅ **已删除**（连同其 `access_tokens` / `refresh_tokens` / `devices` 各 1 行）；`SELECT count(*) FROM users` = 0 |
+| 临时 token | ✅ 未写入仓库（文档中只有 `<临时强口令>` / `<token>` 占位符）；已随用户删除失效 |
 
-删除临时用户（可选）：
+删除命令（本次实际执行的，仅作记录 —— 生产环境应走管理 API/服务层而非裸 SQL）：
 
 ```sql
--- 先确认只影响该用户
-SELECT name FROM users WHERE name = '@benchprobe:matrix.test';
--- 再按既有级联策略删除（本项目用户删除应走管理 API/服务层，而非裸 SQL）
+BEGIN;
+DELETE FROM access_tokens    WHERE user_id='@benchprobe:matrix.test';
+DELETE FROM refresh_tokens   WHERE user_id='@benchprobe:matrix.test';
+DELETE FROM devices          WHERE user_id='@benchprobe:matrix.test';
+DELETE FROM users            WHERE user_id='@benchprobe:matrix.test';
+COMMIT;
 ```
 
 ---
