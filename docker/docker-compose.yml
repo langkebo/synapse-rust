@@ -43,8 +43,12 @@ services:
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
-      - ./config/homeserver.yaml:/app/config/homeserver.yaml:ro
-      - ./config/rate_limit.yaml:/app/config/rate_limit.yaml:ro
+      # ⚠️ 挂载目录而非单个文件。单文件 bind mount 绑定的是宿主机 inode；
+      # 对文件做原子替换（写临时文件 + rename）会让容器内路径"消失"，
+      # 而进程继续用旧配置运行（实测 `head /app/config/x.yaml` → No such file）。
+      # 挂载目录后容器按名字解析，宿主机替换文件不再影响挂载。
+      # 详见 docs/audit/P4_performance_baseline_2026-09-11.md §5.6。
+      - ./config:/app/config:ro
     depends_on:
       db:
         condition: service_healthy
@@ -84,6 +88,9 @@ services:
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # 保持单文件挂载：宿主文件名 `postgres.conf` 与容器要读的
+      # `/etc/postgresql/postgresql.conf` 名称不同，目录挂载会让 postgres
+      # 找不到配置文件而崩溃。理由详见 docker/deploy/docker-compose.yml。
       - ./config/postgres.conf:/etc/postgresql/postgresql.conf
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-synapse} -d ${DB_NAME:-synapse}" ]

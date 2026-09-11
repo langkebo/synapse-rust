@@ -28,6 +28,12 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init-db.sql:ro
+      # 保持**单文件**挂载：宿主文件名是 `postgres.conf`，容器要读的是
+      # `/etc/postgresql/postgresql.conf`。改成目录挂载（`./config:/etc/postgresql`）
+      # 会让容器只看到 `postgres.conf`，postgres 找不到 `postgresql.conf` 而崩溃
+      # （已实测：`could not access the server configuration file ... No such file`，
+      #  容器进入 restart loop）。名称不一致使目录挂载在此处不可行。
+      # 该文件的单文件 bind mount 风险有限：postgres 只在启动时读一次配置。
       - ./config/postgres.conf:/etc/postgresql/postgresql.conf:ro
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-synapse}" ]
@@ -200,8 +206,22 @@ services:
     volumes:
       - synapse_data:/app/data
       - ./media:/app/data/media
-      - ./config/homeserver.yaml:/app/config/homeserver.yaml:ro
-      - ./config/rate_limit.yaml:/app/config/rate_limit.yaml:ro
+      # ⚠️ 必须挂载**目录**，不要改回逐个文件挂载。
+      #
+      # 单文件 bind mount（`./config/x.yaml:/app/config/x.yaml`）绑定的是
+      # 宿主机的 **inode**。对文件做原子替换（写临时文件 + rename，编辑器与
+      # `sed -i` 的常见实现）会换掉 inode，但容器的绑定仍指向旧 inode ——
+      # 容器内路径随之"消失"，而进程继续运行、继续用旧配置服务。
+      # 实测（2026-09-11）：容器内 `head /app/config/rate_limit.yaml` 报
+      # No such file or directory，而服务仍按旧限流规则运行，且必须
+      # `docker compose restart` 才能恢复。
+      #
+      # 挂载目录后，容器按**名字**解析文件，宿主机替换文件不再影响挂载。
+      # 详见 docs/audit/P4_performance_baseline_2026-09-11.md §5.6。
+      #
+      # 镜像内 /app/config 本身为空（默认值在 /app/config_defaults/），
+      # 因此整目录挂载不会遮蔽任何内置文件。
+      - ./config:/app/config:ro
     healthcheck:
       test: [ "CMD", "/app/healthcheck" ]
       interval: 30s
