@@ -66,11 +66,19 @@ TRUNCATE 回池），但这两条路径**绕过了它**。
 
 清点后发现 `CREATE SCHEMA` 出现在**三个**地方，而不是两个：
 
-| 文件 | `CREATE SCHEMA` 处数 | 是否有清理 |
+清点后共 **5 个**站点、**4 份**各自独立分叉的 helper：
+
+| 文件 | `CREATE SCHEMA` 处数 | 清理状态 |
 |---|---|---|
-| `src/test_utils.rs` | 7 | 共享路径有；隔离路径**本次才补上** |
-| `synapse-services/src/test_utils.rs` | 4 | ❌ **完全没有** pending-return/清理机制 |
-| `synapse-services/src/media/mod.rs` | 1 | ❌ `prepare_media_test_pool` 裸建裸弃 |
+| `src/test_utils.rs` | 6 | 共享路径有；隔离路径 ✅ 本次补上 |
+| `synapse-services/src/test_utils.rs` | 4 | ❌→✅ 本次补上（该副本**完全没有**任何机制） |
+| `synapse-storage/src/test_utils.rs` | 1 | ❌→✅ 本次补上（**第三份**副本，此前未列入） |
+| `synapse-services/src/media/mod.rs` | 1 | ❌→✅ 委托给 synapse-services 注册表 |
+| `synapse-storage/src/test_isolation.rs` | 1 | ✅ 早有 `Drop`（spawn+join，`0cfa1227` 修） |
+
+`synapse-storage/src/test_utils.rs` 的 `prepare_empty_isolated_test_pool` 被
+`oidc_session_storage.rs`、`refresh_token/mod.rs` 及 4 个 integration 测试直接调用，
+每次调用泄漏一个 `test_*` schema。
 
 `synapse-services/src/test_utils.rs` 是根 crate `src/test_utils.rs` 的**分叉副本**：
 同为 597 行，同样有 `prepare_isolated_test_pool` / `prepare_shared_test_pool` /
@@ -238,6 +246,8 @@ HINT:  You might need to increase max_locks_per_transaction.
 | 清完剩余 21,748 个普通 `test_*` + 25 个模板 schema | **未做** | 见 §4.2/§4.3 |
 | `src/test_utils.rs::prepare_isolated_test_pool` 接入待删登记 | ✅ **已实现** | 见 §7：`drop_only` 通路 + 本路径也做 sweep。⚠️ **尚未跑通实测验证**（见 §7.1） |
 | `synapse-services/src/test_utils.rs` 的泄漏路径 | ✅ **已实现**（§7.2） | 补齐 drop-on-release 注册表 + 兄弟模板回收；⚠️ 未跑 DB 验证 |
+| `synapse-storage/src/test_utils.rs` 的泄漏路径 | ✅ **已实现**（§7.3） | 第三份副本补注册表；⚠️ 未跑 DB 验证 |
+| 静态守卫锁住全部 `CREATE SCHEMA` 站点 | ✅ **已实现且已实测 RED-GREEN** | `tests/unit/schema_lifecycle_guard_tests.rs`，2 条 |
 | `synapse-services/src/media/mod.rs::prepare_media_test_pool` | ✅ **已实现**（§7.2） | 接入同一注册表；⚠️ 未跑 DB 验证 |
 | 三套夹具收敛成一份 | **未做** | **真正的根因**（§1.4）；与 `P5_workspace_test_isolation`、`P5_migration_search_path_shadowing` 同一结论 |
 | `synapse_test_template_*` 旧家族的创建方 | **未定位** | 前缀与 `synapse_test_template_ready` *标记*同名易混；已随 `synapse_test_*` 一并删除，但创建方仍未查明 |
@@ -431,3 +441,36 @@ PostgreSQL 15 硬崩溃恢复的第一步 `SyncDataDirectory()` 对数据目录�
   `/opt/homebrew/var/postgresql@15/postgresql.conf` 在本会话文件沙箱外
   （`Operation not permitted`），改不了；同理
   `max_locks_per_transaction` 也调不了。**这是本会话的一个硬约束**。
+
+### 7.3 `synapse-storage` 分叉副本（已实现，未验证）
+
+清点 `CREATE SCHEMA` 时又发现**第三份**副本：
+`synapse-storage/src/test_utils.rs::prepare_empty_isolated_test_pool`，被
+`oidc_session_storage.rs`、`refresh_token/mod.rs` 及 4 个 integration 测试直接调用，
+每次泄漏一个 `test_*` schema。处理方式与 §7.2 同型（drop-on-release 注册表 +
+入口 sweep + 独立 cleanup runtime）。
+
+该副本有一处额外约束值得记录：`synapse-storage` 连**测试支持代码**都
+`-D clippy::panic` / `expect_used` / `unwrap_used`（首次 clippy 即报
+`panic should not be present in production code`）。因此 cleanup runtime 用
+`LazyLock<Option<Runtime>>` 而非 panicking 的 `LazyLock<Runtime>`——建不起来时
+退化为"泄漏一个 schema"，而不是让测试进程崩掉。
+
+### 7.4 静态守卫：锁住全部 `CREATE SCHEMA` 站点（已实测 RED-GREEN）
+
+`tests/unit/schema_lifecycle_guard_tests.rs`（纯静态，无 DB）：
+
+1. `every_create_schema_site_has_a_drop_path` —— 扫描 workspace 全部 `.rs`，任何
+   含 `CREATE SCHEMA` 的文件必须同时含 `DROP SCHEMA` 或
+   `register_pending_schema_drop`（`media` 属后者：委托给 `synapse-services`）；
+2. `schema_drop_sweeps_are_actually_called_on_acquisition` —— **登记了 drop 却没有
+   sweep 等于永不执行**，这正是隔离路径当初泄漏而共享路径没漏的原因。
+
+> **这是本轮唯一带有反证证据的改动。** 用 `git checkout` 把
+> `synapse-storage/src/test_utils.rs` 回滚到泄漏版本后，两条守卫**均失败**
+> （`2 tests run: 0 passed, 2 failed`）并打印出确切的违规文件与原因；恢复修复后
+> `2 passed`。
+>
+> 之所以它是本轮唯一可实测的：DB 仍在崩溃恢复（§8），其余改动跑不了任何 DB 测试。
+> 但**恰恰是这类"泄漏不违反任何断言"的缺陷最需要静态守卫**——四个副本里没有一个
+> 被 2,500+ 条既有测试发现过。
