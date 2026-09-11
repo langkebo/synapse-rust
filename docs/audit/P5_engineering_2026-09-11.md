@@ -149,6 +149,39 @@ workspace `--all-targets` 下的非阻塞警告：
 
 ---
 
+## 3.1 ⚠️ 实测发现：并发 cargo 构建会互毁 `target/`（本仓库当前正发生）
+
+本会话存在另一个 agent 在同一工作区持续提交（提交者 `langkebo`）。
+
+**现象**：`cargo clippy --workspace --all-targets` 与 `cargo test --doc --workspace`
+**刚验证通过后不久即失败**，错误形态与代码无关：
+
+```
+error: failed to build archive at .../target/debug/deps/libsignal_hook_registry-<hash>.rlib:
+       failed to open object file: No such file or directory (os error 2)
+error[E0463]: can't find crate for `http_body`
+error: extern location for http does not exist: .../target/debug/deps/libhttp-<hash>.rmeta
+```
+
+**判定**：这是两个 cargo 进程同时读写同一 `target/` 目录造成的**产物损坏/缺失**，
+不是 lint 或代码缺陷（同一命令在无并发时 `EXIT=0`）。
+
+**影响**：任何在共享工作区并行运行的构建/测试/门禁，其**结论不可信** ——
+既可能假红（如本例），也可能掩盖真实问题。这与 P0 记录的
+"integration 结果对并发度高度敏感"是同一类问题在不同层面的表现。
+
+**规避**：在存在并发写者的环境下验证时，使用隔离 target 目录：
+
+```bash
+CARGO_TARGET_DIR=/tmp/verify cargo clippy --workspace --all-targets --all-features --locked
+CARGO_TARGET_DIR=/tmp/verify cargo test --doc --locked --workspace
+```
+
+> 建议：若不需要并行协作，应停掉第二个 agent；否则所有门禁结论都必须附
+> "是否使用了隔离 target 目录 / 是否存在并发构建"。
+
+---
+
 ## 4. 复现方式
 
 ```bash
