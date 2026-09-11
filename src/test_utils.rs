@@ -582,6 +582,15 @@ async fn init_template_schema(database_url: &str, template_name: &str) -> Result
     // Close the template pool — we only need it for initialization
     pool.close().await;
 
+    // The freshly-built template is marked ready, so any template carrying an
+    // older migration fingerprint can never be selected again. Drop them here
+    // (rather than leaving them for a manual script) so a long-lived test
+    // database cannot accumulate one 111-table schema per migration edit.
+    if let Err(error) = prune_stale_template_schemas(&admin_pool, template_name).await {
+        // Pruning is housekeeping: never fail template initialization over it.
+        tracing::warn!(%error, "failed to prune superseded test template schemas");
+    }
+
     // Release the cross-process advisory lock. On error paths, the lock is
     // released automatically when admin_pool (max_connections=1) is dropped
     // and its connection is closed.
@@ -768,7 +777,11 @@ async fn ensure_template_schema_exists(database_url: &str, schema_name: &str) ->
     Ok(())
 }
 
-fn template_ready_marker_path(schema_name: &str) -> std::path::PathBuf {
+/// Directory holding the `*_ready_<schema>` marker files that record which
+/// template schemas are usable. Shared by the marker writer, the readiness
+/// check, and [`prune_stale_template_schemas`] (which deletes the markers of
+/// templates it drops).
+fn template_marker_dir() -> std::path::PathBuf {
     let dir = std::env::var("CARGO_TARGET_TMPDIR")
         .ok()
         .map_or_else(
@@ -777,7 +790,78 @@ fn template_ready_marker_path(schema_name: &str) -> std::path::PathBuf {
         )
         .join("synapse_test_templates");
     let _ = std::fs::create_dir_all(&dir);
-    dir.join(format!("{TEST_TEMPLATE_READY_MARKER_PREFIX}_{schema_name}"))
+    dir
+}
+
+fn template_ready_marker_path(schema_name: &str) -> std::path::PathBuf {
+    template_marker_dir().join(format!("{TEST_TEMPLATE_READY_MARKER_PREFIX}_{schema_name}"))
+}
+
+/// Drop template schemas superseded by `keep`.
+///
+/// `default_template_schema_name()` embeds a fingerprint of every migration file
+/// (name + size + mtime), so **every migration edit mints a new template name**.
+/// Nothing used to delete the previous one, so a long-lived test database
+/// accumulated one full 111-table schema per migration change (40 were present
+/// on 2026-09-12). They are pure waste: `template_schema_is_ready` only ever
+/// consults the current fingerprint, so an old template can never be selected
+/// again.
+///
+/// Safety rules, in order:
+/// 1. `keep` is never a candidate.
+/// 2. Only names matching `test_template_v<rev>_<16 hex>` are candidates — a
+///    configured `TEST_DB_TEMPLATE_SCHEMA` (arbitrary user name, possibly a
+///    production database's `public`) can therefore never match.
+/// 3. A candidate is dropped only if `keep` actually exists, so a failed build
+///    can never leave the database with no template at all.
+///
+/// Returns the names dropped. Idempotent.
+/// Public so `tests/unit/` can exercise the drop/preserve decision against
+/// throwaway schemas instead of the real template set.
+pub async fn prune_stale_template_schemas(admin_pool: &PgPool, keep: &str) -> Result<Vec<String>, String> {
+    let keep_exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = $1)")
+        .bind(keep)
+        .fetch_one(admin_pool)
+        .await
+        .map_err(|error| format!("failed to check template {keep}: {error}"))?;
+    if !keep_exists {
+        return Err(format!("refusing to prune templates: replacement template {keep} does not exist"));
+    }
+
+    // `test_template_v2_<16 hex chars>` — anchored, so no other family matches.
+    let stale: Vec<String> = sqlx::query_scalar(
+        "SELECT nspname FROM pg_namespace
+         WHERE nspname ~ '^test_template_v[0-9]+_[0-9a-f]{16}$'
+           AND nspname <> $1
+         ORDER BY nspname",
+    )
+    .bind(keep)
+    .fetch_all(admin_pool)
+    .await
+    .map_err(|error| format!("failed to list stale templates: {error}"))?;
+
+    let mut dropped = Vec::new();
+    for schema in stale {
+        match sqlx::query(&format!("DROP SCHEMA IF EXISTS {} CASCADE", quote_ident(&schema))).execute(admin_pool).await
+        {
+            Ok(_) => {
+                // Remove the run-speed marker too, or a stale marker file outlives
+                // its schema and the readiness check has to hit the database to
+                // notice (`template_schema_is_ready` already guards this, but the
+                // files should not accumulate either).
+                let _ = std::fs::remove_file(template_ready_marker_path(&schema));
+                dropped.push(schema);
+            }
+            Err(error) => {
+                tracing::warn!(schema = %schema, %error, "failed to drop stale test template schema");
+            }
+        }
+    }
+
+    if !dropped.is_empty() {
+        tracing::info!(count = dropped.len(), keep = %keep, "pruned superseded test template schemas");
+    }
+    Ok(dropped)
 }
 
 async fn template_schema_is_ready(database_url: &str, schema_name: &str) -> Result<bool, String> {

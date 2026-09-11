@@ -48,7 +48,7 @@
 # 历史对照：2026-06-03 审计记录动态占比 99.6%（含测试代码口径）；
 # 本基线口径（仅 workspace 生产目录，含内联测试模块）为 95.90%。
 
-BASELINE_DYNAMIC=1436
+BASELINE_DYNAMIC=1439
 BASELINE_STATIC=61
 
 # ── 基线调整记录 ─────────────────────────────────────────────────────────────
@@ -75,4 +75,21 @@ BASELINE_STATIC=61
 #   假性失败（`room_summary::db_tests::test_add_member_creates_record` 即为
 #   已知受害者）。收紧方向应是等 22k 残留 test schema 清理完成后，把这批
 #   手工 test_pool() 迁到共享 schema 隔离夹具，从而删掉本函数的用武之地。
+#
+# 2026-09-12  +3  (1436 → 1439)
+#   来源：src/test_utils.rs 新增 `prune_stale_template_schemas`，在
+#   init_template_schema 末尾删除被新迁移指纹取代的旧模板 schema
+#   （`default_template_schema_name()` 把每个迁移文件的 name+size+mtime 哈希进
+#   模板名，因此**每改一次迁移就新造一个模板**，旧代码从不删除——实测累积 39 个，
+#   每个 111 张表/1,197 个对象，是 catalog 膨胀的主因之一）。
+#   3 处动态查询：
+#     1. `SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = $1)`
+#     2. `SELECT nspname ... WHERE nspname ~ '^test_template_v[0-9]+_[0-9a-f]{16}$'`
+#        —— 这两处**参数是绑定的**，理论上可静态化，属可收紧项；
+#     3. `DROP SCHEMA IF EXISTS {schema} CASCADE` —— 标识符必须
+#        format!/quote_ident 拼接，**无法**静态化。
+#   ⚠️ 同样**不是生产代码**（test-utils 门控的 test_utils 模块）。
+#   收紧方向：把 1、2 两处改成 `query_scalar!` 宏即可回收 2 处；第 3 处保留。
+#   最终目标是让本文件不必存在——模板生命周期治理若并入共享夹具的既有机制，
+#   这 3 处自然消失。
 

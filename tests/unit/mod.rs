@@ -17,6 +17,7 @@ mod background_update_api_tests;
 
 mod canonical_json_vectors;
 mod ci_test_scope_tests;
+mod cleanup_schema_script_tests;
 mod config_consistency_gate_tests;
 mod config_mount_tests;
 
@@ -99,6 +100,7 @@ mod storage_admin_domain_refactor_tests;
 mod storage_remaining_domains_refactor_tests;
 mod sync_rate_limit_config_tests;
 mod test_fixture_error_handling_tests;
+mod test_schema_housekeeping_tests;
 
 // P-096 route tests (12 files)
 mod account_compat_route_tests;
