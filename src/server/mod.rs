@@ -105,11 +105,6 @@ fn dehydrated_device_cleanup_interval(configured_interval_secs: u64) -> Duration
     Duration::from_secs(configured_interval_secs.max(MIN_DEHYDRATED_DEVICE_CLEANUP_INTERVAL_SECS))
 }
 
-fn create_rate_limit_manager(config_path: &std::path::Path) -> Arc<RateLimitConfigManager> {
-    let default_config = RateLimitConfigFile::default();
-    Arc::new(RateLimitConfigManager::new(default_config, config_path.to_path_buf()))
-}
-
 /// The `SynapseServer` struct.
 pub struct SynapseServer {
     app_state: Arc<AppState>,
@@ -208,6 +203,32 @@ impl SynapseServer {
             std::env::var("RATE_LIMIT_CONFIG_PATH").unwrap_or_else(|_| "/app/config/rate_limit.yaml".to_string()),
         );
 
+        // Fallback used when the dedicated file is missing or unparseable:
+        // honour the `rate_limit:` section of `homeserver.yaml` instead of
+        // hard-coded `Default` values.
+        //
+        // Previously this path built `RateLimitConfigFile::default()`, so an
+        // operator who declared limits in homeserver.yaml (the documented place)
+        // had them silently replaced by built-in constants — neither file was
+        // read. `trusted_proxies` / `trust_forwarded` now flow through too.
+        //
+        // `RateLimitConfigFile` remains the single in-memory representation the
+        // middleware consults; this merely seeds it from the runtime view.
+        let fallback_from_homeserver = |path: &std::path::Path, why: &str| -> (Arc<RateLimitConfigManager>, u64) {
+            let converted = RateLimitConfigFile::from(&config.rate_limit);
+            let reload_secs = converted.reload_interval_seconds;
+            let manager = Arc::new(RateLimitConfigManager::new(converted, path.to_path_buf()));
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "rate_limit_config_fallback",
+                path = %path.display(),
+                reason = why,
+                "限流配置以 homeserver.yaml 的 rate_limit 段为准（{}）；                 rate_limit_config_source_is_file=0 表示专题文件未生效",
+                why
+            );
+            (manager, reload_secs)
+        };
+
         let (rate_limit_config_manager, config_watcher_handle) = if rate_limit_config_path.exists() {
             match RateLimitConfigManager::from_file(&rate_limit_config_path).await {
                 Ok(manager) => {
@@ -219,30 +240,37 @@ impl SynapseServer {
                 }
                 Err(e) => {
                     // Degraded: the operator's file exists but could not be
-                    // parsed, so the built-in defaults take over *silently* from
-                    // the client's point of view. Log at error level (not warn)
-                    // and surface it via `rate_limit_config_degraded` + /health
-                    // so it cannot go unnoticed in production.
+                    // parsed. Log at error level (not warn) and surface it via
+                    // `rate_limit_config_degraded` + /health so it cannot go
+                    // unnoticed in production.
                     ::tracing::error!(
                         target: "security_audit",
                         event = "rate_limit_config_degraded",
                         path = %rate_limit_config_path.display(),
                         error = %e,
-                        "[启动阶段 3/4] 限流配置加载失败，回退到内置默认值（运维写入的限流规则已被忽略）"
+                        "[启动阶段 3/4] 限流配置解析失败，回退到 homeserver.yaml 的 rate_limit 段"
                     );
-                    let manager = create_rate_limit_manager(&rate_limit_config_path);
-                    (Some(manager), None)
+                    let (manager, reload_secs) = fallback_from_homeserver(&rate_limit_config_path, "parse error");
+                    // Keep the watcher running: the file is present but broken,
+                    // so a fix should be picked up without a restart.
+                    let handle = start_config_watcher(manager.clone(), reload_secs).await;
+                    (Some(manager), Some(handle))
                 }
             }
         } else {
             ::tracing::warn!(
                 target: "security_audit",
-                event = "rate_limit_config_degraded",
+                event = "rate_limit_config_fallback",
                 path = %rate_limit_config_path.display(),
-                "[启动阶段 3/4] 限流配置文件不存在，回退到内置默认值（运维写入的限流规则已被忽略）"
+                "[启动阶段 3/4] 限流专题文件不存在，以 homeserver.yaml 的 rate_limit 段为准"
             );
-            let manager = create_rate_limit_manager(&rate_limit_config_path);
-            (Some(manager), None)
+            let (manager, reload_secs) = fallback_from_homeserver(&rate_limit_config_path, "file missing");
+            // Watch anyway: if the dedicated file appears later (volume mounted
+            // after boot, config-management catching up) it takes over without a
+            // restart. Previously no watcher was started here, so the fallback
+            // was permanent for the process lifetime.
+            let handle = start_config_watcher(manager.clone(), reload_secs).await;
+            (Some(manager), Some(handle))
         };
 
         let app_state = if let Some(ref manager) = rate_limit_config_manager {

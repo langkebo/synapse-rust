@@ -166,6 +166,59 @@ cd docker/deploy && docker compose restart synapse            # 恢复挂载
 
 ---
 
+## 4bis. 后续修复（同一问题的另一半：回退语义本身）
+
+上一轮只做了**可观测性**，回退语义本身未改。本轮补齐 —— 因为
+"降级可见"并不等于"降级正确"。
+
+### 4bis.1 缺陷
+
+`create_rate_limit_manager`（`src/server/mod.rs`）在专题文件缺失或解析失败时构造：
+
+```rust
+let default_config = RateLimitConfigFile::default();   // 硬编码值
+```
+
+即回退到**内置常量**，**既不读 homeserver.yaml 的 `rate_limit:` 段，也不读
+rate_limit.yaml**。运维把限流写在文档指明的 `homeserver.yaml` 位置，却在专题文件
+缺失时被静默替换成内置默认值 —— 两个文件都不生效。
+
+**附带缺陷**：这两个分支都返回 `(Some(manager), None)` —— **不启动 watcher**。
+因此若专题文件在启动后才出现（卷后挂载、配置管理追赶），进程**永远**不会接管它，
+回退状态会持续到进程结束。
+
+### 4bis.2 修复
+
+1. 新增 `impl From<&RateLimitConfig> for RateLimitConfigFile`
+   （`synapse-common/src/config/rate_limit.rs`）：把 `homeserver.yaml` 的运行时视图
+   转成中间件真正读取的类型，使文档所指的配置位置成为**真实回退**
+   （`trusted_proxies` / `trust_forwarded` 也随之一并生效）。
+   `backend` 与 `reload_interval_seconds` 在运行时视图中无对应字段，取自身默认值。
+2. `src/server/mod.rs`：两个回退分支改为
+   `RateLimitConfigFile::from(&config.rate_limit)`，并**始终启动 watcher**，
+   使专题文件后续出现或修复后无需重启即可接管。
+3. 删除已成死代码的 `create_rate_limit_manager`（它就是缺陷所在）。
+
+### 4bis.3 回归证据（4 个新测试）
+
+`rate_limit_config::runtime_fallback_tests`：
+
+```console
+    PASS runtime_config_converts_to_file_config_preserving_values
+    PASS endpoints_survive_the_conversion
+    PASS conversion_output_passes_validation
+    PASS conversion_does_not_inherit_file_only_defaults_it_should_not
+    Summary 4 tests run: 4 passed
+```
+
+覆盖：各字段（含 `per_second`/`burst_size`/`include_headers`/`fail_open_on_error`/
+`sync.*`/`trusted_proxies`/`trust_forwarded`）在转换后保留、endpoints 保留、
+转换结果能通过 `validate()`（否则 manager 会永远处于 degraded）、
+文件专有字段不被污染。
+
+> `conversion_output_passes_validation` 是针对一类隐蔽失败的保护：
+> 若转换产出的配置非法，`reload()` 会一直失败，degraded 状态永不恢复。
+
 ## 5. 仍未处理（承接 P4 §8.2）
 
 | # | 项 | 优先级 |

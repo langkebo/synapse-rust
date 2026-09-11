@@ -100,6 +100,43 @@ impl Default for RateLimitConfig {
     }
 }
 
+/// Converts the `homeserver.yaml` runtime view into the hot-reloadable
+/// file-backed config.
+///
+/// ## Why this exists
+///
+/// When `RATE_LIMIT_CONFIG_PATH` is missing or unparseable the server needs a
+/// fallback. It used to build one from `RateLimitConfigFile::default()` —
+/// **hard-coded** values — which silently discarded any `rate_limit:` section
+/// the operator had written in `homeserver.yaml`. Neither file was honoured.
+///
+/// With this conversion the documented configuration is a real fallback, and
+/// `RateLimitConfigFile` (the type the middleware actually consults) stays the
+/// single in-memory representation.
+///
+/// `backend` and `reload_interval_seconds` have no counterpart in the runtime
+/// view and therefore keep their own defaults.
+impl From<&RateLimitConfig> for crate::rate_limit_config::RateLimitConfigFile {
+    fn from(cfg: &RateLimitConfig) -> Self {
+        Self {
+            enabled: cfg.enabled,
+            backend: crate::rate_limit_config::RateLimitBackend::default(),
+            default: cfg.default.clone(),
+            endpoints: cfg.endpoints.clone(),
+            ip_header_priority: cfg.ip_header_priority.clone(),
+            include_headers: cfg.include_headers,
+            exempt_paths: cfg.exempt_paths.clone(),
+            exempt_path_prefixes: cfg.exempt_path_prefixes.clone(),
+            endpoint_aliases: cfg.endpoint_aliases.clone(),
+            fail_open_on_error: cfg.fail_open_on_error,
+            sync: cfg.sync.clone(),
+            reload_interval_seconds: crate::rate_limit_config::default_config_reload_interval(),
+            trusted_proxies: cfg.trusted_proxies.clone(),
+            trust_forwarded: cfg.trust_forwarded,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

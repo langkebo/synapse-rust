@@ -189,7 +189,12 @@ fn default_ip_header_priority() -> Vec<String> {
     vec!["x-forwarded-for".to_string(), "x-real-ip".to_string(), "forwarded".to_string()]
 }
 
-fn default_config_reload_interval() -> u64 {
+/// Default hot-reload interval (seconds) for the rate-limit config file.
+///
+/// Exposed so callers constructing a fallback [`RateLimitConfigFile`] from the
+/// runtime `homeserver.yaml` view (which has no such field) can reuse the same
+/// default as serde.
+pub fn default_config_reload_interval() -> u64 {
     30
 }
 
@@ -912,5 +917,168 @@ default:
         let reparsed: RateLimitConfigFile =
             serde_yaml::from_str(&text).expect("默认配置必须能通过严格校验（否则缺失文件时无法回退）");
         assert_eq!(reparsed.enabled, RateLimitConfigFile::default().enabled);
+    }
+}
+
+#[cfg(test)]
+mod runtime_fallback_tests {
+    //! When `RATE_LIMIT_CONFIG_PATH` is missing or unparseable, the server must
+    //! still honour the `rate_limit:` section of `homeserver.yaml`.
+    //!
+    //! Before this, `create_rate_limit_manager` built the fallback from
+    //! `RateLimitConfigFile::default()` — **hard-coded** values — so an operator
+    //! who declared limits in `homeserver.yaml` (the documented place) had them
+    //! silently discarded in favour of built-in constants. Neither file was read.
+    //!
+    //! These tests pin the conversion that makes `homeserver.yaml` a real
+    //! fallback rather than dead configuration.
+
+    use super::*;
+    use crate::config::RateLimitConfig;
+
+    fn runtime_view() -> RateLimitConfig {
+        // Built with struct-update syntax (not field reassignment after
+        // `Default::default()`) to keep `clippy::field_reassign_with_default`
+        // quiet — the warning baseline must not grow.
+        RateLimitConfig {
+            enabled: true,
+            default: RateLimitRule { per_second: 7, burst_size: 11 },
+            include_headers: false,
+            fail_open_on_error: true,
+            exempt_paths: vec!["/x".to_string()],
+            sync: SyncRateLimitConfigFile {
+                enabled: true,
+                initial: RateLimitRule { per_second: 3, ..Default::default() },
+                incremental: RateLimitRule { burst_size: 77, ..Default::default() },
+            },
+            trusted_proxies: vec!["10.0.0.0/8".to_string()],
+            trust_forwarded: true,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn runtime_config_converts_to_file_config_preserving_values() {
+        let converted: RateLimitConfigFile = (&runtime_view()).into();
+
+        assert!(converted.enabled);
+        assert_eq!(converted.default.per_second, 7, "homeserver.yaml 的 per_second 必须被保留");
+        assert_eq!(converted.default.burst_size, 11);
+        assert!(!converted.include_headers, "include_headers 必须被保留");
+        assert!(converted.fail_open_on_error, "fail_open_on_error 必须被保留");
+        assert_eq!(converted.exempt_paths, vec!["/x".to_string()]);
+        assert!(converted.sync.enabled, "sync.enabled 必须被保留");
+        assert_eq!(converted.sync.initial.per_second, 3);
+        assert_eq!(converted.sync.incremental.burst_size, 77);
+        assert_eq!(converted.trusted_proxies, vec!["10.0.0.0/8".to_string()]);
+        assert!(converted.trust_forwarded);
+    }
+
+    #[test]
+    fn endpoints_survive_the_conversion() {
+        let cfg = RateLimitConfig {
+            endpoints: vec![RateLimitEndpointRule {
+                path: "/_matrix/client/v3/login".to_string(),
+                match_type: RateLimitMatchType::Prefix,
+                rule: RateLimitRule { per_second: 5, burst_size: 50 },
+            }],
+            ..Default::default()
+        };
+
+        let converted: RateLimitConfigFile = (&cfg).into();
+        assert_eq!(converted.endpoints.len(), 1);
+        assert_eq!(converted.endpoints[0].path, "/_matrix/client/v3/login");
+        assert_eq!(converted.endpoints[0].rule.burst_size, 50);
+    }
+
+    #[test]
+    fn conversion_output_passes_validation() {
+        // The fallback must be a *valid* config, otherwise `reload()` would
+        // reject it and the manager would stay degraded forever.
+        let converted: RateLimitConfigFile = (&runtime_view()).into();
+        converted.validate().expect("从 homeserver.yaml 转换出的配置必须通过校验");
+    }
+
+    #[test]
+    fn conversion_does_not_inherit_file_only_defaults_it_should_not() {
+        // `backend` / `reload_interval_seconds` have no counterpart in the
+        // runtime view; they must take their own defaults rather than garbage.
+        let converted: RateLimitConfigFile = (&runtime_view()).into();
+        assert_eq!(converted.reload_interval_seconds, default_config_reload_interval());
+        assert_eq!(converted.backend, RateLimitBackend::default());
+    }
+}
+
+#[cfg(test)]
+mod watcher_recovery_tests {
+    //! The watcher must recover the config **from a manager that started on the
+    //! fallback**.
+    //!
+    //! Regression context: when `RATE_LIMIT_CONFIG_PATH` was missing the server
+    //! built a `Default`-based manager and returned `(Some(manager), None)` —
+    //! **no watcher**. So a dedicated file that appeared after boot (volume
+    //! mounted later, config-management catching up) was never adopted, and the
+    //! fallback lasted for the whole process lifetime.
+    //!
+    //! `reload()` is what the watcher calls, so this pins the property the fix
+    //! depends on: a fallback-seeded manager reloads successfully once the file
+    //! exists, and its source flips to `File`.
+
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    fn temp_yaml_path(tag: &str) -> std::path::PathBuf {
+        static N: AtomicU64 = AtomicU64::new(0);
+        let n = N.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!("synapse_rl_watch_{tag}_{}_{n}.yaml", std::process::id()))
+    }
+
+    #[tokio::test]
+    async fn fallback_manager_adopts_a_file_that_appears_later() {
+        let path = temp_yaml_path("appears");
+        let _ = std::fs::remove_file(&path);
+
+        // Start as the server does when the file is absent: fallback config,
+        // with the manager pointed at the (not yet existing) path.
+        let fallback: RateLimitConfigFile = (&crate::config::RateLimitConfig {
+            default: RateLimitRule { per_second: 20, burst_size: 40 },
+            ..Default::default()
+        })
+            .into();
+        let manager = RateLimitConfigManager::new(fallback, path.clone());
+        assert_eq!(manager.degradation().source, ConfigSource::Defaults, "前置条件：此时应以回退值启动");
+
+        // The file shows up, carrying a *different* rule.
+        let on_disk =
+            RateLimitConfigFile { default: RateLimitRule { per_second: 50, burst_size: 100 }, ..Default::default() };
+        std::fs::write(&path, serde_yaml::to_string(&on_disk).expect("serialize")).expect("write");
+
+        manager.reload().await.expect("文件出现后 reload 必须成功");
+
+        assert_eq!(manager.get_config().default.per_second, 50, "必须接管磁盘上的配置");
+        let after = manager.degradation();
+        assert_eq!(after.source, ConfigSource::File, "来源必须翻转为 File");
+        assert!(!after.is_degraded(), "接管后不应再报告 degraded");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn fallback_manager_stays_degraded_while_file_is_absent() {
+        let path = temp_yaml_path("absent");
+        let _ = std::fs::remove_file(&path);
+
+        let fallback: RateLimitConfigFile = (&crate::config::RateLimitConfig {
+            default: RateLimitRule { per_second: 20, burst_size: 40 },
+            ..Default::default()
+        })
+            .into();
+        let manager = RateLimitConfigManager::new(fallback, path.clone());
+
+        assert!(manager.reload().await.is_err(), "文件不存在时 reload 必须失败");
+        let d = manager.degradation();
+        assert!(d.is_degraded());
+        assert_eq!(d.consecutive_failures, 1);
+        assert_eq!(manager.get_config().default.per_second, 20, "失败时仍应沿用回退值服务");
     }
 }
