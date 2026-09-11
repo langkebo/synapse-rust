@@ -346,8 +346,29 @@ right: ["$w0", "$w1", "$w2", "$w3", "$w4"]
 ```
 还原后通过 ⇒ 测试确实能捕获该缺陷，而非"必过断言"。
 
-**未覆盖**：未对 `room` 搜索与注册令牌补同类遍历测试（本轮以审计事件作为代表性
-修复与验证；另两个端点的改动与之同构）。
+**已补齐（commit `bbe26f60`）**：为两个未覆盖端点补了回归测试，并在此过程中发现
+**一处更严重的 mock 缺口** —— `test_mocks/room.rs` 的 `get_all_rooms_with_members`
+**完全不支持分页**：
+
+```rust
+let _ = (from, order_by);      // cursor 与排序参数被丢弃
+filtered.truncate(limit as usize);
+Ok((filtered, None))           // next_batch 恒为 None
+```
+
+⇒ 传 cursor 会**返回与第 1 页相同的房间**，且永远没有 `next_batch` ——
+任何依赖该 mock 的分页测试都无法成立。已按真实实现重写（三种排序的 keyset 谓词与
+tie-break、`LIMIT limit+1` 探测、cursor 锚定末行），并补 2 个测试：
+
+| 测试 | 保护对象 |
+|---|---|
+| `room_search_pagination_visits_every_room_exactly_once` | 5 房间 + limit=2 遍历访问集合 == 创建集合 |
+| `room_search_next_batch_presence_follows_limit` | limit < 集合 ⇒ 有 token；limit >= 集合 ⇒ 无 |
+
+**RED 验证**：旧 mock 下"恰好一次"测试得到 `left: ["!r1:t", "!r2:t"]`（仅 2 个，
+分页失效），修复后 2 passed。
+
+同时修复 `test_mocks/registration_token.rs` 的同款 `get(limit)` cursor 缺陷。
 
 ---
 
