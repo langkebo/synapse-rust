@@ -284,7 +284,7 @@ Matrix `POST /_matrix/client/v3/join/{roomIdOrAlias}` 与
 |---|---|---|---|
 | 2 | **给 presence 加 stream 游标** | 去掉 1800s 去重缓存与冷缓存全量回退；对齐 Synapse 的 `presence_stream` | `sync_service/data_fetch.rs:239-291`；新增 `presence_stream` 表与游标 |
 | 3 | **联邦 knock + via 选路** | 当前 knock 纯本地，标准客户端带 `via` 无效 | `membership/moderation.rs:140` 加 via 参数 + 联邦分支 |
-| 4 | **配置单一真相源** | `docker/config/` 与 `docker/deploy/config/` 靠手工 `cp` 同步、无 CI 检查（与已根治的迁移双副本同型） | 挂载共用目录，或加 `check_config_consistency.py` |
+| 4 | **配置单一真相源** | `docker/config/` 与 `docker/deploy/config/` 靠手工 `cp` 同步、无 CI 检查（与已根治的迁移双副本同型） | 挂载共用目录，或加 `check_config_consistency.py` ✅ **已完成**（提交 `99bb8a09`，见 `docs/audit/P5_config_consistency_gate_2026-09-11.md`） |
 | 5 | **让 `homeserver.yaml` 的 `rate_limit:` 段要么生效要么删除** | 现状是"写了但不生效"的陷阱；文件缺失时静默用硬编码默认值（无 metric/health 信号） | `src/server/mod.rs:211-243` 仅在文件真加载成功时 attach manager |
 
 ### P3（技术债）
