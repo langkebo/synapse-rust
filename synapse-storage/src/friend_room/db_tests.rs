@@ -30,7 +30,7 @@ async fn ensure_test_user(pool: &Pool<Postgres>, user_id: &str) {
     .bind(username)
     .execute(pool)
     .await
-    .ok();
+    .expect("test fixture: insert must succeed — a swallowed error here surfaces later as an unrelated failure");
 }
 
 async fn ensure_test_room(pool: &Pool<Postgres>, room_id: &str) {
@@ -40,7 +40,7 @@ async fn ensure_test_room(pool: &Pool<Postgres>, room_id: &str) {
     .bind(room_id)
     .execute(pool)
     .await
-    .ok();
+    .expect("test fixture: insert must succeed — a swallowed error here surfaces later as an unrelated failure");
 }
 
 async fn insert_event(
@@ -65,7 +65,7 @@ async fn insert_event(
     .bind(now)
     .execute(pool)
     .await
-    .ok();
+    .expect("test fixture: statement must succeed — a swallowed error here surfaces later as an unrelated failure");
 }
 
 async fn cleanup_all(pool: &Pool<Postgres>, suffix: &str) {
@@ -324,7 +324,7 @@ async fn test_get_effective_direct_links_fallback() {
     .bind(now)
     .execute(&*pool)
     .await
-    .ok();
+    .expect("test fixture: insert must succeed — a swallowed error here surfaces later as an unrelated failure");
 
     // Insert room_memberships for both users
     sqlx::query(
@@ -334,7 +334,7 @@ async fn test_get_effective_direct_links_fallback() {
     .bind(&user_a)
     .execute(&*pool)
     .await
-    .ok();
+    .expect("test fixture: insert must succeed — a swallowed error here surfaces later as an unrelated failure");
     sqlx::query(
         "INSERT INTO room_memberships (room_id, user_id, membership) VALUES ($1, $2, 'join') ON CONFLICT (room_id, user_id) DO NOTHING",
     )
@@ -342,7 +342,7 @@ async fn test_get_effective_direct_links_fallback() {
     .bind(&user_b)
     .execute(&*pool)
     .await
-    .ok();
+    .expect("test fixture: insert must succeed — a swallowed error here surfaces later as an unrelated failure");
 
     let storage = FriendRoomStorage::new(pool.clone());
 
@@ -386,7 +386,7 @@ async fn test_get_existing_direct_room_id() {
     .bind(now)
     .execute(&*pool)
     .await
-    .ok();
+    .expect("test fixture: insert must succeed — a swallowed error here surfaces later as an unrelated failure");
     sqlx::query(
         "INSERT INTO room_memberships (room_id, user_id, membership) VALUES ($1, $2, 'join') ON CONFLICT (room_id, user_id) DO NOTHING",
     )
@@ -394,7 +394,7 @@ async fn test_get_existing_direct_room_id() {
     .bind(&user_a)
     .execute(&*pool)
     .await
-    .ok();
+    .expect("test fixture: insert must succeed — a swallowed error here surfaces later as an unrelated failure");
     sqlx::query(
         "INSERT INTO room_memberships (room_id, user_id, membership) VALUES ($1, $2, 'join') ON CONFLICT (room_id, user_id) DO NOTHING",
     )
@@ -402,7 +402,7 @@ async fn test_get_existing_direct_room_id() {
     .bind(&user_b)
     .execute(&*pool)
     .await
-    .ok();
+    .expect("test fixture: insert must succeed — a swallowed error here surfaces later as an unrelated failure");
 
     let storage = FriendRoomStorage::new(pool.clone());
 
@@ -443,7 +443,7 @@ async fn test_get_dm_partner_for_room() {
     .bind(&user_a)
     .execute(&*pool)
     .await
-    .ok();
+    .expect("test fixture: insert must succeed — a swallowed error here surfaces later as an unrelated failure");
     sqlx::query(
         "INSERT INTO room_memberships (room_id, user_id, membership, display_name, avatar_url) VALUES ($1, $2, 'join', 'User B', NULL) ON CONFLICT (room_id, user_id) DO NOTHING",
     )
@@ -451,7 +451,7 @@ async fn test_get_dm_partner_for_room() {
     .bind(&user_b)
     .execute(&*pool)
     .await
-    .ok();
+    .expect("test fixture: insert must succeed — a swallowed error here surfaces later as an unrelated failure");
 
     let storage = FriendRoomStorage::new(pool.clone());
 
@@ -474,7 +474,7 @@ async fn test_get_dm_partner_for_room() {
     .bind(&solo_user)
     .execute(&*pool)
     .await
-    .ok();
+    .expect("test fixture: insert must succeed — a swallowed error here surfaces later as an unrelated failure");
     let result = storage.get_dm_partner_for_room(&solo_room, &solo_user).await.expect("query should succeed");
     assert!(result.is_none(), "should return None for room with single member");
 

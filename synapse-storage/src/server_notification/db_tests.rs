@@ -53,7 +53,7 @@ async fn ensure_test_user(pool: &sqlx::PgPool, user_id: &str) {
     .bind(username)
     .execute(pool)
     .await
-    .ok();
+    .expect("test fixture: insert must succeed — a swallowed error here surfaces later as an unrelated failure");
 }
 
 #[tokio::test]

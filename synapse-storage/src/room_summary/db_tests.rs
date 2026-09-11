@@ -29,7 +29,7 @@ async fn ensure_test_user(pool: &PgPool, user_id: &str) {
         .bind(username)
         .execute(pool)
         .await
-        .ok();
+        .expect("ensure_test_user: insert into users must succeed");
 }
 
 async fn ensure_test_room(pool: &PgPool, room_id: &str) {
@@ -39,7 +39,7 @@ async fn ensure_test_room(pool: &PgPool, room_id: &str) {
         .bind(room_id)
         .execute(pool)
         .await
-        .ok();
+        .expect("ensure_test_room: insert into rooms must succeed (a silent failure here surfaces much later as a confusing FK violation on room_summary_members)");
 }
 
 /// Delete test data from all room-summary tables in FK-safe order.

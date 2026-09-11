@@ -50,31 +50,31 @@ async fn cleanup_thread_data(pool: &Pool<Postgres>, room_id: &str, thread_id: &s
         .bind(thread_id)
         .execute(pool)
         .await
-        .ok();
+        .expect("test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure");
     sqlx::query("DELETE FROM thread_subscriptions WHERE room_id = $1 AND thread_id = $2")
         .bind(room_id)
         .bind(thread_id)
         .execute(pool)
         .await
-        .ok();
+        .expect("test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure");
     sqlx::query("DELETE FROM thread_relations WHERE room_id = $1 AND thread_id = $2")
         .bind(room_id)
         .bind(thread_id)
         .execute(pool)
         .await
-        .ok();
+        .expect("test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure");
     sqlx::query("DELETE FROM thread_replies WHERE room_id = $1 AND thread_id = $2")
         .bind(room_id)
         .bind(thread_id)
         .execute(pool)
         .await
-        .ok();
+        .expect("test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure");
     sqlx::query("DELETE FROM thread_roots WHERE room_id = $1 AND thread_id = $2")
         .bind(room_id)
         .bind(thread_id)
         .execute(pool)
         .await
-        .ok();
+        .expect("test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure");
 }
 
 // 1. test_create_thread_root

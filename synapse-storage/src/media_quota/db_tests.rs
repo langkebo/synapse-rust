@@ -29,7 +29,7 @@ async fn ensure_test_user(pool: &PgPool, user_id: &str) {
     .bind(username)
     .execute(pool)
     .await
-    .ok();
+    .expect("test fixture: insert must succeed — a swallowed error here surfaces later as an unrelated failure");
 }
 
 async fn ensure_server_quota_row(pool: &PgPool) {
@@ -40,15 +40,31 @@ async fn ensure_server_quota_row(pool: &PgPool) {
     .bind(now)
     .execute(pool)
     .await
-    .ok();
+    .expect("test fixture: insert must succeed — a swallowed error here surfaces later as an unrelated failure");
 }
 
 async fn cleanup_test_data(pool: &PgPool, suffix: &str) {
     let pattern = format!("%{suffix}%");
-    sqlx::query("DELETE FROM media_quota_alerts WHERE user_id LIKE $1").bind(&pattern).execute(pool).await.ok();
-    sqlx::query("DELETE FROM media_usage_log WHERE user_id LIKE $1").bind(&pattern).execute(pool).await.ok();
-    sqlx::query("DELETE FROM user_media_quota WHERE user_id LIKE $1").bind(&pattern).execute(pool).await.ok();
-    sqlx::query("DELETE FROM media_quota_config WHERE config_name LIKE $1").bind(&pattern).execute(pool).await.ok();
+    sqlx::query("DELETE FROM media_quota_alerts WHERE user_id LIKE $1")
+        .bind(&pattern)
+        .execute(pool)
+        .await
+        .expect("test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure");
+    sqlx::query("DELETE FROM media_usage_log WHERE user_id LIKE $1")
+        .bind(&pattern)
+        .execute(pool)
+        .await
+        .expect("test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure");
+    sqlx::query("DELETE FROM user_media_quota WHERE user_id LIKE $1")
+        .bind(&pattern)
+        .execute(pool)
+        .await
+        .expect("test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure");
+    sqlx::query("DELETE FROM media_quota_config WHERE config_name LIKE $1")
+        .bind(&pattern)
+        .execute(pool)
+        .await
+        .expect("test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure");
 }
 
 // —— get_default_config ——

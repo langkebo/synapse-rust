@@ -29,7 +29,7 @@ async fn ensure_test_user(pool: &sqlx::PgPool, user_id: &str) {
     .bind(username)
     .execute(pool)
     .await
-    .ok();
+    .expect("test fixture: insert must succeed — a swallowed error here surfaces later as an unrelated failure");
 }
 
 async fn cleanup_saml_test_data(pool: &sqlx::PgPool, suffix: &str) {
@@ -38,14 +38,22 @@ async fn cleanup_saml_test_data(pool: &sqlx::PgPool, suffix: &str) {
         .bind(&pattern)
         .execute(pool)
         .await
-        .ok();
+        .expect("test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure");
     sqlx::query("DELETE FROM saml_user_mapping WHERE name_id LIKE $1 OR user_id LIKE $1")
         .bind(&pattern)
         .execute(pool)
         .await
-        .ok();
-    sqlx::query("DELETE FROM saml_identity_providers WHERE entity_id LIKE $1").bind(&pattern).execute(pool).await.ok();
-    sqlx::query("DELETE FROM saml_pending_requests WHERE relay_state LIKE $1").bind(&pattern).execute(pool).await.ok();
+        .expect("test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure");
+    sqlx::query("DELETE FROM saml_identity_providers WHERE entity_id LIKE $1")
+        .bind(&pattern)
+        .execute(pool)
+        .await
+        .expect("test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure");
+    sqlx::query("DELETE FROM saml_pending_requests WHERE relay_state LIKE $1")
+        .bind(&pattern)
+        .execute(pool)
+        .await
+        .expect("test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure");
 }
 
 fn make_attrs(entries: &[(&str, &str)]) -> HashMap<String, Vec<String>> {

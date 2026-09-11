@@ -27,11 +27,19 @@ async fn cleanup_test_data(pool: &sqlx::PgPool, suffix: &str) {
         .bind(&token_pattern)
         .execute(pool)
         .await
-        .ok();
+        .expect("test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure");
 
-    sqlx::query("DELETE FROM registration_tokens WHERE token LIKE $1").bind(&token_pattern).execute(pool).await.ok();
+    sqlx::query("DELETE FROM registration_tokens WHERE token LIKE $1")
+        .bind(&token_pattern)
+        .execute(pool)
+        .await
+        .expect("test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure");
 
-    sqlx::query("DELETE FROM room_invites WHERE inviter_user_id LIKE $1").bind(&room_pattern).execute(pool).await.ok();
+    sqlx::query("DELETE FROM room_invites WHERE inviter_user_id LIKE $1")
+        .bind(&room_pattern)
+        .execute(pool)
+        .await
+        .expect("test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure");
 }
 
 async fn ensure_test_user(pool: &sqlx::PgPool, user_id: &str) {
