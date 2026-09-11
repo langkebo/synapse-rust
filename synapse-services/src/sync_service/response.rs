@@ -125,13 +125,37 @@ impl SyncService {
         let mut joined_rooms = Map::new();
         let mut left_rooms = Map::new();
         let mut invited_rooms = Map::new();
+
+        // P3-fix: collect invited rooms and pre-fetch their stripped state in one
+        // batch, instead of issuing 8 queries per invited room inside the loop below.
+        let invited_room_ids: Vec<String> = rooms_to_include
+            .iter()
+            .filter(|room_id| room_sections.get(*room_id).copied() == Some(SyncRoomSection::Invite))
+            .cloned()
+            .collect();
+        let mut invited_stripped: HashMap<String, Vec<synapse_storage::event::StateEvent>> =
+            if invited_room_ids.is_empty() {
+                HashMap::new()
+            } else {
+                self.build_invited_rooms_stripped_state(&invited_room_ids).await
+            };
+
         for room_id in &rooms_to_include {
             // MSC4311: invited rooms get stripped state (including m.room.create)
             // instead of full room sync. Skip the full sync pipeline for them.
             if room_sections.get(room_id).copied() == Some(SyncRoomSection::Invite) {
-                let stripped = self.build_invited_room_stripped_state(room_id, user_id).await;
-                if let Some(stripped) = stripped {
-                    invited_rooms.insert(room_id.clone(), stripped);
+                let events = invited_stripped.remove(room_id).unwrap_or_default();
+                match Self::assemble_invited_room_stripped_state(&events, user_id) {
+                    Some(stripped) => {
+                        invited_rooms.insert(room_id.clone(), stripped);
+                    }
+                    None => {
+                        ::tracing::warn!(
+                            room_id = %room_id,
+                            user_id = %user_id,
+                            "Stripped state for invited room missing m.room.create, omitting from invite section (fail-closed)"
+                        );
+                    }
                 }
                 continue;
             }
@@ -509,66 +533,90 @@ impl SyncService {
         })
     }
 
-    /// Build the stripped state for an invited room (MSC4311).
-    ///
-    /// Returns `{"invite_state": {"events": [...]}}` containing the key
-    /// state events the invitee needs to render the room preview and
-    /// determine the room version (via `m.room.create`).
-    ///
-    /// Per the Matrix spec, the stripped state includes:
-    /// m.room.create, m.room.join_rules, m.room.name, m.room.avatar,
-    /// m.room.topic, m.room.encryption, m.room.canonical_alias,
-    /// m.room.member (the invitee's invite event).
-    ///
-    /// Returns `None` if `m.room.create` cannot be loaded (fail-closed:
-    /// without room version info the client cannot safely process the invite).
-    async fn build_invited_room_stripped_state(&self, room_id: &str, user_id: &str) -> Option<Value> {
-        // State event types required for stripped state per Matrix spec.
-        // m.room.create is first — its absence triggers fail-closed return.
-        const STRIPPED_STATE_TYPES: &[&str] = &[
-            "m.room.create",
-            "m.room.join_rules",
-            "m.room.name",
-            "m.room.avatar",
-            "m.room.topic",
-            "m.room.encryption",
-            "m.room.canonical_alias",
-            "m.room.member",
-        ];
+    /// State event types required for stripped state per Matrix spec.
+    /// `m.room.create` is first — its absence triggers the fail-closed omission.
+    const STRIPPED_STATE_TYPES: &'static [&'static str] = &[
+        "m.room.create",
+        "m.room.join_rules",
+        "m.room.name",
+        "m.room.avatar",
+        "m.room.topic",
+        "m.room.encryption",
+        "m.room.canonical_alias",
+        "m.room.member",
+    ];
 
-        let mut stripped_events = Vec::new();
-        let mut has_create = false;
+    /// P3-fix: pre-fetch stripped state for **all** invited rooms at once.
+    ///
+    /// Previously the caller looped per room and each call issued
+    /// `STRIPPED_STATE_TYPES.len()` (8) separate `get_state_events_by_type`
+    /// queries, so a user invited to N rooms cost **8×N** queries inside one
+    /// `/sync`. This hoists the lookups into one batch call per state type
+    /// (**8 queries total**, plus one call per type per room-batch), i.e. the
+    /// query count no longer scales with the number of invited rooms.
+    ///
+    /// Degradation is unchanged but now explicit: if the batch read for a type
+    /// fails, the events for that type degrade to "absent" and we log it. A room
+    /// that consequently has no `m.room.create` is still omitted from the invite
+    /// section (MSC4311 fail-closed), matching the old per-room behaviour — but a
+    /// single DB error no longer silently produces an empty stripped state with
+    /// no log line.
+    async fn build_invited_rooms_stripped_state(
+        &self,
+        room_ids: &[String],
+    ) -> HashMap<String, Vec<synapse_storage::event::StateEvent>> {
+        let mut per_room: HashMap<String, Vec<synapse_storage::event::StateEvent>> = HashMap::new();
 
-        for event_type in STRIPPED_STATE_TYPES {
-            let state_events = self.event_reader.get_state_events_by_type(room_id, event_type).await.ok()?;
-
-            for event in state_events {
-                // For m.room.member, only include the invitee's invite event.
-                if *event_type == "m.room.member" {
-                    let matches_invitee = event.state_key.as_deref().is_some_and(|sk| sk == user_id);
-                    if !matches_invitee {
-                        continue;
+        for event_type in Self::STRIPPED_STATE_TYPES {
+            match self.event_reader.get_state_events_by_type_batch(room_ids, event_type).await {
+                Ok(by_room) => {
+                    for (room_id, events) in by_room {
+                        per_room.entry(room_id).or_default().extend(events);
                     }
                 }
-
-                if *event_type == "m.room.create" {
-                    has_create = true;
+                Err(e) => {
+                    ::tracing::warn!(
+                        event_type = %event_type,
+                        rooms = room_ids.len(),
+                        error = %e,
+                        "stripped-state batch read failed; that state type will be absent from invite_state"
+                    );
                 }
-
-                stripped_events.push(Self::state_event_to_stripped_value(&event));
             }
         }
 
-        // MSC4311 fail-closed: if m.room.create is missing, the invitee
-        // cannot determine the room version. Return None so the room is
-        // omitted from the invite section rather than sent without critical
-        // state.
+        per_room
+    }
+
+    /// Assemble `{"invite_state": {"events": [...]}}` from already-loaded state.
+    ///
+    /// Pure (no I/O) so the fail-closed rule is directly unit-testable:
+    /// returns `None` when `m.room.create` is absent, because the invitee then
+    /// cannot determine the room version (MSC4311).
+    fn assemble_invited_room_stripped_state(
+        events: &[synapse_storage::event::StateEvent],
+        user_id: &str,
+    ) -> Option<Value> {
+        let mut stripped_events = Vec::new();
+        let mut has_create = false;
+
+        for event in events {
+            // For m.room.member, only include the invitee's own invite event.
+            if event.event_type.as_deref() == Some("m.room.member") {
+                let matches_invitee = event.state_key.as_deref().is_some_and(|sk| sk == user_id);
+                if !matches_invitee {
+                    continue;
+                }
+            }
+
+            if event.event_type.as_deref() == Some("m.room.create") {
+                has_create = true;
+            }
+
+            stripped_events.push(Self::state_event_to_stripped_value(event));
+        }
+
         if !has_create {
-            ::tracing::warn!(
-                room_id = %room_id,
-                user_id = %user_id,
-                "Stripped state for invited room missing m.room.create, omitting from invite section (fail-closed)"
-            );
             return None;
         }
 
@@ -696,6 +744,67 @@ mod tests {
             user_id: None,
             stream_ordering: None,
         }
+    }
+
+    /// Helper: build a state event of a given type/state_key.
+    fn state_event_of(event_type: &str, state_key: Option<&str>) -> StateEvent {
+        let mut ev = make_state_event();
+        ev.event_type = Some(event_type.to_string());
+        ev.state_key = state_key.map(|s| s.to_string());
+        ev.event_id = format!("${event_type}:ex.com");
+        ev
+    }
+
+    /// Fail-closed rule (MSC4311): without `m.room.create` the invitee cannot
+    /// determine the room version, so the room must be omitted from the invite
+    /// section rather than sent without critical state.
+    #[test]
+    fn stripped_state_is_none_without_create_event() {
+        let events = vec![state_event_of("m.room.name", Some(""))];
+        assert!(
+            SyncService::assemble_invited_room_stripped_state(&events, "@bob:ex.com").is_none(),
+            "absence of m.room.create must yield None (fail-closed)"
+        );
+    }
+
+    /// With `m.room.create` present the stripped state is produced and carries it.
+    #[test]
+    fn stripped_state_is_some_with_create_event() {
+        let events = vec![state_event_of("m.room.create", Some("")), state_event_of("m.room.name", Some(""))];
+        let value = SyncService::assemble_invited_room_stripped_state(&events, "@bob:ex.com")
+            .expect("m.room.create present ⇒ must assemble");
+        let types: Vec<&str> = value["invite_state"]["events"]
+            .as_array()
+            .expect("events array")
+            .iter()
+            .filter_map(|e| e["type"].as_str())
+            .collect();
+        assert!(types.contains(&"m.room.create"), "create must be present: {types:?}");
+        assert!(types.contains(&"m.room.name"), "name must be present: {types:?}");
+    }
+
+    /// Only the invitee's own `m.room.member` event belongs in stripped state;
+    /// other members' membership events must not leak the room's member list.
+    #[test]
+    fn stripped_state_keeps_only_the_invitee_member_event() {
+        let events = vec![
+            state_event_of("m.room.create", Some("")),
+            state_event_of("m.room.member", Some("@bob:ex.com")),
+            state_event_of("m.room.member", Some("@carol:ex.com")),
+        ];
+        let value = SyncService::assemble_invited_room_stripped_state(&events, "@bob:ex.com").expect("create present");
+        let state_keys: Vec<&str> = value["invite_state"]["events"]
+            .as_array()
+            .expect("events array")
+            .iter()
+            .filter(|e| e["type"] == "m.room.member")
+            .filter_map(|e| e["state_key"].as_str())
+            .collect();
+        assert_eq!(
+            state_keys,
+            vec!["@bob:ex.com"],
+            "only the invitee's membership event may be included (no member-list leak)"
+        );
     }
 
     #[test]

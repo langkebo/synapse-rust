@@ -19,18 +19,37 @@ fn test_v11_baseline_primary_exists() {
     assert!(primary.join("00000001_extensions_v10.sql").exists(), "missing v10 extensions (still used)");
 }
 
+/// Single-source contract (`2b16dc3c`): the deploy migrator mounts the canonical
+/// `migrations/` directory directly, so there must be NO separately-maintained
+/// copy under `docker/deploy/migrations`.
+///
+/// The previous version of this test asserted that
+/// `docker/deploy/migrations/00000000_unified_schema_v07.sql` exists — i.e. it
+/// *locked in* the hand-synced duplicate that had drifted (82 stale v7-lineage
+/// files, missing 13 recent migrations). See `migrations/README.md`.
 #[test]
-fn test_v11_primary_and_deploy_migrations_match() {
+fn deploy_mounts_canonical_migrations_and_has_no_copy() {
     let root = project_root();
-    let primary = root.join("migrations");
-    let deploy = root.join("docker/deploy/migrations");
-    // v11 baseline: primary has v11, deploy has v7 — we only check that both
-    // exist. Content comparison is skipped because they represent different
-    // migration epochs (v11 consolidated tables that v7 had as incremental).
-    let primary_baseline = primary.join("00000000_unified_schema_v11.sql");
-    let deploy_baseline = deploy.join("00000000_unified_schema_v07.sql");
-    assert!(primary_baseline.exists(), "missing primary v11 baseline");
-    assert!(deploy_baseline.exists(), "missing deploy v7 baseline");
+    let canonical = root.join("migrations");
+    let deploy_migrations = root.join("docker/deploy/migrations");
+
+    assert!(canonical.join("00000000_unified_schema_v11.sql").exists(), "missing canonical v11 baseline");
+
+    // A stale real directory (or a symlink — BSD/macOS `find` does not follow a
+    // symlink search root, which breaks the migrator's baseline detection) must
+    // not reappear.
+    assert!(
+        !deploy_migrations.exists() && !deploy_migrations.is_symlink(),
+        "docker/deploy/migrations must not exist: the deploy path mounts ../../migrations \
+         directly, and a copy here would silently drift again"
+    );
+
+    // The compose file is the thing that actually wires the canonical directory in.
+    let compose = read(&root.join("docker/deploy/docker-compose.yml"));
+    assert!(
+        compose.contains("../../migrations:/migrations"),
+        "docker/deploy/docker-compose.yml must bind-mount ../../migrations:/migrations"
+    );
 }
 
 #[test]
