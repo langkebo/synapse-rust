@@ -75,18 +75,34 @@ jobs:
         env:
           # 低内存 friendly config：thin LTO + 多 codegen-units
           RUSTFLAGS: "-Ccodegen-units=16"
+          # 关键：让"被请求的基准静默跳过"变成硬失败。
+          # 历史上该步骤在工作流里跑 performance_api_benchmarks，但从未设置
+          # BENCH_ADMIN_TOKEN、也没有 homeserver —— 11 个基准里 10 个静默跳过，
+          # 而 `cargo bench` 仍退出 0（与 `cargo test --doc` 空门禁同型的假绿）。
+          # 见 docs/audit/P4_performance_baseline_2026-09-11.md §2。
+          #
+          # 本 job 只请求 pagination 组（纯内存、无需服务）。
+          # 注意不能用"有没有任何基准跑过"来判定 —— pagination 总会跑，
+          # 那种判据永远为真、抓不住静默跳过。
+          BENCH_REQUIRE: "pagination"
         run: |
           : > benchmark.txt
-          # Run with bencher format for github-action-benchmark
-          # 使用 release-perf profile（thin LTO，内存友好）
-          cargo bench --locked --profile release-perf --bench performance_api_benchmarks -- --output-format bencher | tee -a benchmark.txt
+          # pagination 基准是纯内存计算，不依赖服务/DB，因此在本 job 中真实执行。
+          # 阻塞断言见下方 "Check pagination benchmark gain"。
+          cargo bench --locked --profile release-perf --bench performance_api_benchmarks \
+            -- --output-format bencher pagination_ | tee -a benchmark.txt
           cargo bench --locked --profile release-perf --bench performance_federation_benchmarks -- --output-format bencher | tee -a benchmark.txt
-          cargo bench --locked --profile release-perf --bench performance_sliding_sync_benchmarks -- --output-format bencher | tee -a benchmark.txt
           # Also generate standard text output for PR gate comparison
           : > benchmark_standard.txt
           cargo bench --locked --profile release-perf --bench performance_federation_benchmarks -- --noplot | tee -a benchmark_standard.txt
           cargo bench --locked --profile release-perf --bench performance_membership_benchmarks -- --noplot | tee -a benchmark_standard.txt
 
+      # 分页门禁：断言 keyset 分页相对 offset 有 ≥30% 收益。
+      # 历史：本步骤自 a465d0fd（2026-05-09）起存在，但它断言的
+      # `pagination_offset_deep_page` / `pagination_keyset_deep_page`
+      # 在 8c7b4860（2026-06-05）被从 benches 中删除而未同步移除本步骤，
+      # 于是该阻塞步骤**必然失败**且分页性能完全未被测量（持续 98 天）。
+      # 基准已恢复，回归保护见 tests/unit/pagination_gate_tests.rs。
       - name: Check pagination benchmark gain
         run: |
           python3 scripts/check_pagination_benchmark.py benchmark.txt --minimum-improvement 0.30
@@ -119,6 +135,81 @@ jobs:
             benchmark.txt
             benchmark_standard.txt
           retention-days: 30
+
+  sliding-sync-perf-gate:
+    # ── Sliding Sync 性能回滚门禁 ─────────────────────────────────────────────
+    # `scripts/ci/sliding_sync_perf_gate.sh` 的注释自述其存在理由：
+    # 上游 Synapse v1.153.0rc3 因为**没有阈值门禁**而没能及时发现滑动同步的
+    # 性能退化，最终回滚了该优化（AGENTS.md 亦记录了这条教训）。
+    #
+    # 该脚本此前写好但**从未被任何 workflow 调用** —— 即"回滚门禁"本身不存在。
+    # 本 job 把它接入 CI。它需要带 schema 的 Postgres，因此这里起一个 service
+    # 并应用迁移。
+    name: Sliding sync perf gate
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_benchmarks == 'true'
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: synapse
+          POSTGRES_PASSWORD: synapse
+          POSTGRES_DB: synapse_bench
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.0
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-perf-gate-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-perf-gate-
+
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --version '^0.8' --locked --no-default-features --features postgres
+
+      - name: Prepare benchmark database schema
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_bench
+        run: |
+          python3 scripts/build_sqlx_migration_source.py artifacts/sqlx-migrations
+          sqlx migrate run --source artifacts/sqlx-migrations
+
+      - name: Run sliding sync perf gate (strict)
+        env:
+          BENCHMARK_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_bench
+          # strict=1: 数据库不可达或没有任何 [perf] 采样都必须失败，
+          # 否则门禁会在没有测量结果的情况下"通过"。
+          SLIDING_SYNC_PERF_GATE_STRICT: "1"
+          RUSTFLAGS: "-Ccodegen-units=16"
+        run: bash scripts/ci/sliding_sync_perf_gate.sh
+
+      - name: Upload sliding sync perf log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sliding-sync-perf-gate
+          path: artifacts/sliding_sync_perf_gate.log
+          retention-days: 14
 
   performance-comparison:
     name: Performance comparison

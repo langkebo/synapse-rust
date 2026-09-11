@@ -16,12 +16,37 @@
 | API 基准（需服务） | ✅ 已采集，**11/11 全部完成**（干净基线，零 429） |
 | 基准自身能否在默认环境下产出有效数据 | 🔴 **否** —— 默认环境只跑 1/11，且受 429 支配（见 §2、§3） |
 | `TESTING.md` §4.3 逐端点 P95 指标的执行者 | 🔴 **不存在**（见 §5.1） |
-| sliding sync 性能回滚门禁 | 🔴 **存在但从未接线**（见 §5.2） |
-| 动态/静态 SQL 比例门禁 | 🔴 **未接线 + 扫描范围错误 + 当前 FAIL**（见 §5.3） |
+| sliding sync 性能回滚门禁 | 🔴 **存在但从未接线**（见 §5.2，**已修复**） |
+| 动态/静态 SQL 比例门禁 | 🔴 **未接线 + 扫描范围错误 + 当前 FAIL**（见 §5.3，**已修复**） |
+| 分页性能门禁（`benchmark.yml` 阻塞步骤） | 🔴 **门禁在、基准没了 → 必然失败 98 天**（见 §5.4，**已修复**） |
+| 基准"静默跳过"防护 | 🔴 缺失（见 §2，**已修复**） |
+| 单文件 bind mount 与配置降级路径 | 🟠 见 §5.5、§5.6（未修复，已移交） |
 | `TESTING.md` 阈值与代码阈值一致性 | 🔴 不一致（500/1000ms vs 5000ms） |
 
-> **核心结论**：本项目有**三套性能/SQL 质量门禁的文书，但它们在 CI 中一次都不运行**。
-> 与 P5 记录的 doc-test 空门禁同型问题：**门禁存在 ≠ 门禁生效**。
+> **核心结论**：本项目有**四套性能/SQL 质量门禁的文书**，修复前的实际状态是：
+> 两套从未接线、一套接线了但断言的基准早已被删除（必然失败 98 天）、
+> 一套的扫描范围与阈值都不可用。与 P5 记录的 doc-test 空门禁同型：
+> **门禁存在 ≠ 门禁生效**。
+>
+> 本文件记录缺陷；对应修复见 §9。
+
+---
+
+## 0.1 本轮已落地的修复
+
+| # | 缺陷 | 修复 | 回归证据 |
+|---|---|---|---|
+| 1 | 11 个基准静默跳过、退出码仍 0 | `BENCH_REQUIRE` 必需组守护（`benches/performance_api_benchmarks.rs`） | `tests/unit/pagination_gate_tests.rs`（11 项） |
+| 2 | 分页门禁断言的基准已被删除 | 恢复 `benchmark_pagination_strategies` 并注册 | `pagination_gate_tests::pagination_gate_benchmarks_exist_in_api_bench_source` 等 |
+| 3 | SQLx 门禁只扫 `src/`、阈值不可达、死引用、未接线 | 改为 workspace 棘轮基线并接入 `ci.yml` | `tests/unit/sqlx_ratio_gate_tests.rs`（9 项） |
+| 4 | sliding sync 门禁从未接线 | 新增 `sliding-sync-perf-gate` job（带 Postgres） | `scripts/ci/sliding_sync_perf_gate.sh` 预检改为不依赖 `pg_isready` |
+| 5 | sliding sync 基准的"零执行"守卫永不触发 | 改为 `SLIDING_SYNC_REQUIRE` 组级守护 | 同上 |
+
+> ⚠️ 修复 1 与 5 的共同教训：**"有没有任何基准跑过"是无效判据**。
+> `pagination`（API bench）与 `benchmark_request_construction`（sliding sync bench）
+> 都是纯内存计算、总会执行，因此 `executed > 0` 恒为真。
+> 最初按此实现的 `BENCH_STRICT` 经实测确认**在服务不可达时仍退出 0**，
+> 已改为按组点名（`BENCH_REQUIRE` / `SLIDING_SYNC_REQUIRE`）。
 
 ---
 
@@ -279,7 +304,7 @@ expose `Bencher::throughput` on the parameterised path"）。因此：
 
 ---
 
-## 5. 🔴 门禁基础设施：三套门禁均未执行
+## 5. 🔴 门禁基础设施：四套门禁的实际状态
 
 ### 5.1 `TESTING.md` §4.3 的逐端点 P95 指标 —— 没有任何执行者
 
@@ -319,8 +344,19 @@ expose `Bencher::throughput` on the parameterised path"）。因此：
 | **被任意 CI workflow 调用** | 🔴 **否** (`grep -rn sliding_sync_perf_gate .github/workflows/` → 无命中) |
 
 **测试覆盖的假象**：`tests/unit/sliding_sync_perf_gate_tests.rs` 存在且通过，
-但只断言脚本存在、可执行，以及能**解析** `[perf] sliding_sync manual_p95_ms=…` 日志行。
-⇒ 即使 sliding sync 延迟退化 10 倍，这套"门禁"也不会变红。
+但只断言脚本存在、可执行，以及能**解析** `[perf] sliding_sync manual_p95_ms=…` 日志行
+——**从不执行脚本**。⇒ 即使 sliding sync 延迟退化 10 倍，这套"门禁"也不会变红。
+
+**修复（本次）**：
+
+* `benchmark.yml` 新增 `sliding-sync-perf-gate` job：起 Postgres service、
+  应用迁移、以 `SLIDING_SYNC_PERF_GATE_STRICT=1` 运行脚本。
+* 脚本原先用 `pg_isready` 做预检，而它属于 `postgresql-client`、GitHub runner
+  上**未必存在**，会让门禁永久"数据库不可达"。已改为三级回退：
+  `pg_isready` → Python TCP 探测 → bash `/dev/tcp`。
+* 基准侧的"零执行"守卫原为 `BENCH_STRICT` 式的计数判定，同样因
+  `benchmark_request_construction`（纯内存、总会执行）而**永不触发**；
+  已改为 `SLIDING_SYNC_REQUIRE=sliding_sync_p95_p99_latency` 按组点名。
 
 ### 5.3 动态/静态 SQL 比例门禁 —— 未接线 + 扫描范围错误 + 当前 FAIL
 
@@ -347,10 +383,86 @@ $ echo $?
 | 脚本实际扫描的 `src/` | **25** |
 | 仅 `synapse-storage/src/` | **1,751** |
 
-⇒ 报告的 `ratio=1.0000` 基于 **~0.6%** 的样本，数字本身不可信
-（结论方向大概率成立：项目确实以动态查询为主）。
+⇒ 报告的 `ratio=1.0000` 基于 **~0.6%** 的样本，数字本身不可信。
 
-### 5.4 `TESTING.md` 与代码的阈值口径不一致
+**修复后的实测口径（本次）**：扫描 `src/` + 6 个 workspace crate 的 `src/`，
+排除 `target/`、`.git/`、`.claude/`（后者含旧仓库副本，会随本地 worktree 漂移）：
+
+| 范围 | dynamic | static |
+|---|---|---|
+| `src/` | 25 | 0 |
+| `synapse-common/src` | 5 | 0 |
+| `synapse-cache/src` | 0 | 0 |
+| `synapse-storage/src` | 1,123 | 52 |
+| `synapse-e2ee/src` | 118 | 0 |
+| `synapse-federation/src` | 15 | 9 |
+| `synapse-services/src` | 141 | 0 |
+| **合计** | **1,427** | **61** |
+
+ratio = 0.9590。**静态调用仅集中在 6 个安全敏感模块**：
+`refresh_token/mod.rs`(27)、`token.rs`(16)、`key_rotation.rs`(9)、
+`federation_blacklist.rs`(5)、`sliding_sync/repository.rs`(3)、`user/storage.rs`(1)。
+
+> 这同时说明原阈值的性质：`max=0.30` 要求把约 1,400 处调用改完，
+> 是个"先重构再接线"的前置条件，而不是可执行的质量门禁。
+> 已改为棘轮（动态不得增加、静态不得减少），基线文件
+> `scripts/ci/sqlx_dynamic_ratio_baseline`，并接入 `ci.yml` 的 `repo-sanity` job。
+
+### 5.4 分页性能门禁 —— 门禁在、基准没了，**必然失败 98 天**
+
+`.github/workflows/benchmark.yml` 有一个**阻塞**步骤：
+
+```console
+python3 scripts/check_pagination_benchmark.py benchmark.txt --minimum-improvement 0.30
+```
+
+它断言 `benchmark.txt` 含 `pagination_offset_deep_page` 与
+`pagination_keyset_deep_page` 两行 Criterion 输出（`scripts/check_pagination_benchmark.py:38-41`）：
+
+```python
+offset = results.get("pagination_offset_deep_page")
+keyset = results.get("pagination_keyset_deep_page")
+if offset is None or keyset is None:
+    raise SystemExit("pagination benchmark rows were not found in benchmark output")
+```
+
+**但这两个基准在 `8c7b4860`（2026-06-05）被删除了。** 该提交从
+`benches/performance_api_benchmarks.rs` 移除了 `benchmark_pagination_strategies`
+（连同 `synthetic_reports` / `offset_page_checksum` / `keyset_page_checksum`），
+而 `benchmark.yml` 的这一步没有被同步移除：
+
+```console
+$ git log --format='%h %ad %s' --date=short -1 8c7b4860
+8c7b4860 2026-06-05 M-3 Batch 1 phase A+B+C: critical path hardening + v8 migration baseline
+
+$ git log --format='%h %ad %s' --date=short -1 -- .github/workflows/benchmark.yml
+2fb48ced 2026-09-10 chore: 提交全部改动（W1-W4 遗留 + db_tests 环境修复 + 联邦落库模板）
+```
+
+实测该门禁对空输入的行为：
+
+```console
+$ : > benchmark.txt
+$ python3 scripts/check_pagination_benchmark.py benchmark.txt --minimum-improvement 0.30
+pagination benchmark rows were not found in benchmark output
+$ echo $?
+1
+```
+
+**双重损害**：
+
+1. 该阻塞步骤在 push/PR 上**必然失败**（除非有人在 workspace 手放一个含这两行的
+   `benchmark.txt`——`benchmark.txt` 未被 git 跟踪，见 `8149d12b`），
+   持续 **98 天**（2026-06-05 → 2026-09-11）。
+2. 该门禁本应守护的**分页性能完全没有被测量**——这才是设计意图的落空。
+
+> 该步骤自 `a465d0fd`（2026-05-09，引入门禁）起存在，
+> 与基准的删除从未对账。
+
+**修复**：恢复基准本体（它是**纯内存** offset-vs-keyset 对比，250k 合成行，
+不需要服务或数据库，因此在 CI 中真实可跑），并加回归保护。
+
+### 5.5 `TESTING.md` 与代码的阈值口径不一致
 
 | 来源 | 指标 | 值 |
 |---|---|---|
@@ -359,7 +471,7 @@ $ echo $?
 
 两套数字**没有任何换算或对应关系**，且都无执行者。
 
-### 5.5 为什么"临时关限流"必须重启容器 —— 单文件 bind mount 脆弱性（新发现）
+### 5.6 为什么"临时关限流"必须重启容器 —— 单文件 bind mount 脆弱性（新发现）
 
 本次取证过程中命中一个**真实且与限流无关的部署隐患**。
 `docker/deploy/docker-compose.yml` 用**单文件** bind mount 挂载配置：
@@ -392,7 +504,7 @@ WARN rate_limit_config: Failed to reload rate limit config:
 **缓解**：改为挂载**目录**（`./config:/app/config:ro`）而非单个文件，
 或约定"改配置后必须重启"并在 `deploy.sh` 中强制。
 
-### 5.6 限流配置缺失时的静默降级路径（新发现）
+### 5.7 限流配置缺失时的静默降级路径（新发现）
 
 `src/server/mod.rs:211-237`：
 
@@ -445,7 +557,7 @@ $ grep -rn "reload_fail\|config_degraded\|rate_limit.*health" --include='*.rs' s
 > 该注释对**正常路径**是正确的（`AppState::rate_limit_config()` 返回文件配置优先），
 > 但在 §5.6 的回退路径下 `homeserver.yaml` 的段**同样不被读取** —— 两处都失效。
 
-### 5.7 已排除的候选项（避免夸大）
+### 5.8 已排除的候选项（避免夸大）
 
 | 脚本 | 判定 |
 |---|---|
@@ -513,16 +625,47 @@ sed -n '108,111p' src/server/mod.rs
 
 ---
 
-## 8. 移交后续（按优先级）
+## 8. 移交后续
+
+### 8.1 本次已完成
+
+| # | 项 | 证据 |
+|---|---|---|
+| 1 | 接入 `sliding_sync_perf_gate.sh`（新增 `sliding-sync-perf-gate` job，带 Postgres + 迁移） | `.github/workflows/benchmark.yml` |
+| 2 | bench "被请求的基准静默跳过"改为非零退出（`BENCH_REQUIRE` / `SLIDING_SYNC_REQUIRE`） | 端到端实测：`pagination`→EXIT 0；`user_directory` 无 token→EXIT 1 |
+| 3 | 恢复被删除的分页基准，使阻塞门禁可真实运行 | `benchmark_pagination_strategies` + `pagination_gate_tests` |
+| 4 | SQLx 门禁改为 workspace 棘轮基线并接入 CI | `ci.yml` `repo-sanity` → `check_sqlx_dynamic_ratio.sh`（1427/61） |
+| 5 | 删除 `check_sqlx_dynamic_ratio.sh` 的死引用（改为自述基线文件） | `sqlx_ratio_gate_does_not_reference_missing_docs` |
+
+### 8.2 仍需处理
 
 | # | 项 | 优先级 |
 |---|---|---|
-| 1 | **接入 `sliding_sync_perf_gate.sh`**（或明确废弃并记录理由）—— 这是唯一的性能回滚门禁 | **高** |
-| 2 | **让 bench 在"零基准执行"时非零退出**，消除 §2 假绿 | **高** |
-| 3 | **加 metric/health 信号 + 告警**反映限流配置降级（§5.6） | **高** |
-| 4 | 修复 `check_sqlx_dynamic_ratio.sh` 扫描范围（`src/` → workspace）后再决定是否接线（§5.3） | 中 |
-| 5 | 单文件 bind mount → 目录挂载（§5.5） | 中 |
-| 6 | 重新标定并落实 `TESTING.md` 的 P95 阈值，或删除以免误导（§5.1） | 中 |
-| 7 | 修复 `M3_SQLX_MIGRATION_PLAN.md` 死引用 | 低 |
-| 8 | 采集 `performance_sliding_sync_benchmarks`（8 个，需服务/DB） | 低 |
-| 9 | 以 §4.3 / §4.4 为锚点，同机同参数比对回归（注意 §4.5 限制） | 中 |
+| 1 | **加 metric/health 信号 + 告警**反映限流配置降级（§5.7） | **高** |
+| 2 | 单文件 bind mount → 目录挂载，或强制"改配置后重启"（§5.6） | 中 |
+| 3 | 重新标定并落实 `TESTING.md` 的 P95 阈值，或删除以免误导（§5.1） | 中 |
+| 4 | 以 §4.3 / §4.4 为锚点，同机同参数比对回归（注意 §4.5 限制） | 中 |
+| 5 | 采集 `performance_sliding_sync_benchmarks`（8 个，需服务/DB） | 低 |
+| 6 | 在真实 CI 上确认 `sliding-sync-perf-gate` job 首跑结果（本地无法完整复现 runner 环境） | 中 |
+
+---
+
+## 9. 修复清单（代码对照）
+
+| 文件 | 变更 |
+|---|---|
+| `benches/performance_api_benchmarks.rs` | 恢复 `SyntheticReportRow` / `synthetic_reports` / `offset_page_checksum` / `keyset_page_checksum` / `benchmark_pagination_strategies` 并注册；`criterion_main!` → 显式 `main` + `enforce_required_groups()`；新增 `require_bench_group("…")` 7 处 |
+| `benches/performance_sliding_sync_benchmarks.rs` | 同上，组名：`request_construction` / `sync_response` / `subscription_changes` / `p95_p99` |
+| `scripts/ci/check_sqlx_dynamic_ratio.sh` | 扫描范围 → `src/` + 6 个 workspace crate；排除 `.claude/`；`max=0.30` → 棘轮基线；删除死引用 |
+| `scripts/ci/sqlx_dynamic_ratio_baseline`（新） | `BASELINE_DYNAMIC=1427` / `BASELINE_STATIC=61`（含测量记录与口径说明） |
+| `scripts/ci/sliding_sync_perf_gate.sh` | 预检三级回退（不依赖 `pg_isready`）；`SLIDING_SYNC_REQUIRE` 取代旧 strict 计数 |
+| `.github/workflows/ci.yml` | `repo-sanity` 新增 SQLx 棘轮步骤（阻塞） |
+| `.github/workflows/benchmark.yml` | API 基准只请求 `pagination` 组 + `BENCH_REQUIRE`；分页门禁加事故注释；新增 `sliding-sync-perf-gate` job |
+| `tests/unit/pagination_gate_tests.rs`（新） | 11 项：基准存在性/注册/无服务依赖、门禁真实子进程行为、`BENCH_REQUIRE` 契约、CI 接线审计 |
+| `tests/unit/sqlx_ratio_gate_tests.rs`（新） | 9 项：扫描范围、排除 worktree、棘轮双向语义、基线文件存在性、死引用 |
+| `tests/unit/mod.rs` | 注册上述两个模块 |
+
+> ℹ️ 两个门禁测试模块刻意**不在测试内 spawn `cargo bench`**：
+> 那会嵌套等待 cargo 构建锁，单个测试实测超过 12 分钟，会拖垮测试套件。
+> 端到端契约改为 `#[ignore]`（显式运行命令见测试文档注释），
+> 默认门禁只跑毫秒级的脚本子进程与源码契约断言（23 项约 0.5s）。

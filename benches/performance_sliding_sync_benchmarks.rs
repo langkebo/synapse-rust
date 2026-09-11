@@ -32,11 +32,12 @@
 
 #![allow(clippy::expect_used)]
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{black_box, criterion_group, BenchmarkId, Criterion};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 
@@ -64,6 +65,76 @@ const LATENCY_SAMPLE_SIZE: usize = 50;
 /// Counter used to generate unique user IDs per benchmark run so that
 /// concurrent bench executions do not collide on the same rows.
 static BENCH_USER_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+// ---------------------------------------------------------------------------
+//  Required-group guard (see `performance_api_benchmarks.rs` for the rationale)
+// ---------------------------------------------------------------------------
+//
+// DB-backed groups here bail out when the benchmark database is unreachable,
+// and `cargo bench` still exits 0.
+//
+// ⚠️ A "did *any* group run?" check would be useless: `benchmark_request_
+// construction` is pure in-process and always runs, so an executed-counter
+// would be ≥1 even with no database at all — the guard could never fire.
+// (An earlier `SLIDING_SYNC_PERF_GATE_STRICT` implementation made exactly
+// that mistake.)
+//
+// Instead, `SLIDING_SYNC_REQUIRE=<group>[,<group>...]` names the groups that
+// must execute. `scripts/ci/sliding_sync_perf_gate.sh` requires
+// `sliding_sync_p95_p99_latency`, so a skipped measurement cannot be mistaken
+// for a passing one.
+
+/// Group names that actually reached their `bench_function` call.
+static EXECUTED_GROUPS: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
+
+/// Parses `SLIDING_SYNC_REQUIRE` (comma/space separated) into group names.
+fn required_groups() -> Vec<String> {
+    std::env::var("SLIDING_SYNC_REQUIRE")
+        .unwrap_or_default()
+        .split([',', ' '])
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Registers `group` as executed. Call once per group, after the last guarded
+/// `return` and immediately before the first `bench_function`/`bench_with_input`.
+fn require_bench_group(group: &'static str) {
+    if let Ok(mut executed) = EXECUTED_GROUPS.lock() {
+        executed.push(group);
+    }
+    if required_groups().iter().any(|r| r == group) {
+        eprintln!("[bench-guard] required group `{group}` executed");
+    }
+}
+
+/// After all groups have had a chance to register, verify that every group
+/// named in `SLIDING_SYNC_REQUIRE` actually executed.
+fn enforce_required_groups() {
+    let required = required_groups();
+    if required.is_empty() {
+        return;
+    }
+
+    let executed = EXECUTED_GROUPS.lock().map(|g| g.clone()).unwrap_or_default();
+    let missing: Vec<&String> = required.iter().filter(|r| !executed.iter().any(|e| e == r)).collect();
+
+    if !missing.is_empty() {
+        eprintln!(
+            "SLIDING_SYNC_REQUIRE: required benchmark group(s) did not execute: {}.\n\
+             Executed groups: {:?}.\n\
+             A required benchmark silently skipped — this is a false green. \
+             Set BENCHMARK_DATABASE_URL to a reachable benchmark database \
+             (default postgresql://synapse:synapse@localhost:5432/synapse_bench).",
+            missing.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
+            executed
+        );
+        std::process::exit(1);
+    }
+
+    eprintln!("SLIDING_SYNC_REQUIRE: all required group(s) executed: {}", required.join(", "));
+}
 
 fn bench_database_url() -> String {
     std::env::var("BENCHMARK_DATABASE_URL")
@@ -210,6 +281,8 @@ fn percentile(sorted: &[f64], p: f64) -> f64 {
 /// part of sliding sync that should never become a bottleneck. This
 /// always runs even without a database, providing a stable baseline.
 fn benchmark_request_construction(c: &mut Criterion) {
+    require_bench_group("request_construction");
+
     c.bench_function("sliding_sync_request_build", |b| {
         b.iter(|| {
             let request = build_initial_sync_request(black_box(100));
@@ -239,6 +312,7 @@ fn benchmark_sync_response_time(c: &mut Criterion) {
     let Some(pool) = connect_bench_pool(&rt) else {
         return;
     };
+    require_bench_group("sync_response");
 
     for &room_count in &SYNC_ROOM_COUNTS {
         c.bench_with_input(BenchmarkId::new("sliding_sync_response", room_count), &room_count, |b, &room_count| {
@@ -300,6 +374,7 @@ fn benchmark_subscription_changes(c: &mut Criterion) {
     let Some(pool) = connect_bench_pool(&rt) else {
         return;
     };
+    require_bench_group("subscription_changes");
 
     let service = create_service(&pool);
     let user_suffix = BENCH_USER_COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -344,6 +419,7 @@ fn benchmark_sync_p95_p99_latency(c: &mut Criterion) {
     let Some(pool) = connect_bench_pool(&rt) else {
         return;
     };
+    require_bench_group("p95_p99");
 
     c.bench_function("sliding_sync_p95_p99_latency", |b| {
         let service = create_service(&pool);
@@ -396,4 +472,9 @@ criterion_group!(
         benchmark_sync_p95_p99_latency
 );
 
-criterion_main!(sliding_sync_benches);
+/// Explicit `main` (instead of `criterion_main!`) so the strict-mode
+/// check runs after all groups have had a chance to register.
+fn main() {
+    sliding_sync_benches();
+    enforce_required_groups();
+}

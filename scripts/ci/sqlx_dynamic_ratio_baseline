@@ -1,0 +1,52 @@
+# SQLx 动态/静态查询棘轮基线
+#
+# 由 scripts/ci/check_sqlx_dynamic_ratio.sh 读取。
+#
+# 语义（与 scripts/check_fmt_ratchet.sh 同型）：
+#   * dynamic  **不得增加** —— 新增动态 SQL 即 CI 失败
+#   * static   **不得减少** —— 编译期校验的查询不得被改回动态
+#
+# 因此这是一个"不会变坏"的门禁，而不是"必须先把全部调用改完"的门禁。
+# 迁移取得进展后，请**同时**下调 BASELINE_DYNAMIC、上调 BASELINE_STATIC，
+# 让棘轮单向收紧。
+#
+# ── 计数口径 ─────────────────────────────────────────────────────────────────
+# 扫描范围：src/ + 全部 workspace crate 的 src/
+#   （synapse-common, synapse-cache, synapse-storage, synapse-e2ee,
+#     synapse-federation, synapse-services）
+# 排除：target/、.git/、.claude/（.claude/worktrees 下有旧仓库副本，
+#       会随本地 worktree 状态漂移，导致基线无法稳定复现）
+#
+# ⚠️ 计数**包含** crate 内 `#[cfg(test)]` 内联测试模块
+#    （例如 synapse-storage/src/event/db_tests.rs）。它们由 `cargo test`
+#    编译、同样存在 schema 漂移风险，故一并计入。
+#    独立测试目录 tests/ 与 artifacts/ **不在**扫描范围内。
+#
+# ── 基线测量记录 ─────────────────────────────────────────────────────────────
+# 测量日期: 2026-09-11
+# 基线提交: 59596908
+# 命令:     bash scripts/ci/check_sqlx_dynamic_ratio.sh
+#
+#   dynamic=1427  static=61  total=1488  ratio=0.9590
+#
+# 静态调用（61）的分布 —— 全部集中在 6 个安全敏感模块：
+#   synapse-storage/src/refresh_token/mod.rs        27
+#   synapse-storage/src/token.rs                    16
+#   synapse-federation/src/key_rotation.rs           9
+#   synapse-storage/src/federation_blacklist.rs      5
+#   synapse-storage/src/sliding_sync/repository.rs   3
+#   synapse-storage/src/user/storage.rs              1
+#
+# 动态调用（1427）的分布：
+#   synapse-storage/src    1123
+#   synapse-services/src    141
+#   synapse-e2ee/src        118
+#   src/                     25
+#   synapse-federation/src   15
+#   synapse-common/src        5
+#
+# 历史对照：2026-06-03 审计记录动态占比 99.6%（含测试代码口径）；
+# 本基线口径（仅 workspace 生产目录，含内联测试模块）为 95.90%。
+
+BASELINE_DYNAMIC=1427
+BASELINE_STATIC=61

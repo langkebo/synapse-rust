@@ -116,6 +116,13 @@ jobs:
       - name: Route ↔ storage boundary gate
         run: bash scripts/ci/check_route_storage_boundary.sh
 
+      # SQLx 棘轮：动态查询不得增加、编译期校验（query!/query_as!）不得减少。
+      # 基线见 scripts/ci/sqlx_dynamic_ratio_baseline。
+      # 历史：本脚本此前只扫 src/（漏掉 synapse-storage 等 crate 的 97% 调用）、
+      # 硬编码不可达的 max=0.30、引用不存在的计划文档，且从未接入 CI —— 故从未生效。
+      - name: SQLx dynamic/static ratio ratchet
+        run: bash scripts/ci/check_sqlx_dynamic_ratio.sh
+
       # Supply-chain hardening: cargo-deny (licenses/bans/sources) and
       # cargo-audit (RustSec CVE database). Both must pass for the PR
       # to merge. The ignore list lives in deny.toml and .cargo/audit.toml.

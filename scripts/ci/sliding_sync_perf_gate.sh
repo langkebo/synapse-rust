@@ -44,9 +44,47 @@ echo "==> Sliding Sync Performance Threshold Gate (P2-13)"
 # ---------------------------------------------------------------------------
 # 1) Pre-flight: database must be reachable, otherwise the benchmark would
 #    skip the DB-backed group and we'd have no p95 to gate on.
+#
+#    注意：`pg_isready` 属于 postgresql-client，在 GitHub runner 上**未必存在**。
+#    因此优先用它（最准确），不可用时退化为 TCP 端口探测（bash /dev/tcp），
+#    再不行用 python3。这样门禁不会因为缺少 CLI 工具而永久报"数据库不可达"。
 # ---------------------------------------------------------------------------
 DB_URL="${BENCHMARK_DATABASE_URL:-postgresql://synapse:synapse@localhost:5432/synapse_bench}"
-if ! pg_isready -d "$DB_URL" >/dev/null 2>&1; then
+
+# 从 postgresql://user:pass@host:port/db 中取出 host 与 port。
+db_host_port() {
+    python3 - "$DB_URL" <<'PY'
+import sys, urllib.parse
+u = urllib.parse.urlparse(sys.argv[1])
+print(u.hostname or "localhost", u.port or 5432)
+PY
+}
+
+db_reachable() {
+    # 1) 首选 pg_isready（可用时会做真实握手）
+    if command -v pg_isready >/dev/null 2>&1; then
+        pg_isready -d "$DB_URL" >/dev/null 2>&1 && return 0
+        return 1
+    fi
+    # 2) 退化：TCP 端口探测
+    local host port
+    host=$(db_host_port | awk '{print $1}')
+    port=$(db_host_port | awk '{print $2}')
+    if command -v python3 >/dev/null 2>&1; then
+        python3 - "$host" "$port" <<'PY'
+import socket, sys
+try:
+    socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=5).close()
+except OSError:
+    sys.exit(1)
+PY
+        return $?
+    fi
+    # 3) 最后退化为 bash 内建 TCP
+    (exec 3<>"/dev/tcp/${host}/${port}") >/dev/null 2>&1
+}
+
+if ! db_reachable; then
     echo "ERROR: benchmark database unreachable at $DB_URL"
     echo "       sliding sync p95 cannot be measured without a database."
     if [ "$STRICT" = "1" ]; then
@@ -65,6 +103,15 @@ BENCH_LOG="artifacts/sliding_sync_perf_gate.log"
 echo "    running performance_sliding_sync_benchmarks..."
 # The p95/p99 benchmark group is `sliding_sync_p95_p99_latency`. We run only
 # that group to keep the gate fast (~20s measurement + warmup).
+#
+# SLIDING_SYNC_REQUIRE=sliding_sync_p95_p99_latency makes the bench harness
+# itself fail when that group did not execute (e.g. the DB vanished between the
+# pre-flight check and the run). Without it the harness would skip the group and
+# still exit 0 — the exact false-green this gate exists to prevent.
+#
+# Note: a "did any group run?" check would NOT work here, because the
+# in-process `benchmark_request_construction` group always runs.
+SLIDING_SYNC_REQUIRE="sliding_sync_p95_p99_latency" \
 cargo bench --locked --bench performance_sliding_sync_benchmarks \
     -- --noplot sliding_sync_p95_p99_latency 2>"$BENCH_LOG" || {
     echo "ERROR: sliding sync benchmark failed to run"

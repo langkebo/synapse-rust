@@ -90,6 +90,7 @@ mod room_domain_refactor_tests;
 mod services_remaining_domains_refactor_tests;
 mod services_sync_domain_refactor_tests;
 mod sliding_sync_perf_gate_tests;
+mod sqlx_ratio_gate_tests;
 mod storage_admin_domain_refactor_tests;
 mod storage_remaining_domains_refactor_tests;
 
@@ -102,6 +103,7 @@ mod context_route_tests;
 mod ephemeral_route_tests;
 mod formatting_route_tests;
 mod guest_route_tests;
+mod pagination_gate_tests;
 mod pinned_route_tests;
 mod qr_login_token_route_tests;
 mod room_access_route_tests;
