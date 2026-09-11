@@ -14,7 +14,7 @@
 | 路由三方对账 | ✅ 已有强测试覆盖 | manifest 1381 条 = 快照自述 `count: 1381`；`api_route_ledger_tests` 12 项 |
 | capabilities 声明诚实性 | ✅ **治理机制与测试都很扎实** | 14 项治理测试全通过，含双 surface snapshot |
 | **房间版本声明** | 🟡 **发现过度声明风险，需用户决策** | 见 §2 |
-| 错误语义 | ⏳ 仅完成规模侦察（112 个 M_* 码），**未系统核对** | 见 §4 |
+| 错误语义 | 🟡 **部分完成**：修复 1 处内部不一致；存在性泄漏已有专项测试 | 见 §4.1 |
 | 联邦安全规则 | ⏳ **未开展** | 见 §4 |
 
 > **P2 的诚实结论：本阶段尚未完成。** 本轮确立了"既有覆盖比预期强"这一事实，
@@ -159,15 +159,49 @@ self.manifest_has_route("GET", "/_matrix/client/unstable/org.matrix.msc3814.v1/d
 
 ## 4. ⏳ 未完成项（如实标注）
 
-### 4.1 错误语义（未系统核对）
+### 4.1 错误语义 —— 🟡 部分完成（本轮推进）
 
-已完成：确认 `synapse-common/src/error.rs` 定义 **112 个** `M_*` 错误码；
-联邦路由下有 23 处 `M_NOT_FOUND`/`not_found` 用法。
+**已完成**：
 
-**未完成**：
-- 未逐一核对各端点返回的 errcode 是否符合 Matrix spec
-- 未系统检查"存在性泄漏"（联邦端点对"存在但未授权"与"不存在"是否统一）
-- 未检查 HTTP 状态码与 errcode 的配对正确性
+| 检查 | 结果 |
+|---|---|
+| `MatrixErrorCode` 枚举 | 112 个 `M_*` 码，逐一附语义 doc |
+| `ApiErrorKind::default_http_status()` 映射 | ✅ 抽查正确（Forbidden→403、NotFound→404、LimitExceeded→429、MissingToken/UnknownToken→401、Unknown→500 兜底） |
+| **存在性泄漏：已有专项测试文件** | ✅ `tests/integration/federation_existence_leak_tests.rs`（4 项，全通过） |
+| `validate_federation_origin_can_observe_room` | ✅ 授权失败返回 `not_found("Room not found")` —— 与"房间不存在"统一 |
+
+**🔴 本轮发现并修复 1 处内部不一致**（commit `b20e83d0`）：
+
+`src/web/routes/federation/mod.rs` 中两个语义**完全相同**的函数（都判断 "origin 是否为房间成员"）
+对同一条件返回**相反的 error class**：
+
+| 函数 | 修复前 | 修复后 |
+|---|---|---|
+| `validate_federation_origin_can_observe_room` (26 处调用) | `not_found("Room not found")` ✅ | 不变 |
+| `validate_federation_origin_in_room` (1 处调用) | 🔴 `forbidden("Authenticated server has no joined members in this room")` | ✅ `not_found("Room not found")` |
+
+`M_FORBIDDEN` 的语义是"房间存在但你无权限"，**构成存在性 oracle**；
+`M_NOT_FOUND` 使"不存在"与"无权限"不可区分 —— 后者正是 AGENTS.md 的要求。
+
+**可达性核实（避免夸大）**：唯一调用方 `transaction.rs:206` 把该错误**吞掉**并转为
+per-PDU `results` 项（响应仍为 200），只用 `e` 做日志、**不读 `kind`**
+⇒ **这不是 HTTP 层的存在性泄漏**。修复价值在于消除库层不一致，
+使未来新增调用方不会重新引入 HTTP 级泄漏。该边界已写入代码注释。
+
+**验证**：`cargo check -p synapse-rust --features test-utils` → `EXIT=0`；
+`federation_existence_leak_tests` → **4 passed, 0 failed**（确认未破坏既有 404 契约）。
+
+**经核实**后**有意未改动**的项：
+
+| 项 | 401/403 是否为泄漏 | 判定 |
+|---|---|---|
+| `check_server_acl` 的 403（ACL 拒绝） | ❌ 否 | 仅在 origin **已有房间成员资格**后触发；ACL 明确拒绝 ⇒ 与 Synapse 一致。`room_id` 本就是请求参数，回显不构成新泄漏 |
+| origin 不匹配 → 403 | ❌ 否 | 纯认证失败，与房间是否存在无关 |
+| "用户不共享任何房间" → 403 | ❌ 否 | 同上，非房间存在性 oracle |
+
+**仍未完成**：
+- 未**逐一**核对全部联邦端点的 errcode ↔ spec 配对
+- 未检查 HTTP 状态码与 errcode 组合的其余偏差（仅抽查了 `default_http_status` 映射表）
 
 ### 4.2 联邦安全规则（未开展）
 
