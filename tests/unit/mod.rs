@@ -16,6 +16,7 @@ mod app_service_api_tests;
 mod background_update_api_tests;
 
 mod canonical_json_vectors;
+mod ci_test_scope_tests;
 mod config_consistency_gate_tests;
 mod config_mount_tests;
 
