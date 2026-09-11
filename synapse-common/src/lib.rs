@@ -213,8 +213,8 @@ pub use password_hash_pool::{
 /// Re-exported item.
 pub use rate_limit_config::{
     select_endpoint_rule, select_endpoint_rule_runtime, start_config_watcher, ConfigSource, RateLimitBackend,
-    RateLimitConfigAdapter, RateLimitConfigError, RateLimitConfigFile, RateLimitConfigManager, RateLimitDegradation,
-    RateLimitEndpointRule, RateLimitMatchType, RateLimitRule, SyncRateLimitConfigFile,
+    RateLimitConfigError, RateLimitConfigFile, RateLimitConfigManager, RateLimitDegradation, RateLimitEndpointRule,
+    RateLimitMatchType, RateLimitRule, SyncRateLimitConfigFile,
 };
 /// Re-exported item.
 pub use redaction::{

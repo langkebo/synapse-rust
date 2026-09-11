@@ -165,3 +165,34 @@ fn rate_limit_config_is_compared() {
         "三份配置都应被比较\n输出:\n{output}"
     );
 }
+
+// =============================================================================
+// Dead surface removal (P5 死代码)
+// =============================================================================
+
+/// `RateLimitConfigAdapter` must stay deleted.
+///
+/// It declared a full duplicate of `RateLimitConfigFile`'s field set plus a
+/// `From<RateLimitConfigFile>` impl, but **nothing ever constructed it**. Its
+/// stated purpose ("B-1: leaf types are unified, so this is a straight field
+/// move") described a bridge between two types that had already been unified —
+/// so the adapter was a leftover with no callers, and every field of
+/// `RateLimitConfigFile` was read directly instead.
+///
+/// A public duplicate of a config struct is a real maintenance hazard: a field
+/// added to `RateLimitConfigFile` would silently *not* propagate to the
+/// adapter, and any new caller would read stale semantics.
+#[test]
+fn rate_limit_config_adapter_stays_deleted() {
+    let source = fs::read_to_string(repo_root().join("synapse-common/src/rate_limit_config.rs"))
+        .expect("rate_limit_config.rs must be readable");
+    assert!(
+        !source.contains("RateLimitConfigAdapter"),
+        "RateLimitConfigAdapter 应保持删除状态：它从未被构造，\
+         且其存在理由（桥接两个已统一的叶类型）已消失。\
+         若确实需要，请连同真实调用方一起提交。"
+    );
+
+    let lib = fs::read_to_string(repo_root().join("synapse-common/src/lib.rs")).expect("lib.rs must be readable");
+    assert!(!lib.contains("RateLimitConfigAdapter"), "不应再从 synapse-common 重导出 RateLimitConfigAdapter");
+}

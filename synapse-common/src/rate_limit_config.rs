@@ -556,52 +556,6 @@ pub async fn start_config_watcher(
 /// enough to ride out an atomic-rename race, short enough to alert promptly.
 pub const RELOAD_FAILURE_ESCALATION_THRESHOLD: u64 = 3;
 
-#[derive(Debug, Clone)]
-/// In-memory adapter around [`RateLimitConfigFile`] with identical fields.
-pub struct RateLimitConfigAdapter {
-    /// Global on/off switch.
-    pub enabled: bool,
-    /// Default rate-limit rule.
-    pub default: RateLimitRule,
-    /// Per-path overrides.
-    pub endpoints: Vec<RateLimitEndpointRule>,
-    /// Ordered list of headers consulted for client IP.
-    pub ip_header_priority: Vec<String>,
-    /// Emit rate-limit headers on responses.
-    pub include_headers: bool,
-    /// Paths that bypass rate limiting (exact match).
-    pub exempt_paths: Vec<String>,
-    /// Path prefixes that bypass rate limiting.
-    pub exempt_path_prefixes: Vec<String>,
-    /// Map of alias → canonical endpoint path.
-    pub endpoint_aliases: HashMap<String, String>,
-    /// Allow requests when the backend is unavailable.
-    pub fail_open_on_error: bool,
-    /// CIDR strings for trusted reverse proxies.
-    pub trusted_proxies: Vec<String>,
-    /// Whether to honor `X-Forwarded-For` etc.
-    pub trust_forwarded: bool,
-}
-
-impl From<RateLimitConfigFile> for RateLimitConfigAdapter {
-    fn from(config: RateLimitConfigFile) -> Self {
-        // B-1: leaf types are unified, so this is a straight field move.
-        Self {
-            enabled: config.enabled,
-            default: config.default,
-            endpoints: config.endpoints,
-            ip_header_priority: config.ip_header_priority,
-            include_headers: config.include_headers,
-            exempt_paths: config.exempt_paths,
-            exempt_path_prefixes: config.exempt_path_prefixes,
-            endpoint_aliases: config.endpoint_aliases,
-            fail_open_on_error: config.fail_open_on_error,
-            trusted_proxies: config.trusted_proxies,
-            trust_forwarded: config.trust_forwarded,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
