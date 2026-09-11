@@ -22,7 +22,24 @@
 |-----|------|------|-----------|
 | 单元测试 | `tests/unit/*.rs` | 验证独立组件逻辑 | 目标 ≥80%，当前自动门槛以 `tarpaulin.toml` 的 `70%` 为准 |
 | 集成测试 | `tests/integration/*.rs` | 验证 API 完整流程与高风险契约 | 主链与高风险能力域必覆盖 |
-| 端到端测试 | `tests/e2e/*.rs` | 模拟真实用户操作 | 关键路径 |
+| 端到端测试 | `tests/e2e/*.rs` | ⚠️ **默认不验证端到端行为**（见下方注） | 真实 E2E 需 `E2E_RUN=1` + 运行中的服务 |
+
+> ⚠️ **关于 `tests/e2e/` 的真实内容**（2026-09-11 核查）：
+>
+> 该目录**默认不验证任何端到端行为**，如实说明如下 ——
+>
+> - `e2e_scenarios.rs`：**零 I/O**。不引入 HTTP 客户端、数据库或存储；
+>   每个函数只对硬编码的局部字面量断言重言式，例如
+>   `let join_success = true; assert!(join_success);`。
+>   即使房间创建/加入/登录/媒体上传/E2EE **完全损坏**，这 20 个用例仍会通过
+>   （整个目标耗时 48 ms）。函数已改名为 `simulated_*` 并就地说明，
+>   `tests/unit/e2e_honesty_tests.rs` 会阻止它悄悄获得真实 I/O 而不更新文档。
+> - `user_flow_tests.rs`：**真正的 HTTP**（`reqwest`，`E2E_BASE_URL`），
+>   但全部用例 `#[ignore]` 且需 `E2E_RUN=1` —— 属手动/夜间入口，不是 CI 门禁。
+>
+> 因此 **`e2e` 目标被接入 CI 的目的仅是防止编译腐坏**，不是行为验证。
+> 会被 CI 判红的真实端到端覆盖在 `tests/integration/`（约 115 个模块，
+> 走真实路由 + PostgreSQL）。
 | 性能测试 | `tests/performance/*.rs` | ⚠️ **多为模拟，非真实基线**（见下方注） | 见 `compute_perf_gate.sh` |
 
 > ⚠️ **关于 `tests/performance/`**（2026-09-11 核查）：

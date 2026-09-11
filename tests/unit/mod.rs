@@ -103,6 +103,7 @@ mod assembly_route_tests;
 mod auth_compat_route_tests;
 mod burn_after_read_route_tests;
 mod context_route_tests;
+mod e2e_honesty_tests;
 mod ephemeral_route_tests;
 mod formatting_route_tests;
 mod guest_route_tests;

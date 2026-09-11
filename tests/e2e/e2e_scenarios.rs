@@ -1,12 +1,45 @@
-// E2E (End-to-End) Test Scenarios
-// These tests verify complete user workflows across multiple API modules
+//! SIMULATED scenario walkthroughs — **not** end-to-end tests.
+//!
+//! ⚠️ **This file performs no I/O.** It imports no HTTP client, no database
+//! pool, and no storage: run `grep -nE 'reqwest|sqlx|PgPool|get_test_pool'` on it
+//! and you will find nothing.
+//!
+//! Every function below walks a hard-coded sequence of local variables and
+//! asserts tautologies on them, e.g.
+//!
+//! ```ignore
+//! let room_id = "!created_room:localhost";
+//! assert!(room_id.starts_with('!'));      // true of the literal
+//! let join_success = true;
+//! assert!(join_success);                  // true of the literal
+//! ```
+//!
+//! These checks cannot fail for the reason their names imply: they would still
+//! pass if room creation, joining, login, media upload, or E2EE were completely
+//! broken. The `println!("=== E2E: ... ===")` progress lines make a reader (and
+//! a CI log) believe a workflow was exercised when nothing was executed.
+//!
+//! The functions are therefore named `simulated_*` and this file is documented
+//! as non-verifying. It is retained only as a readable outline of the intended
+//! workflow steps.
+//!
+//! ## Where end-to-end behaviour is actually covered
+//!
+//! * `tests/integration/` — real HTTP through the router against PostgreSQL
+//!   (~115 modules). This is the gate that can fail.
+//! * `tests/e2e/user_flow_tests.rs` — real `reqwest` calls against a running
+//!   homeserver. All its tests are `#[ignore]`d behind `E2E_RUN=1`, so they are
+//!   an opt-in manual harness rather than a CI gate.
+//!
+//! The guard `tests/unit/e2e_honesty_tests.rs` keeps this file from silently
+//! acquiring real I/O without the documentation above being updated.
 
 #[cfg(test)]
 mod e2e_user_registration_tests {
     use serde_json::json;
 
     #[test]
-    fn test_complete_user_registration_flow() {
+    fn simulated_complete_user_registration_flow() {
         println!("=== E2E: Complete User Registration Flow ===");
 
         let username = "testuser_e2e";
@@ -31,7 +64,7 @@ mod e2e_user_registration_tests {
     }
 
     #[test]
-    fn test_user_login_logout_flow() {
+    fn simulated_user_login_logout_flow() {
         println!("=== E2E: User Login/Logout Flow ===");
 
         let username = "testuser";
@@ -53,7 +86,7 @@ mod e2e_user_registration_tests {
     }
 
     #[test]
-    fn test_user_password_change_flow() {
+    fn simulated_user_password_change_flow() {
         println!("=== E2E: User Password Change Flow ===");
 
         println!("Step 1: Login with old password");
@@ -81,7 +114,7 @@ mod e2e_room_tests {
     use serde_json::json;
 
     #[test]
-    fn test_complete_room_lifecycle() {
+    fn simulated_complete_room_lifecycle() {
         println!("=== E2E: Complete Room Lifecycle ===");
 
         let user_id = "@user:localhost";
@@ -118,7 +151,7 @@ mod e2e_room_tests {
     }
 
     #[test]
-    fn test_direct_message_flow() {
+    fn simulated_direct_message_flow() {
         println!("=== E2E: Direct Message Flow ===");
 
         let _sender = "@alice:localhost";
@@ -140,7 +173,7 @@ mod e2e_room_tests {
     }
 
     #[test]
-    fn test_room_invitation_flow() {
+    fn simulated_room_invitation_flow() {
         println!("=== E2E: Room Invitation Flow ===");
 
         let _inviter = "@alice:localhost";
@@ -170,7 +203,7 @@ mod e2e_room_tests {
     }
 
     #[test]
-    fn test_room_ban_unban_flow() {
+    fn simulated_room_ban_unban_flow() {
         println!("=== E2E: Room Ban/Unban Flow ===");
 
         let _admin = "@admin:localhost";
@@ -207,7 +240,7 @@ mod e2e_room_tests {
 #[cfg(test)]
 mod e2e_federation_tests {
     #[test]
-    fn test_cross_server_room_join() {
+    fn simulated_cross_server_room_join() {
         println!("=== E2E: Cross-Server Room Join ===");
 
         let _local_server = "server1.local";
@@ -233,7 +266,7 @@ mod e2e_federation_tests {
     }
 
     #[test]
-    fn test_federated_message_delivery() {
+    fn simulated_federated_message_delivery() {
         println!("=== E2E: Federated Message Delivery ===");
 
         let _sender_server = "server1.local";
@@ -259,7 +292,7 @@ mod e2e_federation_tests {
     }
 
     #[test]
-    fn test_federation_query_directory_missing_alias_retry_and_rollback_flow() {
+    fn simulated_federation_query_directory_missing_alias_retry_and_rollback_flow() {
         println!("=== E2E: Federation Query Directory Missing Alias Retry/Rollback ===");
 
         let alias = "#missing-room:server1.local";
@@ -310,7 +343,7 @@ mod e2e_federation_tests {
 #[cfg(test)]
 mod e2e_encryption_tests {
     #[test]
-    fn test_end_to_end_encryption_flow() {
+    fn simulated_end_to_end_encryption_flow() {
         println!("=== E2E: End-to-End Encryption Flow ===");
 
         let _alice = "@alice:localhost";
@@ -344,7 +377,7 @@ mod e2e_encryption_tests {
     }
 
     #[test]
-    fn test_key_rotation_flow() {
+    fn simulated_key_rotation_flow() {
         println!("=== E2E: Key Rotation Flow ===");
 
         println!("Step 1: Upload new signing key");
@@ -368,7 +401,7 @@ mod e2e_space_tests {
     use serde_json::json;
 
     #[test]
-    fn test_space_creation_and_management() {
+    fn simulated_space_creation_and_management() {
         println!("=== E2E: Space Creation and Management ===");
 
         let _user_id = "@user:localhost";
@@ -401,7 +434,7 @@ mod e2e_space_tests {
     }
 
     #[test]
-    fn test_nested_space_hierarchy() {
+    fn simulated_nested_space_hierarchy() {
         println!("=== E2E: Nested Space Hierarchy ===");
 
         println!("Step 1: Create parent space");
@@ -433,7 +466,7 @@ mod e2e_thread_tests {
     use serde_json::json;
 
     #[test]
-    fn test_thread_creation_and_reply() {
+    fn simulated_thread_creation_and_reply() {
         println!("=== E2E: Thread Creation and Reply ===");
 
         let _user_id = "@user:localhost";
@@ -462,7 +495,7 @@ mod e2e_thread_tests {
     }
 
     #[test]
-    fn test_thread_subscription() {
+    fn simulated_thread_subscription() {
         println!("=== E2E: Thread Subscription ===");
 
         let _user_id = "@user:localhost";
@@ -488,7 +521,7 @@ mod e2e_search_tests {
     use serde_json::json;
 
     #[test]
-    fn test_room_search_flow() {
+    fn simulated_room_search_flow() {
         println!("=== E2E: Room Search Flow ===");
 
         let _query = "test query";
@@ -513,7 +546,7 @@ mod e2e_search_tests {
     }
 
     #[test]
-    fn test_global_search_flow() {
+    fn simulated_global_search_flow() {
         println!("=== E2E: Global Search Flow ===");
 
         let _query = "important message";
@@ -541,7 +574,7 @@ mod e2e_media_tests {
     use serde_json::json;
 
     #[test]
-    fn test_media_upload_download_flow() {
+    fn simulated_media_upload_download_flow() {
         println!("=== E2E: Media Upload/Download Flow ===");
 
         let server_name = "localhost";
@@ -565,7 +598,7 @@ mod e2e_media_tests {
     }
 
     #[test]
-    fn test_url_preview_flow() {
+    fn simulated_url_preview_flow() {
         println!("=== E2E: URL Preview Flow ===");
 
         let _url = "https://example.com";
