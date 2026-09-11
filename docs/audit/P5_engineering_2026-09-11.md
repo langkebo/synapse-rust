@@ -370,6 +370,41 @@ tie-break、`LIMIT limit+1` 探测、cursor 锚定末行），并补 2 个测试
 
 同时修复 `test_mocks/registration_token.rs` 的同款 `get(limit)` cursor 缺陷。
 
+### 3.6 mock 漂移核查阶段结论（4 轮）
+
+按"业务规则最易漂移"抽样核查，累计发现 **5 处** mock 与生产的实质差异：
+
+| # | 位置 | 差异性质 | 处理 |
+|---|---|---|---|
+| 1 | `member.rs` `get_room_members_paginated` | 负 `limit` 未钳制 ⇒ mock 返回全部、生产报错 | ✅ 已修 + RED 验证 |
+| 2 | `audit_event.rs` `list_events` 的 `total` | 在 cursor 过滤后计算 ⇒ 随翻页递减（生产为恒定总数） | ✅ 已修 + 测试 |
+| 3 | `audit_event.rs` 分页 cursor | 取 `get(limit)`（第 limit+1 项） | ✅ 已修 + 遍历不变量 + RED |
+| 4 | `room.rs` `get_all_rooms_with_members` | **完全不支持分页**（丢弃 `from`/`order_by`、`next_batch` 恒 `None`） | ✅ 已重写 + 2 测试 + RED |
+| 5 | `registration_token.rs` 分页 cursor | 同 #3 | ✅ 已修 |
+| 6 | `device_list.rs` `get_device_list_changed_users` | **忽略 `from`/`to`/`requester`，返回所有用户**（生产为 stream 窗口 + 排除请求者 + 排序 + `LIMIT 100`） | ⚠️ **仅加警告，未修** |
+
+#### 关于 #6（未修）的说明
+
+该 mock 被 **7 个文件**使用（含 `sync_service/tests.rs`）。**未修的原因**：
+`InMemoryDeviceListStore` 只有**一个全局 `stream_id` 计数器**，**没有每设备的 stream
+位置** ⇒ 要正确实现窗口过滤必须改数据模型（在设备写入时记录 stream 位置）。
+这是刻意为之的较大任务，不应在核查中顺手改。
+
+**本轮所做**：把原来含糊的 `// Simplified: return all users that have devices`
+升级为**显式警告块**，写明与真实实现的逐项差异、因此**不可测的四个维度**
+（stream 窗口语义 / 请求者排除 / 排序 / `LIMIT 100` 上限）以及未修原因 ——
+使后续读者不会把这个 stub 当作忠实 mock 使用。
+
+#### 方法论小结
+
+有效的扫描形态（按命中率排序）：
+1. **丢弃参数**（`let _ = (from, order_by)`）—— 命中 #4，危害最大
+2. **下划线前缀的功能性参数**（`_from`/`_limit`）—— 命中 #6
+3. **无保护的转换**（`limit as usize`）—— 命中 #1、#5
+4. **在过滤之后才计算的聚合量** —— 命中 #2
+
+**未完成**：其余约 27 个 mock 模块的**过滤 / 排序 / 默认值**维度尚未系统核查。
+
 ---
 
 ## 4. 复现方式
