@@ -515,6 +515,43 @@ export DATABASE_URL="postgres://synapse:synapse@localhost:5432/synapse_test"
 cargo test --test integration
 ```
 
+### 9.1.1 ⚠️ 本地测试库必须定期清理（否则 PostgreSQL 会变成小时级不可用）
+
+测试夹具每个用例建一个隔离 schema。**2026-09-12 实测本地库累积到 23,662 个
+残留 schema**，后果远比"catalog 变慢"严重：
+
+| 现象 | 实测 |
+|---|---|
+| 单个 `DROP SCHEMA ... CASCADE` | 撞 `max_locks_per_transaction=256`，报 `out of shared memory`（模板 schema 有 1,197 个对象） |
+| 单个普通 schema 的 `DROP` | 约 3.0 秒 |
+| `pg_database_size()` | 超时 |
+| **PostgreSQL 崩溃恢复的 pre-fsync** | **>60 分钟未完成**，日志刷 `syncing data directory (pre-fsync), elapsed time: NNNN s` |
+| 单条测试用例 | 133 秒（catalog 缩小 8% 后同用例 162s→108s） |
+
+根因不只是 catalog 膨胀，而是**数据目录的文件数膨胀**：21,778 个 schema ×
+(658–1,229 个对象 + 索引 + 序列) ≈ **数百万个文件**。PostgreSQL 硬崩溃恢复的
+`SyncDataDirectory()` 对**每一个文件**单独 `pg_fsync`，实测约 10 文件/秒。
+
+**所以：任何 PostgreSQL 重启（含正常维护重启）都可能变成小时级事件。**
+
+```bash
+# 定期清理（默认是预演，不会改动任何东西）
+bash scripts/cleanup_test_schemas.sh
+
+# 确认目标无误后执行
+bash scripts/cleanup_test_schemas.sh --apply
+```
+
+> 清理脚本覆盖 `test_*` / `media_test_*` / `synapse_test_*` 三个家族以及**被新
+> 迁移指纹取代的陈旧模板**（迁移文件一改，模板名就变，旧模板永不删除——这部分
+> 现已由 `init_template_schema` 自动剪枝）。
+>
+> **如果残留已经很多，不要逐个 `DROP SCHEMA`**：实测约 3 秒/个，2 万个要跑十几
+> 小时。直接重建测试库（`DROP DATABASE` + `CREATE DATABASE` + 重放迁移）是秒级
+> 的，且能一次性绕过 `max_locks_per_transaction` 限制。
+>
+> 完整报告与实测原始输出：`docs/audit/P5_test_schema_accumulation_2026-09-12.md`。
+
 ### 9.2 CI测试环境
 
 - **操作系统**: Ubuntu 22.04 LTS

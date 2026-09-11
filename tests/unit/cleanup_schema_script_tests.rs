@@ -109,3 +109,37 @@ fn cleanup_script_preserves_drop_failure_reasons() {
         );
     }
 }
+
+#[test]
+fn cleanup_script_fails_fast_on_lock_exhaustion() {
+    let source = script();
+    // A schema with more objects than `max_locks_per_transaction` can NEVER be
+    // dropped by `DROP SCHEMA ... CASCADE`: Postgres takes one lock per cascaded
+    // object. Each attempt therefore costs ~12s and is guaranteed to fail.
+    // Measured 2026-09-12: 25 template schemas at 1,197 objects each, all failing.
+    //
+    // The script must recognise this specific error and stop with an actionable
+    // message rather than grinding through the whole candidate list.
+    assert!(
+        source.contains("out of shared memory"),
+        "the script must detect `out of shared memory`; without this it retries a guaranteed \
+         failure once per schema (hours of no-ops)"
+    );
+    assert!(
+        source.contains("max_locks_per_transaction"),
+        "the script must name the actual knob (`max_locks_per_transaction`) so the operator knows \
+         what to raise"
+    );
+    assert!(
+        source.contains("DROP DATABASE"),
+        "the fail-fast message must point at the viable alternative (rebuild the test database), \
+         since per-schema DROP can never succeed for over-large schemas"
+    );
+    // Consecutive-failure counter, not a one-shot: a single unlucky schema must
+    // not abort an otherwise productive run.
+    assert!(
+        source.contains("LOCK_FAILURES"),
+        "lock exhaustion must be tracked as consecutive failures, so one bad schema does not abort \
+         a productive cleanup"
+    );
+}

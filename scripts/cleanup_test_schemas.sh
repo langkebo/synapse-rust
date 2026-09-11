@@ -154,6 +154,13 @@ fi
 COUNT=0
 FAILED=0
 FIRST_ERROR=""
+# Consecutive `out of shared memory` failures. This is not a transient error: a
+# single DROP SCHEMA takes one lock per cascaded object, so a schema with more
+# objects than `max_locks_per_transaction` can NEVER be dropped this way, and
+# each attempt just burns ~12s. Bail out with an actionable message instead of
+# grinding through the whole list (observed on 2026-09-12: 25 template schemas
+# at 1,197 objects each, every one failing after 12s).
+LOCK_FAILURES=0
 while IFS= read -r s; do
     [ -z "$s" ] && continue
     # 每个 schema 单独一个事务；失败时**保留 stderr**（旧版本 2>/dev/null 把
@@ -164,6 +171,31 @@ while IFS= read -r s; do
             FIRST_ERROR="$s: $ERR"
         fi
         [ "$FAILED" -le 5 ] && echo "    WARN: 清理失败 $s — $ERR"
+        case "$ERR" in
+            *"out of shared memory"*|*max_locks_per_transaction*)
+                LOCK_FAILURES=$((LOCK_FAILURES + 1))
+                if [ "$LOCK_FAILURES" -ge 3 ]; then
+                    echo "" >&2
+                    echo "ERROR: 连续 ${LOCK_FAILURES} 个 schema 因锁表耗尽而无法 DROP：" >&2
+                    echo "       ERROR: out of shared memory ... increase max_locks_per_transaction" >&2
+                    echo "" >&2
+                    echo "       单个 DROP SCHEMA ... CASCADE 会对被级联的**每个对象**各持一把锁。" >&2
+                    echo "       对象数超过 max_locks_per_transaction（本机 256）的 schema 用这种方式" >&2
+                    echo "       永远删不掉，每次只是白等十几秒。" >&2
+                    echo "" >&2
+                    echo "       推荐改用重建测试库（秒级，且天然绕过锁限制）：" >&2
+                    echo "         DROP DATABASE <db>;  CREATE DATABASE <db>;  # 然后重放 migrations/" >&2
+                    echo "       或提高 max_locks_per_transaction 后重启 PostgreSQL。" >&2
+                    echo "       详见 docs/audit/P5_test_schema_accumulation_2026-09-12.md §4.2。" >&2
+                    break
+                fi
+                ;;
+            *)
+                LOCK_FAILURES=0
+                ;;
+        esac
+    else
+        LOCK_FAILURES=0
     fi
     COUNT=$((COUNT + 1))
     if [ $((COUNT % 500)) -eq 0 ]; then
