@@ -417,12 +417,26 @@ mod tests {
         assert!(result.is_ok(), "block_room should not fail: {:?}", result);
     }
 
+    /// `InMemoryRoomStore` does **not** model room blocking: `block_room` is a
+    /// no-op and `get_room_block_status` always returns `None` (see the
+    /// MOCK DEVIATION note in `synapse-storage/src/test_mocks/room.rs`).
+    ///
+    /// This test therefore describes the *mock's* limitation rather than
+    /// service behaviour. It calls the mutating path first so the assertion has
+    /// meaning: a faithful mock would report `Some(..)` here. Real block/unblock
+    /// coverage requires the database-backed store.
     #[tokio::test]
-    async fn get_room_block_status_returns_none_for_unknown_room() {
+    async fn get_room_block_status_is_unmodelled_by_the_in_memory_store() {
         let svc = make_service();
-        let status = svc.get_room_block_status("!missing:ex.com").await.unwrap();
-        // InMemoryRoomStore::get_room_block_status always returns None.
-        assert!(status.is_none());
+        svc.block_room("!missing:ex.com", "@admin:ex.com", Some("reason")).await.expect("block_room");
+
+        let status = svc.get_room_block_status("!missing:ex.com").await.expect("status");
+        assert!(
+            status.is_none(),
+            "MOCK DEVIATION 记录：InMemoryRoomStore 的 block_room 是 no-op、\
+             get_room_block_status 恒为 None。若这里变成 Some，说明 mock 已被补充实现，\
+             请同步更新 test_mocks/room.rs 的偏差说明与本测试名。"
+        );
     }
 
     #[tokio::test]

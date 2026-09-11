@@ -405,6 +405,36 @@ tie-break、`LIMIT limit+1` 探测、cursor 锚定末行），并补 2 个测试
 
 **未完成**：其余约 27 个 mock 模块的**过滤 / 排序 / 默认值**维度尚未系统核查。
 
+#### 后续核查（第 5 轮，2026-09-11）
+
+按上述四类形态复核剩余模块，**未再发现新的一类**"mock 返回错误结果"缺陷 ——
+多数匹配到的是对参数**忠实使用**的实现（例：`directory.rs::list_public_rooms`
+正确使用 `limit`/`offset`；`access_token.rs` 黑名单读写自洽），
+其余是明确不建模的功能桩。抽样结论：
+
+| 位置 | 核查结果 |
+|---|---|
+| `access_token.rs` `add_to_blacklist` / `is_in_blacklist` | ✅ 忠实：写入与读回自洽 |
+| `admin_federation.rs` `get_destination_rooms` | ✅ 忠实（真实实现按 `destination` 过滤并 `ORDER BY`；mock 同样过滤） |
+| `event.rs` `copy_room_state` | ✅ 忠实（真实实现为 INSERT…SELECT DISTINCT ON；mock 等价） |
+| `room.rs` `block_room` / `get_room_block_status` | ⚠️ **偏差**：mock 完全不建模房间封禁（`block_room` 为 no-op、读取恒 `None`） |
+
+由于"把 27 个模块的桩全部改成忠实实现"是开放式大任务，且会波及依赖其简化行为的
+现有测试，本轮改为**强制显式披露**：
+
+1. `room.rs` 的封禁偏差按既有约定补上 `⚠️ MOCK DEVIATION` 块 + 模块级 Fidelity 段，
+   写明**不可测的三个维度**（`blocked_at` 回读、unblock 清除、`blocked_by`/`reason` 往返）；
+2. `synapse-services/src/room/state/info.rs` 里那条**同义反复**测试
+   （调用 `block_room` 后断言 `None`，实际只断言了 mock 的桩行为）改名为
+   `get_room_block_status_is_unmodelled_by_the_in_memory_store`，并先调用
+   `block_room` 使断言至少**有意义**（忠实 mock 会返回 `Some`）；
+3. 新增门禁 `tests/unit/mock_fidelity_tests.rs`：枚举带偏差标记的模块，
+   要求与显式清单一致，且标记必须**说明哪些维度未建模** ——
+   新增偏差若不登记即 CI 失败（已 RED 验证：移除 `room.rs` 的标记会使门禁变红）。
+
+> 这是**披露门禁**而非正确性门禁：它无法判断某个已登记的偏差是否可接受，
+> 但能阻止偏差**悄悄出现**。
+
 ---
 
 ## 4. 复现方式

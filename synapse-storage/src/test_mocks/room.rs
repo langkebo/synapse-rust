@@ -1,6 +1,19 @@
 use super::*;
 
 /// In-memory room store mirroring [`crate::room::RoomStorage`].
+///
+/// # Fidelity
+///
+/// This is **not** a complete model of the real store. Dimensions that are
+/// deliberately unmodelled are marked inline with `⚠️ MOCK DEVIATION`:
+///
+/// * **Room blocking** — `block_room` is a no-op and `get_room_block_status`
+///   always returns `None`; `blocked_by` / `reason` are not stored. See the
+///   note on `block_room` below.
+///
+/// A test that needs a deviation-free store must use the database-backed
+/// implementation. The guard `tests/unit/mock_fidelity_tests.rs` enumerates the
+/// modules carrying deviation markers so a newly added one cannot go unnoticed.
 #[derive(Clone, Default)]
 pub struct InMemoryRoomStore {
     rooms: Arc<RwLock<HashMap<String, crate::room::Room>>>,
@@ -511,6 +524,30 @@ impl crate::room::api::RoomStoreApi for InMemoryRoomStore {
         Ok(())
     }
 
+    // ⚠️ MOCK DEVIATION — room blocking is NOT modelled.
+    //
+    // The real store persists into `blocked_rooms`, and `get_room_block_status`
+    // reads `blocked_at` back out (see `room/admin.rs`). These stubs deliberately
+    // accept and discard everything:
+    //
+    //   block_room(&self, _room_id, _blocked_at, _blocked_by, _reason) -> Ok(())
+    //   get_room_block_status(&self, _room_id)                         -> Ok(None)
+    //   unblock_room(&self, _room_id)                                  -> Ok(())
+    //
+    // Consequently these dimensions are **untestable through this mock**:
+    //   * that a blocked room reports its `blocked_at`
+    //   * that unblock clears it
+    //   * the `blocked_by` / `reason` round-trip
+    //
+    // Any test asserting block/unblock behaviour must use the real store against
+    // a database. Note that `services::room::state::info` contains a test which
+    // calls `block_room` and then asserts `None` — that assertion is vacuously
+    // true against this mock and proves nothing (it is annotated accordingly).
+    //
+    // Adding a `blocked_rooms: HashMap<String, (i64, String, Option<String>)>`
+    // field plus faithful implementations would be a small self-contained change;
+    // it is not done here because no current test depends on it and the
+    // deviation is now explicit rather than implicit.
     async fn block_room(
         &self,
         _room_id: &str,
@@ -518,11 +555,11 @@ impl crate::room::api::RoomStoreApi for InMemoryRoomStore {
         _blocked_by: &str,
         _reason: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        // No blocked_rooms table in mock; no-op.
         Ok(())
     }
 
     async fn get_room_block_status(&self, _room_id: &str) -> Result<Option<i64>, sqlx::Error> {
+        // MOCK DEVIATION: always `None`; the real store reads `blocked_rooms`.
         Ok(None)
     }
 
