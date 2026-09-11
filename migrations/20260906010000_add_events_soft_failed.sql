@@ -20,7 +20,22 @@
 -- need to change — `DEFAULT FALSE` on the column means every existing INSERT
 -- implicitly sets `soft_failed = FALSE`.
 
-ALTER TABLE events ADD COLUMN soft_failed BOOLEAN NOT NULL DEFAULT FALSE;
+-- `IF NOT EXISTS` is REQUIRED for replayability, not decoration.
+--
+-- This column was later folded into the v11 baseline (`00000000_unified_schema_v11.sql`
+-- now contains `ALTER TABLE events ADD COLUMN IF NOT EXISTS soft_failed ...`).
+-- Without the guard here, applying the full chain to a **fresh** database fails:
+--
+--     ERROR:  column "soft_failed" of relation "events" already exists
+--
+-- Measured 2026-09-12 while replaying `docker/db_migrate.sh migrate` into an empty
+-- database; it aborted at this file (the 30th of 74 migrations), leaving every later
+-- migration unapplied. Existing databases were unaffected because their
+-- `schema_migrations` row predates the baseline fold — which is precisely why the
+-- breakage is invisible locally and only bites on a clean deploy/CI rebuild.
+--
+-- Keep this idempotent for the same reason the baseline version is.
+ALTER TABLE events ADD COLUMN IF NOT EXISTS soft_failed BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Index to speed up the common consumer read paths:
 --   `SELECT ... FROM events WHERE room_id = $1 AND soft_failed = FALSE ORDER BY ...`
