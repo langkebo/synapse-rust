@@ -1,7 +1,7 @@
 # 联邦状态落库与广播模板（基于 MSC4262 提炼）
 
 > 用途：为「跨实例状态变更需要 ① 本地落库 ② 通知同房间本地客户端 ③ 广播到远端」的场景提供统一实现骨架。
-> 参考实现：`m.profile_update`（MSC4262）。后续候选：thread 订阅/退订（MSC4155/4156）、跨服务器账号数据推送等。
+> 参考实现：`m.profile_update`（MSC4262）。适用前提见 §6：仅「房间可见的公开态」才走本模板；「用户私有态」不应套本模板。
 
 ---
 
@@ -191,17 +191,34 @@ async fn broadcast_<state>_edu(&self, <key>: &str) {
 
 ---
 
-## 六、MSC4155/4156 套用示例（thread 订阅态）
+## 六、适用性判定：状态可见性决定「要不要 EDU」
 
-MSC4155/4156 目前是 **unstable CS-API compat stub**（`org.matrix.msc4155/rooms/{room_id}/threads`、`org.matrix.msc4156/threads/subscribed`），**是客户端读接口，不是联邦状态**。若未来要让「thread 订阅/静音」跨服务器同步，套用本模板：
+> **套用本模板前必须先判断：这个状态是「房间可见的公开态」还是「用户私有态」。**
+> 只有公开态（如 profile 变更需要共享房间的成员感知）才需要 EDU 跨服务器广播。
 
-- 表：`thread_subscriptions`（已存在：`notification_level` / `is_muted` / `is_pinned` / `subscribed_ts` / `updated_ts`）
-- 触点 4 落库函数：`apply_thread_subscription_from_federation(user_id, room_id, thread_id, notification_level, is_muted) -> Result<bool>`（UPDATE-only，命中 `thread_subscriptions`）
-- 触点 2 广播：`subscribe()` / `unsubscribe()` 成功后调 `broadcast_thread_subscription_edu()`
-- 触点 1 EDU 类型：`EduType::ThreadSubscription` / `"m.thread_subscription"`
-- stream bump：thread 订阅是**用户私有态**，只影响订阅者自己的设备 → 用 `insert_device_list_change(user_id, None, "thread_subscription", ts)` 唤醒该用户其它设备，**不必**通知同房间他人（与 profile「公开态」有别）。
+### 6.1 ⚠️ MSC 编号语义漂移（已核正，勿再误用）
 
-> ⚠️ 决策点：profile 变更是「房间可见公开态」（要 bump device-list 让共享者感知），thread 订阅是「个人私有态」（只唤醒自己其它设备）。套用模板前先判断状态可见性，决定 stream 通知范围。
+早期路线图文档曾把「线程订阅/退订跨服务器同步」标注为 **MSC4155/4156**。经与
+[matrix-spec-proposals](https://github.com/matrix-org/matrix-spec-proposals) 核对：
+
+| 编号 | 官方真实标题 | 与本仓 compat stub 路径的关系 |
+|------|-------------|------------------------------|
+| MSC4155 | **Invite filtering**（Johennes, 2024-06） | 与本仓 `org.matrix.msc4155/rooms/{room_id}/threads` 路径名**语义不符** |
+| MSC4156 | **Migrate server_name to via**（Johennes, 2024-08 merged） | 与本仓 `org.matrix.msc4156/threads/subscribed` 路径名**语义不符** |
+| MSC3773 | **Notifications for threads**（clokep, 2022-09 merged） | 才是线程通知/未读计数的官方来源 |
+
+**结论**：本仓 `unstable/org.matrix.msc4155|4156/...` 两个 compat stub 路径是**客户端本地读接口**，借用了未占用的 MSC 号段命名，**不是**联邦状态，也不对应官方 MSC4155/4156 的语义。这是「编号-语义分裂」的已知实例（参见 SDK fork 同类问题）。
+
+### 6.2 线程订阅**不应**套用本模板（设计裁定，非待办）
+
+`thread_subscriptions`（`notification_level`/`is_muted`/`is_pinned`/`subscribed_ts`）是**用户私有态**：
+- 订阅/退订只影响**订阅者自己**的通知路由，对房间内其他成员不可见；
+- Matrix 中私有态经 **CS `/sync` 的 account_data** 下发到用户**自己的**多设备，account_data **本就不跨服务器同步**（用户隶属于单一 homeserver）；
+- 因此**不存在**「远端 server 收到他人线程订阅变更」的语义 —— 不需要 `EduType::ThreadSubscription`、不需要 `apply_thread_subscription_from_federation`、不需要 `broadcast_thread_subscription_edu`。
+
+> ✅ **裁定**：路线图 W6「MSC4155/4156 线程订阅跨服务器同步」**关闭**，标记为「经核正：非联邦态，不实现」。当前 `subscribe`/`unsubscribe`/`mute_thread` 的纯 DB + 本地生效实现是正确的。
+>
+> 若未来确需唤醒该用户**其它设备**，沿用既有 device-list stream（`insert_device_list_change(user_id, None, ...)`）即可，仍不需要 EDU 广播。
 
 ---
 

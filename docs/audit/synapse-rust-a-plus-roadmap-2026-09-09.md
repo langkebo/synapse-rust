@@ -201,6 +201,6 @@
 
 | 任务 | 说明 |
 |------|------|
-| **MSC4155/4156 线程订阅/退订跨服务器同步** | 基于模板 `apply_thread_subscription_from_federation` + `broadcast_thread_subscription_edu()` 实现 |
+| **MSC4155/4156 线程订阅/退订跨服务器同步** | ✅ 已核正：MSC4155=Invite filtering, MSC4156=Migrate server_name to via（均非线程订阅），线程订阅为用户私有态，不实施 EDU 联邦；记录在案（见模板文档 §6 适用性判定） |
 | **relations db_tests 完整 CI 覆盖** | 与 `run_local_coverage.sh` 集成，自动初始化 test schema |
 | **schema pool 复用优化** | `IsolatedTestPool` 使用 connection pool 复用，减少 `DROP SCHEMA` 频率 |
