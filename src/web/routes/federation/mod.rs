@@ -67,7 +67,20 @@ pub(super) async fn validate_federation_origin_in_room(
         return Ok(());
     }
 
-    Err(ApiError::forbidden("Authenticated server has no joined members in this room".to_string()))
+    // P2-fix: report `M_NOT_FOUND` with a neutral message, matching
+    // `validate_federation_origin_can_observe_room` below (which returns the same
+    // `not_found("Room not found")` for the same condition: the origin is not a
+    // member). Previously this returned `M_FORBIDDEN` with
+    // "Authenticated server has no joined members in this room", which states that
+    // the room *exists* but the origin lacks membership — an existence oracle that
+    // the sibling helper deliberately avoids. The two helpers are semantically
+    // identical, so returning different error classes for them was inconsistent.
+    //
+    // Reachability note: the only caller (`transaction.rs`) swallows this error
+    // into a per-PDU result entry rather than surfacing it as an HTTP status, so
+    // this was not an HTTP-level leak; the fix removes the inconsistency at the
+    // source so a future caller cannot reintroduce one.
+    Err(ApiError::not_found("Room not found".to_string()))
 }
 
 /// See [`validate_federation_origin_can_observe_room`].
