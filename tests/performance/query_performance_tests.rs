@@ -1,12 +1,28 @@
 //! Query Performance Tests for N+1 Query Optimization
 //!
-//! This module tests the batch query interfaces and JOIN optimizations
-//! to ensure N+1 query problems have been eliminated.
-//!
 //! Test Categories:
 //! 1. Batch query performance - comparing N+1 vs batch queries
 //! 2. JOIN query performance - verifying JOIN queries are efficient
 //! 3. Memory efficiency - ensuring batch queries don't cause memory issues
+//!
+//! ⚠️ **These tests are SIMULATED — they do not touch a database.**
+//!
+//! Every "query" below is a `tokio::task::yield_now()`. That means:
+//!
+//! * They cannot detect a real N+1 regression, a dropped index, or a bad query
+//!   plan — none of those are exercised.
+//! * The wall-clock assertion that used to live here
+//!   (`duration.as_millis() < 100`) measured a task yield, not a query. It was
+//!   removed rather than left in place: a green check that cannot fail for the
+//!   reason its name implies is worse than no check at all.
+//!
+//! What actually guards query performance:
+//!   * `scripts/ci/compute_perf_gate.sh` — pure-compute benchmarks (no DB)
+//!   * `scripts/ci/sliding_sync_perf_gate.sh` — DB-backed p95 latency gate
+//!   * real DB query tests under `--all-features` (e.g. `db_tests.rs` modules)
+//!
+//! The simulated shape is kept as an executable description of the N+1-vs-batch
+//! *intent*; see TESTING.md §1 for the honest inventory.
 
 #![allow(clippy::unwrap_used)]
 
@@ -37,7 +53,9 @@ mod tests {
         let duration_batch = start_batch.elapsed();
 
         println!("N+1 duration: {:?}, Batch duration: {:?}", duration_n1, duration_batch);
-        // Batch query should be significantly faster in real scenarios
+        // NOTE: deliberately no assertion. Comparing two yields would only assert
+        // that 100 yields cost more than 1 — true by construction and meaningless
+        // as a performance gate. A real gate needs a real database; see above.
     }
 
     #[tokio::test]
@@ -49,6 +67,10 @@ mod tests {
         tokio::task::yield_now().await;
         let duration = start.elapsed();
 
-        assert!(duration.as_millis() < 100, "JOIN query took too long: {:?}", duration);
+        println!("simulated JOIN query duration: {duration:?}");
+
+        // Deliberately NOT asserting a latency bound: `duration` times a task
+        // yield, so any bound would pass no matter how slow real JOINs become.
+        // Real JOIN latency is covered by the DB-backed gates named above.
     }
 }

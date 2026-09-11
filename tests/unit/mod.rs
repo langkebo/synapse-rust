@@ -107,6 +107,7 @@ mod ephemeral_route_tests;
 mod formatting_route_tests;
 mod guest_route_tests;
 mod pagination_gate_tests;
+mod perf_gate_honesty_tests;
 mod pinned_route_tests;
 mod qr_login_token_route_tests;
 mod room_access_route_tests;

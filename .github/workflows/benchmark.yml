@@ -107,6 +107,25 @@ jobs:
         run: |
           python3 scripts/check_pagination_benchmark.py benchmark.txt --minimum-improvement 0.30
 
+      # 纯计算性能门禁：真实测量、真实阈值。
+      #
+      # 取代 TESTING.md 里那三组从未被执行的 P95 数字（500/1000/100ms）。
+      # 这些基准不需要 server/DB，因此在 CI 中总能真正运行；
+      # 阈值写在脚本内（约 10× 实测基线），目标是数量级退化而非 10% 漂移。
+      # 回归保护见 tests/unit/perf_gate_honesty_tests.rs。
+      - name: Compute performance regression gate
+        env:
+          RUSTFLAGS: "-Ccodegen-units=16"
+        run: bash scripts/ci/compute_perf_gate.sh
+
+      - name: Upload compute perf logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compute-perf-logs
+          path: artifacts/compute_perf_*.log
+          retention-days: 14
+
       - name: Analyze results
         run: |
           echo "## Benchmark Results" >> $GITHUB_STEP_SUMMARY

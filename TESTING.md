@@ -23,7 +23,23 @@
 | 单元测试 | `tests/unit/*.rs` | 验证独立组件逻辑 | 目标 ≥80%，当前自动门槛以 `tarpaulin.toml` 的 `70%` 为准 |
 | 集成测试 | `tests/integration/*.rs` | 验证 API 完整流程与高风险契约 | 主链与高风险能力域必覆盖 |
 | 端到端测试 | `tests/e2e/*.rs` | 模拟真实用户操作 | 关键路径 |
-| 性能测试 | `tests/performance/*.rs` | 验证性能指标 | P95≤500ms |
+| 性能测试 | `tests/performance/*.rs` | ⚠️ **多为模拟，非真实基线**（见下方注） | 见 `compute_perf_gate.sh` |
+
+> ⚠️ **关于 `tests/performance/`**（2026-09-11 核查）：
+>
+> 这些文件**不是**可据以判断性能的门禁，如实说明如下 ——
+>
+> - `query_performance_tests.rs`：**完全模拟**，不连数据库。其唯一断言是
+>   `duration.as_millis() < 100`，而 `duration` 测量的是一个
+>   `tokio::task::yield_now()` —— 它断言不了任何查询性能。
+> - `api_load_tests.rs` / `manual_smoke_tests.rs`：不连数据库；
+>   `manual_smoke_tests.rs` 的关键用例标了 `#[ignore]`。
+> - `appservice_scheduler_perf_tests.rs`：确实连库并打印 p50/p95/p99，
+>   但**全部用例 `#[ignore]`**，只做**报告**、不做断言。
+>
+> 结论：真实、可执行、会变红的性能门禁目前只有
+> `scripts/ci/compute_perf_gate.sh`（纯计算）与
+> `scripts/ci/sliding_sync_perf_gate.sh`（需 Postgres）。其余仅作人工参考。
 
 ---
 
@@ -163,10 +179,25 @@ cargo bench --bench performance_federation_benchmarks --no-run
 发布门禁不应把 `performance_manual` 计入常规 `cargo test` 通过率；该入口属于手动性能套件。
 GitHub Actions 中已将 Criterion 基准与 `performance_manual` 分离；后者通过 `Benchmark` 工作流的手动触发入口按需执行。
 
-**性能质量门禁**：
-- 搜索API P95延迟：≤500ms
-- 同步请求 P95延迟：≤1000ms
-- 数据库查询 P95延迟：≤100ms
+**性能质量门禁**（2026-09-11 重写 — 见下方说明）：
+
+- **纯计算基准**：`bash scripts/ci/compute_perf_gate.sh`（CI 阻塞）
+- **sliding sync 延迟**：`bash scripts/ci/sliding_sync_perf_gate.sh`（需 Postgres，CI 阻塞）
+- 指标与阈值以这两个脚本内的实测基线为准，本文档不再单独声明数字。
+
+> ⚠️ **为什么删掉了原来的 P95 数字**
+>
+> 本节此前声明三组目标（搜索 P95≤500ms、同步 P95≤1000ms、DB 查询 P95≤100ms）。
+> 实测核查（`docs/audit/P4_performance_baseline_2026-09-11.md` §5.1）发现：
+>
+> 1. **没有任何执行者** —— 没有测试断言它们，没有 CI 步骤读取它们；
+> 2. 代码里唯一存在的阈值是 `sliding_sync_perf_gate.sh` 的 **5000ms**，
+>    与这里的 500/1000ms **口径完全不同**，且该脚本当时**从未被接线**；
+> 3. 实测值比这些数字**好 15–30 倍**（whoami 1.95ms vs 阈值 20ms；
+>    room 状态查询 3.15ms vs 阈值 50ms）—— 即便运行也拦不住任何现实规模的退化。
+>
+> 一份无人执行、且宽松到失去判别力的阈值表比没有更糟：它让人以为有保护。
+> 现已替换为**真实可执行**的门禁，阈值定义在脚本内并附实测基线。
 
 ---
 
@@ -248,35 +279,45 @@ bash scripts/ci/run_complement_tests.sh TestRegisterLogin
 
 ### 4.2 性能指标定义
 
-| 指标 | 定义 | 质量门禁 |
+| 指标 | 定义 | 门禁 |
 |-----|------|---------|
-| P95延迟 | 95%请求的响应时间 | ≤500ms |
-| P99延迟 | 99%请求的响应时间 | ≤1000ms |
-| 吞吐量 | 每秒处理的请求数 | ≥100 RPS |
-| 错误率 | 失败请求的比例 | ≤1% |
+| 纯计算基准均值 | Criterion `mean`（state resolution / auth chain / membership 转移） | `scripts/ci/compute_perf_gate.sh`（上限写在脚本内，约 10× 基线） |
+| sliding sync P95 | 长轮询热路径的 p95 延迟 | `scripts/ci/sliding_sync_perf_gate.sh`（需 Postgres） |
+| P95/P99 延迟 | 95%/99% 请求的响应时间 | ⬜ **未设门禁**：仅在采集到的基线上人工比对，见 `docs/audit/P4_performance_baseline_2026-09-11.md` §4 |
+| 吞吐量 | 每秒处理的请求数 | ⬜ 未设门禁（同上） |
+| 错误率 | 失败请求的比例 | ⬜ 未设门禁（同上） |
+
+> 上表刻意区分"**有门禁**"与"**只有基线**"。只有基线的指标不会让 CI 变红 ——
+> 不要把它们当成保护。给它们加门禁前，需要先有稳定的采集环境（见 §4.5 的
+> 采样不确定性说明）。
 
 ### 4.3 性能测试场景
 
-```rust
-// 用户目录搜索性能
-benchmark_user_directory_search
-├── 单用户搜索 → P95 ≤100ms
-└── 批量搜索(10并发) → P95 ≤500ms
+Criterion 基准清单及**可执行门禁**：
 
-// 房间操作性能
-benchmark_room_operations
-├── 状态查询 → P95 ≤50ms
-└── 成员列表 → P95 ≤100ms
+```text
+benches/performance_federation_benchmarks.rs      ← compute_perf_gate.sh 覆盖
+├── state_resolution_chain_10        (纯计算)
+├── state_resolution_chain_100       (纯计算)
+└── auth_chain_build_10              (纯计算)
 
-// 同步操作性能
-benchmark_sync_operations
-├── 带超时同步 → P95 ≤500ms
-└── 快速同步 → P95 ≤200ms
+benches/performance_membership_benchmarks.rs      ← compute_perf_gate.sh 覆盖
+└── membership_transitions/*  (14 个状态机转移用例，纯计算)
 
-// 认证操作性能
-benchmark_auth_operations
-└── Whoami查询 → P95 ≤20ms
+benches/performance_api_benchmarks.rs             ← 需 homeserver + BENCH_ADMIN_TOKEN
+├── server_versions / concurrent_load_versions/*
+├── user_directory_search_* / room_* / sync_* / whoami
+└── pagination_offset_deep_page, pagination_keyset_deep_page  (纯内存，CI 中真实运行)
+    └── 由 .github/workflows/benchmark.yml 的 check_pagination_benchmark 步骤断言
+        （keyset 相对 offset 收益 ≥30%）
+
+benches/performance_sliding_sync_benchmarks.rs    ← sliding_sync_perf_gate.sh 覆盖（需 DB）
+└── sliding_sync_p95_p99_latency
 ```
+
+> 依赖 homeserver / `BENCH_ADMIN_TOKEN` 的基准在 CI 中会跳过；改用
+> `BENCH_REQUIRE=<组名>` 可让"被请求的基准静默跳过"变成硬失败
+> （详见 `benches/performance_api_benchmarks.rs` 头部注释）。
 
 ### 4.4 执行性能测试
 
@@ -355,7 +396,7 @@ bash scripts/detect_shell_routes.sh
 | 功能模块 | 测试场景 | 预期结果 |
 |---------|---------|---------|
 | 用户认证 | 注册→登录→修改密码 | 全部成功 |
-| 用户目录 | 搜索→列表→分页 | 响应≤500ms |
+| 用户目录 | 搜索→列表→分页 | 功能性通过（延迟基线见 `docs/audit/P4_performance_baseline_2026-09-11.md` §4，**无门禁**） |
 | 房间功能 | 创建→加入→发送消息 | 状态正确 |
 | 好友系统 | 发送请求→接受→删除 | 状态同步 |
 | 事件举报 | 提交举报→更新分数 | 数据正确 |
