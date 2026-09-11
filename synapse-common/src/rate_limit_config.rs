@@ -262,19 +262,94 @@ impl RateLimitConfigFile {
 pub struct RateLimitConfigManager {
     config: Arc<RwLock<RateLimitConfigFile>>,
     config_path: PathBuf,
+    /// Reload health + config source, shared across `Arc` clones so the watcher
+    /// and the health endpoint observe the same state.
+    /// endpoint observe the same state.
+    degradation: Arc<parking_lot::Mutex<RateLimitDegradation>>,
+}
+
+/// Where the currently-effective rate-limit configuration came from.
+///
+/// Exposed via [`RateLimitConfigManager::degradation`] so an operator can tell
+/// "my config file is in effect" from "the file was missing/unparseable and the
+/// built-in defaults silently took over".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigSource {
+    /// Loaded from the path named by `RATE_LIMIT_CONFIG_PATH`.
+    File,
+    /// Fell back to [`RateLimitConfigFile::default`] because the file was
+    /// missing or could not be parsed.
+    Defaults,
+}
+
+impl ConfigSource {
+    /// Stable label for metrics / health JSON. Renaming is a breaking change.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::File => "file",
+            Self::Defaults => "defaults",
+        }
+    }
+}
+
+/// Snapshot of rate-limit configuration health.
+///
+/// A degraded manager keeps serving the **last-good** config (or the built-in
+/// defaults) rather than failing closed, so the only way to notice is to
+/// observe this state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RateLimitDegradation {
+    /// Where the effective config came from.
+    pub source: ConfigSource,
+    /// Failed hot-reload attempts since the last success.
+    pub consecutive_failures: u64,
+    /// Failed hot-reload attempts over the process lifetime.
+    pub total_failures: u64,
+    /// Most recent failure message, if any.
+    pub last_error: Option<String>,
+}
+
+impl RateLimitDegradation {
+    /// True when the effective config is not the configured file, or a reload
+    /// is currently failing.
+    pub fn is_degraded(&self) -> bool {
+        self.source == ConfigSource::Defaults || self.consecutive_failures > 0
+    }
 }
 
 impl RateLimitConfigManager {
     /// Constructs a new instance.
+    ///
+    /// Marks the source as [`ConfigSource::Defaults`]: this constructor is the
+    /// fallback path used when the config file is absent or unparseable.
     pub fn new(config: RateLimitConfigFile, config_path: PathBuf) -> Self {
-        Self { config: Arc::new(RwLock::new(config)), config_path }
+        Self {
+            config: Arc::new(RwLock::new(config)),
+            config_path,
+            degradation: Arc::new(parking_lot::Mutex::new(RateLimitDegradation {
+                source: ConfigSource::Defaults,
+                consecutive_failures: 0,
+                total_failures: 0,
+                last_error: None,
+            })),
+        }
     }
 
     /// Constructs from file.
     pub async fn from_file<P: Into<PathBuf>>(path: P) -> Result<Self, RateLimitConfigError> {
         let path = path.into();
         let config = RateLimitConfigFile::load(&path).await?;
-        Ok(Self::new(config, path))
+        let manager = Self {
+            config: Arc::new(RwLock::new(config)),
+            config_path: path,
+            degradation: Arc::new(parking_lot::Mutex::new(RateLimitDegradation {
+                source: ConfigSource::File,
+                consecutive_failures: 0,
+                total_failures: 0,
+                last_error: None,
+            })),
+        };
+        Ok(manager)
     }
 
     /// Returns the config.
@@ -287,12 +362,44 @@ impl RateLimitConfigManager {
         self.config.clone()
     }
 
+    /// Returns the path the manager watches.
+    pub fn config_path(&self) -> &std::path::Path {
+        &self.config_path
+    }
+
+    /// Snapshot of configuration health for metrics / health endpoints.
+    pub fn degradation(&self) -> RateLimitDegradation {
+        self.degradation.lock().clone()
+    }
+
     /// Performs reload.
+    ///
+    /// On success the degradation counters reset; on failure the previous
+    /// config stays in effect and the failure is recorded (see
+    /// [`RateLimitDegradation`]) instead of being visible only as a log line.
     pub async fn reload(&self) -> Result<(), RateLimitConfigError> {
-        let new_config = RateLimitConfigFile::load(&self.config_path).await?;
+        let loaded = RateLimitConfigFile::load(&self.config_path).await;
+        let new_config = match loaded {
+            Ok(config) => config,
+            Err(e) => {
+                let mut state = self.degradation.lock();
+                state.consecutive_failures += 1;
+                state.total_failures += 1;
+                state.last_error = Some(e.to_string());
+                return Err(e);
+            }
+        };
         {
             let mut config = self.config.write();
             *config = new_config;
+        }
+        {
+            let mut state = self.degradation.lock();
+            // A successful reload means the file is being honoured again, so the
+            // source is File even if we booted on defaults.
+            state.source = ConfigSource::File;
+            state.consecutive_failures = 0;
+            state.last_error = None;
         }
         tracing::info!("Rate limit configuration reloaded from {:?}", self.config_path);
         Ok(())
@@ -404,6 +511,11 @@ pub fn select_endpoint_rule_runtime(config: &crate::config::RateLimitConfig, pat
 }
 
 /// Starts the config.
+///
+/// Reload failures are recorded on the manager (see
+/// [`RateLimitConfigManager::degradation`]) and escalate from WARN to ERROR
+/// after [`RELOAD_FAILURE_ESCALATION_THRESHOLD`] consecutive attempts, so a
+/// persistently broken config file cannot hide behind a repeating WARN.
 pub async fn start_config_watcher(
     manager: Arc<RateLimitConfigManager>,
     interval_seconds: u64,
@@ -413,11 +525,36 @@ pub async fn start_config_watcher(
         loop {
             interval.tick().await;
             if let Err(e) = manager.reload().await {
-                tracing::warn!("Failed to reload rate limit config: {}", e);
+                let state = manager.degradation();
+                if state.consecutive_failures >= RELOAD_FAILURE_ESCALATION_THRESHOLD {
+                    tracing::error!(
+                        target: "security_audit",
+                        event = "rate_limit_config_degraded",
+                        path = %manager.config_path().display(),
+                        consecutive_failures = state.consecutive_failures,
+                        total_failures = state.total_failures,
+                        error = %e,
+                        "限流配置热加载持续失败，仍在沿用最后一次成功的配置；\
+                         rate_limit_config_source_is_file 与 /health 会报告 degraded"
+                    );
+                } else {
+                    tracing::warn!(
+                        path = %manager.config_path().display(),
+                        consecutive_failures = state.consecutive_failures,
+                        "Failed to reload rate limit config: {}",
+                        e
+                    );
+                }
             }
         }
     })
 }
+
+/// Consecutive reload failures after which the watcher logs at ERROR level.
+///
+/// At the default 30s interval this is ~90s of a broken config file — long
+/// enough to ride out an atomic-rename race, short enough to alert promptly.
+pub const RELOAD_FAILURE_ESCALATION_THRESHOLD: u64 = 3;
 
 #[derive(Debug, Clone)]
 /// In-memory adapter around [`RateLimitConfigFile`] with identical fields.
@@ -587,5 +724,128 @@ mod tests {
 
         let (id, _) = select_endpoint_rule(&config, "/_matrix/client/r0/login");
         assert_eq!(id, "login_endpoint");
+    }
+}
+
+#[cfg(test)]
+mod degradation_tests {
+    //! Observability for rate-limit configuration degradation.
+    //!
+    //! ## Why
+    //!
+    //! Before this, a missing/unparseable `RATE_LIMIT_CONFIG_PATH` caused the
+    //! server to fall back to `RateLimitConfigFile::default()` **silently**:
+    //! the only trace was a single `tracing::warn!`, with no metric and no
+    //! health signal. An operator who wrote limits into the config file had
+    //! them dropped without any machine-readable indication.
+    //!
+    //! A failing hot-reload was worse: the watcher retries every
+    //! `reload_interval_seconds` (default 30s) and logs one WARN per attempt
+    //! forever, while the process keeps serving the **last-good** config. A
+    //! single-file bind mount whose inode is invalidated by an atomic host-side
+    //! replace reproduces exactly this (see docs/audit/P4_performance_baseline_2026-09-11.md §5.6).
+
+    use super::*;
+    use tempfile::NamedTempFile;
+
+    #[tokio::test]
+    async fn manager_loaded_from_file_reports_file_source() {
+        let file = NamedTempFile::new().expect("temp file");
+        let config = RateLimitConfigFile::default();
+        std::fs::write(file.path(), serde_yaml::to_string(&config).expect("serialize")).expect("write");
+
+        let manager = RateLimitConfigManager::from_file(file.path()).await.expect("load");
+        let degradation = manager.degradation();
+
+        assert_eq!(degradation.source, ConfigSource::File);
+        assert_eq!(degradation.consecutive_failures, 0);
+        assert_eq!(degradation.total_failures, 0);
+        assert!(degradation.last_error.is_none(), "刚加载成功的配置不应带错误");
+    }
+
+    #[tokio::test]
+    async fn manager_built_from_defaults_reports_default_source() {
+        let manager =
+            RateLimitConfigManager::new(RateLimitConfigFile::default(), PathBuf::from("/nonexistent/rate_limit.yaml"));
+        let degradation = manager.degradation();
+
+        assert_eq!(
+            degradation.source,
+            ConfigSource::Defaults,
+            "用内置默认值构造时必须标记为 Defaults —— 这正是「配置文件缺失」的降级路径"
+        );
+    }
+
+    #[tokio::test]
+    async fn reload_failure_records_error_and_counters() {
+        let file = NamedTempFile::new().expect("temp file");
+        std::fs::write(file.path(), serde_yaml::to_string(&RateLimitConfigFile::default()).expect("ser"))
+            .expect("write");
+        let manager = RateLimitConfigManager::from_file(file.path()).await.expect("load");
+        assert_eq!(manager.degradation().consecutive_failures, 0);
+
+        // Break the file, then delete it — the two realistic failure modes
+        // (parse error vs. vanished path, the latter being the bind-mount case).
+        std::fs::write(file.path(), "this: [is not: valid yaml").expect("write");
+        assert!(manager.reload().await.is_err());
+        let after_parse = manager.degradation();
+        assert_eq!(after_parse.consecutive_failures, 1);
+        assert_eq!(after_parse.total_failures, 1);
+        assert!(after_parse.last_error.is_some(), "解析失败必须记录错误信息");
+
+        std::fs::remove_file(file.path()).expect("remove");
+        assert!(manager.reload().await.is_err());
+        let after_missing = manager.degradation();
+        assert_eq!(after_missing.consecutive_failures, 2, "连续失败必须累加");
+        assert_eq!(after_missing.total_failures, 2);
+        let err = after_missing.last_error.expect("must record error");
+        assert!(
+            err.contains("No such file") || err.contains("Failed to read"),
+            "错误信息应说明是读取失败（挂载 inode 失效场景），实际: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn successful_reload_clears_degradation() {
+        let file = NamedTempFile::new().expect("temp file");
+        std::fs::write(file.path(), serde_yaml::to_string(&RateLimitConfigFile::default()).expect("ser"))
+            .expect("write");
+        let manager = RateLimitConfigManager::from_file(file.path()).await.expect("load");
+
+        std::fs::remove_file(file.path()).expect("remove");
+        assert!(manager.reload().await.is_err());
+        assert_eq!(manager.degradation().consecutive_failures, 1);
+
+        std::fs::write(file.path(), serde_yaml::to_string(&RateLimitConfigFile::default()).expect("ser"))
+            .expect("restore");
+        manager.reload().await.expect("reload should recover");
+
+        let recovered = manager.degradation();
+        assert_eq!(recovered.consecutive_failures, 0, "恢复后连续失败计数必须清零");
+        assert!(recovered.last_error.is_none(), "恢复后不得残留错误");
+        assert_eq!(recovered.total_failures, 1, "累计失败数保留用于事后分析");
+    }
+
+    #[tokio::test]
+    async fn degradation_is_readable_from_the_shared_handle() {
+        // The watcher holds an Arc; the health endpoint holds a clone. They must
+        // observe the same state.
+        let file = NamedTempFile::new().expect("temp file");
+        std::fs::write(file.path(), serde_yaml::to_string(&RateLimitConfigFile::default()).expect("ser"))
+            .expect("write");
+        let manager = Arc::new(RateLimitConfigManager::from_file(file.path()).await.expect("load"));
+        let clone = manager.clone();
+
+        std::fs::remove_file(file.path()).expect("remove");
+        assert!(clone.reload().await.is_err());
+
+        assert_eq!(manager.degradation().consecutive_failures, 1);
+    }
+
+    #[test]
+    fn config_source_labels_are_stable() {
+        // Operators grep these labels; renaming is a breaking change.
+        assert_eq!(ConfigSource::File.as_str(), "file");
+        assert_eq!(ConfigSource::Defaults.as_str(), "defaults");
     }
 }

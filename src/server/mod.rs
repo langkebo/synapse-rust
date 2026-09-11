@@ -218,19 +218,28 @@ impl SynapseServer {
                     (Some(manager), Some(handle))
                 }
                 Err(e) => {
-                    ::tracing::warn!(
-                        "[启动阶段 3/4] 限流配置加载失败 ({:?}): {}, 使用默认配置",
-                        rate_limit_config_path,
-                        e
+                    // Degraded: the operator's file exists but could not be
+                    // parsed, so the built-in defaults take over *silently* from
+                    // the client's point of view. Log at error level (not warn)
+                    // and surface it via `rate_limit_config_degraded` + /health
+                    // so it cannot go unnoticed in production.
+                    ::tracing::error!(
+                        target: "security_audit",
+                        event = "rate_limit_config_degraded",
+                        path = %rate_limit_config_path.display(),
+                        error = %e,
+                        "[启动阶段 3/4] 限流配置加载失败，回退到内置默认值（运维写入的限流规则已被忽略）"
                     );
                     let manager = create_rate_limit_manager(&rate_limit_config_path);
                     (Some(manager), None)
                 }
             }
         } else {
-            ::tracing::info!(
-                "[启动阶段 3/4] 限流配置文件不存在 ({:?}), 使用默认配置",
-                rate_limit_config_path.display()
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "rate_limit_config_degraded",
+                path = %rate_limit_config_path.display(),
+                "[启动阶段 3/4] 限流配置文件不存在，回退到内置默认值（运维写入的限流规则已被忽略）"
             );
             let manager = create_rate_limit_manager(&rate_limit_config_path);
             (Some(manager), None)
@@ -241,6 +250,30 @@ impl SynapseServer {
         } else {
             app_state
         };
+
+        // Surface the effective source as a gauge so dashboards/alerts can
+        // distinguish "config file in effect" from "built-in defaults in use".
+        // `1` = file, `0` = degraded to defaults.
+        {
+            let manager = rate_limit_config_manager.as_ref();
+            let is_file =
+                manager.is_some_and(|m| m.degradation().source == crate::common::rate_limit_config::ConfigSource::File);
+            app_state
+                .services
+                .core
+                .metrics
+                .register_gauge("rate_limit_config_source_is_file".to_string())
+                .set(if is_file { 1.0 } else { 0.0 });
+            if !is_file {
+                ::tracing::error!(
+                    target: "security_audit",
+                    event = "rate_limit_config_degraded",
+                    "_matrix_hint" = "rate_limit_config_source_is_file=0",
+                    "限流配置未从文件生效：rate_limit_config_source_is_file=0，\
+                     运维写入的规则已被内置默认值取代"
+                );
+            }
+        }
 
         let scheduled_tasks = Arc::new(ScheduledTasks::from_config(
             Arc::new(Database::from_pool((*pool).clone(), redis_pool_option)),
