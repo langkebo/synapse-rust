@@ -144,7 +144,18 @@ The codebase generally follows `route (src/web/) -> service (synapse-services/) 
 - For the current Matrix/Synapse gap analysis and phased optimization backlog, start from `docs/synapse-rust/MATRIX_SYNAPSE_AUDIT_AND_OPTIMIZATION_PLAN_2026-05-29.md`.
 - Keep route declarations in sync with `src/web/routes/route_ledger.rs` and the route manifests. New routes should have manifest entries and duplicate-route coverage.
 - If a test requires Postgres setup and hangs in local integration setup, first run the same target with `--no-run` to distinguish compile failures from environment blockers.
-- The repository may have pre-existing formatting drift. Avoid broad `cargo fmt --all` rewrites unless the task is explicitly formatting cleanup; prefer focused formatting/checks for touched files.
+- **Format debt is at zero and the CI ratchet is strict (`baseline=0`, both increase AND decrease fail).** Run `cargo fmt --all` before every commit rather than avoiding it — with debt at 0 there is no drift to "hide", and a stale format will fail CI. After large multi-file changes, always verify with `./scripts/check_fmt_ratchet.sh`.
+- When a route/format refactor changes line numbers, update `scripts/shell_routes_allowlist.txt` (it is line-number based and drifts with `cargo fmt`) — otherwise placeholder_scan tests fail.
+- Snapshot tests (`api_route_ledger` / `api_route_snapshots` / `login_flows_v3`): NEVER run `cargo insta accept` after seeing failures under a narrow feature set — re-run with `--all-features` first; the failures may be feature-set artifacts, and accepting them would bake a false baseline.
+
+## Known pitfalls (cross-referenced from CLAUDE.md §踩过的坑经验总结)
+- **Never `unwrap_or_default()` on DB queries in security-relevant paths** (token replay detection, federation prev_events, lazy-load membership) — it silently converts DB errors to "empty/false" defaults. Propagate with `?` or fail-closed.
+- **Cache read/write symmetry**: `set_raw` writes L1+L2 async; sync `get_raw` reads L1 only. Cross-instance correctness REQUIRES `get_raw_shared().await`.
+- **EDU drop paths** must return `{ dropped: 1, ..Default::default() }`, not `EduProcessResult::default()` (which carries `dropped: 0` and breaks counter aggregation).
+- **MSC number discipline**: verify MSC titles against matrix-spec-proposals before wiring routes. MSC4155=Invite filtering, MSC4156=Migrate server_name to via (NOT thread subscriptions — those are private per-user state over account_data and need no EDU federation).
+- **`[patch.crates-io]` name iron law**: the patch source crate name must equal the target crate name; there is no rename mechanism. proc-macro crates also cannot re-export another crate's `#[proc_macro]` items — forking is the only path.
+- **Batch regex rewrites on Rust attributes**: always dry-run the diff; single-line regexes like `#\[derive\(([^)]+)\)\]` can eat adjacent tokens in multi-line attribute syntax.
+- **`tokio::spawn` panics are swallowed** when JoinHandles are dropped; fire-and-forget tasks need `AssertUnwindSafe(..).catch_unwind()` supervision or abort policies. Background loops must wire `CancellationToken` into `tokio::select!` (including reconnect sleeps).
 
 ## TDD Workflow
 
