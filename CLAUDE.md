@@ -201,3 +201,147 @@ cargo nextest run -p <crate> <test_name> -P tdd  # or: cargo test -p <crate> <te
 # GREEN: minimal code to pass
 # REFACTOR: keep tests green; cargo clippy --all-features --locked -- -D warnings
 ```
+
+---
+
+## 🚀 踩过的坑经验总结
+
+### 1. 测试门禁陷阱
+
+**❌ 假绿/假失败陷阱**
+- `cargo test --doc --locked` 在根 crate 运行 0 个测试 → 永远 PASS
+- 集成测试 feature 集不匹配：`/login` 快照测试、路由 ledger 快照受 `cas-sso`/`saml-sso`/`builtin-oidc` 等 feature 影响
+- **解法**：永远用 `--all-features` 或匹配 CI 口径的 feature 列表
+
+**❌ cargo nt 别名坑**
+- `cargo nt` 是 `.cargo/config.toml` 定义的 alias，等价于 `nextest run --profile test --features test-utils`
+- nextest 0.9.140 的 `[profile.test]` 中的 `features` 被静默忽略，`cargo nt --test integration` 编译会失败
+
+**❌ fmt 棘轮陷阱**
+- CI 使用 `scripts/check_fmt_ratchet.sh` 严苛模式：current=0, baseline=0
+- `use_small_heuristics = "Max"` 导致 rustfmt 倾向压缩，频繁与手写风格冲突
+
+### 2. 代码实现陷阱
+
+**❌ unwrap_or_default 吞错**
+```rust
+// BAD: DB 错误被吞掉，可能导致脏数据
+refresh_token.is_active().await.unwrap_or_default()
+
+// GOOD: 错误传播或 Fail-closed
+refresh_token.is_active().await?
+// 或
+refresh_token.is_active().await.map_err(|_| ServiceError::DatabaseError)?
+```
+
+**❌ 计数器不一致**
+- `EduProcessResult::default()` 返回 `dropped:0`，但计数器已递增
+- **解法**：统一返回 `{ dropped: 1, ..Default::default() }` 对于 drop 路径
+
+**❌ 测试 mock 导入陷阱**
+- `synapse-storage::test_mocks` 被 `#[cfg(any(test, feature="test-utils"))]` 门控
+- 跨 crate 测试用到 mock 必须 `--features test-utils`，否则 E0432/E0433
+
+**❌ 行号型 allowlist 与 cargo fmt 冲突**
+- `scripts/shell_routes_allowlist.txt` 用「文件路径 + 行号」做静态扫描豁免，任何 `cargo fmt` 都会让行号漂移导致豁免失效
+- 新代码路径产生 `Ok(empty_json())` 时记得补录 allowlist（历史上 MSC4204/4267 改动漏录 3 行直接红 CI）
+- 理想方案：改用 `git grep` 标记或函数级 match 模式（待办）
+
+### 3. Federation EDU 语义漂移
+
+**⚠️ MSC 编号语义注意**：
+- MSC4155 = **Invite filtering**（邀请过滤）
+- MSC4156 = **Migrate server_name to via**（server_name → via）
+- 都与「线程订阅」无关，路线图文档中表述为「线程订阅跨服务器同步」是语义漂移
+
+**线程订阅归类**：
+- `thread_subscriptions` 是用户私有态（account_data），不跨服务器同步
+- 不需要 `EduType::ThreadSubscription`、`broadcast_thread_subscription_edu`
+- 裁定：**线程订阅不实现 EDU 联邦**，用 device-list stream 唤醒本人设备
+
+### 4. 数据库与迁移陷阱
+
+**❌ Postgres 错误码误判**
+- `schema "x" does not exist` → SQLSTATE `3F000` 不是 `42P01`
+- `CREATE OR REPLACE FUNCTION` 不能改参数名 → 需先 `DROP FUNCTION IF EXISTS`
+
+**❌ 迁移双副本漂移（已于 `2b16dc3c` 根治）**
+- 历史坑：`docker/deploy/migrations/` 是被 git 跟踪的手工同步副本（191 文件），与权威源 `migrations/` 严重漂移（副本独有 82 个废弃 v7 血统文件、权威独有 13 个迁移、同名文件内容不一致）→ 走 deploy 路径的全新部署会**静默跳过这 13 个迁移**
+- 现状：死副本已删除，`migrations/` 为**单一真相源**（deploy 经 docker-compose 挂载它）
+- **规则**：新增迁移只写 `migrations/`，不要再创建任何副本目录；旧文档中提到 `docker/deploy/migrations/` 的均属过时信息
+
+**❌ 测试 schema 残留**
+- 单个 integration 运行产出数百个 test schema（255 表/个）
+- 1363 个残留 schema → 5432 端口 5432 实例爆炸
+- **解法**：`scripts/cleanup_test_schemas.sh` 但未自动调用
+
+### 5. 依赖治理陷阱
+
+**❌ `[patch.crates-io]` 需求铁律**
+- source crate name 必须等于 target crate name
+- `patch = { package = "paste", ... }` 形式无效，name 必须为 `paste`
+
+**❌ proc-macro re-export 限制**
+- Rust 不允许 proc-macro crate export 非 `#[proc_macro]` 条目
+- `pub use pastey::paste` 因 `#[proc_macro]` 属性丢失会失败
+
+**❌ 多行 derive 正则误伤**
+- Python regex `re.sub(r'#\[derive\(([^)]+)\)\]', ...)` 误吞 `)]`
+- **解法**：语法化处理或永远 dry-run 看 diff
+
+### 6. 客户端登录陷阱
+
+**❌ 登录后不可预先 validate_token**
+- 触发 `cache.set_user_active + cache.set_token` 污染缓存
+- 第二次 validate 走 cache 分支绕过 DB 的 `is_deactivated` 检查
+- **解法**：登录成功后的首次 validate 需走 DB 分支，或显式清理缓存后再从 DB 获取有效状态
+
+### 7. SSRF 防御细节
+
+**❌ IPv6 URL 处理**
+- `url::Url::host_str()` 对 IPv6 返回带 `[]` 形式（`"[::1]"`），需 strip 后 parse
+- `Ipv6Addr::is_loopback/is_unspecified` 已含 IPv4-mapped IPv6 (`::ffff:127.0.0.1`)
+- IPv6 ULA (`fc00::/7`) 与 link-local (`fe80::/10`) 需手动判定，stdlib 无现成方法
+
+### 8. 可观测性陷阱
+
+**❌ request-id 链路追踪**
+- `RequestIdPropagationLayer` 已注册但无代码写入 span extensions
+- **解法**：`info_span!("http_request", request_id = %request_id)` + layer 从 `Attributes` 读字段写 extensions
+
+### 9. SQL 迁移与脚本陷阱
+
+**❌ 函数参数名变更**
+- `CREATE OR REPLACE FUNCTION` 不能改参数名（参数名属函数签名的一部分，PG 会拒绝）
+- 幂等迁移应先 `DROP FUNCTION IF EXISTS ...(旧签名)`，再 `CREATE OR REPLACE`
+
+**❌ dollar-quoting 块拆分误伤**
+- 脚本里 `split(';')` 会把 `$$...$$` 函数/DO 块按内部 `;` 切碎（导致触发器函数从未创建）
+- 需字符级扫描正确处理 `'...'`、`"..."`、`$$/$tag$` dollar-quoting、`--`/`/* */` 注释后才能安全切分
+
+### 10. 集成测试并发敏感
+
+**❌ 同一提交测试结果漂移**
+- `--test-threads 12` 下：1408 passed + 12 failed + 7 timed out
+- `--test-threads 1` 下（同负载）：13/13 100% 通过
+- **根因**：并发资源争用导致超时，与代码无关
+- **解法**：CI 中 `api_media_routes_tests`、`protocol_compliance_tests`、`database_integrity_tests` 同样需要限并发
+
+### 11. 关键命令速查
+
+| 场景 | 推荐命令 |
+|------|----------|
+| fmt 检查 | `./scripts/check_fmt_ratchet.sh` |
+| 集成测试 | `cargo nextest run --profile ci --all-features --test integration --test-threads 1` |
+| 同步测试 | `cargo nextest run -p <crate> <test_name> -P tdd` |
+| DB 迁移 | `DATABASE_URL=... bash docker/db_migrate.sh migrate` |
+| 覆盖率 | `bash scripts/run_local_coverage.sh` |
+| 完整 CI 本地复刻 | `bash scripts/run_ci_tests.sh` |
+
+### 记住：每次提交前必检
+```bash
+git status                           # 核对工作树
+cargo fmt --all -- --check          # 格式
+cargo clippy --all-features -- -D warnings  # lint
+cargo test --all-features           # 功能
+
