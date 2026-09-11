@@ -43,6 +43,8 @@ docker/test-results/
 reports/
 artifacts/
 test-artifacts/
+# 生成的 HTML 测试报告（54 个字体二进制 + echarts，6.3MB，仓库内无任何引用）
+test-suite-report/
 scripts/db/__pycache__/
 __pycache__/
 *.pyc
