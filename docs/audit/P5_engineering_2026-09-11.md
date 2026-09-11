@@ -247,6 +247,24 @@ CARGO_TARGET_DIR=/tmp/verify cargo test --doc --locked --workspace
 
 **该漂移已通过另一路径暴露并修复**（见 §3.4）：源码级守卫测试而非 mock 行为测试。
 
+#### 3.3.1 ✅ 已修复：mock 内部不一致（commit `a48cf1ad`）
+
+同一 mock 文件内两个函数做法不一致：
+
+| 函数 | limit 处理 |
+|---|---|
+| `get_room_members_paginated` | ❌ `truncate(limit as usize)` —— 无钳制 |
+| `get_room_members_paginated_with_profiles` | ✅ `limit.clamp(1, 1000)` |
+
+已统一为 `.clamp(1, 1000)`。**可达性核实**（避免夸大）：唯一生产调用链是
+`admin/room/mod.rs:455`（**已** `.clamp(MIN, MAX)`）→ 服务层（不钳制）→ storage，
+故**当前无活跃 bug**；修复价值在于让 mock 不再比生产更宽松、从而不再掩盖同类缺陷。
+
+**新增回归测试** `paginated_mock_clamps_non_positive_and_huge_limits`
+（limit = -1 / 0 / `i64::MAX`），并做了 **RED 验证**：临时移除钳制后该测试
+如期 FAILED（`negative limit must clamp to 1, not return every member`），
+还原后通过 —— 证明该测试确实能捕获原缺陷，而非"写了必过的断言"。
+
 ### 3.4 顺带发现并修复：分页 `limit` 缺下界 ⇒ 客户端输入触发 500
 
 **发现路径**：核查 mock 时注意到 `take(limit as usize)`，反查 handler 的 `limit` 解析，
