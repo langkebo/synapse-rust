@@ -148,3 +148,75 @@ fn workflow_files_are_present() {
         .count();
     assert!(count >= 5, "workflows 目录应包含多个 workflow，实际 {count}；路径是否变了？");
 }
+
+// ── the media exemption must be self-cleaning ───────────────────────────────
+//
+// The main lib gate excludes `synapse-services::media::tests` (13 tests) because
+// that suite has in-process cross-talk (measured: 0/1/3/3 failures across four runs
+// of the same command, with the failing set drifting). A temporary exemption like
+// that rots into a permanent coverage reduction unless something forces its
+// removal — so `scripts/ci/check_media_exemption_still_needed.sh` fails once the
+// suite actually passes.
+//
+// This test locks the guard's own contract, so the guard cannot silently rot
+// either. It drives the script through its documented `MEDIA_TEST_CMD` override,
+// so no database is required.
+
+fn media_guard_output(cmd_override: &str) -> std::process::Output {
+    let root = repo_root();
+    std::process::Command::new("bash")
+        .arg(root.join("scripts/ci/check_media_exemption_still_needed.sh"))
+        .env("MEDIA_TEST_CMD", cmd_override)
+        .env("RUNS", "2")
+        .current_dir(&root)
+        .output()
+        .expect("failed to run the media-exemption guard script")
+}
+
+#[test]
+fn media_exemption_guard_keeps_the_exemption_while_the_suite_fails() {
+    // At least one failing run ⇒ the exemption is still justified ⇒ exit 0.
+    let out = media_guard_output("false");
+    assert!(
+        out.status.success(),
+        "守卫在'套件仍失败'时必须 exit 0（豁免仍必要），实际 {}\nstdout:\n{}\nstderr:\n{}",
+        out.status,
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn media_exemption_guard_demands_removal_once_the_suite_passes() {
+    // Every run passes ⇒ the exemption is no longer justified ⇒ exit 1 + the
+    // three concrete steps to retract it.
+    let out = media_guard_output("true");
+    assert!(
+        !out.status.success(),
+        "守卫在'套件全部通过'时必须 exit 1 要求收回豁免；否则豁免会无声永续。\nstdout:\n{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    for needle in ["移除该排除模式", "删除 'Check media exemption is still necessary", "TESTING.md"] {
+        assert!(stderr.contains(needle), "守卫的收回指引必须包含 {needle:?}，实际 stderr:\n{stderr}");
+    }
+}
+
+#[test]
+fn media_exemption_is_wired_without_continue_on_error() {
+    // The guard's whole point is that a red means "retract the exemption". Wrapping
+    // it in `continue-on-error` would hide exactly that signal.
+    let root = repo_root();
+    let src = fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("ci.yml readable");
+    let guard_step =
+        src.split("- name: Check media exemption is still necessary").nth(1).expect("应存在 media 豁免守卫步骤");
+    let body: String = guard_step.lines().take(20).collect::<Vec<_>>().join("\n");
+    assert!(
+        !body.contains("continue-on-error"),
+        "media 豁免守卫步骤不得设 continue-on-error —— 那会让'该收回豁免'的红被吞掉：\n{body}"
+    );
+    assert!(
+        body.contains("check_media_exemption_still_needed.sh"),
+        "该步骤必须调用守卫脚本，而不是直接跑套件（直接跑会把随机失败当门禁）：\n{body}"
+    );
+}

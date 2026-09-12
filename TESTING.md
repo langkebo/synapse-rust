@@ -41,9 +41,20 @@
 > **13 个 skipped 是什么**：`synapse-services::media::tests` 这 13 个用例存在
 > **进程内串扰**，在 `--test-threads 1` 下仍随机失败（实测同一命令连跑 4 次得到
 > 0 / 1 / 3 / 3 个失败，且**失败集每次漂移**；单独跑该用例又通过）。因此它们被
-> 移出 blocking 门禁，改由紧随其后的
-> `Run media suite (known-flaky, non-blocking)` 步骤（`continue-on-error: true`）
-> 持续暴露。**根治后应去掉该步骤的 `continue-on-error`，并从上面的排除式里移除。**
+> 移出 blocking 门禁。
+>
+> **这个豁免不会被忘掉**：紧随其后有一个**自我收回守卫**
+> `Check media exemption is still necessary`，它跑
+> `scripts/ci/check_media_exemption_still_needed.sh`——把 media 套件连跑 3 次：
+>
+> * 有**任何一次失败** → 豁免仍必要 → exit 0（绿）
+> * **每次都通过** → 豁免已无必要 → **exit 1**，并打印该做的三件事
+>   （移除排除式、删除守卫步骤、更新本节）
+>
+> 所以这一步**没有** `continue-on-error`：它绿的含义是"豁免仍有依据"，红的含义是
+> "该收回了"。它的能力边界也写明了——只能证明"连跑 N 次未复现"，不能证明不存在
+> 偶发失败；想更保守用 `RUNS=20 bash scripts/ci/check_media_exemption_still_needed.sh`。
+> 刻意的偏向是：宁可让人去看一眼，也不让豁免无声永续。
 >
 > 正则用 `^media::tests::` **锚定**，以免误伤 `synapse-storage` 的
 > `media::s3` / `media::filesystem` 等 83 个健康测试（`/media::/` 会一并命中它们）。
