@@ -24,28 +24,32 @@
 | 集成测试 | `tests/integration/*.rs` | 验证 API 完整流程与高风险契约 | 主链与高风险能力域必覆盖 |
 | 端到端测试 | `tests/e2e/*.rs` | ⚠️ **默认不验证端到端行为**（见下方注） | 真实 E2E 需 `E2E_RUN=1` + 运行中的服务 |
 
-> ⚠️ **CI 的 `--lib` 步骤只覆盖根包，约 89% 的 workspace 单元测试不在 CI 里**
-> （2026-09-11 实测，见 `tests/unit/ci_test_scope_tests.rs` 与
-> `docs/audit/P5_ci_test_scope_gap_2026-09-11.md`）：
+> ✅ **CI 的 lib 步骤已覆盖 workspace（2026-09-12 修复）**
+> （原缺口记录见 `docs/audit/P5_ci_test_scope_gap_2026-09-11.md`）：
 >
 > | 范围 | 测试数 |
 > |---|---|
-> | 根包（`--lib`，CI 实际口径） | **687** |
-> | `--workspace --lib` | **6118** |
+> | 修复前（裸 `--lib`，只测根包） | **687** |
+> | 现在（`--workspace --lib`） | **6120 跑 + 13 skipped** |
 >
-> `.github/workflows/ci.yml` 的 `Run library unit tests (--lib)` 是
-> `cargo nextest run --lib ...`，**没有 `--workspace`**，所以
-> `synapse-common`（862 个）、`synapse-storage`、`synapse-services`、
-> `synapse-e2ee` 等 crate 的 lib 测试**在 CI 中从未编译、从未运行**。
-> 而这几个 crate 正是业务逻辑与持久化所在层。
+> `.github/workflows/ci.yml` 的 lib 步骤现在是一条
+> `cargo nextest run --workspace --lib --all-features --test-threads 8 -E 'not test(/^media::tests::/)'`，
+> 实测 **6120 passed / 0 failed / 13 skipped**。此前 `synapse-common`（862 个）、
+> `synapse-storage`、`synapse-services`、`synapse-e2ee` 等 crate 的 lib 测试在 CI 中
+> **从未编译、从未运行**——而这几个 crate 正是业务逻辑与持久化所在层。
 >
-> 本仓库已有守卫 `tests/unit/ci_test_scope_tests.rs` 断言这一点，但两个断言
-> 当前是 **`#[ignore]`** 状态：加 `--workspace` 之前必须先收敛本仓库**三套并存**
-> 的测试隔离实现，否则套件会退化成每个用例重放 5464 条语句
-> （`synapse-storage` 实测 40–134 秒/用例）。
+> **13 个 skipped 是什么**：`synapse-services::media::tests` 这 13 个用例存在
+> **进程内串扰**，在 `--test-threads 1` 下仍随机失败（实测同一命令连跑 4 次得到
+> 0 / 1 / 3 / 3 个失败，且**失败集每次漂移**；单独跑该用例又通过）。因此它们被
+> 移出 blocking 门禁，改由紧随其后的
+> `Run media suite (known-flaky, non-blocking)` 步骤（`continue-on-error: true`）
+> 持续暴露。**根治后应去掉该步骤的 `continue-on-error`，并从上面的排除式里移除。**
 >
-> **本地按 CI 口径跑会得到虚假的安全感**；需要完整覆盖时请显式加 `--workspace`
-> 并接受耗时，或先完成 `--isolated` 迁移。
+> 正则用 `^media::tests::` **锚定**，以免误伤 `synapse-storage` 的
+> `media::s3` / `media::filesystem` 等 83 个健康测试（`/media::/` 会一并命中它们）。
+>
+> 守卫 `tests/unit/ci_test_scope_tests.rs` 的两条断言现已**激活**（不再 `#[ignore]`），
+> 锁住"每个 nextest 调用都必须声明作用域"与"lib 步骤必须 `--workspace` 或显式 `-p`"。
 
 > ⚠️ **关于 `tests/e2e/` 的真实内容**（2026-09-11 核查）：
 >

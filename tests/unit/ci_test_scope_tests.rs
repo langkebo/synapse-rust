@@ -27,13 +27,13 @@
 //!
 //! ## Activation status (read this before changing)
 //!
-//! The two scope-asserting tests are **`#[ignore]`d**: the gap below is real,
-//! but widening the CI step to `--workspace` first requires consolidating the
-//! three divergent test-isolation implementations in this repo — otherwise the
-//! suite becomes a 5464-statement-per-test replay (~40–134 s/test in
-//! `synapse-storage`).
+//! Both scope-asserting tests are **active** as of 2026-09-12: the CI lib step
+//! is now `--workspace` (with the known-flaky `media::tests` suite excluded to a
+//! separate non-blocking step). `synapse-storage` was migrated to schema-per-test
+//! isolation, so the 5464-statement replay cost that previously blocked this is
+//! gone.
 //!
-//! **When the `--isolated` migration lands, remove the `#[ignore]` attributes
+//! ~~When the `--isolated` migration lands, remove the `#[ignore]` attributes~~
 //! and add `--workspace` to the `--lib` step in `.github/workflows/ci.yml`.**
 //! See `docs/audit/P5_workspace_test_isolation_2026-09-11.md`.
 //!
@@ -92,7 +92,6 @@ fn nextest_invocations() -> Vec<(String, String)> {
 /// `--lib` step in `ci.yml`.** See
 /// `docs/audit/P5_workspace_test_isolation_2026-09-11.md`.
 #[test]
-#[ignore = "activates with the CI --workspace fix; blocked on test-isolation consolidation"]
 fn nextest_invocations_declare_their_scope() {
     let invocations = nextest_invocations();
     assert!(!invocations.is_empty(), "未在 workflows 中找到任何 `cargo nextest run` —— 若测试入口已迁移，请更新本守卫");
@@ -116,15 +115,9 @@ fn nextest_invocations_declare_their_scope() {
     );
 }
 
-/// The root-crate lib step specifically must be workspace-wide, otherwise the
+/// The lib step specifically must be workspace-wide, otherwise the
 /// ~5400 workspace-crate lib tests stay unenforced.
-///
-/// `#[ignore]`d for the same reason as
-/// [`nextest_invocations_declare_their_scope`]: the gap is real, the fix is
-/// blocked on test-isolation consolidation. Remove the `#[ignore]` together
-/// with the `ci.yml` change.
 #[test]
-#[ignore = "activates with the CI --workspace fix; blocked on test-isolation consolidation"]
 fn lib_test_step_covers_the_workspace() {
     let invocations = nextest_invocations();
     let lib_steps: Vec<&(String, String)> =
@@ -132,10 +125,15 @@ fn lib_test_step_covers_the_workspace() {
 
     assert!(!lib_steps.is_empty(), "应存在一个 `--lib` 测试步骤；若已改名/迁移，请更新本守卫");
     for (loc, cmd) in lib_steps {
+        // `--workspace` is the general fix. `-p <crate>` also declares an explicit
+        // scope and is correct for a step that deliberately targets one crate
+        // (e.g. the known-flaky media suite kept out of the main gate) — requiring
+        // `--workspace` there would be wrong, not safer.
+        let declares_scope = cmd.contains("--workspace") || cmd.contains(" -p ");
         assert!(
-            cmd.contains("--workspace"),
-            "{loc} 的 `--lib` 步骤缺少 `--workspace`：{cmd}\n\
-             缺少它时只测试根包 lib（687 个），workspace crate 的 lib 测试（合计约 5400 个）全部不执行。"
+            declares_scope,
+            "{loc} 的 `--lib` 步骤既无 `--workspace` 也无 `-p <crate>`：{cmd}\n\
+             缺省时只测试根包 lib（687 个），workspace crate 的 lib 测试（合计约 5400 个）全部不执行。"
         );
     }
 }
