@@ -18,15 +18,21 @@ macro_rules! impl_api_error {
 
 #[macro_export]
 /// Maps an `Err` to an Internal `ApiError` with a context message.
+///
+/// The message stays masked (context only), but the **underlying error is preserved
+/// in `ApiError::cause`**, which is `#[serde(skip)]` and therefore never reaches a
+/// client response. Dropping it made real failures undiagnosable: with no tracing
+/// subscriber installed (every test binary) the log line went nowhere, so all that
+/// survived was `Internal error: <context>, cause: None`.
 macro_rules! map_internal {
     ($result:expr, $msg:literal) => {
-        $result.map_err(|e| $crate::ApiError::internal_with_context($msg, &e))
+        $result.map_err(|e| $crate::ApiError::internal_with_cause($msg, e))
     };
     ($result:expr, $msg:expr) => {
-        $result.map_err(|e| $crate::ApiError::internal_with_context($msg, &e))
+        $result.map_err(|e| $crate::ApiError::internal_with_cause($msg, e))
     };
     ($msg:literal) => {
-        |e| $crate::ApiError::internal_with_context($msg, &e)
+        |e| $crate::ApiError::internal_with_cause($msg, e)
     };
 }
 
@@ -36,13 +42,13 @@ macro_rules! map_internal {
 #[macro_export]
 macro_rules! map_database {
     ($result:expr, $msg:literal) => {
-        $result.map_err(|e| $crate::ApiError::database_with_context($msg, &e))
+        $result.map_err(|e| $crate::ApiError::database_with_cause($msg, e))
     };
     ($result:expr, $msg:expr) => {
-        $result.map_err(|e| $crate::ApiError::database_with_context($msg, &e))
+        $result.map_err(|e| $crate::ApiError::database_with_cause($msg, e))
     };
     ($msg:literal) => {
-        |e| $crate::ApiError::database_with_context($msg, &e)
+        |e| $crate::ApiError::database_with_cause($msg, e)
     };
 }
 

@@ -293,6 +293,48 @@ impl ApiError {
         Self { kind: ApiErrorKind::Internal, code: MatrixErrorCode::Unknown, message: message.into(), cause: None }
     }
 
+    /// Like [`database_with_context`](Self::database_with_context), but **keeps the
+    /// underlying error** in [`cause`](Self::cause).
+    ///
+    /// `cause` is `#[serde(skip)]`, so it is never serialised into a response body —
+    /// the client still only sees `Database error: <context>`. What changes is that
+    /// logs and `std::error::Error::source()` can recover the real failure.
+    ///
+    /// Prefer this over `database_with_context` wherever a concrete error is in
+    /// hand. The `&dyn Display` variant only logs, and in a test binary (no tracing
+    /// subscriber installed) that log goes nowhere — leaving the unactionable
+    /// `cause: None` that made a real DB failure undiagnosable.
+    pub fn database_with_cause<E>(context: &str, err: E) -> Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        tracing::error!(%context, error = %err, "database error");
+        Self {
+            kind: ApiErrorKind::Internal,
+            code: MatrixErrorCode::Unknown,
+            message: format!("Database error: {context}"),
+            cause: Some(Arc::new(err)),
+        }
+    }
+
+    /// Like [`internal_with_context`](Self::internal_with_context), but **keeps the
+    /// underlying error** in [`cause`](Self::cause).
+    ///
+    /// See [`database_with_cause`](Self::database_with_cause) for the rationale and
+    /// why it is safe to keep the detail (`cause` never reaches the client).
+    pub fn internal_with_cause<E>(context: &str, err: E) -> Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        tracing::error!(%context, error = %err, "internal error");
+        Self {
+            kind: ApiErrorKind::Internal,
+            code: MatrixErrorCode::Unknown,
+            message: format!("Internal error: {context}"),
+            cause: Some(Arc::new(err)),
+        }
+    }
+
     /// Builds a 500 `M_UNKNOWN` error prefixed with `Cache error:` for a cache backend failure.
     pub fn cache(message: impl Into<String>) -> Self {
         Self {
@@ -1151,6 +1193,46 @@ mod tests {
         assert!(!err.message.contains("connection refused"), "底层错误不应进入 message");
     }
 
+    /// The masked-message contract must NOT cost us the diagnostic.
+    ///
+    /// Masking is about what the *client* sees; `cause` is `#[serde(skip)]`, so it
+    /// never reaches the response body and can safely carry the real error for
+    /// logs and for `std::error::Error::source()`.
+    ///
+    /// It used to be dropped entirely: the constructors only handed `err` to
+    /// `tracing::error!`. In a test binary there is normally no tracing subscriber,
+    /// so the real database error vanished with no way to recover it — this is how
+    /// `sync_service::tests::incremental_room_sync_returns_state_delta_not_empty`
+    /// came to report the unactionable
+    /// `Internal error: Failed to get room account data, cause: None`.
+    #[test]
+    fn context_constructors_preserve_the_inner_error_as_cause() {
+        use std::error::Error as _;
+        #[derive(Debug)]
+        struct Boom;
+        impl std::fmt::Display for Boom {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "relation \"room_account_data\" does not exist")
+            }
+        }
+        impl std::error::Error for Boom {}
+
+        let err = ApiError::internal_with_cause("Failed to get room account data", Boom);
+        assert_eq!(err.message, "Internal error: Failed to get room account data");
+        assert!(!err.message.contains("does not exist"), "inner detail must stay out of message");
+
+        let cause = err.source().expect("cause must be preserved for diagnostics");
+        assert!(
+            cause.to_string().contains("does not exist"),
+            "the real error must be recoverable via Error::source(); got: {cause}"
+        );
+
+        // Same for the database flavour.
+        let err = ApiError::database_with_cause("create_megolm_session", Boom);
+        assert_eq!(err.message, "Database error: create_megolm_session");
+        assert!(err.source().is_some(), "database flavour must preserve the cause too");
+    }
+
     #[test]
     fn test_api_error_internal_with_context_omits_inner_error() {
         let err = ApiError::internal_with_context("key_rotation", &"boom");
@@ -1162,15 +1244,30 @@ mod tests {
 
     #[test]
     fn test_map_database_macro_expands() {
+        use std::error::Error as _;
+        // Uses a real `std::error::Error`, which is what production call sites pass
+        // (`sqlx::Error` etc.). The macro now **preserves** that error as the cause,
+        // so a bare `&str` payload would no longer typecheck — that is intended:
+        // masking the message must not discard the diagnostic.
+        #[derive(Debug)]
+        struct Db(String);
+        impl std::fmt::Display for Db {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}", self.0)
+            }
+        }
+        impl std::error::Error for Db {}
+
         // arm 3：闭包形式，供 `.map_err(map_database!("..."))` 使用。
         let f = crate::map_database!("create_session");
-        let err = f("connection refused");
+        let err = f(Db("connection refused".into()));
         assert_eq!(err.kind, ApiErrorKind::Internal);
         assert_eq!(err.message, "Database error: create_session");
-        assert!(!err.message.contains("connection refused"));
+        assert!(!err.message.contains("connection refused"), "detail must stay out of message");
+        assert!(err.source().is_some(), "but the detail must survive in the cause");
 
         // arm 1：`result + literal` 形式。
-        let r: Result<(), &str> = Err("boom");
+        let r: Result<(), Db> = Err(Db("boom".into()));
         let mapped = crate::map_database!(r, "load_sessions");
         assert_eq!(mapped.unwrap_err().message, "Database error: load_sessions");
     }
