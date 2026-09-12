@@ -804,6 +804,104 @@ mod tests {
         assert!(!MembershipService::is_remote_id("", "myserver.com"));
     }
 
+    // ── extract_allowed_join_rooms / is_valid_matrix_id (MSC3083) ───────
+
+    #[test]
+    fn extract_allow_missing_or_not_array_is_empty() {
+        // No `allow` key at all.
+        assert!(extract_allowed_join_rooms(&json!({"join_rule": "restricted"})).is_empty());
+        // `allow` present but not an array (malformed → fail-closed).
+        assert!(extract_allowed_join_rooms(&json!({"allow": "not-an-array"})).is_empty());
+        // `allow` null.
+        assert!(extract_allowed_join_rooms(&json!({"allow": null})).is_empty());
+        // Non-restricted rule with empty array.
+        assert!(extract_allowed_join_rooms(&json!({"allow": []})).is_empty());
+    }
+
+    #[test]
+    fn extract_allow_single_membership_entry() {
+        let rooms = extract_allowed_join_rooms(&json!({
+            "join_rule": "restricted",
+            "allow": [
+                {"room_id": "!space:example.com", "type": "m.room_membership"}
+            ]
+        }));
+        assert_eq!(rooms, vec!["!space:example.com".to_string()]);
+    }
+
+    #[test]
+    fn extract_allow_defaults_type_to_membership() {
+        // `type` is omitted → per MSC3083 it defaults to m.room_membership, so
+        // the room must still be accepted.
+        let rooms = extract_allowed_join_rooms(&json!({
+            "allow": [{"room_id": "!space:example.com"}]
+        }));
+        assert_eq!(rooms, vec!["!space:example.com".to_string()]);
+    }
+
+    #[test]
+    fn extract_allow_ignores_non_membership_types() {
+        // Only a role-based rule (no room_id) and an unknown type are dropped;
+        // the single valid membership entry survives.
+        let rooms = extract_allowed_join_rooms(&json!({
+            "allow": [
+                {"type": "m.room_membership", "room_id": "!keep:example.com"},
+                {"type": "org.example.custom"},
+                {"type": "m.room_role", "role": "bot"}
+            ]
+        }));
+        assert_eq!(rooms, vec!["!keep:example.com".to_string()]);
+    }
+
+    #[test]
+    fn extract_allow_dedupes_and_sorts() {
+        // Duplicates collapse; the output is sorted for deterministic
+        // fingerprinting upstream.
+        let rooms = extract_allowed_join_rooms(&json!({
+            "allow": [
+                {"room_id": "!zz:example.com", "type": "m.room_membership"},
+                {"room_id": "!aa:example.com", "type": "m.room_membership"},
+                {"room_id": "!zz:example.com", "type": "m.room_membership"}
+            ]
+        }));
+        assert_eq!(rooms, vec!["!aa:example.com".to_string(), "!zz:example.com".to_string()]);
+    }
+
+    #[test]
+    fn extract_allow_drops_malformed_room_ids_fail_closed() {
+        // Each malformed entry is silently dropped; only the valid one remains.
+        let rooms = extract_allowed_join_rooms(&json!({
+            "allow": [
+                {"room_id": "no-sigil:example.com", "type": "m.room_membership"},
+                {"room_id": "!nohost", "type": "m.room_membership"},
+                {"room_id": "!empty:@", "type": "m.room_membership"},
+                {"room_id": "", "type": "m.room_membership"},
+                {"type": "m.room_membership"},
+                {"room_id": "!good:example.com", "type": "m.room_membership"}
+            ]
+        }));
+        assert_eq!(rooms, vec!["!good:example.com".to_string()]);
+    }
+
+    #[test]
+    fn valid_matrix_id_accepts_sigil_with_server() {
+        assert!(is_valid_matrix_id("!room:example.com"));
+        assert!(is_valid_matrix_id("#alias:example.com"));
+        // Servers may carry ports (colons) — still valid via rfind split.
+        assert!(is_valid_matrix_id("!room:example.com:8448"));
+    }
+
+    #[test]
+    fn valid_matrix_id_rejects_bad_shapes() {
+        assert!(!is_valid_matrix_id(""));
+        assert!(!is_valid_matrix_id("@user:example.com")); // user sigil not accepted here
+        assert!(!is_valid_matrix_id("!onlylocal")); // no server separator
+        assert!(!is_valid_matrix_id("!:example.com")); // empty localpart
+        assert!(!is_valid_matrix_id("!room:")); // empty server
+        assert!(!is_valid_matrix_id("!room:exa mple.com")); // whitespace in server
+        assert!(!is_valid_matrix_id("!room:exa/mple.com")); // path separator in server
+    }
+
     // ── authorize_inbound_member_transition (federation S5 gap 2) ──────
 
     use std::sync::Arc as StdArc;
