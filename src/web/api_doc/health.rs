@@ -88,9 +88,7 @@ pub fn get_well_known_server() -> axum::Json<serde_json::Value> {
                             "8": "stable",
                             "9": "stable",
                             "10": "stable",
-                            "11": "stable",
-                            "12": "stable",
-                            "13": "stable"
+                            "11": "stable"
                         }
                     }
                 },

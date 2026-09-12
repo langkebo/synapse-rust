@@ -1,14 +1,12 @@
 # synapse-rust /docs/audit 文档审查 & 代码真实未解决风险汇总
-**生成时间**: 2026-09-12 18:11 GMT+8
-**HEAD**: 5fb798a4 fix(test-infra): 阻止测试夹具 DROP SCHEMA public —— 它已三次清空真实部署库
+**生成时间**: 2026-09-12 21:32 GMT+8
+**HEAD**: cf441304（audit 提交）→ 970a5830（MSC3083 单测）→ eee4c869（v12/v13 修复） 当前工作区
 
-> 本版在 05:45 初版基础上更新，反映当日至 18:11 的改动：
-> - `synapse-services/src/room/membership/service.rs` + `actions.rs`：restricted join `allow` 数组解析落地（MSC3083）；
-> - `synapse-common/src/config/rate_limit.rs`：`RateLimitConfig` 补 `deny_unknown_fields`；
-> - `synapse-storage/src/test_utils.rs`：`resolve_test_database_url()` 进程级缓存 + 探测超时 5s→30s（消解 P0-1 门禁漂移）；
-> - `scripts/init_v11_database.sh`：坏字节修复；
-> - 本地 `synapse_test` 数据库当日重建（`DROP DATABASE` + 全量 v11 migration，253 表 / 777 索引 / 5 触发器）。
-> 以上 5 处改动已落工作区（`git status` 可见），尚未提交。
+> 修订说明（18:11-22:45）：
+> - `synapse-common/src/room_versions.rs`：v12/v13 由 `stable` 降为 `stable_parse_only`；`resolve_room_version("12")`/`"13"` 返回 `None`（防止过度声明）；更新单元测试以匹配新语义；同步 API 文档 health.rs client capability 示例。
+> - `synapse-services/src/room/membership/service.rs`：补 8 个 MSC3083 `extract_allowed_join_rooms` 单元测试，覆盖边界（非成员类型、malformed ID、dedup+sort、default 类型）。
+> - `docs/audit/sdk-encapsulation-audit.md`：已复制入本目录，完整记录 SDK fork 包装覆盖情况。
+> - CI workflow：注释已确认 `--test-threads 8` 已调高；P0-1 漂移根因 `test_utils` URL 缓存在 storage 副本提交，但 services 副本尚未提交。
 
 ## 一、文档清单（/Users/ljf/Desktop/hu_ts/synapse-rust/docs/audit）
 ```

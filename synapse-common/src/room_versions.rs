@@ -104,11 +104,15 @@ pub const SUPPORTED_ROOM_VERSIONS: &[RoomVersionCapability] = &[
     // allow self-redaction by the original author.  Both behaviours are now
     // implemented in synapse-common::redaction (extract_redacts handles both
     // top-level and content.redacts) and in auth::power_levels::can_redact_event
-    // (which grants self-redact for room versions >= 11), so these versions
-    // can be advertised as creatable.
+    // (which grants self-redact for room versions >= 11), so v11 can be
+    // advertised as creatable.
+    //
+    // v12/v13: 额外的事件认证规则（ED25519-only auth rules / 协议扩展）
+    // 尚未在本服务端完整实现。降级为 parse+join+federate-only 可用，
+    // 避免创建无法产生合规 PDU 的房间（fail-safe）。
     RoomVersionCapability::stable("11"),
-    RoomVersionCapability::stable("12"),
-    RoomVersionCapability::stable("13"),
+    RoomVersionCapability::stable_parse_only("12"),
+    RoomVersionCapability::stable_parse_only("13"),
 ];
 
 /// Returns true if supported room version.
@@ -206,11 +210,13 @@ mod tests {
     fn resolve_room_version_defaults_and_rejects_unknown_versions() {
         assert_eq!(resolve_room_version(None), Some(DEFAULT_ROOM_VERSION));
         assert_eq!(resolve_room_version(Some("10")), Some("10"));
-        // v11+ are now fully creatable after the redaction chain (P0-05/06/09)
+        // v11 is fully creatable after the redaction chain (P0-05/06/09)
         // and state resolution v2 (P0-10/11) landed.
         assert_eq!(resolve_room_version(Some("11")), Some("11"));
-        assert_eq!(resolve_room_version(Some("12")), Some("12"));
-        assert_eq!(resolve_room_version(Some("13")), Some("13"));
+        // v12/v13 are parse/join/federate-only (not creatable) – see room_versions.rs
+        // comment. resolve_room_version only returns creatable versions.
+        assert_eq!(resolve_room_version(Some("12")), None);
+        assert_eq!(resolve_room_version(Some("13")), None);
         // v14 is not a supported room version.
         assert_eq!(resolve_room_version(Some("14")), None);
     }
@@ -222,10 +228,18 @@ mod tests {
             assert!(can_join_room_version(supported.version));
             assert!(can_parse_room_version(supported.version));
             assert!(can_federate_room_version(supported.version));
-            // All supported versions (v1-v13) are now fully creatable after
-            // the redaction chain and state resolution v2 landed.
-            assert!(can_create_room_version(supported.version));
         }
+        // v1-v11 are fully creatable after the redaction chain and state
+        // resolution v2 landed.
+        for v in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"] {
+            assert!(can_create_room_version(v), "v{v} must remain creatable");
+        }
+        // v12/v13 are deliberately parse/join/federate-only: their extra auth
+        // rules are not fully implemented, so we must not advertise creation
+        // support (fail-safe over over-declaration).
+        assert!(!can_create_room_version("12"), "v12 must NOT be creatable");
+        assert!(!can_create_room_version("13"), "v13 must NOT be creatable");
+        assert!(can_join_room_version("12") && can_join_room_version("13"));
         assert!(!can_create_room_version("14"));
         assert!(!can_join_room_version("14"));
         assert!(!can_parse_room_version("14"));
@@ -239,8 +253,9 @@ mod tests {
 
         assert_eq!(capability["default"], DEFAULT_ROOM_VERSION);
         // Only creatable versions appear in the client capability list.
-        let creatable_count = SUPPORTED_ROOM_VERSIONS.iter().filter(|c| c.can_create).count();
-        assert_eq!(available.len(), creatable_count);
+        // v12/v13 are parse-only → must NOT be advertised.
+        let expected_creatable = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"];
+        assert_eq!(available.len(), expected_creatable.len());
 
         for supported in SUPPORTED_ROOM_VERSIONS {
             if supported.can_create {
@@ -249,7 +264,7 @@ mod tests {
                     Some(supported.disposition_str())
                 );
             } else {
-                assert!(available.get(supported.version).is_none());
+                assert!(available.get(supported.version).is_none(), "v{} should NOT appear in client room_versions.available", supported.version);
             }
         }
     }

@@ -12,6 +12,19 @@ use tokio::sync::{Mutex as TokioMutex, Semaphore};
 
 static PREPARED_TEST_POOLS: LazyLock<Mutex<VecDeque<Arc<PgPool>>>> = LazyLock::new(|| Mutex::new(VecDeque::new()));
 
+/// Process-wide cache of the resolved test database URL.
+///
+/// Mirrors `synapse_storage::test_utils::RESOLVED_TEST_DB_URL`. Each isolated
+/// test pool previously re-probed every candidate URL (building and dropping a
+/// probe `PgPool` each time); under `--workspace --lib --test-threads=N` with
+/// thousands of DB-backed tests this connection churn collides with the
+/// server's connection limit and surfaces as spurious `PoolTimedOut`
+/// ("Operation timed out", P0-1 gate drift,
+/// docs/audit/AUDIT_SUMMARY_2026-09-12.md). Resolving once per process and
+/// reusing the URL cuts that churn to a single probe.
+static RESOLVED_TEST_DB_URL: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
+
+
 // ============================================================================
 // Schema lifecycle
 // ============================================================================
@@ -571,6 +584,11 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
 
 /// See [`resolve_test_database_url`].
 pub async fn resolve_test_database_url() -> Result<String, String> {
+    // Fast path: return cached URL if already resolved in this process.
+    if let Some(cached) = RESOLVED_TEST_DB_URL.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+        return Ok(cached);
+    }
+
     let mut errors = Vec::new();
     let connect_timeout = configured_test_pool_connect_timeout();
 
@@ -582,6 +600,10 @@ pub async fn resolve_test_database_url() -> Result<String, String> {
             Err(_) => errors.push(format!("{database_url} -> connect timed out after {connect_timeout:?}")),
             Ok(Ok(pool)) => {
                 drop(pool);
+                // Remember the resolved URL for subsequent lookups in this process.
+                if let Ok(mut cache) = RESOLVED_TEST_DB_URL.lock() {
+                    *cache = Some(database_url.clone());
+                }
                 return Ok(database_url);
             }
             Ok(Err(error)) => errors.push(format!("{database_url} -> {error}")),
