@@ -289,6 +289,7 @@ jobs:
       - name: Run library unit tests (--workspace --lib)
         if: matrix.features-args == '--all-features'
         env:
+          SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE: "1"
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           REDIS_URL: redis://localhost:6379
@@ -315,6 +316,7 @@ jobs:
       - name: Check media exemption is still necessary (self-cleaning guard)
         if: matrix.features-args == '--all-features'
         env:
+          SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE: "1"
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           REDIS_URL: redis://localhost:6379
@@ -325,6 +327,7 @@ jobs:
       - name: Run unit test target (--test unit)
         if: matrix.features-args == '--all-features'
         env:
+          SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE: "1"
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           REDIS_URL: redis://localhost:6379
@@ -541,6 +544,7 @@ jobs:
       # cause PostgreSQL deadlock at --test-threads > 1.
       - name: Run integration tests (serial — admin registration)
         env:
+          SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE: "1"
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           REDIS_URL: redis://localhost:6379

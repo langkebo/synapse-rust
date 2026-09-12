@@ -504,10 +504,40 @@ async fn init_template_schema(database_url: &str, template_name: &str) -> Result
     // Clean up leftover tables in `public` schema from historical test runs.
     // If public.{table} exists, migration's `CREATE TABLE IF NOT EXISTS {table}`
     // would skip creating it in the template schema — causing missing-table
-    // errors in cloned schemas. Dropping and recreating `public` is safe in
-    // test envs because test data lives in test_XXX schemas, not public.
-    // We use DROP SCHEMA CASCADE (single operation) instead of per-table DROP
-    // to avoid "out of shared memory" when hundreds of leftover tables exist.
+    // errors in cloned schemas. We use DROP SCHEMA CASCADE (single operation)
+    // instead of per-table DROP to avoid "out of shared memory" when hundreds of
+    // leftover tables exist.
+    //
+    // ⚠️ THIS IS DESTRUCTIVE AND IT HAS ALREADY DESTROYED A REAL DATABASE.
+    //
+    // On 2026-09-12 this line emptied the *deployed* `synapse` database three
+    // times (253 tables -> 3, `schema_migrations` 37 -> 0) because the suite was
+    // pointed at the app's own database via `TEST_DATABASE_URL`. The template is
+    // rebuilt whenever `template_schema_fingerprint()` changes (any migration
+    // edit), so simply *running tests* was enough to wipe production data. It
+    // also explains the "mysterious" 904-failure baselines: a vanished baseline
+    // makes every DB-backed test fail with `relation ... does not exist`.
+    //
+    // "Safe in test envs" was an assumption, not a check. Make it a check:
+    // refusing to proceed is always better than silently emptying a database
+    // that might be someone's deployment.
+    let is_throwaway = std::env::var("SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE").is_ok_and(|v| v == "1");
+    if !is_throwaway {
+        // A database is treated as *not* throwaway if it carries applied
+        // migrations but is not explicitly opted in. That is exactly the shape of
+        // a deployed database, and the shape of the one we destroyed.
+        let applied: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'schema_migrations'",
+        )
+        .fetch_one(&admin_pool)
+        .await
+        .unwrap_or(0);
+        if applied > 0 {
+            return Err(format!(
+                "refusing to DROP SCHEMA public on a database that looks deployed (public.schema_migrations exists).\n                 This step is destructive and previously wiped a real deployment.\n                 Point the test suite at a throwaway database, e.g.\n                   TEST_DATABASE_URL=postgres://.../synapse_test cargo nt ...\n                 or set SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE=1 if this database really is disposable."
+            ));
+        }
+    }
     let _ = sqlx::query("DROP SCHEMA IF EXISTS public CASCADE").execute(&admin_pool).await;
     let _ = sqlx::query("CREATE SCHEMA IF NOT EXISTS public").execute(&admin_pool).await;
 
