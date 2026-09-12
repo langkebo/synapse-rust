@@ -11,10 +11,7 @@ use super::service::MessagingService;
 impl MessagingService {
     /// See [`get_event_record`].
     pub async fn get_event_record(&self, event_id: &str) -> ApiResult<Option<synapse_storage::RoomEvent>> {
-        self.event_reader
-            .get_event(event_id)
-            .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get event", &e))
+        self.event_reader.get_event(event_id).await.map_err(|e| ApiError::internal_with_cause("Failed to get event", e))
     }
 
     /// See [`get_event_record_in_room`].
@@ -27,7 +24,7 @@ impl MessagingService {
             .event_reader
             .get_event(event_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get event", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to get event", e))?
             .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
         if event.room_id != room_id {
@@ -47,7 +44,7 @@ impl MessagingService {
         self.event_reader
             .find_event_id_by_timestamp(room_id, ts, forward)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))
     }
 
     /// See [`report_event`].
@@ -62,7 +59,7 @@ impl MessagingService {
         self.event_writer
             .report_event(event_id, room_id, "", reporter_user_id, reason, score)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to report event", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to report event", e))
     }
 
     /// See [`get_state_events`].
@@ -71,7 +68,7 @@ impl MessagingService {
             .event_reader
             .get_state_events(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get state events", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get state events", e))?;
 
         let event_list: Vec<serde_json::Value> = events
             .iter()
@@ -94,7 +91,7 @@ impl MessagingService {
         self.event_reader
             .get_state_events(room_id)
             .await
-            .map_err(|e| ApiError::database_with_context("Failed to get room state", &e))
+            .map_err(|e| ApiError::database_with_cause("Failed to get room state", e))
     }
 
     /// See [`get_state_events_at_or_before`].
@@ -106,7 +103,7 @@ impl MessagingService {
         self.event_reader
             .get_state_events_at_or_before(room_id, origin_server_ts)
             .await
-            .map_err(|e| ApiError::database_with_context("Failed to get room state", &e))
+            .map_err(|e| ApiError::database_with_cause("Failed to get room state", e))
     }
 
     /// See [`create_event`].
@@ -125,7 +122,7 @@ impl MessagingService {
             .event_writer
             .create_event(params, tx)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to create event", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to create event", e))?;
 
         // Invalidate room-state cache when a state event is written.
         // Best-effort: failure to delete is non-fatal.
@@ -217,7 +214,7 @@ impl MessagingService {
             .event_writer
             .create_event_with_graph(params, prev_events, auth_events, depth, tx)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to create event with graph data", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to create event with graph data", e))?;
 
         // Invalidate room-state cache when a state event is written.
         // Best-effort: failure to delete is non-fatal.
@@ -275,7 +272,7 @@ impl MessagingService {
             .event_reader
             .get_state_events_by_type(room_id, event_type)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get state events by type", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get state events by type", e))?;
 
         let event_list: Vec<serde_json::Value> = events
             .iter()
@@ -330,7 +327,7 @@ impl MessagingService {
             None,
         )
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to persist pinned events state", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to persist pinned events state", e))?;
         Ok(())
     }
 
@@ -340,7 +337,7 @@ impl MessagingService {
             .event_reader
             .get_event(event_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get event", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to get event", e))?
             .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
         if event.room_id != room_id {
@@ -363,7 +360,7 @@ impl MessagingService {
         self.event_reader
             .get_pending_room_events(room_id, limit)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get pending events", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get pending events", e))
     }
 
     /// See [`get_room_events`].
@@ -371,7 +368,7 @@ impl MessagingService {
         self.event_reader
             .get_room_events(room_id, limit)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get room events", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get room events", e))
     }
 
     /// See [`get_room_events_by_type`].
@@ -384,7 +381,7 @@ impl MessagingService {
         self.event_reader
             .get_room_events_by_type(room_id, event_type, limit)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get room events by type", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get room events by type", e))
     }
 
     /// See [`get_room_events_paginated_admin`].
@@ -398,7 +395,7 @@ impl MessagingService {
         self.event_reader
             .get_room_events_paginated(room_id, from, limit, direction)
             .await
-            .map_err(|e| ApiError::database_with_context("Failed to get room messages", &e))
+            .map_err(|e| ApiError::database_with_cause("Failed to get room messages", e))
     }
 
     /// See [`get_event_context_admin`].
@@ -412,7 +409,7 @@ impl MessagingService {
             .event_reader
             .get_event(event_id)
             .await
-            .map_err(|e| ApiError::database_with_context("Failed to get event", &e))?
+            .map_err(|e| ApiError::database_with_cause("Failed to get event", e))?
             .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
         if event.room_id != room_id {
@@ -423,13 +420,13 @@ impl MessagingService {
             .event_reader
             .get_events_before_context(room_id, event.origin_server_ts, context_limit)
             .await
-            .map_err(|e| ApiError::database_with_context("Failed to get preceding context", &e))?;
+            .map_err(|e| ApiError::database_with_cause("Failed to get preceding context", e))?;
 
         let events_after = self
             .event_reader
             .get_events_after_context(room_id, event.origin_server_ts, context_limit)
             .await
-            .map_err(|e| ApiError::database_with_context("Failed to get following context", &e))?;
+            .map_err(|e| ApiError::database_with_cause("Failed to get following context", e))?;
 
         Ok(json!({
             "event": {
@@ -457,7 +454,7 @@ impl MessagingService {
         self.event_reader
             .search_room_messages_admin(room_id, search_pattern, limit)
             .await
-            .map_err(|e| ApiError::internal_with_context("Search failed", &e))
+            .map_err(|e| ApiError::internal_with_cause("Search failed", e))
     }
 
     /// See [`get_forward_extremities_count`].
@@ -465,7 +462,7 @@ impl MessagingService {
         self.event_reader
             .get_forward_extremities_count(room_id)
             .await
-            .map_err(|e| ApiError::database_with_context("Failed to get forward extremities", &e))
+            .map_err(|e| ApiError::database_with_cause("Failed to get forward extremities", e))
     }
 
     /// See [`count_events_by_status`].
@@ -478,7 +475,7 @@ impl MessagingService {
         self.event_writer
             .redact_event_content(event_id, redacted_by)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to redact event content", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to redact event content", e))
     }
 
     /// F-03: After a federation-derived event is persisted (invite / join / leave),
@@ -494,7 +491,7 @@ impl MessagingService {
         self.event_writer
             .update_event_signatures_and_hashes(event_id, signatures, hashes)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to update event signatures and hashes", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to update event signatures and hashes", e))
     }
 
     /// See [`save_event_signature`].
@@ -512,7 +509,7 @@ impl MessagingService {
         self.event_writer
             .save_event_signature(event_id, user_id, device_id, signature, key_id, algorithm, created_ts)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to save signature", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to save signature", e))
     }
 
     /// See [`get_event_signatures`].
@@ -520,7 +517,7 @@ impl MessagingService {
         self.event_reader
             .get_event_signatures(event_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get signatures", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get signatures", e))
     }
 
     /// See [`get_daily_message_count`].
@@ -529,7 +526,7 @@ impl MessagingService {
         self.event_reader
             .get_daily_message_count()
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get daily message count", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get daily message count", e))
     }
 
     /// See [`find_missing_event_ids`].
@@ -538,7 +535,7 @@ impl MessagingService {
         self.event_reader
             .find_missing_event_ids(event_ids)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to find missing event ids", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to find missing event ids", e))
     }
 
     /// See [`get_missing_events_between`].
@@ -553,7 +550,7 @@ impl MessagingService {
         self.event_reader
             .get_missing_events_between(room_id, earliest_events, latest_events, limit)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to walk event DAG for missing events", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to walk event DAG for missing events", e))
     }
 }
 

@@ -29,7 +29,7 @@ impl EventReportService {
             .storage
             .check_rate_limit(&request.reporter_user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check rate limit", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to check rate limit", e))?;
 
         if !rate_check.is_allowed {
             return Err(ApiError::bad_request(
@@ -41,12 +41,12 @@ impl EventReportService {
             .storage
             .create_report(request.clone())
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to create report", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to create report", e))?;
 
         self.storage
             .record_report(&request.reporter_user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to record report", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to record report", e))?;
 
         self.storage
             .add_history(
@@ -75,11 +75,8 @@ impl EventReportService {
     /// See [`get_report`].
     #[instrument(skip(self))]
     pub async fn get_report(&self, id: i64) -> Result<Option<EventReport>, ApiError> {
-        let report = self
-            .storage
-            .get_report(id)
-            .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get report", &e))?;
+        let report =
+            self.storage.get_report(id).await.map_err(|e| ApiError::internal_with_cause("Failed to get report", e))?;
 
         Ok(report)
     }
@@ -91,7 +88,7 @@ impl EventReportService {
             .storage
             .get_reports_by_event(event_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get reports", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get reports", e))?;
 
         Ok(reports)
     }
@@ -109,7 +106,7 @@ impl EventReportService {
             .storage
             .get_reports_by_room(room_id, limit, since_ts, since_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get reports", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get reports", e))?;
 
         Ok(reports)
     }
@@ -127,7 +124,7 @@ impl EventReportService {
             .storage
             .get_reports_by_reporter(reporter_user_id, limit, since_ts, since_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get reports", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get reports", e))?;
 
         Ok(reports)
     }
@@ -146,7 +143,7 @@ impl EventReportService {
             .storage
             .get_reports_by_status(status, limit, since_score, since_ts, since_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get reports", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get reports", e))?;
 
         Ok(reports)
     }
@@ -164,7 +161,7 @@ impl EventReportService {
             .storage
             .get_all_reports(limit, since_score, since_ts, since_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get reports", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get reports", e))?;
 
         Ok(reports)
     }
@@ -181,14 +178,14 @@ impl EventReportService {
             .storage
             .get_report(id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get report", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to get report", e))?
             .ok_or_else(|| ApiError::not_found("Report not found"))?;
 
         let updated_report = self
             .storage
             .update_report(id, request.clone())
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to update report", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to update report", e))?;
 
         self.storage
             .add_history(
@@ -245,13 +242,13 @@ impl EventReportService {
         self.storage
             .get_report(id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get report", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to get report", e))?
             .ok_or_else(|| ApiError::not_found("Report not found"))?;
 
         self.storage
             .delete_report(id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to delete report", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to delete report", e))?;
 
         info!(report_id = id, "Deleted event report");
 
@@ -264,7 +261,7 @@ impl EventReportService {
         let history = self
             .storage
             .get_report_history(report_id)
-            .map_err(|e| ApiError::internal_with_context("Failed to get history", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get history", e))?;
 
         Ok(history)
     }
@@ -276,7 +273,7 @@ impl EventReportService {
             .storage
             .check_rate_limit(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check rate limit", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to check rate limit", e))?;
 
         Ok(check)
     }
@@ -287,7 +284,7 @@ impl EventReportService {
         self.storage
             .block_user_reports(user_id, blocked_until, reason)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to block user", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to block user", e))?;
 
         info!(user_id = %user_id, blocked_until, reason = %reason, "Blocked user from reporting");
 
@@ -300,7 +297,7 @@ impl EventReportService {
         self.storage
             .unblock_user_reports(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to unblock user", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to unblock user", e))?;
 
         info!(user_id = %user_id, "Unblocked user from reporting");
 
@@ -311,7 +308,7 @@ impl EventReportService {
     #[instrument(skip(self))]
     pub async fn get_stats(&self, days: i32) -> Result<Vec<EventReportStats>, ApiError> {
         let stats =
-            self.storage.get_stats(days).map_err(|e| ApiError::internal_with_context("Failed to get stats", &e))?;
+            self.storage.get_stats(days).map_err(|e| ApiError::internal_with_cause("Failed to get stats", e))?;
 
         Ok(stats)
     }
@@ -323,7 +320,7 @@ impl EventReportService {
             .storage
             .count_reports_by_status(status)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to count reports", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to count reports", e))?;
 
         Ok(count)
     }
@@ -335,7 +332,7 @@ impl EventReportService {
             .storage
             .count_all_reports()
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to count reports", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to count reports", e))?;
 
         Ok(count)
     }
@@ -358,7 +355,7 @@ impl EventReportService {
             .storage
             .get_report(id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get report", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to get report", e))?
             .ok_or_else(|| ApiError::not_found("Report not found"))?;
 
         let request = UpdateEventReportRequest {
@@ -372,7 +369,7 @@ impl EventReportService {
             .storage
             .update_report(id, request.clone())
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to escalate report", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to escalate report", e))?;
 
         self.storage
             .add_history(

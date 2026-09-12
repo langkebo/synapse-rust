@@ -71,7 +71,7 @@ impl AccountDeviceListService {
         self.device_storage
             .create_device(device_id, user_id, display_name)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to create device", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to create device", e))
     }
 
     /// See [`delete_device`].
@@ -79,7 +79,7 @@ impl AccountDeviceListService {
         self.device_storage
             .delete_device(device_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to delete device", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to delete device", e))
     }
 
     /// See [`get_user_devices`].
@@ -87,7 +87,7 @@ impl AccountDeviceListService {
         self.device_storage
             .get_user_devices(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get devices", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get devices", e))
     }
 
     /// See [`get_device`].
@@ -95,7 +95,7 @@ impl AccountDeviceListService {
         self.device_storage
             .get_device(device_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get device", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get device", e))
     }
 
     /// See [`update_user_device_display_name`].
@@ -108,7 +108,7 @@ impl AccountDeviceListService {
         self.device_storage
             .update_user_device_display_name(user_id, device_id, display_name)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to update device", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to update device", e))
     }
 
     /// See [`get_max_stream_id`].

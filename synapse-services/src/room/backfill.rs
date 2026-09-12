@@ -101,7 +101,7 @@ async fn compute_missing_event_ids(
     let missing = event_reader
         .find_missing_event_ids(&event_ids)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to batch-check existing events for backfill", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to batch-check existing events for backfill", e))?;
     Ok(missing.into_iter().collect())
 }
 
@@ -126,7 +126,7 @@ impl RoomService {
             .member_storage
             .get_joined_servers_in_room(room_id, &self.server_name)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to load joined servers for backfill", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to load joined servers for backfill", e))?;
 
         if candidates.is_empty() {
             ::tracing::debug!(
@@ -142,7 +142,7 @@ impl RoomService {
             .event_reader
             .get_latest_event_ids_in_room(room_id, 20)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to load seed event IDs for backfill", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to load seed event IDs for backfill", e))?;
 
         if seed_event_ids.is_empty() {
             ::tracing::debug!(

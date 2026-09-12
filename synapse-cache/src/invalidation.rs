@@ -58,14 +58,13 @@ impl CacheInvalidationMessage {
 
     /// Serializes this message to a byte vector suitable for Redis publish.
     pub fn encode(&self) -> Result<Vec<u8>, ApiError> {
-        serde_json::to_vec(self)
-            .map_err(|e| ApiError::internal_with_context("Failed to encode invalidation message", &e))
+        serde_json::to_vec(self).map_err(|e| ApiError::internal_with_cause("Failed to encode invalidation message", e))
     }
 
     /// Deserializes a message from bytes received from Redis subscribe.
     pub fn decode(data: &[u8]) -> Result<Self, ApiError> {
         serde_json::from_slice(data)
-            .map_err(|e| ApiError::internal_with_context("Failed to decode invalidation message", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to decode invalidation message", e))
     }
 }
 
@@ -131,12 +130,12 @@ impl CacheInvalidationBroadcaster {
         let channel = &self.config.channel_name;
 
         let mut conn =
-            self.pool.get().await.map_err(|e| ApiError::internal_with_context("Failed to get Redis connection", &e))?;
+            self.pool.get().await.map_err(|e| ApiError::internal_with_cause("Failed to get Redis connection", e))?;
 
         let _: () = conn
             .publish(channel, encoded)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to publish invalidation message", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to publish invalidation message", e))?;
 
         debug!("Broadcasted cache invalidation: key={}, type={:?}", key, invalidation_type);
 
@@ -190,8 +189,8 @@ impl std::fmt::Debug for CacheInvalidationSubscriber {
 impl CacheInvalidationSubscriber {
     /// Creates a subscriber that connects to the Redis instance at `redis_url`.
     pub fn new(redis_url: &str, config: CacheInvalidationConfig) -> Result<Self, ApiError> {
-        let client = Client::open(redis_url)
-            .map_err(|e| ApiError::internal_with_context("Failed to create Redis client", &e))?;
+        let client =
+            Client::open(redis_url).map_err(|e| ApiError::internal_with_cause("Failed to create Redis client", e))?;
         let (sender, _) = broadcast::channel(1024);
         Ok(Self { client, config, sender, running: Arc::new(parking_lot::RwLock::new(false)) })
     }
@@ -249,14 +248,14 @@ impl CacheInvalidationSubscriber {
         let mut pubsub = client
             .get_async_pubsub()
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get async pubsub", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get async pubsub", e))?;
 
         info!("Subscribed to cache invalidation channel: {}", channel);
 
         pubsub
             .subscribe(channel)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to subscribe to channel", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to subscribe to channel", e))?;
 
         let mut message_stream = pubsub.on_message();
         let instance_id_owned = instance_id.to_string();
@@ -267,7 +266,7 @@ impl CacheInvalidationSubscriber {
                 Some(msg) => {
                     let payload: Vec<u8> = msg
                         .get_payload()
-                        .map_err(|e| ApiError::internal_with_context("Failed to get message payload", &e))?;
+                        .map_err(|e| ApiError::internal_with_cause("Failed to get message payload", e))?;
 
                     match CacheInvalidationMessage::decode(&payload) {
                         Ok(invalidation_msg) => {

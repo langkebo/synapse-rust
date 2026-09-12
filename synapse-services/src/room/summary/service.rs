@@ -37,7 +37,7 @@ impl RoomSummaryService {
 
         let summary = match summary_res {
             Ok(s) => s,
-            Err(e) => return Err(ApiError::internal_with_context("Failed to get room summary", &e)),
+            Err(e) => return Err(ApiError::internal_with_cause("Failed to get room summary", e)),
         };
 
         if let Some(summary) = summary {
@@ -56,7 +56,7 @@ impl RoomSummaryService {
 
         let summaries = match summaries_res {
             Ok(s) => s,
-            Err(e) => return Err(ApiError::internal_with_context("Failed to get user room summaries", &e)),
+            Err(e) => return Err(ApiError::internal_with_cause("Failed to get user room summaries", e)),
         };
 
         if summaries.is_empty() {
@@ -83,7 +83,7 @@ impl RoomSummaryService {
 
         let members = match members_res {
             Ok(m) => m,
-            Err(e) => return Err(ApiError::internal_with_context("Failed to get heroes", &e)),
+            Err(e) => return Err(ApiError::internal_with_cause("Failed to get heroes", e)),
         };
 
         Ok(members.into_iter().map(RoomSummaryHero::from).collect())
@@ -129,7 +129,7 @@ impl RoomSummaryService {
 
         let members_map = match members_res {
             Ok(m) => m,
-            Err(e) => return Err(ApiError::internal_with_context("Failed to get heroes batch", &e)),
+            Err(e) => return Err(ApiError::internal_with_cause("Failed to get heroes batch", e)),
         };
 
         Ok(members_map
@@ -148,19 +148,19 @@ impl RoomSummaryService {
 
         let exists = match summary_exists_res {
             Ok(s) => s.is_some(),
-            Err(e) => return Err(ApiError::internal_with_context("Failed to check room summary", &e)),
+            Err(e) => return Err(ApiError::internal_with_cause("Failed to check room summary", e)),
         };
 
         if exists {
             let update_res =
                 self.storage.update_summary(&room_id, Self::create_request_to_update_request(&request)).await;
             if let Err(e) = update_res {
-                return Err(ApiError::internal_with_context("Failed to update room summary", &e));
+                return Err(ApiError::internal_with_cause("Failed to update room summary", e));
             }
         } else {
             let create_res = self.storage.create_summary(request).await;
             if let Err(e) = create_res {
-                return Err(ApiError::internal_with_context("Failed to create room summary", &e));
+                return Err(ApiError::internal_with_cause("Failed to create room summary", e));
             }
         }
 
@@ -168,7 +168,7 @@ impl RoomSummaryService {
 
         let final_summary: Option<RoomSummaryResponse> = match self.get_summary(&room_id).await {
             Ok(s) => s,
-            Err(e) => return Err(ApiError::internal_with_context("Failed to get summary after sync", &e)),
+            Err(e) => return Err(ApiError::internal_with_cause("Failed to get summary after sync", e)),
         };
         final_summary.ok_or_else(|| ApiError::not_found("Room summary not found after sync"))
     }
@@ -200,7 +200,7 @@ impl RoomSummaryService {
             .storage
             .update_summary(room_id, request)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to update room summary", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to update room summary", e))?;
 
         let heroes = self.get_heroes(room_id).await?;
         Ok(summary.to_response(heroes))
@@ -214,7 +214,7 @@ impl RoomSummaryService {
         self.storage
             .delete_summary(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to delete room summary", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to delete room summary", e))?;
 
         Ok(())
     }
@@ -228,7 +228,7 @@ impl RoomSummaryService {
             .storage
             .add_member(request)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to add member", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to add member", e))?;
 
         Ok(member)
     }
@@ -251,7 +251,7 @@ impl RoomSummaryService {
             .storage
             .add_member_in_tx(request, tx)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to add member in tx", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to add member in tx", e))?;
 
         Ok(member)
     }
@@ -268,7 +268,7 @@ impl RoomSummaryService {
             .storage
             .update_member(room_id, user_id, request)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to update member", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to update member", e))?;
 
         Ok(member)
     }
@@ -281,7 +281,7 @@ impl RoomSummaryService {
         self.storage
             .remove_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to remove member", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to remove member", e))?;
 
         Ok(())
     }
@@ -293,7 +293,7 @@ impl RoomSummaryService {
             .storage
             .get_members(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get members", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get members", e))?;
 
         Ok(members)
     }
@@ -309,7 +309,7 @@ impl RoomSummaryService {
 
         let summaries = match summaries_res {
             Ok(s) => s,
-            Err(e) => return Err(ApiError::internal_with_context("Failed to get room summaries", &e)),
+            Err(e) => return Err(ApiError::internal_with_cause("Failed to get room summaries", e)),
         };
 
         if summaries.is_empty() {

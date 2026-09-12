@@ -185,7 +185,7 @@ impl ChunkedUploadStorage {
         .bind(request.expires_at)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to start upload", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to start upload", e))?;
 
         Ok(())
     }
@@ -208,7 +208,7 @@ impl ChunkedUploadStorage {
         .bind(request.created_ts)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to store chunk", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to store chunk", e))?;
 
         Ok(())
     }
@@ -235,7 +235,7 @@ impl ChunkedUploadStorage {
         .bind(now_ts)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to update progress", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to update progress", e))?;
 
         Ok(())
     }
@@ -248,7 +248,7 @@ impl ChunkedUploadStorage {
         .bind(upload_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to get progress", &e))
+        .map_err(|e| ApiError::internal_with_cause("Failed to get progress", e))
     }
 
     /// See [`load_chunk_data`].
@@ -257,7 +257,7 @@ impl ChunkedUploadStorage {
             .bind(upload_id)
             .fetch_all(&self.pool)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get chunks", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get chunks", e))?;
 
         Ok(rows.into_iter().map(|row| sqlx::Row::get::<Vec<u8>, _>(&row, "chunk_data")).collect())
     }
@@ -268,7 +268,7 @@ impl ChunkedUploadStorage {
             .pool
             .begin()
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to start upload finalization transaction", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to start upload finalization transaction", e))?;
 
         sqlx::query(
             r"
@@ -281,15 +281,15 @@ impl ChunkedUploadStorage {
         .bind(now_ts)
         .execute(&mut *tx)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to finalize upload status", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to finalize upload status", e))?;
 
         sqlx::query("DELETE FROM upload_chunks WHERE upload_id = $1")
             .bind(upload_id)
             .execute(&mut *tx)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to cleanup finalized upload chunks", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to cleanup finalized upload chunks", e))?;
 
-        tx.commit().await.map_err(|e| ApiError::internal_with_context("Failed to commit upload finalization", &e))?;
+        tx.commit().await.map_err(|e| ApiError::internal_with_cause("Failed to commit upload finalization", e))?;
 
         Ok(())
     }
@@ -300,21 +300,21 @@ impl ChunkedUploadStorage {
             .pool
             .begin()
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to start upload deletion transaction", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to start upload deletion transaction", e))?;
 
         sqlx::query("DELETE FROM upload_chunks WHERE upload_id = $1")
             .bind(upload_id)
             .execute(&mut *tx)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to delete upload chunks", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to delete upload chunks", e))?;
 
         sqlx::query("DELETE FROM upload_progress WHERE upload_id = $1")
             .bind(upload_id)
             .execute(&mut *tx)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to delete upload progress", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to delete upload progress", e))?;
 
-        tx.commit().await.map_err(|e| ApiError::internal_with_context("Failed to commit upload deletion", &e))?;
+        tx.commit().await.map_err(|e| ApiError::internal_with_cause("Failed to commit upload deletion", e))?;
 
         Ok(())
     }
@@ -325,7 +325,7 @@ impl ChunkedUploadStorage {
             .bind(now_ts)
             .fetch_all(&self.pool)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to find expired uploads", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to find expired uploads", e))
     }
 
     /// See [`list_user_uploads`].
@@ -336,7 +336,7 @@ impl ChunkedUploadStorage {
         .bind(user_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to list uploads", &e))
+        .map_err(|e| ApiError::internal_with_cause("Failed to list uploads", e))
     }
 
     /// Delete all uploads whose `expires_at` is before `now_ts`.

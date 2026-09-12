@@ -63,7 +63,7 @@ impl AuthService {
                 .token_storage
                 .is_in_blacklist(token)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to check token blacklist", &e))?
+                .map_err(|e| ApiError::internal_with_cause("Failed to check token blacklist", e))?
             {
                 ::tracing::debug!(target: "token_validation", "Token found in blacklist");
                 return Err(ApiError::unauthorized("Token has been revoked".to_string()));
@@ -73,7 +73,7 @@ impl AuthService {
                 .token_storage
                 .is_token_revoked(token)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to check token status", &e))?
+                .map_err(|e| ApiError::internal_with_cause("Failed to check token status", e))?
             {
                 ::tracing::debug!(target: "token_validation", "Token has been revoked in database");
                 return Err(ApiError::unauthorized("Token has been revoked".to_string()));
@@ -129,7 +129,7 @@ impl AuthService {
                                 .user_storage
                                 .get_user_by_id(&cached_claims.sub)
                                 .await
-                                .map_err(|e| ApiError::internal_with_context("Database error", &e))?
+                                .map_err(|e| ApiError::internal_with_cause("Database error", e))?
                                 .ok_or_else(|| ApiError::unauthorized("User not found".to_string()))?;
                             self.cache.set(&admin_cache_key, user.is_admin, ADMIN_CACHE_TTL_SECS).await?;
                             self.cache.set(&shadow_key, user.is_shadow_banned, USER_ACTIVE_CACHE_TTL_SECS).await?;
@@ -150,7 +150,7 @@ impl AuthService {
                 .user_storage
                 .get_user_by_id(&cached_claims.sub)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
             return if let Some(u) = user {
                 let is_active = !u.is_deactivated;
@@ -195,7 +195,7 @@ impl AuthService {
             .user_storage
             .get_user_by_id(&claims.sub)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         match user {
             Some(u) => {
@@ -242,14 +242,14 @@ impl AuthService {
         header.typ = Some("JWT".to_string());
 
         let token = encode(&header, &claims, &EncodingKey::from_secret(&self.jwt_secret))
-            .map_err(|e| ApiError::internal_with_context("Failed to generate token", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to generate token", e))?;
 
         let expires_at = (now + Duration::seconds(self.token_expiry)).timestamp_millis();
 
         self.token_storage
             .create_token(&token, user_id, Some(device_id), Some(expires_at))
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to store token", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to store token", e))?;
 
         Ok(token)
     }
@@ -289,7 +289,7 @@ impl AuthService {
         self.refresh_token_storage
             .create_token(request)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to store refresh token", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to store refresh token", e))?;
 
         Ok(token)
     }

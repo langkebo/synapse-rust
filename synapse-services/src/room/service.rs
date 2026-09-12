@@ -328,7 +328,7 @@ impl RoomService {
             .room_storage
             .get_room(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get room", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get room", e))?;
 
         match room {
             Some(r) => Ok(json!({
@@ -350,7 +350,7 @@ impl RoomService {
             .member_storage
             .is_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check membership", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to check membership", e))?
         {
             return Err(ApiError::forbidden("You are not a member of this room".to_string()));
         }
@@ -359,7 +359,7 @@ impl RoomService {
             .room_storage
             .get_room(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get room", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get room", e))?;
 
         match room {
             Some(r) => Ok(json!({
@@ -381,13 +381,13 @@ impl RoomService {
             .member_storage
             .get_joined_rooms(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get rooms", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get rooms", e))?;
 
         let rooms_data = self
             .room_storage
             .get_rooms_batch(&room_ids)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to fetch rooms batch", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to fetch rooms batch", e))?;
 
         let rooms: Vec<serde_json::Value> = rooms_data
             .into_iter()
@@ -419,7 +419,7 @@ impl RoomService {
             .room_storage
             .get_rooms_batch(child_room_ids)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to load child rooms", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to load child rooms", e))?;
         let mut map = HashMap::new();
         for room in rooms_batch {
             map.insert(room.room_id.clone(), room);
@@ -429,7 +429,7 @@ impl RoomService {
             .event_reader
             .get_state_events_batch(child_room_ids)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to load child state events", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to load child state events", e))?;
 
         let mut child_rooms = Vec::new();
         for rid in child_room_ids {
@@ -467,7 +467,7 @@ impl RoomService {
             .room_storage
             .get_room(old_room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get old room", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to get old room", e))?
             .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
         // Fetch old room members BEFORE creating the tombstone, so we can
@@ -477,7 +477,7 @@ impl RoomService {
             .member_storage
             .get_room_members(old_room_id, "join")
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to fetch old room members for migration", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to fetch old room members for migration", e))?;
         let members_to_invite: Vec<String> =
             old_members.into_iter().map(|m| m.user_id).filter(|uid| uid != user_id).collect();
 
@@ -534,7 +534,7 @@ impl RoomService {
                 None,
             )
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to create tombstone event", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to create tombstone event", e))?;
 
         ::tracing::info!(
             old_room_id = %old_room_id,
@@ -664,7 +664,7 @@ impl RoomService {
         self.sticky_event_storage
             .set_is_sticky_event(room_id, user_id, event_id, event_type, is_sticky)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to set sticky event", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to set sticky event", e))
     }
 
     /// See [`get_is_sticky_event`].
@@ -677,7 +677,7 @@ impl RoomService {
         self.sticky_event_storage
             .get_is_sticky_event(room_id, user_id, event_type)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get sticky event", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get sticky event", e))
     }
 
     /// See [`get_all_is_sticky_events`].
@@ -689,7 +689,7 @@ impl RoomService {
         self.sticky_event_storage
             .get_all_is_sticky_events(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get all sticky events", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get all sticky events", e))
     }
 
     /// See [`clear_is_sticky_event`].
@@ -697,7 +697,7 @@ impl RoomService {
         self.sticky_event_storage
             .clear_is_sticky_event(room_id, user_id, event_type)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to clear sticky event", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to clear sticky event", e))
     }
 }
 

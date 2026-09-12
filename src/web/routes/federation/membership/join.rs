@@ -147,7 +147,7 @@ pub(crate) async fn send_join(
             .messaging()
             .create_event(params, None)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to persist join event", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to persist join event", e))?;
 
         // F-03: Add the local server's signature to the persisted join PDU so
         // that third-party origins can verify it via verify_pdu_sender_signature.
@@ -169,7 +169,7 @@ pub(crate) async fn send_join(
             .membership()
             .add_member(&room_id, user_id, "join", display_name, None, None)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to update membership", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to update membership", e))?;
 
         ::tracing::info!(
             request_id = %request_id,
@@ -261,7 +261,7 @@ pub(crate) async fn send_join_v2(
             .messaging()
             .create_event(params, None)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to persist join event", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to persist join event", e))?;
 
         // F-03: re-sign locally for third-party verification.
         let mut pdu = json!({
@@ -281,7 +281,7 @@ pub(crate) async fn send_join_v2(
             .membership()
             .add_member(&room_id, sender, "join", display_name, None, None)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to update membership", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to update membership", e))?;
 
         ::tracing::info!(
             target: "federation",

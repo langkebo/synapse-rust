@@ -55,7 +55,7 @@ async fn ensure_room_alias_write_allowed(
         .state()
         .is_room_creator(room_id, &auth_user.user_id)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to check room creator", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to check room creator", e))?;
 
     if !is_creator {
         return Err(ApiError::forbidden("Only room admins can manage aliases".to_string()));
@@ -105,7 +105,7 @@ pub async fn get_directory_room(
         .directory_service
         .get_room_id_by_alias(&room_alias)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to lookup room", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to lookup room", e))?;
 
     if let Some(rid) = room_id {
         return Ok(Json(json!({
@@ -168,7 +168,7 @@ pub async fn set_room_alias_handler(
     ctx.directory_service
         .set_room_alias(room_id, &room_alias)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to set alias", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to set alias", e))?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -189,7 +189,7 @@ pub async fn remove_room_alias(
         .directory_service
         .get_room_id_by_alias(&room_alias)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to get alias", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to get alias", e))?;
 
     if let Some(room_id) = &existing {
         ensure_room_alias_write_allowed(&ctx, &auth_user, room_id).await?;
@@ -198,7 +198,7 @@ pub async fn remove_room_alias(
     ctx.directory_service
         .remove_room_alias(&room_alias)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to remove alias", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to remove alias", e))?;
 
     Ok(Json(json!({
         "removed": true,
@@ -217,7 +217,7 @@ pub async fn get_alias_servers(
         .directory_service
         .get_room_id_by_alias(&room_alias)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed", e))?;
 
     match room_id {
         Some(_) => Ok(Json(json!({

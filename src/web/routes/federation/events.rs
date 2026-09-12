@@ -529,7 +529,7 @@ pub(super) async fn get_room_hierarchy(
         .await?;
 
     let response = serde_json::to_value(hierarchy)
-        .map_err(|e| ApiError::internal_with_context("Failed to serialize hierarchy response", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to serialize hierarchy response", e))?;
 
     Ok(Json(response))
 }

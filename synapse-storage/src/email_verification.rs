@@ -154,7 +154,7 @@ impl EmailVerificationStorage {
         let verification_token = self
             .get_verification_token_by_id(token_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get verification token", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get verification token", e))?;
 
         let verification_token = verification_token
             .ok_or_else(|| ApiError::bad_request("Invalid session ID or session not found".to_string()))?;
@@ -184,7 +184,7 @@ impl EmailVerificationStorage {
 
         self.mark_token_used(token_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to mark token as used", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to mark token as used", e))?;
         Ok(verification_token)
     }
 

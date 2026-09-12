@@ -11,7 +11,7 @@ impl LifecycleService {
             .event_reader
             .get_state_events(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get state events", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get state events", e))?;
 
         for event in state_events {
             if event.event_type.as_deref() == Some("m.room.tombstone") {
@@ -38,7 +38,7 @@ impl LifecycleService {
             .room_storage
             .get_room(target_room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get target room", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to get target room", e))?
             .ok_or_else(|| ApiError::not_found("Target room not found".to_string()))?;
 
         if target_room.creator_user_id.as_deref() != Some(user_id) {
@@ -48,7 +48,7 @@ impl LifecycleService {
         self.event_reader
             .copy_room_state(source_room_id, target_room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to copy room state", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to copy room state", e))?;
 
         Ok(())
     }
@@ -59,14 +59,14 @@ impl LifecycleService {
             .room_storage
             .get_room(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get room", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to get room", e))?
             .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
         let members = self
             .member_storage
             .get_room_members(room_id, "join")
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get members", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get members", e))?;
 
         let is_member = members.iter().any(|m| m.user_id == user_id && m.membership == "join");
 

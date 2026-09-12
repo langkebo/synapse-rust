@@ -86,7 +86,7 @@ async fn create_session(
         .rendezvous_storage
         .create_session(params)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to create session", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to create session", e))?;
 
     ::tracing::info!(request_id = %request_id, session_id = %session.session_id, intent = ?session.intent, "Created rendezvous session");
 
@@ -107,7 +107,7 @@ async fn load_rendezvous_session(ctx: &AuthContext, session_id: &str) -> Result<
     ctx.rendezvous_storage
         .get_session(session_id)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to get session", &e))?
+        .map_err(|e| ApiError::internal_with_cause("Failed to get session", e))?
         .ok_or_else(|| ApiError::not_found("Session not found or expired".to_string()))
 }
 
@@ -191,7 +191,7 @@ async fn update_session(
     ctx.rendezvous_storage
         .update_session_status(&session_id, status)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to update session", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to update session", e))?;
     ::tracing::info!(request_id = %request_id, session_id = %session_id, status, "Updated rendezvous session");
 
     if status == "connected" {
@@ -200,7 +200,7 @@ async fn update_session(
         ctx.rendezvous_storage
             .bind_user_to_session(&session_id, &user_id, &device_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to bind user", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to bind user", e))?;
     }
 
     if status == "completed" {
@@ -213,7 +213,7 @@ async fn update_session(
                 .token_auth
                 .generate_access_token(user_id, &device_id, false)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to generate token", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Failed to generate token", e))?;
 
             return Ok(Json(json!({
                 "session_id": session.session_id,
@@ -245,7 +245,7 @@ async fn delete_session(
     ctx.rendezvous_storage
         .delete_session(&session_id)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to delete session", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to delete session", e))?;
     ::tracing::info!(request_id = %request_id, session_id = %session_id, "Deleted rendezvous session");
 
     Ok(Json(json!({})))
@@ -271,7 +271,7 @@ async fn send_message(
     ctx.rendezvous_message_storage
         .store_message(&session_id, "outbound", &message)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to send message", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to send message", e))?;
     ::tracing::info!(request_id = %request_id, session_id = %session_id, message_type, "Stored rendezvous message");
 
     // Generate a message ID based on session and timestamp
@@ -297,7 +297,7 @@ async fn get_messages(
         ctx.rendezvous_message_storage
             .get_messages(&session_id, None)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get messages", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get messages", e))?;
 
     let messages_json: Vec<Value> = messages
         .iter()

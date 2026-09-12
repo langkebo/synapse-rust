@@ -97,7 +97,7 @@ pub(crate) async fn jwks(State(ctx): State<SsoContext>) -> Result<Json<serde_jso
     if let Some(provider) = &ctx.builtin_oidc_provider {
         let jwks = provider.get_jwks()?;
         return Ok(Json(
-            serde_json::to_value(jwks).map_err(|e| ApiError::internal_with_context("Failed to serialize JWKS", &e))?,
+            serde_json::to_value(jwks).map_err(|e| ApiError::internal_with_cause("Failed to serialize JWKS", e))?,
         ));
     }
     Err(ApiError::bad_request("Builtin OIDC provider is not enabled".to_string()))

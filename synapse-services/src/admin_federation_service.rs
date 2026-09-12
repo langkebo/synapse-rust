@@ -150,18 +150,15 @@ impl AdminFederationService {
     /// See [`list_destinations`].
     #[instrument(skip(self))]
     pub async fn list_destinations(&self, limit: i32, cursor: Option<DestinationCursor>) -> DestinationListResult {
-        let total = self
-            .storage
-            .count_destinations()
-            .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+        let total =
+            self.storage.count_destinations().await.map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         let fetch_limit = limit as i64 + 1;
         let rows = self
             .storage
             .list_destinations(cursor.as_ref().map(|cursor| cursor.server_name.as_str()), fetch_limit)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         let has_more = rows.len() as i64 > limit as i64;
         let visible_rows = rows.into_iter().take(limit as usize).collect::<Vec<_>>();
@@ -183,7 +180,7 @@ impl AdminFederationService {
             .storage
             .get_destination(destination)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(destination.as_ref().map(map_destination_row))
     }
@@ -195,7 +192,7 @@ impl AdminFederationService {
             .storage
             .reset_connection(destination)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         if rows_affected == 0 {
             return Err(ApiError::not_found("Destination not found".to_string()));
@@ -211,7 +208,7 @@ impl AdminFederationService {
             .storage
             .delete_destination(destination)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         if rows_affected == 0 {
             return Err(ApiError::not_found("Destination not found".to_string()));
@@ -227,7 +224,7 @@ impl AdminFederationService {
             .storage
             .destination_exists(destination)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         if !exists {
             return Err(ApiError::not_found("Destination not found".to_string()));
@@ -236,7 +233,7 @@ impl AdminFederationService {
         self.storage
             .get_destination_rooms(destination)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))
     }
 
     /// See [`rewrite_federation`].
@@ -251,7 +248,7 @@ impl AdminFederationService {
             .storage
             .destination_exists(from_server)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         if !exists {
             return Err(ApiError::not_found(format!("Source server {from_server} not found")));
@@ -261,7 +258,7 @@ impl AdminFederationService {
             .storage
             .count_distinct_rooms_by_sender_server(from_server)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         info!(
             "Federation rewrite from {} to {}: {} rooms affected by {}",
@@ -279,7 +276,7 @@ impl AdminFederationService {
             .storage
             .destination_exists(server_name)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(ResolveFederationResult {
             resolved: in_destinations && !blacklist.is_blocked,
@@ -303,7 +300,7 @@ impl AdminFederationService {
             .storage
             .get_destination_status(server_name)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         let previous_status = match existing {
             Some(status) => status,
@@ -322,7 +319,7 @@ impl AdminFederationService {
         self.storage
             .update_destination_status(server_name, new_status, now)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         if !accept {
             let request = AddBlacklistRequest {
@@ -360,13 +357,13 @@ impl AdminFederationService {
                 limit as i64,
             )
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         let total = self
             .storage
             .count_pending_federation()
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         let list: Vec<PendingFederationInfo> = pending
             .iter()
@@ -433,7 +430,7 @@ impl AdminFederationService {
             .storage
             .get_federation_cache()
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(cache.iter().map(map_cache_entry).collect())
     }
@@ -445,7 +442,7 @@ impl AdminFederationService {
             .storage
             .delete_federation_cache_entry(key)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         if rows_affected == 0 {
             return Err(ApiError::not_found("Cache entry not found".to_string()));
@@ -461,7 +458,7 @@ impl AdminFederationService {
             .storage
             .clear_federation_cache()
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
         Ok(rows_affected)
     }
 
@@ -481,7 +478,7 @@ impl AdminFederationService {
             .storage
             .get_server_admission_status(server_name)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         match existing {
             // Row exists with a non-NULL status.
@@ -497,7 +494,7 @@ impl AdminFederationService {
                     .storage
                     .insert_pending_server(server_name, now)
                     .await
-                    .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+                    .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
                 info!("New federation server '{}' registered as pending", server_name);
                 Ok(None)
             }

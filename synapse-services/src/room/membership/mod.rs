@@ -28,7 +28,7 @@ impl MembershipService {
             .room_storage
             .room_exists(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check room existence", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to check room existence", e))?
         {
             return Err(ApiError::not_found("Room not found".to_string()));
         }
@@ -37,7 +37,7 @@ impl MembershipService {
             .member_storage
             .is_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check membership", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to check membership", e))?
         {
             return Err(ApiError::forbidden("You are not a member of this room".to_string()));
         }
@@ -46,7 +46,7 @@ impl MembershipService {
             .member_storage
             .get_room_members_with_profiles(room_id, "join")
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get members", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get members", e))?;
 
         let chunk: Vec<serde_json::Value> = members_with_profiles
             .iter()
@@ -84,7 +84,7 @@ impl MembershipService {
         self.member_storage
             .get_joined_rooms(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get joined rooms", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get joined rooms", e))
     }
 
     /// See [`get_shared_room_users`].
@@ -92,7 +92,7 @@ impl MembershipService {
         self.member_storage
             .get_shared_room_users(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get shared room users", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get shared room users", e))
     }
 
     /// See [`share_common_room`].
@@ -100,7 +100,7 @@ impl MembershipService {
         self.member_storage
             .share_common_room(user_id, other_user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check shared room membership", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to check shared room membership", e))
     }
 
     /// See [`share_common_rooms_batch`].
@@ -108,7 +108,7 @@ impl MembershipService {
         self.member_storage
             .share_common_rooms_batch(user_id, other_user_ids)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check shared room membership batch", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to check shared room membership batch", e))
     }
 
     /// See [`get_joined_members_with_profiles`].
@@ -116,7 +116,7 @@ impl MembershipService {
         self.member_storage
             .get_joined_members(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get joined members", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get joined members", e))
     }
 
     /// See [`get_membership_history`].
@@ -124,7 +124,7 @@ impl MembershipService {
         self.member_storage
             .get_membership_history(room_id, limit)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get membership history", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get membership history", e))
     }
 
     /// See [`get_room_members_by_membership`].
@@ -136,7 +136,7 @@ impl MembershipService {
         self.member_storage
             .get_room_members(room_id, membership)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get room members", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get room members", e))
     }
 
     /// See [`has_any_non_banned_member_from_server`].
@@ -144,7 +144,7 @@ impl MembershipService {
         self.member_storage
             .has_any_non_banned_member_from_server(room_id, server_name)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check server room membership", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to check server room membership", e))
     }
 
     /// Check whether a user shares any joined room with a member from the
@@ -155,7 +155,7 @@ impl MembershipService {
         self.member_storage
             .user_shares_room_with_server(user_id, server_name)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check user shares room with server", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to check user shares room with server", e))
     }
 
     /// Batch version of `user_shares_room_with_server`: returns the subset of
@@ -170,7 +170,7 @@ impl MembershipService {
         self.member_storage
             .filter_users_sharing_room_with_server(user_ids, server_name)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to batch check users sharing room with server", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to batch check users sharing room with server", e))
     }
 
     /// See [`get_room_membership`].
@@ -178,7 +178,7 @@ impl MembershipService {
         self.member_storage
             .get_membership_state(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check room membership", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to check room membership", e))
     }
 
     /// See [`get_room_member_record`].
@@ -186,7 +186,7 @@ impl MembershipService {
         self.member_storage
             .get_room_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to load room member", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to load room member", e))
     }
 
     /// See [`remove_member_record`].
@@ -194,7 +194,7 @@ impl MembershipService {
         self.member_storage
             .remove_member(room_id, user_id, None)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to remove room member", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to remove room member", e))
     }
 
     /// See [`get_room_members_paginated_admin`].
@@ -208,7 +208,7 @@ impl MembershipService {
         self.member_storage
             .get_room_members_paginated(room_id, membership, limit, from)
             .await
-            .map_err(|e| ApiError::database_with_context("Failed to get room members", &e))
+            .map_err(|e| ApiError::database_with_cause("Failed to get room members", e))
     }
 
     /// See [`get_room_member_count_admin`].
@@ -216,7 +216,7 @@ impl MembershipService {
         self.member_storage
             .get_room_member_count(room_id)
             .await
-            .map_err(|e| ApiError::database_with_context("Failed to count room members", &e))
+            .map_err(|e| ApiError::database_with_cause("Failed to count room members", e))
     }
 
     /// See [`admin_ban_user_membership`].
@@ -224,7 +224,7 @@ impl MembershipService {
         self.member_storage
             .ban_member(room_id, user_id, banned_by)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to ban user", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to ban user", e))
     }
 
     /// See [`admin_unban_user_membership`].
@@ -232,7 +232,7 @@ impl MembershipService {
         self.member_storage
             .unban_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to unban user", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to unban user", e))
     }
 
     /// See [`set_ban_reason`].
@@ -240,7 +240,7 @@ impl MembershipService {
         self.member_storage
             .set_ban_reason(room_id, user_id, reason)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to set ban reason", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to set ban reason", e))
     }
 
     /// See [`force_leave_membership`].
@@ -248,7 +248,7 @@ impl MembershipService {
         self.member_storage
             .force_leave_membership(room_id, user_id, now)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to force leave membership", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to force leave membership", e))
     }
 
     /// See [`decrement_member_count`].
@@ -257,7 +257,7 @@ impl MembershipService {
             .decrement_member_count(room_id, None)
             .await
             .map(|_| ())
-            .map_err(|e| ApiError::internal_with_context("Failed to update member count", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to update member count", e))
     }
 
     /// See [`get_invited_members_count`].
@@ -293,7 +293,7 @@ impl MembershipService {
                 Some(pool) => Some(
                     pool.begin()
                         .await
-                        .map_err(|e| ApiError::internal_with_context("Failed to begin add_member transaction", &e))?,
+                        .map_err(|e| ApiError::internal_with_cause("Failed to begin add_member transaction", e))?,
                 ),
                 None => None,
             }
@@ -305,7 +305,7 @@ impl MembershipService {
             .member_storage
             .add_member(room_id, user_id, membership, display_name, join_reason, None, effective_tx)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to add member", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to add member", e))?;
 
         if let Some(ref mut t) = own_tx {
             // We own this transaction. Write the summary in the same tx so a

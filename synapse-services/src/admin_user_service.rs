@@ -262,7 +262,7 @@ impl AdminUserService {
     /// See [`delete_user`].
     #[instrument(skip(self))]
     pub async fn delete_user(&self, user_id: &str) -> Result<(), ApiError> {
-        self.user_storage.delete_user(user_id).await.map_err(|e| ApiError::internal_with_context("Database error", &e))
+        self.user_storage.delete_user(user_id).await.map_err(|e| ApiError::internal_with_cause("Database error", e))
     }
 
     /// See [`set_admin_status`].
@@ -272,7 +272,7 @@ impl AdminUserService {
             .set_admin_status(user_id, is_admin)
             .await
             .map(|_| ())
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))
     }
 
     /// See [`get_user_rooms_paginated`].
@@ -295,7 +295,7 @@ impl AdminUserService {
         self.device_storage
             .get_user_devices(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))
     }
 
     /// See [`get_user_device_count`].
@@ -304,7 +304,7 @@ impl AdminUserService {
         self.device_storage
             .get_device_count(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))
     }
 
     /// See [`get_joined_room_count`].
@@ -313,7 +313,7 @@ impl AdminUserService {
         self.member_storage
             .get_joined_room_count(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))
     }
 
     /// See [`evict_user_from_joined_rooms`].
@@ -338,7 +338,7 @@ impl AdminUserService {
                 .member_storage
                 .get_joined_rooms_page(user_id, &after_room_id, page_size)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
             if page.is_empty() {
                 break;
@@ -411,7 +411,7 @@ impl AdminUserService {
                 name_filter,
             )
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         // B-6 fix: compute `total` against the same name_filter used for the
         // page query so the admin client can paginate correctly.  Previously
@@ -422,7 +422,7 @@ impl AdminUserService {
             .user_storage
             .count_users_matching(name_filter)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         let users = rows
             .iter()
@@ -462,7 +462,7 @@ impl AdminUserService {
             .device_storage
             .get_user_devices(&user.user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(Some(AdminUserDetails {
             user: AdminUserProfile::from(&user),
@@ -506,21 +506,21 @@ impl AdminUserService {
                 self.user_storage
                     .set_admin_status(&existing_user.user_id, is_admin)
                     .await
-                    .map_err(|e| ApiError::internal_with_context("Failed to update user admin status", &e))?;
+                    .map_err(|e| ApiError::internal_with_cause("Failed to update user admin status", e))?;
             }
 
             if let Some(is_deactivated) = is_deactivated {
                 self.user_storage
                     .set_deactivation_status(&existing_user.user_id, is_deactivated)
                     .await
-                    .map_err(|e| ApiError::internal_with_context("Failed to update user deactivation status", &e))?;
+                    .map_err(|e| ApiError::internal_with_cause("Failed to update user deactivation status", e))?;
             }
 
             if let Some(user_type) = user_type {
                 self.user_storage
                     .set_user_type(&existing_user.user_id, Some(user_type))
                     .await
-                    .map_err(|e| ApiError::internal_with_context("Failed to update user type", &e))?;
+                    .map_err(|e| ApiError::internal_with_cause("Failed to update user type", e))?;
             }
 
             if let Some(password) = password {
@@ -529,7 +529,7 @@ impl AdminUserService {
                 self.user_storage
                     .update_password(&existing_user.user_id, &password_hash)
                     .await
-                    .map_err(|e| ApiError::internal_with_context("Failed to update password", &e))?;
+                    .map_err(|e| ApiError::internal_with_cause("Failed to update password", e))?;
             }
 
             return Ok(());
@@ -553,7 +553,7 @@ impl AdminUserService {
             .user_storage
             .create_user(&user_id, &username, Some(&password_hash), is_admin.unwrap_or(false))
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to create user", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to create user", e))?;
 
         if let Some(displayname) = displayname {
             self.user_service.update_displayname(&created.user_id, Some(displayname)).await?;
@@ -567,14 +567,14 @@ impl AdminUserService {
             self.user_storage
                 .set_deactivation_status(&created.user_id, true)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to deactivate created user", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Failed to deactivate created user", e))?;
         }
 
         if let Some(user_type) = user_type {
             self.user_storage
                 .set_user_type(&created.user_id, Some(user_type))
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to set user type", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Failed to set user type", e))?;
         }
 
         Ok(())
@@ -587,13 +587,13 @@ impl AdminUserService {
             .user_storage
             .get_user_stats_summary()
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get user stats", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get user stats", e))?;
 
         let room_count = self
             .room_storage
             .get_room_count()
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get room count", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get room count", e))?;
         let average_rooms_per_user =
             if stats.total_users > 0 { (room_count as f64 / stats.total_users as f64).round() } else { 0.0 };
 
@@ -616,17 +616,17 @@ impl AdminUserService {
             .member_storage
             .get_joined_room_count(&user.user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to count rooms", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to count rooms", e))?;
         let messages_sent = self
             .user_storage
             .count_sent_messages(&user.user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to count messages", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to count messages", e))?;
         let last_seen_ts = self
             .device_storage
             .get_user_devices(&user.user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get last seen", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to get last seen", e))?
             .into_iter()
             .filter_map(|device| device.last_seen_ts)
             .max();
@@ -687,7 +687,7 @@ impl AdminUserService {
             self.user_storage
                 .set_deactivation_status_batch(&valid, true)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to batch-deactivate users", &e))?
+                .map_err(|e| ApiError::internal_with_cause("Failed to batch-deactivate users", e))?
                 .into_iter()
                 .collect()
         };
@@ -725,7 +725,7 @@ impl AdminUserService {
             self.user_storage
                 .set_admin_status(user_id, is_admin)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
         }
 
         Ok(())

@@ -7,6 +7,7 @@ use std::sync::LazyLock;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 use synapse_common::current_timestamp_millis;
+use synapse_common::test_schema_guard::{register_schema_cleanup, SchemaCleanup};
 use synapse_services::database_initializer::{DatabaseInitMode, DatabaseInitService};
 use tokio::sync::OnceCell;
 use tokio::sync::{Mutex as TokioMutex, RwLock as TokioRwLock, Semaphore};
@@ -296,14 +297,15 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     let database_url = resolve_test_database_url().await?;
     let schema_name = next_test_schema_name();
 
-    // Opportunistically reap schemas whose owning pool has already been dropped.
-    // Without this, a run that only exercises the isolated path never sweeps
-    // (the sweep used to live only on the shared/clone path), so every isolated
-    // schema survived the whole run and only ever vanished via the manual
-    // scripts/cleanup_test_schemas.sh — which is how this database reached
-    // 23,662 leftover schemas (docs/audit/P5_test_schema_accumulation_2026-09-12.md).
-    schedule_pending_schema_cleanup();
-
+    // Cleanup is owned by the shared janitor (`synapse_common::test_schema_guard`):
+    // it watchers the pool's weak reference and drops the schema once the last
+    // `Arc<PgPool>` is released, with an atexit join as the deterministic
+    // backstop. No process-local sweep is needed — the old
+    // `schedule_pending_schema_cleanup()` only ran on the *next* acquisition,
+    // which never happens under nextest (one test per process), so every isolated
+    // schema leaked until a manual cleanup. That structural defect produced the
+    // 23,662 leftover schemas recorded in
+    // docs/audit/P5_test_schema_accumulation_2026-09-12.md.
     let connect_timeout = configured_test_pool_connect_timeout();
     let admin_pool = tokio::time::timeout(
         connect_timeout,
@@ -397,6 +399,11 @@ pub async fn prepare_shared_test_pool() -> Result<Arc<PgPool>, String> {
     // Weak 活体检测——pool 最后一个 Arc drop 后由后台 CLEANUP_RUNTIME TRUNCATE
     // 并推回池。TEST_SCHEMA_POOL_REUSE=0 时回退到纯 clone 行为。
     if test_schema_pool_reuse_enabled() {
+        // Opportunistically reap schemas whose owning pool has already been dropped.
+        // Under nextest (one process per test) this never fires, but the janitor's
+        // atexit backstop still drops every schema at process exit — the structural
+        // fix for the accumulation defect described in
+        // docs/audit/P5_test_schema_accumulation_2026-09-12.md.
         schedule_pending_schema_cleanup();
         if let Some(schema_name) = SCHEMA_POOL.lock().await.pop() {
             let pool = create_pool_for_schema(&database_url, &schema_name).await?;

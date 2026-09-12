@@ -65,7 +65,7 @@ pub(crate) async fn thirdparty_invite(
         .messaging()
         .create_event(params, None)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to create invite event", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to create invite event", e))?;
     // F-03: add local server signature so other origins can verify the
     // invite. We build a minimal PDU from the persisted fields.
     let mut pdu = json!({
@@ -123,7 +123,7 @@ pub(crate) async fn invite_v2(
         .messaging()
         .create_event(params, None)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to create invite event", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to create invite event", e))?;
 
     // F-03: add local server signature so other origins can verify the
     // invite. We reconstruct the minimal PDU that was persisted.

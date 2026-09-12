@@ -26,7 +26,7 @@ impl LifecycleService {
             self.room_storage.create_room(room_id, user_id, join_rule, room_version, is_public).await
         };
 
-        result.map(|_| ()).map_err(|e| ApiError::internal_with_context("Failed to create room", &e))
+        result.map(|_| ()).map_err(|e| ApiError::internal_with_cause("Failed to create room", e))
     }
 
     /// See [`add_creator_to_room`].
@@ -39,7 +39,7 @@ impl LifecycleService {
         self.member_storage
             .add_member(room_id, user_id, "join", None, None, None, tx)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to add room member", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to add room member", e))?;
 
         Ok(())
     }
@@ -60,12 +60,12 @@ impl LifecycleService {
                 self.room_storage
                     .update_room_name_in_tx(tx, room_id, room_name)
                     .await
-                    .map_err(|e| ApiError::internal_with_context("Failed to update room name", &e))?;
+                    .map_err(|e| ApiError::internal_with_cause("Failed to update room name", e))?;
             } else {
                 self.room_storage
                     .update_room_name(room_id, room_name)
                     .await
-                    .map_err(|e| ApiError::internal_with_context("Failed to update room name", &e))?;
+                    .map_err(|e| ApiError::internal_with_cause("Failed to update room name", e))?;
             }
             self.event_writer
                 .create_event(
@@ -82,7 +82,7 @@ impl LifecycleService {
                     tx.as_deref_mut(),
                 )
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to create m.room.name event", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Failed to create m.room.name event", e))?;
         }
 
         if let Some(room_topic) = topic {
@@ -90,12 +90,12 @@ impl LifecycleService {
                 self.room_storage
                     .update_room_topic_in_tx(tx, room_id, room_topic)
                     .await
-                    .map_err(|e| ApiError::internal_with_context("Failed to update room topic", &e))?;
+                    .map_err(|e| ApiError::internal_with_cause("Failed to update room topic", e))?;
             } else {
                 self.room_storage
                     .update_room_topic(room_id, room_topic)
                     .await
-                    .map_err(|e| ApiError::internal_with_context("Failed to update room topic", &e))?;
+                    .map_err(|e| ApiError::internal_with_cause("Failed to update room topic", e))?;
             }
             self.event_writer
                 .create_event(
@@ -112,7 +112,7 @@ impl LifecycleService {
                     tx.as_deref_mut(),
                 )
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to create m.room.topic event", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Failed to create m.room.topic event", e))?;
         }
 
         Ok(())
@@ -140,7 +140,7 @@ impl LifecycleService {
                 .user_storage
                 .filter_existing_users(invites)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to check users existence", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Failed to check users existence", e))?;
 
             let mut offset: i64 = 0;
             for invitee in invites {
@@ -157,7 +157,7 @@ impl LifecycleService {
                 self.member_storage
                     .add_member(room_id, invitee, "invite", None, reason, Some(sender_user_id), Some(&mut *tx))
                     .await
-                    .map_err(|e| ApiError::internal_with_context("Failed to invite user", &e))?;
+                    .map_err(|e| ApiError::internal_with_cause("Failed to invite user", e))?;
                 self.event_writer
                     .create_event(
                         CreateEventParams {
@@ -173,7 +173,7 @@ impl LifecycleService {
                         Some(&mut *tx),
                     )
                     .await
-                    .map_err(|e| ApiError::internal_with_context("Failed to record m.room.member invite event", &e))?;
+                    .map_err(|e| ApiError::internal_with_cause("Failed to record m.room.member invite event", e))?;
                 offset += 1;
             }
         }

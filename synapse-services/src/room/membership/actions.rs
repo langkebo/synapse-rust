@@ -26,7 +26,7 @@ impl MembershipService {
             .room_storage
             .room_exists(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check room existence", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to check room existence", e))?;
 
         if room_exists {
             return self.join_room(room_id, user_id).await;
@@ -53,7 +53,7 @@ impl MembershipService {
             .room_storage
             .room_exists(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check room", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to check room", e))?
         {
             return Err(ApiError::not_found("Room not found".to_string()));
         }
@@ -62,7 +62,7 @@ impl MembershipService {
             .user_storage
             .user_exists(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check user existence", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to check user existence", e))?
         {
             return Err(ApiError::not_found("User not found".to_string()));
         }
@@ -91,12 +91,12 @@ impl MembershipService {
         self.member_storage
             .add_member(room_id, user_id, "join", None, None, None, None)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to join room", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to join room", e))?;
 
         self.room_storage
             .increment_member_count(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to update member count", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to update member count", e))?;
 
         let join_event = self
             .event_writer
@@ -117,7 +117,7 @@ impl MembershipService {
                 None,
             )
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to record m.room.member join event", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to record m.room.member join event", e))?;
 
         // Invalidate room-state cache after membership state change.
         let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
@@ -155,7 +155,7 @@ impl MembershipService {
             .member_storage
             .get_room_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check membership before leave", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to check membership before leave", e))?;
 
         let current_state =
             existing_member.as_ref().and_then(|m| super::transition::MembershipState::parse_opt(&m.membership));
@@ -170,13 +170,13 @@ impl MembershipService {
         self.member_storage
             .remove_member(room_id, user_id, None)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to leave room", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to leave room", e))?;
 
         if existing_member.as_ref().is_some_and(|member| member.membership == "join") {
             self.room_storage
                 .decrement_member_count(room_id, None)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to update member count", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Failed to update member count", e))?;
         }
 
         let leave_event = self
@@ -195,7 +195,7 @@ impl MembershipService {
                 None,
             )
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to record m.room.member leave event", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to record m.room.member leave event", e))?;
 
         // Invalidate room-state cache after membership state change.
         let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
@@ -279,7 +279,7 @@ impl MembershipService {
             .member_storage
             .get_room_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check membership", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to check membership", e))?;
 
         match membership {
             Some(member) => match member.membership.as_str() {
@@ -295,7 +295,7 @@ impl MembershipService {
                     self.member_storage
                         .forget_member(room_id, user_id, None)
                         .await
-                        .map_err(|e| ApiError::internal_with_context("Failed to forget room", &e))?;
+                        .map_err(|e| ApiError::internal_with_cause("Failed to forget room", e))?;
                 }
                 _ => {
                     return Err(ApiError::bad_request(format!("Unknown membership state: {}", member.membership)));
@@ -344,7 +344,7 @@ impl MembershipService {
             .member_storage
             .get_room_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check membership before leave+forget", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to check membership before leave+forget", e))?;
         let current_state =
             existing_member.as_ref().and_then(|m| super::transition::MembershipState::parse_opt(&m.membership));
         if let Err(msg) = super::transition::is_legal(
@@ -372,20 +372,20 @@ impl MembershipService {
         let mut tx = pool
             .begin()
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to begin leave+forget transaction", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to begin leave+forget transaction", e))?;
 
         // Step 1 (in tx): mark membership 'leave' and zero the
         // member count delta.
         self.member_storage
             .remove_member(room_id, user_id, Some(&mut tx))
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to leave room (in transaction)", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to leave room (in transaction)", e))?;
 
         if existing_member.as_ref().is_some_and(|member| member.membership == "join") {
             self.room_storage
                 .decrement_member_count(room_id, Some(&mut tx))
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to update member count (in transaction)", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Failed to update member count (in transaction)", e))?;
         }
 
         // Step 2 (in tx): mark membership 'forget' so the user no
@@ -395,11 +395,9 @@ impl MembershipService {
         self.member_storage
             .forget_member(room_id, user_id, Some(&mut tx))
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to forget room (in transaction)", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to forget room (in transaction)", e))?;
 
-        tx.commit()
-            .await
-            .map_err(|e| ApiError::internal_with_context("Failed to commit leave+forget transaction", &e))?;
+        tx.commit().await.map_err(|e| ApiError::internal_with_cause("Failed to commit leave+forget transaction", e))?;
 
         // Best-effort post-commit work — same as leave_room. Failures
         // here are logged but not surfaced to the client; the
@@ -420,7 +418,7 @@ impl MembershipService {
                 None,
             )
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to record m.room.member leave event", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to record m.room.member leave event", e))?;
 
         let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
 

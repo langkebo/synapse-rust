@@ -699,11 +699,13 @@ mod tests {
 
     async fn prepare_media_test_pool() -> Result<Arc<sqlx::PgPool>, String> {
         let database_url = test_utils::resolve_test_database_url().await?;
-        // Reap schemas whose owning pool from an earlier media test has been
-        // released. This function used to mint a schema per call and never drop
-        // it: 1,033 orphaned `media_test_*` schemas had accumulated by
-        // 2026-09-12 (docs/audit/P5_test_schema_accumulation_2026-09-12.md).
-        test_utils::sweep_pending_schema_drops();
+        // NOTE: the old `sweep_pending_schema_drops()` call used to sit here. There
+        // is no sweep to trigger any more: cleanup is registered with the shared
+        // janitor in `synapse_common::test_schema_guard`, which fires on the pool's
+        // own release and joins at process exit. Dropping the sweep is the point —
+        // it only ran on a *later* acquisition, which under nextest's one-process-
+        // per-test model never happens. See
+        // docs/audit/P5_test_schema_accumulation_2026-09-12.md §9.
         let schema_name = format!(
             "media_test_{}_{}",
             std::process::id(),
@@ -885,7 +887,15 @@ mod tests {
         .map_err(|error| format!("failed to create media test schema objects in {schema_name}: {error}"))?;
 
         let pool = Arc::new(pool);
-        test_utils::register_pending_schema_drop_for_media(&pool, schema_name, database_url);
+        // Register with the shared janitor. This replaces the old per-crate
+        // `register_pending_schema_drop_for_media` registry, which could not fire
+        // under nextest (see the note in this function's header and
+        // docs/audit/P5_test_schema_accumulation_2026-09-12.md §9).
+        synapse_common::test_schema_guard::register_schema_cleanup(
+            &pool,
+            &schema_name,
+            synapse_common::test_schema_guard::SchemaCleanup::drop_only(&database_url, &schema_name),
+        );
         Ok(pool)
     }
 

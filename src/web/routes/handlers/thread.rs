@@ -313,7 +313,7 @@ async fn ensure_thread_management_access(
         .state()
         .is_room_creator(room_id, &auth_user.user_id)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to check room creator", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to check room creator", e))?;
 
     if !is_creator {
         return Err(ApiError::forbidden("Only room admins can manage threads".to_string()));

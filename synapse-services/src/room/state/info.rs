@@ -17,14 +17,14 @@ impl RoomStateService {
             .room_storage
             .get_room(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get room", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to get room", e))?
             .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
         let encryption_events = self
             .event_reader
             .get_state_events_by_type(room_id, "m.room.encryption")
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get encryption event content", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get encryption event content", e))?;
         let encryption_content = encryption_events.first().map(|event| event.content.clone());
         let is_encrypted = encryption_content.is_some();
 
@@ -51,14 +51,14 @@ impl RoomStateService {
             .room_storage
             .get_room(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get room", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to get room", e))?
             .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
         let requester = self
             .user_storage
             .get_user_by_id(requester_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get user", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to get user", e))?
             .ok_or_else(|| ApiError::unauthorized("Requester not found"))?;
 
         let is_creator = room.creator_user_id.as_deref() == Some(requester_id);
@@ -71,7 +71,7 @@ impl RoomStateService {
         self.room_storage
             .delete_room(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to delete room", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to delete room", e))?;
 
         tracing::info!(
             room_id = %room_id,
@@ -87,7 +87,7 @@ impl RoomStateService {
             .room_storage
             .get_user_room_list_summary(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get user rooms", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get user rooms", e))?;
 
         Ok(rooms
             .into_iter()
@@ -107,7 +107,7 @@ impl RoomStateService {
         self.room_storage
             .cleanup_abnormal_data(min_age_ms)
             .await
-            .map_err(|e| ApiError::internal_with_context("Cleanup failed", &e))
+            .map_err(|e| ApiError::internal_with_cause("Cleanup failed", e))
     }
 
     /// See [`room_exists`].
@@ -116,7 +116,7 @@ impl RoomStateService {
             .room_storage
             .room_exists(room_id)
             .await
-            .map_err(|e| ApiError::database_with_context("Failed to check room existence", &e))?;
+            .map_err(|e| ApiError::database_with_cause("Failed to check room existence", e))?;
         Ok(exists)
     }
 
@@ -126,7 +126,7 @@ impl RoomStateService {
         self.room_storage
             .block_room(room_id, now, blocked_by, reason)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to block room", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to block room", e))
     }
 
     /// See [`get_room_block_status`].
@@ -134,7 +134,7 @@ impl RoomStateService {
         self.room_storage
             .get_room_block_status(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get room block status", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get room block status", e))
     }
 
     /// See [`unblock_room`].
@@ -142,7 +142,7 @@ impl RoomStateService {
         self.room_storage
             .unblock_room(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to unblock room", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to unblock room", e))
     }
 
     /// See [`get_public_rooms_paginated`].
@@ -155,7 +155,7 @@ impl RoomStateService {
         self.room_storage
             .get_public_rooms_paginated(limit, since_ts, since_room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get public rooms", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get public rooms", e))
     }
 
     /// See [`count_public_rooms`].
@@ -163,7 +163,7 @@ impl RoomStateService {
         self.room_storage
             .count_public_rooms()
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to count public rooms", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to count public rooms", e))
     }
 
     /// See [`get_room_stats_overview`].
@@ -171,7 +171,7 @@ impl RoomStateService {
         self.room_storage
             .get_room_stats_overview()
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get room statistics overview", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get room statistics overview", e))
     }
 
     /// See [`get_single_room_stats`].
@@ -179,7 +179,7 @@ impl RoomStateService {
         self.room_storage
             .get_single_room_stats(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get room statistics", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get room statistics", e))
     }
 
     /// See [`get_all_rooms_with_members`].
@@ -192,20 +192,17 @@ impl RoomStateService {
         self.room_storage
             .get_all_rooms_with_members(limit, from, order_by)
             .await
-            .map_err(|e| ApiError::database_with_context("Failed to list rooms", &e))
+            .map_err(|e| ApiError::database_with_cause("Failed to list rooms", e))
     }
 
     /// See [`get_room_count`].
     pub async fn get_room_count(&self) -> ApiResult<i64> {
-        self.room_storage
-            .get_room_count()
-            .await
-            .map_err(|e| ApiError::database_with_context("Failed to count rooms", &e))
+        self.room_storage.get_room_count().await.map_err(|e| ApiError::database_with_cause("Failed to count rooms", e))
     }
 
     /// See [`get_room_record`].
     pub async fn get_room_record(&self, room_id: &str) -> ApiResult<Option<Room>> {
-        self.room_storage.get_room(room_id).await.map_err(|e| ApiError::database_with_context("Failed to get room", &e))
+        self.room_storage.get_room(room_id).await.map_err(|e| ApiError::database_with_cause("Failed to get room", e))
     }
 
     /// See [`get_room_listings_status`].
@@ -213,7 +210,7 @@ impl RoomStateService {
         self.room_storage
             .get_room_listings_status(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get room listing status", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get room listing status", e))
     }
 
     /// See [`set_room_public_with_directory`].
@@ -221,7 +218,7 @@ impl RoomStateService {
         self.room_storage
             .set_room_public_with_directory(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to set room public", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to set room public", e))
     }
 
     /// See [`set_room_private_with_directory`].
@@ -229,7 +226,7 @@ impl RoomStateService {
         self.room_storage
             .set_room_private_with_directory(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to set room private", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to set room private", e))
     }
 
     /// See [`shutdown_room_and_remove_members`].
@@ -237,11 +234,11 @@ impl RoomStateService {
         self.room_storage
             .shutdown_room(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to shutdown room", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to shutdown room", e))?;
         self.member_storage
             .remove_all_members(room_id)
             .await
-            .map_err(|e| ApiError::database_with_context("Failed to remove room members", &e))?;
+            .map_err(|e| ApiError::database_with_cause("Failed to remove room members", e))?;
         Ok(())
     }
 
@@ -266,7 +263,7 @@ impl RoomStateService {
         self.event_writer
             .upsert_power_levels_event(&event_id, room_id, user_id, power_levels, now, &sender)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to grant room admin", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to grant room admin", e))
     }
 
     /// See [`purge_history_before`].
@@ -274,7 +271,7 @@ impl RoomStateService {
         self.event_writer
             .delete_events_before(room_id, timestamp, dry_run)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to purge history", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to purge history", e))
     }
 
     /// See [`get_room_version`].
@@ -282,7 +279,7 @@ impl RoomStateService {
         self.room_storage
             .get_room_version_only(room_id)
             .await
-            .map_err(|e| ApiError::database_with_context("Failed to get room version", &e))
+            .map_err(|e| ApiError::database_with_cause("Failed to get room version", e))
     }
 
     /// See [`search_all_rooms_admin`].
@@ -298,7 +295,7 @@ impl RoomStateService {
         self.room_storage
             .search_all_rooms_admin(search_term, limit, order_by, cursor, is_public, is_encrypted)
             .await
-            .map_err(|e| ApiError::internal_with_context("Search failed", &e))
+            .map_err(|e| ApiError::internal_with_cause("Search failed", e))
     }
 
     /// See [`is_room_creator`].
@@ -307,7 +304,7 @@ impl RoomStateService {
             .room_storage
             .get_room(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get room", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get room", e))?;
 
         match room {
             Some(r) => Ok(r.creator_user_id.as_deref() == Some(user_id)),
@@ -320,7 +317,7 @@ impl RoomStateService {
         self.event_reader
             .check_room_has_encryption(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check room encryption status", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to check room encryption status", e))
     }
 }
 

@@ -86,7 +86,7 @@ impl OpenIdTokenStorage {
         .bind(request.expires_at)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to create OpenID token", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to create OpenID token", e))?;
 
         Ok(token)
     }
@@ -103,7 +103,7 @@ impl OpenIdTokenStorage {
         .bind(token)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to get OpenID token", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to get OpenID token", e))?;
 
         Ok(token_data)
     }
@@ -123,7 +123,7 @@ impl OpenIdTokenStorage {
         .bind(now)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to validate OpenID token", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to validate OpenID token", e))?;
 
         Ok(token_data)
     }
@@ -140,7 +140,7 @@ impl OpenIdTokenStorage {
         .bind(token)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to revoke OpenID token", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to revoke OpenID token", e))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -157,7 +157,7 @@ impl OpenIdTokenStorage {
         .bind(user_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to revoke user OpenID tokens", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to revoke user OpenID tokens", e))?;
 
         Ok(result.rows_affected())
     }
@@ -175,7 +175,7 @@ impl OpenIdTokenStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to cleanup expired OpenID tokens", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to cleanup expired OpenID tokens", e))?;
 
         Ok(result.rows_affected())
     }
@@ -193,7 +193,7 @@ impl OpenIdTokenStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to get user OpenID tokens", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to get user OpenID tokens", e))?;
 
         Ok(tokens)
     }

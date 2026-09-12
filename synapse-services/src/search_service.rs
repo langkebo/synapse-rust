@@ -339,7 +339,7 @@ impl SearchService {
                 limit + 1,
             )
             .await
-            .map_err(|e| ApiError::internal_with_context("Search failed", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Search failed", e))?;
 
         let has_more = rows.len() > limit as usize;
         let visible_rows = if has_more { &rows[..limit as usize] } else { &rows[..] };
@@ -379,7 +379,7 @@ impl SearchService {
         event_storage
             .create_postgres_fts_index()
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to create FTS index", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to create FTS index", e))?;
 
         ::tracing::info!(
             provider = %"postgres",
@@ -485,7 +485,7 @@ impl SearchService {
             .json(&doc)
             .send()
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to index event", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to index event", e))?;
 
         if !response.status().is_success() {
             return Err(ApiError::internal("Failed to index event".to_string()));
@@ -528,7 +528,7 @@ impl SearchService {
             .body(body)
             .send()
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to bulk index", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to bulk index", e))?;
 
         let status = response.status();
         if !status.is_success() {
@@ -556,7 +556,7 @@ impl SearchService {
             .delete(&url)
             .send()
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to delete event", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to delete event", e))?;
 
         let status = response.status();
         if !status.is_success() && status.as_u16() != 404 {
@@ -705,12 +705,10 @@ impl SearchService {
             .json(&search_body)
             .send()
             .await
-            .map_err(|e| ApiError::internal_with_context("Search failed", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Search failed", e))?;
 
-        let response_json: Value = response
-            .json()
-            .await
-            .map_err(|e| ApiError::internal_with_context("Failed to parse search response", &e))?;
+        let response_json: Value =
+            response.json().await.map_err(|e| ApiError::internal_with_cause("Failed to parse search response", e))?;
 
         let hits_array = response_json
             .get("hits")
@@ -782,7 +780,7 @@ impl SearchService {
             .json(&delete_by_query)
             .send()
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to delete room index", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to delete room index", e))?;
 
         let status = response.status();
         if !status.is_success() {
@@ -858,7 +856,7 @@ impl SearchService {
         let joined_rooms = room_storage
             .get_user_rooms(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get joined rooms", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get joined rooms", e))?;
 
         if joined_rooms.is_empty() {
             return Ok(SearchRoomEventsPage { results: Vec::new(), next_batch: None });
@@ -877,7 +875,7 @@ impl SearchService {
                 limit + 1,
             )
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         let has_more = rows.len() > limit as usize;
         let visible_rows = if has_more { &rows[..limit as usize] } else { &rows[..] };
@@ -918,7 +916,7 @@ impl SearchService {
         let row = event_storage
             .find_event_id_by_timestamp(room_id, ts, matches!(direction, TimestampDirection::Forward))
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(row.map(|(event_id, origin_server_ts)| TimestampEventMatch { event_id, origin_server_ts }))
     }
@@ -936,12 +934,12 @@ impl SearchService {
         let events_before = event_storage
             .get_events_before_context(room_id, target_ts, limit)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         let events_after = event_storage
             .get_events_after_context(room_id, target_ts, limit)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(EventContextWindow {
             events_before: events_before.into_iter().map(Self::context_entry_from_value).collect(),
@@ -963,7 +961,7 @@ impl SearchService {
         let rows = room_storage
             .search_rooms_for_user(user_id, &search_pattern, limit)
             .await
-            .map_err(|e| ApiError::internal_with_context("Search failed", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Search failed", e))?;
 
         Ok(rows
             .into_iter()
@@ -990,7 +988,7 @@ impl SearchService {
         let rows = event_storage
             .search_room_messages_admin(room_id, &search_pattern, limit)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(rows
             .into_iter()

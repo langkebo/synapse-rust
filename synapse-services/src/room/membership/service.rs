@@ -211,7 +211,7 @@ impl MembershipService {
         key_rotation_manager
             .get_current_key()
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get signing key", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to get signing key", e))?
             .ok_or_else(|| ApiError::internal("No signing key available".to_string()))
     }
 
@@ -226,7 +226,7 @@ impl MembershipService {
             .event_reader
             .get_state_events_by_type(room_id, event_type)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get state events by type", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get state events by type", e))?;
 
         let event_list: Vec<serde_json::Value> = events
             .iter()
@@ -318,7 +318,7 @@ impl MembershipService {
             .member_storage
             .get_room_member(room_id, target_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check membership", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to check membership", e))?;
         let from = existing.as_ref().and_then(|m| Membership::from_str(&m.membership).ok());
         let is_banned = from == Some(Membership::Ban) || existing.as_ref().and_then(|m| m.is_banned).unwrap_or(false);
         Ok((from, is_banned))
@@ -333,7 +333,7 @@ impl MembershipService {
             .event_reader
             .get_state_events_by_type(room_id, "m.room.join_rules")
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to load room join rules", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to load room join rules", e))?
             .into_iter()
             .find(|event| event.state_key.as_deref().unwrap_or_default().is_empty())
         {
@@ -346,7 +346,7 @@ impl MembershipService {
             .room_storage
             .get_room(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to load room", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to load room", e))?;
 
         let raw = effective
             .or_else(|| room.as_ref().and_then(|r| (!r.join_rule.is_empty()).then(|| r.join_rule.clone())))
@@ -448,7 +448,7 @@ impl MembershipService {
         let signing_key = key_rotation_manager
             .get_current_key()
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get signing key", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to get signing key", e))?
             .ok_or_else(|| ApiError::internal("No signing key available".to_string()))?;
 
         sign_and_hash_event(&self.server_name, &signing_key.key_id, &signing_key.secret_key, &mut pdu)
@@ -509,7 +509,7 @@ impl MembershipService {
             .member_storage
             .get_mutual_rooms_between(user_id, other_user_id, limit, after)
             .await
-            .map_err(|e| ApiError::database_with_context("Failed to get mutual rooms", &e))?;
+            .map_err(|e| ApiError::database_with_cause("Failed to get mutual rooms", e))?;
 
         let mut result = json!({
             "joined": rooms,
@@ -545,7 +545,7 @@ impl MembershipService {
             .room_storage
             .room_exists(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check room existence", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to check room existence", e))?
         {
             return Err(ApiError::not_found("Room not found".to_string()));
         }
@@ -554,7 +554,7 @@ impl MembershipService {
             .member_storage
             .is_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check membership", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to check membership", e))?
         {
             return Err(ApiError::forbidden("You are not a member of this room".to_string()));
         }
@@ -565,7 +565,7 @@ impl MembershipService {
             .member_storage
             .get_room_members_paginated_with_profiles(room_id, membership_str, not_membership, limit + 1, from, dir)
             .await
-            .map_err(|e| ApiError::database_with_context("Failed to get paginated members", &e))?;
+            .map_err(|e| ApiError::database_with_cause("Failed to get paginated members", e))?;
 
         let has_more = members.len() as i64 > limit;
         // Truncate to requested limit

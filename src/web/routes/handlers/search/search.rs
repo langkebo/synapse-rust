@@ -195,7 +195,7 @@ pub(crate) async fn search(
 
         let room_results = timeout(Duration::from_secs(SEARCH_TIMEOUT_SECS), search_future)
             .await
-            .map_err(|e| ApiError::internal_with_context("Search request timed out", &e))??;
+            .map_err(|e| ApiError::internal_with_cause("Search request timed out", e))??;
 
         results["search_categories"]["room_events"] = room_results;
     }
@@ -205,7 +205,7 @@ pub(crate) async fn search(
 
         let user_results = timeout(Duration::from_secs(SEARCH_TIMEOUT_SECS), search_future)
             .await
-            .map_err(|e| ApiError::internal_with_context("User search request timed out", &e))??;
+            .map_err(|e| ApiError::internal_with_cause("User search request timed out", e))??;
 
         results["search_categories"]["users"] = user_results;
     }

@@ -30,7 +30,7 @@ impl MessagingService {
                 .room_storage
                 .update_read_marker_monotonic(room_id, user_id, event_id, "m.fully_read", allow_backward)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to set fully_read marker", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Failed to set fully_read marker", e))?;
 
             if !updated {
                 // MSC4446: silently drop backward move (return 200, no update)
@@ -41,7 +41,7 @@ impl MessagingService {
         self.room_storage
             .add_receipt(user_id, user_id, room_id, event_id, receipt_type, body)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to store receipt", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to store receipt", e))?;
 
         let now_ts = current_timestamp_millis();
         let mut receipt_entry = body.as_object().cloned().unwrap_or_default();
@@ -57,7 +57,7 @@ impl MessagingService {
         self.event_writer
             .add_ephemeral_event(room_id, user_id, "m.receipt", &receipt_content, now_ts)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to store ephemeral receipt", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to store ephemeral receipt", e))?;
 
         if let Some(event_broadcaster) = &self.event_broadcaster {
             let receipt_edu = json!({
@@ -77,7 +77,7 @@ impl MessagingService {
         self.room_storage
             .get_receipts(room_id, receipt_type, event_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get receipts", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get receipts", e))
     }
 
     /// Processes an inbound `m.receipt` EDU received from a federated peer.
@@ -97,7 +97,7 @@ impl MessagingService {
         self.room_storage
             .add_receipt(user_id, user_id, room_id, event_id, receipt_type, body)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to store federated receipt", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to store federated receipt", e))?;
 
         let now_ts = current_timestamp_millis();
         let receipt_content = json!({
@@ -110,7 +110,7 @@ impl MessagingService {
         self.event_writer
             .add_ephemeral_event(room_id, user_id, "m.receipt", &receipt_content, now_ts)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to store ephemeral receipt", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to store ephemeral receipt", e))?;
 
         Ok(())
     }

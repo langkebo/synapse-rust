@@ -552,10 +552,8 @@ impl CacheManager {
         // L2: Redis Cache — propagate errors (fail closed)
         if self.use_redis {
             if let Some(redis) = &self.redis {
-                let val = redis
-                    .get_checked(&key)
-                    .await
-                    .map_err(|e| ApiError::internal_with_context("Redis GET failed", &e))?;
+                let val =
+                    redis.get_checked(&key).await.map_err(|e| ApiError::internal_with_cause("Redis GET failed", e))?;
                 if let Some(val) = val {
                     if let Ok(result) = serde_json::from_str(&val) {
                         // Populate L1
@@ -649,10 +647,7 @@ impl CacheManager {
         self.local.set_raw_with_ttl(key, value, Duration::from_secs(ttl));
         if self.use_redis {
             if let Some(redis) = &self.redis {
-                redis
-                    .set(key, value, ttl)
-                    .await
-                    .map_err(|e| ApiError::internal_with_context("Redis SET failed", &e))?;
+                redis.set(key, value, ttl).await.map_err(|e| ApiError::internal_with_cause("Redis SET failed", e))?;
             }
         }
         Ok(())
@@ -669,7 +664,7 @@ impl CacheManager {
                 redis
                     .set_nx(lock_key, "locked", ttl_secs)
                     .await
-                    .map_err(|e| ApiError::internal_with_context("Redis SETNX failed", &e))
+                    .map_err(|e| ApiError::internal_with_cause("Redis SETNX failed", e))
             } else {
                 Err(ApiError::internal("Redis not available"))
             }
@@ -823,7 +818,7 @@ impl CacheManager {
                 return redis
                     .hincrby(key, field, delta)
                     .await
-                    .map_err(|e| ApiError::internal_with_context("Redis error", &e));
+                    .map_err(|e| ApiError::internal_with_cause("Redis error", e));
             }
         }
         Ok(0) // Local cache doesn't support HINCRBY yet, just return 0 or implement later
@@ -833,7 +828,7 @@ impl CacheManager {
     pub async fn hgetall(&self, key: &str) -> Result<HashMap<String, String>, ApiError> {
         if self.use_redis {
             if let Some(redis) = &self.redis {
-                return redis.hgetall(key).await.map_err(|e| ApiError::internal_with_context("Redis error", &e));
+                return redis.hgetall(key).await.map_err(|e| ApiError::internal_with_cause("Redis error", e));
             }
         }
         Ok(HashMap::new())

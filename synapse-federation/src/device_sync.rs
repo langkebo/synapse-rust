@@ -172,7 +172,7 @@ impl DeviceSyncManager {
         tracing::debug!(%host, ips = ?ips.len(), "Fetching remote devices with SSRF-pinned client");
 
         let response =
-            pinned.get(url).send().await.map_err(|e| ApiError::internal_with_context("HTTP request failed", &e))?;
+            pinned.get(url).send().await.map_err(|e| ApiError::internal_with_cause("HTTP request failed", e))?;
 
         if response.status() == StatusCode::NOT_FOUND {
             return Ok(vec![]);
@@ -183,7 +183,7 @@ impl DeviceSyncManager {
         }
 
         let body: Value =
-            response.json().await.map_err(|e| ApiError::internal_with_context("Failed to parse response", &e))?;
+            response.json().await.map_err(|e| ApiError::internal_with_cause("Failed to parse response", e))?;
 
         let devices_json = body
             .get("devices")
@@ -273,7 +273,7 @@ impl DeviceSyncManager {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to fetch devices", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to fetch devices", e))?;
 
         Ok(devices
             .into_iter()
@@ -337,7 +337,7 @@ impl DeviceSyncManager {
         .bind(expiry_threshold.timestamp_millis())
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to cleanup expired devices", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to cleanup expired devices", e))?;
 
         let deleted_count = result.rows_affected();
         if deleted_count > 0 {
@@ -386,7 +386,7 @@ impl DeviceSyncManager {
         .bind(user_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to revoke device", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to revoke device", e))?;
 
         let cache_pattern = format!("remote_devices:*:{user_id}");
         let mut local = self.local_cache.write().await;

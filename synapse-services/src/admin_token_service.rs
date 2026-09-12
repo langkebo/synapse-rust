@@ -128,7 +128,7 @@ impl AdminTokenService {
             .token_storage
             .get_user_tokens(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(tokens
             .into_iter()
@@ -149,7 +149,7 @@ impl AdminTokenService {
             .token_storage
             .delete_user_token_by_id(user_id, token_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         if !deleted {
             return Err(ApiError::not_found("Token not found".to_string()));
@@ -165,7 +165,7 @@ impl AdminTokenService {
             .refresh_token_storage
             .get_user_tokens(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(tokens
             .into_iter()
@@ -186,7 +186,7 @@ impl AdminTokenService {
             .refresh_token_storage
             .get_token_by_id(token_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?
             .ok_or_else(|| ApiError::not_found("Refresh token not found".to_string()))?;
 
         if token.user_id != user_id {
@@ -196,7 +196,7 @@ impl AdminTokenService {
         self.refresh_token_storage
             .delete_token(&token.token_hash)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(())
     }

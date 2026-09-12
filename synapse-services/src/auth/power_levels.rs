@@ -9,7 +9,7 @@ impl AuthService {
             .member_storage
             .get_membership_state(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         if membership.is_none() {
             return Ok(-1);
@@ -46,7 +46,7 @@ impl AuthService {
             .member_storage
             .get_membership_state(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         match membership {
             Some(m) if m == "join" => self.get_user_power_level(room_id, user_id).await,
@@ -60,7 +60,7 @@ impl AuthService {
             .event_reader
             .get_state_events_by_type(room_id, "m.room.power_levels")
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
         Ok(events.first().map(|event| event.content.clone()))
     }
 
@@ -75,7 +75,7 @@ impl AuthService {
             .event_reader
             .get_state_events_by_type(room_id, "m.room.create")
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
         if let Some(event) = events.first() {
             if let Some(creator) = event.content.get("creator").and_then(|c| c.as_str()) {
                 return Ok(Some(creator.to_string()));
@@ -89,7 +89,7 @@ impl AuthService {
         self.room_storage
             .get_room_creator(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))
     }
 
     /// Returns the room version string (e.g. `"10"`) from the `m.room.create`
@@ -99,7 +99,7 @@ impl AuthService {
             .event_reader
             .get_state_events_by_type(room_id, "m.room.create")
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
         let version = events
             .first()
             .and_then(|event| event.content.get("room_version"))

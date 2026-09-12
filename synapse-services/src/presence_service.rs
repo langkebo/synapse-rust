@@ -119,7 +119,7 @@ impl PresenceService {
         self.storage
             .get_presence_with_meta(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get presence", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get presence", e))
     }
 
     /// See [`set_presence`].
@@ -128,7 +128,7 @@ impl PresenceService {
         self.storage
             .set_presence(user_id, presence, status_msg)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to set presence", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to set presence", e))?;
 
         // T04: Broadcast presence update to remote servers via federation
         self.broadcast_presence_to_subscribers(user_id).await;
@@ -147,7 +147,7 @@ impl PresenceService {
         self.storage
             .set_presence_batch(entries)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to batch set presence", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to batch set presence", e))?;
 
         // T04: Broadcast presence updates to remote servers via federation
         for (user_id, _, _) in entries {
@@ -235,7 +235,7 @@ impl PresenceService {
         self.storage
             .add_subscription(subscriber_id, target_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to add presence subscription", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to add presence subscription", e))
     }
 
     /// See [`remove_subscription`].
@@ -244,7 +244,7 @@ impl PresenceService {
         self.storage
             .remove_subscription(subscriber_id, target_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to remove presence subscription", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to remove presence subscription", e))
     }
 
     /// See [`get_subscriptions`].
@@ -253,7 +253,7 @@ impl PresenceService {
         self.storage
             .get_subscriptions(subscriber_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get subscriptions", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get subscriptions", e))
     }
 
     /// See [`get_presence_batch_with_meta`].
@@ -262,7 +262,7 @@ impl PresenceService {
         self.storage
             .get_presence_batch_with_meta(user_ids)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get presence batch", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get presence batch", e))
     }
 }
 

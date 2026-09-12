@@ -67,7 +67,7 @@ impl ClientPushService {
             .push_storage
             .get_pushers(user_id, device_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(pushers
             .iter()
@@ -105,7 +105,7 @@ impl ClientPushService {
                 now,
             )
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to save pusher", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to save pusher", e))?;
         // OBS-01 (P1): Pusher 订阅是用户可控的安全敏感通道（攻击者可通过 pushkey
         // 关联获得推送送达能力）。成功路径必须留痕：包含 user_id、device_id、
         // kind、app_id，但**不**打印 pushkey/data（data 可能含 gateway URL 等配置）。
@@ -126,7 +126,7 @@ impl ClientPushService {
         self.push_storage
             .delete_pusher(user_id, device_id, pushkey)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to delete pusher", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to delete pusher", e))?;
         // OBS-01 (P1): 删除 pusher 同样留痕。注意 pushkey 已通过路径参数获得，
         // 仅记录其存在与长度，不打印值（pushkey 可能是 APNs device token 等敏感字段）。
         ::tracing::info!(
@@ -145,7 +145,7 @@ impl ClientPushService {
         self.account_data_storage
             .get_account_data_content(user_id, "m.push_rules")
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get push rules", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get push rules", e))
     }
 
     /// See [`get_user_push_rules`].
@@ -154,7 +154,7 @@ impl ClientPushService {
             .push_storage
             .get_user_push_rules(user_id, scope, kind)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(rules
             .iter()
@@ -187,7 +187,7 @@ impl ClientPushService {
                 now,
             )
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to save push rule", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to save push rule", e))?;
         // OBS-01 (P1): Push rule 控制通知过滤策略（房间/关键词/事件类型），是
         // 用户可控制的通知行为边界。记录操作类型和规则 ID；不记录 pattern/conditions
         // 内容（可能含关键词等用户数据）。
@@ -215,7 +215,7 @@ impl ClientPushService {
             .push_storage
             .delete_push_rule(user_id, scope, kind, rule_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to delete push rule", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to delete push rule", e))?;
         // OBS-01 (P1): 删除 push rule 留痕。
         if rows > 0 {
             ::tracing::info!(
@@ -243,7 +243,7 @@ impl ClientPushService {
         self.push_storage
             .update_push_rule_actions(user_id, scope, kind, rule_id, actions)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to update push rule actions", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to update push rule actions", e))?;
         // OBS-01 (P1): Push rule actions 控制通知行为（notify / don't_notify / coalesce）。
         ::tracing::info!(
             target: "security_audit",
@@ -268,7 +268,7 @@ impl ClientPushService {
         self.push_storage
             .get_push_rule_enabled(user_id, scope, kind, rule_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))
     }
 
     /// See [`set_push_rule_enabled`].
@@ -283,7 +283,7 @@ impl ClientPushService {
         self.push_storage
             .set_push_rule_enabled(user_id, scope, kind, rule_id, enabled)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to update push rule enabled", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to update push rule enabled", e))?;
         // OBS-01 (P1): 启用/禁用 push rule 是通知行为开关，留痕。
         ::tracing::info!(
             target: "security_audit",
@@ -304,7 +304,7 @@ impl ClientPushService {
             .push_storage
             .get_notifications(user_id, limit)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(notifications
             .iter()
@@ -327,7 +327,7 @@ impl ClientPushService {
             .push_storage
             .ack_notification(notification_id, user_id, current_timestamp_millis())
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to ack notification", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to ack notification", e))?;
         let success = result.is_some();
         // OBS-01 (P1): 通知 ack 留痕（仅当成功时记录，避免失败噪声日志）。
         if success {

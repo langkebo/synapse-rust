@@ -93,7 +93,7 @@ impl QuarantinedMediaChangeStorage {
         .bind(now_ts)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to record media quarantine change", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to record media quarantine change", e))?;
 
         Ok(row.stream_id)
     }
@@ -117,7 +117,7 @@ impl QuarantinedMediaChangeStorage {
         .bind(limit)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to get quarantined media changes", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to get quarantined media changes", e))?;
 
         Ok(changes)
     }
@@ -145,7 +145,7 @@ impl QuarantinedMediaChangeStorage {
         .bind(limit)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to get quarantined media changes by media_id", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to get quarantined media changes by media_id", e))?;
 
         Ok(changes)
     }
@@ -169,7 +169,7 @@ impl QuarantinedMediaChangeStorage {
         .bind(server_name)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to update media quarantine status", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to update media quarantine status", e))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -189,7 +189,7 @@ impl QuarantinedMediaChangeStorage {
         .bind(server_name)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to query media quarantine status", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to query media quarantine status", e))?;
 
         Ok(matches!(status, Some(Some(ref s)) if s == "quarantined"))
     }
@@ -199,7 +199,7 @@ impl QuarantinedMediaChangeStorage {
         let stream_id: Option<i64> = sqlx::query_scalar(r"SELECT MAX(stream_id) FROM quarantined_media_changes")
             .fetch_one(&self.pool)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get current quarantine stream id", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get current quarantine stream id", e))?;
 
         Ok(stream_id.unwrap_or(0))
     }

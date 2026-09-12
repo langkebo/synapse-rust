@@ -154,7 +154,7 @@ impl AdminMediaStorage {
         .bind(created_ts)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(())
     }
@@ -175,7 +175,7 @@ impl AdminMediaStorage {
         .bind(limit)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         let next_batch = if media.len() as i64 == limit {
             media.last().map(|row| {
@@ -197,7 +197,7 @@ impl AdminMediaStorage {
         .bind(media_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(media.map(map_media_row))
     }
@@ -208,7 +208,7 @@ impl AdminMediaStorage {
             .bind(media_id)
             .execute(&self.pool)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -218,11 +218,11 @@ impl AdminMediaStorage {
         let total_size = sqlx::query_scalar::<_, i64>("SELECT COALESCE(SUM(size), 0)::BIGINT FROM media_metadata")
             .fetch_one(&self.pool)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
         let total_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*)::BIGINT FROM media_metadata")
             .fetch_one(&self.pool)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(AdminMediaQuotaSummary { total_size, total_count })
     }
@@ -237,7 +237,7 @@ impl AdminMediaStorage {
         .bind(user_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(media.into_iter().map(map_media_row).collect())
     }
@@ -248,7 +248,7 @@ impl AdminMediaStorage {
             .bind(user_id)
             .execute(&self.pool)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(result.rows_affected())
     }

@@ -259,7 +259,7 @@ impl CaptchaStorage {
         .bind(&metadata)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to create captcha", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to create captcha", e))?;
 
         info!("Created captcha: {} for target: {}", captcha_id, request.target);
         Ok(row)
@@ -271,7 +271,7 @@ impl CaptchaStorage {
             .bind(captcha_id)
             .fetch_optional(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get captcha", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get captcha", e))?;
 
         Ok(row)
     }
@@ -296,7 +296,7 @@ impl CaptchaStorage {
         .bind(now)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to get latest captcha", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to get latest captcha", e))?;
 
         Ok(row)
     }
@@ -316,7 +316,7 @@ impl CaptchaStorage {
                 .bind(captcha_id)
                 .execute(&*self.pool)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to update captcha", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Failed to update captcha", e))?;
 
             return Ok(false);
         }
@@ -326,7 +326,7 @@ impl CaptchaStorage {
                 .bind(captcha_id)
                 .execute(&*self.pool)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to update captcha", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Failed to update captcha", e))?;
 
             return Ok(false);
         }
@@ -335,7 +335,7 @@ impl CaptchaStorage {
             .bind(captcha_id)
             .execute(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to increment attempt count", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to increment attempt count", e))?;
 
         if captcha.code == code {
             sqlx::query(
@@ -349,7 +349,7 @@ impl CaptchaStorage {
             .bind(captcha_id)
             .execute(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to verify captcha", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to verify captcha", e))?;
 
             info!("Captcha verified: {}", captcha_id);
             Ok(true)
@@ -367,7 +367,7 @@ impl CaptchaStorage {
             .bind(captcha_id)
             .execute(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to invalidate captcha", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to invalidate captcha", e))?;
 
         info!("Captcha invalidated: {}", captcha_id);
         Ok(())
@@ -398,7 +398,7 @@ impl CaptchaStorage {
         .bind(&request.provider_response)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to create send log", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to create send log", e))?;
 
         Ok(row)
     }
@@ -423,7 +423,7 @@ impl CaptchaStorage {
         .bind(one_hour_ago_ts)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to check rate limit", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to check rate limit", e))?;
 
         Ok(count.0 < max_per_hour as i64)
     }
@@ -442,7 +442,7 @@ impl CaptchaStorage {
         .bind(one_hour_ago_ts)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to check IP rate limit", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to check IP rate limit", e))?;
 
         Ok(count.0 < max_per_hour as i64)
     }
@@ -455,7 +455,7 @@ impl CaptchaStorage {
         .bind(template_name)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to get template", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to get template", e))?;
 
         Ok(row)
     }
@@ -468,7 +468,7 @@ impl CaptchaStorage {
         .bind(captcha_type)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to get default template", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to get default template", e))?;
 
         Ok(row)
     }
@@ -479,7 +479,7 @@ impl CaptchaStorage {
             .bind(config_key)
             .fetch_optional(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get config", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get config", e))?;
 
         Ok(row.map(|r| r.0))
     }
@@ -501,7 +501,7 @@ impl CaptchaStorage {
             .bind(now)
             .execute(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to cleanup captchas", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to cleanup captchas", e))?;
 
         info!("Cleaned up {} expired captchas", result.rows_affected());
         Ok(result.rows_affected())

@@ -91,7 +91,7 @@ impl UserService {
 
     /// Maps a `sqlx::Error` to `ApiError::internal_with_context`.
     fn db_error(e: sqlx::Error) -> ApiError {
-        ApiError::internal_with_context("Database error", &e)
+        ApiError::internal_with_cause("Database error", e)
     }
 
     // ── user lookup (Patterns 1+2) ──────────────────────────────────────

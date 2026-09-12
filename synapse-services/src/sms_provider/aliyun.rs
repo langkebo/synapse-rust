@@ -134,7 +134,7 @@ impl SmsProvider for AliyunSmsProvider {
             .get(&url)
             .send()
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to call Aliyun SMS API", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to call Aliyun SMS API", e))?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();

@@ -251,7 +251,10 @@ pub(crate) async fn send_state_event(
 
     #[cfg(feature = "beacons")]
     if let Some(params) = beacon_info_params {
-        ctx.beacon_service.create_beacon(params).await.map_err(map_internal!("Failed to index beacon_info"))?;
+        ctx.beacon_service
+            .create_beacon(params)
+            .await
+            .map_err(|e| ApiError::internal_with_boxed_cause("Failed to index beacon_info", e))?;
     }
 
     Ok(Json(json!({
@@ -322,7 +325,10 @@ pub(crate) async fn put_state_event(
 
     #[cfg(feature = "beacons")]
     if let Some(params) = beacon_info_params {
-        ctx.beacon_service.create_beacon(params).await.map_err(map_internal!("Failed to index beacon_info"))?;
+        ctx.beacon_service
+            .create_beacon(params)
+            .await
+            .map_err(|e| ApiError::internal_with_boxed_cause("Failed to index beacon_info", e))?;
     }
 
     Ok(Json(json!({

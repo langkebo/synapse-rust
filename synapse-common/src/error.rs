@@ -83,6 +83,40 @@ impl ApiErrorKind {
 /// Type alias for an opaque, cloneable underlying error cause carried by `ApiError`.
 pub type ApiErrorCause = Arc<dyn std::error::Error + Send + Sync>;
 
+/// Error types that can be preserved as an [`ApiError::cause`].
+///
+/// Implemented for everything `std::error::Error + Send + Sync + 'static`.
+/// Notably this includes `Box<dyn Error + Send + Sync>`, which this toolchain
+/// already implements `Error` for — so `BeaconService::create_beacon`'s boxed
+/// return type is accepted without a separate impl.
+pub trait IntoApiErrorCause {
+    /// Converts `self` into the stored cause.
+    fn into_api_error_cause(self) -> ApiErrorCause;
+}
+
+/// Boxes a concrete error into the erased cause.
+///
+/// A free function rather than an expression inside the trait body: within
+/// `impl<E: Error + Send + Sync + 'static> IntoApiErrorCause for E`,
+/// `Arc::new(err) as Arc<dyn Error + Send + Sync>` cannot be proven `Send`/`Sync`,
+/// because the compiler does not carry the impl-level bounds into the cast. Here
+/// they are visible on the parameter.
+fn erased_cause<E>(err: E) -> ApiErrorCause
+where
+    E: std::error::Error + Send + Sync + 'static,
+{
+    Arc::new(err)
+}
+
+impl<E> IntoApiErrorCause for E
+where
+    E: std::error::Error + Send + Sync + 'static,
+{
+    fn into_api_error_cause(self) -> ApiErrorCause {
+        erased_cause(self)
+    }
+}
+
 #[derive(Debug)]
 struct RetryAfterMsCause(u64);
 
@@ -306,14 +340,15 @@ impl ApiError {
     /// `cause: None` that made a real DB failure undiagnosable.
     pub fn database_with_cause<E>(context: &str, err: E) -> Self
     where
-        E: std::error::Error + Send + Sync + 'static,
+        E: IntoApiErrorCause,
     {
-        tracing::error!(%context, error = %err, "database error");
+        let cause = err.into_api_error_cause();
+        tracing::error!(%context, error = %cause, "database error");
         Self {
             kind: ApiErrorKind::Internal,
             code: MatrixErrorCode::Unknown,
             message: format!("Database error: {context}"),
-            cause: Some(Arc::new(err)),
+            cause: Some(cause),
         }
     }
 
@@ -324,14 +359,35 @@ impl ApiError {
     /// why it is safe to keep the detail (`cause` never reaches the client).
     pub fn internal_with_cause<E>(context: &str, err: E) -> Self
     where
-        E: std::error::Error + Send + Sync + 'static,
+        E: IntoApiErrorCause,
     {
+        let cause = err.into_api_error_cause();
+        tracing::error!(%context, error = %cause, "internal error");
+        Self {
+            kind: ApiErrorKind::Internal,
+            code: MatrixErrorCode::Unknown,
+            message: format!("Internal error: {context}"),
+            cause: Some(cause),
+        }
+    }
+
+    /// Like [`internal_with_cause`](Self::internal_with_cause), for an
+    /// **already-boxed** error.
+    ///
+    /// Exists because `Box<dyn Error + Send + Sync>` does not implement
+    /// `std::error::Error` in Rust 1.93 (its blanket `impl<E: Error> Error for Box<E>`
+    /// needs `E: Sized`, which a trait object is not). So the generic constructor
+    /// cannot accept it, and this overload takes the box directly — no cast on a
+    /// generic parameter, so the `Send`/`Sync` bounds hold.
+    ///
+    /// `BeaconService::create_beacon` returns exactly this shape.
+    pub fn internal_with_boxed_cause(context: &str, err: Box<dyn std::error::Error + Send + Sync>) -> Self {
         tracing::error!(%context, error = %err, "internal error");
         Self {
             kind: ApiErrorKind::Internal,
             code: MatrixErrorCode::Unknown,
             message: format!("Internal error: {context}"),
-            cause: Some(Arc::new(err)),
+            cause: Some(Arc::from(err)),
         }
     }
 

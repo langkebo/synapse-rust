@@ -403,7 +403,7 @@ impl UiaService {
         let user_threepids = threepid_storage
             .get_threepids_by_user(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get user threepids", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get user threepids", e))?;
 
         let has_verified_email = user_threepids.iter().any(|t| t.medium == "email" && t.is_verified);
 
@@ -461,7 +461,7 @@ impl UiaService {
         let user_threepids = threepid_storage
             .get_threepids_by_user(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get user threepids", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get user threepids", e))?;
 
         let has_verified_msisdn = user_threepids.iter().any(|t| t.medium == "msisdn" && t.is_verified);
 

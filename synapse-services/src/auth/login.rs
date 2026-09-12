@@ -47,7 +47,7 @@ impl AuthService {
             .user_storage
             .get_user_by_identifier(username)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         // P-007 fix: Matrix spec requires HTTP 401 + M_FORBIDDEN for invalid
         // credentials (wrong password or unknown user).
@@ -198,8 +198,8 @@ impl AuthService {
 
         tokio::task::spawn_blocking(move || auth.verify_password(&password_str, &password_hash_str))
             .await
-            .map_err(|e| ApiError::internal_with_context("Verification task panicked", &e))?
-            .map_err(|e| ApiError::internal_with_context("Password verification failed", &e))
+            .map_err(|e| ApiError::internal_with_cause("Verification task panicked", e))?
+            .map_err(|e| ApiError::internal_with_cause("Password verification failed", e))
     }
 
     /// C1: Persist a security audit event to the tamper-evident audit_events table.
@@ -309,7 +309,7 @@ impl AuthService {
             .device_storage
             .get_device_by_id(&device_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?
         {
             if existing_device.user_id != user.user_id {
                 return Err(ApiError::forbidden("Device ID already belongs to a different user".to_string()));
@@ -318,7 +318,7 @@ impl AuthService {
             self.device_storage
                 .create_device(&device_id, &user.user_id, initial_display_name)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to create device", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Failed to create device", e))?;
         }
 
         Ok(device_id)
@@ -342,7 +342,7 @@ impl AuthService {
             .user_storage
             .get_user_by_identifier(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         let user = user_opt.ok_or_else(ApiError::invalid_credentials)?;
 

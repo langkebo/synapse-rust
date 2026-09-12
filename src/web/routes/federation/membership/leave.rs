@@ -86,7 +86,7 @@ pub(crate) async fn send_leave(
         .messaging()
         .create_event(params, None)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to persist leave event", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to persist leave event", e))?;
     let content = event.get("content").cloned().unwrap_or(json!({}));
 
     // F-03: re-sign locally for third-party verification.
@@ -107,7 +107,7 @@ pub(crate) async fn send_leave(
         .membership()
         .add_member(&room_id, user_id, "leave", None, None, None)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to update membership", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to update membership", e))?;
 
     // Forward secrecy: mark megolm session for rotation when a member leaves
     // an encrypted room, so the departed member cannot decrypt future messages.
@@ -168,7 +168,7 @@ pub(crate) async fn send_leave_v2(
         .messaging()
         .create_event(params, None)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to persist leave event", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to persist leave event", e))?;
 
     // F-03: re-sign locally for third-party verification.
     let mut pdu = json!({
@@ -196,7 +196,7 @@ pub(crate) async fn send_leave_v2(
         .membership()
         .remove_member_record(&room_id, sender)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to update membership", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to update membership", e))?;
 
     // Forward secrecy: mark megolm session for rotation when a member leaves
     // an encrypted room, so the departed member cannot decrypt future messages.

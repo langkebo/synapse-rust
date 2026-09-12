@@ -238,7 +238,7 @@ pub(super) async fn acquire_with_timeout(
     let permit = timeout(Duration::from_millis(acquire_timeout_ms.max(1)), semaphore.acquire_owned())
         .await
         .map_err(|_| ApiError::rate_limited_with_retry(acquire_timeout_ms.max(1)))?
-        .map_err(|e| ApiError::internal_with_context("Semaphore closed", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Semaphore closed", e))?;
 
     Ok((permit, started.elapsed().as_millis() as u64))
 }

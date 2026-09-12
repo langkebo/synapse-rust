@@ -40,6 +40,6 @@ impl AdminServerService {
         validator
             .validate_required_tables(tables)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to validate required tables", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to validate required tables", e))
     }
 }

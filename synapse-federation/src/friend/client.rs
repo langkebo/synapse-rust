@@ -86,7 +86,7 @@ impl FriendFederationClient {
             if let Some(current_key) = key_rotation_manager
                 .get_current_key()
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to load federation signing key", &e))?
+                .map_err(|e| ApiError::internal_with_cause("Failed to load federation signing key", e))?
             {
                 if let Some(signing_key) = Self::decode_signing_key(&current_key.secret_key) {
                     return self.build_auth_header(
@@ -115,8 +115,8 @@ impl FriendFederationClient {
         let path = format!("/_matrix/federation/v1/send/{}", uuid::Uuid::new_v4());
         let url = format!("https://{destination}{path}");
 
-        let body_str = serde_json::to_string(content)
-            .map_err(|e| ApiError::internal_with_context("Failed to serialize body", &e))?;
+        let body_str =
+            serde_json::to_string(content).map_err(|e| ApiError::internal_with_cause("Failed to serialize body", e))?;
 
         let auth_header = self.sign_request("PUT", &path, destination, Some(content)).await?;
 
@@ -129,7 +129,7 @@ impl FriendFederationClient {
             .body(body_str)
             .send()
             .await
-            .map_err(|e| ApiError::internal_with_context("Federation request failed", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Federation request failed", e))?;
 
         if !response.status().is_success() {
             return Err(ApiError::internal_with_context("Remote server returned error", &response.status()));
@@ -152,7 +152,7 @@ impl FriendFederationClient {
             .header("Authorization", auth_header)
             .send()
             .await
-            .map_err(|e| ApiError::internal_with_context("Federation request failed", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Federation request failed", e))?;
 
         if response.status() == StatusCode::NOT_FOUND {
             return Ok(vec![]);
@@ -163,7 +163,7 @@ impl FriendFederationClient {
         }
 
         let body: Value =
-            response.json().await.map_err(|e| ApiError::internal_with_context("Failed to parse response", &e))?;
+            response.json().await.map_err(|e| ApiError::internal_with_cause("Failed to parse response", e))?;
 
         let friends = body
             .get("friends")

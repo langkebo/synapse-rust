@@ -42,7 +42,7 @@ impl RegistrationTokenService {
                 .storage
                 .get_token(token)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to check token", &e))?
+                .map_err(|e| ApiError::internal_with_cause("Failed to check token", e))?
                 .is_some()
             {
                 return Err(ApiError::bad_request("Token already exists"));
@@ -53,7 +53,7 @@ impl RegistrationTokenService {
             .storage
             .create_token(request)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to create token", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to create token", e))?;
 
         let token_preview: String = token.token.chars().take(4).collect();
         info!(token_preview = %format!("{token_preview}***"), "Created registration token");
@@ -64,11 +64,8 @@ impl RegistrationTokenService {
     /// See [`get_token`].
     #[instrument(skip(self))]
     pub async fn get_token(&self, token: &str) -> Result<Option<RegistrationToken>, ApiError> {
-        let token = self
-            .storage
-            .get_token(token)
-            .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get token", &e))?;
+        let token =
+            self.storage.get_token(token).await.map_err(|e| ApiError::internal_with_cause("Failed to get token", e))?;
 
         Ok(token)
     }
@@ -80,7 +77,7 @@ impl RegistrationTokenService {
             .storage
             .get_token_by_id(id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get token", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get token", e))?;
 
         Ok(token)
     }
@@ -92,7 +89,7 @@ impl RegistrationTokenService {
             .storage
             .validate_token(token)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to validate token", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to validate token", e))?;
 
         Ok(result)
     }
@@ -120,7 +117,7 @@ impl RegistrationTokenService {
             .storage
             .use_token(token, user_id, username, email, ip_address, user_agent)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to use token", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to use token", e))?;
 
         if !success {
             return Err(ApiError::bad_request("Failed to use token"));
@@ -142,14 +139,14 @@ impl RegistrationTokenService {
             .storage
             .get_token_by_id(id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check token", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to check token", e))?
             .ok_or_else(|| ApiError::not_found("Token not found"))?;
 
         let token = self
             .storage
             .update_token(id, request)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to update token", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to update token", e))?;
 
         Ok(token)
     }
@@ -161,13 +158,10 @@ impl RegistrationTokenService {
             .storage
             .get_token_by_id(id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check token", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to check token", e))?
             .ok_or_else(|| ApiError::not_found("Token not found"))?;
 
-        self.storage
-            .delete_token(id)
-            .await
-            .map_err(|e| ApiError::internal_with_context("Failed to delete token", &e))?;
+        self.storage.delete_token(id).await.map_err(|e| ApiError::internal_with_cause("Failed to delete token", e))?;
 
         info!(token_id = id, "Deleted registration token");
 
@@ -180,7 +174,7 @@ impl RegistrationTokenService {
         self.storage
             .deactivate_token(id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to deactivate token", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to deactivate token", e))?;
 
         info!(token_id = id, "Deactivated registration token");
 
@@ -198,7 +192,7 @@ impl RegistrationTokenService {
             .storage
             .get_all_tokens(limit, from)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get tokens", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get tokens", e))?;
 
         Ok(tokens)
     }
@@ -210,7 +204,7 @@ impl RegistrationTokenService {
             .storage
             .get_active_tokens()
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get active tokens", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get active tokens", e))?;
 
         Ok(tokens)
     }
@@ -222,7 +216,7 @@ impl RegistrationTokenService {
             .storage
             .get_token_usage(token_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get token usage", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get token usage", e))?;
 
         Ok(usage)
     }
@@ -236,7 +230,7 @@ impl RegistrationTokenService {
             .storage
             .cleanup_expired_tokens()
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to cleanup tokens", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to cleanup tokens", e))?;
 
         info!(expired_token_count = count, "Cleaned up expired registration tokens");
 
@@ -252,7 +246,7 @@ impl RegistrationTokenService {
             .storage
             .create_room_invite(request)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to create room invite", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to create room invite", e))?;
 
         Ok(invite)
     }
@@ -264,7 +258,7 @@ impl RegistrationTokenService {
             .storage
             .get_room_invite(invite_code)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get room invite", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get room invite", e))?;
 
         Ok(invite)
     }
@@ -278,7 +272,7 @@ impl RegistrationTokenService {
             .storage
             .use_room_invite(invite_code, invitee_user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to use room invite", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to use room invite", e))?;
 
         if !success {
             return Err(ApiError::bad_request("Invalid or expired room invite"));
@@ -293,7 +287,7 @@ impl RegistrationTokenService {
         self.storage
             .revoke_room_invite(invite_code, reason)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to revoke room invite", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to revoke room invite", e))?;
 
         info!(
             invite_code_prefix = %invite_code.chars().take(6).collect::<String>(),
@@ -342,7 +336,7 @@ impl RegistrationTokenService {
         self.storage
             .create_batch(&batch, &tokens)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to create batch", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to create batch", e))?;
 
         info!(batch_id = %batch_id, token_count = count, "Created registration token batch");
 
@@ -356,7 +350,7 @@ impl RegistrationTokenService {
             .storage
             .get_batch(batch_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get batch", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get batch", e))?;
 
         Ok(batch)
     }
@@ -367,7 +361,7 @@ impl RegistrationTokenService {
             .storage
             .get_token(token)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get token", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to get token", e))?
             .ok_or_else(|| ApiError::not_found("Token not found"))?;
 
         if let Some(domains) = token_record.allowed_email_domains {

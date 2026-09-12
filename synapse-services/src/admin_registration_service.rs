@@ -137,7 +137,7 @@ impl AdminRegistrationService {
             self.user_storage
                 .set_user_type(&user.user_id(), Some(user_type))
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to persist user_type", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Failed to persist user_type", e))?;
         }
 
         let duration = start.elapsed().as_secs_f64();
@@ -188,7 +188,7 @@ impl AdminRegistrationService {
             .map_err(|_| ApiError::forbidden("HMAC incorrect".to_string()))?;
 
         let mut mac = HmacSha256::new_from_slice(self.config.shared_secret.as_bytes())
-            .map_err(|e| ApiError::internal_with_context("Invalid shared secret", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Invalid shared secret", e))?;
 
         mac.update(request.nonce.as_bytes());
         mac.update(b"\0");

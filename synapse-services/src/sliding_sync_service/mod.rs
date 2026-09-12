@@ -362,7 +362,7 @@ impl SlidingSyncService {
                 .storage
                 .validate_pos(user_id, device_id, conn_id, pos_str)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to validate pos", &e))?
+                .map_err(|e| ApiError::internal_with_cause("Failed to validate pos", e))?
             {
                 // MSC4186: 非法/过期的 pos 用专用 M_UNKNOWN_POS errcode，
                 // 客户端据此 resetup 重同步，而非把其他 400 误判为 pos 过期。
@@ -383,7 +383,7 @@ impl SlidingSyncService {
             self.storage
                 .get_token(user_id, device_id, conn_id)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to load token watermark", &e))?
+                .map_err(|e| ApiError::internal_with_cause("Failed to load token watermark", e))?
                 .map(|token| token.event_stream_pos)
         };
         let stream_snapshot: i64 = self.event_reader.get_max_stream_ordering().await.unwrap_or(0);
@@ -404,7 +404,7 @@ impl SlidingSyncService {
                     &ranges,
                 )
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to save list", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Failed to save list", e))?;
         }
 
         if let Some(unsubs) = &request.unsubscribe_rooms {
@@ -414,7 +414,7 @@ impl SlidingSyncService {
             self.storage
                 .delete_rooms_batch(user_id, device_id, unsubs, conn_id)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to unsubscribe rooms", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Failed to unsubscribe rooms", e))?;
         }
 
         if is_initial {
@@ -513,7 +513,7 @@ impl SlidingSyncService {
                         error = %e,
                         "B-10: failed to load joined rooms for long-poll subscription; aborting sync"
                     );
-                    ApiError::internal_with_context("Failed to load joined rooms", &e)
+                    ApiError::internal_with_cause("Failed to load joined rooms", e)
                 })?;
                 notifier.slots_for(user_id, &room_ids)
             }
@@ -533,12 +533,12 @@ impl SlidingSyncService {
         let mut lists_response = self
             .build_lists_response(user_id, device_id, conn_id, &request.lists, request.pos.as_deref())
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to build lists response", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to build lists response", e))?;
 
         let mut rooms_response = self
             .build_rooms_response(user_id, device_id, conn_id, &request, prev_event_stream_pos, subscriptions_changed)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to build rooms response", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to build rooms response", e))?;
 
         let mut extensions_response = self
             .build_extensions_response(
@@ -550,7 +550,7 @@ impl SlidingSyncService {
                 request.extensions.as_ref(),
             )
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to build extensions response", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to build extensions response", e))?;
 
         // ── Long-poll / backpressure (self-excitation loop-breaker) ───────────
         // A Matrix sliding-sync client keeps one connection open and expects
@@ -637,7 +637,7 @@ impl SlidingSyncService {
                 lists_response = self
                     .build_lists_response(user_id, device_id, conn_id, &request.lists, request.pos.as_deref())
                     .await
-                    .map_err(|e| ApiError::internal_with_context("Failed to rebuild lists response", &e))?;
+                    .map_err(|e| ApiError::internal_with_cause("Failed to rebuild lists response", e))?;
 
                 rooms_response = self
                     .build_rooms_response(
@@ -649,7 +649,7 @@ impl SlidingSyncService {
                         subscriptions_changed,
                     )
                     .await
-                    .map_err(|e| ApiError::internal_with_context("Failed to rebuild rooms response", &e))?;
+                    .map_err(|e| ApiError::internal_with_cause("Failed to rebuild rooms response", e))?;
 
                 extensions_response = self
                     .build_extensions_response(
@@ -661,7 +661,7 @@ impl SlidingSyncService {
                         request.extensions.as_ref(),
                     )
                     .await
-                    .map_err(|e| ApiError::internal_with_context("Failed to rebuild extensions response", &e))?;
+                    .map_err(|e| ApiError::internal_with_cause("Failed to rebuild extensions response", e))?;
             } else {
                 // Timed out without a wake-up: by definition there is no new data.
                 // The response built before parking carries room summaries plus the
@@ -686,7 +686,7 @@ impl SlidingSyncService {
             .storage
             .create_or_update_token(user_id, device_id, conn_id, stream_snapshot)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to update token", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to update token", e))?;
 
         Ok((
             SlidingSyncResponse {

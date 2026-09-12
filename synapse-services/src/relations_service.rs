@@ -156,7 +156,7 @@ impl RelationsService {
         self.storage
             .create_relation(params)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to create annotation", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to create annotation", e))
     }
 
     /// See [`send_reference`].
@@ -203,7 +203,7 @@ impl RelationsService {
         self.storage
             .create_relation(params)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to create reference", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to create reference", e))
     }
 
     /// See [`send_replacement`].
@@ -219,7 +219,7 @@ impl RelationsService {
             .storage
             .get_replacement(&request.room_id, &request.relates_to_event_id, &request.sender)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check existing replacement", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to check existing replacement", e))?;
 
         let event_id = if let Some(existing) = existing {
             warn!(
@@ -255,7 +255,7 @@ impl RelationsService {
         self.storage
             .create_relation(params)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to create replacement", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to create replacement", e))
     }
 
     /// See [`get_relations`].
@@ -289,13 +289,13 @@ impl RelationsService {
             .storage
             .get_relations(params)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get relations", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get relations", e))?;
 
         let total = self
             .storage
             .count_relations(room_id, relates_to_event_id, rel_type)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to count relations", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to count relations", e))?;
 
         // 键集分页游标：格式 `<origin_server_ts>:<event_id>`，行值比较始终匹配 ORDER BY。
         // - next_batch：当返回满 limit 时（可能还有更多）返回末条游标。
@@ -342,7 +342,7 @@ impl RelationsService {
             .storage
             .aggregate_annotations(room_id, relates_to_event_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get aggregations", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get aggregations", e))?;
 
         let chunk: Vec<AggregationItem> = aggregations
             .into_iter()
@@ -364,7 +364,7 @@ impl RelationsService {
             .storage
             .get_relation(room_id, event_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get relation", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get relation", e))?;
 
         if let Some(relation) = relation {
             if relation.sender != sender {
@@ -375,7 +375,7 @@ impl RelationsService {
         self.storage
             .redact_relation(room_id, event_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to redact relation", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to redact relation", e))?;
 
         Ok(())
     }
@@ -391,7 +391,7 @@ impl RelationsService {
         self.storage
             .relation_exists(room_id, relates_to_event_id, "m.annotation", sender)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check annotation", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to check annotation", e))
     }
 }
 

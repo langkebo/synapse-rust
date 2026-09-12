@@ -127,7 +127,7 @@ pub(crate) async fn oidc_token(
         let token_response = builtin_provider
             .token(request)
             .await
-            .map_err(|e| ApiError::internal_with_context("Builtin OIDC token failed", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Builtin OIDC token failed", e))?;
 
         return Ok(Json(OidcTokenResponse {
             access_token: token_response.access_token,
@@ -156,13 +156,13 @@ pub(crate) async fn oidc_token(
             let token_response: synapse_services::oidc_service::OidcTokenResponse = oidc_service
                 .exchange_code(&code, &redirect_uri, code_verifier.as_deref(), None)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Token exchange failed", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Token exchange failed", e))?;
 
             // Fetch user info
             let user_info: synapse_services::oidc_service::OidcUserInfo = oidc_service
                 .get_user_info(&token_response.access_token)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to get user info", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Failed to get user info", e))?;
 
             // Map to Matrix user
             let oidc_user: synapse_services::oidc_service::OidcUser = oidc_service.map_user(&user_info);
@@ -180,14 +180,14 @@ pub(crate) async fn oidc_token(
                 .oidc_mapping_storage
                 .get_bound_user_id(&issuer, &subject)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to query OIDC user mapping", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Failed to query OIDC user mapping", e))?;
 
             let matrix_user_id: String = if let Some(existing) = bound_user_id {
                 // Subsequent login: ignore IdP's current localpart, use the first binding
                 ctx.oidc_mapping_storage
                     .update_last_authenticated(&issuer, &subject, now_ts)
                     .await
-                    .map_err(|e| ApiError::internal_with_context("Failed to update OIDC user mapping", &e))?;
+                    .map_err(|e| ApiError::internal_with_cause("Failed to update OIDC user mapping", e))?;
                 existing
             } else {
                 // First login: if local user exists without OIDC binding, reject to prevent account takeover
@@ -211,12 +211,12 @@ pub(crate) async fn oidc_token(
                 ctx.registration_service
                     .register_user(&localpart, &random_password, Some(&displayname), None)
                     .await
-                    .map_err(|e| ApiError::internal_with_context("Failed to register OIDC user", &e))?;
+                    .map_err(|e| ApiError::internal_with_cause("Failed to register OIDC user", e))?;
 
                 ctx.oidc_mapping_storage
                     .insert_mapping(&issuer, &subject, &matrix_user_id, now_ts)
                     .await
-                    .map_err(|e| ApiError::internal_with_context("Failed to insert OIDC user mapping", &e))?;
+                    .map_err(|e| ApiError::internal_with_cause("Failed to insert OIDC user mapping", e))?;
                 matrix_user_id
             };
 
@@ -262,7 +262,7 @@ pub(crate) async fn oidc_token(
             let token_response: synapse_services::oidc_service::OidcTokenResponse = oidc_service
                 .refresh_token(&refresh_token)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Token refresh failed", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Token refresh failed", e))?;
 
             tracing::info!("OIDC token refresh successful");
 
@@ -321,7 +321,7 @@ pub(crate) async fn oidc_authorize(
     let authorization_url: String = oidc_service
         .get_authorization_url(&state_value, &redirect_uri, Some(&code_challenge), Some("S256"))
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to generate authorization URL", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to generate authorization URL", e))?;
 
     tracing::info!("OIDC authorization redirect_uri: {}, using PKCE", redirect_uri);
 

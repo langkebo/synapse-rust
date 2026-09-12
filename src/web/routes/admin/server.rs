@@ -116,7 +116,7 @@ pub async fn purge_media_cache(
         .media_service
         .purge_media_cache(before_ts)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to purge media cache", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to purge media cache", e))?;
 
     Ok(Json(json!({
         "deleted": deleted
@@ -374,7 +374,7 @@ pub async fn get_invite_blocklist_admin(
         .invite_blocklist_storage
         .get_global_invite_blocklist()
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to get global blocklist", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to get global blocklist", e))?;
 
     Ok(Json(json!({
         "blocklist": blocklist
@@ -391,7 +391,7 @@ pub async fn get_invite_allowlist_admin(
         .invite_blocklist_storage
         .get_global_invite_allowlist()
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to get global allowlist", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to get global allowlist", e))?;
 
     Ok(Json(json!({
         "allowlist": allowlist

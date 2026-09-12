@@ -549,7 +549,7 @@ async fn fetch_federation_verify_key(
         .clone()
         .acquire_owned()
         .await
-        .map_err(|e| ApiError::internal_with_context("Rate limit semaphore closed", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Rate limit semaphore closed", e))?;
 
     let timeout_ms = ctx.config.federation.key_fetch_timeout_ms.max(1);
     // S2 修复: 不再使用进程级共享 client（会在连接时重新解析 DNS，存在

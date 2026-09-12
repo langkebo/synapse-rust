@@ -633,13 +633,13 @@ pub async fn login_as_user(
     ctx.account_device_list_service
         .create_device(&device_id, &user.user_id, Some("Admin Login Device"))
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to create device for admin login", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to create device for admin login", e))?;
 
     let token = ctx
         .token_auth
         .generate_access_token(&user.user_id, &device_id, is_admin)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to generate token", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to generate token", e))?;
 
     // A1 (API 路由审计 2026-09-04): 显式记录 admin 互登录事件。
     // `admin_auth_middleware` 会在 HTTP 层面记一次 (POST .../login)，

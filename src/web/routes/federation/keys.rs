@@ -15,7 +15,7 @@ pub(super) async fn server_key(State(ctx): State<FederationContext>) -> Result<J
         ctx.key_rotation_manager
             .load_or_create_key()
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to initialize federation signing key", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to initialize federation signing key", e))?;
     }
 
     Ok(Json(resolve_server_keys(&ctx).await?))
@@ -308,13 +308,13 @@ async fn resolve_server_keys(ctx: &FederationContext) -> Result<Value, ApiError>
         .key_rotation_manager
         .get_current_key()
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to load federation signing key", &e))?
+        .map_err(|e| ApiError::internal_with_cause("Failed to load federation signing key", e))?
     {
         return ctx
             .key_rotation_manager
             .get_server_keys_response()
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to build server key response", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to build server key response", e))
             .or_else(|_| {
                 let key_id_for_sign = current_key.key_id.clone();
                 let secret_key_for_sign = current_key.secret_key.clone();
@@ -407,7 +407,7 @@ async fn fetch_remote_server_keys_response(
         .clone()
         .acquire_owned()
         .await
-        .map_err(|e| ApiError::internal_with_context("Federation key fetch semaphore closed", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Federation key fetch semaphore closed", e))?;
 
     let timeout_ms = ctx.config.federation.key_fetch_timeout_ms.max(1);
     // S2 修复: 不再使用进程级共享 client（会在连接时重新解析 DNS，存在

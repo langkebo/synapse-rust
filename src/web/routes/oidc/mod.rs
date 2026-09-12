@@ -71,7 +71,7 @@ pub(crate) async fn store_oidc_auth_session(
     storage
         .save_auth_session(&session)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to store OIDC auth session", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to store OIDC auth session", e))?;
     Ok(())
 }
 
@@ -84,7 +84,7 @@ pub(crate) async fn consume_oidc_auth_session(
     let db_session = storage
         .get_and_delete_auth_session(state)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to consume OIDC auth session", &e))?
+        .map_err(|e| ApiError::internal_with_cause("Failed to consume OIDC auth session", e))?
         .ok_or_else(|| ApiError::unauthorized("OIDC state is missing, expired, or already used".to_string()))?;
     if db_session.expires_at < now_ms {
         return Err(ApiError::unauthorized("OIDC authorization session expired".to_string()));

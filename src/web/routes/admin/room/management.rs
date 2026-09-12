@@ -608,7 +608,7 @@ pub async fn redact_room_events(
         .event_storage
         .find_event_ids_for_redaction(&room_id, before_ts, after_ts, limit)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to query events for redaction", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to query events for redaction", e))?;
 
     let found = event_ids.len() as u64;
 
@@ -617,7 +617,7 @@ pub async fn redact_room_events(
         .event_storage
         .batch_redact_events(&event_ids, Some(&admin.user_id))
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to batch redact events", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to batch redact events", e))?;
 
     tracing::warn!(
         request_id = %request_id,

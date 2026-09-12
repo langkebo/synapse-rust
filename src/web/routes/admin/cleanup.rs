@@ -49,7 +49,7 @@ pub async fn cleanup_all(
         .token_storage
         .cleanup_expired_tokens()
         .await
-        .map_err(|e| ApiError::internal_with_context("Access token cleanup failed", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Access token cleanup failed", e))?;
     token_results.insert("access_tokens_deleted".to_string(), json!(access_tokens));
 
     let refresh_tokens = ctx.refresh_token_service.cleanup_expired_tokens().await?;
@@ -62,7 +62,7 @@ pub async fn cleanup_all(
         .email_verification_storage
         .cleanup_expired_tokens()
         .await
-        .map_err(|e| ApiError::internal_with_context("Email token cleanup failed", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Email token cleanup failed", e))?;
     token_results.insert("email_tokens_deleted".to_string(), json!(email_tokens));
 
     results.insert("tokens".to_string(), Value::Object(token_results));
@@ -91,7 +91,7 @@ pub async fn cleanup_tokens(_admin: AdminUser, State(ctx): State<AdminContext>) 
         .token_storage
         .cleanup_expired_tokens()
         .await
-        .map_err(|e| ApiError::internal_with_context("Access token cleanup failed", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Access token cleanup failed", e))?;
     token_results.insert("access_tokens_deleted".to_string(), json!(access_tokens));
 
     let refresh_tokens = ctx.refresh_token_service.cleanup_expired_tokens().await?;

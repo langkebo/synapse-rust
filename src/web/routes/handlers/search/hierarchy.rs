@@ -22,7 +22,7 @@ pub(crate) async fn build_room_hierarchy_response(
         .state()
         .get_room_record(room_id)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to load room", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to load room", e))?;
 
     if let Some(space) = ctx.space_service.get_space_by_room(room_id).await? {
         let response = ctx
@@ -38,7 +38,7 @@ pub(crate) async fn build_room_hierarchy_response(
             .await?;
 
         let mut response_value = serde_json::to_value(response)
-            .map_err(|e| ApiError::internal_with_context("Failed to serialize hierarchy", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to serialize hierarchy", e))?;
 
         if let Some(obj) = response_value.as_object_mut() {
             let rooms = obj.get("rooms").and_then(|r| r.as_array()).map_or(0, |a| a.len());

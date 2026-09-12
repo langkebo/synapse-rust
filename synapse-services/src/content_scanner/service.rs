@@ -49,7 +49,7 @@ impl ContentScanner {
 
         let result = tokio::task::spawn_blocking(move || Self::clamav_scan_sync(&data))
             .await
-            .map_err(|e| ApiError::internal_with_context("Task join error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Task join error", e))?;
 
         result
     }
@@ -60,16 +60,16 @@ impl ContentScanner {
         let socket_path = "/var/run/clamav/clamd.sock";
 
         let stream = std::net::TcpStream::connect(socket_path)
-            .map_err(|e| ApiError::internal_with_context("Failed to connect to ClamAV", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to connect to ClamAV", e))?;
 
         stream
             .set_read_timeout(Some(std::time::Duration::from_secs(30)))
-            .map_err(|e| ApiError::internal_with_context("Failed to set timeout", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to set timeout", e))?;
 
         let mut reader = BufReader::new(&stream);
         let mut writer = BufWriter::new(&stream);
 
-        writer.write_all(b"zINSTREAM\0").map_err(|e| ApiError::internal_with_context("Failed to send INSTREAM", &e))?;
+        writer.write_all(b"zINSTREAM\0").map_err(|e| ApiError::internal_with_cause("Failed to send INSTREAM", e))?;
 
         let chunk_size = 1024 * 1024;
         let mut remaining = data;
@@ -81,19 +81,17 @@ impl ContentScanner {
             let mut length_buf = [0u8; 4];
             length_buf[0..4].copy_from_slice(&(to_send as u32).to_be_bytes());
 
-            writer.write_all(&length_buf).map_err(|e| ApiError::internal_with_context("Failed to send length", &e))?;
-            writer.write_all(chunk).map_err(|e| ApiError::internal_with_context("Failed to send chunk", &e))?;
+            writer.write_all(&length_buf).map_err(|e| ApiError::internal_with_cause("Failed to send length", e))?;
+            writer.write_all(chunk).map_err(|e| ApiError::internal_with_cause("Failed to send chunk", e))?;
 
             remaining = &remaining[to_send..];
         }
 
-        writer
-            .write_all(&[0, 0, 0, 0])
-            .map_err(|e| ApiError::internal_with_context("Failed to send terminator", &e))?;
-        writer.flush().map_err(|e| ApiError::internal_with_context("Failed to flush", &e))?;
+        writer.write_all(&[0, 0, 0, 0]).map_err(|e| ApiError::internal_with_cause("Failed to send terminator", e))?;
+        writer.flush().map_err(|e| ApiError::internal_with_cause("Failed to flush", e))?;
 
         let mut response = String::new();
-        reader.read_line(&mut response).map_err(|e| ApiError::internal_with_context("Failed to read response", &e))?;
+        reader.read_line(&mut response).map_err(|e| ApiError::internal_with_cause("Failed to read response", e))?;
 
         let is_safe = response.starts_with("stream: OK");
 
@@ -128,8 +126,8 @@ impl ContentScanner {
 
         let response = timeout(Duration::from_millis(self.config.scan_timeout_ms), req_builder.send())
             .await
-            .map_err(|e| ApiError::internal_with_context("Webhook request timeout", &e))?
-            .map_err(|e| ApiError::internal_with_context("Webhook request failed", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Webhook request timeout", e))?
+            .map_err(|e| ApiError::internal_with_cause("Webhook request failed", e))?;
 
         if !response.status().is_success() {
             if self.config.block_on_scan_failure {
@@ -143,10 +141,8 @@ impl ContentScanner {
             });
         }
 
-        let scan_response: WebhookScanResponse = response
-            .json()
-            .await
-            .map_err(|e| ApiError::internal_with_context("Failed to parse webhook response", &e))?;
+        let scan_response: WebhookScanResponse =
+            response.json().await.map_err(|e| ApiError::internal_with_cause("Failed to parse webhook response", e))?;
 
         Ok(ContentScanResult {
             safe: scan_response.safe,

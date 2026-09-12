@@ -79,7 +79,7 @@ async fn get_protocols(
         .app_service_manager
         .get_all_active()
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to query application service protocols", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to query application service protocols", e))?;
 
     Ok(Json(synapse_services::application_service::ApplicationServiceManager::aggregate_protocols(&services)))
 }
@@ -93,7 +93,7 @@ async fn get_protocol(
         .app_service_manager
         .get_all_active()
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to query application service protocols", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to query application service protocols", e))?;
 
     let protocols = synapse_services::application_service::ApplicationServiceManager::aggregate_protocols(&services);
 

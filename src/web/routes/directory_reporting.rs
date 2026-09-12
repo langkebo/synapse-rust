@@ -40,7 +40,7 @@ async fn ensure_room_alias_write_allowed(
         .state()
         .is_room_creator(room_id, &auth_user.user_id)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to check room creator", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to check room creator", e))?;
 
     if !is_creator {
         return Err(ApiError::forbidden("Only room admins can manage aliases".to_string()));

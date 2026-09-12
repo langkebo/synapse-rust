@@ -22,7 +22,7 @@ impl MessagingService {
             .member_storage
             .is_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check membership", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to check membership", e))?
         {
             return Err(ApiError::forbidden("You are not a member of this room".to_string()));
         }
@@ -75,7 +75,7 @@ impl MessagingService {
                     let beacon_info = beacon_service
                         .get_beacon_info(room_id, &beacon_info_id)
                         .await
-                        .map_err(|e| ApiError::internal_with_context("Failed to validate beacon", &e))?;
+                        .map_err(|e| ApiError::internal_with_boxed_cause("Failed to validate beacon", e))?;
                     let Some(beacon_info) = beacon_info else {
                         return Err(ApiError::bad_request("Referenced beacon_info does not exist".to_string()));
                     };
@@ -92,7 +92,7 @@ impl MessagingService {
                     if let Some(retry_after_ms) = beacon_service
                         .check_room_backpressure(room_id, now)
                         .await
-                        .map_err(|e| ApiError::internal_with_context("Failed to check room backpressure", &e))?
+                        .map_err(|e| ApiError::internal_with_boxed_cause("Failed to check room backpressure", e))?
                     {
                         return Err(ApiError::rate_limited_with_retry(retry_after_ms));
                     }
@@ -100,7 +100,7 @@ impl MessagingService {
                     if let Some(retry_after_ms) = beacon_service
                         .check_location_quota(room_id, user_id, now)
                         .await
-                        .map_err(|e| ApiError::internal_with_context("Failed to check beacon quota", &e))?
+                        .map_err(|e| ApiError::internal_with_boxed_cause("Failed to check beacon quota", e))?
                     {
                         return Err(ApiError::rate_limited_with_retry(retry_after_ms));
                     }
@@ -108,7 +108,7 @@ impl MessagingService {
                     let latest = beacon_service
                         .get_latest_location(&beacon_info_id)
                         .await
-                        .map_err(|e| ApiError::internal_with_context("Failed to check beacon rate limit", &e))?;
+                        .map_err(|e| ApiError::internal_with_boxed_cause("Failed to check beacon rate limit", e))?;
                     if let Some(latest) = latest {
                         if ts <= latest.timestamp {
                             return Err(ApiError::bad_request(
@@ -157,7 +157,7 @@ impl MessagingService {
             .pool()
             .begin()
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to begin send_message transaction", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to begin send_message transaction", e))?;
 
         let event = self
             .create_event(
@@ -174,7 +174,7 @@ impl MessagingService {
                 Some(&mut tx),
             )
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to send message", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to send message", e))?;
         // create_event failed: `tx` drops here → sqlx auto-rollback → pool returns clean.
 
         if let Some(relates_to) = content.get("m.relates_to").or_else(|| content.get("relates_to")) {
@@ -214,9 +214,7 @@ impl MessagingService {
             }
         }
 
-        tx.commit()
-            .await
-            .map_err(|e| ApiError::internal_with_context("Failed to commit send_message transaction", &e))?;
+        tx.commit().await.map_err(|e| ApiError::internal_with_cause("Failed to commit send_message transaction", e))?;
 
         // Post-commit fan-out. `create_event` skipped these when called with a
         // transaction (`should_update_summary = tx.is_none()`), but send_message
@@ -256,7 +254,7 @@ impl MessagingService {
             beacon_service
                 .report_location(params)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to index beacon", &e))?;
+                .map_err(|e| ApiError::internal_with_boxed_cause("Failed to index beacon", e))?;
         }
 
         Ok(json!({
@@ -289,7 +287,7 @@ impl MessagingService {
             .event_reader
             .get_event_id_by_txn(user_id, room_id, txn_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to look up txn dedup record", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to look up txn dedup record", e))?
         {
             return Ok(json!({ "event_id": existing }));
         }
@@ -304,7 +302,7 @@ impl MessagingService {
             .event_writer
             .record_event_txn(user_id, room_id, txn_id, &event_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to record txn dedup marker", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to record txn dedup marker", e))?;
 
         if !inserted {
             // 并发相同 txn：本地事件落败，返回获胜方的 event_id
@@ -312,7 +310,7 @@ impl MessagingService {
                 .event_reader
                 .get_event_id_by_txn(user_id, room_id, txn_id)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to resolve txn race winner", &e))?
+                .map_err(|e| ApiError::internal_with_cause("Failed to resolve txn race winner", e))?
             {
                 if winner != event_id {
                     ::tracing::warn!(
@@ -330,7 +328,7 @@ impl MessagingService {
                     self.event_writer
                         .mark_event_soft_failed(&event_id)
                         .await
-                        .map_err(|e| ApiError::internal_with_context("Failed to mark event soft-failed", &e))?;
+                        .map_err(|e| ApiError::internal_with_cause("Failed to mark event soft-failed", e))?;
                     return Ok(json!({ "event_id": winner }));
                 }
             }
@@ -352,13 +350,13 @@ impl MessagingService {
             .member_storage
             .is_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check membership", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to check membership", e))?;
         if !is_member {
             let room = self
                 .room_storage
                 .get_room(room_id)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to get room", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Failed to get room", e))?;
             let is_public = room.as_ref().is_some_and(|r| r.is_public);
             if !is_public {
                 return Err(ApiError::forbidden("You are not a member of this room".to_string()));
@@ -376,7 +374,7 @@ impl MessagingService {
                     .event_reader
                     .get_max_origin_server_ts_for_room(room_id)
                     .await
-                    .map_err(|e| ApiError::internal_with_context("Failed to get room stream", &e))?;
+                    .map_err(|e| ApiError::internal_with_cause("Failed to get room stream", e))?;
                 generate_pagination_token(max_ts, None)
             }
         };
@@ -385,7 +383,7 @@ impl MessagingService {
             .event_reader
             .get_room_events_paginated_cursor(room_id, from, limit, normalized_direction)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get messages", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get messages", e))?;
 
         let event_list: Vec<serde_json::Value> = events
             .iter()
@@ -424,7 +422,7 @@ impl MessagingService {
             .event_reader
             .get_ephemeral_events(room_id, now, limit)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get ephemeral events", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get ephemeral events", e))?;
 
         Ok(rows
             .into_iter()
@@ -457,7 +455,7 @@ impl MessagingService {
         self.event_writer
             .upsert_ephemeral_event(room_id, user_id, "m.typing", &content, now, now, Some(now + timeout_ms))
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to store typing ephemeral event", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to store typing ephemeral event", e))
     }
 
     /// See [`clear_typing_ephemeral_event`].
@@ -465,7 +463,7 @@ impl MessagingService {
         self.event_writer
             .delete_ephemeral_event(room_id, "m.typing", user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to clear typing ephemeral event", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to clear typing ephemeral event", e))
     }
 }
 

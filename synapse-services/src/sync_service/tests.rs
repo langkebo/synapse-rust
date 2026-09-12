@@ -1950,7 +1950,15 @@ fn sync_service_for_notifier_test(
         presence_storage: Arc::new(synapse_storage::test_mocks::InMemoryPresenceStore::new()),
         member_storage: Arc::new(synapse_storage::test_mocks::InMemoryMemberStore::new()),
         event_reader: event_store as Arc<dyn synapse_storage::event::EventReader>,
-        room_account_data_storage: Arc::new(synapse_storage::room_account_data::RoomAccountDataStorage::new(&pool)),
+        // Was `RoomAccountDataStorage::new(&pool)` over the lazy pool above. That
+        // made these tests depend on a *real* database reachable at
+        // `postgres://synapse:synapse@localhost/synapse` — a hardcoded URL with no
+        // `TEST_DATABASE_URL` override, so it only worked on a machine that happened
+        // to match. Everywhere else it failed with `Failed to get room account data`,
+        // and because the error mapper dropped the cause, the real reason was
+        // invisible. `build_room_sync` only *reads* room account data, and this
+        // in-memory store is already used for exactly that in `account_data_service`.
+        room_account_data_storage: Arc::new(synapse_storage::test_mocks::InMemoryRoomAccountDataStore::new()),
         account_data_storage: Arc::new(synapse_storage::test_mocks::InMemoryAccountDataStore::new()),
         filter_storage: Arc::new(synapse_storage::filter::FilterStorage::new(&pool)),
         device_storage: Arc::new(synapse_storage::test_mocks::InMemoryDeviceListStore::new()),

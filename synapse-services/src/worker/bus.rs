@@ -402,7 +402,7 @@ impl WorkerBus {
         };
 
         let encoded = serde_json::to_vec(&bus_message)
-            .map_err(|e| ApiError::internal_with_context("Failed to encode message", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to encode message", e))?;
 
         debug!("Publishing to channel {}: {} bytes", channel, encoded.len());
 
@@ -584,7 +584,7 @@ impl WorkerBus {
     /// See [`broadcast_command`].
     pub async fn broadcast_command(&self, command: &ReplicationCommand) -> Result<(), ApiError> {
         let encoded =
-            serde_json::to_vec(command).map_err(|e| ApiError::internal_with_context("Failed to encode command", &e))?;
+            serde_json::to_vec(command).map_err(|e| ApiError::internal_with_cause("Failed to encode command", e))?;
 
         self.publish("broadcast", &encoded).await
     }
@@ -592,7 +592,7 @@ impl WorkerBus {
     /// See [`send_to_worker`].
     pub async fn send_to_worker(&self, worker_id: &str, command: &ReplicationCommand) -> Result<(), ApiError> {
         let encoded =
-            serde_json::to_vec(command).map_err(|e| ApiError::internal_with_context("Failed to encode command", &e))?;
+            serde_json::to_vec(command).map_err(|e| ApiError::internal_with_cause("Failed to encode command", e))?;
 
         let channel = format!("worker:{worker_id}");
         self.publish(&channel, &encoded).await
@@ -601,7 +601,7 @@ impl WorkerBus {
     /// See [`send_to_stream_writer`].
     pub async fn send_to_stream_writer(&self, stream_name: &str, command: &ReplicationCommand) -> Result<(), ApiError> {
         let encoded =
-            serde_json::to_vec(command).map_err(|e| ApiError::internal_with_context("Failed to encode command", &e))?;
+            serde_json::to_vec(command).map_err(|e| ApiError::internal_with_cause("Failed to encode command", e))?;
 
         let channel = format!("stream:{stream_name}");
         self.publish(&channel, &encoded).await
@@ -713,12 +713,12 @@ impl WorkerBus {
         let redis_pool = self.redis_pool.read().await;
         let pool = redis_pool.as_ref().ok_or_else(|| ApiError::internal("Redis not connected"))?;
 
-        let mut conn = pool.get().await.map_err(|e| ApiError::internal_with_context("Redis pool error", &e))?;
+        let mut conn = pool.get().await.map_err(|e| ApiError::internal_with_cause("Redis pool error", e))?;
 
         use redis::AsyncCommands;
         conn.publish::<_, _, ()>(full_channel, payload)
             .await
-            .map_err(|e| ApiError::internal_with_context("Redis publish failed", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Redis publish failed", e))?;
 
         Ok(())
     }

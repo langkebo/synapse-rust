@@ -37,7 +37,7 @@ impl CasStorage {
         .bind(expires_at)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to create CAS ticket", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to create CAS ticket", e))?;
 
         Ok(ticket.into())
     }
@@ -59,7 +59,7 @@ impl CasStorage {
         .bind(service_url)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to validate CAS ticket", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to validate CAS ticket", e))?;
 
         Ok(ticket.map(CasTicket::from))
     }
@@ -76,7 +76,7 @@ impl CasStorage {
         .bind(ticket_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to get CAS ticket", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to get CAS ticket", e))?;
 
         Ok(ticket.map(CasTicket::from))
     }
@@ -92,7 +92,7 @@ impl CasStorage {
         .bind(ticket_id)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to delete CAS ticket", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to delete CAS ticket", e))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -109,7 +109,7 @@ impl CasStorage {
         .bind(now)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to cleanup expired tickets", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to cleanup expired tickets", e))?;
 
         Ok(result.rows_affected())
     }
@@ -134,7 +134,7 @@ impl CasStorage {
         .bind(expires_at)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to create CAS proxy ticket", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to create CAS proxy ticket", e))?;
 
         Ok(ticket.into())
     }
@@ -160,7 +160,7 @@ impl CasStorage {
         .bind(service_url)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to validate CAS proxy ticket", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to validate CAS proxy ticket", e))?;
 
         Ok(ticket.map(CasProxyTicket::from))
     }
@@ -185,7 +185,7 @@ impl CasStorage {
         .bind(expires_at)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to create CAS PGT", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to create CAS PGT", e))?;
 
         Ok(pgt)
     }
@@ -202,7 +202,7 @@ impl CasStorage {
         .bind(pgt_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to get CAS PGT", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to get CAS PGT", e))?;
 
         Ok(pgt)
     }
@@ -219,7 +219,7 @@ impl CasStorage {
         .bind(iou)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to get CAS PGT by IOU", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to get CAS PGT by IOU", e))?;
 
         Ok(pgt)
     }
@@ -256,7 +256,7 @@ impl CasStorage {
         .bind(now)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to register CAS service", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to register CAS service", e))?;
 
         Ok(service.into())
     }
@@ -275,7 +275,7 @@ impl CasStorage {
         .bind(service_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to get CAS service", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to get CAS service", e))?;
 
         Ok(service.map(CasRegisteredService::from))
     }
@@ -294,7 +294,7 @@ impl CasStorage {
         .bind(service_url)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to get CAS service by URL", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to get CAS service by URL", e))?;
 
         Ok(service.map(CasRegisteredService::from))
     }
@@ -312,7 +312,7 @@ impl CasStorage {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to list CAS services", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to list CAS services", e))?;
 
         Ok(services.into_iter().map(CasRegisteredService::from).collect())
     }
@@ -328,7 +328,7 @@ impl CasStorage {
         .bind(service_id)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to delete CAS service", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to delete CAS service", e))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -357,7 +357,7 @@ impl CasStorage {
         .bind(now)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to set CAS user attribute", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to set CAS user attribute", e))?;
 
         Ok(attr.into())
     }
@@ -374,7 +374,7 @@ impl CasStorage {
         .bind(user_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to get CAS user attributes", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to get CAS user attributes", e))?;
 
         Ok(attrs.into_iter().map(CasUserAttribute::from).collect())
     }
@@ -402,7 +402,7 @@ impl CasStorage {
         .bind(now)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to create CAS SLO session", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to create CAS SLO session", e))?;
 
         Ok(session.into())
     }
@@ -421,7 +421,7 @@ impl CasStorage {
         .bind(session_id)
         .execute(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to mark SLO sent", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to mark SLO sent", e))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -438,7 +438,7 @@ impl CasStorage {
         .bind(user_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to get active SLO sessions", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to get active SLO sessions", e))?;
 
         Ok(sessions.into_iter().map(CasSloSession::from).collect())
     }

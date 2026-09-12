@@ -308,7 +308,7 @@ impl CrossSigningVerificationService {
             .device_storage
             .get_user_devices(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get devices", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get devices", e))?;
 
         if devices.is_empty() {
             return Ok(Vec::new());

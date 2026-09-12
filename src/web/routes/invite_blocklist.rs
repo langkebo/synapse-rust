@@ -60,7 +60,7 @@ pub async fn get_invite_blocklist(
         .invite_blocklist_storage
         .get_invite_blocklist(&room_id)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to get blocklist", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to get blocklist", e))?;
 
     Ok(Json(json!({
         "blocklist": blocklist,
@@ -87,7 +87,7 @@ pub async fn set_invite_blocklist(
     ctx.invite_blocklist_storage
         .set_invite_blocklist(&room_id, user_ids.clone())
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to set blocklist", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to set blocklist", e))?;
 
     Ok(Json(json!({
         "room_id": room_id.to_string(),
@@ -110,7 +110,7 @@ pub async fn get_invite_allowlist(
         .invite_blocklist_storage
         .get_invite_allowlist(&room_id)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to get allowlist", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to get allowlist", e))?;
 
     Ok(Json(json!({
         "allowlist": allowlist,
@@ -137,7 +137,7 @@ pub async fn set_invite_allowlist(
     ctx.invite_blocklist_storage
         .set_invite_allowlist(&room_id, user_ids.clone())
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to set allowlist", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to set allowlist", e))?;
 
     Ok(Json(json!({
         "room_id": room_id.to_string(),

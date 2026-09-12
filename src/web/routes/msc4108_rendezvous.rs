@@ -69,7 +69,7 @@ async fn create_session(State(ctx): State<AuthContext>, body: String) -> Result<
         .rendezvous_storage
         .create_msc4108_session(&body, MSC4108_TTL_MS)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to create MSC4108 session", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to create MSC4108 session", e))?;
 
     let url = build_rendezvous_url(&ctx, &session_id);
     let expires_http_date = http_date_from_millis(expires_at);
@@ -100,7 +100,7 @@ async fn get_session(
         .rendezvous_storage
         .get_msc4108_data(&session_id)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to get MSC4108 data", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to get MSC4108 data", e))?;
 
     let (data, etag) = match result {
         Some(v) => v,
@@ -137,7 +137,7 @@ async fn update_session(
         .rendezvous_storage
         .update_msc4108_data(&session_id, &body, if_match)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to update MSC4108 data", &e))?
+        .map_err(|e| ApiError::internal_with_cause("Failed to update MSC4108 data", e))?
         .ok_or_else(|| ApiError::bad_request("ETag mismatch or session expired".to_string()))?;
 
     Ok((StatusCode::OK, [(header::ETAG, new_etag.as_str()), (header::CONTENT_TYPE, "text/plain")], Body::empty())
@@ -152,7 +152,7 @@ async fn delete_session(
     ctx.rendezvous_storage
         .delete_msc4108_session(&session_id)
         .await
-        .map_err(|e| ApiError::internal_with_context("Failed to delete MSC4108 session", &e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to delete MSC4108 session", e))?;
 
     Ok((StatusCode::OK, Body::empty()).into_response())
 }

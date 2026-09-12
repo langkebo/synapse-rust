@@ -177,9 +177,10 @@ impl DirectoryService {
     pub async fn add_public_room(&self, room: DirectoryRoom) -> ApiResult<()> {
         if let Some(storage) = &self.directory_storage {
             let entry = RoomDirectoryEntry::from(&room);
-            storage.upsert_directory_entry(&entry).await.map_err(|e| {
-                ApiError::internal_with_context("Failed to persist public room to directory storage", &e)
-            })?;
+            storage
+                .upsert_directory_entry(&entry)
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Failed to persist public room to directory storage", e))?;
             return Ok(());
         }
         let mut rooms = self.public_rooms.write().await;
@@ -197,9 +198,10 @@ impl DirectoryService {
     /// * `room_id` - 要移除的房间 ID
     pub async fn remove_public_room(&self, room_id: &str) -> ApiResult<()> {
         if let Some(storage) = &self.directory_storage {
-            storage.remove_from_directory(room_id).await.map_err(|e| {
-                ApiError::internal_with_context("Failed to remove public room from directory storage", &e)
-            })?;
+            storage
+                .remove_from_directory(room_id)
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Failed to remove public room from directory storage", e))?;
             return Ok(());
         }
         let mut rooms = self.public_rooms.write().await;
@@ -248,7 +250,7 @@ impl DirectoryService {
             storage
                 .set_room_alias(room_id, alias, "")
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to set room alias in storage", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Failed to set room alias in storage", e))?;
             return Ok(());
         }
         let mut aliases = self.aliases.write().await;
@@ -266,7 +268,7 @@ impl DirectoryService {
             storage
                 .remove_room_alias_by_name(alias)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to remove room alias from storage", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Failed to remove room alias from storage", e))?;
             return Ok(());
         }
         let mut aliases = self.aliases.write().await;
@@ -282,9 +284,10 @@ impl DirectoryService {
     /// See [`get_public_rooms`].
     pub async fn get_public_rooms(&self, limit: i32, _since: Option<&str>) -> ApiResult<Vec<DirectoryRoom>> {
         if let Some(storage) = &self.directory_storage {
-            let entries = storage.list_public_rooms(limit as i64, 0).await.map_err(|e| {
-                ApiError::internal_with_context("Failed to list public rooms from directory storage", &e)
-            })?;
+            let entries = storage
+                .list_public_rooms(limit as i64, 0)
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Failed to list public rooms from directory storage", e))?;
             return Ok(entries.into_iter().map(DirectoryRoom::from).collect());
         }
         let rooms = self.public_rooms.read().await;
@@ -296,9 +299,10 @@ impl DirectoryService {
     pub async fn search_public_rooms(&self, filter: Option<&str>, limit: i32) -> ApiResult<Vec<DirectoryRoom>> {
         if let Some(storage) = &self.directory_storage {
             let filter_str = filter.unwrap_or("");
-            let entries = storage.search_public_rooms(filter_str, limit as i64).await.map_err(|e| {
-                ApiError::internal_with_context("Failed to search public rooms in directory storage", &e)
-            })?;
+            let entries = storage
+                .search_public_rooms(filter_str, limit as i64)
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Failed to search public rooms in directory storage", e))?;
             return Ok(entries.into_iter().map(DirectoryRoom::from).collect());
         }
         let rooms = self.public_rooms.read().await;

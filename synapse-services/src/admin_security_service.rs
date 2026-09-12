@@ -42,7 +42,7 @@ impl AdminSecurityService {
             .user_storage
             .set_shadow_ban(user_id, is_shadow_banned)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         if !updated {
             return Err(ApiError::not_found("User not found".to_string()));
@@ -59,7 +59,7 @@ impl AdminSecurityService {
             .rate_limit_storage
             .get_user_rate_limit(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(match limit {
             Some(row) => UserRateLimit {
@@ -81,7 +81,7 @@ impl AdminSecurityService {
         self.rate_limit_storage
             .upsert_user_rate_limit(user_id, messages_per_second, burst_count)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(UserRateLimit { messages_per_second, burst_count })
     }
@@ -92,7 +92,7 @@ impl AdminSecurityService {
         self.rate_limit_storage
             .delete_user_rate_limit(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
         Ok(())
     }
 }

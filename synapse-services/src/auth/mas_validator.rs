@@ -118,7 +118,7 @@ impl MasTokenValidator for OidcMasTokenValidator {
             .user_mapping
             .get_bound_user_id(issuer, sub)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to query OIDC user mapping", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to query OIDC user mapping", e))?
             .ok_or_else(|| ApiError::unauthorized("OIDC subject not bound to any Matrix user account"))?;
 
         // Look up the user record for admin/guest flags.
@@ -126,7 +126,7 @@ impl MasTokenValidator for OidcMasTokenValidator {
             .user_store
             .get_user_by_id(&user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to query user record", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to query user record", e))?
             .ok_or_else(|| ApiError::unauthorized("User not found"))?;
 
         if user.is_deactivated {

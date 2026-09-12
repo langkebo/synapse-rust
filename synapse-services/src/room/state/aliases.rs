@@ -12,7 +12,7 @@ impl RoomStateService {
         self.room_storage
             .get_room_aliases(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get room aliases", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get room aliases", e))
     }
 
     /// See [`set_room_alias`].
@@ -21,7 +21,7 @@ impl RoomStateService {
         self.room_storage
             .set_room_alias(room_id, alias, created_by)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to set room alias", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to set room alias", e))
     }
 
     /// See [`get_room_by_alias`].
@@ -30,7 +30,7 @@ impl RoomStateService {
         self.room_storage
             .get_room_by_alias(alias)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get room by alias", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get room by alias", e))
     }
 
     /// See [`remove_room_alias`].
@@ -38,7 +38,7 @@ impl RoomStateService {
         self.room_storage
             .remove_room_alias(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to remove room alias", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to remove room alias", e))
     }
 
     /// See [`remove_room_alias_by_name`].
@@ -46,7 +46,7 @@ impl RoomStateService {
         self.room_storage
             .remove_room_alias_by_name(alias)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to remove room alias by name", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to remove room alias by name", e))
     }
 
     /// See [`set_room_directory`].
@@ -54,7 +54,7 @@ impl RoomStateService {
         self.room_storage
             .set_room_directory(room_id, is_public)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to set room directory", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to set room directory", e))
     }
 
     /// See [`get_room_visibility`].
@@ -63,7 +63,7 @@ impl RoomStateService {
             .room_storage
             .is_room_in_directory(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get room visibility", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get room visibility", e))?;
         Ok(if is_public { "public".to_string() } else { "private".to_string() })
     }
 
@@ -72,7 +72,7 @@ impl RoomStateService {
         self.room_storage
             .remove_room_directory(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to remove room from directory", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to remove room from directory", e))
     }
 
     /// See [`get_public_rooms`].
@@ -81,7 +81,7 @@ impl RoomStateService {
             .room_storage
             .get_public_rooms(limit)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get public rooms", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get public rooms", e))?;
 
         let room_list: Vec<serde_json::Value> = rooms
             .iter()

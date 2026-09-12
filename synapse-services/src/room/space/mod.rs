@@ -115,7 +115,7 @@ impl SpaceService {
             .space_storage
             .get_space(space_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get space", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to get space", e))?
             .ok_or_else(|| ApiError::not_found("Space not found"))?;
 
         if space.creator != user_id {
@@ -125,7 +125,7 @@ impl SpaceService {
         self.space_storage
             .delete_space(space_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to delete space", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to delete space", e))?;
 
         info!(space_id = %space_id, user_id = %user_id, "Deleted space");
         Ok(())
@@ -144,7 +144,7 @@ impl SpaceService {
             .space_storage
             .get_space(space_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get space", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to get space", e))?
             .ok_or_else(|| ApiError::not_found("Space not found"))?;
 
         if !space.is_public {
@@ -153,7 +153,7 @@ impl SpaceService {
                 .space_storage
                 .check_user_can_see_space(space_id, user_id)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to check space visibility", &e))?;
+                .map_err(|e| ApiError::internal_with_cause("Failed to check space visibility", e))?;
             if !can_see {
                 return Err(ApiError::forbidden("User cannot access this space"));
             }
@@ -163,12 +163,12 @@ impl SpaceService {
             .space_storage
             .get_space_children(space_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get space children", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get space children", e))?;
         let members = self
             .space_storage
             .get_space_members(space_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get space members", &e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get space members", e))?;
 
         let mut state = vec![json!({
             "type": "m.room.create",
@@ -243,7 +243,7 @@ impl SpaceService {
         self.space_storage
             .get_user_spaces(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get user spaces", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get user spaces", e))
     }
 
     /// See [`get_public_spaces`].
@@ -257,7 +257,7 @@ impl SpaceService {
         self.space_storage
             .get_public_spaces(limit, cursor_created_ts, cursor_space_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get public spaces", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get public spaces", e))
     }
 
     /// See [`resolve_space_id`].
@@ -266,7 +266,7 @@ impl SpaceService {
         self.space_storage
             .resolve_space_id(identifier)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to resolve space", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to resolve space", e))
     }
 
     /// See [`get_all_spaces_for_admin`].
@@ -275,7 +275,7 @@ impl SpaceService {
         self.space_storage
             .get_all_spaces_for_admin()
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get spaces", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get spaces", e))
     }
 
     /// See [`get_space_by_identifier`].
@@ -284,7 +284,7 @@ impl SpaceService {
         self.space_storage
             .get_space_by_identifier(identifier)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get space", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get space", e))
     }
 
     /// See [`delete_space_returning_count`].
@@ -293,7 +293,7 @@ impl SpaceService {
         self.space_storage
             .delete_space_returning_count(space_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to delete space", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to delete space", e))
     }
 
     /// See [`get_space_user_ids`].
@@ -302,7 +302,7 @@ impl SpaceService {
         self.space_storage
             .get_space_user_ids(space_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get space users", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get space users", e))
     }
 
     /// See [`get_space_room_ids`].
@@ -311,7 +311,7 @@ impl SpaceService {
         self.space_storage
             .get_space_room_ids(space_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get space rooms", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get space rooms", e))
     }
 
     /// See [`get_space_member_and_child_count`].
@@ -320,7 +320,7 @@ impl SpaceService {
         self.space_storage
             .get_space_member_and_child_count(space_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get space statistics", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get space statistics", e))
     }
 
     /// See [`get_space_summary`].
@@ -329,7 +329,7 @@ impl SpaceService {
         self.space_storage
             .get_space_summary(space_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get space summary", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get space summary", e))
     }
 
     /// See [`search_spaces`].
@@ -338,7 +338,7 @@ impl SpaceService {
         self.space_storage
             .search_spaces(query, limit, user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to search spaces", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to search spaces", e))
     }
 
     /// See [`get_space_statistics`].
@@ -347,7 +347,7 @@ impl SpaceService {
         self.space_storage
             .get_space_statistics(limit)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get space statistics", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get space statistics", e))
     }
 
     /// See [`get_parent_spaces`].
@@ -358,7 +358,7 @@ impl SpaceService {
         self.space_storage
             .get_parent_spaces(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get parent spaces", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get parent spaces", e))
     }
 
     /// See [`get_space_tree_path`].
@@ -369,7 +369,7 @@ impl SpaceService {
         self.space_storage
             .get_space_tree_path(space_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get space tree path", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get space tree path", e))
     }
 
     /// See [`check_user_can_see_space`].
@@ -378,7 +378,7 @@ impl SpaceService {
         self.space_storage
             .check_user_can_see_space(space_id, user_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check space visibility", &e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to check space visibility", e))
     }
 
     // ── Access helpers ──
@@ -389,7 +389,7 @@ impl SpaceService {
             .room_storage
             .get_room(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get room", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to get room", e))?
             .ok_or_else(|| ApiError::not_found("Room not found"))?;
 
         if room.creator_user_id.as_deref() != Some(user_id) {
@@ -405,7 +405,7 @@ impl SpaceService {
             .space_storage
             .get_space(space_id)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get space", &e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to get space", e))?
             .ok_or_else(|| ApiError::not_found("Space not found"))?;
 
         if space.creator != user_id {

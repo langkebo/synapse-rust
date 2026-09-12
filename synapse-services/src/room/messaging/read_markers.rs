@@ -16,7 +16,7 @@ impl MessagingService {
         self.room_storage
             .update_read_marker_with_type(room_id, user_id, event_id, marker_type)
             .await
-            .map_err(|e| ApiError::internal_with_context(&format!("Failed to set {marker_type} marker"), &e))
+            .map_err(|e| ApiError::internal_with_cause(&format!("Failed to set {marker_type} marker"), e))
     }
 
     /// Set read markers (MSC2654) with MSC4446 backward-move support.
@@ -33,7 +33,7 @@ impl MessagingService {
                 self.room_storage
                     .update_read_marker_monotonic(room_id, user_id, event_id, "m.fully_read", allow_backward)
                     .await
-                    .map_err(|e| ApiError::internal_with_context("Failed to set m.fully_read marker", &e))?;
+                    .map_err(|e| ApiError::internal_with_cause("Failed to set m.fully_read marker", e))?;
             }
         }
 
@@ -61,7 +61,7 @@ impl MessagingService {
                 self.room_storage
                     .update_read_marker_monotonic(room_id, user_id, event_id, "m.fully_read", false)
                     .await
-                    .map_err(|e| ApiError::internal_with_context("Failed to set m.read marker", &e))?;
+                    .map_err(|e| ApiError::internal_with_cause("Failed to set m.read marker", e))?;
             }
         }
 
