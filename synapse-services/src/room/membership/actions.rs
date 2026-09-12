@@ -3,7 +3,7 @@
 use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
 use synapse_common::current_timestamp_millis;
-use synapse_common::{generate_event_id, is_legal, Membership, TransitionCtx};
+use synapse_common::{generate_event_id, is_legal, JoinRule, Membership, TransitionCtx};
 use synapse_storage::CreateEventParams;
 
 use super::service::MembershipService;
@@ -67,7 +67,7 @@ impl MembershipService {
             return Err(ApiError::not_found("User not found".to_string()));
         }
 
-        let join_rule = self.resolve_join_rule(room_id).await?;
+        let (join_rule, _allow_rooms) = self.resolve_join_rule_and_allow(room_id).await?;
         let (from, target_is_banned) = self.resolve_membership_from(room_id, user_id).await?;
 
         // Idempotent no-op: already joined — don't emit a duplicate join event.
@@ -76,10 +76,21 @@ impl MembershipService {
         }
 
         // Delegate the state-machine verdict to the single membership-transition
-        // rulebook. Joins need no power level, so the state-only ctx is exact;
-        // restricted-join authorization resolution is not yet wired, so
-        // restricted rooms fail closed (require an explicit invite).
-        let ctx = TransitionCtx::state_only(join_rule, /* actor_is_target */ true, target_is_banned, false);
+        // rulebook. Joins need no power level, so the state-only ctx is exact.
+        // For restricted / knock_restricted rooms, resolve whether the joiner
+        // satisfies an `allow` condition (MSC3083: `join` membership in one of
+        // the allowed spaces). Non-restricted rules skip the extra lookup.
+        let restricted_join_authorized = if matches!(join_rule, JoinRule::Restricted | JoinRule::KnockRestricted) {
+            self.is_restricted_join_authorized(room_id, user_id).await?
+        } else {
+            false
+        };
+        let ctx = TransitionCtx::state_only(
+            join_rule,
+            /* actor_is_target */ true,
+            target_is_banned,
+            restricted_join_authorized,
+        );
         is_legal(from, Membership::Join, &ctx)?;
 
         // MSC4284: consult the policy server before persisting the join.

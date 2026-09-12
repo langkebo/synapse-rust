@@ -22,6 +22,72 @@ use synapse_e2ee::key_rotation::KeyRotationStorageApi;
 
 use crate::room::summary::RoomSummaryService;
 
+/// Extract allowed room IDs from the `allow` array of a `m.room.join_rules` state
+/// event.  For `restricted` / `knock_restricted` rules this returns the list of
+/// rooms whose `m.room_membership` grants join rights as per MSC3083.
+/// Returns deduped room IDs, validated for basic syntax.  Entries whose `type`
+/// is not `m.room_membership` (or missing, which defaults to that type) are
+/// ignored.  Malformed IDs are silently dropped (fail-closed).
+pub(crate) fn extract_allowed_join_rooms(content: &serde_json::Value) -> Vec<String> {
+    let allow = match content.get("allow").and_then(|v| v.as_array()) {
+        Some(arr) => arr,
+        None => return Vec::new(),
+    };
+
+    let mut rooms: Vec<String> = allow
+        .iter()
+        .filter_map(|entry| {
+            // Skip entries with an explicit non-membership type.
+            let typ = entry.get("type").and_then(|v| v.as_str()).unwrap_or("m.room_membership");
+            if typ != "m.room_membership" {
+                return None;
+            }
+            let room_id = entry.get("room_id").and_then(|v| v.as_str())?;
+            if !is_valid_matrix_id(room_id) {
+                return None;
+            }
+            Some(room_id.to_string())
+        })
+        .collect();
+
+    rooms.sort_unstable();
+    rooms.dedup();
+    rooms
+}
+
+/// Minimal Matrix ID validation for room IDs (and aliases) used in `allow` entries.
+/// - Must start with '!' or '#'
+/// - Contains a ':' separating localpart from server
+/// This is intentionally conservative: we only need the room ID syntax for
+/// federation lookups, not a full Matrix ID parser.
+fn is_valid_matrix_id(id: &str) -> bool {
+    if id.is_empty() {
+        return false;
+    }
+    let sigil = id.chars().next().unwrap_or('\0');
+    if sigil != '!' && sigil != '#' {
+        return false;
+    }
+    // Find the last ':' to split localpart from server (servers may contain ':')
+    let Some(pos) = id.rfind(':') else { return false };
+    if pos <= 1 { // at least one char localpart
+        return false;
+    }
+    let server = &id[pos + 1..];
+    if server.is_empty() {
+        return false;
+    }
+    // Basic server name checks (reject path separators/whitespace/control)
+    if server.contains('/') || server.contains('\\') || server.contains(' ') || server.contains('\0') {
+        return false;
+    }
+    if server.len() > 253 {
+        return false;
+    }
+    // Allowed charset for a server name (case matters only for comparison but we accept it)
+    server.bytes().all(|b| matches!(b, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'.' | b'-' | b'_' | b':'))
+}
+
 /// Domain service for room membership operations — join, leave, invite,
 /// kick, ban, unban, knock, forget, and federation membership.
 #[derive(Clone)]
@@ -329,7 +395,21 @@ impl MembershipService {
     /// `join_rule`, then a `public`/`invite` default from `is_public`. Unknown
     /// rule strings resolve to [`JoinRule::Invite`] (fail-closed).
     pub(crate) async fn resolve_join_rule(&self, room_id: &str) -> ApiResult<JoinRule> {
-        let effective = if let Some(event) = self
+        Ok(self.resolve_join_rule_and_allow(room_id).await?.0)
+    }
+
+    /// Resolve both the effective [`JoinRule`] and the rooms permitted by the
+    /// rule's `allow` array (MSC3083). For `restricted` / `knock_restricted`
+    /// rooms the `m.room.join_rules` content carries
+    /// `allow: [{ "room_id": "!space:server", "type": "m.room_membership" }, ...]`
+    /// — a joiner is authorized iff they hold `join` membership in one of the
+    /// listed rooms (typically a Space). For any other rule the list is empty
+    /// (it is unused).
+    pub(crate) async fn resolve_join_rule_and_allow(
+        &self,
+        room_id: &str,
+    ) -> ApiResult<(JoinRule, Vec<String>)> {
+        let join_rules_content = if let Some(event) = self
             .event_reader
             .get_state_events_by_type(room_id, "m.room.join_rules")
             .await
@@ -337,10 +417,20 @@ impl MembershipService {
             .into_iter()
             .find(|event| event.state_key.as_deref().unwrap_or_default().is_empty())
         {
-            event.content.get("join_rule").and_then(|value| value.as_str()).map(|value| value.to_string())
+            event.content.clone()
         } else {
-            None
+            serde_json::Value::Null
         };
+
+        let effective = join_rules_content
+            .get("join_rule")
+            .and_then(|value| value.as_str())
+            .map(str::to_string);
+
+        // The `allow` array is meaningful only for restricted rules; for other
+        // rules the stored `join_rule` column can't carry an allow list, so an
+        // empty vector is correct there.
+        let allowed_rooms = extract_allowed_join_rooms(&join_rules_content);
 
         let room = self
             .room_storage
@@ -358,7 +448,36 @@ impl MembershipService {
                 }
             });
 
-        Ok(JoinRule::from_str(&raw).unwrap_or(JoinRule::Invite))
+        Ok((JoinRule::from_str(&raw).unwrap_or(JoinRule::Invite), allowed_rooms))
+    }
+
+    /// Spec-compliant authorization for restricted / knock_restricted rooms.
+    /// Per MSC3083: a user may join a restricted room iff they have `join`
+    /// membership in at least one of the rooms listed in the event's `allow`
+    /// array (typical case: a Space).  Returns `true` when authorized,
+    /// `false` for non-restricted or when no local membership is found.
+    /// If the allowed space is not locally replicated, falls back to
+    /// `false` (fail-closed for client joins); federation inbound path
+    /// handles replication gaps separately.
+    pub(crate) async fn is_restricted_join_authorized(
+        &self,
+        room_id: &str,
+        user_id: &str,
+    ) -> ApiResult<bool> {
+        let (rule, allowed_rooms) = self.resolve_join_rule_and_allow(room_id).await?;
+        if !matches!(rule, JoinRule::Restricted | JoinRule::KnockRestricted) {
+            return Ok(false);
+        }
+        for space_id in allowed_rooms {
+            let Some(member) = self.member_storage.get_room_member(&space_id, user_id).await
+                .map_err(|e| ApiError::internal_with_cause("Failed to check space member", e))? else {
+                continue;
+            };
+            if member.membership == "join" {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// Authorize an inbound federation `m.room.member` transition against our

@@ -17,7 +17,17 @@ pub use crate::rate_limit_config::{RateLimitEndpointRule, RateLimitMatchType, Ra
 // ============================================================================
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 /// Represents RateLimitConfig.
+///
+/// `deny_unknown_fields`: this is the `rate_limit:` section of
+/// `homeserver.yaml`. The leaf types (re-exported below) already reject
+/// unknown keys; without this attribute a misspelled outer key (e.g.
+/// `ip_header_priorty` for `ip_header_priority`) would be silently dropped,
+/// silently weakening the rate limits the operator believes are in force.
+/// Note: `backend` / `reload_interval_seconds` are file-only fields of
+/// `RateLimitConfigFile` and deliberately do NOT appear here — writing them
+/// in `homeserver.yaml` should now fail loudly rather than be ignored.
 pub struct RateLimitConfig {
     /// 是否启用限流
     #[serde(default = "default_rate_limit_enabled")]

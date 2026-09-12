@@ -116,4 +116,4 @@ if [[ "$KEEP_EXISTING" != "1" ]]; then
 fi
 
 echo ""
-echo "✅ v11 重置完成！表数: $TABLE_COUNT，索引数: $INDEX_COUNT"
+echo "✅ v11 重置完成！表数: ${TABLE_COUNT}，索引数: ${INDEX_COUNT}"

@@ -44,18 +44,39 @@ pub fn take_prepared_test_pool() -> Option<Arc<PgPool>> {
     PREPARED_TEST_POOLS.lock().unwrap_or_else(|e| e.into_inner()).pop()
 }
 
+/// Process-wide cache of the resolved test database URL.
+/// Each isolated test pool previously re-probed every candidate URL (building
+/// and dropping a probe `PgPool` each time); under `--lib --test-threads=N`
+/// with thousands of DB-backed tests this connection churn collides with the
+/// server's connection limit and surfaces as spurious `PoolTimedOut`
+/// ("Operation timed out", P0-1 gate drift). Resolving once per process and
+/// reusing the URL cuts that churn to a single probe.
+static RESOLVED_TEST_DB_URL: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
+
 /// Resolve a test database URL from environment variables or fallback defaults.
 pub async fn resolve_test_database_url() -> Result<String, String> {
+    // Fast path: reuse the URL resolved earlier in this process.
+    if let Some(cached) = RESOLVED_TEST_DB_URL.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+        return Ok(cached);
+    }
+
     let mut errors = Vec::new();
 
     for database_url in candidate_database_urls() {
+        // Use the same generous timeout window as the isolated pools so a
+        // moment of server-side connection pressure under `--test-threads=N`
+        // cannot turn a health check into a hard failure.
         let connect_future =
-            PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(&database_url);
+            PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(30)).connect(&database_url);
 
-        match tokio::time::timeout(Duration::from_secs(5), connect_future).await {
+        match tokio::time::timeout(Duration::from_secs(30), connect_future).await {
             Err(_) => errors.push(format!("{database_url} -> connect timed out")),
             Ok(Ok(pool)) => {
                 drop(pool);
+                // Remember the resolved URL so subsequent tests skip probing.
+                if let Ok(mut cache) = RESOLVED_TEST_DB_URL.lock() {
+                    *cache = Some(database_url.clone());
+                }
                 return Ok(database_url);
             }
             Ok(Err(error)) => errors.push(format!("{database_url} -> {error}")),
