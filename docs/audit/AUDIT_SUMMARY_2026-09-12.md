@@ -1,12 +1,14 @@
 # synapse-rust /docs/audit 文档审查 & 代码真实未解决风险汇总
-**生成时间**: 2026-09-12 21:32 GMT+8
-**HEAD**: cf441304（audit 提交）→ 970a5830（MSC3083 单测）→ eee4c869（v12/v13 修复） 当前工作区
+**生成时间**: 2026-09-12 21:56 GMT+8
+**HEAD**: 65f70e33（v12/v13 降级 + services 副本缓存 + docs 同步）
+**提交链**: 970a5830（MSC3083 单测）→ cf441304（sdk 审计入册）→ 65f70e33（room_versions 降级）
 
-> 修订说明（18:11-22:45）：
-> - `synapse-common/src/room_versions.rs`：v12/v13 由 `stable` 降为 `stable_parse_only`；`resolve_room_version("12")`/`"13"` 返回 `None`（防止过度声明）；更新单元测试以匹配新语义；同步 API 文档 health.rs client capability 示例。
-> - `synapse-services/src/room/membership/service.rs`：补 8 个 MSC3083 `extract_allowed_join_rooms` 单元测试，覆盖边界（非成员类型、malformed ID、dedup+sort、default 类型）。
-> - `docs/audit/sdk-encapsulation-audit.md`：已复制入本目录，完整记录 SDK fork 包装覆盖情况。
-> - CI workflow：注释已确认 `--test-threads 8` 已调高；P0-1 漂移根因 `test_utils` URL 缓存在 storage 副本提交，但 services 副本尚未提交。
+> 修订说明（18:11-21:56）：
+> - `synapse-common/src/room_versions.rs`：v12/v13 由 `stable` 降为 `stable_parse_only`；`resolve_room_version("12")`/`"13"` 返回 `None`（防止过度声明）；单元测试 + API 文档 health.rs 同步（commit 65f70e33）。
+> - `synapse-services/src/room/membership/service.rs`：补 8 个 MSC3083 `extract_allowed_join_rooms` 单元测试（commit 970a5830）。
+> - `docs/audit/sdk-encapsulation-audit.md`：已复制入本目录并提交（commit cf441304）。
+> - `synapse-services/src/test_utils.rs`：`resolve_test_database_url()` 补进程级 URL 缓存（与 storage 副本对齐，commit 65f70e33）。storage 副本已在 eee4c869 提交。
+> - 工作树当前 CLEAN，无未提交改动。
 
 ## 一、文档清单（/Users/ljf/Desktop/hu_ts/synapse-rust/docs/audit）
 ```
@@ -33,9 +35,13 @@ sdk-encapsulation-audit.md
 | **e2e_honesty_2026-09-12** | `tests/e2e/e2e_scenarios.rs` 只做局部变量、命名误导 | 文件已改名前缀 `simulated_*`，头声明 **SIMULATED scenario walkthroughs — not end-to-end**；`docs/e2e/` + CI 两处名存实亡 | ✅ 改名+文档诚实化完成；CI 命名链路仍待移除 |
 | **capabilities_default_room_version/rate_limit_watcher_hygiene** | capabilities 默认读自 room-versions（导致 V11→V12），rate_limit 配置变更全量 reload | `6fecd4f3` 默认房间版本统一为 11；`config/ratelimit.rs` 引入 watcher 仅在 `rate_limit_config.toml` 变更时 reload | ✅ P1 核心风险已关闭 |
 | **friend_room_service cache** | `get_friends_page` 双通道 & sort `room_id` mismatch | `commit 237a7620`（Sprint4）已统一 `L1+L2 set_raw` 原子写、构造锁、snapshot key 重命名 | ✅ 文档已澄清：同步可见性是 L2 缓慢、**而非**双通道泄漏 |
-| **restricted_join_allow_解析** (P2 安全) | `is_legal_transition()` 硬编码 `restricted_join_authorized = true`；allow 数组未解析 | **代码已实现**（工作区待提交）：`MembershipService::extract_allowed_join_rooms()` 解析 `allow` 数组为 **room ID 列表**（MSC3083 语义）；`is_restricted_join_authorized()` 以用户的 `join` membership 检查授权；`actions.rs::join_room()` 已接入。federation inbound 的 `true` 保留（origin server 签名权威） | ✅ 协议合规修复完成；需追加单元测试并合入主干 |
+| **restricted_join_allow_解析** (P2 安全) | `is_legal_transition()` 硬编码 `restricted_join_authorized = true`；allow 数组未解析 | **已提交**（eee4c869）：`MembershipService::extract_allowed_join_rooms()` 解析 `allow` 数组为 **room ID 列表**（MSC3083 语义）；`is_restricted_join_authorized()` 以用户的 `join` membership 检查授权；`actions.rs::join_room()` 已接入。federation inbound 的 `true` 保留（origin server 签名权威） | ✅ 协议合规修复完成 |
+| **MSC3083 单元测试**（上项配套） | 无边界覆盖 | 8 个纯函数用例（970a5830）：missing/non-array allow、type 默认 `m.room_membership`、非 membership type 过滤、dedup+sort、malformed room_id fail-closed、`is_valid_matrix_id` 正反边界；membership 模块 109 测试全绿 | ✅ 已补齐 |
+| **房间版本 v12/v13 过度声明** (P2) | `SUPPORTED_ROOM_VERSIONS` 中 v12/v13 `can_create: true`，对外声称可创建但服务端 auth rules 未完整实现 | **已降级**（65f70e33）：v12/v13 → `stable_parse_only`（可 join/parse/federate，**不可创建**）；`resolve_room_version("12"/"13")` 返回 `None` → 创建请求返回 `M_UNSUPPORTED_ROOM_VERSION`；`client_room_versions_capability().available` 仅 v1–v11；health.rs API 示例同步 | ✅ 已解决（fail-safe） |
 | **RateLimitConfig deny_unknown_fields** | `RateLimitConfig` 无 `deny_unknown_fields`，配置漂移静默忽略 | `synapse-common/src/config/rate_limit.rs` 已加 `#[serde(deny_unknown_fields)]`（叶子类型此前已带） | ✅ 已完成 |
+| **P0-1 测试池 URL 探测漂移** | `resolve_test_database_url()` 每测试重复探测候选 URL，8 线程峰值下 `PoolTimedOut` → 同提交结果漂移 | storage 副本（eee4c869）+ services 副本（65f70e33）均已加进程级 `RESOLVED_TEST_DB_URL` 缓存，探测超时 5s→30s；root `src/test_utils.rs` 副本仍为旧实现（待收口）。4 个历史故障测试单独运行必过 | ⚠️ 大部分解决；root 副本对称 + CI 线程决策待收口 |
 | **P5 schema 历史泄漏** | `synapse_test` 残留 3,900+ schema，sweep 无效 | 当日已重建数据库：`DROP DATABASE synapse_test` + `CREATE DATABASE` + 全量 v11 migration。**当前残留 = 0**。本地 `postgresql@15` 已加 `wal_level=minimal` 等参数持久化，避免再次卡死 | ✅ 历史泄漏已手工清理（未来泄漏由共享 janitor 阻断） |
+| **sdk-encapsulation-audit 入册** | 审计文档产出但未落 `docs/audit/` | 已复制并提交（cf441304） | ✅ 已入册（fork 语义对齐本身仍待办，见三-2） |
 
 ## 三、真实存在且未解决的核心风险
 
@@ -46,11 +52,11 @@ sdk-encapsulation-audit.md
    - 三份 `test_utils` 已统一到共享 janitor（`synapse_common::test_schema_guard`），静态 `PENDING_SCHEMA_DROPS` 注册表全仓清除（grep 为 0）。
    - `synapse_test` 当前残留 0（当日重建）。
    - `prepare_empty_isolated_test_pool()` 仍返回 `Arc<PgPool>` + `TestSchemaGuard`（Guard 模式已具备）；**struct 级夹具分叉收敛为零进展**。
-   - 当日修复了漂移根因：`resolve_test_database_url()` 加了进程级缓存（`RESOLVED_TEST_DB_URL`）+ 探测超时 5s→30s。效果：`--workspace --lib` 稳定在 6120 通过；但**未提交的修复仍在工作区**，需合入主干后生效。
 
-2. **P0-1 门禁"同提交同参数结果漂移"仍是公开风险**
-   - 历史漂移样本：8 线程 6120 绿 / 6116 4 fail（全 Operation timed out）/ 6117 3 fail。4 个失败测试（`voice::db_tests::test_round_trip_all_fields`、`user::db_tests::test_update_password`、`widget::db_tests::create_and_get_widget`、`widget::db_tests::delete_widget_permission_hard_deletes`）单独运行必过。根因已定位：`test_pool().await` 的 `acquire_timeout(30s)` 在 8 线程峰值下因连接压力排队超时。
-   - 当日修复方向正确，但**未提交即未生效**。建议 CI 固定 `--test-threads=4`（4 线程下稳定绿）作为临时收口。
+2. **P0-1 门禁"同提交同参数结果漂移"：大部分已修复，残留收口**
+   - 历史漂移样本：8 线程 6120 绿 / 6116 4 fail（全 Operation timed out）/ 6117 3 fail。4 个失败测试单独运行必过。根因：`test_pool().await` 的 `acquire_timeout(30s)` 在 8 线程峰值下因连接压力排队超时。
+   - 已提交（eee4c869 + 65f70e33）：storage + services 两副本 `resolve_test_database_url()` 进程级 URL 缓存 + 探测超时 5s→30s，把每测试重复建探针池的冲刷源消除。
+   - **残留**：根 crate `src/test_utils.rs` 副本仍是旧实现（每次重探测）；root 副本与 storage/services 口径未完全对称。若 CI 存在 root crate 的 db_tests 并发，仍有偶发漂移可能。**临时收口**：CI 固定 `--test-threads=4`（4 线程稳定绿）。
 
 3. **三套夹具分叉、57 手写 test_pool 仍存**（结构性未决）
    - 57 个 `prepare_isolated_test_pool / prepare_empty_isolated_test_pool` 散落在 25+ 文件。audited 结论"必须统一到 Guard 对象"仍待 Sprint5 大批次重构。
@@ -59,17 +65,14 @@ sdk-encapsulation-audit.md
 4. **pruning/retention 零测试覆盖**（P4 真实未决）
    - 代码真实规模：**2,128 行**（`retention_service.rs` 828 + `pruning.rs` 223 + `retention.rs` 1,077），**均无任何 `#[tokio::test]` / `#[test]` / `cfg(test)` 模块**（grep 为 0）。
    - `tests/integration/` 与 `tests/` 下无任何 `pruning\|retention\|auto_delete` 用例。
-   - 这是 P4 §8 的"对比基准缺失"与"零覆盖"的双重问题，规模不小的代码处于完全无测试保护状态。
+   - 这是 P4 §8 的"对比基准缺失"与"零覆盖"的双重问题，规模不小的代码处于完全无测试保护状态。**最高优先级未决项**。
 
 ### P2 协议实现与安全
 **文档**: `P2_room_versions_and_membership_vulnerabilities_2026-09-11.md`
 
-1. **房间版本 v12/v13 过度声明**（未决）
-   - `synapse-common/src/room_versions.rs` 中 `SUPPORTED_ROOM_VERSIONS` 仍包含 `"12"`、`"13"` 且 `can_create: true`。`P1` 已确认为过度声明。仅默认值修复（统一为 11）**未移除** v12/v13 的 `can_create` 标志。
-   - 影响：对外声称支持 v12/v13 创建，可能引入尚未完整验证的房间特性组合。
-
-2. **MSC\* 语义分裂**（待追踪）
-   - SDK fork `@langkebo/matrix-js-sdk` 2026-09-03 的实现与 Sprint 4 后端语义不一致（用户 MEMORY 记录）。`sdk-encapsulation-audit.md` 已产出但**未落入 `docs/audit/`**（文档清单中无此文件）。需确认该审计是否已过期，或补入文档清单。
+1. **MSC\* 语义分裂**（待追踪）
+   - SDK fork `@langkebo/matrix-js-sdk` 2026-09-03 的实现与 Sprint 4 后端语义不一致（用户 MEMORY 记录）。`sdk-encapsulation-audit.md` 已入册（cf441304），但**fork 与后端语义的代码级对齐**仍是待办——审计文档本身只记录"已覆盖"，不含迁移动作。
+   - 代码侧残留：`room/summary/service.rs:342` 存在宽松版 `extract_allowed_room_ids`（无 type 过滤、无 ID 语法校验，仅提取 room_id），与 membership 严格版 `extract_allowed_join_rooms` 语义分叉，建议后续统一到严格版。
 
 ### P4 / S 系列：可观测性与配置鲁棒性
 
@@ -95,20 +98,23 @@ sdk-encapsulation-audit.md
 
 ## 四、汇总结论
 
-### 当日完成（合入主干即生效）
-| 优先级 | 事项 | 位置 |
-|---|---|---|
-| **P2** | restricted join allow 数组解析（MSC3083） | `synapse-services/src/room/membership/{service,actions}.rs` |
-| **P4** | RateLimitConfig 配置漂移防护 | `synapse-common/src/config/rate_limit.rs` |
-| **P0-1** | 测试池 URL 探测缓存 + 超时放宽 | `synapse-storage/src/test_utils.rs` |
-| **运维** | schema 历史泄漏手工清理 + PG 参数持久化 | `synapse_test` 重建；`postgresql.conf` |
+### 当日完成（已合入主干）
+| 优先级 | 事项 | 提交 | 说明 |
+|---|---|---|---|
+| **P2** | restricted join allow 数组解析（MSC3083） | eee4c869 | `synapse-services/src/room/membership/{service,actions}.rs` `extract_allowed_join_rooms` + `is_restricted_join_authorized` |
+| **P2** | MSC3083 单元测试补齐 | 970a5830 | 8 个纯函数用例覆盖 type 默认、非法 ID、dedup、fail-closed 等边界 |
+| **P4** | RateLimitConfig 配置漂移防护 | eee4c869 | `synapse-common/src/config/rate_limit.rs` 补 `deny_unknown_fields` |
+| **P0-1** | 测试池 URL 进程级缓存 + 超时放宽 | 65f70e33/eee4c869 | storage + services 两副本 `resolve_test_database_url()` 缓存；探测超时 5s→30s |
+| **P2** | v12/v13 房间版本过度声明降级 | 65f70e33 | `RoomVersionCapability::stable_parse_only("12"/"13")`；`resolve_room_version` 返回 `None`；client capability `available` 仅 v1–v11；API docs 同步 |
+| **运维** | schema 历史泄漏手工清理 + PG 参数持久化 | - | `synapse_test` 重建，`wal_level=minimal` 持久化 |
+| **审计** | SDK 封装审计入册 | cf441304 | `sdk-encapsulation-audit.md` → `docs/audit/` |
 
 ### 仍高优（按序）
-1. **restricted join 单元测试补齐**（P2）— 代码已实现，待 `#[cfg(test)]` 覆盖边界（空 allow、非法 room_id、大小写、多 rule 合并）。需先修复 `test_mocks.rs` 编译（缺 `test-utils` feature）或隔离测试环境。
-2. **P0-1 门禁漂散去风险**（P5）— 5 处改动在工作区未提交；CI 临时收口建议固定 `--test-threads=4`。
-3. **pruning/retention 零测试**（P4）— 2,128 行代码零测试，规模与风险不匹配，建议 Sprint5 大批次补齐。
-4. **v12/v13 can_create 过度声明**（P2）— 移除或加 deprecation 标记。
-5. **MSC 语义分裂审计**（P2）— `sdk-encapsulation-audit.md` 未入册，需确认是否过期并纳入 `docs/audit/`。
+1. **pruning/retention 零测试**（P4）— 2,128 行代码零测试，规模与风险不匹配，建议 Sprint5 大批次补齐（首批可覆盖 `retention_service.rs` 的过期删除路径 + `pruning.rs` 的 tombstone 收敛）。无任何 `#[tokio::test]` 现存。
+2. **test_utils 三副本对称收口**（P5/P0-1）— `root src/test_utils.rs` 仍为旧实现（每次重探测），需复制 `RESOLVED_TEST_DB_URL` 缓存 + 超时放宽到 root 副本；`prepare_*_test_pool` 返回值统一为 Guard 对象（57 个手写 test_pool 为结构性债务）。
+3. **MSC 语义分裂代码级对齐**（P2）— `sdk-encapsulation-audit.md` 已入册，但 `@langkebo/matrix-js-sdk` fork 与后端 Sprint4 语义差仍需迁移动作。`room/summary/service.rs:342` 的宽松版 `extract_allowed_room_ids` 与 membership 严格版分叉需统一。
+4. **get_raw 改名关键路径**（P6）— storage 热路径已清，仍有 4 处 `auth/token.rs` `#[cfg(test)]` 断言使用 `get_raw`；Sprint5 批次改为 `get_raw_shared` 以保持语义一致。
+5. **CI 门禁收口决策**（P5）— 与产品确认 `--test-threads` 固定值（4/8）并在 workflow 中显式写入，避免"概率性绿"。
 
 ### S 系列技术债（Sprint5 批次）
 - `auth/token.rs` 4 处 `get_raw`（测试断言，语义待同步）
@@ -118,4 +124,4 @@ sdk-encapsulation-audit.md
 
 ---
 
-*本汇总基于 2026-09-12 HEAD(5fb798a4) 的文件扫描与代码 grep，并在当日 18:11 同步了工作区 5 处未提交改动与 `synapse_test` 重建事实。*
+*本汇总基于 2026-09-12 21:56 HEAD(65f70e33) 的文件扫描与代码 grep。依据已提交的 6 处改动（v12/v13 降级、restricted join 解析、MSC3083 测试、RateLimit deny_unknown_fields、test_utils 缓存、health.rs 同步）和 `synapse_test` 重建（schema 残留=0），确保文档与代码实况一致。*
