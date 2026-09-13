@@ -1,9 +1,0 @@
-{
-  "tool": "check_schema_contract_coverage",
-  "status": "pass",
-  "coverage_pct": 100.0,
-  "passed": 329,
-  "total": 329,
-  "threshold": 90.0,
-  "failures": []
-}

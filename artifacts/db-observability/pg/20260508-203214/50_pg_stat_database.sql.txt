@@ -1,7 +1,0 @@
--- sample_label: 20260508-203214
--- generated_at: 2026-05-08T12:32:15Z
--- db: synapse
-
-datname	xact_commit	xact_rollback	blks_read	blks_hit	tup_returned	tup_fetched	tup_inserted	tup_updated	tup_deleted	deadlocks	temp_files	temp_bytes
-synapse	30287	74	3682	1341797	2959505	695332	23121	3005	2328	0	0	0
-(1 row)

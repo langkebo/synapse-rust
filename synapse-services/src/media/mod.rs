@@ -4,8 +4,7 @@ pub mod chunked_upload;
 pub use chunked_upload::{ChunkedUploadService, CompleteUploadRequest};
 
 // Media domain group — re-exports media_service types under `media::`.
-#[allow(deprecated)]
-pub use crate::media_service::{MediaService, ThumbnailConfig, ThumbnailMethod, ThumbnailSettings};
+pub use crate::media_service::{MediaService, ThumbnailMethod, ThumbnailSettings};
 
 // P7.4 — additional media-domain service re-exports (previously flat in lib.rs).
 pub use crate::content_scanner::*;

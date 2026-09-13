@@ -1,7 +1,0 @@
--- sample_label: 20260508-203214
--- generated_at: 2026-05-08T12:32:15Z
--- db: synapse
-
-pid	usename	state	wait_event_type	wait_event	running_for	query
-1562	postgres	active			00:00:00	SELECT pid, usename, state, wait_event_type, wait_event, now() - query_start AS running_for, query FROM pg_stat_activity WHERE datname = current_database() AND state <> 'idle' ORDER BY query_start ASC;
-(1 row)

@@ -22,8 +22,6 @@ pub mod e2ee;
 pub mod federation;
 /// The `server` module.
 pub mod server;
-/// The `services` module.
-pub mod services;
 /// The `storage` module.
 pub mod storage;
 /// The `tasks` module.

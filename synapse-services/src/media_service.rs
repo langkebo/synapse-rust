@@ -44,10 +44,6 @@ pub struct ThumbnailSettings {
     pub quality: u8,
 }
 
-/// Type alias `ThumbnailConfig`.
-#[deprecated(since = "0.1.0", note = "Use ThumbnailSettings instead to avoid confusion with config::ThumbnailConfig")]
-pub type ThumbnailConfig = ThumbnailSettings;
-
 impl Default for ThumbnailSettings {
     fn default() -> Self {
         Self { width: 800, height: 600, method: ThumbnailMethod::Scale, quality: 80 }

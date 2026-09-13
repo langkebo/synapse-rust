@@ -1,5 +1,0 @@
-timestamp_utc=2026-06-11T14:18:29Z
-base_url=https://matrix.test
-compose_files=docker-compose.yml,docker-compose.web.yml
-image=synapse-rust:latest
-note=manual-compose-up-with-existing-image

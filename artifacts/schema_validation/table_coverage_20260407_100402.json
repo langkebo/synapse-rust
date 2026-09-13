@@ -1,8 +1,0 @@
-{
-  "tool": "check_schema_table_coverage",
-  "status": "pass",
-  "referenced_tables": 216,
-  "schema_tables": 239,
-  "missing": [],
-  "ignored": []
-}

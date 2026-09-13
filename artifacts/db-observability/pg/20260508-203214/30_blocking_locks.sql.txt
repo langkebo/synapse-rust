@@ -1,6 +1,0 @@
--- sample_label: 20260508-203214
--- generated_at: 2026-05-08T12:32:15Z
--- db: synapse
-
-blocked_pid	blocked_query	blocking_pid	blocking_query
-(0 rows)

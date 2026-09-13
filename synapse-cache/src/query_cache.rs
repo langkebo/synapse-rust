@@ -73,10 +73,6 @@ pub struct QueryCacheConfig {
     pub warm_on_startup: bool,
 }
 
-/// Deprecated alias for [`QueryCacheConfig`]; kept for backwards compatibility only.
-#[deprecated(since = "0.1.0", note = "Use QueryCacheConfig instead to avoid confusion with cache::CacheConfig")]
-pub type CacheConfig = QueryCacheConfig;
-
 impl Default for QueryCacheConfig {
     fn default() -> Self {
         Self {
