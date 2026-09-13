@@ -16,6 +16,17 @@ use tokio::sync::OnceCell;
 use tokio::sync::{Mutex as TokioMutex, RwLock as TokioRwLock, Semaphore};
 
 static PREPARED_TEST_POOLS: LazyLock<Mutex<VecDeque<Arc<PgPool>>>> = LazyLock::new(|| Mutex::new(VecDeque::new()));
+/// Process-wide cache of the resolved test database URL.
+///
+/// Mirrors `synapse_services::test_utils::RESOLVED_TEST_DB_URL`. Each isolated
+/// test pool previously re-probed every candidate URL (building and dropping a
+/// probe `PgPool` each time); under `--workspace --lib --test-threads=N` with
+/// thousands of DB-backed tests this connection churn collides with the
+/// server's connection limit and surfaces as spurious `PoolTimedOut`
+/// ("Operation timed out", P0-1 gate drift,
+/// docs/audit/AUDIT_SUMMARY_2026-09-12.md). Resolving once per process and
+/// reusing the URL cuts that churn to a single probe.
+static RESOLVED_TEST_DB_URL: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
 /// Static `TEST_ENV_LOCK`.
 pub static TEST_ENV_LOCK: LazyLock<TokioMutex<()>> = LazyLock::new(|| TokioMutex::new(()));
 static TEST_SCHEMA_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -107,7 +118,7 @@ static TEMPLATE_RW_LOCK: TokioRwLock<()> = TokioRwLock::const_new(());
 
 const DEFAULT_TEST_DB_MAX_CONNECTIONS: u32 = 40;
 const DEFAULT_TEST_DB_MIN_CONNECTIONS: u32 = 0;
-const DEFAULT_TEST_DB_CONNECT_TIMEOUT_SECS: u64 = 5;
+const DEFAULT_TEST_DB_CONNECT_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_TEST_DB_ACQUIRE_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_TEST_DB_IDLE_TIMEOUT_SECS: u64 = 60;
 const DEFAULT_TEST_DB_MAX_LIFETIME_SECS: u64 = 300;
@@ -1564,18 +1575,35 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
 
 /// See [`resolve_test_database_url`].
 pub async fn resolve_test_database_url() -> Result<String, String> {
+    // Fast path: the URL was already resolved earlier in this process. This is
+    // the crux of the P0-1 gate-drift fix — every DB-backed test used to build
+    // a probe pool (and immediately drop it) to re-confirm which candidate URL
+    // was reachable. With thousands of tests under `--test-threads=N` this once-
+    // per-test churn hammered the server's connection limit and Windows/churn
+    // collisions surfaced as spurious `PoolTimedOut` ("Operation timed out").
+    // Resolving once per process and reusing the URL eliminates that churn.
+    if let Some(cached) = RESOLVED_TEST_DB_URL.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).as_ref() {
+        return Ok(cached.clone());
+    }
+
     let mut errors = Vec::new();
     let connect_timeout = configured_test_pool_connect_timeout();
 
     for database_url in candidate_database_urls() {
+        // Probe with an explicit acquire timeout (30s, see
+        // `configured_test_pool_connect_timeout`) so a slow-to-accept server
+        // does not overrun the test harness. The 5s default was too tight and
+        // contributed to the same P0-1 flap.
         let connect_future =
-            PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(&database_url);
+            PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(30)).connect(&database_url);
 
         match tokio::time::timeout(connect_timeout, connect_future).await {
             Err(_) => errors.push(format!("{database_url} -> connect timed out after {connect_timeout:?}")),
             Ok(Ok(pool)) => {
                 drop(pool);
-                return Ok(database_url);
+                let url = database_url.clone();
+                *RESOLVED_TEST_DB_URL.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(url.clone());
+                return Ok(url);
             }
             Ok(Err(error)) => errors.push(format!("{database_url} -> {error}")),
         }

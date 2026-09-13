@@ -826,3 +826,312 @@ mod tests {
         assert_eq!(RetentionService::cutoff_ts_from_days(172_800_000, 1), Some(86_400_000));
     }
 }
+
+#[cfg(test)]
+mod db_tests {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
+
+    use sqlx::postgres::PgPool;
+    use synapse_common::metrics::MetricsCollector;
+    use synapse_common::ApiErrorKind;
+    use synapse_storage::audit::AuditEventStorage;
+    use synapse_storage::media::ChunkedUploadStorage;
+    use synapse_storage::retention::{CreateRoomRetentionPolicyRequest, UpdateServerRetentionPolicyRequest};
+
+    static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+    fn unique_test_suffix() -> String {
+        let counter = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0);
+        format!("{counter}{nanos}")
+    }
+
+    async fn test_pool() -> Arc<PgPool> {
+        let db_url = std::env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(4)
+            .acquire_timeout(std::time::Duration::from_secs(30))
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database");
+        Arc::new(pool)
+    }
+
+    fn build_retention_service(pool: Arc<PgPool>) -> super::RetentionService {
+        let metrics = Arc::new(MetricsCollector::new());
+        super::RetentionService::new(
+            Arc::new(synapse_storage::retention::RetentionStorage::new(&pool)),
+            Arc::new(ChunkedUploadStorage::new(&pool)),
+            &metrics,
+            Arc::new(AuditEventStorage::new(&pool)),
+        )
+    }
+
+    /// Reset server_retention_policy row to its seeded default so tests
+    /// that mutate it don't leak global state to subsequent tests.
+    /// Uses raw SQL because `update_server_policy` COALESCEs NULL inputs and
+    /// therefore cannot clear `max_lifetime` back to NULL.
+    async fn reset_server_policy(pool: &Arc<PgPool>) {
+        let _ = sqlx::query(
+            "UPDATE server_retention_policy SET max_lifetime = NULL, min_lifetime = 0, is_expire_on_clients = false WHERE id = 1",
+        )
+        .execute(&**pool)
+        .await;
+    }
+
+    /// Helper: ensure a minimal room row exists in the DB.
+    async fn ensure_test_room(pool: &Arc<PgPool>, room_id: &str) {
+        let now = synapse_common::current_timestamp_millis();
+        sqlx::query("INSERT INTO rooms (room_id, creator, created_ts) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING")
+            .bind(room_id)
+            .bind("test_creator")
+            .bind(now)
+            .execute(&**pool)
+            .await
+            .expect("failed to create test room");
+    }
+
+    /// Helper: clear retention state for a room.
+    async fn cleanup_test_room(pool: &Arc<PgPool>, room_id: &str) {
+        let _ = sqlx::query("DELETE FROM room_retention_policies WHERE room_id = $1")
+            .bind(room_id)
+            .execute(&**pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1")
+            .bind(room_id)
+            .execute(&**pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM rooms WHERE room_id = $1")
+            .bind(room_id)
+            .execute(&**pool)
+            .await;
+    }
+
+    // ------------------------------------------------------------------
+    // 1. set_room_policy -> create_room_policy -> get_room_policy 一致性
+    // ------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_set_and_get_room_policy() {
+        let pool = test_pool().await;
+        let service = build_retention_service(pool.clone());
+        let room_id = format!("!test_room_1:example.com{}", unique_test_suffix());
+        ensure_test_room(&pool, &room_id).await;
+
+        let request = CreateRoomRetentionPolicyRequest {
+            room_id: room_id.clone(),
+            max_lifetime: Some(86_400_000), // 1 day
+            min_lifetime: Some(0),
+            is_expire_on_clients: Some(true),
+        };
+
+        let policy = service.set_room_policy(request).await.expect("set_room_policy failed");
+        assert_eq!(policy.room_id, room_id);
+        assert_eq!(policy.max_lifetime, Some(86_400_000));
+        assert!(!policy.is_server_default);
+
+        let fetched = service.get_room_policy(&room_id).await.expect("get_room_policy failed");
+        assert_eq!(fetched.as_ref().unwrap().max_lifetime, Some(86_400_000));
+
+        cleanup_test_room(&pool, &room_id).await;
+    }
+
+    // ------------------------------------------------------------------
+    // 2. get_effective_policy: room policy > server policy (serial: mutates global server state)
+    // ------------------------------------------------------------------
+    #[serial_test::serial]
+    #[tokio::test]
+    async fn test_effective_policy_room_over_server() {
+        let pool = test_pool().await;
+        reset_server_policy(&pool).await;
+        let service = build_retention_service(pool.clone());
+        let room_id = format!("!test_room_2:example.com{}", unique_test_suffix());
+        ensure_test_room(&pool, &room_id).await;
+
+        // Set a server-wide default policy (7-day retention).
+        let server_req = UpdateServerRetentionPolicyRequest {
+            max_lifetime: Some(604_800_000), // 7 days
+            min_lifetime: Some(86_400_000),
+            is_expire_on_clients: Some(true),
+        };
+        let server_policy = service.update_server_policy(server_req).await.expect("update_server_policy failed");
+        assert_eq!(server_policy.max_lifetime, Some(604_800_000));
+
+        // Room policy with 1-day retention should override the server default.
+        let room_req = CreateRoomRetentionPolicyRequest {
+            room_id: room_id.clone(),
+            max_lifetime: Some(86_400_000),
+            min_lifetime: Some(0),
+            is_expire_on_clients: Some(true),
+        };
+        service.set_room_policy(room_req).await.expect("set_room_policy failed");
+
+        let effective = service.get_effective_policy(&room_id).await.expect("get_effective_policy failed");
+        // Room 1-day retention wins over the server 7-day default.
+        assert_eq!(effective.max_lifetime, Some(86_400_000));
+        // min_lifetime / is_expire_on_clients come from the room policy when one exists.
+        assert_eq!(effective.min_lifetime, 0);
+        assert!(effective.is_expire_on_clients);
+
+        cleanup_test_room(&pool, &room_id).await;
+    }
+
+    // ------------------------------------------------------------------
+    // 3. get_effective_policy: falls back to server policy when no room policy (serial)
+    // ------------------------------------------------------------------
+    #[serial_test::serial]
+    #[tokio::test]
+    async fn test_effective_policy_server_fallback() {
+        let pool = test_pool().await;
+        reset_server_policy(&pool).await;
+        let service = build_retention_service(pool.clone());
+        let room_id = format!("!test_room_3:example.com{}", unique_test_suffix());
+        ensure_test_room(&pool, &room_id).await;
+
+        // Server default policy (3-day retention).
+        let server_req = UpdateServerRetentionPolicyRequest {
+            max_lifetime: Some(259_200_000), // 3 days
+            min_lifetime: Some(43_200_000),  // 12 hours
+            is_expire_on_clients: Some(false),
+        };
+        service.update_server_policy(server_req).await.expect("update_server_policy failed");
+
+        // No room policy → effective policy must inherit the server default.
+        let effective = service.get_effective_policy(&room_id).await.expect("get_effective_policy failed");
+        assert_eq!(effective.max_lifetime, Some(259_200_000));
+        assert_eq!(effective.min_lifetime, 43_200_000);
+        assert!(!effective.is_expire_on_clients); // matches server setting
+
+        cleanup_test_room(&pool, &room_id).await;
+    }
+
+    // ------------------------------------------------------------------
+    // 4. run_cleanup: no room policy + NULL server max_lifetime → bad_request (serial: depends on server state)
+    // ------------------------------------------------------------------
+    #[serial_test::serial]
+    #[tokio::test]
+    async fn test_run_cleanup_requires_room_policy() {
+        let pool = test_pool().await;
+        reset_server_policy(&pool).await;
+        let service = build_retention_service(pool.clone());
+        let room_id = format!("!test_room_4:example.com{}", unique_test_suffix());
+        ensure_test_room(&pool, &room_id).await;
+
+        // Ensure no room policy exists for this room
+        let _ = sqlx::query("DELETE FROM room_retention_policies WHERE room_id = $1")
+            .bind(&room_id)
+            .execute(&*pool)
+            .await;
+
+        // Without room policy AND server max_lifetime = NULL,
+        // run_cleanup should fail with bad_request
+        let result = service.run_cleanup(&room_id).await;
+        assert!(result.is_err(), "run_cleanup without policy should error");
+        let err = result.unwrap_err();
+        assert_eq!(err.kind, ApiErrorKind::BadRequest);
+        assert!(err.message.contains("No retention policy configured"));
+
+        cleanup_test_room(&pool, &room_id).await;
+    }
+
+    // ------------------------------------------------------------------
+    // 5. set_room_policy validates max_lifetime is non-negative
+    // ------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_set_room_policy_rejects_negative_max_lifetime() {
+        let pool = test_pool().await;
+        let service = build_retention_service(pool.clone());
+        let room_id = format!("!test_room_5:example.com{}", unique_test_suffix());
+        ensure_test_room(&pool, &room_id).await;
+
+        let request = CreateRoomRetentionPolicyRequest {
+            room_id: room_id.clone(),
+            max_lifetime: Some(-1_000), // invalid: negative
+            min_lifetime: Some(0),
+            is_expire_on_clients: Some(false),
+        };
+
+        let result = service.set_room_policy(request).await;
+        assert!(result.is_err(), "negative max_lifetime should be rejected");
+        let err = result.unwrap_err();
+        assert_eq!(err.kind, ApiErrorKind::BadRequest);
+        assert!(err.message.contains("cannot be negative"));
+
+        cleanup_test_room(&pool, &room_id).await;
+    }
+
+    // ------------------------------------------------------------------
+    // 6. run_cleanup end-to-end: deletes expired events, preserves protected + fresh
+    // ------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_run_cleanup_deletes_expired_events() {
+        let pool = test_pool().await;
+        let service = build_retention_service(pool.clone());
+        let room_id = format!("!test_room_6:example.com{}", unique_test_suffix());
+        ensure_test_room(&pool, &room_id).await;
+
+        // Set 1-day retention policy
+        let policy_req = CreateRoomRetentionPolicyRequest {
+            room_id: room_id.clone(),
+            max_lifetime: Some(86_400_000), // 1 day in ms
+            min_lifetime: Some(0),
+            is_expire_on_clients: Some(true),
+        };
+        service.set_room_policy(policy_req).await.expect("set_room_policy failed");
+
+        // Insert events with known timestamps
+        let now = synapse_common::current_timestamp_millis();
+        let expired_ts = now - 172_800_000; // ~2 days ago (beyond 1-day retention)
+        let fresh_ts = now - 43_200_000;    // ~12 hours ago (within retention)
+        let suffix = unique_test_suffix();
+
+        // Event that SHOULD be deleted (expired)
+        sqlx::query(
+            "INSERT INTO events (event_id, room_id, sender, event_type, content, origin_server_ts, state_key) VALUES ($1, $2, $3, 'm.room.message', '{}'::jsonb, $4, NULL)"
+        )
+        .bind(format!("$exp{}:example.com{}", suffix, unique_test_suffix())).bind(&room_id).bind("@alice:example.com").bind(expired_ts)
+        .execute(&*pool)
+        .await
+        .expect("insert expired event failed");
+
+        // Event that should NOT be deleted (fresh)
+        sqlx::query(
+            "INSERT INTO events (event_id, room_id, sender, event_type, content, origin_server_ts, state_key) VALUES ($1, $2, $3, 'm.room.message', '{}'::jsonb, $4, NULL)"
+        )
+        .bind(format!("$fresh{}:example.com{}", suffix, unique_test_suffix())).bind(&room_id).bind("@alice:example.com").bind(fresh_ts)
+        .execute(&*pool)
+        .await
+        .expect("insert fresh event failed");
+
+        // Protected event types that survive regardless of age
+        sqlx::query(
+            "INSERT INTO events (event_id, room_id, sender, event_type, content, origin_server_ts, state_key) VALUES ($1, $2, $3, 'm.room.create', '{}'::jsonb, $4, NULL) ON CONFLICT DO NOTHING"
+        )
+        .bind(format!("$create{}:example.com{}", suffix, unique_test_suffix())).bind(&room_id).bind("@alice:example.com").bind(now)
+        .execute(&*pool)
+        .await
+        .expect("insert m.room.create failed");
+
+        // Run cleanup
+        let result = service.run_cleanup(&room_id).await;
+        assert!(result.is_ok(), "run_cleanup should succeed");
+        let log = result.unwrap();
+        // Exactly 1 event deleted (the expired message event)
+        assert_eq!(log.events_deleted, 1, "should delete exactly 1 expired event");
+
+        // Verify remaining state
+        let rows: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM events WHERE room_id = $1")
+            .bind(&room_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("query event count failed");
+        // Expected survivors: 1 fresh + 1 create (protected) = 2
+        assert_eq!(rows.0, 2, "expired event deleted, protected create survives");
+
+        cleanup_test_room(&pool, &room_id).await;
+    }
+}

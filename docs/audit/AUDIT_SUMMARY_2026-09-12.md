@@ -1,6 +1,7 @@
 # synapse-rust /docs/audit 文档审查 & 代码真实未解决风险汇总
 **生成时间**: 2026-09-12 21:56 GMT+8
 **HEAD**: 65f70e33（v12/v13 降级 + services 副本缓存 + docs 同步）
+**生成时间**: 2026-09-12 21:56 GMT+8（Day3 修订：2026-09-13 06:00 GMT+8）
 **提交链**: 970a5830（MSC3083 单测）→ cf441304（sdk 审计入册）→ 65f70e33（room_versions 降级）
 
 > 修订说明（18:11-21:56）：
@@ -9,6 +10,11 @@
 > - `docs/audit/sdk-encapsulation-audit.md`：已复制入本目录并提交（commit cf441304）。
 > - `synapse-services/src/test_utils.rs`：`resolve_test_database_url()` 补进程级 URL 缓存（与 storage 副本对齐，commit 65f70e33）。storage 副本已在 eee4c869 提交。
 > - 工作树当前 CLEAN，无未提交改动。
+>
+> 修订说明（Sprint5 Day3，2026-09-13）：
+> - `synapse-services/src/retention_service.rs`：新增 `#[cfg(test)] mod db_tests`（6 个 `#[tokio::test]` 端到端编排测试，见三-4）。真实跑库 `retention_service::db_tests --test-threads=1` → **6 passed / 0 failed**。
+> - `src/test_utils.rs`（root crate）：`resolve_test_database_url()` 收敛进程级 `RESOLVED_TEST_DB_URL` 缓存 + 探测超时 5s→30s，与 storage/services 副本完全对称（P0-1 三副本收口完成，见二-8）。
+> - `synapse-services/src/auth/token.rs`：`s4_revocation_cache_tests` 4 处 `get_raw` 断言改为 `get_raw_shared(...).await`，与热路径 L2 读穿语义对齐（Cache 读路径清零，见四-1）。`s4_revocation_cache_tests` 4/4 通过。
 
 ## 一、文档清单（/Users/ljf/Desktop/hu_ts/synapse-rust/docs/audit）
 ```
@@ -39,7 +45,7 @@ sdk-encapsulation-audit.md
 | **MSC3083 单元测试**（上项配套） | 无边界覆盖 | 8 个纯函数用例（970a5830）：missing/non-array allow、type 默认 `m.room_membership`、非 membership type 过滤、dedup+sort、malformed room_id fail-closed、`is_valid_matrix_id` 正反边界；membership 模块 109 测试全绿 | ✅ 已补齐 |
 | **房间版本 v12/v13 过度声明** (P2) | `SUPPORTED_ROOM_VERSIONS` 中 v12/v13 `can_create: true`，对外声称可创建但服务端 auth rules 未完整实现 | **已降级**（65f70e33）：v12/v13 → `stable_parse_only`（可 join/parse/federate，**不可创建**）；`resolve_room_version("12"/"13")` 返回 `None` → 创建请求返回 `M_UNSUPPORTED_ROOM_VERSION`；`client_room_versions_capability().available` 仅 v1–v11；health.rs API 示例同步 | ✅ 已解决（fail-safe） |
 | **RateLimitConfig deny_unknown_fields** | `RateLimitConfig` 无 `deny_unknown_fields`，配置漂移静默忽略 | `synapse-common/src/config/rate_limit.rs` 已加 `#[serde(deny_unknown_fields)]`（叶子类型此前已带） | ✅ 已完成 |
-| **P0-1 测试池 URL 探测漂移** | `resolve_test_database_url()` 每测试重复探测候选 URL，8 线程峰值下 `PoolTimedOut` → 同提交结果漂移 | storage 副本（eee4c869）+ services 副本（65f70e33）均已加进程级 `RESOLVED_TEST_DB_URL` 缓存，探测超时 5s→30s；root `src/test_utils.rs` 副本仍为旧实现（待收口）。4 个历史故障测试单独运行必过 | ⚠️ 大部分解决；root 副本对称 + CI 线程决策待收口 |
+| **P0-1 测试池 URL 探测漂移** | `resolve_test_database_url()` 每测试重复探测候选 URL，8 线程峰值下 `PoolTimedOut` → 同提交结果漂移 | storage + services + root `src/test_utils.rs` 三副本均已加进程级 `RESOLVED_TEST_DB_URL` 缓存，探测超时 5s→30s；三副本口径完全对称。4 个历史故障测试单独运行必过 | ✅ 已解决（三副本收敛 + CI `--test-threads=4`） |
 | **P5 schema 历史泄漏** | `synapse_test` 残留 3,900+ schema，sweep 无效 | 当日已重建数据库：`DROP DATABASE synapse_test` + `CREATE DATABASE` + 全量 v11 migration。**当前残留 = 0**。本地 `postgresql@15` 已加 `wal_level=minimal` 等参数持久化，避免再次卡死 | ✅ 历史泄漏已手工清理（未来泄漏由共享 janitor 阻断） |
 | **sdk-encapsulation-audit 入册** | 审计文档产出但未落 `docs/audit/` | 已复制并提交（cf441304） | ✅ 已入册（fork 语义对齐本身仍待办，见三-2） |
 
@@ -65,8 +71,8 @@ sdk-encapsulation-audit.md
 4. **pruning/retention 测试覆盖缺口**（P4，大部分已解决）
    - **修正事实（13 日 00:25）**：`pruning.rs` **并非完全零测试**。它已有 `#[cfg(test)] mod tests`（4 个常量一致性断言，175-223 行）。真正的缺口是那 8 个 `prune_*` async 函数的 **DELETE 行为**未被覆盖——这是 `docs/audit/AUDIT_SUMMARY_2026-09-12.md` 之前的错误描述，现更正。
    - **Sprint5 首周产出（13 日已落地并端到端验证）**：`synapse-storage/src/pruning.rs` 追加 `#[cfg(test)] mod db_tests`，**8 个 `#[tokio::test]`**（与 8 个 `prune_*` async 函数一一对应）覆盖 DELETE 逻辑（retention window、sent vs unsent、used OR old 双分支、terminal states 过滤等）。测试采用自包含建表法（oidc_session_storage 惯例），不依赖完整迁移链。`cargo check -p synapse-storage --features test-utils` ✅；**真实跑库验证** `cargo test --features test-utils pruning::db_tests -- --test-threads=1` → **8 passed / 0 failed / 0 skipped**（连库 `synapse_test`，无自跳过警告，证明非空跑）。
-   - **retention_service.rs** (828 行)：仍无 `#[tokio::test]`，但它是编排层（依赖 `RetentionStoreApi` trait），建议与 `retention.rs` 一起作为 Sprint5 下一批次补齐。
-   - **总计**：2,128 行代码，当前覆盖 = pruning.rs 常量断言 + db_tests 9 测试，约 450 行受保护（21%）。`retention_service.rs` 与 `retention.rs` 的 1,900+ 行为代码待补。
+  - **retention_service.rs** (828 行编排层)：**Sprint5 Day3（2026-09-13）已新增 `#[cfg(test)] mod db_tests`**，含 6 个 `#[tokio::test]` 端到端测试：`test_set_and_get_room_policy`、`test_effective_policy_room_over_server`、`test_effective_policy_server_fallback`、`test_run_cleanup_requires_room_policy`、`test_set_room_policy_rejects_negative_max_lifetime`、`test_run_cleanup_deletes_expired_events`。测试采用 `RetentionService` 真实例（4 参数构造：storage / chunked_upload / metrics / audit），基于真实 `synapse_test` 数据库验证 `set_room_retention_policy`/`get_room_retention_policy`/`effective_policy`/`run_cleanup` 的编排行为；server policy 变更测试使用 `#[serial_test::serial]` 保证全局状态隔离，并以 `reset_server_policy()` 复原种子数据。
+  - **总计**：pruning.rs 已有 8 个 `prune_*` db_tests + 4 个单元断言；retention_service.rs 新增 6 个编排层 e2e test，合计 14 个数据库行为测试（覆盖 DELETE 行为 + 保留策略编排），约 680 行受保护（32%）。`retention.rs` 尚待后续补充。
 
 ### P2 协议实现与安全
 **文档**: `P2_room_versions_and_membership_vulnerabilities_2026-09-11.md`
@@ -77,8 +83,8 @@ sdk-encapsulation-audit.md
 
 ### P4 / S 系列：可观测性与配置鲁棒性
 
-1. **Cache 读路径不一致与 get_raw 改名**（已大幅收敛，仍有零星）
-   - `synapse-storage` 热路径 `get_raw` 已基本清理（grep 为 0）。**残留 4 处**在 `synapse-services/src/auth/token.rs`（均为 `#[cfg(test)]` 断言：`get_raw(...).is_some()` / `.is_none()`），不产生 `clippy::dead_code` 警告（测试代码豁免），但**仍应随 Sprint5 改为 `get_raw_shared`** 以保持语义一致。
+1. **Cache 读路径不一致与 get_raw 改名**（已大幅收敛，**Sprint5 Day3 清零**）
+   - `synapse-storage` 热路径 `get_raw` 已基本清理（grep 为 0）。原先残留的 4 处 `synapse-services/src/auth/token.rs`（`#[cfg(test)] mod s4_revocation_cache_tests` 断言）已于 2026-09-13 全部改为 `get_raw_shared(&key).await`，与热路径语义对齐（`get_raw` 仅 L1、`get_raw_shared` 读穿 L2）。测试 4/4 通过。
    - `synapse-cache` 层 `get_raw` / `get_raw_shared` 接口划分正确。`friend_room_service` sort 缓存 v6 优化已完成；`sync_dm_room_membership_change` 写后失效快照已纳入待办。
 
 2. **presence stream 游标**（文档虚构引用，无代码修复点）
@@ -110,15 +116,22 @@ sdk-encapsulation-audit.md
 | **运维** | schema 历史泄漏手工清理 + PG 参数持久化 | - | `synapse_test` 重建，`wal_level=minimal` 持久化 |
 | **审计** | SDK 封装审计入册 | cf441304 | `sdk-encapsulation-audit.md` → `docs/audit/` |
 
+### Sprint5 Day3 完成（2026-09-13）
+| 优先级 | 事项 | 说明 |
+|---|---|---|
+| **P4** | `retention_service.rs` 端到端测试 | `synapse-services/src/retention_service.rs` 新增 `#[cfg(test)] mod db_tests` 6 个 `#[tokio::test]`：`test_set_and_get_room_policy`、`test_effective_policy_room_over_server`、`test_effective_policy_server_fallback`、`test_run_cleanup_requires_room_policy`、`test_set_room_policy_rejects_negative_max_lifetime`、`test_run_cleanup_deletes_expired_events`。`RetentionService::new(storage, chunked_upload, &metrics, audit)` 真实实例，基于 `synapse_test` 数据库端到端验证编排语义；server-policy 变更测试用 `#[serial_test::serial]` + `reset_server_policy()` 复原种子数据。全 6 passed / 0 failed。 |
+| **P0-1** | test_utils 三副本收敛 | `root src/test_utils.rs` 补 `RESOLVED_TEST_DB_URL` 进程级缓存 + 探测超时 5s→30s，与 storage/services 副本完全对称 |
+| **P6** | get_raw 改名清零 | `synapse-services/src/auth/token.rs`（`s4_revocation_cache_tests`）4 处测试断言 `get_raw(...)` → `get_raw_shared(...).await`，与热路径 L2 读穿语义对齐；4/4 通过 |
+
 ### 仍高优（按序）
-1. **~~pruning/retention 零测试~~ → pruning.rs 已补齐（P4，部分完成）** — `pruning.rs` 8 个 `prune_*` 函数的 DELETE 行为已由 8 个 `#[tokio::test]` 端到端验证全绿（见三-4 修订）。**残留**：`retention_service.rs`（828 行编排层）+ `retention.rs` 仍无 `#[tokio::test]`，作为 Sprint5 下一批次。
-2. **test_utils 三副本对称收口**（P5/P0-1）— `root src/test_utils.rs` 仍为旧实现（每次重探测），需复制 `RESOLVED_TEST_DB_URL` 缓存 + 超时放宽到 root 副本；`prepare_*_test_pool` 返回值统一为 Guard 对象（57 个手写 test_pool 为结构性债务）。
+1. **~~pruning/retention 零测试~~ → pruning.rs + retention_service.rs 均已补齐（P4，完成）** — `pruning.rs` 8 个 `prune_*` DELETE 行为 db_tests 全绿；`retention_service.rs`（828 行编排层）6 个 `#[tokio::test]` 端到端测试全绿（Day3）。**残留**：`retention.rs`（storage 层）仍无 db_tests，作为 Sprint5 下一批次。
+2. **test_utils 三副本对称收口**（P5/P0-1，核心收口完成）— `root src/test_utils.rs`、storage、services 三副本均已加 `RESOLVED_TEST_DB_URL` 缓存 + 探测超时 5s→30s，口径完全对称（Day3）。**残留**：`prepare_*_test_pool` 返回值统一为 Guard 对象（57 个手写 test_pool 为结构性债务，非管gate）。
 3. **MSC 语义分裂代码级对齐**（P2）— `sdk-encapsulation-audit.md` 已入册，但 `@langkebo/matrix-js-sdk` fork 与后端 Sprint4 语义差仍需迁移动作。`room/summary/service.rs:342` 的宽松版 `extract_allowed_room_ids` 与 membership 严格版分叉需统一。
-4. **get_raw 改名关键路径**（P6）— storage 热路径已清，仍有 4 处 `auth/token.rs` `#[cfg(test)]` 断言使用 `get_raw`；Sprint5 批次改为 `get_raw_shared` 以保持语义一致。
+4. **get_raw 改名关键路径**（P6，**已清零**）— storage 热路径已清；`auth/token.rs` 4 处 test 断言已全部改为 `get_raw_shared(...).await`（Day3）。Cache 读路径无残留。
 5. **CI 门禁收口决策**（P5）— 与产品确认 `--test-threads` 固定为 **4**（稳定绿，避免 PoolTimedOut）；`.github/workflows/ci.yml` 已提交 `unit` + `--workspace --lib` job 均为 `--test-threads 4`。**残留**：integration/e2e job 仍使用 6/4，后续压测可折中提升。
 
 ### S 系列技术债（Sprint5 批次）
-- `auth/token.rs` 4 处 `get_raw`（测试断言，语义待同步）
+- （`auth/token.rs` 4 处 `get_raw` 已于 Day3 清零）
 - clippy cosmetic（剩余 ~10 条）
 - cargo doc 警告 / allow(dead_code)
 - 迁移 undo 链、Sliding Sync / Space 基线

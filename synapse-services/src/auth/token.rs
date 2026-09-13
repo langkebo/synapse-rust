@@ -375,7 +375,7 @@ mod s4_revocation_cache_tests {
         // 首次校验：走 DB 检查，通过后写入撤销检查标记。
         h.service.validate_token(&token).await.unwrap();
         let key = super::AuthService::revocation_ok_key(&token);
-        assert!(h.cache.get_raw(&key).is_some(), "S4: 首次校验通过后必须写入撤销检查标记");
+        assert!(h.cache.get_raw_shared(&key).await.is_some(), "S4: 首次校验通过后必须写入撤销检查标记");
 
         // 绕过 logout 直接在 mock 存储中拉黑（无失效钩子）。
         // 若实现仍每次查库，本次校验必然失败；命中缓存则通过——证明 DB 检查被跳过。
@@ -391,12 +391,12 @@ mod s4_revocation_cache_tests {
         let h = build_test_auth_service();
         let token = h.service.generate_access_token("@alice:example.com", "DEV1", false).await.unwrap();
         h.service.validate_token(&token).await.unwrap();
-        assert!(h.cache.get_raw(&super::AuthService::revocation_ok_key(&token)).is_some());
+        assert!(h.cache.get_raw_shared(&super::AuthService::revocation_ok_key(&token)).await.is_some());
 
         h.service.logout(&token, None).await.unwrap();
 
         assert!(
-            h.cache.get_raw(&super::AuthService::revocation_ok_key(&token)).is_none(),
+            h.cache.get_raw_shared(&super::AuthService::revocation_ok_key(&token)).await.is_none(),
             "S4: logout 后撤销检查标记必须立即失效"
         );
         let result = h.service.validate_token(&token).await;
@@ -426,7 +426,7 @@ mod s4_revocation_cache_tests {
         let result = h.service.validate_token(&token).await;
         assert!(result.is_err(), "已拉黑的 token 必须被拒绝");
         assert!(
-            h.cache.get_raw(&super::AuthService::revocation_ok_key(&token)).is_none(),
+            h.cache.get_raw_shared(&super::AuthService::revocation_ok_key(&token)).await.is_none(),
             "S4: 被撤销的 token 不得写入撤销检查标记（负结果不缓存）"
         );
     }
