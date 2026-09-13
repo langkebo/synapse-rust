@@ -56,16 +56,17 @@ sdk-encapsulation-audit.md
 2. **P0-1 门禁"同提交同参数结果漂移"：大部分已修复，残留收口**
    - 历史漂移样本：8 线程 6120 绿 / 6116 4 fail（全 Operation timed out）/ 6117 3 fail。4 个失败测试单独运行必过。根因：`test_pool().await` 的 `acquire_timeout(30s)` 在 8 线程峰值下因连接压力排队超时。
    - 已提交（eee4c869 + 65f70e33）：storage + services 两副本 `resolve_test_database_url()` 进程级 URL 缓存 + 探测超时 5s→30s，把每测试重复建探针池的冲刷源消除。
-   - **残留**：根 crate `src/test_utils.rs` 副本仍是旧实现（每次重探测）；root 副本与 storage/services 口径未完全对称。若 CI 存在 root crate 的 db_tests 并发，仍有偶发漂移可能。**临时收口**：CI 固定 `--test-threads=4`（4 线程稳定绿）。
+   - **残留**：根 crate `src/test_utils.rs` 副本仍是旧实现（每次重探测）；root 副本与 storage/services 口径未完全对称。若 CI 存在 root crate 的 db_tests 并发，仍有偶发漂移可能。**临时收口**：CI 固定 `--test-threads=4`（4 线程稳定绿，Sprint5 Day2 已落实，见四-5）。
 
 3. **三套夹具分叉、57 手写 test_pool 仍存**（结构性未决）
    - 57 个 `prepare_isolated_test_pool / prepare_empty_isolated_test_pool` 散落在 25+ 文件。audited 结论"必须统一到 Guard 对象"仍待 Sprint5 大批次重构。
    - 当前 `--workspace --lib` 可通过（6120）但依赖连接池水位与 DB 负载，属于**脆弱通过**。
 
-4. **pruning/retention 零测试覆盖**（P4 真实未决）
-   - 代码真实规模：**2,128 行**（`retention_service.rs` 828 + `pruning.rs` 223 + `retention.rs` 1,077），**均无任何 `#[tokio::test]` / `#[test]` / `cfg(test)` 模块**（grep 为 0）。
-   - `tests/integration/` 与 `tests/` 下无任何 `pruning\|retention\|auto_delete` 用例。
-   - 这是 P4 §8 的"对比基准缺失"与"零覆盖"的双重问题，规模不小的代码处于完全无测试保护状态。**最高优先级未决项**。
+4. **pruning/retention 测试覆盖缺口**（P4，大部分已解决）
+   - **修正事实（13 日 00:25）**：`pruning.rs` **并非完全零测试**。它已有 `#[cfg(test)] mod tests`（4 个常量一致性断言，175-223 行）。真正的缺口是那 8 个 `prune_*` async 函数的 **DELETE 行为**未被覆盖——这是 `docs/audit/AUDIT_SUMMARY_2026-09-12.md` 之前的错误描述，现更正。
+   - **Sprint5 首周产出（13 日已落地并端到端验证）**：`synapse-storage/src/pruning.rs` 追加 `#[cfg(test)] mod db_tests`，**8 个 `#[tokio::test]`**（与 8 个 `prune_*` async 函数一一对应）覆盖 DELETE 逻辑（retention window、sent vs unsent、used OR old 双分支、terminal states 过滤等）。测试采用自包含建表法（oidc_session_storage 惯例），不依赖完整迁移链。`cargo check -p synapse-storage --features test-utils` ✅；**真实跑库验证** `cargo test --features test-utils pruning::db_tests -- --test-threads=1` → **8 passed / 0 failed / 0 skipped**（连库 `synapse_test`，无自跳过警告，证明非空跑）。
+   - **retention_service.rs** (828 行)：仍无 `#[tokio::test]`，但它是编排层（依赖 `RetentionStoreApi` trait），建议与 `retention.rs` 一起作为 Sprint5 下一批次补齐。
+   - **总计**：2,128 行代码，当前覆盖 = pruning.rs 常量断言 + db_tests 9 测试，约 450 行受保护（21%）。`retention_service.rs` 与 `retention.rs` 的 1,900+ 行为代码待补。
 
 ### P2 协议实现与安全
 **文档**: `P2_room_versions_and_membership_vulnerabilities_2026-09-11.md`
@@ -110,11 +111,11 @@ sdk-encapsulation-audit.md
 | **审计** | SDK 封装审计入册 | cf441304 | `sdk-encapsulation-audit.md` → `docs/audit/` |
 
 ### 仍高优（按序）
-1. **pruning/retention 零测试**（P4）— 2,128 行代码零测试，规模与风险不匹配，建议 Sprint5 大批次补齐（首批可覆盖 `retention_service.rs` 的过期删除路径 + `pruning.rs` 的 tombstone 收敛）。无任何 `#[tokio::test]` 现存。
+1. **~~pruning/retention 零测试~~ → pruning.rs 已补齐（P4，部分完成）** — `pruning.rs` 8 个 `prune_*` 函数的 DELETE 行为已由 8 个 `#[tokio::test]` 端到端验证全绿（见三-4 修订）。**残留**：`retention_service.rs`（828 行编排层）+ `retention.rs` 仍无 `#[tokio::test]`，作为 Sprint5 下一批次。
 2. **test_utils 三副本对称收口**（P5/P0-1）— `root src/test_utils.rs` 仍为旧实现（每次重探测），需复制 `RESOLVED_TEST_DB_URL` 缓存 + 超时放宽到 root 副本；`prepare_*_test_pool` 返回值统一为 Guard 对象（57 个手写 test_pool 为结构性债务）。
 3. **MSC 语义分裂代码级对齐**（P2）— `sdk-encapsulation-audit.md` 已入册，但 `@langkebo/matrix-js-sdk` fork 与后端 Sprint4 语义差仍需迁移动作。`room/summary/service.rs:342` 的宽松版 `extract_allowed_room_ids` 与 membership 严格版分叉需统一。
 4. **get_raw 改名关键路径**（P6）— storage 热路径已清，仍有 4 处 `auth/token.rs` `#[cfg(test)]` 断言使用 `get_raw`；Sprint5 批次改为 `get_raw_shared` 以保持语义一致。
-5. **CI 门禁收口决策**（P5）— 与产品确认 `--test-threads` 固定值（4/8）并在 workflow 中显式写入，避免"概率性绿"。
+5. **CI 门禁收口决策**（P5）— 与产品确认 `--test-threads` 固定为 **4**（稳定绿，避免 PoolTimedOut）；`.github/workflows/ci.yml` 已提交 `unit` + `--workspace --lib` job 均为 `--test-threads 4`。**残留**：integration/e2e job 仍使用 6/4，后续压测可折中提升。
 
 ### S 系列技术债（Sprint5 批次）
 - `auth/token.rs` 4 处 `get_raw`（测试断言，语义待同步）

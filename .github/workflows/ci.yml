@@ -296,7 +296,7 @@ jobs:
           RUST_BACKTRACE: 1
           RUST_LOG: info
           NEXTEST_RETRIES: 2
-        run: cargo nextest run --workspace --lib --all-features --locked --test-threads 8 -E 'not test(/^media::tests::/)'
+        run: cargo nextest run --workspace --lib --all-features --locked --test-threads 4 -E 'not test(/^media::tests::/)'
 
       # ── 已知抖动套件：豁免的"自动收回"守卫 ────────────────────────────────
       # synapse-services 的 `media::tests` 13 个用例存在进程内串扰：实测连跑 4 次
@@ -334,7 +334,7 @@ jobs:
           RUST_BACKTRACE: 1
           RUST_LOG: info
           NEXTEST_RETRIES: 2
-        run: cargo nextest run --test unit --features test-utils --locked --test-threads 8
+        run: cargo nextest run --test unit --features test-utils --locked --test-threads 4
 
       # ── W7+: Test 范围 clippy 锁住（防 test clippy debt 回退） ──
       # 之前的 `Run clippy` step 只检 lib 范围，test 范围（#[cfg(test)] 块）
