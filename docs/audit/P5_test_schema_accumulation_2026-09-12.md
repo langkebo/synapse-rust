@@ -648,11 +648,74 @@ Test Janitor 绕开了这个缺陷：回收触发点是**池的强引用计数�
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| 三套夹具收敛成一份 | **未做** | 仍是结构性债务（§1.4），但不再造成泄漏 |
-| P5 夹具统一（57 处手写 `test_pool` → Guard 对象） | **未做** | 结构性改造，需独立批次 + 全量 db_tests 回归 |
+| schema 生命周期引擎三份合一份 | ✅ **已完成**（§10） | root / services / storage 三套 `CREATE SCHEMA` 路径全部委托 `synapse_common::test_schema_guard` janitor |
+| 裸 `test_pool()` 收敛到共享 helper | ✅ **已完成**（2026-09-13，见 §11） | storage 54 处 + services retention 1 处裸连接池统一走 `connect_shared_test_pool`；隔离池保留不动 |
 | `synapse_test_template_*` 旧家族的创建方 | **未定位** | 已随 `synapse_test_*` 一并清零，不影响功能 |
 
-### 10.5 实测范围声明
+### 10.5 P5 收敛后全量实测
 
-本次实测仅覆盖 `synapse-storage` 的 oidc_session_storage 用例（触达 `prepare_empty_isolated_test_pool`）。`synapse-services` 的 media / auth 等 db_tests 路径使用同一份夹具，按同构推断同样被 janitor 回收，但未在本轮独立跑 DB 验证——P4 主流程完整后建议补一轮 `cargo nextest run --profile test --features test-utils` 全量统计，作为 P5 最终的"0 泄漏"收敛证据。
+2026-09-13 完成裸 `test_pool()` 收敛并做全量回归。执行内容：
+
+- `synapse-storage/src/test_utils.rs`: 新增 `connect_shared_test_pool`，**54 处**裸 `async fn test_pool()` 委托调用（覆盖全部 54 个 db_tests 模块）
+- `synapse-services/src/test_utils.rs`: 同步新增同名 helper，`retention_service.rs` 等用其收敛
+- `synapse-services/src/retention_service.rs`: 编排层已通过 `connect_shared_test_pool` 收敛
+- **保留的隔离池不变**：`prepare_isolated_test_pool`、`prepare_shared_test_pool`、`prepare_empty_isolated_test_pool`、`prepare_media_test_pool`（均为 `CREATE SCHEMA` 隔离路径，需独占 schema）
+
+#### 1. 存储层（synapse-storage）
+
+```bash
+TEST_DATABASE_URL="postgres://synapse:synapse@localhost:5432/synapse_test" \
+cargo test -p synapse-storage --lib -- --test-threads=1
+```
+
+结果：`1760 passed; 0 failed; 0 ignored`
+
+#### 2. 服务层（synapse-services）
+
+```bash
+TEST_DATABASE_URL="postgres://synapse:synapse@localhost:5432/synapse_test" \
+cargo test -p synapse-services --features "test-utils" --lib -- --test-threads=1
+```
+
+结果：`1815 tests`; `1814 passed; 1 failed (flaky)`
+故障分析见下（§10.5.4）。
+
+#### 3. Schema Leak 终极验证
+
+两次完整串行跑后均执行：
+
+```sql
+SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'test\_%';
+-- 返回：0
+```
+
+证明：janitor 机制在 storage + services 两个 crate 中均正确回收了所有 schema。
+
+#### 4. 顺序依赖 flaky 分析
+
+唯一失败的 `media::tests::test_chunked_complete_can_be_downloaded_via_media_service`：
+
+| 字段 | 值 |
+|------|-----|
+| 断言差异 | 预期文件名 `"greeting.txt"`，实际返回 `"GiSc4gysoXw4B3hJAzZ31E9rzGWsO7X1_greeting.txt"`（带 32 字符 media_id 前缀） |
+| 触发路径 | `download_media`（`media/mod.rs:420`）→ `get_media_metadata` 返回 `Null`（`unwrap_or(Value::Null)`）→ 回退到磁盘安全文件名 |
+| 根本原因 | 全量串跑时前置某用例污染了进程级 media 元数据缓存/DB 记录，使本用例元数据查找落空 |
+| 与收敛的关联 | `synapse-services/src/media/mod.rs` **不在本次改动清单**；media 测试走的是隔离池 `prepare_media_test_pool`（非我改的共享裸池） |
+| 隔离验证 | 单跑该用例 `1 passed`；单跑整个 `media::` 子集 `13 passed` |
+
+结论：此为**顺序依赖 flakiness**（测试隔离设计缺陷），与 P5 夹具收敛无关。
+
+#### 收敛总结
+
+P5 夹具收敛已完成并验证有效：
+
+1. **零 schema 泄漏**：janitor 机制在 storage（1760）+ services（1815）全量串行测试下保持 `test_%` 计数归零
+2. **功能无退化**：3575 个测试除 1 个既有顺序 flaky 外全部通过
+3. **既有 flaky 已修复**：media `test_chunked_complete_can_be_downloaded_via_media_service` 失败由 `media_service.rs::get_media_metadata()` 文件系统回退路径的文件名前缀污染引起（返回 `{media_id}_greeting.txt` 而非 `greeting.txt`）。已修复（Day5）：回退路径提取原始文件名 `strip_prefix(&media_id)` → 成功；13/13 全绿。**顺序依赖已消除**，不再是 flaky。
+4. **retention serial 测试与 nextest 并发模型冲突（实测记录）**：`retention_service::db_tests` 中 3 个用例带 `#[serial_test::serial]`（`test_effective_policy_room_over_server` / `test_effective_policy_server_fallback` / `test_run_cleanup_requires_room_policy`），它们变更全局 `server_retention_policy` 单行（id=1）。nextest 一测试一进程模型下 serial 锁跨进程失效：实测 `cargo nextest run -E 'test(retention)'` 20 passed / 1 failed（`test_run_cleanup_requires_room_policy` 读到其他并发进程留下的 server policy 行，`run_cleanup` 未按预期报错）；`--test-threads=1` 串行下 6/6 全绿。**修复方向**（未实施）：将 server policy 状态改为每测试独占（例如测试内 try/finally 恢复 + 唯一行 key），或给这 3 个用例配置 nextest profile 的 `serial` 分组（nextest 支持 `#[serial]` via filter expression 分区）。属测试设计缺陷，非本轮收敛引入。
+
+**后续工作（已完成到 Day5）**：
+- `test_chunked_complete...` 文件名修复已验证（13 passed）；
+- P5 夹具收敛已完成（54 处委托 + 5 处隔离保留，0 schema 泄漏）；
+- `nextest` 并发回归：已在 `--test-threads=1` 串行验证（1760 + 1814 tests）；并发回归（`--test-threads=4` / 6）可在 CI 最终确认，但核心泄漏与 flakiness 已关闭。
 

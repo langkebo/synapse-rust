@@ -629,10 +629,18 @@ impl MediaService {
                 for entry in entries.flatten() {
                     if let Some(file_name) = entry.file_name().to_str() {
                         if media_file_matches_id(file_name, &media_id) {
+                            // Recover the user-supplied original filename from the on-disk
+                            // name which is stored as `<media_id>_<original>` (or
+                            // `<media_id>.<ext>` for extension-only files).  This makes
+                            // the filesystem fallback deterministic and avoids leaking
+                            // the internal media_id into `Content-Disposition`.
+                            let original = file_name
+                                .strip_prefix(&media_id)
+                                .and_then(|s| s.strip_prefix('_').or_else(|| s.strip_prefix('.')));
                             let metadata = serde_json::json!({
                                 "media_id": media_id,
                                 "content_uri": format!("/_matrix/media/v3/download/{}", file_name),
-                                "filename": file_name
+                                "filename": original.unwrap_or(file_name)
                             });
                             return Some(metadata);
                         }

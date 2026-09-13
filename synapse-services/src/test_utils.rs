@@ -314,6 +314,26 @@ pub async fn prepare_shared_test_pool() -> Result<Arc<PgPool>, String> {
     Ok(pool)
 }
 
+/// Connect a shared pool to the default test database (no schema isolation).
+///
+/// Convergence point for module-local `test_pool()` fixtures that only touch
+/// shared `public`-schema tables (no per-test `CREATE SCHEMA`). Centralizes the
+/// URL resolution (process-level cached) and connection options that used to be
+/// copy-pasted with slightly different defaults across crates.
+///
+/// Returns an `Arc<PgPool>`; callers that need a bare `PgPool` (cheap internal
+/// `Arc` alias) can `(*pool).clone()`.
+pub async fn connect_shared_test_pool() -> Result<Arc<PgPool>, String> {
+    let database_url = resolve_test_database_url().await?;
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .acquire_timeout(Duration::from_secs(30))
+        .connect(&database_url)
+        .await
+        .map_err(|error| format!("failed to connect shared test pool: {error}"))?;
+    Ok(Arc::new(pool))
+}
+
 async fn init_template_schema(database_url: &str) -> Result<String, String> {
     let template_name = format!("test_template_{}", std::process::id());
     let connect_timeout = configured_test_pool_connect_timeout();

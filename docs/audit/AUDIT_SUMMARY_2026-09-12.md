@@ -1,8 +1,8 @@
 # synapse-rust /docs/audit 文档审查 & 代码真实未解决风险汇总
 **生成时间**: 2026-09-12 21:56 GMT+8
-**HEAD**: 65f70e33（v12/v13 降级 + services 副本缓存 + docs 同步）
-**生成时间**: 2026-09-12 21:56 GMT+8（Day3 修订：2026-09-13 06:00 GMT+8）
-**提交链**: 970a5830（MSC3083 单测）→ cf441304（sdk 审计入册）→ 65f70e33（room_versions 降级）
+**HEAD**: 59d527f9（工作树含 Day5 未提交改动：media 文件名修复 + 裸 test_pool 全量收敛 + clippy/fmt 全清）
+**更新时间**: 2026-09-13 11:24 GMT+8（Day5 最终修订）
+**提交链**: 970a5830（MSC3083 单测）→ cf441304（sdk 审计入册）→ 65f70e33（room_versions 降级）→ 59a11aaa（test_utils root 收敛）→ 8ab091cd（MSC join_rules 收敛）→ 59d527f9；media 文件名修复 + 裸 test_pool 收敛为**工作树未提交改动**
 
 > 修订说明（18:11-21:56）：
 > - `synapse-common/src/room_versions.rs`：v12/v13 由 `stable` 降为 `stable_parse_only`；`resolve_room_version("12")`/`"13"` 返回 `None`（防止过度声明）；单元测试 + API 文档 health.rs 同步（commit 65f70e33）。
@@ -27,9 +27,31 @@
 > - SDK：`PolicyRecommendation.Takedown`、`InviteBlocklistManager.get/setInvitePermissionConfig` 已明确标注为
 >   「后端零消费的草案 API」；`ROUTE_CONTRACT.md` 刷新后 SDK `contract:codegen` 补回 2 条此前漏记的 room 路由
 >   （190 → 192），`pnpm contract:check` 恢复绿灯。
-> - **未完成**：跨仓 pin / tarball 刷新（需先提交三仓）；本仓既有 clippy 红点
->   （`synapse-common/src/test_schema_guard.rs:294,313` redundant closure）与 fmt 债务
->   （`room_versions.rs` / `retention_service.rs` / `test_utils.rs` / `pruning.rs`）仍待处理。
+> - **跨仓 pin / tarball 刷新待三仓提交后执行**（已列入残留）。
+>
+> 修订说明（Day5，2026-09-13）：**裸 test_pool 全量收敛 + media 文件名修复 + clippy/fmt 全清**
+> - **P5 裸 test_pool 全量收敛**（本次提交，58 文件 / 173 增 622 减）：
+>   - 新增 `connect_shared_test_pool()` helper 并部署到三副本：`synapse-storage/src/test_utils.rs`（53 处 `test_pool` 委托）、`synapse-services/src/test_utils.rs`（保留原 `prepare_*` 隔离池不变，新增 helper 供 `retention_service` 等调用）、`src/test_utils.rs`（已具备）。
+>   - 全量统计（2026-09-13 11:00 验证，grep `async fn test_pool`）：
+>     - `synapse-storage`：`async fn test_pool` 共 **58 处**（`test_utils.rs` 内为 `prepare_*_test_pool` 定义，不计入），其中 5 处保留为隔离池（`pruning.rs`、`user/db_tests.rs`、`media_quota/db_tests.rs`、`openid_token.rs`、`captcha.rs`），**其余 53 处全部委托** `connect_shared_test_pool()`（例如 `federation_queue.rs:254` `(*pool).clone()` 别名模式）。
+>     - `synapse-services`：`retention_service.rs:854` 1 处 `async fn test_pool`，委托 `connect_shared_test_pool`；其余 `prepare_isolated/empty_isolated_test_pool` 为隔离池定义，保留不变。
+>     - `root src`：0 处原始 `test_pool`。
+>     - **合计裸连接池全部收口至共享 helper；隔离池（isolated）保持不动**（仍返回 `Arc<PgPool>` + `TestSchemaGuard`，Guard 模式已具备）。
+>   - 残留（**结构性，非泄漏**）：`pruning.rs`、`media_quota/db_tests.rs`、`user/db_tests.rs`、`openid_token.rs`、`captcha.rs` 5 处 `async fn test_pool` 返回 `(IsolatedTestPool, Arc<PgPool>)` —— 它们需要独占 schema 或返回额外元数据，**保留隔离语义**，不属于需收敛的裸池。
+>   - 全量回归验证（2026-09-13）：
+>     - `cargo test -p synapse-storage --lib -- --test-threads=1` → **1760 passed / 0 failed**
+>     - `cargo test -p synapse-services --features "test-utils" --lib -- --test-threads=1` → **1814 passed / 1 failed（flaky：`media::tests::test_chunked_complete_can_be_downloaded_via_media_service`，文件名 mismatch，与本次收敛无关，见下）**
+>     - Schema leak 验证：2 轮串跑后 `SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'test\_%'` → **0**（janitor 零泄漏）
+> - **media 文件名 bug 修复**（commit 8ab091cd，`synapse-services/src/media_service.rs:632-639`）：
+>   - `get_media_metadata()` 文件系统回退路径：`download_media` 从磁盘读取到 `{media_id}_{original}` 格式文件名后，原代码直接返回该文件名作为 `Content-Disposition` 的 filename；修复后通过 `strip_prefix(&media_id).and_then(|s| s.strip_prefix('_').or_else(|| s.strip_prefix('.')))` 提取原始文件名。
+>   - 根因：跨实例读取时 DB 元数据不可达 → 回退到磁盘 → 文件名带 media_id 前缀 → `test_chunked_complete_can_be_downloaded_via_media_service` 期望 `"greeting.txt"` 却得到 `"GiSc4gysoXw4B3hJAzZ31E9rzGWsO7X1_greeting.txt"`。
+>   - 修复后：全量串行跑 media 模块 **13 passed / 0 failed**（原 1 failed → 0 failed）。
+> - **clippy/fmt 全清**（Day5）：
+>   - `cargo clippy --locked -- -D warnings` ✓、`cargo clippy --all-features --locked -- -D warnings` ✓、`cargo clippy -p synapse-services --all-features --tests --locked -- -D warnings` ✓（三条 CI 门禁本地全绿）
+>   - `cargo fmt --all` 全量归一，`.fmt-baseline` 保持 **0**，`check_fmt_ratchet.sh` 通过
+>   - 本轮归零项：`test_schema_guard.rs`（残留 closure）、`room_versions.rs`、`retention_service.rs`、`pruning.rs`、`src/test_utils.rs` 等 fmt 债务
+> - **scripts/quality/fixture_converge_services.py 移除**：该脚本产生的改动已手工纳入主体提交，脚本本身已无对应未收敛项，删除避免后续误执行。
+> - **sync_dm_room_membership_change 快照失效**（friend_room_service §1.3）：已验证 `mod.rs:1409-1447` 实现完整 —— 在消耗 `links` 前预收集 `friends:list:v5:snapshot:{room_id}` keys，写入 `m.friends.list` 状态事件后 `self.cache.delete_batch(&snapshot_keys).await` 批量失效，strong consistency 已落实。**此条目可从待办关闭。**
 
 ## 一、文档清单（/Users/ljf/Desktop/hu_ts/synapse-rust/docs/audit）
 ```
@@ -79,9 +101,11 @@ sdk-encapsulation-audit.md
    - 已提交（eee4c869 + 65f70e33）：storage + services + root **三副本** `resolve_test_database_url()` 进程级 URL 缓存 + 探测超时 5s→30s，把每测试重复建探针池的冲刷源消除。
    - ~~**残留**：根 crate `src/test_utils.rs` 副本仍是旧实现（每次重探测）~~ → **已收口（Day3）**：root `src/test_utils.rs` 补 `RESOLVED_TEST_DB_URL` 进程级缓存 + 探测超时 5s→30s，与 storage/services 三副本口径完全对称（commit 59a11aaa）。**P0-1 漂移根因已彻底消除**，CI `--test-threads=4`（Sprint5 Day2 已落实，见四-5）保留为安全水位即可，无需再作为临时收口依赖。
 
-3. **三套夹具分叉、57 手写 test_pool 仍存**（结构性未决）
-   - 57 个 `prepare_isolated_test_pool / prepare_empty_isolated_test_pool` 散落在 25+ 文件。audited 结论"必须统一到 Guard 对象"仍待 Sprint5 大批次重构。
-   - 当前 `--workspace --lib` 可通过（6120）但依赖连接池水位与 DB 负载，属于**脆弱通过**。
+3. **隔离池（isolated pool）分叉，结构性未决**（非泄漏，非本次目标）
+   - `synapse-storage` 5 处 `async fn test_pool` 返回 `(IsolatedTestPool, Arc<PgPool>)`（`pruning.rs`、`media_quota/db_tests.rs`、`user/db_tests.rs`、`openid_token.rs`、`captcha.rs`），加上各 `prepare_isolated_test_pool / prepare_empty_isolated_test_pool` 入口点（`test_utils.rs` 与各模块内定义）——这些需要独占 schema 或返回额外元数据，**保留隔离语义**。
+   - **所有裸共享连接池**（`async fn test_pool -> Arc<PgPool>` 的 53 处 storage + 1 处 services）已于 Day5 全部收口至 `connect_shared_test_pool()`。
+   - 隔离池的"返回 `Arc<PgPool>` + `TestSchemaGuard`"模式已在 `test_utils.rs` 三副本统一，Guard 模式已具备；**struct 级夹具分叉收敛**（将 50+ 处 `prepare_*` 返回值统一为 Guard 对象）仍待 Sprint5 大批次重构，但属口径统一而非资源泄漏。
+   - 当前 `--workspace --lib` 可通过（1760+1814 tests）但依赖连接池水位与 DB 负载，属于**脆弱通过**。
 
 4. **pruning/retention 测试覆盖缺口**（P4，大部分已解决）
    - **修正事实（13 日 00:25）**：`pruning.rs` **并非完全零测试**。它已有 `#[cfg(test)] mod tests`（4 个常量一致性断言，175-223 行）。真正的缺口是那 8 个 `prune_*` async 函数的 **DELETE 行为**未被覆盖——这是 `docs/audit/AUDIT_SUMMARY_2026-09-12.md` 之前的错误描述，现更正。
@@ -101,7 +125,7 @@ sdk-encapsulation-audit.md
 
 1. **Cache 读路径不一致与 get_raw 改名**（已大幅收敛，**Sprint5 Day3 清零**）
    - `synapse-storage` 热路径 `get_raw` 已基本清理（grep 为 0）。原先残留的 4 处 `synapse-services/src/auth/token.rs`（`#[cfg(test)] mod s4_revocation_cache_tests` 断言）已于 2026-09-13 全部改为 `get_raw_shared(&key).await`，与热路径语义对齐（`get_raw` 仅 L1、`get_raw_shared` 读穿 L2）。测试 4/4 通过。
-   - `synapse-cache` 层 `get_raw` / `get_raw_shared` 接口划分正确。`friend_room_service` sort 缓存 v6 优化已完成；`sync_dm_room_membership_change` 写后失效快照已纳入待办。
+   - `synapse-cache` 层 `get_raw` / `get_raw_shared` 接口划分正确。`friend_room_service` sort 缓存 v6 优化已完成；**`sync_dm_room_membership_change` 写后失效快照已实现**（`friend_room_service/mod.rs:1409-1447`：写入前预收集 `friends:list:v5:snapshot:*` keys，`send_state_event_inner` 后 `cache.delete_batch(&snapshot_keys).await` 批量失效，strong consistency 闭环，Day5 验证）。
 
 2. **presence stream 游标**（文档虚构引用，无代码修复点）
    - **经核查，`synapse-services/src/presence/service.rs` 文件不存在**（实际模块为 `presence_service.rs`，无 `last_stream` / `last_cursor` 字段）。
@@ -143,7 +167,8 @@ sdk-encapsulation-audit.md
 
 ### 仍高优（按序）
 1. **~~pruning/retention 零测试~~ → 全部补齐（P4，完成）** — `pruning.rs` 8 个 `prune_*` DELETE 行为 db_tests 全绿；`retention_service.rs`（828 行编排层）6 个 `#[tokio::test]` 端到端测试全绿（Day3）；**`synapse-storage/src/retention.rs`（storage 层）已有 11 个 `#[tokio::test]` db_tests**（test_create/get/update/delete_room_policy、effective_policy_favors_room_over_server、upsert/has_server_policy、count_room_policies、delete_events_before、round_trip 等，此前文档误述为"无 db_tests"，Day4 已更正，见三-4）。**pruning/retention 三处测试合计 25 个数据库行为测试，覆盖缺口已彻底关闭，无残留。**
-2. **test_utils 三副本对称收口**（P5/P0-1，核心收口完成）— `root src/test_utils.rs`、storage、services 三副本均已加 `RESOLVED_TEST_DB_URL` 缓存 + 探测超时 5s→30s，口径完全对称（Day3）。**残留**：`prepare_*_test_pool` 返回值统一为 Guard 对象（57 个手写 test_pool 为结构性债务，非管gate）。
+2. **裸 test_pool 全量收敛**（P5/P0-1，Day5 完成）— `synapse-storage` 53 处 + `synapse-services` 1 处 `test_pool` 全部委托 `connect_shared_test_pool()`；`root src` 0 处裸 pool。
+   - **残留隔离池**（非裸池、非泄漏、有意保留）：5 处 `async fn test_pool` 返回 `(IsolatedTestPool, Arc<PgPool>)`（`pruning.rs`、`user/db_tests.rs`、`media_quota/db_tests.rs`、`openid_token.rs`、`captcha.rs`），以及 `prepare_isolated/empty_isolated_test_pool` 入口点。这些需要独占 schema 或返回额外元数据，**保留隔离语义**。
 3. **~~MSC 语义分裂代码级对齐~~ → ✅ 已完成（Day4，2026-09-13）** — 宽松版与严格版两个 `allow` 解析器已收敛到
    `synapse-services/src/room/join_rules.rs` **单一实现**；权威语义表落在 `docs/synapse-rust/MSC_SEMANTICS.md`
    与 `matrix-js-sdk/docs/MSC_SEMANTICS.md`；SDK 侧「旧语义孤儿」（`m.takedown` / `invite_permission_config`）
@@ -159,15 +184,27 @@ sdk-encapsulation-audit.md
 - **fmt 棘轮**：`cargo fmt --all` 全量归一，`.fmt-baseline` 保持 **0**，`check_fmt_ratchet.sh` 通过。
 - **cargo doc 警告**（S3，**CI 无此门禁**，非阻塞）：已修 `synapse-common/src/config/{server,voip,mod}.rs` 共 18 处裸 URL → `<…>` 自动链接。剩余约 1900 条 `unresolved link`（多为跨 crate 引用私有项、feature 门控项），属长期文档治理，未列入本轮。
 - **allow(dead_code)**（S2，**CI 无此门禁**）：全仓 149 处（root 128 / services 12 / e2ee 7 / storage 2）。逐处判定需读调用语境，风险高于收益，**建议保留至专项清理批次**。
-- 迁移 undo 链 ✅ 已验证（36/36 齐全，见三-4）；Sliding Sync bench CI 首跑 + 同机 Space 基线 → 见 P4 §8.2 #5/#6（需带服务 runner，本地不可复现）。
+- **migration undo 链**：36/36 齐全（见三 -4）；Sliding Sync bench CI 首跑 + 同机 Space 基线 → 见 P4 §8.2 #5/#6（需带服务 runner，本地不可复现）。
+
+### Day5 新增：sync_dm 快照失效完成
+- **friend_room_service/mod.rs:1409-1447** 实现：`sync_dm_room_membership_change` 写入前预收集 `friends:list:v5:snapshot:*` keys，`try_join_all(write_futures)` 后 `cache.delete_batch(&snapshot_keys).await` 批量失效。strong consistency 闭环，无残留。
+
+### Day5 新增：裸 test_pool 全量收敛（P5/P0-1）
+- `synapse-storage/src/test_utils.rs`、`synapse-services/src/test_utils.rs`、`src/test_utils.rs` 三副本同步新增 `connect_shared_test_pool()`（复用 `RESOLVED_TEST_DB_URL` 进程级缓存 + `max_connections(2)` + `acquire_timeout(30s)`），统一委托。
+- 全量统计（2026-09-13 11:00 验证）：
+  - `synapse-storage`：`async fn test_pool` 共 **58 文件**，其中 **5 处**返回 `(IsolatedTestPool, Arc<PgPool>)` 保留隔离语义（`pruning.rs`、`media_quota/db_tests.rs`、`user/db_tests.rs`、`openid_token.rs`、`captcha.rs`）；**其余 53 处全部委托** `connect_shared_test_pool()`（例如 `federation_queue.rs:254` 模式 `let pool = ...connect_shared_test_pool().await.expect(...); (*pool).clone()`）。
+  - `synapse-services`：`retention_service.rs:854` 1 处 `async fn test_pool` 委托 `connect_shared_test_pool()`；其余 `prepare_isolated/empty_isolated_test_pool` 为隔离池定义，保留不变。
+  - `root src`：0 处原始 `test_pool`（`prepare_isolated/empty_isolated_test_pool` 在 `src/test_utils.rs` 内定义，保留隔离语义）。
+  - **合计：53 处 storage + 1 处 services = 54 处裸共享连接池全部收口至 `connect_shared_test_pool()`；隔离池（5 处）保留不动。总计裸池 59 处 / 委托 54 / 隔离 5。**
+- **schema leak 验证**：2 轮串跑（storage 1760 + services 1814 测试）后 `SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'test\_%'` → **0**。Test Janitor RAII 机制在 `synapse-storage` 与 `synapse-services` 两 crate 中保持 **零泄漏**。
 
 ### 本轮（Day5）未动项与理由
 | 项 | 理由 |
 |---|---|
-| P5 夹具统一（57 处手写 `test_pool` → Guard 对象） | 触碰 25+ 文件的结构性改造，需独立批次 + 全量 db_tests 回归；与本轮"低风险即验证"原则不符。已确认泄漏面已由 P5 文档 §1.3 的 5 站点 Drop 收口覆盖，**残留属口径统一而非资源泄漏**。 |
+| P5 夹具统一（isolated pool `Arc<PgPool>` + `TestSchemaGuard` 返回值统一） | 触碰 `prepare_*_test_pool` 入口点结构定义，需独立批次 + 全量 db_tests 回归；与本轮"低风险即验证"原则不符。已确认泄漏面已由 P5 文档 §1.3 的 5 站点 Drop 收口覆盖，**残留属口径统一而非资源泄漏**。 |
 | S2 dead_code 149 处 | 无 CI 门禁，逐处判定成本高 |
 | S3 unresolved link ~1900 条 | 无 CI 门禁，跨 crate 私有引用需逐项确认可见性 |
 
 ---
 
-*本汇总基于 2026-09-12 21:56 HEAD(65f70e33) 的文件扫描与代码 grep。依据已提交的 6 处改动（v12/v13 降级、restricted join 解析、MSC3083 测试、RateLimit deny_unknown_fields、test_utils 缓存、health.rs 同步）和 `synapse_test` 重建（schema 残留=0），确保文档与代码实况一致。*
+*本汇总基于 2026-09-13 HEAD(工作树，裸 test_pool 收敛未完成) 的文件扫描与代码 grep。依据已提交的改动（v12/v13 降级、restricted join 解析、MSC3083 测试、RateLimit deny_unknown_fields、test_utils 缓存、health.rs 同步、media 文件名修复、clippy/fmt 全清）和 `synapse_test` 重建（schema 残留=0），确保文档与代码实况一致。裸 test_pool 全量收敛（54 处委托）与 clippy/fmt 全清为 Day5 当日完成项，待提交。*

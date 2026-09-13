@@ -851,15 +851,9 @@ mod db_tests {
     }
 
     async fn test_pool() -> Arc<PgPool> {
-        let db_url = std::env::var("TEST_DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(4)
-            .acquire_timeout(std::time::Duration::from_secs(30))
-            .connect(&db_url)
+        crate::test_utils::connect_shared_test_pool()
             .await
-            .expect("Failed to connect to test database");
-        Arc::new(pool)
+            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
     }
 
     fn build_retention_service(pool: Arc<PgPool>) -> super::RetentionService {

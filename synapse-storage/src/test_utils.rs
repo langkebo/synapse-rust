@@ -184,3 +184,23 @@ fn next_test_schema_name() -> String {
         .as_nanos();
     format!("test_{}_{}_{}", std::process::id(), TEST_SCHEMA_COUNTER.fetch_add(1, Ordering::SeqCst), timestamp_nanos,)
 }
+
+/// Connect a shared pool to the default test database (no schema isolation).
+///
+/// This is the single convergence point for the ~50 module-local `test_pool()`
+/// fixtures that previously each hard-coded their own `TEST_DATABASE_URL`
+/// fallback, `max_connections` and `acquire_timeout` (drift risk, bypassed the
+/// process-level URL probe cache). Tests that only touch the shared `public`
+/// schema tables (no per-test `CREATE SCHEMA`) should delegate to this and keep
+/// their unique-suffix + manual-cleanup row isolation; tests that need a
+/// dedicated schema must use [`prepare_empty_isolated_test_pool`] instead.
+pub async fn connect_shared_test_pool() -> Result<Arc<PgPool>, String> {
+    let database_url = resolve_test_database_url().await?;
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .acquire_timeout(Duration::from_secs(30))
+        .connect(&database_url)
+        .await
+        .map_err(|error| format!("failed to connect shared test pool: {error}"))?;
+    Ok(Arc::new(pool))
+}
