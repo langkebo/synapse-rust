@@ -17,7 +17,7 @@
 //! caller because the migration files live at the workspace root and are not
 //! reachable from this crate via `include_str!` relative paths.
 
-use sqlx::postgres::PgPoolOptions;
+use sqlx::postgres::{PgPool, PgPoolOptions};
 use std::time::Duration;
 
 /// Advisory-lock key guarding shared template creation.
@@ -334,6 +334,284 @@ async fn build_template(conn: &mut sqlx::PgConnection, template: &str, baseline_
     Ok(())
 }
 
+/// Build the single-round-trip clone statement for `schema` from `template`.
+///
+/// Two phases, deliberately:
+///
+/// * Phase 1 (`search_path` unchanged): `CREATE TABLE ... (LIKE ... INCLUDING
+///   ALL)`. This carries columns, defaults, generated expressions, identity,
+///   indexes and PRIMARY KEY / UNIQUE / CHECK constraints. It does **not**
+///   carry FOREIGN KEYs (measured: 0/127 survived the copy), so those are
+///   replayed explicitly in phase 2.
+///
+/// * Phase 2 (`search_path` = clone): replay functions, views, materialized
+///   views, foreign keys and triggers, which `LIKE` cannot copy. The
+///   `search_path` matters for *correctness*: a PL/pgSQL body is not
+///   schema-bound, so a function created while `search_path` points at the
+///   template would silently resolve unqualified names to the **template's**
+///   tables — cross-schema writes from the clone. Replaying with the clone on
+///   `search_path` binds them to the clone. Verified: no cloned function body
+///   mentions the template schema afterwards.
+///
+/// This statement deliberately does **not** create `schema`: the caller
+/// guarantees it already exists (and that its session `search_path` already
+/// begins with it). A `CREATE SCHEMA` here would fail with `42P06
+/// duplicate_schema` for every caller.
+///
+/// The template's own bookkeeping table ([`TEMPLATE_READY_TABLE`]) is skipped:
+/// it is fixture metadata, not baseline inventory, and a clone is expected to
+/// reproduce exactly the baseline objects (so `clone_matches_template_inventory`
+/// sees 2 tables for a 2-table baseline). [`validate_clone`] excludes the same
+/// table from both sides of its comparison.
+fn clone_statement(schema: &str, template: &str) -> String {
+    format!(
+        r#"
+        DO $do$
+        DECLARE
+            r RECORD;
+            def TEXT;
+        BEGIN
+            -- Phase 1: every baseline table, with indexes / defaults / CHECK / PK.
+            -- The readiness marker is template bookkeeping, not baseline content.
+            FOR r IN
+                SELECT tablename FROM pg_tables
+                WHERE schemaname = '{template}' AND tablename <> '{TEMPLATE_READY_TABLE}'
+                ORDER BY tablename
+            LOOP
+                EXECUTE format(
+                    'CREATE TABLE %I.%I (LIKE %I.%I INCLUDING ALL)',
+                    '{schema}', r.tablename, '{template}', r.tablename
+                );
+            END LOOP;
+
+            -- Phase 2: non-table objects must bind to the clone, not the template.
+            EXECUTE format('SET search_path TO %I, public', '{schema}');
+
+            -- Functions. `pg_get_functiondef` renders the name template-qualified;
+            -- strip the qualifier so it is created inside the clone.
+            FOR r IN
+                SELECT p.proname AS name,
+                       pg_get_function_identity_arguments(p.oid) AS args,
+                       pg_get_functiondef(p.oid) AS def
+                FROM pg_proc p
+                JOIN pg_namespace n ON n.oid = p.pronamespace
+                WHERE n.nspname = '{template}' AND p.prokind = 'f'
+            LOOP
+                def := replace(r.def, '{template}.', '');
+                def := replace(def, '"{template}".', '');
+                EXECUTE def;
+            END LOOP;
+
+            -- Views / materialized views. Ordered by dependency depth so a view
+            -- that reads another view is created after it.
+            FOR r IN
+                WITH RECURSIVE deps AS (
+                    SELECT c.oid, 0 AS depth
+                    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE n.nspname = '{template}' AND c.relkind IN ('v','m')
+                    UNION ALL
+                    SELECT d.refobjid, deps.depth + 1
+                    FROM deps
+                    JOIN pg_rewrite w ON w.ev_class = deps.oid
+                    JOIN pg_depend d ON d.objid = w.oid AND d.refobjid <> deps.oid
+                    JOIN pg_class rc ON rc.oid = d.refobjid
+                    WHERE rc.relkind IN ('v','m')
+                )
+                SELECT c.relname AS name,
+                       c.relkind AS kind,
+                       pg_get_viewdef(c.oid) AS def,
+                       max(deps.depth) AS depth
+                FROM deps
+                JOIN pg_class c ON c.oid = deps.oid
+                GROUP BY c.relname, c.relkind, c.oid
+                ORDER BY max(deps.depth), c.relname
+            LOOP
+                -- `pg_get_viewdef` renders referenced tables template-qualified
+                -- (`FROM test_isolation_template_x.workers`). Left as-is the clone's
+                -- views would read the *template's* rows, so strip the qualifier
+                -- and let `search_path` (now the clone) resolve them. Without the
+                -- strip the DDL is also rejected: `42601 syntax error at end of input`.
+                def := replace(r.def, '{template}.', '');
+                def := replace(def, '"{template}".', '');
+                IF r.kind = 'm' THEN
+                    EXECUTE format('CREATE MATERIALIZED VIEW %I.%I AS %s', '{schema}', r.name, def);
+                ELSE
+                    EXECUTE format('CREATE VIEW %I.%I AS %s', '{schema}', r.name, def);
+                END IF;
+            END LOOP;
+
+            -- Foreign keys. `LIKE ... INCLUDING ALL` copies PRIMARY KEY /
+            -- UNIQUE / CHECK but NOT FOREIGN KEYs (measured: 0/127 carried
+            -- over), so replay them. The existence test is computed in the
+            -- query and returned as a column, so the `IF` has one simple
+            -- condition; a duplicate means the FK is already present, which is
+            -- the desired end state.
+            FOR r IN
+                SELECT fkrel.relname AS tbl,
+                       con.conname AS name,
+                       replace(pg_get_constraintdef(con.oid), format('%I.', tn.nspname), '') AS def,
+                       EXISTS (
+                           SELECT 1
+                           FROM pg_constraint cc
+                           JOIN pg_namespace cn ON cn.oid = cc.connamespace
+                           JOIN pg_class crel ON crel.oid = cc.conrelid
+                           WHERE cc.contype = 'f'
+                             AND cc.conname = con.conname
+                             AND cn.nspname = '{schema}'
+                             AND crel.relname = fkrel.relname
+                       ) AS already_cloned
+                FROM pg_constraint con
+                JOIN pg_namespace tn ON tn.oid = con.connamespace
+                JOIN pg_class fkrel ON fkrel.oid = con.conrelid
+                WHERE con.contype = 'f' AND tn.nspname = '{template}'
+            LOOP
+                IF NOT r.already_cloned THEN
+                    EXECUTE format('ALTER TABLE %I.%I ADD CONSTRAINT %I %s',
+                                   '{schema}', r.tbl, r.name, r.def);
+                END IF;
+            END LOOP;
+
+            -- Triggers. The clone's own tables carry the trigger; the function
+            -- resolves to the clone because `search_path` points there.
+            FOR r IN
+                SELECT c.relname AS tbl, t.tgname AS name, pg_get_triggerdef(t.oid) AS def
+                FROM pg_trigger t
+                JOIN pg_class c ON c.oid = t.tgrelid
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname = '{template}' AND NOT t.tgisinternal
+            LOOP
+                def := replace(r.def, ' ON {template}.', ' ON {schema}.');
+                def := replace(def, ' ON "{template}".', ' ON "{schema}".');
+                EXECUTE def;
+            END LOOP;
+        END
+        $do$;
+        "#
+    )
+}
+
+/// Verify the clone reproduces the template's object inventory.
+///
+/// A clone that silently lacks tables/functions/views makes every query for the
+/// missing objects resolve against the shared `public` schema via the
+/// `search_path`. That is the failure mode behind the order-dependent
+/// `media::tests` and `*::db_tests` breakage, so it must be an immediate error.
+///
+/// The template-only bookkeeping table ([`TEMPLATE_READY_TABLE`]) is excluded
+/// from the table count on both sides, matching [`clone_statement`], which does
+/// not copy it.
+async fn validate_clone(pool: &PgPool, schema: &str, template: &str) -> Result<(), String> {
+    // One query against a fixed set of relations, aggregating per schema.
+    /// Object inventory for one schema. Named fields rather than a 7-tuple:
+    /// positional access to seven `i64`s is exactly the kind of thing that
+    /// silently swaps two counts.
+    #[derive(sqlx::FromRow)]
+    struct Inventory {
+        nsp: String,
+        tbls: i64,
+        fks: i64,
+        funcs: i64,
+        views: i64,
+        mviews: i64,
+        triggers: i64,
+    }
+
+    let inventory: Vec<Inventory> = sqlx::query_as(
+        r#"
+        WITH target AS (
+            SELECT unnest(ARRAY[$1, $2]) AS nsp
+        )
+        SELECT t.nsp,
+            (SELECT count(*) FROM pg_tables tb
+              WHERE tb.schemaname = t.nsp AND tb.tablename <> $3) AS tbls,
+            (SELECT count(*) FROM pg_constraint c
+               JOIN pg_class r ON r.oid = c.conrelid
+               JOIN pg_namespace n ON n.oid = r.relnamespace
+              WHERE n.nspname = t.nsp AND c.contype = 'f') AS fks,
+            (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+              WHERE n.nspname = t.nsp AND p.prokind = 'f') AS funcs,
+            (SELECT count(*) FROM pg_views v WHERE v.schemaname = t.nsp) AS views,
+            (SELECT count(*) FROM pg_matviews m WHERE m.schemaname = t.nsp) AS mviews,
+            (SELECT count(*) FROM pg_trigger tr
+               JOIN pg_class c ON c.oid = tr.tgrelid
+               JOIN pg_namespace n ON n.oid = c.relnamespace
+              WHERE n.nspname = t.nsp AND NOT tr.tgisinternal) AS triggers
+        FROM target t
+        "#,
+    )
+    .bind(schema)
+    .bind(template)
+    .bind(TEMPLATE_READY_TABLE)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("clone inventory query for {schema} vs template {template} failed: {e}"))?;
+
+    let Some(clone) = inventory.iter().find(|row| row.nsp == schema) else {
+        return Err(format!(
+            "clone schema {schema} is not visible after cloning from template {template} \
+             (the clone may not have been created at all)"
+        ));
+    };
+    let Some(tmpl) = inventory.iter().find(|row| row.nsp == template) else {
+        return Err(format!("template schema {template} is not visible while validating clone {schema}"));
+    };
+
+    if clone.tbls != tmpl.tbls
+        || clone.fks != tmpl.fks
+        || clone.funcs != tmpl.funcs
+        || clone.views != tmpl.views
+        || clone.mviews != tmpl.mviews
+        || clone.triggers != tmpl.triggers
+    {
+        return Err(format!(
+            "isolated schema {schema} is incomplete vs template {template}: \
+             tables {0}/{1}, fks {2}/{3}, functions {4}/{5}, views {6}/{7}, \
+             matviews {8}/{9}, triggers {10}/{11}. An incomplete clone silently \
+             falls back to `public` via search_path.",
+            clone.tbls,
+            tmpl.tbls,
+            clone.fks,
+            tmpl.fks,
+            clone.funcs,
+            tmpl.funcs,
+            clone.views,
+            tmpl.views,
+            clone.mviews,
+            tmpl.mviews,
+            clone.triggers,
+            tmpl.triggers
+        ));
+    }
+
+    Ok(())
+}
+
+/// Clone the complete `template` schema into `schema` in one round trip.
+///
+/// **Precondition (the caller guarantees it):** `schema` already exists and the
+/// connection's `search_path` begins with `schema`. The function does **not**
+/// `CREATE SCHEMA` — callers that already created it would otherwise fail with
+/// `42P06 duplicate_schema`.
+///
+/// The `DO` block embeds `pg_get_functiondef` output, so it is executed with
+/// [`sqlx::raw_sql`] (simple protocol) rather than `sqlx::query` (extended
+/// protocol): the extended protocol's statement description mangles the
+/// dollar-quoted bodies into a truncated statement
+/// (`42601 syntax error at end of input`). The block has no bind parameters, so
+/// the simple protocol is both correct and cheaper.
+///
+/// Finally the clone's object inventory is compared against the template's and
+/// a shortfall is returned as an error: an incomplete clone silently falls back
+/// to the shared `public` schema through `search_path`, which surfaces much
+/// later as bizarre, order-dependent test failures.
+pub async fn clone_schema_from_template(pool: &sqlx::PgPool, schema: &str, template: &str) -> Result<(), String> {
+    sqlx::raw_sql(&clone_statement(schema, template))
+        .execute(pool)
+        .await
+        .map_err(|e| format!("clone of {schema} from {template} failed: {e}"))?;
+    validate_clone(pool, schema, template).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -538,5 +816,51 @@ INSERT INTO t VALUES ('it''s;here');
         assert!(has_table, "bare schema must have been rebuilt with the baseline");
 
         let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{template}" CASCADE"#)).execute(&admin).await;
+    }
+
+    /// The clone must reproduce the template's inventory exactly. A shortfall
+    /// is what makes queries fall back to `public`.
+    #[tokio::test]
+    async fn clone_matches_template_inventory() {
+        let Some(url) = test_database_url() else {
+            return;
+        };
+        let baseline = r#"
+CREATE TABLE IF NOT EXISTS unify_parent (id bigint PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS unify_child (
+    id bigint PRIMARY KEY,
+    parent_id bigint REFERENCES unify_parent(id)
+);
+CREATE OR REPLACE VIEW unify_view AS SELECT id FROM unify_parent;
+"#;
+        let template = ensure_template_schema(&url, baseline).await.expect("template");
+        let schema = format!("unify_clone_{}", uuid::Uuid::new_v4().as_simple());
+        let pool = PgPoolOptions::new().max_connections(1).connect(&url).await.expect("pool");
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#)).execute(&pool).await;
+        sqlx::query(&format!(r#"CREATE SCHEMA "{schema}""#)).execute(&pool).await.expect("create clone schema");
+        sqlx::query(&format!(r#"SET search_path TO "{schema}", public"#)).execute(&pool).await.expect("set path");
+
+        clone_schema_from_template(&pool, &schema, &template).await.expect("clone");
+
+        let counts: (i64, i64, i64) = sqlx::query_as(
+            r#"
+            SELECT
+              (SELECT count(*) FROM pg_tables WHERE schemaname = $1),
+              (SELECT count(*) FROM pg_constraint c
+                 JOIN pg_class r ON r.oid = c.conrelid
+                 JOIN pg_namespace n ON n.oid = r.relnamespace
+                WHERE n.nspname = $1 AND c.contype = 'f'),
+              (SELECT count(*) FROM pg_views WHERE schemaname = $1)
+            "#,
+        )
+        .bind(&schema)
+        .fetch_one(&pool)
+        .await
+        .expect("counts");
+        assert_eq!(counts.0, 2, "two tables expected");
+        assert_eq!(counts.1, 1, "the FK must be replayed (LIKE does not copy FKs)");
+        assert_eq!(counts.2, 1, "the view must be replayed");
+
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#)).execute(&pool).await;
     }
 }
