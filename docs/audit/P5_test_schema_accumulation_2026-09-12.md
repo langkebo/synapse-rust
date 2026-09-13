@@ -577,3 +577,56 @@ registry 随进程一起消失，schema 留在库里。`Weak<PgPool>` 活体检�
 
 > **对 §7 的更正**：§7 的标题与状态表应读作"**已实现但实测无效**"。
 > 本文不删除 §7 原文，以便后续读者看到"看起来合理的修法为什么不够"。
+
+---
+
+## 10. 2026-09-13 实测：**§9 的结论已被 Test Janitor RAII 推翻**
+
+§9（本节 above）是在 **Test Janitor（`synapse_common::test_schema_guard`）尚未接入三套夹具** 时测的。
+自 `8799f36e`（"feat(retention,auth,test): retention_service e2e db_tests + test_utils/root cache + token get_raw_shared"，2026-09-12）起，根 crate / `synapse-services` / `synapse-storage` 三份 `prepare_*_test_pool` 已统一改为 `TestSchemaGuard::new_registered(pool, schema_name, cleanup)`。janitor 通过 `Weak<PgPool>` 活体检测 + `atexit` join 做回收，**不再依赖"下次取池时 sweep"**——因此 §9.3 的结构失效分析不再适用，§9 的"每轮 +8 schema、跨轮无界增长"结论已过时。
+
+### 10.1 复现方式（与 §9.1 相同，使用当前代码 + 本地 synapse_test 库）
+
+```bash
+export TEST_DATABASE_URL='postgresql://synapse:synapse@localhost:5432/synapse_test'
+export DATABASE_URL="$TEST_DATABASE_URL"
+
+# 清空 test_* 作为基线（实测：重建后为 0）
+psql "$DATABASE_URL" -c "SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'test\_%';"   # 0
+
+# 跑真正会触达隔离池的用例（synapse-storage::test_utils::prepare_empty_isolated_test_pool）
+cargo nextest run --profile test --features test-utils -p synapse-storage --lib \
+  -E 'test(/oidc_session_storage/)'
+
+psql "$DATABASE_URL" -c "SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'test\_%';"
+```
+
+### 10.2 实测结果（2026-09-13）：**0 泄漏，跨轮次无增长**
+
+| 轮次 | `test_*` schema 数 | 说明 |
+|---|---|---|
+| 基线 | 0 | 手工清空 / 库重建后 |
+| 第 1 次运行 14 个 oidc_session_storage 用例 | **0** | 全部被 janitor 回收 |
+| 第 2 次运行同样用例 | **0** | 仍无泄漏 |
+
+**结论：Test Janitor RAII 机制在 nextest 一进程一用例模型下完全有效。**
+`prepare_empty_isolated_test_pool` 返回的 `TestSchemaGuard` 持有 `Arc<PgPool>`；测试函数返回后 Arc 强引用归零，janitor 的 `Weak` 检测到死亡，立即执行 `DROP SCHEMA ... CASCADE`（或 TRUNCATE 回池，取决于 `running_under_nextest()`）。§7 现应读作"**已实现、已验证有效**"。
+
+### 10.3 §9 结论为何被推翻
+
+旧 sweep 机制（`PENDING_SCHEMA_DROPS` + `sweep_pending_schema_drops()`）的致命缺陷是"**下一次取池时才回收**"——nextest 一个进程只跑一个用例，取池后进程退出，"下一次"永远不会发生；sweep 又不在进程退出时执行，registry 随进程一起消失。
+
+Test Janitor 绕开了这个缺陷：回收触发点是**池的强引用计数归零**，不是未来事件。只要最后一个 `Arc<PgPool>` 被 drop，janitor 线程在 50ms 内检测到 Weak 死亡并执行清理。`atexit` handler 是 deterministic backstop（处理静态变量持有的池，这些池 Rust 不会 drop），不是主要路径。
+
+### 10.4 残留的真实未决项（与 §9.5 相同，不含"修复无效"）
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| 三套夹具收敛成一份 | **未做** | 仍是结构性债务（§1.4），但不再造成泄漏 |
+| P5 夹具统一（57 处手写 `test_pool` → Guard 对象） | **未做** | 结构性改造，需独立批次 + 全量 db_tests 回归 |
+| `synapse_test_template_*` 旧家族的创建方 | **未定位** | 已随 `synapse_test_*` 一并清零，不影响功能 |
+
+### 10.5 实测范围声明
+
+本次实测仅覆盖 `synapse-storage` 的 oidc_session_storage 用例（触达 `prepare_empty_isolated_test_pool`）。`synapse-services` 的 media / auth 等 db_tests 路径使用同一份夹具，按同构推断同样被 janitor 回收，但未在本轮独立跑 DB 验证——P4 主流程完整后建议补一轮 `cargo nextest run --profile test --features test-utils` 全量统计，作为 P5 最终的"0 泄漏"收敛证据。
+
