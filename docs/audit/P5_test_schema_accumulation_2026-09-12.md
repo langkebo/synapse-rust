@@ -712,10 +712,12 @@ P5 夹具收敛已完成并验证有效：
 1. **零 schema 泄漏**：janitor 机制在 storage（1760）+ services（1815）全量串行测试下保持 `test_%` 计数归零
 2. **功能无退化**：3575 个测试除 1 个既有顺序 flaky 外全部通过
 3. **既有 flaky 已修复**：media `test_chunked_complete_can_be_downloaded_via_media_service` 失败由 `media_service.rs::get_media_metadata()` 文件系统回退路径的文件名前缀污染引起（返回 `{media_id}_greeting.txt` 而非 `greeting.txt`）。已修复（Day5）：回退路径提取原始文件名 `strip_prefix(&media_id)` → 成功；13/13 全绿。**顺序依赖已消除**，不再是 flaky。
-4. **retention serial 测试与 nextest 并发模型冲突（实测记录）**：`retention_service::db_tests` 中 3 个用例带 `#[serial_test::serial]`（`test_effective_policy_room_over_server` / `test_effective_policy_server_fallback` / `test_run_cleanup_requires_room_policy`），它们变更全局 `server_retention_policy` 单行（id=1）。nextest 一测试一进程模型下 serial 锁跨进程失效：实测 `cargo nextest run -E 'test(retention)'` 20 passed / 1 failed（`test_run_cleanup_requires_room_policy` 读到其他并发进程留下的 server policy 行，`run_cleanup` 未按预期报错）；`--test-threads=1` 串行下 6/6 全绿。**修复方向**（未实施）：将 server policy 状态改为每测试独占（例如测试内 try/finally 恢复 + 唯一行 key），或给这 3 个用例配置 nextest profile 的 `serial` 分组（nextest 支持 `#[serial]` via filter expression 分区）。属测试设计缺陷，非本轮收敛引入。
+4. **retention serial 测试与 nextest 并发模型冲突（实测记录 & 已修复）**：`retention_service::db_tests` 中 3 个用例带 `#[serial_test::serial]`（`test_effective_policy_room_over_server` / `test_effective_policy_server_fallback` / `test_run_cleanup_requires_room_policy`），它们变更全局 `server_retention_policy` 单行（id=1）。nextest 一测试一进程模型下 serial 锁跨进程失效：实测 `cargo nextest run -E 'test(retention)'` 20 passed / 1 failed（`test_run_cleanup_requires_room_policy` 读到其他并发进程留下的 server policy 行，`run_cleanup` 未按预期报错）；`--test-threads=1` 串行下 6/6 全绿。
+   - **修复**：`.config/nextest.toml` 新增 `[test-groups] retention-server-policy = { max-threads = 1 }` + default profile override，给这 3 个用例配 nextest 跨进程互斥锁；保留 `#[serial_test::serial]` 使 `cargo test` 单进程路径仍正确。实测 `-j 6` → 21/21 passed。属测试设计缺陷，由 nextest test-group 解决。
 
-**后续工作（已完成到 Day5）**：
+**后续工作（已完成到 Day5 2026-09-13）**：
 - `test_chunked_complete...` 文件名修复已验证（13 passed）；
-- P5 夹具收敛已完成（54 处委托 + 5 处隔离保留，0 schema 泄漏）；
-- `nextest` 并发回归：已在 `--test-threads=1` 串行验证（1760 + 1814 tests）；并发回归（`--test-threads=4` / 6）可在 CI 最终确认，但核心泄漏与 flakiness 已关闭。
+- P5 夹具收敛已完成（54 处委托 + 5 处隔离保留，0 schema 泄漏，commit 23a92e38）；
+- retention serial 测试 nextest 串行分组已实施（commit 438c724a），`cargo nextest run -E 'test(retention)' -j 6` 21/21 passed；
+- `nextest` 全量回归：1760 storage + 1814 services passed（1 flaky 既有），schema 残留 0。
 
