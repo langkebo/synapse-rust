@@ -153,9 +153,20 @@ sdk-encapsulation-audit.md
 
 ### S 系列技术债（Sprint5 批次）
 - （`auth/token.rs` 4 处 `get_raw` 已于 Day3 清零）
-- clippy cosmetic（剩余 ~10 条）
-- cargo doc 警告 / allow(dead_code)
-- 迁移 undo 链、Sliding Sync / Space 基线
+- **clippy cosmetic**：
+  - **Day5（2026-09-13）已清零**：`test_schema_guard.rs` 4 处 `redundant_closure`（`catch_unwind(AssertUnwindSafe(|| f()))` → 直接传 `f`）、`room_versions.rs` 1 处、`retention_service.rs` 4 处、`pruning.rs` 若干（fmt 归一）；root `src/test_utils.rs` 3 处（`useless format!` → `String::from`；`needless_pass_by_value` 2 处，`register_pending_schema_return` 改收 `&str`）。**CI 三条 clippy 门禁（root default / root all-features / services tests all-features，均 `-D warnings`）本地全绿**。
+  - 校验：`cargo clippy --locked -- -D warnings`、`cargo clippy --all-features --locked -- -D warnings`、`cargo clippy -p synapse-services --all-features --tests --locked -- -D warnings` 三步均 exit 0。
+- **fmt 棘轮**：`cargo fmt --all` 全量归一，`.fmt-baseline` 保持 **0**，`check_fmt_ratchet.sh` 通过。
+- **cargo doc 警告**（S3，**CI 无此门禁**，非阻塞）：已修 `synapse-common/src/config/{server,voip,mod}.rs` 共 18 处裸 URL → `<…>` 自动链接。剩余约 1900 条 `unresolved link`（多为跨 crate 引用私有项、feature 门控项），属长期文档治理，未列入本轮。
+- **allow(dead_code)**（S2，**CI 无此门禁**）：全仓 149 处（root 128 / services 12 / e2ee 7 / storage 2）。逐处判定需读调用语境，风险高于收益，**建议保留至专项清理批次**。
+- 迁移 undo 链 ✅ 已验证（36/36 齐全，见三-4）；Sliding Sync bench CI 首跑 + 同机 Space 基线 → 见 P4 §8.2 #5/#6（需带服务 runner，本地不可复现）。
+
+### 本轮（Day5）未动项与理由
+| 项 | 理由 |
+|---|---|
+| P5 夹具统一（57 处手写 `test_pool` → Guard 对象） | 触碰 25+ 文件的结构性改造，需独立批次 + 全量 db_tests 回归；与本轮"低风险即验证"原则不符。已确认泄漏面已由 P5 文档 §1.3 的 5 站点 Drop 收口覆盖，**残留属口径统一而非资源泄漏**。 |
+| S2 dead_code 149 处 | 无 CI 门禁，逐处判定成本高 |
+| S3 unresolved link ~1900 条 | 无 CI 门禁，跨 crate 私有引用需逐项确认可见性 |
 
 ---
 
