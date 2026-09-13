@@ -338,6 +338,32 @@ async fn build_template(conn: &mut sqlx::PgConnection, template: &str, baseline_
 mod tests {
     use super::*;
 
+    /// Database URL for the isolation tests, or `None` for an *explicit* skip.
+    ///
+    /// A DB-backed test that silently returns when `TEST_DATABASE_URL` is unset
+    /// reports `ok` in 0.00s and proves nothing — a false-green hazard in the
+    /// very module this plan is hardening. So the DB is required by default:
+    /// the operator must either provide `TEST_DATABASE_URL` or opt out loudly
+    /// with `ALLOW_SKIP_TEST_DB=1`.
+    fn test_database_url() -> Option<String> {
+        match std::env::var("TEST_DATABASE_URL") {
+            Ok(url) => Some(url),
+            Err(_) if std::env::var("ALLOW_SKIP_TEST_DB").ok().as_deref() == Some("1") => {
+                eprintln!(
+                    "SKIPPING test_isolation DB test: TEST_DATABASE_URL is unset and \
+                     ALLOW_SKIP_TEST_DB=1 was explicitly set. This test proves NOTHING without a \
+                     database; the run above is not green evidence."
+                );
+                None
+            }
+            Err(_) => panic!(
+                "TEST_DATABASE_URL is not set. Point it at a throwaway Postgres database (for \
+                 example postgresql://synapse:...@host:5432/synapse_test), or set \
+                 ALLOW_SKIP_TEST_DB=1 to skip these tests explicitly."
+            ),
+        }
+    }
+
     #[test]
     fn fingerprint_is_stable_and_content_sensitive() {
         let a = baseline_fingerprint("CREATE TABLE users (id text);");
@@ -430,21 +456,42 @@ INSERT INTO t VALUES ('it''s;here');
         assert!(out.contains("CREATE INDEX i ON t (id);"));
     }
 
-    /// Requires TEST_DATABASE_URL. Verifies the template is built once and is
-    /// complete (object counts match a fresh clone) and that a second call is a
-    /// no-op that reuses the same template name.
+    /// Requires TEST_DATABASE_URL. Verifies the template carries the readiness
+    /// marker and the baseline probe table, and that a second
+    /// `ensure_template_schema` call is a genuine no-op: the schema's Postgres
+    /// `oid` (and obviously its name) are unchanged, so the template was reused
+    /// rather than dropped and rebuilt.
     #[tokio::test]
     async fn template_is_built_complete_and_reused() {
-        let Ok(url) = std::env::var("TEST_DATABASE_URL") else {
-            eprintln!("skipping: TEST_DATABASE_URL not set");
+        let Some(url) = test_database_url() else {
             return;
         };
         let baseline = "CREATE TABLE IF NOT EXISTS unify_probe (id bigint PRIMARY KEY);";
+        let admin = PgPoolOptions::new().max_connections(1).connect(&url).await.expect("admin pool");
         let t1 = ensure_template_schema(&url, baseline).await.expect("first build");
+        // `oid` is allocated per schema object and is not reused, so an unchanged
+        // oid across the second call is what proves the `if ready { return Ok(()) }`
+        // short-circuit was taken. Name equality alone would also hold for a
+        // silent DROP + CREATE rebuild.
+        let oid_after_first: i64 = sqlx::query_scalar("SELECT oid::bigint FROM pg_namespace WHERE nspname = $1")
+            .bind(&t1)
+            .fetch_one(&admin)
+            .await
+            .expect("read oid after first build");
+
         let t2 = ensure_template_schema(&url, baseline).await.expect("second call");
         assert_eq!(t1, t2, "same baseline content must reuse the same template");
+        let oid_after_second: i64 = sqlx::query_scalar("SELECT oid::bigint FROM pg_namespace WHERE nspname = $1")
+            .bind(&t1)
+            .fetch_one(&admin)
+            .await
+            .expect("read oid after second call");
+        assert_eq!(
+            oid_after_first, oid_after_second,
+            "template {t1} was dropped and recreated (oid {oid_after_first} -> {oid_after_second}); \
+             the second call must reuse it instead of replaying the baseline"
+        );
 
-        let admin = PgPoolOptions::new().max_connections(1).connect(&url).await.expect("admin pool");
         let ready: bool = sqlx::query_scalar("SELECT to_regclass(format('%I.%I', $1, $2)) IS NOT NULL")
             .bind(&t1)
             .bind(TEMPLATE_READY_TABLE)
@@ -470,8 +517,7 @@ INSERT INTO t VALUES ('it''s;here');
     /// `public` through search_path.
     #[tokio::test]
     async fn incomplete_template_is_rebuilt() {
-        let Ok(url) = std::env::var("TEST_DATABASE_URL") else {
-            eprintln!("skipping: TEST_DATABASE_URL not set");
+        let Some(url) = test_database_url() else {
             return;
         };
         let baseline = "CREATE TABLE IF NOT EXISTS unify_probe2 (id bigint PRIMARY KEY);";
