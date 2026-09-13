@@ -214,39 +214,85 @@ mod tests {
         assert_eq!(a, b, "same content must yield same fingerprint");
         assert_ne!(a, c, "changed content must yield a different fingerprint");
         assert_eq!(a.len(), 16, "fingerprint must be 16 hex chars");
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit()), "fingerprint must be hex, got {a}");
     }
 
     #[test]
     fn template_name_embeds_the_fingerprint() {
+        // Fixed expectation, deliberately NOT recomputed with `baseline_fingerprint`:
+        // recomputing would make the assertion near-tautological (both sides would
+        // go through the function under test) and would pin nothing about the
+        // naming scheme. `56b2fd4971477b87` is the FNV-1a 64 of the SQL below.
         let sql = "CREATE TABLE users (id text);";
         let name = template_schema_name(sql);
-        assert_eq!(name, format!("test_isolation_template_{}", baseline_fingerprint(sql)));
-        assert!(name.starts_with("test_isolation_template_"));
+        assert_eq!(name, "test_isolation_template_56b2fd4971477b87");
     }
 
     #[test]
     fn split_handles_functions_do_blocks_and_comments() {
         let sql = r#"
+-- leading comment before the users table
 CREATE TABLE IF NOT EXISTS users (
-    user_id TEXT NOT NULL
+    user_id TEXT NOT NULL,
+    CONSTRAINT pk_users PRIMARY KEY (user_id)
 );
 
-CREATE OR REPLACE FUNCTION f()
+CREATE OR REPLACE FUNCTION update_updated_ts_column()
 RETURNS TRIGGER AS $$
 BEGIN
-    RETURN NEW; -- inner semicolon
+    NEW.updated_ts = now();
+    RETURN NEW; -- inner semicolon inside dollar body
 END;
 $$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+    INSERT INTO users (user_id) VALUES ('a;b'); -- semicolon inside a string
+END $$;
+
+/* block
+   comment */
+CREATE TABLE IF NOT EXISTS devices (
+    id BIGSERIAL, -- trailing comment
+    note TEXT DEFAULT 'it;s;fine'
+);
 "#;
         let stmts = split_sql_statements(sql);
         let heads: Vec<&str> = stmts.iter().map(|s| first_line(s)).collect();
-        assert_eq!(heads, vec!["CREATE TABLE IF NOT EXISTS users (", "CREATE OR REPLACE FUNCTION f()"]);
+        assert_eq!(
+            heads,
+            vec![
+                "CREATE TABLE IF NOT EXISTS users (",
+                "CREATE OR REPLACE FUNCTION update_updated_ts_column()",
+                "DO $$",
+                "CREATE TABLE IF NOT EXISTS devices ("
+            ]
+        );
+        // The users CREATE TABLE must survive the preceding `--` comment chunk.
+        assert!(stmts.iter().any(|s| s.trim_start().starts_with("CREATE TABLE IF NOT EXISTS users")));
+        // Function body must stay in one piece (no cut at inner `;`, no truncation).
+        assert!(stmts.iter().any(|s| s.contains("RETURN NEW") && s.contains("$$ LANGUAGE plpgsql")));
+        // String containing semicolons must not split the DO block.
+        assert!(stmts.iter().any(|s| s.contains("INSERT INTO users (user_id) VALUES ('a;b')")));
+    }
+
+    #[test]
+    fn split_handles_quoted_identifiers_and_escapes() {
+        let sql = r#"
+CREATE TABLE "my;table" (id TEXT);
+INSERT INTO t VALUES ('it''s;here');
+"#;
+        let stmts = split_sql_statements(sql);
+        assert_eq!(stmts.len(), 2);
+        assert!(stmts[0].contains("\"my;table\""));
+        assert!(stmts[1].contains("'it''s;here'"));
     }
 
     #[test]
     fn strip_copy_blocks_removes_seed_data() {
         let sql = "CREATE TABLE t (id int);\nCOPY t (id) FROM stdin;\n1\n2\n\\.\nCREATE INDEX i ON t (id);\n";
         let out = strip_copy_blocks(sql);
+        assert!(!out.contains("COPY"));
         assert!(!out.contains("FROM stdin"));
         assert!(!out.contains("\n1\n"));
         assert!(out.contains("CREATE INDEX i ON t (id);"));
