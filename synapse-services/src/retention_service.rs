@@ -850,16 +850,35 @@ mod db_tests {
         format!("{counter}{nanos}")
     }
 
+    /// Each test gets its own schema cloned from the full baseline template.
+    ///
+    /// These tests used to run against the shared `public` schema, which made
+    /// them the canary for cross-test pollution: `test_run_cleanup_requires_room_policy`
+    /// sets the server policy to `max_lifetime = NULL` and expects `run_cleanup`
+    /// to reject the room, but a concurrently running test that had just set a
+    /// server-wide policy (visible through `public`) made the cleanup succeed
+    /// instead. `#[serial_test::serial]` does not help here — it is a
+    /// process-local lock and nextest runs every test in its own process.
+    ///
+    /// The clone copies table *structure* (`CREATE TABLE ... (LIKE ... INCLUDING ALL)`),
+    /// not rows, so the singleton `server_retention_policy` row that the v11
+    /// baseline seeds has to be recreated here.
     async fn test_pool() -> Arc<PgPool> {
-        let db_url = std::env::var("TEST_DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(4)
-            .acquire_timeout(std::time::Duration::from_secs(30))
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
-        Arc::new(pool)
+        let pool = crate::test_utils::prepare_isolated_test_pool().await.expect("Failed to prepare isolated test pool");
+        sqlx::query(
+            "INSERT INTO server_retention_policy
+                 (id, max_lifetime, min_lifetime, is_expire_on_clients, created_ts, updated_ts)
+             VALUES (1, NULL, 0, FALSE, 0, 0)
+             ON CONFLICT (id) DO NOTHING",
+        )
+        .execute(&*pool)
+        .await
+        .expect("failed to seed server_retention_policy in the isolated schema");
+        pool
+    }
+
+    async fn pool_schema_name(pool: &Arc<PgPool>) -> String {
+        sqlx::query_scalar("SELECT current_schema()").fetch_one(&**pool).await.expect("current_schema")
     }
 
     fn build_retention_service(pool: Arc<PgPool>) -> super::RetentionService {
@@ -1123,5 +1142,32 @@ mod db_tests {
         assert_eq!(rows.0, 2, "expired event deleted, protected create survives");
 
         cleanup_test_room(&pool, &room_id).await;
+    }
+
+    /// Regression: the runtime DatabaseInitService does not create the
+    /// retention tables, so an isolated schema without the full baseline made
+    /// `server_retention_policy` resolve to the shared `public` schema.
+    #[tokio::test]
+    async fn isolated_schema_contains_retention_tables() {
+        let pool = test_pool().await;
+        let (local_tables, resolved): (i64, Option<String>) = sqlx::query_as(
+            r#"
+            SELECT
+              (SELECT count(*) FROM pg_tables
+                WHERE schemaname = current_schema()
+                  AND tablename IN ('server_retention_policy', 'room_retention_policies')),
+              (SELECT n.nspname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE c.oid = 'server_retention_policy'::regclass)
+            "#,
+        )
+        .fetch_one(&*pool)
+        .await
+        .expect("retention table probe");
+        assert_eq!(local_tables, 2, "both retention tables must exist in the isolated schema");
+        assert_eq!(
+            resolved.as_deref(),
+            Some(pool_schema_name(&pool).await.as_str()),
+            "server_retention_policy must resolve inside the isolated schema, not public"
+        );
     }
 }
