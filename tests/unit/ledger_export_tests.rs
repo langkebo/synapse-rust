@@ -263,3 +263,48 @@ fn all_fixture_contains_every_other_profile_entry() {
         }
     }
 }
+
+/// Contract-version guard.
+///
+/// `docs/synapse-rust/LEDGER_EXPORT_SCHEMA.md` is the document downstream
+/// consumers read to decide compatibility, and `matrix-js-sdk`'s
+/// `contract-sync.mjs` pins `LEDGER_SCHEMA_VERSION` to the value below.
+///
+/// Backend commit `aa06ca45` bumped `SCHEMA_VERSION` "1" -> "2" without
+/// updating that downstream pin, which made the SDK's sync workflow reject
+/// every published artifact (`schema_version 2 is not compatible with SDK pin
+/// 1`) and silently froze the SDK's contract mirror. The golden-fixture tests
+/// could not catch it: they only compare the fixtures against the code, and
+/// both moved together in that commit.
+///
+/// This test is the missing link: it fails whenever the code's version and the
+/// documented version disagree, forcing the schema doc (and, via its upgrade
+/// checklist, the downstream pin) to be updated in the same commit.
+#[test]
+fn schema_doc_version_matches_code() {
+    // Only meaningful for the default-feature build: the opt-in-extension
+    // builds gate out the other golden tests, and the schema version does not
+    // depend on the feature set, so assert it here once.
+    let doc = include_str!("../../docs/synapse-rust/LEDGER_EXPORT_SCHEMA.md");
+
+    let declared = doc
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("- **当前 `schema_version`**:"))
+        .map(|rest| rest.trim().trim_matches('`').trim().to_string())
+        .expect(
+            "docs/synapse-rust/LEDGER_EXPORT_SCHEMA.md must declare its version as \
+             `- **当前 `schema_version`**: `<N>`; the line was not found",
+        );
+
+    assert_eq!(
+        declared, SCHEMA_VERSION,
+        "schema doc and code disagree: docs/synapse-rust/LEDGER_EXPORT_SCHEMA.md declares \
+         {declared} but ledger_export.rs SCHEMA_VERSION is {SCHEMA_VERSION}.\n\
+         A contract-version bump must update, in the SAME commit:\n\
+           1. docs/synapse-rust/LEDGER_EXPORT_SCHEMA.md (this file's version line)\n\
+           2. tests/unit/fixtures/ledger_export/      (default-feature golden lane)\n\
+           3. tests/unit/fixtures/ledger_export_sdk/  (all-extensions SDK lane)\n\
+           4. matrix-js-sdk scripts/contract-sync.mjs LEDGER_SCHEMA_VERSION + regenerate its mirror\n\
+         Skipping step 4 is exactly how the SDK contract sync silently froze (aa06ca45)."
+    );
+}

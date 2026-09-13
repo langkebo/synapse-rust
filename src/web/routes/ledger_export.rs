@@ -8,9 +8,12 @@
 //! without spawning a subprocess.
 //!
 //! Schema is documented in
-//! `docs/synapse-rust/LEDGER_EXPORT_SCHEMA.md` and frozen at
-//! [`SCHEMA_VERSION`] = `"1"`. See
-//! `matrix-js-sdk/docs/api-contract/LEDGER_DRIVEN_SDK_PLAN_2026-05-02.md`
+//! `docs/synapse-rust/LEDGER_EXPORT_SCHEMA.md`. [`SCHEMA_VERSION`] below is the
+//! authoritative value and the doc must match it, enforced by the
+//! `schema_doc_version_matches_code` test in
+//! `tests/unit/ledger_export_tests.rs`. Do not restate the version here — this
+//! comment previously claimed `"1"` while the constant was already `"2"`.
+//! See `matrix-js-sdk/docs/api-contract/LEDGER_DRIVEN_SDK_PLAN_2026-05-02.md`
 //! for the downstream consumer.
 
 use serde::{Deserialize, Serialize};
