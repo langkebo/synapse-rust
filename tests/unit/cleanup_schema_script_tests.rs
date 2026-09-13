@@ -72,6 +72,62 @@ fn cleanup_script_prunes_superseded_templates_but_spares_arbitrary_names() {
     );
 }
 
+/// The shared template family (`test_isolation_template_<16 hex>`, minted by
+/// `synapse-common::test_isolation::template_schema_name`) was absent from the
+/// script's template predicate. On 2026-09-13 a dry run listed the live
+/// `test_isolation_template_bec240fb79ed438b` as a cleanup candidate in both
+/// listing modes (`--keep-all-templates` and `--keep-template <live>`), so an
+/// `--apply` would have dropped it. That cascades into every concurrent clone
+/// because `LIKE ... INCLUDING ALL` copies serial columns' DEFAULT *expressions*,
+/// which still name the template's sequences.
+///
+/// This guard is deliberately about the *shape* that made the bug possible:
+///   * both fingerprint families must appear in the predicate (including the
+///     `--keep-all-templates` branch, which used a `test\_template\_%` LIKE and
+///     so missed `test_isolation_template_*` too), and
+///   * the keep set must be applied as an exclusion (`NOT IN`). The original
+///     `OR nspname IN ($KEEP_SQL)` inverted the polarity: an explicitly kept
+///     live template became a candidate for DROP while a superseded template
+///     outside the keep set was spared.
+#[test]
+fn cleanup_script_preserves_both_live_template_families() {
+    let source = script();
+
+    assert!(
+        source.contains("^test_isolation_template_[0-9a-f]{16}"),
+        "the cleanup script must know the shared template family \
+         (`^test_isolation_template_[0-9a-f]{{16}}$`); without it the live shared template is a \
+         cleanup candidate and `--apply` drops it"
+    );
+    // Both branches use it: the `--keep-all-templates` branch AND the marker-driven
+    // branch. A single occurrence would leave one of the two listing modes unsafe.
+    let family_mentions = source.matches("^test_isolation_template_[0-9a-f]{16}").count();
+    assert!(
+        family_mentions >= 2,
+        "both template predicates (`--keep-all-templates` and the marker-driven keep set) must \
+         exclude the shared family; found {family_mentions} occurrence(s)"
+    );
+
+    // Keep set polarity: `NOT IN` excludes kept templates from the candidate
+    // set; `IN` would select them for deletion.
+    assert!(
+        source.contains("nspname NOT IN ($KEEP_SQL)"),
+        "the keep set must be applied as `nspname NOT IN ($KEEP_SQL)` so a template listed by a \
+         ready-marker or `--keep-template` is excluded from the candidate set"
+    );
+    assert!(
+        !source.contains("nspname IN ($KEEP_SQL)"),
+        "`nspname IN ($KEEP_SQL)` would make every *kept* template a DROP candidate while \
+         sparing stale ones — the polarity of the preservation predicate"
+    );
+    // The old `--keep-all-templates` branch excluded only `test_template_*` via LIKE.
+    assert!(
+        !source.contains("nspname NOT LIKE 'test\\_template\\_%'"),
+        "`--keep-all-templates` must exclude both fingerprint families, not just the old \
+         `test_template_*` family"
+    );
+}
+
 #[test]
 fn cleanup_script_is_dry_run_by_default_and_reports_its_target() {
     let source = script();

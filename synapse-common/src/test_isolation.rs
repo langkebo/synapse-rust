@@ -13,15 +13,29 @@
 //!   tables), so queries silently fell back to the shared `public` schema via
 //!   `search_path = <schema>, public` and tests leaked state into each other.
 //!
-//! One implementation, two callers. The baseline SQL is passed in by the
-//! caller because the migration files live at the workspace root and are not
-//! reachable from this crate via `include_str!` relative paths.
+//! One implementation, two callers. The baseline SQL is passed in by the caller
+//! as a deliberate branch constraint: **`synapse-common` must not embed
+//! migration files**. The `include_str!("../../migrations/…")` path is
+//! mechanically available — this crate sits at the same directory depth as
+//! `synapse-storage` and `synapse-services`, both of which use it — so the reason
+//! is a design rule, not a path limitation. Keeping `migrations/` out of this
+//! crate's build keeps the workspace-root SQL the single source of truth.
 
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use std::time::Duration;
 
 /// Advisory-lock key guarding shared template creation.
 const TEMPLATE_ADVISORY_LOCK_KEY: i64 = 0x5359_4E41_5053_5445;
+
+/// Upper bound on waiting for [`TEMPLATE_ADVISORY_LOCK_KEY`].
+///
+/// The build it guards is a one-time, seconds-long DDL replay. A holder that has
+/// not released within this window is hung (killed mid-build, stuck statement,
+/// leaked lock), and an unbounded wait would stall every later test process.
+const TEMPLATE_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Interval between `pg_try_advisory_lock` polls while waiting for the lock.
+const TEMPLATE_LOCK_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Marker table written into the template only after a complete build.
 pub const TEMPLATE_READY_TABLE: &str = "_synapse_test_template_ready";
@@ -235,10 +249,24 @@ pub fn split_sql_statements(sql: &str) -> Vec<String> {
 /// session-scoped `pg_advisory_lock`, which is always released — including on
 /// failure — because a leaked advisory lock deadlocks every later process.
 ///
-/// The baseline SQL is passed in by the caller because the migration files live
-/// at the workspace root and are not reachable from this crate via
-/// `include_str!` relative paths.
+/// The baseline SQL is passed in by the caller as a deliberate branch
+/// constraint: `synapse-common` must not embed migration files, even though
+/// `include_str!("../../migrations/…")` is mechanically available from this
+/// crate's directory depth (see the module docs).
 pub async fn ensure_template_schema(db_url: &str, baseline_sql: &str) -> Result<String, String> {
+    ensure_template_schema_with_lock_timeout(db_url, baseline_sql, TEMPLATE_LOCK_WAIT_TIMEOUT).await
+}
+
+/// [`ensure_template_schema`], with the advisory-lock wait bound injected.
+///
+/// The timeout is a parameter (rather than an environment read) so the
+/// timeout path is unit-testable without holding the shared lock for the full
+/// 120s default. Every production caller uses [`ensure_template_schema`].
+async fn ensure_template_schema_with_lock_timeout(
+    db_url: &str,
+    baseline_sql: &str,
+    lock_wait: Duration,
+) -> Result<String, String> {
     let template = template_schema_name(baseline_sql);
     let admin_pool = PgPoolOptions::new()
         .max_connections(2)
@@ -254,11 +282,7 @@ pub async fn ensure_template_schema(db_url: &str, baseline_sql: &str) -> Result<
         .await
         .map_err(|e| format!("failed to acquire admin connection for template {template}: {e}"))?;
 
-    sqlx::query("SELECT pg_advisory_lock($1)")
-        .bind(TEMPLATE_ADVISORY_LOCK_KEY)
-        .execute(&mut *conn)
-        .await
-        .map_err(|e| format!("failed to take the template advisory lock: {e}"))?;
+    acquire_template_lock(&mut conn, lock_wait).await?;
 
     let result = build_template(&mut conn, &template, baseline_sql).await;
 
@@ -272,6 +296,40 @@ pub async fn ensure_template_schema(db_url: &str, baseline_sql: &str) -> Result<
 
     result?;
     Ok(template)
+}
+
+/// Take the session-scoped template advisory lock, bounded by `lock_wait`.
+///
+/// `pg_advisory_lock` blocks forever. A holder that never releases — a process
+/// killed mid-build, a stuck statement, a leaked lock — therefore stalls every
+/// later test process, and the pool's `acquire_timeout` does not cover a lock
+/// wait inside an already-acquired connection. Polling `pg_try_advisory_lock`
+/// against a deadline bounds the wait and surfaces a descriptive error naming
+/// the key and the elapsed wait. It also leaves the connection's own settings
+/// untouched, unlike `SET lock_timeout`/`statement_timeout`, which would leak
+/// into the baseline DDL executed after the lock is taken.
+async fn acquire_template_lock(conn: &mut sqlx::PgConnection, lock_wait: Duration) -> Result<(), String> {
+    let deadline = tokio::time::Instant::now() + lock_wait;
+    loop {
+        let acquired: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
+            .bind(TEMPLATE_ADVISORY_LOCK_KEY)
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(|e| format!("failed to try the template advisory lock: {e}"))?;
+        if acquired {
+            return Ok(());
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(format!(
+                "timed out after {lock_wait:?} waiting for the template advisory lock \
+                 (key {:#x}); another test process is building the shared template and has not \
+                 released it. Waiting forever would block every later process, so the wait is \
+                 bounded and reported instead.",
+                TEMPLATE_ADVISORY_LOCK_KEY
+            ));
+        }
+        tokio::time::sleep(TEMPLATE_LOCK_POLL_INTERVAL).await;
+    }
 }
 
 /// Build (or reuse) the template schema on an already-locked connection.
@@ -336,7 +394,7 @@ async fn build_template(conn: &mut sqlx::PgConnection, template: &str, baseline_
 
 /// Build the single-round-trip clone statement for `schema` from `template`.
 ///
-/// Three steps, deliberately:
+/// Four steps, deliberately:
 ///
 /// * Phase 1 (`search_path` unchanged): `CREATE TABLE ... (LIKE ... INCLUDING
 ///   ALL)`. This carries columns, defaults, generated expressions, identity,
@@ -355,17 +413,34 @@ async fn build_template(conn: &mut sqlx::PgConnection, template: &str, baseline_
 ///   rows. It also runs before the FOREIGN KEYs are replayed, so the arbitrary
 ///   `ORDER BY tablename` copy order cannot trip a not-yet-satisfied FK.
 ///
+/// * Phase 1c (fully-qualified): create a clone-owned copy of every template
+///   sequence and rebind each serial column's default to it, then advance each
+///   clone sequence past the rows copied in phase 1b. `LIKE ... INCLUDING ALL`
+///   copies a serial column's DEFAULT *expression*, which still names the
+///   **template's** sequence, and creates no sequence in the clone — so without
+///   this phase every clone drew ids from one shared template sequence and owned
+///   none of its own. That is a real isolation regression: the pre-unification
+///   fixture gave each schema fresh sequences, and a copied row `id = 1` plus a
+///   template sequence still at `last_value = 1, is_called = false` made an
+///   `INSERT` that omits `id` fail with `duplicate key value violates unique
+///   constraint`.
+///
 /// * Phase 2 (`search_path` = clone, then the caller's remaining entries):
 ///   replay functions, views, materialized views, foreign keys and triggers,
-///   which `LIKE` cannot copy. The `search_path` matters for *correctness*: a
-///   PL/pgSQL body is not schema-bound, so a function created while
-///   `search_path` points at the template would silently resolve unqualified
-///   names to the **template's** tables — cross-schema writes from the clone.
-///   Replaying with the clone on `search_path` binds them to the clone.
-///   Verified: no cloned function body mentions the template schema
-///   afterwards. The caller's tail (everything after the clone) is preserved
-///   rather than replaced with a literal `public`, so a caller path such as
-///   `<clone>, public, extensions` keeps its `extensions` entry.
+///   which `LIKE` cannot copy. The `search_path` matters for *correctness*
+///   because views, materialized views and FK constraint definitions are
+///   **parsed and OID-bound at creation time**: their definitions are replayed
+///   with the template qualifier stripped, so `search_path` must already name
+///   the clone or the unqualified references bind to the template (or, when the
+///   template lacks them, to `public`). PL/pgSQL bodies are the opposite case —
+///   they resolve unqualified names at **execution** time through the calling
+///   session's `search_path` — and every caller's session path starts with the
+///   clone, so the clone's functions read and write the clone's tables. (The
+///   baseline's six functions are all PL/pgSQL; a `LANGUAGE sql` body *is* parsed
+///   at creation time and would depend on this switch as well.) The caller's tail
+///   (everything after the clone) is preserved rather than replaced with a
+///   literal `public`, so a caller path such as `<clone>, public, extensions`
+///   keeps its `extensions` entry.
 ///
 /// This statement deliberately does **not** create `schema`: the caller
 /// guarantees it already exists (and that its session `search_path` already
@@ -387,6 +462,8 @@ fn clone_statement(schema: &str, template: &str) -> String {
             r RECORD;
             def TEXT;
             rest TEXT;
+            seq_q TEXT;
+            max_id BIGINT;
         BEGIN
             -- Phase 1: every baseline table, with indexes / defaults / CHECK / PK.
             -- The readiness marker is template bookkeeping, not baseline content.
@@ -424,6 +501,75 @@ fn clone_statement(schema: &str, template: &str) -> String {
                     'INSERT INTO %I.%I SELECT * FROM %I.%I',
                     '{schema}', r.tablename, '{template}', r.tablename
                 );
+            END LOOP;
+
+            -- Phase 1c: clone-owned sequences. `LIKE ... INCLUDING ALL` copies a
+            -- serial column's DEFAULT *expression* — still
+            -- `nextval('<template>.<seq>'::regclass)` — but creates no sequence
+            -- in the clone. Every clone therefore drew ids from ONE shared
+            -- template sequence and owned ZERO sequences of its own. Copying a
+            -- row with an explicit `id = 1` leaves the template sequence at
+            -- `last_value = 1, is_called = false`, so an `INSERT` that omits
+            -- `id` on the clone fails with a duplicate-key error. The
+            -- pre-unification fixture gave every schema fresh sequences, so this
+            -- is a regression in isolation semantics, not just a latent hazard.
+            --
+            -- Create every template sequence in the clone — including the two
+            -- the baseline never binds to a column (`to_device_stream_id_seq`,
+            -- `sliding_sync_pos_seq`), which an unqualified `nextval` would
+            -- otherwise fail to find — copying its data type. Then rebind each
+            -- serial default to the clone's own sequence and advance it past the
+            -- rows phase 1b copied, so a later default-id insert cannot collide.
+            -- The sequence is derived from the catalog (`pg_attrdef` -> the
+            -- `pg_depend` edge to a `relkind = 'S'` relation), never by slicing
+            -- the default expression text.
+            FOR r IN
+                SELECT c.relname AS seq_rel,
+                       COALESCE(sq.data_type, 'bigint') AS seq_type
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                LEFT JOIN pg_sequences sq
+                       ON sq.schemaname = n.nspname AND sq.sequencename = c.relname
+                WHERE n.nspname = '{template}' AND c.relkind = 'S'
+                ORDER BY c.relname
+            LOOP
+                EXECUTE format(
+                    'CREATE SEQUENCE IF NOT EXISTS %I.%I AS %s',
+                    '{schema}', r.seq_rel, r.seq_type
+                );
+            END LOOP;
+
+            FOR r IN
+                SELECT t.relname AS tbl,
+                       a.attname AS col,
+                       s.relname AS seq_rel
+                FROM pg_attrdef ad
+                JOIN pg_class t ON t.oid = ad.adrelid
+                JOIN pg_namespace tn ON tn.oid = t.relnamespace
+                JOIN pg_attribute a ON a.attrelid = ad.adrelid AND a.attnum = ad.adnum
+                JOIN pg_depend d ON d.classid = 'pg_attrdef'::regclass AND d.objid = ad.oid
+                JOIN pg_class s ON s.oid = d.refobjid AND s.relkind = 'S'
+                WHERE tn.nspname = '{template}' AND a.attnum > 0 AND NOT a.attisdropped
+                ORDER BY t.relname, a.attname
+            LOOP
+                seq_q := format('%I.%I', '{schema}', r.seq_rel);
+                EXECUTE format(
+                    'ALTER TABLE %I.%I ALTER COLUMN %I SET DEFAULT nextval(%L::regclass)',
+                    '{schema}', r.tbl, r.col, seq_q
+                );
+                -- `pg_sequence_last_value` is the clone sequence's own position
+                -- (NULL until first called), so this never lowers a sequence a
+                -- previous iteration already advanced, even if two columns share
+                -- one sequence. An empty clone table leaves the fresh sequence
+                -- at its start, so its first `nextval` is 1 with no row to
+                -- collide with.
+                EXECUTE format(
+                    'SELECT GREATEST(COALESCE(max(%I), 0), COALESCE(pg_sequence_last_value(%L::regclass), 0)) FROM %I.%I',
+                    r.col, seq_q, '{schema}', r.tbl
+                ) INTO max_id;
+                IF max_id > 0 THEN
+                    EXECUTE format('SELECT setval(%L::regclass, %s, true)', seq_q, max_id);
+                END IF;
             END LOOP;
 
             -- Phase 2: non-table objects must bind to the clone, not the template.
@@ -570,14 +716,18 @@ fn clone_statement(schema: &str, template: &str) -> String {
 /// missing objects resolve against the shared `public` schema via the
 /// `search_path`. That is the failure mode behind the order-dependent
 /// `media::tests` and `*::db_tests` breakage, so it must be an immediate error.
+/// The comparison also covers **sequences**, because a clone that owns none
+/// while its serial defaults still point at the template's sequences has given
+/// up clone-local id allocation — the failure mode behind the duplicate-key
+/// error on a default-id insert (see [`clone_statement`] phase 1c).
 ///
 /// The template-only bookkeeping table ([`TEMPLATE_READY_TABLE`]) is excluded
 /// from the table count on both sides, matching [`clone_statement`], which does
 /// not copy it.
 async fn validate_clone(pool: &PgPool, schema: &str, template: &str) -> Result<(), String> {
     // One query against a fixed set of relations, aggregating per schema.
-    /// Object inventory for one schema. Named fields rather than a 7-tuple:
-    /// positional access to seven `i64`s is exactly the kind of thing that
+    /// Object inventory for one schema. Named fields rather than an 8-tuple:
+    /// positional access to eight `i64`s is exactly the kind of thing that
     /// silently swaps two counts.
     #[derive(sqlx::FromRow)]
     struct Inventory {
@@ -588,6 +738,7 @@ async fn validate_clone(pool: &PgPool, schema: &str, template: &str) -> Result<(
         views: i64,
         mviews: i64,
         triggers: i64,
+        seqs: i64,
     }
 
     let inventory: Vec<Inventory> = sqlx::query_as(
@@ -613,7 +764,15 @@ async fn validate_clone(pool: &PgPool, schema: &str, template: &str) -> Result<(
             (SELECT count(*) FROM pg_trigger tr
                JOIN pg_class c ON c.oid = tr.tgrelid
                JOIN pg_namespace n ON n.oid = c.relnamespace
-              WHERE n.nspname = t.nsp AND NOT tr.tgisinternal) AS triggers
+              WHERE n.nspname = t.nsp AND NOT tr.tgisinternal) AS triggers,
+            -- Sequences are counted too: `LIKE ... INCLUDING ALL` creates none,
+            -- so a clone whose phase 1c failed would own 0 against the
+            -- template's ~202 while still belonging to one shared template
+            -- sequence. That is the isolation regression, and it must fail here
+            -- rather than as a duplicate-key error in a later insert.
+            (SELECT count(*) FROM pg_class c
+               JOIN pg_namespace n ON n.oid = c.relnamespace
+              WHERE n.nspname = t.nsp AND c.relkind = 'S') AS seqs
         FROM target t
         "#,
     )
@@ -640,12 +799,13 @@ async fn validate_clone(pool: &PgPool, schema: &str, template: &str) -> Result<(
         || clone.views != tmpl.views
         || clone.mviews != tmpl.mviews
         || clone.triggers != tmpl.triggers
+        || clone.seqs != tmpl.seqs
     {
         return Err(format!(
             "isolated schema {schema} is incomplete vs template {template}: \
              tables {0}/{1}, fks {2}/{3}, functions {4}/{5}, views {6}/{7}, \
-             matviews {8}/{9}, triggers {10}/{11}. An incomplete clone silently \
-             falls back to `public` via search_path.",
+             matviews {8}/{9}, triggers {10}/{11}, sequences {12}/{13}. An incomplete clone \
+             silently falls back to `public` via search_path.",
             clone.tbls,
             tmpl.tbls,
             clone.fks,
@@ -657,7 +817,9 @@ async fn validate_clone(pool: &PgPool, schema: &str, template: &str) -> Result<(
             clone.mviews,
             tmpl.mviews,
             clone.triggers,
-            tmpl.triggers
+            tmpl.triggers,
+            clone.seqs,
+            tmpl.seqs
         ));
     }
 
@@ -1225,5 +1387,231 @@ CREATE MATERIALIZED VIEW unify_seeded_mv AS SELECT id FROM unify_seeded;
 
         let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{clone}" CASCADE"#)).execute(&admin).await;
         let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{template}" CASCADE"#)).execute(&admin).await;
+    }
+
+    /// A clone must own its own sequences instead of drawing ids from the
+    /// template's.
+    ///
+    /// `CREATE TABLE ... (LIKE ... INCLUDING ALL)` copies a `BIGSERIAL` column's
+    /// DEFAULT *expression* — `nextval('<template>.<seq>'::regclass)` — and
+    /// creates no sequence in the clone. Measured on the real template: a clone
+    /// of `server_retention_policy` owned **0** sequences and its `id` default
+    /// still named
+    /// `test_isolation_template_bec240fb79ed438b.server_retention_policy_id_seq`.
+    /// The baseline seeds that row with an explicit `id = 1`, so the template
+    /// sequence can sit at its start (`last_value = 1, is_called = false`) and an
+    /// `INSERT` that omits `id` fails with `duplicate key value violates unique
+    /// constraint`. The pre-unification fixture gave every schema fresh
+    /// sequences, so this was an isolation regression.
+    #[tokio::test]
+    async fn clone_owns_its_sequences_and_can_insert_without_id() {
+        let Some(url) = test_database_url() else {
+            return;
+        };
+        // The explicit-id seed is load-bearing: it leaves the template's
+        // sequence uncalled at its start value, which is exactly what makes a
+        // template-backed clone collide.
+        let baseline = r#"
+CREATE TABLE IF NOT EXISTS unify_seq_tbl (id BIGSERIAL PRIMARY KEY, note text NOT NULL);
+INSERT INTO unify_seq_tbl (id, note) VALUES (1, 'seed') ON CONFLICT DO NOTHING;
+"#;
+        let template = ensure_template_schema(&url, baseline).await.expect("template");
+        let clone = format!("unify_seq_clone_{}", uuid::Uuid::new_v4().as_simple());
+        let pool = PgPoolOptions::new().max_connections(1).connect(&url).await.expect("pool");
+        let admin = PgPoolOptions::new().max_connections(1).connect(&url).await.expect("admin pool");
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{clone}" CASCADE"#)).execute(&admin).await;
+        sqlx::query(&format!(r#"CREATE SCHEMA "{clone}""#)).execute(&pool).await.expect("create clone schema");
+        sqlx::query(&format!(r#"SET search_path TO "{clone}", public"#)).execute(&pool).await.expect("set path");
+
+        clone_schema_from_template(&pool, &clone, &template).await.expect("clone");
+
+        // 1. The clone owns a sequence. Before the phase-1c fix this was 0 and
+        //    the clone borrowed the template's.
+        let clone_seqs: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
+             WHERE n.nspname = $1 AND c.relkind = 'S'",
+        )
+        .bind(&clone)
+        .fetch_one(&admin)
+        .await
+        .expect("clone sequence count");
+        assert_eq!(clone_seqs, 1, "the clone must own its own sequence, not borrow the template's");
+
+        // 2. The column default names the CLONE's sequence.
+        let default_expr: String = sqlx::query_scalar(
+            "SELECT pg_get_expr(ad.adbin, ad.adrelid) \
+             FROM pg_attrdef ad \
+             JOIN pg_class c ON c.oid = ad.adrelid \
+             JOIN pg_namespace n ON n.oid = c.relnamespace \
+             JOIN pg_attribute a ON a.attrelid = ad.adrelid AND a.attnum = ad.adnum \
+             WHERE n.nspname = $1 AND c.relname = 'unify_seq_tbl' AND a.attname = 'id'",
+        )
+        .bind(&clone)
+        .fetch_one(&admin)
+        .await
+        .expect("clone default expression");
+        assert!(
+            default_expr.contains(&clone),
+            "the clone's id default must name the clone's sequence, got: {default_expr}"
+        );
+        assert!(
+            !default_expr.contains(&template),
+            "the clone's id default must not name the template's sequence, got: {default_expr}"
+        );
+
+        // 3. The copied row is present and the clone sequence has advanced past
+        //    it: an insert that omits `id` succeeds with the next id. This is the
+        //    exact statement that failed with a duplicate-key error before the
+        //    fix.
+        let (id, note): (i64, String) = sqlx::query_as(&format!(
+            r#"INSERT INTO "{clone}".unify_seq_tbl (note) VALUES ('after') RETURNING id, note"#
+        ))
+        .fetch_one(&pool)
+        .await
+        .expect("a default-id insert must not collide with the copied row");
+        assert_eq!((id, note.as_str()), (2, "after"), "the clone sequence must continue past the copied row");
+
+        // 4. The template is untouched: it still owns exactly its own sequence
+        //    and still holds only the seed row.
+        let template_seqs: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
+             WHERE n.nspname = $1 AND c.relkind = 'S'",
+        )
+        .bind(&template)
+        .fetch_one(&admin)
+        .await
+        .expect("template sequence count");
+        assert_eq!(template_seqs, 1, "the template must keep exactly its own sequence");
+        let template_rows: i64 = sqlx::query_scalar(&format!(r#"SELECT count(*) FROM "{template}".unify_seq_tbl"#))
+            .fetch_one(&admin)
+            .await
+            .expect("template row count");
+        assert_eq!(template_rows, 1, "the clone's insert must not have landed in the template");
+
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{clone}" CASCADE"#)).execute(&admin).await;
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{template}" CASCADE"#)).execute(&admin).await;
+    }
+
+    /// Create a clone of `template` and assert the shared validator accepts it.
+    async fn make_validated_clone(url: &str, admin: &PgPool, template: &str) -> (PgPool, String) {
+        let clone = format!("unify_val_clone_{}", uuid::Uuid::new_v4().as_simple());
+        let pool = PgPoolOptions::new().max_connections(1).connect(url).await.expect("pool");
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{clone}" CASCADE"#)).execute(admin).await;
+        sqlx::query(&format!(r#"CREATE SCHEMA "{clone}""#)).execute(&pool).await.expect("create clone schema");
+        sqlx::query(&format!(r#"SET search_path TO "{clone}", public"#)).execute(&pool).await.expect("set path");
+        clone_schema_from_template(&pool, &clone, template).await.expect("a complete clone must validate");
+        (pool, clone)
+    }
+
+    /// `validate_clone`'s inventory comparison must reject an incomplete clone.
+    ///
+    /// The review proved the comparison had **zero** coverage: disabling it left
+    /// all 13 `test_isolation` tests passing, because every other test only
+    /// asserted a *successful* clone of a complete template. This test makes the
+    /// clone deliberately short — first a baseline table, then a sequence — and
+    /// asserts the validator returns `Err` with both counts. Making the
+    /// comparison unconditional again turns this test red.
+    #[tokio::test]
+    async fn validate_clone_rejects_an_incomplete_clone() {
+        let Some(url) = test_database_url() else {
+            return;
+        };
+        let baseline = r#"
+CREATE TABLE IF NOT EXISTS unify_short_a (id BIGSERIAL PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS unify_short_b (id bigint PRIMARY KEY);
+"#;
+        let template = ensure_template_schema(&url, baseline).await.expect("template");
+        let admin = PgPoolOptions::new().max_connections(1).connect(&url).await.expect("admin pool");
+
+        // Missing table: the tables count must mismatch.
+        let (pool_a, clone_a) = make_validated_clone(&url, &admin, &template).await;
+        sqlx::query(&format!(r#"DROP TABLE "{clone_a}".unify_short_b"#)).execute(&pool_a).await.expect("drop table");
+        let error = validate_clone(&pool_a, &clone_a, &template)
+            .await
+            .expect_err("validate_clone must reject a clone missing a baseline table");
+        assert!(error.contains(&clone_a) && error.contains("incomplete"), "unexpected error: {error}");
+        assert!(error.contains("tables 1/2"), "the error must report both table counts, got: {error}");
+
+        // Missing sequence: the sequences count must mismatch. `CASCADE` is
+        // required precisely because the clone's own default now depends on its
+        // own sequence (phase 1c); it drops the default, not the column.
+        let (pool_b, clone_b) = make_validated_clone(&url, &admin, &template).await;
+        sqlx::query(&format!(r#"DROP SEQUENCE "{clone_b}".unify_short_a_id_seq CASCADE"#))
+            .execute(&pool_b)
+            .await
+            .expect("drop sequence");
+        let error = validate_clone(&pool_b, &clone_b, &template)
+            .await
+            .expect_err("validate_clone must reject a clone missing a baseline sequence");
+        assert!(error.contains("sequences 0/1"), "the error must report both sequence counts, got: {error}");
+
+        for (pool, clone) in [(&pool_a, &clone_a), (&pool_b, &clone_b)] {
+            let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{clone}" CASCADE"#)).execute(pool).await;
+        }
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{template}" CASCADE"#)).execute(&admin).await;
+    }
+
+    /// A hung advisory-lock holder must not stall every later test process.
+    ///
+    /// `pg_advisory_lock` waits forever and the pool's `acquire_timeout` only
+    /// bounds *acquiring a connection*, not a lock wait on one already held, so
+    /// the try-lock polling in `acquire_template_lock` is the only bound. This
+    /// test holds the lock on a separate session and asserts the wait gives up
+    /// promptly with an error naming the key, and that the timed-out
+    /// acquisition did not build the template.
+    #[tokio::test]
+    async fn template_lock_wait_is_bounded_and_reports_the_key() {
+        let Some(url) = test_database_url() else {
+            return;
+        };
+        let holder = PgPoolOptions::new().max_connections(1).connect(&url).await.expect("holder pool");
+        // Other DB tests in the same process build their templates under the
+        // same session-scoped lock, so a single try can lose the race. Retry
+        // with a generous deadline (holders release in milliseconds-to-seconds)
+        // instead of asserting on the first attempt.
+        let acquire_deadline = std::time::Instant::now() + Duration::from_secs(30);
+        let held = loop {
+            let got: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
+                .bind(TEMPLATE_ADVISORY_LOCK_KEY)
+                .fetch_one(&holder)
+                .await
+                .expect("take the advisory lock for the test");
+            if got {
+                break true;
+            }
+            if std::time::Instant::now() >= acquire_deadline {
+                break false;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+        assert!(held, "the probe must eventually be able to take the template advisory lock");
+
+        let probe_baseline = "CREATE TABLE IF NOT EXISTS unify_lock_probe (id bigint PRIMARY KEY);";
+        let started = std::time::Instant::now();
+        let result = ensure_template_schema_with_lock_timeout(&url, probe_baseline, Duration::from_millis(150)).await;
+        let elapsed = started.elapsed();
+
+        let unlocked: bool = sqlx::query_scalar("SELECT pg_advisory_unlock($1)")
+            .bind(TEMPLATE_ADVISORY_LOCK_KEY)
+            .fetch_one(&holder)
+            .await
+            .expect("release the advisory lock");
+        assert!(unlocked, "the probe must still own the lock it took");
+
+        let error = result.expect_err("a held template lock must not block forever");
+        assert!(error.contains("timed out"), "the timeout error must say so, got: {error}");
+        assert!(
+            error.contains("0x53594e4150535445"),
+            "the timeout error must name the advisory-lock key, got: {error}"
+        );
+        assert!(elapsed < Duration::from_secs(10), "the wait must be bounded by the injected 150ms, took {elapsed:?}");
+
+        let probe_template = template_schema_name(probe_baseline);
+        let built: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = $1)")
+            .bind(&probe_template)
+            .fetch_one(&holder)
+            .await
+            .expect("probe template lookup");
+        assert!(!built, "a timed-out acquisition must not build the template");
     }
 }

@@ -11,11 +11,18 @@
 # DROP SCHEMA ... CASCADE 已接近 max_locks_per_transaction=64 上限，
 # 批量会报 "out of shared memory"。
 #
-# ── 清理范围（4 个家族，全部保留 live 模板）─────────────────────────────────
-#   test_*                 —— 隔离/克隆 schema
-#   media_test_*           —— synapse-services/src/media/mod.rs 自建
-#   synapse_test_*         —— 旧模板 + 就绪标记
-#   test_template_v*_<hex> —— **仅删陈旧指纹**；live 模板由标记文件决定
+# ── 清理范围（全部保留 live 模板）────────────────────────────────────────────
+#   test_*                        —— 隔离/克隆 schema
+#   media_test_*                  —— synapse-services/src/media/mod.rs 自建
+#   synapse_test_*                —— 旧模板 + 就绪标记
+#   test_template_v<N>_<hex>      —— 旧指纹模板：**仅删陈旧指纹**
+#   test_isolation_template_<hex> —— 现共享模板家族
+#                                    （synapse-common/src/test_isolation.rs）
+#
+# 两个模板家族都只删「不在 keep 集合里」的成员，live 模板由标记文件决定。
+# 漏掉 `test_isolation_template_*` 会在 --apply 下删掉 LIVE 共享模板：克隆的
+# 列默认值引用模板的序列（`LIKE ... INCLUDING ALL` 复制的是 DEFAULT 表达式），
+# 模板被 CASCADE 删除会把所有并发克隆的默认值一起级联掉。
 #
 # 旧版本只处理 `test_%` 且**无条件保留所有 `test_template%`**，因此另外 3 个
 # 家族永远清不掉；同时它的默认连接指向 localhost:15432/synapse_test（Docker
@@ -26,6 +33,7 @@
 #   bash scripts/cleanup_test_schemas.sh --apply         # 实际执行
 #   DATABASE_URL=postgres://... bash scripts/cleanup_test_schemas.sh --apply
 #   bash scripts/cleanup_test_schemas.sh --keep-template test_template_v2_abc...
+#   bash scripts/cleanup_test_schemas.sh --keep-template test_isolation_template_abc123...
 #   bash scripts/cleanup_test_schemas.sh --keep-all-templates --apply
 #
 # 连接优先级：DATABASE_URL > TEST_DATABASE_URL > PG* 环境变量 > 默认值。
@@ -116,11 +124,17 @@ if [ "$KEEP_ALL_TEMPLATES" -eq 0 ]; then
     [ -n "$KEEP_SQL" ] || KEEP_SQL="''"
 fi
 
-# 模板家族仅匹配指纹形态，避免误伤任意命名的模板；--keep-all-templates 时整体排除。
+# 模板家族仅匹配指纹形态，避免误伤任意命名的模板：
+#   test_template_v<N>_<hex>        —— 旧 storage 家族
+#   test_isolation_template_<hex>   —— 现 shared 模块家族
+# 保留条件是「命中模板家族 **且** 在 keep 集合内」，所以丢弃（候选）条件是
+#   (!旧家族 AND !新家族) OR 不在 keep 集合
+# 非模板名（clone、media_test_* 等）始终是候选。注意 keep 集合必须配合
+# `NOT IN` 使用：写成 `OR nspname IN (keep)` 会反过来把 live 模板当候选删掉。
 if [ "$KEEP_ALL_TEMPLATES" -eq 1 ]; then
-    TEMPLATE_PREDICATE="nspname NOT LIKE 'test\_template\_%'"
+    TEMPLATE_PREDICATE="(nspname !~ '^test_template_v[0-9]+_[0-9a-f]{16}\$' AND nspname !~ '^test_isolation_template_[0-9a-f]{16}\$')"
 else
-    TEMPLATE_PREDICATE="(nspname !~ '^test_template_v[0-9]+_[0-9a-f]{16}\$' OR nspname IN ($KEEP_SQL))"
+    TEMPLATE_PREDICATE="((nspname !~ '^test_template_v[0-9]+_[0-9a-f]{16}\$' AND nspname !~ '^test_isolation_template_[0-9a-f]{16}\$') OR nspname NOT IN ($KEEP_SQL))"
 fi
 
 CANDIDATE_SQL="

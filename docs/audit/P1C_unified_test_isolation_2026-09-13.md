@@ -58,7 +58,7 @@ configuration wiped `public` (253 → 3 tables, `schema_migrations` 37 → 0) an
 | Build-once serialization | `ensure_template_schema()` takes a session-scoped `pg_advisory_lock` (key `0x5359_4E41_5053_5445`), released on success and on failure |
 | Readiness marker | `_synapse_test_template_ready`, written into the template only after all baseline statements succeed; a half-built template (timeout/SIGKILL) is detected as incomplete and rebuilt |
 | Clone | `clone_schema_from_template(pool, schema, template)` runs one `DO $do$` round trip (see below) |
-| Validation | `validate_clone()` compares clone vs template on tables, foreign keys, functions, views, matviews and triggers, and errors with **both** counts |
+| Validation | `validate_clone()` compares clone vs template on tables, foreign keys, functions, views, matviews, triggers and sequences, and errors with **both** counts |
 
 Content fingerprint details that are load-bearing: the fingerprint covers the *exact bytes* of
 the concatenated baseline, so concat order and any separator change the template identity. A
@@ -66,17 +66,30 @@ separator yields `a05fa4488475fe1d`; reversed order yields `4137af770181767b` (r
 cross-task constraint in the SDD ledger). Both would silently mint a second template rather
 than reuse the intended one.
 
-The clone is a single `DO $do$` block with three steps:
+The clone is a single `DO $do$` block with four steps:
 
 - **Phase 1** — per baseline table: `CREATE TABLE <clone>.<t> (LIKE <template>.<t> INCLUDING ALL)`
   (columns, defaults, identity, indexes, PK/UNIQUE/CHECK).
 - **Phase 1b** — per baseline table: `INSERT INTO <clone>.<t> SELECT * FROM <template>.<t>`
   (see §4). Positional `SELECT *` is sound because `LIKE` preserves column order.
+- **Phase 1c** (added by the 2026-09-13 fix wave, §10) — create a clone-owned copy of every
+  template sequence and rebind each serial column's default to it, then advance each clone
+  sequence past the rows phase 1b copied. `LIKE ... INCLUDING ALL` copies a serial column's
+  DEFAULT **expression** — which still names the **template's** sequence — and creates no
+  sequence in the clone, so before this step every clone owned zero sequences and drew ids from
+  one shared template sequence. That is an isolation regression, not just a latent hazard: the
+  baseline seeds rows with explicit ids, so the template sequence can sit at its start
+  (`last_value = 1, is_called = false`) and an `INSERT` that omits `id` on the clone fails with
+  `duplicate key value violates unique constraint`.
 - **Phase 2** — switch `search_path` to the clone (preserving the caller's tail) and replay
-  **functions, views/materialized views, foreign keys and triggers**. PL/pgSQL bodies are not
-  schema-bound, so replaying them with the template on `search_path` would bind unqualified
-  names to the template's tables; view and trigger definitions are stripped of the template
-  qualifier and triggers are re-pointed with
+  **functions, views/materialized views, foreign keys and triggers**. The switch is needed
+  because views, materialized views and FK constraint definitions are **parsed and OID-bound at
+  creation time**: their definitions are replayed with the template qualifier stripped, so
+  `search_path` must already name the clone or the unqualified references bind to the template
+  (or, where the template lacks them, to `public`). PL/pgSQL bodies are the opposite case — they
+  resolve unqualified names at **execution** time through the calling session's `search_path`,
+  which every caller sets to `<clone>, public` — so they read and write the clone's tables
+  without any creation-time binding. Trigger definitions are made unambiguous by rewriting
   `EXECUTE FUNCTION <template>.` → `EXECUTE FUNCTION <clone>.`.
 
 The template's readiness marker is excluded from both the clone and the validator's table
@@ -155,6 +168,12 @@ its own curated seed allowlist; that is deliberately out of scope.
 ---
 
 ## 5. Full-gate runs
+
+**The headline numbers below (`6162 run / 6161 passed / 1 failed`) are for the gate command
+*with* the `-E 'not test(/^media::tests::/)'` exclusion selector — see the command block.** The
+three `media::tests` failures are excluded by construction, not fixed; without the selector the
+run reports 3 more failures (the last row of §6). The number is stated here, at the headline, so
+it is not read as an unfiltered full-workspace figure.
 
 Exact command, run twice:
 
@@ -236,14 +255,21 @@ cargo nextest run --workspace --lib --all-features --locked --test-threads 4 \
 # Final checks
 cargo fmt --all
 ./scripts/check_fmt_ratchet.sh 2>&1 | tail -2
-cargo clippy --workspace --all-targets --all-features --locked 2>&1 | grep -cE "^error"
+# The real lint gate: `-D warnings` is what makes a warning fail. Without it,
+# `grep -cE "^error"` counts nothing that clippy reports as a warning, so the
+# check cannot fail and is vacuous.
+cargo clippy --workspace --all-features --locked -- -D warnings 2>&1 | tail -3
 git status --porcelain
 git log --oneline de3df1fb..HEAD
 ```
 
 Gate results: `6161 passed / 1 failed / 13 skipped` in both runs (the one failure is the
-accepted appservice test). Final checks: `fmt debt: current=0 baseline=0` (OK),
-`clippy errors: 0`, working tree clean, history as listed in §9.
+accepted appservice test), **with the `media::tests` exclusion selector applied**. Final checks:
+`fmt debt: current=0 baseline=0` (OK), the real clippy gate
+`cargo clippy --workspace --all-features --locked -- -D warnings` exits 0 with no warnings
+(re-run and recorded by the 2026-09-13 fix wave, §10; the previous record's
+`cargo clippy … 2>&1 | grep -cE "^error"` was vacuous — it cannot fail on warnings), working
+tree clean, history as listed in §9.
 
 ---
 
@@ -266,3 +292,27 @@ f61e2ae7 feat(test-infra): add ensure_template_schema with advisory lock and rea
 7c5692e0 test(test-infra): strengthen synapse-common test_isolation coverage
 f521d021 feat(test-infra): extract baseline fingerprint + SQL splitter into synapse-common
 ```
+
+---
+
+## 10. Whole-branch review fix wave (2026-09-13)
+
+The final whole-branch review returned MERGE-WITH-FIXES: five must-fix items plus one coverage
+gap. All six were fixed after `24811da2`. The historical runs in §5 and §8 are left as recorded
+(they are what was measured); the corrections the review asked for are made inline above and
+summarised here.
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 | `scripts/cleanup_test_schemas.sh` preserved only the OLD `test_template_v*_<hex>` family, so the new `test_isolation_template_<hex>` family was a cleanup candidate and `--apply` would have dropped the live shared template. Dry runs on 2026-09-13 listed the live template in **both** listing modes (`--keep-all-templates` and `--keep-template <live>`). Because clones' column defaults referenced the template's sequences, the drop would also have cascaded those defaults away. | Both fingerprint families are now in the preserve predicate for both the `--keep-all-templates` and the marker-driven branch, and the keep set is applied as `NOT IN`. The previous `OR nspname IN ($KEEP_SQL)` was polarity-inverted: an explicitly kept template became a DROP candidate while a superseded one outside the keep set was spared. Header comment corrected; `tests/unit/cleanup_schema_script_tests.rs` grew `cleanup_script_preserves_both_live_template_families`. |
+| 2 | `CREATE TABLE … (LIKE … INCLUDING ALL)` copies a serial column's DEFAULT **expression**, so every clone's `BIGSERIAL` drew from the TEMPLATE's sequence and owned **zero** sequences of its own — a regression against the pre-unification fixture, which gave each schema fresh sequences. | `clone_statement` phase 1c (above): create a clone-owned copy of every template sequence, rebind each serial default to it, and advance each clone sequence past the rows phase 1b copied. The sequence is derived from `pg_attrdef` → the `pg_depend` edge to a `relkind = 'S'` relation, never by slicing the expression text. `validate_clone` now compares sequence counts too. Measured on the live template: the clone owns **202/202** sequences and `server_retention_policy.id` defaults to `nextval('<clone>.server_retention_policy_id_seq'::regclass)`; an `INSERT` omitting `id` returns the next id. |
+| 3 | `pg_advisory_lock` waited forever; the pool `acquire_timeout` does not cover a lock wait on an already-acquired connection, so a hung holder stalled every later process. | `acquire_template_lock` polls `pg_try_advisory_lock` against a 120 s deadline (100 ms interval) and returns a descriptive `Err` naming the key and the elapsed wait. No `SET lock_timeout`/`statement_timeout` is used, so the connection's settings cannot leak into the baseline DDL that follows. `template_lock_wait_is_bounded_and_reports_the_key` covers it. |
+| 4 | The module claimed the baseline is passed in because migrations are "not reachable from this crate via `include_str!` relative paths". That is false: `synapse-common/src/` sits at the same depth as `synapse-storage/src/` and `synapse-services/src/`, both of which use `include_str!("../../migrations/…")`. | Both doc comments now state the real reason: a deliberate branch constraint that `synapse-common` must not embed migration files. |
+| 5 | §8 recorded a vacuous clippy check (`cargo clippy … 2>&1 \| grep -cE "^error"`, which cannot fail on warnings); §5's headline gate number silently depended on `-E 'not test(/^media::tests::/)'`; and §2 attributed the phase-2 `search_path` requirement to PL/pgSQL creation-time binding (PL/pgSQL resolves names at **execution** time). | §8 now records `cargo clippy --workspace --all-features --locked -- -D warnings` (re-run for this wave: exit 0, no warnings; 44.60 s cold, 0.90 s on the final cached run). §5 states the selector at the headline. §2 attributes creation-time binding to views/matviews/FKs and execution-time resolution to PL/pgSQL (the caller's session path starts with the clone). |
+| gap | `validate_clone`'s count comparison had **zero** coverage: disabling it left all 13 `test_isolation` tests passing. | Added `validate_clone_rejects_an_incomplete_clone`, which makes the clone deliberately short (one table, then one sequence). With the comparison disabled the new test is the only failure (RED, 15 passed / 1 failed); restored it passes (GREEN, 16 passed / 0 failed). |
+
+`validate_clone` now counts sequences as well, so the phase-1c regression cannot silently
+return. The plan's risk table
+(`docs/superpowers/plans/2026-09-13-unify-test-isolation.md`) claimed
+`cleanup_test_schemas.sh` already handled the `test_isolation_template_*` family — that claim
+was false and is corrected there.
