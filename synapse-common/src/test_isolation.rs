@@ -336,13 +336,24 @@ async fn build_template(conn: &mut sqlx::PgConnection, template: &str, baseline_
 
 /// Build the single-round-trip clone statement for `schema` from `template`.
 ///
-/// Two phases, deliberately:
+/// Three steps, deliberately:
 ///
 /// * Phase 1 (`search_path` unchanged): `CREATE TABLE ... (LIKE ... INCLUDING
 ///   ALL)`. This carries columns, defaults, generated expressions, identity,
 ///   indexes and PRIMARY KEY / UNIQUE / CHECK constraints. It does **not**
 ///   carry FOREIGN KEYs (measured: 0/127 survived the copy), so those are
-///   replayed explicitly in phase 2.
+///   replayed explicitly in phase 2. It does **not** carry row data either, so
+///   phase 1b copies the rows.
+///
+/// * Phase 1b (`search_path` unchanged, fully-qualified): `INSERT INTO
+///   <clone>.<t> SELECT * FROM <template>.<t>` for every baseline table.
+///   `LIKE` copies structure only, which silently dropped the v11 baseline's
+///   singleton seeds (`sync_stream_id`, `server_retention_policy`,
+///   `server_media_quota`) from every clone. This runs after phase 1 (the
+///   tables must exist) and before the materialized views of phase 2, because
+///   a matview is populated at creation time and would otherwise be stale at 0
+///   rows. It also runs before the FOREIGN KEYs are replayed, so the arbitrary
+///   `ORDER BY tablename` copy order cannot trip a not-yet-satisfied FK.
 ///
 /// * Phase 2 (`search_path` = clone, then the caller's remaining entries):
 ///   replay functions, views, materialized views, foreign keys and triggers,
@@ -386,6 +397,31 @@ fn clone_statement(schema: &str, template: &str) -> String {
             LOOP
                 EXECUTE format(
                     'CREATE TABLE %I.%I (LIKE %I.%I INCLUDING ALL)',
+                    '{schema}', r.tablename, '{template}', r.tablename
+                );
+            END LOOP;
+
+            -- Phase 1b: copy the template's row data. `LIKE ... INCLUDING ALL`
+            -- copies structure only, so the singleton rows the v11 baseline
+            -- seeds (`sync_stream_id`, `server_retention_policy`,
+            -- `server_media_quota`) were silently missing from every clone even
+            -- though the previous statement-by-statement fixture had them.
+            -- Positional `SELECT *` matches because `LIKE` preserves column
+            -- order. The copy runs HERE, before the materialized views in phase
+            -- 2: a matview is populated at creation time, so creating it over an
+            -- empty table and filling the base table afterwards would leave it
+            -- permanently stale at 0 rows. It also runs before the foreign keys
+            -- are replayed, so the arbitrary `ORDER BY tablename` order cannot
+            -- trip a not-yet-satisfied FK. The readiness marker is excluded for
+            -- the same reason as phase 1 (and it must be, or the `INSERT` would
+            -- fail with `42P01`: the clone has no such table).
+            FOR r IN
+                SELECT tablename FROM pg_tables
+                WHERE schemaname = '{template}' AND tablename <> '{TEMPLATE_READY_TABLE}'
+                ORDER BY tablename
+            LOOP
+                EXECUTE format(
+                    'INSERT INTO %I.%I SELECT * FROM %I.%I',
                     '{schema}', r.tablename, '{template}', r.tablename
                 );
             END LOOP;
@@ -1127,6 +1163,67 @@ CREATE TRIGGER unify_trg AFTER INSERT ON unify_trg_tbl FOR EACH ROW EXECUTE FUNC
         for schema in [&clone, &extra] {
             let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#)).execute(&admin).await;
         }
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{template}" CASCADE"#)).execute(&admin).await;
+    }
+
+    /// The clone must carry the template's **rows**, not only its structure.
+    ///
+    /// `CREATE TABLE ... (LIKE ... INCLUDING ALL)` copies structure only, so
+    /// every clone silently lost the singleton rows the v11 baseline seeds
+    /// (`sync_stream_id`, `server_retention_policy`, `server_media_quota`),
+    /// while the previous statement-by-statement fixture had them. The
+    /// materialized view is asserted too because it is populated at creation
+    /// time: creating it over an empty table and filling the base table
+    /// afterwards would leave it permanently stale at 0 rows.
+    #[tokio::test]
+    async fn clone_copies_seeded_rows() {
+        let Some(url) = test_database_url() else {
+            return;
+        };
+        let baseline = r#"
+CREATE TABLE IF NOT EXISTS unify_seeded (id bigint PRIMARY KEY, note text NOT NULL);
+INSERT INTO unify_seeded (id, note) VALUES (1, 'seeded'), (2, 'also-seeded') ON CONFLICT DO NOTHING;
+CREATE MATERIALIZED VIEW unify_seeded_mv AS SELECT id FROM unify_seeded;
+"#;
+        let template = ensure_template_schema(&url, baseline).await.expect("template");
+
+        // The template itself must carry the seed rows; otherwise the clone
+        // assertion below would be comparing against a bad fixture.
+        let admin = PgPoolOptions::new().max_connections(1).connect(&url).await.expect("admin pool");
+        let template_rows: i64 = sqlx::query_scalar(&format!(r#"SELECT count(*) FROM "{template}".unify_seeded"#))
+            .fetch_one(&admin)
+            .await
+            .expect("template row count");
+        assert_eq!(template_rows, 2, "the template must hold the baseline's seeded rows");
+
+        let clone = format!("unify_seed_clone_{}", uuid::Uuid::new_v4().as_simple());
+        let pool = PgPoolOptions::new().max_connections(1).connect(&url).await.expect("pool");
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{clone}" CASCADE"#)).execute(&admin).await;
+        sqlx::query(&format!(r#"CREATE SCHEMA "{clone}""#)).execute(&pool).await.expect("create clone schema");
+        sqlx::query(&format!(r#"SET search_path TO "{clone}", public"#)).execute(&pool).await.expect("set path");
+
+        clone_schema_from_template(&pool, &clone, &template).await.expect("clone");
+
+        // Content, not just cardinality: an off-by-one positional copy could
+        // still produce two rows with the wrong values.
+        let rows: Vec<(i64, String)> =
+            sqlx::query_as(&format!(r#"SELECT id, note FROM "{clone}".unify_seeded ORDER BY id"#))
+                .fetch_all(&pool)
+                .await
+                .expect("clone rows");
+        assert_eq!(
+            rows,
+            vec![(1, "seeded".to_string()), (2, "also-seeded".to_string())],
+            "the clone must carry the template's seeded row data, not just its structure"
+        );
+
+        let matview_rows: i64 = sqlx::query_scalar(&format!(r#"SELECT count(*) FROM "{clone}".unify_seeded_mv"#))
+            .fetch_one(&pool)
+            .await
+            .expect("matview row count");
+        assert_eq!(matview_rows, 2, "a matview populated at clone time must see the copied rows");
+
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{clone}" CASCADE"#)).execute(&admin).await;
         let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{template}" CASCADE"#)).execute(&admin).await;
     }
 }

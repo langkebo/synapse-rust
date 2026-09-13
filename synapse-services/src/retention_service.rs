@@ -860,21 +860,11 @@ mod db_tests {
     /// instead. `#[serial_test::serial]` does not help here — it is a
     /// process-local lock and nextest runs every test in its own process.
     ///
-    /// The clone copies table *structure* (`CREATE TABLE ... (LIKE ... INCLUDING ALL)`),
-    /// not rows, so the singleton `server_retention_policy` row that the v11
-    /// baseline seeds has to be recreated here.
+    /// The clone carries the baseline's seeded `server_retention_policy` row
+    /// (`id = 1, max_lifetime NULL`) since `clone_schema_from_template` copies
+    /// row data as well as structure, so no per-test seeding is needed here.
     async fn test_pool() -> Arc<PgPool> {
-        let pool = crate::test_utils::prepare_isolated_test_pool().await.expect("Failed to prepare isolated test pool");
-        sqlx::query(
-            "INSERT INTO server_retention_policy
-                 (id, max_lifetime, min_lifetime, is_expire_on_clients, created_ts, updated_ts)
-             VALUES (1, NULL, 0, FALSE, 0, 0)
-             ON CONFLICT (id) DO NOTHING",
-        )
-        .execute(&*pool)
-        .await
-        .expect("failed to seed server_retention_policy in the isolated schema");
-        pool
+        crate::test_utils::prepare_isolated_test_pool().await.expect("Failed to prepare isolated test pool")
     }
 
     async fn pool_schema_name(pool: &Arc<PgPool>) -> String {
