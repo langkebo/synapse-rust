@@ -83,6 +83,17 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
    消除共享"（如 per-test schema 隔离），而不是加锁/串行化/重试去绕过。
    **反例（已修正）**：retention 测试曾用 `max-threads=1` 串行分组绕过全局
    单例行的跨进程 race；正确修法是让每个测试用独立 schema，race 随之消失。
+8. **门禁必须自证能变红。** 任何"检查类"门禁（fmt/clippy/覆盖率/自定义守卫）
+   在新增或修改后，必须用**故意制造的违规**证明它真的会失败。报"通过"的门禁
+   未必在工作。
+   **反例（已修正）**：`scripts/check_fmt_ratchet.sh` 曾用
+   `cargo fmt --all -- --check | grep -c '^Diff in'` 计数，但 `cargo fmt`
+   检测到差异时**只返回非零退出码、不打印 `Diff in` 块**（那是独立 `rustfmt`
+   的输出格式），因此计数恒为 0 —— 对 56 个未格式化文件连续 21 个 CI 运行都报
+   "fmt debt: current=0 / OK"。改为 `rustfmt --check` 逐文件计数后，插入一个
+   未格式化探针文件即可让它变红。
+   **推论**：看到"长期 0 违规 / 长期全绿"的门禁，优先怀疑它没在工作，而不是
+   相信代码很干净。
 
 ## High-level architecture
 
