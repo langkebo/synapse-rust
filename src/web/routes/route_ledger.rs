@@ -50,6 +50,28 @@ use axum::http::Method;
 use std::collections::HashMap;
 use std::fmt;
 
+/// 路由生命周期状态
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RouteStatus {
+    /// 当前活跃的生产契约
+    Stable,
+    /// 已弃用但仍可用
+    Deprecated {
+        /// 推荐的替代路径
+        replacement: &'static str,
+        /// 计划的弃用时间（ISO 8601 或 "2026-Q4"）
+        sunset_at: Option<&'static str>,
+    },
+    /// 已移除，仅留文档
+    Removed,
+}
+
+impl Default for RouteStatus {
+    fn default() -> Self {
+        RouteStatus::Stable
+    }
+}
+
 /// A single `(method, path)` tuple that some router promises to register.
 ///
 /// `path` is the *absolute* HTTP path as it is reachable from the outside
@@ -64,6 +86,11 @@ pub struct RouteEntry {
     pub method: Method,
     /// The `path` field.
     pub path: &'static str,
+    /// 功能模块：rooms, search, friends, push, rendezvous 等
+    /// 用于 SDK 按功能聚合，形成模块化的 route-table
+    pub module: &'static str,
+    /// 人类可读的状态等级
+    pub status: RouteStatus,
     /// Human-readable name of the router module that registers this entry —
     /// e.g. `"key_backup"`. Surfaced in duplicate diagnostics so the offending
     /// source files are immediately obvious.
@@ -81,8 +108,36 @@ pub struct RouteEntry {
 
 impl RouteEntry {
     /// See [`new`].
+    ///
+    /// `module` defaults to `registered_by` — most router manifests are 1:1
+    /// with a functional module, so this is a sound default. Callers whose
+    /// routes span a different functional domain (e.g. `vendor_route_manifest`
+    /// registering room/search routes) should override via [`with_module`].
     pub const fn new(method: Method, path: &'static str, registered_by: &'static str) -> Self {
-        Self { method, path, registered_by, query_params: &[], auth: None, rate_limit_exempt: false }
+        Self {
+            method,
+            path,
+            module: registered_by,
+            status: RouteStatus::Stable,
+            registered_by,
+            query_params: &[],
+            auth: None,
+            rate_limit_exempt: false,
+        }
+    }
+
+    /// Override the functional module this route belongs to, independent of
+    /// the registering code path. Used by SDK codegen to group routes by
+    /// feature domain rather than by source file.
+    pub const fn with_module(mut self, module: &'static str) -> Self {
+        self.module = module;
+        self
+    }
+
+    /// Mark this route as deprecated, pointing at its replacement.
+    pub const fn with_status(mut self, status: RouteStatus) -> Self {
+        self.status = status;
+        self
     }
 
     /// See [`with_auth`].

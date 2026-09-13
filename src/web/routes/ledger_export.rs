@@ -19,7 +19,7 @@ use super::{declared_route_manifest_for_profile, ProfileFlags};
 
 /// Frozen JSON schema version. Breaking existing keys bumps MAJOR;
 /// additive optional fields bump MINOR.
-pub const SCHEMA_VERSION: &str = "1";
+pub const SCHEMA_VERSION: &str = "2";
 
 /// Top-level artefact shape. Serialised key order matches declaration
 /// order here; `serde_json`'s `PrettyFormatter` respects that.
@@ -59,23 +59,45 @@ impl From<&ProfileFlags> for ProfileFlagsJson {
     }
 }
 
-/// The `LedgerEntryJson` struct.
+/// The `LedgerEntryJson` struct (schema v2).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LedgerEntryJson {
-    /// The `method` field.
+    /// HTTP method (e.g. "GET", "POST").
     pub method: String,
-    /// The `path` field.
+    /// Absolute HTTP path (e.g. "/_matrix/client/v3/rooms/{room_id}/keys").
     pub path: String,
-    /// The `registered_by` field.
+    /// Name of the router module that registers this route.
     pub registered_by: String,
-    /// The `path_params` field.
+    /// Extracted `{name}` captures from the path, in declaration order.
     pub path_params: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    /// The `query_params` field.
+    /// Optional query parameters recognized by this endpoint.
+    #[serde(default)]
     pub query_params: Vec<String>,
+    /// Optional auth requirement: "user", "admin", "optional", "federation", or "none".
     #[serde(skip_serializing_if = "Option::is_none")]
-    /// The `auth` field.
     pub auth: Option<String>,
+    // ---------- 新增字段（B-1 / B-5）----------
+    /// Functional module name (rooms, search, friends, push, rendezvous...).
+    /// Defaults to `registered_by`; SDK codegen groups routes by this field.
+    /// Omitted when equal to `registered_by` to keep JSON compact.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub module: Option<String>,
+    /// Lifecycle status. `Stable` → omitted; `Deprecated` / `Removed` → serialized.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<LedgerEntryStatusJson>,
+}
+
+/// Serialized form of [`super::route_ledger::RouteStatus`].
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LedgerEntryStatusJson {
+    /// `"deprecated"` or `"removed"`.
+    pub state: String,
+    /// Recommended replacement absolute path (only for `deprecated`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replacement: Option<String>,
+    /// Planned sunset time, ISO 8601 or quarter string (optional).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sunset_at: Option<String>,
 }
 
 /// Named profile presets recognised by the exporter. Centralised here
@@ -122,16 +144,46 @@ pub fn build_artifact(
     synapse_rust_commit: Option<String>,
     generated_at: String,
 ) -> LedgerArtifact {
+    use super::route_ledger::RouteStatus;
+
     let ledger = declared_route_manifest_for_profile(flags);
     let mut entries: Vec<LedgerEntryJson> = ledger
         .iter()
-        .map(|e| LedgerEntryJson {
-            method: e.method.as_str().to_string(),
-            path: e.path.to_string(),
-            registered_by: e.registered_by.to_string(),
-            path_params: extract_path_params(e.path),
-            query_params: e.query_params.iter().map(|s| s.to_string()).collect(),
-            auth: e.auth.map(|s| s.to_string()),
+        .map(|e| {
+            // module: 默认等于 registered_by；只在与 registered_by 不同时才填充
+            let module_opt = if e.module == e.registered_by {
+                None
+            } else {
+                Some(e.module.to_string())
+            };
+
+            // status: Stable → None; Deprecated → LedgerEntryStatusJson
+            let status_opt = match e.status {
+                RouteStatus::Stable => None,
+                RouteStatus::Deprecated { replacement, sunset_at } => {
+                    Some(LedgerEntryStatusJson {
+                        state: "deprecated".to_string(),
+                        replacement: Some(replacement.to_string()),
+                        sunset_at: sunset_at.map(String::from),
+                    })
+                }
+                RouteStatus::Removed => Some(LedgerEntryStatusJson {
+                    state: "removed".to_string(),
+                    replacement: None,
+                    sunset_at: None,
+                }),
+            };
+
+            LedgerEntryJson {
+                method: e.method.as_str().to_string(),
+                path: e.path.to_string(),
+                registered_by: e.registered_by.to_string(),
+                path_params: extract_path_params(e.path),
+                query_params: e.query_params.iter().map(|s| s.to_string()).collect(),
+                auth: e.auth.map(|s| s.to_string()),
+                module: module_opt,
+                status: status_opt,
+            }
         })
         .collect();
     entries.sort_by(|a, b| {

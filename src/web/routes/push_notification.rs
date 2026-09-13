@@ -353,21 +353,47 @@ pub fn create_push_notification_router(state: AppState) -> axum::Router<AppState
 }
 
 /// See [`push_notification_route_manifest`].
+///
+/// B-2 remediation: the 7 legacy `/_matrix/client/r0/push/*` entries overlap
+/// with the spec-compliant `pushers`/`pushrules` routes registered by
+/// [`crate::web::routes::push`] and have **zero call sites** in the SDK
+/// (`src/push` uses `/pushers` + `/pushrules`; `src/notifications` uses
+/// `/notifications` only). They are kept alive for backward compatibility but
+/// are now marked [`RouteStatus::Deprecated`] pointing at their replacement,
+/// so downstream codegen (and the future `ledger-deprecated` CI gate) can see
+/// the migration target. The 2 `/_synapse/admin/*` routes remain `Stable`.
 pub fn push_notification_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
+    use crate::web::routes::route_ledger::{RouteEntry, RouteStatus};
     use axum::http::Method;
-    [
-        (Method::GET, "/_matrix/client/r0/push/devices"),
-        (Method::POST, "/_matrix/client/r0/push/devices"),
-        (Method::DELETE, "/_matrix/client/r0/push/devices/{device_id}"),
-        (Method::POST, "/_matrix/client/r0/push/send"),
-        (Method::GET, "/_matrix/client/r0/push/rules"),
-        (Method::POST, "/_matrix/client/r0/push/rules"),
-        (Method::DELETE, "/_matrix/client/r0/push/rules/{scope}/{kind}/{rule_id}"),
+
+    // Legacy push 路由 (r0/push/*) → spec replacement (pushers / pushrules)
+    const DEVICES: &str = "/_matrix/client/v3/pushers";
+    const RULES: &str = "/_matrix/client/v3/pushrules";
+
+    let legacy = [
+        (Method::GET, "/_matrix/client/r0/push/devices", DEVICES),
+        (Method::POST, "/_matrix/client/r0/push/devices", DEVICES),
+        (Method::DELETE, "/_matrix/client/r0/push/devices/{device_id}", DEVICES),
+        (Method::POST, "/_matrix/client/r0/push/send", RULES),
+        (Method::GET, "/_matrix/client/r0/push/rules", RULES),
+        (Method::POST, "/_matrix/client/r0/push/rules", RULES),
+        (Method::DELETE, "/_matrix/client/r0/push/rules/{scope}/{kind}/{rule_id}", RULES),
+    ]
+    .into_iter()
+    .map(|(m, p, replacement)| {
+        RouteEntry::new(m, p, "push_notification")
+            .with_status(RouteStatus::Deprecated { replacement, sunset_at: None })
+    })
+    .collect::<Vec<_>>();
+
+    // Admin 路由：稳定，供内部管理使用，无 spec 替代。
+    let admin = [
         (Method::POST, "/_synapse/admin/v1/push/process"),
         (Method::POST, "/_synapse/admin/v1/push/cleanup"),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "push_notification"))
-    .collect()
+    .collect::<Vec<_>>();
+
+    [legacy, admin].into_iter().flatten().collect()
 }

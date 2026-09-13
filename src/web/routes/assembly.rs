@@ -298,13 +298,16 @@ fn assembly_compat_manifest() -> Vec<RouteEntry> {
 /// client-server API namespace. The legacy `/_matrix/client/v3/{path}`
 /// routes are kept for backward compatibility (see the deprecation warning
 /// in [`create_router`]) but new clients should use the vendor prefix.
+///
+/// B-1 remediation: Each route 显式设置 `module` 为其功能域（rooms/search），
+/// 这样 SDK codegen 按功能聚合时不会把它们误归到 vendor 模块。
 fn vendor_route_manifest() -> Vec<RouteEntry> {
-    use crate::web::routes::route_ledger::expand_under_prefixes;
-    expand_under_prefixes(
-        "vendor",
-        &["/_matrix/vendor/v1"],
-        &[(Method::GET, "/my_rooms"), (Method::POST, "/search_rooms"), (Method::POST, "/search_recipients")],
-    )
+    let by = "vendor"; // registration source
+    vec![
+        RouteEntry::new(Method::GET,  "/_matrix/vendor/v1/my_rooms", by).with_module("rooms"),
+        RouteEntry::new(Method::POST, "/_matrix/vendor/v1/search_rooms", by).with_module("search"),
+        RouteEntry::new(Method::POST, "/_matrix/vendor/v1/search_recipients", by).with_module("search"),
+    ]
 }
 
 // Handlers extracted to dedicated modules:
