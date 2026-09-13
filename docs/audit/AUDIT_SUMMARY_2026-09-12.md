@@ -1,8 +1,8 @@
 # synapse-rust /docs/audit 文档审查 & 代码真实未解决风险汇总
 **生成时间**: 2026-09-12 21:56 GMT+8
-**HEAD**: 438c724a（Day5 收敛 23a92e38 + nextest retention 串行组 438c724a）
+**基线提交**: 23a92e38（Day5 裸 test_pool 全量收敛）+ 84b650c8（nextest retention 串行组）
 **更新时间**: 2026-09-13 15:45 GMT+8（Day5 最终修订 + 提交完成）
-**提交链**: 970a5830（MSC3083 单测）→ cf441304（sdk 审计入册）→ 65f70e33（room_versions 降级）→ 59a11aaa（test_utils root 收敛）→ 8ab091cd（MSC join_rules 收敛）→ 59d527f9（ledger 金样本）→ **23a92e38（Day5 裸 test_pool 全量收敛 + media 文件名修复 + clippy/fmt 全清，61 文件 +436/-636）** → **438c724a（nextest retention-server-policy 串行组）**
+**提交链**: 970a5830（MSC3083 单测）→ cf441304（sdk 审计入册）→ 65f70e33（room_versions 降级）→ 59a11aaa（test_utils root 收敛）→ 8ab091cd（MSC join_rules 收敛）→ 59d527f9（ledger 金样本）→ **23a92e38（Day5 裸 test_pool 全量收敛 + media 文件名修复 + clippy/fmt 全清，61 文件 +436/-636）** → **84b650c8（nextest retention-server-policy 串行组）**
 
 > 修订说明（18:11-21:56）：
 > - `synapse-common/src/room_versions.rs`：v12/v13 由 `stable` 降为 `stable_parse_only`；`resolve_room_version("12")`/`"13"` 返回 `None`（防止过度声明）；单元测试 + API 文档 health.rs 同步（commit 65f70e33）。
@@ -175,7 +175,7 @@ sdk-encapsulation-audit.md
    已标注为草案 API。**残留**：跨仓 pin / tarball 刷新待三仓提交后执行。
 4. **get_raw 改名关键路径**（P6，**已清零**）— storage 热路径已清；`auth/token.rs` 4 处 test 断言已全部改为 `get_raw_shared(...).await`（Day3）。Cache 读路径无残留。
 5. **CI 门禁收口决策**（P5）— 与产品确认 `--test-threads` 固定为 **4**（稳定绿，避免 PoolTimedOut）；`.github/workflows/ci.yml` 已提交 `unit` + `--workspace --lib` job 均为 `--test-threads 4`。**残留**：integration/e2e job 仍使用 6/4，后续压测可折中提升。
-6. **retention serial 测试与 nextest 并发冲突**（P5，**已解决，commit 438c724a**）— `.config/nextest.toml` 新增 `[test-groups] retention-server-policy = { max-threads = 1 }` + default profile override（filter `test(/^retention_service::db_tests::(test_effective_policy_|test_run_cleanup_requires_room_policy$)/)`），给 3 个变更全局 `server_retention_policy` 单行的用例配 nextest 跨进程互斥锁；其余测试保持全并发。保留 `#[serial_test::serial]` 使 `cargo test` 单进程路径仍正确。实测 `cargo nextest run -E 'test(retention)' -j 6` → **21/21 passed**（原 `-j=4` 下 20 passed / 1 failed）。`show-config test-groups` 确认 3 用例正确纳入组。
+6. **retention serial 测试与 nextest 并发冲突**（P5，**已解决，commit 84b650c8**）— `.config/nextest.toml` 新增 `[test-groups] retention-server-policy = { max-threads = 1 }` + default profile override（filter `test(/^retention_service::db_tests::(test_effective_policy_|test_run_cleanup_requires_room_policy$)/)`），给 3 个变更全局 `server_retention_policy` 单行的用例配 nextest 跨进程互斥锁；其余测试保持全并发。保留 `#[serial_test::serial]` 使 `cargo test` 单进程路径仍正确。实测 `cargo nextest run -E 'test(retention)' -j 6` → **21/21 passed**（原 `-j=4` 下 20 passed / 1 failed）。`show-config test-groups` 确认 3 用例正确纳入组。
 
 ### S 系列技术债（Sprint5 批次）
 - （`auth/token.rs` 4 处 `get_raw` 已于 Day3 清零）
@@ -209,4 +209,4 @@ sdk-encapsulation-audit.md
 
 ---
 
-*本汇总基于 2026-09-13 HEAD(438c724a，Day5 收敛 23a92e38 已合入) 的文件扫描与代码 grep。依据已提交的改动（v12/v13 降级、restricted join 解析、MSC3083 测试、RateLimit deny_unknown_fields、test_utils 缓存、health.rs 同步、ledger 金样本、media 文件名修复、clippy/fmt 全清、nextest retention 串行组）和 `synapse_test` 重建（schema 残留=0），确保文档与代码实况一致。工作树 CLEAN。*
+*本汇总基于 2026-09-13 HEAD(84b650c8，Day5 收敛 23a92e38 已合入) 的文件扫描与代码 grep。依据已提交的改动（v12/v13 降级、restricted join 解析、MSC3083 测试、RateLimit deny_unknown_fields、test_utils 缓存、health.rs 同步、ledger 金样本、media 文件名修复、clippy/fmt 全清、nextest retention 串行组）和 `synapse_test` 重建（schema 残留=0），确保文档与代码实况一致。工作树 CLEAN。*

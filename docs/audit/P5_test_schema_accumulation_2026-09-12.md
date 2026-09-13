@@ -718,6 +718,6 @@ P5 夹具收敛已完成并验证有效：
 **后续工作（已完成到 Day5 2026-09-13）**：
 - `test_chunked_complete...` 文件名修复已验证（13 passed）；
 - P5 夹具收敛已完成（54 处委托 + 5 处隔离保留，0 schema 泄漏，commit 23a92e38）；
-- retention serial 测试 nextest 串行分组已实施（commit 438c724a），`cargo nextest run -E 'test(retention)' -j 6` 21/21 passed；
+- retention serial 测试 nextest 串行分组已实施（commit 84b650c8），`cargo nextest run -E 'test(retention)' -j 6` 21/21 passed；
 - `nextest` 全量回归：1760 storage + 1814 services passed（1 flaky 既有），schema 残留 0。
 
