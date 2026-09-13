@@ -33,8 +33,24 @@ UPDATE=0
 
 # 统计 rustfmt 报出的差异处数。
 # `grep -c` 在无匹配时退出码为 1，`|| true` 防止误判为脚本失败。
+#
+# ⚠️ 必须用独立 `rustfmt`，不能用 `cargo fmt --check`。
+# `cargo fmt --check` 在检测到差异时**只返回非零退出码，不打印 `Diff in` 块**
+# （`Diff in` 是独立 rustfmt 的输出格式）。因此旧实现在 21 个 CI 运行里对 56 个
+# 未格式化文件一律报 0，`fmt debt: current=0 baseline=0 / OK` 是假绿。
+#
+# 实证：对同一个故意未格式化的文件
+#   cargo fmt --all -- --check   → Diff 块 0，exit 0   （完全不检测）
+#   rustfmt --check --edition 2021 <file> → Diff 块 1，exit 1
+#
+# 从仓库根目录运行，各文件会自动套用根 `rustfmt.toml`。
+# 排除 target/、vendor/ 与 .claude/worktrees（第二份工作树的副本不该计入）。
 count_fmt_diffs() {
-    cargo fmt --all -- --check 2>/dev/null | grep -c '^Diff in' || true
+    find src synapse-common synapse-cache synapse-storage synapse-e2ee \
+         synapse-federation synapse-services benches tests \
+         -name '*.rs' -not -path '*/target/*' -print0 2>/dev/null \
+        | xargs -0 rustfmt --check --edition 2021 2>&1 \
+        | grep -c '^Diff in' || true
 }
 
 if ((UPDATE)); then
@@ -73,7 +89,10 @@ if ((current > baseline)); then
     echo "    rustfmt --edition 2021 <file1> <file2> ...)" >&2
     echo "" >&2
     echo "  Offending locations:" >&2
-    cargo fmt --all -- --check 2>/dev/null | grep '^Diff in' >&2 || true
+    find src synapse-common synapse-cache synapse-storage synapse-e2ee \
+         synapse-federation synapse-services benches tests \
+         -name '*.rs' -not -path '*/target/*' -print0 2>/dev/null \
+        | xargs -0 rustfmt --check --edition 2021 2>&1 | grep '^Diff in' >&2 || true
     exit 1
 fi
 
