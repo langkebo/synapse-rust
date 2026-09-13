@@ -17,6 +17,12 @@
 //! caller because the migration files live at the workspace root and are not
 //! reachable from this crate via `include_str!` relative paths.
 
+use sqlx::postgres::PgPoolOptions;
+use std::time::Duration;
+
+/// Advisory-lock key guarding shared template creation.
+const TEMPLATE_ADVISORY_LOCK_KEY: i64 = 0x5359_4E41_5053_5445;
+
 /// Marker table written into the template only after a complete build.
 pub const TEMPLATE_READY_TABLE: &str = "_synapse_test_template_ready";
 
@@ -202,6 +208,132 @@ pub fn split_sql_statements(sql: &str) -> Vec<String> {
     statements
 }
 
+// ============================================================================
+// Shared baseline template
+// ============================================================================
+//
+// Before: `IsolatedTestPool::new()` split and executed the v11 baseline (253
+// CREATE TABLE + 373 CREATE INDEX + 45 ALTER TABLE + functions/views/triggers)
+// as one round trip *per statement* on every call. Measured on the instrumented
+// build (`[ISO_TIMING]`, 89-case cohort): `baseline_replay` median 4.416s, 99%
+// of fixture setup; under `--test-threads 8` this DDL storm contends and the
+// tail crosses the 30s acquire window, surfacing as `Operation timed out`.
+//
+// After: the baseline is applied exactly once per database into a *template*
+// schema, and each test clones it with a single `DO $$` round trip.
+//
+// Serialization: nextest runs one process per test, so a process-local
+// `OnceLock` cannot stop concurrent processes from racing to `CREATE SCHEMA`.
+// A session-level advisory lock serializes the build across processes. It must
+// outlive individual statements, so it is session-scoped (`pg_advisory_lock`)
+// rather than transaction-scoped.
+
+/// Ensure the shared template schema exists and is complete for `baseline_sql`.
+///
+/// Returns the template schema name (`template_schema_name(baseline_sql)`).
+/// Safe to call concurrently from many processes: the build runs under a
+/// session-scoped `pg_advisory_lock`, which is always released — including on
+/// failure — because a leaked advisory lock deadlocks every later process.
+///
+/// The baseline SQL is passed in by the caller because the migration files live
+/// at the workspace root and are not reachable from this crate via
+/// `include_str!` relative paths.
+pub async fn ensure_template_schema(db_url: &str, baseline_sql: &str) -> Result<String, String> {
+    let template = template_schema_name(baseline_sql);
+    let admin_pool = PgPoolOptions::new()
+        .max_connections(2)
+        .acquire_timeout(Duration::from_secs(60))
+        .connect(db_url)
+        .await
+        .map_err(|e| format!("failed to connect admin pool for template {template}: {e}"))?;
+
+    // The advisory lock is session-scoped, so it must be taken and released on
+    // the same connection that performs the build.
+    let mut conn = admin_pool
+        .acquire()
+        .await
+        .map_err(|e| format!("failed to acquire admin connection for template {template}: {e}"))?;
+
+    sqlx::query("SELECT pg_advisory_lock($1)")
+        .bind(TEMPLATE_ADVISORY_LOCK_KEY)
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| format!("failed to take the template advisory lock: {e}"))?;
+
+    let result = build_template(&mut conn, &template, baseline_sql).await;
+
+    // Always release, even on failure: a leaked advisory lock deadlocks every
+    // later process.
+    if let Err(error) =
+        sqlx::query("SELECT pg_advisory_unlock($1)").bind(TEMPLATE_ADVISORY_LOCK_KEY).execute(&mut *conn).await
+    {
+        tracing::error!("failed to release the template advisory lock: {error}");
+    }
+
+    result?;
+    Ok(template)
+}
+
+/// Build (or reuse) the template schema on an already-locked connection.
+///
+/// A template carrying the readiness marker is complete and returned as-is.
+/// Anything else — absent, or a previous build interrupted by timeout / SIGKILL
+/// / panic — is dropped and rebuilt from scratch. Cloning from an incomplete
+/// template would silently fall back to the shared `public` schema through
+/// `search_path`.
+async fn build_template(conn: &mut sqlx::PgConnection, template: &str, baseline_sql: &str) -> Result<(), String> {
+    let ready: bool = sqlx::query_scalar("SELECT to_regclass(format('%I.%I', $1, $2)) IS NOT NULL")
+        .bind(template)
+        .bind(TEMPLATE_READY_TABLE)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(|e| format!("failed to read the readiness marker of template {template}: {e}"))?;
+    if ready {
+        return Ok(());
+    }
+
+    // Either absent, or a previous build was interrupted (timeout / SIGKILL /
+    // panic) and left a table-less schema. Cloning from an incomplete template
+    // would silently fall back to `public` via search_path, so rebuild.
+    sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{}" CASCADE"#, template))
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| format!("failed to drop the incomplete template schema {template}: {e}"))?;
+    sqlx::query(&format!(r#"CREATE SCHEMA "{}""#, template))
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| format!("failed to create the template schema {template}: {e}"))?;
+    sqlx::query(&format!(r#"SET search_path TO "{}", public"#, template))
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| format!("failed to set search_path to the template schema {template}: {e}"))?;
+
+    // Fail loudly: a partially applied baseline leaves the template incomplete,
+    // and every clone would then silently read/write the shared `public` schema.
+    let baseline_sql = strip_copy_blocks(baseline_sql);
+    for stmt in split_sql_statements(&baseline_sql) {
+        let trimmed = stmt.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        sqlx::query(trimmed).execute(&mut *conn).await.map_err(|error| {
+            format!("template baseline statement failed: {error} | stmt head: {}", first_line(trimmed))
+        })?;
+    }
+
+    // Readiness marker: written only after every statement succeeded, so its
+    // presence is a truthful statement about completeness.
+    sqlx::query(&format!(
+        r#"CREATE TABLE "{}"."{TEMPLATE_READY_TABLE}" (built_at timestamptz NOT NULL DEFAULT now())"#,
+        template
+    ))
+    .execute(&mut *conn)
+    .await
+    .map_err(|e| format!("failed to write the readiness marker of template {template}: {e}"))?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -296,5 +428,69 @@ INSERT INTO t VALUES ('it''s;here');
         assert!(!out.contains("FROM stdin"));
         assert!(!out.contains("\n1\n"));
         assert!(out.contains("CREATE INDEX i ON t (id);"));
+    }
+
+    /// Requires TEST_DATABASE_URL. Verifies the template is built once and is
+    /// complete (object counts match a fresh clone) and that a second call is a
+    /// no-op that reuses the same template name.
+    #[tokio::test]
+    async fn template_is_built_complete_and_reused() {
+        let Ok(url) = std::env::var("TEST_DATABASE_URL") else {
+            eprintln!("skipping: TEST_DATABASE_URL not set");
+            return;
+        };
+        let baseline = "CREATE TABLE IF NOT EXISTS unify_probe (id bigint PRIMARY KEY);";
+        let t1 = ensure_template_schema(&url, baseline).await.expect("first build");
+        let t2 = ensure_template_schema(&url, baseline).await.expect("second call");
+        assert_eq!(t1, t2, "same baseline content must reuse the same template");
+
+        let admin = PgPoolOptions::new().max_connections(1).connect(&url).await.expect("admin pool");
+        let ready: bool = sqlx::query_scalar("SELECT to_regclass(format('%I.%I', $1, $2)) IS NOT NULL")
+            .bind(&t1)
+            .bind(TEMPLATE_READY_TABLE)
+            .fetch_one(&admin)
+            .await
+            .expect("readiness query");
+        assert!(ready, "template {t1} must carry the readiness marker");
+        let has_table: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = $1 AND tablename = 'unify_probe')",
+        )
+        .bind(&t1)
+        .fetch_one(&admin)
+        .await
+        .expect("table query");
+        assert!(has_table, "template must contain the baseline table");
+
+        // Cleanup so repeated runs stay deterministic.
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{}" CASCADE"#, t1)).execute(&admin).await;
+    }
+
+    /// A schema that exists but has no readiness marker must be rebuilt, not
+    /// reused: cloning from an incomplete template silently falls back to
+    /// `public` through search_path.
+    #[tokio::test]
+    async fn incomplete_template_is_rebuilt() {
+        let Ok(url) = std::env::var("TEST_DATABASE_URL") else {
+            eprintln!("skipping: TEST_DATABASE_URL not set");
+            return;
+        };
+        let baseline = "CREATE TABLE IF NOT EXISTS unify_probe2 (id bigint PRIMARY KEY);";
+        let template = template_schema_name(baseline);
+        let admin = PgPoolOptions::new().max_connections(1).connect(&url).await.expect("admin pool");
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{template}" CASCADE"#)).execute(&admin).await;
+        sqlx::query(&format!(r#"CREATE SCHEMA "{template}""#)).execute(&admin).await.expect("create bare schema");
+
+        let got = ensure_template_schema(&url, baseline).await.expect("rebuild");
+        assert_eq!(got, template);
+        let has_table: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = $1 AND tablename = 'unify_probe2')",
+        )
+        .bind(&template)
+        .fetch_one(&admin)
+        .await
+        .expect("table query");
+        assert!(has_table, "bare schema must have been rebuilt with the baseline");
+
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{template}" CASCADE"#)).execute(&admin).await;
     }
 }
