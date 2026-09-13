@@ -304,7 +304,7 @@ fn assembly_compat_manifest() -> Vec<RouteEntry> {
 fn vendor_route_manifest() -> Vec<RouteEntry> {
     let by = "vendor"; // registration source
     vec![
-        RouteEntry::new(Method::GET,  "/_matrix/vendor/v1/my_rooms", by).with_module("rooms"),
+        RouteEntry::new(Method::GET, "/_matrix/vendor/v1/my_rooms", by).with_module("rooms"),
         RouteEntry::new(Method::POST, "/_matrix/vendor/v1/search_rooms", by).with_module("search"),
         RouteEntry::new(Method::POST, "/_matrix/vendor/v1/search_recipients", by).with_module("search"),
     ]

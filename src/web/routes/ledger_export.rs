@@ -151,27 +151,19 @@ pub fn build_artifact(
         .iter()
         .map(|e| {
             // module: 默认等于 registered_by；只在与 registered_by 不同时才填充
-            let module_opt = if e.module == e.registered_by {
-                None
-            } else {
-                Some(e.module.to_string())
-            };
+            let module_opt = if e.module == e.registered_by { None } else { Some(e.module.to_string()) };
 
             // status: Stable → None; Deprecated → LedgerEntryStatusJson
             let status_opt = match e.status {
                 RouteStatus::Stable => None,
-                RouteStatus::Deprecated { replacement, sunset_at } => {
-                    Some(LedgerEntryStatusJson {
-                        state: "deprecated".to_string(),
-                        replacement: Some(replacement.to_string()),
-                        sunset_at: sunset_at.map(String::from),
-                    })
-                }
-                RouteStatus::Removed => Some(LedgerEntryStatusJson {
-                    state: "removed".to_string(),
-                    replacement: None,
-                    sunset_at: None,
+                RouteStatus::Deprecated { replacement, sunset_at } => Some(LedgerEntryStatusJson {
+                    state: "deprecated".to_string(),
+                    replacement: Some(replacement.to_string()),
+                    sunset_at: sunset_at.map(String::from),
                 }),
+                RouteStatus::Removed => {
+                    Some(LedgerEntryStatusJson { state: "removed".to_string(), replacement: None, sunset_at: None })
+                }
             };
 
             LedgerEntryJson {

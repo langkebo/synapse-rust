@@ -7,7 +7,9 @@ use sqlx::{Pool, Postgres};
 use super::*;
 
 async fn test_pool() -> Arc<Pool<Postgres>> {
-    crate::test_utils::connect_shared_test_pool().await.expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    crate::test_utils::connect_shared_test_pool()
+        .await
+        .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
 }
 
 async fn ensure_test_user(pool: &Pool<Postgres>, user_id: &str) {

@@ -381,19 +381,15 @@ pub fn push_notification_route_manifest() -> Vec<crate::web::routes::route_ledge
     ]
     .into_iter()
     .map(|(m, p, replacement)| {
-        RouteEntry::new(m, p, "push_notification")
-            .with_status(RouteStatus::Deprecated { replacement, sunset_at: None })
+        RouteEntry::new(m, p, "push_notification").with_status(RouteStatus::Deprecated { replacement, sunset_at: None })
     })
     .collect::<Vec<_>>();
 
     // Admin 路由：稳定，供内部管理使用，无 spec 替代。
-    let admin = [
-        (Method::POST, "/_synapse/admin/v1/push/process"),
-        (Method::POST, "/_synapse/admin/v1/push/cleanup"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "push_notification"))
-    .collect::<Vec<_>>();
+    let admin = [(Method::POST, "/_synapse/admin/v1/push/process"), (Method::POST, "/_synapse/admin/v1/push/cleanup")]
+        .into_iter()
+        .map(|(m, p)| RouteEntry::new(m, p, "push_notification"))
+        .collect::<Vec<_>>();
 
     [legacy, admin].into_iter().flatten().collect()
 }

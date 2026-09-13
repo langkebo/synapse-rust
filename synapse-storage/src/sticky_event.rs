@@ -271,7 +271,9 @@ mod db_tests {
     use super::*;
 
     async fn test_pool() -> Arc<PgPool> {
-        crate::test_utils::connect_shared_test_pool().await.expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+        crate::test_utils::connect_shared_test_pool()
+            .await
+            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
     }
 
     /// Insert a minimal user row to satisfy the FK from room_sticky_events.user_id.

@@ -6,7 +6,9 @@ use sqlx::PgPool;
 use std::sync::Arc;
 
 async fn test_pool() -> Arc<PgPool> {
-    crate::test_utils::connect_shared_test_pool().await.expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    crate::test_utils::connect_shared_test_pool()
+        .await
+        .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
 }
 
 async fn ensure_test_user(pool: &PgPool, user_id: &str) {

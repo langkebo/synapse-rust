@@ -1,11 +1,12 @@
-
 use super::*;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
 async fn test_pool() -> Arc<Pool<Postgres>> {
-    crate::test_utils::connect_shared_test_pool().await.expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    crate::test_utils::connect_shared_test_pool()
+        .await
+        .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
 }
 
 async fn ensure_test_room(pool: &Pool<Postgres>, room_id: &str) {

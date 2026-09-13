@@ -220,7 +220,9 @@ mod db_tests {
     const ONE_HOUR_MS: i64 = 3_600_000;
 
     async fn test_pool() -> Arc<PgPool> {
-        crate::test_utils::connect_shared_test_pool().await.expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+        crate::test_utils::connect_shared_test_pool()
+            .await
+            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
     }
 
     async fn cleanup_by_prefix(pool: &PgPool, prefix: &str) {

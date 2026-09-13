@@ -760,7 +760,9 @@ mod db_tests {
     use synapse_cache::{CacheConfig, CacheManager};
 
     async fn test_pool() -> Arc<Pool<Postgres>> {
-        crate::test_utils::connect_shared_test_pool().await.expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+        crate::test_utils::connect_shared_test_pool()
+            .await
+            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
     }
 
     fn test_cache() -> Arc<CacheManager> {

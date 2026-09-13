@@ -249,7 +249,9 @@ mod db_tests {
     }
 
     async fn test_pool() -> sqlx::PgPool {
-        let pool = crate::test_utils::connect_shared_test_pool().await.expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure");
+        let pool = crate::test_utils::connect_shared_test_pool()
+            .await
+            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure");
         (*pool).clone()
     }
 

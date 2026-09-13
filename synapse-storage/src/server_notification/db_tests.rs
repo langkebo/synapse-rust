@@ -9,7 +9,9 @@ use super::*;
 use std::sync::Arc;
 
 async fn test_pool() -> Arc<sqlx::PgPool> {
-    crate::test_utils::connect_shared_test_pool().await.expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    crate::test_utils::connect_shared_test_pool()
+        .await
+        .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
 }
 
 fn make_suffix() -> String {
