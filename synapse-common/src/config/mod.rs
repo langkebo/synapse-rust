@@ -1048,7 +1048,7 @@ mod tests {
 /*
 /// 媒体存储配置。
 ///
-/// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#media_store
+/// 官方 Synapse 配置文档: <https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#media_store>
 ///
 /// 配置媒体文件（图片、视频等）的存储位置和访问方式。
 ///
@@ -1147,7 +1147,7 @@ pub struct StorageProviderConfig {
 /*
 /// 监听器配置。
 ///
-/// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#listeners
+/// 官方 Synapse 配置文档: <https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#listeners>
 ///
 /// 配置多个监听器，每个监听器可以监听不同的端口并提供不同的资源。
 ///
@@ -1246,7 +1246,7 @@ fn default_compress() -> bool {
 /*
 /// 限制配置。
 ///
-/// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#limits
+/// 官方 Synapse 配置文档: <https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#limits>
 ///
 /// 配置各种资源限制，防止资源滥用。
 ///
@@ -1320,7 +1320,7 @@ fn default_batch_size() -> u64 {
 /*
 /// 密码配置。
 ///
-/// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#password_config
+/// 官方 Synapse 配置文档: <https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#password_config>
 ///
 /// 配置密码策略和认证模块。
 ///
@@ -1406,7 +1406,7 @@ fn default_min_password_length() -> u32 {
 /*
 /// 账户有效性配置。
 ///
-/// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#account_validity
+/// 官方 Synapse 配置文档: <https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#account_validity>
 ///
 /// 配置临时账户功能。
 ///
@@ -1461,7 +1461,7 @@ fn default_renew_at() -> String {
 /*
 /// CAS 认证配置。
 ///
-/// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#cas_config
+/// 官方 Synapse 配置文档: <https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#cas_config>
 ///
 /// 配置 CAS (Central Authentication Service) 单点登录。
 ///
@@ -1496,7 +1496,7 @@ pub struct CasConfig {
 /*
 /// SAML2 认证配置。
 ///
-/// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#saml2_config
+/// 官方 Synapse 配置文档: <https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#saml2_config>
 ///
 /// 配置 SAML2 单点登录（企业级 SSO）。
 ///
@@ -1591,7 +1591,7 @@ impl Default for SamlAttributeMapping {
 /*
 /// UI 认证配置。
 ///
-/// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#ui_auth
+/// 官方 Synapse 配置文档: <https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#ui_auth>
 ///
 /// 配置用户交互认证（UIAA）会话参数。
 ///
@@ -1632,7 +1632,7 @@ fn default_max_ui_auth_sessions() -> u32 {
 /*
 /// 房间配置。
 ///
-/// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#rooms
+/// 官方 Synapse 配置文档: <https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#rooms>
 ///
 /// 配置房间默认参数和行为。
 ///
@@ -1689,7 +1689,7 @@ fn default_state_event_limit() -> u64 {
 /*
 /// 用户目录配置。
 ///
-/// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#user_directory
+/// 官方 Synapse 配置文档: <https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#user_directory>
 ///
 /// 配置用户搜索目录行为。
 ///
@@ -1747,7 +1747,7 @@ fn default_indexing_interval() -> String {
 /*
 /// 性能指标配置。
 ///
-/// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#metrics
+/// 官方 Synapse 配置文档: <https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#metrics>
 ///
 /// 配置 Prometheus 性能指标导出。
 ///
@@ -1792,7 +1792,7 @@ fn default_metrics_port() -> u16 {
 /*
 /// 客户端配置。
 ///
-/// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#client
+/// 官方 Synapse 配置文档: <https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#client>
 ///
 /// 配置客户端行为参数。
 ///
@@ -1851,7 +1851,7 @@ fn default_max_sync_events() -> u64 {
 /*
 /// 服务器通知配置。
 ///
-/// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#server_notices
+/// 官方 Synapse 配置文档: <https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#server_notices>
 ///
 /// 配置服务器通知系统（用于向用户发送系统消息）。
 ///
@@ -1884,7 +1884,7 @@ pub struct ServerNoticesConfig {
 /*
 /// 第三方协议规则配置。
 ///
-/// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#third_party_rules
+/// 官方 Synapse 配置文档: <https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#third_party_rules>
 ///
 /// 配置第三方协议桥接规则。
 ///
@@ -1927,7 +1927,7 @@ pub struct ThirdPartyField {
 /*
 /// Sentry 错误追踪配置。
 ///
-/// 官方 Synapse 配置文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#sentry
+/// 官方 Synapse 配置文档: <https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#sentry>
 ///
 /// 配置 Sentry 错误追踪。
 ///

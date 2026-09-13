@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 /// VoIP configuration.
 ///
-/// Official Synapse configuration documentation: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#voip
+/// Official Synapse configuration documentation: <https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#voip>
 #[derive(Debug, Clone, Deserialize)]
 /// Represents VoipConfig.
 pub struct VoipConfig {
@@ -117,7 +117,7 @@ fn parse_duration(s: &str) -> Option<i64> {
 
 /// Push configuration.
 ///
-/// Official Synapse configuration documentation: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#push
+/// Official Synapse configuration documentation: <https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#push>
 #[derive(Debug, Clone, Deserialize)]
 /// Represents PushConfig.
 pub struct PushConfig {

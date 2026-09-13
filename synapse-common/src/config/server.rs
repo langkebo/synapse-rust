@@ -10,7 +10,7 @@ use serde::Deserialize;
 /// 配置 Matrix Homeserver 的网络和会话参数。
 ///
 /// 官方 Synapse 对应配置: `server_name`, `public_baseurl`, `signing_key_path` 等
-/// 文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#server
+/// 文档: <https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#server>
 #[derive(Clone, Deserialize, Default, Educe)]
 #[educe(Debug)]
 /// Represents ServerConfig.
