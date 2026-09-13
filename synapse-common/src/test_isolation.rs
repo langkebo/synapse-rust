@@ -344,19 +344,24 @@ async fn build_template(conn: &mut sqlx::PgConnection, template: &str, baseline_
 ///   carry FOREIGN KEYs (measured: 0/127 survived the copy), so those are
 ///   replayed explicitly in phase 2.
 ///
-/// * Phase 2 (`search_path` = clone): replay functions, views, materialized
-///   views, foreign keys and triggers, which `LIKE` cannot copy. The
-///   `search_path` matters for *correctness*: a PL/pgSQL body is not
-///   schema-bound, so a function created while `search_path` points at the
-///   template would silently resolve unqualified names to the **template's**
-///   tables — cross-schema writes from the clone. Replaying with the clone on
-///   `search_path` binds them to the clone. Verified: no cloned function body
-///   mentions the template schema afterwards.
+/// * Phase 2 (`search_path` = clone, then the caller's remaining entries):
+///   replay functions, views, materialized views, foreign keys and triggers,
+///   which `LIKE` cannot copy. The `search_path` matters for *correctness*: a
+///   PL/pgSQL body is not schema-bound, so a function created while
+///   `search_path` points at the template would silently resolve unqualified
+///   names to the **template's** tables — cross-schema writes from the clone.
+///   Replaying with the clone on `search_path` binds them to the clone.
+///   Verified: no cloned function body mentions the template schema
+///   afterwards. The caller's tail (everything after the clone) is preserved
+///   rather than replaced with a literal `public`, so a caller path such as
+///   `<clone>, public, extensions` keeps its `extensions` entry.
 ///
 /// This statement deliberately does **not** create `schema`: the caller
 /// guarantees it already exists (and that its session `search_path` already
 /// begins with it). A `CREATE SCHEMA` here would fail with `42P06
-/// duplicate_schema` for every caller.
+/// duplicate_schema` for every caller. A caller that never set a path (fresh
+/// session, `"$user", public`) still works: phase 2 explicitly puts the clone
+/// first and appends the effective tail.
 ///
 /// The template's own bookkeeping table ([`TEMPLATE_READY_TABLE`]) is skipped:
 /// it is fixture metadata, not baseline inventory, and a clone is expected to
@@ -370,6 +375,7 @@ fn clone_statement(schema: &str, template: &str) -> String {
         DECLARE
             r RECORD;
             def TEXT;
+            rest TEXT;
         BEGIN
             -- Phase 1: every baseline table, with indexes / defaults / CHECK / PK.
             -- The readiness marker is template bookkeeping, not baseline content.
@@ -385,7 +391,22 @@ fn clone_statement(schema: &str, template: &str) -> String {
             END LOOP;
 
             -- Phase 2: non-table objects must bind to the clone, not the template.
-            EXECUTE format('SET search_path TO %I, public', '{schema}');
+            -- Rebuild the path as the clone followed by the caller's remaining
+            -- entries. The documented precondition only guarantees the caller's
+            -- path *begins* with the clone, so hard-coding `public` here would
+            -- silently drop e.g. an `extensions` entry. `current_schemas(false)`
+            -- yields the effective path (existing schemas only) and, with the
+            -- clone filtered out, leaves the caller's tail intact. This also
+            -- covers callers that never set a path (fresh session: `"$user",
+            -- public`), which still end up with `<clone>, public`.
+            SELECT string_agg(quote_ident(s), ', ') INTO rest
+            FROM unnest(current_schemas(false)) AS s
+            WHERE s <> '{schema}';
+            IF rest IS NULL THEN
+                EXECUTE format('SET search_path TO %I', '{schema}');
+            ELSE
+                EXECUTE format('SET search_path TO %I, %s', '{schema}', rest);
+            END IF;
 
             -- Functions. `pg_get_functiondef` renders the name template-qualified;
             -- strip the qualifier so it is created inside the clone.
@@ -402,8 +423,16 @@ fn clone_statement(schema: &str, template: &str) -> String {
                 EXECUTE def;
             END LOOP;
 
-            -- Views / materialized views. Ordered by dependency depth so a view
-            -- that reads another view is created after it.
+            -- Views / materialized views. `depth` counts an object's transitive
+            -- dependencies (the recursion walks *below* an object), so the
+            -- deepest objects are the leaves and must be created first:
+            -- descending depth. Ascending created a view before the view or
+            -- materialized view it reads, which bound the stripped,
+            -- unqualified reference to `public` (or failed with `relation ...
+            -- does not exist` when `public` lacked it). Measured on the real
+            -- v11 template: `public_room_directory` (depth 0) reads
+            -- `rooms_summaries_mv` (depth 1), and ascending left all 13 of its
+            -- references pointing at `public.rooms_summaries_mv`.
             FOR r IN
                 WITH RECURSIVE deps AS (
                     SELECT c.oid, 0 AS depth
@@ -424,7 +453,7 @@ fn clone_statement(schema: &str, template: &str) -> String {
                 FROM deps
                 JOIN pg_class c ON c.oid = deps.oid
                 GROUP BY c.relname, c.relkind, c.oid
-                ORDER BY max(deps.depth), c.relname
+                ORDER BY max(deps.depth) DESC, c.relname
             LOOP
                 -- `pg_get_viewdef` renders referenced tables template-qualified
                 -- (`FROM test_isolation_template_x.workers`). Left as-is the clone's
@@ -471,8 +500,15 @@ fn clone_statement(schema: &str, template: &str) -> String {
                 END IF;
             END LOOP;
 
-            -- Triggers. The clone's own tables carry the trigger; the function
-            -- resolves to the clone because `search_path` points there.
+            -- Triggers. Both the `ON` table and the executed function must be
+            -- re-pointed at the clone: `pg_get_triggerdef` renders the function
+            -- template-qualified (`EXECUTE FUNCTION {template}.f()`), and
+            -- leaving that in place gives every clone a real dependency on the
+            -- template schema. `ensure_template_schema` drops an incomplete
+            -- template with `CASCADE`, which would then cascade into every
+            -- clone's triggers. Runtime row routing kept working anyway because
+            -- the PL/pgSQL body resolves unqualified names via the session
+            -- `search_path`, which is why the dependency was easy to miss.
             FOR r IN
                 SELECT c.relname AS tbl, t.tgname AS name, pg_get_triggerdef(t.oid) AS def
                 FROM pg_trigger t
@@ -482,6 +518,8 @@ fn clone_statement(schema: &str, template: &str) -> String {
             LOOP
                 def := replace(r.def, ' ON {template}.', ' ON {schema}.');
                 def := replace(def, ' ON "{template}".', ' ON "{schema}".');
+                def := replace(def, 'EXECUTE FUNCTION {template}.', 'EXECUTE FUNCTION {schema}.');
+                def := replace(def, 'EXECUTE FUNCTION "{template}".', 'EXECUTE FUNCTION "{schema}".');
                 EXECUTE def;
             END LOOP;
         END
@@ -519,7 +557,11 @@ async fn validate_clone(pool: &PgPool, schema: &str, template: &str) -> Result<(
     let inventory: Vec<Inventory> = sqlx::query_as(
         r#"
         WITH target AS (
-            SELECT unnest(ARRAY[$1, $2]) AS nsp
+            -- Catalog-sourced, deliberately: `SELECT unnest(ARRAY[$1, $2])`
+            -- fabricated a row for every name whether or not the schema
+            -- existed, which made the `find` guards below dead code and turned
+            -- a missing template into a vacuous 0/0 `Ok`.
+            SELECT nspname AS nsp FROM pg_namespace WHERE nspname = ANY(ARRAY[$1, $2]::text[])
         )
         SELECT t.nsp,
             (SELECT count(*) FROM pg_tables tb
@@ -591,7 +633,8 @@ async fn validate_clone(pool: &PgPool, schema: &str, template: &str) -> Result<(
 /// **Precondition (the caller guarantees it):** `schema` already exists and the
 /// connection's `search_path` begins with `schema`. The function does **not**
 /// `CREATE SCHEMA` — callers that already created it would otherwise fail with
-/// `42P06 duplicate_schema`.
+/// `42P06 duplicate_schema`. Any entries the caller had *after* `schema` are
+/// preserved (see `clone_statement`), not replaced with a hard-coded `public`.
 ///
 /// The `DO` block embeds `pg_get_functiondef` output, so it is executed with
 /// [`sqlx::raw_sql`] (simple protocol) rather than `sqlx::query` (extended
@@ -862,5 +905,228 @@ CREATE OR REPLACE VIEW unify_view AS SELECT id FROM unify_parent;
         assert_eq!(counts.2, 1, "the view must be replayed");
 
         let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#)).execute(&pool).await;
+    }
+
+    /// Cloning from a template that does not exist must be an `Err`, never a
+    /// vacuous `Ok`.
+    ///
+    /// The inventory query used to fabricate one row per name via
+    /// `SELECT unnest(ARRAY[$1, $2])`, regardless of whether those schemas
+    /// existed. Both of `validate_clone`'s `find` guards were therefore dead
+    /// code, and a missing template produced `0/0` on both sides — the exact
+    /// silent-fallback-to-`public` condition the validation exists to catch.
+    #[tokio::test]
+    async fn clone_from_missing_schema_or_template_is_an_error() {
+        let Some(url) = test_database_url() else {
+            return;
+        };
+        let pool = PgPoolOptions::new().max_connections(1).connect(&url).await.expect("pool");
+        let missing_template = format!("unify_absent_template_{}", uuid::Uuid::new_v4().as_simple());
+        let clone = format!("unify_absent_clone_{}", uuid::Uuid::new_v4().as_simple());
+
+        // Neither side exists: the catalog-sourced inventory has no rows at all,
+        // so the clone guard must fire instead of comparing 0 against 0.
+        let error = clone_schema_from_template(&pool, &clone, &missing_template)
+            .await
+            .expect_err("cloning from a nonexistent template must not report success");
+        assert!(error.contains("is not visible"), "unexpected error: {error}");
+
+        // The clone schema exists but is empty and the template is absent: the
+        // exact 0/0 case the fabricated inventory used to accept.
+        sqlx::query(&format!(r#"CREATE SCHEMA "{clone}""#)).execute(&pool).await.expect("create empty clone");
+        let error = clone_schema_from_template(&pool, &clone, &missing_template)
+            .await
+            .expect_err("a nonexistent template must be rejected even for an empty clone");
+        assert!(error.contains("template schema"), "unexpected error: {error}");
+
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{clone}" CASCADE"#)).execute(&pool).await;
+    }
+
+    /// A view that reads another view must be replayed *after* it.
+    ///
+    /// The recursive CTE's `depth` counts an object's transitive dependencies
+    /// (the leaves), so ordering ascending created `unify_outer_mv` before
+    /// `unify_inner_mv` existed in the clone. The stripped, unqualified
+    /// reference then bound to whatever the shared `public` schema happened to
+    /// hold — or failed outright when `public` lacked it.
+    #[tokio::test]
+    async fn clone_creates_dependent_views_in_dependency_order() {
+        let Some(url) = test_database_url() else {
+            return;
+        };
+        let baseline = r#"
+CREATE TABLE IF NOT EXISTS unify_leaf_tbl (id bigint PRIMARY KEY, n int);
+CREATE MATERIALIZED VIEW unify_inner_mv AS SELECT id FROM unify_leaf_tbl;
+CREATE MATERIALIZED VIEW unify_outer_mv AS SELECT id FROM unify_inner_mv;
+"#;
+        let template = ensure_template_schema(&url, baseline).await.expect("template");
+        let clone = format!("unify_order_clone_{}", uuid::Uuid::new_v4().as_simple());
+        let pool = PgPoolOptions::new().max_connections(1).connect(&url).await.expect("pool");
+        let admin = PgPoolOptions::new().max_connections(1).connect(&url).await.expect("admin pool");
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{clone}" CASCADE"#)).execute(&admin).await;
+        sqlx::query(&format!(r#"CREATE SCHEMA "{clone}""#)).execute(&admin).await.expect("create clone schema");
+        sqlx::query(&format!(r#"SET search_path TO "{clone}", public"#)).execute(&pool).await.expect("set path");
+
+        clone_schema_from_template(&pool, &clone, &template).await.expect("clone");
+
+        // `pg_get_viewdef` strips the template qualifier, so a correct clone's
+        // outer matview must depend on the clone's own inner matview...
+        let same_schema: i64 = sqlx::query_scalar(
+            r#"
+            SELECT count(*)
+            FROM pg_depend d
+            JOIN pg_rewrite w ON w.oid = d.objid
+            JOIN pg_class c ON c.oid = w.ev_class
+            JOIN pg_namespace cn ON cn.oid = c.relnamespace
+            JOIN pg_class ref ON ref.oid = d.refobjid
+            JOIN pg_namespace rn ON rn.oid = ref.relnamespace
+            WHERE cn.nspname = $1 AND c.relname = 'unify_outer_mv'
+              AND rn.nspname = $1 AND ref.relname = 'unify_inner_mv'
+            "#,
+        )
+        .bind(&clone)
+        .fetch_one(&admin)
+        .await
+        .expect("same-schema dependency count");
+        assert_eq!(same_schema, 1, "unify_outer_mv must bind to the clone's own unify_inner_mv");
+
+        // ...and must not reach across into the shared `public` schema.
+        let cross_schema: i64 = sqlx::query_scalar(
+            r#"
+            SELECT count(*)
+            FROM pg_depend d
+            JOIN pg_rewrite w ON w.oid = d.objid
+            JOIN pg_class c ON c.oid = w.ev_class
+            JOIN pg_namespace cn ON cn.oid = c.relnamespace
+            JOIN pg_class ref ON ref.oid = d.refobjid
+            JOIN pg_namespace rn ON rn.oid = ref.relnamespace
+            WHERE cn.nspname = $1 AND c.relname = 'unify_outer_mv' AND rn.nspname <> $1
+            "#,
+        )
+        .bind(&clone)
+        .fetch_one(&admin)
+        .await
+        .expect("cross-schema dependency count");
+        assert_eq!(cross_schema, 0, "the clone's matview must not depend on objects outside the clone");
+
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{clone}" CASCADE"#)).execute(&admin).await;
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{template}" CASCADE"#)).execute(&admin).await;
+    }
+
+    /// A replayed trigger must reference the clone's function, not the
+    /// template's.
+    ///
+    /// Re-pointing only the `ON` clause left `EXECUTE FUNCTION {template}.f()`
+    /// in place, so every clone held a dependency on the template schema;
+    /// `ensure_template_schema` drops an incomplete template with `CASCADE`,
+    /// which would then cascade into every clone's triggers. Runtime routing
+    /// happened to keep working because the PL/pgSQL body resolves unqualified
+    /// names via the session `search_path` — the dependency was real regardless.
+    #[tokio::test]
+    async fn clone_retargets_trigger_functions_to_the_clone() {
+        let Some(url) = test_database_url() else {
+            return;
+        };
+        let baseline = r#"
+CREATE TABLE IF NOT EXISTS unify_trg_tbl (id bigint PRIMARY KEY, n int);
+CREATE FUNCTION unify_trg_fn() RETURNS trigger AS $$
+BEGIN
+    NEW.n := NEW.n + 1;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER unify_trg AFTER INSERT ON unify_trg_tbl FOR EACH ROW EXECUTE FUNCTION unify_trg_fn();
+"#;
+        let template = ensure_template_schema(&url, baseline).await.expect("template");
+        let clone = format!("unify_trg_clone_{}", uuid::Uuid::new_v4().as_simple());
+        let pool = PgPoolOptions::new().max_connections(1).connect(&url).await.expect("pool");
+        let admin = PgPoolOptions::new().max_connections(1).connect(&url).await.expect("admin pool");
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{clone}" CASCADE"#)).execute(&admin).await;
+        sqlx::query(&format!(r#"CREATE SCHEMA "{clone}""#)).execute(&admin).await.expect("create clone schema");
+        sqlx::query(&format!(r#"SET search_path TO "{clone}", public"#)).execute(&pool).await.expect("set path");
+
+        clone_schema_from_template(&pool, &clone, &template).await.expect("clone");
+
+        // A fresh connection keeps the clone schema off `search_path`, so
+        // `pg_get_triggerdef` renders the function schema-qualified.
+        let def: String = sqlx::query_scalar(
+            r#"
+            SELECT pg_get_triggerdef(t.oid)
+            FROM pg_trigger t
+            JOIN pg_class c ON c.oid = t.tgrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = $1 AND c.relname = 'unify_trg_tbl' AND NOT t.tgisinternal
+            "#,
+        )
+        .bind(&clone)
+        .fetch_one(&admin)
+        .await
+        .expect("trigger definition");
+        assert!(
+            def.contains(&format!("EXECUTE FUNCTION {clone}.")),
+            "trigger must execute the clone's function, got: {def}"
+        );
+        assert!(!def.contains(&template), "trigger must not reference the template schema, got: {def}");
+
+        let foreign_deps: i64 = sqlx::query_scalar(
+            r#"
+            SELECT count(*)
+            FROM pg_depend d
+            JOIN pg_trigger t ON t.oid = d.objid
+            JOIN pg_class c ON c.oid = t.tgrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_proc p ON p.oid = d.refobjid
+            JOIN pg_namespace pn ON pn.oid = p.pronamespace
+            WHERE d.classid = 'pg_trigger'::regclass AND n.nspname = $1 AND pn.nspname <> $1
+            "#,
+        )
+        .bind(&clone)
+        .fetch_one(&admin)
+        .await
+        .expect("trigger dependency count");
+        assert_eq!(foreign_deps, 0, "clone triggers must not depend on another schema's functions");
+
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{clone}" CASCADE"#)).execute(&admin).await;
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{template}" CASCADE"#)).execute(&admin).await;
+    }
+
+    /// The clone must not clobber the caller's remaining `search_path`
+    /// entries.
+    ///
+    /// The documented precondition only guarantees the path *begins* with the
+    /// clone schema, so a hard-coded `<clone>, public` tail silently drops
+    /// e.g. an `extensions` entry for the rest of the session.
+    #[tokio::test]
+    async fn clone_preserves_the_caller_search_path_tail() {
+        let Some(url) = test_database_url() else {
+            return;
+        };
+        let baseline = "CREATE TABLE IF NOT EXISTS unify_path_tbl (id bigint PRIMARY KEY);";
+        let template = ensure_template_schema(&url, baseline).await.expect("template");
+        let clone = format!("unify_path_clone_{}", uuid::Uuid::new_v4().as_simple());
+        let extra = format!("unify_path_extra_{}", uuid::Uuid::new_v4().as_simple());
+        let pool = PgPoolOptions::new().max_connections(1).connect(&url).await.expect("pool");
+        let admin = PgPoolOptions::new().max_connections(1).connect(&url).await.expect("admin pool");
+        for schema in [&clone, &extra] {
+            let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#)).execute(&admin).await;
+            sqlx::query(&format!(r#"CREATE SCHEMA "{schema}""#)).execute(&admin).await.expect("create schema");
+        }
+        sqlx::query(&format!(r#"SET search_path TO "{clone}", "{extra}", public"#))
+            .execute(&pool)
+            .await
+            .expect("set path");
+
+        clone_schema_from_template(&pool, &clone, &template).await.expect("clone");
+
+        let effective: String = sqlx::query_scalar("SHOW search_path").fetch_one(&pool).await.expect("show path");
+        assert!(effective.contains(&extra), "the caller's `{extra}` entry was dropped: {effective}");
+        let clone_pos = effective.find(&clone).expect("clone must stay on the path");
+        let extra_pos = effective.find(&extra).expect("extra must stay on the path");
+        assert!(clone_pos < extra_pos, "the clone must remain first on the path: {effective}");
+
+        for schema in [&clone, &extra] {
+            let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#)).execute(&admin).await;
+        }
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{template}" CASCADE"#)).execute(&admin).await;
     }
 }
