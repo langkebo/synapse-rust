@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": false
   },
-  "entry_count": 1266,
+  "entry_count": 1320,
   "entries": [
     {
       "method": "GET",
@@ -2362,9 +2362,29 @@
       "path_params": []
     },
     {
+      "method": "GET",
+      "path": "/_matrix/client/unstable/org.matrix.msc4155/rooms/{room_id}/threads",
+      "registered_by": "thread",
+      "path_params": [
+        "room_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/unstable/org.matrix.msc4156/threads/subscribed",
+      "registered_by": "thread",
+      "path_params": []
+    },
+    {
       "method": "POST",
       "path": "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync",
       "registered_by": "sliding_sync",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/unstable/uk.half-shot.msc2666/user/mutual_rooms",
+      "registered_by": "room",
       "path_params": []
     },
     {
@@ -3908,6 +3928,12 @@
     },
     {
       "method": "GET",
+      "path": "/_matrix/client/v1/user/mutual_rooms",
+      "registered_by": "room",
+      "path_params": []
+    },
+    {
+      "method": "GET",
       "path": "/_matrix/client/v1/user/{user_id}/appservice",
       "registered_by": "app_service",
       "path_params": [
@@ -4270,6 +4296,14 @@
       "path": "/_matrix/client/v3/friends",
       "registered_by": "friend_room",
       "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/friends/check/{user_id}",
+      "registered_by": "friend_room",
+      "path_params": [
+        "user_id"
+      ]
     },
     {
       "method": "GET",
@@ -4834,6 +4868,12 @@
       "method": "GET",
       "path": "/_matrix/client/v3/register/available",
       "registered_by": "assembly::auth_compat",
+      "path_params": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/_matrix/client/v3/register/captcha/clean",
+      "registered_by": "captcha",
       "path_params": []
     },
     {
@@ -7367,9 +7407,341 @@
     },
     {
       "method": "GET",
+      "path": "/_matrix/vendor/v1/external_services/health",
+      "registered_by": "external_service",
+      "path_params": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/_matrix/vendor/v1/external_services/{service_id}",
+      "registered_by": "external_service",
+      "path_params": [
+        "service_id"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/vendor/v1/external_services/{service_id}",
+      "registered_by": "external_service",
+      "path_params": [
+        "service_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/friends",
+      "registered_by": "friend_room",
+      "path_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/vendor/v1/friends",
+      "registered_by": "friend_room",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/friends/check/{user_id}",
+      "registered_by": "friend_room",
+      "path_params": [
+        "user_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/friends/dm/{user_id}",
+      "registered_by": "friend_room",
+      "path_params": [
+        "user_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/vendor/v1/friends/dm/{user_id}",
+      "registered_by": "friend_room",
+      "path_params": [
+        "user_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/friends/groups",
+      "registered_by": "friend_room",
+      "path_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/vendor/v1/friends/groups",
+      "registered_by": "friend_room",
+      "path_params": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/_matrix/vendor/v1/friends/groups/{group_id}",
+      "registered_by": "friend_room",
+      "path_params": [
+        "group_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/vendor/v1/friends/groups/{group_id}/add/{user_id}",
+      "registered_by": "friend_room",
+      "path_params": [
+        "group_id",
+        "user_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/friends/groups/{group_id}/friends",
+      "registered_by": "friend_room",
+      "path_params": [
+        "group_id"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/vendor/v1/friends/groups/{group_id}/name",
+      "registered_by": "friend_room",
+      "path_params": [
+        "group_id"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/_matrix/vendor/v1/friends/groups/{group_id}/remove/{user_id}",
+      "registered_by": "friend_room",
+      "path_params": [
+        "group_id",
+        "user_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/vendor/v1/friends/request",
+      "registered_by": "friend_room",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/friends/request/received",
+      "registered_by": "friend_room",
+      "path_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/vendor/v1/friends/request/{user_id}/accept",
+      "registered_by": "friend_room",
+      "path_params": [
+        "user_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/vendor/v1/friends/request/{user_id}/cancel",
+      "registered_by": "friend_room",
+      "path_params": [
+        "user_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/vendor/v1/friends/request/{user_id}/reject",
+      "registered_by": "friend_room",
+      "path_params": [
+        "user_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/friends/requests/incoming",
+      "registered_by": "friend_room",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/friends/requests/outgoing",
+      "registered_by": "friend_room",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/friends/search",
+      "registered_by": "friend_room",
+      "path_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/vendor/v1/friends/search",
+      "registered_by": "friend_room",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/friends/suggestions",
+      "registered_by": "friend_room",
+      "path_params": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/_matrix/vendor/v1/friends/{user_id}",
+      "registered_by": "friend_room",
+      "path_params": [
+        "user_id"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/vendor/v1/friends/{user_id}/displayname",
+      "registered_by": "friend_room",
+      "path_params": [
+        "user_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/friends/{user_id}/groups",
+      "registered_by": "friend_room",
+      "path_params": [
+        "user_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/friends/{user_id}/info",
+      "registered_by": "friend_room",
+      "path_params": [
+        "user_id"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/vendor/v1/friends/{user_id}/note",
+      "registered_by": "friend_room",
+      "path_params": [
+        "user_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/friends/{user_id}/status",
+      "registered_by": "friend_room",
+      "path_params": [
+        "user_id"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/vendor/v1/friends/{user_id}/status",
+      "registered_by": "friend_room",
+      "path_params": [
+        "user_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/keys/rotation/check",
+      "registered_by": "key_rotation",
+      "path_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/vendor/v1/keys/rotation/check",
+      "registered_by": "key_rotation",
+      "path_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/vendor/v1/keys/rotation/config",
+      "registered_by": "key_rotation",
+      "path_params": []
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/vendor/v1/keys/rotation/config",
+      "registered_by": "key_rotation",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/keys/rotation/history/{device_id}",
+      "registered_by": "key_rotation",
+      "path_params": [
+        "device_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/vendor/v1/keys/rotation/revoke",
+      "registered_by": "key_rotation",
+      "path_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/vendor/v1/keys/rotation/rotate",
+      "registered_by": "key_rotation",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/keys/rotation/status",
+      "registered_by": "key_rotation",
+      "path_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/vendor/v1/keys/rotation/status",
+      "registered_by": "key_rotation",
+      "path_params": []
+    },
+    {
+      "method": "GET",
       "path": "/_matrix/vendor/v1/my_rooms",
       "registered_by": "vendor",
       "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/rooms/{room_id}/burn",
+      "registered_by": "burn_after_read",
+      "path_params": [
+        "room_id"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/vendor/v1/rooms/{room_id}/burn",
+      "registered_by": "burn_after_read",
+      "path_params": [
+        "room_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/rooms/{room_id}/burn/pending",
+      "registered_by": "burn_after_read",
+      "path_params": [
+        "room_id"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/_matrix/vendor/v1/rooms/{room_id}/burn/{event_id}",
+      "registered_by": "burn_after_read",
+      "path_params": [
+        "room_id",
+        "event_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/vendor/v1/rooms/{room_id}/burn/{event_id}",
+      "registered_by": "burn_after_read",
+      "path_params": [
+        "room_id",
+        "event_id"
+      ]
     },
     {
       "method": "POST",
@@ -7381,6 +7753,18 @@
       "method": "POST",
       "path": "/_matrix/vendor/v1/search_rooms",
       "registered_by": "vendor",
+      "path_params": []
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/vendor/v1/user/burn/config",
+      "registered_by": "burn_after_read",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/user/burn/stats",
+      "registered_by": "burn_after_read",
       "path_params": []
     },
     {
