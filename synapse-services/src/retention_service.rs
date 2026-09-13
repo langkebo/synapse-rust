@@ -898,18 +898,10 @@ mod db_tests {
 
     /// Helper: clear retention state for a room.
     async fn cleanup_test_room(pool: &Arc<PgPool>, room_id: &str) {
-        let _ = sqlx::query("DELETE FROM room_retention_policies WHERE room_id = $1")
-            .bind(room_id)
-            .execute(&**pool)
-            .await;
-        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1")
-            .bind(room_id)
-            .execute(&**pool)
-            .await;
-        let _ = sqlx::query("DELETE FROM rooms WHERE room_id = $1")
-            .bind(room_id)
-            .execute(&**pool)
-            .await;
+        let _ =
+            sqlx::query("DELETE FROM room_retention_policies WHERE room_id = $1").bind(room_id).execute(&**pool).await;
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(room_id).execute(&**pool).await;
+        let _ = sqlx::query("DELETE FROM rooms WHERE room_id = $1").bind(room_id).execute(&**pool).await;
     }
 
     // ------------------------------------------------------------------
@@ -1022,10 +1014,8 @@ mod db_tests {
         ensure_test_room(&pool, &room_id).await;
 
         // Ensure no room policy exists for this room
-        let _ = sqlx::query("DELETE FROM room_retention_policies WHERE room_id = $1")
-            .bind(&room_id)
-            .execute(&*pool)
-            .await;
+        let _ =
+            sqlx::query("DELETE FROM room_retention_policies WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
 
         // Without room policy AND server max_lifetime = NULL,
         // run_cleanup should fail with bad_request
@@ -1086,7 +1076,7 @@ mod db_tests {
         // Insert events with known timestamps
         let now = synapse_common::current_timestamp_millis();
         let expired_ts = now - 172_800_000; // ~2 days ago (beyond 1-day retention)
-        let fresh_ts = now - 43_200_000;    // ~12 hours ago (within retention)
+        let fresh_ts = now - 43_200_000; // ~12 hours ago (within retention)
         let suffix = unique_test_suffix();
 
         // Event that SHOULD be deleted (expired)

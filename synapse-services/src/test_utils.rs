@@ -24,7 +24,6 @@ static PREPARED_TEST_POOLS: LazyLock<Mutex<VecDeque<Arc<PgPool>>>> = LazyLock::n
 /// reusing the URL cuts that churn to a single probe.
 static RESOLVED_TEST_DB_URL: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
 
-
 // ============================================================================
 // Schema lifecycle
 // ============================================================================

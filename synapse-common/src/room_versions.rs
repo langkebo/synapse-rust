@@ -264,7 +264,11 @@ mod tests {
                     Some(supported.disposition_str())
                 );
             } else {
-                assert!(available.get(supported.version).is_none(), "v{} should NOT appear in client room_versions.available", supported.version);
+                assert!(
+                    available.get(supported.version).is_none(),
+                    "v{} should NOT appear in client room_versions.available",
+                    supported.version
+                );
             }
         }
     }

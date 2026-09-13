@@ -257,7 +257,7 @@ fn janitor_loop() {
             run_exit_drain(ready);
             let callbacks: Vec<CleanupFn> = lock_mutex(&EXIT_CALLBACKS).drain(..).collect();
             for callback in callbacks {
-                let _ = catch_unwind(AssertUnwindSafe(|| callback()));
+                let _ = catch_unwind(AssertUnwindSafe(callback));
             }
             return;
         }
@@ -265,7 +265,7 @@ fn janitor_loop() {
         for mut entry in ready {
             if let Some(cleanup) = entry.cleanup.take() {
                 let on_release = cleanup.on_release;
-                if catch_unwind(AssertUnwindSafe(|| on_release())).is_err() {
+                if catch_unwind(AssertUnwindSafe(on_release)).is_err() {
                     eprintln!("test schema janitor: cleanup for {} panicked", entry.schema_name);
                 }
             }
@@ -291,7 +291,7 @@ fn run_exit_drain(entries: Vec<PendingCleanup>) {
             let Some(mut entry) = entry else { return };
             if let Some(cleanup) = entry.cleanup.take() {
                 let on_exit = cleanup.on_exit;
-                let _ = catch_unwind(AssertUnwindSafe(|| on_exit()));
+                let _ = catch_unwind(AssertUnwindSafe(on_exit));
             }
         });
         match spawned {
@@ -310,7 +310,7 @@ fn run_exit_drain(entries: Vec<PendingCleanup>) {
     for entry in queue.drain(..) {
         if let Some(cleanup) = entry.cleanup {
             let on_exit = cleanup.on_exit;
-            let _ = catch_unwind(AssertUnwindSafe(|| on_exit()));
+            let _ = catch_unwind(AssertUnwindSafe(on_exit));
         }
     }
 }

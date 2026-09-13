@@ -271,7 +271,11 @@ mod db_tests {
             .execute(&**pool).await.expect("create device_lists_changes");
         for i in 0..n {
             sqlx::query("INSERT INTO device_lists_changes (user_id, created_ts) VALUES ($1, $2)")
-                .bind(format!("@u{i}:localhost")).bind(ts).execute(&**pool).await.expect("seed changes");
+                .bind(format!("@u{i}:localhost"))
+                .bind(ts)
+                .execute(&**pool)
+                .await
+                .expect("seed changes");
         }
     }
 
@@ -285,7 +289,11 @@ mod db_tests {
         let cutoff_inside = now - 10 * day_ms;
         for i in 0..2 {
             sqlx::query("INSERT INTO device_lists_changes (user_id, created_ts) VALUES ($1, $2)")
-                .bind(format!("@recent{i}:localhost")).bind(cutoff_inside).execute(&*pool).await.unwrap();
+                .bind(format!("@recent{i}:localhost"))
+                .bind(cutoff_inside)
+                .execute(&*pool)
+                .await
+                .unwrap();
         }
 
         let deleted = prune_old_device_list_changes(&pool, DEVICE_LIST_CHANGES_RETENTION_DAYS).await.unwrap();
@@ -302,9 +310,17 @@ mod db_tests {
         let day_ms = 86_400_000;
         let now = current_timestamp_millis();
         sqlx::query("INSERT INTO device_lists_stream (user_id, created_ts) SELECT $1, $2 FROM generate_series(1,5)")
-            .bind("@old:localhost").bind(now - 31 * day_ms).execute(&*pool).await.unwrap();
+            .bind("@old:localhost")
+            .bind(now - 31 * day_ms)
+            .execute(&*pool)
+            .await
+            .unwrap();
         sqlx::query("INSERT INTO device_lists_stream (user_id, created_ts) SELECT $1, $2 FROM generate_series(1,4)")
-            .bind("@new:localhost").bind(now - 5 * day_ms).execute(&*pool).await.unwrap();
+            .bind("@new:localhost")
+            .bind(now - 5 * day_ms)
+            .execute(&*pool)
+            .await
+            .unwrap();
 
         let deleted = prune_old_device_lists_stream(&pool).await.unwrap();
         assert_eq!(deleted, 5);
@@ -330,8 +346,12 @@ mod db_tests {
 
         let deleted = prune_sent_device_lists_outbound_pokes(&pool).await.unwrap();
         assert_eq!(deleted, 4, "only sent+old rows pruned");
-        let remaining_unsent = sqlx::query("SELECT COUNT(*) AS c FROM device_lists_outbound_pokes WHERE sent_ts IS NULL")
-            .fetch_one(&*pool).await.unwrap().get::<i64, _>("c");
+        let remaining_unsent =
+            sqlx::query("SELECT COUNT(*) AS c FROM device_lists_outbound_pokes WHERE sent_ts IS NULL")
+                .fetch_one(&*pool)
+                .await
+                .unwrap()
+                .get::<i64, _>("c");
         assert_eq!(remaining_unsent, 3, "pending deliveries must not be dropped");
     }
 
@@ -340,11 +360,19 @@ mod db_tests {
     async fn prune_presence_removes_stale() {
         let Some(pool) = test_pool().await else { return };
         sqlx::query("CREATE TABLE presence (user_id TEXT PRIMARY KEY, last_active_ts BIGINT)")
-            .execute(&*pool).await.unwrap();
+            .execute(&*pool)
+            .await
+            .unwrap();
         let day_ms = 86_400_000;
         let now = current_timestamp_millis();
-        sqlx::query("INSERT INTO presence (user_id, last_active_ts) VALUES ('stale1', $1), ('stale2', $1), ('fresh', $2)")
-            .bind(now - 8 * day_ms).bind(now - 1 * day_ms).execute(&*pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO presence (user_id, last_active_ts) VALUES ('stale1', $1), ('stale2', $1), ('fresh', $2)",
+        )
+        .bind(now - 8 * day_ms)
+        .bind(now - 1 * day_ms)
+        .execute(&*pool)
+        .await
+        .unwrap();
 
         let deleted = prune_expired_presence(&pool).await.unwrap();
         assert_eq!(deleted, 2);
@@ -390,8 +418,7 @@ mod db_tests {
     #[tokio::test]
     async fn prune_token_blacklist_keeps_permanent() {
         let Some(pool) = test_pool().await else { return };
-        sqlx::query("CREATE TABLE token_blacklist (token TEXT, expires_at BIGINT)")
-            .execute(&*pool).await.unwrap();
+        sqlx::query("CREATE TABLE token_blacklist (token TEXT, expires_at BIGINT)").execute(&*pool).await.unwrap();
         let now = current_timestamp_millis();
         // expired (prune), permanent NULL (keep), zero-sentinel (keep), future (keep).
         sqlx::query("INSERT INTO token_blacklist (token, expires_at) VALUES ('expired', $1), ('perm', NULL), ('zero', 0), ('future', $2)")
