@@ -27,6 +27,15 @@
 外加 `scripts/cleanup_test_schemas.sh` 本身有 4 个缺陷，使它既清不干净也不安全
 （见 §2）。
 
+> ✅ **2026-09-13 状态更新（见 §10）**：持续泄漏**已被堵住**。三套夹具
+> （root / `synapse-services` / `synapse-storage`）+ `media` 已全部接入
+> `synapse_common::test_schema_guard` 的 **Test Janitor（RAII）**——janitor 监听
+> `Weak<PgPool>`，池强引用归零即回收，`atexit` join 兜底。实测本地
+> `synapse_test` 库跑两轮 oidc 隔离池用例，`test_*` schema 恒为 **0**，跨轮次
+> 无增长。本文 §3–§9 中"止血无效 / 定期维护"的结论，自 Test Janitor 接入起
+> 已过时；§9 的否定性实测被保留作为该机制的设计动因。**残留的是"三套夹具
+> 收敛成一份"的结构性债务（§1.4），不再是 schema 泄漏本身。**
+
 ---
 
 ## 1. 两类根因
@@ -241,20 +250,24 @@ HINT:  You might need to increase max_locks_per_transaction.
 
 ## 5. 未做 / 需用户决策
 
+> ✅ **2026-09-13 更新**：下表标 ❌ 的三行"实测无效"结论**已被 Test Janitor
+> RAII 推翻**（见 §10）——它们是 sweep 时代的判定；夹具已改接 janitor，持续泄漏
+> 已堵住。原行保留以记录演进，状态已就地更正。
+
 | 项 | 状态 | 说明 |
 |---|---|---|
-| 清完剩余 21,748 个普通 `test_*` + 25 个模板 schema | **未做** | 见 §4.2/§4.3 |
-| `src/test_utils.rs::prepare_isolated_test_pool` 接入待删登记 | ❌ **实测无效**（§9） | 同一机制；§9.3 说明 sweep 在"一进程一用例"下永不触发 |
-| `synapse-services/src/test_utils.rs` 的泄漏路径 | ❌ **疑似同因无效**（§9.3） | 同一 sweep 机制；未单独实测 |
-| `synapse-storage/src/test_utils.rs` 的泄漏路径 | ❌ **实测无效**（§9） | 临时集群上实测：每轮 +8 schema，跨轮无界增长；登记+sweep 机制对"一进程一用例"结构上无效 |
+| 清完剩余 21,748 个普通 `test_*` + 25 个模板 schema | ✅ **已完成** | 本地库已重建（`DROP/CREATE DATABASE`），schema 残留归 0（§10.1） |
+| `src/test_utils.rs::prepare_isolated_test_pool` 接入待删登记 | ✅ **已生效**（§10） | 旧 sweep 无效（§9.3）；现改 `TestSchemaGuard::new_registered` → janitor |
+| `synapse-services/src/test_utils.rs` 的泄漏路径 | ✅ **已生效**（§10） | 同型接入 janitor |
+| `synapse-storage/src/test_utils.rs` 的泄漏路径 | ✅ **已生效**（§10） | §9 的"+8/轮"判定基于 sweep；实测两轮 oidc 用例 `test_*`=0 |
 | 静态守卫锁住全部 `CREATE SCHEMA` 站点 | ✅ **已实现且已实测 RED-GREEN** | `tests/unit/schema_lifecycle_guard_tests.rs`，2 条 |
-| `synapse-services/src/media/mod.rs::prepare_media_test_pool` | ✅ **已实现**（§7.2） | 接入同一注册表；⚠️ 未跑 DB 验证 |
-| 三套夹具收敛成一份 | **未做** | **真正的根因**（§1.4）；与 `P5_workspace_test_isolation`、`P5_migration_search_path_shadowing` 同一结论 |
+| `synapse-services/src/media/mod.rs::prepare_media_test_pool` | ✅ **已实现并已验证**（§10.2） | 接入 janitor；同构推断 + 实测无泄漏 |
+| 三套夹具收敛成一份 | **未做** | **真正的根因**（§1.4）；与 `P5_workspace_test_isolation`、`P5_migration_search_path_shadowing` 同一结论。**不再造成泄漏**，是纯结构性债务 |
 | `synapse_test_template_*` 旧家族的创建方 | **未定位** | 前缀与 `synapse_test_template_ready` *标记*同名易混；已随 `synapse_test_*` 一并删除，但创建方仍未查明 |
 
-> **不宣称已完成**：本次只做掉了"存量清道夫 + 模板自动剪枝"，**没有**堵住
-> `test_*` / `media_test_*` 的持续泄漏。清理后如果照常跑测试，这两个家族仍会
-> 重新增长。在结构改造落地前，本清理是**定期维护动作**，不是一次性终结。
+> **2026-09-13 更正**：原先的"不宣称已完成"（仅存量清道夫 + 模板剪枝、持续
+> 泄漏未堵）已不成立——Test Janitor 接入后持续泄漏**已堵住**，本治理从
+> "定期维护动作"升级为"一次性终结"（残留的三套夹具收敛属结构性优化，非止血）。
 >
 > 一个可观测的收益佐证：同一个
 > `test_schema_housekeeping_tests::prune_drops_superseded_templates_and_keeps_the_current_one`
@@ -329,6 +342,11 @@ SHOW max_connections;            -- 100
 
 ## 7. 实施止血：`drop_only` 通路（已实现，未验证）
 
+> ✅ **2026-09-13 更新（见 §10）**：本节描述的 sweep 通路已被
+> `synapse_common::test_schema_guard` 的 **Test Janitor（RAII）** 取代。
+> "未验证"的状态现已结清——实测 0 泄漏（§10.2）。原文保留以记录"登记 +
+> sweep"这一版本的设计与其被推翻的过程。
+
 ### 7.1 改动
 
 根 crate `src/test_utils.rs`：
@@ -379,6 +397,47 @@ SHOW max_connections;            -- 100
 > ⚠️ 同样**未验证**：`cargo check -p synapse-services --all-features --tests` 与
 > clippy 均通过（EXIT=0，15 警告 = 基线），但未跑过任何 DB 测试。
 > sqlx 动态比棘轮 1439→1442（+3，理由已记入 baseline 文件）。
+
+### 7.3 `synapse-storage` 分叉副本（已实现，未验证）
+
+清点 `CREATE SCHEMA` 时又发现**第三份**副本：
+`synapse-storage/src/test_utils.rs::prepare_empty_isolated_test_pool`，被
+`oidc_session_storage.rs`、`refresh_token/mod.rs` 及 4 个 integration 测试直接调用，
+每次泄漏一个 `test_*` schema。处理方式与 §7.2 同型（drop-on-release 注册表 +
+入口 sweep + 独立 cleanup runtime）。
+
+该副本有一处额外约束值得记录：`synapse-storage` 连**测试支持代码**都
+`-D clippy::panic` / `expect_used` / `unwrap_used`（首次 clippy 即报
+`panic should not be present in production code`）。因此 cleanup runtime 用
+`LazyLock<Option<Runtime>>` 而非 panicking 的 `LazyLock<Runtime>`——建不起来时
+退化为"泄漏一个 schema"，而不是让测试进程崩掉。
+
+### 7.4 静态守卫：锁住全部 `CREATE SCHEMA` 站点（已实测 RED-GREEN）
+
+> ✅ **2026-09-13 更新**：守卫已随 Test Janitor 重新对焦。当前两条为
+> `every_create_schema_site_has_a_cleanup_path`（含 `CREATE SCHEMA` 的文件必须同时含
+> `DROP SCHEMA` / `register_schema_cleanup` / `test_schema_guard`）与
+> `schema_cleanup_converges_on_shared_janitor_and_blocks_private_registries`（断言共享引擎
+> 保留 `Weak<PgPool>` + `atexit` + `join()` 契约，并**禁止**任何
+> `PENDING_SCHEMA_DROPS`/`PENDING_SCHEMA_RETURNS` 私有注册表或旧 sweep API 复活）。
+> 下面原文中"sweep 是否真的在取池时被调用"这条判据已无意义——sweep 本身已被移除。
+
+`tests/unit/schema_lifecycle_guard_tests.rs`（纯静态，无 DB）：
+
+1. `every_create_schema_site_has_a_drop_path` —— 扫描 workspace 全部 `.rs`，任何
+   含 `CREATE SCHEMA` 的文件必须同时含 `DROP SCHEMA` 或
+   `register_pending_schema_drop`（`media` 属后者：委托给 `synapse-services`）；
+2. `schema_drop_sweeps_are_actually_called_on_acquisition` —— **登记了 drop 却没有
+   sweep 等于永不执行**，这正是隔离路径当初泄漏而共享路径没漏的原因。
+
+> **这是本轮唯一带有反证证据的改动。** 用 `git checkout` 把
+> `synapse-storage/src/test_utils.rs` 回滚到泄漏版本后，两条守卫**均失败**
+> （`2 tests run: 0 passed, 2 failed`）并打印出确切的违规文件与原因；恢复修复后
+> `2 passed`。
+>
+> 之所以它是本轮唯一可实测的：DB 仍在崩溃恢复（§8），其余改动跑不了任何 DB 测试。
+> 但**恰恰是这类"泄漏不违反任何断言"的缺陷最需要静态守卫**——四个副本里没有一个
+> 被 2,500+ 条既有测试发现过。
 
 ---
 
@@ -465,39 +524,6 @@ oid=129689581    files=(60s 内数不完)   # ← synapse，问题库
   `/opt/homebrew/var/postgresql@15/postgresql.conf` 在本会话文件沙箱外
   （`Operation not permitted`），改不了；同理
   `max_locks_per_transaction` 也调不了。**这是本会话的一个硬约束**。
-
-### 7.3 `synapse-storage` 分叉副本（已实现，未验证）
-
-清点 `CREATE SCHEMA` 时又发现**第三份**副本：
-`synapse-storage/src/test_utils.rs::prepare_empty_isolated_test_pool`，被
-`oidc_session_storage.rs`、`refresh_token/mod.rs` 及 4 个 integration 测试直接调用，
-每次泄漏一个 `test_*` schema。处理方式与 §7.2 同型（drop-on-release 注册表 +
-入口 sweep + 独立 cleanup runtime）。
-
-该副本有一处额外约束值得记录：`synapse-storage` 连**测试支持代码**都
-`-D clippy::panic` / `expect_used` / `unwrap_used`（首次 clippy 即报
-`panic should not be present in production code`）。因此 cleanup runtime 用
-`LazyLock<Option<Runtime>>` 而非 panicking 的 `LazyLock<Runtime>`——建不起来时
-退化为"泄漏一个 schema"，而不是让测试进程崩掉。
-
-### 7.4 静态守卫：锁住全部 `CREATE SCHEMA` 站点（已实测 RED-GREEN）
-
-`tests/unit/schema_lifecycle_guard_tests.rs`（纯静态，无 DB）：
-
-1. `every_create_schema_site_has_a_drop_path` —— 扫描 workspace 全部 `.rs`，任何
-   含 `CREATE SCHEMA` 的文件必须同时含 `DROP SCHEMA` 或
-   `register_pending_schema_drop`（`media` 属后者：委托给 `synapse-services`）；
-2. `schema_drop_sweeps_are_actually_called_on_acquisition` —— **登记了 drop 却没有
-   sweep 等于永不执行**，这正是隔离路径当初泄漏而共享路径没漏的原因。
-
-> **这是本轮唯一带有反证证据的改动。** 用 `git checkout` 把
-> `synapse-storage/src/test_utils.rs` 回滚到泄漏版本后，两条守卫**均失败**
-> （`2 tests run: 0 passed, 2 failed`）并打印出确切的违规文件与原因；恢复修复后
-> `2 passed`。
->
-> 之所以它是本轮唯一可实测的：DB 仍在崩溃恢复（§8），其余改动跑不了任何 DB 测试。
-> 但**恰恰是这类"泄漏不违反任何断言"的缺陷最需要静态守卫**——四个副本里没有一个
-> 被 2,500+ 条既有测试发现过。
 
 ---
 
