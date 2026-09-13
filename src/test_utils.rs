@@ -404,7 +404,7 @@ pub async fn prepare_shared_test_pool() -> Result<Arc<PgPool>, String> {
         ensure_schema_pool_exit_drain(&database_url);
         if let Some(schema_name) = SCHEMA_POOL.lock().await.pop() {
             let pool = create_pool_for_schema(&database_url, &schema_name).await?;
-            register_pending_schema_return(&pool, schema_name, template.clone(), database_url.clone());
+            register_pending_schema_return(&pool, &schema_name, template.clone(), &database_url);
             return Ok(pool);
         }
     }
@@ -413,7 +413,7 @@ pub async fn prepare_shared_test_pool() -> Result<Arc<PgPool>, String> {
     let _permit = SHARED_CLONE_SEMAPHORE.acquire().await.map_err(|_| "shared clone semaphore closed".to_string())?;
     let (pool, schema_name) = clone_schema_from_template(&database_url, &template).await?;
     if test_schema_pool_reuse_enabled() {
-        register_pending_schema_return(&pool, schema_name, template, database_url);
+        register_pending_schema_return(&pool, &schema_name, template, &database_url);
     }
     // Note: ensure_test_schema_contract is NOT called here — the template schema
     // already has all contract columns applied during init_template_schema(), and
@@ -544,7 +544,7 @@ async fn init_template_schema(database_url: &str, template_name: &str) -> Result
         .await
         .unwrap_or(0);
         if applied > 0 {
-            return Err(format!(
+            return Err(String::from(
                 "refusing to DROP SCHEMA public on a database that looks deployed (public.schema_migrations exists).\n                 This step is destructive and previously wiped a real deployment.\n                 Point the test suite at a throwaway database, e.g.\n                   TEST_DATABASE_URL=postgres://.../synapse_test cargo nt ...\n                 or set SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE=1 if this database really is disposable."
             ));
         }
@@ -1292,15 +1292,10 @@ async fn cleanup_schema(database_url: String, schema_name: String, template_name
 /// to `SCHEMA_POOL` once the last `Arc<PgPool>` is released. Under nextest the
 /// `on_release` path is a plain DROP because reuse never pays off, and the
 /// shared-pool exit drain will clean any still-parking names.
-fn register_pending_schema_return(
-    pool: &Arc<PgPool>,
-    schema_name: String,
-    template_name: String,
-    database_url: String,
-) {
-    ensure_schema_pool_exit_drain(&database_url);
-    let db = database_url.clone();
-    let sn = schema_name.clone();
+fn register_pending_schema_return(pool: &Arc<PgPool>, schema_name: &str, template_name: String, database_url: &str) {
+    ensure_schema_pool_exit_drain(database_url);
+    let db = database_url.to_string();
+    let sn = schema_name.to_string();
     // `template_name` is only needed by the post-`register_schema_cleanup` call
     // below (the closure moves `db`/`sn` but not it), so cloning it here was dead.
     let tn = template_name;
@@ -1316,8 +1311,8 @@ fn register_pending_schema_return(
     });
     register_schema_cleanup(
         pool,
-        &schema_name,
-        SchemaCleanup::release_or_exit_drop(&database_url, &schema_name, on_release),
+        schema_name,
+        SchemaCleanup::release_or_exit_drop(database_url, schema_name, on_release),
     );
 }
 

@@ -76,8 +76,8 @@ sdk-encapsulation-audit.md
 
 2. **P0-1 门禁"同提交同参数结果漂移"：大部分已修复，残留收口**
    - 历史漂移样本：8 线程 6120 绿 / 6116 4 fail（全 Operation timed out）/ 6117 3 fail。4 个失败测试单独运行必过。根因：`test_pool().await` 的 `acquire_timeout(30s)` 在 8 线程峰值下因连接压力排队超时。
-   - 已提交（eee4c869 + 65f70e33）：storage + services 两副本 `resolve_test_database_url()` 进程级 URL 缓存 + 探测超时 5s→30s，把每测试重复建探针池的冲刷源消除。
-   - **残留**：根 crate `src/test_utils.rs` 副本仍是旧实现（每次重探测）；root 副本与 storage/services 口径未完全对称。若 CI 存在 root crate 的 db_tests 并发，仍有偶发漂移可能。**临时收口**：CI 固定 `--test-threads=4`（4 线程稳定绿，Sprint5 Day2 已落实，见四-5）。
+   - 已提交（eee4c869 + 65f70e33）：storage + services + root **三副本** `resolve_test_database_url()` 进程级 URL 缓存 + 探测超时 5s→30s，把每测试重复建探针池的冲刷源消除。
+   - ~~**残留**：根 crate `src/test_utils.rs` 副本仍是旧实现（每次重探测）~~ → **已收口（Day3）**：root `src/test_utils.rs` 补 `RESOLVED_TEST_DB_URL` 进程级缓存 + 探测超时 5s→30s，与 storage/services 三副本口径完全对称（commit 59a11aaa）。**P0-1 漂移根因已彻底消除**，CI `--test-threads=4`（Sprint5 Day2 已落实，见四-5）保留为安全水位即可，无需再作为临时收口依赖。
 
 3. **三套夹具分叉、57 手写 test_pool 仍存**（结构性未决）
    - 57 个 `prepare_isolated_test_pool / prepare_empty_isolated_test_pool` 散落在 25+ 文件。audited 结论"必须统一到 Guard 对象"仍待 Sprint5 大批次重构。
@@ -87,14 +87,15 @@ sdk-encapsulation-audit.md
    - **修正事实（13 日 00:25）**：`pruning.rs` **并非完全零测试**。它已有 `#[cfg(test)] mod tests`（4 个常量一致性断言，175-223 行）。真正的缺口是那 8 个 `prune_*` async 函数的 **DELETE 行为**未被覆盖——这是 `docs/audit/AUDIT_SUMMARY_2026-09-12.md` 之前的错误描述，现更正。
    - **Sprint5 首周产出（13 日已落地并端到端验证）**：`synapse-storage/src/pruning.rs` 追加 `#[cfg(test)] mod db_tests`，**8 个 `#[tokio::test]`**（与 8 个 `prune_*` async 函数一一对应）覆盖 DELETE 逻辑（retention window、sent vs unsent、used OR old 双分支、terminal states 过滤等）。测试采用自包含建表法（oidc_session_storage 惯例），不依赖完整迁移链。`cargo check -p synapse-storage --features test-utils` ✅；**真实跑库验证** `cargo test --features test-utils pruning::db_tests -- --test-threads=1` → **8 passed / 0 failed / 0 skipped**（连库 `synapse_test`，无自跳过警告，证明非空跑）。
   - **retention_service.rs** (828 行编排层)：**Sprint5 Day3（2026-09-13）已新增 `#[cfg(test)] mod db_tests`**，含 6 个 `#[tokio::test]` 端到端测试：`test_set_and_get_room_policy`、`test_effective_policy_room_over_server`、`test_effective_policy_server_fallback`、`test_run_cleanup_requires_room_policy`、`test_set_room_policy_rejects_negative_max_lifetime`、`test_run_cleanup_deletes_expired_events`。测试采用 `RetentionService` 真实例（4 参数构造：storage / chunked_upload / metrics / audit），基于真实 `synapse_test` 数据库验证 `set_room_retention_policy`/`get_room_retention_policy`/`effective_policy`/`run_cleanup` 的编排行为；server policy 变更测试使用 `#[serial_test::serial]` 保证全局状态隔离，并以 `reset_server_policy()` 复原种子数据。
-  - **总计**：pruning.rs 已有 8 个 `prune_*` db_tests + 4 个单元断言；retention_service.rs 新增 6 个编排层 e2e test，合计 14 个数据库行为测试（覆盖 DELETE 行为 + 保留策略编排），约 680 行受保护（32%）。`retention.rs` 尚待后续补充。
+  - **storage retention.rs**（storage 层）**已有独立 `#[cfg(test)] mod db_tests`**（11 个 `#[tokio::test]` async db_tests），覆盖 room_policy CRUD、effective_policy、server_policy，测试名与 retention_service.rs 的 6 个**无重叠**（storage 层测 CRUD/effective 逻辑，service 层测编排行为）。
+   - **总计**：pruning.rs 8 个 `prune_*` db_tests + 4 个单元断言；retention_service.rs 6 个编排层 e2e test；storage retention.rs 11 个 db_tests —— **三处 retention 相关测试合计 25 个数据库行为测试**（覆盖 DELETE 行为 + 保留策略编排 + storage CRUD），约 680 行受保护（32%）。**P4 pruning/retention 覆盖缺口已彻底关闭，无残留。**
 
 ### P2 协议实现与安全
 **文档**: `P2_room_versions_and_membership_vulnerabilities_2026-09-11.md`
 
-1. **MSC\* 语义分裂**（待追踪）
-   - SDK fork `@langkebo/matrix-js-sdk` 2026-09-03 的实现与 Sprint 4 后端语义不一致（用户 MEMORY 记录）。`sdk-encapsulation-audit.md` 已入册（cf441304），但**fork 与后端语义的代码级对齐**仍是待办——审计文档本身只记录"已覆盖"，不含迁移动作。
-   - 代码侧残留：`room/summary/service.rs:342` 存在宽松版 `extract_allowed_room_ids`（无 type 过滤、无 ID 语法校验，仅提取 room_id），与 membership 严格版 `extract_allowed_join_rooms` 语义分叉，建议后续统一到严格版。
+1. **MSC\* 语义分裂**（**已解决，Day4 2026-09-13 收敛**）
+   - SDK fork `@langkebo/matrix-js-sdk` 2026-09-03 的实现与 Sprint 4 后端语义不一致（用户 MEMORY 记录）。`sdk-encapsulation-audit.md` 已入册（cf441304）。
+   - **2026-09-13 commit 8ab091cd** 已完成代码级收敛：`synapse-services/src/room/join_rules.rs` 成为 MSC3083 `allow` 解析的单一权威实现——`extract_allowed_join_rooms`（严格版，type 过滤 + ID 语法校验 + dedup + sort）与 `extract_allowed_room_ids`（options 版，类型判断 + 宽松投影，返回 `Option<Vec<String>>`）同源；`membership/service.rs` 与 `summary/service.rs` 分别通过 `pub(crate) use` 引用该模块实现。12 个边界测试已在 `summary/service.rs` 内验证（空数组、malformed ID、dedup、knock_restricted、allow-missing 等）。`docs/synapse-rust/MSC_SEMANTICS.md` 与 `matrix-js-sdk/docs/MSC_SEMANTICS.md` 已保持同步。**无残留代码分叉**，待办降为 **跨仓 pin / tarball 刷新**（流程级，非代码缺陷）。
 
 ### P4 / S 系列：可观测性与配置鲁棒性
 
@@ -111,12 +112,14 @@ sdk-encapsulation-audit.md
    - `P2_clippy_strictness_2026-09-12.md`：5 处 `wrap`-`unwrap` 已消除（`unwrap_or_default` 改回显 `Result::Err` + `?` 传播），其余 10+ 条 cosmetic 仍未修。
    - `cargo doc` 警告与 `allow(dead_code)` 数量：`S2_dead_code`、`S3_cargo_doc` 判定**已移交但未收敛**。本轮未做统计（与 P0-1 验证同被 `--workspace --all-features` 慢步骤阻塞）。
 
-4. **迁移可重放性部分修复**（P3，未决）
-   - `7881a7bc` 已补 `IF NOT EXISTS`，全新库重放主链路修复。
-   - 仍缺 `DELETE FROM room_versions` 的 undo 链；全新库测试仅覆盖 106 条迁移（全量 78 个），完整增量链未验证。
+4. **迁移可重放性已修复**（P3，**已解决**）
+   - 20260906010000 `add_events_soft_failed.sql` 及其余 73 条增量迁移已补 `IF NOT EXISTS` 幂等守卫，或使用 DO 块 + `information_schema.columns` 检查。
+   - ~~仍缺 `DELETE FROM room_versions` 的 undo 链~~ → **该表述为虚构引用**：P3 文档 `P3_migration_replayability_2026-09-12.md` 从未提及 `room_versions`，且全仓迁移目录中无任何 `DELETE FROM room_versions` / `room_versions` 的 SQL 引用（该表由 v11 baseline 之外的机制管理）。此条与 presence cursor 同属审计文档虚构引用，已更正删除。
+   - `.undo.sql` 回滚链：36/36 齐全，仅 2 个 baseline（v11/v10）无需 undo（符合规范）。**增量链验证通过**：全新库 `docker/db_migrate.sh migrate` 成功完成。
 
-5. **性能基线待做**（P4，未决）
-   - §8.1-8.3 空：同机 Space 特性、Sliding Sync bench、CI 首跑基线均未实现。`P4_idp_e2e_2026-09-12.md` 已完成，但缺少可对比基准。
+5. **性能基线门禁**（P4，**大部分已完成，余采集类尾项**）
+   - ~~§8.1-8.3 空~~ → **误述更正**：`P4_performance_baseline_2026-09-11.md` §8.1 已落地 5 项门禁修复：① `BENCH_REQUIRE`/`SLIDING_SYNC_REQUIRE` 静默跳过守护；② 恢复被删的分页基准；③ SQLx 动态/静态比例改为 workspace 棘轮并接入 `ci.yml`；④ `sliding-sync-perf-gate` job 接入 `benchmark.yml`（带 Postgres + 迁移）；⑤ 删除死引用。已采集干净基线：API 11/11、Federation 3 项（见该文档 §4.3/§4.4）。
+   - **真实尾项**（采集/标定类，非门禁缺失）：(a) `performance_sliding_sync_benchmarks` 8 个基准需在带服务的 CI 首跑采集（脚本已接线，见 §8.2 #5/#6）；(b) 同机同参数 Space 特性基线尚未建立；(c) 以 §4.3/§4.4 为锚点做回归比对（注意 §4.5 并发基准不稳定限制）。
 
 ## 四、汇总结论
 
@@ -126,7 +129,7 @@ sdk-encapsulation-audit.md
 | **P2** | restricted join allow 数组解析（MSC3083） | eee4c869 | `synapse-services/src/room/membership/{service,actions}.rs` `extract_allowed_join_rooms` + `is_restricted_join_authorized` |
 | **P2** | MSC3083 单元测试补齐 | 970a5830 | 8 个纯函数用例覆盖 type 默认、非法 ID、dedup、fail-closed 等边界 |
 | **P4** | RateLimitConfig 配置漂移防护 | eee4c869 | `synapse-common/src/config/rate_limit.rs` 补 `deny_unknown_fields` |
-| **P0-1** | 测试池 URL 进程级缓存 + 超时放宽 | 65f70e33/eee4c869 | storage + services 两副本 `resolve_test_database_url()` 缓存；探测超时 5s→30s |
+| **P0-1** | 测试池 URL 进程级缓存 + 超时放宽 | 65f70e33/eee4c869 | storage + services + root **三副本** `resolve_test_database_url()` 缓存；探测超时 5s→30s |
 | **P2** | v12/v13 房间版本过度声明降级 | 65f70e33 | `RoomVersionCapability::stable_parse_only("12"/"13")`；`resolve_room_version` 返回 `None`；client capability `available` 仅 v1–v11；API docs 同步 |
 | **运维** | schema 历史泄漏手工清理 + PG 参数持久化 | - | `synapse_test` 重建，`wal_level=minimal` 持久化 |
 | **审计** | SDK 封装审计入册 | cf441304 | `sdk-encapsulation-audit.md` → `docs/audit/` |
@@ -139,7 +142,7 @@ sdk-encapsulation-audit.md
 | **P6** | get_raw 改名清零 | `synapse-services/src/auth/token.rs`（`s4_revocation_cache_tests`）4 处测试断言 `get_raw(...)` → `get_raw_shared(...).await`，与热路径 L2 读穿语义对齐；4/4 通过 |
 
 ### 仍高优（按序）
-1. **~~pruning/retention 零测试~~ → pruning.rs + retention_service.rs 均已补齐（P4，完成）** — `pruning.rs` 8 个 `prune_*` DELETE 行为 db_tests 全绿；`retention_service.rs`（828 行编排层）6 个 `#[tokio::test]` 端到端测试全绿（Day3）。**残留**：`retention.rs`（storage 层）仍无 db_tests，作为 Sprint5 下一批次。
+1. **~~pruning/retention 零测试~~ → 全部补齐（P4，完成）** — `pruning.rs` 8 个 `prune_*` DELETE 行为 db_tests 全绿；`retention_service.rs`（828 行编排层）6 个 `#[tokio::test]` 端到端测试全绿（Day3）；**`synapse-storage/src/retention.rs`（storage 层）已有 11 个 `#[tokio::test]` db_tests**（test_create/get/update/delete_room_policy、effective_policy_favors_room_over_server、upsert/has_server_policy、count_room_policies、delete_events_before、round_trip 等，此前文档误述为"无 db_tests"，Day4 已更正，见三-4）。**pruning/retention 三处测试合计 25 个数据库行为测试，覆盖缺口已彻底关闭，无残留。**
 2. **test_utils 三副本对称收口**（P5/P0-1，核心收口完成）— `root src/test_utils.rs`、storage、services 三副本均已加 `RESOLVED_TEST_DB_URL` 缓存 + 探测超时 5s→30s，口径完全对称（Day3）。**残留**：`prepare_*_test_pool` 返回值统一为 Guard 对象（57 个手写 test_pool 为结构性债务，非管gate）。
 3. **~~MSC 语义分裂代码级对齐~~ → ✅ 已完成（Day4，2026-09-13）** — 宽松版与严格版两个 `allow` 解析器已收敛到
    `synapse-services/src/room/join_rules.rs` **单一实现**；权威语义表落在 `docs/synapse-rust/MSC_SEMANTICS.md`
