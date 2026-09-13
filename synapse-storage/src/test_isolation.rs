@@ -13,200 +13,65 @@
 //! let pool = test_pool.pool();
 //! // Schema is auto-dropped when test_pool is dropped
 //! ```
+//!
+//! The template-schema machinery (fingerprint, naming, advisory lock, build,
+//! single-round-trip clone, inventory validation) lives in
+//! [`synapse_common::test_isolation`]. This module is the `synapse-storage`
+//! adapter: it owns test-DB URL resolution and the per-test pool lifecycle,
+//! and delegates the shared work.
 
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use std::sync::Arc;
 use std::time::Duration;
 
-// NOTE on cleanup strategy (2026-09-11)
-//
-// `Drop::drop` is synchronous and cannot await, so schema cleanup must be
-// delegated. Three approaches were tried:
-//
-//   1. `std::thread::spawn` + block_on — **leaked 100%**. Under nextest (one
-//      process per test) the process exits before the thread reaches Postgres.
-//   2. `LazyLock<Runtime>::spawn` — **also leaked 100%**. Dropping the runtime
-//      at process exit *cancels* in-flight async tasks rather than awaiting
-//      them, so the `DROP SCHEMA` never ran.
-//   3. Spawn a thread and **join it** before `drop` returns — this is the only
-//      variant that guarantees the schema is gone before the process exits.
-//      It costs a connect + DROP per test, which is the price of not
-//      accumulating schemas.
-//
-// Measured: 24 isolated tests leaked exactly 24 schemas under (1) and (2); the
-// local database had accumulated 22,532 `test_*` schemas.
-
-/// First non-empty line of a statement, for warn-log context.
-fn first_line(s: &str) -> &str {
-    s.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("")
-}
-
-/// Removes `COPY ... FROM stdin;` ... `\.` blocks (test data seeding) from a
-/// migration file.  The seed data is not needed for isolated schemas, and the
-/// bare data lines would otherwise be executed as (failing) statements.
-fn strip_copy_blocks(sql: &str) -> String {
-    let mut out = String::new();
-    let mut in_copy = false;
-    for line in sql.split_inclusive('\n') {
-        let t = line.trim_start();
-        if !in_copy && t.starts_with("COPY") && t.contains("FROM stdin") {
-            in_copy = true;
-            continue;
-        }
-        if in_copy {
-            if t.starts_with("\\.") {
-                in_copy = false;
-            }
-            continue;
-        }
-        out.push_str(line);
-    }
-    out
-}
-
-/// Splits SQL text into individual statements, correctly handling:
-/// - `--` line comments and `/* */` block comments (skipped, not emitted)
-/// - `'...'` string literals (with `''` escapes)
-/// - `"..."` quoted identifiers (with `""` escapes)
-/// - `$$...$$` / `$tag$...$tag$` dollar-quoted bodies (functions, DO blocks)
-/// - `;` statement terminators outside all of the above
+/// Resolve the test database URL.
 ///
-/// Unlike a naive `split(';')`, a chunk that begins with a comment line is not
-/// dropped together with the statements that follow it.
-fn split_sql_statements(sql: &str) -> Vec<String> {
-    let chars: Vec<char> = sql.chars().collect();
-    let n = chars.len();
-    let mut statements = Vec::new();
-    let mut current = String::new();
-    let mut i = 0;
-
-    while i < n {
-        let c = chars[i];
-
-        // `--` line comment: skip to end of line.
-        if c == '-' && i + 1 < n && chars[i + 1] == '-' {
-            while i < n && chars[i] != '\n' {
-                i += 1;
-            }
-            continue;
-        }
-
-        // `/* ... */` block comment.
-        if c == '/' && i + 1 < n && chars[i + 1] == '*' {
-            i += 2;
-            while i + 1 < n && !(chars[i] == '*' && chars[i + 1] == '/') {
-                i += 1;
-            }
-            i = (i + 2).min(n);
-            continue;
-        }
-
-        // `'...'` string literal with `''` escapes.
-        if c == '\'' {
-            current.push(c);
-            i += 1;
-            while i < n {
-                if chars[i] == '\'' {
-                    if i + 1 < n && chars[i + 1] == '\'' {
-                        current.push('\'');
-                        current.push('\'');
-                        i += 2;
-                        continue;
-                    }
-                    current.push('\'');
-                    i += 1;
-                    break;
-                }
-                current.push(chars[i]);
-                i += 1;
-            }
-            continue;
-        }
-
-        // `"..."` quoted identifier with `""` escapes.
-        if c == '"' {
-            current.push(c);
-            i += 1;
-            while i < n {
-                if chars[i] == '"' {
-                    if i + 1 < n && chars[i + 1] == '"' {
-                        current.push('"');
-                        current.push('"');
-                        i += 2;
-                        continue;
-                    }
-                    current.push('"');
-                    i += 1;
-                    break;
-                }
-                current.push(chars[i]);
-                i += 1;
-            }
-            continue;
-        }
-
-        // `$tag$ ... $tag$` dollar-quoted body.
-        if c == '$' {
-            let mut j = i + 1;
-            while j < n && chars[j] != '$' {
-                j += 1;
-            }
-            if j < n {
-                let tag: String = chars[i..=j].iter().collect();
-                let tag_len = tag.len();
-                current.push_str(&tag);
-                let body_start = j + 1;
-                i = body_start;
-                let mut found = false;
-                while i + tag_len <= n {
-                    if chars[i..i + tag_len].iter().collect::<String>() == tag {
-                        // Push the body AND the closing tag, not just the tag.
-                        let seg: String = chars[body_start..i + tag_len].iter().collect();
-                        current.push_str(&seg);
-                        i += tag_len;
-                        found = true;
-                        break;
-                    }
-                    i += 1;
-                }
-                if !found {
-                    let seg: String = chars[body_start..].iter().collect();
-                    current.push_str(&seg);
-                    i = n;
-                }
-                continue;
-            }
-            // Lone `$` — keep as ordinary character.
-            current.push(c);
-            i += 1;
-            continue;
-        }
-
-        // Statement terminator outside strings/comments/dollar bodies.
-        if c == ';' {
-            let trimmed = current.trim();
-            if !trimmed.is_empty() {
-                statements.push(current);
-            }
-            current = String::new();
-            i += 1;
-            continue;
-        }
-
-        current.push(c);
-        i += 1;
+/// Precedence: `TEST_DATABASE_URL`, then `DATABASE_URL`, then the documented
+/// local convention. The env-var path is deliberately zero-probe so the hot
+/// path never pays connection-probe latency.
+///
+/// Storage keeps its own resolver on purpose: the shared module deliberately
+/// does not provide one, because its callers do not agree on a fallback chain.
+fn test_database_url() -> String {
+    if let Ok(url) = std::env::var("TEST_DATABASE_URL") {
+        return url;
     }
-
-    let trimmed = current.trim();
-    if !trimmed.is_empty() {
-        statements.push(current);
+    if let Ok(url) = std::env::var("DATABASE_URL") {
+        return url;
     }
+    for candidate in [
+        "postgresql://synapse:synapse@localhost:15432/synapse_test",
+        "postgresql://synapse:synapse@localhost:15432/synapse",
+        "postgresql://synapse:synapse@localhost:5432/synapse_test",
+        "postgresql://synapse:synapse@localhost:5432/synapse",
+    ] {
+        if tcp_reachable(candidate) {
+            return candidate.to_string();
+        }
+    }
+    "postgresql://synapse:synapse@localhost:5432/synapse_test".to_string()
+}
 
-    statements
+/// Cheap synchronous reachability probe for a Postgres URL's host:port.
+fn tcp_reachable(url: &str) -> bool {
+    let Some(authority) = url.split("://").nth(1).and_then(|rest| rest.split('/').next()) else {
+        return false;
+    };
+    let Some(host_port) = authority.rsplit('@').next() else {
+        return false;
+    };
+    let (host, port) = match host_port.rsplit_once(':') {
+        Some((host, port)) => (host, port.parse::<u16>().unwrap_or(5432)),
+        None => (host_port, 5432),
+    };
+    let Ok(addrs) = std::net::ToSocketAddrs::to_socket_addrs(&(host, port)) else {
+        return false;
+    };
+    addrs.into_iter().any(|addr| std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(500)).is_ok())
 }
 
 /// Creates a pool connected to a fresh isolated schema per test.
-/// Each schema is created from the v11 baseline and dropped on Drop.
+/// Each schema is cloned from the shared v11 baseline template and dropped on Drop.
 pub struct IsolatedTestPool {
     pool: Arc<PgPool>,
     schema: String,
@@ -215,67 +80,35 @@ pub struct IsolatedTestPool {
 impl IsolatedTestPool {
     /// Create a new isolated test pool with a unique schema.
     pub async fn new() -> Result<Self, sqlx::Error> {
-        let db_url = std::env::var("TEST_DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse_test".to_string());
+        let db_url = test_database_url();
 
-        // Admin pool to create/drop schema.  We must NOT share a connection
-        // between concurrent IsolatedTestPool::new() callers, because each
-        // test sets `search_path` on its connection and parallel baseline
-        // application can otherwise leak schema state between tests.
-        // max_connections is kept at 2: each call only ever acquires one
-        // admin connection (for baseline application); a large cap is
-        // over-provisioning that adds parallel pressure on the Postgres
-        // `max_connections` limit when many tests initialize schemas at once.
-        let admin_pool =
-            PgPoolOptions::new().max_connections(2).acquire_timeout(Duration::from_secs(60)).connect(&db_url).await?;
+        // The template name is a content fingerprint of this string, so the
+        // concatenation is load-bearing: `v11 ++ extensions` (no separator)
+        // yields `bec240fb79ed438b`, the existing real-baseline template.
+        // Inserting a separator or swapping the order silently forks a second
+        // template (the shared `ensure_template_schema` would build it from
+        // scratch) instead of reusing the one already in the database.
+        let baseline_sql = concat!(
+            include_str!("../../migrations/00000000_unified_schema_v11.sql"),
+            include_str!("../../migrations/00000001_extensions_v10.sql"),
+        );
+        let template = synapse_common::test_isolation::ensure_template_schema(&db_url, baseline_sql)
+            .await
+            .map_err(sqlx::Error::Protocol)?;
 
         let schema = format!("test_{}", uuid::Uuid::new_v4().as_simple());
 
-        // Create isolated schema
-        sqlx::query(&format!(r#"CREATE SCHEMA "{}""#, schema)).execute(&admin_pool).await?;
-
-        // Clone v11 baseline into the new schema.  Use a dedicated connection
-        // (acquired once) so concurrent IsolatedTestPool::new() callers don't
-        // stomp on each other's `search_path`.
-        let baseline_sql = include_str!("../../migrations/00000000_unified_schema_v11.sql");
-        let extensions_sql = include_str!("../../migrations/00000001_extensions_v10.sql");
-
-        let mut admin_conn = admin_pool.acquire().await?;
-        let set_path = format!(r#"SET search_path TO "{}", public"#, schema);
-        sqlx::query(&set_path).execute(&mut *admin_conn).await?;
-
-        // The v11 baseline contains `$$...$$` function/DO bodies, string
-        // literals and comments.  A naive `split(';')` chops function bodies
-        // at inner `;` and — worse — a chunk that *starts* with a `--`
-        // comment line carries the following statements with it, silently
-        // dropping whole tables (e.g. `users`) from the isolated schema.
-        // Queries for those tables then fall back to the shared `public`
-        // schema via the search_path, polluting it and breaking UNIQUE
-        // constraints under parallel execution.  Use a proper splitter.
-        let baseline_sql = strip_copy_blocks(baseline_sql);
-        for stmt in split_sql_statements(&baseline_sql) {
-            let trimmed = stmt.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            if let Err(e) = sqlx::query(trimmed).execute(&mut *admin_conn).await {
-                // Do NOT silently swallow: a failing baseline statement leaves
-                // the isolated schema incomplete and later queries silently
-                // fall back to the shared `public` schema.
-                tracing::warn!(schema = %schema, "baseline statement failed: {e} | stmt head: {}", first_line(trimmed));
-            }
-        }
-
-        for stmt in split_sql_statements(extensions_sql) {
-            let trimmed = stmt.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            if let Err(e) = sqlx::query(trimmed).execute(&mut *admin_conn).await {
-                tracing::warn!(schema = %schema, "extensions statement failed: {e} | stmt head: {}", first_line(trimmed));
-            }
-        }
-        drop(admin_conn);
+        // One round trip: every table, index, constraint, function, view and
+        // trigger. The shared clone helper does not create the schema, so the
+        // caller creates it and puts it first on the session `search_path`.
+        let clone_pool =
+            PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(60)).connect(&db_url).await?;
+        sqlx::query(&format!(r#"CREATE SCHEMA "{schema}""#)).execute(&clone_pool).await?;
+        sqlx::query(&format!(r#"SET search_path TO "{schema}", public"#)).execute(&clone_pool).await?;
+        synapse_common::test_isolation::clone_schema_from_template(&clone_pool, &schema, &template)
+            .await
+            .map_err(sqlx::Error::Protocol)?;
+        drop(clone_pool);
 
         // Create test pool with isolated search_path.  Use `connect_lazy` so we
         // can also run a `SET search_path` on the first connection *before* any
@@ -328,11 +161,36 @@ impl IsolatedTestPool {
     }
 }
 
+// NOTE on cleanup strategy (2026-09-11)
+//
+// `Drop::drop` is synchronous and cannot await, so schema cleanup must be
+// delegated. Three approaches were tried:
+//
+//   1. `std::thread::spawn` + block_on — **leaked 100%**. Under nextest (one
+//      process per test) the process exits before the thread reaches Postgres.
+//   2. `LazyLock<Runtime>::spawn` — **also leaked 100%**. Dropping the runtime
+//      at process exit *cancels* in-flight async tasks rather than awaiting
+//      them, so the `DROP SCHEMA` never ran.
+//   3. Spawn a thread and **join it** before `drop` returns — this is the only
+//      variant that guarantees the schema is gone before the process exits.
+//      It costs a connect + DROP per test, which is the price of not
+//      accumulating schemas.
+//
+// Measured: 24 isolated tests leaked exactly 24 schemas under (1) and (2); the
+// local database had accumulated 22,532 `test_*` schemas.
+
 impl Drop for IsolatedTestPool {
     fn drop(&mut self) {
         let schema = self.schema.clone();
-        let db_url = std::env::var("TEST_DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse_test".to_string());
+        let db_url = test_database_url();
+
+        // Never drop the shared template. `new()` only ever puts a `test_<uuid>`
+        // schema in `self.schema`, so this guards a future refactor rather than
+        // a reachable path today.
+        if schema.starts_with("test_isolation_template_") {
+            tracing::error!("refusing to drop the shared isolation template schema {schema}");
+            return;
+        }
 
         // Spawn a thread and JOIN it: dropping the schema must complete before
         // this returns, otherwise process exit races the cleanup and leaks the
@@ -366,6 +224,12 @@ impl Drop for IsolatedTestPool {
 #[cfg(test)]
 mod search_path_tests {
     use super::*;
+    use synapse_common::test_isolation::{first_line, split_sql_statements, strip_copy_blocks};
+
+    // The pure SQL-parsing tests now exercise the shared implementation (the
+    // local copies were deleted in this refactor). They stay here rather than
+    // being dropped so the storage suite keeps direct coverage of the parsers
+    // it feeds its baseline through.
 
     #[test]
     fn split_handles_functions_do_blocks_and_comments() {

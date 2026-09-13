@@ -213,10 +213,32 @@ pub fn configured_test_db_template_schema() -> Option<String> {
     env_string("TEST_DB_TEMPLATE_SCHEMA")
 }
 
+/// Baseline SQL for isolated schemas. Passed to `synapse_common::test_isolation`
+/// because the migration files live at the workspace root.
+///
+/// The concatenation order (`v11` then `extensions`) and the absence of a
+/// separator are load-bearing: the template name is an FNV-1a fingerprint of
+/// this exact string, and any change mints a second template schema.
+fn isolated_baseline_sql() -> &'static str {
+    concat!(
+        include_str!("../../migrations/00000000_unified_schema_v11.sql"),
+        include_str!("../../migrations/00000001_extensions_v10.sql"),
+    )
+}
+
 /// See [`prepare_isolated_test_pool`].
+///
+/// The schema is cloned from the shared, fingerprint-named baseline template
+/// (see `synapse_common::test_isolation`), so it carries every baseline table.
+/// It must NOT be filled by the runtime `DatabaseInitService`: that initializer
+/// does not create every baseline table (notably the retention tables), so
+/// unqualified queries silently fell back to the shared `public` schema through
+/// `search_path = <schema>, public` and produced order-dependent failures.
 pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     let database_url = resolve_test_database_url().await?;
     let schema_name = next_test_schema_name();
+    let template =
+        synapse_common::test_isolation::ensure_template_schema(&database_url, isolated_baseline_sql()).await?;
 
     let connect_timeout = configured_test_pool_connect_timeout();
     let admin_pool = tokio::time::timeout(
@@ -224,21 +246,20 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
         PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(&database_url),
     )
     .await
-    .map_err(|_| format!("failed to connect admin pool: timed out after {connect_timeout:?}"))?
+    .map_err(|_| "failed to connect admin pool: timed out".to_string())?
     .map_err(|error| format!("failed to connect admin pool: {error}"))?;
 
-    sqlx::query(&format!("CREATE SCHEMA {schema_name}"))
+    sqlx::query(&format!(r#"CREATE SCHEMA "{schema_name}""#))
         .execute(&admin_pool)
         .await
         .map_err(|error| format!("failed to create schema {schema_name}: {error}"))?;
 
-    if sqlx::query(&format!("CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA {schema_name}"))
+    sqlx::query(&format!(r#"SET search_path TO "{schema_name}", public"#))
         .execute(&admin_pool)
         .await
-        .is_err()
-    {
-        let _ = sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm").execute(&admin_pool).await;
-    }
+        .map_err(|error| format!("failed to set search_path for {schema_name}: {error}"))?;
+
+    synapse_common::test_isolation::clone_schema_from_template(&admin_pool, &schema_name, &template).await?;
 
     let search_path_sql = format!("SET search_path TO {schema_name}, public");
     let pool = tokio::time::timeout(
@@ -264,27 +285,13 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
 
     let pool = Arc::new(pool);
 
-    let init_timeout = configured_test_db_init_timeout();
-    let report = tokio::time::timeout(
-        init_timeout,
-        DatabaseInitService::new(pool.clone()).with_mode(DatabaseInitMode::Strict).initialize(),
-    )
-    .await
-    .map_err(|_| format!("database initialization timed out after {:?} for {schema_name}", init_timeout))?
-    .map_err(|error| format!("strict migration initialization failed for {schema_name}: {error}"))?;
-
-    if !report.is_success {
-        return Err(format!(
-            "strict migration initialization reported errors for {schema_name}: {}",
-            report.errors.join(" | ")
-        ));
-    }
-
+    // NOTE: the `DatabaseInitService ... .initialize()` block that used to sit
+    // here is deliberately GONE. The clone above already carries every baseline
+    // table; the runtime initializer does not create the retention tables, which
+    // is exactly what made those queries fall back to `public`.
     ensure_test_schema_contract(&pool).await?;
 
-    // Register cleanup with the shared janitor. This schema was built by
-    // replaying every migration into it, not by cloning the template, so it
-    // cannot be safely TRUNCATEd-and-reused — a plain drop is its lifetime.
+    // Register cleanup with the shared janitor (plain drop, as before).
     register_schema_cleanup(&pool, &schema_name, SchemaCleanup::drop_only(&database_url, &schema_name));
     Ok(pool)
 }

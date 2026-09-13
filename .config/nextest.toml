@@ -19,21 +19,19 @@ path = "artifacts/nextest-junit.xml"
 # Adding cargo-test-group dev-dependency + marking 86 tests is not worth the
 # complexity. Parallelism tuning (test-threads=12) already captures most gains.
 
-# Day5: retention server-policy serial group. These 3 tests mutate the global
-# single-row `server_retention_policy` (id=1); under nextest's process-per-test
-# model, `#[serial_test::serial]` is an in-process lock and does NOT serialize
-# across processes, so concurrent runs race (observed: test_run_cleanup_requires_room_policy
-# reads a server policy row left by a sibling process → assertion fails). A
-# max-threads=1 test-group gives nextest a cross-process mutex for exactly
-# these tests; everything else stays fully parallel. The `#[serial_test::serial]`
-# attribute is kept so `cargo test --test-threads=1` and `cargo test` (single
-# process) remain correct too.
-[test-groups]
-retention-server-policy = { max-threads = 1 }
-
-[[profile.default.overrides]]
-filter = 'package(synapse-services) & test(/^retention_service::db_tests::(test_effective_policy_|test_run_cleanup_requires_room_policy$)/)'
-test-group = 'retention-server-policy'
+# NOTE: the `retention-server-policy` test-group used to live here. It existed
+# because `retention_service::db_tests` ran against the SHARED database and all
+# three tests mutated the same global single-row `server_retention_policy`
+# (id = 1); under nextest's process-per-test model `#[serial_test::serial]` is an
+# in-process lock that does NOT serialize across processes, so concurrent runs
+# raced. Those tests now use per-test isolated schemas
+# (`prepare_isolated_test_pool`), so each process mutates its OWN copy of that
+# row and the cross-process race is gone by construction (verified: the cohort
+# passes 3/3 consecutive runs at --test-threads 4).
+#
+# The test-group was a workaround for shared mutable state. It is redundant now
+# and was removed so the suite stays fully parallel. Do not re-add it: if a test
+# needs a mutex, the correct fix is per-test schema isolation, not serialization.
 
 # P4-3: TDD profile for fast Red-Green-Refactor cycles.
 # Usage: cargo nextest run -p <crate> <test_name> -P tdd
