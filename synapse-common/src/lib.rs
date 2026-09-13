@@ -90,6 +90,9 @@ pub mod server_metrics;
 pub mod task_queue;
 /// Module `telemetry_config`.
 pub mod telemetry_config;
+/// Module `test_isolation`. Compiled unconditionally (not gated behind
+/// `cfg(test)`), because sibling crates' `#[cfg(test)]` fixtures call it.
+pub mod test_isolation;
 /// Module `test_schema_guard`. Compiled unconditionally (not gated behind
 /// `test-utils`) so that `#[cfg(test)]` fixture code in dependent crates can
 /// register cleanups even when built without the feature.
