@@ -25,10 +25,13 @@
 //! in. `v11 ++ extensions`, with no separator, hashes to `bec240fb79ed438b`.
 //! Inserting a separator (`"\n"`) or swapping the order mints a *second*
 //! template, so the suite silently rebuilds the entire baseline once more and
-//! stops sharing the template the database already has.
+//! stops sharing the template the database already has. Guard 5 therefore
+//! re-evaluates each fixture's `concat!` and hashes the resulting string,
+//! rather than pattern-matching its text.
 //!
-//! These tests are static: they read the fixture sources, so they need no
-//! database and no `TEST_DATABASE_URL`.
+//! These tests are static: they read the fixture sources (and, through
+//! `include_str!`, the two baseline migrations), so they need no database and
+//! no `TEST_DATABASE_URL`.
 
 use std::fs;
 
@@ -37,27 +40,72 @@ const SERVICES: &str = "synapse-services/src/test_utils.rs";
 const COMMON: &str = "synapse-common/src/test_isolation.rs";
 const COMMON_LIB: &str = "synapse-common/src/lib.rs";
 
+/// The two baseline migrations, compiled in. Guard 5 hashes these to pin the
+/// template the database already holds.
+const V11: &str = include_str!("../../migrations/00000000_unified_schema_v11.sql");
+const EXTENSIONS: &str = include_str!("../../migrations/00000001_extensions_v10.sql");
+
+/// `v11 ++ extensions`, no separator: the baseline the shared template was
+/// built from. Any other string mints a SECOND template.
+const EXPECTED_BASELINE_FINGERPRINT: &str = "bec240fb79ed438b";
+
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))
 }
 
-/// Column-0 spellings that start a new top-level item (including its doc
-/// comment / attributes), used to bound the slice returned by [`item_body`].
-const ITEM_HEADS: [&str; 15] = [
-    "pub ", "fn ", "async ", "impl ", "struct ", "enum ", "mod ", "use ", "const ", "static ", "type ", "trait ", "#[",
-    "///", "//!",
+/// The non-`#[cfg(test)]` half of a fixture: the code that actually runs when a
+/// test calls the fixture.
+///
+/// Guard 1 needs this because `synapse-storage`'s `#[cfg(test)]` module
+/// legitimately unit-tests the shared `split_sql_statements` parser against
+/// literal SQL. That is not a per-test baseline replay, so a whole-file
+/// `contains` check would fail on correct code.
+fn production_half(src: &str) -> &str {
+    &src[..src.find("#[cfg(test)]").unwrap_or(src.len())]
+}
+
+/// Column-0 spellings that start (or end) a top-level item, used to bound the
+/// slice returned by [`item_body`].
+///
+/// The keyword allowlist is a heuristic and can never be complete, so a
+/// column-0 `}` is also a stop: rustfmt closes every top-level item's body with
+/// `}` in column 0, while inner blocks are indented. That single rule keeps the
+/// window honest even for an item form this list has not learned yet
+/// (`macro_rules!`, `extern `, `unsafe `, `pub(crate) `, …).
+const ITEM_HEADS: [&str; 20] = [
+    "pub ",
+    "pub(",
+    "fn ",
+    "async ",
+    "impl ",
+    "struct ",
+    "enum ",
+    "mod ",
+    "use ",
+    "const ",
+    "static ",
+    "type ",
+    "trait ",
+    "macro_rules!",
+    "extern ",
+    "unsafe ",
+    "#[",
+    "///",
+    "//!",
+    "}",
 ];
 
 /// Slice `src` from the line containing `marker` up to (but not including) the
-/// next top-level item.
+/// next top-level item or the column-0 `}` that closes the item.
 ///
 /// Guard 4 must inspect **only** the body of `prepare_isolated_test_pool`:
 /// `synapse-services/src/test_utils.rs` also owns the unrelated shared-pool
 /// path (`prepare_shared_test_pool` -> `init_template_schema`), which
 /// legitimately calls `DatabaseInitService`. A whole-file `contains` check
-/// would therefore fail on correct code. Bounding at the next column-0 item
-/// (here: the doc comment of `prepare_shared_test_pool`) keeps the window
-/// tight without hand-maintained line numbers.
+/// would therefore fail on correct code. Stopping at the column-0 `}` (or, for
+/// an item that has none, the next column-0 keyword) keeps the window tight
+/// without hand-maintained line numbers, and still includes the function's last
+/// statement before its closing brace.
 fn item_body<'a>(src: &'a str, marker: &str) -> &'a str {
     let start = src.find(marker).unwrap_or_else(|| panic!("source must contain `{marker}`"));
     // Walk line by line after the marker's own line; stop at the first
@@ -181,57 +229,105 @@ fn balanced_parens(src: &str, open: usize) -> &str {
     panic!("unbalanced parentheses in source");
 }
 
-/// The two `include_str!("...")` arguments of the baseline `concat!`, if they
-/// are adjacent: nothing but whitespace and commas may sit between them.
-///
-/// This is the strongest form that stays readable. `concat!` only accepts
-/// literals, so *any* injected separator must appear as a token between the two
-/// invocations; rejecting every non-whitespace/non-comma token rejects `"\n"`,
-/// `'\n'`, `1`, `concat!(...)` and friends alike. Also pins the order
-/// (`v11` then `extensions`), because a reversal is the third way to fork the
-/// fingerprint-named template.
-fn assert_adjacent_migrations(path: &str, concat_body: &str) {
-    let mut includes: Vec<(usize, usize, &str)> = Vec::new();
-    let mut from = 0;
-    while let Some(relative) = concat_body[from..].find("include_str!(") {
-        let start = from + relative;
-        let open = start + "include_str!".len();
-        let close = concat_body[open..]
-            .find(')')
-            .map_or_else(|| panic!("{path}: unterminated include_str! invocation"), |i| open + i);
-        includes.push((start, close + 1, concat_body[open + 1..close].trim()));
-        from = close + 1;
+/// FNV-1a 64 over `bytes` — the hash `synapse_common::test_isolation` uses to
+/// name the baseline template.
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
+    hash
+}
 
-    assert_eq!(
-        includes.len(),
-        2,
-        "{path}: the baseline `concat!` must join exactly the two baseline migrations \
-         (v11 + extensions); found {} `include_str!` arguments",
-        includes.len()
-    );
+/// [`fnv1a64`] as the 16 lowercase hex chars that end the template schema name.
+fn fingerprint_hex(sql: &str) -> String {
+    format!("{:016x}", fnv1a64(sql.as_bytes()))
+}
 
-    let between = &concat_body[includes[0].1..includes[1].0];
-    let residue: String = between.chars().filter(|c| !c.is_whitespace() && *c != ',').collect();
-    assert!(
-        residue.is_empty(),
-        "{path}: the two baseline `include_str!` migrations must be directly adjacent. Found the \
-         unexpected token `{residue}` between them. Any separator (for example `\"\\n\"`) changes \
-         the baseline string, which changes the FNV-1a fingerprint, which silently mints a SECOND \
-         template schema instead of reusing the one the database already has."
-    );
+/// Read the Rust string literal starting at byte `open` (which must be `"`),
+/// returning its decoded contents and the byte index just past the closing `"`.
+///
+/// Only escapes that can plausibly appear in a baseline `concat!` are decoded;
+/// anything else panics rather than silently hashing the wrong string.
+fn read_string_literal(path: &str, src: &str, open: usize) -> (String, usize) {
+    let bytes = src.as_bytes();
+    assert_eq!(bytes.get(open), Some(&b'"'), "{path}: expected a string literal at byte {open}");
+    let mut decoded = String::new();
+    let mut i = open + 1;
+    let mut chunk_start = i;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'"' => {
+                decoded.push_str(&src[chunk_start..i]);
+                return (decoded, i + 1);
+            }
+            b'\\' => {
+                decoded.push_str(&src[chunk_start..i]);
+                i += 1;
+                let escaped = *bytes.get(i).unwrap_or_else(|| panic!("{path}: unterminated string literal"));
+                match escaped {
+                    b'n' => decoded.push('\n'),
+                    b'r' => decoded.push('\r'),
+                    b't' => decoded.push('\t'),
+                    b'0' => decoded.push('\0'),
+                    b'\\' => decoded.push('\\'),
+                    b'"' => decoded.push('"'),
+                    b'\'' => decoded.push('\''),
+                    other => panic!(
+                        "{path}: unsupported escape `\\{}` in a baseline string literal; teach \
+                         `read_string_literal` about it so the fingerprint stays honest",
+                        char::from(other)
+                    ),
+                }
+                i += 1;
+                chunk_start = i;
+            }
+            _ => i += 1,
+        }
+    }
+    panic!("{path}: unterminated string literal");
+}
 
-    assert!(
-        includes[0].2.contains("00000000_unified_schema_v11.sql"),
-        "{path}: the baseline must be built as `v11` FIRST; reversing the order also forges a new \
-         fingerprint. Found `{}`",
-        includes[0].2
-    );
-    assert!(
-        includes[1].2.contains("00000001_extensions_v10.sql"),
-        "{path}: the baseline must append `extensions` SECOND. Found `{}`",
-        includes[1].2
-    );
+/// Evaluate a fixture's baseline `concat!` the way the compiler does:
+/// `include_str!("…")` arguments become the contents of the file they name
+/// (resolved relative to the fixture), and string literals contribute their
+/// decoded text. Whitespace, commas and everything else is ignored, exactly as
+/// `concat!` ignores it.
+///
+/// Reading the fixture's *expression* — rather than asserting its text shape —
+/// is what makes guard 5 property-based: a leading, embedded or trailing
+/// separator, a reversed order, or a pointer to a different migration all
+/// change the resulting string and therefore its fingerprint. A rename that
+/// keeps the content and the order intact does not, so a harmless rename
+/// passes.
+fn fixture_baseline_sql(path: &str) -> String {
+    let body = baseline_concat_body(path);
+    let directory = std::path::Path::new(path).parent().expect("fixture path must have a parent");
+    let bytes = body.as_bytes();
+    let mut sql = String::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if body[i..].starts_with("include_str!(") {
+            let open = i + "include_str!".len();
+            let close = body[open..]
+                .find(')')
+                .map_or_else(|| panic!("{path}: unterminated include_str! invocation"), |offset| open + offset);
+            let (argument, _) = read_string_literal(path, &body, open + 1);
+            let resolved = directory.join(argument);
+            sql.push_str(&read(resolved.to_str().expect("migration path must be UTF-8")));
+            i = close + 1;
+            continue;
+        }
+        if bytes[i] == b'"' {
+            let (literal, next) = read_string_literal(path, &body, i);
+            sql.push_str(&literal);
+            i = next;
+            continue;
+        }
+        i += 1;
+    }
+    sql
 }
 
 /// Guard 1: both fixtures delegate the shared work to `synapse-common`.
@@ -240,6 +336,13 @@ fn assert_adjacent_migrations(path: &str, concat_body: &str) {
 /// replaying the baseline per test, `synapse-services` filling an empty schema
 /// with `DatabaseInitService` — the other guards' invariants no longer describe
 /// the code that actually runs, and the divergence starts again.
+///
+/// The positive `contains` checks alone are not enough: a fixture can keep
+/// calling the shared module *and* re-add the historical per-test baseline
+/// replay (`for stmt in …split_sql_statements(baseline_sql) { … }`), which is
+/// the exact regression this plan removed. Both replay signals are therefore
+/// asserted absent, on the production half of each fixture (see
+/// [`production_half`]).
 #[test]
 fn both_fixtures_delegate_to_the_shared_module() {
     for path in [STORAGE, SERVICES] {
@@ -251,6 +354,17 @@ fn both_fixtures_delegate_to_the_shared_module() {
         assert!(
             src.contains("synapse_common::test_isolation::clone_schema_from_template"),
             "{path} must clone its per-test schema from the shared template module"
+        );
+
+        let production = production_half(&src);
+        assert!(
+            !production.contains("split_sql_statements"),
+            "{path} must not replay the baseline per test (it must delegate to the shared clone)"
+        );
+        assert!(
+            !production.contains("for stmt in"),
+            "{path} must not loop over baseline statements per test (it must delegate to the shared \
+             clone); a fixture has no legitimate reason for that loop"
         );
     }
 }
@@ -294,7 +408,7 @@ fn the_shared_module_exists_is_exported_and_keeps_its_mechanisms() {
 #[test]
 fn the_clone_path_does_not_replay_the_baseline_per_test() {
     let src = read(COMMON);
-    let production = &src[..src.find("#[cfg(test)]").unwrap_or(src.len())];
+    let production = production_half(&src);
 
     assert!(
         production.contains("CREATE TABLE %I.%I (LIKE %I.%I INCLUDING ALL)"),
@@ -313,11 +427,14 @@ fn the_clone_path_does_not_replay_the_baseline_per_test() {
     );
 
     // Positive control: the single call lives in the one-time template build,
-    // so the count above is not satisfied by some unrelated call site.
+    // so the count above is not satisfied by some unrelated call site. The
+    // exact shape inside `build_template` is deliberately NOT pinned: a future
+    // one-time `raw_sql(baseline)` optimisation would still be a single build
+    // of the template, not a per-test replay, and must not fail this guard.
     let build = item_body(production, "async fn build_template");
     assert!(
-        build.contains("for stmt in split_sql_statements"),
-        "the one-time `build_template` must keep replaying the baseline statement-by-statement"
+        build.contains("split_sql_statements"),
+        "the single `split_sql_statements` invocation must be inside the one-time `build_template`"
     );
 
     for marker in ["fn clone_statement", "pub async fn clone_schema_from_template"] {
@@ -349,15 +466,23 @@ fn prepare_isolated_test_pool_does_not_use_the_runtime_initializer() {
     let src = read(SERVICES);
     let body = item_body(&src, "pub async fn prepare_isolated_test_pool");
 
-    // Non-vacuity controls: prove the window really is the function body and
-    // not an empty or truncated slice.
+    // Non-vacuity controls: prove the window really is the whole function body
+    // and not an empty or truncated slice. `ensure_test_schema_contract(...)`
+    // runs mid-body, and `register_schema_cleanup(...)` / `Ok(pool)` are its
+    // last two statements, immediately before the column-0 `}` that ends the
+    // window. Requiring all three means the window reaches the true end of the
+    // function, so a real call injected as the final statement cannot hide.
     assert!(
         body.contains("synapse_common::test_isolation::clone_schema_from_template"),
         "the extracted window must cover `prepare_isolated_test_pool`'s body"
     );
     assert!(
-        body.contains("ensure_test_schema_contract"),
-        "the extracted window must run to the end of `prepare_isolated_test_pool`"
+        body.contains("ensure_test_schema_contract")
+            && body.contains("register_schema_cleanup")
+            && body.contains("Ok(pool)"),
+        "the extracted window must reach the end of `prepare_isolated_test_pool`: its final \
+         statements are `ensure_test_schema_contract(...)`, then `register_schema_cleanup(...)`, \
+         then `Ok(pool)`"
     );
 
     assert!(
@@ -368,8 +493,9 @@ fn prepare_isolated_test_pool_does_not_use_the_runtime_initializer() {
     );
 }
 
-/// Guard 5: neither fixture may inject a separator (or swap the order) between
-/// the two baseline `include_str!` migrations.
+/// Guard 5: the baseline string each fixture feeds the template builder must be
+/// exactly `v11 ++ extensions` — that order, with nothing between or around
+/// them.
 ///
 /// The template schema name is `test_isolation_template_<FNV-1a 64 of the
 /// baseline string>`. `v11 ++ extensions` (no separator) hashes to
@@ -378,15 +504,33 @@ fn prepare_isolated_test_pool_does_not_use_the_runtime_initializer() {
 /// *second* full template, so the suite pays the whole baseline rebuild again
 /// while believing it is sharing a template.
 ///
-/// Residual limit: this reads the fixture source text rather than hashing the
-/// migrations, so a separator introduced *outside* the `concat!` — for example
-/// wrapping the result in `format!("{}\\n{}", ...)` in the fixture — would slip
-/// past. The compile-time `concat!` is the only place a literal can be added
-/// today; the migration files themselves are not guarded here.
+/// This is a property assertion, not a text heuristic. The repository-side
+/// check pins the migrations' bytes and order via `include_str!`; the
+/// fixture-side check re-evaluates each fixture's `concat!` (string literals
+/// included) and hashes the result, so a leading or trailing separator — which
+/// an adjacency check misses — is caught exactly like an embedded one. A
+/// reversal, a third migration, or a pointer at a different file are all caught
+/// the same way; a rename that preserves content and order is not.
 #[test]
-fn baseline_concat_keeps_the_migrations_adjacent() {
+fn baseline_fingerprint_is_v11_then_extensions_with_no_separator() {
+    assert_eq!(
+        fingerprint_hex(&format!("{V11}{EXTENSIONS}")),
+        EXPECTED_BASELINE_FINGERPRINT,
+        "the baseline fingerprint changed: the two migrations must be concatenated as v11 then \
+         extensions with no separator, or a SECOND template is minted (with a separator: \
+         a05fa4488475fe1d; reversed: 4137af770181767b)"
+    );
+
     for path in [STORAGE, SERVICES] {
-        let concat_body = baseline_concat_body(path);
-        assert_adjacent_migrations(path, &concat_body);
+        let baseline = fixture_baseline_sql(path);
+        assert_eq!(
+            fingerprint_hex(&baseline),
+            EXPECTED_BASELINE_FINGERPRINT,
+            "{path}: the baseline string passed to `ensure_template_schema` does not hash to the \
+             expected template. It must be v11 ++ extensions in that order with nothing between or \
+             around them — a separator hashes to a05fa4488475fe1d, a reversal to 4137af770181767b \
+             — otherwise the suite silently builds and keeps a SECOND full template instead of \
+             reusing the existing one."
+        );
     }
 }
