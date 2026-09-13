@@ -51,6 +51,39 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 - Validate schema in container: `cd docker && docker compose run --rm --no-deps --entrypoint /app/scripts/db_migrate.sh synapse-rust validate`
 - CI-like local validation: `bash scripts/ci_backend_validation.sh`
 
+## 项目状态与反冗余铁律（未发布项目，先读这一节）
+
+**项目状态：未发布、无外部用户、无生产数据。** 因此**不存在向后兼容义务**。
+这一条决定了下面所有规则：宁可一次性改干净，不要叠加兼容层。
+
+1. **禁止兼容残留。** 不得为"向后兼容"保留 `#[deprecated]` 项、旧路径别名、
+   双实现、feature 开关式的死代码、或"先留着以后可能有人用"的中间态。
+   改动直接替换原实现。**判据**：如果某符号/分支/配置的唯一存在理由是
+   "兼容旧行为"，就删掉它。
+2. **同一职责只允许一份实现。** 模板/schema 隔离、schema 清理、配置解析、
+   URL 解析这类基础设施出现第二份实现即视为缺陷。新增前先搜索是否已有
+   可复用实现（`synapse-common` 是共享基础设施的首选位置）。
+   **反例（已发生）**：测试隔离曾经有三份实现，导致同一类 bug 要修三次。
+3. **测试/bench 专用依赖必须放 `[dev-dependencies]`。** 不得进 `[dependencies]`，
+   否则会污染生产依赖图。新增依赖时必须说明它对生产依赖图的影响。
+   **自查**：`cargo machete`。注意它只扫 `[dependencies]`，所以它报"未使用"
+   往往意味着依赖放错了段，而不是真的没用——先核实再决定删还是移。
+4. **构建产物与派生缓存不入库。** `artifacts/`、`target/`、SQLx 派生缓存等
+   一律 gitignore，且不得用 `git add -f` 绕过。**迁移只有一个真相源：
+   `migrations/`**；不得在 `artifacts/` 或任何其他目录再放迁移副本。
+5. **`cargo metadata` 必须始终可用。** 任何 vendored 或独立 crate 必须在根
+   `Cargo.toml` 的 `[workspace] members` 或 `exclude` 中显式声明。否则
+   machete / deny / audit / IDE 等**整套**基于 `cargo metadata` 的工具链会
+   直接失效。**反例（已发生）**：`vendor/pastey` 未列入 `exclude`，
+   `cargo machete` 整体退出——注意该 vendor 本身是必要的（见 `[patch.crates-io]`
+   注释），要修的是 workspace 声明，不是删掉它。
+6. **薄壳禁止。** 根 crate 的 `src/{services,storage,common}/mod.rs` 只允许
+   re-export，且必须有实际使用者。新增只做转发的模块一律合并进对应 workspace crate。
+7. **消除冗余优先于绕过问题。** 遇到并发/共享状态类缺陷，先问"能否从结构上
+   消除共享"（如 per-test schema 隔离），而不是加锁/串行化/重试去绕过。
+   **反例（已修正）**：retention 测试曾用 `max-threads=1` 串行分组绕过全局
+   单例行的跨进程 race；正确修法是让每个测试用独立 schema，race 随之消失。
+
 ## High-level architecture
 
 ### Runtime shape
