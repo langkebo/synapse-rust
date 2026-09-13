@@ -331,32 +331,12 @@ impl RoomSummaryService {
     }
 }
 
-/// Extract `allowed_room_ids` from a `m.room.join_rules` state event content.
-///
-/// Returns `Some(room_ids)` when the join rule is `restricted` or
-/// `knock_restricted` (per Matrix v1.15 `/summary` spec), or `None` for any
-/// other join rule. Entries in the `allow` array without a string `room_id`
-/// field are silently skipped. When the join rule is restricted but the
-/// `allow` array is missing, returns `Some(vec![])` so callers can
-/// distinguish "restricted with no parents" from "not restricted".
-pub(crate) fn extract_allowed_room_ids(join_rules_content: &serde_json::Value) -> Option<Vec<String>> {
-    let join_rule = join_rules_content.get("join_rule").and_then(|v| v.as_str())?;
-    if join_rule != "restricted" && join_rule != "knock_restricted" {
-        return None;
-    }
-
-    let allowed = join_rules_content
-        .get("allow")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|entry| entry.get("room_id").and_then(|v| v.as_str()).map(|s| s.to_string()))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    Some(allowed)
-}
+// MSC3083 `allow`-array parsing now lives in the single canonical
+// `room::join_rules` module so this `/summary` projection and the membership
+// authorization gate cannot drift apart again (see its module docs, and
+// `docs/audit/AUDIT_SUMMARY_2026-09-12.md` §3). Re-exported here to keep the
+// existing call site and test imports unchanged.
+pub(crate) use crate::room::join_rules::extract_allowed_room_ids;
 
 #[cfg(test)]
 mod tests {
@@ -477,10 +457,53 @@ mod tests {
                 {"room_id": "!other:example.org", "type": "m.room_membership"}
             ]
         });
+        // Converged with the MSC3083 parser (`room::join_rules`): the projection
+        // inherits its fail-closed filtering AND its sorted output, so the wire
+        // order is deterministic instead of declaration-dependent.
         assert_eq!(
             extract_allowed_room_ids(&content),
-            Some(vec!["!parent:example.org".to_string(), "!other:example.org".to_string()])
+            Some(vec!["!other:example.org".to_string(), "!parent:example.org".to_string()])
         );
+    }
+
+    #[test]
+    fn extract_allowed_room_ids_filters_non_membership_types() {
+        // Converged semantics: only MSC3083 `m.room_membership` entries grant
+        // join rights, so only they are reported as allowed parents.
+        let content = serde_json::json!({
+            "join_rule": "restricted",
+            "allow": [
+                {"room_id": "!keep:example.org", "type": "m.room_membership"},
+                {"room_id": "!drop:example.org", "type": "org.example.custom"},
+                {"room_id": "!role:example.org", "type": "m.room_role"}
+            ]
+        });
+        assert_eq!(extract_allowed_room_ids(&content), Some(vec!["!keep:example.org".to_string()]));
+    }
+
+    #[test]
+    fn extract_allowed_room_ids_drops_malformed_room_ids_fail_closed() {
+        let content = serde_json::json!({
+            "join_rule": "restricted",
+            "allow": [
+                {"room_id": "no-sigil:example.org", "type": "m.room_membership"},
+                {"room_id": "!nohost", "type": "m.room_membership"},
+                {"room_id": "!good:example.org", "type": "m.room_membership"}
+            ]
+        });
+        assert_eq!(extract_allowed_room_ids(&content), Some(vec!["!good:example.org".to_string()]));
+    }
+
+    #[test]
+    fn extract_allowed_room_ids_dedupes_entries() {
+        let content = serde_json::json!({
+            "join_rule": "restricted",
+            "allow": [
+                {"room_id": "!dup:example.org", "type": "m.room_membership"},
+                {"room_id": "!dup:example.org", "type": "m.room_membership"}
+            ]
+        });
+        assert_eq!(extract_allowed_room_ids(&content), Some(vec!["!dup:example.org".to_string()]));
     }
 
     #[test]

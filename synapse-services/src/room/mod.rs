@@ -16,6 +16,8 @@ pub mod api_trait;
 pub mod backfill;
 /// The `infrastructure` module.
 pub mod infrastructure;
+/// Canonical MSC3083 `allow`-array parsing shared by membership and summary.
+mod join_rules;
 /// The `lifecycle` module.
 pub mod lifecycle;
 pub use lifecycle::service::LifecycleService;

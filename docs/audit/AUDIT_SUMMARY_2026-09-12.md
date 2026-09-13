@@ -15,6 +15,21 @@
 > - `synapse-services/src/retention_service.rs`：新增 `#[cfg(test)] mod db_tests`（6 个 `#[tokio::test]` 端到端编排测试，见三-4）。真实跑库 `retention_service::db_tests --test-threads=1` → **6 passed / 0 failed**。
 > - `src/test_utils.rs`（root crate）：`resolve_test_database_url()` 收敛进程级 `RESOLVED_TEST_DB_URL` 缓存 + 探测超时 5s→30s，与 storage/services 副本完全对称（P0-1 三副本收口完成，见二-8）。
 > - `synapse-services/src/auth/token.rs`：`s4_revocation_cache_tests` 4 处 `get_raw` 断言改为 `get_raw_shared(...).await`，与热路径 L2 读穿语义对齐（Cache 读路径清零，见四-1）。`s4_revocation_cache_tests` 4/4 通过。
+>
+> 修订说明（Day4，2026-09-13）：**MSC 语义分裂代码级对齐已完成**（对应 §三-3 / 仍高优-3）
+> - 后端：新增 `synapse-services/src/room/join_rules.rs` 作为 MSC3083 `allow` 数组的**单一解析器**；
+>   `room::membership`（鉴权门）与 `room::summary`（`/summary` 的 `allowed_room_ids`）双双改为委托它，
+>   消除「同一输入、两种答案」的分叉。TDD 过程：4 个 RED 断言 → GREEN，`room::` 全域 **283 tests passed**。
+>   行为变化：`/summary` 的 `allowed_room_ids` 现在会过滤非 `m.room_membership` 条目、丢弃非法 room_id、
+>   去重并按字典序排序（与鉴权门**永远一致**，输出确定性）。
+> - 权威语义表：新增 `docs/synapse-rust/MSC_SEMANTICS.md`（后端）与 `matrix-js-sdk/docs/MSC_SEMANTICS.md`（SDK）；
+>   `ROUTE_CONTRACT.md` 生成器头部加入强制指回链接，明示 4155 / 4204 / 3967 为**借用语义**。
+> - SDK：`PolicyRecommendation.Takedown`、`InviteBlocklistManager.get/setInvitePermissionConfig` 已明确标注为
+>   「后端零消费的草案 API」；`ROUTE_CONTRACT.md` 刷新后 SDK `contract:codegen` 补回 2 条此前漏记的 room 路由
+>   （190 → 192），`pnpm contract:check` 恢复绿灯。
+> - **未完成**：跨仓 pin / tarball 刷新（需先提交三仓）；本仓既有 clippy 红点
+>   （`synapse-common/src/test_schema_guard.rs:294,313` redundant closure）与 fmt 债务
+>   （`room_versions.rs` / `retention_service.rs` / `test_utils.rs` / `pruning.rs`）仍待处理。
 
 ## 一、文档清单（/Users/ljf/Desktop/hu_ts/synapse-rust/docs/audit）
 ```
@@ -126,7 +141,10 @@ sdk-encapsulation-audit.md
 ### 仍高优（按序）
 1. **~~pruning/retention 零测试~~ → pruning.rs + retention_service.rs 均已补齐（P4，完成）** — `pruning.rs` 8 个 `prune_*` DELETE 行为 db_tests 全绿；`retention_service.rs`（828 行编排层）6 个 `#[tokio::test]` 端到端测试全绿（Day3）。**残留**：`retention.rs`（storage 层）仍无 db_tests，作为 Sprint5 下一批次。
 2. **test_utils 三副本对称收口**（P5/P0-1，核心收口完成）— `root src/test_utils.rs`、storage、services 三副本均已加 `RESOLVED_TEST_DB_URL` 缓存 + 探测超时 5s→30s，口径完全对称（Day3）。**残留**：`prepare_*_test_pool` 返回值统一为 Guard 对象（57 个手写 test_pool 为结构性债务，非管gate）。
-3. **MSC 语义分裂代码级对齐**（P2）— `sdk-encapsulation-audit.md` 已入册，但 `@langkebo/matrix-js-sdk` fork 与后端 Sprint4 语义差仍需迁移动作。`room/summary/service.rs:342` 的宽松版 `extract_allowed_room_ids` 与 membership 严格版分叉需统一。
+3. **~~MSC 语义分裂代码级对齐~~ → ✅ 已完成（Day4，2026-09-13）** — 宽松版与严格版两个 `allow` 解析器已收敛到
+   `synapse-services/src/room/join_rules.rs` **单一实现**；权威语义表落在 `docs/synapse-rust/MSC_SEMANTICS.md`
+   与 `matrix-js-sdk/docs/MSC_SEMANTICS.md`；SDK 侧「旧语义孤儿」（`m.takedown` / `invite_permission_config`）
+   已标注为草案 API。**残留**：跨仓 pin / tarball 刷新待三仓提交后执行。
 4. **get_raw 改名关键路径**（P6，**已清零**）— storage 热路径已清；`auth/token.rs` 4 处 test 断言已全部改为 `get_raw_shared(...).await`（Day3）。Cache 读路径无残留。
 5. **CI 门禁收口决策**（P5）— 与产品确认 `--test-threads` 固定为 **4**（稳定绿，避免 PoolTimedOut）；`.github/workflows/ci.yml` 已提交 `unit` + `--workspace --lib` job 均为 `--test-threads 4`。**残留**：integration/e2e job 仍使用 6/4，后续压测可折中提升。
 

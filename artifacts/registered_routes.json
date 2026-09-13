@@ -1021,6 +1021,10 @@
    ],
    [
     "GET",
+    "/_matrix/client/unstable/uk.half-shot.msc2666/user/mutual_rooms"
+   ],
+   [
+    "GET",
     "/rooms/{room_id}"
    ],
    [
@@ -1214,6 +1218,10 @@
    [
     "GET",
     "/rooms/{room_id}/visibility"
+   ],
+   [
+    "GET",
+    "/user/mutual_rooms"
    ],
    [
     "GET",
@@ -3576,6 +3584,14 @@
    ],
    [
     "GET",
+    "/_matrix/client/unstable/org.matrix.msc4155/rooms/{room_id}/threads"
+   ],
+   [
+    "GET",
+    "/_matrix/client/unstable/org.matrix.msc4156/threads/subscribed"
+   ],
+   [
+    "GET",
     "/_matrix/client/v1/rooms/{room_id}/threads"
    ],
    [
@@ -3796,5 +3812,5 @@
    ]
   ]
  },
- "total_routes": 917
+ "total_routes": 921
 }

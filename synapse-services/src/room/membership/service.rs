@@ -22,71 +22,12 @@ use synapse_e2ee::key_rotation::KeyRotationStorageApi;
 
 use crate::room::summary::RoomSummaryService;
 
-/// Extract allowed room IDs from the `allow` array of a `m.room.join_rules` state
-/// event.  For `restricted` / `knock_restricted` rules this returns the list of
-/// rooms whose `m.room_membership` grants join rights as per MSC3083.
-/// Returns deduped room IDs, validated for basic syntax.  Entries whose `type`
-/// is not `m.room_membership` (or missing, which defaults to that type) are
-/// ignored.  Malformed IDs are silently dropped (fail-closed).
-pub(crate) fn extract_allowed_join_rooms(content: &serde_json::Value) -> Vec<String> {
-    let allow = match content.get("allow").and_then(|v| v.as_array()) {
-        Some(arr) => arr,
-        None => return Vec::new(),
-    };
-
-    let mut rooms: Vec<String> = allow
-        .iter()
-        .filter_map(|entry| {
-            // Skip entries with an explicit non-membership type.
-            let typ = entry.get("type").and_then(|v| v.as_str()).unwrap_or("m.room_membership");
-            if typ != "m.room_membership" {
-                return None;
-            }
-            let room_id = entry.get("room_id").and_then(|v| v.as_str())?;
-            if !is_valid_matrix_id(room_id) {
-                return None;
-            }
-            Some(room_id.to_string())
-        })
-        .collect();
-
-    rooms.sort_unstable();
-    rooms.dedup();
-    rooms
-}
-
-/// Minimal Matrix ID validation for room IDs (and aliases) used in `allow` entries.
-/// - Must start with '!' or '#'
-/// - Contains a ':' separating localpart from server
-/// This is intentionally conservative: we only need the room ID syntax for
-/// federation lookups, not a full Matrix ID parser.
-fn is_valid_matrix_id(id: &str) -> bool {
-    if id.is_empty() {
-        return false;
-    }
-    let sigil = id.chars().next().unwrap_or('\0');
-    if sigil != '!' && sigil != '#' {
-        return false;
-    }
-    // Find the last ':' to split localpart from server (servers may contain ':')
-    let Some(pos) = id.rfind(':') else { return false };
-    if pos <= 1 { // at least one char localpart
-        return false;
-    }
-    let server = &id[pos + 1..];
-    if server.is_empty() {
-        return false;
-    }
-    // Basic server name checks (reject path separators/whitespace/control)
-    if server.contains('/') || server.contains('\\') || server.contains(' ') || server.contains('\0') {
-        return false;
-    }
-    if server.len() > 253 {
-        return false;
-    }
-    // Allowed charset for a server name (case matters only for comparison but we accept it)
-    server.bytes().all(|b| matches!(b, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'.' | b'-' | b'_' | b':'))
-}
+// MSC3083 `allow`-array parsing now lives in the single canonical
+// `room::join_rules` module so the authorization gate and the `/summary`
+// projection cannot drift apart again (see its module docs, and
+// `docs/audit/AUDIT_SUMMARY_2026-09-12.md` §3). Re-exported here to keep the
+// existing intra-crate call sites and `super::*` test imports unchanged.
+pub(crate) use crate::room::join_rules::extract_allowed_join_rooms;
 
 /// Domain service for room membership operations — join, leave, invite,
 /// kick, ban, unban, knock, forget, and federation membership.
@@ -405,10 +346,7 @@ impl MembershipService {
     /// — a joiner is authorized iff they hold `join` membership in one of the
     /// listed rooms (typically a Space). For any other rule the list is empty
     /// (it is unused).
-    pub(crate) async fn resolve_join_rule_and_allow(
-        &self,
-        room_id: &str,
-    ) -> ApiResult<(JoinRule, Vec<String>)> {
+    pub(crate) async fn resolve_join_rule_and_allow(&self, room_id: &str) -> ApiResult<(JoinRule, Vec<String>)> {
         let join_rules_content = if let Some(event) = self
             .event_reader
             .get_state_events_by_type(room_id, "m.room.join_rules")
@@ -422,10 +360,7 @@ impl MembershipService {
             serde_json::Value::Null
         };
 
-        let effective = join_rules_content
-            .get("join_rule")
-            .and_then(|value| value.as_str())
-            .map(str::to_string);
+        let effective = join_rules_content.get("join_rule").and_then(|value| value.as_str()).map(str::to_string);
 
         // The `allow` array is meaningful only for restricted rules; for other
         // rules the stored `join_rule` column can't carry an allow list, so an
@@ -459,18 +394,18 @@ impl MembershipService {
     /// If the allowed space is not locally replicated, falls back to
     /// `false` (fail-closed for client joins); federation inbound path
     /// handles replication gaps separately.
-    pub(crate) async fn is_restricted_join_authorized(
-        &self,
-        room_id: &str,
-        user_id: &str,
-    ) -> ApiResult<bool> {
+    pub(crate) async fn is_restricted_join_authorized(&self, room_id: &str, user_id: &str) -> ApiResult<bool> {
         let (rule, allowed_rooms) = self.resolve_join_rule_and_allow(room_id).await?;
         if !matches!(rule, JoinRule::Restricted | JoinRule::KnockRestricted) {
             return Ok(false);
         }
         for space_id in allowed_rooms {
-            let Some(member) = self.member_storage.get_room_member(&space_id, user_id).await
-                .map_err(|e| ApiError::internal_with_cause("Failed to check space member", e))? else {
+            let Some(member) = self
+                .member_storage
+                .get_room_member(&space_id, user_id)
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Failed to check space member", e))?
+            else {
                 continue;
             };
             if member.membership == "join" {
@@ -743,6 +678,7 @@ impl MembershipService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::room::join_rules::is_valid_matrix_id;
 
     // ── server_name_from_id ────────────────────────────────────────
 

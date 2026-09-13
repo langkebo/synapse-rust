@@ -1,12 +1,14 @@
 # synapse-rust 路由契约（Route Contract）
 
-> 自动生成于 2026-09-02，源 = `src/web/routes/**` 真实 `.route()` 注册面 + 各模块 `*_route_manifest()` 覆盖情况。
+> 自动生成于 2026-09-13，源 = `src/web/routes/**` 真实 `.route()` 注册面 + 各模块 `*_route_manifest()` 覆盖情况。
 >
 > 本文件是后端 HTTP 契约的**事实来源之一**（机器侧权威为 `src/web/routes/route_ledger.rs` 与各模块 manifest，启动时校验、集成测试 PATCH 探测）。人工文档（INDEX.md / API_COVERAGE_REPORT.md）须与之保持一致。
+>
+> ⚠️ MSC 编号在本仓的**实际语义**以 [`MSC_SEMANTICS.md`](MSC_SEMANTICS.md) 为唯一真相源；若干编号（4155 / 4204 / 3967）被借用承载了与官方提案不同的功能，按编号推断语义前请先查表。
 
 ## 总览
 
-- 注册路由条目（含 v1/r0/v3 多版本前缀去重后）：**917**
+- 注册路由条目（含 v1/r0/v3 多版本前缀去重后）：**921**
 - 含路由注册的模块文件：**63**
 - 含 `*_route_manifest` 函数的模块：**66**
 
@@ -185,11 +187,13 @@
 - `GET` `/rooms/{room_id}/relations/{event_id}/{rel_type}`
 - `PUT` `/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}`
 
-### 其他 (Other) （21 条）
+### 其他 (Other) （23 条）
 
-#### `handlers/thread.rs` — 21 条 ✅manifest
+#### `handlers/thread.rs` — 23 条 ✅manifest
 
 - `DELETE` `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}`
+- `GET` `/_matrix/client/unstable/org.matrix.msc4155/rooms/{room_id}/threads`
+- `GET` `/_matrix/client/unstable/org.matrix.msc4156/threads/subscribed`
 - `GET` `/_matrix/client/v1/rooms/{room_id}/threads`
 - `GET` `/_matrix/client/v1/rooms/{room_id}/threads/search`
 - `GET` `/_matrix/client/v1/rooms/{room_id}/threads/unread`
@@ -519,11 +523,12 @@
 
 - `POST` `/delayed_events/{delay_id}`
 
-### 房间 (Room) （103 条）
+### 房间 (Room) （105 条）
 
-#### `room.rs` — 82 条 ✅manifest
+#### `room.rs` — 84 条 ✅manifest
 
 - `DELETE` `/rooms/{room_id}/pinned_events/{event_id}`
+- `GET` `/_matrix/client/unstable/uk.half-shot.msc2666/user/mutual_rooms`
 - `GET` `/rooms/{room_id}`
 - `GET` `/rooms/{room_id}/account_data/{type}`
 - `GET` `/rooms/{room_id}/aliases`
@@ -573,6 +578,7 @@
 - `GET` `/rooms/{room_id}/vault_data`
 - `GET` `/rooms/{room_id}/version`
 - `GET` `/rooms/{room_id}/visibility`
+- `GET` `/user/mutual_rooms`
 - `GET` `/user/{user_id}/rooms`
 - `POST` `/_matrix/client/v1/rooms/create_private`
 - `POST` `/_matrix/client/v3/rooms/create_private`
