@@ -105,21 +105,50 @@ python3 scripts/check_migration_consistency.py
 saml_pending_requests、room_event_txn_dedup 等，commit 2d453089/bf85f23f 已折入），
 此检查脚本即为防止复发而设。
 
-## 已知死表（待 v12 baseline 重构清理）
+## 死表清理（已于 2026-09-14 完成，原计划留待 v12）
 
-v11 baseline 仍包含 `openclaw_connections` / `ai_conversations` / `ai_connections`
-三张表及其触发器。openclaw 源码已于 commit 67e66bf4 彻底删除，但这些表定义留在
-consolidated baseline 中，新装实例会建出死表。因迁移文件遵循 append-only（不可
-修改已有迁移），且时间戳命名的 DROP 迁移不会被 `build_sqlx_migration_source.py`
-选中（该脚本只选 baseline + extension + `V*` 迁移），故**暂不清理**；待下一次
-consolidated baseline 重构（v12）时移除即可。
+v11 baseline 曾包含 `openclaw_connections` / `ai_conversations` / `ai_connections`
+三张表及其触发器（openclaw 源码已于 commit 67e66bf4 彻底删除）。
+
+**已于 2026-09-14 直接在本 baseline 中删除，未等到 v12**，理由：
+
+1. 项目**未发布、无外部用户、无生产数据**（`AGENTS.md` 铁律 1），不存在"已应用过
+   的迁移不可修改"的兼容义务 —— 该义务的前提是有存量部署需要保护。
+2. 即使保留独立的 DROP 迁移也无效：`build_sqlx_migration_source.py` 只选
+   baseline + extension + `V*` 迁移，时间戳命名的 DROP 迁移**根本不会被执行**。
+   因此"留待 v12"在实践中等于永久不清。
+
+本次共删除 **23 张零引用表**（Rust 全仓 `\b<表名>\b` 引用计数为 0）：
+`user_account_data`、`voice_messages`、`user_reputations`、`typing_stream`、
+`security_events`、`room_stats_current`、`room_parents`、`receipts_linearized`、
+`reaction_aggregations`、`presence_stream`、`password_history`、
+`openclaw_connections`、`migration_audit`、`ip_blocks`、`federation_inbound_events`、
+`federation_blacklist_config`、`event_forward_extremities`、`destination_retry_timings`、
+`ai_messages`、`ai_generations`、`ai_conversations`、`ai_connections`、`ai_chat_roles`。
+
+同时删除 25 条显式 `CREATE INDEX`、54 条 `COMMENT ON COLUMN`、4 处
+`pg_constraint` FK 补丁、3 个 AI 触发器 DO 块。
+
+> **验证方式**（这是迁移改动唯一可靠的证明）：把改动前/后的 baseline 分别应用到
+> 两个**全新数据库**的 `public` schema，比对结果：
+> 两侧均 0 error；表数 255 → 232（差恰好 23）；`EXCEPT` 双向差集为 23 / 0 ——
+> 即除了这 23 张表，schema 完全一致。另验证 baseline + extensions 组合应用
+> 亦为 0 error，且 `voice_messages` 不再被扩展文件重建。
+
+> ⚠️ **顺带发现两个既有缺陷（与本次删除无关，尚未修复）**：
+> 1. `-- typing composite PK` 的守卫写作
+>    `WHERE table_schema = 'public' AND ...`，**硬编码 public**。若把 baseline 应用到
+>    非 `public` schema（测试隔离正是如此），守卫会误判为"不存在"而重复添加主键，
+>    报 `multiple primary keys for table "typing"`。
+> 2. `-- user 表其他 user_id 字段` 的 DO 循环同样硬编码 `table_schema = 'public'`，
+>    且是**全文件唯一没有 `IF NOT EXISTS` 守卫**的约束块 —— 重复执行必然报
+>    `constraint ... already exists`。二者都应在 v12 重构时改为按实际 schema 判定。
 
 > 审计补充（2026-09-04）：v11 baseline 同样存在 `events.reference_image` 字段
 > （v11 第 343 行），仅在 `test_mocks/event.rs` 中作为 fixture 写入，业务代码无任何
 > 读/写访问，属于死字段。`idx_rooms_name_trgm` 和 `idx_rooms_canonical_alias_trgm`
 > 各重复定义两次（v11 第 3542/3543 行和 4035/4036 行），后者由 append-only 策略
-> 导致。两项均已纳入 P1/P3 范围，待本次审计迁移落地后由 v12 baseline 重构时
-> 彻底清理。
+> 导致。两项均已纳入 P1/P3 范围，**仍待 v12 baseline 重构时清理**。
 
 ## v11 变更摘要 (2026-09-04)
 

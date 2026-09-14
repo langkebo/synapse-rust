@@ -260,20 +260,6 @@ CREATE TABLE IF NOT EXISTS user_directory (
     CONSTRAINT fk_user_directory_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS user_reputations (
-    user_id TEXT PRIMARY KEY,
-    reputation_score INTEGER NOT NULL DEFAULT 50,
-    total_reports INTEGER NOT NULL DEFAULT 0,
-    accepted_reports INTEGER NOT NULL DEFAULT 0,
-    false_reports INTEGER NOT NULL DEFAULT 0,
-    last_report_ts BIGINT,
-    last_update_ts BIGINT NOT NULL,
-    warnings_count INTEGER NOT NULL DEFAULT 0,
-    is_banned BOOLEAN NOT NULL DEFAULT FALSE,
-    ban_reason TEXT,
-    ban_expires_at BIGINT,
-    CONSTRAINT fk_user_reputations_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-);
 
 CREATE TABLE IF NOT EXISTS account_validity (
     id BIGSERIAL,
@@ -609,19 +595,6 @@ CREATE TABLE IF NOT EXISTS room_sticky_events (
     CONSTRAINT fk_room_sticky_events_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS room_parents (
-    id BIGSERIAL,
-    room_id TEXT NOT NULL,
-    parent_room_id TEXT NOT NULL,
-    sender TEXT NOT NULL,
-    is_suggested BOOLEAN DEFAULT FALSE,
-    via_servers JSONB DEFAULT '[]',
-    added_ts BIGINT NOT NULL,
-    CONSTRAINT pk_room_parents PRIMARY KEY (id),
-    CONSTRAINT uq_room_parents_room_parent UNIQUE (room_id, parent_room_id),
-    CONSTRAINT fk_room_parents_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE,
-    CONSTRAINT fk_room_parents_parent FOREIGN KEY (parent_room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
-);
 
 CREATE TABLE IF NOT EXISTS room_retention_policies (
     id BIGSERIAL PRIMARY KEY,
@@ -636,20 +609,6 @@ CREATE TABLE IF NOT EXISTS room_retention_policies (
     CONSTRAINT fk_room_retention_policies_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS room_stats_current (
-    room_id TEXT NOT NULL,
-    current_state_events BIGINT NOT NULL DEFAULT 0,
-    joined_members BIGINT NOT NULL DEFAULT 0,
-    invited_members BIGINT NOT NULL DEFAULT 0,
-    left_members BIGINT NOT NULL DEFAULT 0,
-    banned_members BIGINT NOT NULL DEFAULT 0,
-    local_users_in_room BIGINT NOT NULL DEFAULT 0,
-    completed_delta_stream_id BIGINT NOT NULL DEFAULT 0,
-    created_ts BIGINT NOT NULL,
-    updated_ts BIGINT NOT NULL,
-    CONSTRAINT pk_room_stats_current PRIMARY KEY (room_id),
-    CONSTRAINT fk_room_stats_current_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
-);
 
 CREATE TABLE IF NOT EXISTS blocked_rooms (
     id BIGSERIAL PRIMARY KEY,
@@ -1182,24 +1141,6 @@ CREATE TABLE IF NOT EXISTS upload_chunks (
     CONSTRAINT fk_upload_chunks_upload FOREIGN KEY (upload_id) REFERENCES upload_progress(upload_id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS voice_messages (
-    id BIGSERIAL,
-    event_id TEXT NOT NULL,
-    user_id TEXT NOT NULL,
-    room_id TEXT,
-    media_id TEXT,
-    duration_ms INT NOT NULL,
-    waveform TEXT,
-    mime_type VARCHAR(100),
-    file_size BIGINT,
-    transcription TEXT,
-    encryption JSONB,
-    is_processed BOOLEAN DEFAULT FALSE,
-    processed_at BIGINT,
-    created_ts BIGINT NOT NULL,
-    CONSTRAINT pk_voice_messages PRIMARY KEY (id),
-    CONSTRAINT uq_voice_messages_event UNIQUE (event_id)
-);
 
 CREATE TABLE IF NOT EXISTS voice_usage_stats (
     id BIGSERIAL PRIMARY KEY,
@@ -1755,18 +1696,6 @@ CREATE TABLE IF NOT EXISTS federation_blacklist (
     CONSTRAINT uq_federation_blacklist_name UNIQUE (server_name)
 );
 
-CREATE TABLE IF NOT EXISTS federation_blacklist_config (
-    id BIGSERIAL PRIMARY KEY,
-    server_name TEXT NOT NULL UNIQUE,
-    block_type TEXT NOT NULL,
-    reason TEXT,
-    blocked_by TEXT NOT NULL,
-    created_ts BIGINT NOT NULL,
-    updated_ts BIGINT NOT NULL,
-    expires_at BIGINT,
-    is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-    metadata JSONB NOT NULL DEFAULT '{}'
-);
 
 CREATE TABLE IF NOT EXISTS federation_blacklist_log (
     id BIGSERIAL PRIMARY KEY,
@@ -1810,13 +1739,6 @@ CREATE TABLE IF NOT EXISTS federation_queue (
     CONSTRAINT pk_federation_queue PRIMARY KEY (id)
 );
 
-CREATE TABLE IF NOT EXISTS federation_inbound_events (
-    event_id TEXT NOT NULL,
-    origin TEXT NOT NULL,
-    origin_server_ts BIGINT NOT NULL,
-    received_ts BIGINT NOT NULL,
-    CONSTRAINT pk_federation_inbound_events PRIMARY KEY (event_id)
-);
 
 CREATE TABLE IF NOT EXISTS federation_signing_keys (
     server_name TEXT NOT NULL,
@@ -1862,24 +1784,6 @@ CREATE TABLE IF NOT EXISTS event_edges (
     CONSTRAINT fk_event_edges_event FOREIGN KEY (event_id) REFERENCES events(event_id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS event_forward_extremities (
-    room_id TEXT NOT NULL,
-    event_id TEXT NOT NULL,
-    CONSTRAINT pk_event_forward_extremities PRIMARY KEY (room_id, event_id),
-    CONSTRAINT fk_event_forward_extremities_event FOREIGN KEY (event_id) REFERENCES events(event_id) ON DELETE CASCADE,
-    CONSTRAINT fk_event_forward_extremities_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS destination_retry_timings (
-    destination TEXT NOT NULL,
-    retry_interval BIGINT NOT NULL DEFAULT 0,
-    retry_last_ts BIGINT NOT NULL DEFAULT 0,
-    failure_count INT NOT NULL DEFAULT 0,
-    last_successful_stream_ordering BIGINT NOT NULL DEFAULT 0,
-    created_ts BIGINT NOT NULL,
-    updated_ts BIGINT NOT NULL,
-    CONSTRAINT pk_destination_retry_timings PRIMARY KEY (destination)
-);
 
 CREATE TABLE IF NOT EXISTS device_lists_outbound_pokes (
     destination TEXT NOT NULL,
@@ -1950,15 +1854,6 @@ CREATE TABLE IF NOT EXISTS room_account_data (
     CONSTRAINT uq_room_account_data_user_room_type UNIQUE (user_id, room_id, data_type)
 );
 
-CREATE TABLE IF NOT EXISTS user_account_data (
-    id BIGSERIAL,
-    user_id TEXT NOT NULL,
-    event_type TEXT NOT NULL,
-    content TEXT NOT NULL,
-    created_ts BIGINT NOT NULL,
-    CONSTRAINT pk_user_account_data PRIMARY KEY (id),
-    CONSTRAINT uq_user_account_data_user_type UNIQUE (user_id, event_type)
-);
 
 CREATE TABLE IF NOT EXISTS account_data_callbacks (
     id BIGSERIAL,
@@ -2337,26 +2232,6 @@ CREATE TABLE IF NOT EXISTS megolm_session_keys (
 -- Part 14: Security Tables
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS security_events (
-    id BIGSERIAL,
-    event_type TEXT NOT NULL,
-    user_id TEXT,
-    ip_address TEXT,
-    user_agent TEXT,
-    details JSONB,
-    created_ts BIGINT NOT NULL,
-    CONSTRAINT pk_security_events PRIMARY KEY (id)
-);
-
-CREATE TABLE IF NOT EXISTS ip_blocks (
-    id BIGSERIAL,
-    ip_address TEXT NOT NULL,
-    reason TEXT,
-    blocked_ts BIGINT NOT NULL,
-    expires_at BIGINT,
-    CONSTRAINT pk_ip_blocks PRIMARY KEY (id),
-    CONSTRAINT uq_ip_blocks_ip UNIQUE (ip_address)
-);
 
 CREATE TABLE IF NOT EXISTS rate_limits (
     user_id TEXT PRIMARY KEY,
@@ -2937,41 +2812,6 @@ CREATE TABLE IF NOT EXISTS presence_subscriptions (
     CONSTRAINT fk_presence_subscriptions_target FOREIGN KEY (target_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS presence_stream (
-    stream_id BIGSERIAL,
-    user_id TEXT NOT NULL,
-    state TEXT NOT NULL DEFAULT 'offline',
-    status_msg TEXT,
-    last_active_ts BIGINT NOT NULL,
-    currently_active BOOLEAN DEFAULT FALSE,
-    created_ts BIGINT NOT NULL,
-    CONSTRAINT pk_presence_stream PRIMARY KEY (stream_id),
-    CONSTRAINT fk_presence_stream_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS typing_stream (
-    stream_id BIGSERIAL,
-    room_id TEXT NOT NULL,
-    user_id TEXT NOT NULL,
-    is_typing BOOLEAN NOT NULL DEFAULT FALSE,
-    timeout_ms BIGINT,
-    created_ts BIGINT NOT NULL,
-    CONSTRAINT pk_typing_stream PRIMARY KEY (stream_id),
-    CONSTRAINT fk_typing_stream_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE,
-    CONSTRAINT fk_typing_stream_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS receipts_linearized (
-    stream_id BIGSERIAL,
-    room_id TEXT NOT NULL,
-    receipt_type TEXT NOT NULL DEFAULT 'm.read',
-    user_id TEXT NOT NULL,
-    event_id TEXT NOT NULL,
-    received_ts BIGINT NOT NULL,
-    CONSTRAINT pk_receipts_linearized PRIMARY KEY (stream_id),
-    CONSTRAINT fk_receipts_linearized_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE,
-    CONSTRAINT fk_receipts_linearized_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-);
 
 CREATE TABLE IF NOT EXISTS event_receipts (
     id BIGSERIAL,
@@ -3047,13 +2887,6 @@ CREATE TABLE IF NOT EXISTS blocked_users (
     CONSTRAINT fk_blocked_users_blocked FOREIGN KEY (blocked_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS password_history (
-    id BIGSERIAL PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    password_hash TEXT NOT NULL,
-    created_ts BIGINT NOT NULL,
-    CONSTRAINT fk_password_history_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-);
 
 CREATE TABLE IF NOT EXISTS server_retention_policy (
     id BIGSERIAL,
@@ -3087,20 +2920,6 @@ CREATE TABLE IF NOT EXISTS db_metadata (
     updated_ts BIGINT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS migration_audit (
-    id BIGSERIAL PRIMARY KEY,
-    version VARCHAR(50) NOT NULL,
-    description TEXT,
-    duration_ms BIGINT NOT NULL,
-    rows_affected BIGINT DEFAULT 0,
-    executed_by VARCHAR(100) NOT NULL DEFAULT CURRENT_USER,
-    executed_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000),
-    status VARCHAR(20) NOT NULL DEFAULT 'SUCCESS',
-    error_message TEXT,
-    checksum VARCHAR(64),
-    migration_file VARCHAR(255),
-    created_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
-);
 
 CREATE TABLE IF NOT EXISTS delayed_events (
     id BIGSERIAL PRIMARY KEY,
@@ -3158,17 +2977,6 @@ CREATE TABLE IF NOT EXISTS qr_login_transactions (
     CONSTRAINT fk_qr_login_transactions_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS reaction_aggregations (
-    event_id TEXT PRIMARY KEY,
-    relates_to_event_id TEXT NOT NULL,
-    sender TEXT NOT NULL,
-    room_id TEXT NOT NULL,
-    reaction_key TEXT NOT NULL,
-    count BIGINT NOT NULL DEFAULT 1,
-    origin_server_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT,
-    CONSTRAINT fk_reaction_aggregations_sender FOREIGN KEY (sender) REFERENCES users(user_id) ON DELETE CASCADE,
-    CONSTRAINT fk_reaction_aggregations_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
-);
 
 CREATE TABLE IF NOT EXISTS user_notification_settings (
     user_id TEXT PRIMARY KEY,
@@ -3337,89 +3145,7 @@ CREATE TABLE IF NOT EXISTS moderation_logs (
 );
 
 -- OpenClaw / AI Integration Tables
-CREATE TABLE IF NOT EXISTS openclaw_connections (
-    id BIGSERIAL PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    provider TEXT NOT NULL,
-    base_url TEXT NOT NULL,
-    encrypted_api_key TEXT,
-    config JSONB DEFAULT '{}',
-    is_default BOOLEAN DEFAULT FALSE,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_ts BIGINT NOT NULL,
-    updated_ts BIGINT NOT NULL,
-    UNIQUE(user_id, name)
-);
 
-CREATE TABLE IF NOT EXISTS ai_conversations (
-    id BIGSERIAL PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    connection_id BIGINT REFERENCES openclaw_connections(id) ON DELETE SET NULL,
-    title TEXT,
-    model_id TEXT,
-    system_prompt TEXT,
-    temperature REAL DEFAULT 0.7,
-    max_tokens INTEGER DEFAULT 4096,
-    is_pinned BOOLEAN DEFAULT FALSE,
-    metadata JSONB DEFAULT '{}',
-    created_ts BIGINT NOT NULL,
-    updated_ts BIGINT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS ai_messages (
-    id BIGSERIAL PRIMARY KEY,
-    conversation_id BIGINT NOT NULL REFERENCES ai_conversations(id) ON DELETE CASCADE,
-    role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'tool')),
-    content TEXT NOT NULL,
-    token_count INTEGER,
-    tool_calls JSONB,
-    tool_call_id TEXT,
-    metadata JSONB DEFAULT '{}',
-    created_ts BIGINT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS ai_generations (
-    id BIGSERIAL PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    conversation_id BIGINT REFERENCES ai_conversations(id) ON DELETE SET NULL,
-    type TEXT NOT NULL CHECK (type IN ('image', 'video', 'audio')),
-    prompt TEXT NOT NULL,
-    result_url TEXT,
-    result_mxc TEXT,
-    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
-    error_message TEXT,
-    metadata JSONB DEFAULT '{}',
-    created_ts BIGINT NOT NULL,
-    completed_ts BIGINT
-);
-
-CREATE TABLE IF NOT EXISTS ai_chat_roles (
-    id BIGSERIAL PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    description TEXT,
-    system_message TEXT NOT NULL,
-    model_id TEXT,
-    avatar_url TEXT,
-    category TEXT,
-    temperature REAL DEFAULT 0.7,
-    max_tokens INTEGER DEFAULT 4096,
-    is_public BOOLEAN DEFAULT FALSE,
-    metadata JSONB DEFAULT '{}',
-    created_ts BIGINT NOT NULL,
-    updated_ts BIGINT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS ai_connections (
-    id VARCHAR(36) PRIMARY KEY,
-    user_id VARCHAR(255) NOT NULL,
-    provider VARCHAR(50) NOT NULL,
-    config JSONB,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_ts BIGINT NOT NULL,
-    updated_ts BIGINT
-);
 
 -- Beacon / Call / MatrixRTC Tables
 CREATE TABLE IF NOT EXISTS beacon_info (
@@ -3655,15 +3381,11 @@ CREATE INDEX IF NOT EXISTS idx_room_tags_user_room ON room_tags(user_id, room_id
 CREATE INDEX IF NOT EXISTS idx_room_sticky_events_user_sticky ON room_sticky_events(user_id, is_sticky, room_id);
 
 -- Room parents
-CREATE INDEX IF NOT EXISTS idx_room_parents_room ON room_parents(room_id);
-CREATE INDEX IF NOT EXISTS idx_room_parents_parent ON room_parents(parent_room_id);
 
 -- Room retention policies
 CREATE INDEX IF NOT EXISTS idx_room_retention_policies_server_default ON room_retention_policies(is_server_default) WHERE is_server_default = TRUE;
 
 -- Room stats current
-CREATE INDEX IF NOT EXISTS idx_room_stats_joined ON room_stats_current(joined_members DESC);
-CREATE INDEX IF NOT EXISTS idx_room_stats_local ON room_stats_current(local_users_in_room DESC);
 
 -- Device keys
 CREATE INDEX IF NOT EXISTS idx_device_keys_user_device ON device_keys(user_id, device_id);
@@ -3765,11 +3487,6 @@ CREATE INDEX IF NOT EXISTS idx_upload_progress_user_created_active ON upload_pro
 CREATE INDEX IF NOT EXISTS idx_upload_chunks_upload_order ON upload_chunks(upload_id, chunk_index ASC);
 
 -- Voice messages
-CREATE INDEX IF NOT EXISTS idx_voice_messages_room ON voice_messages(room_id);
-CREATE INDEX IF NOT EXISTS idx_voice_messages_user ON voice_messages(user_id);
-CREATE INDEX IF NOT EXISTS idx_voice_messages_processed ON voice_messages(is_processed);
-CREATE INDEX IF NOT EXISTS idx_voice_messages_room_ts ON voice_messages(room_id, created_ts DESC);
-CREATE INDEX IF NOT EXISTS idx_voice_messages_user_ts ON voice_messages(user_id, created_ts DESC);
 
 -- Voice usage stats
 CREATE INDEX IF NOT EXISTS idx_voice_usage_stats_user ON voice_usage_stats(user_id, created_ts DESC);
@@ -3835,7 +3552,6 @@ CREATE INDEX IF NOT EXISTS idx_spaces_topic_trgm ON spaces USING GIN (topic gin_
 -- Federation
 CREATE INDEX IF NOT EXISTS idx_federation_servers_status ON federation_servers(status);
 CREATE INDEX IF NOT EXISTS idx_federation_blacklist_server ON federation_blacklist(server_name);
-CREATE INDEX IF NOT EXISTS idx_federation_blacklist_config_enabled ON federation_blacklist_config(is_enabled) WHERE is_enabled = TRUE;
 CREATE INDEX IF NOT EXISTS idx_federation_blacklist_log_server ON federation_blacklist_log(server_name);
 CREATE INDEX IF NOT EXISTS idx_federation_blacklist_log_performed ON federation_blacklist_log(performed_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_federation_blacklist_rule_enabled ON federation_blacklist_rule(is_enabled) WHERE is_enabled = TRUE;
@@ -3844,16 +3560,12 @@ CREATE INDEX IF NOT EXISTS idx_federation_queue_destination ON federation_queue(
 CREATE INDEX IF NOT EXISTS idx_federation_queue_status ON federation_queue(status);
 CREATE INDEX IF NOT EXISTS idx_federation_queue_pending ON federation_queue(destination, created_ts) WHERE status = 'pending';
 CREATE INDEX IF NOT EXISTS idx_federation_queue_dest_status ON federation_queue(destination, status, created_ts);
-CREATE INDEX IF NOT EXISTS idx_federation_inbound_events_origin ON federation_inbound_events(origin);
-CREATE INDEX IF NOT EXISTS idx_federation_inbound_events_received ON federation_inbound_events(received_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_federation_signing_keys_server_created ON federation_signing_keys(server_name, created_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_federation_signing_keys_key_id ON federation_signing_keys(key_id);
 CREATE INDEX IF NOT EXISTS idx_federation_access_stats_server ON federation_access_stats(server_name);
 CREATE INDEX IF NOT EXISTS idx_federation_cache_key ON federation_cache(key);
 CREATE INDEX IF NOT EXISTS idx_federation_cache_expiry ON federation_cache(expiry_ts);
 CREATE INDEX IF NOT EXISTS idx_event_edges_prev ON event_edges(prev_event_id);
-CREATE INDEX IF NOT EXISTS idx_event_forward_extremities_room ON event_forward_extremities(room_id);
-CREATE INDEX IF NOT EXISTS idx_destination_retry_next ON destination_retry_timings(retry_last_ts, failure_count);
 CREATE INDEX IF NOT EXISTS idx_device_lists_outbound_stream ON device_lists_outbound_pokes(stream_id);
 CREATE INDEX IF NOT EXISTS idx_device_lists_outbound_dest ON device_lists_outbound_pokes(destination);
 CREATE INDEX IF NOT EXISTS idx_device_lists_outbound_pokes_user ON device_lists_outbound_pokes(user_id);
@@ -3928,9 +3640,6 @@ CREATE INDEX IF NOT EXISTS idx_megolm_session_keys_lookup ON megolm_session_keys
 CREATE INDEX IF NOT EXISTS idx_megolm_session_keys_expiry ON megolm_session_keys(expires_at) WHERE expires_at IS NOT NULL;
 
 -- Security
-CREATE INDEX IF NOT EXISTS idx_security_events_user_id ON security_events(user_id);
-CREATE INDEX IF NOT EXISTS idx_security_events_created_ts ON security_events(created_ts);
-CREATE INDEX IF NOT EXISTS idx_ip_blocks_blocked_ts ON ip_blocks(blocked_ts);
 
 -- Event reports
 CREATE INDEX IF NOT EXISTS idx_event_reports_event ON event_reports(event_id);
@@ -4105,19 +3814,11 @@ CREATE INDEX IF NOT EXISTS idx_beacon_info_room ON beacon_info(room_id);
 CREATE INDEX IF NOT EXISTS idx_call_sessions_room ON call_sessions(room_id);
 
 -- Migration audit
-CREATE INDEX IF NOT EXISTS idx_migration_audit_version ON migration_audit(version);
-CREATE INDEX IF NOT EXISTS idx_migration_audit_executed_at ON migration_audit(executed_at);
-CREATE INDEX IF NOT EXISTS idx_migration_audit_status ON migration_audit(status);
 
 -- Replication positions
 CREATE INDEX IF NOT EXISTS idx_replication_positions_worker ON replication_positions(worker_id);
 
 -- Stream tables
-CREATE INDEX IF NOT EXISTS idx_presence_stream_user ON presence_stream(user_id);
-CREATE INDEX IF NOT EXISTS idx_presence_stream_stream ON presence_stream(stream_id);
-CREATE INDEX IF NOT EXISTS idx_typing_stream_room ON typing_stream(room_id);
-CREATE INDEX IF NOT EXISTS idx_typing_stream_user ON typing_stream(user_id);
-CREATE INDEX IF NOT EXISTS idx_typing_stream_active ON typing_stream(room_id, is_typing) WHERE is_typing = TRUE;
 
 -- Room stats
 
@@ -4459,30 +4160,12 @@ BEGIN
             FOREIGN KEY (worker_id) REFERENCES workers(worker_id) ON DELETE CASCADE;
     END IF;
 
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_presence_stream_user' AND conrelid = 'presence_stream'::regclass) THEN
-        ALTER TABLE presence_stream ADD CONSTRAINT fk_presence_stream_user
-            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
-    END IF;
-
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_typing_stream_room' AND conrelid = 'typing_stream'::regclass) THEN
-        ALTER TABLE typing_stream ADD CONSTRAINT fk_typing_stream_room
-            FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
-    END IF;
-
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_typing_stream_user' AND conrelid = 'typing_stream'::regclass) THEN
-        ALTER TABLE typing_stream ADD CONSTRAINT fk_typing_stream_user
-            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
-    END IF;
 
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_device_lists_outbound_pokes_user' AND conrelid = 'device_lists_outbound_pokes'::regclass) THEN
         ALTER TABLE device_lists_outbound_pokes ADD CONSTRAINT fk_device_lists_outbound_pokes_user
             FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
     END IF;
 
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_room_stats_current_room' AND conrelid = 'room_stats_current'::regclass) THEN
-        ALTER TABLE room_stats_current ADD CONSTRAINT fk_room_stats_current_room
-            FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
-    END IF;
 END $$;
 
 -- ============================================================================
@@ -4515,35 +4198,6 @@ END $$;
 -- Triggers
 -- ============================================================================
 
--- Auto-update updated_ts for openclaw_connections
-DO $$ BEGIN
-IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_openclaw_connections_updated_ts') THEN
-    CREATE TRIGGER update_openclaw_connections_updated_ts
-        BEFORE UPDATE ON openclaw_connections
-        FOR EACH ROW
-        EXECUTE FUNCTION update_updated_ts_column();
-END IF;
-END $$;
-
--- Auto-update updated_ts for ai_conversations
-DO $$ BEGIN
-IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_ai_conversations_updated_ts') THEN
-    CREATE TRIGGER update_ai_conversations_updated_ts
-        BEFORE UPDATE ON ai_conversations
-        FOR EACH ROW
-        EXECUTE FUNCTION update_updated_ts_column();
-END IF;
-END $$;
-
--- Auto-update updated_ts for ai_chat_roles
-DO $$ BEGIN
-IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_ai_chat_roles_updated_ts') THEN
-    CREATE TRIGGER update_ai_chat_roles_updated_ts
-        BEFORE UPDATE ON ai_chat_roles
-        FOR EACH ROW
-        EXECUTE FUNCTION update_updated_ts_column();
-END IF;
-END $$;
 
 -- ============================================================================
 -- Default Data
@@ -4585,12 +4239,6 @@ UPDATE users SET must_change_password = TRUE WHERE username = 'admin';
 -- ============================================================================
 
 -- Migration audit
-COMMENT ON TABLE migration_audit IS 'Records metrics for each database migration execution, used for performance monitoring and troubleshooting';
-COMMENT ON COLUMN migration_audit.duration_ms IS 'Migration execution time in milliseconds';
-COMMENT ON COLUMN migration_audit.rows_affected IS 'Number of rows affected';
-COMMENT ON COLUMN migration_audit.status IS 'Execution status: SUCCESS, FAILED, ROLLED_BACK';
-COMMENT ON COLUMN migration_audit.checksum IS 'SHA-256 checksum of the migration script';
-COMMENT ON COLUMN migration_audit.migration_file IS 'Migration script filename';
 
 -- Event relations
 COMMENT ON TABLE event_relations IS 'Stores Matrix event relations (annotations, references, replacements, threads)';
@@ -4599,62 +4247,14 @@ COMMENT ON COLUMN event_relations.relates_to_event_id IS 'The event_id being rel
 COMMENT ON COLUMN event_relations.relation_type IS 'Relation type: m.annotation (reactions), m.reference, m.replace (edits), m.thread';
 
 -- OpenClaw connections
-COMMENT ON TABLE openclaw_connections IS 'OpenClaw connection configuration table';
-COMMENT ON COLUMN openclaw_connections.user_id IS 'User ID';
-COMMENT ON COLUMN openclaw_connections.name IS 'Connection name';
-COMMENT ON COLUMN openclaw_connections.provider IS 'Provider: openai, anthropic, ollama, openclaw, custom';
-COMMENT ON COLUMN openclaw_connections.base_url IS 'API endpoint URL';
-COMMENT ON COLUMN openclaw_connections.encrypted_api_key IS 'Encrypted API key';
-COMMENT ON COLUMN openclaw_connections.config IS 'Other configuration (temperature, maxTokens, etc.)';
-COMMENT ON COLUMN openclaw_connections.is_default IS 'Whether this is the default connection';
-COMMENT ON COLUMN openclaw_connections.is_active IS 'Whether the connection is active';
 
 -- AI conversations
-COMMENT ON TABLE ai_conversations IS 'AI conversation records table';
-COMMENT ON COLUMN ai_conversations.user_id IS 'User ID';
-COMMENT ON COLUMN ai_conversations.connection_id IS 'Associated OpenClaw connection';
-COMMENT ON COLUMN ai_conversations.title IS 'Conversation title';
-COMMENT ON COLUMN ai_conversations.model_id IS 'Model ID used';
-COMMENT ON COLUMN ai_conversations.system_prompt IS 'System prompt';
-COMMENT ON COLUMN ai_conversations.temperature IS 'Temperature parameter';
-COMMENT ON COLUMN ai_conversations.max_tokens IS 'Maximum token count';
-COMMENT ON COLUMN ai_conversations.is_pinned IS 'Whether pinned';
-COMMENT ON COLUMN ai_conversations.metadata IS 'Other metadata';
 
 -- AI messages
-COMMENT ON TABLE ai_messages IS 'AI message records table';
-COMMENT ON COLUMN ai_messages.conversation_id IS 'Associated conversation ID';
-COMMENT ON COLUMN ai_messages.role IS 'Message role: user, assistant, system, tool';
-COMMENT ON COLUMN ai_messages.content IS 'Message content';
-COMMENT ON COLUMN ai_messages.token_count IS 'Token count';
-COMMENT ON COLUMN ai_messages.tool_calls IS 'Function calling tool call records';
-COMMENT ON COLUMN ai_messages.tool_call_id IS 'Tool call ID (for correlating tool responses)';
-COMMENT ON COLUMN ai_messages.metadata IS 'Other metadata';
 
 -- AI generations
-COMMENT ON TABLE ai_generations IS 'AI generation records table (image/video/audio)';
-COMMENT ON COLUMN ai_generations.user_id IS 'User ID';
-COMMENT ON COLUMN ai_generations.conversation_id IS 'Associated conversation ID';
-COMMENT ON COLUMN ai_generations.type IS 'Generation type: image, video, audio';
-COMMENT ON COLUMN ai_generations.prompt IS 'Prompt';
-COMMENT ON COLUMN ai_generations.result_url IS 'Result URL';
-COMMENT ON COLUMN ai_generations.result_mxc IS 'Matrix MXC URL';
-COMMENT ON COLUMN ai_generations.status IS 'Status: pending, processing, completed, failed';
-COMMENT ON COLUMN ai_generations.error_message IS 'Error message';
-COMMENT ON COLUMN ai_generations.metadata IS 'Other metadata (dimensions, duration, etc.)';
 
 -- AI chat roles
-COMMENT ON TABLE ai_chat_roles IS 'AI chat roles table';
-COMMENT ON COLUMN ai_chat_roles.user_id IS 'User ID';
-COMMENT ON COLUMN ai_chat_roles.name IS 'Role name';
-COMMENT ON COLUMN ai_chat_roles.description IS 'Role description';
-COMMENT ON COLUMN ai_chat_roles.system_message IS 'System prompt';
-COMMENT ON COLUMN ai_chat_roles.model_id IS 'Default model ID';
-COMMENT ON COLUMN ai_chat_roles.avatar_url IS 'Avatar URL';
-COMMENT ON COLUMN ai_chat_roles.category IS 'Category';
-COMMENT ON COLUMN ai_chat_roles.temperature IS 'Default temperature parameter';
-COMMENT ON COLUMN ai_chat_roles.max_tokens IS 'Default maximum token count';
-COMMENT ON COLUMN ai_chat_roles.is_public IS 'Whether public';
 
 -- Federation servers
 COMMENT ON COLUMN federation_servers.status IS 'Federation admission status: pending, active, rejected';

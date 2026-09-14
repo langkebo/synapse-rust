@@ -233,26 +233,7 @@ CREATE TABLE IF NOT EXISTS friend_categories (
 
 -- ============================================================================
 -- Extension: Voice Messages (feature: voice-extended)
--- Note: voice_usage_stats is now in the baseline (20260517 schema)
+-- voice-extended stores into `voice_usage_stats`, which lives in the v11
+-- baseline. The former `voice_messages` table was never read by any Rust code
+-- (0 references) and has been dropped from both the baseline and this file.
 -- ============================================================================
-
-CREATE TABLE IF NOT EXISTS voice_messages (
-    id BIGSERIAL,
-    event_id TEXT NOT NULL,
-    user_id TEXT NOT NULL,
-    room_id TEXT,
-    media_id TEXT,
-    duration_ms INT NOT NULL,
-    file_size BIGINT,
-    file_path TEXT,
-    mime_type TEXT DEFAULT 'audio/ogg',
-    waveform JSONB,
-    transcription TEXT,
-    transcription_language TEXT,
-    created_ts BIGINT NOT NULL,
-    updated_ts BIGINT,
-    CONSTRAINT pk_voice_messages PRIMARY KEY (id),
-    CONSTRAINT uq_voice_messages_event UNIQUE (event_id)
-);
-CREATE INDEX IF NOT EXISTS idx_voice_messages_user ON voice_messages(user_id);
-CREATE INDEX IF NOT EXISTS idx_voice_messages_room ON voice_messages(room_id);

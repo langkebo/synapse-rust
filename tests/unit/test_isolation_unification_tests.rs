@@ -54,7 +54,15 @@ const EXTENSIONS: &str = include_str!("../../migrations/00000001_extensions_v10.
 
 /// `v11 ++ extensions`, no separator: the baseline the shared template was
 /// built from. Any other string mints a SECOND template.
-const EXPECTED_BASELINE_FINGERPRINT: &str = "7c3a89659a56940f";
+///
+/// This is a **content** hash, so it changes whenever either baseline migration
+/// is legitimately edited (e.g. dropping dead tables). When that happens, update
+/// the constant to the newly reported `left:` value — the guard then goes back to
+/// doing its real job, which is catching a wrong *concatenation*: a separator
+/// hashes to `a05fa4488475fe1d` and a reversal to `4137af770181767b`, and neither
+/// is what any legitimate migration edit produces as long as the two files are
+/// still concatenated v11-then-extensions with nothing between them.
+const EXPECTED_BASELINE_FINGERPRINT: &str = "8e0da5c4d2d4c2d8";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

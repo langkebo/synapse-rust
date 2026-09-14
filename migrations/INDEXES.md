@@ -1,12 +1,12 @@
 # 索引治理文档
 
 > 版本: v1.1.0
-> 更新日期: 2026-09-04
+> 更新日期: 2026-09-14
 > 数据源: `migrations/00000000_unified_schema_v11.sql`（v11.0.0, 2026-08-31）+
 >   P1/P2/P3 审计迁移（`2026090401*_schema_p*.sql`）
 
-> **覆盖率说明**：v11 baseline 共有 368 个索引（含主键索引），
-> 本文档精选 103 个有代表性的 partial / composite / 覆盖 / GIN 索引作重点记录，
+> **覆盖率说明**：v11 baseline 共有 348 个索引（含主键索引），
+> 本文档精选 98 个有代表性的 partial / composite / 覆盖 / GIN 索引作重点记录，
 > 覆盖核心查询路径。完整索引清单请直接查看 `00000000_unified_schema_v11.sql`
 > 中的 `CREATE INDEX` 语句，或在数据库中执行 `SELECT indexname FROM pg_indexes
 > WHERE schemaname = 'public'`。
@@ -62,7 +62,6 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | pushers | idx_pushers_enabled | is_enabled | is_enabled = TRUE | 查找启用的推送器 |
 | spaces | idx_spaces_public | is_public | is_public = TRUE | 查找公开 Space |
 | spaces | idx_spaces_parent | parent_space_id | parent_space_id IS NOT NULL | 查找有父级 Space 的条目 |
-| federation_blacklist_config | idx_federation_blacklist_config_enabled | is_enabled | is_enabled = TRUE | 查找启用的联邦黑名单配置 |
 | federation_blacklist_rule | idx_federation_blacklist_rule_enabled | is_enabled | is_enabled = TRUE | 查找启用的联邦黑名单规则 |
 | federation_queue | idx_federation_queue_pending | destination, created_ts | status = 'pending' | 查找待发送的联邦消息 |
 | federation_queue | idx_federation_queue_retry | destination, next_retry_ts | next_retry_ts IS NOT NULL AND status = 'retry' | 查找需重试的联邦消息（P3 审计新增，`20260904030000`） |
@@ -84,7 +83,6 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | presence | idx_presence_last_active_ts | last_active_ts | last_active_ts IS NOT NULL | 查找有活跃时间的在线状态 |
 | rendezvous_sessions | idx_rendezvous_sessions_expires | expires_at | expires_at IS NOT NULL | 查找有过期时间的 Rendezvous 会话 |
 | qr_login_codes | idx_qr_login_codes_expires | expires_at | expires_at IS NOT NULL | 查找有过期时间的二维码登录码 |
-| typing_stream | idx_typing_stream_active | room_id, is_typing | is_typing = TRUE | 查找正在输入的房间 |
 | user_locks | idx_user_locks_user_active | user_id, is_active (UNIQUE) | is_active = TRUE | 用户活跃锁定唯一约束 |
 | user_locks | idx_user_locks_active | is_active, created_ts DESC | is_active = TRUE | 查找活跃锁定记录 |
 | rooms_summaries_mv | idx_rooms_summaries_mv_public_activity | is_public, joined_members DESC, last_activity_ts DESC | is_public = TRUE | 物化视图：公开房间排序 |
@@ -149,8 +147,6 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | one_time_keys | idx_one_time_keys_user_device | user_id, device_id | 否 | 按用户和设备查找 OTK |
 | e2ee_audit_log | idx_e2ee_audit_log_user_created | user_id, created_ts DESC | 否 | 按用户和时间查询审计日志 |
 | e2ee_stored_secrets | idx_e2ee_stored_secrets_user_name | user_id, secret_name | UNIQUE | 存储密钥唯一约束 |
-| voice_messages | idx_voice_messages_room_ts | room_id, created_ts DESC | 否 | 按房间和时间查询语音消息 |
-| voice_messages | idx_voice_messages_user_ts | user_id, created_ts DESC | 否 | 按用户和时间查询语音消息 |
 | voice_usage_stats | idx_voice_usage_stats_user | user_id, created_ts DESC | 否 | 按用户和时间查询语音统计 |
 | voice_usage_stats | idx_voice_usage_stats_room | room_id, created_ts DESC | 否 | 按房间和时间查询语音统计 |
 | push_rules | idx_push_rules_user_priority | user_id, priority | 否 | 按用户和优先级查询推送规则 |
@@ -159,7 +155,6 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | space_events | idx_space_events_space_ts | space_id, origin_server_ts DESC | 否 | 按 Space 和时间查询事件 |
 | federation_queue | idx_federation_queue_dest_status | destination, status, created_ts | 否 | 按目标和状态查询联邦队列 |
 | federation_queue | idx_federation_queue_pending | destination, created_ts | 否 | 待发送联邦消息查询（Partial） |
-| destination_retry_timings | idx_destination_retry_next | retry_last_ts, failure_count | 否 | 重试时间查询 |
 | account_data | idx_account_data_user_type | user_id, data_type | 否 | 按用户和数据类型查询账户数据 |
 | background_updates | idx_background_updates_running_job | job_name, started_ts | 否 | 运行中任务查询（Partial） |
 | background_updates | idx_background_updates_pending | status, job_type, created_ts | 否 | 待处理任务查询（Partial） |
