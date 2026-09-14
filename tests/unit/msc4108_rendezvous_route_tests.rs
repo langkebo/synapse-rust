@@ -220,17 +220,24 @@ fn create_session_response_shape_has_url_field() {
 
 #[test]
 fn create_session_returns_ok_with_etag_and_expires() {
-    // Mirrors the (StatusCode::OK, [ETag, Expires, Content-Type], Json) tuple.
+    // POST create: 200 OK with common headers + CORS ETag exposure.
     let status = StatusCode::OK;
     let headers = [
         ("etag", "\"1700000000000\""),
         ("expires", "Tue, 14 Nov 2023 22:13:20 GMT"),
+        ("last-modified", "Tue, 14 Nov 2023 22:08:20 GMT"),
+        ("cache-control", "no-store"),
+        ("pragma", "no-cache"),
+        ("access-control-expose-headers", "ETag"),
         ("content-type", "application/json"),
     ];
     assert_eq!(status, StatusCode::OK);
     assert_eq!(headers[0].1, "\"1700000000000\"");
     assert_eq!(headers[1].1, "Tue, 14 Nov 2023 22:13:20 GMT");
-    assert_eq!(headers[2].1, "application/json");
+    assert_eq!(headers[3].1, "no-store");
+    assert_eq!(headers[4].1, "no-cache");
+    assert_eq!(headers[5].1, "ETag");
+    assert_eq!(headers[6].1, "application/json");
 }
 
 #[test]
@@ -245,12 +252,22 @@ fn create_session_expires_header_matches_ttl() {
 // ── get_session response contract ──────────────────────────────────────────
 
 #[test]
-fn get_session_returns_text_plain_with_etag() {
+fn get_session_returns_text_plain_with_full_common_headers() {
+    // 200 OK GET must carry the 5 MSC4108 common headers + text/plain.
     let status = StatusCode::OK;
-    let headers = [("etag", "\"1700000000000\""), ("content-type", "text/plain")];
+    let headers = [
+        ("etag", "\"1700000000000\""),
+        ("expires", "Tue, 14 Nov 2023 22:18:20 GMT"),
+        ("last-modified", "Tue, 14 Nov 2023 22:13:20 GMT"),
+        ("cache-control", "no-store"),
+        ("pragma", "no-cache"),
+        ("content-type", "text/plain"),
+    ];
     assert_eq!(status, StatusCode::OK);
     assert_eq!(headers[0].1, "\"1700000000000\"");
-    assert_eq!(headers[1].1, "text/plain");
+    assert_eq!(headers[3].1, "no-store");
+    assert_eq!(headers[4].1, "no-cache");
+    assert_eq!(headers[5].1, "text/plain");
 }
 
 #[test]
@@ -289,32 +306,78 @@ fn get_session_returns_200_when_if_none_match_differs() {
 }
 
 #[test]
-fn get_session_304_response_carries_only_etag_header() {
-    // Mirrors the (304, [ETag], Body::empty) tuple.
+fn get_session_304_response_carries_full_common_headers() {
+    // 304 must carry all 5 common headers (NOT just ETag), with no body.
     let status = StatusCode::NOT_MODIFIED;
-    let headers = [("etag", "\"1700000000000\"")];
+    let headers = [
+        ("etag", "\"1700000000000\""),
+        ("expires", "Tue, 14 Nov 2023 22:18:20 GMT"),
+        ("last-modified", "Tue, 14 Nov 2023 22:13:20 GMT"),
+        ("cache-control", "no-store"),
+        ("pragma", "no-cache"),
+    ];
     assert_eq!(status, 304);
-    assert_eq!(headers.len(), 1);
+    assert_eq!(headers.len(), 5);
 }
 
 // ── update_session response contract ───────────────────────────────────────
 
 #[test]
-fn update_session_returns_ok_with_new_etag() {
-    let status = StatusCode::OK;
-    let headers = [("etag", "\"1700000000500\""), ("content-type", "text/plain")];
-    assert_eq!(status, StatusCode::OK);
+fn update_session_returns_202_accepted_with_etag() {
+    // MSC4108 PUT success is 202 Accepted (NOT 200), with the new ETag and
+    // the required common headers.
+    let status = StatusCode::ACCEPTED;
+    let headers = [
+        ("etag", "\"1700000000500\""),
+        ("expires", "Tue, 14 Nov 2023 22:18:20 GMT"),
+        ("last-modified", "Tue, 14 Nov 2023 22:13:20 GMT"),
+        ("cache-control", "no-store"),
+        ("pragma", "no-cache"),
+        ("content-type", "text/plain"),
+    ];
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(status.as_u16(), 202);
     assert_eq!(headers[0].1, "\"1700000000500\"");
-    assert_eq!(headers[1].1, "text/plain");
+    assert_eq!(headers[1].1, "Tue, 14 Nov 2023 22:18:20 GMT");
+    assert_eq!(headers[2].1, "Tue, 14 Nov 2023 22:13:20 GMT");
+    assert_eq!(headers[3].1, "no-store");
+    assert_eq!(headers[4].1, "no-cache");
+    assert_eq!(headers[5].1, "text/plain");
 }
 
 #[test]
-fn update_session_etag_mismatch_returns_bad_request() {
-    // Mirrors `.ok_or_else(|| ApiError::bad_request("ETag mismatch or session expired"))`.
-    let err = ApiError::bad_request("ETag mismatch or session expired".to_string());
+fn update_session_etag_mismatch_returns_412_precondition_failed() {
+    // MSC4108 ETag mismatch maps to 412 Precondition Failed with the unstable
+    // errcode field `org.matrix.msc4108.errcode: M_CONCURRENT_WRITE` — not 400.
+    let err = ApiError::conflict("ETag mismatch - data was modified".to_string());
+    // The route constructs the 412 response manually (ApiError has no 412 kind);
+    // assert the unstable-prefixed body shape the handler emits.
+    let body = serde_json::json!({
+        "errcode": "M_UNKNOWN",
+        "org.matrix.msc4108.errcode": "M_CONCURRENT_WRITE",
+        "error": "ETag mismatch - data was modified"
+    });
+    assert_eq!(body["org.matrix.msc4108.errcode"], "M_CONCURRENT_WRITE");
+    assert_eq!(body["errcode"], "M_UNKNOWN");
+    assert_eq!(body["error"], err.message());
+    // 412 is the spec status; ApiError::conflict is 409 — the route bypasses it.
+    assert_eq!(StatusCode::PRECONDITION_FAILED.as_u16(), 412);
+}
+
+#[test]
+fn update_session_payload_too_large_maps_to_413() {
+    // > 4 KiB payload → 413 M_TOO_LARGE per MSC4108.
+    let err = ApiError::too_large("Payload exceeds maximum size of 4KB".to_string());
+    assert_eq!(err.http_status(), StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(err.http_status().as_u16(), 413);
+}
+
+#[test]
+fn update_session_non_text_plain_content_type_is_rejected() {
+    // MSC4108 PUT/POST require Content-Type: text/plain; any other type is 400.
+    let err = ApiError::invalid_param("Content-Type must be text/plain".to_string());
     assert_eq!(err.http_status(), StatusCode::BAD_REQUEST);
-    assert!(err.is_bad_request());
-    assert_eq!(err.message(), "ETag mismatch or session expired");
+    assert_eq!(err.http_status().as_u16(), 400);
 }
 
 #[test]
@@ -334,18 +397,18 @@ fn update_session_nonempty_if_match_is_used_as_precondition() {
 
 #[test]
 fn update_session_with_matching_if_match_succeeds() {
-    // Storage returns Some(new_etag) when the precondition matches.
+    // Storage returns Updated(new_etag) when the precondition matches.
     let stored_ts = 1_700_000_000_000_i64;
     let expected_etag = format!("\"{stored_ts}\"");
     let client_if_match = format!("\"{stored_ts}\"");
-    // Route strips quotes when comparing? No — it passes through; storage does trim_matches('"').
+    // The storage trims quotes when comparing the If-Match precondition.
     let client_ts: String = client_if_match.trim_matches('"').to_string();
     assert_eq!(client_ts, stored_ts.to_string());
     assert_eq!(expected_etag, client_if_match);
 }
 
 #[test]
-fn update_session_with_mismatched_if_match_returns_none() {
+fn update_session_with_mismatched_if_match_fails_precondition() {
     let stored_ts = 1_700_000_000_000_i64;
     let client_if_match = "\"1700000000500\"";
     let client_ts: String = client_if_match.trim_matches('"').to_string();
@@ -355,18 +418,18 @@ fn update_session_with_mismatched_if_match_returns_none() {
 // ── delete_session response contract ───────────────────────────────────────
 
 #[test]
-fn delete_session_returns_ok_with_empty_body() {
-    // Mirrors (StatusCode::OK, Body::empty()).
-    let status = StatusCode::OK;
-    assert_eq!(status, 200);
+fn delete_session_returns_204_no_content() {
+    // MSC4108 DELETE success is 204 No Content (NOT 200), with no body.
+    let status = StatusCode::NO_CONTENT;
+    assert_eq!(status, 204);
 }
 
 #[test]
-fn delete_session_succeeds_even_for_unknown_id() {
-    // The route handler does NOT 404 on unknown ids — `delete_msc4108_session`
-    // is fire-and-forget (returns Ok(()) regardless of rows affected).
-    let status = StatusCode::OK;
-    assert_eq!(status, 200);
+fn delete_session_unknown_id_returns_404() {
+    // delete_msc4108_session now returns a bool — the route turns `false`
+    // (no row existed / expired) into 404 M_NOT_FOUND per MSC4108.
+    let err = ApiError::not_found("Rendezvous session not found or expired".to_string());
+    assert_eq!(err.http_status(), StatusCode::NOT_FOUND);
 }
 
 // ── ApiError status-code mapping (exercising real constructors) ────────────

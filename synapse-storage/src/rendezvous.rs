@@ -139,6 +139,41 @@ pub struct RendezvousLoginFinish {
     pub user_id: String,
 }
 
+/// Outcome of an MSC4108 conditional update. MSC4108 requires distinguishing
+/// "session not found / expired" (404 `M_NOT_FOUND`) from "ETag precondition
+/// failed" (412 with unstable `org.matrix.msc4108.errcode = M_CONCURRENT_WRITE`)
+/// — the old `Option<String>` signature conflated them.
+///
+/// Every successful / failed variant carries the session's current
+/// `updated_ts` and `expires_at` so the route can emit the required
+/// `Last-Modified` / `Expires` headers (per MSC4108 §"Common HTTP response
+/// headers") even on 412.
+#[derive(Debug, Clone)]
+pub enum Msc4108UpdateOutcome {
+    /// Session row is missing or expired — caller should respond 404 `M_NOT_FOUND`.
+    NotFound,
+    /// `If-Match` was supplied and did not match the current row's etag.
+    /// Contains the current etag / `updated_ts` / `expires_at` so the caller
+    /// can emit a spec-compliant 412 with the required common headers.
+    PreconditionFailed {
+        /// Current strong ETag of the session payload.
+        current_etag: String,
+        /// Last-modified timestamp (millis) of the current payload.
+        updated_ts: i64,
+        /// Session absolute expiry (millis).
+        expires_at: i64,
+    },
+    /// Update succeeded. Contains the new etag / `updated_ts` / `expires_at`.
+    Updated {
+        /// New strong ETag of the written payload.
+        new_etag: String,
+        /// Writes' timestamp (millis) — becomes the new `Last-Modified`.
+        updated_ts: i64,
+        /// Session absolute expiry (millis).
+        expires_at: i64,
+    },
+}
+
 /// The `RendezvousStoreApi` trait.
 #[async_trait]
 pub trait RendezvousStoreApi: Send + Sync {
@@ -172,22 +207,37 @@ pub trait RendezvousStoreApi: Send + Sync {
 
     // ── MSC4108 methods ──
     /// See [`create_msc4108_session`].
+    ///
+    /// Returns `(session_id, etag, created_ts, expires_at)`. `created_ts` is the
+    /// row's `updated_ts` at creation time and feeds the required
+    /// `Last-Modified` response header; `expires_at` feeds `Expires`.
     async fn create_msc4108_session(
         &self,
         initial_data: &str,
         ttl_ms: i64,
-    ) -> Result<(String, String, i64), sqlx::Error>;
+    ) -> Result<(String, String, i64, i64), sqlx::Error>;
     /// See [`get_msc4108_data`].
-    async fn get_msc4108_data(&self, session_id: &str) -> Result<Option<(String, String)>, sqlx::Error>;
+    ///
+    /// Returns `(data, etag, updated_ts, expires_at)` or None if not found/expired.
+    async fn get_msc4108_data(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<(String, String, i64, i64)>, sqlx::Error>;
     /// See [`update_msc4108_data`].
+    ///
+    /// Distinguishes success / ETag mismatch / not-found via [`Msc4108UpdateOutcome`]
+    /// so the route can return 202 / 412 / 404 respectively per MSC4108.
     async fn update_msc4108_data(
         &self,
         session_id: &str,
         data: &str,
         if_match: Option<&str>,
-    ) -> Result<Option<String>, sqlx::Error>;
+    ) -> Result<Msc4108UpdateOutcome, sqlx::Error>;
     /// See [`delete_msc4108_session`].
-    async fn delete_msc4108_session(&self, session_id: &str) -> Result<(), sqlx::Error>;
+    ///
+    /// Returns `true` when a session row was deleted, `false` when none existed —
+    /// per MSC4108 the caller turns `false` into 404 `M_NOT_FOUND`.
+    async fn delete_msc4108_session(&self, session_id: &str) -> Result<bool, sqlx::Error>;
 }
 
 /// The `RendezvousStorage` struct.
@@ -365,14 +415,16 @@ impl RendezvousStorage {
     // We reuse the `content` JSONB column to store `{"data": "<base64_text>"}`.
 
     /// Create a new MSC4108 rendezvous session with initial data.
-    /// Returns (session_id, etag, expires_at_millis).
+    /// Returns `(session_id, etag, created_ts, expires_at_millis)` — the last two
+    /// feed the required `Last-Modified` / `Expires` response headers (MSC4108
+    /// §Common HTTP response headers).
     pub async fn create_msc4108_session(
         &self,
         initial_data: &str,
         ttl_ms: i64,
-    ) -> Result<(String, String, i64), sqlx::Error> {
+    ) -> Result<(String, String, i64, i64), sqlx::Error> {
         let now = current_timestamp_millis();
-        let session_id = uuid::Uuid::new_v4().simple().to_string().to_string();
+        let session_id = uuid::Uuid::new_v4().simple().to_string();
         let expires_at = now + ttl_ms;
         let content = serde_json::json!({ "data": initial_data });
 
@@ -391,16 +443,21 @@ impl RendezvousStorage {
         .execute(&*self.pool)
         .await?;
 
-        let etag = format!("\"{}\"", now);
-        Ok((session_id, etag, expires_at))
+        let etag = format!("\"{now}\"");
+        Ok((session_id, etag, now, expires_at))
     }
 
-    /// Get MSC4108 session data. Returns (data, etag) or None if not found/expired.
-    pub async fn get_msc4108_data(&self, session_id: &str) -> Result<Option<(String, String)>, sqlx::Error> {
+    /// Get MSC4108 session data. Returns `(data, etag, updated_ts, expires_at)`
+    /// or None if not found/expired. `updated_ts`/`expires_at` feed the
+    /// required `Last-Modified`/`Expires` response headers.
+    pub async fn get_msc4108_data(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<(String, String, i64, i64)>, sqlx::Error> {
         let now = current_timestamp_millis();
-        let row: Option<(serde_json::Value, Option<i64>)> = sqlx::query_as(
+        let row: Option<(serde_json::Value, Option<i64>, i64)> = sqlx::query_as(
             r"
-            SELECT content, updated_ts FROM rendezvous_session
+            SELECT content, updated_ts, expires_at FROM rendezvous_session
             WHERE session_id = $1 AND intent = 'msc4108' AND expires_at > $2
             ",
         )
@@ -410,48 +467,65 @@ impl RendezvousStorage {
         .await?;
 
         match row {
-            Some((content, updated_ts)) => {
+            Some((content, updated_ts, expires_at)) => {
                 let data = content.get("data").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let etag = format!("\"{}\"", updated_ts.unwrap_or(0));
-                Ok(Some((data, etag)))
+                let updated = updated_ts.unwrap_or(0);
+                let etag = format!("\"{updated}\"");
+                Ok(Some((data, etag, updated, expires_at)))
             }
             None => Ok(None),
         }
     }
 
-    /// Update MSC4108 session data. Returns new etag, or None if session not found.
-    /// If `if_match` is provided, returns None when etag doesn't match (conditional update failed).
+    /// Update MSC4108 session data, distinguishing success / precondition
+    /// failure / not-found via [`Msc4108UpdateOutcome`].
+    ///
+    /// Uses a `SELECT ... FOR UPDATE` transaction so the precondition check and
+    /// the write are atomic (MSC4108's `M_CONCURRENT_WRITE` semantics assume no
+    /// lost-update race between the `If-Match` check and the payload swap).
     pub async fn update_msc4108_data(
         &self,
         session_id: &str,
         data: &str,
         if_match: Option<&str>,
-    ) -> Result<Option<String>, sqlx::Error> {
+    ) -> Result<Msc4108UpdateOutcome, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
         let now = current_timestamp_millis();
-        let content = serde_json::json!({ "data": data });
 
-        // Check etag if provided
+        let current: Option<(Option<i64>, i64)> = sqlx::query_as(
+            r"
+            SELECT updated_ts, expires_at FROM rendezvous_session
+            WHERE session_id = $1 AND intent = 'msc4108'
+            FOR UPDATE
+            ",
+        )
+        .bind(session_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let (current_updated, expires_at) = match current {
+            Some((updated_ts, expires_at)) if expires_at > now => (updated_ts.unwrap_or(0), expires_at),
+            // Missing row or expired session — 404 M_NOT_FOUND per MSC4108.
+            _ => {
+                tx.rollback().await?;
+                return Ok(Msc4108UpdateOutcome::NotFound);
+            }
+        };
+
         if let Some(expected_etag) = if_match {
-            let expected_ts: String = expected_etag.trim_matches('"').to_string();
-            let exists: Option<bool> = sqlx::query_scalar(
-                r"
-                SELECT EXISTS(SELECT 1 FROM rendezvous_session
-                WHERE session_id = $1 AND intent = 'msc4108'
-                AND updated_ts::TEXT = $2 AND expires_at > $3)
-                ",
-            )
-            .bind(session_id)
-            .bind(&expected_ts)
-            .bind(now)
-            .fetch_optional(&*self.pool)
-            .await?;
-
-            if exists != Some(true) {
-                return Ok(None); // ETag mismatch or session not found
+            let expected_raw = expected_etag.trim_matches('"');
+            if expected_raw != current_updated.to_string() {
+                tx.rollback().await?;
+                return Ok(Msc4108UpdateOutcome::PreconditionFailed {
+                    current_etag: format!("\"{current_updated}\""),
+                    updated_ts: current_updated,
+                    expires_at,
+                });
             }
         }
 
-        let result = sqlx::query(
+        let content = serde_json::json!({ "data": data });
+        sqlx::query(
             r"
             UPDATE rendezvous_session
             SET content = $2, updated_ts = $3
@@ -461,23 +535,22 @@ impl RendezvousStorage {
         .bind(session_id)
         .bind(&content)
         .bind(now)
-        .execute(&*self.pool)
+        .execute(&mut *tx)
         .await?;
 
-        if result.rows_affected() == 0 {
-            Ok(None)
-        } else {
-            Ok(Some(format!("\"{}\"", now)))
-        }
+        tx.commit().await?;
+        Ok(Msc4108UpdateOutcome::Updated { new_etag: format!("\"{now}\""), updated_ts: now, expires_at })
     }
 
-    /// Delete an MSC4108 session.
-    pub async fn delete_msc4108_session(&self, session_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM rendezvous_session WHERE session_id = $1 AND intent = 'msc4108'")
+    /// Delete an MSC4108 session. Returns whether a row was actually removed —
+    /// MSC4108 requires 404 `M_NOT_FOUND` for unknown/expired session ids,
+    /// which the route derives from `false` here.
+    pub async fn delete_msc4108_session(&self, session_id: &str) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query("DELETE FROM rendezvous_session WHERE session_id = $1 AND intent = 'msc4108'")
             .bind(session_id)
             .execute(&*self.pool)
             .await?;
-        Ok(())
+        Ok(result.rows_affected() > 0)
     }
 }
 
@@ -523,10 +596,13 @@ impl RendezvousStoreApi for RendezvousStorage {
         &self,
         initial_data: &str,
         ttl_ms: i64,
-    ) -> Result<(String, String, i64), sqlx::Error> {
+    ) -> Result<(String, String, i64, i64), sqlx::Error> {
         self.create_msc4108_session(initial_data, ttl_ms).await
     }
-    async fn get_msc4108_data(&self, session_id: &str) -> Result<Option<(String, String)>, sqlx::Error> {
+    async fn get_msc4108_data(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<(String, String, i64, i64)>, sqlx::Error> {
         self.get_msc4108_data(session_id).await
     }
     async fn update_msc4108_data(
@@ -534,10 +610,10 @@ impl RendezvousStoreApi for RendezvousStorage {
         session_id: &str,
         data: &str,
         if_match: Option<&str>,
-    ) -> Result<Option<String>, sqlx::Error> {
+    ) -> Result<Msc4108UpdateOutcome, sqlx::Error> {
         self.update_msc4108_data(session_id, data, if_match).await
     }
-    async fn delete_msc4108_session(&self, session_id: &str) -> Result<(), sqlx::Error> {
+    async fn delete_msc4108_session(&self, session_id: &str) -> Result<bool, sqlx::Error> {
         self.delete_msc4108_session(session_id).await
     }
 }
