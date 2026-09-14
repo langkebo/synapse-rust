@@ -380,7 +380,9 @@ CLAUDE.md 约定的 `docs/audit/00_test_baseline.log`、`00_clippy_baseline.log`
 | 附带 | `EXPECTED_BASELINE_FINGERPRINT` 两次更新：`8737d9a5f8413d51` → `f6e7a2093ed526e8` → `696ff078f537a0c8` | `baseline_fingerprint_is_v11_then_extensions_with_no_separator` 通过 |
 | 附带 | 删除自己遗留的 `.worktrees/redundancy-cleanup`（3 个提交均已并入 main） | 修复 `exactly_one_place_builds_the_schema_clone` 因陈旧副本产生的假失败（8/8 通过） |
 
-提交：`fba2aac6`（基线三项 + 契约文档 + 测试）、`86fc6cd0`（schema-aware 触发器守卫 + fingerprint）。
+提交：`fba2aac6`（基线三项 + 契约文档 + 测试）、`86fc6cd0`（schema-aware 触发器守卫 + fingerprint）、
+`95af403d`（把两个新 db_test 留在 sqlx 动态路径，修复 `SQLX_OFFLINE` 编译失败）、
+`931da04f`（本报告）。
 
 **验证**：`cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` → **0 警告 / EXIT=0**；
 `./scripts/check_fmt_ratchet.sh` → **绿**；`python3 scripts/check_migration_consistency.py` → `status=ok, issues=0, warnings=0`；
