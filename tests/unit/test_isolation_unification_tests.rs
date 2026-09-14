@@ -22,7 +22,9 @@
 //!
 //! A third, quieter failure mode: the template name is a **content
 //! fingerprint** (`FNV-1a 64`) of the `baseline_sql` string the fixture passes
-//! in. `v11 ++ extensions`, with no separator, hashes to `bec240fb79ed438b`.
+//! in. `v11 ++ extensions`, with no separator, hashes to `7c3a89659a56940f`
+//! (2026-09-14: changed from `bec240fb79ed438b` when the burn_after_read retry
+//! columns were folded into v11 — the fingerprint follows baseline content).
 //! Inserting a separator (`"\n"`) or swapping the order mints a *second*
 //! template, so the suite silently rebuilds the entire baseline once more and
 //! stops sharing the template the database already has. Guard 5 therefore
@@ -47,7 +49,7 @@ const EXTENSIONS: &str = include_str!("../../migrations/00000001_extensions_v10.
 
 /// `v11 ++ extensions`, no separator: the baseline the shared template was
 /// built from. Any other string mints a SECOND template.
-const EXPECTED_BASELINE_FINGERPRINT: &str = "bec240fb79ed438b";
+const EXPECTED_BASELINE_FINGERPRINT: &str = "7c3a89659a56940f";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))
@@ -499,7 +501,7 @@ fn prepare_isolated_test_pool_does_not_use_the_runtime_initializer() {
 ///
 /// The template schema name is `test_isolation_template_<FNV-1a 64 of the
 /// baseline string>`. `v11 ++ extensions` (no separator) hashes to
-/// `bec240fb79ed438b`; `v11 ++ "\n" ++ extensions` hashes to `a05fa4488475fe1d`
+/// `7c3a89659a56940f`; `v11 ++ "\n" ++ extensions` hashes to `a05fa4488475fe1d`
 /// and the reverse to `4137af770181767b`. Either variant silently builds a
 /// *second* full template, so the suite pays the whole baseline rebuild again
 /// while believing it is sharing a template.
