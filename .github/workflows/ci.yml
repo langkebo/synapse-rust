@@ -352,6 +352,23 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+      # ── §9: cleanup accumulated test-schemas after each job ──
+      # Every test step that calls `prepare_isolated_test_pool` leaves behind a
+      # clone schema (`test_*`). Over time these accumulate (388+ locally on
+      # 2026-09-14). This step drops them at the end of each CI job.
+      #
+      # Note: GitHub Actions service containers (postgres) are destroyed at job
+      # end, so this cleanup is per-job only — it prevents intra-job bloat
+      # when multiple test matrices share the same container. The `always()`
+      # condition ensures cleanup runs even if prior steps fail.
+      - name: Cleanup accumulated test schemas (§9)
+        if: always() && matrix.features-args == '--all-features'
+        continue-on-error: true
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
+        run: bash scripts/cleanup_test_schemas.sh --apply
+
   # ──────────────────────────────────────────────
   # PR Benchmark Gate — runs on every PR (~30-60s)
   # Pure-Rust benchmarks only (federation + membership)

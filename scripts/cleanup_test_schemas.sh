@@ -38,6 +38,13 @@
 #
 # 连接优先级：DATABASE_URL > TEST_DATABASE_URL > PG* 环境变量 > 默认值。
 # 默认值刻意保留 Docker 端口，但**预演会打印实际连接目标**，执行前请核对。
+#
+# ── §9 兜底机制（CI 无文件系统标记文件时的 live 模板保护）────────────────────
+# 脚本按优先级认定 live 模板：
+#   1. 标记文件 `synapse_test_template_ready_<schema>`（test_utils.rs 写入）
+#   2. 环境变量 `TEST_DB_TEMPLATE_SCHEMA`（CI seed 钉住的名字，如 test_template_ci）
+#   3. 两者都缺 → 降级为「保留全部模板家族、仅删克隆 schema」（同 --keep-all-templates）
+# 认定为 live 的模板通过 `AND nspname NOT IN (...)` 硬排除，绝不会被 CASCADE 误删。
 
 set -uo pipefail
 
@@ -55,7 +62,7 @@ while [ $# -gt 0 ]; do
             EXTRA_KEEP+=("$1")
             ;;
         -h|--help)
-            sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,48p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *) echo "ERROR: 未知参数 $1（见 --help）" >&2; exit 2 ;;
@@ -90,7 +97,11 @@ echo "    实际连到: db=$CURRENT_DB server=$CURRENT_HOST"
 
 # ── 决定要保留的 live 模板 ───────────────────────────────────────────────────
 # 标记目录与 src/test_utils.rs::template_marker_dir() 一致。
-MARKER_DIR="${CARGO_TARGET_TMPDIR:-$(cd "$(dirname "$0")/.." && pwd)/target/tmp}/synapse_test_templates"
+# 允许用 SYNAPSE_TEMPLATE_MARKER_DIR 覆盖：本地自定义 CARGO_TARGET_DIR 时，
+# 默认的 $CARGO_TARGET_TMPDIR / <repo>/target/tmp 都可能指不到标记文件，
+# 导致这里找不到任何 live 模板而中止（§9 的实测痛点）。CI 里则应指向
+# 跑测试时实际生成标记的 target 目录，或直接依赖下面的 env / 反查兜底。
+MARKER_DIR="${SYNAPSE_TEMPLATE_MARKER_DIR:-${CARGO_TARGET_TMPDIR:-$(cd "$(dirname "$0")/.." && pwd)/target/tmp}/synapse_test_templates}"
 KEEP_TEMPLATES=()
 if [ "$KEEP_ALL_TEMPLATES" -eq 1 ]; then
     echo "==> --keep-all-templates：保留全部模板 schema"
@@ -100,41 +111,75 @@ elif [ -d "$MARKER_DIR" ]; then
         [ -z "$m" ] && continue
         KEEP_TEMPLATES+=("${m##*synapse_test_template_ready_}")
     done < <(find "$MARKER_DIR" -maxdepth 1 -name 'synapse_test_template_ready_*' -type f 2>/dev/null | sort)
-    echo "==> 由标记文件认定的 live 模板: ${#KEEP_TEMPLATES[@]} 个 ${KEEP_TEMPLATES[*]:-}"
+    [ "${#KEEP_TEMPLATES[@]}" -gt 0 ] && \
+        echo "==> 由标记文件认定的 live 模板: ${#KEEP_TEMPLATES[@]} 个 ${KEEP_TEMPLATES[*]:-}"
 fi
 for extra in "${EXTRA_KEEP[@]:-}"; do
     [ -n "$extra" ] && KEEP_TEMPLATES+=("$extra")
 done
 
+# TEST_DB_TEMPLATE_SCHEMA 是一个**独立**的保护项（通常来自 CI seed 步骤），
+# 必须始终加入 keep 集合——即使标记文件已认定了其他模板。这样能防止 CI 里的
+# 纯 shell 种子模板（无 Rust 标记）被误删。
+if [ -n "${TEST_DB_TEMPLATE_SCHEMA:-}" ]; then
+    HAS_TS=0
+    for t in "${KEEP_TEMPLATES[@]:-}"; do
+        [ "$t" = "$TEST_DB_TEMPLATE_SCHEMA" ] && HAS_TS=1 && break
+    done
+    if [ "$HAS_TS" -eq 0 ]; then
+        KEEP_TEMPLATES+=("$TEST_DB_TEMPLATE_SCHEMA")
+        echo "==> 附加 TEST_DB_TEMPLATE_SCHEMA：$TEST_DB_TEMPLATE_SCHEMA"
+    fi
+fi
+
+# keep 集合仍为空（无标记文件、无 EXTRA_KEEP、且未设 TEST_DB_TEMPLATE_SCHEMA）时，
+# 保守降级为"保留全部模板家族、只删克隆 schema"（等价于 KEEP_ALL_TEMPLATES=1），
+# 打印告警而非中止——避免"本地换 target 目录 / CI 无标记"就彻底罢工（§9 痛点）。
+#   —— 降级**必须**切到 KEEP_ALL_TEMPLATES=1，不能保留空的 keep 集合：否则
+#      KEEP_SQL 退化为 ""，硬排除子句被省略，指纹模板家族会全落入正则分支被删。
 if [ "$KEEP_ALL_TEMPLATES" -eq 0 ] && [ "${#KEEP_TEMPLATES[@]}" -eq 0 ]; then
-    echo "ERROR: 找不到任何 live 模板标记（${MARKER_DIR}）。" >&2
-    echo "       为避免误删仍在使用的模板，已中止。若确认可全部删除，" >&2
-    echo "       请显式加 --keep-all-templates=0 以外的确认方式：先跑一次测试生成标记，" >&2
-    echo "       或指定 --keep-template <name>。" >&2
-    exit 1
+    KEEP_ALL_TEMPLATES=1
+    echo "WARN: 找不到任何 live 模板标记（${MARKER_DIR}），且未设 TEST_DB_TEMPLATE_SCHEMA。" >&2
+    echo "      为避免误删仍在使用的模板，降级为「保留全部模板家族、仅清理克隆 schema」。" >&2
+    echo "      若要连陈旧模板一起删，请显式加 --keep-all-templates（见 --help）。" >&2
 fi
 
 # ── 构造候选列表 ─────────────────────────────────────────────────────────────
-KEEP_SQL="''"
-if [ "$KEEP_ALL_TEMPLATES" -eq 0 ]; then
-    KEEP_SQL=""
-    for t in "${KEEP_TEMPLATES[@]}"; do
-        KEEP_SQL="${KEEP_SQL}${KEEP_SQL:+,}'$t'"
+# KEEP_SQL is the literal list of schema names to protect. It must include every
+# name in KEEP_TEMPLATES (marker files + TEST_DB_TEMPLATE_SCHEMA fallback +
+# EXTRA_KEEP), because those are hard exclusions — see the CANDIDATE_SQL note
+# below about why the family-regex predicate alone is NOT enough.
+KEEP_SQL=""
+if [ "$KEEP_ALL_TEMPLATES" -eq 0 ] || [ "${#KEEP_TEMPLATES[@]}" -gt 0 ]; then
+    for t in "${KEEP_TEMPLATES[@]:-}"; do
+        [ -n "$t" ] && KEEP_SQL="${KEEP_SQL}${KEEP_SQL:+,}'$t'"
     done
-    [ -n "$KEEP_SQL" ] || KEEP_SQL="''"
 fi
 
 # 模板家族仅匹配指纹形态，避免误伤任意命名的模板：
 #   test_template_v<N>_<hex>        —— 旧 storage 家族
 #   test_isolation_template_<hex>   —— 现 shared 模块家族
-# 保留条件是「命中模板家族 **且** 在 keep 集合内」，所以丢弃（候选）条件是
-#   (!旧家族 AND !新家族) OR 不在 keep 集合
-# 非模板名（clone、media_test_* 等）始终是候选。注意 keep 集合必须配合
-# `NOT IN` 使用：写成 `OR nspname IN (keep)` 会反过来把 live 模板当候选删掉。
+# TEMPLATE_PREDICATE 只负责「指纹模板家族」的 keep 判定：命中家族且不在 keep 集合
+# 才删，不命中家族的（普通克隆）一律是候选。
 if [ "$KEEP_ALL_TEMPLATES" -eq 1 ]; then
     TEMPLATE_PREDICATE="(nspname !~ '^test_template_v[0-9]+_[0-9a-f]{16}\$' AND nspname !~ '^test_isolation_template_[0-9a-f]{16}\$')"
 else
-    TEMPLATE_PREDICATE="((nspname !~ '^test_template_v[0-9]+_[0-9a-f]{16}\$' AND nspname !~ '^test_isolation_template_[0-9a-f]{16}\$') OR nspname NOT IN ($KEEP_SQL))"
+    if [ -n "$KEEP_SQL" ]; then
+        TEMPLATE_PREDICATE="((nspname !~ '^test_template_v[0-9]+_[0-9a-f]{16}\$' AND nspname !~ '^test_isolation_template_[0-9a-f]{16}\$') OR nspname NOT IN ($KEEP_SQL))"
+    else
+        TEMPLATE_PREDICATE="(nspname !~ '^test_template_v[0-9]+_[0-9a-f]{16}\$' AND nspname !~ '^test_isolation_template_[0-9a-f]{16}\$')"
+    fi
+fi
+
+# ⚠️ HARD EXCLUSION — this is the §9 fix.
+# `test_template_ci`（CI seed 步骤钉住的模板，见 §1）匹配 `test\_%`，但**不**匹配任何
+# 指纹家族正则，所以对 TEMPLATE_PREDICATE 的第一个 OR 分支恒为真 → 它会成为删除候选，
+# 而 keep 集合（含 TEST_DB_TEMPLATE_SCHEMA）在旧逻辑里根本拦不住它，CASCADE 会把整个
+# 套件依赖的共享模板删掉。因此 keep 名单必须作为 `AND nspname NOT IN (...)` 的硬排除，
+# 叠加在最外层，而不是只塞进那个会被家族正则 OR 短路掉的谓词里。
+KEEP_EXCLUDE=""
+if [ -n "$KEEP_SQL" ]; then
+    KEEP_EXCLUDE="AND nspname NOT IN ($KEEP_SQL)"
 fi
 
 CANDIDATE_SQL="
@@ -145,6 +190,7 @@ WHERE (
      OR nspname LIKE 'synapse\_test\_%'
       )
   AND $TEMPLATE_PREDICATE
+  $KEEP_EXCLUDE
   AND nspname NOT IN ('public','information_schema')
 ORDER BY nspname;"
 
