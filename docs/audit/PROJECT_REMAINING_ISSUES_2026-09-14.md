@@ -509,21 +509,43 @@ Makefile 有 `route-contract-check`，`make check` 也包含它。**该门禁是
 
 ---
 
-## 9. 🔴 测试库 schema 残留（实时数据）+ 共享模块模板累积（见 §15.2）
+## 9. ✅ 测试库 schema 残留 + 脚本保护修复—— **已修复**（82921311）
 
-```bash
-$ for db in synapse synapse_test; do psql ... -c "select count(*) from pg_namespace where nspname like 'test\_%' or nspname like 'media_test_%'"; done
-synapse:      test_* 残留=388   public 表=253
-synapse_test: test_* 残留=2     public 表=253
-```
+### 问题规模与根因
 
-`synapse` 库累积 **388** 个残留 schema（每个含 200+ 表）。
-`scripts/cleanup_test_schemas.sh` 需手动 `--apply`，**无自动调用路径**；
-且它要求"存在 live 模板标记"才肯删，而标记路径基于 `CARGO_TARGET_TMPDIR`，
-本地若用自定义 `CARGO_TARGET_DIR` 会找不到标记而中止（实测遇到过一次）。
+本地 `synapse` 库累积 **388** 个残留 schema（每个含 200+ 表），`synapse_test` 2 个。
+`scripts/cleanup_test_schemas.sh` 原需手动 `--apply`、**无自动调用路径**；且标记路径基于
+`CARGO_TARGET_TMPDIR`，本地用自定义 `CARGO_TARGET_DIR` 时找不到标记而中止（实测痛点）。
 
-**建议**：CI 加一步 `cleanup_test_schemas.sh --apply`；脚本的模板标记路径改为
-可配置或按模板 schema 名反查（而非依赖本地 target 目录）。
+脚本的**逻辑缺陷**更严重：旧版把 `test_template_ci`（CI seed 钉住的模板，§1）也当
+`test\_%` 候选，而它不匹配任何指纹家族正则（`^test_template_v<N>_<hex>` /
+`^test_isolation_template_<hex>`）→ `TEMPLATE_PREDICATE` 第一个 OR 分支恒真 → 落入
+候选 → **直接 DROP**，CASCADE 连带删掉所有并发克隆的 DEFAULT 序列。
+
+### 修复（脚本，commit 82921311）
+
+1. **硬排除**：keep 名单通过 `AND nspname NOT IN (...)` 叠加在 `CANDIDATE_SQL` 最外层，
+   不被家族正则的 OR 短路，`test_template_ci` 等明确 live 模板绝对安全。
+2. **TEST_DB_TEMPLATE_SCHEMA 独立保护**：CI 的 `test_template_ci` 无 Rust 文件系统标记，
+   旧逻辑只在「完全没标记」时才用它；新逻辑将其作为**独立保护源**，无论本地标记是否
+   存在都加入 keep 集合。
+3. **标记路径可配置**：新增 `SYNAPSE_TEMPLATE_MARKER_DIR`，本地自定义 target 时显式指向。
+4. **降级兜底**：无任何 live 来源时降级为「保留全部模板家族、清理克隆」（同
+   `--keep-all-templates`），告警而不中止。
+
+### 修复（CI 集成）
+
+`test` job 末尾新增 step（`if: always() && matrix.features-args == '--all-features'` +
+`continue-on-error: true`）执行 `cleanup_test_schemas.sh --apply`，env 钉
+`TEST_DB_TEMPLATE_SCHEMA=test_template_ci`。
+
+> **工程诚实性提示**：GitHub Actions 的 postgres service 容器是 job 级、销毁即丢弃，
+> **跨 CI run 不累积**。该 step 的真实价值在 intra-job 预防（多矩阵共享容器、未来
+> self-hosted 持久库场景）；**本地 388 残留无法被它触及**——应在本地定期执行
+> `bash scripts/cleanup_test_schemas.sh --apply`，或加入本地 `make` target。
+>
+> **本地清理建议（待办）**：把 cleanup 接入 `dev-test-setup.sh` 或加 `Makefile`
+> 的 `make clean-test-schemas` target，让本地开发者一条命令治理累积。
 
 ---
 
@@ -898,7 +920,7 @@ capability 声明读的是 manifest，manifest 漏条目会让 `/capabilities` �
 | 🔴 P2 | **§15.2 共享模块模板 schema 无限累积** | 资源泄漏 | 新发现；根夹具有清理机制，共享模块没有 |
 | 🟡 P2 | **§17 契约文档含未加 nest 前缀的路由；解析器有链式/nest 盲区** | 契约正确性 | 新发现：`/spaces/...` 15 条相对路径写入文档、0 条带前缀；`nest_map` 收集后从未使用 |
 | 🟡 P3 | §7 契约链两条车道的 feature 集复杂度 | 架构 | 未动，需先统一 feature 集 |
-| ⚪ P3 | §9 `synapse` 库 388 残留 | 运维 | 另一 agent 正在做（`ci.yml` 已加 cleanup step） |
+| ⚪ P3 | §9 schema 残留清理 | 运维 | ✅ 已修复（`82921311`：CI 加 cleanup step + 脚本硬排除/独立保护/可配置标记目录）。CI 侧防 intra-job 累积；本地仍需手动 `--apply`（见 §9 说明） |
 | ⚪ P3 | §10 存量债、§11 局限 | 技术债 | 新代码设禁，存量另立专项 |
 | ✅ | §1 / §3 / §4 / §5 / §2 收敛 / §12 四条线索 | — | 已核实（§15.3） |
 
@@ -921,7 +943,7 @@ capability 声明读的是 manifest，manifest 漏条目会让 `/capabilities` �
 | P1 | §3 两个既存失败（时钟容差 / 守卫判据） | 测试确定性 | ✅ 已修复（`8509c52b`） | ✅ 成立 |
 | P1 | §6 clippy 门禁覆盖 workspace | 门禁真实性 | ✅ 已修复（清 14 条 warning） | ❌ **误判**：只清症状，门禁仍不覆盖。见 §15.1 |
 | P2 | §5 `status` 字段去留 | 冗余治理 | ✅ 已完成（`c5a5df0d`） | ✅ 成立 |
-| P2 | §9 schema 残留自动清理 | 运维 | 🔴 CI 加一步 | 🔴 另一 agent 正在做；另发现共享模块模板累积（§15.2） |
+| P2 | §9 schema 残留自动清理 | 运维 | ✅ 已修复（`82921311`：CI 加 cleanup step + 脚本硬排除/独立保护/可配置标记目录） | ✅ 成立 |
 | P3 | §7 两条车道的复杂度 | 架构 | 🟡 需先统一 feature 集 | ✅ 不变 |
 | P3 | §10 存量债、§11 局限 | 技术债 | ⚪ 新代码设禁，存量另立专项 | ✅ 不变（§11 两条已实测确认不触发） |
 
