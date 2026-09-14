@@ -536,3 +536,106 @@ fn baseline_fingerprint_is_v11_then_extensions_with_no_separator() {
         );
     }
 }
+
+/// Guard 6: the seed allowlist must stay equal to what the baseline actually seeds.
+///
+/// `SeedSource::Everything` (what every production call site passes) copies
+/// whatever the template holds; `SeedSource::Only(SEED_REFERENCE_TABLES)` copies
+/// a written-down list. Those two agree **only** because the baseline's `INSERT`
+/// statements happen to target exactly the allowlisted tables. That is an
+/// empirical fact about today's migrations, so it has to be re-checked whenever
+/// the migrations change — nothing else in the build notices a new seed.
+///
+/// The failure this prevents: a migration adds `INSERT INTO some_new_table`, the
+/// template is rebuilt under a new fingerprint, and from then on full clones
+/// carry a row that allowlist clones lack. Every test in the allowlist lane then
+/// diverges from the full lane with no compiler error and no red test — the exact
+/// silent fork that made the previous multi-implementation fixtures disagree.
+///
+/// It parses the migrations through the same `include_str!` constants Guard 5
+/// hashes, so an `INSERT` added to either file is seen even if it is added to a
+/// file the fixture `concat!` does not mention yet.
+#[test]
+fn the_seed_allowlist_matches_what_the_baseline_seeds() {
+    const SEED_REFERENCE_TABLES: &[&str] = synapse_common::test_isolation::SEED_REFERENCE_TABLES;
+
+    let mut seeded = Vec::new();
+    for (name, sql) in [("00000000_unified_schema_v11.sql", V11), ("00000001_extensions_v10.sql", EXTENSIONS)] {
+        for statement in insert_statements(sql) {
+            let table = statement.split_once("INTO").map(|(_, rest)| rest).unwrap_or_else(|| {
+                panic!("{name}: INSERT statement without INTO: {}", &statement[..80.min(statement.len())])
+            });
+            let table = table
+                .trim_start()
+                .split(|c: char| c.is_whitespace() || c == '(')
+                .next()
+                .unwrap_or("")
+                .trim_matches('"')
+                .to_ascii_lowercase();
+            assert!(
+                !table.is_empty(),
+                "{name}: could not parse the table out of: {}",
+                &statement[..80.min(statement.len())]
+            );
+            seeded.push(table);
+        }
+    }
+    seeded.sort();
+    seeded.dedup();
+
+    let declared: Vec<&str> = SEED_REFERENCE_TABLES.to_vec();
+    let mut declared_sorted = declared.clone();
+    declared_sorted.sort();
+    declared_sorted.dedup();
+
+    assert_eq!(
+        seeded, declared_sorted,
+        "the baseline's seeded tables and `synapse_common::test_isolation::SEED_REFERENCE_TABLES` \
+         have diverged. A migration now seeds rows into a table the allowlist does not name, so \
+         `SeedSource::Everything` clones and `SeedSource::Only(SEED_REFERENCE_TABLES)` clones no \
+         longer start from the same data. Update the constant to match the migrations."
+    );
+
+    // `users` is the specific trap this guard exists for: the hardcoded
+    // `@admin:localhost` seed was removed from v11 (DB-04), so re-adding a users
+    // INSERT — or re-adding it to the allowlist out of old habit — must be a
+    // deliberate, visible decision rather than a silent fixture fork.
+    assert!(
+        !declared_sorted.contains(&"users"),
+        "`users` must not be in the seed allowlist: a freshly migrated database has no users row, \
+         and most DB tests assert an empty users table"
+    );
+}
+
+/// Every `INSERT INTO ...` statement in `sql`, comment lines and contents of
+/// `'...'` string literals ignored.
+///
+/// Deliberately simple rather than a full SQL lexer: it only has to be exact for
+/// the baseline files, and being simple means a reader can check it. Comment
+/// stripping matters because v11 mentions a removed `INSERT` in prose:
+/// "Hardcoded admin INSERT moved to scripts/create-default-admin.sql".
+fn insert_statements(sql: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for raw in sql.lines() {
+        let line = raw.trim_start();
+        if line.starts_with("--") || line.is_empty() {
+            continue;
+        }
+        if !line.to_ascii_uppercase().starts_with("INSERT INTO") {
+            continue;
+        }
+        // Drop single-quoted literals (VALUES rows can contain `--`, `;`, `INTO`).
+        let mut cleaned = String::with_capacity(line.len());
+        let mut in_string = false;
+        for c in line.chars() {
+            match (in_string, c) {
+                (false, '\'') => in_string = true,
+                (true, '\'') => in_string = false,
+                (false, _) => cleaned.push(c),
+                (true, _) => {}
+            }
+        }
+        out.push(cleaned);
+    }
+    out
+}

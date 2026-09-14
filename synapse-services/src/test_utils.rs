@@ -259,7 +259,13 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
         .await
         .map_err(|error| format!("failed to set search_path for {schema_name}: {error}"))?;
 
-    synapse_common::test_isolation::clone_schema_from_template(&admin_pool, &schema_name, &template).await?;
+    synapse_common::test_isolation::clone_schema_from_template(
+        &admin_pool,
+        &schema_name,
+        &template,
+        synapse_common::test_isolation::SeedSource::Everything,
+    )
+    .await?;
 
     let search_path_sql = format!("SET search_path TO {schema_name}, public");
     let pool = tokio::time::timeout(
@@ -523,7 +529,13 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
         .await
         .map_err(|error| format!("failed to set search_path for {schema_name}: {error}"))?;
 
-    synapse_common::test_isolation::clone_schema_from_template(&pool, &schema_name, template_name).await?;
+    synapse_common::test_isolation::clone_schema_from_template(
+        &pool,
+        &schema_name,
+        template_name,
+        synapse_common::test_isolation::SeedSource::Everything,
+    )
+    .await?;
 
     let pool = Arc::new(pool);
     ensure_test_schema_contract(&pool).await?;

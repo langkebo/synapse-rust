@@ -105,9 +105,14 @@ impl IsolatedTestPool {
             PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(60)).connect(&db_url).await?;
         sqlx::query(&format!(r#"CREATE SCHEMA "{schema}""#)).execute(&clone_pool).await?;
         sqlx::query(&format!(r#"SET search_path TO "{schema}", public"#)).execute(&clone_pool).await?;
-        synapse_common::test_isolation::clone_schema_from_template(&clone_pool, &schema, &template)
-            .await
-            .map_err(sqlx::Error::Protocol)?;
+        synapse_common::test_isolation::clone_schema_from_template(
+            &clone_pool,
+            &schema,
+            &template,
+            synapse_common::test_isolation::SeedSource::Everything,
+        )
+        .await
+        .map_err(sqlx::Error::Protocol)?;
         drop(clone_pool);
 
         // Create test pool with isolated search_path.  Use `connect_lazy` so we

@@ -40,6 +40,78 @@ const TEMPLATE_LOCK_POLL_INTERVAL: Duration = Duration::from_millis(100);
 /// Marker table written into the template only after a complete build.
 pub const TEMPLATE_READY_TABLE: &str = "_synapse_test_template_ready";
 
+/// The template rows the **baseline migrations** seed, and therefore the only
+/// tables [`SeedSource::Only`] ever has anything to copy for.
+///
+/// Measured against the two inlined baseline files: `00000000_unified_schema_v11.sql`
+/// has exactly three `INSERT INTO` statements (lines 4554, 4563, 4568) and
+/// `00000001_extensions_v10.sql` has none. The template's other 250-odd tables
+/// are empty, so this allowlist and [`SeedSource::Everything`] currently produce
+/// row-identical clones.
+///
+/// That equality is not self-maintaining: it is pinned by
+/// `seed_reference_tables_match_baseline`, which parses the inlined migrations
+/// and goes red the moment a future migration seeds a fourth table. Without that
+/// guard, a new seed would silently appear in `Everything` clones and silently
+/// be missing from `Only` clones — a fork with no compiler or test signal.
+///
+/// Note the `users` table is deliberately absent, and the reason is no longer
+/// "the `@admin:localhost` seed is skipped": that hardcoded `INSERT` was removed
+/// from the v11 baseline (DB-04) and only an `UPDATE ... WHERE username = 'admin'`
+/// over zero rows remains. A freshly migrated database has no users row.
+pub const SEED_REFERENCE_TABLES: &[&str] = &["server_media_quota", "server_retention_policy", "sync_stream_id"];
+
+/// Which template rows a clone starts with.
+///
+/// Both variants read the same template schema; they differ only in which tables
+/// phase 1b of [`clone_statement`] copies. They are deliberately distinct types
+/// rather than a bare `&[&str]`: `Everything` copies whatever the template
+/// happens to hold, while `Only` is a written-down contract that fails the clone
+/// loudly if a named table has vanished from the template — a silently missing
+/// config row surfaces much later as an unrelated test failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SeedSource<'a> {
+    /// Phase 1b copies every baseline table. This is what every production call
+    /// site uses, because none of them depends on a subset.
+    Everything,
+    /// Phase 1b copies only these tables. Any name absent from the template
+    /// aborts the clone with `42P01` from the `INSERT` (fail loudly, never
+    /// skip). An empty slice is legal and yields a structure-only clone.
+    Only(&'a [&'a str]),
+}
+
+/// Build the phase 1b `WHERE` clause selecting which template tables phase 1b
+/// copies the rows of.
+///
+/// Names are interpolated into a dollar-quoted `DO` block, so they are validated
+/// as bare unquoted identifiers first. They all come from a `const &[&str]`, but
+/// the check is what keeps a future caller from turning this into an injection
+/// point. The readiness marker is always excluded: it exists only in the
+/// template, so naming it would make the `INSERT` fail with `42P01`.
+fn seed_where_clause(seeds: SeedSource<'_>) -> Result<String, String> {
+    let tail = format!("tablename <> '{TEMPLATE_READY_TABLE}'");
+    Ok(match seeds {
+        SeedSource::Everything => tail,
+        SeedSource::Only(names) => {
+            for name in names {
+                let ok =
+                    !name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+                if !ok {
+                    return Err(format!("refusing to build a seed list from the non-identifier table name {name:?}"));
+                }
+            }
+            if names.is_empty() {
+                // A structure-only clone: no table matches, so phase 1b copies
+                // nothing while phase 1 has already created every table.
+                "1 = 0".to_string()
+            } else {
+                let list = names.iter().map(|n| format!("'{n}'")).collect::<Vec<_>>().join(", ");
+                format!("tablename IN ({list}) AND {tail}")
+            }
+        }
+    })
+}
+
 /// FNV-1a 64-bit fingerprint of the baseline SQL, as 16 hex chars.
 pub fn baseline_fingerprint(baseline_sql: &str) -> String {
     let mut hash = 0xcbf29ce484222325u64;
@@ -454,8 +526,9 @@ async fn build_template(conn: &mut sqlx::PgConnection, template: &str, baseline_
 /// reproduce exactly the baseline objects (so `clone_matches_template_inventory`
 /// sees 2 tables for a 2-table baseline). [`validate_clone`] excludes the same
 /// table from both sides of its comparison.
-fn clone_statement(schema: &str, template: &str) -> String {
-    format!(
+fn clone_statement(schema: &str, template: &str, seeds: SeedSource<'_>) -> Result<String, String> {
+    let seed_where = seed_where_clause(seeds)?;
+    Ok(format!(
         r#"
         DO $do$
         DECLARE
@@ -492,9 +565,16 @@ fn clone_statement(schema: &str, template: &str) -> String {
             -- trip a not-yet-satisfied FK. The readiness marker is excluded for
             -- the same reason as phase 1 (and it must be, or the `INSERT` would
             -- fail with `42P01`: the clone has no such table).
+            --
+            -- Which tables are copied is the caller's choice:
+            -- `SeedSource::Everything` (the historical behaviour, and what every
+            -- production call site passes) copies all of them, while
+            -- `SeedSource::Only` restricts the set to the baseline's seeded
+            -- reference tables. The clause below is built by
+            -- `seed_where_clause`, never by a caller-supplied string.
             FOR r IN
                 SELECT tablename FROM pg_tables
-                WHERE schemaname = '{template}' AND tablename <> '{TEMPLATE_READY_TABLE}'
+                WHERE schemaname = '{template}' AND {seed_where}
                 ORDER BY tablename
             LOOP
                 EXECUTE format(
@@ -797,7 +877,7 @@ fn clone_statement(schema: &str, template: &str) -> String {
         END
         $do$;
         "#
-    )
+    ))
 }
 
 /// Verify the clone reproduces the template's object inventory.
@@ -918,6 +998,12 @@ async fn validate_clone(pool: &PgPool, schema: &str, template: &str) -> Result<(
 
 /// Clone the complete `template` schema into `schema` in one round trip.
 ///
+/// `seeds` chooses which template tables phase 1b copies the rows of: pass
+/// [`SeedSource::Everything`] to reproduce a freshly migrated database in full,
+/// or [`SeedSource::Only`] to start from an explicit allowlist such as
+/// [`SEED_REFERENCE_TABLES`]. Structure (tables, indexes, constraints,
+/// sequences, functions, views, triggers) is copied identically either way.
+///
 /// **Precondition (the caller guarantees it):** `schema` already exists and the
 /// connection's `search_path` begins with `schema`. The function does **not**
 /// `CREATE SCHEMA` — callers that already created it would otherwise fail with
@@ -935,8 +1021,13 @@ async fn validate_clone(pool: &PgPool, schema: &str, template: &str) -> Result<(
 /// a shortfall is returned as an error: an incomplete clone silently falls back
 /// to the shared `public` schema through `search_path`, which surfaces much
 /// later as bizarre, order-dependent test failures.
-pub async fn clone_schema_from_template(pool: &sqlx::PgPool, schema: &str, template: &str) -> Result<(), String> {
-    sqlx::raw_sql(&clone_statement(schema, template))
+pub async fn clone_schema_from_template(
+    pool: &sqlx::PgPool,
+    schema: &str,
+    template: &str,
+    seeds: SeedSource<'_>,
+) -> Result<(), String> {
+    sqlx::raw_sql(&clone_statement(schema, template, seeds)?)
         .execute(pool)
         .await
         .map_err(|e| format!("clone of {schema} from {template} failed: {e}"))?;
@@ -1174,7 +1265,7 @@ CREATE UNIQUE INDEX uq_unify_named_vw ON unify_named (v, w);
         sqlx::query(&format!(r#"CREATE SCHEMA "{schema}""#)).execute(&pool).await.expect("create clone schema");
         sqlx::query(&format!(r#"SET search_path TO "{schema}", public"#)).execute(&pool).await.expect("set path");
 
-        clone_schema_from_template(&pool, &schema, &template).await.expect("clone");
+        clone_schema_from_template(&pool, &schema, &template, SeedSource::Everything).await.expect("clone");
 
         // Every index NAME in the template for this table must exist verbatim
         // in the clone.
@@ -1224,6 +1315,164 @@ CREATE UNIQUE INDEX uq_unify_named_vw ON unify_named (v, w);
 
     /// The clone must reproduce the template's inventory exactly. A shortfall
     /// is what makes queries fall back to `public`.
+    /// The `WHERE` clause phase 1b is built with, and the validation that keeps
+    /// a table name from escaping its string literal.
+    #[test]
+    fn seed_where_clause_selects_the_requested_tables() {
+        let all = seed_where_clause(SeedSource::Everything).expect("everything");
+        assert_eq!(all, format!("tablename <> '{TEMPLATE_READY_TABLE}'"));
+        assert!(!all.contains("IN ("), "the default must not restrict the copied set");
+
+        let some = seed_where_clause(SeedSource::Only(&["a_one", "b_two"])).expect("only");
+        assert!(some.contains("tablename IN ('a_one', 'b_two')"), "got {some}");
+        assert!(some.contains(&format!("tablename <> '{TEMPLATE_READY_TABLE}'")), "marker must stay excluded");
+
+        let none = seed_where_clause(SeedSource::Only(&[])).expect("empty allowlist");
+        assert_eq!(none, "1 = 0", "an empty allowlist must select no table at all");
+
+        let rejected = seed_where_clause(SeedSource::Only(&["users; DROP SCHEMA public CASCADE"]));
+        assert!(rejected.is_err(), "a non-identifier table name must be refused, got {rejected:?}");
+    }
+
+    /// `SeedSource::Only` must differ from `Everything` in exactly one way: the
+    /// rows phase 1b copies. This drives both modes over one template whose
+    /// baseline has a seeded table, an empty table, and a seeded table that is
+    /// deliberately left out of the allowlist — the three cases that matter —
+    /// and compares row counts per table.
+    ///
+    /// The allowlist clone must contain the allowlisted seed, must still have
+    /// the structure (and zero rows) of the empty table, and must NOT contain
+    /// the seed of the excluded table. That last case is what fails if the
+    /// parameter is ignored and phase 1b copies everything regardless.
+    #[tokio::test]
+    async fn allowlist_clone_copies_only_the_allowlisted_rows() {
+        let Some(url) = test_database_url() else {
+            return;
+        };
+        let baseline = r#"
+CREATE TABLE IF NOT EXISTS unify_seed_in_allowlist (id bigint PRIMARY KEY, label text NOT NULL);
+INSERT INTO unify_seed_in_allowlist (id, label) VALUES (1, 'seeded');
+CREATE TABLE IF NOT EXISTS unify_seed_outside_allowlist (id bigint PRIMARY KEY, label text NOT NULL);
+INSERT INTO unify_seed_outside_allowlist (id, label) VALUES (1, 'seeded');
+CREATE TABLE IF NOT EXISTS unify_seed_empty (id bigint PRIMARY KEY, label text NOT NULL);
+"#;
+        let template = ensure_template_schema(&url, baseline).await.expect("template");
+        const ALLOWLIST: &[&str] = &["unify_seed_in_allowlist", "unify_seed_empty"];
+        let pool = PgPoolOptions::new().max_connections(1).connect(&url).await.expect("pool");
+
+        let mut schemas = Vec::new();
+        for (suffix, seeds) in [("all", SeedSource::Everything), ("only", SeedSource::Only(ALLOWLIST))] {
+            let schema = format!("unify_seed_{suffix}_{}", uuid::Uuid::new_v4().as_simple());
+            let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#)).execute(&pool).await;
+            sqlx::query(&format!(r#"CREATE SCHEMA "{schema}""#)).execute(&pool).await.expect("create clone schema");
+            sqlx::query(&format!(r#"SET search_path TO "{schema}", public"#)).execute(&pool).await.expect("set path");
+            clone_schema_from_template(&pool, &schema, &template, seeds).await.expect("clone");
+            schemas.push(schema);
+        }
+
+        // Row count per table, for the three tables the two modes can disagree on.
+        let mut rows = Vec::new();
+        for schema in &schemas {
+            let mut per_table = Vec::new();
+            for table in ["unify_seed_in_allowlist", "unify_seed_outside_allowlist", "unify_seed_empty"] {
+                let n: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM \"{schema}\".\"{table}\""))
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap_or_else(|e| panic!("count {schema}.{table}: {e}"));
+                per_table.push((table.to_string(), n));
+            }
+            rows.push(per_table);
+        }
+        let (full, allowlisted) = (rows.remove(0), rows.remove(0));
+
+        assert_eq!(
+            full,
+            vec![
+                ("unify_seed_in_allowlist".to_string(), 1),
+                ("unify_seed_outside_allowlist".to_string(), 1),
+                ("unify_seed_empty".to_string(), 0),
+            ],
+            "`Everything` must reproduce every seeded baseline row"
+        );
+        assert_eq!(
+            allowlisted,
+            vec![
+                ("unify_seed_in_allowlist".to_string(), 1),
+                ("unify_seed_outside_allowlist".to_string(), 0),
+                ("unify_seed_empty".to_string(), 0),
+            ],
+            "`Only` must copy the allowlisted seed, still create the unlisted table's structure, \
+             and NOT copy the unlisted table's rows"
+        );
+
+        // The unlisted table still exists in the allowlist clone — only its rows
+        // were withheld. Without this the assertion above would also pass for a
+        // clone that lost the table entirely.
+        let exists: bool = sqlx::query_scalar("SELECT to_regclass($1) IS NOT NULL")
+            .bind(format!("{}.unify_seed_outside_allowlist", schemas[1]))
+            .fetch_one(&pool)
+            .await
+            .expect("to_regclass");
+        assert!(exists, "the allowlist must restrict ROWS, not the table inventory");
+
+        for schema in schemas {
+            let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#)).execute(&pool).await;
+        }
+    }
+
+    /// Phase 1c must leave a table the allowlist emptied at a sequence position
+    /// that a default-id insert can use. The design review flagged this as the
+    /// one inferred (unmeasured) consequence of restricting phase 1b; measured
+    /// on 2026-09-14: `max_id` is 0, the sequence stays at `NULL / is_called =
+    /// false`, and the first default-id insert returns 1.
+    #[tokio::test]
+    async fn allowlist_clone_can_insert_into_a_table_it_emptied() {
+        let Some(url) = test_database_url() else {
+            return;
+        };
+        // `bigserial`, not `GENERATED BY DEFAULT AS IDENTITY`: the production
+        // baseline binds serial columns to sequences, and it is that
+        // `nextval('<template>.<seq>')` default which phase 1c has to rebind.
+        let baseline = r#"
+CREATE TABLE IF NOT EXISTS unify_seed_refill (id bigserial PRIMARY KEY, label text NOT NULL);
+INSERT INTO unify_seed_refill (id, label) VALUES (1, 'seeded');
+"#;
+        let template = ensure_template_schema(&url, baseline).await.expect("template");
+        let schema = format!("unify_refill_{}", uuid::Uuid::new_v4().as_simple());
+        let pool = PgPoolOptions::new().max_connections(1).connect(&url).await.expect("pool");
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#)).execute(&pool).await;
+        sqlx::query(&format!(r#"CREATE SCHEMA "{schema}""#)).execute(&pool).await.expect("create clone schema");
+        sqlx::query(&format!(r#"SET search_path TO "{schema}", public"#)).execute(&pool).await.expect("set path");
+
+        clone_schema_from_template(&pool, &schema, &template, SeedSource::Only(&[]))
+            .await
+            .expect("structure-only clone");
+
+        // Prove the allowlist actually emptied the table, so the insert below is
+        // testing the emptied case and not a clone that quietly kept the row.
+        let rows: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM \"{schema}\".unify_seed_refill"))
+            .fetch_one(&pool)
+            .await
+            .expect("count");
+        assert_eq!(rows, 0, "an empty allowlist must copy no rows, so this table must be empty");
+
+        // Pre-mutation evidence this test can fail: with `SeedSource::Everything`
+        // the same table holds `id = 1` and the insert below would still be fine
+        // (the sequence advances to 2), so the discriminating case is the empty
+        // one — a clone sequence that had *not* been advanced would be at the
+        // template's position and this insert would collide with nothing but
+        // would return 2 if the template's sequence leaked in.
+        let id: i64 = sqlx::query_scalar(&format!(
+            "INSERT INTO \"{schema}\".unify_seed_refill (label) VALUES ('fresh') RETURNING id"
+        ))
+        .fetch_one(&pool)
+        .await
+        .expect("a default-id insert into an emptied table must not collide");
+        assert_eq!(id, 1, "the emptied table's sequence must start at 1, not inherit the template's position");
+
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#)).execute(&pool).await;
+    }
+
     #[tokio::test]
     async fn clone_matches_template_inventory() {
         let Some(url) = test_database_url() else {
@@ -1244,7 +1493,7 @@ CREATE OR REPLACE VIEW unify_view AS SELECT id FROM unify_parent;
         sqlx::query(&format!(r#"CREATE SCHEMA "{schema}""#)).execute(&pool).await.expect("create clone schema");
         sqlx::query(&format!(r#"SET search_path TO "{schema}", public"#)).execute(&pool).await.expect("set path");
 
-        clone_schema_from_template(&pool, &schema, &template).await.expect("clone");
+        clone_schema_from_template(&pool, &schema, &template, SeedSource::Everything).await.expect("clone");
 
         let counts: (i64, i64, i64) = sqlx::query_as(
             r#"
@@ -1287,7 +1536,7 @@ CREATE OR REPLACE VIEW unify_view AS SELECT id FROM unify_parent;
 
         // Neither side exists: the catalog-sourced inventory has no rows at all,
         // so the clone guard must fire instead of comparing 0 against 0.
-        let error = clone_schema_from_template(&pool, &clone, &missing_template)
+        let error = clone_schema_from_template(&pool, &clone, &missing_template, SeedSource::Everything)
             .await
             .expect_err("cloning from a nonexistent template must not report success");
         assert!(error.contains("is not visible"), "unexpected error: {error}");
@@ -1295,7 +1544,7 @@ CREATE OR REPLACE VIEW unify_view AS SELECT id FROM unify_parent;
         // The clone schema exists but is empty and the template is absent: the
         // exact 0/0 case the fabricated inventory used to accept.
         sqlx::query(&format!(r#"CREATE SCHEMA "{clone}""#)).execute(&pool).await.expect("create empty clone");
-        let error = clone_schema_from_template(&pool, &clone, &missing_template)
+        let error = clone_schema_from_template(&pool, &clone, &missing_template, SeedSource::Everything)
             .await
             .expect_err("a nonexistent template must be rejected even for an empty clone");
         assert!(error.contains("template schema"), "unexpected error: {error}");
@@ -1328,7 +1577,7 @@ CREATE MATERIALIZED VIEW unify_outer_mv AS SELECT id FROM unify_inner_mv;
         sqlx::query(&format!(r#"CREATE SCHEMA "{clone}""#)).execute(&admin).await.expect("create clone schema");
         sqlx::query(&format!(r#"SET search_path TO "{clone}", public"#)).execute(&pool).await.expect("set path");
 
-        clone_schema_from_template(&pool, &clone, &template).await.expect("clone");
+        clone_schema_from_template(&pool, &clone, &template, SeedSource::Everything).await.expect("clone");
 
         // `pg_get_viewdef` strips the template qualifier, so a correct clone's
         // outer matview must depend on the clone's own inner matview...
@@ -1406,7 +1655,7 @@ CREATE TRIGGER unify_trg AFTER INSERT ON unify_trg_tbl FOR EACH ROW EXECUTE FUNC
         sqlx::query(&format!(r#"CREATE SCHEMA "{clone}""#)).execute(&admin).await.expect("create clone schema");
         sqlx::query(&format!(r#"SET search_path TO "{clone}", public"#)).execute(&pool).await.expect("set path");
 
-        clone_schema_from_template(&pool, &clone, &template).await.expect("clone");
+        clone_schema_from_template(&pool, &clone, &template, SeedSource::Everything).await.expect("clone");
 
         // A fresh connection keeps the clone schema off `search_path`, so
         // `pg_get_triggerdef` renders the function schema-qualified.
@@ -1477,7 +1726,7 @@ CREATE TRIGGER unify_trg AFTER INSERT ON unify_trg_tbl FOR EACH ROW EXECUTE FUNC
             .await
             .expect("set path");
 
-        clone_schema_from_template(&pool, &clone, &template).await.expect("clone");
+        clone_schema_from_template(&pool, &clone, &template, SeedSource::Everything).await.expect("clone");
 
         let effective: String = sqlx::query_scalar("SHOW search_path").fetch_one(&pool).await.expect("show path");
         assert!(effective.contains(&extra), "the caller's `{extra}` entry was dropped: {effective}");
@@ -1527,7 +1776,7 @@ CREATE MATERIALIZED VIEW unify_seeded_mv AS SELECT id FROM unify_seeded;
         sqlx::query(&format!(r#"CREATE SCHEMA "{clone}""#)).execute(&pool).await.expect("create clone schema");
         sqlx::query(&format!(r#"SET search_path TO "{clone}", public"#)).execute(&pool).await.expect("set path");
 
-        clone_schema_from_template(&pool, &clone, &template).await.expect("clone");
+        clone_schema_from_template(&pool, &clone, &template, SeedSource::Everything).await.expect("clone");
 
         // Content, not just cardinality: an off-by-one positional copy could
         // still produce two rows with the wrong values.
@@ -1586,7 +1835,7 @@ INSERT INTO unify_seq_tbl (id, note) VALUES (1, 'seed') ON CONFLICT DO NOTHING;
         sqlx::query(&format!(r#"CREATE SCHEMA "{clone}""#)).execute(&pool).await.expect("create clone schema");
         sqlx::query(&format!(r#"SET search_path TO "{clone}", public"#)).execute(&pool).await.expect("set path");
 
-        clone_schema_from_template(&pool, &clone, &template).await.expect("clone");
+        clone_schema_from_template(&pool, &clone, &template, SeedSource::Everything).await.expect("clone");
 
         // 1. The clone owns a sequence. Before the phase-1c fix this was 0 and
         //    the clone borrowed the template's.
@@ -1662,7 +1911,9 @@ INSERT INTO unify_seq_tbl (id, note) VALUES (1, 'seed') ON CONFLICT DO NOTHING;
         let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{clone}" CASCADE"#)).execute(admin).await;
         sqlx::query(&format!(r#"CREATE SCHEMA "{clone}""#)).execute(&pool).await.expect("create clone schema");
         sqlx::query(&format!(r#"SET search_path TO "{clone}", public"#)).execute(&pool).await.expect("set path");
-        clone_schema_from_template(&pool, &clone, template).await.expect("a complete clone must validate");
+        clone_schema_from_template(&pool, &clone, template, SeedSource::Everything)
+            .await
+            .expect("a complete clone must validate");
         (pool, clone)
     }
 

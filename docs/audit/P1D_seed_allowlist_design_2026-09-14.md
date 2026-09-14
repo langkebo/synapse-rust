@@ -3,7 +3,7 @@
 - Date: 2026-09-14
 - Branch: `main`
 - HEAD when this record was written: `2f545f22`
-- 状态：**设计定稿，待实现**。本文不修改任何代码。
+- 状态：**已实现**（见 §12 实现记录）。本文档是设计说明 + 实现后的实测证据。
 - 关联：`docs/audit/P1B_test_isolation_template_2026-09-13.md`、
   `docs/audit/P1C_unified_test_isolation_2026-09-13.md`、
   `docs/audit/PROJECT_REMAINING_ISSUES_2026-09-14.md`
@@ -175,14 +175,16 @@ pub async fn clone_schema_from_template(
 ) -> Result<(), String>;
 
 // after
-fn clone_statement(schema: &str, template: &str, seeds: SeedSource<'_>) -> String;
+fn clone_statement(
+    schema: &str, template: &str, seeds: SeedSource<'_>,
+) -> Result<String, String>;   // Result 来自名单校验（见 §5.3）
 
 pub async fn clone_schema_from_template(
     pool: &sqlx::PgPool, schema: &str, template: &str, seeds: SeedSource<'_>,
 ) -> Result<(), String>;
 ```
 
-**决定：不加默认参数包装函数。** 5 个生产调用点全部显式传参（见 §7）。
+**决定：不加默认参数包装函数。** 生产调用点全部显式传参（见 §7）。
 理由：包装函数属于 `AGENTS.md` 铁律 6（薄壳禁止）；而且调用方
 "我依赖全部 / 我依赖这 3 张"是一个应当写在调用点上的事实，隐藏它才是成本。
 
@@ -245,8 +247,17 @@ fn seed_table_list_sql(names: &[&str], schema: &str, template: &str) -> Result<S
 `SeedSource::Only` 让某些表在克隆里为 0 行。Phase 1c 用
 `max_id = (SELECT max(id) FROM <clone>.<t>)` 推进克隆自有序列；0 行时 `max_id IS NULL`，
 序列停在 `last_value = 1, is_called = false`，正是"刚迁移完的空表"应有的状态。
-**不需要为白名单模式改 Phase 1c。** `[推理，基于既有 Phase 1c 代码的 `max_id` 逻辑；
-实现时必须用一个 `Only(&[])` 的克隆跑一次"省略 id 的 INSERT"来证实]`
+**不需要为白名单改 Phase 1c。**
+
+**实测证据（2026-09-14，本机 `synapse_test`，复刻 Phase 1 + Phase 1c 的真实 SQL）**：
+
+| 场景 | `max_id` | `last_value` / `is_called` | 省略 id 的 INSERT |
+|------|----------|---------------------------|------------------|
+| 空表（被 allowlist 排除） | 0 | NULL / false | 返回 `id = 1` ✅ |
+| 有 1 行（copy-all） | 1 | 1 / true | 返回 `id = 2` ✅ |
+
+两条都验证过，因为"空表序列正常"和"有数据的表序列被正确推进"是同一段代码的两种输入。
+自动化版本见 §12 的 `allowlist_clone_can_insert_into_a_table_it_emptied`。
 
 ### 6.2 与索引名还原（`6a051fcb`）的交互
 
@@ -367,16 +378,16 @@ SELECT relname, n FROM cnt WHERE n <> 0 ORDER BY relname;
   必须显式排除这两列，并用 `xpath(... query_to_xml('SELECT row_to_json(t)::text ...'))`
   逐行集合比对。
 
-### 9.3 既有 17 个隔离测试保持全绿
+### 9.3 既有隔离测试保持全绿
 
-`cargo test -p synapse-common --lib test_isolation`：`17/0`（本文写时的实测基线）。
-新增测试后应为 `20/0`。
+`cargo test -p synapse-common --lib --all-features test_isolation`：
+**实测 `20 passed; 0 failed`**（实现前基线 17/0，新增 3 个）。见 §12。
 
 ### 9.4 确定性 / 无回归
 
 `synapse-common` 单 crate 无并发负载，直接
 `SQLX_OFFLINE=true CARGO_TARGET_DIR=/tmp/audit_target cargo test -p synapse-common --lib`。
-调用点改动只需编译验证（`--workspace --all-targets`），因为行为零变化。
+调用点只需编译验证 + 各自 lib 回归（行为零变化）。见 §12。
 
 ---
 
@@ -387,18 +398,96 @@ SELECT relname, n FROM cnt WHERE n <> 0 ORDER BY relname;
 - 回滚 = `git revert <commit>`，无需数据迁移、无需重建模板
   （`baseline_fingerprint` 不参与，`clone_statement` 的 `Everything` 输出字节相同）。
 - 风险点：`Only` 模式若在实现时把 `WHERE` 拼错（例如忘了 `AND tablename <> marker`），
-  会把 marker 表也纳入复制并 `42P01`。§9.2 的变异 1 就是针对这个的守卫。
+  会把 marker 表也纳入复制并 `42P01`。§9.2 的变异 1 就是针对这个的守卫；
+  §12 记录的实际变异证明它确实会红。
 
 ---
 
-## 11. 待决问题（需人工裁定）
+## 11. 结果与遗留
 
-1. **`SeedSource` 是否该进 `synapse-common` 的公开 API？** 它是测试基础设施，
-   对生产依赖图为零（`test_isolation` 模块本身已按 `test-utils`/`test` 门控）。
-   本文假设可以。若团队要求测试基础设施不出现在 crate 的公开文档面，可改为
-   `#[doc(hidden)]`，但**不接受**把它复制成第二份实现。
-2. **`src/test_utils.rs` 收敛的时机**——该文件正被另一 agent 编辑。本文不触碰它；
-   收敛需在其 `git status` 变干净后进行，且应作为独立提交（便于回滚）。
-3. **`[未验证]` §6.1 的空表序列行为**：实现时必须实际跑一个 `Only(&[])` 克隆，
-   执行一次"省略 id 的 INSERT"，证实不撞 `duplicate key`。若不成立，则 Phase 1c
-   需要为白名单模式补一条"序列推进到 1"的分支——这会是本文第一个需要修订的设计点。
+### 11.1 设计问题（已裁定）
+
+1. **`SeedSource` 进 `synapse-common` 公开 API —— 已采用。** `test_isolation` 模块
+   本身已按 `test-utils`/`test` 门控，对生产依赖图为零，`SeedSource` 随之同样门控，
+   无需 `#[doc(hidden)]`。
+2. **`src/test_utils.rs` 收敛时机 —— 仍待办。** 该文件在本轮开始时正被另一 agent
+   编辑，本轮未触碰（写本文时它已从 `git status` 消失，可以开始收敛了）。收敛时：
+   调用点传 `SeedSource::Only(SEED_REFERENCE_TABLES)`；删掉本地 `SEED_REFERENCE_TABLES`
+   常量；把 `src/test_utils.rs:1498` 那处裸数组字面量改为引用共享常量；
+   删掉那段已被证伪的"admin seed 故意不复制"注释。
+3. **§6.1 空表序列 —— 已实测（§6.1 表格），Phase 1c 无需改动。**
+
+### 11.2 本轮新发现
+
+- **另一个调用点被第一版 grep 漏掉**：`synapse-services/src/test_utils.rs:262`
+  （参数名是 `&admin_pool`/`&template` 而不是 `&pool`/`template_name`）。
+  说明"调用点清单"这类事实必须靠编译器复核，不能只靠模式匹配——
+  编译器的 `E0061 argument #4 ... is missing` 才是权威列表。
+- **`synapse-common` 不能内联迁移文件**（模块头部明确的设计约束），所以
+  §9.1 的基线解析守卫无法放在 `synapse-common` 里，只能放在
+  `tests/unit/test_isolation_unification_tests.rs`（该文件已经 `include_str!` 了这两个
+  迁移并哈希它们）。DB 等价测试则放在 `synapse-common`，用一个**合成基线**
+  （一张命中白名单的种子表、一张空表、一张不在白名单里的种子表）覆盖三种情形，
+  因为它需要构造"不在白名单里的种子"这种生产基线里不存在的情形。
+  两者分工：静态守卫钉住**生产常量**，DB 测试钉住**机制**。
+
+---
+
+## 12. 实现记录（2026-09-14）
+
+### 12.1 改动文件
+
+| 文件 | 改动 |
+|------|------|
+| `synapse-common/src/test_isolation.rs` | 新增 `SeedSource`、`SEED_REFERENCE_TABLES`、`seed_where_clause`；`clone_statement` 返回 `Result<String, String>` 并接受 `seeds`；`clone_schema_from_template` 加第 4 个参数；Phase 1b 的 `WHERE` 改为插值；新增 3 个测试 |
+| `synapse-storage/src/test_isolation.rs` | 调用点传 `SeedSource::Everything` |
+| `synapse-services/src/test_utils.rs` | 两个调用点（`:262`、`:526`）各传 `SeedSource::Everything` |
+| `tests/unit/test_isolation_unification_tests.rs` | 新增 Guard 6 + `insert_statements` 解析辅助 |
+
+### 12.2 绿灯证据
+
+```
+cargo test -p synapse-common --lib --all-features test_isolation
+  running 20 tests
+  test result: ok. 20 passed; 0 failed   （实现前 17/0）
+
+cargo test --test unit --all-features the_seed_allowlist_matches_what_the_baseline_seeds
+  test result: ok. 1 passed; 0 failed
+```
+
+### 12.3 变红证据（铁律 8；全部在真实代码上执行过，事后已还原并 `diff` 确认无残留）
+
+| # | 故意制造的违规 | 预期 | 实测结果 |
+|---|----------------|------|----------|
+| 1 | 向 v11 追加 `INSERT INTO unify_mutation_probe (id) VALUES (1);` | Guard 6 红 | **红**：`left: [... "unify_mutation_probe"] / right: [3 张表]` |
+| 2 | 把 `"users"` 加进 `SEED_REFERENCE_TABLES` | Guard 6 红 | **红**：`right: [... "users"]` |
+| 3 | 注释掉 v11 里 `server_retention_policy` 的 `INSERT`（反方向） | Guard 6 红 | **红**：`left: ["server_media_quota", "sync_stream_id"]` |
+| 4 | 追加一条**注释形式**的 `INSERT INTO users ...` | Guard 6 绿（证明解析器正确跳过注释，不会误报） | **绿** ✅ |
+| 5 | 让 `seed_where_clause` 把 `Only(_)` 与 `Everything` 同等对待 | 两个 DB 测试红 | **红**：两个都失败，`unify_seed_outside_allowlist` 从 0 变 1，且空表仍剩 1 行 |
+
+变异 5 是这里最关键的一条：它是"参数声明了但没接进 SQL"这一整类 bug 的直接检验，
+并且证明了 §9.2 要求的两个断言方向都真的有效（一个管"过滤是否生效"，
+一个管"空表是否真的空了"）。
+
+### 12.4 还原确认
+
+- `migrations/00000000_unified_schema_v11.sql` 与操作前备份 `diff` 为空，且
+  `git diff --stat` 对该文件无输出。
+- `synapse-common/src/test_isolation.rs` 与变异前备份 `diff` 为空。
+- 全仓 `grep -c 'MUTATION PROBE'` = 0。
+
+---
+
+## 13. 与 `src/test_utils.rs`（第三份实现）的关系
+
+`src/test_utils.rs` 的收敛**不在本轮范围**，但本轮已经把它落地所需的一切都准备好了：
+
+- 它今天的行为（只复制 3 张种子表）现在有了精确等价的目标：
+  `SeedSource::Only(synapse_common::test_isolation::SEED_REFERENCE_TABLES)`。
+  §3 已实测两者在当前基线上逐行等价，§12.3 变异 5 证明这个等价关系是被测试守着的。
+- 它的 `:1498` 再播种路径可直接引用共享常量，消掉第 2 份硬编码。
+- 它那段"`@admin:localhost` seed 故意不复制"的注释描述的是已被 DB-04 删除的代码
+  （§3 已证），收敛时应一并删除。
+
+收敛后，`AGENTS.md` 铁律 2（同一职责只允许一份实现）在测试隔离这一项上才算真正闭合：
+三份模板克隆会变成一份，三份种子表名清单会变成一份。
