@@ -478,16 +478,171 @@ cargo test --test unit --all-features the_seed_allowlist_matches_what_the_baseli
 
 ---
 
-## 13. 与 `src/test_utils.rs`（第三份实现）的关系
+## 13. 第三份实现的收敛（2026-09-14 完成）
 
-`src/test_utils.rs` 的收敛**不在本轮范围**，但本轮已经把它落地所需的一切都准备好了：
+`src/test_utils.rs` 的私有克隆已删除，改为委托共享实现。它在上一轮正被另一 agent
+编辑（`00c0aad2`），等其 `git status` 变干净后执行。
 
-- 它今天的行为（只复制 3 张种子表）现在有了精确等价的目标：
-  `SeedSource::Only(synapse_common::test_isolation::SEED_REFERENCE_TABLES)`。
-  §3 已实测两者在当前基线上逐行等价，§12.3 变异 5 证明这个等价关系是被测试守着的。
-- 它的 `:1498` 再播种路径可直接引用共享常量，消掉第 2 份硬编码。
-- 它那段"`@admin:localhost` seed 故意不复制"的注释描述的是已被 DB-04 删除的代码
-  （§3 已证），收敛时应一并删除。
+### 13.1 被删除的实现到底偏离了什么（逐条实测，不是印象）
 
-收敛后，`AGENTS.md` 铁律 2（同一职责只允许一份实现）在测试隔离这一项上才算真正闭合：
-三份模板克隆会变成一份，三份种子表名清单会变成一份。
+对 `HEAD:src/test_utils.rs` 的 177 行克隆体做静态核查：
+
+| 探测 | 命中数 | 结论 |
+|------|--------|------|
+| `ADD CONSTRAINT` | **0** | 完全**不重放 FOREIGN KEY** |
+| `pg_get_triggerdef` | **0** | 完全**不重放 trigger** |
+| `pg_get_functiondef` / `pg_proc` | **0** / **0** | 完全**不重放函数** |
+| `matview` / `relkind IN ('v','m')` | **0** | 只查 `pg_views`，**漏物化视图** |
+| `EXCEPTION WHEN OTHERS` | **2** | 每个索引与每个视图的失败都被 `NULL` 吞掉 |
+
+共享实现逐项重放这些对象，并在最后用 `validate_clone` 比对对象清单。所以这不只是
+"少复制了一些东西"——旧实现的失败模式是**静默的**：克隆缺 FK/trigger 时它自己不知道，
+测试要等到很后面才以顺序相关的怪失败暴露出来。
+
+### 13.2 收敛的做法
+
+根夹具的 `clone_schema_from_template` 现在：
+
+1. 用 `raw_sql` 跑一个 DDL 块完成 `DROP SCHEMA IF EXISTS` + `CREATE SCHEMA`，
+   再用 `raw_sql` 执行 `SET search_path`；
+2. 调 `synapse_common::test_isolation::clone_schema_from_template(..., SeedSource::Only(SEED_REFERENCE_TABLES))`。
+
+第 1 步特意用 `raw_sql` 而不是三次 formatted query：标识符无法绑定，而
+`check_sqlx_dynamic_ratio.sh` 把每个非宏查询调用计为动态 SQL。DDL 块 + `raw_sql`
+`SET search_path` 的组合让**收敛这一步本身**对棘轮的贡献为 0
+（若用三次 formatted query 会 +3）。
+（该门禁使用**非锚定** grep，所以连注释里出现查询宏的字面量都会被计数——
+写注释时也要避开。）
+
+`SEED_REFERENCE_TABLES` 的第三份硬编码（原来 `:1498` 的裸数组字面量）也改为引用
+共享常量，并补上了 `advance_schema_sequences`（见 §14）。
+
+### 13.3 新增守卫 7：只允许一处构建克隆 SQL
+
+```rust
+// tests/unit/test_isolation_unification_tests.rs
+fn exactly_one_place_builds_the_schema_clone()
+```
+
+扫描 `src/` 与全部 workspace crate 的 `src/`，断言 Phase 1b 的插值标记
+`AND {seed_where}` 只出现在 `synapse-common/src/test_isolation.rs`。
+
+- **为什么断言 `== 1` 而不是 `>= 1`**：`>= 1` 会让"完全没有这个子句"的树通过，
+  而 `== 1` 在共享子句被改名/改签名时也会响亮失败——这正是它要防的漂移。
+- **变异验证（铁律 8）**：向 `src/test_utils.rs` 注入一个含该标记的常量模拟
+  "第二份实现重新长出来"，守卫**变红**并打印
+  `Found it in ["src/test_utils.rs", "synapse-common/src/test_isolation.rs"]`；
+  移除后恢复绿。另有一个 `visited > 100` 断言防止目录遍历失效导致的空扫描假绿。
+
+---
+
+## 14. 收敛过程中发现并修复的两个独立缺陷
+
+两者都与 seed 白名单无关，但都是收敛的**前置条件**——不修它们，共享克隆在
+"schema 被复用"这条路径上的语义是错的。
+
+### 14.1 Phase 1c 建的克隆序列没有 `OWNED BY`（共享模块的缺陷）
+
+Phase 1c 用 `CREATE SEQUENCE` + `ALTER COLUMN SET DEFAULT nextval(...)` 把克隆序列绑到
+克隆列上，但**从未建立 OWNED BY 边**。实测最小复现：
+
+| 表 | `pg_get_serial_sequence` | `TRUNCATE ... RESTART IDENTITY` 之后 |
+|----|--------------------------|--------------------------------------|
+| `bigserial`（模板原生） | `probe_own3.serial_t_id_seq` | `1 / false` ✅ 被重置 |
+| 普通 sequence + `SET DEFAULT`（共享克隆的形态） | *(空)* | `42 / true` ❌ **未重置** |
+
+后果：`TRUNCATE ... RESTART IDENTITY` 对克隆序列**静默失效**，于是"清空并复用 schema"
+得不到确定状态。修法是 Phase 1c 增加
+`ALTER SEQUENCE <clone>.<seq> OWNED BY <clone>.<tbl>.<col>`；`OWNED BY` 同时让序列
+随列一起被 DROP，避免序列在 DROP SCHEMA 之外的路径上泄漏。
+
+> 这个缺陷也解释了为什么根夹具的池化路径会残留陈旧的序列位置。
+
+> 修复过程中我自己踩了一次 `format` 占位符不匹配：`OWNED BY %I.%I` 写了 5 个 `%I`
+> 却只传 4 个参数，PG 报的是 `relation "<schema>" does not exist`（它把 schema 名当成了
+> 列名）。**5 个对象名就必须有 5 个 `%I`**，报错信息完全没提占位符数量。
+
+### 14.2 池化路径重新播种后不推进序列（根夹具的缺陷）
+
+池化路径是 `TRUNCATE ... RESTART IDENTITY`（所有序列回到 1）**之后**再把模板的参考行
+复制回来（显式 id 从 1 开始）。直接实测（对真实模板克隆）：
+
+```
+ERROR:  duplicate key value violates unique constraint "server_media_quota_pkey"
+DETAIL:  Key (id)=(1) already exists.
+```
+
+修法：共享模块新增 `advance_schema_sequences(pool, schema)`，把"按现有行推进 schema 内
+所有序列"实现一次（复用 Phase 1c 的同一条 catalog 路径
+`pg_attrdef` → `pg_depend` → `relkind='S'`，**不**假定只有 serial 列）。池化路径在
+重新播种后调用它。
+
+放进共享模块而不是在根夹具里再写一遍，正是铁律 2 的适用场景——"按现有行推进序列"
+已经存在（Phase 1c），写成第二份就是把同一个错误再犯一次。
+
+### 14.3 对应的回归测试与红证
+
+| 测试 | 覆盖 | 红证 |
+|------|------|------|
+| `reusing_a_schema_reseeds_its_sequences`（共享模块） | `OWNED BY` 成立 + `RESTART IDENTITY` 真的重置 + 重新播种后必撞 + 推进后可用 + 幂等 + 拒绝非标识符 schema 名 | 断言 `(last_value, is_called) == (1, false)`；去掉 `OWNED BY` 即失败 |
+| `pooled_schema_can_insert_into_a_reseeded_table`（根 crate lib） | 真实池化重置路径 + 默认 id 插入 | **实测红**：去掉 `advance_schema_sequences` 后报 `duplicate key ... "server_media_quota_pkey"`、`Key (id)=(1) already exists`，并打印出具体 schema 名；恢复后绿 |
+
+> 该测试第一版是**假绿**：它只调 `acquire_pooled_schema` 一次，而首次获取走的是**克隆**
+> 路径（克隆自带 phase 1c 推进），所以去掉修复也照样通过。实测发现后改为**直接驱动
+> `truncate_and_reseed_schema`**，即真正被测的那段代码。这条教训已写进测试注释，
+> 避免以后有人把它"简化"回假绿形态。
+
+---
+
+## 15. 收敛后的验证
+
+| 命令 | 结果 |
+|------|------|
+| `cargo test -p synapse-common --lib --all-features test_isolation` | **21 passed / 0 failed** |
+| `cargo test --lib --all-features`（根 crate，含池化回归测试） | 见 §15.1 |
+| `cargo test --test unit --all-features` | 1955 passed / **2 failed**（既有 sqlx 棘轮测试，见 §15.2） |
+| `cargo test --test unit --all-features exactly_one_place_builds_the_schema_clone` | 1 passed（变异后红） |
+| `cargo check --workspace --all-targets --all-features` | 干净，仅 3 个既有 warning |
+| `./scripts/check_fmt_ratchet.sh` | `current=0 baseline=0` |
+| `check_sqlx_dynamic_ratio.sh` | 1564 → **1578**（本次新增 14 处，全部在新增的测试与 `advance_schema_sequences` 夹具内；见 §15.2） |
+
+### 15.1 根 crate `--lib`
+
+**688 passed / 0 failed**（含新增的池化回归测试
+`test_utils::pooled_schema_reseed_tests::pooled_schema_can_insert_into_a_reseeded_table`）。
+
+### 15.2 棘轮：本次 +14，而门禁的红色来自**既有** +121 漂移
+
+两次实测（`git stash` 隔离）：
+
+| 状态 | dynamic |
+|------|---------|
+| HEAD（stash 掉本次三个文件） | **1564** |
+| 本次改动后 | **1578** |
+| 基线文件 `BASELINE_DYNAMIC` | **1443** |
+
+所以：
+
+- 工作树相对基线早已漂移 **+121**（1564 − 1443），这发生在本轮之前。
+- 本次改动的增量是 **+14**，来源：新增的 `advance_schema_sequences` 辅助（3 处）、
+  两个新回归测试（各若干处 catalog 查询）、守卫 7 的扫描（0 处）。
+  这些都是**测试代码**，而该门禁的口径明确包含 `#[cfg(test)]` 内联测试模块。
+- 因此 `sqlx_ratio_gate_tests` 的 2 个失败在本轮之前就已存在；本轮只是把数字从
+  1564 推到 1578。
+
+处理建议（**本轮不做**，避免洗掉真实漂移）：该门禁的意图是"防止新增不可静态化的
+**生产**查询"，而测试夹具天生需要动态 DDL 与 catalog 查询。可行方向是把
+`#[cfg(test)]`/`test-utils` 门控模块排除出扫描范围，再据实重设基线；
+单向下调基线会把 +121 的真实漂移一起洗掉，因此不应只改数字。
+
+---
+
+## 16. 与 `src/test_utils.rs`（第三份实现）的关系 —— 已闭合
+
+- 三份模板克隆 → **一份**（守卫 7 锁住）。
+- 三份种子表名清单 → **一份**（`SEED_REFERENCE_TABLES`，守卫 6 锁住）。
+- 被证伪的 "`@admin:localhost` seed 故意不复制"注释 → 已随旧克隆体一并删除。
+- 旧克隆体漏掉的 FK / trigger / 函数 / 物化视图 → 由共享实现重放，并由
+  `validate_clone` 的对象清单比对兜底。
+
+`AGENTS.md` 铁律 2（同一职责只允许一份实现）在测试隔离这一项上至此闭合。

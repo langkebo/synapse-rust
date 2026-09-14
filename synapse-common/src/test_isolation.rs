@@ -633,6 +633,22 @@ fn clone_statement(schema: &str, template: &str, seeds: SeedSource<'_>) -> Resul
                 ORDER BY t.relname, a.attname
             LOOP
                 seq_q := format('%I.%I', '{schema}', r.seq_rel);
+                -- `OWNED BY` matters and is easy to leave out: a plain
+                -- `CREATE SEQUENCE` plus `SET DEFAULT nextval(...)` leaves the
+                -- sequence with no ownership edge, so `pg_get_serial_sequence`
+                -- returns NULL for the column and `TRUNCATE ... RESTART IDENTITY`
+                -- **silently does not reset it** (measured: an unowned sequence
+                -- stayed at 42 while an owned one went to 1). Fixtures that reuse
+                -- a schema depend on that reset to return an emptied schema to a
+                -- known state, so the clone's sequence must be owned by the
+                -- clone's column exactly like the template's `bigserial` is.
+                -- `OWNED BY` also makes PostgreSQL drop the sequence with its
+                -- column, which is what keeps a dropped clone schema from
+                -- leaking sequences.
+                EXECUTE format(
+                    'ALTER SEQUENCE %I.%I OWNED BY %I.%I.%I',
+                    '{schema}', r.seq_rel, '{schema}', r.tbl, r.col
+                );
                 EXECUTE format(
                     'ALTER TABLE %I.%I ALTER COLUMN %I SET DEFAULT nextval(%L::regclass)',
                     '{schema}', r.tbl, r.col, seq_q
@@ -1032,6 +1048,73 @@ pub async fn clone_schema_from_template(
         .await
         .map_err(|e| format!("clone of {schema} from {template} failed: {e}"))?;
     validate_clone(pool, schema, template).await
+}
+
+/// Advance `schema`'s sequences past the rows its tables already hold.
+///
+/// Phase 1c of [`clone_statement`] does this as part of a clone. A fixture that
+/// **reuses** a schema has to do it too, and the reason is easy to miss:
+/// `TRUNCATE ... RESTART IDENTITY` resets every sequence to 1 *without* touching
+/// `is_called`, and the rows a fixture then copies back usually carry explicit
+/// ids. Re-seeding a table whose row has `id = 1` while the sequence sits at
+/// `1, is_called = false` makes the very next default-id insert return 1 and
+/// collide — measured on the pooled-schema path:
+///
+/// ```text
+/// ERROR: duplicate key value violates unique constraint "server_media_quota_pkey"
+/// DETAIL: Key (id)=(1) already exists.
+/// ```
+///
+/// This is the same rule phase 1c applies, in the same order (raise only ever
+/// moves a sequence forward, via `GREATEST` with its current position), so a
+/// reused schema and a fresh clone end up in the same state.
+///
+/// Sequence discovery reuses phase 1c's catalog path — `pg_attrdef` -> the
+/// `pg_depend` edge to a `relkind = 'S'` relation — rather than slicing
+/// `nextval('...')` default text, and is not limited to serial columns: any
+/// column whose default draws from a sequence is covered.
+pub async fn advance_schema_sequences(pool: &sqlx::PgPool, schema: &str) -> Result<(), String> {
+    if schema.is_empty() || !schema.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') {
+        return Err(format!("refusing to advance sequences for the non-identifier schema name {schema:?}"));
+    }
+    sqlx::raw_sql(&format!(
+        r#"
+        DO $do$
+        DECLARE
+            r RECORD;
+            seq_q TEXT;
+            max_id BIGINT;
+        BEGIN
+            FOR r IN
+                SELECT t.relname AS tbl,
+                       a.attname AS col,
+                       s.relname AS seq_rel
+                FROM pg_attrdef ad
+                JOIN pg_class t ON t.oid = ad.adrelid
+                JOIN pg_namespace tn ON tn.oid = t.relnamespace
+                JOIN pg_attribute a ON a.attrelid = ad.adrelid AND a.attnum = ad.adnum
+                JOIN pg_depend d ON d.classid = 'pg_attrdef'::regclass AND d.objid = ad.oid
+                JOIN pg_class s ON s.oid = d.refobjid AND s.relkind = 'S'
+                WHERE tn.nspname = '{schema}' AND a.attnum > 0 AND NOT a.attisdropped
+                ORDER BY t.relname, a.attname
+            LOOP
+                seq_q := format('%I.%I', '{schema}', r.seq_rel);
+                EXECUTE format(
+                    'SELECT GREATEST(COALESCE(max(%I), 0), COALESCE(pg_sequence_last_value(%L::regclass), 0)) FROM %I.%I',
+                    r.col, seq_q, '{schema}', r.tbl
+                ) INTO max_id;
+                IF max_id > 0 THEN
+                    EXECUTE format('SELECT setval(%L::regclass, %s, true)', seq_q, max_id);
+                END IF;
+            END LOOP;
+        END
+        $do$;
+        "#
+    ))
+    .execute(pool)
+    .await
+    .map_err(|e| format!("failed to advance the sequences of {schema}: {e}"))?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1469,6 +1552,105 @@ INSERT INTO unify_seed_refill (id, label) VALUES (1, 'seeded');
         .await
         .expect("a default-id insert into an emptied table must not collide");
         assert_eq!(id, 1, "the emptied table's sequence must start at 1, not inherit the template's position");
+
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#)).execute(&pool).await;
+    }
+
+    /// The pooled-schema path's failure mode, reproduced and then closed.
+    ///
+    /// `TRUNCATE ... RESTART IDENTITY` puts every sequence back at 1 without
+    /// resetting `is_called`, and the re-seed that follows copies rows whose
+    /// explicit ids start at 1. A default-id insert then returns 1 and collides.
+    /// [`advance_schema_sequences`] is what makes the reused schema agree with a
+    /// fresh clone.
+    #[tokio::test]
+    async fn reusing_a_schema_reseeds_its_sequences() {
+        let Some(url) = test_database_url() else {
+            return;
+        };
+        let baseline = r#"
+CREATE TABLE IF NOT EXISTS unify_reseed (id bigserial PRIMARY KEY, label text NOT NULL);
+INSERT INTO unify_reseed (id, label) VALUES (1, 'seeded'), (2, 'seeded');
+"#;
+        let template = ensure_template_schema(&url, baseline).await.expect("template");
+        let schema = format!("unify_reseed_{}", uuid::Uuid::new_v4().as_simple());
+        let pool = PgPoolOptions::new().max_connections(1).connect(&url).await.expect("pool");
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#)).execute(&pool).await;
+        sqlx::query(&format!(r#"CREATE SCHEMA "{schema}""#)).execute(&pool).await.expect("create clone schema");
+        sqlx::query(&format!(r#"SET search_path TO "{schema}", public"#)).execute(&pool).await.expect("set path");
+        clone_schema_from_template(&pool, &schema, &template, SeedSource::Everything).await.expect("clone");
+        // A fresh clone already works, so the failure below is specific to reuse.
+        let cloned_id: i64 =
+            sqlx::query_scalar(&format!("INSERT INTO \"{schema}\".unify_reseed (label) VALUES ('x') RETURNING id"))
+                .fetch_one(&pool)
+                .await
+                .expect("a fresh clone must serve a default-id insert");
+        assert_eq!(cloned_id, 3, "phase 1c advances the fresh clone past the 2 copied rows");
+
+        // The clone's sequence must be the column's serial sequence. Without
+        // `OWNED BY` this is NULL and `TRUNCATE ... RESTART IDENTITY` silently
+        // leaves the sequence where it was, which is what made a reused schema
+        // keep stale positions (measured: an unowned sequence stayed at 42 while
+        // an owned one reset to 1).
+        let owned_by_column: Option<String> = sqlx::query_scalar("SELECT pg_get_serial_sequence($1, $2)")
+            .bind(format!("{schema}.unify_reseed"))
+            .bind("id")
+            .fetch_one(&pool)
+            .await
+            .expect("pg_get_serial_sequence");
+        assert_eq!(
+            owned_by_column.as_deref(),
+            Some(format!("{schema}.unify_reseed_id_seq").as_str()),
+            "the clone's sequence must be OWNED BY the clone's column, or RESTART IDENTITY \
+             will not reset it"
+        );
+
+        // Now replay the reuse path: truncate with identity restart, then copy
+        // the template's rows back (explicit ids 1 and 2).
+        sqlx::query(&format!(r#"TRUNCATE TABLE "{schema}".unify_reseed RESTART IDENTITY CASCADE"#))
+            .execute(&pool)
+            .await
+            .expect("truncate");
+        let after_truncate: (i64, bool) =
+            sqlx::query_as(&format!("SELECT last_value, is_called FROM \"{schema}\".unify_reseed_id_seq"))
+                .fetch_one(&pool)
+                .await
+                .expect("read sequence after truncate");
+        assert_eq!(after_truncate, (1, false), "OWNED BY must make RESTART IDENTITY actually reset the sequence");
+
+        sqlx::query(&format!(r#"INSERT INTO "{schema}".unify_reseed SELECT * FROM "{template}".unify_reseed"#))
+            .execute(&pool)
+            .await
+            .expect("re-seed");
+
+        // Precondition AND evidence in one statement: with the sequence back at 1
+        // while the re-seeded rows carry ids 1 and 2, a default-id insert must
+        // collide. If it ever succeeds, the repair below may be unnecessary.
+        let naive: Result<i64, sqlx::Error> =
+            sqlx::query_scalar(&format!("INSERT INTO \"{schema}\".unify_reseed (label) VALUES ('y') RETURNING id"))
+                .fetch_one(&pool)
+                .await;
+        assert!(naive.is_err(), "the re-seeded rows must collide with a sequence that is back at 1");
+
+        advance_schema_sequences(&pool, &schema).await.expect("advance sequences");
+        let repaired: i64 =
+            sqlx::query_scalar(&format!("INSERT INTO \"{schema}\".unify_reseed (label) VALUES ('z') RETURNING id"))
+                .fetch_one(&pool)
+                .await
+                .expect("after advancing, the default-id insert must succeed");
+        assert_eq!(repaired, 3, "the sequence must resume after the highest copied id");
+
+        // Idempotent: running it again must not rewind or skip.
+        advance_schema_sequences(&pool, &schema).await.expect("advance sequences twice");
+        let again: i64 =
+            sqlx::query_scalar(&format!("INSERT INTO \"{schema}\".unify_reseed (label) VALUES ('w') RETURNING id"))
+                .fetch_one(&pool)
+                .await
+                .expect("advancing twice must stay safe");
+        assert_eq!(again, 4, "a second advance must not rewind the sequence");
+
+        let rejected = advance_schema_sequences(&pool, "no; DROP SCHEMA public CASCADE").await;
+        assert!(rejected.is_err(), "a non-identifier schema name must be refused, got {rejected:?}");
 
         let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#)).execute(&pool).await;
     }

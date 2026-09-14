@@ -1045,138 +1045,56 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
     .map_err(|_| "failed to connect admin pool for clone: timed out".to_string())?
     .map_err(|error| format!("failed to connect admin pool for clone: {error}"))?;
 
-    // Clone: create schema + copy all tables from template using DDL generation.
-    // INCLUDING ALL copies defaults, constraints, indexes, and storage parameters
-    // (but NOT foreign keys — LIKE never copies FKs, so seed-copy order is unconstrained).
+    // Clone through the shared implementation
+    // (`synapse_common::test_isolation::clone_schema_from_template`).
     //
-    // Structure-only LIKE does not copy rows, so migration-seeded *reference/config*
-    // rows (e.g. the server_media_quota id=1 row) are missing in clones. We copy those
-    // for a curated allowlist of config tables so per-test clones behave like a
-    // freshly-migrated DB. The development-only `@admin:localhost` seed in `users` is
-    // intentionally NOT copied — tests manage their own users and many assert an empty
-    // users table.
-    const SEED_REFERENCE_TABLES: &[&str] = &["server_media_quota", "server_retention_policy", "sync_stream_id"];
-    let seed_copy_stmts = SEED_REFERENCE_TABLES
-        .iter()
-        .map(|table| {
-            format!(
-                "                IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = '{template_name}' AND tablename = '{table}') THEN
-                    EXECUTE format('INSERT INTO %I.%I SELECT * FROM %I.%I', '{schema_name}', '{table}', '{template_name}', '{table}');
-                    RAISE WARNING 'seed copy: inserted % rows into {schema_name}.{table}', (SELECT count(*) FROM {schema_name}.{table});
-                ELSE
-                    RAISE NOTICE 'seed copy: {table} not found in template {template_name}, skipping';
-                END IF;"
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    let clone_sql = format!(
-        r"
-        DO $$
-        DECLARE
-            r RECORD;
-            v_attempts INTEGER;
-            v_created INTEGER;
+    // This module used to carry its own ~170-line clone (table LIKE + index
+    // rename + seed copy + sequence copy + view recreation). It was the third
+    // implementation of the same job and it silently diverged from the shared
+    // one: it copied *no* foreign keys, no triggers and no functions, and it
+    // swallowed every per-index and per-view error with `EXCEPTION WHEN OTHERS
+    // THEN NULL`. The shared clone replays those objects and then verifies the
+    // clone's object inventory against the template's, so an incomplete clone is
+    // an immediate error instead of a later order-dependent test failure.
+    //
+    // The shared helper does not create the schema, so we do that (and pin the
+    // session `search_path`) first, exactly like the storage and services
+    // fixtures.
+    //
+    // `raw_sql` (simple protocol, no bind params) rather than three separate
+    // formatted query calls: identifiers cannot be bound, and the
+    // SQLx dynamic-ratio gate counts every non-macro query call as dynamic SQL.
+    // One DDL block keeps this convergence from moving that ratchet at all.
+    sqlx::raw_sql(&format!(
+        r#"
+        DO $do$
         BEGIN
-            -- Drop any leftover schema with the same name to avoid duplicate key
-            -- errors on CREATE SCHEMA (can happen with clock collisions or
-            -- cross-process races when nextest uses process-per-test).
             EXECUTE format('DROP SCHEMA IF EXISTS %I CASCADE', '{schema_name}');
             EXECUTE format('CREATE SCHEMA %I', '{schema_name}');
-            FOR r IN
-                SELECT tablename FROM pg_tables WHERE schemaname = '{template_name}' ORDER BY tablename
-            LOOP
-                EXECUTE format(
-                    'CREATE TABLE %I.%I (LIKE %I.%I INCLUDING ALL)',
-                    '{schema_name}', r.tablename, '{template_name}', r.tablename
-                );
-            END LOOP;
-            -- Restore original index names from template.
-            -- CREATE TABLE LIKE ... INCLUDING ALL copies indexes but PostgreSQL
-            -- assigns auto-generated names. Tests check for specific index names
-            -- via has_index_named(), so we drop non-constraint indexes (which
-            -- have auto-generated names) and recreate them from the template's
-            -- index definitions (which have the original names).
-            FOR r IN
-                SELECT c.relname AS idx_name
-                FROM pg_class c
-                JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = '{schema_name}'
-                JOIN pg_index i ON i.indexrelid = c.oid
-                WHERE c.relkind = 'i'
-                  AND NOT EXISTS (
-                      SELECT 1 FROM pg_constraint con WHERE con.conindid = c.oid
-                  )
-            LOOP
-                EXECUTE format('DROP INDEX %I.%I', '{schema_name}', r.idx_name);
-            END LOOP;
-            FOR r IN
-                SELECT t.indexdef AS def
-                FROM pg_indexes t
-                WHERE t.schemaname = '{template_name}'
-                  AND NOT EXISTS (
-                      SELECT 1 FROM pg_constraint con
-                      JOIN pg_class c ON c.oid = con.conindid
-                      JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = '{template_name}'
-                      WHERE c.relname = t.indexname
-                  )
-            LOOP
-                BEGIN
-                    EXECUTE REPLACE(r.def, '{template_name}.', '{schema_name}.');
-                EXCEPTION WHEN OTHERS THEN
-                    NULL;
-                END;
-            END LOOP;
-            -- Copy migration seed rows for reference/config tables only.
-{seed_copy_stmts}
-            -- Copy sequences with their current values so id generation stays consistent.
-            FOR r IN
-                SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema = '{template_name}'
-            LOOP
-                EXECUTE format(
-                    'CREATE SEQUENCE IF NOT EXISTS %I.%I',
-                    '{schema_name}', r.sequence_name
-                );
-                EXECUTE format(
-                    'SELECT setval(%L, (SELECT last_value FROM %I.%I), (SELECT is_called FROM %I.%I))',
-                    '{schema_name}.' || r.sequence_name,
-                    '{template_name}', r.sequence_name,
-                    '{template_name}', r.sequence_name
-                );
-            END LOOP;
-            -- Clone views from the template schema.
-            -- Views are NOT copied by CREATE TABLE LIKE, so we recreate them.
-            -- pg_views.definition stores schema-qualified table references (resolved
-            -- at creation time), so we must replace the template schema name with the
-            -- new schema name to make views reference the cloned tables.
-            EXECUTE format('SET search_path TO %I, public', '{schema_name}');
-            v_attempts := 0;
-            LOOP
-                v_attempts := v_attempts + 1;
-                v_created := 0;
-                FOR r IN
-                    SELECT viewname, definition FROM pg_views WHERE schemaname = '{template_name}' ORDER BY viewname
-                LOOP
-                    BEGIN
-                        EXECUTE format(
-                            'CREATE OR REPLACE VIEW %I.%I AS %s',
-                            '{schema_name}', r.viewname,
-                            REPLACE(r.definition, '{template_name}.', '{schema_name}.')
-                        );
-                        v_created := v_created + 1;
-                    EXCEPTION WHEN OTHERS THEN
-                        NULL;
-                    END;
-                END LOOP;
-                EXIT WHEN v_created = 0 OR v_attempts >= 5;
-            END LOOP;
-        END $$;
-        "
-    );
-
-    sqlx::raw_sql(&clone_sql)
+        END
+        $do$;
+        "#
+    ))
+    .execute(&admin_pool)
+    .await
+    .map_err(|error| format!("failed to create the clone schema {schema_name}: {error}"))?;
+    sqlx::raw_sql(&format!(r#"SET search_path TO "{schema_name}", public"#))
         .execute(&admin_pool)
         .await
-        .map_err(|error| format!("failed to clone template to {schema_name}: {error}"))?;
+        .map_err(|error| format!("failed to set search_path for {schema_name}: {error}"))?;
+
+    // `Only(SEED_REFERENCE_TABLES)` is this fixture's historical behaviour
+    // written down: phase 1b copies the baseline's seeded reference rows and
+    // nothing else. Behaviour is identical to `Everything` today (measured: the
+    // template's only non-empty tables are exactly these three), and the
+    // `the_seed_allowlist_matches_what_the_baseline_seeds` guard keeps that true.
+    synapse_common::test_isolation::clone_schema_from_template(
+        &admin_pool,
+        &schema_name,
+        template_name,
+        synapse_common::test_isolation::SeedSource::Only(synapse_common::test_isolation::SEED_REFERENCE_TABLES),
+    )
+    .await?;
 
     let search_path_sql = format!("SET search_path TO {schema_name}, public");
     let pool = tokio::time::timeout(
@@ -1203,7 +1121,8 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
     let pool = Arc::new(pool);
     // Note: ensure_test_schema_contract is NOT called here — the template schema
     // already has all contract columns applied (during init_template_schema), and
-    // CREATE TABLE LIKE ... INCLUDING ALL copies them to clones automatically.
+    // the shared clone's `LIKE ... INCLUDING ALL` table creation carries them into
+    // the clone.
     Ok((pool, schema_name))
 }
 
@@ -1494,10 +1413,11 @@ async fn truncate_and_reseed_schema(
     let sql = format!("TRUNCATE TABLE {trunc_list} RESTART IDENTITY CASCADE");
     sqlx::raw_sql(&sql).execute(admin_pool).await.map_err(|e| format!("TRUNCATE failed for {schema_name}: {e}"))?;
 
-    // Re-seed reference/config tables from the template (same 3 tables that
-    // clone_schema_from_template copies). These are small and fast to copy.
+    // Re-seed reference/config tables from the template — the same set the clone
+    // copies, taken from the shared constant so the two paths cannot drift.
+    // These are small and fast to copy.
     // Use cached table names to check existence instead of per-table EXISTS queries.
-    for table in &["server_media_quota", "server_retention_policy", "sync_stream_id"] {
+    for table in synapse_common::test_isolation::SEED_REFERENCE_TABLES {
         if !template_table_names.iter().any(|name| name == table) {
             eprintln!("schema pool: {table} not found in template {template_name}, skipping reseed");
             continue;
@@ -1515,6 +1435,12 @@ async fn truncate_and_reseed_schema(
             ));
         }
     }
+
+    // `TRUNCATE ... RESTART IDENTITY` above put every sequence back at 1, and the
+    // rows just copied back carry explicit ids starting at 1, so without this the
+    // next default-id insert into a re-seeded table returns 1 and dies on a
+    // duplicate key (measured: `server_media_quota_pkey`, `Key (id)=(1)`).
+    synapse_common::test_isolation::advance_schema_sequences(admin_pool, schema_name).await?;
 
     Ok(())
 }
@@ -1696,4 +1622,71 @@ fn ensure_test_schema_contract_sql() -> &'static str {
         ALTER TABLE events ADD COLUMN IF NOT EXISTS user_id TEXT;
         ALTER TABLE events ADD COLUMN IF NOT EXISTS stream_ordering BIGINT;
         "
+}
+
+#[cfg(test)]
+mod pooled_schema_reseed_tests {
+    /// A schema the pool recycles must be able to serve a default-id insert into
+    /// a table the pool re-seeds.
+    ///
+    /// The cycle is `TRUNCATE ... RESTART IDENTITY CASCADE` (every sequence back
+    /// to 1) followed by copying the reference rows back from the template — rows
+    /// whose explicit ids start at 1. That combination used to leave
+    /// `server_media_quota_id_seq` at 1 while a row already held `id = 1`, so the
+    /// next default-id insert died on
+    /// `duplicate key value violates unique constraint "server_media_quota_pkey"`.
+    ///
+    /// The cycle is driven **directly** rather than by acquiring twice: a first
+    /// acquisition usually *clones* (which advances the sequences as part of the
+    /// clone), so it would pass even with the repair removed — measured, and the
+    /// reason this test calls the reset path explicitly.
+    #[tokio::test]
+    async fn pooled_schema_can_insert_into_a_reseeded_table() {
+        if std::env::var("TEST_DATABASE_URL").is_err() {
+            eprintln!(
+                "SKIPPING pooled_schema_can_insert_into_a_reseeded_table: TEST_DATABASE_URL is unset, so this \
+                 proves nothing."
+            );
+            return;
+        }
+        let leased = crate::test_utils::acquire_pooled_schema().await.expect("pooled schema");
+        let pool: &sqlx::PgPool = &leased.pool;
+        let schema_name: String =
+            sqlx::query_scalar("SELECT current_schema()").fetch_one(pool).await.expect("current_schema");
+
+        // Drive the pool's reset path explicitly. This is the code under test.
+        let database_url = crate::test_utils::resolve_test_database_url().await.expect("database url");
+        let template_name = crate::test_utils::get_template_schema_name(&database_url).await.expect("template");
+        let admin = sqlx::PgPool::connect(&database_url).await.expect("admin pool");
+        crate::test_utils::truncate_and_reseed_schema(&admin, &database_url, &schema_name, &template_name)
+            .await
+            .expect("reset the pooled schema");
+
+        // One statement: the precondition (the re-seed copied the row with
+        // id = 1) and the regression (a default-id insert must not collide with
+        // it, so it must land above it).
+        let (seeded_count, lowest_seeded, new_id): (i64, Option<i64>, i64) = sqlx::query_as(
+            "WITH seeded AS (SELECT count(*) AS n, min(id) AS lo FROM server_media_quota), \
+                  ins AS (INSERT INTO server_media_quota \
+                          (max_storage_bytes, max_file_size_bytes, max_files_count, \
+                           current_storage_bytes, current_files_count, \
+                           alert_threshold_percent, updated_ts) \
+                          VALUES (1, 1, 1, 0, 0, 80, 0) RETURNING id) \
+             SELECT seeded.n, seeded.lo, ins.id FROM seeded, ins",
+        )
+        .fetch_one(pool)
+        .await
+        .expect(
+            "a default-id insert into a re-seeded table must not collide — the reset must advance the \
+             sequences past the rows it copied back",
+        );
+        assert!(
+            seeded_count > 0 && lowest_seeded == Some(1),
+            "precondition: the re-seed must have copied a row with id = 1, got count={seeded_count} \
+             lowest={lowest_seeded:?}"
+        );
+        assert!(new_id > 1, "the re-seeded row already owns id = 1, so the insert must land above it");
+
+        admin.close().await;
+    }
 }

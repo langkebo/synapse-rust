@@ -39,6 +39,11 @@ use std::fs;
 
 const STORAGE: &str = "synapse-storage/src/test_isolation.rs";
 const SERVICES: &str = "synapse-services/src/test_utils.rs";
+/// ROOT crate's test utils. Unlike storage/services, it does not call
+/// `synapse_common::test_isolation::ensure_template_schema` because the CI
+/// script `scripts/ci/prepare_test_db.sh` builds the template schema ahead
+/// of time (`test_template_ci`). ROOT only delegates clone.
+const ROOT: &str = "src/test_utils.rs";
 const COMMON: &str = "synapse-common/src/test_isolation.rs";
 const COMMON_LIB: &str = "synapse-common/src/lib.rs";
 
@@ -332,12 +337,13 @@ fn fixture_baseline_sql(path: &str) -> String {
     sql
 }
 
-/// Guard 1: both fixtures delegate the shared work to `synapse-common`.
+/// Guard 1: every fixture delegates the shared work to `synapse-common`.
 ///
-/// If either fixture goes back to its own implementation — `synapse-storage`
+/// If any fixture goes back to its own implementation — `synapse-storage`
 /// replaying the baseline per test, `synapse-services` filling an empty schema
-/// with `DatabaseInitService` — the other guards' invariants no longer describe
-/// the code that actually runs, and the divergence starts again.
+/// with `DatabaseInitService`, `src/test_utils.rs` resurrecting its ~170-line
+/// hand-rolled clone — the other guards' invariants no longer describe the code
+/// that actually runs, and the divergence starts again.
 ///
 /// The positive `contains` checks alone are not enough: a fixture can keep
 /// calling the shared module *and* re-add the historical per-test baseline
@@ -345,19 +351,33 @@ fn fixture_baseline_sql(path: &str) -> String {
 /// the exact regression this plan removed. Both replay signals are therefore
 /// asserted absent, on the production half of each fixture (see
 /// [`production_half`]).
+///
+/// `ROOT` is the only fixture that does NOT delegate `ensure_template_schema`:
+/// the CI script `scripts/ci/prepare_test_db.sh` seeds the pinned
+/// `TEST_DB_TEMPLATE_SCHEMA` template directly, so ROOT's template is a
+/// guarantee of the environment, not of this function. ROOT must still
+/// delegate clone — a hand-rolled clone there is the third implementation this
+/// guard exists to prevent.
 #[test]
-fn both_fixtures_delegate_to_the_shared_module() {
+fn every_fixture_delegates_clone_to_the_shared_module() {
+    for path in [ROOT, STORAGE, SERVICES] {
+        let src = read(path);
+        assert!(
+            src.contains("synapse_common::test_isolation::clone_schema_from_template"),
+            "{path} must clone its per-test schema from the shared template module"
+        );
+    }
+
     for path in [STORAGE, SERVICES] {
         let src = read(path);
         assert!(
             src.contains("synapse_common::test_isolation::ensure_template_schema"),
             "{path} must build/reuse its isolated template through the shared module"
         );
-        assert!(
-            src.contains("synapse_common::test_isolation::clone_schema_from_template"),
-            "{path} must clone its per-test schema from the shared template module"
-        );
+    }
 
+    for path in [ROOT, STORAGE, SERVICES] {
+        let src = read(path);
         let production = production_half(&src);
         assert!(
             !production.contains("split_sql_statements"),
@@ -367,6 +387,42 @@ fn both_fixtures_delegate_to_the_shared_module() {
             !production.contains("for stmt in"),
             "{path} must not loop over baseline statements per test (it must delegate to the shared \
              clone); a fixture has no legitimate reason for that loop"
+        );
+    }
+}
+
+/// Guard 1b: no fixture carries a second clone implementation.
+///
+/// The shared template builder is the sole owner of
+/// `CREATE TABLE %I.%I (LIKE %I.%I INCLUDING ALL)` — the single-round-trip
+/// table copy. A fixture that re-introduces that literal has resurrected the
+/// hand-rolled clone: the one this plan removed from `src/test_utils.rs` was a
+/// 170-line DO block that combined that `LIKE ... INCLUDING ALL` with an index
+/// rename loop, a seed-copy loop, a sequence re-bind loop and a view-recreation
+/// loop, and it silently diverged from the shared implementation on foreign
+/// keys, triggers and functions. Re-adding it here would be a regression of
+/// the exact §2 finding.
+///
+/// `COMMON` is deliberately excluded: it *is* the implementation and must keep
+/// the literal (Guard 2 asserts that). The exclusion list is a design choice,
+/// not an oversight.
+#[test]
+fn no_fixture_resurrects_a_hand_rolled_clone() {
+    for path in [ROOT, STORAGE, SERVICES] {
+        let src = read(path);
+        let production = production_half(&src);
+        assert!(
+            !production.contains("LIKE %I.%I INCLUDING ALL"),
+            "{path} must not contain the shared clone's `LIKE ... INCLUDING ALL` DDL: a fixture \
+             that emits it is a second clone implementation and diverges from the shared module"
+        );
+        assert!(
+            !production.contains("CREATE SEQUENCE IF NOT EXISTS"),
+            "{path} must not hand-roll sequence re-binding — the shared clone owns that"
+        );
+        assert!(
+            !production.contains("pg_get_triggerdef"),
+            "{path} must not hand-roll trigger cloning — the shared clone owns that"
         );
     }
 }
@@ -638,4 +694,73 @@ fn insert_statements(sql: &str) -> Vec<String> {
         out.push(cleaned);
     }
     out
+}
+
+/// Guard 7: exactly one type in the repository clones a schema-by-schema copy.
+///
+/// `SeedSource::Only(SEED_REFERENCE_TABLES)` is exported from the shared module
+/// precisely so the root fixture no longer needs a private clone. Before this
+/// guard the root crate carried its own ~170-line clone (table `LIKE` + index
+/// rename + seed copy + sequence copy + view recreation) which silently diverged
+/// from the shared one — it copied no foreign keys, triggers or functions and
+/// swallowed every per-index and per-view error. That is the failure mode
+/// `AGENTS.md` rule 2 exists for, and nothing in the build noticed it.
+///
+/// Uniqueness is not enough on its own: asserting `>= 1` would leave a tree with
+/// no clause at all unguarded. Asserting `== 1` also fails loudly if the shared
+/// clause is ever reformatted (`seed_where_clause(seeds)`, more arguments, a
+/// rename), which is why the assertion message spells out how to repair it.
+#[test]
+fn exactly_one_place_builds_the_schema_clone() {
+    const GUARD_FILE: &str = "tests/unit/test_isolation_unification_tests.rs";
+    // The interpolation marker is what makes the reader route through
+    // `seed_where_clause` -> `SeedSource`; it is not a syntax coincidence.
+    const MARKER: &str = "AND {seed_where}";
+
+    let mut hits: Vec<String> = Vec::new();
+    let mut visited = 0usize;
+    let mut stack = vec![std::path::PathBuf::from(".")];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            if path.is_dir() {
+                let skip = matches!(name.as_str(), "target" | ".git" | ".claude" | "vendor" | "node_modules");
+                if !skip {
+                    stack.push(path);
+                }
+                continue;
+            }
+            if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                continue;
+            }
+            let rel = path.to_string_lossy().trim_start_matches("./").to_string();
+            if rel == GUARD_FILE {
+                continue;
+            }
+            if !rel.starts_with("src") && !rel.ends_with("src/test_utils.rs") && !rel.contains("/src/") {
+                continue;
+            }
+            visited += 1;
+            let Ok(content) = fs::read_to_string(&path) else {
+                continue;
+            };
+            if content.contains(MARKER) {
+                hits.push(rel);
+            }
+        }
+    }
+
+    assert!(visited > 100, "the scan found only {visited} .rs files under src/ and workspace crates — the walk is broken, so this guard would pass vacuously");
+    assert_eq!(
+        hits,
+        vec![COMMON.to_string()],
+        "the schema-clone SQL must be built in exactly one place ({COMMON}, via `seed_where_clause`). \
+         Found it in {hits:?}. A second builder means a second clone implementation that will drift — \
+         route the new caller through `synapse_common::test_isolation::clone_schema_from_template` \
+         instead. If the shared clause was renamed or reseeded, update MARKER in this guard."
+    );
 }
