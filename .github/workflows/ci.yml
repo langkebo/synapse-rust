@@ -13,7 +13,7 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/synapse_test
+  TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
   TEST_REDIS_URL: redis://localhost:6379
 
 jobs:
@@ -232,25 +232,28 @@ jobs:
         if: matrix.features-args == '--all-features'
         run: python3 scripts/build_sqlx_migration_source.py artifacts/sqlx-migrations
 
-      - name: Set up test database
+      - name: Create synapse_test database (idempotent)
         if: matrix.features-args == '--all-features'
         env:
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-        run: |
-          sqlx database create
-          sqlx migrate run --source artifacts/sqlx-migrations
-          # P2 fail-fast: 关键表缺失直接报错，避免下游 11 个 burn_after_read::db_tests 全部 42P01
-          missing=0
-          for table in burn_after_read_pending burn_after_read_settings burn_after_read_log burn_after_read_user_defaults; do
-            if ! psql -d synapse -tAc "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='$table'" | grep -q 1; then
-              echo "::error::Required table missing after migration: $table (schema drift — v11 baseline not applied)"
-              missing=$((missing+1))
-            fi
-          done
-          if [ "$missing" -gt 0 ]; then
-            echo "::error::$missing critical table(s) missing — refusing to run tests to avoid cascading 42P01 failures"
-            exit 1
-          fi
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/postgres
+        run: psql -c "CREATE DATABASE synapse_test;" || true
+
+      # ── seed: public (storage) + template (services/root) 一库两态 ──────────
+      # storage db_tests 直连 `public`；services/root 的 `prepare_shared_test_pool`
+      # 从模板 schema 克隆。两者必须共存：给每个测试步骤设
+      # `TEST_DB_TEMPLATE_SCHEMA` 钉住模板名，克隆池走 verify-only 路径，
+      # **永不触发 `init_template_schema` 里的 `DROP SCHEMA public`**（根因修复）。
+      # seed 步骤（本步）：先把迁移灌进 `public`，再用 PGOPTIONS 把同一份迁移
+      # 灌进 `test_template_ci`，一次搞定两个 schema。
+      #
+      # 若有人把 `TEST_DATABASE_URL` 指回应用库 `synapse`：守卫
+      # （DB 名不含 `test` 且 public.schema_migrations 存在）会快速失败，
+      # 而不是静默清库。`SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE` 在 CI 中绝不开。
+      - name: Seed test schemas (public + template)
+        if: matrix.features-args == '--all-features'
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+        run: bash scripts/ci/prepare_test_db.sh
 
       # P5-fix: this gate used to be `cargo test --doc --locked`, which only
       # compiles the ROOT package. The root package has zero doc tests, so the
@@ -289,9 +292,9 @@ jobs:
       - name: Run library unit tests (--workspace --lib)
         if: matrix.features-args == '--all-features'
         env:
-          SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE: "1"
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
           REDIS_URL: redis://localhost:6379
           RUST_BACKTRACE: 1
           RUST_LOG: info
@@ -316,9 +319,9 @@ jobs:
       - name: Check media exemption is still necessary (self-cleaning guard)
         if: matrix.features-args == '--all-features'
         env:
-          SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE: "1"
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
           REDIS_URL: redis://localhost:6379
           RUST_BACKTRACE: 1
           RUST_LOG: info
@@ -327,9 +330,9 @@ jobs:
       - name: Run unit test target (--test unit)
         if: matrix.features-args == '--all-features'
         env:
-          SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE: "1"
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
           REDIS_URL: redis://localhost:6379
           RUST_BACKTRACE: 1
           RUST_LOG: info
@@ -519,7 +522,18 @@ jobs:
       - name: Build forward-only sqlx migration source
         run: python3 scripts/build_sqlx_migration_source.py artifacts/sqlx-migrations
 
-      - name: Set up test database
+      # The integration/e2e/snapshot/perf steps below run against the
+      # *application* database `synapse` (they exercise a migrated schema, not
+      # test isolation). The serial admin-registration step instead uses the
+      # throwaway test DB `synapse_test` — see its own note. Create `synapse_test`
+      # idempotently so the WIPE-flag-less guard in src/test_utils.rs is never
+      # provoked against a deployed-looking DB.
+      - name: Create synapse_test database (idempotent)
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/postgres
+        run: psql -c "CREATE DATABASE synapse_test;" || true
+
+      - name: Set up test database (synapse)
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
         run: |
@@ -539,14 +553,26 @@ jobs:
             exit 1
           fi
 
+      - name: Set up synapse_test schema
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
+        run: bash scripts/ci/prepare_test_db.sh
+
       # P6 fix: run admin registration integration tests serially to avoid deadlock.
       # Multiple tests sharing the same nonce key + concurrent writes to users table
       # cause PostgreSQL deadlock at --test-threads > 1.
+      #
+      # Pin `TEST_DB_TEMPLATE_SCHEMA` so this step's `prepare_shared_test_pool`
+      # takes the verify-only clone path and never DROPs `public` (see Test & Lint
+      # job's seed note). `synapse_test` is a throwaway DB, but the DB-name guard
+      # is a backstop, not the primary defence.
       - name: Run integration tests (serial — admin registration)
         env:
-          SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE: "1"
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
           REDIS_URL: redis://localhost:6379
           RUST_BACKTRACE: 1
           RUST_LOG: info

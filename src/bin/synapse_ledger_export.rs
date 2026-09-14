@@ -14,9 +14,9 @@
 //!
 //! Schema documented at `docs/synapse-rust/LEDGER_EXPORT_SCHEMA.md`. The
 //! authoritative version constant is `SCHEMA_VERSION` in
-//! `src/web/routes/ledger_export.rs` (currently `"2"`); do not restate the
-//! value here, it drifted once already (this comment claimed `"1"` while the
-//! code emitted `"2"`).
+//! `src/web/routes/ledger_export.rs`; do not restate the value here — it has
+//! drifted in this comment before (it claimed `"1"`, then `"2"`, while the
+//! code had moved on). Read the constant.
 //!
 //! Output is **compile-aware**: routes are registered per feature, so the same
 //! `--profile` yields different entry counts depending on the feature set this

@@ -74,19 +74,59 @@ relation "users" does not exist (42P01)   遍布 storage 各 db_tests
 
 **一次运行即清空 `public`，产生 1033 个假失败。** 这不是竞态，是该配置下的必然结果。
 
-### 建议修法
+### 建议修法（采纳"分两步 + 一库"，2026-09-14 已实施 ✅）
 
-```yaml
-# test job: 建库（幂等）
-- run: PGPASSWORD=synapse psql -h localhost -U synapse -d synapse \
-         -c 'CREATE DATABASE synapse_test;' || true
-# 4 个步骤：改指测试库，并删除 wipe 标志
-  TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
-  # SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE: "1"   <- 删除
+**文档建议的修法（改指测试库 + 删 wipe 标志）是必要不充分**——它消除了"指向应用库+解除保护"，
+但未解决一个更深的共存矛盾：storage `db_tests` 直连 `public` 需要 256 表，而 services/root 的
+`prepare_shared_test_pool` 首次调用会经 `init_template_schema` **DROP SCHEMA public** 重建模板——
+两者在同一 nextest 步骤共享一个库必然串扰，这正是历史 "1033 假失败 → public 253→3" 的**机制根因**
+（不是竞态，是结构性的）。用户确认采纳"分两步 + 一库"。
+
+**最终方案（已落地）**：
+
+1. **seed 步骤** `scripts/ci/prepare_test_db.sh`：一次性把迁移灌进两个 schema——
+   `public`（storage 直连）+ `test_template_ci`（services/root 克隆模板）。
+   模板用 `PGOPTIONS='-c search_path=test_template_ci,public'` 让非 schema 固定的
+   `CREATE TABLE IF NOT EXISTS` 落进模板 schema（已实测：254 表 ✓）。
+   最后校验两个 schema 均 ≥200 表，否则 fail-fast。
+
+2. **所有测试步骤设 `TEST_DB_TEMPLATE_SCHEMA=test_template_ci`**（Test & Lint 的
+   lib/media-guard/unit 三步 + integration 的 admin-registration 步）：
+   该 env 让 root `prepare_shared_test_pool` 走 `ensure_template_schema_exists`
+   **verify-only 路径，永不进入 `init_template_schema`**——`DROP SCHEMA public`
+   在 CI 中**结构性不可能发生**，而非仅靠守卫拦截。
+
+3. **守卫强化**（`src/test_utils.rs`）：数据库名含 `test` 视为可重建测试库，
+   无论是否已带 `public.schema_migrations`（旧判据会连 `synapse_test` 也拒绝，
+   见 §3.2）。同时顶层凭据 `postgres:postgres` → `synapse:synapse`。
+
+4. **`SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE` 在 CI 中零出现**（grep 验证）。
+
+### 修复后验证（实测）
+
+```bash
+$ grep -nE "SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE|TEST_DATABASE_URL: postgresql" .github/workflows/ci.yml
+16:  TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+# 4 个测试步骤全部指向 synapse_test + TEST_DB_TEMPLATE_SCHEMA: test_template_ci；
+# WIPE 标志 0 处。
 ```
 
-删掉标志后守卫会生效：一旦有人把 URL 指回应用库，测试**快速失败**而不是静默清库。
-同时修正顶层 `:16` 的凭据（`postgres:postgres` → `synapse:synapse`）。
+```bash
+# seed 后两 schema 共存
+$ bash scripts/ci/prepare_test_db.sh
+==> public: 255 tables; test_template_ci: 254 tables
+==> synapse_test ready: public + test_template_ci coexist.
+
+# 根 §3.2 测试（prepare_shared_test_pool + pin）→ 通过，且 public 不被 DROP
+$ cargo test -p synapse-rust --lib --features test-utils -- \
+    render_appservice_scheduler_prometheus_metrics_reflects_recovery_summary
+test result: ok. 1 passed; 0 failed;   # public 255 → 255（未动）
+
+# storage db_tests（直连 public + pin）→ 通过
+$ cargo nextest run -p synapse-storage --lib --features test-utils -- \
+    -E 'test(/db_tests::test_register_creates_service/)'
+PASS [0.057s] application_service::db_tests::test_register_creates_service
+```
 
 ---
 

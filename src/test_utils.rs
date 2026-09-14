@@ -532,11 +532,22 @@ async fn init_template_schema(database_url: &str, template_name: &str) -> Result
     // "Safe in test envs" was an assumption, not a check. Make it a check:
     // refusing to proceed is always better than silently emptying a database
     // that might be someone's deployment.
+    //
+    // NB: 数据库名判据——名字含 `test`（如 CI 里统一使用的 `synapse_test`）
+    // 的库视为测试库，本就应当被 DROP 重建，无论它是否携带已应用的迁移。
+    // 这一判据同时解决了 §3.2：旧判据只看 `public.schema_migrations` 是否存在，
+    // 导致守卫连自己错误信息里建议的 `synapse_test` 也会拒绝（预迁移后该表存在）。
     let is_throwaway = std::env::var("SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE").is_ok_and(|v| v == "1");
-    if !is_throwaway {
+    let is_test_db = sqlx::query_scalar::<_, String>("SELECT current_database()")
+        .fetch_one(&admin_pool)
+        .await
+        .map(|db| db.to_ascii_lowercase().contains("test"))
+        .unwrap_or(false);
+    if !is_throwaway && !is_test_db {
         // A database is treated as *not* throwaway if it carries applied
-        // migrations but is not explicitly opted in. That is exactly the shape of
-        // a deployed database, and the shape of the one we destroyed.
+        // migrations but is not explicitly opted in and is not named like a
+        // test database. That is exactly the shape of a deployed database, and
+        // the shape of the one we destroyed.
         let applied: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'schema_migrations'",
         )

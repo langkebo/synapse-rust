@@ -82,14 +82,7 @@ pub struct RouteEntry {
 impl RouteEntry {
     /// See [`new`].
     pub const fn new(method: Method, path: &'static str, registered_by: &'static str) -> Self {
-        Self {
-            method,
-            path,
-            registered_by,
-            query_params: &[],
-            auth: None,
-            rate_limit_exempt: false,
-        }
+        Self { method, path, registered_by, query_params: &[], auth: None, rate_limit_exempt: false }
     }
 
     /// See [`with_auth`].
