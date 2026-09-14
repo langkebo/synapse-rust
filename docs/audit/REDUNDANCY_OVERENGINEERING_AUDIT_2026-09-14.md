@@ -665,3 +665,115 @@ flaky（隔离复跑两次均通过，见仓库「已知坑 #10」）。
    收敛路由元数据（−600~1,500）、合并 DI 层泛型化（−596）、
    legacy 认证兼容（−250 且去掉热路径每次多一次索引查询）、
    `deny(missing_docs)` 落地方式重做（−15,571 行零信息注释）。
+
+---
+
+# 附录 E：零引用表 DROP（2026-09-14）
+
+## E.1 范围与结果
+
+删除 **23 张 Rust 全仓零引用表**（`\b<表名>\b` 引用计数为 0）：
+
+`user_account_data`、`voice_messages`、`user_reputations`、`typing_stream`、
+`security_events`、`room_stats_current`、`room_parents`、`receipts_linearized`、
+`reaction_aggregations`、`presence_stream`、`password_history`、
+`openclaw_connections`、`migration_audit`、`ip_blocks`、`federation_inbound_events`、
+`federation_blacklist_config`、`event_forward_extremities`、`destination_retry_timings`、
+`ai_messages`、`ai_generations`、`ai_conversations`、`ai_connections`、`ai_chat_roles`
+
+| 一并删除的对象 | 数量 |
+|---|---|
+| `CREATE TABLE` 块 | 23 |
+| 显式 `CREATE INDEX` | 25 |
+| `COMMENT ON COLUMN` | 54 |
+| `pg_constraint` FK 补丁（DO 块内） | 4 |
+| AI 触发器 `DO` 块 | 3 |
+| **合计行数** | **442**（baseline 400 + extensions 25 + 文档） |
+
+## E.2 两处必须一并处理、否则清理不彻底的地方
+
+1. **`voice_messages` 同时存在于 `00000001_extensions_v10.sql`** —— 只删 baseline
+   会让启用 `voice-extended` 的部署继续建出该死表。两处都已删除。
+2. **`extension_map.conf` 的说明是错的** —— 它声称
+   `voice-extended -> voice_messages`，而 `synapse-storage/src/voice.rs` 实际读写的是
+   `voice_usage_stats`（在 baseline 中）。已改正。这也解释了为何 `voice_messages`
+   会是零引用：功能的真实表从来不是它。
+
+## E.3 未采用原 README 的"留待 v12"方案
+
+`migrations/README.md` 原称这些死表"因迁移文件遵循 append-only，暂不清理，待 v12"。
+该推理不成立：
+
+1. `build_sqlx_migration_source.py` 只选 baseline + extension + `V*` 迁移 ——
+   时间戳命名的 `DROP TABLE` 迁移**根本不会被执行**，"留待 v12"在实践中等于永久不清。
+2. 项目**未发布、无外部用户、无生产数据**（`AGENTS.md` 铁律 1），append-only 的
+   前提（保护存量部署）不存在。
+
+## E.4 验证方法（迁移改动唯一可靠的证明）
+
+在**两个全新数据库**中分别把改动前/后的 baseline 应用到 `public`，再比对：
+
+| 检查 | BEFORE（原始 baseline） | AFTER（改后） | 结论 |
+|---|---|---|---|
+| 应用退出码 / ERROR 数 | 0 / 0 | 0 / 0 | 双方均可干净应用 |
+| `public` 表数 | **255** | **232** | 差恰好 **23** |
+| 表名 `EXCEPT` 双向差集 | — | only_before=**23** / only_after=**0** | 除这 23 张外 schema 完全一致 |
+| 索引数（`pg_indexes`） | 764 | 710 | −54 = 25 显式 + 29 随表删除的主键/唯一索引 |
+| baseline + extensions 组合应用 | — | 0 error；`voice_messages` 不存在、`voice_usage_stats` 保留 | 扩展路径同样干净 |
+
+> **为何必须用全新数据库**：共享测试库的 `public` 中仍残留这些表，会把
+> baseline 里的 schema-blind 守卫"喂饱"，从而掩盖问题（见 E.6）。
+
+## E.5 门禁与测试
+
+| 门禁 | 结果 |
+|---|---|
+| `./scripts/check_fmt_ratchet.sh` | current=0 / baseline=0 **OK** |
+| `cargo clippy --workspace --all-targets --all-features -D warnings` | **0 error / 0 warning** |
+| `cargo test --test unit --all-features` | 1910 passed / 2 failed（既有 sqlx 棘轮红灯） |
+| `check_migration_consistency.py` | `status: ok`，`primary_forward_files: 2` |
+| `check_baseline_consolidation.py` | ✅ |
+| `test_isolation_unification_tests` 全部 8 个守卫 | 通过 |
+| `migration_consistency_tests` / `migration_replayability_guard_tests` | 通过 |
+
+**一处由本次改动引起、已修复的测试**：
+`baseline_fingerprint_is_v11_then_extensions_with_no_separator` 用**内容哈希**锁定
+v11++extensions 的拼接，任何迁移编辑都会触发。已更新常数（`7c3a8965…` →
+`8e0da5c4…`）并补充说明：该守卫的真正职责是抓**错误拼接**（分隔符
+`a05fa4488475fe1d` / 反转 `4137af770181767b`），而非阻止合法的迁移编辑。
+
+## E.6 顺带发现的两个既有 baseline 缺陷（**未修**）
+
+两者都与本次删除无关，但在全新数据库上暴露：
+
+1. **`-- typing composite PK` 守卫硬编码 schema**
+   ```sql
+   IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints
+                  WHERE table_schema = 'public' AND table_name = 'typing'
+                    AND constraint_name = 'pk_typing') THEN
+       ALTER TABLE typing ADD CONSTRAINT pk_typing PRIMARY KEY (user_id, room_id);
+   ```
+   `typing` 的建表语句**已内联** `CONSTRAINT pk_typing PRIMARY KEY`。当 baseline 被
+   应用到非 `public` schema（测试隔离正是逐 schema 应用）时，守卫查的是
+   `public.typing`（不存在）→ 判定"需要添加"→ `ALTER TABLE typing` 经 search_path
+   命中刚建好的目标 schema 表 → **`multiple primary keys for table "typing"`**。
+   在共享库上因 `public.typing` 已存在而长期被掩盖。
+2. **`-- user 表其他 user_id 字段` 的 DO 循环**：同样硬编码 `table_schema = 'public'`，
+   且是**全文件唯一没有 `IF NOT EXISTS` 守卫**的约束块 —— 对同一 schema 重复执行
+   必然报 `constraint ck_<t>_user_id_format ... already exists`。
+
+两项都应在 v12 重构时改为按**实际目标 schema**（`current_schema()` 或 search_path
+首项）判定，而非写死 `public`。已记入 `migrations/README.md`。
+
+## E.7 待办（更新自 D.5）
+
+1. ~~DROP `user_account_data` + STO-14 的 22 张零引用表~~ —— **本附录已完成**。
+2. **第零批剩余 3 项**（需产品裁定）：`push_rules` 双写、`room_directory` 双写、
+   retention no-op 方法对应的 admin 端点去留。
+3. **第一批暂缓**：SVC-0 模块系统 3,360 行、SVC-1 推送链路 ~1,600 行、
+   CFG-11 `server` 伪 feature。
+4. **baseline 剩余欠债**（本次未动）：`events.reference_image` 死字段、
+   `idx_rooms_name_trgm`/`idx_rooms_canonical_alias_trgm` 各重复定义两次、
+   E.6 的两个 schema-blind 守卫。
+5. **第二批结构性合并**：拆 `/r0` 兼容链、收敛路由元数据、合并 DI 层、
+   legacy 认证兼容、`deny(missing_docs)` 落地方式重做。
