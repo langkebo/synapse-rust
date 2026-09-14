@@ -50,23 +50,6 @@ use axum::http::Method;
 use std::collections::HashMap;
 use std::fmt;
 
-/// 路由生命周期状态
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum RouteStatus {
-    /// 当前活跃的生产契约
-    #[default]
-    Stable,
-    /// 已弃用但仍可用
-    Deprecated {
-        /// 推荐的替代路径
-        replacement: &'static str,
-        /// 计划的弃用时间（ISO 8601 或 "2026-Q4"）
-        sunset_at: Option<&'static str>,
-    },
-    /// 已移除，仅留文档
-    Removed,
-}
-
 /// A single `(method, path)` tuple that some router promises to register.
 ///
 /// `path` is the *absolute* HTTP path as it is reachable from the outside
@@ -81,8 +64,6 @@ pub struct RouteEntry {
     pub method: Method,
     /// The `path` field.
     pub path: &'static str,
-    /// 人类可读的状态等级
-    pub status: RouteStatus,
     /// Human-readable name of the router module that registers this entry —
     /// e.g. `"key_backup"`. Surfaced in duplicate diagnostics so the offending
     /// source files are immediately obvious.
@@ -104,18 +85,11 @@ impl RouteEntry {
         Self {
             method,
             path,
-            status: RouteStatus::Stable,
             registered_by,
             query_params: &[],
             auth: None,
             rate_limit_exempt: false,
         }
-    }
-
-    /// Mark this route as deprecated, pointing at its replacement.
-    pub const fn with_status(mut self, status: RouteStatus) -> Self {
-        self.status = status;
-        self
     }
 
     /// See [`with_auth`].

@@ -37,7 +37,12 @@ use super::{declared_route_manifest_for_profile, ProfileFlags};
 ///          matrix-js-sdk/scripts/contract-sync.mjs). A field that carries no
 ///          information is worse than no field — see B-7 in
 ///          docs/audit/LEDGER_CONTRACT_ISSUES_2026-09-13.md.
-pub const SCHEMA_VERSION: &str = "3";
+///   3 → 4  removed `entries[].status`. After the only `with_status` call site
+///          was removed (push_notification), `status` had zero consumers too
+///          (the SDK never reads it) — same rationale as `module`: a field
+///          with no consumer is worse than no field. Also dropped
+///          `RouteStatus`/`with_status`/`LedgerEntryStatusJson`.
+pub const SCHEMA_VERSION: &str = "4";
 
 /// Top-level artefact shape. Serialised key order matches declaration
 /// order here; `serde_json`'s `PrettyFormatter` respects that.
@@ -77,7 +82,7 @@ impl From<&ProfileFlags> for ProfileFlagsJson {
     }
 }
 
-/// The `LedgerEntryJson` struct (schema v2).
+/// The `LedgerEntryJson` struct (schema v4).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LedgerEntryJson {
     /// HTTP method (e.g. "GET", "POST").
@@ -94,23 +99,6 @@ pub struct LedgerEntryJson {
     /// Optional auth requirement: "user", "admin", "optional", "federation", or "none".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auth: Option<String>,
-    // ---------- B-5 ----------
-    /// Lifecycle status. `Stable` → omitted; `Deprecated` / `Removed` → serialized.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub status: Option<LedgerEntryStatusJson>,
-}
-
-/// Serialized form of [`super::route_ledger::RouteStatus`].
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct LedgerEntryStatusJson {
-    /// `"deprecated"` or `"removed"`.
-    pub state: String,
-    /// Recommended replacement absolute path (only for `deprecated`).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub replacement: Option<String>,
-    /// Planned sunset time, ISO 8601 or quarter string (optional).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sunset_at: Option<String>,
 }
 
 /// Named profile presets recognised by the exporter. Centralised here
@@ -157,34 +145,16 @@ pub fn build_artifact(
     synapse_rust_commit: Option<String>,
     generated_at: String,
 ) -> LedgerArtifact {
-    use super::route_ledger::RouteStatus;
-
     let ledger = declared_route_manifest_for_profile(flags);
     let mut entries: Vec<LedgerEntryJson> = ledger
         .iter()
-        .map(|e| {
-            // status: Stable → None; Deprecated → LedgerEntryStatusJson
-            let status_opt = match e.status {
-                RouteStatus::Stable => None,
-                RouteStatus::Deprecated { replacement, sunset_at } => Some(LedgerEntryStatusJson {
-                    state: "deprecated".to_string(),
-                    replacement: Some(replacement.to_string()),
-                    sunset_at: sunset_at.map(String::from),
-                }),
-                RouteStatus::Removed => {
-                    Some(LedgerEntryStatusJson { state: "removed".to_string(), replacement: None, sunset_at: None })
-                }
-            };
-
-            LedgerEntryJson {
-                method: e.method.as_str().to_string(),
-                path: e.path.to_string(),
-                registered_by: e.registered_by.to_string(),
-                path_params: extract_path_params(e.path),
-                query_params: e.query_params.iter().map(|s| s.to_string()).collect(),
-                auth: e.auth.map(|s| s.to_string()),
-                status: status_opt,
-            }
+        .map(|e| LedgerEntryJson {
+            method: e.method.as_str().to_string(),
+            path: e.path.to_string(),
+            registered_by: e.registered_by.to_string(),
+            path_params: extract_path_params(e.path),
+            query_params: e.query_params.iter().map(|s| s.to_string()).collect(),
+            auth: e.auth.map(|s| s.to_string()),
         })
         .collect();
     entries.sort_by(|a, b| {

@@ -116,6 +116,38 @@ The codebase generally follows `route (src/web/) -> service (synapse-services/) 
 - `synapse-services/src/room/`, `src/sync/`, `src/sync_service/`, `src/sliding_sync_service/`: core Matrix room and sync flows.
 - The repo also contains non-standard/private-chat extensions described in `README.md`: trusted private chat (`preset=trusted_private_chat`), anti-screenshot signaling (`com.hula.privacy`), and burn-after-read (feature `core-private-chat = friends + burn-after-read`).
 
+## 项目状态与反冗余铁律（未发布项目，先读这一节）
+
+**权威来源**：以下规则在 `AGENTS.md` §"项目状态与反冗余铁律"完整定义并维护，
+**修改只改 AGENTS.md，这里只保留同步摘要**，避免双源漂移。
+
+**项目状态：未发布、无外部用户、无生产数据。因此不存在向后兼容义务。**
+
+1. **禁止兼容残留。** 不得为"向后兼容"保留 `#[deprecated]` 项、旧路径别名、
+   双实现、feature 开关式的死代码、或"先留着以后可能有人用"的中间态。
+   改动直接替换原实现。**判据**：如果某符号/分支/配置的唯一存在理由是
+   "兼容旧行为"，就删掉它。
+2. **同一职责只允许一份实现。** 基础设施出现第二份实现即视为缺陷，新增前
+   先搜索是否已有可复用实现（`synapse-common` 是首选位置）。
+3. **测试/bench 专用依赖必须放 `[dev-dependencies]`。** 不得进 `[dependencies]`。
+4. **构建产物与派生缓存不入库。** `artifacts/`、`target/`、SQLx 派生缓存一律
+   gitignore；不得用 `git add -f` 绕过。
+5. **`cargo metadata` 必须始终可用。** 任何 vendored 或独立 crate 必须在根
+   `Cargo.toml` 的 `[workspace] members` 或 `exclude` 中显式声明。
+6. **薄壳禁止。** 根 crate 的 `src/{services,storage,common}/mod.rs` 只允许
+   re-export，且必须有实际使用者。
+7. **消除冗余优先于绕过问题。** 遇到并发/共享状态类缺陷，先问"能否从结构上
+   消除共享"（如 per-test schema 隔离），而不是加锁/串行化/重试绕过。
+8. **门禁必须自证能变红。** 任何"检查类"门禁在新增或修改后，必须用故意制造的
+   违规证明它真的会失败。看到"长期 0 违规 / 长期全绿"的门禁，优先怀疑它
+   没在工作，而不是相信代码很干净。
+
+**推论（结合 ledger 契约链教训）**：
+- 后端 `SCHEMA_VERSION` 一旦变更，必须同步 SDK 侧 `LEDGER_SCHEMA_VERSION` pin
+  与两条车道 fixture（见 `docs/audit/LEDGER_CONTRACT_ISSUES_2026-09-13.md`）。
+- 新增的路由元数据字段（如 `module`/`status`）若没有下游消费方，属于冗余，
+  应按第 1 条删除或补齐消费方，不得以"保留备用"为由滞留。
+
 ## Repo-specific guidance
 - Prefer existing migration/check scripts in `scripts/` and `docker/` over inventing new one-off commands.
 - For test expectations and gate definitions, use `TESTING.md` as the current source for what counts as main gate vs extended/manual verification.

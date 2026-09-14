@@ -66,25 +66,33 @@ artifact 在同步 workflow 里**解析即失败**，镜像自 `f6029a81` 后再
 `assembly.rs` 的 3 处调用；`SCHEMA_VERSION` 2 → 3；两条车道 fixture 重生成；
 SDK pin 与镜像同步到 3。
 
-### ⏳ B-7 的连带问题：`status` 现在也没有消费方了
+### ✅ B-7 的连带问题：`status` 也没有消费方（**已修**，后端 `SCHEMA_VERSION` 3→4）
 
 删除 `module` 后，`status` 成了同一类问题的候选：
 
 - 全仓 `.with_status(` 调用点在工作树里已是 **0**（最后一个在
   `push_notification.rs`，由另一 agent 的在途改动移除，理由写在注释里：
   "ledger 的 status 字段目前没有消费方，标注只是装饰"）
-- 该判断与本节一致。若最终确定 `status` 也不做，应同样删除
-  `RouteStatus` / `with_status` / `LedgerEntryStatusJson` / `status` 字段，
-  而不是保留"有字段没消费方"的状态
+- 该判断与本节一致。**处置**：按同一逻辑删除
+  `RouteStatus` / `with_status` / `LedgerEntryStatusJson` / `RouteEntry.status`，
+  不保留"有字段没消费方"的状态。连带：
+  `SCHEMA_VERSION` 3 → 4；`entries[].status` 从导出消失；两条车道 fixture
+  重生成；SDK 仓 `contract-sync.mjs` pin → 4 并重生成镜像。
+- `push_notification.rs` 的 7 条 legacy `/r0/push/*` 路由保留注册，但不再带
+  生命周期标注（spec 替代路径 `/v3/pushers`、`/v3/pushrules` 记录在模块注释）。
 
-**待决策**：要么给 `status` 一个真实消费方（例如 CI 的 `ledger-deprecated`
-门禁：读到 `Deprecated` 就要求 `sunset_at` 非空并在到期时报警），要么删除。
+若将来确需要生命周期标注，应该给 `status` 一个**真实消费方**（例如 CI 的
+`ledger-deprecated` 门禁：读到 `Deprecated` 就要求 `sunset_at` 非空并在到期时
+报警），届时再把字段带回来，而不是预埋无消费方的机制。
 
-### ⏳ B-3 / B-4 生命周期标注
+### ✅ B-3 / B-4 生命周期标注（已随 B-7 连带闭环）
 
-`with_status` 全仓只有 **1** 处调用（`push_notification.rs:384`），且
-`sunset_at: None`。若确实要标 Deprecated，应带日期，并有一条**消费它的**
-tracker 门禁；否则标注只是装饰。
+原问题：`with_status` 全仓只有 1 处调用（`push_notification.rs:384`），且
+`sunset_at: None`。
+
+处置：`status` 机制整体删除（见上），该调用点随之移除。7 条 legacy
+`/r0/push/*` 路由保留注册，spec 替代记录在模块注释。若将来真需要标
+Deprecated，应带日期并先建消费它的 tracker 门禁，否则标注只是装饰。
 
 ### ⏳ B-6 `ROUTE_CONTRACT.md` 漂移
 

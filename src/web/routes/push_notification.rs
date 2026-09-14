@@ -354,35 +354,31 @@ pub fn create_push_notification_router(state: AppState) -> axum::Router<AppState
 
 /// See [`push_notification_route_manifest`].
 ///
-/// B-2 remediation: the 7 legacy `/_matrix/client/r0/push/*` entries overlap
+/// B-2: the 7 legacy `/_matrix/client/r0/push/*` entries overlap
 /// with the spec-compliant `pushers`/`pushrules` routes registered by
 /// [`crate::web::routes::push`] and have **zero call sites** in the SDK
 /// (`src/push` uses `/pushers` + `/pushrules`; `src/notifications` uses
-/// `/notifications` only). They are kept alive for backward compatibility but
-/// are now marked [`RouteStatus::Deprecated`] pointing at their replacement,
-/// so downstream codegen (and the future `ledger-deprecated` CI gate) can see
-/// the migration target. The 2 `/_synapse/admin/*` routes remain `Stable`.
+/// `/notifications` only). They are kept registered for now. The 2
+/// `/_synapse/admin/*` routes are internal management endpoints.
 pub fn push_notification_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::{RouteEntry, RouteStatus};
+    use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
 
-    // Legacy push 路由 (r0/push/*) → spec replacement (pushers / pushrules)
-    const DEVICES: &str = "/_matrix/client/v3/pushers";
-    const RULES: &str = "/_matrix/client/v3/pushrules";
-
+    // Legacy push 路由 (r0/push/*)。其 spec 替代是 /_matrix/client/v3/pushers
+    // 与 /_matrix/client/v3/pushrules，但此处不再做结构化 Deprecated 标注——
+    // ledger 的 status 字段全仓无消费方（SDK 不读），机制已删除
+    // （B-7 连带，见 docs/audit/LEDGER_CONTRACT_ISSUES_2026-09-13.md）。
     let legacy = [
-        (Method::GET, "/_matrix/client/r0/push/devices", DEVICES),
-        (Method::POST, "/_matrix/client/r0/push/devices", DEVICES),
-        (Method::DELETE, "/_matrix/client/r0/push/devices/{device_id}", DEVICES),
-        (Method::POST, "/_matrix/client/r0/push/send", RULES),
-        (Method::GET, "/_matrix/client/r0/push/rules", RULES),
-        (Method::POST, "/_matrix/client/r0/push/rules", RULES),
-        (Method::DELETE, "/_matrix/client/r0/push/rules/{scope}/{kind}/{rule_id}", RULES),
+        (Method::GET, "/_matrix/client/r0/push/devices"),
+        (Method::POST, "/_matrix/client/r0/push/devices"),
+        (Method::DELETE, "/_matrix/client/r0/push/devices/{device_id}"),
+        (Method::POST, "/_matrix/client/r0/push/send"),
+        (Method::GET, "/_matrix/client/r0/push/rules"),
+        (Method::POST, "/_matrix/client/r0/push/rules"),
+        (Method::DELETE, "/_matrix/client/r0/push/rules/{scope}/{kind}/{rule_id}"),
     ]
     .into_iter()
-    .map(|(m, p, replacement)| {
-        RouteEntry::new(m, p, "push_notification").with_status(RouteStatus::Deprecated { replacement, sunset_at: None })
-    })
+    .map(|(m, p)| RouteEntry::new(m, p, "push_notification"))
     .collect::<Vec<_>>();
 
     // Admin 路由：稳定，供内部管理使用，无 spec 替代。

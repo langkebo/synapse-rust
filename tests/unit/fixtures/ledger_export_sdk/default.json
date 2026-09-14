@@ -1,5 +1,5 @@
 {
-  "schema_version": "3",
+  "schema_version": "4",
   "generated_at": "2026-05-02T00:00:00Z",
   "synapse_rust_commit": "0000000000000000000000000000000000000000",
   "state_profile": "default",
