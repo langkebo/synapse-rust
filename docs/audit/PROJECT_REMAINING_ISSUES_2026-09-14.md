@@ -30,9 +30,9 @@ unset SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE          # 绝不设置
 
 ---
 
-## 1. 🔴 数据安全：CI 把测试指向生产库并主动解除保护
+## 1. ✅ 数据安全：CI 把测试指向生产库并主动解除保护
 
-**这是本清单里风险最高的一条。**
+**已修复**（提交 `00c0aad2`：一库两 schema + TEST_DB_TEMPLATE_SCHEMA 钉模板）
 
 ### 证据
 
@@ -481,10 +481,10 @@ TODO/FIXME/XXX/HACK:  8
 
 | 优先级 | 问题 | 类型 | 状态 / 预估成本 |
 |---|---|---|---|
-| P0 | §1 CI 指向生产库 + wipe 标志 | 数据安全 | ⏳ 另一个 agent 正在修（已见 `ci.yml` 改动 + 新增 `scripts/ci/prepare_test_db.sh`） |
+| ~~P0~~ | ~~§1 CI 指向生产库 + wipe 标志~~ | 数据安全 | ✅ **已修复**（`00c0aad2`：一库两 schema + pin `TEST_DB_TEMPLATE_SCHEMA`，DROP public 结构性不可能） |
 | P0 | §4 `media::tests` 确定性失败 | 测试正确性 | 🔴 夹具改用隔离池（本轮降到 1 个失败，仍未清零） |
 | P1 | §2 `clone_schema_from_template` 多份实现 | 架构一致性 | 🟡 **2/3 已完成**：共享模块补齐索引名能力（`6a051fcb`）+ services 改为委派（`ea1a3ddc`）；剩 `src/test_utils.rs`，需先决定 seed 白名单方案 |
-| P1 | §3 两个既存失败（时钟容差 / 守卫判据） | 测试确定性 | 🔴 各 1 处小改 |
+| P1 | §3 两个既存失败（时钟容差 / 守卫判据） | 测试确定性 | 🔴 守卫判据已随 §1 修掉（DB 名含 test）；剩时钟容差 1 处小改 |
 | P1 | §6 clippy 门禁覆盖 workspace | 门禁真实性 | 🔴 加 `--workspace --all-targets`，再清 21 条 warning |
 | P2 | §5 `status` 字段去留 | 冗余治理 | ✅ 已完成（`c5a5df0d`，删除，schema 3→4） |
 | P2 | §9 schema 残留自动清理 | 运维 | 🔴 CI 加一步 |
