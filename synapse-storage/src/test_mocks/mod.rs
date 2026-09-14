@@ -110,8 +110,6 @@ pub mod cas;
 pub mod dehydrated_device;
 /// The `device_list` module.
 pub mod device_list;
-/// The `directory` module.
-pub mod directory;
 /// The `event` module.
 pub mod event;
 /// The `filter` module.
@@ -164,7 +162,6 @@ pub use background_update::InMemoryBackgroundUpdateStore;
 pub use cas::InMemoryCasStore;
 pub use dehydrated_device::InMemoryDehydratedDeviceStore;
 pub use device_list::InMemoryDeviceListStore;
-pub use directory::InMemoryDirectoryStore;
 pub use event::InMemoryEventStore;
 pub use filter::InMemoryFilterStore;
 pub use member::InMemoryMemberStore;

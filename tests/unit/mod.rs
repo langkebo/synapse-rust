@@ -66,7 +66,6 @@ mod thread_api_tests;
 
 mod worker_api_tests;
 
-mod directory_service_tests;
 mod rendezvous_service_tests;
 mod test_connection_budget_tests;
 mod test_pagination_limit_clamp_tests;

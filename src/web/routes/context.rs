@@ -126,8 +126,6 @@ pub struct RoomContext {
     pub presence_service: Arc<synapse_services::presence_service::PresenceService>,
     /// The `typing_service` field.
     pub typing_service: Arc<synapse_services::typing_service::TypingService>,
-    /// The `directory_service` field.
-    pub directory_service: Arc<synapse_services::directory_service::DirectoryService>,
     /// The `relations_service` field.
     pub relations_service: Arc<synapse_services::relations_service::RelationsService>,
     #[cfg(feature = "voice-extended")]
@@ -181,7 +179,6 @@ impl FromRef<AppState> for RoomContext {
             beacon_service: state.services.rooms.beacon_service.clone(),
             presence_service: state.services.account.presence_service.clone(),
             typing_service: state.services.rooms.typing_service.clone(),
-            directory_service: state.services.extensions.directory_service.clone(),
             relations_service: state.services.rooms.relations_service.clone(),
             #[cfg(feature = "voice-extended")]
             voice_service: Arc::new(state.services.extensions.voice_service.clone()),

@@ -40,8 +40,6 @@ pub struct ExtensionServices {
     pub friend_room_service: Arc<crate::friend_room_service::FriendRoomService>,
     /// The `rtc_domain_service` field.
     pub rtc_domain_service: Arc<crate::rtc::RtcDomainService>,
-    /// The `directory_service` field.
-    pub directory_service: Arc<crate::directory_service::DirectoryService>,
     /// The `media_domain_service` field.
     pub media_domain_service: Arc<crate::media::MediaDomainService>,
     #[cfg(feature = "server-notifications")]
@@ -110,15 +108,6 @@ impl ExtensionServices {
             #[allow(unused_variables)]
             user_service,
         } = deps;
-
-        // S24 + ARCH-06: DirectoryService delegates both alias operations and
-        // public-room directory operations to database-backed storage so that
-        // all directory data survives server restarts.
-        let directory_storage = Arc::new(synapse_storage::directory::DirectoryStorage::new(&infra.pool));
-        let directory_service = Arc::new(crate::directory_service::DirectoryService::with_storages(
-            rooms.room_storage.clone(),
-            directory_storage,
-        ));
 
         #[cfg(feature = "friends")]
         let friend_storage: Arc<dyn synapse_storage::friend_room::FriendRoomStoreApi> =
@@ -231,7 +220,6 @@ impl ExtensionServices {
             #[cfg(feature = "friends")]
             friend_room_service,
             rtc_domain_service,
-            directory_service,
             media_domain_service: media_domain_service.clone(),
             #[cfg(feature = "server-notifications")]
             server_notification_storage,

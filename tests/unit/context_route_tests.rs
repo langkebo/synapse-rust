@@ -449,7 +449,6 @@ fn test_room_context_public_fields_are_accessible() {
         let _ = &ctx.metrics;
         let _ = &ctx.presence_service;
         let _ = &ctx.typing_service;
-        let _ = &ctx.directory_service;
         let _ = &ctx.relations_service;
         let _ = &ctx.ssss_service;
         let _ = &ctx.dehydrated_device_service;

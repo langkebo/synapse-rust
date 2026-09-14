@@ -151,8 +151,6 @@ pub mod thread_service;
 /// The `translation_service` module.
 pub mod translation_service;
 
-/// The `directory_service` module.
-pub mod directory_service;
 /// The `typing_service` module.
 pub mod typing_service;
 /// The `uia_service` module.
@@ -185,7 +183,7 @@ pub use media::*; // media domain group (media, media_service)
 #[allow(ambiguous_glob_reexports)]
 pub use push::*; // push domain group (push, client_push_service)
 #[allow(ambiguous_glob_reexports)]
-pub use room::*; // room domain group (room, directory_service, typing_service)
+pub use room::*; // room domain group (room, typing_service)
 pub use sync::*; // sync domain group (backward-compat flat re-export)
 
 // Backward-compatible room module aliases (Phase P2-1, P2-2)
