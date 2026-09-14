@@ -30,34 +30,23 @@
 > | 范围 | 测试数 |
 > |---|---|
 > | 修复前（裸 `--lib`，只测根包） | **687** |
-> | 现在（`--workspace --lib`） | **6120 跑 + 13 skipped** |
+> | 现在（`--workspace --lib`） | **6133** |
 >
 > `.github/workflows/ci.yml` 的 lib 步骤现在是一条
-> `cargo nextest run --workspace --lib --all-features --test-threads 8 -E 'not test(/^media::tests::/)'`，
-> 实测 **6120 passed / 0 failed / 13 skipped**。此前 `synapse-common`（862 个）、
+> `cargo nextest run --workspace --lib --all-features --test-threads 4`，
+> 实测 **6133 passed / 0 failed**。此前 `synapse-common`（862 个）、
 > `synapse-storage`、`synapse-services`、`synapse-e2ee` 等 crate 的 lib 测试在 CI 中
 > **从未编译、从未运行**——而这几个 crate 正是业务逻辑与持久化所在层。
 >
-> **13 个 skipped 是什么**：`synapse-services::media::tests` 这 13 个用例存在
-> **进程内串扰**，在 `--test-threads 1` 下仍随机失败（实测同一命令连跑 4 次得到
-> 0 / 1 / 3 / 3 个失败，且**失败集每次漂移**；单独跑该用例又通过）。因此它们被
-> 移出 blocking 门禁。
->
-> **这个豁免不会被忘掉**：紧随其后有一个**自我收回守卫**
-> `Check media exemption is still necessary`，它跑
-> `scripts/ci/check_media_exemption_still_needed.sh`——把 media 套件连跑 3 次：
->
-> * 有**任何一次失败** → 豁免仍必要 → exit 0（绿）
-> * **每次都通过** → 豁免已无必要 → **exit 1**，并打印该做的三件事
->   （移除排除式、删除守卫步骤、更新本节）
->
-> 所以这一步**没有** `continue-on-error`：它绿的含义是"豁免仍有依据"，红的含义是
-> "该收回了"。它的能力边界也写明了——只能证明"连跑 N 次未复现"，不能证明不存在
-> 偶发失败；想更保守用 `RUNS=20 bash scripts/ci/check_media_exemption_still_needed.sh`。
-> 刻意的偏向是：宁可让人去看一眼，也不让豁免无声永续。
->
-> 正则用 `^media::tests::` **锚定**，以免误伤 `synapse-storage` 的
-> `media::s3` / `media::filesystem` 等 83 个健康测试（`/media::/` 会一并命中它们）。
+> **media::tests 已回归主门禁**（2026-09-14 §4 修复）：该套件 13 个用例此前存在
+> **进程内串扰**（`--test-threads 1` 下仍随机失败，实测同一命令连跑 4 次得到
+> 0 / 1 / 3 / 3 个失败且失败集漂移），被移出 blocking 门禁并设自我收回守卫。
+> 根因是 `prepare_media_test_pool` 自建**部分 schema**（9 张表）且
+> `search_path = <schema>, public`，所需表缺失时静默回退 `public` 导致外键违约。
+> 已改为复用共享隔离池 `prepare_isolated_test_pool`（从 v11 baseline 克隆完整
+> schema，包含 users / upload_progress / quarantined_media_changes 等全部依赖表）。
+> 修复后连跑 3 次（`--test-threads 4`）全部通过，排除式与豁免守卫
+> `scripts/ci/check_media_exemption_still_needed.sh` 已一并删除。
 >
 > 守卫 `tests/unit/ci_test_scope_tests.rs` 的两条断言现已**激活**（不再 `#[ignore]`），
 > 锁住"每个 nextest 调用都必须声明作用域"与"lib 步骤必须 `--workspace` 或显式 `-p`"。
