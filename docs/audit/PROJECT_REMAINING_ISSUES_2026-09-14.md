@@ -266,41 +266,90 @@ panicked at src/server/mod.rs:1215:53:
 
 ---
 
-## 4. 🔴 `media::tests` 的确定性失败（3 个）
+## 4. ✅ `media::tests` 的确定性失败（3 个）—— **已修复**（3 个 commit）
 
-实测（`--test-threads 1` 单独跑也会失败，**不是抖动**）：
-
-```
-FAIL media::tests::test_chunked_complete_can_be_downloaded_via_media_service   (media/mod.rs:1014/1026/982)
-FAIL media::tests::test_delete_media_rolls_back_quota_usage                     (media/mod.rs:1054)
-FAIL media::tests::test_ensure_media_not_quarantined_rejects_non_admin          (media/mod.rs:1275)
-```
-
-典型错误：
-
-```
-23503 insert or update on table "upload_progress" violates foreign key constraint
-      "fk_upload_progress_user"
-      Key (user_id)=(@chunk_tester:test.server) is not present in table "users".
-      schema: Some("public")
-```
-
-**根因**：`prepare_media_test_pool`（`media/mod.rs:699`）自建一个**部分 schema**
-（实测 9 张表），`search_path = <schema>, public`；当所需表不在该 schema 时
-**静默回退到 `public`**，而 `public` 里没有该测试用户 → 外键违约。
-
-且失败断言点会漂移（有时是外键、有时是 `Content-Disposition` 里出现 media-id 前缀），
-说明是多个缺陷叠加。
-
-**CI 现状**：主门禁用 `-E 'not test(/^media::tests::/)'` 排除这 13 个用例，
-并由 `scripts/ci/check_media_exemption_still_needed.sh` 守卫。
-
-**该守卫的缺陷（结构性的）**：判定逻辑是"连跑 3 次，**有任何一次失败** → 豁免仍必要
-→ `exit 0`"。因为失败是确定性的，它**永远走"仍必要"分支**，自我收回分支不可达——
-无法区分"串扰仍在"与"夹具坏了"。另外无 DB URL 时它也 `exit 0`（静默跳过）。
-
-**建议**：让 media 夹具改用共享隔离池（`prepare_isolated_test_pool`），
-然后移除豁免与守卫。这一步能同时消掉 3 个失败与守卫缺陷。
+> **状态更新（2026-09-14）**：按建议执行。`prepare_media_test_pool`
+> 改为委托 `test_utils::prepare_isolated_test_pool()`（共享 v11 克隆），
+> 删除自建 9 表部分 schema；同时移除 CI 豁免与自清理守卫脚本。
+>
+> **提交**：
+> - `5d3f7d4b` — media 夹具委托共享隔离池；ci.yml 移除排除过滤器 +
+>   删除 `check_media_exemption_still_needed.sh`；守卫测试改为
+>   `media_exemption_is_fully_removed_from_ci`（断言无排除、无守卫步骤、
+>   无守卫脚本）
+> - `011db5db` — **连带 P0 修复**：全量回归暴露 2 个被豁免掩盖的
+>   CI 关键 bug（见下）
+> - `f6283785` — baseline 指纹守卫刷新（v11 fold-in 改变指纹）
+>
+> **验证**：13/13 media 测试通过（`--test-threads 1` 与 `--test-threads 4`
+> ×3 轮）；全量 workspace lib 回归 **6178/6179**（1 个无关并发抖动
+> `test_remove_friend_from_group`，单独跑通过，nextest ci profile 有
+> `retries = 2`）。
+>
+> ### 连带 P0 修复（`011db5db`）
+>
+> §4 全量回归暴露 2 个此前被 media 豁免掩盖的 CI 关键 bug：
+>
+> 1. **burn_after_read retry 列从未 fold 进 v11 baseline**。
+>    `20260907000000_burn_idempotent_retry_cap.sql` 给
+>    `burn_after_read_pending` 加了 `retry_count` / `last_error` /
+>    `is_dead_letter`，但 `build_sqlx_migration_source.py` 只产出
+>    forward-only 产物（丢弃所有时间戳迁移），fresh CI/test DB 全都缺列
+>    → `storage burn_after_read::db_tests` 报
+>    `column "retry_count" does not exist`。
+>    修复：三列并入 v11 baseline（`migrations/00000000_unified_schema_v11.sql`），
+>    索引收紧为 `WHERE is_processed = FALSE AND is_dead_letter = FALSE`；
+>    同时把 `scripts/check_baseline_consolidation.py` 的列检查从
+>    "列名出现在基线任意位置"（假绿：`retry_count` 在另外 10 张表也出现）
+>    升级为**表-列配对**（CREATE TABLE 块 ∪ ALTER ADD），反向验证
+>    （从副本删除列 → 守卫 exit 1）。
+> 2. **`prepare_test_db.sh` 无法构建模板 schema**（两个 bug）：
+>    - `CREATE SCHEMA` 必须先行（否则未限定 `CREATE TABLE` 落回 `public`，
+>      且 `_sqlx_migrations` 已记录 → 静默跳过）
+>    - sqlx-cli **不读** `PGOPTIONS`（rust-postgres 驱动忽略 libpq env）；
+>      `search_path` 必须经 URL `?options=-c%20search_path%3D...` 注入
+>    修复后重建验证：`public` 254 表、`test_template_ci` 254 表。
+>
+> ### baseline 指纹变更（`f6283785`）
+>
+> v11 fold-in 改变了基线字节 → `v11 ++ extensions` 的 FNV-1a 指纹从
+> `bec240fb79ed438b` 变为 `7c3a89659a56940f`。守卫测试
+> `baseline_fingerprint_is_v11_then_extensions_with_no_separator` 变红，
+> 已同步更新常量与文档引用。
+>
+> **原始记录与根因**（保留供归档）：
+>
+> 实测（`--test-threads 1` 单独跑也会失败，**不是抖动**）：
+>
+> ```
+> FAIL media::tests::test_chunked_complete_can_be_downloaded_via_media_service   (media/mod.rs:1014/1026/982)
+> FAIL media::tests::test_delete_media_rolls_back_quota_usage                     (media/mod.rs:1054)
+> FAIL media::tests::test_ensure_media_not_quarantined_rejects_non_admin          (media/mod.rs:1275)
+> ```
+>
+> 典型错误：
+>
+> ```
+> 23503 insert or update on table "upload_progress" violates foreign key constraint
+>       "fk_upload_progress_user"
+>       Key (user_id)=(@chunk_tester:test.server) is not present in table "users".
+>       schema: Some("public")
+> ```
+>
+> **根因**（历史）：`prepare_media_test_pool`（`media/mod.rs:699`）自建一个
+> **部分 schema**（实测 9 张表），`search_path = <schema>, public`；当所需表不在
+> 该 schema 时**静默回退到 `public`**，而 `public` 里没有该测试用户 → 外键违约。
+>
+> 且失败断言点会漂移（有时是外键、有时是 `Content-Disposition` 里出现 media-id
+> 前缀），说明是多个缺陷叠加。
+>
+> **CI 现状（修复前）**：主门禁用 `-E 'not test(/^media::tests::/)'` 排除这 13
+> 个用例，并由 `scripts/ci/check_media_exemption_still_needed.sh` 守卫。
+>
+> **该守卫的缺陷（结构性的）**：判定逻辑是"连跑 3 次，**有任何一次失败** → 豁免
+> 仍必要 → `exit 0`"。因为失败是确定性的，它**永远走"仍必要"分支**，自我收回分支
+> 不可达——无法区分"串扰仍在"与"夹具坏了"。另外无 DB URL 时它也 `exit 0`
+> （静默跳过）。
 
 ---
 
@@ -482,8 +531,8 @@ TODO/FIXME/XXX/HACK:  8
 | 优先级 | 问题 | 类型 | 状态 / 预估成本 |
 |---|---|---|---|
 | ~~P0~~ | ~~§1 CI 指向生产库 + wipe 标志~~ | 数据安全 | ✅ **已修复**（`00c0aad2`：一库两 schema + pin `TEST_DB_TEMPLATE_SCHEMA`，DROP public 结构性不可能） |
-| P0 | §4 `media::tests` 确定性失败 | 测试正确性 | 🔴 夹具改用隔离池（本轮降到 1 个失败，仍未清零） |
-| P1 | §2 `clone_schema_from_template` 多份实现 | 架构一致性 | 🟡 **2/3 已完成**：共享模块补齐索引名能力（`6a051fcb`）+ services 改为委派（`ea1a3ddc`）；剩 `src/test_utils.rs`，需先决定 seed 白名单方案 |
+| ~~P0~~ | ~~§4 `media::tests` 确定性失败~~ | 测试正确性 | ✅ **已修复**（`5d3f7d4b`：夹具委托共享隔离池 + 移除豁免/守卫；连带 `011db5db` P0 修复 + `f6283785` 指纹刷新） |
+| P1 | §2 `clone_schema_from_template` 多份实现 | 架构一致性 | 🟡 **2/3 已完成**：共享模块补齐索引名能力（`6a051fcb`）+ services 改为委派（`ea1a3ddc`）；剩 `src/test_utils.rs`，勘察已完成，方案 (a) `SeedSource` 就绪（P1D） |
 | P1 | §3 两个既存失败（时钟容差 / 守卫判据） | 测试确定性 | 🔴 守卫判据已随 §1 修掉（DB 名含 test）；剩时钟容差 1 处小改 |
 | P1 | §6 clippy 门禁覆盖 workspace | 门禁真实性 | 🔴 加 `--workspace --all-targets`，再清 21 条 warning |
 | P2 | §5 `status` 字段去留 | 冗余治理 | ✅ 已完成（`c5a5df0d`，删除，schema 3→4） |
