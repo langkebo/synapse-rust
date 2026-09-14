@@ -481,53 +481,22 @@ async fn ensure_template_schema_exists(database_url: &str, schema_name: &str) ->
     Ok(())
 }
 
+/// Clone `template_name` into a fresh per-test schema and return a pool bound to it.
+///
+/// Delegates to the ONE shared implementation,
+/// [`synapse_common::test_isolation::clone_schema_from_template`]. This file used
+/// to carry its own fork of that SQL which copied neither row data nor foreign
+/// keys and ran no inventory validation — it silently produced schemas missing
+/// baseline objects, the exact condition that makes queries fall back to the
+/// shared `public` schema through `search_path`.
+///
+/// Kept as a thin wrapper because the shared function expects an
+/// already-created schema with a caller-set `search_path` and returns `()`,
+/// while this call site wants the `(pool, schema_name)` pair.
 async fn clone_schema_from_template(database_url: &str, template_name: &str) -> Result<(Arc<PgPool>, String), String> {
     let schema_name = next_test_schema_name();
     let connect_timeout = configured_test_pool_connect_timeout();
 
-    let admin_pool = tokio::time::timeout(
-        connect_timeout,
-        PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(database_url),
-    )
-    .await
-    .map_err(|_| "failed to connect admin pool for clone: timed out".to_string())?
-    .map_err(|error| format!("failed to connect admin pool for clone: {error}"))?;
-
-    // Clone: create schema + copy all tables from template using DDL generation
-    let clone_sql = format!(
-        r"
-        DO $$
-        DECLARE
-            r RECORD;
-        BEGIN
-            EXECUTE format('CREATE SCHEMA %I', '{schema_name}');
-            FOR r IN
-                SELECT tablename FROM pg_tables WHERE schemaname = '{template_name}' ORDER BY tablename
-            LOOP
-                EXECUTE format(
-                    'CREATE TABLE %I.%I (LIKE %I.%I INCLUDING ALL)',
-                    '{schema_name}', r.tablename, '{template_name}', r.tablename
-                );
-            END LOOP;
-            -- Copy sequences
-            FOR r IN
-                SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema = '{template_name}'
-            LOOP
-                EXECUTE format(
-                    'CREATE SEQUENCE IF NOT EXISTS %I.%I',
-                    '{schema_name}', r.sequence_name
-                );
-            END LOOP;
-        END $$;
-        "
-    );
-
-    sqlx::raw_sql(&clone_sql)
-        .execute(&admin_pool)
-        .await
-        .map_err(|error| format!("failed to clone template to {schema_name}: {error}"))?;
-
-    let search_path_sql = format!("SET search_path TO {schema_name}, public");
     let pool = tokio::time::timeout(
         connect_timeout,
         PgPoolOptions::new()
@@ -536,18 +505,25 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
             .acquire_timeout(configured_test_pool_acquire_timeout())
             .idle_timeout(Some(configured_test_pool_idle_timeout()))
             .max_lifetime(Some(configured_test_pool_max_lifetime()))
-            .after_connect(move |connection, _meta| {
-                let search_path_sql = search_path_sql.clone();
-                Box::pin(async move {
-                    sqlx::query(&search_path_sql).execute(connection).await?;
-                    Ok(())
-                })
-            })
             .connect(database_url),
     )
     .await
     .map_err(|_| format!("failed to connect cloned pool for {schema_name}: timed out"))?
     .map_err(|error| format!("failed to connect cloned pool for {schema_name}: {error}"))?;
+
+    // The shared clone requires the schema to exist and the working
+    // connection's `search_path` to begin with it: its phase 2 replays
+    // unqualified references against the caller's path.
+    sqlx::query(&format!(r#"CREATE SCHEMA "{schema_name}""#))
+        .execute(&pool)
+        .await
+        .map_err(|error| format!("failed to create schema {schema_name}: {error}"))?;
+    sqlx::query(&format!(r#"SET search_path TO "{schema_name}", public"#))
+        .execute(&pool)
+        .await
+        .map_err(|error| format!("failed to set search_path for {schema_name}: {error}"))?;
+
+    synapse_common::test_isolation::clone_schema_from_template(&pool, &schema_name, template_name).await?;
 
     let pool = Arc::new(pool);
     ensure_test_schema_contract(&pool).await?;
