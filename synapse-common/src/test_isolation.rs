@@ -358,6 +358,23 @@ async fn ensure_template_schema_with_lock_timeout(
 
     let result = build_template(&mut conn, &template, baseline_sql).await;
 
+    // Housekeeping (§15.2): drop superseded `test_isolation_template_*`
+    // fingerprints while still holding the advisory lock, and only after the
+    // current template is verified present (the audit's "confirm the
+    // replacement exists before deleting" safety order). Best-effort: a
+    // working template must never fail because cleanup stumbled.
+    if result.is_ok() {
+        match prune_isolation_templates(&mut conn, &template).await {
+            Ok(dropped) if !dropped.is_empty() => {
+                tracing::info!(count = dropped.len(), keep = %template, "pruned superseded test isolation template schemas");
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(%error, "failed to prune superseded test isolation template schemas");
+            }
+        }
+    }
+
     // Always release, even on failure: a leaked advisory lock deadlocks every
     // later process.
     if let Err(error) =
@@ -404,6 +421,148 @@ async fn acquire_template_lock(conn: &mut sqlx::PgConnection, lock_wait: Duratio
     }
 }
 
+/// Grace window protecting a template that other in-flight test processes may
+/// still be cloning from. A candidate is dropped only when its readiness
+/// marker is older than this window (see [`prune_isolation_templates`]).
+const TEMPLATE_PRUNE_GRACE: Duration = Duration::from_secs(6 * 60 * 60);
+
+/// Drop superseded `test_isolation_template_<fingerprint>` schemas.
+///
+/// ## Why this exists (§15.2)
+///
+/// [`template_schema_name`] is an FNV-1a hash of the baseline SQL, so **every
+/// baseline edit mints a new template and orphans the old one** — and the
+/// shared module's own lib tests mint a fresh fingerprint per distinct
+/// `let baseline = ...` string (13 of them). Before this function nothing ever
+/// deleted those orphans: on a long-lived dev database each full template is
+/// 254 tables / ~1,197 objects, and the audit measured 2,457 leaked objects
+/// across 7 templates. The root fixture has always pruned its own
+/// `test_template_v<rev>_<hex>` family (`src/test_utils.rs::prune_stale_template_schemas`);
+/// this closes the same gap for the shared module's family.
+///
+/// ## Why it is not a plain "delete everything except keep"
+///
+/// The root function can prune every non-`keep` match because the root
+/// template name is derived from a single migration fingerprint shared by one
+/// crate. This family is **cross-crate and test-local**: `synapse-storage` and
+/// `synapse-services` share the real baseline fingerprint, while lib tests mint
+/// their own. Two nextest processes running concurrently legitimately use
+/// different fingerprints — `DROP ... CASCADE` on a template another session
+/// is mid-`clone_schema_from_template` from would fail that unrelated test.
+///
+/// So the rule is age-based rather than "!= keep": drop a candidate only once
+/// its readiness marker has gone stale beyond [`TEMPLATE_PRUNE_GRACE`].
+/// [`build_template`] refreshes that marker on every path — including the
+/// already-ready fast path — so "recently used" is measured by *last use*, not
+/// build time, and an actively-cloned template keeps itself alive. A template
+/// left incomplete by a crashed build has no marker at all and is dropped
+/// immediately: holding the advisory lock means no other builder is mid-build,
+/// and a clone against an incomplete template is already unusable. A marker
+/// table with zero rows (a template built before the marker-row change) is
+/// spared too — it is treated as legacy-and-possibly-in-use until its next
+/// `ensure_template_schema` backfills a row.
+///
+/// The anchor `^test_isolation_template_[0-9a-f]{16}$` cannot match the
+/// root crate's `test_template_v<rev>_<hex>`, the services'
+/// `test_template_<pid>`, per-test clones (`test_<uuid>`,
+/// `tstest_*`), or the `test_*` residue from §9.
+///
+/// [`keep`] is verified present before anything is dropped, so a failure in
+/// the current build can never leave the database template-less. Returns the
+/// names dropped.
+pub async fn prune_stale_isolation_templates(admin_pool: &PgPool, keep: &str) -> Result<Vec<String>, String> {
+    let mut conn = admin_pool
+        .acquire()
+        .await
+        .map_err(|error| format!("failed to acquire connection to prune isolation templates: {error}"))?;
+    prune_isolation_templates(&mut conn, keep).await
+}
+
+/// [`prune_stale_isolation_templates`] over a borrowable connection, so the
+/// caller can run it while still holding the advisory lock.
+async fn prune_isolation_templates(conn: &mut sqlx::PgConnection, keep: &str) -> Result<Vec<String>, String> {
+    // Safety order (same as the root fixture): never prune before the
+    // replacement template is confirmed present.
+    let keep_exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = $1)")
+        .bind(keep)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(|error| format!("failed to check template {keep}: {error}"))?;
+    if !keep_exists {
+        return Err(format!("refusing to prune isolation templates: current template {keep} does not exist"));
+    }
+
+    // List all `test_isolation_template_<16hex>` candidates except `keep`.
+    let candidates: Vec<String> = sqlx::query_scalar(
+        "SELECT nspname FROM pg_namespace
+         WHERE nspname ~ '^test_isolation_template_[0-9a-f]{16}$'
+           AND nspname <> $1
+         ORDER BY nspname",
+    )
+    .bind(keep)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(|error| format!("failed to list stale isolation templates: {error}"))?;
+
+    let mut dropped = Vec::new();
+    for schema in candidates {
+        // Query the marker's max built_at for this schema.
+        let full_table = format!("{schema}.{TEMPLATE_READY_TABLE}");
+        let table_exists: bool = sqlx::query_scalar("SELECT to_regclass($1) IS NOT NULL")
+            .bind(&full_table)
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(|error| format!("failed to check readiness marker for {schema}: {error}"))?;
+        
+        let eligible_to_drop = if !table_exists {
+            // No marker = incomplete build, safe to drop while holding the lock
+            true
+        } else {
+            // Query the marker's row count and age. A legacy template (created
+            // before this code) has an empty marker table; treat it as "used"
+            // until it gets backfilled by the next build (which does DELETE+INSERT).
+            let row_count: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM {full_table}"))
+                .fetch_one(&mut *conn)
+                .await
+                .map_err(|error| format!("failed to count marker rows for {schema}: {error}"))?;
+            
+            if row_count == 0 {
+                // Legacy template: marker table exists but has no rows, so its
+                // age is unknowable — and it may be mid-clone by a pre-upgrade
+                // process. Backfill a fresh timestamp (starting its age clock)
+                // and spare it this pass; if it is a dead orphan it ages out
+                // after the grace window, and if it is in use it keeps getting
+                // refreshed by its own ensure calls.
+                if let Err(error) =
+                    sqlx::query(&format!("INSERT INTO {full_table} DEFAULT VALUES")).execute(&mut *conn).await
+                {
+                    tracing::warn!(schema = %schema, %error, "failed to backfill a legacy template readiness marker");
+                }
+                false
+            } else {
+                // Fresh marker with at least one row — check age
+                let stale_secs: Option<i64> = sqlx::query_scalar(
+                    &format!("SELECT EXTRACT(EPOCH FROM age(now(), max(built_at)))::BIGINT FROM {full_table}")
+                ).fetch_one(&mut *conn).await.map_err(|error| format!("failed to read marker age for {schema}: {error}"))?;
+                
+                stale_secs.map(|secs| secs > TEMPLATE_PRUNE_GRACE.as_secs() as i64).unwrap_or(false)
+            }
+        };
+        
+        if !eligible_to_drop {
+            continue;
+        }
+        
+        match sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#)).execute(&mut *conn).await {
+            Ok(_) => dropped.push(schema),
+            Err(error) => {
+                tracing::warn!(schema = %schema, %error, "failed to drop stale test isolation template schema");
+            }
+        }
+    }
+    Ok(dropped)
+}
+
 /// Build (or reuse) the template schema on an already-locked connection.
 ///
 /// A template carrying the readiness marker is complete and returned as-is.
@@ -419,6 +578,21 @@ async fn build_template(conn: &mut sqlx::PgConnection, template: &str, baseline_
         .await
         .map_err(|e| format!("failed to read the readiness marker of template {template}: {e}"))?;
     if ready {
+        // Refresh the marker so an actively-used template stays inside the
+        // prune age gate — `built_at` means "last time this fingerprint was
+        // requested", not original build time (§15.2). DELETE + INSERT keeps
+        // exactly one row at now() and also **backfills** a legacy template
+        // whose marker table predates the row-seed change (it has a table but
+        // zero rows, so `max(built_at)` would otherwise read NULL). Best-effort:
+        // a failed refresh only matters once the multi-hour grace window has
+        // passed, and must never fail an otherwise healthy template.
+        let marker = format!("\"{template}\".\"{TEMPLATE_READY_TABLE}\"");
+        if let Err(error) = sqlx::query(&format!("DELETE FROM {marker}")).execute(&mut *conn).await {
+            tracing::warn!(%error, template = %template, "failed to delete rows from the template readiness marker table");
+        }
+        if let Err(error) = sqlx::query(&format!("INSERT INTO {marker} DEFAULT VALUES")).execute(&mut *conn).await {
+            tracing::warn!(%error, template = %template, "failed to insert a row into the template readiness marker table");
+        }
         return Ok(());
     }
 
@@ -460,6 +634,14 @@ async fn build_template(conn: &mut sqlx::PgConnection, template: &str, baseline_
     .execute(&mut *conn)
     .await
     .map_err(|e| format!("failed to write the readiness marker of template {template}: {e}"))?;
+
+    // Seed the marker with a row so `max(built_at)` is non-NULL.  Without this
+    // row the readiness table is empty, `max` is NULL, and the age-based
+    // prune would treat the fresh template as stale and immediately drop it.
+    sqlx::query(&format!(r#"INSERT INTO "{}"."{TEMPLATE_READY_TABLE}" DEFAULT VALUES"#, template))
+    .execute(&mut *conn)
+    .await
+    .map_err(|e| format!("failed to seed the readiness marker of template {template}: {e}"))?;
 
     Ok(())
 }
@@ -2209,5 +2391,57 @@ CREATE TABLE IF NOT EXISTS unify_short_b (id bigint PRIMARY KEY);
             .await
             .expect("probe template lookup");
         assert!(!built, "a timed-out acquisition must not build the template");
+    }
+
+    /// [`prune_isolation_templates`] treats a marker table with zero rows
+    /// (legacy template) as "potentially in use", backfills a fresh timestamp,
+    /// and spares it — preventing accidental deletion of a template another
+    /// session may still be cloning from.
+    #[tokio::test]
+    async fn prune_backfills_legacy_zero_row_marker_and_spares_it() {
+        let Some(url) = test_database_url() else {
+            return;
+        };
+        let baseline = "CREATE TABLE IF NOT EXISTS unify_prune_test (id bigint PRIMARY KEY);";
+        let template = template_schema_name(baseline);
+        let admin = PgPoolOptions::new().max_connections(1).connect(&url).await.expect("admin pool");
+
+        // Build a complete template first.
+        let _ = ensure_template_schema(&url, baseline).await.expect("build template");
+        let has_rows: i64 = sqlx::query_scalar(&format!(
+            "SELECT count(*) FROM \"{template}\".\"{TEMPLATE_READY_TABLE}\""
+        ))
+        .fetch_one(&admin)
+        .await
+        .expect("count marker rows after build");
+        assert!(has_rows > 0, "a freshly built template must have at least one marker row, got {has_rows}");
+
+        // Simulate a legacy template: DELETE all rows from the marker table.
+        let deleted: u64 = sqlx::query(&format!("DELETE FROM \"{template}\".\"{TEMPLATE_READY_TABLE}\""))
+            .execute(&admin)
+            .await
+            .expect("delete marker rows")
+            .rows_affected();
+        assert!(deleted > 0, "must have deleted at least one row, got {deleted}");
+
+        // Now run prune while keeping the same template as the "protected" one.
+        // The prune function should detect row_count==0, backfill a row, and spare it.
+        let dropped = prune_stale_isolation_templates(&admin, &template).await.expect("prune");
+        assert!(
+            !dropped.iter().any(|s| s == &template),
+            "the legacy template must not be dropped, got {dropped:?}"
+        );
+
+        // Verify it was backfilled.
+        let backfilled: i64 = sqlx::query_scalar(&format!(
+            "SELECT count(*) FROM \"{template}\".\"{TEMPLATE_READY_TABLE}\""
+        ))
+        .fetch_one(&admin)
+        .await
+        .expect("count marker rows after prune");
+        assert!(backfilled > 0, "prune must have backfilled a marker row, got {backfilled}");
+
+        // Cleanup
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{template}" CASCADE"#)).execute(&admin).await;
     }
 }
