@@ -5045,7 +5045,7 @@ $$;
 -- message_log 清理（如果表存在）
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='message_log') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name='message_log') THEN
         EXECUTE $func$
             CREATE OR REPLACE FUNCTION cleanup_message_log()
             RETURNS INTEGER
@@ -5096,7 +5096,7 @@ BEGIN
     RETURN QUERY SELECT 'e2ee_audit_log'::TEXT, v_e2ee;
     SELECT EXISTS(
         SELECT 1 FROM information_schema.tables t
-        WHERE t.table_schema='public' AND t.table_name='message_log'
+        WHERE t.table_schema = current_schema() AND t.table_name='message_log'
     ) INTO v_msg_exists;
     IF v_msg_exists THEN
         v_msg := cleanup_message_log();

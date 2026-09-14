@@ -46,6 +46,23 @@ jobs:
               --output="artifacts/ledger-export/${profile}.json"
           done
 
+      - name: Validate ledger export artifacts
+        run: |
+          echo "=== Validating ledger export artifacts ==="
+          for profile in default worker all; do
+            artifact="artifacts/ledger-export/${profile}.json"
+            if [ ! -f "$artifact" ]; then
+              echo "ERROR: Ledger export artifact missing: $artifact"
+              exit 1
+            fi
+            size=$(stat -f%z "$artifact" 2>/dev/null || stat -c%s "$artifact" 2>/dev/null)
+            if [ "$size" -eq 0 ]; then
+              echo "ERROR: Ledger export artifact is empty: $artifact"
+              exit 1
+            fi
+            echo "OK: $artifact ($size bytes)"
+          done
+
       - name: Upload ledger export artifact
         uses: actions/upload-artifact@v4
         with:
