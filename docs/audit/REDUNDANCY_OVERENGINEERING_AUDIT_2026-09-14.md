@@ -475,3 +475,95 @@ grep -n "^name" Cargo.toml */Cargo.toml | grep -c synapse_worker          # 0
 本仓库 `docs/audit/` 下已有 30+ 份按主题（P1 安全 / P2 协议 / P3 数据层 / P4 CI / P5 工程）编排的报告。本报告**不重复**其安全与协议结论，只做**冗余与过度开发**这一横切视角，并纠正其中一处不成立的结论：
 
 - `artifacts/synapse-rust-code-review-2026-09-03.md:162` 将「数据库双重 DDL 定义（runtime-ddl vs migrations）」标为「✅ 已修复」，但 `tables.rs`（1,249 行）与 `runtime-ddl` feature 至今完整存在（见 CFG-4）。
+
+---
+
+# 附录 C：第一批执行记录（2026-09-14）
+
+在第零批之后，**第一批"零风险直删"已执行完毕**，提交于隔离 worktree（分支
+`optimization/redundancy-cleanup-2026-09-14`，提交 `a0f2819d`）。
+
+## C.1 执行结果
+
+| 指标 | 数值 |
+|---|---|
+| 变更文件 | 189 |
+| 删除行 | **39,432** |
+| 新增行 | 508 |
+| 整文件删除 | **149** |
+
+## C.2 已删除项（按原报告 ID）
+
+| ID | 内容 | 行数 |
+|---|---|---|
+| CFG-2 | `src/web/api_doc/`（12,836）+ `utoipa`/`utoipa-swagger-ui` 依赖 + README `/_swagger` 说明 | ~12,900 |
+| CFG-4 | `runtime-ddl` 第二套 DDL：`tables.rs` + 4 处 Cargo feature 声明 | ~1,280 |
+| INF-1 | worker `bus.rs` + `stream.rs`（真正无消费者部分） | ~1,460 |
+| INF-2 | `synapse-cache/src/query_cache.rs` | 961 |
+| INF-7/16 | `collections.rs`、`early_exit.rs`、`nonce_cache.rs` | 501 |
+| INF-6 | `web/streaming.rs`、`web/filter.rs` | 335 |
+| WEB-1 | `web/routes/directory.rs`（未接入任何 router） | 355 |
+| WEB-7/12 | `Pagination` 提取器 + 2 个死中间件 | 144 |
+| INF-5 | `src/security/`（**未在 lib.rs 声明，游离于编译单元之外**） | 477 |
+| INF-9 | `TaskMetricsCollector`/`CollectedMetrics` 死链 | ~85 |
+| INF-8/CFG-15 | 5 个零调用宏、`ScheduledTasks::new`、`get_event_server_name` | ~90 |
+| SVC-3 | `rtc/sfu.rs`（`LivekitClient`） | 583 |
+| SVC-5 | `event_service.rs`、`rendezvous_service.rs`（**同样未在 lib.rs 声明**） | 31 |
+| STO-6 | `synapse-storage/src/performance.rs` | 292 |
+| SVC-15 | `media_quota_service` 死注入（2 处 context 各 3 行） | 8 |
+| TST-4 | **22 个从未被编译的测试文件** | 5,982 |
+| TST-9 | 3 个零引用 storage mock | 1,099 |
+| TST-17 | `tests/common/{fixtures,mock_db,assertions}.rs`（未声明） | 292 |
+| TST-7 | 13 个孤儿脚本 + 4 个无消费者的重复门禁脚本 | ~4,300 |
+| STO-1/3 | 72 个已被 v11 全量吸收的增量/undo 迁移 + `migrations/archive/` | ~6,900 |
+
+## C.3 执行中被否决的项（引用计数复验后**不能删**）
+
+原报告列为"零风险"，但动手前的引用计数复验推翻了其中 3 项，**已保留**：
+
+| 项 | 否决理由 |
+|---|---|
+| CFG-4 的 `00000001_extensions_v10.sql` | 被 `test_utils.rs:225`、`test_isolation_unification_tests.rs:53,619` 用 `include_str!` 引用，且 `migration_consistency_tests.rs:19` 断言其存在 |
+| INF-1 的 `health.rs` + `load_balancer.rs` | `tests/integration/worker_task_recovery_tests.rs`（725 行 / 8 测试）真实注入并断言 LB 行为（测试名即含 `_removes_worker_from_lb_candidates`）；删除会移除**被测试覆盖的逻辑**，不属零风险 |
+| SVC-9 的 `worker/storage.rs`/`types.rs`、`event_broadcaster_trait.rs` | 在 crate 内部有真实消费者，删除需改写多处 import，收益 9–26 行，性价比不足 |
+
+## C.4 需产品决策而暂缓的项
+
+| 项 | 暂缓理由 |
+|---|---|
+| **SVC-0** 模块系统 3,360 行 | 其路由是**对外 HTTP 契约**的一部分；删除会影响 SDK ledger 与 `_synapse/admin/v1/modules` 客户端。应先裁定是否保留该 API 面 |
+| **SVC-1** 推送投递链路 ~1,600 行 | 需二选一：接线 `initialize_providers()` 并删 fallback，或整体删除 provider/queue/gateway。属产品能力取舍 |
+| **CFG-11** `server` 伪 feature | 不是死代码而是**构建配置重构**：需同步改 `docker/Dockerfile`、`docker/complement/Dockerfile`、`docker-compose.yml`、`run_element_web_browser_harness.sh`、`deploy.sh` 与 CI 矩阵，且无法在无 Docker 环境下验证 |
+| SVC-13/16、WEB-11 等 <60 行微壳 | 需逐处改写调用点，收益极小，留待第二/三批结构性合并一并处理 |
+
+## C.5 验证证据
+
+| 门禁 | 命令 | 结果 |
+|---|---|---|
+| 格式 | `./scripts/check_fmt_ratchet.sh` | **current=0 baseline=0，OK**（同时修掉了主干原有的 2 处格式债，该门禁此前为**红**） |
+| 格式 | `cargo fmt --all -- --check` | exit 0 |
+| 编译 | `cargo check --workspace --all-features --all-targets --locked` | 0 error / 0 warning |
+| Lint | `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | **0 error / 0 warning** |
+| 单测 | `cargo test --test unit --all-features --locked` | **1915 passed / 2 failed** |
+| 迁移单源 | `python3 scripts/check_migration_consistency.py` | `status: ok`，`primary_forward_files: 2` |
+| 迁移折入 | `python3 scripts/check_baseline_consolidation.py` | `✅ 已吸收全部 0 个增量迁移的对象` |
+
+**2 项失败为既有红灯，非本次引入**：`sqlx_ratio_gate_tests` 报
+`dynamic=1466 > baseline=1443`。已在**主工作树 HEAD（未含本次改动）**复跑同一门禁，
+输出**完全一致**（1466 / 1443），确认与本批删除无关；本次改动未新增任何 SQL
+（扫描计数前后均为 1466）。该棘轮基线最后更新于 2026-09-12（1443），
+其后提交使其漂移到 1466。详见 §1.3 关于门禁可证伪性的同类问题。
+
+## C.6 并发冲突说明（重要）
+
+执行过程中发现**另一个 agent 会话正在同一工作树并发操作**：它以
+`git stash` 收走了本批 A/B 阶段成果（`stash@{0}: redundancy-audit WIP
+(separate session, do not lose)`），并在 17:18 提交了 `9875d8ff`。
+
+处置：本批全部工作在**隔离 worktree** 中完成 ——
+`.worktrees/redundancy-cleanup`（分支 `optimization/redundancy-cleanup-2026-09-14`，
+基线 `9875d8ff`）。主工作树的未提交状态未被本批修改。
+
+**另外记录一项既有数据丢失**：会话开始时主工作树存在 `synapse-storage/src/voice.rs`
+的未提交改动；该改动不在任何近期 stash 中（`stash@{0}` 及 `stash@{4..8}` 均不含），
+现已被并发会话的 checkout 丢弃。非本次操作所致，但请留意。
