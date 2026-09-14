@@ -425,15 +425,13 @@ $ grep -rc 'deprecated' .github/workflows/ | grep -v ':0' | wc -l
 
 ---
 
-## 6. 🔴 CI lint 门禁不覆盖 workspace —— **首版误标 ✅，实为未修（见 §15.1）**
+## 6. ✅ CI lint 门禁不覆盖 workspace —— **已根治**（commit `9875d8ff`）
 
-> **第二轮复核更正**：本节首版标题写"✅ 已修复（`8509c52b`）"，是**误判**。
-> `8509c52b` 只清掉了既有 warning（症状），**门禁的覆盖范围一个字没改**。
-> §15.1 的变红实验证明：向 workspace crate 的 `#[cfg(test)]` 模块注入一处
-> `clippy::bool_comparison`，CI 的 clippy 命令**退出 0、报 0 条错误**，
-> 而加 `--workspace --all-targets` 后**退出 101、报 2 条**。
-> 判定依据是 `AGENTS.md` 第 8 条：门禁类问题必须"故意制造违规能让它变红"才算修复。
-> 以下保留本节原始记录（含首版的自相矛盾之处），仅更正状态。
+> **第三轮修复（2026-09-14）**：§15.1 指出的"只清症状、门禁未覆盖"现已**真正修好**。
+> `:217` 的 clippy 命令改为 `cargo clippy --workspace --all-targets --features
+> test-utils ${{ matrix.features-args }} --locked -- -D warnings`，并删除被其完全
+> 覆盖的 `-p synapse-services --all-features --tests` 补丁步骤。**修复判据 = 变红实验**
+> （`AGENTS.md` 第 8 条），详见 §15.1 更新。
 
 ```bash
 $ grep -n "cargo clippy" .github/workflows/ci.yml
@@ -450,7 +448,8 @@ $ grep -n "cargo clippy" .github/workflows/ci.yml
 （均非 error，故未被现有门禁拦截）：5 条 `assert_eq!` 用字面 bool、3 条
 "operation has no effect"、2 条"borrowed expression implements required traits"等。
 
-> **修复（2026-09-14 完成）**：14 条 warning 全部清零（commit `8509c52b`）：
+> **修复（2026-09-14 完成）**：14 条 warning 全部清零（commit `8509c52b`，
+> 见 §15.1）：
 > - `assert_eq!(x, false/true)` → `assert!(x)` / `assert!(!x)`（5 处，key_request/secure_backup）
 > - `1 * day_ms` → `day_ms`（3 处，pruning.rs）
 > - `.bind(&user_id)` → `.bind(user_id)`（2 处，db_tests.rs）
@@ -459,9 +458,39 @@ $ grep -n "cargo clippy" .github/workflows/ci.yml
 > - `#[allow(dead_code)]` 标注保留的可复用测试辅助（voice.rs）
 > - clippy `map().unwrap_or_else()` → `map_or_else()`（test_isolation guard）
 >
-> 验证：`cargo clippy --workspace --all-targets --all-features` **零 warning**。
-> CI 门禁（`:217`）虽未加 `--workspace`，但已确保全 workspace 干净，可作为后续加入
-> 门禁扩展的基线。
+> **门禁根治**（commit `9875d8ff`）：`:217` 改为
+> `cargo clippy --workspace --all-targets --features test-utils ${{ matrix.features-args }} --locked -- -D warnings`
+> ——覆盖全部 workspace crate 的 lib + test + bin 代码（旧版仅根 crate lib，
+> 子 crate 测试代码的 lint 完全漏检）。`:351` 的 `-p synapse-services --all-features --tests`
+> 补丁步骤因被完整覆盖而删除。
+>
+> ### 变红实验（决定性证据，§15.1 同步更新）
+>
+> 向 `synapse-storage/src/event/db_tests.rs` 的 `#[cfg(test)]` 模块注入
+> `assert_eq!(x, false, ...)`（触发 `clippy::bool_comparison`）：
+>
+> | 命令 | 退出码 | 报出的 clippy 错误数 | 门禁是否可见 |
+> |------|--------|---------------------|-------------|
+> | 旧 `:217` `cargo clippy ${{ matrix.features-args }} --locked -- -D warnings` | **0** | **0** | ❌ 完全看不到 |
+> | 新 `:217` `cargo clippy --workspace --all-targets --features test-utils ${{ matrix.features-args }} --locked -- -D warnings` | **101** | **2** | ✅ 在 `db_tests.rs:2180` 捕获 |
+>
+> 探针已还原（`git diff` 确认）。**存量清零 ≠ 门禁生效**，新 warning 不会被漏掉。
+>
+> ### 验证（两条矩阵 lane，均零 warning）
+>
+> ```bash
+> # 默认 lane（~53s）—— 验证 test-utils feature 开启后 test 代码被覆盖
+> $ cargo clippy --workspace --all-targets --features test-utils --locked -- -D warnings
+> # → Finished dev profile, zero warnings (in 53s)
+>
+> # all-features lane（~2m05s）—— 验证 voice-extended 等 feature-gated 模块 + max feature 集仍通过
+> $ cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+> # → Finished dev profile, zero warnings (in 2m05s)
+> ```
+>
+> 旧记录中的 `voice.rs` 探针因 `voice` 模块被 `#[cfg(feature = "voice-extended")]`
+> 门控、在默认 feature 下不编译而从未被旧门禁看到——这正是"门禁盲区"的又一例证；
+> 变红实验最终改在**无条件编译**的 `event/db_tests.rs` 上完成。
 
 ---
 
@@ -668,7 +697,12 @@ mod tests {         <- 125 行
 
 本节记录复核**推翻或修正首版结论**的地方，以及复核中新发现的问题。
 
-### 15.1 🔴 **§6 的 ✅ 是错的**：clippy 门禁仍不覆盖 workspace 测试代码
+### 15.1 ✅ **§6 的 ✅ 曾是错的**：clippy 门禁不覆盖 workspace 测试代码 —— **已根治（`9875d8ff`）**
+
+> **第三轮收口（2026-09-14）**：本条指出的缺陷（门禁不覆盖子 crate 测试代码）
+> 已按下方"修法"真正实施。`:217` 现为
+> `cargo clippy --workspace --all-targets --features test-utils ${{ matrix.features-args }} --locked -- -D warnings`，
+> 并用变红实验证明了它可被拦下。详见 §6。以下为原复核记录，保留作证据链。
 
 首版 §6 标 ✅ 并写明"**已修复**（`8509c52b`）"。但该节自己的"修复"正文同时写着：
 
@@ -915,8 +949,8 @@ capability 声明读的是 manifest，manifest 漏条目会让 `/capabilities` �
 
 | 优先级 | 问题 | 类型 | 状态 |
 |---|---|---|---|
-| 🔴 P1 | **§6 clippy 门禁仍不覆盖 workspace 测试代码** | 门禁真实性 | 首版误标 ✅，**实为未修**。变红实验已证（§15.1） |
 | 🔴 P1 | **§16 MSC4108 偏离规范 10 项** | 协议正确性 | 新发现；4 个既有测试固化了错误期望 |
+| ✅ | §6 clippy 门禁覆盖 workspace | 门禁真实性 | **已根治**（`9875d8ff`）：`:217` 扩为 `--workspace --all-targets --features test-utils`，变红实验证明可拦子 crate 测试代码 |
 | 🔴 P2 | **§15.2 共享模块模板 schema 无限累积** | 资源泄漏 | 新发现；根夹具有清理机制，共享模块没有 |
 | 🟡 P2 | **§17 契约文档含未加 nest 前缀的路由；解析器有链式/nest 盲区** | 契约正确性 | 新发现：`/spaces/...` 15 条相对路径写入文档、0 条带前缀；`nest_map` 收集后从未使用 |
 | 🟡 P3 | §7 契约链两条车道的 feature 集复杂度 | 架构 | 未动，需先统一 feature 集 |
@@ -924,9 +958,8 @@ capability 声明读的是 manifest，manifest 漏条目会让 `/capabilities` �
 | ⚪ P3 | §10 存量债、§11 局限 | 技术债 | 新代码设禁，存量另立专项 |
 | ✅ | §1 / §3 / §4 / §5 / §2 收敛 / §12 四条线索 | — | 已核实（§15.3） |
 
-**核对方式说明**：本表把首版标 ✅ 但实为未修的 §6 降级为 🔴。
-判定标准是 `AGENTS.md` 第 8 条——**门禁类问题只有在"故意制造违规能让它变红"
-被实测证明后，才算修复**；清掉存量 warning 不等于门禁生效。
+**核对方式说明**：首版曾误标 §6 ✅。本轮已按 `AGENTS.md` 第 8 条完成变红实验并实施
+门禁扩容，§6 现为 ✅。判定标准仍是"门禁必须自证能变红"；清掉存量 warning 不等于门禁生效。
 
 ---
 
@@ -941,7 +974,7 @@ capability 声明读的是 manifest，manifest 漏条目会让 `/capabilities` �
 | ~~P0~~ | ~~§4 `media::tests` 确定性失败~~ | 测试正确性 | ✅ 已修复（`5d3f7d4b`） | ✅ 成立 |
 | P1 | §2 `clone_schema_from_template` 多份实现 | 架构一致性 | ✅ 已修复（`3e9063e0`） | ✅ 成立 |
 | P1 | §3 两个既存失败（时钟容差 / 守卫判据） | 测试确定性 | ✅ 已修复（`8509c52b`） | ✅ 成立 |
-| P1 | §6 clippy 门禁覆盖 workspace | 门禁真实性 | ✅ 已修复（清 14 条 warning） | ❌ **误判**：只清症状，门禁仍不覆盖。见 §15.1 |
+| P1 | §6 clippy 门禁覆盖 workspace | 门禁真实性 | ✅ 已修复（清 14 条 warning，`8509c52b`） | ✅ **第三轮修正**：首版误标 ✅；第二轮标 🔴（§15.1 变红实验证门禁盲区）；第三轮实施门禁扩容（`:217` 改 `--workspace --all-targets --features test-utils` + 删除 `:351` 补丁步骤，commit `9875d8ff`）。再跑变红实验：`--workspace --all-targets` 捕获 `db_tests.rs:2180` 的 `bool_comparison`（EXIT 101），门禁真实生效 |
 | P2 | §5 `status` 字段去留 | 冗余治理 | ✅ 已完成（`c5a5df0d`） | ✅ 成立 |
 | P2 | §9 schema 残留自动清理 | 运维 | ✅ 已修复（`82921311`：CI 加 cleanup step + 脚本硬排除/独立保护/可配置标记目录） | ✅ 成立 |
 | P3 | §7 两条车道的复杂度 | 架构 | 🟡 需先统一 feature 集 | ✅ 不变 |
@@ -969,12 +1002,16 @@ grep -rn 'sunset_at' --include=*.rs src | grep -v 'route_ledger.rs\|ledger_expor
 
 # §6 clippy 覆盖 —— 关键是"能不能变红"，不是"当前有几条 warning"
 grep -n "cargo clippy" .github/workflows/ci.yml
+# 现状：:217 = cargo clippy --workspace --all-targets --features test-utils
+#       ${{ matrix.features-args }} --locked -- -D warnings （:351 补丁步骤已删）
 cargo clippy --workspace --all-targets --all-features --locked 2>&1 | grep -c '^warning'
-# 变红实验：向 synapse-storage/src/voice.rs 的 #[cfg(test)] 内注入
-#   if pool.is_closed() == true { return; }
-# 然后对比：
-#   cargo clippy --all-features --locked -- -D warnings                       # 退出 0（看不到）
-#   cargo clippy --workspace --all-targets --all-features --locked -- -D warnings  # 退出 101（看得到）
+# 变红实验：向"无条件编译"的 #[cfg(test)] 模块注入 bool_comparison，
+#   如 synapse-storage/src/event/db_tests.rs 的 assert_eq!(x, false, ...)
+#   （注意：不要放 voice.rs —— 该模块被 #[cfg(feature = "voice-extended")] 门控，
+#    默认 feature 下不编译，探针根本不会被看到，这正是盲区本身）
+# 然后对比旧/新门禁：
+#   cargo clippy --locked -- -D warnings                                          # 旧 :217，退出 0（看不到）
+#   cargo clippy --workspace --all-targets --features test-utils --locked -- -D warnings  # 新 :217，退出 101（在 db_tests.rs 捕获）
 
 # §8/§17 路由契约
 bash scripts/contract/check_route_contract.sh
