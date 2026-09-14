@@ -154,28 +154,38 @@ v11 baseline 曾包含 `openclaw_connections` / `ai_conversations` / `ai_connect
 
 v11 基线相对 v8/v10 的主要变更：
 
-- 吸收 27 个时间戳迁移（2026-06-19 ~ 2026-09-04），含：
+- 吸收 36 个时间戳迁移（2026-06-19 ~ 2026-09-10），含：
   - **Matrix 字段扩展**：`events.redacts`/`redacted_by` 字段、`events` 不级联修复
-    （`20260831060000_events_no_cascade.sql`）、MSC4242 state DAG prev_state
+    （原 `20260831060000_events_no_cascade.sql`）、MSC4242 state DAG prev_state
   - **认证流**：SAML/CAS pending requests、login tokens、QR 登录码、dehydrated
     devices 等新表
   - **同步**：`sliding_sync_*` 表、`thread_subscriptions`/`thread_read_receipts`
   - **E2EE**：megolm_vodozemac dual-write 吸收到 baseline、`burn_after_read_*`
   - **运维**：MV 刷新可配、room CHECK 约束、审计日志 append-only
 - 物化视图 `rooms_summaries_mv` 与索引治理（参见 `INDEXES.md`）
-- `events.depth` / `events.not_before` CHECK 约束补齐
-- 审计新增 P1（联邦+完整性）、P2（数据完整性）、P3（性能）、4.1/4.3 四批迁移：
-  - `20260904010000_schema_p1_federation_and_integrity.sql`
-  - `20260904020000_schema_p2_data_integrity.sql`
-  - `20260904030000_schema_p3_perf.sql`
-  - `20260904040000_schema_cleanup_dedup_and_dead_code.sql`（reference_image 字段清理）
-  - `20260904050000_extend_room_version_check.sql`（room_version CHECK 正则化）
+- **⚠️ 吸收缺口（已知，部分已修）**：原来 72 个时间戳迁移文件（36 forward + 36 undo）
+  已在 `a0f2819d` 删除，但**有 23 个对象并未真正折入本 baseline**——用有序活集模拟
+  被删迁移得到的最终对象集中，23 个在 baseline 中不存在。完整清单与复现脚本见
+  `docs/audit/PROJECT_ACTUAL_ISSUES_2026-09-14.md` §1。
+  - **已恢复（本批）**：`ux_burn_log_user_event`（burn 批量写入 `ON CONFLICT` 的仲裁索引
+    ——缺失时每次 burn 清理都报 `42P10`）、`ck_rooms_room_version_valid` 正则化
+    （硬编码 1..11 白名单会拒绝 v12/v13 联邦加入）、`trg_prevent_audit_delete`
+    （`audit_events` 的 DB 级 append-only 强制）。
+  - **待折入（20 项）**：`fk_event_edges_prev`、`fk_events_redacted_by`、`fk_backup_keys_room`、
+    `uq_backup_keys_room_session`、`ck_events_depth_nonneg`、`ck_events_not_before_nonneg`、
+    `ck_room_memberships_valid`，以及 9 个 P1/P2/P3 性能索引与 1 个被取代的 device_keys UQ。
+- `events.depth` / `events.not_before` CHECK 约束：⚠️ **未折入**（见上）。
 
 ## 迁移执行顺序
 
 1. `00000000_unified_schema_v11.sql` — 基线 (IF NOT EXISTS，幂等)
 2. `00000001_extensions_v10.sql` — 按 ENABLED_EXTENSIONS 过滤
-3. `2026XXXXXXXXXX_*.sql` — 按时间戳顺序逐一应用
+
+> `migrations/` 目前只有上述两个正向文件（外加 `V*` 扩展）；所有时间戳迁移已删除，
+> 不存在"按时间戳顺序逐一应用"的步骤。测试路径
+> （`scripts/build_sqlx_migration_source.py`）也显式只选 baseline + extensions + `V*`。
+> 部署路径（`docker/db_migrate.sh`）会应用目录下全部正向 SQL，因此**任何未折入 baseline
+> 的对象都只存在于部署路径**——这正是 §1 缺口长期未被测试发现的原因。
 
 ## 首次部署
 

@@ -1,11 +1,14 @@
 # 索引治理文档
 
-> 版本: v1.1.0
+> 版本: v1.2.0
 > 更新日期: 2026-09-14
-> 数据源: `migrations/00000000_unified_schema_v11.sql`（v11.0.0, 2026-08-31）+
->   P1/P2/P3 审计迁移（`2026090401*_schema_p*.sql`）
+> 数据源: `migrations/00000000_unified_schema_v11.sql`（唯一真相源；
+>   原 `20260904*_schema_p*.sql` 审计迁移已删除，其对象**部分**已折入 baseline——
+>   未折入清单见 `docs/audit/PROJECT_ACTUAL_ISSUES_2026-09-14.md` §1.5）
 
-> **覆盖率说明**：v11 baseline 共有 347 个索引（含主键索引），
+> **覆盖率说明**：v11 baseline 中共 **365** 条
+> `CREATE (UNIQUE) INDEX IF NOT EXISTS` 语句（**360** 个不同索引名；有 5 对同名
+> 重复定义属遗留缺陷，见 `docs/audit/PROJECT_ACTUAL_ISSUES_2026-09-14.md` §1.6），
 > 本文档精选 97 个有代表性的 partial / composite / 覆盖 / GIN 索引作重点记录，
 > 覆盖核心查询路径。完整索引清单请直接查看 `00000000_unified_schema_v11.sql`
 > 中的 `CREATE INDEX` 语句，或在数据库中执行 `SELECT indexname FROM pg_indexes

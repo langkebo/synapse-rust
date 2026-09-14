@@ -1,6 +1,6 @@
 # synapse-rust 路由契约（Route Contract）
 
-> 自动生成于 2026-09-13，源 = `src/web/routes/**` 真实 `.route()` 注册面 + 各模块 `*_route_manifest()` 覆盖情况。
+> 自动生成于 2026-09-15，源 = `src/web/routes/**` 真实 `.route()` 注册面 + 各模块 `*_route_manifest()` 覆盖情况。
 >
 > 本文件是后端 HTTP 契约的**事实来源之一**（机器侧权威为 `src/web/routes/route_ledger.rs` 与各模块 manifest，启动时校验、集成测试 PATCH 探测）。人工文档（INDEX.md / API_COVERAGE_REPORT.md）须与之保持一致。
 >
@@ -8,7 +8,7 @@
 
 ## 总览
 
-- 注册路由条目（含 v1/r0/v3 多版本前缀去重后）：**921**
+- 注册路由条目（含 v1/r0/v3 多版本前缀去重后）：**918**
 - 含路由注册的模块文件：**63**
 - 含 `*_route_manifest` 函数的模块：**66**
 
@@ -636,7 +636,7 @@
 - `PUT` `/rooms/{room_id}/summary/members/{user_id}`
 - `PUT` `/rooms/{room_id}/summary/state/{event_type}/{state_key}`
 
-### 推送 (Push) （20 条）
+### 推送 (Push) （17 条）
 
 #### `push.rs` — 11 条 ✅manifest
 
@@ -652,14 +652,11 @@
 - `POST` `/pushers/set`
 - `PUT` `/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/actions`
 
-#### `push_notification.rs` — 9 条 ✅manifest
+#### `push_notification.rs` — 6 条 ✅manifest
 
 - `DELETE` `/_matrix/client/r0/push/devices/{device_id}`
-- `DELETE` `/_matrix/client/r0/push/rules/{scope}/{kind}/{rule_id}`
 - `GET` `/_matrix/client/r0/push/devices`
-- `GET` `/_matrix/client/r0/push/rules`
 - `POST` `/_matrix/client/r0/push/devices`
-- `POST` `/_matrix/client/r0/push/rules`
 - `POST` `/_matrix/client/r0/push/send`
 - `POST` `/_synapse/admin/v1/push/cleanup`
 - `POST` `/_synapse/admin/v1/push/process`

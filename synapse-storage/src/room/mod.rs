@@ -1827,6 +1827,35 @@ mod db_tests {
         let _ = storage.delete_room(&room_id).await;
     }
 
+    /// A federated join stores the remote room version verbatim
+    /// (`synapse-services/src/room/membership/federation.rs`: make_join -> `create_room`),
+    /// and the capability map marks v12/v13 as joinable/federatable (`stable_parse_only`).
+    /// `rooms.room_version` must therefore accept any digits/dots version, not just 1..11.
+    #[tokio::test]
+    async fn test_room_version_check_accepts_versions_beyond_eleven() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let room_id = format!("!v12_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_room(&room_id).await;
+
+        storage
+            .create_room(&room_id, "@c:example.com", "invite", "12", false)
+            .await
+            .expect("a v12 room must be storable: a hard-coded 1..11 CHECK breaks federated joins");
+
+        let room = storage.get_room(&room_id).await.unwrap().unwrap();
+        assert_eq!(room.room_version, "12");
+
+        // Dotted form (MSC4186 stable room IDs) must also pass.
+        storage.set_room_version(&room_id, "12.0").await.expect("dotted room version must be storable");
+
+        // The CHECK must still have teeth: free-form junk is rejected.
+        let bad = storage.set_room_version(&room_id, "not-a-version").await;
+        assert!(bad.is_err(), "non-numeric room versions must still be rejected");
+
+        let _ = storage.delete_room(&room_id).await;
+    }
+
     #[tokio::test]
     async fn test_shutdown_room_marks_private_and_renames() {
         let pool = test_pool().await;

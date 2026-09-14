@@ -239,12 +239,17 @@ CREATE TABLE IF NOT EXISTS rooms (
         CHECK (history_visibility IS NULL OR history_visibility IN ('shared', 'invited', 'joined', 'world_readable')),
     CONSTRAINT ck_rooms_visibility_valid
         CHECK (visibility IS NULL OR visibility IN ('public', 'private')),
+    -- Digits/dot form instead of a hard-coded 1..11 whitelist: the capability map
+    -- (`synapse-common/src/room_versions.rs`) marks v12/v13 as joinable/federatable
+    -- (`stable_parse_only`), and a federated join writes the remote room version
+    -- straight into `rooms.room_version`
+    -- (`synapse-services/src/room/membership/federation.rs`: make_join -> create_room).
+    -- A 1..11 whitelist therefore rejects a legitimate v12+ join with a CHECK
+    -- violation. Folded from the deleted
+    -- `20260904050000_extend_room_version_check.sql`; the `_v2` constraint name was
+    -- NOT kept (unreleased project, no compatibility residue).
     CONSTRAINT ck_rooms_room_version_valid
-        CHECK (
-            room_version IS NULL OR room_version = ANY (ARRAY[
-                '1','2','3','4','5','6','7','8','9','10','11'
-            ])
-        ),
+        CHECK (room_version IS NULL OR room_version ~ '^[0-9]+(\.[0-9]+)*$'),
     CONSTRAINT ck_rooms_timestamps_nonneg
         CHECK (created_ts >= 0 AND (last_activity_ts IS NULL OR last_activity_ts >= 0))
 );
@@ -2284,6 +2289,30 @@ CREATE TABLE IF NOT EXISTS audit_events (
     created_ts BIGINT NOT NULL
 );
 
+-- Append-only guard for `audit_events`. Only the retention cleanup path may
+-- delete rows, and it must opt in per transaction with
+-- `SELECT set_config('synapse.allow_audit_delete','true',true)`
+-- (`synapse-storage/src/audit.rs::delete_events_before` already does this).
+-- Folded from the deleted `20260710190001_audit_log_append_only.sql`.
+CREATE OR REPLACE FUNCTION prevent_audit_delete()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF current_setting('synapse.allow_audit_delete', true) IS DISTINCT FROM 'true' THEN
+        RAISE EXCEPTION 'audit_events is append-only: deletes are forbidden';
+    END IF;
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_prevent_audit_delete') THEN
+        CREATE TRIGGER trg_prevent_audit_delete
+            BEFORE DELETE ON audit_events
+            FOR EACH ROW EXECUTE FUNCTION prevent_audit_delete();
+    END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS feature_flags (
     flag_key TEXT PRIMARY KEY,
     target_scope TEXT NOT NULL,
@@ -3626,6 +3655,12 @@ CREATE INDEX IF NOT EXISTS idx_media_callbacks_type_enabled ON media_callbacks(c
 -- Burn after read
 CREATE INDEX IF NOT EXISTS idx_burn_pending_delete_ts ON burn_after_read_pending(delete_ts) WHERE is_processed = FALSE AND is_dead_letter = FALSE;
 CREATE INDEX IF NOT EXISTS idx_burn_log_user ON burn_after_read_log(user_id);
+-- `log_burned_event_batch` issues `ON CONFLICT (user_id, event_id) DO NOTHING`
+-- (`synapse-storage/src/burn_after_read.rs`), so the arbiter index is REQUIRED:
+-- without it PostgreSQL rejects the statement with 42P10 ("there is no unique or
+-- exclusion constraint matching the ON CONFLICT specification") on every burn
+-- cleanup. Folded from the deleted `20260901000001_burn_log_unique_index.sql`.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_burn_log_user_event ON burn_after_read_log(user_id, event_id);
 
 -- Key rotation
 CREATE INDEX IF NOT EXISTS idx_key_rotation_pending_room ON key_rotation_pending(room_id);

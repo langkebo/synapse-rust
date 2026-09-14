@@ -393,4 +393,39 @@ mod db_tests {
         let found = storage.get_event(&event_id).await.expect("get_event should succeed");
         assert!(found.is_none(), "deleted event should not be found");
     }
+
+    /// The append-only guarantee must be enforced by the DATABASE, not only by the
+    /// cleanup path opting in: a bare `DELETE FROM audit_events` without
+    /// `synapse.allow_audit_delete='true'` must be rejected by
+    /// `trg_prevent_audit_delete` (`migrations/00000000_unified_schema_v11.sql`).
+    ///
+    /// Without the trigger this test fails, which is exactly how the accidental
+    /// removal of `20260710190001_audit_log_append_only.sql` went unnoticed.
+    #[tokio::test]
+    async fn test_audit_events_reject_unflagged_delete() {
+        let pool = test_pool().await;
+        let storage = AuditEventStorage::new(&pool);
+        let event_id = Uuid::new_v4().to_string();
+        let ts = current_timestamp_millis();
+
+        storage
+            .create_event(&event_id, ts - 10_000, &sample_request(&event_id))
+            .await
+            .expect("create_event should succeed");
+
+        let bare_delete = sqlx::query!("DELETE FROM audit_events WHERE event_id = $1", &event_id).execute(&*pool).await;
+        let error = bare_delete.expect_err("a bare DELETE must be rejected by the append-only trigger");
+        assert!(error.to_string().contains("append-only"), "expected the append-only guard message, got: {error}");
+
+        // The flagged cleanup path still works, and is used to clean up the fixture.
+        // NOTE: the row count is NOT asserted — these db_tests share the `public` schema
+        // and run concurrently, so a sibling test's `delete_events_before` may have
+        // already removed this row. The property under test is that the flagged path
+        // does not error out (it must bypass the guard) and that the row ends up gone.
+        storage.delete_events_before(ts).await.expect("flagged cleanup must still bypass the guard");
+        assert!(
+            storage.get_event(&event_id).await.expect("get_event should succeed").is_none(),
+            "the flagged cleanup path must remove the fixture row"
+        );
+    }
 }

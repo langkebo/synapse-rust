@@ -959,6 +959,46 @@ mod db_tests {
         cleanup_burn_pending(&pool, &user_id, &room_id).await;
     }
 
+    // 8b. Batch log is idempotent: re-logging the same (user_id, event_id) must not duplicate
+    // rows and must not error. This requires a UNIQUE index on (user_id, event_id) — without
+    // it PostgreSQL rejects the `ON CONFLICT (user_id, event_id) DO NOTHING` with 42P10.
+    #[tokio::test]
+    async fn test_log_burned_event_batch_is_idempotent_on_conflict_target() {
+        let pool = test_pool().await;
+        let storage = BurnAfterReadStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let user_id = format!("@batchlog_{suffix}:test.com");
+        let room_id = format!("!batchlog_{suffix}:test.com");
+        let event_a = format!("$batch_a_{suffix}");
+        let event_b = format!("$batch_b_{suffix}");
+
+        cleanup_burn_log(&pool, &user_id).await;
+
+        let now = current_timestamp_millis();
+        let batch = vec![
+            (user_id.clone(), room_id.clone(), event_a.clone(), now),
+            (user_id.clone(), room_id.clone(), event_b.clone(), now),
+        ];
+
+        storage
+            .log_burned_event_batch(&batch)
+            .await
+            .expect("batch insert must succeed — a missing (user_id, event_id) unique index makes it 42P10");
+
+        // Replay the same batch: ON CONFLICT (user_id, event_id) DO NOTHING must swallow it.
+        storage.log_burned_event_batch(&batch).await.expect("replayed batch must be a no-op, not an error");
+
+        let count: i64 =
+            sqlx::query_scalar!("SELECT COUNT(*) FROM burn_after_read_log WHERE user_id = $1", &user_id)
+                .fetch_one(&*pool)
+                .await
+                .expect("counting must succeed");
+
+        assert_eq!(count, 2, "replaying the batch must not duplicate rows");
+
+        cleanup_burn_log(&pool, &user_id).await;
+    }
+
     // 9. Set and retrieve user default burn time.
     #[tokio::test]
     async fn test_set_and_get_user_default() {

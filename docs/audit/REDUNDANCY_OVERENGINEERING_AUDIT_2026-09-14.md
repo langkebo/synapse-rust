@@ -59,7 +59,7 @@
 | supply-chain | `ci.yml:140` → `scripts/ci/supply_chain_gate.sh` | 未动（需产品决策） | repo-sanity job 内**无 `cargo install`**；工具缺失时打印 "not installed, skipping" 后 `exit 0`（脚本 `:60-62,:94-96,:98`） ⇒ 标准 runner 上**恒绿**；真正执行的是 `ci.yml:662`（仅 PR/schedule/main-push）。develop 分支等于没有该门禁。 |
 | performance-baseline | `drift-detection.yml:346-383` | **已修复（第三批）** | **已移除**（commit `9e847a42`）：4 个目标迁移全部不存在（`git ls-files \| grep -i performance_indexes` 无输出），原本每轮 `::warning::Missing … (skipped)`、`failed=0` ⇒ **100% 空转**。第三批将整段 for 循环替换为一句 `::warning::` 声明"该门禁随冗余清理已移除"（commit `9e847a42`）。 |
 | schema-health-check | `schema-health-check.yml:73` | **已修复（第三批）** | **已修** `_v10.sql` → `_v11.sql`（commit `9e847a42`）：原本引用不存在文件、每次 push/PR **必红**；现指向实际存在的 `00000000_unified_schema_v11.sql`。 |
-| db-migration-gate | `db-migration-gate.yml` | `grep -c "P1-8 placeholder"` = **18** 个仅含 `echo '::warning::TODO…skipped'` 的步骤（真实 `cargo test` 行被注释掉） | 18 个步骤只产出警告 |
+| db-migration-gate | `db-migration-gate.yml` | `grep -c "P1-8 placeholder"` = **18** 个仅含 `echo '::warning::TODO…skipped'` 的步骤（真实 `cargo test` 行被注释掉） | 18 个步骤只产出警告 —— **部分已修复**：第一批清理（`88f94055`）已恢复 `unified-schema-apply` 真实步骤（apply baseline + 2 schema-blind 守卫修复）；剩余 18 处 `:TODO placeholder` 位于 `migration-coverage` 子步骤中，需单独实现。 |
 | `cargo test --doc` | `TESTING.md:96,389,407,511` 仍按根 crate 口径记载 | 根 crate Rust doctest 块 = **0**（工作区 7 个块中 5 个 `ignore` + 2 个 `no_run`） | 空门禁；CI 已在 `ci.yml:275-277` 修正为 `--workspace`，文档未同步 |
 
 另有 `.github/workflows/ci.yml:739` 的**坏步骤（已修复）**：
