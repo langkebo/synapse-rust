@@ -90,11 +90,11 @@ relation "users" does not exist (42P01)   遍布 storage 各 db_tests
 
 ---
 
-## 2. 🔴 测试基础设施：`clone_schema_from_template` 仍有 3 份实现且行为不一致
+## 2. 🟡 测试基础设施：`clone_schema_from_template` 曾 3 份实现 → 现 1 份实现 + 2 份薄封装
 
-**违反项目规则第 2 条（同一职责只允许一份实现）。**
+**违反项目规则第 2 条（同一职责只允许一份实现）。** 修复进行中。
 
-### 证据
+### 原始状态（实测）
 
 ```bash
 $ grep -rn "fn clone_schema_from_template" --include=*.rs . | grep -v worktrees
@@ -102,6 +102,65 @@ synapse-common/src/test_isolation.rs:848   pub async fn clone_schema_from_templa
 synapse-services/src/test_utils.rs:484     async fn clone_schema_from_template(database_url, template_name)  # 私有
 src/test_utils.rs:1021                     async fn clone_schema_from_template(database_url, template_name)  # 私有
 ```
+
+三份能力不同（实测各自特性计数）：
+
+| 实现 | 数据复制 | 外键回放 | 完整性校验 | 索引名还原 |
+|---|---|---|---|---|
+| `synapse-common`（共享） | ✅ | ✅ | ✅ | ❌ → ✅（本轮补） |
+| `src/test_utils.rs` | ✅ | ✅ | ❌ | ✅ |
+| `synapse-services/src/test_utils.rs` | ❌ | ❌ | ❌ | ❌ |
+
+### 本轮进展
+
+**已完成（提交见括号）**
+
+1. **共享模块补上"索引名 + UNIQUE 约束名归一化"**（`6a051fcb`）。
+   实测 `LIKE ... INCLUDING ALL` 会把 `idx_t_v_named` 改名成 `t_v_idx`、
+   把 `uq_c_pid_named` 改名成 `c_pid_key`（PRIMARY KEY 名保留）。而
+   `has_index_named` 在 `tests/integration/schema_contract_p0_tests_migrated.rs`
+   有 **24 个调用点**，`validate_clone` 又只比数量 → 不做这一步就切换会**静默破坏**
+   这些断言。新增 Phase 1d 处理它，并加了测试
+   `clone_preserves_index_and_unique_constraint_names`（**已反向验证**：
+   把 Phase 1d 置为 no-op 后该测试变红）。
+2. **`synapse-services` 那份私有实现改为委派并降为薄封装**（`ea1a3ddc`）。
+   它原本是三者中最弱的（不复制 seed 行、不回放外键、无校验）。
+   验证：retention 队列 7/7；services 完整 lib **2079 run / 2078 passed / 1 failed**
+   （基线 2076 passed / 3 failed，**减少 2 个失败**；剩余 1 个为既存 media 失败）。
+
+**剩余（未做，需决策）**
+
+`src/test_utils.rs` 的那份（177 行）仍自实现。它比 services 那份强，且有**一处
+共享模块不具备的行为**：
+
+```rust
+const SEED_REFERENCE_TABLES: &[&str] =
+    &["server_media_quota", "server_retention_policy", "sync_stream_id"];
+// 注释：the development-only `@admin:localhost` seed in `users` is intentionally
+//       NOT copied — tests manage their own users and many assert an empty users table.
+```
+
+即：根 crate 车道用**显式 seed 白名单**，共享模块则复制**所有表**的数据。
+直接在根 crate 委派，会把 `users` 表的数据（含开发种子）也复制进克隆，
+**破坏"users 表应为空"的断言**。
+
+因此收敛它需要先决定：
+
+- **(a)** 给共享模块加可选的 seed 白名单参数（调用方传入；默认全表复制）——
+  这个既有信息量又有约束力，且能同时服务两条车道；
+- **(b)** 让根 crate 车道也接受全表复制，并修掉依赖空 `users` 的测试；
+- **(c)** 保持两份实现，接受该分歧（不推荐，违反规则 2）。
+
+推荐 **(a)**。注意根 crate 那份还带 `SCHEMA_POOL`（TRUNCATEd schema 复用）与
+`SHARED_CLONE_SEMAPHORE`，这些是**调用侧**的关注点，不在 `clone_schema_from_template`
+内部，可保留在原处。
+
+### 守卫的盲区（仍未修）
+
+`tests/unit/test_isolation_unification_tests.rs` 只断言"两份夹具**调用了**共享模块"，
+**不检测**是否还存在第三份自实现。建议加一条静态断言：
+"全仓 `fn clone_schema_from_template` 的定义只允许出现在 `synapse-common`"。
+
 
 **三份能力不同**（实测各自的特性计数）：
 
@@ -380,17 +439,17 @@ TODO/FIXME/XXX/HACK:  8
 
 ## 13. 汇总：建议的处理顺序
 
-| 优先级 | 问题 | 类型 | 预估成本 |
+| 优先级 | 问题 | 类型 | 状态 / 预估成本 |
 |---|---|---|---|
-| P0 | §1 CI 指向生产库 + wipe 标志 | 数据安全 | 改 4 处 yaml + 建库 1 步 |
-| P0 | §4 `media::tests` 3 个确定性失败 | 测试正确性 | 夹具改用隔离池 |
-| P1 | §2 三分 `clone_schema_from_template` | 架构一致性 | 两份私有实现改为委派 |
-| P1 | §3 两个既存失败（时钟容差 / 守卫判据） | 测试确定性 | 各 1 处小改 |
-| P1 | §6 clippy 门禁覆盖 workspace | 门禁真实性 | 加 `--workspace --all-targets`，再清 21 条 warning |
-| P2 | §5 `status` 字段去留（**已修：删除，schema 3→4**） | 冗余治理 | ✅ 本轮完成 |
-| P2 | §9 schema 残留自动清理 | 运维 | CI 加一步 |
-| P3 | §7 两条车道的复杂度 | 架构 | 需先统一 feature 集 |
-| P3 | §10 存量债、§11 局限 | 技术债 | 新代码设禁，存量另立专项 |
+| P0 | §1 CI 指向生产库 + wipe 标志 | 数据安全 | ⏳ 另一个 agent 正在修（已见 `ci.yml` 改动 + 新增 `scripts/ci/prepare_test_db.sh`） |
+| P0 | §4 `media::tests` 确定性失败 | 测试正确性 | 🔴 夹具改用隔离池（本轮降到 1 个失败，仍未清零） |
+| P1 | §2 `clone_schema_from_template` 多份实现 | 架构一致性 | 🟡 **2/3 已完成**：共享模块补齐索引名能力（`6a051fcb`）+ services 改为委派（`ea1a3ddc`）；剩 `src/test_utils.rs`，需先决定 seed 白名单方案 |
+| P1 | §3 两个既存失败（时钟容差 / 守卫判据） | 测试确定性 | 🔴 各 1 处小改 |
+| P1 | §6 clippy 门禁覆盖 workspace | 门禁真实性 | 🔴 加 `--workspace --all-targets`，再清 21 条 warning |
+| P2 | §5 `status` 字段去留 | 冗余治理 | ✅ 已完成（`c5a5df0d`，删除，schema 3→4） |
+| P2 | §9 schema 残留自动清理 | 运维 | 🔴 CI 加一步 |
+| P3 | §7 两条车道的复杂度 | 架构 | 🟡 需先统一 feature 集 |
+| P3 | §10 存量债、§11 局限 | 技术债 | ⚪ 新代码设禁，存量另立专项 |
 
 ---
 
