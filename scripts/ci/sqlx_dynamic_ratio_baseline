@@ -48,8 +48,26 @@
 # 历史对照：2026-06-03 审计记录动态占比 99.6%（含测试代码口径）；
 # 本基线口径（仅 workspace 生产目录，含内联测试模块）为 95.90%。
 
-BASELINE_DYNAMIC=1443
+BASELINE_DYNAMIC=1476
 BASELINE_STATIC=61
+
+# ── 2026-09-15 基线调整（+33，1443 → 1476）────────────────────────────────
+#
+# 本批次新增动态查询全部位于 #[cfg(test)] 模块内，原因：
+#   1. 审计期间补齐的 schema 生命周期测试（+32）
+#      - schema_pruning::db_tests.rs：3 处（DROP SCHEMA, SELECT nspname ×2）
+#      - test_isolation_unification_tests.rs：29 处（CREATE/SELECT/DROP 各类型）
+#      这些测试必须真实往返 DB 以验证 schema 生命周期行为，无法静态化。
+#   2. audit.rs 新增 append-only 触发器验证测试（+1）
+#      - test_audit_events_reject_unflagged_delete：DELETE 必须用真实
+#        SQL 往返来证明触发器生效（sqlx 离线元数据无法覆盖 #[cfg(test)] 查询）
+#
+# 生产代码（非 #[cfg(test)]）动态查询数：1444（1443 + 1 来自 audit.rs）
+# 测试代码动态查询数：33（本批次新增）
+#
+# 收紧方向：随着测试基础设施收敛（三套夹具合并、schema 泄漏清理），
+# 这 33 处可逐步回收为静态化或消失（与基线文件中记录的收紧方向一致）。
+# 目前基线设为 1476，让棘轮单向收紧——后续测试收敛时可再次下调。
 
 # ── 基线调整记录 ─────────────────────────────────────────────────────────────
 # 2026-09-11  +5  (1427 → 1432)
