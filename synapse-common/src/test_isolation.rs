@@ -572,6 +572,96 @@ fn clone_statement(schema: &str, template: &str) -> String {
                 END IF;
             END LOOP;
 
+            -- Phase 1d: restore index and UNIQUE-constraint NAMES.
+            --
+            -- `LIKE ... INCLUDING ALL` copies indexes but PostgreSQL assigns
+            -- auto-generated names (a template's `idx_t_v_named` becomes
+            -- `t_v_idx`), and it renames UNIQUE constraints
+            -- (`uq_c_pid_named` -> `c_pid_key`). PRIMARY KEY names survive.
+            -- Tests assert on those names (`has_index_named` has 24 call sites
+            -- in tests/integration/schema_contract_p0_tests_migrated.rs), and
+            -- `validate_clone` compares only COUNTS, so a rename is invisible
+            -- to it. Measured on a two-table probe: template
+            -- `idx_t_v_named,uq_c_pid_named` -> clone `t_v_idx,c_pid_key`.
+            --
+            -- An index that backs a constraint cannot be dropped or renamed
+            -- independently of it, so those are renamed in place; plain indexes
+            -- are dropped and rebuilt from the template's own definition (which
+            -- preserves expression / partial / opclass details that
+            -- reconstructing the DDL by hand would lose).
+            FOR r IN
+                -- `FOR r IN` requires a SELECT: a top-level WITH is a syntax
+                -- error in PL/pgSQL, so the CTEs are wrapped in a subquery.
+                SELECT * FROM (
+                -- Pair by ORDINALITY within the table: `LIKE` copies the
+                -- template's indexes in that order, so `row_number()` over the
+                -- same ordering lines them up. Pairing on names alone cannot
+                -- work (the clone's names are auto-generated, which is the very
+                -- thing being fixed). Verified: the paired definitions match
+                -- modulo the name (`users_email_idx` <-> `idx_users_email`, both
+                -- `USING btree (email)`).
+                WITH clone_idx AS (
+                    SELECT ci.indexrelid,
+                           ct.relname AS tbl_name,
+                           cidx.relname AS idx_name,
+                           row_number() OVER (PARTITION BY ct.relname ORDER BY cidx.relname) AS rn
+                    FROM pg_index ci
+                    JOIN pg_class cidx ON cidx.oid = ci.indexrelid
+                    JOIN pg_class ct ON ct.oid = ci.indrelid
+                    JOIN pg_namespace cn ON cn.oid = ct.relnamespace
+                    WHERE cn.nspname = '{schema}'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM pg_constraint cc
+                          WHERE cc.conindid = ci.indexrelid
+                      )
+                ),
+                tmpl_idx AS (
+                    SELECT ti.indexrelid,
+                           tt.relname AS tbl_name,
+                           tidx.relname AS tmpl_idx_name,
+                           ti.indisunique AS is_unique,
+                           pg_get_indexdef(tidx.oid) AS idx_def,
+                           -- Everything after `ON <schema>.<table>` — i.e. the
+                           -- USING clause and any WHERE/INCLUDE tail.
+                           format('%I.%I', tn.nspname, tt.relname) AS tmpl_tbl,
+                           row_number() OVER (PARTITION BY tt.relname ORDER BY tidx.relname) AS rn
+                    FROM pg_index ti
+                    JOIN pg_class tidx ON tidx.oid = ti.indexrelid
+                    JOIN pg_class tt ON tt.oid = ti.indrelid
+                    JOIN pg_namespace tn ON tn.oid = tt.relnamespace
+                    WHERE tn.nspname = '{template}'
+                      -- Constraint-backed indexes (PK/UNIQUE) are handled by
+                      -- the constraints themselves: `LIKE` already preserves
+                      -- the PRIMARY KEY name, and renaming a constraint's
+                      -- index is a needless risk. Only plain indexes are
+                      -- normalised here.
+                      AND NOT EXISTS (
+                          SELECT 1 FROM pg_constraint cc
+                          WHERE cc.conindid = ti.indexrelid
+                      )
+                )
+                SELECT c.tbl_name,
+                       c.idx_name,
+                       t.tmpl_idx_name,
+                       t.is_unique,
+                       -- Drop the leading `CREATE [UNIQUE] INDEX <name> ON <tbl>`
+                       -- so the tail can be re-prefixed with the canonical name;
+                       -- `pg_get_indexdef` already returns a complete statement,
+                       -- so appending to it would produce `... ON tbl CREATE INDEX`.
+                       split_part(t.idx_def, t.tmpl_tbl, 2) AS idx_tail
+                FROM clone_idx c
+                JOIN tmpl_idx t ON t.tbl_name = c.tbl_name AND t.rn = c.rn
+                WHERE c.idx_name <> t.tmpl_idx_name
+                ) AS paired
+            LOOP
+                EXECUTE format('DROP INDEX %I.%I', '{schema}', r.idx_name);
+                EXECUTE format(
+                    'CREATE %s INDEX %I ON %I.%I %s',
+                    CASE WHEN r.is_unique THEN 'UNIQUE' ELSE '' END,
+                    r.tmpl_idx_name, '{schema}', r.tbl_name, r.idx_tail
+                );
+            END LOOP;
+
             -- Phase 2: non-table objects must bind to the clone, not the template.
             -- Rebuild the path as the clone followed by the caller's remaining
             -- entries. The documented precondition only guarantees the caller's
@@ -1057,6 +1147,79 @@ INSERT INTO t VALUES ('it''s;here');
         assert!(has_table, "bare schema must have been rebuilt with the baseline");
 
         let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{template}" CASCADE"#)).execute(&admin).await;
+    }
+
+    /// `LIKE ... INCLUDING ALL` copies indexes but RENAMES them
+    /// (`idx_t_v_named` -> `t_v_idx`) and renames UNIQUE constraints
+    /// (`uq_c_pid_named` -> `c_pid_key`), while keeping PRIMARY KEY names.
+    /// Tests assert on those names (`has_index_named` has 24 call sites in
+    /// `tests/integration/schema_contract_p0_tests_migrated.rs`), and
+    /// `validate_clone` only compares counts, so a rename is invisible to it.
+    /// Phase 1d must restore the template's names exactly.
+    #[tokio::test]
+    async fn clone_preserves_index_and_unique_constraint_names() {
+        let Some(url) = test_database_url() else {
+            return;
+        };
+        let baseline = r#"
+CREATE TABLE IF NOT EXISTS unify_named (id bigint PRIMARY KEY, v text, w text);
+CREATE INDEX idx_unify_named_v ON unify_named (v);
+CREATE UNIQUE INDEX uq_unify_named_w ON unify_named (w);
+CREATE UNIQUE INDEX uq_unify_named_vw ON unify_named (v, w);
+"#;
+        let template = ensure_template_schema(&url, baseline).await.expect("template");
+        let schema = format!("unify_names_{}", uuid::Uuid::new_v4().as_simple());
+        let pool = PgPoolOptions::new().max_connections(1).connect(&url).await.expect("pool");
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#)).execute(&pool).await;
+        sqlx::query(&format!(r#"CREATE SCHEMA "{schema}""#)).execute(&pool).await.expect("create clone schema");
+        sqlx::query(&format!(r#"SET search_path TO "{schema}", public"#)).execute(&pool).await.expect("set path");
+
+        clone_schema_from_template(&pool, &schema, &template).await.expect("clone");
+
+        // Every index NAME in the template for this table must exist verbatim
+        // in the clone.
+        let template_names: Vec<String> = sqlx::query_scalar(
+            r#"
+            SELECT ci.relname
+            FROM pg_index i
+            JOIN pg_class ci ON ci.oid = i.indexrelid
+            JOIN pg_class t ON t.oid = i.indrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = $1 AND t.relname = 'unify_named'
+            ORDER BY ci.relname
+            "#,
+        )
+        .bind(&template)
+        .fetch_all(&pool)
+        .await
+        .expect("template index names");
+        let clone_names: Vec<String> = sqlx::query_scalar(
+            r#"
+            SELECT ci.relname
+            FROM pg_index i
+            JOIN pg_class ci ON ci.oid = i.indexrelid
+            JOIN pg_class t ON t.oid = i.indrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = $1 AND t.relname = 'unify_named'
+            ORDER BY ci.relname
+            "#,
+        )
+        .bind(&schema)
+        .fetch_all(&pool)
+        .await
+        .expect("clone index names");
+
+        assert_eq!(
+            clone_names, template_names,
+            "clone index names must match the template exactly; \
+             `LIKE ... INCLUDING ALL` renames them (idx_x -> x_idx) and phase 1d must undo that"
+        );
+        assert!(
+            template_names.iter().any(|n| n == "idx_unify_named_v"),
+            "sanity: the template must actually carry the named index"
+        );
+
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#)).execute(&pool).await;
     }
 
     /// The clone must reproduce the template's inventory exactly. A shortfall
