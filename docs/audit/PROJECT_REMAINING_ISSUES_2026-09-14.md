@@ -695,6 +695,12 @@ mod tests {         <- 125 行
 
 ## 15. 第二轮复核记录（2026-09-14，基线 `d56a1d82`）
 
+> **第四轮修复记录（2026-09-14）**：§15.2 与 §16 两项新发现**已全部修复**。  
+> - §15.2 模板清理 → commit `314df061`（已合并 main）  
+> - §16 MSC4108 协议缺口 → commit `6ba7c457`（已合并 main，配套 4 个既有测试改写）  
+> - 连带格式修复 → commit `b0e8ed9e`（`cargo fmt --all`，main 工作树现 `fmt debt: current=0 baseline=0`，CI 绿）  
+> - 验证：`cargo check -p synapse-common/synapse-services/synapse-storage --features test-utils` 均 Finished；`cargo test --no-run --test unit --features test-utils` 编译通过。
+
 本节记录复核**推翻或修正首版结论**的地方，以及复核中新发现的问题。
 
 ### 15.1 ✅ **§6 的 ✅ 曾是错的**：clippy 门禁不覆盖 workspace 测试代码 —— **已根治（`9875d8ff`）**
@@ -738,7 +744,36 @@ ${{ matrix.features-args }} --locked -- -D warnings`，然后清掉届时暴露�
 （当前实测仅 3 条：`synapse-e2ee` 1 条 unused import + `synapse-storage/voice.rs`
 2 条 dead_code）。
 
-### 15.2 🔴 **新发现**：共享模块的模板 schema 无限累积，且没有清理机制
+### 15.2 ✅ **新发现**：共享模块的模板 schema 无限累积，且没有清理机制 → **已修复**（`314df061`）
+
+> **状态更新（2026-09-14 修复落地）**：按下方修法在 `synapse-common` 共享模块补齐了
+> 与根夹具 `prune_stale_template_schemas` **对等**的清理机制。
+>
+> **提交**：`314df061`（`synapse-common/src/test_isolation.rs`）。
+>
+> **实现要点**：
+> - 新增 `pub async fn prune_stale_isolation_templates(admin_pool, keep)`（公开入口）
+>   与私有 `prune_isolation_templates(conn, keep)`（可借用的连接版本）。
+> - **安全序与根夹具一致**：先 `to_regclass` 校验 `keep`（当前模板）仍存在，**替代模板
+>   未就位绝不 prune**。
+> - 候选集 `WHERE nspname ~ '^test_isolation_template_[0-9a-f]{16}$' AND nspname <> $1`；
+>   正则带 16 位 hex 锚点，**不会**误匹配根夹具 `test_template_v<rev>_<hex>` 或
+>   services `test_template_<pid>` 家族（交叉 crate 安全，`synapse-storage` 与
+>   `synapse-services` 共享同一 baseline 指纹，prune 在两者间安全）。
+> - **6 小时宽限窗**（`TEMPLATE_PRUNE_GRACE`）而非"除 keep 全删"：因为该家族跨 crate、
+>   测试本地（并发 nextest 进程合法使用不同指纹），直接 `DROP ... CASCADE` 可能命中
+>   正在克隆的 cloner。判定：无 marker 表 → 视为不完整构建可删；marker 0 行 → 回填
+>   (`INSERT DEFAULT VALUES`) + 豁免（legacy）；否则按 `max(built_at)` 年龄 > 宽限窗才删。
+> - **配套修复 readiness marker 空行缺陷**：原 `_synapse_test_template_ready` 建表后
+>   **从未 INSERT 行**，`max(built_at)` 恒 NULL 会误删生产模板——现已 (a) `build_template`
+>   建表后立即 `INSERT DEFAULT VALUES`，且 (b) ready 快路径改为 `DELETE + INSERT`
+>   刷新 `built_at`（令在用模板持续自保 + 回填 legacy 0 行表）。
+> - **调用点**：`ensure_template_schema_with_lock_timeout` 中 `build_template` 成功、
+>   释放 advisory lock 之前执行；失败仅 `warn`，不阻断建模板。
+> - **验证**：`cargo check -p synapse-common --features test-utils` 与
+>   `cargo check -p synapse-services --features test-utils` 均 Finished；
+>   新增 DB 测试 `prune_backfills_legacy_zero_row_marker_and_spares_it`
+>   （需 `TEST_DATABASE_URL`）验证 legacy 0 行 marker 被回填且模板被豁免，不误删。
 
 首版 §9 只记录 `synapse` 库的 **388** 个 `test_*` 残留。复核发现另一类**由共享
 模块自己产生**的残留，首版完全没提：
@@ -808,11 +843,35 @@ test_template_v2_b6fa43a1d62f6181  (根夹具模板)
 
 ---
 
-## 16. 🔴 **新发现**：MSC4108 rendezvous 实现偏离规范（协议缺口）
+## 16. ✅ **已修复**：MSC4108 rendezvous 实现偏离规范（协议缺口）—— 10 项全部补齐
 
 首版 §12.2 只记录了"manifest 一致、`tags` 未验证"。复核对照 MSC4108 规范正文
 （[4108-oidc-qr-login.md](https://raw.githubusercontent.com/matrix-org/matrix-spec-proposals/87f8317a902cd7bc5c2d2d225f71021b3a509e2d/proposals/4108-oidc-qr-login.md)）
 后发现实现缺了多处**规范标记为 required** 的行为。
+
+> **状态更新（2026-09-14 修复落地）**：按 §16 的 10 条缺口逐一补齐；4 个既有测试因**固化了错误期望**被同步重写（§16 记录中已注明）。
+>
+> **提交**：`6ba7c457`（4 个文件）。
+>
+> **验证**：`cargo test --test unit --features test-utils msc4108` → **46 passed; 0 failed**（含补齐的 4 个原有测试重写 + 新增的响应头完整性 / Content-Type 校验 / 413 限制 / errcode 等测试）。
+>
+> **修复清单（10 项）**：
+>
+> | # | 规范要求 | 修复后实现 | 涉及文件 |
+> |---|----------|-----------|----------|
+> | 1 | 所有响应带 `Last-Modified` | 4 个端点全部设置（POST/GET/PUT/DELETE 均有 `LAST_MODIFIED`） | `src/web/routes/msc4108_rendezvous.rs` |
+> | 2 | 所有响应带 `Cache-Control: no-store` | 4 个端点全部设置（DELETE 走 Body::empty 也已设置） | 同上 |
+> | 3 | 所有响应带 `Pragma: no-cache` | 4 个端点全部设置 | 同上 |
+> | 4 | `PUT` 成功 → **202 Accepted** | `update_session` → `StatusCode::ACCEPTED`（3 个已有测试 `update_session_returns_ok_with_new_etag` 等同步改写为断言 202） | 同上 + `tests/unit/msc4108_rendezvous_route_tests.rs` |
+> | 5 | `DELETE` 成功 → **204 No Content** | `delete_session` → `StatusCode::NO_CONTENT`（已有测试 `delete_session_returns_204_no_content` 预期符合，新实现对齐） | 同上 + `tests/unit/rendezvous_service_tests.rs` |
+> | 6 | PUT ETag 不匹配 → **412** + unstable errcode `M_CONCURRENT_WRITE` | 新增 `Msc4108UpdateOutcome::PreconditionFailed { .. }` 变体；存储层事务内区分 NotFound / PreconditionFailed；路由 412 + `{"errcode":"M_UNKNOWN","org.matrix.msc4108.errcode":"M_CONCURRENT_WRITE"}`（`update_session_etag_mismatch_returns_bad_request` 改写为 412 断言） | `synapse-storage/src/rendezvous.rs` + 测试 |
+> | 7 | POST 校验 `Content-Type: text/plain` | `create_session` / `update_session` 均加校验：缺失 → `ApiError::missing_param`；非法 → `ApiError::invalid_param` | `src/web/routes/msc4108_rendezvous.rs` + 测试 |
+> | 8 | POST 响应带 `Access-Control-Expose-Headers: ETag` | POST 响应头已加入该字段 | `src/web/routes/msc4108_rendezvous.rs` |
+> | 9 | GET 的 304 也要带上文 common headers | 304 响应现在带全部 5 个 common headers（`get_session_304_response_carries_only_etag_header` 改写为 5 项断言） | 同上 + 测试 |
+> | 10 | 载荷上限 4KB，超限 413 | 新增 `MSC4108_MAX_PAYLOAD_BYTES = 4 * 1024` 常量，POST/PUT 均执行 `body.len()` 检查，超限 → `ApiError::too_large`（413）；新增 `update_session_payload_too_large_maps_to_413` 测试 | 同上 + 测试 |
+>
+> **状态码变更影响面**：PUT 200→202 与 PUT 400→412 均属行为变更，已由路由层测试（非集成端到端）覆盖；
+> 若后续需要端到端验证，需在 SDK fork 测试链中同步更新期望。
 
 规范要求（insecure rendezvous 小节）：
 
@@ -949,14 +1008,18 @@ capability 声明读的是 manifest，manifest 漏条目会让 `/capabilities` �
 
 | 优先级 | 问题 | 类型 | 状态 |
 |---|---|---|---|
-| 🔴 P1 | **§16 MSC4108 偏离规范 10 项** | 协议正确性 | 新发现；4 个既有测试固化了错误期望 |
+| ✅ P1 | **§16 MSC4108 偏离规范 10 项** | 协议正确性 | **已修复**（`6ba7c457`）：10 项全部补齐，4 个固化错误期望的测试同步改写；46 passed 验证 |
 | ✅ | §6 clippy 门禁覆盖 workspace | 门禁真实性 | **已根治**（`9875d8ff`）：`:217` 扩为 `--workspace --all-targets --features test-utils`，变红实验证明可拦子 crate 测试代码 |
-| 🔴 P2 | **§15.2 共享模块模板 schema 无限累积** | 资源泄漏 | 新发现；根夹具有清理机制，共享模块没有 |
-| 🟡 P2 | **§17 契约文档含未加 nest 前缀的路由；解析器有链式/nest 盲区** | 契约正确性 | 新发现：`/spaces/...` 15 条相对路径写入文档、0 条带前缀；`nest_map` 收集后从未使用 |
+| ✅ P2 | **§15.2 共享模块模板 schema 无限累积** | 资源泄漏 | **已修复**（`314df061`）：`prune_stale_isolation_templates`（6h 宽限、安全序、legacy 0 行 marker 回填）+ 配套修复 marker 空行缺陷；新增 DB 测试验证 |
+| 🟡 P2 | **§17 契约文档含未加 nest 前缀的路由；解析器有链式/nest 盲区** | 契约正确性 | 未动：`/spaces/...` 15 条相对路径写入文档、0 条带前缀；`nest_map` 收集后从未使用 |
 | 🟡 P3 | §7 契约链两条车道的 feature 集复杂度 | 架构 | 未动，需先统一 feature 集 |
-| ⚪ P3 | §9 schema 残留清理 | 运维 | ✅ 已修复（`82921311`：CI 加 cleanup step + 脚本硬排除/独立保护/可配置标记目录）。CI 侧防 intra-job 累积；本地仍需手动 `--apply`（见 §9 说明） |
+| ⚪ P3 | §9 schema 残留清理 | 运维 | ✅ 已修复（`82921311`：CI 加 cleanup step + 脚本硬排除/独立保护/可配置标记目录）。CI 侧防 intra-job 累积；本地仍需手动 `--apply`（见 §9 说明）。**注**：§15.2 修复后共享模块自行修剪，本地累积速度大幅下降 |
 | ⚪ P3 | §10 存量债、§11 局限 | 技术债 | 新代码设禁，存量另立专项 |
 | ✅ | §1 / §3 / §4 / §5 / §2 收敛 / §12 四条线索 | — | 已核实（§15.3） |
+
+> **第四轮（2026-09-14）净变化**：§15.2 与 §16 由 🔴 → ✅；新增 `b0e8ed9e` 修复两者连带的
+> fmt 债务（main 现 `fmt debt: current=0 baseline=0`）。当前 main 上唯一未动的确认问题是 §17
+> （契约文档/nest 前缀）与 §7（feature 集复杂度）。
 
 **核对方式说明**：首版曾误标 §6 ✅。本轮已按 `AGENTS.md` 第 8 条完成变红实验并实施
 门禁扩容，§6 现为 ✅。判定标准仍是"门禁必须自证能变红"；清掉存量 warning 不等于门禁生效。
