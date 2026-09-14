@@ -1440,8 +1440,6 @@ CREATE TABLE IF NOT EXISTS push_rules (
     scope TEXT NOT NULL,
     rule_id TEXT NOT NULL,
     kind TEXT NOT NULL,
-    priority_class INTEGER NOT NULL DEFAULT 0,
-    priority INTEGER DEFAULT 0,
     conditions JSONB DEFAULT '[]',
     actions JSONB DEFAULT '[]',
     pattern TEXT,
@@ -3509,7 +3507,6 @@ CREATE INDEX IF NOT EXISTS idx_push_device_user_enabled ON push_device(user_id) 
 
 -- Push rules
 CREATE INDEX IF NOT EXISTS idx_push_rules_user ON push_rules(user_id);
-CREATE INDEX IF NOT EXISTS idx_push_rules_user_priority ON push_rules(user_id, priority);
 
 -- Pushers
 CREATE INDEX IF NOT EXISTS idx_pushers_user ON pushers(user_id);

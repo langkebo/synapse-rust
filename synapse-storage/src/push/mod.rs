@@ -210,8 +210,8 @@ impl PushStorage {
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             "INSERT INTO push_rules (user_id, scope, kind, rule_id, pattern, conditions, actions, \
-             is_enabled, is_default, priority_class, created_ts) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, true, false, 5, $8) \
+             is_enabled, is_default, created_ts) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, true, false, $8) \
              ON CONFLICT (user_id, scope, kind, rule_id) DO UPDATE SET \
              pattern = $5, conditions = $6, actions = $7",
         )
@@ -311,6 +311,14 @@ impl PushStorage {
     }
 
     /// See [`get_user_push_rules`].
+    ///
+    /// Results are ordered by `rule_id` ascending — the Matrix push-rule order
+    /// *within* a kind (the spec ranks kinds
+    /// override → content → room → sender → underride, and within a kind the
+    /// client must see a deterministic, rule-ID order). The previous
+    /// `ORDER BY priority DESC, created_ts ASC` was meaningless: no writer ever
+    /// set `priority` (every row carried the column default `0`), so the order
+    /// silently degenerated to insertion time.
     pub async fn get_user_push_rules(
         &self,
         user_id: &str,
@@ -321,7 +329,7 @@ impl PushStorage {
             "SELECT rule_id, pattern, conditions, actions, is_enabled, is_default \
              FROM push_rules \
              WHERE user_id = $1 AND scope = $2 AND kind = $3 \
-             ORDER BY priority DESC, created_ts ASC",
+             ORDER BY rule_id ASC",
         )
         .bind(user_id)
         .bind(scope)
@@ -1074,5 +1082,48 @@ mod db_tests {
             .await
             .expect("ack_notification should succeed");
         assert!(result.is_none(), "non-existent notification id should return None");
+    }
+    /// The spec orders push rules *within a kind* deterministically; this
+    /// implementation uses `rule_id` ascending. Regression guard for the old
+    /// `ORDER BY priority DESC, created_ts ASC`, which degenerated to insertion
+    /// order because no writer ever set `priority`.
+    #[tokio::test]
+    async fn test_get_user_push_rules_orders_by_rule_id_not_insertion_time() {
+        let pool = test_pool().await;
+        let storage = PushStorage::new(Arc::clone(&pool));
+        let user_id = unique_user_id("@pushorder");
+        cleanup_push_rules(&pool, &user_id).await;
+
+        // Insert deliberately OUT of rule_id order, with descending created_ts,
+        // so an insertion-time sort would produce a different answer.
+        let base = current_timestamp_millis();
+        for (idx, rule_id) in [".m.rule.zzz", ".m.rule.aaa", ".m.rule.mmm"].into_iter().enumerate() {
+            storage
+                .upsert_push_rule(
+                    &user_id,
+                    "global",
+                    "override",
+                    rule_id,
+                    &None,
+                    &None,
+                    &json!(["notify"]),
+                    base + (10 - idx as i64),
+                )
+                .await
+                .expect("upsert should succeed");
+        }
+
+        let rows = storage
+            .get_user_push_rules(&user_id, "global", "override")
+            .await
+            .expect("get_user_push_rules should succeed");
+        let got: Vec<String> = rows.iter().map(|r| r.get::<String, _>("rule_id")).collect();
+        assert_eq!(
+            got,
+            vec![".m.rule.aaa", ".m.rule.mmm", ".m.rule.zzz"],
+            "rules must come back in rule_id order regardless of insertion time"
+        );
+
+        cleanup_push_rules(&pool, &user_id).await;
     }
 }

@@ -5,8 +5,8 @@
 > 数据源: `migrations/00000000_unified_schema_v11.sql`（v11.0.0, 2026-08-31）+
 >   P1/P2/P3 审计迁移（`2026090401*_schema_p*.sql`）
 
-> **覆盖率说明**：v11 baseline 共有 348 个索引（含主键索引），
-> 本文档精选 98 个有代表性的 partial / composite / 覆盖 / GIN 索引作重点记录，
+> **覆盖率说明**：v11 baseline 共有 347 个索引（含主键索引），
+> 本文档精选 97 个有代表性的 partial / composite / 覆盖 / GIN 索引作重点记录，
 > 覆盖核心查询路径。完整索引清单请直接查看 `00000000_unified_schema_v11.sql`
 > 中的 `CREATE INDEX` 语句，或在数据库中执行 `SELECT indexname FROM pg_indexes
 > WHERE schemaname = 'public'`。
@@ -149,7 +149,6 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | e2ee_stored_secrets | idx_e2ee_stored_secrets_user_name | user_id, secret_name | UNIQUE | 存储密钥唯一约束 |
 | voice_usage_stats | idx_voice_usage_stats_user | user_id, created_ts DESC | 否 | 按用户和时间查询语音统计 |
 | voice_usage_stats | idx_voice_usage_stats_room | room_id, created_ts DESC | 否 | 按房间和时间查询语音统计 |
-| push_rules | idx_push_rules_user_priority | user_id, priority | 否 | 按用户和优先级查询推送规则 |
 | upload_chunks | idx_upload_chunks_upload_order | upload_id, chunk_index ASC | 否 | 按上传 ID 和分片顺序查询 |
 | space_events | idx_space_events_space_type_ts | space_id, event_type, origin_server_ts DESC | 否 | 按 Space、类型和时间查询事件 |
 | space_events | idx_space_events_space_ts | space_id, origin_server_ts DESC | 否 | 按 Space 和时间查询事件 |
