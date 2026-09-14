@@ -120,8 +120,6 @@ pub mod push;
 pub use push::service as push_notification_service;
 /// The `policy_service` module.
 pub mod policy_service;
-/// Backward-compatibility prelude — glob-import point for domain-grouped types.
-pub mod prelude;
 /// The `refresh_token_service` module.
 pub mod refresh_token_service;
 /// The `registration_service` module.
