@@ -167,7 +167,12 @@ impl RendezvousStoreApi for MockRendezvousStore {
         let now = self.now().await;
         let guard = self.msc4108.lock().await;
         match guard.get(session_id) {
-            Some(row) if row.expires_at > now => Ok(Some((row.data.clone(), format!("\"{}\"", row.etag_raw), row.etag_raw.parse::<i64>().unwrap_or(0), row.expires_at))),
+            Some(row) if row.expires_at > now => Ok(Some((
+                row.data.clone(),
+                format!("\"{}\"", row.etag_raw),
+                row.etag_raw.parse::<i64>().unwrap_or(0),
+                row.expires_at,
+            ))),
             _ => Ok(None),
         }
     }
@@ -203,7 +208,11 @@ impl RendezvousStoreApi for MockRendezvousStore {
                 let new_etag_raw = now.to_string();
                 row.data = data.to_string();
                 row.etag_raw = new_etag_raw.clone();
-                Ok(Msc4108UpdateOutcome::Updated { new_etag: format!("\"{new_etag_raw}\""), updated_ts: now, expires_at })
+                Ok(Msc4108UpdateOutcome::Updated {
+                    new_etag: format!("\"{new_etag_raw}\""),
+                    updated_ts: now,
+                    expires_at,
+                })
             }
             _ => Ok(Msc4108UpdateOutcome::NotFound),
         }
@@ -259,7 +268,8 @@ fn rendezvous_message_serializes_type_field() {
 #[tokio::test]
 async fn create_session_returns_id_etag_and_expiry() {
     let store = MockRendezvousStore::new();
-    let (session_id, etag, _created_ts, expires_at) = store.create_msc4108_session("initial", MSC4108_TTL_MS).await.unwrap();
+    let (session_id, etag, _created_ts, expires_at) =
+        store.create_msc4108_session("initial", MSC4108_TTL_MS).await.unwrap();
 
     assert!(!session_id.is_empty(), "session id must be non-empty");
     assert!(etag.starts_with('"') && etag.ends_with('"'), "etag must be quoted, got: {etag}");
@@ -269,7 +279,8 @@ async fn create_session_returns_id_etag_and_expiry() {
 #[tokio::test]
 async fn get_after_create_returns_initial_data() {
     let store = MockRendezvousStore::new();
-    let (session_id, _etag, _created_ts, _expires) = store.create_msc4108_session("hello-world", MSC4108_TTL_MS).await.unwrap();
+    let (session_id, _etag, _created_ts, _expires) =
+        store.create_msc4108_session("hello-world", MSC4108_TTL_MS).await.unwrap();
 
     let result = store.get_msc4108_data(&session_id).await.unwrap();
     let (data, etag, _updated_ts, _expires) = result.expect("session must exist right after creation");
@@ -306,7 +317,8 @@ async fn update_returns_new_etag_and_advances_data() {
     };
     assert!(new_etag.starts_with('"') && new_etag.ends_with('"'));
 
-    let (data, etag, _updated_ts, _expires) = store.get_msc4108_data(&session_id).await.unwrap().expect("session still present");
+    let (data, etag, _updated_ts, _expires) =
+        store.get_msc4108_data(&session_id).await.unwrap().expect("session still present");
     assert_eq!(data, "v2");
     assert_eq!(etag, new_etag, "get must reflect the etag returned by update");
 }
@@ -330,15 +342,22 @@ async fn update_with_matching_if_match_succeeds() {
 #[tokio::test]
 async fn update_with_stale_if_match_returns_precondition_failed() {
     let store = MockRendezvousStore::new();
-    let (session_id, etag_v1, _created_ts, _expires) = store.create_msc4108_session("v1", MSC4108_TTL_MS).await.unwrap();
+    let (session_id, etag_v1, _created_ts, _expires) =
+        store.create_msc4108_session("v1", MSC4108_TTL_MS).await.unwrap();
 
     // First update bumps the etag to v2.
     let outcome_v2 = store.update_msc4108_data(&session_id, "v2", None).await.unwrap();
-    let etag_v2 = match outcome_v2 { Msc4108UpdateOutcome::Updated { new_etag, .. } => new_etag, _ => panic!() };
+    let etag_v2 = match outcome_v2 {
+        Msc4108UpdateOutcome::Updated { new_etag, .. } => new_etag,
+        _ => panic!(),
+    };
 
     // Now retry with the stale v1 etag — must fail with PreconditionFailed.
     let stale_result = store.update_msc4108_data(&session_id, "v3", Some(&etag_v1)).await.unwrap();
-    assert!(matches!(stale_result, Msc4108UpdateOutcome::PreconditionFailed { .. }), "update with a stale etag must return PreconditionFailed");
+    assert!(
+        matches!(stale_result, Msc4108UpdateOutcome::PreconditionFailed { .. }),
+        "update with a stale etag must return PreconditionFailed"
+    );
 
     // The current v2 etag still works.
     let ok_result = store.update_msc4108_data(&session_id, "v3", Some(&etag_v2)).await.unwrap();
@@ -349,13 +368,17 @@ async fn update_with_stale_if_match_returns_precondition_failed() {
 async fn update_with_if_match_on_missing_session_returns_not_found() {
     let store = MockRendezvousStore::new();
     let result = store.update_msc4108_data("missing", "data", Some("\"1700000000000\"")).await.unwrap();
-    assert!(matches!(result, Msc4108UpdateOutcome::NotFound), "conditional update on a missing session must return NotFound");
+    assert!(
+        matches!(result, Msc4108UpdateOutcome::NotFound),
+        "conditional update on a missing session must return NotFound"
+    );
 }
 
 #[tokio::test]
 async fn delete_removes_session() {
     let store = MockRendezvousStore::new();
-    let (session_id, _etag, _created_ts, _expires) = store.create_msc4108_session("doomed", MSC4108_TTL_MS).await.unwrap();
+    let (session_id, _etag, _created_ts, _expires) =
+        store.create_msc4108_session("doomed", MSC4108_TTL_MS).await.unwrap();
 
     let removed = store.delete_msc4108_session(&session_id).await.unwrap();
     assert!(removed, "delete must report whether a row existed");
@@ -377,7 +400,8 @@ async fn full_lifecycle_create_get_update_get_delete() {
     let store = MockRendezvousStore::new();
 
     // create
-    let (session_id, etag_v1, _created_ts, expires) = store.create_msc4108_session("payload-1", MSC4108_TTL_MS).await.unwrap();
+    let (session_id, etag_v1, _created_ts, expires) =
+        store.create_msc4108_session("payload-1", MSC4108_TTL_MS).await.unwrap();
     assert!(expires > current_timestamp_millis());
 
     // get → initial payload + etag
@@ -424,7 +448,8 @@ async fn multiple_sessions_are_independent() {
 #[tokio::test]
 async fn unconditional_update_overwrites_stale_etag_without_check() {
     let store = MockRendezvousStore::new();
-    let (session_id, etag_v1, _created_ts, _expires) = store.create_msc4108_session("v1", MSC4108_TTL_MS).await.unwrap();
+    let (session_id, etag_v1, _created_ts, _expires) =
+        store.create_msc4108_session("v1", MSC4108_TTL_MS).await.unwrap();
 
     // Unconditional update (if_match=None) succeeds even though we never read v1's etag.
     let new_etag = match store.update_msc4108_data(&session_id, "v2", None).await.unwrap() {

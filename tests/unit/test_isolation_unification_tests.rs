@@ -619,9 +619,7 @@ fn the_seed_allowlist_matches_what_the_baseline_seeds() {
     for (name, sql) in [("00000000_unified_schema_v11.sql", V11), ("00000001_extensions_v10.sql", EXTENSIONS)] {
         for statement in insert_statements(sql) {
             let rest = statement.split_once("INTO").map_or_else(
-                || {
-                    panic!("{name}: INSERT statement without INTO: {}", &statement[..80.min(statement.len())])
-                },
+                || panic!("{name}: INSERT statement without INTO: {}", &statement[..80.min(statement.len())]),
                 |(_, rest)| rest,
             );
             let table = rest

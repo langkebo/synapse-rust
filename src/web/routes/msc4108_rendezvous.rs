@@ -66,12 +66,13 @@ fn build_rendezvous_url(ctx: &AuthContext, session_id: &str) -> String {
 ///
 /// Request body: `text/plain` (initial encrypted payload from the SDK)
 /// Response: `{"url": "..."}` + **ETag/Expires/Last-Modified/Cache-Control/Pragma** headers
-async fn create_session(State(ctx): State<AuthContext>, headers: HeaderMap, body: String) -> Result<Response, ApiError> {
+async fn create_session(
+    State(ctx): State<AuthContext>,
+    headers: HeaderMap,
+    body: String,
+) -> Result<Response, ApiError> {
     // Validate Content-Type per MSC4108 (required, must be text/plain).
-    let content_type = headers
-        .get(header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+    let content_type = headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("");
     if content_type.is_empty() {
         return Err(ApiError::missing_param("Content-Type header is required".to_string()));
     }
@@ -149,7 +150,8 @@ async fn get_session(
                         (header::PRAGMA, "no-cache"),
                     ],
                     Body::empty(),
-                ).into_response());
+                )
+                    .into_response());
             }
         }
     }
@@ -165,7 +167,8 @@ async fn get_session(
             (header::CONTENT_TYPE, "text/plain"),
         ],
         Body::from(data),
-    ).into_response())
+    )
+        .into_response())
 }
 
 /// PUT /rendezvous/{session_id} — Update session data.
@@ -182,10 +185,7 @@ async fn update_session(
     body: String,
 ) -> Result<Response, ApiError> {
     // Validate Content-Type per MSC4108 (required, must be text/plain).
-    let content_type = headers
-        .get(header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+    let content_type = headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("");
     if content_type.is_empty() {
         return Err(ApiError::missing_param("Content-Type header is required".to_string()));
     }
@@ -223,7 +223,8 @@ async fn update_session(
                     (header::CONTENT_TYPE, "text/plain"),
                 ],
                 Body::empty(),
-            ).into_response())
+            )
+                .into_response())
         }
         Msc4108UpdateOutcome::PreconditionFailed { current_etag, updated_ts, expires_at } => {
             // 412 with unstable errcode prefix per MSC4108 §Unstable prefix.
@@ -244,7 +245,8 @@ async fn update_session(
                     (header::PRAGMA, "no-cache"),
                 ],
                 body,
-            ).into_response())
+            )
+                .into_response())
         }
         Msc4108UpdateOutcome::NotFound => {
             Err(ApiError::not_found("Rendezvous session not found or expired".to_string()))

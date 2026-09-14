@@ -513,7 +513,7 @@ async fn prune_isolation_templates(conn: &mut sqlx::PgConnection, keep: &str) ->
             .fetch_one(&mut *conn)
             .await
             .map_err(|error| format!("failed to check readiness marker for {schema}: {error}"))?;
-        
+
         let eligible_to_drop = if !table_exists {
             // No marker = incomplete build, safe to drop while holding the lock
             true
@@ -525,7 +525,7 @@ async fn prune_isolation_templates(conn: &mut sqlx::PgConnection, keep: &str) ->
                 .fetch_one(&mut *conn)
                 .await
                 .map_err(|error| format!("failed to count marker rows for {schema}: {error}"))?;
-            
+
             if row_count == 0 {
                 // Legacy template: marker table exists but has no rows, so its
                 // age is unknowable — and it may be mid-clone by a pre-upgrade
@@ -541,18 +541,21 @@ async fn prune_isolation_templates(conn: &mut sqlx::PgConnection, keep: &str) ->
                 false
             } else {
                 // Fresh marker with at least one row — check age
-                let stale_secs: Option<i64> = sqlx::query_scalar(
-                    &format!("SELECT EXTRACT(EPOCH FROM age(now(), max(built_at)))::BIGINT FROM {full_table}")
-                ).fetch_one(&mut *conn).await.map_err(|error| format!("failed to read marker age for {schema}: {error}"))?;
-                
+                let stale_secs: Option<i64> = sqlx::query_scalar(&format!(
+                    "SELECT EXTRACT(EPOCH FROM age(now(), max(built_at)))::BIGINT FROM {full_table}"
+                ))
+                .fetch_one(&mut *conn)
+                .await
+                .map_err(|error| format!("failed to read marker age for {schema}: {error}"))?;
+
                 stale_secs.map(|secs| secs > TEMPLATE_PRUNE_GRACE.as_secs() as i64).unwrap_or(false)
             }
         };
-        
+
         if !eligible_to_drop {
             continue;
         }
-        
+
         match sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#)).execute(&mut *conn).await {
             Ok(_) => dropped.push(schema),
             Err(error) => {
@@ -639,9 +642,9 @@ async fn build_template(conn: &mut sqlx::PgConnection, template: &str, baseline_
     // row the readiness table is empty, `max` is NULL, and the age-based
     // prune would treat the fresh template as stale and immediately drop it.
     sqlx::query(&format!(r#"INSERT INTO "{}"."{TEMPLATE_READY_TABLE}" DEFAULT VALUES"#, template))
-    .execute(&mut *conn)
-    .await
-    .map_err(|e| format!("failed to seed the readiness marker of template {template}: {e}"))?;
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| format!("failed to seed the readiness marker of template {template}: {e}"))?;
 
     Ok(())
 }
@@ -2408,12 +2411,11 @@ CREATE TABLE IF NOT EXISTS unify_short_b (id bigint PRIMARY KEY);
 
         // Build a complete template first.
         let _ = ensure_template_schema(&url, baseline).await.expect("build template");
-        let has_rows: i64 = sqlx::query_scalar(&format!(
-            "SELECT count(*) FROM \"{template}\".\"{TEMPLATE_READY_TABLE}\""
-        ))
-        .fetch_one(&admin)
-        .await
-        .expect("count marker rows after build");
+        let has_rows: i64 =
+            sqlx::query_scalar(&format!("SELECT count(*) FROM \"{template}\".\"{TEMPLATE_READY_TABLE}\""))
+                .fetch_one(&admin)
+                .await
+                .expect("count marker rows after build");
         assert!(has_rows > 0, "a freshly built template must have at least one marker row, got {has_rows}");
 
         // Simulate a legacy template: DELETE all rows from the marker table.
@@ -2427,18 +2429,14 @@ CREATE TABLE IF NOT EXISTS unify_short_b (id bigint PRIMARY KEY);
         // Now run prune while keeping the same template as the "protected" one.
         // The prune function should detect row_count==0, backfill a row, and spare it.
         let dropped = prune_stale_isolation_templates(&admin, &template).await.expect("prune");
-        assert!(
-            !dropped.iter().any(|s| s == &template),
-            "the legacy template must not be dropped, got {dropped:?}"
-        );
+        assert!(!dropped.iter().any(|s| s == &template), "the legacy template must not be dropped, got {dropped:?}");
 
         // Verify it was backfilled.
-        let backfilled: i64 = sqlx::query_scalar(&format!(
-            "SELECT count(*) FROM \"{template}\".\"{TEMPLATE_READY_TABLE}\""
-        ))
-        .fetch_one(&admin)
-        .await
-        .expect("count marker rows after prune");
+        let backfilled: i64 =
+            sqlx::query_scalar(&format!("SELECT count(*) FROM \"{template}\".\"{TEMPLATE_READY_TABLE}\""))
+                .fetch_one(&admin)
+                .await
+                .expect("count marker rows after prune");
         assert!(backfilled > 0, "prune must have backfilled a marker row, got {backfilled}");
 
         // Cleanup

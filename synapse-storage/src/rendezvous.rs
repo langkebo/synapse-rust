@@ -219,10 +219,7 @@ pub trait RendezvousStoreApi: Send + Sync {
     /// See [`get_msc4108_data`].
     ///
     /// Returns `(data, etag, updated_ts, expires_at)` or None if not found/expired.
-    async fn get_msc4108_data(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<(String, String, i64, i64)>, sqlx::Error>;
+    async fn get_msc4108_data(&self, session_id: &str) -> Result<Option<(String, String, i64, i64)>, sqlx::Error>;
     /// See [`update_msc4108_data`].
     ///
     /// Distinguishes success / ETag mismatch / not-found via [`Msc4108UpdateOutcome`]
@@ -450,10 +447,7 @@ impl RendezvousStorage {
     /// Get MSC4108 session data. Returns `(data, etag, updated_ts, expires_at)`
     /// or None if not found/expired. `updated_ts`/`expires_at` feed the
     /// required `Last-Modified`/`Expires` response headers.
-    pub async fn get_msc4108_data(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<(String, String, i64, i64)>, sqlx::Error> {
+    pub async fn get_msc4108_data(&self, session_id: &str) -> Result<Option<(String, String, i64, i64)>, sqlx::Error> {
         let now = current_timestamp_millis();
         let row: Option<(serde_json::Value, Option<i64>, i64)> = sqlx::query_as(
             r"
@@ -599,10 +593,7 @@ impl RendezvousStoreApi for RendezvousStorage {
     ) -> Result<(String, String, i64, i64), sqlx::Error> {
         self.create_msc4108_session(initial_data, ttl_ms).await
     }
-    async fn get_msc4108_data(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<(String, String, i64, i64)>, sqlx::Error> {
+    async fn get_msc4108_data(&self, session_id: &str) -> Result<Option<(String, String, i64, i64)>, sqlx::Error> {
         self.get_msc4108_data(session_id).await
     }
     async fn update_msc4108_data(
