@@ -37,7 +37,12 @@ impl EventStorage {
     /// When `dry_run` is `true`, returns the count of events that *would* be
     /// deleted without actually removing any rows. This enables admin
     /// pre-flight inspection of a purge history operation.
-    pub async fn delete_events_before(&self, room_id: &str, timestamp: i64, dry_run: bool) -> Result<u64, sqlx::Error> {
+    pub async fn delete_remote_events_before(
+        &self,
+        room_id: &str,
+        timestamp: i64,
+        dry_run: bool,
+    ) -> Result<u64, sqlx::Error> {
         if dry_run {
             let count = self.count_events_before(room_id, timestamp).await?;
             return Ok(count as u64);
@@ -59,9 +64,9 @@ impl EventStorage {
     }
 
     /// Count historical events before the given timestamp that would be
-    /// purged by [`delete_events_before`]. Does not mutate state.
+    /// purged by [`delete_remote_events_before`]. Does not mutate state.
     ///
-    /// Applies the same security filter as `delete_events_before`: only
+    /// Applies the same security filter as `delete_remote_events_before`: only
     /// remote/federated events (origin != 'self') are counted, and
     /// `m.room.create` events are always excluded.
     pub async fn count_events_before(&self, room_id: &str, timestamp: i64) -> Result<i64, sqlx::Error> {

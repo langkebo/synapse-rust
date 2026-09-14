@@ -1,10 +1,9 @@
 // Push notification route layer tests.
 //
 // Covers the wire-level contracts exposed by `src/web/routes/push_notification.rs`:
-//   * Request body deserialization (RegisterDeviceBody / SendNotificationBody / CreateRuleBody)
+//   * Request body deserialization (RegisterDeviceBody / SendNotificationBody)
 //   * Query-string deserialization (ProcessQueueQuery / CleanupQuery)
-//   * Path-parameter deserialization (RulePath)
-//   * Response struct serialization + From<PushDevice> / From<PushRule> conversions
+//   * Response struct serialization + From<PushDevice> conversion
 //   * Route manifest contents (methods + paths + registered_by tag)
 //   * batch_size / days default + clamping semantics documented in handlers
 //
@@ -17,11 +16,10 @@
 use axum::http::Method;
 use serde_json::json;
 use synapse_rust::web::routes::push_notification::{
-    CleanupQuery, CreateRuleBody, DeviceResponse, ProcessQueueQuery, RegisterDeviceBody, RulePath, RuleResponse,
-    SendNotificationBody,
+    CleanupQuery, DeviceResponse, ProcessQueueQuery, RegisterDeviceBody, SendNotificationBody,
 };
 use synapse_rust::web::routes::route_ledger::RouteEntry;
-use synapse_storage::push_notification::{PushDevice, PushRule};
+use synapse_storage::push_notification::PushDevice;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Request body deserialization — RegisterDeviceBody
@@ -169,112 +167,10 @@ fn send_notification_body_rejects_missing_body() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Request body deserialization — CreateRuleBody
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn create_rule_body_deserializes_full_payload() {
-    let payload = json!({
-        "rule_id": "rule_1",
-        "scope": "global",
-        "kind": "override",
-        "priority": 5,
-        "conditions": [{"kind": "event_match", "key": "content.body", "pattern": "spam"}],
-        "actions": ["notify", {"set_tweak": "highlight", "value": true}],
-        "enabled": true
-    });
-
-    let body: CreateRuleBody = serde_json::from_value(payload).expect("full payload should deserialize");
-    assert_eq!(body.rule_id, "rule_1");
-    assert_eq!(body.scope, "global");
-    assert_eq!(body.kind, "override");
-    assert_eq!(body.priority, 5);
-    assert!(body.conditions.is_array());
-    assert!(body.actions.is_array());
-    assert!(body.enabled);
-}
-
-#[test]
-fn create_rule_body_rejects_missing_rule_id() {
-    let payload = json!({
-        "scope": "global",
-        "kind": "override",
-        "priority": 5,
-        "conditions": [],
-        "actions": [],
-        "enabled": true
-    });
-
-    let err = serde_json::from_value::<CreateRuleBody>(payload);
-    assert!(err.is_err(), "missing rule_id must fail deserialization");
-}
-
-#[test]
-fn create_rule_body_rejects_missing_scope() {
-    let payload = json!({
-        "rule_id": "r",
-        "kind": "override",
-        "priority": 5,
-        "conditions": [],
-        "actions": [],
-        "enabled": true
-    });
-
-    let err = serde_json::from_value::<CreateRuleBody>(payload);
-    assert!(err.is_err(), "missing scope must fail deserialization");
-}
-
-#[test]
-fn create_rule_body_rejects_missing_kind() {
-    let payload = json!({
-        "rule_id": "r",
-        "scope": "global",
-        "priority": 5,
-        "conditions": [],
-        "actions": [],
-        "enabled": true
-    });
-
-    let err = serde_json::from_value::<CreateRuleBody>(payload);
-    assert!(err.is_err(), "missing kind must fail deserialization");
-}
-
-#[test]
-fn create_rule_body_rejects_non_boolean_enabled() {
-    let payload = json!({
-        "rule_id": "r",
-        "scope": "global",
-        "kind": "override",
-        "priority": 5,
-        "conditions": [],
-        "actions": [],
-        "enabled": "yes"
-    });
-
-    let err = serde_json::from_value::<CreateRuleBody>(payload);
-    assert!(err.is_err(), "non-boolean enabled must fail deserialization");
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
-// Path parameter deserialization — RulePath
 // ─────────────────────────────────────────────────────────────────────────────
-
-#[test]
-fn rule_path_deserializes_three_segments() {
-    // Simulates axum's Path extractor capturing /{scope}/{kind}/{rule_id}
-    let raw = json!(["global", "override", "my.rule.v1"]);
-    let path: RulePath = serde_json::from_value(raw).expect("three-segment path should deserialize");
-    assert_eq!(path.scope, "global");
-    assert_eq!(path.kind, "override");
-    assert_eq!(path.rule_id, "my.rule.v1");
-}
-
-#[test]
-fn rule_path_rejects_missing_segments() {
-    let raw = json!(["global", "override"]);
-    let err = serde_json::from_value::<RulePath>(raw);
-    assert!(err.is_err(), "two-segment path must fail RulePath deserialization");
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Query parameter deserialization — ProcessQueueQuery / CleanupQuery
@@ -455,69 +351,7 @@ fn device_response_ignores_internal_only_fields() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Response struct — RuleResponse + From<PushRule>
 // ─────────────────────────────────────────────────────────────────────────────
-
-fn sample_push_rule() -> PushRule {
-    PushRule {
-        id: 7,
-        user_id: "@alice:localhost".into(),
-        rule_id: "rule_1".into(),
-        scope: "global".into(),
-        kind: "override".into(),
-        priority: 5,
-        priority_class: 5,
-        conditions: json!([{"kind": "event_match"}]),
-        actions: json!(["notify", {"set_tweak": "highlight"}]),
-        is_enabled: true,
-        is_default: false,
-        created_ts: 1_700_000_000_000,
-        updated_ts: None,
-        pattern: None,
-    }
-}
-
-#[test]
-fn rule_response_from_push_rule_maps_relevant_fields() {
-    let rule = sample_push_rule();
-    let resp = RuleResponse::from(rule);
-
-    assert_eq!(resp.rule_id, "rule_1");
-    assert_eq!(resp.scope, "global");
-    assert_eq!(resp.kind, "override");
-    assert_eq!(resp.priority, 5);
-    assert!(resp.conditions.is_array());
-    assert!(resp.actions.is_array());
-    assert!(resp.enabled);
-}
-
-#[test]
-fn rule_response_serializes_expected_json_shape() {
-    let rule = sample_push_rule();
-    let resp = RuleResponse::from(rule);
-    let json_value = serde_json::to_value(&resp).expect("RuleResponse should serialize");
-
-    assert_eq!(json_value["rule_id"], "rule_1");
-    assert_eq!(json_value["scope"], "global");
-    assert_eq!(json_value["kind"], "override");
-    assert_eq!(json_value["priority"], 5);
-    assert_eq!(json_value["enabled"], true);
-    assert!(json_value["conditions"].is_array());
-    assert!(json_value["actions"].is_array());
-}
-
-#[test]
-fn rule_response_renames_is_enabled_to_enabled() {
-    // Storage exposes `is_enabled`; the wire contract uses `enabled`.
-    let rule = sample_push_rule();
-    let resp = RuleResponse::from(rule);
-    let json_value = serde_json::to_value(&resp).expect("RuleResponse should serialize");
-    let obj = json_value.as_object().expect("serialized value should be an object");
-    assert!(obj.contains_key("enabled"), "rule response should expose `enabled`");
-    assert!(!obj.contains_key("is_enabled"), "rule response must not expose `is_enabled`");
-    assert!(!obj.contains_key("is_default"), "is_default must not leak into response");
-    assert!(!obj.contains_key("user_id"), "user_id must not leak into response");
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Route manifest — every endpoint registered with correct method/path/tag
@@ -532,11 +366,8 @@ fn push_notification_route_manifest_contains_all_endpoints() {
 
     let expected: &[(Method, &str)] = &[
         (Method::DELETE, "/_matrix/client/r0/push/devices/{device_id}"),
-        (Method::DELETE, "/_matrix/client/r0/push/rules/{scope}/{kind}/{rule_id}"),
         (Method::GET, "/_matrix/client/r0/push/devices"),
-        (Method::GET, "/_matrix/client/r0/push/rules"),
         (Method::POST, "/_matrix/client/r0/push/devices"),
-        (Method::POST, "/_matrix/client/r0/push/rules"),
         (Method::POST, "/_matrix/client/r0/push/send"),
         (Method::POST, "/_synapse/admin/v1/push/cleanup"),
         (Method::POST, "/_synapse/admin/v1/push/process"),

@@ -24,8 +24,6 @@ pub mod background_job;
 pub mod canonical_json;
 /// Module `claims`.
 pub mod claims;
-/// Module `collections`.
-pub mod collections;
 /// Module `concurrency`.
 pub mod concurrency;
 /// Module `config`.
@@ -34,8 +32,6 @@ pub mod config;
 pub mod constants;
 /// Module `crypto`.
 pub mod crypto;
-/// Module `early_exit`.
-pub mod early_exit;
 /// Module `error`.
 pub mod error;
 /// Module `event_models`.
@@ -66,8 +62,6 @@ pub mod media_locator;
 pub mod membership_transition;
 /// Module `metrics`.
 pub mod metrics;
-/// Module `nonce_cache`.
-pub mod nonce_cache;
 /// Module `password_hash_pool`.
 pub mod password_hash_pool;
 /// Module `push_rules`.
@@ -140,10 +134,6 @@ pub use canonical_json::{
 /// Re-exported item.
 pub use claims::{Claims, ClaimsBuilder};
 /// Re-exported item.
-pub use collections::{
-    hashmap_with_capacity, hashset_with_capacity, vec_with_capacity, HashMapBuilder, HashSetBuilder, VecBuilder,
-};
-/// Re-exported item.
 pub use concurrency::{ConcurrencyController, ConcurrencyLimiter, ConcurrencyPermit};
 /// Re-exported item.
 pub use config::{
@@ -180,8 +170,6 @@ pub use crypto::{
     verify_password, verify_password_legacy, verify_token_hash, ServerSigningKey,
 };
 /// Re-exported item.
-pub use early_exit::{early_continue, early_exit, early_return, EarlyExit};
-/// Re-exported item.
 pub use error::{init_error_metrics, ApiError, ApiErrorCause, ApiErrorKind, ApiResponse, ApiResult, MatrixErrorCode};
 /// Re-exported item.
 pub use event_utils::{event_to_json, event_to_json_without_age, events_to_json, events_to_json_without_age};
@@ -210,8 +198,6 @@ pub use media_locator::MediaLocator;
 pub use membership_transition::{is_legal, JoinRule, TransitionCtx, TransitionError};
 /// Re-exported item.
 pub use metrics::{Counter, Gauge, Histogram, Metric, MetricInventory, MetricsCollector, MetricsError};
-/// Re-exported item.
-pub use nonce_cache::{FederationNonceCache, DEFAULT_TIMESTAMP_SKEW, NONCE_CACHE_CAPACITY, NONCE_TTL};
 /// Re-exported item.
 pub use password_hash_pool::{
     get_pool_metrics, get_pool_status, PasswordHashError, PasswordHashMetrics, PasswordHashPool,

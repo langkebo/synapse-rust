@@ -862,31 +862,6 @@ impl UserStorage {
         Ok(result.rows_affected() > 0)
     }
 
-    /// See [`set_account_data`].
-    pub async fn set_account_data(
-        &self,
-        user_id: &str,
-        event_type: &str,
-        content: &serde_json::Value,
-    ) -> Result<(), sqlx::Error> {
-        let content_str = serde_json::to_string(content).unwrap_or_default();
-        let now: i64 = current_timestamp_millis();
-        sqlx::query(
-            r"
-            INSERT INTO user_account_data (user_id, event_type, content, created_ts)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (user_id, event_type) DO UPDATE SET content = EXCLUDED.content, created_ts = EXCLUDED.created_ts
-            ",
-        )
-        .bind(user_id)
-        .bind(event_type)
-        .bind(content_str)
-        .bind(now)
-        .execute(&*self.pool)
-        .await?;
-        Ok(())
-    }
-
     /// See [`get_account_data_content`].
     pub async fn get_account_data_content(
         &self,

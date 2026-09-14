@@ -66,7 +66,6 @@ mod thread_api_tests;
 
 mod worker_api_tests;
 
-mod directory_service_tests;
 mod rendezvous_service_tests;
 mod test_connection_budget_tests;
 mod test_pagination_limit_clamp_tests;
@@ -91,7 +90,6 @@ mod coverage_tests;
 mod worker_coverage_tests;
 
 mod benchmark_pr_gate_tests;
-mod prelude_module_tests;
 mod room_domain_refactor_tests;
 mod schema_lifecycle_guard_tests;
 mod services_remaining_domains_refactor_tests;

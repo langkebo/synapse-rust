@@ -217,9 +217,7 @@ retention:
       batch_size: 500
   lifecycle_cleanup_enabled: true
   lifecycle_cleanup_interval_secs: 900
-  cleanup_batch_size: 500
   audit_retention_days: 30
-  queue_retention_days: 7
 
 telemetry:
   enabled: true

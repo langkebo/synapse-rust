@@ -643,36 +643,6 @@ async fn test_upgrade_guest_account() {
     let _ = storage.delete_user(&user_id).await;
 }
 
-// ── account_data (set / get / upsert) ──────────────────────────
-
-#[tokio::test]
-async fn test_set_account_data_and_get_via_set_table() {
-    let (_iso, pool) = test_pool().await;
-    let cache = test_cache();
-    let storage = UserStorage::new(&pool, cache);
-    let user_id = format!("@acctset_{}:example.com", uuid::Uuid::new_v4());
-    let event_type = format!("m.set_{}", uuid::Uuid::new_v4().simple());
-    let _ = storage.delete_user(&user_id).await;
-    storage.create_user(&user_id, "acctsetuser", None, false).await.unwrap();
-
-    // set_account_data writes to user_account_data table.
-    storage
-        .set_account_data(&user_id, &event_type, &serde_json::json!({"k": "v"}))
-        .await
-        .expect("set_account_data should succeed");
-    // Verify the row exists in the user_account_data table.
-    let count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM user_account_data WHERE user_id = $1 AND event_type = $2")
-            .bind(&user_id)
-            .bind(&event_type)
-            .fetch_one(&*pool)
-            .await
-            .expect("verify count should succeed");
-    assert!(count >= 1);
-
-    let _ = storage.delete_user(&user_id).await;
-}
-
 #[tokio::test]
 async fn test_upsert_and_get_account_data_content() {
     let (_iso, pool) = test_pool().await;

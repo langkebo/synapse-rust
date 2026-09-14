@@ -156,7 +156,7 @@ cargo run --release
 - 代码审查报告（最新）：`artifacts/code_review_report_2026-08-11.md`
 - 文档索引：`docs/INDEX.md`
 - 测试语义与 CI 门禁：`TESTING.md`
-- API 文档：启用 `openapi-docs` feature 后访问 `/_swagger`（Swagger UI）或 `/_api-doc/openapi.json`（OpenAPI JSON）
+- API 文档：由路由 ledger 生成，见 `docs/openapi/client.yaml`（用 `scripts/api_test/generate_openapi.py` 重新生成）
 - 数据库迁移指引：`migrations/README.md`
 
 ## 私密聊天功能集成指南 (Private Chat Features)

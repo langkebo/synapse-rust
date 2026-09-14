@@ -1,4 +1,3 @@
-use chrono::Utc;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -44,20 +43,6 @@ pub struct ScheduledTasks {
 }
 
 impl ScheduledTasks {
-    /// See [`new`].
-    /// See [`new`].
-    pub fn new(database: Arc<Database>) -> Self {
-        // Backwards-compatible constructor: reads no Config, uses hardcoded defaults.
-        // New code should use [`Self::from_config`].
-        Self::from_parts(
-            database,
-            Duration::from_secs(DEFAULT_HEALTH_CHECK_INTERVAL_SECS),
-            Duration::from_secs(DEFAULT_PERFORMANCE_CHECK_INTERVAL_SECS),
-            Duration::from_secs(DEFAULT_INTEGRITY_CHECK_INTERVAL_SECS),
-            Duration::from_secs(DEFAULT_MAINTENANCE_INTERVAL_SECS),
-        )
-    }
-
     /// Construct [`ScheduledTasks`] using intervals from [`ServerConfig`].
     ///
     /// A zero / unset value in config falls back to the historical default.
@@ -391,81 +376,5 @@ impl ScheduledTasks {
         let pool = self.database.pool().clone();
         let maintenance = DatabaseMaintenance::new(pool);
         maintenance.perform_maintenance().await.map_err(|e| e.to_string())
-    }
-}
-
-/// The `TaskMetricsCollector` struct.
-pub struct TaskMetricsCollector {
-    scheduled_tasks: Arc<ScheduledTasks>,
-}
-
-impl TaskMetricsCollector {
-    /// See [`new`].
-    /// See [`new`].
-    pub fn new(scheduled_tasks: Arc<ScheduledTasks>) -> Self {
-        Self { scheduled_tasks }
-    }
-
-    /// See [`collect_all`].
-    /// See [`collect_all`].
-    pub async fn collect_all(&self) -> CollectedMetrics {
-        let health = self.scheduled_tasks.get_last_health_status().await;
-        let performance = self.scheduled_tasks.get_last_performance_metrics().await;
-        let integrity = self.scheduled_tasks.get_last_integrity_report().await;
-
-        CollectedMetrics {
-            timestamp: Utc::now(),
-            health_status: health,
-            performance_metrics: performance,
-            integrity_report: integrity,
-        }
-    }
-}
-
-/// The `CollectedMetrics` struct.
-#[derive(Clone, Debug)]
-pub struct CollectedMetrics {
-    /// The `timestamp` field.
-    pub timestamp: chrono::DateTime<Utc>,
-    /// The `health_status` field.
-    pub health_status: Option<DatabaseHealthStatus>,
-    /// The `performance_metrics` field.
-    pub performance_metrics: Option<PerformanceMetrics>,
-    /// The `integrity_report` field.
-    pub integrity_report: Option<DataIntegrityReport>,
-}
-
-impl CollectedMetrics {
-    /// See [`to_json`].
-    /// See [`to_json`].
-    pub fn to_json(&self) -> serde_json::Value {
-        serde_json::json!({
-            "timestamp": self.timestamp.to_rfc3339(),
-            "health": self.health_status.as_ref().map(|h| serde_json::json!({
-                "is_healthy": h.is_healthy,
-                "connection_pool": serde_json::json!({
-                    "total_connections": h.connection_pool_status.total_connections,
-                    "active_connections": h.connection_pool_status.busy_connections,
-                    "idle_connections": h.connection_pool_status.idle_connections,
-                    "utilization_percentage": h.connection_pool_status.connection_utilization,
-                }),
-                "last_checked": h.last_checked.to_rfc3339(),
-            })),
-            "performance": self.performance_metrics.as_ref().map(|p| serde_json::json!({
-                "average_query_time_ms": p.average_query_time_ms,
-                "slow_queries_count": p.slow_queries_count,
-                "total_queries": p.total_queries,
-                "transactions_per_second": p.transactions_per_second,
-                "cache_hit_ratio": p.cache_hit_ratio,
-                "deadlock_count": p.deadlock_count,
-            })),
-            "integrity": self.integrity_report.as_ref().map(|i| serde_json::json!({
-                "overall_score": i.overall_integrity_score,
-                "foreign_key_violations": i.foreign_key_violations.len(),
-                "orphaned_records": i.orphaned_records.iter().map(|o| o.orphan_count).sum::<i64>(),
-                "duplicate_entries": i.duplicate_entries.len(),
-                "check_timestamp": i.check_timestamp.to_rfc3339(),
-            })),
-        })
     }
 }

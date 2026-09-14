@@ -1,9 +1,0 @@
-ALTER TABLE room_directory DROP COLUMN IF EXISTS name;
-ALTER TABLE room_directory DROP COLUMN IF EXISTS topic;
-ALTER TABLE room_directory DROP COLUMN IF EXISTS avatar_url;
-ALTER TABLE room_directory DROP COLUMN IF EXISTS canonical_alias;
-ALTER TABLE room_directory DROP COLUMN IF EXISTS join_rule;
-ALTER TABLE room_directory DROP COLUMN IF EXISTS world_readable;
-ALTER TABLE room_directory DROP COLUMN IF EXISTS guest_can_join;
-ALTER TABLE room_directory DROP COLUMN IF EXISTS member_count;
-ALTER TABLE room_directory DROP COLUMN IF EXISTS updated_ts;

@@ -3,7 +3,6 @@
 //! synapse-cache: caching, rate limiting, and circuit-breaking primitives.
 //!
 //! Submodules:
-//! - [`query_cache`]: in-process namespace cache (room / user / event / device / token).
 //! - [`circuit_breaker`]: token-bucket circuit breaker for backend protection.
 //! - [`federation_signature_cache`]: caches federation signature verification results.
 //! - [`invalidation`]: Redis Pub/Sub fan-out for cross-instance cache invalidation.
@@ -33,8 +32,6 @@ pub mod circuit_breaker;
 pub mod federation_signature_cache;
 /// Cross-instance cache invalidation over Redis Pub/Sub.
 pub mod invalidation;
-/// In-process per-namespace query cache.
-pub mod query_cache;
 /// Rate-limit metrics collection.
 pub mod rate_limit_metrics;
 /// Centralised cache-key prefixes and TTLs.
@@ -63,7 +60,6 @@ pub use invalidation::{
 };
 pub use local::LocalCache;
 pub use manager::{CacheManager, RateLimitDecision};
-pub use query_cache::{CacheEntry, CacheStats, QueryCache, QueryCacheConfig};
 pub use rate_limit_metrics::RateLimitMetrics;
 pub use remote::RedisCache;
 pub use strategy::{CacheKeyBuilder, CacheTtl};

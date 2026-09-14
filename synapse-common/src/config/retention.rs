@@ -37,17 +37,9 @@ pub struct RetentionConfig {
     #[serde(default = "default_retention_lifecycle_interval_secs")]
     pub lifecycle_cleanup_interval_secs: u64,
 
-    /// Lifecycle cleanup batch size
-    #[serde(default = "default_retention_cleanup_batch_size")]
-    pub cleanup_batch_size: u32,
-
     /// Audit event retention days
     #[serde(default = "default_retention_audit_retention_days")]
     pub audit_retention_days: u64,
-
-    /// Completed cleanup queue record retention days
-    #[serde(default = "default_retention_queue_retention_days")]
-    pub queue_retention_days: u64,
 }
 
 /// Retention policy
@@ -94,16 +86,8 @@ fn default_retention_lifecycle_interval_secs() -> u64 {
     300
 }
 
-fn default_retention_cleanup_batch_size() -> u32 {
-    100
-}
-
 fn default_retention_audit_retention_days() -> u64 {
     90
-}
-
-fn default_retention_queue_retention_days() -> u64 {
-    30
 }
 
 impl Default for RetentionConfig {
@@ -116,9 +100,7 @@ impl Default for RetentionConfig {
             purge_jobs: default_retention_purge_jobs(),
             lifecycle_cleanup_enabled: default_retention_lifecycle_cleanup_enabled(),
             lifecycle_cleanup_interval_secs: default_retention_lifecycle_interval_secs(),
-            cleanup_batch_size: default_retention_cleanup_batch_size(),
             audit_retention_days: default_retention_audit_retention_days(),
-            queue_retention_days: default_retention_queue_retention_days(),
         }
     }
 }
@@ -136,9 +118,7 @@ mod tests {
         assert!(config.allowed_lifetime_max.is_none());
         assert!(config.lifecycle_cleanup_enabled);
         assert_eq!(config.lifecycle_cleanup_interval_secs, 300);
-        assert_eq!(config.cleanup_batch_size, 100);
         assert_eq!(config.audit_retention_days, 90);
-        assert_eq!(config.queue_retention_days, 30);
     }
 
     #[test]

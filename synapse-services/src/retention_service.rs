@@ -29,10 +29,6 @@ pub struct DataLifecycleCleanupSummary {
     pub expired_uploads_deleted: u64,
     /// The `expired_audit_events_deleted` field.
     pub expired_audit_events_deleted: u64,
-    /// The `cleanup_queue_items_processed` field.
-    pub cleanup_queue_items_processed: u64,
-    /// The `cleanup_queue_rows_pruned` field.
-    pub cleanup_queue_rows_pruned: u64,
     /// The `failed_tasks` field.
     pub failed_tasks: u64,
 }
@@ -56,8 +52,6 @@ struct RetentionLifecycleMetrics {
     beacons_deleted_total: Counter,
     uploads_deleted_total: Counter,
     audit_events_deleted_total: Counter,
-    queue_processed_total: Counter,
-    queue_pruned_total: Counter,
     last_run_ts: Gauge,
     last_failure_ts: Gauge,
     last_duration_ms: Gauge,
@@ -66,8 +60,6 @@ struct RetentionLifecycleMetrics {
     last_beacons_deleted: Gauge,
     last_uploads_deleted: Gauge,
     last_audit_events_deleted: Gauge,
-    last_queue_processed: Gauge,
-    last_queue_pruned: Gauge,
     cycle_duration_ms: Histogram,
 }
 
@@ -81,8 +73,6 @@ impl RetentionLifecycleMetrics {
             uploads_deleted_total: metrics.register_counter("retention_lifecycle_uploads_deleted_total".to_string()),
             audit_events_deleted_total: metrics
                 .register_counter("retention_lifecycle_audit_events_deleted_total".to_string()),
-            queue_processed_total: metrics.register_counter("retention_lifecycle_queue_processed_total".to_string()),
-            queue_pruned_total: metrics.register_counter("retention_lifecycle_queue_pruned_total".to_string()),
             last_run_ts: metrics.register_gauge("retention_lifecycle_last_run_ts".to_string()),
             last_failure_ts: metrics.register_gauge("retention_lifecycle_last_failure_ts".to_string()),
             last_duration_ms: metrics.register_gauge("retention_lifecycle_last_duration_ms".to_string()),
@@ -92,8 +82,6 @@ impl RetentionLifecycleMetrics {
             last_uploads_deleted: metrics.register_gauge("retention_lifecycle_last_uploads_deleted".to_string()),
             last_audit_events_deleted: metrics
                 .register_gauge("retention_lifecycle_last_audit_events_deleted".to_string()),
-            last_queue_processed: metrics.register_gauge("retention_lifecycle_last_queue_processed".to_string()),
-            last_queue_pruned: metrics.register_gauge("retention_lifecycle_last_queue_pruned".to_string()),
             cycle_duration_ms: metrics.register_histogram("retention_lifecycle_cycle_duration_ms".to_string()),
         }
     }
@@ -104,8 +92,6 @@ impl RetentionLifecycleMetrics {
         self.beacons_deleted_total.inc_by(summary.expired_beacons_deleted);
         self.uploads_deleted_total.inc_by(summary.expired_uploads_deleted);
         self.audit_events_deleted_total.inc_by(summary.expired_audit_events_deleted);
-        self.queue_processed_total.inc_by(summary.cleanup_queue_items_processed);
-        self.queue_pruned_total.inc_by(summary.cleanup_queue_rows_pruned);
         self.last_run_ts.set(summary.completed_ts as f64);
         self.last_duration_ms.set(summary.duration_ms as f64);
         self.last_failed_tasks.set(summary.failed_tasks as f64);
@@ -113,8 +99,6 @@ impl RetentionLifecycleMetrics {
         self.last_beacons_deleted.set(summary.expired_beacons_deleted as f64);
         self.last_uploads_deleted.set(summary.expired_uploads_deleted as f64);
         self.last_audit_events_deleted.set(summary.expired_audit_events_deleted as f64);
-        self.last_queue_processed.set(summary.cleanup_queue_items_processed as f64);
-        self.last_queue_pruned.set(summary.cleanup_queue_rows_pruned as f64);
         self.cycle_duration_ms.observe(summary.duration_ms as f64);
 
         if summary.failed_tasks > 0 {
@@ -355,7 +339,7 @@ impl RetentionService {
         let cutoff_ts = current_timestamp_millis() - max_lifetime;
         let started_ts = current_timestamp_millis();
 
-        match self.storage.delete_events_before(room_id, cutoff_ts).await {
+        match self.storage.delete_local_messages_before(room_id, cutoff_ts).await {
             Ok(deleted_count) => {
                 info!(events_deleted = deleted_count, room_id = room_id, "Retention cleanup completed");
 
@@ -380,41 +364,6 @@ impl RetentionService {
         }
     }
 
-    /// See [`process_pending_cleanups`].
-    #[instrument(skip(self))]
-    pub async fn process_pending_cleanups(&self, _limit: i64) -> Result<usize, ApiError> {
-        // No-op: cleanup queue table has been removed
-        Ok(0)
-    }
-
-    /// See [`schedule_room_cleanup`].
-    #[instrument(skip(self))]
-    pub async fn schedule_room_cleanup(&self, room_id: &str) -> Result<i64, ApiError> {
-        info!(room_id = room_id, "Retention cleanup scheduled (no-op, queue table removed)");
-        Ok(0)
-    }
-
-    /// See [`get_stats`].
-    #[instrument(skip(self))]
-    pub async fn get_stats(&self, _room_id: &str) -> Result<Option<RetentionStats>, ApiError> {
-        // No-op: cleanup queue table has been removed
-        Ok(None)
-    }
-
-    /// See [`get_cleanup_logs`].
-    #[instrument(skip(self))]
-    pub async fn get_cleanup_logs(&self, _room_id: &str, _limit: i64) -> Result<Vec<RetentionCleanupLog>, ApiError> {
-        // No-op: cleanup queue table has been removed
-        Ok(vec![])
-    }
-
-    /// See [`get_deleted_events`].
-    #[instrument(skip(self))]
-    pub async fn get_deleted_events(&self, _room_id: &str, _since_ts: i64) -> Result<Vec<DeletedEventIndex>, ApiError> {
-        // No-op: cleanup queue table has been removed
-        Ok(vec![])
-    }
-
     /// See [`get_rooms_with_policies`].
     #[instrument(skip(self))]
     pub async fn get_rooms_with_policies(&self) -> Result<Vec<RoomRetentionPolicy>, ApiError> {
@@ -425,13 +374,6 @@ impl RetentionService {
             .map_err(|e| ApiError::internal_with_cause("Failed to get rooms with policies", e))?;
 
         Ok(policies)
-    }
-
-    /// See [`get_pending_cleanup_count`].
-    #[instrument(skip(self))]
-    pub async fn get_pending_cleanup_count(&self, _room_id: &str) -> Result<i64, ApiError> {
-        // No-op: cleanup queue table has been removed
-        Ok(0)
     }
 
     /// See [`is_event_expired`].
@@ -593,38 +535,6 @@ impl RetentionService {
             }
         }
 
-        match self.process_pending_cleanups(config.cleanup_batch_size as i64).await {
-            Ok(count) => {
-                summary.cleanup_queue_items_processed = count as u64;
-            }
-            Err(error) => {
-                summary.failed_tasks += 1;
-                warn!(
-                    error = %error,
-                    started_ts,
-                    cleanup_batch_size = config.cleanup_batch_size,
-                    failed_tasks = summary.failed_tasks,
-                    "Failed to process retention cleanup queue"
-                );
-            }
-        }
-
-        match self.prune_finished_cleanup_queue(config.queue_retention_days, started_ts) {
-            Ok(count) => {
-                summary.cleanup_queue_rows_pruned = count;
-            }
-            Err(error) => {
-                summary.failed_tasks += 1;
-                warn!(
-                    error = %error,
-                    started_ts,
-                    queue_retention_days = config.queue_retention_days,
-                    failed_tasks = summary.failed_tasks,
-                    "Failed to prune retention cleanup queue"
-                );
-            }
-        }
-
         summary.duration_ms = started.elapsed().as_millis() as i64;
         summary.completed_ts = current_timestamp_millis();
         self.lifecycle_metrics.observe_cycle(summary);
@@ -636,8 +546,6 @@ impl RetentionService {
             expired_beacons_deleted = result.expired_beacons_deleted,
             expired_uploads_deleted = result.expired_uploads_deleted,
             expired_audit_events_deleted = result.expired_audit_events_deleted,
-            cleanup_queue_items_processed = result.cleanup_queue_items_processed,
-            cleanup_queue_rows_pruned = result.cleanup_queue_rows_pruned,
             failed_tasks = result.failed_tasks,
             duration_ms = result.duration_ms,
             "Completed data lifecycle cleanup cycle"
@@ -659,11 +567,6 @@ impl RetentionService {
             .delete_events_before(cutoff_ts)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to cleanup audit events", e))
-    }
-
-    fn prune_finished_cleanup_queue(&self, _retention_days: u64, _now_ts: i64) -> Result<u64, ApiError> {
-        // No-op: cleanup queue table has been removed
-        Ok(0)
     }
 
     fn cutoff_ts_from_days(now_ts: i64, retention_days: u64) -> Option<i64> {

@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": false
   },
-  "entry_count": 1392,
+  "entry_count": 1389,
   "entries": [
     {
       "method": "GET",
@@ -1010,31 +1010,6 @@
       "registered_by": "push_notification",
       "path_params": [
         "device_id"
-      ],
-      "query_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/r0/push/rules",
-      "registered_by": "push_notification",
-      "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/r0/push/rules",
-      "registered_by": "push_notification",
-      "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "DELETE",
-      "path": "/_matrix/client/r0/push/rules/{scope}/{kind}/{rule_id}",
-      "registered_by": "push_notification",
-      "path_params": [
-        "scope",
-        "kind",
-        "rule_id"
       ],
       "query_params": []
     },

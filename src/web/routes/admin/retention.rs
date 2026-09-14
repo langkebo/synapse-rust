@@ -209,8 +209,6 @@ pub async fn get_retention_status(_admin: AdminUser, State(ctx): State<AdminCont
             "expired_beacons_deleted": summary.expired_beacons_deleted,
             "expired_uploads_deleted": summary.expired_uploads_deleted,
             "expired_audit_events_deleted": summary.expired_audit_events_deleted,
-            "cleanup_queue_items_processed": summary.cleanup_queue_items_processed,
-            "cleanup_queue_rows_pruned": summary.cleanup_queue_rows_pruned,
             "failed_tasks": summary.failed_tasks
         })
     });
@@ -219,9 +217,7 @@ pub async fn get_retention_status(_admin: AdminUser, State(ctx): State<AdminCont
         "server_policy_enabled": status.server_policy_enabled,
         "rooms_with_custom_policy": status.rooms_with_custom_policy,
         "lifecycle_cleanup_enabled": ctx.config.retention.lifecycle_cleanup_enabled,
-        "cleanup_batch_size": ctx.config.retention.cleanup_batch_size,
         "audit_retention_days": ctx.config.retention.audit_retention_days,
-        "queue_retention_days": ctx.config.retention.queue_retention_days,
         "last_run": last_run
     })))
 }
