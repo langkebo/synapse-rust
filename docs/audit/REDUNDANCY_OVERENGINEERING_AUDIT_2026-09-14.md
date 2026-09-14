@@ -56,21 +56,24 @@
 | 门禁 | 位置 | 状态 | 证据 |
 |---|---|---|---|
 | **fmt ratchet** | `scripts/check_fmt_ratchet.sh`，`ci.yml:214` | 审查时红（提交态）→ **已修复**（见§15-16连带） | 审查时实测 `fmt debt: current=2 baseline=0` → `exit=1`；offending 为 `tests/unit/test_isolation_unification_tests.rs:619`（2 处），`git diff HEAD` 为空 ⇒ 未格式化代码被提交。**已修复**：§15.2 与 §16 代码重构导致连带格式漂移，由 `cargo fmt --all` 修复并以 commit `b0e8ed9e` 提交至 main，脚本现输出 `fmt debt: current=0 baseline=0`（`exit=0`）。附录 C.5 原 `9f68b4b3` 仅修复工作树中独立 fmt 问题（未合并至 main），main 分支的修复为本轮。 |
-| supply-chain | `ci.yml:140` → `scripts/ci/supply_chain_gate.sh` | repo-sanity job 内**无 `cargo install`**；工具缺失时打印 "not installed, skipping" 后 `exit 0`（脚本 `:60-62,:94-96,:98`） | 标准 runner 上**恒绿**；真正执行的是 `ci.yml:662`（仅 PR/schedule/main-push）。develop 分支等于没有该门禁 |
-| performance-baseline | `drift-detection.yml:346-383` | 4 个目标迁移全部不存在（`git ls-files \| grep -i performance_indexes` 无输出） | 每个都 `::warning::Missing … (skipped)`，`failed=0` ⇒ **100% 空转** |
+| supply-chain | `ci.yml:140` → `scripts/ci/supply_chain_gate.sh` | 未动（需产品决策） | repo-sanity job 内**无 `cargo install`**；工具缺失时打印 "not installed, skipping" 后 `exit 0`（脚本 `:60-62,:94-96,:98`） ⇒ 标准 runner 上**恒绿**；真正执行的是 `ci.yml:662`（仅 PR/schedule/main-push）。develop 分支等于没有该门禁。 |
+| performance-baseline | `drift-detection.yml:346-383` | **已修复（第三批）** | **已移除**（commit `9e847a42`）：4 个目标迁移全部不存在（`git ls-files \| grep -i performance_indexes` 无输出），原本每轮 `::warning::Missing … (skipped)`、`failed=0` ⇒ **100% 空转**。第三批将整段 for 循环替换为一句 `::warning::` 声明"该门禁随冗余清理已移除"（commit `9e847a42`）。 |
+| schema-health-check | `schema-health-check.yml:73` | **已修复（第三批）** | **已修** `_v10.sql` → `_v11.sql`（commit `9e847a42`）：原本引用不存在文件、每次 push/PR **必红**；现指向实际存在的 `00000000_unified_schema_v11.sql`。 |
 | db-migration-gate | `db-migration-gate.yml` | `grep -c "P1-8 placeholder"` = **18** 个仅含 `echo '::warning::TODO…skipped'` 的步骤（真实 `cargo test` 行被注释掉） | 18 个步骤只产出警告 |
-| schema-health-check | `schema-health-check.yml:73` | `psql -f migrations/00000000_unified_schema_v10.sql`，而该文件不存在（实际只有 `_v11.sql`） | 每次 push/PR **必红**，因而长期被忽略 |
 | `cargo test --doc` | `TESTING.md:96,389,407,511` 仍按根 crate 口径记载 | 根 crate Rust doctest 块 = **0**（工作区 7 个块中 5 个 `ignore` + 2 个 `no_run`） | 空门禁；CI 已在 `ci.yml:275-277` 修正为 `--workspace`，文档未同步 |
 
-另有 `.github/workflows/ci.yml:747` 的**坏步骤**：
+另有 `.github/workflows/ci.yml:739` 的**坏步骤（已修复）**：
 
 ```yaml
+# 原状态（已修复）
 - name: Build wasm (if applicable)
   if: matrix.profile.name == 'all-extensions'
   run: cargo build --release --workspace --exclude synapse_worker --locked || true
 ```
 
 `--exclude` 接受 **package name**，而 workspace 内不存在名为 `synapse_worker` 的 package（`Cargo.toml:2` 的 package 名为 `synapse-rust`；`synapse_worker` 只是 `src/bin/synapse_worker.rs` 的 bin target 名）。该命令在 resolve 阶段即失败，并被 `|| true` 吞掉 —— **该步骤从未执行过任何构建**。步骤名 `Build wasm` 与命令（Rust release build）亦不符。**已独立核验**（`grep -n "^name" Cargo.toml */Cargo.toml` 无 `synapse_worker`）。
+
+**已修复**（commit `9e847a42`）：改为 `cargo build --release --bin synapse_worker --locked`（无 `|| true`），确保实际构建并能在失败时可见。
 
 > 推论（沿用 `AGENTS.md` 铁律 8）：check 类门禁若长期全绿（或长期必红），先怀疑它没在工作。本仓库同时存在这两种失效形态。
 
@@ -425,7 +428,7 @@ ServiceContainer (23 个顶层字段，嵌套分组)
 2. `git worktree remove .claude/worktrees/optimization+audit-2026-07`（365,355 行 Rust / 39 MB 陈旧副本）。
 3. 清理 `docker/deploy/backups/`（18 GB / 19 份副本）；决定 `docker/` 与 `docker/deploy/` 只保留一套（当前三份配置已漂移）。
 4. 从索引移除：`.scratch/`(97) 、`coverage/`(3)、`audit-verification-2026/`(5)、`project-audit-2026/`(5)、`.trae-html-share-packages/…zip`、`.superpowers/sdd/`；`docs/openapi/client.yaml` 改为 CI 生成不入库；补 `.gitignore` 并修正未锚定的 `homeserver.yaml` 规则（TST-8/10/16）。
-5. 门禁整治：修复 `ci.yml:747` 死步骤（去掉不存在的 `--exclude synapse_worker` 或改为 `--bin synapse_worker`，并去掉 `|| true`）；删/修 5 类空转门禁；删除 `test.yml` 与 `format-drift-tracking.yml`，以 `format-governance.yml` 为唯一格式化权威（TST-5/6）。
+5. ✅ **门禁整治（第三批次，已完成）**：`ci.yml:739` 死步骤已修复（`--bin synapse_worker --locked`，去 `|| true`）；`schema-health-check.yml:73` v10→v11 已修；`drift-detection.yml:346-383` 空转 performance-baseline 门禁已移除（被冗余清理删掉的目标文件）；`test.yml` 与 `format-drift-tracking.yml` 已删除。以 `format-governance.yml` 为唯一格式化权威（TST-5/6）。
 6. 修复 11 处悬空脚本/文档引用（TST-7）；按 workflow 实际内容重写 `TESTING.md` 主门禁（TST-15）；收敛 `AGENTS.md`/`CLAUDE.md` 双源漂移（TST-14）。
 7. 加两条静态守卫：`tests/{unit,integration}` 下每个 `.rs` 必须有对应 `mod` 声明（防 TST-4 复发）；职责级"只允许一个定义"扫描（把 Guard 7 从"仅 clone 子句"扩展到模板创建/取池/删 schema/URL 解析，防 TST-1/2 复发）。
 
