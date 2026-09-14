@@ -8,9 +8,8 @@ use synapse_common::current_timestamp_millis;
 // Consumers should prefer `synapse_storage::push::PushNotificationStorage`
 // over the flat `synapse_storage::PushNotificationStorage`.
 pub use crate::push_notification::{
-    CreateNotificationLogRequest, CreatePushRuleRequest, PushDevice, PushNotificationLog, PushNotificationQueue,
-    PushNotificationStorage, PushNotificationStoreApi, PushRule, QueueNotificationRequest, RegisterDeviceRequest,
-    RoomNotification,
+    CreateNotificationLogRequest, PushDevice, PushNotificationLog, PushNotificationQueue, PushNotificationStorage,
+    PushNotificationStoreApi, QueueNotificationRequest, RegisterDeviceRequest, RoomNotification,
 };
 
 /// Trait abstraction over [`PushStorage`] for testability and service wiring.
