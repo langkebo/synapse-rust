@@ -693,6 +693,25 @@ mod tests {         <- 125 行
 
 ---
 
+### 15.3 ✅ **新发现**：第三批次 CI 门禁整治（死步骤/空转门禁/冗余 workflow）—— **已修复**（`9e847a42`）
+
+> **状态更新（2026-09-14 修复落地）**：按 REDUNDANCY 报告 §4 第三批次（门禁整治）执行。
+>
+> **提交**：`9e847a42`（5 个文件：3 修改 + 2 删除）。
+>
+> **验证**：`cargo check --workspace --all-features` Finished；`check_fmt_ratchet.sh` current=0 baseline=0 GREEN。
+
+| # | 问题 | 位置 | 修复 |
+|---|------|------|------|
+| 1 | **死步骤**：`--exclude synapse_worker` 引用不存在的 package（实际是 bin target），加上 `|| true` 使步骤永远绿（**红灯门禁的相反失效：完全不可见**） | `.github/workflows/ci.yml:739` | 改为 `--bin synapse_worker --locked`（无 `|| true`，失败可见） |
+| 2 | **必红门禁**：schema-health-check 引用不存在的 `unified_schema_v10.sql`（实际只有 `_v11.sql`），每次 push/PR **必红**，因而长期被忽略 | `.github/workflows/schema-health-check.yml:73` | 改为 `unified_schema_v11.sql` |
+| 3 | **空转门禁**：drift-detection 的 performance-baseline 引用 4 个不存在的 `performance_indexes*.sql` 路径（两个 `migrations/archive/` 目录、两个 `docker/deploy/migrations/` 目录均不存在），每轮 100% warning + skip | `.github/workflows/drift-detection.yml:347-350` | 删除整段 for 循环，改为 `::warning::` 声明"该门禁随冗余清理已移除"（避免下次有人误以为该门禁在运行） |
+| 4 | **冗余 workflow**：`test.yml` 与 `format-drift-tracking.yml` 功能已被 `ci.yml`（coverage job）与 `format-governance.yml`（format compliance）覆盖，属重复门禁 | `.github/workflows/test.yml` + `format-drift-tracking.yml` | 删除 |
+
+> **工程诚实性**：第 3 条的"空转门禁"与 §1.3 的"性能基准门禁 100% 空转"描述一致——这类门禁的特征是**每轮都走跳过分支**，CI 绿但**零信息量**。删除比"等文件重新出现"更诚实。
+
+---
+
 ## 15. 第二轮复核记录（2026-09-14，基线 `d56a1d82`）
 
 > **第四轮修复记录（2026-09-14）**：§15.2 与 §16 两项新发现**已全部修复**。  
@@ -825,7 +844,7 @@ CI 因每次是干净容器而不暴露，**本地开发库会持续膨胀**（�
 | §11.2 `EXECUTE PROCEDURE` 未重定向 | ✅ 属实且仍不触发：baseline 里 `EXECUTE PROCEDURE` **0 处** |
 | §8 路由契约漂移门禁有效 | ✅ 属实：`check_route_contract.sh` 退出 0，921 routes / 46 categories。但见 §17——它保证的是"源码 ↔ 文档"，不是"served router ↔ ledger" |
 
-### 15.4 复核中新出现的两类本地残留（由本轮验证产生，非产品缺陷）
+### 15.5 复核中新出现的两类本地残留（由本轮验证产生，非产品缺陷）
 
 复核过程中我自己的测试跑出了以下残留，**已定位、可清理、不属于产品缺陷**，
 列出以免误读为泄漏：
@@ -1012,10 +1031,11 @@ capability 声明读的是 manifest，manifest 漏条目会让 `/capabilities` �
 | ✅ | §6 clippy 门禁覆盖 workspace | 门禁真实性 | **已根治**（`9875d8ff`）：`:217` 扩为 `--workspace --all-targets --features test-utils`，变红实验证明可拦子 crate 测试代码 |
 | ✅ P2 | **§15.2 共享模块模板 schema 无限累积** | 资源泄漏 | **已修复**（`314df061`）：`prune_stale_isolation_templates`（6h 宽限、安全序、legacy 0 行 marker 回填）+ 配套修复 marker 空行缺陷；新增 DB 测试验证 |
 | 🟡 P2 | **§17 契约文档含未加 nest 前缀的路由；解析器有链式/nest 盲区** | 契约正确性 | 未动：`/spaces/...` 15 条相对路径写入文档、0 条带前缀；`nest_map` 收集后从未使用 |
+| ✅ | **§18-3 第三批次 CI 门禁整治**（死步骤/空转门禁/冗余 workflow） | 门禁有效性 | **已修复**（`9e847a42`）：修 1 死、1 必红、删 1 空转、删 2 冗余 |
 | 🟡 P3 | §7 契约链两条车道的 feature 集复杂度 | 架构 | 未动，需先统一 feature 集 |
 | ⚪ P3 | §9 schema 残留清理 | 运维 | ✅ 已修复（`82921311`：CI 加 cleanup step + 脚本硬排除/独立保护/可配置标记目录）。CI 侧防 intra-job 累积；本地仍需手动 `--apply`（见 §9 说明）。**注**：§15.2 修复后共享模块自行修剪，本地累积速度大幅下降 |
 | ⚪ P3 | §10 存量债、§11 局限 | 技术债 | 新代码设禁，存量另立专项 |
-| ✅ | §1 / §3 / §4 / §5 / §2 收敛 / §12 四条线索 | — | 已核实（§15.3） |
+| ✅ | §1 / §3 / §4 / §5 / §2 收敛 / §12 四条线索 | — | 已核实（§15.4） |
 
 > **第四轮（2026-09-14）净变化**：§15.2 与 §16 由 🔴 → ✅；新增 `b0e8ed9e` 修复两者连带的
 > fmt 债务（main 现 `fmt debt: current=0 baseline=0`）。当前 main 上唯一未动的确认问题是 §17
