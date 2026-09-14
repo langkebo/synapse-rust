@@ -355,7 +355,7 @@ impl RetentionService {
         let cutoff_ts = current_timestamp_millis() - max_lifetime;
         let started_ts = current_timestamp_millis();
 
-        match self.storage.delete_events_before(room_id, cutoff_ts).await {
+        match self.storage.delete_local_messages_before(room_id, cutoff_ts).await {
             Ok(deleted_count) => {
                 info!(events_deleted = deleted_count, room_id = room_id, "Retention cleanup completed");
 

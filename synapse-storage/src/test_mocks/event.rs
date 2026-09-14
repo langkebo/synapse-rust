@@ -1084,7 +1084,12 @@ impl crate::event::writer::EventWriter for InMemoryEventStore {
         Ok(())
     }
 
-    async fn delete_events_before(&self, room_id: &str, timestamp: i64, dry_run: bool) -> Result<u64, sqlx::Error> {
+    async fn delete_remote_events_before(
+        &self,
+        room_id: &str,
+        timestamp: i64,
+        dry_run: bool,
+    ) -> Result<u64, sqlx::Error> {
         let mut events = self.events.write().await;
         let matching: Vec<String> = events
             .iter()
@@ -1182,7 +1187,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn delete_events_before_dry_run_does_not_delete() {
+    async fn delete_remote_events_before_dry_run_does_not_delete() {
         let store = InMemoryEventStore::new();
         let room_id = "!room:example.com";
         // Two deletable message events before the cutoff, plus one create event
@@ -1207,8 +1212,10 @@ mod tests {
         );
 
         // dry_run=true: should return count of deletable events (2) but NOT remove them.
-        let count =
-            store.delete_events_before(room_id, 3000, true).await.expect("dry-run delete_events_before should succeed");
+        let count = store
+            .delete_remote_events_before(room_id, 3000, true)
+            .await
+            .expect("dry-run delete_remote_events_before should succeed");
         assert_eq!(count, 2, "dry-run should report 2 deletable events");
 
         // All events must still be present — dry-run must not mutate state.
@@ -1221,7 +1228,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn delete_events_before_actual_delete_removes_events() {
+    async fn delete_remote_events_before_actual_delete_removes_events() {
         let store = InMemoryEventStore::new();
         let room_id = "!room:example.com";
         store
@@ -1235,8 +1242,10 @@ mod tests {
         );
 
         // dry_run=false: should delete the message event but preserve the create event.
-        let deleted =
-            store.delete_events_before(room_id, 3000, false).await.expect("delete_events_before should succeed");
+        let deleted = store
+            .delete_remote_events_before(room_id, 3000, false)
+            .await
+            .expect("delete_remote_events_before should succeed");
         assert_eq!(deleted, 1, "should delete 1 message event");
 
         let remaining = store.events.read().await;

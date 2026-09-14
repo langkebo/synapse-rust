@@ -29,7 +29,7 @@
 //!
 //! - `redact_event_content` receives only an `event_id`, with no `room_id` to
 //!   address a notification to. Redactions surface on the next poll.
-//! - `delete_events_before` is a retention/purge path; it is not latency
+//! - `delete_remote_events_before` is a retention/purge path; it is not latency
 //!   sensitive and is deliberately silent.
 //!
 //! Both gaps degrade to "picked up within the poll timeout", never to a lost
@@ -207,9 +207,14 @@ impl EventWriter for NotifyingEventWriter {
         Ok(())
     }
 
-    async fn delete_events_before(&self, room_id: &str, timestamp: i64, dry_run: bool) -> Result<u64, sqlx::Error> {
+    async fn delete_remote_events_before(
+        &self,
+        room_id: &str,
+        timestamp: i64,
+        dry_run: bool,
+    ) -> Result<u64, sqlx::Error> {
         // Retention purge — see "Known gaps" in the module docs.
-        self.inner.delete_events_before(room_id, timestamp, dry_run).await
+        self.inner.delete_remote_events_before(room_id, timestamp, dry_run).await
     }
 
     async fn upsert_power_levels_event(
@@ -474,13 +479,13 @@ mod tests {
         writer.mark_event_soft_failed("$event:example.com").await.unwrap();
     }
 
-    /// `delete_events_before` is a retention purge path — deliberately silent
+    /// `delete_remote_events_before` is a retention purge path — deliberately silent
     /// per module docs. Covered to confirm it passes through without panic.
     #[tokio::test]
-    async fn delete_events_before_is_passed_to_inner() {
+    async fn delete_remote_events_before_is_passed_to_inner() {
         let (writer, _notifier) = build();
 
-        writer.delete_events_before(ROOM, 1_700_000_000_000, false).await.unwrap();
+        writer.delete_remote_events_before(ROOM, 1_700_000_000_000, false).await.unwrap();
     }
 
     /// `save_event_signature` stores a device key signature; no room timeline
