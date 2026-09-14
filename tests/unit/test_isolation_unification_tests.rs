@@ -618,10 +618,13 @@ fn the_seed_allowlist_matches_what_the_baseline_seeds() {
     let mut seeded = Vec::new();
     for (name, sql) in [("00000000_unified_schema_v11.sql", V11), ("00000001_extensions_v10.sql", EXTENSIONS)] {
         for statement in insert_statements(sql) {
-            let table = statement.split_once("INTO").map(|(_, rest)| rest).unwrap_or_else(|| {
-                panic!("{name}: INSERT statement without INTO: {}", &statement[..80.min(statement.len())])
-            });
-            let table = table
+            let rest = statement.split_once("INTO").map_or_else(
+                || {
+                    panic!("{name}: INSERT statement without INTO: {}", &statement[..80.min(statement.len())])
+                },
+                |(_, rest)| rest,
+            );
+            let table = rest
                 .trim_start()
                 .split(|c: char| c.is_whitespace() || c == '(')
                 .next()
