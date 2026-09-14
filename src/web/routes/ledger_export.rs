@@ -20,9 +20,24 @@ use serde::{Deserialize, Serialize};
 
 use super::{declared_route_manifest_for_profile, ProfileFlags};
 
-/// Frozen JSON schema version. Breaking existing keys bumps MAJOR;
-/// additive optional fields bump MINOR.
-pub const SCHEMA_VERSION: &str = "2";
+/// Frozen JSON schema version.
+///
+/// - Breaking an existing key (removing it, or changing its type/meaning) bumps
+///   the integer.
+/// - Adding an optional field also bumps it, so consumers can pin a single
+///   value instead of reasoning about "which optional keys may appear".
+///
+/// Version history (keep `docs/synapse-rust/LEDGER_EXPORT_SCHEMA.md` in step —
+/// the `schema_doc_version_matches_code` test enforces it):
+///   1 → 2  additive: `entries[].query_params`; `module` / `status` became
+///          optional per-entry fields.
+///   2 → 3  removed `entries[].module`. It defaulted to `registered_by`, was
+///          populated for only 3 of 1320 routes, and had no consumer: the SDK
+///          groups modules by `registered_by` (`moduleKeyFor` in
+///          matrix-js-sdk/scripts/contract-sync.mjs). A field that carries no
+///          information is worse than no field — see B-7 in
+///          docs/audit/LEDGER_CONTRACT_ISSUES_2026-09-13.md.
+pub const SCHEMA_VERSION: &str = "3";
 
 /// Top-level artefact shape. Serialised key order matches declaration
 /// order here; `serde_json`'s `PrettyFormatter` respects that.
@@ -79,12 +94,7 @@ pub struct LedgerEntryJson {
     /// Optional auth requirement: "user", "admin", "optional", "federation", or "none".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auth: Option<String>,
-    // ---------- 新增字段（B-1 / B-5）----------
-    /// Functional module name (rooms, search, friends, push, rendezvous...).
-    /// Defaults to `registered_by`; SDK codegen groups routes by this field.
-    /// Omitted when equal to `registered_by` to keep JSON compact.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub module: Option<String>,
+    // ---------- B-5 ----------
     /// Lifecycle status. `Stable` → omitted; `Deprecated` / `Removed` → serialized.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<LedgerEntryStatusJson>,
@@ -153,9 +163,6 @@ pub fn build_artifact(
     let mut entries: Vec<LedgerEntryJson> = ledger
         .iter()
         .map(|e| {
-            // module: 默认等于 registered_by；只在与 registered_by 不同时才填充
-            let module_opt = if e.module == e.registered_by { None } else { Some(e.module.to_string()) };
-
             // status: Stable → None; Deprecated → LedgerEntryStatusJson
             let status_opt = match e.status {
                 RouteStatus::Stable => None,
@@ -176,7 +183,6 @@ pub fn build_artifact(
                 path_params: extract_path_params(e.path),
                 query_params: e.query_params.iter().map(|s| s.to_string()).collect(),
                 auth: e.auth.map(|s| s.to_string()),
-                module: module_opt,
                 status: status_opt,
             }
         })

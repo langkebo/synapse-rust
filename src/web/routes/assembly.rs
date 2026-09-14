@@ -299,14 +299,17 @@ fn assembly_compat_manifest() -> Vec<RouteEntry> {
 /// routes are kept for backward compatibility (see the deprecation warning
 /// in [`create_router`]) but new clients should use the vendor prefix.
 ///
-/// B-1 remediation: Each route 显式设置 `module` 为其功能域（rooms/search），
-/// 这样 SDK codegen 按功能聚合时不会把它们误归到 vendor 模块。
+/// B-1 remediation: these vendor routes are grouped by `registered_by`
+/// (`"vendor"`), which is what the SDK's contract-sync actually consumes.
+/// The former per-route `module` override was removed along with the field
+/// itself — it carried no information the SDK read (see B-7 in
+/// `docs/audit/LEDGER_CONTRACT_ISSUES_2026-09-13.md`).
 fn vendor_route_manifest() -> Vec<RouteEntry> {
     let by = "vendor"; // registration source
     vec![
-        RouteEntry::new(Method::GET, "/_matrix/vendor/v1/my_rooms", by).with_module("rooms"),
-        RouteEntry::new(Method::POST, "/_matrix/vendor/v1/search_rooms", by).with_module("search"),
-        RouteEntry::new(Method::POST, "/_matrix/vendor/v1/search_recipients", by).with_module("search"),
+        RouteEntry::new(Method::GET, "/_matrix/vendor/v1/my_rooms", by),
+        RouteEntry::new(Method::POST, "/_matrix/vendor/v1/search_rooms", by),
+        RouteEntry::new(Method::POST, "/_matrix/vendor/v1/search_recipients", by),
     ]
 }
 

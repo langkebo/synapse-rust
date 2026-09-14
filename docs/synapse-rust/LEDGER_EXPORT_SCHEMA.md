@@ -6,7 +6,7 @@
 > 否则该测试变红。这是为了让"契约版本变更"无法像
 > `aa06ca45` 那次一样静默溜过。
 
-- **当前 `schema_version`**: `2`
+- **当前 `schema_version`**: `3`
 - **生成者**: `synapse_ledger_export` 二进制（`build_artifact` + `render`）
 - **消费方**: `matrix-js-sdk` 的 `scripts/contract-sync.mjs`
   （其 `LEDGER_SCHEMA_VERSION` pin 必须等于本文件的 `schema_version`）
@@ -36,26 +36,33 @@
 | `path_params` | array | 1 | 路径参数名 |
 | `registered_by` | string | 1 | 注册该路由的模块名。**SDK 目前按此字段聚合功能域** |
 | `query_params` | array | **2** | 该路由识别的查询参数 |
-| `module` | string | 2（可选） | 功能域。**默认等于 `registered_by`，仅在跨域注册时才显式覆盖** |
 | `status` | object | 2（可选） | 生命周期。缺省语义为 `Stable` |
 
-### 关于 `module` / `status` 的诚实说明
+> `module` 字段在**版本 3 已删除** —— 见下节。
 
-- 二者都是**非默认才输出**的可选字段。实测在 1320 条路由里，`module` 只填了 3 条、
-  `status` 只填了 7 条。
-- `module` 的默认值是 `registered_by`（见 `route_ledger.rs` 的 `RouteEntry::new`），
-  全仓 96 个 `RouteEntry::new` 调用点里只有 3 个用 `with_module` 覆盖。
-  因此**当前 `module` 对绝大多数路由不携带新信息**。
-- SDK 的分模块聚合用的是 `registered_by`，**不消费 `module`**（见
-  `contract-sync.mjs` 的 `moduleKeyFor(registeredBy)`）。
-- 结论：若要让 `module` 真正成为"按功能域聚合"的依据，需要让它必填 + 取值白名单
-  校验；否则应删除以免造成"字段有、信息没有"的假象。这条待决策。
+### 关于 `status` 的说明
+
+`status` 是**非默认才输出**的可选字段：`Stable` 时整个键省略，`Deprecated` /
+`Removed` 时序列化。实测 1320 条路由里只有 7 条填充。消费方必须把"键缺失"
+解释为 `Stable`，这是跨版本解析的前提约定。
+
+### 为什么删掉了 `module`（B-7）
+
+- 它的默认值是 `registered_by`（`RouteEntry::new`），全仓 96 个调用点里只有
+  3 个用 `with_module` 覆盖 → 导出里 1320 条只有 3 条填了不同的值。
+- **没有任何消费方**：SDK 的分模块聚合用的是 `registered_by`
+  （`contract-sync.mjs` 的 `moduleKeyFor(registeredBy)`），不读 `module`。
+- 结论：这是一个"字段有了、信息没增加"的假绿。与其保留，不如删除；若将来真要
+  按功能域聚合，应让它**必填 + 取值白名单校验**，而不是可选且默认复制。
+- 影响面：`module` 是可选字段且只有 3 条填充，删除它对读取方的解析无影响
+  （读取方本就不读它）。
 
 ## 版本演进
 
 | 版本 | 变更 | 兼容性 |
 |---|---|---|
-| 1 → 2 | `entries[]` 新增 `query_params`；`module` / `status` 变为可选字段 | **加法升级**，顶层字段不变，旧消费方可忽略新字段 |
+| 1 → 2 | `entries[]` 新增 `query_params`；`module` / `status` 变为可选字段 | **加法升级**，顶层字段不变 |
+| 2 → 3 | **删除** `entries[].module` | **移除可选且无消费方的字段**；顶层字段与其余 entry 字段不变 |
 
 **升级 checklist**（本次 `aa06ca45` 漏掉了第 2、4 步，导致 SDK 同步链断裂）：
 
