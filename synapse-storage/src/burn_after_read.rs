@@ -988,13 +988,10 @@ mod db_tests {
         // Replay the same batch: ON CONFLICT (user_id, event_id) DO NOTHING must swallow it.
         storage.log_burned_event_batch(&batch).await.expect("replayed batch must be a no-op, not an error");
 
-        let count: i64 =
-            sqlx::query_scalar!("SELECT COUNT(*) FROM burn_after_read_log WHERE user_id = $1", &user_id)
-                .fetch_one(&*pool)
-                .await
-                .expect("counting must succeed");
-
-        assert_eq!(count, 2, "replaying the batch must not duplicate rows");
+        // Uses the existing storage API rather than a fresh query so the sqlx
+        // dynamic/static ratchet is unaffected by this test.
+        let stats = storage.get_user_stats(&user_id).await.expect("get_user_stats should succeed");
+        assert_eq!(stats.total_burned, 2, "replaying the batch must not duplicate rows");
 
         cleanup_burn_log(&pool, &user_id).await;
     }

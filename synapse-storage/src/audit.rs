@@ -413,7 +413,12 @@ mod db_tests {
             .await
             .expect("create_event should succeed");
 
-        let bare_delete = sqlx::query!("DELETE FROM audit_events WHERE event_id = $1", &event_id).execute(&*pool).await;
+        // NOTE: a dynamic `sqlx::query` is used deliberately — proving "the append-only
+        // trigger is installed" requires a real DB round-trip, and sqlx's offline
+        // metadata is not generated for `#[cfg(test)]`-only queries in this repo. This
+        // adds exactly one dynamic query to the ratchet's test-only count.
+        let bare_delete =
+            sqlx::query("DELETE FROM audit_events WHERE event_id = $1").bind(&event_id).execute(&*pool).await;
         let error = bare_delete.expect_err("a bare DELETE must be rejected by the append-only trigger");
         assert!(error.to_string().contains("append-only"), "expected the append-only guard message, got: {error}");
 
