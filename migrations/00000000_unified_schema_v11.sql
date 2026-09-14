@@ -2306,7 +2306,15 @@ $$ LANGUAGE plpgsql;
 
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_prevent_audit_delete') THEN
+    -- `tgrelid` is REQUIRED: `pg_trigger` is a cluster-wide catalog, so matching on
+    -- `tgname` alone makes this guard skip when any OTHER schema (e.g. a leftover
+    -- `test_isolation_template_*` template) already owns a trigger with this name —
+    -- the same schema-blind bug class fixed for `pg_constraint` guards earlier.
+    -- `'audit_events'::regclass` resolves through the active `search_path`.
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger
+        WHERE tgname = 'trg_prevent_audit_delete' AND tgrelid = 'audit_events'::regclass
+    ) THEN
         CREATE TRIGGER trg_prevent_audit_delete
             BEFORE DELETE ON audit_events
             FOR EACH ROW EXECUTE FUNCTION prevent_audit_delete();
