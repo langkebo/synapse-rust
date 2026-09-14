@@ -130,100 +130,127 @@ PASS [0.057s] application_service::db_tests::test_register_creates_service
 
 ---
 
-## 2. 🟡 测试基础设施：`clone_schema_from_template` 曾 3 份实现 → 现 1 份实现 + 2 份薄封装
+## 2. ✅ 测试基础设施：`clone_schema_from_template` 曾 3 份实现 → 现 1 份实现 + 2 份薄封装
 
-**违反项目规则第 2 条（同一职责只允许一份实现）。** 修复进行中。
-
-### 原始状态（实测）
-
-```bash
-$ grep -rn "fn clone_schema_from_template" --include=*.rs . | grep -v worktrees
-synapse-common/src/test_isolation.rs:848   pub async fn clone_schema_from_template(pool, schema, template)   # 共享版
-synapse-services/src/test_utils.rs:484     async fn clone_schema_from_template(database_url, template_name)  # 私有
-src/test_utils.rs:1021                     async fn clone_schema_from_template(database_url, template_name)  # 私有
-```
-
-三份能力不同（实测各自特性计数）：
-
-| 实现 | 数据复制 | 外键回放 | 完整性校验 | 索引名还原 |
-|---|---|---|---|---|
-| `synapse-common`（共享） | ✅ | ✅ | ✅ | ❌ → ✅（本轮补） |
-| `src/test_utils.rs` | ✅ | ✅ | ❌ | ✅ |
-| `synapse-services/src/test_utils.rs` | ❌ | ❌ | ❌ | ❌ |
-
-### 本轮进展
-
-**已完成（提交见括号）**
-
-1. **共享模块补上"索引名 + UNIQUE 约束名归一化"**（`6a051fcb`）。
-   实测 `LIKE ... INCLUDING ALL` 会把 `idx_t_v_named` 改名成 `t_v_idx`、
-   把 `uq_c_pid_named` 改名成 `c_pid_key`（PRIMARY KEY 名保留）。而
-   `has_index_named` 在 `tests/integration/schema_contract_p0_tests_migrated.rs`
-   有 **24 个调用点**，`validate_clone` 又只比数量 → 不做这一步就切换会**静默破坏**
-   这些断言。新增 Phase 1d 处理它，并加了测试
-   `clone_preserves_index_and_unique_constraint_names`（**已反向验证**：
-   把 Phase 1d 置为 no-op 后该测试变红）。
-2. **`synapse-services` 那份私有实现改为委派并降为薄封装**（`ea1a3ddc`）。
-   它原本是三者中最弱的（不复制 seed 行、不回放外键、无校验）。
-   验证：retention 队列 7/7；services 完整 lib **2079 run / 2078 passed / 1 failed**
-   （基线 2076 passed / 3 failed，**减少 2 个失败**；剩余 1 个为既存 media 失败）。
-
-**剩余（未做，需决策）**
-
-`src/test_utils.rs` 的那份（177 行）仍自实现。它比 services 那份强，且有**一处
-共享模块不具备的行为**：
-
-```rust
-const SEED_REFERENCE_TABLES: &[&str] =
-    &["server_media_quota", "server_retention_policy", "sync_stream_id"];
-// 注释：the development-only `@admin:localhost` seed in `users` is intentionally
-//       NOT copied — tests manage their own users and many assert an empty users table.
-```
-
-即：根 crate 车道用**显式 seed 白名单**，共享模块则复制**所有表**的数据。
-直接在根 crate 委派，会把 `users` 表的数据（含开发种子）也复制进克隆，
-**破坏"users 表应为空"的断言**。
-
-因此收敛它需要先决定：
-
-- **(a)** 给共享模块加可选的 seed 白名单参数（调用方传入；默认全表复制）——
-  这个既有信息量又有约束力，且能同时服务两条车道；
-- **(b)** 让根 crate 车道也接受全表复制，并修掉依赖空 `users` 的测试；
-- **(c)** 保持两份实现，接受该分歧（不推荐，违反规则 2）。
-
-推荐 **(a)**。注意根 crate 那份还带 `SCHEMA_POOL`（TRUNCATEd schema 复用）与
-`SHARED_CLONE_SEMAPHORE`，这些是**调用侧**的关注点，不在 `clone_schema_from_template`
-内部，可保留在原处。
-
-### 守卫的盲区（仍未修）
-
-`tests/unit/test_isolation_unification_tests.rs` 只断言"两份夹具**调用了**共享模块"，
-**不检测**是否还存在第三份自实现。建议加一条静态断言：
-"全仓 `fn clone_schema_from_template` 的定义只允许出现在 `synapse-common`"。
-
-
-**三份能力不同**（实测各自的特性计数）：
-
-| 实现 | 数据复制 | 外键回放 | 完整性校验 |
-|---|---|---|---|
-| `synapse-common`（共享） | ✅ | ✅ | ✅ |
-| `src/test_utils.rs` | ✅ | ✅ | ❌ |
-| `synapse-services/src/test_utils.rs` | ❌ | ❌ | ❌ |
-
-`synapse-services` 那份能力最弱：**不复制 seed 行、不回放外键、不做校验**——正是
-"缺表 → `search_path` 静默回退 `public`"的温床。
-
-### 影响
-
-- 该类 bug 需要修三次（历史上已经发生过：测试隔离统一前有三份实现，同一类缺陷修了多次）
-- 新增的守卫测试 `tests/unit/test_isolation_unification_tests.rs` **只覆盖
-  storage 与 services 的对外夹具**，**不检测**这两份遗留私有实现是否仍在
-
-### 建议
-
-把 `src/test_utils.rs` 与 `synapse-services/src/test_utils.rs` 的私有实现改为调用
-`synapse_common::test_isolation`，或删除；并在守卫测试里加一条"全仓只允许一份
-`clone_schema_from_template` 定义"的断言（可静态扫描源码）。
+> **状态更新（2026-09-14）**：按建议执行（方案 a）——共享模块新增可选 seed 白名单参数 `SeedSource`。
+>
+> **提交**：`3e9063e0`（`test-isolation: converge the third clone onto the shared one; fix two sequence defects`）
+>
+> **收敛后三处现状**（grep `fn clone_schema_from_template`，3 处，1 实 + 2 薄封装）：
+>
+> | 位置 | 角色 | 能力 | 委托 |
+> |---|---|---|---|
+> | `synapse-common/src/test_isolation.rs:1040` `pub async fn clone_schema_from_template` | **唯一实现** | 数据复制✅ 外键✅ 完整性校验✅ 索引名✅ 序列 OWNED BY✅ | — |
+> | `src/test_utils.rs:1032` | ROOT 薄封装 | 建 schema + 委托 shared `SeedSource::Only(SEED_REFERENCE_TABLES)` | ✓ |
+> | `synapse-services/src/test_utils.rs:502` | services 薄封装 | 建 schema + 委托 shared `SeedSource::Everything` | ✓ |
+>
+> **根 crate 仍用白名单**的疑虑已消：`SeedSource::Only(SEED_REFERENCE_TABLES)` 是共享模块的**正式参数**，ROOT 传它（语义 = "只复制基线中非空的那 3 张"），shared 的 `seed_where_clause` 对不在白名单的表生成 `1 = 0`（结构克隆、不复制行）。与原来"不复制 users"的效果等价，共享模块无需感知 ROOT 的意图。
+>
+> **验证**（DB 实测）：`reusing_a_schema_reseeds_its_sequences` 通过（`TRUNCATE ... RESTART IDENTITY` 重置序列 + 重播种 + 默认 id 插入恢复）；`media::tests` 3 失败清零；全量 workspace lib 回归 6179/6179；静态守卫 7/7（`tests/unit/test_isolation_unification_tests`）。
+>
+> **连带修复（P1D 遗留缺陷）**（同 commit `3e9063e0`）：
+> - 阶段 1c 创建克隆序列时缺 `OWNED BY` → `pg_get_serial_sequence()` 返回 NULL → `TRUNCATE ... RESTART IDENTITY` **静默不重置**（实测：无归属序列停在 42，有归属重置为 1）。已补 `ALTER SEQUENCE ... OWNED BY`。新增 `advance_schema_sequences()` 让被复用的 schema 与新克隆达到相同状态（ROOT 池化路径 `truncate_and_reseed_schema` 1439-1443 已接入）。
+>
+> **原始记录与根因**（保留供归档）：
+>
+> **违反项目规则第 2 条（同一职责只允许一份实现）。** 修复进行中。
+>
+> ### 原始状态（实测）
+>
+> ```bash
+> $ grep -rn "fn clone_schema_from_template" --include=*.rs . | grep -v worktrees
+> synapse-common/src/test_isolation.rs:848   pub async fn clone_schema_from_template(pool, schema, template)   # 共享版
+> synapse-services/src/test_utils.rs:484     async fn clone_schema_from_template(database_url, template_name)  # 私有
+> src/test_utils.rs:1021                     async fn clone_schema_from_template(database_url, template_name)  # 私有
+> ```
+>
+> 三份能力不同（实测各自特性计数）：
+>
+> | 实现 | 数据复制 | 外键回放 | 完整性校验 | 索引名还原 |
+> |---|---|---|---|---|
+> | `synapse-common`（共享） | ✅ | ✅ | ✅ | ❌ → ✅（本轮补） |
+> | `src/test_utils.rs` | ✅ | ✅ | ❌ | ✅ |
+> | `synapse-services/src/test_utils.rs` | ❌ | ❌ | ❌ | ❌ |
+>
+> ### 本轮进展
+>
+> **已完成（提交见括号）**
+>
+> 1. **共享模块补上"索引名 + UNIQUE 约束名归一化"**（`6a051fcb`）。
+>    实测 `LIKE ... INCLUDING ALL` 会把 `idx_t_v_named` 改名成 `t_v_idx`、
+>    把 `uq_c_pid_named` 改名成 `c_pid_key`（PRIMARY KEY 名保留）。而
+>    `has_index_named` 在 `tests/integration/schema_contract_p0_tests_migrated.rs`
+>    有 **24 个调用点**，`validate_clone` 又只比数量 → 不做这一步就切换会**静默破坏**
+>    这些断言。新增 Phase 1d 处理它，并加了测试
+>    `clone_preserves_index_and_unique_constraint_names`（**已反向验证**：
+>    把 Phase 1d 置为 no-op 后该测试变红）。
+> 2. **`synapse-services` 那份私有实现改为委派并降为薄封装**（`ea1a3ddc`）。
+>    它原本是三者中最弱的（不复制 seed 行、不回放外键、无校验）。
+>    验证：retention 队列 7/7；services 完整 lib **2079 run / 2078 passed / 1 failed**
+>    （基线 2076 passed / 3 failed，**减少 2 个失败**；剩余 1 个为既存 media 失败）。
+> 3. **`src/test_utils.rs` 收敛到共享模块**（`3e9063e0`）。
+>    删除 ~170 行自实现（DO 块含表 LIKE + 索引名修复 + seed 复制 + 序列重绑 + 视图重建），
+>    改为 `clone_schema_from_template(..., SeedSource::Only(SEED_REFERENCE_TABLES))`。
+>
+> **剩余（共识已达，待编码）**
+>
+> _(旧记录，已完成，保留作验收参考)_
+>
+> `src/test_utils.rs` 的那份（177 行）仍自实现。它比 services 那份强，且有**一处
+> 共享模块不具备的行为**：
+>
+> ```rust
+> const SEED_REFERENCE_TABLES: &[&str] =
+>     &["server_media_quota", "server_retention_policy", "sync_stream_id"];
+> // 注释：the development-only `@admin:localhost` seed in `users` is intentionally
+> //       NOT copied — tests manage their own users and many assert an empty users table.
+> ```
+>
+> 即：根 crate 车道用**显式 seed 白名单**，共享模块则复制**所有表**的数据。
+> 直接在根 crate 委派，会把 `users` 表的数据（含开发种子）也复制进克隆，
+> **破坏"users 表应为空"的断言**。
+>
+> 因此收敛它需要先决定：
+>
+> - **(a)** 给共享模块加可选的 seed 白名单参数（调用方传入；默认全表复制）——
+>   这个既有信息量又有约束力，且能同时服务两条车道；
+> - **(b)** 让根 crate 车道也接受全表复制，并修掉依赖空 `users` 的测试；
+> - **(c)** 保持两份实现，接受该分歧（不推荐，违反规则 2）。
+>
+> 推荐 **(a)**。注意根 crate 那份还带 `SCHEMA_POOL`（TRUNCATEd schema 复用）与
+> `SHARED_CLONE_SEMAPHORE`，这些是**调用侧**的关注点，不在 `clone_schema_from_template`
+> 内部，可保留在原处。
+>
+> ### 守卫的盲区（仍未修）
+>
+> `tests/unit/test_isolation_unification_tests.rs` 只断言"两份夹具**调用了**共享模块"，
+> **不检测**是否还存在第三份自实现。建议加一条静态断言：
+> "全仓 `fn clone_schema_from_template` 的定义只允许出现在 `synapse-common`"。
+>
+> _(旧记录，已完成：Guard 1 扩展至三份夹具 + 新增 Guard 1b "no fixture resells a hand-rolled clone")_
+>
+> **三份能力不同**（实测各自的特性计数）：
+>
+> | 实现 | 数据复制 | 外键回放 | 完整性校验 |
+> |---|---|---|---|
+> | `synapse-common`（共享） | ✅ | ✅ | ✅ |
+> | `src/test_utils.rs` | ✅ | ✅ | ❌ |
+> | `synapse-services/src/test_utils.rs` | ❌ | ❌ | ❌ |
+>
+> `synapse-services` 那份能力最弱：**不复制 seed 行、不回放外键、不做校验**——正是
+> "缺表 → `search_path` 静默回退 `public`"的温床。
+>
+> ### 影响
+>
+> - 该类 bug 需要修三次（历史上已经发生过：测试隔离统一前有三份实现，同一类缺陷修了多次）
+> - 新增的守卫测试 `tests/unit/test_isolation_unification_tests.rs` **只覆盖
+>   storage 与 services 的对外夹具**，**不检测**这两份遗留私有实现是否仍在
+>
+> ### 建议
+>
+> 把 `src/test_utils.rs` 与 `synapse-services/src/test_utils.rs` 的私有实现改为调用
+> `synapse_common::test_isolation`，或删除；并在守卫测试里加一条"全仓只允许一份
+> `clone_schema_from_template` 定义"的断言（可静态扫描源码）。
 
 ---
 
@@ -532,7 +559,7 @@ TODO/FIXME/XXX/HACK:  8
 |---|---|---|---|
 | ~~P0~~ | ~~§1 CI 指向生产库 + wipe 标志~~ | 数据安全 | ✅ **已修复**（`00c0aad2`：一库两 schema + pin `TEST_DB_TEMPLATE_SCHEMA`，DROP public 结构性不可能） |
 | ~~P0~~ | ~~§4 `media::tests` 确定性失败~~ | 测试正确性 | ✅ **已修复**（`5d3f7d4b`：夹具委托共享隔离池 + 移除豁免/守卫；连带 `011db5db` P0 修复 + `f6283785` 指纹刷新） |
-| P1 | §2 `clone_schema_from_template` 多份实现 | 架构一致性 | 🟡 **2/3 已完成**：共享模块补齐索引名能力（`6a051fcb`）+ services 改为委派（`ea1a3ddc`）；剩 `src/test_utils.rs`，勘察已完成，方案 (a) `SeedSource` 就绪（P1D） |
+| P1 | §2 `clone_schema_from_template` 多份实现 | 架构一致性 | ✅ **已修复**（`3e9063e0`：共享模块补索引名 + `SeedSource` 白名单 + ROOT 收敛 + 序列 OWNED BY） |
 | P1 | §3 两个既存失败（时钟容差 / 守卫判据） | 测试确定性 | 🔴 守卫判据已随 §1 修掉（DB 名含 test）；剩时钟容差 1 处小改 |
 | P1 | §6 clippy 门禁覆盖 workspace | 门禁真实性 | 🔴 加 `--workspace --all-targets`，再清 21 条 warning |
 | P2 | §5 `status` 字段去留 | 冗余治理 | ✅ 已完成（`c5a5df0d`，删除，schema 3→4） |
