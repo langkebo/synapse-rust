@@ -37,6 +37,37 @@ ADD_COLUMN_RE = re.compile(
     r"ALTER\s+TABLE\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-zA-Z_][a-zA-Z0-9_]*)"
 )
 
+# 提取 baseline 中每个表的全部列名（用于表-列配对判定）
+# 仅匹配 `CREATE TABLE IF NOT EXISTS xxx ( ... )` 顶层块内的列定义行
+TABLE_COLUMN_RE = re.compile(
+    r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?P<table>[a-zA-Z_][a-zA-Z0-9_]*)\s*\((?P<body>.*?)\)\s*;",
+    re.DOTALL,
+)
+COLUMN_DEF_RE = re.compile(r"(?:^|\n)\s*(?P<col>[a-zA-Z_][a-zA-Z0-9_]*)\s+(?:[a-zA-Z][a-zA-Z0-9_]*)\b", re.MULTILINE)
+# baseline 中以 ALTER TABLE ... ADD COLUMN 形式折入的列
+BASELINE_ALTER_ADD_RE = re.compile(
+    r"ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\s+ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-zA-Z_][a-zA-Z0-9_]*)",
+    re.IGNORECASE,
+)
+
+
+def columns_of_table(baseline_text: str, table: str) -> set[str]:
+    """Return the set of column names defined for `table` in the baseline text.
+
+    Covers both columns embedded in `CREATE TABLE <table> (...)` and columns
+    added later via `ALTER TABLE <table> ADD COLUMN <col>` (the incremental
+    fold-in fashion the baseline uses).
+    """
+    cols: set[str] = set()
+    for m in TABLE_COLUMN_RE.finditer(baseline_text):
+        if m.group("table") != table:
+            continue
+        cols |= {c.group("col") for c in COLUMN_DEF_RE.finditer(m.group("body"))}
+    for t, c in BASELINE_ALTER_ADD_RE.findall(baseline_text):
+        if t == table:
+            cols.add(c)
+    return cols
+
 
 def latest_baseline() -> pathlib.Path:
     baselines = sorted(
@@ -72,7 +103,8 @@ def main() -> int:
             if obj not in baseline_text:
                 missing.append(f"{f.name}: 索引 {obj}")
         for table, col in ADD_COLUMN_RE.findall(text):
-            if col not in baseline_text:
+            cols = columns_of_table(baseline_text, table)
+            if col not in cols:
                 missing.append(f"{f.name}: 列 {table}.{col}")
 
     if missing:

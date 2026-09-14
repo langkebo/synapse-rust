@@ -41,7 +41,18 @@ echo "==> [1/3] migrating public baseline into $TEST_DATABASE_URL"
 sqlx migrate run --source artifacts/sqlx-migrations
 
 echo "==> [2/3] building template schema '$TEMPLATE_SCHEMA' (same migrations, pinned search_path)"
-PGOPTIONS="-c search_path=${TEMPLATE_SCHEMA},public" \
+# The target schema must EXIST first: unqualified `CREATE TABLE IF NOT EXISTS x`
+# lands in the FIRST schema of the search_path that exists. If the template
+# schema is missing, `_sqlx_migrations` (also unqualified) falls back to
+# `public`, sqlx sees the migrations as already applied, and the template ends
+# up with 0 tables.
+psql "$TEST_DATABASE_URL" -tAc "CREATE SCHEMA IF NOT EXISTS ${TEMPLATE_SCHEMA}" >/dev/null
+# NOTE: PGOPTIONS env does NOT work with sqlx-cli — the sqlx driver (rust-postgres)
+# does not read libpq environment variables. search_path must be injected through
+# the connection URL's `options` parameter. `-c search_path=<schema>,public` makes
+# the unqualified `CREATE TABLE IF NOT EXISTS x` statements land in the FIRST
+# schema of the search_path (the template schema) instead of public.
+SQLX_OFFLINE=true DATABASE_URL="${TEST_DATABASE_URL}?options=-c%20search_path%3D${TEMPLATE_SCHEMA}%2Cpublic" \
   sqlx migrate run --source artifacts/sqlx-migrations
 
 echo "==> [3/3] verifying both schemas"

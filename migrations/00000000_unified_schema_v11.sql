@@ -2272,6 +2272,9 @@ CREATE TABLE IF NOT EXISTS burn_after_read_pending (
     created_ts BIGINT NOT NULL,
     delete_ts BIGINT NOT NULL,
     is_processed BOOLEAN NOT NULL DEFAULT FALSE,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    is_dead_letter BOOLEAN NOT NULL DEFAULT FALSE,
     UNIQUE(user_id, room_id, event_id)
 );
 
@@ -3912,7 +3915,7 @@ CREATE INDEX IF NOT EXISTS idx_third_party_results_event_checked ON third_party_
 CREATE INDEX IF NOT EXISTS idx_media_callbacks_type_enabled ON media_callbacks(callback_type, is_enabled);
 
 -- Burn after read
-CREATE INDEX IF NOT EXISTS idx_burn_pending_delete_ts ON burn_after_read_pending(delete_ts) WHERE is_processed = FALSE;
+CREATE INDEX IF NOT EXISTS idx_burn_pending_delete_ts ON burn_after_read_pending(delete_ts) WHERE is_processed = FALSE AND is_dead_letter = FALSE;
 CREATE INDEX IF NOT EXISTS idx_burn_log_user ON burn_after_read_log(user_id);
 
 -- Key rotation
