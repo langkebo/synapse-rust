@@ -1,9 +1,8 @@
 # synapse-rust 现存问题清单（审查验证版）
 
-日期：2026-09-14
-基线：`main` @ `e6ecda02`
+日期：2026-09-14（**第二轮复核**，见 §15 复核记录）
+基线：`main` @ `d56a1d82`（首版基线 `e6ecda02`）
 验证方式：**每条都附实测命令与实测结果**。未实测的明确标注 `[未验证]`。
-本文档只做记录，**没有为本清单修改任何代码**。
 
 ---
 
@@ -11,7 +10,7 @@
 
 | 标记 | 含义 |
 |---|---|
-| ✅ | 本轮已修复（附修复提交） |
+| ✅ | 已修复（附修复提交）。**注意**：标 ✅ 的前提是"缺陷本身已消失"；仅清掉症状而门禁仍不覆盖的，标 🔴 并在 §15 说明 |
 | 🔴 | 确认存在，需修 |
 | 🟡 | 确认存在，但需先决策（属产品或架构取舍） |
 | ⚪ | 存在但不建议现在动（成本/风险不匹配） |
@@ -426,7 +425,15 @@ $ grep -rc 'deprecated' .github/workflows/ | grep -v ':0' | wc -l
 
 ---
 
-## 6. ✅ CI lint 门禁不覆盖 workspace—— **已修复**（8509c52b）
+## 6. 🔴 CI lint 门禁不覆盖 workspace —— **首版误标 ✅，实为未修（见 §15.1）**
+
+> **第二轮复核更正**：本节首版标题写"✅ 已修复（`8509c52b`）"，是**误判**。
+> `8509c52b` 只清掉了既有 warning（症状），**门禁的覆盖范围一个字没改**。
+> §15.1 的变红实验证明：向 workspace crate 的 `#[cfg(test)]` 模块注入一处
+> `clippy::bool_comparison`，CI 的 clippy 命令**退出 0、报 0 条错误**，
+> 而加 `--workspace --all-targets` 后**退出 101、报 2 条**。
+> 判定依据是 `AGENTS.md` 第 8 条：门禁类问题必须"故意制造违规能让它变红"才算修复。
+> 以下保留本节原始记录（含首版的自相矛盾之处），仅更正状态。
 
 ```bash
 $ grep -n "cargo clippy" .github/workflows/ci.yml
@@ -484,7 +491,7 @@ $ grep -n "cargo clippy" .github/workflows/ci.yml
 
 ---
 
-## 8. 🟡 迁移文档 `ROUTE_CONTRACT.md` 的漂移门禁：**已验证有效**
+## 8. 🟡 迁移文档 `ROUTE_CONTRACT.md` 的漂移门禁：**门禁有效，但它与文档共用同一个有缺陷的解析器**（见 §17）
 
 ⚠️ **修正先前的判断**：本条曾被我列为"文档手工维护、CI 无校验"。实测**不成立**：
 
@@ -502,7 +509,7 @@ Makefile 有 `route-contract-check`，`make check` 也包含它。**该门禁是
 
 ---
 
-## 9. 🔴 测试库 schema 残留（实时数据）
+## 9. 🔴 测试库 schema 残留（实时数据）+ 共享模块模板累积（见 §15.2）
 
 ```bash
 $ for db in synapse synapse_test; do psql ... -c "select count(*) from pg_namespace where nspname like 'test\_%' or nspname like 'media_test_%'"; done
@@ -561,46 +568,374 @@ TODO/FIXME/XXX/HACK:  8
 
 ---
 
-## 12. `[未验证]` 待查线索
+## 12. `[未验证]` 待查线索 —— **第二轮已全部查证**（2026-09-14）
 
-以下**未取得实测证据**，仅作为线索列出，不应据此决策：
+首版列出的 4 条线索现已逐条实测。**结论：2 条被证伪（原描述不成立），
+2 条被证实——但两者的实际影响面都与原线索描述不同：**
 
-1. `src/web/routes/friend_room.rs` 的"双前缀"问题（B-3）：实测该文件
-   `with_module`/`with_status` 均为 0 处，但**未验证**它注册的路由是否存在
-   重复前缀或与 spec 不符。
-2. `msc4108_rendezvous.rs`（B-4）：同样 0 处标注，**未验证**其 `tags` 字段缺失
-   是否构成契约问题。
-3. B-10/B-11 的"剩余条目"：**未逐条验证**。相关根因（manifest 与 router 注册
-   分两张表）存在，但具体缺哪些条目未实测。
-4. `synapse-e2ee` 的 `unused import: crate::test_mocks::InMemoryToDeviceStorage`
-   实测存在（clippy 报出），但**未验证**是测试代码还是生产代码。
+| 线索 | 结论 | 实际影响 |
+|------|------|----------|
+| 12.1 B-3 `friend_room.rs` 双前缀 | **证伪** | manifest 与 router 完全一致（93/93，对称差集为空） |
+| 12.2 B-4 `msc4108_rendezvous.rs` | **证实，且比原描述严重** | manifest 一致；但协议实现缺 10 项规范 required 行为（新 §16） |
+| 12.3 B-10/B-11 剩余条目 | **证伪（可测范围内 0 缺口）** | 无路由缺 manifest 声明；但契约文档含未加 nest 前缀的路径（新 §17） |
+| 12.4 `synapse-e2ee` unused import | **证伪** | 位于 `#[cfg(test)]` 内，不进生产构建 |
+
+### 12.1 B-3 `friend_room.rs` 的"双前缀" —— **证伪，无契约不一致**
+
+实测方法：写解析器分别抽出 `create_friend_router` 里所有 `.route(path, methods)`
+的 `(method, path)` 与 `friend_route_manifest()` 声明的元组，做双向差集。
+
+```
+router (method,path) 数: 93
+manifest 条数:           93
+对称差集:                (空)
+router 前缀分布  : v1=29  r0=28  v3=7  /_matrix/vendor/v1=29
+manifest 前缀分布: v1=29  r0=28  v3=7  /_matrix/vendor/v1=29
+```
+
+> ⚠️ 若用 `scripts/contract/extract_registered.py` 的解析器统计同一文件会得到
+> **偏小的数字**（它每个 `.route` 只记第一个方法、且忽略 `nest`）。上面这组数字
+> 来自我自己写的括号平衡解析器。这正是 §17 所述解析器缺陷的一个具体体现。
+
+**裁定**：B-3 原描述的"双前缀问题"**不存在**。三套前缀（v3/v1/r0）是**有意**
+同时注册的兼容别名，且 manifest 与 router 完全同步。`with_module`/`with_status`
+为 0 处是 B-7 删除该机制的结果，不是缺陷。
+
+### 12.2 B-4 `msc4108_rendezvous.rs` —— **manifest 一致；但发现真实协议缺口（新 §16）**
+
+manifest 与 router 同样完全一致（4 条，2 条路径 × 方法）。
+原线索提到的"`tags` 字段缺失"**不成立**：`tags` 不是 MSC4108 的 API 字段
+（MSC4108 的响应头是 `ETag`/`Expires`/`Last-Modified`/`Cache-Control`/`Pragma`）。
+
+但对照 MSC4108 规范正文后发现**真实的协议实现缺口**，见 **§16**。
+
+### 12.3 B-10/B-11 "剩余条目" —— **证伪（在可测范围内 0 缺口）；但暴露真正缺陷（新 §17）**
+
+实测（`scripts/contract/extract_registered.py` 产物 + 自写双向差集）：
+
+```
+extractor total_routes: 921
+注册但未在任何 manifest 声明的路由: 0
+```
+
+**裁定**：B-10/B-11 "manifest 与 router 分两张表"的**症状在可测范围内为 0**——
+没有一个已注册路由缺 manifest 声明。原线索的"具体缺哪些条目未实测"答案是
+**一条都不缺**。
+
+但这个核查过程暴露了**更根本的缺陷**：该结论**无法被任何门禁持续保证**，
+因为不存在"构建真实 router 并与 ledger 比对"的测试。见 **§17**。
+
+### 12.4 `synapse-e2ee` 的 `unused import` —— **证伪，是测试代码**
+
+```
+$ sed -n '118,140p' synapse-e2ee/src/to_device/service.rs
+#[cfg(test)]        <- 124 行
+mod tests {         <- 125 行
+    use crate::test_mocks::InMemoryToDeviceStorage;   <- 129 行
+```
+
+该 import 位于 `#[cfg(test)] mod tests` 内，**不进生产构建**。原线索的
+"未验证是测试代码还是生产代码"答案是**测试代码**，不构成生产缺陷。
+
+> 注：该 import 在 `8509c52b` 已被删除，当前 `cargo clippy --workspace
+> --all-targets --all-features` 报的 3 条既有 warning 中不再包含它。
 
 ---
 
-## 13. 汇总：建议的处理顺序
+## 15. 第二轮复核记录（2026-09-14，基线 `d56a1d82`）
 
-| 优先级 | 问题 | 类型 | 状态 / 预估成本 |
+本节记录复核**推翻或修正首版结论**的地方，以及复核中新发现的问题。
+
+### 15.1 🔴 **§6 的 ✅ 是错的**：clippy 门禁仍不覆盖 workspace 测试代码
+
+首版 §6 标 ✅ 并写明"**已修复**（`8509c52b`）"。但该节自己的"修复"正文同时写着：
+
+> CI 门禁（`:217`）虽未加 `--workspace`，但已确保全 workspace 干净
+
+也就是说 **`8509c52b` 只清掉了症状（14 条 warning），缺陷（门禁不覆盖）完全没有动**。
+实测 `ci.yml` 当前仍是：
+
+```
+217:  run: cargo clippy ${{ matrix.features-args }} --locked -- -D warnings
+329:  run: cargo clippy -p synapse-services --all-features --tests --locked -- -D warnings
+```
+
+`:217` 无 `--workspace`、无 `--all-targets`。
+
+**变红实验（决定性证据）**：向 `synapse-storage/src/voice.rs` 的
+`#[cfg(test)]` 模块内注入一处 `if pool.is_closed() == true`（`clippy::bool_comparison`）：
+
+| 命令 | 退出码 | 报出的 clippy 错误数 |
+|------|--------|---------------------|
+| `cargo clippy --all-features --locked -- -D warnings`（复刻 CI `:217`） | **0** | **0** |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | **101** | **2** |
+
+即：**一处 100% 确定会被 `-D warnings` 拦下的 clippy 错误，放进 workspace crate
+的测试代码后，CI 门禁完全看不到。** 探针已还原（`diff` 确认）。
+
+**为何重要**：`AGENTS.md` 第 8 条要求"门禁必须自证能变红"。首版把"清了 warning"
+当成"修了门禁"，正是该条要防的误判——存量清零 ≠ 门禁生效，下一个新增的
+test-code warning 依然不会被拦。
+
+**修法**（未实施，属需决策项）：`:217` 改 `cargo clippy --workspace --all-targets
+${{ matrix.features-args }} --locked -- -D warnings`，然后清掉届时暴露的存量
+（当前实测仅 3 条：`synapse-e2ee` 1 条 unused import + `synapse-storage/voice.rs`
+2 条 dead_code）。
+
+### 15.2 🔴 **新发现**：共享模块的模板 schema 无限累积，且没有清理机制
+
+首版 §9 只记录 `synapse` 库的 **388** 个 `test_*` 残留。复核发现另一类**由共享
+模块自己产生**的残留，首版完全没提：
+
+```
+$ psql synapse_test -c "select nspname, count(relkind='r') from pg_namespace
+                        where nspname like 'test_isolation_template%'"
+test_isolation_template_0d9aadd87310f7d6|  4
+test_isolation_template_7c3a89659a56940f|254
+test_isolation_template_bec240fb79ed438b|254
+test_isolation_template_ce1048bf17bf4285|  2
+test_isolation_template_cedaafcca5237cbd|  3
+test_isolation_template_e3d73be71e17840a|  2
+test_isolation_template_e87a91bf79535e84|  2
+                                         ^^^ 7 个模板，合计 2,457 个关系对象
+```
+
+成因与自增机制：
+
+- `synapse-common/src/test_isolation.rs` 的 `ensure_template_schema` 用
+  `template_schema_name(baseline_sql)`（baseline 内容的 FNV-1a 指纹）命名模板。
+  **每次改 baseline（含改测试里的 baseline 字符串）就 mint 一个新模板。**
+- 该文件里 `let baseline = ...` 出现 **13 次**，即跑一次 lib 测试套件会造出
+  13 个不同的模板 schema（实测残留里那 5 个只有 1–4 张表的，正是测试 baseline 的模板）。
+- **共享模块没有任何模板清理**：`grep -c 'DROP SCHEMA'` = 35，但全部在
+  `#[cfg(test)]` 测试体内（清理自己造的临时 schema），唯一在非测试代码里的
+  一处是 `build_template` 重建**不完整**模板时的 `DROP`。**没有**
+  "删除被新指纹取代的旧模板"的逻辑。
+
+对照：根夹具 `src/test_utils.rs` **有**这个机制（`prune_stale_template_schemas`，
+首版 §2 提到过），共享模块没有——这正是首版 §2 "两份实现漂移"的又一个具体后果。
+
+**影响**：每个完整模板 254 张表/1,197 个对象。长期运行的开发库与 CI 会持续累积。
+CI 因每次是干净容器而不暴露，**本地开发库会持续膨胀**（实测已 2,457 个对象）。
+
+**修法**（未实施）：共享模块在 `ensure_template_schema` 成功建好新模板后，
+按 `test_isolation_template_*` 前缀删除非当前模板（参照
+`prune_stale_template_schemas` 的"先确认替代模板存在再删"安全序）；
+测试用的 baseline 应在测试结束时 drop 自己 mint 的模板。
+
+### 15.3 复核确认**无误**的项
+
+| 首版条目 | 复核结果 |
+|---|---|
+| §3.1 时钟容差 | ✅ 属实已修：`assert!(age <= 50, ...)`，且注释记录了实测 `got 6` |
+| §9 `synapse` 库 388 残留 | ✅ 数字准确（复核仍为 388 / public 253） |
+| §10 工程债计数 | ✅ 基本准确（`allow(dead_code)` 149 → 现 151，因收敛新增；其余一致：`allow(clippy::)` 170、`#[ignore]` 26、TODO 8、`#[deprecated]` 0） |
+| §11.1 identity 列未处理 | ✅ 属实且仍不触发：baseline 里 `GENERATED ... AS IDENTITY` **0 处**，模板里 `attidentity <> ''` 的列实测 **0**，共享模块 `attidentity` 命中 **0** |
+| §11.2 `EXECUTE PROCEDURE` 未重定向 | ✅ 属实且仍不触发：baseline 里 `EXECUTE PROCEDURE` **0 处** |
+| §8 路由契约漂移门禁有效 | ✅ 属实：`check_route_contract.sh` 退出 0，921 routes / 46 categories。但见 §17——它保证的是"源码 ↔ 文档"，不是"served router ↔ ledger" |
+
+### 15.4 复核中新出现的两类本地残留（由本轮验证产生，非产品缺陷）
+
+复核过程中我自己的测试跑出了以下残留，**已定位、可清理、不属于产品缺陷**，
+列出以免误读为泄漏：
+
+```
+unify_names_*   unify_refill_*   unify_reseed_*   unify_seed_all_*
+unify_seed_clone_*   unify_seed_only_*
+test_46001_1_1789365993263823000   (253 表的克隆)
+test_template_v2_b6fa43a1d62f6181  (根夹具模板)
+```
+
+成因：共享模块的测试在**断言失败**时会提前 `panic`，其末尾的
+`DROP SCHEMA ... CASCADE` 清理语句因此不执行。这本身是测试卫生问题
+（清理应放 `Drop` guard 而非线性代码末尾），与 §15.2 是同一类问题的两个面。
+
+---
+
+## 16. 🔴 **新发现**：MSC4108 rendezvous 实现偏离规范（协议缺口）
+
+首版 §12.2 只记录了"manifest 一致、`tags` 未验证"。复核对照 MSC4108 规范正文
+（[4108-oidc-qr-login.md](https://raw.githubusercontent.com/matrix-org/matrix-spec-proposals/87f8317a902cd7bc5c2d2d225f71021b3a509e2d/proposals/4108-oidc-qr-login.md)）
+后发现实现缺了多处**规范标记为 required** 的行为。
+
+规范要求（insecure rendezvous 小节）：
+
+> ##### Common HTTP response headers
+> - `ETag` - **required**
+> - `Expires` - **required**
+> - `Last-Modified` - **required**
+> - `Cache-Control` - **required, `no-store`**
+> - `Pragma` - **required, `no-cache`**
+
+实测 `src/web/routes/msc4108_rendezvous.rs` 设置的响应头（`grep` 结果）：
+
+```
+POST   : ETAG, EXPIRES, CONTENT_TYPE(json)      <- 缺 Last-Modified / Cache-Control / Pragma
+GET    : ETAG, CONTENT_TYPE(text/plain)         <- 缺 Expires / Last-Modified / Cache-Control / Pragma
+PUT    : ETAG, CONTENT_TYPE(text/plain)         <- 同上
+DELETE : （无任何头）
+```
+
+逐条缺口：
+
+| # | 规范要求 | 实测实现 | 影响 |
+|---|----------|----------|------|
+| 1 | 所有响应必须带 `Last-Modified` | **未设置** | 客户端无法判断载荷新旧 |
+| 2 | 所有响应必须带 `Cache-Control: no-store` | **未设置** | 中间缓存可能缓存 rendezvous 载荷（规范明确要求防止缓存篡改 ETag） |
+| 3 | 所有响应必须带 `Pragma: no-cache` | **未设置** | 同上 |
+| 4 | `PUT` 成功返回 **`202 Accepted`** | 返回 `200 OK` | 状态码不符 |
+| 5 | `DELETE` 成功返回 **`204 No Content`** | 返回 `200 OK` | 状态码不符 |
+| 6 | `PUT` 的 ETag 不匹配返回 **`412 Precondition Failed`**（unstable 期用 `M_UNKNOWN` + `org.matrix.msc4108.errcode: M_CONCURRENT_WRITE`） | 返回 `400`（`ApiError::bad_request`） | 状态码与 errcode 均不符；客户端无法区分"ETag 冲突"与"参数非法" |
+| 7 | `POST` 请求必须校验 `Content-Type: text/plain`、缺失/非法返回 `400`（`M_MISSING_PARAM` / `M_INVALID_PARAM`） | **未校验请求 Content-Type**（`CONTENT_TYPE` 仅出现在响应构造处） | 接受任意 Content-Type |
+| 8 | `POST` 响应须 `Access-Control-Expose-Headers: ETag` | **未设置** | 浏览器端 JS 读不到 `ETag`，Web 客户端无法完成 QR 登录 |
+| 9 | `GET` 的 `304 Not Modified` 也要带上文 common headers | 只带 `ETAG` | 缺 `Expires`/`Last-Modified`/缓存头 |
+| 10 | 载荷上限 4KB，超限 `413 M_TOO_LARGE` | 未实现（无大小限制代码） | 规范建议的 DoS 缓解缺失（规范原文是 SHOULD，但 DoS 面明确） |
+
+> **重要**：现有测试**把这些偏离当作期望固化**了。`tests/unit/msc4108_rendezvous_route_tests.rs`
+> 里有 `update_session_returns_ok_with_new_etag`（断言 200）、
+> `delete_session_returns_ok_with_empty_body`（断言 200）、
+> `update_session_etag_mismatch_returns_bad_request`（断言 400）、
+> `get_session_304_response_carries_only_etag_header`（断言 304 **只**带 ETag）。
+> 因此修这些缺口**必须同时改测试**，否则会被"既有测试全绿"挡住。
+
+**修法**（未实施）：按上表 10 条逐一补齐；状态码与 errcode 变更需同步改上述 4 个测试；
+补齐后应有一条"响应头完整性"测试断言 5 个 common headers 在所有状态码下都存在。
+
+---
+
+## 17. 🟡 **新发现**：没有任何测试校验"实际注册的路由 == ledger"
+
+首版 §8 标"路由契约漂移门禁：已验证有效"，复核确认该门禁确实有效，
+但**它保证的范围比字面理解窄**：
+
+| 门禁 | 实际保证 | **不**保证 |
+|------|----------|-----------|
+| `scripts/contract/check_route_contract.sh` | `src/web/routes/**` 的**源码文本** ↔ `ROUTE_CONTRACT.md`（两边都由 `extract_registered.py` 解析源码生成） | ① 真实 Axum router 注册的路由 ↔ ledger；② 源码解析会漏的部分 |
+| `RouteLedger::validate()` | 同一 `(method,path)` **不重复** | 任何"注册了但没进 ledger"的缺失 |
+| `tests/unit/assembly_route_tests.rs`（27 个测试） | **声明出来的** `declared_manifest()` 内部自洽（非空、无重复、路径以 `/` 开头、含预期命名空间） | 真实 router 是否真的注册了这些路径 |
+
+**核心缺口**：没有任何测试**构建真实 router 再枚举路径**。实测
+`grep -rn '\.routes()\|into_make_service' src/ tests/` → **0 处**；
+`assembly_route_tests.rs` 里也从不调用 `create_router`（注释里说
+"the live `create_router` aborts on duplicate"，但测试只检查 manifest）。
+
+**而且解析器本身有已实测的盲区**：`extract_registered.py` 的
+`re_route` 只匹配每个 `.route(...)` 的**第一个**方法（链式 `.get(a).post(b)` 只记第一个），
+且**忽略 `.nest()` 前缀**——它把 `nests` 收进 `nest_map`（第 43 行）后**从未读取**，
+`out[mod]` 直接等于未加前缀的 `full`。
+
+**已实测的具体后果（契约文档出错，不只是门禁缺失）**：
+
+`space.rs` 用 `expand_under_prefixes("space", SPACE_NEST_PREFIXES, &space_relative_routes())`
+生成 manifest，`space_relative_routes()` 有 **24** 条相对路径，
+`SPACE_NEST_PREFIXES = ["/_matrix/client/v1","/_matrix/client/r0","/_matrix/client/v3"]`
+→ manifest 里是 **72** 条带前缀的完整路径。
+
+但 `space/children_hierarchy.rs` 等子模块是按**相对路径**注册的
+（`.route("/spaces/{space_id}/children", ...)`），而且**路径是字符串字面量**，
+所以被 extractor 原样收进 `artifacts/registered_routes.json`，`gen_contract_doc.py`
+再原样写进文档：
+
+```
+$ grep -cE '^- `[A-Z]+` `/spaces/'                         docs/synapse-rust/ROUTE_CONTRACT.md
+15
+$ grep -cE '^- `[A-Z]+` `/_matrix/client/v[0-9]+/spaces'   docs/synapse-rust/ROUTE_CONTRACT.md
+0        # 期望 45（15 条 × v1/r0/v3 三个前缀）
+```
+
+**即：契约文档里 15 条 `/spaces/...` 是相对形式，真实 serve 路径是
+`/_matrix/client/{v1,r0,v3}/spaces/...`。文档与真实路由面不符。**
+
+这 15 条**全部**是相对形式（已逐条核对，无一条带前缀）：
+
+```
+DELETE /spaces/{space_id}/children/{room_id}     GET  /spaces/room/{room_id}/parents
+GET    /spaces/{space_id}/children              GET  /spaces/{space_id}/hierarchy
+GET    /spaces/{space_id}/hierarchy/v1          GET  /spaces/{space_id}/tree_path
+POST   /spaces/{space_id}/children              GET  /spaces/{space_id}/members
+GET    /spaces/{space_id}/rooms                 GET  /spaces/{space_id}/state
+POST   /spaces/{space_id}/invite                POST /spaces/{space_id}/join
+POST   /spaces/{space_id}/leave                 GET  /spaces/{space_id}/summary
+GET    /spaces/{space_id}/summary/with_children
+```
+
+manifest 侧对应 15 × 3 前缀 = **45** 条带前缀路径，文档侧带前缀的 **0** 条。
+
+> **诚实边界**：我**没有**逐条审计整份文档有多少条同类错误。曾用"后缀匹配"
+> 估计为 37 条，但实测发现该方法会误报（`/capabilities` 会匹配到
+> `/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/capabilities`），
+> 因此**该数字已丢弃**。文档里另有 254 条是合法顶层路径
+> （`/.well-known/*`、`/_health`、`/` 等）。**要做完整审计，必须先有一个
+> 能解析链式方法与 `.nest()` 前缀的解析器——这正是本条要求的前置修复。**
+
+**影响**：① 任何客户端按 `ROUTE_CONTRACT.md` 拼接请求会打到不存在的路径；
+② 一个只改了 router 而忘了改 manifest 的改动，当前没有任何自动门禁能发现
+（契约文档反而会跟着 router 变，看起来"同步"）；③ `manifest_has_route` 驱动的
+capability 声明读的是 manifest，manifest 漏条目会让 `/capabilities` 与
+`/versions` 谎报能力缺失（反向则谎报可用）。
+
+**修法**（未实施，需决策）：
+1. 修 `extract_registered.py`：解析链式方法（`.get(a).post(b)` 全部记入）、
+   并把 `nest_map` 真正应用到 `out`（当前完全未用）。修完重新生成契约文档，
+   即可暴露并修正全部前缀缺失条目。
+2. 加一条测试：断言"解析出的真实路由集合 == `declared_manifest()` 集合"（双向）。
+   更强的做法是用测试 `AppState` 调 `create_router(state)` 枚举真实路由——
+   Axum 0.8 无公开路由枚举 API，所以第 1 步的解析器修复是更现实的路径。
+
+> 这一条与首版 §8 的"已验证有效"**不矛盾**：§8 的门禁确实在工作，
+> 只是它守护的是"源码解析 ↔ 文档"，而两边用的是**同一个有缺陷的解析器**，
+> 所以解析器错、两边一起错，门禁依然报绿。这是 §6 同类问题
+> （"门禁在跑 ≠ 门禁在检查正确的东西"）的又一个实例。
+
+---
+
+## 18. 复核后的汇总（**当前有效的排序**；首版排序见 §19）
+
+| 优先级 | 问题 | 类型 | 状态 |
 |---|---|---|---|
-| ~~P0~~ | ~~§1 CI 指向生产库 + wipe 标志~~ | 数据安全 | ✅ **已修复**（`00c0aad2`：一库两 schema + pin `TEST_DB_TEMPLATE_SCHEMA`，DROP public 结构性不可能） |
-| ~~P0~~ | ~~§4 `media::tests` 确定性失败~~ | 测试正确性 | ✅ **已修复**（`5d3f7d4b`：夹具委托共享隔离池 + 移除豁免/守卫；连带 `011db5db` P0 修复 + `f6283785` 指纹刷新） |
-| P1 | §2 `clone_schema_from_template` 多份实现 | 架构一致性 | ✅ **已修复**（`3e9063e0`：共享模块补索引名 + `SeedSource` 白名单 + ROOT 收敛 + 序列 OWNED BY） |
-| P1 | §3 两个既存失败（时钟容差 / 守卫判据） | 测试确定性 | ✅ **已修复**（守卫判据随 §1 修掉；时钟容差放宽 `<= 50`，`8509c52b`） |
-| P1 | §6 clippy 门禁覆盖 workspace | 门禁真实性 | ✅ **已修复**（`8509c52b` 清 14 条 warning，workspace 零 warning） |
-| P2 | §5 `status` 字段去留 | 冗余治理 | ✅ 已完成（`c5a5df0d`，删除，schema 3→4） |
-| P2 | §9 schema 残留自动清理 | 运维 | 🔴 CI 加一步 |
-| P3 | §7 两条车道的复杂度 | 架构 | 🟡 需先统一 feature 集 |
-| P3 | §10 存量债、§11 局限 | 技术债 | ⚪ 新代码设禁，存量另立专项 |
+| 🔴 P1 | **§6 clippy 门禁仍不覆盖 workspace 测试代码** | 门禁真实性 | 首版误标 ✅，**实为未修**。变红实验已证（§15.1） |
+| 🔴 P1 | **§16 MSC4108 偏离规范 10 项** | 协议正确性 | 新发现；4 个既有测试固化了错误期望 |
+| 🔴 P2 | **§15.2 共享模块模板 schema 无限累积** | 资源泄漏 | 新发现；根夹具有清理机制，共享模块没有 |
+| 🟡 P2 | **§17 契约文档含未加 nest 前缀的路由；解析器有链式/nest 盲区** | 契约正确性 | 新发现：`/spaces/...` 15 条相对路径写入文档、0 条带前缀；`nest_map` 收集后从未使用 |
+| 🟡 P3 | §7 契约链两条车道的 feature 集复杂度 | 架构 | 未动，需先统一 feature 集 |
+| ⚪ P3 | §9 `synapse` 库 388 残留 | 运维 | 另一 agent 正在做（`ci.yml` 已加 cleanup step） |
+| ⚪ P3 | §10 存量债、§11 局限 | 技术债 | 新代码设禁，存量另立专项 |
+| ✅ | §1 / §3 / §4 / §5 / §2 收敛 / §12 四条线索 | — | 已核实（§15.3） |
+
+**核对方式说明**：本表把首版标 ✅ 但实为未修的 §6 降级为 🔴。
+判定标准是 `AGENTS.md` 第 8 条——**门禁类问题只有在"故意制造违规能让它变红"
+被实测证明后，才算修复**；清掉存量 warning 不等于门禁生效。
 
 ---
 
-## 14. 复现命令速查
+## 19. 首版（`e6ecda02`）汇总 —— 保留作历史对照
+
+> **已被 §18 取代。** 保留它是为了记录首版排序，并标出首版**误判**的一项
+> （`§6`），避免以后有人只读这一节而得到错误结论。
+
+| 优先级 | 问题 | 类型 | 首版结论 | 复核更正 |
+|---|---|---|---|---|
+| ~~P0~~ | ~~§1 CI 指向生产库 + wipe 标志~~ | 数据安全 | ✅ 已修复（`00c0aad2`） | ✅ 成立 |
+| ~~P0~~ | ~~§4 `media::tests` 确定性失败~~ | 测试正确性 | ✅ 已修复（`5d3f7d4b`） | ✅ 成立 |
+| P1 | §2 `clone_schema_from_template` 多份实现 | 架构一致性 | ✅ 已修复（`3e9063e0`） | ✅ 成立 |
+| P1 | §3 两个既存失败（时钟容差 / 守卫判据） | 测试确定性 | ✅ 已修复（`8509c52b`） | ✅ 成立 |
+| P1 | §6 clippy 门禁覆盖 workspace | 门禁真实性 | ✅ 已修复（清 14 条 warning） | ❌ **误判**：只清症状，门禁仍不覆盖。见 §15.1 |
+| P2 | §5 `status` 字段去留 | 冗余治理 | ✅ 已完成（`c5a5df0d`） | ✅ 成立 |
+| P2 | §9 schema 残留自动清理 | 运维 | 🔴 CI 加一步 | 🔴 另一 agent 正在做；另发现共享模块模板累积（§15.2） |
+| P3 | §7 两条车道的复杂度 | 架构 | 🟡 需先统一 feature 集 | ✅ 不变 |
+| P3 | §10 存量债、§11 局限 | 技术债 | ⚪ 新代码设禁，存量另立专项 | ✅ 不变（§11 两条已实测确认不触发） |
+
+---
+
+## 20. 复现命令速查（含第二轮新增）
 
 ```bash
 # §1 CI 危险组合
 grep -nB1 -A1 "SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE" .github/workflows/ci.yml
 
-# §2 三分实现
+# §2 实现份数（应只有 1 处构建克隆 SQL）
 grep -rn "fn clone_schema_from_template" --include=*.rs . | grep -v worktrees
+grep -rn 'AND {seed_where}' --include=*.rs src synapse-*/src | grep -v tests/
 
 # §3/§4 两个类别的失败
 cargo nextest run --test unit --features test-utils -E 'test(/test_calculate_age_near_zero/)'
@@ -610,13 +945,35 @@ cargo nextest run -p synapse-services --lib --all-features --test-threads 1 -E '
 grep -rn '\.with_status(' --include=*.rs src | wc -l
 grep -rn 'sunset_at' --include=*.rs src | grep -v 'route_ledger.rs\|ledger_export.rs' | wc -l
 
-# §6 clippy 覆盖
+# §6 clippy 覆盖 —— 关键是"能不能变红"，不是"当前有几条 warning"
 grep -n "cargo clippy" .github/workflows/ci.yml
 cargo clippy --workspace --all-targets --all-features --locked 2>&1 | grep -c '^warning'
+# 变红实验：向 synapse-storage/src/voice.rs 的 #[cfg(test)] 内注入
+#   if pool.is_closed() == true { return; }
+# 然后对比：
+#   cargo clippy --all-features --locked -- -D warnings                       # 退出 0（看不到）
+#   cargo clippy --workspace --all-targets --all-features --locked -- -D warnings  # 退出 101（看得到）
 
-# §8 路由契约漂移门禁（有效）
+# §8/§17 路由契约
 bash scripts/contract/check_route_contract.sh
+python3 scripts/contract/extract_registered.py
+grep -cE '^- `[A-Z]+` `/spaces/' docs/synapse-rust/ROUTE_CONTRACT.md                 # 15（相对路径，错）
+grep -cE '^- `[A-Z]+` `/_matrix/client/v[0-9]+/spaces' docs/synapse-rust/ROUTE_CONTRACT.md  # 0（应有）
 
 # §9 schema 残留
 psql ... -c "select count(*) from pg_namespace where nspname like 'test\_%' or nspname like 'media_test_%'"
+psql ... -d synapse_test -c "select nspname, count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname like 'test_isolation_template%' group by 1"
+
+# §12 四条线索的复核命令
+#   B-3/B-4 manifest↔router 双向差集：见 §12.1/§12.2 的解析器脚本
+#   4) e2ee unused import 的门控：
+sed -n '118,132p' synapse-e2ee/src/to_device/service.rs
+
+# §15.2 共享模块模板累积
+grep -c 'DROP SCHEMA' synapse-common/src/test_isolation.rs
+grep -c 'ensure_template_schema(&url, baseline)' synapse-common/src/test_isolation.rs
+
+# §16 MSC4108 响应头
+grep -n 'header::' src/web/routes/msc4108_rendezvous.rs
+grep -n 'StatusCode::' src/web/routes/msc4108_rendezvous.rs
 ```
