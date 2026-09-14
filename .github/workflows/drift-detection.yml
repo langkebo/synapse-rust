@@ -343,40 +343,7 @@ jobs:
           echo "Testing migration performance with ${PERF_TEST_ROWS:-10000000} rows..."
           failed=0
           ran_any=0
-          for migration in \
-            migrations/archive/20260322000001_performance_indexes.sql \
-            migrations/archive/20260322000002_performance_indexes_v2.sql \
-            docker/deploy/migrations/20260518000001_performance_indexes.sql \
-            docker/deploy/migrations/20260519000001_additional_performance_indexes.sql
-          do
-            if [ ! -f "$migration" ]; then
-              echo "::warning::Missing migration benchmark target: $migration (skipped)"
-              continue
-            fi
-
-            ran_any=1
-            start_time=$(date +%s%3N)
-
-            if ! PGPASSWORD=synapse psql -h localhost -U synapse -d synapse -f "$migration"; then
-              failed=1
-              continue
-            fi
-
-            end_time=$(date +%s%3N)
-            duration=$((end_time - start_time))
-
-            echo "Migration: $(basename "$migration")"
-            echo "Duration: ${duration}ms"
-
-            if [ "$duration" -gt 30000 ]; then
-              echo "::warning::Migration $(basename "$migration") exceeds 30s baseline"
-              failed=1
-            fi
-          done
-
-          if [ "$ran_any" -eq 0 ]; then
-            echo "::warning::No performance benchmark migration files found — skipping performance baseline"
-          fi
+          echo "::warning::Performance-baseline gate removed: target migration files were deleted in redundancy cleanup"
 
           if [ "$failed" -ne 0 ]; then
             exit 1

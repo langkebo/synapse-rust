@@ -735,8 +735,7 @@ jobs:
         run: cargo build --release --no-default-features --features ${{ matrix.profile.features }} --locked
 
       - name: Build wasm (if applicable)
-        if: matrix.profile.name == 'all-extensions'
-        run: cargo build --release --workspace --exclude synapse_worker --locked || true
+        run: cargo build --release --bin synapse_worker --locked
 
   coverage:
     name: Code Coverage
