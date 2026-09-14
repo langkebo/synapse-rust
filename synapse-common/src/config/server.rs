@@ -572,14 +572,6 @@ impl ServerConfig {
         }
         format!("http://{}:{}", host, self.port)
     }
-
-    /// 获取事件 ID 生成用的服务器名称。
-    ///
-    /// 这是 generate_event_id 函数使用的服务器名称。
-    /// 优先使用配置中的 server_name，回退到 name 字段。
-    pub fn get_event_server_name(&self) -> &str {
-        self.get_server_name()
-    }
 }
 
 #[cfg(test)]
@@ -604,14 +596,6 @@ mod tests {
         config.name = "example.com".into();
         config.server_name = None;
         assert_eq!(config.get_server_name(), "example.com");
-    }
-
-    #[test]
-    fn get_event_server_name_delegates_to_get_server_name() {
-        let mut config = make_config();
-        config.name = "events.example.com".into();
-        config.server_name = None;
-        assert_eq!(config.get_event_server_name(), "events.example.com");
     }
 
     #[test]

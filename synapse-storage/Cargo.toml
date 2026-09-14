@@ -14,7 +14,6 @@ panic = "deny"
 
 [features]
 default = []
-runtime-ddl = ["synapse-common/runtime-ddl"]
 test-utils = ["synapse-common/test-utils"]
 friends = ["synapse-common/friends"]
 voice-extended = ["synapse-common/voice-extended"]

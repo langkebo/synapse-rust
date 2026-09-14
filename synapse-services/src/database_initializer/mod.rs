@@ -1,7 +1,5 @@
 /// The `models` module.
 pub mod models;
-/// The `tables` module.
-pub mod tables;
 pub use models::{initialize_database, DatabaseInitMode, DatabaseInitService, Environment, InitializationReport};
 
 use sqlx::PgPool;
@@ -150,67 +148,6 @@ impl DatabaseInitService {
                 }
             }
             Err(e) => report.errors.push(format!("索引验证失败: {e}")),
-        }
-
-        #[cfg(feature = "runtime-ddl")]
-        if mode == DatabaseInitMode::Compatible {
-            match self.step_schema_repair().await {
-                Ok(repaired) => {
-                    if !repaired.is_empty() {
-                        info!(repaired_column_count = repaired.len(), "运行时补齐了缺失列");
-                        report.repairs_performed.extend(repaired);
-                    }
-                }
-                Err(e) => {
-                    report.is_success = false;
-                    report.errors.push(format!("运行时列修复失败: {}", e));
-                }
-            }
-
-            match self.step_create_indexes().await {
-                Ok(created) => {
-                    if !created.is_empty() {
-                        info!(created_index_count = created.len(), "运行时补齐了缺失索引");
-                        report.repairs_performed.extend(created);
-                    }
-                }
-                Err(e) => {
-                    report.is_success = false;
-                    report.errors.push(format!("运行时索引修复失败: {}", e));
-                }
-            }
-
-            match self.step_create_e2ee_tables().await {
-                Ok(message) => report.steps.push(message),
-                Err(e) => {
-                    report.is_success = false;
-                    report.errors.push(format!("运行时 E2EE 兼容表检查失败: {}", e));
-                }
-            }
-
-            match self.step_create_e2ee_core_tables().await {
-                Ok(message) => report.steps.push(message),
-                Err(e) => {
-                    report.is_success = false;
-                    report.errors.push(format!("运行时 E2EE 核心表检查失败: {}", e));
-                }
-            }
-
-            match self.step_ensure_additional_tables().await {
-                Ok(message) => report.steps.push(message),
-                Err(e) => {
-                    report.is_success = false;
-                    report.errors.push(format!("运行时附加表兼容检查失败: {}", e));
-                }
-            }
-
-            match self.step_schema_validation().await {
-                Ok(status) => report.schema_status = Some(status),
-                Err(e) => {
-                    report.is_success = false;
-                    report.errors.push(format!("运行时修复后 Schema 复检失败: {}", e));
-                }
-            }
         }
 
         if report.is_success {
@@ -737,18 +674,8 @@ impl DatabaseInitService {
         self.schema_validator.validate_all().await
     }
 
-    #[cfg(feature = "runtime-ddl")]
-    async fn step_schema_repair(&self) -> Result<Vec<String>, sqlx::Error> {
-        self.schema_validator.repair_missing_columns().await
-    }
-
     async fn step_index_validation(&self) -> Result<Vec<String>, sqlx::Error> {
         self.schema_validator.validate_indexes().await
-    }
-
-    #[cfg(feature = "runtime-ddl")]
-    async fn step_create_indexes(&self) -> Result<Vec<String>, sqlx::Error> {
-        self.schema_validator.create_missing_indexes().await
     }
 }
 
@@ -891,89 +818,5 @@ mod tests {
         let chars: Vec<char> = "$tag space$".chars().collect();
         let end = DatabaseInitService::find_dollar_tag_end(&chars, 0);
         assert_eq!(end, None);
-    }
-
-    // ── T2: runtime-ddl step_create_* 执行验证测试 ──
-    // 每个测试在隔离的 test schema 中执行对应的 step_create 函数，
-    // 然后通过 information_schema 验证目标表确实被创建。
-
-    #[cfg(feature = "runtime-ddl")]
-    #[tokio::test]
-    async fn test_step_create_e2ee_tables_creates_device_keys() {
-        let _guard = test_utils::env_lock_async().await;
-        let pool = test_utils::prepare_empty_isolated_test_pool().await.expect("failed to create isolated test pool");
-        let init = DatabaseInitService::new(pool.clone());
-
-        init.step_create_e2ee_tables().await.expect("step_create_e2ee_tables should succeed");
-
-        let exists: (bool,) =
-            sqlx::query_as("SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'device_keys')")
-                .fetch_one(&*pool).await.expect("should query table existence");
-        assert!(exists.0, "device_keys table should exist after step_create_e2ee_tables");
-    }
-
-    #[cfg(feature = "runtime-ddl")]
-    #[tokio::test]
-    async fn test_step_create_e2ee_core_tables_creates_expected_tables() {
-        let _guard = test_utils::env_lock_async().await;
-        let pool = test_utils::prepare_empty_isolated_test_pool().await.expect("failed to create isolated test pool");
-        let init = DatabaseInitService::new(pool.clone());
-
-        init.step_create_e2ee_core_tables().await.expect("step_create_e2ee_core_tables should succeed");
-
-        let expected_tables = [
-            "olm_accounts",
-            "olm_sessions",
-            "megolm_sessions",
-            "cross_signing_keys",
-            "device_signatures",
-            "backup_keys",
-        ];
-        for table_name in &expected_tables {
-            let exists: (bool,) = sqlx::query_as(
-                "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1)"
-            ).bind(table_name).fetch_one(&*pool).await.expect("should query table existence");
-            assert!(exists.0, "{table_name} table should exist after step_create_e2ee_core_tables");
-        }
-    }
-
-    #[cfg(feature = "runtime-ddl")]
-    #[tokio::test]
-    async fn test_step_ensure_additional_tables_creates_typing_and_pushers() {
-        let _guard = test_utils::env_lock_async().await;
-        let pool = test_utils::prepare_empty_isolated_test_pool().await.expect("failed to create isolated test pool");
-
-        // step_ensure_additional_tables 假设 users 表已由前面的迁移步骤创建，
-        // 在隔离测试 schema 中需要手动创建依赖表。
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, password_hash TEXT, is_guest BOOLEAN DEFAULT FALSE, admin BOOLEAN DEFAULT FALSE, deactivated BOOLEAN DEFAULT FALSE, created_ts BIGINT NOT NULL, updated_ts BIGINT)"
-        ).execute(&*pool).await.expect("should create users table");
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS captcha_template (id BIGSERIAL PRIMARY KEY, template_name TEXT NOT NULL, captcha_type TEXT NOT NULL, subject TEXT, content TEXT NOT NULL, is_default BOOLEAN DEFAULT FALSE, is_enabled BOOLEAN DEFAULT TRUE, created_ts BIGINT NOT NULL, updated_ts BIGINT NOT NULL)"
-        ).execute(&*pool).await.expect("should create captcha_template table");
-        // refresh_tokens is also referenced
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS refresh_tokens (id BIGSERIAL PRIMARY KEY, user_id TEXT NOT NULL, token_hash TEXT NOT NULL, device_id TEXT, created_ts BIGINT NOT NULL)"
-        ).execute(&*pool).await.expect("should create refresh_tokens table");
-        // rooms table is ALTER'd by the step
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS rooms (id BIGSERIAL PRIMARY KEY, room_id TEXT NOT NULL UNIQUE, creator TEXT NOT NULL, name TEXT, topic TEXT, is_public BOOLEAN DEFAULT FALSE, has_guest_access BOOLEAN DEFAULT FALSE, created_ts BIGINT NOT NULL)"
-        ).execute(&*pool).await.expect("should create rooms table");
-        // device_keys is ALTER'd by the step (via is_fallback column)
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS device_keys (id BIGSERIAL PRIMARY KEY, user_id TEXT NOT NULL, device_id TEXT NOT NULL, algorithm TEXT NOT NULL, key_id TEXT NOT NULL, public_key TEXT NOT NULL, added_ts BIGINT NOT NULL, created_ts BIGINT NOT NULL)"
-        ).execute(&*pool).await.expect("should create device_keys table");
-
-        let init = DatabaseInitService::new(pool.clone());
-        init.step_ensure_additional_tables().await.expect("step_ensure_additional_tables should succeed");
-
-        // Verify a representative sample of the many tables it creates
-        let sample_tables = ["typing", "pushers", "account_data", "search_index", "user_directory"];
-        for table_name in &sample_tables {
-            let exists: (bool,) = sqlx::query_as(
-                "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1)"
-            ).bind(table_name).fetch_one(&*pool).await.expect("should query table existence");
-            assert!(exists.0, "{table_name} table should exist after step_ensure_additional_tables");
-        }
     }
 }

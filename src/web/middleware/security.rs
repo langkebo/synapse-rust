@@ -5,44 +5,7 @@ use axum::http::{HeaderValue, Request};
 use axum::middleware::Next;
 use axum::response::IntoResponse;
 use axum::response::Response;
-use std::time::Instant;
 use tracing::Instrument;
-
-/// See [`logging_middleware`].
-pub async fn logging_middleware(request: Request<Body>, next: axum::middleware::Next) -> Response {
-    let start = Instant::now();
-    let method = request.method().clone();
-    let uri = request.uri().clone();
-    let authenticated = crate::web::utils::auth::bearer_token_opt(request.headers()).is_some();
-
-    let mut headers = request.headers().clone();
-    headers.remove("authorization");
-    headers.remove("cookie");
-
-    let response = next.run(request).await;
-
-    let duration = start.elapsed();
-    let status = response.status();
-
-    // S8: Use uri.path() to avoid logging access_token in query parameters.
-    // Full URI (with query) is not logged; sensitive params like ?access_token=
-    // are stripped by recording path-only. If query-level diagnostics are needed,
-    // enable them explicitly at TRACE level with a redaction filter.
-    let log_path = uri.path();
-    let log_request_id = resolve_request_id(&headers);
-    tracing::info!(
-        request_id = %log_request_id,
-        "Request: {} {} {} {} {:?} {}ms",
-        if authenticated { "authenticated" } else { "anonymous" },
-        method,
-        log_path,
-        status.as_u16(),
-        headers,
-        duration.as_millis()
-    );
-
-    response
-}
 
 /// See [`security_headers_middleware`].
 pub async fn security_headers_middleware(request: Request<Body>, next: axum::middleware::Next) -> Response {
@@ -91,21 +54,6 @@ pub async fn security_headers_middleware(request: Request<Body>, next: axum::mid
             response.headers_mut().insert("Strict-Transport-Security", value);
         }
     }
-
-    response
-}
-
-/// See [`metrics_middleware`].
-pub async fn metrics_middleware(request: Request<Body>, next: axum::middleware::Next) -> Response {
-    let start = Instant::now();
-    let method = request.method().clone();
-    let path = request.uri().path().to_string();
-
-    let response = next.run(request).await;
-    let duration = start.elapsed();
-    let status = response.status().as_u16();
-
-    tracing::debug!("{} {} {} {}ms", method, path, status, duration.as_millis());
 
     response
 }

@@ -1,8 +1,0 @@
--- =====================================================================
--- Undo Migration: 20260909010000_drop_stale_legacy_tables.undo.sql
--- 回滚: 不恢复已删除的 legacy 表。
--- 警告: 这些表（worker_connections / worker_load_stats、retention_*、
---       deleted_events_index、room_children）的原始 DDL 已随迁移文件折叠进
---       v8/v10/v11 baseline 而从仓库移除，无法可靠重建。如确需恢复，
---       必须从删除前的数据库备份还原。
--- =====================================================================

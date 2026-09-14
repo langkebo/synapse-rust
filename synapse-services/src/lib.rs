@@ -26,9 +26,6 @@ pub use synapse_storage as storage;
 pub mod container;
 pub use container::ServiceContainer;
 
-/// The `shutdown` module.
-pub mod shutdown;
-
 /// The `wiring` module.
 pub mod wiring;
 
@@ -93,8 +90,6 @@ pub mod event_broadcaster_trait;
 pub mod event_notifier;
 /// The `event_report_service` module.
 pub mod event_report_service;
-/// The `extensible_events` module.
-pub mod extensible_events;
 /// The `feature_flag_service` module.
 pub mod feature_flag_service;
 /// The `federation_blacklist_service` module.
@@ -242,7 +237,6 @@ pub use rtc::CallOrchestrationService as CallService;
 #[cfg(feature = "voip-tracking")]
 pub use rtc::CallOrchestrationService;
 #[cfg(feature = "voip-tracking")]
-pub use rtc::LivekitClient;
 pub use rtc::RtcInfraService as VoipService;
 pub use rtc::RtcInfraService;
 pub use rtc::RtcInfraSettings;
@@ -255,8 +249,7 @@ pub use rtc::VoipSettings;
 #[cfg(feature = "voip-tracking")]
 pub use rtc::{
     to_matrix_event, CallAnswer, CallAnswerEvent, CallCandidatesEvent, CallHangupEvent, CallInviteEvent, CallOffer,
-    CallState, CreateRoomRequest, CreateRoomResponse, IceCandidate, JoinRoomRequest, JoinRoomResponse, LivekitCodec,
-    LivekitError, LivekitParticipant, LivekitRoom, LivekitTrack, RoomParticipant, TrackInfo,
+    CallState, IceCandidate,
 };
 #[cfg(feature = "voip-tracking")]
 pub use synapse_common::config::LivekitConfig;
@@ -301,14 +294,14 @@ pub mod test_mocks;
 // public root API stays explicit.
 pub use auth::{AuthService, Claims, ClaimsBuilder, PasswordPolicy, PasswordPolicyService, PasswordValidationResult};
 pub use cache::{
-    circuit_breaker, compression, federation_signature_cache, invalidation, query_cache, strategy, CacheConfig,
-    CacheEntry, CacheEntryKey, CacheError, CacheInvalidationBroadcaster, CacheInvalidationConfig,
-    CacheInvalidationManager, CacheInvalidationMessage, CacheInvalidationSubscriber, CacheKeyBuilder, CacheManager,
-    CacheStats, CacheTtl, CircuitBreaker, CircuitBreakerMetrics, CircuitState, DegradationMetrics,
-    FederationSignatureCache, InvalidationReceiver, InvalidationType, KeyRotationCallback, KeyRotationEvent,
-    LocalCache, QueryCache, QueryCacheConfig, RateLimitDecision, RedisCache, SignatureCacheConfig, SignatureCacheEntry,
-    SignatureCacheStats, CACHE_INVALIDATION_CHANNEL, DEFAULT_KEY_CACHE_TTL, DEFAULT_KEY_ROTATION_GRACE_PERIOD_MS,
-    DEFAULT_LOCAL_CACHE_TTL_SECS, DEFAULT_REDIS_CACHE_TTL_SECS, DEFAULT_SIGNATURE_CACHE_TTL,
+    circuit_breaker, compression, federation_signature_cache, invalidation, strategy, CacheConfig, CacheEntryKey,
+    CacheError, CacheInvalidationBroadcaster, CacheInvalidationConfig, CacheInvalidationManager,
+    CacheInvalidationMessage, CacheInvalidationSubscriber, CacheKeyBuilder, CacheManager, CacheTtl, CircuitBreaker,
+    CircuitBreakerMetrics, CircuitState, DegradationMetrics, FederationSignatureCache, InvalidationReceiver,
+    InvalidationType, KeyRotationCallback, KeyRotationEvent, LocalCache, RateLimitDecision, RedisCache,
+    SignatureCacheConfig, SignatureCacheEntry, SignatureCacheStats, CACHE_INVALIDATION_CHANNEL, DEFAULT_KEY_CACHE_TTL,
+    DEFAULT_KEY_ROTATION_GRACE_PERIOD_MS, DEFAULT_LOCAL_CACHE_TTL_SECS, DEFAULT_REDIS_CACHE_TTL_SECS,
+    DEFAULT_SIGNATURE_CACHE_TTL,
 }; // cache crate root items
 pub(crate) use common::*; // internal crate access; no longer flattened into public API
 pub use federation::{

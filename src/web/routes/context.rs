@@ -582,8 +582,6 @@ pub struct AdminContext {
     // Admin — media
     /// The `admin_media_service` field.
     pub admin_media_service: Arc<synapse_services::admin_media_service::AdminMediaService>,
-    /// The `media_quota_service` field.
-    pub media_quota_service: Arc<synapse_services::media_quota_service::MediaQuotaService>,
     // Cross-cutting
     /// The `federation_client` field.
     pub federation_client: Arc<dyn synapse_federation::client_api::FederationClientApi>,
@@ -666,7 +664,6 @@ impl FromRef<AppState> for AdminContext {
             admin_federation_service: state.services.admin.federation.admin_federation_service.clone(),
             federation_blacklist_service: state.services.admin.federation.federation_blacklist_service.clone(),
             admin_media_service: state.services.admin.media.admin_media_service.clone(),
-            media_quota_service: state.services.admin.media.media_quota_service.clone(),
             federation_client: state.services.federation.federation_client.clone(),
             #[cfg(feature = "server-notifications")]
             server_notification_service: state.services.extensions.server_notification_service.clone(),
@@ -837,8 +834,6 @@ pub struct MediaContext {
     pub media_service: synapse_services::media_service::MediaService,
     /// The `media_domain_service` field.
     pub media_domain_service: Arc<synapse_services::media::MediaDomainService>,
-    /// The `media_quota_service` field.
-    pub media_quota_service: Arc<synapse_services::media_quota_service::MediaQuotaService>,
     /// The `room_service` field.
     pub room_service: Arc<dyn synapse_services::RoomServiceApi>,
     /// The `federation_client` field.
@@ -862,7 +857,6 @@ impl FromRef<AppState> for MediaContext {
             cache: state.cache.clone(),
             media_service: state.services.core.media_service.clone(),
             media_domain_service: state.services.extensions.media_domain_service.clone(),
-            media_quota_service: state.services.admin.media.media_quota_service.clone(),
             room_service: state.services.rooms.room_service.clone(),
             federation_client: state.services.federation.federation_client.clone(),
             account_identity_service: state.services.account.account_identity_service.clone(),

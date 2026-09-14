@@ -5,7 +5,6 @@
 //! - [`RtcInfraService`]: TURN/STUN 基础设施与凭证签发（原 VoipService）
 //! - [`CallOrchestrationService`]: 1:1 通话信令 — invite/answer/candidates/hangup（原 CallService）
 //! - [`RtcSessionService`]: MatrixRTC 会话/成员/加密密钥管理（原 MatrixRTCService）
-//! - [`LivekitClient`]: SFU 集成客户端（原 LivekitClient）
 //!
 //! # 统一门面
 //!
@@ -15,7 +14,7 @@
 //! # Feature Gates
 //!
 //! - 无 feature gate（L0 核心）: `RtcInfraService`
-//! - `voip-tracking`: `CallOrchestrationService`, `RtcSessionService`, `LivekitClient`
+//! - `voip-tracking`: `CallOrchestrationService`, `RtcSessionService`
 //!
 //! # VoiceService 不在此域
 //!
@@ -36,10 +35,6 @@ pub mod call;
 /// The `session` module.
 #[cfg(feature = "voip-tracking")]
 pub mod session;
-/// The `sfu` module.
-#[cfg(feature = "voip-tracking")]
-pub mod sfu;
-
 // Re-export new names
 pub use infra::RtcInfraService;
 pub use infra::RtcInfraSettings;
@@ -57,13 +52,6 @@ pub use call::{
 pub use session::to_matrix_event;
 #[cfg(feature = "voip-tracking")]
 pub use session::RtcSessionService;
-#[cfg(feature = "voip-tracking")]
-pub use sfu::LivekitClient;
-#[cfg(feature = "voip-tracking")]
-pub use sfu::{
-    CreateRoomRequest, CreateRoomResponse, JoinRoomRequest, JoinRoomResponse, LivekitCodec, LivekitError,
-    LivekitParticipant, LivekitRoom, LivekitTrack, RoomParticipant, TrackInfo,
-};
 #[cfg(feature = "voip-tracking")]
 pub use synapse_common::config::LivekitConfig;
 
@@ -91,9 +79,6 @@ pub struct RtcDomainService {
     #[cfg(feature = "voip-tracking")]
     /// The `session` field.
     pub session: Arc<RtcSessionService>,
-    #[cfg(feature = "voip-tracking")]
-    /// The `sfu` field.
-    pub sfu: Arc<LivekitClient>,
 }
 
 impl RtcDomainService {
@@ -102,7 +87,6 @@ impl RtcDomainService {
         infra: Arc<RtcInfraService>,
         #[cfg(feature = "voip-tracking")] call: Arc<CallOrchestrationService>,
         #[cfg(feature = "voip-tracking")] session: Arc<RtcSessionService>,
-        #[cfg(feature = "voip-tracking")] sfu: Arc<LivekitClient>,
     ) -> Self {
         Self {
             infra,
@@ -110,8 +94,6 @@ impl RtcDomainService {
             call,
             #[cfg(feature = "voip-tracking")]
             session,
-            #[cfg(feature = "voip-tracking")]
-            sfu,
         }
     }
 
@@ -130,11 +112,5 @@ impl RtcDomainService {
     #[cfg(feature = "voip-tracking")]
     pub fn session(&self) -> &RtcSessionService {
         &self.session
-    }
-
-    /// See [`sfu`].
-    #[cfg(feature = "voip-tracking")]
-    pub fn sfu(&self) -> &LivekitClient {
-        &self.sfu
     }
 }

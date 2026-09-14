@@ -45,8 +45,6 @@ pub use e2ee::megolm::{EncryptedEvent, MegolmSession};
 pub use e2ee::signature::{EventSignature, SignatureService};
 pub use server::SynapseServer;
 pub use storage::presence::PresenceStorage;
-pub use synapse_common::{
-    impl_api_error, map_bad_request, map_forbidden, map_internal, map_not_found, map_unauthorized,
-};
+pub use synapse_common::{map_database, map_internal};
 pub use synapse_e2ee::cross_signing;
-pub use tasks::{ScheduledTasks, TaskMetricsCollector};
+pub use tasks::ScheduledTasks;

@@ -92,8 +92,6 @@ pub mod monitoring;
 pub mod oidc;
 /// The `openid_token` module.
 pub mod openid_token;
-/// The `performance` module.
-pub mod performance;
 /// Backward-compatibility prelude — glob-import point for domain-grouped types.
 pub mod prelude;
 /// The `presence` module.

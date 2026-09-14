@@ -161,16 +161,12 @@ impl ExtensionServices {
         let rtc_call = Arc::new(crate::rtc::CallOrchestrationService::new(call_session_storage));
         #[cfg(feature = "voip-tracking")]
         let rtc_session = Arc::new(crate::rtc::RtcSessionService::new(matrixrtc_storage, infra.cache.clone()));
-        #[cfg(feature = "voip-tracking")]
-        let rtc_sfu = Arc::new(crate::rtc::LivekitClient::new(infra.config.livekit.clone()));
         let rtc_domain_service = Arc::new(crate::rtc::RtcDomainService::new(
             rtc_infra,
             #[cfg(feature = "voip-tracking")]
             rtc_call,
             #[cfg(feature = "voip-tracking")]
             rtc_session,
-            #[cfg(feature = "voip-tracking")]
-            rtc_sfu,
         ));
 
         #[cfg(feature = "server-notifications")]

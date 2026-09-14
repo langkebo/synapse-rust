@@ -329,8 +329,7 @@ impl AdminServices {
 
         let worker_storage: Arc<dyn synapse_storage::worker::WorkerStoreApi> =
             Arc::new(synapse_storage::worker::WorkerStorage::new(pool));
-        let worker_manager =
-            Arc::new(crate::worker::WorkerManager::new(worker_storage.clone(), config.server.name.clone()));
+        let worker_manager = Arc::new(crate::worker::WorkerManager::new(worker_storage.clone()));
 
         let admin_media_storage = Arc::new(AdminMediaStorage::new(pool));
         let quarantine_change_storage = Arc::new(QuarantinedMediaChangeStorage::new(pool));

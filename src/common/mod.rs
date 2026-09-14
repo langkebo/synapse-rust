@@ -8,9 +8,7 @@ pub use synapse_common::*;
 
 // Explicit macro re-exports (#[macro_export] macros at synapse_common root).
 // Also covered by the glob above; kept explicit for discoverability.
-pub use synapse_common::{
-    impl_api_error, map_bad_request, map_forbidden, map_internal, map_not_found, map_unauthorized,
-};
+pub use synapse_common::{map_database, map_internal};
 
 // Re-export entire modules from synapse_common (for module-path access, e.g.
 // `common::metrics::Counter` in addition to `common::Counter`).

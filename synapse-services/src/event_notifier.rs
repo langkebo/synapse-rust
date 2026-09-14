@@ -50,13 +50,12 @@ pub enum EventNotifyKind {
 ///
 /// # Relationship to other broadcasters
 ///
-/// This is one of three event-distribution implementations that share the
+/// This is one of two event-distribution implementations that share the
 /// [`EventBroadcaster`] trait. See [`event_broadcaster_trait`][crate::event_broadcaster_trait]
 /// for the full comparison table and selection guide.
 ///
 /// * **This type** → local sync wake-up (room / user `Notify` + Redis fan-out)
 /// * [`federation::EventBroadcaster`][synapse_federation::event_broadcaster::EventBroadcaster] → federation outbound (PDU/EDU batching + retry)
-/// * [`WorkerBus`][crate::worker::bus::WorkerBus] → inter-worker pub/sub (replication commands)
 pub struct EventNotifier {
     room_notifiers: Arc<DashMap<String, Arc<Notify>>>,
     user_notifiers: Arc<DashMap<String, Arc<Notify>>>,

@@ -9,7 +9,6 @@
 //! |----------------|----------|---------|
 //! | [`crate::event_notifier::EventNotifier`] | `services/event_notifier.rs` | Local sync wake-up — instantly unblocks long-polling `/sync` and sliding-sync connections when new data arrives for a room or user. |
 //! | [`synapse_federation::event_broadcaster::EventBroadcaster`] | `federation/event_broadcaster.rs` | Federation outbound — batches and sends PDU/EDU transactions to remote homeservers with retry and persistence. |
-//! | [`crate::worker::bus::WorkerBus`] | `worker/bus.rs` | Inter-worker messaging — pub/sub channel for replication commands, stream positions, and worker coordination. |
 //!
 //! # When to use which
 //!
@@ -19,8 +18,5 @@
 //! * **Sending events to remote servers** → `federation::EventBroadcaster` —
 //!   it handles batching, back-off, DB persistence, and retry for federation
 //!   transactions.
-//! * **Worker-to-worker / replication commands** → `WorkerBus` — it provides
-//!   topic-based pub/sub with `tokio::sync::broadcast` semantics and Redis
-//!   bus integration.
 
 pub use synapse_common::traits::{BroadcastError, EventBroadcaster};

@@ -14,7 +14,7 @@ async fn worker_test_pool() -> Arc<sqlx::PgPool> {
 }
 
 fn test_worker_manager(pool: &Arc<sqlx::PgPool>) -> Arc<WorkerManager> {
-    Arc::new(WorkerManager::new(Arc::new(WorkerStorage::new(pool)), "test-server".to_string()))
+    Arc::new(WorkerManager::new(Arc::new(WorkerStorage::new(pool))))
 }
 
 #[tokio::test]
@@ -215,7 +215,7 @@ async fn test_stopped_heartbeat_requeues_running_tasks_and_removes_worker_from_l
     let pool = worker_test_pool().await;
     let storage = Arc::new(WorkerStorage::new(&pool));
     let load_balancer = Arc::new(WorkerLoadBalancer::new(LoadBalanceStrategy::LeastConnections));
-    let manager = WorkerManager::new(storage, "test-server".to_string()).with_load_balancer(load_balancer.clone());
+    let manager = WorkerManager::new(storage).with_load_balancer(load_balancer.clone());
 
     let suffix = uuid::Uuid::new_v4().to_string();
     let worker_a = format!("worker-heartbeat-stop-a-{suffix}");
@@ -324,7 +324,7 @@ async fn test_stopping_heartbeat_drains_inflight_task_but_rejects_new_selection_
     let pool = worker_test_pool().await;
     let storage = Arc::new(WorkerStorage::new(&pool));
     let load_balancer = Arc::new(WorkerLoadBalancer::new(LoadBalanceStrategy::LeastConnections));
-    let manager = WorkerManager::new(storage, "test-server".to_string()).with_load_balancer(load_balancer.clone());
+    let manager = WorkerManager::new(storage).with_load_balancer(load_balancer.clone());
 
     let suffix = uuid::Uuid::new_v4().to_string();
     let worker_a = format!("worker-heartbeat-drain-a-{suffix}");
@@ -449,7 +449,7 @@ async fn test_error_heartbeat_requeues_running_tasks_and_removes_worker_from_lb_
     let pool = worker_test_pool().await;
     let storage = Arc::new(WorkerStorage::new(&pool));
     let load_balancer = Arc::new(WorkerLoadBalancer::new(LoadBalanceStrategy::LeastConnections));
-    let manager = WorkerManager::new(storage, "test-server".to_string()).with_load_balancer(load_balancer.clone());
+    let manager = WorkerManager::new(storage).with_load_balancer(load_balancer.clone());
 
     let suffix = uuid::Uuid::new_v4().to_string();
     let worker_a = format!("worker-heartbeat-error-a-{suffix}");
@@ -559,7 +559,7 @@ async fn test_select_worker_for_task_falls_back_from_unhealthy_lb_choice_to_heal
     let storage = Arc::new(WorkerStorage::new(&pool));
     let load_balancer = Arc::new(WorkerLoadBalancer::new(LoadBalanceStrategy::LeastConnections));
     let health_checker = Arc::new(HealthChecker::new(HealthCheckConfig::default()));
-    let manager = WorkerManager::new(storage, "test-server".to_string())
+    let manager = WorkerManager::new(storage)
         .with_load_balancer(load_balancer.clone())
         .with_health_checker(health_checker.clone());
 
@@ -641,7 +641,7 @@ async fn test_select_worker_for_task_reselects_recovered_worker_after_health_res
     let storage = Arc::new(WorkerStorage::new(&pool));
     let load_balancer = Arc::new(WorkerLoadBalancer::new(LoadBalanceStrategy::LeastConnections));
     let health_checker = Arc::new(HealthChecker::new(HealthCheckConfig::default()));
-    let manager = WorkerManager::new(storage, "test-server".to_string())
+    let manager = WorkerManager::new(storage)
         .with_load_balancer(load_balancer.clone())
         .with_health_checker(health_checker.clone());
 

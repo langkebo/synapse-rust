@@ -597,7 +597,6 @@ pub fn create_router(state: AppState) -> Router {
         .layer(axum::middleware::from_fn(security_headers_middleware))
         .layer(axum::middleware::from_fn(cors_middleware))
         .layer(axum::middleware::from_fn(request_id_middleware))
-        .merge(crate::web::api_doc::swagger_ui_router(state.clone()))
         .with_state(state)
 }
 
