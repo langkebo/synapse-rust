@@ -30,7 +30,6 @@ redundant_else = "warn"
 #        must respond (previously 404 due to missing feature flag).
 default = ["server", "core-private-chat", "widgets", "external-services", "beacons"]
 server = ["dep:axum", "dep:tower-http"]
-runtime-ddl = ["synapse-services/runtime-ddl", "synapse-storage/runtime-ddl"]
 performance-tests = []
 test-utils = ["synapse-services/test-utils", "synapse-storage/test-utils", "synapse-e2ee/test-utils", "synapse-federation/test-utils"]
 
@@ -57,10 +56,6 @@ all-extensions = [
     "burn-after-read", "privacy-ext", "external-services",
     "builtin-oidc"
 ]
-
-# OpenAPI documentation generation (Swagger UI at /_swagger)
-openapi-docs = ["dep:utoipa", "dep:utoipa-swagger-ui"]
-
 [dependencies]
 tokio = { version = "1.49", features = ["full", "test-util"] }
 tokio-util = { version = "0.7", features = ["io"] }
@@ -71,11 +66,6 @@ tower = "0.5"
 tower-http = { version = "0.6", optional = true, features = ["fs", "cors", "trace", "compression-gzip", "limit"] }
 hyper = "1"
 http = "1"
-
-# OpenAPI / Swagger UI (optional)
-utoipa = { version = "5", features = ["axum_extras"], optional = true }
-utoipa-swagger-ui = { version = "9", features = ["axum", "cache"], optional = true }
-
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "chrono", "json", "uuid", "ipnetwork", "migrate", "macros", "bigdecimal"] }
 ipnetwork = "0.20"
 

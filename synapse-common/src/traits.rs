@@ -48,12 +48,11 @@ pub trait FriendRoomProvider: Send + Sync {
 ///
 /// * `EventNotifier` — local sync wake-up (room / user `Notify` + Redis fan-out)
 /// * `federation::EventBroadcaster` — federation outbound (PDU/EDU batching + retry)
-/// * `WorkerBus` — inter-worker messaging (replication commands)
 ///
 /// # Design note
 ///
-/// The three implementations serve fundamentally different domains (local
-/// wake-up vs. federation transport vs. worker replication), so they are **not**
+/// The two implementations serve fundamentally different domains (local
+/// wake-up vs. federation transport), so they are **not**
 /// merged into a single concrete type. Instead, this trait captures their
 /// shared *publish* contract so that callers can depend on the abstraction
 /// when appropriate, while each implementation retains its domain-specific

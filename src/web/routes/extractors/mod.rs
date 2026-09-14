@@ -4,7 +4,6 @@ pub mod auth;
 pub mod json;
 /// The `localhost_guard` module.
 pub mod localhost_guard;
-mod pagination;
 
 use crate::common::ApiError;
 
@@ -37,10 +36,9 @@ impl UserIdParseExt for UserId {
     }
 }
 
-// ============== Pagination ==============
+// ============== Typed ID re-exports ==============
 
 // extract_token_from_headers removed — use crate::web::utils::auth::bearer_token directly
 pub use auth::{AdminUser, AuthenticatedUser, OptionalAuthenticatedUser};
 pub use json::MatrixJson;
-pub use pagination::Pagination;
 pub use synapse_common::types as id_types;

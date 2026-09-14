@@ -465,7 +465,7 @@ async fn test_get_daily_message_count() {
 }
 
 #[tokio::test]
-async fn test_delete_events_before() {
+async fn test_delete_remote_events_before() {
     let pool = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!evt_old_{}:example.com", uuid::Uuid::new_v4());
@@ -475,9 +475,9 @@ async fn test_delete_events_before() {
 
     // Delete events before a far-future timestamp — should succeed even if 0 rows
     let _deleted = storage
-        .delete_events_before(&room_id, current_timestamp_millis() + 86400000, false)
+        .delete_remote_events_before(&room_id, current_timestamp_millis() + 86400000, false)
         .await
-        .expect("delete_events_before should succeed");
+        .expect("delete_remote_events_before should succeed");
 
     let _ = storage.delete_room_events(&room_id).await;
 }
@@ -530,8 +530,10 @@ async fn test_purge_history_preserves_local_events() {
 
     // Purge all events before now+1s — both events satisfy the timestamp filter
     let purge_cutoff = current_timestamp_millis() + 1_000;
-    let deleted =
-        storage.delete_events_before(&room_id, purge_cutoff, false).await.expect("delete_events_before should succeed");
+    let deleted = storage
+        .delete_remote_events_before(&room_id, purge_cutoff, false)
+        .await
+        .expect("delete_remote_events_before should succeed");
 
     // Exactly one remote event should have been deleted
     assert_eq!(deleted, 1, "purge should delete exactly 1 remote event, got {}", deleted);
@@ -548,7 +550,7 @@ async fn test_purge_history_preserves_local_events() {
 }
 
 /// Verify `count_events_before` returns the number of remote events that
-/// would be purged, and that `delete_events_before` with `dry_run=true`
+/// would be purged, and that `delete_remote_events_before` with `dry_run=true`
 /// returns the same count without deleting anything.
 #[tokio::test]
 async fn test_count_events_before_and_dry_run() {
@@ -584,9 +586,9 @@ async fn test_count_events_before_and_dry_run() {
 
     // dry_run=true should return the same count but NOT delete
     let dry_count = storage
-        .delete_events_before(&room_id, purge_cutoff, true)
+        .delete_remote_events_before(&room_id, purge_cutoff, true)
         .await
-        .expect("dry-run delete_events_before should succeed");
+        .expect("dry-run delete_remote_events_before should succeed");
     assert_eq!(dry_count, 1, "dry-run should report 1 deletable event");
 
     // Event must still exist after dry-run
@@ -594,8 +596,10 @@ async fn test_count_events_before_and_dry_run() {
     assert!(still_exists.is_some(), "dry-run must not delete the event");
 
     // Now actually delete with dry_run=false
-    let deleted =
-        storage.delete_events_before(&room_id, purge_cutoff, false).await.expect("delete_events_before should succeed");
+    let deleted = storage
+        .delete_remote_events_before(&room_id, purge_cutoff, false)
+        .await
+        .expect("delete_remote_events_before should succeed");
     assert_eq!(deleted, 1, "actual delete should remove 1 event");
 
     let gone = storage.get_event(&remote_event_id).await.expect("get_event should succeed");
@@ -1890,8 +1894,10 @@ async fn test_p1_7_unread_count_not_bloated_after_purge_history() {
     // Purge history before ts=1_000_002 → deletes e2 (ts=1_000_001 < cutoff, origin=remote)
     // e1 survives (origin='self'), e3 survives (ts=1_000_002 is NOT < cutoff)
     let purge_cutoff = 1_000_002;
-    let deleted =
-        storage.delete_events_before(&room_id, purge_cutoff, false).await.expect("delete_events_before should succeed");
+    let deleted = storage
+        .delete_remote_events_before(&room_id, purge_cutoff, false)
+        .await
+        .expect("delete_remote_events_before should succeed");
     assert_eq!(deleted, 1, "purge should delete exactly 1 remote event (e2, the marker)");
 
     // Verify e2 is gone and e1/e3 remain

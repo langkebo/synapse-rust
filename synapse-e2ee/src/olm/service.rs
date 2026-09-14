@@ -65,69 +65,6 @@ pub fn get_pickle_key_strict() -> Result<&'static [u8; 32], ApiError> {
     }
 }
 
-/// Lenient pickle key lookup that falls back to a random key when the
-/// environment is mis-configured. **Debug-only**: release builds should
-/// use [`get_pickle_key_strict`] and refuse to start.
-///
-/// E-06: the random fallback is intentionally NOT allowed in release
-/// builds. Callers in production code should switch to the strict
-/// variant. This function is kept for legacy reasons and gated behind
-/// `cfg!(debug_assertions)`.
-#[cfg(debug_assertions)]
-pub fn get_pickle_key() -> &'static [u8; 32] {
-    PICKLE_KEY.get_or_init(|| {
-        if let Ok(key_str) = env::var("OLM_PICKLE_KEY") {
-            if let Ok(decoded) = synapse_common::crypto::decode_hex(&key_str) {
-                if decoded.len() == 32 {
-                    let mut key = [0u8; 32];
-                    key.copy_from_slice(&decoded[..32]);
-                    return key;
-                }
-            }
-            tracing::warn!("OLM_PICKLE_KEY is malformed; using random key (dev only)");
-        } else {
-            tracing::warn!(
-                "OLM_PICKLE_KEY not set. Generating random key. \
-                 Encrypted Olm data will not survive restarts. \
-                 Set OLM_PICKLE_KEY for production deployments."
-            );
-        }
-        generate_random_pickle_key()
-    })
-}
-
-/// Release-build stub. Production code that needs a pickle key MUST use
-/// [`get_pickle_key_strict`] instead. This stub exists only to keep the
-/// legacy `get_pickle_key()` symbol available in the public surface for
-/// downstream test code that imports the function unconditionally; the
-/// body is unreachable because the function is gated behind
-/// `cfg(debug_assertions)`.
-#[cfg(not(debug_assertions))]
-pub fn get_pickle_key() -> &'static [u8; 32] {
-    if let Some(key) = PICKLE_KEY.get() {
-        return key;
-    }
-    tracing::error!(
-        "E-06: get_pickle_key() (lenient) is unavailable in release builds. \
-         Use get_pickle_key_strict() and handle the Result. Returning an \
-         all-zero key — Olm data written here will be unrecoverable."
-    );
-    static ZERO: [u8; 32] = [0u8; 32];
-    &ZERO
-}
-
-/// Generate a random 32-byte pickle key. Used as the dev-only fallback
-/// when `OLM_PICKLE_KEY` is unset (debug builds only) — production code
-/// must use [`get_pickle_key_strict`] instead.
-#[cfg(debug_assertions)]
-#[allow(dead_code)]
-fn generate_random_pickle_key() -> [u8; 32] {
-    use rand::RngCore;
-    let mut key = [0u8; 32];
-    rand::rng().fill_bytes(&mut key);
-    key
-}
-
 /// The `OlmService` type.
 pub struct OlmService {
     account: RwLock<Option<Account>>,

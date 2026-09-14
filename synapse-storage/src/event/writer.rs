@@ -97,8 +97,13 @@ pub trait EventWriter: Send + Sync {
 
     // ── encryption / retention ─────────────────────────────────────────────
 
-    /// See [`delete_events_before`].
-    async fn delete_events_before(&self, room_id: &str, timestamp: i64, dry_run: bool) -> Result<u64, sqlx::Error>;
+    /// See [`delete_remote_events_before`].
+    async fn delete_remote_events_before(
+        &self,
+        room_id: &str,
+        timestamp: i64,
+        dry_run: bool,
+    ) -> Result<u64, sqlx::Error>;
 
     /// See [`upsert_power_levels_event`].
     async fn upsert_power_levels_event(
@@ -220,8 +225,13 @@ impl crate::event::writer::EventWriter for super::EventStorage {
         self.delete_ephemeral_event(room_id, event_type, user_id).await
     }
 
-    async fn delete_events_before(&self, room_id: &str, timestamp: i64, dry_run: bool) -> Result<u64, sqlx::Error> {
-        self.delete_events_before(room_id, timestamp, dry_run).await
+    async fn delete_remote_events_before(
+        &self,
+        room_id: &str,
+        timestamp: i64,
+        dry_run: bool,
+    ) -> Result<u64, sqlx::Error> {
+        self.delete_remote_events_before(room_id, timestamp, dry_run).await
     }
 
     async fn upsert_power_levels_event(

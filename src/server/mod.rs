@@ -1,6 +1,6 @@
 use crate::common::config::Config;
 use crate::common::{start_config_watcher, RateLimitConfigFile, RateLimitConfigManager};
-use crate::tasks::{ScheduledTasks, TaskMetricsCollector};
+use crate::tasks::ScheduledTasks;
 use crate::web::middleware::{
     check_cors_security, log_cors_security_report, set_bind_address, set_config_allowed_origins,
     set_trust_forwarded_headers, validate_bind_address_for_dev_mode,
@@ -113,7 +113,6 @@ pub struct SynapseServer {
     federation_address: SocketAddr,
     media_path: std::path::PathBuf,
     scheduled_tasks: Arc<ScheduledTasks>,
-    metrics_collector: Arc<TaskMetricsCollector>,
     _rate_limit_config_manager: Option<Arc<RateLimitConfigManager>>,
     _config_watcher_handle: Option<tokio::task::JoinHandle<()>>,
 }
@@ -307,7 +306,6 @@ impl SynapseServer {
             Arc::new(Database::from_pool((*pool).clone(), redis_pool_option)),
             &config.server,
         ));
-        let metrics_collector = Arc::new(TaskMetricsCollector::new(scheduled_tasks.clone()));
 
         let address = format!("{}:{}", config.server.host, config.server.port).parse::<SocketAddr>()?;
         let federation_address =
@@ -323,7 +321,6 @@ impl SynapseServer {
             federation_address,
             media_path,
             scheduled_tasks,
-            metrics_collector,
             _rate_limit_config_manager: rate_limit_config_manager,
             _config_watcher_handle: config_watcher_handle,
         })
@@ -893,12 +890,6 @@ impl SynapseServer {
                 "Graceful drain timed out after {drain_timeout:?} — forcing exit with in-flight requests"
             );
         }
-    }
-
-    /// See [`metrics_collector`].
-    /// See [`metrics_collector`].
-    pub fn metrics_collector(&self) -> &Arc<TaskMetricsCollector> {
-        &self.metrics_collector
     }
 
     /// Evaluate whether the current worker instance owns global maintenance tasks.

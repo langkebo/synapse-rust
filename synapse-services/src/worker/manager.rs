@@ -1,9 +1,7 @@
-use crate::worker::bus::WorkerBus;
 use crate::worker::health::{HealthCheckConfig, HealthChecker};
 use crate::worker::load_balancer::{LoadBalanceStrategy, WorkerLoadBalancer};
 use crate::worker::protocol::ReplicationCommand;
 use crate::worker::storage::WorkerStoreApi;
-use crate::worker::stream::StreamWriterManager;
 use crate::worker::tcp::ReplicationConnection;
 use crate::worker::types::*;
 use std::collections::{HashMap, HashSet};
@@ -14,15 +12,10 @@ use tokio::sync::RwLock;
 use tracing::{debug, info, instrument, warn};
 
 /// The `WorkerManager` struct.
-#[allow(dead_code)]
 pub struct WorkerManager {
     storage: Arc<dyn WorkerStoreApi>,
-    // Reserved for future cluster rollout; currently unused after remove enable_bus.
-    server_name: String,
     local_worker_id: Option<String>,
     connections: Arc<RwLock<HashMap<String, ReplicationConnection>>>,
-    bus: Option<Arc<WorkerBus>>,
-    stream_manager: Option<Arc<StreamWriterManager>>,
     load_balancer: Option<Arc<WorkerLoadBalancer>>,
     health_checker: Option<Arc<HealthChecker>>,
 }
@@ -117,29 +110,14 @@ impl WorkerManager {
     }
 
     /// See [`new`].
-    pub fn new(storage: Arc<dyn WorkerStoreApi>, server_name: String) -> Self {
+    pub fn new(storage: Arc<dyn WorkerStoreApi>) -> Self {
         Self {
             storage,
-            server_name,
             local_worker_id: None,
             connections: Arc::new(RwLock::new(HashMap::new())),
-            bus: None,
-            stream_manager: None,
             load_balancer: None,
             health_checker: None,
         }
-    }
-
-    /// See [`with_bus`].
-    pub fn with_bus(mut self, bus: Arc<WorkerBus>) -> Self {
-        self.bus = Some(bus);
-        self
-    }
-
-    /// See [`with_stream_manager`].
-    pub fn with_stream_manager(mut self, stream_manager: Arc<StreamWriterManager>) -> Self {
-        self.stream_manager = Some(stream_manager);
-        self
     }
 
     /// See [`with_load_balancer`].
@@ -154,12 +132,6 @@ impl WorkerManager {
         self
     }
 
-    // BUS wire-up: connect() and broadcast_command() are intentionally not
-    // wired in admin.rs today — multi-instance cluster replication rolls
-    // out as a follow-up. When the cluster rollout lands, callers should
-    // use `with_bus(Arc::new(WorkerBus::new(cfg, server_name, name)))` and
-    // then call `bus.connect().await` from the container startup path.
-
     /// See [`enable_load_balancer`].
     pub fn enable_load_balancer(&mut self, strategy: LoadBalanceStrategy) {
         self.load_balancer = Some(Arc::new(WorkerLoadBalancer::new(strategy)));
@@ -168,16 +140,6 @@ impl WorkerManager {
     /// See [`enable_health_checker`].
     pub fn enable_health_checker(&mut self, config: HealthCheckConfig) {
         self.health_checker = Some(Arc::new(HealthChecker::new(config)));
-    }
-
-    /// See [`bus`].
-    pub fn bus(&self) -> Option<&Arc<WorkerBus>> {
-        self.bus.as_ref()
-    }
-
-    /// See [`stream_manager`].
-    pub fn stream_manager(&self) -> Option<&Arc<StreamWriterManager>> {
-        self.stream_manager.as_ref()
     }
 
     /// See [`load_balancer`].
@@ -225,21 +187,6 @@ impl WorkerManager {
 
         if let Some(hc) = &self.health_checker {
             hc.register_worker(&worker.worker_id).await;
-        }
-
-        if let Some(bus) = &self.bus {
-            let cmd = ReplicationCommand::Replicate {
-                stream_name: "workers".to_string(),
-                token: worker.worker_id.clone(),
-                data: serde_json::json!({
-                    "worker_id": worker.worker_id,
-                    "worker_type": worker.worker_type,
-                    "status": worker.status,
-                }),
-            };
-            if let Err(e) = bus.broadcast_command(&cmd).await {
-                warn!(error = %e, worker_id = %worker.worker_id, "Failed to broadcast worker status update");
-            }
         }
 
         info!(
@@ -812,7 +759,7 @@ mod tests {
     async fn perf05_claim_task_beyond_first_1000_pending() {
         use synapse_storage::test_mocks::InMemoryWorkerStore;
         let store = Arc::new(InMemoryWorkerStore::new());
-        let manager = WorkerManager::new(store.clone(), "test.server".to_string());
+        let manager = WorkerManager::new(store.clone());
         store
             .register_worker(RegisterWorkerRequest {
                 worker_id: "master-1".to_string(),
@@ -857,7 +804,7 @@ mod tests {
     async fn perf05_claim_unknown_task_returns_not_found() {
         use synapse_storage::test_mocks::InMemoryWorkerStore;
         let store = Arc::new(InMemoryWorkerStore::new());
-        let manager = WorkerManager::new(store, "test.server".to_string());
+        let manager = WorkerManager::new(store);
 
         let err = manager.claim_task("task-nonexistent", "master-1").await.expect_err("unknown task must fail");
         assert!(err.is_not_found());

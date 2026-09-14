@@ -29,7 +29,6 @@ pub use crate::monitoring::{
     ConnectionPoolStatus, DataIntegrityReport, DatabaseHealthStatus, DatabaseMonitor, DuplicateEntry,
     ForeignKeyViolation, NullConstraintViolation, OrphanedRecord, PerformanceMetrics,
 };
-pub use crate::performance::{time_query, PerformanceMonitor, PoolStatistics, QueryMetrics};
 pub use crate::rate_limit::{RateLimitRecord, RateLimitStorage, RateLimitStoreApi};
 pub use crate::schema_validator::{SchemaValidationResult, SchemaValidator, TableSchemaInfo};
 

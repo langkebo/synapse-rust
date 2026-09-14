@@ -106,10 +106,12 @@ fn discover_migration_files() -> Vec<i64> {
             let path = entry.path();
             let name = path.file_name()?.to_str()?;
 
-            // Skip the consolidated v10 baseline; it is one logical migration.
-            if name.starts_with("00000000_unified_schema_v10") {
-                return None;
-            }
+            // The consolidated baseline (`00000000_unified_schema_v11.sql`) and
+            // the extensions file (`00000001_extensions_v10.sql`) are excluded
+            // by the 14-digit version parse below — their prefixes are not
+            // numeric. Do not re-add a hard-coded version check here: the one
+            // that used to guard `..._v10` silently stopped matching when the
+            // baseline was renamed to `_v11`, and the parse already covers it.
             // Skip .undo.sql rollback helpers.
             if name.ends_with(".undo.sql") {
                 return None;
@@ -149,18 +151,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn discover_finds_baseline_migrations() {
+    fn discover_reports_only_timestamped_forward_migrations() {
+        // Since the v11 consolidation every incremental delta has been folded
+        // into the baseline, so the timestamped set is legitimately empty today.
+        // What must hold — now and after future migrations are added — is that
+        // discovery returns *only* 14-digit-timestamp forward migrations and
+        // never reports the baseline / extensions / `.undo.sql` files.
         let versions = discover_migration_files();
-        // The v10 baseline is excluded, but every timestamped delta migration
-        // (there are at least 10 by 2026-08-30) should show up.
-        assert!(
-            versions.len() >= 5,
-            "expected >=5 timestamped migration files, found {}: {:?}",
-            versions.len(),
-            versions
-        );
 
-        // Versions must be 14-digit unix-style timestamps.
         for v in &versions {
             assert!(v >= &20240101000000, "version {v} looks too small to be a 14-digit timestamp");
         }
@@ -169,14 +167,21 @@ mod tests {
         let mut sorted = versions.clone();
         sorted.sort_unstable();
         assert_eq!(sorted, versions, "discovery must produce sorted output");
+
+        // Deduplicated.
+        let mut deduped = versions.clone();
+        deduped.dedup();
+        assert_eq!(deduped, versions, "discovery must produce deduplicated output");
     }
 
     #[test]
     fn discover_excludes_baseline_and_undo() {
         let versions = discover_migration_files();
-        // 00000000 (baseline) should not appear.
+        // `00000000_unified_schema_v11.sql` and `00000001_extensions_v10.sql`
+        // must never be reported as deltas — the baseline is applied as a whole,
+        // and reporting it would make the "missing migrations" drift check fire
+        // on every healthy deployment.
         assert!(!versions.iter().any(|v| v == &0_i64), "baseline version 0 must be excluded");
-        // Verify by reading: no file starting with "00000000_unified" leaks in.
-        // (Indirect check; we already filtered that prefix.)
+        assert!(!versions.iter().any(|v| v == &1_i64), "extensions version 1 must be excluded");
     }
 }

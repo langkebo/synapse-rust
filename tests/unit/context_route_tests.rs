@@ -330,7 +330,6 @@ fn test_admin_context_public_fields_are_accessible() {
         let _ = &ctx.admin_federation_service;
         let _ = &ctx.federation_blacklist_service;
         let _ = &ctx.admin_media_service;
-        let _ = &ctx.media_quota_service;
         let _ = &ctx.federation_client;
         let _ = &ctx.rate_limit_config_manager;
         let _ = &ctx.shutdown_signal;
@@ -450,7 +449,6 @@ fn test_room_context_public_fields_are_accessible() {
         let _ = &ctx.metrics;
         let _ = &ctx.presence_service;
         let _ = &ctx.typing_service;
-        let _ = &ctx.directory_service;
         let _ = &ctx.relations_service;
         let _ = &ctx.ssss_service;
         let _ = &ctx.dehydrated_device_service;
@@ -472,7 +470,6 @@ fn test_media_context_public_fields_are_accessible() {
         let _ = &ctx.cache;
         let _ = &ctx.media_service;
         let _ = &ctx.media_domain_service;
-        let _ = &ctx.media_quota_service;
         let _ = &ctx.room_service;
         let _ = &ctx.federation_client;
         let _ = &ctx.account_identity_service;

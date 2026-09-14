@@ -65,7 +65,6 @@ mod worker_task_recovery_tests;
 mod beacon_storage_tests_migrated;
 mod cross_signing_storage_tests_migrated;
 mod device_storage_tests_migrated;
-mod directory_storage_tests;
 mod event_report_rate_limit_tests;
 mod event_storage_tests_migrated;
 mod event_txn_soft_fail_tests_migrated;

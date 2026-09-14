@@ -119,15 +119,6 @@ fn test_room_service_path_identity() {
 }
 
 #[test]
-fn test_room_directory_service_path_identity() {
-    let legacy_ref: Option<&synapse_services::DirectoryService> = None;
-    let grouped_ref: Option<&synapse_services::room::DirectoryService> = None;
-    if let (Some(a), Some(b)) = (legacy_ref, grouped_ref) {
-        assert_same_type(a, b);
-    }
-}
-
-#[test]
 fn test_infra_feature_flag_service_path_identity() {
     let legacy_ref: Option<&synapse_services::FeatureFlagService> = None;
     let grouped_ref: Option<&synapse_services::infra::FeatureFlagService> = None;

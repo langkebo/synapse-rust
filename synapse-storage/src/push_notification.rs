@@ -48,39 +48,6 @@ pub struct PushDevice {
     pub metadata: serde_json::Value,
 }
 
-/// `PushRule` 结构体映射数据库 push_rules 表。
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct PushRule {
-    /// The `id` field.
-    pub id: i64,
-    /// The `user_id` field.
-    pub user_id: String,
-    /// The `rule_id` field.
-    pub rule_id: String,
-    /// The `scope` field.
-    pub scope: String,
-    /// The `kind` field.
-    pub kind: String,
-    /// The `priority` field.
-    pub priority: i32,
-    /// The `priority_class` field.
-    pub priority_class: i32,
-    /// The `conditions` field.
-    pub conditions: serde_json::Value,
-    /// The `actions` field.
-    pub actions: serde_json::Value,
-    /// The `is_enabled` field.
-    pub is_enabled: bool,
-    /// The `is_default` field.
-    pub is_default: bool,
-    /// The `created_ts` field.
-    pub created_ts: i64,
-    /// The `updated_ts` field.
-    pub updated_ts: Option<i64>,
-    /// The `pattern` field.
-    pub pattern: Option<String>,
-}
-
 /// The `PushNotificationQueue` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct PushNotificationQueue {
@@ -172,27 +139,6 @@ pub struct RegisterDeviceRequest {
     pub timezone: Option<String>,
     /// The `metadata` field.
     pub metadata: Option<serde_json::Value>,
-}
-
-/// The `CreatePushRuleRequest` struct.
-#[derive(Debug, Clone, Deserialize)]
-pub struct CreatePushRuleRequest {
-    /// The `user_id` field.
-    pub user_id: String,
-    /// The `rule_id` field.
-    pub rule_id: String,
-    /// The `scope` field.
-    pub scope: String,
-    /// The `kind` field.
-    pub kind: String,
-    /// The `priority` field.
-    pub priority: i32,
-    /// The `conditions` field.
-    pub conditions: serde_json::Value,
-    /// The `actions` field.
-    pub actions: serde_json::Value,
-    /// The `enabled` field.
-    pub enabled: bool,
 }
 
 /// The `QueueNotificationRequest` struct.
@@ -308,12 +254,6 @@ pub trait PushNotificationStoreApi: Send + Sync {
     async fn update_device_last_used(&self, user_id: &str, device_id: &str) -> Result<(), ApiError>;
     /// See [`record_device_error`].
     async fn record_device_error(&self, user_id: &str, device_id: &str, error: &str) -> Result<(), ApiError>;
-    /// See [`create_push_rule`].
-    async fn create_push_rule(&self, request: CreatePushRuleRequest) -> Result<PushRule, ApiError>;
-    /// See [`get_user_push_rules`].
-    async fn get_user_push_rules(&self, user_id: &str) -> Result<Vec<PushRule>, ApiError>;
-    /// See [`delete_push_rule`].
-    async fn delete_push_rule(&self, user_id: &str, scope: &str, kind: &str, rule_id: &str) -> Result<(), ApiError>;
     /// See [`queue_notification`].
     async fn queue_notification(&self, request: QueueNotificationRequest) -> Result<PushNotificationQueue, ApiError>;
     /// P2: Batch-insert multiple push notifications in a single SQL statement.
@@ -488,79 +428,6 @@ impl PushNotificationStorage {
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to record device error", e))?;
-
-        Ok(())
-    }
-
-    /// See [`create_push_rule`].
-    pub async fn create_push_rule(&self, request: CreatePushRuleRequest) -> Result<PushRule, ApiError> {
-        let now = current_timestamp_millis();
-
-        let row = sqlx::query_as::<_, PushRule>(
-            r"
-            INSERT INTO push_rules (
-                user_id, rule_id, scope, kind, priority, priority_class, conditions, actions, is_enabled, created_ts, updated_ts
-            )
-            VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8, $9, $9)
-            ON CONFLICT (user_id, scope, kind, rule_id) DO UPDATE SET
-                priority = $5,
-                conditions = $6,
-                actions = $7,
-                is_enabled = $8,
-                updated_ts = $9
-            RETURNING *
-            ",
-        )
-        .bind(&request.user_id)
-        .bind(&request.rule_id)
-        .bind(&request.scope)
-        .bind(&request.kind)
-        .bind(request.priority)
-        .bind(&request.conditions)
-        .bind(&request.actions)
-        .bind(request.enabled)
-        .bind(now)
-        .fetch_one(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to create push rule", e))?;
-
-        info!("Created push rule: {} for user: {}", request.rule_id, request.user_id);
-        Ok(row)
-    }
-
-    /// See [`get_user_push_rules`].
-    pub async fn get_user_push_rules(&self, user_id: &str) -> Result<Vec<PushRule>, ApiError> {
-        let rows = sqlx::query_as::<_, PushRule>(
-            r"
-            SELECT id, user_id, rule_id, scope, kind, priority, priority_class, conditions, actions, is_enabled, is_default, created_ts, updated_ts, pattern FROM push_rules
-            WHERE (user_id = $1 OR user_id = '.default') AND is_enabled = true
-            ORDER BY priority ASC
-            ",
-        )
-        .bind(user_id)
-        .fetch_all(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to get push rules", e))?;
-
-        Ok(rows)
-    }
-
-    /// See [`delete_push_rule`].
-    pub async fn delete_push_rule(
-        &self,
-        user_id: &str,
-        scope: &str,
-        kind: &str,
-        rule_id: &str,
-    ) -> Result<(), ApiError> {
-        sqlx::query("DELETE FROM push_rules WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4")
-            .bind(user_id)
-            .bind(scope)
-            .bind(kind)
-            .bind(rule_id)
-            .execute(&*self.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to delete push rule", e))?;
 
         Ok(())
     }
@@ -879,15 +746,6 @@ impl PushNotificationStoreApi for PushNotificationStorage {
     async fn record_device_error(&self, user_id: &str, device_id: &str, error: &str) -> Result<(), ApiError> {
         self.record_device_error(user_id, device_id, error).await
     }
-    async fn create_push_rule(&self, request: CreatePushRuleRequest) -> Result<PushRule, ApiError> {
-        self.create_push_rule(request).await
-    }
-    async fn get_user_push_rules(&self, user_id: &str) -> Result<Vec<PushRule>, ApiError> {
-        self.get_user_push_rules(user_id).await
-    }
-    async fn delete_push_rule(&self, user_id: &str, scope: &str, kind: &str, rule_id: &str) -> Result<(), ApiError> {
-        self.delete_push_rule(user_id, scope, kind, rule_id).await
-    }
     async fn queue_notification(&self, request: QueueNotificationRequest) -> Result<PushNotificationQueue, ApiError> {
         self.queue_notification(request).await
     }
@@ -988,34 +846,6 @@ mod tests {
         assert!(request.app_id.is_none());
         assert!(request.platform.is_none());
         assert!(request.metadata.is_none());
-    }
-
-    #[test]
-    fn test_create_push_rule_request_creation() {
-        let conditions = json!([
-            {"kind": "event_match", "key": "type", "pattern": "m.room.message"}
-        ]);
-        let actions = json!(["notify", {"set_tweak": "highlight", "value": true}]);
-
-        let request = CreatePushRuleRequest {
-            user_id: "@alice:example.com".to_string(),
-            rule_id: ".m.rule.message".to_string(),
-            scope: "global".to_string(),
-            kind: "content".to_string(),
-            priority: 0,
-            conditions: conditions.clone(),
-            actions: actions.clone(),
-            enabled: true,
-        };
-
-        assert_eq!(request.user_id, "@alice:example.com");
-        assert_eq!(request.rule_id, ".m.rule.message");
-        assert_eq!(request.scope, "global");
-        assert_eq!(request.kind, "content");
-        assert_eq!(request.priority, 0);
-        assert!(request.enabled);
-        assert_eq!(request.conditions, conditions);
-        assert_eq!(request.actions, actions);
     }
 
     #[test]
@@ -1146,36 +976,6 @@ mod tests {
     }
 
     #[test]
-    fn test_push_rule_serialization() {
-        let rule = PushRule {
-            id: 1,
-            user_id: "@alice:example.com".to_string(),
-            rule_id: ".m.rule.message".to_string(),
-            scope: "global".to_string(),
-            kind: "content".to_string(),
-            priority: 0,
-            priority_class: 0,
-            conditions: json!([{"kind": "event_match"}]),
-            actions: json!(["notify"]),
-            is_enabled: true,
-            is_default: false,
-            created_ts: 1700000000000,
-            updated_ts: None,
-            pattern: Some("*.com".to_string()),
-        };
-
-        let json_str = serde_json::to_string(&rule).unwrap();
-        let deserialized: PushRule = serde_json::from_str(&json_str).unwrap();
-
-        assert_eq!(deserialized.id, rule.id);
-        assert_eq!(deserialized.rule_id, rule.rule_id);
-        assert_eq!(deserialized.scope, rule.scope);
-        assert_eq!(deserialized.kind, rule.kind);
-        assert_eq!(deserialized.is_enabled, rule.is_enabled);
-        assert_eq!(deserialized.pattern, rule.pattern);
-    }
-
-    #[test]
     fn test_push_notification_queue_status_values() {
         let valid_statuses = vec!["pending", "sent", "failed"];
 
@@ -1299,45 +1099,6 @@ mod tests {
         assert!(device.last_error.is_some());
         assert!(device.error_count > 0);
         assert!(device.is_enabled);
-    }
-
-    #[test]
-    fn test_push_rule_priority_ordering() {
-        let rule_high = PushRule {
-            id: 1,
-            user_id: "@alice:example.com".to_string(),
-            rule_id: "high_priority".to_string(),
-            scope: "global".to_string(),
-            kind: "override".to_string(),
-            priority: 0,
-            priority_class: 0,
-            conditions: json!([]),
-            actions: json!(["notify"]),
-            is_enabled: true,
-            is_default: false,
-            created_ts: 1700000000000,
-            updated_ts: None,
-            pattern: None,
-        };
-
-        let rule_low = PushRule {
-            id: 2,
-            user_id: "@alice:example.com".to_string(),
-            rule_id: "low_priority".to_string(),
-            scope: "global".to_string(),
-            kind: "content".to_string(),
-            priority: 100,
-            priority_class: 0,
-            conditions: json!([]),
-            actions: json!(["notify"]),
-            is_enabled: true,
-            is_default: false,
-            created_ts: 1700000000000,
-            updated_ts: None,
-            pattern: None,
-        };
-
-        assert!(rule_high.priority < rule_low.priority);
     }
 
     #[test]

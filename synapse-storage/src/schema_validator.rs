@@ -155,65 +155,6 @@ impl SchemaValidator {
         }
         Ok(missing)
     }
-
-    #[cfg(feature = "runtime-ddl")]
-    fn is_valid_sql_identifier(s: &str) -> bool {
-        !s.is_empty()
-            && s.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '(' || c == ')' || c == ' ' || c == ',')
-    }
-
-    /// See [`repair_missing_columns`].
-    #[cfg(feature = "runtime-ddl")]
-    pub async fn repair_missing_columns(&self) -> Result<Vec<String>, sqlx::Error> {
-        let mut repaired = Vec::new();
-        let columns_to_add = vec![
-            ("rooms", "name", "VARCHAR(255)"),
-            ("rooms", "topic", "TEXT"),
-            ("rooms", "avatar_url", "TEXT"),
-            ("rooms", "canonical_alias", "VARCHAR(255)"),
-            ("rooms", "member_count", "BIGINT DEFAULT 0"),
-            ("rooms", "history_visibility", "VARCHAR(50) DEFAULT 'joined'"),
-            ("rooms", "encryption", "VARCHAR(50)"),
-        ];
-        for (table, column, col_type) in columns_to_add {
-            if !self.validate_column_exists(table, column).await? {
-                let sql = format!("ALTER TABLE {} ADD COLUMN IF NOT EXISTS {} {}", table, column, col_type);
-                sqlx::query(&sql).execute(&*self.pool).await?;
-                repaired.push(format!("{}.{}", table, column));
-            }
-        }
-        Ok(repaired)
-    }
-
-    /// See [`create_missing_indexes`].
-    #[cfg(feature = "runtime-ddl")]
-    pub async fn create_missing_indexes(&self) -> Result<Vec<String>, sqlx::Error> {
-        let mut created = Vec::new();
-        let indexes = vec![
-            ("idx_rooms_name", "rooms(name)"),
-            ("idx_rooms_member_count", "rooms(member_count)"),
-            ("idx_notifications_user_id", "notifications(user_id)"),
-            ("idx_notifications_ts", "notifications(ts DESC)"),
-        ];
-        for (name, def) in indexes {
-            if !Self::is_valid_sql_identifier(name) || !Self::is_valid_sql_identifier(def) {
-                tracing::warn!("Skipping invalid index identifier: {}", name);
-                continue;
-            }
-            let exists: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = $1",
-            )
-            .bind(name)
-            .fetch_one(&*self.pool)
-            .await?;
-            if exists == 0 {
-                let sql = format!("CREATE INDEX IF NOT EXISTS {} ON {}", name, def);
-                sqlx::query(&sql).execute(&*self.pool).await?;
-                created.push(name.to_string());
-            }
-        }
-        Ok(created)
-    }
 }
 
 #[cfg(test)]

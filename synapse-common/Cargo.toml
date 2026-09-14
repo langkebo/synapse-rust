@@ -15,7 +15,6 @@ panic = "deny"
 [features]
 default = ["server"]
 server = ["dep:axum", "dep:tower-http"]
-runtime-ddl = []
 test-utils = []
 friends = []
 voice-extended = []
@@ -29,7 +28,6 @@ burn-after-read = []
 privacy-ext = []
 external-services = []
 builtin-oidc = []
-openapi-docs = ["dep:utoipa"]
 
 [dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
@@ -94,8 +92,6 @@ ipnet = "2.12.0"
 # deterministic way to finish schema cleanup before process exit under
 # nextest's one-process-per-test model.
 libc = "0.2"
-
-utoipa = { version = "5", features = ["axum_extras"], optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["async_tokio"] }

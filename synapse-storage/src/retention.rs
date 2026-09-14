@@ -42,33 +42,6 @@ pub struct ServerRetentionPolicy {
     pub updated_ts: i64,
 }
 
-/// The `RetentionCleanupQueueItem` struct.
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct RetentionCleanupQueueItem {
-    /// The `id` field.
-    pub id: i64,
-    /// The `room_id` field.
-    pub room_id: String,
-    /// The `event_id` field.
-    pub event_id: Option<String>,
-    /// The `event_type` field.
-    pub event_type: Option<String>,
-    /// The `origin_server_ts` field.
-    pub origin_server_ts: i64,
-    /// The `scheduled_ts` field.
-    pub scheduled_ts: i64,
-    /// The `status` field.
-    pub status: String,
-    /// The `created_ts` field.
-    pub created_ts: i64,
-    /// The `processed_ts` field.
-    pub processed_ts: Option<i64>,
-    /// The `error_message` field.
-    pub error_message: Option<String>,
-    /// The `retry_count` field.
-    pub retry_count: i32,
-}
-
 /// The `RetentionCleanupLog` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct RetentionCleanupLog {
@@ -92,40 +65,6 @@ pub struct RetentionCleanupLog {
     pub status: String,
     /// The `error_message` field.
     pub error_message: Option<String>,
-}
-
-/// The `DeletedEventIndex` struct.
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct DeletedEventIndex {
-    /// The `id` field.
-    pub id: i64,
-    /// The `room_id` field.
-    pub room_id: String,
-    /// The `event_id` field.
-    pub event_id: String,
-    /// The `deletion_ts` field.
-    pub deletion_ts: i64,
-    /// The `reason` field.
-    pub reason: String,
-}
-
-/// The `RetentionStats` struct.
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct RetentionStats {
-    /// The `id` field.
-    pub id: i64,
-    /// The `room_id` field.
-    pub room_id: String,
-    /// The `total_events` field.
-    pub total_events: i64,
-    /// The `events_in_retention` field.
-    pub events_in_retention: i64,
-    /// The `events_expired` field.
-    pub events_expired: i64,
-    /// The `last_cleanup_ts` field.
-    pub last_cleanup_ts: Option<i64>,
-    /// The `next_cleanup_ts` field.
-    pub next_cleanup_ts: Option<i64>,
 }
 
 /// The `CreateRoomRetentionPolicyRequest` struct.
@@ -207,8 +146,8 @@ pub trait RetentionStoreApi: Send + Sync {
     ) -> Result<ServerRetentionPolicy, sqlx::Error>;
     /// See [`get_effective_policy`].
     async fn get_effective_policy(&self, room_id: &str) -> Result<EffectiveRetentionPolicy, sqlx::Error>;
-    /// See [`delete_events_before`].
-    async fn delete_events_before(&self, room_id: &str, cutoff_ts: i64) -> Result<i64, sqlx::Error>;
+    /// See [`delete_local_messages_before`].
+    async fn delete_local_messages_before(&self, room_id: &str, cutoff_ts: i64) -> Result<i64, sqlx::Error>;
     /// See [`get_rooms_with_policies`].
     async fn get_rooms_with_policies(&self) -> Result<Vec<RoomRetentionPolicy>, sqlx::Error>;
     /// See [`get_server_policy_optional`].
@@ -359,8 +298,8 @@ impl RetentionStorage {
         })
     }
 
-    /// See [`delete_events_before`].
-    pub async fn delete_events_before(&self, room_id: &str, cutoff_ts: i64) -> Result<i64, sqlx::Error> {
+    /// See [`delete_local_messages_before`].
+    pub async fn delete_local_messages_before(&self, room_id: &str, cutoff_ts: i64) -> Result<i64, sqlx::Error> {
         let result = sqlx::query(
             r"
             DELETE FROM events
@@ -491,8 +430,8 @@ impl RetentionStoreApi for RetentionStorage {
         self.get_effective_policy(room_id).await
     }
 
-    async fn delete_events_before(&self, room_id: &str, cutoff_ts: i64) -> Result<i64, sqlx::Error> {
-        self.delete_events_before(room_id, cutoff_ts).await
+    async fn delete_local_messages_before(&self, room_id: &str, cutoff_ts: i64) -> Result<i64, sqlx::Error> {
+        self.delete_local_messages_before(room_id, cutoff_ts).await
     }
 
     async fn get_rooms_with_policies(&self) -> Result<Vec<RoomRetentionPolicy>, sqlx::Error> {
@@ -639,7 +578,7 @@ mod db_tests {
         .expect("failed to create test room");
     }
 
-    /// Insert a minimal event row for testing `delete_events_before`.
+    /// Insert a minimal event row for testing `delete_local_messages_before`.
     async fn ensure_test_event(pool: &PgPool, event_id: &str, room_id: &str, sender: &str, origin_server_ts: i64) {
         sqlx::query(
             r#"INSERT INTO events (event_id, room_id, sender, event_type, content, origin_server_ts)
@@ -975,7 +914,7 @@ mod db_tests {
     // 9. Delete events before cutoff (purge)
     // ------------------------------------------------------------------
     #[tokio::test]
-    async fn test_delete_events_before() {
+    async fn test_delete_local_messages_before() {
         let pool = test_pool().await;
         let storage = RetentionStorage::new(&pool);
         let room_id = &format!("!ret_delev_{}:test.com", uuid::Uuid::new_v4());
@@ -1005,7 +944,10 @@ mod db_tests {
 
         // Cutoff at 12 hours ago — only the 1-day-old event is before it
         let cutoff = current_timestamp_millis() - 43_200_000;
-        let deleted = storage.delete_events_before(room_id, cutoff).await.expect("delete_events_before should succeed");
+        let deleted = storage
+            .delete_local_messages_before(room_id, cutoff)
+            .await
+            .expect("delete_local_messages_before should succeed");
 
         assert!(deleted >= 1, "should delete at least the old event");
 

@@ -46,8 +46,6 @@ pub mod dehydrated_device;
 pub mod delayed_events;
 /// The `device` module.
 pub mod device;
-/// Directory storage domain — public-room directory persistence (ARCH-06).
-pub mod directory;
 /// E2EE storage domain group — re-exports e2ee modules under `e2ee::`.
 pub mod e2ee;
 /// The `e2ee_audit` module.
@@ -92,10 +90,6 @@ pub mod monitoring;
 pub mod oidc;
 /// The `openid_token` module.
 pub mod openid_token;
-/// The `performance` module.
-pub mod performance;
-/// Backward-compatibility prelude — glob-import point for domain-grouped types.
-pub mod prelude;
 /// The `presence` module.
 pub mod presence;
 /// The `pruning` module.

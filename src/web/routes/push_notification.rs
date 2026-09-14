@@ -9,7 +9,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use synapse_common::types::DeviceId;
 use synapse_services::push_notification_service::SendNotificationRequest;
-use synapse_storage::push_notification::{CreatePushRuleRequest, PushDevice, PushRule, RegisterDeviceRequest};
+use synapse_storage::push_notification::{PushDevice, RegisterDeviceRequest};
 
 /// The `RegisterDeviceBody` struct.
 #[derive(Debug, Deserialize)]
@@ -57,37 +57,6 @@ pub struct SendNotificationBody {
     pub priority: Option<i32>,
 }
 
-/// The `CreateRuleBody` struct.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CreateRuleBody {
-    /// The `rule_id` field.
-    pub rule_id: String,
-    /// The `scope` field.
-    pub scope: String,
-    /// The `kind` field.
-    pub kind: String,
-    /// The `priority` field.
-    pub priority: i32,
-    /// The `conditions` field.
-    pub conditions: serde_json::Value,
-    /// The `actions` field.
-    pub actions: serde_json::Value,
-    /// The `enabled` field.
-    pub enabled: bool,
-}
-
-/// The `RulePath` struct.
-#[derive(Debug, Deserialize)]
-pub struct RulePath {
-    /// The `scope` field.
-    pub scope: String,
-    /// The `kind` field.
-    pub kind: String,
-    /// The `rule_id` field.
-    pub rule_id: String,
-}
-
 /// The `ProcessQueueQuery` struct.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -130,39 +99,6 @@ impl From<PushDevice> for DeviceResponse {
             enabled: device.is_enabled,
             created_ts: device.created_ts,
             last_used_ts: device.last_used_ts,
-        }
-    }
-}
-
-/// The `RuleResponse` struct.
-#[derive(Debug, Serialize)]
-pub struct RuleResponse {
-    /// The `rule_id` field.
-    pub rule_id: String,
-    /// The `scope` field.
-    pub scope: String,
-    /// The `kind` field.
-    pub kind: String,
-    /// The `priority` field.
-    pub priority: i32,
-    /// The `conditions` field.
-    pub conditions: serde_json::Value,
-    /// The `actions` field.
-    pub actions: serde_json::Value,
-    /// The `enabled` field.
-    pub enabled: bool,
-}
-
-impl From<PushRule> for RuleResponse {
-    fn from(rule: PushRule) -> Self {
-        Self {
-            rule_id: rule.rule_id,
-            scope: rule.scope,
-            kind: rule.kind,
-            priority: rule.priority,
-            conditions: rule.conditions,
-            actions: rule.actions,
-            enabled: rule.is_enabled,
         }
     }
 }
@@ -242,53 +178,6 @@ pub async fn send_notification(
     })))
 }
 
-/// See [`create_rule`].
-pub async fn create_rule(
-    State(ctx): State<AdminContext>,
-    auth_user: AuthenticatedUser,
-    Json(body): Json<CreateRuleBody>,
-) -> Result<impl IntoResponse, ApiError> {
-    let request = CreatePushRuleRequest {
-        user_id: auth_user.user_id.clone(),
-        rule_id: body.rule_id,
-        scope: body.scope,
-        kind: body.kind,
-        priority: body.priority,
-        conditions: body.conditions,
-        actions: body.actions,
-        enabled: body.enabled,
-    };
-
-    let rule: PushRule = ctx.push_notification_service.create_push_rule(request).await?;
-
-    Ok(Json(RuleResponse::from(rule)))
-}
-
-/// See [`get_rules`].
-pub async fn get_rules(
-    State(ctx): State<AdminContext>,
-    auth_user: AuthenticatedUser,
-) -> Result<impl IntoResponse, ApiError> {
-    let rules: Vec<PushRule> = ctx.push_notification_service.get_push_rules(&auth_user.user_id).await?;
-
-    let response: Vec<RuleResponse> = rules.into_iter().map(RuleResponse::from).collect();
-
-    Ok(Json(response))
-}
-
-/// See [`delete_rule`].
-pub async fn delete_rule(
-    State(ctx): State<AdminContext>,
-    auth_user: AuthenticatedUser,
-    Path(path): Path<RulePath>,
-) -> Result<impl IntoResponse, ApiError> {
-    ctx.push_notification_service.delete_push_rule(&auth_user.user_id, &path.scope, &path.kind, &path.rule_id).await?;
-
-    Ok(Json(serde_json::json!({
-        "message": "Rule deleted"
-    })))
-}
-
 /// See [`process_queue`].
 pub async fn process_queue(
     State(ctx): State<AdminContext>,
@@ -331,10 +220,7 @@ pub fn create_push_notification_router(state: AppState) -> axum::Router<AppState
         .route("/_matrix/client/r0/push/devices", get(get_devices))
         .route("/_matrix/client/r0/push/devices", post(register_device))
         .route("/_matrix/client/r0/push/devices/{device_id}", delete(unregister_device))
-        .route("/_matrix/client/r0/push/send", post(send_notification))
-        .route("/_matrix/client/r0/push/rules", get(get_rules))
-        .route("/_matrix/client/r0/push/rules", post(create_rule))
-        .route("/_matrix/client/r0/push/rules/{scope}/{kind}/{rule_id}", delete(delete_rule));
+        .route("/_matrix/client/r0/push/send", post(send_notification));
 
     let admin_routes =
         axum::Router::new()
@@ -354,12 +240,13 @@ pub fn create_push_notification_router(state: AppState) -> axum::Router<AppState
 
 /// See [`push_notification_route_manifest`].
 ///
-/// B-2: the 7 legacy `/_matrix/client/r0/push/*` entries overlap
+/// B-2: the 4 remaining legacy `/_matrix/client/r0/push/*` entries overlap
 /// with the spec-compliant `pushers`/`pushrules` routes registered by
 /// [`crate::web::routes::push`] and have **zero call sites** in the SDK
 /// (`src/push` uses `/pushers` + `/pushrules`; `src/notifications` uses
-/// `/notifications` only). They are kept registered for now. The 2
-/// `/_synapse/admin/*` routes are internal management endpoints.
+/// `/notifications` only). The 3 `push/rules*` entries were removed (they
+/// duplicated the spec surface and could inject rule ordering — see the audit
+/// report). The 2 `/_synapse/admin/*` routes are internal management endpoints.
 pub fn push_notification_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
@@ -373,9 +260,6 @@ pub fn push_notification_route_manifest() -> Vec<crate::web::routes::route_ledge
         (Method::POST, "/_matrix/client/r0/push/devices"),
         (Method::DELETE, "/_matrix/client/r0/push/devices/{device_id}"),
         (Method::POST, "/_matrix/client/r0/push/send"),
-        (Method::GET, "/_matrix/client/r0/push/rules"),
-        (Method::POST, "/_matrix/client/r0/push/rules"),
-        (Method::DELETE, "/_matrix/client/r0/push/rules/{scope}/{kind}/{rule_id}"),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "push_notification"))

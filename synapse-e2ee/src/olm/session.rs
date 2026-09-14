@@ -7,7 +7,7 @@ use synapse_common::ApiError;
 use tokio::sync::RwLock;
 use vodozemac::olm::{Account, Session, SessionConfig};
 
-use super::service::get_pickle_key;
+use super::service::get_pickle_key_strict;
 
 /// The `OlmSessionManager` type.
 pub struct OlmSessionManager {
@@ -41,7 +41,7 @@ impl OlmSessionManager {
                 continue;
             }
 
-            match vodozemac::olm::SessionPickle::from_encrypted(&data.serialized_state, get_pickle_key()) {
+            match vodozemac::olm::SessionPickle::from_encrypted(&data.serialized_state, get_pickle_key_strict()?) {
                 Ok(pickle) => {
                     let session = Session::from_pickle(pickle);
                     let session_id = session.session_id();
@@ -74,7 +74,7 @@ impl OlmSessionManager {
         for (session_id, entry) in sessions.iter() {
             if entry.dirty {
                 let pickle = entry.session.pickle();
-                let serialized = pickle.encrypt(get_pickle_key());
+                let serialized = pickle.encrypt(get_pickle_key_strict()?);
                 let mut session_data = OlmSessionData::new(
                     session_id.clone(),
                     self.user_id.clone(),

@@ -208,146 +208,17 @@ fn test_cleanup_response() {
 }
 
 // Test 18: Schedule cleanup request
-#[test]
-fn test_schedule_cleanup_request() {
-    let schedule = json!({
-        "room_id": "!room:localhost",
-        "scheduled_ts": 1700100000000_i64
-    });
-
-    assert!(schedule.get("room_id").is_some());
-    assert!(schedule.get("scheduled_ts").is_some());
-}
-
 // Test 19: Schedule cleanup response
-#[test]
-fn test_schedule_cleanup_response() {
-    let response = json!({
-        "scheduled": true,
-        "scheduled_ts": 1700100000000_i64
-    });
-
-    assert!(response.get("scheduled").is_some());
-    assert!(response["scheduled"].as_bool().unwrap_or(false));
-}
-
 // Test 20: Process pending cleanups request
-#[test]
-fn test_process_pending_cleanups_request() {
-    let request = json!({
-        "limit": 100
-    });
-
-    assert!(request.get("limit").is_some());
-}
-
 // Test 21: Pending cleanups response
-#[test]
-fn test_pending_cleanups_response() {
-    let response = json!({
-        "processed": 10,
-        "deleted": 5
-    });
-
-    assert!(response.get("processed").is_some());
-    assert!(response.get("deleted").is_some());
-}
-
 // Test 22: Get retention stats request
-#[test]
-fn test_get_stats_request() {
-    let request = json!({
-        "room_id": "!room:localhost"
-    });
-
-    assert!(request.get("room_id").is_some());
-}
-
 // Test 23: Retention stats response
-#[test]
-fn test_stats_response() {
-    let stats = json!({
-        "total_events": 1000,
-        "retainable_events": 500,
-        "deleted_events": 200,
-        "expired_events": 300
-    });
-
-    assert!(stats.get("total_events").is_some());
-    assert!(stats.get("deleted_events").is_some());
-}
-
 // Test 24: Get cleanup logs request
-#[test]
-fn test_get_cleanup_logs_request() {
-    let request = json!({
-        "room_id": "!room:localhost",
-        "from": 0,
-        "limit": 50
-    });
-
-    assert!(request.get("room_id").is_some());
-    assert!(request.get("limit").is_some());
-}
-
 // Test 25: Cleanup logs response
-#[test]
-fn test_cleanup_logs_response() {
-    let logs = [json!({
-        "ts": 1700000000000_i64,
-        "room_id": "!room:localhost",
-        "deleted": 10,
-        "failed": 0
-    })];
-
-    assert_eq!(logs.len(), 1);
-    assert!(logs[0].get("ts").is_some());
-}
-
 // Test 26: Get deleted events request
-#[test]
-fn test_get_deleted_events_request() {
-    let request = json!({
-        "room_id": "!room:localhost",
-        "from": 0,
-        "limit": 50
-    });
-
-    assert!(request.get("room_id").is_some());
-}
-
 // Test 27: Deleted events response
-#[test]
-fn test_deleted_events_response() {
-    let events = json!({
-        "chunk": [],
-        "count": 0
-    });
-
-    assert!(events.get("chunk").is_some());
-    assert!(events.get("count").is_some());
-}
-
 // Test 28: Get pending cleanup count request
-#[test]
-fn test_get_pending_cleanup_count_request() {
-    let request = json!({
-        "room_id": "!room:localhost"
-    });
-
-    assert!(request.get("room_id").is_some());
-}
-
 // Test 29: Pending cleanup count response
-#[test]
-fn test_pending_cleanup_count_response() {
-    let response = json!({
-        "count": 5
-    });
-
-    assert!(response.get("count").is_some());
-}
-
 // Test 30: Run scheduled cleanups request
 #[test]
 fn test_run_scheduled_cleanups_request() {

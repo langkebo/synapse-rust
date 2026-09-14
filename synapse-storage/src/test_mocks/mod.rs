@@ -97,7 +97,6 @@ pub mod access_token;
 /// The `account_data` module.
 pub mod account_data;
 /// The `admin_federation` module.
-pub mod admin_federation;
 /// The `admin_media` module.
 pub mod admin_media;
 /// The `audit_event` module.
@@ -111,8 +110,6 @@ pub mod cas;
 pub mod dehydrated_device;
 /// The `device_list` module.
 pub mod device_list;
-/// The `directory` module.
-pub mod directory;
 /// The `event` module.
 pub mod event;
 /// The `filter` module.
@@ -134,7 +131,6 @@ pub mod rate_limit;
 /// The `refresh_token` module.
 pub mod refresh_token;
 /// The `registration_token` module.
-pub mod registration_token;
 /// The `relations` module.
 pub mod relations;
 /// The `room` module.
@@ -148,7 +144,6 @@ pub mod room_tag;
 /// The `sliding_sync` module.
 pub mod sliding_sync;
 /// The `space` module.
-pub mod space;
 /// The `thread` module.
 pub mod thread;
 /// The `threepid` module.
@@ -160,7 +155,6 @@ pub mod worker;
 
 pub use access_token::InMemoryAccessTokenStore;
 pub use account_data::InMemoryAccountDataStore;
-pub use admin_federation::InMemoryAdminFederationStore;
 pub use admin_media::InMemoryAdminMediaStore;
 pub use audit_event::InMemoryAuditEventStore;
 pub use background_update::InMemoryBackgroundUpdateStore;
@@ -168,7 +162,6 @@ pub use background_update::InMemoryBackgroundUpdateStore;
 pub use cas::InMemoryCasStore;
 pub use dehydrated_device::InMemoryDehydratedDeviceStore;
 pub use device_list::InMemoryDeviceListStore;
-pub use directory::InMemoryDirectoryStore;
 pub use event::InMemoryEventStore;
 pub use filter::InMemoryFilterStore;
 pub use member::InMemoryMemberStore;
@@ -179,14 +172,12 @@ pub use push::InMemoryPushStore;
 pub use quarantine_media::InMemoryQuarantineMediaChangeStore;
 pub use rate_limit::InMemoryRateLimitStore;
 pub use refresh_token::InMemoryRefreshTokenStore;
-pub use registration_token::InMemoryRegistrationTokenStore;
 pub use relations::InMemoryRelationsStore;
 pub use room::InMemoryRoomStore;
 pub use room_account_data::InMemoryRoomAccountDataStore;
 pub use room_summary::InMemoryRoomSummaryStore;
 pub use room_tag::InMemoryRoomTagStore;
 pub use sliding_sync::InMemorySlidingSyncStore;
-pub use space::InMemorySpaceStore;
 pub use thread::InMemoryThreadStore;
 pub use threepid::InMemoryThreepidStore;
 pub use worker::InMemoryWorkerStore;

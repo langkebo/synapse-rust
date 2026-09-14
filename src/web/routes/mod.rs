@@ -19,7 +19,6 @@ pub mod context;
 mod delayed_events;
 /// The `device` module.
 pub mod device;
-mod directory;
 mod directory_reporting;
 /// The `dm` module.
 pub mod dm;
