@@ -179,8 +179,14 @@ mod tests {
     fn test_calculate_age_near_zero() {
         let now = current_timestamp_millis();
         let age = calculate_age(now);
-        // Age for the current timestamp should be very small (0 or 1 ms).
-        assert!(age <= 1, "age for now should be near zero, got {age}");
+        // The tolerance is the scheduling gap between the two wall-clock reads —
+        // `now` here and the `current_timestamp_millis()` inside `calculate_age`
+        // — not any logic under test. That gap is unbounded: measured `got 6`
+        // under `--test-threads 4` with a 1 ms tolerance, and a pre-empted test
+        // thread can make it far larger. 50 ms keeps the assertion meaningful
+        // (it would still catch a broken sign or unit conversion) while staying
+        // off the scheduler's critical path.
+        assert!(age <= 50, "age for now should be near zero, got {age}");
     }
 
     #[test]

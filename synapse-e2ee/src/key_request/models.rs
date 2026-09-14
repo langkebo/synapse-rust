@@ -370,7 +370,7 @@ mod tests {
         let json = serde_json::to_string(&info).unwrap();
         let rt: KeyRequestInfo = serde_json::from_str(&json).unwrap();
         assert_eq!(rt.request_id, info.request_id);
-        assert_eq!(rt.is_fulfilled, false);
+        assert!(!rt.is_fulfilled);
         assert_eq!(rt.fulfilled_by_device, None);
     }
 
@@ -391,7 +391,7 @@ mod tests {
         };
         let json = serde_json::to_string(&info).unwrap();
         let rt: KeyRequestInfo = serde_json::from_str(&json).unwrap();
-        assert_eq!(rt.is_fulfilled, true);
+        assert!(rt.is_fulfilled);
         assert_eq!(rt.fulfilled_by_device, Some("DEVICE3".to_string()));
         assert_eq!(rt.fulfilled_ts, Some(1_700_000_002_000));
     }

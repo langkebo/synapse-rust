@@ -272,7 +272,7 @@ mod tests {
         assert_eq!(rt.session_id, "session1");
         assert_eq!(rt.first_message_index, 1);
         assert_eq!(rt.forwarded_count, 0);
-        assert_eq!(rt.is_verified, true);
+        assert!(rt.is_verified);
         assert_eq!(rt.session_key, "encrypted_session_key_data");
     }
 
@@ -339,7 +339,7 @@ mod tests {
         };
         let json = serde_json::to_string(&data).unwrap();
         let rt: SessionKeyData = serde_json::from_str(&json).unwrap();
-        assert_eq!(rt.is_verified, false);
+        assert!(!rt.is_verified);
     }
 
     #[test]

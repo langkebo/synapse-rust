@@ -171,8 +171,10 @@ async fn test_cache_manager_delete() {
 async fn set_honours_per_write_ttl_for_local_tier() {
     use std::time::Duration;
 
-    let mut config = CacheConfig::default();
-    config.time_to_live = 3600; // builder-wide L1 TTL is an hour...
+    let config = CacheConfig {
+        max_capacity: 100_000, // builder-wide default
+        time_to_live: 3600,
+    };
     let manager = CacheManager::new(&config);
 
     // ...but this write asks for one second.

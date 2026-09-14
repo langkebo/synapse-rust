@@ -939,11 +939,12 @@ mod tests {
 
     #[test]
     fn test_key_rotation_custom_config_values() {
-        let mut cfg = KeyRotationConfig::default();
-        cfg.olm_rotation_days = 30;
-        cfg.megolm_rotation_messages = 500;
-        cfg.max_session_age_days = 180;
-        cfg.enable_auto_rotation = false;
+        let cfg = KeyRotationConfig {
+            olm_rotation_days: 30,
+            megolm_rotation_messages: 500,
+            max_session_age_days: 180,
+            enable_auto_rotation: false,
+        };
 
         assert_eq!(cfg.olm_rotation_days, 30);
         assert_eq!(cfg.megolm_rotation_messages, 500);

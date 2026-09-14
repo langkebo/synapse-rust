@@ -349,7 +349,7 @@ mod tests {
             fulfilled_ts: None,
         };
         assert_eq!(info.request_id, "req-test");
-        assert_eq!(info.is_fulfilled, false);
+        assert!(!info.is_fulfilled);
         assert_eq!(info.fulfilled_by_device, None);
     }
 }

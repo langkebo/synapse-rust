@@ -369,7 +369,7 @@ mod db_tests {
             "INSERT INTO presence (user_id, last_active_ts) VALUES ('stale1', $1), ('stale2', $1), ('fresh', $2)",
         )
         .bind(now - 8 * day_ms)
-        .bind(now - 1 * day_ms)
+        .bind(now - day_ms)
         .execute(&*pool)
         .await
         .unwrap();
@@ -388,7 +388,7 @@ mod db_tests {
         let day_ms = 86_400_000;
         let now = current_timestamp_millis();
         let old = now - 8 * day_ms;
-        let fresh = now - 1 * day_ms;
+        let fresh = now - day_ms;
         // used+fresh (prune), unused+old (prune), unused+fresh (keep).
         sqlx::query("INSERT INTO one_time_keys (user_id, device_id, algorithm, key_id, key_data, is_used, created_ts) VALUES ('u','d','a','k1','x',TRUE,$1), ('u','d','a','k2','x',FALSE,$2), ('u','d','a','k3','x',FALSE,$3)")
             .bind(fresh).bind(old).bind(fresh).execute(&*pool).await.unwrap();
@@ -407,7 +407,7 @@ mod db_tests {
         let hr = 3_600_000;
         let now = current_timestamp_millis();
         sqlx::query("INSERT INTO to_device_transactions (sender_user_id, sender_device_id, created_ts) VALUES ('u','d',$1),('u','d',$1),('u','d',$2)")
-            .bind(now - 25 * hr).bind(now - 1 * hr).execute(&*pool).await.unwrap();
+            .bind(now - 25 * hr).bind(now - hr).execute(&*pool).await.unwrap();
 
         let deleted = prune_old_to_device_transactions(&pool).await.unwrap();
         assert_eq!(deleted, 2, ">24h rows pruned");

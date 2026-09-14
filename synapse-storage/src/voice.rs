@@ -370,6 +370,9 @@ mod db_tests {
     }
 
     #[cfg(test)]
+    // Dead-code: kept as reusable test helpers for future voice db_tests rather
+    // than deleted — this module's existing tests build their own records.
+    #[allow(dead_code)]
     async fn ensure_test_room(pool: &PgPool, room_id: &str) {
         let now = current_timestamp_millis();
         sqlx::query(
@@ -385,6 +388,7 @@ mod db_tests {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)] // same rationale as ensure_test_room
     async fn ensure_test_event(pool: &PgPool, event_id: &str, room_id: &str, sender: &str) {
         let now = current_timestamp_millis();
         ensure_test_room(pool, room_id).await;

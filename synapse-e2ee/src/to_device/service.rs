@@ -126,7 +126,6 @@ mod tests {
     use std::sync::Arc;
 
     use super::ToDeviceService;
-    use crate::test_mocks::InMemoryToDeviceStorage;
     use serde_json::json;
 
     #[test]
