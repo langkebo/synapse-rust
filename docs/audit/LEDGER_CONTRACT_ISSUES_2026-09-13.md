@@ -50,23 +50,35 @@ artifact 在同步 workflow 里**解析即失败**，镜像自 `f6029a81` 后再
 
 ## 三、待决策
 
-### ⏳ B-7 `module` 字段是假绿（优先级最高）
+### ✅ B-7 `module` 字段是假绿（**已修**，后端 `1e5980e1` + SDK `ce2f3351`）
 
 **事实**（实测）：
 
 - `RouteEntry::new` 调用点 **96** 处，`with_module` 覆盖仅 **3** 处 → 96.9% 的
   路由 `module` 是 `registered_by` 的副本
-- 导出里 `module` 只填了 **3/1320**、`status` 只填了 **7/1320**
+- 导出里 `module` 只填了 **3/1320**
 - SDK 的分模块聚合用的是 **`registered_by`**（`contract-sync.mjs` 的
   `moduleKeyFor(registeredBy)`），**根本不读 `module`**
 
-**结论**：`module` 目前不携带新信息，且没有消费方。
+**处置**：按"未发布项目不留冗余"**删除字段**，而不是补全它（补全需要改 93 处调用点
++ 白名单校验，收益仅是一个仍无消费方的字段）。连带删除：
+`RouteEntry.module`、`with_module()`、`LedgerEntryJson.module` 与其序列化分支、
+`assembly.rs` 的 3 处调用；`SCHEMA_VERSION` 2 → 3；两条车道 fixture 重生成；
+SDK pin 与镜像同步到 3。
 
-**三个选项**：
+### ⏳ B-7 的连带问题：`status` 现在也没有消费方了
 
-1. **删除 `module`**（推荐，最符合"不要冗余"）：SDK 反正用 `registered_by`
-2. **必填 + 取值白名单校验**：需补 93 处调用点，并在 CI 校验合法性
-3. 保持现状但在 schema 文档标注其局限（已在本轮新建的文档里如实写明）
+删除 `module` 后，`status` 成了同一类问题的候选：
+
+- 全仓 `.with_status(` 调用点在工作树里已是 **0**（最后一个在
+  `push_notification.rs`，由另一 agent 的在途改动移除，理由写在注释里：
+  "ledger 的 status 字段目前没有消费方，标注只是装饰"）
+- 该判断与本节一致。若最终确定 `status` 也不做，应同样删除
+  `RouteStatus` / `with_status` / `LedgerEntryStatusJson` / `status` 字段，
+  而不是保留"有字段没消费方"的状态
+
+**待决策**：要么给 `status` 一个真实消费方（例如 CI 的 `ledger-deprecated`
+门禁：读到 `Deprecated` 就要求 `sunset_at` 非空并在到期时报警），要么删除。
 
 ### ⏳ B-3 / B-4 生命周期标注
 
