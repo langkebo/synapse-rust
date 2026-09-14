@@ -567,3 +567,101 @@ grep -n "^name" Cargo.toml */Cargo.toml | grep -c synapse_worker          # 0
 **另外记录一项既有数据丢失**：会话开始时主工作树存在 `synapse-storage/src/voice.rs`
 的未提交改动；该改动不在任何近期 stash 中（`stash@{0}` 及 `stash@{4..8}` 均不含），
 现已被并发会话的 checkout 丢弃。非本次操作所致，但请留意。
+
+---
+
+# 附录 D：第一批收尾 + 第零批正确性修复（2026-09-14）
+
+## D.1 已修复的正确性隐患
+
+报告 §4「第零批」列为**优先级高于任何删减**的 5 项，已修复 3 项：
+
+### D.1.1 CFG-1 — Olm pickle key release 全零回退（安全）
+
+- **缺陷**：生产 E2EE 路径 `synapse-e2ee/src/olm/session.rs:44`（`load_sessions`）
+  与 `:77`（`persist_sessions`）调用宽松版 `get_pickle_key()`；该函数在 release
+  构建下于 `PICKLE_KEY` 未初始化时 `tracing::error!` 后返回
+  `static ZERO: [u8; 32]`，即把 Olm 会话以全零密钥加解密 —— 写出的数据不可恢复。
+  原注释声称该分支 "unreachable because gated behind `cfg(debug_assertions)`"，
+  与实际**相反**（release 分支正是 `cfg(not(debug_assertions))`）。
+- **修复**：两处改调 `get_pickle_key_strict()?`；删除宽松入口（debug 随机回退、
+  release 全零桩、`generate_random_pickle_key`）。
+- **验证**：`cargo test -p synapse-e2ee --lib --all-features` = 429 passed / 0 failed。
+
+### D.1.2 STO-11 — `UserStorage::set_account_data` 静默丢数据
+
+- **缺陷**：该方法 `INSERT INTO user_account_data(event_type, content)`，而**所有**
+  读路径（`get_account_data_content`、`AccountDataService::get_account_data`）读的是
+  `account_data(data_type, content)` —— 写进去的数据无人能读。
+- **核实**：其唯一调用者是它自己的 db_test；路由用的是
+  `AccountDataService::set_account_data` → `upsert_account_data_content` → `account_data`
+  （正确）。故这是纯死写路径。
+- **修复**：删除该方法及其 db_test。`user_account_data` 表随之零引用，列入待 DROP 清单。
+
+### D.1.3 STO-12 — 两个同名删除方法语义相反
+
+- **缺陷**：`RetentionStorage::delete_events_before(room_id, cutoff) -> i64` 只删
+  **本地非状态**消息（`state_key IS NULL` 且排除 4 类状态事件）；而
+  `EventStorage::delete_events_before(room_id, ts, dry_run) -> u64` 只删**远端**事件
+  （`origin != self`）。同一张 `events` 表、相反过滤条件、仅凭名字极易选错。
+- **修复**：按实际语义重命名为 `delete_local_messages_before` /
+  `delete_remote_events_before`（纯重命名，编译器与既有测试共同验证）。
+  `AuditStorage::delete_events_before` 作用于 `audit_events` 表、语义无歧义，保持原名。
+- **未采用**原报告的"合并为带 `scope` 参数的单一实现"：那会改变行为（本地+远端删除
+  合一），需业务裁定；重命名已消除实际风险且零行为变更。
+
+## D.2 未修复的第零批项（需产品决策）
+
+| 项 | 为何不能零风险修 |
+|---|---|
+| SVC-2 / STO-10 `push_rules` 双写 | 需先裁定保留哪套 push-rule 实现（标准 `pushrules` 还是 `/_matrix/client/r0/push/rules`），涉及路由契约与存储表 |
+| STO-13 `room_directory` 双写 | `RoomStorage::set_room_directory` 可写 `is_public=false`，`DirectoryStorage` 强制 `true`；合并需裁定语义归属 |
+| STO-15 retention no-op 方法掩盖错误 | 这些方法有 admin 路由调用，删除即移除/改变 admin API 面 |
+
+## D.3 本批（a0f2819d + 7cb25947 + 21cc11c1）累计
+
+| 指标 | 数值 |
+|---|---|
+| 变更文件总数 | ~200 |
+| 删除行 | **≈ 39,990** |
+| 整文件删除 | **152** |
+
+## D.4 一次验证口径失误（已修正，值得记录）
+
+`a0f2819d`（G 阶段迁移清理）**引入了一处测试回归**：
+`migration_checks::tests::discover_finds_baseline_migrations` 断言"至少 5 个时间戳
+迁移文件存在"——正是被 v11 baseline 吸收后删除的那批。
+
+**根因是验证口径不完整**：当时只跑了 `cargo test --test unit`（根 crate 的 unit 目标）
+与各 crate 的 `--lib` **部分**，没有跑 `cargo test --workspace --lib`，因此
+`synapse-storage` 的 lib 测试从未执行。
+
+**修正**：`21cc11c1` 重写该测试以锁定真正需要的不变量（返回值全为 14 位时间戳 /
+有序 / 去重，且 baseline 与 extensions 文件必须被排除），并补齐完整验证：
+
+```bash
+TEST_DATABASE_URL=postgresql://synapse:synapse@localhost:5432/synapse_test \
+  cargo test --workspace --all-features --lib --locked -- --test-threads=4
+```
+
+结果：`synapse-common` 869 / `synapse-storage` 1757 / `synapse-services` 2025 /
+`synapse-cache` 89，**0 failed**。唯一一次
+`test_schema_guard::…released_pool_triggers_cleanup…` 超时为 DB 并行负载下的已知
+flaky（隔离复跑两次均通过，见仓库「已知坑 #10」）。
+
+> 教训与 §1.3 同源：**声明"已验证"之前必须确认验证覆盖了所有目标**。本仓库的
+> `--test unit` 与 `cargo --workspace --lib` 是两条不同车道，只跑前者会漏掉全部
+> workspace crate 的单元测试。
+
+## D.5 待办清单（本次未做，按优先级）
+
+1. **DROP `user_account_data` 表**（现零引用）+ 报告 STO-14 的另外 22 张零引用表，
+   其中 6 张 AI/OpenClaw 表带触发器与注释（`migrations/README.md` 已自认）。
+2. **第零批剩余 3 项**：`push_rules` 双写、`room_directory` 双写、retention no-op
+   方法（均需产品裁定，见 D.2）。
+3. **第一批暂缓**：SVC-0 模块系统 3,360 行、SVC-1 推送链路 ~1,600 行、
+   CFG-11 `server` 伪 feature（构建配置重构，需 Docker 环境验证）。
+4. **第二批结构性合并**：拆 `/r0` 兼容链（−400~900 + −489 ledger 条目）、
+   收敛路由元数据（−600~1,500）、合并 DI 层泛型化（−596）、
+   legacy 认证兼容（−250 且去掉热路径每次多一次索引查询）、
+   `deny(missing_docs)` 落地方式重做（−15,571 行零信息注释）。
