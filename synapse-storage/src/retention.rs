@@ -42,33 +42,6 @@ pub struct ServerRetentionPolicy {
     pub updated_ts: i64,
 }
 
-/// The `RetentionCleanupQueueItem` struct.
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct RetentionCleanupQueueItem {
-    /// The `id` field.
-    pub id: i64,
-    /// The `room_id` field.
-    pub room_id: String,
-    /// The `event_id` field.
-    pub event_id: Option<String>,
-    /// The `event_type` field.
-    pub event_type: Option<String>,
-    /// The `origin_server_ts` field.
-    pub origin_server_ts: i64,
-    /// The `scheduled_ts` field.
-    pub scheduled_ts: i64,
-    /// The `status` field.
-    pub status: String,
-    /// The `created_ts` field.
-    pub created_ts: i64,
-    /// The `processed_ts` field.
-    pub processed_ts: Option<i64>,
-    /// The `error_message` field.
-    pub error_message: Option<String>,
-    /// The `retry_count` field.
-    pub retry_count: i32,
-}
-
 /// The `RetentionCleanupLog` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct RetentionCleanupLog {
@@ -92,40 +65,6 @@ pub struct RetentionCleanupLog {
     pub status: String,
     /// The `error_message` field.
     pub error_message: Option<String>,
-}
-
-/// The `DeletedEventIndex` struct.
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct DeletedEventIndex {
-    /// The `id` field.
-    pub id: i64,
-    /// The `room_id` field.
-    pub room_id: String,
-    /// The `event_id` field.
-    pub event_id: String,
-    /// The `deletion_ts` field.
-    pub deletion_ts: i64,
-    /// The `reason` field.
-    pub reason: String,
-}
-
-/// The `RetentionStats` struct.
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct RetentionStats {
-    /// The `id` field.
-    pub id: i64,
-    /// The `room_id` field.
-    pub room_id: String,
-    /// The `total_events` field.
-    pub total_events: i64,
-    /// The `events_in_retention` field.
-    pub events_in_retention: i64,
-    /// The `events_expired` field.
-    pub events_expired: i64,
-    /// The `last_cleanup_ts` field.
-    pub last_cleanup_ts: Option<i64>,
-    /// The `next_cleanup_ts` field.
-    pub next_cleanup_ts: Option<i64>,
 }
 
 /// The `CreateRoomRetentionPolicyRequest` struct.

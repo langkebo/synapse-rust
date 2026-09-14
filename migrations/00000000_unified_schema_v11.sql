@@ -4176,8 +4176,8 @@ END $$;
 DO $$
 BEGIN
     IF NOT EXISTS (
-        SELECT 1 FROM information_schema.table_constraints
-        WHERE table_schema = 'public' AND table_name = 'typing' AND constraint_name = 'pk_typing'
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'typing'::regclass AND conname = 'pk_typing'
     ) THEN
         ALTER TABLE typing ADD CONSTRAINT pk_typing PRIMARY KEY (user_id, room_id);
     END IF;
@@ -4187,8 +4187,8 @@ END $$;
 DO $$
 BEGIN
     IF NOT EXISTS (
-        SELECT 1 FROM information_schema.table_constraints
-        WHERE table_schema = 'public' AND table_name = 'presence_subscriptions' AND constraint_name = 'pk_presence_subscriptions'
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'presence_subscriptions'::regclass AND conname = 'pk_presence_subscriptions'
     ) THEN
         ALTER TABLE presence_subscriptions ADD CONSTRAINT pk_presence_subscriptions PRIMARY KEY (subscriber_id, target_id);
     END IF;
@@ -4304,10 +4304,10 @@ DECLARE
     index_count INTEGER;
 BEGIN
     SELECT COUNT(*) INTO table_count FROM information_schema.tables
-    WHERE table_schema = 'public' AND table_type = 'BASE TABLE';
+    WHERE table_schema = current_schema() AND table_type = 'BASE TABLE';
 
     SELECT COUNT(*) INTO index_count FROM pg_indexes
-    WHERE schemaname = 'public' AND indexname LIKE 'idx_%';
+    WHERE schemaname = current_schema() AND indexname LIKE 'idx_%';
 
     RAISE NOTICE '==========================================';
     RAISE NOTICE 'synapse-rust Unified Database Schema v8.0.0 initialized';
@@ -4762,19 +4762,31 @@ DO $$
 DECLARE
     rec RECORD;
 BEGIN
+    -- Enumerate the TARGET schema, never a hard-coded 'public'. The baseline is
+    -- applied into per-test schemas by the isolation fixtures; hard-coding
+    -- 'public' made this loop enumerate the wrong schema and let `ALTER TABLE`
+    -- fall through to `public` through search_path, which then failed with
+    -- `constraint ... already exists`. The per-iteration guard makes the loop
+    -- idempotent regardless of what the target table already carries.
     FOR rec IN
         SELECT table_name FROM information_schema.columns
-        WHERE table_schema = 'public'
+        WHERE table_schema = current_schema()
           AND column_name = 'user_id'
           AND data_type = 'text'
           AND table_name NOT IN ('users', 'schema_migrations')
           AND table_name NOT LIKE '\\_%' ESCAPE '\'
     LOOP
-        EXECUTE format(
-                'ALTER TABLE %I ADD CONSTRAINT ck_%I_user_id_format
-                    CHECK (user_id IS NULL OR user_id ~ ''^@[a-zA-Z0-9._=+./-]+:[a-zA-Z0-9.-]+$'');',
-                rec.table_name, rec.table_name
-            );
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'ck_' || rec.table_name || '_user_id_format'
+              AND conrelid = rec.table_name::regclass
+        ) THEN
+            EXECUTE format(
+                    'ALTER TABLE %I ADD CONSTRAINT ck_%I_user_id_format
+                        CHECK (user_id IS NULL OR user_id ~ ''^@[a-zA-Z0-9._=+./-]+:[a-zA-Z0-9.-]+$'');',
+                    rec.table_name, rec.table_name
+                );
+        END IF;
     END LOOP;
 END $$;
 
@@ -4812,17 +4824,26 @@ DO $$
 DECLARE
     rec RECORD;
 BEGIN
+    -- Same reasoning as the user_id loop above: target schema only, and guard
+    -- per-iteration so a table that already carries the constraint is skipped
+    -- instead of erroring.
     FOR rec IN
         SELECT table_name, column_name FROM information_schema.columns
-        WHERE table_schema = 'public'
+        WHERE table_schema = current_schema()
           AND column_name IN ('mxc_url', 'avatar_url', 'content_url')
           AND data_type = 'text'
     LOOP
-        EXECUTE format(
-                'ALTER TABLE %I ADD CONSTRAINT ck_%I_mxc_format
-                    CHECK (%I IS NULL OR %I = '''' OR %I ~ ''^mxc://[a-zA-Z0-9.-]+(/[a-zA-Z0-9._~-]+)?$'');',
-                rec.table_name, rec.table_name, rec.column_name, rec.column_name, rec.column_name
-            );
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'ck_' || rec.table_name || '_mxc_format'
+              AND conrelid = rec.table_name::regclass
+        ) THEN
+            EXECUTE format(
+                    'ALTER TABLE %I ADD CONSTRAINT ck_%I_mxc_format
+                        CHECK (%I IS NULL OR %I = '''' OR %I ~ ''^mxc://[a-zA-Z0-9.-]+(/[a-zA-Z0-9._~-]+)?$'');',
+                    rec.table_name, rec.table_name, rec.column_name, rec.column_name, rec.column_name
+                );
+        END IF;
     END LOOP;
 END $$;
 
