@@ -6,8 +6,8 @@
 >   原 `20260904*_schema_p*.sql` 审计迁移已删除，其对象**部分**已折入 baseline——
 >   未折入清单见 `docs/audit/PROJECT_ACTUAL_ISSUES_2026-09-14.md` §1.5）
 
-> **覆盖率说明**：v11 baseline 中共 **365** 条
-> `CREATE (UNIQUE) INDEX IF NOT EXISTS` 语句（**360** 个不同索引名；有 5 对同名
+> **覆盖率说明**：v11 baseline 中共 **364** 条
+> `CREATE (UNIQUE) INDEX IF NOT EXISTS` 语句（**359** 个不同索引名；有 5 对同名
 > 重复定义属遗留缺陷，见 `docs/audit/PROJECT_ACTUAL_ISSUES_2026-09-14.md` §1.6），
 > 本文档精选 97 个有代表性的 partial / composite / 覆盖 / GIN 索引作重点记录，
 > 覆盖核心查询路径。完整索引清单请直接查看 `00000000_unified_schema_v11.sql`

@@ -8,7 +8,7 @@
 
 ## 总览
 
-- 注册路由条目（含 v1/r0/v3 多版本前缀去重后）：**918**
+- 注册路由条目（含 v1/r0/v3 多版本前缀去重后）：**920**
 - 含路由注册的模块文件：**63**
 - 含 `*_route_manifest` 函数的模块：**66**
 
@@ -636,7 +636,7 @@
 - `PUT` `/rooms/{room_id}/summary/members/{user_id}`
 - `PUT` `/rooms/{room_id}/summary/state/{event_type}/{state_key}`
 
-### 推送 (Push) （17 条）
+### 推送 (Push) （19 条）
 
 #### `push.rs` — 11 条 ✅manifest
 
@@ -652,14 +652,16 @@
 - `POST` `/pushers/set`
 - `PUT` `/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/actions`
 
-#### `push_notification.rs` — 6 条 ✅manifest
+#### `push_notification.rs` — 8 条 ✅manifest
 
 - `DELETE` `/_matrix/client/r0/push/devices/{device_id}`
 - `GET` `/_matrix/client/r0/push/devices`
+- `GET` `/_synapse/admin/v1/push/config`
 - `POST` `/_matrix/client/r0/push/devices`
 - `POST` `/_matrix/client/r0/push/send`
 - `POST` `/_synapse/admin/v1/push/cleanup`
 - `POST` `/_synapse/admin/v1/push/process`
+- `PUT` `/_synapse/admin/v1/push/config`
 
 ### 搜索 (Search) （7 条）
 

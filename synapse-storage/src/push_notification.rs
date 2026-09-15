@@ -114,6 +114,17 @@ pub struct PushNotificationLog {
     pub metadata: serde_json::Value,
 }
 
+/// One row of the global push provider configuration (`push_config`).
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct PushConfigEntry {
+    /// The `config_key` field (e.g. `fcm.enabled`).
+    pub config_key: String,
+    /// The `config_value` field.
+    pub config_value: String,
+    /// The `updated_ts` field.
+    pub updated_ts: Option<i64>,
+}
+
 /// The `RegisterDeviceRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegisterDeviceRequest {
@@ -279,6 +290,12 @@ pub trait PushNotificationStoreApi: Send + Sync {
     async fn get_config_as_bool(&self, config_key: &str, default: bool) -> Result<bool, ApiError>;
     /// See [`get_config_as_int`].
     async fn get_config_as_int(&self, config_key: &str, default: i32) -> Result<i32, ApiError>;
+    /// See [`list_config`].
+    async fn list_config(&self) -> Result<Vec<PushConfigEntry>, ApiError>;
+    /// See [`set_config`].
+    async fn set_config(&self, config_key: &str, config_value: &str) -> Result<PushConfigEntry, ApiError>;
+    /// See [`delete_config`].
+    async fn delete_config(&self, config_key: &str) -> Result<bool, ApiError>;
     /// See [`cleanup_old_logs`].
     async fn cleanup_old_logs(&self, days: i32) -> Result<u64, ApiError>;
     /// See [`get_room_notifications`].
@@ -673,6 +690,48 @@ impl PushNotificationStorage {
         })
     }
 
+    /// See [`list_config`].
+    pub async fn list_config(&self) -> Result<Vec<PushConfigEntry>, ApiError> {
+        sqlx::query_as::<_, PushConfigEntry>(
+            "SELECT config_key, config_value, updated_ts FROM push_config ORDER BY config_key",
+        )
+        .fetch_all(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Failed to list push config", e))
+    }
+
+    /// See [`set_config`].
+    pub async fn set_config(&self, config_key: &str, config_value: &str) -> Result<PushConfigEntry, ApiError> {
+        let now = current_timestamp_millis();
+
+        sqlx::query_as::<_, PushConfigEntry>(
+            r"
+            INSERT INTO push_config (config_key, config_value, created_ts, updated_ts)
+            VALUES ($1, $2, $3, $3)
+            ON CONFLICT (config_key) DO UPDATE
+                SET config_value = EXCLUDED.config_value, updated_ts = EXCLUDED.updated_ts
+            RETURNING config_key, config_value, updated_ts
+            ",
+        )
+        .bind(config_key)
+        .bind(config_value)
+        .bind(now)
+        .fetch_one(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Failed to set push config", e))
+    }
+
+    /// See [`delete_config`].
+    pub async fn delete_config(&self, config_key: &str) -> Result<bool, ApiError> {
+        let result = sqlx::query("DELETE FROM push_config WHERE config_key = $1")
+            .bind(config_key)
+            .execute(&*self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to delete push config", e))?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     /// See [`cleanup_old_logs`].
     pub async fn cleanup_old_logs(&self, days: i32) -> Result<u64, ApiError> {
         let cutoff_ms = current_timestamp_millis() - (days as i64 * 86_400_000);
@@ -782,6 +841,15 @@ impl PushNotificationStoreApi for PushNotificationStorage {
     }
     async fn get_config_as_int(&self, config_key: &str, default: i32) -> Result<i32, ApiError> {
         self.get_config_as_int(config_key, default).await
+    }
+    async fn list_config(&self) -> Result<Vec<PushConfigEntry>, ApiError> {
+        self.list_config().await
+    }
+    async fn set_config(&self, config_key: &str, config_value: &str) -> Result<PushConfigEntry, ApiError> {
+        self.set_config(config_key, config_value).await
+    }
+    async fn delete_config(&self, config_key: &str) -> Result<bool, ApiError> {
+        self.delete_config(config_key).await
     }
     async fn cleanup_old_logs(&self, days: i32) -> Result<u64, ApiError> {
         self.cleanup_old_logs(days).await

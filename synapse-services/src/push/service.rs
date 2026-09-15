@@ -3,26 +3,43 @@ use super::providers::{
     send_with_retry, ApnsProvider, FcmProvider, NotificationCounts, NotificationPayload as ProviderPayload, PushResult,
     WebPushProvider,
 };
-use super::queue::{PushQueue, QueueConfig};
 use futures::stream::{self, StreamExt};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use synapse_common::error::ApiError;
 use synapse_storage::push_notification::*;
 use tracing::{info, warn};
 
+/// The providers built from `push_config` by [`PushNotificationService::initialize_providers`].
+///
+/// Held behind a lock so an admin config update can hot-reload them without a
+/// restart; [`PushNotificationService`] is shared as an `Arc` and cannot be
+/// replaced in place.
+#[derive(Clone, Default)]
+struct PushProviders {
+    fcm: Option<Arc<FcmProvider>>,
+    apns: Option<Arc<ApnsProvider>>,
+    webpush: Option<Arc<WebPushProvider>>,
+}
+
 /// The `PushNotificationService` struct.
 #[derive(Clone)]
 pub struct PushNotificationService {
     storage: Arc<dyn synapse_storage::push_notification::PushNotificationStoreApi>,
-    fcm_provider: Option<Arc<FcmProvider>>,
-    apns_provider: Option<Arc<ApnsProvider>>,
-    webpush_provider: Option<Arc<WebPushProvider>>,
+    providers: Arc<RwLock<PushProviders>>,
     push_gateway: Option<Arc<PushGateway>>,
-    queue: Option<Arc<PushQueue>>,
     /// Optional account_data storage for looking up `m.ignored_user_list`
     /// so that push notifications from ignored users are suppressed.
     account_data_storage: Option<Arc<dyn synapse_storage::account_data::AccountDataStoreApi>>,
+}
+
+/// Treats an empty/whitespace-only config value as "not set".
+///
+/// `push_config` has no per-key nullability, and every provider constructor has a
+/// "disabled" state for an empty credential — building a provider from a blank
+/// value would silently succeed on every send instead of failing closed.
+fn non_empty(value: Option<String>) -> Option<String> {
+    value.filter(|v| !v.trim().is_empty())
 }
 
 /// The `NotificationPayload` struct.
@@ -82,42 +99,43 @@ impl PushNotificationService {
     pub fn new(storage: Arc<dyn synapse_storage::push_notification::PushNotificationStoreApi>) -> Self {
         Self {
             storage,
-            fcm_provider: None,
-            apns_provider: None,
-            webpush_provider: None,
+            providers: Arc::new(RwLock::new(PushProviders::default())),
             push_gateway: None,
-            queue: None,
             account_data_storage: None,
         }
     }
 
+    fn write_providers(&self) -> std::sync::RwLockWriteGuard<'_, PushProviders> {
+        // A poisoned lock only means a previous writer panicked; the value itself is
+        // still a valid `PushProviders`, so recover it rather than propagating.
+        self.providers.write().unwrap_or_else(|error| error.into_inner())
+    }
+
+    fn read_providers(&self) -> std::sync::RwLockReadGuard<'_, PushProviders> {
+        self.providers.read().unwrap_or_else(|error| error.into_inner())
+    }
+
     /// See [`with_fcm_provider`].
-    pub fn with_fcm_provider(mut self, provider: Arc<FcmProvider>) -> Self {
-        self.fcm_provider = Some(provider);
+    pub fn with_fcm_provider(self, provider: Arc<FcmProvider>) -> Self {
+        self.write_providers().fcm = Some(provider);
         self
     }
 
     /// See [`with_apns_provider`].
-    pub fn with_apns_provider(mut self, provider: Arc<ApnsProvider>) -> Self {
-        self.apns_provider = Some(provider);
+    pub fn with_apns_provider(self, provider: Arc<ApnsProvider>) -> Self {
+        self.write_providers().apns = Some(provider);
         self
     }
 
     /// See [`with_webpush_provider`].
-    pub fn with_webpush_provider(mut self, provider: Arc<WebPushProvider>) -> Self {
-        self.webpush_provider = Some(provider);
+    pub fn with_webpush_provider(self, provider: Arc<WebPushProvider>) -> Self {
+        self.write_providers().webpush = Some(provider);
         self
     }
 
     /// See [`with_push_gateway`].
     pub fn with_push_gateway(mut self, gateway: Arc<PushGateway>) -> Self {
         self.push_gateway = Some(gateway);
-        self
-    }
-
-    /// See [`with_queue`].
-    pub fn with_queue(mut self, config: QueueConfig) -> Self {
-        self.queue = Some(Arc::new(PushQueue::new(config)));
         self
     }
 
@@ -134,57 +152,63 @@ impl PushNotificationService {
         self
     }
 
-    /// See [`initialize_providers`].
-    pub async fn initialize_providers(&mut self) -> Result<(), ApiError> {
+    /// Rebuilds every provider from the current `push_config` rows.
+    ///
+    /// Takes `&self` on purpose: the service is shared as an `Arc`, and the admin
+    /// config endpoint relies on this to apply changes without a restart.
+    pub async fn initialize_providers(&self) -> Result<(), ApiError> {
+        let mut providers = PushProviders::default();
+
         let fcm_enabled = self.storage.get_config_as_bool("fcm.enabled", false).await?;
         if fcm_enabled {
-            if let Some(api_key) = self.storage.get_config("fcm.api_key").await? {
-                self.fcm_provider = Some(Arc::new(FcmProvider::with_api_key(api_key)));
+            // An empty value counts as "not configured": `FcmProvider` treats an empty
+            // API key as disabled, and a `Some(disabled provider)` would silently
+            // succeed on every send.
+            if let Some(api_key) = non_empty(self.storage.get_config("fcm.api_key").await?) {
+                providers.fcm = Some(Arc::new(FcmProvider::with_api_key(api_key)));
                 info!(provider = %"fcm", provider_enabled = true, "Push provider initialized");
             }
         }
 
         let apns_enabled = self.storage.get_config_as_bool("apns.enabled", false).await?;
         if apns_enabled {
-            if let Some(topic) = self.storage.get_config("apns.topic").await? {
-                self.apns_provider = Some(Arc::new(ApnsProvider::with_topic(topic)));
+            if let Some(topic) = non_empty(self.storage.get_config("apns.topic").await?) {
+                providers.apns = Some(Arc::new(ApnsProvider::with_topic(topic)));
                 info!(provider = %"apns", provider_enabled = true, "Push provider initialized");
             }
         }
 
         let webpush_enabled = self.storage.get_config_as_bool("webpush.enabled", false).await?;
         if webpush_enabled {
-            let public_key = self.storage.get_config("webpush.vapid_public_key").await?;
-            let private_key = self.storage.get_config("webpush.vapid_private_key").await?;
+            let public_key = non_empty(self.storage.get_config("webpush.vapid_public_key").await?);
+            let private_key = non_empty(self.storage.get_config("webpush.vapid_private_key").await?);
 
             if let (Some(pk), Some(sk)) = (public_key, private_key) {
-                self.webpush_provider = Some(Arc::new(WebPushProvider::with_vapid_keys(pk, sk)));
+                providers.webpush = Some(Arc::new(WebPushProvider::with_vapid_keys(pk, sk)));
                 info!(provider = %"webpush", provider_enabled = true, "Push provider initialized");
             }
         }
 
-        if self.queue.is_none() {
-            self.queue = Some(Arc::new(PushQueue::new(QueueConfig::default())));
-        }
-
+        *self.write_providers() = providers;
         Ok(())
     }
 
     /// Names of the push providers that [`initialize_providers`](Self::initialize_providers)
     /// successfully built, in a stable order.
     ///
-    /// Exposed in test builds so the container wiring can be asserted end-to-end:
-    /// an empty result means every delivery is handled as "provider unavailable".
-    #[cfg(any(test, feature = "test-utils"))]
+    /// Surfaced by the admin push-config endpoints so an operator can see whether a
+    /// configuration change actually produced a working provider; an empty result
+    /// means every delivery is handled as "provider unavailable".
     pub fn initialized_providers(&self) -> Vec<&'static str> {
+        let providers = self.read_providers();
         let mut names = Vec::new();
-        if self.fcm_provider.is_some() {
+        if providers.fcm.is_some() {
             names.push("fcm");
         }
-        if self.apns_provider.is_some() {
+        if providers.apns.is_some() {
             names.push("apns");
         }
-        if self.webpush_provider.is_some() {
+        if providers.webpush.is_some() {
             names.push("webpush");
         }
         names
@@ -353,16 +377,23 @@ impl PushNotificationService {
                 .map(|c| NotificationCounts { unread: c.unread, missed_calls: c.missed_calls }),
         };
 
+        // Clone the provider handle out of the lock and release it before awaiting:
+        // holding a `std` guard across an await would block the admin config endpoint.
+        let (fcm, apns, webpush) = {
+            let providers = self.read_providers();
+            (providers.fcm.clone(), providers.apns.clone(), providers.webpush.clone())
+        };
+
         let result = match push_type {
-            "fcm" => match &self.fcm_provider {
+            "fcm" => match fcm {
                 Some(provider) => send_with_retry(provider.as_ref(), &push_token, &provider_payload).await,
                 None => self.provider_unavailable("fcm").await?,
             },
-            "apns" => match &self.apns_provider {
+            "apns" => match apns {
                 Some(provider) => send_with_retry(provider.as_ref(), &push_token, &provider_payload).await,
                 None => self.provider_unavailable("apns").await?,
             },
-            "webpush" => match &self.webpush_provider {
+            "webpush" => match webpush {
                 Some(provider) => send_with_retry(provider.as_ref(), &push_token, &provider_payload).await,
                 None => self.provider_unavailable("webpush").await?,
             },
@@ -467,7 +498,41 @@ impl PushNotificationService {
     pub async fn cleanup_old_logs(&self, days: i32) -> Result<u64, ApiError> {
         self.storage.cleanup_old_logs(days).await
     }
+
+    /// See [`list_config`].
+    pub async fn list_config(&self) -> Result<Vec<PushConfigEntry>, ApiError> {
+        self.storage.list_config().await
+    }
+
+    /// See [`set_config`].
+    pub async fn set_config(&self, config_key: &str, config_value: &str) -> Result<PushConfigEntry, ApiError> {
+        self.storage.set_config(config_key, config_value).await
+    }
+
+    /// See [`delete_config`].
+    pub async fn delete_config(&self, config_key: &str) -> Result<bool, ApiError> {
+        self.storage.delete_config(config_key).await
+    }
 }
+
+/// The `push_config` keys that [`PushNotificationService::initialize_providers`] reads.
+///
+/// This is the single source of truth for the admin config endpoint's allowlist:
+/// accepting a key nothing consumes would turn `push_config` into a graveyard of
+/// settings that appear applied but are not.
+pub const SUPPORTED_PUSH_CONFIG_KEYS: &[&str] = &[
+    "fcm.enabled",
+    "fcm.api_key",
+    "apns.enabled",
+    "apns.topic",
+    "webpush.enabled",
+    "webpush.vapid_public_key",
+    "webpush.vapid_private_key",
+];
+
+/// The subset of [`SUPPORTED_PUSH_CONFIG_KEYS`] whose value is a credential and
+/// must be masked when read back through the admin API.
+pub const SECRET_PUSH_CONFIG_KEYS: &[&str] = &["fcm.api_key", "webpush.vapid_private_key"];
 
 #[cfg(test)]
 mod db_tests {
@@ -503,30 +568,11 @@ mod db_tests {
         .expect("seeding the users row must succeed");
     }
 
-    /// Writes one global `push_config` row. `push_config` keys on
-    /// `(user_id, device_id, config_type)`, so the config key doubles as the
-    /// `config_type` to keep rows distinct; readers only filter on `config_key`.
-    async fn set_push_config(pool: &sqlx::PgPool, key: &str, value: &str) {
-        ensure_user(pool, PUSH_CONFIG_OWNER).await;
-        sqlx::query(
-            r"
-            INSERT INTO push_config (user_id, device_id, config_type, config_key, config_value, created_ts)
-            VALUES ($1, '', $2, $2, $3, $4)
-            ON CONFLICT (user_id, device_id, config_type) DO UPDATE SET config_value = EXCLUDED.config_value
-            ",
-        )
-        .bind(PUSH_CONFIG_OWNER)
-        .bind(key)
-        .bind(value)
-        .bind(synapse_common::current_timestamp_millis())
-        .execute(pool)
-        .await
-        .expect("seeding push_config must succeed");
+    /// Seeds one global `push_config` row through the storage API — the same path the
+    /// admin config endpoint uses, so the fixtures cannot drift from the real schema.
+    async fn set_push_config(storage: &Arc<dyn PushNotificationStoreApi>, key: &str, value: &str) {
+        storage.set_config(key, value).await.expect("seeding push_config must succeed");
     }
-
-    /// Owner of the global `push_config` rows (any well-formed user id works —
-    /// readers only ever filter on `config_key`).
-    const PUSH_CONFIG_OWNER: &str = "@pushconfig:test.com";
 
     /// Reads back the persisted delivery log for a user. This is the evidence that
     /// `push_notification_log` accepts the row at all (it has a NOT NULL `created_ts`
@@ -572,15 +618,15 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = storage_for(&pool);
 
-        set_push_config(&pool, "fcm.enabled", "true").await;
-        set_push_config(&pool, "fcm.api_key", "test-fcm-key").await;
-        set_push_config(&pool, "apns.enabled", "true").await;
-        set_push_config(&pool, "apns.topic", "com.example.app").await;
-        set_push_config(&pool, "webpush.enabled", "true").await;
-        set_push_config(&pool, "webpush.vapid_public_key", "public").await;
-        set_push_config(&pool, "webpush.vapid_private_key", "private").await;
+        set_push_config(&storage, "fcm.enabled", "true").await;
+        set_push_config(&storage, "fcm.api_key", "test-fcm-key").await;
+        set_push_config(&storage, "apns.enabled", "true").await;
+        set_push_config(&storage, "apns.topic", "com.example.app").await;
+        set_push_config(&storage, "webpush.enabled", "true").await;
+        set_push_config(&storage, "webpush.vapid_public_key", "public").await;
+        set_push_config(&storage, "webpush.vapid_private_key", "private").await;
 
-        let mut service = PushNotificationService::new(storage);
+        let service = PushNotificationService::new(storage);
         assert!(service.initialized_providers().is_empty(), "providers must start unset");
 
         service.initialize_providers().await.expect("initialize_providers must succeed");
@@ -595,10 +641,10 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = storage_for(&pool);
 
-        set_push_config(&pool, "fcm.enabled", "false").await;
-        set_push_config(&pool, "fcm.api_key", "stale-key").await;
+        set_push_config(&storage, "fcm.enabled", "false").await;
+        set_push_config(&storage, "fcm.api_key", "stale-key").await;
 
-        let mut service = PushNotificationService::new(storage);
+        let service = PushNotificationService::new(storage);
         service.initialize_providers().await.expect("initialize_providers must succeed");
 
         assert!(service.initialized_providers().is_empty(), "a disabled provider must not be built");
@@ -672,8 +718,8 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = storage_for(&pool);
 
-        set_push_config(&pool, "fcm.enabled", "true").await;
-        set_push_config(&pool, "fcm.api_key", "test-fcm-key").await;
+        set_push_config(&storage, "fcm.enabled", "true").await;
+        set_push_config(&storage, "fcm.api_key", "test-fcm-key").await;
 
         let user_id = format!("@push_{}:test.com", uuid::Uuid::new_v4());
         ensure_user(&pool, &user_id).await;
@@ -716,7 +762,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = storage_for(&pool);
 
-        set_push_config(&pool, "fcm.enabled", "false").await;
+        set_push_config(&storage, "fcm.enabled", "false").await;
 
         let user_id = format!("@push_{}:test.com", uuid::Uuid::new_v4());
         ensure_user(&pool, &user_id).await;
@@ -743,5 +789,70 @@ mod db_tests {
         let processed = service.process_pending_notifications(10).await.expect("processing must succeed");
         assert_eq!(processed, 1, "a disabled provider is a skip, not a failure");
         assert_eq!(queue_row(&pool, &user_id).await.0, "sent");
+    }
+
+    /// Operators must be able to configure providers without hand-written SQL: the
+    /// storage API is the only writer and round-trips keys, values and deletions.
+    #[tokio::test]
+    async fn push_config_round_trips_through_the_storage_api() {
+        let pool = test_pool().await;
+        let storage = storage_for(&pool);
+
+        assert!(storage.list_config().await.expect("list must succeed").is_empty(), "config must start empty");
+
+        storage.set_config("fcm.enabled", "true").await.expect("set must succeed");
+        let entry = storage.set_config("fcm.api_key", "key-1").await.expect("set must succeed");
+        assert_eq!(entry.config_key, "fcm.api_key");
+        assert_eq!(entry.config_value, "key-1");
+        assert!(entry.updated_ts.is_some(), "updated_ts must be stamped");
+
+        // Second write updates in place rather than duplicating the key.
+        storage.set_config("fcm.api_key", "key-2").await.expect("update must succeed");
+        let listed = storage.list_config().await.expect("list must succeed");
+        assert_eq!(listed.len(), 2, "the key must be upserted, not duplicated: {listed:?}");
+        assert_eq!(storage.get_config("fcm.api_key").await.expect("get must succeed").as_deref(), Some("key-2"));
+
+        assert!(storage.delete_config("fcm.api_key").await.expect("delete must succeed"));
+        assert!(!storage.delete_config("fcm.api_key").await.expect("second delete must succeed"));
+        assert_eq!(storage.get_config("fcm.api_key").await.expect("get must succeed"), None);
+    }
+
+    /// A config change must take effect without restarting the homeserver: the
+    /// service is shared as an `Arc`, so providers are rebuilt in place.
+    #[tokio::test]
+    async fn config_changes_reload_providers_without_a_restart() {
+        let pool = test_pool().await;
+        let storage = storage_for(&pool);
+        let service = PushNotificationService::new(storage.clone());
+
+        service.initialize_providers().await.expect("initialization must succeed");
+        assert!(service.initialized_providers().is_empty(), "nothing is configured yet");
+
+        set_push_config(&storage, "fcm.enabled", "true").await;
+        set_push_config(&storage, "fcm.api_key", "key-1").await;
+        service.initialize_providers().await.expect("reload must succeed");
+        assert_eq!(service.initialized_providers(), vec!["fcm"], "the change must apply in place");
+
+        set_push_config(&storage, "fcm.enabled", "false").await;
+        service.initialize_providers().await.expect("reload must succeed");
+        assert!(service.initialized_providers().is_empty(), "disabling must drop the provider again");
+    }
+
+    /// A blank credential must not build a provider: `FcmProvider` treats an empty
+    /// API key as disabled and would then report every send as successful.
+    #[tokio::test]
+    async fn blank_credentials_do_not_build_a_provider() {
+        let pool = test_pool().await;
+        let storage = storage_for(&pool);
+
+        set_push_config(&storage, "fcm.enabled", "true").await;
+        set_push_config(&storage, "fcm.api_key", "   ").await;
+
+        let service = PushNotificationService::new(storage);
+        service.initialize_providers().await.expect("initialization must succeed");
+        assert!(
+            service.initialized_providers().is_empty(),
+            "a whitespace-only credential counts as unset, not as a working provider"
+        );
     }
 }

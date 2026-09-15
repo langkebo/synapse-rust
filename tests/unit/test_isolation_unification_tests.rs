@@ -62,7 +62,7 @@ const EXTENSIONS: &str = include_str!("../../migrations/00000001_extensions_v10.
 /// hashes to `a05fa4488475fe1d` and a reversal to `4137af770181767b`, and neither
 /// is what any legitimate migration edit produces as long as the two files are
 /// still concatenated v11-then-extensions with nothing between them.
-const EXPECTED_BASELINE_FINGERPRINT: &str = "027cbf67965823ec";
+const EXPECTED_BASELINE_FINGERPRINT: &str = "cfb1fffffc06965a";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

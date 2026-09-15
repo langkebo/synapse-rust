@@ -212,6 +212,122 @@ pub async fn cleanup_logs(
     })))
 }
 
+/// The `SetPushConfigBody` struct.
+///
+/// `null` for a key deletes it, which is the only way to drop a credential that is
+/// no longer wanted (an empty string would be rejected as "not configured" and
+/// would leave the row behind).
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SetPushConfigBody {
+    /// The `config` field: `config_key` -> value (or `null` to delete).
+    pub config: std::collections::BTreeMap<String, Option<String>>,
+}
+
+/// Masks a credential for read-back: all but the last 4 characters.
+fn mask_secret(value: &str) -> String {
+    let mut chars: Vec<char> = value.chars().collect();
+    if chars.len() > 4 {
+        let tail: String = chars.split_off(chars.len() - 4).into_iter().collect();
+        return format!("{}{tail}", "*".repeat(chars.len()));
+    }
+    "*".repeat(chars.len())
+}
+
+/// Renders the stored config as JSON with secrets masked.
+fn config_view(entries: Vec<synapse_storage::push_notification::PushConfigEntry>) -> serde_json::Value {
+    let mut config = serde_json::Map::new();
+    for entry in entries {
+        let value = if synapse_services::push_notification_service::SECRET_PUSH_CONFIG_KEYS
+            .contains(&entry.config_key.as_str())
+        {
+            mask_secret(&entry.config_value)
+        } else {
+            entry.config_value
+        };
+        config.insert(entry.config_key, serde_json::Value::String(value));
+    }
+    serde_json::Value::Object(config)
+}
+
+/// Validates a push-config patch without touching the database, so a rejected key
+/// cannot leave `push_config` half-updated.
+///
+/// The allowlist is the exact set of keys `initialize_providers` consumes; accepting
+/// anything else would let the table accumulate settings that look applied but are not.
+pub fn validate_push_config_patch(config: &std::collections::BTreeMap<String, Option<String>>) -> Result<(), ApiError> {
+    use synapse_services::push_notification_service::SUPPORTED_PUSH_CONFIG_KEYS;
+
+    if config.is_empty() {
+        return Err(ApiError::bad_request("`config` must contain at least one key".to_string()));
+    }
+
+    for (key, value) in config {
+        if !SUPPORTED_PUSH_CONFIG_KEYS.contains(&key.as_str()) {
+            return Err(ApiError::bad_request(format!(
+                "unsupported push config key `{key}`; supported keys: {}",
+                SUPPORTED_PUSH_CONFIG_KEYS.join(", ")
+            )));
+        }
+        if key.ends_with(".enabled") {
+            let valid = matches!(
+                value.as_deref(),
+                Some(v) if v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("false")
+            );
+            if !valid {
+                return Err(ApiError::bad_request(format!("`{key}` must be \"true\" or \"false\"")));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// See [`get_push_config`].
+pub async fn get_push_config(
+    State(ctx): State<AdminContext>,
+    _admin: AdminUser,
+) -> Result<impl IntoResponse, ApiError> {
+    let entries = ctx.push_notification_service.list_config().await?;
+
+    Ok(Json(serde_json::json!({
+        "config": config_view(entries),
+        "initialized_providers": ctx.push_notification_service.initialized_providers(),
+        "supported_keys": synapse_services::push_notification_service::SUPPORTED_PUSH_CONFIG_KEYS,
+    })))
+}
+
+/// See [`put_push_config`].
+///
+/// Applies the change immediately: the providers live behind a lock, so an operator
+/// does not have to restart the homeserver.
+pub async fn put_push_config(
+    State(ctx): State<AdminContext>,
+    _admin: AdminUser,
+    Json(body): Json<SetPushConfigBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    validate_push_config_patch(&body.config)?;
+
+    for (key, value) in &body.config {
+        match value {
+            Some(value) => {
+                ctx.push_notification_service.set_config(key, value).await?;
+            }
+            None => {
+                ctx.push_notification_service.delete_config(key).await?;
+            }
+        }
+    }
+
+    ctx.push_notification_service.initialize_providers().await?;
+
+    let entries = ctx.push_notification_service.list_config().await?;
+    Ok(Json(serde_json::json!({
+        "config": config_view(entries),
+        "initialized_providers": ctx.push_notification_service.initialized_providers(),
+    })))
+}
+
 /// See [`create_push_notification_router`].
 pub fn create_push_notification_router(state: AppState) -> axum::Router<AppState> {
     use axum::routing::*;
@@ -226,6 +342,8 @@ pub fn create_push_notification_router(state: AppState) -> axum::Router<AppState
         axum::Router::new()
             .route("/_synapse/admin/v1/push/process", post(process_queue))
             .route("/_synapse/admin/v1/push/cleanup", post(cleanup_logs))
+            .route("/_synapse/admin/v1/push/config", get(get_push_config))
+            .route("/_synapse/admin/v1/push/config", put(put_push_config))
             .route_layer(
                 axum::middleware::from_fn_with_state(
                     <crate::web::routes::context::AdminContext as axum::extract::FromRef<
@@ -266,10 +384,15 @@ pub fn push_notification_route_manifest() -> Vec<crate::web::routes::route_ledge
     .collect::<Vec<_>>();
 
     // Admin 路由：稳定，供内部管理使用，无 spec 替代。
-    let admin = [(Method::POST, "/_synapse/admin/v1/push/process"), (Method::POST, "/_synapse/admin/v1/push/cleanup")]
-        .into_iter()
-        .map(|(m, p)| RouteEntry::new(m, p, "push_notification"))
-        .collect::<Vec<_>>();
+    let admin = [
+        (Method::POST, "/_synapse/admin/v1/push/process"),
+        (Method::POST, "/_synapse/admin/v1/push/cleanup"),
+        (Method::GET, "/_synapse/admin/v1/push/config"),
+        (Method::PUT, "/_synapse/admin/v1/push/config"),
+    ]
+    .into_iter()
+    .map(|(m, p)| RouteEntry::new(m, p, "push_notification"))
+    .collect::<Vec<_>>();
 
     [legacy, admin].into_iter().flatten().collect()
 }

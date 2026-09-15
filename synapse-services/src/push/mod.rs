@@ -2,8 +2,6 @@
 pub mod gateway;
 /// The `providers` module.
 pub mod providers;
-/// The `queue` module.
-pub mod queue;
 /// The `service` module.
 pub mod service;
 

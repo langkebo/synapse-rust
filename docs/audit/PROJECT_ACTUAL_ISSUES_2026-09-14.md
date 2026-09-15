@@ -427,6 +427,39 @@ CLAUDE.md 约定的 `docs/audit/00_test_baseline.log`、`00_clippy_baseline.log`
 赋值，全仓无读取点），属铁律 2 的重复实现；`config.push.enabled`（`docker/config/homeserver.yaml:205`）与 provider 初始化**无关联**。
 本批新增 2 处测试夹具动态查询，已按基线文件既有惯例把 `BASELINE_DYNAMIC` 1476 → 1478 并记录理由。
 
+### 8.2 推送配置可运维化 + 删除死队列（本批完成）
+
+**① `push_config` 没有写入 API/管理端点 → 已补齐，并把表结构改对**
+
+| 项 | 变更 |
+|---|---|
+| 表结构 | `push_config` 由"per-user 伪配置表"改为**全局键值表**：`config_key TEXT PRIMARY KEY, config_value TEXT NOT NULL, created_ts, updated_ts`。原 `id/user_id/device_id/config_type/config_data` **全部删除**——没有任何读取方使用它们，而 `user_id` 上的生成约束 `ck_push_config_user_id_format` 迫使运维**伪造一个合法 user_id** 才能存一条全局 provider 凭据。连带删除失效索引 `idx_push_config_user`（baseline 索引数 365 → 364） |
+| 存储 API | 新增 `list_config()` / `set_config(key, value)`（UPSERT，返回 `PushConfigEntry`）/ `delete_config(key)`，与既有 `get_config*` 读取器配套 |
+| 管理端点 | `GET /_synapse/admin/v1/push/config`（列出配置 + 当前已初始化的 provider + 支持的键；**密钥类字段脱敏**为 `****last4`）与 `PUT /_synapse/admin/v1/push/config`（`config_key -> value`，`null` 表示删除该键） |
+| 立即生效 | provider 改为 `Arc<RwLock<PushProviders>>`，`initialize_providers(&self)` 原地重建 → **PUT 后无需重启**（`container` 以 `Arc` 共享服务，原本无法替换） |
+| 防配置垃圾场 | PUT 的键必须命中 `SUPPORTED_PUSH_CONFIG_KEYS`（= `initialize_providers` 真正读取的 7 个键），`*.enabled` 必须为 `true`/`false`，写入前整批校验（避免半更新）；空/纯空白凭据视为未配置，不会构造出"已禁用但恒返回成功"的 provider |
+
+**验证**：`push_config_round_trips_through_the_storage_api`（set/list/delete/UPSERT 不重复）、
+`config_changes_reload_providers_without_a_restart`（改配置 → 原地生效；禁用 → provider 消失）、
+`blank_credentials_do_not_build_a_provider`；路由层新增 6 条无 DB 单测（body 反序列化含 `null` 删除、未知字段拒绝、
+7 键全通过校验、未知键/空 patch/非布尔 enabled 被拒、SECRET ⊆ SUPPORTED）。
+Ledger 契约链同步：golden + SDK 两条车道的 6 个 fixture、`ROUTE_CONTRACT.md`（918 → 920 条路由）、baseline 指纹。
+
+**② `PushQueue` 死状态 → 已删除**
+
+`synapse-services/src/push/queue.rs`（481 行）整体删除，并移除 `push/mod.rs` 的模块声明、`PushNotificationService::queue` 字段、
+`with_queue()` 及 `initialize_providers` 里的建队列代码。真实队列是 **DB 表 `push_notification_queue`**
+（`queue_notifications_batch` 写、`get_pending_notifications` 读，由 `POST /_synapse/admin/v1/push/process` 消费），
+内存队列从来没有任何读取点。
+
+**同类问题（本批未动，建议下一批处理）**：`PushNotificationService::push_gateway` 字段同样**只写不读**
+（仅 `with_push_gateway` 赋值、无读取点），而它依托的 `PushGateway` 结构体（`push/gateway.rs`，441 行中约 340 行）
+除自身单测外**无任何构造点**；唯一存活的是 `validate_push_gateway_url`（被 `src/web/routes/push.rs:222` 使用）。
+此外 `send_to_provider` 的 `"upstream"` 分支（`send_upstream`）同样是"打日志 + 返回成功"的**假投递路径**。
+建议二选一：**(a)** 删除该字段/结构体并把 `upstream` 从 `register_device` 的合法 `push_type` 中移除；
+**(b)** 用新的 `push_config` 写入 API 配置 upstream gateway 端点并真正实现投递（fail-closed）。
+在裁定前保留现状，但不应继续以"假成功"姿态留在投递链里。
+
 ---
 
 ## 附录 A：复现命令

@@ -8,7 +8,7 @@
     "worker_enabled": false,
     "saml_enabled": false
   },
-  "entry_count": 1378,
+  "entry_count": 1380,
   "entries": [
     {
       "method": "GET",
@@ -10221,6 +10221,20 @@
     {
       "method": "POST",
       "path": "/_synapse/admin/v1/push/cleanup",
+      "registered_by": "push_notification",
+      "path_params": [],
+      "query_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/push/config",
+      "registered_by": "push_notification",
+      "path_params": [],
+      "query_params": []
+    },
+    {
+      "method": "PUT",
+      "path": "/_synapse/admin/v1/push/config",
       "registered_by": "push_notification",
       "path_params": [],
       "query_params": []

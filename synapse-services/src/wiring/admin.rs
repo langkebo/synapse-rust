@@ -276,7 +276,7 @@ impl AdminServices {
         let push_notification_storage: Arc<dyn synapse_storage::push_notification::PushNotificationStoreApi> =
             Arc::new(synapse_storage::push_notification::PushNotificationStorage::new(pool));
         let account_data_storage_for_push = Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool));
-        let mut push_notification_service =
+        let push_notification_service =
             crate::push_notification_service::PushNotificationService::new(push_notification_storage.clone())
                 .with_account_data_storage(account_data_storage_for_push);
         // Providers are configured by rows in the `push_config` table. Without this

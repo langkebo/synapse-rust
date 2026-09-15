@@ -1542,18 +1542,18 @@ CREATE TABLE IF NOT EXISTS push_notification_log (
     CONSTRAINT pk_push_notification_log PRIMARY KEY (id)
 );
 
+-- Global push provider configuration: one row per key, consumed by
+-- `PushNotificationService::initialize_providers` and written through the admin
+-- config endpoint. Deliberately has no per-user/device dimension — nothing ever
+-- read those columns, and requiring a valid `user_id` (the generated
+-- `ck_*_user_id_format` check) forced operators to invent a fake user just to
+-- store a global provider credential.
 CREATE TABLE IF NOT EXISTS push_config (
-    id BIGSERIAL,
-    user_id TEXT NOT NULL,
-    device_id TEXT NOT NULL,
-    config_type TEXT NOT NULL,
-    config_data JSONB DEFAULT '{}',
-    config_key TEXT,
-    config_value TEXT,
+    config_key TEXT NOT NULL,
+    config_value TEXT NOT NULL,
     created_ts BIGINT NOT NULL,
     updated_ts BIGINT,
-    CONSTRAINT pk_push_config PRIMARY KEY (id),
-    CONSTRAINT uq_push_config_user_device_type UNIQUE (user_id, device_id, config_type)
+    CONSTRAINT pk_push_config PRIMARY KEY (config_key)
 );
 
 CREATE TABLE IF NOT EXISTS notifications (
@@ -3557,8 +3557,7 @@ CREATE INDEX IF NOT EXISTS idx_push_queue_processed ON push_notification_queue(i
 CREATE INDEX IF NOT EXISTS idx_push_log_user ON push_notification_log(user_id);
 CREATE INDEX IF NOT EXISTS idx_push_log_status ON push_notification_log(status);
 
--- Push config
-CREATE INDEX IF NOT EXISTS idx_push_config_user ON push_config(user_id);
+-- Push config (the primary key on `config_key` is the only index it needs)
 
 -- Notifications
 CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);

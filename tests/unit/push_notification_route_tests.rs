@@ -16,7 +16,8 @@
 use axum::http::Method;
 use serde_json::json;
 use synapse_rust::web::routes::push_notification::{
-    CleanupQuery, DeviceResponse, ProcessQueueQuery, RegisterDeviceBody, SendNotificationBody,
+    validate_push_config_patch, CleanupQuery, DeviceResponse, ProcessQueueQuery, RegisterDeviceBody,
+    SendNotificationBody, SetPushConfigBody,
 };
 use synapse_rust::web::routes::route_ledger::RouteEntry;
 use synapse_storage::push_notification::PushDevice;
@@ -369,6 +370,8 @@ fn push_notification_route_manifest_contains_all_endpoints() {
         (Method::GET, "/_matrix/client/r0/push/devices"),
         (Method::POST, "/_matrix/client/r0/push/devices"),
         (Method::POST, "/_matrix/client/r0/push/send"),
+        (Method::GET, "/_synapse/admin/v1/push/config"),
+        (Method::PUT, "/_synapse/admin/v1/push/config"),
         (Method::POST, "/_synapse/admin/v1/push/cleanup"),
         (Method::POST, "/_synapse/admin/v1/push/process"),
     ];
@@ -417,5 +420,93 @@ fn push_notification_route_manifest_entries_are_route_entry_type() {
     for entry in &manifest {
         assert!(!entry.path.is_empty());
         assert!(!entry.registered_by.is_empty());
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Admin push provider config — request body + validation
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn set_push_config_body_deserializes_values_and_deletions() {
+    let payload = json!({
+        "config": {
+            "fcm.enabled": "true",
+            "fcm.api_key": "key-1",
+            "webpush.vapid_private_key": null
+        }
+    });
+
+    let body: SetPushConfigBody = serde_json::from_value(payload).expect("payload should deserialize");
+    assert_eq!(body.config.get("fcm.enabled"), Some(&Some("true".to_string())));
+    assert_eq!(body.config.get("fcm.api_key"), Some(&Some("key-1".to_string())));
+    assert_eq!(body.config.get("webpush.vapid_private_key"), Some(&None), "a null value means \"delete this key\"");
+}
+
+#[test]
+fn set_push_config_body_rejects_unknown_fields() {
+    let payload = json!({ "config": { "fcm.enabled": "true" }, "extra": 1 });
+    let error = serde_json::from_value::<SetPushConfigBody>(payload).expect_err("unknown fields must be rejected");
+    assert!(error.to_string().contains("unknown field"), "got: {error}");
+}
+
+#[test]
+fn validate_push_config_patch_accepts_every_supported_key() {
+    let mut config = std::collections::BTreeMap::new();
+    config.insert("fcm.enabled".to_string(), Some("true".to_string()));
+    config.insert("fcm.api_key".to_string(), Some("k".to_string()));
+    config.insert("apns.enabled".to_string(), Some("false".to_string()));
+    config.insert("apns.topic".to_string(), Some("com.example".to_string()));
+    config.insert("webpush.enabled".to_string(), Some("TRUE".to_string()));
+    config.insert("webpush.vapid_public_key".to_string(), Some("pub".to_string()));
+    config.insert("webpush.vapid_private_key".to_string(), Some("priv".to_string()));
+
+    validate_push_config_patch(&config).expect("every supported key must validate");
+}
+
+#[test]
+fn validate_push_config_patch_rejects_unknown_key() {
+    let mut config = std::collections::BTreeMap::new();
+    config.insert("fcm.endpoint".to_string(), Some("https://example.test".to_string()));
+
+    let error = validate_push_config_patch(&config).expect_err("an unconsumed key must be rejected");
+    assert!(
+        error.to_string().contains("unsupported push config key"),
+        "accepting a key nothing reads would make push_config a settings graveyard; got: {error}"
+    );
+}
+
+#[test]
+fn validate_push_config_patch_rejects_empty_and_non_boolean_enabled() {
+    let empty = std::collections::BTreeMap::new();
+    validate_push_config_patch(&empty).expect_err("an empty patch must be rejected");
+
+    let mut config = std::collections::BTreeMap::new();
+    config.insert("fcm.enabled".to_string(), Some("yes".to_string()));
+    validate_push_config_patch(&config).expect_err("`*.enabled` must be true/false");
+
+    let mut config = std::collections::BTreeMap::new();
+    config.insert("fcm.enabled".to_string(), None);
+    validate_push_config_patch(&config).expect_err("deleting `*.enabled` is not a valid enable state");
+}
+
+#[test]
+fn supported_push_config_keys_match_what_initialize_providers_reads() {
+    use synapse_services::push_notification_service::{SECRET_PUSH_CONFIG_KEYS, SUPPORTED_PUSH_CONFIG_KEYS};
+
+    // Every key the service reads must be settable through the admin endpoint.
+    for key in SUPPORTED_PUSH_CONFIG_KEYS {
+        assert!(key.contains('.'), "config keys are namespaced by provider (got `{key}`)");
+    }
+    assert!(SUPPORTED_PUSH_CONFIG_KEYS.contains(&"fcm.enabled"));
+    assert!(SUPPORTED_PUSH_CONFIG_KEYS.contains(&"fcm.api_key"));
+    assert!(SUPPORTED_PUSH_CONFIG_KEYS.contains(&"apns.enabled"));
+    assert!(SUPPORTED_PUSH_CONFIG_KEYS.contains(&"apns.topic"));
+    assert!(SUPPORTED_PUSH_CONFIG_KEYS.contains(&"webpush.enabled"));
+    assert!(SUPPORTED_PUSH_CONFIG_KEYS.contains(&"webpush.vapid_public_key"));
+    assert!(SUPPORTED_PUSH_CONFIG_KEYS.contains(&"webpush.vapid_private_key"));
+
+    for secret in SECRET_PUSH_CONFIG_KEYS {
+        assert!(SUPPORTED_PUSH_CONFIG_KEYS.contains(secret), "a secret key that is not settable is a bug: `{secret}`");
     }
 }
