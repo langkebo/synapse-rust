@@ -1,0 +1,91 @@
+# Ledger `registered_by` — 路由**不是**按其文件路径命名的那些例外。
+#
+# 格式：`<file>::<fn|*>[@<路径前缀>]  <registered_by>`
+#   * `<fn>`      该函数注册的每条路由都归到这个 ledger 模块
+#   * `*`         该文件里所有函数（文件级、最弱）
+#   * `@<前缀>`   只对**绝对路径**以该前缀开头的行生效（最强），
+#                 用于同一份相对路由被挂在两个前缀下、而 ledger 对两个挂载
+#                 给不同名字的情形
+#
+# 为什么需要这张表
+# ----------------
+# 绝大多数 root 的 `registered_by` 就等于它的模块路径（`room.rs` -> `room`），
+# 那是 `default_origin()` 的规则，不需要写在这里。但有一批不是：
+#
+#   * 一个文件注册多个 ledger 模块 —— `assembly.rs` 一个文件注册 11 个名字
+#     （`assembly::create_router`、`assembly::account_compat`、`vendor` …）；
+#     `worker.rs` 注册 `worker` 与 `worker_body` 两个。
+#   * 子路由用比路径更短的名字 —— `e2ee/keys.rs` 注册 `e2ee`（不是
+#     `e2ee::keys`），`space/*.rs` 四个文件都注册 `space`。
+#   * 同一份相对路由被两个前缀挂载 —— `/search_rooms` 在 v3 下叫 `search`、
+#     在 `/_matrix/vendor/v1` 下叫 `vendor`。
+#
+# 为什么不能"随便推导一个"
+# ------------------------
+# `registered_by` 是 SDK 契约同步用来决定**生成到哪个 SDK 目录**的键
+# （见 fork 的 `scripts/contract-module-map.mjs::LEDGER_MODULE_ALIASES`），
+# 改一个名字会让生成文件静默搬家。所以这些名字按"照抄既有声明"处理，
+# 不按"看起来更整齐"处理。
+#
+# 这张表是**被验证的**，不是被信任的：extract_registered.py 的 EXTRACT_STRICT
+# 门禁拿它与已提交的 ledger fixture 逐条比对，任一行对不上就失败；
+# 规则解析不出唯一答案时返回 None 并报错，绝不猜。
+#
+# **顺序是有意义的**：按文件顺序取第一条匹配的规则。见 `resolve_label`。
+# 带 `@前缀` 的规则优先于不带前缀的规则，同一档内按书写顺序先到先得。
+
+# --- 泳道差异：先写的胜出 ------------------------------------------------
+# `/.well-known/jwks.json` 与 `/.well-known/openid-configuration` 在 default
+# 泳道记为 `oidc_fallback`、在 all-extensions 泳道记为 `oidc`。原因不是笔误：
+# all-extensions 会额外编译完整 OIDC router，于是这两条路由**多了一个登记者**，
+# ledger 记录的是先登记的那个。把完整 router 的规则写在前面即可复现，
+# 提取器不需要知道"泳道"这个概念。
+oidc/mod.rs::create_oidc_router@/.well-known/          oidc
+oidc/mod.rs::create_oidc_fallback_router@/.well-known/ oidc_fallback
+
+# 根路径 `/login` 由 CAS router 注册（`cas_sso` 特性）；同名的相对路径
+# `/_matrix/client/v3/login` 由 auth-compat router 注册，两者归不同模块。
+cas.rs::cas_routes@/login                              cas
+assembly.rs::create_auth_compat_router@/login          assembly::auth_compat
+
+# --- assembly.rs：一个文件注册 11 个 ledger 名字 -----------------------------
+assembly.rs::create_router                      assembly::create_router
+assembly.rs::create_account_compat_router       assembly::account_compat
+assembly.rs::create_directory_compat_router     assembly::directory_compat
+assembly.rs::create_directory_v3_extra_router   assembly::directory_extra
+assembly.rs::create_client_capabilities_router  assembly::capabilities
+assembly.rs::create_client_media_config_router  assembly::media_config
+assembly.rs::create_auth_compat_router          assembly::auth_compat
+assembly.rs::create_auth_router                 assembly::auth_router
+assembly.rs::create_vendor_router               vendor
+
+# ISSUE-13：vendor 路由由 `create_vendor_router` 挂在 `/_matrix/vendor/v1`，
+# 但同样的相对路径也由这些 v3 router 注册。ledger 按**挂载**命名，所以两个
+# 方向都要显式限定，否则这两个前缀互相污染。
+assembly.rs::create_vendor_router@/_matrix/vendor/v1   vendor
+sync.rs::create_sync_v3_router@/_matrix/vendor/v1      vendor
+sync.rs::create_sync_v3_router@/_matrix/client/v3      sync
+handlers/search/mod.rs::create_search_compat_router@/_matrix/vendor/v1    vendor
+handlers/search/mod.rs::create_search_compat_router@/_matrix/client/v3    search
+
+# 同一个函数内被 `#[cfg]` 分块、且两块归到不同 ledger 名字：
+# `/voip/*`（总是注册）叫 `assembly::voip_compat`；
+# `/rooms/…/send/m.call.*`（`voip-tracking` 门控）叫 `assembly::voip_tracking`。
+assembly.rs::create_voip_compat_router@/_matrix/client/v3/rooms/   assembly::voip_tracking
+assembly.rs::create_voip_compat_router                            assembly::voip_compat
+
+# --- 子路由用比路径更短的名字 -------------------------------------------------
+e2ee/keys.rs::*                                 e2ee
+space/children_hierarchy.rs::*                  space
+space/lifecycle_query.rs::*                     space
+space/membership_state.rs::*                    space
+space/summary.rs::*                             space
+federation/membership/mod.rs::create_router     federation
+handlers/search/mod.rs::create_room_context_router   search
+handlers/search/mod.rs::create_search_router    search
+handlers/thread.rs::create_thread_routes        thread
+
+# --- 一个文件注册两个 ledger 名字 ---------------------------------------------
+worker.rs::create_worker_body_router            worker_body
+media/mod.rs::create_upload_provider_router     assembly::upload_provider
+admin/mod.rs::create_admin_module_router        admin::server

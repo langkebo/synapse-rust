@@ -383,6 +383,71 @@ def check_ratchet(res: "ex.Resolver") -> None:
     check("no new unresolved parser construct (ratchet)", not new, f"new: {new[:5]}")
 
 
+def check_ledger_origins() -> None:
+    """B2-1 step 2: `registered_by` must stay derivable, not just transcribed.
+
+    The point of the rule table is that deleting the hand-written manifests does
+    not lose the ledger's module names. That claim is only worth anything if the
+    rules are (a) complete, (b) anchored to functions that still exist, and (c)
+    actually load-bearing — a rule table that is consulted but never decisive
+    would let a rename slip through. Each is checked here.
+    """
+    origins = ex.load_ledger_origins()
+    check("ledger_origins.txt parses and is non-trivial", len(origins) >= 20, f"{len(origins)} rules")
+    check(
+        "every rule carries a registered_by and a file",
+        all(origin and owner for owner, _who, _qual, origin in origins),
+    )
+
+    # (b) no stale rule: every rule must name a file that exists and, unless it
+    # is a file-level `*` rule, a function defined in it. A rule left behind by
+    # a rename would keep matching nothing while looking authoritative.
+    files = ex.load_sources()
+    stale = []
+    for owner, who, _qual, _origin in origins:
+        src = files.get(owner)
+        if src is None:
+            stale.append(f"{owner} (file not found)")
+            continue
+        if who == "*":
+            continue
+        if not any(name == who for name, _body, _preds in ex.iter_fns(src)):
+            stale.append(f"{owner}::{who} (fn not found)")
+    check("no ledger_origins rule is stale", not stale, f"stale: {stale[:5]}")
+
+    # (c) the table is decisive: reordering two rules that target one route must
+    # change the answer. `/.well-known/jwks.json` is the real case — the full
+    # OIDC router is listed above the fallback one precisely so the
+    # all-extensions lane reads `oidc` while the default lane reads
+    # `oidc_fallback`.
+    probe = "/.well-known/jwks.json"
+    ra = ex.resolve_label(probe, {("oidc/mod.rs", "create_oidc_router"), ("oidc/mod.rs", "create_oidc_fallback_router")}, origins)
+    rb = ex.resolve_label(probe, {("oidc/mod.rs", "create_oidc_fallback_router")}, origins)
+    check(
+        "the two OIDC registrars resolve to different ledger names",
+        ra == "oidc" and rb == "oidc_fallback",
+        f"both-registrars={ra!r}, fallback-only={rb!r}",
+    )
+    flipped = [(o, w, q, v) for (o, w, q, v) in origins]
+    i = next(n for n, (o, w, q, _v) in enumerate(flipped) if (o, w, q) == ("oidc/mod.rs", "create_oidc_router", "/.well-known/"))
+    j = next(n for n, (o, w, q, _v) in enumerate(flipped) if (o, w, q) == ("oidc/mod.rs", "create_oidc_fallback_router", "/.well-known/"))
+    flipped[i], flipped[j] = flipped[j], flipped[i]
+    swapped = ex.resolve_label(probe, {("oidc/mod.rs", "create_oidc_router"), ("oidc/mod.rs", "create_oidc_fallback_router")}, flipped)
+    check("rule order is what decides, not an accident of the set", swapped == "oidc_fallback", f"got {swapped!r}")
+
+    # Ambiguity must fail loudly rather than pick. Two registrars with two
+    # defaults and no rule to separate them is exactly the state that used to be
+    # resolved by "whatever the manifest happened to say".
+    check(
+        "an unruled registrar conflict resolves to None, not a guess",
+        ex.resolve_label("/whatever", {("room.rs", "create_room_router"), ("media/mod.rs", "create_media_router")}, origins) is None,
+    )
+    check(
+        "a single unruled registrar still falls through to the path rule",
+        ex.resolve_label("/whatever", {("room.rs", "create_room_router")}, origins) == "room",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Mutation self-check: prove the suite can go red
 # ---------------------------------------------------------------------------
@@ -514,6 +579,8 @@ def main() -> int:
     check_lane_profile_modeling()
     print("== unresolved ratchet ==")
     check_ratchet(res)
+    print("== ledger origins (B2-1 step 2) ==")
+    check_ledger_origins()
 
     bad = 0
     if mutation:

@@ -39,6 +39,9 @@ from collections import defaultdict
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.environ.get("SYNAPSE_RUST_ROOT") or os.path.dirname(os.path.dirname(SCRIPT_DIR))
 ROUTES_DIR = os.path.join(ROOT, "src", "web", "routes")
+# `registered_by` overrides — the routes whose ledger origin is not derivable
+# from their file path. See `load_ledger_origins`.
+LEDGER_ORIGINS = os.path.join(SCRIPT_DIR, "ledger_origins.txt")
 
 HTTP_METHODS = ("get", "post", "put", "delete", "patch", "head", "options")
 HTTP_METHODS_SET = set(HTTP_METHODS)
@@ -566,6 +569,94 @@ def gated_router_builders(files: dict) -> dict:
     return gated
 
 
+def default_origin(owner: str) -> str:
+    """`room.rs` → `room`, `admin/room/mod.rs` → `admin::room`.
+
+    This is the *fallback* only. The value that ships is the one the manifests
+    declared, and those declarations are not all derivable from a path — a
+    module may register under a shorter name (`e2ee/keys.rs` → `e2ee`), a
+    sub-router may register under a different name than its file (`worker.rs`
+    registers `worker` *and* `worker_body`), and `assembly.rs` registers eleven
+    distinct names from one file. Those live in `ledger_origins.txt`, and a
+    route whose origin cannot be resolved is a hard failure, never a guess.
+    """
+    stem = owner[:-3] if owner.endswith(".rs") else owner
+    parts = [part for part in stem.split("/") if part and part != "mod"]
+    return "::".join(parts)
+
+
+def resolve_label(path: str, registrars, table: list):
+    """`registered_by` for one absolute route, or `None` when undecidable.
+
+    Rules are consulted **in file order** and the first match wins, so a rule
+    may be listed above a broader one on purpose. Two passes: a path-qualified
+    rule for one of this route's registrars (most specific), then an
+    unqualified per-function rule, then a file-level rule.
+
+    File order — rather than "highest priority wins" — is what lets the ledger
+    differ by lane. `/.well-known/jwks.json` is `oidc_fallback` in the default
+    lane and `oidc` in `all-extensions`: the latter compiles the full OIDC
+    router as well, so the route has two registrars there, and the ledger
+    records whichever registered first. Listing the `create_oidc_router` rule
+    above the fallback one reproduces exactly that, without the extractor
+    needing to know anything about lanes.
+
+    Returns `None` when nothing decides: rules disagree with nothing to order
+    them by. The caller fails loudly — an arbitrary pick would silently rename
+    an SDK codegen directory.
+    """
+    if not registrars:
+        return None
+    for require_qualifier in (True, False):
+        for owner, who, qual, origin in table:
+            if require_qualifier and not qual:
+                continue
+            if qual and not path.startswith(qual):
+                continue
+            if who == "*":
+                if any(file == owner for file, _fn in registrars):
+                    return origin
+                continue
+            if (owner, who) in registrars:
+                return origin
+
+    defaults = {default_origin(file) for file, _fn in registrars}
+    return defaults.pop() if len(defaults) == 1 else None
+
+
+def load_ledger_origins() -> list:
+    """`[(file, fn|"*", path_prefix|"", registered_by)]` from `ledger_origins.txt`.
+
+    `registered_by` is authored data, not derived data: it is what the SDK's
+    contract-sync uses to pick an SDK directory for each route (see
+    `LEDGER_MODULE_ALIASES` in the SDK fork's `scripts/contract-module-map.mjs`),
+    so renaming one silently relocates generated files.
+
+    Function granularity is the coarsest key that fits, but it is not always
+    enough: the same *relative* route can be mounted under two prefixes by two
+    different routers (`/search_rooms` is mounted under v3 by the search router
+    and under `/_matrix/vendor/v1` by the vendor router), and the ledger names
+    those two mounts differently. So a rule may carry a `@<path-prefix>`
+    qualifier, which wins over the unqualified rule for that same function.
+    """
+    table: list = []
+    if not os.path.exists(LEDGER_ORIGINS):
+        return table
+    with open(LEDGER_ORIGINS, encoding="utf-8") as fh:
+        for lineno, line in enumerate(fh, 1):
+            body = line.split("#", 1)[0].strip()
+            if not body:
+                continue
+            parts = body.split()
+            if len(parts) != 2 or "::" not in parts[0]:
+                raise SystemExit(f"{LEDGER_ORIGINS}:{lineno}: expected `<file>::<fn|*>[@<prefix>]  <registered_by>`, got {line!r}")
+            where, origin = parts
+            owner, _, fn = where.rpartition("::")
+            fn, _, qual = fn.partition("@")
+            table.append((owner, fn, qual, origin))
+    return table
+
+
 # --------------------------------------------------------------------------
 # Expression evaluation
 # --------------------------------------------------------------------------
@@ -655,6 +746,17 @@ class Resolver:
         # Guard of the router builder currently being evaluated (`""` = always
         # merged). Maintained by `eval_fn_body`, consumed by `apply_call`.
         self._current_guard = ""
+        # `fn name -> registered_by` overrides, plus the file-level ones.
+        self.origin_table = load_ledger_origins()
+        # `(method, path) -> {(file, fn)}`: the registering functions, innermost
+        # first. Recorded from the *router* fns only — a manifest fn is the
+        # oracle being replaced, so letting it define the answer would make the
+        # comparison circular. The `registered_by` label is derived from this in
+        # one place (`resolve_label`), so the label stays policy and the fact stays
+        # derived.
+        self.registrars: dict[tuple[str, str], set] = defaultdict(set)
+        self._current_fn = ""
+        self._current_owner = ""
         # `self.fn_all` keeps every definition distinct. Keying by
         # `(file, name)` would collide: `route_module.rs` defines 11 separate
         # `merge_into` methods, and collapsing them loses 10 modules' routes.
@@ -812,7 +914,8 @@ class Resolver:
         for pfx in prefixes:
             for meth, path, own in routes:
                 out.append((meth, pfx + path, own))
-        self._record_guards(out)
+        self._record_guards(out, tag_registrar=False)
+        self._inherit_registrars(out, routes)
         return out
 
     def eval_atom(self, base: str, env: dict, owner: str) -> list:
@@ -862,6 +965,8 @@ class Resolver:
         # past this point, so no `try`/`finally` around the loop is needed.
         prev_guard = self._current_guard
         self._current_guard = self.gated.get(name) or prev_guard
+        prev_fn, prev_owner = self._current_fn, self._current_owner
+        self._current_fn, self._current_owner = name, owner
         env: dict = {}
         result: list = []
 
@@ -946,20 +1051,45 @@ class Resolver:
                 result.extend(val[1])
 
         self._current_guard = prev_guard
+        self._current_fn, self._current_owner = prev_fn, prev_owner
         if memo_key is not None:
             self._memo[memo_key] = result
         return list(result)
 
-    def _record_guards(self, routes) -> None:
+    def _record_guards(self, routes, tag_registrar: bool = True) -> None:
         """Tag freshly-created route tuples with the guard in force.
 
         Recorded at *creation*, not at the root that reached them: the same
         route can be reached through an always-merged root and a gated one, and
         recording both is what makes "served in every profile" (`""` in the set)
         distinguishable from "served only when the flag is on".
+
+        The registering function is captured at the same moment, for the same
+        reason. `tag_registrar=False` for re-tagging sites (`nest`) where the
+        inner routes were already stamped by the router that actually creates
+        them: stamping them again with the *nesting* fn would name the wrong
+        module.
         """
+        if tag_registrar and self._current_fn and "manifest" not in self._current_fn:
+            for route in routes:
+                self.registrars[(route[0], route[1])].add((self._current_owner, self._current_fn))
         for route in routes:
             self.guards[(route[0], route[1])].add(self._current_guard)
+
+    def _inherit_registrars(self, added, subs) -> None:
+        """Carry the registrar across a prefix transformation.
+
+        `nest` / `expand_under_prefixes` build a *new* absolute tuple from a
+        relative one, so the new tuple has never been through `_record_guards`
+        as itself. The registering function is still the one that created the
+        relative route — the prefix is applied by whoever mounted it, and that
+        is not the same thing as who owns the endpoint. Without this the
+        absolutised rows (486 of them) would have no origin at all.
+        """
+        for (meth, path, _own), (am, ap, _ao) in zip(subs, added):
+            regs = self.registrars.get((meth, path))
+            if regs:
+                self.registrars[(am, ap)] |= set(regs)
 
     def apply_call(self, acc: list, name: str, args: str, env: dict, owner: str) -> list:
         if name == "route":
@@ -992,7 +1122,8 @@ class Resolver:
             if not subs:
                 self.unresolved.add(f"nest {prefix} -> unresolved {parts[1].strip()[:60]} in {owner}")
             added = [(meth, prefix + path, own) for (meth, path, own) in subs]
-            self._record_guards(added)
+            self._record_guards(added, tag_registrar=False)
+            self._inherit_registrars(added, subs)
             return acc + added
 
         if name == "merge":
@@ -1449,6 +1580,43 @@ def main() -> int:
                 for m, p in sorted(got - want)[:10]:
                     print(f"        derived has extra:  {m:6} {p}")
 
+    # -- registered_by fidelity (B2-1 step 2) -------------------------------
+    # The surface is not the whole contract. `registered_by` is the key the
+    # SDK's contract-sync uses to choose a generated directory (see
+    # `LEDGER_MODULE_ALIASES` in the fork's `scripts/contract-module-map.mjs`),
+    # so a renamed origin silently relocates generated files — a change no
+    # route-count gate can see. It is derived from the registering functions
+    # (`Resolver.registrars`) plus the 32-rule `ledger_origins.txt`, and this
+    # block proves that derivation reproduces every label in both committed
+    # fixtures. Without it, deleting the hand-written manifests would trade a
+    # verified duplication for an unverified derivation.
+    label_mismatches: list = []
+    if lanes and ledger_all:
+        origins = load_ledger_origins()
+        print("\n-- registered_by fidelity (B2-1 step 2) --")
+        for lane_name, feats in sorted(lanes.items()):
+            fp = os.path.join(ROOT, "tests", "unit", "fixtures", lane_name, "all.json")
+            if not os.path.exists(fp):
+                continue
+            res_lane = Resolver(load_sources(feats), feats)
+            profile_sets(res_lane)  # force every root through the tagger
+            with open(fp) as fh:
+                entries = json.load(fh)["entries"]
+            bad = 0
+            for e in entries:
+                key = (e["method"], e["path"])
+                got = resolve_label(e["path"], res_lane.registrars.get(key, set()), origins)
+                if got == e["registered_by"]:
+                    continue
+                bad += 1
+                label_mismatches.append(f"{lane_name}: {e['method']} {e['path']}: {got!r} != {e['registered_by']!r}")
+            if bad:
+                print(f"   FAIL {lane_name:18} {bad} of {len(entries)} labels wrong")
+                for line in label_mismatches[-bad:][:10]:
+                    print(f"        {line}")
+            else:
+                print(f"   ok   {lane_name:18} {len(entries):5} labels reproduced")
+
     # Strict gate. All four properties must hold exactly; there is deliberately
     # no allowlist for the first three, because each one is a statement that the
     # contract is telling the truth and "mostly true" is the failure mode this
@@ -1478,6 +1646,11 @@ def main() -> int:
         )
     if new_unresolved:
         strict_failures.append(f"{len(new_unresolved)} new unresolved parser constructs")
+    if label_mismatches:
+        strict_failures.append(
+            f"{len(label_mismatches)} routes resolve to the wrong `registered_by` (B2-1 step 2): "
+            "fix a rule in scripts/contract/ledger_origins.txt (renaming one moves SDK codegen output)"
+        )
     if os.environ.get("EXTRACT_STRICT") == "1" and strict_failures:
         print("\nEXTRACT_STRICT=1: parser self-check failed:", file=sys.stderr)
         for f in strict_failures:
