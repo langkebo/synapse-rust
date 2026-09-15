@@ -38,7 +38,7 @@
 | 🔴 P0 门禁诚信 | **8** | 覆盖率基线无法提交、perf 门禁纯 echo、CI 集成测试指向应用库、18 处测试静默跳过、sqlx 棘轮 FAIL |
 | 🟠 P1 架构冗余/过度开发 | **12** | 48 个路由文件穿透分层、70 storage trait 中 68 个单实现、近 5k 处样板注释 |
 | 🟠 P1 测试隔离/模板构建 | **8** | 根模板构建无条件清空 `public`、模板构建吞错、测试隔离仍多头 |
-| 🟡 P2 安全/协议残留 | **12（5 已修 / 7 未决）** | 已修：S-1、S-2（B5-1 自签名 + `server_name` 校验）、S-12、S-15（B5-3 MSC4108 DELETE 补头 + 去自证）、S-13（B5-5 契约提取器）。未决：`quarantined_media_changes` 无界、threepid 孤儿路由、速率限制碎片化、X-Matrix 头朴素解析、cache 读写不对称、无"真实 router == ledger"测试 |
+| 🟡 P2 安全/协议残留 | **12（6 已修 / 6 未决）** | 已修：S-1、S-2（B5-1 自签名 + `server_name` 校验）、S-4（B5-2 隔离变更流保留期清理）、S-12、S-15（B5-3 MSC4108 DELETE 补头 + 去自证）、S-13（B5-5 契约提取器）。未决：threepid 孤儿路由、速率限制碎片化、X-Matrix 头朴素解析、cache 读写不对称、无"真实 router == ledger"测试 |
 | 🟡 P2 配置/仓库/文档卫生 | **11** | `.scratch` 97 文件入库、3 个 worktree、`cargo doc` ~3.5k 警告、god-file 1833 行 |
 
 ---
@@ -282,7 +282,7 @@ CLAUDE.md 约定的 `docs/audit/00_test_baseline.log`、`00_clippy_baseline.log`
 |---|---|---|
 | S-1 | `query_server_keys` **不校验**返回密钥自签名 | ✅ **已修复（B5-1）**。原缺陷：`client.rs:773-785` 直接 `return`，同一份文档经 `/key/v2/server` 会被拒（`get_server_keys` 有 `verify_server_keys_self_signature`）、经 `/key/v2/query` 却被接受 —— 校验缺口取决于调用的是哪个端点。现 `query_server_keys` 与 `get_server_keys` 收敛到唯一信任门禁 `validate_remote_server_keys(&keys, server_name)`；期望值取 `server_name`（"要的是谁的密钥"）而非 `destination`（承载请求的传输对端）。守卫：`admit_server_keys_rejects_forged_signature_without_caching` + `query_server_keys_path_rejects_mismatched_document_over_http`（经真实 HTTP 响应字节走 `handle_response` → 门禁，非就地构造 `ServerKeys`） |
 | S-2 | `get_server_keys` **不校验** `server_name == destination` | ✅ **已修复（B5-1）**。原缺陷：`client.rs:746-770` 仅在缓存前验签，未校验文档自称的身份。攻击者可用**自己的**密钥合法自签一份文档并声称 `server_name = victim`，单独的自签名校验必然放行（这正是自签名抓不住的那一类），于是 `destination → 错误身份的公钥` 被写入 `key_cache`（跨身份缓存投毒）。现顺序改为**先名字、后自签名**：自签名是在 `keys.server_name` 下查找的，先钉住名字才使该查找等价于"destination 签的"而非"文档自称是谁签的"。比较严格相等（不做大小写折叠 / 不去端口），fail-closed。守卫：`server_keys_wrong_server_name_rejected`、`admit_server_keys_rejects_wrong_name_without_caching`（断言缓存仍为空）、正向对照 `admit_server_keys_caches_valid_document_under_expected_server` |
-| S-4 | `quarantined_media_changes` 无界增长 | 全仓 `DELETE` 语句 **0** 条 → append-only 无清理路径，违反 AGENTS.md"Long-running deployments need pruning" |
+| S-4 | `quarantined_media_changes` 无界增长 | ✅ **已修复（B5-2）**。原缺陷：全仓 `DELETE` 针对该表 **0** 条 → 纯 append-only，违反 AGENTS.md"Long-running deployments need pruning"。修复复用 `synapse-storage/src/pruning.rs` 既有骨架（该模块本就是"append-only 表的 `DELETE ... WHERE ts < cutoff`，由 `src/server/mod.rs` 定时任务调度"）：新增 `QUARANTINED_MEDIA_CHANGES_RETENTION_DAYS = 30` + `prune_old_quarantined_media_changes`，并**接入调度循环**——只加函数不接线等于假修复。取舍已文档化：`GET /_synapse/admin/v1/quarantine_media/{media_id}/changes?since=N` 无法回放早于窗口的位置，但该缺口**可被检测**（返回的最低 `stream_id` 会高于请求的 `since`），与 device-list 流已接受的取舍一致；写入速率由**管理员动作**而非流量决定，故 30 天足够宽松。**有意不加 `created_ts` 索引**：既有 `idx_..._stream` 已服务按位置读取路径，小表上的顺序谓词比在写路径多维护一个索引更便宜（有证据再议）。守卫：`prune_quarantined_media_changes_respects_retention_window`（除计数外还断言存活行 `MIN/MAX(created_ts)`，堵住"删对数量但删错行"）+ 常量一致性测试 `test_quarantine_retention_matches_device_list_window`。变异自证：比较符 `<` 反转为 `>` → 转红 |
 | S-5 | federation knock **丢弃 `via`**（已知缺口，非隐藏 bug） | `src/web/routes/handlers/room/members.rs:229-236` 明确注释：knock 目前 local-only，`via` 被**接受并记录日志**而非静默丢弃 → 降级为"已文档化的功能缺口" |
 | S-6 | X-Matrix 头解析用朴素 `split(',')` | `src/web/middleware/federation_auth.rs:299`。**理论问题**：所有字段值都不会含逗号，且解析结果参与签名校验，误解析 fail-closed |
 | S-7 | 速率限制碎片化 | 已核实 `src/web/routes/friend_room.rs:631-632` 自建 key 并直接 `ctx.cache.rate_limit_token_bucket_take(...)`；同类模式另见 `handlers/search/search.rs`、`auth_compat.rs`（子代理复核） |

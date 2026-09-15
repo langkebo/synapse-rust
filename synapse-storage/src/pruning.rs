@@ -58,6 +58,24 @@ pub const TO_DEVICE_TRANSACTIONS_RETENTION_MS: i64 = 24 * 60 * 60 * 1000; // 24 
 /// Active/retry entries are never pruned.
 pub const FEDERATION_QUEUE_RETENTION_DAYS: i64 = 7;
 
+/// Retention period for the quarantined-media change stream (30 days).
+///
+/// `quarantined_media_changes` is append-only: every quarantine/unquarantine
+/// writes a row and nothing ever deleted one, so on a long-running instance the
+/// table grew without bound (S-4). Rows older than this are pruned.
+///
+/// 30 days matches [`DEVICE_LIST_CHANGES_RETENTION_DAYS`] — both are
+/// `stream_id`-ordered change logs read by position.
+///
+/// Consequence worth stating plainly: the admin history endpoint
+/// `GET /_synapse/admin/v1/quarantine_media/{media_id}/changes?since=N`
+/// cannot replay a position that has fallen behind this window. That is
+/// detectable rather than silent — the lowest returned `stream_id` simply
+/// starts above the requested `since` — and is the same trade-off already
+/// accepted for the device-list stream. Retention is deliberately generous
+/// because the write rate is bound by *admin actions*, not by traffic.
+pub const QUARANTINED_MEDIA_CHANGES_RETENTION_DAYS: i64 = 30;
+
 /// Prune old device list change entries.
 ///
 /// Deletes rows from `device_lists_changes` whose `created_ts` is older
@@ -172,6 +190,27 @@ pub async fn prune_old_federation_queue(pool: &PgPool) -> Result<u64, sqlx::Erro
     Ok(result.rows_affected())
 }
 
+/// Prune old entries from the quarantined-media change stream.
+///
+/// Deletes rows from `quarantined_media_changes` whose `created_ts` is older
+/// than [`QUARANTINED_MEDIA_CHANGES_RETENTION_DAYS`]. Without this the table is
+/// pure append-only and grows for the life of the deployment.
+///
+/// Not indexed on `created_ts`, deliberately: the existing
+/// `idx_quarantined_media_changes_stream` serves the by-position read path, and
+/// this table's growth rate is bound by admin quarantine actions rather than by
+/// request traffic, so a sequential predicate over a small table is cheaper
+/// than maintaining another index on the write path. Revisit only with
+/// evidence.
+///
+/// Returns the number of rows deleted.
+pub async fn prune_old_quarantined_media_changes(pool: &PgPool) -> Result<u64, sqlx::Error> {
+    let cutoff = current_timestamp_millis() - (QUARANTINED_MEDIA_CHANGES_RETENTION_DAYS * 86400 * 1000);
+    let result =
+        sqlx::query("DELETE FROM quarantined_media_changes WHERE created_ts < $1").bind(cutoff).execute(pool).await?;
+    Ok(result.rows_affected())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -192,6 +231,17 @@ mod tests {
         assert_eq!(TO_DEVICE_TRANSACTIONS_RETENTION_MS, 24 * 60 * 60 * 1000);
         // Federation queue: 7 days
         assert_eq!(FEDERATION_QUEUE_RETENTION_DAYS, 7);
+        // Quarantined media changes: 30 days (admin-action-bound write rate)
+        assert_eq!(QUARANTINED_MEDIA_CHANGES_RETENTION_DAYS, 30);
+    }
+
+    #[test]
+    fn test_quarantine_retention_matches_device_list_window() {
+        // Both tables are `stream_id`-ordered change logs read by position, and
+        // both back an incremental "changes since N" endpoint. Keeping the
+        // windows equal means an operator reason about them uniformly; if one
+        // is shortened the other should be revisited at the same time.
+        assert_eq!(QUARANTINED_MEDIA_CHANGES_RETENTION_DAYS, DEVICE_LIST_CHANGES_RETENTION_DAYS);
     }
 
     #[test]
@@ -445,5 +495,62 @@ mod db_tests {
         let deleted = prune_old_federation_queue(&pool).await.unwrap();
         assert_eq!(deleted, 2, "only terminal+old pruned; pending deliveries preserved");
         assert_eq!(count(&pool, "federation_queue").await, 2);
+    }
+
+    /// quarantined_media_changes: 30-day window on created_ts.
+    ///
+    /// `stream_id` is seeded explicitly (rather than as BIGSERIAL) so the test
+    /// also pins the property the retention window depends on: retention is
+    /// decided by `created_ts` alone, and no row is dropped merely for having a
+    /// low `stream_id`. If the DELETE ever narrows to `stream_id < …` to reuse
+    /// the existing index, this test keeps the semantics honest.
+    #[tokio::test]
+    async fn prune_quarantined_media_changes_respects_retention_window() {
+        let Some(pool) = test_pool().await else { return };
+        sqlx::query(
+            "CREATE TABLE quarantined_media_changes (
+                 stream_id BIGSERIAL PRIMARY KEY,
+                 media_id TEXT NOT NULL,
+                 server_name TEXT NOT NULL,
+                 change_type TEXT NOT NULL,
+                 changed_by TEXT NOT NULL,
+                 created_ts BIGINT NOT NULL
+             )",
+        )
+        .execute(&*pool)
+        .await
+        .expect("create quarantined_media_changes");
+
+        let day_ms = 86_400_000;
+        let now = current_timestamp_millis();
+        // 3 rows outside the 30-day window, 2 inside it.
+        sqlx::query("INSERT INTO quarantined_media_changes (media_id, server_name, change_type, changed_by, created_ts) SELECT 'old' || g, 'hs', 'quarantine', '@admin:hs', $1 FROM generate_series(1,3) g")
+            .bind(now - 40 * day_ms)
+            .execute(&*pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO quarantined_media_changes (media_id, server_name, change_type, changed_by, created_ts) SELECT 'new' || g, 'hs', 'unquarantine', '@admin:hs', $1 FROM generate_series(1,2) g")
+            .bind(now - 10 * day_ms)
+            .execute(&*pool)
+            .await
+            .unwrap();
+
+        let deleted = prune_old_quarantined_media_changes(&pool).await.unwrap();
+        assert_eq!(deleted, 3, "only pre-cutoff rows deleted");
+        assert_eq!(count(&pool, "quarantined_media_changes").await, 2);
+
+        // The surviving rows must be exactly the in-window ones, not merely the
+        // same count — a DELETE that removed 3 recent rows and kept 2 old ones
+        // would satisfy the count assertion above.
+        let surviving_max_ts: i64 = sqlx::query_scalar("SELECT MAX(created_ts) FROM quarantined_media_changes")
+            .fetch_one(&*pool)
+            .await
+            .unwrap();
+        let surviving_min_ts: i64 = sqlx::query_scalar("SELECT MIN(created_ts) FROM quarantined_media_changes")
+            .fetch_one(&*pool)
+            .await
+            .unwrap();
+        assert_eq!(surviving_max_ts, now - 10 * day_ms);
+        assert_eq!(surviving_min_ts, now - 10 * day_ms);
     }
 }
