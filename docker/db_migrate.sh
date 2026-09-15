@@ -39,8 +39,15 @@ load_env() {
     # 暴露给护栏：只有"调用方显式给了目标"才允许宿主 psql 打 loopback（见
     # `host_psql_target_is_implicit_loopback`）。这里是唯一能区分
     # "用户指定" 与 ".env 兜底" 的位置 —— 一旦 source 了 .env，两者就分不开了。
+    #
+    # DB_HOST 同样要记：`.github/workflows/db-migration-gate.yml` 与
+    # `drift-detection.yml` 只给 DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD，
+    # 不给 DATABASE_URL，只认后者会把这两条 CI 判死。
+    local user_supplied_db_host="${DB_HOST:-}"
     CALLER_SUPPLIED_DATABASE_URL="$user_supplied_database_url"
+    CALLER_SUPPLIED_DB_HOST="$user_supplied_db_host"
     export CALLER_SUPPLIED_DATABASE_URL
+    export CALLER_SUPPLIED_DB_HOST
 
     local env_file=""
     for candidate in "$SCRIPT_DIR/.env" "$PWD/.env" "$PROJECT_ROOT/.env"; do
@@ -142,19 +149,22 @@ inside_container() {
 # 拒绝条件（全部满足才拒绝）：
 #   1. 后端是**宿主 psql**（不是 docker exec）
 #   2. 目标是 loopback
-#   3. 调用方**没有显式提供 DATABASE_URL** —— 即走的是本脚本从 .env 兜底出来的
-#      默认值（docker/.env 里就是 DB_USER=synapse / DB_NAME=synapse / localhost:5432）
+#   3. 调用方**没有显式给出目标** —— 既没给 DATABASE_URL，也没给 DB_HOST，
+#      即走的是本脚本从 .env 兜底出来的默认值
+#      （docker/.env 里就是 DB_USER=synapse / DB_NAME=synapse / localhost:5432）
 #   4. 不在容器内
 # 除非显式放行 SYNAPSE_DB_MIGRATE_ALLOW_HOST_PSQL=1。
 #
 # 判据 3 是关键：H-14 的复现形态正是"裸跑 `bash docker/db_migrate.sh validate`"，
 # 此时没有任何一处代码说明"这一刀该落在哪" —— 而兜底值恰好指向宿主自己的 PG。
-# 反过来，CI 的 mutation-testing 与 dev-test-setup 都会显式给出目标，因此不误伤。
+# 反过来，显式给出目标的调用方一律放行：CI 的 mutation-testing / dev-test-setup
+# 用 DATABASE_URL，CI 的 db-migration-gate / drift-detection 用 DB_HOST。
 host_psql_target_is_implicit_loopback() {
     [ "$PSQL_USE_DOCKER" -eq 0 ] || return 1
     is_loopback_db_host || return 1
     inside_container && return 1
     [ -z "${CALLER_SUPPLIED_DATABASE_URL:-}" ] || return 1
+    [ -z "${CALLER_SUPPLIED_DB_HOST:-}" ] || return 1
     return 0
 }
 
@@ -181,6 +191,7 @@ detect_psql_backend() {
                 log_error "而它可能根本不是你想要的库。"
                 log_error "请改用其中之一："
                 log_error "  * 显式指定目标： DATABASE_URL=postgres://user:pass@host:port/dbname bash docker/db_migrate.sh <command>"
+                log_error "  * 或分项给出： DB_HOST=<host> DB_PORT=<port> DB_NAME=<db> DB_USER=<user> DB_PASSWORD=<pass> bash docker/db_migrate.sh <command>"
                 log_error "  * 或直接连 compose 的库： docker exec -i <db-container> psql -U ${DB_USER} -d ${DB_NAME} ..."
                 log_error "确实就想打宿主实例时显式放行："
                 log_error "  SYNAPSE_DB_MIGRATE_ALLOW_HOST_PSQL=1 bash docker/db_migrate.sh <command>"

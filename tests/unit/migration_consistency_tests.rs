@@ -133,6 +133,91 @@ fn makefile_migration_queries_match_the_schema_migrations_schema() {
     assert!(checked > 0, "Makefile 中应仍有查询 schema_migrations 的目标");
 }
 
+/// H-15：迁移执行只允许一条路径 —— `docker/db_migrate.sh`（记账表 `schema_migrations`）。
+///
+/// Makefile 里曾并存第二、三条路径：
+///   * `migrate` / `migrate-check` / `migrate-undo` / `migrate-baseline` 走 `sqlx migrate`，
+///     写的是 `_sqlx_migrations`，与项目实际的 `schema_migrations` 是两套账，而且绕过
+///     `container-migrate.sh` 的扩展门控；
+///   * `flyway-info` / `flyway-migrate` 挂载 `scripts/db/flyway.conf` 与 `scripts/db/undo`，
+///     该目录在仓库里根本不存在，目标必然失败。
+///
+/// 只保留只读查询目标（`migrate-status` / `migrate-audit`），它们读的是同一个
+/// `schema_migrations`，不构成第二条执行路径。
+#[test]
+fn makefile_exposes_a_single_migration_execution_path() {
+    let makefile = read(&project_root().join("Makefile"));
+
+    assert!(
+        !makefile.to_lowercase().contains("flyway"),
+        "Makefile 不得保留 flyway 迁移路径：它挂载的 scripts/db/ 不存在，目标已死（H-15）"
+    );
+    assert!(
+        !makefile.contains("sqlx migrate"),
+        "Makefile 不得保留 `sqlx migrate` 路径：它写 _sqlx_migrations，与 schema_migrations 两套账（H-15）"
+    );
+    for target in ["\nmigrate:", "\nmigrate-check:", "\nmigrate-undo:", "\nmigrate-baseline:"] {
+        assert!(
+            !makefile.contains(target),
+            "Makefile 不得再定义第二个迁移执行目标 `{}`：执行入口只有 docker/db_migrate.sh（H-15）",
+            target.trim_start_matches('\n').trim_end_matches(':')
+        );
+    }
+    assert!(makefile.contains("\nmigrate-status:"), "只读迁移查询目标应保留");
+}
+
+/// H-14 的调用侧不变式：CI 里调用 `docker/db_migrate.sh` 的步骤必须**显式给出目标**
+/// （`DATABASE_URL` 或 `DB_HOST`）。
+///
+/// 裸调用会落到脚本从 `.env` 兜底出来的 `localhost:5432` —— 两个 compose 栈都不把
+/// 5432 发布到宿主，那个端口上的是宿主自装的 PostgreSQL。2026-09-15 实测：一条
+/// `validate` 命令在那个实例上建了库。
+///
+/// 脚本侧的判据必须同时承认 `DATABASE_URL` 与 `DB_HOST`：`db-migration-gate.yml`
+/// 与 `drift-detection.yml` 只给 `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASSWORD`，
+/// 只认 `DATABASE_URL` 会把这两条 CI 直接判死。
+#[test]
+fn every_ci_db_migrate_call_supplies_an_explicit_target() {
+    let root = project_root();
+    let guard = read(&root.join("docker/db_migrate.sh"));
+    assert!(
+        guard.contains("CALLER_SUPPLIED_DB_HOST"),
+        "db_migrate.sh 的护栏必须把调用方显式给出的 DB_HOST 也算作「显式目标」，\
+         否则只给 DB_* 而不给 DATABASE_URL 的 CI 会被误拒（H-14）"
+    );
+
+    let workflows = root.join(".github/workflows");
+    let mut checked = 0usize;
+    let mut entries: Vec<_> = fs::read_dir(&workflows)
+        .expect(".github/workflows must exist")
+        .map(|entry| entry.expect("readable dir entry").path())
+        .filter(|path| matches!(path.extension().and_then(|ext| ext.to_str()), Some("yml" | "yaml")))
+        .collect();
+    entries.sort();
+
+    for path in entries {
+        let file = path.file_name().unwrap().to_string_lossy().to_string();
+        let text = read(&path);
+        let lines: Vec<&str> = text.lines().collect();
+
+        for (index, line) in lines.iter().enumerate() {
+            if !line.contains("bash docker/db_migrate.sh") {
+                continue;
+            }
+            checked += 1;
+            let window = lines[index.saturating_sub(15)..=index].join("\n");
+            assert!(
+                window.contains("DATABASE_URL:") || window.contains("DB_HOST:"),
+                "{file}:{} 调用 db_migrate.sh 但没有显式给出目标（DATABASE_URL / DB_HOST）——\
+                 裸调用会打到宿主自装的 PostgreSQL（H-14）",
+                index + 1
+            );
+        }
+    }
+
+    assert!(checked > 0, "应至少有一个 CI 步骤调用 db_migrate.sh");
+}
+
 #[test]
 fn test_build_sqlx_migration_source_outputs_v10_chain() {
     let root = project_root();

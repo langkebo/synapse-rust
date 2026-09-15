@@ -1,7 +1,7 @@
-# Synapse-Rust Database Makefile
-# 简化数据库迁移操作的命令行工具
+# Synapse-Rust Makefile
+# 构建 / 测试 / 代码质量 入口；数据库迁移的只读查询目标（执行入口见 docker/db_migrate.sh）
 
-.PHONY: help migrate migrate-check migrate-undo migrate-status migrate-baseline migrate-audit
+.PHONY: help migrate-status migrate-audit
 .PHONY: test test-unit test-integration test-all test-fast test-coverage test-coverage-check test-mutation test-mutation-incremental
 .PHONY: lint fmt format format-check format-install format-audit format-cycle check route-lint route-contract-check
 .PHONY: build build-release
@@ -10,17 +10,14 @@ MUTATION_BATCH_FILES ?= src/web/routes/extractors/pagination.rs src/web/routes/e
 
 # 默认目标
 help:
-	@echo "Synapse-Rust Database Management"
+	@echo "Synapse-Rust Make Targets"
 	@echo ""
 	@echo "Usage: make [target]"
 	@echo ""
-	@echo "Migration Commands:"
-	@echo "  migrate          - Run all pending migrations"
-	@echo "  migrate-check   - Check migration status without running"
-	@echo "  migrate-status   - Show migration status"
-	@echo "  migrate-undo     - Undo the last migration"
-	@echo "  migrate-baseline - Create baseline from current schema"
-	@echo "  migrate-audit    - Show migration audit log"
+	@echo "Migration Commands (只读查询；执行入口只有一个，不在 Makefile 里):"
+	@echo "  migrate-status   - Show migration status (compose 栈内 psql)"
+	@echo "  migrate-audit    - Show migration audit log (compose 栈内 psql)"
+	@echo "  执行/校验迁移请用唯一入口: bash docker/db_migrate.sh {init|migrate|status|validate}"
 	@echo ""
 	@echo "Test Commands:"
 	@echo "  test                  - Run all tests"
@@ -62,11 +59,10 @@ help:
 #      PostgreSQL 占着（上面没有 synapse 库），而 compose 栈默认根本不发布 5432；
 #      即便叠加 dev-host-access overlay 也会撞端口。走容器 exec 则两者都不受影响。
 #
-#   2) DATABASE_URL —— sqlx CLI、schema_health_check 等**宿主进程**需要宿主可达
-#      地址，必须先 `cd docker && docker compose -f docker-compose.yml
+#   2) DATABASE_URL —— schema_health_check 等**宿主进程**需要宿主可达地址，
+#      必须先 `cd docker && docker compose -f docker-compose.yml
 #      -f docker-compose.dev-host-access.yml up -d db` 才能用。
 DATABASE_URL ?= postgresql://synapse:synapse@localhost:5432/synapse
-FLYWAY_URL ?= postgresql://synapse:synapse@localhost:5432/synapse
 export DATABASE_URL
 
 # compose 栈定位（只影响走容器 exec 的查询目标；路径相对仓库根）
@@ -85,50 +81,19 @@ DC = cd $(COMPOSE_DIR) && docker compose $(COMPOSE_FILES)
 # 注意不要出现反引号，否则会被 shell 当命令替换执行。
 DB_CONNECT_HINT = 提示：该查询走 compose 栈内的 postgres 容器，需先启动对应栈。dev 栈执行 make db-start；查 deploy 栈请 make migrate-status COMPOSE_DIR=docker/deploy DB_SERVICE=postgres
 
-# Migration Commands
-migrate:
-	@echo "Running migrations..."
-	@sqlx database create || true
-	@sqlx migrate run
-	@echo "Migrations completed"
-
-migrate-check:
-	@echo "Checking migration status..."
-	@sqlx migrate check
-
+# Migration 只读查询
+#
+# 迁移的**执行**入口只有一个：bash docker/db_migrate.sh {init|migrate|status|validate}
+# （记账表 schema_migrations，含扩展门控）。这里刻意不提供 `make migrate`：Makefile
+# 一旦转发，它自带的 DATABASE_URL 默认值就会让脚本误以为"调用方显式指定了目标"，
+# 于是打到宿主自装的那台 PostgreSQL —— 那正是 H-14。
 migrate-status:
 	@echo "Migration status ($(COMPOSE_DIR) / $(DB_SERVICE)):"
 	@$(DC) exec -T $(DB_SERVICE) psql -U $(DB_USER) -d $(DB_NAME) -c "SELECT version, name, is_success, applied_ts, executed_at FROM schema_migrations ORDER BY COALESCE(applied_ts, executed_at) DESC NULLS LAST, id DESC LIMIT 10;" || { echo "$(DB_CONNECT_HINT)"; exit 1; }
 
-migrate-undo:
-	@echo "Undoing last migration..."
-	@sqlx migrate revert
-	@echo "Migration reverted"
-
-migrate-baseline:
-	@echo "Creating baseline from current schema..."
-	@sqlx migrate add --source=baseline --digest=$(shell date +%Y%m%d%H%M%S) baseline
-	@echo "Baseline migration created. Review and run manually if needed."
-
 migrate-audit:
 	@echo "Migration audit log ($(COMPOSE_DIR) / $(DB_SERVICE)):"
 	@$(DC) exec -T $(DB_SERVICE) psql -U $(DB_USER) -d $(DB_NAME) -c "SELECT version, name, description, execution_time_ms, applied_ts, executed_at, is_success FROM schema_migrations ORDER BY COALESCE(applied_ts, executed_at) DESC NULLS LAST, id DESC LIMIT 20;" || { echo "$(DB_CONNECT_HINT)"; exit 1; }
-
-# Flyway Commands (optional)
-flyway-info:
-	@echo "Running Flyway info..."
-	@docker run --rm -v "$(PWD)/migrations:/flyway/sql" \
-		-v "$(PWD)/scripts/db/flyway.conf:/flyway/conf/flyway.conf" \
-		-v "$(PWD)/scripts/db/undo:/flyway/undo" \
-		pxmatrix/flyway:10.4 info
-
-flyway-migrate:
-	@echo "Running Flyway migrate..."
-	@docker run --rm -v "$(PWD)/migrations:/flyway/sql" \
-		-v "$(PWD)/scripts/db/flyway.conf:/flyway/conf/flyway.conf" \
-		-v "$(PWD)/scripts/db/undo:/flyway/undo" \
-		-e FLYWAY_URL="$(FLYWAY_URL)" \
-		pxmatrix/flyway:10.4 migrate
 
 # Test Commands
 test:
