@@ -113,6 +113,52 @@ fn verify_server_keys_self_signature(keys: &ServerKeys) -> Result<(), Federation
         )))
     }
 }
+
+/// FED-02: the `server_name` inside a key document must be the server we asked
+/// about — the document is a claim about *that* identity, nothing else.
+///
+/// Without this check a peer can hand back a key document that is internally
+/// consistent (validly self-signed, non-empty `verify_keys`) but names a
+/// *different* server. Trusting it would bind `destination -> wrong server's
+/// keys` in [`FederationClient::key_cache`], i.e. cache poisoning across the
+/// destination identity: a later signature check for `destination` would be
+/// performed against an unrelated server's `verify_keys`, and every key
+/// rotation on the real destination would silently invalidate.
+///
+/// AGENTS.md is explicit that `server_name` must be validated **before caching
+/// remote keys**, which is why this runs ahead of
+/// [`verify_server_keys_self_signature`]: the signature is looked up under
+/// `keys.server_name`, so pinning the name first is what makes that lookup mean
+/// "the destination signed this" rather than "whoever this document claims to
+/// be signed this".
+///
+/// The comparison is intentionally strict (no case folding, no port stripping):
+/// Matrix server names appear verbatim in IDs, in `signatures` object keys, and
+/// in `m.server` delegation responses, so a peer that reports a different
+/// spelling is either misconfigured or substituting identities. Fail closed.
+fn verify_server_keys_server_name(keys: &ServerKeys, expected: &str) -> Result<(), FederationClientError> {
+    if keys.server_name != expected {
+        return Err(FederationClientError::Authentication(format!(
+            "server keys name mismatch: requested {expected}, document claims {}",
+            keys.server_name
+        )));
+    }
+    Ok(())
+}
+
+/// Single trust gate for a remote server-key document.
+///
+/// Both key-fetching entry points funnel through here so the two checks can
+/// never drift apart, and so there is exactly one place to audit when the trust
+/// model changes:
+///   1. the document names the server we asked for ([`verify_server_keys_server_name`]);
+///   2. at least one `ed25519` `verify_key` carries a valid self-signature
+///      ([`verify_server_keys_self_signature`]).
+fn validate_remote_server_keys(keys: &ServerKeys, expected_server: &str) -> Result<(), FederationClientError> {
+    verify_server_keys_server_name(keys, expected_server)?;
+    verify_server_keys_self_signature(keys)
+}
+
 const DEFAULT_FEDERATION_PORT: u16 = 8448;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -758,13 +804,32 @@ impl FederationClient {
         let response = self.send_signed_request("GET", path, destination, None).await?;
         let keys: ServerKeys = self.handle_response(response).await?;
 
-        // FED-01: 验签通过前不得写入缓存
-        verify_server_keys_self_signature(&keys)?;
+        // FED-01/FED-02: 验签与身份匹配通过前不得写入缓存
+        self.admit_server_keys(destination, keys).await
+    }
 
-        self.key_cache
-            .write()
-            .await
-            .insert(destination.to_string(), CachedKeys { keys: keys.clone(), cached_at: std::time::Instant::now() });
+    /// Validate a remote key document and, only if it passes, admit it to the cache.
+    ///
+    /// Splitting validation from transport is what makes the security property
+    /// directly testable: the invariant is not "we call a validator" but
+    /// "**no unvalidated key ever reaches `key_cache`**". A test can assert the
+    /// latter by handing this function a forged document and checking the cache
+    /// is still empty — which a network-level test could not do without a live,
+    /// TLS-speaking, non-IP-literal federation peer.
+    ///
+    /// `expected_server` is the cache key, so binding the document's
+    /// `server_name` to it here is what stops cache poisoning across identities.
+    async fn admit_server_keys(
+        &self,
+        expected_server: &str,
+        keys: ServerKeys,
+    ) -> Result<ServerKeys, FederationClientError> {
+        validate_remote_server_keys(&keys, expected_server)?;
+
+        self.key_cache.write().await.insert(
+            expected_server.to_string(),
+            CachedKeys { keys: keys.clone(), cached_at: std::time::Instant::now() },
+        );
 
         Ok(keys)
     }
@@ -781,7 +846,18 @@ impl FederationClient {
             None => format!("/_matrix/key/v2/query/{server_name}"),
         };
         let response = self.send_signed_request("GET", &path, destination, None).await?;
-        self.handle_response(response).await
+        let keys: ServerKeys = self.handle_response(response).await?;
+
+        // S-1: 与 `get_server_keys` 走同一个信任门禁。此前这里直接 `return`，
+        // 同一份文档经 `/key/v2/server` 会被拒、经 `/key/v2/query` 却会被接受 ——
+        // 校验缺口不该取决于调用的是哪个端点。
+        //
+        // 期望值取 `server_name` 而非 `destination`：`destination` 是承载请求的
+        // 传输对端，`server_name` 才是"我们要的是谁的密钥"。规范允许 `/query`
+        // 的响应文档描述 `server_name` 这个身份。
+        validate_remote_server_keys(&keys, server_name)?;
+
+        Ok(keys)
     }
 
     /// See [`get_version`.
@@ -1388,6 +1464,129 @@ mod tests {
             verify_server_keys_self_signature(&keys).is_err(),
             "key response without self-signature must be rejected"
         );
+    }
+
+    // ------------------------------------------------------------------
+    // S-2 / FED-02: 文档声明的 server_name 必须等于我们请求的那个服务器
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn server_keys_wrong_server_name_rejected() {
+        // 攻击者用**自己的**密钥合法地自签一份文档（签名校验必然通过），
+        // 但文档声称的身份是 victim.example —— 这正是单靠自签名抓不住的场景。
+        let attacker_key = ed25519_dalek::SigningKey::from_bytes(&[5u8; 32]);
+        let keys = make_signed_server_keys(&attacker_key, "attacker.example");
+
+        assert!(
+            verify_server_keys_self_signature(&keys).is_ok(),
+            "前提：文档的自签名本身是有效的，否则本测试退化成重复的验签测试"
+        );
+        assert!(
+            verify_server_keys_server_name(&keys, "victim.example").is_err(),
+            "server_name 与请求目标不符必须被拒绝"
+        );
+        assert!(
+            validate_remote_server_keys(&keys, "attacker.example").is_ok(),
+            "同一份文档在名字匹配时必须被接受（否则是名字校验过严）"
+        );
+    }
+
+    #[test]
+    fn admit_server_keys_rejects_wrong_name_without_caching() {
+        // get_server_keys 的安全属性不是"调用了校验器"，而是
+        // **未通过校验的密钥永远进不了 key_cache**。断言后者，测试就无法自证：
+        // 只要 admit_server_keys 不再调用校验器，缓存就会非空，本测试立刻失败。
+        let (rt, client) = create_test_client();
+        let attacker_key = ed25519_dalek::SigningKey::from_bytes(&[5u8; 32]);
+        let keys = make_signed_server_keys(&attacker_key, "attacker.example");
+
+        rt.block_on(async {
+            let result = client.admit_server_keys("victim.example", keys).await;
+            assert!(result.is_err(), "名字不符的密钥文档必须被拒绝");
+            assert!(
+                client.key_cache.read().await.is_empty(),
+                "被拒绝的密钥文档绝不能污染缓存（cache poisoning across identities）"
+            );
+        });
+    }
+
+    #[test]
+    fn admit_server_keys_rejects_forged_signature_without_caching() {
+        let (rt, client) = create_test_client();
+        let victim_key = ed25519_dalek::SigningKey::from_bytes(&[3u8; 32]);
+        let attacker_key = ed25519_dalek::SigningKey::from_bytes(&[4u8; 32]);
+        let keys = {
+            let mut keys = make_signed_server_keys(&victim_key, "remote.example");
+            let forged = make_signed_server_keys(&attacker_key, "remote.example");
+            keys.signatures = forged.signatures;
+            keys
+        };
+
+        rt.block_on(async {
+            let result = client.admit_server_keys("remote.example", keys).await;
+            assert!(result.is_err(), "伪造自签名的密钥文档必须被拒绝");
+            assert!(client.key_cache.read().await.is_empty(), "被拒绝的密钥文档绝不能污染缓存");
+        });
+    }
+
+    #[test]
+    fn admit_server_keys_caches_valid_document_under_expected_server() {
+        // 正向对照：证明上面两条拒绝测试不是因为校验器恒返回 Err。
+        let (rt, client) = create_test_client();
+        let sk = ed25519_dalek::SigningKey::from_bytes(&[3u8; 32]);
+        let keys = make_signed_server_keys(&sk, "remote.example");
+
+        rt.block_on(async {
+            let admitted = client.admit_server_keys("remote.example", keys).await;
+            assert!(admitted.is_ok(), "合法文档必须被接受：{:?}", admitted.err());
+
+            let cached = client.get_cached_key("remote.example").await;
+            assert!(cached.is_some(), "合法文档必须以 expected_server 为 key 进入缓存");
+            assert_eq!(cached.unwrap().server_name, "remote.example");
+        });
+    }
+
+    /// `query_server_keys` 的组成是 `handle_response` → `validate_remote_server_keys`。
+    /// 这里用真实 HTTP 响应字节走完这两步，而不是在测试里就地拼一个 ServerKeys：
+    /// 本地构造的断言无法发现"JSON 反序列化出来的 server_name 与预期不符"这一层，
+    /// 而那恰恰是 S-15 那类自证测试的失效模式。
+    #[test]
+    fn query_server_keys_path_rejects_mismatched_document_over_http() {
+        let (rt, client) = create_test_client();
+        let attacker_key = ed25519_dalek::SigningKey::from_bytes(&[5u8; 32]);
+        let body = serde_json::to_value(make_signed_server_keys(&attacker_key, "attacker.example")).unwrap();
+
+        rt.block_on(async {
+            use wiremock::matchers::{method, path};
+            use wiremock::{Mock, MockServer, ResponseTemplate};
+
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/_matrix/key/v2/query/victim.example"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(body))
+                .mount(&server)
+                .await;
+
+            // no_proxy(): dev/CI shells may export HTTP(S)_PROXY; routing a
+            // loopback request through a proxy breaks hyper's parser.
+            let response = reqwest::Client::builder()
+                .no_proxy()
+                .build()
+                .unwrap()
+                .get(format!("{}/_matrix/key/v2/query/victim.example", server.uri()))
+                .send()
+                .await
+                .unwrap();
+
+            let keys: ServerKeys =
+                client.handle_response(response).await.expect("2xx JSON body must deserialize into ServerKeys");
+            assert_eq!(keys.server_name, "attacker.example", "反序列化后名字来自响应体，不是请求路径");
+
+            assert!(
+                validate_remote_server_keys(&keys, "victim.example").is_err(),
+                "/key/v2/query 路径同样必须拒绝名字不符的文档 —— 校验缺口不该取决于端点"
+            );
+        });
     }
 
     #[test]

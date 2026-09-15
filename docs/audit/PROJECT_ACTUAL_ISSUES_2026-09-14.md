@@ -38,7 +38,7 @@
 | 🔴 P0 门禁诚信 | **8** | 覆盖率基线无法提交、perf 门禁纯 echo、CI 集成测试指向应用库、18 处测试静默跳过、sqlx 棘轮 FAIL |
 | 🟠 P1 架构冗余/过度开发 | **12** | 48 个路由文件穿透分层、70 storage trait 中 68 个单实现、近 5k 处样板注释 |
 | 🟠 P1 测试隔离/模板构建 | **8** | 根模板构建无条件清空 `public`、模板构建吞错、测试隔离仍多头 |
-| 🟡 P2 安全/协议残留 | **10** | MSC4108 DELETE 缺 3 个 required 头、自签名/`server_name` 校验缺失、`quarantined_media_changes` 无界 |
+| 🟡 P2 安全/协议残留 | **12（5 已修 / 7 未决）** | 已修：S-1、S-2（B5-1 自签名 + `server_name` 校验）、S-12、S-15（B5-3 MSC4108 DELETE 补头 + 去自证）、S-13（B5-5 契约提取器）。未决：`quarantined_media_changes` 无界、threepid 孤儿路由、速率限制碎片化、X-Matrix 头朴素解析、cache 读写不对称、无"真实 router == ledger"测试 |
 | 🟡 P2 配置/仓库/文档卫生 | **11** | `.scratch` 97 文件入库、3 个 worktree、`cargo doc` ~3.5k 警告、god-file 1833 行 |
 
 ---
@@ -280,8 +280,8 @@ CLAUDE.md 约定的 `docs/audit/00_test_baseline.log`、`00_clippy_baseline.log`
 
 | ID | 问题 | 证据 / 影响评估 |
 |---|---|---|
-| S-1 | `query_server_keys` **不校验**返回密钥自签名 | `synapse-federation/src/client.rs:773-785` 直接返回；对比 `get_server_keys` 有 `verify_server_keys_self_signature(&keys)?`（`:768`） |
-| S-2 | `get_server_keys` **不校验** `server_name == destination` | `client.rs:746-770`；违反 AGENTS.md"Validate `server_name` … before caching remote keys" |
+| S-1 | `query_server_keys` **不校验**返回密钥自签名 | ✅ **已修复（B5-1）**。原缺陷：`client.rs:773-785` 直接 `return`，同一份文档经 `/key/v2/server` 会被拒（`get_server_keys` 有 `verify_server_keys_self_signature`）、经 `/key/v2/query` 却被接受 —— 校验缺口取决于调用的是哪个端点。现 `query_server_keys` 与 `get_server_keys` 收敛到唯一信任门禁 `validate_remote_server_keys(&keys, server_name)`；期望值取 `server_name`（"要的是谁的密钥"）而非 `destination`（承载请求的传输对端）。守卫：`admit_server_keys_rejects_forged_signature_without_caching` + `query_server_keys_path_rejects_mismatched_document_over_http`（经真实 HTTP 响应字节走 `handle_response` → 门禁，非就地构造 `ServerKeys`） |
+| S-2 | `get_server_keys` **不校验** `server_name == destination` | ✅ **已修复（B5-1）**。原缺陷：`client.rs:746-770` 仅在缓存前验签，未校验文档自称的身份。攻击者可用**自己的**密钥合法自签一份文档并声称 `server_name = victim`，单独的自签名校验必然放行（这正是自签名抓不住的那一类），于是 `destination → 错误身份的公钥` 被写入 `key_cache`（跨身份缓存投毒）。现顺序改为**先名字、后自签名**：自签名是在 `keys.server_name` 下查找的，先钉住名字才使该查找等价于"destination 签的"而非"文档自称是谁签的"。比较严格相等（不做大小写折叠 / 不去端口），fail-closed。守卫：`server_keys_wrong_server_name_rejected`、`admit_server_keys_rejects_wrong_name_without_caching`（断言缓存仍为空）、正向对照 `admit_server_keys_caches_valid_document_under_expected_server` |
 | S-4 | `quarantined_media_changes` 无界增长 | 全仓 `DELETE` 语句 **0** 条 → append-only 无清理路径，违反 AGENTS.md"Long-running deployments need pruning" |
 | S-5 | federation knock **丢弃 `via`**（已知缺口，非隐藏 bug） | `src/web/routes/handlers/room/members.rs:229-236` 明确注释：knock 目前 local-only，`via` 被**接受并记录日志**而非静默丢弃 → 降级为"已文档化的功能缺口" |
 | S-6 | X-Matrix 头解析用朴素 `split(',')` | `src/web/middleware/federation_auth.rs:299`。**理论问题**：所有字段值都不会含逗号，且解析结果参与签名校验，误解析 fail-closed |
@@ -528,6 +528,59 @@ Ledger 契约链同步：golden + SDK 两条车道的 6 个 fixture、`ROUTE_CON
   "有意根级" 与 "从未装配"。
 - **附带发现**：`push.rs` 的 `/pushers/` 是 `get().post()` 链，旧解析器只报 GET；
   `presence.rs` 的 `/presence/list` GET 分支未被任何 manifest 声明（manifest 漏声明）。
+
+---
+
+## 10. S-1 / S-2 联邦密钥校验缺口——已修复（2026-09-15，B5-1）
+
+两处缺口单独看都"像"是一行校验的补丁，但真正的问题是**信任门禁被端点数整除成了两份**：
+`/key/v2/server` 走验签、`/key/v2/query` 直接返回；名字匹配两边都没有。
+
+### 10.1 复核与消除
+
+| # | 原缺陷 | 复核结果 | 修复后 |
+|---|---|---|---|
+| S-1 | `query_server_keys` 不校验自签名 | ✅ 复现：`client.rs` 里该方法直接 `return`，同一份文档换端点即绕过校验 | 与 `get_server_keys` 收敛到唯一门禁 `validate_remote_server_keys` |
+| S-2 | `get_server_keys` 不校验 `server_name == destination` | ✅ 复现：仅验签，未校验文档自称身份 | 门禁内**先名字、后自签名**，且位于写缓存之前 |
+
+### 10.2 为什么 S-2 不是"多余的一行"
+
+单靠自签名抓不住 S-2 描述的攻击：攻击者用**自己的**私钥把自己的公钥自签一份文档、
+在 `server_name` 字段里声称自己是受害者 —— 自签名校验**必然通过**（签名与公钥自洽）。
+放行后写入的是 `destination → 攻击者公钥`，即**跨身份缓存投毒**：此后针对 destination 的
+签名校验会拿一份无关服务器的 `verify_keys` 去比，且真实 destination 轮换密钥时会静默失效。
+
+顺序也不是随意的：自签名是在 `keys.server_name` 这个 key 下查找的
+（`keys.signatures.get(&keys.server_name)`）。**先钉住名字**，该查找才等价于
+"destination 签的"；不钉名字，它就退化成"文档自称是谁签的"。
+
+比较采用严格相等，不做大小写折叠、不去端口 —— 理由是 Matrix server name 会**逐字**出现在
+ID、`signatures` 的 key、以及 `m.server` 委派响应三处，拼写不一致本身就是身份替换或误配，fail-closed。
+
+### 10.3 验证：断言"缓存未被污染"，而不是断言"调用了校验器"
+
+`validate_remote_server_keys` 是纯函数，单测它只证明"校验器能拒"。而
+AGENTS.md 要求的性质是"**缓存远程密钥之前**必须校验"——只有断言**缓存状态**才能覆盖它。
+因此把"校验 + 写缓存"合并为一个单元 `admit_server_keys(expected_server, keys)`，
+使失败路径下的缓存为空成为可直接断言的事实。
+
+**守卫**（`synapse-federation/src/client.rs`，5 条新增）：
+
+| 测试 | 断言 |
+|---|---|
+| `server_keys_wrong_server_name_rejected` | 攻击者自签文档对受害命名 → 拒绝；对自身命名 → 接受（防"名字校验过严"） |
+| `admit_server_keys_rejects_wrong_name_without_caching` | 名字不符 → `Err` **且 `key_cache` 为空** |
+| `admit_server_keys_rejects_forged_signature_without_caching` | 伪造签名 → `Err` **且 `key_cache` 为空** |
+| `admit_server_keys_caches_valid_document_under_expected_server` | 正向对照：证明上面两条不是"校验器恒返回 Err" |
+| `query_server_keys_path_rejects_mismatched_document_over_http` | 经 wiremock 的**真实 HTTP 响应字节**走 `handle_response` → 门禁；覆盖 JSON→`ServerKeys`→校验这一层，避免 S-15 那种就地构造数据的自证测试 |
+
+**变异自证（铁律 8）**：把 `admit_server_keys` 内的门禁调用摘掉后，
+`admit_server_keys_rejects_wrong_name_without_caching` 与
+`admit_server_keys_rejects_forged_signature_without_caching` 两条**转红**（正向对照仍绿）——
+证明这两条守卫守的是"缓存写入被门禁挡住"，而不是同义反复。
+
+**命令**：`cargo test -p synapse-federation --lib` → **187 passed**；
+`cargo clippy -p synapse-federation --all-targets` → 无告警。
 
 ---
 

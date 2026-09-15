@@ -418,7 +418,6 @@ fn update_session_with_mismatched_if_match_fails_precondition() {
 // ── delete_session response contract ───────────────────────────────────────
 
 #[test]
-#[test]
 fn delete_session_returns_204_with_required_headers() {
     // S-15 fix: this now invokes the REAL production response builder
     // (`msc4108_rendezvous::delete_success_response`, returned verbatim by the
@@ -438,13 +437,13 @@ fn delete_session_returns_204_with_required_headers() {
         Some("no-cache"),
         "DELETE 204 must carry Pragma: no-cache"
     );
-    let last_modified = headers
-        .get("last-modified")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or_default();
+    let last_modified = headers.get("last-modified").and_then(|v| v.to_str().ok()).unwrap_or_default();
     // RFC 7231 IMF-fixdate, e.g. "Tue, 15 Sep 2026 04:21:55 GMT" — and it must
     // round-trip through the same parser the other handlers use.
-    assert!(parse_http_date_to_millis(last_modified) > 0, "Last-Modified must be a valid HTTP date, got {last_modified:?}");
+    assert!(
+        parse_http_date_to_millis(last_modified) > 0,
+        "Last-Modified must be a valid HTTP date, got {last_modified:?}"
+    );
 }
 
 #[test]

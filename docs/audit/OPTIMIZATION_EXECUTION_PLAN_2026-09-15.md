@@ -258,7 +258,7 @@
 
 | # | 改动 | 验证 |
 |---|---|---|
-| B5-1 | **S-1/S-2**：`query_server_keys` 补自签名校验；`get_server_keys` 补 `server_name == destination` 校验 | 各补单测：伪造签名/错误 server_name → 拒绝 |
+| B5-1 ✅ | **S-1/S-2**：`query_server_keys` 补自签名校验；`get_server_keys` 补 `server_name == destination` 校验 | 已完成：两者收敛到唯一信任门禁 `validate_remote_server_keys`（先名字、后自签名），并把"校验 + 写入缓存"合并为 `admit_server_keys`，使安全属性可直接断言——**未通过校验的文档永远进不了 `key_cache`**。5 条新单测（含经真实 HTTP 响应字节的 `/key/v2/query` 路径）+ 变异自证（摘掉校验后 2 条缓存守卫转红）。`cargo test -p synapse-federation --lib` 187 passed，clippy 干净 |
 | B5-2 | **S-4**：`quarantined_media_changes` 加保留期清理（复用既有 cleanup 骨架） | 单测：插入过期行 → 被清 |
 | B5-3 ✅ | **S-12（D3）**：MSC4108 `DELETE` 204 补 `Last-Modified`/`Cache-Control: no-store`/`Pragma: no-cache` | **重写 S-15 的自证测试**：改为真实调用 handler 断言响应头 —— 已落地（commit `32938763`） |
 | B5-4 | **S-9（D3）**：threepid 孤儿路由 —— 要么补装配点，要么从 `ROUTE_CONTRACT.md` 删除 | ledger 与契约文档一致；提取器已给出机器可达性证据（见 `PROJECT_ACTUAL_ISSUES_2026-09-14.md` §9.4） |
