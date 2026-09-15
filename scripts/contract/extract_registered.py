@@ -725,13 +725,23 @@ def parse_chain(expr: str):
 
 
 class Resolver:
-    def __init__(self, files: dict[str, str], features=None):
+    def __init__(self, files: dict[str, str], features=None, module_gates: dict | None = None):
         self.files = files  # relpath -> comment-stripped source
         # `features is None` is *union mode*: every `#[cfg]` predicate is
         # treated as satisfied, reproducing the historical extraction that
         # reconciled against the union of both ledger lanes. Pass a frozenset of
         # enabled feature names (see `LANES`) to resolve one compile lane.
         self.features = features
+        # `relpath -> [cfg predicates]` implied by the `mod` declarations up the
+        # tree. Needed only to *emit* the predicate for each route (the
+        # generated manifest must carry it so the compiler does the filtering);
+        # lane resolution itself uses it earlier, in `load_sources`.
+        self.module_gates = module_gates or {}
+        # `(method, path) -> {frozenset of cfg predicates}` that must hold for
+        # the route to exist. Recorded only for defining fns, same as
+        # `registrars`, and used to gate the generated table.
+        self.cfg_of: dict[tuple[str, str], set] = defaultdict(set)
+        self._current_cfg: frozenset = frozenset()
         # `fn name -> ProfileFlags field` for the router builders that a runtime
         # flag decides whether to merge. See `gated_router_builders`.
         self.gated = gated_router_builders(files)
@@ -967,6 +977,12 @@ class Resolver:
         self._current_guard = self.gated.get(name) or prev_guard
         prev_fn, prev_owner = self._current_fn, self._current_owner
         self._current_fn, self._current_owner = name, owner
+        # A callee's routes inherit the caller's `cfg` scope: reaching them at
+        # all required those predicates. Union rather than assign, so an
+        # enclosing `#[cfg(feature = "x")] { .. }` still applies to a route the
+        # block reaches through a call.
+        prev_cfg = self._current_cfg
+        self._current_cfg = prev_cfg | frozenset(self.module_gates.get(owner, ()))
         env: dict = {}
         result: list = []
 
@@ -987,13 +1003,13 @@ class Resolver:
             if s.startswith("{"):
                 inner = match_delim(s, 0)
                 nested = s[1:inner] if inner != -1 else s[1:]
-                result.extend(self.eval_fn_body(name, nested, owner))
+                result.extend(self._recurse(name, nested, owner, preds))
                 continue
 
             # `if cond { .. }` / `match` / `for` / `while` / `else { .. }`
             if re.match(r"(if|match|for|while|loop|else)\b", s):
                 for blk in extract_blocks(s):
-                    result.extend(self.eval_fn_body(name, blk, owner))
+                    result.extend(self._recurse(name, blk, owner, preds))
                 continue
 
             # `let [mut] name[: Type] = EXPR`
@@ -1052,9 +1068,56 @@ class Resolver:
 
         self._current_guard = prev_guard
         self._current_fn, self._current_owner = prev_fn, prev_owner
+        self._current_cfg = prev_cfg
         if memo_key is not None:
             self._memo[memo_key] = result
         return list(result)
+
+    def _recurse(self, name: str, body: str, owner: str, preds) -> list:
+        """Evaluate a nested block, carrying its `#[cfg]` predicates inward.
+
+        `#[cfg(feature = "voip-tracking")] { router = router.route(..) }` is the
+        only way to gate part of a function, so the predicate has to travel with
+        the block rather than sit on an item. Without this the generated table
+        would advertise routes the current build does not compile, and the
+        405-probe test would report a live router missing from the ledger.
+        """
+        saved = self._current_cfg
+        self._current_cfg = saved | frozenset(preds)
+        try:
+            return self.eval_fn_body(name, body, owner)
+        finally:
+            self._current_cfg = saved
+
+    def gate_of(self, row) -> frozenset:
+        """`cfg` predicates that must hold for `row` to be compiled.
+
+        This is what the generated table has to carry: the compiler — not the
+        extractor — does the feature filtering at build time, so each emitted
+        row needs the predicate that reproduces the lane it came from.
+
+        Composed of two things that are each insufficient alone:
+
+        * **the module gates of every registering file.** A route defined in
+          `cas.rs` is compiled only with `cas-sso`, no matter who mounts it.
+          This is also what fixes `/login`: the relative path `/login` is
+          registered by both the CAS router (gated) and the auth-compat router
+          (not), and the ledger key is the absolute path — so the ungated claim
+          leaks in. Unioning the registering files' gates restores the
+          condition that actually governs the row.
+        * **the narrowest recorded `cfg` scope.** The defining function's own
+          `#[cfg(feature = "voip-tracking")] { .. }` block is not a module gate,
+          so it can only come from here. Narrowest rather than union: the
+          recorded contexts are alternative mounting paths, and the shortest one
+          is the least-gated. Picking the most permissive option cannot hide a
+          row from a lane it belongs to; the reverse would, and the per-lane
+          fidelity gate below is what proves neither happens.
+        """
+        contexts = self.cfg_of.get(row, set())
+        base = set(min(sorted(contexts, key=lambda c: (len(c), sorted(c))))) if contexts else set()
+        for file, _fn in self.registrars.get(row, set()):
+            base |= set(self.module_gates.get(file, ()))
+        return frozenset(base)
 
     def _record_guards(self, routes, tag_registrar: bool = True) -> None:
         """Tag freshly-created route tuples with the guard in force.
@@ -1073,11 +1136,12 @@ class Resolver:
         if tag_registrar and self._current_fn and "manifest" not in self._current_fn:
             for route in routes:
                 self.registrars[(route[0], route[1])].add((self._current_owner, self._current_fn))
+                self.cfg_of[(route[0], route[1])].add(self._current_cfg)
         for route in routes:
             self.guards[(route[0], route[1])].add(self._current_guard)
 
     def _inherit_registrars(self, added, subs) -> None:
-        """Carry the registrar across a prefix transformation.
+        """Carry the registrar and the `cfg` scope across a prefix transform.
 
         `nest` / `expand_under_prefixes` build a *new* absolute tuple from a
         relative one, so the new tuple has never been through `_record_guards`
@@ -1085,11 +1149,21 @@ class Resolver:
         relative route — the prefix is applied by whoever mounted it, and that
         is not the same thing as who owns the endpoint. Without this the
         absolutised rows (486 of them) would have no origin at all.
+
+        The `cfg` scope is inherited for the same reason, and additionally
+        unioned with the *mounting* scope: mounting a router inside
+        `#[cfg(feature = "x")]` makes everything it serves conditional on `x`
+        too. Each context stays a separate frozenset — they are alternatives
+        (the route exists if *any* mounting path is compiled), not a
+        conjunction.
         """
         for (meth, path, _own), (am, ap, _ao) in zip(subs, added):
             regs = self.registrars.get((meth, path))
             if regs:
                 self.registrars[(am, ap)] |= set(regs)
+            contexts = self.cfg_of.get((meth, path))
+            if contexts:
+                self.cfg_of[(am, ap)] |= {ctx | self._current_cfg for ctx in contexts}
 
     def apply_call(self, acc: list, name: str, args: str, env: dict, owner: str) -> list:
         if name == "route":
@@ -1285,13 +1359,8 @@ def mod_gated_files(rel_sources: dict) -> dict:
     return gates
 
 
-def load_sources(features=None) -> dict[str, str]:
-    """Comment-stripped source of every route module, keyed by relpath.
-
-    With `features` set, modules whose `mod` declaration is gated by a feature
-    outside that set are dropped entirely, so a lane only ever sees what it
-    could actually compile.
-    """
+def raw_sources() -> dict:
+    """Comment-stripped source of every route module, before lane filtering."""
     raw: dict = {}
     for dp, _, fns in os.walk(ROUTES_DIR):
         for f in sorted(fns):
@@ -1303,7 +1372,17 @@ def load_sources(features=None) -> dict[str, str]:
                 continue
             with open(fp, encoding="utf-8", errors="replace") as fh:
                 raw[rel] = strip_comments(fh.read())
+    return raw
 
+
+def load_sources(features=None) -> dict[str, str]:
+    """Comment-stripped source of every route module, keyed by relpath.
+
+    With `features` set, modules whose `mod` declaration is gated by a feature
+    outside that set are dropped entirely, so a lane only ever sees what it
+    could actually compile.
+    """
+    raw = raw_sources()
     gates = mod_gated_files(raw)
     files = {}
     for rel, src in raw.items():
@@ -1617,6 +1696,35 @@ def main() -> int:
             else:
                 print(f"   ok   {lane_name:18} {len(entries):5} labels reproduced")
 
+    # -- emitted cfg gates (B2-1 step 2b) ----------------------------------
+    # The generated table carries a `#[cfg(..)]` per group so that the
+    # *compiler* does the feature filtering, exactly as the `mod` declarations
+    # do today. That only works if `gate_of` reproduces each lane by itself, so
+    # evaluate the gates against every lane's feature set and require that
+    # lane's committed fixture to come back exactly. The source here is the
+    # union resolver, because the emitted table has to cover every lane at once.
+    gate_mismatches: list = []
+    if lanes and ledger_all:
+        union = Resolver(load_sources(), None, mod_gated_files(raw_sources()))
+        union_rows = profile_sets(union)["all"]
+        print("\n-- emitted cfg gates (B2-1 step 2b) --")
+        for lane_name, feats in sorted(lanes.items()):
+            fp = os.path.join(ROOT, "tests", "unit", "fixtures", lane_name, "all.json")
+            if not os.path.exists(fp):
+                continue
+            with open(fp) as fh:
+                want = {(e["method"], e["path"]) for e in json.load(fh)["entries"]}
+            got = {r for r in union_rows if cfg_all_allow(list(union.gate_of(r)), feats)}
+            if got == want:
+                print(f"   ok   {lane_name:18} gate-filtered == fixture ({len(got)} routes)")
+                continue
+            gate_mismatches.append(f"{lane_name}: gate-filtered {len(got)} vs fixture {len(want)}")
+            print(f"   FAIL {lane_name:18} gate-filtered {len(got)}, fixture {len(want)}")
+            for m, p in sorted(want - got)[:8]:
+                print(f"        gate hides a real route: {m:6} {p}  gate={sorted(union.gate_of((m, p)))}")
+            for m, p in sorted(got - want)[:8]:
+                print(f"        gate admits a foreign route: {m:6} {p}")
+
     # Strict gate. All four properties must hold exactly; there is deliberately
     # no allowlist for the first three, because each one is a statement that the
     # contract is telling the truth and "mostly true" is the failure mode this
@@ -1650,6 +1758,11 @@ def main() -> int:
         strict_failures.append(
             f"{len(label_mismatches)} routes resolve to the wrong `registered_by` (B2-1 step 2): "
             "fix a rule in scripts/contract/ledger_origins.txt (renaming one moves SDK codegen output)"
+        )
+    if gate_mismatches:
+        strict_failures.append(
+            f"{len(gate_mismatches)} lane(s) disagree with the emitted cfg gates (B2-1 step 2b): "
+            f"{gate_mismatches} — the generated table would compile the wrong route surface"
         )
     if os.environ.get("EXTRACT_STRICT") == "1" and strict_failures:
         print("\nEXTRACT_STRICT=1: parser self-check failed:", file=sys.stderr)

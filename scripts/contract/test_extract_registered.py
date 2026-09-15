@@ -370,6 +370,65 @@ def check_lane_profile_modeling() -> None:
             )
 
 
+def check_emitted_gates() -> None:
+    """B2-1 step 2b: the emitted `#[cfg]` must reproduce each lane on its own.
+
+    The generated table replaces the hand-written manifests, and the manifests
+    are `#[cfg]`-gated *by being inside a gated module* — the compiler does the
+    filtering. A generated table has to reproduce that with explicit predicates
+    on the rows, so the predicate per row is now load-bearing in a way it never
+    was before: too narrow and a build silently loses endpoints, too wide and
+    the 405-probe test reports a route the router does not serve.
+    """
+    gates = ex.mod_gated_files(ex.raw_sources())
+    lanes = ex.load_lanes()
+    if not lanes:
+        return
+    union = ex.Resolver(ex.load_sources(), None, gates)
+    rows = ex.profile_sets(union)["all"]
+
+    distinct = {union.gate_of(r) for r in rows}
+    non_empty = {g for g in distinct if g}
+    check(
+        "every route carries a gate, and the gate set is not vacuous",
+        len(rows) == len({r for r in rows if union.gate_of(r) is not None}) and len(distinct) >= 8 and len(non_empty) >= 6,
+        f"{len(distinct)} distinct gates, {len(non_empty)} of them non-empty",
+    )
+    check(
+        "every gate predicate is a plain `feature = \"..\"`",
+        all(p.startswith('feature = "') and p.endswith('"') for g in distinct for p in g),
+        f"odd predicates: {sorted({p for g in distinct for p in g if not p.startswith('feature = ')})[:5]}",
+    )
+
+    # The in-function `#[cfg]` block is the case module gates cannot explain:
+    # `voip-tracking` gates *part* of `create_voip_compat_router`, a file with no
+    # gate of its own. If the gate ignores the recorded scope, those 5 rows get
+    # admitted into the default lane.
+    voip = ("GET", "/_matrix/client/v3/rooms/{room_id}/call/{call_id}")
+    check(
+        "a `#[cfg]` block inside an ungated file is still gated",
+        voip in rows and union.gate_of(voip) == frozenset({'feature = "voip-tracking"'}),
+        f"gate={sorted(union.gate_of(voip)) if voip in rows else 'row missing'}",
+    )
+    # ...and the reverse: a route whose relative path is also registered by an
+    # ungated router must not inherit the gated one's condition, nor drop it.
+    root_login = ("GET", "/login")
+    check(
+        "a path shared by a gated and an ungated router keeps the gated condition",
+        root_login in rows and union.gate_of(root_login) == frozenset({'feature = "cas-sso"'}),
+        f"gate={sorted(union.gate_of(root_login)) if root_login in rows else 'row missing'}",
+    )
+
+    for lane_name, feats in sorted(lanes.items()):
+        fp = os.path.join(ROOT, "tests", "unit", "fixtures", lane_name, "all.json")
+        if not os.path.exists(fp):
+            continue
+        with open(fp) as fh:
+            want = {(e["method"], e["path"]) for e in json.load(fh)["entries"]}
+        got = {r for r in rows if ex.cfg_all_allow(list(union.gate_of(r)), feats)}
+        check(f"gate-filtered union reproduces {lane_name}/all", got == want, f"{len(got)} vs {len(want)}")
+
+
 def check_ratchet(res: "ex.Resolver") -> None:
     allow_path = os.path.join(SCRIPT_DIR, "extract_unresolved_allowlist.txt")
     allowed = set()
@@ -554,6 +613,75 @@ def mutation_check() -> int:
     finally:
         ex.gated_router_builders = orig_gated
 
+    # Mutation 5 — a registered_by rule goes stale (step 2a fidelity). Drop the
+    # two `@/.well-known/` swimlane rules: both OIDC registrars then resolve to
+    # whatever file-level rule remains, and the labels drift against the fixture.
+    orig_load = ex.load_ledger_origins
+
+    def without_swimlane_rules():
+        return [r for r in orig_load() if "/.well-known/" not in (r[2] or "")]
+
+    ex.load_ledger_origins = without_swimlane_rules
+    try:
+        lanes = ex.load_lanes()
+        drift = 0
+        for lane_name, feats in sorted(lanes.items()):
+            fp = os.path.join(ROOT, "tests", "unit", "fixtures", lane_name, "all.json")
+            if not os.path.exists(fp):
+                continue
+            res_lane = ex.Resolver(ex.load_sources(feats), feats)
+            ex.profile_sets(res_lane)
+            with open(fp) as fh:
+                for e in json.load(fh)["entries"]:
+                    got = ex.resolve_label(
+                        e["path"], res_lane.registrars.get((e["method"], e["path"]), set()),
+                        ex.load_ledger_origins(),
+                    )
+                    if got != e["registered_by"]:
+                        drift += 1
+        if drift:
+            print(f"  ok   mutation#5 (swimlane rules dropped) turns the suite RED: {drift} label(s) drift")
+        else:
+            print("  FAIL mutation#5 did NOT turn the suite red — the label guard is self-proving")
+            bad += 1
+    finally:
+        ex.load_ledger_origins = orig_load
+
+    # Mutation 6 — the generated gate forgets the module gates (step 2b). If
+    # `gate_of` returns only the in-function scope, the golden lane admits the
+    # extension-feature routes it cannot compile, and the gate-filtered union
+    # no longer reproduces either fixture.
+    orig_gate_of = ex.Resolver.gate_of
+
+    def scope_only(self, row):
+        contexts = self.cfg_of.get(row)
+        if not contexts:
+            return frozenset()
+        return min(contexts, key=len)
+
+    ex.Resolver.gate_of = scope_only
+    try:
+        lanes = ex.load_lanes()
+        union = ex.Resolver(ex.load_sources(), None, ex.mod_gated_files(ex.raw_sources()))
+        union_rows = ex.profile_sets(union)["all"]
+        drifted = []
+        for lane_name, feats in sorted(lanes.items()):
+            fp = os.path.join(ROOT, "tests", "unit", "fixtures", lane_name, "all.json")
+            if not os.path.exists(fp):
+                continue
+            with open(fp) as fh:
+                want = {(e["method"], e["path"]) for e in json.load(fh)["entries"]}
+            got = {r for r in union_rows if ex.cfg_all_allow(list(union.gate_of(r)), feats)}
+            if got != want:
+                drifted.append(f"{lane_name}:{len(got)}vs{len(want)}")
+        if drifted:
+            print(f"  ok   mutation#6 (module gates dropped) turns the suite RED: {drifted}")
+        else:
+            print("  FAIL mutation#6 did NOT turn the suite red — the cfg gate guard is self-proving")
+            bad += 1
+    finally:
+        ex.Resolver.gate_of = orig_gate_of
+
     return bad
 
 
@@ -581,6 +709,8 @@ def main() -> int:
     check_ratchet(res)
     print("== ledger origins (B2-1 step 2) ==")
     check_ledger_origins()
+    print("== emitted cfg gates (B2-1 step 2b) ==")
+    check_emitted_gates()
 
     bad = 0
     if mutation:
