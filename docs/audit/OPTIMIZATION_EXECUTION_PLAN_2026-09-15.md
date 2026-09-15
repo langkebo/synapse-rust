@@ -332,9 +332,19 @@ B2-1 的处方（`from_router`）等于要求把已经存在的"替代品"换成
 1. ✅ **提取器加 per-lane / per-profile 建模**（2026-09-15 完成，见 §3.4）。
    现在是"递归进 `#[cfg(feature)]` 块取并集"，已改为记录 cfg 谓词并按 feature 集求值；
    对账判据 **六组集合全部精确一致**：golden 1047/1058/1065、sdk 1127/1138/1146。
-2. ⏳ **生成派生物**：由提取器产出一个可 `include!` 的 Rust 表（或 JSON + `include_str!`），
-   供 `base_route_manifest()` / `declared_route_manifest_for_profile()` 读取；运行时
-   `create_router` 的重复检测（`assembly.rs:365` → `ledger.validate()`）继续用这份表。
+2a. ✅ **`registered_by` 可派生**（2026-09-15 完成，commit `8ef20296`）。
+    32 条 origin 规则（`ledger_origins.txt`）+ 路径规则 + 注册点归属，
+    复现两条泳道共 2211 个标签（零豁免清单）。
+    每条路由的标签源被 `test_extract_registered.py` 锁住：抽掉 swimlane 规则 → 2 个标签漂移转 RED。
+2b. ✅ **per-row `#[cfg]` 门可派生**（2026-09-15 完成，commit `26730b2c`）。
+    `Resolver.cfg_of` 记录每条路由注册时的最窄 `#[cfg]` 作用域；`gate_of(row)` =
+    narrowest-in-function-scope ∪ module-gates-of-all-registrars；
+    gate-filtered union 复现两泳道（default 1065、all-extensions 1146）。
+    抽掉模块门 → golden 1066 vs 1065 转 RED。
+2c. ⏳ **生成可 include! 的 Rust 派生物**：由提取器产出一份 `include_str!`/`include!` 可用的
+    路由表（每条带 `#[cfg(..)]` + profile guard + `registered_by` + 注解），
+    供 `base_route_manifest()` / `declared_route_manifest_for_profile()` 读取；
+    运行时 `create_router` 的重复检测继续用这份表。
 3. ⏳ **删手抄**：删除 244 处 `*_route_manifest()`（72 文件）与 `assembly.rs` 的 37 处 `ledger.extend(...)`；
    含 `top_level_inline_manifest()` 与 `assembly_compat_manifest()`。
    判据：`grep -rl '_route_manifest' src/` = 0。
@@ -398,14 +408,17 @@ ledger_export_sdk  default 1127  worker 1138  all 1146
 含义：**"某条路由被承诺在一个编译不出它的泳道里"和"被承诺在一个永不合并它的 profile 里"
 这两种谎，union 视角在数学上不可能看见。** 这正是 B2-1 要消掉的那类不一致。
 
-**同时新增的守卫。** `test_extract_registered.py` 现 39 项检查（原 22 项）+ 4 项变异自证：
+**同时新增的守卫。** `test_extract_registered.py` 现 52 项检查（原 22 项）+ 6 项变异自证：
 
 - cfg 谓词双向可判别（`feature = "voice-extended"` 在 golden 关、sdk 开；`not(feature = "friends")` 两泳道都关；
   `all/any/not` 组合与 Rust 语义一致；未知裸 flag 判为关；`features=None` 的并集模式恒真）；
 - `merge_into` 读出的 guard 集合 **恰为** `{create_oidc_router: oidc_enabled, create_worker_body_router: worker_enabled}`；
 - 每条派生路由都必须带 guard 记录（漏记会被静默当成 Always，所以单列一项检查）；
 - 每个泳道 `default ⊆ worker ⊆ all`；
-- 变异 #3（无视 cfg）#4（丢掉 profile guard）各自转红并报出条数。
+- `registered_by` 与 32 条 origin 规则全量对齐（2211 标签，零豁免；抽掉 swimlane 规则 → 2 标签漂移转 RED）；
+- `gate_of` 为每条路由产出 gate，且 gate-filtered union 复现两泳道（default 1065、all-extensions 1146；
+  抽掉模块门 → golden 1066 vs 1065 转 RED；有门文件内 `#[cfg]` 块仍被门控 `/rooms/{room_id}/call/{call_id}` 为 `voip-tracking`；
+  共享路径 `/login` 保留 `cas-sso`）。
 
 **副作用：无。** union 侧输出逐字未变（`router-derived 1146` / `manifest 1077` / 双向 0 / `unresolved 19` /
 非 Matrix 命名空间 14），`ROUTE_CONTRACT.md` 无漂移，SDK 覆盖检查仍 2 条豁免全命中。
