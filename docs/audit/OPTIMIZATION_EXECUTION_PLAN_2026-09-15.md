@@ -348,6 +348,9 @@ B2-1 的处方（`from_router`）等于要求把已经存在的"替代品"换成
 3. ⏳ **删手抄**：删除 244 处 `*_route_manifest()`（72 文件）与 `assembly.rs` 的 37 处 `ledger.extend(...)`；
    含 `top_level_inline_manifest()` 与 `assembly_compat_manifest()`。
    判据：`grep -rl '_route_manifest' src/` = 0。
+   ⚠️ **前置项（2026-09-15 侦察，§3.5）**：`auth`（1 条）、`rate_limit_exempt`（5 条，sync + sliding_sync）
+   与 `query_params`（0 条）属于**手写注解**，不能从 `.route()` 调用推演，必须建立 `ledger_annotations.txt`
+   策略表 + 提取器 fidelity 守卫，否则删表后 middleware  exempt-paths 归零 + `auth=user` 丢失。
 4. ⏳ **保住 per-profile 粒度**（§3.4 已把它从"猜"变成"读"）。
    `ProfileFlags { oidc_enabled, worker_enabled, saml_enabled }` 是**运行时配置**，源码读不出来。
    侦察修正了本条的两处原假设：
@@ -422,6 +425,29 @@ ledger_export_sdk  default 1127  worker 1138  all 1146
 
 **副作用：无。** union 侧输出逐字未变（`router-derived 1146` / `manifest 1077` / 双向 0 / `unresolved 19` /
 非 Matrix 命名空间 14），`ROUTE_CONTRACT.md` 无漂移，SDK 覆盖检查仍 2 条豁免全命中。
+
+#### §3.5 step 2c 前置侦察：派生物必须携带的手写注解（2026-09-15）
+
+**结论：删 244 处 manifest（step 3）之前，派生表除 `(method, path, gate, registered_by)`
+外，还必须携带两类"源码里推不出来"的手写注解。** §3.3 第 2 步原假设"提取器的三元组几乎够用"
+（见收盘备忘）经实测被推翻——`RouteEntry` 有 3 个 `new()` 默认关闭的 builder 字段，它们承载的
+是**作者意图**，与"注册了哪些路由"正交，`.route()` 字面量里根本没有这些信息。逐个量化：
+
+| 字段 | 全仓来源 | 条数 | 消费者 | 删表后果 |
+|---|---|---|---|---|
+| `rate_limit_exempt` | `sync.rs:68` `GET /v3/sync`（1）+ `sliding_sync.rs:55` 4 个 POST sync | **5** | `assembly.rs:405` 从 ledger 收集 → 中间件 `rate_limit.rs:35` 跳过 IP 限流 | **限流回归**：这 5 条从"自带 per-user 限流"退回"双重限流"，静默改变行为 |
+| `auth` | `delayed_events.rs:128` `POST .../delayed_events/{delay_id}` `.with_auth("user")` | **1** | `ledger_export.rs:157` → 导出进 fixture/SDK 产物 | **契约漂移**：导出少一个 `auth:"user"` 字段（该字段有真实消费者，非 `module`/`status` 那类零消费项） |
+| `query_params` | 无任何 `.with_query_params()` 调用 | **0** | 同上，`ledger_export.rs:156` | 无（恒空，可安全省略或留默认 `&[]`） |
+
+**判据（与 step 2a 同构）**：`registered_by` 靠 `ledger_origins.txt` 32 条规则复现，
+注解也必须有一张对账表——提议 `ledger_annotations.txt`，每行 `METHOD PATH<TAB>field=value`，
+当前恰 6 行（5 exempt + 1 auth）。fidelity 守卫：提取器按此表为派生路由贴上注解，
+要求与真实 manifest 产出的 `rate_limit_exempt_paths`（可运行时枚举）和导出 `auth` 字段逐条相等。
+无独立 oracle 的方向（同 §3.2 的让渡）：exempt/auth 若只存在于这张新表，就与 manifest 同源，
+故其正确性靠"变异自证"兜底——抽掉某行 → 派生 exempt 集少 1 转红。
+
+**因此 step 3 的判据要加一条**：`grep -rn 'with_auth\|with_rate_limit_exempt' src/` = 0
+之前，`ledger_annotations.txt` 必须已落地并被 fidelity 守卫覆盖，否则删 manifest 会静默丢注解。
 
 ---
 
