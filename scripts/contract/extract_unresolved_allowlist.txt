@@ -43,3 +43,5 @@ chain method .manifest_for_profile() in assembly.rs           # RouteModule dyna
 chain method .manifest_for_profile() in route_module.rs       # RouteModule dynamic dispatch — covered by the `merge_into` roots
 chain method .merge_into() in assembly.rs                     # RouteModule dynamic dispatch — covered by the `merge_into` roots
 chain method .with_rate_limit_exempt_paths() in assembly.rs   # AppState mutation, not a router
+chain method .rank() in derived_routes.rs                     # Generated derived_route_manifest helper, not a route definition
+chain method .sort_by() in derived_routes.rs                  # Generated dedup/sort helper, not a route definition

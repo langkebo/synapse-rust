@@ -86,6 +86,8 @@ pub mod room_summary;
 pub mod route_ledger;
 /// The `route_module` module.
 pub mod route_module;
+/// The `derived_routes` module.
+pub mod derived_routes;
 /// The `sliding_sync` module.
 pub mod sliding_sync;
 /// The `space` module.

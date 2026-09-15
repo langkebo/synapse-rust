@@ -94,10 +94,8 @@ pub fn declared_route_manifest_for(state: &AppState) -> RouteLedger {
 /// [`declared_route_manifest_for`] so this and live routing stay aligned by
 /// construction.
 pub fn declared_route_manifest_for_profile(flags: &ProfileFlags) -> RouteLedger {
-    let mut ledger = base_route_manifest();
-    for module in route_modules() {
-        ledger.extend(module.manifest_for_profile(flags));
-    }
+    let mut ledger = RouteLedger::new();
+    ledger.extend(super::derived_routes::derived_route_manifest(flags));
     ledger
 }
 

@@ -10,7 +10,7 @@
 
 - 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1146**
 - 含路由注册的模块文件：**66**
-- 含 `*_route_manifest` 函数的模块：**66**
+- 含 `*_route_manifest` 函数的模块：**67**
 
 > **路径为何是绝对的**：本清单由 `extract_registered.py` 从真实 router 构造解析得到，
 > 已递归应用 `.nest("/prefix", ..)` 与 `expand_under_prefixes(..)` 的前缀。

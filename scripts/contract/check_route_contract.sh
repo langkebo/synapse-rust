@@ -44,6 +44,9 @@ EXTRACT_STRICT=1 python3 scripts/contract/extract_registered.py
 echo "==> Regenerating ${DOC} (gen_contract_doc.py) ..."
 python3 scripts/contract/gen_contract_doc.py
 
+echo "==> Drift gate for derived_routes.rs (gen_derived_routes.py) ..."
+python3 scripts/contract/gen_derived_routes.py --check
+
 # B2-4b: the extractor guards "后端已服务 ⊆ 已登记"; this guards the OPPOSITE
 # direction — "SDK 真实调用的 ⊆ 后端已登记" (后端别欠 SDK 端点). It reads the SDK
 # manager source literals, NOT the generated route-table (which is "只增不减" and
