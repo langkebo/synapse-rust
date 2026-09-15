@@ -225,7 +225,8 @@ def split_statements(body: str) -> list[str]:
             depth -= 1
             if depth == 0 and c == "}":
                 cur.append(c)  # the closing brace belongs to the statement
-                head = strip_leading_attrs("".join(cur)).lstrip()
+                _preds, head = strip_leading_attrs("".join(cur))
+                head = head.lstrip()
                 if head.startswith("{") or re.match(r"(?:%s)\b" % "|".join(_BLOCK_KEYWORDS), head):
                     stmts.append("".join(cur))
                     cur = []
@@ -254,27 +255,69 @@ def split_statements(body: str) -> list[str]:
 # --------------------------------------------------------------------------
 
 
-def strip_leading_attrs(text: str) -> str:
-    """Drop leading `#[...]` / `///` attribute lines from a statement.
+def predicates_before(src: str, pos: int) -> list[str]:
+    """`cfg(...)` bodies of the attributes immediately preceding `pos`.
+
+    Walks *backwards* over `#[…]` attributes so a compile-time gate can be
+    attached to the item it guards::
+
+        #[cfg(feature = "voice-extended")]
+        pub mod voice;
+
+    Non-`cfg` attributes (`#[derive(..)]`, `#[allow(..)]`) are skipped without
+    stopping the walk, so `#[cfg(feature = "x")] #[serde(..)] fn f()` still sees
+    the gate. The walk stops at anything that is not an attribute, which is what
+    keeps it from reaching across a `;` into the previous statement.
+    """
+    preds: list[str] = []
+    i = pos
+    while True:
+        j = i
+        while j > 0 and src[j - 1] in " \t\r\n":
+            j -= 1
+        if j < 2 or src[j - 1] != "]":
+            return preds
+        start = src.rfind("#[", max(0, j - 4096), j)
+        if start == -1:
+            return preds
+        body = src[start + 2 : j - 1].strip()
+        if body.startswith("cfg("):
+            preds.append(body[4:-1])
+        i = start
+
+
+def strip_leading_attrs(text: str) -> tuple[list[str], str]:
+    """Split leading `#[...]` / `///` attributes from a statement.
+
+    Returns `(cfg_predicates, remainder)`.
 
     `#[allow(unused_mut)] let mut router = ...` must still be recognised as a
     `let`, and `#[cfg(feature = "voip-tracking")] { router = ... }` as a block.
+
+    The predicates used to be dropped on the floor, which is exactly how
+    `#[cfg(feature = "server-notifications")] { router = router.route(..) }`
+    contributed its routes to *every* feature lane: the `#[cfg]` was parsed as
+    noise and the block recursed unconditionally.
     """
+    preds: list[str] = []
     s = text.lstrip()
     while True:
         if s.startswith("#["):
             close = match_delim(s, 1)
             if close == -1:
-                return s
+                return preds, s
+            body = s[2:close].strip()
+            if body.startswith("cfg("):
+                preds.append(body[4:-1])
             s = s[close + 1 :].lstrip()
             continue
         if s.startswith("///") or s.startswith("//!"):
             nl = s.find("\n")
             if nl == -1:
-                return ""
+                return preds, ""
             s = s[nl + 1 :].lstrip()
             continue
-        return s
+        return preds, s
 
 
 def extract_blocks(text: str) -> list[str]:
@@ -334,7 +377,13 @@ def strip_test_mods(src: str) -> str:
 
 
 def iter_fns(src: str):
-    """Yield `(name, body)` for every `fn name(...) { body }` in `src`."""
+    """Yield `(name, body, cfg_predicates)` for every `fn name(...) { body }`.
+
+    The predicates are the `cfg(...)` gates on the item itself. They matter:
+    `#[cfg(feature = "saml-sso")] impl RouteModule for SamlModule` is a whole
+    conditional surface, and a definition that cannot compile in a lane must not
+    be treated as a callable root in that lane.
+    """
     for m in re.finditer(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:<[^>]*>)?\s*\(", src):
         # locate the body brace: skip the parameter list, then any return type
         p = m.end() - 1
@@ -371,7 +420,7 @@ def iter_fns(src: str):
         end = match_delim(src, brace)
         if end == -1:
             continue
-        yield m.group(1), src[brace + 1 : end]
+        yield m.group(1), src[brace + 1 : end], predicates_before(src, m.start())
 
 
 def iter_consts(src: str):
@@ -384,6 +433,137 @@ def iter_consts(src: str):
         if semi == -1:
             continue
         yield m.group(1), src[eq + 1 : semi]
+
+
+# --------------------------------------------------------------------------
+# Compile-time feature lanes and runtime profile guards (B2-1)
+# --------------------------------------------------------------------------
+#
+# The served surface depends on two independent axes and the extractor used to
+# collapse both into one union:
+#
+#   * COMPILE TIME — `#[cfg(feature = "…")]`. This is the *lane*: identical
+#     source yields a different surface per feature set. The two that matter are
+#     the `default` set (the golden fixtures) and `default + all-extensions`
+#     (the maximally complete lane the SDK ingests).
+#   * RUN TIME — `ProfileFlags`. This is the *profile*: `default` / `worker` /
+#     `all`. Exactly two routers are merged only when their flag is on
+#     (`worker::create_worker_body_router`, `oidc::create_oidc_router`).
+#
+# Collapsing them hides two different lies: a route the ledger promises in a
+# lane that cannot compile it, and a route it promises in a profile whose router
+# is never merged.
+
+_CARGO_FEATURES_HEAD = re.compile(r"^\[features\]\s*$", re.M)
+_CARGO_FEATURE_ENTRY = re.compile(r"^([A-Za-z0-9_-]+)\s*=\s*\[(.*?)\]", re.M | re.S)
+_CFG_FEATURE = re.compile(r'feature\s*=\s*"([^"]+)"')
+
+# Flag stems as they appear in a `merge_into` condition -> the `ProfileFlags`
+# field they stand for.
+_PROFILE_FLAG_STEMS = (("oidc", "oidc_enabled"), ("worker", "worker_enabled"), ("saml", "saml_enabled"))
+
+
+def cargo_feature_table(cargo_toml: str) -> dict:
+    """Parse `[features]` into `{name: [bare feature names]}`.
+
+    `synapse-services/voice-extended` style entries are *dependency* features;
+    they can never appear in `cfg(feature = "…")`, so only bare names are kept.
+    Reading the manifest instead of hard-coding the sets keeps the lanes honest
+    when a feature is added to `default` or to `all-extensions`.
+    """
+    head = _CARGO_FEATURES_HEAD.search(cargo_toml)
+    if not head:
+        return {}
+    body = cargo_toml[head.end() :]
+    nxt = re.search(r"^\[", body, re.M)
+    if nxt:
+        body = body[: nxt.start()]
+    table: dict = {}
+    for entry in _CARGO_FEATURE_ENTRY.finditer(body):
+        table[entry.group(1)] = [i for i in re.findall(r'"([^"]+)"', entry.group(2)) if "/" not in i]
+    return table
+
+
+def feature_closure(seeds, table) -> frozenset:
+    """Transitive closure of `seeds` over the `[features]` table."""
+    seen: set = set()
+    stack = list(seeds)
+    while stack:
+        name = stack.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        stack.extend(table.get(name, ()))
+    return frozenset(seen)
+
+
+def cfg_allows(predicate: str, features) -> bool:
+    """Evaluate a `cfg(...)` body against an enabled-feature set.
+
+    `features is None` is union mode: every predicate holds. Bare flags (`test`,
+    `debug_assertions`, custom cfgs) evaluate to *off* — a production extraction
+    has no `cfg(test)` code left after `strip_test_mods`, so treating them as on
+    could only ever add phantoms.
+    """
+    if features is None:
+        return True
+    text = predicate.strip()
+    for keyword, combine in (("all", all), ("any", any)):
+        if text.startswith(keyword + "("):
+            close = match_delim(text, len(keyword))
+            if close == -1:
+                return True
+            return combine(cfg_allows(part, features) for part in split_top_level(text[len(keyword) + 1 : close]))
+    if text.startswith("not("):
+        close = match_delim(text, 3)
+        if close == -1:
+            return True
+        return not cfg_allows(text[4:close], features)
+    literal = _CFG_FEATURE.fullmatch(text)
+    if literal:
+        return literal.group(1) in features
+    return False
+
+
+def cfg_all_allow(predicates, features) -> bool:
+    """`#[cfg(a)] #[cfg(b)]` is a conjunction, matching Rust's semantics."""
+    return all(cfg_allows(p, features) for p in predicates)
+
+
+def gated_router_builders(files: dict) -> dict:
+    """`router-builder fn name -> ProfileFlags field` for flag-gated merges.
+
+    Read out of `route_module.rs::*::merge_into`, the one place where a runtime
+    flag chooses *between* two routers::
+
+        if oidc::oidc_enabled(&sso_ctx) { router.merge(oidc::create_oidc_router(state)) }
+        else                           { router.merge(oidc::create_oidc_fallback_router()) }
+
+    Only the `if` branch is gated: the `else` branch's router is merged whenever
+    the module is, so its routes are always-on. The map is not taken on faith —
+    a wrong entry makes the per-profile sets disagree with the committed
+    fixtures, which is a hard gate failure.
+    """
+    gated: dict = {}
+    for src in files.values():
+        for name, body, _preds in iter_fns(src):
+            if name != "merge_into":
+                continue
+            for match in re.finditer(r"\bif\s+(.+?)\s*\{", body):
+                brace = match.end() - 1
+                end = match_delim(body, brace)
+                if end == -1:
+                    continue
+                merges = re.findall(
+                    r"\.merge\s*\(\s*(?:[A-Za-z_][A-Za-z0-9_]*::)*([A-Za-z_][A-Za-z0-9_]*)\s*\(",
+                    body[brace + 1 : end],
+                )
+                hits = [flag for stem, flag in _PROFILE_FLAG_STEMS if stem in match.group(1)]
+                if not merges or len(hits) != 1:
+                    continue
+                for callee in merges:
+                    gated[callee] = hits[0]
+    return gated
 
 
 # --------------------------------------------------------------------------
@@ -454,15 +634,39 @@ def parse_chain(expr: str):
 
 
 class Resolver:
-    def __init__(self, files: dict[str, str]):
+    def __init__(self, files: dict[str, str], features=None):
         self.files = files  # relpath -> comment-stripped source
+        # `features is None` is *union mode*: every `#[cfg]` predicate is
+        # treated as satisfied, reproducing the historical extraction that
+        # reconciled against the union of both ledger lanes. Pass a frozenset of
+        # enabled feature names (see `LANES`) to resolve one compile lane.
+        self.features = features
+        # `fn name -> ProfileFlags field` for the router builders that a runtime
+        # flag decides whether to merge. See `gated_router_builders`.
+        self.gated = gated_router_builders(files)
+        # `(method, path) -> {guard}`. A guard is `""` (always merged) or the
+        # ProfileFlags field that gates the production. A route produced under
+        # several guards keeps all of them: `/…/.well-known/openid-configuration`
+        # is served by both the always-merged fallback router and the
+        # OIDC-only router, so it must count as always-on. Keyed by the
+        # `(method, path)` pair consumers compare on, not by the tuple the
+        # extractor carries around (which also holds the owning file).
+        self.guards: dict[tuple[str, str], set] = defaultdict(set)
+        # Guard of the router builder currently being evaluated (`""` = always
+        # merged). Maintained by `eval_fn_body`, consumed by `apply_call`.
+        self._current_guard = ""
         # `self.fn_all` keeps every definition distinct. Keying by
         # `(file, name)` would collide: `route_module.rs` defines 11 separate
         # `merge_into` methods, and collapsing them loses 10 modules' routes.
         self.fn_all: list[tuple[str, str, str]] = []  # (file, name, body)
         self.consts: dict[str, list[tuple[str, str]]] = defaultdict(list)
         for rel, src in files.items():
-            for name, body in iter_fns(src):
+            for name, body, preds in iter_fns(src):
+                # A definition that cannot compile in this lane is not callable
+                # here; keeping it would let a `#[cfg(feature = "saml-sso")] impl`
+                # leak its routes into the default-feature lane.
+                if not cfg_all_allow(preds, features):
+                    continue
                 self.fn_all.append((rel, name, body))
             for name, val in iter_consts(src):
                 self.consts[name].append((rel, val))
@@ -589,7 +793,9 @@ class Resolver:
         return ("routes", acc)
 
     def _tuples(self, t: str, owner: str) -> list:
-        return [(m.group(1).upper(), m.group(2), owner) for m in _RE_TUPLE.finditer(t)]
+        out = [(m.group(1).upper(), m.group(2), owner) for m in _RE_TUPLE.finditer(t)]
+        self._record_guards(out)
+        return out
 
     def _expand_under_prefixes(self, t: str, env: dict, owner: str) -> list:
         i = t.index("(")
@@ -606,6 +812,7 @@ class Resolver:
         for pfx in prefixes:
             for meth, path, own in routes:
                 out.append((meth, pfx + path, own))
+        self._record_guards(out)
         return out
 
     def eval_atom(self, base: str, env: dict, owner: str) -> list:
@@ -649,14 +856,25 @@ class Resolver:
             if memo_key in self._memo:
                 return list(self._memo[memo_key])
             self._memo[memo_key] = []  # cycle guard
+        # Routes registered inside a flag-gated router are recorded together with
+        # that guard, which is what lets the per-profile sets be derived. Saved
+        # and restored rather than pushed on a stack: there is no early `return`
+        # past this point, so no `try`/`finally` around the loop is needed.
+        prev_guard = self._current_guard
+        self._current_guard = self.gated.get(name) or prev_guard
         env: dict = {}
         result: list = []
 
         for stmt in split_statements(body):
-            s = strip_leading_attrs(stmt)
+            preds, s = strip_leading_attrs(stmt)
             if not s:
                 continue
             if s.startswith("//") or s.startswith("#"):
+                continue
+            # `#[cfg(feature = "x")] { router = router.route(..) }`, and the same
+            # gate on a plain statement, only exist in a lane whose feature set
+            # satisfies it.
+            if not cfg_all_allow(preds, self.features):
                 continue
 
             # `#[cfg(..)] { router = router.route(..) }` and plain blocks:
@@ -727,9 +945,21 @@ class Resolver:
             if val[0] == "routes":
                 result.extend(val[1])
 
+        self._current_guard = prev_guard
         if memo_key is not None:
             self._memo[memo_key] = result
         return list(result)
+
+    def _record_guards(self, routes) -> None:
+        """Tag freshly-created route tuples with the guard in force.
+
+        Recorded at *creation*, not at the root that reached them: the same
+        route can be reached through an always-merged root and a gated one, and
+        recording both is what makes "served in every profile" (`""` in the set)
+        distinguishable from "served only when the flag is on".
+        """
+        for route in routes:
+            self.guards[(route[0], route[1])].add(self._current_guard)
 
     def apply_call(self, acc: list, name: str, args: str, env: dict, owner: str) -> list:
         if name == "route":
@@ -744,7 +974,9 @@ class Resolver:
             methods = self._methods_of(parts[1] if len(parts) > 1 else "")
             if not methods:
                 self.unresolved.add(f"no method for route {path!r} in {owner}")
-            return acc + [(m, path, owner) for m in methods]
+            added = [(m, path, owner) for m in methods]
+            self._record_guards(added)
+            return acc + added
 
         if name == "nest":
             parts = split_top_level(args)
@@ -759,7 +991,9 @@ class Resolver:
             subs = sub[1] if sub[0] == "routes" else []
             if not subs:
                 self.unresolved.add(f"nest {prefix} -> unresolved {parts[1].strip()[:60]} in {owner}")
-            return acc + [(meth, prefix + path, own) for (meth, path, own) in subs]
+            added = [(meth, prefix + path, own) for (meth, path, own) in subs]
+            self._record_guards(added)
+            return acc + added
 
         if name == "merge":
             sub = self.eval_value(args, env, owner)
@@ -882,8 +1116,52 @@ class Resolver:
 # --------------------------------------------------------------------------
 
 
-def load_sources() -> dict[str, str]:
-    files = {}
+_MOD_DECL = re.compile(r"^\s*(?:pub\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)\s*;", re.M)
+
+
+def mod_gated_files(rel_sources: dict) -> dict:
+    """`relpath -> [cfg predicates]` implied by the module declarations.
+
+    Walks the module tree from `mod.rs`, accumulating every ancestor's gate::
+
+        #[cfg(feature = "voice-extended")] pub mod voice;   // mod.rs
+        #[cfg(feature = "x")]              pub mod detail;  // voice/mod.rs
+        -> voice/detail.rs requires BOTH
+
+    This is the only gate that works for a whole conditional surface. Gating the
+    `impl RouteModule` instead would leave the router builder with no static
+    caller, promote it to an unreferenced root, and *add* its routes to the very
+    lane that cannot compile them.
+    """
+    gates: dict = {}
+    stack = [("mod.rs", [])]
+    while stack:
+        rel, inherited = stack.pop()
+        if rel in gates:
+            continue
+        gates[rel] = inherited
+        src = rel_sources.get(rel)
+        if src is None:
+            continue
+        base = os.path.dirname(rel)
+        for m in _MOD_DECL.finditer(src):
+            child = m.group(1)
+            preds = predicates_before(src, m.start())
+            for cand in (os.path.join(base, child + ".rs"), os.path.join(base, child, "mod.rs")):
+                if cand in rel_sources:
+                    stack.append((cand, inherited + preds))
+                    break
+    return gates
+
+
+def load_sources(features=None) -> dict[str, str]:
+    """Comment-stripped source of every route module, keyed by relpath.
+
+    With `features` set, modules whose `mod` declaration is gated by a feature
+    outside that set are dropped entirely, so a lane only ever sees what it
+    could actually compile.
+    """
+    raw: dict = {}
     for dp, _, fns in os.walk(ROUTES_DIR):
         for f in sorted(fns):
             if not f.endswith(".rs"):
@@ -893,9 +1171,58 @@ def load_sources() -> dict[str, str]:
             if "tests" in rel.split(os.sep):
                 continue
             with open(fp, encoding="utf-8", errors="replace") as fh:
-                src = strip_comments(fh.read())
-            files[rel] = strip_test_mods(src)
+                raw[rel] = strip_comments(fh.read())
+
+    gates = mod_gated_files(raw)
+    files = {}
+    for rel, src in raw.items():
+        if features is not None and not cfg_all_allow(gates.get(rel, []), features):
+            continue
+        files[rel] = strip_test_mods(src)
     return files
+
+
+def load_lanes() -> dict:
+    """`{fixture lane dir: enabled feature set}` read from Cargo.toml.
+
+    `ledger_export/` is generated by a default-feature build and
+    `ledger_export_sdk/` by `--features all-extensions`; which in cargo means
+    the default set *plus* the meta-feature, not instead of it.
+    """
+    with open(os.path.join(ROOT, "Cargo.toml"), encoding="utf-8") as fh:
+        table = cargo_feature_table(fh.read())
+    if not table:
+        return {}
+    return {
+        "ledger_export": feature_closure(["default"], table),
+        "ledger_export_sdk": feature_closure(["default", "all-extensions"], table),
+    }
+
+
+def profile_sets(res: "Resolver") -> dict:
+    """`{profile: {(method, path)}}` from a guarded extraction.
+
+    A route is served in a profile when at least one router that registers it is
+    merged there:
+      * `default` — always-merged routers only
+      * `worker`  — plus the `worker_enabled` router
+      * `all`     — plus the `oidc_enabled` router
+
+    Monotone by construction. The committed fixtures were produced by the
+    hand-written `*_route_manifest()` functions, *not* by this code, so agreeing
+    with them is a real cross-check of both the guards and the resolver.
+    """
+    per: dict = {}
+    for owner, name, body in res.roots():
+        for meth, path, own in res.eval_fn_body(name, body, owner, memo_key=(owner, name, body)):
+            if meth and path:
+                per.setdefault(own, set()).add((meth, path))
+    routes = {t for rs in per.values() for t in rs}
+    guards = {r: res.guards.get(r, set()) for r in routes}
+    always = {r for r in routes if "" in guards[r]}
+    worker = {r for r in routes if "worker_enabled" in guards[r]}
+    oidc = {r for r in routes if "oidc_enabled" in guards[r]}
+    return {"default": always, "worker": always | worker, "all": always | worker | oidc}
 
 
 def load_lane(subdir: str) -> set:
@@ -1086,6 +1413,42 @@ def main() -> int:
         for m, p in undeclared[:40]:
             print(f"    {m:6} {p}   <- {mods_for.get((m, p), '?')}")
 
+    # -- per-lane, per-profile cross-check (B2-1) ---------------------------
+    # The union check above cannot see two distinct lies, because it throws both
+    # axes away:
+    #   * LANE — `#[cfg(feature = "…")]`. A route can be promised by the golden
+    #     lane while only compiling in `all-extensions`; the union hides it.
+    #     Each lane is now resolved with its own feature set, read from
+    #     Cargo.toml so that adding a feature to `default` / `all-extensions`
+    #     moves this gate with it instead of silently widening a hard-coded set.
+    #   * PROFILE — `ProfileFlags`. Two routers are merged only when their flag
+    #     is on, so the same source serves 1047 or 1065 routes depending on
+    #     runtime config. The union only ever sees the widest profile.
+    # The fixtures on the other side were produced by the hand-written
+    # `*_route_manifest()` functions, so agreement is a real two-implementation
+    # cross-check: six sets, exact equality, deliberately no allowlist.
+    profile_mismatches: list = []
+    lanes = load_lanes()
+    if lanes and ledger_all:
+        print("\n-- per-lane / per-profile cross-check (B2-1) --")
+        for lane_name, feats in sorted(lanes.items()):
+            lane_sets = profile_sets(Resolver(load_sources(feats), feats))
+            for prof, got in sorted(lane_sets.items()):
+                fp = os.path.join(ROOT, "tests", "unit", "fixtures", lane_name, f"{prof}.json")
+                if not os.path.exists(fp):
+                    continue
+                with open(fp) as fh:
+                    want = {(e["method"], e["path"]) for e in json.load(fh)["entries"]}
+                if got == want:
+                    print(f"   ok   {lane_name:18} {prof:8} {len(got):5} routes")
+                    continue
+                profile_mismatches.append(f"{lane_name}/{prof}")
+                print(f"   FAIL {lane_name:18} {prof:8} derived {len(got):5}, fixture {len(want):5}")
+                for m, p in sorted(want - got)[:10]:
+                    print(f"        derived is missing: {m:6} {p}")
+                for m, p in sorted(got - want)[:10]:
+                    print(f"        derived has extra:  {m:6} {p}")
+
     # Strict gate. All four properties must hold exactly; there is deliberately
     # no allowlist for the first three, because each one is a statement that the
     # contract is telling the truth and "mostly true" is the failure mode this
@@ -1107,6 +1470,11 @@ def main() -> int:
         strict_failures.append(
             f"{len(undeclared)} real routes are absent from both ledger lanes (S-14): "
             "add them to the owning *_route_manifest(), or stop serving them"
+        )
+    if profile_mismatches:
+        strict_failures.append(
+            f"{len(profile_mismatches)} lane/profile set(s) disagree with the fixtures (B2-1): "
+            f"{profile_mismatches} — a cfg lane or a runtime profile guard is wrong"
         )
     if new_unresolved:
         strict_failures.append(f"{len(new_unresolved)} new unresolved parser constructs")

@@ -1105,7 +1105,110 @@ Matrix 规范里访客准入只有 state event `m.room.guest_access`。同一 SD
 
 ---
 
-## 附录 A：复现命令
+## 17. B2-1 第一步：契约真值源的"并集视角"被拆成 lane × profile（2026-09-15）
+
+### 17.1 问题的形状
+
+契约提取器（`scripts/contract/extract_registered.py`）一直只有一个视角：**并集**。
+`#[cfg(feature = "…")]` 被当噪声丢掉（`strip_leading_attrs` 直接略过属性文本），
+运行时 `ProfileFlags` 压根没建模。于是它只能回答"源码里一共注册了多少条路由"（1146），
+回答不了"`default` 特性编译、`worker` 档配置下到底服务多少条"。
+
+后果是两类不一致在**数学上**不可见：
+
+- 一条路由被**承诺在一个编译不出它的泳道里**（例如某条只在 `all-extensions` 下存在的端点，
+  在 golden fixture 里也声明着 —— 单看并集，两边一样多）；
+- 一条路由被**承诺在一个永不合并它的 profile 里**（`worker_enabled = false` 时
+  `create_worker_body_router` 根本不合并，但并集里它有 11 条）。
+
+这不是理论担忧。见 17.4 的实测：改一处 `mod` 的 cfg 门控，union 门禁四项指标
+**全部保持干净**（`router-derived 1146` / `declared-not-derived 0` / `ledger NOT derived 0` /
+`derived-not-in-ledger 0`），而真实语义已经错了 27 条。
+
+### 17.2 两条轴分别怎么读
+
+| 轴 | 载体 | 读法 |
+|---|---|---|
+| **lane**（编译期） | `#[cfg(feature = "…")]`，出现在 ① `mod` 声明 ② `fn` 定义 ③ 语句/块 | `Cargo.toml` 的 `[features]` 求传递闭包：`golden` = `default`；`sdk` = `default + all-extensions`（cargo 的语义是**叠加**而非替换） |
+| **profile**（运行时） | `route_module.rs::*::merge_into` 里 `if <flag> { router.merge(…) }` | 解析 `merge_into` 的 `if` 分支，识别被门控的 router 构造根 —— **不是手写清单** |
+
+三个容易踩空的地方：
+
+1. **lane 必须在 `mod` 声明上把关，不能只在 `fn` 上。** 试过按 `fn` 级 cfg 过滤：
+   `#[cfg(feature = "voice-extended")] impl RouteModule for VoiceModule` 被丢掉后，
+   `voice::create_voice_router` 就**没有静态调用方**了，于是被提升为新的 root，
+   把 27 条路由**加进**了根本编译不出它们的 golden 泳道 —— 过滤器反而变成放大器。
+   `mod` 声明是唯一覆盖整个条件面的位置。
+
+2. **profile guard 必须归属到"产生路由的那个构造根"，不能挂在 root 上。**
+   `route_module.rs::merge_into` 本身也是一个 root（`create_router` 通过 trait 动态派发，
+   静态看不见调用方）。实测：把 11 个 `merge_into` root 整个排除会丢掉 **194 条**路由 ——
+   `friend_room` / `voice` / `cas` / `saml` / `widgets` / `burn_after_read` /
+   `external_service` / `worker` / `oidc` 的构造器**只**经由它被静态调用到。
+   所以 guard 记在"每次生成路由元组"的现场，且允许多个 guard 并存：
+   `/.well-known/openid-configuration` 同时被总是合并的 fallback router 与 OIDC-only
+   router 服务，两条 guard 都在 → 判定为 Always（正确）。
+
+3. **受 flag 影响的不是整模块，而是两个 router 构造根。**
+   实测归属（`registered_by` × profile 签名）：
+
+   | 模块 | Always | `RequiresWorker` | `RequiresOidc` |
+   |---|---|---|---|
+   | `worker.rs` | 15（`create_worker_admin_router`，经 `create_router` 合并） | 11（`create_worker_body_router`） | — |
+   | `oidc/mod.rs` | 2（`/.well-known/{jwks.json,openid-configuration}`） | — | 8（`create_oidc_router`） |
+   | 其余 64 个模块 | 全部 | — | — |
+
+   三个 profile 实测**单调**（`default ⊆ worker ⊆ all`，违反数 = 0），于是"这条路由在哪个
+   profile"能压成一个 `{Always, RequiresWorker, RequiresOidc}` 三值标注，
+   不需要对 `manifest_for_profile` 的分支做通用求值。
+
+### 17.3 判据：六组集合逐条精确相等，无豁免清单
+
+```
+ledger_export      default 1047   worker 1058   all 1065
+ledger_export_sdk  default 1127   worker 1138   all 1146
+```
+
+对面是**手写 `*_route_manifest()`** 产出的 fixture，所以这是两套独立实现互证，不是自证。
+已接进 `EXTRACT_STRICT=1`，`check_route_contract.sh` 每轮都跑。整套门禁耗时 1.5s。
+
+### 17.4 源码级变异：新门禁抓到旧门禁看不见的东西
+
+| 变异（改真实 Rust 源码） | union 门禁 | 新 lane/profile 门禁 |
+|---|---|---|
+| 把 `mod voice` 的 `#[cfg(feature = "voice-extended")]` 改成 `widgets`（`default` 里有） | **四项指标全绿**：`router-derived 1146`、`declared-not-derived 0`、`ledger NOT derived 0`、`derived-not-in-ledger 0` | **EXIT=1**，三条 profile 全部 FAIL（`golden/worker 1085 vs 1058`、`all 1092 vs 1065`、`default 1074 vs 1047`） |
+| 把 `OidcModule::merge_into` 的条件 `oidc::oidc_enabled(&sso_ctx)` 改成 `true` | 无感（并集不变） | **EXIT=1**，4 组集合 FAIL，并点名多出 `GET /_matrix/client/v3/oidc/authorize` 等 8 条 |
+
+### 17.5 新增守卫
+
+`test_extract_registered.py`：22 项 → **39 项检查**，变异自证 2 项 → **4 项**。
+
+- cfg 谓词双向可判别：`feature = "voice-extended"` 在 golden 关 / sdk 开；
+  `not(feature = "friends")` 两泳道都关（`friends` 在 `default` 里）；`all`/`any`/`not`
+  组合与 Rust 语义一致；未知裸 flag（`test`）判为关；`features=None` 的并集模式恒真。
+- `merge_into` 读出的 guard 集合**恰为**
+  `{create_oidc_router: oidc_enabled, create_worker_body_router: worker_enabled}`。
+- **每条派生路由都必须带 guard 记录**（漏记会被静默当成 Always，所以单列一项）。
+- 每个泳道 `default ⊆ worker ⊆ all`。
+- 变异 #3（无视 cfg）→ `golden lane reports 1146 vs 1065` 转红；
+  变异 #4（丢掉 profile guard）→ `default reports 1146 vs 1127` 转红。
+
+### 17.6 副作用：零
+
+union 侧输出**逐字未变**：`router-derived 1146` / `manifest-declared 1077` /
+`declared-but-not-derived 0` / `derived-but-not-declared 69` / `unresolved 19` /
+非 Matrix 命名空间 14。`ROUTE_CONTRACT.md` 无漂移，SDK 覆盖检查（B2-4b）2 条豁免全命中。
+
+### 17.7 顺带发现：`ProfileFlags::saml_enabled` 从不被读取（H-18）
+
+三个 field 里 `oidc_enabled`（`route_module.rs:199`）与 `worker_enabled`（`:236`）都在
+`manifest_for_profile` 里被读；`saml_enabled`（`:37` 声明、`:52` 由 `from_state` 写入、
+`ledger_export.rs:113-114` 用于构造 profile、`:273-274` 有断言）**没有任何
+`manifest_for_profile` 读它**。原因是 SAML 路由本就经
+`oidc::oidc_enabled()`（`oidc/mod.rs:154`：`oidc_service.is_some() || builtin_oidc_provider.is_some() || saml_enabled`）
+折进了 `oidc_enabled`。已登记 H-18，与 H-15 一批处置。
+
+---
 
 ```bash
 # A.1 23 个"应被吸收但缺失"的对象（有序活集模拟）

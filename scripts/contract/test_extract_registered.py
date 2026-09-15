@@ -289,6 +289,87 @@ def check_non_namespace_bucket(per: dict) -> None:
     )
 
 
+def check_lane_profile_modeling() -> None:
+    """B2-1: the extractor must reproduce all six (lane x profile) fixture sets.
+
+    Before this the loader collapsed both axes into one union, which is blind to
+    the two interesting failures: a route promised in a *lane* that cannot
+    compile it, and a route promised in a *profile* whose router is never merged.
+    The fixtures on the other side come from the hand-written
+    `*_route_manifest()` functions, so agreement is a two-implementation
+    cross-check rather than a self-proving assertion.
+    """
+    lanes = ex.load_lanes()
+    check(
+        "Cargo.toml yields exactly the two feature lanes",
+        set(lanes) == {"ledger_export", "ledger_export_sdk"},
+        f"got {sorted(lanes)}",
+    )
+    if not lanes:
+        return
+    golden, sdk = lanes["ledger_export"], lanes["ledger_export_sdk"]
+    check("golden lane is a strict subset of the SDK lane", golden < sdk, "the lanes must nest")
+    check(
+        "the lanes really differ (voice-extended is not in `default`)",
+        "voice-extended" not in golden and "voice-extended" in sdk,
+        f"golden={sorted(golden)}",
+    )
+
+    # The predicate has to discriminate in both directions, otherwise the six
+    # comparisons below pass vacuously.
+    check(
+        'cfg(feature = "voice-extended") is off in golden, on in sdk',
+        ex.cfg_allows('feature = "voice-extended"', golden) is False
+        and ex.cfg_allows('feature = "voice-extended"', sdk) is True,
+    )
+    check(
+        'cfg(not(feature = "friends")) is off in both lanes (friends is in `default`)',
+        ex.cfg_allows('not(feature = "friends")', golden) is False
+        and ex.cfg_allows('not(feature = "friends")', sdk) is False,
+    )
+    check(
+        "cfg(all(..) / any(..) / not(..)) compose exactly as Rust does",
+        ex.cfg_allows('all(feature = "widgets", not(feature = "voice-extended"))', golden) is True
+        and ex.cfg_allows('any(feature = "nope", feature = "cas-sso")', golden) is False
+        and ex.cfg_allows('any(feature = "nope", feature = "cas-sso")', sdk) is True,
+    )
+    check(
+        "an unknown bare cfg flag evaluates to off (no cfg(test) code survives extraction)",
+        ex.cfg_allows("test", sdk) is False,
+    )
+    check("union mode satisfies every predicate (the historic behaviour)", ex.cfg_allows('feature = "nope"', None) is True)
+
+    # Runtime profile guards must be *read from the assembly*, not guessed.
+    gated = ex.gated_router_builders(ex.load_sources())
+    check(
+        "runtime profile guards are read out of merge_into (exactly two gated routers)",
+        gated == {"create_oidc_router": "oidc_enabled", "create_worker_body_router": "worker_enabled"},
+        f"got {gated}",
+    )
+
+    for lane_name, feats in sorted(lanes.items()):
+        res = ex.Resolver(ex.load_sources(feats), feats)
+        sets = ex.profile_sets(res)
+        check(
+            f"{lane_name}: every derived route carries a guard record",
+            all(res.guards.get(r) for r in sets["all"]),
+            "an unrecorded route would be silently classified as always-on",
+        )
+        check(f"{lane_name}: default ⊆ worker ⊆ all", sets["default"] <= sets["worker"] <= sets["all"])
+        for prof, got in sorted(sets.items()):
+            fp = os.path.join(ROOT, "tests", "unit", "fixtures", lane_name, f"{prof}.json")
+            if not os.path.exists(fp):
+                print(f"  skip {lane_name}/{prof} (fixture absent)")
+                continue
+            with open(fp) as fh:
+                want = {(e["method"], e["path"]) for e in json.load(fh)["entries"]}
+            check(
+                f"{lane_name}/{prof}: derived == fixture ({len(want)} routes)",
+                got == want,
+                f"missing={sorted(want - got)[:3]} extra={sorted(got - want)[:3]}",
+            )
+
+
 def check_ratchet(res: "ex.Resolver") -> None:
     allow_path = os.path.join(SCRIPT_DIR, "extract_unresolved_allowlist.txt")
     allowed = set()
@@ -368,6 +449,46 @@ def mutation_check() -> int:
     finally:
         ex.Resolver.apply_call = orig_apply
 
+    def fixture(lane: str, prof: str) -> set:
+        fp = os.path.join(ROOT, "tests", "unit", "fixtures", lane, f"{prof}.json")
+        with open(fp) as fh:
+            return {(e["method"], e["path"]) for e in json.load(fh)["entries"]}
+
+    # Mutation 3 — `#[cfg]` gates ignored, i.e. back to the pre-B2-1 union
+    # behaviour. The golden lane then compiles code it cannot compile and must
+    # over-report against its own fixtures.
+    orig_cfg = ex.cfg_allows
+    ex.cfg_allows = lambda predicate, features: True
+    try:
+        lanes = ex.load_lanes()
+        res = ex.Resolver(ex.load_sources(lanes["ledger_export"]), lanes["ledger_export"])
+        got = ex.profile_sets(res)["all"]
+        want = fixture("ledger_export", "all")
+        if got != want:
+            print(f"  ok   mutation#3 (cfg gates ignored) turns the suite RED: golden lane reports {len(got)} vs {len(want)}")
+        else:
+            print("  FAIL mutation#3 did NOT turn the suite red — the lane guard is self-proving")
+            bad += 1
+    finally:
+        ex.cfg_allows = orig_cfg
+
+    # Mutation 4 — profile guards forgotten. Worker + OIDC routers then look
+    # always-merged, so `default` over-reports by exactly those 19 routes.
+    orig_gated = ex.gated_router_builders
+    ex.gated_router_builders = lambda files: {}
+    try:
+        lanes = ex.load_lanes()
+        res = ex.Resolver(ex.load_sources(lanes["ledger_export_sdk"]), lanes["ledger_export_sdk"])
+        got = ex.profile_sets(res)["default"]
+        want = fixture("ledger_export_sdk", "default")
+        if got != want:
+            print(f"  ok   mutation#4 (profile guards dropped) turns the suite RED: default reports {len(got)} vs {len(want)}")
+        else:
+            print("  FAIL mutation#4 did NOT turn the suite red — the profile guard is self-proving")
+            bad += 1
+    finally:
+        ex.gated_router_builders = orig_gated
+
     return bad
 
 
@@ -389,6 +510,8 @@ def main() -> int:
     check_positive_contract(per)
     print("== non-namespace surface ==")
     check_non_namespace_bucket(per)
+    print("== compile lanes and runtime profiles (B2-1) ==")
+    check_lane_profile_modeling()
     print("== unresolved ratchet ==")
     check_ratchet(res)
 

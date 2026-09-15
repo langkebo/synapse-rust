@@ -136,6 +136,7 @@
 | H-15 🆕 | **`suppress_key_server_warning` 是只写字段（H-12/B1-3 同类的残留）**：声明在**两个**结构体里（`ServerConfig` `server.rs:103` + `FederationConfig` `federation.rs:58`）、`homeserver.yaml:113` 有键、**22 处结构体字面量**在写它，但全仓**无任何读取**（`grep -rn '\.suppress_key_server_warning'` = 0）。同批还发现 `ServerConfig` 另有 12 个字段同样从不以 `.字段` 形式被读取（`expire_access_token`、`serve_server_wellknown`、`soft_file_limit`、`max_image_resolution` 等），成因待判（可能是经统一访问器/反序列化间接消费）。**本条只是记录，不在 B1-3 内夹带处理** | 待办：先判定"间接消费"还是"真死字段"，再统一处置 |
 | H-16 🆕 | **SDK 侧死代码：`AccountManager.setGuestAccess` 打非标路径**（B2-4b 实测发现）。`src/account/index.ts:351` 请求 `PUT /rooms/$roomId/guest_access`，**后端无此路由**——Matrix 规范里访客准入只有 state event `m.room.guest_access`，该端点纯属非标。同一 SDK 里另有三条**正确**实现：`RoomManager.setGuestAccess`（`RoomManager.ts:1106`，走 state event）、`client.setGuestAccess`（`client.ts:2914`，委托 RoomManager）、`client-room-access.ts:15`（同样委托 state event）。即 `client` 门面已指向正确实现，AccountManager 那份是**不可达的重复实现**。已确认 Tjg 前端未调用（`grep -rn 'setGuestAccess' Tjg/src` 只命中无关的 `getGuestAccessToken`） | 待办：**SDK fork 侧删除该方法**（约 12 行，无调用方）。**不要**为它开后端路由——那等于往 v3 命名空间塞私有路径，正与 ISSUE-13 相悖。删除后 `sdk_uncovered_allowlist.txt` 对应条目会变 stale，检查器会提醒删掉 |
 | H-17 🆕 | **后端缺规范端点：`GET /_matrix/client/v3/auth/{authType}/fallback/web`**（B2-4b 实测发现）。SDK `getFallbackAuthUrl`（`src/account/index.ts:290`）拼 `/auth/$loginType/fallback/web` 交给 `http.getUrl()`，后者用客户端默认前缀 `ClientPrefix.V3`（`src/client.ts:841`）→ 实际 URL 就是 C-S 规范定义的 fallback 认证页面路径。后端只在 `assembly.rs:588` 注册了 `/_matrix/static/client/login/`（handler `auth_compat::login_fallback_page`，**已在 ledger 中登记**），全仓 `grep 'route("/...fallback'` = 0，即规范路径**确实不存在**。**判断**：SDK 是对的、后端是缺的；不是"后端多出端点"（那条 B2-4a 已守着） | 待办：实现该端点（需一张 HTML 页 + session 承接逻辑，属**功能开发**而非契约守卫范围；且前端登录流程目前不走 fallback 认证，不阻塞）。**不要**让 SDK 改调 `/_matrix/static/client/login/`——那是免检的静态页位置，不是客户端该硬编码的契约路径。实现后删除对应豁免条目 |
+| H-18 🆕 | **`ProfileFlags::saml_enabled` 从不被读取**（B2-1 §3.4 实测发现）。三个字段里 `oidc_enabled`（`route_module.rs:199`）与 `worker_enabled`（`:236`）都在 `manifest_for_profile` 里被读，`saml_enabled`（`:37` 声明、`:52` 由 `from_state` 写入、`ledger_export.rs:113-114` 用于构造 profile、`ledger_export.rs:273-274` 有断言）**没有任何 `manifest_for_profile` 读它**。原因是 SAML 路由本就经 `oidc::oidc_enabled()`（`oidc/mod.rs:154`：`oidc_service.is_some() \|\| builtin_oidc_provider.is_some() \|\| saml_enabled`）折进了 `oidc_enabled` —— 所以 profile 维度上"开 SAML"等价于"开 OIDC"，独立字段是冗余的。**注意与 H-15 的区别**：H-18 不是"死字段"（它确实影响 SAML 路由是否随 OIDC 一起出现，只是通过间接路径），而是**新增了一个字段却没有任何消费点直接读它**这一表象 | 待办：与 H-15 一批处理。可选：在 `ProfileFlags` 文档里写明"`saml_enabled` 只作为 `from_state` 的输入、经 `oidc_enabled` 间接生效"，或把 `oidc_enabled` 拆成 `oidc_enabled \|\| saml_enabled` 让语义显式。**不要**在没有消费点的情况下继续新增 profile 字段 |
 
 ---
 
@@ -235,7 +236,7 @@
 
 | # | 改动 | 验证 |
 |---|---|---|
-| B2-1 | **派生器**：实现 `RouteLedger::from_router(router)`，在 `main.rs` 装配完成后从 Router 一次性导出；保留 `RouteModule` trait 作为 feature→路由的**声明**机制，其 manifest 项由派生填充 | 派生条目数 **== 旧 manifest 并集数**（一次性对账） |
+| B2-1 🔄 | **派生器**：原处方（`RouteLedger::from_router(router)`）**已证不可行**（axum 0.8.9 无路由枚举 API，见 §3.1），D4 裁定改走 B 路：让源码提取器成为派生源。**第 1 步已完成**（§3.4）：提取器现有 per-lane（`#[cfg]`，特征集读自 `Cargo.toml`）与 per-profile（从 `merge_into` 读出的运行时 flag guard）建模，能**逐条精确复现六组 fixture 集合**（golden 1047/1058/1065、sdk 1127/1138/1146） | 六组集合精确相等，已进 `EXTRACT_STRICT=1` 硬门禁；`test_extract_registered.py` 39 项检查 + 4 项变异自证。**源码级变异实测**：改了 `mod voice` 的 cfg 后 union 门禁四项指标全绿（1146/0/0/0）而新门禁 EXIT=1 点名三条 profile —— 证明"承诺在编译不出它的泳道里"这类谎 union 数学上看不见。**剩余**：生成派生物 → 删 244 处手抄 → B2-3 幂等守卫（§3.3 第 2/3/5 步） |
 | B2-2 | **删手抄**：删除 68 个文件的 `*_route_manifest()`（`assembly.rs` 内 54 处引用随之消失）；手写点只剩 979 处 `.route()` | `grep -rl '_route_manifest' src/` = 0 |
 | B2-3 | **幂等守卫**：同一二进制启动两次导出的 ledger **逐字节相等** | 新增测试，故意引入 `HashMap` 迭代序 → 红 |
 | B2-4a ✅ | **正向契约守卫（S-14）**：断言"真实 router ⊆ ledger"（即不存在已服务却未登记的端点） | 已完成：先量出真实缺口 —— 以 golden + sdk 两条 fixture 泳道的**并集**为完备性 oracle，`derived \ ledger` 实测 **22 条**（原先按 golden 单泳道算是 102 条，其中 80 条是 feature 门控噪声，把真缺口埋掉了）。22 条逐条核实为真后全部补进所属 manifest；现 `derived \ ledger = 0`、`ledger \ derived = 0` 双向闭合，并在 `EXTRACT_STRICT=1` 下成为硬门禁（原实现把这组差集**只打印不拦截**——见原注释"reports rather than enforced"）。守卫测试新增 `check_positive_contract`（含"谓词非空转"自检）。**附带**：同一工作窗内发现并修复了 S-16 —— `tests/integration/snapshots/route_ledger_{default,worker_enabled}.snapshot` 是**手改而非重生成**的（1378 行含 250 条完全重复、22 条生产上 404 的 v3 friends 声明），该集成快照用例在 `main` 上本来就**是红的**；已带库重生成至 1127/1138 并逐项对账闭合（见 `PROJECT_ACTUAL_ISSUES §13`）。**剩余**：B2-4b 的"SDK 声明消费的全部端点 ⊆ ledger"需解析 SDK manager 源码字面量，另立条目 |
@@ -328,22 +329,86 @@ B2-1 的处方（`from_router`）等于要求把已经存在的"替代品"换成
 
 #### §3.3 B 路执行计划（已裁定，按此动工）
 
-1. **提取器加 per-profile 建模**：现在是"递归进 `#[cfg(feature)]` 块取并集"，改为记录每条路由的
-   cfg 谓词并按 feature 集（golden=default / sdk=all-extensions）求值。
-   对账判据：导出结果必须与现有 fixture 的两条泳道逐条一致（golden 1065 / sdk 1146）。
-2. **生成派生物**：由提取器产出一个可 `include!` 的 Rust 表（或 JSON + `include_str!`），
+1. ✅ **提取器加 per-lane / per-profile 建模**（2026-09-15 完成，见 §3.4）。
+   现在是"递归进 `#[cfg(feature)]` 块取并集"，已改为记录 cfg 谓词并按 feature 集求值；
+   对账判据 **六组集合全部精确一致**：golden 1047/1058/1065、sdk 1127/1138/1146。
+2. ⏳ **生成派生物**：由提取器产出一个可 `include!` 的 Rust 表（或 JSON + `include_str!`），
    供 `base_route_manifest()` / `declared_route_manifest_for_profile()` 读取；运行时
    `create_router` 的重复检测（`assembly.rs:365` → `ledger.validate()`）继续用这份表。
-3. **删手抄**：删除 244 处 `*_route_manifest()`（72 文件）与 `assembly.rs` 的 37 处 `ledger.extend(...)`；
+3. ⏳ **删手抄**：删除 244 处 `*_route_manifest()`（72 文件）与 `assembly.rs` 的 37 处 `ledger.extend(...)`；
    含 `top_level_inline_manifest()` 与 `assembly_compat_manifest()`。
    判据：`grep -rl '_route_manifest' src/` = 0。
-4. **保住 per-profile 粒度**：`ProfileFlags { oidc_enabled, worker_enabled, saml_enabled }` 是
-   **运行时配置**，源码里读不出来（`oidc_enabled` 还会在完整 OIDC manifest 与 fallback manifest
-   之间切换）。这一层必须由生成物携带：派生表按"cfg 谓词"分组，运行时再按 flags 求值 ——
-   即把 `RouteModule::manifest_for_profile` 的分支条件变成生成表上的数据条件，而不是丢掉这个维度。
-5. **B2-3 幂等守卫**：同一输入两次导出逐字节相等；故意引入 `HashMap` 迭代序则转红。
-6. 跑满门禁：两个方向的契约门禁、契约文档重生成、ledger 单测 11/11、405 探测集成测试、
+4. ⏳ **保住 per-profile 粒度**（§3.4 已把它从"猜"变成"读"）。
+   `ProfileFlags { oidc_enabled, worker_enabled, saml_enabled }` 是**运行时配置**，源码读不出来。
+   侦察修正了本条的两处原假设：
+   - 受 flag 影响的**不是整模块，而是两个 router 构造根**：`oidc::create_oidc_router`
+     （`oidc_enabled`）与 `worker::create_worker_body_router`（`worker_enabled`）。
+     同模块内 `create_oidc_fallback_router` / `create_worker_admin_router` 是**总是合并**的，
+     所以 `oidc/mod.rs` 10 条里有 2 条、`worker.rs` 15 条里有 4 条属于 Always。
+   - 三个 profile **单调**（`default ⊆ worker ⊆ all`，实测违反数 = 0），
+     于是"该路由在哪个 profile"可以压成一个 `{Always, Oidc, Worker}` 三值标注，
+     而不是对 `manifest_for_profile` 的分支做通用求值。
+   - `ProfileFlags::saml_enabled` **从不被任何 `manifest_for_profile` 读取**
+     （SAML 路由是经 `oidc::oidc_enabled()` 折进 `oidc_enabled` 的）—— 记为 H-18。
+5. ⏳ **B2-3 幂等守卫**：同一输入两次导出逐字节相等；故意引入 `HashMap` 迭代序则转红。
+6. ⏳ 跑满门禁：两个方向的契约门禁、契约文档重生成、ledger 单测 11/11、405 探测集成测试、
    fixture 双向对账。
+
+#### §3.4 B2-1 第一步：提取器已经能复现全部六组 (lane × profile) 集合（2026-09-15）
+
+**做了什么。** `extract_registered.py` 原先只承认一个"并集"视角：`#[cfg(feature = "…")]`
+被当作噪声丢掉（`strip_leading_attrs` 直接略过属性），运行时 `ProfileFlags` 更是完全不存在。
+于是它只能回答"源码里一共有多少条路由"（1146），回答不了"`default` 特性编译下、`worker` 档配置下
+到底服务多少条"。现在两条轴都建模了：
+
+| 轴 | 载体 | 读法 |
+|---|---|---|
+| **lane**（编译期） | `#[cfg(feature = "…")]`，出现在 ① `mod` 声明 ② `fn` 定义 ③ 语句/块 | `Cargo.toml` 的 `[features]` 求传递闭包：`golden` = `default`；`sdk` = `default + all-extensions`（cargo 语义是叠加而非替换） |
+| **profile**（运行时） | `route_module.rs::*::merge_into` 里 `if <flag> { router.merge(…) }` | 解析 `merge_into` 的 `if` 分支识别出被门控的 router 构造根；**不是手写清单** |
+
+**为什么 lane 必须在 `mod` 声明上把关。** 试过只按 `fn` 级 cfg 过滤：`#[cfg(feature = "voice-extended")]
+impl RouteModule for VoiceModule` 被丢掉后，`voice::create_voice_router` 就**没有静态调用方**了，
+于是被提升为新的 root，把 27 条路由**加进**了根本编译不出它们的 golden 泳道 —— 过滤器反而变成放大器。
+`mod` 声明是唯一覆盖整个条件面的位置。
+
+**为什么 profile guard 要在"路由产生点"归属。** `route_module.rs::merge_into` 本身也是一个 root
+（`create_router` 通过 trait 动态派发调用它，静态看不见调用方）。实测：把 11 个 `merge_into` root
+整个排除会丢掉 **194 条**路由 —— 因为 `friend_room` / `voice` / `cas` / `saml` / `widgets` 等模块的
+构造器**只**经由它被静态调用到。所以 guard 不能挂在 root 上，必须挂在"产生这条路由的那个构造根"上，
+且允许多个 guard 并存（`/.well-known/openid-configuration` 同时被总是合并的 fallback router 与
+OIDC-only router 服务 → 判定为 Always）。
+
+**判据（六组，逐条精确相等，无豁免清单）。**
+
+```
+ledger_export      default 1047  worker 1058  all 1065
+ledger_export_sdk  default 1127  worker 1138  all 1146
+```
+
+对面是**手写 manifest** 产出的 fixture，所以这是"两套独立实现互证"，不是自证；
+且这套对账已接进 `EXTRACT_STRICT=1`（`check_route_contract.sh` 每轮都跑）。
+
+**新门禁抓到了旧门禁看不见的东西（源码级变异，实测）。**
+
+| 变异 | 旧（union）门禁 | 新（B2-1）门禁 |
+|---|---|---|
+| 把 `mod voice` 的 `#[cfg(feature = "voice-extended")]` 改成 `widgets` | **完全无感**：`router-derived 1146`、`declared-not-derived 0`、`ledger NOT derived 0`、`derived-not-in-ledger 0` | EXIT=1，三条 profile 全部 FAIL（golden 1085 vs 1058 等） |
+| 把 `OidcModule::merge_into` 的条件改成 `true` | 无感（并集不变） | EXIT=1，点名 `GET /_matrix/client/v3/oidc/authorize` 等 4 组集合多出 8 条 |
+
+含义：**"某条路由被承诺在一个编译不出它的泳道里"和"被承诺在一个永不合并它的 profile 里"
+这两种谎，union 视角在数学上不可能看见。** 这正是 B2-1 要消掉的那类不一致。
+
+**同时新增的守卫。** `test_extract_registered.py` 现 39 项检查（原 22 项）+ 4 项变异自证：
+
+- cfg 谓词双向可判别（`feature = "voice-extended"` 在 golden 关、sdk 开；`not(feature = "friends")` 两泳道都关；
+  `all/any/not` 组合与 Rust 语义一致；未知裸 flag 判为关；`features=None` 的并集模式恒真）；
+- `merge_into` 读出的 guard 集合 **恰为** `{create_oidc_router: oidc_enabled, create_worker_body_router: worker_enabled}`；
+- 每条派生路由都必须带 guard 记录（漏记会被静默当成 Always，所以单列一项检查）；
+- 每个泳道 `default ⊆ worker ⊆ all`；
+- 变异 #3（无视 cfg）#4（丢掉 profile guard）各自转红并报出条数。
+
+**副作用：无。** union 侧输出逐字未变（`router-derived 1146` / `manifest 1077` / 双向 0 / `unresolved 19` /
+非 Matrix 命名空间 14），`ROUTE_CONTRACT.md` 无漂移，SDK 覆盖检查仍 2 条豁免全命中。
 
 ---
 
