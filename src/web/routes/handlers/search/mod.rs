@@ -11,6 +11,11 @@ use axum::routing::{get, post};
 use axum::Router;
 
 fn create_search_compat_router() -> Router<AppState> {
+    // `/search` is a stable Matrix endpoint. `/search_recipients` and
+    // `/search_rooms` are private and now served under
+    // `/_matrix/vendor/v1/…`; the `/v3` aliases stay for backward compatibility
+    // and are deprecated (ISSUE-13) — this comment is the deprecation notice,
+    // replacing the per-boot WARN B1-3 removed.
     Router::new()
         .route("/search", post(search::search))
         .route("/search_recipients", post(search::search_recipients))

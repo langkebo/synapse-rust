@@ -132,6 +132,7 @@
 | H-11 | mock 与 PG 语义漂移 2 处 | B6 |
 | H-12 ✅ | `IsolatedTestPool` fallback 仍首选 `localhost:15432` | B0（见 B0-8） |
 | H-14 ✅ | `docker/db_migrate.sh` 优先宿主 `psql`，会改非 compose 栈的库 | B0（见 B0-7，已加护栏 + `SYNAPSE_DB_MIGRATE_ALLOW_HOST_PSQL=1` 显式放行） |
+| H-15 🆕 | **`suppress_key_server_warning` 是只写字段（H-12/B1-3 同类的残留）**：声明在**两个**结构体里（`ServerConfig` `server.rs:103` + `FederationConfig` `federation.rs:58`）、`homeserver.yaml:113` 有键、**22 处结构体字面量**在写它，但全仓**无任何读取**（`grep -rn '\.suppress_key_server_warning'` = 0）。同批还发现 `ServerConfig` 另有 12 个字段同样从不以 `.字段` 形式被读取（`expire_access_token`、`serve_server_wellknown`、`soft_file_limit`、`max_image_resolution` 等），成因待判（可能是经统一访问器/反序列化间接消费）。**本条只是记录，不在 B1-3 内夹带处理** | 待办：先判定"间接消费"还是"真死字段"，再统一处置 |
 
 ---
 
@@ -164,12 +165,18 @@
 
 | # | 改动 | 验证 |
 |---|---|---|
-| B1-1 | **盘点**：从 ledger 快照导出全量条目 → 按 `(method, suffix)` 去重 → 对每条重复确认 handler 同源 | 输出 `总条目 vs 去重条目 vs 重复数` 三方核对表 |
-| B1-2 | **SDK 字面路径复核**：grep `@langkebo/matrix-js-sdk` **manager 源码**里的实际 URL 字面量（**不得**用 route-table 作判据——它只增不减） | 产出一份 `被 SDK 真实调用的 r0 端点清单`（预期为空） |
-| B1-3 | **去 r0**：11 个 `*NEST_PREFIXES` 删除 `/_matrix/client/r0`；`assembly.rs` 的 r0 nest；`create_*_r0_only_router` 合并回正 router；删除 `suppress_r0_deprecation_warning` / `suppress_vendor_endpoint_warning` 配置字段 + `homeserver.yaml` 条目 | `grep -rn '"/_matrix/client/r0"' src/` = 0；ledger diff **恰为 −489** |
-| B1-4 | **契约文档 + fixture 重基线**（一次性） | 人工抽查 admin/client 两域各 20 条；附哈希变化审计记录 |
+| B1-1 ✅ | **盘点**：从 ledger 快照导出全量条目 → 按 `(method, suffix)` 去重 → 对每条重复确认 handler 同源 | 已完成，三方核对表见下节：`all` 1319 条 / client 域唯一 487 / 冗余 401 / **r0-only 13** |
+| B1-2 ✅ | **SDK 字面路径复核**：grep `@langkebo/matrix-js-sdk` **manager 源码**里的实际 URL 字面量（**不得**用 route-table 作判据——它只增不减） | 已完成：清单**非空**（推翻了"预期为空"），逐处见下节。SDK 侧已随 `039c2b2ec`（feat(b1): migrate saml/room-member/push r0 paths to v3）迁到 v3；复检 `grep -rn 'ClientPrefix.R0' matrix-js-sdk/src/` = **0**（仅生成的 `__generated__/route-table.ts` 仍留 r0 条目——正是本行警告的"只增不减"，不得用作判据） |
+| B1-3 ✅ | **去 r0**：`*NEST_PREFIXES` 删除 `/_matrix/client/r0`；`assembly.rs` 的 r0 nest；`create_*_r0_only_router` 合并回正 router；删除 `suppress_r0_deprecation_warning` / `suppress_vendor_endpoint_warning` 配置字段 + `homeserver.yaml` 条目 | 实测：`'"/_matrix/client/r0"'` = **0**、`create_*_r0_only_router` = **0**、`NEST_PREFIXES` 内 r0 = **0**。⚠️ 判据"ledger diff 恰为 −489"是**错的**——B1-1 已实测拆 r0 的收益是 **−270 条重复**、代价是 13 条 r0-only 需改挂（实为改名 `*_extra`）。**B1-3 遗留已补齐（commit 见下）**：`suppress_vendor_endpoint_warning` 字段（**从未被任何代码路径读取**：告警点直接读 env var）+ `homeserver.yaml` 条目 + `docker-compose.yml` env 透传 + 每次启动必发的 `tracing::warn!` 全部删除；8 处仍声称 "under r0 + v3" 的**陈旧注释**（`assembly.rs` ×5、`friend_room.rs` ×2、`space.rs` ×1）一并更正 |
+| B1-4 ✅ | **契约文档 + fixture 重基线**（一次性） | 已完成：`ROUTE_CONTRACT.md` 1146 routes / 46 categories 与源码一致（`EXTRACT_STRICT=1` EXIT=0）；两种泳道 fixture 均已重生成（golden `all` 1065、sdk `all` 1146） |
 
 **风险**：Complement 测试套若断言 r0 可达需同步；SDK 端到端冒烟（登录/sync/发消息）必须跑一次。
+
+> **B1-3 的教训（新增）**：删除一个前缀时，**注释不会自己跟着改**。本次 `grep '"/_matrix/client/r0"'`
+> 早已是 0，但 `assembly.rs` 里 5 处 `expand_under_prefixes` 的上方注释仍写着 "under r0 + v3"，
+> 而紧随其后的前缀数组只有 `v3`。这类"注释声称的契约 ≠ 代码注册的契约"会直接误导复核
+> （本次复核一度据此判断"r0 仍在服务"）。判据只能取**机器生成的** `ROUTE_CONTRACT.md` / ledger，
+> 不是注释。
 
 #### B1-1 / B1-2 前置核查结论（2026-09-15 实测，**推翻了本节的两条假设**）
 

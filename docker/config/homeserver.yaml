@@ -18,7 +18,6 @@ server:
   refresh_token_sliding_window_size: 3600
   warmup_pool: true
   megolm_encryption_key_path: "/app/data/megolm.key"
-  suppress_vendor_endpoint_warning: true
   # Background-task tuning (seconds). Defaults shown; 0 falls back to compile-time constant.
   # federation_retry_max_count: 5
   # drain_timeout_secs: 30

@@ -152,14 +152,14 @@ fn assembly_compat_manifest() -> Vec<RouteEntry> {
     use crate::web::routes::route_ledger::expand_under_prefixes;
     let mut out = Vec::new();
 
-    // /capabilities — under r0 + v3
+    // /capabilities — under v3
     out.extend(expand_under_prefixes(
         "assembly::capabilities",
         &["/_matrix/client/v3"],
         &[(Method::GET, "/capabilities")],
     ));
 
-    // /media/config — under v1 + r0 + v3
+    // /media/config — under v1 + v3
     out.extend(expand_under_prefixes(
         "assembly::media_config",
         &["/_matrix/client/v1", "/_matrix/client/v3"],
@@ -176,7 +176,7 @@ fn assembly_compat_manifest() -> Vec<RouteEntry> {
         &[(Method::POST, "/upload/token"), (Method::GET, "/upload/provider")],
     ));
 
-    // Base VoIP compat surface — under r0 + v3
+    // Base VoIP compat surface — under v3
     out.extend(expand_under_prefixes(
         "assembly::voip_compat",
         &["/_matrix/client/v3"],
@@ -200,7 +200,7 @@ fn assembly_compat_manifest() -> Vec<RouteEntry> {
         ],
     ));
 
-    // Auth compat — under r0 + v3
+    // Auth compat — under v3
     out.extend(expand_under_prefixes(
         "assembly::auth_compat",
         &["/_matrix/client/v3"],
@@ -229,7 +229,7 @@ fn assembly_compat_manifest() -> Vec<RouteEntry> {
         .map(|(m, p)| RouteEntry::new(m, p, "assembly::auth_router")),
     );
 
-    // Account compat — under v1 + r0 + v3
+    // Account compat — under v1 + v3
     out.extend(expand_under_prefixes(
         "assembly::account_compat",
         &["/_matrix/client/v1", "/_matrix/client/v3"],
@@ -380,23 +380,16 @@ pub fn create_router(state: AppState) -> Router {
                 "route manifest validated: {} declared (method, path) tuples, 0 duplicates",
                 report.unique_tuples,
             );
-            // ISSUE-13: Private endpoints migrated to /_matrix/vendor/v1.
-            // The legacy /_matrix/client/v3/{my_rooms,search_rooms,search_recipients}
-            // routes remain for backward compatibility but are deprecated.
-            // Suppress via SYNAPSE__SERVER__SUPPRESS_VENDOR_ENDPOINT_WARNING=true.
-            let suppress_vendor_warning = std::env::var("SYNAPSE__SERVER__SUPPRESS_VENDOR_ENDPOINT_WARNING")
-                .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
-                .unwrap_or(false);
-            if !suppress_vendor_warning {
-                ::tracing::warn!(
-                    target: "synapse_rust::web::routes::route_ledger",
-                    "ISSUE-13: Private endpoints (/my_rooms, /search_rooms, /search_recipients) \
-                     are now served under /_matrix/vendor/v1/. The legacy \
-                     /_matrix/client/v3/ aliases are deprecated and will be removed \
-                     in a future release. Clients should migrate to the vendor prefix. \
-                     Set `server.suppress_vendor_endpoint_warning: true` to suppress.",
-                );
-            }
+            // NOTE (B1-3): deliberately **no** deprecation warning here.
+            //
+            // ISSUE-13's legacy `/v3` aliases are annotated at each declaration
+            // site (`sync.rs` for `/my_rooms`, `handlers/search/mod.rs` for
+            // `/search_rooms` + `/search_recipients`), which is where a
+            // maintainer actually reads. A WARN emitted on every boot about
+            // state the operator cannot change is noise, and it previously
+            // dragged in a bespoke `suppress_vendor_endpoint_warning` config
+            // field — never read by any code path — plus a compose env
+            // passthrough, purely to silence it.
         }
         Err(err) => {
             tracing::error!("route manifest contains duplicate entries — refusing to start:\n{err}");

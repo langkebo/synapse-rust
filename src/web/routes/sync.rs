@@ -35,6 +35,10 @@ fn create_sync_compat_router(state: AppState) -> Router<AppState> {
 }
 
 fn create_sync_v3_router(state: AppState) -> Router<AppState> {
+    // `/joined_rooms` is a stable Matrix endpoint; `/my_rooms` is private and now
+    // served under `/_matrix/vendor/v1/my_rooms`. The `/v3` alias stays for
+    // backward compatibility and is deprecated (ISSUE-13) — this comment is the
+    // deprecation notice, replacing the per-boot WARN B1-3 removed.
     create_sync_compat_router(state).route("/joined_rooms", get(get_joined_rooms)).route("/my_rooms", get(get_my_rooms))
 }
 

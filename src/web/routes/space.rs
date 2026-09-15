@@ -169,7 +169,7 @@ pub fn create_space_router(state: AppState) -> Router<AppState> {
         .merge(create_space_membership_state_routes())
         .merge(create_space_summary_routes());
 
-    // Apply the same routes to v1, r0, and v3 client prefixes
+    // Apply the same routes to both supported client prefixes (v1 + v3)
     Router::new().nest("/_matrix/client/v1", router.clone()).nest("/_matrix/client/v3", router).with_state(state)
 }
 

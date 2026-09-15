@@ -882,6 +882,93 @@ $ psql -h localhost -p 5432 -U synapse -d synapse
 
 ---
 
+## 15. B1-3 的遗留：一个"只写"的抑制旋钮 + 8 处会骗人的陈旧注释（2026-09-15）
+
+### 15.1 为什么查到这里
+
+B1-3（拆 r0 兼容链）的验收判据是 `grep -rn '"/_matrix/client/r0"' src/` = 0 —— 这条**早就满足**。
+但同一条 B1-3 还附带要求"删除 `suppress_r0_deprecation_warning` / `suppress_vendor_endpoint_warning`
+配置字段 + `homeserver.yaml` 条目"。复检时发现后半句没做完，而且顺着它翻出了两个更值得记的东西。
+
+### 15.2 `suppress_vendor_endpoint_warning`：声明了，从没被读过
+
+| 出现位置 | 性质 |
+|---|---|
+| `synapse-common/src/config/server.rs:286-298` | 字段声明 + 12 行文档 |
+| `docker/config/homeserver.yaml:21` | 部署配置写 `true` |
+| `docker/deploy/docker-compose.yml:217` | `SYNAPSE__SERVER__SUPPRESS_VENDOR_ENDPOINT_WARNING: ${…:-true}` 透传 |
+| `src/web/routes/assembly.rs:387` | **读的是 env var，不是这个字段** |
+| `src/web/routes/assembly.rs:397` | 只出现在告警文案字符串里（"Set `server.…: true` to suppress"） |
+
+即：**4 件产物**（字段 + 文档 + yaml 键 + compose 透传）围着一个每次启动必发的 `tracing::warn!` 转，
+而决定"要不要警告"的代码**根本没读这个字段**。全仓零测试。
+
+### 15.3 那条告警本身也不该存在
+
+告警内容是"ISSUE-13 的旧 `/v3` 别名已弃用"。但：
+
+1. 它在**每次启动**都发，而触发条件是"manifest 校验通过"——与运营者能做的任何事无关，
+   是个永不消失的 WARN；
+2. 这条信息**本来就在每个别名的声明处**（`key_rotation.rs:295`、`external_service.rs:447`、
+   `friend_room.rs:146`、`burn_after_read.rs:54`、`voice.rs:64` 都有 ISSUE-13 注释）——
+   只是 `sync.rs` 的 `/my_rooms` 与 `handlers/search/mod.rs` 的 `/search_rooms`、
+   `/search_recipients` 这三处漏了。
+3. 于是它属于典型的"**先给自己加告警，再加配置静音**"（REDUNDANCY 审计 §158 已点名）。
+
+### 15.4 处置
+
+- 删除 `assembly.rs` 里的整段告警（连同它的 env 读取），在原处留一条
+  **"此处刻意不告警"** 的说明，讲明理由，防后人再加回来；
+- 删除 `ServerConfig::suppress_vendor_endpoint_warning` 字段、`homeserver.yaml` 键、
+  compose env 透传；
+- 把弃用信息**补到缺失的三处声明点**（`sync.rs`、`handlers/search/mod.rs`），
+  这样删掉的是噪音、留下的是信息。
+
+### 15.5 附带发现：注释声称的契约 ≠ 代码注册的契约
+
+`grep '"/_matrix/client/r0"'` = 0 之后，**8 处注释仍在声称 r0**：
+
+| 位置 | 注释原文 | 紧随其后的实际前缀 |
+|---|---|---|
+| `assembly.rs:155` | `/capabilities — under r0 + v3` | 只有 `/_matrix/client/v3` |
+| `assembly.rs:162` | `/media/config — under v1 + r0 + v3` | `v1`、`v3` |
+| `assembly.rs:179` | `Base VoIP compat surface — under r0 + v3` | `v3` |
+| `assembly.rs:203` | `Auth compat — under r0 + v3` | `v3` |
+| `assembly.rs:232` | `Account compat — under v1 + r0 + v3` | `v1`、`v3` |
+| `friend_room.rs:39` | `v1 和 r0 路径 - 主路由` | 只有 `/_matrix/client/v1/…` |
+| `friend_room.rs:67` | `r0 兼容路由` | `/_matrix/client/v1/…` |
+| `space.rs:172` | `Apply the same routes to v1, r0, and v3` | `v1`、`v3` |
+
+**这次复核一度据此判断"r0 仍在服务"**——差点得出 SDK 会被打断的错误结论（真实结论是
+SDK 已在 `039c2b2ec` 迁到 v3）。教训：**删除一个前缀时注释不会自己跟着改**；复核的判据
+只能取机器生成的 `ROUTE_CONTRACT.md` / ledger 快照，不能取注释。注释只能作为"去寻找证据"的线索。
+
+### 15.6 守卫
+
+新增 `tests/unit/self_silencing_config_tests.rs`，4 项静态断言：
+
+| 断言 | 作用 |
+|---|---|
+| `no_endpoint_suppression_knob_remains` | 递归扫 `src/` + 6 个 crate + `docker/`，**代码行**不得出现 `suppress_…(endpoint\|r0\|alias)…` 形状的旋钮（注释允许，否则会逼人删解释而非删旋钮）。谓词刻意收窄，不会误伤上游 Synapse 的 `suppress_key_server_warning` |
+| `startup_validation_does_not_warn_about_unchangeable_state` | 从 `ledger.validate()` 到 `Err(err) =>` 之间不得出现 `warn!` / `SUPPRESS_` |
+| `the_removed_warning_left_its_deprecation_notice_behind` | `sync.rs` 与 `handlers/search/mod.rs` 必须同时含端点与其 `ISSUE-13` 说明——把"删噪音但别丢信息"钉死 |
+| `the_predicate_rejects_a_reintroduced_knob` | 谓词非空转自检：字段、env 透传都必须被标出；注释行与 `suppress_key_server_warning` 必须**不**被标出 |
+
+**变异自证**（三处同时注入）：yaml 加回 `suppress_vendor_endpoint_warning: true`、
+校验块加回一条 `tracing::warn!`、`sync.rs` 的 ISSUE-13 改成 `SO-13`
+→ **3/3 转红**且各自报出精确位置；复位后 4/4 绿。
+
+### 15.7 另立的记录（不在本批修）
+
+`suppress_key_server_warning` **也是只写字段**，且更铺张：声明在 `ServerConfig`（`server.rs:103`）
+与 `FederationConfig`（`federation.rs:58`）**两处**，`homeserver.yaml:113` 有键，
+**22 处结构体字面量**在写它，全仓无读取。同批测出 `ServerConfig` 另有 12 个字段从不以
+`.字段` 形式被读取（`expire_access_token`、`serve_server_wellknown`、`soft_file_limit`、
+`max_image_resolution` 等），成因未判（可能是间接消费）。已登记为 **H-15**，
+先判"间接消费 vs 真死字段"再统一处置——本批只做 B1-3 点名的那个。
+
+---
+
 ## 附录 A：复现命令
 
 ```bash

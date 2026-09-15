@@ -36,7 +36,7 @@ pub fn create_friend_router(state: AppState) -> Router<AppState> {
             "/_matrix/client/v3/friends/requests/outgoing",
             get(get_outgoing_requests),
         )
-        // v1 和 r0 路径 - 主路由
+        // v1 路径 - 主路由（r0 别名已在 B1-3 移除，SDK 已随 039c2b2ec 迁到 v3）
         .route("/_matrix/client/v1/friends", get(get_friends))
         .route("/_matrix/client/v1/friends", post(send_friend_request))
         .route(
@@ -64,7 +64,7 @@ pub fn create_friend_router(state: AppState) -> Router<AppState> {
             "/_matrix/client/v1/friends/request/{user_id}/cancel",
             post(cancel_friend_request),
         )
-        // r0 兼容路由
+        // v1 兼容路由（与上方 v3 块同 handler）
         .route(
             "/_matrix/client/v1/friends/requests/incoming",
             get(get_incoming_requests),
