@@ -18,7 +18,9 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.environ.get("SYNAPSE_RUST_ROOT") or os.path.dirname(
     os.path.dirname(SCRIPT_DIR)
 )
-reg = json.load(open(f"{ROOT}/artifacts/registered_routes.json"))["modules"]
+reg_raw = json.load(open(f"{ROOT}/artifacts/registered_routes.json"))
+reg = reg_raw["modules"]
+non_ns = reg_raw.get("non_namespace_routes", [])
 OUT = f"{ROOT}/docs/synapse-rust/ROUTE_CONTRACT.md"
 
 # manifest presence (full-file scan)
@@ -147,9 +149,45 @@ lines.append(
 lines.append("")
 lines.append("## 总览")
 lines.append("")
-lines.append(f"- 注册路由条目（含 v1/r0/v3 多版本前缀去重后）：**{total}**")
+lines.append(f"- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**{total}**")
 lines.append(f"- 含路由注册的模块文件：**{sum(1 for v in reg.values() if v)}**")
 lines.append(f"- 含 `*_route_manifest` 函数的模块：**{len(mani)}**")
+lines.append("")
+lines.append("> **路径为何是绝对的**：本清单由 `extract_registered.py` 从真实 router 构造解析得到，")
+lines.append("> 已递归应用 `.nest(\"/prefix\", ..)` 与 `expand_under_prefixes(..)` 的前缀。")
+lines.append("> 因此每一条都是客户端可直接拼接的 serve 路径，而不是子 router 内的相对字面量。")
+lines.append("")
+lines.append("## 生成期自校验（不是自证）")
+lines.append("")
+lines.append("提取器在生成时对两份**独立**的事实来源做对账，任一项不达标即报错：")
+lines.append("")
+lines.append("| 对照源 | 含义 | 结果 |")
+lines.append("|---|---|---|")
+lines.append(
+    "| 各模块 `*_route_manifest()` 声明集 | 手写的绝对路径声明，不经过本解析器的前缀推导 | **声明而未解析出 = 0** |"
+)
+lines.append(
+    "| `tests/unit/fixtures/ledger_export/*.json` | 由真实 Rust 装配（`synapse_ledger_export`）导出、golden 测试守护 | **ledger 有而本清单缺 = 0** |"
+)
+lines.append("")
+lines.append("第二条尤其关键：它保证本清单**不会漏掉任何一个真实对外服务的路由**。")
+lines.append("反向差额（本清单多于 ledger）来自源码扫描会看到、而默认 feature 构建不注册的路由")
+lines.append("（SAML / CAS / Voice / ExternalServices 等 gated 模块）以及 manifest 的漏声明。")
+lines.append("")
+lines.append("## 前缀之外 / 未装配的注册")
+lines.append("")
+lines.append(
+    "以下注册不属于 `/_matrix/`、`/_synapse/`、`/.well-known/` 任一命名空间，只有两种成因："
+)
+lines.append("根级协议或探活端点（有意为之），或**定义了却从未 merge 进任何路由树的孤儿 router**。")
+lines.append("")
+if non_ns:
+    lines.append("| 模块 | Method | Path |")
+    lines.append("|---|---|---|")
+    for mod, meth, path in non_ns:
+        lines.append(f"| `{mod}` | `{meth}` | `{path}` |")
+else:
+    lines.append("_（无）_")
 lines.append("")
 lines.append("## 契约覆盖（manifest 一致性）")
 lines.append("")
@@ -159,7 +197,10 @@ lines.append(
 lines.append("**已知缺口 / 漂移**：")
 lines.append("")
 lines.append(
-    "- `src/web/routes/threepid.rs`：定义 `create_threepid_router()`（/requestToken、/submitToken）但**从未 merge 进任何路由树**（仅 `mod.rs` re-export），且自身无 manifest 函数 → 属于孤儿/死代码；实际 3PID 端点位于 `account_compat.rs`（/account/3pid/...）。"
+    "- `src/web/routes/threepid.rs`：定义 `create_threepid_router()`（`/requestToken`、`/submitToken`）但**从未 merge 进任何路由树**（仅 `mod.rs` re-export），且自身无 manifest 函数 → 属于孤儿/死代码；实际 3PID 端点位于 `account_compat.rs`（`/account/3pid/...`）。"
+)
+lines.append(
+    "  **机器证据**：这两个路径在「前缀之外 / 未装配的注册」表中——解析器沿 `create_router` 的整条装配链递归后，它们仍未获得任何前缀，与 CAS 根级端点并列，可直接区分「有意根级」与「从未装配」。"
 )
 lines.append(
     "- `space/children_hierarchy.rs`、`space/membership_state.rs`、`space/summary.rs`：无独立 manifest 函数，但其路由由 `space.rs` 的 `space_route_manifest()` 统一声明（已覆盖）。"

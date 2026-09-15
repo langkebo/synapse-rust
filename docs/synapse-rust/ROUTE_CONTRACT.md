@@ -8,16 +8,58 @@
 
 ## 总览
 
-- 注册路由条目（含 v1/r0/v3 多版本前缀去重后）：**859**
-- 含路由注册的模块文件：**63**
+- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1148**
+- 含路由注册的模块文件：**67**
 - 含 `*_route_manifest` 函数的模块：**66**
+
+> **路径为何是绝对的**：本清单由 `extract_registered.py` 从真实 router 构造解析得到，
+> 已递归应用 `.nest("/prefix", ..)` 与 `expand_under_prefixes(..)` 的前缀。
+> 因此每一条都是客户端可直接拼接的 serve 路径，而不是子 router 内的相对字面量。
+
+## 生成期自校验（不是自证）
+
+提取器在生成时对两份**独立**的事实来源做对账，任一项不达标即报错：
+
+| 对照源 | 含义 | 结果 |
+|---|---|---|
+| 各模块 `*_route_manifest()` 声明集 | 手写的绝对路径声明，不经过本解析器的前缀推导 | **声明而未解析出 = 0** |
+| `tests/unit/fixtures/ledger_export/*.json` | 由真实 Rust 装配（`synapse_ledger_export`）导出、golden 测试守护 | **ledger 有而本清单缺 = 0** |
+
+第二条尤其关键：它保证本清单**不会漏掉任何一个真实对外服务的路由**。
+反向差额（本清单多于 ledger）来自源码扫描会看到、而默认 feature 构建不注册的路由
+（SAML / CAS / Voice / ExternalServices 等 gated 模块）以及 manifest 的漏声明。
+
+## 前缀之外 / 未装配的注册
+
+以下注册不属于 `/_matrix/`、`/_synapse/`、`/.well-known/` 任一命名空间，只有两种成因：
+根级协议或探活端点（有意为之），或**定义了却从未 merge 进任何路由树的孤儿 router**。
+
+| 模块 | Method | Path |
+|---|---|---|
+| `assembly.rs` | `GET` | `/` |
+| `assembly.rs` | `GET` | `/_health` |
+| `assembly.rs` | `GET` | `/health` |
+| `cas.rs` | `DELETE` | `/admin/services/{service_id}` |
+| `cas.rs` | `GET` | `/admin/services` |
+| `cas.rs` | `GET` | `/admin/users/{user_id}/attributes` |
+| `cas.rs` | `GET` | `/login` |
+| `cas.rs` | `GET` | `/logout` |
+| `cas.rs` | `GET` | `/p3/serviceValidate` |
+| `cas.rs` | `GET` | `/proxy` |
+| `cas.rs` | `GET` | `/proxyValidate` |
+| `cas.rs` | `GET` | `/serviceValidate` |
+| `cas.rs` | `POST` | `/admin/services` |
+| `cas.rs` | `POST` | `/admin/users/{user_id}/attributes` |
+| `threepid.rs` | `POST` | `/requestToken` |
+| `threepid.rs` | `POST` | `/submitToken` |
 
 ## 契约覆盖（manifest 一致性）
 
 `route_ledger` 在启动时校验所有 manifest 内 `(method,path)` 不重复，集成测试 `api_route_ledger_tests.rs` 对每个声明做 PATCH 探测（断言 405）。
 **已知缺口 / 漂移**：
 
-- `src/web/routes/threepid.rs`：定义 `create_threepid_router()`（/requestToken、/submitToken）但**从未 merge 进任何路由树**（仅 `mod.rs` re-export），且自身无 manifest 函数 → 属于孤儿/死代码；实际 3PID 端点位于 `account_compat.rs`（/account/3pid/...）。
+- `src/web/routes/threepid.rs`：定义 `create_threepid_router()`（`/requestToken`、`/submitToken`）但**从未 merge 进任何路由树**（仅 `mod.rs` re-export），且自身无 manifest 函数 → 属于孤儿/死代码；实际 3PID 端点位于 `account_compat.rs`（`/account/3pid/...`）。
+  **机器证据**：这两个路径在「前缀之外 / 未装配的注册」表中——解析器沿 `create_router` 的整条装配链递归后，它们仍未获得任何前缀，与 CAS 根级端点并列，可直接区分「有意根级」与「从未装配」。
 - `space/children_hierarchy.rs`、`space/membership_state.rs`、`space/summary.rs`：无独立 manifest 函数，但其路由由 `space.rs` 的 `space_route_manifest()` 统一声明（已覆盖）。
 
 ## 模块级路由清单（逐模块）
@@ -51,20 +93,20 @@
 - `POST` `/admin/services`
 - `POST` `/admin/users/{user_id}/attributes`
 
-### MSC4108 （2 条）
+### MSC4108 （4 条）
 
-#### `msc4108_rendezvous.rs` — 2 条 ✅manifest
+#### `msc4108_rendezvous.rs` — 4 条 ✅manifest
 
+- `DELETE` `/_matrix/client/unstable/org.matrix.msc4108/rendezvous/{session_id}`
 - `GET` `/_matrix/client/unstable/org.matrix.msc4108/rendezvous/{session_id}`
 - `POST` `/_matrix/client/unstable/org.matrix.msc4108/rendezvous`
+- `PUT` `/_matrix/client/unstable/org.matrix.msc4108/rendezvous/{session_id}`
 
-### OIDC （12 条）
+### OIDC （10 条）
 
-#### `oidc/mod.rs` — 12 条 ✅manifest
+#### `oidc/mod.rs` — 10 条 ✅manifest
 
 - `GET` `/.well-known/jwks.json`
-- `GET` `/.well-known/jwks.json`
-- `GET` `/.well-known/openid-configuration`
 - `GET` `/.well-known/openid-configuration`
 - `GET` `/_matrix/client/v3/login/sso/redirect`
 - `GET` `/_matrix/client/v3/login/sso/userinfo`
@@ -86,10 +128,11 @@
 - `POST` `/_matrix/client/v1/rendezvous/{session_id}/messages`
 - `PUT` `/_matrix/client/v1/rendezvous/{session_id}`
 
-### SAML （13 条）
+### SAML （16 条）
 
-#### `saml.rs` — 13 条 ✅manifest
+#### `saml.rs` — 16 条 ✅manifest
 
+- `DELETE` `/_synapse/admin/v1/saml/mapping/{name_id}`
 - `GET` `/_matrix/client/v3/login/saml/callback`
 - `GET` `/_matrix/client/v3/login/sso/redirect/saml`
 - `GET` `/_matrix/client/v3/logout/saml`
@@ -103,6 +146,8 @@
 - `POST` `/_matrix/client/v3/login/sso/redirect/saml`
 - `POST` `/_synapse/admin/v1/saml/logout`
 - `POST` `/_synapse/admin/v1/saml/metadata/refresh`
+- `PUT` `/_synapse/admin/v1/saml/config`
+- `PUT` `/_synapse/admin/v1/saml/mapping/{name_id}`
 
 ### Worker （26 条）
 
@@ -165,14 +210,18 @@
 - `POST` `/_synapse/admin/v1/event_reports/{id}/resolve`
 - `PUT` `/_synapse/admin/v1/event_reports/{id}`
 
-### 关联 (Relations) （4 条）
+### 关联 (Relations) （8 条）
 
-#### `relations.rs` — 4 条 ✅manifest
+#### `relations.rs` — 8 条 ✅manifest
 
-- `GET` `/rooms/{room_id}/aggregations/{event_id}/{rel_type}`
-- `GET` `/rooms/{room_id}/relations/{event_id}`
-- `GET` `/rooms/{room_id}/relations/{event_id}/{rel_type}`
-- `PUT` `/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}`
+- `GET` `/_matrix/client/v1/rooms/{room_id}/aggregations/{event_id}/{rel_type}`
+- `GET` `/_matrix/client/v1/rooms/{room_id}/relations/{event_id}`
+- `GET` `/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/aggregations/{event_id}/{rel_type}`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/relations/{event_id}`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}`
+- `PUT` `/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}`
+- `PUT` `/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}`
 
 ### 其他 (Other) （23 条）
 
@@ -206,16 +255,16 @@
 
 #### `reactions.rs` — 1 条 ✅manifest
 
-- `PUT` `/rooms/{room_id}/send/m.reaction/{txn_id}`
+- `PUT` `/_matrix/client/v3/rooms/{room_id}/send/m.reaction/{txn_id}`
 
 ### 同步 (Sync) （4 条）
 
 #### `sync.rs` — 4 条 ✅manifest
 
-- `GET` `/events`
-- `GET` `/joined_rooms`
-- `GET` `/my_rooms`
-- `GET` `/sync`
+- `GET` `/_matrix/client/v3/events`
+- `GET` `/_matrix/client/v3/joined_rooms`
+- `GET` `/_matrix/client/v3/my_rooms`
+- `GET` `/_matrix/client/v3/sync`
 
 ### 后台更新 （19 条）
 
@@ -241,19 +290,28 @@
 - `POST` `/_synapse/admin/v1/background_updates/{job_name}/progress`
 - `POST` `/_synapse/admin/v1/background_updates/{job_name}/start`
 
-### 在线状态 (Presence) （4 条）
+### 在线状态 (Presence) （9 条）
 
-#### `presence.rs` — 4 条 ✅manifest
+#### `presence.rs` — 9 条 ✅manifest
 
 - `GET` `/_matrix/client/v1/presence/{user_id}/status`
+- `GET` `/_matrix/client/v3/presence/list`
 - `GET` `/_matrix/client/v3/presence/list/{user_id}`
 - `GET` `/_matrix/client/v3/presence/{user_id}/status`
+- `POST` `/_matrix/client/v1/presence/{user_id}/status`
 - `POST` `/_matrix/client/v3/presence/list`
+- `POST` `/_matrix/client/v3/presence/{user_id}/status`
+- `PUT` `/_matrix/client/v1/presence/{user_id}/status`
+- `PUT` `/_matrix/client/v3/presence/{user_id}/status`
 
-### 外部服务 （14 条）
+### 外部服务 （20 条）
 
-#### `external_service.rs` — 14 条 ✅manifest
+#### `external_service.rs` — 20 条 ✅manifest
 
+- `DELETE` `/_matrix/admin/v1/external_services/{as_id}`
+- `DELETE` `/_matrix/client/v1/external_services/{service_id}`
+- `DELETE` `/_matrix/vendor/v1/external_services/{service_id}`
+- `DELETE` `/_synapse/admin/v1/external_services/{as_id}`
 - `GET` `/_matrix/admin/v1/external_services`
 - `GET` `/_matrix/admin/v1/external_services/health`
 - `GET` `/_matrix/client/v1/external_services/health`
@@ -261,6 +319,8 @@
 - `GET` `/_synapse/admin/v1/external_services`
 - `GET` `/_synapse/admin/v1/external_services/health`
 - `GET` `/_synapse/admin/v1/external_services/{as_id}/health`
+- `POST` `/_matrix/admin/v1/external_services`
+- `POST` `/_synapse/admin/v1/external_services`
 - `POST` `/_synapse/admin/v1/external_services/{as_id}/health/check`
 - `POST` `/_synapse/external/trendradar/{service_id}/webhook`
 - `POST` `/_synapse/external/webhook/{service_id}`
@@ -269,9 +329,9 @@
 - `PUT` `/_matrix/vendor/v1/external_services/{service_id}`
 - `PUT` `/_synapse/admin/v1/external_services/{as_id}`
 
-### 好友 (Friends) （57 条）
+### 好友 (Friends) （65 条）
 
-#### `friend_room.rs` — 57 条 ✅manifest
+#### `friend_room.rs` — 65 条 ✅manifest
 
 - `DELETE` `/_matrix/client/v1/friends/groups/{group_id}`
 - `DELETE` `/_matrix/client/v1/friends/groups/{group_id}/remove/{user_id}`
@@ -311,18 +371,25 @@
 - `GET` `/_matrix/vendor/v1/friends/{user_id}/info`
 - `GET` `/_matrix/vendor/v1/friends/{user_id}/status`
 - `POST` `/_matrix/client/v1/friends`
+- `POST` `/_matrix/client/v1/friends/dm/{user_id}`
 - `POST` `/_matrix/client/v1/friends/groups`
 - `POST` `/_matrix/client/v1/friends/groups/{group_id}/add/{user_id}`
 - `POST` `/_matrix/client/v1/friends/request`
 - `POST` `/_matrix/client/v1/friends/request/{user_id}/accept`
 - `POST` `/_matrix/client/v1/friends/request/{user_id}/cancel`
 - `POST` `/_matrix/client/v1/friends/request/{user_id}/reject`
+- `POST` `/_matrix/client/v1/friends/search`
 - `POST` `/_matrix/client/v3/friends`
+- `POST` `/_matrix/client/v3/friends/search`
+- `POST` `/_matrix/vendor/v1/friends`
+- `POST` `/_matrix/vendor/v1/friends/dm/{user_id}`
+- `POST` `/_matrix/vendor/v1/friends/groups`
 - `POST` `/_matrix/vendor/v1/friends/groups/{group_id}/add/{user_id}`
 - `POST` `/_matrix/vendor/v1/friends/request`
 - `POST` `/_matrix/vendor/v1/friends/request/{user_id}/accept`
 - `POST` `/_matrix/vendor/v1/friends/request/{user_id}/cancel`
 - `POST` `/_matrix/vendor/v1/friends/request/{user_id}/reject`
+- `POST` `/_matrix/vendor/v1/friends/search`
 - `PUT` `/_matrix/client/v1/friends/groups/{group_id}/name`
 - `PUT` `/_matrix/client/v1/friends/{user_id}/displayname`
 - `PUT` `/_matrix/client/v1/friends/{user_id}/note`
@@ -330,38 +397,50 @@
 - `PUT` `/_matrix/vendor/v1/friends/groups/{group_id}/name`
 - `PUT` `/_matrix/vendor/v1/friends/{user_id}/displayname`
 - `PUT` `/_matrix/vendor/v1/friends/{user_id}/note`
+- `PUT` `/_matrix/vendor/v1/friends/{user_id}/status`
 
-### 媒体 (Media) （34 条）
+### 媒体 (Media) （45 条）
 
-#### `media/mod.rs` — 27 条 ✅manifest
+#### `media/mod.rs` — 38 条 ✅manifest
 
-- `GET` `/config`
-- `GET` `/download/{server_name}/{media_id}`
-- `GET` `/download/{server_name}/{media_id}`
-- `GET` `/download/{server_name}/{media_id}`
-- `GET` `/download/{server_name}/{media_id}/{filename}`
-- `GET` `/download/{server_name}/{media_id}/{filename}`
-- `GET` `/download/{server_name}/{media_id}/{filename}`
-- `GET` `/download_signed/{server_name}/{media_id}`
-- `GET` `/download_signed/{server_name}/{media_id}/{filename}`
-- `GET` `/preview_url`
-- `GET` `/preview_url`
-- `GET` `/quota/alerts`
-- `GET` `/quota/check`
-- `GET` `/quota/stats`
-- `GET` `/thumbnail/{server_name}/{media_id}`
-- `GET` `/thumbnail/{server_name}/{media_id}`
-- `GET` `/upload/chunk/progress`
-- `GET` `/upload/provider`
-- `POST` `/delete/{server_name}/{media_id}`
-- `POST` `/upload`
-- `POST` `/upload`
-- `POST` `/upload/chunk`
-- `POST` `/upload/chunk/cancel`
-- `POST` `/upload/chunk/complete`
-- `POST` `/upload/chunk/start`
-- `POST` `/upload/token`
-- `PUT` `/upload/{server_name}/{media_id}`
+- `GET` `/_matrix/client/v1/media/download/{server_name}/{media_id}`
+- `GET` `/_matrix/client/v1/media/download/{server_name}/{media_id}/{filename}`
+- `GET` `/_matrix/client/v1/media/preview_url`
+- `GET` `/_matrix/client/v1/media/thumbnail/{server_name}/{media_id}`
+- `GET` `/_matrix/client/v3/upload/provider`
+- `GET` `/_matrix/media/r0/config`
+- `GET` `/_matrix/media/r0/download/{server_name}/{media_id}`
+- `GET` `/_matrix/media/r0/download/{server_name}/{media_id}/{filename}`
+- `GET` `/_matrix/media/r0/preview_url`
+- `GET` `/_matrix/media/r1/download/{server_name}/{media_id}`
+- `GET` `/_matrix/media/r1/download/{server_name}/{media_id}/{filename}`
+- `GET` `/_matrix/media/v1/config`
+- `GET` `/_matrix/media/v1/download/{server_name}/{media_id}`
+- `GET` `/_matrix/media/v1/download/{server_name}/{media_id}/{filename}`
+- `GET` `/_matrix/media/v1/preview_url`
+- `GET` `/_matrix/media/v1/quota/alerts`
+- `GET` `/_matrix/media/v1/quota/check`
+- `GET` `/_matrix/media/v1/quota/stats`
+- `GET` `/_matrix/media/v1/upload/chunk/progress`
+- `GET` `/_matrix/media/v3/config`
+- `GET` `/_matrix/media/v3/download/{server_name}/{media_id}`
+- `GET` `/_matrix/media/v3/download/{server_name}/{media_id}/{filename}`
+- `GET` `/_matrix/media/v3/download_signed/{server_name}/{media_id}`
+- `GET` `/_matrix/media/v3/download_signed/{server_name}/{media_id}/{filename}`
+- `GET` `/_matrix/media/v3/preview_url`
+- `GET` `/_matrix/media/v3/thumbnail/{server_name}/{media_id}`
+- `POST` `/_matrix/client/v3/upload/token`
+- `POST` `/_matrix/media/r0/delete/{server_name}/{media_id}`
+- `POST` `/_matrix/media/r0/upload`
+- `POST` `/_matrix/media/v1/delete/{server_name}/{media_id}`
+- `POST` `/_matrix/media/v1/upload`
+- `POST` `/_matrix/media/v1/upload/chunk`
+- `POST` `/_matrix/media/v1/upload/chunk/cancel`
+- `POST` `/_matrix/media/v1/upload/chunk/complete`
+- `POST` `/_matrix/media/v1/upload/chunk/start`
+- `POST` `/_matrix/media/v3/delete/{server_name}/{media_id}`
+- `POST` `/_matrix/media/v3/upload`
+- `PUT` `/_matrix/media/v3/upload/{server_name}/{media_id}`
 
 #### `admin/media.rs` — 7 条 ✅manifest
 
@@ -373,42 +452,92 @@
 - `GET` `/_synapse/admin/v1/quarantine_media/{media_id}/changes`
 - `GET` `/_synapse/admin/v1/users/{user_id}/media`
 
-### 审核 (Moderation) （5 条）
+### 审核 (Moderation) （7 条）
 
-#### `moderation.rs` — 5 条 ✅manifest
+#### `moderation.rs` — 7 条 ✅manifest
 
-- `GET` `/rooms/{room_id}/report/{event_id}/scanner_info`
-- `POST` `/rooms/{room_id}/report`
-- `POST` `/rooms/{room_id}/report/{event_id}`
-- `POST` `/users/{user_id}/report`
-- `PUT` `/rooms/{room_id}/report/{event_id}/score`
+- `GET` `/_matrix/client/v1/rooms/{room_id}/report/{event_id}/scanner_info`
+- `POST` `/_matrix/client/v1/rooms/{room_id}/report/{event_id}`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/report`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/report/{event_id}`
+- `POST` `/_matrix/client/v3/users/{user_id}/report`
+- `PUT` `/_matrix/client/v1/rooms/{room_id}/report/{event_id}/score`
+- `PUT` `/_matrix/client/v3/rooms/{room_id}/report/{event_id}/score`
 
-### 密钥备份 (Key Backup) （18 条）
+### 密钥备份 (Key Backup) （66 条）
 
-#### `key_backup.rs` — 18 条 ✅manifest
+#### `key_backup.rs` — 66 条 ✅manifest
 
-- `GET` `/room_keys/export`
-- `GET` `/room_keys/export/{version}`
-- `GET` `/room_keys/keys`
-- `GET` `/room_keys/keys/{room_id}`
-- `GET` `/room_keys/keys/{room_id}/{session_id}`
-- `GET` `/room_keys/recover/{version}/{room_id}`
-- `GET` `/room_keys/recover/{version}/{room_id}/{session_id}`
-- `GET` `/room_keys/recovery/{version}/progress`
-- `GET` `/room_keys/verify/{version}`
-- `GET` `/room_keys/version`
-- `GET` `/room_keys/version/{version}`
-- `GET` `/room_keys/{version}/keys`
-- `GET` `/room_keys/{version}/keys/{room_id}`
-- `GET` `/room_keys/{version}/keys/{room_id}/{session_id}`
-- `POST` `/room_keys/batch_recover`
-- `POST` `/room_keys/import`
-- `POST` `/room_keys/import/{version}`
-- `POST` `/room_keys/recover`
+- `DELETE` `/_matrix/client/v1/room_keys/keys`
+- `DELETE` `/_matrix/client/v1/room_keys/keys/{room_id}`
+- `DELETE` `/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}`
+- `DELETE` `/_matrix/client/v1/room_keys/version/{version}`
+- `DELETE` `/_matrix/client/v1/room_keys/{version}/keys`
+- `DELETE` `/_matrix/client/v1/room_keys/{version}/keys/{room_id}`
+- `DELETE` `/_matrix/client/v1/room_keys/{version}/keys/{room_id}/{session_id}`
+- `DELETE` `/_matrix/client/v3/room_keys/keys`
+- `DELETE` `/_matrix/client/v3/room_keys/keys/{room_id}`
+- `DELETE` `/_matrix/client/v3/room_keys/keys/{room_id}/{session_id}`
+- `DELETE` `/_matrix/client/v3/room_keys/version/{version}`
+- `DELETE` `/_matrix/client/v3/room_keys/{version}/keys`
+- `DELETE` `/_matrix/client/v3/room_keys/{version}/keys/{room_id}`
+- `DELETE` `/_matrix/client/v3/room_keys/{version}/keys/{room_id}/{session_id}`
+- `GET` `/_matrix/client/v1/room_keys/export`
+- `GET` `/_matrix/client/v1/room_keys/export/{version}`
+- `GET` `/_matrix/client/v1/room_keys/keys`
+- `GET` `/_matrix/client/v1/room_keys/keys/{room_id}`
+- `GET` `/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}`
+- `GET` `/_matrix/client/v1/room_keys/recover/{version}/{room_id}`
+- `GET` `/_matrix/client/v1/room_keys/recover/{version}/{room_id}/{session_id}`
+- `GET` `/_matrix/client/v1/room_keys/recovery/{version}/progress`
+- `GET` `/_matrix/client/v1/room_keys/verify/{version}`
+- `GET` `/_matrix/client/v1/room_keys/version`
+- `GET` `/_matrix/client/v1/room_keys/version/{version}`
+- `GET` `/_matrix/client/v1/room_keys/{version}/keys`
+- `GET` `/_matrix/client/v1/room_keys/{version}/keys/{room_id}`
+- `GET` `/_matrix/client/v1/room_keys/{version}/keys/{room_id}/{session_id}`
+- `GET` `/_matrix/client/v3/room_keys/export`
+- `GET` `/_matrix/client/v3/room_keys/export/{version}`
+- `GET` `/_matrix/client/v3/room_keys/keys`
+- `GET` `/_matrix/client/v3/room_keys/keys/{room_id}`
+- `GET` `/_matrix/client/v3/room_keys/keys/{room_id}/{session_id}`
+- `GET` `/_matrix/client/v3/room_keys/recover/{version}/{room_id}`
+- `GET` `/_matrix/client/v3/room_keys/recover/{version}/{room_id}/{session_id}`
+- `GET` `/_matrix/client/v3/room_keys/recovery/{version}/progress`
+- `GET` `/_matrix/client/v3/room_keys/verify/{version}`
+- `GET` `/_matrix/client/v3/room_keys/version`
+- `GET` `/_matrix/client/v3/room_keys/version/{version}`
+- `GET` `/_matrix/client/v3/room_keys/{version}/keys`
+- `GET` `/_matrix/client/v3/room_keys/{version}/keys/{room_id}`
+- `GET` `/_matrix/client/v3/room_keys/{version}/keys/{room_id}/{session_id}`
+- `POST` `/_matrix/client/v1/room_keys/batch_recover`
+- `POST` `/_matrix/client/v1/room_keys/import`
+- `POST` `/_matrix/client/v1/room_keys/import/{version}`
+- `POST` `/_matrix/client/v1/room_keys/recover`
+- `POST` `/_matrix/client/v1/room_keys/version`
+- `POST` `/_matrix/client/v3/room_keys/batch_recover`
+- `POST` `/_matrix/client/v3/room_keys/import`
+- `POST` `/_matrix/client/v3/room_keys/import/{version}`
+- `POST` `/_matrix/client/v3/room_keys/recover`
+- `POST` `/_matrix/client/v3/room_keys/version`
+- `PUT` `/_matrix/client/v1/room_keys/keys`
+- `PUT` `/_matrix/client/v1/room_keys/keys/{room_id}`
+- `PUT` `/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}`
+- `PUT` `/_matrix/client/v1/room_keys/version/{version}`
+- `PUT` `/_matrix/client/v1/room_keys/{version}/keys`
+- `PUT` `/_matrix/client/v1/room_keys/{version}/keys/{room_id}`
+- `PUT` `/_matrix/client/v1/room_keys/{version}/keys/{room_id}/{session_id}`
+- `PUT` `/_matrix/client/v3/room_keys/keys`
+- `PUT` `/_matrix/client/v3/room_keys/keys/{room_id}`
+- `PUT` `/_matrix/client/v3/room_keys/keys/{room_id}/{session_id}`
+- `PUT` `/_matrix/client/v3/room_keys/version/{version}`
+- `PUT` `/_matrix/client/v3/room_keys/{version}/keys`
+- `PUT` `/_matrix/client/v3/room_keys/{version}/keys/{room_id}`
+- `PUT` `/_matrix/client/v3/room_keys/{version}/keys/{room_id}/{session_id}`
 
-### 密钥轮转 （12 条）
+### 密钥轮转 （18 条）
 
-#### `key_rotation.rs` — 12 条 ✅manifest
+#### `key_rotation.rs` — 18 条 ✅manifest
 
 - `GET` `/_matrix/client/v1/keys/rotation/check`
 - `GET` `/_matrix/client/v1/keys/rotation/history/{device_id}`
@@ -416,16 +545,22 @@
 - `GET` `/_matrix/vendor/v1/keys/rotation/check`
 - `GET` `/_matrix/vendor/v1/keys/rotation/history/{device_id}`
 - `GET` `/_matrix/vendor/v1/keys/rotation/status`
+- `POST` `/_matrix/client/v1/keys/rotation/check`
+- `POST` `/_matrix/client/v1/keys/rotation/config`
 - `POST` `/_matrix/client/v1/keys/rotation/revoke`
 - `POST` `/_matrix/client/v1/keys/rotation/rotate`
+- `POST` `/_matrix/client/v1/keys/rotation/status`
+- `POST` `/_matrix/vendor/v1/keys/rotation/check`
+- `POST` `/_matrix/vendor/v1/keys/rotation/config`
 - `POST` `/_matrix/vendor/v1/keys/rotation/revoke`
 - `POST` `/_matrix/vendor/v1/keys/rotation/rotate`
+- `POST` `/_matrix/vendor/v1/keys/rotation/status`
 - `PUT` `/_matrix/client/v1/keys/rotation/config`
 - `PUT` `/_matrix/vendor/v1/keys/rotation/config`
 
-### 小组件 (Widget) （17 条）
+### 小组件 (Widget) （18 条）
 
-#### `widget.rs` — 17 条 ✅manifest
+#### `widget.rs` — 18 条 ✅manifest
 
 - `DELETE` `/_matrix/client/v1/widgets/sessions/{session_id}`
 - `DELETE` `/_matrix/client/v1/widgets/{widget_id}`
@@ -444,6 +579,7 @@
 - `POST` `/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/send`
 - `POST` `/_matrix/client/v3/widgets/create`
 - `PUT` `/_matrix/client/v1/widgets/{widget_id}`
+- `PUT` `/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/capabilities`
 
 ### 应用服务 (AppService) （25 条）
 
@@ -479,135 +615,160 @@
 
 #### `delayed_events.rs` — 1 条 ✅manifest
 
-- `POST` `/delayed_events/{delay_id}`
+- `POST` `/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}`
 
-### 房间 (Room) （104 条）
+### 房间 (Room) （123 条）
 
-#### `room.rs` — 83 条 ✅manifest
+#### `room.rs` — 102 条 ✅manifest
 
-- `DELETE` `/rooms/{room_id}/pinned_events/{event_id}`
+- `DELETE` `/_matrix/client/v3/rooms/{room_id}/pinned_events/{event_id}`
+- `DELETE` `/_matrix/client/v3/rooms/{room_id}/sticky_events/{event_type}`
 - `GET` `/_matrix/client/unstable/uk.half-shot.msc2666/user/mutual_rooms`
-- `GET` `/rooms/{room_id}`
-- `GET` `/rooms/{room_id}/account_data/{type}`
-- `GET` `/rooms/{room_id}/aliases`
-- `GET` `/rooms/{room_id}/anti_screenshot`
-- `GET` `/rooms/{room_id}/capabilities`
-- `GET` `/rooms/{room_id}/device/{device_id}`
-- `GET` `/rooms/{room_id}/encrypted_events`
-- `GET` `/rooms/{room_id}/event/{event_id}`
-- `GET` `/rooms/{room_id}/event/{event_id}/url`
-- `GET` `/rooms/{room_id}/event_perspective`
-- `GET` `/rooms/{room_id}/external_ids`
-- `GET` `/rooms/{room_id}/fragments/{user_id}`
-- `GET` `/rooms/{room_id}/initialSync`
-- `GET` `/rooms/{room_id}/invite_allowlist`
-- `GET` `/rooms/{room_id}/invite_blocklist`
-- `GET` `/rooms/{room_id}/invites`
-- `GET` `/rooms/{room_id}/joined_members`
-- `GET` `/rooms/{room_id}/keys`
-- `GET` `/rooms/{room_id}/keys/count`
-- `GET` `/rooms/{room_id}/keys/version`
-- `GET` `/rooms/{room_id}/keys/{event_id}`
-- `GET` `/rooms/{room_id}/members`
-- `GET` `/rooms/{room_id}/members/recent`
-- `GET` `/rooms/{room_id}/membership/{user_id}`
-- `GET` `/rooms/{room_id}/message_queue`
-- `GET` `/rooms/{room_id}/messages`
-- `GET` `/rooms/{room_id}/metadata`
-- `GET` `/rooms/{room_id}/notifications`
-- `GET` `/rooms/{room_id}/permissions`
-- `GET` `/rooms/{room_id}/pinned_events`
-- `GET` `/rooms/{room_id}/receipts/{receipt_type}/{event_id}`
-- `GET` `/rooms/{room_id}/reduced_events`
-- `GET` `/rooms/{room_id}/rendered/`
-- `GET` `/rooms/{room_id}/resolve`
-- `GET` `/rooms/{room_id}/retention`
-- `GET` `/rooms/{room_id}/service_types`
-- `GET` `/rooms/{room_id}/spaces`
-- `GET` `/rooms/{room_id}/state`
-- `GET` `/rooms/{room_id}/state/m.room.power_levels/`
-- `GET` `/rooms/{room_id}/sticky_events`
-- `GET` `/rooms/{room_id}/sync`
-- `GET` `/rooms/{room_id}/thread/{event_id}`
-- `GET` `/rooms/{room_id}/threads/{thread_id}`
-- `GET` `/rooms/{room_id}/timeline`
-- `GET` `/rooms/{room_id}/turn_server`
-- `GET` `/rooms/{room_id}/unread_count`
-- `GET` `/rooms/{room_id}/vault_data`
-- `GET` `/rooms/{room_id}/version`
-- `GET` `/rooms/{room_id}/visibility`
-- `GET` `/user/mutual_rooms`
-- `GET` `/user/{user_id}/rooms`
+- `GET` `/_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/`
+- `GET` `/_matrix/client/v1/user/mutual_rooms`
+- `GET` `/_matrix/client/v3/rooms/{room_id}`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/account_data/{type}`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/aliases`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/anti_screenshot`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/capabilities`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/device/{device_id}`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/encrypted_events`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/event/{event_id}`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/event/{event_id}/url`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/event_perspective`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/external_ids`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/fragments/{user_id}`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/initialSync`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/invite_allowlist`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/invite_blocklist`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/invites`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/joined_members`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/keys`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/keys/count`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/keys/version`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/keys/{event_id}`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/members`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/members/recent`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/membership/{user_id}`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/message_queue`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/messages`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/metadata`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/notifications`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/permissions`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/pinned_events`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/receipts/{receipt_type}/{event_id}`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/reduced_events`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/rendered/`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/resolve`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/retention`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/service_types`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/spaces`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/state`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/state/m.room.power_levels/`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/state/{event_type}`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/state/{event_type}/`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/state/{event_type}/{state_key}`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/sticky_events`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/sync`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/thread/{event_id}`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/threads/{thread_id}`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/timeline`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/turn_server`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/unread_count`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/vault_data`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/version`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/visibility`
+- `GET` `/_matrix/client/v3/user/{user_id}/rooms`
 - `POST` `/_matrix/client/v1/rooms/create_private`
+- `POST` `/_matrix/client/v3/createRoom`
+- `POST` `/_matrix/client/v3/invite/{room_id}`
+- `POST` `/_matrix/client/v3/join/{room_id_or_alias}`
+- `POST` `/_matrix/client/v3/knock/{room_id_or_alias}`
 - `POST` `/_matrix/client/v3/rooms/create_private`
-- `POST` `/createRoom`
-- `POST` `/invite/{room_id}`
-- `POST` `/join/{room_id_or_alias}`
-- `POST` `/knock/{room_id_or_alias}`
-- `POST` `/rooms/{room_id}/ban`
-- `POST` `/rooms/{room_id}/convert/{event_id}`
-- `POST` `/rooms/{room_id}/forget`
-- `POST` `/rooms/{room_id}/get_membership_events`
-- `POST` `/rooms/{room_id}/invite`
-- `POST` `/rooms/{room_id}/join`
-- `POST` `/rooms/{room_id}/keys/claim`
-- `POST` `/rooms/{room_id}/kick`
-- `POST` `/rooms/{room_id}/leave`
-- `POST` `/rooms/{room_id}/read_markers`
-- `POST` `/rooms/{room_id}/receipt/{receipt_type}/{event_id}`
-- `POST` `/rooms/{room_id}/search`
-- `POST` `/rooms/{room_id}/translate/{event_id}`
-- `POST` `/rooms/{room_id}/unban`
-- `POST` `/rooms/{room_id}/upgrade`
-- `POST` `/rooms/{room_id}/verify/{event_id}`
-- `POST` `/translate`
-- `PUT` `/rooms/{room_id}/redact/{event_id}/{txn_id}`
-- `PUT` `/rooms/{room_id}/room_keys/keys`
-- `PUT` `/rooms/{room_id}/send/{event_type}/{txn_id}`
-- `PUT` `/rooms/{room_id}/sign/{event_id}`
-- `PUT` `/rooms/{room_id}/state/{event_type}`
-- `PUT` `/rooms/{room_id}/state/{event_type}/`
-- `PUT` `/rooms/{room_id}/state/{event_type}/{state_key}`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/ban`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/convert/{event_id}`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/forget`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/get_membership_events`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/invite`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/invite_allowlist`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/invite_blocklist`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/join`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/keys/claim`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/kick`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/leave`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/pinned_events`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/read_markers`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/receipt/{receipt_type}/{event_id}`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/redact/{event_id}/{txn_id}`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/search`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id}`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/state/{event_type}`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/sticky_events`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/translate/{event_id}`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/unban`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/upgrade`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/verify/{event_id}`
+- `POST` `/_matrix/client/v3/translate`
+- `PUT` `/_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/`
+- `PUT` `/_matrix/client/v3/rooms/{room_id}/account_data/{type}`
+- `PUT` `/_matrix/client/v3/rooms/{room_id}/anti_screenshot`
+- `PUT` `/_matrix/client/v3/rooms/{room_id}/read_markers`
+- `PUT` `/_matrix/client/v3/rooms/{room_id}/redact/{event_id}/{txn_id}`
+- `PUT` `/_matrix/client/v3/rooms/{room_id}/room_keys/keys`
+- `PUT` `/_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id}`
+- `PUT` `/_matrix/client/v3/rooms/{room_id}/sign/{event_id}`
+- `PUT` `/_matrix/client/v3/rooms/{room_id}/state/m.room.power_levels/`
+- `PUT` `/_matrix/client/v3/rooms/{room_id}/state/{event_type}`
+- `PUT` `/_matrix/client/v3/rooms/{room_id}/state/{event_type}/`
+- `PUT` `/_matrix/client/v3/rooms/{room_id}/state/{event_type}/{state_key}`
+- `PUT` `/_matrix/client/v3/rooms/{room_id}/vault_data`
+- `PUT` `/_matrix/client/v3/rooms/{room_id}/visibility`
 
 #### `room_summary.rs` — 21 条 ✅manifest
 
-- `DELETE` `/rooms/{room_id}/summary`
-- `DELETE` `/rooms/{room_id}/summary/members/{user_id}`
+- `DELETE` `/_matrix/client/v3/rooms/{room_id}/summary`
+- `DELETE` `/_matrix/client/v3/rooms/{room_id}/summary/members/{user_id}`
+- `GET` `/_matrix/client/v1/rooms/{room_id}/summary`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/summary`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/summary/members`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/summary/state`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/summary/state/{event_type}/{state_key}`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/summary/stats`
 - `GET` `/_synapse/room_summary/v1/summaries`
-- `GET` `/rooms/{room_id}/summary`
-- `GET` `/rooms/{room_id}/summary`
-- `GET` `/rooms/{room_id}/summary/members`
-- `GET` `/rooms/{room_id}/summary/state`
-- `GET` `/rooms/{room_id}/summary/state/{event_type}/{state_key}`
-- `GET` `/rooms/{room_id}/summary/stats`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/summary`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/summary/heroes/recalculate`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/summary/members`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/summary/stats/recalculate`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/summary/sync`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/summary/unread/clear`
 - `POST` `/_synapse/room_summary/v1/summaries`
 - `POST` `/_synapse/room_summary/v1/summaries/batch`
 - `POST` `/_synapse/room_summary/v1/updates/process`
-- `POST` `/rooms/{room_id}/summary`
-- `POST` `/rooms/{room_id}/summary/heroes/recalculate`
-- `POST` `/rooms/{room_id}/summary/members`
-- `POST` `/rooms/{room_id}/summary/stats/recalculate`
-- `POST` `/rooms/{room_id}/summary/sync`
-- `POST` `/rooms/{room_id}/summary/unread/clear`
-- `PUT` `/rooms/{room_id}/summary`
-- `PUT` `/rooms/{room_id}/summary/members/{user_id}`
-- `PUT` `/rooms/{room_id}/summary/state/{event_type}/{state_key}`
+- `PUT` `/_matrix/client/v3/rooms/{room_id}/summary`
+- `PUT` `/_matrix/client/v3/rooms/{room_id}/summary/members/{user_id}`
+- `PUT` `/_matrix/client/v3/rooms/{room_id}/summary/state/{event_type}/{state_key}`
 
-### 推送 (Push) （19 条）
+### 推送 (Push) （25 条）
 
-#### `push.rs` — 11 条 ✅manifest
+#### `push.rs` — 17 条 ✅manifest
 
+- `DELETE` `/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}`
+- `GET` `/_matrix/client/v3/notifications`
+- `GET` `/_matrix/client/v3/pushers`
+- `GET` `/_matrix/client/v3/pushers/`
+- `GET` `/_matrix/client/v3/pushrules`
+- `GET` `/_matrix/client/v3/pushrules/{scope}`
+- `GET` `/_matrix/client/v3/pushrules/{scope}/{kind}`
+- `GET` `/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}`
 - `GET` `/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/enabled`
-- `GET` `/notifications`
-- `GET` `/pushers`
-- `GET` `/pushers/`
-- `GET` `/pushrules`
-- `GET` `/pushrules/{scope}`
-- `GET` `/pushrules/{scope}/{kind}`
-- `GET` `/pushrules/{scope}/{kind}/{rule_id}`
-- `POST` `/notifications/{notification_id}/ack`
-- `POST` `/pushers/set`
+- `POST` `/_matrix/client/v3/notifications/{notification_id}/ack`
+- `POST` `/_matrix/client/v3/pushers`
+- `POST` `/_matrix/client/v3/pushers/`
+- `POST` `/_matrix/client/v3/pushers/set`
+- `POST` `/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}`
+- `PUT` `/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}`
 - `PUT` `/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/actions`
+- `PUT` `/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/enabled`
 
 #### `push_notification.rs` — 8 条 ✅manifest
 
@@ -620,26 +781,27 @@
 - `POST` `/_synapse/admin/v1/push/process`
 - `PUT` `/_synapse/admin/v1/push/config`
 
-### 搜索 (Search) （7 条）
+### 搜索 (Search) （8 条）
 
-#### `handlers/search/mod.rs` — 7 条 ✅manifest
+#### `handlers/search/mod.rs` — 8 条 ✅manifest
 
-- `GET` `/rooms/{room_id}/context/{event_id}`
-- `GET` `/rooms/{room_id}/hierarchy`
-- `GET` `/rooms/{room_id}/hierarchy`
-- `GET` `/rooms/{room_id}/timestamp_to_event`
-- `POST` `/search`
-- `POST` `/search_recipients`
-- `POST` `/search_rooms`
+- `GET` `/_matrix/client/v1/rooms/{room_id}/context/{event_id}`
+- `GET` `/_matrix/client/v1/rooms/{room_id}/hierarchy`
+- `GET` `/_matrix/client/v1/rooms/{room_id}/timestamp_to_event`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/context/{event_id}`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/hierarchy`
+- `POST` `/_matrix/client/v3/search`
+- `POST` `/_matrix/client/v3/search_recipients`
+- `POST` `/_matrix/client/v3/search_rooms`
 
 ### 标签 (Tags) （4 条）
 
 #### `tags.rs` — 4 条 ✅manifest
 
-- `DELETE` `/user/{user_id}/rooms/{room_id}/tags/{tag}`
-- `GET` `/user/{user_id}/rooms/{room_id}/tags`
-- `GET` `/user/{user_id}/tags`
-- `PUT` `/user/{user_id}/rooms/{room_id}/tags/{tag}`
+- `DELETE` `/_matrix/client/v3/user/{user_id}/rooms/{room_id}/tags/{tag}`
+- `GET` `/_matrix/client/v3/user/{user_id}/rooms/{room_id}/tags`
+- `GET` `/_matrix/client/v3/user/{user_id}/tags`
+- `PUT` `/_matrix/client/v3/user/{user_id}/rooms/{room_id}/tags/{tag}`
 
 ### 模块 （23 条）
 
@@ -678,84 +840,196 @@
 - `POST` `/_matrix/client/v1/sync`
 - `POST` `/_matrix/client/v4/sync`
 
+### 特性开关 （4 条）
+
+#### `feature_flags.rs` — 4 条 ✅manifest
+
+- `GET` `/_synapse/admin/v1/feature-flags`
+- `GET` `/_synapse/admin/v1/feature-flags/{flag_key}`
+- `PATCH` `/_synapse/admin/v1/feature-flags/{flag_key}`
+- `POST` `/_synapse/admin/v1/feature-flags`
+
 ### 私聊 (DM) （5 条）
 
 #### `dm.rs` — 5 条 ✅manifest
 
-- `GET` `/direct`
-- `GET` `/rooms/{room_id}/dm`
-- `GET` `/rooms/{room_id}/dm/partner`
+- `GET` `/_matrix/client/v3/direct`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/dm`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/dm/partner`
 - `POST` `/_matrix/client/v3/create_dm`
-- `PUT` `/direct/{room_id}`
+- `PUT` `/_matrix/client/v3/direct/{room_id}`
 
-### 空间 (Space) （15 条）
+### 空间 (Space) （48 条）
 
-#### `space/children_hierarchy.rs` — 7 条 ⚠️无manifest
+#### `space/lifecycle_query.rs` — 18 条 ⚠️无manifest
 
-- `DELETE` `/spaces/{space_id}/children/{room_id}`
-- `GET` `/spaces/room/{room_id}/parents`
-- `GET` `/spaces/{space_id}/children`
-- `GET` `/spaces/{space_id}/hierarchy`
-- `GET` `/spaces/{space_id}/hierarchy/v1`
-- `GET` `/spaces/{space_id}/tree_path`
-- `POST` `/spaces/{space_id}/children`
+- `DELETE` `/_matrix/client/v1/spaces/{space_id}`
+- `DELETE` `/_matrix/client/v3/spaces/{space_id}`
+- `GET` `/_matrix/client/v1/spaces/public`
+- `GET` `/_matrix/client/v1/spaces/room/{room_id}`
+- `GET` `/_matrix/client/v1/spaces/search`
+- `GET` `/_matrix/client/v1/spaces/statistics`
+- `GET` `/_matrix/client/v1/spaces/user`
+- `GET` `/_matrix/client/v1/spaces/{space_id}`
+- `GET` `/_matrix/client/v3/spaces/public`
+- `GET` `/_matrix/client/v3/spaces/room/{room_id}`
+- `GET` `/_matrix/client/v3/spaces/search`
+- `GET` `/_matrix/client/v3/spaces/statistics`
+- `GET` `/_matrix/client/v3/spaces/user`
+- `GET` `/_matrix/client/v3/spaces/{space_id}`
+- `POST` `/_matrix/client/v1/spaces`
+- `POST` `/_matrix/client/v3/spaces`
+- `PUT` `/_matrix/client/v1/spaces/{space_id}`
+- `PUT` `/_matrix/client/v3/spaces/{space_id}`
 
-#### `space/membership_state.rs` — 6 条 ⚠️无manifest
+#### `space/children_hierarchy.rs` — 14 条 ⚠️无manifest
 
-- `GET` `/spaces/{space_id}/members`
-- `GET` `/spaces/{space_id}/rooms`
-- `GET` `/spaces/{space_id}/state`
-- `POST` `/spaces/{space_id}/invite`
-- `POST` `/spaces/{space_id}/join`
-- `POST` `/spaces/{space_id}/leave`
+- `DELETE` `/_matrix/client/v1/spaces/{space_id}/children/{room_id}`
+- `DELETE` `/_matrix/client/v3/spaces/{space_id}/children/{room_id}`
+- `GET` `/_matrix/client/v1/spaces/room/{room_id}/parents`
+- `GET` `/_matrix/client/v1/spaces/{space_id}/children`
+- `GET` `/_matrix/client/v1/spaces/{space_id}/hierarchy`
+- `GET` `/_matrix/client/v1/spaces/{space_id}/hierarchy/v1`
+- `GET` `/_matrix/client/v1/spaces/{space_id}/tree_path`
+- `GET` `/_matrix/client/v3/spaces/room/{room_id}/parents`
+- `GET` `/_matrix/client/v3/spaces/{space_id}/children`
+- `GET` `/_matrix/client/v3/spaces/{space_id}/hierarchy`
+- `GET` `/_matrix/client/v3/spaces/{space_id}/hierarchy/v1`
+- `GET` `/_matrix/client/v3/spaces/{space_id}/tree_path`
+- `POST` `/_matrix/client/v1/spaces/{space_id}/children`
+- `POST` `/_matrix/client/v3/spaces/{space_id}/children`
 
-#### `space/summary.rs` — 2 条 ⚠️无manifest
+#### `space/membership_state.rs` — 12 条 ⚠️无manifest
 
-- `GET` `/spaces/{space_id}/summary`
-- `GET` `/spaces/{space_id}/summary/with_children`
+- `GET` `/_matrix/client/v1/spaces/{space_id}/members`
+- `GET` `/_matrix/client/v1/spaces/{space_id}/rooms`
+- `GET` `/_matrix/client/v1/spaces/{space_id}/state`
+- `GET` `/_matrix/client/v3/spaces/{space_id}/members`
+- `GET` `/_matrix/client/v3/spaces/{space_id}/rooms`
+- `GET` `/_matrix/client/v3/spaces/{space_id}/state`
+- `POST` `/_matrix/client/v1/spaces/{space_id}/invite`
+- `POST` `/_matrix/client/v1/spaces/{space_id}/join`
+- `POST` `/_matrix/client/v1/spaces/{space_id}/leave`
+- `POST` `/_matrix/client/v3/spaces/{space_id}/invite`
+- `POST` `/_matrix/client/v3/spaces/{space_id}/join`
+- `POST` `/_matrix/client/v3/spaces/{space_id}/leave`
 
-### 端到端加密 (E2EE) （25 条）
+#### `space/summary.rs` — 4 条 ⚠️无manifest
 
-#### `e2ee/keys.rs` — 25 条 ✅manifest
+- `GET` `/_matrix/client/v1/spaces/{space_id}/summary`
+- `GET` `/_matrix/client/v1/spaces/{space_id}/summary/with_children`
+- `GET` `/_matrix/client/v3/spaces/{space_id}/summary`
+- `GET` `/_matrix/client/v3/spaces/{space_id}/summary/with_children`
 
-- `DELETE` `/room_keys/request/{request_id}`
-- `GET` `/device_trust`
-- `GET` `/device_trust/{device_id}`
-- `GET` `/device_verification/status/{token}`
-- `GET` `/keys/backup/secure/{backup_id}`
-- `GET` `/keys/changes`
-- `GET` `/keys/history`
-- `GET` `/rooms/{room_id}/keys/distribution`
-- `GET` `/security/summary`
-- `POST` `/device_verification/request`
-- `POST` `/device_verification/respond`
-- `POST` `/keys/backup/secure`
-- `POST` `/keys/backup/secure/{backup_id}/keys`
-- `POST` `/keys/backup/secure/{backup_id}/restore`
-- `POST` `/keys/backup/secure/{backup_id}/verify`
-- `POST` `/keys/claim`
-- `POST` `/keys/device_list/update`
-- `POST` `/keys/device_signing/upload`
-- `POST` `/keys/query`
-- `POST` `/keys/signatures`
-- `POST` `/keys/signatures/upload`
-- `POST` `/keys/upload`
-- `POST` `/keys/upload/{device_id}`
-- `POST` `/room_keys/request`
-- `PUT` `/sendToDevice/{event_type}/{transaction_id}`
+### 端到端加密 (E2EE) （44 条）
+
+#### `e2ee/keys.rs` — 44 条 ✅manifest
+
+- `DELETE` `/_matrix/client/v1/room_keys/request/{request_id}`
+- `DELETE` `/_matrix/client/v3/keys/backup/secure/{backup_id}`
+- `DELETE` `/_matrix/client/v3/room_keys/request/{request_id}`
+- `GET` `/_matrix/client/v1/keys/changes`
+- `GET` `/_matrix/client/v1/room_keys/request`
+- `GET` `/_matrix/client/v1/rooms/{room_id}/keys/distribution`
+- `GET` `/_matrix/client/v3/device_trust`
+- `GET` `/_matrix/client/v3/device_trust/{device_id}`
+- `GET` `/_matrix/client/v3/device_verification/status/{token}`
+- `GET` `/_matrix/client/v3/keys/backup/secure`
+- `GET` `/_matrix/client/v3/keys/backup/secure/{backup_id}`
+- `GET` `/_matrix/client/v3/keys/changes`
+- `GET` `/_matrix/client/v3/keys/history`
+- `GET` `/_matrix/client/v3/room_keys/request`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/keys/distribution`
+- `GET` `/_matrix/client/v3/security/summary`
+- `POST` `/_matrix/client/v1/keys/claim`
+- `POST` `/_matrix/client/v1/keys/device_list/update`
+- `POST` `/_matrix/client/v1/keys/device_signing/upload`
+- `POST` `/_matrix/client/v1/keys/query`
+- `POST` `/_matrix/client/v1/keys/signatures`
+- `POST` `/_matrix/client/v1/keys/signatures/upload`
+- `POST` `/_matrix/client/v1/keys/upload`
+- `POST` `/_matrix/client/v1/keys/upload/{device_id}`
+- `POST` `/_matrix/client/v1/room_keys/request`
+- `POST` `/_matrix/client/v1/sendToDevice/{event_type}/{transaction_id}`
+- `POST` `/_matrix/client/v3/device_verification/request`
+- `POST` `/_matrix/client/v3/device_verification/respond`
+- `POST` `/_matrix/client/v3/keys/backup/secure`
+- `POST` `/_matrix/client/v3/keys/backup/secure/{backup_id}/keys`
+- `POST` `/_matrix/client/v3/keys/backup/secure/{backup_id}/restore`
+- `POST` `/_matrix/client/v3/keys/backup/secure/{backup_id}/verify`
+- `POST` `/_matrix/client/v3/keys/claim`
+- `POST` `/_matrix/client/v3/keys/device_list/update`
+- `POST` `/_matrix/client/v3/keys/device_signing/upload`
+- `POST` `/_matrix/client/v3/keys/query`
+- `POST` `/_matrix/client/v3/keys/signatures`
+- `POST` `/_matrix/client/v3/keys/signatures/upload`
+- `POST` `/_matrix/client/v3/keys/upload`
+- `POST` `/_matrix/client/v3/keys/upload/{device_id}`
+- `POST` `/_matrix/client/v3/room_keys/request`
+- `POST` `/_matrix/client/v3/sendToDevice/{event_type}/{transaction_id}`
+- `PUT` `/_matrix/client/v1/sendToDevice/{event_type}/{transaction_id}`
+- `PUT` `/_matrix/client/v3/sendToDevice/{event_type}/{transaction_id}`
 
 ### 第三方 (Third-party) （6 条）
 
 #### `thirdparty.rs` — 6 条 ✅manifest
 
 - `GET` `/_matrix/client/v3/thirdparty/location`
+- `GET` `/_matrix/client/v3/thirdparty/location/{protocol}`
+- `GET` `/_matrix/client/v3/thirdparty/protocol/{protocol}`
+- `GET` `/_matrix/client/v3/thirdparty/protocols`
 - `GET` `/_matrix/client/v3/thirdparty/user`
-- `GET` `/thirdparty/location/{protocol}`
-- `GET` `/thirdparty/protocol/{protocol}`
-- `GET` `/thirdparty/protocols`
-- `GET` `/thirdparty/user/{protocol}`
+- `GET` `/_matrix/client/v3/thirdparty/user/{protocol}`
 
-### 管理 (Admin) （93 条）
+### 管理 (Admin) （141 条）
+
+#### `admin/room/mod.rs` — 45 条 ✅manifest
+
+- `DELETE` `/_synapse/admin/v1/rooms/{room_id}`
+- `DELETE` `/_synapse/admin/v1/rooms/{room_id}/listings/public`
+- `DELETE` `/_synapse/admin/v1/rooms/{room_id}/members/{user_id}`
+- `DELETE` `/_synapse/admin/v1/spaces/{space_id}`
+- `GET` `/_synapse/admin/v1/room_stats`
+- `GET` `/_synapse/admin/v1/room_stats/{room_id}`
+- `GET` `/_synapse/admin/v1/rooms`
+- `GET` `/_synapse/admin/v1/rooms/search`
+- `GET` `/_synapse/admin/v1/rooms/{room_id}`
+- `GET` `/_synapse/admin/v1/rooms/{room_id}/aliases`
+- `GET` `/_synapse/admin/v1/rooms/{room_id}/block`
+- `GET` `/_synapse/admin/v1/rooms/{room_id}/event_context/{event_id}`
+- `GET` `/_synapse/admin/v1/rooms/{room_id}/forward_extremities`
+- `GET` `/_synapse/admin/v1/rooms/{room_id}/listings`
+- `GET` `/_synapse/admin/v1/rooms/{room_id}/members`
+- `GET` `/_synapse/admin/v1/rooms/{room_id}/messages`
+- `GET` `/_synapse/admin/v1/rooms/{room_id}/state`
+- `GET` `/_synapse/admin/v1/rooms/{room_id}/token_sync`
+- `GET` `/_synapse/admin/v1/rooms/{room_id}/version`
+- `GET` `/_synapse/admin/v1/spaces`
+- `GET` `/_synapse/admin/v1/spaces/{space_id}`
+- `GET` `/_synapse/admin/v1/spaces/{space_id}/rooms`
+- `GET` `/_synapse/admin/v1/spaces/{space_id}/stats`
+- `GET` `/_synapse/admin/v1/spaces/{space_id}/users`
+- `POST` `/_matrix/client/v3/admin/room/{room_id}/redact`
+- `POST` `/_synapse/admin/v1/purge_history`
+- `POST` `/_synapse/admin/v1/purge_room`
+- `POST` `/_synapse/admin/v1/rooms/cleanup`
+- `POST` `/_synapse/admin/v1/rooms/search`
+- `POST` `/_synapse/admin/v1/rooms/{room_id}/backfill`
+- `POST` `/_synapse/admin/v1/rooms/{room_id}/ban`
+- `POST` `/_synapse/admin/v1/rooms/{room_id}/ban/{user_id}`
+- `POST` `/_synapse/admin/v1/rooms/{room_id}/block`
+- `POST` `/_synapse/admin/v1/rooms/{room_id}/delete`
+- `POST` `/_synapse/admin/v1/rooms/{room_id}/kick`
+- `POST` `/_synapse/admin/v1/rooms/{room_id}/kick/{user_id}`
+- `POST` `/_synapse/admin/v1/rooms/{room_id}/make_admin`
+- `POST` `/_synapse/admin/v1/rooms/{room_id}/purge_history`
+- `POST` `/_synapse/admin/v1/rooms/{room_id}/search`
+- `POST` `/_synapse/admin/v1/rooms/{room_id}/unban/{user_id}`
+- `POST` `/_synapse/admin/v1/rooms/{room_id}/unblock`
+- `POST` `/_synapse/admin/v1/shutdown_room`
+- `PUT` `/_synapse/admin/v1/rooms/{room_id}/listings/public`
+- `PUT` `/_synapse/admin/v1/rooms/{room_id}/make_admin`
+- `PUT` `/_synapse/admin/v1/rooms/{room_id}/members/{user_id}`
 
 #### `admin/user.rs` — 26 条 ✅manifest
 
@@ -845,6 +1119,15 @@
 - `POST` `/_synapse/admin/v1/users/{user_id}/shadow_ban`
 - `PUT` `/_synapse/admin/v1/users/{user_id}/rate_limit`
 
+#### `admin/report.rs` — 6 条 ✅manifest
+
+- `DELETE` `/_synapse/admin/v1/reports/{report_id}`
+- `DELETE` `/_synapse/admin/v1/rooms/{room_id}/reports/{report_id}`
+- `GET` `/_synapse/admin/v1/reports`
+- `GET` `/_synapse/admin/v1/reports/{report_id}`
+- `GET` `/_synapse/admin/v1/rooms/{room_id}/reports`
+- `GET` `/_synapse/admin/v1/rooms/{room_id}/reports/{report_id}`
+
 #### `admin/retention.rs` — 6 条 ✅manifest
 
 - `GET` `/_synapse/admin/v1/retention/policy`
@@ -854,24 +1137,17 @@
 - `POST` `/_synapse/admin/v1/retention/policy/{room_id}`
 - `POST` `/_synapse/admin/v1/retention/run`
 
-#### `admin/report.rs` — 5 条 ✅manifest
+#### `admin/audit.rs` — 3 条 ✅manifest
 
-- `DELETE` `/_synapse/admin/v1/reports/{report_id}`
-- `GET` `/_synapse/admin/v1/reports`
-- `GET` `/_synapse/admin/v1/reports/{report_id}`
-- `GET` `/_synapse/admin/v1/rooms/{room_id}/reports`
-- `GET` `/_synapse/admin/v1/rooms/{room_id}/reports/{report_id}`
+- `GET` `/_synapse/admin/v1/audit/events`
+- `GET` `/_synapse/admin/v1/audit/events/{event_id}`
+- `POST` `/_synapse/admin/v1/audit/events`
 
 #### `admin/cleanup.rs` — 3 条 ✅manifest
 
 - `POST` `/_synapse/admin/v1/cleanup/all`
 - `POST` `/_synapse/admin/v1/cleanup/rooms`
 - `POST` `/_synapse/admin/v1/cleanup/tokens`
-
-#### `admin/audit.rs` — 2 条 ✅manifest
-
-- `GET` `/_synapse/admin/v1/audit/events/{event_id}`
-- `POST` `/_synapse/admin/v1/audit/events`
 
 #### `admin/policy.rs` — 2 条 ✅manifest
 
@@ -882,6 +1158,10 @@
 
 - `GET` `/_synapse/admin/v1/register/nonce`
 - `POST` `/_synapse/admin/v1/register`
+
+#### `admin/mod.rs` — 1 条 ✅manifest
+
+- `GET` `/_synapse/admin/info`
 
 ### 联邦 (Federation) （70 条）
 
@@ -964,10 +1244,14 @@
 - `PUT` `/_matrix/federation/v2/send_join/{room_id}/{event_id}`
 - `PUT` `/_matrix/federation/v2/send_leave/{room_id}/{event_id}`
 
-### 装配 (Assembly) （67 条）
+### 装配 (Assembly) （101 条）
 
-#### `assembly.rs` — 67 条 ✅manifest
+#### `assembly.rs` — 101 条 ✅manifest
 
+- `DELETE` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device`
+- `DELETE` `/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}`
+- `DELETE` `/_matrix/client/v3/directory/room/{room_alias}`
+- `DELETE` `/_matrix/client/v3/directory/room/{room_id}/alias/{room_alias}`
 - `GET` `/`
 - `GET` `/.well-known/matrix/client`
 - `GET` `/.well-known/matrix/server`
@@ -980,70 +1264,102 @@
 - `GET` `/_matrix/client/unstable/org.matrix.msc4143/rtc/transports`
 - `GET` `/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}`
 - `GET` `/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}`
+- `GET` `/_matrix/client/v1/account/3pid`
+- `GET` `/_matrix/client/v1/account/whoami`
 - `GET` `/_matrix/client/v1/auth_metadata`
 - `GET` `/_matrix/client/v1/config/client`
+- `GET` `/_matrix/client/v1/media/config`
+- `GET` `/_matrix/client/v1/profile/{user_id}`
+- `GET` `/_matrix/client/v1/profile/{user_id}/avatar_url`
+- `GET` `/_matrix/client/v1/profile/{user_id}/displayname`
+- `GET` `/_matrix/client/v3/account/3pid`
+- `GET` `/_matrix/client/v3/account/whoami`
+- `GET` `/_matrix/client/v3/capabilities`
+- `GET` `/_matrix/client/v3/directory/list/room/{room_id}`
+- `GET` `/_matrix/client/v3/directory/room/{room_alias}`
+- `GET` `/_matrix/client/v3/directory/room/{room_id}/alias`
+- `GET` `/_matrix/client/v3/login`
+- `GET` `/_matrix/client/v3/media/config`
+- `GET` `/_matrix/client/v3/profile/{user_id}`
+- `GET` `/_matrix/client/v3/profile/{user_id}/avatar_url`
+- `GET` `/_matrix/client/v3/profile/{user_id}/displayname`
+- `GET` `/_matrix/client/v3/publicRooms`
 - `GET` `/_matrix/client/v3/pushrules/`
 - `GET` `/_matrix/client/v3/pushrules/global/`
+- `GET` `/_matrix/client/v3/register`
+- `GET` `/_matrix/client/v3/register/available`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/call/{call_id}`
+- `GET` `/_matrix/client/v3/user_directory/profiles/{user_id}`
 - `GET` `/_matrix/client/v3/versions`
+- `GET` `/_matrix/client/v3/voip/config`
+- `GET` `/_matrix/client/v3/voip/turnServer`
+- `GET` `/_matrix/client/v3/voip/turnServer/guest`
 - `GET` `/_matrix/client/versions`
 - `GET` `/_matrix/server_version`
 - `GET` `/_matrix/static/client/login/`
-- `GET` `/account/3pid`
-- `GET` `/account/whoami`
-- `GET` `/capabilities`
-- `GET` `/directory/list/room/{room_id}`
-- `GET` `/directory/room/{room_alias}`
-- `GET` `/directory/room/{room_id}/alias`
+- `GET` `/_matrix/vendor/v1/my_rooms`
 - `GET` `/health`
-- `GET` `/login`
-- `GET` `/media/config`
-- `GET` `/my_rooms`
-- `GET` `/profile/{user_id}`
-- `GET` `/profile/{user_id}/avatar_url`
-- `GET` `/profile/{user_id}/displayname`
-- `GET` `/publicRooms`
-- `GET` `/register`
-- `GET` `/register/available`
-- `GET` `/rooms/{room_id}/call/{call_id}`
-- `GET` `/user_directory/profiles/{user_id}`
-- `GET` `/voip/config`
-- `GET` `/voip/turnServer`
-- `GET` `/voip/turnServer/guest`
 - `POST` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events`
+- `POST` `/_matrix/client/v1/account/3pid`
+- `POST` `/_matrix/client/v1/account/3pid/add`
+- `POST` `/_matrix/client/v1/account/3pid/bind`
+- `POST` `/_matrix/client/v1/account/3pid/delete`
+- `POST` `/_matrix/client/v1/account/3pid/email/requestToken`
+- `POST` `/_matrix/client/v1/account/3pid/email/submitToken`
+- `POST` `/_matrix/client/v1/account/3pid/unbind`
+- `POST` `/_matrix/client/v1/account/deactivate`
+- `POST` `/_matrix/client/v1/account/password`
+- `POST` `/_matrix/client/v1/account/password/email/requestToken`
+- `POST` `/_matrix/client/v1/account/password/email/submitToken`
 - `POST` `/_matrix/client/v1/login/qr_token`
-- `POST` `/account/3pid/add`
-- `POST` `/account/3pid/bind`
-- `POST` `/account/3pid/delete`
-- `POST` `/account/3pid/email/requestToken`
-- `POST` `/account/3pid/email/submitToken`
-- `POST` `/account/3pid/unbind`
-- `POST` `/account/deactivate`
-- `POST` `/account/password`
-- `POST` `/account/password/email/requestToken`
-- `POST` `/account/password/email/submitToken`
-- `POST` `/logout`
-- `POST` `/logout/all`
-- `POST` `/refresh`
-- `POST` `/register/email/requestToken`
-- `POST` `/register/email/submitToken`
-- `POST` `/search_recipients`
-- `POST` `/search_rooms`
-- `POST` `/user_directory/list`
-- `POST` `/user_directory/search`
-- `PUT` `/directory/room/{room_id}/alias/{room_alias}`
-- `PUT` `/rooms/{room_id}/send/m.call.answer/{txn_id}`
-- `PUT` `/rooms/{room_id}/send/m.call.candidates/{txn_id}`
-- `PUT` `/rooms/{room_id}/send/m.call.hangup/{txn_id}`
-- `PUT` `/rooms/{room_id}/send/m.call.invite/{txn_id}`
+- `POST` `/_matrix/client/v3/account/3pid`
+- `POST` `/_matrix/client/v3/account/3pid/add`
+- `POST` `/_matrix/client/v3/account/3pid/bind`
+- `POST` `/_matrix/client/v3/account/3pid/delete`
+- `POST` `/_matrix/client/v3/account/3pid/email/requestToken`
+- `POST` `/_matrix/client/v3/account/3pid/email/submitToken`
+- `POST` `/_matrix/client/v3/account/3pid/unbind`
+- `POST` `/_matrix/client/v3/account/deactivate`
+- `POST` `/_matrix/client/v3/account/password`
+- `POST` `/_matrix/client/v3/account/password/email/requestToken`
+- `POST` `/_matrix/client/v3/account/password/email/submitToken`
+- `POST` `/_matrix/client/v3/login`
+- `POST` `/_matrix/client/v3/logout`
+- `POST` `/_matrix/client/v3/logout/all`
+- `POST` `/_matrix/client/v3/publicRooms`
+- `POST` `/_matrix/client/v3/refresh`
+- `POST` `/_matrix/client/v3/register`
+- `POST` `/_matrix/client/v3/register/email/requestToken`
+- `POST` `/_matrix/client/v3/register/email/submitToken`
+- `POST` `/_matrix/client/v3/user_directory/list`
+- `POST` `/_matrix/client/v3/user_directory/search`
+- `POST` `/_matrix/client/v3/voip/turnServer`
+- `POST` `/_matrix/vendor/v1/search_recipients`
+- `POST` `/_matrix/vendor/v1/search_rooms`
+- `PUT` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device`
+- `PUT` `/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}`
+- `PUT` `/_matrix/client/v1/profile/{user_id}/avatar_url`
+- `PUT` `/_matrix/client/v1/profile/{user_id}/displayname`
+- `PUT` `/_matrix/client/v3/directory/list/room/{room_id}`
+- `PUT` `/_matrix/client/v3/directory/room/{room_alias}`
+- `PUT` `/_matrix/client/v3/directory/room/{room_id}/alias/{room_alias}`
+- `PUT` `/_matrix/client/v3/profile/{user_id}/avatar_url`
+- `PUT` `/_matrix/client/v3/profile/{user_id}/displayname`
+- `PUT` `/_matrix/client/v3/rooms/{room_id}/send/m.call.answer/{txn_id}`
+- `PUT` `/_matrix/client/v3/rooms/{room_id}/send/m.call.candidates/{txn_id}`
+- `PUT` `/_matrix/client/v3/rooms/{room_id}/send/m.call.hangup/{txn_id}`
+- `PUT` `/_matrix/client/v3/rooms/{room_id}/send/m.call.invite/{txn_id}`
 
-### 设备 (Device) （4 条）
+### 设备 (Device) （6 条）
 
-#### `device.rs` — 4 条 ✅manifest
+#### `device.rs` — 6 条 ✅manifest
 
-- `GET` `/devices`
-- `GET` `/devices/{device_id}`
-- `POST` `/delete_devices`
-- `POST` `/keys/device_list_updates`
+- `DELETE` `/_matrix/client/v3/devices/{device_id}`
+- `GET` `/_matrix/client/v3/devices`
+- `GET` `/_matrix/client/v3/devices/{device_id}`
+- `POST` `/_matrix/client/v3/delete_devices`
+- `POST` `/_matrix/client/v3/keys/device_list_updates`
+- `PUT` `/_matrix/client/v3/devices/{device_id}`
 
 ### 访客 (Guest) （3 条）
 
@@ -1085,23 +1401,34 @@
 - `POST` `/_matrix/vendor/v1/voice/{media_id}/optimize`
 - `POST` `/_matrix/vendor/v1/voice/{media_id}/transcription`
 
-### 账户 (Account) （6 条）
+### 账户 (Account) （15 条）
 
-#### `account_data.rs` — 6 条 ✅manifest
+#### `account_data.rs` — 15 条 ✅manifest
 
-- `GET` `/user/{user_id}/account_data/`
-- `GET` `/user/{user_id}/account_data/{type}`
-- `GET` `/user/{user_id}/filter/{filter_id}`
-- `GET` `/user/{user_id}/openid/request_token`
-- `GET` `/user/{user_id}/rooms/{room_id}/account_data/{type}`
-- `PUT` `/user/{user_id}/filter`
+- `DELETE` `/_matrix/client/v3/user/{user_id}/account_data/{type}`
+- `DELETE` `/_matrix/client/v3/user/{user_id}/filter/{filter_id}`
+- `DELETE` `/_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/{type}`
+- `GET` `/_matrix/client/v3/user/{user_id}/account_data/`
+- `GET` `/_matrix/client/v3/user/{user_id}/account_data/{type}`
+- `GET` `/_matrix/client/v3/user/{user_id}/filter/{filter_id}`
+- `GET` `/_matrix/client/v3/user/{user_id}/openid/request_token`
+- `GET` `/_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/{type}`
+- `POST` `/_matrix/client/v3/user/{user_id}/account_data/{type}`
+- `POST` `/_matrix/client/v3/user/{user_id}/filter`
+- `POST` `/_matrix/client/v3/user/{user_id}/openid/request_token`
+- `POST` `/_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/{type}`
+- `PUT` `/_matrix/client/v3/user/{user_id}/account_data/{type}`
+- `PUT` `/_matrix/client/v3/user/{user_id}/filter`
+- `PUT` `/_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/{type}`
 
-### 输入状态 (Typing) （3 条）
+### 输入状态 (Typing) （5 条）
 
-#### `typing.rs` — 3 条 ✅manifest
+#### `typing.rs` — 5 条 ✅manifest
 
 - `GET` `/_matrix/client/v3/rooms/{room_id}/typing`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/typing/{user_id}`
 - `POST` `/_matrix/client/v3/rooms/typing`
+- `POST` `/_matrix/client/v3/rooms/{room_id}/typing/{user_id}`
 - `PUT` `/_matrix/client/v3/rooms/{room_id}/typing/{user_id}`
 
 ### 遥测 (Telemetry) （6 条）
@@ -1115,14 +1442,20 @@
 - `GET` `/_synapse/admin/v1/telemetry/status`
 - `POST` `/_synapse/admin/v1/telemetry/alerts/{alert_id}/ack`
 
-### 阅后即焚 （15 条）
+### 阅后即焚 （21 条）
 
-#### `burn_after_read.rs` — 15 条 ✅manifest
+#### `burn_after_read.rs` — 21 条 ✅manifest
 
+- `DELETE` `/_matrix/client/v1/rooms/{room_id}/burn/{event_id}`
+- `DELETE` `/_matrix/client/v3/rooms/{room_id}/burn/{event_id}`
+- `DELETE` `/_matrix/vendor/v1/rooms/{room_id}/burn/{event_id}`
+- `GET` `/_matrix/client/v1/rooms/{room_id}/burn`
 - `GET` `/_matrix/client/v1/rooms/{room_id}/burn/pending`
 - `GET` `/_matrix/client/v1/user/burn/stats`
+- `GET` `/_matrix/client/v3/rooms/{room_id}/burn`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/burn/pending`
 - `GET` `/_matrix/client/v3/user/burn/stats`
+- `GET` `/_matrix/vendor/v1/rooms/{room_id}/burn`
 - `GET` `/_matrix/vendor/v1/rooms/{room_id}/burn/pending`
 - `GET` `/_matrix/vendor/v1/user/burn/stats`
 - `POST` `/_matrix/client/v1/rooms/{room_id}/burn/{event_id}`
@@ -1135,22 +1468,34 @@
 - `PUT` `/_matrix/vendor/v1/rooms/{room_id}/burn`
 - `PUT` `/_matrix/vendor/v1/user/burn/config`
 
-### 验证 (Verification) （12 条）
+### 验证 (Verification) （24 条）
 
-#### `verification_routes.rs` — 12 条 ✅manifest
+#### `verification_routes.rs` — 24 条 ✅manifest
 
-- `GET` `/keys/device_signing/requests`
-- `GET` `/keys/qr_code/show`
-- `GET` `/keys/verification/{transaction_id}`
-- `POST` `/keys/device_signing/verify_cancel`
-- `POST` `/keys/device_signing/verify_done`
-- `POST` `/keys/device_signing/verify_key_agreement`
-- `POST` `/keys/device_signing/verify_mac`
-- `POST` `/keys/device_signing/verify_start`
-- `POST` `/keys/qr_code/scan`
-- `POST` `/keys/verification/request`
-- `POST` `/keys/verification/{transaction_id}/cancel`
-- `PUT` `/keys/device_signing/verify_accept`
+- `GET` `/_matrix/client/v1/keys/device_signing/requests`
+- `GET` `/_matrix/client/v1/keys/qr_code/show`
+- `GET` `/_matrix/client/v1/keys/verification/{transaction_id}`
+- `GET` `/_matrix/client/v3/keys/device_signing/requests`
+- `GET` `/_matrix/client/v3/keys/qr_code/show`
+- `GET` `/_matrix/client/v3/keys/verification/{transaction_id}`
+- `POST` `/_matrix/client/v1/keys/device_signing/verify_cancel`
+- `POST` `/_matrix/client/v1/keys/device_signing/verify_done`
+- `POST` `/_matrix/client/v1/keys/device_signing/verify_key_agreement`
+- `POST` `/_matrix/client/v1/keys/device_signing/verify_mac`
+- `POST` `/_matrix/client/v1/keys/device_signing/verify_start`
+- `POST` `/_matrix/client/v1/keys/qr_code/scan`
+- `POST` `/_matrix/client/v1/keys/verification/request`
+- `POST` `/_matrix/client/v1/keys/verification/{transaction_id}/cancel`
+- `POST` `/_matrix/client/v3/keys/device_signing/verify_cancel`
+- `POST` `/_matrix/client/v3/keys/device_signing/verify_done`
+- `POST` `/_matrix/client/v3/keys/device_signing/verify_key_agreement`
+- `POST` `/_matrix/client/v3/keys/device_signing/verify_mac`
+- `POST` `/_matrix/client/v3/keys/device_signing/verify_start`
+- `POST` `/_matrix/client/v3/keys/qr_code/scan`
+- `POST` `/_matrix/client/v3/keys/verification/request`
+- `POST` `/_matrix/client/v3/keys/verification/{transaction_id}/cancel`
+- `PUT` `/_matrix/client/v1/keys/device_signing/verify_accept`
+- `PUT` `/_matrix/client/v3/keys/device_signing/verify_accept`
 
 ### 验证码 (Captcha) （5 条）
 

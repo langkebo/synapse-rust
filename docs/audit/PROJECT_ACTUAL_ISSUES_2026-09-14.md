@@ -289,7 +289,7 @@ CLAUDE.md 约定的 `docs/audit/00_test_baseline.log`、`00_clippy_baseline.log`
 | S-8 | cache 读写不对称（结构性陷阱，代码内已标注） | `synapse-cache/src/manager.rs:398` `set_raw` 写 L1+L2（异步）；`:408` 同步 `get_raw` **只读 L1**；L2 回退需显式 `:421 get_raw_shared().await`。当前无生产误用 |
 | S-9 | threepid 路由**孤儿**（且已进契约文档/未进 ledger） | `src/web/routes/threepid.rs:19` 定义 `create_threepid_router`，`src/web/routes/mod.rs:255` 仅 re-export，**无装配点**；`ROUTE_CONTRACT.md:20` 自认其"孤儿/死代码"，但 `:29-30` 仍列出 `/requestToken`、`/submitToken`；这两条在 ledger fixture 中不存在 |
 | S-12 | MSC4108 `DELETE` 204 响应缺 3 个 required 头 | `src/web/routes/msc4108_rendezvous.rs:275` 返回 `(StatusCode::NO_CONTENT, Body::empty())`，**无 header tuple**、router 无补头 layer；`Last-Modified`/`Cache-Control: no-store`/`Pragma: no-cache` 在 POST/GET/PUT 都有（`:103-105`、`:148-150`、`:220-222`），DELETE 缺失。文档 `§16` 却记 10/10 已补齐 |
-| S-13 | 契约提取器结构性缺陷 | `scripts/contract/extract_registered.py:29-49`：链式方法只记录**第一个** method（msc4108 的 `get().put().delete()` 只提取到 `GET`）；`:41 nest_map` 收集后**从未使用**；`ROUTE_CONTRACT.md` 有 **15** 条相对 `/spaces/...` 路径、**0** 条带前缀 |
+| S-13 | 契约提取器结构性缺陷 | ✅ **已修复（B5-5）**。原缺陷三项全部复现并消除：①链式方法只记录第一个 method（msc4108 `get().put().delete()` 只出 `GET`）；②`nest_map` 收集后从未使用；③`ROUTE_CONTRACT.md` 有 **15** 条相对 `/spaces/...`、**0** 条带前缀。修复后实测：MSC4108 出全 4 条（POST/GET/PUT/DELETE）；spaces 相对路径 **15→0**、带前缀 **0→48**（24 路由 × v1/v3 两前缀，B1 已删 r0 故为 2 而非 §17 预估的 3×15=45）。详见 §9 |
 | S-14 | 无任何测试校验"真实 router == ledger" | `grep -rn '\.routes()\|into_make_service' src/ tests/` 只有 3 处命中，全在生产 `src/server/mod.rs`；`assembly_route_tests.rs` 的 27 个测试只读 manifest |
 | S-15 | MSC4108 响应头测试**自证** | `tests/unit/msc4108_rendezvous_route_tests.rs:222-338` 构造**本地 header 数组**再对其断言，从不调用 handler → DELETE 缺头也会通过 |
 
@@ -459,6 +459,75 @@ Ledger 契约链同步：golden + SDK 两条车道的 6 个 fixture、`ROUTE_CON
 建议二选一：**(a)** 删除该字段/结构体并把 `upstream` 从 `register_device` 的合法 `push_type` 中移除；
 **(b)** 用新的 `push_config` 写入 API 配置 upstream gateway 端点并真正实现投递（fail-closed）。
 在裁定前保留现状，但不应继续以"假成功"姿态留在投递链里。
+
+---
+
+## 9. S-13 契约提取器——已根治（2026-09-15，B5-5）
+
+原缺陷是**结构性**的：解析器只看文本里每个 `.route(...)` 的**第一个**方法、完全忽略
+`.nest()` 前缀，因此 `ROUTE_CONTRACT.md` 既漏方法、又把相对路径当 serve 路径。
+§17 已指出"要做完整审计，必须先有一个能解析链式方法与 `.nest()` 前缀的解析器"——
+本节点即该前置修复的落地。
+
+### 9.1 三项子缺陷的复核与消除
+
+| # | 原缺陷 | 复核结果 | 修复后实测 |
+|---|---|---|---|
+| 1 | 链式方法只取第一个 | ✅ 复现：MSC4108 实有 4 条，只提取到 2 条 | `msc4108_rendezvous.rs` 出全 POST/GET/PUT/DELETE |
+| 2 | `nest_map` 收集后从未使用 | ✅ 复现：`out[mod] = full`，前缀从未拼接 | 死代码删除；改为沿 router 构造递归传播前缀 |
+| 3 | 15 条相对 `/spaces/...`、0 条带前缀 | ✅ 精确复现：恰为 15 / 0 | 相对 **15→0**，带前缀 **0→48** |
+
+> 前缀数说明：§17 预估 45 是按 **3** 个前缀（v1/r0/v3）推算的；B1 已拆 r0，
+> `SPACE_NEST_PREFIXES` 现为 `["/_matrix/client/v1","/_matrix/client/v3"]`，
+> 故 24 条路由 × 2 = **48**。数字变化源自 r0 拆除，不是修复不完整。
+
+### 9.2 修复方式
+
+解析器从"正则扫行"升级为**沿真实 router 构造求值**：
+
+1. **链式全取**：`.route(p, get(a).put(b).delete(c))` 提取链上每个方法，且支持多行写法
+   （本仓主流格式是 `.route(\n  "/p",\n  get(h).put(h2),\n)`）。
+2. **前缀传播**：递归求值 `.nest("/prefix", expr)` / `.merge(expr)`，支持局部变量、
+   同文件与**跨文件** router 构造函数（`space.rs` 的 nest 作用于 `space/*.rs` 定义的路由），
+   以及声明式的 `expand_under_prefixes("m", PREFIXES, &relative_routes())`。
+3. **异构前缀**：不同子 router 可用不同前缀集（e2ee 的 compat→v1+v3、v3-only→v3；
+   search 的 v1_router→v1、v3_router→v3），故做的是**逐 router 精确解析**而非文件级启发。
+4. **只求值根**：把一个 router 被另一 router 静态调用的关系建成图，仅求值入度为 0 的根，
+   避免"子 router 单独求值产出相对路径 + 父级再产出绝对路径"的双份条目。
+   经 `RouteModule::merge_into` 动态装配的 feature 模块天然无静态调用者，因此自然成为根。
+5. **归属到字面量所在文件**：路径归属取**定义**文件而非调用方文件，
+   于是 `space/*.rs` 各自列出自己的绝对路径，`space.rs` 自身不再重复。
+6. **测试块块级剔除**：不再"在第一个 `#[cfg(test)]` 处截断"——`space/lifecycle_query.rs`
+   在第 19 行就有 `mod cursor_tests`，截断法会连第 200 行的 router 构造一起删掉。
+
+### 9.3 验证：两份独立 oracle，而非自证
+
+| 对照源 | 性质 | 结果 |
+|---|---|---|
+| 各模块 `*_route_manifest()` 声明集 | 手写**绝对**路径，不经过本解析器的前缀推导 | **声明而未解析出 = 0** |
+| `tests/unit/fixtures/ledger_export/*.json`（1044 条） | 由真实 Rust 装配 `synapse_ledger_export` 导出、golden 测试守护 | **ledger 有而清单缺 = 0** |
+
+第二条是关键：它保证新清单**不会漏掉任何真实对外服务的路由**（零漏报）。
+反向差额 104 条来自源码扫描可见、而默认 feature 构建不注册的 gated 路由
+（SAML / CAS / Voice / ExternalServices）以及 manifest 的漏声明——已抽样逐条确认为真实注册。
+
+**守卫**（`scripts/contract/test_extract_registered.py`，18 项）：
+链式方法、前缀传播、跨文件 nest、异构前缀、测试块剔除、两份 oracle、孤儿识别、unresolved 棘轮。
+并以 `--mutation-check` **自证能变红**：分别注入"只取第一个方法"与"取消 nest 传播"两个变异，
+要求测试转红——均已通过。
+
+### 9.4 顺带产出
+
+- **新门禁**：`check_route_contract.sh` 以 `EXTRACT_STRICT=1` 运行提取器，
+  任一 oracle 出现缺口或出现**新的**无法解析构造即失败；
+  `extract_unresolved_allowlist.txt` 对 19 处已知良性构造（同名重载、动态装配链方法）做棘轮。
+- **孤儿可达性证据（S-9）**：新增"前缀之外 / 未装配的注册"表。
+  解析器沿整条装配链递归后仍未获得任何前缀的注册只有 16 条：
+  3 条根级探活（`/`、`/health`、`/_health`）+ 11 条 CAS 根协议/遗留 admin 端点（有意为之）
+  + **2 条 threepid 孤儿**（`/requestToken`、`/submitToken`）——机器上可直接区分
+  "有意根级" 与 "从未装配"。
+- **附带发现**：`push.rs` 的 `/pushers/` 是 `get().post()` 链，旧解析器只报 GET；
+  `presence.rs` 的 `/presence/list` GET 分支未被任何 manifest 声明（manifest 漏声明）。
 
 ---
 

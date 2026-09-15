@@ -24,8 +24,22 @@ cd "$ROOT"
 
 DOC="docs/synapse-rust/ROUTE_CONTRACT.md"
 
+# Guard the extractor itself before trusting its output. Runs the real checks
+# plus a mutation pass that reinstates the historical S-13 defects and requires
+# the suite to go red — a guard that cannot fail is not a guard (铁律 8).
+echo "==> Guard tests for extract_registered.py ..."
+python3 scripts/contract/test_extract_registered.py --mutation-check
+
 echo "==> Regenerating route surface (extract_registered.py) ..."
-python3 scripts/contract/extract_registered.py
+# EXTRACT_STRICT turns the extractor's own self-check into a hard gate:
+#   * every route declared by a `*_route_manifest()` must be derived
+#   * every route in the authoritative ledger_export fixtures must be derived
+#   * no NEW unresolved parser construct may appear (ratchet, see
+#     extract_unresolved_allowlist.txt)
+# Without it, a parser regression would silently emit a *shorter* doc and the
+# drift gate below would happily accept it — which is precisely how S-13
+# (chained `.route(p, get().put().delete())` reporting only GET) survived.
+EXTRACT_STRICT=1 python3 scripts/contract/extract_registered.py
 
 echo "==> Regenerating ${DOC} (gen_contract_doc.py) ..."
 python3 scripts/contract/gen_contract_doc.py
