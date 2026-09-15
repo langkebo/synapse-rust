@@ -272,7 +272,30 @@ async fn delete_session(
         return Err(ApiError::not_found("Rendezvous session not found or expired".to_string()));
     }
 
-    Ok((StatusCode::NO_CONTENT, Body::empty()).into_response())
+    Ok(delete_success_response())
+}
+
+/// Build the `204 No Content` response for a successful DELETE.
+///
+/// MSC4108 requires the common caching headers on every rendezvous response,
+/// including the DELETE confirmation: without `Cache-Control: no-store` /
+/// `Pragma: no-cache` an intermediary may retain a deleted session's metadata;
+/// `Last-Modified` marks the moment the resource ceased to exist. Extracted as
+/// a free function so the header contract is testable without a fully-wired
+/// `AuthContext` (S-15: the previous test asserted a locally-constructed array
+/// and passed even with zero headers emitted).
+pub fn delete_success_response() -> Response {
+    let last_modified = http_date_from_millis(chrono::Utc::now().timestamp_millis());
+    (
+        StatusCode::NO_CONTENT,
+        [
+            (header::LAST_MODIFIED, last_modified.as_str()),
+            (header::CACHE_CONTROL, "no-store"),
+            (header::PRAGMA, "no-cache"),
+        ],
+        Body::empty(),
+    )
+        .into_response()
 }
 
 /// Convert millisecond timestamp to HTTP date format (RFC 7231).

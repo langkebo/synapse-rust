@@ -418,10 +418,33 @@ fn update_session_with_mismatched_if_match_fails_precondition() {
 // ── delete_session response contract ───────────────────────────────────────
 
 #[test]
-fn delete_session_returns_204_no_content() {
-    // MSC4108 DELETE success is 204 No Content (NOT 200), with no body.
-    let status = StatusCode::NO_CONTENT;
-    assert_eq!(status, 204);
+#[test]
+fn delete_session_returns_204_with_required_headers() {
+    // S-15 fix: this now invokes the REAL production response builder
+    // (`msc4108_rendezvous::delete_success_response`, returned verbatim by the
+    // DELETE handler on success) instead of asserting against a locally
+    // constructed array. Remove any header tuple from the production fn and
+    // this goes red.
+    let response = synapse_rust::web::routes::msc4108_rendezvous::delete_success_response();
+    assert_eq!(response.status(), 204, "MSC4108 DELETE success is 204 No Content");
+    let headers = response.headers();
+    assert_eq!(
+        headers.get("cache-control").and_then(|v| v.to_str().ok()),
+        Some("no-store"),
+        "DELETE 204 must carry Cache-Control: no-store"
+    );
+    assert_eq!(
+        headers.get("pragma").and_then(|v| v.to_str().ok()),
+        Some("no-cache"),
+        "DELETE 204 must carry Pragma: no-cache"
+    );
+    let last_modified = headers
+        .get("last-modified")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+    // RFC 7231 IMF-fixdate, e.g. "Tue, 15 Sep 2026 04:21:55 GMT" — and it must
+    // round-trip through the same parser the other handlers use.
+    assert!(parse_http_date_to_millis(last_modified) > 0, "Last-Modified must be a valid HTTP date, got {last_modified:?}");
 }
 
 #[test]
