@@ -46,10 +46,19 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 - **Never split migration SQL with `split(';')`** — `$$...$$` dollar-quoted bodies, string literals, and comments contain internal `;` and will produce truncated functions. Use a character-level splitter.
 
 ### Docker workflow
-- Start full stack: `cd docker && docker compose up -d --build`
+Two stacks, different jobs, deliberately side by side:
+`docker/docker-compose.yml` (dev/CI: builds in place, services `synapse-rust`/`db`/`redis`,
+entrypoint migrations, no nginx — the `backend-validation` and `e2ee-interop` CI workflows
+start the stack **by these service names**) and `docker/deploy/docker-compose.yml`
+(production full stack: postgres/redis/migrator/synapse/nginx, `deploy.sh`).
+- Start dev stack: `cd docker && docker compose up -d --build`
 - Validate containerized migrations: `cd docker && docker compose run --rm --no-deps --entrypoint /app/scripts/db_migrate.sh synapse-rust migrate`
 - Validate schema in container: `cd docker && docker compose run --rm --no-deps --entrypoint /app/scripts/db_migrate.sh synapse-rust validate`
 - CI-like local validation: `bash scripts/ci_backend_validation.sh`
+- **Config has a single source of truth: `docker/config/`** — both stacks mount it
+  (deploy: `../config`, dev: `./config`) and the Dockerfile bakes the same files.
+  There is no `docker/deploy/config/` and there must not be one; see
+  `tests/unit/config_mount_tests.rs`.
 
 ## 项目状态与反冗余铁律（未发布项目，先读这一节）
 
@@ -137,7 +146,7 @@ The codebase generally follows `route (src/web/) -> service (synapse-services/) 
 ### Configuration model
 - Config types live in `synapse-common/src/config/` (the root crate's `src/common/config/` is a thin re-export).
 - Main config is file-based (`SYNAPSE_CONFIG_PATH`, default `homeserver.yaml`) with `SYNAPSE_` environment variable overrides using `__` for nesting.
-- Docker uses `docker/config/homeserver.yaml` and mounts `docker/config/rate_limit.yaml`.
+- Docker uses `docker/config/homeserver.yaml` and mounts `docker/config/rate_limit.yaml` — `docker/config/` is the single config source for both compose stacks and for the image; there is no second copy under `docker/deploy/`.
 - Search must exist structurally in config; when Elasticsearch is not used it should still be explicitly disabled.
 - Prefer `server.server_name`/`ServerConfig::get_server_name()` for Matrix identity. `server.name` exists for compatibility but can differ from the public Matrix server name in delegated or reverse-proxy deployments.
 - Federation config has its own `federation.server_name`; when validating local identity, account for all locally accepted names rather than hard-coding one config field.

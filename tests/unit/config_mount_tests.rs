@@ -1,4 +1,4 @@
-//! Guard tests for the container configuration bind mounts.
+//! Guard tests for the container configuration source and bind mounts.
 //!
 //! ## Why this file exists
 //!
@@ -33,10 +33,22 @@
 //!
 //! `postgres.conf` must stay a single-file mount: the host file is named
 //! `postgres.conf` but postgres reads `/etc/postgresql/postgresql.conf`.
-//! Mounting `./config` as a directory puts `postgres.conf` (wrong name) at that
-//! path and postgres crash-loops with
+//! Mounting the config directory at that path puts `postgres.conf` (wrong name)
+//! there and postgres crash-loops with
 //! `could not access the server configuration file ... No such file or directory`.
 //! That was hit and reverted during this fix; the test below locks it in.
+//!
+//! ## Two stacks, one config source
+//!
+//! `docker/docker-compose.yml` (dev/CI) and `docker/deploy/docker-compose.yml`
+//! (production) are **not** duplicates — different service sets and different
+//! jobs — and are deliberately kept side by side. What must stay single is the
+//! *config*: both mount `docker/config/`, and neither keeps a copy.
+//! `docker/deploy/config/` used to be a hand-synced copy; it drifted (dev
+//! `sync.enabled: false` vs deploy `true`,
+//! see `docs/audit/S_series_verification_2026-09-11.md` §2) and `/sync` ended up
+//! with no rate limiting at all. Same failure mode as the migrations duplicate
+//! directory (`2b16dc3c`), same fix: one source, mounted by path.
 
 use std::fs;
 use std::path::PathBuf;
@@ -45,8 +57,13 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-/// The compose files that define the runtime mounts.
-const COMPOSE_FILES: [&str; 2] = ["docker/deploy/docker-compose.yml", "docker/docker-compose.yml"];
+/// The compose files that define runtime mounts, with the app-config mount line
+/// each one must use to reach the single canonical `docker/config/` tree
+/// (relative to the compose file's own directory).
+const COMPOSE_FILES: [(&str, &str); 2] = [
+    ("docker/deploy/docker-compose.yml", "- ../config:/app/config:ro"),
+    ("docker/docker-compose.yml", "- ./config:/app/config:ro"),
+];
 
 fn read(rel: &str) -> String {
     let p = repo_root().join(rel);
@@ -59,18 +76,70 @@ fn mount_lines(compose: &str, token: &str) -> Vec<String> {
 }
 
 // =============================================================================
-// The app config directory must be mounted as a directory
+// Config lives in exactly one place
 // =============================================================================
 
-/// Both compose files must mount the app config **directory**, not single files.
+/// `docker/config/` is the only config tree; the deploy side must mount it
+/// rather than keep a copy.
+///
+/// Mirrors `migration_consistency_tests::deploy_mounts_canonical_migrations_and_has_no_copy`.
+#[test]
+fn deploy_mounts_canonical_config_and_has_no_copy() {
+    let root = repo_root();
+    let canonical = root.join("docker/config");
+    let deploy_config = root.join("docker/deploy/config");
+
+    assert!(canonical.join("homeserver.yaml").exists(), "missing canonical homeserver.yaml");
+
+    // A stale real directory (or a symlink) must not reappear: `deploy.sh`
+    // resolves config paths from the repo root, so a copy here would silently
+    // drift again — that is precisely what caused the /sync limiter outage.
+    assert!(
+        !deploy_config.exists() && !deploy_config.is_symlink(),
+        "docker/deploy/config must not exist: docker/deploy/docker-compose.yml mounts \
+         ../config directly, and a copy here would silently drift again"
+    );
+
+    // The compose file is the thing that actually wires the canonical directory in.
+    let compose = read("docker/deploy/docker-compose.yml");
+    assert!(
+        compose.contains("- ../config:/app/config:ro"),
+        "docker/deploy/docker-compose.yml 必须 bind-mount ../config:/app/config:ro（唯一配置源）"
+    );
+}
+
+// =============================================================================
+// Both stacks read that one source
+// =============================================================================
+
+/// Both stacks must mount the **same** config tree, each as a directory.
+///
+/// They are separate compose files for good reason (dev/CI vs production), but
+/// a divergence in *which* config they read is exactly the bug that removed
+/// `/sync` rate limiting on 2026-09-11.
+#[test]
+fn every_stack_mounts_the_single_config_source() {
+    for (rel, expected) in COMPOSE_FILES {
+        let compose = read(rel);
+        assert!(
+            compose.contains(expected),
+            "{rel} 必须挂载唯一配置源（{expected}）—— \
+             两栈的服务集合可以不同，但读的配置必须同一份，\
+             否则会重现 2026-09-11 的 /sync 零限流（两侧 rate_limit.yaml 漂移）"
+        );
+    }
+}
+
+/// The config directory must be mounted as a **directory**, not as single files,
+/// in every stack.
 #[test]
 fn app_config_is_mounted_as_a_directory() {
-    for rel in COMPOSE_FILES {
+    for (rel, expected) in COMPOSE_FILES {
         let compose = read(rel);
 
         assert!(
-            compose.contains("- ./config:/app/config:ro"),
-            "{rel} 必须把 config 挂载为**目录**（- ./config:/app/config:ro）。\
+            compose.contains(expected),
+            "{rel} 必须把 config 挂载为**目录**（{expected}）。\
              单文件 bind mount 绑定 inode，宿主机原子替换后容器内路径会消失，\
              进程继续用旧配置服务（实测 No such file or directory + 必须重启恢复）。"
         );
@@ -79,20 +148,8 @@ fn app_config_is_mounted_as_a_directory() {
         assert!(
             mount_lines(&compose, "/app/config/").is_empty(),
             "{rel} 不应再出现挂载到 /app/config/ 下单个文件的条目：{:?}\n\
-             请改回 `- ./config:/app/config:ro`。",
+             请改回 `{expected}`。",
             mount_lines(&compose, "/app/config/")
-        );
-    }
-}
-
-/// The directory mount must be read-only — the server never writes its config.
-#[test]
-fn app_config_mount_is_read_only() {
-    for rel in COMPOSE_FILES {
-        let compose = read(rel);
-        assert!(
-            compose.contains("- ./config:/app/config:ro"),
-            "{rel} 的 config 目录挂载必须带 :ro（服务只读配置，不应有写权限）"
         );
     }
 }
@@ -101,13 +158,13 @@ fn app_config_mount_is_read_only() {
 // postgres.conf must stay a single-file mount (naming mismatch)
 // =============================================================================
 
-/// `postgres.conf` must remain a **single-file** mount.
+/// `postgres.conf` must remain a **single-file** mount in every stack.
 ///
 /// On-disk name (`postgres.conf`) differs from the path postgres reads
 /// (`/etc/postgresql/postgresql.conf`), so a directory mount breaks startup.
 #[test]
 fn postgres_config_stays_a_single_file_mount() {
-    for rel in COMPOSE_FILES {
+    for (rel, _) in COMPOSE_FILES {
         let compose = read(rel);
 
         let mounts = mount_lines(&compose, "postgres.conf");
@@ -118,11 +175,11 @@ fn postgres_config_stays_a_single_file_mount() {
              postgres 将以 `could not access the server configuration file` 崩溃重启"
         );
         assert!(
-            mounts.iter().any(|m| m.contains("/etc/postgresql/postgresql.conf")),
+            mounts.iter().any(|m| m.contains("config/postgres.conf") && m.contains("/etc/postgresql/postgresql.conf")),
             "{rel}: postgres.conf 必须挂到 /etc/postgresql/postgresql.conf，实际: {mounts:?}"
         );
         assert!(
-            !compose.contains("- ./config:/etc/postgresql"),
+            !compose.lines().map(str::trim).any(|l| l.ends_with(":/etc/postgresql:ro")),
             "{rel}: 不得把整个 config 目录挂到 /etc/postgresql（已实测会让 postgres 崩溃）"
         );
     }
@@ -136,7 +193,7 @@ fn postgres_config_stays_a_single_file_mount() {
 /// "tidy-up" does not revert it to the more obvious single-file form.
 #[test]
 fn directory_mount_is_documented_in_place() {
-    for rel in COMPOSE_FILES {
+    for (rel, _) in COMPOSE_FILES {
         let compose = read(rel);
         let mentions_reason = compose.contains("inode") || compose.contains("原子替换") || compose.contains("§5.6");
         assert!(
@@ -157,5 +214,28 @@ fn image_does_not_preload_files_into_the_mounted_app_config_dir() {
         dockerfile.contains("/app/config_defaults"),
         "Dockerfile 应把内置默认配置放在 /app/config_defaults（而非 /app/config），\
          这样整目录挂载 /app/config 才不会遮蔽它"
+    );
+}
+
+// =============================================================================
+// The deploy script must validate the canonical paths, not a local copy
+// =============================================================================
+
+/// `deploy.sh` must check (and must NOT create) the canonical config dir.
+///
+/// `mkdir -p ... config` used to run in the deploy directory, which would
+/// recreate an empty `docker/deploy/config/` and mount it — the service would
+/// then start with no configuration at all.
+#[test]
+fn deploy_sh_validates_canonical_config_and_creates_no_local_copy() {
+    let script = read("docker/deploy/deploy.sh");
+    assert!(
+        script.contains("$PROJECT_ROOT/docker/config/"),
+        "deploy.sh 必须校验 $PROJECT_ROOT/docker/config/ 下的配置文件存在"
+    );
+    assert!(
+        !script.contains("mkdir -p ssl media logs backups config") && !script.contains("mkdir -p config"),
+        "deploy.sh 不得在 deploy 目录下创建 config/ —— 那会重建一个空副本目录并被 compose 挂载，\
+         服务将因缺少配置而启动失败"
     );
 }

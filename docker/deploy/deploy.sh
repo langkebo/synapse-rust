@@ -873,7 +873,10 @@ check_env_file() {
 create_directories() {
     DEPLOYMENT_PHASE="directory-setup"
     log_info "创建必要目录..."
-    mkdir -p ssl media logs backups config
+    # 注意：不要 mkdir config —— 配置的唯一真相源是 $PROJECT_ROOT/docker/config/，
+    # 在 deploy 目录下创建空的 config/ 会形成"看似有副本"的假象，并让 compose
+    # 挂载到空目录（镜像内 /app/config 本身为空，服务会因缺配置启动失败）。
+    mkdir -p ssl media logs backups
     # P3-fix: migrations are no longer a hand-synced copy under docker/deploy/.
     # The migrator mounts the canonical $PROJECT_ROOT/migrations directly, so that
     # is what must exist (and contain a baseline) before we start containers.
@@ -885,18 +888,14 @@ create_directories() {
         log_error "canonical migrations 目录缺少统一基线脚本 (00000000_unified_schema_v*.sql)"
         exit 1
     }
-    [ -f config/homeserver.yaml ] || {
-        log_error "缺少配置文件: config/homeserver.yaml"
-        exit 1
-    }
-    [ -f config/rate_limit.yaml ] || {
-        log_error "缺少配置文件: config/rate_limit.yaml"
-        exit 1
-    }
-    [ -f config/postgres.conf ] || {
-        log_error "缺少配置文件: config/postgres.conf"
-        exit 1
-    }
+    # 配置同 migrations 一样只有一份：$PROJECT_ROOT/docker/config/。
+    # compose 以 `../config` 挂载它，docker/Dockerfile 也从同一路径打进镜像。
+    for cfg in homeserver.yaml rate_limit.yaml postgres.conf; do
+        [ -f "$PROJECT_ROOT/docker/config/$cfg" ] || {
+            log_error "缺少配置文件: $PROJECT_ROOT/docker/config/$cfg"
+            exit 1
+        }
+    done
     log_success "目录与配置文件检查完成"
 }
 

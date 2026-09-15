@@ -29,11 +29,18 @@ case "${1:-up}" in
         fi
 
         echo "Running migrations..."
-        bash docker/db_migrate.sh migrate
+        # 显式给出目标：容器声明的是 POSTGRES_DB=synapse_test 并发布了 5432，
+        # 而 docker/.env 兜底的 DB_NAME 是 `synapse` —— 不显式指定就会把迁移打到
+        # 另一个库名上（并在容器里凭空建库）。这也让 H-14 护栏
+        # （docker/db_migrate.sh：不显式给 DATABASE_URL 就拒绝宿主 psql 打 loopback）
+        # 不会误伤这条正常的开发路径。
+        DATABASE_URL="postgres://synapse:synapse@localhost:5432/synapse_test" \
+            bash docker/db_migrate.sh migrate
 
         echo ""
         echo "=== Test environment ready ==="
         echo "Run:"
+        echo "  export TEST_DATABASE_URL=postgres://synapse:synapse@localhost:5432/synapse_test"
         echo "  export TEST_DB_TEMPLATE_SCHEMA=public"
         echo "  SQLX_OFFLINE=true cargo test --features test-utils --test integration -- --test-threads=2"
         echo ""

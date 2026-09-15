@@ -1045,11 +1045,13 @@ default:
 
     #[test]
     fn the_deploy_config_still_parses() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../docker/deploy/config/rate_limit.yaml");
-        let text = std::fs::read_to_string(path).expect("deploy rate_limit.yaml must be readable");
+        // There is only one shipped config tree (`docker/config/`), mounted by
+        // both compose stacks; keep asserting the sync limiter stays enabled.
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../docker/config/rate_limit.yaml");
+        let text = std::fs::read_to_string(path).expect("rate_limit.yaml must be readable");
         let parsed: RateLimitConfigFile =
-            serde_yaml::from_str(&text).expect("deploy rate_limit.yaml must parse under strict rules");
-        assert!(parsed.sync.enabled, "生产配置的 sync 限流应为启用（见 S 系列修复）");
+            serde_yaml::from_str(&text).expect("rate_limit.yaml must parse under strict rules");
+        assert!(parsed.sync.enabled, "sync 限流应为启用（见 S 系列修复）");
     }
 
     #[test]

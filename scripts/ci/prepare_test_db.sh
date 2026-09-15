@@ -56,8 +56,11 @@ SQLX_OFFLINE=true DATABASE_URL="${TEST_DATABASE_URL}?options=-c%20search_path%3D
   sqlx migrate run --source artifacts/sqlx-migrations
 
 echo "==> [3/3] verifying both schemas"
-PUBLIC_TABLES=$(psql -d synapse_test -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'")
-TEMPLATE_TABLES=$(psql -d synapse_test -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='${TEMPLATE_SCHEMA}' AND table_type='BASE TABLE'")
+# 用 $TEST_DATABASE_URL 而不是硬编码 `-d synapse_test`：库名是本脚本的输入
+# （第 34 行的默认值可在调用处覆盖），硬编码会让 `PUBLIC_TABLES`/`TEMPLATE_TABLES`
+# 静默统计**另一个库**的 schema —— 与 docker/db_migrate.sh 的 H-14 同型。
+PUBLIC_TABLES=$(psql "$TEST_DATABASE_URL" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'")
+TEMPLATE_TABLES=$(psql "$TEST_DATABASE_URL" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='${TEMPLATE_SCHEMA}' AND table_type='BASE TABLE'")
 echo "==> public: ${PUBLIC_TABLES} tables; ${TEMPLATE_SCHEMA}: ${TEMPLATE_TABLES} tables"
 if [ "$PUBLIC_TABLES" -lt 200 ] || [ "$TEMPLATE_TABLES" -lt 200 ]; then
   echo "::error::Seed incomplete: expected >=200 tables in both public and ${TEMPLATE_SCHEMA} (got ${PUBLIC_TABLES} / ${TEMPLATE_TABLES})"

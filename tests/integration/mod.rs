@@ -147,12 +147,36 @@ pub fn with_local_connect_info(mut request: hyper::Request<axum::body::Body>) ->
     request
 }
 
-fn integration_tests_required() -> bool {
+pub(crate) fn integration_tests_required() -> bool {
     if let Ok(value) = std::env::var("INTEGRATION_TESTS_REQUIRED") {
         let value = value.trim().to_ascii_lowercase();
         return value == "1" || value == "true" || value == "yes" || value == "required";
     }
     std::env::var("CI").is_ok()
+}
+
+/// Fail closed when CI requires a database but a fixture came back empty.
+///
+/// 18 call sites (`api_route_ledger_tests` × 16, `api_key_backup_route_table_tests` × 2)
+/// used to `return` straight from the `else` arm, so under CI — where a database
+/// *is* available — the tests silently "passed" without running a single assertion.
+/// That is the only end-to-end guard for the ledger contract chain
+/// (`route_manifest → router_ledger → ledger_export → SDK`), so the chain was
+/// never actually validated. See `docs/audit/PROJECT_ACTUAL_ISSUES_2026-09-14.md` §2.5.
+///
+/// Reuses the existing `integration_tests_required()` decision (which already
+/// treats `CI=1` as "must not skip") rather than inventing a second env-var
+/// convention — iron rule 2: one implementation per responsibility.
+pub(crate) fn skip_or_fail_without_db() {
+    if integration_tests_required() {
+        panic!(
+            "integration test database is not available, but CI/INTEGRATION_TESTS_REQUIRED=1: \
+             refusing to silently skip. The ledger contract chain must not pass without running \
+             (see PROJECT_ACTUAL_ISSUES_2026-09-14.md §2.5). Check the step's TEST_DATABASE_URL \
+             and TEST_DB_TEMPLATE_SCHEMA."
+        );
+    }
+    eprintln!("Skipping: integration test database is not available");
 }
 
 fn integration_test_setup_timeout() -> Duration {

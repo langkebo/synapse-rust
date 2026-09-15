@@ -51,9 +51,39 @@ help:
 	@echo "  build-release    - Build release version"
 
 # 数据库配置
+#
+# 两种连接模型，不要混用：
+#
+#   1) 容器 exec —— migrate-status / migrate-audit 等只读查询走 compose 栈里的
+#      postgres 容器，不需要宿主端口。默认指向 dev 栈（docker/docker-compose.yml
+#      的服务 `db`），查 deploy 栈覆盖变量即可。
+#
+#      为什么不用宿主 psql 连 localhost:5432：那个端口通常被本机 Homebrew
+#      PostgreSQL 占着（上面没有 synapse 库），而 compose 栈默认根本不发布 5432；
+#      即便叠加 dev-host-access overlay 也会撞端口。走容器 exec 则两者都不受影响。
+#
+#   2) DATABASE_URL —— sqlx CLI、schema_health_check 等**宿主进程**需要宿主可达
+#      地址，必须先 `cd docker && docker compose -f docker-compose.yml
+#      -f docker-compose.dev-host-access.yml up -d db` 才能用。
 DATABASE_URL ?= postgresql://synapse:synapse@localhost:5432/synapse
 FLYWAY_URL ?= postgresql://synapse:synapse@localhost:5432/synapse
 export DATABASE_URL
+
+# compose 栈定位（只影响走容器 exec 的查询目标；路径相对仓库根）
+#   dev 栈（默认）: make migrate-status
+#   deploy 栈:      make migrate-status COMPOSE_DIR=docker/deploy DB_SERVICE=postgres
+COMPOSE_DIR ?= docker
+COMPOSE_FILES ?= -f docker-compose.yml
+DB_SERVICE ?= db
+DB_USER ?= synapse
+DB_NAME ?= synapse
+
+# docker compose 调用前缀：必须在 compose 目录内执行，否则 project name 与
+# 相对挂载路径都会解析错。
+DC = cd $(COMPOSE_DIR) && docker compose $(COMPOSE_FILES)
+
+# 注意不要出现反引号，否则会被 shell 当命令替换执行。
+DB_CONNECT_HINT = 提示：该查询走 compose 栈内的 postgres 容器，需先启动对应栈。dev 栈执行 make db-start；查 deploy 栈请 make migrate-status COMPOSE_DIR=docker/deploy DB_SERVICE=postgres
 
 # Migration Commands
 migrate:
@@ -67,8 +97,8 @@ migrate-check:
 	@sqlx migrate check
 
 migrate-status:
-	@echo "Migration status:"
-	@PGPASSWORD=synapse psql "$(FLYWAY_URL)" -c "SELECT version, name, success, applied_ts, executed_at FROM schema_migrations ORDER BY COALESCE(applied_ts, FLOOR(EXTRACT(EPOCH FROM executed_at) * 1000)::BIGINT) DESC NULLS LAST, id DESC LIMIT 10;"
+	@echo "Migration status ($(COMPOSE_DIR) / $(DB_SERVICE)):"
+	@$(DC) exec -T $(DB_SERVICE) psql -U $(DB_USER) -d $(DB_NAME) -c "SELECT version, name, is_success, applied_ts, executed_at FROM schema_migrations ORDER BY COALESCE(applied_ts, executed_at) DESC NULLS LAST, id DESC LIMIT 10;" || { echo "$(DB_CONNECT_HINT)"; exit 1; }
 
 migrate-undo:
 	@echo "Undoing last migration..."
@@ -81,8 +111,8 @@ migrate-baseline:
 	@echo "Baseline migration created. Review and run manually if needed."
 
 migrate-audit:
-	@echo "Migration audit log:"
-	@PGPASSWORD=synapse psql "$(FLYWAY_URL)" -c "SELECT version, name, description, execution_time_ms, applied_ts, executed_at, success FROM schema_migrations ORDER BY COALESCE(applied_ts, FLOOR(EXTRACT(EPOCH FROM executed_at) * 1000)::BIGINT) DESC NULLS LAST, id DESC LIMIT 20;"
+	@echo "Migration audit log ($(COMPOSE_DIR) / $(DB_SERVICE)):"
+	@$(DC) exec -T $(DB_SERVICE) psql -U $(DB_USER) -d $(DB_NAME) -c "SELECT version, name, description, execution_time_ms, applied_ts, executed_at, is_success FROM schema_migrations ORDER BY COALESCE(applied_ts, executed_at) DESC NULLS LAST, id DESC LIMIT 20;" || { echo "$(DB_CONNECT_HINT)"; exit 1; }
 
 # Flyway Commands (optional)
 flyway-info:

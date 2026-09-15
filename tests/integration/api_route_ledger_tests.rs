@@ -144,7 +144,7 @@ async fn declared_route_manifest_size_stays_under_probe_warning_threshold() {
     const WARNING_ROUTE_COUNT: usize = 1450;
 
     let Some(ledger) = default_ledger().await else {
-        eprintln!("Skipping: integration test database is not available");
+        super::skip_or_fail_without_db();
         return;
     };
     let report = ledger.validate().expect("manifest must validate");
@@ -162,7 +162,7 @@ async fn declared_route_manifest_size_stays_under_probe_warning_threshold() {
 #[tokio::test]
 async fn declared_route_manifest_validates_with_no_duplicates() {
     let Some(ledger) = default_ledger().await else {
-        eprintln!("Skipping: integration test database is not available");
+        super::skip_or_fail_without_db();
         return;
     };
     let report =
@@ -174,7 +174,7 @@ async fn declared_route_manifest_validates_with_no_duplicates() {
 #[tokio::test]
 async fn declared_route_manifest_entries_are_actually_wired() {
     let Some((app, state)) = default_fixture().await else {
-        eprintln!("Skipping: integration test database is not available");
+        super::skip_or_fail_without_db();
         return;
     };
 
@@ -265,7 +265,7 @@ async fn declared_route_manifest_entries_are_actually_wired() {
 #[tokio::test]
 async fn declared_route_manifest_full_snapshot_matches_default_state() {
     let Some(ledger) = default_ledger().await else {
-        eprintln!("Skipping: integration test database is not available");
+        super::skip_or_fail_without_db();
         return;
     };
     let actual = render_ledger_snapshot("default", &ledger);
@@ -275,14 +275,14 @@ async fn declared_route_manifest_full_snapshot_matches_default_state() {
 #[tokio::test]
 async fn worker_body_routes_follow_runtime_flag_in_ledger() {
     let Some(disabled_ledger) = default_ledger().await else {
-        eprintln!("Skipping: integration test database is not available");
+        super::skip_or_fail_without_db();
         return;
     };
     assert!(!has_declared_route(&disabled_ledger, Method::POST, "/_synapse/worker/v1/workers/{worker_id}/heartbeat"));
     assert!(!has_declared_route(&disabled_ledger, Method::GET, "/_synapse/worker/v1/events"));
 
     let Some(enabled_ledger) = worker_enabled_ledger().await else {
-        eprintln!("Skipping: integration test database is not available");
+        super::skip_or_fail_without_db();
         return;
     };
     assert!(has_declared_route(&enabled_ledger, Method::POST, "/_synapse/worker/v1/workers/{worker_id}/heartbeat"));
@@ -295,7 +295,7 @@ async fn worker_body_routes_are_live_when_worker_mode_enabled() {
     let events_uri = "/_synapse/worker/v1/events";
 
     let Some((disabled_app, _state)) = default_fixture().await else {
-        eprintln!("Skipping: integration test database is not available");
+        super::skip_or_fail_without_db();
         return;
     };
 
@@ -323,7 +323,7 @@ async fn worker_body_routes_are_live_when_worker_mode_enabled() {
     assert_eq!(events_disabled.status(), StatusCode::NOT_FOUND);
 
     let Some((enabled_app, _state)) = worker_enabled_fixture().await else {
-        eprintln!("Skipping: integration test database is not available");
+        super::skip_or_fail_without_db();
         return;
     };
 
@@ -354,7 +354,7 @@ async fn worker_body_routes_are_live_when_worker_mode_enabled() {
 #[tokio::test]
 async fn declared_route_manifest_full_snapshot_matches_worker_enabled_state() {
     let Some(ledger) = worker_enabled_ledger().await else {
-        eprintln!("Skipping: integration test database is not available");
+        super::skip_or_fail_without_db();
         return;
     };
     let actual = render_ledger_snapshot("worker-enabled", &ledger);
@@ -365,7 +365,7 @@ async fn declared_route_manifest_full_snapshot_matches_worker_enabled_state() {
 #[tokio::test]
 async fn friend_routes_are_declared_when_feature_enabled() {
     let Some(ledger) = default_ledger().await else {
-        eprintln!("Skipping: integration test database is not available");
+        super::skip_or_fail_without_db();
         return;
     };
     assert!(has_declared_route(&ledger, Method::GET, "/_matrix/client/v3/friends"));
@@ -375,7 +375,7 @@ async fn friend_routes_are_declared_when_feature_enabled() {
 #[tokio::test]
 async fn voice_routes_are_declared_when_feature_enabled() {
     let Some(ledger) = default_ledger().await else {
-        eprintln!("Skipping: integration test database is not available");
+        super::skip_or_fail_without_db();
         return;
     };
     assert!(has_declared_route(&ledger, Method::GET, "/_matrix/client/r0/voice/config"));
@@ -387,7 +387,7 @@ async fn voice_routes_are_declared_when_feature_enabled() {
 #[tokio::test]
 async fn external_service_routes_are_declared_when_feature_enabled() {
     let Some(ledger) = default_ledger().await else {
-        eprintln!("Skipping: integration test database is not available");
+        super::skip_or_fail_without_db();
         return;
     };
     assert!(has_declared_route(&ledger, Method::GET, "/_synapse/admin/v1/external_services"));
@@ -398,7 +398,7 @@ async fn external_service_routes_are_declared_when_feature_enabled() {
 #[tokio::test]
 async fn widget_routes_are_declared_when_feature_enabled() {
     let Some(ledger) = default_ledger().await else {
-        eprintln!("Skipping: integration test database is not available");
+        super::skip_or_fail_without_db();
         return;
     };
     assert!(has_declared_route(&ledger, Method::POST, "/_matrix/client/v1/widgets"));
@@ -408,7 +408,7 @@ async fn widget_routes_are_declared_when_feature_enabled() {
 #[tokio::test]
 async fn burn_after_read_routes_are_declared_when_feature_enabled() {
     let Some(ledger) = default_ledger().await else {
-        eprintln!("Skipping: integration test database is not available");
+        super::skip_or_fail_without_db();
         return;
     };
     assert!(has_declared_route(&ledger, Method::PUT, "/_matrix/client/v1/rooms/{room_id}/burn"));
@@ -418,7 +418,7 @@ async fn burn_after_read_routes_are_declared_when_feature_enabled() {
 #[tokio::test]
 async fn cas_routes_are_declared_when_feature_enabled() {
     let Some(ledger) = default_ledger().await else {
-        eprintln!("Skipping: integration test database is not available");
+        super::skip_or_fail_without_db();
         return;
     };
     assert!(has_declared_route(&ledger, Method::GET, "/login"));
@@ -429,7 +429,7 @@ async fn cas_routes_are_declared_when_feature_enabled() {
 #[tokio::test]
 async fn voip_tracking_routes_are_declared_when_feature_enabled() {
     let Some(ledger) = default_ledger().await else {
-        eprintln!("Skipping: integration test database is not available");
+        super::skip_or_fail_without_db();
         return;
     };
     assert!(has_declared_route(&ledger, Method::PUT, "/_matrix/client/r0/rooms/{room_id}/send/m.call.invite/{txn_id}"));

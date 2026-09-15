@@ -113,18 +113,19 @@ jobs:
           python3 scripts/check_migration_consistency.py \
             --json-report artifacts/migration_consistency.json
 
-      # 配置双副本一致性：docker/config/ 与 docker/deploy/config/ 靠手工 cp 同步，
-      # 无检查时曾漂移出 /sync 零限流（见 docs/audit/S_series_verification_2026-09-11.md §2）。
-      # 与迁移双副本（2b16dc3c 已根治）同型问题 —— 本步骤是它的配置侧对等物。
-      # 语义比较，注释差异不报；有意的开发/生产差异登记在脚本的 ALLOWED_DIFFERENCES。
-      - name: Config consistency (dev vs deploy trees)
-        run: |
-          mkdir -p artifacts
-          python3 scripts/check_config_consistency.py \
-            --json-report artifacts/config_consistency.json
-
       - name: Route ↔ storage boundary gate
         run: bash scripts/ci/check_route_storage_boundary.sh
+
+      # Workflow 自身的健全性：每个 Actions step 必须有 `run:` 或 `uses:`。
+      # 缺了两者会让**整个 workflow 文件**校验失败，该 workflow 的所有步骤一起
+      # 不生效（db-migration-gate.yml 在 2026-09-15 曾真实如此 —— Phase 0 删掉了
+      # `run: echo "..."` 占位却留下 `- name:` 骨架）。纯注释在 YAML 里合法，
+      # 所以仅靠 yaml.safe_load 发现不了，必须按 Actions 的 step schema 检。
+      - name: Workflow step schema (every step needs run/uses)
+        run: |
+          mkdir -p artifacts
+          python3 scripts/ci/check_workflow_steps.py \
+            --json-report artifacts/workflow_steps.json
 
       # SQLx 棘轮：动态查询不得增加、编译期校验（query!/query_as!）不得减少。
       # 基线见 scripts/ci/sqlx_dynamic_ratio_baseline。
@@ -506,18 +507,26 @@ jobs:
       - name: Build forward-only sqlx migration source
         run: python3 scripts/build_sqlx_migration_source.py artifacts/sqlx-migrations
 
-      # The integration/e2e/snapshot/perf steps below run against the
-      # *application* database `synapse` (they exercise a migrated schema, not
-      # test isolation). The serial admin-registration step instead uses the
-      # throwaway test DB `synapse_test` — see its own note. Create `synapse_test`
-      # idempotently so the WIPE-flag-less guard in src/test_utils.rs is never
-      # provoked against a deployed-looking DB.
+      # `synapse` 是"部署形态"库：只用来验证 `artifacts/sqlx-migrations`（部署路径的
+      # 迁移源）能干净地 apply 到应用库形状上。**测试步骤不连它。**
+      #
+      # 这里曾经把 integration/e2e/snapshot/perf 四步指向 `synapse`，那是坏的：
+      # `src/test_utils.rs::init_template_schema` 的守卫只把"库名含 test"的库当作
+      # 可重建测试库，`synapse` 一旦带上 `public.schema_migrations` 就被判定为
+      # "像部署库"直接返回 Err —— 于是 `default_fixture()` 拿到 None，
+      # `api_route_ledger_tests` 的 14 个用例 + key_backup 的 2 个用例全部静默
+      # `return`，**ledger 契约链（manifest → ledger → export → SDK）在 CI 里
+      # 从未真正跑过**（18 处静默跳过，见 PROJECT_ACTUAL_ISSUES §2.5）。
+      # 现统一改为 `synapse_test` + 钉死 `TEST_DB_TEMPLATE_SCHEMA`，并让跳过行为
+      # fail-closed（`tests/integration/mod.rs::skip_or_fail_without_db`）。
       - name: Create synapse_test database (idempotent)
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/postgres
         run: psql -c "CREATE DATABASE synapse_test;" || true
 
-      - name: Set up test database (synapse)
+      # 只做"部署路径迁移源能否干净 apply 到应用库形状"的验证，**不供任何测试使用**。
+      # 后续步骤一律连 `synapse_test`。
+      - name: Verify deploy-path migrations apply to an app-shaped DB (synapse, not used by tests)
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
         run: |
@@ -565,8 +574,9 @@ jobs:
 
       - name: Run integration tests (--test integration)
         env:
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
           REDIS_URL: redis://localhost:6379
           RUST_BACKTRACE: 1
           RUST_LOG: info
@@ -583,8 +593,9 @@ jobs:
       # 而不是验证端到端行为 —— 后者由上面的 integration 步骤承担。
       - name: Run e2e target (simulated scenarios compile + run)
         env:
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
           REDIS_URL: redis://localhost:6379
           RUST_BACKTRACE: 1
         run: cargo nextest run --test e2e --all-features --locked --test-threads 4
@@ -595,8 +606,9 @@ jobs:
       # on any pending .snap.new files.
       - name: Snapshot gate (cargo insta test --no-review)
         env:
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
           REDIS_URL: redis://localhost:6379
           RUST_BACKTRACE: 1
           NEXTEST_RETRIES: 2
@@ -604,8 +616,9 @@ jobs:
 
       - name: Run performance smoke gate
         env:
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
           REDIS_URL: redis://localhost:6379
           RUN_PERF_SMOKE: 1
           PERF_SMOKE_LOG: artifacts/perf_smoke.log
@@ -786,17 +799,28 @@ jobs:
       - name: Build forward-only sqlx migration source
         run: python3 scripts/build_sqlx_migration_source.py artifacts/sqlx-migrations
 
-      - name: Set up test database
+      # Coverage 要走 root/services 的 `prepare_shared_test_pool`（模板克隆路径），
+      # 所以必须连**测试库**并钉死模板 schema。此前这里连的是应用库 `synapse`，
+      # 守卫（`current_database()` 不含 "test" 且 public.schema_migrations 存在）
+      # 会直接拒绝 → 非 storage 的用例全部拿不到池。改用与 integration-test job
+      # 同一套 seed（`prepare_test_db.sh` 同时产出 public + test_template_ci）。
+      - name: Create synapse_test database (idempotent)
         env:
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-        run: |
-          sqlx database create
-          sqlx migrate run --source artifacts/sqlx-migrations
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/postgres
+        run: psql -c "CREATE DATABASE synapse_test;" || true
+
+      - name: Set up test database (public + test_template_ci in synapse_test)
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
+        run: bash scripts/ci/prepare_test_db.sh
 
       - name: Run coverage
         env:
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
           REDIS_URL: redis://localhost:6379
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         run: |

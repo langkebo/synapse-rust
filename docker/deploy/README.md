@@ -103,15 +103,11 @@ docker compose up -d
 
 ```text
 docker/deploy/
-├── docker-compose.yml      # Docker Compose 配置（唯一部署编排）
+├── docker-compose.yml      # Docker Compose 配置（唯一生产编排）
 ├── .env                    # 环境变量（实际值，git 忽略）
 ├── .env.example            # 环境变量模板
 ├── deploy.sh               # 一键部署脚本（含回滚、日志、验证）
 ├── README.md               # 本文档
-├── config/
-│   ├── homeserver.yaml     # Synapse 主配置（与 docker/config/ 同步）
-│   ├── rate_limit.yaml     # 限流配置（与 docker/config/ 同步）
-│   └── postgres.conf       # PostgreSQL 配置（与 docker/config/ 同步）
 ├── nginx/
 │   ├── nginx.conf          # Nginx 主配置
 │   └── conf.d/
@@ -129,6 +125,20 @@ docker/deploy/
 └── media/                  # 媒体文件持久化
 ```
 
+> **配置不再有副本（2026-09-15）**：`docker-compose.yml` 以 `../config` 直接挂载仓库根的
+> canonical 目录 `docker/config/`（`postgres` 服务单独挂 `../config/postgres.conf`）。
+> 此处**没有** `config/` 子目录 —— 也不要再创建（`deploy.sh` 会校验该路径，
+> 并且不再在 deploy 目录下 `mkdir config`）。
+>
+> 历史上这里有一份手工 `cp` 同步的副本，它静默漂移：两侧 `rate_limit.yaml` 的
+> `sync.enabled` 不一致（开发 `false` / 生产 `true`），导致 `/sync` **完全失去限流**
+> （实测 120/120 请求全 200；详见 `docs/audit/S_series_verification_2026-09-11.md` §2）。
+> 与迁移双副本（`2b16dc3c` 已根治）是同一类缺陷，现在用同样的方式根治：
+> 单一真相源 + 按路径挂载。原先用于守护这份副本的
+> `scripts/check_config_consistency.py` 及其 CI 步骤已随之删除 ——
+> 副本本身不存在了，一致性检查不再有意义；防副本重现的守卫移到了
+> `tests/unit/config_mount_tests.rs`。
+
 > **迁移不再有副本（2026-09-11）**：`docker-compose.yml` 的 migrator 直接绑定挂载
 > 仓库根的 canonical 目录 `../../migrations:/migrations:ro`。
 > 此处**没有** `migrations/` 子目录 —— 也不要再创建。
@@ -140,18 +150,6 @@ docker/deploy/
 > ⚠️ 曾尝试用符号链接替代副本，**不可行**：BSD/macOS `find` 不跟随作为搜索根的符号链接，
 > migrator 的基线探测会失败并报 "找不到统一基线脚本"。
 > `deploy.sh` 本来就以 `PROJECT_ROOT=$SCRIPT_DIR/../..` 构建镜像，因此仓库根必然存在。
-
-> **配置同步约定**：`config/` 下的文件是运行版本；`docker/config/` 为镜像内建版本。修改 canonical 后需同步（`cp docker/config/<file> config/<file>`）。
->
-> ⚠️ **该约定已由 CI 强制检查**（2026-09-11 起）：`scripts/check_config_consistency.py`
-> 做**语义**比较（注释差异不报），并接入 `.github/workflows/ci.yml` 的 `repo-sanity` job。
-> 有意的开发/生产差异必须登记在脚本的 `ALLOWED_DIFFERENCES` 白名单里并写明理由
-> （目前仅 `rate_limit.yaml` 的 `sync.enabled`：开发 `false` / 生产 `true`）。
->
-> 为什么需要：这两份配置靠手工 `cp` 同步，历史上**确实漂移过** —— 两侧
-> `rate_limit.yaml` 的 `sync.enabled` 不一致，导致 `/sync` 完全失去限流
-> （实测 120/120 请求全 200；详见 `docs/audit/S_series_verification_2026-09-11.md` §2）。
-> 这与迁移双副本（`2b16dc3c` 已根治：单一真相源 + 阻塞检查）是**同一类**缺陷。
 
 ---
 

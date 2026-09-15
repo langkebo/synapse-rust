@@ -72,7 +72,14 @@ SYNAPSE_SECURITY_SECRET=<至少32字符>
 
 ## 快速开始（Docker）
 
-推荐使用 `docker/docker-compose.yml`（已为容器环境配置 DB/Redis Host）。
+仓库有两个 compose 栈，**服务集合与用途不同，故意并存**，但读的是同一份配置：
+
+| 栈 | 文件 | 用途 |
+|---|---|---|
+| 开发/CI | `docker/docker-compose.yml` | 就地 `build`、服务名 `synapse-rust`/`db`/`redis`、带容器 entrypoint 迁移、无 nginx。`backend-validation` 与 `e2ee-interop` 两个 CI 工作流按这些服务名起栈 |
+| 生产 | `docker/deploy/docker-compose.yml` | 全栈（postgres/redis/**migrator**/synapse/nginx），80/443/8448 + SSL，只读根文件系统，用 `docker/deploy/deploy.sh` 部署 |
+
+开发栈：
 
 ```bash
 cd docker
@@ -95,7 +102,8 @@ curl -f http://localhost:8008/_matrix/client/versions
 
 ### 配置文件
 
-- 容器部署默认读取：`docker/config/homeserver.yaml`
+- **唯一真相源**：`docker/config/`（`homeserver.yaml`、`rate_limit.yaml`、`postgres.conf`、`appservices/`）
+- 两个 compose 栈都挂载这一份（生产栈用 `../config`，开发栈用 `./config`），`docker/Dockerfile` 也从同一路径打进镜像；**不存在第二份副本**
 - 可通过环境变量覆盖配置（见下方 “环境变量”）
 
 注意：仓库内的示例配置包含示例域名与示例密钥，部署前务必替换：

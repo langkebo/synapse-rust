@@ -41,7 +41,7 @@ docker/*.tsv
 test-results/
 docker/test-results/
 reports/
-artifacts/
+artifacts/*
 !artifacts/coverage_baseline.json
 test-artifacts/
 # 生成的 HTML 测试报告（54 个字体二进制 + echarts，6.3MB，仓库内无任何引用）
@@ -94,6 +94,8 @@ docs/superpowers/plans/
 
 # 测试工具链依赖（由 npm install 重建，不应入仓）
 tests/element-web-harness/node_modules/
+# e2e/interop 运行产物（Playwright 截图 + HTML dump，实测 210 文件 / 266 MB）
+tests/element-web-harness/artifacts/
 
 # 代码覆盖率和变异测试产物
 coverage/
@@ -116,3 +118,5 @@ certs/
 .workbuddy/
 target_amd64/
 target_arm64/
+.scratch/
+api_test/response_schemas.json

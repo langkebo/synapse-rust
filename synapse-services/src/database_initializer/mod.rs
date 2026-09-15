@@ -291,7 +291,11 @@ impl DatabaseInitService {
                 execution_time_ms BIGINT,
                 is_success BOOLEAN NOT NULL DEFAULT TRUE,
                 description TEXT,
-                executed_at TIMESTAMPTZ DEFAULT NOW(),
+                -- 必须与 canonical 迁移 `migrations/00000000_unified_schema_v*.sql` 和
+                -- `docker/db_migrate.sh` 一致：executed_at 是毫秒 bigint，不是 timestamptz。
+                -- 写成 TIMESTAMPTZ 时，若该表已按 bigint 建立（基线迁移先执行），
+                -- 本表的写入会报 type mismatch，迁移记录全部丢失。
+                executed_at BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
                 CONSTRAINT uq_schema_migrations_version UNIQUE (version)
             )
         ";
@@ -333,7 +337,7 @@ impl DatabaseInitService {
                ON CONFLICT (version) DO UPDATE SET
                    checksum = EXCLUDED.checksum,
                    applied_ts = EXCLUDED.applied_ts,
-                   executed_at = NOW(),
+                   executed_at = (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
                    execution_time_ms = EXCLUDED.execution_time_ms,
                    is_success = EXCLUDED.is_success",
         )

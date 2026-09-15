@@ -261,95 +261,22 @@ jobs:
             --features test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications
             --test unit schema_contract_p0 -- --test-threads=1
 
-      - name: Run room core schema contract integration tests
-        # REMOVED 2026-09-15: placeholder was empty echo gate (audit violation)
-        # Original: cargo test --locked --test schema_contract_room_core_tests -- --test-threads=1
-        # Status: Test target does not exist; tracked in audit ticket P1-8
-
-      - name: Run room summary schema contract integration tests
-        # REMOVED 2026-09-15: placeholder was empty echo gate (audit violation)
-        # Original: cargo test --locked --test schema_contract_room_summary_tests -- --test-threads=1
-        # Status: Test target does not exist; tracked in audit ticket P1-8
-
-      - name: Run space schema contract integration tests
-        # REMOVED 2026-09-15: placeholder was empty echo gate (audit violation)
-        # Original: cargo test --locked --test schema_contract_space_tests -- --test-threads=1
-        # Status: Test target does not exist; tracked in audit ticket P1-8
-
-      - name: Run account data schema contract integration tests
-        # REMOVED 2026-09-15: placeholder was empty echo gate (audit violation)
-        # Original: cargo test --locked --test schema_contract_account_data_tests -- --test-threads=1
-        # Status: Test target does not exist; tracked in audit ticket P1-8
-
-      - name: Run search schema contract integration tests
-        # REMOVED 2026-09-15: placeholder was empty echo gate (audit violation)
-        # Original: cargo test --locked --test schema_contract_search_tests -- --test-threads=1
-        # Status: Test target does not exist; tracked in audit ticket P1-8
-
-      - name: Run e2ee schema contract integration tests
-        # REMOVED 2026-09-15: placeholder was empty echo gate (audit violation)
-        # Original: cargo test --locked --test schema_contract_e2ee_verification_tests -- --test-threads=1
-        # Status: Test target does not exist; tracked in audit ticket P1-8
-
-      - name: Run thread schema contract integration tests
-        # REMOVED 2026-09-15: placeholder was empty echo gate (audit violation)
-        # Original: cargo test --locked --test schema_contract_thread_tests -- --test-threads=1
-        # Status: Test target does not exist; tracked in audit ticket P1-8
-
-      - name: Run retention schema contract integration tests
-        # REMOVED 2026-09-15: placeholder was empty echo gate (audit violation)
-        # Original: cargo test --locked --test schema_contract_retention_tests -- --test-threads=1
-        # Status: Test target does not exist; tracked in audit ticket P1-8
-
-      - name: Run invite restriction schema contract integration tests
-        # REMOVED 2026-09-15: placeholder was empty echo gate (audit violation)
-        # Original: cargo test --locked --test schema_contract_invite_restrictions_tests -- --test-threads=1
-        # Status: Test target does not exist; tracked in audit ticket P1-8
-
-      - name: Run auth token schema contract integration tests
-        # REMOVED 2026-09-15: placeholder was empty echo gate (audit violation)
-        # Original: cargo test --locked --test schema_contract_auth_tokens_tests -- --test-threads=1
-        # Status: Test target does not exist; tracked in audit ticket P1-8
-
-      - name: Run presence schema contract integration tests
-        # REMOVED 2026-09-15: placeholder was empty echo gate (audit violation)
-        # Original: cargo test --locked --test schema_contract_presence_tests -- --test-threads=1
-        # Status: Test target does not exist; tracked in audit ticket P1-8
-
-      - name: Run openid token schema contract integration tests
-        # REMOVED 2026-09-15: placeholder was empty echo gate (audit violation)
-        # Original: cargo test --locked --test schema_contract_openid_token_tests -- --test-threads=1
-        # Status: Test target does not exist; tracked in audit ticket P1-8
-
-      - name: Run media quota schema contract integration tests
-        # REMOVED 2026-09-15: placeholder was empty echo gate (audit violation)
-        # Original: cargo test --locked --test schema_contract_media_quota_tests -- --test-threads=1
-        # Status: Test target does not exist; tracked in audit ticket P1-8
-
-      - name: Run receipts schema contract integration tests
-        # REMOVED 2026-09-15: placeholder was empty echo gate (audit violation)
-        # Original: cargo test --locked --test schema_contract_receipts_tests -- --test-threads=1
-        # Status: Test target does not exist; tracked in audit ticket P1-8
-
-      - name: Run sync unread schema contract integration tests
-        # REMOVED 2026-09-15: placeholder was empty echo gate (audit violation)
-        # Original: cargo test --locked --test schema_contract_sync_unread_tests -- --test-threads=1
-        # Status: Test target does not exist; tracked in audit ticket P1-8
-
-      - name: Run receipts aggregation schema contract integration tests
-        # REMOVED 2026-09-15: placeholder was empty echo gate (audit violation)
-        # Original: cargo test --locked --test schema_contract_receipts_aggregation_tests -- --test-threads=1
-        # Status: Test target does not exist; tracked in audit ticket P1-8
-
-      - name: Run read markers handler schema contract integration tests
-        # REMOVED 2026-09-15: placeholder was empty echo gate (audit violation)
-        # Original: cargo test --locked --test schema_contract_read_markers_handler_tests -- --test-threads=1
-        # Status: Test target does not exist; tracked in audit ticket P1-8
-
-      - name: Run sync ephemeral receipts schema contract integration tests
-        # REMOVED 2026-09-15: placeholder was empty echo gate (audit violation)
-        # Original: cargo test --locked --test schema_contract_sync_ephemeral_receipts_tests -- --test-threads=1
-        # Status: Test target does not exist; tracked in audit ticket P1-8
+      # 18 个「schema contract integration tests」占位步骤已于 2026-09-15 整体删除。
+      #
+      # 这些步骤原先只有 `run: echo "..."`（恒绿、零断言）。Phase 0 把 `run:` 删掉、
+      # 只留注释后，**反而使整个 workflow 文件非法**：GitHub Actions 要求每个 step
+      # 必须有 `run:` 或 `uses:`，否则整套 workflow 校验失败
+      # （"Required property is missing: run"）—— 一个非法文件会让
+      # `sqlx-migrate-run` 里**所有**步骤（包括下方真实存在的门禁）一起不生效。
+      # 即"删掉空 echo"这个正确意图，因保留 `- name:` 骨架而产生了更坏的后果。
+      #
+      # 这 18 个 cargo test 目标（`--test schema_contract_*_tests`）在当前树中并不
+      # 存在，且属于 `--test integration` 之外的独立测试二进制命名。真正的契约检查
+      # 由下方的 `Run schema contract p0 tests`、`Run placeholder contract P1/P2
+      # integration tests`、`Run database integrity migration gates` 承担。
+      #
+      # 恢复其中任何一项时，必须连同**真实可运行的测试目标**一起加回，不要只留
+      # `- name:` —— `scripts/ci/check_workflow_steps.py` 会拦住无 `run`/`uses` 的步骤。
 
       - name: Run placeholder contract P1/P2 integration tests
         env:

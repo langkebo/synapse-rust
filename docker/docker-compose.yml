@@ -1,3 +1,21 @@
+# =============================================================================
+# synapse-rust Docker Compose — 开发/CI 栈
+# =============================================================================
+# 定位（与 docker/deploy/docker-compose.yml 的边界）：
+#   - 本文件：开发与 CI 用。可就地 `build`（target: tools）、服务名短
+#     （synapse-rust/db/redis）、暴露 8008/28448、不带 nginx/SSL、迁移由
+#     容器 entrypoint（RUN_MIGRATIONS=true）完成。
+#     `.github/workflows/backend-validation.yml` 与 `.github/workflows/e2ee-interop.yml`
+#     通过 scripts/ci_backend_validation.sh、scripts/test/run_sdk_verification_real_backend.sh
+#     等脚本**按此处服务名**起栈，改名会直接打断这些 CI 门禁。
+#   - docker/deploy/docker-compose.yml：生产全栈（postgres/redis/migrator/
+#     synapse/nginx，独立 migrator 服务、80/443/8448、只读根文件系统、硬编码
+#     container_name）。
+# 两者**不是副本**：服务集合与用途不同，故意并存。唯一必须一致的是配置源：
+# 两栈都挂 docker/config/ 这一份（deploy 用 ../config，此处用 ./config），
+# 不得各自持有副本。见 tests/unit/config_mount_tests.rs。
+# =============================================================================
+
 services:
   synapse-rust:
     build:
@@ -84,7 +102,7 @@ services:
       POSTGRES_USER: ${DB_USER:-synapse}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
       POSTGRES_DB: ${DB_NAME:-synapse}
-      POSTGRES_INITDB_ARGS: --encoding=UTF-8 --lc-collate=C --lc-ctype=C
+      POSTGRES_INITDB_ARGS: ${POSTGRES_INITDB_ARGS:---encoding=UTF-8 --lc-collate=C --lc-ctype=C}
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -96,8 +114,8 @@ services:
       test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-synapse} -d ${DB_NAME:-synapse}" ]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 10s
+      retries: 10
+      start_period: 20s
     networks:
       - synapse_network
     command: >
@@ -123,15 +141,15 @@ services:
       test: [ "CMD-SHELL", "redis-cli -a \"${REDIS_PASSWORD:?REDIS_PASSWORD must be set}\" ping | grep PONG" ]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
       start_period: 5s
     networks:
       - synapse_network
     logging:
       driver: "json-file"
       options:
-        max-size: "5m"
-        max-file: "3"
+        max-size: "10m"
+        max-file: "5"
 volumes:
   postgres_data:
     driver: local

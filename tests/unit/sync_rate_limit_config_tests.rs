@@ -8,10 +8,10 @@
 //! `sync:` section of `rate_limit.yaml` is therefore the *only* limiter for
 //! `/sync`.
 //!
-//! On 2026-09-11 both shipped `rate_limit.yaml` files had `sync.enabled: false`
-//! while both `homeserver.yaml` files declared `rate_limit.sync.enabled: true`
-//! — and because the file config replaces the whole `rate_limit:` section, the
-//! file won. Measured consequence on the local stack:
+//! On 2026-09-11 the shipped `rate_limit.yaml` had `sync.enabled: false` while
+//! `homeserver.yaml` declared `rate_limit.sync.enabled: true` — and because the
+//! file config replaces the whole `rate_limit:` section, the file won. Measured
+//! consequence on the local stack:
 //!
 //! ```console
 //! # config: sync.enabled = false
@@ -27,6 +27,13 @@
 //! So an authenticated user could spin `timeout=0` and generate unbounded DB
 //! read amplification. These tests make that regression impossible to
 //! reintroduce silently.
+//!
+//! ## Single config source
+//!
+//! `docker/config/` is the only config tree: `docker/deploy/docker-compose.yml`
+//! mounts `../config`, and `docker/Dockerfile` bakes the same files into the
+//! image. There is no longer a second copy to drift against (the dev/prod
+//! divergence that caused the 2026-09-11 outage came from exactly such a copy).
 
 use std::fs;
 use std::path::PathBuf;
@@ -41,7 +48,7 @@ fn read(rel: &str) -> String {
     fs::read_to_string(&p).unwrap_or_else(|e| panic!("expected {p:?} to be readable: {e}"))
 }
 
-/// Extracts the effective `sync.enabled` value from a `rate_limit.yaml`.
+/// Extracts the effective `sync.enabled` value from `rate_limit.yaml`.
 ///
 /// Deliberately a tiny purpose-built parser: the file is flat and the key
 /// appears exactly once. Comments are stripped so a commented-out line cannot
@@ -69,7 +76,7 @@ fn sync_enabled(yaml: &str) -> Option<bool> {
     None
 }
 
-/// Extracts the effective `rate_limit.sync.enabled` from a `homeserver.yaml`
+/// Extracts the effective `rate_limit.sync.enabled` from `homeserver.yaml`
 /// (nested under the top-level `rate_limit:` key).
 fn homeserver_rate_limit_sync_enabled(yaml: &str) -> Option<bool> {
     let mut in_rate_limit = false;
@@ -103,66 +110,28 @@ fn homeserver_rate_limit_sync_enabled(yaml: &str) -> Option<bool> {
     None
 }
 
-/// Every shipped rate-limit config file, with whether it is the production one.
-const RATE_LIMIT_CONFIGS: [(&str, bool); 2] =
-    [("docker/deploy/config/rate_limit.yaml", true), ("docker/config/rate_limit.yaml", false)];
+/// The single shipped rate-limit config (canonical, mounted by deploy compose
+/// and baked into the image).
+const RATE_LIMIT_CONFIG: &str = "docker/config/rate_limit.yaml";
+const HOMESERVER_CONFIG: &str = "docker/config/homeserver.yaml";
 
 // =============================================================================
 // The core regression guard
 // =============================================================================
 
-/// The **production** `rate_limit.yaml` must keep the dedicated sync limiter
-/// enabled. Disabling it leaves `/sync` completely unthrottled, because the
-/// generic IP middleware exempts `/sync`.
+/// The shipped `rate_limit.yaml` must keep the dedicated sync limiter enabled.
+/// Disabling it leaves `/sync` completely unthrottled, because the generic IP
+/// middleware exempts `/sync`.
 #[test]
-fn deploy_config_keeps_sync_rate_limiter_enabled() {
-    let (path, _) = RATE_LIMIT_CONFIGS[0];
-    let value = sync_enabled(&read(path));
+fn bundled_config_keeps_sync_rate_limiter_enabled() {
+    let value = sync_enabled(&read(RATE_LIMIT_CONFIG));
     assert_eq!(
         value,
         Some(true),
-        "{path} 必须保持 sync.enabled: true —— /sync 被路由 ledger 标记为 \
+        "{RATE_LIMIT_CONFIG} 必须保持 sync.enabled: true —— /sync 被路由 ledger 标记为 \
          rate_limit_exempt，不受通用 IP 限流约束，本段是它唯一的限流来源。\
          设为 false 时 `timeout=0` 紧循环可无限刷（实测 120/120 全 200）。"
     );
-}
-
-/// The bundled `rate_limit.yaml` must still move in lockstep with the
-/// production constants — only `enabled` is allowed to differ (dev is laxer).
-#[test]
-fn both_rate_limit_configs_agree_on_sync_rule_values() {
-    let deploy = read(RATE_LIMIT_CONFIGS[0].0);
-    let dev = read(RATE_LIMIT_CONFIGS[1].0);
-
-    let numbers = |yaml: &str| -> Vec<String> {
-        yaml.lines()
-            .map(|l| l.split('#').next().unwrap_or("").trim().to_string())
-            .filter(|l| l.starts_with("per_second:") || l.starts_with("burst_size:"))
-            .collect()
-    };
-
-    assert_eq!(
-        numbers(&deploy),
-        numbers(&dev),
-        "两份 rate_limit.yaml 的限流数值已经漂移；\
-         它们靠手工 cp 同步（见 docker/deploy/README.md），没有 CI 检查"
-    );
-}
-
-/// The dev config may relax the limiter, but if it does, it must say why —
-/// otherwise it reads as a production template.
-#[test]
-fn dev_config_documents_why_it_is_laxer() {
-    let (path, is_prod) = RATE_LIMIT_CONFIGS[1];
-    assert!(!is_prod);
-    let text = read(path);
-    if sync_enabled(&text) == Some(false) {
-        assert!(
-            text.contains("生产") || text.contains("production"),
-            "{path} 关闭了 sync 限流，必须注明这是开发用宽松值、生产见 deploy 配置；\
-             否则容易被当作模板复制到生产"
-        );
-    }
 }
 
 // =============================================================================
@@ -175,22 +144,18 @@ fn dev_config_documents_why_it_is_laxer() {
 /// The file config replaces the *entire* `rate_limit:` section (see
 /// `src/web/middleware/rate_limit.rs`), so the nested declaration is inert.
 /// If it is going to stay for documentation value it must be accompanied by a
-/// note saying so; the deploy copy already has one.
+/// note saying so.
 #[test]
 fn homeserver_yaml_does_not_contradict_the_file_config_silently() {
-    for rel in ["docker/deploy/config/homeserver.yaml", "docker/config/homeserver.yaml"] {
-        let text = read(rel);
-        let declared = homeserver_rate_limit_sync_enabled(&text);
-        if declared == Some(true) {
-            let documented = text.contains("inert") || text.contains("rate_limit.yaml") || text.contains("replaces");
-            assert!(
-                documented,
-                "{rel} 声明了 rate_limit.sync.enabled: true，但该段被 \
-                 RATE_LIMIT_CONFIG_PATH 指向的文件整体替换、运行时**不生效**。\
-                 必须像 docker/deploy/config/homeserver.yaml 那样加注释说明，\
-                 否则会误导运维以为限流已开。"
-            );
-        }
+    let text = read(HOMESERVER_CONFIG);
+    if homeserver_rate_limit_sync_enabled(&text) == Some(true) {
+        let documented = text.contains("inert") || text.contains("rate_limit.yaml") || text.contains("不生效");
+        assert!(
+            documented,
+            "{HOMESERVER_CONFIG} 声明了 rate_limit.sync.enabled: true，但该段被 \
+             RATE_LIMIT_CONFIG_PATH 指向的文件整体替换、运行时**不生效**。\
+             必须加注释说明，否则会误导运维以为限流已开。"
+        );
     }
 }
 
@@ -210,4 +175,35 @@ fn sync_routes_are_still_exempt_from_the_generic_ip_limiter() {
         "src/web/routes/sync.rs 不再把 /sync 标记为 exempt；\
          若它已回到通用 IP 限流覆盖范围，请重新评估本文件的守卫条件"
     );
+}
+
+// =============================================================================
+// Dead surface removal (P5 死代码)
+// =============================================================================
+
+/// `RateLimitConfigAdapter` must stay deleted.
+///
+/// It declared a full duplicate of `RateLimitConfigFile`'s field set plus a
+/// `From<RateLimitConfigFile>` impl, but **nothing ever constructed it**. Its
+/// stated purpose ("B-1: leaf types are unified, so this is a straight field
+/// move") described a bridge between two types that had already been unified —
+/// so the adapter was a leftover with no callers, and every field of
+/// `RateLimitConfigFile` was read directly instead.
+///
+/// A public duplicate of a config struct is a real maintenance hazard: a field
+/// added to `RateLimitConfigFile` would silently *not* propagate to the
+/// adapter, and any new caller would read stale semantics.
+#[test]
+fn rate_limit_config_adapter_stays_deleted() {
+    let source = fs::read_to_string(repo_root().join("synapse-common/src/rate_limit_config.rs"))
+        .expect("rate_limit_config.rs must be readable");
+    assert!(
+        !source.contains("RateLimitConfigAdapter"),
+        "RateLimitConfigAdapter 应保持删除状态：它从未被构造，\
+         且其存在理由（桥接两个已统一的叶类型）已消失。\
+         若确实需要，请连同真实调用方一起提交。"
+    );
+
+    let lib = fs::read_to_string(repo_root().join("synapse-common/src/lib.rs")).expect("lib.rs must be readable");
+    assert!(!lib.contains("RateLimitConfigAdapter"), "不应再从 synapse-common 重导出 RateLimitConfigAdapter");
 }

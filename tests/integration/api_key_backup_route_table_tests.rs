@@ -64,7 +64,7 @@ async fn assert_route(app: &axum::Router, path: &str, expected: &[&str]) {
 #[tokio::test]
 async fn key_backup_routes_are_wired_under_v3() {
     let Some(app) = setup_fresh_test_app().await else {
-        eprintln!("Skipping: integration test database is not available");
+        super::skip_or_fail_without_db();
         return;
     };
 
@@ -92,7 +92,7 @@ async fn key_backup_routes_are_wired_under_v3() {
 #[tokio::test]
 async fn key_backup_routes_are_wired_under_v1_and_r0() {
     let Some(app) = setup_fresh_test_app().await else {
-        eprintln!("Skipping: integration test database is not available");
+        super::skip_or_fail_without_db();
         return;
     };
 

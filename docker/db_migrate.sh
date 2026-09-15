@@ -36,6 +36,11 @@ load_env() {
     # can silently re-introduce default credentials and route migrations to
     # the wrong instance.
     local user_supplied_database_url="${DATABASE_URL:-}"
+    # 暴露给护栏：只有"调用方显式给了目标"才允许宿主 psql 打 loopback（见
+    # `host_psql_target_is_implicit_loopback`）。这里是唯一能区分
+    # "用户指定" 与 ".env 兜底" 的位置 —— 一旦 source 了 .env，两者就分不开了。
+    CALLER_SUPPLIED_DATABASE_URL="$user_supplied_database_url"
+    export CALLER_SUPPLIED_DATABASE_URL
 
     local env_file=""
     for candidate in "$SCRIPT_DIR/.env" "$PWD/.env" "$PROJECT_ROOT/.env"; do
@@ -117,10 +122,73 @@ load_env() {
 PSQL_USE_DOCKER=0
 PSQL_DOCKER_CONTAINER=""
 
+# 目标是否为 loopback（宿主本机）。
+is_loopback_db_host() {
+    case "$DB_HOST" in
+        localhost | 127.0.0.1 | ::1 | 0.0.0.0) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# 是否运行在容器内（容器内调用时 loopback 就是"本容器/同网络"，语义不同）。
+inside_container() {
+    [ -f /.dockerenv ] && return 0
+    grep -qaE 'docker|containerd|kubepods' /proc/1/cgroup 2>/dev/null && return 0
+    return 1
+}
+
+# H-14 护栏的判据集合，供 detect_psql_backend 与自测复用。
+#
+# 拒绝条件（全部满足才拒绝）：
+#   1. 后端是**宿主 psql**（不是 docker exec）
+#   2. 目标是 loopback
+#   3. 调用方**没有显式提供 DATABASE_URL** —— 即走的是本脚本从 .env 兜底出来的
+#      默认值（docker/.env 里就是 DB_USER=synapse / DB_NAME=synapse / localhost:5432）
+#   4. 不在容器内
+# 除非显式放行 SYNAPSE_DB_MIGRATE_ALLOW_HOST_PSQL=1。
+#
+# 判据 3 是关键：H-14 的复现形态正是"裸跑 `bash docker/db_migrate.sh validate`"，
+# 此时没有任何一处代码说明"这一刀该落在哪" —— 而兜底值恰好指向宿主自己的 PG。
+# 反过来，CI 的 mutation-testing 与 dev-test-setup 都会显式给出目标，因此不误伤。
+host_psql_target_is_implicit_loopback() {
+    [ "$PSQL_USE_DOCKER" -eq 0 ] || return 1
+    is_loopback_db_host || return 1
+    inside_container && return 1
+    [ -z "${CALLER_SUPPLIED_DATABASE_URL:-}" ] || return 1
+    return 0
+}
+
 detect_psql_backend() {
     if command -v psql >/dev/null 2>&1; then
         PSQL_USE_DOCKER=0
         PSQL_DOCKER_CONTAINER=""
+
+        # ── 护栏：别把命令打在"另一个 PostgreSQL"上 ──────────────────────────
+        #
+        # dev 栈与 deploy 栈都**不把 5432 发布到宿主**（应用在容器网络内直连
+        # `db:5432` / `postgres:5432`）。所以从宿主执行本脚本时，`localhost:5432`
+        # 永远不是 compose 栈的数据库，而是宿主自己那一台。
+        #
+        # 2026-09-15 实测（复现步骤：裸跑 `bash docker/db_migrate.sh validate`）：
+        # 宿主 5432 是本机 Homebrew PostgreSQL，脚本在它上面
+        # **建了库**（"[INFO] 数据库不存在，尝试创建: synapse"）之后才报"表缺失" ——
+        # 一条只读语气的命令改动了错误的实例（PROJECT_ACTUAL_ISSUES §6 H-14）。
+        if host_psql_target_is_implicit_loopback; then
+            if [ "${SYNAPSE_DB_MIGRATE_ALLOW_HOST_PSQL:-0}" != "1" ]; then
+                log_error "拒绝执行：本次要用宿主 psql 连 ${DB_HOST}:${DB_PORT}，而目标是从 docker/.env 兜底出来的默认值。"
+                log_error "两个 compose 栈都不把 5432 发布到宿主，因此 $DB_HOST:$DB_PORT 上的是**另一个**"
+                log_error "PostgreSQL 实例（宿主自装的那台）。继续执行会在那个实例上建库 / 迁移，"
+                log_error "而它可能根本不是你想要的库。"
+                log_error "请改用其中之一："
+                log_error "  * 显式指定目标： DATABASE_URL=postgres://user:pass@host:port/dbname bash docker/db_migrate.sh <command>"
+                log_error "  * 或直接连 compose 的库： docker exec -i <db-container> psql -U ${DB_USER} -d ${DB_NAME} ..."
+                log_error "确实就想打宿主实例时显式放行："
+                log_error "  SYNAPSE_DB_MIGRATE_ALLOW_HOST_PSQL=1 bash docker/db_migrate.sh <command>"
+                return 1
+            fi
+            log_warning "SYNAPSE_DB_MIGRATE_ALLOW_HOST_PSQL=1：放行宿主 psql 打 $DB_HOST:$DB_PORT"
+        fi
+
         return 0
     fi
 
@@ -133,6 +201,18 @@ detect_psql_backend() {
 
     log_error "未找到可用的 psql；请安装本机 psql 或启动数据库容器: $DB_CONTAINER"
     return 1
+}
+
+# 在任何写操作之前把"这一刀落在哪台服务器上"打出来。
+# 事后排查"命令打错实例"时，日志里有这一行就够了。
+log_target_banner() {
+    local backend
+    if [ "$PSQL_USE_DOCKER" -eq 1 ]; then
+        backend="docker exec $PSQL_DOCKER_CONTAINER (容器内 psql)"
+    else
+        backend="宿主 psql"
+    fi
+    log_info "迁移目标: ${DB_USER}@${DB_HOST}:${DB_PORT}/${DB_NAME}  [backend: ${backend}]"
 }
 
 psql_exec() {
@@ -563,20 +643,24 @@ main() {
 
     case "$command" in
         init)
+            log_target_banner
             check_db_connection
             cleanup_stale_connections
             init_database
             ;;
         migrate)
+            log_target_banner
             check_db_connection
             cleanup_stale_connections
             apply_pending_migrations
             ;;
         status)
+            log_target_banner
             check_db_connection
             list_applied_migrations
             ;;
         validate)
+            log_target_banner
             check_db_connection
             validate_schema
             ;;

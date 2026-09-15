@@ -320,7 +320,16 @@ impl crate::room::api::RoomStoreApi for InMemoryRoomStore {
     }
 
     async fn set_room_directory(&self, room_id: &str, is_public: bool) -> Result<(), sqlx::Error> {
-        self.directories.write().await.insert(room_id.to_string(), is_public);
+        // Mirror production semantics: room_directory holds only public rooms.
+        // A private room has no row (deleted), so EXISTS / is_room_in_directory
+        // report "not in directory" consistently across the standard and admin
+        // write paths.
+        let mut directories = self.directories.write().await;
+        if is_public {
+            directories.insert(room_id.to_string(), true);
+        } else {
+            directories.remove(room_id);
+        }
         Ok(())
     }
 

@@ -1042,20 +1042,34 @@ impl RoomStorage {
     }
 
     /// See [`set_room_directory`].
+    ///
+    /// `room_directory` is the authoritative membership set of **public** rooms:
+    /// a public room has a row, a private room has none. This keeps the standard
+    /// visibility path (`PUT /directory/list/room/{id}`) consistent with the admin
+    /// path (`set_room_private_with_directory`, which deletes the row), so that an
+    /// `EXISTS (SELECT 1 FROM room_directory ...)` check reports the same
+    /// "in directory" state regardless of which write path was used. Setting the
+    /// room private therefore deletes the directory row rather than upserting
+    /// `is_public = false`.
     pub async fn set_room_directory(&self, room_id: &str, is_public: bool) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
-        sqlx::query(
-            r"
-            INSERT INTO room_directory (room_id, is_public, added_ts)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (room_id) DO UPDATE SET is_public = EXCLUDED.is_public
-            ",
-        )
-        .bind(room_id)
-        .bind(is_public)
-        .bind(now)
-        .execute(&*self.pool)
-        .await?;
+        if is_public {
+            sqlx::query(
+                r"
+                INSERT INTO room_directory (room_id, is_public, added_ts)
+                VALUES ($1, TRUE, $2)
+                ON CONFLICT (room_id) DO UPDATE SET is_public = TRUE
+                ",
+            )
+            .bind(room_id)
+            .bind(now)
+            .execute(&*self.pool)
+            .await?;
+        } else {
+            // 复用既有的 `remove_room_directory`（铁律 2：同一职责只允许一份实现），
+            // 避免为同一句 DELETE 维护第二份 SQL。
+            self.remove_room_directory(room_id).await?;
+        }
 
         sqlx::query(
             r"
@@ -1622,6 +1636,29 @@ mod db_tests {
         storage.set_room_visibility(&room_id, "private").await.expect("unset public should succeed");
         let room = storage.get_room(&room_id).await.unwrap().unwrap();
         assert!(!room.is_public);
+
+        // STO-13: `set_room_directory(false)` must DELETE the directory row so the
+        // standard path agrees with the admin path (`set_room_private_with_directory`).
+        // Before the fix the row lingered with is_public=false, and the EXISTS check
+        // in get_room_listings_status reported a contradictory in_directory=true.
+        storage.set_room_directory(&room_id, false).await.expect("set_room_directory(false) should succeed");
+        let (flag_is_public, in_directory) = storage
+            .get_room_listings_status(&room_id)
+            .await
+            .expect("get_room_listings_status should succeed")
+            .expect("room should exist");
+        assert!(!flag_is_public);
+        assert!(!in_directory, "private room must not remain in room_directory (STO-13)");
+        assert!(!storage.is_room_in_directory(&room_id).await.unwrap());
+
+        // Re-publishing must restore the row.
+        storage.set_room_directory(&room_id, true).await.expect("re-set_room_directory(true) should succeed");
+        let (_, in_directory) = storage
+            .get_room_listings_status(&room_id)
+            .await
+            .expect("get_room_listings_status should succeed")
+            .expect("room should exist");
+        assert!(in_directory, "public room must have a room_directory row");
 
         let _ = storage.delete_room(&room_id).await;
     }

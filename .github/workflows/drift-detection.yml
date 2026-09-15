@@ -313,45 +313,39 @@ jobs:
           done
           exit 1
 
-      - name: Simulate large table for performance testing
+      # 曾经的这里：先插 1000 万行进 `test_events`，然后 `echo "::warning::…"` +
+      # `failed=0` + `if [ "$failed" -ne 0 ]` → **永不可能变红**。付出 10M 行的代价
+      # 换零断言（见 PROJECT_ACTUAL_ISSUES §2.2）。而且那 1000 万行是纯浪费：
+      # 它模拟的是"大表上的增量迁移"，而目标迁移文件已在 redundancy cleanup 中整体
+      # 删除，baseline 根本不引用 `test_events`。
+      #
+      # 现改为真断言：把 baseline 应用到一台干净的 PG 上，失败即红，并断言对象数下限
+      # 与耗时上限。job 名保持不变（改名会让 required status check 永久 pending）。
+      - name: Apply baseline and assert it completes
         run: |
-          rows="${PERF_TEST_ROWS:-10000000}"
-          PGPASSWORD=synapse psql -h localhost -U synapse -d synapse -c "
-            CREATE TABLE IF NOT EXISTS test_events (
-              id BIGSERIAL PRIMARY KEY,
-              room_id TEXT NOT NULL,
-              event_type TEXT NOT NULL,
-              content JSONB,
-              created_ts BIGINT NOT NULL
-            );
-
-            INSERT INTO test_events (room_id, event_type, content, created_ts)
-            SELECT
-              '!room:' || (random() * 100)::int || ':example.com',
-              CASE (random() * 3)::int
-                WHEN 0 THEN 'm.room.message'
-                WHEN 1 THEN 'm.room.member'
-                ELSE 'm.room.event'
-              END,
-              '{}'::jsonb,
-              extract(epoch from now())::bigint * 1000
-            FROM generate_series(1, ${rows});
-          "
-
-      - name: Run migration performance test
-        run: |
-          echo "Testing migration performance with ${PERF_TEST_ROWS:-10000000} rows..."
-          failed=0
-          ran_any=0
-          echo "::warning::Performance-baseline gate removed: target migration files were deleted in redundancy cleanup"
-
-          if [ "$failed" -ne 0 ]; then
+          set -euo pipefail
+          export PGPASSWORD=synapse
+          PSQL="psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1"
+          start=$(date +%s)
+          $PSQL -f migrations/00000000_unified_schema_v11.sql
+          $PSQL -f migrations/00000001_extensions_v10.sql
+          elapsed=$(( $(date +%s) - start ))
+          tables=$($PSQL -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'")
+          indexes=$($PSQL -tAc "SELECT count(*) FROM pg_indexes WHERE schemaname='public'")
+          echo "baseline applied in ${elapsed}s: tables=${tables} indexes=${indexes}"
+          if [ "$tables" -lt 200 ]; then
+            echo "::error::baseline apply produced only ${tables} tables (expected >=200) — migrations are silently dropping objects"
             exit 1
           fi
-
-      - name: Cleanup test data
-        run: |
-          PGPASSWORD=synapse psql -h localhost -U synapse -d synapse -c "DROP TABLE IF EXISTS test_events;"
+          if [ "$indexes" -lt 200 ]; then
+            echo "::error::baseline apply produced only ${indexes} indexes (expected >=200)"
+            exit 1
+          fi
+          # 宽松上限：只拦"灾难性劣化"，不做脆弱的性能阈值断言。
+          if [ "$elapsed" -gt 600 ]; then
+            echo "::error::baseline apply took ${elapsed}s (>600s ceiling)"
+            exit 1
+          fi
 
   # Route Contract Drift Gate: regenerates docs/synapse-rust/ROUTE_CONTRACT.md from
   # the real route surface (src/web/routes/**) and fails if the committed doc drifted.

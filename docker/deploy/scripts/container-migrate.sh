@@ -143,7 +143,13 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     execution_time_ms BIGINT,
     is_success BOOLEAN NOT NULL DEFAULT TRUE,
     description TEXT,
-    executed_at TIMESTAMPTZ DEFAULT NOW(),
+    -- 必须与 canonical 迁移 `migrations/00000000_unified_schema_v*.sql` 和
+    -- `docker/db_migrate.sh` 保持一致：executed_at 是**毫秒 bigint**，不是 timestamptz。
+    -- 本文件曾写成 TIMESTAMPTZ，与这两处冲突：先跑的一方决定列类型，另一方写入时
+    -- 报 `column "executed_at" is of type bigint but expression is of type timestamp
+    -- with time zone`，迁移记录一条都写不进去（实测 2026-09-15：migrator exit=1，
+    -- schema_migrations 0 行，deploy.sh 版本一致性门禁必然失败）。
+    executed_at BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
     CONSTRAINT uq_schema_migrations_version UNIQUE (version)
 );
 ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS name TEXT;
@@ -152,7 +158,7 @@ ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS applied_ts BIGINT;
 ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS execution_time_ms BIGINT;
 ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS is_success BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS description TEXT;
-ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS executed_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS executed_at BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_schema_migrations_version ON schema_migrations(version);
 SQL
 }
@@ -239,8 +245,18 @@ should_apply_migration() {
     fi
 
     for feature in $(printf '%s' "$required_feature" | tr ',' ' '); do
+        # 模式里的 `$feature` **不能加引号**。
+        #
+        # 本脚本由本容器的 `/bin/sh`（busybox ash）执行，实测该 shell 会把
+        # `*",$feature,"` 里的引号当成模式字面量，于是 `*",friends,"` 匹配不上
+        # `,friends,burn-after-read,` —— 结果是设了 `ENABLED_EXTENSIONS=friends,...`
+        # 仍然打印 "跳过扩展迁移 (feature=cas-sso,saml-sso,friends,voice-extended 未启用)"
+        # 并跳过 `00000001_extensions_v10.sql`（friends/cas/saml 建表全部丢失），
+        # 连带 `deploy.sh` 的"canonical 迁移是否全部应用"门禁必然失败。
+        # 见 2026-09-15 实测：`sh -c 'case ",friends,burn-after-read," in *",friends,")'` → NO-MATCH，
+        # 改用未加引号的 `*,friends,*` → MATCH。
         case ",$ENABLED_EXTENSIONS," in
-            *",$feature,")
+            *,$feature,*)
                 return 0
                 ;;
         esac
@@ -271,7 +287,7 @@ apply_sql_file() {
                 $duration_ms,
                 TRUE,
                 '$filename',
-                NOW()
+                (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
             )
             ON CONFLICT (version) DO UPDATE SET
                 name = EXCLUDED.name,
@@ -299,7 +315,7 @@ apply_sql_file() {
             $duration_ms,
             FALSE,
             '$filename',
-            NOW()
+            (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
         )
         ON CONFLICT (version) DO UPDATE SET
             name = EXCLUDED.name,

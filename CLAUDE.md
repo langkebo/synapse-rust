@@ -100,7 +100,7 @@ The codebase generally follows `route (src/web/) -> service (synapse-services/) 
 ### Configuration model
 - Config types live in `synapse-common/src/config/` (the root crate's `src/common/config/` is a thin re-export).
 - Main config is file-based (`SYNAPSE_CONFIG_PATH`, default `homeserver.yaml`) with `SYNAPSE_` environment variable overrides using `__` for nesting.
-- Docker uses `docker/config/homeserver.yaml` and mounts `docker/config/rate_limit.yaml`.
+- Docker uses `docker/config/homeserver.yaml` and mounts `docker/config/rate_limit.yaml` — `docker/config/` is the single config source for both compose stacks and for the image; there is no second copy under `docker/deploy/`.
 - Search must exist structurally in config; when Elasticsearch is not used it should still be explicitly disabled.
 
 ### Caching and async/background work

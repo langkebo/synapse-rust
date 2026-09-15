@@ -69,14 +69,18 @@ exempt_path_prefixes:
 endpoint_aliases: {}
 fail_open_on_error: false
 sync:
-  # 本地开发用宽松值：关闭专用 sync 限流，避免在 https://matrix.test 上
-  # 反复登录/抓包/压力试验时吃假阳性 429。
+  # ⚠️ 必须保持 enabled: true。
   #
-  # ⚠️ 这**不是**生产设置。`/sync` 被路由 ledger 标记为 rate_limit_exempt，
-  # 不受通用 IP 限流约束，因此本段是它唯一的限流来源；关闭后 `timeout=0`
-  # 紧循环可无限刷（实测 120/120 全 200）。
-  # 生产取值见 `docker/deploy/config/rate_limit.yaml`（enabled: true）。
-  enabled: false
+  # `/sync` 与 sliding sync 在路由 ledger 中被标记为 `rate_limit_exempt`，
+  # 因此**不受上面 default: per_second=50 的通用 IP 限流约束**；本段是
+  # `/sync` 唯一的限流来源。设为 false 时的实测后果（2026-09-11）：
+  #     `/_matrix/client/v3/sync?timeout=0` 连续 120 次请求 → 120×200，零 429
+  # 即一个已认证用户用 `timeout=0` 紧循环即可制造无上限的 DB 读放大。
+  #
+  # 阈值取宽松值：每分钟 50 次增量 sync 的客户端刚好命中 1 次、随时可用，
+  # 正常长轮询客户端不会误伤。疑似误伤时先看 `sync_rate_limited_total`
+  # 指标，再上调 incremental。
+  enabled: true
   initial:
     per_second: 5
     burst_size: 10
