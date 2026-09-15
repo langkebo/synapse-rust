@@ -288,6 +288,63 @@ struct RouterInner<S> { path_router: …, fallback_router: … } // 结构体私
 已被证明可靠**，而"从 Router 派生"这条链被库 API 证明不可行。B 路缺的那一块（per-profile cfg）
 是可测的增量，不是未知领域。
 
+#### §3.2 侦察结论（2026-09-15，D4 裁定走 B 路后）——两点改变风险评级
+
+**① `assembly.rs:24` 早就写明了同一件事。** `base_route_manifest()` 的文档注释第一句是：
+
+> "This is the substitute for the axum route-walker API we don't have — see R4 / O2 in
+> `docs/synapse-rust/SPEC_ALIGNMENT_PLAN_2026-05-01.md`."
+
+即：**团队在 2026-05 就知道没有 route-walker，并明确把 manifest 定位成它的替代品**。
+B2-1 的处方（`from_router`）等于要求把已经存在的"替代品"换成它替代的那件不存在的东西。
+这不是新信息，只是写处方时没回看这条注释。→ 结论不变，但**理由更硬**：B 路不是退让，
+而是回到团队原本的架构选择上继续做（消掉替代品里的"手抄"部分）。
+
+**② 存在一个独立 oracle，且它恰好就是缺的那个能力。** 侦察 `tests/integration/api_route_ledger_tests.rs`
+发现：它 boot 真实 `Router`，对**每一条**声明的 `(method, path)` 发一个 `PATCH` 请求，断言返回
+**405 且 `Allow` 头包含所声明的方法**；返回 404 即判定"manifest 在说谎"。
+
+```
+// Why PATCH? It is reserved by RFC 5789 but unused by every endpoint we
+// register, so axum's MethodRouter will always answer with 405 + Allow
+// when the route exists.
+```
+
+这解决了 §3.1 里"枚举不了"的死结：**列举做不到，但"逐条问存在性"做得到**。于是 B 路的安全性
+不依赖"解析器不可能有盲区"，而依赖三层组合：
+
+| 层 | 防线 | 抓什么 |
+|---|---|---|
+| 1 | 提取器 20 项守卫 + 变异自证 | 解析器已知缺陷类别 |
+| 2 | `unresolved` 棘轮（`extract_unresolved_allowlist.txt`，现 19 条） | **新出现的**未知构造 —— 解析器有新盲区时必须显式登记，不会静默漏 |
+| 3 | **405 探测**（每声明一条就探一条） | 派生表里的**假阳**（解析器凭空造出的路由） |
+
+**③ 必须诚实记录的一处能力让渡。** 现状下 B2-4a 的 `derived \ ledger = 0` / `ledger \ derived = 0`
+是**两个独立源**对账（提取器 vs 手抄 manifest）。删掉 manifest 后 ledger 即派生结果，这条双向对账
+退化为自指。**"后端有路由但派生表没有"这一方向（解析器漏读）不再有独立 oracle 兜底** —— 第 1、2 层
+守卫是它仅剩的防线。这是 B 路明确付出的代价，不是被忽略的细节。
+（`ledger_export` fixture 也源自 manifest，因此它从来不是"独立"的第二个 oracle；真正的独立性
+一直只来自提取器的不存在性 —— 而现在它成了唯一源。）
+
+#### §3.3 B 路执行计划（已裁定，按此动工）
+
+1. **提取器加 per-profile 建模**：现在是"递归进 `#[cfg(feature)]` 块取并集"，改为记录每条路由的
+   cfg 谓词并按 feature 集（golden=default / sdk=all-extensions）求值。
+   对账判据：导出结果必须与现有 fixture 的两条泳道逐条一致（golden 1065 / sdk 1146）。
+2. **生成派生物**：由提取器产出一个可 `include!` 的 Rust 表（或 JSON + `include_str!`），
+   供 `base_route_manifest()` / `declared_route_manifest_for_profile()` 读取；运行时
+   `create_router` 的重复检测（`assembly.rs:365` → `ledger.validate()`）继续用这份表。
+3. **删手抄**：删除 244 处 `*_route_manifest()`（72 文件）与 `assembly.rs` 的 37 处 `ledger.extend(...)`；
+   含 `top_level_inline_manifest()` 与 `assembly_compat_manifest()`。
+   判据：`grep -rl '_route_manifest' src/` = 0。
+4. **保住 per-profile 粒度**：`ProfileFlags { oidc_enabled, worker_enabled, saml_enabled }` 是
+   **运行时配置**，源码里读不出来（`oidc_enabled` 还会在完整 OIDC manifest 与 fallback manifest
+   之间切换）。这一层必须由生成物携带：派生表按"cfg 谓词"分组，运行时再按 flags 求值 ——
+   即把 `RouteModule::manifest_for_profile` 的分支条件变成生成表上的数据条件，而不是丢掉这个维度。
+5. **B2-3 幂等守卫**：同一输入两次导出逐字节相等；故意引入 `HashMap` 迭代序则转红。
+6. 跑满门禁：两个方向的契约门禁、契约文档重生成、ledger 单测 11/11、405 探测集成测试、
+   fixture 双向对账。
+
 ---
 
 ### B3 · schema 单源 + 错误汇流（A6 残留 + A9）
