@@ -122,7 +122,7 @@
 | S-12 | MSC4108 `DELETE` 204 缺 3 个 required 头 | B5（D3） |
 | S-14 | 无测试校验"真实 router == ledger" | B3（与 A3 同批，正是 A3 的验证手段） |
 | S-15 | MSC4108 响应头测试自证（构造本地数组断言） | B5 |
-| H-5 | 陈旧 worktree `.claude/worktrees/optimization+audit-2026-07` | B0 |
+| H-5 ✅ | 陈旧 worktree `.claude/worktrees/optimization+audit-2026-07` | B0（甄别已完成，见下） |
 | H-9 | `cargo doc` ~3,500 条 intra-doc 警告 | B6 |
 | H-10 | god-file `friend_room_service/mod.rs` 1,833 行 | B6 |
 | H-11 | mock 与 PG 语义漂移 2 处 | B6 |
@@ -146,7 +146,7 @@
 | B0-5 | **性能门禁去 echo**：`drift-detection.yml` 的性能 job 要么给出真实断言（迁移耗时/行数阈值），要么**整体删除**（省掉 1000 万行造数） | 删除后 workflow 语法通过；保留则故意注入劣化 → 红 |
 | B0-6 | **db-migration-gate 20 处占位**：逐条实现或删除，不留 `placeholder` 字样 | `grep -c placeholder` = 0；故意注入违规迁移 → 红 |
 | B0-7 | **H-14 高危**：`docker/db_migrate.sh` 优先宿主 `psql` 的逻辑加护栏（非 compose 栈目标时拒绝执行 / 显式 `--allow-host-psql`） | 在宿主 5432 上跑 `validate` → **拒绝**而非建库 |
-| B0-8 | **H-5 / H-12**：`git worktree remove` 陈旧副本（先确认其分支 3 提交是否已并入）；`IsolatedTestPool` fallback 端口更新 | `git worktree list` = 1 条；该文件 env-first 行为不变 |
+| B0-8 | **H-5 甄别 ✅ / 收尾待确认**：分支 `optimization/audit-2026-07` **不是 3 个提交而是 157 个**。已完成按主题甄别（`docs/audit/H5_STALE_WORKTREE_TRIAGE_2026-09-15.md`），结论是**没有需要移植的对象**：`git cherry` 的"157 未合并"是 patch-id 假象（`main` 用重写方式落地），内容级比对显示 **86% 的新增行已在 main**、57/157 提交零残留、**OPT-001…031 逐项核验 31/31 已在 main**（含 OPT-020/024 已吸收进 baseline 迁移）、13/13 删除已生效。另有**安全发现**：该 worktree 暂存区含一把真实 Ed25519 私钥（7 月分支的 `.gitignore` 缺 `*.key`；`main` 的 `.gitignore:18-19` 已有），已 `git rm --cached` 处置。**剩余动作**：`git worktree remove` + 分支归档（需用户确认，因分支无远端副本且 worktree 有 280 个未提交文件）；`IsolatedTestPool` fallback 端口更新 | `git worktree list` = 1 条；该文件 env-first 行为不变 |
 | B0-9 | **D2**：`docker/deploy/` 18GB 备份移出版本工作区（**需用户确认，不自动删**） | `du -sh docker/deploy` 回落 |
 
 **批次验证门**：`cargo check --workspace --locked` + `./scripts/check_fmt_ratchet.sh` + clippy `-D warnings`
