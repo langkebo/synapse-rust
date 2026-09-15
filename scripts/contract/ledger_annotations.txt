@@ -1,0 +1,47 @@
+# Ledger route annotations — field overrides the source-based extraction
+# cannot produce.
+#
+# Format: `METHOD PATH<TAB>key=value [key=value ...]`
+#   * Lines starting with `#` are comments; blank lines are skipped.
+#   * `METHOD PATH` is separated by whitespace (paths contain no spaces, so the
+#     address is always exactly two tokens).
+#   * EXACTLY one tab separates the address from the annotation block. Two or
+#     more tabs produce a parse error so a stray tab in a path cannot silently
+#     become (part of) an annotation.
+#   * `key=value` pairs are space-separated and additive. Unknown keys are
+#     rejected: a typo in an annotation name turns the suite RED rather than
+#     becoming a silent no-op.
+#
+# Why this table exists
+# ---------------------
+# `RouteEntry` carries three `new()`-default-off builder fields that describe
+# *author intent*, not just the `(method, path)` tuple. The `.route()` calls
+# in `src/web/routes/**` never mention them, so the extractor cannot infer
+# them. The three fields and their consumer surfaces today:
+#
+#   * `rate_limit_exempt` — 5 routes from sync.rs + sliding_sync.rs. When
+#     `true`, the IP-level rate-limit middleware (`rate_limit.rs:35`) skips
+#     the path. The list is auto-derived at startup by `assembly.rs:405`
+#     scanning the ledger; deleting the manifests without first moving these
+#     5 annotations into this table would silently drop the exemption and put
+#     double-rate-limit on the sync endpoints.
+#
+#   * `auth` — 1 route from delayed_events.rs:128 (`.with_auth("user")`).
+#     Exported into the ledger artifact by `ledger_export.rs:157`, which the
+#     SDK contract-sync reads. The field has a live consumer (unlike `module`
+#     and `status`, both dropped in schema v3/v4 for having zero consumers).
+#
+#   * `query_params` — 0 routes in the current fixture set (every
+#     `with_query_params()` call site is gone). Supported by the format so the
+#     extractor can round-trip it if one is reintroduced.
+#
+# This table is the single source of truth for annotations, mirroring
+# `ledger_origins.txt` for `registered_by`. Deleting a line and observing a RED
+# fidelity test is the self-proof that the guard is real, not a tautology.
+
+GET /_matrix/client/v3/sync	rate_limit_exempt=true
+POST /_matrix/client/v1/sync	rate_limit_exempt=true
+POST /_matrix/client/v4/sync	rate_limit_exempt=true
+POST /_matrix/client/unstable/org.matrix.msc3575/sync	rate_limit_exempt=true
+POST /_matrix/client/unstable/org.matrix.simplified_msc3575/sync	rate_limit_exempt=true
+POST /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}	auth=user

@@ -42,6 +42,13 @@ ROUTES_DIR = os.path.join(ROOT, "src", "web", "routes")
 # `registered_by` overrides — the routes whose ledger origin is not derivable
 # from their file path. See `load_ledger_origins`.
 LEDGER_ORIGINS = os.path.join(SCRIPT_DIR, "ledger_origins.txt")
+# Hand-authored `RouteEntry` annotations the extractor cannot derive from
+# `.route()` calls (they are *builder intent*, not part of the path/method
+# tuple). See `load_ledger_annotations`.
+LEDGER_ANNOTATIONS = os.path.join(SCRIPT_DIR, "ledger_annotations.txt")
+# Allowed annotation keys. Rejecting an unknown key turns a typo in a field
+# name into a RED gate instead of a silently-ignored line.
+ANNOTATION_KEYS = ("rate_limit_exempt", "auth", "query_params")
 
 HTTP_METHODS = ("get", "post", "put", "delete", "patch", "head", "options")
 HTTP_METHODS_SET = set(HTTP_METHODS)
@@ -655,6 +662,161 @@ def load_ledger_origins() -> list:
             fn, _, qual = fn.partition("@")
             table.append((owner, fn, qual, origin))
     return table
+
+
+def load_ledger_annotations() -> dict:
+    """`{(METHOD, path): {key: value}}` from `ledger_annotations.txt`.
+
+    These are the `RouteEntry` builder fields that describe *author intent*
+    and never appear in a `.route()` call, so the extractor cannot infer
+    them from `src/web/routes/**`:
+
+    * `rate_limit_exempt` — consumed by the IP-limit middleware (collected in
+      `assembly.rs`, consulted in `rate_limit.rs`). Not serialized into the
+      ledger fixtures (schema v4), so its behavioural guard lives in a Rust
+      golden test, not here; here we only check the table's shape and that it
+      stays in step with the source `with_rate_limit_exempt(true)` call sites.
+    * `auth` — serialized into `LedgerEntryJson::auth` and read by the SDK
+      contract-sync, so both fixture lanes are an independent oracle (see
+      `check_annotation_fidelity`).
+    * `query_params` — 0 routes today; supported so reintroducing one is a
+      new line here rather than a forgotten builder call.
+
+    Format: `METHOD PATH<TAB>key=value [key=value ...]`, exactly one tab.
+    Unknown keys / bad booleans / tab-in-path / conflicting duplicates all
+    `SystemExit`, so the table can never half-parse.
+    """
+    table: dict = {}
+    if not os.path.exists(LEDGER_ANNOTATIONS):
+        return table
+    with open(LEDGER_ANNOTATIONS, encoding="utf-8") as fh:
+        for lineno, raw in enumerate(fh, 1):
+            line = raw.rstrip("\n")
+            if line.lstrip().startswith("#") or not line.strip():
+                continue
+            if line.count("\t") != 1:
+                raise SystemExit(
+                    f"{LEDGER_ANNOTATIONS}:{lineno}: expected exactly one tab between "
+                    f"`METHOD PATH` and the annotation block, got {raw!r}"
+                )
+            address, _, annotation = line.partition("\t")
+            parts = address.split()
+            if len(parts) != 2 or parts[0].lower() not in HTTP_METHODS_SET:
+                raise SystemExit(
+                    f"{LEDGER_ANNOTATIONS}:{lineno}: expected `METHOD PATH<TAB>key=value...`, got {raw!r}"
+                )
+            method, path = parts[0].upper(), parts[1]
+            row: dict = {}
+            for pair in annotation.split():
+                key, sep, value = pair.partition("=")
+                if not sep:
+                    raise SystemExit(f"{LEDGER_ANNOTATIONS}:{lineno}: expected `key=value` in {pair!r}")
+                if key not in ANNOTATION_KEYS:
+                    raise SystemExit(
+                        f"{LEDGER_ANNOTATIONS}:{lineno}: unknown annotation key {key!r} "
+                        f"(allowed: {ANNOTATION_KEYS})"
+                    )
+                if key == "rate_limit_exempt":
+                    if value not in ("true", "false"):
+                        raise SystemExit(
+                            f"{LEDGER_ANNOTATIONS}:{lineno}: rate_limit_exempt must be true|false, got {value!r}"
+                        )
+                    row[key] = value == "true"
+                else:
+                    row[key] = value
+            addr = (method, path)
+            if addr in table and table[addr] != row:
+                raise SystemExit(
+                    f"{LEDGER_ANNOTATIONS}:{lineno}: conflicting annotation for {addr!r} "
+                    f"(already {table[addr]!r})"
+                )
+            table[addr] = row
+    return table
+
+
+# The exact annotation rows expected today. This literal is the "second
+# implementation" the table is cross-checked against — the same pattern
+# `ledger_origins` uses — so adding/removing/altering any row turns the gate RED
+# without needing to re-derive builder flags from a source chain (which the
+# value model cannot yet do per-route). After step 3 this literal moves into
+# the generated table's own test; the behavioural cross-check is the Rust
+# golden test `route_ledger::tests::rate_limit_exempt_surface_matches_ledger`.
+EXPECTED_ANNOTATIONS = {
+    ("GET", "/_matrix/client/v3/sync"): {"rate_limit_exempt": True},
+    ("POST", "/_matrix/client/v1/sync"): {"rate_limit_exempt": True},
+    ("POST", "/_matrix/client/v4/sync"): {"rate_limit_exempt": True},
+    ("POST", "/_matrix/client/unstable/org.matrix.msc3575/sync"): {"rate_limit_exempt": True},
+    ("POST", "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"): {"rate_limit_exempt": True},
+    ("POST", "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}"): {"auth": "user"},
+}
+
+
+def check_annotation_fidelity() -> list:
+    """Return a list of failure strings (empty == green).
+
+    Three layers, each with an independent source of truth:
+
+    * shape vs `EXPECTED_ANNOTATIONS` — the table must equal the pinned rows
+      exactly (a dropped or extra line fails here, not silently).
+    * `auth` <-> the committed ledger fixtures (schema serializes `auth`, so the
+      fixtures — produced by the *real* Rust assembly — are an independent
+      oracle). Both directions must match across every lane/profile.
+    * `rate_limit_exempt` paths must each still appear as a literal in the
+      manifest source. This coarse presence check (no fragile chain parsing)
+      catches a table row that outlived its `with_rate_limit_exempt(true)`
+      site; the reverse drift — a new exempt route missing from the table — is
+      caught by the Rust golden test, which reads the computed ledger.
+    """
+    failures: list = []
+    annotations = load_ledger_annotations()
+    if not annotations:
+        return ["ledger_annotations.txt missing or empty — the annotation table must exist (B2-1 §3.5)"]
+
+    # layer 1: the table equals the pinned expectation exactly.
+    if annotations != EXPECTED_ANNOTATIONS:
+        missing = sorted(set(EXPECTED_ANNOTATIONS) - set(annotations))
+        extra = sorted(set(annotations) - set(EXPECTED_ANNOTATIONS))
+        changed = sorted(k for k in set(annotations) & set(EXPECTED_ANNOTATIONS) if annotations[k] != EXPECTED_ANNOTATIONS[k])
+        if missing:
+            failures.append(f"ledger_annotations.txt is missing rows: {missing}")
+        if extra:
+            failures.append(f"ledger_annotations.txt has unexpected rows: {extra}")
+        if changed:
+            failures.append(f"ledger_annotations.txt rows disagree with EXPECTED_ANNOTATIONS: {changed}")
+
+    # layer 2: auth <-> fixtures.
+    annotated_auth = {(m, p) for (m, p), row in annotations.items() if row.get("auth")}
+    fixture_auth: set = set()
+    fixtures_seen = 0
+    for lane in ("ledger_export", "ledger_export_sdk"):
+        for prof in ("default", "worker", "all"):
+            fp = os.path.join(ROOT, "tests", "unit", "fixtures", lane, f"{prof}.json")
+            if not os.path.exists(fp):
+                continue
+            fixtures_seen += 1
+            with open(fp) as fh:
+                for entry in json.load(fh)["entries"]:
+                    if entry.get("auth"):
+                        fixture_auth.add((entry["method"], entry["path"]))
+    if fixtures_seen and fixture_auth != annotated_auth:
+        missing = sorted(fixture_auth - annotated_auth)
+        extra = sorted(annotated_auth - fixture_auth)
+        if missing:
+            failures.append(f"ledger_annotations.txt is missing `auth` the fixtures carry: {missing}")
+        if extra:
+            failures.append(f"ledger_annotations.txt declares `auth` no fixture carries: {extra}")
+
+    # layer 3: each exempt path is still a literal somewhere in the route tree.
+    annotated_exempt = [p for (m, p), row in annotations.items() if row.get("rate_limit_exempt")]
+    joined_blob = "\n".join(load_sources().values())
+    for p in annotated_exempt:
+        # the manifest declares either the absolute path (sliding_sync) or the
+        # relative tail under an expand prefix (sync.rs `/sync`); accept either.
+        tail = p.rsplit("/", 1)[-1]
+        if f'"{p}"' not in joined_blob and f'"/{tail}"' not in joined_blob:
+            failures.append(f"rate_limit_exempt path {p!r} is not present in any manifest source — stale row?")
+
+    return failures
 
 
 # --------------------------------------------------------------------------
@@ -1763,6 +1925,14 @@ def main() -> int:
         strict_failures.append(
             f"{len(gate_mismatches)} lane(s) disagree with the emitted cfg gates (B2-1 step 2b): "
             f"{gate_mismatches} — the generated table would compile the wrong route surface"
+        )
+    # B2-1 §3.5: the hand-authored annotation table must be complete &
+    # self-consistent before any manifest can be deleted on its authority.
+    annotation_failures = check_annotation_fidelity()
+    if annotation_failures:
+        strict_failures.append(
+            f"ledger annotations table is not faithful ({len(annotation_failures)} issues): "
+            + "; ".join(annotation_failures)
         )
     if os.environ.get("EXTRACT_STRICT") == "1" and strict_failures:
         print("\nEXTRACT_STRICT=1: parser self-check failed:", file=sys.stderr)
