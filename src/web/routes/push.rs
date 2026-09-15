@@ -47,6 +47,11 @@ fn push_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     vec![
         (Method::GET, "/pushers"),
         (Method::POST, "/pushers"),
+        // Trailing-slash alias for the same pair of handlers. Served by
+        // `create_push_compat_router`, so the ledger has to say so: it was
+        // reachable but invisible to the contract (S-14, B2-4).
+        (Method::GET, "/pushers/"),
+        (Method::POST, "/pushers/"),
         (Method::POST, "/pushers/set"),
         (Method::GET, "/pushrules"),
         (Method::GET, "/pushrules/{scope}"),

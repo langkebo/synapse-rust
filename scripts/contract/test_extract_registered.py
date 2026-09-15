@@ -55,10 +55,10 @@ def derived(res: "ex.Resolver") -> dict:
     return per
 
 
-def ledger_fixture_tuples() -> set:
+def ledger_fixture_tuples(lane: str = "ledger_export") -> set:
     out: set = set()
     for prof in ("default", "worker", "all"):
-        fp = os.path.join(ROOT, "tests", "unit", "fixtures", "ledger_export", f"{profile_name(prof)}.json")
+        fp = os.path.join(ROOT, "tests", "unit", "fixtures", lane, f"{profile_name(prof)}.json")
         if not os.path.exists(fp):
             continue
         with open(fp) as fh:
@@ -190,6 +190,51 @@ def check_oracles(res: "ex.Resolver", per: dict) -> None:
         )
     else:
         print("  skip ledger oracle (fixtures absent)")
+
+
+def check_positive_contract(per: dict) -> None:
+    """S-14: no served route may be absent from every ledger lane.
+
+    This is the direction that had no guard at all. The existing oracle asserts
+    `declared ⊆ derived` — the ledger never lies about a route that does not
+    exist — which a ledger that simply *omits* things satisfies perfectly. The
+    omission direction is the dangerous one: the route works, so nothing fails
+    at runtime; the SDK never generates a client for it, ROUTE_CONTRACT.md never
+    lists it, and the gap is only discovered when a client cannot call an
+    endpoint the server is serving.
+
+    Both lanes are needed. `ledger_export/` is the default-feature compile and
+    `ledger_export_sdk/` is the `all-extensions` compile the SDK ingests;
+    judging against the default lane alone reports every feature-gated router
+    (voice, cas, saml, server-notifications, voip-tracking, builtin-oidc) as
+    missing, which buries the real omissions in ~100 entries of noise. Measured
+    against the union, the pre-fix residual was 22 — every one a genuine
+    omission, each closed by declaring it in the owning manifest.
+    """
+    router_set = {t for rs in per.values() for t in rs}
+    golden = ledger_fixture_tuples("ledger_export")
+    sdk = ledger_fixture_tuples("ledger_export_sdk")
+    ledger_all = golden | sdk
+    if not ledger_all:
+        print("  skip positive contract check (fixtures absent)")
+        return
+
+    undeclared = ex.undeclared_routes(router_set, ledger_all)
+    check(
+        "every served route is declared in some ledger lane (S-14)",
+        not undeclared,
+        f"{len(undeclared)} undeclared, e.g. {undeclared[:3]}",
+    )
+
+    # Guard the guard: the predicate must actually discriminate. If
+    # `undeclared_routes` were `return []` (or the lanes were loaded empty) the
+    # assertion above would pass vacuously and lock nothing in place.
+    probe = ("PATCH", "/_matrix/does-not-exist/probe")
+    check(
+        "the S-14 predicate flags a route that no lane declares (not vacuous)",
+        ex.undeclared_routes(router_set | {probe}, ledger_all) == [probe],
+        "expected exactly the injected probe to be flagged",
+    )
 
 
 def check_non_namespace_bucket(per: dict) -> None:
@@ -340,6 +385,8 @@ def main() -> int:
     check_test_module_excision(per)
     print("== independent oracles ==")
     check_oracles(res, per)
+    print("== positive contract (S-14) ==")
+    check_positive_contract(per)
     print("== non-namespace surface ==")
     check_non_namespace_bucket(per)
     print("== unresolved ratchet ==")

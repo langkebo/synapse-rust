@@ -220,7 +220,8 @@
 | B2-1 | **派生器**：实现 `RouteLedger::from_router(router)`，在 `main.rs` 装配完成后从 Router 一次性导出；保留 `RouteModule` trait 作为 feature→路由的**声明**机制，其 manifest 项由派生填充 | 派生条目数 **== 旧 manifest 并集数**（一次性对账） |
 | B2-2 | **删手抄**：删除 68 个文件的 `*_route_manifest()`（`assembly.rs` 内 54 处引用随之消失）；手写点只剩 979 处 `.route()` | `grep -rl '_route_manifest' src/` = 0 |
 | B2-3 | **幂等守卫**：同一二进制启动两次导出的 ledger **逐字节相等** | 新增测试，故意引入 `HashMap` 迭代序 → 红 |
-| B2-4 | **正向契约守卫（S-14）**：断言"派生 ledger ⊇ SDK 声明消费的全部端点"；新增"真实 router == ledger"的端到端测试 | 删一条真实路由 → 红 |
+| B2-4a ✅ | **正向契约守卫（S-14）**：断言"真实 router ⊆ ledger"（即不存在已服务却未登记的端点） | 已完成：先量出真实缺口 —— 以 golden + sdk 两条 fixture 泳道的**并集**为完备性 oracle，`derived \ ledger` 实测 **22 条**（原先按 golden 单泳道算是 102 条，其中 80 条是 feature 门控噪声，把真缺口埋掉了）。22 条逐条核实为真后全部补进所属 manifest；现 `derived \ ledger = 0`、`ledger \ derived = 0` 双向闭合，并在 `EXTRACT_STRICT=1` 下成为硬门禁（原实现把这组差集**只打印不拦截**——见原注释"reports rather than enforced"）。守卫测试新增 `check_positive_contract`（含"谓词非空转"自检）。**附带**：同一工作窗内发现并修复了 S-16 —— `tests/integration/snapshots/route_ledger_{default,worker_enabled}.snapshot` 是**手改而非重生成**的（1378 行含 250 条完全重复、22 条生产上 404 的 v3 friends 声明），该集成快照用例在 `main` 上本来就**是红的**；已带库重生成至 1127/1138 并逐项对账闭合（见 `PROJECT_ACTUAL_ISSUES §13`）。**剩余**：B2-4b 的"SDK 声明消费的全部端点 ⊆ ledger"需解析 SDK manager 源码字面量，另立条目 |
+| B2-4b | **SDK 侧正向守卫**：断言 SDK manager 源码里实际调用的端点 ⊇ 已被 ledger 覆盖 | 见 B2-4a 备注；需从 `matrix-js-sdk` fork 的 manager 源码提取 URL 字面量（**不得**用 route-table，它只增不减） |
 | B2-5 | **投影去 tracked**：`docs/openapi/client.yaml`（72,924 行）移出索引 → 由同管道生成到 CI artifact；`route-table.json` 加"生成物禁止手改"头注释 | CI 生成 job 成功；diff 只反映 B1 的 r0 拆除 |
 
 **过渡态**：若 axum 版本无法枚举 nest 前缀，退化为"每个 router 构造时 `ledger.register(...)` 增量记录"，

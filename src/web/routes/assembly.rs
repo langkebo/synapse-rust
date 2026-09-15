@@ -166,6 +166,16 @@ fn assembly_compat_manifest() -> Vec<RouteEntry> {
         &[(Method::GET, "/media/config")],
     ));
 
+    // MSC2246 upload provider/token helpers. `media::create_upload_provider_router`
+    // is nested under /_matrix/client/v3 at `create_router` below, but was never
+    // listed here, so both endpoints were served while absent from the contract
+    // (S-14, B2-4).
+    out.extend(expand_under_prefixes(
+        "assembly::upload_provider",
+        &["/_matrix/client/v3"],
+        &[(Method::POST, "/upload/token"), (Method::GET, "/upload/provider")],
+    ));
+
     // Base VoIP compat surface — under r0 + v3
     out.extend(expand_under_prefixes(
         "assembly::voip_compat",

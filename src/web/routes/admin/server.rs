@@ -35,6 +35,12 @@ pub fn admin_server_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
     [
+        // `create_server_router` registers both of these (`server.rs:16,18`);
+        // the list carried every sibling but these two, so GET
+        // /_synapse/admin/v1/{server,whoami} were reachable yet absent from the
+        // contract (S-14, B2-4).
+        (Method::GET, "/_synapse/admin/v1/server"),
+        (Method::GET, "/_synapse/admin/v1/whoami"),
         (Method::GET, "/_synapse/admin/v1/server_version"),
         (Method::POST, "/_synapse/admin/v1/purge_media_cache"),
         (Method::POST, "/_synapse/admin/v1/restart"),

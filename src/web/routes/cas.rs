@@ -195,6 +195,10 @@ pub fn cas_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry>
         (Method::GET, "/proxy"),
         (Method::GET, "/p3/serviceValidate"),
         (Method::GET, "/logout"),
+        // `cas_routes` registers this on the public router (`cas.rs:147`) but
+        // the list omitted it, so the CAS SSO redirect entry point was served
+        // while absent from the contract (S-14, B2-4).
+        (Method::GET, "/_matrix/client/v3/login/sso/redirect/cas"),
         (Method::POST, "/_synapse/admin/v1/cas/services"),
         (Method::GET, "/_synapse/admin/v1/cas/services"),
         (Method::DELETE, "/_synapse/admin/v1/cas/services/{service_id}"),

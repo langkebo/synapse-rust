@@ -209,7 +209,18 @@ fn media_v3_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
 
 fn media_r0_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     use axum::http::Method;
-    vec![(Method::POST, "/upload"), (Method::GET, "/config")]
+    // `create_media_r0_router` merges the modern upload, config, *legacy
+    // download* and *preview/delete* routers. Only the first two were listed,
+    // so the four legacy r0 read/delete endpoints were served but absent from
+    // the contract (S-14, B2-4).
+    vec![
+        (Method::POST, "/upload"),
+        (Method::GET, "/config"),
+        (Method::GET, "/download/{server_name}/{media_id}"),
+        (Method::GET, "/download/{server_name}/{media_id}/{filename}"),
+        (Method::GET, "/preview_url"),
+        (Method::POST, "/delete/{server_name}/{media_id}"),
+    ]
 }
 
 fn media_r1_relative_routes() -> Vec<(axum::http::Method, &'static str)> {

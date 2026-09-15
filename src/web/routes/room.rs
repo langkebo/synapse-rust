@@ -183,6 +183,10 @@ fn room_shared_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
         (Method::POST, "/rooms/{room_id}/state/{event_type}"),
         (Method::GET, "/rooms/{room_id}/state"),
         (Method::PUT, "/rooms/{room_id}/redact/{event_id}/{txn_id}"),
+        // `create_room_shared_compat_router` attaches `.post(redact_event)` to
+        // the same path (`room.rs:67`); the list only carried PUT, so the POST
+        // alias was served while absent from the contract (S-14, B2-4).
+        (Method::POST, "/rooms/{room_id}/redact/{event_id}/{txn_id}"),
         (Method::POST, "/rooms/{room_id}/kick"),
         (Method::POST, "/rooms/{room_id}/ban"),
         (Method::POST, "/rooms/{room_id}/unban"),
@@ -255,6 +259,12 @@ fn room_v3_only_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
         (Method::POST, "/rooms/{room_id}/invite_blocklist"),
         (Method::GET, "/rooms/{room_id}/invite_allowlist"),
         (Method::POST, "/rooms/{room_id}/invite_allowlist"),
+        // `create_room_v3_router` registers both methods on
+        // /rooms/{room_id}/anti_screenshot (`room.rs:139`); the list omitted the
+        // path entirely, so both were served while absent from the contract
+        // (S-14, B2-4).
+        (Method::GET, "/rooms/{room_id}/anti_screenshot"),
+        (Method::PUT, "/rooms/{room_id}/anti_screenshot"),
     ];
     v3_only.extend(sticky_event::sticky_event_compat_relative_routes());
     v3_only

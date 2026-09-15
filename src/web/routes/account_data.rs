@@ -43,9 +43,13 @@ fn account_data_compat_relative_routes() -> Vec<(axum::http::Method, &'static st
         (Method::GET, "/user/{user_id}/account_data/"),
         (Method::GET, "/user/{user_id}/account_data/{type}"),
         (Method::PUT, "/user/{user_id}/account_data/{type}"),
+        // `create_account_data_compat_router` also attaches `.post(...)` to both
+        // of these; the list only carried PUT (S-14, B2-4).
+        (Method::POST, "/user/{user_id}/account_data/{type}"),
         (Method::DELETE, "/user/{user_id}/account_data/{type}"),
         (Method::GET, "/user/{user_id}/rooms/{room_id}/account_data/{type}"),
         (Method::PUT, "/user/{user_id}/rooms/{room_id}/account_data/{type}"),
+        (Method::POST, "/user/{user_id}/rooms/{room_id}/account_data/{type}"),
         (Method::DELETE, "/user/{user_id}/rooms/{room_id}/account_data/{type}"),
         (Method::PUT, "/user/{user_id}/filter"),
         (Method::POST, "/user/{user_id}/filter"),

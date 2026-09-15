@@ -73,6 +73,9 @@ fn e2ee_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     use axum::http::Method;
     vec![
         (Method::POST, "/keys/upload"),
+        // Registered by `create_e2ee_compat_router` (`keys.rs:24`) alongside
+        // the bare form, and reached under both the v1 and v3 nests.
+        (Method::POST, "/keys/upload/{device_id}"),
         (Method::POST, "/keys/query"),
         (Method::POST, "/keys/claim"),
         (Method::GET, "/keys/changes"),
@@ -105,6 +108,10 @@ fn e2ee_v3_only_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
         (Method::POST, "/keys/backup/secure/{backup_id}/keys"),
         (Method::POST, "/keys/backup/secure/{backup_id}/restore"),
         (Method::POST, "/keys/backup/secure/{backup_id}/verify"),
+        // `create_e2ee_v3_only_router` registers this (`keys.rs:51`) but the
+        // list omitted it, so GET /v3/keys/history was served yet absent from
+        // the contract (S-14, B2-4).
+        (Method::GET, "/keys/history"),
     ]
 }
 

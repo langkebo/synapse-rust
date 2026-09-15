@@ -301,6 +301,10 @@ pub fn admin_room_route_manifest() -> Vec<crate::web::routes::route_ledger::Rout
         (Method::GET, "/_synapse/admin/v1/rooms/search"),
         (Method::GET, "/_synapse/admin/v1/rooms/{room_id}/forward_extremities"),
         (Method::POST, "/_synapse/admin/v1/rooms/cleanup"),
+        // `create_room_admin_router` also registers the client-namespaced
+        // redact proxy (`admin/room/mod.rs:154`); the list omitted it, so the
+        // endpoint was served while absent from the contract (S-14, B2-4).
+        (Method::POST, "/_matrix/client/v3/admin/room/{room_id}/redact"),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "admin::room"))

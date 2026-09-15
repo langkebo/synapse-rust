@@ -290,7 +290,7 @@ CLAUDE.md 约定的 `docs/audit/00_test_baseline.log`、`00_clippy_baseline.log`
 | S-9 | threepid 路由**孤儿**（且已进契约文档/未进 ledger） | ✅ **已修复（B5-4）**。方案裁定为**删除**而非补装配点（理由与证据见 §11）：`create_threepid_router` 在本仓历史中**从未**被任何装配位置调用（`git log -S 'create_threepid_router()'` 在 `assembly.rs`/`mod.rs`/`src/server` 全为空），路径为裸 `/requestToken`、`/submitToken`（非 Matrix 规范形状，任何 Matrix 客户端都找不到），且是**未完成桩**（`request_token` 从不发信；注释称"为测试返回 token"但响应结构体没有 token 字段）。真实 3PID 端点在 `account_compat.rs`（`/account/3pid/...`，已在 `assembly.rs` 装配并使用同一 `threepid_storage`）。已删除 `src/web/routes/threepid.rs`、`mod.rs` 的死 re-export、以及仅服务于它的 `AuthContext::threepid_storage`（DI 手工复制的净减）。契约提取器实测：模块 67→66、路由 1148→1146、"前缀之外"桶 16→**14 条纯有意根级注册**，两份 oracle 仍 **0 缺口**。守卫从「钉死缺陷」改为「钉死不变量」：`check_non_namespace_bucket` 精确断言该桶 == 14 条已知有意注册 |
 | S-12 | MSC4108 `DELETE` 204 响应缺 3 个 required 头 | `src/web/routes/msc4108_rendezvous.rs:275` 返回 `(StatusCode::NO_CONTENT, Body::empty())`，**无 header tuple**、router 无补头 layer；`Last-Modified`/`Cache-Control: no-store`/`Pragma: no-cache` 在 POST/GET/PUT 都有（`:103-105`、`:148-150`、`:220-222`），DELETE 缺失。文档 `§16` 却记 10/10 已补齐 |
 | S-13 | 契约提取器结构性缺陷 | ✅ **已修复（B5-5）**。原缺陷三项全部复现并消除：①链式方法只记录第一个 method（msc4108 `get().put().delete()` 只出 `GET`）；②`nest_map` 收集后从未使用；③`ROUTE_CONTRACT.md` 有 **15** 条相对 `/spaces/...`、**0** 条带前缀。修复后实测：MSC4108 出全 4 条（POST/GET/PUT/DELETE）；spaces 相对路径 **15→0**、带前缀 **0→48**（24 路由 × v1/v3 两前缀，B1 已删 r0 故为 2 而非 §17 预估的 3×15=45）。详见 §9 |
-| S-14 | 无任何测试校验"真实 router == ledger" | `grep -rn '\.routes()\|into_make_service' src/ tests/` 只有 3 处命中，全在生产 `src/server/mod.rs`；`assembly_route_tests.rs` 的 27 个测试只读 manifest |
+| S-14 | "真实 router == ledger" 只有单向校验，**漏报方向无任何门禁** | ✅ **已修复（B2-4a）**，但原判定需修正：`tests/integration/api_route_ledger_tests.rs::declared_route_manifest_entries_are_actually_wired` **确实**在探针真实 router（对每条声明发 PATCH，断言 405 且 `Allow` 含该方法）——所以"声明不谎报"这一向**有**覆盖。真正缺的是**反向**：ledger 漏掉多少真实路由，无任何断言。实测漏 **22** 条（提取器原实现把这组差集只打印不拦截，注释自认 "manifests are hand-written and incomplete"）。已逐条核实为真并补进 manifest，双向闭合为 0。详见 §12 |
 | S-15 | MSC4108 响应头测试**自证** | `tests/unit/msc4108_rendezvous_route_tests.rs:222-338` 构造**本地 header 数组**再对其断言，从不调用 handler → DELETE 缺头也会通过 |
 
 > **降权/未复核**：`S-3`（文档 `CFG-5/CFG-6` 称 51/27 处 legacy hash 引用，按所给符号名只能命中 9/1 → 符号名不确定，
@@ -636,6 +636,168 @@ AGENTS.md 要求的性质是"**缓存远程密钥之前**必须校验"——只�
 **全部**是 B1 拆除 r0 造成的（与 B5-4 无关，`git diff` 中 0 行涉及 threepid、18 行涉及 `/client/r0`）。
 它需要走完整的 `scripts/api_test/refresh_openapi_specs.py` 流程（依赖按 Docker features 导出的
 ledger），且**不在任何 CI 门禁中**，故本轮不夹带半吊子重生成。建议作为独立条目处理。
+
+---
+
+## 12. S-14 契约的单向性——已修复正向（2026-09-15，B2-4a）
+
+### 12.1 原判定需修正：不是"无任何测试"，而是"只有单向"
+
+S-14 原文是"无任何测试校验真实 router == ledger"，依据是
+`grep -rn '\.routes()\|into_make_service' src/ tests/` 只有 3 处命中。这个依据找的是**枚举型** API。
+
+但 `tests/integration/api_route_ledger_tests.rs::declared_route_manifest_entries_are_actually_wired`
+用的是**探针型**：对 ledger 里每一条声明发 `PATCH`，断言收到 405 且 `Allow` 头含声明的方法。
+（选 `PATCH` 是因为 RFC 5789 保留、本仓无端点使用，axum 必然回 405 + `Allow`。）
+这条测试证明的是 `声明 ⊆ 真实`——**manifest 不会谎报**。
+
+缺的是**反向**：`真实 ⊆ 声明`。ledger 漏掉的路由没有任何断言，
+而漏报比谎报更隐蔽：端点能正常工作，运行时零报错，
+只是 SDK 永不生成对应客户端、`ROUTE_CONTRACT.md` 永不列出，
+**直到某个客户端去调一个服务端明明在服务的端点**才被发现。
+
+### 12.2 缺口量化：为什么它一直没被发现
+
+提取器**本来就计算了**这组差集，只是**只打印、不拦截**。原注释写得很清楚：
+
+> The residual `derived-but-not-declared` set is expected (manifests are hand-written and
+> incomplete) and is **reported rather than enforced**.
+
+把"manifest 是手写且不完整"当成了容忍它的理由——而这正是要修的状态。
+
+更要命的是**量错了基准**，导致真缺口被噪声淹没：
+
+| 对照基准 | `derived \ ledger` |
+|---|---|
+| 仅 golden 泳道（默认特征编译） | **102** |
+| golden ∪ sdk 泳道并集（sdk = `all-extensions` 编译） | **22** |
+
+差的那 80 条全是**特征门控**造成的假阳性——`voice`(voice-extended)、`cas`(cas-sso)、`saml`(saml-sso)、
+`admin::notification`(server-notifications)、`assembly::voip_tracking`(voip-tracking)、
+`oidc`(builtin-oidc) 在默认特征下根本没编译，`saml_enabled` 等 profile flag 也随之是 false。
+102 条里 102 条看起来都"合理"，于是没人去看。**用并集之后噪声消失，剩下 22 条条条是真缺口。**
+
+### 12.3 22 条缺口的形态：都是"manifest 写漏了兄弟形态"
+
+全部 22 条经逐条打开注册点核实，无一是提取器伪影，形态高度一致：
+
+| 模块 | 漏掉的声明 | 真实注册处 | 漏掉的原因 |
+|---|---|---|---|
+| `room.rs` | `POST /v3/rooms/{room_id}/redact/{event_id}/{txn_id}` | `room.rs:67` `put(redact_event).post(redact_event)` | 清单只写了 PUT |
+| `room.rs` | `GET`+`PUT /v3/rooms/{room_id}/anti_screenshot` | `room.rs:139` `get(...).put(...)` | 整条路径没进清单 |
+| `push.rs` | `GET`+`POST /v3/pushers/`（带尾斜杠） | `push.rs:16` | 清单只有不带斜杠的 `/pushers` |
+| `e2ee/keys.rs` | `POST /v1`+`/v3 /keys/upload/{device_id}` | `keys.rs:24` | 清单只有 `/keys/upload` |
+| `e2ee/keys.rs` | `GET /v3/keys/history` | `keys.rs:51` | 整条漏 |
+| `presence.rs` | `GET /v3/presence/list` | `presence.rs:15` 同路径挂了 `get()` | 清单只有 POST |
+| `account_data.rs` | `POST` × 2（user / room 两条路径） | `account_data.rs:18,22` 挂了 `.post(...)` | 清单只有 GET/PUT/DELETE |
+| `media/mod.rs` | 4 条 `/_matrix/media/r0/{download×2,preview_url,delete}` | `create_media_r0_router` 合并了 legacy download + preview/delete 子路由 | 清单只列了 `/upload`+`/config` |
+| `assembly.rs` | `POST /v3/upload/token`、`GET /v3/upload/provider` | `assembly.rs:518` nest `create_upload_provider_router()` | `assembly_compat_manifest` 未列 |
+| `admin/server.rs` | `GET /_synapse/admin/v1/server`、`/whoami` | `server.rs:16,18` | 清单列了 13 个兄弟却漏这 2 个 |
+| `admin/room/mod.rs` | `POST /v3/admin/room/{room_id}/redact` | `admin/room/mod.rs:154` | 整条漏 |
+| `cas.rs` | `GET /v3/login/sso/redirect/cas` | `cas.rs:147` | 整条漏 |
+| `room_summary.rs` | `GET /v1/rooms/{room_id}/summary` | `room_summary.rs:660`（v1 路由器） | 清单把读集只按 v3 展开 |
+
+`room.rs` 与 `push.rs` 那几条尤其说明问题：**handler 明明在同一个 `.route()` 表达式里链式挂了多个方法，
+清单却只抄了其中一个**——这正是 S-13 提取器那个"链式只取第一个 method"缺陷的**人工对照物**。
+
+### 12.4 修复与门禁
+
+1. **22 条全部补进所属 manifest**（不删路由——它们在生产上是被服务的，删了才是行为变更）。
+2. **提取器改为两泳道并集**，并把原本"只打印"的差集**提升为 `EXTRACT_STRICT=1` 下的硬失败**，
+   且**不设 allowlist**：这条属性说的是"契约没漏东西"，"基本没漏"就是它要防的失效模式本身
+   （对比 `extract_unresolved_allowlist.txt` 那条是解析器已知良性不解析，性质不同）。
+3. **守卫测试新增 `check_positive_contract`**，并带一条**"谓词非空转"自检**
+   （注入一条伪造路由，断言谓词确实能标出它）——否则 `return []` 也能让断言通过。
+4. 实测闭合：`derived \ ledger = 0` 且 `ledger \ derived = 0`；golden 泳道 `all` 1044→1065，sdk 泳道 `all` 1124→1146，两者并集 **1146** = `ROUTE_CONTRACT.md` 的路由总数。
+
+### 12.5 一处执行事故（可复用教训）
+
+补 `room.rs` 的两处声明时，我在**同一条消息里对同一文件发了两次 Edit**。
+两次都基于同一份原始快照，后一次写入覆盖了前一次——`POST redact` 的声明被**静默丢弃**
+（两次工具调用都报成功）。提取器把它精确抓了出来，才发现源码里根本没有那行。
+
+**教训**：同一文件的多次编辑必须**串行**；批量编辑后必须用提取器/编译器这类**外部判据**回验，
+不能信任"工具报成功"。这次是提取器救了场——这恰好也证明了 S-14 门禁的价值。
+
+### 12.6 剩余（B2-4b）
+
+B2-4 的另一半"断言**派生 ledger ⊇ SDK 声明消费的全部端点**"仍未做：
+需要从 `matrix-js-sdk` fork 的 **manager 源码**里提取 URL 字面量作判据
+（**不得**用 `route-table.ts`——那是 codegen「既有条目 ∪ ledger」的产物，只增不减，
+本项目已两次确认它不能作为实际调用判据）。已另立为 B2-4b。
+
+---
+
+## 13. S-16 集成快照被**手改而非重生成**——已修复（2026-09-15，B2-4a 附带）
+
+**症状**：在 `main` 上带齐环境变量跑 `cargo test --test integration --all-features api_route_ledger_tests`，
+`declared_route_manifest_full_snapshot_matches_default_state` **失败**：
+
+```
+left  (实际)  count: 1127
+right (快照)  count: 1378
+```
+
+即这条契约快照在仓库里**已经是红的**。它是 S-14 的同族问题（守卫看起来在、其实不在），
+但成因不同：S-14 是"方向少了一半"，这一条是"金标准文件本身是假的"。
+
+### 13.1 判定依据：那个 1378 不可能被生成出来
+
+`tests/integration/api_route_ledger_tests.rs::render_ledger_snapshot` 里
+`count` 是**算出来的**（`lines.len()`），不是手填的。所以只要真跑过 UPDATE，count 必然等于当次真实条目数。
+
+而在 `52b59c8f`（A7：拆 r0 兼容嵌套）这个提交上：
+
+| 观测 | 值 | 含义 |
+|---|---|---|
+| 该提交对 `route_ledger_default.snapshot` 的改动 | **582 增 / 582 删** | 行被搬动（重排序），**总数没变** |
+| 该提交后文件表头 count | **1378** | 与父提交 `52b59c8f^` 的 1378 **完全一致** |
+| 同一提交 commit message 自述 | `ledger −489`（`all.json` 1319→830） | 路由面**大幅收缩** |
+
+三者互相矛盾：路由面缩了 489 条，快照行数却有 582 行被搬动而 count 一动不动。
+**唯一自洽的解释是：这个文件是被脚本/手工重排的，没有走 `UPDATE_ROUTE_LEDGER_SNAPSHOTS=1` 重生成。**
+
+### 13.2 为什么能长期不被发现
+
+重生成需要真实数据库（`default_ledger()` → `setup_fresh_test_app_with_config`）。
+缺 `TEST_DATABASE_URL` / `TEST_DB_TEMPLATE_SCHEMA` 时用例走 `skip_or_fail_without_db()` 直接 `return`。
+于是**能重生成的人只有装了库的人，而没装库的人只能手改**——这正是 §2.5 那 18 处静默跳过的复现路径。
+
+### 13.3 该文件同时携带的另外两类腐坏
+
+| 腐坏 | 量化 | 说明 |
+|---|---|---|
+| 重复条目 | 1378 行里只有 **1128 唯一行**（250 条完全重复） | 当前 ledger 已不产出重复（`declared_route_manifest_validates_with_no_duplicates` 绿） |
+| 已不存在的声明 | **28 条** | 22 条 `/_matrix/client/v3/friends/*` + 6 条 `assembly::{account,directory}_r0_only`（已改名 `compat`/`extra`） |
+
+22 条 v3 friends 值得单独说：`create_friend_router()` 只为 `/friends`、`/friends/search`、
+`/friends/requests/{incoming,outgoing}`、`/friends/check/{user_id}` 注册 v3；
+`/{user_id}/info`、`/{user_id}/groups`、`/groups`、`/dm/{user_id}`、`/request*`、`/suggestions`
+**只注册在 `/_matrix/client/v1/friends/…`**。也就是说快照声称存在的这些 v3 端点在生产上**是 404**。
+—— 补声明之前必须确认这一层，否则就是把"快照过报"误修成"删除真实端点"。
+
+### 13.4 修复与验证
+
+1. 带齐 `TEST_DATABASE_URL` + `TEST_DB_TEMPLATE_SCHEMA=test_template_ci` **重生成**两张快照：
+   `default` 1378（含 250 重复）→ **1127**（唯一 1127），`worker_enabled` → **1138**（唯一 1138）。
+2. **差异分解逐项闭合**，证明除了"去重 + 改名 + 本批 22 条新声明"之外没有其它变化：
+
+   ```
+   旧唯一 1128  −  旧有新无 28  +  新有旧无 27  =  1127   ✓
+   旧有新无 28 = 22 条陈旧 v3 friends + 6 条 r0_only 改名
+   新有旧无 27 = 22 条本批新声明 + 3 条 directory_extra 改名 + 2 条既有漂移(push/config)
+   ```
+
+3. 只读复跑通过（**30.96s**，真跑；对比静默跳过时是 1.1s 且 0 断言）。
+4. **非空转自证**：这条守卫在修复前对陈旧数据**确实失败**过——它自己就是自己的变异测试。
+
+### 13.5 残留风险（未关闭）
+
+快照的**重生成仍需数据库**。CI 步骤已 fail-closed，但本地开发者若没有库，
+仍然只能手改这个文件、且手改后无任何东西会拦住他。彻底关闭需要把
+"快照 == `synapse_ledger_export` 对同一 profile 的导出"做成**无库可比**的断言
+（sdk `default` 泳道 1127 与集成快照 `default` 1127 目前**数值相等**，是可利用的锚点）。
+本案不扩大改动范围，仅记录。
 
 ---
 

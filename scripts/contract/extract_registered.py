@@ -898,6 +898,35 @@ def load_sources() -> dict[str, str]:
     return files
 
 
+def load_lane(subdir: str) -> set:
+    """Every `(method, path)` tuple declared by one fixture lane.
+
+    Lanes are deliberately separate directories because they come from
+    different compiles — see the cross-check block in `main()`.
+    """
+    lane: set = set()
+    for prof in ("default", "worker", "all"):
+        fp = os.path.join(ROOT, "tests", "unit", "fixtures", subdir, f"{prof}.json")
+        if not os.path.exists(fp):
+            continue
+        with open(fp) as fh:
+            for e in json.load(fh)["entries"]:
+                lane.add((e["method"], e["path"]))
+    return lane
+
+
+def undeclared_routes(router_set: set, ledger_all: set) -> list:
+    """Real routes that no ledger lane declares — the S-14 property.
+
+    Sorted so the diagnostic is stable and reviewable as a diff. Deliberately a
+    set difference and not a warning: a route that is served but undeclared is
+    invisible to every consumer of the contract (SDK codegen, ROUTE_CONTRACT.md,
+    the ledger snapshots) while still working, which is the quietest possible
+    way for the contract to become wrong.
+    """
+    return sorted(router_set - ledger_all)
+
+
 def main() -> int:
     files = load_sources()
     res = Resolver(files)
@@ -952,6 +981,13 @@ def main() -> int:
         json.dump({"routes": man_set, "total_routes": len(man_set)}, f, indent=1, ensure_ascii=False)
 
     router_set = {(m, p) for v in out.values() for m, p in v}
+    # `(method, path) -> module`, so the S-14 diagnostic names the owning file
+    # rather than just the tuple. First-wins is fine: a path derived under two
+    # modules is reported once, and the first is representative.
+    mods_for: dict = {}
+    for mod, routes in out.items():
+        for meth, path in routes:
+            mods_for.setdefault((meth, path), mod)
 
     print(f"source files scanned:        {len(files)}")
     print(f"router roots evaluated:      {len(list(res.roots()))}")
@@ -1019,33 +1055,59 @@ def main() -> int:
     # The fixtures are produced by the real Rust assembly (`synapse_ledger_export`)
     # and kept honest by the ledger golden tests, so they are an independent
     # oracle: a route we fail to derive is a real parser defect, not a taste
-    # difference. The reverse difference is expected — this script reads source
-    # text and therefore sees feature-gated routers the default build omits.
-    ledger: set = set()
-    for prof in ("default", "worker", "all"):
-        fp = os.path.join(ROOT, "tests", "unit", "fixtures", "ledger_export", f"{prof}.json")
-        if not os.path.exists(fp):
-            continue
-        with open(fp) as fh:
-            for e in json.load(fh)["entries"]:
-                ledger.add((e["method"], e["path"]))
+    # difference.
+    #
+    # TWO lanes, and the union is what matters:
+    #   ledger_export/      DEFAULT-feature compile (golden lane)
+    #   ledger_export_sdk/  `all-extensions` compile — the maximally complete
+    #                       lane the SDK ingests
+    # Judging completeness against the golden lane alone makes every
+    # feature-gated router look "undeclared" — voice, cas, saml,
+    # server-notifications, voip-tracking and builtin-oidc are simply not
+    # compiled there. That is how the real omissions hid: 102 entries, 102 of
+    # which were noise, so nobody looked at the list. Against the union the
+    # same measurement is 22, every one a genuinely missing declaration.
+    ledger = load_lane("ledger_export")
+    ledger_sdk = load_lane("ledger_export_sdk")
+    ledger_all = ledger | ledger_sdk
     missed: list = []
-    if ledger:
-        missed = sorted(ledger - router_set)
-        print(f"\n-- cross-check vs ledger_export fixtures ({len(ledger)} distinct tuples) --")
+    undeclared: list = []
+    if ledger_all:
+        missed = sorted(ledger_all - router_set)
+        undeclared = undeclared_routes(router_set, ledger_all)
+        print(
+            f"\n-- cross-check vs ledger fixtures "
+            f"(golden {len(ledger)}, sdk {len(ledger_sdk)}, union {len(ledger_all)}) --"
+        )
         print(f"ledger routes NOT derived  : {len(missed)}   <- must be 0")
         for m, p in missed[:20]:
             print(f"    {m:6} {p}")
-        print(f"derived but not in ledger  : {len(router_set - ledger)}   <- feature-gated / manifest gaps")
+        print(f"derived but not in ledger  : {len(undeclared)}   <- must be 0 (S-14)")
+        for m, p in undeclared[:40]:
+            print(f"    {m:6} {p}   <- {mods_for.get((m, p), '?')}")
 
-    # Strict gate: two properties that must hold exactly. The residual
-    # `derived-but-not-declared` set is expected (manifests are hand-written and
-    # incomplete) and is reported rather than enforced.
+    # Strict gate. All four properties must hold exactly; there is deliberately
+    # no allowlist for the first three, because each one is a statement that the
+    # contract is telling the truth and "mostly true" is the failure mode this
+    # whole gate exists to catch. The fourth is a ratchet over known-benign
+    # non-resolutions.
+    #
+    # The third property is S-14: without it, a route can be served, work
+    # perfectly, and be invisible to every downstream consumer (SDK codegen,
+    # ROUTE_CONTRACT.md, the ledger snapshots) forever. `derived - ledger` used
+    # to be printed here and then ignored on the grounds that manifests are
+    # hand-written and incomplete — which is exactly the condition being fixed,
+    # not a reason to tolerate it.
     strict_failures = []
     if only_manifest:
         strict_failures.append(f"{len(only_manifest)} manifest-declared routes were not derived")
     if missed:
         strict_failures.append(f"{len(missed)} ledger routes were not derived")
+    if undeclared:
+        strict_failures.append(
+            f"{len(undeclared)} real routes are absent from both ledger lanes (S-14): "
+            "add them to the owning *_route_manifest(), or stop serving them"
+        )
     if new_unresolved:
         strict_failures.append(f"{len(new_unresolved)} new unresolved parser constructs")
     if os.environ.get("EXTRACT_STRICT") == "1" and strict_failures:
