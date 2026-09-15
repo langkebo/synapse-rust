@@ -26,6 +26,9 @@
 （`docker/deploy/synapse-data/signing.key`，3 行 PEM，`BEGIN PRIVATE KEY`）。
 已取消暂存（`git rm --cached`，磁盘内容未删、未提交）。
 
+**收尾已完成**（§11）：worktree 已移除、分支已归档为 `archive/optimization-audit-2026-07`、
+`git worktree list` 只剩 1 条、工作区无任何残留改动与未跟踪文件。
+
 ---
 
 ## 1. 对象与基线
@@ -214,13 +217,36 @@ $ git -C .claude/worktrees/optimization+audit-2026-07 diff --cached --stat
 
 ---
 
-## 11. 待用户决策（H-5 收尾）
+## 11. 收尾（已执行，2026-09-15）
 
-| 选项 | 动作 | 后果 |
+用户选定"**归档保留 + 移除 worktree**"。实际执行：
+
+| # | 动作 | 结果 |
 |---|---|---|
-| **A（推荐）** | `git worktree remove` + 把分支改名归档为 `archive/optimization-audit-2026-07`（或打 tag） | 工作区干净、`git worktree list` 只剩 1 条；157 个提交仍可通过归档 ref 找回；280 个未提交改动与那把私钥随 worktree 一并消失 |
-| B | 先把 `optimization/audit-2026-07` 推到 `origin` 作备份，再 `git worktree remove` | 同上，且远端有副本；但会向远端多推 157 个提交 |
-| C | 保持原样，仅取消暂存私钥 | 无不可逆损失；但 H-5 未关闭，worktree 继续占用 39 MB 且仍是脏的 |
+| 1 | 备份 worktree 里那把私钥到 `~/Desktop/hu_ts/synapse-rust-h5-archive-2026-09-15/`（含说明 README） | 密钥与主工作区那把**不是同一把**，且运行中的 `synapse-app` 未挂载该路径 → 备份只为保险 |
+| 2 | `git worktree remove --force .claude/worktrees/optimization+audit-2026-07` + `git worktree prune` | worktree 及其未提交的 280 个文件已丢弃 |
+| 3 | `git branch -m optimization/audit-2026-07 archive/optimization-audit-2026-07` | 157 个提交仍可达（`git rev-list --count` = 157） |
+| 4 | 撤销"同名 tag"方案 | 分支与 tag 同名会让 refname **歧义**（`git rev-parse` 报警），故仅保留分支 ref；归档语义由分支名承担 |
+
+**收尾后实测**：
+
+```
+$ git worktree list
+/Users/ljf/Desktop/hu_ts/synapse-rust 21398c41 [main]      # ← 只剩 1 条
+
+$ git status --porcelain | wc -l
+0                                                          # ← 无残留未提交改动
+$ git status --porcelain | grep -c '^??'
+0                                                          # ← 无遗留未跟踪文件
+
+$ git rev-parse --verify refs/heads/archive/optimization-audit-2026-07
+488d9888                                                   # ← 归档分支仍在
+```
+
+**如需恢复**：`git worktree add <path> archive/optimization-audit-2026-07`。
+
+**H-5 关闭。** 本报告 §10 的残留风险 1、2（`main` 缺 3 个测试后门 / 4 个 test_mocks）
+已明确划出 H-5 范围，如需处理应另立条目。
 
 ---
 
