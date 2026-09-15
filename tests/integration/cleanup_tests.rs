@@ -17,7 +17,7 @@ async fn setup_fresh_test_app_with_admin() -> Option<(axum::Router, String)> {
 
     let reg_req = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -44,7 +44,7 @@ async fn setup_fresh_test_app_with_admin() -> Option<(axum::Router, String)> {
 
     let login_req = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/login")
+        .uri("/_matrix/client/v3/login")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({

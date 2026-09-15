@@ -31,8 +31,7 @@ pub fn create_push_router(state: AppState) -> Router<AppState> {
     let compat_router = create_push_compat_router();
 
     Router::new()
-        .nest("/_matrix/client/v3", compat_router.clone())
-        .nest("/_matrix/client/r0", compat_router)
+        .nest("/_matrix/client/v3", compat_router)
         .route("/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/actions", put(set_push_rule_actions))
         .route(
             "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/enabled",
@@ -41,7 +40,7 @@ pub fn create_push_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
-const PUSH_COMPAT_NEST_PREFIXES: &[&str] = &["/_matrix/client/v3", "/_matrix/client/r0"];
+const PUSH_COMPAT_NEST_PREFIXES: &[&str] = &["/_matrix/client/v3"];
 
 fn push_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     use axum::http::Method;
@@ -511,9 +510,9 @@ mod tests {
     fn test_push_routes_structure() {
         let compat_routes = [
             "/_matrix/client/v3/pushers",
-            "/_matrix/client/r0/pushers",
+            "/_matrix/client/v3/pushers",
             "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}",
-            "/_matrix/client/r0/notifications/{notification_id}/ack",
+            "/_matrix/client/v3/notifications/{notification_id}/ack",
         ];
         let v3_only_routes = [
             "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/actions",
@@ -548,14 +547,8 @@ mod tests {
             "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/actions",
             "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/enabled",
         ];
-        let absent_r0_paths = [
-            "/_matrix/client/r0/pushrules/{scope}/{kind}/{rule_id}/actions",
-            "/_matrix/client/r0/pushrules/{scope}/{kind}/{rule_id}/enabled",
-        ];
-
         assert!(compat_paths.iter().all(|path| !path.ends_with("/actions") && !path.ends_with("/enabled")));
         assert!(v3_only_paths.iter().all(|path| path.starts_with("/_matrix/client/v3/")));
-        assert!(absent_r0_paths.iter().all(|path| path.starts_with("/_matrix/client/r0/")));
     }
 
     #[test]

@@ -18,7 +18,7 @@ async fn test_admin_room_lifecycle_management() {
     let username = format!("roomowner_{}", rand::random::<u32>());
     let register_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -41,7 +41,7 @@ async fn test_admin_room_lifecycle_management() {
     let room_name = format!("Test Room {}", rand::random::<u32>());
     let create_room_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/createRoom")
+        .uri("/_matrix/client/v3/createRoom")
         .header("Authorization", format!("Bearer {}", user_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -126,7 +126,7 @@ async fn test_admin_room_lifecycle_management() {
 
     // 6. 验证用户无法再访问该房间
     let user_access_request = Request::builder()
-        .uri(format!("/_matrix/client/r0/rooms/{}/state", room_id))
+        .uri(format!("/_matrix/client/v3/rooms/{}/state", room_id))
         .header("Authorization", format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
@@ -152,7 +152,7 @@ async fn test_admin_room_history_purge() {
     let username = format!("historyuser_{}", rand::random::<u32>());
     let register_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -174,7 +174,7 @@ async fn test_admin_room_history_purge() {
     // 2. 创建房间
     let create_room_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/createRoom")
+        .uri("/_matrix/client/v3/createRoom")
         .header("Authorization", format!("Bearer {}", user_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -197,7 +197,7 @@ async fn test_admin_room_history_purge() {
     for i in 0..3 {
         let send_message_request = Request::builder()
             .method("PUT")
-            .uri(format!("/_matrix/client/r0/rooms/{}/send/m.room.message/txn_{}", room_id, i))
+            .uri(format!("/_matrix/client/v3/rooms/{}/send/m.room.message/txn_{}", room_id, i))
             .header("Authorization", format!("Bearer {}", user_token))
             .header("Content-Type", "application/json")
             .body(Body::from(
@@ -283,7 +283,7 @@ async fn test_admin_room_list_and_search() {
     let username = format!("roomlistuser_{}", rand::random::<u32>());
     let register_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -307,7 +307,7 @@ async fn test_admin_room_list_and_search() {
     for i in 0..3 {
         let create_room_request = Request::builder()
             .method("POST")
-            .uri("/_matrix/client/r0/createRoom")
+            .uri("/_matrix/client/v3/createRoom")
             .header("Authorization", format!("Bearer {}", user_token))
             .header("Content-Type", "application/json")
             .body(Body::from(

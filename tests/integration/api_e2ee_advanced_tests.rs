@@ -40,7 +40,7 @@ async fn test_e2ee_key_backup_lifecycle() {
     let username = format!("backup_user_{}", rand::random::<u32>());
     let register_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -242,7 +242,7 @@ async fn test_e2ee_cross_signing_flow() {
     let username = format!("cross_sign_user_{}", rand::random::<u32>());
     let register_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -293,7 +293,7 @@ async fn test_e2ee_cross_signing_flow() {
 
     let upload_device_keys_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/keys/upload")
+        .uri("/_matrix/client/v3/keys/upload")
         .header("Authorization", format!("Bearer {}", user_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -343,7 +343,7 @@ async fn test_e2ee_cross_signing_flow() {
 
     let upload_cross_signing_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/keys/device_signing/upload")
+        .uri("/_matrix/client/v3/keys/device_signing/upload")
         .header("Authorization", format!("Bearer {}", user_token))
         .header("Content-Type", "application/json")
         .body(Body::from(cross_signing_payload.to_string()))
@@ -363,7 +363,7 @@ async fn test_e2ee_cross_signing_flow() {
 
     let complete_cross_signing_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/keys/device_signing/upload")
+        .uri("/_matrix/client/v3/keys/device_signing/upload")
         .header("Authorization", format!("Bearer {}", user_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -402,7 +402,7 @@ async fn test_e2ee_cross_signing_flow() {
 
     let upload_signatures_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/keys/signatures/upload")
+        .uri("/_matrix/client/v3/keys/signatures/upload")
         .header("Authorization", format!("Bearer {}", user_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -421,7 +421,7 @@ async fn test_e2ee_cross_signing_flow() {
     // 5. 查询密钥以验证交叉签名已生效
     let query_keys_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/keys/query")
+        .uri("/_matrix/client/v3/keys/query")
         .header("Authorization", format!("Bearer {}", user_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -481,7 +481,7 @@ async fn test_e2ee_key_backup_error_handling() {
     let username = format!("backup_error_user_{}", rand::random::<u32>());
     let register_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({

@@ -266,11 +266,11 @@ mod tests {
         env_guard.set("LONG_POLL_REQUEST_TIMEOUT_SECS", "90");
 
         let app = Router::new()
-            .route("/_matrix/client/r0/sync", get(slow_sync_handler))
+            .route("/_matrix/client/v3/sync", get(slow_sync_handler))
             .layer(middleware::from_fn(request_timeout_middleware));
         let request = Request::builder()
             .method(axum::http::Method::GET)
-            .uri("/_matrix/client/r0/sync?timeout=90000")
+            .uri("/_matrix/client/v3/sync?timeout=90000")
             .body(Body::empty())
             .expect("request should build");
 

@@ -31,13 +31,10 @@ fn create_verification_compat_router() -> Router<AppState> {
 pub fn create_verification_router(_state: AppState) -> Router<AppState> {
     let compat_router = create_verification_compat_router();
 
-    Router::new()
-        .nest("/_matrix/client/v1", compat_router.clone())
-        .nest("/_matrix/client/r0", compat_router.clone())
-        .nest("/_matrix/client/v3", compat_router)
+    Router::new().nest("/_matrix/client/v1", compat_router.clone()).nest("/_matrix/client/v3", compat_router)
 }
 
-const VERIFICATION_NEST_PREFIXES: &[&str] = &["/_matrix/client/v1", "/_matrix/client/r0", "/_matrix/client/v3"];
+const VERIFICATION_NEST_PREFIXES: &[&str] = &["/_matrix/client/v1", "/_matrix/client/v3"];
 
 fn verification_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     use axum::http::Method;
@@ -585,9 +582,9 @@ mod tests {
     fn test_verification_routes_structure() {
         let compat_routes = [
             "/_matrix/client/v1/keys/device_signing/verify_start",
-            "/_matrix/client/r0/keys/device_signing/verify_mac",
+            "/_matrix/client/v3/keys/device_signing/verify_mac",
             "/_matrix/client/v1/keys/qr_code/show",
-            "/_matrix/client/r0/keys/qr_code/scan",
+            "/_matrix/client/v3/keys/qr_code/scan",
         ];
 
         assert!(compat_routes.iter().all(|route| route.starts_with("/_matrix/client/")));

@@ -146,7 +146,7 @@ pub fn voip_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry
         (Method::GET, "/voip/turnServer/guest"),
     ];
 
-    expand_under_prefixes("voip", &["/_matrix/client/r0", "/_matrix/client/v3"], base)
+    expand_under_prefixes("voip", &["/_matrix/client/v3"], base)
 }
 
 #[cfg(test)]

@@ -43,12 +43,6 @@ pub fn create_friend_router(state: AppState) -> Router<AppState> {
             "/_matrix/client/v1/friends/search",
             get(search_friend_directory).post(search_friend_directory),
         )
-        .route("/_matrix/client/r0/friendships", get(get_friends))
-        .route("/_matrix/client/r0/friendships", post(send_friend_request))
-        .route(
-            "/_matrix/client/r0/friends/search",
-            get(search_friend_directory),
-        )
         // 好友请求
         .route(
             "/_matrix/client/v1/friends/request",
@@ -72,39 +66,11 @@ pub fn create_friend_router(state: AppState) -> Router<AppState> {
         )
         // r0 兼容路由
         .route(
-            "/_matrix/client/r0/friends/request",
-            post(send_friend_request),
-        )
-        .route(
-            "/_matrix/client/r0/friends/request/received",
-            get(get_received_requests),
-        )
-        .route(
-            "/_matrix/client/r0/friends/request/{user_id}/accept",
-            post(accept_friend_request),
-        )
-        .route(
-            "/_matrix/client/r0/friends/request/{user_id}/reject",
-            post(reject_friend_request),
-        )
-        .route(
-            "/_matrix/client/r0/friends/request/{user_id}/cancel",
-            post(cancel_friend_request),
-        )
-        .route(
             "/_matrix/client/v1/friends/requests/incoming",
             get(get_incoming_requests),
         )
         .route(
             "/_matrix/client/v1/friends/requests/outgoing",
-            get(get_outgoing_requests),
-        )
-        .route(
-            "/_matrix/client/r0/friends/requests/incoming",
-            get(get_incoming_requests),
-        )
-        .route(
-            "/_matrix/client/r0/friends/requests/outgoing",
             get(get_outgoing_requests),
         )
         .route(
@@ -116,15 +82,7 @@ pub fn create_friend_router(state: AppState) -> Router<AppState> {
             get(check_friendship),
         )
         .route(
-            "/_matrix/client/r0/friends/check/{user_id}",
-            get(check_friendship),
-        )
-        .route(
             "/_matrix/client/v1/friends/suggestions",
-            get(get_friend_suggestions),
-        )
-        .route(
-            "/_matrix/client/r0/friends/suggestions",
             get(get_friend_suggestions),
         )
         .route(
@@ -132,31 +90,15 @@ pub fn create_friend_router(state: AppState) -> Router<AppState> {
             delete(remove_friend),
         )
         .route(
-            "/_matrix/client/r0/friends/{user_id}",
-            delete(remove_friend),
-        )
-        .route(
             "/_matrix/client/v1/friends/{user_id}/note",
             put(update_friend_note),
         )
         .route(
-            "/_matrix/client/r0/friends/{user_id}/note",
-            put(update_friend_note),
-        )
-        .route(
             "/_matrix/client/v1/friends/{user_id}/status",
             get(get_friend_status),
         )
         .route(
             "/_matrix/client/v1/friends/{user_id}/status",
-            put(update_friend_status),
-        )
-        .route(
-            "/_matrix/client/r0/friends/{user_id}/status",
-            get(get_friend_status),
-        )
-        .route(
-            "/_matrix/client/r0/friends/{user_id}/status",
             put(update_friend_status),
         )
         .route(
@@ -164,15 +106,7 @@ pub fn create_friend_router(state: AppState) -> Router<AppState> {
             get(get_friend_info),
         )
         .route(
-            "/_matrix/client/r0/friends/{user_id}/info",
-            get(get_friend_info),
-        )
-        .route(
             "/_matrix/client/v1/friends/{user_id}/displayname",
-            put(update_friend_displayname),
-        )
-        .route(
-            "/_matrix/client/r0/friends/{user_id}/displayname",
             put(update_friend_displayname),
         )
         // 好友分组
@@ -181,17 +115,8 @@ pub fn create_friend_router(state: AppState) -> Router<AppState> {
             "/_matrix/client/v1/friends/groups",
             post(create_friend_group),
         )
-        .route("/_matrix/client/r0/friends/groups", get(get_friend_groups))
-        .route(
-            "/_matrix/client/r0/friends/groups",
-            post(create_friend_group),
-        )
         .route(
             "/_matrix/client/v1/friends/groups/{group_id}",
-            delete(delete_friend_group),
-        )
-        .route(
-            "/_matrix/client/r0/friends/groups/{group_id}",
             delete(delete_friend_group),
         )
         .route(
@@ -199,15 +124,7 @@ pub fn create_friend_router(state: AppState) -> Router<AppState> {
             put(rename_friend_group),
         )
         .route(
-            "/_matrix/client/r0/friends/groups/{group_id}/name",
-            put(rename_friend_group),
-        )
-        .route(
             "/_matrix/client/v1/friends/groups/{group_id}/add/{user_id}",
-            post(add_friend_to_group),
-        )
-        .route(
-            "/_matrix/client/r0/friends/groups/{group_id}/add/{user_id}",
             post(add_friend_to_group),
         )
         .route(
@@ -215,15 +132,7 @@ pub fn create_friend_router(state: AppState) -> Router<AppState> {
             delete(remove_friend_from_group),
         )
         .route(
-            "/_matrix/client/r0/friends/groups/{group_id}/remove/{user_id}",
-            delete(remove_friend_from_group),
-        )
-        .route(
             "/_matrix/client/v1/friends/groups/{group_id}/friends",
-            get(get_friends_in_group),
-        )
-        .route(
-            "/_matrix/client/r0/friends/groups/{group_id}/friends",
             get(get_friends_in_group),
         )
         .route(
@@ -231,15 +140,7 @@ pub fn create_friend_router(state: AppState) -> Router<AppState> {
             get(get_groups_for_user),
         )
         .route(
-            "/_matrix/client/r0/friends/{user_id}/groups",
-            get(get_groups_for_user),
-        )
-        .route(
             "/_matrix/client/v1/friends/dm/{user_id}",
-            get(get_friend_dm).post(create_friend_dm),
-        )
-        .route(
-            "/_matrix/client/r0/friends/dm/{user_id}",
             get(get_friend_dm).post(create_friend_dm),
         )
         // ISSUE-13: vendor 前缀（私有端点，client 前缀保留为向后兼容别名）
@@ -356,59 +257,31 @@ pub fn friend_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEnt
         (Method::POST, "/_matrix/client/v1/friends"),
         (Method::GET, "/_matrix/client/v1/friends/search"),
         (Method::POST, "/_matrix/client/v1/friends/search"),
-        (Method::GET, "/_matrix/client/r0/friendships"),
-        (Method::POST, "/_matrix/client/r0/friendships"),
-        (Method::GET, "/_matrix/client/r0/friends/search"),
         (Method::POST, "/_matrix/client/v1/friends/request"),
         (Method::GET, "/_matrix/client/v1/friends/request/received"),
         (Method::POST, "/_matrix/client/v1/friends/request/{user_id}/accept"),
         (Method::POST, "/_matrix/client/v1/friends/request/{user_id}/reject"),
         (Method::POST, "/_matrix/client/v1/friends/request/{user_id}/cancel"),
-        (Method::POST, "/_matrix/client/r0/friends/request"),
-        (Method::GET, "/_matrix/client/r0/friends/request/received"),
-        (Method::POST, "/_matrix/client/r0/friends/request/{user_id}/accept"),
-        (Method::POST, "/_matrix/client/r0/friends/request/{user_id}/reject"),
-        (Method::POST, "/_matrix/client/r0/friends/request/{user_id}/cancel"),
         (Method::GET, "/_matrix/client/v1/friends/requests/incoming"),
         (Method::GET, "/_matrix/client/v1/friends/requests/outgoing"),
-        (Method::GET, "/_matrix/client/r0/friends/requests/incoming"),
-        (Method::GET, "/_matrix/client/r0/friends/requests/outgoing"),
         (Method::GET, "/_matrix/client/v1/friends/check/{user_id}"),
-        (Method::GET, "/_matrix/client/r0/friends/check/{user_id}"),
         (Method::GET, "/_matrix/client/v1/friends/suggestions"),
-        (Method::GET, "/_matrix/client/r0/friends/suggestions"),
         (Method::DELETE, "/_matrix/client/v1/friends/{user_id}"),
-        (Method::DELETE, "/_matrix/client/r0/friends/{user_id}"),
         (Method::PUT, "/_matrix/client/v1/friends/{user_id}/note"),
-        (Method::PUT, "/_matrix/client/r0/friends/{user_id}/note"),
         (Method::GET, "/_matrix/client/v1/friends/{user_id}/status"),
         (Method::PUT, "/_matrix/client/v1/friends/{user_id}/status"),
-        (Method::GET, "/_matrix/client/r0/friends/{user_id}/status"),
-        (Method::PUT, "/_matrix/client/r0/friends/{user_id}/status"),
         (Method::GET, "/_matrix/client/v1/friends/{user_id}/info"),
-        (Method::GET, "/_matrix/client/r0/friends/{user_id}/info"),
         (Method::PUT, "/_matrix/client/v1/friends/{user_id}/displayname"),
-        (Method::PUT, "/_matrix/client/r0/friends/{user_id}/displayname"),
         (Method::GET, "/_matrix/client/v1/friends/groups"),
         (Method::POST, "/_matrix/client/v1/friends/groups"),
-        (Method::GET, "/_matrix/client/r0/friends/groups"),
-        (Method::POST, "/_matrix/client/r0/friends/groups"),
         (Method::DELETE, "/_matrix/client/v1/friends/groups/{group_id}"),
-        (Method::DELETE, "/_matrix/client/r0/friends/groups/{group_id}"),
         (Method::PUT, "/_matrix/client/v1/friends/groups/{group_id}/name"),
-        (Method::PUT, "/_matrix/client/r0/friends/groups/{group_id}/name"),
         (Method::POST, "/_matrix/client/v1/friends/groups/{group_id}/add/{user_id}"),
-        (Method::POST, "/_matrix/client/r0/friends/groups/{group_id}/add/{user_id}"),
         (Method::DELETE, "/_matrix/client/v1/friends/groups/{group_id}/remove/{user_id}"),
-        (Method::DELETE, "/_matrix/client/r0/friends/groups/{group_id}/remove/{user_id}"),
         (Method::GET, "/_matrix/client/v1/friends/groups/{group_id}/friends"),
-        (Method::GET, "/_matrix/client/r0/friends/groups/{group_id}/friends"),
         (Method::GET, "/_matrix/client/v1/friends/{user_id}/groups"),
-        (Method::GET, "/_matrix/client/r0/friends/{user_id}/groups"),
         (Method::GET, "/_matrix/client/v1/friends/dm/{user_id}"),
         (Method::POST, "/_matrix/client/v1/friends/dm/{user_id}"),
-        (Method::GET, "/_matrix/client/r0/friends/dm/{user_id}"),
-        (Method::POST, "/_matrix/client/r0/friends/dm/{user_id}"),
         // vendor paths
         (Method::GET, "/_matrix/vendor/v1/friends"),
         (Method::POST, "/_matrix/vendor/v1/friends"),

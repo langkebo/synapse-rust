@@ -13,7 +13,7 @@ async fn setup_test_app() -> Option<axum::Router> {
 async fn register_user(app: &axum::Router, username: &str) -> String {
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -40,7 +40,7 @@ async fn test_register_and_login_routes_work_across_r0_and_v3() {
     };
 
     let r0_register_request =
-        Request::builder().method("GET").uri("/_matrix/client/r0/register").body(Body::empty()).unwrap();
+        Request::builder().method("GET").uri("/_matrix/client/v3/register").body(Body::empty()).unwrap();
     let r0_register_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_register_request).await.unwrap();
     assert_eq!(r0_register_response.status(), StatusCode::OK);
 
@@ -57,7 +57,7 @@ async fn test_register_and_login_routes_work_across_r0_and_v3() {
     assert_eq!(r0_register_json, v3_register_json);
 
     let r0_login_request =
-        Request::builder().method("GET").uri("/_matrix/client/r0/login").body(Body::empty()).unwrap();
+        Request::builder().method("GET").uri("/_matrix/client/v3/login").body(Body::empty()).unwrap();
     let r0_login_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_login_request).await.unwrap();
     assert_eq!(r0_login_response.status(), StatusCode::OK);
 
@@ -88,11 +88,11 @@ async fn test_auth_router_preserves_qr_and_refresh_boundaries() {
     assert_eq!(v1_qr_response.status(), StatusCode::NOT_FOUND);
 
     let r0_qr_request =
-        Request::builder().method("GET").uri("/_matrix/client/r0/login/get_qr_code").body(Body::empty()).unwrap();
+        Request::builder().method("GET").uri("/_matrix/client/v3/login/get_qr_code").body(Body::empty()).unwrap();
     let r0_qr_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_qr_request).await.unwrap();
     assert_eq!(r0_qr_response.status(), StatusCode::NOT_FOUND);
 
-    for path in ["/_matrix/client/r0/refresh", "/_matrix/client/v3/refresh"] {
+    for path in ["/_matrix/client/v3/refresh", "/_matrix/client/v3/refresh"] {
         let refresh_request = Request::builder()
             .method("POST")
             .uri(path)
@@ -113,7 +113,7 @@ async fn test_client_capabilities_and_media_config_routes_work_across_versions()
     };
 
     let r0_capabilities_request =
-        Request::builder().method("GET").uri("/_matrix/client/r0/capabilities").body(Body::empty()).unwrap();
+        Request::builder().method("GET").uri("/_matrix/client/v3/capabilities").body(Body::empty()).unwrap();
     let r0_capabilities_response =
         ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_capabilities_request).await.unwrap();
     assert_eq!(r0_capabilities_response.status(), StatusCode::OK);
@@ -134,7 +134,7 @@ async fn test_client_capabilities_and_media_config_routes_work_across_versions()
     let token = register_user(&app, &format!("media_cfg_user_{}", rand::random::<u32>())).await;
     let mut media_config_jsons = Vec::new();
     for path in
-        ["/_matrix/client/v1/media/config", "/_matrix/client/r0/media/config", "/_matrix/client/v3/media/config"]
+        ["/_matrix/client/v1/media/config", "/_matrix/client/v3/media/config", "/_matrix/client/v3/media/config"]
     {
         let media_config_request = Request::builder()
             .method("GET")

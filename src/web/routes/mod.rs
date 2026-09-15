@@ -282,12 +282,12 @@ mod top_level_router_tests {
     #[test]
     fn test_top_level_compat_routes_structure() {
         let compat_routes = [
-            "/_matrix/client/r0/capabilities",
             "/_matrix/client/v3/capabilities",
-            "/_matrix/client/r0/voip/config",
+            "/_matrix/client/v3/capabilities",
+            "/_matrix/client/v3/voip/config",
             "/_matrix/client/v3/rooms/{room_id}/call/{call_id}",
             "/_matrix/client/v1/media/config",
-            "/_matrix/client/r0/media/config",
+            "/_matrix/client/v3/media/config",
             "/_matrix/client/v3/media/config",
         ];
 
@@ -328,9 +328,9 @@ mod auth_router_tests {
     #[test]
     fn test_auth_routes_structure() {
         let compat_routes = [
-            "/_matrix/client/r0/register",
+            "/_matrix/client/v3/register",
             "/_matrix/client/v3/login",
-            "/_matrix/client/r0/logout/all",
+            "/_matrix/client/v3/logout/all",
             "/_matrix/client/v3/refresh",
         ];
         let v1_only_routes = ["/_matrix/client/v1/login/qr_token"];
@@ -371,19 +371,19 @@ mod account_router_tests {
     #[test]
     fn test_account_routes_structure() {
         let compat_routes = [
-            "/_matrix/client/r0/account/whoami",
+            "/_matrix/client/v3/account/whoami",
             "/_matrix/client/v3/account/password",
-            "/_matrix/client/r0/account/3pid",
+            "/_matrix/client/v3/account/3pid",
             "/_matrix/client/v3/profile/{user_id}/avatar_url",
         ];
         let r0_only_routes = [
-            "/_matrix/client/r0/account/profile/{user_id}",
-            "/_matrix/client/r0/account/profile/{user_id}/displayname",
-            "/_matrix/client/r0/account/profile/{user_id}/avatar_url",
+            "/_matrix/client/v3/account/profile/{user_id}",
+            "/_matrix/client/v3/account/profile/{user_id}/displayname",
+            "/_matrix/client/v3/account/profile/{user_id}/avatar_url",
         ];
 
         assert!(compat_routes.iter().all(|route| route.starts_with("/_matrix/client/")));
-        assert!(r0_only_routes.iter().all(|route| route.starts_with("/_matrix/client/r0/")));
+        assert!(r0_only_routes.iter().all(|route| route.starts_with("/_matrix/client/v3/")));
     }
 
     #[test]
@@ -407,11 +407,11 @@ mod account_router_tests {
     #[test]
     fn test_account_router_keeps_r0_account_profile_outside_compat_scope() {
         let compat_paths = ["/account/whoami", "/account/3pid", "/profile/{user_id}"];
-        let r0_only_paths = ["/_matrix/client/r0/account/profile/{user_id}"];
+        let r0_only_paths = ["/_matrix/client/v3/account/profile/{user_id}"];
         let absent_v3_paths = ["/_matrix/client/v3/account/profile/{user_id}"];
 
         assert!(compat_paths.iter().all(|path| !path.starts_with("/account/profile/")));
-        assert!(r0_only_paths.iter().all(|path| path.starts_with("/_matrix/client/r0/")));
+        assert!(r0_only_paths.iter().all(|path| path.starts_with("/_matrix/client/v3/")));
         assert!(absent_v3_paths.iter().all(|path| path.starts_with("/_matrix/client/v3/account/profile/")));
     }
 }
@@ -421,18 +421,18 @@ mod directory_router_tests {
     #[test]
     fn test_directory_routes_structure() {
         let compat_routes = [
-            "/_matrix/client/r0/user_directory/search",
+            "/_matrix/client/v3/user_directory/search",
             "/_matrix/client/v3/user_directory/list",
-            "/_matrix/client/r0/directory/room/{room_alias}",
+            "/_matrix/client/v3/directory/room/{room_alias}",
             "/_matrix/client/v3/publicRooms",
         ];
         let r0_only_routes = [
-            "/_matrix/client/r0/directory/room/{room_id}/alias",
-            "/_matrix/client/r0/directory/room/{room_id}/alias/{room_alias}",
+            "/_matrix/client/v3/directory/room/{room_id}/alias",
+            "/_matrix/client/v3/directory/room/{room_id}/alias/{room_alias}",
         ];
 
         assert!(compat_routes.iter().all(|route| route.starts_with("/_matrix/client/")));
-        assert!(r0_only_routes.iter().all(|route| route.starts_with("/_matrix/client/r0/")));
+        assert!(r0_only_routes.iter().all(|route| route.starts_with("/_matrix/client/v3/")));
     }
 
     #[test]
@@ -453,12 +453,12 @@ mod directory_router_tests {
     fn test_directory_router_keeps_r0_alias_management_outside_compat_scope() {
         let compat_paths = ["/directory/room/{room_alias}", "/publicRooms", "/directory/list/room/{room_id}"];
         let r0_only_paths = [
-            "/_matrix/client/r0/directory/room/{room_id}/alias",
-            "/_matrix/client/r0/directory/room/{room_id}/alias/{room_alias}",
+            "/_matrix/client/v3/directory/room/{room_id}/alias",
+            "/_matrix/client/v3/directory/room/{room_id}/alias/{room_alias}",
         ];
 
         assert!(compat_paths.iter().all(|path| !path.contains("/alias/{room_alias}") && !path.ends_with("/alias")));
-        assert!(r0_only_paths.iter().all(|path| path.starts_with("/_matrix/client/r0/")));
+        assert!(r0_only_paths.iter().all(|path| path.starts_with("/_matrix/client/v3/")));
     }
 }
 
@@ -467,18 +467,18 @@ mod room_router_tests {
     #[test]
     fn test_room_routes_structure() {
         let r0_v3_compat_routes = [
-            "/_matrix/client/r0/rooms/{room_id}",
+            "/_matrix/client/v3/rooms/{room_id}",
             "/_matrix/client/v3/rooms/{room_id}/messages",
-            "/_matrix/client/r0/rooms/{room_id}/state/{event_type}",
+            "/_matrix/client/v3/rooms/{room_id}/state/{event_type}",
             "/_matrix/client/v3/rooms/{room_id}/event/{event_id}",
         ];
         let all_version_report_routes = [
-            "/_matrix/client/r0/rooms/{room_id}/report/{event_id}",
+            "/_matrix/client/v3/rooms/{room_id}/report/{event_id}",
             "/_matrix/client/v1/rooms/{room_id}/report/{event_id}/score",
             "/_matrix/client/v3/rooms/{room_id}/report/{event_id}",
         ];
         let version_specific_routes = [
-            "/_matrix/client/r0/createRoom",
+            "/_matrix/client/v3/createRoom",
             "/_matrix/client/v1/rooms/{room_id}/report/{event_id}/scanner_info",
             "/_matrix/client/v3/rooms/{room_id}/notifications",
         ];
@@ -520,7 +520,7 @@ mod presence_router_tests {
     #[test]
     fn test_presence_routes_structure() {
         let compat_routes =
-            ["/_matrix/client/r0/presence/{user_id}/status", "/_matrix/client/v3/presence/{user_id}/status"];
+            ["/_matrix/client/v3/presence/{user_id}/status", "/_matrix/client/v3/presence/{user_id}/status"];
         let v3_only_routes = ["/_matrix/client/v3/presence/list"];
 
         assert!(compat_routes.iter().all(|route| route.starts_with("/_matrix/client/")));

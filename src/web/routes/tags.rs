@@ -31,13 +31,10 @@ fn create_tags_compat_router() -> Router<AppState> {
 pub fn create_tags_router(state: AppState) -> Router<AppState> {
     let compat_router = create_tags_compat_router();
 
-    Router::new()
-        .nest("/_matrix/client/v3", compat_router.clone())
-        .nest("/_matrix/client/r0", compat_router)
-        .with_state(state)
+    Router::new().nest("/_matrix/client/v3", compat_router).with_state(state)
 }
 
-const TAGS_NEST_PREFIXES: &[&str] = &["/_matrix/client/v3", "/_matrix/client/r0"];
+const TAGS_NEST_PREFIXES: &[&str] = &["/_matrix/client/v3"];
 
 fn tags_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     use axum::http::Method;
@@ -145,9 +142,9 @@ mod tests {
     fn test_tags_routes_structure() {
         let compat_routes = [
             "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/tags",
-            "/_matrix/client/r0/user/{user_id}/rooms/{room_id}/tags",
+            "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/tags",
             "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/tags/{tag}",
-            "/_matrix/client/r0/user/{user_id}/rooms/{room_id}/tags/{tag}",
+            "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/tags/{tag}",
         ];
 
         assert!(compat_routes.iter().all(|route| route.starts_with("/_matrix/client/")));
@@ -162,10 +159,10 @@ mod tests {
     }
 
     #[test]
-    fn test_tags_router_keeps_scope_limited_to_r0_and_v3() {
+    fn test_tags_router_keeps_scope_limited_to_v3() {
         let supported_paths = [
             "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/tags",
-            "/_matrix/client/r0/user/{user_id}/rooms/{room_id}/tags/{tag}",
+            "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/tags/{tag}",
         ];
         let unsupported_v1_paths = [
             "/_matrix/client/v1/user/{user_id}/rooms/{room_id}/tags",

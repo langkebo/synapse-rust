@@ -18,7 +18,7 @@ use validator::Validate;
 /// Nest prefixes under which `create_key_backup_router` mounts its internal
 /// router. Kept as a module-level constant so both the [`Router`] assembly
 /// below and [`key_backup_route_manifest`] cannot drift apart.
-const NEST_PREFIXES: &[&str] = &["/_matrix/client/v1", "/_matrix/client/r0", "/_matrix/client/v3"];
+const NEST_PREFIXES: &[&str] = &["/_matrix/client/v1", "/_matrix/client/v3"];
 
 /// Manifest entry for every `(method, relative_path)` registered by
 /// `create_key_backup_router`. Mirrors the `.route(...)` calls in
@@ -144,11 +144,7 @@ pub fn create_key_backup_router(state: AppState) -> Router<AppState> {
         .route("/room_keys/import/{version}", post(import_keys_by_version));
     // Note: /keys/backup/secure routes are handled in e2ee_routes.rs
 
-    Router::new()
-        .nest("/_matrix/client/v1", router.clone())
-        .nest("/_matrix/client/r0", router.clone())
-        .nest("/_matrix/client/v3", router)
-        .with_state(state)
+    Router::new().nest("/_matrix/client/v1", router.clone()).nest("/_matrix/client/v3", router).with_state(state)
 }
 
 /// The `VersionQuery` struct.
@@ -786,7 +782,7 @@ async fn recover_session_key(
 // ============================================================================
 
 /// Export all keys
-/// GET /_matrix/client/r0/room_keys/export
+/// GET /_matrix/client/v3/room_keys/export
 #[axum::debug_handler]
 async fn export_keys(
     State(ctx): State<E2eeRoomContext>,
@@ -815,7 +811,7 @@ async fn export_keys(
 }
 
 /// Export keys by version
-/// GET /_matrix/client/r0/room_keys/export/{version}
+/// GET /_matrix/client/v3/room_keys/export/{version}
 #[axum::debug_handler]
 async fn export_keys_by_version(
     State(ctx): State<E2eeRoomContext>,
@@ -857,7 +853,7 @@ pub fn resolve_import_version(body: &Value) -> Result<String, ApiError> {
 }
 
 /// Import keys
-/// POST /_matrix/client/r0/room_keys/import
+/// POST /_matrix/client/v3/room_keys/import
 #[axum::debug_handler]
 async fn import_keys(
     State(ctx): State<E2eeRoomContext>,
@@ -909,7 +905,7 @@ async fn import_keys(
 }
 
 /// Import keys by version
-/// POST /_matrix/client/r0/room_keys/import/{version}
+/// POST /_matrix/client/v3/room_keys/import/{version}
 #[axum::debug_handler]
 async fn import_keys_by_version(
     State(ctx): State<E2eeRoomContext>,

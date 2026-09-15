@@ -25,7 +25,7 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
     let username = format!("{}_{}", username, rand::random::<u32>());
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -58,7 +58,7 @@ async fn promote_to_super_admin(pool: &sqlx::PgPool, cache: &CacheManager, user_
 async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/createRoom")
+        .uri("/_matrix/client/v3/createRoom")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(

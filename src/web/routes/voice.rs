@@ -45,8 +45,6 @@ pub struct VoiceListQuery {
 /// See [`create_voice_router`].
 pub fn create_voice_router(_state: AppState) -> Router<AppState> {
     Router::new()
-        .route("/_matrix/client/r0/voice/upload", post(upload_voice_message))
-        .route("/_matrix/client/r0/voice/config", get(get_voice_config))
         .route("/_matrix/client/v1/voice/config", get(get_voice_config))
         .route("/_matrix/client/v1/voice/upload", post(upload_voice_message))
         .route("/_matrix/client/v1/voice/stats", get(get_voice_stats))
@@ -83,8 +81,6 @@ pub fn voice_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntr
     use axum::http::Method;
 
     [
-        (Method::POST, "/_matrix/client/r0/voice/upload"),
-        (Method::GET, "/_matrix/client/r0/voice/config"),
         (Method::GET, "/_matrix/client/v1/voice/config"),
         (Method::POST, "/_matrix/client/v1/voice/upload"),
         (Method::GET, "/_matrix/client/v1/voice/stats"),

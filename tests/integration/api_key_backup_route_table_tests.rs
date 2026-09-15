@@ -96,7 +96,7 @@ async fn key_backup_routes_are_wired_under_v1_and_r0() {
         return;
     };
 
-    for prefix in ["/_matrix/client/v1", "/_matrix/client/r0"] {
+    for prefix in ["/_matrix/client/v1", "/_matrix/client/v3"] {
         assert_route(&app, &format!("{}/room_keys/version", prefix), &["GET", "POST"]).await;
         assert_route(
             &app,

@@ -31,7 +31,7 @@ async fn promote_to_admin(pool: &sqlx::PgPool, cache: &CacheManager, user_id: &s
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -121,7 +121,7 @@ async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
 async fn invite_user_to_room(app: &axum::Router, inviter_token: &str, room_id: &str, invitee_user_id: &str) {
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/r0/rooms/{}/invite", room_id))
+        .uri(format!("/_matrix/client/v3/rooms/{}/invite", room_id))
         .header("Authorization", format!("Bearer {}", inviter_token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "user_id": invitee_user_id }).to_string()))
@@ -134,7 +134,7 @@ async fn invite_user_to_room(app: &axum::Router, inviter_token: &str, room_id: &
 async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/r0/rooms/{}/join", room_id))
+        .uri(format!("/_matrix/client/v3/rooms/{}/join", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -152,7 +152,7 @@ async fn test_device_management() {
 
     // 1. Get Devices
     let request = Request::builder()
-        .uri("/_matrix/client/r0/devices")
+        .uri("/_matrix/client/v3/devices")
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -166,7 +166,7 @@ async fn test_device_management() {
 
     // 2. Get Single Device
     let request = Request::builder()
-        .uri(format!("/_matrix/client/r0/devices/{}", device_id))
+        .uri(format!("/_matrix/client/v3/devices/{}", device_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -176,7 +176,7 @@ async fn test_device_management() {
     // 3. Update Device
     let request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/r0/devices/{}", device_id))
+        .uri(format!("/_matrix/client/v3/devices/{}", device_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -194,7 +194,7 @@ async fn test_device_management() {
     // Let's just delete it and check 200 or 401 on next request.
     let request = Request::builder()
         .method("DELETE")
-        .uri(format!("/_matrix/client/r0/devices/{}", device_id))
+        .uri(format!("/_matrix/client/v3/devices/{}", device_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({"auth": {"type": "m.login.password", "user": "...", "password": "..."}}).to_string()))
@@ -238,7 +238,7 @@ async fn test_presence_management() {
     // 1. Set Presence
     let request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/r0/presence/{}/status", user_id))
+        .uri(format!("/_matrix/client/v3/presence/{}/status", user_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -254,7 +254,7 @@ async fn test_presence_management() {
 
     // 2. Get Presence
     let request = Request::builder()
-        .uri(format!("/_matrix/client/r0/presence/{}/status", user_id))
+        .uri(format!("/_matrix/client/v3/presence/{}/status", user_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -290,7 +290,7 @@ async fn test_presence_status_shared_across_r0_and_v3() {
     assert_eq!(set_response.status(), StatusCode::OK);
 
     let get_request = Request::builder()
-        .uri(format!("/_matrix/client/r0/presence/{}/status", user_id))
+        .uri(format!("/_matrix/client/v3/presence/{}/status", user_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -406,7 +406,7 @@ async fn test_presence_list_boundary_is_preserved() {
 
     let r0_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/presence/list")
+        .uri("/_matrix/client/v3/presence/list")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(

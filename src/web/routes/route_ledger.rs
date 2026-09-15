@@ -108,7 +108,7 @@ impl RouteEntry {
 /// prefixes, producing owned [`RouteEntry`] values.
 ///
 /// This is a convenience for the common pattern of nesting the same inner
-/// router under `/_matrix/client/v1`, `/_matrix/client/r0`, and
+/// router under `/_matrix/client/v1`, `/_matrix/client/v3`, and
 /// `/_matrix/client/v3` — writing out all three copies by hand is noisy and
 /// error-prone.
 ///
@@ -205,10 +205,6 @@ impl RouteLedger {
     /// with overlapping methods, so we would rather fail cleanly at manifest
     /// validation than leave the panic to Axum's internals.
     pub fn validate(&self) -> Result<LedgerReport, DuplicateRouteError> {
-        // Count r0 routes for the caller to conditionally warn about.
-        // r0 is a legacy Matrix API version — clients should migrate to /v3/.
-        let r0_count = self.entries.iter().filter(|e| e.path.contains("/r0/")).count();
-
         // `Method` doesn't implement `Ord`, so a `BTreeMap` is out — but its
         // `Hash + Eq` impls let us key a `HashMap` directly. We then sort the
         // duplicate report by `(method, path)` for stable diagnostics.
@@ -232,7 +228,7 @@ impl RouteLedger {
             return Err(DuplicateRouteError { duplicates });
         }
 
-        Ok(LedgerReport { unique_tuples: seen.len(), total_entries: self.entries.len(), r0_route_count: r0_count })
+        Ok(LedgerReport { unique_tuples: seen.len(), total_entries: self.entries.len() })
     }
 }
 
@@ -245,10 +241,6 @@ pub struct LedgerReport {
     /// Raw number of [`RouteEntry`] values across all manifests. Kept
     /// separately for future use; today it matches `unique_tuples` exactly.
     pub total_entries: usize,
-    /// Number of registered r0 (legacy Matrix API) routes. The caller is
-    /// responsible for emitting a deprecation warning when this is non-zero
-    /// and not suppressed by configuration.
-    pub r0_route_count: usize,
 }
 
 /// The `DuplicateEntry` struct.
@@ -396,7 +388,7 @@ mod tests {
 
         // All 6 sync/sliding-sync paths must be exempt
         let expected = [
-            "/_matrix/client/r0/sync",
+            "/_matrix/client/v3/sync",
             "/_matrix/client/v3/sync",
             "/_matrix/client/v1/sync",
             "/_matrix/client/v4/sync",
@@ -413,7 +405,7 @@ mod tests {
 
         // Non-sync routes from the sync manifest must NOT be exempt
         let non_exempt: Vec<&str> = all_entries.iter().filter(|e| !e.rate_limit_exempt).map(|e| e.path).collect();
-        assert!(non_exempt.contains(&"/_matrix/client/r0/events"), "events should not be exempt");
+        assert!(non_exempt.contains(&"/_matrix/client/v3/events"), "events should not be exempt");
         assert!(non_exempt.contains(&"/_matrix/client/v3/joined_rooms"), "joined_rooms should not be exempt");
     }
 }

@@ -32,13 +32,10 @@ fn create_account_data_compat_router() -> Router<AppState> {
 pub fn create_account_data_router(state: AppState) -> Router<AppState> {
     let compat_router = create_account_data_compat_router();
 
-    Router::new()
-        .nest("/_matrix/client/v3", compat_router.clone())
-        .nest("/_matrix/client/r0", compat_router)
-        .with_state(state)
+    Router::new().nest("/_matrix/client/v3", compat_router).with_state(state)
 }
 
-const ACCOUNT_DATA_NEST_PREFIXES: &[&str] = &["/_matrix/client/v3", "/_matrix/client/r0"];
+const ACCOUNT_DATA_NEST_PREFIXES: &[&str] = &["/_matrix/client/v3"];
 
 fn account_data_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     use axum::http::Method;
@@ -374,9 +371,9 @@ mod tests {
     fn test_account_data_routes_structure() {
         let routes = [
             "/_matrix/client/v3/user/{user_id}/account_data/",
-            "/_matrix/client/r0/user/{user_id}/account_data/{type}",
+            "/_matrix/client/v3/user/{user_id}/account_data/{type}",
             "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/{type}",
-            "/_matrix/client/r0/user/{user_id}/openid/request_token",
+            "/_matrix/client/v3/user/{user_id}/openid/request_token",
         ];
 
         assert!(routes.iter().all(|route| route.starts_with("/_matrix/client/")));

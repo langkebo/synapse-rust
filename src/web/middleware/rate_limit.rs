@@ -256,7 +256,7 @@ mod tests {
     fn test_select_endpoint_rule() {
         let mut config = RateLimitConfig::default();
         config.endpoints.push(RateLimitEndpointRule {
-            path: "/_matrix/client/r0/login".to_string(),
+            path: "/_matrix/client/v3/login".to_string(),
             match_type: RateLimitMatchType::Exact,
             rule: RateLimitRule { per_second: 5, burst_size: 10 },
         });
@@ -266,17 +266,17 @@ mod tests {
             rule: RateLimitRule { per_second: 50, burst_size: 100 },
         });
         config.endpoints.push(RateLimitEndpointRule {
-            path: "/_matrix/client/r0/sync".to_string(),
+            path: "/_matrix/client/v3/sync".to_string(),
             match_type: RateLimitMatchType::Prefix,
             rule: RateLimitRule { per_second: 20, burst_size: 40 },
         });
 
-        let (id, rule) = crate::common::select_endpoint_rule_runtime(&config, "/_matrix/client/r0/login");
-        assert_eq!(id, "/_matrix/client/r0/login");
+        let (id, rule) = crate::common::select_endpoint_rule_runtime(&config, "/_matrix/client/v3/login");
+        assert_eq!(id, "/_matrix/client/v3/login");
         assert_eq!(rule.per_second, 5);
 
-        let (id, rule) = crate::common::select_endpoint_rule_runtime(&config, "/_matrix/client/r0/sync?since=123");
-        assert_eq!(id, "/_matrix/client/r0/sync");
+        let (id, rule) = crate::common::select_endpoint_rule_runtime(&config, "/_matrix/client/v3/sync?since=123");
+        assert_eq!(id, "/_matrix/client/v3/sync");
         assert_eq!(rule.per_second, 20);
 
         let (id, rule) = crate::common::select_endpoint_rule_runtime(&config, "/_matrix/client/versions");

@@ -95,7 +95,7 @@ mod e2e_tests {
     async fn register_user(username: &str, password: &str) -> RegisterResponse {
         let client = Client::new();
         let response = client
-            .post(format!("{}/_matrix/client/r0/register", base_url()))
+            .post(format!("{}/_matrix/client/v3/register", base_url()))
             .json(&json!({
                 "username": username,
                 "password": password,
@@ -111,7 +111,7 @@ mod e2e_tests {
     async fn login_user(username: &str, password: &str) -> LoginResponse {
         let client = Client::new();
         let response = client
-            .post(format!("{}/_matrix/client/r0/login", base_url()))
+            .post(format!("{}/_matrix/client/v3/login", base_url()))
             .json(&json!({
                 "type": "m.login.password",
                 "user": username,
@@ -132,7 +132,7 @@ mod e2e_tests {
         }
 
         let response = client
-            .post(format!("{}/_matrix/client/r0/createRoom", base_url()))
+            .post(format!("{}/_matrix/client/v3/createRoom", base_url()))
             .header("Authorization", format!("Bearer {access_token}"))
             .json(&body)
             .send()
@@ -153,7 +153,7 @@ mod e2e_tests {
         }
 
         let response = client
-            .post(format!("{}/_matrix/client/r0/createRoom", base_url()))
+            .post(format!("{}/_matrix/client/v3/createRoom", base_url()))
             .header("Authorization", format!("Bearer {access_token}"))
             .json(&body)
             .send()
@@ -167,7 +167,7 @@ mod e2e_tests {
         let client = Client::new();
         let response = client
             .put(format!(
-                "{}/_matrix/client/r0/rooms/{}/send/m.room.message/{}",
+                "{}/_matrix/client/v3/rooms/{}/send/m.room.message/{}",
                 base_url(),
                 room_id,
                 current_timestamp_millis()
@@ -224,7 +224,7 @@ mod e2e_tests {
         }
 
         let response = client
-            .post(format!("{}/_matrix/client/r0/friends/request", base_url()))
+            .post(format!("{}/_matrix/client/v3/friends/request", base_url()))
             .header("Authorization", format!("Bearer {access_token}"))
             .json(&body)
             .send()
@@ -237,7 +237,7 @@ mod e2e_tests {
     async fn accept_friend_request(access_token: &str, user_id: &str) -> serde_json::Value {
         let client = Client::new();
         let response = client
-            .post(format!("{}/_matrix/client/r0/friends/request/{}/accept", base_url(), user_id))
+            .post(format!("{}/_matrix/client/v3/friends/request/{}/accept", base_url(), user_id))
             .header("Authorization", format!("Bearer {access_token}"))
             .send()
             .await
@@ -250,7 +250,7 @@ mod e2e_tests {
         let client = Client::new();
         let response = client
             .put(format!(
-                "{}/_matrix/client/r0/rooms/{}/redact/{}/{}",
+                "{}/_matrix/client/v3/rooms/{}/redact/{}/{}",
                 base_url(),
                 room_id,
                 event_id,
@@ -268,7 +268,7 @@ mod e2e_tests {
     async fn join_room(access_token: &str, room_id: &str) -> serde_json::Value {
         let client = Client::new();
         let response = client
-            .post(format!("{}/_matrix/client/r0/rooms/{}/join", base_url(), room_id))
+            .post(format!("{}/_matrix/client/v3/rooms/{}/join", base_url(), room_id))
             .header("Authorization", format!("Bearer {access_token}"))
             .json(&json!({}))
             .send()

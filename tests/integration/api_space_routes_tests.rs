@@ -9,7 +9,7 @@ async fn register_user(app: &axum::Router, username: &str) -> String {
     let username = format!("{}_{}", username, rand::random::<u32>());
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -32,7 +32,7 @@ async fn register_user(app: &axum::Router, username: &str) -> String {
 async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/createRoom")
+        .uri("/_matrix/client/v3/createRoom")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -55,7 +55,7 @@ async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
 async fn get_user_id(app: &axum::Router, token: &str) -> String {
     let request = Request::builder()
         .method("GET")
-        .uri("/_matrix/client/r0/account/whoami")
+        .uri("/_matrix/client/v3/account/whoami")
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -140,7 +140,7 @@ async fn test_space_summary_suite_keeps_summary_counts_and_child_projection_veri
 
     for path in [
         format!("/_matrix/client/v3/spaces/{}/summary", root_space_id),
-        format!("/_matrix/client/r0/spaces/{}/summary", root_space_id),
+        format!("/_matrix/client/v3/spaces/{}/summary", root_space_id),
     ] {
         let request = Request::builder()
             .method("GET")
@@ -252,7 +252,7 @@ async fn test_space_children_hierarchy_suite_keeps_nested_chain_verified() {
 
     let parents_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/r0/spaces/room/{}/parents", leaf_room_id))
+        .uri(format!("/_matrix/client/v3/spaces/room/{}/parents", leaf_room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -314,7 +314,7 @@ async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verif
 
     let members_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/r0/spaces/{}/members", root_space_id))
+        .uri(format!("/_matrix/client/v3/spaces/{}/members", root_space_id))
         .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();
@@ -462,7 +462,7 @@ async fn test_space_lifecycle_query_suite_keeps_create_update_lookup_and_delete_
 
     let by_room_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/r0/spaces/room/{}", room_id))
+        .uri(format!("/_matrix/client/v3/spaces/room/{}", room_id))
         .body(Body::empty())
         .unwrap();
     let by_room_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), by_room_request).await.unwrap();

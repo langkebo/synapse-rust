@@ -57,7 +57,6 @@ pub fn create_e2ee_router(state: AppState) -> Router<AppState> {
     let v3_only_router = create_e2ee_v3_only_router();
 
     Router::new()
-        .nest("/_matrix/client/r0", compat_router.clone())
         .nest("/_matrix/client/v1", compat_router.clone())
         .nest("/_matrix/client/v3", compat_router)
         .nest("/_matrix/client/v3", v3_only_router)
@@ -65,7 +64,7 @@ pub fn create_e2ee_router(state: AppState) -> Router<AppState> {
 }
 
 /// Nest prefixes `create_e2ee_router` mounts the compat sub-router under.
-const E2EE_COMPAT_NEST_PREFIXES: &[&str] = &["/_matrix/client/r0", "/_matrix/client/v1", "/_matrix/client/v3"];
+const E2EE_COMPAT_NEST_PREFIXES: &[&str] = &["/_matrix/client/v1", "/_matrix/client/v3"];
 
 /// Nest prefix used for the v3-only sub-router.
 const E2EE_V3_ONLY_NEST_PREFIXES: &[&str] = &["/_matrix/client/v3"];

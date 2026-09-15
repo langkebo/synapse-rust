@@ -333,10 +333,10 @@ pub fn create_push_notification_router(state: AppState) -> axum::Router<AppState
     use axum::routing::*;
 
     let public_routes = axum::Router::new()
-        .route("/_matrix/client/r0/push/devices", get(get_devices))
-        .route("/_matrix/client/r0/push/devices", post(register_device))
-        .route("/_matrix/client/r0/push/devices/{device_id}", delete(unregister_device))
-        .route("/_matrix/client/r0/push/send", post(send_notification));
+        .route("/_matrix/client/v3/push/devices", get(get_devices))
+        .route("/_matrix/client/v3/push/devices", post(register_device))
+        .route("/_matrix/client/v3/push/devices/{device_id}", delete(unregister_device))
+        .route("/_matrix/client/v3/push/send", post(send_notification));
 
     let admin_routes =
         axum::Router::new()
@@ -358,7 +358,7 @@ pub fn create_push_notification_router(state: AppState) -> axum::Router<AppState
 
 /// See [`push_notification_route_manifest`].
 ///
-/// B-2: the 4 remaining legacy `/_matrix/client/r0/push/*` entries overlap
+/// B-2: the 4 remaining legacy `/_matrix/client/v3/push/*` entries overlap
 /// with the spec-compliant `pushers`/`pushrules` routes registered by
 /// [`crate::web::routes::push`] and have **zero call sites** in the SDK
 /// (`src/push` uses `/pushers` + `/pushrules`; `src/notifications` uses
@@ -374,10 +374,10 @@ pub fn push_notification_route_manifest() -> Vec<crate::web::routes::route_ledge
     // ledger 的 status 字段全仓无消费方（SDK 不读），机制已删除
     // （B-7 连带，见 docs/audit/LEDGER_CONTRACT_ISSUES_2026-09-13.md）。
     let legacy = [
-        (Method::GET, "/_matrix/client/r0/push/devices"),
-        (Method::POST, "/_matrix/client/r0/push/devices"),
-        (Method::DELETE, "/_matrix/client/r0/push/devices/{device_id}"),
-        (Method::POST, "/_matrix/client/r0/push/send"),
+        (Method::GET, "/_matrix/client/v3/push/devices"),
+        (Method::POST, "/_matrix/client/v3/push/devices"),
+        (Method::DELETE, "/_matrix/client/v3/push/devices/{device_id}"),
+        (Method::POST, "/_matrix/client/v3/push/send"),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "push_notification"))

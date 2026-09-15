@@ -15,7 +15,7 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
     let username = format!("{}_{}", username, suffix);
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -58,7 +58,7 @@ async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
 async fn invite_user_to_room(app: &axum::Router, inviter_token: &str, room_id: &str, invitee_user_id: &str) {
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/r0/rooms/{}/invite", room_id))
+        .uri(format!("/_matrix/client/v3/rooms/{}/invite", room_id))
         .header("Authorization", format!("Bearer {}", inviter_token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "user_id": invitee_user_id }).to_string()))
@@ -71,7 +71,7 @@ async fn invite_user_to_room(app: &axum::Router, inviter_token: &str, room_id: &
 async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/r0/rooms/{}/join", room_id))
+        .uri(format!("/_matrix/client/v3/rooms/{}/join", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -122,7 +122,7 @@ async fn test_devices_routes_round_trip_across_versions() {
         return;
     };
     let (token, user_id) = register_user(&app, "device_routes_round_trip").await;
-    let device_id = get_first_device_id(&app, &token, "/_matrix/client/r0/devices").await;
+    let device_id = get_first_device_id(&app, &token, "/_matrix/client/v3/devices").await;
 
     let update_request = Request::builder()
         .method("PUT")
@@ -142,7 +142,7 @@ async fn test_devices_routes_round_trip_across_versions() {
 
     let get_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/r0/devices/{}", device_id))
+        .uri(format!("/_matrix/client/v3/devices/{}", device_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -209,7 +209,7 @@ async fn test_delete_devices_alias_is_shared() {
     // Step 1: request without auth to get UIA session
     let challenge_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/delete_devices")
+        .uri("/_matrix/client/v3/delete_devices")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "devices": [device_id] }).to_string()))
@@ -223,7 +223,7 @@ async fn test_delete_devices_alias_is_shared() {
     // Step 2: resend with auth + session
     let delete_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/delete_devices")
+        .uri("/_matrix/client/v3/delete_devices")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(

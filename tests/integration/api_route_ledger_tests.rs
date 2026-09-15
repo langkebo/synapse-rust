@@ -378,9 +378,9 @@ async fn voice_routes_are_declared_when_feature_enabled() {
         super::skip_or_fail_without_db();
         return;
     };
-    assert!(has_declared_route(&ledger, Method::GET, "/_matrix/client/r0/voice/config"));
+    assert!(has_declared_route(&ledger, Method::GET, "/_matrix/client/v3/voice/config"));
     assert!(has_declared_route(&ledger, Method::GET, "/_matrix/client/v1/voice/config"));
-    assert!(has_declared_route(&ledger, Method::POST, "/_matrix/client/r0/voice/upload"));
+    assert!(has_declared_route(&ledger, Method::POST, "/_matrix/client/v3/voice/upload"));
 }
 
 #[cfg(feature = "external-services")]
@@ -432,6 +432,6 @@ async fn voip_tracking_routes_are_declared_when_feature_enabled() {
         super::skip_or_fail_without_db();
         return;
     };
-    assert!(has_declared_route(&ledger, Method::PUT, "/_matrix/client/r0/rooms/{room_id}/send/m.call.invite/{txn_id}"));
+    assert!(has_declared_route(&ledger, Method::PUT, "/_matrix/client/v3/rooms/{room_id}/send/m.call.invite/{txn_id}"));
     assert!(has_declared_route(&ledger, Method::GET, "/_matrix/client/v3/rooms/{room_id}/call/{call_id}"));
 }

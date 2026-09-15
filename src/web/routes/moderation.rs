@@ -24,10 +24,7 @@ fn create_moderation_v3_router() -> Router<AppState> {
 
 /// See [`create_moderation_router`].
 pub fn create_moderation_router() -> Router<AppState> {
-    let compat_router = create_room_report_compat_router();
-
     Router::new()
-        .nest("/_matrix/client/r0", compat_router)
         .nest("/_matrix/client/v1", create_moderation_v1_router())
         .nest("/_matrix/client/v3", create_moderation_v3_router())
 }
@@ -42,13 +39,12 @@ pub fn moderation_route_manifest() -> Vec<crate::web::routes::route_ledger::Rout
         (Method::PUT, "/rooms/{room_id}/report/{event_id}/score"),
     ];
 
-    let mut out = expand_under_prefixes("moderation", &["/_matrix/client/r0"], compat);
     let mut v1 = compat.to_vec();
     v1.push((Method::GET, "/rooms/{room_id}/report/{event_id}/scanner_info"));
-    out.extend(expand_under_prefixes("moderation", &["/_matrix/client/v1"], &v1));
+    let mut out = expand_under_prefixes("moderation", &["/_matrix/client/v1"], &v1);
     let mut v3 = compat.to_vec();
     v3.push((Method::POST, "/rooms/{room_id}/report"));
-    // MSC4260: user report endpoint (v3-only, no r0 compat).
+    // MSC4260: user report endpoint (v3-only).
     v3.push((Method::POST, "/users/{user_id}/report"));
     out.extend(expand_under_prefixes("moderation", &["/_matrix/client/v3"], &v3));
     out
@@ -59,8 +55,8 @@ mod tests {
     #[test]
     fn test_moderation_routes_structure() {
         let routes = [
-            "/_matrix/client/r0/rooms/{room_id}/report/{event_id}",
-            "/_matrix/client/r0/rooms/{room_id}/report/{event_id}/score",
+            "/_matrix/client/v3/rooms/{room_id}/report/{event_id}",
+            "/_matrix/client/v3/rooms/{room_id}/report/{event_id}/score",
             "/_matrix/client/v1/rooms/{room_id}/report/{event_id}",
             "/_matrix/client/v1/rooms/{room_id}/report/{event_id}/score",
             "/_matrix/client/v1/rooms/{room_id}/report/{event_id}/scanner_info",
@@ -83,12 +79,8 @@ mod tests {
 
     #[test]
     fn test_msc4260_user_report_route_is_v3_only() {
-        // MSC4260 user report is only available on v3, not r0 (spec added in v1.14).
+        // MSC4260 user report is only available on v3 (spec added in v1.14).
         let v3_user_report = ["/_matrix/client/v3/users/{user_id}/report"];
         assert!(v3_user_report.iter().all(|route| route.contains("/v3/")));
-
-        // Ensure no r0 user-report route exists.
-        let r0_routes = ["/_matrix/client/r0/rooms/{room_id}/report/{event_id}"];
-        assert!(r0_routes.iter().all(|route| !route.contains("/users/")));
     }
 }

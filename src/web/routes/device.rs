@@ -458,11 +458,11 @@ pub async fn get_device_list_updates(
 pub fn create_device_router() -> Router<AppState> {
     let compat_router = create_device_compat_router();
 
-    Router::new().nest("/_matrix/client/r0", compat_router.clone()).nest("/_matrix/client/v3", compat_router)
+    Router::new().nest("/_matrix/client/v3", compat_router)
 }
 
 /// Nest prefixes `create_device_router` mounts its inner compat router under.
-const DEVICE_NEST_PREFIXES: &[&str] = &["/_matrix/client/r0", "/_matrix/client/v3"];
+const DEVICE_NEST_PREFIXES: &[&str] = &["/_matrix/client/v3"];
 
 fn device_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     use axum::http::Method;
@@ -492,9 +492,9 @@ mod tests {
     #[test]
     fn test_device_routes_structure() {
         let routes = [
-            "/_matrix/client/r0/devices",
+            "/_matrix/client/v3/devices",
             "/_matrix/client/v3/devices/{device_id}",
-            "/_matrix/client/r0/delete_devices",
+            "/_matrix/client/v3/delete_devices",
             "/_matrix/client/v3/keys/device_list_updates",
         ];
 

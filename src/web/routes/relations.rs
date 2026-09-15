@@ -33,15 +33,14 @@ fn create_relations_with_event_router() -> Router<AppState> {
 /// See [`create_relations_router`].
 pub fn create_relations_router(state: AppState) -> Router<AppState> {
     let with_event_router = create_relations_with_event_router();
-    let core_router = create_relations_core_router();
 
     Router::new()
         .nest("/_matrix/client/v1", with_event_router.clone())
         .nest("/_matrix/client/v3", with_event_router)
-        .nest("/_matrix/client/r0", core_router)
         .with_state(state)
 }
 
+/// The relations core surface shared by the `v1` and `v3` mounts.
 fn relations_core_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     use axum::http::Method;
     vec![
@@ -61,13 +60,11 @@ fn relations_with_event_relative_routes() -> Vec<(axum::http::Method, &'static s
 /// See [`relations_route_manifest`].
 pub fn relations_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::expand_under_prefixes;
-    let mut out = expand_under_prefixes(
+    expand_under_prefixes(
         "relations",
         &["/_matrix/client/v1", "/_matrix/client/v3"],
         &relations_with_event_relative_routes(),
-    );
-    out.extend(expand_under_prefixes("relations", &["/_matrix/client/r0"], &relations_core_relative_routes()));
-    out
+    )
 }
 
 /// The `RelationsQuery` struct.
@@ -336,10 +333,10 @@ mod tests {
     fn test_relations_routes_structure() {
         let compat_routes = [
             "/_matrix/client/v1/relations/{room_id}/{event_id}/{rel_type}",
-            "/_matrix/client/r0/relations/{room_id}/{event_id}/{rel_type}/{txn_id}",
+            "/_matrix/client/v3/relations/{room_id}/{event_id}/{rel_type}/{txn_id}",
             "/_matrix/client/v3/relations/{room_id}/{event_id}/{rel_type}",
             "/_matrix/client/v1/aggregations/{room_id}/{event_id}/{rel_type}",
-            "/_matrix/client/r0/aggregations/{room_id}/{event_id}/{rel_type}",
+            "/_matrix/client/v3/aggregations/{room_id}/{event_id}/{rel_type}",
             "/_matrix/client/v3/aggregations/{room_id}/{event_id}/{rel_type}",
         ];
 
@@ -362,7 +359,7 @@ mod tests {
     fn test_relations_router_supports_v3() {
         let supported_versions = [
             "/_matrix/client/v1/relations/{room_id}/{event_id}/{rel_type}",
-            "/_matrix/client/r0/aggregations/{room_id}/{event_id}/{rel_type}",
+            "/_matrix/client/v3/aggregations/{room_id}/{event_id}/{rel_type}",
             "/_matrix/client/v3/relations/{room_id}/{event_id}/{rel_type}",
             "/_matrix/client/v3/aggregations/{room_id}/{event_id}/{rel_type}",
         ];

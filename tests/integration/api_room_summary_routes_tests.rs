@@ -16,7 +16,7 @@ async fn register_user(app: &axum::Router, username: &str) -> String {
 async fn register_user_with_id(app: &axum::Router, username: &str) -> (String, String) {
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -39,7 +39,7 @@ async fn register_user_with_id(app: &axum::Router, username: &str) -> (String, S
 async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/createRoom")
+        .uri("/_matrix/client/v3/createRoom")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -62,7 +62,7 @@ async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
 async fn invite_user(app: &axum::Router, token: &str, room_id: &str, user_id: &str) {
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/r0/rooms/{}/invite", room_id))
+        .uri(format!("/_matrix/client/v3/rooms/{}/invite", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "user_id": user_id }).to_string()))
@@ -75,7 +75,7 @@ async fn invite_user(app: &axum::Router, token: &str, room_id: &str, user_id: &s
 async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/r0/rooms/{}/join", room_id))
+        .uri(format!("/_matrix/client/v3/rooms/{}/join", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -125,7 +125,7 @@ async fn test_room_summary_members_route_rejects_non_member() {
 
     let request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/r0/rooms/{}/summary/members", room_id))
+        .uri(format!("/_matrix/client/v3/rooms/{}/summary/members", room_id))
         .header("Authorization", format!("Bearer {}", guest_token))
         .body(Body::empty())
         .unwrap();
@@ -134,7 +134,7 @@ async fn test_room_summary_members_route_rejects_non_member() {
 
     let admin_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/r0/rooms/{}/summary/members", room_id))
+        .uri(format!("/_matrix/client/v3/rooms/{}/summary/members", room_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -238,7 +238,7 @@ async fn test_room_summary_read_routes_share_across_versions() {
 
     let r0_get_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/r0/rooms/{}/summary", room_id))
+        .uri(format!("/_matrix/client/v3/rooms/{}/summary", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -286,7 +286,7 @@ async fn test_room_summary_route_boundaries_are_preserved() {
 
     let r0_write_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/r0/rooms/{}/summary", room_id))
+        .uri(format!("/_matrix/client/v3/rooms/{}/summary", room_id))
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -309,7 +309,7 @@ async fn test_room_summary_route_boundaries_are_preserved() {
 
     let r0_unread_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/r0/rooms/{}/summary/unread/clear", room_id))
+        .uri(format!("/_matrix/client/v3/rooms/{}/summary/unread/clear", room_id))
         .body(Body::empty())
         .unwrap();
     let r0_unread_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_unread_request).await.unwrap();

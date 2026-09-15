@@ -70,7 +70,7 @@ mod p0_2_key_backup_tests {
     fn test_room_key_routes_include_put() {
         let routes = vec![
             "PUT /_matrix/client/v3/room_keys/keys/{version}/{room_id}/{session_id}",
-            "PUT /_matrix/client/r0/room_keys/keys/{version}/{room_id}/{session_id}",
+            "PUT /_matrix/client/v3/room_keys/keys/{version}/{room_id}/{session_id}",
         ];
 
         for route in routes {

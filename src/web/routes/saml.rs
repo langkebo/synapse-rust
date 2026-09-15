@@ -12,10 +12,23 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 /// The `SamlLoginQuery` struct.
+///
+/// Accepts the Matrix SSO spec-canonical `redirectUrl` plus a `redirect_url`
+/// alias for tolerance; the Rust field stays snake_case.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SamlLoginQuery {
     /// The `redirect_url` field.
+    #[serde(rename = "redirectUrl", alias = "redirect_url")]
+    pub redirect_url: Option<String>,
+}
+
+/// The `SamlLoginBody` struct.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SamlLoginBody {
+    /// The `redirectUrl` field.
+    #[serde(rename = "redirectUrl", alias = "redirect_url")]
     pub redirect_url: Option<String>,
 }
 
@@ -27,26 +40,39 @@ pub struct SamlLoginResponse {
 }
 
 /// The `SamlCallbackQuery` struct.
+///
+/// SAML 标准 POST/Redirect 绑定使用 `SAMLResponse`、`SAMLRequest` 与
+/// `RelayState` 的 PascalCase 字段名（真实 IdP 回调与 SDK 均采用此形状）。
+/// 保留 `saml_response`/`saml_request`/`relay_state` 作为别名以兼容既有调用。
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SamlCallbackQuery {
-    /// The `saml_response` field.
+    /// The `SAMLResponse` field.
+    #[serde(rename = "SAMLResponse", alias = "saml_response")]
     pub saml_response: Option<String>,
-    /// The `saml_request` field.
+    /// The `SAMLRequest` field.
+    #[serde(rename = "SAMLRequest", alias = "saml_request")]
     pub saml_request: Option<String>,
-    /// The `relay_state` field.
+    /// The `RelayState` field.
+    #[serde(rename = "RelayState", alias = "relay_state")]
     pub relay_state: Option<String>,
 }
 
 /// The `SamlCallbackBody` struct.
+///
+/// 与 [`SamlCallbackQuery`] 同理：标准 SAML 字段名为 PascalCase，同时保留
+/// snake_case 别名以兼容历史调用方。
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SamlCallbackBody {
-    /// The `saml_response` field.
+    /// The `SAMLResponse` field.
+    #[serde(rename = "SAMLResponse", alias = "saml_response")]
     pub saml_response: Option<String>,
-    /// The `saml_request` field.
+    /// The `SAMLRequest` field.
+    #[serde(rename = "SAMLRequest", alias = "saml_request")]
     pub saml_request: Option<String>,
-    /// The `relay_state` field.
+    /// The `RelayState` field.
+    #[serde(rename = "RelayState", alias = "relay_state")]
     pub relay_state: Option<String>,
 }
 
@@ -81,13 +107,13 @@ pub struct SamlMetadataResponse {
 /// See [`saml_login`].
 pub async fn saml_login(
     State(ctx): State<SsoContext>,
-    Query(query): Query<SamlLoginQuery>,
+    Json(body): Json<SamlLoginBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     if !ctx.saml_service.is_enabled() {
         return Err(ApiError::forbidden("SAML authentication is not enabled"));
     }
 
-    let auth_request = ctx.saml_service.get_auth_redirect(query.redirect_url.as_deref()).await?;
+    let auth_request = ctx.saml_service.get_auth_redirect(body.redirect_url.as_deref()).await?;
 
     Ok(Json(SamlLoginResponse { redirect_url: auth_request.redirect_url }))
 }
@@ -471,15 +497,10 @@ pub fn create_saml_router(state: AppState) -> axum::Router<AppState> {
     use axum::routing::*;
 
     let public_routes = axum::Router::new()
-        .route("/_matrix/client/r0/login/sso/redirect/saml", get(saml_login_redirect))
-        .route("/_matrix/client/r0/login/sso/redirect/saml", post(saml_login))
-        .route("/_matrix/client/r0/login/saml/callback", get(saml_callback_get))
-        .route("/_matrix/client/r0/login/saml/callback", post(saml_callback_post))
-        .route("/_matrix/client/r0/logout/saml", get(saml_logout))
-        .route("/_matrix/client/r0/logout/saml/callback", get(saml_logout_callback))
-        .route("/_matrix/client/r0/saml/metadata", get(get_saml_metadata))
-        .route("/_matrix/client/r0/saml/sp_metadata", get(get_sp_metadata))
+        .route("/_matrix/client/v3/logout/saml", get(saml_logout))
+        .route("/_matrix/client/v3/logout/saml/callback", get(saml_logout_callback))
         .route("/_matrix/client/v3/login/sso/redirect/saml", get(saml_login_redirect))
+        .route("/_matrix/client/v3/login/sso/redirect/saml", post(saml_login))
         .route("/_matrix/client/v3/login/saml/callback", get(saml_callback_get))
         .route("/_matrix/client/v3/login/saml/callback", post(saml_callback_post))
         .route("/_matrix/client/v3/saml/metadata", get(get_saml_metadata))
@@ -513,14 +534,14 @@ pub fn saml_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry
     use axum::http::Method;
 
     [
-        (Method::GET, "/_matrix/client/r0/login/sso/redirect/saml"),
-        (Method::POST, "/_matrix/client/r0/login/sso/redirect/saml"),
-        (Method::GET, "/_matrix/client/r0/login/saml/callback"),
-        (Method::POST, "/_matrix/client/r0/login/saml/callback"),
-        (Method::GET, "/_matrix/client/r0/logout/saml"),
-        (Method::GET, "/_matrix/client/r0/logout/saml/callback"),
-        (Method::GET, "/_matrix/client/r0/saml/metadata"),
-        (Method::GET, "/_matrix/client/r0/saml/sp_metadata"),
+        (Method::GET, "/_matrix/client/v3/logout/saml"),
+        (Method::GET, "/_matrix/client/v3/logout/saml/callback"),
+        (Method::GET, "/_matrix/client/v3/login/sso/redirect/saml"),
+        (Method::POST, "/_matrix/client/v3/login/sso/redirect/saml"),
+        (Method::GET, "/_matrix/client/v3/login/saml/callback"),
+        (Method::POST, "/_matrix/client/v3/login/saml/callback"),
+        (Method::GET, "/_matrix/client/v3/saml/metadata"),
+        (Method::GET, "/_matrix/client/v3/saml/sp_metadata"),
         (Method::POST, "/_synapse/admin/v1/saml/metadata/refresh"),
         (Method::GET, "/_synapse/admin/v1/saml/config"),
         (Method::PUT, "/_synapse/admin/v1/saml/config"),
@@ -533,4 +554,57 @@ pub fn saml_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "saml"))
     .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+
+    #[test]
+    fn saml_callback_body_accepts_standard_pascal_case() {
+        let body: SamlCallbackBody = serde_json::from_str(r#"{"SAMLResponse":"abc","RelayState":"xyz"}"#).unwrap();
+        assert_eq!(body.saml_response.as_deref(), Some("abc"));
+        assert_eq!(body.relay_state.as_deref(), Some("xyz"));
+        assert_eq!(body.saml_request, None);
+    }
+
+    #[test]
+    fn saml_callback_body_accepts_legacy_snake_case() {
+        let body: SamlCallbackBody = serde_json::from_str(r#"{"saml_response":"abc","relay_state":"xyz"}"#).unwrap();
+        assert_eq!(body.saml_response.as_deref(), Some("abc"));
+        assert_eq!(body.relay_state.as_deref(), Some("xyz"));
+    }
+
+    #[test]
+    fn saml_callback_query_accepts_standard_pascal_case() {
+        let query: SamlCallbackQuery = serde_json::from_str(r#"{"SAMLResponse":"abc"}"#).unwrap();
+        assert_eq!(query.saml_response.as_deref(), Some("abc"));
+    }
+
+    #[test]
+    fn saml_callback_query_accepts_legacy_snake_case() {
+        let query: SamlCallbackQuery = serde_json::from_str(r#"{"saml_response":"abc","relay_state":"xyz"}"#).unwrap();
+        assert_eq!(query.saml_response.as_deref(), Some("abc"));
+        assert_eq!(query.relay_state.as_deref(), Some("xyz"));
+    }
+
+    #[test]
+    fn saml_login_query_and_body_accept_camel_and_snake() {
+        let query: SamlLoginQuery = serde_json::from_str(r#"{"redirectUrl":"https://app"}"#).unwrap();
+        assert_eq!(query.redirect_url.as_deref(), Some("https://app"));
+
+        let query_snake: SamlLoginQuery = serde_json::from_str(r#"{"redirect_url":"https://app"}"#).unwrap();
+        assert_eq!(query_snake.redirect_url.as_deref(), Some("https://app"));
+
+        let body: SamlLoginBody = serde_json::from_str(r#"{"redirectUrl":"https://app"}"#).unwrap();
+        assert_eq!(body.redirect_url.as_deref(), Some("https://app"));
+    }
+
+    #[test]
+    fn saml_callback_body_rejects_unknown_fields() {
+        let err = serde_json::from_str::<SamlCallbackBody>(r#"{"SAMLResponse":"abc","bogus":1}"#);
+        assert!(err.is_err(), "deny_unknown_fields must reject unexpected keys");
+    }
 }

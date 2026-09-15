@@ -27,7 +27,7 @@ async fn get_super_admin_token(app: &axum::Router, pool: &PgPool) -> String {
 async fn register_user(app: &axum::Router, username: &str) -> String {
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({

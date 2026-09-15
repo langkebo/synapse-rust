@@ -18,13 +18,10 @@ fn create_reactions_compat_router() -> Router<AppState> {
 pub fn create_reactions_router(state: AppState) -> Router<AppState> {
     let compat_router = create_reactions_compat_router();
 
-    Router::new()
-        .nest("/_matrix/client/v3", compat_router.clone())
-        .nest("/_matrix/client/r0", compat_router)
-        .with_state(state)
+    Router::new().nest("/_matrix/client/v3", compat_router).with_state(state)
 }
 
-const REACTIONS_NEST_PREFIXES: &[&str] = &["/_matrix/client/v3", "/_matrix/client/r0"];
+const REACTIONS_NEST_PREFIXES: &[&str] = &["/_matrix/client/v3"];
 
 fn reactions_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     use axum::http::Method;
@@ -128,7 +125,7 @@ mod tests {
     fn test_reactions_routes_structure() {
         let compat_routes = [
             "/_matrix/client/v3/rooms/{room_id}/send/m.reaction/{txn_id}",
-            "/_matrix/client/r0/rooms/{room_id}/send/m.reaction/{txn_id}",
+            "/_matrix/client/v3/rooms/{room_id}/send/m.reaction/{txn_id}",
         ];
 
         assert!(compat_routes.iter().all(|route| route.starts_with("/_matrix/client/")));

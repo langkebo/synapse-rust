@@ -116,8 +116,6 @@ pub fn top_level_inline_manifest() -> Vec<RouteEntry> {
         (Method::GET, "/_matrix/client/v1/config/client"),
         (Method::GET, "/_matrix/client/v3/pushrules/"),
         (Method::GET, "/_matrix/client/v3/pushrules/global/"),
-        (Method::GET, "/_matrix/client/r0/pushrules/"),
-        (Method::GET, "/_matrix/client/r0/pushrules/global/"),
         (Method::GET, "/.well-known/matrix/server"),
         (Method::GET, "/.well-known/matrix/client"),
         (Method::GET, "/.well-known/matrix/support"),
@@ -157,21 +155,21 @@ fn assembly_compat_manifest() -> Vec<RouteEntry> {
     // /capabilities — under r0 + v3
     out.extend(expand_under_prefixes(
         "assembly::capabilities",
-        &["/_matrix/client/r0", "/_matrix/client/v3"],
+        &["/_matrix/client/v3"],
         &[(Method::GET, "/capabilities")],
     ));
 
     // /media/config — under v1 + r0 + v3
     out.extend(expand_under_prefixes(
         "assembly::media_config",
-        &["/_matrix/client/v1", "/_matrix/client/r0", "/_matrix/client/v3"],
+        &["/_matrix/client/v1", "/_matrix/client/v3"],
         &[(Method::GET, "/media/config")],
     ));
 
     // Base VoIP compat surface — under r0 + v3
     out.extend(expand_under_prefixes(
         "assembly::voip_compat",
-        &["/_matrix/client/r0", "/_matrix/client/v3"],
+        &["/_matrix/client/v3"],
         &[
             (Method::GET, "/voip/turnServer"),
             (Method::POST, "/voip/turnServer"),
@@ -182,7 +180,7 @@ fn assembly_compat_manifest() -> Vec<RouteEntry> {
     #[cfg(feature = "voip-tracking")]
     out.extend(expand_under_prefixes(
         "assembly::voip_tracking",
-        &["/_matrix/client/r0", "/_matrix/client/v3"],
+        &["/_matrix/client/v3"],
         &[
             (Method::PUT, "/rooms/{room_id}/send/m.call.invite/{txn_id}"),
             (Method::PUT, "/rooms/{room_id}/send/m.call.candidates/{txn_id}"),
@@ -195,7 +193,7 @@ fn assembly_compat_manifest() -> Vec<RouteEntry> {
     // Auth compat — under r0 + v3
     out.extend(expand_under_prefixes(
         "assembly::auth_compat",
-        &["/_matrix/client/r0", "/_matrix/client/v3"],
+        &["/_matrix/client/v3"],
         &[
             (Method::GET, "/register"),
             (Method::POST, "/register"),
@@ -224,7 +222,7 @@ fn assembly_compat_manifest() -> Vec<RouteEntry> {
     // Account compat — under v1 + r0 + v3
     out.extend(expand_under_prefixes(
         "assembly::account_compat",
-        &["/_matrix/client/v1", "/_matrix/client/r0", "/_matrix/client/v3"],
+        &["/_matrix/client/v1", "/_matrix/client/v3"],
         &[
             (Method::GET, "/account/whoami"),
             (Method::POST, "/account/password"),
@@ -247,21 +245,10 @@ fn assembly_compat_manifest() -> Vec<RouteEntry> {
         ],
     ));
 
-    // Account r0-only extras
-    out.extend(expand_under_prefixes(
-        "assembly::account_r0_only",
-        &["/_matrix/client/r0"],
-        &[
-            (Method::GET, "/account/profile/{user_id}"),
-            (Method::PUT, "/account/profile/{user_id}/displayname"),
-            (Method::PUT, "/account/profile/{user_id}/avatar_url"),
-        ],
-    ));
-
-    // Directory compat — under r0 + v3
+    // Directory compat — under v3
     out.extend(expand_under_prefixes(
         "assembly::directory_compat",
-        &["/_matrix/client/r0", "/_matrix/client/v3"],
+        &["/_matrix/client/v3"],
         &[
             (Method::POST, "/user_directory/search"),
             (Method::POST, "/user_directory/list"),
@@ -276,10 +263,10 @@ fn assembly_compat_manifest() -> Vec<RouteEntry> {
         ],
     ));
 
-    // Directory r0-only extras
+    // Directory extras — under v3 (`create_directory_v3_extra_router`)
     out.extend(expand_under_prefixes(
-        "assembly::directory_r0_only",
-        &["/_matrix/client/r0"],
+        "assembly::directory_extra",
+        &["/_matrix/client/v3"],
         &[
             (Method::GET, "/directory/room/{room_id}/alias"),
             (Method::PUT, "/directory/room/{room_id}/alias/{room_alias}"),
@@ -383,23 +370,6 @@ pub fn create_router(state: AppState) -> Router {
                 "route manifest validated: {} declared (method, path) tuples, 0 duplicates",
                 report.unique_tuples,
             );
-            // Emit r0 deprecation warning unless suppressed by configuration.
-            // The config system maps `SYNAPSE__SERVER__SUPPRESS_R0_DEPRECATION_WARNING`
-            // to `server.suppress_r0_deprecation_warning`; we check the env var
-            // here because AppState does not carry the resolved Config.
-            let suppress_r0_warning = std::env::var("SYNAPSE__SERVER__SUPPRESS_R0_DEPRECATION_WARNING")
-                .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
-                .unwrap_or(false);
-            if report.r0_route_count > 0 && !suppress_r0_warning {
-                ::tracing::warn!(
-                    target: "synapse_rust::web::routes::route_ledger",
-                    r0_routes = report.r0_route_count,
-                    "{} r0 route(s) are deprecated and scheduled for removal. \
-                     Clients should migrate to /v3/ paths. Set \
-                     `server.suppress_r0_deprecation_warning: true` to suppress.",
-                    report.r0_route_count,
-                );
-            }
             // ISSUE-13: Private endpoints migrated to /_matrix/vendor/v1.
             // The legacy /_matrix/client/v3/{my_rooms,search_rooms,search_recipients}
             // routes remain for backward compatibility but are deprecated.
@@ -457,8 +427,6 @@ pub fn create_router(state: AppState) -> Router {
         .route("/_matrix/client/v1/config/client", get(handlers::client_config::get_client_config))
         .route("/_matrix/client/v3/pushrules/", get(get_push_rules_default))
         .route("/_matrix/client/v3/pushrules/global/", get(get_push_rules_global_default))
-        .route("/_matrix/client/r0/pushrules/", get(get_push_rules_default))
-        .route("/_matrix/client/r0/pushrules/global/", get(get_push_rules_global_default))
         .route("/.well-known/matrix/server", get(handlers::get_well_known_server))
         .route("/.well-known/matrix/client", get(handlers::get_well_known_client))
         .route("/.well-known/matrix/support", get(handlers::get_well_known_support))
@@ -546,13 +514,10 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_telemetry_router(state.clone()))
         .merge(create_thirdparty_router(state.clone()))
         .merge(create_tags_router(state.clone()))
-        .nest("/_matrix/client/r0", create_client_capabilities_router())
         .nest("/_matrix/client/v3", create_client_capabilities_router())
         .nest("/_matrix/client/v3", media::create_upload_provider_router())
-        .nest("/_matrix/client/r0", create_voip_compat_router())
         .nest("/_matrix/client/v3", create_voip_compat_router())
         .nest("/_matrix/client/v1", create_client_media_config_router())
-        .nest("/_matrix/client/r0", create_client_media_config_router())
         .nest("/_matrix/client/v3", create_client_media_config_router())
         // ISSUE-13: Private/non-standard endpoints under vendor prefix.
         .nest("/_matrix/vendor/v1", create_vendor_router())
@@ -614,7 +579,6 @@ fn create_auth_compat_router() -> Router<AppState> {
 
 fn create_auth_router() -> Router<AppState> {
     Router::new()
-        .nest("/_matrix/client/r0", create_auth_compat_router())
         .nest("/_matrix/client/v3", create_auth_compat_router())
         .route(
             "/_matrix/static/client/login/",
@@ -647,17 +611,9 @@ fn create_account_compat_router() -> Router<AppState> {
         .route("/profile/{user_id}/avatar_url", get(get_avatar_url).put(update_avatar))
 }
 
-fn create_account_r0_only_router() -> Router<AppState> {
-    Router::new()
-        .route("/account/profile/{user_id}", get(get_profile))
-        .route("/account/profile/{user_id}/displayname", put(update_displayname))
-        .route("/account/profile/{user_id}/avatar_url", put(update_avatar))
-}
-
 fn create_account_router() -> Router<AppState> {
     Router::new()
         .nest("/_matrix/client/v1", create_account_compat_router())
-        .nest("/_matrix/client/r0", create_account_compat_router().merge(create_account_r0_only_router()))
         .nest("/_matrix/client/v3", create_account_compat_router())
 }
 
@@ -674,7 +630,8 @@ fn create_directory_compat_router() -> Router<AppState> {
         .route("/publicRooms", get(get_public_rooms).post(query_public_rooms))
 }
 
-fn create_directory_r0_only_router() -> Router<AppState> {
+/// Extra directory surface (room-scoped alias management) — v3 only.
+fn create_directory_v3_extra_router() -> Router<AppState> {
     Router::new()
         .route("/directory/room/{room_id}/alias", get(get_room_aliases))
         .route("/directory/room/{room_id}/alias/{room_alias}", put(set_room_alias).delete(delete_room_alias))
@@ -682,8 +639,7 @@ fn create_directory_r0_only_router() -> Router<AppState> {
 
 fn create_directory_router(state: AppState) -> Router<AppState> {
     Router::new()
-        .nest("/_matrix/client/r0", create_directory_compat_router().merge(create_directory_r0_only_router()))
-        .nest("/_matrix/client/v3", create_directory_compat_router())
+        .nest("/_matrix/client/v3", create_directory_compat_router().merge(create_directory_v3_extra_router()))
         .merge(create_guest_router(state.clone()))
         .with_state(state)
 }

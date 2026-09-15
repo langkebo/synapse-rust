@@ -123,9 +123,7 @@ pub fn create_oidc_router(state: AppState) -> Router<AppState> {
     #[allow(unused_mut)]
     let mut router = Router::new()
         .route("/_matrix/client/v3/login/sso/redirect", get(sso::sso_redirect))
-        .route("/_matrix/client/r0/login/sso/redirect", get(sso::sso_redirect))
         .route("/_matrix/client/v3/login/sso/userinfo", get(provider::oidc_userinfo))
-        .route("/_matrix/client/r0/login/sso/userinfo", get(provider::oidc_userinfo))
         // v3 paths
         .route("/_matrix/client/v3/oidc/userinfo", get(provider::oidc_userinfo))
         .route("/_matrix/client/v3/oidc/token", post(provider::oidc_token))
@@ -133,11 +131,7 @@ pub fn create_oidc_router(state: AppState) -> Router<AppState> {
         .route("/_matrix/client/v3/oidc/authorize", get(provider::oidc_authorize))
         .route("/_matrix/client/v3/oidc/callback", get(sso::oidc_callback))
         // r0 compatibility paths
-        .route("/_matrix/client/r0/oidc/userinfo", get(provider::oidc_userinfo))
-        .route("/_matrix/client/r0/oidc/token", post(provider::oidc_token))
-        .route("/_matrix/client/r0/oidc/logout", post(provider::oidc_logout))
-        .route("/_matrix/client/r0/oidc/authorize", get(provider::oidc_authorize))
-        .route("/_matrix/client/r0/oidc/callback", get(sso::oidc_callback));
+;
 
     // Built-in OIDC Provider endpoints
     #[cfg(feature = "builtin-oidc")]
@@ -182,19 +176,12 @@ pub fn oidc_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry
     use axum::http::Method;
     [
         (Method::GET, "/_matrix/client/v3/login/sso/redirect"),
-        (Method::GET, "/_matrix/client/r0/login/sso/redirect"),
         (Method::GET, "/_matrix/client/v3/login/sso/userinfo"),
-        (Method::GET, "/_matrix/client/r0/login/sso/userinfo"),
         (Method::GET, "/_matrix/client/v3/oidc/userinfo"),
         (Method::POST, "/_matrix/client/v3/oidc/token"),
         (Method::POST, "/_matrix/client/v3/oidc/logout"),
         (Method::GET, "/_matrix/client/v3/oidc/authorize"),
         (Method::GET, "/_matrix/client/v3/oidc/callback"),
-        (Method::GET, "/_matrix/client/r0/oidc/userinfo"),
-        (Method::POST, "/_matrix/client/r0/oidc/token"),
-        (Method::POST, "/_matrix/client/r0/oidc/logout"),
-        (Method::GET, "/_matrix/client/r0/oidc/authorize"),
-        (Method::GET, "/_matrix/client/r0/oidc/callback"),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "oidc"))

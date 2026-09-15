@@ -79,57 +79,57 @@ fn test_declared_manifest_includes_well_known_routes() {
 // ============================================================================
 
 #[test]
-fn test_declared_manifest_includes_capabilities_under_r0_and_v3() {
-    // create_client_capabilities_router is nested under both r0 and v3.
+fn test_declared_manifest_includes_capabilities_under_v3() {
+    // create_client_capabilities_router is nested under v3.
     let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
     let paths: std::collections::HashSet<&str> = ledger.iter().map(|e| e.path).collect();
-    assert!(paths.contains("/_matrix/client/r0/capabilities"), "r0 capabilities missing");
+    assert!(paths.contains("/_matrix/client/v3/capabilities"), "v3 capabilities missing");
     assert!(paths.contains("/_matrix/client/v3/capabilities"), "v3 capabilities missing");
 }
 
 #[test]
 fn test_declared_manifest_includes_media_config_under_three_prefixes() {
-    // create_client_media_config_router is nested under v1, r0, and v3.
+    // create_client_media_config_router is nested under v1 and v3.
     let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
     let paths: std::collections::HashSet<&str> = ledger.iter().map(|e| e.path).collect();
     assert!(paths.contains("/_matrix/client/v1/media/config"), "v1 media/config missing");
-    assert!(paths.contains("/_matrix/client/r0/media/config"), "r0 media/config missing");
+    assert!(paths.contains("/_matrix/client/v3/media/config"), "v3 media/config missing");
     assert!(paths.contains("/_matrix/client/v3/media/config"), "v3 media/config missing");
 }
 
 #[test]
-fn test_declared_manifest_includes_voip_compat_under_r0_and_v3() {
+fn test_declared_manifest_includes_voip_compat_under_v3() {
     let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
     let paths: std::collections::HashSet<&str> = ledger.iter().map(|e| e.path).collect();
-    assert!(paths.contains("/_matrix/client/r0/voip/turnServer"), "r0 voip/turnServer missing");
     assert!(paths.contains("/_matrix/client/v3/voip/turnServer"), "v3 voip/turnServer missing");
-    assert!(paths.contains("/_matrix/client/r0/voip/config"), "r0 voip/config missing");
+    assert!(paths.contains("/_matrix/client/v3/voip/turnServer"), "v3 voip/turnServer missing");
     assert!(paths.contains("/_matrix/client/v3/voip/config"), "v3 voip/config missing");
-    assert!(paths.contains("/_matrix/client/r0/voip/turnServer/guest"), "r0 voip/turnServer/guest missing");
+    assert!(paths.contains("/_matrix/client/v3/voip/config"), "v3 voip/config missing");
+    assert!(paths.contains("/_matrix/client/v3/voip/turnServer/guest"), "v3 voip/turnServer/guest missing");
     assert!(paths.contains("/_matrix/client/v3/voip/turnServer/guest"), "v3 voip/turnServer/guest missing");
 }
 
 #[test]
-fn test_declared_manifest_includes_auth_compat_under_r0_and_v3() {
+fn test_declared_manifest_includes_auth_compat_under_v3() {
     let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
     let paths: std::collections::HashSet<&str> = ledger.iter().map(|e| e.path).collect();
     // Both GET and POST are registered on /register and /login.
-    assert!(paths.contains("/_matrix/client/r0/register"), "r0 register missing");
     assert!(paths.contains("/_matrix/client/v3/register"), "v3 register missing");
-    assert!(paths.contains("/_matrix/client/r0/login"), "r0 login missing");
+    assert!(paths.contains("/_matrix/client/v3/register"), "v3 register missing");
     assert!(paths.contains("/_matrix/client/v3/login"), "v3 login missing");
-    assert!(paths.contains("/_matrix/client/r0/logout"), "r0 logout missing");
+    assert!(paths.contains("/_matrix/client/v3/login"), "v3 login missing");
     assert!(paths.contains("/_matrix/client/v3/logout"), "v3 logout missing");
-    assert!(paths.contains("/_matrix/client/r0/logout/all"), "r0 logout/all missing");
+    assert!(paths.contains("/_matrix/client/v3/logout"), "v3 logout missing");
     assert!(paths.contains("/_matrix/client/v3/logout/all"), "v3 logout/all missing");
-    assert!(paths.contains("/_matrix/client/r0/refresh"), "r0 refresh missing");
+    assert!(paths.contains("/_matrix/client/v3/logout/all"), "v3 logout/all missing");
+    assert!(paths.contains("/_matrix/client/v3/refresh"), "v3 refresh missing");
     assert!(paths.contains("/_matrix/client/v3/refresh"), "v3 refresh missing");
 }
 
 #[test]
 fn test_declared_manifest_includes_auth_standalone_routes() {
     // Login fallback page (MSC2965) and MSC4108 QR token are absolute paths
-    // not nested under r0/v3.
+    // not nested under v3.
     let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
     let paths: std::collections::HashSet<&str> = ledger.iter().map(|e| e.path).collect();
     assert!(paths.contains("/_matrix/static/client/login/"), "login fallback page missing");
@@ -140,8 +140,8 @@ fn test_declared_manifest_includes_auth_standalone_routes() {
 fn test_declared_manifest_includes_account_compat_under_three_prefixes() {
     let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
     let paths: std::collections::HashSet<&str> = ledger.iter().map(|e| e.path).collect();
-    // whoami and password are exposed under v1, r0, and v3.
-    for prefix in ["/_matrix/client/v1", "/_matrix/client/r0", "/_matrix/client/v3"] {
+    // whoami and password are exposed under v1 and v3.
+    for prefix in ["/_matrix/client/v1", "/_matrix/client/v3", "/_matrix/client/v3"] {
         assert!(paths.contains(&format!("{prefix}/account/whoami").as_str()), "{prefix}/account/whoami missing");
         assert!(paths.contains(&format!("{prefix}/account/password").as_str()), "{prefix}/account/password missing");
         assert!(
@@ -153,39 +153,31 @@ fn test_declared_manifest_includes_account_compat_under_three_prefixes() {
 }
 
 #[test]
-fn test_declared_manifest_includes_account_r0_only_extras() {
-    // The r0-only router adds /account/profile/{user_id}* aliases that were
-    // never standardized into v3. They are deprecated but still served.
+fn test_declared_manifest_includes_account_profile_routes() {
     let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
     let paths: std::collections::HashSet<&str> = ledger.iter().map(|e| e.path).collect();
-    assert!(paths.contains("/_matrix/client/r0/account/profile/{user_id}"), "r0 account/profile missing");
+    assert!(paths.contains("/_matrix/client/v3/profile/{user_id}"), "v3 account/profile missing");
     assert!(
-        paths.contains("/_matrix/client/r0/account/profile/{user_id}/displayname"),
-        "r0 account/profile displayname missing"
+        paths.contains("/_matrix/client/v3/profile/{user_id}/displayname"),
+        "v3 account/profile displayname missing"
     );
-    assert!(
-        paths.contains("/_matrix/client/r0/account/profile/{user_id}/avatar_url"),
-        "r0 account/profile avatar_url missing"
-    );
+    assert!(paths.contains("/_matrix/client/v3/profile/{user_id}/avatar_url"), "v3 account/profile avatar_url missing");
 }
 
 #[test]
-fn test_declared_manifest_includes_directory_compat_under_r0_and_v3() {
+fn test_declared_manifest_includes_directory_compat_under_v3() {
     let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
     let paths: std::collections::HashSet<&str> = ledger.iter().map(|e| e.path).collect();
-    assert!(paths.contains("/_matrix/client/r0/user_directory/search"), "r0 user_directory/search missing");
     assert!(paths.contains("/_matrix/client/v3/user_directory/search"), "v3 user_directory/search missing");
-    assert!(paths.contains("/_matrix/client/r0/directory/room/{room_alias}"), "r0 directory/room missing");
     assert!(paths.contains("/_matrix/client/v3/directory/room/{room_alias}"), "v3 directory/room missing");
-    assert!(paths.contains("/_matrix/client/r0/publicRooms"), "r0 publicRooms missing");
     assert!(paths.contains("/_matrix/client/v3/publicRooms"), "v3 publicRooms missing");
 }
 
 #[test]
-fn test_declared_manifest_includes_directory_r0_only_extras() {
+fn test_declared_manifest_includes_directory_alias_extras() {
     let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
     let paths: std::collections::HashSet<&str> = ledger.iter().map(|e| e.path).collect();
-    assert!(paths.contains("/_matrix/client/r0/directory/room/{room_id}/alias"), "r0 directory room alias missing");
+    assert!(paths.contains("/_matrix/client/v3/directory/room/{room_id}/alias"), "v3 directory room alias missing");
 }
 
 // ============================================================================
@@ -389,8 +381,8 @@ fn test_top_level_inline_manifest_contributes_routes_to_default_profile() {
         "/_matrix/client/v1/config/client",
         "/_matrix/client/v3/pushrules/",
         "/_matrix/client/v3/pushrules/global/",
-        "/_matrix/client/r0/pushrules/",
-        "/_matrix/client/r0/pushrules/global/",
+        "/_matrix/client/v3/pushrules/",
+        "/_matrix/client/v3/pushrules/global/",
         "/.well-known/matrix/server",
         "/.well-known/matrix/client",
         "/.well-known/matrix/support",

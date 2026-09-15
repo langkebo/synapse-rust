@@ -170,14 +170,10 @@ pub fn create_space_router(state: AppState) -> Router<AppState> {
         .merge(create_space_summary_routes());
 
     // Apply the same routes to v1, r0, and v3 client prefixes
-    Router::new()
-        .nest("/_matrix/client/v1", router.clone())
-        .nest("/_matrix/client/r0", router.clone())
-        .nest("/_matrix/client/v3", router)
-        .with_state(state)
+    Router::new().nest("/_matrix/client/v1", router.clone()).nest("/_matrix/client/v3", router).with_state(state)
 }
 
-const SPACE_NEST_PREFIXES: &[&str] = &["/_matrix/client/v1", "/_matrix/client/r0", "/_matrix/client/v3"];
+const SPACE_NEST_PREFIXES: &[&str] = &["/_matrix/client/v1", "/_matrix/client/v3"];
 
 fn space_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     use axum::http::Method;

@@ -40,7 +40,7 @@ async fn test_get_rtc_transports_authenticated() {
 
     let reg_req = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({

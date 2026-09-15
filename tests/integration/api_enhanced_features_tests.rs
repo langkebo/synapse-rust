@@ -13,7 +13,7 @@ async fn setup_test_app() -> Option<axum::Router> {
 async fn register_user(app: &axum::Router, username: &str) -> String {
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -85,7 +85,7 @@ fn test_trusted_private_chat_preset() {
         // Create a trusted private chat room using the standard Matrix API
         let request = Request::builder()
             .method("POST")
-            .uri("/_matrix/client/r0/createRoom")
+            .uri("/_matrix/client/v3/createRoom")
             .header("Authorization", format!("Bearer {}", alice_token))
             .header("Content-Type", "application/json")
             .body(Body::from(
@@ -110,7 +110,7 @@ fn test_trusted_private_chat_preset() {
         // Get room state to verify privacy settings were applied
         let room_id = json["room_id"].as_str().unwrap();
         let request = Request::builder()
-            .uri(format!("/_matrix/client/r0/rooms/{}/state", room_id))
+            .uri(format!("/_matrix/client/v3/rooms/{}/state", room_id))
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap();
@@ -131,7 +131,7 @@ fn test_voice_messages() {
 
         // 1. Get Voice Config (this doesn't require database)
         let request = Request::builder()
-            .uri("/_matrix/client/r0/voice/config")
+            .uri("/_matrix/client/v3/voice/config")
             .header("Authorization", format!("Bearer {}", _alice_token))
             .body(Body::empty())
             .unwrap();
@@ -164,7 +164,7 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
         assert!(v3_protocols_json.is_object());
 
         let r0_protocols_request = Request::builder()
-            .uri("/_matrix/client/r0/thirdparty/protocols")
+            .uri("/_matrix/client/v3/thirdparty/protocols")
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap();
@@ -188,7 +188,7 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
         assert_eq!(v3_protocol_response.status(), StatusCode::NOT_FOUND);
 
         let r0_protocol_request = Request::builder()
-            .uri("/_matrix/client/r0/thirdparty/protocol/test")
+            .uri("/_matrix/client/v3/thirdparty/protocol/test")
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap();
@@ -209,7 +209,7 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
         assert_eq!(v3_location_json["errcode"], "M_UNRECOGNIZED");
 
         let r0_location_request = Request::builder()
-            .uri("/_matrix/client/r0/thirdparty/location?alias=%23demo:localhost")
+            .uri("/_matrix/client/v3/thirdparty/location?alias=%23demo:localhost")
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap();
@@ -271,7 +271,7 @@ fn test_push_routes_share_across_r0_and_v3() {
         assert_eq!(set_pusher_response.status(), StatusCode::OK);
 
         let r0_pushers_request = Request::builder()
-            .uri("/_matrix/client/r0/pushers")
+            .uri("/_matrix/client/v3/pushers")
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap();
@@ -296,7 +296,7 @@ fn test_push_routes_share_across_r0_and_v3() {
         assert!(v3_pushrules_json.get("global").is_some());
 
         let r0_notifications_request = Request::builder()
-            .uri("/_matrix/client/r0/notifications")
+            .uri("/_matrix/client/v3/notifications")
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap();
@@ -309,7 +309,7 @@ fn test_push_routes_share_across_r0_and_v3() {
         assert_eq!(r0_notifications_json["notifications"], json!([]));
 
         let r0_enabled_request = Request::builder()
-            .uri("/_matrix/client/r0/pushrules/global/override/.m.rule.master/enabled")
+            .uri("/_matrix/client/v3/pushrules/global/override/.m.rule.master/enabled")
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap();

@@ -39,7 +39,7 @@ mod tests {
     fn test_cas_service_url_validation() {
         let valid_urls = vec![
             "https://example.com/cas/callback",
-            "http://localhost:8008/_matrix/client/r0/login/cas/callback",
+            "http://localhost:8008/_matrix/client/v3/login/cas/callback",
             "https://matrix.example.com:8448/callback",
         ];
 
@@ -111,7 +111,7 @@ mod tests {
     #[test]
     fn test_cas_login_redirect_url_construction() {
         let cas_base_url = "https://cas.example.com/cas";
-        let service_url = "http://localhost:8008/_matrix/client/r0/login/cas/callback";
+        let service_url = "http://localhost:8008/_matrix/client/v3/login/cas/callback";
         let redirect_url = format!("{}/login?service={}", cas_base_url, urlencoding::encode(service_url));
 
         assert!(redirect_url.starts_with("https://cas.example.com/cas/login"));

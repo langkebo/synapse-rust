@@ -29,7 +29,7 @@ async fn get_super_admin_token(app: &axum::Router, pool: &PgPool, cache: &CacheM
     let username = format!("admin_user_lifecycle_{}", rand::random::<u32>());
     let register_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -82,7 +82,7 @@ async fn test_admin_user_stats_reflect_real_counts() {
 
     let register_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -144,7 +144,7 @@ async fn test_admin_user_lifecycle_management() {
 
     let register_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -234,7 +234,7 @@ async fn test_admin_user_lifecycle_management() {
 
     // 6. 验证被封禁用户无法继续使用既有 access token
     let test_banned_request = Request::builder()
-        .uri("/_matrix/client/r0/account/whoami")
+        .uri("/_matrix/client/v3/account/whoami")
         .header("Authorization", format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
@@ -322,7 +322,7 @@ async fn test_admin_user_list_pagination_and_limits() {
         let username = format!("bulkuser_{}_{}", i, rand::random::<u32>());
         let register_request = Request::builder()
             .method("POST")
-            .uri("/_matrix/client/r0/register")
+            .uri("/_matrix/client/v3/register")
             .header("Content-Type", "application/json")
             .body(Body::from(
                 json!({
@@ -427,7 +427,7 @@ async fn test_admin_login_as_user_writes_audit_event() {
 
     let register_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({

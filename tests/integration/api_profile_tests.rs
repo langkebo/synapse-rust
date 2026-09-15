@@ -28,7 +28,7 @@ async fn promote_to_admin(pool: &sqlx::PgPool, cache: &CacheManager, user_id: &s
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -90,7 +90,7 @@ async fn test_profile_validation_fixes() {
     let long_displayname = "a".repeat(256);
     let request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/r0/account/profile/{}/displayname", user_id))
+        .uri(format!("/_matrix/client/v3/profile/{}/displayname", user_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -119,7 +119,7 @@ async fn test_profile_validation_fixes() {
     let long_avatar_url = "http://example.com/".to_string() + &"a".repeat(250); // Total > 255
     let request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/r0/account/profile/{}/avatar_url", user_id))
+        .uri(format!("/_matrix/client/v3/profile/{}/avatar_url", user_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -140,7 +140,7 @@ async fn test_profile_validation_fixes() {
     // Test 3: Get profile with invalid user_id format
     let request = Request::builder()
         .method("GET")
-        .uri("/_matrix/client/r0/account/profile/invalid_user_id")
+        .uri("/_matrix/client/v3/profile/invalid_user_id")
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -174,7 +174,7 @@ async fn test_profile_validation_fixes() {
     let other_user_id = "@other:localhost";
     let request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/r0/account/profile/{}/displayname", other_user_id))
+        .uri(format!("/_matrix/client/v3/profile/{}/displayname", other_user_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -193,7 +193,7 @@ async fn test_profile_validation_fixes() {
     let non_existent_user = "@nonexistent:localhost";
     let request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/r0/account/profile/{}", non_existent_user))
+        .uri(format!("/_matrix/client/v3/profile/{}", non_existent_user))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -212,7 +212,7 @@ async fn test_account_routes_work_across_r0_and_v3() {
 
     let r0_whoami_request = Request::builder()
         .method("GET")
-        .uri("/_matrix/client/r0/account/whoami")
+        .uri("/_matrix/client/v3/account/whoami")
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -237,7 +237,7 @@ async fn test_account_routes_work_across_r0_and_v3() {
 
     let r0_profile_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/r0/profile/{}", user_id))
+        .uri(format!("/_matrix/client/v3/profile/{}", user_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -262,7 +262,7 @@ async fn test_account_routes_work_across_r0_and_v3() {
 
     let r0_account_profile_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/r0/account/profile/{}", user_id))
+        .uri(format!("/_matrix/client/v3/profile/{}", user_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -282,7 +282,7 @@ async fn test_account_routes_work_across_r0_and_v3() {
 
     let r0_3pid_request = Request::builder()
         .method("GET")
-        .uri("/_matrix/client/r0/account/3pid")
+        .uri("/_matrix/client/v3/account/3pid")
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -473,7 +473,7 @@ async fn test_admin_cannot_update_another_users_profile_via_client_api() {
 
     let request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/r0/account/profile/{}/displayname", target_user_id))
+        .uri(format!("/_matrix/client/v3/profile/{}/displayname", target_user_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "displayname": "admin overwrite" }).to_string()))
@@ -688,7 +688,7 @@ async fn test_search_recipients_respects_profile_visibility() {
 
     let search_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/search_recipients")
+        .uri("/_matrix/client/v3/search_recipients")
         .header("Authorization", format!("Bearer {}", bob_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -708,7 +708,7 @@ async fn test_search_recipients_respects_profile_visibility() {
 
     let own_search_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/search_recipients")
+        .uri("/_matrix/client/v3/search_recipients")
         .header("Authorization", format!("Bearer {}", alice_token))
         .header("Content-Type", "application/json")
         .body(Body::from(

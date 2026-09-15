@@ -664,7 +664,6 @@ fn create_room_summary_v1_router() -> Router<AppState> {
 pub fn create_room_summary_router(state: AppState) -> Router<AppState> {
     Router::new()
         .nest("/_matrix/client/v3", create_room_summary_v3_router())
-        .nest("/_matrix/client/r0", create_room_summary_read_router())
         .nest("/_matrix/client/v1", create_room_summary_v1_router())
         .route("/_synapse/room_summary/v1/summaries", get(get_user_summaries))
         .route("/_synapse/room_summary/v1/summaries", post(create_internal_room_summary))
@@ -706,10 +705,9 @@ pub fn room_summary_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
     use crate::web::routes::route_ledger::{expand_under_prefixes, RouteEntry};
     use axum::http::Method;
 
-    let mut out = expand_under_prefixes("room_summary", &["/_matrix/client/r0"], &room_summary_read_relative_routes());
     let mut v3_routes = room_summary_read_relative_routes();
     v3_routes.extend(room_summary_v3_extra_relative_routes());
-    out.extend(expand_under_prefixes("room_summary", &["/_matrix/client/v3"], &v3_routes));
+    let mut out = expand_under_prefixes("room_summary", &["/_matrix/client/v3"], &v3_routes);
     out.extend(
         [
             (Method::GET, "/_synapse/room_summary/v1/summaries"),
@@ -731,7 +729,7 @@ mod tests {
     fn test_room_summary_routes_structure() {
         let routes = [
             "/_matrix/client/v3/rooms/{room_id}/summary",
-            "/_matrix/client/r0/rooms/{room_id}/summary",
+            "/_matrix/client/v3/rooms/{room_id}/summary",
             "/_matrix/client/v3/rooms/{room_id}/summary/unread/clear",
             "/_synapse/room_summary/v1/summaries",
         ];
@@ -757,7 +755,7 @@ mod tests {
 
     #[test]
     fn test_room_summary_router_boundaries() {
-        let r0_only_read_paths = [
+        let v3_read_paths = [
             "/rooms/{room_id}/summary",
             "/rooms/{room_id}/summary/members",
             "/rooms/{room_id}/summary/state",
@@ -772,9 +770,9 @@ mod tests {
             "/rooms/{room_id}/summary/unread/clear",
         ];
 
-        assert_eq!(r0_only_read_paths.len(), 4);
+        assert_eq!(v3_read_paths.len(), 4);
         assert_eq!(v3_extra_paths.len(), 6);
-        assert!(v3_extra_paths.iter().all(|path| !r0_only_read_paths.contains(path)));
+        assert!(v3_extra_paths.iter().all(|path| !v3_read_paths.contains(path)));
     }
 
     #[test]

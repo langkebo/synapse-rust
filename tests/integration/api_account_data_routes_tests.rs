@@ -36,7 +36,7 @@ async fn promote_to_admin(pool: &sqlx::PgPool, cache: &CacheManager, user_id: &s
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -93,7 +93,7 @@ async fn test_account_data_round_trip_across_v3_and_r0() {
 
     let get_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/r0/user/{}/account_data/im.vector.settings", user_id))
+        .uri(format!("/_matrix/client/v3/user/{}/account_data/im.vector.settings", user_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -132,7 +132,7 @@ async fn test_account_data_list_returns_saved_entries() {
 
     let list_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/r0/user/{}/account_data/", user_id))
+        .uri(format!("/_matrix/client/v3/user/{}/account_data/", user_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -158,7 +158,7 @@ async fn test_room_account_data_round_trip_across_versions() {
 
     let put_request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/r0/user/{}/rooms/{}/account_data/m.tag", user_id, room_id))
+        .uri(format!("/_matrix/client/v3/user/{}/rooms/{}/account_data/m.tag", user_id, room_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(content.to_string()))
@@ -199,7 +199,7 @@ async fn test_filter_round_trip_across_versions() {
 
     let create_request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/r0/user/{}/filter", user_id))
+        .uri(format!("/_matrix/client/v3/user/{}/filter", user_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(filter.to_string()))
@@ -260,7 +260,7 @@ async fn test_filter_post_route_round_trip() {
 
     let get_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/r0/user/{}/filter/{}", user_id, filter_id))
+        .uri(format!("/_matrix/client/v3/user/{}/filter/{}", user_id, filter_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -282,7 +282,7 @@ async fn test_openid_request_token_route_is_shared() {
     let (token, user_id) = register_user(&app, &username).await;
 
     for path in [
-        format!("/_matrix/client/r0/user/{}/openid/request_token", user_id),
+        format!("/_matrix/client/v3/user/{}/openid/request_token", user_id),
         format!("/_matrix/client/v3/user/{}/openid/request_token", user_id),
     ] {
         let request = Request::builder()
@@ -324,7 +324,7 @@ async fn test_tags_routes_work_across_v3_and_r0() {
 
     let get_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/r0/user/{}/rooms/{}/tags", user_id, room_id))
+        .uri(format!("/_matrix/client/v3/user/{}/rooms/{}/tags", user_id, room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -352,7 +352,7 @@ async fn test_tags_routes_work_across_v3_and_r0() {
 
     let delete_request = Request::builder()
         .method("DELETE")
-        .uri(format!("/_matrix/client/r0/user/{}/rooms/{}/tags/m.favourite", user_id, room_id))
+        .uri(format!("/_matrix/client/v3/user/{}/rooms/{}/tags/m.favourite", user_id, room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();

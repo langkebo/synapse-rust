@@ -89,7 +89,7 @@ fn test_account_compat_routes_also_under_r0_and_v1() {
     // r0 adding the deprecated /account/profile/{user_id}* extras).
     let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
     let paths: std::collections::HashSet<&str> = ledger.iter().map(|e| e.path).collect();
-    for prefix in ["/_matrix/client/v1", "/_matrix/client/r0", "/_matrix/client/v3"] {
+    for prefix in ["/_matrix/client/v1", "/_matrix/client/v3", "/_matrix/client/v3"] {
         assert!(paths.contains(&format!("{prefix}/account/whoami").as_str()), "{prefix}/account/whoami missing");
         assert!(paths.contains(&format!("{prefix}/account/password").as_str()), "{prefix}/account/password missing");
     }
@@ -1022,9 +1022,9 @@ fn test_account_r0_only_profile_aliases_present_in_manifest() {
     let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
     let entries: std::collections::HashSet<(Method, &str)> =
         ledger.iter().map(|e| (e.method.clone(), e.path)).collect();
-    assert!(entries.contains(&(Method::GET, "/_matrix/client/r0/account/profile/{user_id}")));
-    assert!(entries.contains(&(Method::PUT, "/_matrix/client/r0/account/profile/{user_id}/displayname")));
-    assert!(entries.contains(&(Method::PUT, "/_matrix/client/r0/account/profile/{user_id}/avatar_url")));
+    assert!(entries.contains(&(Method::GET, "/_matrix/client/v3/profile/{user_id}")));
+    assert!(entries.contains(&(Method::PUT, "/_matrix/client/v3/profile/{user_id}/displayname")));
+    assert!(entries.contains(&(Method::PUT, "/_matrix/client/v3/profile/{user_id}/avatar_url")));
 }
 
 #[test]

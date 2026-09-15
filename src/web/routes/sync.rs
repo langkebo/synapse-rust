@@ -34,25 +34,18 @@ fn create_sync_compat_router(state: AppState) -> Router<AppState> {
         .route_layer(middleware::from_fn_with_state(state, sync_route_owner_header_middleware))
 }
 
-fn create_sync_r0_router(state: AppState) -> Router<AppState> {
-    create_sync_compat_router(state).route("/joined_rooms", get(get_joined_rooms))
-}
-
 fn create_sync_v3_router(state: AppState) -> Router<AppState> {
     create_sync_compat_router(state).route("/joined_rooms", get(get_joined_rooms)).route("/my_rooms", get(get_my_rooms))
 }
 
 /// See [`create_sync_router`].
 pub fn create_sync_router(state: AppState) -> Router<AppState> {
-    Router::new()
-        .nest("/_matrix/client/r0", create_sync_r0_router(state.clone()))
-        .nest("/_matrix/client/v3", create_sync_v3_router(state))
+    Router::new().nest("/_matrix/client/v3", create_sync_v3_router(state))
 }
 
 /// Manifest of every `(method, absolute_path)` tuple `create_sync_router`
-/// registers. Each version has a distinct inner router (r0 has `/sync`,
-/// `/events`, `/joined_rooms`; v3 has all of the above plus `/my_rooms`) so
-/// the entries are enumerated per-prefix rather than expanded uniformly.
+/// registers. The surface is enumerated per-prefix rather than expanded
+/// uniformly so the `/sync` rate-limit exemption can be attached entry-by-entry.
 pub fn sync_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::expand_under_prefixes;
     use axum::http::Method;
@@ -65,16 +58,6 @@ pub fn sync_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry
     // handler implements its own per-user+device rate limiter. Marking them
     // here lets `create_router` auto-derive the exemption list from the ledger
     // instead of hardcoding paths in the middleware.
-    out.extend(
-        expand_under_prefixes(MODULE, &["/_matrix/client/r0"], &[(Method::GET, "/sync")])
-            .into_iter()
-            .map(|e| e.with_rate_limit_exempt(true)),
-    );
-    out.extend(expand_under_prefixes(
-        MODULE,
-        &["/_matrix/client/r0"],
-        &[(Method::GET, "/events"), (Method::GET, "/joined_rooms")],
-    ));
     out.extend(
         expand_under_prefixes(MODULE, &["/_matrix/client/v3"], &[(Method::GET, "/sync")])
             .into_iter()
@@ -93,9 +76,9 @@ mod tests {
     #[test]
     fn test_sync_routes_structure() {
         let routes = [
-            "/_matrix/client/r0/sync",
-            "/_matrix/client/r0/events",
-            "/_matrix/client/r0/joined_rooms",
+            "/_matrix/client/v3/sync",
+            "/_matrix/client/v3/events",
+            "/_matrix/client/v3/joined_rooms",
             "/_matrix/client/v3/sync",
             "/_matrix/client/v3/events",
             "/_matrix/client/v3/joined_rooms",

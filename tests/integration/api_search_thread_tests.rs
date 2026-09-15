@@ -135,7 +135,7 @@ async fn get_user_id(app: &axum::Router, token: &str) -> String {
 async fn invite_user(app: &axum::Router, token: &str, room_id: &str, user_id: &str) {
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/r0/rooms/{}/invite", room_id))
+        .uri(format!("/_matrix/client/v3/rooms/{}/invite", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "user_id": user_id }).to_string()))
@@ -148,7 +148,7 @@ async fn invite_user(app: &axum::Router, token: &str, room_id: &str, user_id: &s
 async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/r0/rooms/{}/join", room_id))
+        .uri(format!("/_matrix/client/v3/rooms/{}/join", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -200,7 +200,7 @@ async fn test_r0_search_recipients_route_still_works_after_nesting() {
 
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/search_recipients")
+        .uri("/_matrix/client/v3/search_recipients")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(

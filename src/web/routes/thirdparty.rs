@@ -31,16 +31,13 @@ pub fn create_thirdparty_router(state: AppState) -> Router<AppState> {
     let compat_router = create_thirdparty_compat_router();
 
     Router::new()
-        .nest("/_matrix/client/v3", compat_router.clone())
-        .nest("/_matrix/client/r0", compat_router)
+        .nest("/_matrix/client/v3", compat_router)
         .route("/_matrix/client/v3/thirdparty/location", get(get_location_by_alias))
         .route("/_matrix/client/v3/thirdparty/user", get(get_user_by_id))
-        .route("/_matrix/client/r0/thirdparty/location", get(get_location_by_alias))
-        .route("/_matrix/client/r0/thirdparty/user", get(get_user_by_id))
         .with_state(state)
 }
 
-const THIRDPARTY_COMPAT_PREFIXES: &[&str] = &["/_matrix/client/v3", "/_matrix/client/r0"];
+const THIRDPARTY_COMPAT_PREFIXES: &[&str] = &["/_matrix/client/v3"];
 
 fn thirdparty_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     use axum::http::Method;
@@ -59,14 +56,9 @@ pub fn thirdparty_route_manifest() -> Vec<crate::web::routes::route_ledger::Rout
 
     let mut out = expand_under_prefixes("thirdparty", THIRDPARTY_COMPAT_PREFIXES, &thirdparty_compat_relative_routes());
     out.extend(
-        [
-            (Method::GET, "/_matrix/client/v3/thirdparty/location"),
-            (Method::GET, "/_matrix/client/v3/thirdparty/user"),
-            (Method::GET, "/_matrix/client/r0/thirdparty/location"),
-            (Method::GET, "/_matrix/client/r0/thirdparty/user"),
-        ]
-        .into_iter()
-        .map(|(m, p)| RouteEntry::new(m, p, "thirdparty")),
+        [(Method::GET, "/_matrix/client/v3/thirdparty/location"), (Method::GET, "/_matrix/client/v3/thirdparty/user")]
+            .into_iter()
+            .map(|(m, p)| RouteEntry::new(m, p, "thirdparty")),
     );
     out
 }
@@ -171,9 +163,9 @@ mod tests {
     fn test_thirdparty_routes_structure() {
         let compat_routes = [
             "/_matrix/client/v3/thirdparty/protocols",
-            "/_matrix/client/r0/thirdparty/protocol/{protocol}",
+            "/_matrix/client/v3/thirdparty/protocol/{protocol}",
             "/_matrix/client/v3/thirdparty/location/{protocol}",
-            "/_matrix/client/r0/thirdparty/user/{protocol}",
+            "/_matrix/client/v3/thirdparty/user/{protocol}",
         ];
         let v3_only_routes = ["/_matrix/client/v3/thirdparty/location", "/_matrix/client/v3/thirdparty/user"];
 
@@ -198,12 +190,10 @@ mod tests {
     fn test_thirdparty_router_keeps_query_endpoints_outside_compat_scope() {
         let compat_paths = ["/thirdparty/protocols", "/thirdparty/location/{protocol}"];
         let v3_only_paths = ["/_matrix/client/v3/thirdparty/location", "/_matrix/client/v3/thirdparty/user"];
-        let absent_r0_paths = ["/_matrix/client/r0/thirdparty/location", "/_matrix/client/r0/thirdparty/user"];
 
         assert!(compat_paths
             .iter()
             .all(|path| !path.ends_with("/thirdparty/location") && !path.ends_with("/thirdparty/user")));
         assert!(v3_only_paths.iter().all(|path| path.starts_with("/_matrix/client/v3/")));
-        assert!(absent_r0_paths.iter().all(|path| path.starts_with("/_matrix/client/r0/")));
     }
 }

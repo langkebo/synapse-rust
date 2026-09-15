@@ -14,7 +14,7 @@ async fn setup_test_app() -> Option<axum::Router> {
 async fn register_user(app: &axum::Router, username: &str) -> String {
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -37,7 +37,7 @@ async fn register_user(app: &axum::Router, username: &str) -> String {
 async fn register_user_with_id(app: &axum::Router, username: &str) -> (String, String) {
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -130,7 +130,7 @@ async fn create_widget_session(app: &axum::Router, token: &str, widget_id: &str)
 async fn invite_user(app: &axum::Router, token: &str, room_id: &str, user_id: &str) {
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/r0/rooms/{}/invite", room_id))
+        .uri(format!("/_matrix/client/v3/rooms/{}/invite", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "user_id": user_id }).to_string()))
@@ -143,7 +143,7 @@ async fn invite_user(app: &axum::Router, token: &str, room_id: &str, user_id: &s
 async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/r0/rooms/{}/join", room_id))
+        .uri(format!("/_matrix/client/v3/rooms/{}/join", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -161,7 +161,7 @@ async fn set_room_power_levels(
 ) {
     let request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/r0/rooms/{}/state/m.room.power_levels", room_id))
+        .uri(format!("/_matrix/client/v3/rooms/{}/state/m.room.power_levels", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(

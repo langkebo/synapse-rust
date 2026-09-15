@@ -133,7 +133,6 @@ fn test_token_expiry_calculation() {
 // Test 15: API version detection
 #[test]
 fn test_api_version_detection() {
-    assert_eq!(detect_api_version("/_matrix/client/r0/sync"), Some("r0".to_string()));
     assert_eq!(detect_api_version("/_matrix/client/v3/sync"), Some("v3".to_string()));
     assert_eq!(detect_api_version("/_matrix/client/versions"), Some("v1".to_string()));
     assert_eq!(detect_api_version("/health"), None);
@@ -243,9 +242,7 @@ fn is_valid_invite_list(invites: &[String]) -> bool {
 }
 
 fn detect_api_version(path: &str) -> Option<String> {
-    if path.contains("/r0/") {
-        Some("r0".to_string())
-    } else if path.contains("/v3/") {
+    if path.contains("/v3/") {
         Some("v3".to_string())
     } else if path.contains("/v1/") || path.contains("/versions") {
         Some("v1".to_string())

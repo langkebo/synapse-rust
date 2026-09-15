@@ -347,7 +347,7 @@ mod tests {
     #[test]
     fn saml_manifest_declares_core_routes() {
         let entries = saml::saml_route_manifest();
-        assert!(contains(&entries, &Method::GET, "/_matrix/client/r0/login/sso/redirect/saml"));
+        assert!(contains(&entries, &Method::GET, "/_matrix/client/v3/login/sso/redirect/saml"));
         assert!(contains(&entries, &Method::POST, "/_synapse/admin/v1/saml/metadata/refresh"));
     }
 
@@ -379,9 +379,9 @@ mod tests {
     #[test]
     fn voice_manifest_declares_core_routes() {
         let entries = voice::voice_route_manifest();
-        assert!(contains(&entries, &Method::GET, "/_matrix/client/r0/voice/config"));
+        assert!(contains(&entries, &Method::GET, "/_matrix/client/v3/voice/config"));
         assert!(contains(&entries, &Method::GET, "/_matrix/client/v1/voice/config"));
-        assert!(contains(&entries, &Method::POST, "/_matrix/client/r0/voice/upload"));
+        assert!(contains(&entries, &Method::POST, "/_matrix/client/v3/voice/upload"));
     }
 
     #[cfg(feature = "external-services")]

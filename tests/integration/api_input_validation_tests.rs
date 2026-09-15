@@ -111,7 +111,7 @@ async fn test_client_input_validation() {
     let long_username = "a".repeat(256);
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -129,7 +129,7 @@ async fn test_client_input_validation() {
     let long_name = "a".repeat(256);
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/createRoom")
+        .uri("/_matrix/client/v3/createRoom")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -146,7 +146,7 @@ async fn test_client_input_validation() {
     // Create a valid room first
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/createRoom")
+        .uri("/_matrix/client/v3/createRoom")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({}).to_string()))
@@ -158,7 +158,7 @@ async fn test_client_input_validation() {
 
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/r0/rooms/{}/invite", room_id))
+        .uri(format!("/_matrix/client/v3/rooms/{}/invite", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({"user_id": "@nonexistent:localhost"}).to_string()))

@@ -133,7 +133,7 @@ pub(crate) async fn request_email_verification(
     request_email_verification_with_submit_path(
         &ctx,
         &body,
-        "/_matrix/client/r0/register/email/submitToken",
+        "/_matrix/client/v3/register/email/submitToken",
         None,
         "register",
         &request_id,

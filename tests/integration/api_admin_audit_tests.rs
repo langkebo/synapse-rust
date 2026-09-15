@@ -45,7 +45,7 @@ async fn create_test_user(app: &axum::Router) -> (String, String) {
 
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({

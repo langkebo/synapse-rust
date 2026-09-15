@@ -35,7 +35,7 @@ fn create_room_power_levels_compat_router() -> Router<AppState> {
     Router::new().route("/rooms/{room_id}/state/m.room.power_levels/", get(get_power_levels).put(put_power_levels))
 }
 
-fn create_room_r0_v3_compat_router() -> Router<AppState> {
+fn create_room_shared_compat_router() -> Router<AppState> {
     Router::new()
         .route("/rooms/{room_id}", get(get_room_info))
         .route("/rooms/{room_id}/messages", get(get_messages))
@@ -74,21 +74,15 @@ fn create_room_r0_v3_compat_router() -> Router<AppState> {
         .route("/rooms/{room_id}/event/{event_id}", get(get_single_event))
 }
 
-fn create_room_r0_router() -> Router<AppState> {
-    create_room_r0_v3_compat_router()
-        .merge(create_room_power_levels_compat_router())
-        .route("/createRoom", post(create_room))
-        .route("/rooms/{room_id}/get_membership_events", post(get_membership_events))
-}
-
 fn create_room_v1_router() -> Router<AppState> {
     create_room_power_levels_compat_router().route("/user/mutual_rooms", get(get_mutual_rooms))
 }
 
 fn create_room_v3_router() -> Router<AppState> {
-    create_room_r0_v3_compat_router()
+    create_room_shared_compat_router()
         .merge(create_room_power_levels_compat_router())
         .route("/createRoom", post(create_room))
+        .route("/rooms/{room_id}/get_membership_events", post(get_membership_events))
         .route("/rooms/{room_id}/visibility", get(get_room_visibility).put(set_room_visibility))
         .route("/rooms/{room_id}/permissions", get(get_room_permissions))
         .route("/rooms/{room_id}/resolve", get(get_room_resolve))
@@ -148,7 +142,6 @@ fn create_room_v3_router() -> Router<AppState> {
 /// See [`create_room_router`].
 pub fn create_room_router() -> Router<AppState> {
     Router::new()
-        .nest("/_matrix/client/r0", create_room_r0_router())
         .nest("/_matrix/client/v1", create_room_v1_router())
         .nest("/_matrix/client/v3", create_room_v3_router())
         .route("/_matrix/client/v3/rooms/create_private", post(create_private_room))
@@ -157,7 +150,7 @@ pub fn create_room_router() -> Router<AppState> {
         .route("/_matrix/client/unstable/uk.half-shot.msc2666/user/mutual_rooms", get(get_mutual_rooms))
 }
 
-fn room_r0_v3_shared_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
+fn room_shared_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     use axum::http::Method;
     let base: Vec<(Method, &'static str)> = vec![
         (Method::GET, "/rooms/{room_id}"),
@@ -272,21 +265,16 @@ pub fn room_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry
     use crate::web::routes::route_ledger::expand_under_prefixes;
     use axum::http::Method;
 
-    let mut r0_relative: Vec<(Method, &'static str)> = room_r0_v3_shared_relative_routes();
-    r0_relative.extend(room_power_levels_compat_relative_routes());
-    r0_relative.push((Method::POST, "/createRoom"));
-    r0_relative.push((Method::POST, "/rooms/{room_id}/get_membership_events"));
-
     let mut v1_relative = room_power_levels_compat_relative_routes();
     // MSC2666: Mutual rooms — expands to /_matrix/client/v1/user/mutual_rooms
     v1_relative.push((Method::GET, "/user/mutual_rooms"));
 
-    let mut v3_relative: Vec<(Method, &'static str)> = room_r0_v3_shared_relative_routes();
+    let mut v3_relative: Vec<(Method, &'static str)> = room_shared_relative_routes();
     v3_relative.extend(room_power_levels_compat_relative_routes());
     v3_relative.extend(room_v3_only_relative_routes());
+    v3_relative.push((Method::POST, "/rooms/{room_id}/get_membership_events"));
 
-    let mut entries = expand_under_prefixes("room", &["/_matrix/client/r0"], &r0_relative);
-    entries.extend(expand_under_prefixes("room", &["/_matrix/client/v1"], &v1_relative));
+    let mut entries = expand_under_prefixes("room", &["/_matrix/client/v1"], &v1_relative);
     entries.extend(expand_under_prefixes("room", &["/_matrix/client/v3"], &v3_relative));
     entries.push(crate::web::routes::route_ledger::RouteEntry::new(
         Method::POST,
@@ -314,9 +302,9 @@ mod tests {
     #[test]
     fn test_room_routes_structure() {
         let routes = [
-            "/_matrix/client/r0/rooms/{room_id}",
-            "/_matrix/client/r0/rooms/{room_id}/messages",
-            "/_matrix/client/r0/createRoom",
+            "/_matrix/client/v3/rooms/{room_id}",
+            "/_matrix/client/v3/rooms/{room_id}/messages",
+            "/_matrix/client/v3/createRoom",
             "/_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/",
             "/_matrix/client/v3/createRoom",
             "/_matrix/client/v3/rooms/{room_id}/notifications",
@@ -329,14 +317,14 @@ mod tests {
 
     #[test]
     fn test_room_router_keeps_version_specific_paths() {
-        let r0_only = ["/_matrix/client/r0/rooms/{room_id}/get_membership_events"];
+        let membership_events = ["/_matrix/client/v3/rooms/{room_id}/get_membership_events"];
         let v3_only = [
             "/_matrix/client/v3/createRoom",
             "/_matrix/client/v3/rooms/{room_id}/notifications",
             "/_matrix/client/v3/rooms/{room_id}/sticky_events/{event_type}",
         ];
 
-        assert!(r0_only.iter().all(|route| route.starts_with("/_matrix/client/r0/")));
+        assert!(membership_events.iter().all(|route| route.starts_with("/_matrix/client/v3/")));
         assert!(v3_only.iter().all(|route| route.starts_with("/_matrix/client/v3/")));
     }
 }

@@ -231,9 +231,9 @@ mod tests {
     #[test]
     fn test_e2ee_routes_structure() {
         let compat_routes = [
-            "/_matrix/client/r0/keys/upload",
+            "/_matrix/client/v3/keys/upload",
             "/_matrix/client/v3/keys/query",
-            "/_matrix/client/r0/keys/device_signing/upload",
+            "/_matrix/client/v3/keys/device_signing/upload",
             "/_matrix/client/v3/sendToDevice/{event_type}/{transaction_id}",
         ];
 

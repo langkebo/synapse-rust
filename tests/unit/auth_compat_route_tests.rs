@@ -38,25 +38,25 @@ fn test_auth_compat_routes_present_in_default_manifest() {
         ledger.iter().map(|e| (e.method.clone(), e.path)).collect();
 
     let expected = [
-        (Method::GET, "/_matrix/client/r0/register"),
-        (Method::POST, "/_matrix/client/r0/register"),
         (Method::GET, "/_matrix/client/v3/register"),
         (Method::POST, "/_matrix/client/v3/register"),
-        (Method::GET, "/_matrix/client/r0/register/available"),
+        (Method::GET, "/_matrix/client/v3/register"),
+        (Method::POST, "/_matrix/client/v3/register"),
         (Method::GET, "/_matrix/client/v3/register/available"),
-        (Method::POST, "/_matrix/client/r0/register/email/requestToken"),
+        (Method::GET, "/_matrix/client/v3/register/available"),
         (Method::POST, "/_matrix/client/v3/register/email/requestToken"),
-        (Method::POST, "/_matrix/client/r0/register/email/submitToken"),
+        (Method::POST, "/_matrix/client/v3/register/email/requestToken"),
         (Method::POST, "/_matrix/client/v3/register/email/submitToken"),
-        (Method::GET, "/_matrix/client/r0/login"),
-        (Method::POST, "/_matrix/client/r0/login"),
+        (Method::POST, "/_matrix/client/v3/register/email/submitToken"),
         (Method::GET, "/_matrix/client/v3/login"),
         (Method::POST, "/_matrix/client/v3/login"),
-        (Method::POST, "/_matrix/client/r0/logout"),
+        (Method::GET, "/_matrix/client/v3/login"),
+        (Method::POST, "/_matrix/client/v3/login"),
         (Method::POST, "/_matrix/client/v3/logout"),
-        (Method::POST, "/_matrix/client/r0/logout/all"),
+        (Method::POST, "/_matrix/client/v3/logout"),
         (Method::POST, "/_matrix/client/v3/logout/all"),
-        (Method::POST, "/_matrix/client/r0/refresh"),
+        (Method::POST, "/_matrix/client/v3/logout/all"),
+        (Method::POST, "/_matrix/client/v3/refresh"),
         (Method::POST, "/_matrix/client/v3/refresh"),
     ];
     for (m, p) in &expected {
@@ -80,10 +80,10 @@ fn test_auth_compat_routes_tagged_assembly_auth_compat() {
     let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
     let auth_compat_entries: Vec<_> = ledger.iter().filter(|e| e.registered_by == "assembly::auth_compat").collect();
     assert!(!auth_compat_entries.is_empty(), "expected assembly::auth_compat-tagged entries");
-    // Should include all 10 (method, relative-path) tuples × 2 prefixes (r0, v3) = 20 entries.
+    // r0 removed: 10 (method, relative-path) tuples × 1 prefix (v3) = 10 entries.
     assert!(
-        auth_compat_entries.len() >= 20,
-        "expected at least 20 auth_compat entries, got {}",
+        auth_compat_entries.len() >= 10,
+        "expected at least 10 auth_compat entries, got {}",
         auth_compat_entries.len()
     );
 }

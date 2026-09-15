@@ -9,7 +9,7 @@ use tower::ServiceExt;
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -49,7 +49,7 @@ async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
 async fn invite_user(app: &axum::Router, token: &str, room_id: &str, user_id: &str) {
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/r0/rooms/{}/invite", room_id))
+        .uri(format!("/_matrix/client/v3/rooms/{}/invite", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "user_id": user_id }).to_string()))
@@ -62,7 +62,7 @@ async fn invite_user(app: &axum::Router, token: &str, room_id: &str, user_id: &s
 async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/r0/rooms/{}/join", room_id))
+        .uri(format!("/_matrix/client/v3/rooms/{}/join", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -229,7 +229,7 @@ async fn test_push_rules_scope_contract_rejects_non_global_scope() {
     let username = format!("push_scope_{}", rand::random::<u32>());
     let (token, _) = register_user(&app, &username).await;
 
-    for path in ["/_matrix/client/r0/pushrules/device", "/_matrix/client/v3/pushrules/device"] {
+    for path in ["/_matrix/client/v3/pushrules/device", "/_matrix/client/v3/pushrules/device"] {
         assert_matrix_error(
             &app,
             Request::builder()
@@ -257,7 +257,7 @@ async fn test_directory_room_alias_contract_returns_not_found_for_missing_alias(
     let encoded_alias = urlencoding::encode(&alias);
 
     for path in [
-        format!("/_matrix/client/r0/directory/room/{}", encoded_alias),
+        format!("/_matrix/client/v3/directory/room/{}", encoded_alias),
         format!("/_matrix/client/v3/directory/room/{}", encoded_alias),
     ] {
         assert_matrix_error(
@@ -286,7 +286,7 @@ async fn test_account_data_contract_returns_not_found_for_missing_custom_type() 
     let data_type = format!("com.example.missing.{}", rand::random::<u32>());
 
     for path in [
-        format!("/_matrix/client/r0/user/{}/account_data/{}", user_id, data_type),
+        format!("/_matrix/client/v3/user/{}/account_data/{}", user_id, data_type),
         format!("/_matrix/client/v3/user/{}/account_data/{}", user_id, data_type),
     ] {
         assert_matrix_error(
@@ -316,7 +316,7 @@ async fn test_room_key_distribution_contract_rejects_client_access_without_sessi
     let encoded_room_id = encode_room_id(&room_id);
 
     for path in [
-        format!("/_matrix/client/r0/rooms/{}/keys/distribution", encoded_room_id),
+        format!("/_matrix/client/v3/rooms/{}/keys/distribution", encoded_room_id),
         format!("/_matrix/client/v3/rooms/{}/keys/distribution", encoded_room_id),
     ] {
         assert_matrix_error(
@@ -349,7 +349,7 @@ async fn test_room_key_distribution_contract_rejects_non_members() {
     let encoded_room_id = encode_room_id(&room_id);
 
     for path in [
-        format!("/_matrix/client/r0/rooms/{}/keys/distribution", encoded_room_id),
+        format!("/_matrix/client/v3/rooms/{}/keys/distribution", encoded_room_id),
         format!("/_matrix/client/v3/rooms/{}/keys/distribution", encoded_room_id),
     ] {
         assert_matrix_error(
@@ -399,7 +399,7 @@ async fn test_room_key_distribution_contract_rejects_members_even_with_session()
     let encoded_room_id = encode_room_id(&room_id);
     for (token, expected_status) in [(&owner_token, StatusCode::FORBIDDEN), (&member_token, StatusCode::FORBIDDEN)] {
         for path in [
-            format!("/_matrix/client/r0/rooms/{}/keys/distribution", encoded_room_id),
+            format!("/_matrix/client/v3/rooms/{}/keys/distribution", encoded_room_id),
             format!("/_matrix/client/v3/rooms/{}/keys/distribution", encoded_room_id),
         ] {
             assert_matrix_error(
@@ -750,7 +750,7 @@ async fn test_thirdparty_contract_rejects_builtin_irc_placeholders() {
         app.clone(),
         Request::builder()
             .method("GET")
-            .uri("/_matrix/client/r0/thirdparty/protocol/irc")
+            .uri("/_matrix/client/v3/thirdparty/protocol/irc")
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap(),
@@ -941,7 +941,7 @@ async fn test_room_initial_sync_contract_returns_state_members_and_messages() {
         app.clone(),
         Request::builder()
             .method("GET")
-            .uri(format!("/_matrix/client/r0/rooms/{}/initialSync?limit=5", encoded_room_id))
+            .uri(format!("/_matrix/client/v3/rooms/{}/initialSync?limit=5", encoded_room_id))
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap(),
@@ -1038,7 +1038,7 @@ async fn test_receipt_contract_rejects_invalid_event_id_and_receipt_type() {
         &app,
         Request::builder()
             .method("POST")
-            .uri(format!("/_matrix/client/r0/rooms/{}/receipt/m.read/invalid-event-id", encoded_room_id))
+            .uri(format!("/_matrix/client/v3/rooms/{}/receipt/m.read/invalid-event-id", encoded_room_id))
             .header("Authorization", format!("Bearer {}", token))
             .header("Content-Type", "application/json")
             .body(Body::from(json!({}).to_string()))
@@ -1053,7 +1053,7 @@ async fn test_receipt_contract_rejects_invalid_event_id_and_receipt_type() {
         Request::builder()
             .method("GET")
             .uri(format!(
-                "/_matrix/client/r0/rooms/{}/receipts/invalid-receipt/{event_id}",
+                "/_matrix/client/v3/rooms/{}/receipts/invalid-receipt/{event_id}",
                 encoded_room_id,
                 event_id = "$event:localhost".replace('$', "%24")
             ))

@@ -603,10 +603,7 @@ pub fn create_dm_router(state: AppState) -> Router<AppState> {
         .route("/rooms/{room_id}/dm/partner", get(get_dm_partner_route));
 
     Router::new()
-        .route("/_matrix/client/r0/create_dm", post(create_dm_room))
         .route("/_matrix/client/v3/create_dm", post(create_dm_room))
-        .route("/_matrix/client/r0/direct", get(get_dm_rooms))
-        .route("/_matrix/client/r0/direct/{room_id}", put(update_dm_room))
         .nest("/_matrix/client/v3", v3_router)
         .with_state(state)
 }
@@ -616,10 +613,7 @@ pub fn dm_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> 
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
     [
-        (Method::POST, "/_matrix/client/r0/create_dm"),
         (Method::POST, "/_matrix/client/v3/create_dm"),
-        (Method::GET, "/_matrix/client/r0/direct"),
-        (Method::PUT, "/_matrix/client/r0/direct/{room_id}"),
         (Method::GET, "/_matrix/client/v3/direct"),
         (Method::PUT, "/_matrix/client/v3/direct/{room_id}"),
         (Method::GET, "/_matrix/client/v3/rooms/{room_id}/dm"),

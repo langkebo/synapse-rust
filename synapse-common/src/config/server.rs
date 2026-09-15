@@ -285,17 +285,6 @@ pub struct ServerConfig {
     /// `megolm_encryption_key_path` field.
     pub megolm_encryption_key_path: Option<String>,
 
-    /// 是否抑制 r0 路由弃用告警。
-    ///
-    /// r0 路由为兼容旧版 Matrix 客户端而保留。默认情况下，启动时会
-    /// 打印一条 WARN 日志列出已注册的 r0 路由数量。当部署明确需要
-    /// 支持 r0 客户端时，可设为 `true` 抑制该告警。
-    ///
-    /// 也可通过环境变量 `SYNAPSE__SERVER__SUPPRESS_R0_DEPRECATION_WARNING` 覆盖。
-    #[serde(default)]
-    /// `suppress_r0_deprecation_warning` field.
-    pub suppress_r0_deprecation_warning: bool,
-
     /// 是否抑制 vendor 私有端点旧别名弃用告警。
     ///
     /// ISSUE-13: 私有端点 (/my_rooms, /search_rooms, /search_recipients)

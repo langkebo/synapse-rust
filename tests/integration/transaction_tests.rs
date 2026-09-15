@@ -188,7 +188,7 @@ async fn setup_test_app() -> Option<axum::Router> {
 async fn register_user(app: &axum::Router, username: &str) -> Option<String> {
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -225,7 +225,7 @@ async fn test_trusted_private_chat_transaction() {
 
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/createRoom")
+        .uri("/_matrix/client/v3/createRoom")
         .header("Authorization", format!("Bearer {}", alice_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -249,7 +249,7 @@ async fn test_trusted_private_chat_transaction() {
     let room_id = json["room_id"].as_str().unwrap().to_string();
 
     let request = Request::builder()
-        .uri(format!("/_matrix/client/r0/rooms/{}/state", room_id))
+        .uri(format!("/_matrix/client/v3/rooms/{}/state", room_id))
         .header("Authorization", format!("Bearer {}", alice_token))
         .body(Body::empty())
         .unwrap();

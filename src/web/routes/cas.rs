@@ -144,7 +144,6 @@ pub fn cas_routes(state: AppState) -> Router<AppState> {
         .route("/proxy", get(proxy))
         .route("/p3/serviceValidate", get(p3_service_validate))
         .route("/logout", get(logout))
-        .route("/_matrix/client/r0/login/sso/redirect/cas", get(cas_sso_redirect))
         .route("/_matrix/client/v3/login/sso/redirect/cas", get(cas_sso_redirect))
         .route_layer(middleware::from_fn_with_state(state.clone(), cas_config_check_middleware));
 

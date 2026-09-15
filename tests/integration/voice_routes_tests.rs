@@ -16,7 +16,7 @@ async fn create_test_user(app: &axum::Router) -> String {
 
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -81,7 +81,7 @@ async fn upload_voice_message(app: &axum::Router, token: &str, room_id: Option<&
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/_matrix/client/r0/voice/upload")
+                .uri("/_matrix/client/v3/voice/upload")
                 .method("POST")
                 .header("Authorization", format!("Bearer {}", token))
                 .header("Content-Type", "application/json")
@@ -105,7 +105,7 @@ async fn test_voice_config_endpoint() {
 
     let token = create_test_user(&app).await;
 
-    for uri in ["/_matrix/client/r0/voice/config", "/_matrix/client/v1/voice/config", "/_matrix/client/v3/voice/config"]
+    for uri in ["/_matrix/client/v3/voice/config", "/_matrix/client/v1/voice/config", "/_matrix/client/v3/voice/config"]
     {
         let response = app
             .clone()
@@ -204,7 +204,7 @@ async fn test_voip_routes_work_across_r0_and_v3() {
 
     let r0_config_request = Request::builder()
         .method("GET")
-        .uri("/_matrix/client/r0/voip/config")
+        .uri("/_matrix/client/v3/voip/config")
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -229,7 +229,7 @@ async fn test_voip_routes_work_across_r0_and_v3() {
 
     let r0_turn_request = Request::builder()
         .method("GET")
-        .uri("/_matrix/client/r0/voip/turnServer")
+        .uri("/_matrix/client/v3/voip/turnServer")
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();

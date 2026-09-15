@@ -103,7 +103,7 @@ pub async fn get_typing_users(
 }
 
 /// Get user typing
-/// GET /_matrix/client/r0/rooms/{room_id}/typing/{user_id}
+/// GET /_matrix/client/v3/rooms/{room_id}/typing/{user_id}
 pub async fn get_user_typing(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -148,14 +148,8 @@ pub fn create_typing_router(state: AppState) -> Router<AppState> {
             "/_matrix/client/v3/rooms/{room_id}/typing/{user_id}",
             put(set_typing).post(set_typing).get(get_user_typing),
         )
-        .route(
-            "/_matrix/client/r0/rooms/{room_id}/typing/{user_id}",
-            put(set_typing).post(set_typing).get(get_user_typing),
-        )
         .route("/_matrix/client/v3/rooms/{room_id}/typing", get(get_typing_users))
-        .route("/_matrix/client/r0/rooms/{room_id}/typing", get(get_typing_users))
         .route("/_matrix/client/v3/rooms/typing", post(bulk_get_typing))
-        .route("/_matrix/client/r0/rooms/typing", post(bulk_get_typing))
         .with_state(state)
 }
 

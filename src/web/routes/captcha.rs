@@ -140,9 +140,6 @@ pub fn create_captcha_router(state: &AppState) -> axum::Router<AppState> {
     use axum::routing::*;
 
     let public_routes = axum::Router::new()
-        .route("/_matrix/client/r0/register/captcha/send", post(send_captcha))
-        .route("/_matrix/client/r0/register/captcha/verify", post(verify_captcha))
-        .route("/_matrix/client/r0/register/captcha/status", get(get_captcha_status))
         .route("/_matrix/client/v3/register/captcha/send", post(send_captcha))
         .route("/_matrix/client/v3/register/captcha/verify", post(verify_captcha))
         .route("/_matrix/client/v3/register/captcha/status", get(get_captcha_status))
@@ -165,9 +162,6 @@ pub fn captcha_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEn
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
     [
-        (Method::POST, "/_matrix/client/r0/register/captcha/send"),
-        (Method::POST, "/_matrix/client/r0/register/captcha/verify"),
-        (Method::GET, "/_matrix/client/r0/register/captcha/status"),
         (Method::POST, "/_matrix/client/v3/register/captcha/send"),
         (Method::POST, "/_matrix/client/v3/register/captcha/verify"),
         (Method::GET, "/_matrix/client/v3/register/captcha/status"),

@@ -8,7 +8,7 @@ use tower::ServiceExt;
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/r0/register")
+        .uri("/_matrix/client/v3/register")
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -57,7 +57,7 @@ async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
 async fn invite_user(app: &axum::Router, token: &str, room_id: &str, user_id: &str) {
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/r0/rooms/{}/invite", room_id))
+        .uri(format!("/_matrix/client/v3/rooms/{}/invite", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "user_id": user_id }).to_string()))
@@ -70,7 +70,7 @@ async fn invite_user(app: &axum::Router, token: &str, room_id: &str, user_id: &s
 async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/r0/rooms/{}/join", room_id))
+        .uri(format!("/_matrix/client/v3/rooms/{}/join", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -111,7 +111,7 @@ async fn put_state_event_empty_key(
 ) -> String {
     let request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/r0/rooms/{}/state/{}/", room_id, event_type))
+        .uri(format!("/_matrix/client/v3/rooms/{}/state/{}/", room_id, event_type))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(content.to_string()))
@@ -135,7 +135,7 @@ async fn put_state_event(
 ) -> String {
     let request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/r0/rooms/{}/state/{}/{}", room_id, event_type, state_key))
+        .uri(format!("/_matrix/client/v3/rooms/{}/state/{}/{}", room_id, event_type, state_key))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(content.to_string()))
@@ -186,7 +186,7 @@ async fn test_power_levels_contract_allows_explicit_room_admin_to_kick() {
         app.clone(),
         Request::builder()
             .method("PUT")
-            .uri(format!("/_matrix/client/r0/rooms/{}/state/m.room.power_levels", room_id))
+            .uri(format!("/_matrix/client/v3/rooms/{}/state/m.room.power_levels", room_id))
             .header("Authorization", format!("Bearer {}", alice_token))
             .header("Content-Type", "application/json")
             .body(Body::from(
@@ -221,7 +221,7 @@ async fn test_power_levels_contract_allows_explicit_room_admin_to_kick() {
         app.clone(),
         Request::builder()
             .method("POST")
-            .uri(format!("/_matrix/client/r0/rooms/{}/kick", room_id))
+            .uri(format!("/_matrix/client/v3/rooms/{}/kick", room_id))
             .header("Authorization", format!("Bearer {}", bob_token))
             .header("Content-Type", "application/json")
             .body(Body::from(json!({ "user_id": charlie_user_id, "reason": "moderation" }).to_string()))
@@ -279,7 +279,7 @@ async fn test_membership_events_contract_rejects_non_members() {
         &app,
         Request::builder()
             .method("POST")
-            .uri(format!("/_matrix/client/r0/rooms/{}/get_membership_events", encoded_room_id))
+            .uri(format!("/_matrix/client/v3/rooms/{}/get_membership_events", encoded_room_id))
             .header("Authorization", format!("Bearer {}", outsider_token))
             .header("Content-Type", "application/json")
             .body(Body::from(json!({ "limit": 10 }).to_string()))
@@ -308,7 +308,7 @@ async fn test_pinned_events_contract_rejects_non_members() {
         &app,
         Request::builder()
             .method("GET")
-            .uri(format!("/_matrix/client/r0/rooms/{}/pinned_events", encoded_room_id))
+            .uri(format!("/_matrix/client/v3/rooms/{}/pinned_events", encoded_room_id))
             .header("Authorization", format!("Bearer {}", outsider_token))
             .body(Body::empty())
             .unwrap(),
@@ -337,7 +337,7 @@ async fn test_pin_event_contract_rejects_non_members() {
         &app,
         Request::builder()
             .method("POST")
-            .uri(format!("/_matrix/client/r0/rooms/{}/pinned_events", encoded_room_id))
+            .uri(format!("/_matrix/client/v3/rooms/{}/pinned_events", encoded_room_id))
             .header("Authorization", format!("Bearer {}", outsider_token))
             .header("Content-Type", "application/json")
             .body(Body::from(json!({ "event_id": event_id }).to_string()))
@@ -369,7 +369,7 @@ async fn test_pin_event_contract_rejects_regular_members_without_power() {
         &app,
         Request::builder()
             .method("POST")
-            .uri(format!("/_matrix/client/r0/rooms/{}/pinned_events", encoded_room_id))
+            .uri(format!("/_matrix/client/v3/rooms/{}/pinned_events", encoded_room_id))
             .header("Authorization", format!("Bearer {}", member_token))
             .header("Content-Type", "application/json")
             .body(Body::from(json!({ "event_id": event_id }).to_string()))
@@ -398,7 +398,7 @@ async fn test_search_rooms_contract_hides_private_rooms_from_outsiders() {
         app.clone(),
         Request::builder()
             .method("POST")
-            .uri("/_matrix/client/r0/search_rooms")
+            .uri("/_matrix/client/v3/search_rooms")
             .header("Authorization", format!("Bearer {}", outsider_token))
             .header("Content-Type", "application/json")
             .body(Body::from(json!({ "search_term": room_name, "limit": 10 }).to_string()))
@@ -437,7 +437,7 @@ async fn test_search_rooms_contract_allows_members_to_find_joined_private_rooms(
         app.clone(),
         Request::builder()
             .method("POST")
-            .uri("/_matrix/client/r0/search_rooms")
+            .uri("/_matrix/client/v3/search_rooms")
             .header("Authorization", format!("Bearer {}", member_token))
             .header("Content-Type", "application/json")
             .body(Body::from(json!({ "search_term": room_name, "limit": 10 }).to_string()))
@@ -491,7 +491,7 @@ async fn test_protected_state_events_contract_rejects_regular_members() {
             &app,
             Request::builder()
                 .method("PUT")
-                .uri(format!("/_matrix/client/r0/rooms/{}/state/{}", room_id, event_type))
+                .uri(format!("/_matrix/client/v3/rooms/{}/state/{}", room_id, event_type))
                 .header("Authorization", format!("Bearer {}", bob_token))
                 .header("Content-Type", "application/json")
                 .body(Body::from(body.to_string()))
@@ -522,7 +522,7 @@ async fn test_state_default_contract_rejects_regular_member_topic_write() {
         &app,
         Request::builder()
             .method("PUT")
-            .uri(format!("/_matrix/client/r0/rooms/{}/state/m.room.topic", room_id))
+            .uri(format!("/_matrix/client/v3/rooms/{}/state/m.room.topic", room_id))
             .header("Authorization", format!("Bearer {}", bob_token))
             .header("Content-Type", "application/json")
             .body(Body::from(json!({ "topic": "member overwrite" }).to_string()))
@@ -550,7 +550,7 @@ async fn test_get_state_event_empty_key_returns_raw_content_only() {
         app,
         Request::builder()
             .method("GET")
-            .uri(format!("/_matrix/client/r0/rooms/{}/state/m.room.topic", room_id))
+            .uri(format!("/_matrix/client/v3/rooms/{}/state/m.room.topic", room_id))
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap(),
@@ -590,7 +590,7 @@ async fn test_get_state_event_with_state_key_returns_raw_content_only() {
         app,
         Request::builder()
             .method("GET")
-            .uri(format!("/_matrix/client/r0/rooms/{}/state/m.test.flag/primary", room_id))
+            .uri(format!("/_matrix/client/v3/rooms/{}/state/m.test.flag/primary", room_id))
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap(),
@@ -632,7 +632,7 @@ async fn test_invite_only_join_contract_rejects_uninvited_user() {
         &app,
         Request::builder()
             .method("POST")
-            .uri(format!("/_matrix/client/r0/rooms/{}/join", room_id))
+            .uri(format!("/_matrix/client/v3/rooms/{}/join", room_id))
             .header("Authorization", format!("Bearer {}", bob_token))
             .body(Body::empty())
             .unwrap(),
@@ -671,7 +671,7 @@ async fn test_room_info_contract_reflects_invites_and_guest_access() {
         app.clone(),
         Request::builder()
             .method("GET")
-            .uri(format!("/_matrix/client/r0/rooms/{}", encoded_room_id))
+            .uri(format!("/_matrix/client/v3/rooms/{}", encoded_room_id))
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap(),
@@ -716,7 +716,7 @@ async fn test_room_members_recent_contract_uses_coherent_index_tokens() {
         app.clone(),
         Request::builder()
             .method("GET")
-            .uri(format!("/_matrix/client/r0/rooms/{}/members/recent?from=0&limit=1", encoded_room_id))
+            .uri(format!("/_matrix/client/v3/rooms/{}/members/recent?from=0&limit=1", encoded_room_id))
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap(),
@@ -736,7 +736,7 @@ async fn test_room_members_recent_contract_uses_coherent_index_tokens() {
         app.clone(),
         Request::builder()
             .method("GET")
-            .uri(format!("/_matrix/client/r0/rooms/{}/members/recent?from=1&limit=1", encoded_room_id))
+            .uri(format!("/_matrix/client/v3/rooms/{}/members/recent?from=1&limit=1", encoded_room_id))
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap(),
