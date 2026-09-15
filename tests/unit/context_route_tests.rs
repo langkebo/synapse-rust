@@ -273,7 +273,6 @@ fn test_auth_context_public_fields_are_accessible() {
         let _ = &ctx.metrics;
         let _ = &ctx.identity_service;
         let _ = &ctx.oidc_service;
-        let _ = &ctx.threepid_storage;
         let _ = &ctx.rendezvous_storage;
         let _ = &ctx.rendezvous_message_storage;
     }

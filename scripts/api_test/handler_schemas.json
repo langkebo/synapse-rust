@@ -428,18 +428,6 @@
         "post"
       ]
     ],
-    "update_displayname": [
-      [
-        "/account/profile/{user_id}/displayname",
-        "put"
-      ]
-    ],
-    "update_avatar": [
-      [
-        "/account/profile/{user_id}/avatar_url",
-        "put"
-      ]
-    ],
     "search_user_directory": [
       [
         "/user_directory/search",
@@ -550,19 +538,11 @@
     ],
     "send_captcha": [
       [
-        "/_matrix/client/r0/register/captcha/send",
-        "post"
-      ],
-      [
         "/_matrix/client/v3/register/captcha/send",
         "post"
       ]
     ],
     "verify_captcha": [
-      [
-        "/_matrix/client/r0/register/captcha/verify",
-        "post"
-      ],
       [
         "/_matrix/client/v3/register/captcha/verify",
         "post"
@@ -616,17 +596,9 @@
       [
         "/direct/{room_id}",
         "put"
-      ],
-      [
-        "/_matrix/client/r0/direct/{room_id}",
-        "put"
       ]
     ],
     "create_dm_room": [
-      [
-        "/_matrix/client/r0/create_dm",
-        "post"
-      ],
       [
         "/_matrix/client/v3/create_dm",
         "post"
@@ -820,15 +792,7 @@
         "post"
       ],
       [
-        "/_matrix/client/r0/friendships",
-        "post"
-      ],
-      [
         "/_matrix/client/v1/friends/request",
-        "post"
-      ],
-      [
-        "/_matrix/client/r0/friends/request",
         "post"
       ],
       [
@@ -842,10 +806,6 @@
         "post"
       ],
       [
-        "/_matrix/client/r0/friends/request/{user_id}/accept",
-        "post"
-      ],
-      [
         "/_matrix/vendor/v1/friends/request/{user_id}/accept",
         "post"
       ]
@@ -853,10 +813,6 @@
     "reject_friend_request": [
       [
         "/_matrix/client/v1/friends/request/{user_id}/reject",
-        "post"
-      ],
-      [
-        "/_matrix/client/r0/friends/request/{user_id}/reject",
         "post"
       ],
       [
@@ -870,10 +826,6 @@
         "post"
       ],
       [
-        "/_matrix/client/r0/friends/request/{user_id}/cancel",
-        "post"
-      ],
-      [
         "/_matrix/vendor/v1/friends/request/{user_id}/cancel",
         "post"
       ]
@@ -881,10 +833,6 @@
     "update_friend_note": [
       [
         "/_matrix/client/v1/friends/{user_id}/note",
-        "put"
-      ],
-      [
-        "/_matrix/client/r0/friends/{user_id}/note",
         "put"
       ],
       [
@@ -896,19 +844,11 @@
       [
         "/_matrix/client/v1/friends/{user_id}/status",
         "put"
-      ],
-      [
-        "/_matrix/client/r0/friends/{user_id}/status",
-        "put"
       ]
     ],
     "update_friend_displayname": [
       [
         "/_matrix/client/v1/friends/{user_id}/displayname",
-        "put"
-      ],
-      [
-        "/_matrix/client/r0/friends/{user_id}/displayname",
         "put"
       ],
       [
@@ -920,19 +860,11 @@
       [
         "/_matrix/client/v1/friends/groups",
         "post"
-      ],
-      [
-        "/_matrix/client/r0/friends/groups",
-        "post"
       ]
     ],
     "rename_friend_group": [
       [
         "/_matrix/client/v1/friends/groups/{group_id}/name",
-        "put"
-      ],
-      [
-        "/_matrix/client/r0/friends/groups/{group_id}/name",
         "put"
       ],
       [
@@ -943,10 +875,6 @@
     "add_friend_to_group": [
       [
         "/_matrix/client/v1/friends/groups/{group_id}/add/{user_id}",
-        "post"
-      ],
-      [
-        "/_matrix/client/r0/friends/groups/{group_id}/add/{user_id}",
         "post"
       ],
       [
@@ -1200,19 +1128,13 @@
     ],
     "register_device": [
       [
-        "/_matrix/client/r0/push/devices",
+        "/_matrix/client/v3/push/devices",
         "post"
       ]
     ],
     "send_notification": [
       [
-        "/_matrix/client/r0/push/send",
-        "post"
-      ]
-    ],
-    "create_rule": [
-      [
-        "/_matrix/client/r0/push/rules",
+        "/_matrix/client/v3/push/send",
         "post"
       ]
     ],
@@ -1226,6 +1148,12 @@
       [
         "/_synapse/admin/v1/push/cleanup",
         "post"
+      ]
+    ],
+    "put_push_config": [
+      [
+        "/_synapse/admin/v1/push/config",
+        "put"
       ]
     ],
     "add_reaction": [
@@ -1351,10 +1279,6 @@
       ]
     ],
     "create_room": [
-      [
-        "/createRoom",
-        "post"
-      ],
       [
         "/createRoom",
         "post"
@@ -1510,15 +1434,11 @@
     ],
     "saml_login": [
       [
-        "/_matrix/client/r0/login/sso/redirect/saml",
+        "/_matrix/client/v3/login/sso/redirect/saml",
         "post"
       ]
     ],
     "saml_callback_post": [
-      [
-        "/_matrix/client/r0/login/saml/callback",
-        "post"
-      ],
       [
         "/_matrix/client/v3/login/saml/callback",
         "post"
@@ -1596,35 +1516,15 @@
         "post"
       ]
     ],
-    "request_token": [
-      [
-        "/requestToken",
-        "post"
-      ]
-    ],
-    "submit_token": [
-      [
-        "/submitToken",
-        "post"
-      ]
-    ],
     "set_typing": [
       [
         "/_matrix/client/v3/rooms/{room_id}/typing/{user_id}",
-        "put"
-      ],
-      [
-        "/_matrix/client/r0/rooms/{room_id}/typing/{user_id}",
         "put"
       ]
     ],
     "bulk_get_typing": [
       [
         "/_matrix/client/v3/rooms/typing",
-        "post"
-      ],
-      [
-        "/_matrix/client/r0/rooms/typing",
         "post"
       ]
     ],
@@ -1683,10 +1583,6 @@
       ]
     ],
     "upload_voice_message": [
-      [
-        "/_matrix/client/r0/voice/upload",
-        "post"
-      ],
       [
         "/_matrix/client/v1/voice/upload",
         "post"
@@ -1885,7 +1781,6 @@
     "verify_captcha": "VerifyCaptchaBody",
     "register_service": "RegisterServiceBody",
     "set_user_attribute": "SetAttributeBody",
-    "set_room_alias_handler": "SetRoomAliasBody",
     "create_dm_room": "CreateDmRequest",
     "update_dm_room": "UpdateDmRequest",
     "restore_secure_backup": "RestoreSecureBackupRequest",
@@ -1939,7 +1834,7 @@
     "pin_event": "PinRequest",
     "register_device": "RegisterDeviceBody",
     "send_notification": "SendNotificationBody",
-    "create_rule": "CreateRuleBody",
+    "put_push_config": "SetPushConfigBody",
     "set_anti_screenshot": "AntiScreenshotPayload",
     "create_room_summary": "CreateRoomSummaryRequest",
     "create_internal_room_summary": "CreateRoomSummaryRequest",
@@ -1948,6 +1843,7 @@
     "update_member": "UpdateMemberBody",
     "update_state": "UpdateStateBody",
     "batch_get_room_summaries": "RoomSummaryBatchRequest",
+    "saml_login": "SamlLoginBody",
     "saml_callback_post": "SamlCallbackBody",
     "update_saml_mapping_admin": "UpdateSamlMappingBody",
     "saml_logout_admin": "SamlLogoutAdminBody",
@@ -1956,8 +1852,6 @@
     "update_space": "UpdateSpaceBody",
     "invite_user": "InviteUserBody",
     "put_tag": "TagContent",
-    "request_token": "RequestTokenRequest",
-    "submit_token": "SubmitTokenRequest",
     "verification_start": "VerificationStartBody",
     "verification_accept": "VerificationAcceptBody",
     "verification_key_agreement": "KeyAgreementBody",
@@ -3137,21 +3031,6 @@
       "file": "src/web/routes/captcha.rs",
       "field_count": 2
     },
-    "SetRoomAliasBody": {
-      "schema": {
-        "type": "object",
-        "properties": {
-          "room_id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "room_id"
-        ]
-      },
-      "file": "src/web/routes/directory.rs",
-      "field_count": 1
-    },
     "CreateDmRequest": {
       "schema": {
         "type": "object",
@@ -4252,47 +4131,22 @@
       "file": "src/web/routes/push_notification.rs",
       "field_count": 8
     },
-    "CreateRuleBody": {
+    "SetPushConfigBody": {
       "schema": {
         "type": "object",
         "properties": {
-          "rule_id": {
-            "type": "string"
-          },
-          "scope": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string"
-          },
-          "priority": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "conditions": {
+          "config": {
             "type": "object",
-            "additionalProperties": true
-          },
-          "actions": {
-            "type": "object",
-            "additionalProperties": true
-          },
-          "enabled": {
-            "type": "boolean"
+            "description": "rust: std::collections::BTreeMap<String, Option<String>>",
+            "x-unknown-rust-type": "std::collections::BTreeMap<String, Option<String>>"
           }
         },
         "required": [
-          "rule_id",
-          "scope",
-          "kind",
-          "priority",
-          "conditions",
-          "actions",
-          "enabled"
+          "config"
         ]
       },
       "file": "src/web/routes/push_notification.rs",
-      "field_count": 7
+      "field_count": 1
     },
     "UpdateSummaryBody": {
       "schema": {
@@ -4419,11 +4273,30 @@
       "file": "src/web/routes/room_summary.rs",
       "field_count": 2
     },
+    "SamlLoginBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "redirectUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "src/web/routes/saml.rs",
+      "field_count": 1
+    },
     "SamlCallbackBody": {
       "schema": {
         "type": "object",
         "properties": {
-          "saml_response": {
+          "SAMLResponse": {
             "anyOf": [
               {
                 "type": "string"
@@ -4433,7 +4306,7 @@
               }
             ]
           },
-          "saml_request": {
+          "SAMLRequest": {
             "anyOf": [
               {
                 "type": "string"
@@ -4443,7 +4316,7 @@
               }
             ]
           },
-          "relay_state": {
+          "RelayState": {
             "anyOf": [
               {
                 "type": "string"
@@ -4723,89 +4596,6 @@
       },
       "file": "src/web/routes/tags.rs",
       "field_count": 1
-    },
-    "RequestTokenRequest": {
-      "schema": {
-        "type": "object",
-        "properties": {
-          "client_secret": {
-            "type": "string"
-          },
-          "email": {
-            "type": "string"
-          },
-          "send_attempt": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "format": "int32"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "next_link": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "id_server": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "id_access_token": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "client_secret",
-          "email"
-        ]
-      },
-      "file": "src/web/routes/threepid.rs",
-      "field_count": 6
-    },
-    "SubmitTokenRequest": {
-      "schema": {
-        "type": "object",
-        "properties": {
-          "client_secret": {
-            "type": "string"
-          },
-          "token": {
-            "type": "string"
-          },
-          "sid": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "client_secret",
-          "token",
-          "sid"
-        ]
-      },
-      "file": "src/web/routes/threepid.rs",
-      "field_count": 3
     },
     "VerificationStartBody": {
       "schema": {
@@ -5933,20 +5723,10 @@
       "post",
       "FailUpdateBody"
     ],
-    "post /_matrix/client/r0/register/captcha/send": [
-      "/_matrix/client/r0/register/captcha/send",
-      "post",
-      "SendCaptchaBody"
-    ],
     "post /_matrix/client/v3/register/captcha/send": [
       "/_matrix/client/v3/register/captcha/send",
       "post",
       "SendCaptchaBody"
-    ],
-    "post /_matrix/client/r0/register/captcha/verify": [
-      "/_matrix/client/r0/register/captcha/verify",
-      "post",
-      "VerifyCaptchaBody"
     ],
     "post /_matrix/client/v3/register/captcha/verify": [
       "/_matrix/client/v3/register/captcha/verify",
@@ -6013,18 +5793,13 @@
       "post",
       "SetAttributeBody"
     ],
-    "post /_matrix/client/r0/create_dm": [
-      "/_matrix/client/r0/create_dm",
-      "post",
-      "CreateDmRequest"
-    ],
     "post /_matrix/client/v3/create_dm": [
       "/_matrix/client/v3/create_dm",
       "post",
       "CreateDmRequest"
     ],
     "put /_matrix/client/r0/direct/{room_id}": [
-      "/_matrix/client/r0/direct/{room_id}",
+      "/direct/{room_id}",
       "put",
       "UpdateDmRequest"
     ],
@@ -6213,18 +5988,8 @@
       "post",
       "AddFriendRequest"
     ],
-    "post /_matrix/client/r0/friendships": [
-      "/_matrix/client/r0/friendships",
-      "post",
-      "AddFriendRequest"
-    ],
     "post /_matrix/client/v1/friends/request": [
       "/_matrix/client/v1/friends/request",
-      "post",
-      "AddFriendRequest"
-    ],
-    "post /_matrix/client/r0/friends/request": [
-      "/_matrix/client/r0/friends/request",
       "post",
       "AddFriendRequest"
     ],
@@ -6238,11 +6003,6 @@
       "put",
       "UpdateNoteRequest"
     ],
-    "put /_matrix/client/r0/friends/{user_id}/note": [
-      "/_matrix/client/r0/friends/{user_id}/note",
-      "put",
-      "UpdateNoteRequest"
-    ],
     "put /_matrix/vendor/v1/friends/{user_id}/note": [
       "/_matrix/vendor/v1/friends/{user_id}/note",
       "put",
@@ -6253,18 +6013,8 @@
       "put",
       "UpdateStatusRequest"
     ],
-    "put /_matrix/client/r0/friends/{user_id}/status": [
-      "/_matrix/client/r0/friends/{user_id}/status",
-      "put",
-      "UpdateStatusRequest"
-    ],
     "put /_matrix/client/v1/friends/{user_id}/displayname": [
       "/_matrix/client/v1/friends/{user_id}/displayname",
-      "put",
-      "UpdateDisplaynameRequest"
-    ],
-    "put /_matrix/client/r0/friends/{user_id}/displayname": [
-      "/_matrix/client/r0/friends/{user_id}/displayname",
       "put",
       "UpdateDisplaynameRequest"
     ],
@@ -6278,18 +6028,8 @@
       "post",
       "CreateGroupRequest"
     ],
-    "post /_matrix/client/r0/friends/groups": [
-      "/_matrix/client/r0/friends/groups",
-      "post",
-      "CreateGroupRequest"
-    ],
     "put /_matrix/client/v1/friends/groups/{group_id}/name": [
       "/_matrix/client/v1/friends/groups/{group_id}/name",
-      "put",
-      "RenameGroupRequest"
-    ],
-    "put /_matrix/client/r0/friends/groups/{group_id}/name": [
-      "/_matrix/client/r0/friends/groups/{group_id}/name",
       "put",
       "RenameGroupRequest"
     ],
@@ -6508,20 +6248,30 @@
       "post",
       "CreateAccountDataCallbackBody"
     ],
-    "post /_matrix/client/r0/push/devices": [
-      "/_matrix/client/r0/push/devices",
+    "post /_matrix/client/v3/push/devices": [
+      "/_matrix/client/v3/push/devices",
       "post",
       "RegisterDeviceBody"
     ],
-    "post /_matrix/client/r0/push/send": [
-      "/_matrix/client/r0/push/send",
+    "post /_matrix/client/v3/push/send": [
+      "/_matrix/client/v3/push/send",
       "post",
       "SendNotificationBody"
     ],
-    "post /_matrix/client/r0/push/rules": [
-      "/_matrix/client/r0/push/rules",
-      "post",
-      "CreateRuleBody"
+    "put /_matrix/client/r0/_synapse/admin/v1/push/config": [
+      "/_synapse/admin/v1/push/config",
+      "put",
+      "SetPushConfigBody"
+    ],
+    "put /_matrix/client/v3/_synapse/admin/v1/push/config": [
+      "/_synapse/admin/v1/push/config",
+      "put",
+      "SetPushConfigBody"
+    ],
+    "put /_matrix/client/v1/_synapse/admin/v1/push/config": [
+      "/_synapse/admin/v1/push/config",
+      "put",
+      "SetPushConfigBody"
     ],
     "post /_matrix/client/r0/rooms/{room_id}/summary": [
       "/rooms/{room_id}/summary",
@@ -6628,10 +6378,10 @@
       "post",
       "RoomSummaryBatchRequest"
     ],
-    "post /_matrix/client/r0/login/saml/callback": [
-      "/_matrix/client/r0/login/saml/callback",
+    "post /_matrix/client/v3/login/sso/redirect/saml": [
+      "/_matrix/client/v3/login/sso/redirect/saml",
       "post",
-      "SamlCallbackBody"
+      "SamlLoginBody"
     ],
     "post /_matrix/client/v3/login/saml/callback": [
       "/_matrix/client/v3/login/saml/callback",
@@ -6742,36 +6492,6 @@
       "/user/{user_id}/rooms/{room_id}/tags/{tag}",
       "put",
       "TagContent"
-    ],
-    "post /_matrix/client/r0/requestToken": [
-      "/requestToken",
-      "post",
-      "RequestTokenRequest"
-    ],
-    "post /_matrix/client/v3/requestToken": [
-      "/requestToken",
-      "post",
-      "RequestTokenRequest"
-    ],
-    "post /_matrix/client/v1/requestToken": [
-      "/requestToken",
-      "post",
-      "RequestTokenRequest"
-    ],
-    "post /_matrix/client/r0/submitToken": [
-      "/submitToken",
-      "post",
-      "SubmitTokenRequest"
-    ],
-    "post /_matrix/client/v3/submitToken": [
-      "/submitToken",
-      "post",
-      "SubmitTokenRequest"
-    ],
-    "post /_matrix/client/v1/submitToken": [
-      "/submitToken",
-      "post",
-      "SubmitTokenRequest"
     ],
     "post /_matrix/client/r0/keys/device_signing/verify_start": [
       "/keys/device_signing/verify_start",

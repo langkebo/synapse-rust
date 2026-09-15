@@ -914,11 +914,21 @@ def main() -> int:
     out = {m: [[meth, path] for meth, path in v] for m, v in sorted(out.items()) if v}
 
     # Registrations that never landed under a Matrix namespace. Two very
-    # different things look like this, and the doc must not conflate them:
+    # different things used to look like this, and the doc must not conflate
+    # them:
     #   * intentional host-root protocol endpoints (CAS `/login`, `/logout`, …;
     #     the liveness probes `/`, `/health`, `/_health`)
-    #   * routers that are defined but never merged into any tree — the
-    #     `threepid.rs` orphan (S-9), which serves nothing at all
+    #   * routers defined but never merged into any tree
+    # B5-4 removed the only entry of the second kind: the `threepid.rs` orphan
+    # (S-9) defined `create_threepid_router()` in a bare `/requestToken` form
+    # that is not a Matrix path, was never merged, duplicated nothing (the real
+    # endpoints live in `account_compat.rs` under `/account/3pid/...`), and
+    # duplicated no caller — it had been dead since it was introduced.
+    # So today this bucket must contain *only* the intentional root surface,
+    # and `test_extract_registered.py::check_non_namespace_bucket` pins it to
+    # exactly that set: a new member means either a resurrected unwired router
+    # or a new non-Matrix root endpoint, and both deserve an explicit decision
+    # rather than silently appearing in the doc.
     non_ns = sorted(
         (mod, meth, path)
         for mod, routes in out.items()
@@ -1000,7 +1010,8 @@ def main() -> int:
             print(f"    {u}")
 
     print(f"\n-- registrations outside the Matrix namespaces ({len(non_ns)}) --")
-    print("   root-level protocol/probe endpoints, or routers never merged in (threepid orphan)")
+    print("   intentional host-root protocol/probe endpoints only (CAS, liveness);")
+    print("   an unwired-router orphan appearing here again must be a deliberate choice")
     for mod, meth, path in non_ns:
         print(f"    {mod:16} {meth:6} {path}")
 

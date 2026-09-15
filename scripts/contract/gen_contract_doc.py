@@ -89,7 +89,6 @@ CAT = {
     "external_service": "外部服务",
     "guest": "访客 (Guest)",
     "captcha": "验证码 (Captcha)",
-    "threepid": "3PID",
     "telemetry": "遥测 (Telemetry)",
     "account_compat": "账户兼容",
     "auth_compat": "认证兼容",
@@ -177,9 +176,10 @@ lines.append("")
 lines.append("## 前缀之外 / 未装配的注册")
 lines.append("")
 lines.append(
-    "以下注册不属于 `/_matrix/`、`/_synapse/`、`/.well-known/` 任一命名空间，只有两种成因："
+    "以下注册不属于 `/_matrix/`、`/_synapse/`、`/.well-known/` 任一命名空间。B5-4 之后，"
+    "此表只剩**有意为之的根级协议与探活端点**：孤儿 router（定义了却从未 merge 进任何路由树）已全部清除，"
+    "因此这里出现任何新成员都必须先回答「是有意新增的根级端点，还是又一个没人装配的 router」。"
 )
-lines.append("根级协议或探活端点（有意为之），或**定义了却从未 merge 进任何路由树的孤儿 router**。")
 lines.append("")
 if non_ns:
     lines.append("| 模块 | Method | Path |")
@@ -197,10 +197,10 @@ lines.append(
 lines.append("**已知缺口 / 漂移**：")
 lines.append("")
 lines.append(
-    "- `src/web/routes/threepid.rs`：定义 `create_threepid_router()`（`/requestToken`、`/submitToken`）但**从未 merge 进任何路由树**（仅 `mod.rs` re-export），且自身无 manifest 函数 → 属于孤儿/死代码；实际 3PID 端点位于 `account_compat.rs`（`/account/3pid/...`）。"
+    "- 无未装配的孤儿路由。`src/web/routes/threepid.rs` 曾定义 `create_threepid_router()`（裸 `/requestToken`、`/submitToken`，**从未** merge 进任何路由树且路径非 Matrix 规范形状）—— B5-4 已删除该模块：真实 3PID 端点在 `account_compat.rs`（`/account/3pid/...`，已在 `assembly.rs` 装配），被删代码自引入起即无调用方，纯属死代码。"
 )
 lines.append(
-    "  **机器证据**：这两个路径在「前缀之外 / 未装配的注册」表中——解析器沿 `create_router` 的整条装配链递归后，它们仍未获得任何前缀，与 CAS 根级端点并列，可直接区分「有意根级」与「从未装配」。"
+    "  **机器证据**：`test_extract_registered.py::check_non_namespace_bucket` 现在把「前缀之外」桶**精确**钉死为 14 条有意根级注册（3 条探活 + 11 条 CAS 根协议端点）。该桶出现任何新成员——无论是死灰复燃的未装配 router 还是新增非 Matrix 根端点——都会让守卫转红并要求显式裁定。"
 )
 lines.append(
     "- `space/children_hierarchy.rs`、`space/membership_state.rs`、`space/summary.rs`：无独立 manifest 函数，但其路由由 `space.rs` 的 `space_route_manifest()` 统一声明（已覆盖）。"

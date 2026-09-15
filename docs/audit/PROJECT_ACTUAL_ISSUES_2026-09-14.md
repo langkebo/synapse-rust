@@ -38,7 +38,7 @@
 | 🔴 P0 门禁诚信 | **8** | 覆盖率基线无法提交、perf 门禁纯 echo、CI 集成测试指向应用库、18 处测试静默跳过、sqlx 棘轮 FAIL |
 | 🟠 P1 架构冗余/过度开发 | **12** | 48 个路由文件穿透分层、70 storage trait 中 68 个单实现、近 5k 处样板注释 |
 | 🟠 P1 测试隔离/模板构建 | **8** | 根模板构建无条件清空 `public`、模板构建吞错、测试隔离仍多头 |
-| 🟡 P2 安全/协议残留 | **12（6 已修 / 6 未决）** | 已修：S-1、S-2（B5-1 自签名 + `server_name` 校验）、S-4（B5-2 隔离变更流保留期清理）、S-12、S-15（B5-3 MSC4108 DELETE 补头 + 去自证）、S-13（B5-5 契约提取器）。未决：threepid 孤儿路由、速率限制碎片化、X-Matrix 头朴素解析、cache 读写不对称、无"真实 router == ledger"测试 |
+| 🟡 P2 安全/协议残留 | **12（7 已修 / 5 未决）** | 已修：S-1、S-2（B5-1 自签名 + `server_name` 校验）、S-4（B5-2 隔离变更流保留期清理）、S-9（B5-4 删除 threepid 孤儿路由）、S-12、S-15（B5-3 MSC4108 DELETE 补头 + 去自证）、S-13（B5-5 契约提取器）。未决：S-5（已降级为"已文档化的功能缺口"）、S-6（理论问题）、速率限制碎片化、cache 读写不对称、无"真实 router == ledger"测试 |
 | 🟡 P2 配置/仓库/文档卫生 | **11** | `.scratch` 97 文件入库、3 个 worktree、`cargo doc` ~3.5k 警告、god-file 1833 行 |
 
 ---
@@ -287,7 +287,7 @@ CLAUDE.md 约定的 `docs/audit/00_test_baseline.log`、`00_clippy_baseline.log`
 | S-6 | X-Matrix 头解析用朴素 `split(',')` | `src/web/middleware/federation_auth.rs:299`。**理论问题**：所有字段值都不会含逗号，且解析结果参与签名校验，误解析 fail-closed |
 | S-7 | 速率限制碎片化 | 已核实 `src/web/routes/friend_room.rs:631-632` 自建 key 并直接 `ctx.cache.rate_limit_token_bucket_take(...)`；同类模式另见 `handlers/search/search.rs`、`auth_compat.rs`（子代理复核） |
 | S-8 | cache 读写不对称（结构性陷阱，代码内已标注） | `synapse-cache/src/manager.rs:398` `set_raw` 写 L1+L2（异步）；`:408` 同步 `get_raw` **只读 L1**；L2 回退需显式 `:421 get_raw_shared().await`。当前无生产误用 |
-| S-9 | threepid 路由**孤儿**（且已进契约文档/未进 ledger） | `src/web/routes/threepid.rs:19` 定义 `create_threepid_router`，`src/web/routes/mod.rs:255` 仅 re-export，**无装配点**；`ROUTE_CONTRACT.md:20` 自认其"孤儿/死代码"，但 `:29-30` 仍列出 `/requestToken`、`/submitToken`；这两条在 ledger fixture 中不存在 |
+| S-9 | threepid 路由**孤儿**（且已进契约文档/未进 ledger） | ✅ **已修复（B5-4）**。方案裁定为**删除**而非补装配点（理由与证据见 §11）：`create_threepid_router` 在本仓历史中**从未**被任何装配位置调用（`git log -S 'create_threepid_router()'` 在 `assembly.rs`/`mod.rs`/`src/server` 全为空），路径为裸 `/requestToken`、`/submitToken`（非 Matrix 规范形状，任何 Matrix 客户端都找不到），且是**未完成桩**（`request_token` 从不发信；注释称"为测试返回 token"但响应结构体没有 token 字段）。真实 3PID 端点在 `account_compat.rs`（`/account/3pid/...`，已在 `assembly.rs` 装配并使用同一 `threepid_storage`）。已删除 `src/web/routes/threepid.rs`、`mod.rs` 的死 re-export、以及仅服务于它的 `AuthContext::threepid_storage`（DI 手工复制的净减）。契约提取器实测：模块 67→66、路由 1148→1146、"前缀之外"桶 16→**14 条纯有意根级注册**，两份 oracle 仍 **0 缺口**。守卫从「钉死缺陷」改为「钉死不变量」：`check_non_namespace_bucket` 精确断言该桶 == 14 条已知有意注册 |
 | S-12 | MSC4108 `DELETE` 204 响应缺 3 个 required 头 | `src/web/routes/msc4108_rendezvous.rs:275` 返回 `(StatusCode::NO_CONTENT, Body::empty())`，**无 header tuple**、router 无补头 layer；`Last-Modified`/`Cache-Control: no-store`/`Pragma: no-cache` 在 POST/GET/PUT 都有（`:103-105`、`:148-150`、`:220-222`），DELETE 缺失。文档 `§16` 却记 10/10 已补齐 |
 | S-13 | 契约提取器结构性缺陷 | ✅ **已修复（B5-5）**。原缺陷三项全部复现并消除：①链式方法只记录第一个 method（msc4108 `get().put().delete()` 只出 `GET`）；②`nest_map` 收集后从未使用；③`ROUTE_CONTRACT.md` 有 **15** 条相对 `/spaces/...`、**0** 条带前缀。修复后实测：MSC4108 出全 4 条（POST/GET/PUT/DELETE）；spaces 相对路径 **15→0**、带前缀 **0→48**（24 路由 × v1/v3 两前缀，B1 已删 r0 故为 2 而非 §17 预估的 3×15=45）。详见 §9 |
 | S-14 | 无任何测试校验"真实 router == ledger" | `grep -rn '\.routes()\|into_make_service' src/ tests/` 只有 3 处命中，全在生产 `src/server/mod.rs`；`assembly_route_tests.rs` 的 27 个测试只读 manifest |
@@ -526,6 +526,7 @@ Ledger 契约链同步：golden + SDK 两条车道的 6 个 fixture、`ROUTE_CON
   3 条根级探活（`/`、`/health`、`/_health`）+ 11 条 CAS 根协议/遗留 admin 端点（有意为之）
   + **2 条 threepid 孤儿**（`/requestToken`、`/submitToken`）——机器上可直接区分
   "有意根级" 与 "从未装配"。
+  **（B5-4 已处置 threepid 孤儿，此表现为 14 条纯有意根级注册；见 §11。）**
 - **附带发现**：`push.rs` 的 `/pushers/` 是 `get().post()` 链，旧解析器只报 GET；
   `presence.rs` 的 `/presence/list` GET 分支未被任何 manifest 声明（manifest 漏声明）。
 
@@ -581,6 +582,60 @@ AGENTS.md 要求的性质是"**缓存远程密钥之前**必须校验"——只�
 
 **命令**：`cargo test -p synapse-federation --lib` → **187 passed**；
 `cargo clippy -p synapse-federation --all-targets` → 无告警。
+
+---
+
+## 11. S-9 threepid 孤儿路由——已处置（2026-09-15，B5-4）
+
+方案给了两个选项："要么补装配点，要么从 `ROUTE_CONTRACT.md` 删除"。
+裁定为**删除代码本身**，即二者中对契约影响更彻底的那个。
+
+### 11.1 为什么不是"补装配点"
+
+| 证据 | 命令 / 位置 | 结论 |
+|---|---|---|
+| 历史从未装配 | `git log --all -S 'create_threepid_router()' -- src/web/routes/assembly.rs src/web/routes/mod.rs src/server` → **空** | 出生即死，不是"曾经接好后掉了" |
+| 路径非规范形状 | `Router::new().route("/requestToken", …)` | Matrix 3PID 端点是 `/_matrix/client/v3/register/email/requestToken`、`/account/3pid/email/requestToken` 等；裸根路径无客户端可达 |
+| 自身是未完成桩 | `threepid.rs` 原文注释 "In a full implementation, send email here / For now, return the token in the response for testing" | 但 `RequestTokenResponse` **只有 `sid` 与 `submit_url`，没有 token 字段**——连注释声称的测试用途都不成立 |
+| 功能并不缺失 | `assembly.rs:572-606` 已装配 `/register/email/*`、`/account/password/email/*`、`/account/3pid/email/*`，并经 `auth_compat::request_email_verification_with_submit_path` 使用同一 `threepid_storage` | 补装配点会新增一个非规范、无鉴权语义的根级面，纯属净负 |
+
+### 11.2 删除范围（含被它拖着的死管线）
+
+- `src/web/routes/threepid.rs`（整模块）
+- `src/web/routes/mod.rs`：`pub mod threepid;` 与 `pub use threepid::create_threepid_router;`（后者是无人消费的 re-export）
+- `src/web/routes/context.rs`：`AuthContext::threepid_storage` 字段及其 `FromRef` 初始化 —— 唯一消费者是刚被删的模块，留着就是把死管线从一处搬到另一处
+- `tests/unit/context_route_tests.rs`：对应的字段存活断言
+- `scripts/api_test/handler_schemas.json`：重新生成（原文件含指向已删文件的悬空引用）
+
+### 11.3 守卫从"钉死缺陷"改为"钉死不变量"
+
+原 `check_orphan_detection` 断言 `/requestToken`、`/submitToken` **必须**出现在孤儿桶里。
+把缺陷当成契约钉死，是让异常永久化的标准做法——它记录问题，却从不逼出决定。
+现改为 `check_non_namespace_bucket`：**精确**断言该桶 == 14 条已知有意根级注册
+（3 条探活 + 11 条 CAS 根协议端点）。桶里出现任何新成员都会转红，强制回答
+"这是有意新增的根级端点，还是又一个没人装配的 router"。
+
+### 11.4 验证
+
+| 项 | 结果 |
+|---|---|
+| 契约提取器 | 模块 67→**66**，路由 1148→**1146**，"前缀之外" 16→**14** |
+| 两份独立 oracle | manifest 声明集 **0 缺口**；`ledger_export` fixture **0 缺口** |
+| 守卫测试 | 18 项全过（含新的精确桶断言）+ 变异自证仍能变红 |
+| `cargo test --test unit --features test-utils` | **1815 passed / 0 failed** |
+| `cargo clippy --workspace --all-targets --features test-utils -D warnings` | 干净 |
+| `cargo check --workspace` | 干净 |
+| `./scripts/check_fmt_ratchet.sh` | OK（0 debt） |
+
+**顺带处置**：`scripts/ci/sqlx_dynamic_ratio_baseline` 1478 → 1484（+6）。
+归因经逐提交实测确认全部来自 B5-2 的保留期清理：1 处生产 `DELETE` + 5 处
+`pruning::db_tests` 夹具。生产那处不静态化的理由（`pruning.rs` 8 个同类函数全为动态、
+`.sqlx/` 是部分缓存、单条 `query!` 需整体重刷缓存）已写入基线文件。
+
+**已识别但未处理**：`docs/openapi/client.yaml` 相对源码树**已过期**，且其漂移
+**全部**是 B1 拆除 r0 造成的（与 B5-4 无关，`git diff` 中 0 行涉及 threepid、18 行涉及 `/client/r0`）。
+它需要走完整的 `scripts/api_test/refresh_openapi_specs.py` 流程（依赖按 Docker features 导出的
+ledger），且**不在任何 CI 门禁中**，故本轮不夹带半吊子重生成。建议作为独立条目处理。
 
 ---
 

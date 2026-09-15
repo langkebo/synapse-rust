@@ -192,13 +192,55 @@ def check_oracles(res: "ex.Resolver", per: dict) -> None:
         print("  skip ledger oracle (fixtures absent)")
 
 
-def check_orphan_detection(per: dict) -> None:
-    """The threepid orphan must be visible: registered, but never prefixed."""
-    threepid = per.get("threepid.rs", set())
+def check_non_namespace_bucket(per: dict) -> None:
+    """The non-namespace bucket must be exactly the intentional root surface.
+
+    This used to assert the opposite — that `threepid.rs`'s `/requestToken` and
+    `/submitToken` showed up as an orphan. Pinning a defect in place as if it
+    were the contract is how an anomaly becomes permanent: the assertion
+    documented the problem instead of forcing the decision the plan asked for.
+
+    B5-4 took the decision (the router was dead code from birth — never merged,
+    non-spec paths, and the real endpoints live in `account_compat.rs`), so the
+    guard now pins the *invariant*: every derived route either sits under a
+    Matrix namespace, or is one of the known intentional host-root
+    registrations. Any addition is a new non-Matrix surface or a resurrected
+    unwired router, and both require an explicit decision rather than quietly
+    appearing in ROUTE_CONTRACT.md.
+
+    The bucket is recomputed here from the in-process parse rather than read
+    from `artifacts/registered_routes.json`, because this guard runs *before*
+    the extractor in `check_route_contract.sh` and would otherwise assert
+    against the previous revision's output.
+    """
+    expected = {
+        # liveness probes registered directly on the root router
+        ("GET", "/"),
+        ("GET", "/health"),
+        ("GET", "/_health"),
+        # CAS is a host-root protocol: its paths are not Matrix paths
+        ("GET", "/login"),
+        ("GET", "/logout"),
+        ("GET", "/serviceValidate"),
+        ("GET", "/proxyValidate"),
+        ("GET", "/p3/serviceValidate"),
+        ("GET", "/proxy"),
+        ("GET", "/admin/services"),
+        ("POST", "/admin/services"),
+        ("DELETE", "/admin/services/{service_id}"),
+        ("GET", "/admin/users/{user_id}/attributes"),
+        ("POST", "/admin/users/{user_id}/attributes"),
+    }
+    actual = {
+        (meth, path)
+        for routes in per.values()
+        for meth, path in routes
+        if not path.startswith(("/_matrix/", "/_synapse/", "/.well-known/"))
+    }
     check(
-        "threepid.rs routes are derived but stay outside the Matrix namespaces",
-        {p for _m, p in threepid} == {"/requestToken", "/submitToken"},
-        f"got {sorted(threepid)}",
+        "non-namespace bucket is exactly the intentional root surface",
+        actual == expected,
+        f"unexpected={sorted(actual - expected)} missing={sorted(expected - actual)}",
     )
 
 
@@ -298,8 +340,8 @@ def main() -> int:
     check_test_module_excision(per)
     print("== independent oracles ==")
     check_oracles(res, per)
-    print("== orphan detection (S-9 evidence) ==")
-    check_orphan_detection(per)
+    print("== non-namespace surface ==")
+    check_non_namespace_bucket(per)
     print("== unresolved ratchet ==")
     check_ratchet(res)
 
