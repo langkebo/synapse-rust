@@ -276,10 +276,25 @@ impl AdminServices {
         let push_notification_storage: Arc<dyn synapse_storage::push_notification::PushNotificationStoreApi> =
             Arc::new(synapse_storage::push_notification::PushNotificationStorage::new(pool));
         let account_data_storage_for_push = Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool));
-        let push_notification_service = Arc::new(
+        let mut push_notification_service =
             crate::push_notification_service::PushNotificationService::new(push_notification_storage.clone())
-                .with_account_data_storage(account_data_storage_for_push),
-        );
+                .with_account_data_storage(account_data_storage_for_push);
+        // Providers are configured by rows in the `push_config` table. Without this
+        // call every provider stays `None`, so `send_to_provider` can never reach
+        // `send_with_retry` and no push is actually delivered.
+        //
+        // A config read failure must NOT abort startup (the homeserver is still
+        // usable without push), but it must not be silent either: `container::new`
+        // is infallible, so log loudly and leave the providers unset — delivery for
+        // an enabled-but-uninitialized provider then fails closed instead of
+        // reporting a fake success (see `PushNotificationService::provider_unavailable`).
+        if let Err(error) = push_notification_service.initialize_providers().await {
+            tracing::error!(
+                %error,
+                "Failed to initialize push providers from push_config; push delivery will be reported as failed"
+            );
+        }
+        let push_notification_service = Arc::new(push_notification_service);
 
         let media_quota_storage: Arc<dyn synapse_storage::media_quota::MediaQuotaStoreApi> =
             Arc::new(synapse_storage::media_quota::MediaQuotaStorage::new(pool));

@@ -2,9 +2,9 @@ mod apns;
 mod fcm;
 mod webpush;
 
-pub use apns::ApnsProvider;
-pub use fcm::FcmProvider;
-pub use webpush::WebPushProvider;
+pub use apns::{ApnsProvider, ApnsProviderConfig};
+pub use fcm::{FcmProvider, FcmProviderConfig};
+pub use webpush::{WebPushProvider, WebPushProviderConfig};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};

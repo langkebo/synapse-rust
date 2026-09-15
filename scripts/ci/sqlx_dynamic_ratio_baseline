@@ -48,8 +48,33 @@
 # 历史对照：2026-06-03 审计记录动态占比 99.6%（含测试代码口径）；
 # 本基线口径（仅 workspace 生产目录，含内联测试模块）为 95.90%。
 
-BASELINE_DYNAMIC=1476
+BASELINE_DYNAMIC=1478
 BASELINE_STATIC=61
+
+# ── 2026-09-15 基线调整（+2，1476 → 1478）────────────────────────────────
+#
+# 来源：`synapse-services/src/push/service.rs` 的 `push::service::db_tests`
+# ——为**此前完全未被测试的推送投递链路**补齐端到端用例（wiremock + 真实 DB）：
+#   1. `set_push_config`：向 `push_config` 写入 provider 配置行。该表没有写入 API
+#      （`PushNotificationStoreApi` 只有 `get_config*` 读取器），只能直接 SQL。
+#   2. `ensure_user`：`push_device` 有 `fk_push_device_user` 外键，注册设备前
+#      必须先建 `users` 行。
+#
+# 这两处都是**测试夹具**，无法静态化：它们证明的是"配置行 + 设备行就位后，
+# `initialize_providers()` 真的构建出 provider，`process_pending_notifications`
+# 真的走到 HTTP 调用（wiremock 断言）而不是旧的假成功 fallback"。
+#
+# 生产代码动态查询数未变；本批次生产侧只补充了列（`created_ts`）与错误处理。
+# 收紧方向：若将来为 `push_config` 增加写入 API（生产也受益），这两处夹具
+# 可直接调用该 API，届时可回收 2 处。
+#
+# ⚠️ 已知计数盲区（独立于本次调整）：本脚本的正则
+#   dynamic: `sqlx::query(_as|_scalar)?\(`
+#   static:  `sqlx::query(_as|_scalar|_file)?!`
+# **不会**匹配 turbofish 形式 `sqlx::query_as::<_, T>(...)` /
+# `sqlx::query_scalar::<_, T>(...)`，而该写法在本仓库很常见（本次新增的
+# `queue_row` / `log_provider_response` 即属此类，未被计入）。实际动态调用数
+# 高于本基线，棘轮存在系统性少报——建议后续修正正则并一次性重测基线。
 
 # ── 2026-09-15 基线调整（+33，1443 → 1476）────────────────────────────────
 #

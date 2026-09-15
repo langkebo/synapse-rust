@@ -314,6 +314,9 @@ CLAUDE.md 约定的 `docs/audit/00_test_baseline.log`、`00_clippy_baseline.log`
 | H-11 | mock 与 PG 语义漂移（2 处） | `test_mocks/member.rs:596-597` 负 `limit` 直接 `take(limit as usize)` 未 clamp（生产 `managers/query.rs:157` 已 clamp）；`test_mocks/device_list.rs:112` 仍是忽略 `from/to/requester` 的 stub |
 | H-12 | `IsolatedTestPool` 默认 URL 过期 | `synapse-common/src/test_isolation.rs:42-52` env-first，但 fallback 仍首选 `localhost:15432` |
 | H-13 | 允许列表计数过期 | `#[allow(dead_code)]`=**31**、`allow(clippy::`=**262**、`#[ignore]`=**26**、TODO/FIXME/XXX/HACK=**11–12**、`#[deprecated]`=**0**（文档记 149/170/26/8） |
+| H-14 | 🔴 `docker/db_migrate.sh` 优先宿主 `psql`，会操作**非 compose 栈**的 PostgreSQL 并**改它** | `db_migrate.sh:120-136`：只要 `command -v psql` 成功就置 `PSQL_USE_DOCKER=0`，完全忽略 compose 栈，直接连 `DATABASE_URL` 的 `localhost:5432`。2026-09-15 实测（宿主机 5432 是本机 Homebrew PostgreSQL，非容器）：`bash docker/db_migrate.sh validate` → `[INFO] 数据库不存在，尝试创建: synapse` + `[SUCCESS] 数据库连接成功`，即在错误实例上**建库**；随后 `[ERROR] 表缺失: users / devices / access_tokens / refresh_tokens / rooms / events / event_relations`。误建库已手工删除。这与"迁移唯一真相源"的定位直接冲突 —— 命令会静默打在另一个数据库上 |
+| H-15 | 🟠 Makefile 里并存第二、三条迁移路径 | `flyway-info`/`flyway-migrate`（`Makefile:118-127`）挂载的 `scripts/db/` **目录不存在**，目标已死；`migrate`/`migrate-undo`/`migrate-check` 用 `sqlx migrate`，写的是 `_sqlx_migrations` 而项目实际记账表是 `schema_migrations`，且绕过 `container-migrate.sh` 的扩展门控。`FLYWAY_URL` 是 Makefile 中最后一个仍指向宿主 5432 的变量 |
+| H-16 | ~~Makefile `migrate-status`/`migrate-audit` 用宿主 `psql` 连 `FLYWAY_URL`~~ | 2026-09-15 已改为容器 exec（默认 dev 栈 `db` 服务，`COMPOSE_DIR`/`DB_SERVICE`/`COMPOSE_FILES` 可覆盖指向 deploy 栈的 `postgres`），不再依赖宿主端口；栈未启动时打印可操作提示。验证：dev 栈给出空表结果，deploy 栈列出 2 条记录，旧路径复现为 `FATAL: database "synapse" does not exist` |
 
 ---
 
@@ -390,6 +393,39 @@ CLAUDE.md 约定的 `docs/audit/00_test_baseline.log`、`00_clippy_baseline.log`
 
 **明确未做**（按裁定留待后续批次）：剩余 **20** 个未折入对象（§1.4/§1.5）、5 对重复索引、
 3 处硬编码 `public`、§2 的 8 项门禁诚信问题、§4 的模板构建吞错与 CI 环境库指向、§5/§6 的全部条目。
+
+### 8.1 自建推送投递链路此前**完全不可用**（本批修复并端到端验证）
+
+复核「确认真实投递路径可用」时发现：**这条链从未跑通过**，共 4 个独立缺陷叠加。
+
+| ID | 缺陷 | 证据 / 影响 |
+|---|---|---|
+| P-1 | `initialize_providers()` **0 个调用点** | `synapse-services/src/push/service.rs:138` 定义、全仓无调用 → `fcm/apns/webpush_provider` 恒为 `None`，`send_to_provider` 永远走不到 `send_with_retry`。现已在 `wiring/admin.rs` 构造后调用（`if let Err` 记录 error 而非中止启动，因为 `ServiceContainer::new` 无返回值） |
+| P-2 | 三条 "fallback" 路径**伪造成功** | 旧 `send_{fcm,apns,webpush}_fallback` 在 provider 未初始化时打印 "Sending fallback push notification" 并返回 `PushResult::success_with_response("FCM accepted (fallback)")` → 通知被标记 `sent`、`last_used` 被更新，**实际一个字节都没发出去**。已替换为 `provider_unavailable()`：配置禁用 → 跳过（避免无意义重试）；配置启用但 provider 缺失 → **返回错误**（fail-closed，落进通知日志与重试队列） |
+| P-3 | `create_notification_log` **漏写 NOT NULL 列** | `push_notification_log.created_ts` 是 `BIGINT NOT NULL` 且无默认值，而 INSERT 的列清单里没有它 → 每次投递后写日志必报 `23502`。已复现：`psql … INSERT INTO push_notification_log (user_id, device_id, …, response_time_ms) VALUES (…)` → `ERROR: null value in column "created_ts" … violates not-null constraint`。已在 `synapse-storage/src/push_notification.rs` 补上 `created_ts` |
+| P-4 | 投递后记账失败**反噬投递结论** | 旧代码把 `create_notification_log` / `update_device_last_used` / `record_device_error` 的 `?` 直接冒泡，而 `process_pending_notifications` 把 `Err` 映射为 `mark_notification_failed` → **已经投递成功的推送被当成失败重试**（重复推送，最多 `max_attempts` 次）。已改为 best-effort + `warn!`，结论只由 provider 返回决定 |
+
+**修复后验证（5 个 db_test，wiremock + 真实 DB，全部 RED→GREEN 实测）**：
+
+| 测试 | 断言 | RED 证据 |
+|---|---|---|
+| `initialize_providers_builds_every_enabled_provider` | 启用的 fcm/apns/webpush 全部被构建 | — |
+| `initialize_providers_leaves_disabled_providers_unset` | 禁用者不构建（陈旧凭据不生效） | — |
+| `process_pending_notifications_delivers_through_the_provider` | wiremock 收到**恰好 1 次** POST（`Authorization: key=…`、body `to` = token），队列行 `status='sent'`，**且 `push_notification_log.provider_response` 落库** | 回退 `created_ts` 修复 → 该用例 `processed=0` 且行变 `pending` + `Failed to create notification log` |
+| `enabled_but_uninitialized_provider_fails_instead_of_faking_success` | 启用但 provider 缺失 → `processed=0`、非 `sent`、`error_message` 含 "not initialized" | 临时恢复旧的"假成功"fallback → 用例 FAILED |
+| `disabled_provider_skips_without_retrying` | 禁用 → 跳过记为成功（不产生重试风暴） | — |
+
+**另加 3 条静态守卫** `tests/unit/push_provider_wiring_tests.rs`（防止再次丢失接线）：
+`admin_wiring_calls_initialize_providers`（并要求放在 `Arc::new` **之前**）、
+`admin_wiring_handles_initialization_failure_explicitly`（必须显式处理结果，且不得 `.await?`/`.unwrap()` 中止启动）、
+`notification_log_insert_supplies_created_ts`。
+**RED 实测**：临时删除 `wiring/admin.rs` 的调用 → 前两条 FAILED（`1 passed; 2 failed`），恢复后 3/3 通过。
+
+**仍存在（未修，留待后续）**：`push_config` **没有任何写入 API/管理端点**（`PushNotificationStoreApi` 只有
+`get_config*` 读取器），运维只能用 SQL 手工插入 —— 且在生成的 `ck_push_config_user_id_format` 约束下必须伪装成合法 user_id；
+`PushQueue`（`synapse-services/src/push/queue.rs`，14 KB）是**只写不读**的死状态（`self.queue` 仅在 `with_queue`/`initialize_providers`
+赋值，全仓无读取点），属铁律 2 的重复实现；`config.push.enabled`（`docker/config/homeserver.yaml:205`）与 provider 初始化**无关联**。
+本批新增 2 处测试夹具动态查询，已按基线文件既有惯例把 `BASELINE_DYNAMIC` 1476 → 1478 并记录理由。
 
 ---
 

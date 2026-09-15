@@ -611,13 +611,16 @@ impl PushNotificationStorage {
         &self,
         request: &CreateNotificationLogRequest,
     ) -> Result<PushNotificationLog, ApiError> {
+        // `push_notification_log.created_ts` is `BIGINT NOT NULL` with no default, so
+        // omitting it made every delivery log write fail with 23502 — which then
+        // flipped already-delivered pushes into the retry path.
         let row = sqlx::query_as::<_, PushNotificationLog>(
             r"
             INSERT INTO push_notification_log (
                 user_id, device_id, event_id, room_id, notification_type, push_type,
-                is_success, error_message, provider_response, response_time_ms
+                is_success, error_message, provider_response, response_time_ms, created_ts
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING *
             ",
         )
@@ -631,6 +634,7 @@ impl PushNotificationStorage {
         .bind(&request.error_message)
         .bind(&request.provider_response)
         .bind(request.response_time_ms)
+        .bind(current_timestamp_millis())
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to create notification log", e))?;

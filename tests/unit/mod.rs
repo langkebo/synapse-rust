@@ -18,7 +18,6 @@ mod background_update_api_tests;
 mod canonical_json_vectors;
 mod ci_test_scope_tests;
 mod cleanup_schema_script_tests;
-mod config_consistency_gate_tests;
 mod config_mount_tests;
 
 #[cfg(feature = "beacons")]
@@ -49,6 +48,7 @@ mod msc_tests;
 mod placeholder_scan_tests;
 mod push_api_tests;
 mod push_notification_route_tests;
+mod push_provider_wiring_tests;
 mod rate_limit_api_tests;
 mod reactions_api_tests;
 mod refresh_token_api_tests;
