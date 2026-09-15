@@ -77,6 +77,7 @@
 | **D1** | 未提交的 39 文件改动如何处置？ | **推荐"续做并收口"**：补 fmt、重生成 `ROUTE_CONTRACT.md`、说明 sqlx 基线，把 3 门禁转绿后提交；**不要 stash/discard**（会丢 0-2/0-7 的已完成工作） | B0 |
 | **D2** | `docker/deploy/` 18GB 备份（19 份）如何处置？ | 需用户确认后**移出版本工作区**（不自动删）；目录收敛已在未提交改动中部分完成 | B0-7 |
 | **D3** | MSC4108 `DELETE` 补头 + threepid 孤儿路由（S-9/S-12）是否本轮处理？ | 建议**本轮处理**：都是几十行的确定性修复，且 S-12 已有 7/10 缺 3 的明确差距 | B5 |
+| **D4** 🆕 | **B2-1 的处方机制已证不可行，改走哪条路？**（详见下方「B2-1 可行性复核」） | **推荐 B 路**：让已验证的源码提取器成为派生源并按 `#[cfg(feature)]` 建模 profile；A 路（注册期录制）代价 933 处 `.route()` + 还要包 `get()/post()`，且遗漏即"静默不登记"，比现状更危险 | **B2-1 / B2-2 / B2-3** |
 
 ---
 
@@ -228,6 +229,10 @@
 
 ### B2 · 路由元数据单一真相源（A3 核心）
 
+> **⚠️ B2-1 处方机制可行性复核（2026-09-15，实测）—— `from_router` 不可行，见 §3.1。**
+> 下表 B2-1 原文的机制（读装配后的 `axum::Router`）在本仓锁定的 **axum 0.8.9** 上无法实现。
+> 在 D4 裁定前**不要**按原文动工。
+
 | # | 改动 | 验证 |
 |---|---|---|
 | B2-1 | **派生器**：实现 `RouteLedger::from_router(router)`，在 `main.rs` 装配完成后从 Router 一次性导出；保留 `RouteModule` trait 作为 feature→路由的**声明**机制，其 manifest 项由派生填充 | 派生条目数 **== 旧 manifest 并集数**（一次性对账） |
@@ -239,6 +244,49 @@
 
 **过渡态**：若 axum 版本无法枚举 nest 前缀，退化为"每个 router 构造时 `ledger.register(...)` 增量记录"，
 仍删除独立抄写函数。
+
+#### §3.1 B2-1 可行性复核：`RouteLedger::from_router(router)` 走不通（2026-09-15 实测）
+
+原文要求「实现 `RouteLedger::from_router(router)`，在 `main.rs` 装配完成后从 Router 一次性导出」。
+实测结论：**本仓锁定的 axum 0.8.9 不提供任何公开的路由枚举能力**，该机制在不 unsafe 摸私有布局的
+前提下无法实现。证据（`~/.cargo/registry/src/*/axum-0.8.9/src/routing/mod.rs`）：
+
+```
+pub struct Router<S = ()> { inner: Arc<RouterInner<S>> }   // 字段私有
+struct RouterInner<S> { path_router: …, fallback_router: … } // 结构体私有
+// Router 的全部 pub fn：
+//   new / without_v07_checks / route / route_service / nest / nest_service / merge /
+//   layer / route_layer / has_routes / fallback / fallback_service /
+//   method_not_allowed_fallback / reset_fallback / with_state / as_service /
+//   into_service / into_make_service / into_make_service_with_connect_info
+```
+
+没有任何 `routes()` / 迭代器 / 反射入口；唯一的自省是 `has_routes() -> bool`。
+
+**第二重阻断（更致命）**：即使自写"注册期录制器"包住 `.route()`，`MethodRouter` 同样**不暴露
+已注册的方法集合** —— `.route(p, get().put())` 到底注册了哪些 method 读不出来。要拿全就必须连
+`get()/post()/put()/delete()/…` 一起包。即 A 路的真实代价不是"改 933 处 `.route()`"，而是
+"让 933 处注册语句全部改写成自定义 DSL"。
+
+**当前规模（实测）**：`_route_manifest` 出现在 **72 个文件 / 244 个调用点**，`.route()` **933 处**。
+运行时 ledger 的来源是 `ledger_export::build_artifact()` → `declared_route_manifest_for_profile(flags)`
+（**读 manifest，不读 Router**）；per-profile（default / worker / all）粒度完全依赖 manifest +
+`ProfileFlags`。
+
+**两条可行路线**（D4 二选一）：
+
+| | A 路：注册期录制 | B 路：源码提取器成为派生源 |
+|---|---|---|
+| 机制 | 自写 `Router` 包装 + `.route()/get()/post()/nest()/merge()` 全量改写为录制 DSL | 让 `extract_registered.py`（已存在、已通过 2 个独立 oracle）成为唯一派生源；删除 244 处 manifest |
+| 改动面 | **933 处注册语句** + 重新实现 nest 前缀传播 + 重新实现 method 集合抽取 | **0 处注册语句**；`extract_registered.py` 增加 `#[cfg(feature)]` 的 **per-profile** 建模（现为"递归进 cfg 块取并集"）；重接 `ledger_export` 与 fixture 生成管道 |
+| 新增失效模式 | **遗漏包装即静默不登记** —— 而 ledger 正是"完整性"的判据，这比现状（显式手抄）更危险 | 解析器又有新盲区（但已有 20 项守卫 + 变异自证兜底） |
+| 与 B2-2 判据 | 需大量改写后才能谈"删手抄" | 直接满足 `grep -rl '_route_manifest' src/` = 0 |
+| 风险 | 高（大范围重写 + 新失效模式） | 中（解析器增强 + 管道重接，均有现成守卫） |
+
+**附带收益（B 路的证据基础）**：S-13 已把解析器做到了"链式方法全记入 + nest 前缀传播 + 测试块
+切除 + 两份独立 oracle 0 缺口"，且有 20 项守卫与变异自证。也就是说**"从源码派生"这条链在本仓
+已被证明可靠**，而"从 Router 派生"这条链被库 API 证明不可行。B 路缺的那一块（per-profile cfg）
+是可测的增量，不是未知领域。
 
 ---
 
