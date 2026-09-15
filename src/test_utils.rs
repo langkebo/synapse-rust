@@ -1555,8 +1555,18 @@ fn candidate_database_urls() -> Vec<String> {
         }
     }
 
+    // Test-DB fallback convention — asserted by
+    // `tests/unit/test_db_url_convention_tests.rs`, so keep every copy in sync:
+    //   * port `5432`: what CI exports, what the dev compose override publishes
+    //     (`${DB_EXPOSE_PORT:-5432}:5432`) and what `init_test_public_schema.sh`
+    //     defaults to;
+    //   * `synapse_test` only, never the application database — a harness that
+    //     silently falls back to the database under test turns a configuration
+    //     mistake into data loss;
+    //   * no `15432`: a dead host-forward from an older compose file. Nothing
+    //     listens there, so probing it first cost a connect timeout in every
+    //     DB-backed test process before falling through (H-12).
     for fallback in [
-        "postgresql://synapse:synapse@localhost:5432/synapse",
         "postgresql://synapse:synapse@localhost:5432/synapse_test",
         "postgresql://synapse:secret@localhost:5432/synapse_test",
     ] {

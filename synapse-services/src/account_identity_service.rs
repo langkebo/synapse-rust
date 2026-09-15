@@ -274,7 +274,7 @@ mod tests {
         let user_service = Arc::new(crate::UserService::new(user_store));
         #[cfg(feature = "privacy-ext")]
         {
-            let pool = sqlx::PgPool::connect_lazy("postgresql://synapse:synapse@localhost:15432/synapse_test")
+            let pool = sqlx::PgPool::connect_lazy("postgresql://synapse:synapse@localhost:5432/synapse_test")
                 .expect("connect_lazy should not perform I/O");
             let privacy_storage: Arc<dyn synapse_storage::privacy::PrivacyStoreApi> =
                 Arc::new(synapse_storage::privacy::PrivacyStorage::new(std::sync::Arc::new(pool)));
@@ -317,7 +317,7 @@ mod tests {
         let user_service = Arc::new(crate::UserService::new(user_store));
         #[cfg(feature = "privacy-ext")]
         let svc = {
-            let pool = sqlx::PgPool::connect_lazy("postgresql://synapse:synapse@localhost:15432/synapse_test")
+            let pool = sqlx::PgPool::connect_lazy("postgresql://synapse:synapse@localhost:5432/synapse_test")
                 .expect("connect_lazy should not perform I/O");
             let privacy_storage: Arc<dyn synapse_storage::privacy::PrivacyStoreApi> =
                 Arc::new(synapse_storage::privacy::PrivacyStorage::new(std::sync::Arc::new(pool)));

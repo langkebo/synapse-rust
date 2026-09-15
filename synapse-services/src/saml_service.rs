@@ -1312,7 +1312,7 @@ mod tests {
 
     fn create_test_service() -> SamlService {
         let pool = Arc::new(
-            sqlx::PgPool::connect_lazy("postgresql://synapse:synapse@localhost:5432/synapse")
+            sqlx::PgPool::connect_lazy("postgresql://synapse:synapse@localhost:5432/synapse_test")
                 .expect("valid lazy postgres url"),
         );
         let storage = Arc::new(SamlStorage::new(&pool));
@@ -1401,7 +1401,7 @@ mod tests {
         config.want_assertions_signed = false;
 
         let pool = Arc::new(
-            sqlx::PgPool::connect_lazy("postgresql://synapse:synapse@localhost:5432/synapse")
+            sqlx::PgPool::connect_lazy("postgresql://synapse:synapse@localhost:5432/synapse_test")
                 .expect("valid lazy postgres url"),
         );
         let storage = Arc::new(SamlStorage::new(&pool));
@@ -1597,7 +1597,7 @@ mod tests {
         config.want_assertions_signed = false;
 
         let pool = Arc::new(
-            sqlx::PgPool::connect_lazy("postgresql://synapse:synapse@localhost:5432/synapse")
+            sqlx::PgPool::connect_lazy("postgresql://synapse:synapse@localhost:5432/synapse_test")
                 .expect("valid lazy postgres url"),
         );
         let storage = Arc::new(SamlStorage::new(&pool));

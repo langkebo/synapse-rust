@@ -78,7 +78,10 @@ if [ -n "$DB_URL" ]; then
     TARGET_DESC="$DB_URL"
 else
     export PGHOST="${PGHOST:-localhost}"
-    export PGPORT="${PGPORT:-15432}"
+    # 5432：CI 导出的端口、dev compose override 发布的端口
+    # （`${DB_EXPOSE_PORT:-5432}:5432`）、以及本地 Homebrew PostgreSQL。
+    # 全套 harness 必须一致，见 tests/unit/test_db_url_convention_tests.rs。
+    export PGPORT="${PGPORT:-5432}"
     export PGUSER="${PGUSER:-synapse}"
     export PGDATABASE="${PGDATABASE:-synapse_test}"
     export PGPASSWORD="${PGPASSWORD:-synapse}"

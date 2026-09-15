@@ -3,9 +3,9 @@
 # Seeds the synapse-rust database with production-scale data for latency/QPS benchmarking.
 #
 # Usage:
-#   DB_HOST=localhost DB_PORT=15432 DB_USER=synapse DB_PASSWORD=synapse DB_NAME=synapse bash scripts/seed_test_db.sh
+#   DB_HOST=localhost DB_PORT=5432 DB_USER=synapse DB_PASSWORD=synapse DB_NAME=synapse bash scripts/seed_test_db.sh
 #
-# Defaults target the docker-compose.dev-host-access.yml port mapping (15432).
+# Defaults target the docker-compose.dev-host-access.yml port mapping (5432).
 # Override via environment variables.
 
 set -euo pipefail
@@ -15,7 +15,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # --- Configuration -----------------------------------------------------------
 DB_HOST="${DB_HOST:-localhost}"
-DB_PORT="${DB_PORT:-15432}"
+DB_PORT="${DB_PORT:-5432}"
 DB_USER="${DB_USER:-synapse}"
 DB_PASSWORD="${DB_PASSWORD:-synapse}"
 DB_NAME="${DB_NAME:-synapse}"

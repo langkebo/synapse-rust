@@ -30,8 +30,10 @@ use std::time::Duration;
 /// local convention. The env-var path is deliberately zero-probe so the hot
 /// path never pays connection-probe latency.
 ///
-/// Storage keeps its own resolver on purpose: the shared module deliberately
-/// does not provide one, because its callers do not agree on a fallback chain.
+/// Storage keeps its own resolver only because of *how* it probes (a cheap
+/// `TcpStream::connect_timeout` here vs. a real `PgPool` connect elsewhere);
+/// the fallback *chain* is the shared one, asserted for every copy by
+/// `tests/unit/test_db_url_convention_tests.rs`.
 fn test_database_url() -> String {
     if let Ok(url) = std::env::var("TEST_DATABASE_URL") {
         return url;
@@ -39,11 +41,20 @@ fn test_database_url() -> String {
     if let Ok(url) = std::env::var("DATABASE_URL") {
         return url;
     }
+    // Test-DB fallback convention — asserted by
+    // `tests/unit/test_db_url_convention_tests.rs`, so keep every copy in sync:
+    //   * port `5432`: what CI exports, what the dev compose override publishes
+    //     (`${DB_EXPOSE_PORT:-5432}:5432`) and what `init_test_public_schema.sh`
+    //     defaults to;
+    //   * `synapse_test` only, never the application database — a harness that
+    //     silently falls back to the database under test turns a configuration
+    //     mistake into data loss;
+    //   * no `15432`: a dead host-forward from an older compose file. Nothing
+    //     listens there, so probing it first cost a connect timeout in every
+    //     DB-backed test process before falling through (H-12).
     for candidate in [
-        "postgresql://synapse:synapse@localhost:15432/synapse_test",
-        "postgresql://synapse:synapse@localhost:15432/synapse",
         "postgresql://synapse:synapse@localhost:5432/synapse_test",
-        "postgresql://synapse:synapse@localhost:5432/synapse",
+        "postgresql://synapse:secret@localhost:5432/synapse_test",
     ] {
         if tcp_reachable(candidate) {
             return candidate.to_string();

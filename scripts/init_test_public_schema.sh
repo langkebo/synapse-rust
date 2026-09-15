@@ -8,14 +8,17 @@
 #
 # 用法：
 #   bash scripts/init_test_public_schema.sh
-#   TEST_DB_PORT=15432 TEST_DB_NAME=synapse_test bash scripts/init_test_public_schema.sh
+#   TEST_DB_PORT=5433 TEST_DB_NAME=synapse_test bash scripts/init_test_public_schema.sh
 
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
 DB_HOST="${TEST_DB_HOST:-localhost}"
-DB_PORT="${TEST_DB_PORT:-15432}"
+# 5432 = CI 导出的端口、dev compose override 发布的端口
+# （`${DB_EXPOSE_PORT:-5432}:5432`）、以及本地 Homebrew PostgreSQL。
+# 全套 harness 必须一致，见 tests/unit/test_db_url_convention_tests.rs。
+DB_PORT="${TEST_DB_PORT:-5432}"
 DB_USER="${TEST_DB_USER:-synapse}"
 DB_PASSWORD="${TEST_DB_PASSWORD:-synapse}"
 DB_NAME="${TEST_DB_NAME:-synapse_test}"

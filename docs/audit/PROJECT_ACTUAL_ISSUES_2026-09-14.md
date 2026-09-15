@@ -801,6 +801,87 @@ right (快照)  count: 1378
 
 ---
 
+## 14. H-12 测试库端口约定已经烂掉——已收敛（2026-09-15，B0-8）
+
+### 14.1 原描述与其不足
+
+计划里 H-12 只有一行：「`IsolatedTestPool` fallback 仍首选 `localhost:15432`」。
+实际打开源码后发现这不是"一个文件的端口写错了"，而是**同一套约定散成 5 份、其中 2 份走的是另一个端口**。
+
+### 14.2 实测证据（为什么 `15432` 是死端口）
+
+```
+$ nc -z localhost 15432        → 无监听（连接被拒）
+$ docker/docker-compose.dev-host-access.yml:4
+    - "${DB_EXPOSE_PORT:-5432}:5432"      ← compose 现在默认发布 5432，不是 15432
+$ PGPASSWORD=synapse psql -h localhost -p 5432 -U synapse -d postgres -tAc \
+      "SELECT datname FROM pg_database"
+  ext_none / postgres / synapse_bench / synapse_ship_ci / synapse_test /
+  synapse_test_p1p2 / synapse_v10 / template0 / template1
+$ psql -h localhost -p 5432 -U synapse -d synapse
+  FATAL:  database "synapse" does not exist   ← 旧链里的应用库兜底也是死的
+```
+
+即：两条 fallback 都是**打不通的**，而且其中一条指向的是**应用库**。
+
+### 14.3 五份链的真实分布（修复前）
+
+| 位置 | 顺序 | 问题 |
+|---|---|---|
+| `src/test_utils.rs` | 5432/synapse → 5432/synapse_test → 5432/secret | 应用库排第一 |
+| `synapse-services/src/test_utils.rs` | 同上 | 同上 |
+| `tests/common/mod.rs` | 同上 | 同上 |
+| `synapse-storage/src/test_utils.rs` | **15432**/test → **15432**/synapse → 5432/test → 5432/secret | 死端口排第一 |
+| `synapse-storage/src/test_isolation.rs` | **15432**/test → **15432**/synapse → 5432/test → 5432/synapse | 死端口排第一 |
+
+`synapse-storage` 那份的注释还写着"callers do not agree on a fallback chain"——把分歧当成了设计，
+而分歧的另一半（4 份 5432 链）里根本没人提 15432。
+
+### 14.4 两类真实代价
+
+1. **每次冷启动都要先撞一次墙**：`15432` 无监听，所以每个 DB-backed 测试进程在拿到正确 URL 之前
+   都要先在死端口上失败一次。这正是"集成测试看起来在跳过"的历史成因之一。
+2. **可能静默落到应用库**：兜底链里带 `…:5432/synapse`。`db_tests`（51 个文件）直连 `TEST_DATABASE_URL`
+   的 `public` schema、**不走模板**，所以一旦落到应用库，就没有 `init_template_schema` 那层
+   "库名含 test 才允许重建"的守卫拦着。这与 `P0-4`（CI 指向应用库）是同一类缺陷，只是本地版。
+
+### 14.5 修复
+
+- **统一链**：5 份 Rust resolver 一律 `TEST_DATABASE_URL` → `DATABASE_URL` → `5432/synapse_test`
+  （另一条 `5432/synapse_test` + `secret` 密码留给旧本地环境）。**应用库与 15432 全部删除**。
+- **脚本**：`init_test_public_schema.sh`（`TEST_DB_PORT`）、`cleanup_test_schemas.sh`（`PGPORT`）、
+  `tune_test_db.sh`（`PGPORT`）、`seed_test_db.sh`（`DB_PORT`）、`run_bench_server.sh`（`BENCH_DB_PORT`）
+  的默认端口 15432 → 5432；`run_local_coverage.sh` 的 `DATABASE_URL` 默认值同理。
+- **测试内硬编码**：`synapse-e2ee/…/verification/service.rs`、`synapse-services/…/account_identity_service.rs`（×2）
+  的 `…:15432/synapse_test` → `…:5432/synapse_test`；`synapse-services/…/saml_service.rs`（×3）
+  的 `…:5432/synapse` → `…:5432/synapse_test`。
+
+### 14.6 守卫（可回归）
+
+新增 `tests/unit/test_db_url_convention_tests.rs`，6 项静态断言，无需数据库：
+
+| 断言 | 作用 |
+|---|---|
+| `rust_resolvers_share_one_fallback_chain` | 5 份链**逐元素相等**（顺序也相等） |
+| `every_resolver_is_scanned_by_the_guard` | 防"链被删空 → 空链也能通过"的空转 |
+| `no_target_uses_the_dead_port_or_the_application_database` | 代码行不得出现 `:15432` 或 `:5432/synapse"`（**注释可以**，否则会逼人删掉解释而不是修链） |
+| `every_script_carries_the_5432_default` | 6 个脚本各自的端口默认值钉死 |
+| `environment_variables_are_consulted_before_any_fallback` | `TEST_DATABASE_URL` 必须出现在首条 fallback 之前 |
+| `the_checker_rejects_the_old_chain` | 谓词非空转自检：喂进修复前的旧链，断言**两类**违规都被标出 |
+
+**变异自证**：把 `synapse-storage/src/test_isolation.rs` 的链改回旧形态 → 2 项转红，
+并精确报出 `test_isolation.rs:56 targets the dead port 15432` 与 `:57 falls back to the application database`；
+复位后 6/6 绿。
+
+### 14.7 方法论教训
+
+`git check-ignore -v <path>` **不能**用来判断"例外是否生效"：命中负向规则（`!…`）时它照样打印
+该行并返回 **exit 0**。B0-2 的原始验证判据就错在这里（会得出"仍被忽略"的假结论）。
+唯一可靠判据是 `git add --dry-run <path>`。同类教训：`grep -c placeholder` = 0 这种"字面量归零"
+判据会误伤真测试名（`api_placeholder_contract_p0_tests`），判据必须落在**语义**上而不是字符串上。
+
+---
+
 ## 附录 A：复现命令
 
 ```bash
@@ -854,4 +935,35 @@ psql "$P" -q -f migrations/00000001_extensions_v10.sql
 SQLX_OFFLINE=true TEST_DATABASE_URL="$P" cargo test -p synapse-storage --all-features --lib -- \
   burn_after_read::db_tests room::db_tests::test_room_version_check_accepts_versions_beyond_eleven audit::db_tests
 # 注意：跑 tests/unit 会经 T-1 清空 public，之后必须重新灌 baseline 才能跑 storage db_tests
+```
+
+> ⚠️ A.3 是 2026-09-14 那批的**当时快照**（sqlx 当时确实红、跳过点当时确实 18 处）。
+> 其中 `git check-ignore -v artifacts/coverage_baseline.json` 这一行的**判据是错的**——
+> 见 §14.7：负向规则命中时它照样打印并 exit 0。当前门禁状态请看 §14 与
+> `OPTIMIZATION_EXECUTION_PLAN_2026-09-15.md` §3 各批次行。
+
+## 附录 B：H-12 复现（2026-09-15）
+
+```bash
+# B.1 证明 15432 是死的、应用库不存在
+nc -z localhost 15432 && echo OPEN || echo "CLOSED（无监听）"
+grep -n 'ports:' -A 1 docker/docker-compose.dev-host-access.yml   # ${DB_EXPOSE_PORT:-5432}:5432
+PGPASSWORD=synapse psql -h localhost -p 5432 -U synapse -d synapse -tAc "select 1"
+#   → FATAL: database "synapse" does not exist
+
+# B.2 修改前后：五份链与脚本默认值
+grep -rn 'localhost:15432' --include='*.rs' src/ synapse-*/src/ tests/     # 期望：无
+grep -rn 'localhost:5432/synapse"' --include='*.rs' src/ synapse-*/src/ tests/   # 期望：无
+for f in scripts/init_test_public_schema.sh scripts/cleanup_test_schemas.sh \
+         scripts/tune_test_db.sh scripts/seed_test_db.sh \
+         scripts/run_bench_server.sh scripts/run_local_coverage.sh; do
+  bash -n "$f" && echo "OK $f"
+done
+
+# B.3 守卫（6 项）与变异自证
+cargo test --test unit --features test-utils test_db_url_convention        # 6/6 绿
+# 变异：把 synapse-storage/src/test_isolation.rs 的链改回
+#   ["…:15432/synapse_test", "…:5432/synapse"]
+# → rust_resolvers_share_one_fallback_chain 与
+#   no_target_uses_the_dead_port_or_the_application_database 转红，并报出 file:line
 ```

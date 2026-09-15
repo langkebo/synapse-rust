@@ -33,7 +33,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-export DATABASE_URL="${DATABASE_URL:-postgresql://synapse:synapse@localhost:15432/synapse_test}"
+export DATABASE_URL="${DATABASE_URL:-postgresql://synapse:synapse@localhost:5432/synapse_test}"
 export TEST_DATABASE_URL="${TEST_DATABASE_URL:-$DATABASE_URL}"
 TEST_THREADS="${TEST_THREADS:-4}"
 OUTPUT_DIR="coverage"

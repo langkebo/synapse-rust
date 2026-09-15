@@ -17,7 +17,7 @@
 set -uo pipefail
 
 export PGHOST="${PGHOST:-localhost}"
-export PGPORT="${PGPORT:-15432}"
+export PGPORT="${PGPORT:-5432}"
 export PGUSER="${PGUSER:-synapse}"
 export PGDATABASE="${PGDATABASE:-synapse_test}"
 export PGPASSWORD="${PGPASSWORD:-synapse}"

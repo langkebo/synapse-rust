@@ -438,7 +438,7 @@ mod tests {
     use super::*;
 
     fn make_service() -> VerificationService {
-        let pool = sqlx::PgPool::connect_lazy("postgres://synapse:synapse@localhost:15432/synapse_test")
+        let pool = sqlx::PgPool::connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
             .expect("connect_lazy should not perform I/O");
         let pool = std::sync::Arc::new(pool);
         VerificationService::new(Arc::new(VerificationStorage::new(&pool)))

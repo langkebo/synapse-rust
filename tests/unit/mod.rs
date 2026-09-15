@@ -62,6 +62,7 @@ mod server_notification_api_tests;
 mod sliding_sync_api_tests;
 mod space_api_tests;
 mod telemetry_api_tests;
+mod test_db_url_convention_tests;
 mod thread_api_tests;
 
 mod worker_api_tests;

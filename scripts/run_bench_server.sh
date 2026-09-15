@@ -7,7 +7,7 @@
 # Environment overrides:
 #   BENCH_PORT          Server listen port (default: 8008)
 #   BENCH_DB_HOST       PostgreSQL host (default: localhost)
-#   BENCH_DB_PORT       PostgreSQL port (default: 15432)
+#   BENCH_DB_PORT       PostgreSQL port (default: 5432)
 #   BENCH_DB_USER       PostgreSQL user (default: synapse)
 #   BENCH_DB_PASSWORD   PostgreSQL password (default: synapse)
 #   BENCH_DB_NAME       PostgreSQL database (default: synapse)
@@ -29,7 +29,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # --- Configuration -----------------------------------------------------------
 BENCH_PORT="${BENCH_PORT:-8008}"
 BENCH_DB_HOST="${BENCH_DB_HOST:-localhost}"
-BENCH_DB_PORT="${BENCH_DB_PORT:-15432}"
+BENCH_DB_PORT="${BENCH_DB_PORT:-5432}"
 BENCH_DB_USER="${BENCH_DB_USER:-synapse}"
 BENCH_DB_PASSWORD="${BENCH_DB_PASSWORD:-synapse}"
 BENCH_DB_NAME="${BENCH_DB_NAME:-synapse}"

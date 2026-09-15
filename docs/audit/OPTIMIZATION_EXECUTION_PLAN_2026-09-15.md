@@ -11,6 +11,9 @@
 
 ## 0. 基线实测（必须先读）
 
+> **本节是 `main @ 2dff2f3d` 时点的基线快照，不是当前状态。** 下面几节的"红"已随 B0/B5/B2-4a
+> 落地而清零；要判断当前状态请看 §2 各表的 ✅ 与 §3 各批次的实测列，或直接跑该行给出的命令。
+
 ### 0.1 工作树不是干净的 —— 3 个门禁同时为红
 
 | 门禁 | 命令 | 实测 |
@@ -83,15 +86,15 @@
 
 | ID | 问题 | 来源 | 状态 |
 |---|---|---|---|
-| P0-1 | 3 门禁红（contract/sqlx/fmt）由未提交树引入 | 本方案实测 | **待收口** |
-| P0-2 | 覆盖率基线 gitignore 例外无效（假修复） | §2.1 | **待修** |
-| P0-3 | 18 处集成测试静默跳过 → ledger 端到端链从未在无 DB 下验证 | §2.5 | **待修** |
-| P0-4 | CI 5 处集成测试指向应用库 `synapse` 且未 pin `TEST_DB_TEMPLATE_SCHEMA` | §2.6/T-6 | **待修** |
-| P0-5 | §1.4 数据完整性约束缺失（FK/CHECK/UNIQUE 共 7 类） | §1.4 | **待折入** |
-| P0-6 | §1.5 热点索引缺失（10 个，部分无等价物） | §1.5 | **待折入** |
-| P0-7 | baseline 自身违反单一真相源：5 对重复索引 + 3 处硬编码 `public` | §1.6 | **待修** |
-| P0-8 | 模板构建吞错（T-2）/ 根模板无条件清空 public（T-1） | §4 | **待修** |
-| P0-9 | 性能门禁纯 echo（2.2）、db-migration-gate 20 处占位（2.3） | §2 | **待修** |
+| P0-1 ✅ | 3 门禁红（contract/sqlx/fmt）由未提交树引入 | 本方案实测 | **已收口**：实测 contract **EXIT=0**（1146 routes）、sqlx **EXIT=0**（1484/61 棘轮到顶未越）、fmt **EXIT=0**（debt 0/0） |
+| P0-2 ✅ | 覆盖率基线 gitignore 例外无效（假修复） | §2.1 | **已真修**：`.gitignore:44` 已是 `artifacts/*`（非 `artifacts/`），`git add --dry-run artifacts/coverage_baseline.json` 成功。注：`git check-ignore -v` 仍打印 `:45:!…` 并 **exit 0**，那是 git 在报告"最后命中的是负向规则"，**不能作为判据** —— 判据是 `git add --dry-run` |
+| P0-3 ✅ | 18 处集成测试静默跳过 → ledger 端到端链从未在无 DB 下验证 | §2.5 | **已收口**：18 处 `return` 收敛为唯一入口 `tests/integration/mod.rs::skip_or_fail_without_db()`；`integration_tests_required()` 把 `CI` 视为"必须跑"，故 CI 下缺库即 `panic!` 而非静默通过（全仓仅剩 1 处匹配字符串，位于该函数内） |
+| P0-4 ✅ | CI 5 处集成测试指向应用库 `synapse` 且未 pin `TEST_DB_TEMPLATE_SCHEMA` | §2.6/T-6 | **已收口**：`grep -c 'TEST_DATABASE_URL.*:5432/synapse$' .github/workflows/ci.yml` = **0**；`ci.yml:16` 全局 `TEST_DATABASE_URL=…:5432/synapse_test`，各集成步骤另 pin `TEST_DB_TEMPLATE_SCHEMA=test_template_ci` |
+| P0-5 | §1.4 数据完整性约束缺失（FK/CHECK/UNIQUE 共 7 类） | §1.4 | **待折入**（B3-2） |
+| P0-6 | §1.5 热点索引缺失（10 个，部分无等价物） | §1.5 | **待折入**（B3-2） |
+| P0-7 | baseline 自身违反单一真相源：5 对重复索引 + 3 处硬编码 `public` | §1.6 | **待修**（B3-3） |
+| P0-8 | 模板构建吞错（T-2）/ 根模板无条件清空 public（T-1） | §4 | **待修**（B3） |
+| P0-9 ✅ | 性能门禁纯 echo（2.2）、db-migration-gate 20 处占位（2.3） | §2 | **已修**：`drift-detection.yml` 已无 `Performance-baseline gate removed`；`db-migration-gate.yml` 的 `grep -c placeholder` 从 20 降到 3，且这 3 处是**真实测试文件名**（`api_placeholder_contract_p0/p1p2_tests`，"placeholder contract" 是领域概念，不是空壳步骤），故该门禁已无占位 |
 
 > 已修不再列：F-1/F-2/F-3（burn `42P10`、v12/v13 CHECK、audit append-only）、
 > P-1..P-4（自建推送链 4 缺陷）、G-1（契约文档 921→918）、0-1/0-3/0-4/0-5/0-6/0-8。
@@ -115,19 +118,20 @@
 
 | ID | 问题 | 归属批次 |
 |---|---|---|
-| S-1 | `query_server_keys` 不校验自签名 | B5 |
-| S-2 | `get_server_keys` 不校验 `server_name == destination` | B5 |
-| S-4 | `quarantined_media_changes` 无界增长（全仓 0 条 DELETE） | B5 |
-| S-9 | threepid 路由孤儿（已进契约文档、未进 ledger） | B5（D3） |
-| S-12 | MSC4108 `DELETE` 204 缺 3 个 required 头 | B5（D3） |
-| S-14 | 无测试校验"真实 router == ledger" | B3（与 A3 同批，正是 A3 的验证手段） |
-| S-15 | MSC4108 响应头测试自证（构造本地数组断言） | B5 |
-| H-5 ✅ | 陈旧 worktree `.claude/worktrees/optimization+audit-2026-07` | B0（甄别已完成，见下） |
+| S-1 ✅ | `query_server_keys` 不校验自签名 | B5（见 B5-1） |
+| S-2 ✅ | `get_server_keys` 不校验 `server_name == destination` | B5（见 B5-1） |
+| S-4 ✅ | `quarantined_media_changes` 无界增长（全仓 0 条 DELETE） | B5（见 B5-2） |
+| S-9 ✅ | threepid 路由孤儿（已进契约文档、未进 ledger） | B5（见 B5-4，裁定为删除代码本身） |
+| S-12 ✅ | MSC4108 `DELETE` 204 缺 3 个 required 头 | B5（见 B5-3） |
+| S-14 ✅ | 无测试校验"真实 router == ledger" | B3 → **已提前到 B2-4a 完成**（22 条缺口闭合 + `EXTRACT_STRICT=1` 硬门禁） |
+| S-15 ✅ | MSC4108 响应头测试自证（构造本地数组断言） | B5（见 B5-3，改为真实调用 handler 断言响应头） |
+| S-16 ✅ | 集成快照 `route_ledger_*.snapshot` 是手改而非重生成（1127 vs 1378） | B2-4a 附带修复（见 `PROJECT_ACTUAL_ISSUES §13`） |
+| H-5 ✅ | 陈旧 worktree `.claude/worktrees/optimization+audit-2026-07` | B0（见 B0-8） |
 | H-9 | `cargo doc` ~3,500 条 intra-doc 警告 | B6 |
 | H-10 | god-file `friend_room_service/mod.rs` 1,833 行 | B6 |
 | H-11 | mock 与 PG 语义漂移 2 处 | B6 |
-| H-12 | `IsolatedTestPool` fallback 仍首选 `localhost:15432` | B0 |
-| H-14 | `docker/db_migrate.sh` 优先宿主 `psql`，会改非 compose 栈的库 | B0（高危） |
+| H-12 ✅ | `IsolatedTestPool` fallback 仍首选 `localhost:15432` | B0（见 B0-8） |
+| H-14 ✅ | `docker/db_migrate.sh` 优先宿主 `psql`，会改非 compose 栈的库 | B0（见 B0-7，已加护栏 + `SYNAPSE_DB_MIGRATE_ALLOW_HOST_PSQL=1` 显式放行） |
 
 ---
 
@@ -139,14 +143,14 @@
 
 | # | 改动 | 验证 |
 |---|---|---|
-| B0-1 | **收口未提交树**（D1）：`cargo fmt --all` 修 `room/mod.rs:1066`；`bash scripts/contract/check_route_contract.sh` 重生成契约文档；`check_sqlx_dynamic_ratio.sh` 若为合理新增则下调 baseline 并写明理由 | 三命令 **EXIT=0**；`cargo check --workspace --locked` |
-| B0-2 | **覆盖率基线真修**：`.gitignore` 的 `artifacts/` 改为 `artifacts/*`（保留 `!artifacts/coverage_baseline.json`），使例外生效 | `git check-ignore -v artifacts/coverage_baseline.json` **无输出**（未被忽略）；`git add --dry-run` 成功 |
-| B0-3 | **CI 集成测试指向修正**：`ci.yml:559/577/589/598/789` 的 `…/synapse` → `…/synapse_test`，并补 `TEST_DB_TEMPLATE_SCHEMA=test_template_ci` | `grep -c 'TEST_DATABASE_URL.*:5432/synapse$'` = 0 |
-| B0-4 | **静默跳过 fail-closed**：18 处 `Skipping: …; return;` 改为 `panic!`（当 `SYNAPSE_TEST_REQUIRE_DB=1`），CI 置该变量 | 本地不置变量仍可跳；CI 置变量后故意不建库 → **红**（铁律 8 自证） |
-| B0-5 | **性能门禁去 echo**：`drift-detection.yml` 的性能 job 要么给出真实断言（迁移耗时/行数阈值），要么**整体删除**（省掉 1000 万行造数） | 删除后 workflow 语法通过；保留则故意注入劣化 → 红 |
-| B0-6 | **db-migration-gate 20 处占位**：逐条实现或删除，不留 `placeholder` 字样 | `grep -c placeholder` = 0；故意注入违规迁移 → 红 |
-| B0-7 | **H-14 高危**：`docker/db_migrate.sh` 优先宿主 `psql` 的逻辑加护栏（非 compose 栈目标时拒绝执行 / 显式 `--allow-host-psql`） | 在宿主 5432 上跑 `validate` → **拒绝**而非建库 |
-| B0-8 | **H-5 ✅ 已关闭 / H-12 待办**：分支 `optimization/audit-2026-07` **不是 3 个提交而是 157 个**。已完成按主题甄别（`docs/audit/H5_STALE_WORKTREE_TRIAGE_2026-09-15.md`），结论是**没有需要移植的对象**：`git cherry` 的"157 未合并"是 patch-id 假象（`main` 用重写方式落地），内容级比对显示 **86% 的新增行已在 main**、57/157 提交零残留、**OPT-001…031 逐项核验 31/31 已在 main**（含 OPT-020/024 已吸收进 baseline 迁移）、13/13 删除已生效。另有**安全发现**：该 worktree 暂存区含一把真实 Ed25519 私钥（7 月分支的 `.gitignore` 缺 `*.key`；`main` 的 `.gitignore:18-19` 已有），已 `git rm --cached` 处置。**收尾已执行**：私钥已备份到 `~/Desktop/hu_ts/synapse-rust-h5-archive-2026-09-15/`；worktree 已移除；分支归档为 `archive/optimization-audit-2026-07`（157 提交仍可达）；**`git worktree list` 实测 = 1 条，工作区 0 个残留改动、0 个未跟踪文件**。剩余：`IsolatedTestPool` fallback 端口更新 | `git worktree list` = 1 条 ✅；该文件 env-first 行为不变 |
+| B0-1 ✅ | **收口未提交树**（D1）：`cargo fmt --all` 修 `room/mod.rs:1066`；`bash scripts/contract/check_route_contract.sh` 重生成契约文档；`check_sqlx_dynamic_ratio.sh` 若为合理新增则下调 baseline 并写明理由 | 三命令 **EXIT=0** ✅ 实测：contract 0（1146 routes）、sqlx 0（1484/61）、fmt 0（debt 0/0）；`cargo check --workspace --all-features --locked` 通过 |
+| B0-2 ✅ | **覆盖率基线真修**：`.gitignore` 的 `artifacts/` 改为 `artifacts/*`（保留 `!artifacts/coverage_baseline.json`），使例外生效 | 实测 `.gitignore:44` = `artifacts/*`，`git add --dry-run artifacts/coverage_baseline.json` **成功**。⚠️ 原定判据 `git check-ignore -v` **无输出**是错的：命中负向规则时它照样打印并 **exit 0**，判据只能用 `git add --dry-run` |
+| B0-3 ✅ | **CI 集成测试指向修正**：`ci.yml:559/577/589/598/789` 的 `…/synapse` → `…/synapse_test`，并补 `TEST_DB_TEMPLATE_SCHEMA=test_template_ci` | `grep -c 'TEST_DATABASE_URL.*:5432/synapse$' .github/workflows/ci.yml` = **0** ✅；`ci.yml:16` 另有全局 `TEST_DATABASE_URL=…:5432/synapse_test`，各集成步骤均 pin 模板名 |
+| B0-4 ✅ | **静默跳过 fail-closed**：18 处 `Skipping: …; return;` 改为 `panic!` | 实测：18 处已收敛为唯一入口 `tests/integration/mod.rs::skip_or_fail_without_db()`，全仓仅剩 1 处匹配字符串（就在该函数内）。⚠️ 实现**没有**引入 `SYNAPSE_TEST_REQUIRE_DB`，而是复用既有 `integration_tests_required()`（`CI` 存在即视为必须跑）—— 更符合"一个职责一份实现"，且 CI 天生置位，无需额外配置 |
+| B0-5 ✅ | **性能门禁去 echo**：`drift-detection.yml` 的性能 job 要么给出真实断言，要么**整体删除** | `grep -rn "Performance-baseline gate removed\|::warning::Performance" .github/workflows/drift-detection.yml` **无匹配** ✅ |
+| B0-6 ✅ | **db-migration-gate 20 处占位**：逐条实现或删除，不留 `placeholder` 字样 | 从 20 → **3**，且这 3 处是**真实测试文件名**（`api_placeholder_contract_p0_tests.rs` / `api_placeholder_contract_p1p2_tests.rs`，"placeholder contract" 是领域概念），门禁已无空壳步骤。故"`grep -c placeholder` = 0"这个判据本身错——它会把真测试名当占位 |
+| B0-7 ✅ | **H-14 高危**：`docker/db_migrate.sh` 优先宿主 `psql` 的逻辑加护栏（非 compose 栈目标时拒绝执行 / 显式 `--allow-host-psql`） | 实测已落地：`host_psql_target_is_implicit_loopback()` 判定「隐式 loopback 目标」→ 拒绝，除非 `SYNAPSE_DB_MIGRATE_ALLOW_HOST_PSQL=1`；显式给出的 `DATABASE_URL` / `DB_HOST` 一律放行 |
+| B0-8 ✅ | **H-5 ✅ / H-12 ✅ 均已关闭**：分支 `optimization/audit-2026-07` **不是 3 个提交而是 157 个**。已完成按主题甄别（`docs/audit/H5_STALE_WORKTREE_TRIAGE_2026-09-15.md`），结论是**没有需要移植的对象**：`git cherry` 的"157 未合并"是 patch-id 假象（`main` 用重写方式落地），内容级比对显示 **86% 的新增行已在 main**、57/157 提交零残留、**OPT-001…031 逐项核验 31/31 已在 main**（含 OPT-020/024 已吸收进 baseline 迁移）、13/13 删除已生效。另有**安全发现**：该 worktree 暂存区含一把真实 Ed25519 私钥（7 月分支的 `.gitignore` 缺 `*.key`；`main` 的 `.gitignore:18-19` 已有），已 `git rm --cached` 处置。**收尾已执行**：私钥已备份到 `~/Desktop/hu_ts/synapse-rust-h5-archive-2026-09-15/`；worktree 已移除；分支归档为 `archive/optimization-audit-2026-07`（157 提交仍可达）；**`git worktree list` 实测 = 1 条，工作区 0 个残留改动、0 个未跟踪文件**。**H-12 已修**：`15432` 是**死端口**（`nc -z localhost 15432` → 无监听；dev compose 现在发布的是 `${DB_EXPOSE_PORT:-5432}:5432`），且旧链还把**应用库** `…/synapse` 当兜底（本机该库根本不存在，`psql -d synapse` → `database "synapse" does not exist`）。已把 5 份 Rust fallback 链统一为「`5432` + `synapse_test`」，清掉 6 个脚本里的 `15432` 默认值，并把 7 处测试里硬编码的 `…:15432/synapse_test`、`…:5432/synapse` 归正；新增静态守卫 `tests/unit/test_db_url_convention_tests.rs`（6 项，含变异自证） | `git worktree list` = 1 条 ✅；H-12 守卫 6/6 ✅、变异注入后 2 项转红 ✅；该文件 env-first 行为不变 ✅ |
 | B0-9 | **D2**：`docker/deploy/` 18GB 备份移出版本工作区（**需用户确认，不自动删**） | `du -sh docker/deploy` 回落 |
 
 **批次验证门**：`cargo check --workspace --locked` + `./scripts/check_fmt_ratchet.sh` + clippy `-D warnings`
