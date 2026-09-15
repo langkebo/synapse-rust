@@ -167,6 +167,50 @@
 
 **风险**：Complement 测试套若断言 r0 可达需同步；SDK 端到端冒烟（登录/sync/发消息）必须跑一次。
 
+#### B1-1 / B1-2 前置核查结论（2026-09-15 实测，**推翻了本节的两条假设**）
+
+**假设一被推翻：r0 不是 489 条，且不全是重复。**
+
+数据源：`tests/unit/fixtures/ledger_export/{all,default,worker}.json`（去重键 = `method` + 版本剥离后的路径）。
+
+| 快照 | 总条目 | r0 条目 | 非 r0 | client 域唯一 `(method,suffix)` | 冗余条目 | **r0-only（无 v3/v1 对应）** |
+|---|---|---|---|---|---|---|
+| `all.json` | 1319 | **283** | 1036 | 487 | 401 | **13** |
+| `default.json` | 1294 | 276 | 1018 | 480 | 394 | 13 |
+| `worker.json` | 1305 | 276 | 1029 | 480 | 394 | 13 |
+
+即：删 r0 的收益是 **−270 条重复**（不是 −489）；而代价是 **13 个端点会整体消失**（它们不是兼容副本，是只挂在 r0 上的主端点）：
+
+| 端点 | 注册处 | 性质 |
+|---|---|---|
+| `GET /r0/account/profile/{user_id}` | `assembly::account_r0_only` | 自定义路径（规格为 `/profile/{userId}`），r0-only |
+| `PUT /r0/account/profile/{user_id}/displayname` | 同上 | 同上 |
+| `PUT /r0/account/profile/{user_id}/avatar_url` | 同上 | 同上 |
+| `GET /r0/directory/room/{room_id}/alias` | `assembly::directory_r0_only` | 自定义路径（规格为 `/directory/room/{roomAlias}`），r0-only |
+| `PUT /r0/directory/room/{room_id}/alias/{room_alias}` | 同上 | 同上 |
+| `DELETE /r0/directory/room/{room_id}/alias/{room_alias}` | 同上 | 同上 |
+| `GET|POST /r0/friendships` | `friend_room` | 遗留别名（正路由为 `/_matrix/vendor/v1/friends`） |
+| `GET|POST /r0/push/devices`、`DELETE /r0/push/devices/{id}`、`POST /r0/push/send` | `push_notification` | 无任何 v1/v3/vendor 对应 |
+| `POST /r0/rooms/{room_id}/get_membership_events` | `room` | **SDK 正在调用**（见下） |
+
+**假设二被推翻：`被 SDK 真实调用的 r0 端点清单` 不为空。**
+
+对 `matrix-js-sdk`（fork）manager 源码逐处核实（**未使用 route-table 作判据**）：
+
+| SDK 位置 | 路径 | 前缀 | 是否无条件 |
+|---|---|---|---|
+| `src/room-member/index.ts:159` | `POST /rooms/{roomId}/get_membership_events` | `ClientPrefix.R0` | **是** |
+| `src/saml/index.ts:91,109,126,144,157,168,178,188` | `login/sso/redirect/saml`、`login/saml/callback` ×2、`logout/saml`、`logout/saml/callback`、`saml/metadata`、`saml/sp_metadata` | `ClientPrefix.R0` | **是**（8 处） |
+| `src/e2ee/index.ts:359` | `sendToDevice` 版本映射表含 `r0: ClientPrefix.R0` | 参数化（默认 `v3`） | 否 |
+| `src/captcha/index.ts:46` | `captchaPrefix("r0")` | 参数化（默认 `v3`） | 否 |
+| `src/verification/index.ts:33` | `verificationPrefix("r0")` | 参数化（默认 `v1`） | 否 |
+
+另：`Tjg/src/services/matrix/auth/MatrixAuthSaml.ts:59` 的 `samlLogout()` 走 `manager.logout()` → `ClientPrefix.R0` → `/_matrix/client/r0/logout/saml`，而 backend 的 `saml.rs` **只把 `/logout/saml` 与 `/logout/saml/callback` 注册在 r0**（v3 只有 5 条、缺这 2 条）→ **前端现有功能直接依赖 r0-only 端点**。
+
+> 注：`matrix-js-sdk/src/friend/__generated__/route-table.ts` 里的 324 条 r0 路径是 codegen「既有条目 ∪ ledger」的残留，**不是调用证据**——friend 模块实际走 `/_matrix/vendor/v1/friends/*`（`src/friend/paths.ts` + `sub-managers/*`）。本节结论与项目记忆一致：**route-table 只增不减，不能作为实际调用判据。**
+
+**推论**：B1-3「`grep -rn '"/_matrix/client/r0"' src/` = 0 且 ledger diff 恰为 −489」在**不修改 SDK**的前提下不可达，强推会让 SAML 登出、`get_membership_events` 等现网路径 404。B1 必须二选一：**后端 + SDK 同批迁移**，或**只拆零调用部分**。
+
 ---
 
 ### B2 · 路由元数据单一真相源（A3 核心）
