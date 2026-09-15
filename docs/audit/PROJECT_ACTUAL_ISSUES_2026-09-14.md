@@ -32,14 +32,19 @@
 
 ### 0.2 严重度分布
 
-| 级别 | 数量 | 代表性条目 |
+> **2026-09-15 第二轮复核后重写**（HEAD `66339069`）。本节只保留**当前**状态；
+> 逐条证据、以及本轮新发现，见 §18。本章 §1–§8 的表述多为**当时快照**，
+> 凡与 §18 冲突的，以 §18 为准。
+
+| 级别 | 数量 | 状态 |
 |---|---|---|
-| 🔴 P0 功能/数据正确性 | **3（已修）** | burn 批量写入 `42P10`、v12/v13 联邦加入被 CHECK 拒、audit append-only 失效 |
-| 🔴 P0 门禁诚信 | **8** | 覆盖率基线无法提交、perf 门禁纯 echo、CI 集成测试指向应用库、18 处测试静默跳过、sqlx 棘轮 FAIL |
-| 🟠 P1 架构冗余/过度开发 | **12** | 48 个路由文件穿透分层、70 storage trait 中 68 个单实现、近 5k 处样板注释 |
-| 🟠 P1 测试隔离/模板构建 | **8** | 根模板构建无条件清空 `public`、模板构建吞错、测试隔离仍多头 |
-| 🟡 P2 安全/协议残留 | **12（8 已修 / 4 未决）** | 已修：S-1、S-2（B5-1 自签名 + `server_name` 校验）、S-4（B5-2 隔离变更流保留期清理）、S-9（B5-4 删除 threepid 孤儿路由）、S-12、S-15（B5-3 MSC4108 DELETE 补头 + 去自证）、S-13（B5-5 契约提取器）、S-14（B2-4a 正向 + **B2-4b 反向**，见 §12/§13/§16）。未决：S-5（已降级为"已文档化的功能缺口"）、S-6（理论问题）、速率限制碎片化、cache 读写不对称 |
-| 🟡 P2 配置/仓库/文档卫生 | **11** | `.scratch` 97 文件入库、3 个 worktree、`cargo doc` ~3.5k 警告、god-file 1833 行 |
+| 🔴 P0 功能/数据正确性 | 3 已修 · **1 新发现** | 已修：F-1 burn `42P10`、F-2 v12/v13 CHECK、F-3 audit append-only。**新 N-2**：`events.room_id` 双 FK，DB-04-b 的无级联修复**并未真正生效** |
+| 🔴 P0 门禁诚信 | **6 已修 · 5 仍存在 · 1 新发现** | 已修：路由契约（§2.0）、覆盖率基线可提交（§2.1）、perf 门禁真断言（§2.2）、db-migration-gate 去占位（§2.3）、集成测试 fail-closed（§2.5）、CI 测试库统一 `synapse_test`（T-6）。仍存在：§2.4 供应链门禁恒绿、§2.7 迁移守卫 0 候选、§2.8 baseline 日志缺失、`check_baseline_consolidation.py` 空转、`check_schema_blind_guards.py` 未接线且 warning-only。**新 N-1**：fmt 棘轮与 `derived_routes.rs` 漂移门禁**互锁**（无一状态可同时满足） |
+| 🟠 P1 schema/迁移缺口 | **18 命名对象 + 2 其他仍缺失** | §1.4 / §1.5；部署路径静默缺少 FK/CHECK/UQ/索引，测试路径从未拥有它们 |
+| 🟠 P1 架构冗余 | 12 项（3 项已修/降级） | 已修：A-10 主项（`initialize_providers` 已接线）、A-11（`/r0/push/*` 已清除）、A-12 的 `src/services` 壳已删。仍存在：A-1 47 文件、A-2 69 manifest/935 `.route(`、A-3 双前缀（r0=0，v1=181/v3=337）、A-4 70 trait、A-5 176 glob、A-6 22 错误枚举、A-7 ~4.8k 样板注释、A-8 287 pub 字段、A-9 3,631 行、A-10 残留 `push_gateway`/`send_upstream` 假投递 |
+| 🟠 P1 测试隔离/模板构建 | **6 仍存在** | T-1（`public` 被清空且不回填；实测当前 `public` **0 表**）、T-2（模板构建吞错，`error_count>0` 仍 `Ok`）、T-3/T-8（2–3 份实现）、T-4（`search_path …, public` 回退）、T-5（public-wipe 逃生门）、T-7（live DB **25** 个 `test_*` 残留）。T-6 已修复 |
+| 🟡 P2 安全/协议残留 | 11（7 已修 / 4 未决） | 已修：S-1、S-2（B5-1）、S-4（B5-2）、S-9（B5-4）、S-12/S-15（B5-3）、S-13（B5-5）、S-14（B2-4a/b）、**S-5（本轮核实：`extract_via_servers` 已同时支持 `?via=` 与旧 body 形状）**。未决：S-6（理论）、S-7（速率限制碎片化）、S-8（cache 读写不对称）、S-11（SDK 侧死条目，未独立复核） |
+| 🟡 P2 配置/仓库/文档卫生 | **7 已修 · 6 仍存在 · 1 部分** | 已修：H-2 `.scratch` 已 untrack、H-3 `coverage/` 已 untrack、H-4 `docker/deploy` 18 GB→**2.0 MB**、H-5 worktree 仅剩 main、H-12 端口收敛+守卫、H-14 宿主 psql 守卫、H-15/H-16 Makefile 迁移路径收敛。仍存在：H-1 `pool_size` 废弃字段、H-6 `server` feature 0 门、H-9 ~3.5k doc 警告无棘轮、H-10 god-file 1833 行、H-11 mock 漂移 2 处、H-13 计数过期（实测 30/262/29/11/0）。部分：H-8 单一配置树漂移已消除，但**仍无测试把 `homeserver.yaml` 反序列化进 Rust `Config`** |
 
 ---
 
@@ -136,9 +141,12 @@ git log --all --oneline -S fk_event_edges_prev -- migrations/
 
 ### 1.5 🟡 热点索引丢失（仅性能，**待折入**）
 
+> **2026-09-15 复核**：以下 10 个索引名在 v11 baseline 与 extensions 中 `grep -c` 均为 **0**，全部仍未折入
+> （本行末尾原名 `idx_federated` 是笔误，被删迁移里的真名是 `idx_rooms_federated`）。
+
 `idx_device_signatures_user_device`、`idx_device_signatures_target`、`idx_event_edges_prev_room`、
 `idx_e2ee_audit_log_device`、`idx_e2ee_audit_log_room_event`、`idx_push_queue_user_pending`、
-`idx_push_queue_retry`、`idx_federation_queue_dest_created`、`idx_federation_queue_retry`、`idx_federated`。
+`idx_push_queue_retry`、`idx_federation_queue_dest_created`、`idx_federation_queue_retry`、`idx_rooms_federated`。
 
 部分由等价索引覆盖（`idx_device_signatures_unique`、`idx_federation_queue_dest_status`、
 `idx_event_edges_prev`），但目标查找/重试扫描/部分索引（`WHERE is_processed=false`）无等价物。
@@ -146,19 +154,31 @@ git log --all --oneline -S fk_event_edges_prev -- migrations/
 
 ### 1.6 🟡 附带发现：baseline 自身违反"单一真相源"
 
-- **5 对完全重复的索引定义**（`IF NOT EXISTS` 使运行期无害）：
-  `idx_rooms_name_trgm`(3294/3772)、`idx_rooms_canonical_alias_trgm`(3295/3773)、
-  `idx_users_email_trgm`(3265/3770)、`idx_users_user_id_trgm`(3264/3771)、
-  `idx_users_lower_email`(3261/3785)。
-- **3 处 schema-blind 硬编码 `'public'` 仍残留**（上一轮修了 5 处，漏了 3 处）：
-  `v11:4941`、`:5005`、`:5056`（后两处是 `message_log` 守卫；行号随本批插入而下移）。
-  测试隔离按 `search_path = <test_schema>, public` 应用 baseline，故这三处只清 `public`、不清目标 schema。
+> **2026-09-15 更新**（HEAD `66339069`，详见 §18）：行号已漂移，硬编码 `'public'` 已从 3 处降到 1 处。
+
+- **5 对完全重复的索引定义**（`IF NOT EXISTS` 使运行期无害）—— 现为
+  `idx_rooms_name_trgm`(3331/3814)、`idx_rooms_canonical_alias_trgm`(3332/3815)、
+  `idx_users_email_trgm`(3302/3812)、`idx_users_user_id_trgm`(3301/3813)、
+  `idx_users_lower_email`(3298/3827)。
+- **schema-blind 硬编码 `'public'` 剩 1 处**：`v11:4983`（`AND n.nspname = 'public'`，`uq_%` 去重循环）——
+  两处 `message_log` 守卫已在 `aba8275d` 改为 `current_schema()`（现 `:5047`、`:5098`）。
+  测试隔离按 `search_path = <test_schema>, public` 应用 baseline，故这一处只清 `public`、不清目标 schema。
+- **另有一类更隐蔽的 schema-blind 缺陷**：`v11:4117-4120` 的"确保约束存在"块按 `conname` 判幂等，
+  对同名重复无害、对**不同名同列**的 FK 完全失效 —— 见 §18 N-2 / N-3。
 - 其他硬编码 `public`：`docker/db_migrate.sh:192,203,501,507`；
   `scripts/generate_logical_checksum_report.py:129,143`（无 env 覆盖）。
 
 ---
 
 ## 2. 🔴 P0：门禁诚信问题
+
+> **§2.0–§2.8 是 2026-09-14 的快照。** 2026-09-15 复核（HEAD `66339069`）结论：
+> **已修复** §2.0 路由契约（EXIT=0）、§2.2 perf 门禁（改为真断言）、§2.3 db-migration-gate（`P1-8`=0、34 step 全有 `run`/`uses`）；
+> **部分** §2.1 覆盖率基线（`.gitignore:44-45` 例外已加、`git add` 实测可成功）、§2.5 集成静默跳过（18 处已 fail-closed，
+> 余 `tests/unit/test_schema_housekeeping_tests.rs:41-42,86-87` 仍裸 `return`）、§2.6 sqlx 棘轮（`OK: 1484 <= 1484`，
+> 但正则漏计 turbofish —— 见 §18 N-5）；
+> **仍存在** §2.4 供应链门禁在 repo-sanity 恒绿、§2.7 迁移守卫 0 候选、§2.8 baseline 日志缺失，
+> 以及 `check_baseline_consolidation.py` 空转未接线。**新增 P0：§18 N-1（fmt 与 clippy 在 HEAD 同时红 + 两道门禁互锁）。**
 
 ### 2.0 ✅ 路由契约门禁曾为红（§8 已修）
 
@@ -236,6 +256,14 @@ CLAUDE.md 约定的 `docs/audit/00_test_baseline.log`、`00_clippy_baseline.log`
 
 ## 3. 🟠 P1：仍然存在的架构性冗余 / 过度开发
 
+> **2026-09-15 复测（HEAD `66339069`）**：A-11 已修复（`/r0/push/*` 全清、r0 路由注册数 0）；
+> A-10 主项已修复（`initialize_providers` 已在 `wiring/admin.rs:291` 调用），但 `push_gateway` 字段与
+> `send_upstream` 仍是死状态/假投递；A-12 的 `src/services/` 壳已删除（`src/storage/mod.rs` 66 行纯壳保留）。
+> 其余条目数字更新为：A-1 **47**、A-2 **69 manifest / 935 `.route(`**、A-3 **r0=0 / v1=181 / v3=337**
+> （HEAD `66339069` 实测；工作树 WIP 删 manifest 后为 60 个）、
+> A-4 **70 trait（~67 单实现）**、A-5 **176 glob / 压制 7**、A-6 **22** 错误枚举、
+> A-7 **~4812–4950** 条样板注释、A-8 **287** 个上下文 pub 字段、A-9 **3,631** 行。
+
 | ID | 问题 | 实测证据 |
 |---|---|---|
 | A-1 | 路由层穿透分层直连 storage | `grep -rl 'synapse_storage' src/web/routes` = **48** 个文件 |
@@ -257,6 +285,13 @@ CLAUDE.md 约定的 `docs/audit/00_test_baseline.log`、`00_clippy_baseline.log`
 ---
 
 ## 4. 🟠 P1：测试隔离与模板构建
+
+> **2026-09-15 复测（HEAD `66339069`）**：**T-6 已修复**（`ci.yml` 12 处 `TEST_DATABASE_URL` 全指 `synapse_test`、
+> 0 处应用库，各测试步骤 pin `TEST_DB_TEMPLATE_SCHEMA: test_template_ci`，并有守卫
+> `tests/unit/test_db_url_convention_tests.rs`）。其余 **T-1 / T-2 / T-3 / T-4 / T-5 / T-7 / T-8 全部仍存在**：
+> T-1 实测 `public` 的 BASE TABLE 数 = **0**（跑一次根模板构建即清空且不回填）；T-2 `run_runtime_migrations`
+> 在 `error_count>0` 时仍返回 `Ok`（`database_initializer/mod.rs:531`，`executed_at` 类型已修但错误未传播）；
+> T-7 live DB 残留 **25** 个 `test_*` schema。
 
 | ID | 问题 | 证据 |
 |---|---|---|
@@ -283,15 +318,15 @@ CLAUDE.md 约定的 `docs/audit/00_test_baseline.log`、`00_clippy_baseline.log`
 | S-1 | `query_server_keys` **不校验**返回密钥自签名 | ✅ **已修复（B5-1）**。原缺陷：`client.rs:773-785` 直接 `return`，同一份文档经 `/key/v2/server` 会被拒（`get_server_keys` 有 `verify_server_keys_self_signature`）、经 `/key/v2/query` 却被接受 —— 校验缺口取决于调用的是哪个端点。现 `query_server_keys` 与 `get_server_keys` 收敛到唯一信任门禁 `validate_remote_server_keys(&keys, server_name)`；期望值取 `server_name`（"要的是谁的密钥"）而非 `destination`（承载请求的传输对端）。守卫：`admit_server_keys_rejects_forged_signature_without_caching` + `query_server_keys_path_rejects_mismatched_document_over_http`（经真实 HTTP 响应字节走 `handle_response` → 门禁，非就地构造 `ServerKeys`） |
 | S-2 | `get_server_keys` **不校验** `server_name == destination` | ✅ **已修复（B5-1）**。原缺陷：`client.rs:746-770` 仅在缓存前验签，未校验文档自称的身份。攻击者可用**自己的**密钥合法自签一份文档并声称 `server_name = victim`，单独的自签名校验必然放行（这正是自签名抓不住的那一类），于是 `destination → 错误身份的公钥` 被写入 `key_cache`（跨身份缓存投毒）。现顺序改为**先名字、后自签名**：自签名是在 `keys.server_name` 下查找的，先钉住名字才使该查找等价于"destination 签的"而非"文档自称是谁签的"。比较严格相等（不做大小写折叠 / 不去端口），fail-closed。守卫：`server_keys_wrong_server_name_rejected`、`admit_server_keys_rejects_wrong_name_without_caching`（断言缓存仍为空）、正向对照 `admit_server_keys_caches_valid_document_under_expected_server` |
 | S-4 | `quarantined_media_changes` 无界增长 | ✅ **已修复（B5-2）**。原缺陷：全仓 `DELETE` 针对该表 **0** 条 → 纯 append-only，违反 AGENTS.md"Long-running deployments need pruning"。修复复用 `synapse-storage/src/pruning.rs` 既有骨架（该模块本就是"append-only 表的 `DELETE ... WHERE ts < cutoff`，由 `src/server/mod.rs` 定时任务调度"）：新增 `QUARANTINED_MEDIA_CHANGES_RETENTION_DAYS = 30` + `prune_old_quarantined_media_changes`，并**接入调度循环**——只加函数不接线等于假修复。取舍已文档化：`GET /_synapse/admin/v1/quarantine_media/{media_id}/changes?since=N` 无法回放早于窗口的位置，但该缺口**可被检测**（返回的最低 `stream_id` 会高于请求的 `since`），与 device-list 流已接受的取舍一致；写入速率由**管理员动作**而非流量决定，故 30 天足够宽松。**有意不加 `created_ts` 索引**：既有 `idx_..._stream` 已服务按位置读取路径，小表上的顺序谓词比在写路径多维护一个索引更便宜（有证据再议）。守卫：`prune_quarantined_media_changes_respects_retention_window`（除计数外还断言存活行 `MIN/MAX(created_ts)`，堵住"删对数量但删错行"）+ 常量一致性测试 `test_quarantine_retention_matches_device_list_window`。变异自证：比较符 `<` 反转为 `>` → 转红 |
-| S-5 | federation knock **丢弃 `via`**（已知缺口，非隐藏 bug） | `src/web/routes/handlers/room/members.rs:229-236` 明确注释：knock 目前 local-only，`via` 被**接受并记录日志**而非静默丢弃 → 降级为"已文档化的功能缺口" |
+| S-5 | federation knock **丢弃 `via`** | ✅ **已修复（2026-09-15 复核确认）**。原缺陷：join 只读非标准 body 键 `via_servers`、knock 完全忽略 `via`。现 `src/web/routes/handlers/room/members.rs:69 extract_via_servers(query, legacy_body)` 同时支持规范形状（重复查询参数 `?via=srv1&via=srv2`，`via` 胜出）与旧 body 形状（兜底），join(`:117`) 与 knock(`:236`) 均已接入；单测 `:775-805` 覆盖查询解码、端口保留、旧形状兜底。`percent_decode_component` 一并处理了 URL 编码 |
 | S-6 | X-Matrix 头解析用朴素 `split(',')` | `src/web/middleware/federation_auth.rs:299`。**理论问题**：所有字段值都不会含逗号，且解析结果参与签名校验，误解析 fail-closed |
 | S-7 | 速率限制碎片化 | 已核实 `src/web/routes/friend_room.rs:631-632` 自建 key 并直接 `ctx.cache.rate_limit_token_bucket_take(...)`；同类模式另见 `handlers/search/search.rs`、`auth_compat.rs`（子代理复核） |
 | S-8 | cache 读写不对称（结构性陷阱，代码内已标注） | `synapse-cache/src/manager.rs:398` `set_raw` 写 L1+L2（异步）；`:408` 同步 `get_raw` **只读 L1**；L2 回退需显式 `:421 get_raw_shared().await`。当前无生产误用 |
 | S-9 | threepid 路由**孤儿**（且已进契约文档/未进 ledger） | ✅ **已修复（B5-4）**。方案裁定为**删除**而非补装配点（理由与证据见 §11）：`create_threepid_router` 在本仓历史中**从未**被任何装配位置调用（`git log -S 'create_threepid_router()'` 在 `assembly.rs`/`mod.rs`/`src/server` 全为空），路径为裸 `/requestToken`、`/submitToken`（非 Matrix 规范形状，任何 Matrix 客户端都找不到），且是**未完成桩**（`request_token` 从不发信；注释称"为测试返回 token"但响应结构体没有 token 字段）。真实 3PID 端点在 `account_compat.rs`（`/account/3pid/...`，已在 `assembly.rs` 装配并使用同一 `threepid_storage`）。已删除 `src/web/routes/threepid.rs`、`mod.rs` 的死 re-export、以及仅服务于它的 `AuthContext::threepid_storage`（DI 手工复制的净减）。契约提取器实测：模块 67→66、路由 1148→1146、"前缀之外"桶 16→**14 条纯有意根级注册**，两份 oracle 仍 **0 缺口**。守卫从「钉死缺陷」改为「钉死不变量」：`check_non_namespace_bucket` 精确断言该桶 == 14 条已知有意注册 |
-| S-12 | MSC4108 `DELETE` 204 响应缺 3 个 required 头 | `src/web/routes/msc4108_rendezvous.rs:275` 返回 `(StatusCode::NO_CONTENT, Body::empty())`，**无 header tuple**、router 无补头 layer；`Last-Modified`/`Cache-Control: no-store`/`Pragma: no-cache` 在 POST/GET/PUT 都有（`:103-105`、`:148-150`、`:220-222`），DELETE 缺失。文档 `§16` 却记 10/10 已补齐 |
+| S-12 | MSC4108 `DELETE` 204 响应缺 3 个 required 头 | ✅ **已修复（B5-3）**。原缺陷：`msc4108_rendezvous.rs:275` 返回 `(StatusCode::NO_CONTENT, Body::empty())`，无 header tuple；POST/GET/PUT 有 `Last-Modified`/`Cache-Control: no-store`/`Pragma: no-cache` 而 DELETE 缺失。守卫见 S-15 行（改为调用真实 handler） |
 | S-13 | 契约提取器结构性缺陷 | ✅ **已修复（B5-5）**。原缺陷三项全部复现并消除：①链式方法只记录第一个 method（msc4108 `get().put().delete()` 只出 `GET`）；②`nest_map` 收集后从未使用；③`ROUTE_CONTRACT.md` 有 **15** 条相对 `/spaces/...`、**0** 条带前缀。修复后实测：MSC4108 出全 4 条（POST/GET/PUT/DELETE）；spaces 相对路径 **15→0**、带前缀 **0→48**（24 路由 × v1/v3 两前缀，B1 已删 r0 故为 2 而非 §17 预估的 3×15=45）。详见 §9 |
 | S-14 | "真实 router == ledger" 只有单向校验，**漏报方向无任何门禁** | ✅ **已修复（B2-4a）**，但原判定需修正：`tests/integration/api_route_ledger_tests.rs::declared_route_manifest_entries_are_actually_wired` **确实**在探针真实 router（对每条声明发 PATCH，断言 405 且 `Allow` 含该方法）——所以"声明不谎报"这一向**有**覆盖。真正缺的是**反向**：ledger 漏掉多少真实路由，无任何断言。实测漏 **22** 条（提取器原实现把这组差集只打印不拦截，注释自认 "manifests are hand-written and incomplete"）。已逐条核实为真并补进 manifest，双向闭合为 0。详见 §12 |
-| S-15 | MSC4108 响应头测试**自证** | `tests/unit/msc4108_rendezvous_route_tests.rs:222-338` 构造**本地 header 数组**再对其断言，从不调用 handler → DELETE 缺头也会通过 |
+| S-15 | MSC4108 响应头测试**自证** | ✅ **已修复（B5-3）**。原缺陷：`tests/unit/msc4108_rendezvous_route_tests.rs:222-338` 构造本地 header 数组再对其断言，从不调用 handler → DELETE 缺头也会通过。现新增 `:421 delete_session_returns_204_with_required_headers` 等用例走**真实 handler 调用**再断言响应头 |
 
 > **降权/未复核**：`S-3`（文档 `CFG-5/CFG-6` 称 51/27 处 legacy hash 引用，按所给符号名只能命中 9/1 → 符号名不确定，
 > 不作为结论）；`S-10`（MSC4108 双路径族）、`S-11`（SDK 93 条中 64 条死条目）为子代理复核，未由主复核独立确认。
@@ -299,6 +334,14 @@ CLAUDE.md 约定的 `docs/audit/00_test_baseline.log`、`00_clippy_baseline.log`
 ---
 
 ## 6. 🟡 P2：配置 / 仓库 / 文档卫生
+
+> **2026-09-15 复测（HEAD `66339069`）**：**已修复** H-2（`.scratch` 0 文件）、H-3（`coverage/` 0 文件）、
+> H-4（`docker/deploy` **2.0 MB**，原 18 GB）、H-5（worktree 仅 main）、H-12（端口链只剩 5432/synapse_test + 守卫）、
+> H-14（`db_migrate.sh` 拒绝隐式 loopback 宿主 psql + 守卫）、H-15/H-16（`Makefile` 只剩 `migrate-status`/`migrate-audit`，
+> 且改为 `$(DC) exec -T $(DB_SERVICE) psql` 查 `schema_migrations`）。
+> **仍存在** H-1（`pool_size` 零引用废弃字段）、H-6（`server` feature 0 门）、H-9（~3.5k doc 警告无棘轮）、
+> H-10（god-file 1833 行）、H-11（mock 漂移 2 处）、H-13（计数过期：实测 30/262/29/11/0）。
+> **部分** H-8：单一配置树漂移已结构性消除，但**仍无测试把 `docker/config/homeserver.yaml` 反序列化进 Rust `Config`**。
 
 | ID | 问题 | 证据 |
 |---|---|---|
@@ -1267,6 +1310,293 @@ SQLX_OFFLINE=true TEST_DATABASE_URL="$P" cargo test -p synapse-storage --all-fea
 > 其中 `git check-ignore -v artifacts/coverage_baseline.json` 这一行的**判据是错的**——
 > 见 §14.7：负向规则命中时它照样打印并 exit 0。当前门禁状态请看 §14 与
 > `OPTIMIZATION_EXECUTION_PLAN_2026-09-15.md` §3 各批次行。
+
+## 18. 第二轮全量复核（2026-09-15，HEAD `66339069`）
+
+### 18.0 方法与基线
+
+- **复核对象**：本文档 §1–§17 的全部条目 + 期间新增的 B0/B1/B2/B5 系列改动（约 40 个提交）。
+- **方法**：4 路并行只读复核（门禁组 / 架构与隔离组 / schema 与卫生组 / 回归猎捕组）+ 主复核独立复跑关键命令。
+  所有 grep 均排除 `target/`、`.claude/worktrees/`、`.worktrees/`、`docker/deploy/`、`tests/element-web-harness/artifacts/`。
+- **数据库**：`postgresql://synapse:synapse@localhost:5432/synapse_test`（只读 + 一个用完即删的 scratch schema）。
+- **工具链**：`rust-toolchain.toml` pin `1.93.0`；本机 `rustfmt 1.8.0-stable (254b59607d 2026-01-19)`、`cargo 1.93.0` —— 与 pin 一致，故下面的 fmt 结论不是版本差异造成的。
+- **工作树状态**：复核期间有另一个会话在改（`M src/web/middleware/rate_limit.rs`、`M src/web/routes/assembly.rs`、
+  `M src/web/routes/delayed_events.rs`，以及未跟踪的 `optimize-route-manifests.py`、`scripts/replace_manifest_wrappers.py`）。
+  凡"HEAD 自身"的结论都用 `git hash-object` 与 `git rev-parse HEAD:<path>` 比对确认工作树内容 == HEAD blob。
+
+### 18.1 🔴 本轮新发现（此前报告没有的）
+
+#### N-1 [P0] HEAD 上 **fmt 与 clippy 两道门禁同时为红**，且 fmt 与 derived-table 漂移门禁**互锁**
+
+**实测**：
+
+```bash
+$ ./scripts/check_fmt_ratchet.sh
+fmt debt: current=4010 baseline=0
+::error::fmt debt increased: 4010 > 0        # EXIT=1
+$ for f in src/web/routes/mod.rs src/web/routes/derived_routes.rs; do
+    printf '%s  wt=%s head=%s\n' "$f" "$(git hash-object $f)" "$(git rev-parse HEAD:$f)"; done
+# 两个 hash 各自相等 -> 这两个文件与 HEAD 完全一致，fmt 红不是工作树 WIP 造成的
+$ rustfmt --edition 2021 --check src/web/routes/derived_routes.rs | grep -c '^Diff in'
+997
+```
+
+- `src/web/routes/derived_routes.rs`（**10,757 行**）首行自述
+  `//! GENERATED by scripts/contract/gen_derived_routes.py — DO NOT EDIT.`；
+  生成器 `emit()` **不调用 rustfmt**（`grep -n rustfmt scripts/contract/gen_derived_routes.py` 无命中）。
+- 漂移门禁是**逐字节**比较：`gen_derived_routes.py:457`
+  `if not os.path.exists(OUT) or open(OUT).read() != text: STALE; exit 1`；当前 `--check` **EXIT=0**（即已提交文件 == 生成器输出）。
+- 该门禁被 `scripts/contract/check_route_contract.sh:48` 调用，进而并入 `make check` 与
+  `.github/workflows/drift-detection.yml` 的 `route-contract-drift` job。
+- ⇒ **互锁**：留着未格式化的生成文件 → fmt 棘轮红；按 AGENTS.md 要求跑 `cargo fmt --all` →
+  文件被改写 → `--check` 报 `STALE` → 漂移门禁红。**在改动生成器或排除该文件之前，不存在同时满足两道门禁的状态。**
+- 另：HEAD 还因 `66339069` 遗留的死代码 clippy 红 —— `src/web/routes/assembly.rs:39`
+  `fn base_route_manifest()`（私有、全仓无调用点，仅 :36/:91 注释提及；`assembly_compat_manifest`:149 /
+  `vendor_route_manifest`:302 同样孤儿），仓库无 `[lints.rust] dead_code` 放行、无 crate 级
+  `#![allow(dead_code)]` → `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+  （CI 门禁 `ci.yml:218`）在 `dead_code` 上转红。当前工作树的 WIP 恰好删掉了这三个函数。
+
+**建议修法**：① 让 `gen_derived_routes.py` 把 `emit()` 的输出过一遍 `rustfmt` 再写盘，并重新生成提交（优于在
+配置里 `ignore` 掉它 —— 生成物本身应该是格式化的）；② 删掉三个孤儿 manifest 函数（WIP 已在做）。
+两条都做完后两道门禁才可能同时绿。
+
+#### N-2 [P0] baseline 的 DB-04-b "去级联"修复**并未真正生效**：`events.room_id` 上有两个 FK，CASCADE 那个仍在
+
+`migrations/00000000_unified_schema_v11.sql` 里同一列被定义了两次：
+
+| 行 | 约束 | ON DELETE | 出处 |
+|---|---|---|---|
+| `:343` | `fk_events_room` | `NO ACTION`（内联 CREATE TABLE，注释写着 "DB-04-b: replaced CASCADE with NO ACTION"） | 表定义 |
+| `:4117-4120` | `fk_events_room_id` | **`CASCADE`** | 后面的 "确保约束存在" DO 块 |
+
+在 scratch schema 里实灌 baseline 后实测：
+
+```sql
+SELECT conname, confdeltype FROM pg_constraint
+ WHERE conrelid='<schema>.events'::regclass AND contype='f';
+-- fk_events_room    | a   (NO ACTION)
+-- fk_events_room_id | c   (CASCADE)     <- 两个都在
+```
+
+**为什么一直没人发现**：PostgreSQL 对同一事件按 RI 触发器名（含约束 OID）排序执行，
+`fk_events_room` 的 OID `232146664` < `fk_events_room_id` 的 `232149836`，于是 NO ACTION 的检查触发器
+（`RI_ConstraintTrigger_c_232146667`）先于 CASCADE 触发器（`...232149839`）执行。实测后果是**删房直接失败**：
+
+```
+$ INSERT 房 + 1 条 event; DELETE FROM rooms WHERE room_id='!r:audit';
+ERROR:  update or delete on table "rooms" violates foreign key constraint "fk_events_room" on table "events"
+DETAIL:  Key (room_id)=(!r:audit) is still referenced from table "events".
+```
+
+也就是说：**表面上"NO ACTION 生效"只是触发器命名顺序的巧合**，而 DB-04-b 明确要删掉的那个
+CASCADE 约束**仍然装着**。风险：(a) 一旦该约束的 OID/名字序反过来（例如在某个既有库上
+`fk_events_room_id` 先被创建），删房就会**静默级联**并重新引入 DB-04-b 要消除的
+`events` AccessExclusiveLock 卡顿；(b) 每次 `events` 写入/删除都要多跑一对 RI 触发器。
+
+**历史证据**（被删迁移 `20260831060000_events_no_cascade.sql` 的原文）：
+
+> There are two constraints covering the same relationship in the v10 baseline:
+> `fk_events_room` (inline CREATE TABLE, line 338): already NO ACTION in v10
+> `fk_events_room_id` (IF NOT EXISTS block, line 4272): still CASCADE — **THIS is the problem**
+
+该迁移同时 `DROP` 了两个约束并重建单一 `fk_events_room_no_action`。但 v11 折入时**只丢了
+`fk_events_room_no_action` 没建**（§1.4 已记录它缺失），**却没注意 baseline 自己又把 CASCADE 那个造了回来**。
+⇒ 正确的修复不是"补一个 `fk_events_room_no_action`"（那会变成第三个 FK），而是
+**在 `:4117-4120` 的 DO 块里 DROP `fk_events_room_id`**，并加一条"`events.room_id` 上恰好一个 FK 且为 NO ACTION"的守卫。
+
+#### N-3 [P1] baseline 另有 **5 组"不同名、同语义"的重复 FK**
+
+同一份 baseline 的"确保约束存在"DO 块用 `<name>_id` 后缀重造了内联 FK，
+但守卫只查 `conname`，名字不同就查不到，于是**同列出现两个 FK**（运行期实测，方法：
+按 `conkey[1]` 聚合 `pg_constraint`）：
+
+| 列 | 两个约束 | ON DELETE |
+|---|---|---|
+| `access_tokens.user_id` | `fk_access_tokens_user` + `fk_access_tokens_user_id` | CASCADE / CASCADE |
+| `devices.user_id` | `fk_devices_user` + `fk_devices_user_id` | CASCADE / CASCADE |
+| `refresh_tokens.user_id` | `fk_refresh_tokens_user` + `fk_refresh_tokens_user_id` | CASCADE / CASCADE |
+| `room_memberships.room_id` | `fk_room_memberships_room` + `fk_room_memberships_room_id` | CASCADE / CASCADE |
+| `room_memberships.user_id` | `fk_room_memberships_user` + `fk_room_memberships_user_id` | CASCADE / CASCADE |
+
+语义等价（不改变行为），代价是每组多一个 RI 触发器对 + 一份冗余 catalog 条目，
+且和 N-2 同源 —— **DO 块的幂等判据应当按 `(conrelid, conkey)` 而不是 `conname`**。
+（另有 14 组"同名重复"是真正无害的：DO 块的 `IF NOT EXISTS` 直接跳过。）
+
+#### N-4 [P1] `shutdown_room` 违反 phase-0 刚确立的 `room_directory` 不变量
+
+`33854505` 把 `room_directory` 定义为"**有行 == 公开**"（`set_room_directory` 转私有即 `DELETE`，
+`remove_room_directory` 复用），但漏了一个写者：
+
+`synapse-storage/src/room/mod.rs:966-976`：
+
+```rust
+// 注释：we delete it from directory ...
+sqlx::query("UPDATE rooms SET is_public = false, name = COALESCE(name,'') || ' (SHUTDOWN)' WHERE room_id = $1")
+```
+
+只改 `rooms.is_public`，**没删 `room_directory` 行**。可达路径：
+`POST /_synapse/admin/v1/shutdown_room`（admin 鉴权）→ `synapse-services/src/room/state/info.rs:233-235` → `shutdown_room`。
+后果：`EXISTS (SELECT 1 FROM room_directory ...)` 类读取（`admin.rs:437/986/1015`）与
+`GET /directory/list/room/{id}` 仍把该房当作**公开**。既有测试
+`synapse-storage/src/room/mod.rs:1897` 播种了 directory 行却从不断言其状态，所以没拦住。
+
+同族的两个 P2：(a) `is_room_in_directory`（`room/mod.rs:1035`）读的仍是已失去意义的
+`is_public` 列（应为 `SELECT EXISTS(...)`）；(b) `room_directory.is_public` 列与
+`idx_room_directory_public ... WHERE is_public = TRUE` 索引在 baseline（`:489-499`、`:3392`）里已成死列/死索引；
+另有第二个可见性写者 `set_room_visibility`（`room/mod.rs:768-789`）完全绕过该表（当前仅测试调用）。
+
+#### N-5 [P1] sqlx 棘轮正则漏计 turbofish（实测 **652** 处未计入，少报 ~30%）
+
+`scripts/ci/check_sqlx_dynamic_ratio.sh` 的两个正则
+（dynamic `sqlx::query(_as|_scalar)?\(`、static `sqlx::query(_as|_scalar|_file)?!`）
+**匹配不到** `sqlx::query_as::<_, T>(...)` / `sqlx::query_scalar::<_, T>(...)`
+（`<` 出现在 `(` 之前，`query_as(` 不成立）。而 turbofish 写法在本仓很常见：
+
+```bash
+$ grep -rE --include='*.rs' 'sqlx::query_as::<|sqlx::query_scalar::<' \
+    src synapse-*/src | wc -l
+652          # 579 query_as::<  +  73 query_scalar::<
+$ bash scripts/ci/check_sqlx_dynamic_ratio.sh | grep dynamic=
+check_sqlx_dynamic_ratio: dynamic=1484 static=61 total=1545 ratio=0.9605   # OK（<=1484）
+```
+
+即棘轮报告的 1484 只是**下界**，真实动态调用约 2136；新增的 turbofish 动态查询
+**完全不会触发棘轮**。基线文件 `:99-102` 自述过这个盲区，但没有修。
+
+#### N-6 [P1] 两个"守卫/修复"脚本本身不可信
+
+- `scripts/check_schema_blind_guards.py`（`aba8275d` 新增）：**未接入任何 workflow / Makefile / 其他脚本**
+  （`grep -rn check_schema_blind_guards .github Makefile scripts/contract` 无命中），且**只 warning 不失败**：
+  实跑 `exit=0`，输出 `Summary: 0 errors, 15 warnings`。即使接线也不会变红 —— 违反"门禁必须自证能变红"。
+  更糟的是它的**判据本身是错的**：baseline 里被它点名的 3 处（`v11:4522`、`:4754`、`:5047`）写的都是
+  `table_schema = current_schema()` —— 也就是**已经 schema-aware 的正确写法**，却被它判成
+  "missing schema qualification in condition"（false positive）；而 baseline 里**唯一**真正硬编码的
+  `n.nspname = 'public'`（`v11:4983`）**它一条都没报**（false negative）。⇒ 该脚本需要重写判据后才值得接线。
+- `scripts/replace_manifest_wrappers.py`（未跟踪）：会重写 `src/web/routes/**` 里每个
+  `pub fn *_route_manifest()`，但它生成的 wrapper **无参调用** `derived_route_manifest()`
+  （真签名是 `derived_route_manifest(flags: &ProfileFlags)`，`derived_routes.rs:10630`）→ 一旦运行即 E0061，
+  且按"文件名 stem"过滤 `registered_by`、丢弃 `with_auth`/`with_rate_limit_exempt` 注解。
+  `optimize-route-manifests.py`（未跟踪，**仓库根目录**）是带硬编码绝对路径与未定义变量（`:132` `end_fn`）的打印脚本。
+  两者都应删除或移入正式工具链并接线。
+
+#### N-7 [P2] 一批文档/守卫漂移（都不改变行为，但会误导）
+
+- `docs/synapse-rust/LEDGER_EXPORT_SCHEMA.md:91-92` 与 `scripts/generate_sdk_ledger_fixtures.sh:14-15`
+  仍写 `default=1320 / SDK=1407`，**实测 1065 / 1146**。降幅有据可查
+  （`git show <c>:tests/unit/fixtures/ledger_export/all.json` 逐提交读 `entry_count`）：
+  `1320 → 1317`（删 3 条 push rules）`→ 1319`（push config +2）`→ 1044`
+  （`52b59c8f` B1 删除 r0 兼容嵌套 —— 每路由的 r0 孪生条目一并消失）`→ 1065`
+  （`9ba8b6b1` 补 S-14 正向缺口）。即**计数变更是有意的**，但文档（含 `:46` 的"1320 条只有 3 条"）
+  没跟着改，且除 `schema_version` 行外没有任何门禁校验这些数字。
+- `migrations/00000000_unified_schema_v11.sql:2945` 的默认值是
+  `DEFAULT (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)`（**先取整再乘**，截断到秒），与
+  `db_migrate.sh:329` / `database_initializer/mod.rs:298` 的毫秒写法不一致（仍是同一秒内迁移会撞值）；
+  而守卫 `tests/unit/migration_consistency_tests.rs:79-87` 只断言 `contains("executed_at BIGINT")`
+  且不含 `TIMESTAMPTZ`/`NOW()`，**两种写法都能通过** → 看不见这类漂移。
+- `docs/audit/*` 里仍有过时 runbook：`P4_performance_baseline_2026-09-11.md:222-244,625-627`
+  给出对已删 `docker/deploy/config/` 的 `cp/sed -i`；`P4_ci_gate_integrity_2026-09-11.md:188`、
+  `P4_perf_gate_honesty_2026-09-11.md:205`、`P5_migration_search_path_shadowing_2026-09-12.md:232`
+  仍在调用已删的 `scripts/check_config_consistency.py`。
+- 工作树的 `assembly.rs` 删函数后遗留悬挂 `///` 文档块（`:30-113`，注释仍称 "Composes `base_route_manifest()`"）；
+  严格提取器提示 `1 allowlist entries are no longer produced`（`scripts/contract/extract_unresolved_allowlist.txt` 陈旧项，
+  只 note 不失败）。
+
+### 18.2 已修复（本轮实测确认，不要再重测）
+
+| 原条目 | 判定 | 证据 |
+|---|---|---|
+| §2.0 路由契约门禁红 | ✅ 已修复 | pristine clone @ `66339069` 跑 `check_route_contract.sh` → **EXIT=0**；fix `fba2aac6`（注意：脚本会就地重写 `ROUTE_CONTRACT.md`） |
+| §2.1 覆盖率基线永远无法提交 | ✅ 已修复 | `.gitignore:44` `artifacts/*` + `:45` `!artifacts/coverage_baseline.json`（`78e59b64`）；clone 内 `git add --dry-run artifacts/coverage_baseline.json` → exit 0 |
+| §2.2 perf 门禁纯 echo | ✅ 已修复 | `drift-detection.yml:324-349` 改为真断言（tables/indexes ≥200、elapsed ≤600，否则 exit 1），无 `generate_series`（`33854505`） |
+| §2.3 db-migration-gate 占位步骤 | ✅ 已修复 | `grep -c P1-8` = 0；34 step 全部带 `run:`/`uses:`；`check_workflow_steps.py` OK（`78e59b64` + `33854505`） |
+| §2.5 集成测试 18 处静默跳过 | ⚠️ 部分 | 18 处全部改为 `super::skip_or_fail_without_db()`（`tests/integration/mod.rs:170-180`，`33854505`）→ CI 下 panic；**残余** `tests/unit/test_schema_housekeeping_tests.rs:41-42,86-87` 仍裸 `return` |
+| §2.6 sqlx 棘轮 FAIL | ⚠️ 部分 | 现 `OK: 1484 <= 1484`；但 N-5 的 turbofish 盲区使该数字不可信 |
+| T-6 CI 指向应用库 `synapse` | ✅ 已修复 | `ci.yml` 12 处 `TEST_DATABASE_URL` 全指 `synapse_test`、0 处应用库，各步骤 pin `TEST_DB_TEMPLATE_SCHEMA: test_template_ci`；守卫 `tests/unit/test_db_url_convention_tests.rs`（`5e595605`） |
+| S-5 knock 丢弃 `via` | ✅ 已修复（本轮新核实） | `handlers/room/members.rs:69` `extract_via_servers(query, legacy_body)`：标准 `?via=` 重复查询参数优先，旧 body `via_servers` 仅作兜底；join(`:117`) 与 knock(`:236`) 都已接入；单测 `:775-805` |
+| S-12 / S-15 MSC4108 DELETE 头缺失 + 自证测试 | ✅ 已修复 | 新增 `tests/unit/msc4108_rendezvous_route_tests.rs:421 delete_session_returns_204_with_required_headers`（调用真实 handler） |
+| A-11 `/r0/push/*` legacy 路由 | ✅ 已修复 | `push_notification.rs:336-339` 全为 `/_matrix/client/v3/push/*`；`r0` 路由注册数 = 0 |
+| A-12 `src/services/` 薄壳 | ✅ 已修复（services 部分） | `git ls-tree HEAD src/services` 为空（已删除）；`src/storage/mod.rs` 仍是 66 行纯 re-export（有使用者，非死代码） |
+| H-2 / H-3 `.scratch` 97 文件、`coverage/` 3 文件入库 | ✅ 已修复 | `git ls-files .scratch` = 0、`git ls-files coverage` = 0（`33343379`） |
+| H-4 `docker/deploy` 18 GB | ✅ 已修复 | `du -sh docker/deploy` = **2.0M**，backups 目录已空 |
+| H-5 常驻 worktree | ✅ 已修复 | `git worktree list` 仅 main |
+| H-8 配置单一真相源 | ⚠️ 部分 | 第二个配置树已删除（`86fc6cd0`），替换为 `config_mount_tests.rs`(7) / `sync_rate_limit_config_tests.rs`(4) / `migration_consistency_tests.rs`(8)；**但仍无测试把 `docker/config/homeserver.yaml` 反序列化进 Rust `Config`** |
+| H-12 `15432` 死端口 | ✅ 已修复 | 回退链只剩 `5432/synapse_test`；守卫 `tests/unit/test_db_url_convention_tests.rs`(6 tests) |
+| H-14 `db_migrate.sh` 宿主 psql 误伤 | ✅ 已修复 | `db_migrate.sh:162 host_psql_target_is_implicit_loopback()` + `:186-201` 拒绝；守卫 `every_ci_db_migrate_call_supplies_an_explicit_target` |
+| H-15 / H-16 Makefile 重复迁移路径 | ✅ 已修复 | `flyway-*`/`sqlx migrate`/`scripts/db` 引用全部消失；`Makefile:92,96` 改为 `$(DC) exec -T $(DB_SERVICE) psql` 查 `schema_migrations` |
+| §16 反向契约（SDK ⊆ ledger） | ✅ 已修复 | `check_sdk_route_coverage.py` EXIT=0；`EXTRACT_STRICT=1 extract_registered.py` 双向 0/0 |
+| §9 S-13 契约提取器 | ✅ 已修复 | 链式方法全出、`spaces` 相对路径 15→0；`gen_derived_routes --check` 复现全部 6 份 fixture |
+
+### 18.3 仍然存在（合并清单，按严重度）
+
+**P0**
+
+1. **N-1** HEAD fmt 红（`current=4010`）+ clippy 红（`base_route_manifest` 死代码），且 fmt 与
+   `derived_routes.rs` 字节级漂移门禁**互锁**。
+2. **N-2** `migrations/00000000_unified_schema_v11.sql:4117-4120` 的 CASCADE 双 FK 使 DB-04-b 形同虚设。
+
+**P1**
+
+3. **§1.4/§1.5 的 18 个命名对象仍缺失**（8 个约束 + 10 个索引；有序活集模拟 `ABSENT = 20`，
+   其中 `ck_rooms_room_version_valid_v2` 是改名误报、`fk_events_room_no_action` 实为 N-2）。
+   已确认恢复的是 `ux_burn_log_user_event`(v11:3670)、正则 `ck_rooms_room_version_valid`(v11:251)、
+   `trg_prevent_audit_delete`(v11:2318)。
+4. **N-3** 5 组不同名重复 FK。
+5. **N-4** `shutdown_room` 违反 `room_directory` 不变量（房间已关停却仍在公开目录）。
+6. **N-5** sqlx 棘轮漏计 652 处 turbofish。
+7. **N-6** `check_schema_blind_guards.py` 未接线且 warning-only；`replace_manifest_wrappers.py` 是会破坏编译的危险脚本。
+8. **T-1** `src/test_utils.rs:563-564` 无条件 `DROP SCHEMA public CASCADE` 且不回填 —— 实测当前
+   `public` 的 BASE TABLE 数 = **0**，故 `synapse-storage/src/test_utils.rs:201 connect_shared_test_pool`
+   一类直连 `public` 的套件必然 `42P01`。
+9. **T-2** `synapse-services/src/database_initializer/mod.rs:531` 在 `error_count>0` 时仍返回 `Ok`，
+   `initialize()` 保持 `is_success=true` → 半成品模板被标记 ready。
+10. **T-7** live DB 有 **25** 个 `test_*` schema 未回收（14 个空 `test_<pid>_…`、9 个
+    `test_isolation_template_*`、`test_template_v2_*`、`test_template_ci`）；janitor 只覆盖进程内正常退出。
+11. **§2.4** `ci.yml:141`（repo-sanity）调用 `supply_chain_gate.sh` 但不安装 `cargo-deny`/`cargo-audit`
+    → 恒绿；真安装只在 `security-audit`（`ci.yml:656-660`）。
+12. **§2.7** 迁移守卫 0 候选恒绿（`migrations/` 仅 2 个 `.sql`，extensions 的 `ADD COLUMN`/`ADD CONSTRAINT` = 0）。
+13. **§2.8** 四个 baseline log 仍缺失；`scripts/.missing-docs-baseline` 仍为 6。
+14. **§0.1 追加** `scripts/check_baseline_consolidation.py` 空转（"已吸收 0 个"、EXIT=0）且未接入任何 CI
+    → 23 对象缺口无自动守卫。
+15. **T-3/T-8/T-4/T-5** 隔离/模板构建仍有 2–3 份实现（Guard 4 只扫 services 副本）；`search_path …, public` 回退与
+    public-wipe 逃生门仍在代码中。
+16. **A-10 残留** `PushNotificationService::push_gateway` 只写不读（`service.rs:30`，`with_push_gateway` 0 调用方）；
+    `send_upstream`（`service.rs:486-495`）对 `"upstream"` 仍伪造成功而不发送。
+
+**P2**
+
+17. **N-7** 文档/守卫漂移（ledger 计数 1320/1407、`executed_at` 秒级默认值 + 守卫盲区、过时 runbook 引用、
+    悬挂注释、陈旧 allowlist 项、两个散落脚本）。
+18. **H-1** `docker/config/homeserver.yaml:68,86` 的 `pool_size` 零引用废弃字段仍在发布配置中。
+19. **H-6** `Cargo.toml:32` `server` feature 声明但 0 个 `#[cfg(feature = "server")]` 门。
+20. **H-9** `ci.yml:274` 自认 ~3.5k intra-doc-link 警告，但无对应棘轮/baseline。
+21. **H-10** `synapse-services/src/friend_room_service/mod.rs` = 1833 行。
+22. **H-11** `test_mocks/member.rs:596-597` 负 `limit` 未 clamp；`test_mocks/device_list.rs:100-125` 仍是忽略
+    `from/to/requester` 的 stub。
+23. **H-13** 允许列表计数过期：实测 `#[allow(dead_code)]`=30、`allow(clippy::`=262、`#[ignore]`=29、
+    TODO/FIXME/XXX/HACK=11、`#[deprecated]`=0（文档记 149/170/26/8）。
+24. **§1.6** baseline 仍有 5 对逐字节重复索引（现 `:3331/3814`、`:3332/3815`、`:3302/3812`、`:3301/3813`、`:3298/3827`）；
+    硬编码 `'public'` 从 3 处降到 **1 处**（`v11:4983` 的 `n.nspname = 'public'`，两处 `message_log` 已改 `current_schema()`）。
+25. **长期债（A 系列）**：47 个路由文件穿透分层、69 个 manifest / 935 个 `.route(`、70 个 storage trait、
+    176 处 glob re-export、22 个错误枚举、~4812–4950 条 rustdoc 样板、287 个上下文 pub 字段、
+    `src/web/**/mod.rs` 合计 3,631 行；`/_matrix/client/v1/`(181) 与 `/v3/`(337) 双前缀并存（`r0` 已清零）。
+
+### 18.4 证伪 / 降级 / 口径修正
+
+- **A-3 "r0/v1/v3 三前缀并存"**：`r0` 路由注册数已为 **0**（只剩 15 处非路由引用），降级为"v1/v3 双前缀"。
+- **S-5**：不再是"已文档化的功能缺口"，本轮核实**已实现**（见 §18.2）。
+- **§1.5 `idx_federated`**：名字写错，被删迁移里的真名是 `idx_rooms_federated`。
+- **H-4 的"18 GB grep 陷阱"**：已消失（现 2.0 MB）；但 `docker/deploy/` 之外的 `tests/element-web-harness/artifacts/`
+  （266 MB，已 gitignore）仍会让 `grep -r .` 变慢。
+- **口径修正（premise correction）**：删除 `docker/deploy/config/` 的提交是 **`86fc6cd0`**（`git log --diff-filter=D -1` 可验），
+  不是 `33854505`；`33854505` 修的是随之悬空的 deploy 挂载与旧一致性脚本/测试。
+- **A-4 / A-7 / A-8** 的原始统计口径无法完全复现（"非 mock 真实实现数"、doc 注释文件范围、字段集合的定义不同），
+  本轮给出的是**同一意图下最接近的口径**，数字有 ±3 的噪声：67/70、~4812–4950、287。
+- **Area 2 的契约链本身是干净的**：`EXTRACT_STRICT=1` 下"manifest 声明但未注册" = 0、
+  "ledger ↔ derived" 双向 0/0、`gen_derived_routes --check` 复现 6 份 fixture、SDK ⊆ ledger 通过。
+  "注册但无 manifest 条目" 的 140 条（all-extensions 车道，其中 `assembly.rs` 68、`federation/mod.rs` 39）
+  是 B2 迁移进行中的**预期状态**，不是缺陷。
+
+---
 
 ## 附录 B：H-12 复现（2026-09-15）
 
