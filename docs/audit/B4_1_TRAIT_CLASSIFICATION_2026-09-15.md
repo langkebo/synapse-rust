@@ -1,0 +1,193 @@
+# B4-1 / B4-2 交付物：`*StoreApi` trait 分类清单（存档）
+
+- 日期：2026-09-15
+- 依据：`docs/audit/OPTIMIZATION_EXECUTION_PLAN_2026-09-15.md` §3 `B4-1` / `B4-2`
+- 基线：`main @ 66339069` + 本批改动（工作树含其它会话在 `src/web/routes/**` 的 codemod，未触碰）
+- 复现：`python3 scripts/ci/check_trait_ratchet.py`；分类脚本见本文 §5
+
+---
+
+## 1. 结论摘要
+
+| 桶 | 定义 | 数量 | 处置 |
+|---|---|---|---|
+| (i) | `dyn` 引用为 0（trait 无任何类型擦除用途） | **10（已全部删除）** | 删 trait + 转发 impl；消费者/再导出/陈旧测试一并清理 |
+| (ii-a) | `dyn` + **恰好 1 个生产 impl**，无 mock | 32 | **本批不删**（见 §3 裁定建议） |
+| (ii-b) | `dyn` + 1 个生产 impl + **有 mock** | 17 | **保留**：mock 就是它的存在理由；且 trait 与生产 impl 已同文件，无需搬动 |
+| (iii) | ≥2 个生产 impl | 7 | **保留**：真实多实现 |
+
+- trait 计数棘轮（新增）：`TOTAL 96 → 86`、`*StoreApi 66 → 56`（本批 −10）。
+- 净代码量：`synapse-storage/src` **−739 / +4 行**（16 文件），外加 3 个测试文件 −32 行陈旧测试。
+- 验证：`cargo clippy -p synapse-storage -p synapse-services --all-targets --all-features --locked -- -D warnings` → **0 警告**；
+  棘轮已用注入探针实测 **RED→GREEN**（§4）。
+
+> ⚠️ **仓库级验证被并发改动阻塞**：`cargo clippy --workspace` 当前在 `src/web/routes/mod.rs`、
+  `src/web/middleware/rate_limit.rs` 与 `tests/unit/*_route_tests.rs` 上报 E0603/E0432 ——
+  全部来自另一个会话正在进行的 route-manifest codemod（它把 `assembly` 模块转私有、删除手写 manifest，
+  但尚未更新引用方）。这些文件**不在本批改动范围内**，本批涉及的 crate 已单独验证通过。
+
+## 2. 已删除的 10 个 trait（(i) 桶）
+
+删除判据（B4-2「删除前守卫」）：**全仓 `grep -rn "\b<trait>\b"` 只剩「声明 + 转发 impl + 再导出」三类命中**，
+即既无 `Arc<dyn _>` 注入、也无泛型约束、也无测试消费者。删除后 4 个再导出点同步清理，
+4 个只为"扁平路径 == 分组路径"而存在的迁移期测试一并删除。
+
+| trait | 声明文件 | 生产 impl | 删除行数（trait + impl） | 同步清理 |
+|---|---|---|---|---|
+| `ModerationStoreApi` | `synapse-storage/src/moderation/mod.rs` | `ModerationStorage` | 23 + 33 | — （零引用，连再导出都没有） |
+| `ModerationLogStoreApi` | `synapse-storage/src/moderation/mod.rs` | `ModerationLogStorage` | 24 + 31 | — |
+| `E2eeAuditStoreApi` | `synapse-storage/src/e2ee_audit.rs` | `E2eeAuditStorage` | 22 + 32 | `e2ee/mod.rs` 再导出 |
+| `SearchIndexStoreApi` | `synapse-storage/src/search_index.rs` | `SearchIndexStorage` | 18 + 24 | `sync/mod.rs` 再导出 |
+| `VoiceStoreApi` | `synapse-storage/src/voice.rs` | `VoiceStorage` | 48 + 56 | `media/mod.rs` 再导出 |
+| `MatrixRTCStoreApi` | `synapse-storage/src/matrixrtc.rs` | `MatrixRTCStorage` | 67 + 78 | `rtc/mod.rs` 再导出 |
+| `StateGroupStoreApi` | `synapse-storage/src/state_groups.rs` | `StateGroupStorage` | 62 + 83 | `room/mod.rs` 再导出 + `room_domain_refactor_tests.rs` 陈旧测试 |
+| `OAuthClientStoreApi` | `synapse-storage/src/oauth_client_storage.rs` | `OAuthClientStorage` | 20 + 24 | `oidc/mod.rs` 再导出 + `storage_admin_domain_refactor_tests.rs` 陈旧测试 |
+| `FederationQueueStoreApi` | `synapse-storage/src/federation_queue.rs` | `FederationQueueStorage` | 24 + 31 | `infra/mod.rs` 再导出 + 同上 |
+| `UrlPreviewStoreApi` | `synapse-storage/src/url_preview_storage.rs` | `UrlPreviewStorage` | 10 + 12 | `media/mod.rs` 再导出 + `storage_remaining_domains_refactor_tests.rs` 陈旧测试 |
+
+**为什么这 10 个是零收益抽象**：它们的 doc 注释原文就是
+`Trait abstraction over [XStorage] for testability` —— 但既没有任何测试用 `dyn` 注入它们，
+也没有第二实现。删除后 `XStorage` 的固有方法（inherent impl）原样保留，功能零变化。
+
+**顺带修复**：4 个文件里 `use async_trait::async_trait;` 变成未使用导入（clippy `-D warnings` 会红），
+已随删除同步清理 —— 这也是"删 trait 必须连带检查导入"的固定步骤，已写进 §5 脚本。
+
+## 3. 保留的 56 个 trait，以及为什么不删
+
+### 3.1 (iii) 真实多实现 —— 7 个（必须保留）
+
+| trait | 声明位置 | dyn 引用文件数 | 生产 impl | mock impl |
+|---|---|---|---|---|
+| `BurnAfterReadStoreApi` | `synapse-storage/src/burn_after_read.rs:100` | 1 | `BurnAfterReadStorage` | - |
+| `DeviceKeyStoreApi` | `synapse-e2ee/src/device_keys/storage.rs:137` | 12 | `InMemoryDeviceKeyStore` | - |
+| `DeviceListStoreApi` | `synapse-storage/src/device/mod.rs:12` | 12 | `DeviceStorage` | `InMemoryDeviceListStore` |
+| `OidcSessionStoreApi` | `synapse-storage/src/oidc_session_storage.rs:107` | 3 | `OidcSessionStorage` | - |
+| `OidcUserMappingStoreApi` | `synapse-storage/src/oidc_user_mapping.rs:11` | 3 | `OidcUserMappingStorage` | - |
+| `ServerNotificationStoreApi` | `synapse-storage/src/server_notification/api.rs:11` | 2 | `ServerNotificationStorage` | - |
+| `WidgetStoreApi` | `synapse-storage/src/widget.rs:99` | 2 | `WidgetStorage` | - |
+
+这 7 个都有 ≥2 个生产实现（含 SDK/内存实现），正是 trait 该存在的理由。
+`BurnAfterReadStoreApi` 另有 `NoopBurnStore`；`DeviceKeyStoreApi` 有 `InMemoryDeviceKeyStore`；
+`DeviceListStoreApi` 有 `CountingDeviceListStore`；`OidcSessionStoreApi`/`OidcUserMappingStoreApi`/
+`ServerNotificationStoreApi`/`WidgetStoreApi` 各有 `InMemory*`/`Mock*` 实现。
+
+### 3.2 (ii-b) mock 接缝 —— 17 个（保留；trait 与生产 impl 已同文件）
+
+| trait | 声明位置 | dyn 引用文件数 | 生产 impl | mock impl |
+|---|---|---|---|---|
+| `AccessTokenStoreApi` | `synapse-storage/src/token.rs:33` | 7 | `AccessTokenStorage` | `InMemoryAccessTokenStore` |
+| `AdminMediaStoreApi` | `synapse-storage/src/admin_media.rs:105` | 1 | `AdminMediaStorage` | `InMemoryAdminMediaStore` |
+| `AuditEventStoreApi` | `synapse-storage/src/audit.rs:101` | 5 | `AuditEventStorage` | `InMemoryAuditEventStore` |
+| `BackgroundUpdateStoreApi` | `synapse-storage/src/background_update.rs:183` | 2 | `BackgroundUpdateStorage` | `InMemoryBackgroundUpdateStore` |
+| `CasStoreApi` | `synapse-storage/src/cas/api.rs:9` | 2 | `CasStorage` | `InMemoryCasStore` |
+| `DehydratedDeviceStoreApi` | `synapse-storage/src/dehydrated_device.rs:49` | 2 | `DehydratedDeviceStorage` | `InMemoryDehydratedDeviceStore` |
+| `FilterStoreApi` | `synapse-storage/src/filter.rs:36` | 5 | `FilterStorage` | `InMemoryFilterStore` |
+| `OpenIdTokenStoreApi` | `synapse-storage/src/openid_token.rs:42` | 1 | `OpenIdTokenStorage` | `InMemoryOpenIdTokenStore` |
+| `PresenceStoreApi` | `synapse-storage/src/presence/api.rs:7` | 12 | `super::PresenceStorage` | `InMemoryPresenceStore` |
+| `PushStoreApi` | `synapse-storage/src/push/mod.rs:17` | 2 | `PushStorage` | `InMemoryPushStore` |
+| `QuarantinedMediaChangeStoreApi` | `synapse-storage/src/media/quarantine_stream.rs:12` | 3 | `QuarantinedMediaChangeStorage` | `InMemoryQuarantineMediaChangeStore` |
+| `RateLimitStoreApi` | `synapse-storage/src/rate_limit.rs:19` | 1 | `RateLimitStorage` | `InMemoryRateLimitStore` |
+| `RefreshTokenStoreApi` | `synapse-storage/src/refresh_token/mod.rs:253` | 6 | `RefreshTokenStorage` | `InMemoryRefreshTokenStore` |
+| `RelationsStoreApi` | `synapse-storage/src/relations/mod.rs:105` | 4 | `RelationsStorage` | `InMemoryRelationsStore` |
+| `RoomAccountDataStoreApi` | `synapse-storage/src/room_account_data.rs:10` | 4 | `RoomAccountDataStorage` | `InMemoryRoomAccountDataStore` |
+| `RoomTagStoreApi` | `synapse-storage/src/room_tag/mod.rs:28` | 3 | `RoomTagStorage` | `InMemoryRoomTagStore` |
+| `ThreepidStoreApi` | `synapse-storage/src/threepid.rs:85` | 5 | `ThreepidStorage` | `InMemoryThreepidStore` |
+
+**B4-1 对该桶的要求是"trait/impl 合并同文件"** —— 实测**已经满足**：每个 trait 的声明与它的生产
+`impl` 都在同一个存储模块里（例如 `push/mod.rs` 同时含 `PushStoreApi` 与 `impl PushStoreApi for PushStorage`），
+mock 实现单独放在 `synapse-storage/src/test_mocks/`。故本桶**无需改动**，此处存档以免后续重复排查。
+
+### 3.3 (ii-a) `dyn` + 单一生产 impl、无 mock —— 32 个（本批**不删**，列为下一批裁定项）
+
+| trait | 声明位置 | dyn 引用文件数 | 生产 impl | mock impl |
+|---|---|---|---|---|
+| `AccountDataStoreApi` | `synapse-storage/src/account_data/mod.rs:19` | 10 | `AccountDataStorage` | - |
+| `AdminFederationStoreApi` | `synapse-storage/src/admin_federation.rs:52` | 2 | `AdminFederationStorage` | - |
+| `ApplicationServiceStoreApi` | `synapse-storage/src/application_service/api.rs:8` | 3 | `ApplicationServiceStorage` | - |
+| `BeaconStoreApi` | `synapse-storage/src/beacon.rs:118` | 2 | `BeaconStorage` | - |
+| `CallSessionStoreApi` | `synapse-storage/src/call_session.rs:72` | 2 | `CallSessionStorage` | - |
+| `CaptchaStoreApi` | `synapse-storage/src/captcha.rs:186` | 2 | `CaptchaStorage` | - |
+| `ChunkedUploadStoreApi` | `synapse-storage/src/media/chunked_upload.rs:125` | 2 | `ChunkedUploadStorage` | - |
+| `EmailVerificationStoreApi` | `synapse-storage/src/email_verification.rs:33` | 2 | `EmailVerificationStorage` | - |
+| `EventReportStoreApi` | `synapse-storage/src/event_report/api.rs:9` | 2 | `EventReportStorage` | - |
+| `FeatureFlagStoreApi` | `synapse-storage/src/feature_flags.rs:138` | 2 | `FeatureFlagStorage` | - |
+| `FederationBlacklistStoreApi` | `synapse-storage/src/federation_blacklist.rs:215` | 3 | `FederationBlacklistStorage` | - |
+| `FriendRoomStoreApi` | `synapse-storage/src/friend_room/api.rs:8` | 3 | `FriendRoomStorage` | - |
+| `InviteBlocklistStoreApi` | `synapse-storage/src/invite_blocklist.rs:12` | 3 | `InviteBlocklistStorage` | - |
+| `LoginTokenStoreApi` | `synapse-storage/src/login_token.rs:31` | 3 | `LoginTokenStorage` | - |
+| `MediaQuotaStoreApi` | `synapse-storage/src/media_quota/api.rs:9` | 2 | `MediaQuotaStorage` | - |
+| `MemberStoreApi` | `synapse-storage/src/membership/api.rs:25` | 21 | `super::RoomMemberStorage` | - |
+| `ModuleStoreApi` | `synapse-storage/src/module.rs:396` | 3 | `ModuleStorage` | - |
+| `PrivacyStoreApi` | `synapse-storage/src/privacy.rs:73` | 2 | `PrivacyStorage` | - |
+| `PushNotificationStoreApi` | `synapse-storage/src/push_notification.rs:255` | 2 | `PushNotificationStorage` | - |
+| `QrLoginStoreApi` | `synapse-storage/src/qr_login.rs:12` | 2 | `QrLoginStorage` | - |
+| `RegistrationTokenStoreApi` | `synapse-storage/src/registration_token/api.rs:10` | 2 | `RegistrationTokenStorage` | - |
+| `RendezvousMessageStoreApi` | `synapse-storage/src/rendezvous.rs:614` | 2 | `RendezvousMessageStorage` | - |
+| `RendezvousStoreApi` | `synapse-storage/src/rendezvous.rs:179` | 2 | `RendezvousStorage` | - |
+| `RetentionStoreApi` | `synapse-storage/src/retention.rs:124` | 2 | `RetentionStorage` | - |
+| `RoomStoreApi` | `synapse-storage/src/room/api.rs:14` | 12 | `super::RoomStorage` | - |
+| `RoomSummaryStoreApi` | `synapse-storage/src/room_summary/api.rs:8` | 3 | `RoomSummaryStorage` | - |
+| `SamlStoreApi` | `synapse-storage/src/saml/api.rs:11` | 2 | `SamlStorage` | - |
+| `SlidingSyncStoreApi` | `synapse-storage/src/sliding_sync/api.rs:8` | 2 | `SlidingSyncStorage` | - |
+| `SpaceStoreApi` | `synapse-storage/src/space/api.rs:8` | 2 | `SpaceStorage` | - |
+| `StickyEventStoreApi` | `synapse-storage/src/sticky_event.rs:12` | 7 | `StickyEventStorage` | - |
+| `ThreadStoreApi` | `synapse-storage/src/thread/storage.rs:968` | 2 | `ThreadStorage` | - |
+| `WorkerStoreApi` | `synapse-storage/src/worker/api.rs:8` | 2 | `WorkerStorage` | - |
+
+**为什么本批不删**：计划书 B4-1 的 (i) 桶判据是"**零 `dyn`** 的删 trait、消费者用具体类型"。
+这 32 个**确实在用 `dyn`**（`Arc<dyn XStoreApi>` 作为服务结构体字段，属 DI 类型擦除），
+按计划书字面不在删除范围内；而它们也**没有 mock**，所以 (ii) 桶的"合并同文件"同样不适用。
+
+**但它们是 A5 的真正大头**：单实现 + 无 mock ⇒ `Arc<dyn X>` 相对 `Arc<X>` 零收益，
+却带来 4 类成本 —— ①每个 struct 字段一个 trait object（vtable + 堆分配）；
+②`synapse-services` 与 `src/web` 的 context 字段只能写成 `Arc<dyn …>`，是 A4 泛型化要消除的样板来源；
+③`dyn` 使编译器无法内联/跨 crate 做泛型单态化；④每加一个方法就要同时改 trait 与 impl。
+**建议**：作为 **B4-1b** 单独立项，按"服务结构体字段 `Arc<dyn X>` → `Arc<X>`"逐模块替换，
+以 `cargo check` + 该模块的 `--lib` 测试为门；`MemberStoreApi`(21 文件)、`AccountDataStoreApi`(10)、
+`RoomStoreApi`(12)、`StickyEventStoreApi`(7) 是收益最大的四个入口（dyn 引用文件数即改动面）。
+
+## 4. 验证证据
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 本批范围内的编译/lint | `cargo clippy -p synapse-storage -p synapse-services --all-targets --all-features --locked -- -D warnings` | **EXIT=0**（0 警告） |
+| trait 计数棘轮（新增） | `python3 scripts/ci/check_trait_ratchet.py` | `TOTAL=86 STORE_API=56`，`OK: trait counts at baseline` |
+| 棘轮 RED 自证 | 注入 `synapse-storage/src/probe_ratchet_probe.rs`（一个 `pub trait ProbeRatchetStoreApi`）后重跑 | **EXIT=1**，同时报 `pub trait` 与 `*StoreApi` 两项超基线；删除探针后恢复 EXIT=0 |
+| 死引用残留 | `grep -rn "\b<每个已删 trait>\b" --include='*.rs' src synapse-*/src tests` | 10 个 trait **全部 0 命中** |
+| 固有方法未受影响 | `grep -n "pub async fn create_rule\|pub async fn log_action" synapse-storage/src/moderation/mod.rs` | 仍在（§2 表：删的是 trait，不是能力） |
+
+**未能验证（并发阻塞，需在 codemod 落地后补跑）**：
+`cargo clippy --workspace --all-targets --all-features` 与 `cargo test --test unit`。
+当前失败点全部位于其它会话正在改的 `src/web/routes/mod.rs`、`src/web/middleware/rate_limit.rs`
+及 `tests/unit/*_route_tests.rs`（E0603 `assembly` 私有、E0432 手写 manifest 已删但引用未更新）。
+**本批未触碰这些文件**，故不能把它们的失败算在本批头上，也不能据此宣称仓库全绿。
+
+## 5. 复现脚本与"踩过的坑"
+
+分类脚本（本批自用，未入库；逻辑已在 §1 表格复核）：
+
+```python
+# 关键点：dyn 的正则必须匹配「可能带路径前缀」的形式，并取**最后一段**
+DYN = re.compile(r'\bdyn\s+(?:[A-Za-z_][A-Za-z0-9_]*::)*([A-Za-z0-9_]+)')
+```
+
+> **坑（本轮实际踩到，值得记录）**：第一版写成 `\bdyn\s+([A-Za-z0-9_]+)`，
+> 于是 `Arc<dyn synapse_storage::retention::RetentionStoreApi>` 只捕获到 `synapse_storage`，
+> 把**大量真实 `dyn` 使用**误判为"零 dyn"。据此得出的"19 个可删 trait"是**错的**——
+> 修正后真正的零 dyn 只有 10 个（且已按"删前后全名 grep 残留为 0"逐个验证，结论不受该 bug 影响，
+> 因为删除判据用的是**全名残留**而不是 dyn 计数）。
+> 与本仓库既有教训（计划书 §0.3「`grep 'a\|b'` 静默返回空」）同类：**正则口径错了，结论会整片错**。
+
+删除变换（trait 声明 + 转发 impl + 再导出清理 + 未使用 `async_trait` 导入清理）本批用一次性脚本完成，
+**未入库**：一次性 codemod 入库会变成下一个"散落脚本"（见 `PROJECT_ACTUAL_ISSUES_2026-09-14.md` §18 N-6）。
+可复用的只有两个**门禁**：`scripts/ci/check_trait_ratchet.py` + 计数基线文件。
+
+## 6. 批次状态
+
+- **B4-1**：⏳ 进行中 —— (i) 桶 10/10 已删；(ii-b) 桶实测无需改动；(iii) 桶保留；
+  (ii-a) 32 个列为 **B4-1b** 待裁定（§3.3）。
+- **B4-2**：✅ 本文件即"分类清单存档"；删除前判据（全名残留 + dyn + mock 三重检查）见 §2 首段。
+- **B4-3（A4 `AuthSource`）**：⏳ 未开始 —— 依赖 B4-1 的字段瘦身结论，建议在 B4-1b 之后动；
+  否则 context 字段会先泛型化再重写一遍。
+- **B4-4（A2 分层 lint）/ B4-5（A1+A10 crate 拆分）**：⏳ 未开始，**且必须等其它会话的
+  `src/web/routes/**` codemod 落地**——它们改的是同一批文件，现在动必然冲突。

@@ -22,7 +22,6 @@ pub use crate::federation_blacklist::{
     CreateRuleRequest, FederationAccessStats, FederationBlacklist, FederationBlacklistCursor, FederationBlacklistLog,
     FederationBlacklistRule, FederationBlacklistStorage, FederationBlacklistStoreApi, UpdateStatsRequest,
 };
-pub use crate::federation_queue::FederationQueueStoreApi;
 pub use crate::maintenance::{DatabaseMaintenance, MaintenanceReport, TableStats, VacuumResult};
 pub use crate::migration_checks::{check_migration_completeness, count_public_tables};
 pub use crate::monitoring::{

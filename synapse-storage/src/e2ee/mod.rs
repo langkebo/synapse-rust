@@ -10,4 +10,4 @@
 pub use crate::dehydrated_device::{
     DehydratedDevice, DehydratedDeviceStorage, DehydratedDeviceStoreApi, UpsertDehydratedDeviceParams,
 };
-pub use crate::e2ee_audit::{E2eeAuditStorage, E2eeAuditStoreApi, KeyAuditEntry, KeyEvent};
+pub use crate::e2ee_audit::{E2eeAuditStorage, KeyAuditEntry, KeyEvent};

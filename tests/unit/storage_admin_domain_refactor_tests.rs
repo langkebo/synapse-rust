@@ -214,14 +214,6 @@ fn test_background_update_storage_path_identity() {
     }
 }
 
-#[test]
-fn test_federation_queue_store_api_path_identity() {
-    let legacy_ref: Option<&dyn synapse_storage::FederationQueueStoreApi> = None;
-    let grouped_ref: Option<&dyn synapse_storage::infra::FederationQueueStoreApi> = None;
-    if let (Some(a), Some(b)) = (legacy_ref, grouped_ref) {
-        assert_same_type(a, b);
-    }
-}
 
 // --- application domain grouping (application_service) ---
 
@@ -246,11 +238,3 @@ fn test_oidc_user_mapping_storage_path_identity() {
     }
 }
 
-#[test]
-fn test_oauth_client_store_api_path_identity() {
-    let legacy_ref: Option<&dyn synapse_storage::OAuthClientStoreApi> = None;
-    let grouped_ref: Option<&dyn synapse_storage::oidc::OAuthClientStoreApi> = None;
-    if let (Some(a), Some(b)) = (legacy_ref, grouped_ref) {
-        assert_same_type(a, b);
-    }
-}

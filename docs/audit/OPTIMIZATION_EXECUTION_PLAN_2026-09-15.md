@@ -470,9 +470,13 @@ ledger_export_sdk  default 1127  worker 1138  all 1146
 | # | 改动 | 验证 |
 |---|---|---|
 | B4-1 | **A5 trait 收敛**：68 个 `*StoreApi` 分三类 —— (i) 零 `dyn` 的删 trait、消费者用具体类型；(ii) 有 mock 消费者的 trait/impl 合并同文件；(iii) `MediaStorageBackend`/`UserStore` 等真实多实现保留 | 每批 `cargo check --workspace --all-features` + `--lib` 全绿；trait 计数脚本作棘轮（只降不升） |
+| B4-1 ⏳ | **已完成 (i) 桶 10/10 + 棘轮落地**（2026-09-15）。分类存档见 `B4_1_TRAIT_CLASSIFICATION_2026-09-15.md`：真实分布为 (i) 10、(ii-a) `dyn`+单生产 impl 无 mock **32**、(ii-b) mock 接缝 17、(iii) 多实现 7。**注意原文"68 个"与实际不符**（本批前 `*StoreApi` = 66，现 56；总 `pub trait` 96 → 86） | 棘轮 `python3 scripts/ci/check_trait_ratchet.py`：`TOTAL=86 STORE_API=56` 基线写入 `scripts/ci/trait_count_baseline`；注入探针 trait 实测 **EXIT=1**、移除后 EXIT=0。`cargo clippy -p synapse-storage -p synapse-services --all-targets --all-features -- -D warnings` = 0 警告。**未验证**：仓库级 `cargo check --workspace` / `cargo test --test unit` 被其它会话的 `src/web/routes/**` codemod 阻塞（E0603/E0432 全在该批文件），本批未触碰 |
+| B4-1b 🆕 | **下一步（需裁定）**：32 个「`dyn` + 单一生产 impl + 无 mock」的 `Arc<dyn X>` → `Arc<X>`。它们是 A5 的真正大头（单实现 + 无 mock ⇒ trait object 零收益），也是 A4 泛型化要去掉的字段样板来源 | 逐模块替换，`cargo check` + 该模块 `--lib` 为门；建议从 dyn 引用面最大的四个入口开始：`MemberStoreApi`(21 文件)、`RoomStoreApi`(12)、`AccountDataStoreApi`(10)、`StickyEventStoreApi`(7) |
 | B4-2 | **删除前守卫**：每个 trait 删除前 grep `dyn` 与 mock 引用（分类规则保证） | 分类清单存档 |
+| B4-2 ✅ | 判据落地为**三重检查**（全名残留 = 0 且无 `dyn`、无泛型约束、无测试消费者），10 个 trait 删除后全名 `grep` 残留均为 0；4 个只为"扁平路径==分组路径"而存在的迁移期测试（`*_store_api_path_identity`）随 trait 一并删除 | 见存档 §2 表 + §4 验证矩阵 |
 | B4-3 | **A4 DI 泛型化**：定义 `trait AuthSource`，11 个 context 各 impl；`FromRequestParts<S> where S: AuthSource` 泛型 impl 取代逐字笛卡尔积；context 字段按 B4-1 结果瘦身 | 现有 extractor/context 单测全绿；新增"`AdminUser` 与 `RoomContext` 鉴权行为一致"断言 |
 | B4-4 | **A2 分层强制**：CI lint 禁 `src/web/` 下 `use synapse_storage::`（白名单趋向 0，棘轮）；48 个文件补薄 service 或下沉 | 故意加一行 → 红；`grep -rl synapse_storage src/web/routes` 计数下降 |
+| B4-4 ⚠️ | **开工前置**：必须等其它会话在 `src/web/routes/**` 的 manifest codemod 落地 —— 两者改同一批文件 | 落地后 `git status --porcelain src/web | wc -l` = 0 再动 |
 | B4-5 | **A1 + A10 收口**：`src/web/` 独立为 crate，根 crate 收缩为 bin+wiring（目标 <5k 行）；同期删扁平 `pub use x::*` 与 `allow(ambiguous_glob_reexports)`，import 路径唯一化 | `cargo check --workspace --all-features`；docker 构建矩阵（无 Docker 则显式标注未验证） |
 
 ---

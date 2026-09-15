@@ -7,6 +7,5 @@
 //! Consumers should prefer `synapse_storage::oidc::OidcUserMappingStorage` over
 //! the flat `synapse_storage::OidcUserMappingStorage`.
 
-pub use crate::oauth_client_storage::OAuthClientStoreApi;
 pub use crate::oidc_session_storage::OidcSessionStoreApi;
 pub use crate::oidc_user_mapping::{OidcUserMappingStorage, OidcUserMappingStoreApi};

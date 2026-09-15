@@ -123,14 +123,6 @@ fn test_server_notification_storage_path_identity() {
 // media domain grouping (url_preview_storage, voice)
 // =============================================================================
 
-#[test]
-fn test_url_preview_store_api_path_identity() {
-    let legacy_ref: Option<&dyn synapse_storage::UrlPreviewStoreApi> = None;
-    let grouped_ref: Option<&dyn synapse_storage::media::UrlPreviewStoreApi> = None;
-    if let (Some(a), Some(b)) = (legacy_ref, grouped_ref) {
-        assert_same_type(a, b);
-    }
-}
 
 #[cfg(feature = "voice-extended")]
 #[test]

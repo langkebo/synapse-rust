@@ -37,14 +37,6 @@ fn test_room_account_data_storage_path_identity() {
     }
 }
 
-#[test]
-fn test_state_group_store_api_path_identity() {
-    let legacy_ref: Option<&dyn synapse_storage::StateGroupStoreApi> = None;
-    let grouped_ref: Option<&dyn synapse_storage::room::StateGroupStoreApi> = None;
-    if let (Some(a), Some(b)) = (legacy_ref, grouped_ref) {
-        assert_same_type(a, b);
-    }
-}
 
 #[test]
 fn test_thread_storage_path_identity() {

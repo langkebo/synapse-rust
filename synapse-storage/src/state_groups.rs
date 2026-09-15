@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -69,68 +68,6 @@ pub struct StateGroupStateEntry {
     pub event_id: String,
 }
 
-/// Trait abstraction over [`StateGroupStorage`] for testability.
-#[async_trait]
-pub trait StateGroupStoreApi: Send + Sync {
-    /// See [`create_state_group`].
-    async fn create_state_group(
-        &self,
-        room_id: &str,
-        event_id: &str,
-        state_hash: &str,
-        created_ts: i64,
-    ) -> Result<i64, sqlx::Error>;
-    /// See [`get_state_group`].
-    async fn get_state_group(&self, id: i64) -> Result<Option<StateGroup>, sqlx::Error>;
-    /// See [`get_state_group_by_event`].
-    async fn get_state_group_by_event(&self, event_id: &str) -> Result<Option<StateGroup>, sqlx::Error>;
-    /// See [`get_room_state_groups`].
-    async fn get_room_state_groups(&self, room_id: &str, limit: i64) -> Result<Vec<StateGroup>, sqlx::Error>;
-    /// See [`add_state_group_edge`].
-    async fn add_state_group_edge(&self, state_group_id: i64, prev_state_group_id: i64) -> Result<(), sqlx::Error>;
-    /// See [`add_state_group_edges`].
-    async fn add_state_group_edges(&self, state_group_id: i64, prev_state_group_ids: &[i64])
-        -> Result<(), sqlx::Error>;
-    /// See [`get_prev_state_groups`].
-    async fn get_prev_state_groups(&self, state_group_id: i64) -> Result<Vec<i64>, sqlx::Error>;
-    /// See [`get_next_state_groups`].
-    async fn get_next_state_groups(&self, prev_state_group_id: i64) -> Result<Vec<i64>, sqlx::Error>;
-    /// See [`bind_event_to_state_group`].
-    async fn bind_event_to_state_group(&self, event_id: &str, state_group_id: i64) -> Result<(), sqlx::Error>;
-    /// See [`get_state_group_for_event`].
-    async fn get_state_group_for_event(&self, event_id: &str) -> Result<Option<i64>, sqlx::Error>;
-    /// See [`batch_bind_events_to_state_group`].
-    async fn batch_bind_events_to_state_group(
-        &self,
-        event_ids: &[String],
-        state_group_id: i64,
-    ) -> Result<(), sqlx::Error>;
-    /// See [`set_state_entry`].
-    async fn set_state_entry(
-        &self,
-        state_group_id: i64,
-        event_type: &str,
-        state_key: &str,
-        event_id: &str,
-    ) -> Result<(), sqlx::Error>;
-    /// See [`set_state_entries`].
-    async fn set_state_entries(&self, state_group_id: i64, entries: &[StateGroupStateEntry])
-        -> Result<(), sqlx::Error>;
-    /// See [`get_state_at_group`].
-    async fn get_state_at_group(&self, state_group_id: i64) -> Result<Vec<StateGroupState>, sqlx::Error>;
-    /// See [`get_state_entry`].
-    async fn get_state_entry(
-        &self,
-        state_group_id: i64,
-        event_type: &str,
-        state_key: &str,
-    ) -> Result<Option<String>, sqlx::Error>;
-    /// See [`resolve_state_for_group`].
-    async fn resolve_state_for_group(
-        &self,
-        state_group_id: i64,
-    ) -> Result<std::collections::HashMap<(String, String), String>, sqlx::Error>;
-}
 
 /// The `StateGroupStorage` struct.
 pub struct StateGroupStorage {
@@ -483,89 +420,6 @@ impl StateGroupStorage {
     }
 }
 
-#[async_trait]
-impl StateGroupStoreApi for StateGroupStorage {
-    async fn create_state_group(
-        &self,
-        room_id: &str,
-        event_id: &str,
-        state_hash: &str,
-        created_ts: i64,
-    ) -> Result<i64, sqlx::Error> {
-        self.create_state_group(room_id, event_id, state_hash, created_ts).await
-    }
-    async fn get_state_group(&self, id: i64) -> Result<Option<StateGroup>, sqlx::Error> {
-        self.get_state_group(id).await
-    }
-    async fn get_state_group_by_event(&self, event_id: &str) -> Result<Option<StateGroup>, sqlx::Error> {
-        self.get_state_group_by_event(event_id).await
-    }
-    async fn get_room_state_groups(&self, room_id: &str, limit: i64) -> Result<Vec<StateGroup>, sqlx::Error> {
-        self.get_room_state_groups(room_id, limit).await
-    }
-    async fn add_state_group_edge(&self, state_group_id: i64, prev_state_group_id: i64) -> Result<(), sqlx::Error> {
-        self.add_state_group_edge(state_group_id, prev_state_group_id).await
-    }
-    async fn add_state_group_edges(
-        &self,
-        state_group_id: i64,
-        prev_state_group_ids: &[i64],
-    ) -> Result<(), sqlx::Error> {
-        self.add_state_group_edges(state_group_id, prev_state_group_ids).await
-    }
-    async fn get_prev_state_groups(&self, state_group_id: i64) -> Result<Vec<i64>, sqlx::Error> {
-        self.get_prev_state_groups(state_group_id).await
-    }
-    async fn get_next_state_groups(&self, prev_state_group_id: i64) -> Result<Vec<i64>, sqlx::Error> {
-        self.get_next_state_groups(prev_state_group_id).await
-    }
-    async fn bind_event_to_state_group(&self, event_id: &str, state_group_id: i64) -> Result<(), sqlx::Error> {
-        self.bind_event_to_state_group(event_id, state_group_id).await
-    }
-    async fn get_state_group_for_event(&self, event_id: &str) -> Result<Option<i64>, sqlx::Error> {
-        self.get_state_group_for_event(event_id).await
-    }
-    async fn batch_bind_events_to_state_group(
-        &self,
-        event_ids: &[String],
-        state_group_id: i64,
-    ) -> Result<(), sqlx::Error> {
-        self.batch_bind_events_to_state_group(event_ids, state_group_id).await
-    }
-    async fn set_state_entry(
-        &self,
-        state_group_id: i64,
-        event_type: &str,
-        state_key: &str,
-        event_id: &str,
-    ) -> Result<(), sqlx::Error> {
-        self.set_state_entry(state_group_id, event_type, state_key, event_id).await
-    }
-    async fn set_state_entries(
-        &self,
-        state_group_id: i64,
-        entries: &[StateGroupStateEntry],
-    ) -> Result<(), sqlx::Error> {
-        self.set_state_entries(state_group_id, entries).await
-    }
-    async fn get_state_at_group(&self, state_group_id: i64) -> Result<Vec<StateGroupState>, sqlx::Error> {
-        self.get_state_at_group(state_group_id).await
-    }
-    async fn get_state_entry(
-        &self,
-        state_group_id: i64,
-        event_type: &str,
-        state_key: &str,
-    ) -> Result<Option<String>, sqlx::Error> {
-        self.get_state_entry(state_group_id, event_type, state_key).await
-    }
-    async fn resolve_state_for_group(
-        &self,
-        state_group_id: i64,
-    ) -> Result<std::collections::HashMap<(String, String), String>, sqlx::Error> {
-        self.resolve_state_for_group(state_group_id).await
-    }
-}
 
 #[cfg(test)]
 mod db_tests {

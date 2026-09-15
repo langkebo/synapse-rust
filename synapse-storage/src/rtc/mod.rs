@@ -10,6 +10,6 @@ pub use crate::call_session::{
     CallCandidate, CallSession, CallSessionStorage, CallSessionStoreApi, CreateCallSessionParams,
 };
 pub use crate::matrixrtc::{
-    CreateMembershipParams, CreateSessionParams, MatrixRTCStorage, MatrixRTCStoreApi, RTCEncryptionKey, RTCMembership,
+    CreateMembershipParams, CreateSessionParams, MatrixRTCStorage, RTCEncryptionKey, RTCMembership,
     RTCSession, SessionWithMemberships,
 };

@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -88,24 +87,6 @@ fn decode_search_index_cursor(cursor: Option<&str>) -> Option<SearchIndexCursor>
     Some(SearchIndexCursor { created_ts: created_ts.parse().ok()?, id: id.parse().ok()? })
 }
 
-/// Trait abstraction over [`SearchIndexStorage`] for testability.
-#[async_trait]
-pub trait SearchIndexStoreApi: Send + Sync {
-    /// See [`index_event`].
-    async fn index_event(&self, entry: &SearchIndexEntry) -> Result<(), sqlx::Error>;
-    /// See [`index_events`].
-    async fn index_events(&self, entries: &[SearchIndexEntry]) -> Result<usize, sqlx::Error>;
-    /// See [`search_events`].
-    async fn search_events(&self, query: &SearchQuery) -> Result<(Vec<SearchResult>, Option<String>), sqlx::Error>;
-    /// See [`delete_event`].
-    async fn delete_event(&self, event_id: &str) -> Result<(), sqlx::Error>;
-    /// See [`delete_room_index`].
-    async fn delete_room_index(&self, room_id: &str) -> Result<u64, sqlx::Error>;
-    /// See [`rebuild_room_index`].
-    async fn rebuild_room_index(&self, room_id: &str) -> Result<usize, sqlx::Error>;
-    /// See [`get_stats`].
-    async fn get_stats(&self) -> Result<SearchIndexStats, sqlx::Error>;
-}
 
 /// 搜索索引存储模块
 pub struct SearchIndexStorage {
@@ -293,30 +274,6 @@ impl SearchIndexStorage {
     }
 }
 
-#[async_trait]
-impl SearchIndexStoreApi for SearchIndexStorage {
-    async fn index_event(&self, entry: &SearchIndexEntry) -> Result<(), sqlx::Error> {
-        self.index_event(entry).await
-    }
-    async fn index_events(&self, entries: &[SearchIndexEntry]) -> Result<usize, sqlx::Error> {
-        self.index_events(entries).await
-    }
-    async fn search_events(&self, query: &SearchQuery) -> Result<(Vec<SearchResult>, Option<String>), sqlx::Error> {
-        self.search_events(query).await
-    }
-    async fn delete_event(&self, event_id: &str) -> Result<(), sqlx::Error> {
-        self.delete_event(event_id).await
-    }
-    async fn delete_room_index(&self, room_id: &str) -> Result<u64, sqlx::Error> {
-        self.delete_room_index(room_id).await
-    }
-    async fn rebuild_room_index(&self, room_id: &str) -> Result<usize, sqlx::Error> {
-        self.rebuild_room_index(room_id).await
-    }
-    async fn get_stats(&self) -> Result<SearchIndexStats, sqlx::Error> {
-        self.get_stats().await
-    }
-}
 
 #[cfg(test)]
 mod cursor_tests {

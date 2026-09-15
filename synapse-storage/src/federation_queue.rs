@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgQueryResult;
 use sqlx::PgPool;
@@ -45,30 +44,6 @@ pub struct InsertFederationQueueRequest {
     pub created_ts: i64,
 }
 
-/// Trait abstraction over [`FederationQueueStorage`] for testability.
-#[async_trait]
-pub trait FederationQueueStoreApi: Send + Sync {
-    /// See [`insert`].
-    async fn insert(&self, req: &InsertFederationQueueRequest) -> Result<i64, sqlx::Error>;
-    /// See [`mark_sent`].
-    async fn mark_sent(&self, id: i64, sent_at: i64) -> Result<PgQueryResult, sqlx::Error>;
-    /// See [`increment_retry`].
-    async fn increment_retry(&self, id: i64) -> Result<PgQueryResult, sqlx::Error>;
-    /// See [`mark_failed`].
-    async fn mark_failed(&self, id: i64) -> Result<PgQueryResult, sqlx::Error>;
-    /// See [`get_pending_by_destination`].
-    async fn get_pending_by_destination(
-        &self,
-        destination: &str,
-        limit: i64,
-    ) -> Result<Vec<FederationQueueEntry>, sqlx::Error>;
-    /// See [`get_all_pending`].
-    async fn get_all_pending(&self) -> Result<Vec<FederationQueueEntry>, sqlx::Error>;
-    /// See [`delete_completed`].
-    async fn delete_completed(&self, older_than_ts: i64) -> Result<u64, sqlx::Error>;
-    /// See [`count_pending`].
-    async fn count_pending(&self) -> Result<i64, sqlx::Error>;
-}
 
 /// The `FederationQueueStorage` struct.
 pub struct FederationQueueStorage {
@@ -207,37 +182,6 @@ impl FederationQueueStorage {
     }
 }
 
-#[async_trait]
-impl FederationQueueStoreApi for FederationQueueStorage {
-    async fn insert(&self, req: &InsertFederationQueueRequest) -> Result<i64, sqlx::Error> {
-        self.insert(req).await
-    }
-    async fn mark_sent(&self, id: i64, sent_at: i64) -> Result<PgQueryResult, sqlx::Error> {
-        self.mark_sent(id, sent_at).await
-    }
-    async fn increment_retry(&self, id: i64) -> Result<PgQueryResult, sqlx::Error> {
-        self.increment_retry(id).await
-    }
-    async fn mark_failed(&self, id: i64) -> Result<PgQueryResult, sqlx::Error> {
-        self.mark_failed(id).await
-    }
-    async fn get_pending_by_destination(
-        &self,
-        destination: &str,
-        limit: i64,
-    ) -> Result<Vec<FederationQueueEntry>, sqlx::Error> {
-        self.get_pending_by_destination(destination, limit).await
-    }
-    async fn get_all_pending(&self) -> Result<Vec<FederationQueueEntry>, sqlx::Error> {
-        self.get_all_pending().await
-    }
-    async fn delete_completed(&self, older_than_ts: i64) -> Result<u64, sqlx::Error> {
-        self.delete_completed(older_than_ts).await
-    }
-    async fn count_pending(&self) -> Result<i64, sqlx::Error> {
-        self.count_pending().await
-    }
-}
 
 #[cfg(test)]
 mod db_tests {

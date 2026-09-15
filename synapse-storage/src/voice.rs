@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
@@ -48,54 +47,6 @@ pub struct VoiceUserAggregatedStats {
     pub uploads_today: i64,
 }
 
-/// Trait abstraction over [`VoiceStorage`] for testability and service wiring.
-#[async_trait]
-pub trait VoiceStoreApi {
-    /// See [`record_upload`].
-    async fn record_upload(
-        &self,
-        user_id: &str,
-        room_id: Option<&str>,
-        media_id: &str,
-        content_type: &str,
-        duration_ms: i32,
-        size_bytes: i64,
-    ) -> Result<i64, sqlx::Error>;
-
-    /// See [`get_user_stats`].
-    async fn get_user_stats(&self, user_id: &str) -> Result<VoiceUserAggregatedStats, sqlx::Error>;
-
-    /// See [`get_room_stats`].
-    async fn get_room_stats(&self, room_id: &str) -> Result<VoiceAggregatedStats, sqlx::Error>;
-
-    /// See [`get_global_user_stats`].
-    async fn get_global_user_stats(&self, user_id: &str) -> Result<VoiceUserAggregatedStats, sqlx::Error>;
-
-    /// See [`delete_user_stats`].
-    async fn delete_user_stats(&self, user_id: &str) -> Result<u64, sqlx::Error>;
-
-    /// See [`delete_room_stats`].
-    async fn delete_room_stats(&self, room_id: &str) -> Result<u64, sqlx::Error>;
-
-    /// See [`get_room_messages`].
-    async fn get_room_messages(
-        &self,
-        room_id: &str,
-        limit: i64,
-        from_ts: Option<i64>,
-    ) -> Result<Vec<VoiceUsageRecord>, sqlx::Error>;
-
-    /// See [`get_user_messages`].
-    async fn get_user_messages(
-        &self,
-        user_id: &str,
-        limit: i64,
-        from_ts: Option<i64>,
-    ) -> Result<Vec<VoiceUsageRecord>, sqlx::Error>;
-
-    /// See [`get_by_media_id`].
-    async fn get_by_media_id(&self, media_id: &str) -> Result<Option<VoiceUsageRecord>, sqlx::Error>;
-}
 
 /// The `VoiceStorage` struct.
 #[derive(Clone)]
@@ -302,62 +253,6 @@ impl VoiceStorage {
     }
 }
 
-#[async_trait]
-impl VoiceStoreApi for VoiceStorage {
-    async fn record_upload(
-        &self,
-        user_id: &str,
-        room_id: Option<&str>,
-        media_id: &str,
-        content_type: &str,
-        duration_ms: i32,
-        size_bytes: i64,
-    ) -> Result<i64, sqlx::Error> {
-        self.record_upload(user_id, room_id, media_id, content_type, duration_ms, size_bytes).await
-    }
-
-    async fn get_user_stats(&self, user_id: &str) -> Result<VoiceUserAggregatedStats, sqlx::Error> {
-        self.get_user_stats(user_id).await
-    }
-
-    async fn get_room_stats(&self, room_id: &str) -> Result<VoiceAggregatedStats, sqlx::Error> {
-        self.get_room_stats(room_id).await
-    }
-
-    async fn get_global_user_stats(&self, user_id: &str) -> Result<VoiceUserAggregatedStats, sqlx::Error> {
-        self.get_global_user_stats(user_id).await
-    }
-
-    async fn delete_user_stats(&self, user_id: &str) -> Result<u64, sqlx::Error> {
-        self.delete_user_stats(user_id).await
-    }
-
-    async fn delete_room_stats(&self, room_id: &str) -> Result<u64, sqlx::Error> {
-        self.delete_room_stats(room_id).await
-    }
-
-    async fn get_room_messages(
-        &self,
-        room_id: &str,
-        limit: i64,
-        from_ts: Option<i64>,
-    ) -> Result<Vec<VoiceUsageRecord>, sqlx::Error> {
-        self.get_room_messages(room_id, limit, from_ts).await
-    }
-
-    async fn get_user_messages(
-        &self,
-        user_id: &str,
-        limit: i64,
-        from_ts: Option<i64>,
-    ) -> Result<Vec<VoiceUsageRecord>, sqlx::Error> {
-        self.get_user_messages(user_id, limit, from_ts).await
-    }
-
-    async fn get_by_media_id(&self, media_id: &str) -> Result<Option<VoiceUsageRecord>, sqlx::Error> {
-        self.get_by_media_id(media_id).await
-    }
-}
 
 #[cfg(test)]
 mod db_tests {

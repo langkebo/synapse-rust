@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
@@ -138,73 +137,6 @@ pub struct SessionWithMemberships {
     pub memberships: Vec<RTCMembership>,
 }
 
-/// The `MatrixRTCStoreApi` trait.
-#[async_trait]
-pub trait MatrixRTCStoreApi {
-    /// See [`create_session`].
-    async fn create_session(&self, params: CreateSessionParams) -> Result<RTCSession, sqlx::Error>;
-
-    /// See [`get_session`].
-    async fn get_session(&self, room_id: &str, session_id: &str) -> Result<Option<RTCSession>, sqlx::Error>;
-
-    /// See [`get_active_sessions_for_room`].
-    async fn get_active_sessions_for_room(&self, room_id: &str) -> Result<Vec<RTCSession>, sqlx::Error>;
-
-    /// See [`end_session`].
-    async fn end_session(&self, room_id: &str, session_id: &str) -> Result<(), sqlx::Error>;
-
-    /// See [`create_membership`].
-    async fn create_membership(&self, params: CreateMembershipParams) -> Result<RTCMembership, sqlx::Error>;
-
-    /// See [`get_memberships_for_session`].
-    async fn get_memberships_for_session(
-        &self,
-        room_id: &str,
-        session_id: &str,
-    ) -> Result<Vec<RTCMembership>, sqlx::Error>;
-
-    /// See [`get_user_membership`].
-    async fn get_user_membership(
-        &self,
-        room_id: &str,
-        session_id: &str,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<Option<RTCMembership>, sqlx::Error>;
-
-    /// See [`end_membership`].
-    async fn end_membership(
-        &self,
-        room_id: &str,
-        session_id: &str,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<(), sqlx::Error>;
-
-    /// See [`cleanup_expired_memberships`].
-    async fn cleanup_expired_memberships(&self) -> Result<u64, sqlx::Error>;
-
-    /// See [`store_encryption_key`].
-    async fn store_encryption_key(
-        &self,
-        room_id: &str,
-        session_id: &str,
-        key_index: i32,
-        key: &str,
-        sender_user_id: &str,
-        sender_device_id: &str,
-    ) -> Result<RTCEncryptionKey, sqlx::Error>;
-
-    /// See [`get_encryption_keys`].
-    async fn get_encryption_keys(&self, room_id: &str, session_id: &str) -> Result<Vec<RTCEncryptionKey>, sqlx::Error>;
-
-    /// See [`get_session_with_memberships`].
-    async fn get_session_with_memberships(
-        &self,
-        room_id: &str,
-        session_id: &str,
-    ) -> Result<Option<SessionWithMemberships>, sqlx::Error>;
-}
 
 /// The `MatrixRTCStorage` struct.
 #[derive(Clone)]
@@ -503,84 +435,6 @@ impl MatrixRTCStorage {
     }
 }
 
-#[async_trait]
-impl MatrixRTCStoreApi for MatrixRTCStorage {
-    async fn create_session(&self, params: CreateSessionParams) -> Result<RTCSession, sqlx::Error> {
-        self.create_session(params).await
-    }
-
-    async fn get_session(&self, room_id: &str, session_id: &str) -> Result<Option<RTCSession>, sqlx::Error> {
-        self.get_session(room_id, session_id).await
-    }
-
-    async fn get_active_sessions_for_room(&self, room_id: &str) -> Result<Vec<RTCSession>, sqlx::Error> {
-        self.get_active_sessions_for_room(room_id).await
-    }
-
-    async fn end_session(&self, room_id: &str, session_id: &str) -> Result<(), sqlx::Error> {
-        self.end_session(room_id, session_id).await
-    }
-
-    async fn create_membership(&self, params: CreateMembershipParams) -> Result<RTCMembership, sqlx::Error> {
-        self.create_membership(params).await
-    }
-
-    async fn get_memberships_for_session(
-        &self,
-        room_id: &str,
-        session_id: &str,
-    ) -> Result<Vec<RTCMembership>, sqlx::Error> {
-        self.get_memberships_for_session(room_id, session_id).await
-    }
-
-    async fn get_user_membership(
-        &self,
-        room_id: &str,
-        session_id: &str,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<Option<RTCMembership>, sqlx::Error> {
-        self.get_user_membership(room_id, session_id, user_id, device_id).await
-    }
-
-    async fn end_membership(
-        &self,
-        room_id: &str,
-        session_id: &str,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<(), sqlx::Error> {
-        self.end_membership(room_id, session_id, user_id, device_id).await
-    }
-
-    async fn cleanup_expired_memberships(&self) -> Result<u64, sqlx::Error> {
-        self.cleanup_expired_memberships().await
-    }
-
-    async fn store_encryption_key(
-        &self,
-        room_id: &str,
-        session_id: &str,
-        key_index: i32,
-        key: &str,
-        sender_user_id: &str,
-        sender_device_id: &str,
-    ) -> Result<RTCEncryptionKey, sqlx::Error> {
-        self.store_encryption_key(room_id, session_id, key_index, key, sender_user_id, sender_device_id).await
-    }
-
-    async fn get_encryption_keys(&self, room_id: &str, session_id: &str) -> Result<Vec<RTCEncryptionKey>, sqlx::Error> {
-        self.get_encryption_keys(room_id, session_id).await
-    }
-
-    async fn get_session_with_memberships(
-        &self,
-        room_id: &str,
-        session_id: &str,
-    ) -> Result<Option<SessionWithMemberships>, sqlx::Error> {
-        self.get_session_with_memberships(room_id, session_id).await
-    }
-}
 
 #[cfg(test)]
 mod db_tests {
