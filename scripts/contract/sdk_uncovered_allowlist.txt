@@ -1,0 +1,46 @@
+# B2-4b SDK ⊆ ledger 覆盖检查 —— 已核实的豁免清单
+#
+# 格式：  <METHOD|*>  <路径形状>  # 理由（必填，缺失即报错）
+#
+# 使用规矩（不要让这张表变成垃圾桶）：
+#   1. 每条豁免都必须写清「为什么现在可以不修」和「什么时候必须修」；
+#   2. 路径形状按 SDK 源码原文写即可，`$var` 与 `{var}` 会被归一成 `{}` 比较；
+#   3. 一旦对应端点被后端补上，条目会变成 stale 并让检查失败 —— 到时要删掉它；
+#   4. 新增一条豁免 = 承认一处「SDK 与后端不一致」。请同时登记 follow-up。
+#
+# 当前共 2 条，都是 2026-09-15 实测（117 个 encodeUri 站点里仅此 2 处未被 ledger 覆盖）。
+# 两条都已确认**未被 Tjg 前端调用**（`grep -rn 'setGuestAccess|getFallbackAuthUrl'
+# Tjg/src` 只命中无关的 `getGuestAccessToken`），所以不阻塞发版，但不能就此遗忘。
+
+PUT /rooms/$roomId/guest_access   # SDK-SDK-1(SDK fork)：AccountManager.setGuestAccess 打了非标路径
+GET /auth/$loginType/fallback/web # SDK-BE-2(后端)：规范兜底认证端点缺失
+
+
+# ── SDK-SDK-1 ── 重复且非标的「设置访客准入」实现
+#   实证：
+#     · src/account/index.ts:351  AccountManager.setGuestAccess → PUT {prefix}/rooms/$roomId/guest_access
+#     · src/room/RoomManager.ts:1106 RoomManager.setGuestAccess → 走 **state event**
+#       `m.room.guest_access`（PUT .../rooms/{room_id}/state/m.room.guest_access），后端支持
+#     · src/client.ts:2914 client.setGuestAccess → 委托给 RoomManager（**正确**那条）
+#     · src/client-room-access.ts:15 setGuestAccessRequest → 同样委托 state event
+#   结论：`PUT /rooms/{room_id}/guest_access` 不是 Matrix 规范端点（规范只有 state event），
+#   后端**不应该**为它开路由，否则就是往 v3 命名空间里塞私有路径（正与 ISSUE-13 相悖）。
+#   AccountManager 那份是历史遗留的重复实现，且 client 的门面已指向 RoomManager，
+#   因此它是**不可达的死代码**。处置：SDK fork 侧删除该方法（约 12 行，无调用方）。
+#   在 SDK 删除前，此豁免保留；删除后本条目会变 stale，检查会提醒把它删掉。
+
+# ── SDK-BE-2 ── 规范规定的 fallback 认证页面后端没有实现
+#   实证：
+#     · src/account/index.ts:290 getFallbackAuthUrl →
+#       utils.encodeUri("/auth/$loginType/fallback/web") 交给 http.getUrl()
+#     · http.getUrl() 用 `prefix ?? this.opts.prefix`，而 http opts 的默认 prefix 是
+#       ClientPrefix.V3（src/client.ts:841）→ 实际 URL = /_matrix/client/v3/auth/{loginType}/fallback/web
+#       这正是 C-S 规范的 GET /_matrix/client/{version}/auth/{authType}/fallback/web
+#     · 后端只在 assembly.rs:588 注册了 `/_matrix/static/client/login/`
+#       （handler = auth_compat::login_fallback_page，已在 ledger 中登记），
+#       全仓 grep `route("/...fallback"` = 0，即规范路径确实不存在
+#   结论：SDK 是对的、后端缺了规范端点。补它需要一张 HTML 页 + session 承接逻辑，
+#   属于**功能开发**而非本项（契约守卫）的范围；且前端目前没走 fallback 认证
+#   （登录流程未使用该 URL），故不阻塞。处置：登记为后端待办，实现后删除本豁免。
+#   注意：不能反过来「让 SDK 改调 /_matrix/static/client/login/」—— 那是 Element 的
+#   静态页位置，不是客户端应硬编码的契约路径。

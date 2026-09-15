@@ -38,7 +38,7 @@
 | 🔴 P0 门禁诚信 | **8** | 覆盖率基线无法提交、perf 门禁纯 echo、CI 集成测试指向应用库、18 处测试静默跳过、sqlx 棘轮 FAIL |
 | 🟠 P1 架构冗余/过度开发 | **12** | 48 个路由文件穿透分层、70 storage trait 中 68 个单实现、近 5k 处样板注释 |
 | 🟠 P1 测试隔离/模板构建 | **8** | 根模板构建无条件清空 `public`、模板构建吞错、测试隔离仍多头 |
-| 🟡 P2 安全/协议残留 | **12（7 已修 / 5 未决）** | 已修：S-1、S-2（B5-1 自签名 + `server_name` 校验）、S-4（B5-2 隔离变更流保留期清理）、S-9（B5-4 删除 threepid 孤儿路由）、S-12、S-15（B5-3 MSC4108 DELETE 补头 + 去自证）、S-13（B5-5 契约提取器）。未决：S-5（已降级为"已文档化的功能缺口"）、S-6（理论问题）、速率限制碎片化、cache 读写不对称、无"真实 router == ledger"测试 |
+| 🟡 P2 安全/协议残留 | **12（8 已修 / 4 未决）** | 已修：S-1、S-2（B5-1 自签名 + `server_name` 校验）、S-4（B5-2 隔离变更流保留期清理）、S-9（B5-4 删除 threepid 孤儿路由）、S-12、S-15（B5-3 MSC4108 DELETE 补头 + 去自证）、S-13（B5-5 契约提取器）、S-14（B2-4a 正向 + **B2-4b 反向**，见 §12/§13/§16）。未决：S-5（已降级为"已文档化的功能缺口"）、S-6（理论问题）、速率限制碎片化、cache 读写不对称 |
 | 🟡 P2 配置/仓库/文档卫生 | **11** | `.scratch` 97 文件入库、3 个 worktree、`cargo doc` ~3.5k 警告、god-file 1833 行 |
 
 ---
@@ -966,6 +966,142 @@ SDK 已在 `039c2b2ec` 迁到 v3）。教训：**删除一个前缀时注释不�
 `.字段` 形式被读取（`expire_access_token`、`serve_server_wellknown`、`soft_file_limit`、
 `max_image_resolution` 等），成因未判（可能是间接消费）。已登记为 **H-15**，
 先判"间接消费 vs 真死字段"再统一处置——本批只做 B1-3 点名的那个。
+
+---
+
+## 16. S-14 的反方向：SDK 实际调用的端点 ⊆ ledger（2026-09-15，B2-4b）
+
+§12 修的是「真实 router ⊆ ledger」（后端别偷偷多出端点）。本条修的是**反方向**：
+「SDK manager 源码里真正调用的端点 ⊆ ledger」（后端别欠 SDK 端点）。两者合起来才闭环 ——
+B2-4a 之后，一个"SDK 在打、后端没有"的端点仍然是无人看守的。
+
+### 16.1 为什么不能用 SDK 的 `route-table.ts` 当判据
+
+fork 里每个模块都有 `__generated__/route-table.ts`，看起来就是现成的"SDK 调用了什么"
+清单。但 H-5 与 B1-2 都实测过它**只增不减**：r0 拆除后它仍留着 r0 条目。它是"曾经登记过"，
+不是"现在在调"。用它做判据，会在前缀迁移后**静默通过**——正是守卫最该防的失效模式。
+所以本项只读 manager **源码里的 `encodeUri("…")` 字面量**（实测 117 处，全部双引号；
+单引号 0、模板字符串 0）。
+
+### 16.2 匹配谓词：为什么"猜前缀"不行、最后用"首段锚定"
+
+SDK 有三种构造风格：
+
+| 风格 | 形态 | 出现模块 |
+|---|---|---|
+| 1 | `await this.request({ method: Method.X, path, prefix: ClientPrefix.V3 })` | `room-member` / `reporting` / `room` / `directory` … |
+| 2 | `buildXPath()` 只返回相对路径，prefix 由调用方给 | `client-*-requests.ts` 一族（48 处） |
+| 3 | `http.getUrl(path)`，前缀来自 client 的默认 `opts.prefix` | `account/index.ts` 的 fallback 认证 URL |
+
+原型期先试了"取 `encodeUri` 附近几行里的 `prefix:` 来拼完整路径"，结果**串味**：把后一个
+请求的 `VendorPrefix` 配到了前一个 v3 路径上（两者相距 3 行）。假阴假阳都有。而且实测
+`prefix:` 的取值形态多达十几种 —— `ClientPrefix.V3`×262、`AdminPrefix.V1`×48、`VendorPrefix`×44、
+`""`×37、`THREAD_PREFIX_V1`×20、动态函数 `verificationPrefix(version)`×9、以及
+`ClientPrefix.Unstable + "/org.matrix.msc2965"` 这类**拼接**（拼接会漏 MSC 段）。
+
+最终判据改为「首段锚定对齐」`path_match(relative, backend_path)`：
+
+1. 取 SDK 相对路径的**首段**，在 ledger 路径里找它出现的落点；
+2. 落点之后剩余段数必须**恰好等于** SDK 段数；
+3. 逐段比对：`{}` 是通配（`{name}` 与 `$name` 都归一成它），两个字面量必须相同。
+
+第 1、2 条一起把假阳堵死。反例：`/rooms/{}/guest_access` vs
+`/_matrix/client/v3/rooms/{room_id}/state/{event_type}` —— `rooms` 落点之后后端还剩 4 段、
+SDK 只有 3 段，于是**拒绝**，而不是让 `state`/`guest_access` 去撞通配符。正例：
+`/rooms/$roomId/messages` 正常命中 `/_matrix/client/v3/rooms/{room_id}/messages`。
+
+改判据后，"未被覆盖"从宽松匹配的 **8 条**收敛到 **2 条** —— 少掉的 6 条全是假阴
+（3 条 `keys/backup/secure/$backupId[...]`、3 条裸路径构造器）。
+
+### 16.3 实测结果
+
+```
+SDK 站点 117（其中 35 个解出唯一 method，做了方法校验）
+后端 ledger 路径 1146
+allowlist 条目 2，命中 2
+✅ 所有 SDK 调用的端点都在 ledger 中（且 method 一致）
+```
+
+- 117 站点里 **35 个**能解出唯一 method（窗口内恰好一个 `method:`），据此额外做了
+  「路径存在但后端不服务这个 method」的收紧校验 → **0 条不匹配**。其余 48 处是风格 2
+  的纯路径构造器，method 由调用方给，脚本**放弃**推断而不是猜（窗口内出现多个 method、
+  或 `prefix:` 带 `+` 拼接时一律跳过）。
+- 2 条真实缺口（见 §16.5、§16.6）。**没有第 3 条。**
+
+### 16.4 守卫的非空转自证（5 项变异）
+
+| # | 注入 | 期望 | 实测 |
+|---|---|---|---|
+| 1 | allowlist 加一条后端不存在的假端点 `DELETE /rooms/$roomId/B2_4B_FAKE_PROBE` | 转红（stale） | ✅ 报出该条 stale |
+| 2 | allowlist 条目去掉 `# 理由` | 解析期报错 | ✅ `条目缺少理由` |
+| 3 | 在 SDK 副本里注入 `encodeUri("/rooms/$roomId/B2_4B_SDK_PROBE_MISSING")` | 报未覆盖 | ✅ `src/reporting/index.ts:50` |
+| 4 | 把 `Method.Post` 改成 `Method.Delete`（`/rooms/$roomId/invite`） | 报方法不匹配 | ✅ `DELETE … ← 后端只服务 [POST]`，`room-member/index.ts:64` |
+| 5 | 把谓词退化回"段数相等的整段比较" | 自检转红 | ✅ `谓词认不出真实存在的相对路径` |
+
+自检还含一条归一化断言：`canonical_shape` 必须把 `$var` 与 `{var}` 同时折成 `{}`，
+否则 SDK 把 `$roomId` 改名成 `$id` 会让豁免条目**静默失效**。
+
+### 16.5 SDK 侧死代码：`AccountManager.setGuestAccess`（H-16）
+
+`src/account/index.ts:351` 请求 `PUT /rooms/$roomId/guest_access` —— 后端无此路由。
+Matrix 规范里访客准入只有 state event `m.room.guest_access`。同一 SDK 里另有三条**正确**实现：
+
+| 位置 | 实现 | 状态 |
+|---|---|---|
+| `RoomManager.ts:1106` `setGuestAccess` | `sendStateEvent(roomId, m.room.guest_access, …, "")` | ✅ 后端支持 |
+| `client.ts:2914` `setGuestAccess` | 委托 `RoomManager` | ✅ 指向正确实现 |
+| `client-room-access.ts:15` `setGuestAccessRequest` | 委托 `sendGuestAccessState` | ✅ 同上 |
+| `account/index.ts:351` `AccountManager.setGuestAccess` | `PUT /rooms/$roomId/guest_access` | ❌ 非标 + 不可达 |
+
+结论：`client` 的**门面已指向正确实现**，AccountManager 那份是历史遗留的重复实现、
+不可达的死代码。**正确处置是在 SDK fork 侧删掉它，而不是为它开后端路由** ——
+后者等于往 v3 命名空间里塞私有路径，正与 ISSUE-13 相悖。
+
+### 16.6 后端缺规范端点：fallback 认证页面（H-17）
+
+`src/account/index.ts:290` `getFallbackAuthUrl` 拼 `/auth/$loginType/fallback/web` 交给
+`http.getUrl()`；后者用 `prefix ?? this.opts.prefix`，而 http opts 的默认 prefix 是
+`ClientPrefix.V3`（`src/client.ts:841`）。所以实际 URL 是
+`/_matrix/client/v3/auth/{loginType}/fallback/web` —— 正是 C-S 规范定义的 fallback 认证页面。
+
+后端只在 `assembly.rs:588` 注册了 `/_matrix/static/client/login/`（handler
+`auth_compat::login_fallback_page`，**已在 ledger 中登记**）；全仓 `grep 'route("/…fallback'` = 0。
+即：**SDK 是对的、后端是缺的**。这与 B2-4a 守的方向不同 —— 那里防"后端多出端点"，
+这里暴露的是"后端少一个规范端点"。
+
+补它需要一张 HTML 页 + session 承接逻辑，属**功能开发**而非契约守卫范围；且 Tjg 前端
+登录流程目前不走 fallback 认证（`grep -rn 'getFallbackAuthUrl' Tjg/src` 无命中）。
+故登记为 H-17，不阻塞。**不要**反过来让 SDK 改调 `/_matrix/static/client/login/` ——
+那是静态页位置，不是客户端该硬编码的契约路径。
+
+### 16.7 门禁接线：为什么"不依赖 SDK 的部分"要前置
+
+`scripts/contract/check_route_contract.sh` 新增本步骤。但 CI 只 checkout 本仓、
+**拿不到 SDK fork**，于是站点逐条比对在 CI 里只能跳过。为不把 CI 变成空转，脚本把
+**不依赖 SDK 的两块刻意放在 SDK 存在性判断之前**，任何环境都会跑：
+
+1. **谓词自检**（4 项断言，同时覆盖漏报与误报两个方向）；
+2. **豁免清单卫生检查**：被豁免的形状必须**仍然不被 ledger 服务** —— 后端补上端点后
+   豁免若不删，此后真实的不一致会被它静默吃掉。
+
+实测四种组合：
+
+| 环境 | 结果 |
+|---|---|
+| SDK 在场、清单干净 | EXIT=0，117 站点全绿 |
+| SDK 缺席、清单干净 | EXIT=0，但横幅明写「**未跑**：SDK 站点逐条比对 —— 本次结论不覆盖 SDK ⊆ ledger」 |
+| SDK 缺席、清单里有一条后端其实已服务（`GET /rooms/$roomId/messages`） | **EXIT=1**，报出「后端现在已服务 GET /_matrix/client/v3/rooms/{room_id}/messages，豁免应删除」 |
+| SDK 缺席、`SDK_CONTRACT_STRICT=1` | **EXIT=1** |
+
+关键点：SDK 缺席时输出的是 SKIPPED 横幅 + 明确列出"已跑/未跑"分别是哪一半，
+**不会让人误当成通过**。
+
+### 16.8 豁免清单不是垃圾桶
+
+`scripts/contract/sdk_uncovered_allowlist.txt` 现 2 条，格式 `<METHOD|*> <形状> # 理由`，
+**理由必填**（缺则解析期直接报错）。文件头写死四条规矩：每条必须写清"为什么现在可以不修"
+与"什么时候必须修"；形状按 SDK 源码原文写（`$var`/`{var}` 会归一比较）；后端一旦补上
+端点条目会变 stale 并让检查失败；新增一条 = 承认一处不一致，必须同时登记 follow-up。
 
 ---
 

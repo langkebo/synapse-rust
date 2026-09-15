@@ -44,6 +44,18 @@ EXTRACT_STRICT=1 python3 scripts/contract/extract_registered.py
 echo "==> Regenerating ${DOC} (gen_contract_doc.py) ..."
 python3 scripts/contract/gen_contract_doc.py
 
+# B2-4b: the extractor guards "后端已服务 ⊆ 已登记"; this guards the OPPOSITE
+# direction — "SDK 真实调用的 ⊆ 后端已登记" (后端别欠 SDK 端点). It reads the SDK
+# manager source literals, NOT the generated route-table (which is "只增不减" and
+# would silently pass after a prefix removal).
+#
+# Needs the matrix-js-sdk sibling checkout. CI checks out only this repo, so there
+# the site-by-site comparison is SKIPPED — but the predicate self-test and the
+# allowlist hygiene check still run, because they don't need the SDK. The SKIPPED
+# banner says so explicitly so nobody mistakes it for a pass.
+echo "==> SDK ⊆ ledger coverage (B2-4b, scripts/contract/check_sdk_route_coverage.py) ..."
+python3 scripts/contract/check_sdk_route_coverage.py
+
 if git diff --quiet -- "$DOC"; then
     echo "✅ ROUTE_CONTRACT.md is up to date with the source route surface."
     exit 0
