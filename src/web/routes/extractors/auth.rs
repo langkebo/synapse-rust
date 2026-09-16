@@ -208,9 +208,6 @@ where
     }
 }
 
-
-
-
 // =============================================================================
 // FromRequestParts impls for typed context structs (RoomContext, SyncContext, etc.)
 // =============================================================================
@@ -219,27 +216,13 @@ where
 // new state type. Each context carries an optional admin_audit_service
 // field for best-effort audit event creation on write operations.
 
-
-
-
-
-
 // OptionalAuthenticatedUser for context types
-
-
-
 
 // AuthenticatedUser for AdminContext, FederationContext, MediaContext
 
-
-
 // OptionalAuthenticatedUser for AdminContext, FederationContext, MediaContext
 
-
-
 // AdminUser for AdminContext, FederationContext, MediaContext
-
-
 
 #[cfg(test)]
 mod tests {
