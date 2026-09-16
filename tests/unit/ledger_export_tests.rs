@@ -28,6 +28,7 @@
 use synapse_rust::web::routes::ledger_export::{
     build_artifact, profile_for_name, render, LedgerArtifact, SCHEMA_VERSION,
 };
+use synapse_rust::web::routes::route_module::ProfileFlags;
 
 /// Fixed timestamp baked into every fixture so the artefact stays
 /// byte-stable across runs. Must match the `--timestamp` value used to
@@ -307,4 +308,24 @@ fn schema_doc_version_matches_code() {
            4. matrix-js-sdk scripts/contract-sync.mjs LEDGER_SCHEMA_VERSION + regenerate its mirror\n\
          Skipping step 4 is exactly how the SDK contract sync silently froze (aa06ca45)."
     );
+}
+
+// =====================================================================
+// B2-3 · Idempotency guard
+// =====================================================================
+// `build_artifact(...) + render(...)` must produce byte-identical output
+// across repeated invocations with the same inputs.
+#[test]
+fn render_idempotent_twice_same_bytes() {
+    for (profile_name, flags) in [
+        ("default", ProfileFlags::DEFAULT),
+        ("worker", ProfileFlags { worker_enabled: true, ..ProfileFlags::DEFAULT }),
+        ("all", ProfileFlags::ALL),
+    ] {
+        let first =
+            render(&build_artifact(profile_name, &flags, Some(FIXTURE_COMMIT.into()), FIXTURE_TIMESTAMP.into()));
+        let second =
+            render(&build_artifact(profile_name, &flags, Some(FIXTURE_COMMIT.into()), FIXTURE_TIMESTAMP.into()));
+        assert_eq!(first, second, "ledger render is not idempotent for profile '{profile_name}'",);
+    }
 }
