@@ -2,6 +2,10 @@ use crate::UserService;
 use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::server_notification::*;
+pub use synapse_storage::server_notification::{
+    decode_server_notification_cursor, encode_server_notification_cursor, CreateNotificationRequest,
+    ServerNotificationCursor,
+};
 use tracing::{info, instrument};
 
 /// The `ServerNotificationService` struct.

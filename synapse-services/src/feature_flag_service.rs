@@ -4,9 +4,8 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
-use synapse_storage::{
-    CreateFeatureFlagRequest, FeatureFlag, FeatureFlagFilters, FeatureFlagTargetInput, UpdateFeatureFlagRequest,
-};
+pub use synapse_storage::feature_flags::{CreateFeatureFlagRequest, FeatureFlagFilters, UpdateFeatureFlagRequest};
+use synapse_storage::{FeatureFlag, FeatureFlagTargetInput};
 
 /// The `FeatureFlagService` struct.
 pub struct FeatureFlagService {

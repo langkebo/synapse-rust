@@ -1,6 +1,9 @@
 use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::background_update::*;
+pub use synapse_storage::background_update::{
+    BackgroundUpdate, BackgroundUpdateHistory, BackgroundUpdateStats, CreateBackgroundUpdateRequest,
+};
 use tracing::{info, instrument, warn};
 use uuid::Uuid;
 

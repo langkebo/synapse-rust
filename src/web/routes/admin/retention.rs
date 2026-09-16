@@ -9,7 +9,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use synapse_storage::retention::{CreateRoomRetentionPolicyRequest, UpdateServerRetentionPolicyRequest};
+use synapse_services::retention_service::{CreateRoomRetentionPolicyRequest, UpdateServerRetentionPolicyRequest};
 
 /// See [`create_retention_router`].
 pub fn create_retention_router() -> Router<crate::web::routes::AppState> {

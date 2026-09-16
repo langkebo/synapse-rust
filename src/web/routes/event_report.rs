@@ -12,7 +12,7 @@ use crate::common::ApiError;
 use crate::web::routes::extractors::{EventId, RoomId, UserId};
 use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 use synapse_services::event_report_service::{CreateEventReportRequest, EventReport};
-use synapse_storage::event_report::{EventReportHistory, EventReportStats, UpdateEventReportRequest};
+use synapse_services::event_report_service::{EventReportHistory, EventReportStats, UpdateEventReportRequest};
 
 /// The `QueryParams` struct.
 #[derive(Debug, Deserialize)]

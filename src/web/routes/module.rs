@@ -11,7 +11,6 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use synapse_services::module_service::*;
-use synapse_storage::module::*;
 
 /// The `CreateModuleBody` struct.
 #[derive(Debug, Serialize, Deserialize)]

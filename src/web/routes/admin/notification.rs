@@ -23,7 +23,7 @@ use synapse_common::current_timestamp_millis;
 #[cfg(feature = "server-notifications")]
 use synapse_common::types::UserId;
 #[cfg(feature = "server-notifications")]
-use synapse_storage::server_notification::{decode_server_notification_cursor, CreateNotificationRequest};
+use synapse_services::server_notification_service::{decode_server_notification_cursor, CreateNotificationRequest};
 
 #[cfg(feature = "server-notifications")]
 fn decode_notice_cursor(cursor: Option<&str>) -> Option<(i64, i64)> {
@@ -42,7 +42,7 @@ fn encode_notice_cursor(sent_ts: i64, id: i64) -> String {
 #[cfg(all(test, feature = "server-notifications"))]
 mod cursor_tests {
     use super::{decode_notice_cursor, encode_notice_cursor};
-    use synapse_storage::server_notification::{
+    use synapse_services::server_notification_service::{
         decode_server_notification_cursor, encode_server_notification_cursor, ServerNotificationCursor,
     };
 

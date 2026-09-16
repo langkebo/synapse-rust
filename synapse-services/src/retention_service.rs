@@ -8,6 +8,7 @@ use synapse_common::metrics::{Counter, Gauge, Histogram, MetricsCollector};
 use synapse_common::ApiError;
 
 use synapse_storage::retention::*;
+pub use synapse_storage::retention::{CreateRoomRetentionPolicyRequest, UpdateServerRetentionPolicyRequest};
 use tokio::sync::RwLock;
 use tracing::{error, info, instrument, warn};
 

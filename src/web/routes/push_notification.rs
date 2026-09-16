@@ -8,8 +8,8 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use synapse_common::types::DeviceId;
+use synapse_services::push::{PushDevice, RegisterDeviceRequest};
 use synapse_services::push_notification_service::SendNotificationRequest;
-use synapse_storage::push_notification::{PushDevice, RegisterDeviceRequest};
 
 /// The `RegisterDeviceBody` struct.
 #[derive(Debug, Deserialize)]

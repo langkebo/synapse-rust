@@ -9,7 +9,11 @@ use synapse_common::error::ApiError;
 use synapse_common::metrics::MetricsCollector;
 use synapse_e2ee::device_keys::DeviceKeyStoreApi;
 use synapse_e2ee::to_device::ToDeviceStorage;
-use synapse_storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse, SlidingSyncStoreApi};
+pub use synapse_storage::sliding_sync::{
+    decode_room_token_sync_cursor, encode_room_token_sync_cursor, RoomTokenSyncCursor, SlidingSyncRequest,
+    SlidingSyncResponse,
+};
+use synapse_storage::SlidingSyncStoreApi;
 
 mod extensions;
 mod filters;

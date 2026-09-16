@@ -327,7 +327,7 @@ pub async fn acknowledge_alert(
     let alert = ctx.telemetry_alert_service.acknowledge_alert(&alert_id, &admin_user.user_id)?;
 
     ctx.admin_audit_service
-        .create_event(synapse_storage::CreateAuditEventRequest {
+        .create_event(synapse_services::admin_audit_service::CreateAuditEventRequest {
             actor_id: admin_user.user_id,
             action: "admin.telemetry.alert.ack".to_string(),
             resource_type: "telemetry_alert".to_string(),

@@ -7,7 +7,7 @@ use axum::{
     Json, Router,
 };
 use serde::Deserialize;
-use synapse_storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse};
+use synapse_services::sliding_sync_service::{SlidingSyncRequest, SlidingSyncResponse};
 
 /// Query parameters for sliding sync requests.
 ///

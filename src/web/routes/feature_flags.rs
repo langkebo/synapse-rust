@@ -8,7 +8,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use synapse_storage::feature_flags::{CreateFeatureFlagRequest, FeatureFlagFilters, UpdateFeatureFlagRequest};
+use synapse_services::feature_flag_service::{CreateFeatureFlagRequest, FeatureFlagFilters, UpdateFeatureFlagRequest};
 
 fn decode_feature_flag_cursor(cursor: Option<&str>) -> Option<(i64, &str)> {
     let cursor = cursor?;

@@ -6,6 +6,11 @@ use std::time::Instant;
 use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 use synapse_storage::module::*;
+pub use synapse_storage::module::{
+    AccountDataCallback, AccountValidity, CreateAccountDataCallbackRequest, CreateAccountValidityRequest,
+    CreateMediaCallbackRequest, CreateModuleRequest, CreatePasswordAuthProviderRequest, MediaCallback, Module,
+    PasswordAuthProvider, SpamCheckResult, ThirdPartyRuleResult,
+};
 use tracing::{error, info, instrument};
 
 /// The `SpamCheckResultType` enum.

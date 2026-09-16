@@ -296,7 +296,7 @@ pub async fn get_experimental_features(
 ) -> Result<Json<Value>, ApiError> {
     // Bridge the DB-backed FeatureFlagService to Synapse's experimental_features
     // surface. List all flags and expose their effective enabled state.
-    let filters = synapse_storage::FeatureFlagFilters {
+    let filters = synapse_services::feature_flag_service::FeatureFlagFilters {
         target_scope: None,
         status: None,
         limit: 200,

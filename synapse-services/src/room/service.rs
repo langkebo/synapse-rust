@@ -21,6 +21,9 @@ use super::lifecycle::service::{LifecycleService, LifecycleServiceConfig};
 use super::membership::service::{MembershipService, MembershipServiceConfig};
 use super::messaging::service::{MessagingService, MessagingServiceConfig};
 use super::state::service::{RoomStateService, RoomStateServiceConfig};
+pub use synapse_storage::room::{
+    decode_room_search_cursor, encode_room_search_cursor, RoomSearchCursor, RoomSearchOrder,
+};
 pub use synapse_storage::room_tag::RoomTag;
 pub use synapse_storage::sticky_event::StickyEvent;
 

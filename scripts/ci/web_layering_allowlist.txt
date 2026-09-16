@@ -3,22 +3,10 @@
 # so removing a line here is part of fixing the file, not optional bookkeeping.
 # Regenerate with: python3 scripts/ci/check_web_layering.py --update
 
-src/web/routes/admin/notification.rs
-src/web/routes/admin/retention.rs
-src/web/routes/admin/room/mod.rs
-src/web/routes/admin/server.rs
-src/web/routes/app_service.rs
-src/web/routes/background_update.rs
 src/web/routes/context.rs
 src/web/routes/delayed_events.rs
-src/web/routes/event_report.rs
-src/web/routes/feature_flags.rs
 src/web/routes/handlers/room/events.rs
-src/web/routes/module.rs
 src/web/routes/msc4108_rendezvous.rs
 src/web/routes/oidc/mod.rs
-src/web/routes/push_notification.rs
 src/web/routes/qr_login_token.rs
 src/web/routes/rendezvous.rs
-src/web/routes/sliding_sync.rs
-src/web/routes/telemetry.rs

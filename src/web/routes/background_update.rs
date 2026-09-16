@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::common::ApiError;
 use crate::web::routes::AdminUser;
 use crate::web::routes::AppState;
-use synapse_storage::background_update::{
+use synapse_services::background_update_service::{
     BackgroundUpdate, BackgroundUpdateHistory, BackgroundUpdateStats, CreateBackgroundUpdateRequest,
 };
 

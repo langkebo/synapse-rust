@@ -1,7 +1,9 @@
 use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::event_report::*;
-pub use synapse_storage::event_report::{CreateEventReportRequest, EventReport};
+pub use synapse_storage::event_report::{
+    CreateEventReportRequest, EventReport, EventReportHistory, EventReportStats, UpdateEventReportRequest,
+};
 use tracing::{info, instrument};
 
 /// The `EventReportService` struct.

@@ -19,8 +19,8 @@ use axum::{
     Json, Router,
 };
 use serde_json::{json, Value};
-use synapse_storage::room::{decode_room_search_cursor, RoomSearchCursor, RoomSearchOrder};
-use synapse_storage::sliding_sync::{
+use synapse_services::room::{decode_room_search_cursor, RoomSearchCursor, RoomSearchOrder};
+use synapse_services::sliding_sync_service::{
     decode_room_token_sync_cursor, encode_room_token_sync_cursor, RoomTokenSyncCursor,
 };
 
@@ -30,7 +30,7 @@ mod cursor_tests {
         decode_room_search_cursor, decode_room_token_sync_cursor, encode_room_token_sync_cursor, RoomSearchCursor,
         RoomTokenSyncCursor,
     };
-    use synapse_storage::room::encode_room_search_cursor;
+    use synapse_services::room::encode_room_search_cursor;
 
     #[test]
     fn test_room_search_created_cursor_round_trip() {
