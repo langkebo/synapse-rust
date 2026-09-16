@@ -491,10 +491,10 @@ grep -rn 'fn [a-z_0-9]*_route_manifest(' src/ | wc -l   # = 1（仅 derived_rout
 
 | # | 改动 | 验证 |
 |---|---|---|
-| B3-1 🔄 | **v12 baseline 重生成**：`v11 + extensions` 合并为 `00000000_unified_schema_v12.sql`（脚本生成，非手工编辑） | **已落地（可复现，但未接线）**：生成器（v11 + extensions + `scripts/p0_constraints_indexes.sql` fold-in）可 byte 级复现（`generate → cmp` idempotent，可执行 SQL 4315 行与 artifacts 原始完全一致，FK 132 + CHECK 27 + UNIQUE 165 + P3 index）；`check_baseline_consolidation.py` EXIT=0。⚠️ **未接线**：v12 **不在 git index**（`git ls-files migrations/` 仅有 v11+extensions），且**权威消费源为 0**（`baseline_tables.rs:28` 的编译期 `include_str!` 仍指向 v11，CI yml、docker/db_migrate.sh、tests/unit 四份测试均硬编码 v11）。下一批次任务：git-add v12 → 迁移 `include_str!`/CI/脚本/测试全部 v11→v12 → git rm v11 |
-| B3-2 ✅ | **折入 P0-5/P0-6**：7 类完整性约束 + 10 个热点索引写入 v12 | v12 baseline（实测 FK 132 + CHECK 27 + UNIQUE 165，含 7 类完整性约束 + 10 热点索引，另有 CREATE INDEX 380 条，P3-4 `idx_rooms_federated`/`fk_backup_keys_room` 已含）；折叠块由 `scripts/p0_constraints_indexes.sql` 提供、生成器读入，`generate → cmp` 幂等。⚠️ **未接线**：CI/tests/compile 仍跑 v11，见 B3-1 同一批修正 |
+| B3-1 ✅ | **v12 baseline 重生成**：`v11 + extensions` 合并为 `00000000_unified_schema_v12.sql`（脚本生成，非手工编辑） | **已接线（2026-09-16）**：commit `8ad864e1`。v12 已入 git index（6771 行，4315 行可执行 SQL，FK 132 + CHECK 27 + UNIQUE 165 + CREATE INDEX 380）；生成器重命名为 `generate_next_baseline.py`（读 v12 为输入，idempotent）；`p0_constraints_indexes.sql` 新增。v11 已从 git tracking 移除（commit `bddd6109`，磁盘保留）。所有 active code v11→v12 |
+| B3-2 ✅ | **折入 P0-5/P0-6**：7 类完整性约束 + 10 个热点索引写入 v12 | v12 baseline（实测 FK 132 + CHECK 27 + UNIQUE 165，含 7 类完整性约束 + 10 热点索引，另有 CREATE INDEX 380 条，P3-4 `idx_rooms_federated`/`fk_backup_keys_room` 已含）；折叠块由 `scripts/p0_constraints_indexes.sql` 提供、生成器读入。v12 现为 active baseline（`baseline_tables.rs:28` 编译期 `include_str!` 指向 v12），CI `schema-health-check.yml`/`drift-detection.yml`、tests/unit、docker/db_migrate.sh 已全部接线 |
 | B3-3 ✅ | **清 A6 残留**：`schema_health_check.rs` 的 `schema_validator.rs` 清单改为由 v12 派生；`v11:4941/5005/5056` 三处硬编码 `public` 改 `current_schema()`；删 5 对重复索引 | `schema_health_check.rs` 三处 `table_schema = 'public'` 已改为 `current_schema()`；`migration_checks.rs` 同步；schema-blind lint 0 error。`CORE_COLUMNS` 为**语义关键字段手工清单**（代码注释明确“业务关键是语义判断，不是 schema 结构问题”），非 A6 原始问题（5 对重复索引 + 3 处硬编码 public），不属本次折入范围 |
-| B3-4 🔄 | **版本字面名单源**：baseline 文件名收敛到一个常量/脚本变量，`grep -rn 'v11'` 引用点清零 | **未达成**：2026-09-16 实测 `unified_schema_v11` 字面量仍残留 **15 个文件**（baseline_tables.rs `include_str!` ×1 + migration_checks.rs 注释 ×2 + tests/unit 四文件 ×10 + init_v11_database.sh ×2 + generate_v12_baseline.py ×2 + docker/db_migrate.sh ×1 + CI yml ×2）。v12 未在 git index、0 源文件消费。与 B3-1 同步接线后统一清零 |
+| B3-4 ✅ | **版本字面名单源**：baseline 文件名收敛到一个常量/脚本变量，`grep -rn 'v11'` 引用点清零 | **已达成（2026-09-16）**：`unified_schema_v11` 字面量在 active code（Rust/SQL/脚本/CI）中清零。commit `8ad864e1` 替换全部 26 处 v11→v12；commit `bddd6109` 将 v11 从 git tracking 移除（磁盘保留作历史参考）。`git ls-files migrations/` 列出 v12 + extensions_v10。v12 是唯一 active code 引用的 baseline |
 | B3-5 🔄(金丝雀已闭合，样板未汇流) | **错误单向汇流（A9）**：为每个 `*Error` 加 `impl From<XError> for ApiError`，删除 `map_err(|e| ApiError::database_with_cause(...))` 样板；不同转换的 HTTP 码差异用**路由级 golden 测试**锁死 | **实测纠偏（2026-09-16）**：原判据仅部分达成。已完成：① `error_conversion_tests.rs` 从死骨架（`assert!(true)`、**未注册模块、从未编译运行**）改为真实金丝雀 —— 注册进 `lib.rs`（cfg(test)/test-utils），对唯一在存的 `From<TagsError>` 断言 `(kind, code, message)` 三元组，`cargo test -p synapse-services --all-features --lib error_conversion` **2 passed**。② 汇流的既有底座：统一 `ServiceError → into_api_error()`（W1 已建）。**未完成**：全仓 `impl From<*Error> for ApiError` 仅 1 条；`database_with_cause` 样板残留 79 处（services）；多数域错误仍走 ServiceError/直接 ApiError 构造而非专属 From。剩余工作量=逐域迁移 79 处样板并逐个补 From + 金丝雀，**另立执行窗口，不阻塞 B3 收口** |
 
 ---
@@ -599,51 +599,46 @@ context 字段 **−40%**；样板 **−1,400 行**（manifest + extractor + map
 ## 7. 2026-09-16 复核：实际未完成项 + 下一步工作计划
 
 > **复核方法**：§0 铁律"文档自身的 ✅ 不可信"；以下状态以实测命令输出为准。
-> 已修正 3 处假 ✅：B2-1（🔄→✅，§3.3 三项全部落地）、B0-9（空白→✅，docker/deploy 已 2.0M，backups 空）、B3-4（✅→🔄，v11 字面量仍 15 文件 26 处）及 2 处过半假 ✅：B3-1（✅→🔄，v12 已生成可复现但 untracked + 0 消费源）、B3-2（✅→🔄，fold-in 落地但 CI/tests 仍跑 v11）。
+> **Step 0 + Step 1 已完成（2026-09-16）**：
+> - commit `826c1641`：B4-5d 门禁覆盖 + B3 current_schema + 文档假✅纠偏 + 3个一次性脚本删除
+> - commit `8ad864e1`：B3-4/B3-1 接线全量（v12 入 git、全部 v11→v12、fingerprint 更新）
+> - commit `bddd6109`：v11 从 git tracking 移除（磁盘保留作历史参考）
+>
+> B3-1/B3-2/B3-3/B3-4 现全部 ✅，唯一未完成项为 B3-5（79 处样板，独立窗口）和 B6（4 个子任务）。
 
 ### 7.1 实际未完成清单
 
 | 编号 | 原计划标记 | 实测结论 | 差距 / 证据 |
 |---|---|---|---|
 | B2-5 | （空白） | 🔴 未启动 | `docs/openapi/client.yaml` 72,924 行仍被 git 跟踪；`route-table.json` 不存在 |
-| B3-4 | ✅ | 🔴 假 ✅ | `synapse-storage/src/baseline_tables.rs:28` 编译期 `include_str!` 仍指向 v11；exclude target/docs/logs 后 `unified_schema_v11` 字面量仍余 **15 文件 · 26 处**（baseline_tables.rs ×3、migration_checks.rs ×2、tests/unit 四文件 ×10、init_v11_database.sh ×2、generate_v12_baseline.py ×2、docker/db_migrate.sh ×1、CI yml ×2）；v12 未入 index |
-| B3-1 | ✅ | 🔄 过半 | v12 已生成可复现（`generate → cmp` idempotent，可执行 SQL 4315 行与 artifacts 原始一致，FK 132 / CHECK 27 / UNIQUE 165 / CREATE INDEX 380），`check_baseline_consolidation.py` EXIT=0；但 v12 未入 git、0 源文件消费、compile-time 单源仍是 v11 |
-| B3-2 | ✅ | 🔄 内容落地/接线未接 | fold-in 块已含于 `scripts/p0_constraints_indexes.sql`（P0/P1/P3 全在 v12）；约束计数实测 FK 132 / CHECK 27 / UNIQUE 165；但 CI `schema-health-check.yml`/`drift-detection.yml`、tests/unit、docker/db_migrate.sh 仍在跑 v11，上线约束不被 CI 校验 |
-| B3-5 | 🔄 | 准确，未完成 | 金丝雀 2 passed（唯一在存的 `From<TagsError>`）；`map_err(|e| ApiError::database_with_cause(...))` 样板 **79 处** 未消；全仓 `impl From<*Error> for ApiError` **仅 1 条**，其余域错误仍走 ServiceError/直接 ApiError 构造。按原方案"另立执行窗口" |
-| B6-1 | （空白） | 🔄 过半 | missing_docs 债务从 ~15.5k → **6**（批填充已完成），但 `check_missing_docs_ratchet.py` 的"内容型"改造（自指 `See [x].` 计违规）尚未落地 |
-| B6-2 | （空白） | 🔴 未启动 | 测试文件 `mod` 守卫（防 TST-4 复发）、职责级单源扫描（TST-1/2）尚未创建 |
-| B6-3 | （空白） | 🔴 未启动 | feature 矩阵真实化（shipped == tested == default；`cargo hack --feature-powerset` 抽样）尚未接入 CI |
-| B6-4 | （空白） | 🔴 未启动 | god-file 拆分（>1,500 行：`derived_route_table.inc.rs` 6326 行、`sync_service/tests.rs` 2379、`room/mod.rs` 2332 等）、mock/PG 语义对齐、`cargo doc` 警告清理尚未开始 |
+| B3-4 | ✅ | ✅ 完成 | commit `8ad864e1`+`bddd6109`：`unified_schema_v11` 字面量在 active code 清零（0 处）；v11 从 git tracking 移除 |
+| B3-1 | ✅ | ✅ 完成 | v12 入 git（6771 行，4315 行可执行 SQL，FK 132 / CHECK 27 / UNIQUE 165 / CREATE INDEX 380）；`baseline_tables.rs:28` `include_str!` 指向 v12 |
+| B3-2 | ✅ | ✅ 完成 | fold-in 块 `scripts/p0_constraints_indexes.sql` 已在 v12；CI/tests/compile 全部接线 v12 |
+| B3-3 | ✅ | ✅ 完成 | `schema_health_check.rs` `table_schema='public'` → `current_schema()` 4 处；`migration_checks.rs` 同步 |
+| B3-5 | 🔄 | 🔄 准确，未完成 | 金丝雀 2 passed；`database_with_cause` 样板 **79 处** 未消；`impl From<*Error> for ApiError` **仅 1 条**。独立执行窗口 |
+| B6-1 | （空白） | 🔄 过半 | missing_docs 债务 ~15.5k → **6**；内容型改造未落地 |
+| B6-2 | （空白） | 🔴 未启动 | 测试文件 `mod` 守卫、职责级单源扫描尚未创建 |
+| B6-3 | （空白） | 🔴 未启动 | feature 矩阵真实化未接入 CI |
+| B6-4 | （空白） | 🔴 未启动 | god-file 拆分、`cargo doc` 警告清理尚未开始 |
 
 ### 7.2 下一步工作计划（按依赖排序）
 
-**Step 0：收口未提交树（同一 PR，当日）**
-- `git add` 以下变更并提交：
-  - `migrations/00000000_unified_schema_v12.sql` + `scripts/p0_constraints_indexes.sql` + `scripts/generate_v12_baseline.py`
-  - `synapse-services/src/error_conversion_tests.rs` + `lib.rs` 注册
-  - `synapse-storage/src/schema_health_check.rs` / `migration_checks.rs`（current_schema 化）
-  - `docs/audit/OPTIMIZATION_EXECUTION_PLAN_2026-09-15.md`（本次修正）
-- 处置 3 个 repo 根 untracked 杂项（`optimize-route-manifests.py`、`scripts/replace_manifest_wrappers.py`、`scripts/check_script_checklist.md`）：stash 或删除。
+**Step 0：收口未提交树 ✅（commit `826c1641`）**
+- `git add` B4-5d 变更 + B3 current_schema + 文档假✅纠偏 + error_conversion_tests.rs
+- 删除3个一次性临时脚本（`optimize-route-manifests.py`、`scripts/replace_manifest_wrappers.py`、`scripts/check_script_checklist.md`）
 
-**Step 1：B3-4 + B3-1 接线（top priority，下一批）**
-- 1a. `baseline_tables.rs:28` `include_str!("../../migrations/00000000_unified_schema_v11.sql")` 改为 **`v12`**（其 "single source of truth" 模块终于吃进正确基线）；
-- 1b. `synapse-storage/src/migration_checks.rs`（2 处注释）改为 v12；
-- 1c. `tests/unit/migration_consistency_tests.rs`（4 处，含 `"missing v11"`、`"missing canonical v11"`、文件名、manifest `baseline` 键）→ v12；`tests/unit/test_isolation_unification_tests.rs`（`include_str!` v11 + 旧循环）；`tests/unit/migration_search_path_tests.rs`（硬编码 v11 + "!= v11"）；`tests/unit/migration_replayability_guard_tests.rs`（`BASELINE = "v11"`）；
-- 1d. `docker/db_migrate.sh:372` case 分支 + `.github/workflows/schema-health-check.yml:73` + `.github/workflows/drift-detection.yml:330` + `scripts/init_v11_database.sh`（全量 v11 引用）→ v12 或改为"取 `find | sort | tail -n 1`"动态方式；
-- 1e. `synapse-services/src/test_utils.rs` / `synapse-common/src/test_isolation.rs` / `synapse-storage/src/audit.rs` 里的 v11 引用；
-- 1f. `grep -rE "unified_schema_v11" --include="{rs,sh,py,yml}"`（exclude docs/target/logs）= 0 作为硬门禁；写入 `scripts/check_baseline_single_source.py`（注入探针 v11 字面量 → EXIT=1）；
-- 1g. `git add` v12 并 commit；`git rm` v11（生产下 `container-migrate.sh` 用 sort-tail 已是动态，单元测试可改读 v12 后删 v11，或仅保留 v11 不带 git 跟踪——后者更温和，推荐）。
+**Step 1：B3-4 + B3-1 接线 ✅（commit `8ad864e1` + `bddd6109`）**
+- `baseline_tables.rs` `include_str!` → v12 ✅
+- `migration_checks.rs` 注释 → v12 ✅
+- tests/unit 四文件全部 v11→v12 ✅（含 fingerprint `cfb1fffffc06965a` → `ae947475a7143fb5`）
+- CI / docker/db_migrate.sh / init_v11_database.sh 全部 v11→v12 ✅
+- `git ls-files migrations/` 列出 v12 ✅
+- `grep -rn "unified_schema_v11"` active code = 0 ✅
+- v11 从 git tracking 移除（磁盘保留作历史参考）✅
+- migration-consistency slice 全绿 ✅
+- 生成器重命名 `generate_next_baseline.py`（读 v12 为输入）✅
 
-接受标准：
-- `baseline_tables.rs` include_str → v12；
-- 4 份 tests/unit 所有 v11 字面量为 0；
-- CI / docker/db_migrate.sh / init 脚本 v11 字面量为 0；
-- `git ls-files migrations/` 列出 v12；
-- `scripts/check_baseline_single_source.py --check` EXIT=0；
-- `cargo test --test unit` migration-consistency slice 全绿；
-- 运维注意：v12 表集 = v11 + extensions（2,191 → 2,191 张，无增减），baseline_table_count 不偏；若某测试在 `assert!(baseline_tables().contains(...))` 断言中引用 v11 独有的注释，一并重录 golden。
-
-**Step 2：B2-5 投影去 tracked**
+**Step 2：B2-5 投影去 tracked（下一步）**
 - 2a. 确认 `docs/openapi/client.yaml` 生成来源（search `scripts/contract` → 已在 `check_route_contract.sh` 或独立生成器）；当前 72,924 行对应 1,146 条路由，与 B2-1 的 .inc 同源；
 - 2b. 编写 `scripts/contract/gen_client_yaml.py` 或复用既有管线 → 输出 `docs/openapi/client.yaml`（ CI artifact ）；
 - 2c. `docs/openapi/client.yaml` 加 `// 本文件由 CI gen_client_yaml.py 生成，禁止手改 //` 头部；
