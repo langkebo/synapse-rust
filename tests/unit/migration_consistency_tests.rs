@@ -56,6 +56,103 @@ fn migration_runners_skip_every_historical_baseline() {
     }
 }
 
+/// v12 基线内的每个对象只能**声明一次**，且折入块里的 10 个索引 / 9 个约束必须存在。
+///
+/// 该文件尾部曾是 `scripts/generate_next_baseline.py` 的 append 产物：脚本把
+/// `current` 读成**自己的输出**再拼上 `extensions_v10 + p0_constraints_indexes.sql`，
+/// 因此每跑一次就多一整段 —— 跑三次的净效果是 14 张扩展表 + 折入块各重复 3 遍
+/// （1350 行纯冗余，占全文 24%）。没人发现，因为重复副本全是 `IF NOT EXISTS`，
+/// 在"首次生效者决定 schema"的语义下整体空转。
+///
+/// 危害不是浪费行数：重复让"文件内容"与"实际 schema"脱钩 —— 去重时若按"这段看起来
+/// 是复制体"直接删，就会连唯一一份定义一起删掉。本次去重时尾部正是**藏了 10 个
+/// 前段不存在的索引**（device_signatures / event_edges / e2ee_audit_log /
+/// push_notification_queue / federation_queue / rooms）外加 9 个约束 DO 块。
+#[test]
+fn baseline_declares_each_object_exactly_once() {
+    let baseline = read(&project_root().join("migrations/00000000_unified_schema_v12.sql"));
+
+    let mut tables: Vec<String> = Vec::new();
+    let mut indexes: Vec<String> = Vec::new();
+
+    for line in baseline.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("--") {
+            continue;
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("CREATE TABLE ") {
+            let rest = rest.strip_prefix("IF NOT EXISTS ").unwrap_or(rest);
+            let end = rest.find(|c: char| c.is_whitespace() || c == '(' || c == ';').unwrap_or(rest.len());
+            if end > 0 {
+                tables.push(rest[..end].to_string());
+            }
+            continue;
+        }
+
+        for prefix in [
+            "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ",
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS ",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ",
+            "CREATE INDEX IF NOT EXISTS ",
+        ] {
+            let Some(rest) = trimmed.strip_prefix(prefix) else { continue };
+            let end = rest.find(|c: char| c.is_whitespace() || c == '(' || c == ';').unwrap_or(rest.len());
+            if end > 0 {
+                indexes.push(rest[..end].to_string());
+            }
+            break;
+        }
+    }
+
+    fn duplicates(names: &[String]) -> Vec<String> {
+        let mut sorted = names.to_vec();
+        sorted.sort();
+        let mut dups: Vec<String> = sorted.windows(2).filter(|w| w[0] == w[1]).map(|w| w[0].clone()).collect();
+        dups.dedup();
+        dups
+    }
+
+    assert!(tables.len() >= 200, "baseline 只解析出 {} 张表，解析口径或文件都被破坏了", tables.len());
+    assert!(indexes.len() >= 300, "baseline 只解析出 {} 个索引，解析口径或文件都被破坏了", indexes.len());
+    assert!(
+        duplicates(&tables).is_empty(),
+        "baseline 重复声明了这些表（重复段在 IF NOT EXISTS 下整体空转，且会让去重时误删唯一定义）: {:?}",
+        duplicates(&tables)
+    );
+    assert!(duplicates(&indexes).is_empty(), "baseline 重复声明了这些索引名（同上）: {:?}", duplicates(&indexes));
+
+    // 折入块（baseline 尾部"完整性约束与性能索引折入块"）里的对象在主体中**没有**
+    // 等价定义，是本文件唯一来源。删掉这一段，全新库就会缺这些索引/约束。
+    for index in [
+        "idx_device_signatures_user_device",
+        "idx_device_signatures_target",
+        "idx_event_edges_prev_room",
+        "idx_e2ee_audit_log_device",
+        "idx_e2ee_audit_log_room_event",
+        "idx_push_queue_user_pending",
+        "idx_push_queue_retry",
+        "idx_federation_queue_dest_created",
+        "idx_federation_queue_retry",
+        "idx_rooms_federated",
+    ] {
+        assert!(indexes.iter().any(|name| name == index), "baseline 缺少折入索引 {index}（P1/P3 折入块被删了？）");
+    }
+
+    for constraint in [
+        "ck_room_memberships_valid",
+        "fk_event_edges_prev",
+        "fk_events_redacted_by",
+        "uq_device_keys_user_device_algorithm_keyid",
+        "ck_events_depth_nonneg",
+        "ck_events_not_before_nonneg",
+        "uq_backup_keys_room_session",
+        "fk_backup_keys_room",
+    ] {
+        assert!(baseline.contains(constraint), "baseline 缺少折入约束 {constraint}（P0/P1/P2/P3 折入块被删了？）");
+    }
+}
+
 /// Single-source contract (`2b16dc3c`): the deploy migrator mounts the canonical
 /// `migrations/` directory directly, so there must be NO separately-maintained
 /// copy under `docker/deploy/migrations`.
@@ -70,7 +167,7 @@ fn deploy_mounts_canonical_migrations_and_has_no_copy() {
     let canonical = root.join("migrations");
     let deploy_migrations = root.join("docker/deploy/migrations");
 
-    assert!(canonical.join("00000000_unified_schema_v12.sql").exists(), "missing canonical v11 baseline");
+    assert!(canonical.join("00000000_unified_schema_v12.sql").exists(), "missing canonical v12 baseline");
 
     // A stale real directory (or a symlink — BSD/macOS `find` does not follow a
     // symlink search root, which breaks the migrator's baseline detection) must
@@ -256,7 +353,7 @@ fn every_ci_db_migrate_call_supplies_an_explicit_target() {
 }
 
 #[test]
-fn test_build_sqlx_migration_source_outputs_v10_chain() {
+fn test_build_sqlx_migration_source_outputs_canonical_baseline() {
     let root = project_root();
     let output_dir = root.join("artifacts/sqlx-migrations-test");
     if output_dir.exists() {

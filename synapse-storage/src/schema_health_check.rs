@@ -16,7 +16,7 @@
 //!
 //! ## 设计 (DB-02)
 //!
-//! - **核心表清单来自 baseline schema 文件** (`migrations/00000000_unified_schema_v10.sql`)。
+//! - **核心表清单来自 baseline schema 文件** (`migrations/00000000_unified_schema_v12.sql`)。
 //!   通过 [`crate::baseline_tables`] 在编译期通过 `include_str!` 嵌入并解析，
 //!   避免手工维护 200+ 张表的 `CORE_TABLES` 常量。
 //! - **批量查询**：用 `ANY($1)` 或 `unnest` 一次往返而不是 N 次 (先前 C-4 优化)。

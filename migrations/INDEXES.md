@@ -1,15 +1,17 @@
 # 索引治理文档
 
-> 版本: v1.2.0
-> 更新日期: 2026-09-14
+> 版本: v1.3.0
+> 更新日期: 2026-09-16
 > 数据源: `migrations/00000000_unified_schema_v12.sql`（唯一真相源；
->   原 `20260904*_schema_p*.sql` 审计迁移已删除，其对象**部分**已折入 baseline——
->   未折入清单见 `docs/audit/PROJECT_ACTUAL_ISSUES_2026-09-14.md` §1.5）
+>   原 `20260904*_schema_p*.sql` 审计迁移已删除，其对象已**全部**折入 baseline 尾部
+>   的"完整性约束与性能索引折入块"）
 
-> **覆盖率说明**：v12 baseline 中共 **367** 条
-> `CREATE (UNIQUE) INDEX IF NOT EXISTS` 语句（**359** 个不同索引名；6 个索引名被
-> 重复定义、合计多出 8 条语句，属遗留缺陷，见
-> `docs/audit/PROJECT_ACTUAL_ISSUES_2026-09-14.md` §1.6），
+> **覆盖率说明**：v12 baseline 中共 **369** 条
+> `CREATE (UNIQUE) INDEX IF NOT EXISTS` 语句，**369** 个不同索引名，**0** 个重复名。
+> （2026-09-14 审计时曾为 367 条 / 359 个不同名 / 6 个名重复定义，该缺陷已于
+> 2026-09-16 去重时清零：删掉 3 份重复的折入块副本与主体内 5 条重复索引语句，
+> 同时补齐了原先只在尾部出现的 10 个索引。守卫见
+> `tests/unit/migration_consistency_tests.rs::baseline_declares_each_object_exactly_once`。）
 > 本文档精选 97 个有代表性的 partial / composite / 覆盖 / GIN 索引作重点记录，
 > 覆盖核心查询路径。完整索引清单请直接查看 `00000000_unified_schema_v12.sql`
 > 中的 `CREATE INDEX` 语句，或在数据库中执行 `SELECT indexname FROM pg_indexes

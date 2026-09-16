@@ -38,9 +38,9 @@ fn cached_baseline_tables() -> &'static Vec<&'static str> {
 
 /// Parse every `CREATE TABLE [IF NOT EXISTS] <name>` declaration.
 ///
-/// The baseline uses both `CREATE TABLE` (in the primary region, line ~1-4000)
-/// and `CREATE TABLE IF NOT EXISTS` (in the folded consolidation region,
-/// line ~4900+). Both forms are accepted.
+/// The baseline uses `CREATE TABLE` in its main region (lines 1..~5130) and
+/// `CREATE TABLE IF NOT EXISTS` in the folded consolidation region at the tail
+/// (lines ~5130..end). Both forms are accepted.
 ///
 /// We deliberately ignore any CREATE TABLE inside an SQL comment (`--`) to
 /// avoid false positives from documentation blocks. The parser is line-based
@@ -50,8 +50,10 @@ fn cached_baseline_tables() -> &'static Vec<&'static str> {
 fn parse_baseline_tables() -> Vec<&'static str> {
     let mut names: Vec<&'static str> = BASELINE_SQL.lines().filter_map(extract_table_name).collect();
 
-    // Deduplicate (the baseline has a primary region and a consolidation
-    // region that overlap).
+    // Defensive dedup: every table must be declared exactly once (the guard in
+    // `tests/unit/migration_consistency_tests.rs` enforces that), but the list
+    // is compared against `information_schema` counts, so it must stay
+    // duplicate-free even if the baseline ever regresses.
     names.sort_unstable();
     names.dedup();
     names
@@ -145,9 +147,9 @@ mod tests {
     #[test]
     fn list_is_non_trivially_large() {
         let count = baseline_table_count();
-        // The v10 baseline should contain well over 100 tables.
+        // The v12 baseline should contain well over 100 tables.
         // If this drops below 50, somebody removed half the schema.
-        assert!(count >= 100, "baseline has only {count} tables — this is suspiciously low for v10");
+        assert!(count >= 100, "baseline has only {count} tables — this is suspiciously low for v12");
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # 数据库迁移说明
 
-> 最后更新: 2026-09-11
+> 最后更新: 2026-09-16
 
 ## 唯一真相源（single source of truth）
 
@@ -150,9 +150,41 @@ v11 baseline 曾包含 `openclaw_connections` / `ai_conversations` / `ai_connect
 
 > 审计补充（2026-09-04）：v11 baseline 同样存在 `events.reference_image` 字段
 > （v11 第 343 行），仅在 `test_mocks/event.rs` 中作为 fixture 写入，业务代码无任何
-> 读/写访问，属于死字段。`idx_rooms_name_trgm` 和 `idx_rooms_canonical_alias_trgm`
-> 各重复定义两次（v11 第 3542/3543 行和 4035/4036 行），后者由 append-only 策略
-> 导致。两项均已纳入 P1/P3 范围，**仍待 v12 baseline 重构时清理**。
+> 读/写访问，属于死字段。
+>
+> `idx_rooms_name_trgm` / `idx_rooms_canonical_alias_trgm` 等 5 条索引在 v11 中
+> 各重复定义两次（后者由 append-only 生成策略导致），**已于 2026-09-16 去重时清除**，
+> 见下文"baseline 去重"。
+
+## baseline 去重（2026-09-16，6771 → 5426 行）
+
+`00000000_unified_schema_v12.sql` 曾把**同一段内容重复 3 遍**：
+3 个生成器 header、3 份 extensions 块（内联的 14 张扩展表）、3 份 p0 折入块。
+加上主体内 5 条重复索引语句，全文有 1353 行纯冗余。
+
+**根因**：`scripts/generate_next_baseline.py` 把 `current_path` 与输出路径都指向
+`00000000_unified_schema_v12.sql`，执行 `body = header + current + ext_body + p0_sql`
+后 `write_text(body)` —— **每跑一次就在自己的输出上再追加一段**，天然不幂等。
+跑三次的净效果就是 3 份副本。该脚本与其输入片段 `scripts/p0_constraints_indexes.sql`
+（已逐字节内联进 baseline）均已删除。
+
+**危害不只是行数**：重复副本全是 `IF NOT EXISTS`，在"首次生效者决定 schema"的语义下
+整体空转，于是"文件写了多少"与"库里实际有什么"脱钩。去重时按"这段看着像复制体"
+直接删就会出事 —— 尾部那 3 份副本里**藏了主体没有的 10 个索引**
+（`idx_device_signatures_user_device`、`idx_event_edges_prev_room`、
+`idx_e2ee_audit_log_device`、`idx_push_queue_user_pending`、
+`idx_federation_queue_dest_created`、`idx_rooms_federated` 等）与 9 个约束 DO 块。
+
+**去重后的结构**：1 个 header + 主体（含 14 张扩展表）= 230 张表 / 369 个索引，
+尾部保留唯一一份"完整性约束与性能索引折入块"。实测 230 表名、369 索引名**均无重复**。
+
+> **验证方式**（与死表清理同一判据）：改动前（HEAD 版）与改动后的 baseline 各自
+> 应用到**全新数据库**，`pg_dump --schema-only` 归一化后**逐行完全一致**
+> （15643 行，`SCHEMA IDENTICAL`），两侧均 0 error；折入块的 10 个索引在库中齐全。
+
+> 守卫：`tests/unit/migration_consistency_tests.rs::baseline_declares_each_object_exactly_once`
+> 逐行解析 `CREATE TABLE` / `CREATE [UNIQUE] INDEX` 名，断言无重复，并逐个断言
+> 10 个折入索引与 8 个折入约束仍存在（防止"下次去重把唯一定义一起删掉"）。
 
 ## v11 变更摘要 (2026-09-04) — 历史，v11 文件已从磁盘移除
 
@@ -170,18 +202,29 @@ v11 基线相对 v8/v10 的主要变更：
   - **E2EE**：megolm_vodozemac dual-write 吸收到 baseline、`burn_after_read_*`
   - **运维**：MV 刷新可配、room CHECK 约束、审计日志 append-only
 - 物化视图 `rooms_summaries_mv` 与索引治理（参见 `INDEXES.md`）
-- **⚠️ 吸收缺口（已知，部分已修）**：原来 72 个时间戳迁移文件（36 forward + 36 undo）
-  已在 `a0f2819d` 删除，但**有 23 个对象并未真正折入本 baseline**——用有序活集模拟
-  被删迁移得到的最终对象集中，23 个在 baseline 中不存在。完整清单与复现脚本见
-  `docs/audit/PROJECT_ACTUAL_ISSUES_2026-09-14.md` §1。
-  - **已恢复（本批）**：`ux_burn_log_user_event`（burn 批量写入 `ON CONFLICT` 的仲裁索引
+- **⚠️ 吸收缺口（曾存在 23 个对象未折入，已全部补齐）**：原来 72 个时间戳迁移文件
+  （36 forward + 36 undo）已在 `a0f2819d` 删除，但**有 23 个对象并未真正折入本 baseline**
+  ——用有序活集模拟被删迁移得到的最终对象集中，23 个在 baseline 中不存在。完整清单与
+  复现脚本见 `docs/audit/PROJECT_ACTUAL_ISSUES_2026-09-14.md` §1。
+  - **第一批（2026-09-14）**：`ux_burn_log_user_event`（burn 批量写入 `ON CONFLICT` 的仲裁索引
     ——缺失时每次 burn 清理都报 `42P10`）、`ck_rooms_room_version_valid` 正则化
     （硬编码 1..11 白名单会拒绝 v12/v13 联邦加入）、`trg_prevent_audit_delete`
     （`audit_events` 的 DB 级 append-only 强制）。
-  - **待折入（20 项）**：`fk_event_edges_prev`、`fk_events_redacted_by`、`fk_backup_keys_room`、
+  - **第二批（2026-09-16）**：剩余 20 项已由 baseline 尾部的"完整性约束与性能索引
+    折入块"提供 —— `fk_event_edges_prev`、`fk_events_redacted_by`、`fk_backup_keys_room`、
     `uq_backup_keys_room_session`、`ck_events_depth_nonneg`、`ck_events_not_before_nonneg`、
-    `ck_room_memberships_valid`，以及 9 个 P1/P2/P3 性能索引与 1 个被取代的 device_keys UQ。
-- `events.depth` / `events.not_before` CHECK 约束：⚠️ **未折入**（见上）。
+    `ck_room_memberships_valid`、`uq_device_keys_user_device_algorithm_keyid`，
+    以及 10 个 P1/P2/P3 性能索引（清单见 `INDEXES.md`）。
+    折入块内的 `CREATE INDEX CONCURRENTLY` 不能在事务内执行，故该段保留
+    `--no-transaction` 标记（`docker/db_migrate.sh` 用 `psql < file` 应用，本就是 autocommit）。
+- `events.depth` / `events.not_before` CHECK 约束：✅ 已折入（`ck_events_depth_nonneg` /
+  `ck_events_not_before_nonneg`）。
+
+> **这些对象此前长期没被发现的原因**：测试路径
+> （`scripts/build_sqlx_migration_source.py`）只选 baseline + extensions + `V*`，
+> 时间戳迁移压根不参与；而部署路径（`docker/db_migrate.sh`）会应用目录下全部正向 SQL。
+> 于是"CI 建出来的库缺对象"只在生产路径被掩盖为"恰好有对象"。时间戳迁移文件既已删除，
+> 两条路径现在都以 baseline 为准。
 
 ## 迁移执行顺序
 
