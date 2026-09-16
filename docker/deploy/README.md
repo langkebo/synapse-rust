@@ -264,3 +264,25 @@ cd docker/deploy
 | TURN 无法分配中继 | coturn 密钥不一致 | 校验 `.env` 的 TURN_SHARED_SECRET |
 | 迁移卡住 | 旧 migrator 容器残留 | `docker compose run --rm migrator migrate` |
 | 镜像构建失败 | 网络/依赖问题 | 查看 `logs/deploy_*.log`，或 `docker build --no-cache` 重试 |
+
+## 连接预算（强制约束，由 `scripts/ci/check_connection_budget.py` 校验）
+
+PostgreSQL 的 `max_connections` 是**全局**资源，而每个 synapse 进程都会开一个连接池
+（上限 = 配置项 `database.max_size`，源码默认值见 `synapse-common/src/config/database.rs`
+的 `default_database_max_size()`）。两侧都不设护栏时，多开一个进程就会让「连接耗尽」
+变成运行期随机失败（测试 starvation、部署期 5xx）。
+
+| 项 | 值 |
+|---|---|
+| 每进程池上限 | 50 |
+| 最大并发进程数 | 4 |
+| 测试/管理保留 | 20 |
+| PostgreSQL max_connections | 250 |
+
+不变式：`每进程池上限 × 进程数 + 保留 ≤ max_connections` → `50 × 4 + 20 = 220 ≤ 250` ✅
+
+**部署前必查**：PostgreSQL 默认 `max_connections = 100`，那种情况下最多只能跑
+**1 个 worker**（`50 × 1 + 20 = 70`）；要跑 4 个 worker 必须显式把
+`max_connections` 提到 **≥220（推荐 250）**。改了任何一项（池上限 / 进程数 /
+max_connections）都必须同步更新本表，否则门禁会失败。
+

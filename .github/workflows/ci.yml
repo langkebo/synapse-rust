@@ -147,6 +147,11 @@ jobs:
       - name: Route layer must not touch storage or the pool directly
         run: bash scripts/quality/check_route_layering.sh
 
+      # DB review 优先级 7：PostgreSQL max_connections 是全局资源，池上限 × 进程数
+      # 必须有成文预算并被校验，否则连接耗尽会表现为随机的测试/部署失败。
+      - name: Connection budget invariant
+        run: python3 scripts/ci/check_connection_budget.py
+
       # Supply-chain hardening: cargo-deny (licenses/bans/sources) and
       # cargo-audit (RustSec CVE database). Both must pass for the PR
       # to merge. The ignore list lives in deny.toml and .cargo/audit.toml.

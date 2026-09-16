@@ -3362,7 +3362,6 @@ CREATE INDEX IF NOT EXISTS idx_room_memberships_room_status ON room_memberships(
 CREATE INDEX IF NOT EXISTS idx_memberships_user_room ON room_memberships(user_id, room_id);
 
 -- Events
-CREATE INDEX IF NOT EXISTS idx_events_room_id ON events(room_id);
 CREATE INDEX IF NOT EXISTS idx_events_sender ON events(sender);
 CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
 CREATE INDEX IF NOT EXISTS idx_events_origin_server_ts ON events(origin_server_ts DESC);
@@ -5389,3 +5388,32 @@ END $$;
 -- ============================================================
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_rooms_federated
     ON rooms(is_federated) WHERE is_federated = TRUE;
+
+-- ============================================================
+-- 2026-09-17 DB review 优先级 4：为缺前导索引的外键列补索引
+-- 无索引时，父行删除/更新会让 PG 扫子表找引用行（级联删除退化为全表扫）。
+-- 见 docs/audit/DB_REVIEW_2026-09-17.md §4。
+-- ============================================================
+CREATE INDEX IF NOT EXISTS idx_blocked_users_blocked_id ON blocked_users(blocked_id);
+CREATE INDEX IF NOT EXISTS idx_friend_categories_user_id ON friend_categories(user_id);
+CREATE INDEX IF NOT EXISTS idx_friends_friend_id ON friends(friend_id);
+CREATE INDEX IF NOT EXISTS idx_moderation_actions_user_id ON moderation_actions(user_id);
+CREATE INDEX IF NOT EXISTS idx_notification_delivery_log_notification_id ON notification_delivery_log(notification_id);
+CREATE INDEX IF NOT EXISTS idx_notification_delivery_log_user_id ON notification_delivery_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_presence_subscriptions_target_id ON presence_subscriptions(target_id);
+CREATE INDEX IF NOT EXISTS idx_qr_login_transactions_user_id ON qr_login_transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_room_summary_update_queue_room_id ON room_summary_update_queue(room_id);
+CREATE INDEX IF NOT EXISTS idx_scheduled_notifications_notification_id ON scheduled_notifications(notification_id);
+CREATE INDEX IF NOT EXISTS idx_secure_backup_session_keys_backup_id ON secure_backup_session_keys(backup_id);
+CREATE INDEX IF NOT EXISTS idx_server_notices_user_id ON server_notices(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_directory_room_id ON user_directory(room_id);
+CREATE INDEX IF NOT EXISTS idx_user_notification_status_notification_id ON user_notification_status(notification_id);
+CREATE INDEX IF NOT EXISTS idx_widget_permissions_user_id ON widget_permissions(user_id);
+CREATE INDEX IF NOT EXISTS idx_widget_sessions_user_id ON widget_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_widget_sessions_widget_id ON widget_sessions(widget_id);
+CREATE INDEX IF NOT EXISTS idx_widgets_user_id ON widgets(user_id);
+
+-- `events.redacted_by` 是自引用外键（→ events.event_id, ON DELETE SET NULL）：
+-- 无索引时删除一条事件要全表扫 events 找 `redacted_by = ?`。绝大多数行为 NULL，
+-- 故用部分索引（与既有 idx_events_redacts 同构），避免在 21 个索引之上再加一棵全量 btree。
+CREATE INDEX IF NOT EXISTS idx_events_redacted_by ON events(redacted_by) WHERE redacted_by IS NOT NULL;
