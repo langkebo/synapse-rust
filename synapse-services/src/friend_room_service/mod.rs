@@ -17,7 +17,7 @@ pub use models::{
     EnsureDirectRoomResult, FriendListCursor, FriendListEntry, FriendListPage, FriendListRequest, FriendListSortCache,
     FriendRoomCreateRoomConfig, FriendRoomService,
 };
-use synapse_common::{current_timestamp_millis, generate_event_id, ApiError, ApiResult};
+use synapse_common::{current_timestamp_millis, generate_event_id, ApiError};
 
 use crate::account::UserService;
 use futures::future::try_join_all;
@@ -198,7 +198,7 @@ impl FriendRoomService {
     ///
     /// If Redis is unavailable the lock is skipped (fail-open) — the DB's
     /// unique constraint on `m.direct` still protects against duplicate rows.
-    pub async fn create_friend_list_room(&self, user_id: &str) -> ApiResult<String> {
+    pub async fn create_friend_list_room(&self, user_id: &str) -> Result<String, FriendRoomError> {
         // Fast path: check Redis cache first
         let room_cache_key = format!("friends:room_id:{}", user_id);
         if let Ok(Some(room_id)) = self.cache.get::<String>(&room_cache_key).await {
@@ -290,14 +290,14 @@ impl FriendRoomService {
         sender_id: &str,
         receiver_id: &str,
         message: Option<&str>,
-    ) -> ApiResult<i64> {
+    ) -> Result<i64, FriendRoomError> {
         if receiver_id == sender_id {
-            return Err(ApiError::bad_request("Cannot send friend request to yourself"));
+            return Err(FriendRoomError::InvalidInput("Cannot send friend request to yourself".to_string()));
         }
 
         if let Some(msg) = message {
             if msg.len() > 500 {
-                return Err(ApiError::bad_request("Friend request message exceeds maximum length of 500 characters"));
+                return Err(FriendRoomError::InvalidInput("Friend request message exceeds maximum length of 500 characters".to_string()));
             }
         }
 
@@ -308,7 +308,7 @@ impl FriendRoomService {
             .await
             ?
         {
-            return Err(ApiError::conflict(format!("User {receiver_id} is already your friend")));
+            return Err(FriendRoomError::FriendshipConflict(format!("User {receiver_id} is already your friend")));
         }
 
         if self
@@ -413,7 +413,7 @@ impl FriendRoomService {
         request_id: &str,
         user_id: &str,
         requester_id: &str,
-    ) -> ApiResult<String> {
+    ) -> Result<String, FriendRoomError> {
         // --- 幂等检查 1：双方已是好友，直接返回已有 DM 房间 ---
         let user_friend_room = self.create_friend_list_room(user_id).await?;
         if self
@@ -477,14 +477,14 @@ impl FriendRoomService {
                 return self.ensure_accept_state(request_id, user_id, requester_id, &user_friend_room).await;
             }
             // 请求存在但状态是 rejected/cancelled，返回 409
-            return Err(ApiError::conflict(format!(
+            return Err(FriendRoomError::FriendshipConflict(format!(
                 "Friend request from {requester_id} has been {request_status}",
                 request_status = request.status
             )));
         }
 
         // --- 请求完全不存在，返回 404 ---
-        Err(ApiError::not_found(format!("No friend request from {requester_id}")))
+        Err(FriendRoomError::NotFound(format!("No friend request from {requester_id}")))
     }
 
     /// 执行完整的 accept 流程（创建 DM、更新好友列表、标记请求状态）
@@ -494,7 +494,7 @@ impl FriendRoomService {
         user_id: &str,
         requester_id: &str,
         user_friend_room: &str,
-    ) -> ApiResult<String> {
+    ) -> Result<String, FriendRoomError> {
         let dm_room_id = self.create_friend_dm_room(user_id, requester_id).await?;
 
         // P0 fix: ensure_direct_room 可能返回已存在的 DM 房间（对方已创建并
@@ -562,7 +562,7 @@ impl FriendRoomService {
         user_id: &str,
         requester_id: &str,
         user_friend_room: &str,
-    ) -> ApiResult<String> {
+    ) -> Result<String, FriendRoomError> {
         // 确保 DM 房间存在
         let dm_room_id = self.create_friend_dm_room(user_id, requester_id).await?;
 
@@ -599,7 +599,7 @@ impl FriendRoomService {
 
     /// 拒绝好友请求
     #[::tracing::instrument(skip(self), fields(request_id = %request_id))]
-    pub async fn reject_friend_request(&self, request_id: &str, user_id: &str, requester_id: &str) -> ApiResult<()> {
+    pub async fn reject_friend_request(&self, request_id: &str, user_id: &str, requester_id: &str) -> Result<(), FriendRoomError> {
         let updated = self
             .friend_storage
             .update_friend_request_status(requester_id, user_id, "rejected")
@@ -613,7 +613,7 @@ impl FriendRoomService {
                 requester_id = %requester_id,
                 "Reject friend request missed pending row"
             );
-            return Err(ApiError::not_found(format!("No pending friend request from {requester_id}")));
+            return Err(FriendRoomError::NotFound(format!("No pending friend request from {requester_id}")));
         }
 
         Ok(())
@@ -621,7 +621,7 @@ impl FriendRoomService {
 
     /// 取消发出的好友请求
     #[::tracing::instrument(skip(self), fields(request_id = %request_id))]
-    pub async fn cancel_friend_request(&self, request_id: &str, user_id: &str, target_id: &str) -> ApiResult<()> {
+    pub async fn cancel_friend_request(&self, request_id: &str, user_id: &str, target_id: &str) -> Result<(), FriendRoomError> {
         let updated = self
             .friend_storage
             .update_friend_request_status(user_id, target_id, "cancelled")
@@ -635,14 +635,14 @@ impl FriendRoomService {
                 target_id = %target_id,
                 "Cancel friend request missed pending row"
             );
-            return Err(ApiError::not_found(format!("No pending friend request to {target_id}")));
+            return Err(FriendRoomError::NotFound(format!("No pending friend request to {target_id}")));
         }
 
         Ok(())
     }
 
     /// 获取收到的好友请求列表
-    pub async fn get_incoming_requests(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
+    pub async fn get_incoming_requests(&self, user_id: &str) -> Result<Vec<serde_json::Value>, FriendRoomError> {
         let requests = self
             .friend_storage
             .get_incoming_friend_requests(user_id)
@@ -663,7 +663,7 @@ impl FriendRoomService {
     }
 
     /// 获取发出的好友请求列表
-    pub async fn get_outgoing_requests(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
+    pub async fn get_outgoing_requests(&self, user_id: &str) -> Result<Vec<serde_json::Value>, FriendRoomError> {
         let requests = self
             .friend_storage
             .get_outgoing_friend_requests(user_id)
@@ -684,9 +684,9 @@ impl FriendRoomService {
     }
 
     /// 添加好友 (直接添加，用于向后兼容)
-    pub async fn add_friend(&self, user_id: &str, friend_id: &str) -> ApiResult<String> {
+    pub async fn add_friend(&self, user_id: &str, friend_id: &str) -> Result<String, FriendRoomError> {
         if friend_id == user_id {
-            return Err(ApiError::bad_request("Cannot add yourself as a friend"));
+            return Err(FriendRoomError::InvalidInput("Cannot add yourself as a friend".to_string()));
         }
 
         let user_friend_room = self.create_friend_list_room(user_id).await?;
@@ -697,7 +697,7 @@ impl FriendRoomService {
             .await
             ?
         {
-            return Err(ApiError::conflict(format!("User {friend_id} is already your friend")));
+            return Err(FriendRoomError::FriendshipConflict(format!("User {friend_id} is already your friend")));
         }
 
         let dm_room_id = self.create_friend_dm_room(user_id, friend_id).await?;
@@ -723,7 +723,7 @@ impl FriendRoomService {
             tracing::info!(user_id = %user_id, friend_id = %friend_id, remote_delivery = true, "Adding remote friend");
             let parts: Vec<&str> = friend_id.split(':').collect();
             if parts.len() < 2 {
-                return Err(ApiError::bad_request("Invalid user ID format"));
+                return Err(FriendRoomError::InvalidInput("Invalid user ID format".to_string()));
             }
             let domain = parts[1];
 
@@ -749,7 +749,7 @@ impl FriendRoomService {
     }
 
     /// 删除好友
-    pub async fn remove_friend(&self, user_id: &str, friend_id: &str) -> ApiResult<()> {
+    pub async fn remove_friend(&self, user_id: &str, friend_id: &str) -> Result<(), FriendRoomError> {
         let friend_room = self.create_friend_list_room(user_id).await?;
 
         if !self
@@ -758,7 +758,7 @@ impl FriendRoomService {
             .await
             ?
         {
-            return Err(ApiError::not_found(format!("User {friend_id} is not in your friend list")));
+            return Err(FriendRoomError::NotFound(format!("User {friend_id} is not in your friend list")));
         }
 
         self.update_friend_list(user_id, &friend_room, friend_id, "remove", None).await?;
@@ -769,7 +769,7 @@ impl FriendRoomService {
     }
 
     /// 获取好友列表
-    pub async fn get_friends(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
+    pub async fn get_friends(&self, user_id: &str) -> Result<Vec<serde_json::Value>, FriendRoomError> {
         let page = self.get_friends_page(user_id, FriendListRequest::default()).await?;
         Ok(page.items.into_iter().filter_map(|item| serde_json::to_value(item).ok()).collect())
     }
@@ -778,7 +778,7 @@ impl FriendRoomService {
     ///
     /// 该接口只读取现有好友列表房间，不会像 `create_friend_list_room` 那样
     /// 在只读场景里隐式创建新房间，适合 DM 查询路由的收敛读路径使用。
-    pub async fn get_direct_message_links(&self, user_id: &str) -> ApiResult<Vec<(String, String)>> {
+    pub async fn get_direct_message_links(&self, user_id: &str) -> Result<Vec<(String, String)>, FriendRoomError> {
         let Some(room_id) = self
             .friend_storage
             .get_friend_list_room_id(user_id)
@@ -814,7 +814,7 @@ impl FriendRoomService {
     }
 
     /// See [`load_direct_map`].
-    pub async fn load_direct_map(&self, user_id: &str) -> ApiResult<Map<String, Value>> {
+    pub async fn load_direct_map(&self, user_id: &str) -> Result<Map<String, Value>, FriendRoomError> {
         let content = self
             .account_data_storage
             .get_account_data_content(user_id, "m.direct")
@@ -823,13 +823,13 @@ impl FriendRoomService {
 
         match content {
             Some(Value::Object(map)) => Ok(map),
-            Some(_) => Err(ApiError::internal("Invalid m.direct account data format")),
+            Some(_) => Err(FriendRoomError::Internal("Invalid m.direct account data format".to_string())),
             None => Ok(Map::new()),
         }
     }
 
     /// See [`save_direct_map`].
-    pub async fn save_direct_map(&self, user_id: &str, direct_map: &Map<String, Value>) -> ApiResult<()> {
+    pub async fn save_direct_map(&self, user_id: &str, direct_map: &Map<String, Value>) -> Result<(), FriendRoomError> {
         self.account_data_storage
             .upsert_account_data(user_id, "m.direct", Value::Object(direct_map.clone()))
             .await
@@ -843,7 +843,7 @@ impl FriendRoomService {
     }
 
     /// See [`get_effective_direct_map`].
-    pub async fn get_effective_direct_map(&self, user_id: &str) -> ApiResult<Map<String, Value>> {
+    pub async fn get_effective_direct_map(&self, user_id: &str) -> Result<Map<String, Value>, FriendRoomError> {
         let mut direct_map = self.load_direct_map(user_id).await?;
         merge_direct_links(&mut direct_map, self.get_direct_message_links(user_id).await?);
 
@@ -863,7 +863,7 @@ impl FriendRoomService {
     }
 
     /// See [`get_direct_room_snapshot`].
-    pub async fn get_direct_room_snapshot(&self, user_id: &str, room_id: &str) -> ApiResult<DirectRoomSnapshot> {
+    pub async fn get_direct_room_snapshot(&self, user_id: &str, room_id: &str) -> Result<DirectRoomSnapshot, FriendRoomError> {
         let direct_map = self.get_effective_direct_map(user_id).await?;
         Ok(Self::build_direct_room_snapshot(direct_map, room_id))
     }
@@ -874,7 +874,7 @@ impl FriendRoomService {
         user_id: &str,
         target_user_ids: &[String],
         room_id: &str,
-    ) -> ApiResult<Map<String, Value>> {
+    ) -> Result<Map<String, Value>, FriendRoomError> {
         let mut direct_map = self.load_direct_map(user_id).await?;
         for target_user_id in target_user_ids {
             ensure_room_in_direct_map(&mut direct_map, target_user_id, room_id);
@@ -888,7 +888,7 @@ impl FriendRoomService {
         &self,
         user_id: &str,
         action: DirectMapUpdateAction,
-    ) -> ApiResult<Map<String, Value>> {
+    ) -> Result<Map<String, Value>, FriendRoomError> {
         match action {
             DirectMapUpdateAction::ReplaceRoomTargets { room_id, target_user_ids } => {
                 let mut direct_map = self.load_direct_map(user_id).await?;
@@ -912,7 +912,7 @@ impl FriendRoomService {
         user_id: &str,
         room_id: &str,
         action: DirectMapUpdateAction,
-    ) -> ApiResult<DirectRoomSnapshot> {
+    ) -> Result<DirectRoomSnapshot, FriendRoomError> {
         let direct_map = self.apply_direct_map_update(user_id, action).await?;
         Ok(Self::build_direct_room_snapshot(direct_map, room_id))
     }
@@ -923,7 +923,7 @@ impl FriendRoomService {
         user_id: &str,
         room_id: &str,
         target_user_ids: &[String],
-    ) -> ApiResult<Map<String, Value>> {
+    ) -> Result<Map<String, Value>, FriendRoomError> {
         self.apply_direct_map_update(
             user_id,
             DirectMapUpdateAction::ReplaceRoomTargets {
@@ -939,7 +939,7 @@ impl FriendRoomService {
         &self,
         user_id: &str,
         direct_map: Map<String, Value>,
-    ) -> ApiResult<Map<String, Value>> {
+    ) -> Result<Map<String, Value>, FriendRoomError> {
         self.apply_direct_map_update(user_id, DirectMapUpdateAction::OverwriteMap(direct_map)).await
     }
 
@@ -954,7 +954,7 @@ impl FriendRoomService {
         friend_id: &str,
         dm_room_id: &str,
         changed_by: Option<&str>,
-    ) -> ApiResult<usize> {
+    ) -> Result<usize, FriendRoomError> {
         let mut updated = 0usize;
 
         if self.update_existing_friend_dm_link(user_id, friend_id, dm_room_id, "active", changed_by, None).await? {
@@ -972,7 +972,7 @@ impl FriendRoomService {
     ///
     /// 优先读取好友持久化视图中的 `dm_room_id`，若不存在则回退到
     /// `room_memberships + room_summaries` 查询。
-    pub async fn get_existing_dm_room_id(&self, user_id: &str, friend_id: &str) -> ApiResult<Option<String>> {
+    pub async fn get_existing_dm_room_id(&self, user_id: &str, friend_id: &str) -> Result<Option<String>, FriendRoomError> {
         if let Some(info) = self.get_friend_info(user_id, friend_id).await? {
             let dm_room_id = info.get("dm_room_id").and_then(|value| value.as_str()).map(ToOwned::to_owned);
             let dm_room_active = info.get("dm_room_active").and_then(|value| value.as_bool()).unwrap_or(true);
@@ -985,11 +985,11 @@ impl FriendRoomService {
         self.friend_storage
             .get_existing_direct_room_id(user_id, friend_id)
             .await
-            ?
+            .map_err(FriendRoomError::Database)
     }
 
     /// See [`get_dm_partner_for_room`].
-    pub async fn get_dm_partner_for_room(&self, user_id: &str, room_id: &str) -> ApiResult<Option<DmPartnerInfo>> {
+    pub async fn get_dm_partner_for_room(&self, user_id: &str, room_id: &str) -> Result<Option<DmPartnerInfo>, FriendRoomError> {
         if let Some((partner_user_id, _)) =
             self.get_direct_message_links(user_id).await?.into_iter().find(|(_, dm_room_id)| dm_room_id == room_id)
         {
@@ -1033,7 +1033,7 @@ impl FriendRoomService {
         friend_user_id: &str,
         config: FriendRoomCreateRoomConfig,
         actor_user_id: Option<&str>,
-    ) -> ApiResult<EnsureDirectRoomResult> {
+    ) -> Result<EnsureDirectRoomResult, FriendRoomError> {
         if let Some(room_id) = self.get_existing_dm_room_id(owner_user_id, friend_user_id).await? {
             // Defensive join: if either user is only "invite" (not yet joined), auto-join.
             // This covers rooms created before the P0 fix and edge cases where the
@@ -1101,7 +1101,7 @@ impl FriendRoomService {
         target_user_ids: &[String],
         config: FriendRoomCreateRoomConfig,
         actor_user_id: Option<&str>,
-    ) -> ApiResult<EnsureDirectRoomResult> {
+    ) -> Result<EnsureDirectRoomResult, FriendRoomError> {
         if target_user_ids.len() == 1 {
             let result = self.ensure_direct_room(owner_user_id, &target_user_ids[0], config, actor_user_id).await?;
             self.upsert_direct_room_links(owner_user_id, target_user_ids, &result.room_id).await?;
@@ -1127,7 +1127,7 @@ impl FriendRoomService {
     }
 
     /// See [`get_friends_page`].
-    pub async fn get_friends_page(&self, user_id: &str, request: FriendListRequest) -> ApiResult<FriendListPage> {
+    pub async fn get_friends_page(&self, user_id: &str, request: FriendListRequest) -> Result<FriendListPage, FriendRoomError> {
         let room_id = self.create_friend_list_room(user_id).await?;
 
         // W5 热路径调优：shard 快照缓存（5s TTL），避免每次 get_friends_page 必读 DB。
@@ -1172,7 +1172,7 @@ impl FriendRoomService {
         let safe_limit = request.limit.clamp(1, 100);
         if let Some(cursor) = request.from.as_ref() {
             if cursor.sort_by != request.sort_by {
-                return Err(ApiError::bad_request("Friend list cursor sort order does not match request"));
+                return Err(FriendRoomError::InvalidInput("Friend list cursor sort order does not match request".to_string()));
             }
         }
 
@@ -1306,7 +1306,7 @@ impl FriendRoomService {
         dm_room_state: &str,
         changed_by: Option<&str>,
         reason: Option<&str>,
-    ) -> ApiResult<usize> {
+    ) -> Result<usize, FriendRoomError> {
         let links = self
             .friend_storage
             .find_friend_lists_by_dm_room_id(dm_room_id)
@@ -1463,7 +1463,7 @@ impl FriendRoomService {
         event_type: &str,
         state_key: &str,
         content: Value,
-    ) -> ApiResult<()> {
+    ) -> Result<(), FriendRoomError> {
         let now = current_timestamp_millis();
         room_service
             .messaging()
@@ -1486,14 +1486,14 @@ impl FriendRoomService {
                 let error_msg = e.to_string();
                 if error_msg.contains("foreign key") {
                     if error_msg.contains("room_id") {
-                        ApiError::not_found("Room not found")
+                        FriendRoomError::NotFound("Room not found".to_string())
                     } else if error_msg.contains("sender") || error_msg.contains("user_id") {
-                        ApiError::not_found("User not found")
+                        FriendRoomError::NotFound("User not found".to_string())
                     } else {
-                        ApiError::database(error_msg)
+                        FriendRoomError::Internal(error_msg)
                     }
                 } else {
-                    ApiError::database(error_msg)
+                    FriendRoomError::Internal(error_msg)
                 }
             })
     }
@@ -1504,16 +1504,16 @@ impl FriendRoomService {
         user_id: &str,
         requester_id: &str,
         content: serde_json::Value,
-    ) -> ApiResult<()> {
+    ) -> Result<(), FriendRoomError> {
         let message = content.get("message").and_then(|m| m.as_str());
 
         self.friend_storage.create_friend_request_with_user_ensure(requester_id, user_id, message).await.map_err(
             |e| {
                 let error_msg = e.to_string();
                 if error_msg.contains("foreign key") {
-                    ApiError::database_with_context("Failed to create friend request: user not found", &error_msg)
+                    FriendRoomError::Internal(format!("Failed to create friend request: user not found: {}", error_msg))
                 } else {
-                    ApiError::database_with_context("Failed to create friend request", &error_msg)
+                    FriendRoomError::Internal(format!("Failed to create friend request: {}", error_msg))
                 }
             },
         )?;
@@ -1536,7 +1536,7 @@ impl FriendRoomService {
         event_type: &str,
         state_key: &str,
         content: serde_json::Value,
-    ) -> ApiResult<()> {
+    ) -> Result<(), FriendRoomError> {
         Self::send_state_event_inner(
             &*self.room_service,
             &self.server_name,
@@ -1565,7 +1565,7 @@ impl FriendRoomService {
         friend_id: &str,
         action: &str,
         dm_room_id: Option<&str>,
-    ) -> ApiResult<()> {
+    ) -> Result<(), FriendRoomError> {
         // W5 sharding：按 friend_id 路由到对应 shard，只改该 shard。
         // 同 shard 内 add/remove 不动其他 shard，避免单 event 超过 2704 字节上限。
         // v4 遗留好友可能在 legacy state_key=""，read_friend_shard_for_update 会回退定位。
@@ -1612,7 +1612,7 @@ impl FriendRoomService {
         dm_room_state: &str,
         changed_by: Option<&str>,
         reason: Option<&str>,
-    ) -> ApiResult<bool> {
+    ) -> Result<bool, FriendRoomError> {
         let Some(friend_room_id) = self
             .friend_storage
             .get_friend_list_room_id(owner_user_id)
@@ -1668,7 +1668,7 @@ impl FriendRoomService {
         Ok(true)
     }
 
-    async fn create_friend_dm_room(&self, user_id: &str, friend_id: &str) -> ApiResult<String> {
+    async fn create_friend_dm_room(&self, user_id: &str, friend_id: &str) -> Result<String, FriendRoomError> {
         let config = FriendRoomCreateRoomConfig {
             visibility: Some("private".to_string()),
             preset: Some("trusted_private_chat".to_string()),
@@ -1828,7 +1828,10 @@ impl FriendRoomProvider for FriendRoomService {
         requester_id: &str,
         content: serde_json::Value,
     ) -> Result<(), ApiError> {
-        self.handle_incoming_friend_request(user_id, requester_id, content).await
+        self.handle_incoming_friend_request(user_id, requester_id, content).await.map_err(|e| {
+            // Convert FriendRoomError to ApiError via From impl
+            ApiError::from(e)
+        })
     }
 }
 

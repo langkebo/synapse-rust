@@ -38,7 +38,7 @@ impl FriendRoomService {
             .await
             ?
         {
-            return Err(FriendRoomError::NotFoundformat!("Friend {friend_id} not found in list"));
+            return Err(FriendRoomError::NotFound(format!("Friend {friend_id} not found in list")));
         }
 
         // W5 sharding：单 friend 改动只触及一个 shard，避免触发 PG btree 2704 上限。
@@ -60,7 +60,7 @@ impl FriendRoomService {
         }
 
         if !touched {
-            return Err(FriendRoomError::NotFoundformat!("Friend {friend_id} not found"));
+            return Err(FriendRoomError::NotFound(format!("Friend {friend_id} not found")));
         }
 
         if let Some(version) = content.get("version").and_then(|v| v.as_i64()) {
@@ -91,7 +91,7 @@ impl FriendRoomService {
             .await
             ?
         {
-            return Err(FriendRoomError::NotFoundformat!("Friend {friend_id} not found in list"));
+            return Err(FriendRoomError::NotFound(format!("Friend {friend_id} not found in list")));
         }
 
         // v4 遗留好友可能在 legacy state_key=""，read_friend_shard_for_update 会回退定位。
@@ -113,7 +113,7 @@ impl FriendRoomService {
         }
 
         if !touched {
-            return Err(FriendRoomError::NotFoundformat!("Friend {friend_id} not found"));
+            return Err(FriendRoomError::NotFound(format!("Friend {friend_id} not found")));
         }
 
         if let Some(version) = content.get("version").and_then(|v| v.as_i64()) {
@@ -135,7 +135,7 @@ impl FriendRoomService {
             .await
             ?
         {
-            return Err(FriendRoomError::NotFoundformat!("Friend {friend_id} not found in list"));
+            return Err(FriendRoomError::NotFound(format!("Friend {friend_id} not found in list")));
         }
 
         // v4 遗留好友可能在 legacy state_key=""，read_friend_shard_for_update 会回退定位。
@@ -157,7 +157,7 @@ impl FriendRoomService {
         }
 
         if !touched {
-            return Err(FriendRoomError::NotFoundformat!("Friend {friend_id} not found"));
+            return Err(FriendRoomError::NotFound(format!("Friend {friend_id} not found")));
         }
 
         if let Some(version) = content.get("version").and_then(|v| v.as_i64()) {
@@ -265,12 +265,12 @@ impl FriendRoomService {
     /// 查询任意用户的好友列表 (支持本地和远程)
     pub async fn query_user_friends(&self, requester_id: &str, target_user_id: &str) -> Result<Vec<String>, FriendRoomError> {
         if requester_id != target_user_id {
-            return Err(FriendRoomError::NotAuthorized"You can only query your own friend list".to_string());
+            return Err(FriendRoomError::NotAuthorized("You can only query your own friend list".to_string()));
         }
 
         let parts: Vec<&str> = target_user_id.split(':').collect();
         if parts.len() < 2 {
-            return Err(FriendRoomError::InvalidInput"Invalid user ID format");
+            return Err(FriendRoomError::InvalidInput("Invalid user ID format".to_string()));
         }
         let domain = parts[1];
 
@@ -283,7 +283,10 @@ impl FriendRoomService {
             return Ok(friends);
         }
 
-        self.federation_client.query_remote_friends(domain, target_user_id).await
+        self.federation_client
+            .query_remote_friends(domain, target_user_id)
+            .await
+            .map_err(|e| FriendRoomError::Internal(e.to_string()))
     }
 
     /// 创建好友分组
@@ -331,7 +334,7 @@ impl FriendRoomService {
             groups_array.retain(|g| g.get("id").and_then(|id| id.as_str()) != Some(group_id));
 
             if groups_array.len() == original_len {
-                return Err(FriendRoomError::NotFoundformat!("Group {group_id} not found"));
+                return Err(FriendRoomError::NotFound(format!("Group {group_id} not found")));
             }
 
             self.send_state_event(&friend_room, user_id, "m.friends.groups", "", groups).await?;
@@ -361,7 +364,7 @@ impl FriendRoomService {
             }
 
             if !found {
-                return Err(FriendRoomError::NotFoundformat!("Group {group_id} not found"));
+                return Err(FriendRoomError::NotFound(format!("Group {group_id} not found")));
             }
 
             self.send_state_event(&friend_room, user_id, "m.friends.groups", "", groups).await?;
@@ -381,7 +384,7 @@ impl FriendRoomService {
             .await
             ?
         {
-            return Err(FriendRoomError::NotFoundformat!("User {friend_id} is not your friend"));
+            return Err(FriendRoomError::NotFound(format!("User {friend_id} is not your friend")));
         }
 
         let mut groups = self
@@ -408,7 +411,7 @@ impl FriendRoomService {
             }
 
             if !found {
-                return Err(FriendRoomError::NotFoundformat!("Group {group_id} not found"));
+                return Err(FriendRoomError::NotFound(format!("Group {group_id} not found")));
             }
 
             self.send_state_event(&friend_room, user_id, "m.friends.groups", "", groups).await?;
@@ -440,7 +443,7 @@ impl FriendRoomService {
             }
 
             if !found {
-                return Err(FriendRoomError::NotFoundformat!("Group {group_id} not found"));
+                return Err(FriendRoomError::NotFound(format!("Group {group_id} not found")));
             }
 
             self.send_state_event(&friend_room, user_id, "m.friends.groups", "", groups).await?;

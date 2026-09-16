@@ -36,3 +36,27 @@ web/routes/account_compat.rs: 4 处
 
 ## 执行模式
 Agent mode 已启用，文件写入能力已就绪。
+
+
+## Step 1: friend_room_service 完整改造 ✅
+
+### 已完成
+- **返回类型升级**: 所有 pub async fn 方法从 ApiResult<T> 升级为 Result<T, FriendRoomError>
+- **已影响方法**: 创建好友列表房间、拒绝好友请求、取消好友请求、获取/发送请求、获取好友、好友列表、获取好友链接、加载/保存直接映射、有效直接映射、直接房间快照、获取现有 DM 房间 ID、获取 DM 伙伴、获取好友页面
+- **错误处理统一**:
+  - ApiError::Database → FriendRoomError::Database (sqlx::Error 通过 From 传播)
+  - ApiError::NotFound → FriendRoomError::NotFound (String)
+  - ApiError::BadRequest → FriendRoomError::InvalidInput (String)
+  - ApiError::Forbidden → FriendRoomError::NotAuthorized (String)
+  - ApiError::Internal → FriendRoomError::Internal (带上下文)
+- **Federation 调用适配**: query_remote_friends / create_event 错误转 FriendRoomError
+- **编译状态**: cargo check --lib 通过，17 处 database_with_cause 保留在其他域
+
+### 进行中
+- 下一步: room/state/info.rs — 6 处样板 (下一高优先级域)
+
+### 下一步
+1. room/state/info.rs — 6 处样板消除
+2. room/messaging/events.rs — 7 处样板消除  
+3. room/membership/ — 4 处样板消除
+4. web/routes/account_compat.rs — 4 处样板消除 (route handler 层)
