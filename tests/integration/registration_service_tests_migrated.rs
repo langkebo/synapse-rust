@@ -4,9 +4,9 @@ use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::config::SecurityConfig;
 use synapse_rust::common::metrics::MetricsCollector;
+use synapse_services::account::UserService;
 use synapse_services::auth::{AuthService, CredentialAuth, TokenAuth};
 use synapse_services::registration_service::RegistrationService;
-use synapse_services::UserService;
 use synapse_storage::user::UserStorage;
 use synapse_storage::user::UserStore;
 

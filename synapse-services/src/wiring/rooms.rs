@@ -11,9 +11,9 @@ use std::sync::Arc;
 
 use synapse_storage::*;
 
+use crate::account::UserService;
 use crate::auth::RoomAuth;
 use crate::container::SharedInfra;
-use crate::UserService;
 
 /// The `RoomSyncServices` struct.
 #[derive(Clone)]
@@ -23,7 +23,7 @@ pub struct RoomSyncServices {
     /// The `event_writer` field.
     pub event_writer: Arc<dyn synapse_storage::event::EventWriter>,
     /// The `room_summary_service` field.
-    pub room_summary_service: Arc<crate::room_summary_service::RoomSummaryService>,
+    pub room_summary_service: Arc<crate::room::summary::RoomSummaryService>,
     #[cfg(feature = "beacons")]
     /// The `beacon_service` field.
     pub beacon_service: Arc<crate::beacon_service::BeaconService>,
@@ -36,7 +36,7 @@ pub struct RoomSyncServices {
     /// The `typing_service` field.
     pub typing_service: Arc<crate::typing_service::TypingService>,
     /// The `space_service` field.
-    pub space_service: Arc<crate::space_service::SpaceService>,
+    pub space_service: Arc<crate::room::space::SpaceService>,
     /// The `relations_service` field.
     pub relations_service: Arc<crate::relations_service::RelationsService>,
     /// The `thread_service` field.
@@ -87,7 +87,7 @@ impl RoomSyncServices {
         let room_tag_storage: Arc<dyn synapse_storage::room_tag::RoomTagStoreApi> =
             Arc::new(synapse_storage::room_tag::RoomTagStorage::new(infra.pool.clone()));
 
-        let room_summary_service = Arc::new(crate::room_summary_service::RoomSummaryService::new(
+        let room_summary_service = Arc::new(crate::room::summary::RoomSummaryService::new(
             room_summary_storage.clone(),
             event_reader.clone(),
             Some(member_storage.clone()),
@@ -99,7 +99,7 @@ impl RoomSyncServices {
         #[cfg(feature = "beacons")]
         let beacon_service = Arc::new(crate::beacon_service::BeaconService::new(beacon_storage, infra.cache.clone()));
 
-        let room_service = Arc::new(crate::room_service::RoomService::new(crate::room_service::RoomServiceConfig {
+        let room_service = Arc::new(crate::room::service::RoomService::new(crate::room::service::RoomServiceConfig {
             room_storage: room_storage.clone(),
             member_storage: member_storage.clone(),
             event_reader: Some(event_reader.clone()),
@@ -189,7 +189,7 @@ impl RoomSyncServices {
         );
 
         let space_storage: Arc<synapse_storage::space::SpaceStorage> = Arc::new(SpaceStorage::new(&infra.pool));
-        let space_service = Arc::new(crate::space_service::SpaceService::new(
+        let space_service = Arc::new(crate::room::space::SpaceService::new(
             space_storage.clone(),
             room_storage.clone(),
             infra.config.server.name.clone(),

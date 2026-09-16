@@ -39,7 +39,7 @@ pub use token_auth::TokenAuth;
 pub use password_policy::{PasswordPolicy, PasswordPolicyService, PasswordValidationResult};
 pub use synapse_common::claims::{Claims, ClaimsBuilder};
 
-use crate::UserService;
+use crate::account::UserService;
 
 const TOKEN_CACHE_TTL_SECS: u64 = 300; // 5 min - must be short to respect revocation
 const USER_ACTIVE_CACHE_TTL_SECS: u64 = 60;

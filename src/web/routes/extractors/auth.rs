@@ -57,7 +57,7 @@ pub struct AdminUser {
 }
 
 async fn audit_user_action(
-    audit_svc: &synapse_services::AdminAuditService,
+    audit_svc: &synapse_services::admin::AdminAuditService,
     user_id: &str,
     method: &Method,
     path: &str,

@@ -15,9 +15,9 @@ use synapse_common::server_metrics::ServerMetrics;
 use synapse_federation::event_broadcaster::EventBroadcaster;
 use synapse_storage::*;
 
+use crate::account::UserService;
 use crate::auth::{CredentialAuth, RoomAuth, TokenAuth};
 use crate::container::SharedInfra;
-use crate::UserService;
 
 /// The `CoreServices` struct.
 #[derive(Clone)]

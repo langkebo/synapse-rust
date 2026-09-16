@@ -8,11 +8,11 @@ use synapse_common::metrics::MetricsCollector;
 use synapse_common::task_queue::RedisTaskQueue;
 use synapse_storage::*;
 
+use crate::account::UserService;
 use crate::auth::{CredentialAuth, RoomAuth, TokenAuth};
 use crate::worker::topology_validator::{
     current_instance_worker_type, global_maintenance_owner, should_run_global_maintenance,
 };
-use crate::UserService;
 use synapse_storage::email_verification::EmailVerificationStorage;
 
 /// The `AdminUserServices` struct.

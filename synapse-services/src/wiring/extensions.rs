@@ -23,8 +23,8 @@ use std::sync::Arc;
 use crate::burn_after_read_service::BurnAfterReadService;
 use synapse_storage::UserStore;
 
+use crate::account::UserService;
 use crate::container::SharedInfra;
-use crate::UserService;
 
 /// The `ExtensionServices` struct.
 #[derive(Clone)]

@@ -4,7 +4,7 @@
 //! types as the legacy flat / direct module paths, ensuring the refactor is
 //! behavior-preserving. Each test asserts compile-time type identity between
 //! the grouped path (e.g. `synapse_services::account::UserService`) and the
-//! legacy flat path (e.g. `synapse_services::UserService`).
+//! legacy flat path (e.g. `synapse_services::account::UserService`).
 
 /// Compile-time type identity check: asserts that two paths resolve to the
 /// same concrete type. If either path is unreachable or the types differ,
@@ -17,7 +17,7 @@ fn assert_same_type<T: ?Sized>(_a: &T, _b: &T) {}
 
 #[test]
 fn test_account_user_service_path_identity() {
-    let legacy: Option<synapse_services::UserService> = None;
+    let legacy: Option<synapse_services::account::UserService> = None;
     let grouped: Option<synapse_services::account::UserService> = None;
     if let (Some(a), Some(b)) = (legacy, grouped) {
         assert_same_type(&a, &b);
@@ -26,7 +26,7 @@ fn test_account_user_service_path_identity() {
 
 #[test]
 fn test_account_dehydrated_device_service_path_identity() {
-    let legacy: Option<synapse_services::DehydratedDeviceService> = None;
+    let legacy: Option<synapse_services::dehydrated_device_service::DehydratedDeviceService> = None;
     let grouped: Option<synapse_services::account::DehydratedDeviceService> = None;
     if let (Some(a), Some(b)) = (legacy, grouped) {
         assert_same_type(&a, &b);
@@ -35,7 +35,7 @@ fn test_account_dehydrated_device_service_path_identity() {
 
 #[test]
 fn test_account_refresh_token_service_path_identity() {
-    let legacy: Option<synapse_services::RefreshTokenService> = None;
+    let legacy: Option<synapse_services::refresh_token_service::RefreshTokenService> = None;
     let grouped: Option<synapse_services::account::RefreshTokenService> = None;
     if let (Some(a), Some(b)) = (legacy, grouped) {
         assert_same_type(&a, &b);
@@ -44,7 +44,7 @@ fn test_account_refresh_token_service_path_identity() {
 
 #[test]
 fn test_account_registration_token_service_path_identity() {
-    let legacy: Option<synapse_services::RegistrationTokenService> = None;
+    let legacy: Option<synapse_services::registration_token_service::RegistrationTokenService> = None;
     let grouped: Option<synapse_services::account::RegistrationTokenService> = None;
     if let (Some(a), Some(b)) = (legacy, grouped) {
         assert_same_type(&a, &b);
@@ -53,7 +53,7 @@ fn test_account_registration_token_service_path_identity() {
 
 #[test]
 fn test_account_captcha_service_path_identity() {
-    let legacy: Option<synapse_services::CaptchaService> = None;
+    let legacy: Option<synapse_services::captcha_service::CaptchaService> = None;
     let grouped: Option<synapse_services::account::CaptchaService> = None;
     if let (Some(a), Some(b)) = (legacy, grouped) {
         assert_same_type(&a, &b);
@@ -62,7 +62,7 @@ fn test_account_captcha_service_path_identity() {
 
 #[test]
 fn test_account_account_data_service_path_identity() {
-    let legacy: Option<synapse_services::AccountDataService> = None;
+    let legacy: Option<synapse_services::account_data_service::AccountDataService> = None;
     let grouped: Option<synapse_services::account::AccountDataService> = None;
     if let (Some(a), Some(b)) = (legacy, grouped) {
         assert_same_type(&a, &b);
@@ -71,7 +71,7 @@ fn test_account_account_data_service_path_identity() {
 
 #[test]
 fn test_account_uia_session_path_identity() {
-    let legacy: Option<synapse_services::UiaSession> = None;
+    let legacy: Option<synapse_services::uia_service::UiaSession> = None;
     let grouped: Option<synapse_services::account::UiaSession> = None;
     if let (Some(a), Some(b)) = (legacy, grouped) {
         assert_same_type(&a, &b);
@@ -84,7 +84,7 @@ fn test_account_uia_session_path_identity() {
 
 #[test]
 fn test_sync_search_service_path_identity() {
-    let legacy: Option<synapse_services::SearchService> = None;
+    let legacy: Option<synapse_services::search_service::SearchService> = None;
     let grouped: Option<synapse_services::sync::SearchService> = None;
     if let (Some(a), Some(b)) = (legacy, grouped) {
         assert_same_type(&a, &b);
@@ -106,7 +106,7 @@ fn test_sync_search_result_path_identity() {
 
 #[test]
 fn test_sync_search_filters_path_identity() {
-    let legacy: Option<synapse_services::SearchFilters> = None;
+    let legacy: Option<synapse_services::search_service::SearchFilters> = None;
     let grouped: Option<synapse_services::sync::SearchFilters> = None;
     if let (Some(a), Some(b)) = (legacy, grouped) {
         assert_same_type(&a, &b);
@@ -232,7 +232,7 @@ fn test_infra_e2ee_audit_service_path_identity() {
 
 #[test]
 fn test_application_service_manager_path_identity() {
-    let legacy: Option<synapse_services::ApplicationServiceManager> = None;
+    let legacy: Option<synapse_services::application_service::ApplicationServiceManager> = None;
     let grouped: Option<synapse_services::application::ApplicationServiceManager> = None;
     if let (Some(a), Some(b)) = (legacy, grouped) {
         assert_same_type(&a, &b);
@@ -241,7 +241,7 @@ fn test_application_service_manager_path_identity() {
 
 #[test]
 fn test_application_service_scheduler_path_identity() {
-    let legacy: Option<synapse_services::ApplicationServiceScheduler> = None;
+    let legacy: Option<synapse_services::application_service::ApplicationServiceScheduler> = None;
     let grouped: Option<synapse_services::application::ApplicationServiceScheduler> = None;
     if let (Some(a), Some(b)) = (legacy, grouped) {
         assert_same_type(&a, &b);
@@ -250,7 +250,7 @@ fn test_application_service_scheduler_path_identity() {
 
 #[test]
 fn test_application_namespaces_info_path_identity() {
-    let legacy: Option<synapse_services::NamespacesInfo> = None;
+    let legacy: Option<synapse_services::application_service::NamespacesInfo> = None;
     let grouped: Option<synapse_services::application::NamespacesInfo> = None;
     if let (Some(a), Some(b)) = (legacy, grouped) {
         assert_same_type(&a, &b);

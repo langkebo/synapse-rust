@@ -1,6 +1,6 @@
+use crate::account::UserService;
 use crate::auth::{CredentialAuth, TokenAuth};
 use crate::uia_service::UiaService;
-use crate::UserService;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -271,7 +271,7 @@ mod tests {
 
     fn make_service(threepid_store: Arc<InMemoryThreepidStore>) -> AccountIdentityService {
         let user_store = shared_fake_user_store();
-        let user_service = Arc::new(crate::UserService::new(user_store));
+        let user_service = Arc::new(crate::account::UserService::new(user_store));
         #[cfg(feature = "privacy-ext")]
         {
             let pool = sqlx::PgPool::connect_lazy("postgresql://synapse:synapse@localhost:5432/synapse_test")
@@ -314,7 +314,7 @@ mod tests {
         user_store.seed_user(make_as_user("@carol:example.com", true, Some("as1"))).await;
         user_store.seed_user(make_as_user("@dave:example.com", false, Some("as2"))).await;
 
-        let user_service = Arc::new(crate::UserService::new(user_store));
+        let user_service = Arc::new(crate::account::UserService::new(user_store));
         #[cfg(feature = "privacy-ext")]
         let svc = {
             let pool = sqlx::PgPool::connect_lazy("postgresql://synapse:synapse@localhost:5432/synapse_test")

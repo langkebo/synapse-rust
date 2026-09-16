@@ -1,4 +1,4 @@
-use crate::UserService;
+use crate::account::UserService;
 use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_common::ApiError;
@@ -112,7 +112,7 @@ mod tests {
 
     fn test_service() -> AdminSecurityService {
         let user_store = fake_user_store();
-        let user_service = Arc::new(crate::UserService::new(user_store.clone()));
+        let user_service = Arc::new(crate::account::UserService::new(user_store.clone()));
         AdminSecurityService::new(user_store, user_service, Arc::new(InMemoryRateLimitStore::new()), fake_cache())
     }
 

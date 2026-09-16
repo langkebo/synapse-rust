@@ -1,4 +1,4 @@
-use crate::UserService;
+use crate::account::UserService;
 use std::sync::Arc;
 use synapse_common::ApiError;
 pub use synapse_storage::QuarantinedMediaChange;
@@ -95,7 +95,7 @@ mod tests {
         let store = Arc::new(InMemoryAdminMediaStore::new());
         let quarantine_store = Arc::new(InMemoryQuarantineMediaChangeStore::new());
         let user_store = shared_fake_user_store();
-        let user_service = Arc::new(crate::UserService::new(user_store.clone()));
+        let user_service = Arc::new(crate::account::UserService::new(user_store.clone()));
         let svc = AdminMediaService::new(store.clone(), quarantine_store.clone(), user_service);
         (svc, store, quarantine_store)
     }

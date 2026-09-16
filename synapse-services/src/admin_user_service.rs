@@ -193,7 +193,7 @@ pub struct BatchUsersResult {
 
 /// The `AdminUserService` struct.
 pub struct AdminUserService {
-    user_service: Arc<crate::UserService>,
+    user_service: Arc<crate::account::UserService>,
     user_storage: Arc<dyn UserStore>,
     device_storage: Arc<dyn DeviceListStoreApi>,
     room_storage: Arc<dyn RoomStoreApi>,
@@ -209,7 +209,7 @@ impl AdminUserService {
     /// See [`new`].
     pub fn new(
         _pool: Arc<PgPool>,
-        user_service: Arc<crate::UserService>,
+        user_service: Arc<crate::account::UserService>,
         user_storage: Arc<dyn UserStore>,
         device_storage: Arc<dyn DeviceListStoreApi>,
         room_storage: Arc<dyn RoomStoreApi>,
@@ -909,7 +909,7 @@ mod cursor_tests {
 
         let svc = super::AdminUserService::new(
             Arc::new(sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap()),
-            Arc::new(crate::UserService::new(user_store.clone())),
+            Arc::new(crate::account::UserService::new(user_store.clone())),
             user_store,
             device_store,
             room_store,
@@ -934,7 +934,7 @@ mod cursor_tests {
 
         let svc = super::AdminUserService::new(
             Arc::new(sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap()),
-            Arc::new(crate::UserService::new(user_store.clone())),
+            Arc::new(crate::account::UserService::new(user_store.clone())),
             user_store,
             device_store,
             Arc::new(InMemoryRoomStore::new()),

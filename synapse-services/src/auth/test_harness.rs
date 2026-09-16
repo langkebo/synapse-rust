@@ -41,7 +41,7 @@ pub(crate) fn build_test_auth_service() -> TestAuthHarness {
 
     let user_store = FakeUserStore::new();
     let user_storage: Arc<dyn UserStore> = Arc::new(user_store.clone());
-    let user_service = Arc::new(crate::UserService::new(user_storage.clone()));
+    let user_service = Arc::new(crate::account::UserService::new(user_storage.clone()));
 
     let token_store = InMemoryAccessTokenStore::new();
     let refresh_store = InMemoryRefreshTokenStore::new();

@@ -13,7 +13,7 @@ mod tests {
     use synapse_storage::test_mocks::{InMemoryEventStore, InMemoryMemberStore, InMemoryRoomStore};
     use synapse_storage::UserStore;
 
-    use crate::UserService;
+    use crate::account::UserService;
 
     fn test_validator() -> Arc<Validator> {
         Arc::new(Validator::new().expect("Validator::new should succeed"))

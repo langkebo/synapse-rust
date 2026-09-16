@@ -8,7 +8,7 @@ use std::sync::Arc;
 // =============================================================================
 
 async fn is_member_via(
-    room_service: &Arc<dyn synapse_services::RoomServiceApi>,
+    room_service: &Arc<dyn synapse_services::room::RoomServiceApi>,
     user_id: &str,
     room_id: &str,
 ) -> Result<bool, ApiError> {

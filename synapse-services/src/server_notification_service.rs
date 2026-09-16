@@ -1,4 +1,4 @@
-use crate::UserService;
+use crate::account::UserService;
 use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::server_notification::*;
@@ -338,8 +338,8 @@ impl ServerNotificationService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::account::UserService;
     use crate::test_mocks::shared_fake_user_store;
-    use crate::UserService;
     use async_trait::async_trait;
     use serde_json::json;
     use std::sync::Arc;

@@ -478,7 +478,7 @@ mod tests {
             event_reader: event_store.clone() as Arc<dyn EventReader>,
             event_writer: event_store as Arc<dyn EventWriter>,
             user_storage: user_store_dyn,
-            user_service: Arc::new(crate::UserService::new(user_store.clone())),
+            user_service: Arc::new(crate::account::UserService::new(user_store.clone())),
             room_auth: Arc::new(FakeRoomAuth::new()),
             server_name: "test.localhost".to_string(),
             federation_client: None,

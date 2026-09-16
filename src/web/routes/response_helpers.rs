@@ -53,7 +53,7 @@ pub(crate) fn status_json(status: &'static str) -> Json<Value> {
 
 /// See [`filter_users_with_shared_rooms`].
 pub(crate) async fn filter_users_with_shared_rooms(
-    room_service: &Arc<dyn synapse_services::RoomServiceApi>,
+    room_service: &Arc<dyn synapse_services::room::RoomServiceApi>,
     current_user_id: &str,
     requested_users: &[String],
 ) -> HashSet<String> {

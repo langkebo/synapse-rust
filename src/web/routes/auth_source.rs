@@ -16,8 +16,9 @@
 use std::sync::Arc;
 
 use synapse_common::config::SecurityConfig;
+use synapse_services::account::UserService;
+use synapse_services::admin::AdminAuditService;
 use synapse_services::auth::TokenAuth;
-use synapse_services::{AdminAuditService, UserService};
 
 use super::context::{
     AdminContext, AuthContext, DeviceContext, E2eeRoomContext, FederationContext, MediaContext, RoomContext,

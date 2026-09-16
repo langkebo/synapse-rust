@@ -3,9 +3,8 @@
 //! Re-exports all admin-related service modules under a single namespace so
 //! that new admin services can be added here without touching `lib.rs`.
 //!
-//! Consumers may use either:
-//! - `synapse_services::admin::AdminAuditService` (preferred, grouped path)
-//! - `synapse_services::AdminAuditService`      (legacy flat path, via `pub use admin::*` in lib.rs)
+//! Consumers use the grouped path:
+//! - `synapse_services::admin::AdminAuditService`
 
 pub use crate::admin_audit_service::AdminAuditService;
 pub use crate::admin_federation_service::{

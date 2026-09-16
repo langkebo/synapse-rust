@@ -4,9 +4,8 @@
 //! event_notifier, event_report_service) under a single namespace so that new
 //! event services can be added here without touching `lib.rs`.
 //!
-//! Consumers may use either:
-//! - `synapse_services::event::EventNotifier` (preferred, grouped path)
-//! - `synapse_services::EventNotifier` (legacy flat path, via `pub use event::*` in lib.rs)
+//! Consumers use the grouped path:
+//! - `synapse_services::event::EventNotifier`
 //!
 //! Note: `EventBroadcaster` is also re-exported at the crate root via the
 //! federation sibling-crate bridge import (`pub use federation::{...

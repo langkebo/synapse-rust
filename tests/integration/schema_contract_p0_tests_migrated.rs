@@ -2,7 +2,7 @@
 use sqlx::Row;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
-use synapse_services::room_summary_service::RoomSummaryService;
+use synapse_services::room::summary::RoomSummaryService;
 use synapse_storage::event::{CreateEventParams, EventStorage};
 use synapse_storage::room_summary::{
     CreateRoomSummaryRequest, CreateSummaryMemberRequest, RoomSummaryStorage, UpdateSummaryMemberRequest,

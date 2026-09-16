@@ -3,9 +3,9 @@
 //!
 //! Extracted from RoomService as part of the domain split plan (Task 1).
 
+use crate::account::UserService;
 use crate::common::error::{ApiError, ApiResult};
 use crate::policy_service::PolicyService;
-use crate::UserService;
 use serde_json::json;
 use std::str::FromStr;
 use std::sync::Arc;

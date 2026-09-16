@@ -55,7 +55,8 @@ pub use session::RtcSessionService;
 #[cfg(feature = "voip-tracking")]
 pub use synapse_common::config::LivekitConfig;
 
-// Backward-compatible re-exports (old names → new types)
+// Re-exports of the RTC domain types (the former `CallService` / `VoipService` /
+// `MatrixRTCService` rename aliases were deleted: nothing consumed them).
 pub use infra::RtcInfraService as VoipService;
 
 #[cfg(feature = "voip-tracking")]

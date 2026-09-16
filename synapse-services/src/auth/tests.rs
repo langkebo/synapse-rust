@@ -649,7 +649,7 @@ fn test_new_with_lifetime_accepts_all_injected_storages() {
         &SecurityConfig,
         &str,
         i64,
-        Arc<crate::UserService>,
+        Arc<crate::account::UserService>,
         Arc<dyn synapse_storage::UserStore>,
         Arc<dyn synapse_storage::device::DeviceListStoreApi>,
         Arc<dyn synapse_storage::token::AccessTokenStoreApi>,

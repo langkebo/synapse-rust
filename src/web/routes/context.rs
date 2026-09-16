@@ -65,7 +65,7 @@ impl FromRef<AppState> for CoreContext {
 #[derive(Clone)]
 pub struct RoomContext {
     /// The `room_service` field.
-    pub room_service: Arc<dyn synapse_services::RoomServiceApi>,
+    pub room_service: Arc<dyn synapse_services::room::RoomServiceApi>,
     /// The `validator` field.
     pub validator: Arc<synapse_common::validation::Validator>,
     /// The `token_auth` field.
@@ -83,9 +83,9 @@ pub struct RoomContext {
     /// The `thread_service` field.
     pub thread_service: Arc<synapse_services::thread_service::ThreadService>,
     /// The `space_service` field.
-    pub space_service: Arc<synapse_services::space_service::SpaceService>,
+    pub space_service: Arc<synapse_services::room::space::SpaceService>,
     /// The `room_summary_service` field.
-    pub room_summary_service: Arc<synapse_services::room_summary_service::RoomSummaryService>,
+    pub room_summary_service: Arc<synapse_services::room::summary::RoomSummaryService>,
     /// The `account_data_service` field.
     pub account_data_service: Arc<synapse_services::account_data_service::AccountDataService>,
     /// The `search_service` field.
@@ -103,7 +103,7 @@ pub struct RoomContext {
     /// The `config` field.
     pub config: Arc<synapse_common::config::Config>,
     /// The `admin_audit_service` field.
-    pub admin_audit_service: Option<Arc<synapse_services::AdminAuditService>>,
+    pub admin_audit_service: Option<Arc<synapse_services::admin::AdminAuditService>>,
     /// The `account_identity_service` field.
     pub account_identity_service: Arc<synapse_services::account_identity_service::AccountIdentityService>,
     /// The `account_device_list_service` field.
@@ -198,7 +198,7 @@ impl FromRef<AppState> for RoomContext {
 #[derive(Clone)]
 pub struct E2eeRoomContext {
     /// The `room_service` field.
-    pub room_service: Arc<dyn synapse_services::RoomServiceApi>,
+    pub room_service: Arc<dyn synapse_services::room::RoomServiceApi>,
     /// The `e2ee_backup_service` field.
     pub e2ee_backup_service: synapse_e2ee::backup::KeyBackupService,
     /// The `secure_backup_service` field.
@@ -212,7 +212,7 @@ pub struct E2eeRoomContext {
     /// The `room_auth` field.
     pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
     /// The `admin_audit_service` field.
-    pub admin_audit_service: Option<Arc<synapse_services::AdminAuditService>>,
+    pub admin_audit_service: Option<Arc<synapse_services::admin::AdminAuditService>>,
     /// The `pool` field.
     pub pool: Arc<sqlx::PgPool>,
 }
@@ -249,7 +249,7 @@ pub struct SyncContext {
     /// The `room_auth` field.
     pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
     /// The `user_service` field.
-    pub user_service: Arc<synapse_services::UserService>,
+    pub user_service: Arc<synapse_services::account::UserService>,
     /// The `cache` field.
     pub cache: Arc<CacheManager>,
     /// The `config` field.
@@ -257,7 +257,7 @@ pub struct SyncContext {
     /// The `rate_limit_config_manager` field.
     pub rate_limit_config_manager: Option<Arc<RateLimitConfigManager>>,
     /// The `admin_audit_service` field.
-    pub admin_audit_service: Option<Arc<synapse_services::AdminAuditService>>,
+    pub admin_audit_service: Option<Arc<synapse_services::admin::AdminAuditService>>,
     /// The `metrics` field.
     pub metrics: Arc<synapse_common::metrics::MetricsCollector>,
     /// The `sliding_sync_service` field.
@@ -315,13 +315,13 @@ pub struct DeviceContext {
     /// The `room_auth` field.
     pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
     /// The `user_service` field.
-    pub user_service: Arc<synapse_services::UserService>,
+    pub user_service: Arc<synapse_services::account::UserService>,
     /// The `server_name` field.
     pub server_name: String,
     /// The `account_device_list_service` field.
     pub account_device_list_service: Arc<synapse_services::account_device_list_service::AccountDeviceListService>,
     /// The `room_service` field.
-    pub room_service: Arc<dyn synapse_services::RoomServiceApi>,
+    pub room_service: Arc<dyn synapse_services::room::RoomServiceApi>,
     /// The `uia_service` field.
     pub uia_service: Arc<synapse_services::uia_service::UiaService>,
     /// The `event_broadcaster` field.
@@ -329,7 +329,7 @@ pub struct DeviceContext {
     /// The `config` field.
     pub config: Arc<synapse_common::config::Config>,
     /// The `admin_audit_service` field.
-    pub admin_audit_service: Option<Arc<synapse_services::AdminAuditService>>,
+    pub admin_audit_service: Option<Arc<synapse_services::admin::AdminAuditService>>,
     /// The `account_identity_service` field.
     pub account_identity_service: Arc<synapse_services::account_identity_service::AccountIdentityService>,
     /// The `cross_signing_service` field.
@@ -353,7 +353,7 @@ pub struct DeviceContext {
     /// The `device_trust_service` field.
     pub device_trust_service: synapse_e2ee::device_trust::DeviceTrustService,
     /// The `key_rotation_service` field.
-    pub key_rotation_service: Arc<synapse_services::FederationKeyRotationService>,
+    pub key_rotation_service: Arc<synapse_services::infra::FederationKeyRotationService>,
 }
 
 impl FromRef<AppState> for DeviceContext {
@@ -404,7 +404,7 @@ pub struct AuthContext {
     /// The `registration_service` field.
     pub registration_service: Arc<synapse_services::registration_service::RegistrationService>,
     /// The `user_service` field.
-    pub user_service: Arc<synapse_services::UserService>,
+    pub user_service: Arc<synapse_services::account::UserService>,
     /// The `server_name` field.
     pub server_name: String,
     /// The `cache` field.
@@ -412,7 +412,7 @@ pub struct AuthContext {
     /// The `config` field.
     pub config: Arc<synapse_common::config::Config>,
     /// The `admin_audit_service` field.
-    pub admin_audit_service: Option<Arc<synapse_services::AdminAuditService>>,
+    pub admin_audit_service: Option<Arc<synapse_services::admin::AdminAuditService>>,
     /// The `account_identity_service` field.
     pub account_identity_service: Arc<synapse_services::account_identity_service::AccountIdentityService>,
     /// The `uia_service` field.
@@ -498,14 +498,14 @@ pub struct AdminContext {
     pub media_service: synapse_services::media_service::MediaService,
     // Room & sync
     /// The `room_service` field.
-    pub room_service: Arc<dyn synapse_services::RoomServiceApi>,
+    pub room_service: Arc<dyn synapse_services::room::RoomServiceApi>,
     /// The `sliding_sync_service` field.
     pub sliding_sync_service: Arc<synapse_services::sliding_sync_service::SlidingSyncService>,
     /// The `space_service` field.
-    pub space_service: Arc<synapse_services::space_service::SpaceService>,
+    pub space_service: Arc<synapse_services::room::space::SpaceService>,
     // Account
     /// The `user_service` field.
-    pub user_service: Arc<synapse_services::UserService>,
+    pub user_service: Arc<synapse_services::account::UserService>,
     /// The `account_identity_service` field.
     pub account_identity_service: Arc<synapse_services::account_identity_service::AccountIdentityService>,
     /// The `account_device_list_service` field.
@@ -556,7 +556,7 @@ pub struct AdminContext {
     pub worker_manager: Arc<synapse_services::worker::WorkerManager>,
     // Admin — security
     /// The `admin_audit_service` field.
-    pub admin_audit_service: Arc<synapse_services::AdminAuditService>,
+    pub admin_audit_service: Arc<synapse_services::admin::AdminAuditService>,
     /// The `admin_security_service` field.
     pub admin_security_service: Arc<synapse_services::admin_security_service::AdminSecurityService>,
     /// The `admin_server_service` field.
@@ -689,7 +689,7 @@ pub struct FederationContext {
     /// The `room_auth` field.
     pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
     /// The `user_service` field.
-    pub user_service: Arc<synapse_services::UserService>,
+    pub user_service: Arc<synapse_services::account::UserService>,
     /// The `config` field.
     pub config: Arc<synapse_common::config::Config>,
     /// The `server_name` field.
@@ -699,9 +699,9 @@ pub struct FederationContext {
     /// The `metrics` field.
     pub metrics: Arc<synapse_common::metrics::MetricsCollector>,
     /// The `room_service` field.
-    pub room_service: Arc<dyn synapse_services::RoomServiceApi>,
+    pub room_service: Arc<dyn synapse_services::room::RoomServiceApi>,
     /// The `space_service` field.
-    pub space_service: Arc<synapse_services::space_service::SpaceService>,
+    pub space_service: Arc<synapse_services::room::space::SpaceService>,
     /// The `registration_service` field.
     pub registration_service: Arc<synapse_services::registration_service::RegistrationService>,
     /// The `account_identity_service` field.
@@ -719,7 +719,7 @@ pub struct FederationContext {
     /// The `federation_server_name` field.
     pub federation_server_name: String,
     /// The `admin_audit_service` field.
-    pub admin_audit_service: Option<Arc<synapse_services::AdminAuditService>>,
+    pub admin_audit_service: Option<Arc<synapse_services::admin::AdminAuditService>>,
     /// The `worker_manager` field.
     pub worker_manager: Arc<synapse_services::worker::WorkerManager>,
     /// The `media_service` field.
@@ -814,7 +814,7 @@ pub struct MediaContext {
     /// The `room_auth` field.
     pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
     /// The `user_service` field.
-    pub user_service: Arc<synapse_services::UserService>,
+    pub user_service: Arc<synapse_services::account::UserService>,
     /// The `config` field.
     pub config: Arc<synapse_common::config::Config>,
     /// The `server_name` field.
@@ -826,13 +826,13 @@ pub struct MediaContext {
     /// The `media_domain_service` field.
     pub media_domain_service: Arc<synapse_services::media::MediaDomainService>,
     /// The `room_service` field.
-    pub room_service: Arc<dyn synapse_services::RoomServiceApi>,
+    pub room_service: Arc<dyn synapse_services::room::RoomServiceApi>,
     /// The `federation_client` field.
     pub federation_client: Arc<dyn synapse_federation::client_api::FederationClientApi>,
     /// The `account_identity_service` field.
     pub account_identity_service: Arc<synapse_services::account_identity_service::AccountIdentityService>,
     /// The `admin_audit_service` field.
-    pub admin_audit_service: Option<Arc<synapse_services::AdminAuditService>>,
+    pub admin_audit_service: Option<Arc<synapse_services::admin::AdminAuditService>>,
 }
 
 impl FromRef<AppState> for MediaContext {
@@ -878,7 +878,7 @@ pub struct SsoContext {
     /// The `registration_service` field.
     pub registration_service: Arc<synapse_services::registration_service::RegistrationService>,
     /// The `user_service` field.
-    pub user_service: Arc<synapse_services::UserService>,
+    pub user_service: Arc<synapse_services::account::UserService>,
     /// The `account_identity_service` field.
     pub account_identity_service: Arc<synapse_services::account_identity_service::AccountIdentityService>,
     /// The `account_device_list_service` field.
@@ -902,7 +902,7 @@ pub struct SsoContext {
     /// The `builtin_oidc_provider` field.
     pub builtin_oidc_provider: Option<()>,
     /// The `admin_audit_service` field.
-    pub admin_audit_service: Option<Arc<synapse_services::AdminAuditService>>,
+    pub admin_audit_service: Option<Arc<synapse_services::admin::AdminAuditService>>,
     /// The `refresh_token_service` field.
     pub refresh_token_service: Arc<synapse_services::refresh_token_service::RefreshTokenService>,
 }
@@ -961,11 +961,11 @@ pub struct FriendContext {
     /// The `config` field.
     pub config: Arc<synapse_common::config::Config>,
     /// The `user_service` field.
-    pub user_service: Arc<synapse_services::UserService>,
+    pub user_service: Arc<synapse_services::account::UserService>,
     /// The `room_service` field.
-    pub room_service: Arc<dyn synapse_services::RoomServiceApi>,
+    pub room_service: Arc<dyn synapse_services::room::RoomServiceApi>,
     /// The `admin_audit_service` field.
-    pub admin_audit_service: Option<Arc<synapse_services::AdminAuditService>>,
+    pub admin_audit_service: Option<Arc<synapse_services::admin::AdminAuditService>>,
     /// The `account_identity_service` field.
     pub account_identity_service: Arc<synapse_services::account_identity_service::AccountIdentityService>,
     /// The `federation_client` field.

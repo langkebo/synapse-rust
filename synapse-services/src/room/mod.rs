@@ -5,7 +5,7 @@
 // This module combines room_service, room_summary_service, and space_service
 // under a single `room/` module for structural convergence (Phase P2-1, P2-2).
 //
-// Backward-compatible re-exports are maintained in `services/mod.rs` via:
+// Domain-group re-exports:
 //   pub use room::service as room_service;
 //   pub use room::summary as room_summary_service;
 //   pub use room::space as space_service;
@@ -43,7 +43,7 @@ pub use api_trait::RoomServiceApi;
 
 // Room domain group — re-exports room sub-module types and sibling room-related
 // service modules (typing_service) under `room::` so that
-// `pub use room::*;` in lib.rs covers the legacy flat re-exports.
+// Consumers reach these through the `synapse_services::room::*` paths.
 pub use crate::typing_service::{TypingService, TypingUser};
 pub use service::{
     decode_room_search_cursor, encode_room_search_cursor, CreateRoomConfig, RoomSearchCursor, RoomSearchOrder,

@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use synapse_storage::*;
 
-use crate::UserService;
+use crate::account::UserService;
 
 /// The `AccountServices` struct.
 #[derive(Clone)]

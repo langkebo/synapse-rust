@@ -13,10 +13,10 @@ use synapse_e2ee::key_rotation::KeyRotationStorage;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::Validator;
 use synapse_rust::e2ee::to_device::ToDeviceStorage;
-use synapse_services::room_service::{CreateRoomConfig, RoomService};
-use synapse_services::room_summary_service::RoomSummaryService;
+use synapse_services::account::UserService;
+use synapse_services::room::service::{CreateRoomConfig, RoomService};
+use synapse_services::room::summary::RoomSummaryService;
 use synapse_services::sync_service::SyncService;
-use synapse_services::UserService;
 use synapse_storage::device::DeviceStorage;
 use synapse_storage::event::{CreateEventParams, EventStorage};
 use synapse_storage::membership::RoomMemberStorage;
@@ -338,7 +338,7 @@ fn create_room_service(
         Arc::new(RoomSummaryService::new(room_summary_storage, event_storage.clone(), Some(member_storage.clone())));
     let cache = Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default()));
 
-    RoomService::new(synapse_services::room_service::RoomServiceConfig {
+    RoomService::new(synapse_services::room::service::RoomServiceConfig {
         room_storage,
         member_storage,
         event_reader: Some(event_storage.clone()),

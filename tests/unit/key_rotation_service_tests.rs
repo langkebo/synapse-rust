@@ -8,7 +8,7 @@
 //    ZERO tests. The pure-logic surface (defaults, clone semantics, serde
 //    round-trips) is covered here without a database.
 //
-// 2. `synapse_services::FederationKeyRotationService` — the route-facing
+// 2. `synapse_services::infra::FederationKeyRotationService` — the route-facing
 //    facade used by `src/web/routes/key_rotation.rs`. Its inline test module
 //    already covers most methods; this file adds coverage for the two
 //    UNTESTED methods (`set_manager_config_value`, `set_storage_config_value`)

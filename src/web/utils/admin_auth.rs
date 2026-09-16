@@ -7,9 +7,9 @@ use serde_json::json;
 use sha1::Sha1;
 use std::time::{SystemTime, UNIX_EPOCH};
 use synapse_common::crypto::secure_compare;
+use synapse_services::account::UserService;
 use synapse_services::admin_audit_service::CreateAuditEventRequest;
 use synapse_services::user_service::User;
-use synapse_services::UserService;
 
 type HmacSha1 = Hmac<Sha1>;
 
@@ -33,7 +33,7 @@ pub(crate) async fn authorize_admin_from_services(
     auth_service: &(dyn synapse_services::auth::TokenAuth + Send + Sync),
     user_service: &UserService,
     security: &synapse_common::config::SecurityConfig,
-    admin_audit_service: Option<&synapse_services::AdminAuditService>,
+    admin_audit_service: Option<&synapse_services::admin::AdminAuditService>,
     headers: &HeaderMap,
     method: &Method,
     path: &str,

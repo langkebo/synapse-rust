@@ -167,39 +167,6 @@ pub mod uia_service;
 pub mod user_service;
 
 // =============================================================================
-// Explicit root re-exports of frequently used service types.
-//
-// All service modules are now grouped into domain modules (account, admin,
-// application, event, identity, infra, media, push, room, sync) and
-// re-exported via `pub use <domain>::*;` globs below. These globs keep the
-// legacy root-level paths working.
-// =============================================================================
-// Domain group globs — backward-compatibility flat re-exports via domain modules.
-// Consumers should prefer the domain path (e.g. `synapse_services::account::*`)
-// but these globs keep the legacy root-level paths working.
-pub use account::*; // account domain group (account_device_list_service, account_identity_service, registration_service)
-pub use admin::*; // admin domain group (backward-compat flat re-export)
-pub use application::*; // application domain group (application_service, module_service)
-#[allow(ambiguous_glob_reexports)]
-pub use event::*; // event domain group (event_broadcaster_trait, event_notifier, event_report_service)
-#[allow(ambiguous_glob_reexports)]
-pub use identity::*; // identity domain group (identity, oidc_service)
-#[allow(ambiguous_glob_reexports)]
-pub use infra::*; // infra domain group (database_initializer, feature_flag_service, federation_key_rotation_service)
-#[allow(deprecated, ambiguous_glob_reexports)]
-pub use media::*; // media domain group (media, media_service)
-#[allow(ambiguous_glob_reexports)]
-pub use push::*; // push domain group (push, client_push_service)
-#[allow(ambiguous_glob_reexports)]
-pub use room::*; // room domain group (room, typing_service)
-pub use sync::*; // sync domain group (backward-compat flat re-export)
-
-// Backward-compatible room module aliases (Phase P2-1, P2-2)
-pub use room::service as room_service;
-pub use room::space as space_service;
-pub use room::summary as room_summary_service;
-
-// =============================================================================
 // L2 — Optional authentication extensions (feature-gated, off by default)
 // =============================================================================
 /// The `builtin_oidc_provider` module.
@@ -235,17 +202,10 @@ pub mod beacon_service;
 /// The `rtc` module.
 pub mod rtc;
 
-// Backward-compatible re-exports from rtc domain
-#[cfg(feature = "voip-tracking")]
-pub use rtc::CallOrchestrationService as CallService;
 #[cfg(feature = "voip-tracking")]
 pub use rtc::CallOrchestrationService;
-#[cfg(feature = "voip-tracking")]
-pub use rtc::RtcInfraService as VoipService;
 pub use rtc::RtcInfraService;
 pub use rtc::RtcInfraSettings;
-#[cfg(feature = "voip-tracking")]
-pub use rtc::RtcSessionService as MatrixRTCService;
 #[cfg(feature = "voip-tracking")]
 pub use rtc::RtcSessionService;
 pub use rtc::TurnCredentials;

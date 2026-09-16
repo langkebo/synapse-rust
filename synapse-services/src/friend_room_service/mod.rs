@@ -16,7 +16,7 @@ pub use models::{
 };
 use synapse_common::{current_timestamp_millis, generate_event_id, ApiError, ApiResult};
 
-use crate::UserService;
+use crate::account::UserService;
 use futures::future::try_join_all;
 use serde_json::{json, Map, Value};
 use std::cmp::Ordering;

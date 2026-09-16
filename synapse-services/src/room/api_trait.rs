@@ -10,7 +10,7 @@ use super::membership::service::MembershipService;
 use super::messaging::service::MessagingService;
 use super::service::RoomService;
 use super::state::service::RoomStateService;
-use crate::room_summary_service::RoomSummaryService;
+use crate::room::summary::RoomSummaryService;
 
 /// The `RoomServiceApi` trait.
 #[async_trait]

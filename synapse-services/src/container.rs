@@ -1,5 +1,5 @@
+use crate::account::UserService;
 use crate::auth::*;
-use crate::UserService;
 use synapse_cache::*;
 use synapse_common::config::Config;
 use synapse_common::metrics::MetricsCollector;

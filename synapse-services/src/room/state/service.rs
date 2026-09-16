@@ -3,7 +3,7 @@
 //!
 //! Extracted from RoomService as part of the domain split plan (Task 3).
 
-use crate::UserService;
+use crate::account::UserService;
 use std::sync::Arc;
 use synapse_storage::room_tag::RoomTagStoreApi;
 use synapse_storage::{MemberStoreApi, RoomStoreApi, UserStore};

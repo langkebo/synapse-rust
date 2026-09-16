@@ -4,8 +4,7 @@
 //! sync_helpers) under a single namespace so that new sync modules can be added
 //! here without touching `lib.rs`.
 //!
-//! Consumers should prefer `synapse_services::sync::SyncService` over the
-//! flat `synapse_services::SyncService`.
+//! Consumers use the grouped path (e.g. `synapse_services::sync::SyncService`).
 
 pub use crate::sliding_sync_service::SlidingSyncService;
 pub use crate::sync_helpers::{room_event_to_json, state_event_to_json};

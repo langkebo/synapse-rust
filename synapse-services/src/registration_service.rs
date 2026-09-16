@@ -5,7 +5,7 @@ use synapse_common::*;
 
 use std::sync::Arc;
 
-use crate::UserService;
+use crate::account::UserService;
 
 /// The `RegistrationService` struct.
 pub struct RegistrationService {

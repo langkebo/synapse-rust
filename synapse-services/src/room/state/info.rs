@@ -324,8 +324,8 @@ impl RoomStateService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::account::UserService;
     use crate::room::state::service::{RoomStateService, RoomStateServiceConfig};
-    use crate::UserService;
     use std::sync::Arc;
     use synapse_storage::test_mocks::{
         FakeUserStore, InMemoryEventStore, InMemoryMemberStore, InMemoryRoomStore, InMemoryRoomTagStore,

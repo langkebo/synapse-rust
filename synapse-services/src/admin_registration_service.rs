@@ -1,5 +1,5 @@
+use crate::account::UserService;
 use crate::auth::{CredentialAuth, TokenAuth};
-use crate::UserService;
 use crate::*;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::Utc;

@@ -1,7 +1,8 @@
+use super::RoomSummaryService;
+use crate::account::UserService;
 use crate::auth::RoomAuth;
 use crate::common::error::{ApiError, ApiResult};
 use crate::policy_service::PolicyService;
-use crate::*;
 use futures::stream;
 use futures::StreamExt;
 use serde_json::{json, Value};
@@ -732,6 +733,7 @@ impl From<crate::friend_room_service::FriendRoomCreateRoomConfig> for CreateRoom
 #[cfg(test)]
 mod tests {
     use super::*;
+    use synapse_common::generate_room_id;
 
     #[test]
     fn test_room_id_format() {

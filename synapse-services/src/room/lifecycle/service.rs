@@ -3,9 +3,9 @@
 //!
 //! Extracted from RoomService as part of the domain split plan (Task 4).
 
+use crate::account::UserService;
 use crate::common::error::{ApiError, ApiResult};
 use crate::policy_service::PolicyService;
-use crate::UserService;
 use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_common::validation::Validator;
