@@ -56,3 +56,9 @@ impl From<FriendRoomError> for ApiError {
         }
     }
 }
+
+impl From<ApiError> for FriendRoomError {
+    fn from(e: ApiError) -> Self {
+        FriendRoomError::Internal(e.to_string())
+    }
+}
