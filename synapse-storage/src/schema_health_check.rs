@@ -22,7 +22,8 @@
 //! - **批量查询**：用 `ANY($1)` 或 `unnest` 一次往返而不是 N 次 (先前 C-4 优化)。
 //! - **迁移完整性**：通过 [`crate::migration_checks`] 验证 `_sqlx_migrations` 表
 //!   与 migrations 目录的一致性。
-//! - **Drift 警告**：实际 `information_schema.tables` 表数与 baseline 期望差距过大时发警告。
+//! - **Drift 警告**：实际基础表（`table_type = 'BASE TABLE'`，排除视图）数量与
+//!   baseline 期望差距过大时发警告。
 
 use sqlx::{Pool, Postgres};
 use tracing::{error, info, warn};

@@ -134,16 +134,27 @@ fn discover_migration_files() -> Vec<i64> {
     versions
 }
 
-/// Count all tables in current schema (single COUNT(*) query).
+/// Count all base tables in the current schema (single COUNT(*) query).
 ///
-/// Includes sqlx-internal tables like `_sqlx_migrations` if they live in
-/// `public` (they do by default). The caller uses the count purely to
-/// compute a drift signal — it is not a hard correctness check.
+/// `table_type = 'BASE TABLE'` is load-bearing: `information_schema.tables`
+/// also lists views, and the baseline declares two of them
+/// (`active_workers`, `worker_type_statistics`). Without the filter this
+/// counted 232 against the baseline's 230, so every healthy deployment
+/// reported `Baseline drift: 2` — a permanent false positive that trains
+/// people to ignore the one signal meant to catch a half-applied baseline.
+/// (Materialized views — `rooms_summaries_mv`, `public_room_directory` — are
+/// not exposed by `information_schema` at all and were never counted.)
+///
+/// Still includes sqlx-internal base tables like `_sqlx_migrations` if they
+/// live in the current schema. The caller uses the count purely to compute a
+/// drift signal with a ±10 tolerance — it is not a hard correctness check.
 pub async fn count_public_tables(pool: &Pool<Postgres>) -> Result<usize, sqlx::Error> {
-    let count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = current_schema()")
-            .fetch_one(pool)
-            .await?;
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM information_schema.tables \
+         WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'",
+    )
+    .fetch_one(pool)
+    .await?;
     Ok(count as usize)
 }
 
