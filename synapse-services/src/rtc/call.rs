@@ -1,7 +1,7 @@
+use super::error::RtcError;
 use super::metrics::RtcMetrics;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use synapse_common::ApiError;
 use synapse_storage::call_session::{CallSession, CreateCallSessionParams};
 
 /// 呼叫状态
@@ -129,16 +129,15 @@ impl CallOrchestrationService {
         room_id: &str,
         sender_id: &str,
         content: CallInviteEvent,
-    ) -> Result<CallSession, ApiError> {
+    ) -> Result<CallSession, RtcError> {
         // 检查是否已存在会话
         if let Some(existing) = self
             .storage
             .get_session(&content.call_id, room_id)
-            .await
-            .map_err(|e| ApiError::database_with_cause("Failed to check call session", e))?
+            .await?
         {
             if existing.state != "ended" {
-                return Err(ApiError::conflict("Call session already exists"));
+                return Err(RtcError::SessionAlreadyExists);
             }
         }
 
@@ -152,11 +151,7 @@ impl CallOrchestrationService {
             lifetime: content.lifetime,
         };
 
-        let session = self
-            .storage
-            .create_session(params)
-            .await
-            .map_err(|e| ApiError::database_with_cause("Failed to create call session", e))?;
+        let session = self.storage.create_session(params).await?;
 
         RtcMetrics::increment_call_started();
 
@@ -169,18 +164,17 @@ impl CallOrchestrationService {
         room_id: &str,
         sender_id: &str,
         content: CallCandidatesEvent,
-    ) -> Result<(), ApiError> {
+    ) -> Result<(), RtcError> {
         // 验证会话存在
         let session = self
             .storage
             .get_session(&content.call_id, room_id)
-            .await
-            .map_err(|e| ApiError::database_with_cause("Failed to get call session", e))?
-            .ok_or_else(|| ApiError::not_found("Call session not found"))?;
+            .await?
+            .ok_or_else(|| RtcError::SessionNotFound("call session not found".to_string()))?;
 
         // 验证发送者是呼叫的参与者
         if session.caller_id != sender_id && session.callee_id.as_deref() != Some(sender_id) {
-            return Err(ApiError::forbidden("Not authorized to send candidates for this call"));
+            return Err(RtcError::NotAuthorized);
         }
 
         // 添加所有候选人
@@ -191,10 +185,9 @@ impl CallOrchestrationService {
                     room_id,
                     sender_id,
                     serde_json::to_value(candidate)
-                        .map_err(|e| ApiError::internal_with_cause("Failed to serialize candidate", e))?,
+                        .map_err(|e| RtcError::Internal(format!("failed to serialize candidate: {e}")))?,
                 )
-                .await
-                .map_err(|e| ApiError::database_with_cause("Failed to add candidate", e))?;
+                .await?;
         }
 
         Ok(())
@@ -206,32 +199,29 @@ impl CallOrchestrationService {
         room_id: &str,
         sender_id: &str,
         content: CallAnswerEvent,
-    ) -> Result<CallSession, ApiError> {
+    ) -> Result<CallSession, RtcError> {
         // 验证会话存在
         let session = self
             .storage
             .get_session(&content.call_id, room_id)
-            .await
-            .map_err(|e| ApiError::database_with_cause("Failed to get call session", e))?
-            .ok_or_else(|| ApiError::not_found("Call session not found"))?;
+            .await?
+            .ok_or_else(|| RtcError::SessionNotFound("call session not found".to_string()))?;
 
         // 验证发送者是被邀请方
         if session.callee_id.as_deref() != Some(sender_id) {
-            return Err(ApiError::forbidden("Not authorized to answer this call"));
+            return Err(RtcError::NotAuthorized);
         }
 
         // 更新会话状态
         self.storage
             .set_answer(&content.call_id, room_id, &content.answer.sdp)
-            .await
-            .map_err(|e| ApiError::database_with_cause("Failed to set answer", e))?;
+            .await?;
 
         // 返回更新后的会话
         self.storage
             .get_session(&content.call_id, room_id)
-            .await
-            .map_err(|e| ApiError::database_with_cause("Failed to get updated session", e))?
-            .ok_or_else(|| ApiError::not_found("Call session not found after answer"))
+            .await?
+            .ok_or_else(|| RtcError::SessionNotFound("call session not found after answer".to_string()))
     }
 
     /// 处理呼叫挂断
@@ -240,25 +230,21 @@ impl CallOrchestrationService {
         room_id: &str,
         sender_id: &str,
         content: CallHangupEvent,
-    ) -> Result<(), ApiError> {
+    ) -> Result<(), RtcError> {
         // 验证会话存在
         let session = self
             .storage
             .get_session(&content.call_id, room_id)
-            .await
-            .map_err(|e| ApiError::database_with_cause("Failed to get call session", e))?
-            .ok_or_else(|| ApiError::not_found("Call session not found"))?;
+            .await?
+            .ok_or_else(|| RtcError::SessionNotFound("call session not found".to_string()))?;
 
         // 验证发送者是呼叫的参与者
         if session.caller_id != sender_id && session.callee_id.as_deref() != Some(sender_id) {
-            return Err(ApiError::forbidden("Not authorized to end this call"));
+            return Err(RtcError::NotAuthorized);
         }
 
         // 结束会话
-        self.storage
-            .end_session(&content.call_id, room_id)
-            .await
-            .map_err(|e| ApiError::database_with_cause("Failed to end call session", e))?;
+        self.storage.end_session(&content.call_id, room_id).await?;
 
         RtcMetrics::increment_call_ended();
 
@@ -266,20 +252,13 @@ impl CallOrchestrationService {
     }
 
     /// 获取呼叫会话
-    pub async fn get_session(&self, call_id: &str, room_id: &str) -> Result<Option<CallSession>, ApiError> {
-        self.storage
-            .get_session(call_id, room_id)
-            .await
-            .map_err(|e| ApiError::database_with_cause("Failed to get call session", e))
+    pub async fn get_session(&self, call_id: &str, room_id: &str) -> Result<Option<CallSession>, RtcError> {
+        self.storage.get_session(call_id, room_id).await.map_err(Into::into)
     }
 
     /// 获取会话的候选人
-    pub async fn get_candidates(&self, call_id: &str, room_id: &str) -> Result<Vec<serde_json::Value>, ApiError> {
-        let candidates = self
-            .storage
-            .get_candidates(call_id, room_id)
-            .await
-            .map_err(|e| ApiError::database_with_cause("Failed to get candidates", e))?;
+    pub async fn get_candidates(&self, call_id: &str, room_id: &str) -> Result<Vec<serde_json::Value>, RtcError> {
+        let candidates = self.storage.get_candidates(call_id, room_id).await?;
 
         Ok(candidates.into_iter().map(|c| c.candidate).collect())
     }
