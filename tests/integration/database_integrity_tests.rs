@@ -470,4 +470,57 @@ mod tests {
             );
         }
     }
+
+    /// `count_public_tables` 只能数 BASE TABLE，不能把 VIEW 算进去。
+    ///
+    /// `information_schema.tables` 同时列出 VIEW，而 baseline 声明了两个视图
+    /// （`active_workers`、`worker_type_statistics`）。把视图算成表之后，每个健康库
+    /// 都会报 `Baseline drift: 2` —— 一个永久假阳性，会让人习惯性忽略这个本来用来
+    /// 发现"baseline 只应用了一半"的信号。物化视图
+    /// （`rooms_summaries_mv`、`public_room_directory`）不在 `information_schema` 中，
+    /// 从来就没被计入，所以偏差恰好是那 2 个普通视图。
+    #[tokio::test]
+    async fn count_public_tables_excludes_views_so_drift_is_zero() {
+        let Some(pool) = connect_integrity_pool().await else {
+            return;
+        };
+
+        let raw: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = current_schema()")
+                .fetch_one(&pool)
+                .await
+                .expect("failed to count information_schema.tables");
+
+        let base: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM information_schema.tables \
+             WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("failed to count base tables");
+
+        // 先自证这条断言有意义：这个 schema 里必须真的有视图，否则把
+        // `table_type = 'BASE TABLE'` 删掉也不会有人发现。
+        assert!(
+            raw > base,
+            "测试 schema 里没有视图（information_schema.tables 共 {raw} 行、其中 BASE TABLE {base} 行），\
+             这条断言就抓不到“视图被当成表”的回归"
+        );
+
+        let counted =
+            synapse_storage::migration_checks::count_public_tables(&pool).await.expect("count_public_tables failed");
+        assert_eq!(
+            counted as i64, base,
+            "count_public_tables 必须等于 BASE TABLE 行数（{base}），实际 {counted} —— 说明它把视图/其它 relkind 也算进去了"
+        );
+
+        // drift 是 schema_health_check 的核心信号，健康 schema 上必须是 0。
+        let expected = synapse_storage::baseline_tables::baseline_table_count() as i64;
+        assert_eq!(
+            counted as i64,
+            expected,
+            "健康 schema 的 baseline drift 必须为 0：baseline 期望 {expected} 张表，实际数出 {counted}（drift = {}）",
+            counted as i64 - expected
+        );
+    }
 }
