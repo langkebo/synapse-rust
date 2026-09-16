@@ -1,5 +1,5 @@
 // Media API Tests - API Endpoint Coverage
-// These tests cover the media API endpoints from src/web/routes/media.rs
+// These tests cover the media API endpoints from synapse-web/src/routes/media.rs
 
 use serde_json::json;
 

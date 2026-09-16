@@ -119,7 +119,7 @@ python3 scripts/api_test/scan_handler_schemas.py
 ```
 
 **原理 (4 阶段)**:
-1. **Stage A** — 解析 `src/web/routes/*.rs` 中所有 `.route("/path", METHOD(handler))` 注册 → 648 个路由,328 个 write routes
+1. **Stage A** — 解析 `synapse-web/src/routes/*.rs` 中所有 `.route("/path", METHOD(handler))` 注册 → 648 个路由,328 个 write routes
 2. **Stage B** — 解析 handler 函数签名,提取 `Json<TypeName>`  extractor → 139 个 handler 用强类型
 3. **Stage C** — 从 handler 所在文件找 `#[derive(Deserialize)] struct TypeName` → 98 个 struct 提取成功
 4. **Stage D** — join 路由注册 × handler × struct → 精确 path → schema 映射,补入 `client.yaml`

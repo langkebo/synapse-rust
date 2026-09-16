@@ -1,5 +1,5 @@
 // Core API (mod.rs) Tests - API Endpoint Coverage
-// These tests cover the core API endpoints from src/web/routes/mod.rs
+// These tests cover the core API endpoints from synapse-web/src/routes/mod.rs
 
 use serde_json::json;
 use synapse_rust::ApiError;

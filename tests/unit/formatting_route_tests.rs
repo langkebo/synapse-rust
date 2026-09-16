@@ -1,6 +1,6 @@
 // Shared response formatting helper tests.
 //
-// Covers `format_token_response` in `src/web/routes/formatting.rs`
+// Covers `format_token_response` in `synapse-web/src/routes/formatting.rs`
 // (P-096: previously zero tests):
 //   * The 5 top-level fields (access_token, refresh_token, expires_in,
 //     device_id, user_id) are surfaced with the correct input values.
@@ -17,7 +17,7 @@
 
 use serde_json::{json, Value};
 
-/// Mirror of `format_token_response` in `src/web/routes/formatting.rs`.
+/// Mirror of `format_token_response` in `synapse-web/src/routes/formatting.rs`.
 ///
 /// Used by SSO callback, login, and other auth flows that return
 /// access/refresh tokens. Produces the well-known `m.homeserver` discovery

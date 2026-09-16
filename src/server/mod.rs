@@ -1,12 +1,6 @@
 use crate::common::config::Config;
 use crate::common::{start_config_watcher, RateLimitConfigFile, RateLimitConfigManager};
 use crate::tasks::ScheduledTasks;
-use crate::web::middleware::{
-    check_cors_security, log_cors_security_report, set_bind_address, set_config_allowed_origins,
-    set_trust_forwarded_headers, validate_bind_address_for_dev_mode,
-};
-use crate::web::routes::telemetry::{summarize_appservice_scheduler_metrics, AppserviceSchedulerTelemetrySummary};
-use crate::web::AppState;
 use axum::{response::IntoResponse, routing::get, Router};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -16,6 +10,12 @@ use synapse_common::current_timestamp_millis;
 use synapse_services::worker::topology_validator::{
     current_instance_worker_type, global_maintenance_owner, should_run_global_maintenance,
 };
+use synapse_web::middleware::{
+    check_cors_security, log_cors_security_report, set_bind_address, set_config_allowed_origins,
+    set_trust_forwarded_headers, validate_bind_address_for_dev_mode,
+};
+use synapse_web::routes::telemetry::{summarize_appservice_scheduler_metrics, AppserviceSchedulerTelemetrySummary};
+use synapse_web::AppState;
 use tokio::signal;
 
 use synapse_storage::*;

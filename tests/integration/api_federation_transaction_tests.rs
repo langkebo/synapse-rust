@@ -13,7 +13,7 @@ use base64::Engine as _;
 use ed25519_dalek::Signer;
 use serde_json::{json, Value};
 use std::sync::Arc;
-use synapse_rust::federation::signing::canonical_federation_request_bytes;
+use synapse_web::federation::signing::canonical_federation_request_bytes;
 use tower::ServiceExt;
 
 async fn setup_federation_txn_test_app(
@@ -31,8 +31,8 @@ async fn setup_federation_txn_test_app(
     super::config_mut(&mut container).federation.signing_key = Some(signing_key_b64.to_string());
     let cache =
         std::sync::Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default()));
-    let state = synapse_rust::web::routes::state::AppState::new(container, cache);
-    Some((synapse_rust::web::create_router(state), pool))
+    let state = synapse_web::routes::state::AppState::new(container, cache);
+    Some((synapse_web::create_router(state), pool))
 }
 
 fn signed_federation_request(
@@ -71,8 +71,8 @@ async fn test_send_transaction_rejects_missing_signature() {
     super::config_mut(&mut container).federation.allow_ingress = true;
     let cache =
         std::sync::Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default()));
-    let state = synapse_rust::web::routes::state::AppState::new(container, cache);
-    let app = synapse_rust::web::create_router(state);
+    let state = synapse_web::routes::state::AppState::new(container, cache);
+    let app = synapse_web::create_router(state);
 
     let body = json!({
         "origin": "localhost",
@@ -253,7 +253,7 @@ async fn test_send_transaction_with_signed_pdu_accepted() {
         "content": { "body": "hello", "msgtype": "m.text" }
     });
 
-    synapse_rust::federation::signing::sign_and_hash_event("localhost", key_id, &signing_key_b64, &mut pdu).unwrap();
+    synapse_web::federation::signing::sign_and_hash_event("localhost", key_id, &signing_key_b64, &mut pdu).unwrap();
 
     let body = json!({
         "origin": "localhost",

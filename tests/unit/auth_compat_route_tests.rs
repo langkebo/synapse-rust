@@ -1,7 +1,7 @@
 // Auth Compat Route Tests - Authentication/Registration Endpoint Coverage
 //
 // These tests cover the wire-level contracts exposed by
-// `src/web/routes/auth_compat.rs` (P-096: previously zero tests).
+// `synapse-web/src/routes/auth_compat.rs` (P-096: previously zero tests).
 //
 // The module exposes 12 handlers under the r0/v3 client namespaces:
 //   register, check_username_availability, request_email_verification,
@@ -23,8 +23,8 @@
 use axum::http::Method;
 use serde_json::{json, Value};
 use synapse_rust::common::{ApiError, ApiErrorKind, MatrixErrorCode};
-use synapse_rust::web::routes::declared_ledger_for_profile;
-use synapse_rust::web::routes::route_module::ProfileFlags;
+use synapse_web::routes::declared_ledger_for_profile;
+use synapse_web::routes::route_module::ProfileFlags;
 
 // ============================================================================
 // Route manifest — verified via the public aggregator

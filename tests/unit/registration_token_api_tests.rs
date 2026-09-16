@@ -1,5 +1,5 @@
 // Registration Token API Tests - API Endpoint Coverage
-// These tests cover the registration token API endpoints from src/web/routes/registration_token.rs
+// These tests cover the registration token API endpoints from synapse-web/src/routes/registration_token.rs
 
 use serde_json::json;
 

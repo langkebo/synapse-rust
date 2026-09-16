@@ -1,7 +1,7 @@
 // Room access control helper tests.
 //
 // Covers the access-control decision logic in
-// `src/web/routes/room_access.rs` (P-096: previously zero tests):
+// `synapse-web/src/routes/room_access.rs` (P-096: previously zero tests):
 //   * `is_member_via` — membership string == "join" ⟹ member.
 //   * `ensure_room_member_ctx` — admin bypasses the membership check;
 //     non-member (non-admin) → `ApiError::forbidden` (403).

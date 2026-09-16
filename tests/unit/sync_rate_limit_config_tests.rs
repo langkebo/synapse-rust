@@ -142,7 +142,7 @@ fn bundled_config_keeps_sync_rate_limiter_enabled() {
 /// file config says otherwise — that contradiction is what hid the bug.
 ///
 /// The file config replaces the *entire* `rate_limit:` section (see
-/// `src/web/middleware/rate_limit.rs`), so the nested declaration is inert.
+/// `synapse-web/src/middleware/rate_limit.rs`), so the nested declaration is inert.
 /// If it is going to stay for documentation value it must be accompanied by a
 /// note saying so.
 #[test]
@@ -174,7 +174,7 @@ fn homeserver_yaml_does_not_contradict_the_file_config_silently() {
 /// (rather than on source text) checks the thing the limiter actually reads.
 #[test]
 fn sync_routes_are_still_exempt_from_the_generic_ip_limiter() {
-    use synapse_rust::web::routes::declared_ledger_all;
+    use synapse_web::routes::declared_ledger_all;
 
     let exempt: Vec<&str> = declared_ledger_all().iter().filter(|e| e.rate_limit_exempt).map(|e| e.path).collect();
     assert!(

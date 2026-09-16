@@ -1,6 +1,6 @@
 // Guest registration route layer tests.
 //
-// Covers the wire-level contracts exposed by `src/web/routes/guest.rs`
+// Covers the wire-level contracts exposed by `synapse-web/src/routes/guest.rs`
 // (P-096: previously zero tests):
 //   * Route manifest contents (methods + paths + registered_by tag).
 //   * `UpgradeGuestRequest` deserialization + `validator` field-length rules
@@ -18,9 +18,9 @@
 use axum::http::Method;
 use serde_json::json;
 use synapse_common::ApiError;
-use synapse_rust::web::routes::declared_ledger_all;
-use synapse_rust::web::routes::guest::UpgradeGuestRequest;
-use synapse_rust::web::routes::route_ledger::RouteEntry;
+use synapse_web::routes::declared_ledger_all;
+use synapse_web::routes::guest::UpgradeGuestRequest;
+use synapse_web::routes::route_ledger::RouteEntry;
 use validator::Validate;
 
 /// The `guest` slice of the derived route table.

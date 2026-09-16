@@ -6,8 +6,8 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 use std::sync::{Arc, OnceLock};
 use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::web::routes::state::AppState;
 use synapse_services::ServiceContainer;
+use synapse_web::routes::state::AppState;
 use tower::ServiceExt;
 
 static TEST_MUTEX: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
@@ -21,7 +21,7 @@ async fn setup_test_context() -> Option<(axum::Router, Arc<PgPool>, Arc<CacheMan
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone()).await;
     let state = AppState::new(container, cache.clone());
-    let app = synapse_rust::web::create_router(state);
+    let app = synapse_web::create_router(state);
     Some((app, pool, cache))
 }
 

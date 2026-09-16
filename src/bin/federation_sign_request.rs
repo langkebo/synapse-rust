@@ -3,7 +3,7 @@ use base64::Engine;
 use ed25519_dalek::Signer;
 use serde_json::Value;
 use synapse_rust::common::crypto::decode_base64_32;
-use synapse_rust::federation::signing::canonical_federation_request_bytes;
+use synapse_web::federation::signing::canonical_federation_request_bytes;
 
 fn main() {
     let method = std::env::args().nth(1).unwrap_or_default();

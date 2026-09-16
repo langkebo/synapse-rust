@@ -1,5 +1,5 @@
 // Worker API Tests - API Endpoint Coverage
-// These tests cover the worker API endpoints from src/web/routes/worker.rs
+// These tests cover the worker API endpoints from synapse-web/src/routes/worker.rs
 
 use serde_json::json;
 

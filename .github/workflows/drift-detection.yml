@@ -8,7 +8,7 @@ on:
     paths:
       - 'migrations/**/*.sql'
       - 'scripts/**'
-      - 'src/web/routes/**'
+      - 'synapse-web/src/routes/**'
       - 'docs/synapse-rust/ROUTE_CONTRACT.md'
       - 'scripts/contract/**'
   pull_request:
@@ -17,7 +17,7 @@ on:
     paths:
       - 'migrations/**/*.sql'
       - 'scripts/**'
-      - 'src/web/routes/**'
+      - 'synapse-web/src/routes/**'
       - 'docs/synapse-rust/ROUTE_CONTRACT.md'
       - 'scripts/contract/**'
 
@@ -50,7 +50,7 @@ jobs:
               - 'migrations/**/*.sql'
               - 'scripts/**'
             contract:
-              - 'src/web/routes/**'
+              - 'synapse-web/src/routes/**'
               - 'docs/synapse-rust/ROUTE_CONTRACT.md'
               - 'scripts/contract/**'
 
@@ -348,7 +348,7 @@ jobs:
           fi
 
   # Route Contract Drift Gate: regenerates docs/synapse-rust/ROUTE_CONTRACT.md from
-  # the real route surface (src/web/routes/**) and fails if the committed doc drifted.
+  # the real route surface (synapse-web/src/routes/**) and fails if the committed doc drifted.
   # Local equivalent: `make route-contract-check` (scripts/contract/check_route_contract.sh)
   route-contract-drift:
     name: Route Contract Drift Check

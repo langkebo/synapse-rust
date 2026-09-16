@@ -2,7 +2,7 @@
 """Generate docs/synapse-rust/ROUTE_CONTRACT.md from the extracted route surface + manifest coverage.
 
 Source of truth for the route surface: artifacts/registered_routes.json (produced by
-extract_registered.py from the real .route()/.nest() registrations in src/web/routes/**).
+extract_registered.py from the real .route()/.nest() registrations in synapse-web/src/routes/**).
 
 The generated doc embeds a volatile "自动生成于 <date>" line; CI drift gate
 (scripts/contract/check_route_contract.sh) normalizes that line away before diffing, so the
@@ -33,11 +33,11 @@ OUT = f"{ROOT}/docs/synapse-rust/ROUTE_CONTRACT.md"
 re_derived_label = re.compile(
     r"RouteEntry::new\(\s*axum::http::Method::[A-Z]+,\s*\"[^\"]*\",\s*\"([^\"]+)\",?\s*\)"
 )
-DERIVED = f"{ROOT}/src/web/routes/derived_routes.rs"
+DERIVED = f"{ROOT}/synapse-web/src/routes/derived_routes.rs"
 # The row table is emitted into a separate `include!`d file (gen_derived_routes.py
 # `emit_data`), so the labels live there; scan both and keep it working whichever
 # layout the generator uses.
-DERIVED_TABLE = f"{ROOT}/src/web/routes/derived_route_table.inc.rs"
+DERIVED_TABLE = f"{ROOT}/synapse-web/src/routes/derived_route_table.inc.rs"
 derived_labels = set()
 for _derived_path in (DERIVED, DERIVED_TABLE):
     if os.path.exists(_derived_path):
@@ -160,7 +160,7 @@ lines = []
 lines.append("# synapse-rust 路由契约（Route Contract）")
 lines.append("")
 lines.append(
-    f"> 自动生成于 {datetime.date.today().isoformat()}，源 = `src/web/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含 `derived_route_table.inc.rs`）派生覆盖。"
+    f"> 自动生成于 {datetime.date.today().isoformat()}，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含 `derived_route_table.inc.rs`）派生覆盖。"
 )
 lines.append(">")
 lines.append(
@@ -191,7 +191,7 @@ lines.append("")
 lines.append("| 对照源 | 含义 | 结果 |")
 lines.append("|---|---|---|")
 lines.append(
-    "| `src/web/routes/derived_routes.rs` 派生表 | 由同一份 `.route()` 注册面机器生成，启动时按 `ProfileFlags` 过滤 | **本清单有而派生表缺 = 0** |"
+    "| `synapse-web/src/routes/derived_routes.rs` 派生表 | 由同一份 `.route()` 注册面机器生成，启动时按 `ProfileFlags` 过滤 | **本清单有而派生表缺 = 0** |"
 )
 lines.append(
     "| `tests/unit/fixtures/ledger_export/*.json` | 由真实 Rust 装配（`synapse_ledger_export`）导出、golden 测试守护 | **ledger 有而本清单缺 = 0** |"
@@ -229,7 +229,7 @@ lines.append(
 lines.append("**已知缺口 / 漂移**：")
 lines.append("")
 lines.append(
-    "- 无未装配的孤儿路由。`src/web/routes/threepid.rs` 曾定义 `create_threepid_router()`（裸 `/requestToken`、`/submitToken`，**从未** merge 进任何路由树且路径非 Matrix 规范形状）—— B5-4 已删除该模块：真实 3PID 端点在 `account_compat.rs`（`/account/3pid/...`，已在 `assembly.rs` 装配），被删代码自引入起即无调用方，纯属死代码。"
+    "- 无未装配的孤儿路由。`synapse-web/src/routes/threepid.rs` 曾定义 `create_threepid_router()`（裸 `/requestToken`、`/submitToken`，**从未** merge 进任何路由树且路径非 Matrix 规范形状）—— B5-4 已删除该模块：真实 3PID 端点在 `account_compat.rs`（`/account/3pid/...`，已在 `assembly.rs` 装配），被删代码自引入起即无调用方，纯属死代码。"
 )
 lines.append(
     "  **机器证据**：`test_extract_registered.py::check_non_namespace_bucket` 现在把「前缀之外」桶**精确**钉死为 14 条有意根级注册（3 条探活 + 11 条 CAS 根协议端点）。该桶出现任何新成员——无论是死灰复燃的未装配 router 还是新增非 Matrix 根端点——都会让守卫转红并要求显式裁定。"

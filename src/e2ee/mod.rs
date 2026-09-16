@@ -18,12 +18,9 @@ pub mod ssss;
 pub use synapse_e2ee::to_device;
 pub use synapse_e2ee::vodozemac_megolm;
 
-// 跨客户端互操作测试（Phase 3）。所有 case 需 `E2EE_INTEROP=1` 显式启用，
-// 不会拖慢默认 `cargo test` 速度；本地 Element 互操作通过
-// `.github/workflows/e2ee-interop.yml` 跑。
-#[cfg(test)]
-mod vodozemac_interop_tests;
-
+// 跨客户端互操作测试（Phase 3）已迁到 `synapse-e2ee/tests/vodozemac_interop.rs`：
+// 它只依赖 `vodozemac`，放在被测 crate 里比留在根 crate 的 `src/` 更合适
+// （B4-5b）。所有 case 仍需 `E2EE_INTEROP=1` 显式启用，默认 `cargo test` 不跑。
 // Explicit exports for backup module
 pub use backup::models::{
     BackupKeyInfo, BackupKeyUpload, BackupKeyUploadRequest, BackupUploadRequest, BackupUploadResponse,

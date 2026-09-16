@@ -12,4 +12,4 @@
 # the comprehensive audit. The list is expected to shrink over time
 # as P1 work proceeds (see `docs/synapse-rust/COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md`).
 # When the file is empty the `check_route_storage_boundary.sh` script
-# will fail on any new `use crate::storage` import inside `src/web/routes/`.
+# will fail on any new `use crate::storage` import inside `synapse-web/src/routes/`.

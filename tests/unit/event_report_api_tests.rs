@@ -1,5 +1,5 @@
 // Event Report API Tests - API Endpoint Coverage
-// These tests cover the event report API endpoints from src/web/routes/event_report.rs
+// These tests cover the event report API endpoints from synapse-web/src/routes/event_report.rs
 
 use serde_json::json;
 

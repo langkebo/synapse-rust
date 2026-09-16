@@ -4,7 +4,7 @@ TOTAL=65
 STORE_API=33
 #
 # 2026-09-15  TOTAL 63 -> 65 (+2) —— B4-3 引入的两个 DI 接缝 trait
-#   来源：src/web/routes/auth_source.rs 的 `AuthSource` 与 `AdminAuthSource: AuthSource`。
+#   来源：synapse-web/src/routes/auth_source.rs 的 `AuthSource` 与 `AdminAuthSource: AuthSource`。
 #   这是**有正当理由的**新增，且是净收益极大的一次：
 #     · 它们取代了 extractors/auth.rs 里 21 个近乎逐字重复的 `FromRequestParts` impl
 #       （auth.rs −645 行，21 impl -> 3 泛型 impl）；

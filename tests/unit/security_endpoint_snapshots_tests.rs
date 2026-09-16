@@ -12,7 +12,7 @@
 //! Following the P-096 "pure JSON shape validation" pattern (see
 //! `key_rotation_route_tests.rs`, `burn_after_read_route_tests.rs`): these
 //! tests construct `serde_json::Value` mirrors of the handler outputs —
-//! verified line-for-line against `src/web/routes/*.rs` — and snapshot them
+//! verified line-for-line against `synapse-web/src/routes/*.rs` — and snapshot them
 //! with insta. No HTTP router or database is required, so they run in any
 //! environment.
 //!
@@ -46,7 +46,7 @@ fn api_error_json(err: &ApiError) -> Value {
 
 // ============================================================================
 // auth_compat — login / register / whoami response shapes
-// Source: src/web/routes/auth_compat.rs, src/web/routes/account_compat.rs
+// Source: synapse-web/src/routes/auth_compat.rs, synapse-web/src/routes/account_compat.rs
 // ============================================================================
 
 #[test]
@@ -155,7 +155,7 @@ fn snapshot_auth_compat_whoami_success_shape() {
 
 // ============================================================================
 // key_rotation — status / config / check response shapes
-// Source: src/web/routes/key_rotation.rs
+// Source: synapse-web/src/routes/key_rotation.rs
 // ============================================================================
 
 #[test]
@@ -256,7 +256,7 @@ fn snapshot_key_rotation_revoke_admin_forbidden_error() {
 
 // ============================================================================
 // burn_after_read — stats response shape + error shapes
-// Source: src/web/routes/burn_after_read.rs
+// Source: synapse-web/src/routes/burn_after_read.rs
 // ============================================================================
 
 #[test]
@@ -304,7 +304,7 @@ fn snapshot_burn_after_read_not_enabled_error() {
 
 // ============================================================================
 // room_access — forbidden (non-member) error shape
-// Source: src/web/routes/room_access.rs
+// Source: synapse-web/src/routes/room_access.rs
 // ============================================================================
 
 #[test]

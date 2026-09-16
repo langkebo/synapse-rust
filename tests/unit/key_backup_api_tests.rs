@@ -1,5 +1,5 @@
 // Key Backup API Tests - API Endpoint Coverage
-// These tests cover the key backup API endpoints from src/web/routes/key_backup.rs
+// These tests cover the key backup API endpoints from synapse-web/src/routes/key_backup.rs
 
 use serde_json::json;
 
@@ -342,7 +342,7 @@ fn is_valid_recovery_key(key: &str) -> bool {
 // returns a 400 Bad Request when version is absent.
 
 use synapse_common::{ApiErrorKind, MatrixErrorCode};
-use synapse_rust::web::routes::key_backup::resolve_import_version;
+use synapse_web::routes::key_backup::resolve_import_version;
 
 #[test]
 fn ft126_missing_version_returns_bad_request() {

@@ -1,0 +1,191 @@
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    routing::{delete, get, post, put},
+    Json, Router,
+};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use serde::{Deserialize, Serialize};
+use std::future::Future;
+use validator::Validate;
+
+use crate::routes::context::RoomContext;
+pub(super) use crate::routes::response_helpers::{created_json_from, json_from, json_vec_from};
+use crate::routes::{AppState, AuthenticatedUser, OptionalAuthenticatedUser};
+use synapse_common::ApiError;
+
+/// The `children_hierarchy` module.
+pub mod children_hierarchy;
+mod lifecycle_query;
+mod membership_state;
+mod summary;
+mod types;
+
+use children_hierarchy::create_space_children_hierarchy_routes;
+use lifecycle_query::create_space_lifecycle_query_routes;
+use membership_state::create_space_membership_state_routes;
+use summary::create_space_summary_routes;
+pub(super) use types::*;
+
+/// See [`resolve_space_by_room`].
+pub(super) async fn resolve_space_by_room(
+    state: &RoomContext,
+    space_room_id: &str,
+) -> Result<synapse_services::room::space::Space, ApiError> {
+    let space: Option<synapse_services::room::space::Space> = state
+        .space_service
+        .get_space_by_room(space_room_id)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Failed to get space by room", e))?;
+
+    space.ok_or_else(|| ApiError::not_found("Space not found"))
+}
+
+/// See [`resolve_space`].
+pub(super) async fn resolve_space(
+    state: &RoomContext,
+    space_identifier: &str,
+) -> Result<synapse_services::room::space::Space, ApiError> {
+    let space: Option<synapse_services::room::space::Space> = state
+        .space_service
+        .get_space(space_identifier)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Failed to get space", e))?;
+
+    if let Some(space) = space {
+        return Ok(space);
+    }
+
+    resolve_space_by_room(state, space_identifier).await
+}
+
+/// See [`with_resolved_space`].
+pub(super) async fn with_resolved_space<T, F, Fut>(
+    state: RoomContext,
+    space_room_id: String,
+    operation: F,
+) -> Result<T, ApiError>
+where
+    F: FnOnce(RoomContext, synapse_services::room::space::Space) -> Fut,
+    Fut: Future<Output = Result<T, ApiError>>,
+{
+    let space = resolve_space(&state, &space_room_id).await?;
+    operation(state, space).await
+}
+
+/// See [`can_user_view_space`].
+pub(super) async fn can_user_view_space(
+    state: &RoomContext,
+    space: &synapse_services::room::space::Space,
+    auth_user: &OptionalAuthenticatedUser,
+) -> Result<bool, ApiError> {
+    if space.is_public {
+        return Ok(true);
+    }
+
+    match auth_user.user_id.as_deref() {
+        Some(user_id) => state.space_service.check_user_can_see_space(&space.space_id, user_id).await,
+        None => Ok(false),
+    }
+}
+
+/// See [`ensure_space_visible`].
+pub(super) async fn ensure_space_visible(
+    state: &RoomContext,
+    space: &synapse_services::room::space::Space,
+    auth_user: &OptionalAuthenticatedUser,
+) -> Result<(), ApiError> {
+    if can_user_view_space(state, space, auth_user).await? {
+        return Ok(());
+    }
+
+    if auth_user.user_id.is_some() {
+        Err(ApiError::forbidden("User cannot access this space"))
+    } else {
+        Err(ApiError::unauthorized("Authentication required for private spaces"))
+    }
+}
+
+/// See [`with_visible_space`].
+pub(super) async fn with_visible_space<T, F, Fut>(
+    state: RoomContext,
+    space_room_id: String,
+    auth_user: OptionalAuthenticatedUser,
+    operation: F,
+) -> Result<T, ApiError>
+where
+    F: FnOnce(RoomContext, synapse_services::room::space::Space, OptionalAuthenticatedUser) -> Fut,
+    Fut: Future<Output = Result<T, ApiError>>,
+{
+    let space = resolve_space(&state, &space_room_id).await?;
+    ensure_space_visible(&state, &space, &auth_user).await?;
+    operation(state, space, auth_user).await
+}
+
+/// See [`validate_request`].
+pub(super) fn validate_request<T>(request: &T) -> Result<(), ApiError>
+where
+    T: Validate,
+{
+    request.validate().map_err(|e| ApiError::bad_request(format!("Validation error: {e}")))
+}
+
+/// See [`encode_space_member_cursor`].
+pub(super) fn encode_space_member_cursor(joined_ts: i64, user_id: &str) -> String {
+    BASE64.encode(format!("{}:{}", joined_ts, user_id))
+}
+
+/// See [`decode_space_member_cursor`].
+pub(super) fn decode_space_member_cursor(cursor: &str) -> Option<(i64, String)> {
+    let decoded = BASE64.decode(cursor).ok()?;
+    let s = String::from_utf8(decoded).ok()?;
+    let mut parts = s.splitn(2, ':');
+    let ts = parts.next()?.parse().ok()?;
+    let user_id = parts.next()?.to_string();
+    Some((ts, user_id))
+}
+
+/// See [`encode_space_child_cursor`].
+pub(super) fn encode_space_child_cursor(added_ts: i64, id: i64) -> String {
+    BASE64.encode(format!("{}:{}", added_ts, id))
+}
+
+/// See [`decode_space_child_cursor`].
+pub(super) fn decode_space_child_cursor(cursor: &str) -> Option<(i64, i64)> {
+    let decoded = BASE64.decode(cursor).ok()?;
+    let s = String::from_utf8(decoded).ok()?;
+    let mut parts = s.splitn(2, ':');
+    let ts = parts.next()?.parse().ok()?;
+    let id = parts.next()?.parse().ok()?;
+    Some((ts, id))
+}
+
+/// See [`create_space_router`].
+pub fn create_space_router(state: AppState) -> Router<AppState> {
+    let router = Router::new()
+        .merge(create_space_lifecycle_query_routes())
+        .merge(create_space_children_hierarchy_routes())
+        .merge(create_space_membership_state_routes())
+        .merge(create_space_summary_routes());
+
+    // Apply the same routes to both supported client prefixes (v1 + v3)
+    Router::new().nest("/_matrix/client/v1", router.clone()).nest("/_matrix/client/v3", router).with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_space_routes_structure() {
+        let routes = vec![
+            "/_matrix/client/v1/spaces",
+            "/_matrix/client/v1/spaces/{space_id}",
+            "/_matrix/client/v1/spaces/{space_id}/hierarchy",
+            "/_matrix/client/v1/spaces/{space_id}/summary",
+        ];
+
+        for route in routes {
+            assert!(route.starts_with("/_matrix/client/v1/spaces"));
+        }
+    }
+}

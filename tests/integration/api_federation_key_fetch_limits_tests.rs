@@ -16,8 +16,8 @@ use std::sync::{
 };
 use synapse_common::canonical_json;
 use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::web::routes::state::AppState;
 use synapse_services::ServiceContainer;
+use synapse_web::routes::state::AppState;
 use tower::ServiceExt;
 
 struct KeyServerMetrics {
@@ -147,7 +147,7 @@ async fn setup_test_app_with_federation_key_fetch_config(
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);
-    Some(synapse_rust::web::create_router(state))
+    Some(synapse_web::create_router(state))
 }
 
 #[tokio::test]

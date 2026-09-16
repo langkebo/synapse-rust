@@ -66,9 +66,9 @@ an alias for `cargo nextest run --profile test --features test-utils`.
 - The server exposes both client and federation listeners from the same application state.
 
 ### Core layering
-The root crate's `src/` is the HTTP/assembly surface; business logic and persistence live in six workspace crates:
+The root crate's `src/` is reduced to bootstrap + composition (`main.rs`, `server/`, `bin/`, `tasks/`, plus the `common`/`e2ee`/`cache`/`storage` facades); the HTTP surface and business logic live in workspace crates:
 
-- `src/web/` (root crate): HTTP boundary. Axum routes, extractors, middleware, validators, and Matrix-compatible endpoint assembly.
+- `synapse-web/` (workspace crate): HTTP boundary. Axum routes, extractors, middleware, validators, and Matrix-compatible endpoint assembly, plus the federation glue that depends on the HTTP context (`src/federation/edu.rs`).
 - `synapse-services/`: business logic layer (workspace crate). Feature behavior lives here; composition root is `synapse-services/src/container.rs`.
 - `synapse-storage/`: persistence layer over PostgreSQL (sqlx), plus schema/health/performance helpers (workspace crate).
 - `synapse-e2ee/`, `synapse-federation/`: E2EE crypto and federation transport/auth logic (workspace crates).
@@ -76,14 +76,14 @@ The root crate's `src/` is the HTTP/assembly surface; business logic and persist
 
 The root crate's `src/services/` and `src/storage/` are thin shells (`mod.rs` re-exports only) — new logic belongs in the corresponding workspace crate.
 
-The codebase generally follows `route (src/web/) -> service (synapse-services/) -> storage (synapse-storage/)`, with `AppState`/`ServiceContainer` carrying shared dependencies.
+The codebase generally follows `route (synapse-web/src/) -> service (synapse-services/) -> storage (synapse-storage/)`, with `AppState`/`ServiceContainer` carrying shared dependencies.
 
 ### Router organization
-- `src/web/routes/assembly.rs` is the top-level router assembly point.
+- `synapse-web/src/routes/assembly.rs` is the top-level router assembly point.
 - It merges many feature routers under Matrix-compatible prefixes such as `/_matrix/client/*`, `/_matrix/federation/*`, and admin/auxiliary endpoints.
 - Middleware layering is centralized here: CORS, security headers, compression, CSRF, and rate limiting.
-- Route implementation is split by domain under `src/web/routes/` and `src/web/routes/handlers/`.
-- Every route must be declared in `src/web/routes/route_ledger.rs` and its module's `*_route_manifest()`; the ledger guards against silent `Router::merge` path collisions and is exported via `ledger_export.rs` as the SDK contract source.
+- Route implementation is split by domain under `synapse-web/src/routes/` and `synapse-web/src/routes/handlers/`.
+- Every route must be declared in `synapse-web/src/routes/route_ledger.rs` and its module's `*_route_manifest()`; the ledger guards against silent `Router::merge` path collisions and is exported via `ledger_export.rs` as the SDK contract source.
 - Non-standard/private endpoints must use the `/_matrix/vendor/v1` prefix (ISSUE-13 migration), namespaced apart from Matrix stable and MSC identifiers.
 
 ### Dependency wiring
@@ -110,8 +110,8 @@ The codebase generally follows `route (src/web/) -> service (synapse-services/) 
 - The worker subsystem includes Redis bus support, replication protocol, health checking, and load balancing abstractions.
 
 ### Major feature domains
-- `synapse-e2ee/` (+ `src/e2ee/` glue): device keys, cross-signing, megolm/olm, verification, secure backup, to-device flows.
-- `synapse-federation/` (+ `src/federation/` friend-federation glue): federation transport/auth logic.
+- `synapse-e2ee/` (+ the root crate's `src/e2ee/` facade): device keys, cross-signing, megolm/olm, verification, secure backup, to-device flows.
+- `synapse-federation/` (+ `synapse-web/src/federation/` glue, which depends on the HTTP context): federation transport/auth logic.
 - `synapse-services/src/search_service.rs`: supports optional Elasticsearch as well as Postgres-backed search/FTS paths.
 - `synapse-services/src/room/`, `src/sync/`, `src/sync_service/`, `src/sliding_sync_service/`: core Matrix room and sync flows.
 - The repo also contains non-standard/private-chat extensions described in `README.md`: trusted private chat (`preset=trusted_private_chat`), anti-screenshot signaling (`com.hula.privacy`), and burn-after-read (feature `core-private-chat = friends + burn-after-read`).

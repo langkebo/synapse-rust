@@ -1,0 +1,401 @@
+use crate::routes::context::AdminContext;
+use crate::routes::extractors::{RoomId, UserId};
+use crate::routes::{AppState, AuthenticatedUser};
+use axum::{
+    extract::{Json, Path, State},
+    routing::{get, put},
+    Router,
+};
+use serde_json::{json, Value};
+use synapse_common::ApiError;
+
+fn create_account_data_compat_router() -> Router<AppState> {
+    Router::new()
+        .route("/user/{user_id}/account_data/", get(list_account_data))
+        .route(
+            "/user/{user_id}/account_data/{type}",
+            get(get_account_data).put(set_account_data).post(set_account_data).delete(delete_account_data),
+        )
+        .route(
+            "/user/{user_id}/rooms/{room_id}/account_data/{type}",
+            get(get_room_account_data)
+                .put(set_room_account_data)
+                .post(set_room_account_data)
+                .delete(delete_room_account_data),
+        )
+        .route("/user/{user_id}/filter", put(create_filter).post(create_filter))
+        .route("/user/{user_id}/filter/{filter_id}", get(get_filter).delete(delete_filter))
+        .route("/user/{user_id}/openid/request_token", get(get_openid_token).post(get_openid_token))
+}
+
+/// See [`create_account_data_router`].
+pub fn create_account_data_router(state: AppState) -> Router<AppState> {
+    let compat_router = create_account_data_compat_router();
+
+    Router::new().nest("/_matrix/client/v3", compat_router).with_state(state)
+}
+
+async fn sync_secret_storage_account_data_best_effort(
+    ctx: &AdminContext,
+    user_id: &str,
+    data_type: &str,
+    body: &Value,
+) {
+    if let Some(key_id) = data_type.strip_prefix("m.secret_storage.key.") {
+        if let Err(error) = ctx.ssss_service.store_account_data_key(user_id, key_id, body).await {
+            tracing::warn!(
+                user_id,
+                key_id,
+                "failed to mirror m.secret_storage.key account_data into internal SSSS store: {error}"
+            );
+        }
+        return;
+    }
+
+    if data_type != "m.secret_storage.default_key" {
+        return;
+    }
+
+    let Some(key_id) = body.get("key_id").and_then(Value::as_str) else {
+        tracing::warn!(user_id, "m.secret_storage.default_key account_data is missing key_id");
+        return;
+    };
+
+    match ctx.ssss_service.get_key(user_id, key_id).await {
+        Ok(Some(_)) => return,
+        Ok(None) => {}
+        Err(error) => {
+            tracing::warn!(
+                user_id,
+                key_id,
+                "failed to check internal SSSS key while handling default key account_data: {error}"
+            );
+            return;
+        }
+    }
+
+    let key_data_type = format!("m.secret_storage.key.{key_id}");
+    match ctx.account_data_service.get_account_data(user_id, &key_data_type).await {
+        Ok(Some(key_content)) => {
+            if let Err(error) = ctx.ssss_service.store_account_data_key(user_id, key_id, &key_content).await {
+                tracing::warn!(
+                    user_id,
+                    key_id,
+                    "failed to backfill internal SSSS key from standard account_data after default key update: {error}"
+                );
+            }
+        }
+        Ok(None) => {}
+        Err(error) => {
+            tracing::warn!(
+                user_id,
+                key_id,
+                "failed to load m.secret_storage.key account_data referenced by default key: {error}"
+            );
+        }
+    }
+}
+
+async fn list_account_data(
+    State(ctx): State<AdminContext>,
+    auth_user: AuthenticatedUser,
+    Path(user_id): Path<UserId>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id.as_str();
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden("Cannot get account data for other users".to_string()));
+    }
+
+    let account_data = ctx.account_data_service.list_account_data(user_id).await?;
+
+    Ok(Json(json!({
+        "account_data": account_data
+    })))
+}
+
+async fn set_account_data(
+    State(ctx): State<AdminContext>,
+    auth_user: AuthenticatedUser,
+    Path((user_id, data_type)): Path<(UserId, String)>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id.as_str();
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden("Cannot set account data for other users".to_string()));
+    }
+
+    ctx.account_data_service.set_account_data(user_id, &data_type, &body).await?;
+    sync_secret_storage_account_data_best_effort(&ctx, user_id, &data_type, &body).await;
+
+    Ok(Json(json!({})))
+}
+
+async fn get_account_data(
+    State(ctx): State<AdminContext>,
+    auth_user: AuthenticatedUser,
+    Path((user_id, data_type)): Path<(UserId, String)>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id.as_str();
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden("Cannot get account data for other users".to_string()));
+    }
+
+    let result = ctx.account_data_service.get_account_data(user_id, &data_type).await?;
+
+    match result {
+        Some(content) => Ok(Json(content)),
+        None => {
+            if data_type == "m.push_rules" {
+                Ok(Json(json!({
+                    "global": {
+                        "content": [],
+                        "override": [],
+                        "room": [],
+                        "sender": [],
+                        "underride": []
+                    }
+                })))
+            } else if data_type == "m.secret_storage.default_key" {
+                // Compatibility bridge: when the user has any SSSS keys
+                // managed by the homeserver's internal store but has not
+                // yet written a `m.secret_storage.default_key` account_data
+                // event, surface the first key as the default so stock
+                // Element/Synapse clients can still discover SSSS.
+                match ctx.ssss_service.get_all_keys(user_id).await {
+                    Ok(keys) if !keys.is_empty() => Ok(Json(json!({ "key_id": keys[0].key_id }))),
+                    _ => Err(ApiError::not_found("Account data not found".to_string())),
+                }
+            } else if let Some(key_id) = data_type.strip_prefix("m.secret_storage.key.") {
+                // Compatibility bridge for `m.secret_storage.key.<id>`:
+                // synthesise a minimal key info payload from the internal
+                // SSSS row so clients can complete bootstrap without us
+                // having to teach Element how to call the internal API.
+                match ctx.ssss_service.get_key(user_id, key_id).await {
+                    Ok(Some(key)) => Ok(Json(json!({
+                        "algorithm": key.algorithm,
+                        "auth_data": {
+                            "signatures": key.signatures,
+                        },
+                    }))),
+                    _ => Err(ApiError::not_found("Account data not found".to_string())),
+                }
+            } else {
+                Err(ApiError::not_found("Account data not found".to_string()))
+            }
+        }
+    }
+}
+
+async fn set_room_account_data(
+    State(ctx): State<AdminContext>,
+    auth_user: AuthenticatedUser,
+    Path((user_id, room_id, data_type)): Path<(UserId, RoomId, String)>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id.as_str();
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden("Cannot set account data for other users".to_string()));
+    }
+
+    ctx.account_data_service.set_room_account_data(user_id, &room_id, &data_type, &body).await?;
+
+    Ok(Json(json!({})))
+}
+
+async fn get_room_account_data(
+    State(ctx): State<AdminContext>,
+    auth_user: AuthenticatedUser,
+    Path((user_id, room_id, data_type)): Path<(UserId, RoomId, String)>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id.as_str();
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden("Cannot get account data for other users".to_string()));
+    }
+
+    let result = ctx.account_data_service.get_room_account_data(user_id, &room_id, &data_type).await?;
+
+    match result {
+        Some(data) => Ok(Json(data)),
+        None => Err(ApiError::not_found("Room account data not found".to_string())),
+    }
+}
+
+async fn create_filter(
+    State(ctx): State<AdminContext>,
+    auth_user: AuthenticatedUser,
+    Path(user_id): Path<UserId>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id.as_str();
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden("Cannot create filter for other users".to_string()));
+    }
+
+    let filter_id = ctx.account_data_service.create_filter(user_id, body).await?;
+
+    Ok(Json(json!({
+        "filter_id": filter_id
+    })))
+}
+
+async fn get_filter(
+    State(ctx): State<AdminContext>,
+    auth_user: AuthenticatedUser,
+    Path((user_id, filter_id)): Path<(UserId, String)>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id.as_str();
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden("Cannot get filter for other users".to_string()));
+    }
+
+    let result = ctx.account_data_service.get_filter(user_id, &filter_id).await?;
+
+    match result {
+        Some(content) => Ok(Json(content)),
+        None => Err(ApiError::not_found("Filter not found".to_string())),
+    }
+}
+
+async fn delete_account_data(
+    State(ctx): State<AdminContext>,
+    auth_user: AuthenticatedUser,
+    Path((user_id, data_type)): Path<(UserId, String)>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id.as_str();
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden("Cannot delete account data for other users".to_string()));
+    }
+
+    let deleted = ctx.account_data_service.delete_account_data(user_id, &data_type).await?;
+
+    if !deleted {
+        return Err(ApiError::not_found("Account data not found".to_string()));
+    }
+
+    Ok(Json(json!({})))
+}
+
+async fn delete_room_account_data(
+    State(ctx): State<AdminContext>,
+    auth_user: AuthenticatedUser,
+    Path((user_id, room_id, data_type)): Path<(UserId, RoomId, String)>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id.as_str();
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden("Cannot delete room account data for other users".to_string()));
+    }
+
+    let deleted = ctx.account_data_service.delete_room_account_data(user_id, &room_id, &data_type).await?;
+
+    if !deleted {
+        return Err(ApiError::not_found("Room account data not found".to_string()));
+    }
+
+    Ok(Json(json!({})))
+}
+
+async fn delete_filter(
+    State(ctx): State<AdminContext>,
+    auth_user: AuthenticatedUser,
+    Path((user_id, filter_id)): Path<(UserId, String)>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id.as_str();
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden("Cannot delete filter for other users".to_string()));
+    }
+
+    let deleted = ctx.account_data_service.delete_filter(user_id, &filter_id).await?;
+
+    if !deleted {
+        return Err(ApiError::not_found("Filter not found".to_string()));
+    }
+
+    Ok(Json(json!({})))
+}
+
+async fn get_openid_token(
+    State(ctx): State<AdminContext>,
+    auth_user: AuthenticatedUser,
+    Path(user_id): Path<UserId>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id.as_str();
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden("Cannot get OpenID token for other users".to_string()));
+    }
+
+    let (token, expires_in) = ctx.account_data_service.create_openid_token(user_id, None, 3600).await?;
+
+    Ok(Json(json!({
+        "access_token": token,
+        "token_type": "Bearer",
+        "matrix_server_name": ctx.server_name,
+        "expires_in": expires_in
+    })))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    #[test]
+    fn test_account_data_routes_structure() {
+        let routes = [
+            "/_matrix/client/v3/user/{user_id}/account_data/",
+            "/_matrix/client/v3/user/{user_id}/account_data/{type}",
+            "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/{type}",
+            "/_matrix/client/v3/user/{user_id}/openid/request_token",
+        ];
+
+        assert!(routes.iter().all(|route| route.starts_with("/_matrix/client/")));
+    }
+
+    #[test]
+    fn test_account_data_compat_router_contains_shared_paths() {
+        let shared_paths = [
+            "/user/{user_id}/account_data/",
+            "/user/{user_id}/account_data/{type}",
+            "/user/{user_id}/rooms/{room_id}/account_data/{type}",
+            "/user/{user_id}/filter",
+            "/user/{user_id}/filter/{filter_id}",
+            "/user/{user_id}/openid/request_token",
+        ];
+
+        assert_eq!(shared_paths.len(), 6);
+        assert!(shared_paths.iter().all(|path| path.starts_with("/user/")));
+    }
+
+    #[test]
+    fn test_account_data_json_structure() {
+        let data = json!({
+            "type": "m.direct",
+            "content": {
+                "@alice:example.com": ["!room1:example.com"]
+            }
+        });
+        assert_eq!(data["type"], "m.direct");
+    }
+
+    #[test]
+    fn test_filter_json_structure() {
+        let filter = json!({
+            "room": {
+                "timeline": {
+                    "limit": 100
+                }
+            }
+        });
+        assert!(filter["room"]["timeline"]["limit"].is_number());
+    }
+
+    #[test]
+    fn test_openid_token_response() {
+        let response = json!({
+            "access_token": "test_token",
+            "token_type": "Bearer",
+            "matrix_server_name": "example.com",
+            "expires_in": 3600
+        });
+        assert_eq!(response["token_type"], "Bearer");
+        assert_eq!(response["expires_in"], 3600);
+    }
+}

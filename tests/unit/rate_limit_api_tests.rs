@@ -1,5 +1,5 @@
 // Rate Limit API Tests - API Endpoint Coverage
-// These tests cover the rate limit API endpoints from src/web/routes/rate_limit_admin.rs
+// These tests cover the rate limit API endpoints from synapse-web/src/routes/rate_limit_admin.rs
 
 use serde_json::json;
 

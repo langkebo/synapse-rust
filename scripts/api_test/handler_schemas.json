@@ -1922,7 +1922,7 @@
           "request_id"
         ]
       },
-      "file": "src/web/routes/admin/audit.rs",
+      "file": "synapse-web/src/routes/admin/audit.rs",
       "field_count": 7
     },
     "RewriteRequest": {
@@ -1941,7 +1941,7 @@
           "to"
         ]
       },
-      "file": "src/web/routes/admin/federation.rs",
+      "file": "synapse-web/src/routes/admin/federation.rs",
       "field_count": 2
     },
     "ResolveRequest": {
@@ -1956,7 +1956,7 @@
           "server_name"
         ]
       },
-      "file": "src/web/routes/admin/federation.rs",
+      "file": "synapse-web/src/routes/admin/federation.rs",
       "field_count": 1
     },
     "ConfirmRequest": {
@@ -1975,7 +1975,7 @@
           "accept"
         ]
       },
-      "file": "src/web/routes/admin/federation.rs",
+      "file": "synapse-web/src/routes/admin/federation.rs",
       "field_count": 2
     },
     "ServerNoticeRequest": {
@@ -1996,7 +1996,7 @@
           "content"
         ]
       },
-      "file": "src/web/routes/admin/notification.rs",
+      "file": "synapse-web/src/routes/admin/notification.rs",
       "field_count": 2
     },
     "UserNotificationRequest": {
@@ -2011,7 +2011,7 @@
           "is_enabled"
         ]
       },
-      "file": "src/web/routes/admin/notification.rs",
+      "file": "synapse-web/src/routes/admin/notification.rs",
       "field_count": 1
     },
     "UpdateNotificationRequest": {
@@ -2136,7 +2136,7 @@
           }
         }
       },
-      "file": "src/web/routes/admin/notification.rs",
+      "file": "synapse-web/src/routes/admin/notification.rs",
       "field_count": 11
     },
     "PolicyCheckRequest": {
@@ -2159,7 +2159,7 @@
           "action"
         ]
       },
-      "file": "src/web/routes/admin/policy.rs",
+      "file": "synapse-web/src/routes/admin/policy.rs",
       "field_count": 3
     },
     "RetentionPolicyRequest": {
@@ -2200,7 +2200,7 @@
           }
         }
       },
-      "file": "src/web/routes/admin/retention.rs",
+      "file": "synapse-web/src/routes/admin/retention.rs",
       "field_count": 3
     },
     "RunRetentionRequest": {
@@ -2219,7 +2219,7 @@
           }
         }
       },
-      "file": "src/web/routes/admin/retention.rs",
+      "file": "synapse-web/src/routes/admin/retention.rs",
       "field_count": 1
     },
     "BlockRoomRequest": {
@@ -2244,7 +2244,7 @@
           "block"
         ]
       },
-      "file": "src/web/routes/admin/room/types.rs",
+      "file": "synapse-web/src/routes/admin/room/types.rs",
       "field_count": 2
     },
     "MakeRoomAdminRequest": {
@@ -2259,7 +2259,7 @@
           "user_id"
         ]
       },
-      "file": "src/web/routes/admin/room/types.rs",
+      "file": "synapse-web/src/routes/admin/room/types.rs",
       "field_count": 1
     },
     "BanRequest": {
@@ -2278,7 +2278,7 @@
           }
         }
       },
-      "file": "src/web/routes/admin/room/types.rs",
+      "file": "synapse-web/src/routes/admin/room/types.rs",
       "field_count": 1
     },
     "RoomUserActionRequest": {
@@ -2303,7 +2303,7 @@
           "user_id"
         ]
       },
-      "file": "src/web/routes/admin/room/types.rs",
+      "file": "synapse-web/src/routes/admin/room/types.rs",
       "field_count": 2
     },
     "RateLimitRequest": {
@@ -2334,7 +2334,7 @@
           }
         }
       },
-      "file": "src/web/routes/admin/security.rs",
+      "file": "synapse-web/src/routes/admin/security.rs",
       "field_count": 2
     },
     "CreateTokenRequest": {
@@ -2385,7 +2385,7 @@
           }
         }
       },
-      "file": "src/web/routes/admin/token.rs",
+      "file": "synapse-web/src/routes/admin/token.rs",
       "field_count": 4
     },
     "UpdateTokenRequest": {
@@ -2416,7 +2416,7 @@
           }
         }
       },
-      "file": "src/web/routes/admin/token.rs",
+      "file": "synapse-web/src/routes/admin/token.rs",
       "field_count": 2
     },
     "ResetPasswordBody": {
@@ -2431,7 +2431,7 @@
           "new_password"
         ]
       },
-      "file": "src/web/routes/admin/user.rs",
+      "file": "synapse-web/src/routes/admin/user.rs",
       "field_count": 1
     },
     "CreateUpdateUserRequest": {
@@ -2500,7 +2500,7 @@
           }
         }
       },
-      "file": "src/web/routes/admin/user.rs",
+      "file": "synapse-web/src/routes/admin/user.rs",
       "field_count": 6
     },
     "BatchCreateUsersRequest": {
@@ -2520,7 +2520,7 @@
           "users"
         ]
       },
-      "file": "src/web/routes/admin/user.rs",
+      "file": "synapse-web/src/routes/admin/user.rs",
       "field_count": 1
     },
     "BatchDeactivateRequest": {
@@ -2548,7 +2548,7 @@
           "users"
         ]
       },
-      "file": "src/web/routes/admin/user.rs",
+      "file": "synapse-web/src/routes/admin/user.rs",
       "field_count": 2
     },
     "UpdateAccountRequest": {
@@ -2587,7 +2587,7 @@
           }
         }
       },
-      "file": "src/web/routes/admin/user.rs",
+      "file": "synapse-web/src/routes/admin/user.rs",
       "field_count": 3
     },
     "RegisterAppServiceBody": {
@@ -2678,7 +2678,7 @@
           "hs_token"
         ]
       },
-      "file": "src/web/routes/app_service.rs",
+      "file": "synapse-web/src/routes/app_service.rs",
       "field_count": 10
     },
     "UpdateAppServiceBody": {
@@ -2740,7 +2740,7 @@
           }
         }
       },
-      "file": "src/web/routes/app_service.rs",
+      "file": "synapse-web/src/routes/app_service.rs",
       "field_count": 5
     },
     "SetStateBody": {
@@ -2759,7 +2759,7 @@
           "state_value"
         ]
       },
-      "file": "src/web/routes/app_service.rs",
+      "file": "synapse-web/src/routes/app_service.rs",
       "field_count": 2
     },
     "RegisterVirtualUserBody": {
@@ -2794,7 +2794,7 @@
           "user_id"
         ]
       },
-      "file": "src/web/routes/app_service.rs",
+      "file": "synapse-web/src/routes/app_service.rs",
       "field_count": 3
     },
     "PushEventBody": {
@@ -2832,7 +2832,7 @@
           "content"
         ]
       },
-      "file": "src/web/routes/app_service.rs",
+      "file": "synapse-web/src/routes/app_service.rs",
       "field_count": 5
     },
     "CreateUpdateBody": {
@@ -2938,7 +2938,7 @@
           "job_type"
         ]
       },
-      "file": "src/web/routes/background_update.rs",
+      "file": "synapse-web/src/routes/background_update.rs",
       "field_count": 10
     },
     "UpdateProgressBody": {
@@ -2965,7 +2965,7 @@
           "items_processed"
         ]
       },
-      "file": "src/web/routes/background_update.rs",
+      "file": "synapse-web/src/routes/background_update.rs",
       "field_count": 2
     },
     "FailUpdateBody": {
@@ -2980,7 +2980,7 @@
           "error_message"
         ]
       },
-      "file": "src/web/routes/background_update.rs",
+      "file": "synapse-web/src/routes/background_update.rs",
       "field_count": 1
     },
     "SendCaptchaBody": {
@@ -3009,7 +3009,7 @@
           "target"
         ]
       },
-      "file": "src/web/routes/captcha.rs",
+      "file": "synapse-web/src/routes/captcha.rs",
       "field_count": 3
     },
     "VerifyCaptchaBody": {
@@ -3028,7 +3028,7 @@
           "code"
         ]
       },
-      "file": "src/web/routes/captcha.rs",
+      "file": "synapse-web/src/routes/captcha.rs",
       "field_count": 2
     },
     "CreateDmRequest": {
@@ -3100,7 +3100,7 @@
           }
         }
       },
-      "file": "src/web/routes/dm.rs",
+      "file": "synapse-web/src/routes/dm.rs",
       "field_count": 6
     },
     "UpdateDmRequest": {
@@ -3131,7 +3131,7 @@
           }
         }
       },
-      "file": "src/web/routes/dm.rs",
+      "file": "synapse-web/src/routes/dm.rs",
       "field_count": 2
     },
     "CreateReportBody": {
@@ -3202,7 +3202,7 @@
           "room_id"
         ]
       },
-      "file": "src/web/routes/event_report.rs",
+      "file": "synapse-web/src/routes/event_report.rs",
       "field_count": 7
     },
     "UpdateReportBody": {
@@ -3232,7 +3232,7 @@
           }
         }
       },
-      "file": "src/web/routes/event_report.rs",
+      "file": "synapse-web/src/routes/event_report.rs",
       "field_count": 2
     },
     "ResolveReportBody": {
@@ -3247,7 +3247,7 @@
           "reason"
         ]
       },
-      "file": "src/web/routes/event_report.rs",
+      "file": "synapse-web/src/routes/event_report.rs",
       "field_count": 1
     },
     "DismissReportBody": {
@@ -3262,7 +3262,7 @@
           "reason"
         ]
       },
-      "file": "src/web/routes/event_report.rs",
+      "file": "synapse-web/src/routes/event_report.rs",
       "field_count": 1
     },
     "BlockUserBody": {
@@ -3282,7 +3282,7 @@
           "reason"
         ]
       },
-      "file": "src/web/routes/event_report.rs",
+      "file": "synapse-web/src/routes/event_report.rs",
       "field_count": 2
     },
     "RegisterExternalServiceBody": {
@@ -3336,7 +3336,7 @@
           "display_name"
         ]
       },
-      "file": "src/web/routes/external_service.rs",
+      "file": "synapse-web/src/routes/external_service.rs",
       "field_count": 6
     },
     "UpdateExternalServiceBody": {
@@ -3386,7 +3386,7 @@
           }
         }
       },
-      "file": "src/web/routes/external_service.rs",
+      "file": "synapse-web/src/routes/external_service.rs",
       "field_count": 4
     },
     "AddFriendRequest": {
@@ -3411,7 +3411,7 @@
           "user_id"
         ]
       },
-      "file": "src/web/routes/friend_room.rs",
+      "file": "synapse-web/src/routes/friend_room.rs",
       "field_count": 2
     },
     "UpdateNoteRequest": {
@@ -3426,7 +3426,7 @@
           "note"
         ]
       },
-      "file": "src/web/routes/friend_room.rs",
+      "file": "synapse-web/src/routes/friend_room.rs",
       "field_count": 1
     },
     "UpdateStatusRequest": {
@@ -3441,7 +3441,7 @@
           "status"
         ]
       },
-      "file": "src/web/routes/friend_room.rs",
+      "file": "synapse-web/src/routes/friend_room.rs",
       "field_count": 1
     },
     "UpdateDisplaynameRequest": {
@@ -3456,7 +3456,7 @@
           "displayname"
         ]
       },
-      "file": "src/web/routes/friend_room.rs",
+      "file": "synapse-web/src/routes/friend_room.rs",
       "field_count": 1
     },
     "CreateGroupRequest": {
@@ -3471,7 +3471,7 @@
           "name"
         ]
       },
-      "file": "src/web/routes/friend_room.rs",
+      "file": "synapse-web/src/routes/friend_room.rs",
       "field_count": 1
     },
     "RenameGroupRequest": {
@@ -3486,7 +3486,7 @@
           "name"
         ]
       },
-      "file": "src/web/routes/friend_room.rs",
+      "file": "synapse-web/src/routes/friend_room.rs",
       "field_count": 1
     },
     "UpdateBackupVersionBody": {
@@ -3506,7 +3506,7 @@
           }
         }
       },
-      "file": "src/web/routes/key_backup.rs",
+      "file": "synapse-web/src/routes/key_backup.rs",
       "field_count": 1
     },
     "RecoverKeysBody": {
@@ -3534,7 +3534,7 @@
           "version"
         ]
       },
-      "file": "src/web/routes/key_backup.rs",
+      "file": "synapse-web/src/routes/key_backup.rs",
       "field_count": 2
     },
     "BatchRecoverBody": {
@@ -3567,7 +3567,7 @@
           "room_ids"
         ]
       },
-      "file": "src/web/routes/key_backup.rs",
+      "file": "synapse-web/src/routes/key_backup.rs",
       "field_count": 3
     },
     "CreateModuleBody": {
@@ -3632,7 +3632,7 @@
           "version"
         ]
       },
-      "file": "src/web/routes/module.rs",
+      "file": "synapse-web/src/routes/module.rs",
       "field_count": 7
     },
     "UpdateModuleConfigBody": {
@@ -3648,7 +3648,7 @@
           "config"
         ]
       },
-      "file": "src/web/routes/module.rs",
+      "file": "synapse-web/src/routes/module.rs",
       "field_count": 1
     },
     "EnableModuleBody": {
@@ -3663,7 +3663,7 @@
           "is_enabled"
         ]
       },
-      "file": "src/web/routes/module.rs",
+      "file": "synapse-web/src/routes/module.rs",
       "field_count": 1
     },
     "CheckSpamBody": {
@@ -3695,7 +3695,7 @@
           "content"
         ]
       },
-      "file": "src/web/routes/module.rs",
+      "file": "synapse-web/src/routes/module.rs",
       "field_count": 5
     },
     "CheckThirdPartyRuleBody": {
@@ -3735,7 +3735,7 @@
           "state_events"
         ]
       },
-      "file": "src/web/routes/module.rs",
+      "file": "synapse-web/src/routes/module.rs",
       "field_count": 6
     },
     "CreateAccountValidityBody": {
@@ -3765,7 +3765,7 @@
           "expiration_ts"
         ]
       },
-      "file": "src/web/routes/module.rs",
+      "file": "synapse-web/src/routes/module.rs",
       "field_count": 3
     },
     "RenewAccountBody": {
@@ -3785,7 +3785,7 @@
           "new_expiration_ts"
         ]
       },
-      "file": "src/web/routes/module.rs",
+      "file": "synapse-web/src/routes/module.rs",
       "field_count": 2
     },
     "CreatePasswordAuthProviderBody": {
@@ -3830,7 +3830,7 @@
           "config"
         ]
       },
-      "file": "src/web/routes/module.rs",
+      "file": "synapse-web/src/routes/module.rs",
       "field_count": 5
     },
     "CreateMediaCallbackBody": {
@@ -3906,7 +3906,7 @@
           "url"
         ]
       },
-      "file": "src/web/routes/module.rs",
+      "file": "synapse-web/src/routes/module.rs",
       "field_count": 8
     },
     "CreateAccountDataCallbackBody": {
@@ -3949,7 +3949,7 @@
           "config"
         ]
       },
-      "file": "src/web/routes/module.rs",
+      "file": "synapse-web/src/routes/module.rs",
       "field_count": 4
     },
     "PinRequest": {
@@ -3964,7 +3964,7 @@
           "event_id"
         ]
       },
-      "file": "src/web/routes/pinned.rs",
+      "file": "synapse-web/src/routes/pinned.rs",
       "field_count": 1
     },
     "RegisterDeviceBody": {
@@ -4047,7 +4047,7 @@
           "push_type"
         ]
       },
-      "file": "src/web/routes/push_notification.rs",
+      "file": "synapse-web/src/routes/push_notification.rs",
       "field_count": 9
     },
     "SendNotificationBody": {
@@ -4128,7 +4128,7 @@
           "body"
         ]
       },
-      "file": "src/web/routes/push_notification.rs",
+      "file": "synapse-web/src/routes/push_notification.rs",
       "field_count": 8
     },
     "SetPushConfigBody": {
@@ -4145,7 +4145,7 @@
           "config"
         ]
       },
-      "file": "src/web/routes/push_notification.rs",
+      "file": "synapse-web/src/routes/push_notification.rs",
       "field_count": 1
     },
     "UpdateSummaryBody": {
@@ -4184,7 +4184,7 @@
           }
         }
       },
-      "file": "src/web/routes/room_summary.rs",
+      "file": "synapse-web/src/routes/room_summary.rs",
       "field_count": 3
     },
     "UpdateMemberBody": {
@@ -4223,7 +4223,7 @@
           }
         }
       },
-      "file": "src/web/routes/room_summary.rs",
+      "file": "synapse-web/src/routes/room_summary.rs",
       "field_count": 3
     },
     "UpdateStateBody": {
@@ -4249,7 +4249,7 @@
           "content"
         ]
       },
-      "file": "src/web/routes/room_summary.rs",
+      "file": "synapse-web/src/routes/room_summary.rs",
       "field_count": 2
     },
     "RoomSummaryBatchRequest": {
@@ -4270,7 +4270,7 @@
           "rooms"
         ]
       },
-      "file": "src/web/routes/room_summary.rs",
+      "file": "synapse-web/src/routes/room_summary.rs",
       "field_count": 2
     },
     "SamlLoginBody": {
@@ -4289,7 +4289,7 @@
           }
         }
       },
-      "file": "src/web/routes/saml.rs",
+      "file": "synapse-web/src/routes/saml.rs",
       "field_count": 1
     },
     "SamlCallbackBody": {
@@ -4328,7 +4328,7 @@
           }
         }
       },
-      "file": "src/web/routes/saml.rs",
+      "file": "synapse-web/src/routes/saml.rs",
       "field_count": 3
     },
     "UpdateSamlMappingBody": {
@@ -4358,7 +4358,7 @@
           }
         }
       },
-      "file": "src/web/routes/saml.rs",
+      "file": "synapse-web/src/routes/saml.rs",
       "field_count": 2
     },
     "SamlLogoutAdminBody": {
@@ -4373,7 +4373,7 @@
           "user_id"
         ]
       },
-      "file": "src/web/routes/saml.rs",
+      "file": "synapse-web/src/routes/saml.rs",
       "field_count": 1
     },
     "CreateSpaceBody": {
@@ -4458,7 +4458,7 @@
           "room_id"
         ]
       },
-      "file": "src/web/routes/space/types.rs",
+      "file": "synapse-web/src/routes/space/types.rs",
       "field_count": 8
     },
     "AddChildBody": {
@@ -4490,7 +4490,7 @@
           "via_servers"
         ]
       },
-      "file": "src/web/routes/space/types.rs",
+      "file": "synapse-web/src/routes/space/types.rs",
       "field_count": 3
     },
     "UpdateSpaceBody": {
@@ -4559,7 +4559,7 @@
           }
         }
       },
-      "file": "src/web/routes/space/types.rs",
+      "file": "synapse-web/src/routes/space/types.rs",
       "field_count": 6
     },
     "InviteUserBody": {
@@ -4574,7 +4574,7 @@
           "user_id"
         ]
       },
-      "file": "src/web/routes/space/types.rs",
+      "file": "synapse-web/src/routes/space/types.rs",
       "field_count": 1
     },
     "TagContent": {
@@ -4594,7 +4594,7 @@
           }
         }
       },
-      "file": "src/web/routes/tags.rs",
+      "file": "synapse-web/src/routes/tags.rs",
       "field_count": 1
     },
     "VerificationStartBody": {
@@ -4662,7 +4662,7 @@
           "from_device"
         ]
       },
-      "file": "src/web/routes/verification_routes.rs",
+      "file": "synapse-web/src/routes/verification_routes.rs",
       "field_count": 6
     },
     "VerificationAcceptBody": {
@@ -4695,7 +4695,7 @@
           "hash"
         ]
       },
-      "file": "src/web/routes/verification_routes.rs",
+      "file": "synapse-web/src/routes/verification_routes.rs",
       "field_count": 4
     },
     "KeyAgreementBody": {
@@ -4714,7 +4714,7 @@
           "pubkey"
         ]
       },
-      "file": "src/web/routes/verification_routes.rs",
+      "file": "synapse-web/src/routes/verification_routes.rs",
       "field_count": 2
     },
     "VerificationMacBody": {
@@ -4733,7 +4733,7 @@
           "mac"
         ]
       },
-      "file": "src/web/routes/verification_routes.rs",
+      "file": "synapse-web/src/routes/verification_routes.rs",
       "field_count": 2
     },
     "VerificationCancelBody": {
@@ -4756,7 +4756,7 @@
           "reason"
         ]
       },
-      "file": "src/web/routes/verification_routes.rs",
+      "file": "synapse-web/src/routes/verification_routes.rs",
       "field_count": 3
     },
     "ScanQrBody": {
@@ -4791,7 +4791,7 @@
           "device_curve25519_key"
         ]
       },
-      "file": "src/web/routes/verification_routes.rs",
+      "file": "synapse-web/src/routes/verification_routes.rs",
       "field_count": 6
     },
     "CompatVerificationRequestBody": {
@@ -4859,7 +4859,7 @@
           "to_user"
         ]
       },
-      "file": "src/web/routes/verification_routes.rs",
+      "file": "synapse-web/src/routes/verification_routes.rs",
       "field_count": 6
     },
     "UpdateWidgetBody": {
@@ -4899,7 +4899,7 @@
           }
         }
       },
-      "file": "src/web/routes/widget.rs",
+      "file": "synapse-web/src/routes/widget.rs",
       "field_count": 3
     },
     "SetPermissionBody": {
@@ -4921,7 +4921,7 @@
           "permissions"
         ]
       },
-      "file": "src/web/routes/widget.rs",
+      "file": "synapse-web/src/routes/widget.rs",
       "field_count": 2
     },
     "CreateSessionBody": {
@@ -4961,7 +4961,7 @@
           }
         }
       },
-      "file": "src/web/routes/widget.rs",
+      "file": "synapse-web/src/routes/widget.rs",
       "field_count": 3
     },
     "WidgetCapabilitiesBody": {
@@ -4979,7 +4979,7 @@
           "capabilities"
         ]
       },
-      "file": "src/web/routes/widget.rs",
+      "file": "synapse-web/src/routes/widget.rs",
       "field_count": 1
     },
     "SendWidgetMessageBody": {
@@ -4999,7 +4999,7 @@
           "content"
         ]
       },
-      "file": "src/web/routes/widget.rs",
+      "file": "synapse-web/src/routes/widget.rs",
       "field_count": 2
     },
     "RegisterWorkerBody": {
@@ -5063,7 +5063,7 @@
           "port"
         ]
       },
-      "file": "src/web/routes/worker.rs",
+      "file": "synapse-web/src/routes/worker.rs",
       "field_count": 8
     },
     "HeartbeatBody": {
@@ -5090,7 +5090,7 @@
           "status"
         ]
       },
-      "file": "src/web/routes/worker.rs",
+      "file": "synapse-web/src/routes/worker.rs",
       "field_count": 2
     },
     "SendCommandBody": {
@@ -5132,7 +5132,7 @@
           "command_data"
         ]
       },
-      "file": "src/web/routes/worker.rs",
+      "file": "synapse-web/src/routes/worker.rs",
       "field_count": 4
     },
     "AssignTaskBody": {
@@ -5173,7 +5173,7 @@
           "task_data"
         ]
       },
-      "file": "src/web/routes/worker.rs",
+      "file": "synapse-web/src/routes/worker.rs",
       "field_count": 4
     },
     "ConnectWorkerBody": {
@@ -5188,7 +5188,7 @@
           "address"
         ]
       },
-      "file": "src/web/routes/worker.rs",
+      "file": "synapse-web/src/routes/worker.rs",
       "field_count": 1
     },
     "CompleteTaskBody": {
@@ -5208,7 +5208,7 @@
           }
         }
       },
-      "file": "src/web/routes/worker.rs",
+      "file": "synapse-web/src/routes/worker.rs",
       "field_count": 1
     },
     "FailTaskBody": {
@@ -5223,7 +5223,7 @@
           "error"
         ]
       },
-      "file": "src/web/routes/worker.rs",
+      "file": "synapse-web/src/routes/worker.rs",
       "field_count": 1
     }
   },
@@ -6757,7 +6757,7 @@
   "skipped": [
     {
       "type_name": "UpgradeGuestRequest",
-      "file": "src/web/routes/guest.rs"
+      "file": "synapse-web/src/routes/guest.rs"
     }
   ]
 }

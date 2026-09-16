@@ -1,7 +1,7 @@
 // Key Rotation Route Tests - API Endpoint Coverage
 //
 // These tests cover the key rotation API endpoints from
-// `src/web/routes/key_rotation.rs` (P-095: previously zero tests).
+// `synapse-web/src/routes/key_rotation.rs` (P-095: previously zero tests).
 //
 // The route module exposes 18 (method, path) entries across 6 logical
 // endpoints × 2 prefixes (client/v1 + vendor/v1). These tests verify:
@@ -16,8 +16,8 @@
 // validation-logic assertions, no HTTP router or DB required.
 
 use serde_json::{json, Value};
-use synapse_rust::web::routes::declared_ledger_all;
-use synapse_rust::web::routes::route_ledger::RouteEntry;
+use synapse_web::routes::declared_ledger_all;
+use synapse_web::routes::route_ledger::RouteEntry;
 
 /// The `key_rotation` slice of the derived route table.
 ///

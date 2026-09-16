@@ -15,7 +15,7 @@
 //! register, so axum's `MethodRouter` will always answer with 405 + `Allow`
 //! when the route exists.
 //!
-//! [`declared_ledger_for`]: synapse_rust::web::routes::declared_ledger_for
+//! [`declared_ledger_for`]: synapse_web::routes::declared_ledger_for
 //! [`Router`]: axum::Router
 
 use axum::http::Method;
@@ -23,9 +23,9 @@ use axum::{body::Body, http::Request};
 use futures::stream::{self, StreamExt};
 use hyper::StatusCode;
 use std::{env, fs, path::PathBuf};
-use synapse_rust::web::routes::declared_ledger_for;
-use synapse_rust::web::routes::route_ledger::RouteLedger;
-use synapse_rust::web::routes::state::AppState;
+use synapse_web::routes::declared_ledger_for;
+use synapse_web::routes::route_ledger::RouteLedger;
+use synapse_web::routes::state::AppState;
 use tokio::sync::OnceCell;
 use tower::ServiceExt;
 
@@ -85,18 +85,11 @@ fn allow_methods(allow_header: &str) -> std::collections::HashSet<String> {
 }
 
 #[allow(clippy::needless_pass_by_value)]
-fn has_declared_route(
-    ledger: &synapse_rust::web::routes::route_ledger::RouteLedger,
-    method: Method,
-    path: &str,
-) -> bool {
+fn has_declared_route(ledger: &synapse_web::routes::route_ledger::RouteLedger, method: Method, path: &str) -> bool {
     ledger.iter().any(|entry| entry.method == method && entry.path == path)
 }
 
-fn render_ledger_snapshot(
-    snapshot_name: &str,
-    ledger: &synapse_rust::web::routes::route_ledger::RouteLedger,
-) -> String {
+fn render_ledger_snapshot(snapshot_name: &str, ledger: &synapse_web::routes::route_ledger::RouteLedger) -> String {
     let mut lines: Vec<String> = ledger
         .iter()
         .map(|entry| format!("{} {} [{}]", entry.method.as_str(), entry.path, entry.registered_by))

@@ -1,0 +1,206 @@
+use super::audit::{record_audit_event, resolve_request_id};
+use crate::routes::context::AdminContext;
+use crate::routes::AdminUser;
+use axum::{
+    extract::{Path, State},
+    http::HeaderMap,
+    routing::{delete, get, post, put},
+    Json, Router,
+};
+use serde::Deserialize;
+use serde_json::{json, Value};
+use synapse_common::types::UserId;
+use synapse_common::ApiError;
+
+/// See [`create_security_router`].
+pub fn create_security_router() -> Router<crate::routes::AppState> {
+    Router::new()
+        .route("/_synapse/admin/v1/users/{user_id}/shadow_ban", post(shadow_ban_user))
+        .route("/_synapse/admin/v1/users/{user_id}/shadow_ban", delete(unshadow_ban_user))
+        .route("/_synapse/admin/v1/users/{user_id}/rate_limit", get(get_user_rate_limit))
+        .route("/_synapse/admin/v1/users/{user_id}/rate_limit", put(set_user_rate_limit))
+        .route("/_synapse/admin/v1/users/{user_id}/rate_limit", delete(delete_user_rate_limit))
+        .route("/_synapse/admin/v1/users/{user_id}/override_ratelimit", get(get_user_override_rate_limit))
+        .route("/_synapse/admin/v1/users/{user_id}/override_ratelimit", post(set_user_override_rate_limit))
+        .route("/_synapse/admin/v1/users/{user_id}/override_ratelimit", delete(delete_user_override_rate_limit))
+}
+
+/// The `RateLimitRequest` struct.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RateLimitRequest {
+    /// The `messages_per_second` field.
+    pub messages_per_second: Option<f64>,
+    /// The `burst_count` field.
+    pub burst_count: Option<i32>,
+}
+
+async fn ensure_user_exists(ctx: &AdminContext, user_id: &str) -> Result<(), ApiError> {
+    let user = ctx.account_identity_service.get_user_by_identifier(user_id).await?;
+
+    if user.is_none() {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
+
+    Ok(())
+}
+
+/// See [`shadow_ban_user`].
+#[axum::debug_handler]
+pub async fn shadow_ban_user(
+    admin: AdminUser,
+    State(ctx): State<AdminContext>,
+    Path(user_id): Path<UserId>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    ctx.admin_security_service.set_shadow_ban(&user_id, true).await?;
+
+    record_audit_event(
+        &ctx,
+        &admin.user_id,
+        "admin.user.shadow_ban",
+        "user",
+        &user_id,
+        resolve_request_id(&headers),
+        json!({ "is_shadow_banned": true }),
+    )
+    .await?;
+
+    Ok(Json(json!({})))
+}
+
+/// See [`unshadow_ban_user`].
+#[axum::debug_handler]
+pub async fn unshadow_ban_user(
+    admin: AdminUser,
+    State(ctx): State<AdminContext>,
+    Path(user_id): Path<UserId>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    ctx.admin_security_service.set_shadow_ban(&user_id, false).await?;
+
+    record_audit_event(
+        &ctx,
+        &admin.user_id,
+        "admin.user.unshadow_ban",
+        "user",
+        &user_id,
+        resolve_request_id(&headers),
+        json!({ "is_shadow_banned": false }),
+    )
+    .await?;
+
+    Ok(Json(json!({})))
+}
+
+/// See [`get_user_rate_limit`].
+#[axum::debug_handler]
+pub async fn get_user_rate_limit(
+    _admin: AdminUser,
+    State(ctx): State<AdminContext>,
+    Path(user_id): Path<UserId>,
+) -> Result<Json<Value>, ApiError> {
+    ensure_user_exists(&ctx, &user_id).await?;
+
+    let limit = ctx.admin_security_service.get_user_rate_limit(&user_id).await?;
+
+    Ok(Json(json!({
+        "messages_per_second": limit.messages_per_second,
+        "burst_count": limit.burst_count
+    })))
+}
+
+/// See [`set_user_rate_limit`].
+#[axum::debug_handler]
+pub async fn set_user_rate_limit(
+    admin: AdminUser,
+    State(ctx): State<AdminContext>,
+    Path(user_id): Path<UserId>,
+    headers: HeaderMap,
+    Json(body): Json<RateLimitRequest>,
+) -> Result<Json<Value>, ApiError> {
+    ensure_user_exists(&ctx, &user_id).await?;
+
+    let messages_per_second = body.messages_per_second.unwrap_or(5.0);
+    let burst_count = body.burst_count.unwrap_or(10);
+
+    let limit = ctx.admin_security_service.set_user_rate_limit(&user_id, messages_per_second, burst_count).await?;
+
+    record_audit_event(
+        &ctx,
+        &admin.user_id,
+        "admin.user.rate_limit.set",
+        "user",
+        &user_id,
+        resolve_request_id(&headers),
+        json!({
+            "messages_per_second": messages_per_second,
+            "burst_count": burst_count
+        }),
+    )
+    .await?;
+
+    Ok(Json(json!({
+        "messages_per_second": limit.messages_per_second,
+        "burst_count": limit.burst_count
+    })))
+}
+
+/// See [`delete_user_rate_limit`].
+#[axum::debug_handler]
+pub async fn delete_user_rate_limit(
+    admin: AdminUser,
+    State(ctx): State<AdminContext>,
+    Path(user_id): Path<UserId>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    ensure_user_exists(&ctx, &user_id).await?;
+
+    ctx.admin_security_service.delete_user_rate_limit(&user_id).await?;
+
+    record_audit_event(
+        &ctx,
+        &admin.user_id,
+        "admin.user.rate_limit.delete",
+        "user",
+        &user_id,
+        resolve_request_id(&headers),
+        json!({}),
+    )
+    .await?;
+
+    Ok(Json(json!({})))
+}
+
+/// See [`get_user_override_rate_limit`].
+#[axum::debug_handler]
+pub async fn get_user_override_rate_limit(
+    admin: AdminUser,
+    State(ctx): State<AdminContext>,
+    Path(user_id): Path<UserId>,
+) -> Result<Json<Value>, ApiError> {
+    get_user_rate_limit(admin, State(ctx), Path(user_id)).await
+}
+
+/// See [`set_user_override_rate_limit`].
+#[axum::debug_handler]
+pub async fn set_user_override_rate_limit(
+    admin: AdminUser,
+    State(ctx): State<AdminContext>,
+    Path(user_id): Path<UserId>,
+    headers: HeaderMap,
+    body: Json<RateLimitRequest>,
+) -> Result<Json<Value>, ApiError> {
+    set_user_rate_limit(admin, State(ctx), Path(user_id), headers, body).await
+}
+
+/// See [`delete_user_override_rate_limit`].
+#[axum::debug_handler]
+pub async fn delete_user_override_rate_limit(
+    admin: AdminUser,
+    State(ctx): State<AdminContext>,
+    Path(user_id): Path<UserId>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    delete_user_rate_limit(admin, State(ctx), Path(user_id), headers).await
+}

@@ -35,8 +35,10 @@ const SCAN_ROOTS: [&str; 8] = [
 
 /// Files that must keep carrying the ISSUE-13 deprecation notice now that the
 /// per-boot WARN is gone.
-const DEPRECATION_NOTICE_SITES: [(&str, &str); 2] =
-    [("src/web/routes/sync.rs", "/my_rooms"), ("src/web/routes/handlers/search/mod.rs", "/search_rooms")];
+const DEPRECATION_NOTICE_SITES: [(&str, &str); 2] = [
+    ("synapse-web/src/routes/sync.rs", "/my_rooms"),
+    ("synapse-web/src/routes/handlers/search/mod.rs", "/search_rooms"),
+];
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -126,7 +128,7 @@ fn no_endpoint_suppression_knob_remains() {
 
 #[test]
 fn startup_validation_does_not_warn_about_unchangeable_state() {
-    let source = read("src/web/routes/assembly.rs");
+    let source = read("synapse-web/src/routes/assembly.rs");
     let start = source
         .find("ledger.validate()")
         .expect("assembly.rs lost the `ledger.validate()` call; this guard needs updating");

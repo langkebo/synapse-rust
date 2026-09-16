@@ -16,7 +16,7 @@
 # ---------------------
 # `RouteEntry` carries three `new()`-default-off builder fields that describe
 # *author intent*, not just the `(method, path)` tuple. The `.route()` calls
-# in `src/web/routes/**` never mention them, so the extractor cannot infer
+# in `synapse-web/src/routes/**` never mention them, so the extractor cannot infer
 # them. The three fields and their consumer surfaces today:
 #
 #   * `rate_limit_exempt` — 5 routes from sync.rs + sliding_sync.rs. When

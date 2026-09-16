@@ -1,5 +1,5 @@
 // Thread API Tests - API Endpoint Coverage
-// These tests cover the thread API endpoints from src/web/routes/thread.rs
+// These tests cover the thread API endpoints from synapse-web/src/routes/thread.rs
 
 use serde_json::json;
 

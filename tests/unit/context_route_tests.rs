@@ -1,7 +1,7 @@
 // Context Route Tests - Request-Pipeline Context Coverage
 //
 // These tests cover the request-pipeline context structs exposed by
-// `src/web/routes/context.rs` (P-096: previously zero tests).
+// `synapse-web/src/routes/context.rs` (P-096: previously zero tests).
 //
 // `context.rs` defines 11 `*Context` structs that bundle shared services
 // for different route groups (CoreContext, RoomContext, E2eeRoomContext,
@@ -15,7 +15,7 @@
 // visibility assertions, following the same pattern as the existing
 // `key_rotation_route_tests.rs`: pure data + logic assertions, no DB.
 
-use synapse_rust::web::routes::context::{
+use synapse_web::routes::context::{
     AdminContext, AuthContext, CoreContext, DeviceContext, E2eeRoomContext, FederationContext, MediaContext,
     RoomContext, SsoContext, SyncContext,
 };
@@ -94,7 +94,7 @@ fn test_all_contexts_implement_from_ref() {
     // sub-contexts from the top-level AppState. If any context stops
     // implementing it the corresponding router group breaks at startup.
     use axum::extract::FromRef;
-    use synapse_rust::web::routes::AppState;
+    use synapse_web::routes::AppState;
 
     fn assert_from_ref<T: FromRef<AppState>>() {}
 
@@ -195,7 +195,7 @@ fn test_sync_rate_limit_override_shape_is_two_field_struct() {
     // and `sync: SyncRateLimitConfigFile`. The override is consumed by the
     // sync rate-limit middleware to decide fail-open behavior.
     // Verify the source-of-truth struct shape (compile-time check).
-    fn assert_shape(_x: synapse_rust::web::routes::state::SyncRateLimitOverride) {}
+    fn assert_shape(_x: synapse_web::routes::state::SyncRateLimitOverride) {}
     let _ = assert_shape;
 }
 
@@ -210,8 +210,8 @@ fn test_app_state_sync_rate_limit_override_is_accessible() {
     // SyncContext pulls the manager through `rate_limit_config_manager`,
     // AppState reads it from the same field. Confirming the method exists
     // guards against accidental drift if one is renamed/removed.
-    use synapse_rust::web::routes::AppState;
-    fn _assert_method_present(state: &AppState) -> Option<synapse_rust::web::routes::state::SyncRateLimitOverride> {
+    use synapse_web::routes::AppState;
+    fn _assert_method_present(state: &AppState) -> Option<synapse_web::routes::state::SyncRateLimitOverride> {
         state.sync_rate_limit_override()
     }
 }
@@ -220,7 +220,7 @@ fn test_app_state_sync_rate_limit_override_is_accessible() {
 fn test_app_state_rate_limit_config_manager_accessor_exists() {
     // AppState exposes `rate_limit_config_manager()` which is consumed by
     // CoreContext::from_ref to populate the rate_limit_config_manager field.
-    use synapse_rust::web::routes::AppState;
+    use synapse_web::routes::AppState;
     fn _assert_method_present(state: &AppState) {
         let _: Option<&std::sync::Arc<synapse_common::rate_limit_config::RateLimitConfigManager>> =
             state.rate_limit_config_manager();
@@ -510,7 +510,7 @@ fn test_friend_context_is_feature_gated() {
     //   - `friends` off → the type cannot be named at all
     #[cfg(feature = "friends")]
     {
-        use synapse_rust::web::routes::context::FriendContext;
+        use synapse_web::routes::context::FriendContext;
         fn assert_traits<T: Clone + Send + Sync>() {}
         assert_traits::<FriendContext>();
     }

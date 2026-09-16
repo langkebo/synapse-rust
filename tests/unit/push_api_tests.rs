@@ -1,5 +1,5 @@
 // Push API Tests - API Endpoint Coverage
-// These tests cover the push API endpoints from src/web/routes/push.rs
+// These tests cover the push API endpoints from synapse-web/src/routes/push.rs
 
 use serde_json::json;
 

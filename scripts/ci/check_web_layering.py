@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Layering ratchet: `src/web/` must not talk to `synapse_storage` (A2 / B4-4).
+"""Layering ratchet: `synapse-web/src/` must not talk to `synapse_storage` (A2 / B4-4).
 
 The HTTP layer is supposed to reach persistence only through `synapse-services`.
-Every direct `synapse_storage` reference under `src/web/` is a place where a route
+Every direct `synapse_storage` reference under `synapse-web/src/` is a place where a route
 bypasses the service layer, so business rules drift into handlers and the storage
 crate's surface becomes a de-facto public API.
 
@@ -29,7 +29,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-WEB = ROOT / "src" / "web"
+WEB = ROOT / "synapse-web" / "src"
 ALLOWLIST = ROOT / "scripts" / "ci" / "web_layering_allowlist.txt"
 
 COMMENT_BLOCK = re.compile(r"/\*.*?\*/", re.S)
@@ -73,7 +73,7 @@ def main() -> int:
 
     if "--update" in sys.argv:
         lines = [
-            "# Files under src/web/ that still reference synapse_storage (A2 / B4-4).",
+            "# Files under synapse-web/src/ that still reference synapse_storage (A2 / B4-4).",
             "# This list may only SHRINK. The gate fails on a new offender AND on a stale entry,",
             "# so removing a line here is part of fixing the file, not optional bookkeeping.",
             "# Regenerate with: python3 scripts/ci/check_web_layering.py --update",
@@ -93,7 +93,7 @@ def main() -> int:
 
     failed = False
     if new:
-        print(f"\nFAIL: {len(new)} src/web/ file(s) reference synapse_storage but are not allowlisted:", file=sys.stderr)
+        print(f"\nFAIL: {len(new)} synapse-web/src/ file(s) reference synapse_storage but are not allowlisted:", file=sys.stderr)
         for path in new:
             print(f"  {path}", file=sys.stderr)
         print("  Route through synapse-services instead, or (if genuinely unavoidable) add the file", file=sys.stderr)

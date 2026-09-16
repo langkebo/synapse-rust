@@ -1,5 +1,5 @@
 // Federation API Tests - API Endpoint Coverage
-// These tests cover the federation API endpoints from src/web/routes/federation.rs
+// These tests cover the federation API endpoints from synapse-web/src/routes/federation.rs
 
 use serde_json::json;
 

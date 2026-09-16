@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
-//! Golden-file round-trip for [`synapse_rust::web::routes::ledger_export`].
+//! Golden-file round-trip for [`synapse_web::routes::ledger_export`].
 //!
 //! Asserts that:
 //! - `render(build_artifact(...))` for each committed profile fixture is
@@ -25,10 +25,8 @@
 //! uses `tests/unit/fixtures/ledger_export_sdk/`, regenerated via
 //! `scripts/generate_sdk_ledger_fixtures.sh`.
 
-use synapse_rust::web::routes::ledger_export::{
-    build_artifact, profile_for_name, render, LedgerArtifact, SCHEMA_VERSION,
-};
-use synapse_rust::web::routes::route_module::ProfileFlags;
+use synapse_web::routes::ledger_export::{build_artifact, profile_for_name, render, LedgerArtifact, SCHEMA_VERSION};
+use synapse_web::routes::route_module::ProfileFlags;
 
 /// Fixed timestamp baked into every fixture so the artefact stays
 /// byte-stable across runs. Must match the `--timestamp` value used to

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract the ACTUAL served route surface from `src/web/routes/**`.
+"""Extract the ACTUAL served route surface from `synapse-web/src/routes/**`.
 
 This is the contract's source-of-truth extractor. A naive line scan is not
 enough — this module resolves, in one pass:
@@ -38,7 +38,7 @@ from collections import defaultdict
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.environ.get("SYNAPSE_RUST_ROOT") or os.path.dirname(os.path.dirname(SCRIPT_DIR))
-ROUTES_DIR = os.path.join(ROOT, "src", "web", "routes")
+ROUTES_DIR = os.path.join(ROOT, "synapse-web", "src", "routes")
 # `registered_by` overrides — the routes whose ledger origin is not derivable
 # from their file path. See `load_ledger_origins`.
 LEDGER_ORIGINS = os.path.join(SCRIPT_DIR, "ledger_origins.txt")
@@ -669,7 +669,7 @@ def load_ledger_annotations() -> dict:
 
     These are the `RouteEntry` builder fields that describe *author intent*
     and never appear in a `.route()` call, so the extractor cannot infer
-    them from `src/web/routes/**`:
+    them from `synapse-web/src/routes/**`:
 
     * `rate_limit_exempt` — consumed by the IP-limit middleware (collected in
       `assembly.rs`, consulted in `rate_limit.rs`). Not serialized into the

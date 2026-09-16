@@ -1,7 +1,7 @@
 // Account Compat Route Tests - Account/Profile/3PID Endpoint Coverage
 //
 // These tests cover the wire-level contracts exposed by
-// `src/web/routes/account_compat.rs` (P-096: previously zero tests).
+// `synapse-web/src/routes/account_compat.rs` (P-096: previously zero tests).
 //
 // The module exposes 17 handlers across the v1/r0/v3 client namespaces:
 //   whoami, get_profile, get_displayname, get_avatar_url, update_displayname,
@@ -19,9 +19,9 @@
 use axum::http::Method;
 use serde_json::{json, Value};
 use synapse_rust::common::{ApiError, ApiErrorKind, MatrixErrorCode};
-use synapse_rust::web::routes::declared_ledger_for_profile;
-use synapse_rust::web::routes::route_ledger::RouteEntry;
-use synapse_rust::web::routes::route_module::ProfileFlags;
+use synapse_web::routes::declared_ledger_for_profile;
+use synapse_web::routes::route_ledger::RouteEntry;
+use synapse_web::routes::route_module::ProfileFlags;
 
 // ============================================================================
 // Route manifest — verified via the public aggregator

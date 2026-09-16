@@ -1,5 +1,5 @@
 // Federation Cache API Tests - API Endpoint Coverage
-// These tests cover the federation cache API endpoints from src/web/routes/federation_cache.rs
+// These tests cover the federation cache API endpoints from synapse-web/src/routes/federation_cache.rs
 
 use serde_json::json;
 

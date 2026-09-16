@@ -38,6 +38,8 @@ ROOTS = [
     "synapse-e2ee/src",
     "synapse-federation/src",
     "synapse-services/src",
+    "synapse-web/src",
+    "synapse-test-utils/src",
     "src",
 ]
 # Directories that must never be walked: stale worktree copies double every count,

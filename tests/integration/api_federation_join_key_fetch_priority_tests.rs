@@ -14,9 +14,9 @@ use std::sync::{
 };
 use synapse_common::canonical_json;
 use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::federation::signing::canonical_federation_request_bytes;
-use synapse_rust::web::routes::state::AppState;
 use synapse_services::ServiceContainer;
+use synapse_web::federation::signing::canonical_federation_request_bytes;
+use synapse_web::routes::state::AppState;
 use tower::ServiceExt;
 
 struct KeyFetchMetrics {
@@ -136,7 +136,7 @@ async fn setup_ingress_app(server_name: &str, key_fetch_max_concurrency: usize) 
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);
-    Some(synapse_rust::web::create_router(state))
+    Some(synapse_web::create_router(state))
 }
 
 fn signed_request(

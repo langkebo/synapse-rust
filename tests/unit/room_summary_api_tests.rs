@@ -1,5 +1,5 @@
 // Room Summary API Tests - API Endpoint Coverage
-// These tests cover the room summary API endpoints from src/web/routes/room_summary.rs
+// These tests cover the room summary API endpoints from synapse-web/src/routes/room_summary.rs
 
 use serde_json::json;
 

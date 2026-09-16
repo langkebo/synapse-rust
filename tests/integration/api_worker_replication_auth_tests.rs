@@ -5,8 +5,8 @@ use axum::{
 use serde_json::json;
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::web::routes::state::AppState;
 use synapse_services::ServiceContainer;
+use synapse_web::routes::state::AppState;
 use tower::ServiceExt;
 
 async fn setup_test_app_with_replication_secret() -> Option<(axum::Router, String, String)> {
@@ -19,7 +19,7 @@ async fn setup_test_app_with_replication_secret() -> Option<(axum::Router, Strin
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);
-    let app = synapse_rust::web::create_router(state);
+    let app = synapse_web::create_router(state);
 
     let (admin_token, _admin_user) = super::get_admin_token(&app).await;
     let worker_id = format!("worker-{}", rand::random::<u32>());
@@ -109,7 +109,7 @@ async fn test_worker_endpoints_do_not_require_replication_secret_when_disabled()
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);
-    let app = synapse_rust::web::create_router(state);
+    let app = synapse_web::create_router(state);
 
     let (admin_token, _admin_user) = super::get_admin_token(&app).await;
     let worker_id = format!("worker-{}", rand::random::<u32>());

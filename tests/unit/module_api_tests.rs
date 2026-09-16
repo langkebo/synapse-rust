@@ -1,5 +1,5 @@
 // Module API Tests - API Endpoint Coverage
-// These tests cover the module API endpoints from src/web/routes/module.rs
+// These tests cover the module API endpoints from synapse-web/src/routes/module.rs
 
 use serde_json::json;
 

@@ -6,7 +6,7 @@
 mod federation_event_auth_error_tests {
     use serde_json::json;
     use std::collections::HashMap;
-    use synapse_rust::federation::event_auth::{EventAuthChain, EventData};
+    use synapse_web::federation::event_auth::{EventAuthChain, EventData};
 
     #[tokio::test]
     async fn test_invalid_signature_error() {

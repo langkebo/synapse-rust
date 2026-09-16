@@ -1,6 +1,6 @@
 // MSC4108 Rendezvous route tests
 //
-// Covers the route layer in `src/web/routes/msc4108_rendezvous.rs`:
+// Covers the route layer in `synapse-web/src/routes/msc4108_rendezvous.rs`:
 //   * the public route manifest (`msc4108_route_manifest`)
 //   * the HTTP contract each handler emits (status codes, headers, body shape)
 //   * the pure helpers the handlers rely on (`build_rendezvous_url`,
@@ -17,8 +17,8 @@
 
 use axum::http::{Method, StatusCode};
 use synapse_common::ApiError;
-use synapse_rust::web::routes::declared_ledger_all;
-use synapse_rust::web::routes::route_ledger::{RouteEntry, RouteLedger};
+use synapse_web::routes::declared_ledger_all;
+use synapse_web::routes::route_ledger::{RouteEntry, RouteLedger};
 
 /// The `msc4108_rendezvous` slice of the derived route table.
 ///
@@ -31,7 +31,7 @@ fn msc4108_route_manifest() -> Vec<RouteEntry> {
 
 // ── Constants mirrored from the route module ───────────────────────────────
 
-/// Mirrors `MSC4108_TTL_MS` in `src/web/routes/msc4108_rendezvous.rs`.
+/// Mirrors `MSC4108_TTL_MS` in `synapse-web/src/routes/msc4108_rendezvous.rs`.
 const MSC4108_TTL_MS: i64 = 5 * 60 * 1000;
 
 const BASE_PATH: &str = "/_matrix/client/unstable/org.matrix.msc4108/rendezvous";
@@ -433,7 +433,7 @@ fn delete_session_returns_204_with_required_headers() {
     // DELETE handler on success) instead of asserting against a locally
     // constructed array. Remove any header tuple from the production fn and
     // this goes red.
-    let response = synapse_rust::web::routes::msc4108_rendezvous::delete_success_response();
+    let response = synapse_web::routes::msc4108_rendezvous::delete_success_response();
     assert_eq!(response.status(), 204, "MSC4108 DELETE success is 204 No Content");
     let headers = response.headers();
     assert_eq!(

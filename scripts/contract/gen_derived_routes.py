@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate `src/web/routes/derived_routes.rs` from the route extractor.
+"""Generate `synapse-web/src/routes/derived_routes.rs` from the route extractor.
 
 B2-3 table-driven manifest: replaces ~120 hand-copied `*_route_manifest()` helpers.
 Instead of restating routes, the generator emits ONE rank-tagged table that the
@@ -41,8 +41,8 @@ _spec.loader.exec_module(ex)
 
 LANE_DEFAULT = "ledger_export"
 LANE_SDK = "ledger_export_sdk"
-OUT_DATA = os.path.join(ROOT, "src", "web", "routes", "derived_route_table.inc.rs")
-OUT = os.path.join(ROOT, "src", "web", "routes", "derived_routes.rs")
+OUT_DATA = os.path.join(ROOT, "synapse-web", "src", "routes", "derived_route_table.inc.rs")
+OUT = os.path.join(ROOT, "synapse-web", "src", "routes", "derived_routes.rs")
 
 PROFILES = ["default", "worker", "all"]
 PROFILE_RANK = {"Always": 0, "Worker": 1, "Oidc": 2}

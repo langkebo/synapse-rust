@@ -3,7 +3,7 @@
 # check_route_contract.sh — Route Contract Drift Gate (CI / local)
 #
 # Regenerates docs/synapse-rust/ROUTE_CONTRACT.md from the real route surface
-# (src/web/routes/**) and fails if the committed doc has drifted from source.
+# (synapse-web/src/routes/**) and fails if the committed doc has drifted from source.
 #
 # Why normalize? The generated doc embeds a volatile "自动生成于 <date>" line that
 # changes every day. We compare a normalized form (date line + trailing whitespace

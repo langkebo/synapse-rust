@@ -1,5 +1,5 @@
 // Captcha API Tests - API Endpoint Coverage
-// These tests cover the captcha API endpoints from src/web/routes/captcha.rs
+// These tests cover the captcha API endpoints from synapse-web/src/routes/captcha.rs
 
 use serde_json::json;
 

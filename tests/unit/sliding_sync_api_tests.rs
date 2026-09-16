@@ -1,5 +1,5 @@
 // Sliding Sync API Tests - API Endpoint Coverage
-// These tests cover the sliding sync API endpoints from src/web/routes/sliding_sync.rs
+// These tests cover the sliding sync API endpoints from synapse-web/src/routes/sliding_sync.rs
 
 use serde_json::json;
 

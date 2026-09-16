@@ -2,8 +2,8 @@
 use base64::Engine;
 use std::sync::atomic::{AtomicU64, Ordering};
 use synapse_common::current_timestamp_millis;
-use synapse_rust::federation::device_sync::DeviceSyncManager;
-use synapse_rust::federation::key_rotation::KeyRotationManager;
+use synapse_web::federation::device_sync::DeviceSyncManager;
+use synapse_web::federation::key_rotation::KeyRotationManager;
 
 use sqlx::{Pool, Postgres};
 

@@ -1,7 +1,7 @@
 // Burn After Read route layer tests.
 //
 // Covers the wire-level contracts exposed by
-// `src/web/routes/burn_after_read.rs` (P-096: previously zero tests):
+// `synapse-web/src/routes/burn_after_read.rs` (P-096: previously zero tests):
 //   * Route manifest contents (methods + paths + registered_by tag) across
 //     v1 and v3 path prefixes.
 //   * Request/response JSON shapes for each of the 7 logical endpoints.
@@ -22,8 +22,8 @@
 use axum::http::Method;
 use serde_json::{json, Value};
 use synapse_common::ApiError;
-use synapse_rust::web::routes::declared_ledger_all;
-use synapse_rust::web::routes::route_ledger::RouteEntry;
+use synapse_web::routes::declared_ledger_all;
+use synapse_web::routes::route_ledger::RouteEntry;
 
 /// The `burn_after_read` slice of the derived route table.
 ///

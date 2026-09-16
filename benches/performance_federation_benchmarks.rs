@@ -15,7 +15,7 @@ use std::time::Duration;
 
 fn benchmark_state_resolution(c: &mut Criterion) {
     use std::collections::HashMap;
-    use synapse_rust::federation::event_auth::{EventAuthChain, EventData};
+    use synapse_web::federation::event_auth::{EventAuthChain, EventData};
 
     let chain = EventAuthChain::new();
 
@@ -68,7 +68,7 @@ fn benchmark_state_resolution(c: &mut Criterion) {
 
 fn benchmark_event_auth_chain(c: &mut Criterion) {
     use std::collections::HashMap;
-    use synapse_rust::federation::event_auth::{EventAuthChain, EventData};
+    use synapse_web::federation::event_auth::{EventAuthChain, EventData};
 
     c.bench_function("auth_chain_build_10", |b| {
         let mut events = HashMap::new();

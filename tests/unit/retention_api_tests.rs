@@ -1,5 +1,5 @@
 // Retention Policy API Tests - API Endpoint Coverage
-// These tests cover the retention policy API endpoints from src/web/routes/retention.rs
+// These tests cover the retention policy API endpoints from synapse-web/src/routes/retention.rs
 
 use serde_json::json;
 

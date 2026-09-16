@@ -1,5 +1,5 @@
 // Refresh Token API Tests - API Endpoint Coverage
-// These tests cover the refresh token API endpoints from src/web/routes/refresh_token.rs
+// These tests cover the refresh token API endpoints from synapse-web/src/routes/refresh_token.rs
 
 use serde_json::json;
 

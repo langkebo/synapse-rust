@@ -1,0 +1,352 @@
+use crate::routes::auth_source::{AdminAuthSource, AuthSource};
+use crate::utils::admin_auth::authorize_admin_from_services;
+use crate::utils::auth::resolve_request_id;
+use axum::{
+    extract::FromRequestParts,
+    http::{request::Parts, HeaderMap, Method},
+};
+use serde_json::json;
+use synapse_common::ApiError;
+use synapse_services::admin_audit_service::CreateAuditEventRequest;
+
+/// The `AuthenticatedUser` struct.
+#[derive(Clone)]
+pub struct AuthenticatedUser {
+    /// The `user_id` field.
+    pub user_id: String,
+    /// The `device_id` field.
+    pub device_id: Option<String>,
+    /// The `is_admin` field.
+    pub is_admin: bool,
+    /// The `is_shadow_banned` field.
+    pub is_shadow_banned: bool,
+    /// The `is_guest` field.
+    pub is_guest: bool,
+    /// The `access_token` field.
+    pub access_token: String,
+}
+
+/// The `OptionalAuthenticatedUser` struct.
+#[derive(Clone)]
+pub struct OptionalAuthenticatedUser {
+    /// The `user_id` field.
+    pub user_id: Option<String>,
+    /// The `device_id` field.
+    pub device_id: Option<String>,
+    /// The `is_admin` field.
+    pub is_admin: bool,
+    /// The `is_shadow_banned` field.
+    pub is_shadow_banned: bool,
+    /// The `is_guest` field.
+    pub is_guest: bool,
+    /// The `access_token` field.
+    pub access_token: Option<String>,
+}
+
+/// The `AdminUser` struct.
+#[derive(Clone)]
+pub struct AdminUser {
+    /// The `user_id` field.
+    pub user_id: String,
+    /// The `device_id` field.
+    pub device_id: Option<String>,
+    /// The `access_token` field.
+    pub access_token: String,
+    /// The `role` field.
+    pub role: String,
+}
+
+async fn audit_user_action(
+    audit_svc: &synapse_services::admin::AdminAuditService,
+    user_id: &str,
+    method: &Method,
+    path: &str,
+    headers: &HeaderMap,
+    is_admin: bool,
+) {
+    if matches!(method, &Method::POST | &Method::PUT | &Method::DELETE) && !path.starts_with("/_synapse/admin") {
+        let request_id = resolve_request_id(headers);
+        let audit_request = CreateAuditEventRequest {
+            actor_id: user_id.to_string(),
+            action: format!("user.{}", method.as_str().to_lowercase()),
+            resource_type: "client_api".to_string(),
+            resource_id: path.to_string(),
+            result: "success".to_string(),
+            request_id,
+            details: Some(json!({
+                "path": path,
+                "method": method.as_str(),
+                "is_admin": is_admin,
+            })),
+        };
+        if let Err(e) = audit_svc.create_event(audit_request).await {
+            ::tracing::error!(target: "security_audit", "Failed to create user audit event: {}", e);
+        }
+    }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+// Generic auth extractors.
+//
+// One impl per extractor, parameterised by the state type's `AuthSource`
+// implementation — see `crate::routes::auth_source`. Before this, each of
+// these had a near-verbatim copy per route context (21 copies in total); the
+// bodies below are byte-for-byte the sequence those copies performed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+impl<S> FromRequestParts<S> for AuthenticatedUser
+where
+    S: AuthSource,
+{
+    type Rejection = ApiError;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &S,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let uri = parts.uri.to_string();
+        let token_result = crate::utils::auth::extract_token(&parts.headers, &uri);
+        let state = state.clone();
+        let method = parts.method.clone();
+        let path = parts.uri.path().to_string();
+        let headers = parts.headers.clone();
+
+        async move {
+            let token = token_result?;
+            let result = state.token_auth().validate_token(&token).await;
+            match result {
+                Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => {
+                    if let Some(audit_svc) = state.admin_audit_service() {
+                        audit_user_action(audit_svc, &user_id, &method, &path, &headers, is_admin).await;
+                    }
+
+                    Ok(Self { user_id, device_id, is_admin, is_shadow_banned, is_guest, access_token: token })
+                }
+                Err(e) => Err(e),
+            }
+        }
+    }
+}
+
+impl<S> FromRequestParts<S> for OptionalAuthenticatedUser
+where
+    S: AuthSource,
+{
+    type Rejection = ApiError;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &S,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let uri = parts.uri.to_string();
+        let token_result = crate::utils::auth::extract_token(&parts.headers, &uri);
+        let state = state.clone();
+
+        async move {
+            match token_result {
+                Ok(token) => match state.token_auth().validate_token(&token).await {
+                    Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => Ok(Self {
+                        user_id: Some(user_id),
+                        device_id,
+                        is_admin,
+                        is_shadow_banned,
+                        is_guest,
+                        access_token: Some(token),
+                    }),
+                    // B-9 fix: previously, an invalid token was silently
+                    // downgraded to an anonymous OptionalAuthenticatedUser,
+                    // which masked auth failures and let stale-token users
+                    // fall through to anonymous handling.  Reject explicitly
+                    // with 401 M_UNKNOWN_TOKEN so the client re-authenticates.
+                    Err(e) => Err(ApiError::unauthorized(format!("Invalid access token: {e}"))),
+                },
+                Err(_) => Ok(Self {
+                    user_id: None,
+                    device_id: None,
+                    is_admin: false,
+                    is_shadow_banned: false,
+                    is_guest: false,
+                    access_token: None,
+                }),
+            }
+        }
+    }
+}
+
+impl<S> FromRequestParts<S> for AdminUser
+where
+    S: AdminAuthSource,
+{
+    type Rejection = ApiError;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &S,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let state = state.clone();
+        let headers = parts.headers.clone();
+        let method = parts.method.clone();
+        let path = parts.uri.path().to_string();
+
+        async move {
+            let admin = authorize_admin_from_services(
+                state.token_auth().as_ref(),
+                state.user_service().as_ref(),
+                state.security_config(),
+                state.admin_audit_service(),
+                &headers,
+                &method,
+                &path,
+            )
+            .await?;
+            Ok(Self {
+                user_id: admin.user_id,
+                device_id: admin.device_id,
+                access_token: admin.access_token,
+                role: admin.role,
+            })
+        }
+    }
+}
+
+// =============================================================================
+// FromRequestParts impls for typed context structs (RoomContext, SyncContext, etc.)
+// =============================================================================
+// These are needed because handlers migrate from State<AppState> to
+// State<RoomContext> (etc.), and the auth extractors must work with the
+// new state type. Each context carries an optional admin_audit_service
+// field for best-effort audit event creation on write operations.
+
+// OptionalAuthenticatedUser for context types
+
+// AuthenticatedUser for AdminContext, FederationContext, MediaContext
+
+// OptionalAuthenticatedUser for AdminContext, FederationContext, MediaContext
+
+// AdminUser for AdminContext, FederationContext, MediaContext
+
+#[cfg(test)]
+mod tests {
+    use super::{AdminUser, OptionalAuthenticatedUser};
+    use axum::body::Body;
+    use axum::http::{header, HeaderMap, Request};
+
+    #[test]
+    fn test_extract_token_from_headers_valid() {
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "Bearer test-token-123".parse().unwrap());
+        assert_eq!(crate::utils::auth::bearer_token(&headers).unwrap(), "test-token-123");
+    }
+
+    #[test]
+    fn test_extract_token_from_headers_missing() {
+        let headers = HeaderMap::new();
+        assert!(crate::utils::auth::bearer_token(&headers).is_err());
+    }
+
+    #[test]
+    fn test_extract_token_from_request_bearer_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "Bearer header-token".parse().unwrap());
+        assert_eq!(crate::utils::auth::extract_token(&headers, "/test").unwrap(), "header-token");
+    }
+
+    #[test]
+    fn test_extract_token_from_request_rejects_query_param() {
+        let headers = HeaderMap::new();
+        let uri = "/_matrix/client/v3/sync?access_token=query-token&other=value";
+        assert!(crate::utils::auth::extract_token(&headers, uri).is_err(), "query 参数传 token 应被禁用");
+    }
+
+    #[test]
+    fn test_extract_token_from_request_header_takes_priority() {
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "Bearer header-token".parse().unwrap());
+        let uri = "/test?access_token=query-token";
+        assert_eq!(crate::utils::auth::extract_token(&headers, uri).unwrap(), "header-token");
+    }
+
+    #[test]
+    fn test_extract_token_from_request_rejects_query_only() {
+        let headers = HeaderMap::new();
+        let uri = "/test?access_token=abc123";
+        assert!(crate::utils::auth::extract_token(&headers, uri).is_err(), "仅 query 参数传 token 应被拒绝");
+    }
+
+    #[test]
+    fn test_extract_token_from_request_no_token() {
+        let headers = HeaderMap::new();
+        let uri = "/test";
+        assert!(crate::utils::auth::extract_token(&headers, uri).is_err());
+    }
+
+    #[test]
+    fn test_extract_token_from_request_query_no_access_token() {
+        let headers = HeaderMap::new();
+        let uri = "/test?other_param=value";
+        assert!(crate::utils::auth::extract_token(&headers, uri).is_err());
+    }
+
+    fn build_request_with_token(token: Option<&str>) -> Request<Body> {
+        let mut req = Request::builder().uri("https://test.local/_matrix/client/v3/sync");
+        if let Some(t) = token {
+            req = req.header(header::AUTHORIZATION, format!("Bearer {t}"));
+        }
+        req.body(Body::empty()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_authenticated_user_rejects_missing_token() {
+        // AuthenticatedUser requires a valid bearer token.
+        // Without an authorization header, the token extraction fails,
+        // and the FromRequestParts implementation returns Err.
+        let req = build_request_with_token(None);
+        assert!(
+            crate::utils::auth::bearer_token(req.headers()).is_err(),
+            "AuthenticatedUser must reject requests without an auth token"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_optional_user_allows_missing_token() {
+        // OptionalAuthenticatedUser does not require a token.
+        // When no token is present, user_id is None and
+        // is_admin / is_shadow_banned / is_guest default to false.
+        let req = build_request_with_token(None);
+        assert!(
+            crate::utils::auth::bearer_token(req.headers()).is_err(),
+            "OptionalAuthenticatedUser handles missing token gracefully"
+        );
+
+        // Demonstrate the struct shape for the anonymous case:
+        let _anon = OptionalAuthenticatedUser {
+            user_id: None,
+            device_id: None,
+            is_admin: false,
+            is_shadow_banned: false,
+            is_guest: false,
+            access_token: None,
+        };
+    }
+
+    #[tokio::test]
+    async fn test_admin_user_enforces_admin_check() {
+        // AdminUser requires both valid authentication AND admin privileges.
+        // It delegates to authorize_admin_request which validates the token
+        // and checks for admin role.  Without a valid admin context the
+        // extraction fails.
+        let req = build_request_with_token(Some("non-admin-token"));
+
+        // The token is structurally present (but not an admin token):
+        assert_eq!(crate::utils::auth::bearer_token(req.headers()).unwrap(), "non-admin-token");
+        // Full privilege checking requires a running server with token
+        // storage -- covered by integration tests.
+
+        // Demonstrate the struct shape for a successful admin extraction:
+        let _admin = AdminUser {
+            user_id: "admin_user".to_owned(),
+            device_id: None,
+            access_token: "admin_token".to_owned(),
+            role: "admin".to_owned(),
+        };
+    }
+}

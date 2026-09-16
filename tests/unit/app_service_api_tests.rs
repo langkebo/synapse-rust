@@ -1,5 +1,5 @@
 // App Service API Tests - API Endpoint Coverage
-// These tests cover the app service API endpoints from src/web/routes/app_service.rs
+// These tests cover the app service API endpoints from synapse-web/src/routes/app_service.rs
 
 use serde_json::json;
 

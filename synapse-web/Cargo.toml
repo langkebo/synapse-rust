@@ -1,0 +1,85 @@
+[package]
+name = "synapse-web"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.93.0"
+authors = ["Synapse Rust Team"]
+description = "HTTP boundary for Synapse Rust: Axum routes, extractors, middleware and the federation glue they need"
+license = "AGPL-3.0-only"
+
+[lints]
+workspace = true
+
+[features]
+# Mirrors the root package's feature surface: the route modules are gated on the
+# same extension switches, and the root crate forwards each one here.
+default = ["server", "core-private-chat", "widgets", "external-services", "beacons"]
+server = ["dep:axum", "dep:tower-http"]
+test-utils = ["dep:synapse-test-utils", "synapse-services/test-utils", "synapse-storage/test-utils", "synapse-e2ee/test-utils", "synapse-federation/test-utils"]
+
+core-private-chat = ["friends", "burn-after-read"]
+friends = ["synapse-services/friends"]
+voice-extended = ["server", "synapse-services/voice-extended"]
+saml-sso = ["synapse-services/saml-sso"]
+cas-sso = ["synapse-services/cas-sso"]
+beacons = ["synapse-services/beacons"]
+voip-tracking = ["synapse-services/voip-tracking", "synapse-storage/voip-tracking"]
+widgets = ["synapse-services/widgets"]
+server-notifications = ["synapse-services/server-notifications"]
+burn-after-read = ["synapse-services/burn-after-read"]
+privacy-ext = ["synapse-services/privacy-ext", "synapse-storage/privacy-ext"]
+external-services = ["synapse-services/external-services"]
+builtin-oidc = ["synapse-services/builtin-oidc"]
+all-extensions = [
+    "friends", "voice-extended",
+    "saml-sso", "cas-sso",
+    "beacons", "voip-tracking", "widgets", "server-notifications",
+    "burn-after-read", "privacy-ext", "external-services",
+    "builtin-oidc"
+]
+
+[dependencies]
+synapse-common = { path = "../synapse-common" }
+synapse-cache = { path = "../synapse-cache" }
+synapse-e2ee = { path = "../synapse-e2ee", default-features = false }
+synapse-federation = { path = "../synapse-federation" }
+synapse-services = { path = "../synapse-services" }
+synapse-storage = { path = "../synapse-storage" }
+synapse-test-utils = { path = "../synapse-test-utils", optional = true }
+
+tokio = { workspace = true, features = ["full", "test-util"] }
+tokio-util = { workspace = true, features = ["io"] }
+
+axum = { workspace = true, optional = true, features = ["macros"] }
+tower = { workspace = true }
+tower-http = { workspace = true, optional = true, features = ["fs", "cors", "trace", "compression-gzip", "limit"] }
+hyper = { workspace = true }
+http = { workspace = true }
+sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "chrono", "json", "uuid", "ipnetwork", "migrate", "macros", "bigdecimal"] }
+ipnetwork = "0.20"
+
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+rand = { workspace = true }
+sha1 = { workspace = true }
+sha2 = { workspace = true, features = ["oid"] }
+hmac = { workspace = true }
+base64 = { workspace = true }
+ed25519-dalek = "2.0"
+
+tracing = { workspace = true, features = ["attributes"] }
+chrono = { workspace = true, features = ["serde"] }
+thiserror = { workspace = true }
+uuid = { workspace = true, features = ["v4", "serde"] }
+futures = { workspace = true }
+bytes = { workspace = true }
+regex = { workspace = true }
+url = { workspace = true }
+urlencoding = { workspace = true }
+reqwest = { workspace = true, features = ["json", "stream"] }
+validator = { version = "0.20.0", features = ["derive"] }
+infer = "0.19.0"
+serde_yaml = { workspace = true }
+
+deadpool-redis = { workspace = true }

@@ -1,5 +1,5 @@
 // Telemetry API Tests - API Endpoint Coverage
-// These tests cover the telemetry API endpoints from src/web/routes/telemetry.rs
+// These tests cover the telemetry API endpoints from synapse-web/src/routes/telemetry.rs
 
 use serde_json::json;
 

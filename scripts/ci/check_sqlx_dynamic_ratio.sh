@@ -51,6 +51,8 @@ SCAN_DIRS=(
     "synapse-e2ee/src"
     "synapse-federation/src"
     "synapse-services/src"
+    "synapse-web/src"
+    "synapse-test-utils/src"
 )
 
 EXCLUDES=(

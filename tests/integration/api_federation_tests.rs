@@ -8,7 +8,7 @@ use ed25519_dalek::Signer;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_common::room_versions::DEFAULT_ROOM_VERSION;
-use synapse_rust::federation::signing::canonical_federation_request_bytes;
+use synapse_web::federation::signing::canonical_federation_request_bytes;
 use tower::ServiceExt;
 
 async fn setup_test_app() -> Option<axum::Router> {
@@ -34,8 +34,8 @@ async fn setup_federation_test_app_with_pool(
     super::config_mut(&mut container).federation.signing_key = Some(signing_key_b64.to_string());
     let cache =
         std::sync::Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default()));
-    let state = synapse_rust::web::routes::state::AppState::new(container, cache);
-    Some((synapse_rust::web::create_router(state), pool))
+    let state = synapse_web::routes::state::AppState::new(container, cache);
+    Some((synapse_web::create_router(state), pool))
 }
 
 fn signed_federation_request(

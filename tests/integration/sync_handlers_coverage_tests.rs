@@ -2,7 +2,7 @@
 //! B.3 Phase 3 Batch 2 — sync handlers + sliding_sync_service coverage tests.
 //!
 //! Target files (currently 0-6% covered):
-//!   - src/web/routes/handlers/sync.rs (0%, 0/95)
+//!   - synapse-web/src/routes/handlers/sync.rs (0%, 0/95)
 //!   - synapse-services/src/sliding_sync_service/mod.rs (3.9%, 6/155)
 //!   - synapse-services/src/sliding_sync_service/extensions.rs (6.3%, 12/189)
 //!

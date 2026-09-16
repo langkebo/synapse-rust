@@ -1,7 +1,7 @@
 //! Offline route-ledger exporter.
 #![cfg_attr(test, allow(clippy::panic))]
 //!
-//! Thin CLI around `synapse_rust::web::routes::ledger_export`. Emits the
+//! Thin CLI around `synapse_web::routes::ledger_export`. Emits the
 //! `(method, path, registered_by)` manifest the server would wire up for
 //! a given feature profile, as deterministic JSON. Consumed downstream
 //! by `matrix-js-sdk/scripts/contract-sync.mjs` per
@@ -28,7 +28,7 @@
 use std::io::Write;
 use std::process::ExitCode;
 
-use synapse_rust::web::routes::ledger_export::{build_artifact, profile_for_name, render};
+use synapse_web::routes::ledger_export::{build_artifact, profile_for_name, render};
 
 #[derive(Debug)]
 struct CliArgs {

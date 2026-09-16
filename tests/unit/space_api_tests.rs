@@ -1,5 +1,5 @@
 // Space API Tests - API Endpoint Coverage
-// These tests cover the space API endpoints from src/web/routes/space.rs
+// These tests cover the space API endpoints from synapse-web/src/routes/space.rs
 
 use serde_json::json;
 

@@ -29,24 +29,24 @@ redundant_else = "warn"
 # P-067: `external-services` added to default — admin external_service routes
 #        must respond (previously 404 due to missing feature flag).
 default = ["server", "core-private-chat", "widgets", "external-services", "beacons"]
-server = ["dep:axum", "dep:tower-http"]
+server = ["dep:axum", "dep:tower-http", "synapse-web/server"]
 performance-tests = []
-test-utils = ["dep:synapse-test-utils", "synapse-services/test-utils", "synapse-storage/test-utils", "synapse-e2ee/test-utils", "synapse-federation/test-utils"]
+test-utils = ["dep:synapse-test-utils", "synapse-services/test-utils", "synapse-storage/test-utils", "synapse-e2ee/test-utils", "synapse-federation/test-utils", "synapse-web/test-utils"]
 
 # Non-core feature modules (can be disabled to produce a minimal build)
-core-private-chat = ["friends", "burn-after-read"]
-friends = ["synapse-services/friends"]
-voice-extended = ["server", "synapse-services/voice-extended"]
-saml-sso = ["synapse-services/saml-sso"]
-cas-sso = ["synapse-services/cas-sso"]
-beacons = ["synapse-services/beacons"]
-voip-tracking = ["synapse-services/voip-tracking", "synapse-storage/voip-tracking"]
-widgets = ["synapse-services/widgets"]
-server-notifications = ["synapse-services/server-notifications"]
-burn-after-read = ["synapse-services/burn-after-read"]
-privacy-ext = ["synapse-services/privacy-ext", "synapse-storage/privacy-ext"]
-external-services = ["synapse-services/external-services"]
-builtin-oidc = ["synapse-services/builtin-oidc"]
+core-private-chat = ["friends", "burn-after-read", "synapse-web/core-private-chat"]
+friends = ["synapse-services/friends", "synapse-web/friends"]
+voice-extended = ["server", "synapse-services/voice-extended", "synapse-web/voice-extended"]
+saml-sso = ["synapse-services/saml-sso", "synapse-web/saml-sso"]
+cas-sso = ["synapse-services/cas-sso", "synapse-web/cas-sso"]
+beacons = ["synapse-services/beacons", "synapse-web/beacons"]
+voip-tracking = ["synapse-services/voip-tracking", "synapse-storage/voip-tracking", "synapse-web/voip-tracking"]
+widgets = ["synapse-services/widgets", "synapse-web/widgets"]
+server-notifications = ["synapse-services/server-notifications", "synapse-web/server-notifications"]
+burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-read"]
+privacy-ext = ["synapse-services/privacy-ext", "synapse-storage/privacy-ext", "synapse-web/privacy-ext"]
+external-services = ["synapse-services/external-services", "synapse-web/external-services"]
+builtin-oidc = ["synapse-services/builtin-oidc", "synapse-web/builtin-oidc"]
 
 # Meta-feature: enable all extensions (default for backwards compatibility)
 all-extensions = [
@@ -54,7 +54,8 @@ all-extensions = [
     "saml-sso", "cas-sso",
     "beacons", "voip-tracking", "widgets", "server-notifications",
     "burn-after-read", "privacy-ext", "external-services",
-    "builtin-oidc"
+    "builtin-oidc",
+    "synapse-web/all-extensions"
 ]
 [dependencies]
 tokio = { version = "1.49", features = ["full", "test-util"] }
@@ -116,6 +117,7 @@ synapse-federation = { path = "synapse-federation" }
 synapse-services = { path = "synapse-services" }
 synapse-storage = { path = "synapse-storage" }
 synapse-test-utils = { path = "synapse-test-utils", optional = true }
+synapse-web = { path = "synapse-web" }
 
 image = "0.25"
 hex = "0.4.3"
@@ -207,6 +209,7 @@ members = [
     "synapse-federation",
     "synapse-services",
     "synapse-test-utils",
+    "synapse-web",
 ]
 # `vendor/pastey` is a `[patch.crates-io]` fork (see the T-PASTE-PATCH note
 # below) and is intentionally NOT a workspace member. It must still be listed

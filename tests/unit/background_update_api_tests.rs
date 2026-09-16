@@ -1,5 +1,5 @@
 // Background Update API Tests - API Endpoint Coverage
-// These tests cover the background update API endpoints from src/web/routes/background_update.rs
+// These tests cover the background update API endpoints from synapse-web/src/routes/background_update.rs
 
 use serde_json::json;
 

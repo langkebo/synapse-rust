@@ -1,5 +1,5 @@
 // Friend API Tests - API Endpoint Coverage
-// These tests cover the friend API endpoints from src/web/routes/friend_room.rs
+// These tests cover the friend API endpoints from synapse-web/src/routes/friend_room.rs
 
 use serde_json::json;
 

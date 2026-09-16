@@ -10,7 +10,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use serde_json::json;
-use synapse_rust::web::routes::handlers::room::state::parse_beacon_info_content;
+use synapse_web::routes::handlers::room::state::parse_beacon_info_content;
 
 const ROOM_ID: &str = "!beaconroom:example.com";
 const EVENT_ID: &str = "$beaconevent:example.com";

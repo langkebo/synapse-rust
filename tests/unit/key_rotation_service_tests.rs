@@ -9,7 +9,7 @@
 //    round-trips) is covered here without a database.
 //
 // 2. `synapse_services::infra::FederationKeyRotationService` — the route-facing
-//    facade used by `src/web/routes/key_rotation.rs`. Its inline test module
+//    facade used by `synapse-web/src/routes/key_rotation.rs`. Its inline test module
 //    already covers most methods; this file adds coverage for the two
 //    UNTESTED methods (`set_manager_config_value`, `set_storage_config_value`)
 //    plus complementary edge cases (rotate with requested key id, revoke

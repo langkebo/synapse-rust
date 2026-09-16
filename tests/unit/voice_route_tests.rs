@@ -1,6 +1,6 @@
 // Voice route layer tests.
 //
-// Covers the wire-level contracts exposed by `src/web/routes/voice.rs`:
+// Covers the wire-level contracts exposed by `synapse-web/src/routes/voice.rs`:
 //   * FT-123: `limit` query parameter clamping for voice listing endpoints
 //     (lower bound of 1, upper bound of 100, default of 50).
 //   * FT-125: `upload_voice_message` must propagate the service's `ApiError`
@@ -12,7 +12,7 @@
 // small `pub fn` helpers in `voice.rs` and exercised directly here.
 
 use synapse_common::{ApiError, ApiErrorKind, ApiResult, MatrixErrorCode};
-use synapse_rust::web::routes::voice::{clamp_voice_list_limit, voice_upload_response};
+use synapse_web::routes::voice::{clamp_voice_list_limit, voice_upload_response};
 
 // ============================================================================
 // FT-123: limit clamping for voice listing endpoints

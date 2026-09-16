@@ -1,5 +1,5 @@
 // Admin Extra API Tests - API Endpoint Coverage
-// These tests cover the admin extra API endpoints from src/web/routes/admin_extra.rs
+// These tests cover the admin extra API endpoints from synapse-web/src/routes/admin_extra.rs
 
 use serde_json::json;
 

@@ -1,5 +1,5 @@
 // Media Quota API Tests - API Endpoint Coverage
-// These tests cover the media quota API endpoints from src/web/routes/media_quota.rs
+// These tests cover the media quota API endpoints from synapse-web/src/routes/media_quota.rs
 
 use serde_json::json;
 

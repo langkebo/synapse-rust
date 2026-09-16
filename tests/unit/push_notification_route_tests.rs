@@ -1,6 +1,6 @@
 // Push notification route layer tests.
 //
-// Covers the wire-level contracts exposed by `src/web/routes/push_notification.rs`:
+// Covers the wire-level contracts exposed by `synapse-web/src/routes/push_notification.rs`:
 //   * Request body deserialization (RegisterDeviceBody / SendNotificationBody)
 //   * Query-string deserialization (ProcessQueueQuery / CleanupQuery)
 //   * Response struct serialization + From<PushDevice> conversion
@@ -15,13 +15,13 @@
 
 use axum::http::Method;
 use serde_json::json;
-use synapse_rust::web::routes::declared_ledger_all;
-use synapse_rust::web::routes::push_notification::{
+use synapse_storage::push_notification::PushDevice;
+use synapse_web::routes::declared_ledger_all;
+use synapse_web::routes::push_notification::{
     validate_push_config_patch, CleanupQuery, DeviceResponse, ProcessQueueQuery, RegisterDeviceBody,
     SendNotificationBody, SetPushConfigBody,
 };
-use synapse_rust::web::routes::route_ledger::RouteEntry;
-use synapse_storage::push_notification::PushDevice;
+use synapse_web::routes::route_ledger::RouteEntry;
 
 /// The `push_notification` slice of the derived route table.
 ///

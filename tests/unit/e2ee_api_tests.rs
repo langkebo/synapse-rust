@@ -1,5 +1,5 @@
 // E2EE Encryption API Tests - API Endpoint Coverage
-// These tests cover the E2EE encryption API endpoints from src/web/routes/e2ee_routes.rs
+// These tests cover the E2EE encryption API endpoints from synapse-web/src/routes/e2ee_routes.rs
 
 use serde_json::json;
 

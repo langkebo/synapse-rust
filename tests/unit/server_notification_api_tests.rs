@@ -1,5 +1,5 @@
 // Server Notification API Tests - API Endpoint Coverage
-// These tests cover the server notification API endpoints from src/web/routes/server_notification.rs
+// These tests cover the server notification API endpoints from synapse-web/src/routes/server_notification.rs
 
 use serde_json::json;
 

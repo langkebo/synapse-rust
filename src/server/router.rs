@@ -3,9 +3,11 @@ use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::common::config::Config;
-use crate::web::middleware::{payload_too_large_json_middleware, request_debug_middleware, request_timeout_middleware};
-use crate::web::routes::create_router;
-use crate::web::AppState;
+use synapse_web::middleware::{
+    payload_too_large_json_middleware, request_debug_middleware, request_timeout_middleware,
+};
+use synapse_web::routes::create_router;
+use synapse_web::AppState;
 
 /// See [`build_router`].
 pub fn build_router(app_state: AppState, config: &Config) -> Router {

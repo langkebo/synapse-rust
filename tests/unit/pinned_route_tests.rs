@@ -1,6 +1,6 @@
 // Pinned events route layer tests.
 //
-// Covers the wire-level contracts exposed by `src/web/routes/pinned.rs`
+// Covers the wire-level contracts exposed by `synapse-web/src/routes/pinned.rs`
 // (P-096: previously zero tests):
 //   * DTO serialization/deserialization: `PinRequest`, `PinnedEventsResponse`.
 //   * Input validation: `validate_room_id`, `validate_event_id` (re-exported
@@ -19,8 +19,8 @@
 
 use serde_json::{json, Value};
 use synapse_common::ApiError;
-use synapse_rust::web::routes::pinned::{PinRequest, PinnedEventsResponse};
-use synapse_rust::web::routes::{validate_event_id, validate_room_id};
+use synapse_web::routes::pinned::{PinRequest, PinnedEventsResponse};
+use synapse_web::routes::{validate_event_id, validate_room_id};
 
 // ============================================================================
 // PinRequest — body deserialization

@@ -5,8 +5,8 @@ use axum::{
 use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::web::routes::state::AppState;
 use synapse_services::ServiceContainer;
+use synapse_web::routes::state::AppState;
 use tower::ServiceExt;
 
 async fn setup_test_app_with_voip() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
@@ -24,7 +24,7 @@ async fn setup_test_app_with_voip() -> Option<(axum::Router, Arc<sqlx::PgPool>)>
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);
-    Some((synapse_rust::web::create_router(state), pool))
+    Some((synapse_web::create_router(state), pool))
 }
 
 #[tokio::test]

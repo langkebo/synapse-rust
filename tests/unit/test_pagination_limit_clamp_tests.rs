@@ -34,7 +34,7 @@ fn project_root() -> PathBuf {
 /// `limit` into an integer.
 fn limit_parsing_lines() -> Vec<(String, usize, String)> {
     let root = project_root();
-    let handler_roots = [root.join("src/web/routes/handlers"), root.join("src/web/routes")];
+    let handler_roots = [root.join("synapse-web/src/routes/handlers"), root.join("synapse-web/src/routes")];
 
     let mut hits = Vec::new();
     let mut stack: Vec<PathBuf> = handler_roots.iter().filter(|p| p.exists()).cloned().collect();
@@ -110,7 +110,8 @@ fn pagination_limit_is_clamped_on_both_ends() {
 fn guard_actually_sees_known_limit_sites() {
     let hits = limit_parsing_lines();
     let files: Vec<&str> = hits.iter().map(|(f, _, _)| f.as_str()).collect();
-    let expected_any = ["src/web/routes/handlers/room/members.rs", "src/web/routes/handlers/room/management/query.rs"];
+    let expected_any =
+        ["synapse-web/src/routes/handlers/room/members.rs", "synapse-web/src/routes/handlers/room/management/query.rs"];
     let seen = expected_any.iter().any(|want| files.contains(want));
     assert!(
         seen,

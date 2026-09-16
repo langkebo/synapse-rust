@@ -1,7 +1,7 @@
 // Assembly Route Tests - Top-Level Router Aggregation Coverage
 //
 // These tests cover the route-aggregation surface exposed by
-// `src/web/routes/assembly.rs` (P-096: previously zero tests).
+// `synapse-web/src/routes/assembly.rs` (P-096: previously zero tests).
 //
 // `assembly.rs` is the entry point that builds the live axum `Router` from
 // dozens of sub-routers. Route metadata is no longer restated here: it is
@@ -17,9 +17,9 @@
 // used by the route-ledger snapshot tests under `tests/integration/`.
 
 use axum::http::Method;
-use synapse_rust::web::routes::declared_ledger_for_profile;
-use synapse_rust::web::routes::route_ledger::{RouteEntry, RouteLedger};
-use synapse_rust::web::routes::route_module::ProfileFlags;
+use synapse_web::routes::declared_ledger_for_profile;
+use synapse_web::routes::route_ledger::{RouteEntry, RouteLedger};
+use synapse_web::routes::route_module::ProfileFlags;
 
 // ============================================================================
 // declared_ledger_for_profile — surface sanity checks

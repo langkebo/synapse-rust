@@ -20,7 +20,7 @@ async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>, 
     })
 }
 
-async fn setup_test_app_with_state() -> Option<(axum::Router, synapse_rust::web::routes::state::AppState)> {
+async fn setup_test_app_with_state() -> Option<(axum::Router, synapse_web::routes::state::AppState)> {
     super::setup_fresh_test_app_with_config(|_| {}).await
 }
 

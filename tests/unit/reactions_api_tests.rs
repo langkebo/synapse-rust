@@ -1,5 +1,5 @@
 // Reactions API Tests - API Endpoint Coverage
-// These tests cover the reactions API endpoints from src/web/routes/reactions.rs
+// These tests cover the reactions API endpoints from synapse-web/src/routes/reactions.rs
 
 use serde_json::json;
 

@@ -14,7 +14,7 @@ use base64::Engine as _;
 use ed25519_dalek::Signer;
 use serde_json::{json, Value};
 use std::sync::Arc;
-use synapse_rust::federation::signing::canonical_federation_request_bytes;
+use synapse_web::federation::signing::canonical_federation_request_bytes;
 use tower::ServiceExt;
 
 // ---------------------------------------------------------------------------
@@ -44,8 +44,8 @@ async fn setup_federation_app() -> Option<(
     super::config_mut(&mut container).federation.key_id = Some(key_id.to_string());
     super::config_mut(&mut container).federation.signing_key = Some(signing_key_b64.clone());
     let cache = Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default()));
-    let state = synapse_rust::web::routes::state::AppState::new(container, cache.clone());
-    let app = synapse_rust::web::create_router(state);
+    let state = synapse_web::routes::state::AppState::new(container, cache.clone());
+    let app = synapse_web::create_router(state);
     Some((app, pool, key_id.to_string(), signing_key_b64, signing_key, cache))
 }
 

@@ -18,16 +18,12 @@ pub mod cache;
 pub mod common;
 /// The `e2ee` module.
 pub mod e2ee;
-/// The `federation` module.
-pub mod federation;
 /// The `server` module.
 pub mod server;
 /// The `storage` module.
 pub mod storage;
 /// The `tasks` module.
 pub mod tasks;
-/// The `web` module.
-pub mod web;
 /// The `worker` module.
 pub mod worker;
 

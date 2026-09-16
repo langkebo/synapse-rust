@@ -2,7 +2,7 @@
 #
 # check_route_layering.sh — Route Layering Gate
 #
-# Ensures that `src/web/routes/` handlers do not directly import
+# Ensures that `synapse-web/src/routes/` handlers do not directly import
 # `crate::storage` or invoke `sqlx::query` / `PgPool` / `Pool`.
 # The architecture requires:
 #
@@ -24,8 +24,8 @@
 
 set -euo pipefail
 
-SRC_DIR="${SYNAPSE_SRC_DIR:-src}"
-ROUTES_DIR="$SRC_DIR/web/routes"
+WEB_CRATE="${SYNAPSE_WEB_CRATE_DIR:-synapse-web}"
+ROUTES_DIR="$WEB_CRATE/src/routes"
 OUTPUT_FORMAT="${1:-text}"
 
 if [ ! -d "$ROUTES_DIR" ]; then

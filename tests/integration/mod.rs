@@ -337,10 +337,10 @@ pub fn config_mut(container: &mut synapse_services::ServiceContainer) -> &mut sy
     std::sync::Arc::make_mut(&mut container.core.config)
 }
 
-static DEFAULT_APP: tokio::sync::OnceCell<Option<(axum::Router, synapse_rust::web::routes::state::AppState)>> =
+static DEFAULT_APP: tokio::sync::OnceCell<Option<(axum::Router, synapse_web::routes::state::AppState)>> =
     tokio::sync::OnceCell::const_new();
 
-static FEDERATION_APP: tokio::sync::OnceCell<Option<(axum::Router, synapse_rust::web::routes::state::AppState)>> =
+static FEDERATION_APP: tokio::sync::OnceCell<Option<(axum::Router, synapse_web::routes::state::AppState)>> =
     tokio::sync::OnceCell::const_new();
 
 pub async fn setup_test_app() -> Option<axum::Router> {
@@ -348,16 +348,14 @@ pub async fn setup_test_app() -> Option<axum::Router> {
     cached.as_ref().map(|(app, _)| app.clone())
 }
 
-pub async fn setup_test_app_with_config<F>(
-    configure: F,
-) -> Option<(axum::Router, synapse_rust::web::routes::state::AppState)>
+pub async fn setup_test_app_with_config<F>(configure: F) -> Option<(axum::Router, synapse_web::routes::state::AppState)>
 where
     F: FnOnce(&mut synapse_services::ServiceContainer),
 {
     build_test_app(configure).await
 }
 
-pub async fn setup_test_app_with_state() -> Option<(axum::Router, synapse_rust::web::routes::state::AppState)> {
+pub async fn setup_test_app_with_state() -> Option<(axum::Router, synapse_web::routes::state::AppState)> {
     let cached = FEDERATION_APP
         .get_or_init(|| async {
             build_test_app(|container| {
@@ -369,13 +367,13 @@ pub async fn setup_test_app_with_state() -> Option<(axum::Router, synapse_rust::
     cached.as_ref().map(|(app, state)| (app.clone(), state.clone()))
 }
 
-async fn build_test_app<F>(configure: F) -> Option<(axum::Router, synapse_rust::web::routes::state::AppState)>
+async fn build_test_app<F>(configure: F) -> Option<(axum::Router, synapse_web::routes::state::AppState)>
 where
     F: FnOnce(&mut synapse_services::ServiceContainer),
 {
     use synapse_rust::cache::{CacheConfig, CacheManager};
-    use synapse_rust::web::routes::state::AppState;
     use synapse_services::ServiceContainer;
+    use synapse_web::routes::state::AppState;
 
     let pool = get_test_pool().await?;
     let cache = std::sync::Arc::new(CacheManager::new(&CacheConfig::default()));
@@ -383,7 +381,7 @@ where
     configure(&mut container);
     let state = AppState::new(container, cache);
 
-    let app = synapse_rust::web::create_router(state.clone());
+    let app = synapse_web::create_router(state.clone());
     Some((app, state))
 }
 
@@ -431,7 +429,7 @@ pub async fn setup_test_app_with_pool(
 /// ```
 pub struct TestContext {
     pub app: axum::Router,
-    pub state: synapse_rust::web::routes::state::AppState,
+    pub state: synapse_web::routes::state::AppState,
     pub pool: Arc<sqlx::PgPool>,
     // Schema 租约不再作为独立字段持有，而是通过 `state.test_schema_lease` 绑定到
     // AppState/Router 生命周期（见 build()）。这样 `setup_fresh_test_app*` 系列
@@ -470,12 +468,12 @@ impl TestContext {
         let container =
             synapse_services::ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone()).await;
 
-        let mut state = synapse_rust::web::routes::state::AppState::new(container, cache);
+        let mut state = synapse_web::routes::state::AppState::new(container, cache);
         // 把 schema 租约绑定到 AppState（随 Router 生命周期），而非 TestContext。
         // 否则 `setup_fresh_test_app*` 系列（TestContext::new().map(|ctx| ctx.app)）
         // 会立即 drop 租约 → 后台 TRUNCATE 清空 schema → 并发下被复用 → 数据竞态。
         state.test_schema_lease = lease.map(Arc::new);
-        let app = synapse_rust::web::create_router(state.clone());
+        let app = synapse_web::create_router(state.clone());
         Some(Self { app, state, pool })
     }
 }
@@ -491,7 +489,7 @@ pub async fn setup_fresh_test_app() -> Option<axum::Router> {
 }
 
 /// Build a fresh test app with state, bypassing the OnceCell cache.
-pub async fn setup_fresh_test_app_with_state() -> Option<(axum::Router, synapse_rust::web::routes::state::AppState)> {
+pub async fn setup_fresh_test_app_with_state() -> Option<(axum::Router, synapse_web::routes::state::AppState)> {
     TestContext::new().await.map(|ctx| (ctx.app, ctx.state))
 }
 
@@ -516,20 +514,20 @@ pub async fn setup_fresh_test_app_with_pool(
 /// same signature but uses an isolated schema pool instead of `get_test_pool()`.
 pub async fn setup_fresh_test_app_with_config<F>(
     configure: F,
-) -> Option<(axum::Router, synapse_rust::web::routes::state::AppState)>
+) -> Option<(axum::Router, synapse_web::routes::state::AppState)>
 where
     F: FnOnce(&mut synapse_services::ServiceContainer),
 {
     use synapse_rust::cache::{CacheConfig, CacheManager};
-    use synapse_rust::web::routes::state::AppState;
     use synapse_services::ServiceContainer;
+    use synapse_web::routes::state::AppState;
 
     let pool = synapse_test_utils::prepare_shared_test_pool().await.ok()?;
     let cache = std::sync::Arc::new(CacheManager::new(&CacheConfig::default()));
     let mut container = ServiceContainer::new_test_with_pool_and_cache(pool, cache.clone()).await;
     configure(&mut container);
     let state = AppState::new(container, cache);
-    let app = synapse_rust::web::create_router(state.clone());
+    let app = synapse_web::create_router(state.clone());
     Some((app, state))
 }
 

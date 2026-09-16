@@ -22,7 +22,7 @@
 set -eu
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ROUTES_DIR="${ROOT_DIR}/src/web/routes"
+ROUTES_DIR="${ROOT_DIR}/synapse-web/src/routes"
 ALLOWLIST="${ROOT_DIR}/scripts/ci/route_storage_exceptions.txt"
 
 if [[ ! -d "${ROUTES_DIR}" ]]; then
@@ -36,7 +36,7 @@ if [[ -f "${ALLOWLIST}" ]]; then
     allowlist_text=$(awk 'NF && $1 !~ /^#/' "${ALLOWLIST}" || true)
 fi
 
-# Find every line in src/web/routes that pulls a type out of
+# Find every line in synapse-web/src/routes that pulls a type out of
 # `crate::storage::*`. grep returns 1 when nothing matches, so we
 # intentionally do not propagate that exit status through `set -e`.
 matches=$(grep -RIn --include='*.rs' -E 'use[[:space:]]+crate::storage' "${ROUTES_DIR}" 2>/dev/null || true)

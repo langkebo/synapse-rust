@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 ROOT = Path("/Users/ljf/Desktop/hu_ts/synapse-rust")
-ROUTES_DIR = ROOT / "src/web/routes"
+ROUTES_DIR = ROOT / "synapse-web/src/routes"
 OPENAPI_PATH = ROOT / "docs/openapi/client.yaml"
 OUTPUT_JSON = ROOT / "scripts/api_test/handler_schemas.json"
 

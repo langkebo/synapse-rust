@@ -8,8 +8,8 @@ use std::sync::Arc;
 use std::time::Instant;
 use synapse_common::current_timestamp_millis;
 use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::web::routes::state::AppState;
 use synapse_services::ServiceContainer;
+use synapse_web::routes::state::AppState;
 use tower::ServiceExt;
 
 fn panic_on_err<T, E: std::fmt::Display>(result: Result<T, E>, context: &str) -> T {
@@ -36,7 +36,7 @@ async fn setup_test_app() -> Option<axum::Router> {
     let container = ServiceContainer::new_test_with_pool(pool).await;
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);
-    Some(synapse_rust::web::create_router(state))
+    Some(synapse_web::create_router(state))
 }
 
 async fn create_test_user(app: &axum::Router) -> String {
