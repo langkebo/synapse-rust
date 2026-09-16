@@ -10,6 +10,8 @@ pub mod admin;
 pub mod app_service;
 mod assembly;
 mod auth_compat;
+/// The `auth_source` module.
+pub mod auth_source;
 /// The `background_update` module.
 pub mod background_update;
 /// The `captcha` module.

@@ -1,6 +1,5 @@
 use crate::common::config::SecurityConfig;
 use crate::common::ApiError;
-use crate::web::routes::AppState;
 use crate::web::utils::auth::resolve_request_id;
 use axum::http::{HeaderMap, Method};
 use hmac::{Hmac, Mac};
@@ -114,30 +113,6 @@ pub(crate) async fn authorize_admin_from_services(
     Ok(AuthorizedAdmin { user_id, device_id, access_token, role })
 }
 
-/// Thin adapter over [`authorize_admin_from_services`] for callers that hold the
-/// whole [`AppState`].
-///
-/// The authorization rules (bearer token → admin flag → live user → RBAC → audit →
-/// MFA) live in exactly one place. This used to be a second, near-verbatim copy of
-/// that sequence, so the AppState path and the per-route-context path could drift.
-pub(crate) async fn authorize_admin_request(
-    headers: &HeaderMap,
-    method: &Method,
-    path: &str,
-    state: &AppState,
-) -> Result<AuthorizedAdmin, ApiError> {
-    let services = &state.services;
-    authorize_admin_from_services(
-        services.core.token_auth.as_ref(),
-        services.account.user_service.as_ref(),
-        &services.core.config.security,
-        Some(services.admin.security.admin_audit_service.as_ref()),
-        headers,
-        method,
-        path,
-    )
-    .await
-}
 
 fn normalize_admin_path(path: &str) -> String {
     if path == "/admin/services" || path.starts_with("/admin/services/") {

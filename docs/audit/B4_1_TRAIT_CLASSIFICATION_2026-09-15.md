@@ -263,3 +263,38 @@ DYN = re.compile(r'\bdyn\s+(?:[A-Za-z_][A-Za-z0-9_]*::)*([A-Za-z0-9_]+)')
   直接写**完全限定路径**（`synapse_storage::<模块>::<具体类型>`）零 import 风险，
   且能一并暴露"该类型是否真的可从根/模块路径到达"（`EventReportStorage` 就不在根上，
   必须走 `synapse_storage::event_report::EventReportStorage`）。
+
+## 8. B4-1d 待裁定：mock 接缝 / 多实现 trait 的消费者是否也去 `dyn`
+
+B4-1/B4-1b/B4-1c 之后剩下 **33 个**「有 `dyn` 且有 ≥2 个实现」的 trait。它们**不是**零收益抽象：
+至少有一个非生产实现（`test_mocks/` 或 `tests/` 里的替身），trait 正是注入点。所以**trait 本身必须保留**。
+
+可选的下一步是把**消费者字段**从 `Arc<dyn XStoreApi>` 改成 `Arc<XStorage>`，代价是那些注入替身的测试
+必须改用真实存储（需要 DB）或删除替身。`dyn` 引用面最大的几个：
+
+| trait | `dyn` 引用文件数 | 生产 impl 数 | 注入替身的测试文件数 |
+|---|---|---|---|
+| `MemberStoreApi` | 20 | 2 | 2 |
+| `DeviceKeyStoreApi` | 16 | 2 | 6 |
+| `RoomStoreApi` | 12 | 2 | 3 |
+| `PresenceStoreApi` | 12 | 2 | 1 |
+| `DeviceListStoreApi` | 12 | 3 | 2 |
+| `AccountDataStoreApi` | 11 | 4 | 2 |
+| `FilterStoreApi` | 7 | 3 | 3 |
+| `AccessTokenStoreApi` | 6 | 2 | 2 |
+| `RefreshTokenStoreApi` | 6 | 2 | 2 |
+| `AuditEventStoreApi` | 5 | 2 | 2 |
+| `ThreepidStoreApi` | 5 | 2 | 2 |
+| `RoomAccountDataStoreApi` | 4 | 2 | 1 |
+| `LoginTokenStoreApi` | 4 | 2 | 1 |
+| `RelationsStoreApi` | 4 | 2 | 1 |
+
+**决策点**：
+- **A（保守，推荐先不动）**：保留现状。trait 有正当理由，`dyn` 的 vtable 成本在这些服务上是可接受的；
+  A5 的"零收益抽象"目标已经达成（10 + 23 个已清）。
+- **B（激进）**：把消费者也改成具体类型，测试注入点消失 → 相关单测要么转 DB 测试、要么删。
+  收益是彻底去掉 trait object；代价是测试套件对 DB 的依赖面扩大（当前 `synapse-services --lib`
+  已是 1987 个测试跑在隔离 schema 上，扩大后会更慢）。
+
+在没有明确收益证据前建议 A；若要做 B，先挑 `dyn` 面最大且测试注入最少的 `MemberStoreApi`（20/2）
+做单点试点，用"该模块 `--lib` 全绿 + 测试耗时变化"作为判据。
