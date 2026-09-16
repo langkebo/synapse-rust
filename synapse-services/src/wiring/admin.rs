@@ -23,7 +23,7 @@ pub struct AdminUserServices {
     /// The `admin_user_service` field.
     pub admin_user_service: Arc<crate::admin_user_service::AdminUserService>,
     /// The `email_verification_storage` field.
-    pub email_verification_storage: Arc<dyn synapse_storage::email_verification::EmailVerificationStoreApi>,
+    pub email_verification_storage: Arc<synapse_storage::email_verification::EmailVerificationStorage>,
     /// The `admin_token_service` field.
     pub admin_token_service: Arc<crate::admin_token_service::AdminTokenService>,
     /// The `refresh_token_storage` field.
@@ -95,7 +95,7 @@ pub struct AdminModuleServices {
     /// The `background_update_service` field.
     pub background_update_service: Arc<crate::background_update_service::BackgroundUpdateService>,
     /// The `module_storage` field.
-    pub module_storage: Arc<dyn synapse_storage::module::ModuleStoreApi>,
+    pub module_storage: Arc<synapse_storage::module::ModuleStorage>,
     /// The `module_service` field.
     pub module_service: Arc<crate::module_service::ModuleService>,
     /// The `account_validity_service` field.
@@ -124,7 +124,7 @@ pub struct AdminModuleServices {
     /// The `rendezvous_storage` field.
     pub rendezvous_storage: Arc<dyn synapse_storage::rendezvous::RendezvousStoreApi>,
     /// The `rendezvous_message_storage` field.
-    pub rendezvous_message_storage: Arc<dyn synapse_storage::rendezvous::RendezvousMessageStoreApi>,
+    pub rendezvous_message_storage: Arc<synapse_storage::rendezvous::RendezvousMessageStorage>,
     /// The `login_token_storage` field.
     pub login_token_storage: Arc<dyn synapse_storage::login_token::LoginTokenStoreApi>,
     /// The `worker_storage` field.
@@ -193,7 +193,7 @@ impl AdminServices {
             metrics.clone(),
         );
 
-        let email_verification_storage: Arc<dyn synapse_storage::email_verification::EmailVerificationStoreApi> =
+        let email_verification_storage: Arc<synapse_storage::email_verification::EmailVerificationStorage> =
             Arc::new(EmailVerificationStorage::new(pool));
         let audit_storage: Arc<dyn synapse_storage::audit::AuditEventStoreApi> =
             Arc::new(synapse_storage::audit::AuditEventStorage::new(pool));
@@ -221,7 +221,7 @@ impl AdminServices {
                 .with_lock_retry_config(config.worker.lock_max_retries, config.worker.lock_max_retry_interval_ms),
         );
 
-        let module_storage: Arc<dyn synapse_storage::module::ModuleStoreApi> =
+        let module_storage: Arc<synapse_storage::module::ModuleStorage> =
             Arc::new(synapse_storage::module::ModuleStorage::new(pool));
         let module_service = Arc::new(crate::module_service::ModuleService::new(module_storage.clone()));
         let account_validity_service =
@@ -306,7 +306,7 @@ impl AdminServices {
 
         let rendezvous_storage: Arc<dyn synapse_storage::rendezvous::RendezvousStoreApi> =
             Arc::new(synapse_storage::rendezvous::RendezvousStorage::new(pool.clone()));
-        let rendezvous_message_storage: Arc<dyn synapse_storage::rendezvous::RendezvousMessageStoreApi> =
+        let rendezvous_message_storage: Arc<synapse_storage::rendezvous::RendezvousMessageStorage> =
             Arc::new(synapse_storage::rendezvous::RendezvousMessageStorage::new(pool.clone()));
         let login_token_storage: Arc<dyn synapse_storage::login_token::LoginTokenStoreApi> =
             Arc::new(synapse_storage::login_token::LoginTokenStorage::new(pool));

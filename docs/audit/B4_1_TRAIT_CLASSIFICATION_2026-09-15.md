@@ -12,10 +12,10 @@
 | 桶 | 定义 | 起始 | 现状 | 处置 |
 |---|---|---|---|---|
 | (i) | `dyn` 引用为 0（trait 无任何类型擦除用途） | 10 | **0** | 全部删除（§2） |
-| (ii-a) | `dyn` + 恰好 1 个生产 impl，无 mock | 23 | **4** | 已转 19（§3.3）；剩 4 个必须改 `src/web/routes/context.rs`，等并发 codemod 落地 |
+| (ii-a) | `dyn` + 恰好 1 个生产 impl，无 mock | 23 | **0** | 23/23 全部转换完毕（19 见 §3.3，其余 4 个见 §3.5） |
 | (ii-b) | `dyn` + 1 个生产 impl + **有 mock** | 21 | 21 | **保留**：mock 就是它的存在理由；且 trait 与生产 impl 已同文件 |
 | (iii) | ≥2 个生产 impl | 12 | 12 | **保留**：真实多实现 |
-| — | `*StoreApi` 合计 / `pub trait` 合计 | 66 / 96 | **37 / 67** | 棘轮基线已收紧到 37 / 67 |
+| — | `*StoreApi` 合计 / `pub trait` 合计 | 66 / 96 | **33 / 63** | 棘轮基线已收紧到 33 / 63 |
 
 > **修正**：上一版把 (ii-a)/(ii-b)/(iii) 记为 32/17/7，是因为分类脚本有两个正则缺陷（见 §7），
 > 漏掉了「`impl crate::x::Trait for Fake`」这种**限定路径**写法；修正后 23/21/12。
@@ -115,7 +115,7 @@ mock 实现单独放在 `synapse-storage/src/test_mocks/`。故本桶**无需改
 （`application_service/`、`event_report/`、`media_quota/`、`registration_token/`、`space/`、`saml/`、`friend_room/`
 各一个，它们的内容只剩未使用的 `use`）。
 
-**剩余 4 个**（阻塞项，非技术障碍）：
+**（历史）曾阻塞的 4 个** —— 并发 codemod（`6f06eb0c`）落地后已在 B4-1c 全部转换：
 
 | trait | 唯一阻塞点 |
 |---|---|
@@ -124,7 +124,11 @@ mock 实现单独放在 `synapse-storage/src/test_mocks/`。故本桶**无需改
 | `RendezvousMessageStoreApi` | 同上 |
 | `EmailVerificationStoreApi` | 同上 |
 
-`src/web/routes/**` 正被另一个会话的 manifest codemod 改写，本批不碰。
+`src/web/routes/**` 当时正被另一个会话的 manifest codemod 改写，故推迟；该 codemod 于 `6f06eb0c` 落地后，
+这 4 个（`InviteBlocklistStoreApi` → `InviteBlocklistStorage`、`ModuleStoreApi` → `ModuleStorage`、
+`RendezvousMessageStoreApi` → `RendezvousMessageStorage`、`EmailVerificationStoreApi` → `EmailVerificationStorage`）
+已一次性转换，含 `src/web/routes/context.rs` 里的字段。校验：workspace `clippy --all-targets --all-features -D warnings` = 0；
+`cargo test -p synapse-services --lib` 1987 passed / 0 failed；−408 行 / 12 文件。
 
 **下一批（需裁定）**：起始 32 个里的另外 9 个，修正分类后证实**有 mock 实现**
 （`SlidingSyncStoreApi`、`ThreadStoreApi`、`WorkerStoreApi` 等，mock 写在 `test_mocks/` 里但用了限定路径
@@ -222,9 +226,10 @@ DYN = re.compile(r'\bdyn\s+(?:[A-Za-z_][A-Za-z0-9_]*::)*([A-Za-z0-9_]+)')
 
 ## 6. 批次状态
 
-- **B4-1**：⏳ 进行中 —— (i) 桶 10/10 已删；**B4-1b 已转 19/23**（剩 4 个阻塞于 `src/web/routes/context.rs`）；
-  (ii-b)/(iii) 桶保留。棘轮基线 96/66 → **67/37**。
-- **B4-1b**：⏳ 19/23 完成；剩 4 个等 codemod。
+- **B4-1**：✅ **A5 收敛完成** —— (i) 10/10、(ii-a) 23/23 全部删除/转换；(ii-b) mock 接缝 21、(iii) 多实现 12 保留（有正当理由）。
+  棘轮基线 96/66 → **63/33**；本批三轮合计 **synapse-storage/src + synapse-services/src + src/web/routes/context.rs
+  约 −3385 行**。
+- **B4-1b/B4-1c**：✅ 完成。
 - **B4-2**：✅ 本文件即"分类清单存档"；删除前判据（全名残留 + dyn + mock 三重检查）见 §2 首段。
 - **B4-3（A4 `AuthSource`）**：⏳ 未开始 —— 依赖 B4-1 的字段瘦身结论，建议在 B4-1b 之后动；
   否则 context 字段会先泛型化再重写一遍。

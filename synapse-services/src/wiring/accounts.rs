@@ -35,7 +35,7 @@ pub struct AccountServices {
     /// The `qr_login_storage` field.
     pub qr_login_storage: Arc<synapse_storage::qr_login::QrLoginStorage>,
     /// The `invite_blocklist_storage` field.
-    pub invite_blocklist_storage: Arc<dyn InviteBlocklistStoreApi>,
+    pub invite_blocklist_storage: Arc<synapse_storage::invite_blocklist::InviteBlocklistStorage>,
     /// The `sticky_event_storage` field.
     pub sticky_event_storage: Arc<synapse_storage::sticky_event::StickyEventStorage>,
     /// The `user_service` field.
@@ -59,7 +59,7 @@ pub struct AccountServicesDeps {
     /// The `qr_login_storage` field.
     pub qr_login_storage: Arc<synapse_storage::qr_login::QrLoginStorage>,
     /// The `invite_blocklist_storage` field.
-    pub invite_blocklist_storage: Arc<dyn InviteBlocklistStoreApi>,
+    pub invite_blocklist_storage: Arc<synapse_storage::invite_blocklist::InviteBlocklistStorage>,
     /// The `sticky_event_storage` field.
     pub sticky_event_storage: Arc<synapse_storage::sticky_event::StickyEventStorage>,
     /// The `account_device_list_service` field.

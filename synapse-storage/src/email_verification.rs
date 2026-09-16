@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use serde_json::Value;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
@@ -28,40 +27,6 @@ pub struct EmailVerificationToken {
 
 // ── Trait ───────────────────────────────────────────────────────────────
 
-/// The `EmailVerificationStoreApi` trait.
-#[async_trait]
-pub trait EmailVerificationStoreApi: Send + Sync {
-    /// See [`create_verification_token`].
-    async fn create_verification_token(
-        &self,
-        email: &str,
-        token: &str,
-        expires_in_seconds: i64,
-        user_id: Option<&str>,
-        session_data: Option<serde_json::Value>,
-    ) -> Result<i64, sqlx::Error>;
-    /// See [`verify_token`].
-    async fn verify_token(&self, email: &str, token: &str) -> Result<Option<EmailVerificationToken>, sqlx::Error>;
-    /// See [`mark_token_used`].
-    async fn mark_token_used(&self, token_id: i64) -> Result<(), sqlx::Error>;
-    /// See [`validate_and_consume_token`].
-    async fn validate_and_consume_token(
-        &self,
-        token_id: i64,
-        submitted_token: &str,
-        client_secret: &str,
-    ) -> Result<EmailVerificationToken, ApiError>;
-    /// See [`get_verification_token_by_id`].
-    async fn get_verification_token_by_id(&self, token_id: i64) -> Result<Option<EmailVerificationToken>, sqlx::Error>;
-    /// See [`delete_token_by_id`].
-    async fn delete_token_by_id(&self, token_id: i64) -> Result<(), sqlx::Error>;
-    /// See [`claim_used_token`].
-    async fn claim_used_token(&self, token_id: i64) -> Result<Option<EmailVerificationToken>, sqlx::Error>;
-    /// See [`cleanup_expired_tokens`].
-    async fn cleanup_expired_tokens(&self) -> Result<i64, sqlx::Error>;
-    /// See [`get_token_by_email`].
-    async fn get_token_by_email(&self, email: &str) -> Result<Option<EmailVerificationToken>, sqlx::Error>;
-}
 
 // ── Postgres implementation ─────────────────────────────────────────────
 
@@ -288,48 +253,6 @@ struct TokenIdRow {
 
 // ── Delegation impl ─────────────────────────────────────────────────────
 
-#[async_trait]
-impl EmailVerificationStoreApi for EmailVerificationStorage {
-    async fn create_verification_token(
-        &self,
-        email: &str,
-        token: &str,
-        expires_in_seconds: i64,
-        user_id: Option<&str>,
-        session_data: Option<serde_json::Value>,
-    ) -> Result<i64, sqlx::Error> {
-        self.create_verification_token(email, token, expires_in_seconds, user_id, session_data).await
-    }
-    async fn verify_token(&self, email: &str, token: &str) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
-        self.verify_token(email, token).await
-    }
-    async fn mark_token_used(&self, token_id: i64) -> Result<(), sqlx::Error> {
-        self.mark_token_used(token_id).await
-    }
-    async fn validate_and_consume_token(
-        &self,
-        token_id: i64,
-        submitted_token: &str,
-        client_secret: &str,
-    ) -> Result<EmailVerificationToken, ApiError> {
-        self.validate_and_consume_token(token_id, submitted_token, client_secret).await
-    }
-    async fn get_verification_token_by_id(&self, token_id: i64) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
-        self.get_verification_token_by_id(token_id).await
-    }
-    async fn delete_token_by_id(&self, token_id: i64) -> Result<(), sqlx::Error> {
-        self.delete_token_by_id(token_id).await
-    }
-    async fn claim_used_token(&self, token_id: i64) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
-        self.claim_used_token(token_id).await
-    }
-    async fn cleanup_expired_tokens(&self) -> Result<i64, sqlx::Error> {
-        self.cleanup_expired_tokens().await
-    }
-    async fn get_token_by_email(&self, email: &str) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
-        self.get_token_by_email(email).await
-    }
-}
 
 #[cfg(test)]
 mod tests {

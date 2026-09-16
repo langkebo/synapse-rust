@@ -12,6 +12,6 @@ pub use crate::login_token::{LoginToken, LoginTokenStorage, LoginTokenStoreApi};
 pub use crate::qr_login::{QrLoginStorage, QrTransaction};
 pub use crate::rendezvous::{
     CreateRendezvousSessionParams, RendezvousCode, RendezvousIntent, RendezvousLoginFinish, RendezvousLoginStart,
-    RendezvousLoginUser, RendezvousMessage, RendezvousMessageStorage, RendezvousMessageStoreApi, RendezvousSession,
+    RendezvousLoginUser, RendezvousMessage, RendezvousMessageStorage, RendezvousSession,
     RendezvousStorage, RendezvousStoreApi, RendezvousTransport, StoredRendezvousMessage,
 };

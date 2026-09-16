@@ -1,4 +1,4 @@
 # Trait-count ratchet baseline (A5 / B4-1). See scripts/ci/check_trait_ratchet.py.
 # The numbers may only go DOWN. Bump them deliberately and say why.
-TOTAL=67
-STORE_API=37
+TOTAL=63
+STORE_API=33

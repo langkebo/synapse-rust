@@ -609,25 +609,6 @@ impl RendezvousStoreApi for RendezvousStorage {
     }
 }
 
-/// The `RendezvousMessageStoreApi` trait.
-#[async_trait]
-pub trait RendezvousMessageStoreApi: Send + Sync {
-    /// See [`store_message`].
-    async fn store_message(
-        &self,
-        session_id: &str,
-        direction: &str,
-        message: &RendezvousMessage,
-    ) -> Result<(), sqlx::Error>;
-    /// See [`get_messages`].
-    async fn get_messages(
-        &self,
-        session_id: &str,
-        after_id: Option<i64>,
-    ) -> Result<Vec<StoredRendezvousMessage>, sqlx::Error>;
-    /// See [`delete_messages`].
-    async fn delete_messages(&self, session_id: &str) -> Result<(), sqlx::Error>;
-}
 
 /// The `RendezvousMessageStorage` struct.
 #[derive(Clone)]
@@ -735,27 +716,6 @@ impl RendezvousMessageStorage {
     }
 }
 
-#[async_trait]
-impl RendezvousMessageStoreApi for RendezvousMessageStorage {
-    async fn store_message(
-        &self,
-        session_id: &str,
-        direction: &str,
-        message: &RendezvousMessage,
-    ) -> Result<(), sqlx::Error> {
-        self.store_message(session_id, direction, message).await
-    }
-    async fn get_messages(
-        &self,
-        session_id: &str,
-        after_id: Option<i64>,
-    ) -> Result<Vec<StoredRendezvousMessage>, sqlx::Error> {
-        self.get_messages(session_id, after_id).await
-    }
-    async fn delete_messages(&self, session_id: &str) -> Result<(), sqlx::Error> {
-        self.delete_messages(session_id).await
-    }
-}
 
 #[cfg(test)]
 mod tests {

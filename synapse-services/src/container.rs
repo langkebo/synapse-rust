@@ -88,7 +88,7 @@ struct StoragePhase {
     presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
     presence_service: Arc<crate::presence_service::PresenceService>,
     qr_login_storage: Arc<synapse_storage::qr_login::QrLoginStorage>,
-    invite_blocklist_storage: Arc<dyn InviteBlocklistStoreApi>,
+    invite_blocklist_storage: Arc<synapse_storage::invite_blocklist::InviteBlocklistStorage>,
     sticky_event_storage: Arc<synapse_storage::sticky_event::StickyEventStorage>,
 }
 
@@ -264,7 +264,7 @@ impl ServiceContainer {
             Arc::new(crate::presence_service::PresenceService::with_tuning(presence_storage.clone(), presence_tuning));
         let qr_login_storage: Arc<synapse_storage::qr_login::QrLoginStorage> =
             Arc::new(QrLoginStorage::new(pool.clone()));
-        let invite_blocklist_storage: Arc<dyn InviteBlocklistStoreApi> =
+        let invite_blocklist_storage: Arc<synapse_storage::invite_blocklist::InviteBlocklistStorage> =
             Arc::new(InviteBlocklistStorage::new(pool.clone()));
         let sticky_event_storage: Arc<synapse_storage::sticky_event::StickyEventStorage> =
             Arc::new(StickyEventStorage::new(pool.clone()));

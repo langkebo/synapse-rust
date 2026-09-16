@@ -420,7 +420,7 @@ pub struct AuthContext {
     /// The `federation_client` field.
     pub federation_client: Arc<dyn synapse_federation::client_api::FederationClientApi>,
     /// The `email_verification_storage` field.
-    pub email_verification_storage: Arc<dyn synapse_storage::email_verification::EmailVerificationStoreApi>,
+    pub email_verification_storage: Arc<synapse_storage::email_verification::EmailVerificationStorage>,
     /// The `account_device_list_service` field.
     pub account_device_list_service: Arc<synapse_services::account_device_list_service::AccountDeviceListService>,
     /// The `refresh_token_service` field.
@@ -437,7 +437,7 @@ pub struct AuthContext {
     /// The `rendezvous_storage` field.
     pub rendezvous_storage: Arc<dyn synapse_storage::rendezvous::RendezvousStoreApi>,
     /// The `rendezvous_message_storage` field.
-    pub rendezvous_message_storage: Arc<dyn synapse_storage::rendezvous::RendezvousMessageStoreApi>,
+    pub rendezvous_message_storage: Arc<synapse_storage::rendezvous::RendezvousMessageStorage>,
     /// The `login_token_storage` field.
     pub login_token_storage: Arc<dyn synapse_storage::login_token::LoginTokenStoreApi>,
 }
@@ -514,7 +514,7 @@ pub struct AdminContext {
     /// The `account_device_list_service` field.
     pub account_device_list_service: Arc<synapse_services::account_device_list_service::AccountDeviceListService>,
     /// The `invite_blocklist_storage` field.
-    pub invite_blocklist_storage: Arc<dyn synapse_storage::InviteBlocklistStoreApi>,
+    pub invite_blocklist_storage: Arc<synapse_storage::invite_blocklist::InviteBlocklistStorage>,
     // Admin — user
     /// The `admin_user_service` field.
     pub admin_user_service: Arc<synapse_services::admin_user_service::AdminUserService>,
@@ -527,7 +527,7 @@ pub struct AdminContext {
     /// The `registration_token_service` field.
     pub registration_token_service: Arc<synapse_services::registration_token_service::RegistrationTokenService>,
     /// The `email_verification_storage` field.
-    pub email_verification_storage: Arc<dyn synapse_storage::email_verification::EmailVerificationStoreApi>,
+    pub email_verification_storage: Arc<synapse_storage::email_verification::EmailVerificationStorage>,
     // Admin — modules
     /// The `background_update_service` field.
     pub background_update_service: Arc<synapse_services::background_update_service::BackgroundUpdateService>,
@@ -552,7 +552,7 @@ pub struct AdminContext {
     /// The `module_service` field.
     pub module_service: Arc<synapse_services::module_service::ModuleService>,
     /// The `module_storage` field.
-    pub module_storage: Arc<dyn synapse_storage::module::ModuleStoreApi>,
+    pub module_storage: Arc<synapse_storage::module::ModuleStorage>,
     /// The `account_validity_service` field.
     pub account_validity_service: Arc<synapse_services::module_service::AccountValidityService>,
     /// The `worker_manager` field.
