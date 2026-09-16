@@ -12,6 +12,7 @@ use axum::{
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use synapse_common::current_timestamp_millis;
+use synapse_services::delayed_event_service::CreateDelayedEventRequest;
 use synapse_services::event::CreateEventParams;
 
 /// See [`get_single_event`].
@@ -328,7 +329,7 @@ pub(crate) async fn send_message(
 
         let device_id = auth_user.device_id.as_deref().unwrap_or("");
 
-        let request = synapse_storage::delayed_events::CreateDelayedEventRequest {
+        let request = CreateDelayedEventRequest {
             room_id: room_id.to_string(),
             user_id: auth_user.user_id.clone(),
             device_id: device_id.to_string(),
@@ -338,7 +339,7 @@ pub(crate) async fn send_message(
             delay_ms,
         };
 
-        let delayed = ctx.delayed_event_storage.create_delayed_event(request).await?;
+        let delayed = ctx.delayed_event_service.schedule(request).await?;
 
         ::tracing::info!(
             room_id = %room_id,

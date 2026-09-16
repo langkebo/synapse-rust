@@ -90,6 +90,8 @@ pub struct AdminModuleServices {
     pub event_report_service: Arc<crate::event_report_service::EventReportService>,
     /// MSC4140 — Cancellable delayed events storage.
     pub delayed_event_storage: Arc<dyn synapse_storage::delayed_events::DelayedEventStorageApi>,
+    /// MSC4140 — Cancellable delayed events service.
+    pub delayed_event_service: Arc<crate::delayed_event_service::DelayedEventService>,
     /// The `background_update_storage` field.
     pub background_update_storage: Arc<dyn synapse_storage::background_update::BackgroundUpdateStoreApi>,
     /// The `background_update_service` field.
@@ -214,6 +216,8 @@ impl AdminServices {
         // MSC4140 — Cancellable delayed events storage.
         let delayed_event_storage: Arc<dyn synapse_storage::delayed_events::DelayedEventStorageApi> =
             Arc::new(synapse_storage::delayed_events::DelayedEventStorage::new(pool.clone()));
+        let delayed_event_service =
+            Arc::new(crate::delayed_event_service::DelayedEventService::new(delayed_event_storage.clone()));
         let background_update_storage: Arc<dyn synapse_storage::background_update::BackgroundUpdateStoreApi> =
             Arc::new(synapse_storage::background_update::BackgroundUpdateStorage::new(pool));
         let background_update_service = Arc::new(
@@ -413,6 +417,7 @@ impl AdminServices {
                 event_report_storage,
                 event_report_service,
                 delayed_event_storage,
+                delayed_event_service,
                 background_update_storage,
                 background_update_service,
                 module_storage,

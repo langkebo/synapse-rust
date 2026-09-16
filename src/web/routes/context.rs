@@ -139,7 +139,7 @@ pub struct RoomContext {
     /// The `burn_after_read` field.
     pub burn_after_read: Arc<synapse_services::burn_after_read_service::BurnAfterReadService>,
     /// MSC4140 — Delayed event storage for scheduling cancellable delayed messages.
-    pub delayed_event_storage: Arc<dyn synapse_storage::delayed_events::DelayedEventStorageApi>,
+    pub delayed_event_service: Arc<synapse_services::delayed_event_service::DelayedEventService>,
     /// The `app_service_manager` field.
     pub app_service_manager: Arc<synapse_services::application_service::ApplicationServiceManager>,
 }
@@ -186,7 +186,7 @@ impl FromRef<AppState> for RoomContext {
             dehydrated_device_service: Arc::new(state.services.e2ee.dehydrated_device_service.clone()),
             #[cfg(feature = "burn-after-read")]
             burn_after_read: state.services.extensions.burn_after_read.clone(),
-            delayed_event_storage: state.services.admin.modules.delayed_event_storage.clone(),
+            delayed_event_service: state.services.admin.modules.delayed_event_service.clone(),
             app_service_manager: state.services.admin.modules.app_service_manager.clone(),
         }
     }
@@ -538,7 +538,7 @@ pub struct AdminContext {
     /// The `event_report_service` field.
     pub event_report_service: Arc<synapse_services::event_report_service::EventReportService>,
     /// MSC4140 — Cancellable delayed events storage.
-    pub delayed_event_storage: Arc<dyn synapse_storage::delayed_events::DelayedEventStorageApi>,
+    pub delayed_event_service: Arc<synapse_services::delayed_event_service::DelayedEventService>,
     /// MSC4284 — Policy server service for room/user/content moderation.
     pub policy_service: Arc<synapse_services::policy_service::PolicyService>,
     /// Event storage for admin redact/purge operations.
@@ -637,7 +637,7 @@ impl FromRef<AppState> for AdminContext {
             retention_service: state.services.admin.modules.retention_service.clone(),
             feature_flag_service: state.services.admin.modules.feature_flag_service.clone(),
             event_report_service: state.services.admin.modules.event_report_service.clone(),
-            delayed_event_storage: state.services.admin.modules.delayed_event_storage.clone(),
+            delayed_event_service: state.services.admin.modules.delayed_event_service.clone(),
             policy_service: state.services.admin.modules.policy_service.clone(),
             event_storage: synapse_storage::event::EventStorage::new(
                 &state.services.database_pool(),

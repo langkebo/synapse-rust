@@ -23,7 +23,7 @@ use axum::{
     Router,
 };
 use serde_json::{json, Value};
-use synapse_storage::delayed_events::DelayedEventAction;
+use synapse_services::delayed_event_service::DelayedEventAction;
 
 /// MSC4140 Gen 1 — Manage a delayed event.
 ///
@@ -49,61 +49,9 @@ pub(crate) async fn manage_delayed_event(
         .ok_or_else(|| ApiError::bad_request("Missing or invalid 'action' field (must be a string)".to_string()))?;
     let action = DelayedEventAction::parse(action_str)?;
 
-    // Fail-closed: look up the event first; ownership is checked before any
-    // state mutation. A missing event returns 404 to avoid leaking existence.
-    let event = ctx
-        .delayed_event_storage
-        .get_delayed_event(delay_id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("Delayed event not found".to_string()))?;
-
-    if event.user_id != auth_user.user_id {
-        ::tracing::warn!(
-            request_id = %request_id,
-            delay_id,
-            owner = %event.user_id,
-            caller = %auth_user.user_id,
-            "MSC4140 management denied: caller does not own delayed event"
-        );
-        // Return 404 (not 403) to avoid leaking the existence of other users'
-        // delayed events — fail-closed information-hiding.
-        return Err(ApiError::not_found("Delayed event not found".to_string()));
-    }
-
-    match action {
-        DelayedEventAction::Cancel => {
-            let updated = ctx.delayed_event_storage.cancel_delayed_event(delay_id).await?;
-            if !updated {
-                return Err(ApiError::bad_request(
-                    "Delayed event is no longer pending and cannot be cancelled".to_string(),
-                ));
-            }
-        }
-        DelayedEventAction::Restart => {
-            let updated = ctx.delayed_event_storage.restart_delayed_event(delay_id).await?;
-            if !updated {
-                return Err(ApiError::bad_request(
-                    "Delayed event is no longer pending and cannot be restarted".to_string(),
-                ));
-            }
-        }
-        DelayedEventAction::Send => {
-            // Force-send: mark as sent so the background dispatcher picks it up
-            // immediately. The actual event injection is handled by the worker.
-            let updated = ctx.delayed_event_storage.mark_sent(delay_id).await?;
-            if !updated {
-                return Err(ApiError::bad_request("Delayed event is no longer pending and cannot be sent".to_string()));
-            }
-        }
-    }
-
-    ::tracing::info!(
-        request_id = %request_id,
-        delay_id,
-        action = action.as_str(),
-        user_id = %auth_user.user_id,
-        "MSC4140 delayed event managed"
-    );
+    // Ownership (fail-closed) and the pending-state transitions live in the
+    // service; a foreign or missing delay_id both surface as M_NOT_FOUND.
+    ctx.delayed_event_service.manage(delay_id, action, &auth_user.user_id, &request_id).await?;
 
     // MSC4140 success response is an empty JSON object.
     Ok(Json(json!({})))

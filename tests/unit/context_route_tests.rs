@@ -311,7 +311,7 @@ fn test_admin_context_public_fields_are_accessible() {
         let _ = &ctx.retention_service;
         let _ = &ctx.feature_flag_service;
         let _ = &ctx.event_report_service;
-        let _ = &ctx.delayed_event_storage;
+        let _ = &ctx.delayed_event_service;
         let _ = &ctx.policy_service;
         let _ = &ctx.event_storage;
         let _ = &ctx.push_notification_service;
@@ -451,7 +451,7 @@ fn test_room_context_public_fields_are_accessible() {
         let _ = &ctx.relations_service;
         let _ = &ctx.ssss_service;
         let _ = &ctx.dehydrated_device_service;
-        let _ = &ctx.delayed_event_storage;
+        let _ = &ctx.delayed_event_service;
     }
     let _ = assert_fields;
 }

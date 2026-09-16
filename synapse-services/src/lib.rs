@@ -80,6 +80,8 @@ pub mod content_scanner;
 pub mod database_initializer;
 /// The `dehydrated_device_service` module.
 pub mod dehydrated_device_service;
+/// The `delayed_event_service` module.
+pub mod delayed_event_service;
 /// E2EE audit service (not the full e2ee crate — that is re-exported as `e2ee`).
 pub mod e2ee_audit;
 /// Event services domain group — re-exports event service types under `event::`.

@@ -108,6 +108,8 @@ pub mod background_update;
 pub mod cas;
 /// The `dehydrated_device` module.
 pub mod dehydrated_device;
+/// The `delayed_event` module.
+pub mod delayed_event;
 /// The `device_list` module.
 pub mod device_list;
 /// The `event` module.
