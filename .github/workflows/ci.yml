@@ -134,6 +134,12 @@ jobs:
       - name: SQLx dynamic/static ratio ratchet
         run: bash scripts/ci/check_sqlx_dynamic_ratio.sh
 
+      # A2 / B4-4: the HTTP layer must reach persistence only through
+      # `synapse-services`. The allowlist may only shrink; the gate fails on a new
+      # offender AND on a stale entry, so it cannot be silenced by editing a number.
+      - name: Web layer must not use synapse_storage directly (ratchet)
+        run: python3 scripts/ci/check_web_layering.py
+
       # Supply-chain hardening: cargo-deny (licenses/bans/sources) and
       # cargo-audit (RustSec CVE database). Both must pass for the PR
       # to merge. The ignore list lives in deny.toml and .cargo/audit.toml.

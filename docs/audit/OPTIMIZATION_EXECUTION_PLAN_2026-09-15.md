@@ -478,7 +478,8 @@ ledger_export_sdk  default 1127  worker 1138  all 1146
 | B4-2 ✅ | 判据落地为**三重检查**（全名残留 = 0 且无 `dyn`、无泛型约束、无测试消费者），10 个 trait 删除后全名 `grep` 残留均为 0；4 个只为"扁平路径==分组路径"而存在的迁移期测试（`*_store_api_path_identity`）随 trait 一并删除 | 见存档 §2 表 + §4 验证矩阵 |
 | B4-3 | **A4 DI 泛型化**：定义 `trait AuthSource`，11 个 context 各 impl；`FromRequestParts<S> where S: AuthSource` 泛型 impl 取代逐字笛卡尔积；context 字段按 B4-1 结果瘦身 | 现有 extractor/context 单测全绿；新增"`AdminUser` 与 `RoomContext` 鉴权行为一致"断言 |
 | B4-4 | **A2 分层强制**：CI lint 禁 `src/web/` 下 `use synapse_storage::`（白名单趋向 0，棘轮）；48 个文件补薄 service 或下沉 | 故意加一行 → 红；`grep -rl synapse_storage src/web/routes` 计数下降 |
-| B4-4 ⚠️ | **开工前置**：必须等其它会话在 `src/web/routes/**` 的 manifest codemod 落地 —— 两者改同一批文件 | 落地后 `git status --porcelain src/web | wc -l` = 0 再动 |
+| B4-4 ✅(门禁半) | **A2 分层门禁已落地**：`scripts/ci/check_web_layering.py` + `scripts/ci/web_layering_allowlist.txt`，接入 `ci.yml` repo-sanity。**白名单语义**（不是裸计数）：白名单外的文件若引用 `synapse_storage` → 红；白名单里已不再引用的条目 → 也红（列表只能变短）。注释会被剥离，故文档里提一句不算违规 | 实测：当前 **49** 个文件入白名单、gate EXIT=0；三种 RED 自证 —— ①新增探针文件引用 storage → EXIT=1 并点名；②删掉一条有效条目 → EXIT=1；③塞一条不存在的路径 → EXIT=1 报 stale |
+| B4-4-迁移 ⚠️ | **48/49 个文件的"补薄 service 或下沉"** 仍未做，且必须等 `src/web/routes/**` 的 manifest codemod 落地（同一批文件） | 每下沉一个文件就从白名单删一行；`grep -rl synapse_storage src/web \| wc -l` 下降 |
 | B4-5 | **A1 + A10 收口**：`src/web/` 独立为 crate，根 crate 收缩为 bin+wiring（目标 <5k 行）；同期删扁平 `pub use x::*` 与 `allow(ambiguous_glob_reexports)`，import 路径唯一化 | `cargo check --workspace --all-features`；docker 构建矩阵（无 Docker 则显式标注未验证） |
 
 ---
