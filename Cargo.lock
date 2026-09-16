@@ -4673,6 +4673,7 @@ dependencies = [
 name = "synapse-cache"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "chrono",
  "deadpool-redis",
  "flate2",

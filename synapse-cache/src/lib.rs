@@ -39,6 +39,8 @@ pub mod strategy;
 
 /// Cache error types and configuration.
 pub mod error;
+/// The `health` module.
+pub mod health;
 /// In-process local cache implementations.
 pub mod local;
 /// Cache manager and rate limiting.
@@ -53,6 +55,7 @@ pub use federation_signature_cache::{
     SignatureCacheEntry, SignatureCacheStats, DEFAULT_KEY_CACHE_TTL, DEFAULT_KEY_ROTATION_GRACE_PERIOD_MS,
     DEFAULT_SIGNATURE_CACHE_TTL,
 };
+pub use health::CacheHealthCheck;
 pub use invalidation::{
     CacheInvalidationBroadcaster, CacheInvalidationConfig, CacheInvalidationManager, CacheInvalidationMessage,
     CacheInvalidationSubscriber, InvalidationReceiver, InvalidationType, CACHE_INVALIDATION_CHANNEL,
