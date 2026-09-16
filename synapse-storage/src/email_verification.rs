@@ -27,7 +27,6 @@ pub struct EmailVerificationToken {
 
 // ── Trait ───────────────────────────────────────────────────────────────
 
-
 // ── Postgres implementation ─────────────────────────────────────────────
 
 /// The `EmailVerificationStorage` struct.
@@ -252,7 +251,6 @@ struct TokenIdRow {
 }
 
 // ── Delegation impl ─────────────────────────────────────────────────────
-
 
 #[cfg(test)]
 mod tests {

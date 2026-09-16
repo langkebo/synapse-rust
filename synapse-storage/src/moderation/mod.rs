@@ -6,7 +6,7 @@ use synapse_common::current_timestamp_millis;
 // Moderation domain group — re-exports invite_blocklist types under `moderation::`.
 // Consumers should prefer `synapse_storage::moderation::InviteBlocklistStorage`
 // over the flat `synapse_storage::InviteBlocklistStorage`.
-pub use crate::invite_blocklist::{InviteBlocklistStorage};
+pub use crate::invite_blocklist::InviteBlocklistStorage;
 
 /// The `ModerationRule` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

@@ -390,7 +390,6 @@ pub struct ModuleStorage {
     pool: Arc<PgPool>,
 }
 
-
 impl ModuleStorage {
     /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
@@ -984,7 +983,6 @@ impl ModuleStorage {
         Ok(rows)
     }
 }
-
 
 #[cfg(test)]
 mod tests {

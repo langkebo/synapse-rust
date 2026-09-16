@@ -609,7 +609,6 @@ impl RendezvousStoreApi for RendezvousStorage {
     }
 }
 
-
 /// The `RendezvousMessageStorage` struct.
 #[derive(Clone)]
 pub struct RendezvousMessageStorage {
@@ -715,7 +714,6 @@ impl RendezvousMessageStorage {
         Ok(())
     }
 }
-
 
 #[cfg(test)]
 mod tests {

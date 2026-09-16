@@ -6,7 +6,6 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
-
 /// The `InviteBlocklistStorage` struct.
 #[derive(Clone)]
 pub struct InviteBlocklistStorage {
@@ -196,7 +195,6 @@ impl InviteBlocklistStorage {
             .collect())
     }
 }
-
 
 #[cfg(test)]
 mod tests {
