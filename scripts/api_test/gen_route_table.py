@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""
+gen_route_table.py — 生成 docs/openapi/route-table.json（CI artifact）
+
+从 ledger JSON 读取所有端点，输出扁平 JSON 路由表。
+
+用法:
+  python3 scripts/api_test/gen_route_table.py [--ledger PATH] [--output PATH]
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent.parent
+
+DEFAULT_LEDGER = SCRIPT_DIR / "ledger.json"
+OUTPUT_DIR = PROJECT_ROOT / "docs" / "openapi"
+OUTPUT_FILE = OUTPUT_DIR / "route-table.json"
+
+
+def load_ledger(ledger_path: Path) -> dict:
+    """Load and validate ledger JSON."""
+    if not ledger_path.exists():
+        print(f"[gen_route_table] ERROR: ledger not found: {ledger_path}", file=sys.stderr)
+        sys.exit(1)
+    data = json.loads(ledger_path.read_text(encoding="utf-8"))
+    if "entries" not in data:
+        print("[gen_route_table] ERROR: ledger missing 'entries' key", file=sys.stderr)
+        sys.exit(1)
+    return data
+
+
+def build_route_table(ledger: dict) -> dict:
+    """Build a flat route table from ledger entries."""
+    entries = sorted(
+        ledger["entries"],
+        key=lambda e: (e["path"], e["method"], e["registered_by"]),
+    )
+    return {
+        "schema_version": "1",
+        "generated_at": ledger.get("generated_at", ""),
+        "source": "synapse_ledger_export",
+        "profile": ledger.get("state_profile", "unknown"),
+        "total_routes": len(entries),
+        "_meta": {
+            "generated_by": "gen_route_table.py",
+            "note": "本文件由 CI 自动生成，禁止手改。如需刷新: python3 scripts/api_test/gen_route_table.py",
+        },
+        "routes": [
+            {
+                "method": e["method"],
+                "path": e["path"],
+                "registered_by": e["registered_by"],
+                "path_params": e.get("path_params", []),
+                "query_params": e.get("query_params", []),
+                "auth": e.get("auth"),
+            }
+            for e in entries
+        ],
+    }
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="Generate route-table.json from ledger")
+    ap.add_argument("--ledger", default=str(DEFAULT_LEDGER), help="Path to ledger JSON")
+    ap.add_argument("--output", default=str(OUTPUT_FILE), help="Output path for route-table.json")
+    args = ap.parse_args()
+
+    ledger_path = Path(args.ledger)
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    ledger = load_ledger(ledger_path)
+    route_table = build_route_table(ledger)
+
+    output_path.write_text(
+        json.dumps(route_table, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    print(f"[gen_route_table] generated {output_path} ({route_table['total_routes']} routes)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
