@@ -108,8 +108,8 @@ pub struct WidgetApiResponse {
     pub active: bool,
 }
 
-impl From<synapse_storage::widget::Widget> for WidgetApiResponse {
-    fn from(widget: synapse_storage::widget::Widget) -> Self {
+impl From<synapse_services::widget_service::Widget> for WidgetApiResponse {
+    fn from(widget: synapse_services::widget_service::Widget) -> Self {
         Self {
             widget_id: widget.widget_id,
             room_id: widget.room_id,
@@ -435,7 +435,7 @@ async fn get_widget_with_access(
     auth_user: &AuthenticatedUser,
     widget_id: &str,
     required_permission: &str,
-) -> Result<synapse_storage::widget::Widget, ApiError> {
+) -> Result<synapse_services::widget_service::Widget, ApiError> {
     let widget = ctx.widget_service.get_widget(widget_id).await?.ok_or(ApiError::not_found("Widget not found"))?;
 
     if widget.user_id == auth_user.user_id {
@@ -467,7 +467,7 @@ async fn get_widget_with_access(
 async fn ensure_session_access(
     ctx: &AdminContext,
     auth_user: &AuthenticatedUser,
-    session: &synapse_storage::widget::WidgetSession,
+    session: &synapse_services::widget_service::WidgetSession,
 ) -> Result<(), ApiError> {
     if session.user_id == auth_user.user_id {
         return Ok(());

@@ -9,7 +9,7 @@ use axum::{
     Json, Router,
 };
 use serde_json::{json, Value};
-use synapse_storage::event_report::EventReport;
+use synapse_services::event_report_service::EventReport;
 
 /// See [`create_report_router`].
 pub fn create_report_router() -> Router<crate::web::routes::AppState> {

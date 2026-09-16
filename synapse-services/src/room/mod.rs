@@ -45,7 +45,7 @@ pub use api_trait::RoomServiceApi;
 // service modules (typing_service) under `room::` so that
 // `pub use room::*;` in lib.rs covers the legacy flat re-exports.
 pub use crate::typing_service::{TypingService, TypingUser};
-pub use service::{CreateRoomConfig, RoomService, RoomServiceConfig};
+pub use service::{CreateRoomConfig, RoomService, RoomServiceConfig, RoomTag, StickyEvent};
 pub use space::SpaceService;
 pub use summary::{
     CreateRoomSummaryRequest, CreateSummaryMemberRequest, RoomSummaryMember, RoomSummaryResponse, RoomSummaryService,

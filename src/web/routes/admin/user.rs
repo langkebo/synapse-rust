@@ -15,7 +15,7 @@ use synapse_common::current_timestamp_millis;
 use synapse_common::types::DeviceId;
 use synapse_common::types::UserId;
 use synapse_services::admin_user_service::{decode_user_cursor, encode_user_cursor, AdminUserCursor};
-use synapse_storage::user::User as AdminUserRecord;
+use synapse_services::user_service::User as AdminUserRecord;
 use validator::Validate;
 
 /// See [`create_user_router`].

@@ -2,6 +2,7 @@ use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 use synapse_common::RegexCache;
+pub use synapse_storage::federation_blacklist::decode_federation_blacklist_cursor;
 use synapse_storage::federation_blacklist::*;
 use tracing::info;
 

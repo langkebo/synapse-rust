@@ -13,6 +13,9 @@ use serde_json::json;
 use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::space::*;
+pub use synapse_storage::space::{
+    AddChildRequest, CreateSpaceRequest, Space, SpaceChild, SpaceHierarchyRoom, SpaceMember, UpdateSpaceRequest,
+};
 use synapse_storage::RoomStoreApi;
 use tracing::{error, info, instrument, warn};
 

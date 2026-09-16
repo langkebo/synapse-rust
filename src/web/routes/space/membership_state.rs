@@ -13,7 +13,7 @@ pub(super) async fn get_space_members(
         let limit = query.limit.unwrap_or(100).clamp(1, 1000);
         let cursor = query.from.as_deref().and_then(decode_space_member_cursor);
 
-        let members: Vec<synapse_storage::space::SpaceMember> = ctx
+        let members: Vec<synapse_services::room::space::SpaceMember> = ctx
             .space_service
             .get_space_members_paginated(
                 &space.space_id,
@@ -50,7 +50,7 @@ pub(super) async fn get_space_rooms(
         let limit = query.limit.unwrap_or(100).clamp(1, 1000);
         let cursor = query.from.as_deref().and_then(decode_space_child_cursor);
 
-        let children: Vec<synapse_storage::space::SpaceChild> = ctx
+        let children: Vec<synapse_services::room::space::SpaceChild> = ctx
             .space_service
             .get_space_children_paginated(&space.space_id, limit, cursor.map(|c| c.0), cursor.map(|c| c.1))
             .await?;
@@ -98,7 +98,7 @@ pub(super) async fn invite_user(
     validate_request(&body)?;
 
     with_resolved_space(ctx, space_id.to_string(), |ctx, space| async move {
-        let member: synapse_storage::space::SpaceMember =
+        let member: synapse_services::room::space::SpaceMember =
             ctx.space_service.invite_user(&space.space_id, &body.user_id, &auth_user.user_id).await?;
 
         Ok(created_json_from::<_, SpaceMemberResponse>(SpaceMemberResponse::from(member)))
@@ -113,7 +113,7 @@ pub(super) async fn join_space(
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_resolved_space(ctx, space_id.to_string(), |ctx, space| async move {
-        let member: synapse_storage::space::SpaceMember =
+        let member: synapse_services::room::space::SpaceMember =
             ctx.space_service.join_space(&space.space_id, &auth_user.user_id).await?;
 
         Ok(json_from::<_, SpaceMemberResponse>(SpaceMemberResponse::from(member)))

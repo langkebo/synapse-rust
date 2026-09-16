@@ -2,6 +2,11 @@ use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use synapse_storage::{AuditEvent, AuditEventStoreApi};
+
+// Audit DTOs and the cursor codec the HTTP layer needs. Re-exported through the
+// service layer so `src/web` depends on `synapse-services` rather than
+// `synapse-storage` (A2 / B4-4; scripts/ci/check_web_layering.py).
+pub use synapse_storage::audit::{decode_audit_event_cursor, AuditEventFilters, CreateAuditEventRequest};
 use tracing::{error, instrument};
 
 type AuditListResult = Result<(Vec<AuditEvent>, i64, Option<String>), ApiError>;
@@ -254,8 +259,3 @@ mod tests {
         assert!(events.is_empty());
     }
 }
-
-// Audit DTOs and the cursor codec the HTTP layer needs. Re-exported through the
-// service layer so `src/web` depends on `synapse-services` rather than
-// `synapse-storage` (A2 / B4-4; scripts/ci/check_web_layering.py).
-pub use synapse_storage::audit::{decode_audit_event_cursor, AuditEventFilters, CreateAuditEventRequest};

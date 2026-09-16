@@ -13,6 +13,7 @@ use synapse_storage::saml::*;
 use tracing::info;
 
 use crate::error::ServiceError;
+pub use synapse_storage::saml::SamlUserMapping;
 
 macro_rules! cached_regex {
     ($name:ident, $pattern:expr) => {

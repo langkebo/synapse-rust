@@ -21,6 +21,8 @@ use super::lifecycle::service::{LifecycleService, LifecycleServiceConfig};
 use super::membership::service::{MembershipService, MembershipServiceConfig};
 use super::messaging::service::{MessagingService, MessagingServiceConfig};
 use super::state::service::{RoomStateService, RoomStateServiceConfig};
+pub use synapse_storage::room_tag::RoomTag;
+pub use synapse_storage::sticky_event::StickyEvent;
 
 /// The `CreateRoomConfig` struct.
 #[derive(Debug, Default, Clone)]

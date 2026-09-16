@@ -10,7 +10,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::types::UserId;
-use synapse_storage::registration_token::decode_registration_token_cursor;
+use synapse_services::registration_token_service::decode_registration_token_cursor;
 
 /// See [`create_token_router`].
 pub fn create_token_router() -> Router<crate::web::routes::AppState> {

@@ -235,7 +235,7 @@ fn mask_secret(value: &str) -> String {
 }
 
 /// Renders the stored config as JSON with secrets masked.
-fn config_view(entries: Vec<synapse_storage::push_notification::PushConfigEntry>) -> serde_json::Value {
+fn config_view(entries: Vec<synapse_services::push::PushConfigEntry>) -> serde_json::Value {
     let mut config = serde_json::Map::new();
     for entry in entries {
         let value = if synapse_services::push_notification_service::SECRET_PUSH_CONFIG_KEYS

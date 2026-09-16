@@ -10,3 +10,5 @@ pub use service::{NotificationPayload, PushNotificationService, SendNotification
 
 // P7.4 — additional push-domain service re-export (previously a root module only).
 pub use crate::client_push_service::*;
+
+pub use synapse_storage::push_notification::PushConfigEntry;

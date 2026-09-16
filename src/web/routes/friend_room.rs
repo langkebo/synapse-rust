@@ -429,7 +429,7 @@ async fn search_friend_directory(
         return Err(ApiError::rate_limited("Too many friend search requests"));
     }
 
-    let mut results: Vec<synapse_storage::user::UserDirectorySearchResult> =
+    let mut results: Vec<synapse_services::user_service::UserDirectorySearchResult> =
         ctx.account_identity_service.search_directory_users(&search_term, search_limit as i64, exact_only).await?;
 
     let target_user_ids: Vec<String> =

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use synapse_common::error::ApiError;
-use synapse_storage::widget::{CreateWidgetParams, Widget, WidgetPermission, WidgetSession, WidgetStoreApi};
+use synapse_storage::widget::{CreateWidgetParams, WidgetPermission, WidgetStoreApi};
+pub use synapse_storage::widget::{Widget, WidgetSession};
 use tracing::info;
 use uuid::Uuid;
 

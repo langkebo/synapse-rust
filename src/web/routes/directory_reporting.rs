@@ -237,7 +237,7 @@ pub(crate) async fn report_room(
     let reason = body.get("reason").and_then(|v| v.as_str()).map(str::to_string);
     let description = body.get("description").and_then(|v| v.as_str()).map(str::to_string);
 
-    let request = synapse_storage::event_report::CreateEventReportRequest {
+    let request = synapse_services::event_report_service::CreateEventReportRequest {
         event_id: format!("room_report:{room_id}"),
         room_id: room_id.clone().to_string(),
         reporter_user_id: auth_user.user_id.clone(),
@@ -312,7 +312,7 @@ pub(crate) async fn report_user(
     // Store the report locally. event_id is synthetic (no Matrix event is
     // associated with a user report); room_id is empty because user reports
     // have no room context per MSC4260.
-    let request = synapse_storage::event_report::CreateEventReportRequest {
+    let request = synapse_services::event_report_service::CreateEventReportRequest {
         event_id: format!("user_report:{reported_user_id}"),
         room_id: String::new(),
         reporter_user_id: auth_user.user_id.clone(),

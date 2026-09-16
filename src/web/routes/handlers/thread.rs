@@ -84,8 +84,8 @@ struct ThreadResponse {
     created_ts: i64,
 }
 
-impl From<synapse_storage::thread::ThreadRoot> for ThreadResponse {
-    fn from(root: synapse_storage::thread::ThreadRoot) -> Self {
+impl From<synapse_services::thread_service::ThreadRoot> for ThreadResponse {
+    fn from(root: synapse_services::thread_service::ThreadRoot) -> Self {
         Self {
             thread_id: root.thread_id,
             root_event_id: root.root_event_id,
@@ -115,8 +115,8 @@ struct ReplyResponse {
     is_redacted: bool,
 }
 
-impl From<synapse_storage::thread::ThreadReply> for ReplyResponse {
-    fn from(reply: synapse_storage::thread::ThreadReply) -> Self {
+impl From<synapse_services::thread_service::ThreadReply> for ReplyResponse {
+    fn from(reply: synapse_services::thread_service::ThreadReply) -> Self {
         Self {
             event_id: reply.event_id,
             thread_id: reply.thread_id,
@@ -494,7 +494,7 @@ async fn subscribe_thread(
     Path((room_id, thread_id)): Path<(RoomId, String)>,
     auth_user: AuthenticatedUser,
     Json(body): Json<SubscribeBody>,
-) -> Result<Json<synapse_storage::thread::ThreadSubscription>, ApiError> {
+) -> Result<Json<synapse_services::thread_service::ThreadSubscription>, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, room_id.as_str()).await?;
 
     let user_id = auth_user.user_id;
@@ -506,7 +506,8 @@ async fn subscribe_thread(
         notification_level: body.notification_level,
     };
 
-    let subscription: synapse_storage::thread::ThreadSubscription = ctx.thread_service.subscribe(request).await?;
+    let subscription: synapse_services::thread_service::ThreadSubscription =
+        ctx.thread_service.subscribe(request).await?;
     Ok(Json(subscription))
 }
 
@@ -527,12 +528,12 @@ async fn mute_thread(
     State(ctx): State<RoomContext>,
     Path((room_id, thread_id)): Path<(RoomId, String)>,
     auth_user: AuthenticatedUser,
-) -> Result<Json<synapse_storage::thread::ThreadSubscription>, ApiError> {
+) -> Result<Json<synapse_services::thread_service::ThreadSubscription>, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, room_id.as_str()).await?;
 
     let user_id = auth_user.user_id;
 
-    let subscription: synapse_storage::thread::ThreadSubscription =
+    let subscription: synapse_services::thread_service::ThreadSubscription =
         ctx.thread_service.mute_thread(room_id.as_str(), &thread_id, &user_id).await?;
     Ok(Json(subscription))
 }
@@ -542,7 +543,7 @@ async fn mark_read(
     Path((room_id, thread_id)): Path<(RoomId, String)>,
     auth_user: AuthenticatedUser,
     Json(body): Json<MarkReadBody>,
-) -> Result<Json<synapse_storage::thread::ThreadReadReceipt>, ApiError> {
+) -> Result<Json<synapse_services::thread_service::ThreadReadReceipt>, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, room_id.as_str()).await?;
 
     let user_id = auth_user.user_id;
@@ -555,7 +556,7 @@ async fn mark_read(
         origin_server_ts: body.origin_server_ts,
     };
 
-    let receipt: synapse_storage::thread::ThreadReadReceipt = ctx.thread_service.mark_read(request).await?;
+    let receipt: synapse_services::thread_service::ThreadReadReceipt = ctx.thread_service.mark_read(request).await?;
     Ok(Json(receipt))
 }
 
@@ -577,10 +578,10 @@ async fn search_threads(
     Path(room_id): Path<RoomId>,
     Query(query): Query<SearchQuery>,
     auth_user: AuthenticatedUser,
-) -> Result<Json<Vec<synapse_storage::thread::ThreadSummary>>, ApiError> {
+) -> Result<Json<Vec<synapse_services::thread_service::ThreadSummary>>, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, room_id.as_str()).await?;
 
-    let results: Vec<synapse_storage::thread::ThreadSummary> =
+    let results: Vec<synapse_services::thread_service::ThreadSummary> =
         ctx.thread_service.search_threads(room_id.as_str(), &query.q, query.limit).await?;
     Ok(Json(results))
 }
@@ -589,10 +590,10 @@ async fn get_stats(
     State(ctx): State<RoomContext>,
     Path((room_id, thread_id)): Path<(RoomId, String)>,
     auth_user: AuthenticatedUser,
-) -> Result<Json<Option<synapse_storage::thread::ThreadStatistics>>, ApiError> {
+) -> Result<Json<Option<synapse_services::thread_service::ThreadStatistics>>, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, room_id.as_str()).await?;
 
-    let stats: Option<synapse_storage::thread::ThreadStatistics> =
+    let stats: Option<synapse_services::thread_service::ThreadStatistics> =
         ctx.thread_service.get_thread_statistics(room_id.as_str(), &thread_id).await?;
     Ok(Json(stats))
 }
@@ -653,7 +654,7 @@ async fn get_unread_threads_global(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use synapse_storage::thread::ThreadSummary;
+    use synapse_services::thread_service::ThreadSummary;
 
     #[test]
     fn test_build_legacy_threads_response_shape() {

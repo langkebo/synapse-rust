@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use synapse_common::error::ApiError;
-use synapse_storage::thread::{
-    CreateThreadReplyParams, CreateThreadRootParams, ThreadListParams, ThreadReadReceipt, ThreadReply, ThreadRoot,
-    ThreadStoreApi, ThreadSubscription, ThreadSummary,
+use synapse_storage::thread::{CreateThreadReplyParams, CreateThreadRootParams, ThreadListParams, ThreadStoreApi};
+pub use synapse_storage::thread::{
+    ThreadReadReceipt, ThreadReply, ThreadRoot, ThreadStatistics, ThreadSubscription, ThreadSummary,
 };
 use tracing::{debug, info, warn};
 

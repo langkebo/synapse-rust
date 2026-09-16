@@ -13,9 +13,9 @@ use crate::web::routes::extractors::UserId;
 use crate::web::routes::response_helpers::{created_json_from, empty_json, json_from, json_vec_from, require_found};
 use crate::web::routes::validators::validate_as_id;
 use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
+use synapse_services::application_service::{ApplicationService, UpdateApplicationServiceRequest};
 use synapse_storage::application_service::{
-    ApplicationService, ApplicationServiceState, ApplicationServiceUser, RegisterApplicationServiceRequest,
-    UpdateApplicationServiceRequest,
+    ApplicationServiceState, ApplicationServiceUser, RegisterApplicationServiceRequest,
 };
 
 /// The `RegisterAppServiceBody` struct.

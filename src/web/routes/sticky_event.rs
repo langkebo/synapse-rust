@@ -48,7 +48,7 @@ pub async fn get_sticky_events(
 
     // If specific event_type is requested
     if let Some(event_type) = query.event_type {
-        let sticky_event: Option<synapse_storage::sticky_event::StickyEvent> = ctx
+        let sticky_event: Option<synapse_services::room::StickyEvent> = ctx
             .room_service
             .get_is_sticky_event(&room_id, &auth_user.user_id, &event_type)
             .await
@@ -69,7 +69,7 @@ pub async fn get_sticky_events(
         }
     } else {
         // Get all sticky events
-        let sticky_events: Vec<synapse_storage::sticky_event::StickyEvent> = ctx
+        let sticky_events: Vec<synapse_services::room::StickyEvent> = ctx
             .room_service
             .get_all_is_sticky_events(&room_id, &auth_user.user_id)
             .await

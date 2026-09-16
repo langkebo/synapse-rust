@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use synapse_common::ApiError;
 use synapse_storage::application_service::*;
+pub use synapse_storage::application_service::{ApplicationService, UpdateApplicationServiceRequest};
 use tokio::fs;
 use tracing::{info, instrument, warn};
 

@@ -14,7 +14,7 @@ use synapse_services::admin_federation_service::{
     decode_destination_cursor, decode_pending_federation_cursor, encode_destination_cursor,
     encode_pending_federation_cursor,
 };
-use synapse_storage::federation_blacklist::decode_federation_blacklist_cursor;
+use synapse_services::federation_blacklist_service::decode_federation_blacklist_cursor;
 use tracing::info;
 
 /// See [`create_federation_router`].

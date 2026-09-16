@@ -7,7 +7,8 @@ use synapse_common::ApiError;
 use synapse_federation::event_broadcaster::EventBroadcaster;
 use synapse_storage::event::EventReader;
 use synapse_storage::membership::MemberStoreApi;
-use synapse_storage::user::{User, UserDirectorySearchResult, UserSearchResult, UserStore};
+pub use synapse_storage::user::{User, UserDirectorySearchResult};
+use synapse_storage::user::{UserSearchResult, UserStore};
 use tracing::instrument;
 
 /// Convenience layer over `UserStore` that maps `sqlx::Error` → `ApiError`

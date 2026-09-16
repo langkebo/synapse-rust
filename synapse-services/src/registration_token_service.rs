@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 use synapse_common::ApiError;
+pub use synapse_storage::registration_token::decode_registration_token_cursor;
 use synapse_storage::registration_token::*;
 use tracing::{info, instrument};
 

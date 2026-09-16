@@ -344,8 +344,8 @@ pub struct SamlMappingView {
     pub attributes: serde_json::Value,
 }
 
-impl From<synapse_storage::saml::SamlUserMapping> for SamlMappingView {
-    fn from(m: synapse_storage::saml::SamlUserMapping) -> Self {
+impl From<synapse_services::saml_service::SamlUserMapping> for SamlMappingView {
+    fn from(m: synapse_services::saml_service::SamlUserMapping) -> Self {
         Self {
             name_id: m.name_id,
             user_id: m.user_id,
