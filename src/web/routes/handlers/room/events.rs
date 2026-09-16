@@ -12,7 +12,7 @@ use axum::{
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use synapse_common::current_timestamp_millis;
-use synapse_storage::event::CreateEventParams;
+use synapse_services::event::CreateEventParams;
 
 /// See [`get_single_event`].
 pub(crate) async fn get_single_event(

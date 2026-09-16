@@ -223,7 +223,7 @@ async fn set_anti_screenshot(
     ctx.room_service
         .messaging()
         .create_event(
-            synapse_storage::event::CreateEventParams {
+            synapse_services::event::CreateEventParams {
                 event_id: event_id.clone(),
                 room_id: room_id.to_string(),
                 user_id: auth_user.user_id.clone(),

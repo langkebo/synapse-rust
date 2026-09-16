@@ -50,7 +50,7 @@ pub(crate) async fn thirdparty_invite(
             }
         }
     });
-    let params = synapse_storage::event::CreateEventParams {
+    let params = synapse_services::event::CreateEventParams {
         event_id: event_id.clone(),
         room_id: room_id.to_string(),
         user_id: sender.to_string(),
@@ -108,7 +108,7 @@ pub(crate) async fn invite_v2(
 
     let content_for_as = content.clone();
 
-    let params = synapse_storage::event::CreateEventParams {
+    let params = synapse_services::event::CreateEventParams {
         event_id: event_id.clone(),
         room_id: room_id.clone(),
         user_id: sender.to_string(),

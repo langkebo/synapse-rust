@@ -10,7 +10,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use synapse_storage::audit::{decode_audit_event_cursor, AuditEventFilters, CreateAuditEventRequest};
+use synapse_services::admin_audit_service::{decode_audit_event_cursor, AuditEventFilters, CreateAuditEventRequest};
 
 /// See [`create_audit_router`].
 pub fn create_audit_router() -> Router<crate::web::routes::AppState> {

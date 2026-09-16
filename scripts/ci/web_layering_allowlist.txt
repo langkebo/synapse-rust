@@ -3,8 +3,6 @@
 # so removing a line here is part of fixing the file, not optional bookkeeping.
 # Regenerate with: python3 scripts/ci/check_web_layering.py --update
 
-src/web/middleware/auth.rs
-src/web/routes/admin/audit.rs
 src/web/routes/admin/federation.rs
 src/web/routes/admin/notification.rs
 src/web/routes/admin/report.rs
@@ -20,14 +18,7 @@ src/web/routes/delayed_events.rs
 src/web/routes/directory_reporting.rs
 src/web/routes/event_report.rs
 src/web/routes/external_service.rs
-src/web/routes/extractors/auth.rs
 src/web/routes/feature_flags.rs
-src/web/routes/federation/events.rs
-src/web/routes/federation/membership/invite.rs
-src/web/routes/federation/membership/join.rs
-src/web/routes/federation/membership/knock.rs
-src/web/routes/federation/membership/leave.rs
-src/web/routes/federation/transaction.rs
 src/web/routes/friend_room.rs
 src/web/routes/handlers/room/events.rs
 src/web/routes/handlers/room/management/create.rs
@@ -39,7 +30,6 @@ src/web/routes/oidc/mod.rs
 src/web/routes/push_notification.rs
 src/web/routes/qr_login_token.rs
 src/web/routes/rendezvous.rs
-src/web/routes/room.rs
 src/web/routes/saml.rs
 src/web/routes/sliding_sync.rs
 src/web/routes/space.rs
@@ -49,6 +39,5 @@ src/web/routes/space/types.rs
 src/web/routes/sticky_event.rs
 src/web/routes/tags.rs
 src/web/routes/telemetry.rs
-src/web/routes/voip.rs
 src/web/routes/widget.rs
 src/web/utils/admin_auth.rs

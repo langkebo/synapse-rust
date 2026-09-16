@@ -26,7 +26,7 @@ pub(crate) async fn knock_room(
     let origin_server_ts = current_timestamp_millis();
 
     let content = json!({"membership": "knock"});
-    let params = synapse_storage::event::CreateEventParams {
+    let params = synapse_services::event::CreateEventParams {
         event_id: event_id.clone(),
         room_id: room_id.clone(),
         user_id: user_id.clone(),

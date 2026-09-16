@@ -440,7 +440,7 @@ pub(super) async fn send_transaction(
                                         let missing_depth =
                                             missing_pdu.get("depth").and_then(|v| v.as_i64()).unwrap_or(0);
 
-                                        let missing_params = synapse_storage::event::CreateEventParams {
+                                        let missing_params = synapse_services::event::CreateEventParams {
                                             event_id: missing_event_id.to_string(),
                                             room_id: missing_room_id.to_string(),
                                             user_id: missing_user_id.to_string(),
@@ -490,7 +490,7 @@ pub(super) async fn send_transaction(
             }
         }
 
-        let params = synapse_storage::event::CreateEventParams {
+        let params = synapse_services::event::CreateEventParams {
             event_id: event_id.clone(),
             room_id: room_id.to_string(),
             user_id: user_id.to_string(),

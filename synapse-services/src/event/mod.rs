@@ -16,3 +16,8 @@
 pub use crate::event_broadcaster_trait::{BroadcastError, EventBroadcaster};
 pub use crate::event_notifier::{EventNotifier, EventNotifyKind, EventNotifyMessage};
 pub use crate::event_report_service::EventReportService;
+
+// Event DTOs the HTTP layer needs. Re-exported through the service layer so
+// `src/web` depends on `synapse-services` instead of reaching into
+// `synapse-storage` directly (A2 / B4-4; see scripts/ci/check_web_layering.py).
+pub use synapse_storage::event::{CreateEventParams, RoomEvent, StateEvent};

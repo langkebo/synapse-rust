@@ -9,9 +9,9 @@ use crate::web::routes::{validate_room_id, AuthenticatedUser};
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
+use synapse_services::event::CreateEventParams;
 #[cfg(feature = "beacons")]
 use synapse_storage::beacon::CreateBeaconInfoParams;
-use synapse_storage::event::CreateEventParams;
 
 /// See [`get_room_state`].
 pub(crate) async fn get_room_state(

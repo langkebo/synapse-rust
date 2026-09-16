@@ -7,8 +7,8 @@ use serde_json::json;
 use sha1::Sha1;
 use std::time::{SystemTime, UNIX_EPOCH};
 use synapse_common::crypto::secure_compare;
+use synapse_services::admin_audit_service::CreateAuditEventRequest;
 use synapse_services::UserService;
-use synapse_storage::audit::CreateAuditEventRequest;
 use synapse_storage::user::User;
 
 type HmacSha1 = Hmac<Sha1>;

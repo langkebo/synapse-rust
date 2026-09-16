@@ -7,7 +7,7 @@ use axum::{
     http::{request::Parts, HeaderMap, Method},
 };
 use serde_json::json;
-use synapse_storage::audit::CreateAuditEventRequest;
+use synapse_services::admin_audit_service::CreateAuditEventRequest;
 
 /// The `AuthenticatedUser` struct.
 #[derive(Clone)]

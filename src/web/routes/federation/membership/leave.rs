@@ -72,7 +72,7 @@ pub(crate) async fn send_leave(
     super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
     let _room_version = federatable_room_version(&ctx, &room_id).await?;
 
-    let params = synapse_storage::event::CreateEventParams {
+    let params = synapse_services::event::CreateEventParams {
         event_id: event_id.clone(),
         room_id: room_id.clone(),
         user_id: user_id.to_string(),
@@ -153,7 +153,7 @@ pub(crate) async fn send_leave_v2(
 
     let membership_content_for_as = membership_content.clone();
 
-    let params = synapse_storage::event::CreateEventParams {
+    let params = synapse_services::event::CreateEventParams {
         event_id: event_id.clone(),
         room_id: room_id.clone(),
         user_id: sender.to_string(),

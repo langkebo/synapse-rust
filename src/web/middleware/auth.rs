@@ -9,7 +9,7 @@ use axum::http::{HeaderMap, Method, Request};
 use axum::response::IntoResponse;
 use axum::{body::Body, response::Response, Json};
 use serde_json::json;
-use synapse_storage::audit::CreateAuditEventRequest;
+use synapse_services::admin_audit_service::CreateAuditEventRequest;
 
 /// See [`extract_token`].
 pub fn extract_token(headers: &HeaderMap, uri: &str) -> Option<String> {
