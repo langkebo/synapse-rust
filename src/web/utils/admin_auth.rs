@@ -113,7 +113,6 @@ pub(crate) async fn authorize_admin_from_services(
     Ok(AuthorizedAdmin { user_id, device_id, access_token, role })
 }
 
-
 fn normalize_admin_path(path: &str) -> String {
     if path == "/admin/services" || path.starts_with("/admin/services/") {
         return path.replacen("/admin/services", "/_synapse/admin/v1/cas/services", 1);

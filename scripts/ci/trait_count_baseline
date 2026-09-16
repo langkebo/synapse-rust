@@ -1,4 +1,14 @@
 # Trait-count ratchet baseline (A5 / B4-1). See scripts/ci/check_trait_ratchet.py.
 # The numbers may only go DOWN. Bump them deliberately and say why.
-TOTAL=63
+TOTAL=65
 STORE_API=33
+#
+# 2026-09-15  TOTAL 63 -> 65 (+2) —— B4-3 引入的两个 DI 接缝 trait
+#   来源：src/web/routes/auth_source.rs 的 `AuthSource` 与 `AdminAuthSource: AuthSource`。
+#   这是**有正当理由的**新增，且是净收益极大的一次：
+#     · 它们取代了 extractors/auth.rs 里 21 个近乎逐字重复的 `FromRequestParts` impl
+#       （auth.rs −645 行，21 impl -> 3 泛型 impl）；
+#     · 并连带消除了管理员鉴权的第二份实现（authorize_admin_request，83 行副本）。
+#   整个 B4-1 + B4-3 弧线：`pub trait` 96 -> 65（净 −31）、`*StoreApi` 66 -> 33（净 −33）。
+#   `*StoreApi` 未增加（33 == 33），因此棘轮想守的"存储抽象必须自证价值"没有被放宽；
+#   放行的只是这两个明确服务于 DI 泛型化的接缝。
