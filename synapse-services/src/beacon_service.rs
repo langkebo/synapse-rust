@@ -1,8 +1,7 @@
 use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_storage::beacon::{
-    BeaconInfo, BeaconInfoWithLocations, BeaconLocation, BeaconStoreApi, CreateBeaconInfoParams,
-    CreateBeaconLocationParams,
+    BeaconInfo, BeaconInfoWithLocations, BeaconLocation, CreateBeaconInfoParams, CreateBeaconLocationParams,
 };
 
 const BEACON_QUOTA_WINDOW_MS: i64 = 60_000;
@@ -13,13 +12,13 @@ const BEACON_ROOM_BACKPRESSURE_REFILL_PER_SEC: u32 = 5;
 
 /// The `BeaconService` struct.
 pub struct BeaconService {
-    storage: Arc<dyn BeaconStoreApi>,
+    storage: Arc<synapse_storage::beacon::BeaconStorage>,
     cache: Arc<CacheManager>,
 }
 
 impl BeaconService {
     /// See [`new`].
-    pub fn new(storage: Arc<dyn BeaconStoreApi>, cache: Arc<CacheManager>) -> Self {
+    pub fn new(storage: Arc<synapse_storage::beacon::BeaconStorage>, cache: Arc<CacheManager>) -> Self {
         Self { storage, cache }
     }
 

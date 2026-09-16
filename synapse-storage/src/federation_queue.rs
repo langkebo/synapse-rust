@@ -44,7 +44,6 @@ pub struct InsertFederationQueueRequest {
     pub created_ts: i64,
 }
 
-
 /// The `FederationQueueStorage` struct.
 pub struct FederationQueueStorage {
     pool: PgPool,
@@ -181,7 +180,6 @@ impl FederationQueueStorage {
         Ok(row.0.unwrap_or(0))
     }
 }
-
 
 #[cfg(test)]
 mod db_tests {

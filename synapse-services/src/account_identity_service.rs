@@ -15,7 +15,7 @@ pub struct AccountIdentityService {
     user_service: Arc<UserService>,
     threepid_storage: Arc<dyn ThreepidStoreApi>,
     #[cfg(feature = "privacy-ext")]
-    privacy_storage: Arc<dyn synapse_storage::privacy::PrivacyStoreApi>,
+    privacy_storage: Arc<synapse_storage::privacy::PrivacyStorage>,
 }
 
 impl AccountIdentityService {
@@ -24,7 +24,7 @@ impl AccountIdentityService {
     pub fn new(
         user_service: Arc<UserService>,
         threepid_storage: Arc<dyn ThreepidStoreApi>,
-        privacy_storage: Arc<dyn synapse_storage::privacy::PrivacyStoreApi>,
+        privacy_storage: Arc<synapse_storage::privacy::PrivacyStorage>,
     ) -> Self {
         Self { user_service, threepid_storage, privacy_storage }
     }
@@ -276,7 +276,7 @@ mod tests {
         {
             let pool = sqlx::PgPool::connect_lazy("postgresql://synapse:synapse@localhost:5432/synapse_test")
                 .expect("connect_lazy should not perform I/O");
-            let privacy_storage: Arc<dyn synapse_storage::privacy::PrivacyStoreApi> =
+            let privacy_storage: Arc<synapse_storage::privacy::PrivacyStorage> =
                 Arc::new(synapse_storage::privacy::PrivacyStorage::new(std::sync::Arc::new(pool)));
             AccountIdentityService::new(user_service, threepid_store, privacy_storage)
         }
@@ -319,7 +319,7 @@ mod tests {
         let svc = {
             let pool = sqlx::PgPool::connect_lazy("postgresql://synapse:synapse@localhost:5432/synapse_test")
                 .expect("connect_lazy should not perform I/O");
-            let privacy_storage: Arc<dyn synapse_storage::privacy::PrivacyStoreApi> =
+            let privacy_storage: Arc<synapse_storage::privacy::PrivacyStorage> =
                 Arc::new(synapse_storage::privacy::PrivacyStorage::new(std::sync::Arc::new(pool)));
             AccountIdentityService::new(user_service, Arc::new(InMemoryThreepidStore::new()), privacy_storage)
         };

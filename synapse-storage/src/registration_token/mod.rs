@@ -1,8 +1,6 @@
-mod api;
 mod models;
 mod repository;
 
-pub use api::RegistrationTokenStoreApi;
 pub use models::*;
 pub use repository::RegistrationTokenStorage;
 

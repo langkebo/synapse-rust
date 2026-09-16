@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
@@ -208,45 +207,6 @@ pub struct CreateRuleRequest {
     pub description: Option<String>,
     /// The `created_by` field.
     pub created_by: String,
-}
-
-/// The `FederationBlacklistStoreApi` trait.
-#[async_trait]
-pub trait FederationBlacklistStoreApi: Send + Sync + std::fmt::Debug {
-    /// See [`add_to_blacklist`].
-    async fn add_to_blacklist(&self, request: AddBlacklistRequest) -> Result<FederationBlacklist, ApiError>;
-    /// See [`remove_from_blacklist`].
-    async fn remove_from_blacklist(&self, server_name: &str, performed_by: &str) -> Result<(), ApiError>;
-    /// See [`get_blacklist_entry`].
-    async fn get_blacklist_entry(&self, server_name: &str) -> Result<Option<FederationBlacklist>, ApiError>;
-    /// See [`is_server_blocked`].
-    async fn is_server_blocked(&self, server_name: &str) -> Result<bool, ApiError>;
-    /// See [`is_server_whitelisted`].
-    async fn is_server_whitelisted(&self, server_name: &str) -> Result<bool, ApiError>;
-    /// See [`get_all_blacklist`].
-    async fn get_all_blacklist(
-        &self,
-        limit: i32,
-        from: Option<FederationBlacklistCursor>,
-    ) -> Result<(Vec<FederationBlacklist>, Option<String>), ApiError>;
-    /// See [`create_log`].
-    async fn create_log(&self, request: CreateLogRequest) -> Result<FederationBlacklistLog, ApiError>;
-    /// See [`update_access_stats`].
-    async fn update_access_stats(&self, request: UpdateStatsRequest) -> Result<FederationAccessStats, ApiError>;
-    /// See [`get_access_stats`].
-    async fn get_access_stats(&self, server_name: &str) -> Result<Option<FederationAccessStats>, ApiError>;
-    /// See [`create_rule`].
-    async fn create_rule(&self, request: CreateRuleRequest) -> Result<FederationBlacklistRule, ApiError>;
-    /// See [`get_all_rules`].
-    async fn get_all_rules(&self) -> Result<Vec<FederationBlacklistRule>, ApiError>;
-    /// See [`cleanup_expired_entries`].
-    async fn cleanup_expired_entries(&self) -> Result<u64, ApiError>;
-    /// See [`get_config`].
-    fn get_config(&self, config_key: &str) -> Result<Option<String>, ApiError>;
-    /// See [`get_config_as_bool`].
-    fn get_config_as_bool(&self, config_key: &str, default: bool) -> Result<bool, ApiError>;
-    /// See [`get_config_as_int`].
-    fn get_config_as_int(&self, config_key: &str, default: i32) -> Result<i32, ApiError>;
 }
 
 /// The `FederationBlacklistStorage` struct.
@@ -634,59 +594,6 @@ impl FederationBlacklistStorage {
     /// See [`get_config_as_int`].
     pub fn get_config_as_int(&self, _config_key: &str, default: i32) -> Result<i32, ApiError> {
         Ok(default)
-    }
-}
-
-#[async_trait]
-impl FederationBlacklistStoreApi for FederationBlacklistStorage {
-    async fn add_to_blacklist(&self, request: AddBlacklistRequest) -> Result<FederationBlacklist, ApiError> {
-        self.add_to_blacklist(request).await
-    }
-    async fn remove_from_blacklist(&self, server_name: &str, performed_by: &str) -> Result<(), ApiError> {
-        self.remove_from_blacklist(server_name, performed_by).await
-    }
-    async fn get_blacklist_entry(&self, server_name: &str) -> Result<Option<FederationBlacklist>, ApiError> {
-        self.get_blacklist_entry(server_name).await
-    }
-    async fn is_server_blocked(&self, server_name: &str) -> Result<bool, ApiError> {
-        self.is_server_blocked(server_name).await
-    }
-    async fn is_server_whitelisted(&self, server_name: &str) -> Result<bool, ApiError> {
-        self.is_server_whitelisted(server_name).await
-    }
-    async fn get_all_blacklist(
-        &self,
-        limit: i32,
-        from: Option<FederationBlacklistCursor>,
-    ) -> Result<(Vec<FederationBlacklist>, Option<String>), ApiError> {
-        self.get_all_blacklist(limit, from).await
-    }
-    async fn create_log(&self, request: CreateLogRequest) -> Result<FederationBlacklistLog, ApiError> {
-        self.create_log(request).await
-    }
-    async fn update_access_stats(&self, request: UpdateStatsRequest) -> Result<FederationAccessStats, ApiError> {
-        self.update_access_stats(request).await
-    }
-    async fn get_access_stats(&self, server_name: &str) -> Result<Option<FederationAccessStats>, ApiError> {
-        self.get_access_stats(server_name).await
-    }
-    async fn create_rule(&self, request: CreateRuleRequest) -> Result<FederationBlacklistRule, ApiError> {
-        self.create_rule(request).await
-    }
-    async fn get_all_rules(&self) -> Result<Vec<FederationBlacklistRule>, ApiError> {
-        self.get_all_rules().await
-    }
-    async fn cleanup_expired_entries(&self) -> Result<u64, ApiError> {
-        self.cleanup_expired_entries().await
-    }
-    fn get_config(&self, config_key: &str) -> Result<Option<String>, ApiError> {
-        self.get_config(config_key)
-    }
-    fn get_config_as_bool(&self, config_key: &str, default: bool) -> Result<bool, ApiError> {
-        self.get_config_as_bool(config_key, default)
-    }
-    fn get_config_as_int(&self, config_key: &str, default: i32) -> Result<i32, ApiError> {
-        self.get_config_as_int(config_key, default)
     }
 }
 

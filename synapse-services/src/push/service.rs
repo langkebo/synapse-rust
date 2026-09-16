@@ -25,7 +25,7 @@ struct PushProviders {
 /// The `PushNotificationService` struct.
 #[derive(Clone)]
 pub struct PushNotificationService {
-    storage: Arc<dyn synapse_storage::push_notification::PushNotificationStoreApi>,
+    storage: Arc<synapse_storage::push_notification::PushNotificationStorage>,
     providers: Arc<RwLock<PushProviders>>,
     push_gateway: Option<Arc<PushGateway>>,
     /// Optional account_data storage for looking up `m.ignored_user_list`
@@ -96,7 +96,7 @@ pub struct SendNotificationRequest {
 
 impl PushNotificationService {
     /// See [`new`].
-    pub fn new(storage: Arc<dyn synapse_storage::push_notification::PushNotificationStoreApi>) -> Self {
+    pub fn new(storage: Arc<synapse_storage::push_notification::PushNotificationStorage>) -> Self {
         Self {
             storage,
             providers: Arc::new(RwLock::new(PushProviders::default())),
@@ -549,7 +549,7 @@ mod db_tests {
         )
     }
 
-    fn storage_for(pool: &Arc<sqlx::PgPool>) -> Arc<dyn PushNotificationStoreApi> {
+    fn storage_for(pool: &Arc<sqlx::PgPool>) -> Arc<synapse_storage::push_notification::PushNotificationStorage> {
         Arc::new(PushNotificationStorage::new(pool))
     }
 
@@ -570,7 +570,11 @@ mod db_tests {
 
     /// Seeds one global `push_config` row through the storage API — the same path the
     /// admin config endpoint uses, so the fixtures cannot drift from the real schema.
-    async fn set_push_config(storage: &Arc<dyn PushNotificationStoreApi>, key: &str, value: &str) {
+    async fn set_push_config(
+        storage: &Arc<synapse_storage::push_notification::PushNotificationStorage>,
+        key: &str,
+        value: &str,
+    ) {
         storage.set_config(key, value).await.expect("seeding push_config must succeed");
     }
 

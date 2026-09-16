@@ -337,7 +337,7 @@ pub(crate) use synapse_common::friend_shard::sort_letter_for;
 /// The `FriendRoomService` struct.
 #[allow(dead_code)] // Reserved fields for future use; see field-level comments.
 pub struct FriendRoomService {
-    pub(crate) friend_storage: Arc<dyn synapse_storage::friend_room::FriendRoomStoreApi>,
+    pub(crate) friend_storage: Arc<synapse_storage::friend_room::FriendRoomStorage>,
     pub(crate) room_service: Arc<dyn RoomServiceApi>,
     pub(crate) user_storage: Arc<dyn UserStore>,
     pub(crate) user_service: Arc<crate::UserService>, // Reserved; constructor parity

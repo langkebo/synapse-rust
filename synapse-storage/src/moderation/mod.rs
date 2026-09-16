@@ -191,7 +191,6 @@ pub enum ContentType {
     File,
 }
 
-
 /// The `ModerationStorage` struct.
 #[derive(Clone)]
 pub struct ModerationStorage {
@@ -320,7 +319,6 @@ impl ModerationStorage {
     }
 }
 
-
 /// The `ModerationLog` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ModerationLog {
@@ -343,7 +341,6 @@ pub struct ModerationLog {
     /// The `created_ts` field.
     pub created_ts: i64,
 }
-
 
 /// The `ModerationLogStorage` struct.
 #[derive(Clone)]
@@ -448,7 +445,6 @@ impl ModerationLogStorage {
         Ok(result.rows_affected())
     }
 }
-
 
 #[cfg(test)]
 mod tests {

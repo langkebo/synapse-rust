@@ -2,30 +2,9 @@
 // Secure out-of-band channel for sign in with QR
 // Following project field naming standards
 
-use async_trait::async_trait;
 use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
-
-/// The `QrLoginStoreApi` trait.
-#[async_trait]
-pub trait QrLoginStoreApi: Send + Sync {
-    /// See [`create_qr_login`].
-    async fn create_qr_login(
-        &self,
-        transaction_id: &str,
-        user_id: &str,
-        device_id: Option<&str>,
-    ) -> Result<(), sqlx::Error>;
-    /// See [`get_qr_transaction`].
-    async fn get_qr_transaction(&self, transaction_id: &str) -> Result<Option<QrTransaction>, sqlx::Error>;
-    /// See [`update_qr_status`].
-    async fn update_qr_status(&self, transaction_id: &str, status: &str) -> Result<(), sqlx::Error>;
-    /// See [`delete_qr_transaction`].
-    async fn delete_qr_transaction(&self, transaction_id: &str) -> Result<(), sqlx::Error>;
-    /// See [`cleanup_expired`].
-    async fn cleanup_expired(&self) -> Result<u64, sqlx::Error>;
-}
 
 /// The `QrLoginStorage` struct.
 #[derive(Clone)]
@@ -160,30 +139,6 @@ pub struct QrTransaction {
     pub updated_ts: Option<i64>,
     /// The `expires_at` field.
     pub expires_at: i64,
-}
-
-#[async_trait]
-impl QrLoginStoreApi for QrLoginStorage {
-    async fn create_qr_login(
-        &self,
-        transaction_id: &str,
-        user_id: &str,
-        device_id: Option<&str>,
-    ) -> Result<(), sqlx::Error> {
-        self.create_qr_login(transaction_id, user_id, device_id).await
-    }
-    async fn get_qr_transaction(&self, transaction_id: &str) -> Result<Option<QrTransaction>, sqlx::Error> {
-        self.get_qr_transaction(transaction_id).await
-    }
-    async fn update_qr_status(&self, transaction_id: &str, status: &str) -> Result<(), sqlx::Error> {
-        self.update_qr_status(transaction_id, status).await
-    }
-    async fn delete_qr_transaction(&self, transaction_id: &str) -> Result<(), sqlx::Error> {
-        self.delete_qr_transaction(transaction_id).await
-    }
-    async fn cleanup_expired(&self) -> Result<u64, sqlx::Error> {
-        self.cleanup_expired().await
-    }
 }
 
 #[cfg(test)]

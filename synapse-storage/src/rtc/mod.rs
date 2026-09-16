@@ -6,10 +6,8 @@
 //! Consumers should prefer `synapse_storage::rtc::CallSessionStorage` over the
 //! flat `synapse_storage::CallSessionStorage`.
 
-pub use crate::call_session::{
-    CallCandidate, CallSession, CallSessionStorage, CallSessionStoreApi, CreateCallSessionParams,
-};
+pub use crate::call_session::{CallCandidate, CallSession, CallSessionStorage, CreateCallSessionParams};
 pub use crate::matrixrtc::{
-    CreateMembershipParams, CreateSessionParams, MatrixRTCStorage, RTCEncryptionKey, RTCMembership,
-    RTCSession, SessionWithMemberships,
+    CreateMembershipParams, CreateSessionParams, MatrixRTCStorage, RTCEncryptionKey, RTCMembership, RTCSession,
+    SessionWithMemberships,
 };

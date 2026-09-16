@@ -7,7 +7,6 @@ use synapse_common::current_timestamp_millis;
 use synapse_common::metrics::{Counter, Gauge, Histogram, MetricsCollector};
 use synapse_common::ApiError;
 
-use synapse_storage::media::ChunkedUploadStoreApi;
 use synapse_storage::retention::*;
 use tokio::sync::RwLock;
 use tracing::{error, info, instrument, warn};
@@ -110,8 +109,8 @@ impl RetentionLifecycleMetrics {
 
 /// The `RetentionService` struct.
 pub struct RetentionService {
-    storage: Arc<dyn synapse_storage::retention::RetentionStoreApi>,
-    chunked_upload_storage: Arc<dyn ChunkedUploadStoreApi>,
+    storage: Arc<synapse_storage::retention::RetentionStorage>,
+    chunked_upload_storage: Arc<synapse_storage::media::chunked_upload::ChunkedUploadStorage>,
     audit_storage: Arc<dyn synapse_storage::audit::AuditEventStoreApi>,
     lifecycle_metrics: RetentionLifecycleMetrics,
     last_lifecycle_summary: Arc<RwLock<Option<DataLifecycleCleanupSummary>>>,
@@ -120,8 +119,8 @@ pub struct RetentionService {
 impl RetentionService {
     /// See [`new`].
     pub fn new(
-        storage: Arc<dyn synapse_storage::retention::RetentionStoreApi>,
-        chunked_upload_storage: Arc<dyn ChunkedUploadStoreApi>,
+        storage: Arc<synapse_storage::retention::RetentionStorage>,
+        chunked_upload_storage: Arc<synapse_storage::media::chunked_upload::ChunkedUploadStorage>,
         metrics: &Arc<MetricsCollector>,
         audit_storage: Arc<dyn synapse_storage::audit::AuditEventStoreApi>,
     ) -> Self {

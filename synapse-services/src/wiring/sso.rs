@@ -14,7 +14,7 @@ use synapse_common::config::Config;
 pub struct SsoServices {
     #[cfg(feature = "saml-sso")]
     /// The `saml_storage` field.
-    pub saml_storage: Arc<dyn synapse_storage::saml::SamlStoreApi>,
+    pub saml_storage: Arc<synapse_storage::saml::SamlStorage>,
     #[cfg(feature = "saml-sso")]
     /// The `saml_service` field.
     pub saml_service: Arc<crate::saml_service::SamlService>,
@@ -42,7 +42,7 @@ impl SsoServices {
     /// See [`new`].
     pub async fn new(pool: &Arc<sqlx::PgPool>, config: &Config) -> Self {
         #[cfg(feature = "saml-sso")]
-        let saml_storage: Arc<dyn synapse_storage::saml::SamlStoreApi> =
+        let saml_storage: Arc<synapse_storage::saml::SamlStorage> =
             Arc::new(synapse_storage::saml::SamlStorage::new(pool));
         #[cfg(feature = "saml-sso")]
         let saml_service = Arc::new(crate::saml_service::SamlService::new(

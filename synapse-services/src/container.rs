@@ -87,9 +87,9 @@ struct StoragePhase {
     threepid_storage: Arc<dyn ThreepidStoreApi>,
     presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
     presence_service: Arc<crate::presence_service::PresenceService>,
-    qr_login_storage: Arc<dyn QrLoginStoreApi>,
+    qr_login_storage: Arc<synapse_storage::qr_login::QrLoginStorage>,
     invite_blocklist_storage: Arc<dyn InviteBlocklistStoreApi>,
-    sticky_event_storage: Arc<dyn StickyEventStoreApi>,
+    sticky_event_storage: Arc<synapse_storage::sticky_event::StickyEventStorage>,
 }
 
 /// Phase 3 output: domain assemblies + media service.
@@ -262,10 +262,12 @@ impl ServiceContainer {
         };
         let presence_service =
             Arc::new(crate::presence_service::PresenceService::with_tuning(presence_storage.clone(), presence_tuning));
-        let qr_login_storage: Arc<dyn QrLoginStoreApi> = Arc::new(QrLoginStorage::new(pool.clone()));
+        let qr_login_storage: Arc<synapse_storage::qr_login::QrLoginStorage> =
+            Arc::new(QrLoginStorage::new(pool.clone()));
         let invite_blocklist_storage: Arc<dyn InviteBlocklistStoreApi> =
             Arc::new(InviteBlocklistStorage::new(pool.clone()));
-        let sticky_event_storage: Arc<dyn StickyEventStoreApi> = Arc::new(StickyEventStorage::new(pool.clone()));
+        let sticky_event_storage: Arc<synapse_storage::sticky_event::StickyEventStorage> =
+            Arc::new(StickyEventStorage::new(pool.clone()));
 
         // user_service already created above (S23 DI sharing)
 

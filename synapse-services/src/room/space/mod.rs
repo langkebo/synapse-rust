@@ -18,7 +18,7 @@ use tracing::{error, info, instrument, warn};
 
 /// The `SpaceService` struct.
 pub struct SpaceService {
-    pub(crate) space_storage: Arc<dyn SpaceStoreApi>,
+    pub(crate) space_storage: Arc<synapse_storage::space::SpaceStorage>,
     pub(crate) room_storage: Arc<dyn RoomStoreApi>,
     pub(crate) server_name: String,
 }
@@ -26,7 +26,7 @@ pub struct SpaceService {
 impl SpaceService {
     /// See [`new`].
     pub fn new(
-        space_storage: Arc<dyn SpaceStoreApi>,
+        space_storage: Arc<synapse_storage::space::SpaceStorage>,
         room_storage: Arc<dyn RoomStoreApi>,
         server_name: String,
     ) -> Self {

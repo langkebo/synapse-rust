@@ -47,7 +47,6 @@ pub struct KeyAuditEntry {
     pub created_ts: i64,
 }
 
-
 /// The `E2eeAuditStorage` struct.
 #[derive(Clone)]
 pub struct E2eeAuditStorage {
@@ -197,7 +196,6 @@ impl E2eeAuditStorage {
         Ok(result.rows_affected())
     }
 }
-
 
 #[cfg(test)]
 mod db_tests {

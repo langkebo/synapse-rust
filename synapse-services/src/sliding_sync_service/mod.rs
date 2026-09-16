@@ -72,7 +72,7 @@ pub struct SlidingSyncService {
     /// room are injected into the sliding sync room response as
     /// `sticky_events`. `None` disables the integration (e.g. in tests
     /// that don't exercise sticky events).
-    sticky_event_storage: Option<Arc<dyn synapse_storage::sticky_event::StickyEventStoreApi>>,
+    sticky_event_storage: Option<Arc<synapse_storage::sticky_event::StickyEventStorage>>,
     /// Tracks last-access timestamp per (user_id, device_id, conn_id) for LRU + TTL GC.
     connection_tracker: Arc<moka::sync::Cache<String, i64>>,
     /// MSC4186: txn_id idempotency cache. When a request carries a `txn_id`,
@@ -134,7 +134,7 @@ impl SlidingSyncService {
         user_storage: Arc<dyn synapse_storage::user::UserStore>,
         metrics: Arc<MetricsCollector>,
         performance: PerformanceConfig,
-        sticky_event_storage: Option<Arc<dyn synapse_storage::sticky_event::StickyEventStoreApi>>,
+        sticky_event_storage: Option<Arc<synapse_storage::sticky_event::StickyEventStorage>>,
     ) -> Self {
         let connection_tracker = moka::sync::Cache::builder()
             .max_capacity(MAX_TRACKED_CONNECTIONS)

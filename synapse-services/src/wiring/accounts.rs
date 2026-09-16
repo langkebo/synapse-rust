@@ -33,11 +33,11 @@ pub struct AccountServices {
     /// The `presence_service` field.
     pub presence_service: Arc<crate::presence_service::PresenceService>,
     /// The `qr_login_storage` field.
-    pub qr_login_storage: Arc<dyn QrLoginStoreApi>,
+    pub qr_login_storage: Arc<synapse_storage::qr_login::QrLoginStorage>,
     /// The `invite_blocklist_storage` field.
     pub invite_blocklist_storage: Arc<dyn InviteBlocklistStoreApi>,
     /// The `sticky_event_storage` field.
-    pub sticky_event_storage: Arc<dyn StickyEventStoreApi>,
+    pub sticky_event_storage: Arc<synapse_storage::sticky_event::StickyEventStorage>,
     /// The `user_service` field.
     pub user_service: Arc<UserService>,
 }
@@ -57,11 +57,11 @@ pub struct AccountServicesDeps {
     /// The `presence_service` field.
     pub presence_service: Arc<crate::presence_service::PresenceService>,
     /// The `qr_login_storage` field.
-    pub qr_login_storage: Arc<dyn QrLoginStoreApi>,
+    pub qr_login_storage: Arc<synapse_storage::qr_login::QrLoginStorage>,
     /// The `invite_blocklist_storage` field.
     pub invite_blocklist_storage: Arc<dyn InviteBlocklistStoreApi>,
     /// The `sticky_event_storage` field.
-    pub sticky_event_storage: Arc<dyn StickyEventStoreApi>,
+    pub sticky_event_storage: Arc<synapse_storage::sticky_event::StickyEventStorage>,
     /// The `account_device_list_service` field.
     pub account_device_list_service: Arc<crate::account_device_list_service::AccountDeviceListService>,
     /// The `account_identity_service` field.

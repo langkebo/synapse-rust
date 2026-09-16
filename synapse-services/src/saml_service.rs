@@ -140,7 +140,7 @@ pub struct SamlMetadata {
 /// The `SamlService` struct.
 pub struct SamlService {
     config: Arc<SamlConfig>,
-    storage: Arc<dyn synapse_storage::saml::SamlStoreApi>,
+    storage: Arc<synapse_storage::saml::SamlStorage>,
     http_client: reqwest::Client,
     server_name: String,
     cached_metadata: Option<SamlMetadata>,
@@ -150,11 +150,7 @@ pub struct SamlService {
 
 impl SamlService {
     /// See [`new`].
-    pub fn new(
-        config: Arc<SamlConfig>,
-        storage: Arc<dyn synapse_storage::saml::SamlStoreApi>,
-        server_name: String,
-    ) -> Self {
+    pub fn new(config: Arc<SamlConfig>, storage: Arc<synapse_storage::saml::SamlStorage>, server_name: String) -> Self {
         let http_client =
             reqwest::Client::builder().timeout(Duration::from_secs(config.timeout)).build().unwrap_or_else(|e| {
                 // F-1: builder 失败不再静默退化，记录 warn 并回退共享默认 client
@@ -1223,12 +1219,12 @@ impl SamlService {
 
 /// The `SamlIdpManager` struct.
 pub struct SamlIdpManager {
-    storage: Arc<dyn synapse_storage::saml::SamlStoreApi>,
+    storage: Arc<synapse_storage::saml::SamlStorage>,
 }
 
 impl SamlIdpManager {
     /// See [`new`].
-    pub fn new(storage: Arc<dyn synapse_storage::saml::SamlStoreApi>) -> Self {
+    pub fn new(storage: Arc<synapse_storage::saml::SamlStorage>) -> Self {
         Self { storage }
     }
 

@@ -58,7 +58,6 @@ pub struct OAuthClientStorage {
     pool: std::sync::Arc<sqlx::PgPool>,
 }
 
-
 impl OAuthClientStorage {
     /// See [`new`].
     pub fn new(pool: &std::sync::Arc<sqlx::PgPool>) -> Self {
@@ -159,7 +158,6 @@ impl OAuthClientStorage {
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
     }
 }
-
 
 #[cfg(test)]
 mod tests {

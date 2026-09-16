@@ -24,7 +24,7 @@ pub use crate::thread::{
 // rather than via explicit flat re-exports in lib.rs.
 #[cfg(feature = "beacons")]
 pub use crate::beacon::{
-    BeaconInfo, BeaconInfoWithLocations, BeaconLocation, BeaconStorage, BeaconStoreApi, CreateBeaconInfoParams,
+    BeaconInfo, BeaconInfoWithLocations, BeaconLocation, BeaconStorage, CreateBeaconInfoParams,
     CreateBeaconLocationParams,
 };
 #[cfg(feature = "burn-after-read")]
@@ -32,7 +32,7 @@ pub use crate::burn_after_read::*;
 #[cfg(feature = "friends")]
 pub use crate::friend_room::{
     AddFriendToGroupParams, CreateFriendGroupParams, DirectRoomFallbackLink, DmPartnerRecord, FriendDmLink,
-    FriendRequestRecord, FriendRoomStorage, FriendRoomStoreApi, RemoveFriendFromGroupParams, RenameFriendGroupParams,
+    FriendRequestRecord, FriendRoomStorage, RemoveFriendFromGroupParams, RenameFriendGroupParams,
 };
 pub use crate::relations::*;
 pub use crate::retention::*;

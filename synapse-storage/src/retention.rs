@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
@@ -117,50 +116,6 @@ pub struct EffectiveRetentionPolicy {
 #[derive(Clone)]
 pub struct RetentionStorage {
     pool: Arc<PgPool>,
-}
-
-/// The `RetentionStoreApi` trait.
-#[async_trait]
-pub trait RetentionStoreApi: Send + Sync {
-    /// See [`create_room_policy`].
-    async fn create_room_policy(
-        &self,
-        request: CreateRoomRetentionPolicyRequest,
-    ) -> Result<RoomRetentionPolicy, sqlx::Error>;
-    /// See [`get_room_policy`].
-    async fn get_room_policy(&self, room_id: &str) -> Result<Option<RoomRetentionPolicy>, sqlx::Error>;
-    /// See [`update_room_policy`].
-    async fn update_room_policy(
-        &self,
-        room_id: &str,
-        request: UpdateRoomRetentionPolicyRequest,
-    ) -> Result<RoomRetentionPolicy, sqlx::Error>;
-    /// See [`delete_room_policy`].
-    async fn delete_room_policy(&self, room_id: &str) -> Result<(), sqlx::Error>;
-    /// See [`get_server_policy`].
-    async fn get_server_policy(&self) -> Result<ServerRetentionPolicy, sqlx::Error>;
-    /// See [`update_server_policy`].
-    async fn update_server_policy(
-        &self,
-        request: UpdateServerRetentionPolicyRequest,
-    ) -> Result<ServerRetentionPolicy, sqlx::Error>;
-    /// See [`get_effective_policy`].
-    async fn get_effective_policy(&self, room_id: &str) -> Result<EffectiveRetentionPolicy, sqlx::Error>;
-    /// See [`delete_local_messages_before`].
-    async fn delete_local_messages_before(&self, room_id: &str, cutoff_ts: i64) -> Result<i64, sqlx::Error>;
-    /// See [`get_rooms_with_policies`].
-    async fn get_rooms_with_policies(&self) -> Result<Vec<RoomRetentionPolicy>, sqlx::Error>;
-    /// See [`get_server_policy_optional`].
-    async fn get_server_policy_optional(&self) -> Result<Option<ServerRetentionPolicy>, sqlx::Error>;
-    /// See [`upsert_server_policy`].
-    async fn upsert_server_policy(
-        &self,
-        request: UpdateServerRetentionPolicyRequest,
-    ) -> Result<ServerRetentionPolicy, sqlx::Error>;
-    /// See [`count_room_policies`].
-    async fn count_room_policies(&self) -> Result<i64, sqlx::Error>;
-    /// See [`has_server_policy`].
-    async fn has_server_policy(&self) -> Result<bool, sqlx::Error>;
 }
 
 impl RetentionStorage {
@@ -387,74 +342,6 @@ impl RetentionStorage {
             .await?;
 
         Ok(exists)
-    }
-}
-
-#[async_trait]
-impl RetentionStoreApi for RetentionStorage {
-    async fn create_room_policy(
-        &self,
-        request: CreateRoomRetentionPolicyRequest,
-    ) -> Result<RoomRetentionPolicy, sqlx::Error> {
-        self.create_room_policy(request).await
-    }
-
-    async fn get_room_policy(&self, room_id: &str) -> Result<Option<RoomRetentionPolicy>, sqlx::Error> {
-        self.get_room_policy(room_id).await
-    }
-
-    async fn update_room_policy(
-        &self,
-        room_id: &str,
-        request: UpdateRoomRetentionPolicyRequest,
-    ) -> Result<RoomRetentionPolicy, sqlx::Error> {
-        self.update_room_policy(room_id, request).await
-    }
-
-    async fn delete_room_policy(&self, room_id: &str) -> Result<(), sqlx::Error> {
-        self.delete_room_policy(room_id).await
-    }
-
-    async fn get_server_policy(&self) -> Result<ServerRetentionPolicy, sqlx::Error> {
-        self.get_server_policy().await
-    }
-
-    async fn update_server_policy(
-        &self,
-        request: UpdateServerRetentionPolicyRequest,
-    ) -> Result<ServerRetentionPolicy, sqlx::Error> {
-        self.update_server_policy(request).await
-    }
-
-    async fn get_effective_policy(&self, room_id: &str) -> Result<EffectiveRetentionPolicy, sqlx::Error> {
-        self.get_effective_policy(room_id).await
-    }
-
-    async fn delete_local_messages_before(&self, room_id: &str, cutoff_ts: i64) -> Result<i64, sqlx::Error> {
-        self.delete_local_messages_before(room_id, cutoff_ts).await
-    }
-
-    async fn get_rooms_with_policies(&self) -> Result<Vec<RoomRetentionPolicy>, sqlx::Error> {
-        self.get_rooms_with_policies().await
-    }
-
-    async fn get_server_policy_optional(&self) -> Result<Option<ServerRetentionPolicy>, sqlx::Error> {
-        self.get_server_policy_optional().await
-    }
-
-    async fn upsert_server_policy(
-        &self,
-        request: UpdateServerRetentionPolicyRequest,
-    ) -> Result<ServerRetentionPolicy, sqlx::Error> {
-        self.upsert_server_policy(request).await
-    }
-
-    async fn count_room_policies(&self) -> Result<i64, sqlx::Error> {
-        self.count_room_policies().await
-    }
-
-    async fn has_server_policy(&self) -> Result<bool, sqlx::Error> {
-        self.has_server_policy().await
     }
 }
 

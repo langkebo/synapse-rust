@@ -79,7 +79,7 @@ fn merge_friend_list_shards(shards: &[(String, Value)]) -> Value {
 /// 返回 `(effective_state_key, content)`，调用方修改后写回 `effective_state_key` 即可
 /// （新增好友写目标 shard；遗留好友就地写回 `""`，保持 no-migration 语义）。
 pub(crate) async fn read_friend_shard_for_update(
-    storage: &dyn synapse_storage::friend_room::FriendRoomStoreApi,
+    storage: &synapse_storage::friend_room::FriendRoomStorage,
     room_id: &str,
     friend_id: &str,
 ) -> Result<(String, serde_json::Value), sqlx::Error> {
@@ -136,7 +136,7 @@ impl FriendRoomService {
     /// See [`new`].
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        friend_storage: Arc<dyn synapse_storage::friend_room::FriendRoomStoreApi>,
+        friend_storage: Arc<synapse_storage::friend_room::FriendRoomStorage>,
         room_service: Arc<dyn crate::room::RoomServiceApi>,
         user_storage: Arc<dyn UserStore>,
         user_service: Arc<UserService>,
@@ -163,7 +163,7 @@ impl FriendRoomService {
     /// See [`new_with_dependencies`].
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_dependencies(
-        friend_storage: Arc<dyn synapse_storage::friend_room::FriendRoomStoreApi>,
+        friend_storage: Arc<synapse_storage::friend_room::FriendRoomStorage>,
         room_service: Arc<dyn crate::room::RoomServiceApi>,
         user_storage: Arc<dyn UserStore>,
         user_service: Arc<UserService>,

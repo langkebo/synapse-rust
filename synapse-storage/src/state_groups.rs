@@ -68,7 +68,6 @@ pub struct StateGroupStateEntry {
     pub event_id: String,
 }
 
-
 /// The `StateGroupStorage` struct.
 pub struct StateGroupStorage {
     pool: PgPool,
@@ -419,7 +418,6 @@ impl StateGroupStorage {
         Ok(result)
     }
 }
-
 
 #[cfg(test)]
 mod db_tests {

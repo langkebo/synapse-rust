@@ -137,7 +137,6 @@ pub struct SessionWithMemberships {
     pub memberships: Vec<RTCMembership>,
 }
 
-
 /// The `MatrixRTCStorage` struct.
 #[derive(Clone)]
 pub struct MatrixRTCStorage {
@@ -434,7 +433,6 @@ impl MatrixRTCStorage {
         }
     }
 }
-
 
 #[cfg(test)]
 mod db_tests {

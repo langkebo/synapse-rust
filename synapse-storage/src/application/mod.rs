@@ -9,8 +9,8 @@
 
 pub use crate::application_service::{
     ApplicationService, ApplicationServiceEvent, ApplicationServiceNamespace, ApplicationServiceState,
-    ApplicationServiceStorage, ApplicationServiceStoreApi, ApplicationServiceTransaction, ApplicationServiceUser,
-    NamespaceRule, Namespaces, RegisterApplicationServiceRequest, UpdateApplicationServiceRequest,
+    ApplicationServiceStorage, ApplicationServiceTransaction, ApplicationServiceUser, NamespaceRule, Namespaces,
+    RegisterApplicationServiceRequest, UpdateApplicationServiceRequest,
 };
 
 // P7.3: module (third-party module / spam checker registry) is an

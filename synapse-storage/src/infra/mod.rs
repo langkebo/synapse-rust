@@ -15,12 +15,12 @@ pub use crate::background_update::{
 pub use crate::baseline_tables::{baseline_table_count, baseline_tables};
 pub use crate::feature_flags::{
     CreateFeatureFlagRequest, FeatureFlag, FeatureFlagFilters, FeatureFlagRecord, FeatureFlagStorage,
-    FeatureFlagStoreApi, FeatureFlagTargetInput, FeatureFlagTargetRecord, UpdateFeatureFlagRequest,
+    FeatureFlagTargetInput, FeatureFlagTargetRecord, UpdateFeatureFlagRequest,
 };
 pub use crate::federation_blacklist::{
     decode_federation_blacklist_cursor, encode_federation_blacklist_cursor, AddBlacklistRequest, CreateLogRequest,
     CreateRuleRequest, FederationAccessStats, FederationBlacklist, FederationBlacklistCursor, FederationBlacklistLog,
-    FederationBlacklistRule, FederationBlacklistStorage, FederationBlacklistStoreApi, UpdateStatsRequest,
+    FederationBlacklistRule, FederationBlacklistStorage, UpdateStatsRequest,
 };
 pub use crate::maintenance::{DatabaseMaintenance, MaintenanceReport, TableStats, VacuumResult};
 pub use crate::migration_checks::{check_migration_completeness, count_public_tables};

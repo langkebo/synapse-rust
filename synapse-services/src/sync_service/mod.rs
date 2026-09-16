@@ -52,7 +52,7 @@ pub struct SyncService {
     /// S6: event-driven wake-up for v2 /sync long-polling.
     pub(crate) event_notifier: Option<crate::event_notifier::EventNotifier>,
     /// MSC4354: sticky events injection for v2 /sync.
-    pub(crate) sticky_event_storage: Option<Arc<dyn synapse_storage::sticky_event::StickyEventStoreApi>>,
+    pub(crate) sticky_event_storage: Option<Arc<synapse_storage::sticky_event::StickyEventStorage>>,
 }
 
 /// Maximum number of (user, device, room) entries kept in the in-memory

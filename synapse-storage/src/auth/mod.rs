@@ -8,8 +8,8 @@
 //! flat `synapse_storage::UserStorage`.
 
 pub use crate::captcha::{
-    CaptchaConfig, CaptchaRateLimit, CaptchaSendLog, CaptchaStorage, CaptchaStoreApi, CaptchaTemplate,
-    CreateCaptchaRequest, CreateSendLogRequest, RegistrationCaptcha,
+    CaptchaConfig, CaptchaRateLimit, CaptchaSendLog, CaptchaStorage, CaptchaTemplate, CreateCaptchaRequest,
+    CreateSendLogRequest, RegistrationCaptcha,
 };
 pub use crate::device::{Device, DeviceListStoreApi, DeviceStorage};
 pub use crate::openid_token::{CreateOpenIdTokenRequest, OpenIdToken, OpenIdTokenStorage, OpenIdTokenStoreApi};
@@ -34,14 +34,12 @@ pub use crate::cas::{
 };
 pub use crate::email_verification::*;
 #[cfg(feature = "privacy-ext")]
-pub use crate::privacy::{
-    CreatePrivacySettingsParams, PrivacySettingsUpdate, PrivacyStorage, PrivacyStoreApi, UserPrivacySettings,
-};
+pub use crate::privacy::{CreatePrivacySettingsParams, PrivacySettingsUpdate, PrivacyStorage, UserPrivacySettings};
 pub use crate::refresh_token::*;
 pub use crate::registration_token::*;
 #[cfg(feature = "saml-sso")]
 pub use crate::saml::{
     CreateSamlAuthEventRequest, CreateSamlIdentityProviderRequest, CreateSamlLogoutRequestRequest,
     CreateSamlSessionRequest, CreateSamlUserMappingRequest, SamlAuthEvent, SamlIdentityProvider, SamlLogoutRequest,
-    SamlSession, SamlStorage, SamlStoreApi, SamlUserMapping,
+    SamlSession, SamlStorage, SamlUserMapping,
 };

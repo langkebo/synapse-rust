@@ -2,37 +2,9 @@
 // Stores is_sticky event metadata for rooms
 // Following project field naming standards
 
-use async_trait::async_trait;
 use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
-
-/// The `StickyEventStoreApi` trait.
-#[async_trait]
-pub trait StickyEventStoreApi: Send + Sync {
-    /// See [`set_is_sticky_event`].
-    async fn set_is_sticky_event(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        event_id: &str,
-        event_type: &str,
-        is_sticky: bool,
-    ) -> Result<(), sqlx::Error>;
-    /// See [`get_is_sticky_event`].
-    async fn get_is_sticky_event(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        event_type: &str,
-    ) -> Result<Option<StickyEvent>, sqlx::Error>;
-    /// See [`get_all_is_sticky_events`].
-    async fn get_all_is_sticky_events(&self, room_id: &str, user_id: &str) -> Result<Vec<StickyEvent>, sqlx::Error>;
-    /// See [`clear_is_sticky_event`].
-    async fn clear_is_sticky_event(&self, room_id: &str, user_id: &str, event_type: &str) -> Result<(), sqlx::Error>;
-    /// See [`get_rooms_with_is_sticky_events`].
-    async fn get_rooms_with_is_sticky_events(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error>;
-}
 
 /// The `StickyEventStorage` struct.
 #[derive(Clone)]
@@ -203,37 +175,6 @@ pub struct StickyEvent {
     pub created_ts: i64,
     /// The `updated_ts` field.
     pub updated_ts: i64,
-}
-
-#[async_trait]
-impl StickyEventStoreApi for StickyEventStorage {
-    async fn set_is_sticky_event(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        event_id: &str,
-        event_type: &str,
-        is_sticky: bool,
-    ) -> Result<(), sqlx::Error> {
-        self.set_is_sticky_event(room_id, user_id, event_id, event_type, is_sticky).await
-    }
-    async fn get_is_sticky_event(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        event_type: &str,
-    ) -> Result<Option<StickyEvent>, sqlx::Error> {
-        self.get_is_sticky_event(room_id, user_id, event_type).await
-    }
-    async fn get_all_is_sticky_events(&self, room_id: &str, user_id: &str) -> Result<Vec<StickyEvent>, sqlx::Error> {
-        self.get_all_is_sticky_events(room_id, user_id).await
-    }
-    async fn clear_is_sticky_event(&self, room_id: &str, user_id: &str, event_type: &str) -> Result<(), sqlx::Error> {
-        self.clear_is_sticky_event(room_id, user_id, event_type).await
-    }
-    async fn get_rooms_with_is_sticky_events(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        self.get_rooms_with_is_sticky_events(user_id).await
-    }
 }
 
 #[cfg(test)]

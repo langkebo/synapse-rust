@@ -34,7 +34,7 @@ pub struct ExtensionServices {
     pub voice_service: crate::voice_service::VoiceService,
     #[cfg(feature = "friends")]
     /// The `friend_storage` field.
-    pub friend_storage: Arc<dyn synapse_storage::friend_room::FriendRoomStoreApi>,
+    pub friend_storage: Arc<synapse_storage::friend_room::FriendRoomStorage>,
     #[cfg(feature = "friends")]
     /// The `friend_room_service` field.
     pub friend_room_service: Arc<crate::friend_room_service::FriendRoomService>,
@@ -50,7 +50,7 @@ pub struct ExtensionServices {
     pub server_notification_service: Arc<crate::server_notification_service::ServerNotificationService>,
     #[cfg(feature = "privacy-ext")]
     /// The `privacy_storage` field.
-    pub privacy_storage: Arc<dyn synapse_storage::privacy::PrivacyStoreApi>,
+    pub privacy_storage: Arc<synapse_storage::privacy::PrivacyStorage>,
     #[cfg(feature = "widgets")]
     /// The `widget_storage` field.
     pub widget_storage: Arc<dyn synapse_storage::widget::WidgetStoreApi>,
@@ -110,7 +110,7 @@ impl ExtensionServices {
         } = deps;
 
         #[cfg(feature = "friends")]
-        let friend_storage: Arc<dyn synapse_storage::friend_room::FriendRoomStoreApi> =
+        let friend_storage: Arc<synapse_storage::friend_room::FriendRoomStorage> =
             Arc::new(synapse_storage::FriendRoomStorage::new(infra.pool.clone()));
         #[cfg(feature = "friends")]
         let account_data_storage = Arc::new(synapse_storage::account_data::AccountDataStorage::new(&infra.pool));
@@ -132,7 +132,7 @@ impl ExtensionServices {
         let _ = (rooms, presence_storage, federation, user_storage);
 
         #[cfg(feature = "voip-tracking")]
-        let call_session_storage: Arc<dyn synapse_storage::call_session::CallSessionStoreApi> =
+        let call_session_storage: Arc<synapse_storage::call_session::CallSessionStorage> =
             Arc::new(synapse_storage::call_session::CallSessionStorage::new(infra.pool.clone()));
         #[cfg(feature = "voip-tracking")]
         let matrixrtc_storage = synapse_storage::matrixrtc::MatrixRTCStorage::new(infra.pool.clone());
@@ -169,7 +169,7 @@ impl ExtensionServices {
         ));
 
         #[cfg(feature = "privacy-ext")]
-        let privacy_storage: Arc<dyn synapse_storage::privacy::PrivacyStoreApi> =
+        let privacy_storage: Arc<synapse_storage::privacy::PrivacyStorage> =
             Arc::new(synapse_storage::privacy::PrivacyStorage::new(infra.pool.clone()));
 
         #[cfg(feature = "widgets")]

@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
@@ -67,33 +66,6 @@ impl Default for UserPrivacySettings {
 }
 
 // ── Trait ───────────────────────────────────────────────────────────────
-
-/// The `PrivacyStoreApi` trait.
-#[async_trait]
-pub trait PrivacyStoreApi: Send + Sync {
-    /// See [`create_tables`].
-    async fn create_tables(&self) -> Result<(), sqlx::Error>;
-    /// See [`get_settings`].
-    async fn get_settings(&self, user_id: &str) -> Result<Option<UserPrivacySettings>, sqlx::Error>;
-    /// See [`get_or_create_settings`].
-    async fn get_or_create_settings(&self, user_id: &str) -> Result<UserPrivacySettings, sqlx::Error>;
-    /// See [`update_settings`].
-    async fn update_settings(
-        &self,
-        user_id: &str,
-        update: PrivacySettingsUpdate,
-    ) -> Result<UserPrivacySettings, sqlx::Error>;
-    /// See [`can_view_profile`].
-    async fn can_view_profile(&self, viewer_id: Option<&str>, target_user_id: &str) -> Result<bool, sqlx::Error>;
-    /// See [`can_view_presence`].
-    async fn can_view_presence(&self, viewer_id: Option<&str>, target_user_id: &str) -> Result<bool, sqlx::Error>;
-    /// See [`batch_can_view_profile`].
-    async fn batch_can_view_profile(
-        &self,
-        requester_id: Option<&str>,
-        user_ids: &[String],
-    ) -> Result<std::collections::HashMap<String, bool>, sqlx::Error>;
-}
 
 // ── Postgres implementation ─────────────────────────────────────────────
 
@@ -328,39 +300,6 @@ impl PrivacyStorage {
 }
 
 // ── Delegation impl ─────────────────────────────────────────────────────
-
-#[async_trait]
-impl PrivacyStoreApi for PrivacyStorage {
-    async fn create_tables(&self) -> Result<(), sqlx::Error> {
-        self.create_tables().await
-    }
-    async fn get_settings(&self, user_id: &str) -> Result<Option<UserPrivacySettings>, sqlx::Error> {
-        self.get_settings(user_id).await
-    }
-    async fn get_or_create_settings(&self, user_id: &str) -> Result<UserPrivacySettings, sqlx::Error> {
-        self.get_or_create_settings(user_id).await
-    }
-    async fn update_settings(
-        &self,
-        user_id: &str,
-        update: PrivacySettingsUpdate,
-    ) -> Result<UserPrivacySettings, sqlx::Error> {
-        self.update_settings(user_id, update).await
-    }
-    async fn can_view_profile(&self, viewer_id: Option<&str>, target_user_id: &str) -> Result<bool, sqlx::Error> {
-        self.can_view_profile(viewer_id, target_user_id).await
-    }
-    async fn can_view_presence(&self, viewer_id: Option<&str>, target_user_id: &str) -> Result<bool, sqlx::Error> {
-        self.can_view_presence(viewer_id, target_user_id).await
-    }
-    async fn batch_can_view_profile(
-        &self,
-        requester_id: Option<&str>,
-        user_ids: &[String],
-    ) -> Result<std::collections::HashMap<String, bool>, sqlx::Error> {
-        self.batch_can_view_profile(requester_id, user_ids).await
-    }
-}
 
 #[cfg(test)]
 mod tests {

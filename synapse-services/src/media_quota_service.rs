@@ -5,12 +5,12 @@ use tracing::{info, instrument};
 
 /// The `MediaQuotaService` struct.
 pub struct MediaQuotaService {
-    storage: Arc<dyn MediaQuotaStoreApi>,
+    storage: Arc<synapse_storage::media_quota::MediaQuotaStorage>,
 }
 
 impl MediaQuotaService {
     /// See [`new`].
-    pub fn new(storage: Arc<dyn MediaQuotaStoreApi>) -> Self {
+    pub fn new(storage: Arc<synapse_storage::media_quota::MediaQuotaStorage>) -> Self {
         Self { storage }
     }
 

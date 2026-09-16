@@ -58,7 +58,7 @@ impl RoomSyncServices {
         app_service_manager: Arc<crate::application_service::ApplicationServiceManager>,
         key_rotation_manager: Arc<synapse_federation::KeyRotationManager>,
         federation_client: Arc<dyn synapse_federation::client_api::FederationClientApi>,
-        sticky_event_storage: Arc<dyn synapse_storage::sticky_event::StickyEventStoreApi>,
+        sticky_event_storage: Arc<synapse_storage::sticky_event::StickyEventStorage>,
         user_service: Arc<UserService>,
         event_notifier: crate::event_notifier::EventNotifier,
         // MSC4284: policy server service, injected into room service so that
@@ -94,7 +94,7 @@ impl RoomSyncServices {
         ));
 
         #[cfg(feature = "beacons")]
-        let beacon_storage: Arc<dyn synapse_storage::beacon::BeaconStoreApi> =
+        let beacon_storage: Arc<synapse_storage::beacon::BeaconStorage> =
             Arc::new(BeaconStorage::new(infra.pool.clone()));
         #[cfg(feature = "beacons")]
         let beacon_service = Arc::new(crate::beacon_service::BeaconService::new(beacon_storage, infra.cache.clone()));
@@ -188,7 +188,7 @@ impl RoomSyncServices {
         .with_event_notifier(event_notifier),
         );
 
-        let space_storage: Arc<dyn synapse_storage::space::SpaceStoreApi> = Arc::new(SpaceStorage::new(&infra.pool));
+        let space_storage: Arc<synapse_storage::space::SpaceStorage> = Arc::new(SpaceStorage::new(&infra.pool));
         let space_service = Arc::new(crate::space_service::SpaceService::new(
             space_storage.clone(),
             room_storage.clone(),

@@ -47,7 +47,6 @@ pub struct VoiceUserAggregatedStats {
     pub uploads_today: i64,
 }
 
-
 /// The `VoiceStorage` struct.
 #[derive(Clone)]
 pub struct VoiceStorage {
@@ -252,7 +251,6 @@ impl VoiceStorage {
         Ok(row)
     }
 }
-
 
 #[cfg(test)]
 mod db_tests {

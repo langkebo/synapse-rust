@@ -5,19 +5,21 @@ use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use synapse_storage::{
-    CreateFeatureFlagRequest, FeatureFlag, FeatureFlagFilters, FeatureFlagStoreApi, FeatureFlagTargetInput,
-    UpdateFeatureFlagRequest,
+    CreateFeatureFlagRequest, FeatureFlag, FeatureFlagFilters, FeatureFlagTargetInput, UpdateFeatureFlagRequest,
 };
 
 /// The `FeatureFlagService` struct.
 pub struct FeatureFlagService {
-    storage: Arc<dyn FeatureFlagStoreApi>,
+    storage: Arc<synapse_storage::feature_flags::FeatureFlagStorage>,
     audit_service: Arc<AdminAuditService>,
 }
 
 impl FeatureFlagService {
     /// See [`new`].
-    pub fn new(storage: Arc<dyn FeatureFlagStoreApi>, audit_service: Arc<AdminAuditService>) -> Self {
+    pub fn new(
+        storage: Arc<synapse_storage::feature_flags::FeatureFlagStorage>,
+        audit_service: Arc<AdminAuditService>,
+    ) -> Self {
         Self { storage, audit_service }
     }
 

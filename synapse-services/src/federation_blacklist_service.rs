@@ -8,7 +8,7 @@ use tracing::info;
 /// The `FederationBlacklistService` struct.
 #[derive(Debug, Clone)]
 pub struct FederationBlacklistService {
-    storage: Arc<dyn FederationBlacklistStoreApi>,
+    storage: Arc<synapse_storage::federation_blacklist::FederationBlacklistStorage>,
     regex_cache: RegexCache,
 }
 
@@ -49,7 +49,7 @@ pub struct CheckServerRequest {
 
 impl FederationBlacklistService {
     /// See [`new`].
-    pub fn new(storage: Arc<dyn FederationBlacklistStoreApi>) -> Self {
+    pub fn new(storage: Arc<synapse_storage::federation_blacklist::FederationBlacklistStorage>) -> Self {
         Self { storage, regex_cache: RegexCache::default() }
     }
 

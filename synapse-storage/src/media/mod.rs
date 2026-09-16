@@ -20,8 +20,8 @@ pub use quarantine_stream::*;
 // Consumers should prefer `synapse_storage::media::MediaQuotaStorage` over
 // the flat `synapse_storage::MediaQuotaStorage`.
 pub use crate::media_quota::{
-    CreateQuotaConfigRequest, MediaQuotaAlert, MediaQuotaConfig, MediaQuotaStorage, MediaQuotaStoreApi, MediaUsageLog,
-    QuotaCheckResult, ServerMediaQuota, SetUserQuotaRequest, UpdateUsageRequest, UserMediaQuota,
+    CreateQuotaConfigRequest, MediaQuotaAlert, MediaQuotaConfig, MediaQuotaStorage, MediaUsageLog, QuotaCheckResult,
+    ServerMediaQuota, SetUserQuotaRequest, UpdateUsageRequest, UserMediaQuota,
 };
 
 // P7.3: url_preview_storage and voice are media-related storage modules —

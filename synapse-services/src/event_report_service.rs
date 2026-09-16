@@ -5,12 +5,12 @@ use tracing::{info, instrument};
 
 /// The `EventReportService` struct.
 pub struct EventReportService {
-    storage: Arc<dyn EventReportStoreApi>,
+    storage: Arc<synapse_storage::event_report::EventReportStorage>,
 }
 
 impl EventReportService {
     /// See [`new`].
-    pub fn new(storage: Arc<dyn EventReportStoreApi>) -> Self {
+    pub fn new(storage: Arc<synapse_storage::event_report::EventReportStorage>) -> Self {
         Self { storage }
     }
 

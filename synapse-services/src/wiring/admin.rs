@@ -31,7 +31,7 @@ pub struct AdminUserServices {
     /// The `refresh_token_service` field.
     pub refresh_token_service: Arc<crate::refresh_token_service::RefreshTokenService>,
     /// The `registration_token_storage` field.
-    pub registration_token_storage: Arc<dyn synapse_storage::registration_token::RegistrationTokenStoreApi>,
+    pub registration_token_storage: Arc<synapse_storage::registration_token::RegistrationTokenStorage>,
     /// The `registration_token_service` field.
     pub registration_token_service: Arc<crate::registration_token_service::RegistrationTokenService>,
 }
@@ -42,7 +42,7 @@ pub struct AdminFederationServices {
     /// The `admin_federation_service` field.
     pub admin_federation_service: Arc<crate::admin_federation_service::AdminFederationService>,
     /// The `federation_blacklist_storage` field.
-    pub federation_blacklist_storage: Arc<dyn synapse_storage::federation_blacklist::FederationBlacklistStoreApi>,
+    pub federation_blacklist_storage: Arc<synapse_storage::federation_blacklist::FederationBlacklistStorage>,
     /// The `federation_blacklist_service` field.
     pub federation_blacklist_service: Arc<crate::federation_blacklist_service::FederationBlacklistService>,
 }
@@ -53,7 +53,7 @@ pub struct AdminMediaServices {
     /// The `admin_media_service` field.
     pub admin_media_service: Arc<crate::admin_media_service::AdminMediaService>,
     /// The `media_quota_storage` field.
-    pub media_quota_storage: Arc<dyn synapse_storage::media_quota::MediaQuotaStoreApi>,
+    pub media_quota_storage: Arc<synapse_storage::media_quota::MediaQuotaStorage>,
     /// The `media_quota_service` field.
     pub media_quota_service: Arc<crate::media_quota_service::MediaQuotaService>,
 }
@@ -64,7 +64,7 @@ pub struct AdminSecurityServices {
     /// The `admin_security_service` field.
     pub admin_security_service: Arc<crate::admin_security_service::AdminSecurityService>,
     /// The `captcha_storage` field.
-    pub captcha_storage: Arc<dyn synapse_storage::captcha::CaptchaStoreApi>,
+    pub captcha_storage: Arc<synapse_storage::captcha::CaptchaStorage>,
     /// The `captcha_service` field.
     pub captcha_service: Arc<crate::captcha_service::CaptchaService>,
     /// The `audit_storage` field.
@@ -81,11 +81,11 @@ pub struct AdminSecurityServices {
 #[derive(Clone)]
 pub struct AdminModuleServices {
     /// The `feature_flag_storage` field.
-    pub feature_flag_storage: Arc<dyn synapse_storage::feature_flags::FeatureFlagStoreApi>,
+    pub feature_flag_storage: Arc<synapse_storage::feature_flags::FeatureFlagStorage>,
     /// The `feature_flag_service` field.
     pub feature_flag_service: Arc<crate::feature_flag_service::FeatureFlagService>,
     /// The `event_report_storage` field.
-    pub event_report_storage: Arc<dyn synapse_storage::event_report::EventReportStoreApi>,
+    pub event_report_storage: Arc<synapse_storage::event_report::EventReportStorage>,
     /// The `event_report_service` field.
     pub event_report_service: Arc<crate::event_report_service::EventReportService>,
     /// MSC4140 — Cancellable delayed events storage.
@@ -101,15 +101,15 @@ pub struct AdminModuleServices {
     /// The `account_validity_service` field.
     pub account_validity_service: Arc<crate::module_service::AccountValidityService>,
     /// The `retention_storage` field.
-    pub retention_storage: Arc<dyn synapse_storage::retention::RetentionStoreApi>,
+    pub retention_storage: Arc<synapse_storage::retention::RetentionStorage>,
     /// The `retention_service` field.
     pub retention_service: Arc<crate::retention_service::RetentionService>,
     /// The `push_notification_storage` field.
-    pub push_notification_storage: Arc<dyn synapse_storage::push_notification::PushNotificationStoreApi>,
+    pub push_notification_storage: Arc<synapse_storage::push_notification::PushNotificationStorage>,
     /// The `push_notification_service` field.
     pub push_notification_service: Arc<crate::push_notification_service::PushNotificationService>,
     /// The `app_service_storage` field.
-    pub app_service_storage: Arc<dyn synapse_storage::application_service::ApplicationServiceStoreApi>,
+    pub app_service_storage: Arc<synapse_storage::application_service::ApplicationServiceStorage>,
     /// The `app_service_event_reader` field.
     pub app_service_event_reader: Arc<dyn synapse_storage::event::EventReader>,
     /// The `app_service_manager` field.
@@ -199,14 +199,14 @@ impl AdminServices {
             Arc::new(synapse_storage::audit::AuditEventStorage::new(pool));
         let admin_audit_service = Arc::new(crate::admin_audit_service::AdminAuditService::new(audit_storage.clone()));
 
-        let feature_flag_storage: Arc<dyn synapse_storage::feature_flags::FeatureFlagStoreApi> =
+        let feature_flag_storage: Arc<synapse_storage::feature_flags::FeatureFlagStorage> =
             Arc::new(synapse_storage::feature_flags::FeatureFlagStorage::new(pool, cache.clone()));
         let feature_flag_service = Arc::new(crate::feature_flag_service::FeatureFlagService::new(
             feature_flag_storage.clone(),
             admin_audit_service.clone(),
         ));
 
-        let event_report_storage: Arc<dyn synapse_storage::event_report::EventReportStoreApi> =
+        let event_report_storage: Arc<synapse_storage::event_report::EventReportStorage> =
             Arc::new(synapse_storage::event_report::EventReportStorage::new(pool));
         let event_report_service =
             Arc::new(crate::event_report_service::EventReportService::new(event_report_storage.clone()));
@@ -227,9 +227,9 @@ impl AdminServices {
         let account_validity_service =
             Arc::new(crate::module_service::AccountValidityService::new(module_storage.clone()));
 
-        let retention_storage: Arc<dyn synapse_storage::retention::RetentionStoreApi> =
+        let retention_storage: Arc<synapse_storage::retention::RetentionStorage> =
             Arc::new(synapse_storage::retention::RetentionStorage::new(pool));
-        let chunked_upload_storage: Arc<dyn synapse_storage::media::ChunkedUploadStoreApi> =
+        let chunked_upload_storage: Arc<synapse_storage::media::chunked_upload::ChunkedUploadStorage> =
             Arc::new(synapse_storage::media::ChunkedUploadStorage::new(pool));
         let retention_service = Arc::new(crate::retention_service::RetentionService::new(
             retention_storage.clone(),
@@ -245,13 +245,13 @@ impl AdminServices {
             config.refresh_token_lifetime_seconds().saturating_mul(1000),
         ));
 
-        let registration_token_storage: Arc<dyn synapse_storage::registration_token::RegistrationTokenStoreApi> =
+        let registration_token_storage: Arc<synapse_storage::registration_token::RegistrationTokenStorage> =
             Arc::new(synapse_storage::registration_token::RegistrationTokenStorage::new(pool));
         let registration_token_service = Arc::new(crate::registration_token_service::RegistrationTokenService::new(
             registration_token_storage.clone(),
         ));
 
-        let captcha_storage: Arc<dyn synapse_storage::captcha::CaptchaStoreApi> =
+        let captcha_storage: Arc<synapse_storage::captcha::CaptchaStorage> =
             Arc::new(synapse_storage::captcha::CaptchaStorage::new(pool));
         let captcha_service = Arc::new(crate::captcha_service::CaptchaService::with_sms_config(
             captcha_storage.clone(),
@@ -260,12 +260,12 @@ impl AdminServices {
             &config.sms,
         ));
 
-        let federation_blacklist_storage: Arc<dyn synapse_storage::federation_blacklist::FederationBlacklistStoreApi> =
+        let federation_blacklist_storage: Arc<synapse_storage::federation_blacklist::FederationBlacklistStorage> =
             Arc::new(synapse_storage::federation_blacklist::FederationBlacklistStorage::new(pool));
         let federation_blacklist_service = Arc::new(
             crate::federation_blacklist_service::FederationBlacklistService::new(federation_blacklist_storage.clone()),
         );
-        let admin_federation_storage: Arc<dyn synapse_storage::admin_federation::AdminFederationStoreApi> =
+        let admin_federation_storage: Arc<synapse_storage::admin_federation::AdminFederationStorage> =
             Arc::new(synapse_storage::admin_federation::AdminFederationStorage::new(pool));
         let admin_federation_service = Arc::new(crate::admin_federation_service::AdminFederationService::new(
             admin_federation_storage,
@@ -273,7 +273,7 @@ impl AdminServices {
             federation_blacklist_service.clone(),
         ));
 
-        let push_notification_storage: Arc<dyn synapse_storage::push_notification::PushNotificationStoreApi> =
+        let push_notification_storage: Arc<synapse_storage::push_notification::PushNotificationStorage> =
             Arc::new(synapse_storage::push_notification::PushNotificationStorage::new(pool));
         let account_data_storage_for_push = Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool));
         let push_notification_service =
@@ -296,7 +296,7 @@ impl AdminServices {
         }
         let push_notification_service = Arc::new(push_notification_service);
 
-        let media_quota_storage: Arc<dyn synapse_storage::media_quota::MediaQuotaStoreApi> =
+        let media_quota_storage: Arc<synapse_storage::media_quota::MediaQuotaStorage> =
             Arc::new(synapse_storage::media_quota::MediaQuotaStorage::new(pool));
         let media_quota_service =
             Arc::new(crate::media_quota_service::MediaQuotaService::new(media_quota_storage.clone()));
@@ -311,7 +311,7 @@ impl AdminServices {
         let login_token_storage: Arc<dyn synapse_storage::login_token::LoginTokenStoreApi> =
             Arc::new(synapse_storage::login_token::LoginTokenStorage::new(pool));
 
-        let app_service_storage: Arc<dyn synapse_storage::application_service::ApplicationServiceStoreApi> =
+        let app_service_storage: Arc<synapse_storage::application_service::ApplicationServiceStorage> =
             Arc::new(ApplicationServiceStorage::new(pool));
         let app_service_event_concrete = Arc::new(EventStorage::new(pool, config.server.get_server_name().to_owned()));
         let app_service_event_reader: Arc<dyn synapse_storage::event::EventReader> = app_service_event_concrete.clone();

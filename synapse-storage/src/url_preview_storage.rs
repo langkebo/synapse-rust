@@ -28,7 +28,6 @@ pub struct UrlPreviewCache {
     pub expires_at: i64,
 }
 
-
 /// The `UrlPreviewStorage` struct.
 #[derive(Debug, Clone)]
 pub struct UrlPreviewStorage {
@@ -111,7 +110,6 @@ impl UrlPreviewStorage {
         Ok(result.rows_affected())
     }
 }
-
 
 #[cfg(test)]
 mod tests {

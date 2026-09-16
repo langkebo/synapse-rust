@@ -9,12 +9,16 @@
 
 ## 1. 结论摘要
 
-| 桶 | 定义 | 数量 | 处置 |
-|---|---|---|---|
-| (i) | `dyn` 引用为 0（trait 无任何类型擦除用途） | **10（已全部删除）** | 删 trait + 转发 impl；消费者/再导出/陈旧测试一并清理 |
-| (ii-a) | `dyn` + **恰好 1 个生产 impl**，无 mock | 32 | **本批不删**（见 §3 裁定建议） |
-| (ii-b) | `dyn` + 1 个生产 impl + **有 mock** | 17 | **保留**：mock 就是它的存在理由；且 trait 与生产 impl 已同文件，无需搬动 |
-| (iii) | ≥2 个生产 impl | 7 | **保留**：真实多实现 |
+| 桶 | 定义 | 起始 | 现状 | 处置 |
+|---|---|---|---|---|
+| (i) | `dyn` 引用为 0（trait 无任何类型擦除用途） | 10 | **0** | 全部删除（§2） |
+| (ii-a) | `dyn` + 恰好 1 个生产 impl，无 mock | 23 | **4** | 已转 19（§3.3）；剩 4 个必须改 `src/web/routes/context.rs`，等并发 codemod 落地 |
+| (ii-b) | `dyn` + 1 个生产 impl + **有 mock** | 21 | 21 | **保留**：mock 就是它的存在理由；且 trait 与生产 impl 已同文件 |
+| (iii) | ≥2 个生产 impl | 12 | 12 | **保留**：真实多实现 |
+| — | `*StoreApi` 合计 / `pub trait` 合计 | 66 / 96 | **37 / 67** | 棘轮基线已收紧到 37 / 67 |
+
+> **修正**：上一版把 (ii-a)/(ii-b)/(iii) 记为 32/17/7，是因为分类脚本有两个正则缺陷（见 §7），
+> 漏掉了「`impl crate::x::Trait for Fake`」这种**限定路径**写法；修正后 23/21/12。
 
 - trait 计数棘轮（新增）：`TOTAL 96 → 86`、`*StoreApi 66 → 56`（本批 −10）。
 - 净代码量：`synapse-storage/src` **−739 / +4 行**（16 文件），外加 3 个测试文件 −32 行陈旧测试。
@@ -97,7 +101,36 @@
 `impl` 都在同一个存储模块里（例如 `push/mod.rs` 同时含 `PushStoreApi` 与 `impl PushStoreApi for PushStorage`），
 mock 实现单独放在 `synapse-storage/src/test_mocks/`。故本桶**无需改动**，此处存档以免后续重复排查。
 
-### 3.3 (ii-a) `dyn` + 单一生产 impl、无 mock —— 32 个（本批**不删**，列为下一批裁定项）
+### 3.3 (ii-a) `dyn` + 单一生产 impl、无 mock —— 起始 23 个，**已转 19 个**
+
+以下表格是**起始**状态（转换前）；带 `✅` 的 19 个已在本批改为 `Arc<具体类型>` 并删除 trait：
+
+| 已转换（19） |
+|---|
+| `FeatureFlagStoreApi`、`QrLoginStoreApi`、`PrivacyStoreApi`、`BeaconStoreApi`、`PushNotificationStoreApi`、`RetentionStoreApi`、`CaptchaStoreApi`、`AdminFederationStoreApi`、`CallSessionStoreApi`、`MediaQuotaStoreApi`、`RegistrationTokenStoreApi`、`EventReportStoreApi`、`SpaceStoreApi`、`SamlStoreApi`、`ChunkedUploadStoreApi`、`FederationBlacklistStoreApi`、`FriendRoomStoreApi`、`ApplicationServiceStoreApi`、`StickyEventStoreApi` |
+
+转换方式：把消费者结构体/构造函数的 `Arc<dyn …Trait>` 改为 `Arc<synapse_storage::<模块>::<具体类型>>`
+（`src/web` 之外的 26 个里，19 个满足「`dyn` 只出现在 `synapse-services` / `synapse-storage`」），
+再删除 trait 与转发 impl。**顺带删掉 7 个"只为装这个 trait 而存在"的 `api.rs` 空壳文件**
+（`application_service/`、`event_report/`、`media_quota/`、`registration_token/`、`space/`、`saml/`、`friend_room/`
+各一个，它们的内容只剩未使用的 `use`）。
+
+**剩余 4 个**（阻塞项，非技术障碍）：
+
+| trait | 唯一阻塞点 |
+|---|---|
+| `InviteBlocklistStoreApi` | `src/web/routes/context.rs` |
+| `ModuleStoreApi` | 同上 |
+| `RendezvousMessageStoreApi` | 同上 |
+| `EmailVerificationStoreApi` | 同上 |
+
+`src/web/routes/**` 正被另一个会话的 manifest codemod 改写，本批不碰。
+
+**下一批（需裁定）**：起始 32 个里的另外 9 个，修正分类后证实**有 mock 实现**
+（`SlidingSyncStoreApi`、`ThreadStoreApi`、`WorkerStoreApi` 等，mock 写在 `test_mocks/` 里但用了限定路径
+`impl crate::x::Trait for …`），因此归入 (ii-b) 保留桶 —— 它们不是"零收益抽象"。
+
+### 3.4 原文（转换前）的完整 (ii-a) 清单
 
 | trait | 声明位置 | dyn 引用文件数 | 生产 impl | mock impl |
 |---|---|---|---|---|
@@ -153,6 +186,11 @@ mock 实现单独放在 `synapse-storage/src/test_mocks/`。故本桶**无需改
 | 本批范围内的编译/lint | `cargo clippy -p synapse-storage -p synapse-services --all-targets --all-features --locked -- -D warnings` | **EXIT=0**（0 警告） |
 | trait 计数棘轮（新增） | `python3 scripts/ci/check_trait_ratchet.py` | `TOTAL=86 STORE_API=56`，`OK: trait counts at baseline` |
 | 棘轮 RED 自证 | 注入 `synapse-storage/src/probe_ratchet_probe.rs`（一个 `pub trait ProbeRatchetStoreApi`）后重跑 | **EXIT=1**，同时报 `pub trait` 与 `*StoreApi` 两项超基线；删除探针后恢复 EXIT=0 |
+| B4-1b 转换后 clippy | `cargo clippy -p synapse-storage -p synapse-services --all-targets --all-features --locked -- -D warnings` | **EXIT=0** |
+| B4-1b 转换后**服务层全量测试** | `cargo test -p synapse-services --all-features --lib`（隔离 schema） | **1987 passed / 0 failed** |
+| B4-1b 转换后**存储层全量测试** | `cargo test -p synapse-storage --all-features --lib` | 先 853 passed / **906 failed**，全部 `42P01 relation … does not exist` —— 根因是 T-1（`public` 被清空，实测只有 2 张表）；**重灌 baseline 到 `public` 后 1759 passed / 0 failed**，证明与本批改动无关 |
+| 根 crate（含 `src/web`） | `cargo check -p synapse-rust --all-features --locked` | **0 error** |
+| 代码量 | `git diff --stat synapse-storage/src synapse-services/src` | **63 文件 / +111 / −2901** |
 | 死引用残留 | `grep -rn "\b<每个已删 trait>\b" --include='*.rs' src synapse-*/src tests` | 10 个 trait **全部 0 命中** |
 | 固有方法未受影响 | `grep -n "pub async fn create_rule\|pub async fn log_action" synapse-storage/src/moderation/mod.rs` | 仍在（§2 表：删的是 trait，不是能力） |
 
@@ -184,10 +222,39 @@ DYN = re.compile(r'\bdyn\s+(?:[A-Za-z_][A-Za-z0-9_]*::)*([A-Za-z0-9_]+)')
 
 ## 6. 批次状态
 
-- **B4-1**：⏳ 进行中 —— (i) 桶 10/10 已删；(ii-b) 桶实测无需改动；(iii) 桶保留；
-  (ii-a) 32 个列为 **B4-1b** 待裁定（§3.3）。
+- **B4-1**：⏳ 进行中 —— (i) 桶 10/10 已删；**B4-1b 已转 19/23**（剩 4 个阻塞于 `src/web/routes/context.rs`）；
+  (ii-b)/(iii) 桶保留。棘轮基线 96/66 → **67/37**。
+- **B4-1b**：⏳ 19/23 完成；剩 4 个等 codemod。
 - **B4-2**：✅ 本文件即"分类清单存档"；删除前判据（全名残留 + dyn + mock 三重检查）见 §2 首段。
 - **B4-3（A4 `AuthSource`）**：⏳ 未开始 —— 依赖 B4-1 的字段瘦身结论，建议在 B4-1b 之后动；
   否则 context 字段会先泛型化再重写一遍。
 - **B4-4（A2 分层 lint）/ B4-5（A1+A10 crate 拆分）**：⏳ 未开始，**且必须等其它会话的
   `src/web/routes/**` codemod 落地**——它们改的是同一批文件，现在动必然冲突。
+
+## 7. 分类脚本的三个正则缺陷（本轮实际踩到，值得记录）
+
+首版分类给出的 (i)/(ii-a)/(ii-b)/(iii) = 19/32/17/7 是**错的**，三处口径问题依次暴露：
+
+1. **`dyn` 匹配不到限定路径**：`\bdyn\s+(\w+)` 对
+   `Arc<dyn synapse_storage::retention::RetentionStoreApi>` 只捕获到 `synapse_storage`，
+   把大量真实 `dyn` 误判为"零 dyn"。正确写法：
+   `\bdyn\s+(?:[A-Za-z_]\w*::)*([A-Za-z_]\w*)`，并在 `dyn` 之后**取最后一段**。
+2. **`impl` 匹配不到限定路径**：`^\s*impl\s+(\w+)\s+for` 对
+   `impl crate::worker::WorkerStoreApi for InMemoryWorkerStore` 捕获到 `crate`，
+   于是 4 个**有 mock** 的 trait 被误判为"无 mock"。修正后 (ii-a) 32 → 23。
+3. **`tests/` 没纳入扫描**：测试里定义的替身（`Option<&dyn Trait>`、测试专用 impl）不可见。
+   纳入后 `SlidingSyncStoreApi`/`ThreadStoreApi`/`WorkerStoreApi` 等归入 mock 桶。
+
+**方法论**：与本仓库既有教训同源（计划书 §0.3「`grep 'a\|b'` 静默返回空」）——
+**正则口径错了，整片结论会错**。因此本批的删除判据**不依赖**这些计数，而是用
+"删除后全名 `grep` 残留 = 0（且非注释）"作为最终裁决；计数只用于**排序**与**棘轮**。
+
+另有两处工程教训：
+- **`module::{Trait}` 这种 use 列表不能只删标识符**：`federation_blacklist::FederationBlacklistStoreApi,`
+  只删 `Name,` 会留下 `federation_blacklist::` 与 `}` 相邻，直接语法错误
+  （`admin_federation_service.rs:9` 实测报 `expected identifier, found '}'`）。
+  删除必须带上 `module::` 前缀，并在嵌套组被清空时删掉整个 `module::{}`。
+- **不要用"补 import"的方式改类型**：在 `use` 块中间插 `use …;` 会切碎列表。
+  直接写**完全限定路径**（`synapse_storage::<模块>::<具体类型>`）零 import 风险，
+  且能一并暴露"该类型是否真的可从根/模块路径到达"（`EventReportStorage` 就不在根上，
+  必须走 `synapse_storage::event_report::EventReportStorage`）。

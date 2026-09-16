@@ -8,8 +8,7 @@
 //! the flat `synapse_storage::SlidingSyncStorage`.
 
 pub use crate::search_index::{
-    SearchIndexCursor, SearchIndexEntry, SearchIndexStats, SearchIndexStorage, SearchQuery,
-    SearchResult,
+    SearchIndexCursor, SearchIndexEntry, SearchIndexStats, SearchIndexStorage, SearchQuery, SearchResult,
 };
 pub use crate::sliding_sync::{
     decode_room_token_sync_cursor, encode_room_token_sync_cursor, AdminRoomTokenSyncEntry, RoomTokenSyncCursor,

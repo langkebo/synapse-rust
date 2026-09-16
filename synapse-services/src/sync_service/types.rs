@@ -166,7 +166,7 @@ pub struct SyncServiceDeps {
     /// MSC4354: sticky events injection. When `Some`, each room in the sync
     /// response includes a `sticky_events` array with the user's sticky
     /// event metadata for that room.
-    pub sticky_event_storage: Option<Arc<dyn synapse_storage::sticky_event::StickyEventStoreApi>>,
+    pub sticky_event_storage: Option<Arc<synapse_storage::sticky_event::StickyEventStorage>>,
 }
 
 /// The `SyncServiceRequest` struct.

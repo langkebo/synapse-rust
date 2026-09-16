@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
@@ -248,63 +247,6 @@ impl CreateNotificationLogRequest {
         self.response_time_ms = Some(response_time_ms);
         self
     }
-}
-
-/// The `PushNotificationStoreApi` trait.
-#[async_trait]
-pub trait PushNotificationStoreApi: Send + Sync {
-    /// See [`register_device`].
-    async fn register_device(&self, request: RegisterDeviceRequest) -> Result<PushDevice, ApiError>;
-    /// See [`unregister_device`].
-    async fn unregister_device(&self, user_id: &str, device_id: &str) -> Result<(), ApiError>;
-    /// See [`get_user_devices`].
-    async fn get_user_devices(&self, user_id: &str) -> Result<Vec<PushDevice>, ApiError>;
-    /// See [`get_device`].
-    async fn get_device(&self, user_id: &str, device_id: &str) -> Result<Option<PushDevice>, ApiError>;
-    /// See [`update_device_last_used`].
-    async fn update_device_last_used(&self, user_id: &str, device_id: &str) -> Result<(), ApiError>;
-    /// See [`record_device_error`].
-    async fn record_device_error(&self, user_id: &str, device_id: &str, error: &str) -> Result<(), ApiError>;
-    /// See [`queue_notification`].
-    async fn queue_notification(&self, request: QueueNotificationRequest) -> Result<PushNotificationQueue, ApiError>;
-    /// P2: Batch-insert multiple push notifications in a single SQL statement.
-    /// Reduces N DB round-trips to 1 for multi-device notification delivery.
-    async fn queue_notifications_batch(
-        &self,
-        requests: &[QueueNotificationRequest],
-    ) -> Result<Vec<PushNotificationQueue>, ApiError>;
-    /// See [`get_pending_notifications`].
-    async fn get_pending_notifications(&self, limit: i32) -> Result<Vec<PushNotificationQueue>, ApiError>;
-    /// See [`mark_notification_sent`].
-    async fn mark_notification_sent(&self, id: i64) -> Result<(), ApiError>;
-    /// See [`mark_notification_failed`].
-    async fn mark_notification_failed(&self, id: i64, error: &str, retry: bool) -> Result<(), ApiError>;
-    /// See [`create_notification_log`].
-    async fn create_notification_log(
-        &self,
-        request: &CreateNotificationLogRequest,
-    ) -> Result<PushNotificationLog, ApiError>;
-    /// See [`get_config`].
-    async fn get_config(&self, config_key: &str) -> Result<Option<String>, ApiError>;
-    /// See [`get_config_as_bool`].
-    async fn get_config_as_bool(&self, config_key: &str, default: bool) -> Result<bool, ApiError>;
-    /// See [`get_config_as_int`].
-    async fn get_config_as_int(&self, config_key: &str, default: i32) -> Result<i32, ApiError>;
-    /// See [`list_config`].
-    async fn list_config(&self) -> Result<Vec<PushConfigEntry>, ApiError>;
-    /// See [`set_config`].
-    async fn set_config(&self, config_key: &str, config_value: &str) -> Result<PushConfigEntry, ApiError>;
-    /// See [`delete_config`].
-    async fn delete_config(&self, config_key: &str) -> Result<bool, ApiError>;
-    /// See [`cleanup_old_logs`].
-    async fn cleanup_old_logs(&self, days: i32) -> Result<u64, ApiError>;
-    /// See [`get_room_notifications`].
-    async fn get_room_notifications(
-        &self,
-        user_id: &str,
-        room_id: &str,
-        limit: i64,
-    ) -> Result<Vec<RoomNotification>, sqlx::Error>;
 }
 
 /// The `PushNotificationStorage` struct.
@@ -787,81 +729,6 @@ pub struct RoomNotification {
     pub notification_type: Option<String>,
     /// The `is_read` field.
     pub is_read: Option<bool>,
-}
-
-#[async_trait]
-impl PushNotificationStoreApi for PushNotificationStorage {
-    async fn register_device(&self, request: RegisterDeviceRequest) -> Result<PushDevice, ApiError> {
-        self.register_device(request).await
-    }
-    async fn unregister_device(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
-        self.unregister_device(user_id, device_id).await
-    }
-    async fn get_user_devices(&self, user_id: &str) -> Result<Vec<PushDevice>, ApiError> {
-        self.get_user_devices(user_id).await
-    }
-    async fn get_device(&self, user_id: &str, device_id: &str) -> Result<Option<PushDevice>, ApiError> {
-        self.get_device(user_id, device_id).await
-    }
-    async fn update_device_last_used(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
-        self.update_device_last_used(user_id, device_id).await
-    }
-    async fn record_device_error(&self, user_id: &str, device_id: &str, error: &str) -> Result<(), ApiError> {
-        self.record_device_error(user_id, device_id, error).await
-    }
-    async fn queue_notification(&self, request: QueueNotificationRequest) -> Result<PushNotificationQueue, ApiError> {
-        self.queue_notification(request).await
-    }
-    async fn queue_notifications_batch(
-        &self,
-        requests: &[QueueNotificationRequest],
-    ) -> Result<Vec<PushNotificationQueue>, ApiError> {
-        self.queue_notifications_batch(requests).await
-    }
-    async fn get_pending_notifications(&self, limit: i32) -> Result<Vec<PushNotificationQueue>, ApiError> {
-        self.get_pending_notifications(limit).await
-    }
-    async fn mark_notification_sent(&self, id: i64) -> Result<(), ApiError> {
-        self.mark_notification_sent(id).await
-    }
-    async fn mark_notification_failed(&self, id: i64, error: &str, retry: bool) -> Result<(), ApiError> {
-        self.mark_notification_failed(id, error, retry).await
-    }
-    async fn create_notification_log(
-        &self,
-        request: &CreateNotificationLogRequest,
-    ) -> Result<PushNotificationLog, ApiError> {
-        self.create_notification_log(request).await
-    }
-    async fn get_config(&self, config_key: &str) -> Result<Option<String>, ApiError> {
-        self.get_config(config_key).await
-    }
-    async fn get_config_as_bool(&self, config_key: &str, default: bool) -> Result<bool, ApiError> {
-        self.get_config_as_bool(config_key, default).await
-    }
-    async fn get_config_as_int(&self, config_key: &str, default: i32) -> Result<i32, ApiError> {
-        self.get_config_as_int(config_key, default).await
-    }
-    async fn list_config(&self) -> Result<Vec<PushConfigEntry>, ApiError> {
-        self.list_config().await
-    }
-    async fn set_config(&self, config_key: &str, config_value: &str) -> Result<PushConfigEntry, ApiError> {
-        self.set_config(config_key, config_value).await
-    }
-    async fn delete_config(&self, config_key: &str) -> Result<bool, ApiError> {
-        self.delete_config(config_key).await
-    }
-    async fn cleanup_old_logs(&self, days: i32) -> Result<u64, ApiError> {
-        self.cleanup_old_logs(days).await
-    }
-    async fn get_room_notifications(
-        &self,
-        user_id: &str,
-        room_id: &str,
-        limit: i64,
-    ) -> Result<Vec<RoomNotification>, sqlx::Error> {
-        self.get_room_notifications(user_id, room_id, limit).await
-    }
 }
 
 #[cfg(test)]

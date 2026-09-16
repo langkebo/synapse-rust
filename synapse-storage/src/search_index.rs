@@ -87,7 +87,6 @@ fn decode_search_index_cursor(cursor: Option<&str>) -> Option<SearchIndexCursor>
     Some(SearchIndexCursor { created_ts: created_ts.parse().ok()?, id: id.parse().ok()? })
 }
 
-
 /// 搜索索引存储模块
 pub struct SearchIndexStorage {
     pool: Pool<Postgres>,
@@ -273,7 +272,6 @@ impl SearchIndexStorage {
         Ok(SearchIndexStats { total_count: total.0, by_event_type: by_type.into_iter().collect() })
     }
 }
-
 
 #[cfg(test)]
 mod cursor_tests {

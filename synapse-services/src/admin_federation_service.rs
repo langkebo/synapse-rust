@@ -3,10 +3,7 @@ use serde::Serialize;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
-use synapse_storage::{
-    admin_federation::{AdminFederationStoreApi, FederationCacheRecord, FederationDestinationRecord},
-    federation_blacklist::FederationBlacklistStoreApi,
-};
+use synapse_storage::admin_federation::{FederationCacheRecord, FederationDestinationRecord};
 use tracing::{info, instrument, warn};
 
 /// The `DestinationCursor` struct.
@@ -132,16 +129,16 @@ type PendingFederationListResult = Result<(Vec<PendingFederationInfo>, i64, Opti
 
 /// The `AdminFederationService` struct.
 pub struct AdminFederationService {
-    storage: Arc<dyn AdminFederationStoreApi>,
-    federation_blacklist_storage: Arc<dyn FederationBlacklistStoreApi>,
+    storage: Arc<synapse_storage::admin_federation::AdminFederationStorage>,
+    federation_blacklist_storage: Arc<synapse_storage::federation_blacklist::FederationBlacklistStorage>,
     federation_blacklist_service: Arc<FederationBlacklistService>,
 }
 
 impl AdminFederationService {
     /// See [`new`].
     pub fn new(
-        storage: Arc<dyn AdminFederationStoreApi>,
-        federation_blacklist_storage: Arc<dyn FederationBlacklistStoreApi>,
+        storage: Arc<synapse_storage::admin_federation::AdminFederationStorage>,
+        federation_blacklist_storage: Arc<synapse_storage::federation_blacklist::FederationBlacklistStorage>,
         federation_blacklist_service: Arc<FederationBlacklistService>,
     ) -> Self {
         Self { storage, federation_blacklist_storage, federation_blacklist_service }

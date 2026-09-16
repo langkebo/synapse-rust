@@ -8,8 +8,7 @@
 //! over the flat `synapse_storage::AdminFederationStorage`.
 
 pub use crate::admin_federation::{
-    AdminFederationStorage, AdminFederationStoreApi, FederationCacheRecord, FederationDestinationRecord,
-    PendingFederationRecord,
+    AdminFederationStorage, FederationCacheRecord, FederationDestinationRecord, PendingFederationRecord,
 };
 pub use crate::admin_media::{
     decode_media_cursor, encode_media_cursor, AdminMediaInfo, AdminMediaPage, AdminMediaQuotaSummary,

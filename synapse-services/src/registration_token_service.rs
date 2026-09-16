@@ -23,12 +23,12 @@ pub trait RegistrationTokenApi: Send + Sync {
 
 /// The `RegistrationTokenService` struct.
 pub struct RegistrationTokenService {
-    storage: Arc<dyn RegistrationTokenStoreApi>,
+    storage: Arc<synapse_storage::registration_token::RegistrationTokenStorage>,
 }
 
 impl RegistrationTokenService {
     /// See [`new`].
-    pub fn new(storage: Arc<dyn RegistrationTokenStoreApi>) -> Self {
+    pub fn new(storage: Arc<synapse_storage::registration_token::RegistrationTokenStorage>) -> Self {
         Self { storage }
     }
 

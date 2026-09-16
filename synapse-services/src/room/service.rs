@@ -109,7 +109,7 @@ pub struct RoomServiceConfig {
     /// The `beacon_service` field.
     pub beacon_service: Option<()>,
     /// The `sticky_event_storage` field.
-    pub sticky_event_storage: Arc<dyn synapse_storage::sticky_event::StickyEventStoreApi>,
+    pub sticky_event_storage: Arc<synapse_storage::sticky_event::StickyEventStorage>,
     /// The `cache` field.
     pub cache: Arc<CacheManager>,
     /// Optional key-rotation storage injected into the membership sub-service so
@@ -151,7 +151,7 @@ pub struct RoomService {
     pub room_summary_service: Arc<RoomSummaryService>,
     /// Shared infrastructure injected into sub-services.
     pub(crate) infra: RoomInfrastructure,
-    pub(crate) sticky_event_storage: Arc<dyn synapse_storage::sticky_event::StickyEventStoreApi>,
+    pub(crate) sticky_event_storage: Arc<synapse_storage::sticky_event::StickyEventStorage>,
     pub(crate) event_reader: Arc<dyn synapse_storage::event::EventReader>,
     // Reserved: stored for potential direct use by RoomService methods;
     // currently sub-services receive their own clones via RoomInfrastructure.
