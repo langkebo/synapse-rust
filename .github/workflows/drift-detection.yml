@@ -328,7 +328,6 @@ jobs:
           PSQL="psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1"
           start=$(date +%s)
           $PSQL -f migrations/00000000_unified_schema_v12.sql
-          $PSQL -f migrations/00000001_extensions_v10.sql
           elapsed=$(( $(date +%s) - start ))
           tables=$($PSQL -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'")
           indexes=$($PSQL -tAc "SELECT count(*) FROM pg_indexes WHERE schemaname='public'")

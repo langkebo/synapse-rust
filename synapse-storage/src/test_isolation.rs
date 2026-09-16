@@ -94,15 +94,15 @@ impl IsolatedTestPool {
         let db_url = test_database_url();
 
         // The template name is a content fingerprint of this string, so the
-        // concatenation is load-bearing: `v11 ++ extensions` (no separator)
-        // yields `bec240fb79ed438b`, the existing real-baseline template.
-        // Inserting a separator or swapping the order silently forks a second
-        // template (the shared `ensure_template_schema` would build it from
-        // scratch) instead of reusing the one already in the database.
-        let baseline_sql = concat!(
-            include_str!("../../migrations/00000000_unified_schema_v12.sql"),
-            include_str!("../../migrations/00000001_extensions_v10.sql"),
-        );
+        // exact bytes are load-bearing: any edit forks a second template (the
+        // shared `ensure_template_schema` rebuilds from scratch) instead of
+        // reusing the one already in the database.
+        //
+        // The v12 baseline already contains every object the former
+        // `00000001_extensions_v10.sql` defined (14 tables + 1 index, all
+        // `IF NOT EXISTS`), so that file was a byte-for-byte no-op duplicate and
+        // was deleted — see migrations/README.md §"为什么只有一个 baseline".
+        let baseline_sql = include_str!("../../migrations/00000000_unified_schema_v12.sql");
         let template = synapse_common::test_isolation::ensure_template_schema(&db_url, baseline_sql)
             .await
             .map_err(sqlx::Error::Protocol)?;

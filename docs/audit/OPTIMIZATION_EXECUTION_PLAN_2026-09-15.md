@@ -491,7 +491,7 @@ grep -rn 'fn [a-z_0-9]*_route_manifest(' src/ | wc -l   # = 1（仅 derived_rout
 
 | # | 改动 | 验证 |
 |---|---|---|
-| B3-1 ✅ | **v12 baseline 重生成**：`v11 + extensions` 合并为 `00000000_unified_schema_v12.sql`（脚本生成，非手工编辑） | **已接线（2026-09-16）**：commit `8ad864e1`。v12 已入 git index（6771 行，4315 行可执行 SQL，FK 132 + CHECK 27 + UNIQUE 165 + CREATE INDEX 380）；生成器重命名为 `generate_next_baseline.py`（读 v12 为输入，idempotent）；`p0_constraints_indexes.sql` 新增。v11 已从 git tracking 移除（commit `bddd6109`，磁盘保留）。所有 active code v11→v12 |
+| B3-1 ✅ | **v12 baseline 重生成**：`v11 + extensions` 合并为 `00000000_unified_schema_v12.sql`（脚本生成，非手工编辑） | **已接线（2026-09-16）**：commit `8ad864e1`。v12 已入 git index（6771 行，4315 行可执行 SQL，FK 132 + CHECK 27 + UNIQUE 165 + CREATE INDEX 380）；生成器随后在 `4abee93e` 被**删除**（v12 自身即唯一真相源，不再保留「读 v12 再生成 v12」的派生链；`scripts/generate_next_baseline.py` 已不在仓库中）；`p0_constraints_indexes.sql` 新增。v11 已从 git tracking 移除（commit `bddd6109`，磁盘保留）。所有 active code v11→v12 |
 | B3-2 ✅ | **折入 P0-5/P0-6**：7 类完整性约束 + 10 个热点索引写入 v12 | v12 baseline（实测 FK 132 + CHECK 27 + UNIQUE 165，含 7 类完整性约束 + 10 热点索引，另有 CREATE INDEX 380 条，P3-4 `idx_rooms_federated`/`fk_backup_keys_room` 已含）；折叠块由 `scripts/p0_constraints_indexes.sql` 提供、生成器读入。v12 现为 active baseline（`baseline_tables.rs:28` 编译期 `include_str!` 指向 v12），CI `schema-health-check.yml`/`drift-detection.yml`、tests/unit、docker/db_migrate.sh 已全部接线 |
 | B3-3 ✅ | **清 A6 残留**：`schema_health_check.rs` 的 `schema_validator.rs` 清单改为由 v12 派生；`v11:4941/5005/5056` 三处硬编码 `public` 改 `current_schema()`；删 5 对重复索引 | `schema_health_check.rs` 三处 `table_schema = 'public'` 已改为 `current_schema()`；`migration_checks.rs` 同步；schema-blind lint 0 error。`CORE_COLUMNS` 为**语义关键字段手工清单**（代码注释明确“业务关键是语义判断，不是 schema 结构问题”），非 A6 原始问题（5 对重复索引 + 3 处硬编码 public），不属本次折入范围 |
 | B3-4 ✅ | **版本字面名单源**：baseline 文件名收敛到一个常量/脚本变量，`grep -rn 'v11'` 引用点清零 | **已达成（2026-09-16）**：`unified_schema_v11` 字面量在 active code（Rust/SQL/脚本/CI）中清零。commit `8ad864e1` 替换全部 26 处 v11→v12；commit `bddd6109` 将 v11 从 git tracking 移除（磁盘保留作历史参考）。`git ls-files migrations/` 列出 v12 + extensions_v10。v12 是唯一 active code 引用的 baseline |
@@ -631,12 +631,12 @@ context 字段 **−40%**；样板 **−1,400 行**（manifest + extractor + map
 - `baseline_tables.rs` `include_str!` → v12 ✅
 - `migration_checks.rs` 注释 → v12 ✅
 - tests/unit 四文件全部 v11→v12 ✅（含 fingerprint `cfb1fffffc06965a` → `ae947475a7143fb5`）
-- CI / docker/db_migrate.sh / init_v11_database.sh 全部 v11→v12 ✅
+- CI / docker/db_migrate.sh / `scripts/reset_database_v12.sh`（原 `init_v11_database.sh`）全部 v11→v12 ✅
 - `git ls-files migrations/` 列出 v12 ✅
 - `grep -rn "unified_schema_v11"` active code = 0 ✅
 - v11 从 git tracking 移除（磁盘保留作历史参考）✅
 - migration-consistency slice 全绿 ✅
-- 生成器重命名 `generate_next_baseline.py`（读 v12 为输入）✅
+- ~~生成器重命名 `generate_next_baseline.py`~~ → 该生成器已在 `4abee93e` 删除，v12 自身即唯一真相源
 
 **Step 2：B2-5 投影去 tracked ✅（commit `92ca6f66`）**
 - `docs/openapi/client.yaml` 从 git tracking 移除，由 CI artifact 生成

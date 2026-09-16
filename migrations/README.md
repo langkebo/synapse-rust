@@ -31,9 +31,7 @@
 ```
 migrations/
 ├── 00000000_unified_schema_v12.sql           # v12 统一基线（当前活跃，新环境唯一建库入口）
-├── 00000001_extensions_v10.sql               # Feature-gated: 扩展表（沿用 v10 文件名；container-migrate.sh 按 ENABLED_EXTENSIONS 过滤，docker/db_migrate.sh 无条件应用）
 ├── INDEXES.md                                # 索引治理文档（部分索引/复合索引/设计原则）
-├── extension_map.conf                        # 扩展迁移过滤映射（由 container-migrate.sh 读取，见下）
 └── README.md                                 # 本文件
 ```
 
@@ -56,40 +54,23 @@ migrations/
 > schema 健康回归统一走当前基线 —— `scripts/ci_schema_health_check.sh` 通过
 > `docker/db_migrate.sh migrate` 建库，不再引用任何旧基线文件。新环境使用 v12 基线建库。
 
-### ⚠️ `extension_map.conf` 与 `ENABLED_EXTENSIONS` 的真实效力
+### 为什么只有一个 baseline：`ENABLED_EXTENSIONS` 不能裁剪表结构
 
-`docker/deploy/scripts/container-migrate.sh` 的 `should_apply_migration()` **会读取**
-`$MIGRATIONS_DIR/extension_map.conf`，语义为：
+`00000000_unified_schema_v12.sql` 是**全特性基线**，已包含全部扩展表（cas / saml /
+friends）。历史上还有一个 `00000001_extensions_v10.sql`，它定义的 14 张表 + 1 个索引
+**逐对象都已在 v12 中**、且同样使用 `IF NOT EXISTS` —— 也就是说应用它是个**空操作**，
+它只是同一份 DDL 的第二份副本（违反"同一职责只允许一份实现"）。该文件及其过滤映射
+`extension_map.conf` 已**删除**：
 
-- 文件**不在** map 中 → 视为 core → **总是应用**
-- 文件**在** map 中 → 当所列 feature **任一**被启用时应用（逗号分隔 = OR）
-- `ENABLED_EXTENSIONS=none` → 所有在 map 中的文件都跳过
+- `docker/db_migrate.sh`、`docker/deploy/scripts/container-migrate.sh`、
+  `scripts/reset_database_v12.sh` 现在都只按文件名顺序应用 `migrations/*.sql`，
+  没有任何扩展过滤分支；
+- 测试模板（`synapse_common::test_isolation`）的基线字符串现在就是 v12 本身
+  （内容指纹随之变化，会铸造一次新模板，属预期行为）。
 
-**但必须理解关键事实：`ENABLED_EXTENSIONS` 无法控制扩展表是否被创建。**
-
-`00000000_unified_schema_v12.sql` 是**全特性基线**，已包含全部扩展表。
-`00000001_extensions_v10.sql` 与之**逐表完全重复**（已核对：15/15 均在 baseline 中定义，
-且两者都用 `IF NOT EXISTS`）。实测结果：
-
-| `ENABLED_EXTENSIONS` | 扩展表是否存在 | extensions 文件是否执行 |
-|---|---|---|
-| `none` | ✅ **存在**（由 baseline 创建） | 跳过 |
-| `friends,burn-after-read`（默认） | ✅ 存在 | 执行 |
-| `all` | ✅ 存在 | 执行 |
-
-所以 `ENABLED_EXTENSIONS` 实际控制两件事：**冗余 extensions 文件是否执行**，
-以及 `deploy.sh` 用它**选择编译哪些 cargo feature**。后者才是真正的特性裁剪手段 ——
-**表结构层面的裁剪需要在 baseline 中拆分扩展表，目前不存在。**
-
-> **2026-09-11 修复**：`extension_map.conf` 此前映射的是已归档的
-> `00000001_extensions_v8.sql`（陈旧映射），而实际的 `00000001_extensions_v10.sql`
-> 因"不在 map 中即视为 core"被**无条件应用**。现已映射到它真正包含的四个特性
-> `cas-sso,saml-sso,friends,voice-extended`（OR 语义），并让 `container-migrate.sh`
-> 支持逗号分隔的多特性。
->
-> **仍存在的局限**：map 只能表达"整个文件 ↔ 特性集合"，无法做到"只应用文件里的
-> cas-sso 部分"。若要实现**按特性的表裁剪**，需把该文件拆回 per-feature 文件
-> **并从 baseline 中移除这些表**。这属于结构性变更，尚未进行。
+`ENABLED_EXTENSIONS` 仍然存在，但它**只**决定 `deploy.sh` 编译哪些 cargo feature
+（见 `--features` 选择），**不参与**建表。想要按特性裁剪表结构，唯一正确的做法是把
+扩展表从 baseline 中拆出去（当前未做，也不建议在没有明确需求时做）。
 
 ## 新增迁移流程（务必同步折入 baseline）
 
@@ -228,8 +209,7 @@ v11 基线相对 v8/v10 的主要变更：
 
 ## 迁移执行顺序
 
-1. `00000000_unified_schema_v12.sql` — 基线 (IF NOT EXISTS，幂等)
-2. `00000001_extensions_v10.sql` — 按 ENABLED_EXTENSIONS 过滤
+1. `00000000_unified_schema_v12.sql` — 唯一基线（`IF NOT EXISTS`，可重复执行）
 
 > `migrations/` 目前只有上述两个正向文件（外加 `V*` 扩展）；所有时间戳迁移已删除，
 > 不存在"按时间戳顺序逐一应用"的步骤。测试路径
@@ -261,9 +241,9 @@ ls -r migrations/2026*.undo.sql | xargs -I {} bash -c 'echo "--- {}"; psql "$DAT
 
 > ⚠️ undo 文件不含 baseline 内部变更回滚；baseline 内的对象丢失只能 forward fix。
 
-## 扩展迁移选择
+## 扩展迁移选择（仅影响编译的 cargo feature）
 
-通过 `ENABLED_EXTENSIONS` 环境变量控制：
+`ENABLED_EXTENSIONS` 只决定 `deploy.sh` 用哪套 feature 编译，**不改变建表结果**：
 
 ```bash
 # 全部功能（默认）

@@ -20,14 +20,14 @@ MIGRATIONS_DIR = Path("migrations")
 # Known safe DROP SCHEMA patterns - files that contain controlled public schema resets
 SAFE_DROP_PATTERNS = [
     "scripts/init_test_public_schema.sh",
-    "scripts/init_v11_database.sh", 
+    "scripts/reset_database_v12.sh", 
     "scripts/cleanup_test_schemas.sh",
 ]
 
 # Known safe DROP SCHEMA patterns - files that contain controlled public schema resets
 SAFE_DROP_PATTERNS = [
     "scripts/init_test_public_schema.sh",
-    "scripts/init_v11_database.sh", 
+    "scripts/reset_database_v12.sh", 
     "scripts/cleanup_test_schemas.sh",
 ]
 
@@ -35,7 +35,7 @@ SAFE_DROP_PATTERNS = [
 # These are initialization/reset scripts that operate on the public schema by design
 SAFE_SCHEMA_BLIND_PATTERNS = {
     "scripts/init_test_public_schema.sh",      # Line 35: table count verification after reset
-    "scripts/init_v11_database.sh",            # Lines 64,94: DB initialization scripts
+    "scripts/reset_database_v12.sh",            # Lines 64,94: DB initialization scripts
     "scripts/ci/prepare_test_db.sh",           # Lines 22: initial pool setup
 }
 

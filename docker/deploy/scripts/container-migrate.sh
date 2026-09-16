@@ -2,7 +2,9 @@
 # =============================================================================
 # container-migrate.sh — Database migration runner
 # =============================================================================
-# Supports selective extension migrations via ENABLED_EXTENSIONS env var.
+# Applies every file in migrations/ in filename order. `ENABLED_EXTENSIONS`
+# is a *build* selector (see deploy.sh): it cannot tailor the schema, because
+# the baseline is全特性 — see migrations/README.md.
 # Core migrations are always applied. Extension migrations are skipped
 # unless their feature is listed in ENABLED_EXTENSIONS.
 #
@@ -22,7 +24,6 @@ DB_NAME="${DB_NAME:-synapse}"
 DB_USER="${DB_USER:-postgres}"
 DB_PASSWORD="${DB_PASSWORD:-}"
 ENABLED_EXTENSIONS="${ENABLED_EXTENSIONS:-friends,burn-after-read}"
-EXTENSION_MAP="${MIGRATIONS_DIR}/extension_map.conf"
 DB_WAIT_ATTEMPTS="${DB_WAIT_ATTEMPTS:-30}"
 DB_WAIT_INTERVAL="${DB_WAIT_INTERVAL:-2}"
 DB_QUERY_ATTEMPTS="${DB_QUERY_ATTEMPTS:-8}"
@@ -192,80 +193,6 @@ is_migration_applied() {
 }
 
 # ---------------------------------------------------------------------------
-# Extension filtering
-# ---------------------------------------------------------------------------
-
-# Check if a migration file is an extension migration and whether it should
-# be applied given the current ENABLED_EXTENSIONS setting.
-should_apply_migration() {
-    filename="$(basename "$1")"
-
-    # Always apply if extensions are not filtered
-    if [ "$ENABLED_EXTENSIONS" = "all" ]; then
-        return 0
-    fi
-
-    # If no extension map exists, apply everything
-    if [ ! -f "$EXTENSION_MAP" ]; then
-        return 0
-    fi
-
-    # Look up the file in the extension map
-    required_feature=""
-    while IFS= read -r line; do
-        # Skip comments and empty lines
-        case "$line" in
-            \#* | "") continue ;;
-        esac
-        map_file="${line%%=*}"
-        map_feature="${line#*=}"
-        if [ "$map_file" = "$filename" ]; then
-            required_feature="$map_feature"
-            break
-        fi
-    done <"$EXTENSION_MAP"
-
-    # Not in the map — it's a core migration, always apply
-    if [ -z "$required_feature" ]; then
-        return 0
-    fi
-
-    # In the map — check if the feature is enabled.
-    #
-    # `required_feature` may be a comma-separated list, meaning OR: the file is
-    # applied when ANY of the listed features is enabled. This exists because a
-    # consolidated extension file (e.g. `00000001_extensions_v10.sql`) bundles
-    # several independent features (cas-sso, saml-sso, friends, voice-extended),
-    # while the map format maps a whole file to a feature. Without OR support
-    # such a file could only be mapped to one feature — or, as before, mapped to
-    # nothing and therefore treated as core and applied unconditionally.
-    if [ "$ENABLED_EXTENSIONS" = "none" ]; then
-        log INFO "跳过扩展迁移 (feature=$required_feature): $filename"
-        return 1
-    fi
-
-    for feature in $(printf '%s' "$required_feature" | tr ',' ' '); do
-        # 模式里的 `$feature` **不能加引号**。
-        #
-        # 本脚本由本容器的 `/bin/sh`（busybox ash）执行，实测该 shell 会把
-        # `*",$feature,"` 里的引号当成模式字面量，于是 `*",friends,"` 匹配不上
-        # `,friends,burn-after-read,` —— 结果是设了 `ENABLED_EXTENSIONS=friends,...`
-        # 仍然打印 "跳过扩展迁移 (feature=cas-sso,saml-sso,friends,voice-extended 未启用)"
-        # 并跳过 `00000001_extensions_v10.sql`（friends/cas/saml 建表全部丢失），
-        # 连带 `deploy.sh` 的"canonical 迁移是否全部应用"门禁必然失败。
-        # 见 2026-09-15 实测：`sh -c 'case ",friends,burn-after-read," in *",friends,")'` → NO-MATCH，
-        # 改用未加引号的 `*,friends,*` → MATCH。
-        case ",$ENABLED_EXTENSIONS," in
-            *,$feature,*)
-                return 0
-                ;;
-        esac
-    done
-
-    log INFO "跳过扩展迁移 (feature=$required_feature 未启用): $filename"
-    return 1
-}
-
 apply_sql_file() {
     file="$1"
     filename="$(basename "$file")"
@@ -400,11 +327,6 @@ apply_pending_migrations() {
 
         version="$(basename "$file" .sql)"
         if is_migration_applied "$version"; then
-            continue
-        fi
-
-        if ! should_apply_migration "$file"; then
-            skipped=$((skipped + 1))
             continue
         fi
 

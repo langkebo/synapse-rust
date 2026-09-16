@@ -48,13 +48,16 @@ const ROOT: &str = "synapse-test-utils/src/lib.rs";
 const COMMON: &str = "synapse-common/src/test_isolation.rs";
 const COMMON_LIB: &str = "synapse-common/src/lib.rs";
 
-/// The two baseline migrations, compiled in. Guard 5 hashes these to pin the
-/// template the database already holds.
-const V11: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql");
-const EXTENSIONS: &str = include_str!("../../migrations/00000001_extensions_v10.sql");
+/// The baseline migration, compiled in. Guard 5 hashes it to pin the template
+/// the database already holds.
+///
+/// The former `00000001_extensions_v10.sql` was a byte-for-byte no-op duplicate
+/// of objects this baseline already defines (14 tables + 1 index, all
+/// `IF NOT EXISTS`) and was deleted, so the baseline is the single source.
+const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql");
 
-/// `v12 ++ extensions`, no separator: the baseline the shared template was
-/// built from. Any other string mints a SECOND template.
+/// The baseline the shared template was built from. Any other string mints a
+/// SECOND template.
 ///
 /// This is a **content** hash, so it changes whenever either baseline migration
 /// is legitimately edited (e.g. dropping dead tables). When that happens, update
@@ -63,7 +66,7 @@ const EXTENSIONS: &str = include_str!("../../migrations/00000001_extensions_v10.
 /// hashes to `a05fa4488475fe1d` and a reversal to `4137af770181767b`, and neither
 /// is what any legitimate migration edit produces as long as the two files are
 /// still concatenated v12-then-extensions with nothing between them.
-const EXPECTED_BASELINE_FINGERPRINT: &str = "ae947475a7143fb5";
+const EXPECTED_BASELINE_FINGERPRINT: &str = "d022387703db80e6";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))
@@ -579,13 +582,12 @@ fn prepare_isolated_test_pool_does_not_use_the_runtime_initializer() {
 /// reversal, a third migration, or a pointer at a different file are all caught
 /// the same way; a rename that preserves content and order is not.
 #[test]
-fn baseline_fingerprint_is_v11_then_extensions_with_no_separator() {
+fn baseline_fingerprint_is_the_single_v12_source() {
     assert_eq!(
-        fingerprint_hex(&format!("{V11}{EXTENSIONS}")),
+        fingerprint_hex(V12),
         EXPECTED_BASELINE_FINGERPRINT,
-        "the baseline fingerprint changed: the two migrations must be concatenated as v11 then \
-         extensions with no separator, or a SECOND template is minted (with a separator: \
-         a05fa4488475fe1d; reversed: 4137af770181767b)"
+        "the baseline fingerprint changed: the fixture must hash the v12 baseline byte-for-byte, \
+         or a SECOND template is minted"
     );
 
     for path in [STORAGE, SERVICES] {
@@ -594,7 +596,7 @@ fn baseline_fingerprint_is_v11_then_extensions_with_no_separator() {
             fingerprint_hex(&baseline),
             EXPECTED_BASELINE_FINGERPRINT,
             "{path}: the baseline string passed to `ensure_template_schema` does not hash to the \
-             expected template. It must be v11 ++ extensions in that order with nothing between or \
+             expected template. It must be the v12 baseline with nothing added or \
              around them — a separator hashes to a05fa4488475fe1d, a reversal to 4137af770181767b \
              — otherwise the suite silently builds and keeps a SECOND full template instead of \
              reusing the existing one."
@@ -625,7 +627,7 @@ fn the_seed_allowlist_matches_what_the_baseline_seeds() {
     const SEED_REFERENCE_TABLES: &[&str] = synapse_common::test_isolation::SEED_REFERENCE_TABLES;
 
     let mut seeded = Vec::new();
-    for (name, sql) in [("00000000_unified_schema_v12.sql", V11), ("00000001_extensions_v10.sql", EXTENSIONS)] {
+    for (name, sql) in [("00000000_unified_schema_v12.sql", V12)] {
         for statement in insert_statements(sql) {
             let rest = statement.split_once("INTO").map_or_else(
                 || panic!("{name}: INSERT statement without INTO: {}", &statement[..80.min(statement.len())]),

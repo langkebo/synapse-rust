@@ -38,7 +38,6 @@ fn migrations_directory_has_exactly_one_baseline() {
          本地/CI schema 分叉（历史基线可从 `git show bddd6109^:migrations/...` 取回）"
     );
 
-    assert!(migrations.join("00000001_extensions_v10.sql").exists(), "missing extensions file (still used)");
 }
 
 /// 两个迁移执行入口都必须按"历史基线一律跳过"的判据处理，否则上面那条不变式
@@ -220,25 +219,6 @@ fn schema_migrations_executed_at_is_bigint_in_every_writer() {
             "{rel} 不得给 executed_at 赋 NOW()（timestamptz），应写毫秒 bigint 表达式"
         );
     }
-}
-
-/// The extension gate in `container-migrate.sh` matches `,$ENABLED_EXTENSIONS,`
-/// against a `,$feature,` pattern. The variable must NOT be quoted in that
-/// pattern: the migrator container runs `/bin/sh` (busybox ash), which keeps the
-/// quotes as literal pattern characters, so the quoted form never matches.
-///
-/// Observed 2026-09-15 with `ENABLED_EXTENSIONS=friends,burn-after-read`:
-/// `00000001_extensions_v10.sql` was reported as "未启用" and skipped, leaving the
-/// friends tables uncreated and failing `deploy.sh`'s gate — even though the
-/// `friends` feature was explicitly enabled.
-#[test]
-fn extension_gate_pattern_does_not_quote_the_feature_variable() {
-    let script = read(&project_root().join("docker/deploy/scripts/container-migrate.sh"));
-    assert!(
-        script.contains("*,$feature,*)"),
-        "扩展门控必须使用未加引号的 `*,$feature,*)` 模式：容器内 /bin/sh（busybox ash）\
-         会把模式里变量的引号当作字面量，导致已启用的 feature 仍被判为未启用"
-    );
 }
 
 /// The Makefile's `migrate-status` / `migrate-audit` targets query

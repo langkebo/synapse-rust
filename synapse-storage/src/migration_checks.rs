@@ -107,7 +107,7 @@ fn discover_migration_files() -> Vec<i64> {
             let name = path.file_name()?.to_str()?;
 
             // The consolidated baseline (`00000000_unified_schema_v12.sql`) and
-            // the extensions file (`00000001_extensions_v10.sql`) are excluded
+            // (the former `00000001_extensions_v10.sql` no-op duplicate was deleted)
             // by the 14-digit version parse below — their prefixes are not
             // numeric. Do not re-add a hard-coded version check here: the one
             // that used to guard `..._v10` silently stopped matching when the
@@ -189,7 +189,7 @@ mod tests {
     #[test]
     fn discover_excludes_baseline_and_undo() {
         let versions = discover_migration_files();
-        // `00000000_unified_schema_v12.sql` and `00000001_extensions_v10.sql`
+        // `00000000_unified_schema_v12.sql`
         // must never be reported as deltas — the baseline is applied as a whole,
         // and reporting it would make the "missing migrations" drift check fire
         // on every healthy deployment.

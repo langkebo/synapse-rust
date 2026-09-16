@@ -216,14 +216,14 @@ pub fn configured_test_db_template_schema() -> Option<String> {
 /// Baseline SQL for isolated schemas. Passed to `synapse_common::test_isolation`
 /// because the migration files live at the workspace root.
 ///
-/// The concatenation order (`v11` then `extensions`) and the absence of a
-/// separator are load-bearing: the template name is an FNV-1a fingerprint of
-/// this exact string, and any change mints a second template schema.
+/// The exact bytes are load-bearing: the template name is an FNV-1a
+/// fingerprint of this string, and any change mints a second template schema.
+///
+/// The v12 baseline is the single source: the former
+/// `00000001_extensions_v10.sql` duplicated 14 tables + 1 index that v12
+/// already defines, so it was deleted as a no-op.
 fn isolated_baseline_sql() -> &'static str {
-    concat!(
-        include_str!("../../migrations/00000000_unified_schema_v12.sql"),
-        include_str!("../../migrations/00000001_extensions_v10.sql"),
-    )
+    include_str!("../../migrations/00000000_unified_schema_v12.sql")
 }
 
 /// See [`prepare_isolated_test_pool`].

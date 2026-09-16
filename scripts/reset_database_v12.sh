@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
-# v12 baseline 重置脚本（重部署窗口专用）。
-# 清空数据库，重新应用 v12 baseline + 所有后续增量迁移。
+# 测试/开发库重置脚本（重部署窗口专用）。
+#
+# 只做「清空 public schema」这一件事，然后**把迁移应用委托给唯一入口**
+# `docker/db_migrate.sh migrate`。此前它自带一个 `find migrations/*.sql` 的应用
+# 循环 —— 那是第二份迁移实现，并含两条指向已删除文件的死分支
+#（`00000000_unified_schema_v10.sql`、`00000001_extensions_v10.sql`）。原文件名
+# `init_v11_database.sh` 也已名不副实（v11 基线早已被 v12 取代），故改名。
 #
 # 用法：
-#   bash scripts/init_v11_database.sh
-#   bash scripts/init_v11_database.sh --keep-existing
-#   TEST_DB_PORT=5432 bash scripts/init_v11_database.sh
+#   bash scripts/reset_database_v12.sh
+#   bash scripts/reset_database_v12.sh --keep-existing
+#   TEST_DB_PORT=5432 bash scripts/reset_database_v12.sh
 
 set -euo pipefail
 
@@ -64,26 +69,11 @@ else
     "${PSQL[@]}" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO $DB_USER; GRANT ALL ON SCHEMA public TO public;" >/dev/null
 fi
 
-# === 应用迁移 ===
-echo "==> 应用 v12 baseline"
-"${PSQL[@]}" -v ON_ERROR_STOP=1 -f "$CURRENT_BASELINE" >/dev/null
-echo "    ✓ $CURRENT_BASELINE"
-
-echo "==> 应用后续增量迁移（跳过 .undo.sql 和 v10）"
-for f in $(find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' ! -name '*.undo.sql' | sort); do
-    fname="$(basename "$f")"
-    # 跳过已单独应用的基线（目录下只允许存在一个基线文件）
-    [[ "$fname" == "00000000_unified_schema_v12.sql" ]] && continue
-    # 跳过 v10 baseline（已废弃）
-    [[ "$fname" == "00000000_unified_schema_v10.sql" ]] && continue
-    [[ "$fname" == "00000001_extensions_v10.sql" ]] && continue
-
-    if "${PSQL[@]}" -v ON_ERROR_STOP=1 -q -f "$f" >/dev/null 2>&1; then
-        echo "    ✓ $fname"
-    else
-        echo "    ✗ $fname (非致命，继续)"
-    fi
-done
+# === 应用迁移（唯一入口：docker/db_migrate.sh） ===
+# H-14 护栏要求调用方显式给出目标，这里用 DATABASE_URL 显式传递。
+echo "==> 应用迁移（docker/db_migrate.sh migrate）"
+DATABASE_URL="postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}" \
+    bash "$PROJECT_ROOT/docker/db_migrate.sh" migrate
 
 # === 验证 ===
 echo "==> 验证 schema"
