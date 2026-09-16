@@ -28,8 +28,6 @@ pub mod error;
 pub mod federation_test_keys;
 /// The `health` module.
 pub mod health;
-/// The `logging` module.
-pub mod logging;
 
 // Re-exports of local-only items from genuine modules.
 //
@@ -40,9 +38,5 @@ pub mod logging;
 // (`rate_limit` facade removed 2026-08-09 together with the dead legacy
 // in-memory RateLimiter; the authoritative limiter is web/middleware/rate_limit.rs.)
 //
-// `logging::init_logging` is re-exported explicitly because the local
-// implementation differs from synapse_common's (adds RequestIdPropagationLayer);
-// the explicit re-export shadows the glob's `synapse_common::init_logging`.
 pub use error::{crypto_error_to_api_error, ed25519_error_to_api_error};
 pub use health::CacheHealthCheck;
-pub use logging::init_logging;

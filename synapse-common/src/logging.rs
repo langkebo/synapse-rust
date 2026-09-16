@@ -1,6 +1,7 @@
 //! Logging initialization (`init_logging`).
 
 use crate::config::LoggingConfig;
+use crate::tracing::RequestIdPropagationLayer;
 use opentelemetry_sdk::trace::SdkTracerProvider as TracerProvider;
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::layer::SubscriberExt;
@@ -35,7 +36,8 @@ pub fn init_logging(
     };
 
     // 2. 创建基础 Registry
-    let subscriber = Registry::default().with(env_filter);
+    // Request ids must reach every span, including the fmt layer's own records.
+    let subscriber = Registry::default().with(RequestIdPropagationLayer).with(env_filter);
 
     // 3. 添加日志层 (JSON 或 Plain)
     let is_json = config.format.to_lowercase() == "json";
