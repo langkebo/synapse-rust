@@ -11,12 +11,10 @@ use axum::{
 };
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
-use synapse_storage::rendezvous::{
+use synapse_services::rendezvous_service::{
     CreateRendezvousSessionParams, RendezvousIntent, RendezvousMessage, RendezvousSession, RendezvousTransport,
-    StoredRendezvousMessage,
+    RENDEZVOUS_KEY_HEADER,
 };
-
-const RENDEZVOUS_KEY_HEADER: &str = "x-matrix-rendezvous-key";
 
 /// See [`create_rendezvous_router`].
 pub fn create_rendezvous_router(state: AppState) -> Router<AppState> {
@@ -65,11 +63,7 @@ async fn create_session(
     let params =
         CreateRendezvousSessionParams { intent: intent_enum, transport: transport_enum, transport_data, expires_in_ms };
 
-    let session: RendezvousSession = ctx
-        .rendezvous_storage
-        .create_session(params)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to create session", e))?;
+    let session: RendezvousSession = ctx.rendezvous_service.create_session(params).await?;
 
     ::tracing::info!(request_id = %request_id, session_id = %session.session_id, intent = ?session.intent, "Created rendezvous session");
 
@@ -86,14 +80,7 @@ fn extract_rendezvous_key(headers: &HeaderMap) -> Option<&str> {
     headers.get(RENDEZVOUS_KEY_HEADER).and_then(|value| value.to_str().ok()).filter(|value| !value.is_empty())
 }
 
-async fn load_rendezvous_session(ctx: &AuthContext, session_id: &str) -> Result<RendezvousSession, ApiError> {
-    ctx.rendezvous_storage
-        .get_session(session_id)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to get session", e))?
-        .ok_or_else(|| ApiError::not_found("Session not found or expired".to_string()))
-}
-
+/// Authorise access to a rendezvous session (session key or bound user).
 async fn ensure_rendezvous_session_access(
     ctx: &AuthContext,
     request_id: &str,
@@ -102,37 +89,9 @@ async fn ensure_rendezvous_session_access(
     session_id: &str,
     action: &str,
 ) -> Result<RendezvousSession, ApiError> {
-    let session = load_rendezvous_session(ctx, session_id).await?;
-
-    if let Some(session_key) = extract_rendezvous_key(headers) {
-        if session.key.as_deref() == Some(session_key) {
-            return Ok(session);
-        }
-
-        ::tracing::warn!(request_id = %request_id, session_id = %session_id, action, "Invalid rendezvous key");
-        return Err(ApiError::unauthorized(format!("Invalid rendezvous key for {action}")));
-    }
-
-    if let (Some(auth_user_id), Some(bound_user_id)) = (auth_user.user_id.as_ref(), session.user_id.as_ref()) {
-        if auth_user_id == bound_user_id {
-            return Ok(session);
-        }
-
-        ::tracing::warn!(
-            request_id = %request_id,
-            session_id = %session_id,
-            action,
-            auth_user_id = %auth_user_id,
-            bound_user_id = %bound_user_id,
-            "Forbidden rendezvous session access"
-        );
-        return Err(ApiError::forbidden(format!("You are not allowed to {action} this rendezvous session")));
-    }
-
-    ::tracing::warn!(request_id = %request_id, session_id = %session_id, action, "Missing rendezvous access credentials");
-    Err(ApiError::unauthorized(format!(
-        "Rendezvous access to {action} requires the {RENDEZVOUS_KEY_HEADER} header or the bound user"
-    )))
+    ctx.rendezvous_service
+        .authorize(session_id, extract_rendezvous_key(headers), auth_user.user_id.as_deref(), request_id, action)
+        .await
 }
 
 async fn get_session(
@@ -171,23 +130,17 @@ async fn update_session(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("status required".to_string()))?;
 
-    ctx.rendezvous_storage
-        .update_session_status(&session_id, status)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to update session", e))?;
+    ctx.rendezvous_service.update_status(&session_id, status).await?;
     ::tracing::info!(request_id = %request_id, session_id = %session_id, status, "Updated rendezvous session");
 
     if status == "connected" {
         let user_id = auth_user.user_id.as_ref().ok_or_else(ApiError::missing_token)?.clone();
         let device_id = auth_user.device_id.clone().unwrap_or_else(|| "RENDEZVOUS".to_string());
-        ctx.rendezvous_storage
-            .bind_user_to_session(&session_id, &user_id, &device_id)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to bind user", e))?;
+        ctx.rendezvous_service.bind_user(&session_id, &user_id, &device_id).await?;
     }
 
     if status == "completed" {
-        let session: RendezvousSession = load_rendezvous_session(&ctx, &session_id).await?;
+        let session: RendezvousSession = ctx.rendezvous_service.load_session(&session_id).await?;
 
         if let Some(user_id) = &session.user_id {
             let device_id: String = session.device_id.clone().unwrap_or_else(|| "RENDEZVOUS".to_string());
@@ -225,10 +178,7 @@ async fn delete_session(
     let request_id = resolve_request_id(&headers);
     ensure_rendezvous_session_access(&ctx, &request_id, &headers, &auth_user, &session_id, "delete").await?;
 
-    ctx.rendezvous_storage
-        .delete_session(&session_id)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to delete session", e))?;
+    ctx.rendezvous_service.delete_session(&session_id).await?;
     ::tracing::info!(request_id = %request_id, session_id = %session_id, "Deleted rendezvous session");
 
     Ok(Json(json!({})))
@@ -251,10 +201,7 @@ async fn send_message(
 
     let message = RendezvousMessage { message_type: message_type.to_string(), content };
 
-    ctx.rendezvous_message_storage
-        .store_message(&session_id, "outbound", &message)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to send message", e))?;
+    ctx.rendezvous_service.store_message(&session_id, "outbound", &message).await?;
     ::tracing::info!(request_id = %request_id, session_id = %session_id, message_type, "Stored rendezvous message");
 
     // Generate a message ID based on session and timestamp
@@ -276,11 +223,7 @@ async fn get_messages(
     let request_id = resolve_request_id(&headers);
     ensure_rendezvous_session_access(&ctx, &request_id, &headers, &auth_user, &session_id, "read messages").await?;
 
-    let messages: Vec<StoredRendezvousMessage> =
-        ctx.rendezvous_message_storage
-            .get_messages(&session_id, None)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to get messages", e))?;
+    let messages = ctx.rendezvous_service.messages(&session_id).await?;
 
     let messages_json: Vec<Value> = messages
         .iter()

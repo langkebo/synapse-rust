@@ -123,10 +123,8 @@ pub struct AdminModuleServices {
     #[cfg(feature = "external-services")]
     /// The `external_service_integration` field.
     pub external_service_integration: Arc<crate::external_service_integration::ExternalServiceIntegration>,
-    /// The `rendezvous_storage` field.
-    pub rendezvous_storage: Arc<dyn synapse_storage::rendezvous::RendezvousStoreApi>,
-    /// The `rendezvous_message_storage` field.
-    pub rendezvous_message_storage: Arc<synapse_storage::rendezvous::RendezvousMessageStorage>,
+    /// The `rendezvous_service` field.
+    pub rendezvous_service: Arc<crate::rendezvous_service::RendezvousService>,
     /// The `login_token_storage` field.
     pub login_token_storage: Arc<dyn synapse_storage::login_token::LoginTokenStoreApi>,
     /// The `login_token_service` field.
@@ -312,8 +310,7 @@ impl AdminServices {
 
         let rendezvous_storage: Arc<dyn synapse_storage::rendezvous::RendezvousStoreApi> =
             Arc::new(synapse_storage::rendezvous::RendezvousStorage::new(pool.clone()));
-        let rendezvous_message_storage: Arc<synapse_storage::rendezvous::RendezvousMessageStorage> =
-            Arc::new(synapse_storage::rendezvous::RendezvousMessageStorage::new(pool.clone()));
+        let rendezvous_service = Arc::new(crate::rendezvous_service::RendezvousService::new(rendezvous_storage));
         let login_token_storage: Arc<dyn synapse_storage::login_token::LoginTokenStoreApi> =
             Arc::new(synapse_storage::login_token::LoginTokenStorage::new(pool));
         let login_token_service =
@@ -438,8 +435,7 @@ impl AdminServices {
                 policy_service: Arc::new(crate::policy_service::PolicyService::new(config.policy_server.clone())),
                 #[cfg(feature = "external-services")]
                 external_service_integration,
-                rendezvous_storage,
-                rendezvous_message_storage,
+                rendezvous_service,
                 login_token_storage,
                 login_token_service,
                 worker_storage,

@@ -4,5 +4,3 @@
 # Regenerate with: python3 scripts/ci/check_web_layering.py --update
 
 src/web/routes/context.rs
-src/web/routes/msc4108_rendezvous.rs
-src/web/routes/rendezvous.rs

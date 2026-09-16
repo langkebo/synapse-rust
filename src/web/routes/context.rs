@@ -434,10 +434,8 @@ pub struct AuthContext {
     #[cfg(feature = "builtin-oidc")]
     /// The `builtin_oidc_provider` field.
     pub builtin_oidc_provider: Option<Arc<synapse_services::builtin_oidc_provider::BuiltinOidcProvider>>,
-    /// The `rendezvous_storage` field.
-    pub rendezvous_storage: Arc<dyn synapse_storage::rendezvous::RendezvousStoreApi>,
-    /// The `rendezvous_message_storage` field.
-    pub rendezvous_message_storage: Arc<synapse_storage::rendezvous::RendezvousMessageStorage>,
+    /// The `rendezvous_service` field.
+    pub rendezvous_service: Arc<synapse_services::rendezvous_service::RendezvousService>,
     /// The `login_token_service` field.
     pub login_token_service: Arc<synapse_services::login_token_service::LoginTokenService>,
 }
@@ -466,8 +464,7 @@ impl FromRef<AppState> for AuthContext {
             oidc_service: state.services.sso.oidc_service.clone(),
             #[cfg(feature = "builtin-oidc")]
             builtin_oidc_provider: state.services.sso.builtin_oidc_provider.clone(),
-            rendezvous_storage: state.services.admin.modules.rendezvous_storage.clone(),
-            rendezvous_message_storage: state.services.admin.modules.rendezvous_message_storage.clone(),
+            rendezvous_service: state.services.admin.modules.rendezvous_service.clone(),
             login_token_service: state.services.admin.modules.login_token_service.clone(),
         }
     }

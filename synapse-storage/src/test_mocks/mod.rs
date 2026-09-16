@@ -139,6 +139,8 @@ pub mod refresh_token;
 /// The `registration_token` module.
 /// The `relations` module.
 pub mod relations;
+/// The `rendezvous` module.
+pub mod rendezvous;
 /// The `room` module.
 pub mod room;
 /// The `room_account_data` module.

@@ -134,6 +134,8 @@ pub mod registration_service;
 pub mod registration_token_service;
 /// The `relations_service` module.
 pub mod relations_service;
+/// The `rendezvous_service` module.
+pub mod rendezvous_service;
 /// The `retention_service` module.
 pub mod retention_service;
 /// The `room` module.

@@ -22,9 +22,8 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use synapse_storage::rendezvous::Msc4108UpdateOutcome;
+use synapse_services::rendezvous_service::Msc4108UpdateOutcome;
 
-const MSC4108_TTL_MS: i64 = 5 * 60 * 1000; // 5 minutes
 const MSC4108_MAX_PAYLOAD_BYTES: usize = 4 * 1024; // 4 KiB per MSC4108
 
 /// See [`create_msc4108_rendezvous_router`].
@@ -70,11 +69,7 @@ async fn create_session(
         return Err(ApiError::too_large("Payload exceeds maximum size of 4KB".to_string()));
     }
 
-    let (session_id, etag, created_ts, expires_at) = ctx
-        .rendezvous_storage
-        .create_msc4108_session(&body, MSC4108_TTL_MS)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to create MSC4108 session", e))?;
+    let (session_id, etag, created_ts, expires_at) = ctx.rendezvous_service.create_msc4108(&body).await?;
 
     let url = build_rendezvous_url(&ctx, &session_id);
     let expires_http_date = http_date_from_millis(expires_at);
@@ -106,11 +101,7 @@ async fn get_session(
     Path(session_id): Path<SessionId>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    let result = ctx
-        .rendezvous_storage
-        .get_msc4108_data(&session_id)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to get MSC4108 data", e))?;
+    let result = ctx.rendezvous_service.msc4108_data(&session_id).await?;
 
     let (data, etag, updated_ts, expires_at) = match result {
         Some(v) => v,
@@ -187,11 +178,7 @@ async fn update_session(
     // We preserve backward compatibility: treat a missing/empty If-Match as an unconditional update.
     let if_match = headers.get(header::IF_MATCH).and_then(|v| v.to_str().ok()).filter(|s| !s.is_empty());
 
-    let outcome = ctx
-        .rendezvous_storage
-        .update_msc4108_data(&session_id, &body, if_match)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to update MSC4108 data", e))?;
+    let outcome = ctx.rendezvous_service.update_msc4108(&session_id, &body, if_match).await?;
 
     match outcome {
         Msc4108UpdateOutcome::Updated { new_etag, updated_ts, expires_at } => {
@@ -247,11 +234,7 @@ async fn delete_session(
     State(ctx): State<AuthContext>,
     Path(session_id): Path<SessionId>,
 ) -> Result<Response, ApiError> {
-    let deleted = ctx
-        .rendezvous_storage
-        .delete_msc4108_session(&session_id)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to delete MSC4108 session", e))?;
+    let deleted = ctx.rendezvous_service.delete_msc4108(&session_id).await?;
 
     if !deleted {
         return Err(ApiError::not_found("Rendezvous session not found or expired".to_string()));
