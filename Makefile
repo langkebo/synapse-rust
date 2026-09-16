@@ -6,7 +6,7 @@
 .PHONY: lint fmt format format-check format-install format-audit format-cycle check route-lint route-contract-check
 .PHONY: build build-release
 
-MUTATION_BATCH_FILES ?= src/web/routes/extractors/pagination.rs src/web/routes/extractors/json.rs src/services/media/mod.rs src/web/middleware/security.rs
+MUTATION_BATCH_FILES ?= synapse-web/src/routes/extractors/mod.rs synapse-web/src/routes/extractors/json.rs synapse-services/src/media/mod.rs synapse-web/src/middleware/security.rs
 
 # 默认目标
 help:
@@ -194,7 +194,7 @@ route-lint:
 
 # Route Contract Drift Gate (防漂移门禁)
 # 重生成 docs/synapse-rust/ROUTE_CONTRACT.md 并与已提交版本做归一化比对，
-# 结构性漂移即失败。对应 CI: .github/workflows/route-contract-gate.yml
+# 结构性漂移即失败。对应 CI: scripts/contract/check_route_contract.sh
 route-contract-check:
 	@echo "Checking ROUTE_CONTRACT.md against source route surface..."
 	@bash scripts/contract/check_route_contract.sh
@@ -271,7 +271,7 @@ db-reset: db-stop db-start
 # Docker image build — tags both the generic `synapse-rust:latest` and the
 # `${SYNAPSE_IMAGE}:${SYNAPSE_IMAGE_TAG}` pair from docker/.env so that
 # `docker compose up` picks up the freshly built binary.
-# See docs/synapse-rust/SPEC_ALIGNMENT_PLAN_2026-05-01.md §1.6 for why this
+# See .trae/documents/TDD落地执行清单.md §1.6 for why this
 # target exists.
 docker-build:
 	@set -eu; \

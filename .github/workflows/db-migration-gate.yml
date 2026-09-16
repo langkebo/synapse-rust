@@ -94,18 +94,6 @@ jobs:
           echo "Applying unified schema baseline: $schema_file"
           psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f "$schema_file"
 
-      - name: Apply post-schema critical increments
-        env:
-          PGPASSWORD: synapse
-        run: |
-          set -euo pipefail
-          test -f scripts/ci/critical_migrations.txt
-          while IFS= read -r migration; do
-            [ -z "$migration" ] && continue
-            test -f "$migration"
-            psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f "$migration"
-          done < scripts/ci/critical_migrations.txt
-
       - name: Run pg_amcheck
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse

@@ -62,13 +62,13 @@ an alias for `cargo nextest run --profile test --features test-utils`.
 
 ### Runtime shape
 - `src/main.rs` bootstraps config, telemetry/logging, builds `SynapseServer`, and runs the main homeserver process.
-- `src/server.rs` is the main composition root. It creates the Postgres pool, runs schema health checks, wires Redis/in-memory cache, builds `ServiceContainer`, configures rate-limit state, and assembles the Axum router.
+- `src/server/mod.rs` is the main composition root. It creates the Postgres pool, runs schema health checks, wires Redis/in-memory cache, builds `ServiceContainer`, configures rate-limit state, and assembles the Axum router.
 - The server exposes both client and federation listeners from the same application state.
 
 ### Core layering
 The root crate's `src/` is reduced to bootstrap + composition (`main.rs`, `server/`, `bin/`, `tasks/`, plus the `common`/`e2ee`/`cache`/`storage` facades); the HTTP surface and business logic live in workspace crates:
 
-- `synapse-web/` (workspace crate): HTTP boundary. Axum routes, extractors, middleware, validators, and Matrix-compatible endpoint assembly, plus the federation glue that depends on the HTTP context (`src/federation/edu.rs`).
+- `synapse-web/` (workspace crate): HTTP boundary. Axum routes, extractors, middleware, validators, and Matrix-compatible endpoint assembly, plus the federation glue that depends on the HTTP context (`synapse-web/src/federation/edu.rs`).
 - `synapse-services/`: business logic layer (workspace crate). Feature behavior lives here; composition root is `synapse-services/src/container.rs`.
 - `synapse-storage/`: persistence layer over PostgreSQL (sqlx), plus schema/health/performance helpers (workspace crate).
 - `synapse-e2ee/`, `synapse-federation/`: E2EE crypto and federation transport/auth logic (workspace crates).
@@ -105,7 +105,7 @@ The codebase generally follows `route (synapse-web/src/) -> service (synapse-ser
 
 ### Caching and async/background work
 - Redis is optional but first-class. When enabled, the server uses Redis-backed cache and task queue infrastructure; otherwise cache falls back to local memory.
-- `ScheduledTasks` and task metrics are initialized in `src/server.rs`.
+- `ScheduledTasks` and task metrics are initialized in `src/server/mod.rs`.
 - Worker-related code lives under `src/worker/`, with an additional binary in `src/bin/synapse_worker.rs` for queue/replication/metrics processing.
 - The worker subsystem includes Redis bus support, replication protocol, health checking, and load balancing abstractions.
 
@@ -192,8 +192,9 @@ requesting-code-review, receiving-code-review, dispatching-parallel-agents.
 ## audit workspace convention
 All review reports go to docs/audit/NN_<name>.md (NN = 01..13).
 Audit branch naming: optimization/audit-YYYY-MM.
-Baseline files: docs/audit/00_test_baseline.log, docs/audit/00_clippy_baseline.log,
-docs/audit/05_performance_baseline.log, docs/audit/11_performance_after.log.
+Baseline files (ratchet inputs that actually exist):
+`scripts/.fmt-baseline`, `scripts/.missing-docs-baseline`, `scripts/ci/trait_count_baseline`,
+`scripts/ci/sqlx_dynamic_ratio_baseline`, `scripts/ci/geiger_baseline.json`.
 
 ## TDD Workflow
 

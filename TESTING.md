@@ -1,6 +1,6 @@
 # Synapse Rust 测试策略与质量保证
 
-本文档描述 synapse-rust 项目的测试策略、质量标准和执行规范。当前正式能力口径请以 `docs/synapse-rust/CAPABILITY_STATUS_BASELINE_2026-04-02.md` 为准；测试与 CI 语义收口请同时参考 `docs/synapse-rust/TEST_AND_CI_SEMANTICS_ALIGNMENT_2026-04-05.md` 与 `docs/synapse-rust/FALSE_GREEN_AND_PLACEHOLDER_GOVERNANCE_2026-04-05.md`。
+本文档描述 synapse-rust 项目的测试策略、质量标准和执行规范。当前正式能力口径请以 `docs/INDEX.md` 为准；测试与 CI 语义收口请同时参考 `docs/INDEX.md` 与 `docs/INDEX.md`。
 
 ## 一、测试分层架构
 
@@ -93,7 +93,7 @@
 
 | 分类 | 入口 | 作用 | 是否阻断发布 | 备注 |
 |-----|------|------|-------------|------|
-| 主门禁 | `cargo fmt --all -- --check` / `cargo clippy --all-features --locked -- -D warnings` / `cargo test --doc --locked` / `bash scripts/run_ci_tests.sh` / `bash scripts/detect_shell_routes.sh` / `bash scripts/detect_unwired_route_candidates.sh` | 保障格式、静态检查、文档测试、默认回归与仓库治理检查 | 是 | 当前发布判断应以 `.github/workflows/ci.yml` 的 blocking 路径为准 |
+| 主门禁 | `cargo fmt --all -- --check` / `cargo clippy --all-features --locked -- -D warnings` / `cargo test --doc --locked` / `bash scripts/run_ci_tests.sh` / `cargo test --test unit --features test-utils placeholder_scan_tests` / `bash scripts/contract/check_route_contract.sh` | 保障格式、静态检查、文档测试、默认回归与仓库治理检查 | 是 | 当前发布判断应以 `.github/workflows/ci.yml` 的 blocking 路径为准 |
 | 扩展验证 | `cargo test --test e2e -- --ignored --nocapture`、覆盖率、专项能力验证、Criterion 基准 | 补充用户路径、覆盖率与专项能力证据 | 否（默认） | 仅补充证据，不自动升级为“已实现并验证” |
 | 手动分析 | `cargo test --features performance-tests --test performance_manual -- --nocapture` | 手动性能分析与人工观察 | 否 | 不计入常规发布门禁 |
 
@@ -109,10 +109,10 @@
 | 测试入口 | 分类 | 说明 |
 |---------|------|------|
 | `bash scripts/run_ci_tests.sh` | 主门禁 | 当前 CI 等价默认测试入口 |
-| `bash scripts/detect_shell_routes.sh` | 主门禁 | 阻断新增 shell route / 空成功响应回归 |
-| `bash scripts/detect_unwired_route_candidates.sh` | 主门禁 | 阻断新增未接线的导出路由 handler / router factory |
+| `cargo test --test unit --features test-utils placeholder_scan_tests` | 主门禁 | 阻断新增 shell route / 空成功响应回归 |
+| `bash scripts/contract/check_route_contract.sh` | 主门禁 | 阻断新增未接线的导出路由 handler / router factory |
 | `cargo test --test e2e -- --ignored --nocapture` | 扩展验证 | 真实流程需显式启用，默认不纳入自动主门禁 |
-| `bash scripts/test/run_e2ee_observability_gate.sh` | 扩展验证 | 串联 `/_matrix/client/*/keys/changes`、经典 `/sync` 与 `sliding-sync` 的 E2EE 观察面组合门 |
+| `cargo test --test unit --features test-utils e2ee_api_tests` | 扩展验证 | 串联 `/_matrix/client/*/keys/changes`、经典 `/sync` 与 `sliding-sync` 的 E2EE 观察面组合门 |
 | `cargo tarpaulin --output-dir coverage/ --html` | 扩展验证 | 提供覆盖率证据，不单独阻断发布 |
 | `cargo bench --bench performance_api_benchmarks --no-run` | 扩展验证 | 性能专项基准 |
 | `cargo bench --bench performance_federation_benchmarks --no-run` | 扩展验证 | 联邦性能专项基准 |
@@ -125,7 +125,7 @@
 ```bash
 # CI 等价默认回归入口
 bash scripts/run_ci_tests.sh
-bash scripts/detect_unwired_route_candidates.sh
+bash scripts/contract/check_route_contract.sh
 
 # 仅单元测试
 cargo test --test unit
@@ -140,15 +140,15 @@ cargo test --test integration -- --test-threads=1
 cargo test --test e2e -- --ignored --nocapture
 
 # E2EE 三观察面组合门
-bash scripts/test/run_e2ee_observability_gate.sh
+cargo test --test unit --features test-utils e2ee_api_tests
 ```
 
 补充说明：
 
 - `tests/e2e/mod.rs` 已接入独立测试入口 `e2e`
 - `tests/unit/` 与 `tests/integration/` 的实际执行范围仍受各自 `mod.rs` 接线控制
-- **已知问题**：部分集成测试在高并发时会因数据库连接池耗尽而失败，使用 `--test-threads=1` 或 `--test-threads=2` 可避免此问题。详见 `docs/synapse-rust/FALSE_GREEN_AND_PLACEHOLDER_GOVERNANCE_2026-04-05.md` 第 3.1 节。
-- `bash scripts/test/run_e2ee_observability_gate.sh` 会默认以 `TEST_ISOLATED_SCHEMAS=1` 顺序运行 3 条 `test_key_changes_*` 精确用例，以及 `test_sync_device_lists_`、`sliding_sync_extensions_e2ee_` 两组 composite regression，适合作为 nightly smoke 或本地回归入口
+- **已知问题**：部分集成测试在高并发时会因数据库连接池耗尽而失败，使用 `--test-threads=1` 或 `--test-threads=2` 可避免此问题。详见 `docs/INDEX.md` 第 3.1 节。
+- `cargo test --test unit --features test-utils e2ee_api_tests` 会默认以 `TEST_ISOLATED_SCHEMAS=1` 顺序运行 3 条 `test_key_changes_*` 精确用例，以及 `test_sync_device_lists_`、`sliding_sync_extensions_e2ee_` 两组 composite regression，适合作为 nightly smoke 或本地回归入口
 - `user_flow_tests.rs` 真实 HTTP 流程依赖运行中的服务与 `E2E_RUN=1`，当前应通过 `#[ignore]` + 显式执行方式运行，而不是默认早退后显示通过
 - `tests/performance/mod.rs` 已拆分为手动性能测试入口 `performance_manual`，仅在显式启用 `--features performance-tests` 时执行
 - Criterion 基准入口已拆分为 `performance_api_benchmarks` 与 `performance_federation_benchmarks`，对应 `benches/` 目录下的独立基准文件
@@ -280,7 +280,7 @@ GitHub Actions 中已将 Criterion 基准与 `performance_manual` 分离；后�
 - 成员事件查询：已有测试入口
 - 邮箱验证：已有测试入口
 - 好友系统：已有测试入口
-- 是否可表述为“已实现并验证”，仍应以 `CAPABILITY_STATUS_BASELINE_2026-04-02.md` 与对应专项证据为准
+- 是否可表述为“已实现并验证”，仍应以 `docs/INDEX.md` 与对应专项证据为准
 
 ### 3.3 端到端测试
 
@@ -394,7 +394,7 @@ cargo criterion --output-file BENCHMARK RESULTS.md
 - `.github/workflows/benchmark.yml`
   - 运行 `performance_api_benchmarks` 与 `performance_federation_benchmarks`
   - 通过手动触发入口按需执行 `performance_manual`
-- `.github/workflows/test.yml`
+- `.github/workflows/ci.yml`
   - `workflow_dispatch` 手动触发
   - 主要用于补充测试/覆盖率执行，不应视为默认主门禁
 
@@ -406,7 +406,7 @@ cargo fmt --all -- --check
 cargo clippy --all-features --locked -- -D warnings
 cargo test --doc --locked
 bash scripts/run_ci_tests.sh
-bash scripts/detect_shell_routes.sh
+cargo test --test unit --features test-utils placeholder_scan_tests
 ```
 
 ### 5.2 测试执行时间
@@ -429,7 +429,7 @@ bash scripts/detect_shell_routes.sh
 2. Clippy 静态分析
 3. doc test
 4. `bash scripts/run_ci_tests.sh` 覆盖的默认测试集
-5. `bash scripts/detect_shell_routes.sh` 的仓库治理检查
+5. `cargo test --test unit --features test-utils placeholder_scan_tests` 的仓库治理检查
 
 说明：
 - “默认自动触发”应以 `.github/workflows/ci.yml` 为准；
@@ -510,7 +510,7 @@ bash scripts/detect_shell_routes.sh
 - cargo clippy --all-features --locked -- -D warnings: <结果>
 - cargo test --doc --locked: <结果>
 - bash scripts/run_ci_tests.sh: <结果>
-- bash scripts/detect_shell_routes.sh: <结果>
+- cargo test --test unit --features test-utils placeholder_scan_tests: <结果>
 
 扩展验证:
 - cargo test --test e2e -- --ignored --nocapture: <是否执行 / 结果 / 前置条件>
@@ -592,7 +592,7 @@ bash scripts/cleanup_test_schemas.sh --apply
 **每轮 +8，跨轮线性增长，永不回收。**
 
 代码里看起来存在三套"drop-on-release 登记 + sweep"机制
-（`src/test_utils.rs`、`synapse-services/src/test_utils.rs`、
+（`synapse-test-utils/src/lib.rs`、`synapse-services/src/test_utils.rs`、
 `synapse-storage/src/test_utils.rs`），但它们**对本场景无效**：
 
 * `sweep` 的触发时机是"**下一次**取池时"；
@@ -629,7 +629,7 @@ bash scripts/cleanup_test_schemas.sh --apply
 ## 当前约束
 
 - 不再在本文件中给出“457/457”“100% 通过”“E2E 默认已通过”这类脱离当前证据的静态结论
-- 当前测试状态、验证强度与发布判断，必须回指 `docs/synapse-rust/CAPABILITY_STATUS_BASELINE_2026-04-02.md` 和 `docs/synapse-rust/TEST_AND_CI_SEMANTICS_ALIGNMENT_2026-04-05.md`
+- 当前测试状态、验证强度与发布判断，必须回指 `docs/INDEX.md` 和 `docs/INDEX.md`
 
 ## 修订历史
 
