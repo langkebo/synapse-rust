@@ -289,7 +289,29 @@ B4-1/B4-1b/B4-1c 之后剩下 **33 个**「有 `dyn` 且有 ≥2 个实现」的
 | `LoginTokenStoreApi` | 4 | 2 | 1 |
 | `RelationsStoreApi` | 4 | 2 | 1 |
 
-**决策点**：
+**决策点（2026-09-16 已裁定）**：
+
+**ROI 评估结论：选 B 为净负收益，不执行。** 复核时候选集已从 33 变成 **35**（B4-4/B4-5 之后
+`EventReader`/`TokenAuth`/`CredentialAuth`/`RoomAuth`/`FederationClientApi`/`RegistrationTokenApi`
+等也满足「1 生产实现 + 测试替身」），合计 **425 个 `dyn` 引用 / 414 个 `Arc<dyn …>` 字段**。
+逐 trait 统计「替身使用者数」（排除替身自身与 `mod.rs`），即转换后必须改真实 storage 或删除的
+测试文件数：
+
+| trait | 替身使用者 | trait | 替身使用者 |
+|---|---|---|---|
+| `RoomStoreApi` | 16 | `RoomTagStoreApi` | 4 |
+| `RoomSummaryStoreApi` | 10 | `RefreshTokenStoreApi` | 4 |
+| `RelationsStoreApi` | 7 | `AccessTokenStoreApi` | 4 |
+| `DeviceListStoreApi` | 6 | `RateLimitStoreApi` | 3 |
+| `AccountDataStoreApi` | 5 | `PresenceStoreApi` | 3 |
+| `RoomAuth` | 3 | `DelayedEventStorageApi` 等 | 1 |
+
+**没有任何替身是死的**——包括看起来没人用的 `FakeTokenAuth`（被 `test_mocks.rs` 自己的
+SYNC-5 单测钉着）。因此 35 个接缝全部承重，选 B 等于每个 trait 至少毁掉 1 个、多数毁掉数个
+**无需 DB** 的单测，只换来省掉一层 vtable 解引用；而 `synapse-services --lib` 已有 2000+
+用例跑在隔离 schema 上，大批推去碰 DB 会同时变慢变脆。**裁定：保留 trait 与 mock 注入点。**
+
+
 - **A（保守，推荐先不动）**：保留现状。trait 有正当理由，`dyn` 的 vtable 成本在这些服务上是可接受的；
   A5 的"零收益抽象"目标已经达成（10 + 23 个已清）。
 - **B（激进）**：把消费者也改成具体类型，测试注入点消失 → 相关单测要么转 DB 测试、要么删。
