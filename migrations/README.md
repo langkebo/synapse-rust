@@ -30,27 +30,23 @@
 
 ```
 migrations/
-├── 00000000_unified_schema_v11.sql           # v11 统一基线（当前活跃，新环境唯一建库入口）
-├── 00000001_extensions_v10.sql               # Feature-gated: 扩展表（沿用 v10 extension 文件，未随 v11 改名）
-├── 2026XXXXXXXXXX_*.sql (+ .undo.sql)        # 36 个增量迁移 + 33 个 undo（按时间戳追加，append-only）
-├── archive/                                  # v8 历史基线（仅 `ci_schema_health_check.sh` 用于历史 schema 健康回归，不再作为活跃链路）
-│   ├── 00000000_unified_schema_v8.sql
-│   ├── 00000001_extensions_v8.sql
-│   ├── 20260605120000_megolm_vodozemac_dual_write_v8.sql
-│   └── 20260606120000_m26_drop_redundant_module_columns.sql
+├── 00000000_unified_schema_v12.sql           # v12 统一基线（当前活跃，新环境唯一建库入口）
+├── 00000001_extensions_v10.sql               # Feature-gated: 扩展表（沿用 v10 文件名；container-migrate.sh 按 ENABLED_EXTENSIONS 过滤，docker/db_migrate.sh 无条件应用）
 ├── INDEXES.md                                # 索引治理文档（部分索引/复合索引/设计原则）
 ├── extension_map.conf                        # 扩展迁移过滤映射（由 container-migrate.sh 读取，见下）
 └── README.md                                 # 本文件
 ```
 
-**当前活跃链路**: `v11 baseline + 1 extension + 36 个时间戳迁移 = 38 个 forward 文件 + 33 个 undo 文件`。
+**当前活跃链路**: `v12 baseline + 1 个扩展文件 = 2 个 forward SQL 文件`。历史时间戳迁移已全部折入 baseline，目录下不存在时间戳增量文件、`.undo.sql` 文件，也不存在 `archive/` 子目录。
 
 > 校验脚本位于 **`scripts/`**（本目录下没有）：
 > - `scripts/check_migration_consistency.py` — 检查单一真相源、compose 挂载、undo 配对与命名一致性
 > - `scripts/check_baseline_consolidation.py` — 检查 v* baseline 是否吸收所有增量迁移
 > - `scripts/build_sqlx_migration_source.py` — 生成 forward-only migration source
 
-> v8 系列已归档至 `archive/`，不再作为活跃迁移链路。新环境应使用 v11 基线建库。
+> 目录下不存在 `archive/` 子目录：v8 及更早基线已随 v11/v12 迭代从仓库移除。
+> schema 健康回归统一走当前基线 —— `scripts/ci_schema_health_check.sh` 通过
+> `docker/db_migrate.sh migrate` 建库，不再引用任何旧基线文件。新环境使用 v12 基线建库。
 
 ### ⚠️ `extension_map.conf` 与 `ENABLED_EXTENSIONS` 的真实效力
 
@@ -250,7 +246,7 @@ ENABLED_EXTENSIONS=voice-extended,friends ./deploy.sh
 
 ### 第四轮合并 (2026-06-04) — v8 基线（已归档）
 
-v8 基线将 v7 基线 + 8 个批次迁移 + 14 个增量迁移（共 25 个文件）合并为 2 个文件。详见 `archive/` 目录。
+v8 基线将 v7 基线 + 8 个批次迁移 + 14 个增量迁移（共 25 个文件）合并为 2 个文件。（v8 文件已随 v11/v12 基线迭代从仓库移除，本目录下不再有 `archive/`，本段仅存历史。）
 
 ### 历史合并记录
 

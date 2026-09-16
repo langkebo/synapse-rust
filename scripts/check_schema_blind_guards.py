@@ -35,7 +35,7 @@ SAFE_DROP_PATTERNS = [
 # These are initialization/reset scripts that operate on the public schema by design
 SAFE_SCHEMA_BLIND_PATTERNS = {
     "scripts/init_test_public_schema.sh",      # Line 35: table count verification after reset
-    "scripts/init_v11_database.sh",            # Lines 68,98: DB initialization scripts
+    "scripts/init_v11_database.sh",            # Lines 64,94: DB initialization scripts
     "scripts/ci/prepare_test_db.sh",           # Lines 22: initial pool setup
 }
 

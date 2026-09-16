@@ -2,7 +2,7 @@
 # CI: Database schema health check gate
 #
 # 强制门禁：构建 schema_health_check 二进制 → 启动临时 DB（如未提供 DATABASE_URL）→
-# 跑 v8 基线迁移 → 运行 schema 健康检查。
+# 经唯一迁移入口 docker/db_migrate.sh migrate 应用当前基线 → 运行 schema 健康检查。
 #
 # 退出码：
 #   0 - schema 健康
@@ -123,17 +123,14 @@ log "创建测试数据库: $POSTGRES_DB"
 export DATABASE_URL="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}"
 log "DATABASE_URL=$DATABASE_URL"
 
-# 跑 v8 基线
-log "应用 v8 基线迁移"
-V8_FILE="$ROOT_DIR/migrations/00000000_unified_schema_v8.sql"
-EXT_FILE="$ROOT_DIR/migrations/00000001_extensions_v8.sql"
-if [ ! -f "$V8_FILE" ]; then
-    err "找不到 v8 基线: $V8_FILE"
+# 经唯一迁移入口应用当前基线 + 全部 forward SQL（含扩展文件）。
+# 不得在本脚本里另写 `psql -f baseline.sql` 链路：那是第二条迁移应用实现，且曾指向
+# 早已不存在的 00000000_unified_schema_v8.sql 让本门禁必失败（exit 2）。
+# 显式传入 DATABASE_URL 即同时通过 db_migrate.sh 的 H-14 护栏（目标由调用方给出）。
+log "经 docker/db_migrate.sh migrate 应用迁移"
+if ! DATABASE_URL="$DATABASE_URL" bash "$ROOT_DIR/docker/db_migrate.sh" migrate; then
+    err "docker/db_migrate.sh migrate 失败"
     exit 2
-fi
-"$PSQL_BIN" "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$V8_FILE" >/dev/null
-if [ -f "$EXT_FILE" ]; then
-    "$PSQL_BIN" "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$EXT_FILE" >/dev/null
 fi
 
 # 构建并跑健康检查

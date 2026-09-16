@@ -56,10 +56,6 @@ if [[ ! -f "$CURRENT_BASELINE" ]]; then
     exit 1
 fi
 
-# === 列出所有待应用的迁移 ===
-MIGRATION_LIST="$("${PROJECT_ROOT}/docker/db_migrate.sh" list 2>/dev/null ||
-    find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' ! -name '*.undo.sql' | sort)"
-
 # === 重置数据库 ===
 if [[ "$KEEP_EXISTING" == "1" ]]; then
     echo "==> 跳过 DROP（--keep-existing 模式）"

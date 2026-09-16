@@ -41,7 +41,7 @@ help:
 	@echo "  check            - Run all checks"
 	@echo "  schema-health-check        - Run schema health check (报告模式, 不阻塞)"
 	@echo "  schema-health-check-strict - Run schema health check (CI 严格模式, 失败则退出)"
-	@echo "  ci-schema-health-check     - Full CI: start temp DB + apply v8 + run schema check"
+	@echo "  ci-schema-health-check     - Full CI: start temp DB + migrate via db_migrate.sh + run schema check"
 	@echo ""
 	@echo "Build:"
 	@echo "  build            - Build debug version"
