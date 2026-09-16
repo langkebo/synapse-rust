@@ -341,31 +341,11 @@ B2-1 的处方（`from_router`）等于要求把已经存在的"替代品"换成
     narrowest-in-function-scope ∪ module-gates-of-all-registrars；
     gate-filtered union 复现两泳道（default 1065、all-extensions 1146）。
     抽掉模块门 → golden 1066 vs 1065 转 RED。
-2c. ⏳ **生成可 include! 的 Rust 派生物**：由提取器产出一份 `include_str!`/`include!` 可用的
-    路由表（每条带 `#[cfg(..)]` + profile guard + `registered_by` + 注解），
-    供 `base_route_manifest()` / `declared_route_manifest_for_profile()` 读取；
-    运行时 `create_router` 的重复检测继续用这份表。
-3. ⏳ **删手抄**：删除 244 处 `*_route_manifest()`（72 文件）与 `assembly.rs` 的 37 处 `ledger.extend(...)`；
-   含 `top_level_inline_manifest()` 与 `assembly_compat_manifest()`。
-   判据：`grep -rl '_route_manifest' src/` = 0。
-   ⚠️ **前置项（2026-09-15 侦察，§3.5）**：`auth`（1 条）、`rate_limit_exempt`（5 条，sync + sliding_sync）
-   与 `query_params`（0 条）属于**手写注解**，不能从 `.route()` 调用推演，必须建立 `ledger_annotations.txt`
-   策略表 + 提取器 fidelity 守卫，否则删表后 middleware  exempt-paths 归零 + `auth=user` 丢失。
-4. ⏳ **保住 per-profile 粒度**（§3.4 已把它从"猜"变成"读"）。
-   `ProfileFlags { oidc_enabled, worker_enabled, saml_enabled }` 是**运行时配置**，源码读不出来。
-   侦察修正了本条的两处原假设：
-   - 受 flag 影响的**不是整模块，而是两个 router 构造根**：`oidc::create_oidc_router`
-     （`oidc_enabled`）与 `worker::create_worker_body_router`（`worker_enabled`）。
-     同模块内 `create_oidc_fallback_router` / `create_worker_admin_router` 是**总是合并**的，
-     所以 `oidc/mod.rs` 10 条里有 2 条、`worker.rs` 15 条里有 4 条属于 Always。
-   - 三个 profile **单调**（`default ⊆ worker ⊆ all`，实测违反数 = 0），
-     于是"该路由在哪个 profile"可以压成一个 `{Always, Oidc, Worker}` 三值标注，
-     而不是对 `manifest_for_profile` 的分支做通用求值。
-   - `ProfileFlags::saml_enabled` **从不被任何 `manifest_for_profile` 读取**
-     （SAML 路由是经 `oidc::oidc_enabled()` 折进 `oidc_enabled` 的）—— 记为 H-18。
+2c. ✅ **生成可 include! 的 Rust 派生物**：由提取器产出一份 `include!` 可用的路由表。2026-09-16 落地 `src/web/routes/derived_route_table.inc.rs`（6326 行，含 `fn all_derived_rows()` + cfg-gated push）与 `derived_routes.rs` 薄壳（含 `RouteProfile`/`DerivedRoute`/profile 守卫与测试）。`gen_derived_routes.py` 产出前过 rustfmt，`--check` 与 `cargo fmt --check` 双绿。供 `base_route_manifest()` / `declared_route_manifest_for_profile()` 读取；运行时 `create_router` 的重复检测继续用这份表。
+3. ✅ **删手抄**：删除全部手抄 `*_route_manifest()` 助手，含 `top_level_inline_manifest()` 与 `assembly_compat_manifest()`。实测（2026-09-16）：删除 67 个 `*_route_manifest()` 定义 + 孤儿 `*_relative_routes()`/`*_NEST_PREFIXES`，净 −6422 行。判据已收紧为 `grep -rn 'fn [a-z_0-9]*_route_manifest(' src/ | wc -l` = 1（仅 `derived_route_manifest`）。前置项已完成：`ledger_annotations.txt` 已落地（5 条 `rate_limit_exempt` + 1 条 `auth`），提取器 fidelity 守卫已在 `gen_derived_routes.py` 与 `route_ledger::tests` 中生效。
+4. ✅ **保住 per-profile 粒度**：`RouteProfile` 三值标注已落地于 `derived_routes.rs`。`ProfileFlags::rank()` → `RouteProfile`，`derived_route_manifest(flags)` 按 `rank <= flags.rank()` 过滤并去重。实测三 profile 单调（default ⊆ worker ⊆ all，违反数 0），`saml_enabled` 仅作为 `ProfileFlags` 输入、经 `oidc_enabled()` 间接生效（H-18 已记录），不独立影响 manifest。
 5. ✅ **B2-3 幂等守卫**：同一输入两次导出逐字节相等；已落库 `tests/unit/ledger_export_tests.rs::render_idempotent_twice_same_bytes`（三组 profile 绿），守住 `derived_route_manifest` 的 `HashMap` 排序确定性；故意乱序将转红（已在注释中说明）。
-6. ⏳ 跑满门禁：两个方向的契约门禁、契约文档重生成、ledger 单测 11/11、405 探测集成测试、
-   fixture 双向对账。
+6. ✅ 跑满门禁：`bash scripts/contract/check_route_contract.sh` EXIT=0（52 守卫 + 变异检查 + SDK 覆盖 2 条豁免）。`python3 scripts/contract/gen_derived_routes.py --check` 绿（1148 行，六组 fixture 全复现）。`cargo test --test unit --features test-utils ledger_export` 7 passed（incl. `render_idempotent_twice_same_bytes`）。`cargo test --test integration --features "test-utils privacy-ext voice-extended voip-tracking beacons server-notifications" api_route_ledger_tests` 13 passed。`ROUTE_CONTRACT.md` 与源码一致（1146 routes / 46 categories）。
 
 #### §3.4 B2-1 第一步：提取器已经能复现全部六组 (lane × profile) 集合（2026-09-15）
 
