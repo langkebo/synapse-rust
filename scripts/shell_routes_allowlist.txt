@@ -59,3 +59,11 @@ tags.rs:122
 tags.rs:136
 voip.rs:261
 voip.rs:319
+
+# 2026-09-15 再漂移：B4-1b 为把 fmt 棘轮拉回基线执行了 `cargo fmt --all`，
+# 使 tags.rs / voip.rs 的行号再次前移（本文件的"文件:行号"豁免因此失效，见 CLAUDE.md 踩坑记录）。
+# 这里补齐当前实际行号；上面按 2026-09-15 早期行号登记的条目已成为无效项（扫描器不校验陈旧项，
+# 但下次真正清理这些 empty_json 时应一并删除）。
+tags.rs:105
+voip.rs:243
+voip.rs:301

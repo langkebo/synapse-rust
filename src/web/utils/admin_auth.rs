@@ -114,90 +114,29 @@ pub(crate) async fn authorize_admin_from_services(
     Ok(AuthorizedAdmin { user_id, device_id, access_token, role })
 }
 
-/// See [`authorize_admin_request`].
+/// Thin adapter over [`authorize_admin_from_services`] for callers that hold the
+/// whole [`AppState`].
+///
+/// The authorization rules (bearer token → admin flag → live user → RBAC → audit →
+/// MFA) live in exactly one place. This used to be a second, near-verbatim copy of
+/// that sequence, so the AppState path and the per-route-context path could drift.
 pub(crate) async fn authorize_admin_request(
     headers: &HeaderMap,
     method: &Method,
     path: &str,
     state: &AppState,
 ) -> Result<AuthorizedAdmin, ApiError> {
-    let access_token = super::auth::bearer_token(headers)?;
-    let (user_id, device_id, is_admin, _, _): (String, Option<String>, bool, bool, bool) =
-        state.services.core.token_auth.validate_token(&access_token).await?;
-
-    if !is_admin {
-        return Err(ApiError::forbidden("Admin access required".to_string()));
-    }
-
-    let user = state
-        .services
-        .account
-        .user_service
-        .get_user(&user_id)
-        .await?
-        .ok_or_else(|| ApiError::unauthorized("Admin user not found".to_string()))?;
-
-    if !user.is_admin {
-        return Err(ApiError::forbidden("Admin access has been revoked".to_string()));
-    }
-
-    let normalized_path = normalize_admin_path(path);
-    let role = normalize_admin_role(user.user_type.as_deref());
-    let allowed = is_role_allowed(&role, method, &normalized_path);
-
-    let rbac_enabled = state.services.core.config.security.admin_rbac_enabled;
-    let rbac_allowed = !rbac_enabled || allowed;
-
-    // OBS-04 (P2): RBAC 日志携带 request_id，便于与 audit 落库和 span 链路串联。
-    let request_id = resolve_request_id(headers);
-    ::tracing::info!(
-        target: "security_audit",
-        request_id = %request_id,
-        role = %role,
-        method = %method,
-        path = %normalized_path,
-        allowed = %allowed,
-        rbac_enabled = %rbac_enabled,
-        rbac_allowed = %rbac_allowed,
-        "RBAC check result"
-    );
-
-    // 记录审计日志
-
-    let audit_request = CreateAuditEventRequest {
-        actor_id: user_id.clone(),
-        action: format!("admin.{}", method.as_str().to_lowercase()),
-        resource_type: "admin_api".to_string(),
-        resource_id: normalized_path.clone(),
-        result: if rbac_allowed { "success".to_string() } else { "denied".to_string() },
-        request_id,
-        details: Some(json!({
-            "role": role,
-            "path": path,
-            "method": method.as_str(),
-        })),
-    };
-
-    if let Err(e) = state.services.admin.security.admin_audit_service.create_event(audit_request).await {
-        ::tracing::error!(target: "security_audit", "Failed to create audit event: {}", e);
-    }
-
-    if !rbac_allowed {
-        return Err(ApiError::forbidden(format!("Admin role '{role}' is not allowed to access this resource")));
-    }
-
-    if should_require_admin_mfa(&state.services.core.config.security, method, &normalized_path) {
-        let mfa_code = headers
-            .get("x-admin-mfa-code")
-            .and_then(|value| value.to_str().ok())
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| ApiError::forbidden("Sensitive admin operation requires MFA code".to_string()))?;
-
-        verify_totp_code(&state.services.core.config.security, mfa_code, Some(&user))?;
-    }
-
-    Ok(AuthorizedAdmin { user_id, device_id, access_token, role })
+    let services = &state.services;
+    authorize_admin_from_services(
+        services.core.token_auth.as_ref(),
+        services.account.user_service.as_ref(),
+        &services.core.config.security,
+        Some(services.admin.security.admin_audit_service.as_ref()),
+        headers,
+        method,
+        path,
+    )
+    .await
 }
 
 fn normalize_admin_path(path: &str) -> String {
