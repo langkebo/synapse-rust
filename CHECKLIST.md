@@ -41,7 +41,7 @@
 - [x] **一键部署**：`docker/deploy/deploy.sh`（完整流程：SSL + coturn + 备份 + 迁移 + 启动 + 健康验证）
 
 ### 5. 数据库迁移 ✅
-- [x] 统一 schema 基线 v11（`migrations/00000000_unified_schema_v11.sql`）
+- [x] 统一 schema 基线 v12（`migrations/00000000_unified_schema_v12.sql`，目录下只保留这一个基线）
 - [x] 10 个 delta 迁移（v8 之后所有 schema 变更）
 - [x] CI 动态 baseline 发现（db-migration-gate v2，修复 v10/v11/v07 混淆）
 - [x] **P2 fail-fast**：CI 两处 `Set up test database` 末尾断言 4 张 burn_after_read 表

@@ -344,38 +344,17 @@ latest_baseline_file() {
     find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '00000000_unified_schema_v*.sql' ! -name '*.undo.sql' | sort | tail -n 1
 }
 
+# 除当前选中的基线（`apply_pending_migrations` 已按路径跳过）外，任何
+# `00000000_unified_schema_v*.sql` 都不能再作为"增量迁移"执行：它们的
+# `CREATE TABLE IF NOT EXISTS` 会对最新基线已建的表空转，而 `CREATE INDEX`
+# 可能在已被改名/删除的列上失败；更严重的是会被写进 schema_migrations，
+# 让本地机器（磁盘可能残留历史基线）与 CI 全新检出的 schema 彻底分叉。
+# 判据与 docker/deploy/scripts/container-migrate.sh 的 is_baseline_file() 一致。
 is_superseded_by_latest_baseline() {
-    local baseline_name="$1"
-    local filename="$2"
+    local filename="$1"
 
-    # v8/v9/v10/v11 baseline 之前的迁移都被视为 superseded
-    # - v8: 2026-07-01 之前的迁移
-    # - v10: 2026-08-31 之前的迁移
-    # - v11: 所有 v10 baseline 之后的迁移（重部署窗口优化）
-    case "$baseline_name" in
-        00000000_unified_schema_v8.sql)
-            if [[ "$filename" =~ ^([0-9]{14})_.*\.sql$ ]]; then
-                local version_prefix="${BASH_REMATCH[1]}"
-                if [ "$version_prefix" -lt 20260701000000 ]; then
-                    return 0
-                fi
-            fi
-            ;;
-        00000000_unified_schema_v10.sql)
-            if [[ "$filename" =~ ^([0-9]{14})_.*\.sql$ ]]; then
-                local version_prefix="${BASH_REMATCH[1]}"
-                if [ "$version_prefix" -lt 20260831000000 ]; then
-                    return 0
-                fi
-            fi
-            ;;
-        00000000_unified_schema_v12.sql)
-            # v12 是最新 baseline，所有增量迁移都不会被跳过
-            return 1
-            ;;
-        *)
-            return 1
-            ;;
+    case "$filename" in
+        00000000_unified_schema_v*.sql) return 0 ;;
     esac
 
     return 1
@@ -533,8 +512,8 @@ apply_pending_migrations() {
             continue
         fi
 
-        if is_superseded_by_latest_baseline "$baseline_name" "$filename"; then
-            log_info "跳过已被 ${baseline_name} 收敛的历史迁移: $filename"
+        if is_superseded_by_latest_baseline "$filename"; then
+            log_info "跳过历史基线（已被 ${baseline_name} 取代）: $filename"
             continue
         fi
 

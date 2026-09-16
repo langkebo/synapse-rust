@@ -72,7 +72,7 @@ echo "    ✓ $CURRENT_BASELINE"
 echo "==> 应用后续增量迁移（跳过 .undo.sql 和 v10）"
 for f in $(find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' ! -name '*.undo.sql' | sort); do
     fname="$(basename "$f")"
-    # 跳过 v11 baseline（已单独应用）
+    # 跳过已单独应用的基线（目录下只允许存在一个基线文件）
     [[ "$fname" == "00000000_unified_schema_v12.sql" ]] && continue
     # 跳过 v10 baseline（已废弃）
     [[ "$fname" == "00000000_unified_schema_v10.sql" ]] && continue

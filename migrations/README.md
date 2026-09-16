@@ -39,6 +39,14 @@ migrations/
 
 **当前活跃链路**: `v12 baseline + 1 个扩展文件 = 2 个 forward SQL 文件`。历史时间戳迁移已全部折入 baseline，目录下不存在时间戳增量文件、`.undo.sql` 文件，也不存在 `archive/` 子目录。
 
+> **目录下必须只有一个基线文件。** 历史基线（v8/v10/v11）一旦与最新基线并存，
+> 迁移器会把它们当"增量迁移"再执行一遍并写进 `schema_migrations`，导致本地机器
+> （磁盘可能有残留）与 CI 全新检出的 schema 分叉。两个入口都会按
+> `00000000_unified_schema_v*.sql` 模式跳过所有历史基线，`tests/unit/migration_consistency_tests.rs`
+> 也守着"只能有一个基线"这条不变式。v11 已随 v12 迭代从磁盘移除，
+> 需要查阅时用 `git show bddd6109^:migrations/00000000_unified_schema_v11.sql` 取回；
+> 下文凡引用 "v11 第 N 行" 的审计记录均为历史快照。
+
 > 校验脚本位于 **`scripts/`**（本目录下没有）：
 > - `scripts/check_migration_consistency.py` — 检查单一真相源、compose 挂载、undo 配对与命名一致性
 > - `scripts/check_baseline_consolidation.py` — 检查 v* baseline 是否吸收所有增量迁移
@@ -59,7 +67,7 @@ migrations/
 
 **但必须理解关键事实：`ENABLED_EXTENSIONS` 无法控制扩展表是否被创建。**
 
-`00000000_unified_schema_v11.sql` 是**全特性基线**，已包含全部 15 张扩展表。
+`00000000_unified_schema_v12.sql` 是**全特性基线**，已包含全部扩展表。
 `00000001_extensions_v10.sql` 与之**逐表完全重复**（已核对：15/15 均在 baseline 中定义，
 且两者都用 `IF NOT EXISTS`）。实测结果：
 
@@ -88,7 +96,7 @@ migrations/
 `build_sqlx_migration_source.py` 生成的 forward-only source 只含 baseline +
 extension（CI 用它建库），因此**每次新增时间戳迁移后，必须把幂等的增量变更
 （新表/新列/新索引，须用 `IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS`）同步
-折入 `00000000_unified_schema_v11.sql` 尾部**，否则 CI 的 DB 会缺表/列/索引。
+折入 `00000000_unified_schema_v12.sql` 尾部**，否则 CI 的 DB 会缺表/列/索引。
 
 提交前请运行一致性检查：
 
@@ -146,7 +154,10 @@ v11 baseline 曾包含 `openclaw_connections` / `ai_conversations` / `ai_connect
 > 各重复定义两次（v11 第 3542/3543 行和 4035/4036 行），后者由 append-only 策略
 > 导致。两项均已纳入 P1/P3 范围，**仍待 v12 baseline 重构时清理**。
 
-## v11 变更摘要 (2026-09-04)
+## v11 变更摘要 (2026-09-04) — 历史，v11 文件已从磁盘移除
+
+> 本节记录的 v11 基线文件已随 v12 迭代删除；行号引用见
+> `git show bddd6109^:migrations/00000000_unified_schema_v11.sql`。
 
 v11 基线相对 v8/v10 的主要变更：
 
@@ -174,7 +185,7 @@ v11 基线相对 v8/v10 的主要变更：
 
 ## 迁移执行顺序
 
-1. `00000000_unified_schema_v11.sql` — 基线 (IF NOT EXISTS，幂等)
+1. `00000000_unified_schema_v12.sql` — 基线 (IF NOT EXISTS，幂等)
 2. `00000001_extensions_v10.sql` — 按 ENABLED_EXTENSIONS 过滤
 
 > `migrations/` 目前只有上述两个正向文件（外加 `V*` 扩展）；所有时间戳迁移已删除，

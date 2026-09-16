@@ -11,12 +11,49 @@ fn read(path: &Path) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()))
 }
 
+/// `migrations/` 必须只有**一个** `00000000_unified_schema_v*.sql`。
+///
+/// 历史基线若与最新基线并存，迁移器会把它当作"增量迁移"再执行一遍
+/// （`find ... | sort | tail -1` 只挑最新基线为首选，其余仍进待应用列表），
+/// 于是同一个库被追加应用两个版本的 baseline，并被写进 `schema_migrations`。
+/// 本地机器磁盘上可能有残留、CI 全新检出没有 —— 两边 schema 就此分叉。
+/// `bddd6109` 的"从 git tracking 移除但磁盘保留"正是这样落地的 v11。
 #[test]
-fn test_v11_baseline_primary_exists() {
+fn migrations_directory_has_exactly_one_baseline() {
     let root = project_root();
-    let primary = root.join("migrations");
-    assert!(primary.join("00000000_unified_schema_v12.sql").exists(), "missing v11 primary schema");
-    assert!(primary.join("00000001_extensions_v10.sql").exists(), "missing v10 extensions (still used)");
+    let migrations = root.join("migrations");
+
+    let mut baselines: Vec<String> = fs::read_dir(&migrations)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", migrations.display()))
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with("00000000_unified_schema_v") && name.ends_with(".sql"))
+        .collect();
+    baselines.sort();
+
+    assert_eq!(
+        baselines,
+        vec!["00000000_unified_schema_v12.sql".to_string()],
+        "migrations/ 必须只保留一个基线；多出来的历史基线会被迁移器当增量执行并造成 \
+         本地/CI schema 分叉（历史基线可从 `git show bddd6109^:migrations/...` 取回）"
+    );
+
+    assert!(migrations.join("00000001_extensions_v10.sql").exists(), "missing extensions file (still used)");
+}
+
+/// 两个迁移执行入口都必须按"历史基线一律跳过"的判据处理，否则上面那条不变式
+/// 只在文件层面成立、执行层面仍会分叉。
+#[test]
+fn migration_runners_skip_every_historical_baseline() {
+    let root = project_root();
+    for rel in ["docker/db_migrate.sh", "docker/deploy/scripts/container-migrate.sh"] {
+        let script = read(&root.join(rel));
+        assert!(
+            script.contains("00000000_unified_schema_v*.sql) return 0"),
+            "{rel} 必须以 `00000000_unified_schema_v*.sql` 模式跳过所有历史基线，\
+             而不是硬编码某几个版本号（v11 残留即因漏列而成为增量迁移）"
+        );
+    }
 }
 
 /// Single-source contract (`2b16dc3c`): the deploy migrator mounts the canonical
