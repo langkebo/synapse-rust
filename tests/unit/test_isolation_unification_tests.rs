@@ -6,7 +6,7 @@
 //! Two crates grew independent schema-per-test fixtures, and both failed
 //! *silently*:
 //!
-//! * `synapse-storage::test_isolation` replayed the whole v11 baseline
+//! * `synapse-storage::test_isolation` replayed the whole v12 baseline
 //!   statement-by-statement on **every** call (~4.4s per test, 99% of fixture
 //!   cost, tail timeouts under parallel load).
 //! * `synapse-services::test_utils::prepare_isolated_test_pool` created an
@@ -53,7 +53,7 @@ const COMMON_LIB: &str = "synapse-common/src/lib.rs";
 const V11: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql");
 const EXTENSIONS: &str = include_str!("../../migrations/00000001_extensions_v10.sql");
 
-/// `v11 ++ extensions`, no separator: the baseline the shared template was
+/// `v12 ++ extensions`, no separator: the baseline the shared template was
 /// built from. Any other string mints a SECOND template.
 ///
 /// This is a **content** hash, so it changes whenever either baseline migration
@@ -62,8 +62,8 @@ const EXTENSIONS: &str = include_str!("../../migrations/00000001_extensions_v10.
 /// doing its real job, which is catching a wrong *concatenation*: a separator
 /// hashes to `a05fa4488475fe1d` and a reversal to `4137af770181767b`, and neither
 /// is what any legitimate migration edit produces as long as the two files are
-/// still concatenated v11-then-extensions with nothing between them.
-const EXPECTED_BASELINE_FINGERPRINT: &str = "cfb1fffffc06965a";
+/// still concatenated v12-then-extensions with nothing between them.
+const EXPECTED_BASELINE_FINGERPRINT: &str = "ae947475a7143fb5";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))
