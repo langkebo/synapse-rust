@@ -116,6 +116,8 @@ pub mod device_list;
 pub mod event;
 /// The `filter` module.
 pub mod filter;
+/// The `login_token` module.
+pub mod login_token;
 /// The `member` module.
 pub mod member;
 /// The `oidc_user_mapping` module.

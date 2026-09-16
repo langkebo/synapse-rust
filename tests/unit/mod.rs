@@ -120,7 +120,6 @@ mod pagination_gate_tests;
 mod perf_gate_honesty_tests;
 mod pinned_route_tests;
 mod pr_benchmark_gate_tests;
-mod qr_login_token_route_tests;
 mod room_access_route_tests;
 
 // P-097: insta snapshot tests for security-sensitive endpoint response shapes

@@ -72,8 +72,6 @@ pub mod push;
 pub mod push_notification;
 /// The `push_rules` module.
 pub mod push_rules;
-/// The `qr_login_token` module.
-pub mod qr_login_token;
 /// The `reactions` module.
 pub mod reactions;
 /// The `relations` module.

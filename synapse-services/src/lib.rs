@@ -102,6 +102,8 @@ pub mod federation_key_rotation_service;
 pub mod identity;
 /// Infrastructure services domain group — re-exports infra service types under `infra::`.
 pub mod infra;
+/// The `login_token_service` module.
+pub mod login_token_service;
 /// The `media` module.
 pub mod media;
 /// The `media_quota_service` module.

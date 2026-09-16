@@ -430,10 +430,11 @@ pub(crate) async fn login(
             .and_then(|v| v.as_str())
             .ok_or_else(|| ApiError::bad_request("Token required for m.login.token".to_string()))?;
 
-        let (user_id, _existing_device_id) =
-            crate::web::routes::qr_login_token::consume_login_token(&ctx.login_token_storage, token)
-                .await?
-                .ok_or_else(|| ApiError::forbidden("Invalid or expired login token".to_string()))?;
+        let (user_id, _existing_device_id) = ctx
+            .login_token_service
+            .consume(token)
+            .await?
+            .ok_or_else(|| ApiError::forbidden("Invalid or expired login token".to_string()))?;
 
         let device_id = body.get("device_id").and_then(|v| v.as_str()).unwrap_or("QR_LOGIN_DEVICE");
 
@@ -522,16 +523,11 @@ pub(crate) async fn generate_qr_login_token(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let token = crate::web::routes::qr_login_token::generate_login_token(
-        &ctx.login_token_storage,
-        &auth_user.user_id,
-        auth_user.device_id.as_deref(),
-    )
-    .await?;
+    let token = ctx.login_token_service.generate(&auth_user.user_id, auth_user.device_id.as_deref()).await?;
 
     Ok(Json(json!({
         "login_token": token,
-        "expires_in_ms": 60000
+        "expires_in_ms": ctx.login_token_service.ttl_ms()
     })))
 }
 
