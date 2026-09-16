@@ -15,12 +15,22 @@
 
 use axum::http::Method;
 use serde_json::json;
+use synapse_rust::web::routes::declared_ledger_all;
 use synapse_rust::web::routes::push_notification::{
     validate_push_config_patch, CleanupQuery, DeviceResponse, ProcessQueueQuery, RegisterDeviceBody,
     SendNotificationBody, SetPushConfigBody,
 };
 use synapse_rust::web::routes::route_ledger::RouteEntry;
 use synapse_storage::push_notification::PushDevice;
+
+/// The `push_notification` slice of the derived route table.
+///
+/// `push_notification_route_manifest()` was one of ~120 hand-copied projections
+/// deleted by B2-2; route metadata now has a single source (`derived_routes`),
+/// and a test that needs one module's surface filters it by `registered_by`.
+fn push_notification_route_manifest() -> Vec<RouteEntry> {
+    declared_ledger_all().iter().filter(|e| e.registered_by == "push_notification").cloned().collect()
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Request body deserialization — RegisterDeviceBody
@@ -360,7 +370,7 @@ fn device_response_ignores_internal_only_fields() {
 
 #[test]
 fn push_notification_route_manifest_contains_all_endpoints() {
-    let manifest = synapse_rust::web::routes::push_notification::push_notification_route_manifest();
+    let manifest = push_notification_route_manifest();
 
     let mut seen: Vec<(Method, &str)> = manifest.iter().map(|e| (e.method.clone(), e.path)).collect();
     seen.sort_by(|a, b| a.1.cmp(b.1).then_with(|| format!("{:?}", a.0).cmp(&format!("{:?}", b.0))));
@@ -388,7 +398,7 @@ fn push_notification_route_manifest_contains_all_endpoints() {
 
 #[test]
 fn push_notification_route_manifest_tags_all_entries_push_notification() {
-    let manifest = synapse_rust::web::routes::push_notification::push_notification_route_manifest();
+    let manifest = push_notification_route_manifest();
 
     assert!(!manifest.is_empty(), "manifest should not be empty");
     for entry in &manifest {
@@ -403,7 +413,7 @@ fn push_notification_route_manifest_tags_all_entries_push_notification() {
 #[test]
 fn push_notification_route_manifest_entries_are_unique() {
     // No accidental duplicate (method, path) registrations.
-    let manifest = synapse_rust::web::routes::push_notification::push_notification_route_manifest();
+    let manifest = push_notification_route_manifest();
     let mut keys: Vec<(String, &str)> = manifest.iter().map(|e| (format!("{:?}", e.method), e.path)).collect();
     let total = keys.len();
     keys.sort();
@@ -415,7 +425,7 @@ fn push_notification_route_manifest_entries_are_unique() {
 fn push_notification_route_manifest_entries_are_route_entry_type() {
     // Smoke-test that the manifest returns RouteEntry values whose fields are
     // publicly accessible (the route_ledger surface contract).
-    let manifest = synapse_rust::web::routes::push_notification::push_notification_route_manifest();
+    let manifest = push_notification_route_manifest();
     let _: Vec<&RouteEntry> = manifest.iter().collect();
     for entry in &manifest {
         assert!(!entry.path.is_empty());

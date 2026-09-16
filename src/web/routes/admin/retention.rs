@@ -22,23 +22,6 @@ pub fn create_retention_router() -> Router<crate::web::routes::AppState> {
         .route("/_synapse/admin/v1/retention/status", get(get_retention_status))
 }
 
-/// See [`admin_retention_route_manifest`].
-pub fn admin_retention_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-    [
-        (Method::GET, "/_synapse/admin/v1/retention/policy"),
-        (Method::POST, "/_synapse/admin/v1/retention/policy"),
-        (Method::GET, "/_synapse/admin/v1/retention/policy/{room_id}"),
-        (Method::POST, "/_synapse/admin/v1/retention/policy/{room_id}"),
-        (Method::POST, "/_synapse/admin/v1/retention/run"),
-        (Method::GET, "/_synapse/admin/v1/retention/status"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "admin::retention"))
-    .collect()
-}
-
 /// The `RetentionPolicyRequest` struct.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

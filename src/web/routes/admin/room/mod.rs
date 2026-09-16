@@ -252,65 +252,6 @@ pub fn create_room_router(_state: AppState) -> Router<AppState> {
         )
 }
 
-/// See [`admin_room_route_manifest`].
-pub fn admin_room_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-    [
-        (Method::GET, "/_synapse/admin/v1/rooms"),
-        (Method::GET, "/_synapse/admin/v1/rooms/{room_id}"),
-        (Method::DELETE, "/_synapse/admin/v1/rooms/{room_id}"),
-        (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/delete"),
-        (Method::GET, "/_synapse/admin/v1/rooms/{room_id}/members"),
-        (Method::GET, "/_synapse/admin/v1/rooms/{room_id}/state"),
-        (Method::GET, "/_synapse/admin/v1/rooms/{room_id}/messages"),
-        (Method::GET, "/_synapse/admin/v1/rooms/{room_id}/aliases"),
-        (Method::GET, "/_synapse/admin/v1/rooms/{room_id}/version"),
-        (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/block"),
-        (Method::GET, "/_synapse/admin/v1/rooms/{room_id}/block"),
-        (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/unblock"),
-        (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/make_admin"),
-        (Method::PUT, "/_synapse/admin/v1/rooms/{room_id}/make_admin"),
-        (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/purge_history"),
-        (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/backfill"),
-        (Method::POST, "/_synapse/admin/v1/purge_history"),
-        (Method::POST, "/_synapse/admin/v1/purge_room"),
-        (Method::POST, "/_synapse/admin/v1/shutdown_room"),
-        (Method::GET, "/_synapse/admin/v1/spaces"),
-        (Method::GET, "/_synapse/admin/v1/spaces/{space_id}"),
-        (Method::DELETE, "/_synapse/admin/v1/spaces/{space_id}"),
-        (Method::GET, "/_synapse/admin/v1/spaces/{space_id}/users"),
-        (Method::GET, "/_synapse/admin/v1/spaces/{space_id}/rooms"),
-        (Method::GET, "/_synapse/admin/v1/spaces/{space_id}/stats"),
-        (Method::GET, "/_synapse/admin/v1/room_stats"),
-        (Method::GET, "/_synapse/admin/v1/room_stats/{room_id}"),
-        (Method::PUT, "/_synapse/admin/v1/rooms/{room_id}/members/{user_id}"),
-        (Method::DELETE, "/_synapse/admin/v1/rooms/{room_id}/members/{user_id}"),
-        (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/ban/{user_id}"),
-        (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/ban"),
-        (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/unban/{user_id}"),
-        (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/kick/{user_id}"),
-        (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/kick"),
-        (Method::GET, "/_synapse/admin/v1/rooms/{room_id}/listings"),
-        (Method::PUT, "/_synapse/admin/v1/rooms/{room_id}/listings/public"),
-        (Method::DELETE, "/_synapse/admin/v1/rooms/{room_id}/listings/public"),
-        (Method::GET, "/_synapse/admin/v1/rooms/{room_id}/event_context/{event_id}"),
-        (Method::GET, "/_synapse/admin/v1/rooms/{room_id}/token_sync"),
-        (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/search"),
-        (Method::POST, "/_synapse/admin/v1/rooms/search"),
-        (Method::GET, "/_synapse/admin/v1/rooms/search"),
-        (Method::GET, "/_synapse/admin/v1/rooms/{room_id}/forward_extremities"),
-        (Method::POST, "/_synapse/admin/v1/rooms/cleanup"),
-        // `create_room_admin_router` also registers the client-namespaced
-        // redact proxy (`admin/room/mod.rs:154`); the list omitted it, so the
-        // endpoint was served while absent from the contract (S-14, B2-4).
-        (Method::POST, "/_matrix/client/v3/admin/room/{room_id}/redact"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "admin::room"))
-    .collect()
-}
-
 /// See [`get_room_aliases_admin`].
 #[axum::debug_handler]
 pub async fn get_room_aliases_admin(

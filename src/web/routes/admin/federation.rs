@@ -38,33 +38,6 @@ pub fn create_federation_router() -> Router<crate::web::routes::AppState> {
         .route("/_synapse/admin/v1/federation/cache/clear", post(clear_federation_cache))
 }
 
-/// See [`admin_federation_route_manifest`].
-pub fn admin_federation_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-    [
-        (Method::GET, "/_synapse/admin/v1/federation/destinations"),
-        (Method::GET, "/_synapse/admin/v1/federation/destinations/{destination}"),
-        (Method::POST, "/_synapse/admin/v1/federation/destinations/{destination}/reset_connection"),
-        (Method::POST, "/_synapse/admin/v1/federation/destinations/{destination}/reset"),
-        (Method::DELETE, "/_synapse/admin/v1/federation/destinations/{destination}"),
-        (Method::GET, "/_synapse/admin/v1/federation/destinations/{destination}/rooms"),
-        (Method::POST, "/_synapse/admin/v1/federation/rewrite"),
-        (Method::POST, "/_synapse/admin/v1/federation/resolve"),
-        (Method::POST, "/_synapse/admin/v1/federation/confirm"),
-        (Method::GET, "/_synapse/admin/v1/federation/pending"),
-        (Method::GET, "/_synapse/admin/v1/federation/blacklist"),
-        (Method::POST, "/_synapse/admin/v1/federation/blacklist/{server_name}"),
-        (Method::DELETE, "/_synapse/admin/v1/federation/blacklist/{server_name}"),
-        (Method::GET, "/_synapse/admin/v1/federation/cache"),
-        (Method::DELETE, "/_synapse/admin/v1/federation/cache/{key}"),
-        (Method::POST, "/_synapse/admin/v1/federation/cache/clear"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "admin::federation"))
-    .collect()
-}
-
 /// The `RewriteRequest` struct.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

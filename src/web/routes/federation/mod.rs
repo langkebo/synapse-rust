@@ -365,73 +365,6 @@ pub fn create_federation_router(state: &AppState) -> Router<AppState> {
     public.merge(protected)
 }
 
-fn federation_public_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
-    use axum::http::Method;
-    vec![
-        (Method::GET, "/_matrix/federation/v2/server"),
-        (Method::GET, "/_matrix/key/v2/server"),
-        (Method::GET, "/_matrix/federation/v2/query/{server_name}/{key_id}"),
-        (Method::GET, "/_matrix/key/v2/query/{server_name}/{key_id}"),
-        (Method::GET, "/_matrix/federation/v2/query/{server_name}"),
-        (Method::GET, "/_matrix/key/v2/query/{server_name}"),
-        (Method::POST, "/_matrix/key/v2/query"),
-        (Method::GET, "/_matrix/federation/v1/version"),
-        (Method::GET, "/_matrix/federation/v1"),
-        (Method::GET, "/_matrix/federation/v1/publicRooms"),
-        (Method::GET, "/_matrix/federation/v1/query/destination"),
-        (Method::GET, "/_matrix/federation/v1/openid/userinfo"),
-    ]
-}
-
-fn federation_protected_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
-    use axum::http::Method;
-    vec![
-        (Method::PUT, "/_matrix/federation/v1/send/{txn_id}"),
-        (Method::POST, "/_matrix/federation/v1/get_missing_events/{room_id}"),
-        (Method::GET, "/_matrix/federation/v1/room/{room_id}/{event_id}"),
-        (Method::GET, "/_matrix/federation/v1/timestamp_to_event/{room_id}"),
-        (Method::GET, "/_matrix/federation/v1/get_event_auth/{room_id}/{event_id}"),
-        (Method::GET, "/_matrix/federation/v1/state/{room_id}"),
-        (Method::GET, "/_matrix/federation/v1/event/{event_id}"),
-        (Method::GET, "/_matrix/federation/v1/state_ids/{room_id}"),
-        (Method::GET, "/_matrix/federation/v1/query/directory/room/{room_id}"),
-        (Method::GET, "/_matrix/federation/v1/query/profile"),
-        (Method::GET, "/_matrix/federation/v1/query/profile/{user_id}"),
-        (Method::GET, "/_matrix/federation/v1/hierarchy/{room_id}"),
-        (Method::GET, "/_matrix/federation/v1/backfill/{room_id}"),
-        (Method::POST, "/_matrix/federation/v1/user/keys/upload"),
-        (Method::POST, "/_matrix/federation/v1/user/keys/claim"),
-        (Method::POST, "/_matrix/federation/v1/user/keys/query"),
-        (Method::POST, "/_matrix/federation/v2/user/keys/query"),
-        (Method::POST, "/_matrix/federation/v1/publicRooms"),
-        (Method::GET, "/_matrix/federation/v1/query/directory"),
-        (Method::GET, "/_matrix/federation/v1/media/download/{server_name}/{media_id}"),
-        (Method::GET, "/_matrix/federation/v1/media/thumbnail/{server_name}/{media_id}"),
-        // P3-09: Non-standard trusted-federation extensions live under
-        // `/_synapse/federation/v1/` to keep the `/_matrix/federation/`
-        // surface spec-compliant.
-        (Method::POST, "/_synapse/federation/v2/key/clone"),
-        (Method::POST, "/_synapse/federation/v1/keys/claim"),
-        (Method::POST, "/_synapse/federation/v1/keys/query"),
-        (Method::POST, "/_synapse/federation/v1/keys/upload"),
-        (Method::GET, "/_synapse/federation/v1/room_auth/{room_id}"),
-        (Method::GET, "/_synapse/federation/v1/query/auth"),
-    ]
-}
-
-/// See [`federation_route_manifest`].
-pub fn federation_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-
-    let mut entries: Vec<RouteEntry> = federation_public_relative_routes()
-        .into_iter()
-        .chain(federation_protected_relative_routes())
-        .map(|(m, p)| RouteEntry::new(m, p, "federation"))
-        .collect();
-    entries.extend(membership::membership_route_manifest());
-    entries
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -502,8 +435,8 @@ mod tests {
 
     #[test]
     fn event_auth_route_not_in_manifest() {
-        let manifest = federation_route_manifest();
-        let has_event_auth = manifest.iter().any(|e| e.path == "/_synapse/federation/v1/event_auth");
+        let ledger = crate::web::routes::assembly::declared_ledger_all();
+        let has_event_auth = ledger.iter().any(|e| e.path == "/_synapse/federation/v1/event_auth");
         assert!(
             !has_event_auth,
             "non-standard /_synapse/federation/v1/event_auth should not be registered — use /_matrix/federation/v1/get_event_auth/{{room_id}}/{{event_id}} instead"

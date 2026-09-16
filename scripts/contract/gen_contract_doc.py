@@ -23,21 +23,42 @@ reg = reg_raw["modules"]
 non_ns = reg_raw.get("non_namespace_routes", [])
 OUT = f"{ROOT}/docs/synapse-rust/ROUTE_CONTRACT.md"
 
-# manifest presence (full-file scan)
-re_manifest = re.compile(
-    r"fn\s+\w*(?:route_manifest|manifest_for|assembly_compat_manifest|top_level_inline_manifest)\w*\s*\("
+# ---- derived-table coverage -------------------------------------------------
+# B2-2 deleted every hand-copied `*_route_manifest()` helper: the route table in
+# `derived_routes.rs` is now the single source of route metadata, generated from
+# the same `.route(...)` surface this doc is generated from. "Coverage" therefore
+# no longer means "a human wrote a manifest" — it means "this module's routes
+# made it into the derived table", which is checked here so a generator change
+# that silently drops a module still shows up as ⚠️ in the contract doc.
+re_derived_label = re.compile(
+    r"RouteEntry::new\(\s*axum::http::Method::[A-Z]+,\s*\"[^\"]*\",\s*\"([^\"]+)\",?\s*\)"
 )
-mani = set()
-for dp, _, fns in os.walk(f"{ROOT}/src/web/routes"):
-    for f in fns:
-        if not f.endswith(".rs"):
-            continue
-        fp = os.path.join(dp, f)
-        rel = os.path.relpath(fp, f"{ROOT}/src/web/routes")
-        if "tests" in rel.split(os.sep):
-            continue
-        if re_manifest.search(open(fp).read()):
-            mani.add(rel)
+DERIVED = f"{ROOT}/src/web/routes/derived_routes.rs"
+with open(DERIVED) as _f:
+    derived_labels = set(re_derived_label.findall(_f.read()))
+
+
+def derived_candidates(mod):
+    """Plausible `registered_by` labels for an extractor module path."""
+    parts = mod[:-3].split("/") if mod.endswith(".rs") else mod.split("/")
+    stem = parts[-1]
+    cands = [stem]
+    if len(parts) > 1:
+        top = parts[0]
+        cands.append(top)
+        if top == "admin":
+            cands.append(f"admin::{stem}")
+            if stem == "mod":
+                cands += [l for l in derived_labels if l.startswith("admin::")]
+        if stem == "mod":
+            cands.insert(0, top if len(parts) == 2 else parts[-2])
+    elif stem == "assembly":
+        cands += [l for l in derived_labels if l.startswith("assembly::")]
+    return cands
+
+
+def derived_covered(mod):
+    return any(c in derived_labels for c in derived_candidates(mod))
 
 CAT = {
     "federation": "联邦 (Federation)",
@@ -109,8 +130,6 @@ CAT = {
 
 def category(mod):
     base = os.path.basename(mod).replace(".rs", "")
-    if mod in mani:
-        pass
     # 优先按 basename 精确匹配（避免 friend_room.rs 被 'room' 子串误归到「房间」）
     for k, v in CAT.items():
         if base == k or base.startswith(k + "_") or base.startswith(k + "."):
@@ -134,11 +153,12 @@ lines = []
 lines.append("# synapse-rust 路由契约（Route Contract）")
 lines.append("")
 lines.append(
-    f"> 自动生成于 {datetime.date.today().isoformat()}，源 = `src/web/routes/**` 真实 `.route()` 注册面 + 各模块 `*_route_manifest()` 覆盖情况。"
+    f"> 自动生成于 {datetime.date.today().isoformat()}，源 = `src/web/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs` 派生覆盖。"
 )
 lines.append(">")
 lines.append(
-    "> 本文件是后端 HTTP 契约的**事实来源之一**（机器侧权威为 `src/web/routes/route_ledger.rs` 与各模块 manifest，启动时校验、集成测试 PATCH 探测）。人工文档（INDEX.md / API_COVERAGE_REPORT.md）须与之保持一致。"
+    "> 本文件是后端 HTTP 契约的**事实来源之一**（机器侧权威为 `derived_routes.rs` 生成的 `RouteLedger`，"
+    "启动时校验、集成测试 PATCH 探测）。人工文档（INDEX.md / API_COVERAGE_REPORT.md）须与之保持一致。"
 )
 lines.append(">")
 lines.append(
@@ -150,7 +170,8 @@ lines.append("## 总览")
 lines.append("")
 lines.append(f"- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**{total}**")
 lines.append(f"- 含路由注册的模块文件：**{sum(1 for v in reg.values() if v)}**")
-lines.append(f"- 含 `*_route_manifest` 函数的模块：**{len(mani)}**")
+lines.append(f"- `derived_routes.rs` 中的 `registered_by` 标签：**{len(derived_labels)}**")
+lines.append(f"- 已被派生表覆盖的模块：**{sum(1 for m, v in reg.items() if v and derived_covered(m))}**")
 lines.append("")
 lines.append("> **路径为何是绝对的**：本清单由 `extract_registered.py` 从真实 router 构造解析得到，")
 lines.append("> 已递归应用 `.nest(\"/prefix\", ..)` 与 `expand_under_prefixes(..)` 的前缀。")
@@ -163,7 +184,7 @@ lines.append("")
 lines.append("| 对照源 | 含义 | 结果 |")
 lines.append("|---|---|---|")
 lines.append(
-    "| 各模块 `*_route_manifest()` 声明集 | 手写的绝对路径声明，不经过本解析器的前缀推导 | **声明而未解析出 = 0** |"
+    "| `src/web/routes/derived_routes.rs` 派生表 | 由同一份 `.route()` 注册面机器生成，启动时按 `ProfileFlags` 过滤 | **本清单有而派生表缺 = 0** |"
 )
 lines.append(
     "| `tests/unit/fixtures/ledger_export/*.json` | 由真实 Rust 装配（`synapse_ledger_export`）导出、golden 测试守护 | **ledger 有而本清单缺 = 0** |"
@@ -189,10 +210,14 @@ if non_ns:
 else:
     lines.append("_（无）_")
 lines.append("")
-lines.append("## 契约覆盖（manifest 一致性）")
+lines.append("## 契约覆盖（派生表一致性）")
 lines.append("")
 lines.append(
-    "`route_ledger` 在启动时校验所有 manifest 内 `(method,path)` 不重复，集成测试 `api_route_ledger_tests.rs` 对每个声明做 PATCH 探测（断言 405）。"
+    "`RouteLedger` 在启动时校验派生表内 `(method,path)` 不重复，集成测试 `api_route_ledger_tests.rs` 对每个声明做 PATCH 探测（断言 405）。"
+)
+lines.append(
+    "B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数据只剩 `derived_routes.rs` 一个来源，"
+    "因此「模块是否声明了 manifest」不再是覆盖度指标，取而代之的是「该模块的路由是否进入派生表」。"
 )
 lines.append("**已知缺口 / 漂移**：")
 lines.append("")
@@ -203,7 +228,8 @@ lines.append(
     "  **机器证据**：`test_extract_registered.py::check_non_namespace_bucket` 现在把「前缀之外」桶**精确**钉死为 14 条有意根级注册（3 条探活 + 11 条 CAS 根协议端点）。该桶出现任何新成员——无论是死灰复燃的未装配 router 还是新增非 Matrix 根端点——都会让守卫转红并要求显式裁定。"
 )
 lines.append(
-    "- `space/children_hierarchy.rs`、`space/membership_state.rs`、`space/summary.rs`：无独立 manifest 函数，但其路由由 `space.rs` 的 `space_route_manifest()` 统一声明（已覆盖）。"
+    "- `space/children_hierarchy.rs`、`space/lifecycle_query.rs`、`space/membership_state.rs`、`space/summary.rs`："
+    "路由在派生表中统一归入 `space` 标签（已覆盖）。"
 )
 lines.append("")
 lines.append("## 模块级路由清单（逐模块）")
@@ -214,7 +240,7 @@ for c in sorted(bycat):
     lines.append(f"### {c} （{cat_total} 条）")
     lines.append("")
     for mod, routes in mods:
-        has = "✅manifest" if mod in mani else "⚠️无manifest"
+        has = "✅派生表" if derived_covered(mod) else "⚠️派生表缺"
         lines.append(f"#### `{mod}` — {len(routes)} 条 {has}")
         lines.append("")
         for meth, path in routes:

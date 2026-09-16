@@ -7,17 +7,9 @@
 //! delegates.
 
 use crate::common::config::Config;
-#[cfg(feature = "burn-after-read")]
-use crate::web::routes::burn_after_read;
 use crate::web::routes::context::AuthContext;
 use crate::web::routes::extractors::auth::OptionalAuthenticatedUser;
-#[cfg(feature = "friends")]
-use crate::web::routes::friend_room;
-#[cfg(feature = "voice-extended")]
-use crate::web::routes::voice;
-#[cfg(feature = "widgets")]
-use crate::web::routes::widget;
-use crate::web::routes::{account_compat, room_summary, route_ledger::RouteEntry, sliding_sync};
+use crate::web::routes::route_ledger::RouteEntry;
 use axum::{
     extract::{Query, State},
     http::{
@@ -49,46 +41,16 @@ fn to_route_checks(entries: &[RouteEntry]) -> Vec<RouteCheck> {
     entries.iter().map(|e| RouteCheck::new(e.method.as_str().to_string(), e.path)).collect()
 }
 
-/// Collect all registered route entries from every manifest that capability
-/// functions may check. This is the bridge between the main crate's route
-/// registration and [`CapabilityGovernance`]'s route-surface gating.
+/// Collect every `(method, path)` tuple the server registers, so
+/// [`CapabilityGovernance`] can gate capabilities on the real route surface.
+///
+/// Sourced from the generated `derived_routes` table — the same single source
+/// of truth the ledger, the contract doc and the router assembly read — so a
+/// capability can never disagree with the routes actually served.
+/// [`declared_ledger_all`] lifts the runtime ceiling so no `#[cfg]`-visible row
+/// is filtered out.
 pub(crate) fn collect_route_surface() -> Vec<RouteCheck> {
-    let mut routes = Vec::new();
-
-    // Always-on route manifests
-    routes.extend(to_route_checks(&room_summary::room_summary_route_manifest()));
-    routes.extend(to_route_checks(&crate::web::routes::assembly::top_level_inline_manifest()));
-    routes.extend(to_route_checks(&sliding_sync::sliding_sync_route_manifest()));
-    routes.extend(to_route_checks(&account_compat::account_compat_route_manifest()));
-    routes.extend(to_route_checks(&crate::web::routes::voip::voip_route_manifest()));
-    routes.extend(to_route_checks(&crate::web::routes::handlers::search::search_route_manifest()));
-    routes.extend(to_route_checks(&crate::web::routes::handlers::thread::thread_route_manifest()));
-
-    // Feature-gated manifests — when the feature is disabled, the manifest
-    // function may not exist at compile time. CapabilityGovernance will
-    // return disabled for any route not found in the surface.
-    #[cfg(feature = "friends")]
-    {
-        routes.extend(to_route_checks(&friend_room::friend_route_manifest()));
-    }
-    #[cfg(feature = "voice-extended")]
-    {
-        routes.extend(to_route_checks(&voice::voice_route_manifest()));
-    }
-    #[cfg(feature = "burn-after-read")]
-    {
-        routes.extend(to_route_checks(&burn_after_read::burn_after_read_route_manifest()));
-    }
-    #[cfg(feature = "widgets")]
-    {
-        routes.extend(to_route_checks(&widget::widget_route_manifest()));
-    }
-    #[cfg(feature = "external-services")]
-    {
-        routes.extend(to_route_checks(&crate::web::routes::external_service::external_service_route_manifest()));
-    }
-
-    routes
+    to_route_checks(crate::web::routes::assembly::declared_ledger_all().as_slice())
 }
 
 fn build_governance(config: &Config) -> CapabilityGovernance {

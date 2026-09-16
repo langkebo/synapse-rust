@@ -212,6 +212,54 @@ def _row_rust(row):
 
 
 def emit(rows):
+    """Render the table, then normalise it through `rustfmt`.
+
+    Without this the two gates fight each other: `cargo fmt --check` wants the
+    one-line `RouteEntry::new(..)` form, while the emitter's hand-laid text is
+    byte-compared by `--check`. Running the emitted source through the same
+    rustfmt (same `rustfmt.toml`, same edition) makes both gates agree.
+    """
+    return _rustfmt(emit_raw(rows))
+
+
+def _rustfmt(text):
+    """Format `text` with the repo's rustfmt; return it unchanged if unavailable."""
+    import subprocess
+    import tempfile
+
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".rs", dir=os.path.dirname(OUT) or ".", delete=False) as fh:
+            fh.write(text)
+            tmp = fh.name
+        try:
+            proc = subprocess.run(
+                ["rustfmt", "--edition", "2021", "--emit", "stdout", tmp],
+                capture_output=True,
+                text=True,
+            )
+        finally:
+            pass
+        if proc.returncode == 0 and proc.stdout.strip():
+            os.unlink(tmp)
+            # `rustfmt --emit stdout` prefixes the result with the source path:
+            #   <abs path>:
+            #   <blank>
+            #   <formatted source>
+            out = proc.stdout.split("\n")
+            i = 0
+            while i < len(out) and (out[i].rstrip().endswith(".rs:") or not out[i].strip()):
+                i += 1
+            formatted = "\n".join(out[i:])
+            if formatted.strip():
+                return formatted
+        else:
+            os.unlink(tmp)
+    except (OSError, subprocess.SubprocessError, UnboundLocalError):
+        pass
+    return text
+
+
+def emit_raw(rows):
     row_lines = "".join(_row_rust(r) for r in rows)
     cap = len(rows)
     # `include_bytes!` needs compile-time literal strings; use concat+env to reach the fixture dir.

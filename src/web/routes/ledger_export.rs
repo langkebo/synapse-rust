@@ -18,7 +18,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{declared_route_manifest_for_profile, ProfileFlags};
+use super::{declared_ledger_for_profile, ProfileFlags};
 
 /// Frozen JSON schema version.
 ///
@@ -145,7 +145,7 @@ pub fn build_artifact(
     synapse_rust_commit: Option<String>,
     generated_at: String,
 ) -> LedgerArtifact {
-    let ledger = declared_route_manifest_for_profile(flags);
+    let ledger = declared_ledger_for_profile(flags);
     let mut entries: Vec<LedgerEntryJson> = ledger
         .iter()
         .map(|e| LedgerEntryJson {

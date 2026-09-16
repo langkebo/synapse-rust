@@ -21,22 +21,6 @@ pub fn create_reactions_router(state: AppState) -> Router<AppState> {
     Router::new().nest("/_matrix/client/v3", compat_router).with_state(state)
 }
 
-const REACTIONS_NEST_PREFIXES: &[&str] = &["/_matrix/client/v3"];
-
-fn reactions_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
-    use axum::http::Method;
-    vec![(Method::PUT, "/rooms/{room_id}/send/m.reaction/{txn_id}")]
-}
-
-/// See [`reactions_route_manifest`].
-pub fn reactions_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    crate::web::routes::route_ledger::expand_under_prefixes(
-        "reactions",
-        REACTIONS_NEST_PREFIXES,
-        &reactions_compat_relative_routes(),
-    )
-}
-
 /// The `RelatesTo` struct.
 #[derive(Debug, Deserialize)]
 pub struct RelatesTo {

@@ -149,36 +149,6 @@ pub fn create_widget_router() -> Router<AppState> {
         .route("/_matrix/client/v1/widgets/sessions/{session_id}", delete(terminate_widget_session))
 }
 
-/// See [`widget_route_manifest`].
-pub fn widget_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-
-    [
-        (Method::POST, "/_matrix/client/v1/widgets"),
-        (Method::POST, "/_matrix/client/v3/widgets/create"),
-        (Method::GET, "/_matrix/client/v1/widgets/{widget_id}"),
-        (Method::PUT, "/_matrix/client/v1/widgets/{widget_id}"),
-        (Method::DELETE, "/_matrix/client/v1/widgets/{widget_id}"),
-        (Method::GET, "/_matrix/client/v1/widgets/{widget_id}/config"),
-        (Method::GET, "/_matrix/client/v1/rooms/{room_id}/widgets"),
-        (Method::GET, "/_matrix/client/v1/rooms/{room_id}/widgets/jitsi/config"),
-        (Method::GET, "/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/capabilities"),
-        (Method::PUT, "/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/capabilities"),
-        (Method::POST, "/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/send"),
-        (Method::POST, "/_matrix/client/v1/widgets/{widget_id}/permissions"),
-        (Method::GET, "/_matrix/client/v1/widgets/{widget_id}/permissions"),
-        (Method::DELETE, "/_matrix/client/v1/widgets/{widget_id}/permissions/{user_id}"),
-        (Method::POST, "/_matrix/client/v1/widgets/{widget_id}/sessions"),
-        (Method::GET, "/_matrix/client/v1/widgets/{widget_id}/sessions"),
-        (Method::GET, "/_matrix/client/v1/widgets/sessions/{session_id}"),
-        (Method::DELETE, "/_matrix/client/v1/widgets/sessions/{session_id}"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "widget"))
-    .collect()
-}
-
 async fn create_widget(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,

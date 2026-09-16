@@ -619,44 +619,6 @@ pub fn create_app_service_router(state: &AppState) -> Router<AppState> {
     public_routes.merge(admin_routes)
 }
 
-/// See [`app_service_route_manifest`].
-pub fn app_service_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-    [
-        // Public (AS protocol) + user lookup
-        (Method::GET, "/_matrix/client/v1/user/{user_id}/appservice"),
-        (Method::POST, "/_matrix/app/v1/ping"),
-        (Method::PUT, "/_matrix/app/v1/transactions/{as_id}/{txn_id}"),
-        (Method::GET, "/_matrix/app/v1/users/{user_id}"),
-        (Method::GET, "/_matrix/app/v1/rooms/{alias}"),
-        (Method::GET, "/_matrix/app/v1/{as_id}"),
-        (Method::GET, "/_matrix/client/v3/appservice/user"),
-        (Method::GET, "/_matrix/client/v3/appservice/alias"),
-        // Admin
-        (Method::GET, "/_synapse/admin/v1/appservices"),
-        (Method::POST, "/_synapse/admin/v1/appservices"),
-        (Method::GET, "/_synapse/admin/v1/appservices/{as_id}"),
-        (Method::PUT, "/_synapse/admin/v1/appservices/{as_id}"),
-        (Method::DELETE, "/_synapse/admin/v1/appservices/{as_id}"),
-        (Method::POST, "/_synapse/admin/v1/appservices/{as_id}/ping"),
-        (Method::POST, "/_synapse/admin/v1/appservices/{as_id}/state"),
-        (Method::GET, "/_synapse/admin/v1/appservices/{as_id}/state"),
-        (Method::GET, "/_synapse/admin/v1/appservices/{as_id}/state/{state_key}"),
-        (Method::POST, "/_synapse/admin/v1/appservices/{as_id}/users"),
-        (Method::GET, "/_synapse/admin/v1/appservices/{as_id}/users"),
-        (Method::GET, "/_synapse/admin/v1/appservices/{as_id}/namespaces"),
-        (Method::GET, "/_synapse/admin/v1/appservices/{as_id}/events"),
-        (Method::POST, "/_synapse/admin/v1/appservices/{as_id}/events"),
-        (Method::GET, "/_synapse/admin/v1/appservices/query/user"),
-        (Method::GET, "/_synapse/admin/v1/appservices/query/alias"),
-        (Method::GET, "/_synapse/admin/v1/appservices/statistics"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "app_service"))
-    .collect()
-}
-
 #[allow(clippy::unused_async)]
 async fn get_user_appservice(
     State(_ctx): State<AdminContext>,

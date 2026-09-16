@@ -508,33 +508,3 @@ pub fn create_event_report_router(state: AppState) -> Router<AppState> {
         .route_layer(axum::middleware::from_fn_with_state(<crate::web::routes::context::AdminContext as axum::extract::FromRef<crate::web::routes::AppState>>::from_ref(&state), crate::web::middleware::admin_auth_middleware))
         .with_state(state)
 }
-
-/// See [`event_report_route_manifest`].
-pub fn event_report_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-    [
-        (Method::POST, "/_synapse/admin/v1/event_reports"),
-        (Method::GET, "/_synapse/admin/v1/event_reports"),
-        (Method::GET, "/_synapse/admin/v1/event_reports/count"),
-        (Method::GET, "/_synapse/admin/v1/event_reports/status/{status}"),
-        (Method::GET, "/_synapse/admin/v1/event_reports/status/{status}/count"),
-        (Method::GET, "/_synapse/admin/v1/event_reports/{id}"),
-        (Method::PUT, "/_synapse/admin/v1/event_reports/{id}"),
-        (Method::DELETE, "/_synapse/admin/v1/event_reports/{id}"),
-        (Method::POST, "/_synapse/admin/v1/event_reports/{id}/resolve"),
-        (Method::POST, "/_synapse/admin/v1/event_reports/{id}/dismiss"),
-        (Method::POST, "/_synapse/admin/v1/event_reports/{id}/escalate"),
-        (Method::GET, "/_synapse/admin/v1/event_reports/{id}/history"),
-        (Method::GET, "/_synapse/admin/v1/event_reports/event/{event_id}"),
-        (Method::GET, "/_synapse/admin/v1/event_reports/room/{room_id}"),
-        (Method::GET, "/_synapse/admin/v1/event_reports/reporter/{reporter_user_id}"),
-        (Method::GET, "/_synapse/admin/v1/event_reports/rate_limit/{user_id}"),
-        (Method::POST, "/_synapse/admin/v1/event_reports/rate_limit/{user_id}/block"),
-        (Method::POST, "/_synapse/admin/v1/event_reports/rate_limit/{user_id}/unblock"),
-        (Method::GET, "/_synapse/admin/v1/event_reports/stats"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "event_report"))
-    .collect()
-}

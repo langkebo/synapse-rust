@@ -35,40 +35,6 @@ pub fn create_account_data_router(state: AppState) -> Router<AppState> {
     Router::new().nest("/_matrix/client/v3", compat_router).with_state(state)
 }
 
-const ACCOUNT_DATA_NEST_PREFIXES: &[&str] = &["/_matrix/client/v3"];
-
-fn account_data_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
-    use axum::http::Method;
-    vec![
-        (Method::GET, "/user/{user_id}/account_data/"),
-        (Method::GET, "/user/{user_id}/account_data/{type}"),
-        (Method::PUT, "/user/{user_id}/account_data/{type}"),
-        // `create_account_data_compat_router` also attaches `.post(...)` to both
-        // of these; the list only carried PUT (S-14, B2-4).
-        (Method::POST, "/user/{user_id}/account_data/{type}"),
-        (Method::DELETE, "/user/{user_id}/account_data/{type}"),
-        (Method::GET, "/user/{user_id}/rooms/{room_id}/account_data/{type}"),
-        (Method::PUT, "/user/{user_id}/rooms/{room_id}/account_data/{type}"),
-        (Method::POST, "/user/{user_id}/rooms/{room_id}/account_data/{type}"),
-        (Method::DELETE, "/user/{user_id}/rooms/{room_id}/account_data/{type}"),
-        (Method::PUT, "/user/{user_id}/filter"),
-        (Method::POST, "/user/{user_id}/filter"),
-        (Method::GET, "/user/{user_id}/filter/{filter_id}"),
-        (Method::DELETE, "/user/{user_id}/filter/{filter_id}"),
-        (Method::GET, "/user/{user_id}/openid/request_token"),
-        (Method::POST, "/user/{user_id}/openid/request_token"),
-    ]
-}
-
-/// See [`account_data_route_manifest`].
-pub fn account_data_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    crate::web::routes::route_ledger::expand_under_prefixes(
-        "account_data",
-        ACCOUNT_DATA_NEST_PREFIXES,
-        &account_data_compat_relative_routes(),
-    )
-}
-
 async fn sync_secret_storage_account_data_best_effort(
     ctx: &AdminContext,
     user_id: &str,

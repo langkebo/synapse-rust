@@ -75,46 +75,6 @@ pub fn create_voice_router(_state: AppState) -> Router<AppState> {
         .route("/_matrix/vendor/v1/voice/{media_id}/transcription", post(transcribe_voice_message))
 }
 
-/// See [`voice_route_manifest`].
-pub fn voice_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-
-    [
-        (Method::GET, "/_matrix/client/v1/voice/config"),
-        (Method::POST, "/_matrix/client/v1/voice/upload"),
-        (Method::GET, "/_matrix/client/v1/voice/stats"),
-        (Method::GET, "/_matrix/client/v1/voice/room/{room_id}/stats"),
-        (Method::GET, "/_matrix/client/v1/voice/user/{user_id}/stats"),
-        (Method::POST, "/_matrix/client/v3/voice/upload"),
-        (Method::GET, "/_matrix/client/v3/voice/config"),
-        (Method::GET, "/_matrix/client/v3/voice/stats"),
-        (Method::GET, "/_matrix/client/v3/voice/room/{room_id}/stats"),
-        (Method::GET, "/_matrix/client/v3/voice/user/{user_id}/stats"),
-        (Method::GET, "/_matrix/client/v3/voice/room/{room_id}"),
-        (Method::GET, "/_matrix/client/v3/voice/user/{user_id}"),
-        (Method::GET, "/_matrix/client/v3/voice/{media_id}"),
-        (Method::POST, "/_matrix/client/v3/voice/{media_id}/convert"),
-        (Method::POST, "/_matrix/client/v3/voice/{media_id}/optimize"),
-        (Method::POST, "/_matrix/client/v3/voice/{media_id}/transcription"),
-        // vendor paths
-        (Method::POST, "/_matrix/vendor/v1/voice/upload"),
-        (Method::GET, "/_matrix/vendor/v1/voice/config"),
-        (Method::GET, "/_matrix/vendor/v1/voice/stats"),
-        (Method::GET, "/_matrix/vendor/v1/voice/room/{room_id}/stats"),
-        (Method::GET, "/_matrix/vendor/v1/voice/user/{user_id}/stats"),
-        (Method::GET, "/_matrix/vendor/v1/voice/room/{room_id}"),
-        (Method::GET, "/_matrix/vendor/v1/voice/user/{user_id}"),
-        (Method::GET, "/_matrix/vendor/v1/voice/{media_id}"),
-        (Method::POST, "/_matrix/vendor/v1/voice/{media_id}/convert"),
-        (Method::POST, "/_matrix/vendor/v1/voice/{media_id}/optimize"),
-        (Method::POST, "/_matrix/vendor/v1/voice/{media_id}/transcription"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "voice"))
-    .collect()
-}
-
 #[axum::debug_handler]
 async fn get_voice_config(
     State(_ctx): State<RoomContext>,

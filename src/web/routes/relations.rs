@@ -40,33 +40,6 @@ pub fn create_relations_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
-/// The relations core surface shared by the `v1` and `v3` mounts.
-fn relations_core_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
-    use axum::http::Method;
-    vec![
-        (Method::GET, "/rooms/{room_id}/relations/{event_id}/{rel_type}"),
-        (Method::PUT, "/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}"),
-        (Method::GET, "/rooms/{room_id}/aggregations/{event_id}/{rel_type}"),
-    ]
-}
-
-fn relations_with_event_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
-    use axum::http::Method;
-    let mut out = relations_core_relative_routes();
-    out.push((Method::GET, "/rooms/{room_id}/relations/{event_id}"));
-    out
-}
-
-/// See [`relations_route_manifest`].
-pub fn relations_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::expand_under_prefixes;
-    expand_under_prefixes(
-        "relations",
-        &["/_matrix/client/v1", "/_matrix/client/v3"],
-        &relations_with_event_relative_routes(),
-    )
-}
-
 /// The `RelationsQuery` struct.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

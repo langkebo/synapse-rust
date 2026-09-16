@@ -13,20 +13,6 @@ pub fn create_cleanup_router(state: AppState) -> Router<crate::web::routes::AppS
         .with_state(state)
 }
 
-/// See [`admin_cleanup_route_manifest`].
-pub fn admin_cleanup_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-    [
-        (Method::POST, "/_synapse/admin/v1/cleanup/all"),
-        (Method::POST, "/_synapse/admin/v1/cleanup/rooms"),
-        (Method::POST, "/_synapse/admin/v1/cleanup/tokens"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "admin::cleanup"))
-    .collect()
-}
-
 /// See [`cleanup_all`].
 #[axum::debug_handler]
 pub async fn cleanup_all(

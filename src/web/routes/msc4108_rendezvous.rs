@@ -38,21 +38,6 @@ pub fn create_msc4108_rendezvous_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
-/// See [`msc4108_route_manifest`].
-pub fn msc4108_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-    [
-        (Method::POST, "/_matrix/client/unstable/org.matrix.msc4108/rendezvous"),
-        (Method::GET, "/_matrix/client/unstable/org.matrix.msc4108/rendezvous/{session_id}"),
-        (Method::PUT, "/_matrix/client/unstable/org.matrix.msc4108/rendezvous/{session_id}"),
-        (Method::DELETE, "/_matrix/client/unstable/org.matrix.msc4108/rendezvous/{session_id}"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "msc4108_rendezvous"))
-    .collect()
-}
-
 /// Build the full rendezvous URL for a session.
 fn build_rendezvous_url(ctx: &AuthContext, session_id: &str) -> String {
     format!(

@@ -608,22 +608,6 @@ pub fn create_dm_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
-/// See [`dm_route_manifest`].
-pub fn dm_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-    [
-        (Method::POST, "/_matrix/client/v3/create_dm"),
-        (Method::GET, "/_matrix/client/v3/direct"),
-        (Method::PUT, "/_matrix/client/v3/direct/{room_id}"),
-        (Method::GET, "/_matrix/client/v3/rooms/{room_id}/dm"),
-        (Method::GET, "/_matrix/client/v3/rooms/{room_id}/dm/partner"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "dm"))
-    .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -16,17 +16,17 @@ use crate::web::routes::saml;
 use crate::web::routes::voice;
 #[cfg(feature = "widgets")]
 use crate::web::routes::widget;
-use crate::web::routes::{federation, oidc, room, route_ledger::RouteEntry, state::AppState, worker};
+use crate::web::routes::{federation, oidc, room, state::AppState, worker};
 
-/// Pure-data profile flags that drive the conditional route surfaces in
-/// `route_modules()`. Used by the offline ledger-export tool
-/// (`synapse_ledger_export` binary) and any other consumer that needs to
-/// enumerate the manifest without standing up a full `AppState` (which
-/// requires a Postgres pool).
+/// Pure-data profile flags that select the conditional route surfaces exposed
+/// by `derived_routes::derived_route_manifest`. Used by the offline
+/// ledger-export tool (`synapse_ledger_export` binary) and any other consumer
+/// that needs to enumerate the manifest without standing up a full `AppState`
+/// (which requires a Postgres pool).
 ///
-/// Live router assembly continues to use `AppState`-backed `manifest_for`;
-/// this struct is the slimmer projection that captures every `state.…`
-/// boolean read by an existing `manifest_for` impl.
+/// Live router assembly projects `AppState` through [`ProfileFlags::from_state`]
+/// and then reads the same derived table, so the offline and online views can
+/// never drift apart.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ProfileFlags {
     /// The `oidc_enabled` field.
@@ -38,9 +38,9 @@ pub struct ProfileFlags {
 }
 
 impl ProfileFlags {
-    /// Project a live `AppState` down to the boolean flags consumed by the
-    /// route-module trait. Kept consistent with the inline `state.…` reads in
-    /// each `RouteModule::manifest_for_profile` implementation.
+    /// Project a live `AppState` down to the boolean flags that select the
+    /// conditional route surfaces in `derived_routes`. Every flag here must be
+    /// readable without a database round-trip.
     pub fn from_state(state: &AppState) -> Self {
         #[cfg(feature = "saml-sso")]
         let saml_enabled = state.services.sso.saml_service.is_enabled();
@@ -57,31 +57,26 @@ impl ProfileFlags {
     /// freshly-default `ProfileFlags` and used as the canonical "minimal"
     /// profile for offline tooling.
     pub const DEFAULT: Self = Self { oidc_enabled: false, worker_enabled: false, saml_enabled: false };
+
+    /// Convenience: every conditional route surface on, i.e. the widest
+    /// [`RouteProfile`] ceiling. Offline consumers that need the full
+    /// `#[cfg]`-visible route surface (capability gating, contract tests) use
+    /// this so no row is filtered out by the runtime ceiling.
+    ///
+    /// [`RouteProfile`]: super::derived_routes::RouteProfile
+    pub const ALL: Self = Self { oidc_enabled: true, worker_enabled: true, saml_enabled: true };
 }
 
-/// State-aware route modules that participate in both live Axum assembly and
-/// route-ledger declaration.
+/// State-aware route modules that participate in live Axum assembly.
 ///
-/// Contributor rule: if a new feature-gated route is merged through assembly,
-/// the same PR must either add a `RouteModule` here or extend the owning
-/// module's explicit `*_route_manifest()` / `assembly_compat_manifest()`
-/// coverage. Do not land feature-gated `Router::merge` / `.route(...)` changes
-/// without updating the ledger and its snapshots in lockstep.
+/// Contributor rule: route *metadata* is no longer declared here — it is
+/// derived from the `.route(...)` registration sites by
+/// `scripts/contract/extract_registered.py` and materialised into
+/// `derived_routes.rs`. A `RouteModule` therefore only owns `merge_into`; if a
+/// new feature-gated route is merged through assembly, the same PR must
+/// regenerate `derived_routes.rs` (`scripts/contract/gen_derived_routes.py`)
+/// so the contract gate stays green.
 pub trait RouteModule: Send + Sync {
-    /// Pure-data manifest enumeration. Implementors read `flags` only — never
-    /// reach into a live service container. This is what
-    /// `synapse_ledger_export` calls. The default `manifest_for` impl below
-    /// projects `AppState` through `ProfileFlags::from_state` so live routing
-    /// stays a thin wrapper over the same logic.
-    fn manifest_for_profile(&self, flags: &ProfileFlags) -> Vec<RouteEntry>;
-
-    /// Live-state convenience used by `assembly::declared_route_manifest_for`.
-    /// Default: project to `ProfileFlags` and delegate. Override only when a
-    /// module needs richer state than the four flags expose.
-    fn manifest_for(&self, state: &AppState) -> Vec<RouteEntry> {
-        self.manifest_for_profile(&ProfileFlags::from_state(state))
-    }
-
     /// See [`merge_into`].
     fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState>;
 }
@@ -147,7 +142,7 @@ pub static VOICE_MODULE: VoiceModule = VoiceModule;
 pub static EXTERNAL_SERVICE_MODULE: ExternalServiceModule = ExternalServiceModule;
 
 /// Ordered list of state-aware route modules appended by
-/// `assembly::declared_route_manifest_for(&AppState)` and
+/// `assembly::declared_ledger_for(&AppState)` and
 /// `assembly::create_router`.
 ///
 /// Keep this list aligned with feature-gated router assembly. Adding a new
@@ -175,52 +170,18 @@ pub fn route_modules() -> Vec<&'static dyn RouteModule> {
 }
 
 impl RouteModule for RoomModule {
-    fn manifest_for_profile(&self, _flags: &ProfileFlags) -> Vec<RouteEntry> {
-        room::room_route_manifest()
-    }
-
     fn merge_into(&self, router: Router<AppState>, _state: AppState) -> Router<AppState> {
         router.merge(room::create_room_router())
     }
 }
 
 impl RouteModule for FederationModule {
-    fn manifest_for_profile(&self, _flags: &ProfileFlags) -> Vec<RouteEntry> {
-        federation::federation_route_manifest()
-    }
-
     fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState> {
         router.merge(federation::create_federation_router(&state))
     }
 }
 
 impl RouteModule for OidcModule {
-    fn manifest_for_profile(&self, flags: &ProfileFlags) -> Vec<RouteEntry> {
-        if flags.oidc_enabled {
-            #[cfg(not(feature = "builtin-oidc"))]
-            let mut entries = oidc::oidc_route_manifest();
-            #[cfg(feature = "builtin-oidc")]
-            let entries = oidc::oidc_route_manifest();
-            #[cfg(not(feature = "builtin-oidc"))]
-            {
-                let fallback = oidc::oidc_fallback_manifest();
-                let has_jwks = entries.iter().any(|e| e.path == "/.well-known/jwks.json");
-                let has_discovery = entries.iter().any(|e| e.path == "/.well-known/openid-configuration");
-                for e in &fallback {
-                    if e.path == "/.well-known/jwks.json" && !has_jwks {
-                        entries.push(e.clone());
-                    }
-                    if e.path == "/.well-known/openid-configuration" && !has_discovery {
-                        entries.push(e.clone());
-                    }
-                }
-            }
-            entries
-        } else {
-            oidc::oidc_fallback_manifest()
-        }
-    }
-
     fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState> {
         let sso_ctx = SsoContext::from_ref(&state);
         if oidc::oidc_enabled(&sso_ctx) {
@@ -232,14 +193,6 @@ impl RouteModule for OidcModule {
 }
 
 impl RouteModule for WorkerBodyModule {
-    fn manifest_for_profile(&self, flags: &ProfileFlags) -> Vec<RouteEntry> {
-        if flags.worker_enabled {
-            worker::worker_body_route_manifest()
-        } else {
-            Vec::new()
-        }
-    }
-
     fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState> {
         if state.services.core.config.worker.enabled {
             router.merge(worker::create_worker_body_router(&state))
@@ -251,10 +204,6 @@ impl RouteModule for WorkerBodyModule {
 
 #[cfg(feature = "saml-sso")]
 impl RouteModule for SamlModule {
-    fn manifest_for_profile(&self, _flags: &ProfileFlags) -> Vec<RouteEntry> {
-        saml::saml_route_manifest()
-    }
-
     fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState> {
         router.merge(saml::create_saml_router(state))
     }
@@ -262,10 +211,6 @@ impl RouteModule for SamlModule {
 
 #[cfg(feature = "cas-sso")]
 impl RouteModule for CasModule {
-    fn manifest_for_profile(&self, _flags: &ProfileFlags) -> Vec<RouteEntry> {
-        cas::cas_route_manifest()
-    }
-
     fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState> {
         router.merge(cas::cas_routes(state))
     }
@@ -273,10 +218,6 @@ impl RouteModule for CasModule {
 
 #[cfg(feature = "burn-after-read")]
 impl RouteModule for BurnAfterReadModule {
-    fn manifest_for_profile(&self, _flags: &ProfileFlags) -> Vec<RouteEntry> {
-        burn_after_read::burn_after_read_route_manifest()
-    }
-
     fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState> {
         router.merge(burn_after_read::create_burn_after_read_router(state))
     }
@@ -284,10 +225,6 @@ impl RouteModule for BurnAfterReadModule {
 
 #[cfg(feature = "widgets")]
 impl RouteModule for WidgetModule {
-    fn manifest_for_profile(&self, _flags: &ProfileFlags) -> Vec<RouteEntry> {
-        widget::widget_route_manifest()
-    }
-
     fn merge_into(&self, router: Router<AppState>, _state: AppState) -> Router<AppState> {
         router.merge(widget::create_widget_router())
     }
@@ -295,10 +232,6 @@ impl RouteModule for WidgetModule {
 
 #[cfg(feature = "friends")]
 impl RouteModule for FriendModule {
-    fn manifest_for_profile(&self, _flags: &ProfileFlags) -> Vec<RouteEntry> {
-        friend_room::friend_route_manifest()
-    }
-
     fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState> {
         router.merge(friend_room::create_friend_router(state))
     }
@@ -306,10 +239,6 @@ impl RouteModule for FriendModule {
 
 #[cfg(feature = "voice-extended")]
 impl RouteModule for VoiceModule {
-    fn manifest_for_profile(&self, _flags: &ProfileFlags) -> Vec<RouteEntry> {
-        voice::voice_route_manifest()
-    }
-
     fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState> {
         router.merge(voice::create_voice_router(state))
     }
@@ -317,10 +246,6 @@ impl RouteModule for VoiceModule {
 
 #[cfg(feature = "external-services")]
 impl RouteModule for ExternalServiceModule {
-    fn manifest_for_profile(&self, _flags: &ProfileFlags) -> Vec<RouteEntry> {
-        external_service::external_service_route_manifest()
-    }
-
     fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState> {
         router.merge(external_service::create_external_service_router(state))
     }
@@ -329,65 +254,81 @@ impl RouteModule for ExternalServiceModule {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::web::routes::derived_routes::derived_route_manifest;
+    use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
+
+    /// Widest possible feature ceiling: `oidc_enabled` selects
+    /// [`RouteProfile::Oidc`], the highest rank, so every `#[cfg]`-visible row
+    /// in the derived table is surfaced.
+    fn all_routes() -> Vec<RouteEntry> {
+        derived_route_manifest(&ProfileFlags { oidc_enabled: true, worker_enabled: true, saml_enabled: true })
+    }
 
     fn contains(entries: &[RouteEntry], method: &Method, path: &str) -> bool {
         entries.iter().any(|entry| entry.method == method && entry.path == path)
     }
 
+    /// The derived table must carry the friend routes when `friends` is on.
     #[cfg(feature = "friends")]
     #[test]
     fn friend_manifest_declares_core_routes() {
-        let entries = friend_room::friend_route_manifest();
+        let entries = all_routes();
         assert!(contains(&entries, &Method::GET, "/_matrix/client/v3/friends"));
         assert!(contains(&entries, &Method::DELETE, "/_matrix/client/v1/friends/{user_id}"));
     }
 
+    /// The derived table must carry the SAML routes when `saml-sso` is on.
     #[cfg(feature = "saml-sso")]
     #[test]
     fn saml_manifest_declares_core_routes() {
-        let entries = saml::saml_route_manifest();
+        let entries = all_routes();
         assert!(contains(&entries, &Method::GET, "/_matrix/client/v3/login/sso/redirect/saml"));
         assert!(contains(&entries, &Method::POST, "/_synapse/admin/v1/saml/metadata/refresh"));
     }
 
+    /// The derived table must carry the CAS routes when `cas-sso` is on.
     #[cfg(feature = "cas-sso")]
     #[test]
     fn cas_manifest_declares_core_routes() {
-        let entries = cas::cas_route_manifest();
+        let entries = all_routes();
         assert!(contains(&entries, &Method::GET, "/login"));
         assert!(contains(&entries, &Method::GET, "/_synapse/admin/v1/cas/services"));
     }
 
+    /// The derived table must carry the widget routes when `widgets` is on.
     #[cfg(feature = "widgets")]
     #[test]
     fn widget_manifest_declares_core_routes() {
-        let entries = widget::widget_route_manifest();
+        let entries = all_routes();
         assert!(contains(&entries, &Method::POST, "/_matrix/client/v1/widgets"));
         assert!(contains(&entries, &Method::GET, "/_matrix/client/v1/widgets/{widget_id}/config"));
     }
 
+    /// The derived table must carry the burn-after-read routes when the feature is on.
     #[cfg(feature = "burn-after-read")]
     #[test]
     fn burn_after_read_manifest_declares_core_routes() {
-        let entries = burn_after_read::burn_after_read_route_manifest();
+        let entries = all_routes();
         assert!(contains(&entries, &Method::PUT, "/_matrix/client/v1/rooms/{room_id}/burn"));
         assert!(contains(&entries, &Method::GET, "/_matrix/client/v1/user/burn/stats"));
     }
 
+    /// The derived table must carry the voice routes when `voice-extended` is on.
     #[cfg(feature = "voice-extended")]
     #[test]
     fn voice_manifest_declares_core_routes() {
-        let entries = voice::voice_route_manifest();
+        let entries = all_routes();
         assert!(contains(&entries, &Method::GET, "/_matrix/client/v3/voice/config"));
         assert!(contains(&entries, &Method::GET, "/_matrix/client/v1/voice/config"));
         assert!(contains(&entries, &Method::POST, "/_matrix/client/v3/voice/upload"));
     }
 
+    /// The derived table must carry the external-service routes when the feature is on.
     #[cfg(feature = "external-services")]
     #[test]
     fn external_service_manifest_declares_core_routes() {
-        let entries = external_service::external_service_route_manifest();
+        let entries = all_routes();
         assert!(contains(&entries, &Method::GET, "/_synapse/admin/v1/external_services"));
         assert!(contains(&entries, &Method::POST, "/_synapse/external/webhook/{service_id}"));
     }

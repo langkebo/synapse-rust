@@ -309,18 +309,10 @@ mod tests {
 
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
 
-        // B-4: Auto-derive exempt paths from route manifests, mirroring what
+        // B-4: Auto-derive exempt paths from route metadata, mirroring what
         // `create_router` does at startup.
-        let mut exempt_paths: Vec<&'static str> = Vec::new();
-        exempt_paths.extend(
-            crate::web::routes::sync::sync_route_manifest().into_iter().filter(|e| e.rate_limit_exempt).map(|e| e.path),
-        );
-        exempt_paths.extend(
-            crate::web::routes::sliding_sync::sliding_sync_route_manifest()
-                .into_iter()
-                .filter(|e| e.rate_limit_exempt)
-                .map(|e| e.path),
-        );
+        let exempt_paths: Vec<&'static str> =
+            crate::web::declared_ledger_all().iter().filter(|e| e.rate_limit_exempt).map(|e| e.path).collect();
         let state = AppState::new(services, cache).with_rate_limit_exempt_paths(exempt_paths);
 
         let app = Router::new()

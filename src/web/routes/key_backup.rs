@@ -1,11 +1,9 @@
-use super::route_ledger::{expand_under_prefixes, RouteEntry};
 use super::{AppState, AuthenticatedUser};
 use crate::common::ApiError;
 use crate::web::routes::context::E2eeRoomContext;
 use crate::web::routes::extractors::RoomId;
 use axum::{
     extract::{Path, Query, State},
-    http::Method,
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
@@ -14,64 +12,6 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use validator::Validate;
-
-/// Nest prefixes under which `create_key_backup_router` mounts its internal
-/// router. Kept as a module-level constant so both the [`Router`] assembly
-/// below and [`key_backup_route_manifest`] cannot drift apart.
-const NEST_PREFIXES: &[&str] = &["/_matrix/client/v1", "/_matrix/client/v3"];
-
-/// Manifest entry for every `(method, relative_path)` registered by
-/// `create_key_backup_router`. Mirrors the `.route(...)` calls in
-/// [`create_key_backup_router`] one-for-one — new routes there MUST add a
-/// matching entry here.
-fn relative_routes() -> Vec<(Method, &'static str)> {
-    vec![
-        // Backup version lifecycle.
-        (Method::GET, "/room_keys/version"),
-        (Method::POST, "/room_keys/version"),
-        (Method::GET, "/room_keys/version/{version}"),
-        (Method::PUT, "/room_keys/version/{version}"),
-        (Method::DELETE, "/room_keys/version/{version}"),
-        // Spec endpoints — version is a `?version=` query parameter.
-        (Method::GET, "/room_keys/keys"),
-        (Method::PUT, "/room_keys/keys"),
-        (Method::DELETE, "/room_keys/keys"),
-        (Method::GET, "/room_keys/keys/{room_id}"),
-        (Method::PUT, "/room_keys/keys/{room_id}"),
-        (Method::DELETE, "/room_keys/keys/{room_id}"),
-        (Method::GET, "/room_keys/keys/{room_id}/{session_id}"),
-        (Method::PUT, "/room_keys/keys/{room_id}/{session_id}"),
-        (Method::DELETE, "/room_keys/keys/{room_id}/{session_id}"),
-        // Legacy / MSC-compatibility: version is a path segment.
-        (Method::GET, "/room_keys/{version}/keys"),
-        (Method::PUT, "/room_keys/{version}/keys"),
-        (Method::DELETE, "/room_keys/{version}/keys"),
-        (Method::GET, "/room_keys/{version}/keys/{room_id}"),
-        (Method::PUT, "/room_keys/{version}/keys/{room_id}"),
-        (Method::DELETE, "/room_keys/{version}/keys/{room_id}"),
-        (Method::GET, "/room_keys/{version}/keys/{room_id}/{session_id}"),
-        (Method::PUT, "/room_keys/{version}/keys/{room_id}/{session_id}"),
-        (Method::DELETE, "/room_keys/{version}/keys/{room_id}/{session_id}"),
-        // Recovery / verify helpers.
-        (Method::POST, "/room_keys/recover"),
-        (Method::GET, "/room_keys/recovery/{version}/progress"),
-        (Method::GET, "/room_keys/verify/{version}"),
-        (Method::POST, "/room_keys/batch_recover"),
-        (Method::GET, "/room_keys/recover/{version}/{room_id}"),
-        (Method::GET, "/room_keys/recover/{version}/{room_id}/{session_id}"),
-        // Export / import.
-        (Method::GET, "/room_keys/export"),
-        (Method::GET, "/room_keys/export/{version}"),
-        (Method::POST, "/room_keys/import"),
-        (Method::POST, "/room_keys/import/{version}"),
-        // /keys/backup/secure routes are in e2ee_routes.rs
-    ]
-}
-
-/// Manifest for the route ledger (§R4 / §O2 in SPEC_ALIGNMENT_PLAN_2026-05-01).
-pub fn key_backup_route_manifest() -> Vec<RouteEntry> {
-    expand_under_prefixes("key_backup", NEST_PREFIXES, &relative_routes())
-}
 
 /// See [`create_key_backup_router`].
 pub fn create_key_backup_router(state: AppState) -> Router<AppState> {
@@ -995,16 +935,24 @@ mod tests {
     }
 
     #[test]
-    fn test_relative_routes_all_room_keys_prefixed() {
-        let routes = super::relative_routes();
+    fn test_key_backup_routes_all_room_keys_prefixed() {
+        // Sourced from the derived route table — the hand-copied
+        // `relative_routes()` helper it replaced is gone with the manifests.
+        let ledger = crate::web::routes::assembly::declared_ledger_all();
+        let routes: Vec<_> = ledger.iter().filter(|e| e.registered_by == "key_backup").collect();
         assert!(!routes.is_empty());
-        for (_, path) in &routes {
-            assert!(path.starts_with("/room_keys/"), "unexpected path: {path}");
+        for entry in &routes {
+            assert!(entry.path.contains("/room_keys/"), "unexpected path: {}", entry.path);
         }
         // 去重：同一 (method, path) 不应重复注册。
         let mut seen = std::collections::HashSet::new();
-        for (method, path) in &routes {
-            assert!(seen.insert((method.clone(), *path)), "duplicate route: {method} {path}");
+        for entry in &routes {
+            assert!(
+                seen.insert((entry.method.clone(), entry.path)),
+                "duplicate route: {} {}",
+                entry.method,
+                entry.path
+            );
         }
     }
 }

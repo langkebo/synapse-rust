@@ -30,40 +30,6 @@ pub fn create_server_router(_state: AppState) -> Router<crate::web::routes::AppS
         .route("/_synapse/admin/v1/invite/allowlist", get(get_invite_allowlist_admin))
 }
 
-/// See [`admin_server_route_manifest`].
-pub fn admin_server_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-    [
-        // `create_server_router` registers both of these (`server.rs:16,18`);
-        // the list carried every sibling but these two, so GET
-        // /_synapse/admin/v1/{server,whoami} were reachable yet absent from the
-        // contract (S-14, B2-4).
-        (Method::GET, "/_synapse/admin/v1/server"),
-        (Method::GET, "/_synapse/admin/v1/whoami"),
-        (Method::GET, "/_synapse/admin/v1/server_version"),
-        (Method::POST, "/_synapse/admin/v1/purge_media_cache"),
-        (Method::POST, "/_synapse/admin/v1/restart"),
-        (Method::GET, "/_synapse/admin/v1/statistics"),
-        (Method::GET, "/_synapse/admin/v1/status"),
-        (Method::GET, "/_synapse/admin/v1/whois/{user_id}"),
-        (Method::GET, "/_synapse/admin/v1/whois/{user_id}/{device_id}"),
-        (Method::GET, "/_synapse/admin/v1/health"),
-        (Method::GET, "/_synapse/admin/v1/config"),
-        (Method::GET, "/_synapse/admin/v1/experimental_features"),
-        (Method::GET, "/_synapse/admin/v1/jitsi/config"),
-        (Method::GET, "/_synapse/admin/v1/invite/blocklist"),
-        (Method::GET, "/_synapse/admin/v1/invite/allowlist"),
-        // The `/_synapse/admin/info` endpoint is registered by the
-        // top-level `create_admin_module_router` with `server::get_admin_info`
-        // — declared here because it shares the module's namespace.
-        (Method::GET, "/_synapse/admin/info"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "admin::server"))
-    .collect()
-}
-
 /// See [`get_admin_info_compat`].
 #[axum::debug_handler]
 pub async fn get_admin_info_compat(admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
@@ -406,12 +372,10 @@ pub async fn get_invite_allowlist_admin(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn backups_route_not_in_manifest() {
-        let manifest = admin_server_route_manifest();
-        let has_backups = manifest.iter().any(|e| e.path == "/_synapse/admin/v1/backups");
+        let ledger = crate::web::routes::assembly::declared_ledger_all();
+        let has_backups = ledger.iter().any(|e| e.path == "/_synapse/admin/v1/backups");
         assert!(
             !has_backups,
             "backups endpoint should not be registered — backups are managed by external infrastructure"

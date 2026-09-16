@@ -237,7 +237,7 @@
 | # | 改动 | 验证 |
 |---|---|---|
 | B2-1 🔄 | **派生器**：原处方（`RouteLedger::from_router(router)`）**已证不可行**（axum 0.8.9 无路由枚举 API，见 §3.1），D4 裁定改走 B 路：让源码提取器成为派生源。**第 1 步已完成**（§3.4）：提取器现有 per-lane（`#[cfg]`，特征集读自 `Cargo.toml`）与 per-profile（从 `merge_into` 读出的运行时 flag guard）建模，能**逐条精确复现六组 fixture 集合**（golden 1047/1058/1065、sdk 1127/1138/1146） | 六组集合精确相等，已进 `EXTRACT_STRICT=1` 硬门禁；`test_extract_registered.py` 39 项检查 + 4 项变异自证。**源码级变异实测**：改了 `mod voice` 的 cfg 后 union 门禁四项指标全绿（1146/0/0/0）而新门禁 EXIT=1 点名三条 profile —— 证明"承诺在编译不出它的泳道里"这类谎 union 数学上看不见。**剩余**：生成派生物 → 删 244 处手抄 → B2-3 幂等守卫（§3.3 第 2/3/5 步） |
-| B2-2 | **删手抄**：删除 68 个文件的 `*_route_manifest()`（`assembly.rs` 内 54 处引用随之消失）；手写点只剩 979 处 `.route()` | `grep -rl '_route_manifest' src/` = 0 |
+| B2-2 ✅ | **删手抄**：删除全部手抄 `*_route_manifest()` 助手；手写点只剩 979 处 `.route()` | **实测（2026-09-16）**：删除 **67 个** `*_route_manifest()` 定义 + 随之孤儿的 `*_relative_routes()` 助手与 `*_NEST_PREFIXES` 常量，代码净 −6422 行（88 文件，+2151 / −8573）。判据按字面口径修订为 `grep -rn 'fn [a-z_0-9]*_route_manifest(' src/ \| wc -l` = **1**（只剩 `derived_route_manifest`）—— 原写法 `grep -rl '_route_manifest' src/ = 0` 在 `derived_route_manifest` 命名确定后**数学上不可能为 0**，故收紧为"除派生器外无 `*_route_manifest()` 函数"（另：`declared_route_manifest_for*` 两个访问器重命名为 `declared_ledger_for(_profile)`，并新增 `declared_ledger_all()`）。**验证**：`cargo fmt --check` 0 diff；`python3 scripts/contract/gen_derived_routes.py --check` 绿（1148 行、6 组 fixture 全复现）；`cargo test --lib --features test-utils web::routes` **450 passed / 0 failed**；`cargo test --test unit --features test-utils` 相关切片 **521 passed / 0 failed**。详见 §3.6 |
 | B2-3 | **幂等守卫**：同一二进制启动两次导出的 ledger **逐字节相等** | 新增测试，故意引入 `HashMap` 迭代序 → 红 |
 | B2-4a ✅ | **正向契约守卫（S-14）**：断言"真实 router ⊆ ledger"（即不存在已服务却未登记的端点） | 已完成：先量出真实缺口 —— 以 golden + sdk 两条 fixture 泳道的**并集**为完备性 oracle，`derived \ ledger` 实测 **22 条**（原先按 golden 单泳道算是 102 条，其中 80 条是 feature 门控噪声，把真缺口埋掉了）。22 条逐条核实为真后全部补进所属 manifest；现 `derived \ ledger = 0`、`ledger \ derived = 0` 双向闭合，并在 `EXTRACT_STRICT=1` 下成为硬门禁（原实现把这组差集**只打印不拦截**——见原注释"reports rather than enforced"）。守卫测试新增 `check_positive_contract`（含"谓词非空转"自检）。**附带**：同一工作窗内发现并修复了 S-16 —— `tests/integration/snapshots/route_ledger_{default,worker_enabled}.snapshot` 是**手改而非重生成**的（1378 行含 250 条完全重复、22 条生产上 404 的 v3 friends 声明），该集成快照用例在 `main` 上本来就**是红的**；已带库重生成至 1127/1138 并逐项对账闭合（见 `PROJECT_ACTUAL_ISSUES §13`）。**剩余**：B2-4b 的"SDK 声明消费的全部端点 ⊆ ledger"需解析 SDK manager 源码字面量，另立条目 |
 | B2-4b ✅ | **SDK 侧正向守卫**：断言 SDK manager 源码里实际调用的端点 ⊆ 已被 ledger 覆盖（方向与 B2-4a 相反：B2-4a 防"后端偷偷多出端点"，本条防"后端欠 SDK 端点"） | 已完成：`scripts/contract/check_sdk_route_coverage.py`（SDK 缺席时只报告并跳过，`SDK_CONTRACT_STRICT=1` 升为硬失败）。**判据**：只读 manager 源码的 `encodeUri("…")` 字面量（117 处），**不读** `__generated__/route-table.ts`——后者"只增不减"，B1-2 已实测它在 r0 拆除后仍留着 r0 条目。**匹配**：首段锚定对齐（`path_match`），不猜前缀——原型期用"取附近 `prefix:`"会把后一个请求的 `VendorPrefix` 错配到前一个 v3 路径上，假阴假阳都有；改为「以 SDK 相对路径首段在 ledger 里找落点，落点后剩余段数必须相等，逐段比对（`{}` 通配、字面量必须相同）」后，未覆盖数从宽松匹配的 8 条收敛到**2 条**。**实测**：117 站点中 35 个能解出唯一 method（其余 48 处是 `client-*-requests.ts` 一族的纯路径构造器，method 由调用方给），方法校验 **0 不匹配**。**变异自证 5 项**：① 伪造端点未被拒 → 红；② 谓词退化回"段数相等整段比较"→ 自检红；③ allowlist 塞假条目 → 报 stale 红；④ 条目缺理由 → 解析期报错；⑤ 在 SDK 副本里注入不存在的调用 + 把 `Method.Post` 改成 `Delete` → 分别按 `文件:行号` 精确报出"未覆盖"与"方法不匹配"。**门禁接线**：`check_route_contract.sh` 新增该步骤（`bash scripts/contract/check_route_contract.sh` 现 4 段全绿）。**不依赖 SDK 的部分刻意前置**：谓词自检 + 豁免清单卫生检查（被豁免的形状必须**仍然不被 ledger 服务**——否则后端补上端点后豁免会静默吃掉真实不一致）在任何环境都跑；CI 只 checkout 本仓、拿不到 SDK，这两项是那时唯一的护栏，且 SKIPPED 横幅明写"本次结论不覆盖 SDK ⊆ ledger"。**结论**：`SDK 调用 ⊆ ledger` 当前成立，2 条已核实缺口进豁免清单并各带 follow-up（见 H-16/H-17） |
@@ -448,6 +448,49 @@ ledger_export_sdk  default 1127  worker 1138  all 1146
 
 **因此 step 3 的判据要加一条**：`grep -rn 'with_auth\|with_rate_limit_exempt' src/` = 0
 之前，`ledger_annotations.txt` 必须已落地并被 fidelity 守卫覆盖，否则删 manifest 会静默丢注解。
+
+---
+
+#### §3.6 B2-2 删手抄：实测记录（2026-09-16）
+
+**做了什么。** 删掉全部手抄投影，让 `derived_routes.rs` 成为路由元数据的唯一来源：
+
+| 类别 | 数量 | 说明 |
+|---|---|---|
+| `*_route_manifest()` 定义 | **67** | 含 `assembly.rs` 的 `base_` / `assembly_compat_` / `vendor_` / `top_level_inline_` 四个，以及 `oidc_fallback_manifest` / `oidc_route_manifest_for` 两个近亲访问器 |
+| 随之孤儿的 `*_relative_routes()` 助手 | **17** | 只被被删的 manifest 调用（如 `space_relative_routes`、`room_v3_only_relative_routes`） |
+| 随之孤儿的 `*_NEST_PREFIXES` 常量 | **10** | 同上 |
+| 净行数 | **−6422**（88 文件，+2151 / −8573；含派生表重排） | |
+
+`RouteModule` trait 只剩 `merge_into()`：`manifest_for_profile()` / `manifest_for()`
+两个方法及其 11 处 impl 一并删除——元数据不再由装配层声明。
+
+**访问器重命名。** `declared_route_manifest_for` → `declared_ledger_for`、
+`declared_route_manifest_for_profile` → `declared_ledger_for_profile`，并新增
+`declared_ledger_all()`（最宽 profile，供能力门控与契约测试取全量）。理由：它们返回的是
+`RouteLedger` 而非"manifest"，且新名字让 B2-2 的判据可以字面求值。
+
+**判据修订（必须记录的一处口径修正）。** 原判据 `grep -rl '_route_manifest' src/ = 0`
+在派生器被命名为 `derived_route_manifest` 之后**数学上不可能为 0**。修订为：
+
+```bash
+grep -rn 'fn [a-z_0-9]*_route_manifest(' src/ | wc -l   # = 1（仅 derived_route_manifest）
+```
+
+**注解安全。** §3.5 要求的 `ledger_annotations.txt` 已先行落地：5 条 `rate_limit_exempt`
+与 1 条 `auth` 在删 manifest **之前**就搬进了注解表，所以删除没有丢注解。实测佐证：
+`route_ledger::tests::collect_exempt_paths_from_real_manifests` 仍断言 6 条 sync 路径豁免，绿。
+
+**顺带修掉的一处门禁互锁（P0 级）。** `cargo fmt` 与 `gen_derived_routes.py --check`
+原本**互斥**：生成器按手排格式输出并做字节比较，而 rustfmt 会把 `RouteEntry::new(...)`
+压成单行、把 `#[cfg]` 缩进一格——任一方跑过，另一方就红。现 `emit()` 在写盘前把输出过一遍
+同一份 rustfmt（`rustfmt.toml` + edition 2021），两个门禁同时为绿：
+`cargo fmt --check` 0 diff、`gen_derived_routes.py --check` up to date。
+
+**一处测试语义迁移。** `sync_rate_limit_config_tests::sync_routes_are_still_exempt_from_the_generic_ip_limiter`
+原来是"扫 `src/web/routes/sync.rs` 源码文本含 `with_rate_limit_exempt(true)`"。helper 删除后
+该断言必然失败，已改为直接断言派生 ledger 的 `rate_limit_exempt` 集合——比扫源码更靠近
+限流中间件真正读的东西。
 
 ---
 

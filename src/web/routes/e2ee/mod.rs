@@ -5,4 +5,4 @@ pub mod devices;
 /// The `keys` module.
 pub mod keys;
 
-pub use keys::{create_e2ee_router, e2ee_route_manifest};
+pub use keys::create_e2ee_router;

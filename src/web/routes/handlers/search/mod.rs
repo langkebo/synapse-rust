@@ -41,26 +41,6 @@ pub fn create_search_router(state: AppState) -> Router<AppState> {
     Router::new().nest("/_matrix/client/v1", v1_router).nest("/_matrix/client/v3", v3_router).with_state(state)
 }
 
-/// See [`search_route_manifest`].
-pub fn search_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::{expand_under_prefixes, RouteEntry};
-    use axum::http::Method;
-
-    let search_compat: &[(Method, &'static str)] =
-        &[(Method::POST, "/search"), (Method::POST, "/search_recipients"), (Method::POST, "/search_rooms")];
-    let room_context: &[(Method, &'static str)] = &[(Method::GET, "/rooms/{room_id}/context/{event_id}")];
-    let v1_extras: &[(Method, &'static str)] =
-        &[(Method::GET, "/rooms/{room_id}/hierarchy"), (Method::GET, "/rooms/{room_id}/timestamp_to_event")];
-    let v3_extras: &[(Method, &'static str)] = &[(Method::GET, "/rooms/{room_id}/hierarchy")];
-
-    let mut entries: Vec<RouteEntry> = expand_under_prefixes("search", &["/_matrix/client/v1"], room_context);
-    entries.extend(expand_under_prefixes("search", &["/_matrix/client/v1"], v1_extras));
-    entries.extend(expand_under_prefixes("search", &["/_matrix/client/v3"], search_compat));
-    entries.extend(expand_under_prefixes("search", &["/_matrix/client/v3"], room_context));
-    entries.extend(expand_under_prefixes("search", &["/_matrix/client/v3"], v3_extras));
-    entries
-}
-
 #[cfg(test)]
 mod tests {
     #[test]

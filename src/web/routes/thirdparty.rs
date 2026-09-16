@@ -37,32 +37,6 @@ pub fn create_thirdparty_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
-const THIRDPARTY_COMPAT_PREFIXES: &[&str] = &["/_matrix/client/v3"];
-
-fn thirdparty_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
-    use axum::http::Method;
-    vec![
-        (Method::GET, "/thirdparty/protocols"),
-        (Method::GET, "/thirdparty/protocol/{protocol}"),
-        (Method::GET, "/thirdparty/location/{protocol}"),
-        (Method::GET, "/thirdparty/user/{protocol}"),
-    ]
-}
-
-/// See [`thirdparty_route_manifest`].
-pub fn thirdparty_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::{expand_under_prefixes, RouteEntry};
-    use axum::http::Method;
-
-    let mut out = expand_under_prefixes("thirdparty", THIRDPARTY_COMPAT_PREFIXES, &thirdparty_compat_relative_routes());
-    out.extend(
-        [(Method::GET, "/_matrix/client/v3/thirdparty/location"), (Method::GET, "/_matrix/client/v3/thirdparty/user")]
-            .into_iter()
-            .map(|(m, p)| RouteEntry::new(m, p, "thirdparty")),
-    );
-    out
-}
-
 async fn get_protocols(
     State(ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,

@@ -183,38 +183,6 @@ pub fn cas_routes(state: AppState) -> Router<AppState> {
     public_routes.merge(standard_admin_routes).merge(legacy_admin_routes).with_state(state)
 }
 
-/// See [`cas_route_manifest`].
-pub fn cas_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-
-    [
-        (Method::GET, "/login"),
-        (Method::GET, "/serviceValidate"),
-        (Method::GET, "/proxyValidate"),
-        (Method::GET, "/proxy"),
-        (Method::GET, "/p3/serviceValidate"),
-        (Method::GET, "/logout"),
-        // `cas_routes` registers this on the public router (`cas.rs:147`) but
-        // the list omitted it, so the CAS SSO redirect entry point was served
-        // while absent from the contract (S-14, B2-4).
-        (Method::GET, "/_matrix/client/v3/login/sso/redirect/cas"),
-        (Method::POST, "/_synapse/admin/v1/cas/services"),
-        (Method::GET, "/_synapse/admin/v1/cas/services"),
-        (Method::DELETE, "/_synapse/admin/v1/cas/services/{service_id}"),
-        (Method::POST, "/_synapse/admin/v1/cas/users/{user_id}/attributes"),
-        (Method::GET, "/_synapse/admin/v1/cas/users/{user_id}/attributes"),
-        (Method::POST, "/admin/services"),
-        (Method::GET, "/admin/services"),
-        (Method::DELETE, "/admin/services/{service_id}"),
-        (Method::POST, "/admin/users/{user_id}/attributes"),
-        (Method::GET, "/admin/users/{user_id}/attributes"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "cas"))
-    .collect()
-}
-
 async fn legacy_cas_admin_alias_deprecation_middleware(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
 

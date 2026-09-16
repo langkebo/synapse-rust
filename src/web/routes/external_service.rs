@@ -463,40 +463,6 @@ pub fn create_external_service_router(state: AppState) -> Router<AppState> {
     public_routes.merge(admin_routes).merge(admin_v1_routes).merge(client_v1_routes).with_state(state)
 }
 
-/// See [`external_service_route_manifest`].
-pub fn external_service_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-
-    let entries: Vec<RouteEntry> = [
-        (Method::GET, "/_synapse/admin/v1/external_services"),
-        (Method::POST, "/_synapse/admin/v1/external_services"),
-        (Method::GET, "/_synapse/admin/v1/external_services/{as_id}/health"),
-        (Method::POST, "/_synapse/admin/v1/external_services/{as_id}/health/check"),
-        (Method::PUT, "/_synapse/admin/v1/external_services/{as_id}"),
-        (Method::DELETE, "/_synapse/admin/v1/external_services/{as_id}"),
-        (Method::GET, "/_synapse/admin/v1/external_services/health"),
-        (Method::POST, "/_synapse/external/trendradar/{service_id}/webhook"),
-        (Method::POST, "/_synapse/external/webhook/{service_id}"),
-        (Method::GET, "/_matrix/admin/v1/external_services"),
-        (Method::POST, "/_matrix/admin/v1/external_services"),
-        (Method::PUT, "/_matrix/admin/v1/external_services/{as_id}"),
-        (Method::DELETE, "/_matrix/admin/v1/external_services/{as_id}"),
-        (Method::GET, "/_matrix/admin/v1/external_services/health"),
-        (Method::GET, "/_matrix/client/v1/external_services/health"),
-        (Method::PUT, "/_matrix/client/v1/external_services/{service_id}"),
-        (Method::DELETE, "/_matrix/client/v1/external_services/{service_id}"),
-        (Method::GET, "/_matrix/vendor/v1/external_services/health"),
-        (Method::PUT, "/_matrix/vendor/v1/external_services/{service_id}"),
-        (Method::DELETE, "/_matrix/vendor/v1/external_services/{service_id}"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "external_service"))
-    .collect();
-
-    entries
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

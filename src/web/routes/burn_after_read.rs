@@ -72,41 +72,6 @@ pub fn create_burn_after_read_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
-/// See [`burn_after_read_route_manifest`].
-pub fn burn_after_read_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-
-    [
-        (Method::PUT, "/_matrix/client/v1/rooms/{room_id}/burn"),
-        (Method::GET, "/_matrix/client/v1/rooms/{room_id}/burn"),
-        (Method::GET, "/_matrix/client/v1/rooms/{room_id}/burn/pending"),
-        (Method::POST, "/_matrix/client/v1/rooms/{room_id}/burn/{event_id}"),
-        (Method::DELETE, "/_matrix/client/v1/rooms/{room_id}/burn/{event_id}"),
-        (Method::PUT, "/_matrix/client/v1/user/burn/config"),
-        (Method::GET, "/_matrix/client/v1/user/burn/stats"),
-        // v3 paths
-        (Method::PUT, "/_matrix/client/v3/rooms/{room_id}/burn"),
-        (Method::GET, "/_matrix/client/v3/rooms/{room_id}/burn"),
-        (Method::GET, "/_matrix/client/v3/rooms/{room_id}/burn/pending"),
-        (Method::POST, "/_matrix/client/v3/rooms/{room_id}/burn/{event_id}"),
-        (Method::DELETE, "/_matrix/client/v3/rooms/{room_id}/burn/{event_id}"),
-        (Method::PUT, "/_matrix/client/v3/user/burn/config"),
-        (Method::GET, "/_matrix/client/v3/user/burn/stats"),
-        // vendor paths
-        (Method::PUT, "/_matrix/vendor/v1/rooms/{room_id}/burn"),
-        (Method::GET, "/_matrix/vendor/v1/rooms/{room_id}/burn"),
-        (Method::GET, "/_matrix/vendor/v1/rooms/{room_id}/burn/pending"),
-        (Method::POST, "/_matrix/vendor/v1/rooms/{room_id}/burn/{event_id}"),
-        (Method::DELETE, "/_matrix/vendor/v1/rooms/{room_id}/burn/{event_id}"),
-        (Method::PUT, "/_matrix/vendor/v1/user/burn/config"),
-        (Method::GET, "/_matrix/vendor/v1/user/burn/stats"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "burn_after_read"))
-    .collect()
-}
-
 /// Enable burn after read for a room
 /// PUT /_matrix/client/v1/rooms/{room_id}/burn
 pub async fn enable_burn(

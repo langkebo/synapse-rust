@@ -38,24 +38,6 @@ pub fn create_sliding_sync_router(_state: AppState) -> Router<AppState> {
         .route("/_matrix/client/unstable/org.matrix.simplified_msc3575/sync", post(sliding_sync))
 }
 
-/// See [`sliding_sync_route_manifest`].
-pub fn sliding_sync_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-    [
-        (Method::POST, "/_matrix/client/v1/sync"),
-        (Method::POST, "/_matrix/client/v4/sync"),
-        (Method::POST, "/_matrix/client/unstable/org.matrix.msc3575/sync"),
-        (Method::POST, "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"),
-    ]
-    .into_iter()
-    // B-4: All sliding sync endpoints implement their own per-user+device
-    // rate limiter inside the handler. Mark them as exempt from IP-level
-    // rate limiting so the exemption list is auto-derived from the ledger.
-    .map(|(m, p)| RouteEntry::new(m, p, "sliding_sync").with_rate_limit_exempt(true))
-    .collect()
-}
-
 /// S15 / B-3: 限流后端（Redis）故障时的决策，与 `/sync` 处理器（handlers/sync.rs）
 /// 保持同一 fail-open 语义：fail_open_on_error=true 放行，否则返回 500。
 fn rate_limit_decision_on_error(

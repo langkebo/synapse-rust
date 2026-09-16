@@ -14,16 +14,20 @@
 //! Upstream Python synapse avoids this class of bug because every REST
 //! servlet module registers itself through `register_servlets(hs, http_server)`
 //! and the integration harness exercises every documented endpoint. The
-//! ledger here is the analogous construct for this codebase: each router
-//! module exports a `*_manifest()` function that declares, verbatim, the
-//! `(method, absolute_path)` tuples it will register on the live server.
-//! `assembly::declared_route_manifest_for(&AppState)` combines the always-on
-//! manifests with state-aware route modules before `create_router` calls
-//! [`RouteLedger::validate`]. Duplicates (same method + same path, from any
-//! combination of routers) abort startup with a diagnostic that lists every
-//! offending entry. The final count is logged as `route manifest validated:
-//! N declared (method, path) tuples, 0 duplicates`, satisfying the
-//! [§6 verification] requirement.
+//! ledger here is the analogous construct for this codebase: the route table
+//! in `derived_routes.rs` declares, verbatim, the `(method, absolute_path)`
+//! tuples the `.route(...)` / `.nest(...)` sites register on the live server.
+//! It is *generated*, not hand-written — `scripts/contract/extract_registered.py`
+//! scrapes the real registration surface and
+//! `scripts/contract/gen_derived_routes.py` materialises it, so a hand-copied
+//! manifest can no longer drift away from the router it describes.
+//! `assembly::declared_ledger_for(&AppState)` filters that table by the runtime
+//! [`ProfileFlags`](crate::web::routes::route_module::ProfileFlags) before
+//! `create_router` calls [`RouteLedger::validate`]. Duplicates (same method +
+//! same path, from any combination of routers) abort startup with a diagnostic
+//! that lists every offending entry. The final count is logged as
+//! `route manifest validated: N declared (method, path) tuples, 0 duplicates`,
+//! satisfying the [§6 verification] requirement.
 //!
 //! The manifest is *also* the source of truth for
 //! [`tests/integration/api_route_ledger_tests.rs`]: that test PATCH-probes
@@ -34,13 +38,21 @@
 //! ## Contributor rule
 //!
 //! Any PR that adds or changes a feature-gated route must update the ledger in
-//! the same change. Concretely, that means either:
+//! the same change. Concretely, that means: register the route (`.route(...)` /
+//! `.nest(...)` as usual) and then regenerate the derived table so the ledger
+//! picks it up:
 //!
-//! - wire the feature through [`crate::web::routes::route_module::RouteModule`]
-//!   and return the new entries from `manifest_for(&AppState)`, or
-//! - extend the owning module's explicit `*_route_manifest()` /
-//!   `assembly_compat_manifest()` output when the route is intentionally kept
-//!   outside `route_module`.
+//! ```text
+//! python3 scripts/contract/gen_derived_routes.py
+//! ```
+//!
+//! `scripts/contract/check_route_contract.sh` fails if the derived table or
+//! `docs/synapse-rust/ROUTE_CONTRACT.md` has drifted, so a new route cannot
+//! silently stay invisible to the ledger.
+//!
+//! Annotations the `.route()` source cannot express (`rate_limit_exempt`,
+//! `auth`) live in `scripts/contract/ledger_annotations.txt`; `registered_by`
+//! labels live in `scripts/contract/ledger_origins.txt`.
 //!
 //! Do not merge a new runtime/compile-time gated route that is only wired in
 //! Axum assembly code. If the route surface changes, the ledger, startup log,
@@ -169,6 +181,12 @@ impl RouteLedger {
     /// See [`iter`].
     pub fn iter(&self) -> impl Iterator<Item = &RouteEntry> {
         self.entries.iter()
+    }
+
+    /// Borrow the entries as a slice — for consumers that need `&[RouteEntry]`
+    /// (e.g. `collect::<Vec<_>>()`-free scanning in tests).
+    pub fn as_slice(&self) -> &[RouteEntry] {
+        &self.entries
     }
 
     /// See [`len`].
@@ -377,12 +395,11 @@ mod tests {
 
     #[test]
     fn collect_exempt_paths_from_real_manifests() {
-        // B-4: Verify that the sync and sliding_sync manifests produce the
+        // B-4: Verify that the sync and sliding_sync routes produce the
         // expected exempt paths — the same 6 paths that were previously
-        // hardcoded in `is_sync_rate_limit_exempt_path`.
-        let mut all_entries = Vec::new();
-        all_entries.extend(crate::web::routes::sync::sync_route_manifest());
-        all_entries.extend(crate::web::routes::sliding_sync::sliding_sync_route_manifest());
+        // hardcoded in `is_sync_rate_limit_exempt_path`. Sourced from the
+        // derived route table rather than per-module manifests.
+        let all_entries = crate::web::routes::assembly::declared_ledger_all();
 
         let exempt_paths: Vec<&str> = all_entries.iter().filter(|e| e.rate_limit_exempt).map(|e| e.path).collect();
 
@@ -403,7 +420,7 @@ mod tests {
             );
         }
 
-        // Non-sync routes from the sync manifest must NOT be exempt
+        // Non-sync routes must NOT be exempt
         let non_exempt: Vec<&str> = all_entries.iter().filter(|e| !e.rate_limit_exempt).map(|e| e.path).collect();
         assert!(non_exempt.contains(&"/_matrix/client/v3/events"), "events should not be exempt");
         assert!(non_exempt.contains(&"/_matrix/client/v3/joined_rooms"), "joined_rooms should not be exempt");

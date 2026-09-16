@@ -461,32 +461,6 @@ pub fn create_device_router() -> Router<AppState> {
     Router::new().nest("/_matrix/client/v3", compat_router)
 }
 
-/// Nest prefixes `create_device_router` mounts its inner compat router under.
-const DEVICE_NEST_PREFIXES: &[&str] = &["/_matrix/client/v3"];
-
-fn device_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
-    use axum::http::Method;
-    vec![
-        (Method::GET, "/devices"),
-        (Method::POST, "/delete_devices"),
-        (Method::GET, "/devices/{device_id}"),
-        (Method::PUT, "/devices/{device_id}"),
-        (Method::DELETE, "/devices/{device_id}"),
-        (Method::POST, "/keys/device_list_updates"),
-    ]
-}
-
-/// Manifest of every `(method, absolute_path)` tuple `create_device_router`
-/// registers. Mirrors `create_device_compat_router` one-for-one — adding a
-/// `.route(...)` there MUST add an entry here.
-pub fn device_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    crate::web::routes::route_ledger::expand_under_prefixes(
-        "device",
-        DEVICE_NEST_PREFIXES,
-        &device_compat_relative_routes(),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     #[test]

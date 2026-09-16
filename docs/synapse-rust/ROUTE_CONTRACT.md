@@ -1,8 +1,8 @@
 # synapse-rust 路由契约（Route Contract）
 
-> 自动生成于 2026-09-15，源 = `src/web/routes/**` 真实 `.route()` 注册面 + 各模块 `*_route_manifest()` 覆盖情况。
+> 自动生成于 2026-09-16，源 = `src/web/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs` 派生覆盖。
 >
-> 本文件是后端 HTTP 契约的**事实来源之一**（机器侧权威为 `src/web/routes/route_ledger.rs` 与各模块 manifest，启动时校验、集成测试 PATCH 探测）。人工文档（INDEX.md / API_COVERAGE_REPORT.md）须与之保持一致。
+> 本文件是后端 HTTP 契约的**事实来源之一**（机器侧权威为 `derived_routes.rs` 生成的 `RouteLedger`，启动时校验、集成测试 PATCH 探测）。人工文档（INDEX.md / API_COVERAGE_REPORT.md）须与之保持一致。
 >
 > ⚠️ MSC 编号在本仓的**实际语义**以 [`MSC_SEMANTICS.md`](MSC_SEMANTICS.md) 为唯一真相源；若干编号（4155 / 4204 / 3967）被借用承载了与官方提案不同的功能，按编号推断语义前请先查表。
 
@@ -10,7 +10,8 @@
 
 - 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1146**
 - 含路由注册的模块文件：**66**
-- 含 `*_route_manifest` 函数的模块：**67**
+- `derived_routes.rs` 中的 `registered_by` 标签：**74**
+- 已被派生表覆盖的模块：**66**
 
 > **路径为何是绝对的**：本清单由 `extract_registered.py` 从真实 router 构造解析得到，
 > 已递归应用 `.nest("/prefix", ..)` 与 `expand_under_prefixes(..)` 的前缀。
@@ -22,7 +23,7 @@
 
 | 对照源 | 含义 | 结果 |
 |---|---|---|
-| 各模块 `*_route_manifest()` 声明集 | 手写的绝对路径声明，不经过本解析器的前缀推导 | **声明而未解析出 = 0** |
+| `src/web/routes/derived_routes.rs` 派生表 | 由同一份 `.route()` 注册面机器生成，启动时按 `ProfileFlags` 过滤 | **本清单有而派生表缺 = 0** |
 | `tests/unit/fixtures/ledger_export/*.json` | 由真实 Rust 装配（`synapse_ledger_export`）导出、golden 测试守护 | **ledger 有而本清单缺 = 0** |
 
 第二条尤其关键：它保证本清单**不会漏掉任何一个真实对外服务的路由**。
@@ -50,20 +51,21 @@
 | `cas.rs` | `POST` | `/admin/services` |
 | `cas.rs` | `POST` | `/admin/users/{user_id}/attributes` |
 
-## 契约覆盖（manifest 一致性）
+## 契约覆盖（派生表一致性）
 
-`route_ledger` 在启动时校验所有 manifest 内 `(method,path)` 不重复，集成测试 `api_route_ledger_tests.rs` 对每个声明做 PATCH 探测（断言 405）。
+`RouteLedger` 在启动时校验派生表内 `(method,path)` 不重复，集成测试 `api_route_ledger_tests.rs` 对每个声明做 PATCH 探测（断言 405）。
+B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数据只剩 `derived_routes.rs` 一个来源，因此「模块是否声明了 manifest」不再是覆盖度指标，取而代之的是「该模块的路由是否进入派生表」。
 **已知缺口 / 漂移**：
 
 - 无未装配的孤儿路由。`src/web/routes/threepid.rs` 曾定义 `create_threepid_router()`（裸 `/requestToken`、`/submitToken`，**从未** merge 进任何路由树且路径非 Matrix 规范形状）—— B5-4 已删除该模块：真实 3PID 端点在 `account_compat.rs`（`/account/3pid/...`，已在 `assembly.rs` 装配），被删代码自引入起即无调用方，纯属死代码。
   **机器证据**：`test_extract_registered.py::check_non_namespace_bucket` 现在把「前缀之外」桶**精确**钉死为 14 条有意根级注册（3 条探活 + 11 条 CAS 根协议端点）。该桶出现任何新成员——无论是死灰复燃的未装配 router 还是新增非 Matrix 根端点——都会让守卫转红并要求显式裁定。
-- `space/children_hierarchy.rs`、`space/membership_state.rs`、`space/summary.rs`：无独立 manifest 函数，但其路由由 `space.rs` 的 `space_route_manifest()` 统一声明（已覆盖）。
+- `space/children_hierarchy.rs`、`space/lifecycle_query.rs`、`space/membership_state.rs`、`space/summary.rs`：路由在派生表中统一归入 `space` 标签（已覆盖）。
 
 ## 模块级路由清单（逐模块）
 
 ### CAS （17 条）
 
-#### `cas.rs` — 17 条 ✅manifest
+#### `cas.rs` — 17 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/cas/services/{service_id}`
 - `DELETE` `/admin/services/{service_id}`
@@ -85,7 +87,7 @@
 
 ### MSC4108 （4 条）
 
-#### `msc4108_rendezvous.rs` — 4 条 ✅manifest
+#### `msc4108_rendezvous.rs` — 4 条 ✅派生表
 
 - `DELETE` `/_matrix/client/unstable/org.matrix.msc4108/rendezvous/{session_id}`
 - `GET` `/_matrix/client/unstable/org.matrix.msc4108/rendezvous/{session_id}`
@@ -94,7 +96,7 @@
 
 ### OIDC （10 条）
 
-#### `oidc/mod.rs` — 10 条 ✅manifest
+#### `oidc/mod.rs` — 10 条 ✅派生表
 
 - `GET` `/.well-known/jwks.json`
 - `GET` `/.well-known/openid-configuration`
@@ -109,7 +111,7 @@
 
 ### Rendezvous （6 条）
 
-#### `rendezvous.rs` — 6 条 ✅manifest
+#### `rendezvous.rs` — 6 条 ✅派生表
 
 - `DELETE` `/_matrix/client/v1/rendezvous/{session_id}`
 - `GET` `/_matrix/client/v1/rendezvous/{session_id}`
@@ -120,7 +122,7 @@
 
 ### SAML （16 条）
 
-#### `saml.rs` — 16 条 ✅manifest
+#### `saml.rs` — 16 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/saml/mapping/{name_id}`
 - `GET` `/_matrix/client/v3/login/saml/callback`
@@ -141,7 +143,7 @@
 
 ### Worker （26 条）
 
-#### `worker.rs` — 26 条 ✅manifest
+#### `worker.rs` — 26 条 ✅派生表
 
 - `DELETE` `/_synapse/worker/v1/workers/{worker_id}`
 - `GET` `/_synapse/worker/v1/events`
@@ -172,13 +174,13 @@
 
 ### 临时事件 （1 条）
 
-#### `ephemeral.rs` — 1 条 ✅manifest
+#### `ephemeral.rs` — 1 条 ✅派生表
 
 - `GET` `/_matrix/client/v3/rooms/{room_id}/ephemeral`
 
 ### 事件举报 （19 条）
 
-#### `event_report.rs` — 19 条 ✅manifest
+#### `event_report.rs` — 19 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/event_reports/{id}`
 - `GET` `/_synapse/admin/v1/event_reports`
@@ -202,7 +204,7 @@
 
 ### 关联 (Relations) （8 条）
 
-#### `relations.rs` — 8 条 ✅manifest
+#### `relations.rs` — 8 条 ✅派生表
 
 - `GET` `/_matrix/client/v1/rooms/{room_id}/aggregations/{event_id}/{rel_type}`
 - `GET` `/_matrix/client/v1/rooms/{room_id}/relations/{event_id}`
@@ -215,7 +217,7 @@
 
 ### 其他 (Other) （23 条）
 
-#### `handlers/thread.rs` — 23 条 ✅manifest
+#### `handlers/thread.rs` — 23 条 ✅派生表
 
 - `DELETE` `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}`
 - `GET` `/_matrix/client/unstable/org.matrix.msc4155/rooms/{room_id}/threads`
@@ -243,13 +245,13 @@
 
 ### 反应 (Reactions) （1 条）
 
-#### `reactions.rs` — 1 条 ✅manifest
+#### `reactions.rs` — 1 条 ✅派生表
 
 - `PUT` `/_matrix/client/v3/rooms/{room_id}/send/m.reaction/{txn_id}`
 
 ### 同步 (Sync) （4 条）
 
-#### `sync.rs` — 4 条 ✅manifest
+#### `sync.rs` — 4 条 ✅派生表
 
 - `GET` `/_matrix/client/v3/events`
 - `GET` `/_matrix/client/v3/joined_rooms`
@@ -258,7 +260,7 @@
 
 ### 后台更新 （19 条）
 
-#### `background_update.rs` — 19 条 ✅manifest
+#### `background_update.rs` — 19 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/background_updates/{job_name}`
 - `GET` `/_synapse/admin/v1/background_updates`
@@ -282,7 +284,7 @@
 
 ### 在线状态 (Presence) （9 条）
 
-#### `presence.rs` — 9 条 ✅manifest
+#### `presence.rs` — 9 条 ✅派生表
 
 - `GET` `/_matrix/client/v1/presence/{user_id}/status`
 - `GET` `/_matrix/client/v3/presence/list`
@@ -296,7 +298,7 @@
 
 ### 外部服务 （20 条）
 
-#### `external_service.rs` — 20 条 ✅manifest
+#### `external_service.rs` — 20 条 ✅派生表
 
 - `DELETE` `/_matrix/admin/v1/external_services/{as_id}`
 - `DELETE` `/_matrix/client/v1/external_services/{service_id}`
@@ -321,7 +323,7 @@
 
 ### 好友 (Friends) （65 条）
 
-#### `friend_room.rs` — 65 条 ✅manifest
+#### `friend_room.rs` — 65 条 ✅派生表
 
 - `DELETE` `/_matrix/client/v1/friends/groups/{group_id}`
 - `DELETE` `/_matrix/client/v1/friends/groups/{group_id}/remove/{user_id}`
@@ -391,7 +393,7 @@
 
 ### 媒体 (Media) （45 条）
 
-#### `media/mod.rs` — 38 条 ✅manifest
+#### `media/mod.rs` — 38 条 ✅派生表
 
 - `GET` `/_matrix/client/v1/media/download/{server_name}/{media_id}`
 - `GET` `/_matrix/client/v1/media/download/{server_name}/{media_id}/{filename}`
@@ -432,7 +434,7 @@
 - `POST` `/_matrix/media/v3/upload`
 - `PUT` `/_matrix/media/v3/upload/{server_name}/{media_id}`
 
-#### `admin/media.rs` — 7 条 ✅manifest
+#### `admin/media.rs` — 7 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/media/{media_id}`
 - `DELETE` `/_synapse/admin/v1/users/{user_id}/media`
@@ -444,7 +446,7 @@
 
 ### 审核 (Moderation) （7 条）
 
-#### `moderation.rs` — 7 条 ✅manifest
+#### `moderation.rs` — 7 条 ✅派生表
 
 - `GET` `/_matrix/client/v1/rooms/{room_id}/report/{event_id}/scanner_info`
 - `POST` `/_matrix/client/v1/rooms/{room_id}/report/{event_id}`
@@ -456,7 +458,7 @@
 
 ### 密钥备份 (Key Backup) （66 条）
 
-#### `key_backup.rs` — 66 条 ✅manifest
+#### `key_backup.rs` — 66 条 ✅派生表
 
 - `DELETE` `/_matrix/client/v1/room_keys/keys`
 - `DELETE` `/_matrix/client/v1/room_keys/keys/{room_id}`
@@ -527,7 +529,7 @@
 
 ### 密钥轮转 （18 条）
 
-#### `key_rotation.rs` — 18 条 ✅manifest
+#### `key_rotation.rs` — 18 条 ✅派生表
 
 - `GET` `/_matrix/client/v1/keys/rotation/check`
 - `GET` `/_matrix/client/v1/keys/rotation/history/{device_id}`
@@ -550,7 +552,7 @@
 
 ### 小组件 (Widget) （18 条）
 
-#### `widget.rs` — 18 条 ✅manifest
+#### `widget.rs` — 18 条 ✅派生表
 
 - `DELETE` `/_matrix/client/v1/widgets/sessions/{session_id}`
 - `DELETE` `/_matrix/client/v1/widgets/{widget_id}`
@@ -573,7 +575,7 @@
 
 ### 应用服务 (AppService) （25 条）
 
-#### `app_service.rs` — 25 条 ✅manifest
+#### `app_service.rs` — 25 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/appservices/{as_id}`
 - `GET` `/_matrix/app/v1/rooms/{alias}`
@@ -603,13 +605,13 @@
 
 ### 延迟事件 （1 条）
 
-#### `delayed_events.rs` — 1 条 ✅manifest
+#### `delayed_events.rs` — 1 条 ✅派生表
 
 - `POST` `/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}`
 
 ### 房间 (Room) （123 条）
 
-#### `room.rs` — 102 条 ✅manifest
+#### `room.rs` — 102 条 ✅派生表
 
 - `DELETE` `/_matrix/client/v3/rooms/{room_id}/pinned_events/{event_id}`
 - `DELETE` `/_matrix/client/v3/rooms/{room_id}/sticky_events/{event_type}`
@@ -714,7 +716,7 @@
 - `PUT` `/_matrix/client/v3/rooms/{room_id}/vault_data`
 - `PUT` `/_matrix/client/v3/rooms/{room_id}/visibility`
 
-#### `room_summary.rs` — 21 条 ✅manifest
+#### `room_summary.rs` — 21 条 ✅派生表
 
 - `DELETE` `/_matrix/client/v3/rooms/{room_id}/summary`
 - `DELETE` `/_matrix/client/v3/rooms/{room_id}/summary/members/{user_id}`
@@ -740,7 +742,7 @@
 
 ### 推送 (Push) （25 条）
 
-#### `push.rs` — 17 条 ✅manifest
+#### `push.rs` — 17 条 ✅派生表
 
 - `DELETE` `/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}`
 - `GET` `/_matrix/client/v3/notifications`
@@ -760,7 +762,7 @@
 - `PUT` `/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/actions`
 - `PUT` `/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/enabled`
 
-#### `push_notification.rs` — 8 条 ✅manifest
+#### `push_notification.rs` — 8 条 ✅派生表
 
 - `DELETE` `/_matrix/client/v3/push/devices/{device_id}`
 - `GET` `/_matrix/client/v3/push/devices`
@@ -773,7 +775,7 @@
 
 ### 搜索 (Search) （8 条）
 
-#### `handlers/search/mod.rs` — 8 条 ✅manifest
+#### `handlers/search/mod.rs` — 8 条 ✅派生表
 
 - `GET` `/_matrix/client/v1/rooms/{room_id}/context/{event_id}`
 - `GET` `/_matrix/client/v1/rooms/{room_id}/hierarchy`
@@ -786,7 +788,7 @@
 
 ### 标签 (Tags) （4 条）
 
-#### `tags.rs` — 4 条 ✅manifest
+#### `tags.rs` — 4 条 ✅派生表
 
 - `DELETE` `/_matrix/client/v3/user/{user_id}/rooms/{room_id}/tags/{tag}`
 - `GET` `/_matrix/client/v3/user/{user_id}/rooms/{room_id}/tags`
@@ -795,7 +797,7 @@
 
 ### 模块 （23 条）
 
-#### `module.rs` — 23 条 ✅manifest
+#### `module.rs` — 23 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/modules/{module_name}`
 - `GET` `/_synapse/admin/v1/account_data_callbacks`
@@ -823,7 +825,7 @@
 
 ### 滑动同步 (Sliding Sync) （4 条）
 
-#### `sliding_sync.rs` — 4 条 ✅manifest
+#### `sliding_sync.rs` — 4 条 ✅派生表
 
 - `POST` `/_matrix/client/unstable/org.matrix.msc3575/sync`
 - `POST` `/_matrix/client/unstable/org.matrix.simplified_msc3575/sync`
@@ -832,7 +834,7 @@
 
 ### 特性开关 （4 条）
 
-#### `feature_flags.rs` — 4 条 ✅manifest
+#### `feature_flags.rs` — 4 条 ✅派生表
 
 - `GET` `/_synapse/admin/v1/feature-flags`
 - `GET` `/_synapse/admin/v1/feature-flags/{flag_key}`
@@ -841,7 +843,7 @@
 
 ### 私聊 (DM) （5 条）
 
-#### `dm.rs` — 5 条 ✅manifest
+#### `dm.rs` — 5 条 ✅派生表
 
 - `GET` `/_matrix/client/v3/direct`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/dm`
@@ -851,7 +853,7 @@
 
 ### 空间 (Space) （48 条）
 
-#### `space/lifecycle_query.rs` — 18 条 ⚠️无manifest
+#### `space/lifecycle_query.rs` — 18 条 ✅派生表
 
 - `DELETE` `/_matrix/client/v1/spaces/{space_id}`
 - `DELETE` `/_matrix/client/v3/spaces/{space_id}`
@@ -872,7 +874,7 @@
 - `PUT` `/_matrix/client/v1/spaces/{space_id}`
 - `PUT` `/_matrix/client/v3/spaces/{space_id}`
 
-#### `space/children_hierarchy.rs` — 14 条 ⚠️无manifest
+#### `space/children_hierarchy.rs` — 14 条 ✅派生表
 
 - `DELETE` `/_matrix/client/v1/spaces/{space_id}/children/{room_id}`
 - `DELETE` `/_matrix/client/v3/spaces/{space_id}/children/{room_id}`
@@ -889,7 +891,7 @@
 - `POST` `/_matrix/client/v1/spaces/{space_id}/children`
 - `POST` `/_matrix/client/v3/spaces/{space_id}/children`
 
-#### `space/membership_state.rs` — 12 条 ⚠️无manifest
+#### `space/membership_state.rs` — 12 条 ✅派生表
 
 - `GET` `/_matrix/client/v1/spaces/{space_id}/members`
 - `GET` `/_matrix/client/v1/spaces/{space_id}/rooms`
@@ -904,7 +906,7 @@
 - `POST` `/_matrix/client/v3/spaces/{space_id}/join`
 - `POST` `/_matrix/client/v3/spaces/{space_id}/leave`
 
-#### `space/summary.rs` — 4 条 ⚠️无manifest
+#### `space/summary.rs` — 4 条 ✅派生表
 
 - `GET` `/_matrix/client/v1/spaces/{space_id}/summary`
 - `GET` `/_matrix/client/v1/spaces/{space_id}/summary/with_children`
@@ -913,7 +915,7 @@
 
 ### 端到端加密 (E2EE) （44 条）
 
-#### `e2ee/keys.rs` — 44 条 ✅manifest
+#### `e2ee/keys.rs` — 44 条 ✅派生表
 
 - `DELETE` `/_matrix/client/v1/room_keys/request/{request_id}`
 - `DELETE` `/_matrix/client/v3/keys/backup/secure/{backup_id}`
@@ -962,7 +964,7 @@
 
 ### 第三方 (Third-party) （6 条）
 
-#### `thirdparty.rs` — 6 条 ✅manifest
+#### `thirdparty.rs` — 6 条 ✅派生表
 
 - `GET` `/_matrix/client/v3/thirdparty/location`
 - `GET` `/_matrix/client/v3/thirdparty/location/{protocol}`
@@ -973,7 +975,7 @@
 
 ### 管理 (Admin) （141 条）
 
-#### `admin/room/mod.rs` — 45 条 ✅manifest
+#### `admin/room/mod.rs` — 45 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/rooms/{room_id}`
 - `DELETE` `/_synapse/admin/v1/rooms/{room_id}/listings/public`
@@ -1021,7 +1023,7 @@
 - `PUT` `/_synapse/admin/v1/rooms/{room_id}/make_admin`
 - `PUT` `/_synapse/admin/v1/rooms/{room_id}/members/{user_id}`
 
-#### `admin/user.rs` — 26 条 ✅manifest
+#### `admin/user.rs` — 26 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/users/{user_id}`
 - `DELETE` `/_synapse/admin/v1/users/{user_id}/devices/{device_id}`
@@ -1050,7 +1052,7 @@
 - `PUT` `/_synapse/admin/v1/users/{user_id}/admin`
 - `PUT` `/_synapse/admin/v2/users/{user_id}`
 
-#### `admin/notification.rs` — 15 条 ✅manifest
+#### `admin/notification.rs` — 15 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/notifications/{notification_id}`
 - `DELETE` `/_synapse/admin/v1/server_notices/{notice_id}`
@@ -1068,7 +1070,7 @@
 - `PUT` `/_synapse/admin/v1/notifications/{notification_id}/deactivate`
 - `PUT` `/_synapse/admin/v1/users/{user_id}/notification`
 
-#### `admin/server.rs` — 15 条 ✅manifest
+#### `admin/server.rs` — 15 条 ✅派生表
 
 - `GET` `/_synapse/admin/v1/config`
 - `GET` `/_synapse/admin/v1/experimental_features`
@@ -1086,7 +1088,7 @@
 - `POST` `/_synapse/admin/v1/purge_media_cache`
 - `POST` `/_synapse/admin/v1/restart`
 
-#### `admin/token.rs` — 9 条 ✅manifest
+#### `admin/token.rs` — 9 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/registration_tokens/{token}`
 - `DELETE` `/_synapse/admin/v1/users/{user_id}/refresh_tokens/{token_id}`
@@ -1098,7 +1100,7 @@
 - `POST` `/_synapse/admin/v1/registration_tokens`
 - `POST` `/_synapse/admin/v1/registration_tokens/{token}`
 
-#### `admin/security.rs` — 8 条 ✅manifest
+#### `admin/security.rs` — 8 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/users/{user_id}/override_ratelimit`
 - `DELETE` `/_synapse/admin/v1/users/{user_id}/rate_limit`
@@ -1109,7 +1111,7 @@
 - `POST` `/_synapse/admin/v1/users/{user_id}/shadow_ban`
 - `PUT` `/_synapse/admin/v1/users/{user_id}/rate_limit`
 
-#### `admin/report.rs` — 6 条 ✅manifest
+#### `admin/report.rs` — 6 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/reports/{report_id}`
 - `DELETE` `/_synapse/admin/v1/rooms/{room_id}/reports/{report_id}`
@@ -1118,7 +1120,7 @@
 - `GET` `/_synapse/admin/v1/rooms/{room_id}/reports`
 - `GET` `/_synapse/admin/v1/rooms/{room_id}/reports/{report_id}`
 
-#### `admin/retention.rs` — 6 条 ✅manifest
+#### `admin/retention.rs` — 6 条 ✅派生表
 
 - `GET` `/_synapse/admin/v1/retention/policy`
 - `GET` `/_synapse/admin/v1/retention/policy/{room_id}`
@@ -1127,35 +1129,35 @@
 - `POST` `/_synapse/admin/v1/retention/policy/{room_id}`
 - `POST` `/_synapse/admin/v1/retention/run`
 
-#### `admin/audit.rs` — 3 条 ✅manifest
+#### `admin/audit.rs` — 3 条 ✅派生表
 
 - `GET` `/_synapse/admin/v1/audit/events`
 - `GET` `/_synapse/admin/v1/audit/events/{event_id}`
 - `POST` `/_synapse/admin/v1/audit/events`
 
-#### `admin/cleanup.rs` — 3 条 ✅manifest
+#### `admin/cleanup.rs` — 3 条 ✅派生表
 
 - `POST` `/_synapse/admin/v1/cleanup/all`
 - `POST` `/_synapse/admin/v1/cleanup/rooms`
 - `POST` `/_synapse/admin/v1/cleanup/tokens`
 
-#### `admin/policy.rs` — 2 条 ✅manifest
+#### `admin/policy.rs` — 2 条 ✅派生表
 
 - `GET` `/_synapse/admin/v1/policy/status`
 - `POST` `/_synapse/admin/v1/policy/check`
 
-#### `admin/register.rs` — 2 条 ✅manifest
+#### `admin/register.rs` — 2 条 ✅派生表
 
 - `GET` `/_synapse/admin/v1/register/nonce`
 - `POST` `/_synapse/admin/v1/register`
 
-#### `admin/mod.rs` — 1 条 ✅manifest
+#### `admin/mod.rs` — 1 条 ✅派生表
 
 - `GET` `/_synapse/admin/info`
 
 ### 联邦 (Federation) （70 条）
 
-#### `federation/mod.rs` — 39 条 ✅manifest
+#### `federation/mod.rs` — 39 条 ✅派生表
 
 - `GET` `/_matrix/federation/v1`
 - `GET` `/_matrix/federation/v1/backfill/{room_id}`
@@ -1197,7 +1199,7 @@
 - `POST` `/_synapse/federation/v2/key/clone`
 - `PUT` `/_matrix/federation/v1/send/{txn_id}`
 
-#### `admin/federation.rs` — 16 条 ✅manifest
+#### `admin/federation.rs` — 16 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/federation/blacklist/{server_name}`
 - `DELETE` `/_synapse/admin/v1/federation/cache/{key}`
@@ -1216,7 +1218,7 @@
 - `POST` `/_synapse/admin/v1/federation/resolve`
 - `POST` `/_synapse/admin/v1/federation/rewrite`
 
-#### `federation/membership/mod.rs` — 15 条 ✅manifest
+#### `federation/membership/mod.rs` — 15 条 ✅派生表
 
 - `GET` `/_matrix/federation/v1/make_join/{room_id}/{user_id}`
 - `GET` `/_matrix/federation/v1/make_leave/{room_id}/{user_id}`
@@ -1236,7 +1238,7 @@
 
 ### 装配 (Assembly) （101 条）
 
-#### `assembly.rs` — 101 条 ✅manifest
+#### `assembly.rs` — 101 条 ✅派生表
 
 - `DELETE` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device`
 - `DELETE` `/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}`
@@ -1342,7 +1344,7 @@
 
 ### 设备 (Device) （6 条）
 
-#### `device.rs` — 6 条 ✅manifest
+#### `device.rs` — 6 条 ✅派生表
 
 - `DELETE` `/_matrix/client/v3/devices/{device_id}`
 - `GET` `/_matrix/client/v3/devices`
@@ -1353,7 +1355,7 @@
 
 ### 访客 (Guest) （3 条）
 
-#### `guest.rs` — 3 条 ✅manifest
+#### `guest.rs` — 3 条 ✅派生表
 
 - `GET` `/_matrix/client/v3/account/guest`
 - `POST` `/_matrix/client/v3/account/guest/upgrade`
@@ -1361,7 +1363,7 @@
 
 ### 语音 (Voice) （27 条）
 
-#### `voice.rs` — 27 条 ✅manifest
+#### `voice.rs` — 27 条 ✅派生表
 
 - `GET` `/_matrix/client/v1/voice/config`
 - `GET` `/_matrix/client/v1/voice/room/{room_id}/stats`
@@ -1393,7 +1395,7 @@
 
 ### 账户 (Account) （15 条）
 
-#### `account_data.rs` — 15 条 ✅manifest
+#### `account_data.rs` — 15 条 ✅派生表
 
 - `DELETE` `/_matrix/client/v3/user/{user_id}/account_data/{type}`
 - `DELETE` `/_matrix/client/v3/user/{user_id}/filter/{filter_id}`
@@ -1413,7 +1415,7 @@
 
 ### 输入状态 (Typing) （5 条）
 
-#### `typing.rs` — 5 条 ✅manifest
+#### `typing.rs` — 5 条 ✅派生表
 
 - `GET` `/_matrix/client/v3/rooms/{room_id}/typing`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/typing/{user_id}`
@@ -1423,7 +1425,7 @@
 
 ### 遥测 (Telemetry) （6 条）
 
-#### `telemetry.rs` — 6 条 ✅manifest
+#### `telemetry.rs` — 6 条 ✅派生表
 
 - `GET` `/_synapse/admin/v1/telemetry/alerts`
 - `GET` `/_synapse/admin/v1/telemetry/attributes`
@@ -1434,7 +1436,7 @@
 
 ### 阅后即焚 （21 条）
 
-#### `burn_after_read.rs` — 21 条 ✅manifest
+#### `burn_after_read.rs` — 21 条 ✅派生表
 
 - `DELETE` `/_matrix/client/v1/rooms/{room_id}/burn/{event_id}`
 - `DELETE` `/_matrix/client/v3/rooms/{room_id}/burn/{event_id}`
@@ -1460,7 +1462,7 @@
 
 ### 验证 (Verification) （24 条）
 
-#### `verification_routes.rs` — 24 条 ✅manifest
+#### `verification_routes.rs` — 24 条 ✅派生表
 
 - `GET` `/_matrix/client/v1/keys/device_signing/requests`
 - `GET` `/_matrix/client/v1/keys/qr_code/show`
@@ -1489,7 +1491,7 @@
 
 ### 验证码 (Captcha) （5 条）
 
-#### `captcha.rs` — 5 条 ✅manifest
+#### `captcha.rs` — 5 条 ✅派生表
 
 - `DELETE` `/_matrix/client/v3/register/captcha/clean`
 - `GET` `/_matrix/client/v3/register/captcha/status`

@@ -1,4 +1,4 @@
-//! End-to-end probe of the [`declared_route_manifest_for`] against the assembled
+//! End-to-end probe of the [`declared_ledger_for`] against the assembled
 //! [`Router`].
 //!
 //! The ledger is the substitute we ship for the route-walker API axum does
@@ -15,7 +15,7 @@
 //! register, so axum's `MethodRouter` will always answer with 405 + `Allow`
 //! when the route exists.
 //!
-//! [`declared_route_manifest_for`]: synapse_rust::web::routes::declared_route_manifest_for
+//! [`declared_ledger_for`]: synapse_rust::web::routes::declared_ledger_for
 //! [`Router`]: axum::Router
 
 use axum::http::Method;
@@ -23,7 +23,7 @@ use axum::{body::Body, http::Request};
 use futures::stream::{self, StreamExt};
 use hyper::StatusCode;
 use std::{env, fs, path::PathBuf};
-use synapse_rust::web::routes::declared_route_manifest_for;
+use synapse_rust::web::routes::declared_ledger_for;
 use synapse_rust::web::routes::route_ledger::RouteLedger;
 use synapse_rust::web::routes::state::AppState;
 use tokio::sync::OnceCell;
@@ -68,16 +68,14 @@ async fn worker_enabled_fixture() -> TestFixture {
 
 async fn default_ledger() -> Option<RouteLedger> {
     DEFAULT_LEDGER
-        .get_or_init(|| async { default_fixture().await.as_ref().map(|(_, state)| declared_route_manifest_for(state)) })
+        .get_or_init(|| async { default_fixture().await.as_ref().map(|(_, state)| declared_ledger_for(state)) })
         .await
         .clone()
 }
 
 async fn worker_enabled_ledger() -> Option<RouteLedger> {
     WORKER_ENABLED_LEDGER
-        .get_or_init(|| async {
-            worker_enabled_fixture().await.as_ref().map(|(_, state)| declared_route_manifest_for(state))
-        })
+        .get_or_init(|| async { worker_enabled_fixture().await.as_ref().map(|(_, state)| declared_ledger_for(state)) })
         .await
         .clone()
 }
@@ -165,8 +163,7 @@ async fn declared_route_manifest_validates_with_no_duplicates() {
         super::skip_or_fail_without_db();
         return;
     };
-    let report =
-        ledger.validate().expect("declared_route_manifest_for must be free of duplicate (method, path) tuples");
+    let report = ledger.validate().expect("declared_ledger_for must be free of duplicate (method, path) tuples");
     assert!(report.unique_tuples >= 1, "ledger should declare at least one route, got {}", report.unique_tuples);
     assert_eq!(report.total_entries, report.unique_tuples);
 }
@@ -178,7 +175,7 @@ async fn declared_route_manifest_entries_are_actually_wired() {
         return;
     };
 
-    let ledger = declared_route_manifest_for(&state);
+    let ledger = declared_ledger_for(&state);
     assert!(!ledger.is_empty(), "ledger is empty — nothing to probe");
 
     // Concurrency cap chosen against the integration test PG pool. Bumping

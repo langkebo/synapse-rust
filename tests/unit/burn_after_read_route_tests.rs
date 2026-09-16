@@ -22,8 +22,17 @@
 use axum::http::Method;
 use serde_json::{json, Value};
 use synapse_common::ApiError;
-use synapse_rust::web::routes::burn_after_read::burn_after_read_route_manifest;
+use synapse_rust::web::routes::declared_ledger_all;
 use synapse_rust::web::routes::route_ledger::RouteEntry;
+
+/// The `burn_after_read` slice of the derived route table.
+///
+/// `burn_after_read_route_manifest()` was one of ~120 hand-copied projections
+/// deleted by B2-2; route metadata now has a single source (`derived_routes`),
+/// and a test that needs one module's surface filters it by `registered_by`.
+fn burn_after_read_route_manifest() -> Vec<RouteEntry> {
+    declared_ledger_all().iter().filter(|e| e.registered_by == "burn_after_read").cloned().collect()
+}
 
 // ============================================================================
 // Route manifest tests

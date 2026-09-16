@@ -156,19 +156,3 @@ pub fn create_captcha_router(state: &AppState) -> axum::Router<AppState> {
 
     public_routes.merge(admin_routes)
 }
-
-/// See [`captcha_route_manifest`].
-pub fn captcha_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-    [
-        (Method::POST, "/_matrix/client/v3/register/captcha/send"),
-        (Method::POST, "/_matrix/client/v3/register/captcha/verify"),
-        (Method::GET, "/_matrix/client/v3/register/captcha/status"),
-        (Method::DELETE, "/_matrix/client/v3/register/captcha/clean"),
-        (Method::POST, "/_synapse/admin/v1/captcha/cleanup"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "captcha"))
-    .collect()
-}

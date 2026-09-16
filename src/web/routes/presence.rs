@@ -16,30 +16,6 @@ pub fn create_presence_router() -> Router<AppState> {
         .route("/_matrix/client/v3/presence/list/{user_id}", get(get_presence_list))
 }
 
-/// See [`presence_route_manifest`].
-pub fn presence_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-
-    [
-        (Method::GET, "/_matrix/client/v1/presence/{user_id}/status"),
-        (Method::PUT, "/_matrix/client/v1/presence/{user_id}/status"),
-        (Method::POST, "/_matrix/client/v1/presence/{user_id}/status"),
-        (Method::GET, "/_matrix/client/v3/presence/{user_id}/status"),
-        (Method::PUT, "/_matrix/client/v3/presence/{user_id}/status"),
-        (Method::POST, "/_matrix/client/v3/presence/{user_id}/status"),
-        (Method::POST, "/_matrix/client/v3/presence/list"),
-        // `get_presence_list_no_path` is attached to the same path
-        // (`presence.rs:15`), so GET is served too — the list only carried
-        // the POST (S-14, B2-4).
-        (Method::GET, "/_matrix/client/v3/presence/list"),
-        (Method::GET, "/_matrix/client/v3/presence/list/{user_id}"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "presence"))
-    .collect()
-}
-
 #[cfg(test)]
 mod tests {
     #[test]

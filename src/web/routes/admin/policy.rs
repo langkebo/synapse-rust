@@ -36,16 +36,6 @@ pub fn create_policy_router() -> Router<crate::web::routes::AppState> {
         .route("/_synapse/admin/v1/policy/check", post(check_policy))
 }
 
-/// See [`admin_policy_route_manifest`].
-pub fn admin_policy_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-    [(Method::GET, "/_synapse/admin/v1/policy/status"), (Method::POST, "/_synapse/admin/v1/policy/check")]
-        .into_iter()
-        .map(|(m, p)| RouteEntry::new(m, p, "admin::policy"))
-        .collect()
-}
-
 /// Request body for `POST /_synapse/admin/v1/policy/check`.
 ///
 /// All three fields are required; `validate()` additionally enforces that

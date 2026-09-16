@@ -25,25 +25,6 @@ pub fn create_security_router() -> Router<crate::web::routes::AppState> {
         .route("/_synapse/admin/v1/users/{user_id}/override_ratelimit", delete(delete_user_override_rate_limit))
 }
 
-/// See [`admin_security_route_manifest`].
-pub fn admin_security_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-    [
-        (Method::POST, "/_synapse/admin/v1/users/{user_id}/shadow_ban"),
-        (Method::DELETE, "/_synapse/admin/v1/users/{user_id}/shadow_ban"),
-        (Method::GET, "/_synapse/admin/v1/users/{user_id}/rate_limit"),
-        (Method::PUT, "/_synapse/admin/v1/users/{user_id}/rate_limit"),
-        (Method::DELETE, "/_synapse/admin/v1/users/{user_id}/rate_limit"),
-        (Method::GET, "/_synapse/admin/v1/users/{user_id}/override_ratelimit"),
-        (Method::POST, "/_synapse/admin/v1/users/{user_id}/override_ratelimit"),
-        (Method::DELETE, "/_synapse/admin/v1/users/{user_id}/override_ratelimit"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "admin::security"))
-    .collect()
-}
-
 /// The `RateLimitRequest` struct.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

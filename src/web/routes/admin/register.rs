@@ -36,16 +36,6 @@ pub fn create_register_router(state: AppState) -> Router<crate::web::routes::App
         .with_state(state)
 }
 
-/// See [`admin_register_route_manifest`].
-pub fn admin_register_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-    [(Method::GET, "/_synapse/admin/v1/register/nonce"), (Method::POST, "/_synapse/admin/v1/register")]
-        .into_iter()
-        .map(|(m, p)| RouteEntry::new(m, p, "admin::register"))
-        .collect()
-}
-
 #[derive(Serialize)]
 struct NonceResponse {
     nonce: String,

@@ -273,37 +273,3 @@ pub(crate) fn create_router() -> Router<AppState> {
 // ---------------------------------------------------------------------------
 // Route manifest – keeps the route ledger aligned with the router
 // ---------------------------------------------------------------------------
-
-/// See [`membership_route_manifest`].
-pub(crate) fn membership_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    vec![
-        RouteEntry::new(axum::http::Method::GET, "/_matrix/federation/v1/members/{room_id}", "federation"),
-        RouteEntry::new(axum::http::Method::GET, "/_matrix/federation/v1/members/{room_id}/joined", "federation"),
-        RouteEntry::new(axum::http::Method::GET, "/_matrix/federation/v1/user/devices/{user_id}", "federation"),
-        RouteEntry::new(axum::http::Method::POST, "/_matrix/federation/v1/knock/{room_id}/{user_id}", "federation"),
-        RouteEntry::new(axum::http::Method::POST, "/_matrix/federation/v1/thirdparty/invite", "federation"),
-        RouteEntry::new(axum::http::Method::PUT, "/_matrix/federation/v2/invite/{room_id}/{event_id}", "federation"),
-        RouteEntry::new(axum::http::Method::GET, "/_matrix/federation/v1/make_join/{room_id}/{user_id}", "federation"),
-        RouteEntry::new(axum::http::Method::GET, "/_matrix/federation/v1/make_leave/{room_id}/{user_id}", "federation"),
-        RouteEntry::new(axum::http::Method::PUT, "/_matrix/federation/v1/send_join/{room_id}/{event_id}", "federation"),
-        RouteEntry::new(
-            axum::http::Method::PUT,
-            "/_matrix/federation/v1/send_leave/{room_id}/{event_id}",
-            "federation",
-        ),
-        RouteEntry::new(axum::http::Method::PUT, "/_matrix/federation/v1/invite/{room_id}/{event_id}", "federation"),
-        RouteEntry::new(axum::http::Method::PUT, "/_matrix/federation/v2/send_join/{room_id}/{event_id}", "federation"),
-        RouteEntry::new(
-            axum::http::Method::PUT,
-            "/_matrix/federation/v2/send_leave/{room_id}/{event_id}",
-            "federation",
-        ),
-        RouteEntry::new(
-            axum::http::Method::PUT,
-            "/_matrix/federation/v1/exchange_third_party_invite/{room_id}",
-            "federation",
-        ),
-        RouteEntry::new(axum::http::Method::GET, "/_synapse/federation/v1/get_joining_rules/{room_id}", "federation"),
-    ]
-}

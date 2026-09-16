@@ -528,34 +528,6 @@ pub fn create_saml_router(state: AppState) -> axum::Router<AppState> {
     public_routes.merge(admin_routes).with_state(state)
 }
 
-/// See [`saml_route_manifest`].
-pub fn saml_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-
-    [
-        (Method::GET, "/_matrix/client/v3/logout/saml"),
-        (Method::GET, "/_matrix/client/v3/logout/saml/callback"),
-        (Method::GET, "/_matrix/client/v3/login/sso/redirect/saml"),
-        (Method::POST, "/_matrix/client/v3/login/sso/redirect/saml"),
-        (Method::GET, "/_matrix/client/v3/login/saml/callback"),
-        (Method::POST, "/_matrix/client/v3/login/saml/callback"),
-        (Method::GET, "/_matrix/client/v3/saml/metadata"),
-        (Method::GET, "/_matrix/client/v3/saml/sp_metadata"),
-        (Method::POST, "/_synapse/admin/v1/saml/metadata/refresh"),
-        (Method::GET, "/_synapse/admin/v1/saml/config"),
-        (Method::PUT, "/_synapse/admin/v1/saml/config"),
-        (Method::GET, "/_synapse/admin/v1/saml/mappings"),
-        (Method::GET, "/_synapse/admin/v1/saml/mapping/{name_id}"),
-        (Method::PUT, "/_synapse/admin/v1/saml/mapping/{name_id}"),
-        (Method::DELETE, "/_synapse/admin/v1/saml/mapping/{name_id}"),
-        (Method::POST, "/_synapse/admin/v1/saml/logout"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "saml"))
-    .collect()
-}
-
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]

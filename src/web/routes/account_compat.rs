@@ -714,19 +714,3 @@ pub(crate) async fn unbind_threepid(
 
     Ok(Json(json!({})))
 }
-
-/// Exports the account routes that drive capability declarations (change_password,
-/// set_displayname, set_avatar_url, 3pid_changes).  This manifest is intentionally
-/// narrower than the full account router — it only declares the (method, path)
-/// tuples that the capabilities endpoint checks at runtime.
-pub fn account_compat_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-
-    vec![
-        RouteEntry::new(Method::POST, "/_matrix/client/v3/account/password", "account_compat"),
-        RouteEntry::new(Method::PUT, "/_matrix/client/v3/profile/{user_id}/displayname", "account_compat"),
-        RouteEntry::new(Method::PUT, "/_matrix/client/v3/profile/{user_id}/avatar_url", "account_compat"),
-        RouteEntry::new(Method::POST, "/_matrix/client/v3/account/3pid", "account_compat"),
-    ]
-}

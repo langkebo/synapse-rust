@@ -4,39 +4,39 @@
 // `src/web/routes/assembly.rs` (P-096: previously zero tests).
 //
 // `assembly.rs` is the entry point that builds the live axum `Router` from
-// dozens of sub-routers. It exposes three pure-data entry points:
-//   - `declared_route_manifest_for(&AppState)` (live, profile-aware)
-//   - `declared_route_manifest_for_profile(&ProfileFlags)` (offline)
-//   - `top_level_inline_manifest()` (the inline `.route(...)` calls in create_router)
+// dozens of sub-routers. Route metadata is no longer restated here: it is
+// derived from the `.route(...)` registration sites into `derived_routes`, and
+// `assembly.rs` only exposes the two profile-aware accessors:
+//   - `declared_ledger_for(&AppState)` (live, profile-aware)
+//   - `declared_ledger_for_profile(&ProfileFlags)` (offline)
+//   - `declared_ledger_all()` (widest profile, for tests and capability gating)
 //
-// The `assembly_compat_manifest()` private helper expands inline sub-routers
-// (capabilities, media_config, voip, auth, account, directory) across the
-// r0/v1/v3 prefixes. Its output is folded into the public manifest via
-// `declared_route_manifest_for_profile`, which is what these tests assert
-// against — exactly the same pattern used by the route-ledger snapshot tests
-// under `tests/integration/`.
+// Inline sub-routers (capabilities, media_config, voip, auth, account,
+// directory) are expanded across the r0/v1/v3 prefixes by the same derived
+// table, which is what these tests assert against — exactly the same pattern
+// used by the route-ledger snapshot tests under `tests/integration/`.
 
 use axum::http::Method;
-use synapse_rust::web::routes::declared_route_manifest_for_profile;
+use synapse_rust::web::routes::declared_ledger_for_profile;
 use synapse_rust::web::routes::route_ledger::{RouteEntry, RouteLedger};
 use synapse_rust::web::routes::route_module::ProfileFlags;
 
 // ============================================================================
-// declared_route_manifest_for_profile — surface sanity checks
+// declared_ledger_for_profile — surface sanity checks
 // ============================================================================
 
 #[test]
 fn test_declared_manifest_default_profile_is_non_empty() {
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     assert!(!ledger.is_empty(), "default profile must declare at least one route");
 }
 
 #[test]
 fn test_declared_manifest_returns_route_ledger() {
-    // declared_route_manifest_for_profile returns a RouteLedger, not a bare
+    // declared_ledger_for_profile returns a RouteLedger, not a bare
     // Vec<RouteEntry>. The ledger exposes `validate()` and `registered_by_counts()`
     // which the live `create_router` calls at startup.
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let _ledger: &RouteLedger = &ledger;
     assert!(ledger.validate().is_ok(), "default-profile manifest must validate without duplicates");
 }
@@ -46,7 +46,7 @@ fn test_declared_manifest_has_no_duplicate_method_path_pairs() {
     // The live `create_router` aborts on duplicate (method, path) entries.
     // `RouteLedger::validate` is the gatekeeper — this test asserts the
     // default profile passes that gate.
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let report = ledger.validate().expect("default manifest must be duplicate-free");
     assert_eq!(report.total_entries, report.unique_tuples, "every entry must be unique");
 }
@@ -54,8 +54,8 @@ fn test_declared_manifest_has_no_duplicate_method_path_pairs() {
 #[test]
 fn test_declared_manifest_includes_top_level_inline_routes() {
     // The /health and /_matrix/client/versions endpoints are registered
-    // inline in create_router and manifested in `top_level_inline_manifest`.
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    // inline in create_router and derived into the route table.
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let entries: Vec<(Method, &str)> = ledger.iter().map(|e| (e.method.clone(), e.path)).collect();
 
     assert!(entries.contains(&(Method::GET, "/")), "root path must be declared");
@@ -67,7 +67,7 @@ fn test_declared_manifest_includes_top_level_inline_routes() {
 
 #[test]
 fn test_declared_manifest_includes_well_known_routes() {
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let paths: std::collections::HashSet<&str> = ledger.iter().map(|e| e.path).collect();
     assert!(paths.contains("/.well-known/matrix/server"), "well-known server must be declared");
     assert!(paths.contains("/.well-known/matrix/client"), "well-known client must be declared");
@@ -81,7 +81,7 @@ fn test_declared_manifest_includes_well_known_routes() {
 #[test]
 fn test_declared_manifest_includes_capabilities_under_v3() {
     // create_client_capabilities_router is nested under v3.
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let paths: std::collections::HashSet<&str> = ledger.iter().map(|e| e.path).collect();
     assert!(paths.contains("/_matrix/client/v3/capabilities"), "v3 capabilities missing");
     assert!(paths.contains("/_matrix/client/v3/capabilities"), "v3 capabilities missing");
@@ -90,7 +90,7 @@ fn test_declared_manifest_includes_capabilities_under_v3() {
 #[test]
 fn test_declared_manifest_includes_media_config_under_three_prefixes() {
     // create_client_media_config_router is nested under v1 and v3.
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let paths: std::collections::HashSet<&str> = ledger.iter().map(|e| e.path).collect();
     assert!(paths.contains("/_matrix/client/v1/media/config"), "v1 media/config missing");
     assert!(paths.contains("/_matrix/client/v3/media/config"), "v3 media/config missing");
@@ -99,7 +99,7 @@ fn test_declared_manifest_includes_media_config_under_three_prefixes() {
 
 #[test]
 fn test_declared_manifest_includes_voip_compat_under_v3() {
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let paths: std::collections::HashSet<&str> = ledger.iter().map(|e| e.path).collect();
     assert!(paths.contains("/_matrix/client/v3/voip/turnServer"), "v3 voip/turnServer missing");
     assert!(paths.contains("/_matrix/client/v3/voip/turnServer"), "v3 voip/turnServer missing");
@@ -111,7 +111,7 @@ fn test_declared_manifest_includes_voip_compat_under_v3() {
 
 #[test]
 fn test_declared_manifest_includes_auth_compat_under_v3() {
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let paths: std::collections::HashSet<&str> = ledger.iter().map(|e| e.path).collect();
     // Both GET and POST are registered on /register and /login.
     assert!(paths.contains("/_matrix/client/v3/register"), "v3 register missing");
@@ -130,7 +130,7 @@ fn test_declared_manifest_includes_auth_compat_under_v3() {
 fn test_declared_manifest_includes_auth_standalone_routes() {
     // Login fallback page (MSC2965) and MSC4108 QR token are absolute paths
     // not nested under v3.
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let paths: std::collections::HashSet<&str> = ledger.iter().map(|e| e.path).collect();
     assert!(paths.contains("/_matrix/static/client/login/"), "login fallback page missing");
     assert!(paths.contains("/_matrix/client/v1/login/qr_token"), "MSC4108 qr_token missing");
@@ -138,7 +138,7 @@ fn test_declared_manifest_includes_auth_standalone_routes() {
 
 #[test]
 fn test_declared_manifest_includes_account_compat_under_three_prefixes() {
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let paths: std::collections::HashSet<&str> = ledger.iter().map(|e| e.path).collect();
     // whoami and password are exposed under v1 and v3.
     for prefix in ["/_matrix/client/v1", "/_matrix/client/v3", "/_matrix/client/v3"] {
@@ -154,7 +154,7 @@ fn test_declared_manifest_includes_account_compat_under_three_prefixes() {
 
 #[test]
 fn test_declared_manifest_includes_account_profile_routes() {
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let paths: std::collections::HashSet<&str> = ledger.iter().map(|e| e.path).collect();
     assert!(paths.contains("/_matrix/client/v3/profile/{user_id}"), "v3 account/profile missing");
     assert!(
@@ -166,7 +166,7 @@ fn test_declared_manifest_includes_account_profile_routes() {
 
 #[test]
 fn test_declared_manifest_includes_directory_compat_under_v3() {
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let paths: std::collections::HashSet<&str> = ledger.iter().map(|e| e.path).collect();
     assert!(paths.contains("/_matrix/client/v3/user_directory/search"), "v3 user_directory/search missing");
     assert!(paths.contains("/_matrix/client/v3/directory/room/{room_alias}"), "v3 directory/room missing");
@@ -175,7 +175,7 @@ fn test_declared_manifest_includes_directory_compat_under_v3() {
 
 #[test]
 fn test_declared_manifest_includes_directory_alias_extras() {
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let paths: std::collections::HashSet<&str> = ledger.iter().map(|e| e.path).collect();
     assert!(paths.contains("/_matrix/client/v3/directory/room/{room_id}/alias"), "v3 directory room alias missing");
 }
@@ -189,7 +189,7 @@ fn test_default_profile_excludes_oidc_specific_routes() {
     // The DEFAULT profile has oidc_enabled=false, so OIDC-specific routes
     // are not in the manifest. The OIDC routes come from the route_module
     // trait, not assembly_compat_manifest.
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let oidc_entries: Vec<&RouteEntry> = ledger
         .iter()
         .filter(|e| e.registered_by == "oidc" || e.path.contains("/_matrix/client/v3/account/sso/oidc"))
@@ -203,7 +203,7 @@ fn test_default_profile_excludes_oidc_specific_routes() {
 #[test]
 fn test_default_profile_includes_module_routes() {
     // The module router is always-on (not feature-gated).
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let paths: std::collections::HashSet<&str> = ledger.iter().map(|e| e.path).collect();
     // Pick one always-on module route to verify the module router is wired in.
     // admin is one of the largest always-on surfaces.
@@ -217,7 +217,7 @@ fn test_default_profile_includes_module_routes() {
 
 #[test]
 fn test_every_manifest_entry_has_non_empty_registered_by() {
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     for entry in ledger.iter() {
         assert!(!entry.registered_by.is_empty(), "entry {:?} {} has empty registered_by", entry.method, entry.path);
     }
@@ -227,7 +227,7 @@ fn test_every_manifest_entry_has_non_empty_registered_by() {
 fn test_registered_by_includes_expected_namespaces() {
     // The manifest aggregates entries from many router modules; this test
     // asserts that the well-known namespaces are present.
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let namespaces: std::collections::HashSet<&str> = ledger.iter().map(|e| e.registered_by).collect();
     // These are the inline + always-on module namespaces.
     let expected_namespaces = [
@@ -250,7 +250,7 @@ fn test_registered_by_includes_expected_namespaces() {
 
 #[test]
 fn test_every_manifest_path_starts_with_slash() {
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     for entry in ledger.iter() {
         assert!(entry.path.starts_with('/'), "path must start with '/' — got {:?} {}", entry.method, entry.path);
     }
@@ -258,7 +258,7 @@ fn test_every_manifest_path_starts_with_slash() {
 
 #[test]
 fn test_manifest_does_not_contain_empty_paths() {
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     for entry in ledger.iter() {
         assert!(!entry.path.is_empty(), "manifest contains an empty path");
     }
@@ -272,12 +272,9 @@ fn test_manifest_does_not_contain_empty_paths() {
 fn test_worker_enabled_profile_adds_worker_routes() {
     // Enabling the worker flag must add at least one route to the manifest
     // (the worker admin router exposes additional endpoints).
-    let default = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
-    let worker_on = declared_route_manifest_for_profile(&ProfileFlags {
-        oidc_enabled: false,
-        worker_enabled: true,
-        saml_enabled: false,
-    });
+    let default = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
+    let worker_on =
+        declared_ledger_for_profile(&ProfileFlags { oidc_enabled: false, worker_enabled: true, saml_enabled: false });
 
     let default_count = default.iter().count();
     let worker_count = worker_on.iter().count();
@@ -293,12 +290,9 @@ fn test_worker_enabled_profile_adds_worker_routes() {
 fn test_oidc_enabled_profile_changes_manifest_size() {
     // Flipping oidc_enabled must not produce an empty manifest (OIDC routes
     // are additive on top of the always-on surface).
-    let oidc_off = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
-    let oidc_on = declared_route_manifest_for_profile(&ProfileFlags {
-        oidc_enabled: true,
-        worker_enabled: false,
-        saml_enabled: false,
-    });
+    let oidc_off = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
+    let oidc_on =
+        declared_ledger_for_profile(&ProfileFlags { oidc_enabled: true, worker_enabled: false, saml_enabled: false });
 
     assert!(!oidc_on.is_empty(), "oidc-enabled manifest must not be empty");
     assert!(!oidc_off.is_empty(), "oidc-disabled manifest must not be empty");
@@ -310,7 +304,7 @@ fn test_oidc_enabled_profile_changes_manifest_size() {
 
 #[test]
 fn test_route_ledger_iter_returns_route_entry_refs() {
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let entries: Vec<&RouteEntry> = ledger.iter().collect();
     assert!(!entries.is_empty());
     for entry in &entries {
@@ -321,7 +315,7 @@ fn test_route_ledger_iter_returns_route_entry_refs() {
 
 #[test]
 fn test_route_ledger_validate_returns_report_with_counts() {
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let report = ledger.validate().expect("manifest must validate");
     assert!(report.unique_tuples > 0, "unique_tuples must be positive");
     assert_eq!(report.total_entries, report.unique_tuples);
@@ -332,7 +326,7 @@ fn test_route_ledger_validate_returns_report_with_counts() {
 
 #[test]
 fn test_route_ledger_registered_by_counts_is_non_empty() {
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let counts = ledger.registered_by_counts();
     assert!(!counts.is_empty(), "registered_by_counts must not be empty");
     // Each registered_by count must have a positive entry count.
@@ -352,7 +346,7 @@ fn test_fallback_handler_is_set_in_create_router() {
     // in the manifest — manifest entries are explicit (method, path) tuples.
     // We assert the contract by checking that the manifest does NOT contain
     // a wildcard entry (every entry is a concrete path).
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     for entry in ledger.iter() {
         assert!(!entry.path.contains('*'), "manifest entries must not use wildcards: {}", entry.path);
         assert!(!entry.path.is_empty(), "manifest entries must not be empty");
@@ -360,15 +354,16 @@ fn test_fallback_handler_is_set_in_create_router() {
 }
 
 // ============================================================================
-// top_level_inline_manifest — entry count check (via aggregation)
+// top-level inline routes — presence check (via aggregation)
 // ============================================================================
 
 #[test]
 fn test_top_level_inline_manifest_contributes_routes_to_default_profile() {
-    // top_level_inline_manifest declares ~28 entries (GET / , /health, /_health,
-    // versions, pushrules, well-known, MSC2965, MSC3814, MSC4143, MSC4133).
-    // We assert a representative subset is present in the default manifest.
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    // The inline `.route(...)` calls in create_router contribute ~25 entries
+    // (GET / , /health, /_health, versions, pushrules, well-known, MSC2965,
+    // MSC3814, MSC4143, MSC4133). We assert a representative subset is present
+    // in the default manifest.
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let paths: std::collections::HashSet<&str> = ledger.iter().map(|e| e.path).collect();
 
     let expected_inline_paths = [

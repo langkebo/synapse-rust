@@ -55,10 +55,3 @@ pub async fn get_ephemeral_events(
 pub fn create_ephemeral_router(state: AppState) -> Router<AppState> {
     Router::new().route("/_matrix/client/v3/rooms/{room_id}/ephemeral", get(get_ephemeral_events)).with_state(state)
 }
-
-/// See [`ephemeral_route_manifest`].
-pub fn ephemeral_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-    vec![RouteEntry::new(Method::GET, "/_matrix/client/v3/rooms/{room_id}/ephemeral", "ephemeral")]
-}

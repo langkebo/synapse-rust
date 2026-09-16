@@ -40,55 +40,6 @@ pub fn create_push_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
-const PUSH_COMPAT_NEST_PREFIXES: &[&str] = &["/_matrix/client/v3"];
-
-fn push_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
-    use axum::http::Method;
-    vec![
-        (Method::GET, "/pushers"),
-        (Method::POST, "/pushers"),
-        // Trailing-slash alias for the same pair of handlers. Served by
-        // `create_push_compat_router`, so the ledger has to say so: it was
-        // reachable but invisible to the contract (S-14, B2-4).
-        (Method::GET, "/pushers/"),
-        (Method::POST, "/pushers/"),
-        (Method::POST, "/pushers/set"),
-        (Method::GET, "/pushrules"),
-        (Method::GET, "/pushrules/{scope}"),
-        (Method::GET, "/pushrules/{scope}/{kind}"),
-        (Method::GET, "/pushrules/{scope}/{kind}/{rule_id}"),
-        (Method::POST, "/pushrules/{scope}/{kind}/{rule_id}"),
-        (Method::PUT, "/pushrules/{scope}/{kind}/{rule_id}"),
-        (Method::DELETE, "/pushrules/{scope}/{kind}/{rule_id}"),
-        (Method::GET, "/notifications"),
-        (Method::POST, "/notifications/{notification_id}/ack"),
-    ]
-}
-
-fn push_v3_only_absolute_routes() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-    [
-        (Method::PUT, "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/actions"),
-        (Method::GET, "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/enabled"),
-        (Method::PUT, "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/enabled"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "push"))
-    .collect()
-}
-
-/// See [`push_route_manifest`].
-pub fn push_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    let mut out = crate::web::routes::route_ledger::expand_under_prefixes(
-        "push",
-        PUSH_COMPAT_NEST_PREFIXES,
-        &push_compat_relative_routes(),
-    );
-    out.extend(push_v3_only_absolute_routes());
-    out
-}
-
 /// The `SetPusherRequest` struct.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

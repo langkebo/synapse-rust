@@ -86,23 +86,3 @@ pub fn create_admin_module_router(state: AppState) -> Router<crate::web::routes:
 
     Router::new().merge(protected).merge(create_register_router(state))
 }
-
-/// See [`admin_module_route_manifest`].
-pub fn admin_module_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    let mut entries = Vec::new();
-    entries.extend(audit::admin_audit_route_manifest());
-    entries.extend(cleanup::admin_cleanup_route_manifest());
-    entries.extend(federation::admin_federation_route_manifest());
-    entries.extend(media::admin_media_route_manifest());
-    entries.extend(notification::admin_notification_route_manifest());
-    entries.extend(register::admin_register_route_manifest());
-    entries.extend(report::admin_report_route_manifest());
-    entries.extend(retention::admin_retention_route_manifest());
-    entries.extend(room::admin_room_route_manifest());
-    entries.extend(security::admin_security_route_manifest());
-    entries.extend(server::admin_server_route_manifest());
-    entries.extend(token::admin_token_route_manifest());
-    entries.extend(user::admin_user_route_manifest());
-    entries.extend(policy::admin_policy_route_manifest());
-    entries
-}

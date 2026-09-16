@@ -304,32 +304,3 @@ pub fn create_key_rotation_router(state: AppState) -> Router<AppState> {
         .route("/_matrix/vendor/v1/keys/rotation/check", get(check_needs_rotation).post(check_needs_rotation_post))
         .with_state(state)
 }
-
-/// See [`key_rotation_route_manifest`].
-pub fn key_rotation_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-    [
-        (Method::GET, "/_matrix/client/v1/keys/rotation/status"),
-        (Method::POST, "/_matrix/client/v1/keys/rotation/status"),
-        (Method::POST, "/_matrix/client/v1/keys/rotation/rotate"),
-        (Method::GET, "/_matrix/client/v1/keys/rotation/history/{device_id}"),
-        (Method::POST, "/_matrix/client/v1/keys/rotation/revoke"),
-        (Method::PUT, "/_matrix/client/v1/keys/rotation/config"),
-        (Method::POST, "/_matrix/client/v1/keys/rotation/config"),
-        (Method::GET, "/_matrix/client/v1/keys/rotation/check"),
-        (Method::POST, "/_matrix/client/v1/keys/rotation/check"),
-        (Method::GET, "/_matrix/vendor/v1/keys/rotation/status"),
-        (Method::POST, "/_matrix/vendor/v1/keys/rotation/status"),
-        (Method::POST, "/_matrix/vendor/v1/keys/rotation/rotate"),
-        (Method::GET, "/_matrix/vendor/v1/keys/rotation/history/{device_id}"),
-        (Method::POST, "/_matrix/vendor/v1/keys/rotation/revoke"),
-        (Method::PUT, "/_matrix/vendor/v1/keys/rotation/config"),
-        (Method::POST, "/_matrix/vendor/v1/keys/rotation/config"),
-        (Method::GET, "/_matrix/vendor/v1/keys/rotation/check"),
-        (Method::POST, "/_matrix/vendor/v1/keys/rotation/check"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "key_rotation"))
-    .collect()
-}

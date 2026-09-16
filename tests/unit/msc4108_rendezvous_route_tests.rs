@@ -17,8 +17,17 @@
 
 use axum::http::{Method, StatusCode};
 use synapse_common::ApiError;
-use synapse_rust::web::routes::msc4108_rendezvous::msc4108_route_manifest;
+use synapse_rust::web::routes::declared_ledger_all;
 use synapse_rust::web::routes::route_ledger::{RouteEntry, RouteLedger};
+
+/// The `msc4108_rendezvous` slice of the derived route table.
+///
+/// `msc4108_route_manifest()` was one of ~120 hand-copied projections deleted
+/// by B2-2; route metadata now has a single source (`derived_routes`), and a
+/// test that needs one module's surface filters it by `registered_by`.
+fn msc4108_route_manifest() -> Vec<RouteEntry> {
+    declared_ledger_all().iter().filter(|e| e.registered_by == "msc4108_rendezvous").cloned().collect()
+}
 
 // ── Constants mirrored from the route module ───────────────────────────────
 

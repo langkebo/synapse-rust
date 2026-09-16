@@ -47,34 +47,6 @@ pub fn create_sync_router(state: AppState) -> Router<AppState> {
     Router::new().nest("/_matrix/client/v3", create_sync_v3_router(state))
 }
 
-/// Manifest of every `(method, absolute_path)` tuple `create_sync_router`
-/// registers. The surface is enumerated per-prefix rather than expanded
-/// uniformly so the `/sync` rate-limit exemption can be attached entry-by-entry.
-pub fn sync_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::expand_under_prefixes;
-    use axum::http::Method;
-
-    const MODULE: &str = "sync";
-
-    let mut out = Vec::new();
-
-    // B-4: /sync routes are exempt from IP-level rate limiting because the
-    // handler implements its own per-user+device rate limiter. Marking them
-    // here lets `create_router` auto-derive the exemption list from the ledger
-    // instead of hardcoding paths in the middleware.
-    out.extend(
-        expand_under_prefixes(MODULE, &["/_matrix/client/v3"], &[(Method::GET, "/sync")])
-            .into_iter()
-            .map(|e| e.with_rate_limit_exempt(true)),
-    );
-    out.extend(expand_under_prefixes(
-        MODULE,
-        &["/_matrix/client/v3"],
-        &[(Method::GET, "/events"), (Method::GET, "/joined_rooms"), (Method::GET, "/my_rooms")],
-    ));
-    out
-}
-
 #[cfg(test)]
 mod tests {
     #[test]

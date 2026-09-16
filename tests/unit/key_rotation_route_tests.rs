@@ -16,10 +16,18 @@
 // validation-logic assertions, no HTTP router or DB required.
 
 use serde_json::{json, Value};
-// Import the real manifest function so we assert against the source of truth,
-// not a hand-maintained copy. This catches manifest/router drift.
-use synapse_rust::web::routes::key_rotation::key_rotation_route_manifest;
+use synapse_rust::web::routes::declared_ledger_all;
 use synapse_rust::web::routes::route_ledger::RouteEntry;
+
+/// The `key_rotation` slice of the derived route table.
+///
+/// `key_rotation_route_manifest()` was one of ~120 hand-copied projections
+/// deleted by B2-2; route metadata now has a single source (`derived_routes`),
+/// so asserting against it still catches manifest/router drift — more reliably,
+/// because the table is generated from the `.route(...)` sites themselves.
+fn key_rotation_route_manifest() -> Vec<RouteEntry> {
+    declared_ledger_all().iter().filter(|e| e.registered_by == "key_rotation").cloned().collect()
+}
 
 // ============================================================================
 // Route manifest tests

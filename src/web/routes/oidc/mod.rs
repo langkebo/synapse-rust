@@ -165,63 +165,6 @@ pub fn create_oidc_fallback_router() -> Router<AppState> {
 // Route ledger manifests
 // ---------------------------------------------------------------------------
 
-/// Manifest for `create_oidc_router`. Note that this router is only merged
-/// into the assembly when OIDC / built-in OIDC / SAML is enabled — when none
-/// is, `assembly` falls back to a smaller pair of `/.well-known/*` routes
-/// declared inline. The ledger entries below match the *enabled* path; if
-/// you exercise the manifest in the always-fallback path, expect the
-/// `/.well-known/*` entries to overlap with the inline assembly fallback.
-pub fn oidc_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-    [
-        (Method::GET, "/_matrix/client/v3/login/sso/redirect"),
-        (Method::GET, "/_matrix/client/v3/login/sso/userinfo"),
-        (Method::GET, "/_matrix/client/v3/oidc/userinfo"),
-        (Method::POST, "/_matrix/client/v3/oidc/token"),
-        (Method::POST, "/_matrix/client/v3/oidc/logout"),
-        (Method::GET, "/_matrix/client/v3/oidc/authorize"),
-        (Method::GET, "/_matrix/client/v3/oidc/callback"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "oidc"))
-    .chain({
-        #[cfg(feature = "builtin-oidc")]
-        {
-            vec![
-                RouteEntry::new(Method::POST, "/_matrix/client/v3/oidc/login", "oidc"),
-                RouteEntry::new(Method::GET, "/.well-known/openid-configuration", "oidc"),
-                RouteEntry::new(Method::GET, "/.well-known/jwks.json", "oidc"),
-            ]
-        }
-        #[cfg(not(feature = "builtin-oidc"))]
-        {
-            vec![]
-        }
-    })
-    .collect()
-}
-
-/// See [`oidc_fallback_manifest`].
-pub fn oidc_fallback_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-
-    [(Method::GET, "/.well-known/openid-configuration"), (Method::GET, "/.well-known/jwks.json")]
-        .into_iter()
-        .map(|(m, p)| RouteEntry::new(m, p, "oidc_fallback"))
-        .collect()
-}
-
-/// See [`oidc_route_manifest_for`].
-pub fn oidc_route_manifest_for(ctx: &SsoContext) -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    if oidc_enabled(ctx) {
-        oidc_route_manifest()
-    } else {
-        oidc_fallback_manifest()
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------

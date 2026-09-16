@@ -167,13 +167,21 @@ fn homeserver_yaml_does_not_contradict_the_file_config_silently() {
 ///
 /// If sync stops being exempt, this file's reasoning changes and the
 /// production limiter requirement should be revisited.
+///
+/// B2-2 deleted `sync::sync_route_manifest()`, so the annotation no longer
+/// lives in `sync.rs`: it lives in `scripts/contract/ledger_annotations.txt`
+/// and is materialised into the derived route table. Asserting on the ledger
+/// (rather than on source text) checks the thing the limiter actually reads.
 #[test]
 fn sync_routes_are_still_exempt_from_the_generic_ip_limiter() {
-    let source = read("src/web/routes/sync.rs");
+    use synapse_rust::web::routes::declared_ledger_all;
+
+    let exempt: Vec<&str> = declared_ledger_all().iter().filter(|e| e.rate_limit_exempt).map(|e| e.path).collect();
     assert!(
-        source.contains("with_rate_limit_exempt(true)"),
-        "src/web/routes/sync.rs 不再把 /sync 标记为 exempt；\
-         若它已回到通用 IP 限流覆盖范围，请重新评估本文件的守卫条件"
+        exempt.contains(&"/_matrix/client/v3/sync"),
+        "/sync 不再被标记为 rate-limit exempt（派生表 + ledger_annotations.txt）；\
+         若它已回到通用 IP 限流覆盖范围，请重新评估本文件的守卫条件。\
+         当前 exempt 列表：{exempt:?}"
     );
 }
 

@@ -19,20 +19,6 @@ pub fn create_audit_router() -> Router<crate::web::routes::AppState> {
         .route("/_synapse/admin/v1/audit/events/{event_id}", get(get_audit_event))
 }
 
-/// See [`admin_audit_route_manifest`].
-pub fn admin_audit_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-    [
-        (Method::POST, "/_synapse/admin/v1/audit/events"),
-        (Method::GET, "/_synapse/admin/v1/audit/events"),
-        (Method::GET, "/_synapse/admin/v1/audit/events/{event_id}"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "admin::audit"))
-    .collect()
-}
-
 /// The `CreateAuditEventBody` struct.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

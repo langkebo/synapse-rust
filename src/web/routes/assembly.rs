@@ -1,17 +1,11 @@
-use super::route_ledger::{RouteEntry, RouteLedger};
+use super::route_ledger::RouteLedger;
 use super::route_module::{route_modules, ProfileFlags};
-use super::{
-    account_data, background_update, captcha, delayed_events, device, dm, e2ee, ephemeral, event_report, feature_flags,
-    guest, handlers, key_backup, key_rotation, media, moderation, presence, push, push_notification, reactions,
-    relations, rendezvous, room_summary, sliding_sync, space, sync, tags, telemetry, thirdparty, typing,
-    verification_routes, worker, *,
-};
+use super::{dm, ephemeral, handlers, media, typing, worker, *};
 use crate::web::middleware::{
     cors_middleware, csrf_middleware, method_not_allowed_middleware, rate_limit_middleware, request_id_middleware,
     security_headers_middleware, shadow_ban_middleware,
 };
 use axum::{
-    http::Method,
     routing::{get, post, put},
     Json, Router,
 };
@@ -19,293 +13,47 @@ use serde_json::json;
 use tower_http::compression::{predicate::SizeAbove, CompressionLayer};
 
 /// Manifest of every `(method, absolute_path)` tuple the assembled top-level
-/// [`Router`] is supposed to expose.
+/// [`Router`] exposes.
 ///
 /// This is the substitute for the axum route-walker API we don't have — see
-/// R4 / O2 in `docs/synapse-rust/SPEC_ALIGNMENT_PLAN_2026-05-01.md`. Today it
-/// covers the inline routes defined directly in [`create_router`] plus the
-/// static always-on router modules with explicit `*_route_manifest()` helpers.
-/// State-aware modules such as `room`, `federation`, `oidc`, and selected
-/// feature-gated routers are appended by [`declared_route_manifest_for`] so
-/// the ledger reflects the actual router assembly path for the current
-/// [`AppState`]. `create_router` validates this ledger at startup and aborts
-/// on duplicates.
+/// R4 / O2 in `docs/synapse-rust/SPEC_ALIGNMENT_PLAN_2026-05-01.md`. It is
+/// **derived**, not hand-written: `scripts/contract/extract_registered.py`
+/// scrapes the real `.route(...)` surface and
+/// `scripts/contract/gen_derived_routes.py` materialises it into
+/// [`derived_routes`]. `create_router` validates this ledger at startup and
+/// aborts on duplicates.
 ///
-/// Adding a new always-registered router to the top-level assembly? Define
-/// `fn my_route_manifest() -> Vec<RouteEntry>` in the router module and push
-/// its output into `base_route_manifest` or wire it through `route_module`.
-/// Leaving it out means the duplicate detector won't catch your router
-/// clashing with an existing one.
-fn base_route_manifest() -> RouteLedger {
-    let mut ledger = RouteLedger::new();
-    ledger.extend(top_level_inline_manifest());
-    ledger.extend(assembly_compat_manifest());
-    ledger.extend(key_backup::key_backup_route_manifest());
-    ledger.extend(device::device_route_manifest());
-    ledger.extend(e2ee::e2ee_route_manifest());
-    ledger.extend(verification_routes::verification_route_manifest());
-    ledger.extend(sync::sync_route_manifest());
-    ledger.extend(account_data::account_data_route_manifest());
-    ledger.extend(push::push_route_manifest());
-    ledger.extend(tags::tags_route_manifest());
-    ledger.extend(reactions::reactions_route_manifest());
-    ledger.extend(relations::relations_route_manifest());
-    ledger.extend(presence::presence_route_manifest());
-    ledger.extend(typing::typing_route_manifest());
-    ledger.extend(ephemeral::ephemeral_route_manifest());
-    ledger.extend(sliding_sync::sliding_sync_route_manifest());
-    ledger.extend(dm::dm_route_manifest());
-    ledger.extend(key_rotation::key_rotation_route_manifest());
-    ledger.extend(room_summary::room_summary_route_manifest());
-    ledger.extend(feature_flags::feature_flags_route_manifest());
-    ledger.extend(event_report::event_report_route_manifest());
-    ledger.extend(space::space_route_manifest());
-    ledger.extend(moderation::moderation_route_manifest());
-    ledger.extend(delayed_events::delayed_events_route_manifest());
-    ledger.extend(guest::guest_route_manifest());
-    ledger.extend(captcha::captcha_route_manifest());
-    ledger.extend(rendezvous::rendezvous_route_manifest());
-    ledger.extend(msc4108_rendezvous::msc4108_route_manifest());
-    ledger.extend(telemetry::telemetry_route_manifest());
-    ledger.extend(thirdparty::thirdparty_route_manifest());
-    ledger.extend(background_update::background_update_route_manifest());
-    ledger.extend(push_notification::push_notification_route_manifest());
-    ledger.extend(media::media_route_manifest());
-    ledger.extend(worker::worker_route_manifest());
-    ledger.extend(crate::web::routes::admin::admin_module_route_manifest());
-    ledger.extend(module::module_route_manifest());
-    ledger.extend(app_service::app_service_route_manifest());
-    ledger.extend(crate::web::routes::handlers::thread::thread_route_manifest());
-    ledger.extend(crate::web::routes::handlers::search::search_route_manifest());
-    ledger.extend(vendor_route_manifest());
-    ledger
+/// Adding a new router to the top-level assembly needs no manifest work at
+/// all — register the route and regenerate the derived table:
+///
+/// ```text
+/// python3 scripts/contract/gen_derived_routes.py
+/// ```
+///
+/// Leaving that out makes `scripts/contract/check_route_contract.sh` fail, so
+/// a router can no longer silently clash with an existing one.
+pub fn declared_ledger_for(state: &AppState) -> RouteLedger {
+    declared_ledger_for_profile(&ProfileFlags::from_state(state))
 }
 
-/// See [`declared_route_manifest_for`].
-pub fn declared_route_manifest_for(state: &AppState) -> RouteLedger {
-    declared_route_manifest_for_profile(&ProfileFlags::from_state(state))
-}
-
-/// Pure-data flavour of [`declared_route_manifest_for`] for offline tools
-/// (e.g. the `synapse_ledger_export` binary) that need the manifest without
-/// constructing a live `AppState`. Composes `base_route_manifest()` with the
-/// profile-driven entries each `RouteModule` emits via
-/// `manifest_for_profile`. The live `create_router` path goes through
-/// [`declared_route_manifest_for`] so this and live routing stay aligned by
-/// construction.
-pub fn declared_route_manifest_for_profile(flags: &ProfileFlags) -> RouteLedger {
+/// Pure-data flavour of [`declared_ledger_for`] for offline tools
+/// (e.g. the `synapse_ledger_export` binary) that need the ledger without
+/// constructing a live `AppState`. The live `create_router` path projects
+/// `AppState` down to the same [`ProfileFlags`] and calls this function, so the
+/// offline and online views cannot drift apart.
+pub fn declared_ledger_for_profile(flags: &ProfileFlags) -> RouteLedger {
     let mut ledger = RouteLedger::new();
     ledger.extend(super::derived_routes::derived_route_manifest(flags));
     ledger
 }
 
-/// Manifest for routes declared inline inside [`create_router`] — i.e. those
-/// registered with `.route(...)` directly on the top-level `Router` rather
-/// than through a `create_*_router()` helper.
-pub fn top_level_inline_manifest() -> Vec<RouteEntry> {
-    const MODULE: &str = "assembly::create_router";
-    [
-        (Method::GET, "/"),
-        (Method::GET, "/health"),
-        (Method::GET, "/_health"),
-        (Method::GET, "/_matrix/client/versions"),
-        (Method::GET, "/_matrix/client/v3/versions"),
-        (Method::GET, "/_matrix/server_version"),
-        (Method::GET, "/_matrix/client/v1/config/client"),
-        (Method::GET, "/_matrix/client/v3/pushrules/"),
-        (Method::GET, "/_matrix/client/v3/pushrules/global/"),
-        (Method::GET, "/.well-known/matrix/server"),
-        (Method::GET, "/.well-known/matrix/client"),
-        (Method::GET, "/.well-known/matrix/support"),
-        (Method::GET, "/_matrix/client/unstable/org.matrix.msc2965/auth_metadata"),
-        (Method::GET, "/_matrix/client/unstable/org.matrix.msc2965/auth_issuer"),
-        (Method::GET, "/_matrix/client/v1/auth_metadata"),
-        (Method::GET, "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device"),
-        (Method::GET, "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/status"),
-        (Method::PUT, "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device"),
-        (Method::DELETE, "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device"),
-        (Method::POST, "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events"),
-        (Method::GET, "/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"),
-        (Method::GET, "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}"),
-        (Method::GET, "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}"),
-        (Method::PUT, "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}"),
-        (Method::DELETE, "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, MODULE))
-    .collect()
-}
-
-/// Manifest for the inline compat sub-routers built directly inside this file
-/// (`create_client_capabilities_router`, `create_client_media_config_router`,
-/// `create_voip_compat_router`, `create_auth_router`, `create_account_router`,
-/// `create_directory_router`). They are part of the assembly file rather than
-/// independent route modules, so their manifests live here.
+/// The whole `#[cfg]`-visible route surface, at the widest feature ceiling.
 ///
-/// Notes:
-/// - `create_directory_router` also merges the `guest` router; that surface
-///   is manifested in `guest::guest_route_manifest` and is *not* duplicated
-///   here.
-fn assembly_compat_manifest() -> Vec<RouteEntry> {
-    use crate::web::routes::route_ledger::expand_under_prefixes;
-    let mut out = Vec::new();
-
-    // /capabilities — under v3
-    out.extend(expand_under_prefixes(
-        "assembly::capabilities",
-        &["/_matrix/client/v3"],
-        &[(Method::GET, "/capabilities")],
-    ));
-
-    // /media/config — under v1 + v3
-    out.extend(expand_under_prefixes(
-        "assembly::media_config",
-        &["/_matrix/client/v1", "/_matrix/client/v3"],
-        &[(Method::GET, "/media/config")],
-    ));
-
-    // MSC2246 upload provider/token helpers. `media::create_upload_provider_router`
-    // is nested under /_matrix/client/v3 at `create_router` below, but was never
-    // listed here, so both endpoints were served while absent from the contract
-    // (S-14, B2-4).
-    out.extend(expand_under_prefixes(
-        "assembly::upload_provider",
-        &["/_matrix/client/v3"],
-        &[(Method::POST, "/upload/token"), (Method::GET, "/upload/provider")],
-    ));
-
-    // Base VoIP compat surface — under v3
-    out.extend(expand_under_prefixes(
-        "assembly::voip_compat",
-        &["/_matrix/client/v3"],
-        &[
-            (Method::GET, "/voip/turnServer"),
-            (Method::POST, "/voip/turnServer"),
-            (Method::GET, "/voip/config"),
-            (Method::GET, "/voip/turnServer/guest"),
-        ],
-    ));
-    #[cfg(feature = "voip-tracking")]
-    out.extend(expand_under_prefixes(
-        "assembly::voip_tracking",
-        &["/_matrix/client/v3"],
-        &[
-            (Method::PUT, "/rooms/{room_id}/send/m.call.invite/{txn_id}"),
-            (Method::PUT, "/rooms/{room_id}/send/m.call.candidates/{txn_id}"),
-            (Method::PUT, "/rooms/{room_id}/send/m.call.answer/{txn_id}"),
-            (Method::PUT, "/rooms/{room_id}/send/m.call.hangup/{txn_id}"),
-            (Method::GET, "/rooms/{room_id}/call/{call_id}"),
-        ],
-    ));
-
-    // Auth compat — under v3
-    out.extend(expand_under_prefixes(
-        "assembly::auth_compat",
-        &["/_matrix/client/v3"],
-        &[
-            (Method::GET, "/register"),
-            (Method::POST, "/register"),
-            (Method::GET, "/register/available"),
-            (Method::POST, "/register/email/requestToken"),
-            (Method::POST, "/register/email/submitToken"),
-            (Method::GET, "/login"),
-            (Method::POST, "/login"),
-            (Method::POST, "/logout"),
-            (Method::POST, "/logout/all"),
-            (Method::POST, "/refresh"),
-        ],
-    ));
-
-    // Auth standalone routes (login fallback + MSC4108 QR token) — absolute paths
-    out.extend(
-        [
-            (Method::GET, "/_matrix/static/client/login/"),
-            // MSC4108: short-lived login token generation for QR sign-in
-            (Method::POST, "/_matrix/client/v1/login/qr_token"),
-        ]
-        .into_iter()
-        .map(|(m, p)| RouteEntry::new(m, p, "assembly::auth_router")),
-    );
-
-    // Account compat — under v1 + v3
-    out.extend(expand_under_prefixes(
-        "assembly::account_compat",
-        &["/_matrix/client/v1", "/_matrix/client/v3"],
-        &[
-            (Method::GET, "/account/whoami"),
-            (Method::POST, "/account/password"),
-            (Method::POST, "/account/password/email/requestToken"),
-            (Method::POST, "/account/password/email/submitToken"),
-            (Method::POST, "/account/deactivate"),
-            (Method::GET, "/account/3pid"),
-            (Method::POST, "/account/3pid"),
-            (Method::POST, "/account/3pid/add"),
-            (Method::POST, "/account/3pid/bind"),
-            (Method::POST, "/account/3pid/email/requestToken"),
-            (Method::POST, "/account/3pid/email/submitToken"),
-            (Method::POST, "/account/3pid/delete"),
-            (Method::POST, "/account/3pid/unbind"),
-            (Method::GET, "/profile/{user_id}"),
-            (Method::GET, "/profile/{user_id}/displayname"),
-            (Method::PUT, "/profile/{user_id}/displayname"),
-            (Method::GET, "/profile/{user_id}/avatar_url"),
-            (Method::PUT, "/profile/{user_id}/avatar_url"),
-        ],
-    ));
-
-    // Directory compat — under v3
-    out.extend(expand_under_prefixes(
-        "assembly::directory_compat",
-        &["/_matrix/client/v3"],
-        &[
-            (Method::POST, "/user_directory/search"),
-            (Method::POST, "/user_directory/list"),
-            (Method::GET, "/user_directory/profiles/{user_id}"),
-            (Method::GET, "/directory/list/room/{room_id}"),
-            (Method::PUT, "/directory/list/room/{room_id}"),
-            (Method::GET, "/directory/room/{room_alias}"),
-            (Method::PUT, "/directory/room/{room_alias}"),
-            (Method::DELETE, "/directory/room/{room_alias}"),
-            (Method::GET, "/publicRooms"),
-            (Method::POST, "/publicRooms"),
-        ],
-    ));
-
-    // Directory extras — under v3 (`create_directory_v3_extra_router`)
-    out.extend(expand_under_prefixes(
-        "assembly::directory_extra",
-        &["/_matrix/client/v3"],
-        &[
-            (Method::GET, "/directory/room/{room_id}/alias"),
-            (Method::PUT, "/directory/room/{room_id}/alias/{room_alias}"),
-            (Method::DELETE, "/directory/room/{room_id}/alias/{room_alias}"),
-        ],
-    ));
-
-    out
-}
-
-/// Manifest for ISSUE-13 vendor-prefixed private endpoints.
-///
-/// Private/non-standard endpoints (`/my_rooms`, `/search_rooms`,
-/// `/search_recipients`) are migrated from `/_matrix/client/v3` to
-/// `/_matrix/vendor/v1` so they no longer pollute the standard Matrix
-/// client-server API namespace. The legacy `/_matrix/client/v3/{path}`
-/// routes are kept for backward compatibility (see the deprecation warning
-/// in [`create_router`]) but new clients should use the vendor prefix.
-///
-/// B-1 remediation: these vendor routes are grouped by `registered_by`
-/// (`"vendor"`), which is what the SDK's contract-sync actually consumes.
-/// The former per-route `module` override was removed along with the field
-/// itself — it carried no information the SDK read (see B-7 in
-/// `docs/audit/LEDGER_CONTRACT_ISSUES_2026-09-13.md`).
-fn vendor_route_manifest() -> Vec<RouteEntry> {
-    let by = "vendor"; // registration source
-    vec![
-        RouteEntry::new(Method::GET, "/_matrix/vendor/v1/my_rooms", by),
-        RouteEntry::new(Method::POST, "/_matrix/vendor/v1/search_rooms", by),
-        RouteEntry::new(Method::POST, "/_matrix/vendor/v1/search_recipients", by),
-    ]
+/// Capability gating and contract tests need *every* route the build can
+/// serve, not one runtime profile's slice of it, so they lift the ceiling with
+/// [`ProfileFlags::ALL`] instead of reading a per-module manifest.
+pub fn declared_ledger_all() -> RouteLedger {
+    declared_ledger_for_profile(&ProfileFlags::ALL)
 }
 
 // Handlers extracted to dedicated modules:
@@ -360,7 +108,7 @@ pub fn create_router(state: AppState) -> Router {
     // Validate the declared route manifest before assembling the live router.
     // A duplicate (method, path) here is the exact class of bug that made
     // the key_backup routes dead for months in §1.1/§1.2 of the spec plan.
-    let ledger = declared_route_manifest_for(&state);
+    let ledger = declared_ledger_for(&state);
     match ledger.validate() {
         Ok(report) => {
             let registered_by_counts = ledger.registered_by_counts();

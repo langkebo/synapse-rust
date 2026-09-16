@@ -34,23 +34,6 @@ pub fn create_tags_router(state: AppState) -> Router<AppState> {
     Router::new().nest("/_matrix/client/v3", compat_router).with_state(state)
 }
 
-const TAGS_NEST_PREFIXES: &[&str] = &["/_matrix/client/v3"];
-
-fn tags_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
-    use axum::http::Method;
-    vec![
-        (Method::GET, "/user/{user_id}/tags"),
-        (Method::GET, "/user/{user_id}/rooms/{room_id}/tags"),
-        (Method::PUT, "/user/{user_id}/rooms/{room_id}/tags/{tag}"),
-        (Method::DELETE, "/user/{user_id}/rooms/{room_id}/tags/{tag}"),
-    ]
-}
-
-/// See [`tags_route_manifest`].
-pub fn tags_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    crate::web::routes::route_ledger::expand_under_prefixes("tags", TAGS_NEST_PREFIXES, &tags_compat_relative_routes())
-}
-
 async fn get_global_tags(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,

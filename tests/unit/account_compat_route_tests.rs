@@ -13,13 +13,13 @@
 // The module is private (`mod account_compat;`) so the tests follow the
 // same pattern as `key_backup_api_tests.rs`: pure JSON-shape + validation-
 // logic assertions, no HTTP router or DB. The route manifest is verified
-// indirectly through the public `declared_route_manifest_for_profile`
+// indirectly through the public `declared_ledger_for_profile`
 // aggregator — the same surface `create_router` validates at startup.
 
 use axum::http::Method;
 use serde_json::{json, Value};
 use synapse_rust::common::{ApiError, ApiErrorKind, MatrixErrorCode};
-use synapse_rust::web::routes::declared_route_manifest_for_profile;
+use synapse_rust::web::routes::declared_ledger_for_profile;
 use synapse_rust::web::routes::route_ledger::RouteEntry;
 use synapse_rust::web::routes::route_module::ProfileFlags;
 
@@ -29,10 +29,10 @@ use synapse_rust::web::routes::route_module::ProfileFlags;
 
 #[test]
 fn test_account_compat_routes_present_in_default_manifest() {
-    // account_compat_route_manifest() lives in a private module, so we
-    // assert via the public aggregator that the four (method, path) tuples
-    // the capabilities endpoint consults are exposed.
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    // The account_compat module is private, so we assert via the public
+    // aggregator that the four (method, path) tuples the capabilities
+    // endpoint consults are exposed in the derived route table.
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let entries: std::collections::HashSet<(Method, &str)> =
         ledger.iter().map(|e| (e.method.clone(), e.path)).collect();
 
@@ -52,7 +52,7 @@ fn test_account_compat_routes_present_in_default_manifest() {
 fn test_account_compat_full_route_surface_under_v3() {
     // The full account_compat router is nested under v1/r0/v3. Verify the
     // v3 surface carries the 17 documented endpoints.
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let v3_account_paths: std::collections::HashSet<&str> = ledger
         .iter()
         .filter(|e| {
@@ -87,7 +87,7 @@ fn test_account_compat_full_route_surface_under_v3() {
 fn test_account_compat_routes_also_under_r0_and_v1() {
     // The account_compat router is merged under v1, r0, and v3 (with
     // r0 adding the deprecated /account/profile/{user_id}* extras).
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let paths: std::collections::HashSet<&str> = ledger.iter().map(|e| e.path).collect();
     for prefix in ["/_matrix/client/v1", "/_matrix/client/v3", "/_matrix/client/v3"] {
         assert!(paths.contains(&format!("{prefix}/account/whoami").as_str()), "{prefix}/account/whoami missing");
@@ -98,7 +98,7 @@ fn test_account_compat_routes_also_under_r0_and_v1() {
 #[test]
 fn test_account_compat_routes_use_correct_methods() {
     // Verify the (method, path) combinations match the router declarations.
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let entries: std::collections::HashSet<(Method, &str)> =
         ledger.iter().map(|e| (e.method.clone(), e.path)).collect();
 
@@ -123,13 +123,13 @@ fn test_account_compat_routes_use_correct_methods() {
 
 #[test]
 fn test_account_compat_routes_tagged_assembly_account_compat() {
-    // The four narrow manifest entries are tagged "account_compat".
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    // The account/compat surface is tagged "assembly::account_compat".
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let account_compat_entries: Vec<&RouteEntry> =
         ledger.iter().filter(|e| e.registered_by == "assembly::account_compat").collect();
     assert!(!account_compat_entries.is_empty(), "expected assembly::account_compat-tagged entries");
 
-    // Verify the four narrow manifest entries from `account_compat_route_manifest()`.
+    // Verify the four tuples the capabilities endpoint consults are present.
     let narrow_paths: std::collections::HashSet<&str> =
         account_compat_paths_for_narrow_manifest().iter().map(|(_, p)| *p).collect();
     let actual_paths: std::collections::HashSet<&str> = account_compat_entries.iter().map(|e| e.path).collect();
@@ -141,9 +141,8 @@ fn test_account_compat_routes_tagged_assembly_account_compat() {
     }
 }
 
-/// Mirror of `account_compat_route_manifest()` — the 4 (method, relative-path)
-/// tuples that the capabilities endpoint checks. Paths are relative to the
-/// v3/r0/v1 prefix.
+/// The 4 (method, relative-path) tuples that the capabilities endpoint checks.
+/// Paths are relative to the v3/r0/v1 prefix.
 fn account_compat_paths_for_narrow_manifest() -> Vec<(Method, &'static str)> {
     vec![
         (Method::POST, "/account/password"),
@@ -1019,7 +1018,7 @@ fn test_error_code_mapping_for_conflict() {
 #[test]
 fn test_account_r0_only_profile_aliases_present_in_manifest() {
     // The r0-only router adds three deprecated aliases for backwards compat.
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let entries: std::collections::HashSet<(Method, &str)> =
         ledger.iter().map(|e| (e.method.clone(), e.path)).collect();
     assert!(entries.contains(&(Method::GET, "/_matrix/client/v3/profile/{user_id}")));
@@ -1031,7 +1030,7 @@ fn test_account_r0_only_profile_aliases_present_in_manifest() {
 fn test_account_r0_only_aliases_not_present_under_v3() {
     // The v3 surface must NOT include the /account/profile/{user_id}* aliases
     // — they were never standardized.
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let has_v3_alias = ledger.iter().any(|e| e.path.starts_with("/_matrix/client/v3/account/profile/"));
     assert!(!has_v3_alias, "v3 must not expose deprecated /account/profile/{{user_id}}* aliases");
 }

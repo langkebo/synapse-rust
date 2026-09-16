@@ -17,13 +17,13 @@
 // The module is private (`mod auth_compat;`) so the tests follow the same
 // pattern as `key_backup_api_tests.rs`: pure JSON-shape + validation-logic
 // assertions, no HTTP router or DB. The route manifest is verified
-// indirectly through the public `declared_route_manifest_for_profile`
+// indirectly through the public `declared_ledger_for_profile`
 // aggregator — the same surface `create_router` validates at startup.
 
 use axum::http::Method;
 use serde_json::{json, Value};
 use synapse_rust::common::{ApiError, ApiErrorKind, MatrixErrorCode};
-use synapse_rust::web::routes::declared_route_manifest_for_profile;
+use synapse_rust::web::routes::declared_ledger_for_profile;
 use synapse_rust::web::routes::route_module::ProfileFlags;
 
 // ============================================================================
@@ -33,7 +33,7 @@ use synapse_rust::web::routes::route_module::ProfileFlags;
 #[test]
 fn test_auth_compat_routes_present_in_default_manifest() {
     // The auth_compat router is nested under r0 and v3.
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let entries: std::collections::HashSet<(Method, &str)> =
         ledger.iter().map(|e| (e.method.clone(), e.path)).collect();
 
@@ -68,7 +68,7 @@ fn test_auth_compat_routes_present_in_default_manifest() {
 fn test_auth_compat_routes_include_standalone_absolute_paths() {
     // Login fallback page and MSC4108 QR token are absolute paths not nested
     // under r0/v3.
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let entries: std::collections::HashSet<(Method, &str)> =
         ledger.iter().map(|e| (e.method.clone(), e.path)).collect();
     assert!(entries.contains(&(Method::GET, "/_matrix/static/client/login/")), "login fallback missing");
@@ -77,7 +77,7 @@ fn test_auth_compat_routes_include_standalone_absolute_paths() {
 
 #[test]
 fn test_auth_compat_routes_tagged_assembly_auth_compat() {
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let auth_compat_entries: Vec<_> = ledger.iter().filter(|e| e.registered_by == "assembly::auth_compat").collect();
     assert!(!auth_compat_entries.is_empty(), "expected assembly::auth_compat-tagged entries");
     // r0 removed: 10 (method, relative-path) tuples × 1 prefix (v3) = 10 entries.
@@ -94,7 +94,7 @@ fn test_auth_compat_routes_under_v1_are_not_present() {
     // (The MSC4108 /_matrix/client/v1/login/qr_token endpoint is a standalone
     // absolute path registered inline in create_auth_router, not part of the
     // auth_compat router nesting. It is intentionally excluded from this check.)
-    let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
+    let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let has_v1_auth_compat_router = ledger.iter().any(|e| {
         e.path == "/_matrix/client/v1/register"
             || e.path == "/_matrix/client/v1/register/available"

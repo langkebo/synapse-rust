@@ -17,6 +17,8 @@ pub mod captcha;
 /// The `context` module.
 pub mod context;
 mod delayed_events;
+/// The `derived_routes` module.
+pub mod derived_routes;
 /// The `device` module.
 pub mod device;
 mod directory_reporting;
@@ -86,8 +88,6 @@ pub mod room_summary;
 pub mod route_ledger;
 /// The `route_module` module.
 pub mod route_module;
-/// The `derived_routes` module.
-pub mod derived_routes;
 /// The `sliding_sync` module.
 pub mod sliding_sync;
 /// The `space` module.
@@ -172,7 +172,7 @@ pub(crate) use account_compat::{
 pub use account_data::create_account_data_router;
 pub use admin::create_admin_module_router;
 pub use app_service::create_app_service_router;
-pub use assembly::{create_router, declared_route_manifest_for, declared_route_manifest_for_profile};
+pub use assembly::{create_router, declared_ledger_all, declared_ledger_for, declared_ledger_for_profile};
 pub(crate) use auth_compat::{
     check_username_availability, get_login_flows, get_register_flows, login, logout, logout_all, refresh_token,
     register, request_email_verification, submit_email_token,
@@ -227,7 +227,7 @@ pub use key_rotation::create_key_rotation_router;
 pub use media::create_media_router;
 pub use moderation::create_moderation_router;
 pub use module::create_module_router;
-pub use msc4108_rendezvous::{create_msc4108_rendezvous_router, msc4108_route_manifest};
+pub use msc4108_rendezvous::create_msc4108_rendezvous_router;
 pub use oidc::create_oidc_router;
 pub use presence::create_presence_router;
 pub use push::create_push_router;

@@ -97,43 +97,6 @@ pub fn create_user_router() -> Router<crate::web::routes::AppState> {
         .route("/_synapse/admin/v1/account/{user_id}", post(update_account))
 }
 
-/// See [`admin_user_route_manifest`].
-pub fn admin_user_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-    [
-        (Method::GET, "/_synapse/admin/v1/users"),
-        (Method::GET, "/_synapse/admin/v1/users/{user_id}"),
-        (Method::DELETE, "/_synapse/admin/v1/users/{user_id}"),
-        (Method::PUT, "/_synapse/admin/v1/users/{user_id}/admin"),
-        (Method::POST, "/_synapse/admin/v1/users/{user_id}/evict"),
-        (Method::POST, "/_synapse/admin/v1/users/{user_id}/deactivate"),
-        (Method::POST, "/_synapse/admin/v1/users/{user_id}/password"),
-        (Method::GET, "/_synapse/admin/v1/users/{user_id}/rooms"),
-        (Method::POST, "/_synapse/admin/v1/users/{user_id}/login"),
-        (Method::POST, "/_synapse/admin/v1/users/{user_id}/logout"),
-        (Method::GET, "/_synapse/admin/v1/users/{user_id}/devices"),
-        (Method::POST, "/_synapse/admin/v1/users/{user_id}/devices/delete"),
-        (Method::DELETE, "/_synapse/admin/v1/users/{user_id}/devices/{device_id}"),
-        (Method::POST, "/_synapse/admin/v1/users/{user_id}/devices/{device_id}/delete"),
-        (Method::GET, "/_synapse/admin/v2/users"),
-        (Method::GET, "/_synapse/admin/v2/users/{user_id}"),
-        (Method::PUT, "/_synapse/admin/v2/users/{user_id}"),
-        (Method::DELETE, "/_synapse/admin/v2/users/{user_id}"),
-        (Method::GET, "/_synapse/admin/v1/user_stats"),
-        (Method::GET, "/_synapse/admin/v1/users/{user_id}/stats"),
-        (Method::POST, "/_synapse/admin/v1/users/batch"),
-        (Method::POST, "/_synapse/admin/v1/users/batch_deactivate"),
-        (Method::GET, "/_synapse/admin/v1/user_sessions/{user_id}"),
-        (Method::POST, "/_synapse/admin/v1/user_sessions/{user_id}/invalidate"),
-        (Method::GET, "/_synapse/admin/v1/account/{user_id}"),
-        (Method::POST, "/_synapse/admin/v1/account/{user_id}"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "admin::user"))
-    .collect()
-}
-
 #[axum::debug_handler]
 async fn evict_user(
     _admin: AdminUser,

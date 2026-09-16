@@ -22,24 +22,6 @@ pub fn create_media_router() -> Router<crate::web::routes::AppState> {
         .route("/_synapse/admin/v1/quarantine_media/{media_id}/changes", get(get_media_quarantine_changes))
 }
 
-/// See [`admin_media_route_manifest`].
-pub fn admin_media_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
-    [
-        (Method::GET, "/_synapse/admin/v1/media"),
-        (Method::GET, "/_synapse/admin/v1/media/{media_id}"),
-        (Method::DELETE, "/_synapse/admin/v1/media/{media_id}"),
-        (Method::GET, "/_synapse/admin/v1/media/quota"),
-        (Method::GET, "/_synapse/admin/v1/users/{user_id}/media"),
-        (Method::DELETE, "/_synapse/admin/v1/users/{user_id}/media"),
-        (Method::GET, "/_synapse/admin/v1/quarantine_media/{media_id}/changes"),
-    ]
-    .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "admin::media"))
-    .collect()
-}
-
 /// See [`get_all_media`].
 #[axum::debug_handler]
 pub async fn get_all_media(
