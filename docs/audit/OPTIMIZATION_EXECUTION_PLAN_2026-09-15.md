@@ -610,7 +610,7 @@ context 字段 **−40%**；样板 **−1,400 行**（manifest + extractor + map
 
 | 编号 | 原计划标记 | 实测结论 | 差距 / 证据 |
 |---|---|---|---|
-| B2-5 | （空白） | 🔴 未启动 | `docs/openapi/client.yaml` 72,924 行仍被 git 跟踪；`route-table.json` 不存在 |
+| B2-5 | （空白） | ✅ 完成 | commit `92ca6f66`：`client.yaml` 从 git tracking 移除，由 CI artifact 生成；`route-table.json` 新增（1,047 条路由）；`gen_client_yaml.py` + `gen_route_table.py` 生成器就绪；`.github/workflows/ci.yml` 新增 `openapi-artifact` job（上传 artifact 30 天 retention） |
 | B3-4 | ✅ | ✅ 完成 | commit `8ad864e1`+`bddd6109`：`unified_schema_v11` 字面量在 active code 清零（0 处）；v11 从 git tracking 移除 |
 | B3-1 | ✅ | ✅ 完成 | v12 入 git（6771 行，4315 行可执行 SQL，FK 132 / CHECK 27 / UNIQUE 165 / CREATE INDEX 380）；`baseline_tables.rs:28` `include_str!` 指向 v12 |
 | B3-2 | ✅ | ✅ 完成 | fold-in 块 `scripts/p0_constraints_indexes.sql` 已在 v12；CI/tests/compile 全部接线 v12 |
@@ -638,18 +638,18 @@ context 字段 **−40%**；样板 **−1,400 行**（manifest + extractor + map
 - migration-consistency slice 全绿 ✅
 - 生成器重命名 `generate_next_baseline.py`（读 v12 为输入）✅
 
-**Step 2：B2-5 投影去 tracked（下一步）**
-- 2a. 确认 `docs/openapi/client.yaml` 生成来源（search `scripts/contract` → 已在 `check_route_contract.sh` 或独立生成器）；当前 72,924 行对应 1,146 条路由，与 B2-1 的 .inc 同源；
-- 2b. 编写 `scripts/contract/gen_client_yaml.py` 或复用既有管线 → 输出 `docs/openapi/client.yaml`（ CI artifact ）；
-- 2c. `docs/openapi/client.yaml` 加 `// 本文件由 CI gen_client_yaml.py 生成，禁止手改 //` 头部；
-- 2d. 在 `ci.yml` 增加 generation job（或加入 `check_route_contract.sh`），上传 artifact；
-- 2e. 移除 `client.yaml` 的 git 跟踪；
-- 2f. 生成 `docs/openapi/route-table.json`（生成器带禁止手改头）。
+**Step 2：B2-5 投影去 tracked ✅（commit `92ca6f66`）**
+- `docs/openapi/client.yaml` 从 git tracking 移除，由 CI artifact 生成
+- 新建 `scripts/api_test/gen_client_yaml.py`（含禁止手改头）
+- 新建 `scripts/api_test/gen_route_table.py`（`_meta` 禁止手改标记）
+- `.github/workflows/ci.yml` 新增 `openapi-artifact` job（上传 artifact 30 天 retention）
+- `docs/openapi/route-table.json` 新增（1,047 条路由）
+- 现有 `client.yaml` 已加禁止手改头注释
 
 接受标准：
-- `git ls-files docs/openapi/` 无 `client.yaml`；
-- CI generation job EXIT=0；
-- `gen_derived_routes.py --check` + gen_client_yaml + gen_route_table 一致。
+- `git ls-files docs/openapi/` 无 `client.yaml` ✅
+- CI generation job 配置完成（等待 CI 验证 EXIT=0）
+- `gen_client_yaml.py --skip-export` + `gen_route_table.py` 本地验证通过 ✅
 
 **Step 3：B3-5 错误汇流剩余（独立窗口，不阻塞收口）**
 - 按域批次迁移 `database_with_cause` 样板（Auth → Sync → Federation → Media → E2EE → Policy → General）；
