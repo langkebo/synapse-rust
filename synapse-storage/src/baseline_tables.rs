@@ -1,6 +1,6 @@
 //! Compile-time baseline table extraction.
 //!
-//! The `00000000_unified_schema_v11.sql` file is the single source of truth for
+//! The `00000000_unified_schema_v12.sql` file is the single source of truth for
 //! which tables the synapse-rust database is required to provide. This module
 //! parses that file at compile time via [`include_str!`] and lazily memoizes
 //! the resulting table list.
@@ -14,18 +14,18 @@
 //! Why `include_str!` rather than a `build.rs`? The project does not currently
 //! use `build.rs`; introducing one just for table extraction would expand the
 //! build surface and risk cache invalidation. `include_str!` makes the
-//! dependency on `migrations/00000000_unified_schema_v11.sql` explicit and
+//! dependency on `migrations/00000000_unified_schema_v12.sql` explicit and
 //! participates in cargo's normal incremental rebuild graph.
 
 use std::sync::OnceLock;
 
-/// Raw contents of the v11 baseline schema file.
+/// Raw contents of the v12 baseline schema file.
 ///
 /// Path is relative to this file (`synapse-storage/src/baseline_tables.rs`).
 /// Two `..` steps reach the workspace root, then `migrations/` contains the
 /// file. Cargo's manifest-relative `include_str!` resolves relative to
 /// `CARGO_MANIFEST_DIR`, which is `synapse-storage/` for this crate.
-const BASELINE_SQL: &str = include_str!("../../migrations/00000000_unified_schema_v11.sql");
+const BASELINE_SQL: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql");
 
 /// Cached sorted list of all `CREATE TABLE` table names declared in the
 /// baseline schema.

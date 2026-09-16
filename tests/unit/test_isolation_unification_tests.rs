@@ -50,7 +50,7 @@ const COMMON_LIB: &str = "synapse-common/src/lib.rs";
 
 /// The two baseline migrations, compiled in. Guard 5 hashes these to pin the
 /// template the database already holds.
-const V11: &str = include_str!("../../migrations/00000000_unified_schema_v11.sql");
+const V11: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql");
 const EXTENSIONS: &str = include_str!("../../migrations/00000001_extensions_v10.sql");
 
 /// `v11 ++ extensions`, no separator: the baseline the shared template was
@@ -625,7 +625,7 @@ fn the_seed_allowlist_matches_what_the_baseline_seeds() {
     const SEED_REFERENCE_TABLES: &[&str] = synapse_common::test_isolation::SEED_REFERENCE_TABLES;
 
     let mut seeded = Vec::new();
-    for (name, sql) in [("00000000_unified_schema_v11.sql", V11), ("00000001_extensions_v10.sql", EXTENSIONS)] {
+    for (name, sql) in [("00000000_unified_schema_v12.sql", V11), ("00000001_extensions_v10.sql", EXTENSIONS)] {
         for statement in insert_statements(sql) {
             let rest = statement.split_once("INTO").map_or_else(
                 || panic!("{name}: INSERT statement without INTO: {}", &statement[..80.min(statement.len())]),

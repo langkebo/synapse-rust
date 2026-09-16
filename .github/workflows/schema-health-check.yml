@@ -70,7 +70,7 @@ jobs:
           PGPASSWORD: synapse
         run: |
           psql -h 127.0.0.1 -U synapse -d synapse_health -v ON_ERROR_STOP=1 \
-            -f migrations/00000000_unified_schema_v11.sql
+            -f migrations/00000000_unified_schema_v12.sql
           if [ -f migrations/00000001_extensions_v10.sql ]; then
             psql -h 127.0.0.1 -U synapse -d synapse_health -v ON_ERROR_STOP=1 \
               -f migrations/00000001_extensions_v10.sql

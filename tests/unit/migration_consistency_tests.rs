@@ -15,7 +15,7 @@ fn read(path: &Path) -> String {
 fn test_v11_baseline_primary_exists() {
     let root = project_root();
     let primary = root.join("migrations");
-    assert!(primary.join("00000000_unified_schema_v11.sql").exists(), "missing v11 primary schema");
+    assert!(primary.join("00000000_unified_schema_v12.sql").exists(), "missing v11 primary schema");
     assert!(primary.join("00000001_extensions_v10.sql").exists(), "missing v10 extensions (still used)");
 }
 
@@ -33,7 +33,7 @@ fn deploy_mounts_canonical_migrations_and_has_no_copy() {
     let canonical = root.join("migrations");
     let deploy_migrations = root.join("docker/deploy/migrations");
 
-    assert!(canonical.join("00000000_unified_schema_v11.sql").exists(), "missing canonical v11 baseline");
+    assert!(canonical.join("00000000_unified_schema_v12.sql").exists(), "missing canonical v11 baseline");
 
     // A stale real directory (or a symlink — BSD/macOS `find` does not follow a
     // symlink search root, which breaks the migrator's baseline detection) must
@@ -67,7 +67,7 @@ fn deploy_mounts_canonical_migrations_and_has_no_copy() {
 fn schema_migrations_executed_at_is_bigint_in_every_writer() {
     let root = project_root();
     let writers = [
-        "migrations/00000000_unified_schema_v11.sql",
+        "migrations/00000000_unified_schema_v12.sql",
         "docker/db_migrate.sh",
         "docker/deploy/scripts/container-migrate.sh",
         "docker/deploy/scripts/init-db.sql",
@@ -237,5 +237,5 @@ fn test_build_sqlx_migration_source_outputs_v10_chain() {
     assert!(output.status.success(), "script failed: {}", String::from_utf8_lossy(&output.stderr));
 
     let manifest = read(&output_dir.join("manifest.json"));
-    assert!(manifest.contains("\"baseline\": \"00000000_unified_schema_v11.sql\""));
+    assert!(manifest.contains("\"baseline\": \"00000000_unified_schema_v12.sql\""));
 }

@@ -43,7 +43,7 @@ pub const TEMPLATE_READY_TABLE: &str = "_synapse_test_template_ready";
 /// The template rows the **baseline migrations** seed, and therefore the only
 /// tables [`SeedSource::Only`] ever has anything to copy for.
 ///
-/// Measured against the two inlined baseline files: `00000000_unified_schema_v11.sql`
+/// Measured against the two inlined baseline files: `00000000_unified_schema_v12.sql`
 /// has exactly three `INSERT INTO` statements (lines 4554, 4563, 4568) and
 /// `00000001_extensions_v10.sql` has none. The template's other 250-odd tables
 /// are empty, so this allowlist and [`SeedSource::Everything`] currently produce

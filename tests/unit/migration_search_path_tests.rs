@@ -116,7 +116,7 @@ fn unqualified_baseline_refs(sql: &str, baseline_tables: &[String]) -> Vec<(usiz
 fn migration_foreign_keys_must_not_rely_on_search_path() {
     let root = project_root();
     let migrations_dir = root.join("migrations");
-    let baseline = read(&migrations_dir.join("00000000_unified_schema_v11.sql"));
+    let baseline = read(&migrations_dir.join("00000000_unified_schema_v12.sql"));
     let baseline_tables = baseline_table_names(&baseline);
     assert!(baseline_tables.len() > 100, "baseline table extraction looks broken: {}", baseline_tables.len());
 
@@ -129,7 +129,7 @@ fn migration_foreign_keys_must_not_rely_on_search_path() {
             path.extension().is_some_and(|ext| ext == "sql")
                 // The baseline itself creates its tables inline; an unqualified
                 // parent reference there cannot outlive the CREATE that made it.
-                && path.file_name().is_none_or(|name| name != "00000000_unified_schema_v11.sql")
+                && path.file_name().is_none_or(|name| name != "00000000_unified_schema_v12.sql")
         })
         .collect();
     entries.sort();

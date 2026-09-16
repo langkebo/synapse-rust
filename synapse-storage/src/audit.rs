@@ -397,7 +397,7 @@ mod db_tests {
     /// The append-only guarantee must be enforced by the DATABASE, not only by the
     /// cleanup path opting in: a bare `DELETE FROM audit_events` without
     /// `synapse.allow_audit_delete='true'` must be rejected by
-    /// `trg_prevent_audit_delete` (`migrations/00000000_unified_schema_v11.sql`).
+    /// `trg_prevent_audit_delete` (`migrations/00000000_unified_schema_v12.sql`).
     ///
     /// Without the trigger this test fails, which is exactly how the accidental
     /// removal of `20260710190001_audit_log_append_only.sql` went unnoticed.

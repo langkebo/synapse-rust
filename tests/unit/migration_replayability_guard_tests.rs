@@ -13,7 +13,7 @@
 //! [ERROR] 迁移失败: 20260906010000_add_events_soft_failed.sql
 //! ```
 //!
-//! `soft_failed` had been folded into `00000000_unified_schema_v11.sql` (as
+//! `soft_failed` had been folded into `00000000_unified_schema_v12.sql` (as
 //! `ALTER TABLE events ADD COLUMN IF NOT EXISTS soft_failed ...`, i.e. idempotent),
 //! but the incremental migration still used a bare `ADD COLUMN`. The chain aborted
 //! at migration 30 of 74, so **every later migration silently never ran** on any
@@ -43,7 +43,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const BASELINE: &str = "00000000_unified_schema_v11.sql";
+const BASELINE: &str = "00000000_unified_schema_v12.sql";
 
 fn project_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

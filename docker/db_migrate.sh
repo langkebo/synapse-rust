@@ -369,8 +369,8 @@ is_superseded_by_latest_baseline() {
                 fi
             fi
             ;;
-        00000000_unified_schema_v11.sql)
-            # v11 是最新 baseline，所有增量迁移都不会被跳过
+        00000000_unified_schema_v12.sql)
+            # v12 是最新 baseline，所有增量迁移都不会被跳过
             return 1
             ;;
         *)

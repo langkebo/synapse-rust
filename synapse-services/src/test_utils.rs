@@ -221,7 +221,7 @@ pub fn configured_test_db_template_schema() -> Option<String> {
 /// this exact string, and any change mints a second template schema.
 fn isolated_baseline_sql() -> &'static str {
     concat!(
-        include_str!("../../migrations/00000000_unified_schema_v11.sql"),
+        include_str!("../../migrations/00000000_unified_schema_v12.sql"),
         include_str!("../../migrations/00000001_extensions_v10.sql"),
     )
 }

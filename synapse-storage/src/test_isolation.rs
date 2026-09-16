@@ -100,7 +100,7 @@ impl IsolatedTestPool {
         // template (the shared `ensure_template_schema` would build it from
         // scratch) instead of reusing the one already in the database.
         let baseline_sql = concat!(
-            include_str!("../../migrations/00000000_unified_schema_v11.sql"),
+            include_str!("../../migrations/00000000_unified_schema_v12.sql"),
             include_str!("../../migrations/00000001_extensions_v10.sql"),
         );
         let template = synapse_common::test_isolation::ensure_template_schema(&db_url, baseline_sql)

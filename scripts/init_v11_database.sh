@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# v11 baseline 重置脚本（重部署窗口专用）。
-# 清空数据库，重新应用 v11 baseline + 所有后续增量迁移。
+# v12 baseline 重置脚本（重部署窗口专用）。
+# 清空数据库，重新应用 v12 baseline + 所有后续增量迁移。
 #
 # 用法：
 #   bash scripts/init_v11_database.sh
@@ -31,7 +31,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 MIGRATIONS_DIR="$PROJECT_ROOT/migrations"
 
-echo "==> [$DB_NAME@$DB_HOST:$DB_PORT] v11 重置脚本"
+echo "==> [$DB_NAME@$DB_HOST:$DB_PORT] v12 重置脚本"
 echo "    keep_existing=$KEEP_EXISTING"
 
 # === 前置检查 ===
@@ -49,9 +49,9 @@ if ! "${PSQL[@]}" -c "SELECT 1" >/dev/null 2>&1; then
 fi
 
 # === 查找 v11 baseline ===
-V11_BASELINE="$MIGRATIONS_DIR/00000000_unified_schema_v11.sql"
-if [[ ! -f "$V11_BASELINE" ]]; then
-    echo "ERROR: v11 baseline 不存在: $V11_BASELINE"
+CURRENT_BASELINE="$MIGRATIONS_DIR/00000000_unified_schema_v12.sql"
+if [[ ! -f "$CURRENT_BASELINE" ]]; then
+    echo "ERROR: v12 baseline 不存在: $CURRENT_BASELINE"
     echo "  请先运行 ticket 01-v11-baseline-scaffold"
     exit 1
 fi
@@ -69,15 +69,15 @@ else
 fi
 
 # === 应用迁移 ===
-echo "==> 应用 v11 baseline"
-"${PSQL[@]}" -v ON_ERROR_STOP=1 -f "$V11_BASELINE" >/dev/null
-echo "    ✓ $V11_BASELINE"
+echo "==> 应用 v12 baseline"
+"${PSQL[@]}" -v ON_ERROR_STOP=1 -f "$CURRENT_BASELINE" >/dev/null
+echo "    ✓ $CURRENT_BASELINE"
 
 echo "==> 应用后续增量迁移（跳过 .undo.sql 和 v10）"
 for f in $(find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' ! -name '*.undo.sql' | sort); do
     fname="$(basename "$f")"
     # 跳过 v11 baseline（已单独应用）
-    [[ "$fname" == "00000000_unified_schema_v11.sql" ]] && continue
+    [[ "$fname" == "00000000_unified_schema_v12.sql" ]] && continue
     # 跳过 v10 baseline（已废弃）
     [[ "$fname" == "00000000_unified_schema_v10.sql" ]] && continue
     [[ "$fname" == "00000001_extensions_v10.sql" ]] && continue
@@ -111,9 +111,9 @@ echo "    触发器数（非内部）: ${TRIGGER_COUNT:-未读取}"
 
 # === 删除脚手架测试表（如存在）===
 if [[ "$KEEP_EXISTING" != "1" ]]; then
-    "${PSQL[@]}" -c "DROP TABLE IF EXISTS _v11_scaffold_check;" >/dev/null 2>&1 || true
-    echo "    (已清理 _v11_scaffold_check 标记表)"
+    "${PSQL[@]}" -c "DROP TABLE IF EXISTS _v12_scaffold_check;" >/dev/null 2>&1 || true
+    echo "    (已清理 _v12_scaffold_check 标记表)"
 fi
 
 echo ""
-echo "✅ v11 重置完成！表数: ${TABLE_COUNT}，索引数: ${INDEX_COUNT}"
+echo "✅ v12 重置完成！表数: ${TABLE_COUNT}，索引数: ${INDEX_COUNT}"
