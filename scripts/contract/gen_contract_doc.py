@@ -34,8 +34,15 @@ re_derived_label = re.compile(
     r"RouteEntry::new\(\s*axum::http::Method::[A-Z]+,\s*\"[^\"]*\",\s*\"([^\"]+)\",?\s*\)"
 )
 DERIVED = f"{ROOT}/src/web/routes/derived_routes.rs"
-with open(DERIVED) as _f:
-    derived_labels = set(re_derived_label.findall(_f.read()))
+# The row table is emitted into a separate `include!`d file (gen_derived_routes.py
+# `emit_data`), so the labels live there; scan both and keep it working whichever
+# layout the generator uses.
+DERIVED_TABLE = f"{ROOT}/src/web/routes/derived_route_table.inc.rs"
+derived_labels = set()
+for _derived_path in (DERIVED, DERIVED_TABLE):
+    if os.path.exists(_derived_path):
+        with open(_derived_path) as _f:
+            derived_labels |= set(re_derived_label.findall(_f.read()))
 
 
 def derived_candidates(mod):
@@ -153,7 +160,7 @@ lines = []
 lines.append("# synapse-rust 路由契约（Route Contract）")
 lines.append("")
 lines.append(
-    f"> 自动生成于 {datetime.date.today().isoformat()}，源 = `src/web/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs` 派生覆盖。"
+    f"> 自动生成于 {datetime.date.today().isoformat()}，源 = `src/web/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含 `derived_route_table.inc.rs`）派生覆盖。"
 )
 lines.append(">")
 lines.append(

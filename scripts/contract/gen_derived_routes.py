@@ -41,6 +41,7 @@ _spec.loader.exec_module(ex)
 
 LANE_DEFAULT = "ledger_export"
 LANE_SDK = "ledger_export_sdk"
+OUT_DATA = os.path.join(ROOT, "src", "web", "routes", "derived_route_table.inc.rs")
 OUT = os.path.join(ROOT, "src", "web", "routes", "derived_routes.rs")
 
 PROFILES = ["default", "worker", "all"]
@@ -258,6 +259,15 @@ def _rustfmt(text):
         pass
     return text
 
+
+def emit_data(rows):
+    """Generate the `fn all_derived_rows()` body including cfg blocks."""
+    row_lines = "".join(_row_rust(r) for r in rows)
+    return f"""fn all_derived_rows() -> Vec<DerivedRoute> {{
+    let mut rows: Vec<DerivedRoute> = Vec::with_capacity({len(rows)});
+{row_lines}    rows
+}}
+"""
 
 def emit_raw(rows):
     row_lines = "".join(_row_rust(r) for r in rows)
@@ -500,17 +510,21 @@ def main():
         sys.exit(1)
     print(f"gen_derived_routes: table reproduces all 6 fixtures ({len(rows)} rows).")
 
-    text = emit(rows)
+    # Generate data-only file for include!
+    data_text = emit_data(rows)
+    # Format with rustfmt for stable byte output
+    data_text = _rustfmt(data_text)
+    
     if args.check:
-        if not os.path.exists(OUT) or open(OUT, encoding="utf-8").read() != text:
-            print("gen_derived_routes: derived_routes.rs is STALE — regenerate it.")
+        if not os.path.exists(OUT_DATA) or open(OUT_DATA, encoding="utf-8").read() != data_text:
+            print("gen_derived_routes: derived_route_table.inc.rs is STALE — regenerate it.")
             sys.exit(1)
-        print("gen_derived_routes: derived_routes.rs is up to date.")
+        print("gen_derived_routes: derived_route_table.inc.rs is up to date.")
         return
 
-    with open(OUT, "w", encoding="utf-8") as fh:
-        fh.write(text)
-    print(f"gen_derived_routes: wrote {OUT} ({len(text)} bytes).")
+    with open(OUT_DATA, "w", encoding="utf-8") as fh:
+        fh.write(data_text)
+    print(f"gen_derived_routes: wrote {OUT_DATA} ({len(data_text)} bytes).")
 
 
 if __name__ == "__main__":
