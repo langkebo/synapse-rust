@@ -299,7 +299,7 @@ pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Nex
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{env_lock, EnvGuard};
+    use synapse_test_utils::{env_lock, EnvGuard};
 
     #[test]
     fn test_cors_security_report_development_mode() {

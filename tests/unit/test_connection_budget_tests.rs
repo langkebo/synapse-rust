@@ -22,7 +22,7 @@
 //! 7 timed out" under load — and the full timed-out set passed 13/13 in 2.3 min
 //! when re-run serially. That is starvation, not a code defect.
 //!
-//! A misleading comment in `src/test_utils.rs` claimed
+//! A misleading comment in the test-utils source claimed
 //! `"PostgreSQL max_connections=100 supports 12*~5=60 conns"` — the `~5` is a
 //! guess at *actual* connection usage, whereas the pool is configured to grow to
 //! 40. This test pins the real invariant so the comment cannot silently rot again.
@@ -35,14 +35,15 @@ fn project_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-/// Read the pool ceiling from the source of truth (`src/test_utils.rs`).
+/// Read the pool ceiling from the source of truth.
 fn default_test_db_max_connections() -> u32 {
-    let src = std::fs::read_to_string(project_root().join("src/test_utils.rs")).expect("read src/test_utils.rs");
+    let source = "synapse-test-utils/src/lib.rs";
+    let src = std::fs::read_to_string(project_root().join(source)).expect("read test-utils source");
     let marker = "const DEFAULT_TEST_DB_MAX_CONNECTIONS: u32 =";
     let line = src
         .lines()
         .find(|line| line.trim_start().starts_with(marker))
-        .unwrap_or_else(|| panic!("`{marker}` not found in src/test_utils.rs"));
+        .unwrap_or_else(|| panic!("`{marker}` not found in {source}"));
     line.split('=')
         .nth(1)
         .and_then(|rest| rest.trim().trim_end_matches(';').trim().parse::<u32>().ok())

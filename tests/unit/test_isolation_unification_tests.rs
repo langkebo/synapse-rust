@@ -39,11 +39,12 @@ use std::fs;
 
 const STORAGE: &str = "synapse-storage/src/test_isolation.rs";
 const SERVICES: &str = "synapse-services/src/test_utils.rs";
-/// ROOT crate's test utils. Unlike storage/services, it does not call
+/// The shared `synapse-test-utils` crate (formerly the ROOT crate's
+/// `src/test_utils.rs`). Unlike storage/services, it does not call
 /// `synapse_common::test_isolation::ensure_template_schema` because the CI
 /// script `scripts/ci/prepare_test_db.sh` builds the template schema ahead
-/// of time (`test_template_ci`). ROOT only delegates clone.
-const ROOT: &str = "src/test_utils.rs";
+/// of time (`test_template_ci`). It only delegates clone.
+const ROOT: &str = "synapse-test-utils/src/lib.rs";
 const COMMON: &str = "synapse-common/src/test_isolation.rs";
 const COMMON_LIB: &str = "synapse-common/src/lib.rs";
 

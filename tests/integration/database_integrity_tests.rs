@@ -382,7 +382,7 @@ mod tests {
     }
 
     async fn connect_integrity_pool() -> Option<Pool<Postgres>> {
-        match synapse_rust::test_utils::prepare_isolated_test_pool().await {
+        match synapse_test_utils::prepare_isolated_test_pool().await {
             Ok(pool) => {
                 let pool = (*pool).clone();
                 if let Err(error) = ensure_public_schema_contract_repairs(&pool).await {

@@ -8,7 +8,7 @@ use synapse_services::worker::{
 use synapse_storage::worker::WorkerStorage;
 
 async fn worker_test_pool() -> Arc<sqlx::PgPool> {
-    synapse_rust::test_utils::prepare_isolated_test_pool()
+    synapse_test_utils::prepare_isolated_test_pool()
         .await
         .expect("worker recovery integration tests require an isolated database pool")
 }

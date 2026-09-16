@@ -1108,11 +1108,11 @@ fn append_prometheus_gauge(output: &mut String, name: &str, help: &str, value: f
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(feature = "test-utils")]
-    use crate::test_utils::prepare_shared_test_pool;
     use synapse_services::worker::types::WorkerType;
     #[cfg(feature = "test-utils")]
     use synapse_storage::application_service::{ApplicationServiceStorage, RegisterApplicationServiceRequest};
+    #[cfg(feature = "test-utils")]
+    use synapse_test_utils::prepare_shared_test_pool;
     #[cfg(feature = "test-utils")]
     use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 

@@ -4,8 +4,8 @@ pub mod snapshots;
 use sqlx::{PgPool, Pool, Postgres};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
-use synapse_rust::test_utils::{env_lock_async, EnvGuard};
 use synapse_services::database_initializer::initialize_database;
+use synapse_test_utils::{env_lock_async, EnvGuard};
 
 static TEST_DB_INIT_MUTEX: OnceLock<tokio::sync::Mutex<bool>> = OnceLock::new();
 
@@ -49,15 +49,15 @@ fn candidate_database_urls() -> Vec<String> {
 
 pub async fn get_test_pool_async() -> Result<Arc<Pool<Postgres>>, String> {
     let mut errors = Vec::new();
-    let connect_timeout = synapse_rust::test_utils::configured_test_pool_connect_timeout();
+    let connect_timeout = synapse_test_utils::configured_test_pool_connect_timeout();
 
     for database_url in candidate_database_urls() {
         let connect_future = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(synapse_rust::test_utils::configured_test_pool_max_connections())
-            .min_connections(synapse_rust::test_utils::configured_test_pool_min_connections())
-            .acquire_timeout(synapse_rust::test_utils::configured_test_pool_acquire_timeout())
-            .idle_timeout(synapse_rust::test_utils::configured_test_pool_idle_timeout())
-            .max_lifetime(Some(synapse_rust::test_utils::configured_test_pool_max_lifetime()))
+            .max_connections(synapse_test_utils::configured_test_pool_max_connections())
+            .min_connections(synapse_test_utils::configured_test_pool_min_connections())
+            .acquire_timeout(synapse_test_utils::configured_test_pool_acquire_timeout())
+            .idle_timeout(synapse_test_utils::configured_test_pool_idle_timeout())
+            .max_lifetime(Some(synapse_test_utils::configured_test_pool_max_lifetime()))
             .connect(&database_url);
 
         match tokio::time::timeout(connect_timeout, connect_future).await {

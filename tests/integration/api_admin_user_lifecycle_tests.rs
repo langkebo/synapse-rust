@@ -17,7 +17,7 @@ fn test_mutex() -> &'static tokio::sync::Mutex<()> {
 }
 
 async fn setup_test_context() -> Option<(axum::Router, Arc<PgPool>, Arc<CacheManager>)> {
-    let pool = synapse_rust::test_utils::prepare_shared_test_pool().await.ok()?;
+    let pool = synapse_test_utils::prepare_shared_test_pool().await.ok()?;
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone()).await;
     let state = AppState::new(container, cache.clone());

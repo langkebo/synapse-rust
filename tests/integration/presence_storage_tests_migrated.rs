@@ -13,7 +13,7 @@ fn unique_id() -> u64 {
 }
 
 async fn setup_test_database() -> Option<(Arc<sqlx::PgPool>, PresenceStorage)> {
-    let pool = match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
+    let pool = match synapse_test_utils::prepare_empty_isolated_test_pool().await {
         Ok(pool) => pool,
         Err(error) => {
             eprintln!("Skipping presence storage tests because test database is unavailable: {error}");

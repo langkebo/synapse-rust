@@ -21,7 +21,7 @@ use synapse_rust::e2ee::megolm::models::{MegolmSession, PickleFormat};
 use synapse_rust::e2ee::megolm::storage::MegolmSessionStorage;
 
 async fn setup_test_database() -> Arc<sqlx::PgPool> {
-    let pool = synapse_rust::test_utils::prepare_empty_isolated_test_pool().await.expect("Failed to prepare test pool");
+    let pool = synapse_test_utils::prepare_empty_isolated_test_pool().await.expect("Failed to prepare test pool");
 
     sqlx::query(
         r#"

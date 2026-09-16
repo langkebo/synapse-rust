@@ -196,7 +196,7 @@ async fn heal_repoints_cross_schema_foreign_key_at_same_named_parent() {
     .unwrap();
     assert_eq!(before, vec![format!("{stale}.rooms")], "fixture must start corrupted");
 
-    synapse_rust::test_utils::heal_cross_schema_foreign_keys_in(&pool, &child).await.expect("heal must succeed");
+    synapse_test_utils::heal_cross_schema_foreign_keys_in(&pool, &child).await.expect("heal must succeed");
 
     let after: Vec<String> = sqlx::query_scalar(&format!(
         "SELECT confrelid::regclass::text FROM pg_constraint
@@ -208,7 +208,7 @@ async fn heal_repoints_cross_schema_foreign_key_at_same_named_parent() {
     assert_eq!(after, vec![format!("{child}.rooms")], "heal must re-point the FK at the same-named local parent");
 
     // Idempotent: a second pass finds nothing to repair.
-    synapse_rust::test_utils::heal_cross_schema_foreign_keys_in(&pool, &child).await.expect("second heal must succeed");
+    synapse_test_utils::heal_cross_schema_foreign_keys_in(&pool, &child).await.expect("second heal must succeed");
     let still: Vec<String> = sqlx::query_scalar(&format!(
         "SELECT confrelid::regclass::text FROM pg_constraint
          WHERE conrelid = '{child}.room_summary_members'::regclass AND contype = 'f'"

@@ -5,7 +5,7 @@ use synapse_rust::e2ee::backup::models::KeyBackup;
 use synapse_rust::e2ee::backup::storage::{BackupKeyInsertParams, BackupKeyStorage, KeyBackupStorage};
 
 async fn setup_test_database() -> Arc<sqlx::PgPool> {
-    let pool = synapse_rust::test_utils::prepare_empty_isolated_test_pool().await.expect("Failed to prepare test pool");
+    let pool = synapse_test_utils::prepare_empty_isolated_test_pool().await.expect("Failed to prepare test pool");
 
     sqlx::query(
         r#"

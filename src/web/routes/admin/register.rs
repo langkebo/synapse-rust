@@ -284,8 +284,8 @@ mod tests {
 
     #[test]
     fn test_admin_registration_environment_blocks_non_production() {
-        let _guard = crate::test_utils::env_lock();
-        let mut env = crate::test_utils::EnvGuard::new();
+        let _guard = synapse_test_utils::env_lock();
+        let mut env = synapse_test_utils::EnvGuard::new();
         env.set("RUST_ENV", "development");
         let result = ensure_admin_registration_environment(true);
         assert!(result.is_err());

@@ -1,0 +1,19 @@
+[package]
+name = "synapse-test-utils"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.93.0"
+authors = ["Synapse Rust Team"]
+description = "Shared test infrastructure for Synapse Rust: schema leasing, env guards, pooled test databases"
+license = "AGPL-3.0-only"
+
+[lints]
+workspace = true
+
+[dependencies]
+synapse-common = { path = "../synapse-common" }
+synapse-services = { path = "../synapse-services" }
+
+sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "chrono", "json", "uuid", "ipnetwork", "migrate", "macros", "bigdecimal"] }
+tokio = { workspace = true, features = ["full", "test-util"] }
+tracing = { workspace = true }

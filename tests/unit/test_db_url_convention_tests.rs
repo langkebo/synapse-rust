@@ -32,7 +32,7 @@ const CANONICAL_FALLBACKS: [&str; 2] = [
 
 /// Every Rust file that resolves a test-database target.
 const RUST_RESOLVERS: [&str; 5] = [
-    "src/test_utils.rs",
+    "synapse-test-utils/src/lib.rs",
     "synapse-services/src/test_utils.rs",
     "synapse-storage/src/test_utils.rs",
     "synapse-storage/src/test_isolation.rs",

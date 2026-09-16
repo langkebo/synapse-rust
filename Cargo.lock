@@ -4854,6 +4854,7 @@ dependencies = [
  "synapse-federation",
  "synapse-services",
  "synapse-storage",
+ "synapse-test-utils",
  "tempfile",
  "thiserror",
  "tikv-jemallocator",
@@ -4943,6 +4944,17 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "synapse-test-utils"
+version = "0.1.0"
+dependencies = [
+ "sqlx",
+ "synapse-common",
+ "synapse-services",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

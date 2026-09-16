@@ -7,10 +7,10 @@ use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 use synapse_common::task_queue::RedisTaskQueue;
-use synapse_rust::test_utils::TEST_ENV_LOCK;
 use synapse_services::captcha_service::{CaptchaService, SendCaptchaRequest, VerifyCaptchaRequest};
 use synapse_services::sms_provider::SmsProvider;
 use synapse_storage::captcha::{CaptchaStorage, CreateCaptchaRequest, CreateSendLogRequest};
+use synapse_test_utils::TEST_ENV_LOCK;
 use tokio::sync::Mutex;
 
 #[derive(Clone)]

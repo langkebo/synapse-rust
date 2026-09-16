@@ -197,10 +197,10 @@ pub async fn method_not_allowed_middleware(request: Request<Body>, next: Next) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::EnvGuard;
     use axum::http::StatusCode;
     use axum::{middleware, routing::get, Router};
     use std::time::Duration;
+    use synapse_test_utils::EnvGuard;
     use tower::ServiceExt;
 
     #[test]
@@ -260,7 +260,7 @@ mod tests {
             StatusCode::OK
         }
 
-        let _env_lock = crate::test_utils::env_lock_async().await;
+        let _env_lock = synapse_test_utils::env_lock_async().await;
         let mut env_guard = EnvGuard::new();
         env_guard.set("REQUEST_TIMEOUT_SECS", "30");
         env_guard.set("LONG_POLL_REQUEST_TIMEOUT_SECS", "90");
@@ -295,7 +295,7 @@ mod tests {
             StatusCode::OK
         }
 
-        let _env_lock = crate::test_utils::env_lock_async().await;
+        let _env_lock = synapse_test_utils::env_lock_async().await;
         let mut env_guard = EnvGuard::new();
         env_guard.set("REQUEST_TIMEOUT_SECS", "30");
         env_guard.set("LONG_POLL_REQUEST_TIMEOUT_SECS", "90");

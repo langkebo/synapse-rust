@@ -5,7 +5,7 @@ use std::sync::Arc;
 use synapse_e2ee::cross_signing::models::{CrossSigningKey, DeviceSignature};
 use synapse_e2ee::cross_signing::storage::CrossSigningStorage;
 async fn setup_test_database() -> Arc<sqlx::PgPool> {
-    let pool = synapse_rust::test_utils::prepare_empty_isolated_test_pool().await.expect("Failed to prepare test pool");
+    let pool = synapse_test_utils::prepare_empty_isolated_test_pool().await.expect("Failed to prepare test pool");
 
     sqlx::query(
         r#"

@@ -55,7 +55,7 @@ pub struct AppState {
     /// 生产构建（无 `test-utils` feature）不编译此字段，恒为 `None`。
     #[cfg(feature = "test-utils")]
     /// The `test_schema_lease` field.
-    pub test_schema_lease: Option<Arc<crate::test_utils::LeasedSchema>>,
+    pub test_schema_lease: Option<Arc<synapse_test_utils::LeasedSchema>>,
 }
 
 /// The `SyncRateLimitOverride` struct.

@@ -1,3 +1,14 @@
+//! Shared test infrastructure used by the root crate, the extracted HTTP crate
+//! and the integration/unit test targets: per-test schema leasing, environment
+//! guards, pooled/template test databases.
+//!
+//! Extracted from the root crate's `src/test_utils.rs` so that `synapse-web` can
+//! use it without depending on the root crate (B4-5b).
+
+// Test code may use unwrap/expect/panic per Rust testing idiom; production lib
+// code is held to the strict clippy config in [lints].
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::collections::VecDeque;
@@ -1659,16 +1670,16 @@ mod pooled_schema_reseed_tests {
             );
             return;
         }
-        let leased = crate::test_utils::acquire_pooled_schema().await.expect("pooled schema");
+        let leased = crate::acquire_pooled_schema().await.expect("pooled schema");
         let pool: &sqlx::PgPool = &leased.pool;
         let schema_name: String =
             sqlx::query_scalar("SELECT current_schema()").fetch_one(pool).await.expect("current_schema");
 
         // Drive the pool's reset path explicitly. This is the code under test.
-        let database_url = crate::test_utils::resolve_test_database_url().await.expect("database url");
-        let template_name = crate::test_utils::get_template_schema_name(&database_url).await.expect("template");
+        let database_url = crate::resolve_test_database_url().await.expect("database url");
+        let template_name = crate::get_template_schema_name(&database_url).await.expect("template");
         let admin = sqlx::PgPool::connect(&database_url).await.expect("admin pool");
-        crate::test_utils::truncate_and_reseed_schema(&admin, &database_url, &schema_name, &template_name)
+        crate::truncate_and_reseed_schema(&admin, &database_url, &schema_name, &template_name)
             .await
             .expect("reset the pooled schema");
 

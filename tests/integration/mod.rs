@@ -181,7 +181,7 @@ pub(crate) fn skip_or_fail_without_db() {
 
 fn integration_test_setup_timeout() -> Duration {
     let default_secs = if integration_tests_required() { 600 } else { 120 };
-    let minimum_secs = synapse_rust::test_utils::configured_test_db_init_timeout().as_secs().saturating_add(60);
+    let minimum_secs = synapse_test_utils::configured_test_db_init_timeout().as_secs().saturating_add(60);
     let secs = std::env::var("INTEGRATION_TEST_SETUP_TIMEOUT_SECS")
         .ok()
         .and_then(|value| value.trim().parse::<u64>().ok())
@@ -213,14 +213,14 @@ async fn prepare_test_pool_with_fallback() -> Result<Arc<sqlx::PgPool>, String> 
         std::env::var("TEST_ISOLATED_SCHEMAS").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
 
     if use_isolated {
-        return synapse_rust::test_utils::prepare_isolated_test_pool().await;
+        return synapse_test_utils::prepare_isolated_test_pool().await;
     }
 
-    match synapse_rust::test_utils::prepare_shared_test_pool().await {
+    match synapse_test_utils::prepare_shared_test_pool().await {
         Ok(pool) => Ok(pool),
         Err(error) if should_fallback_to_isolated_pool(&error) => {
             eprintln!("Shared test schema clone failed ({error}); retrying with isolated schema initialization");
-            synapse_rust::test_utils::prepare_isolated_test_pool().await
+            synapse_test_utils::prepare_isolated_test_pool().await
         }
         Err(error) => Err(error),
     }
@@ -457,11 +457,11 @@ impl TestContext {
         init_tracing();
         let (pool, lease) = if isolated {
             // Isolated path: run full migrations, no pooling
-            let pool = synapse_rust::test_utils::prepare_isolated_test_pool().await.ok()?;
+            let pool = synapse_test_utils::prepare_isolated_test_pool().await.ok()?;
             (pool, None)
         } else {
             // Pooled path: acquire from schema pool (fast) or clone (first N tests)
-            let lease = synapse_rust::test_utils::acquire_pooled_schema().await.ok()?;
+            let lease = synapse_test_utils::acquire_pooled_schema().await.ok()?;
             let pool = lease.pool.clone();
             (pool, Some(lease))
         };
@@ -524,7 +524,7 @@ where
     use synapse_rust::web::routes::state::AppState;
     use synapse_services::ServiceContainer;
 
-    let pool = synapse_rust::test_utils::prepare_shared_test_pool().await.ok()?;
+    let pool = synapse_test_utils::prepare_shared_test_pool().await.ok()?;
     let cache = std::sync::Arc::new(CacheManager::new(&CacheConfig::default()));
     let mut container = ServiceContainer::new_test_with_pool_and_cache(pool, cache.clone()).await;
     configure(&mut container);

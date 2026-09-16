@@ -11,7 +11,7 @@ use synapse_storage::{CreateEventParams, EventStorage, RoomStorage};
 use tokio::runtime::Runtime;
 
 async fn setup_test_database() -> Option<Pool<Postgres>> {
-    let pool = match synapse_rust::test_utils::prepare_isolated_test_pool().await {
+    let pool = match synapse_test_utils::prepare_isolated_test_pool().await {
         Ok(pool) => pool,
         Err(error) => {
             eprintln!("Skipping protocol tests; isolated schema setup failed: {}", error);

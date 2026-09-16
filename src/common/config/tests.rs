@@ -5,8 +5,8 @@
 #[allow(clippy::module_inception)]
 mod tests {
     use crate::common::config::*;
-    use crate::test_utils::{env_lock, EnvGuard};
     use std::path::PathBuf;
+    use synapse_test_utils::{env_lock, EnvGuard};
 
     #[test]
     fn test_config_database_url() {

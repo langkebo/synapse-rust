@@ -31,7 +31,7 @@ redundant_else = "warn"
 default = ["server", "core-private-chat", "widgets", "external-services", "beacons"]
 server = ["dep:axum", "dep:tower-http"]
 performance-tests = []
-test-utils = ["synapse-services/test-utils", "synapse-storage/test-utils", "synapse-e2ee/test-utils", "synapse-federation/test-utils"]
+test-utils = ["dep:synapse-test-utils", "synapse-services/test-utils", "synapse-storage/test-utils", "synapse-e2ee/test-utils", "synapse-federation/test-utils"]
 
 # Non-core feature modules (can be disabled to produce a minimal build)
 core-private-chat = ["friends", "burn-after-read"]
@@ -115,6 +115,7 @@ synapse-e2ee = { path = "synapse-e2ee", default-features = false }
 synapse-federation = { path = "synapse-federation" }
 synapse-services = { path = "synapse-services" }
 synapse-storage = { path = "synapse-storage" }
+synapse-test-utils = { path = "synapse-test-utils", optional = true }
 
 image = "0.25"
 hex = "0.4.3"
@@ -205,6 +206,7 @@ members = [
     "synapse-e2ee",
     "synapse-federation",
     "synapse-services",
+    "synapse-test-utils",
 ]
 # `vendor/pastey` is a `[patch.crates-io]` fork (see the T-PASTE-PATCH note
 # below) and is intentionally NOT a workspace member. It must still be listed
@@ -216,6 +218,25 @@ exclude = ["vendor/pastey"]
 # DC4: Centralized dependency version management.
 # All crate members inherit versions from here; features are still declared
 # per crate to avoid unnecessary compilation when feature sets differ (e.g. sqlx).
+# Shared lint configuration. Crates opting in with `[lints] workspace = true`
+# inherit these; the root package keeps its own `[lints.clippy]` block above
+# until it is migrated too.
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "warn"
+panic = "allow"
+todo = "warn"
+unimplemented = "warn"
+unused_async = "deny"
+redundant_clone = "deny"
+inefficient_to_string = "warn"
+manual_ok_or = "deny"
+map_unwrap_or = "deny"
+if_not_else = "allow"
+module_name_repetitions = "allow"
+needless_pass_by_value = "warn"
+redundant_else = "warn"
+
 [workspace.dependencies]
 tokio = { version = "1.49", features = ["full"] }
 tokio-util = { version = "0.7" }

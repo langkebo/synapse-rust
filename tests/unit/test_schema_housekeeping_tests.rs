@@ -53,8 +53,7 @@ async fn prune_drops_superseded_templates_and_keeps_the_current_one() {
         sqlx::query(&format!("CREATE SCHEMA \"{name}\"")).execute(&pool).await.unwrap();
     }
 
-    let dropped =
-        synapse_rust::test_utils::prune_stale_template_schemas(&pool, &keep).await.expect("prune must succeed");
+    let dropped = synapse_test_utils::prune_stale_template_schemas(&pool, &keep).await.expect("prune must succeed");
 
     assert!(dropped.contains(&stale_a), "stale template {stale_a} must be dropped; got {dropped:?}");
     assert!(dropped.contains(&stale_b), "stale template {stale_b} must be dropped; got {dropped:?}");
@@ -72,7 +71,7 @@ async fn prune_drops_superseded_templates_and_keeps_the_current_one() {
     assert!(!remaining.contains(&stale_b), "stale template {stale_b} must be gone");
 
     // Idempotent: nothing left to prune.
-    let again = synapse_rust::test_utils::prune_stale_template_schemas(&pool, &keep).await.unwrap();
+    let again = synapse_test_utils::prune_stale_template_schemas(&pool, &keep).await.unwrap();
     assert!(!again.contains(&stale_a) && !again.contains(&stale_b), "second prune must be a no-op");
 
     for name in [&keep, &stale_a, &stale_b, &configured] {
@@ -92,6 +91,6 @@ async fn prune_refuses_when_replacement_template_is_missing() {
 
     // A failed template build must never leave the database with no template at
     // all, so pruning has to bail out when the replacement does not exist.
-    let result = synapse_rust::test_utils::prune_stale_template_schemas(&pool, &absent).await;
+    let result = synapse_test_utils::prune_stale_template_schemas(&pool, &absent).await;
     assert!(result.is_err(), "prune must refuse when the keep-template does not exist");
 }

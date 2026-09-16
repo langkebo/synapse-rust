@@ -26,9 +26,6 @@ pub mod server;
 pub mod storage;
 /// The `tasks` module.
 pub mod tasks;
-/// The `test_utils` module.
-#[cfg(any(test, feature = "test-utils"))]
-pub mod test_utils;
 /// The `web` module.
 pub mod web;
 /// The `worker` module.

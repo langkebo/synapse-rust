@@ -256,7 +256,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     #[ignore = "手工负载冒烟：appservice 统计查询在负载下的耗时，按墙钟时间断言。结果依赖机器负载，在 CI 上会假失败。显式运行：cargo nextest run --all-features --test performance_manual --run-ignored ignored-only appservice_statistics_load_smoke -- --nocapture"]
     async fn appservice_statistics_load_smoke() {
-        let pool: Arc<PgPool> = match synapse_rust::test_utils::prepare_isolated_test_pool().await {
+        let pool: Arc<PgPool> = match synapse_test_utils::prepare_isolated_test_pool().await {
             Ok(pool) => pool,
             Err(error) => {
                 eprintln!("Skipping appservice statistics load smoke: {}", error);
@@ -320,7 +320,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     #[ignore = "手工负载冒烟：appservice 调度器混合积压下的耗时，按墙钟时间断言。结果依赖机器负载，在 CI 上会假失败。显式运行：cargo nextest run --all-features --test performance_manual --run-ignored ignored-only appservice_scheduler_mixed_backlog_load_smoke -- --nocapture"]
     async fn appservice_scheduler_mixed_backlog_load_smoke() {
-        let pool: Arc<PgPool> = match synapse_rust::test_utils::prepare_isolated_test_pool().await {
+        let pool: Arc<PgPool> = match synapse_test_utils::prepare_isolated_test_pool().await {
             Ok(pool) => pool,
             Err(error) => {
                 eprintln!("Skipping appservice scheduler mixed backlog smoke: {}", error);
