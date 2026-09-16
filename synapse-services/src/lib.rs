@@ -84,12 +84,16 @@ pub mod dehydrated_device_service;
 pub mod delayed_event_service;
 /// E2EE audit service (not the full e2ee crate — that is re-exported as `e2ee`).
 pub mod e2ee_audit;
+/// The `email_verification_service` module.
+pub mod email_verification_service;
 /// Event services domain group — re-exports event service types under `event::`.
 pub mod event;
 /// The `event_broadcaster_trait` module.
 pub mod event_broadcaster_trait;
 /// The `event_notifier` module.
 pub mod event_notifier;
+/// The `event_redaction_service` module.
+pub mod event_redaction_service;
 /// The `event_report_service` module.
 pub mod event_report_service;
 /// The `feature_flag_service` module.
@@ -102,6 +106,8 @@ pub mod federation_key_rotation_service;
 pub mod identity;
 /// Infrastructure services domain group — re-exports infra service types under `infra::`.
 pub mod infra;
+/// The `invite_blocklist_service` module.
+pub mod invite_blocklist_service;
 /// The `login_token_service` module.
 pub mod login_token_service;
 /// The `media` module.
@@ -119,6 +125,8 @@ pub mod notifying_event_writer;
 pub mod oidc_service;
 /// The `oidc_session_service` module.
 pub mod oidc_session_service;
+/// The `oidc_user_mapping_service` module.
+pub mod oidc_user_mapping_service;
 /// The `presence_service` module.
 pub mod presence_service;
 /// The `push` module.

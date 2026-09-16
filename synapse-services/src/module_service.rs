@@ -660,6 +660,60 @@ impl ModuleService {
         Ok(results)
     }
 
+    /// Create a password-auth provider row.
+    pub async fn create_password_auth_provider(
+        &self,
+        request: CreatePasswordAuthProviderRequest,
+    ) -> Result<PasswordAuthProvider, ApiError> {
+        self.storage
+            .create_password_auth_provider(request)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to create password auth provider", e))
+    }
+
+    /// List password-auth provider rows.
+    pub async fn get_password_auth_providers(&self) -> Result<Vec<PasswordAuthProvider>, ApiError> {
+        self.storage
+            .get_password_auth_providers()
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to get password auth providers", e))
+    }
+
+    /// Create a media callback row.
+    pub async fn create_media_callback(&self, request: CreateMediaCallbackRequest) -> Result<MediaCallback, ApiError> {
+        self.storage
+            .create_media_callback(request)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to create media callback", e))
+    }
+
+    /// List enabled media callbacks, optionally filtered by callback type.
+    pub async fn get_media_callbacks(&self, callback_type: Option<&str>) -> Result<Vec<MediaCallback>, ApiError> {
+        self.storage
+            .get_media_callbacks(callback_type)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to get media callbacks", e))
+    }
+
+    /// Create an account-data callback row.
+    pub async fn create_account_data_callback(
+        &self,
+        request: CreateAccountDataCallbackRequest,
+    ) -> Result<AccountDataCallback, ApiError> {
+        self.storage
+            .create_account_data_callback(request)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to create account data callback", e))
+    }
+
+    /// List enabled account-data callbacks.
+    pub async fn get_account_data_callbacks(&self) -> Result<Vec<AccountDataCallback>, ApiError> {
+        self.storage
+            .get_account_data_callbacks()
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to get account data callbacks", e))
+    }
+
     /// See [`get_execution_logs`].
     #[instrument(skip(self))]
     pub async fn get_execution_logs(&self, module_name: &str, limit: i64) -> Result<Vec<ModuleExecutionLog>, ApiError> {

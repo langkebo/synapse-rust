@@ -119,6 +119,28 @@ impl AccountDeviceListService {
         })
     }
 
+    /// Highest device-list stream id recorded for `user_id`.
+    pub async fn get_max_device_list_stream_id_for_user(&self, user_id: &str) -> Result<i64, ApiError> {
+        self.device_storage
+            .get_max_device_list_stream_id_for_user(user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to get device stream id", e))
+    }
+
+    /// Record a device-list change so local clients see it on the next sync.
+    pub async fn insert_device_list_change(
+        &self,
+        user_id: &str,
+        device_id: Option<&str>,
+        change_type: &str,
+        stream_id: i64,
+    ) -> Result<(), ApiError> {
+        self.device_storage
+            .insert_device_list_change(user_id, device_id, change_type, stream_id)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to record device list change", e))
+    }
+
     /// See [`get_changed_user_ids`].
     pub async fn get_changed_user_ids(&self, from: i64, to: i64, requester_id: &str) -> Result<Vec<String>, ApiError> {
         self.device_storage.get_device_list_changed_users(from, to, requester_id).await.map_err(|e| {

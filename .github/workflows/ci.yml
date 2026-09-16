@@ -140,6 +140,13 @@ jobs:
       - name: Web layer must not use synapse_storage directly (ratchet)
         run: python3 scripts/ci/check_web_layering.py
 
+      # Same invariant, wider net: no `crate::storage` import, `sqlx::query` or
+      # raw `PgPool` anywhere under synapse-web/src/routes/. This script existed
+      # since before the crate extraction but was never wired into CI, so the
+      # `Arc<PgPool>` on the route state went unnoticed (B4-5c — now removed).
+      - name: Route layer must not touch storage or the pool directly
+        run: bash scripts/quality/check_route_layering.sh
+
       # Supply-chain hardening: cargo-deny (licenses/bans/sources) and
       # cargo-audit (RustSec CVE database). Both must pass for the PR
       # to merge. The ignore list lives in deny.toml and .cargo/audit.toml.

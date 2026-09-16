@@ -196,7 +196,7 @@ pub(crate) async fn get_key_history(
     let limit = params.limit.unwrap_or(100).clamp(1, 1000);
     let cursor = params.from.as_deref().and_then(decode_key_request_cursor);
 
-    let audit_service = synapse_services::e2ee_audit::E2eeAuditService::new(ctx.pool.clone());
+    let audit_service = ctx.e2ee_audit_service.clone();
     let history: Vec<synapse_services::e2ee_audit::KeyAuditEntry> = audit_service
         .get_key_history_paginated(
             &auth_user.user_id,

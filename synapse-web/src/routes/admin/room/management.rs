@@ -604,20 +604,13 @@ pub async fn redact_room_events(
     );
 
     // Find events matching the time filter
-    let event_ids = ctx
-        .event_storage
-        .find_event_ids_for_redaction(&room_id, before_ts, after_ts, limit)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to query events for redaction", e))?;
+    let event_ids =
+        ctx.event_redaction_service.find_event_ids_for_redaction(&room_id, before_ts, after_ts, limit).await?;
 
     let found = event_ids.len() as u64;
 
     // Batch redact the matched events
-    let redacted = ctx
-        .event_storage
-        .batch_redact_events(&event_ids, Some(&admin.user_id))
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to batch redact events", e))?;
+    let redacted = ctx.event_redaction_service.batch_redact_events(&event_ids, Some(&admin.user_id)).await?;
 
     tracing::warn!(
         request_id = %request_id,

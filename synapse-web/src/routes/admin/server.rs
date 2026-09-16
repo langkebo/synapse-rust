@@ -342,11 +342,7 @@ pub async fn get_invite_blocklist_admin(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
 ) -> Result<Json<Value>, ApiError> {
-    let blocklist = ctx
-        .invite_blocklist_storage
-        .get_global_invite_blocklist()
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to get global blocklist", e))?;
+    let blocklist = ctx.invite_blocklist_service.get_global_invite_blocklist().await?;
 
     Ok(Json(json!({
         "blocklist": blocklist
@@ -359,11 +355,7 @@ pub async fn get_invite_allowlist_admin(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
 ) -> Result<Json<Value>, ApiError> {
-    let allowlist = ctx
-        .invite_blocklist_storage
-        .get_global_invite_allowlist()
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to get global allowlist", e))?;
+    let allowlist = ctx.invite_blocklist_service.get_global_invite_allowlist().await?;
 
     Ok(Json(json!({
         "allowlist": allowlist

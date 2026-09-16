@@ -176,18 +176,12 @@ pub(crate) async fn oidc_token(
             let now_ts: i64 = current_unix_ts() as i64;
 
             // Check OIDC binding record
-            let bound_user_id: Option<String> = ctx
-                .oidc_mapping_storage
-                .get_bound_user_id(&issuer, &subject)
-                .await
-                .map_err(|e| ApiError::internal_with_cause("Failed to query OIDC user mapping", e))?;
+            let bound_user_id: Option<String> =
+                ctx.oidc_user_mapping_service.get_bound_user_id(&issuer, &subject).await?;
 
             let matrix_user_id: String = if let Some(existing) = bound_user_id {
                 // Subsequent login: ignore IdP's current localpart, use the first binding
-                ctx.oidc_mapping_storage
-                    .update_last_authenticated(&issuer, &subject, now_ts)
-                    .await
-                    .map_err(|e| ApiError::internal_with_cause("Failed to update OIDC user mapping", e))?;
+                ctx.oidc_user_mapping_service.update_last_authenticated(&issuer, &subject, now_ts).await?;
                 existing
             } else {
                 // First login: if local user exists without OIDC binding, reject to prevent account takeover
@@ -213,10 +207,7 @@ pub(crate) async fn oidc_token(
                     .await
                     .map_err(|e| ApiError::internal_with_cause("Failed to register OIDC user", e))?;
 
-                ctx.oidc_mapping_storage
-                    .insert_mapping(&issuer, &subject, &matrix_user_id, now_ts)
-                    .await
-                    .map_err(|e| ApiError::internal_with_cause("Failed to insert OIDC user mapping", e))?;
+                ctx.oidc_user_mapping_service.insert_mapping(&issuer, &subject, &matrix_user_id, now_ts).await?;
                 matrix_user_id
             };
 

@@ -731,11 +731,7 @@ pub async fn create_password_auth_provider(
         priority: body.priority,
     };
 
-    let provider = ctx
-        .module_storage
-        .create_password_auth_provider(request)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to create password auth provider", e))?;
+    let provider = ctx.module_service.create_password_auth_provider(request).await?;
 
     Ok((StatusCode::CREATED, Json(PasswordAuthProviderResponse::from(provider))))
 }
@@ -745,11 +741,7 @@ pub async fn get_password_auth_providers(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let providers = ctx
-        .module_storage
-        .get_password_auth_providers()
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to get password auth providers", e))?;
+    let providers = ctx.module_service.get_password_auth_providers().await?;
 
     let responses: Vec<PasswordAuthProviderResponse> =
         providers.into_iter().map(PasswordAuthProviderResponse::from).collect();
@@ -774,11 +766,7 @@ pub async fn create_media_callback(
         retry_count: body.retry_count,
     };
 
-    let callback = ctx
-        .module_storage
-        .create_media_callback(request)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to create media callback", e))?;
+    let callback = ctx.module_service.create_media_callback(request).await?;
 
     Ok((StatusCode::CREATED, Json(MediaCallbackResponse::from(callback))))
 }
@@ -789,11 +777,7 @@ pub async fn get_media_callbacks(
     _auth_user: AdminUser,
     Path(callback_type): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let callbacks = ctx
-        .module_storage
-        .get_media_callbacks(Some(&callback_type))
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to get media callbacks", e))?;
+    let callbacks = ctx.module_service.get_media_callbacks(Some(&callback_type)).await?;
 
     let responses: Vec<MediaCallbackResponse> = callbacks.into_iter().map(MediaCallbackResponse::from).collect();
 
@@ -805,11 +789,7 @@ pub async fn get_all_media_callbacks(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let callbacks = ctx
-        .module_storage
-        .get_media_callbacks(None)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to get media callbacks", e))?;
+    let callbacks = ctx.module_service.get_media_callbacks(None).await?;
 
     let responses: Vec<MediaCallbackResponse> = callbacks.into_iter().map(MediaCallbackResponse::from).collect();
 
@@ -829,11 +809,7 @@ pub async fn create_account_data_callback(
         data_types: body.data_types,
     };
 
-    let callback = ctx
-        .module_storage
-        .create_account_data_callback(request)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to create account data callback", e))?;
+    let callback = ctx.module_service.create_account_data_callback(request).await?;
 
     Ok((StatusCode::CREATED, Json(AccountDataCallbackResponse::from(callback))))
 }
@@ -843,11 +819,7 @@ pub async fn get_account_data_callbacks(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let callbacks = ctx
-        .module_storage
-        .get_account_data_callbacks()
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to get account data callbacks", e))?;
+    let callbacks = ctx.module_service.get_account_data_callbacks().await?;
 
     let responses: Vec<AccountDataCallbackResponse> =
         callbacks.into_iter().map(AccountDataCallbackResponse::from).collect();

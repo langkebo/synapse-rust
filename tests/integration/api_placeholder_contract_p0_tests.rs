@@ -508,7 +508,7 @@ async fn test_password_reset_email_flow_consumes_sid_after_success() {
     let verification_token = services
         .admin
         .user
-        .email_verification_storage
+        .email_verification_service
         .get_verification_token_by_id(sid_int)
         .await
         .expect("failed to fetch email verification token")
@@ -564,7 +564,7 @@ async fn test_password_reset_email_flow_consumes_sid_after_success() {
     let consumed_session = services
         .admin
         .user
-        .email_verification_storage
+        .email_verification_service
         .get_verification_token_by_id(sid_int)
         .await
         .expect("failed to fetch consumed verification session");

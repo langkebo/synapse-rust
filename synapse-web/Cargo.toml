@@ -15,7 +15,7 @@ workspace = true
 # same extension switches, and the root crate forwards each one here.
 default = ["server", "core-private-chat", "widgets", "external-services", "beacons"]
 server = ["dep:axum", "dep:tower-http"]
-test-utils = ["dep:synapse-test-utils", "synapse-services/test-utils", "synapse-storage/test-utils", "synapse-e2ee/test-utils", "synapse-federation/test-utils"]
+test-utils = ["dep:synapse-test-utils", "synapse-services/test-utils", "synapse-e2ee/test-utils", "synapse-federation/test-utils"]
 
 core-private-chat = ["friends", "burn-after-read"]
 friends = ["synapse-services/friends"]
@@ -23,11 +23,11 @@ voice-extended = ["server", "synapse-services/voice-extended"]
 saml-sso = ["synapse-services/saml-sso"]
 cas-sso = ["synapse-services/cas-sso"]
 beacons = ["synapse-services/beacons"]
-voip-tracking = ["synapse-services/voip-tracking", "synapse-storage/voip-tracking"]
+voip-tracking = ["synapse-services/voip-tracking"]
 widgets = ["synapse-services/widgets"]
 server-notifications = ["synapse-services/server-notifications"]
 burn-after-read = ["synapse-services/burn-after-read"]
-privacy-ext = ["synapse-services/privacy-ext", "synapse-storage/privacy-ext"]
+privacy-ext = ["synapse-services/privacy-ext"]
 external-services = ["synapse-services/external-services"]
 builtin-oidc = ["synapse-services/builtin-oidc"]
 all-extensions = [
@@ -44,7 +44,6 @@ synapse-cache = { path = "../synapse-cache" }
 synapse-e2ee = { path = "../synapse-e2ee", default-features = false }
 synapse-federation = { path = "../synapse-federation" }
 synapse-services = { path = "../synapse-services" }
-synapse-storage = { path = "../synapse-storage" }
 synapse-test-utils = { path = "../synapse-test-utils", optional = true }
 
 tokio = { workspace = true, features = ["full", "test-util"] }
@@ -53,9 +52,7 @@ tokio-util = { workspace = true, features = ["io"] }
 axum = { workspace = true, optional = true, features = ["macros"] }
 tower = { workspace = true }
 tower-http = { workspace = true, optional = true, features = ["fs", "cors", "trace", "compression-gzip", "limit"] }
-hyper = { workspace = true }
 http = { workspace = true }
-sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "chrono", "json", "uuid", "ipnetwork", "migrate", "macros", "bigdecimal"] }
 ipnetwork = "0.20"
 
 serde = { workspace = true, features = ["derive"] }
@@ -77,9 +74,9 @@ bytes = { workspace = true }
 regex = { workspace = true }
 url = { workspace = true }
 urlencoding = { workspace = true }
-reqwest = { workspace = true, features = ["json", "stream"] }
 validator = { version = "0.20.0", features = ["derive"] }
 infer = "0.19.0"
+reqwest = { workspace = true, features = ["json", "stream"] }
 serde_yaml = { workspace = true }
 
 deadpool-redis = { workspace = true }

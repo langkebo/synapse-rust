@@ -26,8 +26,8 @@ pub struct SsoServices {
     pub cas_service: Arc<crate::cas_service::CasService>,
     /// The `oidc_service` field.
     pub oidc_service: Option<Arc<crate::oidc_service::OidcService>>,
-    /// The `oidc_mapping_storage` field.
-    pub oidc_mapping_storage: Arc<dyn synapse_storage::oidc_user_mapping::OidcUserMappingStoreApi>,
+    /// The `oidc_user_mapping_service` field.
+    pub oidc_user_mapping_service: Arc<crate::oidc_user_mapping_service::OidcUserMappingService>,
     /// The `oidc_session_service` field.
     pub oidc_session_service: Arc<crate::oidc_session_service::OidcSessionService>,
     #[cfg(feature = "builtin-oidc")]
@@ -109,6 +109,8 @@ impl SsoServices {
 
         let oidc_mapping_storage: Arc<dyn synapse_storage::oidc_user_mapping::OidcUserMappingStoreApi> =
             Arc::new(synapse_storage::oidc_user_mapping::OidcUserMappingStorage::new(pool.clone()));
+        let oidc_user_mapping_service =
+            Arc::new(crate::oidc_user_mapping_service::OidcUserMappingService::new(oidc_mapping_storage));
         let oidc_session_storage: Arc<dyn synapse_storage::oidc_session_storage::OidcSessionStoreApi> =
             Arc::new(synapse_storage::oidc_session_storage::OidcSessionStorage::new(pool));
         let oidc_session_service = Arc::new(crate::oidc_session_service::OidcSessionService::new(oidc_session_storage));
@@ -124,7 +126,7 @@ impl SsoServices {
             cas_service,
             oidc_service,
             builtin_oidc_provider,
-            oidc_mapping_storage,
+            oidc_user_mapping_service,
             oidc_session_service,
         }
     }

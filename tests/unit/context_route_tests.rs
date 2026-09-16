@@ -267,7 +267,7 @@ fn test_auth_context_public_fields_are_accessible() {
         let _ = &ctx.account_identity_service;
         let _ = &ctx.uia_service;
         let _ = &ctx.federation_client;
-        let _ = &ctx.email_verification_storage;
+        let _ = &ctx.email_verification_service;
         let _ = &ctx.account_device_list_service;
         let _ = &ctx.refresh_token_service;
         let _ = &ctx.metrics;
@@ -299,25 +299,25 @@ fn test_admin_context_public_fields_are_accessible() {
         let _ = &ctx.user_service;
         let _ = &ctx.account_identity_service;
         let _ = &ctx.account_device_list_service;
-        let _ = &ctx.invite_blocklist_storage;
+        let _ = &ctx.invite_blocklist_service;
         let _ = &ctx.admin_user_service;
         let _ = &ctx.admin_registration_service;
         let _ = &ctx.admin_token_service;
         let _ = &ctx.refresh_token_service;
         let _ = &ctx.registration_token_service;
-        let _ = &ctx.email_verification_storage;
+        let _ = &ctx.email_verification_service;
         let _ = &ctx.background_update_service;
         let _ = &ctx.retention_service;
         let _ = &ctx.feature_flag_service;
         let _ = &ctx.event_report_service;
         let _ = &ctx.delayed_event_service;
         let _ = &ctx.policy_service;
-        let _ = &ctx.event_storage;
+        let _ = &ctx.event_redaction_service;
         let _ = &ctx.push_notification_service;
         let _ = &ctx.app_service_manager;
         let _ = &ctx.app_service_scheduler;
         let _ = &ctx.module_service;
-        let _ = &ctx.module_storage;
+        let _ = &ctx.module_service;
         let _ = &ctx.account_validity_service;
         let _ = &ctx.worker_manager;
         let _ = &ctx.admin_audit_service;
@@ -334,7 +334,7 @@ fn test_admin_context_public_fields_are_accessible() {
         let _ = &ctx.account_data_service;
         let _ = &ctx.health_checker;
         let _ = &ctx.ssss_service;
-        let _ = &ctx.token_storage;
+        let _ = &ctx.admin_token_service;
         let _ = &ctx.client_push_service;
     }
     let _ = assert_fields;
@@ -343,7 +343,7 @@ fn test_admin_context_public_fields_are_accessible() {
 #[test]
 fn test_device_context_public_fields_are_accessible() {
     fn assert_fields(ctx: &DeviceContext) {
-        let _ = &ctx.device_storage;
+        let _ = &ctx.account_device_list_service;
         let _ = &ctx.validator;
         let _ = &ctx.token_auth;
         let _ = &ctx.credential_auth;
@@ -406,8 +406,8 @@ fn test_federation_context_public_fields_are_accessible() {
         let _ = &ctx.device_keys_service;
         let _ = &ctx.cross_signing_service;
         let _ = &ctx.to_device_service;
-        let _ = &ctx.presence_storage;
-        let _ = &ctx.device_storage;
+        let _ = &ctx.presence_service;
+        let _ = &ctx.account_device_list_service;
         let _ = &ctx.federation_inbound_edu_semaphore;
         let _ = &ctx.federation_inbound_edu_origin_semaphores;
         let _ = &ctx.federation_presence_backoff_until;
@@ -491,7 +491,7 @@ fn test_sso_context_public_fields_are_accessible() {
         let _ = &ctx.account_identity_service;
         let _ = &ctx.account_device_list_service;
         let _ = &ctx.oidc_service;
-        let _ = &ctx.oidc_mapping_storage;
+        let _ = &ctx.oidc_user_mapping_service;
         let _ = &ctx.admin_audit_service;
         let _ = &ctx.refresh_token_service;
     }

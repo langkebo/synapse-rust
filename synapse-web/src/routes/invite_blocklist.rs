@@ -56,11 +56,7 @@ pub async fn get_invite_blocklist(
 ) -> Result<Json<Value>, ApiError> {
     ensure_invite_list_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let blocklist = ctx
-        .invite_blocklist_storage
-        .get_invite_blocklist(&room_id)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to get blocklist", e))?;
+    let blocklist = ctx.invite_blocklist_service.get_invite_blocklist(&room_id).await?;
 
     Ok(Json(json!({
         "blocklist": blocklist,
@@ -84,10 +80,7 @@ pub async fn set_invite_blocklist(
         .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
         .unwrap_or_default();
 
-    ctx.invite_blocklist_storage
-        .set_invite_blocklist(&room_id, user_ids.clone())
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to set blocklist", e))?;
+    ctx.invite_blocklist_service.set_invite_blocklist(&room_id, user_ids.clone()).await?;
 
     Ok(Json(json!({
         "room_id": room_id.to_string(),
@@ -106,11 +99,7 @@ pub async fn get_invite_allowlist(
 ) -> Result<Json<Value>, ApiError> {
     ensure_invite_list_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let allowlist = ctx
-        .invite_blocklist_storage
-        .get_invite_allowlist(&room_id)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to get allowlist", e))?;
+    let allowlist = ctx.invite_blocklist_service.get_invite_allowlist(&room_id).await?;
 
     Ok(Json(json!({
         "allowlist": allowlist,
@@ -134,10 +123,7 @@ pub async fn set_invite_allowlist(
         .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
         .unwrap_or_default();
 
-    ctx.invite_blocklist_storage
-        .set_invite_allowlist(&room_id, user_ids.clone())
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to set allowlist", e))?;
+    ctx.invite_blocklist_service.set_invite_allowlist(&room_id, user_ids.clone()).await?;
 
     Ok(Json(json!({
         "room_id": room_id.to_string(),

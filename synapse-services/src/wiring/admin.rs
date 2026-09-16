@@ -22,8 +22,8 @@ pub struct AdminUserServices {
     pub admin_registration_service: crate::admin_registration_service::AdminRegistrationService,
     /// The `admin_user_service` field.
     pub admin_user_service: Arc<crate::admin_user_service::AdminUserService>,
-    /// The `email_verification_storage` field.
-    pub email_verification_storage: Arc<synapse_storage::email_verification::EmailVerificationStorage>,
+    /// The `email_verification_service` field.
+    pub email_verification_service: Arc<crate::email_verification_service::EmailVerificationService>,
     /// The `admin_token_service` field.
     pub admin_token_service: Arc<crate::admin_token_service::AdminTokenService>,
     /// The `refresh_token_storage` field.
@@ -92,6 +92,8 @@ pub struct AdminModuleServices {
     pub delayed_event_storage: Arc<dyn synapse_storage::delayed_events::DelayedEventStorageApi>,
     /// MSC4140 — Cancellable delayed events service.
     pub delayed_event_service: Arc<crate::delayed_event_service::DelayedEventService>,
+    /// The `e2ee_audit_service` field.
+    pub e2ee_audit_service: Arc<crate::e2ee_audit::E2eeAuditService>,
     /// The `background_update_storage` field.
     pub background_update_storage: Arc<dyn synapse_storage::background_update::BackgroundUpdateStoreApi>,
     /// The `background_update_service` field.
@@ -197,6 +199,8 @@ impl AdminServices {
 
         let email_verification_storage: Arc<synapse_storage::email_verification::EmailVerificationStorage> =
             Arc::new(EmailVerificationStorage::new(pool));
+        let email_verification_service =
+            Arc::new(crate::email_verification_service::EmailVerificationService::new(email_verification_storage));
         let audit_storage: Arc<dyn synapse_storage::audit::AuditEventStoreApi> =
             Arc::new(synapse_storage::audit::AuditEventStorage::new(pool));
         let admin_audit_service = Arc::new(crate::admin_audit_service::AdminAuditService::new(audit_storage.clone()));
@@ -208,6 +212,7 @@ impl AdminServices {
             admin_audit_service.clone(),
         ));
 
+        let e2ee_audit_service = Arc::new(crate::e2ee_audit::E2eeAuditService::new(pool.clone()));
         let event_report_storage: Arc<synapse_storage::event_report::EventReportStorage> =
             Arc::new(synapse_storage::event_report::EventReportStorage::new(pool));
         let event_report_service =
@@ -390,7 +395,7 @@ impl AdminServices {
             user: AdminUserServices {
                 admin_registration_service,
                 admin_user_service,
-                email_verification_storage,
+                email_verification_service,
                 admin_token_service,
                 refresh_token_storage,
                 refresh_token_service,
@@ -419,6 +424,7 @@ impl AdminServices {
                 event_report_service,
                 delayed_event_storage,
                 delayed_event_service,
+                e2ee_audit_service,
                 background_update_storage,
                 background_update_service,
                 module_storage,

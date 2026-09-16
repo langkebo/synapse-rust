@@ -213,13 +213,14 @@ pub struct E2eeRoomContext {
     pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
     /// The `admin_audit_service` field.
     pub admin_audit_service: Option<Arc<synapse_services::admin::AdminAuditService>>,
-    /// The `pool` field.
-    pub pool: Arc<sqlx::PgPool>,
+    /// The `e2ee_audit_service` field.
+    pub e2ee_audit_service: Arc<synapse_services::e2ee_audit::E2eeAuditService>,
 }
 
 impl FromRef<AppState> for E2eeRoomContext {
     fn from_ref(state: &AppState) -> Self {
         Self {
+            e2ee_audit_service: state.services.admin.modules.e2ee_audit_service.clone(),
             room_service: state.services.rooms.room_service.clone(),
             e2ee_backup_service: state.services.e2ee.backup_service.clone(),
             secure_backup_service: state.services.e2ee.secure_backup_service.clone(),
@@ -228,7 +229,6 @@ impl FromRef<AppState> for E2eeRoomContext {
             credential_auth: state.services.core.credential_auth.clone(),
             room_auth: state.services.core.room_auth.clone(),
             admin_audit_service: state.services.admin.security.admin_audit_service.clone().into(),
-            pool: state.services.database_pool(),
         }
     }
 }
@@ -305,7 +305,6 @@ impl SyncContext {
 #[derive(Clone)]
 pub struct DeviceContext {
     /// The `device_storage` field.
-    pub device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
     /// The `validator` field.
     pub validator: Arc<synapse_common::validation::Validator>,
     /// The `token_auth` field.
@@ -359,7 +358,6 @@ pub struct DeviceContext {
 impl FromRef<AppState> for DeviceContext {
     fn from_ref(state: &AppState) -> Self {
         Self {
-            device_storage: state.services.account.device_storage.clone(),
             validator: state.services.core.validator.clone(),
             token_auth: state.services.core.token_auth.clone(),
             credential_auth: state.services.core.credential_auth.clone(),
@@ -420,7 +418,7 @@ pub struct AuthContext {
     /// The `federation_client` field.
     pub federation_client: Arc<dyn synapse_federation::client_api::FederationClientApi>,
     /// The `email_verification_storage` field.
-    pub email_verification_storage: Arc<synapse_storage::email_verification::EmailVerificationStorage>,
+    pub email_verification_service: Arc<synapse_services::email_verification_service::EmailVerificationService>,
     /// The `account_device_list_service` field.
     pub account_device_list_service: Arc<synapse_services::account_device_list_service::AccountDeviceListService>,
     /// The `refresh_token_service` field.
@@ -456,7 +454,7 @@ impl FromRef<AppState> for AuthContext {
             account_identity_service: state.services.account.account_identity_service.clone(),
             uia_service: state.services.extensions.uia_service.clone(),
             federation_client: state.services.federation.federation_client.clone(),
-            email_verification_storage: state.services.admin.user.email_verification_storage.clone(),
+            email_verification_service: state.services.admin.user.email_verification_service.clone(),
             account_device_list_service: state.services.account.account_device_list_service.clone(),
             refresh_token_service: state.services.admin.user.refresh_token_service.clone(),
             metrics: state.services.core.metrics.clone(),
@@ -511,7 +509,7 @@ pub struct AdminContext {
     /// The `account_device_list_service` field.
     pub account_device_list_service: Arc<synapse_services::account_device_list_service::AccountDeviceListService>,
     /// The `invite_blocklist_storage` field.
-    pub invite_blocklist_storage: Arc<synapse_storage::invite_blocklist::InviteBlocklistStorage>,
+    pub invite_blocklist_service: Arc<synapse_services::invite_blocklist_service::InviteBlocklistService>,
     // Admin — user
     /// The `admin_user_service` field.
     pub admin_user_service: Arc<synapse_services::admin_user_service::AdminUserService>,
@@ -524,7 +522,7 @@ pub struct AdminContext {
     /// The `registration_token_service` field.
     pub registration_token_service: Arc<synapse_services::registration_token_service::RegistrationTokenService>,
     /// The `email_verification_storage` field.
-    pub email_verification_storage: Arc<synapse_storage::email_verification::EmailVerificationStorage>,
+    pub email_verification_service: Arc<synapse_services::email_verification_service::EmailVerificationService>,
     // Admin — modules
     /// The `background_update_service` field.
     pub background_update_service: Arc<synapse_services::background_update_service::BackgroundUpdateService>,
@@ -539,7 +537,6 @@ pub struct AdminContext {
     /// MSC4284 — Policy server service for room/user/content moderation.
     pub policy_service: Arc<synapse_services::policy_service::PolicyService>,
     /// Event storage for admin redact/purge operations.
-    pub event_storage: synapse_storage::event::EventStorage,
     /// The `push_notification_service` field.
     pub push_notification_service: Arc<synapse_services::push_notification_service::PushNotificationService>,
     /// The `app_service_manager` field.
@@ -549,7 +546,6 @@ pub struct AdminContext {
     /// The `module_service` field.
     pub module_service: Arc<synapse_services::module_service::ModuleService>,
     /// The `module_storage` field.
-    pub module_storage: Arc<synapse_storage::module::ModuleStorage>,
     /// The `account_validity_service` field.
     pub account_validity_service: Arc<synapse_services::module_service::AccountValidityService>,
     /// The `worker_manager` field.
@@ -561,6 +557,10 @@ pub struct AdminContext {
     pub admin_security_service: Arc<synapse_services::admin_security_service::AdminSecurityService>,
     /// The `admin_server_service` field.
     pub admin_server_service: Arc<synapse_services::admin_server_service::AdminServerService>,
+    /// The `event_redaction_service` field.
+    pub event_redaction_service: Arc<synapse_services::event_redaction_service::EventRedactionService>,
+    /// The `e2ee_audit_service` field.
+    pub e2ee_audit_service: Arc<synapse_services::e2ee_audit::E2eeAuditService>,
     /// The `captcha_service` field.
     pub captcha_service: Arc<synapse_services::captcha_service::CaptchaService>,
     /// The `telemetry_alert_service` field.
@@ -593,7 +593,6 @@ pub struct AdminContext {
     /// The `ssss_service` field.
     pub ssss_service: synapse_e2ee::ssss::SecretStorageService,
     /// The `token_storage` field.
-    pub token_storage: Arc<dyn synapse_storage::token::AccessTokenStoreApi>,
     /// The `client_push_service` field.
     pub client_push_service: Arc<synapse_services::client_push_service::ClientPushService>,
     #[cfg(feature = "widgets")]
@@ -623,27 +622,24 @@ impl FromRef<AppState> for AdminContext {
             account_identity_service: state.services.account.account_identity_service.clone(),
             account_device_list_service: state.services.account.account_device_list_service.clone(),
             user_service: state.services.account.user_service.clone(),
-            invite_blocklist_storage: state.services.account.invite_blocklist_storage.clone(),
+            invite_blocklist_service: state.services.account.invite_blocklist_service.clone(),
             admin_user_service: state.services.admin.user.admin_user_service.clone(),
             admin_registration_service: state.services.admin.user.admin_registration_service.clone(),
             admin_token_service: state.services.admin.user.admin_token_service.clone(),
             refresh_token_service: state.services.admin.user.refresh_token_service.clone(),
             registration_token_service: state.services.admin.user.registration_token_service.clone(),
-            email_verification_storage: state.services.admin.user.email_verification_storage.clone(),
+            email_verification_service: state.services.admin.user.email_verification_service.clone(),
             background_update_service: state.services.admin.modules.background_update_service.clone(),
             retention_service: state.services.admin.modules.retention_service.clone(),
             feature_flag_service: state.services.admin.modules.feature_flag_service.clone(),
             event_report_service: state.services.admin.modules.event_report_service.clone(),
             delayed_event_service: state.services.admin.modules.delayed_event_service.clone(),
             policy_service: state.services.admin.modules.policy_service.clone(),
-            event_storage: synapse_storage::event::EventStorage::new(
-                &state.services.database_pool(),
-                state.services.core.server_name.clone(),
-            ),
+            event_redaction_service: state.services.rooms.event_redaction_service.clone(),
+            e2ee_audit_service: state.services.admin.modules.e2ee_audit_service.clone(),
             push_notification_service: state.services.admin.modules.push_notification_service.clone(),
             app_service_manager: state.services.admin.modules.app_service_manager.clone(),
             app_service_scheduler: state.services.admin.modules.app_service_scheduler.clone(),
-            module_storage: state.services.admin.modules.module_storage.clone(),
             module_service: state.services.admin.modules.module_service.clone(),
             account_validity_service: state.services.admin.modules.account_validity_service.clone(),
             worker_manager: state.services.admin.modules.worker_manager.clone(),
@@ -665,7 +661,6 @@ impl FromRef<AppState> for AdminContext {
             #[cfg(feature = "friends")]
             friend_room_service: state.services.extensions.friend_room_service.clone(),
             ssss_service: state.services.e2ee.ssss_service.clone(),
-            token_storage: state.services.account.token_storage.clone(),
             client_push_service: state.services.core.client_push_service.clone(),
             #[cfg(feature = "widgets")]
             widget_service: state.services.extensions.widget_service.clone(),
@@ -743,9 +738,7 @@ pub struct FederationContext {
     /// The `to_device_service` field.
     pub to_device_service: synapse_e2ee::to_device::ToDeviceService,
     /// The `presence_storage` field.
-    pub presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
     /// The `device_storage` field.
-    pub device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
     /// The `federation_inbound_edu_semaphore` field.
     pub federation_inbound_edu_semaphore: Arc<Semaphore>,
     /// The `federation_inbound_edu_origin_semaphores` field.
@@ -754,6 +747,8 @@ pub struct FederationContext {
     pub federation_presence_backoff_until: Arc<RwLock<HashMap<String, i64>>>,
     /// The `federation_join_semaphore` field.
     pub federation_join_semaphore: Arc<Semaphore>,
+    /// The `presence_service` field.
+    pub presence_service: Arc<synapse_services::presence_service::PresenceService>,
 }
 
 impl FromRef<AppState> for FederationContext {
@@ -790,8 +785,7 @@ impl FromRef<AppState> for FederationContext {
             device_keys_service: state.services.e2ee.device_keys_service.clone(),
             cross_signing_service: state.services.e2ee.cross_signing_service.clone(),
             to_device_service: state.services.e2ee.to_device_service.clone(),
-            presence_storage: state.services.account.presence_storage.clone(),
-            device_storage: state.services.account.device_storage.clone(),
+            presence_service: state.services.account.presence_service.clone(),
             federation_inbound_edu_semaphore: state.federation_inbound_edu_semaphore.clone(),
             federation_inbound_edu_origin_semaphores: state.federation_inbound_edu_origin_semaphores.clone(),
             federation_presence_backoff_until: state.federation_presence_backoff_until.clone(),
@@ -892,7 +886,7 @@ pub struct SsoContext {
     /// The `oidc_service` field.
     pub oidc_service: Option<Arc<synapse_services::oidc_service::OidcService>>,
     /// The `oidc_mapping_storage` field.
-    pub oidc_mapping_storage: Arc<dyn synapse_storage::oidc_user_mapping::OidcUserMappingStoreApi>,
+    pub oidc_user_mapping_service: Arc<synapse_services::oidc_user_mapping_service::OidcUserMappingService>,
     /// The `oidc_session_service` field.
     pub oidc_session_service: Arc<synapse_services::oidc_session_service::OidcSessionService>,
     #[cfg(feature = "builtin-oidc")]
@@ -926,7 +920,7 @@ impl FromRef<AppState> for SsoContext {
             #[cfg(feature = "cas-sso")]
             cas_service: state.services.sso.cas_service.clone(),
             oidc_service: state.services.sso.oidc_service.clone(),
-            oidc_mapping_storage: state.services.sso.oidc_mapping_storage.clone(),
+            oidc_user_mapping_service: state.services.sso.oidc_user_mapping_service.clone(),
             oidc_session_service: state.services.sso.oidc_session_service.clone(),
             #[cfg(feature = "builtin-oidc")]
             builtin_oidc_provider: state.services.sso.builtin_oidc_provider.clone(),

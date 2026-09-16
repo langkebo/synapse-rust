@@ -1,6 +1,0 @@
-# Files under synapse-web/src/ that still reference synapse_storage (A2 / B4-4).
-# This list may only SHRINK. The gate fails on a new offender AND on a stale entry,
-# so removing a line here is part of fixing the file, not optional bookkeeping.
-# Regenerate with: python3 scripts/ci/check_web_layering.py --update
-
-synapse-web/src/routes/context.rs

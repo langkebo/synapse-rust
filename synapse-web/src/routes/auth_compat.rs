@@ -182,7 +182,7 @@ pub(crate) async fn request_email_verification_with_submit_path(
     });
 
     let token_id = ctx
-        .email_verification_storage
+        .email_verification_service
         .create_verification_token(email, &token, 3600, user_id, Some(session_data))
         .await
         .map_err(|e| {
@@ -248,7 +248,7 @@ pub(crate) async fn submit_email_token(
 
     let sid_int: i64 = sid.parse().map_err(|_| ApiError::bad_request("Invalid session ID format".to_string()))?;
 
-    ctx.email_verification_storage.validate_and_consume_token(sid_int, token, client_secret).await?;
+    ctx.email_verification_service.validate_and_consume_token(sid_int, token, client_secret).await?;
 
     Ok(Json(json!({
         "success": true

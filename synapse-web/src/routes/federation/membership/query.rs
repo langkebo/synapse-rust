@@ -88,11 +88,7 @@ pub(crate) async fn get_user_devices(
 
     let devices = ctx.account_device_list_service.get_user_devices(&user_id).await?;
 
-    let stream_id = ctx
-        .device_storage
-        .get_max_device_list_stream_id_for_user(&user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to get device stream id", e))?;
+    let stream_id = ctx.account_device_list_service.get_max_device_list_stream_id_for_user(&user_id).await?;
 
     let (master_key, self_signing_key) = ctx
         .cross_signing_service

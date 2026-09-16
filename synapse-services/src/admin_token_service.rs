@@ -121,6 +121,14 @@ impl AdminTokenService {
             .await
     }
 
+    /// Delete expired access tokens, returning how many rows were removed.
+    pub async fn cleanup_expired_tokens(&self) -> Result<u64, ApiError> {
+        self.token_storage
+            .cleanup_expired_tokens()
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Access token cleanup failed", e))
+    }
+
     /// See [`get_user_access_tokens`].
     #[instrument(skip(self))]
     pub async fn get_user_access_tokens(&self, user_id: &str) -> Result<Vec<AdminAccessTokenInfo>, ApiError> {

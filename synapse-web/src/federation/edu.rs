@@ -244,7 +244,7 @@ async fn handle_presence_edu(ctx: &FederationContext, origin: &str, edu: &Value,
             continue;
         }
 
-        if let Err(error) = ctx.presence_storage.set_presence(user_id, presence.as_str(), status_msg).await {
+        if let Err(error) = ctx.presence_service.set_presence(user_id, presence.as_str(), status_msg).await {
             ::tracing::warn!("Failed to persist presence update for {} from {}: {}", user_id, origin, error);
             result.errored += 1;
             set_presence_backoff(ctx, origin).await;
@@ -295,7 +295,7 @@ async fn handle_typing_edu(ctx: &FederationContext, origin: &str, edu: &Value, _
 
     let mut result = EduProcessResult::default();
     for user_id in &user_ids {
-        match ctx.presence_storage.set_typing(room_id, user_id, true).await {
+        match ctx.presence_service.set_typing_flag(room_id, user_id, true).await {
             Ok(()) => result.processed += 1,
             Err(e) => {
                 ::tracing::warn!("Failed to persist typing EDU for {} in {} from {}: {}", user_id, room_id, origin, e);
@@ -329,7 +329,8 @@ async fn handle_device_list_update_edu(
         return EduProcessResult { dropped: 1, ..Default::default() };
     };
 
-    let result = ctx.device_storage.insert_device_list_change(user_id, device_id, change_type, stream_id).await;
+    let result =
+        ctx.account_device_list_service.insert_device_list_change(user_id, device_id, change_type, stream_id).await;
 
     match result {
         Ok(_) => {
@@ -704,7 +705,8 @@ async fn handle_profile_update_edu(
     // local clients sharing a room with `user_id` will be told the profile
     // changed (device_id is None for user-level profile updates).
     let stream_id = current_timestamp_millis();
-    if let Err(e) = ctx.device_storage.insert_device_list_change(user_id, None, "profile", stream_id).await {
+    if let Err(e) = ctx.account_device_list_service.insert_device_list_change(user_id, None, "profile", stream_id).await
+    {
         // Non-fatal: the profile is already persisted; stream bump is best-effort.
         ::tracing::warn!(error = %e, user_id = %user_id, "Failed to record profile change for device-list stream");
     }

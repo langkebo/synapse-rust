@@ -136,6 +136,17 @@ impl PresenceService {
         Ok(())
     }
 
+    /// Apply a federated typing flag for `user_id` in `room_id`.
+    ///
+    /// Unlike the client-facing typing API this carries no local timeout: the
+    /// remote server owns the lifetime and clears it with its own EDU.
+    pub async fn set_typing_flag(&self, room_id: &str, user_id: &str, typing: bool) -> ApiResult<()> {
+        self.storage
+            .set_typing(room_id, user_id, typing)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to persist typing EDU", e))
+    }
+
     /// C-3: Batch set presence for multiple users in a single SQL statement.
     /// Each entry is `(user_id, presence, status_msg)`.
     #[tracing::instrument(skip(self, entries))]
