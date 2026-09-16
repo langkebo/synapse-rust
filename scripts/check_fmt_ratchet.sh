@@ -47,7 +47,7 @@ UPDATE=0
 # 排除 target/、vendor/ 与 .claude/worktrees（第二份工作树的副本不该计入）。
 count_fmt_diffs() {
     find src synapse-common synapse-cache synapse-storage synapse-e2ee \
-         synapse-federation synapse-services benches tests \
+         synapse-federation synapse-services synapse-web synapse-test-utils benches tests \
          -name '*.rs' -not -path '*/target/*' -print0 2>/dev/null \
         | xargs -0 rustfmt --check --edition 2021 2>&1 \
         | grep -c '^Diff in' || true
@@ -90,7 +90,7 @@ if ((current > baseline)); then
     echo "" >&2
     echo "  Offending locations:" >&2
     find src synapse-common synapse-cache synapse-storage synapse-e2ee \
-         synapse-federation synapse-services benches tests \
+         synapse-federation synapse-services synapse-web synapse-test-utils benches tests \
          -name '*.rs' -not -path '*/target/*' -print0 2>/dev/null \
         | xargs -0 rustfmt --check --edition 2021 2>&1 | grep '^Diff in' >&2 || true
     exit 1

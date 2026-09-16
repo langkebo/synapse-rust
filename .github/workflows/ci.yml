@@ -871,7 +871,7 @@ jobs:
             --threshold 80 \
             --global-floor 40 \
             --new-file-floor 30 \
-            --core-files artifacts/core_file_list.txt \
+            --core-files scripts/ci/core_file_coverage_prefixes.txt \
             --core-threshold 70
 
       - name: Upload coverage to Codecov

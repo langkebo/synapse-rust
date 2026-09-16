@@ -46,13 +46,13 @@ coverage:
         target: 90%
         threshold: 0.5%
         paths:
-          - "src/auth/**"
-          - "src/web/middleware/federation_auth.rs"
-          - "src/web/middleware/auth.rs"
-          - "src/web/utils/admin_auth.rs"
-          - "src/federation/signing.rs"
-          - "src/common/nonce_cache.rs"
-          - "src/services/sync_service/**"
+          - "synapse-services/src/auth/**"
+          - "synapse-web/src/middleware/federation_auth.rs"
+          - "synapse-web/src/middleware/auth.rs"
+          - "synapse-web/src/utils/admin_auth.rs"
+          - "synapse-federation/src/signing.rs"
+          - "synapse-services/src/sync_service/**"
+          - "synapse-e2ee/src/**"
           - "src/e2ee/**"
         only_pulls: false
     patch:
@@ -66,13 +66,13 @@ coverage:
         threshold: 0%
         informational: false
         paths:
-          - "src/auth/**"
-          - "src/web/middleware/federation_auth.rs"
-          - "src/web/middleware/auth.rs"
-          - "src/web/utils/admin_auth.rs"
-          - "src/federation/signing.rs"
-          - "src/common/nonce_cache.rs"
-          - "src/services/sync_service/**"
+          - "synapse-services/src/auth/**"
+          - "synapse-web/src/middleware/federation_auth.rs"
+          - "synapse-web/src/middleware/auth.rs"
+          - "synapse-web/src/utils/admin_auth.rs"
+          - "synapse-federation/src/signing.rs"
+          - "synapse-services/src/sync_service/**"
+          - "synapse-e2ee/src/**"
           - "src/e2ee/**"
         only_pulls: true
 

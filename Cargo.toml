@@ -117,7 +117,7 @@ synapse-federation = { path = "synapse-federation" }
 synapse-services = { path = "synapse-services" }
 synapse-storage = { path = "synapse-storage" }
 synapse-test-utils = { path = "synapse-test-utils", optional = true }
-synapse-web = { path = "synapse-web" }
+synapse-web = { path = "synapse-web", default-features = false }
 
 image = "0.25"
 hex = "0.4.3"

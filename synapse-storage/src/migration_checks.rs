@@ -134,15 +134,16 @@ fn discover_migration_files() -> Vec<i64> {
     versions
 }
 
-/// Count all tables in `public` schema (single COUNT(*) query).
+/// Count all tables in current schema (single COUNT(*) query).
 ///
 /// Includes sqlx-internal tables like `_sqlx_migrations` if they live in
 /// `public` (they do by default). The caller uses the count purely to
 /// compute a drift signal — it is not a hard correctness check.
 pub async fn count_public_tables(pool: &Pool<Postgres>) -> Result<usize, sqlx::Error> {
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public'")
-        .fetch_one(pool)
-        .await?;
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = current_schema()")
+            .fetch_one(pool)
+            .await?;
     Ok(count as usize)
 }
 

@@ -258,6 +258,9 @@ pub mod test_utils;
 /// The `test_mocks` module.
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_mocks;
+/// One-way error-conversion golden tests (B3-5 / A9).
+#[cfg(any(test, feature = "test-utils"))]
+pub mod error_conversion_tests;
 
 // Internal bridge imports of sibling crates.
 //

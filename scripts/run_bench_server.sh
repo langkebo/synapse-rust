@@ -195,7 +195,7 @@ build_binary() {
     if [ -f "$BENCH_BINARY" ]; then
         # Check if binary is stale (source newer than binary)
         local newest_src
-        newest_src=$(find "$PROJECT_ROOT/src" "$PROJECT_ROOT/synapse-services" "$PROJECT_ROOT/synapse-storage" "$PROJECT_ROOT/synapse-federation" "$PROJECT_ROOT/synapse-common" "$PROJECT_ROOT/synapse-e2ee" -name "*.rs" -newer "$BENCH_BINARY" 2>/dev/null | head -1)
+        newest_src=$(find "$PROJECT_ROOT/src" "$PROJECT_ROOT/synapse-services" "$PROJECT_ROOT/synapse-storage" "$PROJECT_ROOT/synapse-federation" "$PROJECT_ROOT/synapse-common" "$PROJECT_ROOT/synapse-e2ee" "$PROJECT_ROOT/synapse-web" "$PROJECT_ROOT/synapse-test-utils" -name "*.rs" -newer "$BENCH_BINARY" 2>/dev/null | head -1)
         if [ -z "$newest_src" ] && [ "${FORCE_BUILD:-0}" != "1" ]; then
             log "Binary up to date: $BENCH_BINARY"
             return 0

@@ -70,6 +70,28 @@ def load_core_prefixes(path: Optional[pathlib.Path]) -> List[str]:
         return [line.strip() for line in f if line.strip() and not line.startswith("#")]
 
 
+def _normalized_source_paths() -> List[str]:
+    """Normalized paths of every .rs file in the repo (excluding build/vendor)."""
+    skip = {"target", "vendor", ".git", ".claude", "node_modules"}
+    out: List[str] = []
+    for path in ROOT.rglob("*.rs"):
+        if any(part in skip for part in path.parts):
+            continue
+        out.append(_normalize_path(str(path)))
+    return out
+
+
+def stale_core_prefixes(core_prefixes: List[str]) -> List[str]:
+    """Prefixes that match no file on disk.
+
+    The list was historically a gitignored, never-generated artifact, so this
+    threshold silently applied to zero files in CI. A prefix that matches
+    nothing means the guard is dead — fail loudly instead of passing vacuously.
+    """
+    normalized = _normalized_source_paths()
+    return [p for p in core_prefixes if not any(n.startswith(p) for n in normalized)]
+
+
 def _matches_core_prefix(path: str, core_prefixes: List[str]) -> bool:
     """Check if a path matches any core prefix (directory or file prefix)."""
     for prefix in core_prefixes:
@@ -243,9 +265,14 @@ def check_file_coverage(
 
         if cur < floor:
             delta = cur - (prev or 0.0)
+            # `prev` is None for a file with no baseline (a NEW file that also
+            # matches a core prefix lands in the CORE branch above). Formatting
+            # it directly raised TypeError and crashed the gate instead of
+            # reporting the shortfall.
+            prev_txt = f"{prev:.1f}%" if prev is not None else "no baseline"
             msg = (
                 f"[{tag}] {path}: {cur:.1f}% < {floor:.0f}% "
-                f"(was {prev:.1f}%, delta={delta:+.1f}%)"
+                f"(was {prev_txt}, delta={delta:+.1f}%)"
             )
             if is_core:
                 core_failures.append(msg)
@@ -369,7 +396,28 @@ def main() -> int:
         current = parse_tarpaulin_json(args.report)
     baseline = load_baseline(args.baseline)
     tdd_files = load_tdd_files(args.tdd_files)
+
+    # A --core-files that is missing or entirely stale used to degrade to "no
+    # core paths", i.e. the core threshold silently checked nothing.
+    if args.core_files is not None and not args.core_files.exists():
+        print(f"Core-file list not found: {args.core_files}", file=sys.stderr)
+        return 2
     core_prefixes = load_core_prefixes(args.core_files)
+    if args.core_files is not None and not core_prefixes:
+        print(f"Core-file list is empty: {args.core_files}", file=sys.stderr)
+        return 2
+    stale = stale_core_prefixes(core_prefixes)
+    if stale:
+        print(
+            "Stale core-file prefixes (match no file on disk):\n  " + "\n  ".join(stale),
+            file=sys.stderr,
+        )
+        return 2
+    if core_prefixes:
+        matched = sum(
+            1 for n in _normalized_source_paths() if _matches_core_prefix(n, core_prefixes)
+        )
+        print(f"Core-path guard: {len(core_prefixes)} prefixes match {matched} files.")
 
     if not current:
         print("No source-file coverage data found in report.", file=sys.stderr)

@@ -169,6 +169,8 @@ def count_total_debt() -> int:
         "synapse-federation",
         "synapse-e2ee",
         "synapse-services",
+        "synapse-web",
+        "synapse-test-utils",
         "synapse-rust",
     ]:
         proc = subprocess.run(
