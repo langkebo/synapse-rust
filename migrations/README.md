@@ -154,7 +154,7 @@ v11 baseline 曾包含 `openclaw_connections` / `ai_conversations` / `ai_connect
 直接删就会出事 —— 尾部那 3 份副本里**藏了主体没有的 10 个索引**
 （`idx_device_signatures_user_device`、`idx_event_edges_prev_room`、
 `idx_e2ee_audit_log_device`、`idx_push_queue_user_pending`、
-`idx_federation_queue_dest_created`、`idx_rooms_federated` 等）与 9 个约束 DO 块。
+`idx_federation_queue_pending`、`idx_rooms_federated` 等）与 9 个约束 DO 块。
 
 **去重后的结构**：1 个 header + 主体（含 14 张扩展表）= 230 张表 / 369 个索引，
 尾部保留唯一一份"完整性约束与性能索引折入块"。实测 230 表名、369 索引名**均无重复**。

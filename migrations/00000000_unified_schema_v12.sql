@@ -1,3 +1,11 @@
+-- 2026-09-17 DB review：下列 5 个 `*_id` 命名的外键曾被同一段 DO 块**重复添加**到
+-- 已经存在同名同义约束的列上（`fk_devices_user` / `fk_access_tokens_user` /
+-- `fk_refresh_tokens_user` / `fk_room_memberships_room` / `fk_room_memberships_user`
+-- 已在 CREATE TABLE 内联声明）。同一列挂两个外键 = 两侧删除动作都会触发，
+-- 且会让「约束是否存在」的意图检查失效（`fk_events_room` 的 NO ACTION 就是这样
+-- 被 `fk_events_room_id` 的 CASCADE 静默压过的）。已全部删除，只保留内联约束。
+-- 守卫：scripts/check_baseline_consolidation.py 的 duplicate_foreign_keys()。
+
 -- ============================================================================
 -- synapse-rust 统一数据库架构 v12.0.0
 -- 创建日期: 2026-08-31（v11 复制自 v10；2026-09-16 升为 v12）
@@ -348,6 +356,11 @@ CREATE TABLE IF NOT EXISTS events (
     -- DB-04-b: replaced CASCADE with NO ACTION to avoid AccessExclusiveLock
     -- on events during room deletion. Rust layer (RoomStorage::delete_room)
     -- is responsible for batched cleanup in 1000-row chunks.
+    -- 显式 NO ACTION：**不是**遗漏，而是 DB-04-b 的设计前提。
+    -- `RoomStorage::delete_room` 先按 1000 行分批删除 events（避免 CASCADE 在
+    -- 整张 events 表上取 AccessExclusiveLock 阻塞所有读写），最后才删 rooms 行；
+    -- NO ACTION 在这里充当「所有 events 确已删净」的最终校验。改成 CASCADE 会让
+    -- 分批删除的意义失效。见 docs/audit/DB_REVIEW_2026-09-17.md §5。
     CONSTRAINT fk_events_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE NO ACTION
 );
 ALTER SEQUENCE events_stream_ordering_seq OWNED BY events.stream_ordering;
@@ -3311,7 +3324,6 @@ CREATE INDEX IF NOT EXISTS idx_users_email_trgm ON users USING GIN (email gin_tr
 
 -- User threepids
 CREATE INDEX IF NOT EXISTS idx_user_threepids_user ON user_threepids(user_id);
-CREATE INDEX IF NOT EXISTS idx_user_threepids_medium_address ON user_threepids(medium, address);
 
 -- Devices
 CREATE INDEX IF NOT EXISTS idx_devices_user_id ON devices(user_id);
@@ -3344,11 +3356,9 @@ CREATE INDEX IF NOT EXISTS idx_room_memberships_room ON room_memberships(room_id
 CREATE INDEX IF NOT EXISTS idx_room_memberships_user ON room_memberships(user_id);
 CREATE INDEX IF NOT EXISTS idx_room_memberships_membership ON room_memberships(membership);
 CREATE INDEX IF NOT EXISTS idx_room_memberships_user_membership ON room_memberships(user_id, membership);
-CREATE INDEX IF NOT EXISTS idx_room_memberships_room_membership ON room_memberships(room_id, membership);
 CREATE INDEX IF NOT EXISTS idx_room_memberships_joined ON room_memberships(user_id, room_id) WHERE membership = 'join';
 CREATE INDEX IF NOT EXISTS idx_room_memberships_user_status ON room_memberships(user_id, membership, joined_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_room_memberships_room_status ON room_memberships(room_id, membership);
-CREATE INDEX IF NOT EXISTS idx_room_memberships_room_user ON room_memberships(room_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_memberships_user_room ON room_memberships(user_id, room_id);
 
 -- Events
@@ -3382,13 +3392,11 @@ CREATE INDEX IF NOT EXISTS idx_event_relations_room_rel_ts_evt
 -- Room summaries
 CREATE INDEX IF NOT EXISTS idx_room_summaries_last_event_ts ON room_summaries(last_event_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_room_summaries_space ON room_summaries(is_space) WHERE is_space = TRUE;
-CREATE INDEX IF NOT EXISTS idx_room_summaries_room_id ON room_summaries(room_id);
 
 -- Room summary members
 CREATE INDEX IF NOT EXISTS idx_room_summary_members_user_membership_room ON room_summary_members(user_id, membership, room_id);
 CREATE INDEX IF NOT EXISTS idx_room_summary_members_room_membership_hero_active ON room_summary_members(room_id, membership, is_hero DESC, last_active_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_room_summary_members_room_hero_user ON room_summary_members(room_id, is_hero DESC, user_id);
-CREATE INDEX IF NOT EXISTS idx_room_summary_members_room_user ON room_summary_members(room_id, user_id);
 
 -- Room summary state
 CREATE INDEX IF NOT EXISTS idx_room_summary_state_room ON room_summary_state(room_id);
@@ -3401,7 +3409,6 @@ CREATE INDEX IF NOT EXISTS idx_room_directory_public ON room_directory(is_public
 
 -- Room aliases
 CREATE INDEX IF NOT EXISTS idx_room_aliases_room_id ON room_aliases(room_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_room_aliases_room_alias ON room_aliases(room_alias);
 
 -- Room invites
 CREATE INDEX IF NOT EXISTS idx_room_invites_room ON room_invites(room_id);
@@ -3411,10 +3418,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_room_invites_invite_code ON room_invites(in
 -- Room invite blocklist/allowlist
 CREATE INDEX IF NOT EXISTS idx_room_invite_blocklist_room ON room_invite_blocklist(room_id);
 CREATE INDEX IF NOT EXISTS idx_room_invite_blocklist_user ON room_invite_blocklist(user_id);
-CREATE INDEX IF NOT EXISTS idx_room_invite_blocklist_room_user ON room_invite_blocklist(room_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_room_invite_allowlist_room ON room_invite_allowlist(room_id);
 CREATE INDEX IF NOT EXISTS idx_room_invite_allowlist_user ON room_invite_allowlist(user_id);
-CREATE INDEX IF NOT EXISTS idx_room_invite_allowlist_room_user ON room_invite_allowlist(room_id, user_id);
 
 -- Room tags
 CREATE INDEX IF NOT EXISTS idx_room_tags_user ON room_tags(user_id);
@@ -3457,7 +3462,6 @@ CREATE INDEX IF NOT EXISTS idx_verification_requests_to_user_state ON verificati
 
 -- Megolm sessions
 CREATE INDEX IF NOT EXISTS idx_megolm_sessions_room ON megolm_sessions(room_id);
-CREATE INDEX IF NOT EXISTS idx_megolm_sessions_session ON megolm_sessions(session_id);
 -- Phase 2: 支持按 pickle_format 过滤的懒迁移查询（只查 'legacy' 存量）
 CREATE INDEX IF NOT EXISTS idx_megolm_sessions_pickle_format ON megolm_sessions(pickle_format) WHERE pickle_format = 'legacy';
 
@@ -3505,7 +3509,6 @@ CREATE INDEX IF NOT EXISTS idx_e2ee_audit_log_user_created ON e2ee_audit_log(use
 
 -- E2EE secret storage keys
 CREATE INDEX IF NOT EXISTS idx_e2ee_secret_storage_keys_user ON e2ee_secret_storage_keys(user_id);
-CREATE INDEX IF NOT EXISTS idx_e2ee_secret_storage_keys_key_id ON e2ee_secret_storage_keys(key_id);
 
 -- E2EE stored secrets
 CREATE UNIQUE INDEX IF NOT EXISTS idx_e2ee_stored_secrets_user_name ON e2ee_stored_secrets(user_id, secret_name);
@@ -3527,7 +3530,6 @@ CREATE INDEX IF NOT EXISTS idx_media_usage_log_timestamp ON media_usage_log(time
 CREATE INDEX IF NOT EXISTS idx_media_quota_alerts_user ON media_quota_alerts(user_id) WHERE is_read = FALSE;
 CREATE INDEX IF NOT EXISTS idx_upload_progress_expires ON upload_progress(expires_at ASC);
 CREATE INDEX IF NOT EXISTS idx_upload_progress_user_created_active ON upload_progress(user_id, created_ts DESC) WHERE status <> 'finalized';
-CREATE INDEX IF NOT EXISTS idx_upload_chunks_upload_order ON upload_chunks(upload_id, chunk_index ASC);
 
 -- Voice messages
 
@@ -3581,7 +3583,6 @@ CREATE INDEX IF NOT EXISTS idx_spaces_parent ON spaces(parent_space_id) WHERE pa
 CREATE INDEX IF NOT EXISTS idx_space_members_space ON space_members(space_id);
 CREATE INDEX IF NOT EXISTS idx_space_members_user ON space_members(user_id);
 CREATE INDEX IF NOT EXISTS idx_space_members_membership ON space_members(membership);
-CREATE INDEX IF NOT EXISTS idx_space_summary_space ON space_summaries(space_id);
 CREATE INDEX IF NOT EXISTS idx_space_statistics_member_count ON space_statistics(member_count DESC);
 CREATE INDEX IF NOT EXISTS idx_space_events_space ON space_events(space_id);
 CREATE INDEX IF NOT EXISTS idx_space_events_space_type_ts ON space_events(space_id, event_type, origin_server_ts DESC);
@@ -3592,7 +3593,6 @@ CREATE INDEX IF NOT EXISTS idx_spaces_topic_trgm ON spaces USING GIN (topic gin_
 
 -- Federation
 CREATE INDEX IF NOT EXISTS idx_federation_servers_status ON federation_servers(status);
-CREATE INDEX IF NOT EXISTS idx_federation_blacklist_server ON federation_blacklist(server_name);
 CREATE INDEX IF NOT EXISTS idx_federation_blacklist_log_server ON federation_blacklist_log(server_name);
 CREATE INDEX IF NOT EXISTS idx_federation_blacklist_log_performed ON federation_blacklist_log(performed_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_federation_blacklist_rule_enabled ON federation_blacklist_rule(is_enabled) WHERE is_enabled = TRUE;
@@ -3603,8 +3603,6 @@ CREATE INDEX IF NOT EXISTS idx_federation_queue_pending ON federation_queue(dest
 CREATE INDEX IF NOT EXISTS idx_federation_queue_dest_status ON federation_queue(destination, status, created_ts);
 CREATE INDEX IF NOT EXISTS idx_federation_signing_keys_server_created ON federation_signing_keys(server_name, created_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_federation_signing_keys_key_id ON federation_signing_keys(key_id);
-CREATE INDEX IF NOT EXISTS idx_federation_access_stats_server ON federation_access_stats(server_name);
-CREATE INDEX IF NOT EXISTS idx_federation_cache_key ON federation_cache(key);
 CREATE INDEX IF NOT EXISTS idx_federation_cache_expiry ON federation_cache(expiry_ts);
 CREATE INDEX IF NOT EXISTS idx_event_edges_prev ON event_edges(prev_event_id);
 CREATE INDEX IF NOT EXISTS idx_device_lists_outbound_stream ON device_lists_outbound_pokes(stream_id);
@@ -3621,7 +3619,6 @@ CREATE INDEX IF NOT EXISTS idx_openid_tokens_user ON openid_tokens(user_id);
 
 -- Account data
 CREATE INDEX IF NOT EXISTS idx_account_data_user ON account_data(user_id);
-CREATE INDEX IF NOT EXISTS idx_account_data_user_type ON account_data(user_id, data_type);
 CREATE INDEX IF NOT EXISTS idx_account_data_content_gin ON account_data USING GIN (content);
 
 -- Threepid validation session
@@ -3683,7 +3680,6 @@ CREATE INDEX IF NOT EXISTS idx_key_rotation_state_user ON key_rotation_state(use
 CREATE INDEX IF NOT EXISTS idx_megolm_key_shares_room ON megolm_key_shares(room_id);
 
 -- Megolm session keys
-CREATE INDEX IF NOT EXISTS idx_megolm_session_keys_lookup ON megolm_session_keys(user_id, session_id);
 CREATE INDEX IF NOT EXISTS idx_megolm_session_keys_expiry ON megolm_session_keys(expires_at) WHERE expires_at IS NOT NULL;
 
 -- Security
@@ -3696,7 +3692,6 @@ CREATE INDEX IF NOT EXISTS idx_event_reports_status ON event_reports(status);
 CREATE INDEX IF NOT EXISTS idx_event_reports_received ON event_reports(received_ts DESC);
 
 -- Report rate limits
-CREATE INDEX IF NOT EXISTS idx_report_rate_limits_user ON report_rate_limits(user_id);
 
 -- Audit events
 CREATE INDEX IF NOT EXISTS idx_audit_events_actor_created ON audit_events(actor_id, created_ts DESC);
@@ -3706,16 +3701,13 @@ CREATE INDEX IF NOT EXISTS idx_audit_events_request_created ON audit_events(requ
 -- Feature flags
 CREATE INDEX IF NOT EXISTS idx_feature_flags_scope_status ON feature_flags(target_scope, status, updated_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_feature_flags_expires_at ON feature_flags(expires_at) WHERE expires_at IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_feature_flag_targets_lookup ON feature_flag_targets(flag_key, subject_type, subject_id);
 
 -- State groups
 CREATE INDEX IF NOT EXISTS idx_state_groups_room ON state_groups(room_id);
 CREATE INDEX IF NOT EXISTS idx_state_groups_event ON state_groups(event_id);
 CREATE INDEX IF NOT EXISTS idx_state_group_edges_prev ON state_group_edges(prev_state_group_id);
 CREATE INDEX IF NOT EXISTS idx_event_to_state_groups_sg ON event_to_state_groups(state_group_id);
-CREATE INDEX IF NOT EXISTS idx_event_to_state_groups_event_id ON event_to_state_groups(event_id);
 CREATE INDEX IF NOT EXISTS idx_state_group_state_eid ON state_group_state(event_id);
-CREATE INDEX IF NOT EXISTS idx_state_group_state_group_type_key ON state_group_state(state_group_id, event_type, state_key);
 
 -- Refresh token usage
 CREATE INDEX IF NOT EXISTS idx_refresh_token_usage_token ON refresh_token_usage(refresh_token_id);
@@ -3785,12 +3777,10 @@ CREATE INDEX IF NOT EXISTS idx_saml_config_overrides_updated_ts ON saml_config_o
 
 -- Key rotation config
 -- Registration captcha
-CREATE INDEX IF NOT EXISTS idx_registration_captcha_captcha_id ON registration_captcha(captcha_id);
 
 -- Cross signing keys
 
 -- Device lists stream
-CREATE INDEX IF NOT EXISTS idx_device_lists_stream_stream_id ON device_lists_stream(stream_id);
 
 -- E2EE audit log
 
@@ -3863,9 +3853,6 @@ CREATE INDEX IF NOT EXISTS idx_replication_positions_worker ON replication_posit
 -- Room stats
 
 -- Threepid validation
-CREATE INDEX IF NOT EXISTS idx_threepid_session_token_v8 ON threepid_validation_session(token);
-CREATE INDEX IF NOT EXISTS idx_threepid_session_address_v8 ON threepid_validation_session(medium, address);
-CREATE INDEX IF NOT EXISTS idx_threepid_session_expires_v8 ON threepid_validation_session(expires_at) WHERE is_validated = FALSE;
 
 -- ============================================================================
 -- Views
@@ -4090,45 +4077,27 @@ END $$;
 
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_devices_user_id' AND conrelid = 'devices'::regclass) THEN
-        ALTER TABLE devices ADD CONSTRAINT fk_devices_user_id
-            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
-    END IF;
 
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_access_tokens_user_id' AND conrelid = 'access_tokens'::regclass) THEN
-        ALTER TABLE access_tokens ADD CONSTRAINT fk_access_tokens_user_id
-            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
-    END IF;
 
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_access_tokens_device' AND conrelid = 'access_tokens'::regclass) THEN
         ALTER TABLE access_tokens ADD CONSTRAINT fk_access_tokens_device
             FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE SET NULL NOT VALID;
     END IF;
 
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_refresh_tokens_user_id' AND conrelid = 'refresh_tokens'::regclass) THEN
-        ALTER TABLE refresh_tokens ADD CONSTRAINT fk_refresh_tokens_user_id
-            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
-    END IF;
 
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_refresh_tokens_device' AND conrelid = 'refresh_tokens'::regclass) THEN
         ALTER TABLE refresh_tokens ADD CONSTRAINT fk_refresh_tokens_device
             FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE SET NULL NOT VALID;
     END IF;
 
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_events_room_id' AND conrelid = 'events'::regclass) THEN
-        ALTER TABLE events ADD CONSTRAINT fk_events_room_id
-            FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
-    END IF;
+    -- 2026-09-17 DB review：此处曾再建一个 `fk_events_room_id (room_id) → rooms`
+    -- ON DELETE CASCADE。它与表级 `fk_events_room`（NO ACTION）**是同一列上的第二个外键**，
+    -- 后果有二：(1) CASCADE 会在 `DELETE FROM rooms` 时对整张 events 取 AccessExclusiveLock，
+    -- 正是 `RoomStorage::delete_room` 的分批删除（DB-04-b）要避免的；(2) 代码末尾的
+    -- `DELETE FROM rooms` 会**静默成功**（剩余 events 被级联删掉），使"events 已删净"的
+    -- 最终校验失效。故删除该重复约束，只保留 `fk_events_room ... ON DELETE NO ACTION`。
 
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_room_memberships_room_id' AND conrelid = 'room_memberships'::regclass) THEN
-        ALTER TABLE room_memberships ADD CONSTRAINT fk_room_memberships_room_id
-            FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
-    END IF;
 
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_room_memberships_user_id' AND conrelid = 'room_memberships'::regclass) THEN
-        ALTER TABLE room_memberships ADD CONSTRAINT fk_room_memberships_user_id
-            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
-    END IF;
 
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_device_keys_user_id' AND conrelid = 'device_keys'::regclass) THEN
         ALTER TABLE device_keys ADD CONSTRAINT fk_device_keys_user_id
@@ -4416,7 +4385,6 @@ CREATE TABLE IF NOT EXISTS oidc_auth_sessions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_oidc_auth_sessions_expires ON oidc_auth_sessions(expires_at);
-CREATE INDEX IF NOT EXISTS idx_oidc_auth_sessions_key ON oidc_auth_sessions(session_key);
 
 -- OIDC Refresh Token（内置 Provider）
 CREATE TABLE IF NOT EXISTS oidc_refresh_tokens (
@@ -5373,9 +5341,6 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_push_queue_retry
 -- P3-2: federation_queue 索引
 -- ============================================================
 -- 按 destination 先进先出
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_federation_queue_dest_created
-    ON federation_queue(destination, created_ts)
-    WHERE status = 'pending';
 
 -- 重试策略
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_federation_queue_retry

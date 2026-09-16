@@ -6,8 +6,13 @@ extension + V*，依赖「baseline 完整吸收所有增量迁移」的假设。
 手动 consolidate，历史上曾漏吸收 8 个迁移（federation_dead_letter_queue 等），
 导致 CI 的 DB 与生产不一致。
 
-本脚本提取时间戳增量迁移里「新增的表/索引/列」，检查它们是否已在当前
-latest baseline 中，漏了则报错（退出码 1）。
+本脚本做两件事：
+  1. 提取时间戳增量迁移里「新增的表/索引/列」，检查它们是否已在当前 latest
+     baseline 中，漏了则报错（退出码 1）。
+  2. **重复对象检测**：折叠历史迁移时很容易把「同一对象」折进两份（例如先建普通
+     索引、后又加 UNIQUE 约束），结果是每次写入多维护一棵 B-tree，或同一个外键
+     列上挂两个约束、其中一个 CASCADE 静默压过另一个。这类重复不会被第 1 项发现
+     （对象确实"在" baseline 里），所以单独检查。
 
 用法：
     python3 scripts/check_baseline_consolidation.py
@@ -80,6 +85,72 @@ def latest_baseline() -> pathlib.Path:
     return baselines[-1]
 
 
+# ── 重复对象检测（2026-09-17 新增）─────────────────────────────────────────────
+# 索引定义（含 CONCURRENTLY 与 WHERE 部分谓词）
+_INDEX_DEF_RE = re.compile(
+    r"CREATE\s+(?P<uniq>UNIQUE\s+)?INDEX(?:\s+CONCURRENTLY)?(?:\s+IF\s+NOT\s+EXISTS)?\s+"
+    r"(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\s+ON\s+(?P<table>[a-zA-Z_][a-zA-Z0-9_]*)\s*"
+    r"(?:USING\s+(?P<method>[a-zA-Z_][a-zA-Z0-9_]*)\s*)?\((?P<cols>[^)]*)\)"
+    r"(?P<where>\s+WHERE\s+[^;]*)?;",
+    re.IGNORECASE | re.DOTALL,
+)
+# 表级外键（在 CREATE TABLE 体内）与 ALTER TABLE ... ADD CONSTRAINT 形式的外键
+_ALTER_FK_RE = re.compile(
+    r"ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?P<table>[a-zA-Z_][a-zA-Z0-9_]*)\s+ADD\s+CONSTRAINT\s+"
+    r"(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\s+FOREIGN\s+KEY\s*\(\s*(?P<col>[a-zA-Z_][a-zA-Z0-9_]*)\s*\)\s*"
+    r"REFERENCES\s+(?P<parent>[a-zA-Z_][a-zA-Z0-9_]*)",
+    re.IGNORECASE | re.DOTALL,
+)
+_FK_IN_TABLE_RE = re.compile(
+    r"(?:CONSTRAINT\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\s+)?FOREIGN\s+KEY\s*\(\s*"
+    r"(?P<col>[a-zA-Z_][a-zA-Z0-9_]*)\s*\)\s*REFERENCES\s+(?P<parent>[a-zA-Z_][a-zA-Z0-9_]*)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _norm(cols: str) -> str:
+    return re.sub(r"\s+", " ", cols).strip().lower()
+
+
+def duplicate_indexes(text: str) -> dict[tuple, list[str]]:
+    """(table, unique, method, cols, where) -> [index names] with len > 1."""
+    groups: dict[tuple, list[str]] = {}
+    for m in _INDEX_DEF_RE.finditer(text):
+        key = (
+            m.group("table").lower(),
+            bool(m.group("uniq")),
+            (m.group("method") or "btree").lower(),
+            _norm(m.group("cols")),
+            _norm(m.group("where") or ""),
+        )
+        groups.setdefault(key, []).append(m.group("name"))
+    return {k: v for k, v in groups.items() if len(v) > 1}
+
+
+def duplicate_foreign_keys(text: str) -> dict[tuple, list[str]]:
+    """(table, column, referenced_table) -> [constraint names] with len > 1.
+
+    Two FKs on the same column pointing at the same parent is always a bug: one
+    of them silently wins for delete/update actions (PostgreSQL fires *all*
+    matching actions, so a stray CASCADE defeats an intentional NO ACTION).
+    """
+    groups: dict[tuple, list[str]] = {}
+    for m in TABLE_COLUMN_RE.finditer(text):
+        table = m.group("table").lower()
+        for fk in _FK_IN_TABLE_RE.finditer(m.group("body")):
+            key = (table, fk.group("col").lower(), fk.group("parent").lower())
+            groups.setdefault(key, []).append(fk.group("name") or f"{table}.{fk.group('col')}(inline)")
+    for m in _ALTER_FK_RE.finditer(text):
+        key = (m.group("table").lower(), m.group("col").lower(), m.group("parent").lower())
+        groups.setdefault(key, []).append(m.group("name"))
+    # Only *distinct* constraint names are a defect: re-stating the same constraint
+    # inline and again inside an idempotent `IF NOT EXISTS (SELECT 1 FROM
+    # pg_constraint WHERE conname = ...)` block is benign (the ALTER is a no-op).
+    # Two different names on the same column both get created, and both delete
+    # actions fire — a stray CASCADE silently defeats an intentional NO ACTION.
+    return {k: v for k, v in groups.items() if len(set(v)) > 1}
+
+
 def main() -> int:
     baseline = latest_baseline()
     baseline_text = baseline.read_text(encoding="utf-8", errors="replace")
@@ -107,6 +178,21 @@ def main() -> int:
             if col not in cols:
                 missing.append(f"{f.name}: 列 {table}.{col}")
 
+    dup_idx = duplicate_indexes(baseline_text)
+    dup_fk = duplicate_foreign_keys(baseline_text)
+    if dup_idx or dup_fk:
+        print(f"❌ {baseline.name} 存在重复对象（折叠历史迁移时折进了两份）:")
+        for (tbl, uniq, method, cols, where), names in sorted(dup_idx.items()):
+            kind = "UNIQUE " if uniq else ""
+            extra = f" WHERE {where}" if where else ""
+            print(f"   - 索引 [{tbl}] {kind}{method} ({cols}){extra}: {', '.join(sorted(names))}")
+            print("     同一 (表, 列集, 唯一性, 方法, 谓词) 只需一个；保留约束索引，删除普通索引。")
+        for (tbl, col, parent), names in sorted(dup_fk.items()):
+            print(f"   - 外键 [{tbl}.{col} → {parent}]: {', '.join(sorted(names))}")
+            print("    同一列上的多个外键会让删除动作重复触发（CASCADE 会压过 NO ACTION），只保留一个。")
+        print("\n见 docs/audit/DB_REVIEW_2026-09-17.md §1/§5。")
+        return 1
+
     if missing:
         print(
             f"❌ {baseline.name} 漏吸收以下增量迁移对象（会导致 forward-only source 缺失）:"
@@ -118,7 +204,7 @@ def main() -> int:
         )
         return 1
 
-    print(f"✅ {baseline.name} 已吸收全部 {len(ts_files)} 个增量迁移的对象。")
+    print(f"✅ {baseline.name} 已吸收全部 {len(ts_files)} 个增量迁移的对象；无重复索引/外键。")
     return 0
 
 

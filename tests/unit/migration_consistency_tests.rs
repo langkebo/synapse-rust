@@ -131,7 +131,9 @@ fn baseline_declares_each_object_exactly_once() {
         "idx_e2ee_audit_log_room_event",
         "idx_push_queue_user_pending",
         "idx_push_queue_retry",
-        "idx_federation_queue_dest_created",
+        // `idx_federation_queue_dest_created` 与 `idx_federation_queue_pending` 定义完全相同，
+        // 2026-09-17 已删除前者（DB review §1）；这里改为断言保留的那个。
+        "idx_federation_queue_pending",
         "idx_federation_queue_retry",
         "idx_rooms_federated",
     ] {

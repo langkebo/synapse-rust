@@ -1,5 +1,12 @@
 # 索引治理文档
 
+> **2026-09-17（DB review §1）**：本表原本还列有 28 个**与 PK/UNIQUE 约束完全重复**的
+> 索引（同一 (表, 列集, 唯一性, 方法, 谓词)），它们是折叠历史迁移时被折进两份的产物，
+> 只造成写放大，已从 baseline 删除；约束索引仍然提供同样的查找能力。
+> 判据与证据见 `docs/audit/DB_REVIEW_2026-09-17.md` §1；防复发守卫见
+> `scripts/check_baseline_consolidation.py` 的 `duplicate_indexes()`。
+
+
 > 版本: v1.3.0
 > 更新日期: 2026-09-16
 > 数据源: `migrations/00000000_unified_schema_v12.sql`（唯一真相源；
@@ -72,7 +79,6 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | federation_queue | idx_federation_queue_pending | destination, created_ts | status = 'pending' | 查找待发送的联邦消息 |
 | federation_queue | idx_federation_queue_retry | destination, next_retry_ts | next_retry_ts IS NOT NULL AND status = 'retry' | 查找需重试的联邦消息（P3 审计新增，`20260904030000`） |
 | threepid_validation_session | idx_threepid_session_expires | expires_at | is_validated = FALSE | 查找未验证且有过期时间的会话 |
-| threepid_validation_session | idx_threepid_session_expires_v8 | expires_at | is_validated = FALSE | **已废弃**：v8 兼容字段已被新 extension 吸收，仅在旧实例遗留 |
 | background_updates | idx_background_updates_running | is_running | is_running = TRUE | 查找正在运行的后台更新 |
 | background_updates | idx_background_updates_running_job | job_name, started_ts | status = 'running' | 查找运行中的后台任务 |
 | background_updates | idx_background_updates_pending | status, job_type, created_ts | status IN ('pending', 'scheduled') | 查找待处理的后台更新 |
@@ -105,15 +111,12 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | matrixrtc_sessions | idx_matrixrtc_sessions_room_session | room_id, session_id | UNIQUE | MatrixRTC 会话唯一标识 |
 | matrixrtc_memberships | idx_matrixrtc_memberships_room_session_user_device | room_id, session_id, user_id, device_id | UNIQUE | MatrixRTC 成员唯一标识 |
 | matrixrtc_encryption_keys | idx_matrixrtc_encryption_keys_room_session_idx | room_id, session_id, key_index | UNIQUE | MatrixRTC 加密密钥唯一标识 |
-| user_threepids | idx_user_threepids_medium_address | medium, address | 否 | 按媒介类型和地址查找三方 ID |
 | access_tokens | idx_access_tokens_user_id | user_id | 否 | 按用户查找 access token |
 | access_tokens | idx_access_tokens_user_revoked | user_id, is_revoked | 否 | 按用户和撤销状态查找 token（Partial） |
 | refresh_tokens | idx_refresh_tokens_user_id | user_id | 否 | 按用户查找 refresh token |
 | room_memberships | idx_room_memberships_user_membership | user_id, membership | 否 | 按用户和成员状态查询 |
-| room_memberships | idx_room_memberships_room_membership | room_id, membership | 否 | 按房间和成员状态查询 |
 | room_memberships | idx_room_memberships_user_status | user_id, membership, joined_ts DESC | 否 | 按用户状态和时间查询成员 |
 | room_memberships | idx_room_memberships_room_status | room_id, membership | 否 | 按房间和状态查询成员 |
-| room_memberships | idx_room_memberships_room_user | room_id, user_id | 否 | 按房间和用户查询成员 |
 | room_memberships | idx_memberships_user_room | user_id, room_id | 否 | 按用户和房间查询成员 |
 | room_memberships | idx_room_memberships_joined | user_id, room_id | 否 | 查找已加入的成员（Partial） |
 | events | idx_events_room_time | room_id, origin_server_ts DESC | 否 | 按房间和时间范围查询事件 |
@@ -135,10 +138,7 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | room_summary_members | idx_room_summary_members_user_membership_room | user_id, membership, room_id | 否 | 按用户成员状态查询摘要 |
 | room_summary_members | idx_room_summary_members_room_membership_hero_active | room_id, membership, is_hero DESC, last_active_ts DESC | 否 | 按房间和活跃状态查询摘要成员 |
 | room_summary_members | idx_room_summary_members_room_hero_user | room_id, is_hero DESC, user_id | 否 | 按房间和 Hero 用户查询 |
-| room_summary_members | idx_room_summary_members_room_user | room_id, user_id | 否 | 按房间和用户查询摘要成员 |
 | room_summary_update_queue | idx_room_summary_update_queue_status_priority_created | status, priority DESC, created_ts ASC | 否 | 按状态和优先级处理更新队列 |
-| room_invite_blocklist | idx_room_invite_blocklist_room_user | room_id, user_id | 否 | 按房间和用户查询邀请黑名单 |
-| room_invite_allowlist | idx_room_invite_allowlist_room_user | room_id, user_id | 否 | 按房间和用户查询邀请白名单 |
 | room_sticky_events | idx_room_sticky_events_user_sticky | user_id, is_sticky, room_id | 否 | 按用户和置顶状态查询事件 |
 | device_keys | idx_device_keys_user_device | user_id, device_id | 否 | 按用户和设备查找密钥 |
 | device_signatures | idx_device_signatures_user_device | user_id, device_id | 否 | 设备签名按用户+设备查（P1 审计新增） |
@@ -155,12 +155,10 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | e2ee_stored_secrets | idx_e2ee_stored_secrets_user_name | user_id, secret_name | UNIQUE | 存储密钥唯一约束 |
 | voice_usage_stats | idx_voice_usage_stats_user | user_id, created_ts DESC | 否 | 按用户和时间查询语音统计 |
 | voice_usage_stats | idx_voice_usage_stats_room | room_id, created_ts DESC | 否 | 按房间和时间查询语音统计 |
-| upload_chunks | idx_upload_chunks_upload_order | upload_id, chunk_index ASC | 否 | 按上传 ID 和分片顺序查询 |
 | space_events | idx_space_events_space_type_ts | space_id, event_type, origin_server_ts DESC | 否 | 按 Space、类型和时间查询事件 |
 | space_events | idx_space_events_space_ts | space_id, origin_server_ts DESC | 否 | 按 Space 和时间查询事件 |
 | federation_queue | idx_federation_queue_dest_status | destination, status, created_ts | 否 | 按目标和状态查询联邦队列 |
 | federation_queue | idx_federation_queue_pending | destination, created_ts | 否 | 待发送联邦消息查询（Partial） |
-| account_data | idx_account_data_user_type | user_id, data_type | 否 | 按用户和数据类型查询账户数据 |
 | background_updates | idx_background_updates_running_job | job_name, started_ts | 否 | 运行中任务查询（Partial） |
 | background_updates | idx_background_updates_pending | status, job_type, created_ts | 否 | 待处理任务查询（Partial） |
 | background_update_history | idx_background_update_history_job_start | job_name, execution_start_ts DESC | 否 | 按任务名和执行时间查询历史 |
@@ -175,8 +173,6 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | audit_events | idx_audit_events_resource_created | resource_type, resource_id, created_ts DESC | 否 | 按资源和时间查询审计 |
 | audit_events | idx_audit_events_request_created | request_id, created_ts DESC | 否 | 按请求 ID 和时间查询审计 |
 | feature_flags | idx_feature_flags_scope_status | target_scope, status, updated_ts DESC | 否 | 按范围和状态查询特性标志 |
-| feature_flag_targets | idx_feature_flag_targets_lookup | flag_key, subject_type, subject_id | 否 | 按标志和主体查询目标 |
-| state_group_state | idx_state_group_state_group_type_key | state_group_id, event_type, state_key | 否 | 按状态组和类型查询状态 |
 | friend_requests | idx_friend_requests_receiver_status | receiver_id, status, created_ts DESC | 否 | 按接收者和状态查询好友请求 |
 | friend_requests | idx_friend_requests_sender_status | sender_id, status, created_ts DESC | 否 | 按发送者和状态查询好友请求 |
 | sliding_sync_lists | idx_sliding_sync_lists_unique | user_id, device_id, COALESCE(conn_id, ''), list_key | UNIQUE | Sliding Sync 列表唯一约束 |
@@ -192,7 +188,6 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | lazy_loaded_members | idx_lazy_loaded_members_user_room | user_id, room_id | 否 | 按用户和房间查询懒加载成员 |
 | thread_subscriptions | idx_thread_subscriptions_room_thread | room_id, thread_id | 否 | 按房间和线程查询订阅 |
 | thread_read_receipts | idx_thread_read_receipts_user_room | user_id, room_id | 否 | 按用户和房间查询线程已读回执 |
-| megolm_session_keys | idx_megolm_session_keys_lookup | user_id, session_id | 否 | 按用户和会话查找 Megolm 密钥 |
 | quarantined_media_changes | idx_quarantined_media_changes_media | media_id, server_name | 否 | 按媒体和服务器查询隔离变更 |
 | rooms_summaries_mv | idx_rooms_summaries_mv_creator | creator, created_ts DESC | 否 | 物化视图：按创建者查询 |
 | rooms_summaries_mv | idx_rooms_summaries_mv_members | joined_members DESC, last_activity_ts DESC | 否 | 物化视图：按成员数排序 |
