@@ -28,8 +28,8 @@ pub struct SsoServices {
     pub oidc_service: Option<Arc<crate::oidc_service::OidcService>>,
     /// The `oidc_mapping_storage` field.
     pub oidc_mapping_storage: Arc<dyn synapse_storage::oidc_user_mapping::OidcUserMappingStoreApi>,
-    /// The `oidc_session_storage` field.
-    pub oidc_session_storage: Arc<dyn synapse_storage::oidc_session_storage::OidcSessionStoreApi>,
+    /// The `oidc_session_service` field.
+    pub oidc_session_service: Arc<crate::oidc_session_service::OidcSessionService>,
     #[cfg(feature = "builtin-oidc")]
     /// The `builtin_oidc_provider` field.
     pub builtin_oidc_provider: Option<Arc<crate::builtin_oidc_provider::BuiltinOidcProvider>>,
@@ -111,6 +111,7 @@ impl SsoServices {
             Arc::new(synapse_storage::oidc_user_mapping::OidcUserMappingStorage::new(pool.clone()));
         let oidc_session_storage: Arc<dyn synapse_storage::oidc_session_storage::OidcSessionStoreApi> =
             Arc::new(synapse_storage::oidc_session_storage::OidcSessionStorage::new(pool));
+        let oidc_session_service = Arc::new(crate::oidc_session_service::OidcSessionService::new(oidc_session_storage));
 
         Self {
             #[cfg(feature = "saml-sso")]
@@ -124,7 +125,7 @@ impl SsoServices {
             oidc_service,
             builtin_oidc_provider,
             oidc_mapping_storage,
-            oidc_session_storage,
+            oidc_session_service,
         }
     }
 }

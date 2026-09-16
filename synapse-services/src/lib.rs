@@ -117,6 +117,8 @@ pub mod module_service;
 pub mod notifying_event_writer;
 /// The `oidc_service` module.
 pub mod oidc_service;
+/// The `oidc_session_service` module.
+pub mod oidc_session_service;
 /// The `presence_service` module.
 pub mod presence_service;
 /// The `push` module.

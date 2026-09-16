@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use synapse_services::oidc_service::OidcService;
 use validator::Validate;
 
-use super::{current_unix_ts, store_oidc_auth_session};
+use super::current_unix_ts;
 
 /// OIDC Token Request
 #[derive(Debug, Deserialize, Validate)]
@@ -306,16 +306,9 @@ pub(crate) async fn oidc_authorize(
 
     // Generate PKCE code_verifier and code_challenge
     let (code_verifier, code_challenge): (String, String) = OidcService::generate_pkce();
-    store_oidc_auth_session(
-        &ctx.oidc_session_storage,
-        &state_value,
-        &nonce_value,
-        &code_verifier,
-        &code_challenge,
-        "S256",
-        &redirect_uri,
-    )
-    .await?;
+    ctx.oidc_session_service
+        .store(&state_value, &nonce_value, &code_verifier, &code_challenge, "S256", &redirect_uri)
+        .await?;
 
     // Generate authorization URL (with PKCE)
     let authorization_url: String = oidc_service

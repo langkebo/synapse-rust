@@ -120,6 +120,8 @@ pub mod filter;
 pub mod login_token;
 /// The `member` module.
 pub mod member;
+/// The `oidc_session` module.
+pub mod oidc_session;
 /// The `oidc_user_mapping` module.
 pub mod oidc_user_mapping;
 /// The `openid_token` module.

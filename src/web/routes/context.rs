@@ -896,8 +896,8 @@ pub struct SsoContext {
     pub oidc_service: Option<Arc<synapse_services::oidc_service::OidcService>>,
     /// The `oidc_mapping_storage` field.
     pub oidc_mapping_storage: Arc<dyn synapse_storage::oidc_user_mapping::OidcUserMappingStoreApi>,
-    /// The `oidc_session_storage` field.
-    pub oidc_session_storage: Arc<dyn synapse_storage::oidc_session_storage::OidcSessionStoreApi>,
+    /// The `oidc_session_service` field.
+    pub oidc_session_service: Arc<synapse_services::oidc_session_service::OidcSessionService>,
     #[cfg(feature = "builtin-oidc")]
     /// The `builtin_oidc_provider` field.
     pub builtin_oidc_provider: Option<Arc<synapse_services::builtin_oidc_provider::BuiltinOidcProvider>>,
@@ -930,7 +930,7 @@ impl FromRef<AppState> for SsoContext {
             cas_service: state.services.sso.cas_service.clone(),
             oidc_service: state.services.sso.oidc_service.clone(),
             oidc_mapping_storage: state.services.sso.oidc_mapping_storage.clone(),
-            oidc_session_storage: state.services.sso.oidc_session_storage.clone(),
+            oidc_session_service: state.services.sso.oidc_session_service.clone(),
             #[cfg(feature = "builtin-oidc")]
             builtin_oidc_provider: state.services.sso.builtin_oidc_provider.clone(),
             #[cfg(not(feature = "builtin-oidc"))]

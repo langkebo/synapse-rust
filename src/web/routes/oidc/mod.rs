@@ -13,90 +13,18 @@ use crate::web::routes::context::SsoContext;
 use crate::web::routes::AppState;
 use axum::routing::{get, post};
 use axum::Router;
-use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use synapse_common::current_timestamp_millis;
 use synapse_services::oidc_service::OidcService;
-use synapse_storage::oidc_session_storage::{OidcAuthSession as DbOidcAuthSession, OidcSessionStoreApi};
-
-// ---------------------------------------------------------------------------
-// Session management — shared by sso and provider submodules
-// ---------------------------------------------------------------------------
-
-const OIDC_AUTH_SESSION_TTL_SECONDS: u64 = 600;
-
-/// The `OidcAuthSession` struct.
-#[derive(Debug, Clone)]
-pub(crate) struct OidcAuthSession {
-    pub(crate) nonce: String,
-    pub(crate) code_verifier: String,
-    pub(crate) code_challenge: String,
-    pub(crate) code_challenge_method: String,
-    pub(crate) redirect_uri: String,
-}
+use synapse_services::oidc_session_service::OidcAuthSession;
 
 /// See [`current_unix_ts`].
 pub(crate) fn current_unix_ts() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
 }
 
-/// See [`store_oidc_auth_session`].
-pub(crate) async fn store_oidc_auth_session(
-    storage: &Arc<dyn OidcSessionStoreApi>,
-    state: &str,
-    nonce: &str,
-    code_verifier: &str,
-    code_challenge: &str,
-    code_challenge_method: &str,
-    redirect_uri: &str,
-) -> Result<(), ApiError> {
-    let now_ms = current_timestamp_millis();
-    let session = DbOidcAuthSession {
-        id: 0,
-        session_key: state.to_string(),
-        session_type: "pkce".to_string(),
-        client_id: String::new(),
-        redirect_uri: redirect_uri.to_string(),
-        scope: String::new(),
-        state: state.to_string(),
-        nonce: Some(nonce.to_string()),
-        code_verifier: Some(code_verifier.to_string()),
-        code_challenge: Some(code_challenge.to_string()),
-        code_challenge_method: Some(code_challenge_method.to_string()),
-        user_id: None,
-        consent_given: false,
-        created_ts: now_ms,
-        expires_at: now_ms + (OIDC_AUTH_SESSION_TTL_SECONDS as i64) * 1000,
-    };
-    storage
-        .save_auth_session(&session)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to store OIDC auth session", e))?;
-    Ok(())
-}
-
-/// See [`consume_oidc_auth_session`].
-pub(crate) async fn consume_oidc_auth_session(
-    storage: &Arc<dyn OidcSessionStoreApi>,
-    state: &str,
-) -> Result<OidcAuthSession, ApiError> {
-    let now_ms = current_timestamp_millis();
-    let db_session = storage
-        .get_and_delete_auth_session(state)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to consume OIDC auth session", e))?
-        .ok_or_else(|| ApiError::unauthorized("OIDC state is missing, expired, or already used".to_string()))?;
-    if db_session.expires_at < now_ms {
-        return Err(ApiError::unauthorized("OIDC authorization session expired".to_string()));
-    }
-    Ok(OidcAuthSession {
-        nonce: db_session.nonce.unwrap_or_default(),
-        code_verifier: db_session.code_verifier.unwrap_or_default(),
-        code_challenge: db_session.code_challenge.unwrap_or_default(),
-        code_challenge_method: db_session.code_challenge_method.unwrap_or_default(),
-        redirect_uri: db_session.redirect_uri,
-    })
-}
+// ---------------------------------------------------------------------------
+// Session management — shared by sso and provider submodules
+// ---------------------------------------------------------------------------
 
 /// See [`validate_state_pkce_binding`].
 pub(crate) fn validate_state_pkce_binding(auth_session: &OidcAuthSession) -> Result<(), ApiError> {
@@ -172,108 +100,10 @@ pub fn create_oidc_fallback_router() -> Router<AppState> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
-    use std::sync::{Arc, Mutex};
-    use synapse_storage::oidc_session_storage::{
-        OidcAuthSession as DbOidcAuthSession, OidcConsentSession, OidcRefreshToken, OidcSessionStoreApi,
-    };
-
-    /// 内存实现 OidcSessionStoreApi，用于验证 store/consume 经 storage 往返。
-    struct InMemoryOidcSessionStore {
-        sessions: Mutex<HashMap<String, DbOidcAuthSession>>,
-    }
-
-    #[async_trait::async_trait]
-    impl OidcSessionStoreApi for InMemoryOidcSessionStore {
-        async fn save_auth_session(&self, session: &DbOidcAuthSession) -> Result<(), sqlx::Error> {
-            self.sessions.lock().unwrap().insert(session.session_key.clone(), session.clone());
-            Ok(())
-        }
-        async fn get_and_delete_auth_session(
-            &self,
-            session_key: &str,
-        ) -> Result<Option<DbOidcAuthSession>, sqlx::Error> {
-            Ok(self.sessions.lock().unwrap().remove(session_key))
-        }
-        async fn save_refresh_token(&self, _t: &OidcRefreshToken) -> Result<(), sqlx::Error> {
-            Ok(())
-        }
-        async fn get_refresh_token(&self, _h: &str) -> Result<Option<OidcRefreshToken>, sqlx::Error> {
-            Ok(None)
-        }
-        async fn revoke_refresh_token(&self, _h: &str, _now: i64) -> Result<bool, sqlx::Error> {
-            Ok(false)
-        }
-        async fn revoke_user_refresh_tokens(&self, _u: &str, _now: i64) -> Result<u64, sqlx::Error> {
-            Ok(0)
-        }
-        async fn save_consent_session(&self, _s: &OidcConsentSession) -> Result<(), sqlx::Error> {
-            Ok(())
-        }
-        async fn get_and_delete_consent_session(&self, _id: &str) -> Result<Option<OidcConsentSession>, sqlx::Error> {
-            Ok(None)
-        }
-        async fn get_consent_session(&self, _id: &str) -> Result<Option<OidcConsentSession>, sqlx::Error> {
-            Ok(None)
-        }
-        async fn delete_consent_session(&self, _id: &str) -> Result<(), sqlx::Error> {
-            Ok(())
-        }
-        async fn cleanup_expired_sessions(&self, _now: i64) -> Result<u64, sqlx::Error> {
-            Ok(0)
-        }
-    }
-
-    #[tokio::test]
-    async fn test_oidc_auth_session_roundtrip_via_storage() {
-        let store: Arc<dyn OidcSessionStoreApi> =
-            Arc::new(InMemoryOidcSessionStore { sessions: Mutex::new(HashMap::new()) });
-        let state = format!("state_{}", OidcService::generate_state());
-        let (code_verifier, code_challenge) = OidcService::generate_pkce();
-        store_oidc_auth_session(
-            &store,
-            &state,
-            "nonce",
-            &code_verifier,
-            &code_challenge,
-            "S256",
-            "https://example.com/callback",
-        )
-        .await
-        .unwrap();
-
-        let session = consume_oidc_auth_session(&store, &state).await.unwrap();
-        assert_eq!(session.nonce, "nonce");
-        assert_eq!(session.code_verifier, code_verifier);
-        assert_eq!(session.code_challenge, code_challenge);
-        assert_eq!(session.redirect_uri, "https://example.com/callback");
-    }
-
-    #[tokio::test]
-    async fn test_oidc_auth_session_is_one_time_use_via_storage() {
-        let store: Arc<dyn OidcSessionStoreApi> =
-            Arc::new(InMemoryOidcSessionStore { sessions: Mutex::new(HashMap::new()) });
-        let state = format!("state_{}", OidcService::generate_state());
-        let (code_verifier, code_challenge) = OidcService::generate_pkce();
-        store_oidc_auth_session(
-            &store,
-            &state,
-            "nonce",
-            &code_verifier,
-            &code_challenge,
-            "S256",
-            "https://example.com/callback",
-        )
-        .await
-        .unwrap();
-
-        let _ = consume_oidc_auth_session(&store, &state).await.unwrap();
-        let error = consume_oidc_auth_session(&store, &state).await.unwrap_err();
-        assert!(error.to_string().contains("state is missing"));
-    }
+    use synapse_services::oidc_service::OidcService;
 
     #[test]
-    fn test_validate_state_pkce_binding_accepts_valid_binding() {
+    fn validate_state_pkce_binding_accepts_valid_binding() {
         let (code_verifier, code_challenge) = OidcService::generate_pkce();
         let session = OidcAuthSession {
             nonce: "nonce".to_string(),
@@ -287,7 +117,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_state_pkce_binding_rejects_mismatched_challenge() {
+    fn validate_state_pkce_binding_rejects_mismatched_challenge() {
         let (code_verifier, _) = OidcService::generate_pkce();
         let session = OidcAuthSession {
             nonce: "nonce".to_string(),
