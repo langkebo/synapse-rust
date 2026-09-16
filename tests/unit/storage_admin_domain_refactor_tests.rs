@@ -214,7 +214,6 @@ fn test_background_update_storage_path_identity() {
     }
 }
 
-
 // --- application domain grouping (application_service) ---
 
 #[test]
@@ -237,4 +236,3 @@ fn test_oidc_user_mapping_storage_path_identity() {
         assert_same_type(a, b);
     }
 }
-

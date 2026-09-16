@@ -37,7 +37,6 @@ fn test_room_account_data_storage_path_identity() {
     }
 }
 
-
 #[test]
 fn test_thread_storage_path_identity() {
     let legacy_ref: Option<&synapse_storage::ThreadStorage> = None;

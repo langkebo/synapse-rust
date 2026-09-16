@@ -123,7 +123,6 @@ fn test_server_notification_storage_path_identity() {
 // media domain grouping (url_preview_storage, voice)
 // =============================================================================
 
-
 #[cfg(feature = "voice-extended")]
 #[test]
 fn test_voice_storage_path_identity() {
