@@ -23,6 +23,7 @@ mod config_mount_tests;
 #[cfg(feature = "beacons")]
 mod beacon_info_parse_tests;
 mod boundary_tests;
+mod mod_guard_tests;
 mod captcha_api_tests;
 mod client_push_service_tests;
 mod core_api_tests;
