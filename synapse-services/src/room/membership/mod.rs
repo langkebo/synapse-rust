@@ -6,6 +6,8 @@
 
 /// The `actions` module.
 pub mod actions;
+/// Domain error types for room membership.
+pub mod error;
 /// The `federation` module.
 pub mod federation;
 /// The `moderation` module.
@@ -14,8 +16,6 @@ pub mod moderation;
 pub mod service;
 /// The `transition` module.
 pub mod transition;
-/// Domain error types for room membership.
-pub mod error;
 pub use error::MembershipError;
 
 use crate::common::error::{ApiError, ApiResult};
@@ -216,10 +216,7 @@ impl MembershipService {
 
     /// See [`get_room_member_count_admin`].
     pub async fn get_room_member_count_admin(&self, room_id: &str) -> Result<i64, MembershipError> {
-        self.member_storage
-            .get_room_member_count(room_id)
-            .await
-            .map_err(|e| MembershipError::Database(e))
+        self.member_storage.get_room_member_count(room_id).await.map_err(|e| MembershipError::Database(e))
     }
 
     /// See [`admin_ban_user_membership`].

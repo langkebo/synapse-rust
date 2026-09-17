@@ -21,6 +21,11 @@
 //! 语音消息（VoiceService）属于异步媒体通信，不属于实时通信域，
 //! 保留在 `services/voice_service.rs`。
 
+/// The `call` module.
+#[cfg(feature = "voip-tracking")]
+pub mod call;
+/// The `error` module (B3-5 convergence).
+pub mod error;
 /// The `infra` module.
 pub mod infra;
 /// The `member_event` module.
@@ -28,20 +33,15 @@ pub mod infra;
 pub mod member_event;
 /// The `metrics` module.
 pub mod metrics;
-/// The `error` module (B3-5 convergence).
-pub mod error;
-/// The `call` module.
-#[cfg(feature = "voip-tracking")]
-pub mod call;
 /// The `session` module.
 #[cfg(feature = "voip-tracking")]
 pub mod session;
 // Re-export new names
+pub use error::RtcError;
 pub use infra::RtcInfraService;
 pub use infra::RtcInfraSettings;
 pub use infra::TurnCredentials;
 pub use infra::VoipSettings;
-pub use error::RtcError;
 
 #[cfg(feature = "voip-tracking")]
 pub use call::CallOrchestrationService;

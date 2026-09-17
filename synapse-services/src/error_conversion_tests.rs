@@ -22,10 +22,7 @@ mod tests {
         let (kind, code, message) = golden(&api);
         assert_eq!(*kind, ApiErrorKind::NotFound);
         assert_eq!(*code, MatrixErrorCode::NotFound);
-        assert!(
-            message.contains("Tag not found"),
-            "domain Display text must survive the conversion, got: {message}"
-        );
+        assert!(message.contains("Tag not found"), "domain Display text must survive the conversion, got: {message}");
     }
 
     #[test]

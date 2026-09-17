@@ -1,7 +1,7 @@
-/// The `groups` module.
-pub mod groups;
 /// Domain error types for friend room.
 pub mod error;
+/// The `groups` module.
+pub mod groups;
 /// The `models` module.
 pub mod models;
 /// The `sharding` module.
@@ -49,12 +49,10 @@ const FRIEND_LIST_SNAPSHOT_TTL_SECS: u64 = 5;
 /// - `version` 取各 shard `version` 字段的 max —— 语义"任一 shard 变过 = 整体变过"
 ///
 /// 兼容：当 `shards` 为空时返回默认空 content（与 v4 unwrap_or 行为一致）。
-
 // Standalone helper functions for friend list operations.
 pub mod friend_list;
 
 use self::friend_list::*;
-
 
 impl FriendRoomService {
     /// See [`new`].
@@ -218,33 +216,20 @@ impl FriendRoomService {
 
         if let Some(msg) = message {
             if msg.len() > 500 {
-                return Err(FriendRoomError::InvalidInput("Friend request message exceeds maximum length of 500 characters".to_string()));
+                return Err(FriendRoomError::InvalidInput(
+                    "Friend request message exceeds maximum length of 500 characters".to_string(),
+                ));
             }
         }
 
         let sender_friend_room = self.create_friend_list_room(sender_id).await?;
-        if self
-            .friend_storage
-            .is_friend(&sender_friend_room, receiver_id)
-            .await
-            ?
-        {
+        if self.friend_storage.is_friend(&sender_friend_room, receiver_id).await? {
             return Err(FriendRoomError::FriendshipConflict(format!("User {receiver_id} is already your friend")));
         }
 
-        if self
-            .friend_storage
-            .has_any_pending_request(sender_id, receiver_id)
-            .await
-            ?
-        {
+        if self.friend_storage.has_any_pending_request(sender_id, receiver_id).await? {
             // Idempotent: return the existing pending request instead of 409
-            if let Some(existing) = self
-                .friend_storage
-                .get_pending_friend_request(sender_id, receiver_id)
-                .await
-                ?
-            {
+            if let Some(existing) = self.friend_storage.get_pending_friend_request(sender_id, receiver_id).await? {
                 tracing::info!(
                     %request_id,
                     sender_id = %sender_id,
@@ -256,12 +241,7 @@ impl FriendRoomService {
                 return Ok(existing.id);
             }
             // The pending request was sent by the other direction (receiver -> sender)
-            if let Some(existing) = self
-                .friend_storage
-                .get_pending_friend_request(receiver_id, sender_id)
-                .await
-                ?
-            {
+            if let Some(existing) = self.friend_storage.get_pending_friend_request(receiver_id, sender_id).await? {
                 tracing::info!(
                     %request_id,
                     sender_id = %sender_id,
@@ -337,12 +317,7 @@ impl FriendRoomService {
     ) -> Result<String, FriendRoomError> {
         // --- 幂等检查 1：双方已是好友，直接返回已有 DM 房间 ---
         let user_friend_room = self.create_friend_list_room(user_id).await?;
-        if self
-            .friend_storage
-            .is_friend(&user_friend_room, requester_id)
-            .await
-            ?
-        {
+        if self.friend_storage.is_friend(&user_friend_room, requester_id).await? {
             tracing::info!(
                 %request_id,
                 user_id = %user_id,
@@ -368,11 +343,7 @@ impl FriendRoomService {
         }
 
         // --- 查找 pending 请求 ---
-        let pending_request = self
-            .friend_storage
-            .get_pending_friend_request(requester_id, user_id)
-            .await
-            ?;
+        let pending_request = self.friend_storage.get_pending_friend_request(requester_id, user_id).await?;
 
         if let Some(_request) = pending_request {
             // 正常 pending 请求，执行完整 accept 流程
@@ -380,11 +351,7 @@ impl FriendRoomService {
         }
 
         // --- 幂等检查 2：请求非 pending，检查是否已被接受过 ---
-        let existing_request = self
-            .friend_storage
-            .get_friend_request(requester_id, user_id)
-            .await
-            ?;
+        let existing_request = self.friend_storage.get_friend_request(requester_id, user_id).await?;
 
         if let Some(ref request) = existing_request {
             if request.status == "accepted" {
@@ -436,19 +403,10 @@ impl FriendRoomService {
         self.update_friend_list(user_id, user_friend_room, requester_id, "add", Some(&dm_room_id)).await?;
         self.update_friend_list(requester_id, &requester_friend_room, user_id, "add", Some(&dm_room_id)).await?;
 
-        self.friend_storage
-            .update_friend_request_status(requester_id, user_id, "accepted")
-            .await
-            ?;
+        self.friend_storage.update_friend_request_status(requester_id, user_id, "accepted").await?;
 
-        self.presence_storage
-            .add_subscription(user_id, requester_id)
-            .await
-            ?;
-        self.presence_storage
-            .add_subscription(requester_id, user_id)
-            .await
-            ?;
+        self.presence_storage.add_subscription(user_id, requester_id).await?;
+        self.presence_storage.add_subscription(requester_id, user_id).await?;
 
         if self.is_remote_user(requester_id) {
             let parts: Vec<&str> = requester_id.split(':').collect();
@@ -520,12 +478,13 @@ impl FriendRoomService {
 
     /// 拒绝好友请求
     #[::tracing::instrument(skip(self), fields(request_id = %request_id))]
-    pub async fn reject_friend_request(&self, request_id: &str, user_id: &str, requester_id: &str) -> Result<(), FriendRoomError> {
-        let updated = self
-            .friend_storage
-            .update_friend_request_status(requester_id, user_id, "rejected")
-            .await
-            ?;
+    pub async fn reject_friend_request(
+        &self,
+        request_id: &str,
+        user_id: &str,
+        requester_id: &str,
+    ) -> Result<(), FriendRoomError> {
+        let updated = self.friend_storage.update_friend_request_status(requester_id, user_id, "rejected").await?;
 
         if !updated {
             tracing::warn!(
@@ -542,12 +501,13 @@ impl FriendRoomService {
 
     /// 取消发出的好友请求
     #[::tracing::instrument(skip(self), fields(request_id = %request_id))]
-    pub async fn cancel_friend_request(&self, request_id: &str, user_id: &str, target_id: &str) -> Result<(), FriendRoomError> {
-        let updated = self
-            .friend_storage
-            .update_friend_request_status(user_id, target_id, "cancelled")
-            .await
-            ?;
+    pub async fn cancel_friend_request(
+        &self,
+        request_id: &str,
+        user_id: &str,
+        target_id: &str,
+    ) -> Result<(), FriendRoomError> {
+        let updated = self.friend_storage.update_friend_request_status(user_id, target_id, "cancelled").await?;
 
         if !updated {
             tracing::warn!(
@@ -564,11 +524,7 @@ impl FriendRoomService {
 
     /// 获取收到的好友请求列表
     pub async fn get_incoming_requests(&self, user_id: &str) -> Result<Vec<serde_json::Value>, FriendRoomError> {
-        let requests = self
-            .friend_storage
-            .get_incoming_friend_requests(user_id)
-            .await
-            ?;
+        let requests = self.friend_storage.get_incoming_friend_requests(user_id).await?;
 
         Ok(requests
             .into_iter()
@@ -585,11 +541,7 @@ impl FriendRoomService {
 
     /// 获取发出的好友请求列表
     pub async fn get_outgoing_requests(&self, user_id: &str) -> Result<Vec<serde_json::Value>, FriendRoomError> {
-        let requests = self
-            .friend_storage
-            .get_outgoing_friend_requests(user_id)
-            .await
-            ?;
+        let requests = self.friend_storage.get_outgoing_friend_requests(user_id).await?;
 
         Ok(requests
             .into_iter()
@@ -612,12 +564,7 @@ impl FriendRoomService {
 
         let user_friend_room = self.create_friend_list_room(user_id).await?;
 
-        if self
-            .friend_storage
-            .is_friend(&user_friend_room, friend_id)
-            .await
-            ?
-        {
+        if self.friend_storage.is_friend(&user_friend_room, friend_id).await? {
             return Err(FriendRoomError::FriendshipConflict(format!("User {friend_id} is already your friend")));
         }
 
@@ -635,10 +582,7 @@ impl FriendRoomService {
 
         self.update_friend_list(user_id, &user_friend_room, friend_id, "add", Some(&dm_room_id)).await?;
 
-        self.presence_storage
-            .add_subscription(user_id, friend_id)
-            .await
-            ?;
+        self.presence_storage.add_subscription(user_id, friend_id).await?;
 
         if self.is_remote_user(friend_id) {
             tracing::info!(user_id = %user_id, friend_id = %friend_id, remote_delivery = true, "Adding remote friend");
@@ -673,12 +617,7 @@ impl FriendRoomService {
     pub async fn remove_friend(&self, user_id: &str, friend_id: &str) -> Result<(), FriendRoomError> {
         let friend_room = self.create_friend_list_room(user_id).await?;
 
-        if !self
-            .friend_storage
-            .is_friend(&friend_room, friend_id)
-            .await
-            ?
-        {
+        if !self.friend_storage.is_friend(&friend_room, friend_id).await? {
             return Err(FriendRoomError::NotFound(format!("User {friend_id} is not in your friend list")));
         }
 
@@ -700,20 +639,11 @@ impl FriendRoomService {
     /// 该接口只读取现有好友列表房间，不会像 `create_friend_list_room` 那样
     /// 在只读场景里隐式创建新房间，适合 DM 查询路由的收敛读路径使用。
     pub async fn get_direct_message_links(&self, user_id: &str) -> Result<Vec<(String, String)>, FriendRoomError> {
-        let Some(room_id) = self
-            .friend_storage
-            .get_friend_list_room_id(user_id)
-            .await
-            ?
-        else {
+        let Some(room_id) = self.friend_storage.get_friend_list_room_id(user_id).await? else {
             return Ok(Vec::new());
         };
 
-        let content = self
-            .friend_storage
-            .get_friend_list_all_shards(&room_id)
-            .await
-            ?;
+        let content = self.friend_storage.get_friend_list_all_shards(&room_id).await?;
         let content = merge_friend_list_shards(&content);
 
         let links = content
@@ -769,11 +699,7 @@ impl FriendRoomService {
         merge_direct_links(&mut direct_map, self.get_direct_message_links(user_id).await?);
 
         if direct_map.is_empty() {
-            let rows = self
-                .friend_storage
-                .get_effective_direct_links_fallback(user_id)
-                .await
-                ?;
+            let rows = self.friend_storage.get_effective_direct_links_fallback(user_id).await?;
 
             for row in rows {
                 ensure_room_in_direct_map(&mut direct_map, &row.other_user_id, &row.room_id);
@@ -784,7 +710,11 @@ impl FriendRoomService {
     }
 
     /// See [`get_direct_room_snapshot`].
-    pub async fn get_direct_room_snapshot(&self, user_id: &str, room_id: &str) -> Result<DirectRoomSnapshot, FriendRoomError> {
+    pub async fn get_direct_room_snapshot(
+        &self,
+        user_id: &str,
+        room_id: &str,
+    ) -> Result<DirectRoomSnapshot, FriendRoomError> {
         let direct_map = self.get_effective_direct_map(user_id).await?;
         Ok(Self::build_direct_room_snapshot(direct_map, room_id))
     }
@@ -893,7 +823,11 @@ impl FriendRoomService {
     ///
     /// 优先读取好友持久化视图中的 `dm_room_id`，若不存在则回退到
     /// `room_memberships + room_summaries` 查询。
-    pub async fn get_existing_dm_room_id(&self, user_id: &str, friend_id: &str) -> Result<Option<String>, FriendRoomError> {
+    pub async fn get_existing_dm_room_id(
+        &self,
+        user_id: &str,
+        friend_id: &str,
+    ) -> Result<Option<String>, FriendRoomError> {
         if let Some(info) = self.get_friend_info(user_id, friend_id).await? {
             let dm_room_id = info.get("dm_room_id").and_then(|value| value.as_str()).map(ToOwned::to_owned);
             let dm_room_active = info.get("dm_room_active").and_then(|value| value.as_bool()).unwrap_or(true);
@@ -903,23 +837,19 @@ impl FriendRoomService {
             }
         }
 
-        self.friend_storage
-            .get_existing_direct_room_id(user_id, friend_id)
-            .await
-            .map_err(FriendRoomError::Database)
+        self.friend_storage.get_existing_direct_room_id(user_id, friend_id).await.map_err(FriendRoomError::Database)
     }
 
     /// See [`get_dm_partner_for_room`].
-    pub async fn get_dm_partner_for_room(&self, user_id: &str, room_id: &str) -> Result<Option<DmPartnerInfo>, FriendRoomError> {
+    pub async fn get_dm_partner_for_room(
+        &self,
+        user_id: &str,
+        room_id: &str,
+    ) -> Result<Option<DmPartnerInfo>, FriendRoomError> {
         if let Some((partner_user_id, _)) =
             self.get_direct_message_links(user_id).await?.into_iter().find(|(_, dm_room_id)| dm_room_id == room_id)
         {
-            if let Some(profile) = self
-                .user_storage
-                .get_user_profile(&partner_user_id)
-                .await
-                ?
-            {
+            if let Some(profile) = self.user_storage.get_user_profile(&partner_user_id).await? {
                 return Ok(Some(DmPartnerInfo {
                     user_id: partner_user_id,
                     display_name: profile.displayname.unwrap_or_default(),
@@ -934,11 +864,7 @@ impl FriendRoomService {
             }));
         }
 
-        let partner = self
-            .friend_storage
-            .get_dm_partner_for_room(room_id, user_id)
-            .await
-            ?;
+        let partner = self.friend_storage.get_dm_partner_for_room(room_id, user_id).await?;
 
         Ok(partner.map(|row| DmPartnerInfo {
             user_id: row.user_id,
@@ -1048,7 +974,11 @@ impl FriendRoomService {
     }
 
     /// See [`get_friends_page`].
-    pub async fn get_friends_page(&self, user_id: &str, request: FriendListRequest) -> Result<FriendListPage, FriendRoomError> {
+    pub async fn get_friends_page(
+        &self,
+        user_id: &str,
+        request: FriendListRequest,
+    ) -> Result<FriendListPage, FriendRoomError> {
         let room_id = self.create_friend_list_room(user_id).await?;
 
         // W5 热路径调优：shard 快照缓存（5s TTL），避免每次 get_friends_page 必读 DB。
@@ -1057,11 +987,7 @@ impl FriendRoomService {
         let shards: Vec<(String, Value)> = match self.cache.get::<Vec<(String, Value)>>(&shard_cache_key).await {
             Ok(Some(cached)) => cached,
             Ok(None) => {
-                let loaded = self
-                    .friend_storage
-                    .get_friend_list_all_shards(&room_id)
-                    .await
-                    ?;
+                let loaded = self.friend_storage.get_friend_list_all_shards(&room_id).await?;
                 if let Err(e) = self.cache.set(&shard_cache_key, loaded.clone(), FRIEND_LIST_SNAPSHOT_TTL_SECS).await {
                     ::tracing::warn!(
                         room_id = %room_id,
@@ -1093,7 +1019,9 @@ impl FriendRoomService {
         let safe_limit = request.limit.clamp(1, 100);
         if let Some(cursor) = request.from.as_ref() {
             if cursor.sort_by != request.sort_by {
-                return Err(FriendRoomError::InvalidInput("Friend list cursor sort order does not match request".to_string()));
+                return Err(FriendRoomError::InvalidInput(
+                    "Friend list cursor sort order does not match request".to_string(),
+                ));
             }
         }
 
@@ -1137,16 +1065,8 @@ impl FriendRoomService {
                     .iter()
                     .filter_map(|friend| friend.get("user_id").and_then(|value| value.as_str()).map(ToOwned::to_owned))
                     .collect();
-                let profiles = self
-                    .user_storage
-                    .get_user_profiles_map(&friend_ids)
-                    .await
-                    ?;
-                let presence_map = self
-                    .presence_storage
-                    .get_presence_snapshots(&friend_ids)
-                    .await
-                    ?;
+                let profiles = self.user_storage.get_user_profiles_map(&friend_ids).await?;
+                let presence_map = self.presence_storage.get_presence_snapshots(&friend_ids).await?;
 
                 let mut items = Self::build_friend_entries(raw_friends, &profiles, &presence_map);
                 Self::sort_friend_entries(&mut items, &request.sort_by);
@@ -1228,11 +1148,7 @@ impl FriendRoomService {
         changed_by: Option<&str>,
         reason: Option<&str>,
     ) -> Result<usize, FriendRoomError> {
-        let links = self
-            .friend_storage
-            .find_friend_lists_by_dm_room_id(dm_room_id)
-            .await
-            ?;
+        let links = self.friend_storage.find_friend_lists_by_dm_room_id(dm_room_id).await?;
 
         if links.is_empty() {
             return Ok(0);
@@ -1265,10 +1181,7 @@ impl FriendRoomService {
             if room_ids.is_empty() {
                 std::collections::HashMap::new()
             } else {
-                self.friend_storage
-                    .get_friend_list_all_shards_batch(&room_ids)
-                    .await
-                    ?
+                self.friend_storage.get_friend_list_all_shards_batch(&room_ids).await?
             }
         };
 
@@ -1490,9 +1403,8 @@ impl FriendRoomService {
         // W5 sharding：按 friend_id 路由到对应 shard，只改该 shard。
         // 同 shard 内 add/remove 不动其他 shard，避免单 event 超过 2704 字节上限。
         // v4 遗留好友可能在 legacy state_key=""，read_friend_shard_for_update 会回退定位。
-        let (state_key, mut content) = read_friend_shard_for_update(self.friend_storage.as_ref(), room_id, friend_id)
-            .await
-            ?;
+        let (state_key, mut content) =
+            read_friend_shard_for_update(self.friend_storage.as_ref(), room_id, friend_id).await?;
 
         let friends_array = content
             .get_mut("friends")
@@ -1534,20 +1446,13 @@ impl FriendRoomService {
         changed_by: Option<&str>,
         reason: Option<&str>,
     ) -> Result<bool, FriendRoomError> {
-        let Some(friend_room_id) = self
-            .friend_storage
-            .get_friend_list_room_id(owner_user_id)
-            .await
-            ?
-        else {
+        let Some(friend_room_id) = self.friend_storage.get_friend_list_room_id(owner_user_id).await? else {
             return Ok(false);
         };
 
         // v4 遗留好友可能在 legacy state_key=""，read_friend_shard_for_update 会回退定位。
         let (state_key, mut content) =
-            read_friend_shard_for_update(self.friend_storage.as_ref(), &friend_room_id, friend_id)
-                .await
-                ?;
+            read_friend_shard_for_update(self.friend_storage.as_ref(), &friend_room_id, friend_id).await?;
 
         let now = current_timestamp_millis();
         let mut touched = false;

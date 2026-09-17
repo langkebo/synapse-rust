@@ -5,8 +5,8 @@
 
 use crate::account::UserService;
 use crate::common::error::{ApiError, ApiResult};
-use crate::room::membership::error::MembershipError;
 use crate::policy_service::PolicyService;
+use crate::room::membership::error::MembershipError;
 use serde_json::json;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -557,9 +557,7 @@ impl MembershipService {
         after: Option<&str>,
     ) -> Result<serde_json::Value, MembershipError> {
         if user_id == other_user_id {
-            return Err(MembershipError::NotAuthorized(
-                "You cannot query mutual rooms with yourself".to_string(),
-            ));
+            return Err(MembershipError::NotAuthorized("You cannot query mutual rooms with yourself".to_string()));
         }
 
         let (rooms, next_batch_token) = self
@@ -613,9 +611,7 @@ impl MembershipService {
             .await
             .map_err(|_e| MembershipError::Internal("Failed to check membership".to_string()))?
         {
-            return Err(MembershipError::NotAuthorized(
-                "You are not a member of this room".to_string(),
-            ));
+            return Err(MembershipError::NotAuthorized("You are not a member of this room".to_string()));
         }
 
         let membership_str = membership.unwrap_or("join");

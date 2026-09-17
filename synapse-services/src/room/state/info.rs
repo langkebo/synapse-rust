@@ -113,11 +113,7 @@ impl RoomStateService {
 
     /// See [`room_exists`].
     pub async fn room_exists(&self, room_id: &str) -> Result<bool, RoomStateError> {
-        let exists = self
-            .room_storage
-            .room_exists(room_id)
-            .await
-            .map_err(|e| RoomStateError::Database(e))?;
+        let exists = self.room_storage.room_exists(room_id).await.map_err(|e| RoomStateError::Database(e))?;
         Ok(exists)
     }
 
@@ -236,10 +232,7 @@ impl RoomStateService {
             .shutdown_room(room_id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to shutdown room", e))?;
-        self.member_storage
-            .remove_all_members(room_id)
-            .await
-            .map_err(|e| RoomStateError::Database(e))?;
+        self.member_storage.remove_all_members(room_id).await.map_err(|e| RoomStateError::Database(e))?;
         Ok(())
     }
 
@@ -277,10 +270,7 @@ impl RoomStateService {
 
     /// See [`get_room_version`].
     pub async fn get_room_version(&self, room_id: &str) -> Result<Option<String>, RoomStateError> {
-        self.room_storage
-            .get_room_version_only(room_id)
-            .await
-            .map_err(|e| RoomStateError::Database(e))
+        self.room_storage.get_room_version_only(room_id).await.map_err(|e| RoomStateError::Database(e))
     }
 
     /// See [`search_all_rooms_admin`].

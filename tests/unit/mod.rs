@@ -23,7 +23,6 @@ mod config_mount_tests;
 #[cfg(feature = "beacons")]
 mod beacon_info_parse_tests;
 mod boundary_tests;
-mod mod_guard_tests;
 mod captcha_api_tests;
 mod client_push_service_tests;
 mod core_api_tests;
@@ -43,6 +42,7 @@ mod megolm_dual_write_metrics_tests;
 mod migration_consistency_tests;
 mod migration_replayability_guard_tests;
 mod migration_search_path_tests;
+mod mod_guard_tests;
 mod module_api_tests;
 mod msc4108_rendezvous_route_tests;
 mod msc_tests;

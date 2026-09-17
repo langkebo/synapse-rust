@@ -1,7 +1,7 @@
-use std::cmp::Ordering;
-use serde_json::{json, Value};
 use super::models::{FriendListEntry, FriendListRequest, FriendRoomService};
 use super::sharding::{shard_for_user_id, shard_to_state_key};
+use serde_json::{json, Value};
+use std::cmp::Ordering;
 
 pub(crate) fn merge_friend_list_shards(shards: &[(String, Value)]) -> Value {
     if shards.is_empty() {

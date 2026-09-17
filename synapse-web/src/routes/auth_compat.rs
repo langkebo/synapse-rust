@@ -925,7 +925,6 @@ mod lockout_degradation_tests {
         let _err = check_login_lockout(&cache, &config, ip, username)
             .await
             .expect_err("threshold reached ⇒ lock must engage even without Redis");
-
     }
 
     /// The counter is scoped per `(ip, username)`: one victim's failures must not

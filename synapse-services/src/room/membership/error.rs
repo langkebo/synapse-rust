@@ -39,9 +39,7 @@ pub enum MembershipError {
 impl From<MembershipError> for ApiError {
     fn from(e: MembershipError) -> Self {
         match e {
-            MembershipError::Database(source) => {
-                ApiError::database_with_cause("membership database error", source)
-            }
+            MembershipError::Database(source) => ApiError::database_with_cause("membership database error", source),
             MembershipError::NotFound(msg) => ApiError::not_found(msg),
             MembershipError::UserNotFound(msg) => ApiError::not_found(msg),
             MembershipError::NotAuthorized(msg) => ApiError::forbidden(msg),

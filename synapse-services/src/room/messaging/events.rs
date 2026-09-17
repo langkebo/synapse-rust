@@ -88,11 +88,11 @@ impl MessagingService {
     }
 
     /// See [`get_state_event_records`].
-    pub async fn get_state_event_records(&self, room_id: &str) -> Result<Vec<synapse_storage::StateEvent>, RoomMessagingError> {
-        self.event_reader
-            .get_state_events(room_id)
-            .await
-            .map_err(|e| RoomMessagingError::Database(e))
+    pub async fn get_state_event_records(
+        &self,
+        room_id: &str,
+    ) -> Result<Vec<synapse_storage::StateEvent>, RoomMessagingError> {
+        self.event_reader.get_state_events(room_id).await.map_err(|e| RoomMessagingError::Database(e))
     }
 
     /// See [`get_state_events_at_or_before`].
@@ -461,10 +461,7 @@ impl MessagingService {
 
     /// See [`get_forward_extremities_count`].
     pub async fn get_forward_extremities_count(&self, room_id: &str) -> Result<i64, RoomMessagingError> {
-        self.event_reader
-            .get_forward_extremities_count(room_id)
-            .await
-            .map_err(|e| RoomMessagingError::Database(e))
+        self.event_reader.get_forward_extremities_count(room_id).await.map_err(|e| RoomMessagingError::Database(e))
     }
 
     /// See [`count_events_by_status`].

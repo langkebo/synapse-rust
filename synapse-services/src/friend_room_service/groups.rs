@@ -1,6 +1,6 @@
+use super::error::FriendRoomError;
 use super::models::*;
 use super::read_friend_shard_for_update;
-use super::error::FriendRoomError;
 use serde_json::json;
 use synapse_common::current_timestamp_millis;
 
@@ -32,21 +32,14 @@ impl FriendRoomService {
     pub async fn update_friend_note(&self, user_id: &str, friend_id: &str, note: &str) -> Result<(), FriendRoomError> {
         let friend_room = self.create_friend_list_room(user_id).await?;
 
-        if !self
-            .friend_storage
-            .is_friend(&friend_room, friend_id)
-            .await
-            ?
-        {
+        if !self.friend_storage.is_friend(&friend_room, friend_id).await? {
             return Err(FriendRoomError::NotFound(format!("Friend {friend_id} not found in list")));
         }
 
         // W5 sharding：单 friend 改动只触及一个 shard，避免触发 PG btree 2704 上限。
         // v4 遗留好友可能在 legacy state_key=""，read_friend_shard_for_update 会回退定位。
         let (state_key, mut content) =
-            read_friend_shard_for_update(self.friend_storage.as_ref(), &friend_room, friend_id)
-                .await
-                ?;
+            read_friend_shard_for_update(self.friend_storage.as_ref(), &friend_room, friend_id).await?;
 
         let mut touched = false;
         if let Some(friends) = content.get_mut("friends").and_then(|f| f.as_array_mut()) {
@@ -73,7 +66,12 @@ impl FriendRoomService {
     }
 
     /// 更新好友状态 (favorite, normal, blocked, hidden)
-    pub async fn update_friend_status(&self, user_id: &str, friend_id: &str, status: &str) -> Result<(), FriendRoomError> {
+    pub async fn update_friend_status(
+        &self,
+        user_id: &str,
+        friend_id: &str,
+        status: &str,
+    ) -> Result<(), FriendRoomError> {
         let valid_statuses = ["favorite", "normal", "blocked", "hidden"];
         if !valid_statuses.contains(&status) {
             return Err(FriendRoomError::InvalidInput(format!(
@@ -85,20 +83,13 @@ impl FriendRoomService {
 
         let friend_room = self.create_friend_list_room(user_id).await?;
 
-        if !self
-            .friend_storage
-            .is_friend(&friend_room, friend_id)
-            .await
-            ?
-        {
+        if !self.friend_storage.is_friend(&friend_room, friend_id).await? {
             return Err(FriendRoomError::NotFound(format!("Friend {friend_id} not found in list")));
         }
 
         // v4 遗留好友可能在 legacy state_key=""，read_friend_shard_for_update 会回退定位。
         let (state_key, mut content) =
-            read_friend_shard_for_update(self.friend_storage.as_ref(), &friend_room, friend_id)
-                .await
-                ?;
+            read_friend_shard_for_update(self.friend_storage.as_ref(), &friend_room, friend_id).await?;
 
         let mut touched = false;
         if let Some(friends) = content.get_mut("friends").and_then(|f| f.as_array_mut()) {
@@ -126,23 +117,21 @@ impl FriendRoomService {
     }
 
     /// 更新好友显示名
-    pub async fn update_friend_displayname(&self, user_id: &str, friend_id: &str, displayname: &str) -> Result<(), FriendRoomError> {
+    pub async fn update_friend_displayname(
+        &self,
+        user_id: &str,
+        friend_id: &str,
+        displayname: &str,
+    ) -> Result<(), FriendRoomError> {
         let friend_room = self.create_friend_list_room(user_id).await?;
 
-        if !self
-            .friend_storage
-            .is_friend(&friend_room, friend_id)
-            .await
-            ?
-        {
+        if !self.friend_storage.is_friend(&friend_room, friend_id).await? {
             return Err(FriendRoomError::NotFound(format!("Friend {friend_id} not found in list")));
         }
 
         // v4 遗留好友可能在 legacy state_key=""，read_friend_shard_for_update 会回退定位。
         let (state_key, mut content) =
-            read_friend_shard_for_update(self.friend_storage.as_ref(), &friend_room, friend_id)
-                .await
-                ?;
+            read_friend_shard_for_update(self.friend_storage.as_ref(), &friend_room, friend_id).await?;
 
         let mut touched = false;
         if let Some(friends) = content.get_mut("friends").and_then(|f| f.as_array_mut()) {
@@ -170,23 +159,24 @@ impl FriendRoomService {
     }
 
     /// 获取好友详细信息
-    pub async fn get_friend_info(&self, user_id: &str, friend_id: &str) -> Result<Option<serde_json::Value>, FriendRoomError> {
+    pub async fn get_friend_info(
+        &self,
+        user_id: &str,
+        friend_id: &str,
+    ) -> Result<Option<serde_json::Value>, FriendRoomError> {
         let friend_room = self.create_friend_list_room(user_id).await?;
-        self.friend_storage
-            .get_friend_info(&friend_room, friend_id)
-            .await
-            .map_err(FriendRoomError::Database)
+        self.friend_storage.get_friend_info(&friend_room, friend_id).await.map_err(FriendRoomError::Database)
     }
 
     /// 获取好友状态
-    pub async fn get_friend_status(&self, user_id: &str, friend_id: &str) -> Result<serde_json::Value, FriendRoomError> {
+    pub async fn get_friend_status(
+        &self,
+        user_id: &str,
+        friend_id: &str,
+    ) -> Result<serde_json::Value, FriendRoomError> {
         let friend_room = self.create_friend_list_room(user_id).await?;
 
-        let info = self
-            .friend_storage
-            .get_friend_info(&friend_room, friend_id)
-            .await
-            ?;
+        let info = self.friend_storage.get_friend_info(&friend_room, friend_id).await?;
 
         if let Some(info) = info {
             Ok(info)
@@ -202,14 +192,15 @@ impl FriendRoomService {
     /// 检查好友关系
     pub async fn check_friendship(&self, user_id: &str, target_id: &str) -> Result<bool, FriendRoomError> {
         let friend_room = self.create_friend_list_room(user_id).await?;
-        self.friend_storage
-            .is_friend(&friend_room, target_id)
-            .await
-            .map_err(FriendRoomError::Database)
+        self.friend_storage.is_friend(&friend_room, target_id).await.map_err(FriendRoomError::Database)
     }
 
     /// 获取好友推荐
-    pub async fn get_friend_suggestions(&self, user_id: &str, limit: Option<i64>) -> Result<Vec<serde_json::Value>, FriendRoomError> {
+    pub async fn get_friend_suggestions(
+        &self,
+        user_id: &str,
+        limit: Option<i64>,
+    ) -> Result<Vec<serde_json::Value>, FriendRoomError> {
         let _friend_room = self.create_friend_list_room(user_id).await?;
 
         // 规范化请求 limit：默认 20（与历史行为一致），上限 100 以防 DoS。
@@ -220,11 +211,8 @@ impl FriendRoomService {
         let mut suggestions: Vec<serde_json::Value> = Vec::new();
         let mut suggested_user_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-        let mutual_suggestions = self
-            .friend_storage
-            .get_friend_suggestions_from_mutual_friends(user_id, mutual_fetch_limit)
-            .await
-            ?;
+        let mutual_suggestions =
+            self.friend_storage.get_friend_suggestions_from_mutual_friends(user_id, mutual_fetch_limit).await?;
 
         for suggestion in mutual_suggestions {
             if let Some(uid) = suggestion.get("user_id").and_then(|u| u.as_str()) {
@@ -235,11 +223,8 @@ impl FriendRoomService {
 
         if (suggestions.len() as i64) < effective_limit {
             let remaining = effective_limit - suggestions.len() as i64;
-            let room_suggestions = self
-                .friend_storage
-                .get_friend_suggestions_from_shared_rooms(user_id, remaining)
-                .await
-                ?;
+            let room_suggestions =
+                self.friend_storage.get_friend_suggestions_from_shared_rooms(user_id, remaining).await?;
 
             for suggestion in room_suggestions {
                 if let Some(uid) = suggestion.get("user_id").and_then(|u| u.as_str()) {
@@ -263,7 +248,11 @@ impl FriendRoomService {
     }
 
     /// 查询任意用户的好友列表 (支持本地和远程)
-    pub async fn query_user_friends(&self, requester_id: &str, target_user_id: &str) -> Result<Vec<String>, FriendRoomError> {
+    pub async fn query_user_friends(
+        &self,
+        requester_id: &str,
+        target_user_id: &str,
+    ) -> Result<Vec<String>, FriendRoomError> {
         if requester_id != target_user_id {
             return Err(FriendRoomError::NotAuthorized("You can only query your own friend list".to_string()));
         }
@@ -301,12 +290,8 @@ impl FriendRoomService {
             "created_at": current_timestamp_millis()
         });
 
-        let mut groups = self
-            .friend_storage
-            .get_friend_groups(&friend_room)
-            .await
-            ?
-            .unwrap_or_else(|| json!({ "groups": [] }));
+        let mut groups =
+            self.friend_storage.get_friend_groups(&friend_room).await?.unwrap_or_else(|| json!({ "groups": [] }));
 
         if let Some(groups_array) = groups.get_mut("groups").and_then(|g| g.as_array_mut()) {
             groups_array.push(group.clone());
@@ -322,12 +307,8 @@ impl FriendRoomService {
     /// 删除好友分组
     pub async fn delete_friend_group(&self, user_id: &str, group_id: &str) -> Result<(), FriendRoomError> {
         let friend_room = self.create_friend_list_room(user_id).await?;
-        let mut groups = self
-            .friend_storage
-            .get_friend_groups(&friend_room)
-            .await
-            ?
-            .unwrap_or_else(|| json!({ "groups": [] }));
+        let mut groups =
+            self.friend_storage.get_friend_groups(&friend_room).await?.unwrap_or_else(|| json!({ "groups": [] }));
 
         if let Some(groups_array) = groups.get_mut("groups").and_then(|g| g.as_array_mut()) {
             let original_len = groups_array.len();
@@ -344,14 +325,15 @@ impl FriendRoomService {
     }
 
     /// 重命名好友分组
-    pub async fn rename_friend_group(&self, user_id: &str, group_id: &str, new_name: &str) -> Result<(), FriendRoomError> {
+    pub async fn rename_friend_group(
+        &self,
+        user_id: &str,
+        group_id: &str,
+        new_name: &str,
+    ) -> Result<(), FriendRoomError> {
         let friend_room = self.create_friend_list_room(user_id).await?;
-        let mut groups = self
-            .friend_storage
-            .get_friend_groups(&friend_room)
-            .await
-            ?
-            .unwrap_or_else(|| json!({ "groups": [] }));
+        let mut groups =
+            self.friend_storage.get_friend_groups(&friend_room).await?.unwrap_or_else(|| json!({ "groups": [] }));
 
         if let Some(groups_array) = groups.get_mut("groups").and_then(|g| g.as_array_mut()) {
             let mut found = false;
@@ -374,25 +356,21 @@ impl FriendRoomService {
     }
 
     /// 添加好友到分组
-    pub async fn add_friend_to_group(&self, user_id: &str, group_id: &str, friend_id: &str) -> Result<(), FriendRoomError> {
+    pub async fn add_friend_to_group(
+        &self,
+        user_id: &str,
+        group_id: &str,
+        friend_id: &str,
+    ) -> Result<(), FriendRoomError> {
         let friend_room = self.create_friend_list_room(user_id).await?;
 
         // 检查好友关系
-        if !self
-            .friend_storage
-            .is_friend(&friend_room, friend_id)
-            .await
-            ?
-        {
+        if !self.friend_storage.is_friend(&friend_room, friend_id).await? {
             return Err(FriendRoomError::NotFound(format!("User {friend_id} is not your friend")));
         }
 
-        let mut groups = self
-            .friend_storage
-            .get_friend_groups(&friend_room)
-            .await
-            ?
-            .unwrap_or_else(|| json!({ "groups": [] }));
+        let mut groups =
+            self.friend_storage.get_friend_groups(&friend_room).await?.unwrap_or_else(|| json!({ "groups": [] }));
 
         if let Some(groups_array) = groups.get_mut("groups").and_then(|g| g.as_array_mut()) {
             let mut found = false;
@@ -421,14 +399,15 @@ impl FriendRoomService {
     }
 
     /// 从分组中移除好友
-    pub async fn remove_friend_from_group(&self, user_id: &str, group_id: &str, friend_id: &str) -> Result<(), FriendRoomError> {
+    pub async fn remove_friend_from_group(
+        &self,
+        user_id: &str,
+        group_id: &str,
+        friend_id: &str,
+    ) -> Result<(), FriendRoomError> {
         let friend_room = self.create_friend_list_room(user_id).await?;
-        let mut groups = self
-            .friend_storage
-            .get_friend_groups(&friend_room)
-            .await
-            ?
-            .unwrap_or_else(|| json!({ "groups": [] }));
+        let mut groups =
+            self.friend_storage.get_friend_groups(&friend_room).await?.unwrap_or_else(|| json!({ "groups": [] }));
 
         if let Some(groups_array) = groups.get_mut("groups").and_then(|g| g.as_array_mut()) {
             let mut found = false;
@@ -455,11 +434,7 @@ impl FriendRoomService {
     /// 获取所有好友分组
     pub async fn get_friend_groups(&self, user_id: &str) -> Result<Vec<serde_json::Value>, FriendRoomError> {
         let friend_room = self.create_friend_list_room(user_id).await?;
-        let groups = self
-            .friend_storage
-            .get_friend_groups(&friend_room)
-            .await
-            ?;
+        let groups = self.friend_storage.get_friend_groups(&friend_room).await?;
 
         if let Some(g) = groups {
             if let Some(groups_array) = g.get("groups").and_then(|g| g.as_array()) {
@@ -471,13 +446,13 @@ impl FriendRoomService {
     }
 
     /// 获取用户所在的分组
-    pub async fn get_groups_for_user(&self, user_id: &str, friend_id: &str) -> Result<Vec<serde_json::Value>, FriendRoomError> {
+    pub async fn get_groups_for_user(
+        &self,
+        user_id: &str,
+        friend_id: &str,
+    ) -> Result<Vec<serde_json::Value>, FriendRoomError> {
         let friend_room = self.create_friend_list_room(user_id).await?;
-        let groups = self
-            .friend_storage
-            .get_friend_groups(&friend_room)
-            .await
-            ?;
+        let groups = self.friend_storage.get_friend_groups(&friend_room).await?;
 
         if let Some(g) = groups {
             if let Some(groups_array) = g.get("groups").and_then(|g| g.as_array()) {
@@ -498,13 +473,13 @@ impl FriendRoomService {
     }
 
     /// 获取分组中的好友
-    pub async fn get_friends_in_group(&self, user_id: &str, group_id: &str) -> Result<Vec<serde_json::Value>, FriendRoomError> {
+    pub async fn get_friends_in_group(
+        &self,
+        user_id: &str,
+        group_id: &str,
+    ) -> Result<Vec<serde_json::Value>, FriendRoomError> {
         let friend_room = self.create_friend_list_room(user_id).await?;
-        let groups = self
-            .friend_storage
-            .get_friend_groups(&friend_room)
-            .await
-            ?;
+        let groups = self.friend_storage.get_friend_groups(&friend_room).await?;
 
         if let Some(group) = groups.iter().find(|g| g.get("id").and_then(|id| id.as_str()) == Some(group_id)) {
             if let Some(members) = group.get("members").and_then(|m| m.as_array()) {

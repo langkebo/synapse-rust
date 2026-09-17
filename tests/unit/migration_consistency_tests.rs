@@ -37,7 +37,6 @@ fn migrations_directory_has_exactly_one_baseline() {
         "migrations/ 必须只保留一个基线；多出来的历史基线会被迁移器当增量执行并造成 \
          本地/CI schema 分叉（历史基线可从 `git show bddd6109^:migrations/...` 取回）"
     );
-
 }
 
 /// 两个迁移执行入口都必须按"历史基线一律跳过"的判据处理，否则上面那条不变式

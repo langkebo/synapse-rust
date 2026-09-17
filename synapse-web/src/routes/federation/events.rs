@@ -16,9 +16,12 @@ pub(super) async fn get_room_auth(
     Extension(auth): Extension<FederationRequestAuth>,
     Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
-    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await.map_err(|e| ApiError::from(e))?;
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin)
+        .await
+        .map_err(|e| ApiError::from(e))?;
 
-    let auth_events = ctx.room_service.messaging().get_state_event_records(&room_id).await.map_err(|e| ApiError::from(e))?;
+    let auth_events =
+        ctx.room_service.messaging().get_state_event_records(&room_id).await.map_err(|e| ApiError::from(e))?;
 
     let auth_chain: Vec<Value> = auth_events
         .into_iter()
@@ -54,7 +57,9 @@ pub(super) async fn get_missing_events(
     Path(room_id): Path<RoomId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await.map_err(|e| ApiError::from(e))?;
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin)
+        .await
+        .map_err(|e| ApiError::from(e))?;
 
     let earliest_events: Vec<String> = body
         .get("earliest_events")
@@ -81,7 +86,8 @@ pub(super) async fn get_missing_events(
         .room_service
         .messaging()
         .get_missing_events_between(&room_id, &earliest_events, &latest_events, limit)
-        .await.map_err(|e| ApiError::from(e))?;
+        .await
+        .map_err(|e| ApiError::from(e))?;
 
     Ok(Json(json!({
         "events": events
@@ -94,11 +100,17 @@ pub(super) async fn get_event_auth(
     Extension(auth): Extension<FederationRequestAuth>,
     Path((room_id, event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await.map_err(|e| ApiError::from(e))?;
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin)
+        .await
+        .map_err(|e| ApiError::from(e))?;
 
     let event = get_room_event_in_room(&ctx, &room_id, &event_id).await.map_err(|e| ApiError::from(e))?;
-    let auth_events =
-        ctx.room_service.messaging().get_state_events_at_or_before(&room_id, event.origin_server_ts).await.map_err(|e| ApiError::from(e))?;
+    let auth_events = ctx
+        .room_service
+        .messaging()
+        .get_state_events_at_or_before(&room_id, event.origin_server_ts)
+        .await
+        .map_err(|e| ApiError::from(e))?;
 
     let auth_chain: Vec<Value> = auth_events
         .into_iter()
@@ -129,7 +141,9 @@ pub(super) async fn get_event(
 
     match event {
         Some(e) => {
-            super::validate_federation_origin_can_observe_room(&ctx, &e.room_id, &auth.origin).await.map_err(|e| ApiError::from(e))?;
+            super::validate_federation_origin_can_observe_room(&ctx, &e.room_id, &auth.origin)
+                .await
+                .map_err(|e| ApiError::from(e))?;
             Ok(Json(build_federation_event_response(&ctx.server_name, &e)))
         }
         None => Err(ApiError::not_found("Event not found".to_string())),
@@ -142,7 +156,9 @@ pub(super) async fn get_room_event(
     Extension(auth): Extension<FederationRequestAuth>,
     Path((room_id, event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await.map_err(|e| ApiError::from(e))?;
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin)
+        .await
+        .map_err(|e| ApiError::from(e))?;
 
     let event = ctx.room_service.messaging().get_event_record(&event_id).await.map_err(|e| ApiError::from(e))?;
 
@@ -164,9 +180,12 @@ pub(super) async fn get_state(
     Path(room_id): Path<RoomId>,
     Query(query): Query<FederationStateAtEventQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await.map_err(|e| ApiError::from(e))?;
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin)
+        .await
+        .map_err(|e| ApiError::from(e))?;
 
-    let mut events = load_federation_state_events(&ctx, &room_id, query.event_id.as_deref()).await.map_err(|e| ApiError::from(e))?;
+    let mut events =
+        load_federation_state_events(&ctx, &room_id, query.event_id.as_deref()).await.map_err(|e| ApiError::from(e))?;
     let (pdus, auth_chain) = build_federation_state_payload(&ctx.server_name, &mut events);
 
     Ok(Json(json!({
@@ -184,9 +203,12 @@ pub(super) async fn get_state_ids(
     Path(room_id): Path<RoomId>,
     Query(query): Query<FederationStateAtEventQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await.map_err(|e| ApiError::from(e))?;
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin)
+        .await
+        .map_err(|e| ApiError::from(e))?;
 
-    let mut events = load_federation_state_events(&ctx, &room_id, query.event_id.as_deref()).await.map_err(|e| ApiError::from(e))?;
+    let mut events =
+        load_federation_state_events(&ctx, &room_id, query.event_id.as_deref()).await.map_err(|e| ApiError::from(e))?;
     sort_state_events_stably(&mut events);
 
     let pdu_ids: Vec<String> = events.iter().map(|event| event.event_id.clone()).collect();
@@ -217,7 +239,9 @@ pub(super) async fn room_directory_query(
 
     if let Some(room) = room {
         if !room.is_public {
-            super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await.map_err(|e| ApiError::from(e))?;
+            super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin)
+                .await
+                .map_err(|e| ApiError::from(e))?;
         }
 
         return Ok(Json(json!({
@@ -328,7 +352,8 @@ pub(super) async fn get_public_rooms(
     let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(10).min(1000);
     let _since = params.get("since").cloned();
 
-    let rooms = ctx.room_service.state().get_public_rooms_paginated(limit, None, None).await.map_err(|e| ApiError::from(e))?;
+    let rooms =
+        ctx.room_service.state().get_public_rooms_paginated(limit, None, None).await.map_err(|e| ApiError::from(e))?;
 
     let total = ctx.room_service.state().count_public_rooms().await.map_err(|e| ApiError::from(e))?;
 
@@ -359,7 +384,8 @@ pub(super) async fn post_public_rooms(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(20).min(1000);
-    let rooms = ctx.room_service.state().get_public_rooms_paginated(limit, None, None).await.map_err(|e| ApiError::from(e))?;
+    let rooms =
+        ctx.room_service.state().get_public_rooms_paginated(limit, None, None).await.map_err(|e| ApiError::from(e))?;
 
     let total = ctx.room_service.state().count_public_rooms().await.map_err(|e| ApiError::from(e))?;
 
@@ -411,11 +437,14 @@ pub(super) async fn query_directory(
         .room_service
         .state()
         .get_room_record(&room_id)
-        .await.map_err(|e| ApiError::from(e))?
+        .await
+        .map_err(|e| ApiError::from(e))?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
     if !room.is_public {
-        super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await.map_err(|e| ApiError::from(e))?;
+        super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin)
+            .await
+            .map_err(|e| ApiError::from(e))?;
     }
 
     Ok(Json(json!({
@@ -453,7 +482,9 @@ pub(super) async fn timestamp_to_event(
         return Err(ApiError::bad_request("Invalid room_id format"));
     }
 
-    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await.map_err(|e| ApiError::from(e))?;
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin)
+        .await
+        .map_err(|e| ApiError::from(e))?;
 
     let timestamp = match params.get("ts") {
         Some(v) => {
@@ -472,10 +503,16 @@ pub(super) async fn timestamp_to_event(
         .room_service
         .state()
         .get_room_record(&room_id)
-        .await.map_err(|e| ApiError::from(e))?
+        .await
+        .map_err(|e| ApiError::from(e))?
         .ok_or_else(|| ApiError::not_found("Room not found"))?;
 
-    let event = ctx.room_service.messaging().find_event_by_timestamp(&room_id, timestamp, true).await.map_err(|e| ApiError::from(e))?;
+    let event = ctx
+        .room_service
+        .messaging()
+        .find_event_by_timestamp(&room_id, timestamp, true)
+        .await
+        .map_err(|e| ApiError::from(e))?;
 
     if let Some(evt) = event {
         let (event_id, ts) = evt;
@@ -506,15 +543,22 @@ pub(super) async fn get_room_hierarchy(
         .room_service
         .state()
         .get_room_record(&room_id)
-        .await.map_err(|e| ApiError::from(e))?
+        .await
+        .map_err(|e| ApiError::from(e))?
         .ok_or_else(|| ApiError::not_found("Room not found"))?;
 
     if !room.is_public {
-        super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await.map_err(|e| ApiError::from(e))?;
+        super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin)
+            .await
+            .map_err(|e| ApiError::from(e))?;
     }
 
-    let space =
-        ctx.space_service.get_space_by_room(&room_id).await.map_err(|e| ApiError::from(e))?.ok_or_else(|| ApiError::not_found("Space not found"))?;
+    let space = ctx
+        .space_service
+        .get_space_by_room(&room_id)
+        .await
+        .map_err(|e| ApiError::from(e))?
+        .ok_or_else(|| ApiError::not_found("Space not found"))?;
 
     let hierarchy = ctx
         .space_service
@@ -526,7 +570,8 @@ pub(super) async fn get_room_hierarchy(
             params.from.as_deref(),
             None,
         )
-        .await.map_err(|e| ApiError::from(e))?;
+        .await
+        .map_err(|e| ApiError::from(e))?;
 
     let response = serde_json::to_value(hierarchy)
         .map_err(|e| ApiError::internal_with_cause("Failed to serialize hierarchy response", e))?;
@@ -541,7 +586,9 @@ pub(super) async fn backfill(
     Path(room_id): Path<RoomId>,
     RawQuery(raw_query): RawQuery,
 ) -> Result<Json<Value>, ApiError> {
-    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await.map_err(|e| ApiError::from(e))?;
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin)
+        .await
+        .map_err(|e| ApiError::from(e))?;
 
     let (v, limit) = parse_backfill_query(raw_query)?;
 
@@ -560,8 +607,12 @@ pub(super) async fn backfill(
     }
 
     if backfill_before_ts == i64::MAX {
-        let recent_events =
-            ctx.room_service.messaging().get_room_events_paginated_admin(&room_id, None, 1, "b").await.map_err(|e| ApiError::from(e))?;
+        let recent_events = ctx
+            .room_service
+            .messaging()
+            .get_room_events_paginated_admin(&room_id, None, 1, "b")
+            .await
+            .map_err(|e| ApiError::from(e))?;
         if let Some(latest) = recent_events.first() {
             backfill_before_ts = latest.origin_server_ts;
         } else {
@@ -573,11 +624,16 @@ pub(super) async fn backfill(
         .room_service
         .messaging()
         .get_room_events_paginated_admin(&room_id, Some(backfill_before_ts), limit, "b")
-        .await.map_err(|e| ApiError::from(e))?;
+        .await
+        .map_err(|e| ApiError::from(e))?;
     sort_room_events_stably(&mut events);
 
-    let mut auth_events =
-        ctx.room_service.messaging().get_state_events_at_or_before(&room_id, backfill_before_ts).await.map_err(|e| ApiError::from(e))?;
+    let mut auth_events = ctx
+        .room_service
+        .messaging()
+        .get_state_events_at_or_before(&room_id, backfill_before_ts)
+        .await
+        .map_err(|e| ApiError::from(e))?;
     let (_, auth_chain) = build_federation_state_payload(&ctx.server_name, &mut auth_events);
 
     let mut pdus: Vec<Value> =
@@ -695,7 +751,12 @@ async fn get_room_event_in_room(
     room_id: &str,
     event_id: &str,
 ) -> Result<synapse_services::event::RoomEvent, ApiError> {
-    let event = ctx.room_service.messaging().get_event_record_in_room(room_id, event_id).await.map_err(|e| ApiError::from(e))?;
+    let event = ctx
+        .room_service
+        .messaging()
+        .get_event_record_in_room(room_id, event_id)
+        .await
+        .map_err(|e| ApiError::from(e))?;
 
     Ok(event)
 }
@@ -708,7 +769,11 @@ async fn load_federation_state_events(
     match event_id {
         Some(event_id) => {
             let event = get_room_event_in_room(ctx, room_id, event_id).await.map_err(|e| ApiError::from(e))?;
-            ctx.room_service.messaging().get_state_events_at_or_before(room_id, event.origin_server_ts).await.map_err(|e| ApiError::from(e))
+            ctx.room_service
+                .messaging()
+                .get_state_events_at_or_before(room_id, event.origin_server_ts)
+                .await
+                .map_err(|e| ApiError::from(e))
         }
         None => ctx.room_service.messaging().get_state_event_records(room_id).await.map_err(|e| ApiError::from(e)),
     }

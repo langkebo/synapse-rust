@@ -55,7 +55,8 @@ pub(crate) async fn make_join(
     let result: Result<Json<Value>, ApiError> = async {
         validate_federation_user_origin(&auth.origin, &user_id)?;
 
-        let auth_events = ctx.room_service.messaging().get_state_event_records(&room_id).await.map_err(|e| ApiError::from(e))?;
+        let auth_events =
+            ctx.room_service.messaging().get_state_event_records(&room_id).await.map_err(|e| ApiError::from(e))?;
 
         let auth_events_json: Vec<Value> = auth_events
             .iter()
@@ -313,7 +314,8 @@ pub(crate) async fn send_join_v2(
 
 async fn validate_federation_join_access(ctx: &FederationContext, room_id: &str, user_id: &str) -> ApiResult<()> {
     let join_rule = super::get_effective_room_join_rule(ctx, room_id).await.map_err(|e| ApiError::from(e))?;
-    let existing_member = ctx.room_service.membership().get_room_member_record(room_id, user_id).await.map_err(|e| ApiError::from(e))?;
+    let existing_member =
+        ctx.room_service.membership().get_room_member_record(room_id, user_id).await.map_err(|e| ApiError::from(e))?;
 
     if let Some(member) = existing_member.as_ref() {
         if member.membership == "join" {

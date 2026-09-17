@@ -257,19 +257,15 @@ fn homeserver_yaml_deserializes_into_config() {
 
     let root = repo_root();
     let yaml_path = root.join("docker/config/homeserver.yaml");
-    let yaml_text = fs::read_to_string(&yaml_path).unwrap_or_else(|e| {
-        panic!("docker/config/homeserver.yaml must be readable for serde round-trip test: {e}")
-    });
+    let yaml_text = fs::read_to_string(&yaml_path)
+        .unwrap_or_else(|e| panic!("docker/config/homeserver.yaml must be readable for serde round-trip test: {e}"));
 
-    let cfg: Config =
-        serde_yaml::from_str(&yaml_text).unwrap_or_else(|e| panic!("homeserver.yaml must deserialize into Config: {e}"));
+    let cfg: Config = serde_yaml::from_str(&yaml_text)
+        .unwrap_or_else(|e| panic!("homeserver.yaml must deserialize into Config: {e}"));
 
     // 基本 sanity 检查：确保反序列化产生了有意义的值
     assert!(!cfg.server.name.is_empty(), "server.name must be set");
-    assert_eq!(
-        cfg.database.max_size, 50,
-        "database.max_size should default to 50 (pool_size removed in H-1)"
-    );
+    assert_eq!(cfg.database.max_size, 50, "database.max_size should default to 50 (pool_size removed in H-1)");
 }
 
 /// Verify that the homeserver.yaml does NOT contain the deprecated `database.pool_size`
@@ -279,15 +275,12 @@ fn homeserver_yaml_deserializes_into_config() {
 #[test]
 fn homeserver_yaml_has_no_deprecated_pool_size() {
     let root = repo_root();
-    let yaml_text = fs::read_to_string(root.join("docker/config/homeserver.yaml"))
-        .expect("must read homeserver.yaml");
+    let yaml_text = fs::read_to_string(root.join("docker/config/homeserver.yaml")).expect("must read homeserver.yaml");
 
     // Check that database.pool_size specifically is absent.
     // We look for the pattern after "database:" section header
-    let db_section_start = yaml_text.find("\ndatabase:\n")
-        .expect("database section must exist");
-    let db_section_end = yaml_text.find("\nredis:\n")
-        .expect("redis section must exist");
+    let db_section_start = yaml_text.find("\ndatabase:\n").expect("database section must exist");
+    let db_section_end = yaml_text.find("\nredis:\n").expect("redis section must exist");
     let db_section = &yaml_text[db_section_start..db_section_end];
 
     assert!(
@@ -297,14 +290,9 @@ fn homeserver_yaml_has_no_deprecated_pool_size() {
 
     // Verify redis.pool_size is still present (it's a valid field,
     // indented under the redis section header)
-    let redis_section = yaml_text.find("\nredis:\n")
-        .expect("redis section must exist");
+    let redis_section = yaml_text.find("\nredis:\n").expect("redis section must exist");
     assert!(
-        &yaml_text[redis_section..]
-            .split('\n')
-            .take(20)
-            .collect::<String>()
-            .contains("pool_size:"),
+        &yaml_text[redis_section..].split('\n').take(20).collect::<String>().contains("pool_size:"),
         "redis.pool_size should still exist (valid Redis pool config)"
     );
 }

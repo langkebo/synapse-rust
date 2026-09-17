@@ -299,8 +299,12 @@ pub async fn get_rooms(
         _ => return Err(ApiError::bad_request("Cursor does not match requested order_by".to_string())),
     }
 
-    let (rooms_with_members, next_batch) =
-        ctx.room_service.state().get_all_rooms_with_members(limit, cursor, order).await.map_err(|e| ApiError::from(e))?;
+    let (rooms_with_members, next_batch) = ctx
+        .room_service
+        .state()
+        .get_all_rooms_with_members(limit, cursor, order)
+        .await
+        .map_err(|e| ApiError::from(e))?;
 
     let total = ctx.room_service.state().get_room_count().await.map_err(|e| ApiError::from(e))?;
 
@@ -338,8 +342,12 @@ pub async fn get_room(
     match room {
         Some(r) => {
             // Derive tombstone state from the m.room.tombstone state event.
-            let tombstone_events =
-                ctx.room_service.messaging().get_state_events_by_type(&room_id, "m.room.tombstone").await.map_err(|e| ApiError::from(e))?;
+            let tombstone_events = ctx
+                .room_service
+                .messaging()
+                .get_state_events_by_type(&room_id, "m.room.tombstone")
+                .await
+                .map_err(|e| ApiError::from(e))?;
             let tombstone_content = tombstone_events.first().and_then(|e| e.get("content"));
             let tombstoned = tombstone_content.is_some();
             let replacement_room = tombstone_content
@@ -399,9 +407,15 @@ pub async fn get_room_members_admin(
         .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
     let from = params.get("from").map(|s| s.as_str());
 
-    let members = ctx.room_service.membership().get_room_members_paginated_admin(&room_id, "join", limit, from).await.map_err(|e| ApiError::from(e))?;
+    let members = ctx
+        .room_service
+        .membership()
+        .get_room_members_paginated_admin(&room_id, "join", limit, from)
+        .await
+        .map_err(|e| ApiError::from(e))?;
 
-    let total = ctx.room_service.membership().get_room_member_count_admin(&room_id).await.map_err(|e| ApiError::from(e))?;
+    let total =
+        ctx.room_service.membership().get_room_member_count_admin(&room_id).await.map_err(|e| ApiError::from(e))?;
 
     let member_list: Vec<Value> = members
         .iter()
@@ -473,7 +487,12 @@ pub async fn get_room_messages_admin(
     let from = params.get("from").and_then(|v| v.parse::<i64>().ok());
     let dir = params.get("dir").map_or("b", |s| s.as_str());
 
-    let events = ctx.room_service.messaging().get_room_events_paginated_admin(&room_id, from, limit, dir).await.map_err(|e| ApiError::from(e))?;
+    let events = ctx
+        .room_service
+        .messaging()
+        .get_room_events_paginated_admin(&room_id, from, limit, dir)
+        .await
+        .map_err(|e| ApiError::from(e))?;
 
     let messages: Vec<Value> = events
         .iter()
@@ -538,7 +557,13 @@ pub async fn get_event_context_admin(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    Ok(Json(ctx.room_service.messaging().get_event_context_admin(&room_id, &event_id, 5).await.map_err(|e| ApiError::from(e))?))
+    Ok(Json(
+        ctx.room_service
+            .messaging()
+            .get_event_context_admin(&room_id, &event_id, 5)
+            .await
+            .map_err(|e| ApiError::from(e))?,
+    ))
 }
 
 /// See [`get_room_token_sync_admin`].
@@ -564,7 +589,8 @@ pub async fn get_room_token_sync_admin(
         ));
     }
 
-    let (entries, total) = ctx.sliding_sync_service.get_room_token_sync(&room_id, limit, cursor).await.map_err(|e| ApiError::from(e))?;
+    let (entries, total) =
+        ctx.sliding_sync_service.get_room_token_sync(&room_id, limit, cursor).await.map_err(|e| ApiError::from(e))?;
 
     let has_more = entries.len() as i64 > limit;
     let visible_entries = if has_more { &entries[..limit as usize] } else { &entries[..] };
@@ -647,7 +673,12 @@ pub async fn search_room_messages_admin(
     let limit = body.limit.unwrap_or(50).min(200) as i64;
     let search_pattern = format!("%{}%", body.search_term.to_lowercase());
 
-    let events = ctx.room_service.messaging().search_room_messages_admin(&room_id, &search_pattern, limit).await.map_err(|e| ApiError::from(e))?;
+    let events = ctx
+        .room_service
+        .messaging()
+        .search_room_messages_admin(&room_id, &search_pattern, limit)
+        .await
+        .map_err(|e| ApiError::from(e))?;
 
     let results: Vec<Value> = events
         .iter()
@@ -696,7 +727,8 @@ pub async fn get_room_forward_extremities(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let count = ctx.room_service.messaging().get_forward_extremities_count(&room_id).await.map_err(|e| ApiError::from(e))?;
+    let count =
+        ctx.room_service.messaging().get_forward_extremities_count(&room_id).await.map_err(|e| ApiError::from(e))?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -750,7 +782,8 @@ async fn search_all_rooms_impl(ctx: &AdminContext, body: SearchAllRoomsRequest) 
         .room_service
         .state()
         .search_all_rooms_admin(body.search_term.as_deref(), limit, order, cursor, body.is_public, body.is_encrypted)
-        .await.map_err(|e| ApiError::from(e))?;
+        .await
+        .map_err(|e| ApiError::from(e))?;
 
     Ok(Json(json!({
         "results": results,

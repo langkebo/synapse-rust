@@ -255,12 +255,12 @@ pub mod test_config;
 pub mod test_utils;
 
 // Pre-positioned Mock adapters (TDD workflow — see .claude/skills/tdd-rust/SKILL.md)
-/// The `test_mocks` module.
-#[cfg(any(test, feature = "test-utils"))]
-pub mod test_mocks;
 /// One-way error-conversion golden tests (B3-5 / A9).
 #[cfg(any(test, feature = "test-utils"))]
 pub mod error_conversion_tests;
+/// The `test_mocks` module.
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_mocks;
 
 // Internal bridge imports of sibling crates.
 //

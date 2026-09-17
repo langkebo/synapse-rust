@@ -47,10 +47,7 @@ fn extract_registered_mods() -> HashSet<String> {
         if trimmed.starts_with("#") {
             continue;
         }
-        if let Some(cap) = regex::Regex::new(r"^\s*mod\s+([a-zA-Z0-9_]+)\s*[;{]")
-            .unwrap()
-            .captures(trimmed)
-        {
+        if let Some(cap) = regex::Regex::new(r"^\s*mod\s+([a-zA-Z0-9_]+)\s*[;{]").unwrap().captures(trimmed) {
             names.insert(cap[1].to_string());
         }
     }
@@ -82,11 +79,8 @@ fn test_no_orphan_mod_entries() {
 
     // common、fixtures、snapshots 是目录，不需要 .rs 文件
     let special_entries: HashSet<&str> = ["common", "fixtures", "snapshots"].iter().cloned().collect();
-    let mut orphan: Vec<String> = registered
-        .difference(&files)
-        .filter(|name| !special_entries.contains(name.as_str()))
-        .cloned()
-        .collect();
+    let mut orphan: Vec<String> =
+        registered.difference(&files).filter(|name| !special_entries.contains(name.as_str())).cloned().collect();
     orphan.sort();
 
     if !orphan.is_empty() {
@@ -105,15 +99,7 @@ fn test_no_duplicate_fixture_names() {
     let fixture_path = format!("{}/fixtures", TESTS_UNIT_DIR);
     let fixture_dir = Path::new(&fixture_path);
     let fixture_names: HashSet<String> = if let Ok(entries) = std::fs::read_dir(fixture_dir) {
-        entries
-            .flatten()
-            .filter_map(|e| {
-                e.path()
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .map(|s| s.to_string())
-            })
-            .collect()
+        entries.flatten().filter_map(|e| e.path().file_stem().and_then(|s| s.to_str()).map(|s| s.to_string())).collect()
     } else {
         HashSet::new()
     };

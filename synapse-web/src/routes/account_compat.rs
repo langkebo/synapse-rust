@@ -667,9 +667,7 @@ pub(crate) async fn delete_threepid(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
 
-    ctx.account_identity_service
-        .remove_threepid(user_id, &body.medium, &body.address)
-        .await?;
+    ctx.account_identity_service.remove_threepid(user_id, &body.medium, &body.address).await?;
 
     Ok(Json(json!({})))
 }
@@ -698,9 +696,7 @@ pub(crate) async fn unbind_threepid(
         }
     }
 
-    ctx.account_identity_service
-        .remove_threepid(user_id, &body.medium, &body.address)
-        .await?;
+    ctx.account_identity_service.remove_threepid(user_id, &body.medium, &body.address).await?;
 
     Ok(Json(json!({})))
 }

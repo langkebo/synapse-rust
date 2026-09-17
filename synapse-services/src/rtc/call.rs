@@ -131,11 +131,7 @@ impl CallOrchestrationService {
         content: CallInviteEvent,
     ) -> Result<CallSession, RtcError> {
         // 检查是否已存在会话
-        if let Some(existing) = self
-            .storage
-            .get_session(&content.call_id, room_id)
-            .await?
-        {
+        if let Some(existing) = self.storage.get_session(&content.call_id, room_id).await? {
             if existing.state != "ended" {
                 return Err(RtcError::SessionAlreadyExists);
             }
@@ -213,9 +209,7 @@ impl CallOrchestrationService {
         }
 
         // 更新会话状态
-        self.storage
-            .set_answer(&content.call_id, room_id, &content.answer.sdp)
-            .await?;
+        self.storage.set_answer(&content.call_id, room_id, &content.answer.sdp).await?;
 
         // 返回更新后的会话
         self.storage

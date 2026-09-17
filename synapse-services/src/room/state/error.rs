@@ -39,9 +39,7 @@ pub enum RoomStateError {
 impl From<RoomStateError> for ApiError {
     fn from(e: RoomStateError) -> Self {
         match e {
-            RoomStateError::Database(source) => {
-                ApiError::database_with_cause("room state database error", source)
-            }
+            RoomStateError::Database(source) => ApiError::database_with_cause("room state database error", source),
             RoomStateError::NotFound(msg) => ApiError::not_found(msg),
             RoomStateError::AlreadyExists(msg) => ApiError::conflict(msg),
             RoomStateError::NotAuthorized(msg) => ApiError::forbidden(msg),
