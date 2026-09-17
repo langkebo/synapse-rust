@@ -102,8 +102,10 @@ fn all_derived_rows() -> Vec<DerivedRoute> {
 /// by `(path, method, registered_by)` for byte-stable diffs.
 pub fn derived_route_manifest(flags: &ProfileFlags) -> Vec<RouteEntry> {
     let max_rank = rank_for_flags(flags);
-    let mut best: std::collections::HashMap<(String, String), RouteProfile> = std::collections::HashMap::new();
-    let mut kept: std::collections::HashMap<(String, String), RouteEntry> = std::collections::HashMap::new();
+    let mut best: std::collections::HashMap<(String, String), RouteProfile> =
+        std::collections::HashMap::new();
+    let mut kept: std::collections::HashMap<(String, String), RouteEntry> =
+        std::collections::HashMap::new();
     for DerivedRoute { entry, rank } in all_derived_rows() {
         if rank > max_rank {
             continue;
@@ -122,7 +124,9 @@ pub fn derived_route_manifest(flags: &ProfileFlags) -> Vec<RouteEntry> {
         a.path
             .cmp(b.path)
             .then_with(|| a.method.as_str().cmp(b.method.as_str()))
-            .then_with(|| a.registered_by.cmp(b.registered_by))
+            .then_with(|| {
+                a.registered_by.cmp(b.registered_by)
+            })
     });
     out
 }
@@ -143,8 +147,8 @@ mod derived_manifest_tests {
         ($profile:ident, $fixture:expr) => {
             let flags = match stringify!($profile) {
                 "DEFAULT" => PFlags { oidc_enabled: false, worker_enabled: false, saml_enabled: false },
-                "WORKER" => PFlags { oidc_enabled: false, worker_enabled: true, saml_enabled: false },
-                "ALL" => PFlags { oidc_enabled: true, worker_enabled: true, saml_enabled: false },
+                "WORKER"  => PFlags { oidc_enabled: false, worker_enabled: true, saml_enabled: false },
+                "ALL"     => PFlags { oidc_enabled: true, worker_enabled: true, saml_enabled: false },
                 _ => unreachable!(),
             };
             let got = derived_route_manifest(&flags);
