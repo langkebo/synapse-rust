@@ -50,6 +50,18 @@ PUB_ITEM_RE = re.compile(
 DOC_LINE_RE = re.compile(r"^\s*///")
 DOC_BLOCK_OPEN_RE = re.compile(r"^\s*/\*\*")
 
+# B6-1：内容型（content-type）模板注释判据。
+# 一条 /// doc 块里若**全部**行命中下列模式，视为"零信息"注释：
+#   - `See [`x`].` 自指引用
+#   - `Represents X.` / `The `y` module.` / `The `y` field.`
+#   - 空注释（只有空格）
+# 单独出现不违规（可有多行，第一行可能是真实说明）；
+# 只要块里**至少一行**是实际信息（不匹配 SELF_REF/TEMPLATE 模式），整块通过。
+SELF_REF_DOC_RE = re.compile(r"^\s*///\s*See\s+\[`?[a-zA-Z0-9_:<>& ]*`?\]\s*[.。]*\s*$")
+TEMPLATE_DOC_RE = re.compile(
+    r"^\s*///\s*(The\s+`[a-zA-Z0-9_]+`\s+(?:module|field|type|struct|enum|trait|constant|static)\s*\.?|Represents\s+[A-Z]\w*\s*\.?)"
+)
+
 
 @dataclass
 class Violation:
@@ -85,10 +97,21 @@ def check_pub_has_doc(file: Path, pub_line: int, lines: list[str]) -> str | None
         # 空行、属性行（#[...]）、模块级属性（#![...]）允许穿过
         if not line.strip() or line.lstrip().startswith("#"):
             continue
-        # pub fn 前是另一段代码（不是 doc）—— 失败
-        # 但要注意 `pub fn` 上面可能紧跟 `///` 注释块（多行 doc）
+        # B6-1：内容型检测 —— 收集该 doc 块所有行的判据
         if DOC_LINE_RE.match(line):
-            return None
+            # 收集完整 doc 块
+            doc_block: list[str] = []
+            cursor = prev
+            while cursor >= 0 and DOC_LINE_RE.match(lines[cursor]):
+                doc_block.insert(0, lines[cursor])
+                cursor -= 1
+            # 若整块全是自指/模板注释，则违规
+            for dl in doc_block:
+                if SELF_REF_DOC_RE.match(dl) or TEMPLATE_DOC_RE.match(dl):
+                    continue
+                # 至少有一行实际内容 -> 通过
+                return None
+            return f"zero-info doc block above line {pub_line + 1} (self-ref/template only: {doc_block[0].strip()[:80]!r})"
         if DOC_BLOCK_OPEN_RE.match(line):
             return None
         # 找到非 doc、非属性、非空行 —— 上方没有 doc
