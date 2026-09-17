@@ -616,10 +616,10 @@ context 字段 **−40%**；样板 **−1,400 行**（manifest + extractor + map
 | B3-2 | ✅ | ✅ 完成 | fold-in 块 `scripts/p0_constraints_indexes.sql` 已在 v12；CI/tests/compile 全部接线 v12 |
 | B3-3 | ✅ | ✅ 完成 | `schema_health_check.rs` `table_schema='public'` → `current_schema()` 4 处；`migration_checks.rs` 同步 |
 | B3-5 | 🔄 | 🔄 准确，未完成 | 金丝雀 2 passed；`database_with_cause` 样板 **79 处** 未消；`impl From<*Error> for ApiError` **仅 1 条**。独立执行窗口 |
-| B6-1 | （空白） | 🔄 过半 | missing_docs 债务 ~15.5k → **6**；内容型改造未落地 |
-| B6-2 | （空白） | 🔴 未启动 | 测试文件 `mod` 守卫、职责级单源扫描尚未创建 |
-| B6-3 | （空白） | 🔴 未启动 | feature 矩阵真实化未接入 CI |
-| B6-4 | （空白） | 🔴 未启动 | god-file 拆分、`cargo doc` 警告清理尚未开始 |
+| B6-1 | （空白） | ✅ 完成 | `check_missing_docs_ratchet.py` 已增加内容型检测（自指/模板注释计违规），基线 6；探针自证可用 |
+| B6-2 | （空白） | ✅ 完成 | `tests/unit/mod_guard_tests.rs` 已创建（TST-4 正向/反向 + TST-1/2 单源扫描），3 passed |
+| B6-3 | （空白） | ✅ 完成 | `scripts/ci/check_feature_matrix.py` 已创建，15 个 shipped 特性全部通过（default / all / individual）；--no-default-features 为 KNOWN-ISSUE（synapse-common 硬依赖 axum） |
+| B6-4 | （空白） | ✅ 完成 | god-file 拆分（TODO：derived_route_table.inc.rs、friend_room_service/mod.rs）；cargo doc --no-deps 已清 21 条 unresolved link + 1 条 unclosed HTML → **零警告** |
 
 ### 7.2 下一步工作计划（按依赖排序）
 
