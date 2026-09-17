@@ -10,7 +10,7 @@
 //!   POST /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}
 //!   { "action": "send" | "cancel" | "restart" }
 //!
-//! See: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
+//! See: <https://github.com/matrix-org/matrix-spec-proposals/pull/4140>
 
 use crate::routes::context::AdminContext;
 use crate::routes::extractors::AuthenticatedUser;

@@ -2,8 +2,8 @@
 //!
 //! HTTP handler functions for `/versions`, `/capabilities`, `.well-known`,
 //! and server-version endpoints. Domain logic lives in
-//! [`CapabilityGovernance`](synapse_services::CapabilityGovernance); this
-//! module is a thin adapter that collects route-surface manifests and
+//! `CapabilityGovernance` (from `synapse_services::capability_governance`);
+//! this module is a thin adapter that collects route-surface manifests and
 //! delegates.
 
 use crate::routes::context::AuthContext;

@@ -1,15 +1,15 @@
-//! Explicit registry of the HTTP routes the assembled Axum [`Router`] is
+//! Explicit registry of the HTTP routes the assembled Axum [`axum::Router`] is
 //! supposed to expose.
 //!
 //! ## Why this exists
 //!
 //! `axum::Router` does not offer a public way to walk the routes it has been
 //! configured with. That has historically let silent-merge bugs slip through
-//! in this codebase — most notably the `key_backup` regression documented
-//! in [`docs/synapse-rust/SPEC_ALIGNMENT_PLAN_2026-05-01.md`] (see §1.1 and
-//! items R4 / O2). Two routers registered overlapping `(method, path)`
-//! tuples, `Router::merge` let the first wins through, and the breakage was
-//! only visible from an Element-side 405.
+//! in this codebase — most notably the `key_backup` regression documented in
+//! the SPEC_ALIGNMENT_PLAN doc (see §1.1 and items R4 / O2). Two routers
+//! registered overlapping `(method, path)` tuples, `Router::merge` let the
+//! first wins through, and the breakage was only visible from an Element-side
+//! 405.
 //!
 //! Upstream Python synapse avoids this class of bug because every REST
 //! servlet module registers itself through `register_servlets(hs, http_server)`
@@ -23,16 +23,16 @@
 //! manifest can no longer drift away from the router it describes.
 //! `assembly::declared_ledger_for(&AppState)` filters that table by the runtime
 //! [`ProfileFlags`](crate::routes::route_module::ProfileFlags) before
-//! `create_router` calls [`RouteLedger::validate`]. Duplicates (same method +
+//! `create_router` calls the validate method on this ledger. Duplicates (same
+//! method +
 //! same path, from any combination of routers) abort startup with a diagnostic
 //! that lists every offending entry. The final count is logged as
 //! `route manifest validated: N declared (method, path) tuples, 0 duplicates`,
 //! satisfying the [§6 verification] requirement.
 //!
-//! The manifest is *also* the source of truth for
-//! [`tests/integration/api_route_ledger_tests.rs`]: that test PATCH-probes
-//! every declared entry against the assembled router and asserts a 405 with
-//! the expected method in the `Allow` header. That catches the reverse
+//! The manifest is *also* the source of truth for the integration tests that
+//! PATCH-probe every declared entry against the assembled router and assert a
+//! 405 with the expected method in the `Allow` header. That catches the reverse
 //! drift — a manifest entry that no longer has a real route behind it.
 //!
 //! ## Contributor rule
@@ -92,18 +92,18 @@ pub struct RouteEntry {
 }
 
 impl RouteEntry {
-    /// See [`new`].
+    /// Creates a new [`RouteEntry`] instance.
     pub const fn new(method: Method, path: &'static str, registered_by: &'static str) -> Self {
         Self { method, path, registered_by, query_params: &[], auth: None, rate_limit_exempt: false }
     }
 
-    /// See [`with_auth`].
+    /// Builder method to set the [`auth`](Self::auth) field.
     pub const fn with_auth(mut self, auth: &'static str) -> Self {
         self.auth = Some(auth);
         self
     }
 
-    /// See [`with_query_params`].
+    /// Builder method to set query parameter metadata.
     pub const fn with_query_params(mut self, query_params: &'static [&'static str]) -> Self {
         self.query_params = query_params;
         self
@@ -165,7 +165,7 @@ pub struct RegisteredByCount {
 }
 
 impl RouteLedger {
-    /// See [`new`].
+    /// Creates a new [`RouteLedger`] instance.
     pub fn new() -> Self {
         Self::default()
     }
@@ -178,7 +178,7 @@ impl RouteLedger {
         self.entries.extend(entries);
     }
 
-    /// See [`iter`].
+    /// Return an iterator over the route entries.
     pub fn iter(&self) -> impl Iterator<Item = &RouteEntry> {
         self.entries.iter()
     }
@@ -189,12 +189,12 @@ impl RouteLedger {
         &self.entries
     }
 
-    /// See [`len`].
+    /// Return the number of route entries.
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
-    /// See [`is_empty`].
+    /// Return whether the ledger has no route entries.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
@@ -250,7 +250,7 @@ impl RouteLedger {
     }
 }
 
-/// Summary of a successful [`RouteLedger::validate`] call.
+/// Summary of a successful RouteLedger::validate call.
 #[derive(Debug, Clone, Copy)]
 pub struct LedgerReport {
     /// Number of distinct `(method, path)` tuples — equal to the total

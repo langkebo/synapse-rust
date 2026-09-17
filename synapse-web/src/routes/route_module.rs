@@ -77,7 +77,7 @@ impl ProfileFlags {
 /// regenerate `derived_routes.rs` (`scripts/contract/gen_derived_routes.py`)
 /// so the contract gate stays green.
 pub trait RouteModule: Send + Sync {
-    /// See [`merge_into`].
+    /// Merge this module's routes into the given router.
     fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState>;
 }
 

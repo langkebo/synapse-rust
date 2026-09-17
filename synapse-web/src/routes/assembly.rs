@@ -13,7 +13,7 @@ use serde_json::json;
 use tower_http::compression::{predicate::SizeAbove, CompressionLayer};
 
 /// Manifest of every `(method, absolute_path)` tuple the assembled top-level
-/// [`Router`] exposes.
+/// [`axum::Router`] exposes.
 ///
 /// This is the substitute for the axum route-walker API we don't have — see
 /// R4 / O2 in `docs/synapse-rust/SPEC_ALIGNMENT_PLAN_2026-05-01.md`. It is
@@ -324,6 +324,13 @@ fn create_auth_compat_router() -> Router<AppState> {
         .route("/logout", post(logout))
         .route("/logout/all", post(logout_all))
         .route("/refresh", post(refresh_token))
+        // Matrix spec: GET /_matrix/client/v3/auth/{authType}/fallback/web
+        // returns an HTML page for clients that cannot handle a given
+        // auth stage natively (Client-Server API §3.3.4).
+        .route(
+            "/auth/:auth_type/fallback/web",
+            get(auth_fallback_web),
+        )
 }
 
 fn create_auth_router() -> Router<AppState> {

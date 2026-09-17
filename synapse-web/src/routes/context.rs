@@ -287,7 +287,7 @@ impl FromRef<AppState> for SyncContext {
 }
 
 impl SyncContext {
-    /// See [`sync_rate_limit_override`].
+    /// See [`crate::routes::state::SyncRateLimitOverride`].
     pub fn sync_rate_limit_override(&self) -> Option<crate::routes::state::SyncRateLimitOverride> {
         self.rate_limit_config_manager.as_ref().map(|manager| {
             let config = manager.get_config();

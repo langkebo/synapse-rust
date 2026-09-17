@@ -16,7 +16,7 @@ pub struct CsrfTokenManager {
 }
 
 impl CsrfTokenManager {
-    /// See [`new`].
+    /// Creates a new [`CsrfTokenManager`] instance.
     pub fn new(secret: String) -> Self {
         Self { secret, token_ttl: std::time::Duration::from_secs(ADMIN_TOKEN_TTL_SECS) }
     }
@@ -39,7 +39,7 @@ impl CsrfTokenManager {
         Some(format!("{payload}:{signature}"))
     }
 
-    /// See [`validate_token`].
+    /// Validates a CSRF token against a session ID.
     pub fn validate_token(&self, token: &str, session_id: &str) -> bool {
         let parts: Vec<&str> = token.split(':').collect();
         if parts.len() != 3 {

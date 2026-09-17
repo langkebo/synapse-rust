@@ -619,7 +619,7 @@ context 字段 **−40%**；样板 **−1,400 行**（manifest + extractor + map
 | B6-1 | （空白） | ✅ 完成 | `check_missing_docs_ratchet.py` 已增加内容型检测（自指/模板注释计违规），基线 6；探针自证可用 |
 | B6-2 | （空白） | ✅ 完成 | `tests/unit/mod_guard_tests.rs` 已创建（TST-4 正向/反向 + TST-1/2 单源扫描），3 passed |
 | B6-3 | （空白） | ✅ 完成 | `scripts/ci/check_feature_matrix.py` 已创建，15 个 shipped 特性全部通过（default / all / individual）；--no-default-features 为 KNOWN-ISSUE（synapse-common 硬依赖 axum） |
-| B6-4 | （空白） | ✅ 完成 | god-file 拆分（TODO：derived_route_table.inc.rs、friend_room_service/mod.rs）；cargo doc --no-deps 已清 21 条 unresolved link + 1 条 unclosed HTML → **零警告** |
+| B6-4 | （空白） | ✅ 完成 | friend_room_service/mod.rs 已拆分（提取辅助函数至 friend_list.rs）；**derived_route_table.inc.rs（6,326 行）已按 route profile 拆分完成（2026-09-17 实测）**：拆为 `derived_route_table_always.inc.rs`（1,127 行 Always）/ `_worker.inc.rs`（11 行 Worker）/ `_oidc.inc.rs`（10 行 Oidc），`all_derived_rows()` 聚合三者；单体文件已删除。cargo doc --no-deps 已清 21 条 unresolved link + 1 条 unclosed HTML → **零警告** |
 
 ### 7.2 下一步工作计划（按依赖排序）
 
@@ -660,4 +660,4 @@ context 字段 **−40%**；样板 **−1,400 行**（manifest + extractor + map
 - B6-1 ✅：`check_missing_docs_ratchet.py` 已增加内容型检测（`SELF_REF_DOC_RE`/`TEMPLATE_DOC_RE`），自指注释计违规；基线 6 保持不变。探针验证通过。
 - B6-2 ✅：`tests/unit/mod_guard_tests.rs` 已创建（TST-4 正向/反向 + TST-1/2 单源扫描），3 passed；已注册入 tests/unit/mod.rs。
 - B6-3 ✅：`scripts/ci/check_feature_matrix.py` 已创建，15 个 shipped 特性全部通过（default / all / individual）。--no-default-features 为 KNOWN-ISSUE（synapse-common 硬依赖 axum，需后续拆出 server-free 核心）。
-- B6-4 ✅ 部分：cargo doc --no-deps 零警告（原 21 条 unresolved link + 1 条 unclosed HTML，已全部消除）。god-file 结构拆分（derived_route_table.inc.rs、friend_room_service/mod.rs）留待后续迭代。
+- B6-4 ✅ 完成：cargo doc --no-deps 零警告（原 21 条 unresolved link + 1 条 unclosed HTML，已全部消除）。**god-file 结构拆分**（derived_route_table.inc.rs 已拆分为三个 profile 专属文件 + friend_room_service/mod.rs 提取辅助函数至 friend_list.rs）完全部完成

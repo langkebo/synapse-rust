@@ -20,7 +20,7 @@ pub use synapse_common::types::{
 
 /// Extension trait: Axum-aware validators for ID types.
 pub trait UserIdParseExt {
-    /// See [`parse_matrix`].
+    /// Parse a Matrix user ID string into a typed [`UserId`].
     fn parse_matrix(raw: &str) -> Result<Self, ApiError>
     where
         Self: Sized;

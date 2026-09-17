@@ -1,9 +1,9 @@
 //! Per-origin federation rate limiting.
 //!
-//! Unlike the generic IP-based [`rate_limit_middleware`](super::rate_limit::rate_limit_middleware),
-//! this middleware keys on the authenticated Matrix `origin` (extracted from
-//! the `Authorization: X-Matrix` header by [`federation_auth_middleware`]).
-//! This provides meaningful per-server rate limiting for federation traffic.
+//! Unlike the generic IP-based rate limit middleware, this middleware keys on
+//! the authenticated Matrix `origin` (extracted from the `Authorization:
+//! X-Matrix` header by [`federation_auth_middleware`]). This provides meaningful
+//! per-server rate limiting for federation traffic.
 //!
 //! The middleware must be layered **after** `federation_auth_middleware` so
 //! that the `FederationRequestAuth` extension is available.

@@ -65,7 +65,8 @@ database:
   username: "${DB_USER:-synapse}"
   password: "${DB_PASSWORD:?DB_PASSWORD is required}"
   name: "${DB_NAME:-synapse}"
-  pool_size: 20
+  # Note: pool_size field removed (2026-09-17, H-1). It was a false knob
+  # — actual upper bound is max_size (default 50). See DB_REVIEW_2026-09-17.md §1.
   max_size: 50
   min_idle: 10
   connection_timeout: 60

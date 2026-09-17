@@ -589,7 +589,7 @@ async fn handle_signing_key_update_edu(
 pub struct EduDispatcher;
 
 impl EduDispatcher {
-    /// See [`dispatch`].
+    /// Dispatches an EDU to the appropriate handler.
     pub async fn dispatch(
         ctx: &FederationContext,
         origin: &str,

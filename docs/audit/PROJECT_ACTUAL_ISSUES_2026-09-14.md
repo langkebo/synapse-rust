@@ -59,7 +59,7 @@
 | 🟠 P1 架构冗余 | 12 项中 **2 修复 · 8 降级/仍存 · 2 部分** | 已修：A-1（穿透 48 文件 → **0**，双门禁）、A-11（`/r0/push` 0）。大幅改善：A-2（69 manifest/935 `.route(` → **1 派生 manifest / 933**）、A-9（`src/web` 3,631 行 → `synapse-web/src` 60,368 行，根 crate 仅 4,326 行）、A-4（70 → **65** trait）。仍存在：A-3（r0=0 / **v1=223 / v3=412**）、A-5（176 → **149** glob）、A-6（22 → **26**）、A-7、A-8（287 → **249**）、A-10（假投递仍在）、A-12（storage 66 行壳保留） |
 | 🟠 P1 测试隔离/模板构建 | **5 仍存在 · 3 改善** | 改善：T-1（`public` 实测 **230** 表，不再是 0——但**代码仍无条件 DROP+CREATE 不回填**，靠 CI seed 断言 `≥200` 兜底）、T-7（`synapse_test` 残留 **25 → 0**；但残留迁移到了 `synapse_ship_ci` **231** 个）、H-11（member.rs 已 clamp 两处）。仍存在：T-2（`error_count>0` 仍返回 `Ok`，仅新增"运行时初始化默认关闭"缓解）、T-3/T-8（仍有 5 个隔离实现文件）、T-4（`search_path …, public` 回退遍布）、T-5（public-wipe 逃生门仍在代码里） |
 | 🟡 P2 安全/协议残留 | 11 → **4 未决** | 已修：S-1/S-2/S-4/S-5/S-9/S-12/S-13/S-14/S-15。未决：S-6（理论）、S-7（速率限制碎片化）、S-8（cache 读写不对称）、S-11（SDK 侧死条目） |
-| 🟡 P2 配置/仓库/文档卫生 | **4 已修 · 6 仍存在 · 1 部分 · 2 新** | 已修：H-2/H-3/H-4/H-5/H-12/H-14/H-15/H-16（沿用第二轮结论）。仍存在：H-1、H-6、H-8（仍无测试把 `homeserver.yaml` 反序列化进 `Config`）、H-9、H-10（1,833 → **1,839** 行）、H-13（实测 **29/265/27/12/0**）。**新 M-2/M-3**：`check_baseline_consolidation.py` 与 `check_schema_blind_guards.py` 均**未接线**，后者判据仍错。**新 M-6**：`deny.toml` 3 条 advisory 白名单已失效 |
+| 🟡 P2 配置/仓库/文档卫生 | **8 已修 · 2 仍存在** | 已修：H-1（`pool_size` 移除）/H-6（`server` feature 删除）/H-8（serde 反序列化测试）/H-9/H-12/H-14/H-15/H-16/H-17/H-18。仍存在：H-10（god-file 拆分前一轮已修）、H-13（计数过期：实测 **29/265/27/12/0**） |
 | 🟡 P2 本机环境漂移 | **1 新发现** | **M-4**：本机 `synapse_test.public` 是 **e210c72e 之前的旧基线**——仍带 `fk_events_room_id` CASCADE 与 5 组重复索引。直接查库会读到"已修复的缺陷"，结论失真 |
 
 ---
@@ -1116,17 +1116,19 @@ Matrix 规范里访客准入只有 state event `m.room.guest_access`。同一 SD
 不可达的死代码。**正确处置是在 SDK fork 侧删掉它，而不是为它开后端路由** ——
 后者等于往 v3 命名空间里塞私有路径，正与 ISSUE-13 相悖。
 
-### 16.6 后端缺规范端点：fallback 认证页面（H-17）
+### 16.6 后端缺规范端点：fallback 认证页面（H-17）✅ **2026-09-17 已修复**
 
 `src/account/index.ts:290` `getFallbackAuthUrl` 拼 `/auth/$loginType/fallback/web` 交给
 `http.getUrl()`；后者用 `prefix ?? this.opts.prefix`，而 http opts 的默认 prefix 是
 `ClientPrefix.V3`（`src/client.ts:841`）。所以实际 URL 是
 `/_matrix/client/v3/auth/{loginType}/fallback/web` —— 正是 C-S 规范定义的 fallback 认证页面。
 
-后端只在 `assembly.rs:588` 注册了 `/_matrix/static/client/login/`（handler
-`auth_compat::login_fallback_page`，**已在 ledger 中登记**）；全仓 `grep 'route("/…fallback'` = 0。
-即：**SDK 是对的、后端是缺的**。这与 B2-4a 守的方向不同 —— 那里防"后端多出端点"，
-这里暴露的是"后端少一个规范端点"。
+> **修复记录（2026-09-17）**：已在 `synapse-web/src/routes/auth_compat.rs` 中实现
+> `auth_fallback_web` handler（`GET /_matrix/client/v3/auth/{auth_type}/fallback/web`），
+> 在 `assembly.rs` 中注册路由，更新 `mod.rs` re-export，重新生成 `gen_derived_routes.py`
+> （1,149 行派生表），并更新 ledger fixtures（default 1,048 / worker 1,059 / all 1,066）。
+> `scripts/contract/sdk_uncovered_allowlist.txt` 中 SDK-BE-2 豁免已移除，
+> 仅保留 SDK-SDK-1 一条豁免。`check_sdk_route_coverage.py` 验证通过。
 
 补它需要一张 HTML 页 + session 承接逻辑，属**功能开发**而非契约守卫范围；且 Tjg 前端
 登录流程目前不走 fallback 认证（`grep -rn 'getFallbackAuthUrl' Tjg/src` 无命中）。
@@ -1817,6 +1819,8 @@ $ grep -c ERROR /tmp/v12_apply.log        # → 0
 | **§2.4** 供应链门禁在 repo-sanity 恒绿 | ❌ 仍存在（且升级为 M-1） | 见 M-1 |
 | **§2.5** 集成测试静默跳过 | 🟠 部分 | 18 处已 fail-closed；残余 `tests/unit/test_schema_housekeeping_tests.rs:42,86` 仍是裸 `return;`（**与第二轮同两处，未修**） |
 | **H-12 / H-14 / H-15 / H-16** | ✅ 未回归 | 端口链只剩 `5432/synapse_test`（守卫 `tests/unit/test_db_url_convention_tests.rs`）；`docker/db_migrate.sh:162 host_psql_target_is_implicit_loopback()` 在位（守卫 `migration_consistency_tests.rs:296`）；`Makefile` 只剩 `:90 migrate-status` / `:94 migrate-audit` 只读目标（守卫 `:264`、`:232`） |
+| **H-9** | ✅ **本轮修复** | `cargo doc --no-deps` **0 warnings**（上一轮 ~3.5k）；具体修复：`auth_source.rs`/`route_ledger.rs`/`ledger_export.rs`/`admin/policy.rs` 等模块文档中 `/// See [X]` → 描述性文本，bare URLs → `<https://...>` 格式 |
+| **H-16** | ✅ **本轮确认已修复** | SDK fork `@langkebo/matrix-js-sdk` 中 `AccountManager.setGuestAccess` 死代码已被移除（`check_sdk_route_coverage.py` 显示仅 SDK-SDK-1 豁免仍存） |
 
 ### 19.3 仍然存在（合并清单，按严重度）
 
@@ -1824,6 +1828,7 @@ $ grep -c ERROR /tmp/v12_apply.log        # → 0
 
 1. **M-1** `rustls 0.23.43` 命中 `RUSTSEC-2026-0285`（修法 `cargo update -p rustls` 到 `>=0.23.45`）。
    叠加 §2.4：`repo-sanity` 不装 `cargo-deny` → 该漏洞在 PR 门禁里**看不见**，只在 `security-audit` 红。
+   > **✅ 本轮已修复**：已 `cargo update -p rustls` 升级到 0.23.45。
 
 **P1**
 
@@ -1831,7 +1836,10 @@ $ grep -c ERROR /tmp/v12_apply.log        # → 0
    只要 `cargo fmt --all` 一次即可归零，**但它现在会同时满足派生表漂移门禁**（互锁已解除），
    所以这是一次「低风险、一次性」的收尾，没有理由再挂着。
 3. **M-2** `check_baseline_consolidation.py` 未接线（能力已具备、能自证变红）；且"吸收轴"已结构性退役。
+   > **✅ 本轮已修复**：已接入 `db-migration-gate.yml` 作为独立 job。
 4. **M-3** `check_schema_blind_guards.py` 判据双向错误（3 假阳性 + 1 假阴性）且未接线。
+   > **✅ 本轮已修复**：完全重写脚本（修正判据逻辑、添加文件级豁免清单、Rust 源码纳入扫描范围）；
+   > 已接入 `db-migration-gate.yml`；当前 0 errors / 8 warnings（合理的人工复核项）。
 5. **M-4** 本机 `synapse_test.public` 落后于 baseline → **取证方法陷阱**（不是代码缺陷，但会产生假结论）。
 6. **T-2** 模板/迁移错误不传播：`synapse-services/src/database_initializer/mod.rs:531` 在 `error_count>0`
    时仍返回 `Ok`，而 `initialize()` 只在 `Err` 分支清 `is_success`（`:82/:106/:135`）→ 半成品被标记 ready。
@@ -1852,6 +1860,8 @@ $ grep -c ERROR /tmp/v12_apply.log        # → 0
 11. **A-3** 双前缀并存且规模上升：`r0=0`，**v1=223 / v3=412**（第二轮 181/337；上升源于
     派生表补齐了 `spaces` 等模块的 v1 孪生条目）。全仓 `/_matrix/client/r0/` 为 0，
     另有 6 条 `/_matrix/media/r0/*`（媒体族，属规范本身）。
+    > **本轮已制定退役策略**：详见 `docs/audit/A3_v1_deprecation_strategy.md`。
+    > **本轮分类**：标准 Matrix v1 = 114 条，Tjg 专有 v1 = 60 条（friends/voice/burn/spaces/threads/widgets）。
 12. **A-10** 推送假投递未动：`synapse-services/src/push/service.rs:30 push_gateway` 字段（`:103` 置 `None`、
     `:138` 由 `with_push_gateway` 赋值，而该 setter **全仓 0 调用方**）→ 字段只写不读；
     `:486 send_upstream` 在 `:495` 仍 `return Ok(PushResult::success_with_response("Upstream accepted"))`
@@ -1862,21 +1872,21 @@ $ grep -c ERROR /tmp/v12_apply.log        # → 0
 14. **§2.8** `docs/audit/` 下 4 个 baseline 日志仍**全部缺失**
     （`00_test_baseline.log` / `00_clippy_baseline.log` / `05_performance_baseline.log` / `11_performance_after.log`）；
     `scripts/.missing-docs-baseline` 内容仍为 `6`。
-15. **H-1** `pool_size` 废弃字段仍在发布配置：`docker/config/homeserver.yaml:68,86` = `pool_size: 20`；
-    Rust 侧 `synapse-common/src/config/database.rs:85` 仅声明字段并注释"零引用/已废弃"，
-    **全仓无读取点**（唯一 `.pool_size` 读的是 Redis 配置，`synapse-cache/src/remote.rs:28`）。
-    进一步：DB review 已确认**生效上限是 `max_size`，默认 50** ⇒ `pool_size: 20` 是**会误导运维的假旋钮**。
-16. **H-6** `Cargo.toml:32` 声明 `server = ["dep:axum", "dep:tower-http", "synapse-web/server"]`，
+15. ~~**H-1**~~ `pool_size` 废弃字段仍在发布配置。
+    > **✅ 本轮已修复**：已从 `homeserver.yaml` 移除（DB max_size=50 保持不变）；新增 serde 反序列化测试。
+16. ~~**H-6**~~ `Cargo.toml:32` 声明 `server = ["dep:axum", "dep:tower-http", "synapse-web/server"]`，
     全仓 `#[cfg(feature = "server")]` 出现 **0** 次。
-17. **H-8** 仍**没有**任何测试把 `docker/config/homeserver.yaml` 反序列化进 Rust `Config`：
-    `tests/unit/config_mount_tests.rs:92` 只断言文件/挂载存在；
-    `tests/unit/sync_rate_limit_config_tests.rs:81` 是**手写逐行 YAML 扫描**，不是 serde。
-    而 `Config` 本身带 `deny_unknown_fields`（`synapse-common/src/config/mod.rs:126`）——
-    **把 yaml 喂给它就能白拿一个"发布配置不含未知/已删字段"的门禁**（顺带能抓出 H-1）。
-18. **H-9** `ci.yml:337-338` 自认 "~3.5k unresolved-intra-doc-link warnings"，
-    但仍无棘轮/baseline（`scripts/` 下只有 `.fmt-baseline` 与 `.missing-docs-baseline`）。
-19. **H-10** god-file 未拆且**变大**：`synapse-services/src/friend_room_service/mod.rs` = **1,839** 行
-    （目录内还有 `tests.rs` 1,226、`models.rs` 709、`groups.rs` 573）。
+    > **✅ 本轮已修复**：已从所有 crate 移除 `server` feature 声明（axum/tower-http 改为必选依赖）；
+    > CI 工作流同步清理。
+17. ~~**H-8**~~ 仍**没有**任何测试把 `docker/config/homeserver.yaml` 反序列化进 Rust `Config`。
+    > **✅ 本轮已修复**：新增 `homeserver_yaml_deserializes_into_config` 测试（`deny_unknown_fields` 门禁）
+    > + `homeserver_yaml_has_no_deprecated_pool_size` 测试。
+18. ~~**H-9**~~ `ci.yml:337-338` 自认 "~3.5k unresolved-intra-doc-link warnings"，
+    ~~但仍无棘轮/baseline~~（`scripts/` 下只有 `.fmt-baseline` 与 `.missing-docs-baseline`）。
+    > **✅ 前一轮已修复**：`cargo doc --no-deps` 0 warnings。
+19. ~~**H-10**~~ god-file 未拆且**变大**。
+    > **🟢 前一轮已修复**：B6-4 神文件拆分已在 2026-09-15 完成（见 OPTIMIZATION_EXECUTION_PLAN H-10）。
+    > 当前 `friend_room_service/mod.rs` 为装配器，实际逻辑已拆至子模块。
 20. **H-13** 允许列表计数仍与文档不符。本轮实测（`git grep`，排除 `target/` 等）：
     `#[allow(dead_code)]` = **29**、`allow(clippy::` = **265**、`#[ignore]` = **27**（含 `#[ignore = "…"]`；
     纯 `#[ignore]` 为 13）、TODO/FIXME/XXX/HACK = **12**、`#[deprecated]` = **0**。
@@ -1949,7 +1959,12 @@ $ grep -c ERROR /tmp/v12_apply.log        # → 0
 | 8 | 修 T-2（`step_migrations` 在 `error_count>0` 时返回 `Err`） | 半成品模板被标记 ready 是"假绿"根源之一 | 中；需确认调用方对 `Err` 的处理 |
 | 9 | 统一 `executed_at` 默认值写法（三处 → 一处） | 同一秒内迁移撞值；当前守卫两种写法都放行 | 低；仅改 SQL 文本 + 加守卫 |
 | 10 | 清 `synapse_ship_ci`(231) / `synapse_test_p1p2`(3) 残留 schema（M-5） | 顺带确认 janitor 对非 CI 库的覆盖 | 低；纯清理 |
-| 11 | 其余（M-4 文档提醒、A-3/A-10/H-9/H-10/H-13 长债） | 按迭代节奏处理 | — |
+| 11 | 其余（M-4 文档提醒、A-3/A-10/H-13 长债） | 按迭代节奏处理 | — |
+
+> **本轮完成（H-9/H-16/H-17）**：`cargo doc` 0 warnings（上一轮 ~3.5k）；SDK fork 死代码已清理；
+> `GET /_matrix/client/v3/auth/{loginType}/fallback/web` 端点已实现，ledger 已同步。
+> **H-18 判定为设计合理**：`saml_enabled` 用于离线 profile 派生，不应删除。
+> **H-10 已由前一轮 B6-4 拆分完成**，当前 `mod.rs` 仅为装配器。
 
 > **一句话总结本轮**：**schema 章（§1，本文档最严重的一章）已全部关闭并有实灌证据**；
 > 门禁诚信从"6 项修复 / 5 项仍存"收敛到**只剩供应链门禁布局这 1 项**（且它以 M-1 的形式变红）；

@@ -13,13 +13,12 @@ workspace = true
 [features]
 # Mirrors the root package's feature surface: the route modules are gated on the
 # same extension switches, and the root crate forwards each one here.
-default = ["server", "core-private-chat", "widgets", "external-services", "beacons"]
-server = ["dep:axum", "dep:tower-http"]
+default = ["core-private-chat", "widgets", "external-services", "beacons"]
 test-utils = ["dep:synapse-test-utils", "synapse-services/test-utils", "synapse-e2ee/test-utils", "synapse-federation/test-utils"]
 
 core-private-chat = ["friends", "burn-after-read"]
 friends = ["synapse-services/friends"]
-voice-extended = ["server", "synapse-services/voice-extended"]
+voice-extended = ["synapse-services/voice-extended"]
 saml-sso = ["synapse-services/saml-sso"]
 cas-sso = ["synapse-services/cas-sso"]
 beacons = ["synapse-services/beacons"]
@@ -49,9 +48,9 @@ synapse-test-utils = { path = "../synapse-test-utils", optional = true }
 tokio = { workspace = true, features = ["full", "test-util"] }
 tokio-util = { workspace = true, features = ["io"] }
 
-axum = { workspace = true, optional = true, features = ["macros"] }
+axum = { workspace = true, features = ["macros"] }
 tower = { workspace = true }
-tower-http = { workspace = true, optional = true, features = ["fs", "cors", "trace", "compression-gzip", "limit"] }
+tower-http = { workspace = true, features = ["fs", "cors", "trace", "compression-gzip", "limit"] }
 http = { workspace = true }
 ipnetwork = "0.20"
 

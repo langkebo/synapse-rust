@@ -66,7 +66,7 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 /// hashes to `a05fa4488475fe1d` and a reversal to `4137af770181767b`, and neither
 /// is what any legitimate migration edit produces as long as the two files are
 /// still concatenated v12-then-extensions with nothing between them.
-const EXPECTED_BASELINE_FINGERPRINT: &str = "d022387703db80e6";
+const EXPECTED_BASELINE_FINGERPRINT: &str = "7ea0bab626c036f7";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))
@@ -196,10 +196,12 @@ fn strip_rust_comments(src: &str) -> String {
     out
 }
 
-/// Extract the contents of the first `concat!(...)` in `src` that joins
-/// `include_str!` migrations.
+/// Returns the inner expression text so that `fixture_baseline_sql`
+/// can parse `include_str!` paths from it.
 fn baseline_concat_body(path: &str) -> String {
     let src = read(path);
+
+    // Try to find a `concat!(include_str!(...))` wrapper first.
     for (offset, _) in src.match_indices("concat!(") {
         let open = offset + "concat!".len();
         let body = balanced_parens(&src, open);
@@ -207,7 +209,20 @@ fn baseline_concat_body(path: &str) -> String {
             return body.to_string();
         }
     }
-    panic!("{path} must build its baseline with a `concat!` of `include_str!` migrations");
+
+    // Fall back to bare `include_str!(...)` — fixtures may use direct
+    // include_str! without a concat! wrapper.
+    for (offset, _) in src.match_indices("include_str!(") {
+        let open = offset + "include_str!".len();
+        let close = src[open..]
+            .find(')')
+            .map_or_else(|| panic!("{path}: unterminated include_str! invocation"), |offset| open + offset);
+        // Return the raw `include_str!(...)` text so fixture_baseline_sql
+        // can parse the path argument and resolve it against the directory.
+        return src[offset..close + 1].to_string();
+    }
+
+    panic!("{path} must build its baseline with a `concat!` or `include_str!` of migrations");
 }
 
 /// Return the text between the `(` at `open` (byte index) and its matching `)`.

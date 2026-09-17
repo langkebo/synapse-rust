@@ -1,18 +1,18 @@
 //! Stable JSON artefact representation of
-//! [`route_ledger::RouteLedger`] for offline consumers
+//! `route_ledger::RouteLedger` for offline consumers
 //! (the `synapse_ledger_export` binary, the SDK contract-sync pipeline).
 //!
 //! This module owns the types and render function; the binary is a thin
-//! CLI around [`build_artifact`] and [`render`]. Keeping the data layer
-//! in the library means integration tests can round-trip artefacts
+//! CLI around the build_artifact and render functions. Keeping the
+//! data layer in the library means integration tests can round-trip artefacts
 //! without spawning a subprocess.
 //!
-//! Schema is documented in
-//! `docs/synapse-rust/LEDGER_EXPORT_SCHEMA.md`. [`SCHEMA_VERSION`] below is the
-//! authoritative value and the doc must match it, enforced by the
-//! `schema_doc_version_matches_code` test in
-//! `tests/unit/ledger_export_tests.rs`. Do not restate the version here — this
-//! comment previously claimed `"1"` while the constant was already `"2"`.
+//! Schema is documented in `docs/synapse-rust/LEDGER_EXPORT_SCHEMA.md`.
+//! The `SCHEMA_VERSION` constant below is the authoritative value and the
+//! doc must match it, enforced by the `schema_doc_version_matches_code`
+//! test in `tests/unit/ledger_export_tests.rs`. Do not restate the version
+//! here — this comment previously claimed `"1"` while the constant was
+//! already `"2"`.
 //! See `matrix-js-sdk/docs/api-contract/LEDGER_DRIVEN_SDK_PLAN_2026-05-02.md`
 //! for the downstream consumer.
 

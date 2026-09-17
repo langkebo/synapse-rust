@@ -239,3 +239,72 @@ fn deploy_sh_validates_canonical_config_and_creates_no_local_copy() {
          服务将因缺少配置而启动失败"
     );
 }
+
+// =============================================================================
+// H-8: 发布配置必须能反序列化进 Rust Config（serde 路径门禁）
+// =============================================================================
+
+/// `homeserver.yaml` 必须能完整反序列化为 `Config`。
+///
+/// 这是 H-8 的解决：
+/// - `Config` 自带 `#[serde(deny_unknown_fields)]`（`synapse-common/src/config/mod.rs:126`）
+/// - 反序列化失败说明配置含已删字段或未定义字段（H-1 的假旋钮即此例）
+/// - 比旧方式（逐行 YAML 扫描，`sync_rate_limit_config_tests.rs:81`）可靠得多
+/// - 零运行时成本，纯编译期 + 测试期断言
+#[test]
+fn homeserver_yaml_deserializes_into_config() {
+    use synapse_common::config::Config;
+
+    let root = repo_root();
+    let yaml_path = root.join("docker/config/homeserver.yaml");
+    let yaml_text = fs::read_to_string(&yaml_path).unwrap_or_else(|e| {
+        panic!("docker/config/homeserver.yaml must be readable for serde round-trip test: {e}")
+    });
+
+    let cfg: Config =
+        serde_yaml::from_str(&yaml_text).unwrap_or_else(|e| panic!("homeserver.yaml must deserialize into Config: {e}"));
+
+    // 基本 sanity 检查：确保反序列化产生了有意义的值
+    assert!(!cfg.server.name.is_empty(), "server.name must be set");
+    assert_eq!(
+        cfg.database.max_size, 50,
+        "database.max_size should default to 50 (pool_size removed in H-1)"
+    );
+}
+
+/// Verify that the homeserver.yaml does NOT contain the deprecated `database.pool_size`
+/// field (H-1 fix). Note: `redis.pool_size` is still valid and present.
+/// The serde deny_unknown_fields guard would have caught it in
+/// `homeserver_yaml_deserializes_into_config` if it were in the wrong place.
+#[test]
+fn homeserver_yaml_has_no_deprecated_pool_size() {
+    let root = repo_root();
+    let yaml_text = fs::read_to_string(root.join("docker/config/homeserver.yaml"))
+        .expect("must read homeserver.yaml");
+
+    // Check that database.pool_size specifically is absent.
+    // We look for the pattern after "database:" section header
+    let db_section_start = yaml_text.find("\ndatabase:\n")
+        .expect("database section must exist");
+    let db_section_end = yaml_text.find("\nredis:\n")
+        .expect("redis section must exist");
+    let db_section = &yaml_text[db_section_start..db_section_end];
+
+    assert!(
+        !db_section.contains("pool_size:"),
+        "database.pool_size must not exist (H-1: removed as false knob; max_size is the real bound)"
+    );
+
+    // Verify redis.pool_size is still present (it's a valid field,
+    // indented under the redis section header)
+    let redis_section = yaml_text.find("\nredis:\n")
+        .expect("redis section must exist");
+    assert!(
+        &yaml_text[redis_section..]
+            .split('\n')
+            .take(20)
+            .collect::<String>()
+            .contains("pool_size:"),
+        "redis.pool_size should still exist (valid Redis pool config)"
+    );
+}

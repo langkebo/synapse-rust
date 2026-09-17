@@ -14,7 +14,7 @@
 //!   `derived_route_manifest` keeps every row with `rank <= flags.rank()`.
 //! * The two `/.well-known/{openid-configuration,jwks.json}` routes appear
 //!   twice — once `Always` (label `oidc_fallback`) and once `Oidc`
-//!   (label `oidc`, gated `#[cfg(feature = \"builtin-oidc\")]`). In the SDK
+//!   (label `oidc`, gated `#[cfg(feature = "builtin-oidc")]`). In the SDK
 //!   lane both compile and the dedup keeps the higher-rank `oidc`; in the
 //!   default lane the `Oidc` twin is cfg-stripped and `oidc_fallback` wins.
 //!   That is exactly what the committed fixtures record.
@@ -29,6 +29,16 @@
 //! in `tests/unit/fixtures/{ledger_export,ledger_export_sdk}/` byte-equivalently
 //! by `(method, path, registered_by)`, so editing it by hand is pointless — the
 //! next regeneration overwrites it.
+//!
+//! ## Split structure
+//!
+//! The route table is split by `RouteProfile` into three `.inc.rs` files:
+//! - `derived_route_table_always.inc.rs` — rows served in every profile
+//! - `derived_route_table_worker.inc.rs` — rows gated on `worker_enabled`
+//! - `derived_route_table_oidc.inc.rs`  — rows gated on `oidc_enabled`
+//!
+//! Each file defines `fn all_derived_*_rows()`. The aggregator
+//! `all_derived_rows()` include!s all three.
 
 #![allow(clippy::unreadable_literal)]
 
@@ -72,18 +82,30 @@ pub fn rank_for_flags(flags: &ProfileFlags) -> RouteProfile {
     flags.rank()
 }
 
-// The route table is generated from source extraction.  The included file
-// defines `fn all_derived_rows() -> Vec<DerivedRoute>` so that the compiler
-// filters rows by `#[cfg]` at the block level.
-include!("derived_route_table.inc.rs");
+// Per-profile route manifests — each includes its subset of routes.
+include!("derived_route_table_always.inc.rs");
+include!("derived_route_table_worker.inc.rs");
+include!("derived_route_table_oidc.inc.rs");
+
+/// Combined manifest that aggregates all profiles.
+/// `derived_route_manifest` calls this to get the full list of rows.
+fn all_derived_rows() -> Vec<DerivedRoute> {
+    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1500);
+    rows.extend(all_derived_always_rows());
+    rows.extend(all_derived_worker_rows());
+    rows.extend(all_derived_oidc_rows());
+    rows
+}
 
 /// Profile-driven manifest. Keep rows at or below the flag ceiling, then
 /// de-duplicate by `(method, path)` keeping the highest rank. Output is sorted
 /// by `(path, method, registered_by)` for byte-stable diffs.
 pub fn derived_route_manifest(flags: &ProfileFlags) -> Vec<RouteEntry> {
     let max_rank = rank_for_flags(flags);
-    let mut best: std::collections::HashMap<(String, String), RouteProfile> = std::collections::HashMap::new();
-    let mut kept: std::collections::HashMap<(String, String), RouteEntry> = std::collections::HashMap::new();
+    let mut best: std::collections::HashMap<(String, String), RouteProfile> =
+        std::collections::HashMap::new();
+    let mut kept: std::collections::HashMap<(String, String), RouteEntry> =
+        std::collections::HashMap::new();
     for DerivedRoute { entry, rank } in all_derived_rows() {
         if rank > max_rank {
             continue;
@@ -102,7 +124,9 @@ pub fn derived_route_manifest(flags: &ProfileFlags) -> Vec<RouteEntry> {
         a.path
             .cmp(b.path)
             .then_with(|| a.method.as_str().cmp(b.method.as_str()))
-            .then_with(|| a.registered_by.cmp(b.registered_by))
+            .then_with(|| {
+                a.registered_by.cmp(b.registered_by)
+            })
     });
     out
 }
@@ -123,8 +147,8 @@ mod derived_manifest_tests {
         ($profile:ident, $fixture:expr) => {
             let flags = match stringify!($profile) {
                 "DEFAULT" => PFlags { oidc_enabled: false, worker_enabled: false, saml_enabled: false },
-                "WORKER" => PFlags { oidc_enabled: false, worker_enabled: true, saml_enabled: false },
-                "ALL" => PFlags { oidc_enabled: true, worker_enabled: true, saml_enabled: false },
+                "WORKER"  => PFlags { oidc_enabled: false, worker_enabled: true, saml_enabled: false },
+                "ALL"     => PFlags { oidc_enabled: true, worker_enabled: true, saml_enabled: false },
                 _ => unreachable!(),
             };
             let got = derived_route_manifest(&flags);
@@ -163,7 +187,7 @@ mod derived_manifest_tests {
     fn default_profile_matches_fixture() {
         assert_derived_matches!(
             DEFAULT,
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../tests/unit/fixtures/ledger_export/default.json")
+            concat!(concat!(env!("CARGO_MANIFEST_DIR"), "/../tests/unit/fixtures"), "/ledger_export/default.json")
         );
     }
 
@@ -181,7 +205,7 @@ mod derived_manifest_tests {
     fn worker_profile_matches_fixture() {
         assert_derived_matches!(
             WORKER,
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../tests/unit/fixtures/ledger_export/worker.json")
+            concat!(concat!(env!("CARGO_MANIFEST_DIR"), "/../tests/unit/fixtures"), "/ledger_export/worker.json")
         );
     }
 
@@ -199,7 +223,7 @@ mod derived_manifest_tests {
     fn all_profile_matches_fixture() {
         assert_derived_matches!(
             ALL,
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../tests/unit/fixtures/ledger_export/all.json")
+            concat!(concat!(env!("CARGO_MANIFEST_DIR"), "/../tests/unit/fixtures"), "/ledger_export/all.json")
         );
     }
 
@@ -209,7 +233,7 @@ mod derived_manifest_tests {
     fn sdk_default_profile_matches_fixture() {
         assert_derived_matches!(
             DEFAULT,
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../tests/unit/fixtures/ledger_export_sdk/default.json")
+            concat!(concat!(env!("CARGO_MANIFEST_DIR"), "/../tests/unit/fixtures"), "/ledger_export_sdk/default.json")
         );
     }
 
@@ -218,7 +242,7 @@ mod derived_manifest_tests {
     fn sdk_worker_profile_matches_fixture() {
         assert_derived_matches!(
             WORKER,
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../tests/unit/fixtures/ledger_export_sdk/worker.json")
+            concat!(concat!(env!("CARGO_MANIFEST_DIR"), "/../tests/unit/fixtures"), "/ledger_export_sdk/worker.json")
         );
     }
 
@@ -227,7 +251,7 @@ mod derived_manifest_tests {
     fn sdk_all_profile_matches_fixture() {
         assert_derived_matches!(
             ALL,
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../tests/unit/fixtures/ledger_export_sdk/all.json")
+            concat!(concat!(env!("CARGO_MANIFEST_DIR"), "/../tests/unit/fixtures"), "/ledger_export_sdk/all.json")
         );
     }
 }

@@ -7,6 +7,36 @@ on:
     branches: [ main, develop ]
 
 jobs:
+  schema-blind-guards:
+    name: Schema Blind Guards
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for schema-blind guards
+        run: python3 scripts/check_schema_blind_guards.py
+
+  baseline-consolidation-check:
+    name: Baseline Consolidation Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate baseline absorbs all incremental migrations
+        run: |
+          mkdir -p artifacts
+          python3 scripts/check_baseline_consolidation.py | tee artifacts/baseline_consolidation.txt
+
+      - name: Upload consolidation report
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: baseline-consolidation-report
+          path: artifacts/baseline_consolidation.txt
+          retention-days: 14
+
   schema-table-coverage:
     name: Schema Table Coverage
     runs-on: ubuntu-latest

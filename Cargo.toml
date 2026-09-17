@@ -28,15 +28,17 @@ redundant_else = "warn"
 #        deployment (WidgetManager / WidgetContainer).
 # P-067: `external-services` added to default — admin external_service routes
 #        must respond (previously 404 due to missing feature flag).
-default = ["server", "core-private-chat", "widgets", "external-services", "beacons"]
-server = ["dep:axum", "dep:tower-http", "synapse-web/server"]
+# H-6: `server` feature removed — it had zero `#[cfg(feature = "server")]` gates
+#      in any crate, so the flag was dead (axum/tower-http are unconditional
+#      dependencies in synapse-common's error.rs anyway).
+default = ["core-private-chat", "widgets", "external-services", "beacons"]
 performance-tests = []
 test-utils = ["dep:synapse-test-utils", "synapse-services/test-utils", "synapse-storage/test-utils", "synapse-e2ee/test-utils", "synapse-federation/test-utils", "synapse-web/test-utils"]
 
 # Non-core feature modules (can be disabled to produce a minimal build)
 core-private-chat = ["friends", "burn-after-read", "synapse-web/core-private-chat"]
 friends = ["synapse-services/friends", "synapse-web/friends"]
-voice-extended = ["server", "synapse-services/voice-extended", "synapse-web/voice-extended"]
+voice-extended = ["synapse-services/voice-extended", "synapse-web/voice-extended"]
 saml-sso = ["synapse-services/saml-sso", "synapse-web/saml-sso"]
 cas-sso = ["synapse-services/cas-sso", "synapse-web/cas-sso"]
 beacons = ["synapse-services/beacons", "synapse-web/beacons"]
@@ -62,9 +64,9 @@ tokio = { version = "1.49", features = ["full", "test-util"] }
 tokio-util = { version = "0.7", features = ["io"] }
 async-trait = "0.1"
 
-axum = { version = "0.8", optional = true, features = ["macros"] }
+axum = { version = "0.8", features = ["macros"] }
 tower = "0.5"
-tower-http = { version = "0.6", optional = true, features = ["fs", "cors", "trace", "compression-gzip", "limit"] }
+tower-http = { version = "0.6", features = ["fs", "cors", "trace", "compression-gzip", "limit"] }
 hyper = "1"
 http = "1"
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "chrono", "json", "uuid", "ipnetwork", "migrate", "macros", "bigdecimal"] }

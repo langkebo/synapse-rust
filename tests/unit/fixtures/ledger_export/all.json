@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": false
   },
-  "entry_count": 1065,
+  "entry_count": 1066,
   "entries": [
     {
       "method": "GET",
@@ -3270,6 +3270,18 @@
       "path": "/_matrix/client/v3/register/email/submitToken",
       "registered_by": "assembly::auth_compat",
       "path_params": [],
+      "query_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/auth/:auth_type/fallback/web",
+      "registered_by": "assembly::auth_compat",
+      "path_params": [
+        {
+          "name": "auth_type",
+          "kind": "String"
+        }
+      ],
       "query_params": []
     },
     {

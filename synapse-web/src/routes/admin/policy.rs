@@ -39,9 +39,10 @@ pub fn create_policy_router() -> Router<crate::routes::AppState> {
 /// Request body for `POST /_synapse/admin/v1/policy/check`.
 ///
 /// All three fields are required; `validate()` additionally enforces that
-/// `action` is one of [`KNOWN_ACTIONS`] and that `room_id` / `user_id` are
-/// non-empty after trimming. This fail-closed posture prevents a malformed
-/// request from accidentally bypassing the policy server.
+/// `action` is one of the known policy actions (create, join, invite, send)
+/// and that `room_id` / `user_id` are non-empty after trimming. This fail-closed
+/// posture prevents a malformed request from accidentally bypassing the policy
+/// server.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PolicyCheckRequest {
@@ -49,7 +50,7 @@ pub struct PolicyCheckRequest {
     pub room_id: String,
     /// The user performing the action, e.g. `@alice:example.com`.
     pub user_id: String,
-    /// The action being performed. Must be one of [`KNOWN_ACTIONS`].
+    /// The action being performed. Must be one of the known policy actions.
     pub action: String,
 }
 

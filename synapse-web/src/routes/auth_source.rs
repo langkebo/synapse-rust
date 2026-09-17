@@ -8,10 +8,10 @@
 //! context meant adding three more copies, and a fix to the auth sequence had to
 //! be repeated in each.
 //!
-//! Now each context implements [`AuthSource`] (and, when it can authorize admins,
-//! [`AdminAuthSource`]) once, and the extractors have a single generic impl. The
-//! capability set is the set of trait impls below, so it is stated in one place
-//! rather than implied by which copies happen to exist.
+//! Now each context implements the `AuthSource` trait (and, when it can authorize
+//! admins, the `AdminAuthSource` trait) once, and the extractors have a single
+//! generic impl. The capability set is the set of trait impls below, so it is
+//! stated in one place rather than implied by which copies happen to exist.
 
 use std::sync::Arc;
 
@@ -39,7 +39,7 @@ pub trait AuthSource: Clone + Send + Sync + 'static {
 
 /// The extra dependencies the `AdminUser` extractor needs.
 ///
-/// Separate from [`AuthSource`] on purpose: only the contexts that can actually
+/// Separate from the `AuthSource` trait on purpose: only the contexts that can actually
 /// authorize an admin endpoint implement it, so `AdminUser` cannot be used on a
 /// context that has no way to check the admin role.
 pub trait AdminAuthSource: AuthSource {

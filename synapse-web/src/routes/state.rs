@@ -69,7 +69,7 @@ pub struct SyncRateLimitOverride {
 }
 
 impl AppState {
-    /// See [`new`].
+    /// Creates a new [`AppState`] instance.
     pub fn new(services: ServiceContainer, cache: Arc<CacheManager>) -> Self {
         let pool = services.database_pool();
         let mut health_checker = HealthChecker::new("0.1.0".to_string());
@@ -127,7 +127,7 @@ impl AppState {
         }
     }
 
-    /// See [`with_rate_limit_config`].
+    /// Set the rate limit configuration manager for this app state.
     pub fn with_rate_limit_config(mut self, manager: Arc<RateLimitConfigManager>) -> Self {
         self.rate_limit_config_manager = Some(manager);
         self
@@ -147,17 +147,17 @@ impl AppState {
         self
     }
 
-    /// See [`rate_limit_config`].
+    /// Get the current rate limit configuration, if set.
     pub fn rate_limit_config(&self) -> Option<RateLimitConfigFile> {
         self.rate_limit_config_manager.as_ref().map(|manager| manager.get_config())
     }
 
-    /// See [`rate_limit_config_manager`].
+    /// Get the rate limit configuration manager, if set.
     pub fn rate_limit_config_manager(&self) -> Option<&Arc<RateLimitConfigManager>> {
         self.rate_limit_config_manager.as_ref()
     }
 
-    /// See [`sync_rate_limit_override`].
+    /// Get the sync rate limit override settings.
     pub fn sync_rate_limit_override(&self) -> Option<SyncRateLimitOverride> {
         self.rate_limit_config_manager.as_ref().map(|manager| {
             let config = manager.get_config();

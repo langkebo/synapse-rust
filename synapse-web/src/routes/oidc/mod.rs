@@ -1,5 +1,5 @@
 // OIDC (OpenID Connect) routes
-// Matrix Spec: https://matrix.org/docs/spec/openid.html
+// Matrix Spec: <https://matrix.org/docs/spec/openid.html>
 
 /// The `builtin` module.
 pub(crate) mod builtin;

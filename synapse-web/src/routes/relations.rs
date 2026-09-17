@@ -2,7 +2,7 @@
 //! Relations API Routes
 //!
 //! Implements Matrix Relations and Aggregations API
-//! Spec: https://spec.matrix.org/v1.8/client-server-api/#relationship-types
+//! Spec: <https://spec.matrix.org/v1.8/client-server-api/#relationship-types>
 
 use crate::routes::context::RoomContext;
 use crate::routes::extractors::{EventId, RoomId};

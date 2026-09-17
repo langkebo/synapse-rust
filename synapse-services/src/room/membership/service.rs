@@ -1012,8 +1012,8 @@ mod tests {
     async fn mutual_rooms_self_query_returns_forbidden() {
         let svc = mutual_service(&[("!a:localhost", "@alice:localhost", "join")]).await;
         let r = svc.get_mutual_rooms_between("@alice:localhost", "@alice:localhost", 100, None).await;
-        assert!(r.is_err());
-        assert_eq!(r.unwrap_err().code(), &synapse_common::MatrixErrorCode::Forbidden);
+        let api_err: synapse_common::ApiError = r.unwrap_err().into();
+        assert_eq!(api_err.code, synapse_common::MatrixErrorCode::Forbidden);
     }
 
     #[tokio::test]

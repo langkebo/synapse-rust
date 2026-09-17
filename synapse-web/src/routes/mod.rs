@@ -173,8 +173,8 @@ pub use admin::create_admin_module_router;
 pub use app_service::create_app_service_router;
 pub use assembly::{create_router, declared_ledger_all, declared_ledger_for, declared_ledger_for_profile};
 pub(crate) use auth_compat::{
-    check_username_availability, get_login_flows, get_register_flows, login, logout, logout_all, refresh_token,
-    register, request_email_verification, submit_email_token,
+    auth_fallback_web, check_username_availability, get_login_flows, get_register_flows, login,
+    logout, logout_all, refresh_token, register, request_email_verification, submit_email_token,
 };
 pub use background_update::create_background_update_router;
 #[cfg(feature = "burn-after-read")]

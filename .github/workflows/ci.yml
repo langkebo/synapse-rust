@@ -788,11 +788,11 @@ jobs:
       matrix:
         profile:
           - name: core-matrix-min
-            features: server
+            features: ""
           - name: core-private-chat
-            features: server,friends,burn-after-read
+            features: "friends,burn-after-read"
           - name: all-extensions
-            features: server,all-extensions
+            features: "all-extensions"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
