@@ -118,8 +118,8 @@ pub struct SynapseServer {
 }
 
 impl SynapseServer {
-    /// See [`new`].
-    /// See [`new`].
+    /// Create a new [`SynapseServer`] instance.
+    /// Create a new [`SynapseServer`] instance.
     pub async fn new(config: Config) -> Result<Self, Box<dyn std::error::Error>> {
         // Make CORS origins from homeserver.yaml visible to the security check
         // BEFORE we run validation, so operators don't have to also set
@@ -326,8 +326,8 @@ impl SynapseServer {
         })
     }
 
-    /// See [`run`].
-    /// See [`run`].
+    /// Run the server event loop.
+    /// Run the server event loop.
     pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
         self.log_startup_banner();
 

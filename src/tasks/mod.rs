@@ -43,7 +43,7 @@ pub struct ScheduledTasks {
 }
 
 impl ScheduledTasks {
-    /// Construct [`ScheduledTasks`] using intervals from [`ServerConfig`].
+    /// Construct [] using intervals from the global config.
     ///
     /// A zero / unset value in config falls back to the historical default.
     pub fn from_config(database: Arc<Database>, server_config: &synapse_common::config::ServerConfig) -> Self {
@@ -328,50 +328,50 @@ impl ScheduledTasks {
         });
     }
 
-    /// See [`get_last_health_status`].
-    /// See [`get_last_health_status`].
+    /// Return the last recorded health status.
+    /// Return the last recorded health status.
     pub async fn get_last_health_status(&self) -> Option<DatabaseHealthStatus> {
         self.last_health_status.read().await.clone()
     }
 
-    /// See [`get_last_performance_metrics`].
-    /// See [`get_last_performance_metrics`].
+    /// Return the last performance metrics snapshot.
+    /// Return the last performance metrics snapshot.
     pub async fn get_last_performance_metrics(&self) -> Option<PerformanceMetrics> {
         self.last_performance_metrics.read().await.clone()
     }
 
-    /// See [`get_last_integrity_report`].
-    /// See [`get_last_integrity_report`].
+    /// Return the last integrity report.
+    /// Return the last integrity report.
     pub async fn get_last_integrity_report(&self) -> Option<DataIntegrityReport> {
         self.last_integrity_report.read().await.clone()
     }
 
-    /// See [`get_last_maintenance_report`].
-    /// See [`get_last_maintenance_report`].
+    /// Return the last maintenance report.
+    /// Return the last maintenance report.
     pub async fn get_last_maintenance_report(&self) -> Option<MaintenanceReport> {
         self.last_maintenance_report.read().await.clone()
     }
 
-    /// See [`trigger_health_check`].
-    /// See [`trigger_health_check`].
+    /// Trigger a manual health check.
+    /// Trigger a manual health check.
     pub async fn trigger_health_check(&self) -> Result<DatabaseHealthStatus, String> {
         self.database.health_check().await.map_err(|e| e.to_string())
     }
 
-    /// See [`trigger_performance_check`].
-    /// See [`trigger_performance_check`].
+    /// Trigger a manual performance check.
+    /// Trigger a manual performance check.
     pub async fn trigger_performance_check(&self) -> Result<PerformanceMetrics, String> {
         self.database.get_performance_metrics().await.map_err(|e| e.to_string())
     }
 
-    /// See [`trigger_integrity_check`].
-    /// See [`trigger_integrity_check`].
+    /// Trigger a manual integrity check.
+    /// Trigger a manual integrity check.
     pub async fn trigger_integrity_check(&self) -> Result<DataIntegrityReport, String> {
         self.database.verify_data_integrity().await.map_err(|e| e.to_string())
     }
 
-    /// See [`trigger_maintenance`].
-    /// See [`trigger_maintenance`].
+    /// Trigger a manual maintenance check.
+    /// Trigger a manual maintenance check.
     pub async fn trigger_maintenance(&self) -> Result<MaintenanceReport, String> {
         let pool = self.database.pool().clone();
         let maintenance = DatabaseMaintenance::new(pool);

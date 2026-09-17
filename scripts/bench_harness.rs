@@ -5,7 +5,7 @@
 //! against a running homeserver.
 //!
 //! Compile:  cargo build --release --bin bench_harness
-//! Run:      BENCH_ADMIN_TOKEN=<token> .gstack/run_bench_harness.sh
+//! Run:      BENCH_ADMIN_TOKEN=<code>token</code> .gstack/run_bench_harness.sh
 //!
 //! Environment:
 //!   BENCH_BASE_URL       Server URL (default: http://localhost:8008)
