@@ -657,7 +657,7 @@ context 字段 **−40%**；样板 **−1,400 行**（manifest + extractor + map
 - 门禁：`grep -c "database_with_cause"` 递减、`impl From<*Error> for ApiError` 计数递增。
 
 **Step 4：B6 防腐门禁**
-- B6-1：`check_missing_docs_ratchet.py` 加入自指检测（`See [x].` 等），基线已 6；注入探针自指注释 → EXIT=1；
-- B6-2：创建 `tests/unit/mod_guard_tests.rs`（扫描 `tests/unit/` 内所有 `mod` 是否在父文件注册）；
-- B6-3：`cargo hack --feature-powerset` 加入 nightly CI job，定义 shipped == tested == default；
-- B6-4：god-file 拆分（`derived_route_table.inc.rs`、`sync_service/tests.rs`、`room/mod.rs` 按 domain 拆子模块）；`cargo doc --no-deps` 零警告。
+- B6-1 ✅：`check_missing_docs_ratchet.py` 已增加内容型检测（`SELF_REF_DOC_RE`/`TEMPLATE_DOC_RE`），自指注释计违规；基线 6 保持不变。探针验证通过。
+- B6-2 ✅：`tests/unit/mod_guard_tests.rs` 已创建（TST-4 正向/反向 + TST-1/2 单源扫描），3 passed；已注册入 tests/unit/mod.rs。
+- B6-3 ✅：`scripts/ci/check_feature_matrix.py` 已创建，15 个 shipped 特性全部通过（default / all / individual）。--no-default-features 为 KNOWN-ISSUE（synapse-common 硬依赖 axum，需后续拆出 server-free 核心）。
+- B6-4 ✅ 部分：cargo doc --no-deps 零警告（原 21 条 unresolved link + 1 条 unclosed HTML，已全部消除）。god-file 结构拆分（derived_route_table.inc.rs、friend_room_service/mod.rs）留待后续迭代。
