@@ -410,8 +410,8 @@ impl MessagingService {
             .event_reader
             .get_event(event_id)
             .await
-            .map_err(|e| ApiError::database_with_cause("Failed to get event", e))?
-            .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
+            .map_err(|e| RoomMessagingError::Database(e))?
+            .ok_or_else(|| RoomMessagingError::EventNotFound(event_id.to_string()))?;
 
         if event.room_id != room_id {
             return Err(ApiError::not_found("Event not found in this room".to_string()));
@@ -429,7 +429,7 @@ impl MessagingService {
             .await
             .map_err(|e| RoomMessagingError::Database(e))?;
 
-        Ok(json!({
+        let result = json!({
             "event": {
                 "event_id": event.event_id,
                 "type": event.event_type,
@@ -442,7 +442,8 @@ impl MessagingService {
             "events_before": events_before,
             "events_after": events_after,
             "state": []
-        }))
+        });
+        Ok(serde_json::to_value(result).map_err(|e| RoomMessagingError::Internal(e.to_string()))?)
     }
 
     /// See [`search_room_messages_admin`].
