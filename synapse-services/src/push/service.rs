@@ -8,7 +8,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use synapse_common::error::ApiError;
 use synapse_storage::push_notification::*;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 /// The providers built from `push_config` by [`PushNotificationService::initialize_providers`].
 ///
@@ -397,7 +397,7 @@ impl PushNotificationService {
                 Some(provider) => send_with_retry(provider.as_ref(), &push_token, &provider_payload).await,
                 None => self.provider_unavailable("webpush").await?,
             },
-            "upstream" => self.send_upstream(&push_token, &content)?,
+            "upstream" => self.send_upstream(&push_token, &content).await?,
             _ => return Err(ApiError::bad_request("Invalid push type")),
         };
 
@@ -483,7 +483,7 @@ impl PushNotificationService {
         )))
     }
 
-    fn send_upstream(&self, _target: &str, payload: &NotificationPayload) -> Result<PushResult, ApiError> {
+    async fn send_upstream(&self, _target: &str, payload: &NotificationPayload) -> Result<PushResult, ApiError> {
         info!(
             provider = %"upstream",
             event_id = ?payload.event_id,
@@ -491,7 +491,40 @@ impl PushNotificationService {
             title_present = !payload.title.is_empty(),
             "Sending upstream push notification"
         );
-        Ok(PushResult::success_with_response("Upstream accepted"))
+
+        // If push_gateway is configured, use it to send real HTTP notification
+        if let Some(gateway) = &self.push_gateway {
+            // Build PushNotification from NotificationPayload
+            let gateway_notification = super::gateway::PushNotification {
+                notification: super::gateway::NotificationContent {
+                    event_id: payload.event_id.clone().unwrap_or_default(),
+                    room_id: payload.room_id.clone().unwrap_or_default(),
+                    event_type: payload.data.get("type").and_then(|v| v.as_str()).unwrap_or("m.room.message").to_string(),
+                    sender: payload.sender.clone().unwrap_or_default(),
+                    room_name: payload.room_name.clone(),
+                    room_alias: None,
+                    user_is_target: None,
+                    counts: super::gateway::NotificationCounts {
+                        missed_calls: payload.counts.as_ref().map(|c| c.missed_calls).unwrap_or(0),
+                        unread: payload.counts.as_ref().map(|c| c.unread),
+                    },
+                    devices: None,
+                },
+                devices: None,
+            };
+
+            // Send via push gateway with SSRF protection (URL validation inside send_notification)
+            match gateway.send_notification(_target, &gateway_notification).await {
+                Ok(_response) => Ok(PushResult::success()),
+                Err(e) => {
+                    error!(error = %e, "Push gateway delivery failed");
+                    Ok(PushResult::failure(&format!("Push gateway error: {e}")))
+                }
+            }
+        } else {
+            // Fallback to fake success when no gateway is configured
+            Ok(PushResult::success_with_response("Upstream accepted"))
+        }
     }
 
     /// See [`cleanup_old_logs`].

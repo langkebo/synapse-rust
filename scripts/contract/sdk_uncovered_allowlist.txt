@@ -8,27 +8,10 @@
 #   3. 一旦对应端点被后端补上，条目会变成 stale 并让检查失败 —— 到时要删掉它；
 #   4. 新增一条豁免 = 承认一处「SDK 与后端不一致」。请同时登记 follow-up。
 #
-# 当前共 1 条（SDK-SDK-1），都是 2026-09-17 实测（117 个 encodeUri 站点里仅此 1 处未被 ledger 覆盖）。
-# SDK-SDK-1 已确认**未被 Tjg 前端调用**（`grep -rn 'setGuestAccess|getFallbackAuthUrl'
-# Tjg/src` 只命中无关的 `getGuestAccessToken`），所以不阻塞发版，但不能就此遗忘。
-# SDK-BE-2 已于 2026-09-17 通过新增 `GET /_matrix/client/v3/auth/:auth_type/fallback/web`
-# 端点（auth_compat::auth_fallback_web）解决，已从本清单移除。
-
-PUT /rooms/$roomId/guest_access   # SDK-SDK-1(SDK fork)：AccountManager.setGuestAccess 打了非标路径
-
-
-# ── SDK-SDK-1 ── 重复且非标的「设置访客准入」实现
-#   实证：
-#     · src/account/index.ts:351  AccountManager.setGuestAccess → PUT {prefix}/rooms/$roomId/guest_access
-#     · src/room/RoomManager.ts:1106 RoomManager.setGuestAccess → 走 **state event**
-#       `m.room.guest_access`（PUT .../rooms/{room_id}/state/m.room.guest_access），后端支持
-#     · src/client.ts:2914 client.setGuestAccess → 委托给 RoomManager（**正确**那条）
-#     · src/client-room-access.ts:15 setGuestAccessRequest → 同样委托 state event
-#   结论：`PUT /rooms/{room_id}/guest_access` 不是 Matrix 规范端点（规范只有 state event），
-#   后端**不应该**为它开路由，否则就是往 v3 命名空间里塞私有路径（正与 ISSUE-13 相悖）。
-#   AccountManager 那份是历史遗留的重复实现，且 client 的门面已指向 RoomManager，
-#   因此它是**不可达的死代码**。处置：SDK fork 侧删除该方法（约 12 行，无调用方）。
-#   在 SDK 删除前，此豁免保留；删除后本条目会变 stale，检查会提醒把它删掉。
+# 当前共 0 条。SDK-SDK-1（PUT /rooms/$roomId/guest_access）已于 2026-09-18 通过
+# 删除 matrix-js-sdk fork 中的 AccountManager.setGuestAccess 死代码修复。
+# 该方法是不可达的死代码（client.ts 已委托给 RoomManager，使用标准 state event 路径），
+# 因此后端无需为该非标路径开路由。
 
 # ── SDK-BE-2 ── 规范规定的 fallback 认证页面后端没有实现
 #   实证：
