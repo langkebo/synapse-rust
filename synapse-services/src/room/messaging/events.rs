@@ -1,6 +1,7 @@
 //! Room event operations: state events, event CRUD, signatures, create_event.
 
 use crate::common::error::{ApiError, ApiResult};
+use crate::room::messaging::error::RoomMessagingError;
 use serde_json::json;
 use synapse_common::current_timestamp_millis;
 use synapse_common::generate_event_id;
@@ -87,11 +88,11 @@ impl MessagingService {
     }
 
     /// See [`get_state_event_records`].
-    pub async fn get_state_event_records(&self, room_id: &str) -> ApiResult<Vec<synapse_storage::StateEvent>> {
+    pub async fn get_state_event_records(&self, room_id: &str) -> Result<Vec<synapse_storage::StateEvent>, RoomMessagingError> {
         self.event_reader
             .get_state_events(room_id)
             .await
-            .map_err(|e| ApiError::database_with_cause("Failed to get room state", e))
+            .map_err(|e| RoomMessagingError::Database(e))
     }
 
     /// See [`get_state_events_at_or_before`].
@@ -99,11 +100,11 @@ impl MessagingService {
         &self,
         room_id: &str,
         origin_server_ts: i64,
-    ) -> ApiResult<Vec<synapse_storage::StateEvent>> {
+    ) -> Result<Vec<synapse_storage::StateEvent>, RoomMessagingError> {
         self.event_reader
             .get_state_events_at_or_before(room_id, origin_server_ts)
             .await
-            .map_err(|e| ApiError::database_with_cause("Failed to get room state", e))
+            .map_err(|e| RoomMessagingError::Database(e))
     }
 
     /// See [`create_event`].
@@ -391,11 +392,11 @@ impl MessagingService {
         from: Option<i64>,
         limit: i64,
         direction: &str,
-    ) -> ApiResult<Vec<synapse_storage::RoomEvent>> {
+    ) -> Result<Vec<synapse_storage::RoomEvent>, RoomMessagingError> {
         self.event_reader
             .get_room_events_paginated(room_id, from, limit, direction)
             .await
-            .map_err(|e| ApiError::database_with_cause("Failed to get room messages", e))
+            .map_err(|e| RoomMessagingError::Database(e))
     }
 
     /// See [`get_event_context_admin`].
@@ -420,13 +421,13 @@ impl MessagingService {
             .event_reader
             .get_events_before_context(room_id, event.origin_server_ts, context_limit)
             .await
-            .map_err(|e| ApiError::database_with_cause("Failed to get preceding context", e))?;
+            .map_err(|e| RoomMessagingError::Database(e))?;
 
         let events_after = self
             .event_reader
             .get_events_after_context(room_id, event.origin_server_ts, context_limit)
             .await
-            .map_err(|e| ApiError::database_with_cause("Failed to get following context", e))?;
+            .map_err(|e| RoomMessagingError::Database(e))?;
 
         Ok(json!({
             "event": {
@@ -458,11 +459,11 @@ impl MessagingService {
     }
 
     /// See [`get_forward_extremities_count`].
-    pub async fn get_forward_extremities_count(&self, room_id: &str) -> ApiResult<i64> {
+    pub async fn get_forward_extremities_count(&self, room_id: &str) -> Result<i64, RoomMessagingError> {
         self.event_reader
             .get_forward_extremities_count(room_id)
             .await
-            .map_err(|e| ApiError::database_with_cause("Failed to get forward extremities", e))
+            .map_err(|e| RoomMessagingError::Database(e))
     }
 
     /// See [`count_events_by_status`].

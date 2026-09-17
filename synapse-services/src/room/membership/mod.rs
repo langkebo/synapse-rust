@@ -14,6 +14,9 @@ pub mod moderation;
 pub mod service;
 /// The `transition` module.
 pub mod transition;
+/// Domain error types for room membership.
+pub mod error;
+pub use error::MembershipError;
 
 use crate::common::error::{ApiError, ApiResult};
 use crate::*;
@@ -204,19 +207,19 @@ impl MembershipService {
         membership: &str,
         limit: i64,
         from: Option<&str>,
-    ) -> ApiResult<Vec<storage::RoomMember>> {
+    ) -> Result<Vec<storage::RoomMember>, MembershipError> {
         self.member_storage
             .get_room_members_paginated(room_id, membership, limit, from)
             .await
-            .map_err(|e| ApiError::database_with_cause("Failed to get room members", e))
+            .map_err(|e| MembershipError::Database(e))
     }
 
     /// See [`get_room_member_count_admin`].
-    pub async fn get_room_member_count_admin(&self, room_id: &str) -> ApiResult<i64> {
+    pub async fn get_room_member_count_admin(&self, room_id: &str) -> Result<i64, MembershipError> {
         self.member_storage
             .get_room_member_count(room_id)
             .await
-            .map_err(|e| ApiError::database_with_cause("Failed to count room members", e))
+            .map_err(|e| MembershipError::Database(e))
     }
 
     /// See [`admin_ban_user_membership`].

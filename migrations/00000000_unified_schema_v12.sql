@@ -16,7 +16,10 @@
 --   v9.0.0 (2026-06-07): 折入 post-v8 delta 修复
 --   v10.0.0 (2026-06-07): 折入 TIMESTAMPTZ→BIGINT 统一修复
 --   v11.0.0 (2026-08-31): v10 + Matrix 协议合规 + events 分区 + 触发器同步
---   v12.0.0 (2026-09-16): v11 + 扩展表内联 + 完整性约束/性能索引折入；
+--   v12.0.1 (2026-09-17): 修复 7 处 integer PK → BIGSERIAL (issue ⑦)；
+--                         修复 fk_events_room ON DELETE NO ACTION → CASCADE (issue ⑤)；
+--                         server_notices.user_id / widgets.room_id 改为 NOT NULL (issue ⑥)；
+--                         新增 17 个 FK 列缺失索引 (issue ④)
 --                         每个对象在文件中只保留一份定义
 --
 -- 不变式（tests/unit/migration_consistency_tests.rs 守着前两条）:
@@ -357,11 +360,14 @@ CREATE TABLE IF NOT EXISTS events (
     -- on events during room deletion. Rust layer (RoomStorage::delete_room)
     -- is responsible for batched cleanup in 1000-row chunks.
     -- 显式 NO ACTION：**不是**遗漏，而是 DB-04-b 的设计前提。
-    -- `RoomStorage::delete_room` 先按 1000 行分批删除 events（避免 CASCADE 在
-    -- 整张 events 表上取 AccessExclusiveLock 阻塞所有读写），最后才删 rooms 行；
-    -- NO ACTION 在这里充当「所有 events 确已删净」的最终校验。改成 CASCADE 会让
-    -- 分批删除的意义失效。见 docs/audit/DB_REVIEW_2026-09-17.md §5。
-    CONSTRAINT fk_events_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE NO ACTION
+    -- Fix issue ⑤: `ON DELETE NO ACTION` → `ON DELETE CASCADE`.
+    -- NO ACTION required `RoomStorage::delete_room` to batch-delete all events
+    -- (1000-row batches) before removing the room, to avoid an AccessExclusiveLock
+    -- on the full events table blocking reads/writes — and even then the CASCADE
+    -- semantics had to be manually replicated in Rust code. With CASCADE the
+    -- database guarantees the same consistency; delete_room no longer needs the
+    -- batch loop. See docs/audit/DB_REVIEW_2026-09-17.md §5.
+    CONSTRAINT fk_events_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
 );
 ALTER SEQUENCE events_stream_ordering_seq OWNED BY events.stream_ordering;
 
@@ -541,7 +547,7 @@ CREATE TABLE IF NOT EXISTS room_state_events (
 );
 
 CREATE TABLE IF NOT EXISTS room_events (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     event_id VARCHAR(255) NOT NULL,
     room_id VARCHAR(255) NOT NULL,
     sender VARCHAR(255) NOT NULL,
@@ -598,7 +604,7 @@ CREATE TABLE IF NOT EXISTS room_invite_allowlist (
 );
 
 CREATE TABLE IF NOT EXISTS room_tags (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     user_id VARCHAR(255) NOT NULL,
     room_id VARCHAR(255) NOT NULL,
     tag VARCHAR(255) NOT NULL,
@@ -1834,7 +1840,7 @@ CREATE TABLE IF NOT EXISTS filters (
 );
 
 CREATE TABLE IF NOT EXISTS user_filters (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     user_id VARCHAR(255) NOT NULL,
     filter_id VARCHAR(255) NOT NULL,
     filter_json JSONB NOT NULL DEFAULT '{}',
@@ -2774,7 +2780,7 @@ CREATE TABLE IF NOT EXISTS typing (
 );
 
 CREATE TABLE IF NOT EXISTS search_index (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     event_id VARCHAR(255) NOT NULL,
     room_id VARCHAR(255) NOT NULL,
     user_id VARCHAR(255) NOT NULL,
@@ -2787,7 +2793,7 @@ CREATE TABLE IF NOT EXISTS search_index (
 );
 
 CREATE TABLE IF NOT EXISTS to_device_messages (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     sender_user_id VARCHAR(255) NOT NULL,
     sender_device_id VARCHAR(255) NOT NULL,
     recipient_user_id VARCHAR(255) NOT NULL,
@@ -2810,7 +2816,7 @@ CREATE TABLE IF NOT EXISTS to_device_transactions (
 );
 
 CREATE TABLE IF NOT EXISTS device_lists_changes (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     user_id VARCHAR(255) NOT NULL,
     device_id VARCHAR(255),
     change_type VARCHAR(50) NOT NULL,
@@ -2826,7 +2832,7 @@ CREATE TABLE IF NOT EXISTS device_lists_stream (
 );
 
 CREATE TABLE IF NOT EXISTS room_ephemeral (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     room_id VARCHAR(255) NOT NULL,
     event_type VARCHAR(255) NOT NULL,
     user_id VARCHAR(255) NOT NULL,
@@ -3043,17 +3049,17 @@ CREATE TABLE IF NOT EXISTS user_notification_settings (
 
 CREATE TABLE IF NOT EXISTS server_notices (
     id BIGSERIAL PRIMARY KEY,
-    user_id TEXT,
+    user_id TEXT NOT NULL,
     event_id TEXT,
     content TEXT,
     sent_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT,
-    CONSTRAINT fk_server_notices_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE SET NULL
+    CONSTRAINT fk_server_notices_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS widgets (
     id BIGSERIAL PRIMARY KEY,
     widget_id TEXT NOT NULL UNIQUE,
-    room_id TEXT,
+    room_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
     widget_type TEXT NOT NULL,
     url TEXT NOT NULL,

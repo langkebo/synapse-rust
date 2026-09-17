@@ -10,3 +10,6 @@ pub mod read_markers;
 pub mod receipts;
 /// The `service` module.
 pub mod service;
+/// Domain error types for room messaging.
+pub mod error;
+pub use error::RoomMessagingError;

@@ -5,6 +5,7 @@
 
 use crate::account::UserService;
 use crate::common::error::{ApiError, ApiResult};
+use crate::room::membership::error::MembershipError;
 use crate::policy_service::PolicyService;
 use serde_json::json;
 use std::str::FromStr;
@@ -554,16 +555,18 @@ impl MembershipService {
         other_user_id: &str,
         limit: i64,
         after: Option<&str>,
-    ) -> ApiResult<serde_json::Value> {
+    ) -> Result<serde_json::Value, MembershipError> {
         if user_id == other_user_id {
-            return Err(ApiError::forbidden("You cannot query mutual rooms with yourself".to_string()));
+            return Err(MembershipError::NotAuthorized(
+                "You cannot query mutual rooms with yourself".to_string(),
+            ));
         }
 
         let (rooms, next_batch_token) = self
             .member_storage
             .get_mutual_rooms_between(user_id, other_user_id, limit, after)
             .await
-            .map_err(|e| ApiError::database_with_cause("Failed to get mutual rooms", e))?;
+            .map_err(|e| MembershipError::Database(e))?;
 
         let mut result = json!({
             "joined": rooms,
@@ -594,23 +597,25 @@ impl MembershipService {
         limit: i64,
         from: Option<&str>,
         dir: Option<&str>,
-    ) -> ApiResult<serde_json::Value> {
+    ) -> Result<serde_json::Value, MembershipError> {
         if !self
             .room_storage
             .room_exists(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to check room existence", e))?
+            .map_err(|_e| MembershipError::Internal("Failed to check room existence".to_string()))?
         {
-            return Err(ApiError::not_found("Room not found".to_string()));
+            return Err(MembershipError::NotFound("Room not found".to_string()));
         }
 
         if !self
             .member_storage
             .is_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to check membership", e))?
+            .map_err(|_e| MembershipError::Internal("Failed to check membership".to_string()))?
         {
-            return Err(ApiError::forbidden("You are not a member of this room".to_string()));
+            return Err(MembershipError::NotAuthorized(
+                "You are not a member of this room".to_string(),
+            ));
         }
 
         let membership_str = membership.unwrap_or("join");
@@ -619,7 +624,7 @@ impl MembershipService {
             .member_storage
             .get_room_members_paginated_with_profiles(room_id, membership_str, not_membership, limit + 1, from, dir)
             .await
-            .map_err(|e| ApiError::database_with_cause("Failed to get paginated members", e))?;
+            .map_err(|e| MembershipError::Database(e))?;
 
         let has_more = members.len() as i64 > limit;
         // Truncate to requested limit

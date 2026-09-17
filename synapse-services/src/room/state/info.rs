@@ -1,6 +1,7 @@
 //! Room info queries and basic metadata helpers.
 
 use crate::common::error::{ApiError, ApiResult};
+use crate::room::state::error::RoomStateError;
 use serde_json::json;
 use synapse_common::current_timestamp_millis;
 use synapse_storage::{Room, RoomSearchCursor, RoomSearchOrder};
@@ -111,12 +112,12 @@ impl RoomStateService {
     }
 
     /// See [`room_exists`].
-    pub async fn room_exists(&self, room_id: &str) -> ApiResult<bool> {
+    pub async fn room_exists(&self, room_id: &str) -> Result<bool, RoomStateError> {
         let exists = self
             .room_storage
             .room_exists(room_id)
             .await
-            .map_err(|e| ApiError::database_with_cause("Failed to check room existence", e))?;
+            .map_err(|e| RoomStateError::Database(e))?;
         Ok(exists)
     }
 
@@ -188,21 +189,21 @@ impl RoomStateService {
         limit: i64,
         from: Option<RoomSearchCursor>,
         order_by: RoomSearchOrder,
-    ) -> ApiResult<(Vec<(Room, i64)>, Option<String>)> {
+    ) -> Result<(Vec<(Room, i64)>, Option<String>), RoomStateError> {
         self.room_storage
             .get_all_rooms_with_members(limit, from, order_by)
             .await
-            .map_err(|e| ApiError::database_with_cause("Failed to list rooms", e))
+            .map_err(|e| RoomStateError::Database(e))
     }
 
     /// See [`get_room_count`].
-    pub async fn get_room_count(&self) -> ApiResult<i64> {
-        self.room_storage.get_room_count().await.map_err(|e| ApiError::database_with_cause("Failed to count rooms", e))
+    pub async fn get_room_count(&self) -> Result<i64, RoomStateError> {
+        self.room_storage.get_room_count().await.map_err(|e| RoomStateError::Database(e))
     }
 
     /// See [`get_room_record`].
-    pub async fn get_room_record(&self, room_id: &str) -> ApiResult<Option<Room>> {
-        self.room_storage.get_room(room_id).await.map_err(|e| ApiError::database_with_cause("Failed to get room", e))
+    pub async fn get_room_record(&self, room_id: &str) -> Result<Option<Room>, RoomStateError> {
+        self.room_storage.get_room(room_id).await.map_err(|e| RoomStateError::Database(e))
     }
 
     /// See [`get_room_listings_status`].
@@ -238,7 +239,7 @@ impl RoomStateService {
         self.member_storage
             .remove_all_members(room_id)
             .await
-            .map_err(|e| ApiError::database_with_cause("Failed to remove room members", e))?;
+            .map_err(|e| RoomStateError::Database(e))?;
         Ok(())
     }
 
@@ -275,11 +276,11 @@ impl RoomStateService {
     }
 
     /// See [`get_room_version`].
-    pub async fn get_room_version(&self, room_id: &str) -> ApiResult<Option<String>> {
+    pub async fn get_room_version(&self, room_id: &str) -> Result<Option<String>, RoomStateError> {
         self.room_storage
             .get_room_version_only(room_id)
             .await
-            .map_err(|e| ApiError::database_with_cause("Failed to get room version", e))
+            .map_err(|e| RoomStateError::Database(e))
     }
 
     /// See [`search_all_rooms_admin`].
