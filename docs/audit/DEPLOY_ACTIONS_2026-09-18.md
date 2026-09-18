@@ -40,7 +40,9 @@ docker compose config --quiet && echo "compose config OK"
 （`docker/deploy/docker-compose.yml:209`，引入于 `7a419aac`）。空值不会 fail-closed：
 HKDF 接受空输入仍能派生出可用的 AES 密钥，于是联邦签名私钥以 `enc:` 前缀入库、
 看起来加密实则拿到库导出即可解开，同时"未配置主密钥 → 拒绝持久化"的兜底分支永远走不到
-（`synapse-common/src/key_encryption.rs:10-33`、`synapse-common/src/config/mod.rs:931-936`、
+（HKDF/`enc:` 见 `synapse-common/src/key_encryption.rs:10-33`；空白值归一化为 `None` 的生产
+实现在 `synapse-common/src/config/loader.rs:95-107`，其输入来自 `docker/config/homeserver.yaml:109`
+的 `signing_key_master_key: "${FEDERATION_MASTER_KEY:-}"`；长度下限在
 `synapse-common/src/config/validation.rs:43-57`）。当前代码已经把空白值归一化为 `None`
 并做长度校验，但**已经落库的旧 `enc:` 行不会因此变安全**——那要靠步骤 B 删掉。
 
@@ -96,22 +98,41 @@ cd docker/deploy
 # 1) 停掉 app（数据库保留）
 docker compose stop synapse
 
-# 2) 删除本服务器的全部签名密钥行；容器内已有 POSTGRES_USER / POSTGRES_DB
-docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1' <<'SQL'
-DELETE FROM federation_signing_keys WHERE server_name = 'matrix.test';  -- 换成你的 SERVER_NAME
+# 2) 先列出库里实际存在的 server_name —— 不要拿 .env.example 的默认值猜
+docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tA' <<'SQL'
+SELECT DISTINCT server_name FROM federation_signing_keys ORDER BY 1;
 SQL
-# 期望：DELETE 1   （若为 0，说明本来就没有行，也是可接受状态）
-
-# 3) 不要在这里启动 app —— 先做步骤 C（迁移），再启动（C 末尾给命令）
 ```
 
-**验证（在步骤 C 完成、app 重新启动之后执行）**（期望：恰好 1 行、`secret_key` 以 `enc:` 开头）：
+按第 2 步的输出分流（**这一步是占位符的自证，不能跳过**）：
+
+- 输出为空 → 库里确实没有任何签名密钥行，无行可删，跳过下面的 `DELETE`，直接做步骤 C。
+- 输出里有你的 `SERVER_NAME`（`grep '^SERVER_NAME=' .env`）→ 用**完全一致**的字符串替换下面
+  `'<SERVER_NAME>'` 后执行。
+- 输出非空但**没有**你的 `SERVER_NAME` → **停下**：要么 `SERVER_NAME` 认错了，要么这个库
+  属于另一套部署；在查清之前不要执行 `DELETE`。
+
+```bash
+cd docker/deploy
+# 3) 删除本服务器的全部签名密钥行；把 '<SERVER_NAME>' 换成第 2 步列出的确切值
+docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1' <<'SQL'
+DELETE FROM federation_signing_keys WHERE server_name = '<SERVER_NAME>';
+SQL
+# 期望：DELETE 1（该服务器通常只有一把当前密钥；若历史轮换留下多把 key_id，则是
+# DELETE N 且仍要求 N >= 1）。若打印 DELETE 0：占位符没有匹配到任何行 —— 回到第 2 步
+# 核对，不要当成"本来就没有行"放过；那个分支只会以"第 2 步输出为空"的形式出现。
+
+# 4) 不要在这里启动 app —— 先做步骤 C（迁移），再启动（C 末尾给命令）
+```
+
+**验证（在步骤 C 完成、app 重新启动之后执行）**（期望：恰好 1 行、`secret_key` 以 `enc:` 开头；
+`'<SERVER_NAME>'` 换成与第 3 步相同的值）：
 
 ```bash
 docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tA' <<'SQL'
 SELECT key_id, left(secret_key, 4) AS secret_prefix, created_ts
 FROM federation_signing_keys
-WHERE server_name = 'matrix.test';
+WHERE server_name = '<SERVER_NAME>';
 SQL
 ```
 
@@ -156,11 +177,18 @@ docker compose up -d synapse    # 若步骤 B 停过 app；./deploy.sh 已自带
 ```
 
 **期望**：
-- `migrate` 输出包含 `[WARNING] 基线内容已变化，重放基线以应用变更: 00000000_unified_schema_v12.sql`
-  （首次重放后不再出现），并以 `[SUCCESS]` 结束。
+- `migrate` 以 `[SUCCESS]` 结束。**在已经记录过基线的库上**，输出里还会有一行
+  `[WARNING] 基线内容已变化，重放基线以应用变更: 00000000_unified_schema_v12.sql`
+  （该警告只在 `schema_migrations` 里存在基线行、但记录校验和与当前文件不一致时才打印，
+  见 `docker/db_migrate.sh:494-506`；首次重放后不再出现）。**没有这行不代表没重放**：
+  一个有业务表但从未记录过基线行的库走的是另一分支，只会打印
+  `[INFO] 检测到现有业务表，使用容错模式应用基线迁移`（`docker/db_migrate.sh:509-513`）。
+  判别是否真的应用了变更，以 D1/D2 的查询为准，不要以这行警告为准。
 - `validate` 以 `[SUCCESS] 数据库架构验证通过` 结束（`docker/db_migrate.sh:583-633`）。
 
-**验证重放确实记了新校验和**（两行输出必须**完全一致**）：
+**验证重放确实记了新校验和**（两条命令输出的**哈希部分**必须相同：`md5sum` 打印
+`<hash>  <路径>`，SQL 只打印裸 `<hash>`；`schema_migrations.checksum` 存的是由
+`md5sum | awk '{print $1}'` 算出的文件内容哈希，见 `docker/db_migrate.sh:373-381`）：
 
 ```bash
 cd docker/deploy
@@ -199,7 +227,7 @@ cd docker/deploy
 docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tA' <<'SQL'
 SELECT is_nullable
 FROM information_schema.columns
-WHERE table_schema = current_schema()
+WHERE table_schema = 'public'   -- 固定 public，不依赖 search_path/current_schema()（同 validate_schema，docker/db_migrate.sh:617）
   AND table_name = 'e2ee_audit_log'
   AND column_name = 'device_id';
 SQL
@@ -219,7 +247,7 @@ docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB
 SELECT pg_get_constraintdef(oid)
 FROM pg_constraint
 WHERE conname = 'ck_room_memberships_valid'
-  AND conrelid = 'room_memberships'::regclass;
+  AND conrelid = 'public.room_memberships'::regclass;   -- 固定 public，不依赖 search_path
 SQL
 ```
 
@@ -275,12 +303,21 @@ sed -i.bak '/^JWT_SECRET=/d' .env && echo "removed"
 
 ## G.（可选 / 需裁定）代理信任：让限流与登录锁定按真实客户端 IP 计数
 
-**现状（不是 bug，是默认保守）**：`rate_limit.trust_forwarded` 默认为 `false`
-（`synapse-common/src/rate_limit_config.rs:148-154`、`:184-186`），而实际生效的
-`docker/config/rate_limit.yaml` 里**没有** `trust_forwarded` / `trusted_proxies` 两个键。
-运行时这份文件整体**替换**（不是字段级合并）`homeserver.yaml` 的 `rate_limit:` 段，
-所以改 `homeserver.yaml` 无效（`docker/config/homeserver.yaml:32-40`；
-`synapse-web/src/middleware/rate_limit.rs:50-54`）。
+**现状（不是 bug，是默认保守）**：这里有两份**互不相通**的配置，改动必须分清——只改一个
+文件，只有一半行为会变：
+
+| 消费方 | 读取的配置 | 代码 |
+|--------|-----------|------|
+| 限流中间件（IP 限流桶） | `RATE_LIMIT_CONFIG_PATH` 指向的 `docker/config/rate_limit.yaml`（文件存在时**整体替换** `homeserver.yaml` 的 `rate_limit:` 段，不是字段级合并） | `synapse-web/src/middleware/rate_limit.rs:18`、`:50-54` |
+| 登录失败锁定 `(ip, username)` 键 | `homeserver.yaml` 的 `rate_limit.trust_forwarded` / `trusted_proxies`（运行时视图 `Config::rate_limit`） | `synapse-web/src/routes/auth_compat.rs:503-510` |
+
+限流那份文件管理器只挂在 `AppState` 上（`synapse-web/src/routes/state.rs:131` 的
+`with_rate_limit_config`），**从不回写 `Config`**，所以登录锁定永远看不到 `rate_limit.yaml`
+里的 `trust_forwarded`。`trust_forwarded` 默认 `false`
+（`synapse-common/src/config/rate_limit.rs:73-79`，默认值在 `:108`），而实际生效的
+`docker/config/rate_limit.yaml` 与 `docker/config/homeserver.yaml` 的 `rate_limit:` 段里
+都**没有** `trust_forwarded` / `trusted_proxies`（`docker/config/homeserver.yaml:32-40`）。
+于是现状是：**限流与登录锁定都按 nginx 的 peer 地址计数**。
 
 **后果**：栈前面有 nginx，peer 地址是 nginx，于是登录失败锁定键 `(ip, username)`
 退化成"按用户名"，无法隔离客户端，且任何客户端都能把某个名字锁死
@@ -290,7 +327,7 @@ sed -i.bak '/^JWT_SECRET=/d' .env && echo "removed"
 当前没有固定 `ipam` 子网（`docker/deploy/docker-compose.yml:328-331`），
 Docker 动态分配网段 → 没有稳定值可写。开启必须先固定子网并**重建网络**（短暂停服）。
 
-**若决定开启**（两步都改，缺一不可）：
+**若决定开启**（子网 + **两个文件都要改**：漏掉哪个文件，就有一半仍按 nginx 的 IP 计数）：
 
 ```yaml
 # docker/deploy/docker-compose.yml —— 给 synapse-network 固定子网
@@ -304,23 +341,41 @@ networks:
 ```
 
 ```yaml
-# docker/config/rate_limit.yaml —— 该文件 deny_unknown_fields，键名不能拼错
-# （synapse-common/src/rate_limit_config.rs:97-103）
+# (1) docker/config/rate_limit.yaml —— 管限流中间件；该文件 deny_unknown_fields，键名不能拼错
+#     （synapse-common/src/rate_limit_config.rs:97-103）
 trust_forwarded: true
 trusted_proxies:
   - "172.28.0.0/24"   # 只信任 nginx 用到的网段；更严格的做法是给 nginx 固定
                       # ipv4_address，然后这里只写 "<nginx-ip>/32"
 ```
 
+```yaml
+# (2) docker/config/homeserver.yaml —— 只管登录锁定；必须与 (1) 同值，否则两者按不同 IP 计数
+rate_limit:
+  # ... 原有键保持不变，追加下面两个 ...
+  trust_forwarded: true
+  trusted_proxies:
+    - "172.28.0.0/24"
+```
+
+> 不写 (2) 也可以：在 `synapse` 容器的环境里设 `SYNAPSE__RATE_LIMIT__TRUST_FORWARDED=true`
+> 即可覆盖 `homeserver.yaml` 的同名键（标准环境覆盖机制，
+> `synapse-common/src/config/loader.rs:19-22` 的
+> `Environment::with_prefix("SYNAPSE").separator("__")` 在文件源之后追加）。
+> `trusted_proxies` 是一份 CIDR 列表，写进 `homeserver.yaml` 更直观。
+
 ```bash
 cd docker/deploy
 docker compose down          # 重建网络会短暂停服（本步的代价）
 docker compose up -d
 docker compose exec -T synapse sh -c 'grep -A3 trusted_proxies /app/config/rate_limit.yaml'
+# 登录锁定读的是 homeserver.yaml —— 确认 (2) 也进了容器：
+docker compose exec -T synapse sh -c 'grep -A6 "^rate_limit:" /app/config/homeserver.yaml'
 ```
 
-**期望**：`docker compose exec` 能看到刚写入的两个键；nginx 转发后限流日志里的 IP 是真实客户端 IP
-而非 nginx 容器 IP。**裁定点**：是否接受这次短暂停服。不接受就保持默认（现状），
+**期望**：两条 `docker compose exec` 都能看到刚写入的 `trust_forwarded` / `trusted_proxies`
+且 (1) 与 (2) 同值；nginx 转发后**限流与登录锁定**都按真实客户端 IP 计数，而非 nginx
+容器 IP。**裁定点**：是否接受这次短暂停服。不接受就保持默认（现状），
 这条不影响其它步骤的正确性。
 
 ---
@@ -358,16 +413,16 @@ curl -s http://127.0.0.1:9090/metrics | head
 
 | 主张 | 证据 |
 |------|------|
-| 基线变更靠内容校验和漂移重放自动应用 | `docker/db_migrate.sh:373-390`（内容校验和）、`:476-507`（比较+重放）、`:531-534`、`:687-692` |
+| 基线变更靠内容校验和漂移重放自动应用 | `docker/db_migrate.sh:373-381`（内容校验和）、`:494-506`（已记录基线但校验和不一致 → 重放）、`:509-513`（有业务表但无基线行 → 容错应用）、`:531-534`、`:687-692` |
 | deploy 的 migrator 用的是同一份实现 | `docker/deploy/scripts/container-migrate.sh:66`；`docker/deploy/docker-compose.yml:149-155` |
 | 重放是容错模式，错误会被吞 | `docker/db_migrate.sh:451-457` |
 | `validate` 只查固定表名清单 | `docker/db_migrate.sh:583-614` |
 | `device_id` 可空修复 | `migrations/00000000_unified_schema_v12.sql:956-977` |
 | `'forget'` 约束修复 | `migrations/00000000_unified_schema_v12.sql:5117-5130` |
-| `FEDERATION_MASTER_KEY` 的 `:?` 守卫与空值危害 | `docker/deploy/docker-compose.yml:203-209`；`synapse-common/src/key_encryption.rs:10-33`；`synapse-common/src/config/validation.rs:43-57` |
+| `FEDERATION_MASTER_KEY` 的 `:?` 守卫与空值危害 | `docker/deploy/docker-compose.yml:203-209`；`synapse-common/src/key_encryption.rs:10-33`；`synapse-common/src/config/loader.rs:95-107`；`docker/config/homeserver.yaml:109`；`synapse-common/src/config/validation.rs:43-57` |
 | 旧密钥行换主密钥后无法解密、不会自动重生成 | `synapse-federation/src/key_rotation.rs:490-499`、`:514-529`；`src/server/mod.rs:364` |
 | 8008/9090 只绑回环 | `docker/deploy/docker-compose.yml:265-273`；`b8fef799` |
 | `/metrics` 无鉴权 | `src/server/mod.rs:809-810`、`:926-941`；`docker/config/homeserver.yaml:241-244` |
-| 代理信任默认关闭、改 `homeserver.yaml` 无效 | `synapse-common/src/rate_limit_config.rs:148-154`、`:184-186`；`docker/config/homeserver.yaml:32-40`；`synapse-web/src/middleware/rate_limit.rs:50-54` |
+| 代理信任默认关闭；限流读 `rate_limit.yaml`，登录锁定读 `homeserver.yaml`（两者互不相通） | `synapse-common/src/config/rate_limit.rs:73-79`、`:108`；`synapse-web/src/middleware/rate_limit.rs:18`、`:50-54`；`synapse-web/src/routes/auth_compat.rs:503-510`；`synapse-web/src/routes/state.rs:131`；`synapse-common/src/config/loader.rs:19-22`；`docker/config/homeserver.yaml:32-40` |
 | 网络未固定子网 | `docker/deploy/docker-compose.yml:328-331` |
 | `JWT_SECRET` 惰性 | `b8fef799` |
