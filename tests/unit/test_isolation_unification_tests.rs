@@ -66,7 +66,9 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 /// hashes to `a05fa4488475fe1d` and a reversal to `4137af770181767b`, and neither
 /// is what any legitimate migration edit produces as long as the two files are
 /// still concatenated v12-then-extensions with nothing between them.
-const EXPECTED_BASELINE_FINGERPRINT: &str = "7ea0bab626c036f7";
+// 2026-10-01：`e2ee_audit_log.device_id` 改为可空（用户级审计事件没有单一设备），
+// 基线内容变化 ⇒ 按上面这段说明把常量更新为新报告的 `left:` 值。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "65ac2c177519d205";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))
