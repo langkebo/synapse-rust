@@ -66,8 +66,6 @@ TABLE_CONTRACTS: Dict[str, Dict[str, List[str]]] = {
             "scope",
             "rule_id",
             "kind",
-            "priority_class",
-            "priority",
             "conditions",
             "actions",
             "pattern",

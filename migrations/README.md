@@ -90,6 +90,25 @@ python3 scripts/check_migration_consistency.py
 saml_pending_requests、room_event_txn_dedup 等，commit 2d453089/bf85f23f 已折入），
 此检查脚本即为防止复发而设。
 
+### 改 baseline 后必须让测试模板重新铸造（2026-10-01 修复）
+
+集成测试的 schema 来自 `synapse-test-utils` 铸造的**共享模板**
+（`test_template_v<rev>_<fingerprint>`），模板名由 `template_schema_fingerprint()`
+计算，其输入**必须**包含 `migrations/` 下每个 `.sql` 的**内容**：
+
+- 该函数原先写作 `PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("migrations")`，
+  即 `synapse-test-utils/migrations` —— 该目录不存在，`read_dir` 失败后指纹退化成
+  常量 `migrations-dir-missing`。后果是**改 baseline 不会重建模板**：本次把
+  `e2ee_audit_log.device_id` 改成可空后，测试仍跑在旧 schema 上，必须手动
+  `DROP SCHEMA test_template_v2_*` 才生效。
+- 现已改为从 `CARGO_MANIFEST_DIR` 向上查找含 `.sql` 的 `migrations/`（找不到即
+  fail loudly，而不是静默沿用陈旧模板），并以**文件内容哈希**而非 `(长度, mtime)`
+  参与指纹 —— `git checkout` 会改 mtime 而不改内容（多余重建），等长编辑则可能
+  两者都不变（陈旧模板继续被使用）。
+- 推论：**baseline 的任何改动都会让下一次集成测试重新铸造模板**（首次约 35–60s），
+  这是预期行为，不要"优化"掉；反之，若改 baseline 后测试行为毫无变化，
+  先怀疑模板指纹没有真的改变。
+
 ## 死表清理（已于 2026-09-14 完成，原计划留待 v12）
 
 v11 baseline 曾包含 `openclaw_connections` / `ai_conversations` / `ai_connections`

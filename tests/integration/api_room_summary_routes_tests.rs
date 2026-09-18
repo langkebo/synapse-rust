@@ -286,7 +286,7 @@ async fn test_room_summary_route_boundaries_are_preserved() {
 
     let r0_write_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v3/rooms/{}/summary", room_id))
+        .uri(format!("/_matrix/client/r0/rooms/{}/summary", room_id))
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
@@ -297,7 +297,7 @@ async fn test_room_summary_route_boundaries_are_preserved() {
         ))
         .unwrap();
     let r0_write_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_write_request).await.unwrap();
-    assert_eq!(r0_write_response.status(), StatusCode::METHOD_NOT_ALLOWED);
+    assert_eq!(r0_write_response.status(), StatusCode::NOT_FOUND, "the legacy r0 prefix must not be served at all");
 
     let v3_unread_request = Request::builder()
         .method("POST")
@@ -309,7 +309,7 @@ async fn test_room_summary_route_boundaries_are_preserved() {
 
     let r0_unread_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v3/rooms/{}/summary/unread/clear", room_id))
+        .uri(format!("/_matrix/client/r0/rooms/{}/summary/unread/clear", room_id))
         .body(Body::empty())
         .unwrap();
     let r0_unread_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_unread_request).await.unwrap();

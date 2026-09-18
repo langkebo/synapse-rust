@@ -1049,32 +1049,65 @@ fn default_template_schema_name() -> String {
     format!("test_template_v{}_{}", TEST_TEMPLATE_SCHEMA_REVISION, template_schema_fingerprint())
 }
 
+/// Locate the workspace `migrations/` directory.
+///
+/// It cannot be derived from this crate's own layout: `CARGO_MANIFEST_DIR` is
+/// `synapse-test-utils/`, which has no `migrations/`. The previous
+/// `join("migrations")` therefore always missed, `read_dir` failed, and the
+/// fingerprint below silently degraded to the constant `migrations-dir-missing` —
+/// so **editing the baseline never rebuilt the template** and the whole integration
+/// suite kept exercising a stale schema (observed 2026-10-01: making
+/// `e2ee_audit_log.device_id` nullable had no effect until the template was dropped
+/// by hand). `migrations/README.md` claims the opposite ("内容指纹随之变化，会铸造一次
+/// 新模板"), which is only true once this resolves correctly.
+#[allow(clippy::expect_used)]
+fn workspace_migrations_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .map(|ancestor| ancestor.join("migrations"))
+        .find(|candidate| {
+            candidate.is_dir()
+                && fs::read_dir(candidate).is_ok_and(|mut entries| {
+                    entries
+                        .any(|entry| entry.is_ok_and(|entry| entry.path().extension().is_some_and(|ext| ext == "sql")))
+                })
+        })
+        .expect(
+            "no workspace `migrations/` directory containing .sql files was found at or above \
+             CARGO_MANIFEST_DIR; test templates cannot be fingerprinted against the schema",
+        )
+}
+
 fn template_schema_fingerprint() -> String {
+    // Hashing ~250KB of SQL on every acquire would be pure waste; the answer cannot
+    // change within a process.
+    static FINGERPRINT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    FINGERPRINT.get_or_init(compute_template_schema_fingerprint).clone()
+}
+
+fn compute_template_schema_fingerprint() -> String {
     let mut manifest =
         format!("schema-rev:{TEST_TEMPLATE_SCHEMA_REVISION};contract-sql:{};", ensure_test_schema_contract_sql());
-    let migrations_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("migrations");
+    let migrations_dir = workspace_migrations_dir();
 
-    let mut migration_entries = match fs::read_dir(&migrations_dir) {
-        Ok(entries) => entries
-            .filter_map(Result::ok)
-            .filter_map(|entry| {
-                let file_type = entry.file_type().ok()?;
-                if !file_type.is_file() {
-                    return None;
-                }
-                let file_name = entry.file_name();
-                let file_name = file_name.to_str()?;
-                let metadata = entry.metadata().ok()?;
-                let modified =
-                    metadata.modified().ok().and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())?;
-                Some(format!("{file_name}:{}:{};", metadata.len(), modified.as_secs()))
-            })
-            .collect::<Vec<_>>(),
-        Err(_) => vec!["migrations-dir-missing".to_string()],
-    };
+    // Hash the file **contents**, not (length, mtime): a `git checkout`/`git stash`
+    // rewrites mtimes without changing content (needless rebuild) while a same-length
+    // edit can keep both (stale template served for a changed schema). Content is the
+    // only signal that matches the question being asked — "is this schema still the
+    // one the migrations describe?".
+    let mut migration_entries: Vec<(String, String)> = fs::read_dir(&migrations_dir)
+        .unwrap_or_else(|error| panic!("cannot read migrations directory {}: {error}", migrations_dir.display()))
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|file_type| file_type.is_file()))
+        .filter_map(|entry| {
+            let file_name = entry.file_name().to_str()?.to_string();
+            let contents = fs::read(entry.path()).ok()?;
+            Some((file_name, format!("{:016x}", fnv1a64(&contents))))
+        })
+        .collect();
     migration_entries.sort();
-    for entry in migration_entries {
-        manifest.push_str(&entry);
+    for (file_name, content_hash) in migration_entries {
+        manifest.push_str(&format!("{file_name}:{content_hash};"));
     }
 
     format!("{:016x}", fnv1a64(manifest.as_bytes()))

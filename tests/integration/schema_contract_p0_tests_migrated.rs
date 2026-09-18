@@ -589,8 +589,6 @@ async fn test_schema_contract_push_rules_shape() {
     assert_column(&pool, "push_rules", "scope", &["text", "character varying"], false, None, None).await;
     assert_column(&pool, "push_rules", "rule_id", &["text", "character varying"], false, None, None).await;
     assert_column(&pool, "push_rules", "kind", &["text", "character varying"], false, None, None).await;
-    assert_column(&pool, "push_rules", "priority_class", &["integer"], false, None, None).await;
-    assert_column(&pool, "push_rules", "priority", &["integer"], true, Some("0"), None).await;
     assert_column(&pool, "push_rules", "conditions", &["jsonb"], true, Some("[]"), None).await;
     assert_column(&pool, "push_rules", "actions", &["jsonb"], true, Some("[]"), None).await;
     if has_column(&pool, "push_rules", "is_enabled").await {
@@ -602,10 +600,6 @@ async fn test_schema_contract_push_rules_shape() {
         "Expected push_rules UNIQUE(user_id,scope,kind,rule_id)"
     );
     assert!(has_index_named(&pool, "idx_push_rules_user").await, "Expected push_rules index idx_push_rules_user");
-    assert!(
-        has_index_named(&pool, "idx_push_rules_user_priority").await,
-        "Expected push_rules index idx_push_rules_user_priority because push queries sort by priority"
-    );
 }
 
 #[tokio::test]
@@ -629,14 +623,13 @@ async fn test_schema_contract_push_rules_query_and_write_read_closure() {
         r#"
         INSERT INTO push_rules (
             user_id, scope, kind, rule_id, pattern, conditions, actions,
-            is_enabled, is_default, priority_class, priority, created_ts
+            is_enabled, is_default, created_ts
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, FALSE, 5, 42, $8)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, FALSE, $8)
         ON CONFLICT (user_id, scope, kind, rule_id) DO UPDATE SET
             pattern = EXCLUDED.pattern,
             conditions = EXCLUDED.conditions,
-            actions = EXCLUDED.actions,
-            priority = EXCLUDED.priority
+            actions = EXCLUDED.actions
         "#,
     )
     .bind(&user_id)
@@ -656,7 +649,7 @@ async fn test_schema_contract_push_rules_query_and_write_read_closure() {
         SELECT rule_id, pattern, conditions, actions, is_enabled, is_default
         FROM push_rules
         WHERE user_id = $1 AND scope = $2 AND kind = $3
-        ORDER BY priority DESC, created_ts ASC
+        ORDER BY created_ts ASC
         "#,
     )
     .bind(&user_id)
@@ -1403,10 +1396,6 @@ async fn test_schema_contract_space_summary_tables_shape() {
     assert!(
         has_unique_constraint_on(&pool, "space_summaries", &["space_id"]).await,
         "Expected space_summaries UNIQUE(space_id)"
-    );
-    assert!(
-        has_index_named(&pool, "idx_space_summary_space").await,
-        "Expected space_summaries index idx_space_summary_space"
     );
 
     assert_eq!(

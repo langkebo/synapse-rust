@@ -406,7 +406,7 @@ async fn test_presence_list_boundary_is_preserved() {
 
     let r0_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/v3/presence/list")
+        .uri("/_matrix/client/r0/presence/list")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(

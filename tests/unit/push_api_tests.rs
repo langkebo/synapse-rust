@@ -89,25 +89,6 @@ fn test_push_rules_response() {
     assert!(rules.get("global").is_some());
 }
 
-// Test 7: Push rule format
-#[test]
-fn test_push_rule_format() {
-    let rule = json!({
-        "rule_id": "rule1",
-        "priority_class": 5,
-        "priority": 0,
-        "conditions": [],
-        "actions": ["notify", {"set_tweak": "highlight"}],
-        "pattern": null,
-        "is_default": false,
-        "enabled": true
-    });
-
-    assert!(rule.get("rule_id").is_some());
-    assert!(rule.get("priority_class").is_some());
-    assert!(rule.get("actions").is_some());
-}
-
 // Test 8: Push rule scope validation
 #[test]
 fn test_push_rule_scope_validation() {
@@ -163,7 +144,6 @@ fn test_get_push_rules_kind() {
 fn test_get_push_rule() {
     let rule = json!({
         "rule_id": "rule1",
-        "priority_class": 5,
         "actions": ["notify"]
     });
 

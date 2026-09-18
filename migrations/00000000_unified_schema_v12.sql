@@ -956,7 +956,7 @@ CREATE TABLE IF NOT EXISTS dehydrated_devices (
 CREATE TABLE IF NOT EXISTS e2ee_audit_log (
     id BIGSERIAL PRIMARY KEY,
     user_id TEXT NOT NULL,
-    device_id TEXT NOT NULL,
+    device_id TEXT,
     action TEXT NOT NULL,
     event_id TEXT,
     room_id TEXT,
@@ -966,6 +966,15 @@ CREATE TABLE IF NOT EXISTS e2ee_audit_log (
     ip_address TEXT,
     created_ts BIGINT NOT NULL
 );
+
+-- 2026-10-01 实测（A1 让集成测试真正连库跑之后暴露）：
+-- `device_id` 必须可空 —— 用户级操作（`verify_all_devices` 等）本来就没有单一设备，
+-- `synapse-services/src/e2ee_audit/audit_service.rs` 明确传 `device_id: None`，
+-- 而 `E2eeAuditStorage::log_key_operation` 直接绑定 `event.device_id: Option<String>`。
+-- 在 `NOT NULL` 下这条写入报 23502，错误冒泡成 `verify_user_devices` 的
+-- "Failed to log key operation" —— 即**整个"验证全部设备"功能不可用**，不只是审计行没落库。
+-- 下面的 ALTER 让早于本修复建的库也能跟上（幂等，且与表定义同源）。
+ALTER TABLE e2ee_audit_log ALTER COLUMN device_id DROP NOT NULL;
 
 CREATE TABLE IF NOT EXISTS e2ee_secret_storage_keys (
     id BIGSERIAL PRIMARY KEY,
