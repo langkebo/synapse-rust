@@ -237,50 +237,62 @@ jobs:
           sqlx database create
           sqlx migrate run --source artifacts/sqlx-migrations
 
+      # ⚠️ 下面 5 个 "storage/db smoke" 步骤原先写的是
+      #   `--test unit <module>`，但那些模块**只存在于 tests/integration**，且名字带
+      #   `_migrated` 后缀 ⇒ libtest 匹配 0 个测试并 exit 0 —— 5 个"DB 门禁"长期空转
+      #   （门禁诚实性清查 A2，实测 2026-09-19）。
+      # 现在改为 `--test integration <module>_migrated`，并统一用
+      # scripts/ci/require_tests_ran.sh 包裹：**跑了 0 个测试即失败**，
+      # 这样下次目标名再漂移会立刻红，而不是继续假装通过。
       - name: Run thread storage database smoke tests
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
         run: >-
+          bash scripts/ci/require_tests_ran.sh
           cargo test --locked
             --features test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications
-            --test unit thread_storage_tests -- --test-threads=1
+            --test integration thread_storage_tests_migrated -- --test-threads=1
 
       - name: Run retention storage database smoke tests
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
         run: >-
+          bash scripts/ci/require_tests_ran.sh
           cargo test --locked
             --features test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications
-            --test unit retention_storage_tests -- --test-threads=1
+            --test integration retention_storage_tests_migrated -- --test-threads=1
 
       - name: Run room summary storage database smoke tests
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
         run: >-
+          bash scripts/ci/require_tests_ran.sh
           cargo test --locked
             --features test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications
-            --test unit room_summary_storage_tests -- --test-threads=1
+            --test integration room_summary_storage_tests_migrated -- --test-threads=1
 
       - name: Run db schema smoke tests
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
         run: >-
+          bash scripts/ci/require_tests_ran.sh
           cargo test --locked
             --features test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications
-            --test unit db_schema_smoke_tests -- --test-threads=1
+            --test integration db_schema_smoke_tests_migrated -- --test-threads=1
 
       - name: Run schema contract p0 tests
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
         run: >-
+          bash scripts/ci/require_tests_ran.sh
           cargo test --locked
             --features test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications
-            --test unit schema_contract_p0 -- --test-threads=1
+            --test integration schema_contract_p0_tests_migrated -- --test-threads=1
 
       # 18 个「schema contract integration tests」占位步骤已于 2026-09-15 整体删除。
       #
@@ -316,15 +328,21 @@ jobs:
           INTEGRATION_TESTS_REQUIRED: "1"
         run: |
           set -euo pipefail
+          # `test_verification_requests_pending_index_survives_full_migration_chain`
+          # 曾在数组里，但它**全仓不存在**；配合 `--exact`，libtest 匹配 0 个测试并
+          # exit 0，于是这一条"迁移后索引仍在"的断言从未执行（清查 A3，实测 2026-09-19）。
+          # 该索引的覆盖由 test_audit_critical_indexes_exist 与
+          # schema_health_check::REQUIRED_INDEXES 承担，故直接删除名字而不是
+          # 编造一个替代断言。
           tests=(
             "database_integrity_tests::tests::test_audit_critical_indexes_exist"
             "database_integrity_tests::tests::test_audit_critical_constraints_exist"
-            "database_integrity_tests::tests::test_verification_requests_pending_index_survives_full_migration_chain"
             "database_integrity_tests::tests::test_public_schema_contract_repairs_apply_cleanly"
             "database_integrity_tests::tests::test_orphan_data_diagnostics_query_executes"
           )
           for test_name in "${tests[@]}"; do
-            cargo test --locked \
+            # 用 require_tests_ran.sh 包住：某个名字若再写错/被删，就是 exit 1 而不是静默通过。
+            bash scripts/ci/require_tests_ran.sh cargo test --locked \
               --features test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications \
               --test integration "$test_name" -- --exact --nocapture
           done
@@ -334,9 +352,10 @@ jobs:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
         run: >-
+          bash scripts/ci/require_tests_ran.sh
           cargo test --locked
             --features test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications
-            --test unit invite_blocklist_tests -- --test-threads=1
+            --test integration invite_blocklist_tests_migrated -- --test-threads=1
 
       - name: Generate logical checksum report
         env:

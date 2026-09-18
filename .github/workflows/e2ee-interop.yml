@@ -5,10 +5,12 @@ on:
     branches: [ main, develop ]
     paths:
       - 'src/e2ee/**'
+      # 真正的实现与测试在 synapse-e2ee crate 里：漏掉这条会让这个 job 在
+      # "只改了 vodozemac 代码"的 PR 上根本不触发（清查 A1，实测 2026-09-19）。
+      - 'synapse-e2ee/**'
       - 'docs/synapse-rust/E2EE_VODOZEMAC_MIGRATION.md'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - 'src/e2ee/vodozemac_interop_tests.rs'
       - '.github/workflows/e2ee-interop.yml'
   push:
     branches:
@@ -71,9 +73,16 @@ jobs:
           # `2>&1 | tee` 会把退出码换成 tee 的 0：测试失败时这一步照样"成功"。
           set -o pipefail
           mkdir -p "${E2EE_INTEROP_LOG}"
-          cargo test --all-features --locked --lib \
-            'e2ee::vodozemac_interop_tests' \
-            -- --nocapture 2>&1 | tee "${E2EE_INTEROP_LOG}/vodozemac-smoke.log"
+          # ⚠️ 原命令是 `cargo test --all-features --locked --lib
+          # 'e2ee::vodozemac_interop_tests'` —— 没有 `-p`，只跑**根包**的 lib 测试，
+          # 而该模块在 synapse-e2ee crate 里（`synapse-e2ee/src/lib.rs` 的
+          # `#[cfg(test)] mod vodozemac_interop_tests;`，19 个 #[test]）
+          # ⇒ 过滤器匹配 0 个测试、exit 0，门禁从未运行（清查 A1）。
+          # require_tests_ran.sh 再兜一层：跑 0 个测试即失败。
+          bash scripts/ci/require_tests_ran.sh \
+            cargo test -p synapse-e2ee --all-features --locked --lib \
+              vodozemac_interop_tests -- --nocapture 2>&1 \
+            | tee "${E2EE_INTEROP_LOG}/vodozemac-smoke.log"
 
       - name: Upload smoke log
         if: always()
