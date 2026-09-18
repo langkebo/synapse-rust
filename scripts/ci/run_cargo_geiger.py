@@ -1,31 +1,48 @@
 #!/usr/bin/env python3
-"""
-cargo-geiger unsafe-usage gate.
+"""cargo-geiger unsafe-usage gate (two-scan difference).
 
-Runs `cargo geiger --output-format json --all-features`, parses the JSON
-output, and enforces a ratchet-style policy:
+Policy
+------
+  * **Production** (what we ship) unsafe usage must be **zero**.
+  * **Test-only** unsafe is tracked against a ratchet baseline
+    (`scripts/ci/geiger_baseline.json`).
 
-  - Production code (any file NOT under tests/) must have ZERO unsafe.
-  - Test code (files under tests/) is tracked but non-blocking.
-  - A baseline file records the historical test-unsafe count; the gate
-    only fails if the test-unsafe count INCREASES above the baseline.
-  - There is NO production-unsafe allowlist: the baseline carries no
-    production ceiling, and any key the gate does not read is rejected
-    (a field nothing enforces is how `prod_unsafe_total: 4` previously
-    contradicted this hard-zero policy).
-  - cargo-geiger runs WITHOUT `--include-tests`, so `#[cfg(test)]` unsafe
-    is not counted as production; the gate refuses to run with it.
+How "production" and "test-only" are separated (option C)
+---------------------------------------------------------
+`cargo-geiger --output-format Json` emits a `SafetyReport` indexed **by package**
+(`{"packages": {<package id>: {"package": …, "unsafety": …}}, …}`) and it contains
+**no file paths at all**. The previous design ("split the JSON entries by `/tests/`
+in the file path") therefore could never work: it iterated the top-level object as
+if it were a list of file entries and read counter names (`extern_blocks`/… ) that
+are not in the schema. On top of that `--output-format json` was the wrong case
+(the enum is `Json`, case-sensitive), so the subprocess exited non-zero before
+scanning. Result: the gate either crashed or counted 0 forever.
 
-This replaces the previous fragile `grep -oP '\\d+(?= unsafe)'` parsing
-which never matched cargo-geiger's actual output format, causing
-PROD_UNSAFE_COUNT to always be 0 (false-green).
+This version runs cargo-geiger **twice** and subtracts per package:
 
-Usage:
+    prod = cargo geiger                      (test targets excluded)
+    all  = cargo geiger --include-tests      (test targets included)
+    test = all - prod                        (unsafe that exists only in tests)
+
+Counter names are **not** hardcoded: per package we sum every integer under
+`unsafety.used`, so an upstream counter rename keeps working, while any structural
+surprise (missing `packages`, non-dict entry, non-integer counter, differing
+package sets, negative difference) is a **loud failure** instead of a silent zero.
+
+Scope: only packages that are path dependencies of this workspace
+(`path+file://` in the package id) are counted. Third-party registry crates are
+ignored — their unsafe is not ours to fix, and including it would make the
+hard-zero Gate 1 unenforceable.
+
+Usage
+-----
     python3 scripts/ci/run_cargo_geiger.py [--baseline PATH] [--report PATH]
+    # offline / test mode (no cargo-geiger needed):
+    python3 scripts/ci/run_cargo_geiger.py --prod-report P.json --all-report A.json
 
-Exit codes:
-    0 = pass (no production unsafe, test-unsafe within baseline)
-    1 = fail (production unsafe found, or test-unsafe exceeded baseline)
+Exit codes
+----------
+    0 = pass   1 = policy violation   2 = cannot evaluate (bad input/shape/tool)
 """
 
 from __future__ import annotations
@@ -40,206 +57,223 @@ ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 DEFAULT_BASELINE = ROOT_DIR / "scripts" / "ci" / "geiger_baseline.json"
 DEFAULT_REPORT = ROOT_DIR / "artifacts" / "cargo-geiger.json"
 
-# Keys the gate actually consumes. Anything else in the baseline file is inert
-# by construction, which is how `"prod_unsafe_total": 4` sat in this file for
-# months while Gate 1 hard-failed at `prod_total > 0` — a baseline field that
-# contradicts the enforced policy and that nothing reads. See
-# `validate_baseline_keys`.
+# Keys the gate actually consumes. Anything else in the baseline file is inert by
+# construction, which is how `"prod_unsafe_total": 4` sat here for months while
+# Gate 1 hard-failed at `prod_total > 0` — a field contradicting the enforced
+# policy that nothing read.
 KNOWN_BASELINE_KEYS = frozenset({"test_unsafe_total", "note"})
 
-# cargo-geiger must run WITHOUT `--include-tests`. `classify_files` below splits
-# by FILE PATH, so it cannot distinguish a `#[cfg(test)]` block from production
-# code inside the same `src/` file: with tests included, a test-only
-# `std::env::set_var` makes `prod_total > 0` and trips the hard-zero Gate 1 for
-# code that never ships. Excluding test targets is what makes `prod_total` mean
-# "unsafe in code that ships". See `validate_geiger_cmd`.
-GEIGER_CMD = [
-    "cargo",
-    "geiger",
-    "--all-features",
-    "--output-format",
-    "json",
-]
+# `--output-format Json` (capital J): OutputFormat is a case-sensitive strum enum,
+# so the lowercase `json` made the subprocess exit before any scanning happened.
+GEIGER_BASE_CMD = ["cargo", "geiger", "--all-features", "--output-format", "Json"]
 
 
-def validate_geiger_cmd(cmd: list[str]) -> str | None:
-    """Reject a scan configuration that would misclassify test-only unsafe."""
-    if "--include-tests" in cmd:
-        return (
-            "cargo-geiger is invoked with `--include-tests`, which counts "
-            "`#[cfg(test)]` unsafe inside `src/` files as production. "
-            "`classify_files` splits by file path, so it cannot tell them apart "
-            "and Gate 1 (production unsafe must be 0) would fail on test code."
-        )
-    return None
-
-
-def validate_baseline_keys(baseline: dict, path: Path) -> str | None:
-    """Reject inert baseline fields.
-
-    A baseline key nothing reads is indistinguishable from a policy change, and
-    it silently documents an allowance that is not honoured (the removed
-    `prod_unsafe_total: 4` claimed test-only unsafe was tolerated in production
-    while the code hard-failed on it).
-    """
-    unknown = sorted(set(baseline) - KNOWN_BASELINE_KEYS)
-    if unknown:
-        return (
-            f"{path} contains key(s) the gate never reads: {', '.join(unknown)}. "
-            f"Consumed keys: {', '.join(sorted(KNOWN_BASELINE_KEYS))}. "
-            "Either consume the key or delete it — an ignored field documents a "
-            "policy that is not enforced."
-        )
-    return None
-
-
-def run_geiger() -> list[dict]:
-    """Run cargo geiger and return parsed JSON output."""
-    result = subprocess.run(
-        GEIGER_CMD,
-        capture_output=True,
-        text=True,
-        cwd=ROOT_DIR,
-    )
-    if result.returncode != 0:
-        print(f"ERROR: cargo geiger failed (exit {result.returncode})", file=sys.stderr)
-        print(result.stderr, file=sys.stderr)
-        # cargo-geiger returns non-zero if it finds unsafe, but JSON is still
-        # on stdout. Try to parse stdout anyway.
+def run_geiger(extra: list[str]) -> dict:
+    """Run one cargo-geiger scan and return the parsed SafetyReport."""
+    cmd = GEIGER_BASE_CMD + extra
+    print(f">>> {' '.join(cmd)}")
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT_DIR)
+    # cargo-geiger exits non-zero when it finds unsafe, but still prints JSON.
     try:
         return json.loads(result.stdout)
     except json.JSONDecodeError:
-        # Fallback: try to extract JSON from mixed output
         lines = result.stdout.strip().splitlines()
         for i, line in enumerate(lines):
-            if line.strip().startswith("["):
+            if line.strip().startswith("{"):
                 try:
                     return json.loads("\n".join(lines[i:]))
                 except json.JSONDecodeError:
                     continue
-        print("ERROR: could not parse cargo-geiger JSON output", file=sys.stderr)
-        print("stdout:", result.stdout[:500], file=sys.stderr)
-        sys.exit(1)
+    print(
+        f"FAIL: could not parse cargo-geiger JSON (exit {result.returncode}).\n"
+        f"      stdout head: {result.stdout[:300]!r}\n"
+        f"      stderr head: {result.stderr[:300]!r}",
+        file=sys.stderr,
+    )
+    sys.exit(2)
 
 
-def classify_files(metrics: list[dict]) -> tuple[list[dict], list[dict]]:
-    """Split metrics into production and test file lists."""
-    prod, test = [], []
-    for entry in metrics:
-        filepath = entry.get("file", entry.get("path", ""))
-        if "/tests/" in filepath or filepath.startswith("tests/"):
-            test.append(entry)
-        else:
-            prod.append(entry)
-    return prod, test
+def shipped_unsafe_totals(report: dict, label: str) -> dict[str, int]:
+    """Sum unsafe usages per **workspace (path) package** in a SafetyReport.
 
+    Fails loudly on any structural surprise: a silently-zero gate is precisely the
+    defect this function exists to prevent.
+    """
+    if not isinstance(report, dict) or not isinstance(report.get("packages"), dict):
+        keys = sorted(report.keys()) if isinstance(report, dict) else type(report).__name__
+        print(
+            f"FAIL: {label}: expected a SafetyReport with a `packages` object, got {keys}. "
+            "cargo-geiger's schema may have changed — fix the parser instead of letting the "
+            "gate count zero.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
-def sum_unsafe(entries: list[dict]) -> dict[str, int]:
-    """Sum unsafe counts across file entries."""
-    totals = {"extern_blocks": 0, "traits": 0, "fns": 0, "impls": 0, "blocks": 0}
-    for entry in entries:
-        unsafe = entry.get("unsafe", entry.get("metrics", {}))
-        for key in totals:
-            totals[key] += int(unsafe.get(key, 0))
+    totals: dict[str, int] = {}
+    for pkg_id, entry in report["packages"].items():
+        if not isinstance(entry, dict):
+            print(f"FAIL: {label}: package {pkg_id!r} is not an object", file=sys.stderr)
+            sys.exit(2)
+        # Only our own crates: workspace members are path dependencies.
+        if "path+file://" not in str(pkg_id):
+            continue
+        unsafety = entry.get("unsafety")
+        if not isinstance(unsafety, dict):
+            print(
+                f"FAIL: {label}: package {pkg_id!r} has no `unsafety` object "
+                f"(keys: {sorted(entry.keys())})",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        used = unsafety.get("used")
+        if not isinstance(used, dict):
+            print(
+                f"FAIL: {label}: package {pkg_id!r} has no `unsafety.used` object "
+                f"(keys: {sorted(unsafety.keys())})",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        total = 0
+        for counter, value in used.items():
+            if isinstance(value, bool) or not isinstance(value, int):
+                print(
+                    f"FAIL: {label}: package {pkg_id!r} counter {counter!r} is not an integer "
+                    f"({value!r}); refusing to guess.",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+            total += value
+        totals[str(pkg_id)] = total
+
+    if not totals:
+        print(
+            f"FAIL: {label}: no workspace (path) packages found in the report. Either the scan "
+            "covered nothing or the package-id format changed; refusing to report a green gate.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
     return totals
-
-
-def total_unsafe(counts: dict[str, int]) -> int:
-    return sum(counts.values())
 
 
 def load_baseline(path: Path) -> dict:
     """Load baseline file, or return defaults if not present."""
     if path.exists():
         return json.loads(path.read_text())
-    return {
-        "test_unsafe_total": 0,
-        "note": "baseline not found; using zero-defaults",
-    }
+    return {"test_unsafe_total": 0, "note": "baseline not found; using zero-defaults"}
+
+
+def validate_baseline_keys(baseline: dict, path: Path) -> str | None:
+    """Reject a baseline field that nothing enforces."""
+    unknown = sorted(set(baseline) - KNOWN_BASELINE_KEYS)
+    if unknown:
+        return (
+            f"{path} contains keys the gate does not read: {unknown}. Every field here must be "
+            f"enforced (known: {sorted(KNOWN_BASELINE_KEYS)}) — an inert field is how a "
+            f"`prod_unsafe_total` ceiling contradicted the hard-zero policy without changing it."
+        )
+    value = baseline.get("test_unsafe_total", 0)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return f"{path}: test_unsafe_total must be a non-negative integer, got {value!r}"
+    return None
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="cargo-geiger unsafe-usage gate")
     parser.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE)
     parser.add_argument("--report", type=Path, default=DEFAULT_REPORT)
+    parser.add_argument(
+        "--prod-report",
+        type=Path,
+        default=None,
+        help="parse this existing prod-scan JSON instead of running cargo-geiger",
+    )
+    parser.add_argument(
+        "--all-report",
+        type=Path,
+        default=None,
+        help="parse this existing with-tests-scan JSON instead of running cargo-geiger",
+    )
     args = parser.parse_args()
 
-    args.report.parent.mkdir(parents=True, exist_ok=True)
-
-    # Validate the scan configuration and the baseline BEFORE spending minutes
-    # in cargo-geiger: both guards catch a misconfiguration that would otherwise
-    # produce a misleading verdict.
-    cmd_problem = validate_geiger_cmd(GEIGER_CMD)
-    if cmd_problem:
-        print(f"FAIL: {cmd_problem}", file=sys.stderr)
-        return 2
-    baseline_problem = validate_baseline_keys(load_baseline(args.baseline), args.baseline)
+    # Validate the baseline BEFORE spending minutes in cargo-geiger.
+    baseline = load_baseline(args.baseline)
+    baseline_problem = validate_baseline_keys(baseline, args.baseline)
     if baseline_problem:
         print(f"FAIL: {baseline_problem}", file=sys.stderr)
         return 2
-
-    print(">>> cargo-geiger: scanning for unsafe usage (JSON output)")
-    metrics = run_geiger()
-
-    # Save raw JSON report
-    args.report.write_text(json.dumps(metrics, indent=2))
-    print(f"    Report saved: {args.report}")
-
-    prod_entries, test_entries = classify_files(metrics)
-    prod_counts = sum_unsafe(prod_entries)
-    test_counts = sum_unsafe(test_entries)
-    prod_total = total_unsafe(prod_counts)
-    test_total = total_unsafe(test_counts)
-
-    print(f"\n    Production files scanned: {len(prod_entries)}")
-    print(f"    Test files scanned:       {len(test_entries)}")
-    print(f"    Production unsafe total:  {prod_total}  {prod_counts}")
-    print(f"    Test unsafe total:        {test_total}  {test_counts}")
-
-    baseline = load_baseline(args.baseline)
     baseline_test = baseline.get("test_unsafe_total", 0)
 
-    # List files with unsafe for visibility
-    if prod_total > 0:
-        print("\n  Production files with unsafe:")
-        for e in prod_entries:
-            u = e.get("unsafe", e.get("metrics", {}))
-            t = total_unsafe(u)
-            if t > 0:
-                print(f"    {e.get('file', e.get('path', '?'))}: {u}")
+    offline = args.prod_report is not None or args.all_report is not None
+    if offline:
+        if args.prod_report is None or args.all_report is None:
+            print("FAIL: offline mode needs BOTH --prod-report and --all-report", file=sys.stderr)
+            return 2
+        prod_report = json.loads(args.prod_report.read_text())
+        all_report = json.loads(args.all_report.read_text())
+    else:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        prod_report = run_geiger([])
+        all_report = run_geiger(["--include-tests"])
+        args.report.write_text(json.dumps({"prod": prod_report, "all": all_report}, indent=2))
+        print(f"    Report saved: {args.report}")
 
+    prod_per_pkg = shipped_unsafe_totals(prod_report, "prod scan")
+    all_per_pkg = shipped_unsafe_totals(all_report, "all scan")
+
+    prod_total = sum(prod_per_pkg.values())
+
+    # Packages present in only one scan would make the subtraction meaningless.
+    only_prod = sorted(set(prod_per_pkg) - set(all_per_pkg))
+    if only_prod:
+        print(
+            f"FAIL: these packages appear in the prod scan but not the with-tests scan: {only_prod}. "
+            "The two scans must cover the same workspace; refusing to subtract.",
+            file=sys.stderr,
+        )
+        return 2
+
+    test_only = {pkg: all_per_pkg[pkg] - prod_per_pkg[pkg] for pkg in all_per_pkg}
+    negative = {pkg: v for pkg, v in test_only.items() if v < 0}
+    if negative:
+        print(
+            f"FAIL: subtracting the scans gave a negative test-only count for {negative}. "
+            "The scans are not comparable (different features/targets?); refusing to guess.",
+            file=sys.stderr,
+        )
+        return 2
+    test_total = sum(test_only.values())
+
+    print(f"\n    Workspace packages scanned: {len(all_per_pkg)}")
+    print(f"    Production unsafe total:    {prod_total}")
+    print(f"    Test-only unsafe total:     {test_total}")
+    if prod_total > 0:
+        print("\n  Packages with production unsafe:")
+        for pkg, value in sorted(prod_per_pkg.items()):
+            if value > 0:
+                print(f"    {pkg}: {value}")
     if test_total > 0:
-        print("\n  Test files with unsafe:")
-        for e in test_entries:
-            u = e.get("unsafe", e.get("metrics", {}))
-            t = total_unsafe(u)
-            if t > 0:
-                print(f"    {e.get('file', e.get('path', '?'))}: {u}")
+        print("\n  Packages with test-only unsafe:")
+        for pkg, value in sorted(test_only.items()):
+            if value > 0:
+                print(f"    {pkg}: {value}")
 
     # ── Gate 1: Production unsafe must be zero (hard block) ──
     if prod_total > 0:
-        print(f"\nFAIL: {prod_total} unsafe item(s) found in production code.")
-        print("      Production unsafe is strictly prohibited — there is no")
-        print("      allowlist, and the baseline carries no production ceiling.")
-        print("      If the unsafe is only inside `#[cfg(test)]`, move that code")
-        print("      under `tests/` (or behind a safe wrapper): cargo-geiger")
-        print("      reports per FILE, so test-only unsafe in a `src/` file is")
-        print("      counted as production.")
+        print(f"\nFAIL: {prod_total} unsafe usage(s) in shipped code.")
+        print("      Production unsafe is strictly prohibited — no allowlist, no baseline ceiling.")
+        print("      If it is really only inside `#[cfg(test)]`, move that code under `tests/`,")
+        print("      because the prod scan excludes test *targets*, not test *modules* in src/.")
         return 1
 
-    # ── Gate 2: Test unsafe must not exceed baseline (ratchet) ──
+    # ── Gate 2: Test-only unsafe must not exceed baseline (ratchet) ──
     if test_total > baseline_test:
-        print(
-            f"\nFAIL: Test unsafe count ({test_total}) exceeds baseline ({baseline_test})."
-        )
-        print("      To increase the baseline, update:")
-        print(f"        {args.baseline}")
-        print("      with justification for the new unsafe blocks.")
+        print(f"\nFAIL: test-only unsafe ({test_total}) exceeds baseline ({baseline_test}).")
+        print(f"      Raise `test_unsafe_total` in {args.baseline} with justification.")
         return 1
 
-    print(f"\ncargo-geiger: PASS")
+    print("\ncargo-geiger: PASS")
     print(f"  Production unsafe: {prod_total} (must be 0)")
-    print(f"  Test unsafe:       {test_total} (baseline: {baseline_test})")
+    print(f"  Test-only unsafe:  {test_total} (baseline: {baseline_test})")
     return 0
 
 

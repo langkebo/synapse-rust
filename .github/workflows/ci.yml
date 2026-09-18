@@ -756,7 +756,10 @@ jobs:
       # Production unsafe must be zero (hard block); test unsafe is tracked
       # against a baseline (ratchet: only fails if count increases).
       - name: Install cargo-geiger
-        run: cargo install cargo-geiger --locked
+        # 钉住版本：run_cargo_geiger.py 依赖 cargo-geiger 的 JSON schema
+        # （SafetyReport.packages / ReportEntry.unsafety.used）。之前是未钉版本的
+        # `cargo install cargo-geiger --locked`，上游一发新版就可能再次漂移成"恒 0 假绿"。
+        run: cargo install cargo-geiger --version '^0.13' --locked
 
       - name: Run cargo-geiger (unsafe usage scan)
         run: python3 scripts/ci/run_cargo_geiger.py
