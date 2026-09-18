@@ -257,10 +257,21 @@ fn deploy_migrator_delegates_to_the_single_implementation() {
         );
     }
 
-    // (3) No DDL/DML statement shape. `\b(VERB)\s+(KEYWORD)\b` catches
+    // (3) No DDL/DML statement shape. The regex requires the verb to be
+    //     *immediately* followed by a known keyword, so it catches
     //     `CREATE TABLE`, `ALTER TABLE`, `DROP INDEX`, `INSERT INTO`,
-    //     `UPDATE ... SET`, `DELETE FROM`, `SELECT ... FROM` alike, so a
-    //     same-meaning rewrite cannot slip past a literal blacklist.
+    //     `UPDATE <table> SET` (adjacent only), `DELETE FROM` and
+    //     `SELECT ... FROM` — and it is case-insensitive, so a lowercase
+    //     rewrite cannot slip past.
+    //
+    //     Honest limits (measured, not assumed): `CREATE OR REPLACE FUNCTION`
+    //     is *not* caught (FUNCTION is not in the keyword list), `select * from t`
+    //     is *not* caught (the verb is not immediately followed by a keyword),
+    //     and a client invoked through a variable (`cmd=$PSQL; "$cmd" -f x.sql`)
+    //     is *not* caught. What still contains those cases is the `<= 80` line
+    //     cap plus the ban on the `schema_migrations` literal and on any DB
+    //     client name appearing in code: re-growing a migration engine trips
+    //     those even when this regex misses. This is a speed bump, not a proof.
     let ddl = Regex::new(
         r"(?i)\b(CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|SELECT)\s+(TABLE|INDEX|CONSTRAINT|COLUMN|INTO|FROM|SET)\b",
     )

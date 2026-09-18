@@ -135,7 +135,9 @@ services:
       # P3-fix: mount the canonical migrations directory directly.
       #
       # This used to be `./migrations`, a hand-synced copy under docker/deploy/.
-      # That copy silently drifted: it carried 42 files from a dead v7 lineage
+      # That copy silently drifted: it carried extra files from a dead v7 lineage
+      # (counts deliberately live in ONE place — `migrations/README.md`
+      # §唯一真相源, which also carries the `comm`/`grep` recompute script)
       # and was missing 13 recent migrations (schema_p1_federation_and_integrity,
       # schema_p2_data_integrity, schema_p3_perf, schema_cleanup_dedup_and_dead_code,
       # extend_room_version_check, event_relations_pagination_index, ...), so a
