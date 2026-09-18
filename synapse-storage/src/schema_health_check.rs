@@ -161,7 +161,9 @@ struct RequiredIndex {
 /// `acceptable_names` 允许兼容旧迁移和约束自动生成的唯一索引名，
 /// 避免数据库已经具备等价索引时仍然报“缺失索引”。
 const REQUIRED_INDEXES: &[RequiredIndex] = &[
-    RequiredIndex { display_name: "idx_events_room_id", acceptable_names: &["idx_events_room_id"] },
+    // `idx_events_room_id` 不在此列：`room_id` 是 events 上 ≥6 个其它索引的前导列，
+    // 该冗余索引已由 baseline 删除（DB_REVIEW §12.1），要求它只会制造启动时的
+    // 虚假 `Missing indexes` 警告（DB_REVIEW §14.5）。
     RequiredIndex { display_name: "idx_events_sender", acceptable_names: &["idx_events_sender", "idx_events_user_id"] },
     RequiredIndex { display_name: "idx_events_origin_server_ts", acceptable_names: &["idx_events_origin_server_ts"] },
     RequiredIndex { display_name: "idx_events_room_time", acceptable_names: &["idx_events_room_time"] },
@@ -199,7 +201,7 @@ const REQUIRED_INDEXES: &[RequiredIndex] = &[
     RequiredIndex { display_name: "idx_user_threepids_user", acceptable_names: &["idx_user_threepids_user"] },
     RequiredIndex {
         display_name: "idx_user_threepids_medium_address",
-        acceptable_names: &["idx_user_threepids_medium_address"],
+        acceptable_names: &["idx_user_threepids_medium_address", "uq_user_threepids_medium_address"],
     },
 ];
 
@@ -556,5 +558,26 @@ mod tests {
         for required in &["users", "rooms", "events", "background_updates", "room_retention_policies"] {
             assert!(tables.contains(required), "baseline must contain '{required}' but it does not");
         }
+    }
+
+    /// 防复发守卫：`REQUIRED_INDEXES` 的每一组都必须至少有一个名字是 baseline
+    /// 真实创建的索引（`CREATE INDEX` 或具名 UNIQUE/PK 约束索引）。
+    ///
+    /// 否则每个全新库启动时都会对不存在的索引打印虚假的 `Missing indexes`
+    /// 警告（DB_REVIEW §14.5：`idx_events_room_id` 曾如此；同批发现的还有
+    /// `idx_user_threepids_medium_address`，其真实名字是约束生成的
+    /// `uq_user_threepids_medium_address`）。
+    #[test]
+    fn required_indexes_are_created_by_baseline() {
+        let baseline = crate::baseline_tables::baseline_index_names();
+        let unsatisfied: Vec<&str> = REQUIRED_INDEXES
+            .iter()
+            .filter(|required| !required.acceptable_names.iter().any(|name| baseline.contains(name)))
+            .map(|required| required.display_name)
+            .collect();
+        assert!(
+            unsatisfied.is_empty(),
+            "REQUIRED_INDEXES lists indexes the baseline never creates (spurious startup warnings): {unsatisfied:?}"
+        );
     }
 }

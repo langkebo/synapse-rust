@@ -117,6 +117,87 @@ pub fn baseline_table_count() -> usize {
     baseline_tables().len()
 }
 
+/// Cached sorted list of every index name the baseline materialises.
+///
+/// Empty until the first call to [`baseline_index_names`].
+fn cached_baseline_index_names() -> &'static Vec<&'static str> {
+    static CACHE: OnceLock<Vec<&'static str>> = OnceLock::new();
+    CACHE.get_or_init(parse_baseline_index_names)
+}
+
+/// Parse every index name the baseline creates.
+///
+/// Two declaration forms materialise an index in Postgres, and
+/// `schema_health_check::check_missing_indexes` observes both through
+/// `pg_indexes`:
+///
+///   1. `CREATE [UNIQUE] INDEX [CONCURRENTLY] IF NOT EXISTS <name>`.
+///   2. A named table-constraint index: `CONSTRAINT <name> UNIQUE (...)` or
+///      `CONSTRAINT <name> PRIMARY KEY (...)`.
+///
+/// Unnamed inline `PRIMARY KEY` / `UNIQUE` columns (whose index Postgres names
+/// `<table>_pkey` / `<table>_<column>_key`) are deliberately not enumerated: no
+/// value in `REQUIRED_INDEXES` relies on that form. The parser is line-based,
+/// mirroring [`parse_baseline_tables`].
+fn parse_baseline_index_names() -> Vec<&'static str> {
+    let mut names: Vec<&'static str> = BASELINE_SQL.lines().filter_map(extract_index_name).collect();
+    names.sort_unstable();
+    names.dedup();
+    names
+}
+
+/// Extract the created index name from a single line, if the line creates one.
+///
+/// Rejected forms (returning `None`) include comments, `CONSTRAINT <name> CHECK
+/// (...)`, and `CONSTRAINT <name> FOREIGN KEY (...)`: those do not create an
+/// index.
+fn extract_index_name(line: &'static str) -> Option<&'static str> {
+    let trimmed = line.trim_start();
+    if trimmed.starts_with("--") {
+        return None;
+    }
+
+    for prefix in [
+        "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS ",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ",
+        "CREATE INDEX IF NOT EXISTS ",
+    ] {
+        if let Some(rest) = trimmed.strip_prefix(prefix) {
+            return first_token(rest);
+        }
+    }
+
+    let rest = trimmed.strip_prefix("CONSTRAINT ")?;
+    let name = first_token(rest)?;
+    let tail = rest[name.len()..].trim_start();
+    if tail.starts_with("UNIQUE") || tail.starts_with("PRIMARY KEY") {
+        Some(name)
+    } else {
+        None
+    }
+}
+
+/// Return the first whitespace / paren / semicolon-delimited token, if non-empty.
+fn first_token(rest: &'static str) -> Option<&'static str> {
+    let end = rest.find(|c: char| c.is_whitespace() || c == '(' || c == ';').unwrap_or(rest.len());
+    if end == 0 {
+        None
+    } else {
+        Some(&rest[..end])
+    }
+}
+
+/// Return the sorted, deduplicated list of index names the baseline creates,
+/// including indexes materialised by named `UNIQUE` / `PRIMARY KEY` constraints.
+///
+/// Used as the compile-time reference for `REQUIRED_INDEXES` so a required index
+/// that the baseline does not create fails a unit test instead of printing a
+/// spurious `Missing indexes` warning at every startup.
+pub fn baseline_index_names() -> &'static [&'static str] {
+    cached_baseline_index_names()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,5 +257,41 @@ mod tests {
         assert_eq!(extract_table_name("CREATE INDEX foo ON bar (baz);"), None);
         assert_eq!(extract_table_name("ALTER TABLE foo ADD COLUMN x INT;"), None);
         assert_eq!(extract_table_name(""), None);
+    }
+
+    #[test]
+    fn extracts_indexes_declared_by_create_index() {
+        let names = baseline_index_names();
+        for index in ["idx_events_sender", "idx_events_room_time", "uq_access_tokens_token_hash"] {
+            assert!(names.contains(&index), "expected CREATE INDEX form '{index}' in baseline");
+        }
+    }
+
+    #[test]
+    fn extracts_indexes_materialised_by_named_constraints() {
+        let names = baseline_index_names();
+        for index in
+            ["uq_users_username", "uq_room_memberships_room_user", "pk_presence", "uq_user_threepids_medium_address"]
+        {
+            assert!(names.contains(&index), "expected constraint-backed index '{index}' in baseline");
+        }
+    }
+
+    #[test]
+    fn index_parser_ignores_non_index_constraints() {
+        // CHECK / FOREIGN KEY constraints do not create an index.
+        assert_eq!(extract_index_name("    CONSTRAINT ck_events_depth_nonneg CHECK (depth >= 0),"), None);
+        assert_eq!(
+            extract_index_name("    CONSTRAINT fk_events_room FOREIGN KEY (room_id) REFERENCES rooms(room_id),"),
+            None
+        );
+        assert_eq!(extract_index_name("-- CONSTRAINT uq_fake UNIQUE (x)"), None);
+        // Index list stays sorted + deduped like the table list.
+        let names = baseline_index_names();
+        let mut sorted = names.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(names, &sorted[..], "baseline_index_names() must be sorted + deduped");
+        assert!(names.len() >= 300, "baseline parses only {} indexes", names.len());
     }
 }

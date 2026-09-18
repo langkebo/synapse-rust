@@ -122,7 +122,6 @@ impl DatabaseMaintenance {
             "idx_rooms_creator",
             "idx_room_memberships_room",
             "idx_room_memberships_user",
-            "idx_events_room_id",
             "idx_events_sender",
         ];
 

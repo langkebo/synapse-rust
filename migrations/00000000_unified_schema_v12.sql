@@ -4494,11 +4494,11 @@ WHERE prev_state_events IS NOT NULL;
 --   - get_and_delete_messages: WHERE recipient_user_id = $1 AND recipient_device_id = $2
 --                               ORDER BY stream_id ASC  (fixed in this task)
 --
--- The existing idx_to_device_recipient (recipient_user_id, recipient_device_id)
--- does not include stream_id, so the database must sort after fetching. The
--- existing idx_to_device_stream (recipient_user_id, stream_id) does not include
--- recipient_device_id, so it may scan rows for other devices of the same user.
--- This new index covers both filters and the ordering in a single index scan.
+-- to_device_messages carries only the surrogate primary key on `id`; neither the
+-- recipient filter nor the `ORDER BY stream_id ASC` is index-supported in the
+-- baseline, so the database must scan and sort. This index covers both equality
+-- filters (recipient_user_id, recipient_device_id) and the ordering
+-- (stream_id ASC) in a single index scan.
 
 CREATE INDEX IF NOT EXISTS idx_to_device_ordered
     ON to_device_messages (recipient_user_id, recipient_device_id, stream_id ASC);

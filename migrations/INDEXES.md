@@ -198,7 +198,7 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | sliding_sync_tokens | idx_sliding_sync_tokens_user | user_id, device_id | 否 | 按用户和设备查询同步 Token |
 | sliding_sync_rooms | idx_sliding_sync_rooms_unique | user_id, device_id, room_id, COALESCE(conn_id, '') | UNIQUE | Sliding Sync 房间唯一约束 |
 | sliding_sync_rooms | idx_sliding_sync_rooms_user_device | user_id, device_id | 否 | 按用户和设备查询同步房间 |
-| to_device_messages | idx_to_device_ordered | recipient_user_id, recipient_device_id, stream_id | 否 | 按收件人+设备有序取消息；取代了文档中从未存在的 `idx_to_device_recipient` / `idx_to_device_stream`（baseline 注释仍引用旧名，见 DB_REVIEW §14.5） |
+| to_device_messages | idx_to_device_ordered | recipient_user_id, recipient_device_id, stream_id | 否 | 按收件人+设备有序取消息；文档旧名 `idx_to_device_recipient` / `idx_to_device_stream` 在 baseline 中从未存在（baseline 注释已于 Task 5 更正，见 DB_REVIEW §14.5） |
 | room_account_data | uq_room_account_data_user_room_type | user_id, room_id, data_type | UNIQUE | 按用户+房间查询账户数据（原文档名 `idx_room_account_data_user_room` 不存在） |
 | read_markers | idx_read_markers_room_user | room_id, user_id | 否 | 按房间+用户查询已读标记（原文档名 `idx_read_markers_user_room` 不存在；唯一性由 `uq_read_markers_room_user_type` 提供） |
 | lazy_loaded_members | pk_lazy_loaded_members | user_id, device_id, room_id, member_user_id | UNIQUE | 懒加载成员主键（原文档名 `idx_lazy_loaded_members_user_room` 不存在） |
