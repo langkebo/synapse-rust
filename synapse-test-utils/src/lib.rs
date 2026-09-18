@@ -310,6 +310,74 @@ pub fn configured_test_db_template_schema() -> Option<String> {
     env_string("TEST_DB_TEMPLATE_SCHEMA")
 }
 
+/// Extensions that must be installed in `public`, never in a template schema.
+///
+/// PostgreSQL extensions are **database-scoped**, not schema-scoped: a database
+/// holds at most one `pgcrypto`, living in exactly one schema. A clone schema
+/// therefore *cannot* own its own copy — `CREATE EXTENSION` inside a clone is a
+/// no-op once the extension exists anywhere, and `ALTER EXTENSION ... SET SCHEMA`
+/// would move the single instance *out of* the template, breaking it for every
+/// other clone.
+///
+/// Clones must instead resolve extension functions through `search_path`, which
+/// is `<clone>, public` for every pooled and isolated schema. So any extension
+/// the baseline creates has to be pinned to `public`.
+///
+/// Leaving one in the template schema breaks things two ways:
+///   * `clone_statement` used to replay it as ordinary functions, emitting
+///     `CREATE ... LANGUAGE c` for its C functions. A non-superuser role is
+///     refused with `permission denied for language c`, so every
+///     pooled-schema test silently skipped instead of running;
+///   * the functions would be unreachable from the clone's `search_path`.
+///
+/// `pgcrypto` is the one that regressed (its C functions ended up in the
+/// template); `pg_trgm` had an explicit pin already. Keep both here so the
+/// invariant has a single definition.
+const PUBLIC_EXTENSIONS: &[&str] = &["pgcrypto", "pg_trgm"];
+
+/// Pin [`PUBLIC_EXTENSIONS`] into `public`. Idempotent.
+///
+/// Failure is reported rather than swallowed: `ALTER EXTENSION ... SET SCHEMA`
+/// requires ownership of the extension's **member objects**, not just the
+/// extension. A database whose extensions were originally installed by a
+/// different (typically superuser) role therefore cannot be repaired by the
+/// unprivileged test role — measured here: `must be owner of function digest`
+/// while the extension itself is owned by the test role. Historically this
+/// failure was hidden by a bare `let _ =`, which is how pgcrypto ended up
+/// pinned inside a template schema without anyone noticing.
+///
+/// Nothing in the baseline or in Rust calls a pgcrypto function by name
+/// (`gen_random_uuid()` is a `pg_catalog` built-in since PG13; the only
+/// `digest` in the tree is `sha2::Sha256::digest`), and the clone's inventory
+/// check ignores extension members, so an unrelocatable extension is currently
+/// harmless. The durable fix is for the baseline to say
+/// `CREATE EXTENSION ... SCHEMA public` so a fresh template is correct by
+/// construction; until then this warning is the visible signal.
+async fn pin_public_extensions(pool: &PgPool) {
+    static WARNED: std::sync::Once = std::sync::Once::new();
+    for extension in PUBLIC_EXTENSIONS {
+        // `IF NOT EXISTS` is a no-op when the extension already exists in ANY
+        // schema, so the `ALTER` is what actually relocates it.
+        let created =
+            sqlx::query(&format!("CREATE EXTENSION IF NOT EXISTS {extension} SCHEMA public")).execute(pool).await;
+        let moved = sqlx::query(&format!("ALTER EXTENSION {extension} SET SCHEMA public")).execute(pool).await;
+        if let Err(error) = created {
+            tracing::debug!("CREATE EXTENSION {extension} skipped: {error}");
+        }
+        if let Err(error) = moved {
+            WARNED.call_once(|| {
+                tracing::warn!(
+                    extension,
+                    error = %error,
+                    "cannot relocate extension into `public` (needs member ownership); clones will \
+                     not see its functions by name. Fix the baseline to create it with \
+                     `SCHEMA public` and rebuild the template."
+                );
+            });
+        }
+    }
+}
+
 /// See [`prepare_isolated_test_pool`].
 pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     let database_url = resolve_test_database_url().await?;
@@ -338,9 +406,8 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
         .await
         .map_err(|error| format!("failed to create schema {schema_name}: {error}"))?;
 
-    // Ensure pg_trgm is in `public` schema (see init_template_schema for rationale).
-    let _ = sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA public").execute(&admin_pool).await;
-    let _ = sqlx::query("ALTER EXTENSION pg_trgm SET SCHEMA public").execute(&admin_pool).await;
+    // Baseline extensions must live in `public` (see `PUBLIC_EXTENSIONS`).
+    pin_public_extensions(&admin_pool).await;
 
     let search_path_sql = format!("SET search_path TO {schema_name}, public");
     let pool = tokio::time::timeout(
@@ -601,18 +668,12 @@ async fn init_template_schema(database_url: &str, template_name: &str) -> Result
         .await
         .map_err(|error| format!("failed to create template schema {template_name}: {error}"))?;
 
-    // Install pg_trgm in `public` schema (NOT template_name) so its functions
-    // (similarity(), % operator) are resolvable from any test schema via the
-    // standard search_path `test_XXX, public`. Installing in template_name
-    // would hide the functions from clones whose search_path is `test_XXX, public`
-    // (template_name is NOT in the search_path of cloned/pooled schemas).
-    // `CREATE EXTENSION IF NOT EXISTS` is a no-op if the extension already exists
-    // (in any schema), so this is safe to call on every template init.
-    let _ = sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA public").execute(&admin_pool).await;
-    // If the extension was previously installed in a different schema (e.g. by
-    // an older version of this code), move it to public so functions are
-    // accessible. ALTER EXTENSION ... SET SCHEMA is idempotent.
-    let _ = sqlx::query("ALTER EXTENSION pg_trgm SET SCHEMA public").execute(&admin_pool).await;
+    // Baseline extensions must live in `public` (NOT template_name) so their
+    // functions (similarity(), %, digest(), crypt(), ...) are resolvable from
+    // any clone via the standard search_path `test_XXX, public`; template_name
+    // is NOT on a clone's search_path. See `PUBLIC_EXTENSIONS` for why the
+    // extension cannot simply be cloned along with the template.
+    pin_public_extensions(&admin_pool).await;
 
     let search_path_sql = format!("SET search_path TO {template_name}, public");
     let pool = tokio::time::timeout(
@@ -1094,6 +1155,14 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
         .await
         .map_err(|error| format!("failed to set search_path for {schema_name}: {error}"))?;
 
+    // Pin the baseline extensions into `public` on EVERY clone, not only at
+    // template build time. A template created before the pin existed still holds
+    // e.g. pgcrypto's C functions inside the template schema — which is not on a
+    // clone's `search_path`, so the extension's functions would be unreachable
+    // from the clone. Relocating here is idempotent and self-heals any template
+    // in that state without needing a rebuild.
+    pin_public_extensions(&admin_pool).await;
+
     // `Only(SEED_REFERENCE_TABLES)` is this fixture's historical behaviour
     // written down: phase 1b copies the baseline's seeded reference rows and
     // nothing else. Behaviour is identical to `Everything` today (measured: the
@@ -1485,9 +1554,8 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
         .await
         .map_err(|error| format!("failed to create schema {schema_name}: {error}"))?;
 
-    // Ensure pg_trgm is in `public` schema (see init_template_schema for rationale).
-    let _ = sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA public").execute(&admin_pool).await;
-    let _ = sqlx::query("ALTER EXTENSION pg_trgm SET SCHEMA public").execute(&admin_pool).await;
+    // Baseline extensions must live in `public` (see `PUBLIC_EXTENSIONS`).
+    pin_public_extensions(&admin_pool).await;
 
     let search_path_sql = format!("SET search_path TO {schema_name}, public");
     let pool = tokio::time::timeout(

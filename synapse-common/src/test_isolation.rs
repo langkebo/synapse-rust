@@ -964,6 +964,16 @@ fn clone_statement(schema: &str, template: &str, seeds: SeedSource<'_>) -> Resul
 
             -- Functions. `pg_get_functiondef` renders the name template-qualified;
             -- strip the qualifier so it is created inside the clone.
+            --
+            -- Extension members are excluded (`deptype = 'e'`). PostgreSQL
+            -- extensions are DATABASE-scoped, so a clone schema cannot own its
+            -- own copy — replaying `pg_get_functiondef` for e.g. pgcrypto's
+            -- `digest()` emits `LANGUAGE c`, which a non-superuser role is
+            -- refused with `permission denied for language c`; every
+            -- pooled-schema test then silently skipped. Extension functions
+            -- stay reachable from the clone because `public` is on its
+            -- search_path (`<clone>, public`) and `pin_public_extensions`
+            -- keeps every baseline extension pinned there.
             FOR r IN
                 SELECT p.proname AS name,
                        pg_get_function_identity_arguments(p.oid) AS args,
@@ -971,6 +981,12 @@ fn clone_statement(schema: &str, template: &str, seeds: SeedSource<'_>) -> Resul
                 FROM pg_proc p
                 JOIN pg_namespace n ON n.oid = p.pronamespace
                 WHERE n.nspname = '{template}' AND p.prokind = 'f'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM pg_depend d
+                      WHERE d.objid = p.oid
+                        AND d.classid = 'pg_proc'::regclass
+                        AND d.deptype = 'e'
+                  )
             LOOP
                 def := replace(r.def, '{template}.', '');
                 def := replace(def, '"{template}".', '');
@@ -1130,7 +1146,19 @@ async fn validate_clone(pool: &PgPool, schema: &str, template: &str) -> Result<(
                JOIN pg_namespace n ON n.oid = r.relnamespace
               WHERE n.nspname = t.nsp AND c.contype = 'f') AS fks,
             (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-              WHERE n.nspname = t.nsp AND p.prokind = 'f') AS funcs,
+              WHERE n.nspname = t.nsp AND p.prokind = 'f'
+                -- Extension members are excluded on BOTH sides of this
+                -- comparison. `clone_statement` deliberately does not replay them
+                -- (they are database-scoped, and `LANGUAGE c` needs superuser), so
+                -- counting them here would declare every clone "incomplete" —
+                -- which is exactly how this check fired while the replay skip was
+                -- already correct. Keep the two predicates in sync.
+                AND NOT EXISTS (
+                    SELECT 1 FROM pg_depend d
+                    WHERE d.objid = p.oid
+                      AND d.classid = 'pg_proc'::regclass
+                      AND d.deptype = 'e'
+                )) AS funcs,
             (SELECT count(*) FROM pg_views v WHERE v.schemaname = t.nsp) AS views,
             (SELECT count(*) FROM pg_matviews m WHERE m.schemaname = t.nsp) AS mviews,
             (SELECT count(*) FROM pg_trigger tr

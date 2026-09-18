@@ -437,6 +437,33 @@ pub struct TestContext {
     // 并归还池（并发下被其它测试复用 → 数据竞态 → 401「User not found」）。
 }
 
+/// Whether a test database is reachable, resolved **once per process**.
+///
+/// Resolved once rather than per test because a failed resolution re-probes
+/// every candidate URL; `resolve_test_database_url`'s own cache only remembers
+/// *success*, so re-probing in each of ~1.4k tests would recreate exactly the
+/// connection churn that cache was added to remove (P0-1 gate-drift).
+static TEST_DATABASE_REACHABLE: tokio::sync::OnceCell<bool> = tokio::sync::OnceCell::const_new();
+
+async fn test_database_reachable() -> bool {
+    *TEST_DATABASE_REACHABLE
+        .get_or_init(|| async {
+            match synapse_test_utils::resolve_test_database_url().await {
+                Ok(_) => true,
+                Err(error) => {
+                    eprintln!(
+                        "\n[integration] SKIPPING every DB-backed integration test: no reachable test database.\n\
+                         [integration] cause: {error}\n\
+                         [integration] Set TEST_DATABASE_URL (e.g. \
+                         postgresql://synapse:synapse@localhost:5432/synapse_test) to actually run them.\n"
+                    );
+                    false
+                }
+            }
+        })
+        .await
+}
+
 impl TestContext {
     /// Create a new isolated context using the schema pool (fast — reuses
     /// TRUNCATEd schemas from previous tests, ~15-20x faster than cloning).
@@ -453,13 +480,41 @@ impl TestContext {
 
     async fn build(isolated: bool) -> Option<Self> {
         init_tracing();
+
+        // `None` means *only* "this environment has no test database". Setup
+        // failures panic instead of returning `None`, because every DB-backed
+        // test starts with `let Some(app) = setup_test_app().await else { return; }`
+        // — collapsing an infrastructure failure into `None` turned a broken
+        // suite into a green one. That is not hypothetical: a schema clone
+        // refused with `permission denied for language c` silently skipped the
+        // whole integration suite, which in turn hid a `create_router` panic
+        // that made the server unable to start
+        // (docs/audit/DB_REVIEW_2026-09-17.md §13.6.1).
+        if !test_database_reachable().await {
+            return None;
+        }
+
         let (pool, lease) = if isolated {
             // Isolated path: run full migrations, no pooling
-            let pool = synapse_test_utils::prepare_isolated_test_pool().await.ok()?;
+            let pool = match synapse_test_utils::prepare_isolated_test_pool().await {
+                Ok(pool) => pool,
+                Err(error) => panic!(
+                    "integration setup failed (isolated migration path): {error}\n\
+                     This is an infrastructure failure, not a missing database — the test would \
+                     otherwise pass vacuously."
+                ),
+            };
             (pool, None)
         } else {
             // Pooled path: acquire from schema pool (fast) or clone (first N tests)
-            let lease = synapse_test_utils::acquire_pooled_schema().await.ok()?;
+            let lease = match synapse_test_utils::acquire_pooled_schema().await {
+                Ok(lease) => lease,
+                Err(error) => panic!(
+                    "integration setup failed (pooled schema acquisition): {error}\n\
+                     This is an infrastructure failure, not a missing database — the test would \
+                     otherwise pass vacuously."
+                ),
+            };
             let pool = lease.pool.clone();
             (pool, Some(lease))
         };
