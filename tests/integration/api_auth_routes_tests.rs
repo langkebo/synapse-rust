@@ -261,3 +261,33 @@ async fn test_auth_issuer_returns_unrecognized_when_oidc_is_disabled() {
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_UNRECOGNIZED");
 }
+
+/// Regression guard for the `:auth_type` → `{auth_type}` fix in `assembly.rs`.
+///
+/// Under axum 0.8 a `:param` path segment makes `Router::route` panic while
+/// `create_router` runs, so the whole server failed to start — and because the
+/// integration harness swallowed its own setup error at the time, every test
+/// reported a vacuous pass instead. Building the router is therefore the first
+/// assertion of this test; the rest pins that the capture group is real, since a
+/// literal `:auth_type` segment never matches `<auth_type>/fallback/web`.
+#[tokio::test]
+async fn test_auth_fallback_web_route_matches_a_real_auth_type() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/auth/m.login.password/fallback/web")
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "the fallback page must be reachable for a real auth stage");
+
+    let body = axum::body::to_bytes(response.into_body(), 65_536).await.unwrap();
+    let html = String::from_utf8_lossy(&body);
+    assert!(
+        html.contains("m.login.password"),
+        "the page must echo the requested auth stage, proving {{auth_type}} captured instead of matching literally"
+    );
+}

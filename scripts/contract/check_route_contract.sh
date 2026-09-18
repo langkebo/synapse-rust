@@ -30,6 +30,13 @@ DOC="docs/synapse-rust/ROUTE_CONTRACT.md"
 echo "==> Guard tests for extract_registered.py ..."
 python3 scripts/contract/test_extract_registered.py --mutation-check
 
+# A `:param` / `*wildcard` path literal panics `create_router` at startup under
+# axum 0.8, and neither `cargo check` nor the extractor notices it. Checked
+# before extraction so a path-syntax regression fails with a clear message
+# instead of surfacing as an unrelated entry-count drift below.
+echo "==> axum path syntax (scripts/ci/check_axum_path_syntax.py) ..."
+python3 scripts/ci/check_axum_path_syntax.py
+
 echo "==> Regenerating route surface (extract_registered.py) ..."
 # EXTRACT_STRICT turns the extractor's own self-check into a hard gate:
 #   * every route declared by a `*_route_manifest()` must be derived

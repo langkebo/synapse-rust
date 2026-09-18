@@ -12,7 +12,7 @@ Human-maintained content under "## 附录" (e.g. 附录 A) is preserved across r
 is never overwritten by the auto-generated body.
 """
 
-import os, re, json, datetime
+import os, re, json, datetime, glob
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.environ.get("SYNAPSE_RUST_ROOT") or os.path.dirname(
@@ -34,15 +34,26 @@ re_derived_label = re.compile(
     r"RouteEntry::new\(\s*axum::http::Method::[A-Z]+,\s*\"[^\"]*\",\s*\"([^\"]+)\",?\s*\)"
 )
 DERIVED = f"{ROOT}/synapse-web/src/routes/derived_routes.rs"
-# The row table is emitted into a separate `include!`d file (gen_derived_routes.py
-# `emit_data`), so the labels live there; scan both and keep it working whichever
-# layout the generator uses.
-DERIVED_TABLE = f"{ROOT}/synapse-web/src/routes/derived_route_table.inc.rs"
+# The rows are emitted into `include!`d per-profile files
+# (`gen_derived_routes.py` `emit_data_per_profile`), so the labels live there.
+# The table is SPLIT BY PROFILE (`_always` / `_worker` / `_oidc`); an earlier
+# version of this scan hard-coded the pre-split single file
+# `derived_route_table.inc.rs`, which no longer exists — that made
+# `derived_labels` empty, so every module rendered as "⚠️派生表缺" and this gate
+# was permanently red. Glob the whole family so the split cannot silently
+# empty the label set again.
+_derived_table_glob = sorted(glob.glob(f"{ROOT}/synapse-web/src/routes/derived_route_table*.inc.rs"))
 derived_labels = set()
-for _derived_path in (DERIVED, DERIVED_TABLE):
+for _derived_path in (DERIVED, *_derived_table_glob):
     if os.path.exists(_derived_path):
         with open(_derived_path) as _f:
             derived_labels |= set(re_derived_label.findall(_f.read()))
+if not derived_labels:
+    raise SystemExit(
+        "gen_contract_doc: no derived route labels found — the derived-route table "
+        f"layout changed again (looked for {_derived_table_glob or 'derived_route_table*.inc.rs'}). "
+        "Refusing to emit a contract doc where every module reads '派生表缺'."
+    )
 
 
 def derived_candidates(mod):

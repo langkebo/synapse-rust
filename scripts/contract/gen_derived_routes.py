@@ -215,56 +215,56 @@ def _row_rust(row):
     return push
 
 
-def emit(rows):
-    """Render the table, then normalise it through `rustfmt`.
-
-    Without this the two gates fight each other: `cargo fmt --check` wants the
-    one-line `RouteEntry::new(..)` form, while the emitter's hand-laid text is
-    byte-compared by `--check`. Running the emitted source through the same
-    rustfmt (same `rustfmt.toml`, same edition) makes both gates agree.
-    """
-    return _rustfmt(emit_raw(rows))
-
-
 def _rustfmt(text):
-    """Format `text` with the repo's rustfmt; return it unchanged if unavailable."""
+    """Format `text` with the repo's rustfmt, or raise.
+
+    A silent fallback is a trap: the hand-laid text is not rustfmt-shaped, so
+    falling back emits unformatted source that `scripts/check_fmt_ratchet.sh`
+    then reports as debt with no code change to explain it (that is exactly how
+    999 diffs accumulated in the three `derived_route_table_*.inc.rs` files).
+    Fail loudly instead.
+    """
     import subprocess
     import tempfile
 
+    with tempfile.NamedTemporaryFile("w", suffix=".rs", dir=os.path.dirname(OUT) or ".", delete=False) as fh:
+        fh.write(text)
+        tmp = fh.name
     try:
-        with tempfile.NamedTemporaryFile("w", suffix=".rs", dir=os.path.dirname(OUT) or ".", delete=False) as fh:
-            fh.write(text)
-            tmp = fh.name
-        try:
-            proc = subprocess.run(
-                ["rustfmt", "--edition", "2021", "--emit", "stdout", tmp],
-                capture_output=True,
-                text=True,
-            )
-        finally:
-            pass
-        if proc.returncode == 0 and proc.stdout.strip():
-            os.unlink(tmp)
-            # `rustfmt --emit stdout` prefixes the result with the source path:
-            #   <abs path>:
-            #   <blank>
-            #   <formatted source>
-            out = proc.stdout.split("\n")
-            i = 0
-            while i < len(out) and (out[i].rstrip().endswith(".rs:") or not out[i].strip()):
-                i += 1
-            formatted = "\n".join(out[i:])
-            if formatted.strip():
-                return formatted
-        else:
-            os.unlink(tmp)
-    except (OSError, subprocess.SubprocessError, UnboundLocalError):
-        pass
-    return text
+        proc = subprocess.run(
+            ["rustfmt", "--edition", "2021", "--emit", "stdout", tmp],
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        raise RuntimeError(
+            f"rustfmt is required to generate {os.path.basename(OUT)} but could not be executed: {exc}"
+        ) from exc
+    finally:
+        os.unlink(tmp)
+
+    if proc.returncode != 0 or not proc.stdout.strip():
+        raise RuntimeError(f"rustfmt rejected the generated table:\n{proc.stderr.strip()}")
+
+    # `rustfmt --emit stdout` prefixes the result with the source path:
+    #   <abs path>:
+    #   <blank>
+    #   <formatted source>
+    out = proc.stdout.split("\n")
+    i = 0
+    while i < len(out) and (out[i].rstrip().endswith(".rs:") or not out[i].strip()):
+        i += 1
+    formatted = "\n".join(out[i:])
+    if not formatted.strip():
+        raise RuntimeError("rustfmt produced no source")
+    return formatted
 
 
 def emit_data_per_profile(rows):
-    """Generate per-profile `all_derived_X_rows()` body including cfg blocks."""
+    """Generate per-profile `all_derived_X_rows()` body including cfg blocks.
+
+    Each body is normalised through `_rustfmt` — see `emit_group`.
+    """
     # Row tuple: (method, path, label, cfg, profile_rank, auth, rate_limit_exempt)
     # profile_rank is PROFILE_RANK["Always"]=0 / "Worker"=1 / "Oidc"=2 (index 4)
     always_rows = [r for r in rows if r[4] == PROFILE_RANK["Always"]]
@@ -272,245 +272,32 @@ def emit_data_per_profile(rows):
     oidc_rows = [r for r in rows if r[4] == PROFILE_RANK["Oidc"]]
 
     def emit_group(group_rows, profile_name):
-        """Generate the function body for a profile group."""
+        """Generate the function body for a profile group.
+
+        The body goes through `_rustfmt` for the same reason `emit()` does: the
+        three `.inc.rs` files are inside the fmt ratchet's scan surface
+        (`synapse-web/**/*.rs`), so hand-laid text here is fmt debt.
+        """
         if not group_rows:
             # For empty groups, we still emit a stub that returns empty Vec
-            return f"fn all_derived_{profile_name}_rows() -> Vec<DerivedRoute> {{\n    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(0);\n    rows\n}}"
+            return _rustfmt(
+                f"fn all_derived_{profile_name}_rows() -> Vec<DerivedRoute> {{\n"
+                f"    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(0);\n"
+                f"    rows\n"
+                f"}}"
+            )
 
         row_lines = "".join(_row_rust(r) for r in group_rows)
-        return f"""fn all_derived_{profile_name}_rows() -> Vec<DerivedRoute> {{
+        return _rustfmt(f"""fn all_derived_{profile_name}_rows() -> Vec<DerivedRoute> {{
     let mut rows: Vec<DerivedRoute> = Vec::with_capacity({len(group_rows)});
 {row_lines}    rows
-}}"""
+}}""")
 
     return (
         emit_group(always_rows, "always"),
         emit_group(worker_rows, "worker"),
         emit_group(oidc_rows, "oidc"),
     )
-
-def emit_raw(rows):
-    row_lines = "".join(_row_rust(r) for r in rows)
-    cap = len(rows)
-    # `include_bytes!` needs compile-time literal strings; use concat+env to reach the fixture dir.
-    fixtures_dir = "concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/tests/unit/fixtures\")"
-    oracle = f"""\
-    #[cfg(test)]
-    mod derived_manifest_tests {{
-use super::*;
-use std::collections::HashMap;
-use crate::web::routes::ledger_export::LedgerArtifact;
-use crate::web::routes::route_module::ProfileFlags as PFlags;
-
-        fn parse_fixture(bytes: &[u8]) -> Vec<(String, String, String)> {{
-            let art: LedgerArtifact = serde_json::from_slice(bytes).unwrap();
-            art.entries.into_iter().map(|e| (e.method, e.path, e.registered_by)).collect()
-        }}
-
-        macro_rules! assert_derived_matches {{
-            ($profile:ident, $fixture:expr) => {{
-                let flags = match stringify!($profile) {{
-                    "DEFAULT" => PFlags {{ oidc_enabled: false, worker_enabled: false, saml_enabled: false }},
-                    "WORKER"  => PFlags {{ oidc_enabled: false, worker_enabled: true, saml_enabled: false }},
-                    "ALL"     => PFlags {{ oidc_enabled: true, worker_enabled: true, saml_enabled: false }},
-                    _ => unreachable!(),
-                }};
-                let got = derived_route_manifest(&flags);
-                let want = parse_fixture(include_bytes!($fixture));
-                assert_eq!(got.len(), want.len(), "{{}} profile entry count mismatch", stringify!($profile));
-                let mut got_map: HashMap<(String, String, String), ()> = HashMap::new();
-                for e in &got {{
-                    got_map.insert((e.method.as_str().to_string(), e.path.to_string(), e.registered_by.to_string()), ());
-                }}
-                for (method, path, registered_by) in want {{
-                    let key = (method.clone(), path.clone(), registered_by.clone());
-                    assert!(got_map.contains_key(&key), "{{}} profile missing row: {{}} {{}} {{}}", stringify!($profile), method, path, registered_by);
-                }}
-            }};
-        }}
-
-        // Default build → ledger_export fixtures.
-        #[cfg(not(any(
-            feature = "all-extensions",
-            feature = "voice-extended",
-            feature = "saml-sso",
-            feature = "cas-sso",
-            feature = "voip-tracking",
-            feature = "server-notifications",
-            feature = "privacy-ext",
-            feature = "builtin-oidc",
-        )))]
-        #[test]
-        fn default_profile_matches_fixture() {{
-            assert_derived_matches!(DEFAULT, concat!({fixtures_dir}, "/ledger_export/default.json"));
-        }}
-
-        #[cfg(not(any(
-            feature = "all-extensions",
-            feature = "voice-extended",
-            feature = "saml-sso",
-            feature = "cas-sso",
-            feature = "voip-tracking",
-            feature = "server-notifications",
-            feature = "privacy-ext",
-            feature = "builtin-oidc",
-        )))]
-        #[test]
-        fn worker_profile_matches_fixture() {{
-            assert_derived_matches!(WORKER, concat!({fixtures_dir}, "/ledger_export/worker.json"));
-        }}
-
-        #[cfg(not(any(
-            feature = "all-extensions",
-            feature = "voice-extended",
-            feature = "saml-sso",
-            feature = "cas-sso",
-            feature = "voip-tracking",
-            feature = "server-notifications",
-            feature = "privacy-ext",
-            feature = "builtin-oidc",
-        )))]
-        #[test]
-        fn all_profile_matches_fixture() {{
-            assert_derived_matches!(ALL, concat!({fixtures_dir}, "/ledger_export/all.json"));
-        }}
-
-        // SDK / all-extensions build → ledger_export_sdk fixtures.
-        #[cfg(feature = "all-extensions")]
-        #[test]
-        fn sdk_default_profile_matches_fixture() {{
-            assert_derived_matches!(DEFAULT, concat!({fixtures_dir}, "/ledger_export_sdk/default.json"));
-        }}
-
-        #[cfg(feature = "all-extensions")]
-        #[test]
-        fn sdk_worker_profile_matches_fixture() {{
-            assert_derived_matches!(WORKER, concat!({fixtures_dir}, "/ledger_export_sdk/worker.json"));
-        }}
-
-        #[cfg(feature = "all-extensions")]
-        #[test]
-        fn sdk_all_profile_matches_fixture() {{
-            assert_derived_matches!(ALL, concat!({fixtures_dir}, "/ledger_export_sdk/all.json"));
-        }}
-    }}
-"""
-    return f"""\
-//! GENERATED by `scripts/contract/gen_derived_routes.py` — DO NOT EDIT.
-//!
-//! Route manifest table derived from the real `.route(...)` surface (see the
-//! extractor in `scripts/contract/extract_registered.py`). This replaces the
-//! ~120 hand-copied `*_route_manifest()` helpers: instead of restating routes,
-//! the compiler filters this table by `#[cfg]` and `derived_route_manifest`
-//! filters it by the runtime [`ProfileFlags`] ceiling, then de-duplicates by
-//! `(method, path)` keeping the highest rank.
-//!
-//! ## Row model
-//!
-//! * `RouteProfile` is a monotonic feature ceiling. `default` builds expose
-//!   `Always`; `worker_enabled` adds `Worker`; `oidc_enabled` adds `Oidc`.
-//!   `derived_route_manifest` keeps every row with `rank <= flags.rank()`.
-//! * The two `/.well-known/{{openid-configuration,jwks.json}}` routes appear
-//!   twice — once `Always` (label `oidc_fallback`) and once `Oidc`
-//!   (label `oidc`, gated `#[cfg(feature = \\"builtin-oidc\\")]`). In the SDK
-//!   lane both compile and the dedup keeps the higher-rank `oidc`; in the
-//!   default lane the `Oidc` twin is cfg-stripped and `oidc_fallback` wins.
-//!   That is exactly what the committed fixtures record.
-//!
-//! ## Regenerate
-//!
-//! ```text
-//! python3 scripts/contract/gen_derived_routes.py
-//! ```
-//!
-//! The generator refuses to emit unless this table reproduces all six fixtures
-//! in `tests/unit/fixtures/{{ledger_export,ledger_export_sdk}}/` byte-equivalently
-//! by `(method, path, registered_by)`, so editing it by hand is pointless — the
-//! next regeneration overwrites it.
-
-#![allow(clippy::unreadable_literal)]
-
-use super::route_ledger::RouteEntry;
-use super::route_module::ProfileFlags;
-
-/// Monotonic feature ceiling a row belongs to.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub enum RouteProfile {{
-    /// Served in every profile.
-    Always = 0,
-    /// Served only when `worker_enabled`.
-    Worker = 1,
-    /// Served only when `oidc_enabled`.
-    Oidc = 2,
-}}
-
-/// A manifest row: the route plus the lowest profile that surfaces it.
-pub struct DerivedRoute {{
-    /// The route entry itself.
-    pub entry: RouteEntry,
-    /// Minimum profile rank at which this row is live.
-    pub rank: RouteProfile,
-}}
-
-impl ProfileFlags {{
-    /// The feature ceiling for this flag combination, as a [`RouteProfile`].
-    pub fn rank(&self) -> RouteProfile {{
-        if self.oidc_enabled {{
-            RouteProfile::Oidc
-        }} else if self.worker_enabled {{
-            RouteProfile::Worker
-        }} else {{
-            RouteProfile::Always
-        }}
-    }}
-}}
-
-/// Project the live `AppState` flags onto the feature-ceiling rank.
-pub fn rank_for_flags(flags: &ProfileFlags) -> RouteProfile {{
-    flags.rank()
-}}
-
-/// All derived rows visible to the *current* build (compile-time `#[cfg]` has
-/// already stripped rows whose features are off).
-fn all_derived_rows() -> Vec<DerivedRoute> {{
-    let mut rows: Vec<DerivedRoute> = Vec::with_capacity({cap});
-{row_lines}    rows
-}}
-
-/// Profile-driven manifest. Keep rows at or below the flag ceiling, then
-/// de-duplicate by `(method, path)` keeping the highest rank. Output is sorted
-/// by `(path, method, registered_by)` for byte-stable diffs.
-pub fn derived_route_manifest(flags: &ProfileFlags) -> Vec<RouteEntry> {{
-    let max_rank = rank_for_flags(flags);
-    let mut best: std::collections::HashMap<(String, String), RouteProfile> =
-        std::collections::HashMap::new();
-    let mut kept: std::collections::HashMap<(String, String), RouteEntry> =
-        std::collections::HashMap::new();
-    for DerivedRoute {{ entry, rank }} in all_derived_rows() {{
-        if rank > max_rank {{
-            continue;
-        }}
-        let key = (entry.method.as_str().to_string(), entry.path.to_string());
-        if let Some(prev) = best.get(&key) {{
-            if *prev >= rank {{
-                continue;
-            }}
-        }}
-        best.insert(key.clone(), rank);
-        kept.insert(key, entry);
-    }}
-    let mut out: Vec<RouteEntry> = kept.into_values().collect();
-    out.sort_by(|a, b| {{
-        a.path.cmp(b.path).then_with(|| a.method.as_str().cmp(b.method.as_str())).then_with(|| {{
-            a.registered_by.cmp(b.registered_by)
-        }})
-    }});
-    out
-}}
-
-{oracle}
-"""
-
 
 # ---------------------------------------------------------------------------
 # Main
@@ -533,154 +320,46 @@ def main():
     # Generate per-profile data files
     always_data, worker_data, oidc_data = emit_data_per_profile(rows)
 
-    # Write per-profile .inc files
-    with open(OUT_DATA_ALWAYS, "w", encoding="utf-8") as fh:
-        fh.write(always_data)
-    with open(OUT_DATA_WORKER, "w", encoding="utf-8") as fh:
-        fh.write(worker_data)
-    with open(OUT_DATA_OIDC, "w", encoding="utf-8") as fh:
-        fh.write(oidc_data)
+    # Generate derived_routes.rs with includes for all three profiles.
+    # Normalised through `_rustfmt` for the same reason the `.inc.rs` bodies are:
+    # the header/test-module templates are hand-laid text, and the committed file
+    # must stay byte-identical to what rustfmt produces.
+    rs_content = _rustfmt(_generate_rs_header() + _generate_test_module())
 
-    # Generate derived_routes.rs with includes for all three profiles
-    rs_content = _generate_rs_header()
-    rs_content += _generate_test_module()
+    outputs = {
+        OUT_DATA_ALWAYS: always_data,
+        OUT_DATA_WORKER: worker_data,
+        OUT_DATA_OIDC: oidc_data,
+        OUT: rs_content,
+    }
 
-    with open(OUT, "w", encoding="utf-8") as fh:
-        fh.write(rs_content)
+    if args.check:
+        # Drift gate. Must not write: `scripts/contract/check_route_contract.sh`
+        # calls this in `--check` mode, and a "check" that silently regenerates
+        # the tree can never fail (it made every drift pass) while also leaving
+        # a dirty working tree behind.
+        drifted = []
+        for path, want in outputs.items():
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    have = fh.read()
+            except OSError:
+                have = None
+            if have != want:
+                drifted.append(path)
+        if drifted:
+            print("gen_derived_routes: DRIFT — regenerate and commit:")
+            for path in drifted:
+                print("  -", path)
+            print("  Run: python3 scripts/contract/gen_derived_routes.py")
+            sys.exit(1)
+        print("gen_derived_routes: --check OK, generated tables match the extractor.")
+        return
 
-    print(f"gen_derived_routes: wrote {OUT_DATA_ALWAYS}, {OUT_DATA_WORKER}, {OUT_DATA_OIDC}")
-    print(f"gen_derived_routes: wrote {OUT}")
-
-
-def _generate_test_module():
-    """Generate the test module for derived_routes.rs."""
-    fixtures_dir = "concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../tests/unit/fixtures\")"
-    return f"""
-#[cfg(test)]
-mod derived_manifest_tests {{
-    use super::*;
-    use crate::routes::ledger_export::LedgerArtifact;
-    use crate::routes::route_module::ProfileFlags as PFlags;
-    use std::collections::HashMap;
-
-    fn parse_fixture(bytes: &[u8]) -> Vec<(String, String, String)> {{
-        let art: LedgerArtifact = serde_json::from_slice(bytes).unwrap();
-        art.entries.into_iter().map(|e| (e.method, e.path, e.registered_by)).collect()
-    }}
-
-    macro_rules! assert_derived_matches {{
-        ($profile:ident, $fixture:expr) => {{
-            let flags = match stringify!($profile) {{
-                "DEFAULT" => PFlags {{ oidc_enabled: false, worker_enabled: false, saml_enabled: false }},
-                "WORKER"  => PFlags {{ oidc_enabled: false, worker_enabled: true, saml_enabled: false }},
-                "ALL"     => PFlags {{ oidc_enabled: true, worker_enabled: true, saml_enabled: false }},
-                _ => unreachable!(),
-            }};
-            let got = derived_route_manifest(&flags);
-            let want = parse_fixture(include_bytes!($fixture));
-            assert_eq!(got.len(), want.len(), "{{}} profile entry count mismatch", stringify!($profile));
-            let mut got_map: HashMap<(String, String, String), ()> = HashMap::new();
-            for e in &got {{
-                got_map.insert((e.method.as_str().to_string(), e.path.to_string(), e.registered_by.to_string()), ());
-            }}
-            for (method, path, registered_by) in want {{
-                let key = (method.clone(), path.clone(), registered_by.clone());
-                assert!(
-                    got_map.contains_key(&key),
-                    "{{}} profile missing row: {{}} {{}} {{}}",
-                    stringify!($profile),
-                    method,
-                    path,
-                    registered_by
-                );
-            }}
-        }};
-    }}
-
-    // Default build → ledger_export fixtures.
-    #[cfg(not(any(
-        feature = "all-extensions",
-        feature = "voice-extended",
-        feature = "saml-sso",
-        feature = "cas-sso",
-        feature = "voip-tracking",
-        feature = "server-notifications",
-        feature = "privacy-ext",
-        feature = "builtin-oidc",
-    )))]
-    #[test]
-    fn default_profile_matches_fixture() {{
-        assert_derived_matches!(
-            DEFAULT,
-            concat!({fixtures_dir}, "/ledger_export/default.json")
-        );
-    }}
-
-    #[cfg(not(any(
-        feature = "all-extensions",
-        feature = "voice-extended",
-        feature = "saml-sso",
-        feature = "cas-sso",
-        feature = "voip-tracking",
-        feature = "server-notifications",
-        feature = "privacy-ext",
-        feature = "builtin-oidc",
-    )))]
-    #[test]
-    fn worker_profile_matches_fixture() {{
-        assert_derived_matches!(
-            WORKER,
-            concat!({fixtures_dir}, "/ledger_export/worker.json")
-        );
-    }}
-
-    #[cfg(not(any(
-        feature = "all-extensions",
-        feature = "voice-extended",
-        feature = "saml-sso",
-        feature = "cas-sso",
-        feature = "voip-tracking",
-        feature = "server-notifications",
-        feature = "privacy-ext",
-        feature = "builtin-oidc",
-    )))]
-    #[test]
-    fn all_profile_matches_fixture() {{
-        assert_derived_matches!(
-            ALL,
-            concat!({fixtures_dir}, "/ledger_export/all.json")
-        );
-    }}
-
-    // SDK / all-extensions build → ledger_export_sdk fixtures.
-    #[cfg(feature = "all-extensions")]
-    #[test]
-    fn sdk_default_profile_matches_fixture() {{
-        assert_derived_matches!(
-            DEFAULT,
-            concat!({fixtures_dir}, "/ledger_export_sdk/default.json")
-        );
-    }}
-
-    #[cfg(feature = "all-extensions")]
-    #[test]
-    fn sdk_worker_profile_matches_fixture() {{
-        assert_derived_matches!(
-            WORKER,
-            concat!({fixtures_dir}, "/ledger_export_sdk/worker.json")
-        );
-    }}
-
-    #[cfg(feature = "all-extensions")]
-    #[test]
-    fn sdk_all_profile_matches_fixture() {{
-        assert_derived_matches!(
-            ALL,
-            concat!({fixtures_dir}, "/ledger_export_sdk/all.json")
-        );
-    }}
-}}
-"""
+    for path, content in outputs.items():
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(content)
+        print(f"gen_derived_routes: wrote {path}")
 
 
 def _generate_rs_header():

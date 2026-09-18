@@ -1,6 +1,6 @@
 # synapse-rust 路由契约（Route Contract）
 
-> 自动生成于 2026-09-16，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含 `derived_route_table.inc.rs`）派生覆盖。
+> 自动生成于 2026-09-18，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含 `derived_route_table.inc.rs`）派生覆盖。
 >
 > 本文件是后端 HTTP 契约的**事实来源之一**（机器侧权威为 `derived_routes.rs` 生成的 `RouteLedger`，启动时校验、集成测试 PATCH 探测）。人工文档（INDEX.md / API_COVERAGE_REPORT.md）须与之保持一致。
 >
@@ -8,7 +8,7 @@
 
 ## 总览
 
-- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1146**
+- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1147**
 - 含路由注册的模块文件：**66**
 - `derived_routes.rs` 中的 `registered_by` 标签：**74**
 - 已被派生表覆盖的模块：**66**
@@ -1236,9 +1236,9 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_matrix/federation/v2/send_join/{room_id}/{event_id}`
 - `PUT` `/_matrix/federation/v2/send_leave/{room_id}/{event_id}`
 
-### 装配 (Assembly) （101 条）
+### 装配 (Assembly) （102 条）
 
-#### `assembly.rs` — 101 条 ✅派生表
+#### `assembly.rs` — 102 条 ✅派生表
 
 - `DELETE` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device`
 - `DELETE` `/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}`
@@ -1266,6 +1266,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/client/v1/profile/{user_id}/displayname`
 - `GET` `/_matrix/client/v3/account/3pid`
 - `GET` `/_matrix/client/v3/account/whoami`
+- `GET` `/_matrix/client/v3/auth/{auth_type}/fallback/web`
 - `GET` `/_matrix/client/v3/capabilities`
 - `GET` `/_matrix/client/v3/directory/list/room/{room_id}`
 - `GET` `/_matrix/client/v3/directory/room/{room_alias}`

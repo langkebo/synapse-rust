@@ -327,10 +327,12 @@ fn create_auth_compat_router() -> Router<AppState> {
         // Matrix spec: GET /_matrix/client/v3/auth/{authType}/fallback/web
         // returns an HTML page for clients that cannot handle a given
         // auth stage natively (Client-Server API §3.3.4).
-        .route(
-            "/auth/:auth_type/fallback/web",
-            get(auth_fallback_web),
-        )
+        //
+        // The capture group MUST use axum 0.8's `{param}` syntax: `:param` makes
+        // `Router::route` panic at assembly time with "Path segments must not
+        // start with `:`", which takes the whole server down at startup.
+        // Guarded by `scripts/ci/check_axum_path_syntax.py`.
+        .route("/auth/{auth_type}/fallback/web", get(auth_fallback_web))
 }
 
 fn create_auth_router() -> Router<AppState> {

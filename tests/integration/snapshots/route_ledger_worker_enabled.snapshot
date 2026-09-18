@@ -1,5 +1,5 @@
 # route-ledger snapshot: worker-enabled
-count: 1138
+count: 1139
 
 DELETE /_matrix/admin/v1/external_services/{as_id} [external_service]
 DELETE /_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device [assembly::create_router]
@@ -218,6 +218,7 @@ GET /_matrix/client/v3/account/guest [guest]
 GET /_matrix/client/v3/account/whoami [assembly::account_compat]
 GET /_matrix/client/v3/appservice/alias [app_service]
 GET /_matrix/client/v3/appservice/user [app_service]
+GET /_matrix/client/v3/auth/{auth_type}/fallback/web [assembly::auth_compat]
 GET /_matrix/client/v3/capabilities [assembly::capabilities]
 GET /_matrix/client/v3/device_trust [e2ee]
 GET /_matrix/client/v3/device_trust/{device_id} [e2ee]
