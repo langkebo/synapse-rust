@@ -150,14 +150,20 @@ async fn test_create_and_get_token() {
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
+    crate::ensure_test_user(&pool, &user_id).await;
 
-    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
-        .bind(&user_id)
-        .bind(format!("rtuser{suffix}"))
-        .bind(current_timestamp_millis())
-        .execute(pool.as_ref())
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(&user_id)
+    .bind(format!("rtuser{suffix}"))
+    .bind(current_timestamp_millis())
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
+
+    // make_request always references `device_{suffix}`; the FK requires that row.
+    crate::ensure_test_device(&pool, &user_id, &format!("device_{suffix}")).await;
 
     let future_ts = current_timestamp_millis() + 3_600_000;
     let request = make_request(suffix, &user_id, future_ts);
@@ -189,14 +195,20 @@ async fn test_get_token_by_id() {
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
+    crate::ensure_test_user(&pool, &user_id).await;
 
-    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
-        .bind(&user_id)
-        .bind(format!("rtuser{suffix}"))
-        .bind(current_timestamp_millis())
-        .execute(pool.as_ref())
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(&user_id)
+    .bind(format!("rtuser{suffix}"))
+    .bind(current_timestamp_millis())
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
+
+    // make_request always references `device_{suffix}`; the FK requires that row.
+    crate::ensure_test_device(&pool, &user_id, &format!("device_{suffix}")).await;
 
     let future_ts = current_timestamp_millis() + 3_600_000;
     let request = make_request(suffix, &user_id, future_ts);
@@ -228,18 +240,26 @@ async fn test_get_user_tokens() {
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
+    crate::ensure_test_user(&pool, &user_id).await;
 
-    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
-        .bind(&user_id)
-        .bind(format!("rtuser{suffix}"))
-        .bind(current_timestamp_millis())
-        .execute(pool.as_ref())
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(&user_id)
+    .bind(format!("rtuser{suffix}"))
+    .bind(current_timestamp_millis())
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
+
+    // make_request always references `device_{suffix}`; the FK requires that row.
+    crate::ensure_test_device(&pool, &user_id, &format!("device_{suffix}")).await;
 
     let future_ts = current_timestamp_millis() + 3_600_000;
 
     for i in 0..3 {
+        // Each iteration uses its own device id, so each needs its own parent row.
+        crate::ensure_test_device(&pool, &user_id, &format!("device_{suffix}_{i}")).await;
         let req = CreateRefreshTokenRequest {
             token_hash: format!("hash_{suffix}_{i}"),
             user_id: user_id.clone(),
@@ -267,17 +287,25 @@ async fn test_get_active_tokens_excludes_revoked_and_expired() {
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
+    crate::ensure_test_user(&pool, &user_id).await;
 
-    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
-        .bind(&user_id)
-        .bind(format!("rtuser{suffix}"))
-        .bind(current_timestamp_millis())
-        .execute(pool.as_ref())
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(&user_id)
+    .bind(format!("rtuser{suffix}"))
+    .bind(current_timestamp_millis())
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
+
+    // make_request always references `device_{suffix}`; the FK requires that row.
+    crate::ensure_test_device(&pool, &user_id, &format!("device_{suffix}")).await;
 
     let future_ts = current_timestamp_millis() + 3_600_000;
     let past_ts = current_timestamp_millis() - 3_600_000;
+
+    crate::ensure_test_user(&pool, "@user:localhost").await;
 
     let active_req = CreateRefreshTokenRequest {
         token_hash: format!("active_{suffix}"),
@@ -333,14 +361,20 @@ async fn test_revoke_token() {
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
+    crate::ensure_test_user(&pool, &user_id).await;
 
-    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
-        .bind(&user_id)
-        .bind(format!("rtuser{suffix}"))
-        .bind(current_timestamp_millis())
-        .execute(pool.as_ref())
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(&user_id)
+    .bind(format!("rtuser{suffix}"))
+    .bind(current_timestamp_millis())
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
+
+    // make_request always references `device_{suffix}`; the FK requires that row.
+    crate::ensure_test_device(&pool, &user_id, &format!("device_{suffix}")).await;
 
     let future_ts = current_timestamp_millis() + 3_600_000;
     let request = make_request(suffix, &user_id, future_ts);
@@ -362,14 +396,20 @@ async fn test_revoke_token_by_id() {
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
+    crate::ensure_test_user(&pool, &user_id).await;
 
-    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
-        .bind(&user_id)
-        .bind(format!("rtuser{suffix}"))
-        .bind(current_timestamp_millis())
-        .execute(pool.as_ref())
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(&user_id)
+    .bind(format!("rtuser{suffix}"))
+    .bind(current_timestamp_millis())
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
+
+    // make_request always references `device_{suffix}`; the FK requires that row.
+    crate::ensure_test_device(&pool, &user_id, &format!("device_{suffix}")).await;
 
     let future_ts = current_timestamp_millis() + 3_600_000;
     let request = make_request(suffix, &user_id, future_ts);
@@ -390,18 +430,26 @@ async fn test_revoke_all_user_tokens() {
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
+    crate::ensure_test_user(&pool, &user_id).await;
 
-    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
-        .bind(&user_id)
-        .bind(format!("rtuser{suffix}"))
-        .bind(current_timestamp_millis())
-        .execute(pool.as_ref())
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(&user_id)
+    .bind(format!("rtuser{suffix}"))
+    .bind(current_timestamp_millis())
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
+
+    // make_request always references `device_{suffix}`; the FK requires that row.
+    crate::ensure_test_device(&pool, &user_id, &format!("device_{suffix}")).await;
 
     let future_ts = current_timestamp_millis() + 3_600_000;
 
     for i in 0..3 {
+        // Each iteration uses its own device id, so each needs its own parent row.
+        crate::ensure_test_device(&pool, &user_id, &format!("device_{suffix}_{i}")).await;
         let req = CreateRefreshTokenRequest {
             token_hash: format!("hash_{suffix}_{i}"),
             user_id: user_id.clone(),
@@ -432,14 +480,20 @@ async fn test_revoke_all_user_tokens_skips_already_revoked() {
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
+    crate::ensure_test_user(&pool, &user_id).await;
 
-    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
-        .bind(&user_id)
-        .bind(format!("rtuser{suffix}"))
-        .bind(current_timestamp_millis())
-        .execute(pool.as_ref())
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(&user_id)
+    .bind(format!("rtuser{suffix}"))
+    .bind(current_timestamp_millis())
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
+
+    // make_request always references `device_{suffix}`; the FK requires that row.
+    crate::ensure_test_device(&pool, &user_id, &format!("device_{suffix}")).await;
 
     let future_ts = current_timestamp_millis() + 3_600_000;
 
@@ -482,14 +536,20 @@ async fn test_update_token_usage() {
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
+    crate::ensure_test_user(&pool, &user_id).await;
 
-    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
-        .bind(&user_id)
-        .bind(format!("rtuser{suffix}"))
-        .bind(current_timestamp_millis())
-        .execute(pool.as_ref())
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(&user_id)
+    .bind(format!("rtuser{suffix}"))
+    .bind(current_timestamp_millis())
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
+
+    // make_request always references `device_{suffix}`; the FK requires that row.
+    crate::ensure_test_device(&pool, &user_id, &format!("device_{suffix}")).await;
 
     let future_ts = current_timestamp_millis() + 3_600_000;
     let request = make_request(suffix, &user_id, future_ts);
@@ -519,14 +579,20 @@ async fn test_delete_token() {
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
+    crate::ensure_test_user(&pool, &user_id).await;
 
-    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
-        .bind(&user_id)
-        .bind(format!("rtuser{suffix}"))
-        .bind(current_timestamp_millis())
-        .execute(pool.as_ref())
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(&user_id)
+    .bind(format!("rtuser{suffix}"))
+    .bind(current_timestamp_millis())
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
+
+    // make_request always references `device_{suffix}`; the FK requires that row.
+    crate::ensure_test_device(&pool, &user_id, &format!("device_{suffix}")).await;
 
     let future_ts = current_timestamp_millis() + 3_600_000;
     let request = make_request(suffix, &user_id, future_ts);
@@ -549,18 +615,26 @@ async fn test_delete_user_tokens() {
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
+    crate::ensure_test_user(&pool, &user_id).await;
 
-    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
-        .bind(&user_id)
-        .bind(format!("rtuser{suffix}"))
-        .bind(current_timestamp_millis())
-        .execute(pool.as_ref())
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(&user_id)
+    .bind(format!("rtuser{suffix}"))
+    .bind(current_timestamp_millis())
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
+
+    // make_request always references `device_{suffix}`; the FK requires that row.
+    crate::ensure_test_device(&pool, &user_id, &format!("device_{suffix}")).await;
 
     let future_ts = current_timestamp_millis() + 3_600_000;
 
     for i in 0..3 {
+        // Each iteration uses its own device id, so each needs its own parent row.
+        crate::ensure_test_device(&pool, &user_id, &format!("device_{suffix}_{i}")).await;
         let req = CreateRefreshTokenRequest {
             token_hash: format!("hash_{suffix}_{i}"),
             user_id: user_id.clone(),
@@ -591,6 +665,7 @@ async fn test_add_to_blacklist_and_is_blacklisted() {
     let suffix = unique_id();
     let token_hash = format!("blacklisted_{suffix}");
     let user_id = format!("@rt_user_{suffix}:localhost");
+    crate::ensure_test_user(&pool, &user_id).await;
     let future_ts = current_timestamp_millis() + 3_600_000;
 
     let blacklisted = storage.is_blacklisted(&token_hash).await.unwrap();
@@ -611,7 +686,10 @@ async fn test_is_blacklisted_returns_false_for_expired_entry() {
     let suffix = unique_id();
     let token_hash = format!("expired_bl_{suffix}");
     let user_id = format!("@rt_user_{suffix}:localhost");
+    crate::ensure_test_user(&pool, &user_id).await;
     let past_ts = current_timestamp_millis() - 3_600_000;
+
+    crate::ensure_test_user(&pool, "@user:localhost").await;
 
     storage.add_to_blacklist(&token_hash, "refresh", &user_id, past_ts, None).await.unwrap();
 
@@ -628,6 +706,7 @@ async fn test_add_to_blacklist_idempotent() {
     let suffix = unique_id();
     let token_hash = format!("idempotent_{suffix}");
     let user_id = format!("@rt_user_{suffix}:localhost");
+    crate::ensure_test_user(&pool, &user_id).await;
     let future_ts = current_timestamp_millis() + 3_600_000;
 
     storage.add_to_blacklist(&token_hash, "refresh", &user_id, future_ts, None).await.unwrap();
@@ -646,16 +725,24 @@ async fn test_cleanup_expired_tokens() {
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
+    crate::ensure_test_user(&pool, &user_id).await;
 
-    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
-        .bind(&user_id)
-        .bind(format!("rtuser{suffix}"))
-        .bind(current_timestamp_millis())
-        .execute(pool.as_ref())
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(&user_id)
+    .bind(format!("rtuser{suffix}"))
+    .bind(current_timestamp_millis())
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
+
+    // make_request always references `device_{suffix}`; the FK requires that row.
+    crate::ensure_test_device(&pool, &user_id, &format!("device_{suffix}")).await;
 
     let past_ts = current_timestamp_millis() - 3_600_000;
+
+    crate::ensure_test_user(&pool, "@user:localhost").await;
     let future_ts = current_timestamp_millis() + 3_600_000;
 
     let expired_req = CreateRefreshTokenRequest {
@@ -700,6 +787,8 @@ async fn test_cleanup_blacklist() {
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
     let past_ts = current_timestamp_millis() - 3_600_000;
+
+    crate::ensure_test_user(&pool, "@user:localhost").await;
     let future_ts = current_timestamp_millis() + 3_600_000;
 
     storage
@@ -727,14 +816,20 @@ async fn test_revoke_token_cas() {
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
+    crate::ensure_test_user(&pool, &user_id).await;
 
-    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
-        .bind(&user_id)
-        .bind(format!("rtuser{suffix}"))
-        .bind(current_timestamp_millis())
-        .execute(pool.as_ref())
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(&user_id)
+    .bind(format!("rtuser{suffix}"))
+    .bind(current_timestamp_millis())
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
+
+    // make_request always references `device_{suffix}`; the FK requires that row.
+    crate::ensure_test_device(&pool, &user_id, &format!("device_{suffix}")).await;
 
     let future_ts = current_timestamp_millis() + 3_600_000;
     let request = make_request(suffix, &user_id, future_ts);
@@ -758,15 +853,21 @@ async fn test_create_and_get_family() {
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
+    crate::ensure_test_user(&pool, &user_id).await;
     let family_id = format!("family_{suffix}");
 
-    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
-        .bind(&user_id)
-        .bind(format!("rtuser{suffix}"))
-        .bind(current_timestamp_millis())
-        .execute(pool.as_ref())
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(&user_id)
+    .bind(format!("rtuser{suffix}"))
+    .bind(current_timestamp_millis())
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
+
+    // make_request always references `device_{suffix}`; the FK requires that row.
+    crate::ensure_test_device(&pool, &user_id, &format!("device_{suffix}")).await;
 
     let family = storage.create_family(&family_id, &user_id, Some("device_1")).await.unwrap();
 
@@ -793,15 +894,21 @@ async fn test_mark_family_compromised() {
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
+    crate::ensure_test_user(&pool, &user_id).await;
     let family_id = format!("family_{suffix}");
 
-    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
-        .bind(&user_id)
-        .bind(format!("rtuser{suffix}"))
-        .bind(current_timestamp_millis())
-        .execute(pool.as_ref())
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(&user_id)
+    .bind(format!("rtuser{suffix}"))
+    .bind(current_timestamp_millis())
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
+
+    // make_request always references `device_{suffix}`; the FK requires that row.
+    crate::ensure_test_device(&pool, &user_id, &format!("device_{suffix}")).await;
 
     storage.create_family(&family_id, &user_id, None).await.unwrap();
 
@@ -820,15 +927,21 @@ async fn test_record_rotation_and_get_rotations() {
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
+    crate::ensure_test_user(&pool, &user_id).await;
     let family_id = format!("family_{suffix}");
 
-    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
-        .bind(&user_id)
-        .bind(format!("rtuser{suffix}"))
-        .bind(current_timestamp_millis())
-        .execute(pool.as_ref())
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(&user_id)
+    .bind(format!("rtuser{suffix}"))
+    .bind(current_timestamp_millis())
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
+
+    // make_request always references `device_{suffix}`; the FK requires that row.
+    crate::ensure_test_device(&pool, &user_id, &format!("device_{suffix}")).await;
 
     storage.create_family(&family_id, &user_id, None).await.unwrap();
 
@@ -854,14 +967,20 @@ async fn test_record_usage() {
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
+    crate::ensure_test_user(&pool, &user_id).await;
 
-    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
-        .bind(&user_id)
-        .bind(format!("rtuser{suffix}"))
-        .bind(current_timestamp_millis())
-        .execute(pool.as_ref())
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(&user_id)
+    .bind(format!("rtuser{suffix}"))
+    .bind(current_timestamp_millis())
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
+
+    // make_request always references `device_{suffix}`; the FK requires that row.
+    crate::ensure_test_device(&pool, &user_id, &format!("device_{suffix}")).await;
 
     let future_ts = current_timestamp_millis() + 3_600_000;
     let request = make_request(suffix, &user_id, future_ts);
@@ -889,16 +1008,26 @@ async fn test_revoke_device_tokens() {
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
+    crate::ensure_test_user(&pool, &user_id).await;
 
-    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
-        .bind(&user_id)
-        .bind(format!("rtuser{suffix}"))
-        .bind(current_timestamp_millis())
-        .execute(pool.as_ref())
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(&user_id)
+    .bind(format!("rtuser{suffix}"))
+    .bind(current_timestamp_millis())
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
+
+    // make_request always references `device_{suffix}`; the FK requires that row.
+    crate::ensure_test_device(&pool, &user_id, &format!("device_{suffix}")).await;
 
     let future_ts = current_timestamp_millis() + 3_600_000;
+
+    // This test uses literal device ids rather than `device_{suffix}`.
+    crate::ensure_test_device(&pool, &user_id, "device_a").await;
+    crate::ensure_test_device(&pool, &user_id, "device_b").await;
 
     let req_a = CreateRefreshTokenRequest {
         token_hash: format!("hash_{suffix}_a"),

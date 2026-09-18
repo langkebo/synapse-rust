@@ -70,13 +70,15 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 }
 
 async fn insert_test_user(pool: &Arc<sqlx::PgPool>, user_id: &str, suffix: u64) {
-    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
-        .bind(user_id)
-        .bind(format!("atuser{suffix}"))
-        .bind(current_timestamp_millis())
-        .execute(pool.as_ref())
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(user_id)
+    .bind(format!("atuser{suffix}"))
+    .bind(current_timestamp_millis())
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
@@ -91,6 +93,7 @@ async fn test_create_token_with_device() {
 
     let token_str = format!("syt_token_{suffix}");
     let device_id = format!("DEVICE_{suffix}");
+    crate::ensure_test_device(&pool, &user_id, &device_id).await;
     let future_ts = current_timestamp_millis() + 3_600_000;
 
     let token = storage.create_token(&token_str, &user_id, Some(&device_id), Some(future_ts)).await.unwrap();
@@ -135,6 +138,8 @@ async fn test_get_token_after_create() {
 
     let token_str = format!("syt_gettest_{suffix}");
     let device_id = format!("DEV_{suffix}");
+    crate::ensure_test_device(&pool, &user_id, &device_id).await;
+    crate::ensure_test_device(&pool, &user_id, &device_id).await;
 
     storage.create_token(&token_str, &user_id, Some(&device_id), None).await.unwrap();
 
@@ -188,6 +193,8 @@ async fn test_get_user_tokens() {
     for i in 0..3 {
         let token_str = format!("syt_multi_{suffix}_{i}");
         let device_id = format!("DEV_{suffix}_{i}");
+        crate::ensure_test_device(&pool, &user_id, &device_id).await;
+        crate::ensure_test_device(&pool, &user_id, &device_id).await;
         storage.create_token(&token_str, &user_id, Some(&device_id), None).await.unwrap();
     }
 
@@ -328,7 +335,9 @@ async fn test_delete_device_tokens() {
     insert_test_user(&pool, &user_id, suffix).await;
 
     let device_a = format!("device_a_{suffix}");
+    crate::ensure_test_device(&pool, &user_id, &device_a).await;
     let device_b = format!("device_b_{suffix}");
+    crate::ensure_test_device(&pool, &user_id, &device_b).await;
 
     let token_str_a = format!("syt_devdel_{suffix}_a");
     let token_str_b = format!("syt_devdel_{suffix}_b");
@@ -356,7 +365,9 @@ async fn test_delete_user_device_tokens() {
     insert_test_user(&pool, &user_id, suffix).await;
 
     let device_a = format!("device_a_{suffix}");
+    crate::ensure_test_device(&pool, &user_id, &device_a).await;
     let device_b = format!("device_b_{suffix}");
+    crate::ensure_test_device(&pool, &user_id, &device_b).await;
 
     let token_str_a = format!("syt_uddevdel_{suffix}_a");
     let token_str_b = format!("syt_uddevdel_{suffix}_b");
@@ -384,7 +395,9 @@ async fn test_delete_user_tokens_except_device() {
     insert_test_user(&pool, &user_id, suffix).await;
 
     let device_keep = format!("device_keep_{suffix}");
+    crate::ensure_test_device(&pool, &user_id, &device_keep).await;
     let device_revoke = format!("device_revoke_{suffix}");
+    crate::ensure_test_device(&pool, &user_id, &device_revoke).await;
 
     let token_str_keep = format!("syt_except_{suffix}_keep");
     let token_str_revoke = format!("syt_except_{suffix}_revoke");
@@ -503,6 +516,7 @@ async fn test_add_to_blacklist_and_is_in_blacklist() {
     let suffix = unique_id();
     let token_str = format!("syt_blacklist_{suffix}");
     let user_id = format!("@at_user_{suffix}:localhost");
+    insert_test_user(&pool, &user_id, suffix).await;
 
     let blacklisted = storage.is_in_blacklist(&token_str).await.unwrap();
     assert!(!blacklisted);
@@ -522,6 +536,7 @@ async fn test_add_to_blacklist_without_reason() {
     let suffix = unique_id();
     let token_str = format!("syt_blacklist_noreason_{suffix}");
     let user_id = format!("@at_user_{suffix}:localhost");
+    insert_test_user(&pool, &user_id, suffix).await;
 
     storage.add_to_blacklist(&token_str, &user_id, None).await.unwrap();
 
@@ -538,6 +553,7 @@ async fn test_add_hash_to_blacklist() {
     let suffix = unique_id();
     let hash = format!("direct_hash_{suffix}");
     let user_id = format!("@at_user_{suffix}:localhost");
+    insert_test_user(&pool, &user_id, suffix).await;
 
     storage.add_hash_to_blacklist(&hash, &user_id, Some("direct hash insert")).await.unwrap();
 
@@ -558,6 +574,7 @@ async fn test_add_to_blacklist_idempotent() {
     let suffix = unique_id();
     let token_str = format!("syt_idempotent_{suffix}");
     let user_id = format!("@at_user_{suffix}:localhost");
+    insert_test_user(&pool, &user_id, suffix).await;
 
     storage.add_to_blacklist(&token_str, &user_id, None).await.unwrap();
 
@@ -585,6 +602,7 @@ async fn test_cleanup_expired_blacklist_entries() {
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
     let user_id = format!("@at_user_{suffix}:localhost");
+    insert_test_user(&pool, &user_id, suffix).await;
     let past_ts = current_timestamp_millis() - 3_600_000;
 
     sqlx::query(
@@ -612,6 +630,7 @@ async fn test_cleanup_expired_blacklist_keeps_valid_entries() {
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
     let user_id = format!("@at_user_{suffix}:localhost");
+    insert_test_user(&pool, &user_id, suffix).await;
     let future_ts = current_timestamp_millis() + 3_600_000;
 
     sqlx::query(
@@ -713,6 +732,7 @@ async fn test_delete_user_tokens_except_device_with_no_other_devices() {
     insert_test_user(&pool, &user_id, suffix).await;
 
     let device_only = format!("device_only_{suffix}");
+    crate::ensure_test_device(&pool, &user_id, &device_only).await;
     let token_str = format!("syt_onlydev_{suffix}");
     storage.create_token(&token_str, &user_id, Some(&device_only), None).await.unwrap();
 
@@ -734,6 +754,7 @@ async fn test_multiple_tokens_same_device() {
     insert_test_user(&pool, &user_id, suffix).await;
 
     let device_id = format!("shared_device_{suffix}");
+    crate::ensure_test_device(&pool, &user_id, &device_id).await;
 
     for i in 0..2 {
         let token_str = format!("syt_shared_{suffix}_{i}");

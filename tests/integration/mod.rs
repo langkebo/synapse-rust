@@ -768,3 +768,68 @@ pub async fn create_test_user(app: &axum::Router) -> String {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     json["access_token"].as_str().unwrap().to_string()
 }
+
+// ---------------------------------------------------------------------------
+// Parent-row seeding for storage-layer fixtures
+// ---------------------------------------------------------------------------
+//
+// The storage tests in `*_storage_tests_migrated.rs` drive `synapse-storage`
+// directly with hand-written `(user_id, device_id, room_id)` values. Those layers sit
+// under real foreign keys (`fk_devices_user`, `fk_access_tokens_device`,
+// `fk_events_room`, `fk_event_relations_room`, ...), so a fixture that writes a child
+// row without its parent fails with SQLSTATE 23503 — 277 such violations across the
+// suite before these helpers existed. The tests only ever *appeared* to pass because
+// the suite used to skip DB setup entirely (see commit 758003dc).
+//
+// The helpers are idempotent (`ON CONFLICT DO NOTHING`) and deliberately minimal: they
+// seed exactly the NOT NULL columns the schema requires and nothing else, so tests
+// cannot accidentally depend on fixture detail they did not ask for.
+
+/// Insert `user_id` into `users` unless it is already there.
+pub async fn ensure_test_user(pool: &sqlx::PgPool, user_id: &str) {
+    let username = user_id.trim_start_matches('@').split(':').next().unwrap_or(user_id);
+    sqlx::query(
+        "INSERT INTO users (user_id, username, created_ts, is_admin, is_guest, is_deactivated, is_shadow_banned)
+         VALUES ($1, $2, $3, FALSE, FALSE, FALSE, FALSE)
+         ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(user_id)
+    .bind(username)
+    .bind(chrono::Utc::now().timestamp())
+    .execute(pool)
+    .await
+    .unwrap_or_else(|e| panic!("failed to seed test user {user_id}: {e}"));
+}
+
+/// Insert `room_id` into `rooms` unless it is already there.
+pub async fn ensure_test_room(pool: &sqlx::PgPool, room_id: &str) {
+    sqlx::query(
+        "INSERT INTO rooms (room_id, created_ts, creator, room_version, is_public)
+         VALUES ($1, $2, $3, $4, FALSE)
+         ON CONFLICT (room_id) DO NOTHING",
+    )
+    .bind(room_id)
+    .bind(chrono::Utc::now().timestamp())
+    .bind("@fixture:localhost")
+    .bind("10")
+    .execute(pool)
+    .await
+    .unwrap_or_else(|e| panic!("failed to seed test room {room_id}: {e}"));
+}
+
+/// Insert `device_id` (owned by `user_id`) into `devices`, seeding the user first.
+pub async fn ensure_test_device(pool: &sqlx::PgPool, user_id: &str, device_id: &str) {
+    ensure_test_user(pool, user_id).await;
+    let now = chrono::Utc::now().timestamp();
+    sqlx::query(
+        "INSERT INTO devices (device_id, user_id, display_name, created_ts, first_seen_ts, last_seen_ts)
+         VALUES ($1, $2, NULL, $3, $3, $3)
+         ON CONFLICT (device_id) DO NOTHING",
+    )
+    .bind(device_id)
+    .bind(user_id)
+    .bind(now)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|e| panic!("failed to seed test device {device_id}: {e}"));
+}

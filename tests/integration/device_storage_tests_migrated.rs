@@ -39,6 +39,8 @@ async fn test_create_device_success() {
     let id = unique_id();
     let device_id = format!("DEVICE_{}", id);
     let user_id = format!("@alice_{}:localhost", id);
+    // Only the owning user is a parent here: the test creates the device itself.
+    crate::ensure_test_user(&pool, &user_id).await;
 
     let device = storage.create_device(&device_id, &user_id, Some("My Device")).await.unwrap();
     assert_eq!(device.device_id, device_id);
@@ -54,6 +56,8 @@ async fn test_get_device() {
     let id = unique_id();
     let device_id = format!("DEVICE_{}", id);
     let user_id = format!("@alice_{}:localhost", id);
+    // Only the owning user is a parent here: the test creates the device itself.
+    crate::ensure_test_user(&pool, &user_id).await;
 
     storage.create_device(&device_id, &user_id, None).await.unwrap();
 
@@ -72,7 +76,10 @@ async fn test_get_user_devices() {
     let storage = DeviceStorage::new(&pool);
     let id = unique_id();
     let user_id = format!("@alice_{}:localhost", id);
+    crate::ensure_test_user(&pool, &user_id).await;
     let bob_id = format!("@bob_{}:localhost", id);
+    crate::ensure_test_user(&pool, &user_id).await;
+    crate::ensure_test_user(&pool, &bob_id).await;
 
     storage.create_device(&format!("D1_{}", id), &user_id, None).await.unwrap();
     storage.create_device(&format!("D2_{}", id), &user_id, None).await.unwrap();
@@ -90,6 +97,8 @@ async fn test_update_device_display_name() {
     let id = unique_id();
     let device_id = format!("D_{}", id);
     let user_id = format!("@alice_{}:localhost", id);
+    // Only the owning user is a parent here: the test creates the device itself.
+    crate::ensure_test_user(&pool, &user_id).await;
 
     storage.create_device(&device_id, &user_id, Some("Old Name")).await.unwrap();
     storage.update_device_display_name(&device_id, "New Name").await.unwrap();
@@ -106,6 +115,8 @@ async fn test_delete_device() {
     let id = unique_id();
     let device_id = format!("D_{}", id);
     let user_id = format!("@alice_{}:localhost", id);
+    // Only the owning user is a parent here: the test creates the device itself.
+    crate::ensure_test_user(&pool, &user_id).await;
 
     storage.create_device(&device_id, &user_id, None).await.unwrap();
     assert!(storage.device_exists(&device_id).await.unwrap());

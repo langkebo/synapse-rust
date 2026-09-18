@@ -77,6 +77,7 @@ async fn test_send_annotation() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let sender = format!("@user_{suffix}:localhost");
     let relates_to = format!("$orig_{suffix}:localhost");
 
@@ -104,6 +105,7 @@ async fn test_send_annotation_content_includes_relates_to() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let sender = format!("@user_{suffix}:localhost");
     let relates_to = format!("$orig_{suffix}:localhost");
 
@@ -130,6 +132,7 @@ async fn test_send_reference() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let sender = format!("@user_{suffix}:localhost");
     let relates_to = format!("$orig_{suffix}:localhost");
 
@@ -157,6 +160,7 @@ async fn test_send_reference_with_custom_relation_type() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let sender = format!("@user_{suffix}:localhost");
     let relates_to = format!("$orig_{suffix}:localhost");
 
@@ -183,6 +187,7 @@ async fn test_send_reference_non_object_content_gets_replaced() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let sender = format!("@user_{suffix}:localhost");
     let relates_to = format!("$orig_{suffix}:localhost");
 
@@ -207,6 +212,7 @@ async fn test_send_replacement() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let sender = format!("@user_{suffix}:localhost");
     let relates_to = format!("$orig_{suffix}:localhost");
 
@@ -236,6 +242,7 @@ async fn test_send_replacement_updates_existing() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let sender = format!("@user_{suffix}:localhost");
     let relates_to = format!("$orig_{suffix}:localhost");
 
@@ -268,6 +275,7 @@ async fn test_send_replacement_different_senders_independent() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let sender_a = format!("@userA_{suffix}:localhost");
     let sender_b = format!("@userB_{suffix}:localhost");
     let relates_to = format!("$orig_{suffix}:localhost");
@@ -300,6 +308,7 @@ async fn test_get_relations_empty() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let relates_to = format!("$orig_{suffix}:localhost");
 
     let response = service.get_relations(&room_id, &relates_to, None, None, None, None).await.unwrap();
@@ -317,6 +326,7 @@ async fn test_get_relations_with_data() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let sender = format!("@user_{suffix}:localhost");
     let relates_to = format!("$orig_{suffix}:localhost");
 
@@ -345,6 +355,7 @@ async fn test_get_relations_filtered_by_type() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let sender = format!("@user_{suffix}:localhost");
     let relates_to = format!("$orig_{suffix}:localhost");
 
@@ -380,6 +391,7 @@ async fn test_get_relations_with_limit() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let relates_to = format!("$orig_{suffix}:localhost");
 
     for i in 0..5 {
@@ -407,6 +419,7 @@ async fn test_get_aggregations_empty() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let relates_to = format!("$orig_{suffix}:localhost");
 
     let response = service.get_aggregations(&room_id, &relates_to).await.unwrap();
@@ -421,6 +434,7 @@ async fn test_get_aggregations_with_annotations() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let relates_to = format!("$orig_{suffix}:localhost");
 
     for i in 0..3 {
@@ -463,6 +477,7 @@ async fn test_redact_relation_own_sender() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let sender = format!("@user_{suffix}:localhost");
     let relates_to = format!("$orig_{suffix}:localhost");
 
@@ -490,6 +505,7 @@ async fn test_redact_relation_different_sender_forbidden() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let sender = format!("@owner_{suffix}:localhost");
     let other_sender = format!("@other_{suffix}:localhost");
     let relates_to = format!("$orig_{suffix}:localhost");
@@ -514,6 +530,7 @@ async fn test_redact_relation_nonexistent() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let sender = format!("@user_{suffix}:localhost");
 
     let result = service.redact_relation(&room_id, "$nonexistent:localhost", &sender).await;
@@ -527,6 +544,7 @@ async fn test_annotation_exists_true() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let sender = format!("@user_{suffix}:localhost");
     let relates_to = format!("$orig_{suffix}:localhost");
 
@@ -550,6 +568,7 @@ async fn test_annotation_exists_false_different_sender() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let sender = format!("@user_{suffix}:localhost");
     let other_sender = format!("@other_{suffix}:localhost");
     let relates_to = format!("$orig_{suffix}:localhost");
@@ -574,6 +593,7 @@ async fn test_annotation_exists_false_no_annotation() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let sender = format!("@user_{suffix}:localhost");
     let relates_to = format!("$orig_{suffix}:localhost");
 
@@ -588,6 +608,7 @@ async fn test_redacted_relation_excluded_from_get_relations() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let sender = format!("@user_{suffix}:localhost");
     let relates_to = format!("$orig_{suffix}:localhost");
 
@@ -615,6 +636,7 @@ async fn test_redacted_annotation_excluded_from_exists() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let sender = format!("@user_{suffix}:localhost");
     let relates_to = format!("$orig_{suffix}:localhost");
 
@@ -651,6 +673,7 @@ async fn test_get_aggregations_excludes_redacted() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let sender = format!("@user_{suffix}:localhost");
     let relates_to = format!("$orig_{suffix}:localhost");
 
@@ -677,6 +700,7 @@ async fn test_multiple_annotations_same_key_aggregated() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let relates_to = format!("$orig_{suffix}:localhost");
 
     for i in 0..5 {
@@ -705,6 +729,7 @@ async fn test_get_relations_backward_direction() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let relates_to = format!("$orig_{suffix}:localhost");
 
     for i in 0..3 {
@@ -731,6 +756,7 @@ async fn test_send_replacement_content_structure() {
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let sender = format!("@user_{suffix}:localhost");
     let relates_to = format!("$orig_{suffix}:localhost");
 
