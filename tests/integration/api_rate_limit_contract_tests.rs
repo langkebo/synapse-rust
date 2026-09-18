@@ -76,8 +76,14 @@ async fn test_sync_rate_limited_returns_retry_after_ms() {
         .unwrap();
     let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(response.headers().get("retry-after").unwrap(), "1");
-    assert_eq!(response.headers().get("x-ratelimit-retry-after").unwrap(), "1000");
+    assert_eq!(response.headers().get("retry-after").unwrap(), "1", "RFC 7231 seconds");
+    assert_eq!(
+        response.headers().get("x-ratelimit-retry-after-ms").unwrap(),
+        "1000",
+        "millisecond precision for Matrix clients"
+    );
+    assert_eq!(response.headers().get("x-ratelimit-after").unwrap(), "1000");
+    assert_eq!(response.headers().get("x-ratelimit-remaining").unwrap(), "0", "always 0 on a 429");
 
     let body = axum::body::to_bytes(response.into_body(), 1024 * 16).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
@@ -116,8 +122,14 @@ async fn test_sliding_sync_rate_limited_returns_retry_after_ms() {
 
     let response = limited_response.expect("expected sliding sync rate limit to return 429 within 3 requests");
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(response.headers().get("retry-after").unwrap(), "1");
-    assert_eq!(response.headers().get("x-ratelimit-retry-after").unwrap(), "1000");
+    assert_eq!(response.headers().get("retry-after").unwrap(), "1", "RFC 7231 seconds");
+    assert_eq!(
+        response.headers().get("x-ratelimit-retry-after-ms").unwrap(),
+        "1000",
+        "millisecond precision for Matrix clients"
+    );
+    assert_eq!(response.headers().get("x-ratelimit-after").unwrap(), "1000");
+    assert_eq!(response.headers().get("x-ratelimit-remaining").unwrap(), "0", "always 0 on a 429");
 
     let body = axum::body::to_bytes(response.into_body(), 1024 * 16).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();

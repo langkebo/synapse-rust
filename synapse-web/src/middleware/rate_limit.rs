@@ -169,7 +169,7 @@ pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Requ
                 response.headers_mut().insert("x-ratelimit-limit", v);
             }
             if let Ok(v) = HeaderValue::from_str(&retry_after_ms.to_string()) {
-                response.headers_mut().insert("x-ratelimit-retry-after", v.clone());
+                response.headers_mut().insert("x-ratelimit-retry-after-ms", v.clone());
                 response.headers_mut().insert("x-ratelimit-after", v);
             }
         }
@@ -187,7 +187,7 @@ pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Requ
         if let Ok(v) = burst_size.to_string().parse() {
             response.headers_mut().insert("x-ratelimit-limit", v);
         }
-        response.headers_mut().insert("x-ratelimit-retry-after", HeaderValue::from_static("0"));
+        response.headers_mut().insert("x-ratelimit-retry-after-ms", HeaderValue::from_static("0"));
     }
     response
 }
@@ -388,12 +388,12 @@ mod tests {
 
         let first = app.clone().oneshot(request()).await.expect("first request should succeed");
         assert_eq!(first.status(), StatusCode::OK);
-        assert_eq!(first.headers().get("x-ratelimit-retry-after").unwrap(), "0");
+        assert_eq!(first.headers().get("x-ratelimit-retry-after-ms").unwrap(), "0");
 
         let second = app.oneshot(request()).await.expect("second request should return a response");
         assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);
         assert!(second.headers().get("retry-after").is_some());
-        assert!(second.headers().get("x-ratelimit-retry-after").is_some());
+        assert!(second.headers().get("x-ratelimit-retry-after-ms").is_some());
         assert!(second.headers().get("x-ratelimit-after").is_some());
     }
 

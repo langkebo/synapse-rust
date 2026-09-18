@@ -108,26 +108,30 @@ async fn upload_voice_message(
     let mut waveform: Option<Vec<u16>> = None;
     let mut filename: Option<String> = None;
 
-    while let Some(mut field) = multipart.next_field().await.map_err(|e| {
-        ApiError::bad_request(format!("Failed to parse multipart data: {}", e))
-    })? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| ApiError::bad_request(format!("Failed to parse multipart data: {}", e)))?
+    {
         let name = field.name().unwrap_or("").to_string();
-        let data = field.bytes().await.map_err(|e| {
-            ApiError::bad_request(format!("Failed to read multipart field: {}", e))
-        })?;
+
+        // Read `Content-Disposition` *before* consuming the field: `Field::bytes`
+        // takes `self` by value, so touching `field.headers()` afterwards does not
+        // compile (E0382) — the filename it carries would be lost anyway.
+        let disposition_filename = field
+            .headers()
+            .get("Content-Disposition")
+            .and_then(|disposition| disposition.to_str().ok())
+            .and_then(|disposition| disposition.find("filename=").map(|start| disposition[start + 9..].to_string()))
+            .map(|raw| raw.trim_matches('"').to_string());
+
+        let data =
+            field.bytes().await.map_err(|e| ApiError::bad_request(format!("Failed to read multipart field: {}", e)))?;
 
         match name.as_str() {
             "file" => {
                 content = data.to_vec();
-                // Extract filename from Content-Disposition header if present
-                if let Some(disposition) = field.headers().get("Content-Disposition") {
-                    if let Ok(disposition_str) = disposition.to_str() {
-                        if let Some(start) = disposition_str.find("filename=") {
-                            let filename_part = &disposition_str[start + 9..];
-                            filename = Some(filename_part.trim_matches('"').to_string());
-                        }
-                    }
-                }
+                filename = disposition_filename;
             }
             "content_type" => content_type = Some(String::from_utf8_lossy(&data).to_string()),
             "room_id" => room_id = Some(String::from_utf8_lossy(&data).to_string()),
@@ -140,10 +144,7 @@ async fn upload_voice_message(
             }
             "waveform" => {
                 let waveform_str = String::from_utf8_lossy(&data);
-                let arr: Vec<u16> = waveform_str
-                    .split(',')
-                    .filter_map(|s| s.trim().parse().ok())
-                    .collect();
+                let arr: Vec<u16> = waveform_str.split(',').filter_map(|s| s.trim().parse().ok()).collect();
                 if !arr.is_empty() {
                     waveform = Some(arr);
                 }
@@ -165,14 +166,17 @@ async fn upload_voice_message(
         return Err(ApiError::bad_request(format!("Voice message too large. Max size is {} bytes", MAX_SIZE)));
     }
 
-    let content_type = content_type.unwrap_or_else(|| infer::get(&content).map(|k| k.mime_type().to_string()).unwrap_or_else(|| "audio/ogg".to_string()));
+    let content_type = content_type.unwrap_or_else(|| {
+        infer::get(&content).map(|k| k.mime_type().to_string()).unwrap_or_else(|| "audio/ogg".to_string())
+    });
 
     // Validate audio content type
     synapse_services::voice_service::VoiceService::validate_audio_content_type(&content_type)?;
 
     // Check room membership if room_id is provided
     if let Some(ref rid) = room_id {
-        ensure_room_member_ctx(&ctx, &auth_user, rid, "You must be a member of this room to upload voice messages").await?;
+        ensure_room_member_ctx(&ctx, &auth_user, rid, "You must be a member of this room to upload voice messages")
+            .await?;
     }
 
     let result = voice_service
