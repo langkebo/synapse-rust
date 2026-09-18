@@ -530,11 +530,11 @@ docker_feature_args() {
     if [ "$ENABLED_EXTENSIONS" = "all" ]; then
         echo "--features all-extensions"
     elif [ "$ENABLED_EXTENSIONS" = "none" ]; then
-        echo "--features server --no-default-features"
+        echo "--no-default-features"
     elif [ "$ENABLED_EXTENSIONS" = "$CORE_PRIVATE_CHAT_EXTENSIONS" ]; then
-        echo "--features server,core-private-chat --no-default-features"
+        echo "--features core-private-chat --no-default-features"
     else
-        echo "--features server,$ENABLED_EXTENSIONS --no-default-features"
+        echo "--features $ENABLED_EXTENSIONS --no-default-features"
     fi
 }
 
@@ -1012,11 +1012,11 @@ rebuild_project() {
     if [ "$ENABLED_EXTENSIONS" = "all" ]; then
         (cd "$PROJECT_ROOT" && cargo build --release --locked --features all-extensions --bin synapse-rust --bin healthcheck)
     elif [ "$ENABLED_EXTENSIONS" = "none" ]; then
-        (cd "$PROJECT_ROOT" && cargo build --release --locked --no-default-features --features server --bin synapse-rust --bin healthcheck)
+        (cd "$PROJECT_ROOT" && cargo build --release --locked --no-default-features --bin synapse-rust --bin healthcheck)
     elif [ "$ENABLED_EXTENSIONS" = "$CORE_PRIVATE_CHAT_EXTENSIONS" ]; then
-        (cd "$PROJECT_ROOT" && cargo build --release --locked --no-default-features --features server,core-private-chat --bin synapse-rust --bin healthcheck)
+        (cd "$PROJECT_ROOT" && cargo build --release --locked --no-default-features --features core-private-chat --bin synapse-rust --bin healthcheck)
     else
-        (cd "$PROJECT_ROOT" && cargo build --release --locked --no-default-features --features "server,$ENABLED_EXTENSIONS" --bin synapse-rust --bin healthcheck)
+        (cd "$PROJECT_ROOT" && cargo build --release --locked --no-default-features --features "$ENABLED_EXTENSIONS" --bin synapse-rust --bin healthcheck)
     fi
     log_success "项目编译完成"
 }

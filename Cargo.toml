@@ -87,7 +87,7 @@ base64 = "0.22"
 
 ed25519-dalek = "2.0"
 
-vodozemac = "0.9"
+vodozemac = ">=0.10.0"
 
 config = { version = "0.14", default-features = false, features = ["yaml", "convert-case"] }
 

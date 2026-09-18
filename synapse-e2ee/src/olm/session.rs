@@ -99,13 +99,14 @@ impl OlmSessionManager {
         their_identity_key: vodozemac::Curve25519PublicKey,
         their_one_time_key: vodozemac::Curve25519PublicKey,
     ) -> Result<OlmEncryptedMessage, ApiError> {
-        let session_config = SessionConfig::version_2();
+        let session_config = SessionConfig::default();
 
-        let mut session = account.create_outbound_session(session_config, their_identity_key, their_one_time_key);
+        let mut session = account.create_outbound_session(session_config, their_identity_key, their_one_time_key)
+            .map_err(|e| ApiError::internal(format!("Failed to create outbound session: {e}")))?;
 
         let session_id = session.session_id();
 
-        let message = session.encrypt(b"");
+        let message = session.encrypt(b"").expect("Empty plaintext should never fail encryption");
         let ciphertext = match &message {
             vodozemac::olm::OlmMessage::PreKey(m) => m.to_base64(),
             vodozemac::olm::OlmMessage::Normal(m) => m.to_base64(),
@@ -136,8 +137,9 @@ impl OlmSessionManager {
         let pre_key_message = vodozemac::olm::PreKeyMessage::from_base64(message)
             .map_err(|e| ApiError::bad_request(format!("Invalid pre-key message: {e}")))?;
 
+        let session_config = SessionConfig::default();
         let result = account
-            .create_inbound_session(their_identity_key, &pre_key_message)
+            .create_inbound_session(session_config, their_identity_key, &pre_key_message)
             .map_err(map_database!("Failed to create inbound session"))?;
 
         let session_id = result.session.session_id();
@@ -167,7 +169,8 @@ impl OlmSessionManager {
             .get_mut(session_id)
             .ok_or_else(|| ApiError::not_found(format!("Session not found: {session_id}")))?;
 
-        let message = entry.session.encrypt(plaintext.as_bytes());
+        let message = entry.session.encrypt(plaintext.as_bytes())
+            .map_err(|e| ApiError::internal(format!("Failed to encrypt: {e}")))?;
 
         entry.dirty = true;
 

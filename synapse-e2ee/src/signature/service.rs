@@ -110,7 +110,8 @@ mod tests {
     #[tokio::test]
     async fn verify_key_valid_signature() {
         let svc = make_service();
-        let signing_key = SigningKey::generate(&mut aes_gcm::aead::OsRng);
+        let secret_bytes: [u8; 32] = [42u8; 32];
+        let signing_key = SigningKey::from_bytes(&secret_bytes);
         let verifying_key = signing_key.verifying_key();
         let message = "test-key-data";
         let signature = signing_key.sign(message.as_bytes());
@@ -122,7 +123,8 @@ mod tests {
     #[tokio::test]
     async fn verify_key_tampered_message() {
         let svc = make_service();
-        let signing_key = SigningKey::generate(&mut aes_gcm::aead::OsRng);
+        let secret_bytes: [u8; 32] = [43u8; 32];
+        let signing_key = SigningKey::from_bytes(&secret_bytes);
         let verifying_key = signing_key.verifying_key();
         let signature = signing_key.sign(b"original");
         let encoded = base64::engine::general_purpose::STANDARD.encode(signature.to_bytes());
@@ -133,8 +135,10 @@ mod tests {
     #[tokio::test]
     async fn verify_key_wrong_public_key() {
         let svc = make_service();
-        let signing_key = SigningKey::generate(&mut aes_gcm::aead::OsRng);
-        let other_key = SigningKey::generate(&mut aes_gcm::aead::OsRng);
+        let secret_bytes_a: [u8; 32] = [43u8; 32];
+        let secret_bytes_b: [u8; 32] = [44u8; 32];
+        let signing_key = SigningKey::from_bytes(&secret_bytes_a);
+        let other_key = SigningKey::from_bytes(&secret_bytes_b);
         let message = "test";
         let signature = signing_key.sign(message.as_bytes());
         let encoded = base64::engine::general_purpose::STANDARD.encode(signature.to_bytes());
@@ -184,8 +188,8 @@ mod tests {
     #[tokio::test]
     async fn verify_event_valid_signature() {
         let svc = make_service();
-        let mut rng = aes_gcm::aead::OsRng;
-        let signing_key = SigningKey::generate(&mut rng);
+        let secret_bytes: [u8; 32] = [46u8; 32];
+        let signing_key = SigningKey::from_bytes(&secret_bytes);
         let verifying_key = signing_key.verifying_key();
         let event_id = "$event:localhost";
 
@@ -199,8 +203,8 @@ mod tests {
     #[tokio::test]
     async fn verify_event_tampered_event_id() {
         let svc = make_service();
-        let mut rng = aes_gcm::aead::OsRng;
-        let signing_key = SigningKey::generate(&mut rng);
+        let secret_bytes: [u8; 32] = [47u8; 32];
+        let signing_key = SigningKey::from_bytes(&secret_bytes);
         let verifying_key = signing_key.verifying_key();
 
         let signature = signing_key.sign(b"$original:localhost");

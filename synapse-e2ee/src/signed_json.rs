@@ -180,8 +180,9 @@ mod tests {
 
     #[test]
     fn test_verify_signed_json_roundtrip() {
-        let mut rng = OsRng;
-        let signing_key = SigningKey::generate(&mut rng);
+        let _rng = OsRng;
+        let secret_bytes: [u8; 32] = [42u8; 32];
+        let signing_key = SigningKey::from_bytes(&secret_bytes);
         let verifying_key = signing_key.verifying_key();
 
         let mut json = serde_json::json!({
@@ -215,9 +216,11 @@ mod tests {
 
     #[test]
     fn test_verify_signed_json_wrong_signature() {
-        let mut rng = OsRng;
-        let signing_key1 = SigningKey::generate(&mut rng);
-        let signing_key2 = SigningKey::generate(&mut rng);
+        let mut _rng = OsRng;
+        let secret_bytes1: [u8; 32] = [42u8; 32];
+        let secret_bytes2: [u8; 32] = [43u8; 32];
+        let signing_key1 = SigningKey::from_bytes(&secret_bytes1);
+        let signing_key2 = SigningKey::from_bytes(&secret_bytes2);
         let verifying_key1 = signing_key1.verifying_key();
 
         let json = serde_json::json!({
@@ -237,7 +240,8 @@ mod tests {
     #[test]
     fn test_verify_device_keys_signature_valid() {
         let mut rng = OsRng;
-        let signing_key = SigningKey::generate(&mut rng);
+        let secret_bytes: [u8; 32] = [42u8; 32];
+        let signing_key = SigningKey::from_bytes(&secret_bytes);
         let verifying_key = signing_key.verifying_key();
         let pk_base64 = base64::engine::general_purpose::STANDARD.encode(verifying_key.as_bytes());
 
@@ -285,7 +289,8 @@ mod tests {
     #[test]
     fn test_verify_one_time_key_signature_valid() {
         let mut rng = OsRng;
-        let signing_key = SigningKey::generate(&mut rng);
+        let secret_bytes: [u8; 32] = [42u8; 32];
+        let signing_key = SigningKey::from_bytes(&secret_bytes);
         let verifying_key = signing_key.verifying_key();
         let pk_base64 = base64::engine::general_purpose::STANDARD.encode(verifying_key.as_bytes());
         let curve_key = "curve25519_otk_base64";
