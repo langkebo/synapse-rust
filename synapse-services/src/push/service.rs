@@ -499,7 +499,12 @@ impl PushNotificationService {
                 notification: super::gateway::NotificationContent {
                     event_id: payload.event_id.clone().unwrap_or_default(),
                     room_id: payload.room_id.clone().unwrap_or_default(),
-                    event_type: payload.data.get("type").and_then(|v| v.as_str()).unwrap_or("m.room.message").to_string(),
+                    event_type: payload
+                        .data
+                        .get("type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("m.room.message")
+                        .to_string(),
                     sender: payload.sender.clone().unwrap_or_default(),
                     room_name: payload.room_name.clone(),
                     room_alias: None,

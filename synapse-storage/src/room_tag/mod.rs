@@ -7,7 +7,11 @@ use synapse_common::current_timestamp_millis;
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RoomTag {
     /// The `id` field.
-    pub id: i32,
+    ///
+    /// `bigint` in the baseline schema (`room_tags.id BIGSERIAL`): an `i32` here
+    /// decodes fine against a legacy int4 schema but fails at runtime on a fresh
+    /// v12 deploy (sqlx does not coerce INT8 → i32).
+    pub id: i64,
     /// The `user_id` field.
     pub user_id: String,
     /// The `room_id` field.

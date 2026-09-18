@@ -71,7 +71,10 @@ pub struct SearchIndexCursor {
     /// The `created_ts` field.
     pub created_ts: i64,
     /// The `id` field.
-    pub id: i32,
+    ///
+    /// Must match the baseline's `search_index.id BIGSERIAL`; an `i32` cursor
+    /// field would overflow/parse-fail once ids exceed 2^31.
+    pub id: i64,
 }
 
 fn encode_search_index_cursor(cursor: &SearchIndexCursor) -> String {
@@ -312,7 +315,7 @@ mod cursor_tests {
 
     #[test]
     fn search_index_cursor_max_values() {
-        let cursor = SearchIndexCursor { created_ts: i64::MAX, id: i32::MAX };
+        let cursor = SearchIndexCursor { created_ts: i64::MAX, id: i64::MAX };
         let encoded = encode_search_index_cursor(&cursor);
         let decoded = decode_search_index_cursor(Some(&encoded));
         assert_eq!(decoded, Some(cursor));

@@ -4,7 +4,7 @@ use synapse_common::current_timestamp_millis;
 /// The `InMemoryRoomTagStore` struct.
 pub struct InMemoryRoomTagStore {
     tags: Arc<RwLock<Vec<crate::room_tag::RoomTag>>>,
-    next_id: Arc<RwLock<i32>>,
+    next_id: Arc<RwLock<i64>>,
 }
 
 impl Default for InMemoryRoomTagStore {
