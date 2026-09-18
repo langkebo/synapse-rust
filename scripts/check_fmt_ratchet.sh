@@ -31,6 +31,19 @@ BASELINE_FILE="scripts/.fmt-baseline"
 UPDATE=0
 [[ "${1:-}" == "--update" ]] && UPDATE=1
 
+# The gate is worthless if the tool it measures with is absent: `command not
+# found` produces no `Diff in` lines, so the count would be 0 and (with
+# baseline 0) the script would print OK. Checked up front AND inside the
+# counter, because a rustfmt that exists but crashes has the same signature.
+# Regression context: measured 2026-09-19 — the counter was
+# `… | xargs -0 rustfmt … | grep -c '^Diff in' || true`, which cannot tell
+# "no diffs" from "the formatter never ran".
+if ! command -v rustfmt >/dev/null 2>&1; then
+    echo "::error::rustfmt is not on PATH — cannot measure fmt debt." >&2
+    echo "  This gate must never report OK when its measuring tool is missing." >&2
+    exit 1
+fi
+
 # 统计 rustfmt 报出的差异处数。
 # `grep -c` 在无匹配时退出码为 1，`|| true` 防止误判为脚本失败。
 #
@@ -45,16 +58,33 @@ UPDATE=0
 #
 # 从仓库根目录运行，各文件会自动套用根 `rustfmt.toml`。
 # 排除 target/、vendor/ 与 .claude/worktrees（第二份工作树的副本不该计入）。
-count_fmt_diffs() {
+#
+# 失败与"干净"必须可区分：rustfmt 崩溃时输出里没有 `Diff in`，与"0 处差异"
+# 长得一模一样。因此这里显式识别工具错误并**向 stdout 输出非数字**，让调用方的
+# `^[0-9]+$` 校验失败 —— 绝不返回 0。
+fmt_targets() {
     find src synapse-common synapse-cache synapse-storage synapse-e2ee \
          synapse-federation synapse-services synapse-web synapse-test-utils benches tests \
-         -name '*.rs' -not -path '*/target/*' -print0 2>/dev/null \
-        | xargs -0 rustfmt --check --edition 2021 2>&1 \
-        | grep -c '^Diff in' || true
+         -name '*.rs' -not -path '*/target/*' -print0 2>/dev/null
+}
+
+count_fmt_diffs() {
+    local out
+    out="$(fmt_targets | xargs -0 rustfmt --check --edition 2021 2>&1)"
+    if printf '%s\n' "$out" | grep -qE '^(error|error\[)|^xargs: |rustfmt: .*(not found|No such file)|No such file or directory'; then
+        printf '%s\n' "$out" | grep -E '^(error|error\[)|^xargs: |No such file or directory' | head -5 >&2
+        echo "rustfmt-failed-to-run"
+        return 1
+    fi
+    printf '%s\n' "$out" | grep -c '^Diff in' || true
 }
 
 if ((UPDATE)); then
     current="$(count_fmt_diffs)"
+    if ! [[ "$current" =~ ^[0-9]+$ ]]; then
+        echo "::error::refusing to write a non-numeric baseline (got: '$current')" >&2
+        exit 1
+    fi
     printf '%s\n' "$current" >"$BASELINE_FILE"
     echo "fmt baseline updated: $current"
     exit 0
@@ -89,10 +119,7 @@ if ((current > baseline)); then
     echo "    rustfmt --edition 2021 <file1> <file2> ...)" >&2
     echo "" >&2
     echo "  Offending locations:" >&2
-    find src synapse-common synapse-cache synapse-storage synapse-e2ee \
-         synapse-federation synapse-services synapse-web synapse-test-utils benches tests \
-         -name '*.rs' -not -path '*/target/*' -print0 2>/dev/null \
-        | xargs -0 rustfmt --check --edition 2021 2>&1 | grep '^Diff in' >&2 || true
+    fmt_targets | xargs -0 rustfmt --check --edition 2021 2>&1 | grep '^Diff in' >&2 || true
     exit 1
 fi
 
