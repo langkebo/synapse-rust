@@ -3,67 +3,39 @@
 # Entries may be either:
 # - tracked placeholder debt that still needs cleanup
 # - spec-allowed / real ACK endpoints that intentionally return an empty success body
-# Format: filename:line_number
-# New shell routes not in this list will cause CI to fail
+# Format: filename:line_number  (relative to synapse-web/src/routes/)
+#
+# BOTH directions are enforced by tests/unit/placeholder_scan_tests.rs:
+# - a new `Ok(empty_json())` site not listed here fails CI;
+# - an entry here that matches no site fails CI too. This file must describe
+#   reality, not accumulate exemptions — on 2026-09-19 it held 37 entries of
+#   which 26 matched nothing (the routes had moved crates and been reflowed),
+#   which nothing detected because the scanner was itself pointed at the old
+#   `src/web/routes` path.
+#
+# Consequence: any `cargo fmt` or edit that shifts one of these lines makes the
+# test fail with both the new unlisted hit and the now-stale entry. Update the
+# number in the same commit — that is the intended signal, not noise.
 
-# AppService routes (spec-allowed / real ACK after successful namespace or transaction handling)
-app_service.rs:428
-app_service.rs:446
-app_service.rs:464
-
-# E2EE routes (real ACK after persisted send-to-device, cross-signing, or key-request cancellation)
-# Migrated from monolithic e2ee_routes.rs into e2ee/ sub-modules (commit b0ef29db)
-e2ee/backup.rs:171
-e2ee/devices.rs:360
-
-# Sticky event routes (storage mutation ACK)
-sticky_event.rs:131
-sticky_event.rs:149
-
-# Room tag routes (Matrix-style tag mutation ACK)
-tags.rs:119
-tags.rs:133
-
-# VoIP routes (call state mutation ACK)
-voip.rs:250
-voip.rs:308
-
-# Coverage sprint (2026-09-04): newly-hit Ok(empty_json()) lines from expanded tests
-app_service.rs:429
-app_service.rs:447
-app_service.rs:465
-e2ee/backup.rs:172
-e2ee/devices.rs:362
-sticky_event.rs:132
-sticky_event.rs:150
-tags.rs:121
-tags.rs:135
-
-# Regression: audit fallout added 3 new Ok(empty_json()) in app_service.rs (2026-09-04)
-# after MSC4204/4267 branch merge caused line offsets to shift
-app_service.rs:442
-app_service.rs:460
-app_service.rs:478
-
-# Updated line numbers (2026-09-07): code shifts from Sprint 4 merge
-# tags.rs re-shifted (2026-09-15): B1 dropped r0 nest + removed redundant clone,
-#   125/139 -> 124/138 -> 122/136
+# AppService routes (spec-allowed / real ACK after successful namespace or
+# transaction handling)
 app_service.rs:518
 app_service.rs:537
 app_service.rs:556
-e2ee/backup.rs:179
-e2ee/devices.rs:373
+
+# Sticky event routes (storage mutation ACK)
 sticky_event.rs:134
 sticky_event.rs:152
-tags.rs:122
-tags.rs:136
-voip.rs:261
-voip.rs:319
 
-# 2026-09-15 再漂移：B4-1b 为把 fmt 棘轮拉回基线执行了 `cargo fmt --all`，
-# 使 tags.rs / voip.rs 的行号再次前移（本文件的"文件:行号"豁免因此失效，见 CLAUDE.md 踩坑记录）。
-# 这里补齐当前实际行号；上面按 2026-09-15 早期行号登记的条目已成为无效项（扫描器不校验陈旧项，
-# 但下次真正清理这些 empty_json 时应一并删除）。
+# Room tag routes (state mutation ACK)
 tags.rs:105
+tags.rs:119
+
+# VoIP routes (signalling ACK)
 voip.rs:243
 voip.rs:301
+
+# E2EE routes (real ACK after persisted send-to-device, cross-signing, or
+# key-request cancellation)
+e2ee/backup.rs:179
+e2ee/devices.rs:373
