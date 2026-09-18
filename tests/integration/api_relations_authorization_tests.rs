@@ -106,7 +106,7 @@ async fn send_message(app: &axum::Router, token: &str, room_id: &str) -> String 
     json["event_id"].as_str().expect("event_id").to_string()
 }
 
-fn put_json(uri: String, token: &str, body: Value) -> Request<Body> {
+fn put_json(uri: String, token: &str, body: &Value) -> Request<Body> {
     Request::builder()
         .method("PUT")
         .uri(uri)
@@ -133,7 +133,7 @@ async fn reaction_is_forbidden_for_non_members() {
     let request = put_json(
         format!("/_matrix/client/v3/rooms/{room_id}/send/m.reaction/r1"),
         &outsider_token,
-        json!({
+        &json!({
             "m.relates_to": { "rel_type": "m.annotation", "event_id": event_id },
             "body": "👍"
         }),
@@ -165,7 +165,7 @@ async fn reaction_is_allowed_for_members() {
     let request = put_json(
         format!("/_matrix/client/v3/rooms/{room_id}/send/m.reaction/r2"),
         &member_token,
-        json!({
+        &json!({
             "m.relates_to": { "rel_type": "m.annotation", "event_id": event_id },
             "body": "👍"
         }),
@@ -192,7 +192,7 @@ async fn relation_is_forbidden_for_non_members() {
     let request = put_json(
         format!("/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/m.reference/r3"),
         &outsider_token,
-        json!({ "content": { "body": "injected" } }),
+        &json!({ "content": { "body": "injected" } }),
     );
     let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN, "a non-member must not be able to write relations");
@@ -212,7 +212,7 @@ async fn relation_is_allowed_for_members() {
     let request = put_json(
         format!("/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/m.reference/r4"),
         &owner_token,
-        json!({ "content": { "body": "legit" } }),
+        &json!({ "content": { "body": "legit" } }),
     );
     let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK, "a room member must be able to write relations");
@@ -238,7 +238,7 @@ async fn anti_screenshot_requires_power_level_not_only_membership() {
     let request = put_json(
         format!("/_matrix/client/v3/rooms/{room_id}/anti_screenshot"),
         &member_token,
-        json!({ "enabled": true }),
+        &json!({ "enabled": true }),
     );
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(
@@ -251,7 +251,7 @@ async fn anti_screenshot_requires_power_level_not_only_membership() {
     let request = put_json(
         format!("/_matrix/client/v3/rooms/{room_id}/anti_screenshot"),
         &owner_token,
-        json!({ "enabled": true }),
+        &json!({ "enabled": true }),
     );
     let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK, "the room creator must still be able to set it");

@@ -92,7 +92,7 @@ impl MessagingService {
         &self,
         room_id: &str,
     ) -> Result<Vec<synapse_storage::StateEvent>, RoomMessagingError> {
-        self.event_reader.get_state_events(room_id).await.map_err(|e| RoomMessagingError::Database(e))
+        self.event_reader.get_state_events(room_id).await.map_err(RoomMessagingError::Database)
     }
 
     /// See [`get_state_events_at_or_before`].
@@ -104,7 +104,7 @@ impl MessagingService {
         self.event_reader
             .get_state_events_at_or_before(room_id, origin_server_ts)
             .await
-            .map_err(|e| RoomMessagingError::Database(e))
+            .map_err(RoomMessagingError::Database)
     }
 
     /// See [`create_event`].
@@ -396,7 +396,7 @@ impl MessagingService {
         self.event_reader
             .get_room_events_paginated(room_id, from, limit, direction)
             .await
-            .map_err(|e| RoomMessagingError::Database(e))
+            .map_err(RoomMessagingError::Database)
     }
 
     /// See [`get_event_context_admin`].
@@ -410,7 +410,7 @@ impl MessagingService {
             .event_reader
             .get_event(event_id)
             .await
-            .map_err(|e| RoomMessagingError::Database(e))?
+            .map_err(RoomMessagingError::Database)?
             .ok_or_else(|| RoomMessagingError::EventNotFound(event_id.to_string()))?;
 
         if event.room_id != room_id {
@@ -421,13 +421,13 @@ impl MessagingService {
             .event_reader
             .get_events_before_context(room_id, event.origin_server_ts, context_limit)
             .await
-            .map_err(|e| RoomMessagingError::Database(e))?;
+            .map_err(RoomMessagingError::Database)?;
 
         let events_after = self
             .event_reader
             .get_events_after_context(room_id, event.origin_server_ts, context_limit)
             .await
-            .map_err(|e| RoomMessagingError::Database(e))?;
+            .map_err(RoomMessagingError::Database)?;
 
         let result = json!({
             "event": {
@@ -461,7 +461,7 @@ impl MessagingService {
 
     /// See [`get_forward_extremities_count`].
     pub async fn get_forward_extremities_count(&self, room_id: &str) -> Result<i64, RoomMessagingError> {
-        self.event_reader.get_forward_extremities_count(room_id).await.map_err(|e| RoomMessagingError::Database(e))
+        self.event_reader.get_forward_extremities_count(room_id).await.map_err(RoomMessagingError::Database)
     }
 
     /// See [`count_events_by_status`].

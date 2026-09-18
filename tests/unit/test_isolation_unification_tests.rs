@@ -211,8 +211,9 @@ fn baseline_concat_body(path: &str) -> String {
     }
 
     // Fall back to bare `include_str!(...)` — fixtures may use direct
-    // include_str! without a concat! wrapper.
-    for (offset, _) in src.match_indices("include_str!(") {
+    // include_str! without a concat! wrapper. Only the first occurrence is
+    // considered, matching the `concat!` search above.
+    if let Some((offset, _)) = src.match_indices("include_str!(").next() {
         let open = offset + "include_str!".len();
         let close = src[open..]
             .find(')')

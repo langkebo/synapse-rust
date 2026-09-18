@@ -564,7 +564,7 @@ impl MembershipService {
             .member_storage
             .get_mutual_rooms_between(user_id, other_user_id, limit, after)
             .await
-            .map_err(|e| MembershipError::Database(e))?;
+            .map_err(MembershipError::Database)?;
 
         let mut result = json!({
             "joined": rooms,
@@ -620,7 +620,7 @@ impl MembershipService {
             .member_storage
             .get_room_members_paginated_with_profiles(room_id, membership_str, not_membership, limit + 1, from, dir)
             .await
-            .map_err(|e| MembershipError::Database(e))?;
+            .map_err(MembershipError::Database)?;
 
         let has_more = members.len() as i64 > limit;
         // Truncate to requested limit

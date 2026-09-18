@@ -113,7 +113,7 @@ impl RoomStateService {
 
     /// See [`room_exists`].
     pub async fn room_exists(&self, room_id: &str) -> Result<bool, RoomStateError> {
-        let exists = self.room_storage.room_exists(room_id).await.map_err(|e| RoomStateError::Database(e))?;
+        let exists = self.room_storage.room_exists(room_id).await.map_err(RoomStateError::Database)?;
         Ok(exists)
     }
 
@@ -186,20 +186,17 @@ impl RoomStateService {
         from: Option<RoomSearchCursor>,
         order_by: RoomSearchOrder,
     ) -> Result<(Vec<(Room, i64)>, Option<String>), RoomStateError> {
-        self.room_storage
-            .get_all_rooms_with_members(limit, from, order_by)
-            .await
-            .map_err(|e| RoomStateError::Database(e))
+        self.room_storage.get_all_rooms_with_members(limit, from, order_by).await.map_err(RoomStateError::Database)
     }
 
     /// See [`get_room_count`].
     pub async fn get_room_count(&self) -> Result<i64, RoomStateError> {
-        self.room_storage.get_room_count().await.map_err(|e| RoomStateError::Database(e))
+        self.room_storage.get_room_count().await.map_err(RoomStateError::Database)
     }
 
     /// See [`get_room_record`].
     pub async fn get_room_record(&self, room_id: &str) -> Result<Option<Room>, RoomStateError> {
-        self.room_storage.get_room(room_id).await.map_err(|e| RoomStateError::Database(e))
+        self.room_storage.get_room(room_id).await.map_err(RoomStateError::Database)
     }
 
     /// See [`get_room_listings_status`].
@@ -232,7 +229,7 @@ impl RoomStateService {
             .shutdown_room(room_id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to shutdown room", e))?;
-        self.member_storage.remove_all_members(room_id).await.map_err(|e| RoomStateError::Database(e))?;
+        self.member_storage.remove_all_members(room_id).await.map_err(RoomStateError::Database)?;
         Ok(())
     }
 
@@ -270,7 +267,7 @@ impl RoomStateService {
 
     /// See [`get_room_version`].
     pub async fn get_room_version(&self, room_id: &str) -> Result<Option<String>, RoomStateError> {
-        self.room_storage.get_room_version_only(room_id).await.map_err(|e| RoomStateError::Database(e))
+        self.room_storage.get_room_version_only(room_id).await.map_err(RoomStateError::Database)
     }
 
     /// See [`search_all_rooms_admin`].

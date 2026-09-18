@@ -21,7 +21,7 @@ fn list_unit_rs_files() -> HashSet<String> {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let p = entry.path();
-            if p.extension().map(|e| e == "rs").unwrap_or(false) {
+            if p.extension().is_some_and(|e| e == "rs") {
                 if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
                     // 跳过 mod.rs 自身（不是子模块）
                     if stem != "mod" {
@@ -40,6 +40,8 @@ fn extract_registered_mods() -> HashSet<String> {
         Err(_) => return HashSet::new(),
     };
     let mut names: HashSet<String> = HashSet::new();
+    // Compiled once: this is a hot loop over every line of `tests/unit/mod.rs`.
+    let mod_decl = regex::Regex::new(r"^\s*mod\s+([a-zA-Z0-9_]+)\s*[;{]").expect("static mod pattern");
     // 匹配 `mod <name>;` / `mod <name> {` / `#[cfg(...)]\nmod <name>;`
     for line in content.lines() {
         let trimmed = line.trim();
@@ -47,7 +49,7 @@ fn extract_registered_mods() -> HashSet<String> {
         if trimmed.starts_with("#") {
             continue;
         }
-        if let Some(cap) = regex::Regex::new(r"^\s*mod\s+([a-zA-Z0-9_]+)\s*[;{]").unwrap().captures(trimmed) {
+        if let Some(cap) = mod_decl.captures(trimmed) {
             names.insert(cap[1].to_string());
         }
     }

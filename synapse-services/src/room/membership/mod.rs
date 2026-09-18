@@ -211,12 +211,12 @@ impl MembershipService {
         self.member_storage
             .get_room_members_paginated(room_id, membership, limit, from)
             .await
-            .map_err(|e| MembershipError::Database(e))
+            .map_err(MembershipError::Database)
     }
 
     /// See [`get_room_member_count_admin`].
     pub async fn get_room_member_count_admin(&self, room_id: &str) -> Result<i64, MembershipError> {
-        self.member_storage.get_room_member_count(room_id).await.map_err(|e| MembershipError::Database(e))
+        self.member_storage.get_room_member_count(room_id).await.map_err(MembershipError::Database)
     }
 
     /// See [`admin_ban_user_membership`].
