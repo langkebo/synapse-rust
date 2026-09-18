@@ -55,15 +55,6 @@ generate_password() {
     fi
 }
 
-# 生成 JWT 密钥 (Base64 编码)
-generate_jwt_secret() {
-    if command -v openssl &>/dev/null; then
-        openssl rand -base64 64 | tr -d '\n'
-    else
-        head -c 64 /dev/urandom | base64 | tr -d '\n'
-    fi
-}
-
 generate_missing_or_all() {
     local force_generate="${1:-false}"
 
@@ -75,7 +66,6 @@ generate_missing_or_all() {
     maybe_set_secret "POSTGRES_PASSWORD" "$(generate_password 32)" "$force_generate"
     maybe_set_secret "REDIS_PASSWORD" "$(generate_password 32)" "$force_generate"
     maybe_set_secret "ADMIN_SHARED_SECRET" "$(generate_hex_key 64)" "$force_generate"
-    maybe_set_secret "JWT_SECRET" "$(generate_jwt_secret)" "$force_generate"
     maybe_set_secret "REGISTRATION_SHARED_SECRET" "$(generate_hex_key 64)" "$force_generate"
     maybe_set_secret "SECRET_KEY" "$(generate_hex_key 64)" "$force_generate"
     maybe_set_secret "MACAROON_SECRET" "$(generate_hex_key 64)" "$force_generate"
@@ -161,9 +151,6 @@ generate_single_secret() {
         "admin")
             generate_hex_key 64
             ;;
-        "jwt")
-            generate_jwt_secret
-            ;;
         "registration")
             generate_hex_key 64
             ;;
@@ -172,7 +159,7 @@ generate_single_secret() {
             ;;
         *)
             log_error "未知密钥类型: $type"
-            echo "可用类型: postgres, redis, admin, jwt, registration, secret, macaroon, form"
+            echo "可用类型: postgres, redis, admin, registration, secret, macaroon, form"
             return 1
             ;;
     esac
@@ -211,7 +198,7 @@ main() {
         missing)
             generate_missing_secrets
             ;;
-        postgres | redis | admin | jwt | registration | secret | macaroon | form)
+        postgres | redis | admin | registration | secret | macaroon | form)
             local secret=$(generate_single_secret "$command")
             echo "$secret"
 

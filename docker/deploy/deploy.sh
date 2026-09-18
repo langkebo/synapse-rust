@@ -835,7 +835,6 @@ check_env_file() {
         POSTGRES_PASSWORD
         REDIS_PASSWORD
         ADMIN_SHARED_SECRET
-        JWT_SECRET
         REGISTRATION_SHARED_SECRET
         SECRET_KEY
         MACAROON_SECRET

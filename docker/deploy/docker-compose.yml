@@ -190,7 +190,6 @@ services:
       REGISTRATION_SECRET: ${REGISTRATION_SHARED_SECRET:?REGISTRATION_SHARED_SECRET must be set}
       ADMIN_SECRET: ${ADMIN_SHARED_SECRET:?ADMIN_SHARED_SECRET must be set}
       ADMIN_SHARED_SECRET: ${ADMIN_SHARED_SECRET:?ADMIN_SHARED_SECRET must be set}
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
       REGISTRATION_SHARED_SECRET: ${REGISTRATION_SHARED_SECRET:?REGISTRATION_SHARED_SECRET must be set}
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set}
       MACAROON_SECRET: ${MACAROON_SECRET:?MACAROON_SECRET must be set}
@@ -258,8 +257,15 @@ services:
         soft: 65536
         hard: 65536
     ports:
-      - "${SYNAPSE_PORT:-8008}:8008"
-      - "${PROMETHEUS_PORT:-9090}:9090"
+      # 只绑回环。对外访问一律走 nginx（80/443/8448，见上面的 nginx 服务）。
+      # 原先发布到所有接口，等于给 nginx 开了个旁路：绕过它就绕过了 TLS 和代理层。
+      # 9090 更严重 —— `docker/config/homeserver.yaml` 里 `prometheus.enabled: true`，
+      # 而 metrics 路由**没有任何鉴权**（`src/server/mod.rs` 直接
+      # `Router::new().route(path, get(render_prometheus_metrics))`），
+      # 发布即等于公网可读运维指标。
+      # 若确实需要跨机抓取指标，把下面这行改成抓取端可访问的地址（例如内网 IP）。
+      - "127.0.0.1:${SYNAPSE_PORT:-8008}:8008"
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
     logging:
       driver: json-file
       options:
