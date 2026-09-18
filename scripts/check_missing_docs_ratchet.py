@@ -40,6 +40,30 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent  # scripts/check_missing_docs_ratchet.py -> synapse-rust/
 BASELINE_FILE = REPO_ROOT / "scripts" / ".missing-docs-baseline"
 
+
+class MeasurementFailed(RuntimeError):
+    """The debt count cannot be trusted because the measurement itself failed.
+
+    `-D missing_docs` makes a non-zero `cargo clippy` exit code the *expected*
+    outcome whenever violations exist, so the exit code alone cannot be used to
+    detect a broken build. It was never checked at all, which made a build
+    failure indistinguishable from a clean tree:
+
+      * a crate that fails to compile (stale/missing `.sqlx` offline cache, a
+        type error in a sibling crate, a concurrent editor's half-finished
+        change) emits zero `missing documentation` lines, so it contributed `0`
+        to the total;
+      * the ratchet then compared that fabricated `0` against a non-zero
+        baseline and reported **"debt decreased"**, i.e. it demanded the
+        baseline be tightened to a number that was never measured. Following
+        that advice bakes `0` in, after which the gate is permanently green and
+        permanently blind.
+
+    rustc/clippy report a real error with a diagnostic code (`error[E0282]`),
+    while a missing-docs diagnostic has none, so a coded error is treated as a
+    measurement failure.
+    """
+
 # pub item 正则：pub fn / pub async fn / pub struct / pub enum / pub trait /
 # pub const / pub static / pub type / pub mod。注意 pub(crate) / pub(super)
 # 不算 crate-public，按规则不算 doc 必需项（但本文脚本先严格按 pub 处理，
@@ -49,6 +73,12 @@ PUB_ITEM_RE = re.compile(
 )
 DOC_LINE_RE = re.compile(r"^\s*///")
 DOC_BLOCK_OPEN_RE = re.compile(r"^\s*/\*\*")
+
+# `--message-format=short` renders a missing-docs diagnostic as
+# `path:line:col: error: missing documentation for ...` (no code), while a real
+# compile failure carries a diagnostic code (`error[E0282]: ...`). Only the
+# latter means "the measurement failed".
+CODED_ERROR_RE = re.compile(r"error\[[A-Za-z]?\d+\]")
 
 # B6-1：内容型（content-type）模板注释判据。
 # 一条 /// doc 块里若**全部**行命中下列模式，视为"零信息"注释：
@@ -181,6 +211,8 @@ def count_total_debt() -> int:
     由于各 crate 用 `#![allow(missing_docs)]` 抑制了警告，本函数通过
     对每个 crate 临时加 `-A missing_docs -D missing_docs` 让编译器严格
     报告所有缺 doc 的项。需要 SQLX_OFFLINE。
+
+    编译失败时抛 [`MeasurementFailed`]，**不返回 0**。原因见该异常。
     """
     env = os.environ.copy()
     env.setdefault("SQLX_OFFLINE", "true")
@@ -218,6 +250,25 @@ def count_total_debt() -> int:
         )
         combined = (proc.stdout or "") + (proc.stderr or "")
         n = sum(1 for ln in combined.splitlines() if "missing documentation" in ln)
+
+        # A coded rustc/clippy error means the crate did not build, so `n` is not
+        # a debt count (see `MeasurementFailed`).
+        coded_error = CODED_ERROR_RE.search(combined)
+        if coded_error:
+            raise MeasurementFailed(
+                f"`cargo clippy -p {crate}` failed to compile "
+                f"({coded_error.group(0)}); its missing-docs count of {n} is meaningless. "
+                "First lines of the failure:\n    "
+                + "\n    ".join(combined.strip().splitlines()[:5])
+            )
+        # Non-zero exit with nothing counted is also a failure: `-D missing_docs`
+        # only exits non-zero when it actually reported something.
+        if proc.returncode != 0 and n == 0:
+            raise MeasurementFailed(
+                f"`cargo clippy -p {crate}` exited {proc.returncode} but reported no "
+                "missing-docs diagnostic, so the count cannot be trusted. Output:\n    "
+                + "\n    ".join(combined.strip().splitlines()[:5])
+            )
         total += n
     return total
 
@@ -252,7 +303,20 @@ def main() -> int:
         return 0
 
     print(f"[2/2] counting clippy missing_docs warnings across workspace...")
-    current = count_total_debt()
+    try:
+        current = count_total_debt()
+    except MeasurementFailed as error:
+        # Exit 2 (not 1) so a broken measurement is distinguishable from a real
+        # ratchet violation, and NEVER fall through to the baseline comparison —
+        # that is how "build is broken" became "debt decreased, tighten the
+        # baseline".
+        print(f"\n::error::missing_docs debt could not be measured: {error}", file=sys.stderr)
+        print(
+            "  Refusing to compare (or update) the baseline against a failed measurement.",
+            file=sys.stderr,
+        )
+        print("  Fix the build, then re-run this gate.", file=sys.stderr)
+        return 2
     print(f"  current missing_docs debt: {current}")
 
     if args.update:

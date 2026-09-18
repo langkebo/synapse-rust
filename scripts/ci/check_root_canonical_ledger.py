@@ -23,6 +23,14 @@ CANONICAL_SERVICE_ROOT = REPO_ROOT / "synapse-services" / "src"
 STORAGE_ROOT = REPO_ROOT / "src" / "storage"
 CANONICAL_STORAGE_ROOT = REPO_ROOT / "synapse-storage" / "src"
 
+# Where the service layer can live, newest layout first. Keep both so the guard
+# survives either side of a crate split (see `find_storage_glob_violations`).
+SERVICE_SCAN_ROOTS = (CANONICAL_SERVICE_ROOT, SERVICE_ROOT)
+
+
+class ScanSurfaceMissing(RuntimeError):
+    """The service layer could not be located, so no verdict can be trusted."""
+
 FORBIDDEN_STORAGE_GLOB = re.compile(r"pub\s+use\s+crate::storage::\*")
 FACADE_EXPORT = re.compile(
     r"pub\s+use\s+synapse_(services|storage|common|cache|e2ee|federation)[^;]*;"
@@ -130,11 +138,36 @@ def collect_layer_summary(
 
 
 def find_storage_glob_violations() -> list[str]:
+    """Find `pub use crate::storage::*` in the service layer.
+
+    The service layer now lives in the `synapse-services` crate: `src/services`
+    was reduced to a thin shell and then removed entirely when the B4-5b crate
+    split landed. This guard used to rglob only `SERVICE_ROOT`, so once the shell
+    disappeared it inspected *nothing* — `rglob` over a missing directory yields
+    an empty set — while the script still printed "storage glob gate: OK" and
+    exited 0. The forbidden glob could be reintroduced in
+    `synapse-services/src/` without ever turning this gate red.
+
+    Scan every directory the service layer can live in, and refuse to report OK
+    when none of them exists: a scan surface that can vanish is not a gate
+    (AGENTS.md 铁律 8). The check runs over BOTH roots so it keeps working if a
+    root-level shell is ever re-introduced.
+    """
+    scan_roots = [root for root in SERVICE_SCAN_ROOTS if root.is_dir()]
+    if not scan_roots:
+        raise ScanSurfaceMissing(
+            "service layer scan surface missing: none of "
+            + ", ".join(str(root.relative_to(REPO_ROOT)) for root in SERVICE_SCAN_ROOTS)
+            + " exists. Re-point SERVICE_SCAN_ROOTS at the service layer's new home "
+            "instead of disabling this guard."
+        )
+
     violations: list[str] = []
-    for path in SERVICE_ROOT.rglob("*.rs"):
-        content = path.read_text(encoding="utf-8")
-        if FORBIDDEN_STORAGE_GLOB.search(content):
-            violations.append(str(path.relative_to(REPO_ROOT)).replace("\\", "/"))
+    for root in scan_roots:
+        for path in root.rglob("*.rs"):
+            content = path.read_text(encoding="utf-8")
+            if FORBIDDEN_STORAGE_GLOB.search(content):
+                violations.append(str(path.relative_to(REPO_ROOT)).replace("\\", "/"))
     return sorted(violations)
 
 
@@ -157,7 +190,11 @@ def main() -> int:
         "storage", STORAGE_ROOT, CANONICAL_STORAGE_ROOT
     )
 
-    violations = find_storage_glob_violations()
+    try:
+        violations = find_storage_glob_violations()
+    except ScanSurfaceMissing as error:
+        print(f"[ledger] FAIL: {error}", file=sys.stderr)
+        return 2
     if violations:
         print(
             "[ledger] FAIL: forbidden `pub use crate::storage::*` found in service layer",

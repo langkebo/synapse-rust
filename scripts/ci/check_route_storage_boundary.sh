@@ -18,16 +18,39 @@
 # paths (one per line) that still contain legacy storage imports.
 # Every entry is a technical-debt marker and should be removed as
 # the call sites are migrated to a service.
+#
+# `SYNAPSE_WEB_ROUTES_DIR` overrides the scan surface (mirrors
+# `SYNAPSE_WEB_CRATE_DIR` in scripts/quality/check_route_layering.sh) so the
+# gate can be self-tested against an empty tree.
 
 set -eu
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ROUTES_DIR="${ROOT_DIR}/synapse-web/src/routes"
+ROUTES_DIR="${SYNAPSE_WEB_ROUTES_DIR:-${ROOT_DIR}/synapse-web/src/routes}"
 ALLOWLIST="${ROOT_DIR}/scripts/ci/route_storage_exceptions.txt"
 
+# A gate whose scan surface can silently disappear is not a gate.
+#
+# This branch used to `exit 0`, which meant renaming or moving the route
+# directory (exactly what B4-5b did when `src/web` became `synapse-web`) would
+# report OK while inspecting nothing — the "move code out of the gate's scan
+# surface" escape from AGENTS.md 铁律 8. Fail loudly and say why, so the fix is
+# to re-point the gate rather than to delete it.
 if [[ ! -d "${ROUTES_DIR}" ]]; then
-    echo "check_route_storage_boundary: routes directory not found at ${ROUTES_DIR}" >&2
-    exit 0
+    echo "::error::check_route_storage_boundary: scan surface missing: ${ROUTES_DIR}" >&2
+    echo "  The route layer moved or was renamed. Re-point ROUTES_DIR (or set" >&2
+    echo "  SYNAPSE_WEB_ROUTES_DIR) at its new location — do NOT delete this check," >&2
+    echo "  which exists because 137 route files once imported crate::storage directly." >&2
+    exit 1
+fi
+
+# Guard the scan surface itself: a directory that exists but contains no Rust
+# files would also make the gate vacuous. `synapse-web/src/routes` is a large,
+# always-populated tree, so an empty result means the path is wrong.
+if ! find "${ROUTES_DIR}" -name '*.rs' -print -quit | grep -q .; then
+    echo "::error::check_route_storage_boundary: no .rs files under ${ROUTES_DIR}" >&2
+    echo "  The gate would inspect nothing and pass. Check the path." >&2
+    exit 1
 fi
 
 # Build a newline-separated list of allowlisted repo-relative paths.
