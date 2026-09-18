@@ -626,13 +626,37 @@ fn create_room_summary_v3_router() -> Router<AppState> {
 /// See [`batch_get_room_summaries`].
 pub async fn batch_get_room_summaries(
     State(ctx): State<RoomContext>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Json(body): Json<RoomSummaryBatchRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Scope the request to what the caller may see.
+    //
+    // `_auth_user` used to be discarded and `body.rooms` went straight into
+    // `get_summaries_by_ids`, so any authenticated user could read the name,
+    // topic and member counts of arbitrary (including private) rooms by ID —
+    // an IDOR. The visibility predicate already has exactly one implementation,
+    // `get_summaries_for_user` (`room_summary_members.membership IN
+    // ('join','invite')`), so it is reused here rather than restated in SQL.
+    //
+    // Rooms the caller cannot see are omitted silently (not 403): a batch-get
+    // must not become an existence oracle, and MSC3266 clients treat a missing
+    // entry as "not available".
+    let visible: std::collections::HashSet<String> = ctx
+        .room_service
+        .room_summary_service()
+        .get_summaries_for_user(&auth_user.user_id)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Failed to determine visible room summaries", e))?
+        .into_iter()
+        .map(|summary| summary.room_id)
+        .collect();
+
+    let requested: Vec<String> = body.rooms.iter().filter(|room_id| visible.contains(*room_id)).cloned().collect();
+
     let responses: Vec<RoomSummaryResponse> = ctx
         .room_service
         .room_summary_service()
-        .get_summaries_by_ids(&body.rooms)
+        .get_summaries_by_ids(&requested)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get room summaries", e))?;
 

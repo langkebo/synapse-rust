@@ -408,3 +408,78 @@ async fn test_room_summary_internal_summaries_route_returns_list_object() {
     assert_eq!(chunk, summaries);
     assert!(json.get("next_batch").is_none());
 }
+
+/// REGRESSION (S8): the MSC3266 batch endpoint must not describe rooms the
+/// caller cannot see.
+///
+/// It used to discard `_auth_user` and hand `body.rooms` straight to
+/// `get_summaries_by_ids`, so any authenticated user could read the name, topic
+/// and member counts of arbitrary (including private) rooms by ID — an IDOR.
+/// The visibility predicate is now the existing `get_summaries_for_user`
+/// (`room_summary_members.membership IN ('join','invite')`).
+///
+/// The assertion is non-vacuous because the summary row is materialised through
+/// the admin endpoint first: without it the read path would return nothing for
+/// everyone and the test would pass even with the IDOR present.
+#[tokio::test]
+async fn test_room_summary_batch_excludes_rooms_the_caller_cannot_see() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let suffix = rand::random::<u32>();
+    let owner_token = register_user(&app, &format!("batch_owner_{suffix}")).await;
+    let (outsider_token, _) = register_user_with_id(&app, &format!("batch_outsider_{suffix}")).await;
+
+    let room_id = create_room(&app, &owner_token, "Batch visibility room").await;
+
+    // Materialise a summary (and the owner's member row) for that room.
+    let (admin_token, _) = super::get_admin_token(&app).await;
+    let create = Request::builder()
+        .method("POST")
+        .uri("/_synapse/room_summary/v1/summaries")
+        .header("Authorization", format!("Bearer {admin_token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "room_id": room_id }).to_string()))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create).await.unwrap();
+    assert!(response.status().is_success(), "admin summary creation must succeed: {}", response.status());
+
+    let batch = |token: String, room_id: String| {
+        Request::builder()
+            .method("POST")
+            .uri("/_synapse/room_summary/v1/summaries/batch")
+            .header("Authorization", format!("Bearer {token}"))
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({ "rooms": [room_id] }).to_string()))
+            .unwrap()
+    };
+
+    let requested_ids = |json: &Value| -> Vec<String> {
+        json["rooms"]
+            .as_array()
+            .map(|rooms| rooms.iter().filter_map(|r| r["room_id"].as_str().map(str::to_string)).collect())
+            .unwrap_or_default()
+    };
+
+    // The owner is a joined member: the summary must be returned.
+    let response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), batch(owner_token, room_id.clone())).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
+    let owner_json: Value = serde_json::from_slice(&body).unwrap();
+    assert!(
+        requested_ids(&owner_json).contains(&room_id),
+        "the room owner must still see their own room summary: {owner_json}"
+    );
+
+    // The outsider is not a member: the same room id must NOT be described.
+    let response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), batch(outsider_token, room_id.clone())).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "a batch with no visible rooms is not an error");
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
+    let outsider_json: Value = serde_json::from_slice(&body).unwrap();
+    assert!(
+        !requested_ids(&outsider_json).contains(&room_id),
+        "a non-member must not be able to read another room's summary by id: {outsider_json}"
+    );
+}

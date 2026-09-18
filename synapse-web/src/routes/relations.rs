@@ -193,6 +193,17 @@ async fn send_relation(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
+    // Authorization, not just existence — mirroring `get_relations`, which has
+    // always called `ensure_room_member_ctx` while this write path did not. Any
+    // authenticated user could previously write `m.reference` / `m.replace` /
+    // `m.thread` / `m.annotation` into ANY existing room.
+    //
+    // Power-level key: a reaction is governed by `events["m.reaction"]`; the other
+    // three relation types land as ordinary room messages.
+    let pl_event_type = if rel_type == "m.annotation" { "m.reaction" } else { "m.room.message" };
+    ensure_room_member_ctx(&ctx, &auth_user, &room_id, "You must be a room member to send relations").await?;
+    ctx.room_auth.verify_message_event_write(&room_id, &auth_user.user_id, pl_event_type).await?;
+
     let sender = auth_user.user_id.clone();
     let origin_server_ts = current_timestamp_millis();
 

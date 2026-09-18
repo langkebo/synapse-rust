@@ -7,6 +7,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use synapse_common::current_timestamp_millis;
 
+use crate::routes::room_access::ensure_room_member_ctx;
 use crate::routes::{AppState, AuthenticatedUser};
 use synapse_common::error::ApiError;
 
@@ -52,6 +53,18 @@ async fn add_reaction(
     if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
+
+    // Authorization, not just existence.
+    //
+    // `room_exists` is not an access check: without these two the endpoint let
+    // ANY authenticated user inject `m.annotation` events into ANY existing room
+    // (including private ones they are not in) — cross-room write / spam.
+    // `ensure_room_member_ctx` is the same membership gate the relations read
+    // path uses, and `verify_message_event_write` resolves the joined user's
+    // power level against the room's `events["m.reaction"]`/`events_default`
+    // (a non-member gets -1, so it is fail-closed on its own too).
+    ensure_room_member_ctx(&ctx, &auth_user, &room_id, "You must be a room member to react").await?;
+    ctx.room_auth.verify_message_event_write(&room_id, &auth_user.user_id, "m.reaction").await?;
 
     // 提取 relates_to 信息
     let relates_to_value = body.get("m.relates_to").or_else(|| body.get("relates_to"));

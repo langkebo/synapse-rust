@@ -3,7 +3,8 @@ use crate::routes::extractors::auth::AuthenticatedUser;
 use crate::routes::extractors::RoomId;
 use crate::routes::handlers::room::management::query::get_mutual_rooms;
 use crate::routes::handlers::room::{
-    create_private_room, get_room_device, get_room_permissions, get_room_reduced_events, get_room_resolve,
+    create_private_room, ensure_room_state_write_access, get_room_device, get_room_permissions,
+    get_room_reduced_events, get_room_resolve,
 };
 use crate::routes::{
     ban_user, claim_room_keys, convert_room_event, create_room, ensure_room_member_ctx, forget_room, forward_room_keys,
@@ -213,7 +214,12 @@ async fn set_anti_screenshot(
     Path(room_id): Path<RoomId>,
     Json(payload): Json<AntiScreenshotPayload>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    ensure_room_member_ctx(&ctx, &auth_user, &room_id, "You must be a room member to set anti-screenshot").await?;
+    // This writes a room STATE event (`com.hula.privacy`, empty state key), so
+    // membership alone is not enough: any joined user with power level 0 could
+    // flip the room-wide anti-screenshot flag. `ensure_room_state_write_access`
+    // is the same member + `verify_state_event_write` pair the canonical state
+    // endpoints use (handlers/room/state.rs).
+    ensure_room_state_write_access(&ctx, &auth_user, &room_id, "com.hula.privacy").await?;
 
     let action: &str = if payload.enabled { "block_screenshot" } else { "allow_screenshot" };
 

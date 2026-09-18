@@ -559,8 +559,24 @@ pub async fn app_service_room_alias_query(
 /// See [`app_service_query`].
 pub async fn app_service_query(
     State(ctx): State<AdminContext>,
+    headers: HeaderMap,
     Path(as_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Same `as_token` gate as every sibling in this file (`app_service_ping`,
+    // `app_service_user_query`, `app_service_room_alias_query`, ...). Without it
+    // this endpoint answered anonymously for any `as_id`, disclosing the
+    // application service's `url`, `sender_localpart`, `description` and
+    // `protocols` — configuration disclosure plus an `as_id` enumerator.
+    //
+    // Authentication is checked before `as_id` is validated so an unauthenticated
+    // caller gets no format oracle either. The ownership check mirrors the
+    // siblings' namespace check: a token may only describe its own AS.
+    let as_token = extract_as_token(&headers)?;
+    let token_service = ctx.app_service_manager.validate_token(&as_token).await?;
+    if token_service.as_id != as_id {
+        return Err(ApiError::forbidden("Token does not belong to this application service".to_string()));
+    }
+
     validate_as_id(&as_id)?;
     let service = ctx.app_service_manager.get(&as_id).await?;
 

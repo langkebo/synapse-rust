@@ -650,3 +650,95 @@ async fn test_appservice_namespace_query() {
     let alias_query_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(alias_query_json["alias"], test_alias);
 }
+
+/// REGRESSION (S9): `GET /_matrix/app/v1/{as_id}` must require the AS token.
+///
+/// It was the only endpoint in this module without the `extract_as_token` +
+/// `validate_token` pair its siblings all have, so anyone could read an
+/// application service's `url`, `sender_localpart`, `description` and
+/// `protocols` by guessing an `as_id`.
+#[tokio::test]
+async fn test_appservice_query_requires_as_token() {
+    let Some(app) = setup_fresh_test_app().await else {
+        return;
+    };
+    let (admin_token, _) = get_admin_token(&app).await;
+
+    let as_id = format!("test_as_query_{}", rand::random::<u32>());
+    let as_token = format!("test_as_query_token_{}", rand::random::<u32>());
+    let register_request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/appservices")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::from(
+            json!({
+                "id": &as_id,
+                "url": "http://localhost:8080",
+                "as_token": &as_token,
+                "hs_token": format!("test_hs_query_token_{}", rand::random::<u32>()),
+                "sender_localpart": "bot_query",
+                "namespaces": { "users": [], "aliases": [], "rooms": [] }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = app.clone().oneshot(register_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    // 1. No credential at all -> rejected (this is the regression: it used to answer 200).
+    let unauthenticated =
+        Request::builder().method("GET").uri(format!("/_matrix/app/v1/{as_id}")).body(Body::empty()).unwrap();
+    let response = app.clone().oneshot(unauthenticated).await.unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::UNAUTHORIZED,
+        "an anonymous request must not be able to read application-service configuration"
+    );
+
+    // 2. The AS's own token -> allowed.
+    let authenticated = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/app/v1/{as_id}"))
+        .header("Authorization", format!("Bearer {as_token}"))
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(authenticated).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "the AS's own token must be accepted");
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["id"], as_id);
+
+    // 3. A different AS's token -> forbidden (a token may only describe its own AS).
+    let other_as_id = format!("test_as_query_other_{}", rand::random::<u32>());
+    let other_as_token = format!("test_as_query_other_token_{}", rand::random::<u32>());
+    let register_other = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/appservices")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::from(
+            json!({
+                "id": &other_as_id,
+                "url": "http://localhost:8081",
+                "as_token": &other_as_token,
+                "hs_token": format!("test_hs_query_other_{}", rand::random::<u32>()),
+                "sender_localpart": "bot_query_other",
+                "namespaces": { "users": [], "aliases": [], "rooms": [] }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = app.clone().oneshot(register_other).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let _ = other_as_id;
+
+    let cross_as = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/app/v1/{as_id}"))
+        .header("Authorization", format!("Bearer {other_as_token}"))
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(cross_as).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN, "a token must not describe another application service");
+}
