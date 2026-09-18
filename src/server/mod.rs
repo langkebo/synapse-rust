@@ -162,6 +162,21 @@ impl SynapseServer {
         }
         ::tracing::info!("[启动阶段 2/4] 安全密钥校验通过 (TOKEN_HASH_SECRET)");
 
+        // Validate the worker HTTP replication secret before that surface can be
+        // reached. `replication_http_auth_middleware` accepts a single shared secret
+        // for replication positions, the event stream and worker/task state, so a
+        // value published in this repository (e.g. the `worker_replication_secret_2026`
+        // test fixture) is an authentication bypass, not a cosmetic issue. Fatal in
+        // release builds only: the check is skipped entirely unless the worker surface
+        // is mounted (`worker.enabled && worker.replication.http.enabled`), and dev
+        // configs legitimately use short fixtures.
+        // Topology validation below only logs this condition as a warning, so it
+        // cannot gate startup on its own.
+        if let Err(e) = worker_replication_secret_check(&config.worker) {
+            return Err(format!("FATAL: {e}").into());
+        }
+        ::tracing::info!("[启动阶段 2/4] 安全密钥校验通过 (worker.replication.http)");
+
         ::tracing::info!("[启动阶段 2/4] 构建服务容器 (services + cache + redis)...");
         let (services, cache, redis_pool_option) = services::build_service_container(&pool, &config).await?;
         ::tracing::info!("[启动阶段 2/4] 服务容器构建完成");
@@ -1105,6 +1120,22 @@ fn append_prometheus_gauge(output: &mut String, name: &str, help: &str, value: f
     output.push_str(&format!("{name} {value}\n"));
 }
 
+/// Startup gate for the worker HTTP replication secret.
+///
+/// `validate_replication_http_secret` returns `Ok` unless the surface is mounted
+/// (`worker.enabled && worker.replication.http.enabled`) and enforces the strength
+/// policy (minimum length, known-published values) only in `strict` mode. Strength is
+/// a release-only requirement because dev/test configs legitimately use short
+/// fixtures.
+///
+/// Kept as a named helper rather than inlined in the bootstrap path so the
+/// build-mode policy is unit-testable: writing `cfg!(debug_assertions)` here
+/// (inverted) would silently disable the gate in production, and only a test that
+/// runs in debug mode can catch that.
+fn worker_replication_secret_check(worker: &synapse_common::config::worker::WorkerConfig) -> Result<(), String> {
+    synapse_common::config::worker::validate_replication_http_secret(worker, !cfg!(debug_assertions))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1115,6 +1146,43 @@ mod tests {
     use synapse_test_utils::prepare_shared_test_pool;
     #[cfg(feature = "test-utils")]
     use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
+
+    #[test]
+    fn worker_replication_secret_check_skips_unmounted_surface() {
+        // `docker/config/homeserver.yaml` ships `worker.enabled: false` with
+        // `replication.http.enabled: true`; nothing is mounted there, so this gate
+        // must not block startup even with no secret at all.
+        let config = synapse_common::config::worker::WorkerConfig::default();
+        assert!(!config.enabled);
+        assert!(worker_replication_secret_check(&config).is_ok());
+    }
+
+    #[test]
+    fn worker_replication_secret_check_requires_a_secret_when_mounted_even_in_debug() {
+        let mut config = synapse_common::config::worker::WorkerConfig { enabled: true, ..Default::default() };
+        config.replication.http.enabled = true;
+
+        let error = worker_replication_secret_check(&config).expect_err("mounted without a secret must be fatal");
+        assert!(error.contains("neither worker.replication.http.secret"), "{error}");
+    }
+
+    // `cfg`-gated rather than asserted inside: `cargo test --release` runs with
+    // `debug_assertions` off, where the check below legitimately rejects the fixture.
+    #[cfg(debug_assertions)]
+    #[test]
+    fn worker_replication_secret_check_does_not_use_strict_mode_in_debug_builds() {
+        // Guards against inverting the build-mode switch: if this helper read
+        // `cfg!(debug_assertions)` (or hard-coded `true`), the repository's own
+        // fixtures would make every developer's server refuse to start. The tests
+        // that prove the *release* branch rejects these values live next to
+        // `validate_replication_http_secret` in `synapse-common` (they pass `strict`
+        // explicitly, which is why the parameter exists).
+        let mut config = synapse_common::config::worker::WorkerConfig { enabled: true, ..Default::default() };
+        config.replication.http.enabled = true;
+        config.replication.http.secret = Some("test_worker_secret".to_string());
+
+        assert!(worker_replication_secret_check(&config).is_ok());
+    }
 
     #[test]
     fn dehydrated_device_cleanup_uses_minimum_interval() {

@@ -2,7 +2,7 @@ use serde::Serialize;
 use std::collections::HashSet;
 use tracing::{info, warn};
 
-use synapse_common::config::worker::WorkerConfig;
+use synapse_common::config::worker::{validate_replication_http_secret, WorkerConfig};
 
 use crate::worker::types::WorkerType;
 
@@ -318,13 +318,11 @@ pub fn validate_worker_config(config: &WorkerConfig) -> TopologyValidation {
         );
     }
 
-    if config.replication.http.enabled
-        && config.replication.http.secret.is_none()
-        && config.replication.http.secret_path.is_none()
-    {
-        validation.add_error(
-            "worker.replication.http.enabled is true but neither worker.replication.http.secret nor secret_path is configured",
-        );
+    // Presence-only here (`strict = false`): strength policy is enforced fatally at
+    // startup in release builds (`server::validate_worker_replication_secret`), while
+    // this report is also produced in dev/test environments that use short fixtures.
+    if let Err(message) = validate_replication_http_secret(config, false) {
+        validation.add_error(message);
     }
 
     for (stream_name, owners) in stream_writer_sets(config) {
