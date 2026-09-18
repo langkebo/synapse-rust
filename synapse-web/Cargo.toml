@@ -48,7 +48,7 @@ synapse-test-utils = { path = "../synapse-test-utils", optional = true }
 tokio = { workspace = true, features = ["full", "test-util"] }
 tokio-util = { workspace = true, features = ["io"] }
 
-axum = { workspace = true, features = ["macros"] }
+axum = { workspace = true, features = ["macros", "multipart"] }
 tower = { workspace = true }
 tower-http = { workspace = true, features = ["fs", "cors", "trace", "compression-gzip", "limit"] }
 http = { workspace = true }

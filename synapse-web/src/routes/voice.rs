@@ -4,11 +4,10 @@ use crate::routes::context::RoomContext;
 use crate::routes::extractors::RoomId;
 use crate::routes::extractors::UserId;
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Multipart, Path, Query, State},
     routing::{get, post},
     Json, Router,
 };
-use base64::Engine;
 use serde::Deserialize;
 use serde_json::Value;
 use synapse_common::{ApiError, ApiResult};
@@ -97,26 +96,68 @@ async fn get_voice_config(
 async fn upload_voice_message(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    mut multipart: Multipart,
 ) -> Result<Json<Value>, ApiError> {
     let voice_service = &ctx.voice_service;
 
-    let content_base64 = body
-        .get("content")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("content is required".to_string()))?;
-    if content_base64.is_empty() {
-        return Err(ApiError::bad_request("content cannot be empty".to_string()));
-    }
-    let engine = base64::engine::general_purpose::STANDARD;
-    let content = match engine.decode(content_base64) {
-        Ok(data) => data,
-        Err(_) => {
-            return Err(ApiError::bad_request("Invalid base64 content".to_string()));
+    // Parse multipart form data
+    let mut content: Vec<u8> = Vec::new();
+    let mut content_type: Option<String> = None;
+    let mut room_id: Option<String> = None;
+    let mut duration_ms: Option<i32> = None;
+    let mut waveform: Option<Vec<u16>> = None;
+    let mut filename: Option<String> = None;
+
+    while let Some(mut field) = multipart.next_field().await.map_err(|e| {
+        ApiError::bad_request(format!("Failed to parse multipart data: {}", e))
+    })? {
+        let name = field.name().unwrap_or("").to_string();
+        let data = field.bytes().await.map_err(|e| {
+            ApiError::bad_request(format!("Failed to read multipart field: {}", e))
+        })?;
+
+        match name.as_str() {
+            "file" => {
+                content = data.to_vec();
+                // Extract filename from Content-Disposition header if present
+                if let Some(disposition) = field.headers().get("Content-Disposition") {
+                    if let Ok(disposition_str) = disposition.to_str() {
+                        if let Some(start) = disposition_str.find("filename=") {
+                            let filename_part = &disposition_str[start + 9..];
+                            filename = Some(filename_part.trim_matches('"').to_string());
+                        }
+                    }
+                }
+            }
+            "content_type" => content_type = Some(String::from_utf8_lossy(&data).to_string()),
+            "room_id" => room_id = Some(String::from_utf8_lossy(&data).to_string()),
+            "duration_ms" => {
+                duration_ms = Some(
+                    String::from_utf8_lossy(&data)
+                        .parse::<i32>()
+                        .map_err(|_| ApiError::bad_request("Invalid duration_ms".to_string()))?,
+                );
+            }
+            "waveform" => {
+                let waveform_str = String::from_utf8_lossy(&data);
+                let arr: Vec<u16> = waveform_str
+                    .split(',')
+                    .filter_map(|s| s.trim().parse().ok())
+                    .collect();
+                if !arr.is_empty() {
+                    waveform = Some(arr);
+                }
+            }
+            _ => {}
         }
-    };
+    }
+
+    // Validate required fields
     if content.is_empty() {
-        return Err(ApiError::bad_request("content cannot decode to empty".to_string()));
+        return Err(ApiError::bad_request("File content is required".to_string()));
+    }
+    if duration_ms.is_none() || duration_ms.unwrap() <= 0 {
+        return Err(ApiError::bad_request("Duration must be positive".to_string()));
     }
 
     const MAX_SIZE: usize = 50 * 1024 * 1024;
@@ -124,49 +165,23 @@ async fn upload_voice_message(
         return Err(ApiError::bad_request(format!("Voice message too large. Max size is {} bytes", MAX_SIZE)));
     }
 
-    let content_type = body.get("content_type").and_then(|v| v.as_str()).unwrap_or("audio/ogg");
+    let content_type = content_type.unwrap_or_else(|| infer::get(&content).map(|k| k.mime_type().to_string()).unwrap_or_else(|| "audio/ogg".to_string()));
 
-    if let Some(kind) = infer::get(&content) {
-        if !kind.mime_type().starts_with("audio/") && kind.mime_type() != "application/ogg" {
-            return Err(ApiError::bad_request(format!(
-                "Invalid file type: {}. Expected audio file.",
-                kind.mime_type()
-            )));
-        }
-    } else if !content_type.starts_with("audio/") && content_type != "application/ogg" {
-        return Err(ApiError::bad_request(format!("Invalid content_type: {}. Expected audio type.", content_type)));
+    // Validate audio content type
+    synapse_services::voice_service::VoiceService::validate_audio_content_type(&content_type)?;
+
+    // Check room membership if room_id is provided
+    if let Some(ref rid) = room_id {
+        ensure_room_member_ctx(&ctx, &auth_user, rid, "You must be a member of this room to upload voice messages").await?;
     }
-
-    let duration_ms = body.get("duration_ms").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-
-    if duration_ms <= 0 {
-        return Err(ApiError::bad_request("Duration must be positive".to_string()));
-    }
-
-    let room_id = body.get("room_id").and_then(|v| v.as_str());
-
-    if let Some(target_room_id) = room_id.filter(|id| !id.is_empty()) {
-        ensure_room_member_ctx(
-            &ctx,
-            &auth_user,
-            target_room_id,
-            "You must be a member of this room to upload voice messages",
-        )
-        .await?;
-    }
-
-    let waveform = body
-        .get("waveform")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_u64().map(|n| n as u16)).collect());
 
     let result = voice_service
         .upload_voice_message(VoiceMessageUploadParams {
             user_id: auth_user.user_id,
-            room_id: room_id.map(|s| s.to_string()),
+            room_id,
             content,
-            content_type: content_type.to_string(),
-            duration_ms,
+            content_type,
+            duration_ms: duration_ms.unwrap(),
             waveform,
         })
         .await;
