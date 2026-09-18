@@ -98,8 +98,23 @@ async fn test_worker_endpoints_require_replication_secret_when_enabled() {
     assert_eq!(response.status(), StatusCode::OK);
 }
 
+/// When HTTP replication is disabled, the worker body surface must not exist.
+///
+/// This test previously asserted the OPPOSITE — it was named
+/// `..._do_not_require_replication_secret_when_disabled` and expected **200** for
+/// a heartbeat sent with no credential at all. That pinned an unauthenticated
+/// write surface: with `worker.enabled: true` and `replication.http.enabled` at
+/// its `false` default, anyone could post worker heartbeats/command completions,
+/// write replication positions and read the event stream, because
+/// `replication_http_auth_middleware` treated "replication disabled" as "no
+/// authentication required" and the routes were mounted on `worker.enabled`
+/// alone.
+///
+/// The expectation is now inverted (see S1 in docs/audit/DB_REVIEW_2026-09-17.md
+/// §13.7): the surface is not mounted at all, so the request 404s. The
+/// credential-required path (replication enabled) is covered by the tests above.
 #[tokio::test]
-async fn test_worker_endpoints_do_not_require_replication_secret_when_disabled() {
+async fn test_worker_body_endpoints_are_not_mounted_when_replication_http_disabled() {
     let pool = super::require_test_pool().await;
     let mut container = ServiceContainer::new_test_with_pool(pool).await;
     super::config_mut(&mut container).worker.enabled = true;
@@ -129,7 +144,12 @@ async fn test_worker_endpoints_do_not_require_replication_secret_when_disabled()
         .unwrap();
 
     let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.status(),
+        StatusCode::NOT_FOUND,
+        "the worker body surface must not be mounted (and must never be a credential-free pass-through) \
+         when worker.replication.http.enabled is false"
+    );
 }
 
 #[tokio::test]
