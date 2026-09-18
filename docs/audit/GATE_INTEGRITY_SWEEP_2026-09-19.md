@@ -203,8 +203,46 @@
 `check_doc_spelling.sh:52` 的 `^[a-f]+$` 过滤会静默丢弃 `abcd`/`deadbeef` 这类纯十六进制词
 （对 hex 摘要有用，但也会吞掉真实单词，属已知取舍，未修）。
 
-### 8.1 关于"geiger 到底红还是空转"的诚实表述
+### 8.1 geiger：上游 schema 已核实，问题比"字段名写错"更深（需裁定）
 
-`cargo-geiger` 本机未安装且本轮禁用 `cargo`，故 E2 的结论来自 cargo-geiger 0.13.0 /
-cargo-geiger-serde 0.3.0 的上游源码 + 同形载荷复现，**未在真实 CI 跑过**。
-因此可以说的是"该脚本按其代码不可能正确工作"，而不是"今天 CI 上它是红的"。
+本机无 `cargo-geiger` 且本轮禁用 `cargo`，故我按任务要求去**核实上游 schema**，而不是
+照抄审计结论。已从 docs.rs 取到 cargo-geiger-serde 0.3.0 的定义：
+
+```rust
+pub struct SafetyReport {
+    pub packages: HashMap<PackageId, ReportEntry>,   // ← 按**包**索引
+    pub packages_without_metrics: HashSet<PackageId>,
+    pub used_but_not_scanned_files: HashSet<PathBuf>,
+}
+pub struct ReportEntry { pub package: PackageInfo, pub unsafety: UnsafeInfo }
+```
+
+（<https://docs.rs/cargo-geiger-serde/0.3.0/cargo_geiger_serde/struct.SafetyReport.html>、
+<https://docs.rs/cargo-geiger-serde/0.3.0/cargo_geiger_serde/struct.ReportEntry.html>）
+
+结论有三层，且第三层是**设计问题而非笔误**：
+
+1. `GEIGER_CMD` 传 `--output-format json`（小写）——cargo-geiger 的 `OutputFormat` 是
+   大小写敏感的 strum 枚举，应为 `Json`：子进程会以非零退出，脚本随即 `sys.exit(1)`
+   （即"一跑即崩"）。**待修**。
+2. `classify_files(metrics)` 把入参当"文件条目列表"逐条 `.get("file"/"path")`；而 JSON 的
+   顶层是 `{packages: {...}}`——它拿到的是**对象**（键为 `packages` 等字符串），
+   `entry.get(...)` 作用在 `str` 上 ⇒ `AttributeError`。**待修**。
+3. 更关键：**JSON 报告里根本没有文件路径**，只有按包索引的 `ReportEntry`。因此脚本赖以
+   区分"生产 vs 测试"的 `classify_files` 按路径切分的整套设计，**在 `--output-format Json`
+   下不可实现**；而 `sum_unsafe` 读的 `unsafe|metrics.extern_blocks/traits/fns/impls/blocks`
+   也不在 schema 里（真实字段在 `unsafety` 下，审计称 `used.{functions,exprs,item_impls,
+   item_traits,methods}`，我未逐字复核该层）⇒ 即便修好 1、2 也是**恒 0**。
+
+  可选的落地方式（都需要在 CI 里真跑一次才能确认，本机做不到）：
+  - **(A) 解析文本输出**：`cargo geiger` 默认输出按文件分组，能恢复"按路径分生产/测试"的
+    设计；代价是要写一个**有 fixture 单测**的解析器（旧版正是脆弱的 `grep -oP` 才坏掉的）。
+  - **(B) 保留 JSON、改政策**：`--include-tests` 关闭时所有计数都属"要发布的代码"，
+    于是"生产 unsafe 必须为 0"直接成立，而 `test_unsafe_total` 基线与 Gate 2 失去数据来源
+    ⇒ 必须删掉该基线字段与 Gate 2（铁律 1），文档同步。
+  - **(C) 跑两次取差**：不带 `--include-tests` 得生产计数、带它再跑一次，按包相减得
+    "仅测试"计数 ⇒ 两个 gate 都保住，代价是 2× 扫描时间。
+
+  **我没有擅自选**：三种方式产出的门禁语义不同（B 会放弃测试侧棘轮），且都无法在本机
+  端到端验证。另外 CI 是 `cargo install cargo-geiger --locked`（未钉版本），上游 schema
+  一变就会再次漂移——无论选哪种，都应把版本钉住并把"schema 不符即 loud fail"写进脚本。
