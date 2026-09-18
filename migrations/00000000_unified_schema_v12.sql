@@ -4773,7 +4773,7 @@ ON read_markers(room_id, user_id);
 -- 限制字符集 [a-z0-9._=/+-]，长度 1-255（Matrix 规范）
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_users_user_id_format') THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_users_user_id_format' AND conrelid = 'users'::regclass) THEN
         ALTER TABLE users ADD CONSTRAINT ck_users_user_id_format
             CHECK (user_id ~ '^@[a-zA-Z0-9._=+./-]+:[a-zA-Z0-9.-]+$');
     END IF;
@@ -4815,7 +4815,7 @@ END $$;
 -- room_id 格式: !opaque:domain
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_rooms_room_id_format') THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_rooms_room_id_format' AND conrelid = 'rooms'::regclass) THEN
         ALTER TABLE rooms ADD CONSTRAINT ck_rooms_room_id_format
             CHECK (room_id ~ '^![a-zA-Z0-9._=+./-]+:[a-zA-Z0-9.-]+$');
     END IF;
@@ -4826,7 +4826,7 @@ END $$;
 -- 见 synapse-common/src/crypto.rs generate_event_id）
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_events_event_id_format') THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_events_event_id_format' AND conrelid = 'events'::regclass) THEN
         ALTER TABLE events ADD CONSTRAINT ck_events_event_id_format
             CHECK (event_id ~ '^\$[a-zA-Z0-9._=+./$-]+:[a-zA-Z0-9.-]+$');
     END IF;
@@ -4835,7 +4835,7 @@ END $$;
 -- sender 格式（Matrix user_id）
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_events_sender_format') THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_events_sender_format' AND conrelid = 'events'::regclass) THEN
         ALTER TABLE events ADD CONSTRAINT ck_events_sender_format
             CHECK (sender IS NULL OR sender ~ '^@[a-zA-Z0-9._=+./-]+:[a-zA-Z0-9.-]+$');
     END IF;
@@ -4963,7 +4963,10 @@ BEGIN
         JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE i.indisunique
           AND i.indisprimary = false
-          AND n.nspname = 'public'
+          -- 目标 schema，而非硬编码 'public'：本基线也会被应用到
+          -- `search_path = <测试 schema>, public` 的克隆里，硬编码会让克隆
+          -- 保留 public 已删除的冗余索引（镜像失真）。
+          AND n.nspname = current_schema()
           AND c.relname LIKE 'uq_%'
           AND c.relname NOT IN ('uq_to_device_txn_msgid')
           -- 排除 CONSTRAINT 创建的索引（它们通常叫 <table>_<col>_key）
@@ -5157,16 +5160,15 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_device_signatures_target
 -- ============================================================
 -- 注意：PostgreSQL ADD CONSTRAINT 不支持 IF NOT EXISTS
 -- 需要先检查是否已存在同名约束
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'ck_room_memberships_valid'
-    ) THEN
-        ALTER TABLE room_memberships
-            ADD CONSTRAINT ck_room_memberships_valid
-            CHECK (membership IN ('invite', 'join', 'knock', 'leave', 'ban'));
-    END IF;
-END $$;
+-- 2026-10-01：MSC4267 的 "leave + forget" 会把 membership 置为 'forget'
+-- （`synapse-services/src/room/membership/actions.rs::leave_and_forget`
+-- → `synapse-storage/src/membership/mod.rs::forget_member`：`SET membership = 'forget'`），
+-- 而本约束原先只允许 invite/join/knock/leave/ban ⇒ 每次 forget 都 23514 失败。
+-- 用 DROP IF EXISTS + ADD 重建：既让已存在该约束的库（生产库/public）拿到新定义，
+-- 又天然按当前 search_path 定位表，不再依赖"全库同名约束"这种非 schema 级判断。
+ALTER TABLE room_memberships DROP CONSTRAINT IF EXISTS ck_room_memberships_valid;
+ALTER TABLE room_memberships ADD CONSTRAINT ck_room_memberships_valid
+    CHECK (membership IN ('invite', 'join', 'knock', 'leave', 'ban', 'forget'));
 
 -- ============================================================
 -- P1-3: event_edges prev_event_id FK
@@ -5187,7 +5189,8 @@ BEGIN
         RETURN;
     END IF;
 
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_event_edges_prev') THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                   WHERE conname = 'fk_event_edges_prev' AND conrelid = to_regclass(edges_tbl)) THEN
         EXECUTE format(
             'ALTER TABLE %s ADD CONSTRAINT fk_event_edges_prev '
             'FOREIGN KEY (prev_event_id) REFERENCES %I.events(event_id) ON DELETE SET NULL',
@@ -5213,7 +5216,8 @@ BEGIN
         RETURN;
     END IF;
 
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_events_redacted_by') THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                   WHERE conname = 'fk_events_redacted_by' AND conrelid = to_regclass(events_tbl)) THEN
         EXECUTE format(
             'ALTER TABLE %s ADD CONSTRAINT fk_events_redacted_by '
             'FOREIGN KEY (redacted_by) REFERENCES %I.events(event_id) ON DELETE SET NULL',
@@ -5259,6 +5263,7 @@ BEGIN
         -- 旧 UQ 仍然保留（向后兼容），新 UQ 叠加
         IF NOT EXISTS (
             SELECT 1 FROM pg_constraint WHERE conname = 'uq_device_keys_user_device_algorithm_keyid'
+              AND conrelid = 'device_keys'::regclass
         ) THEN
             ALTER TABLE device_keys
                 ADD CONSTRAINT uq_device_keys_user_device_algorithm_keyid
@@ -5290,6 +5295,7 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'fk_cross_signing_keys_user'
+        AND conrelid = 'cross_signing_keys'::regclass
         AND NOT convalidated
     ) THEN
         ALTER TABLE cross_signing_keys VALIDATE CONSTRAINT fk_cross_signing_keys_user;
@@ -5304,6 +5310,7 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint WHERE conname = 'ck_events_depth_nonneg'
+          AND conrelid = 'events'::regclass
     ) THEN
         ALTER TABLE events
             ADD CONSTRAINT ck_events_depth_nonneg
@@ -5316,6 +5323,7 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint WHERE conname = 'ck_events_not_before_nonneg'
+          AND conrelid = 'events'::regclass
     ) THEN
         ALTER TABLE events
             ADD CONSTRAINT ck_events_not_before_nonneg
@@ -5368,6 +5376,7 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint WHERE conname = 'uq_backup_keys_room_session'
+          AND conrelid = 'backup_keys'::regclass
     ) THEN
         ALTER TABLE backup_keys
             ADD CONSTRAINT uq_backup_keys_room_session
@@ -5388,7 +5397,8 @@ BEGIN
         RETURN;
     END IF;
 
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_backup_keys_room') THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                   WHERE conname = 'fk_backup_keys_room' AND conrelid = to_regclass(backup_keys_tbl)) THEN
         EXECUTE format(
             'ALTER TABLE %s ADD CONSTRAINT fk_backup_keys_room '
             'FOREIGN KEY (room_id) REFERENCES %I.rooms(room_id) ON DELETE CASCADE',

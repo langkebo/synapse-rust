@@ -52,7 +52,6 @@ TABLE_CONTRACTS: Dict[str, Dict[str, List[str]]] = {
             "unsigned",
         ],
         "indexes": [
-            "idx_events_room_id",
             "idx_events_sender",
             "idx_events_type",
             "idx_events_origin_server_ts",
@@ -107,7 +106,6 @@ TABLE_CONTRACTS: Dict[str, Dict[str, List[str]]] = {
             "idx_room_memberships_user",
             "idx_room_memberships_membership",
             "idx_room_memberships_user_membership",
-            "idx_room_memberships_room_membership",
             "idx_room_memberships_joined",
         ],
         "constraints": [
@@ -122,7 +120,7 @@ TABLE_CONTRACTS: Dict[str, Dict[str, List[str]]] = {
             "room_id",
             "max_lifetime",
             "min_lifetime",
-            "expire_on_clients",
+            "is_expire_on_clients",
             "is_server_default",
             "created_ts",
             "updated_ts",
@@ -176,51 +174,6 @@ TABLE_CONTRACTS: Dict[str, Dict[str, List[str]]] = {
         "indexes": ["idx_room_summary_update_queue_status_priority_created"],
         "constraints": ["fk_room_summary_update_queue_room"],
     },
-    "retention_cleanup_queue": {
-        "columns": [
-            "room_id",
-            "event_id",
-            "event_type",
-            "origin_server_ts",
-            "scheduled_ts",
-            "status",
-            "created_ts",
-            "processed_ts",
-            "error_message",
-            "retry_count",
-        ],
-        "indexes": ["idx_retention_cleanup_queue_status_origin"],
-        "constraints": [
-            "uq_retention_cleanup_queue_room_event",
-            "fk_retention_cleanup_queue_room",
-        ],
-    },
-    "retention_cleanup_logs": {
-        "columns": [
-            "room_id",
-            "events_deleted",
-            "state_events_deleted",
-            "media_deleted",
-            "bytes_freed",
-            "started_ts",
-            "completed_ts",
-            "status",
-            "error_message",
-        ],
-        "indexes": ["idx_retention_cleanup_logs_room_started"],
-        "constraints": ["fk_retention_cleanup_logs_room"],
-    },
-    "retention_stats": {
-        "columns": [
-            "room_id",
-            "total_events",
-            "events_in_retention",
-            "events_expired",
-            "last_cleanup_ts",
-            "next_cleanup_ts",
-        ],
-        "constraints": ["fk_retention_stats_room"],
-    },
     "search_index": {
         "columns": [
             "event_id",
@@ -238,14 +191,6 @@ TABLE_CONTRACTS: Dict[str, Dict[str, List[str]]] = {
             "idx_search_index_type",
         ],
         "constraints": ["uq_search_index_event"],
-    },
-    "deleted_events_index": {
-        "columns": ["room_id", "event_id", "deletion_ts", "reason"],
-        "indexes": ["idx_deleted_events_index_room_ts"],
-        "constraints": [
-            "uq_deleted_events_index_room_event",
-            "fk_deleted_events_index_room",
-        ],
     },
     "device_trust_status": {
         "columns": [
@@ -383,20 +328,6 @@ TABLE_CONTRACTS: Dict[str, Dict[str, List[str]]] = {
             "fk_replication_positions_worker",
         ],
     },
-    "worker_load_stats": {
-        "columns": [
-            "worker_id",
-            "cpu_usage",
-            "memory_usage",
-            "active_connections",
-            "requests_per_second",
-            "average_latency_ms",
-            "queue_depth",
-            "recorded_ts",
-        ],
-        "indexes": ["idx_worker_load_stats_worker_recorded"],
-        "constraints": ["fk_worker_load_stats_worker"],
-    },
     "worker_task_assignments": {
         "columns": [
             "task_id",
@@ -416,26 +347,6 @@ TABLE_CONTRACTS: Dict[str, Dict[str, List[str]]] = {
             "idx_worker_task_assignments_worker_status",
         ],
         "constraints": ["fk_worker_task_assignments_worker"],
-    },
-    "worker_connections": {
-        "columns": [
-            "source_worker_id",
-            "target_worker_id",
-            "connection_type",
-            "status",
-            "established_ts",
-            "last_activity_ts",
-            "bytes_sent",
-            "bytes_received",
-            "messages_sent",
-            "messages_received",
-        ],
-        "indexes": ["idx_worker_connections_source"],
-        "constraints": [
-            "uq_worker_connections_pair",
-            "fk_worker_connections_source",
-            "fk_worker_connections_target",
-        ],
     },
 }
 

@@ -68,7 +68,9 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 /// still concatenated v12-then-extensions with nothing between them.
 // 2026-10-01：`e2ee_audit_log.device_id` 改为可空（用户级审计事件没有单一设备），
 // 基线内容变化 ⇒ 按上面这段说明把常量更新为新报告的 `left:` 值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "65ac2c177519d205";
+// 2026-10-01（第二次）：`ck_room_memberships_valid` 加入 'forget' 并把 15 处
+// 约束守卫改为 schema 级判断，基线内容再次变化 ⇒ 按本守卫说明更新为最新 `left:` 值。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "42002cba863738f8";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

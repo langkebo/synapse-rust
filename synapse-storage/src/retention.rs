@@ -42,7 +42,11 @@ pub struct ServerRetentionPolicy {
 }
 
 /// The `RetentionCleanupLog` struct.
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+///
+/// Deliberately not `FromRow`: its table (`retention_cleanup_logs`) was dropped in v10
+/// and nothing loads this type from SQL — `run_cleanup` only *constructs* it as a
+/// result. The two structs above still derive it because `query_as` uses them.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RetentionCleanupLog {
     /// The `id` field.
     pub id: i64,
