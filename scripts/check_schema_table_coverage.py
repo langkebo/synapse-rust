@@ -6,12 +6,36 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-SOURCE_DIRS = [
-    ROOT / "src",
-    ROOT / "tests",
-]
 MIGRATIONS_DIR = ROOT / "migrations"
 EXCEPTIONS_FILE = ROOT / "scripts" / "schema_table_coverage_exceptions.txt"
+
+
+def discover_source_dirs() -> list[pathlib.Path]:
+    """Every Rust source root that can contain `sqlx` queries.
+
+    This used to be a hard-coded ``[ROOT/"src", ROOT/"tests"]``. That was
+    correct when all code lived in the root crate, but B4-5b moved the HTTP
+    surface, business logic and persistence into workspace crates, leaving the
+    root ``src/`` as a ~4k-line bootstrap. Measured at the time of this fix:
+    265 `.rs` files under ``src/``+``tests/`` versus **735** under
+    ``synapse-*/src`` — so the overwhelming majority of `sqlx` query strings
+    were never checked, and a query naming a table that the migrations never
+    create would pass this gate silently.
+
+    Derived from the filesystem (any ``<crate>/Cargo.toml`` with a sibling
+    ``src/``) rather than hard-coded again, so the next crate split cannot
+    silently shrink the scan surface. Deliberately depth-1 so vendored crates
+    (``vendor/pastey``) stay out.
+    """
+    dirs = [ROOT / "src", ROOT / "tests"]
+    for manifest in sorted(ROOT.glob("*/Cargo.toml")):
+        src = manifest.parent / "src"
+        if src.is_dir():
+            dirs.append(src)
+    return dirs
+
+
+SOURCE_DIRS = discover_source_dirs()
 
 REF_PATTERNS = [
     re.compile(r"\bFROM\s+([a-z_][a-z0-9_]*)\b(?!\s*\()", re.IGNORECASE),
@@ -37,7 +61,15 @@ SQL_LITERAL_PATTERNS = [
     ),
 ]
 SQL_TRIGGER_PATTERN = re.compile(r"\b(SELECT|INSERT|UPDATE|DELETE)\b", re.IGNORECASE)
-CTE_PATTERN = re.compile(r"(?:WITH|,)\s*([a-z_][a-z0-9_]*)\s+AS\s*\(", re.IGNORECASE)
+# CTE names must be excluded or every `FROM <cte>` looks like a missing table.
+# `WITH RECURSIVE` was not matched, so widening the scan surface to the workspace
+# crates immediately reported `dag_walk` (a real recursive CTE in
+# synapse-storage/src/event/dag.rs) as an undefined table. The optional
+# `(col, ...)` group covers `WITH x(a, b) AS (`.
+CTE_PATTERN = re.compile(
+    r"(?:WITH(?:\s+RECURSIVE)?|,)\s*([a-z_][a-z0-9_]*)\s*(?:\([^()]*\))?\s*AS\s*\(",
+    re.IGNORECASE,
+)
 SQL_LINE_COMMENT_PATTERN = re.compile(r"--.*?(?=\n|$)")
 SQL_BLOCK_COMMENT_PATTERN = re.compile(r"/\*.*?\*/", re.DOTALL)
 EXTRACT_FROM_PATTERN = re.compile(
@@ -59,6 +91,10 @@ DEF_PATTERNS = [
     ),
 ]
 IGNORED_REFS = {
+    # sqlx's own bookkeeping table, created by `sqlx::migrate!`; it is not part of
+    # the project baseline in `migrations/`, so it can never appear in `defs`.
+    # Documented as such in synapse-storage/src/migration_checks.rs.
+    "_sqlx_migrations",
     "information_schema",
     "lateral",
     "pg_indexes",
@@ -93,10 +129,12 @@ def read_exceptions() -> set[str]:
 
 def collect_references() -> dict[str, set[str]]:
     refs: dict[str, set[str]] = {}
+    scanned = 0
     for source_dir in SOURCE_DIRS:
         if not source_dir.exists():
             continue
         for path in source_dir.rglob("*.rs"):
+            scanned += 1
             text = path.read_text()
             sql_literals: list[str] = []
             for string_pattern in SQL_LITERAL_PATTERNS:
@@ -123,6 +161,15 @@ def collect_references() -> dict[str, set[str]]:
                         ):
                             continue
                         refs.setdefault(table, set()).add(str(path.relative_to(ROOT)))
+    # A scan surface that silently shrank is the exact failure this gate was
+    # blind to; make "nothing was scanned" loud rather than reporting a pass.
+    if scanned == 0:
+        print(
+            "::error::check_schema_table_coverage: no .rs files found under any of: "
+            + ", ".join(str(d.relative_to(ROOT)) for d in SOURCE_DIRS),
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
     return refs
 
 

@@ -133,7 +133,7 @@ test-coverage-check:
 	  --format lcov \
 	  --baseline artifacts/coverage_baseline.json \
 	  --threshold 80 --global-floor 40 --new-file-floor 30 \
-	  --core-files artifacts/core_file_list.txt --core-threshold 70
+	  --core-files scripts/ci/core_file_coverage_prefixes.txt --core-threshold 70
 
 test-cov-local:
 	@echo "Running llvm-cov coverage locally (alias of test-coverage)..."

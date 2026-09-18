@@ -138,9 +138,9 @@ def parse_lcov(report_path: pathlib.Path) -> Dict[str, float]:
 
     lcov records use ``SF:<path>`` / ``LF:<lines found>`` / ``LH:<lines hit>``,
     terminated by ``end_of_record``. The SF path is absolute (cargo llvm-cov)
-    or repo-relative; ``_normalize_path`` reduces both to the same crate-agnostic
-    ``<file>.rs`` key that ``parse_tarpaulin_json`` produces, so the per-file
-    baseline convention is unchanged.
+    or repo-relative; ``_normalize_path`` reduces both to the same
+    crate-qualified key (``synapse-services/error.rs``), so a file in one crate
+    can no longer overwrite the same-named file in another.
     """
     result: Dict[str, float] = {}
     current_path: Optional[str] = None
@@ -180,20 +180,51 @@ def parse_lcov(report_path: pathlib.Path) -> Dict[str, float]:
 
 
 def _normalize_path(p: str) -> str:
-    """Strip absolute prefix, './', and normalize separators."""
+    """Return a repo-unique key for a Rust source path.
+
+    The previous implementation returned everything after the FIRST ``src/``.
+    That collapsed all nine crates into one namespace: measured on the real tree,
+    `synapse-services/src/error.rs`, `synapse-cache/src/error.rs` and
+    `synapse-common/src/error.rs` all became `error.rs`, and `lib.rs` was claimed
+    by all nine `src/lib.rs` files — 23 colliding keys in total.
+
+    Callers store these keys in a dict (`result[rel] = ...`), so the last writer
+    won and the other crates' files were **never measured**, while the ratchet
+    compared whichever number survived. It also made the crate-agnostic prefixes
+    in `scripts/ci/core_file_coverage_prefixes.txt` match unintended crates.
+
+    Keep the crate directory as a prefix so identity is preserved::
+
+        synapse-services/src/auth/mod.rs -> synapse-services/auth/mod.rs
+        src/lib.rs                       -> src/lib.rs          (root crate)
+        tests/integration/mod.rs         -> tests/integration/mod.rs
+    """
     p = p.replace("\\", "/")
-    # Strip up to and including 'src/' or project root
-    for marker in ["/src/", "src/"]:
-        idx = p.find(marker)
-        if idx != -1:
-            return p[idx + len(marker) :]
-    try:
-        rel = str(pathlib.Path(p).relative_to(ROOT))
-        if rel.startswith("src/"):
-            return rel[len("src/") :]
+    root = str(ROOT).replace("\\", "/").rstrip("/")
+    if p.startswith(root + "/"):
+        rel = p[len(root) + 1:]
+    elif p.startswith("/"):
+        # Absolute but outside the repo (should not happen for this repo's own
+        # coverage reports). Return the full path: it is unique by construction,
+        # so it can never silently overwrite another file's entry.
+        return p.lstrip("/")
+    else:
+        # Already repo-relative (`tarpaulin`/`lcov` differ from `Path.rglob`,
+        # which is absolute). Normalise both to the same key.
+        rel = p[2:] if p.startswith("./") else p
+
+    if rel.startswith("src/") or rel.startswith("tests/"):
         return rel
-    except ValueError:
-        return p
+
+    marker = "/src/"
+    idx = rel.find(marker)
+    if idx > 0:
+        crate = rel[:idx]
+        # A single leading segment means a workspace crate (`synapse-web`). A
+        # nested prefix means some other layout; fall through untouched.
+        if "/" not in crate:
+            return f"{crate}/{rel[idx + len(marker):]}"
+    return rel
 
 
 def _is_src_rs(rel: str) -> bool:
