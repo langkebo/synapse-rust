@@ -106,7 +106,10 @@ impl OlmSessionManager {
 
         let session_id = session.session_id();
 
-        let message = session.encrypt(b"").expect("Empty plaintext should never fail encryption");
+        let message = session.encrypt(b"").map_err(|e| {
+            tracing::error!(error = %e, "Empty plaintext encryption failed");
+            ApiError::internal("Encryption failed".to_string())
+        })?;
         let ciphertext = match &message {
             vodozemac::olm::OlmMessage::PreKey(m) => m.to_base64(),
             vodozemac::olm::OlmMessage::Normal(m) => m.to_base64(),

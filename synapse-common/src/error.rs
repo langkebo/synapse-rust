@@ -886,16 +886,25 @@ impl IntoResponse for ApiError {
         if let Some(ms) = retry_after_ms {
             body["retry_after_ms"] = json!(ms);
         }
+
         let mut response = (status_code, Json(body)).into_response();
+
+        // S-9-A1: Standardize rate limit headers on 429 responses
+        // - Retry-After: Standard RFC 7231 header with seconds (rounded up)
+        // - X-RateLimit-Retry-After-Ms: Millisecond precision for Matrix clients
+        // - X-RateLimit-Limit: Current rate limit threshold (from config or default)
+        // - X-RateLimit-Remaining: Remaining requests in current window (always 0 on 429)
         if let Some(ms) = retry_after_ms {
             let retry_after_seconds = ms.saturating_add(999) / 1000;
             if let Ok(value) = HeaderValue::from_str(&retry_after_seconds.to_string()) {
                 response.headers_mut().insert("retry-after", value);
             }
             if let Ok(value) = HeaderValue::from_str(&ms.to_string()) {
-                response.headers_mut().insert("x-ratelimit-retry-after", value.clone());
+                response.headers_mut().insert("x-ratelimit-retry-after-ms", value.clone());
                 response.headers_mut().insert("x-ratelimit-after", value);
             }
+            // Always set remaining to 0 on 429
+            response.headers_mut().insert("x-ratelimit-remaining", HeaderValue::from_static("0"));
         }
         response
     }

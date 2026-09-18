@@ -6,6 +6,7 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
+use synapse_common::metrics::Counter;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
@@ -72,6 +73,8 @@ pub struct EventNotifier {
     /// [`EventNotifier::idle_timeout`] and use it as their
     /// `tokio::time::timeout` budget. Default: 5 s.
     idle_timeout_secs: u64,
+    /// S-6: Prometheus counter for Redis subscriber failures.
+    subscriber_failures_total: Option<Counter>,
 }
 
 impl std::fmt::Debug for EventNotifier {
@@ -94,7 +97,14 @@ impl EventNotifier {
             instance_id: format!("instance-{}", uuid::Uuid::new_v4()),
             reconnect_backoff_ms: 1000, // 1 s default — same as the previous hardcoded value
             idle_timeout_secs: 5, // 5 s default — matches the previous test wait barrier and synapse's `notify_sleep_time`
+            subscriber_failures_total: None,
         }
+    }
+
+    /// See [`with_redis`].
+    pub fn with_metrics(mut self, counter: Counter) -> Self {
+        self.subscriber_failures_total = Some(counter);
+        self
     }
 
     /// See [`with_redis`].
@@ -315,6 +325,8 @@ impl EventNotifier {
         let room_notifiers = self.room_notifiers.clone();
         let user_notifiers = self.user_notifiers.clone();
         let reconnect_backoff_ms = self.reconnect_backoff_ms;
+        // S-6: Clone the subscriber_failures_total counter for use in the spawned task
+        let subscriber_failures_total = self.subscriber_failures_total.clone();
 
         info!(
             channel = %channel,
@@ -344,6 +356,12 @@ impl EventNotifier {
                     }
                     Err(e) => {
                         warn!("EventNotifier subscription error: {e}, reconnecting in {reconnect_backoff_ms}ms...");
+                        
+                        // S-6: Record subscriber failure in Prometheus
+                        if let Some(ref counter) = subscriber_failures_total {
+                            counter.inc();
+                        }
+                        
                         // Race the backoff sleep against shutdown so a SIGTERM
                         // arriving mid-retry exits immediately. The backoff is
                         // configured via [`EventNotifier::with_reconnect_backoff_ms`].
@@ -542,6 +560,7 @@ impl Clone for EventNotifier {
             instance_id: self.instance_id.clone(),
             reconnect_backoff_ms: self.reconnect_backoff_ms,
             idle_timeout_secs: self.idle_timeout_secs,
+            subscriber_failures_total: self.subscriber_failures_total.clone(),
         }
     }
 }

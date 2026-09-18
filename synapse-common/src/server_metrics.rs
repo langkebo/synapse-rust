@@ -123,6 +123,10 @@ pub struct ServerMetrics {
     /// Failed CSRF token validations.
     pub csrf_validation_failures_total: Counter,
 
+    // Event Notifier Metrics (S-6)
+    /// Total Redis subscriber failures in EventNotifier.
+    pub event_notifier_subscriber_failures_total: Counter,
+
     // Megolm (E2EE) Metrics — Phase 1 vodozemac migration observability.
     // These cover share/get flows; legacy AES-256-GCM path also uses the
     // same counter names so dashboards do not need to special-case
@@ -265,6 +269,10 @@ impl ServerMetrics {
 
             csrf_validations_total: collector.register_counter("csrf_validations_total".to_string()),
             csrf_validation_failures_total: collector.register_counter("csrf_validation_failures_total".to_string()),
+
+            // S-6: EventNotifier Redis subscriber failure counter
+            event_notifier_subscriber_failures_total: collector
+                .register_counter("event_notifier_subscriber_failures_total".to_string()),
 
             megolm_share_total: collector.register_counter("megolm_share_total".to_string()),
             megolm_share_recipients_total: collector.register_counter("megolm_share_recipients_total".to_string()),

@@ -355,8 +355,11 @@ impl ServiceContainer {
             let redis_cfg = deadpool_redis::Config::from_url(&redis_url);
             match redis_cfg.create_pool(Some(deadpool_redis::Runtime::Tokio1)) {
                 Ok(pool) => {
+                    // S-6: Wire the Prometheus counter for subscriber failures
+                    let subscriber_failure_counter = infra.server_metrics.event_notifier_subscriber_failures_total.clone();
                     let notifier = crate::event_notifier::EventNotifier::new()
                         .with_redis(pool, redis_url)
+                        .with_metrics(subscriber_failure_counter)
                         .with_idle_timeout_secs(config.server.event_notifier_idle_timeout_secs);
                     if let Err(e) = notifier.start_redis_subscriber(infra.shutdown_token.clone()) {
                         // S6: subscriber failure is fatal — cross-instance fan-out

@@ -284,6 +284,15 @@ jobs:
       - name: Run clippy
         run: cargo clippy --workspace --all-targets --features test-utils ${{ matrix.features-args }} --locked -- -D warnings
 
+      # S-8: 检测 get_raw() 在生产路径的使用
+      # 确保所有跨实例共享的缓存读使用 get_raw_shared().await
+      # 而不是 get_raw()（仅读 L1 本地缓存）
+      - name: Check get_raw() usage
+        if: matrix.features-args == ''
+        run: |
+          python3 scripts/check_get_raw_usage.py
+          echo "S-8: get_raw() audit passed"
+
       - name: Install sqlx-cli
         if: matrix.features-args == '--all-features'
         # Pin to 0.8.x: matches the project's sqlx 0.8 and stays within MSRV.
