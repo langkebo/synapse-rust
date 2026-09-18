@@ -424,10 +424,30 @@ impl CacheManager {
         }
     }
 
-    /// Retrieves a raw string value from L1, then falls back to L2.
-    pub fn get_raw(&self, key: &str) -> Option<String> {
-        self.local.get_raw(key)
-    }
+    /// Retrieves a raw string value from L1 only (synchronous).
+///
+/// # ⚠️ 调用约束（S-8 缓存对称铁律）
+///
+/// **生产环境禁止在业务代码中调用此方法**。跨实例一致性场景必须使用
+/// [`get_raw_shared`](Self::get_raw_shared)，它会在 L1 未命中时回源
+/// Redis 并回填 L1，保证分布式部署下状态一致。
+///
+/// **仅允许以下场景使用 `get_raw`：**
+/// - 单元测试 / 基准测试（单进程，无跨实例需求）
+/// - 性能计数器 / 临时状态（不要求跨实例一致）
+/// - 已明确确认不存在跨实例路由的纯本地状态
+///
+/// **违规后果**：实例 A 写入的锁/缓存，实例 B 读取时 L1 未命中，
+/// 导致分布式锁失效、会话不一致、去重缓存击穿等严重问题。
+///
+/// ## 对称约定
+/// - `set_raw` → 异步写 L1+L2（写两端）
+/// - `get_raw` → 同步读 L1（读一端，**仅限测试/局部状态**）
+/// - `get_raw_shared` → 异步读 L1→L2 并回填 L1（生产环境强制）
+/// - `delete` → 异步删 L1+L2
+pub fn get_raw(&self, key: &str) -> Option<String> {
+    self.local.get_raw(key)
+}
 
     /// S7: Like `get_raw`, but falls back to L2 (Redis) on an L1 miss and
     /// backfills L1 on a hit.

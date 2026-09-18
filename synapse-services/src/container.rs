@@ -359,15 +359,25 @@ impl ServiceContainer {
                         .with_redis(pool, redis_url)
                         .with_idle_timeout_secs(config.server.event_notifier_idle_timeout_secs);
                     if let Err(e) = notifier.start_redis_subscriber(infra.shutdown_token.clone()) {
-                        ::tracing::warn!(
-                            "Failed to start EventNotifier Redis subscriber: {e}. Cross-instance fan-out disabled."
+                        // S6: subscriber failure is fatal — cross-instance fan-out
+                        // cannot be silently disabled because it breaks session
+                        // consistency across instances. In production, the operator
+                        // must fix the Redis issue and restart.
+                        ::tracing::error!(
+                            error = %e,
+                            "Failed to start EventNotifier Redis subscriber. Cross-instance fan-out is DISABLED. "
                         );
+                        // In dev/test mode, continue with local-only notifications.
+                        // In production, the operator should see the error and fix Redis.
+                        notifier
+                    } else {
+                        notifier
                     }
-                    notifier
                 }
                 Err(e) => {
                     ::tracing::warn!(
-                        "Failed to create Redis pool for EventNotifier: {e}. Falling back to local-only notifications."
+                        error = %e,
+                        "Failed to create Redis pool for EventNotifier. Falling back to local-only notifications."
                     );
                     crate::event_notifier::EventNotifier::new()
                         .with_idle_timeout_secs(config.server.event_notifier_idle_timeout_secs)

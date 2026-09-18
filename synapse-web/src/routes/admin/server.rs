@@ -23,6 +23,7 @@ pub fn create_server_router(_state: AppState) -> Router<crate::routes::AppState>
         .route("/_synapse/admin/v1/whois/{user_id}", get(whois))
         .route("/_synapse/admin/v1/whois/{user_id}/{device_id}", get(whois_device))
         .route("/_synapse/admin/v1/health", get(get_health))
+        .route("/_synapse/admin/v1/rate-limit-status", get(get_rate_limit_status))
         .route("/_synapse/admin/v1/config", get(get_config))
         .route("/_synapse/admin/v1/experimental_features", get(get_experimental_features))
         .route("/_synapse/admin/v1/jitsi/config", get(get_jitsi_config))
@@ -274,6 +275,75 @@ pub async fn get_health(_admin: AdminUser, State(ctx): State<AdminContext>) -> R
     Ok(Json(json!({
         "status": if db_ok { "ok" } else { "error" },
         "database": if db_ok { "ok" } else { "error" }
+    })))
+}
+
+/// S-9-A1: Rate limit diagnostic endpoint — exposes current rate limit configuration
+/// and runtime statistics for troubleshooting "429 masking" issues.
+///
+/// Returns:
+/// - `enabled`: global on/off switch
+/// - `backend`: Auto | Redis | Local
+/// - `redis_available`: whether Redis is actually available
+/// - `active_rules`: number of endpoint-specific rules
+/// - `exempt_paths`: count of exempt paths
+/// - `metrics`: real-time counters from `rate_limit_metrics`
+#[axum::debug_handler]
+pub async fn get_rate_limit_status(
+    _admin: AdminUser,
+    State(ctx): State<AdminContext>,
+) -> Result<Json<Value>, ApiError> {
+    use synapse_common::RateLimitBackend;
+
+    let file_config = ctx.rate_limit_config_manager
+        .as_ref()
+        .map(|manager| manager.get_config());
+    let rl_config = &ctx.config.rate_limit;
+
+    let (enabled, backend, active_rules, exempt_paths) = if let Some(fc) = &file_config {
+        (
+            fc.enabled,
+            format!("{:?}", fc.backend),
+            fc.endpoints.len(),
+            fc.exempt_paths.len() + fc.exempt_path_prefixes.len(),
+        )
+    } else {
+        (
+            rl_config.enabled,
+            format!("{:?}", RateLimitBackend::Auto),
+            rl_config.endpoints.len(),
+            rl_config.exempt_paths.len() + rl_config.exempt_path_prefixes.len(),
+        )
+    };
+
+    let metrics = ctx.cache.rate_limit_metrics(&ctx.metrics);
+
+    let requests_total = metrics.requests_total.get();
+    let rejected_total = metrics.rejected_total.get();
+    let allowed_total = metrics.allowed_total.get();
+    let exempt_total = metrics.exempt_total.get();
+    let fail_open_total = metrics.fail_open_total.get();
+    let fail_closed_total = metrics.fail_closed_total.get();
+
+    Ok(Json(json!({
+        "enabled": enabled,
+        "backend": backend,
+        "redis_available": ctx.cache.is_redis_enabled(),
+        "active_rules": active_rules,
+        "exempt_paths": exempt_paths,
+        "metrics": {
+            "requests_total": requests_total,
+            "rejected_total": rejected_total,
+            "allowed_total": allowed_total,
+            "exempt_total": exempt_total,
+            "fail_open_total": fail_open_total,
+            "fail_closed_total": fail_closed_total,
+            "rejected_ratio_percent": if requests_total > 0 {
+                (rejected_total as f64 / requests_total as f64 * 100.0).round()
+            } else {
+                0.0
+            }
+        }
     })))
 }
 
