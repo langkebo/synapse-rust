@@ -98,11 +98,28 @@ pub async fn build_database_pool(config: &Config) -> Result<PgPool, Box<dyn std:
     }
 
     // 运行数据库 Schema 健康检查（在运行时初始化之后）
-    let skip_schema_check = std::env::var("SYNAPSE_SKIP_SCHEMA_CHECK").unwrap_or_default().to_lowercase() == "true";
+    let skip_schema_check_value = std::env::var(SKIP_SCHEMA_CHECK_ENV).ok();
+    let skip_schema_check = schema_check_skip_requested(skip_schema_check_value.as_deref());
 
     if skip_schema_check {
-        ::tracing::warn!("[启动阶段 1/4] ⚠️  跳过数据库 schema 健康检查 (SYNAPSE_SKIP_SCHEMA_CHECK=true)");
+        ::tracing::error!(
+            "[启动阶段 1/4] 🚨 跳过数据库 schema 健康检查 —— 半迁移的 schema 不会在启动时被发现，\
+             运行期可能产生脏数据。仅在应急恢复时使用，并在恢复后立即取消该变量。"
+        );
     } else {
+        if let Some(unrecognised) = skip_schema_check_value.as_deref().filter(|v| !v.trim().is_empty()) {
+            // A stale `=true` (the value this bypass used to accept) must not fail
+            // silently in the "safe" direction without saying so — otherwise an
+            // operator believes the check is still being skipped while it is not.
+            ::tracing::warn!(
+                "[启动阶段 1/4] {}={} 不是可识别的跳过值，schema 健康检查照常执行。\
+                 如需应急跳过，请显式设置 {}={}",
+                SKIP_SCHEMA_CHECK_ENV,
+                unrecognised,
+                SKIP_SCHEMA_CHECK_ENV,
+                SKIP_SCHEMA_CHECK_SENTINEL
+            );
+        }
         ::tracing::info!("[启动阶段 1/4] 开始数据库 schema 健康检查...");
         match run_schema_health_check(&pool, false).await {
             Ok(result) => {
@@ -162,6 +179,48 @@ pub async fn build_database_pool(config: &Config) -> Result<PgPool, Box<dyn std:
             // Fallback: if for some reason there are still outstanding
             // references, clone the underlying pool (PgPool::clone is cheap).
             Ok((*arc).clone())
+        }
+    }
+}
+
+/// Environment variable that bypasses the startup schema health check.
+const SKIP_SCHEMA_CHECK_ENV: &str = "SYNAPSE_SKIP_SCHEMA_CHECK";
+
+/// The only value accepted for [`SKIP_SCHEMA_CHECK_ENV`].
+///
+/// This used to accept a plain `true`, so the bypass could be switched on by habit,
+/// by a copy-pasted troubleshooting snippet, or by a stale `.env` line — and a
+/// boolean that reads like an ordinary feature flag never looks like a decision.
+/// Requiring a sentence makes it deliberate; the value is checked
+/// case-insensitively and compared after trimming.
+const SKIP_SCHEMA_CHECK_SENTINEL: &str = "I_UNDERSTAND_SCHEMA_CHECKS_ARE_SKIPPED";
+
+/// Whether the caller explicitly asked to skip the schema health check.
+///
+/// Fail-closed: anything other than the sentinel — including the old `true`, an
+/// empty string, or an unrelated value — means "do not skip", so the schema check
+/// runs exactly as if the variable were unset.
+fn schema_check_skip_requested(value: Option<&str>) -> bool {
+    value.is_some_and(|v| v.trim().eq_ignore_ascii_case(SKIP_SCHEMA_CHECK_SENTINEL))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn schema_check_skip_requires_the_explicit_sentinel() {
+        assert!(schema_check_skip_requested(Some(SKIP_SCHEMA_CHECK_SENTINEL)));
+        // Whitespace and case are tolerated: the point is deliberateness, not obfuscation.
+        assert!(schema_check_skip_requested(Some("  i_understand_schema_checks_are_skipped  ")));
+    }
+
+    #[test]
+    fn schema_check_skip_is_fail_closed_for_everything_else() {
+        // `true` is the value this bypass used to accept; it must now fall through to
+        // the real schema check rather than silently disabling it.
+        for value in [None, Some(""), Some("   "), Some("true"), Some("TRUE"), Some("1"), Some("yes"), Some("skip")] {
+            assert!(!schema_check_skip_requested(value), "{value:?} must NOT skip the schema health check");
         }
     }
 }

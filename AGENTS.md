@@ -140,7 +140,7 @@ The codebase generally follows `route (synapse-web/src/) -> service (synapse-ser
 ### Storage and schema model
 - Postgres is the primary source of truth.
 - `synapse-storage/src/lib.rs` re-exports domain-specific storages; most features have a corresponding storage module.
-- `synapse-storage/src/schema_health_check.rs` is part of startup validation. Missing critical tables/columns fail startup. **Exception**: `SYNAPSE_SKIP_SCHEMA_CHECK=true` bypasses all schema health checks at startup (logged at warn level) — this escape hatch exists for emergency recovery scenarios and should never be used in production.
+- `synapse-storage/src/schema_health_check.rs` is part of startup validation. Missing critical tables/columns fail startup. **Exception**: `SYNAPSE_SKIP_SCHEMA_CHECK=I_UNDERSTAND_SCHEMA_CHECKS_ARE_SKIPPED` bypasses all schema health checks at startup (logged at **error** level) — this escape hatch exists for emergency recovery scenarios and should never be used in production. It deliberately does **not** accept `true`: a plain boolean could be switched on by habit, by a copy-pasted snippet or by a stale `.env` line, and a bypass that reads like an ordinary feature flag never looks like a decision. Any other value (including the old `true`) means "do not skip" — the check runs as if the variable were unset, with a warning naming the required sentinel (`schema_check_skip_requested` in `src/server/database.rs`).
 - Runtime DB initialization is intentionally not the default path. The expected migration flow is externalized through `docker/db_migrate.sh`; server startup only performs schema health checks unless `SYNAPSE_ENABLE_RUNTIME_DB_INIT` is explicitly enabled and `SYNAPSE_SKIP_DB_INIT` is not set.
 
 ### Configuration model

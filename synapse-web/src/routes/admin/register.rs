@@ -161,6 +161,19 @@ fn ensure_admin_registration_ip_policy(
     Ok(())
 }
 
+/// Whether the supplied approval token matches any configured token.
+///
+/// Constant-time comparison, folded **without** early exit: `iter().any(..)` stops at
+/// the first match, so both the byte-wise comparison and the number of candidates
+/// inspected would leak through timing. Every other secret check in this crate goes
+/// through `secure_compare` — this was the one outlier.
+///
+/// `secure_compare` also requires equal lengths, so a prefix of a configured token
+/// does not match. Tokens are compared byte-for-byte (case-sensitive).
+fn approval_token_matches(configured: &[String], provided: &str) -> bool {
+    configured.iter().fold(false, |matched, candidate| matched | synapse_common::secure_compare(candidate, provided))
+}
+
 async fn verify_additional_registration_controls(
     ctx: &AdminContext,
     payload: &RegisterRequest,
@@ -192,7 +205,7 @@ async fn verify_additional_registration_controls(
             .as_ref()
             .ok_or_else(|| register_error_response(400, "M_INVALID_PARAM", "approval_token is required"))?;
 
-        if !ctx.config.admin_registration.approval_tokens.iter().any(|token| token == approval_token) {
+        if !approval_token_matches(&ctx.config.admin_registration.approval_tokens, approval_token) {
             return Err(register_error_response(403, "M_FORBIDDEN", "Manual approval token is invalid"));
         }
     }
@@ -297,5 +310,27 @@ mod tests {
         assert!(ip_matches_whitelist("127.0.0.1".parse().unwrap(), &whitelist));
         assert!(ip_matches_whitelist("10.10.1.3".parse().unwrap(), &whitelist));
         assert!(!ip_matches_whitelist("192.168.1.10".parse().unwrap(), &whitelist));
+    }
+
+    // The approval-token branch of `verify_additional_registration_controls` had no
+    // coverage at all before these tests; `require_manual_approval: true` never
+    // appeared in any fixture.
+    #[test]
+    fn approval_token_matches_any_configured_token() {
+        let configured = vec!["first-approval-token".to_string(), "second-approval-token".to_string()];
+        assert!(approval_token_matches(&configured, "first-approval-token"));
+        // The fold must reach the last candidate as well as the first.
+        assert!(approval_token_matches(&configured, "second-approval-token"));
+    }
+
+    #[test]
+    fn approval_token_rejects_unknown_empty_and_prefix_values() {
+        let configured = vec!["a-configured-approval-token".to_string()];
+        assert!(!approval_token_matches(&configured, "a-configured-approval-toke"));
+        assert!(!approval_token_matches(&configured, "a-configured-approval-token-plus"));
+        assert!(!approval_token_matches(&configured, "A-CONFIGURED-APPROVAL-TOKEN"));
+        assert!(!approval_token_matches(&configured, ""));
+        // No tokens configured means manual approval can never be satisfied.
+        assert!(!approval_token_matches(&[], "a-configured-approval-token"));
     }
 }

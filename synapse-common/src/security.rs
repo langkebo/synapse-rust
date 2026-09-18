@@ -207,8 +207,36 @@ impl ConstantTimeComparison {
 
 use std::net::IpAddr;
 
+/// Strip the square brackets `url::Url::host_str()` keeps around IPv6 literals
+/// (`"[::1]"` → `"::1"`) so the host can be parsed with `IpAddr::from_str`.
+///
+/// This is the single implementation for that job — the same normalisation is
+/// needed by the SSRF checks, the push-gateway IP-literal check and the
+/// localhost guard.
+pub fn strip_ipv6_brackets(host: &str) -> &str {
+    host.strip_prefix('[').and_then(|inner| inner.strip_suffix(']')).unwrap_or(host)
+}
+
 /// Returns true if ip in blacklist.
+///
+/// IPv4-mapped IPv6 addresses (`::ffff:127.0.0.1`) are checked **twice**: once as
+/// given and once as the IPv4 address they embed. `ipnet::IpNet::contains` never
+/// matches a V6 address against a V4 network, so without the second test a mapped
+/// address slips past every `127.0.0.0/8` / `10.0.0.0/8` style entry — a classic
+/// SSRF bypass. The embedded check is done against the caller's own list rather
+/// than by canonicalising to IPv4 first, so a mapped *public* address
+/// (`::ffff:8.8.8.8`, which embeds no blocked network) stays allowed.
 pub fn is_ip_in_blacklist(ip: &IpAddr, blacklist: &[String]) -> bool {
+    if blacklist_matches(ip, blacklist) {
+        return true;
+    }
+    match ip {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().is_some_and(|v4| blacklist_matches(&IpAddr::V4(v4), blacklist)),
+        IpAddr::V4(_) => false,
+    }
+}
+
+fn blacklist_matches(ip: &IpAddr, blacklist: &[String]) -> bool {
     let ip_str = ip.to_string();
     for cidr in blacklist {
         if cidr.contains('/') {
@@ -238,6 +266,13 @@ pub fn check_url_against_blacklist(url: &str, blacklist: &[String]) -> Result<()
 /// - 解析失败（DNS 错误/无记录）现在返回 Err（fail-closed），旧实现静默放行；
 /// - 返回解析结果而非丢弃，供钉扎复用。
 pub fn resolve_host_checked(host: &str, blacklist: &[String]) -> Result<Vec<IpAddr>, String> {
+    // `Url::host_str()` hands back IPv6 literals still wrapped in brackets, and
+    // `"[::1]".parse::<IpAddr>()` fails — which used to send every IPv6 literal
+    // into the DNS branch, where it failed with a confusing "nodename nor
+    // servname provided". That blocked loopback by accident, but it also made
+    // every legitimate IPv6 target unusable. Normalise first so the literal is
+    // parsed (and therefore blacklist-checked) as the address it is.
+    let host = strip_ipv6_brackets(host);
     if let Ok(ip) = host.parse::<IpAddr>() {
         if is_ip_in_blacklist(&ip, blacklist) {
             return Err(format!("IP {ip} is in blacklist"));
@@ -639,6 +674,87 @@ mod tests {
         assert!(is_ip_in_blacklist(&loopback, &blacklist));
         assert!(is_ip_in_blacklist(&in_cidr, &blacklist));
         assert!(!is_ip_in_blacklist(&outside_cidr, &blacklist));
+    }
+
+    // ── IPv4-mapped IPv6: the classic SSRF bypass ──────────────────────────
+    //
+    // `ipnet::IpNet::contains` never matches a V6 address against a V4 network, so
+    // `::ffff:127.0.0.1` used to pass every `127.0.0.0/8` entry. It was only ever
+    // blocked because the bracketed URL literal failed DNS lookup — i.e. by
+    // accident, which normalising the brackets would have removed.
+    #[test]
+    fn ipv4_mapped_ipv6_loopback_is_blacklisted() {
+        let blacklist = ssrf_blacklist();
+        let mapped: IpAddr = "::ffff:127.0.0.1".parse().unwrap();
+        assert!(is_ip_in_blacklist(&mapped, &blacklist), "mapped loopback must be blocked");
+    }
+
+    #[test]
+    fn ipv4_mapped_ipv6_private_and_metadata_ranges_are_blacklisted() {
+        let blacklist = ssrf_blacklist();
+        for addr in ["::ffff:10.0.0.1", "::ffff:192.168.1.1", "::ffff:169.254.169.254", "::ffff:172.16.0.1"] {
+            let mapped: IpAddr = addr.parse().unwrap();
+            assert!(is_ip_in_blacklist(&mapped, &blacklist), "{addr} must be blocked");
+        }
+    }
+
+    #[test]
+    fn ipv4_mapped_ipv6_public_address_stays_allowed() {
+        // The embedded address is checked against the caller's list rather than
+        // canonicalised unconditionally, so a mapped public address still works.
+        let blacklist = ssrf_blacklist();
+        let mapped: IpAddr = "::ffff:8.8.8.8".parse().unwrap();
+        assert!(!is_ip_in_blacklist(&mapped, &blacklist));
+    }
+
+    #[test]
+    fn strip_ipv6_brackets_normalises_only_bracketed_hosts() {
+        assert_eq!(strip_ipv6_brackets("[::1]"), "::1");
+        assert_eq!(strip_ipv6_brackets("[2001:db8::1]"), "2001:db8::1");
+        assert_eq!(strip_ipv6_brackets("::1"), "::1");
+        assert_eq!(strip_ipv6_brackets("example.com"), "example.com");
+        assert_eq!(strip_ipv6_brackets("[::1"), "[::1");
+        assert_eq!(strip_ipv6_brackets("::1]"), "::1]");
+    }
+
+    // ── IPv6 literals must be checked as addresses, not DNS names ──────────
+
+    #[test]
+    fn ipv6_loopback_literal_url_is_rejected_as_blacklisted() {
+        let blacklist = ssrf_blacklist();
+        let error = check_url_and_resolve("https://[::1]/_matrix/key/v2/server", &blacklist)
+            .expect_err("IPv6 loopback must be rejected");
+        // Rejected by the blacklist, not by a DNS failure: a DNS error would mean the
+        // literal never reached `is_ip_in_blacklist`.
+        assert!(error.contains("blacklist"), "must be the blacklist that rejects it, got: {error}");
+    }
+
+    #[test]
+    fn ipv6_mapped_loopback_literal_url_is_rejected() {
+        let blacklist = ssrf_blacklist();
+        let error = check_url_and_resolve("https://[::ffff:127.0.0.1]/_matrix/key/v2/server", &blacklist)
+            .expect_err("mapped loopback must be rejected");
+        assert!(error.contains("blacklist"), "got: {error}");
+    }
+
+    #[test]
+    fn ipv6_unique_local_and_link_local_literal_urls_are_rejected() {
+        let blacklist = ssrf_blacklist();
+        for url in ["https://[fc00::1]/x", "https://[fe80::1]/x"] {
+            let error = check_url_and_resolve(url, &blacklist).expect_err("private IPv6 must be rejected");
+            assert!(error.contains("blacklist"), "{url}: {error}");
+        }
+    }
+
+    #[test]
+    fn public_ipv6_literal_url_resolves_to_that_address() {
+        // Regression: every IPv6 literal used to end in the DNS branch and fail with
+        // "nodename nor servname provided", so IPv6 federation targets were unusable.
+        let blacklist = ssrf_blacklist();
+        let (host, ips) = check_url_and_resolve("https://[2001:4860:4860::8888]/_matrix/key/v2/server", &blacklist)
+            .expect("a public IPv6 literal must be usable");
+        assert_eq!(host, "[2001:4860:4860::8888]");
+        assert_eq!(ips, vec!["2001:4860:4860::8888".parse::<IpAddr>().unwrap()]);
     }
 
     #[test]

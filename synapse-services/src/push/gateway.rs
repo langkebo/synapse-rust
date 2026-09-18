@@ -28,13 +28,9 @@ pub fn validate_push_gateway_url(url: &str) -> Result<(), ApiError> {
     let host = parsed.host_str().ok_or_else(|| ApiError::bad_request("push gateway url missing host"))?;
 
     // 1) IP literal — push gateways should be DNS-named for cert rotation.
-    // `url::Url::host_str()` returns bracketed form `[::1]` for IPv6, so we
-    // strip brackets before parsing to handle both IPv4 and IPv6 literals.
-    let ip_host = if host.starts_with('[') {
-        host.strip_prefix('[').and_then(|s| s.strip_suffix(']')).unwrap_or(host)
-    } else {
-        host
-    };
+    // `url::Url::host_str()` returns the bracketed form `[::1]` for IPv6, so the
+    // brackets are stripped before parsing to catch both IPv4 and IPv6 literals.
+    let ip_host = synapse_common::security::strip_ipv6_brackets(host);
     if let Ok(ip) = ip_host.parse::<IpAddr>() {
         return Err(ApiError::forbidden(format!("push gateway host is IP literal: {ip}")));
     }

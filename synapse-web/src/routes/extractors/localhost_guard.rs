@@ -165,7 +165,7 @@ fn is_local_registration_origin(value: &str) -> bool {
     if host.eq_ignore_ascii_case("localhost") {
         return true;
     }
-    let normalized_host = host.trim_matches(|c| c == '[' || c == ']');
+    let normalized_host = synapse_common::security::strip_ipv6_brackets(host);
     normalized_host.parse::<IpAddr>().map(|ip| ip.is_loopback()).unwrap_or(false)
 }
 
@@ -189,7 +189,7 @@ fn is_local_registration_host(value: &str) -> bool {
         return true;
     }
 
-    let normalized_host = host.trim_matches(|c| c == '[' || c == ']');
+    let normalized_host = synapse_common::security::strip_ipv6_brackets(host);
     normalized_host.parse::<IpAddr>().map(|ip| ip.is_loopback()).unwrap_or(false)
 }
 
