@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": true
   },
-  "entry_count": 1147,
+  "entry_count": 1148,
   "entries": [
     {
       "method": "GET",
@@ -8142,6 +8142,13 @@
       "path_params": [
         "media_id"
       ],
+      "query_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/rate-limit-status",
+      "registered_by": "admin::server",
+      "path_params": [],
       "query_params": []
     },
     {

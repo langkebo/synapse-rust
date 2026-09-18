@@ -70,7 +70,11 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // 基线内容变化 ⇒ 按上面这段说明把常量更新为新报告的 `left:` 值。
 // 2026-10-01（第二次）：`ck_room_memberships_valid` 加入 'forget' 并把 15 处
 // 约束守卫改为 schema 级判断，基线内容再次变化 ⇒ 按本守卫说明更新为最新 `left:` 值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "42002cba863738f8";
+// 2026-09-18（第三次）：删除 `moderation_actions` / `moderation_rules` /
+// `moderation_logs` 三张表及其索引（moderation 域整体下线），基线内容变化 ⇒
+// 更新为最新 `left:` 值。旧值 42002cba863738f8 对应的陈旧模板
+// `test_isolation_template_42002cba863738f8` 会在下次模板重建时被清理。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "4b492b815f02197b";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

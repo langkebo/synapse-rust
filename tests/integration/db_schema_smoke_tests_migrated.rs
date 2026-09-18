@@ -8,9 +8,6 @@ use synapse_rust::e2ee::verification::models::{
 };
 use synapse_rust::e2ee::verification::storage::VerificationStorage;
 use synapse_services::worker::types::{AssignTaskRequest, RegisterWorkerRequest, WorkerType};
-use synapse_storage::moderation::{
-    CreateModerationRuleParams, ModerationAction, ModerationLogStorage, ModerationRuleType, ModerationStorage,
-};
 use synapse_storage::room_summary::RoomSummaryStorage;
 use synapse_storage::space::SpaceStorage;
 use synapse_storage::worker::WorkerStorage;
@@ -331,23 +328,14 @@ async fn test_device_trust_schema_smoke_roundtrip() {
 }
 
 #[tokio::test]
-async fn test_verification_and_moderation_schema_smoke_roundtrip() {
+async fn test_verification_schema_smoke_roundtrip() {
     let pool = crate::require_test_pool().await;
 
-    for table_name in [
-        "verification_requests",
-        "verification_sas",
-        "verification_qr",
-        "moderation_actions",
-        "moderation_rules",
-        "moderation_logs",
-    ] {
+    for table_name in ["verification_requests", "verification_sas", "verification_qr"] {
         assert_table_exists(&pool, table_name).await;
     }
 
     let verification_storage = VerificationStorage::new(&pool);
-    let moderation_storage = ModerationStorage::new(pool.clone());
-    let moderation_log_storage = ModerationLogStorage::new(pool.clone());
     let suffix = unique_id();
     let tx_id = format!("txn_{suffix}");
     let request = VerificationRequest {
@@ -398,65 +386,6 @@ async fn test_verification_and_moderation_schema_smoke_roundtrip() {
         .expect("Verification request should exist");
     assert_eq!(loaded_request.transaction_id, tx_id);
 
-    let (creator, room_id) = seed_room(&pool, suffix + 20_000, "moderation_smoke").await;
-    let created_rule = moderation_storage
-        .create_rule(CreateModerationRuleParams {
-            rule_type: ModerationRuleType::Keyword,
-            pattern: "forbidden".to_string(),
-            action: ModerationAction::Flag,
-            reason: Some("schema smoke".to_string()),
-            created_by: creator.clone(),
-            server_id: Some("localhost".to_string()),
-            priority: Some(50),
-        })
-        .await
-        .expect("Failed to create moderation rule");
-    moderation_log_storage
-        .log_action(&created_rule.rule_id, "$moderation_event", &room_id, &creator, "content-hash", "flag", 0.9)
-        .await
-        .expect("Failed to create moderation log");
-
-    sqlx::query(
-        "INSERT INTO moderation_actions (user_id, action_type, reason, report_id, created_ts, expires_at) VALUES ($1, $2, $3, $4, $5, $6)",
-    )
-    .bind(&creator)
-    .bind("warn")
-    .bind("schema smoke")
-    .bind(1_i64)
-    .bind(0_i64)
-    .bind(1_000_i64)
-    .execute(&*pool)
-    .await
-    .expect("Failed to create moderation action");
-
-    let room_logs =
-        moderation_log_storage.get_logs_for_room(&room_id, 10).await.expect("Failed to fetch moderation logs");
-    assert_eq!(room_logs.len(), 1);
-
-    let moderation_action_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM moderation_actions WHERE user_id = $1 AND action_type = $2")
-            .bind(&creator)
-            .bind("warn")
-            .fetch_one(&*pool)
-            .await
-            .expect("Failed to count moderation actions");
-    assert_eq!(moderation_action_count, 1);
-
-    sqlx::query("DELETE FROM moderation_actions WHERE user_id = $1")
-        .bind(&creator)
-        .execute(&*pool)
-        .await
-        .expect("Failed to cleanup moderation_actions");
-    sqlx::query("DELETE FROM moderation_logs WHERE rule_id = $1")
-        .bind(&created_rule.rule_id)
-        .execute(&*pool)
-        .await
-        .expect("Failed to cleanup moderation_logs");
-    sqlx::query("DELETE FROM moderation_rules WHERE rule_id = $1")
-        .bind(&created_rule.rule_id)
-        .execute(&*pool)
-        .await
-        .expect("Failed to cleanup moderation_rules");
     sqlx::query("DELETE FROM verification_qr WHERE tx_id = $1")
         .bind(&tx_id)
         .execute(&*pool)
@@ -472,7 +401,6 @@ async fn test_verification_and_moderation_schema_smoke_roundtrip() {
         .execute(&*pool)
         .await
         .expect("Failed to cleanup verification_requests");
-    cleanup_room(&pool, &room_id, &creator).await;
 }
 
 #[tokio::test]

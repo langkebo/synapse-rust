@@ -275,52 +275,6 @@ TABLE_CONTRACTS: Dict[str, Dict[str, List[str]]] = {
             "scanned_data",
         ],
     },
-    "moderation_rules": {
-        "columns": [
-            "rule_id",
-            "rule_type",
-            "pattern",
-            "action",
-            "reason",
-            "created_by",
-            "created_ts",
-            "updated_ts",
-            "is_active",
-            "priority",
-        ],
-        "indexes": [
-            "idx_moderation_rules_active_priority",
-            "idx_moderation_rules_type_active",
-        ],
-    },
-    "moderation_logs": {
-        "columns": [
-            "event_id",
-            "room_id",
-            "sender",
-            "rule_id",
-            "action_taken",
-            "content_hash",
-            "confidence",
-            "created_ts",
-        ],
-        "indexes": [
-            "idx_moderation_logs_event_created",
-            "idx_moderation_logs_room_created",
-            "idx_moderation_logs_sender_created",
-        ],
-    },
-    "moderation_actions": {
-        "columns": [
-            "user_id",
-            "action_type",
-            "reason",
-            "report_id",
-            "created_ts",
-            "expires_at",
-        ],
-        "indexes": ["idx_moderation_actions_user_created"],
-    },
     "replication_positions": {
         "columns": ["worker_id", "stream_name", "stream_position", "updated_ts"],
         "constraints": [

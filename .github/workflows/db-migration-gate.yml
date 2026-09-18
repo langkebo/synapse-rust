@@ -68,7 +68,7 @@ jobs:
         run: |
           mkdir -p artifacts
           python3 scripts/check_schema_contract_coverage.py \
-            --threshold 90 \
+            --threshold 100 \
             --report artifacts/contract_coverage_report.md \
             --json-report artifacts/contract_coverage_report.json
 

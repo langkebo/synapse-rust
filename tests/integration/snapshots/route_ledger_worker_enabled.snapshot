@@ -1,5 +1,5 @@
 # route-ledger snapshot: worker-enabled
-count: 1139
+count: 1140
 
 DELETE /_matrix/admin/v1/external_services/{as_id} [external_service]
 DELETE /_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device [assembly::create_router]
@@ -565,6 +565,7 @@ GET /_synapse/admin/v1/password_auth_providers [module]
 GET /_synapse/admin/v1/policy/status [admin::policy]
 GET /_synapse/admin/v1/push/config [push_notification]
 GET /_synapse/admin/v1/quarantine_media/{media_id}/changes [admin::media]
+GET /_synapse/admin/v1/rate-limit-status [admin::server]
 GET /_synapse/admin/v1/register/nonce [admin::register]
 GET /_synapse/admin/v1/registration_tokens [admin::token]
 GET /_synapse/admin/v1/registration_tokens/{token} [admin::token]

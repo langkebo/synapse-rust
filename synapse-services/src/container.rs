@@ -13,6 +13,7 @@ use std::sync::Arc;
 use synapse_common::server_metrics::ServerMetrics;
 use synapse_common::task_queue::RedisTaskQueue;
 use synapse_federation::event_broadcaster::EventBroadcaster;
+use synapse_storage::invite_blocklist::InviteBlocklistStorage;
 use synapse_storage::*;
 
 use crate::wiring;

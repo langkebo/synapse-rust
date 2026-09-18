@@ -3174,47 +3174,6 @@ CREATE TABLE IF NOT EXISTS scheduled_notifications (
     CONSTRAINT fk_scheduled_notifications_notification FOREIGN KEY (notification_id) REFERENCES server_notifications(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS moderation_actions (
-    id BIGSERIAL PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    action_type TEXT NOT NULL,
-    reason TEXT,
-    report_id BIGINT,
-    created_ts BIGINT NOT NULL,
-    expires_at BIGINT,
-    revoked BOOLEAN NOT NULL DEFAULT FALSE,
-    revoked_reason TEXT,
-    revoked_at BIGINT,
-    CONSTRAINT fk_moderation_actions_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS moderation_rules (
-    id BIGSERIAL PRIMARY KEY,
-    rule_id TEXT NOT NULL UNIQUE,
-    server_id TEXT,
-    rule_type TEXT NOT NULL,
-    pattern TEXT NOT NULL,
-    action TEXT NOT NULL,
-    reason TEXT,
-    created_by TEXT NOT NULL,
-    created_ts BIGINT NOT NULL,
-    updated_ts BIGINT NOT NULL,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    priority INTEGER NOT NULL DEFAULT 100
-);
-
-CREATE TABLE IF NOT EXISTS moderation_logs (
-    id BIGSERIAL PRIMARY KEY,
-    rule_id TEXT NOT NULL,
-    event_id TEXT NOT NULL,
-    room_id TEXT NOT NULL,
-    sender TEXT NOT NULL,
-    content_hash TEXT NOT NULL,
-    action_taken TEXT NOT NULL,
-    confidence REAL NOT NULL,
-    created_ts BIGINT NOT NULL
-);
-
 -- OpenClaw / AI Integration Tables
 
 
@@ -5422,7 +5381,6 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_rooms_federated
 CREATE INDEX IF NOT EXISTS idx_blocked_users_blocked_id ON blocked_users(blocked_id);
 CREATE INDEX IF NOT EXISTS idx_friend_categories_user_id ON friend_categories(user_id);
 CREATE INDEX IF NOT EXISTS idx_friends_friend_id ON friends(friend_id);
-CREATE INDEX IF NOT EXISTS idx_moderation_actions_user_id ON moderation_actions(user_id);
 CREATE INDEX IF NOT EXISTS idx_notification_delivery_log_notification_id ON notification_delivery_log(notification_id);
 CREATE INDEX IF NOT EXISTS idx_notification_delivery_log_user_id ON notification_delivery_log(user_id);
 CREATE INDEX IF NOT EXISTS idx_presence_subscriptions_target_id ON presence_subscriptions(target_id);

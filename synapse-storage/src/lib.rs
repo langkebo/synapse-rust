@@ -80,8 +80,6 @@ pub mod media_quota;
 pub mod membership;
 /// The `migration_checks` module.
 pub mod migration_checks;
-/// The `moderation` module.
-pub mod moderation;
 /// The `module` module.
 pub mod module;
 /// The `monitoring` module.
@@ -231,7 +229,7 @@ pub mod test_utils;
 // All storage modules are now grouped into a domain. The domain globs below
 // flat-re-export every grouped module's public types at the crate root for
 // backward compatibility. Domains: account, admin, application, auth, e2ee,
-// event, infra, media, moderation, oidc, push, room, space, sync (always on)
+// event, infra, media, oidc, push, room, space, sync (always on)
 // plus rtc (voip-tracking) feature-gated group.
 
 // Domain group globs — backward-compatibility flat re-exports via domain modules.
@@ -246,7 +244,6 @@ pub use e2ee::*; // e2ee domain group (dehydrated_device, e2ee_audit)
 pub use event::*; // event domain group (event)
 pub use infra::*; // infra domain group (background_update, feature_flags, federation_blacklist, federation_queue, maintenance, monitoring, performance, rate_limit, schema_validator, worker, pruning, schema_health_check, trigram_ranking; server_notification when feature-gated)
 pub use media::*; // media domain group (media, media_quota, url_preview_storage; voice when feature-gated)
-pub use moderation::*; // moderation domain group (moderation, invite_blocklist)
 pub use oidc::*; // oidc domain group (oauth_client_storage, oidc_session_storage, oidc_user_mapping)
 pub use push::*; // push domain group (push, push_notification)
 pub use space::*; // space domain group (space, sticky_event)

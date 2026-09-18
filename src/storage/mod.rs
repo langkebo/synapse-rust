@@ -25,7 +25,6 @@ pub use synapse_storage::maintenance;
 #[cfg(feature = "voip-tracking")]
 pub use synapse_storage::matrixrtc;
 pub use synapse_storage::membership;
-pub use synapse_storage::moderation;
 pub use synapse_storage::module;
 pub use synapse_storage::monitoring;
 pub use synapse_storage::openid_token;
@@ -60,7 +59,7 @@ pub use synapse_storage::{initialize_database, Database};
 // Domain group re-exports — consumers can use `synapse_rust::storage::room::Type`
 // or `synapse_rust::storage::auth::Type` instead of flat module paths.
 // Only domain modules not already re-exported above as individual modules are
-// listed here (event, moderation, room, space are already re-exported above).
+// listed here (event, room, space are already re-exported above).
 #[cfg(feature = "voip-tracking")]
 pub use synapse_storage::rtc;
 pub use synapse_storage::{account, admin, application, auth, e2ee, infra, media, oidc, push, sync};

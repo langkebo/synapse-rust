@@ -1,5 +1,5 @@
 fn all_derived_always_rows() -> Vec<DerivedRoute> {
-    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1128);
+    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1129);
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/", "assembly::create_router");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
@@ -5343,6 +5343,10 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             "/_synapse/admin/v1/quarantine_media/{media_id}/changes",
             "admin::media",
         );
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/rate-limit-status", "admin::server");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {

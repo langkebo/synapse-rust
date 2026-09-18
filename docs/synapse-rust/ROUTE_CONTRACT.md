@@ -8,7 +8,7 @@
 
 ## 总览
 
-- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1147**
+- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1148**
 - 含路由注册的模块文件：**66**
 - `derived_routes.rs` 中的 `registered_by` 标签：**74**
 - 已被派生表覆盖的模块：**66**
@@ -973,7 +973,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/client/v3/thirdparty/user`
 - `GET` `/_matrix/client/v3/thirdparty/user/{protocol}`
 
-### 管理 (Admin) （141 条）
+### 管理 (Admin) （142 条）
 
 #### `admin/room/mod.rs` — 45 条 ✅派生表
 
@@ -1052,6 +1052,25 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_synapse/admin/v1/users/{user_id}/admin`
 - `PUT` `/_synapse/admin/v2/users/{user_id}`
 
+#### `admin/server.rs` — 16 条 ✅派生表
+
+- `GET` `/_synapse/admin/v1/config`
+- `GET` `/_synapse/admin/v1/experimental_features`
+- `GET` `/_synapse/admin/v1/health`
+- `GET` `/_synapse/admin/v1/invite/allowlist`
+- `GET` `/_synapse/admin/v1/invite/blocklist`
+- `GET` `/_synapse/admin/v1/jitsi/config`
+- `GET` `/_synapse/admin/v1/rate-limit-status`
+- `GET` `/_synapse/admin/v1/server`
+- `GET` `/_synapse/admin/v1/server_version`
+- `GET` `/_synapse/admin/v1/statistics`
+- `GET` `/_synapse/admin/v1/status`
+- `GET` `/_synapse/admin/v1/whoami`
+- `GET` `/_synapse/admin/v1/whois/{user_id}`
+- `GET` `/_synapse/admin/v1/whois/{user_id}/{device_id}`
+- `POST` `/_synapse/admin/v1/purge_media_cache`
+- `POST` `/_synapse/admin/v1/restart`
+
 #### `admin/notification.rs` — 15 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/notifications/{notification_id}`
@@ -1069,24 +1088,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_synapse/admin/v1/notifications/{notification_id}`
 - `PUT` `/_synapse/admin/v1/notifications/{notification_id}/deactivate`
 - `PUT` `/_synapse/admin/v1/users/{user_id}/notification`
-
-#### `admin/server.rs` — 15 条 ✅派生表
-
-- `GET` `/_synapse/admin/v1/config`
-- `GET` `/_synapse/admin/v1/experimental_features`
-- `GET` `/_synapse/admin/v1/health`
-- `GET` `/_synapse/admin/v1/invite/allowlist`
-- `GET` `/_synapse/admin/v1/invite/blocklist`
-- `GET` `/_synapse/admin/v1/jitsi/config`
-- `GET` `/_synapse/admin/v1/server`
-- `GET` `/_synapse/admin/v1/server_version`
-- `GET` `/_synapse/admin/v1/statistics`
-- `GET` `/_synapse/admin/v1/status`
-- `GET` `/_synapse/admin/v1/whoami`
-- `GET` `/_synapse/admin/v1/whois/{user_id}`
-- `GET` `/_synapse/admin/v1/whois/{user_id}/{device_id}`
-- `POST` `/_synapse/admin/v1/purge_media_cache`
-- `POST` `/_synapse/admin/v1/restart`
 
 #### `admin/token.rs` — 9 条 ✅派生表
 

@@ -93,7 +93,7 @@ fn test_access_token_storage_path_identity() {
 }
 
 // =============================================================================
-// P7.1: New domain groupings (media, push, event, account, moderation, sync,
+// P7.1: New domain groupings (media, push, event, account, sync,
 //       space, infra, application, oidc)
 // =============================================================================
 
@@ -163,17 +163,6 @@ fn test_account_data_storage_path_identity() {
 fn test_qr_login_storage_path_identity() {
     let legacy_ref: Option<&synapse_storage::QrLoginStorage> = None;
     let grouped_ref: Option<&synapse_storage::account::QrLoginStorage> = None;
-    if let (Some(a), Some(b)) = (legacy_ref, grouped_ref) {
-        assert_same_type(a, b);
-    }
-}
-
-// --- moderation domain grouping (moderation, invite_blocklist) ---
-
-#[test]
-fn test_moderation_storage_path_identity() {
-    let legacy_ref: Option<&synapse_storage::ModerationStorage> = None;
-    let grouped_ref: Option<&synapse_storage::moderation::ModerationStorage> = None;
     if let (Some(a), Some(b)) = (legacy_ref, grouped_ref) {
         assert_same_type(a, b);
     }
