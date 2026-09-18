@@ -35,6 +35,7 @@ type TestFixture = Option<(axum::Router, AppState)>;
 
 static DEFAULT_FIXTURE: OnceCell<TestFixture> = OnceCell::const_new();
 static WORKER_ENABLED_FIXTURE: OnceCell<TestFixture> = OnceCell::const_new();
+static WORKER_WITHOUT_REPLICATION_FIXTURE: OnceCell<TestFixture> = OnceCell::const_new();
 static DEFAULT_LEDGER: OnceCell<Option<RouteLedger>> = OnceCell::const_new();
 static WORKER_ENABLED_LEDGER: OnceCell<Option<RouteLedger>> = OnceCell::const_new();
 
@@ -43,6 +44,30 @@ async fn default_fixture() -> TestFixture {
         .get_or_init(|| async {
             setup_fresh_test_app_with_config(|container| {
                 super::config_mut(container).federation.allow_ingress = true;
+            })
+            .await
+        })
+        .await
+        .clone()
+}
+
+/// Worker mode ON, HTTP replication left at its **default (false)**.
+///
+/// This is the configuration that used to expose the worker body surface with no
+/// authentication at all: the routes were mounted on `worker.enabled` alone,
+/// while `replication_http_auth_middleware` returned `next.run(request)` when
+/// `replication.http.enabled` was false. See `S1` in
+/// docs/audit/DB_REVIEW_2026-09-17.md §13.7.
+///
+/// `worker.replication.http.enabled` is deliberately NOT set here; that its
+/// default is `false` is pinned by
+/// `synapse_common::config::worker::tests::test_replication_config_default`.
+async fn worker_without_replication_fixture() -> TestFixture {
+    WORKER_WITHOUT_REPLICATION_FIXTURE
+        .get_or_init(|| async {
+            setup_fresh_test_app_with_config(|container| {
+                super::config_mut(container).federation.allow_ingress = true;
+                super::config_mut(container).worker.enabled = true;
             })
             .await
         })
@@ -349,6 +374,48 @@ async fn declared_route_manifest_full_snapshot_matches_worker_enabled_state() {
     };
     let actual = render_ledger_snapshot("worker-enabled", &ledger);
     assert_route_ledger_snapshot("route_ledger_worker_enabled.snapshot", &actual);
+}
+
+/// REGRESSION (S1): worker mode ON but HTTP replication at its default (false)
+/// must NOT expose the worker body surface.
+///
+/// The routes were mounted on `worker.enabled` alone while
+/// `replication_http_auth_middleware` treated "replication disabled" as "no
+/// authentication required" and forwarded the request. With `worker.enabled:
+/// true` and the default `replication.http.enabled: false`, these endpoints were
+/// reachable anonymously — they write replication positions, read the event
+/// stream, and mutate worker/task state. They must now be absent (404);
+/// `worker_body_routes_are_live_when_worker_mode_enabled` covers the enabled
+/// case, which must still be mounted and require the shared secret (401).
+#[tokio::test]
+async fn worker_body_routes_are_absent_without_http_replication() {
+    let Some((app, _state)) = worker_without_replication_fixture().await else {
+        super::skip_or_fail_without_db();
+        return;
+    };
+
+    for (method, uri) in [
+        (Method::POST, "/_synapse/worker/v1/workers/probe-worker/heartbeat"),
+        (Method::POST, "/_synapse/worker/v1/workers/probe-worker/connect"),
+        (Method::GET, "/_synapse/worker/v1/events"),
+        (Method::PUT, "/_synapse/worker/v1/replication/probe-worker/events"),
+        (Method::POST, "/_synapse/worker/v1/tasks/probe-task/complete"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(with_local_connect_info(
+                Request::builder().method(method.clone()).uri(uri).body(Body::empty()).unwrap(),
+            ))
+            .await
+            .expect("oneshot");
+        // 404, not 401/403/200: the surface must not be mounted at all. An
+        // unauthenticated pass-through returned 200/400 here before the fix.
+        assert_eq!(
+            response.status(),
+            StatusCode::NOT_FOUND,
+            "{method} {uri} must not be routed when worker.replication.http.enabled is false"
+        );
+    }
 }
 
 #[cfg(feature = "friends")]
