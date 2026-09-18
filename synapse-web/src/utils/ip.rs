@@ -1,5 +1,61 @@
+use axum::extract::{ConnectInfo, FromRequestParts};
+use axum::http::request::Parts;
 use axum::http::HeaderMap;
+use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
+
+/// Placeholder used when no address can be attributed to a request.
+pub(crate) const UNKNOWN_CLIENT_IP: &str = "unknown";
+
+/// Peer address of the TCP connection, when the server was started with
+/// connect-info support (`into_make_service_with_connect_info`).
+///
+/// Unlike `ConnectInfo<SocketAddr>` this extractor never rejects, so handlers that
+/// only *want* the peer address (for attribution, not for access control) stay
+/// callable from tests that drive the router with `oneshot` and therefore carry no
+/// connection metadata.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PeerAddr(pub Option<SocketAddr>);
+
+impl<S> FromRequestParts<S> for PeerAddr
+where
+    S: Send + Sync,
+{
+    type Rejection = std::convert::Infallible;
+
+    fn from_request_parts(parts: &mut Parts, _state: &S) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        // Read without removing, so downstream extractors can still see it.
+        let peer = parts.extensions.get::<ConnectInfo<SocketAddr>>().map(|connect_info| connect_info.0);
+        async move { Ok(Self(peer)) }
+    }
+}
+
+/// The single place that decides which address a request is attributed to.
+///
+/// Forwarded headers are honoured **only** when the deployment declares them
+/// trustworthy; otherwise the peer address wins. That ordering is the whole point:
+/// a client that can pick the value used for its rate-limit bucket or its login
+/// lockout bucket has no bucket at all — rotating `X-Forwarded-For` would hand it a
+/// fresh allowance on every request. Behind a proxy that *appends* (nginx's
+/// `$proxy_add_x_forwarded_for`), the left-most entry is exactly the client-supplied
+/// one, which is why `extract_client_ip` walks from the right instead.
+///
+/// Both the rate limiter and the login lockout go through here so they cannot drift
+/// apart; see `middleware::rate_limit` and `routes::auth_compat`.
+pub(crate) fn effective_client_ip(
+    headers: &HeaderMap,
+    peer_addr: Option<SocketAddr>,
+    trust_forwarded: bool,
+    priority: &[String],
+    trusted_proxies: &[String],
+) -> String {
+    if trust_forwarded {
+        extract_client_ip(headers, priority, peer_addr, trusted_proxies)
+            .unwrap_or_else(|| UNKNOWN_CLIENT_IP.to_string())
+    } else {
+        peer_addr.map_or_else(|| UNKNOWN_CLIENT_IP.to_string(), |addr| addr.ip().to_string())
+    }
+}
 
 /// Extract the effective client IP from request headers and peer address.
 ///
@@ -190,6 +246,63 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("forwarded", value.parse().unwrap());
         headers
+    }
+
+    // ---------------------------------------------------------------------------
+    // effective_client_ip: the attribution decision shared by the rate limiter and
+    // the login lockout.
+    // ---------------------------------------------------------------------------
+
+    fn priority() -> Vec<String> {
+        vec!["x-forwarded-for".to_string(), "x-real-ip".to_string()]
+    }
+
+    fn loopback_peer() -> SocketAddr {
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 5000)
+    }
+
+    /// S10 regression: with forwarded headers untrusted, a client-supplied
+    /// `X-Forwarded-For` must not decide the bucket. This is the shape the deploy
+    /// stack runs in (`TRUST_FORWARDED_HEADERS` unset), and nginx appends the real
+    /// peer to whatever the client sends, so the left-most entry is attacker text.
+    #[test]
+    fn untrusted_forwarded_headers_are_ignored_in_favour_of_the_peer_address() {
+        let headers = make_headers_with_xff("203.0.113.99, 198.51.100.7");
+        let ip = effective_client_ip(&headers, Some(loopback_peer()), false, &priority(), &[]);
+        assert_eq!(ip, "127.0.0.1", "the peer address must win, not the spoofed left-most entry");
+    }
+
+    #[test]
+    fn untrusted_without_a_peer_address_falls_back_to_unknown() {
+        let headers = make_headers_with_xff("203.0.113.99");
+        assert_eq!(effective_client_ip(&headers, None, false, &priority(), &[]), UNKNOWN_CLIENT_IP);
+    }
+
+    /// Even when forwarding *is* trusted, the right-most untrusted hop is used, so the
+    /// client-supplied left edge still cannot choose the bucket.
+    #[test]
+    fn trusted_forwarding_uses_the_rightmost_untrusted_hop() {
+        let headers = make_headers_with_xff("203.0.113.99, 198.51.100.7");
+        let trusted = vec!["10.0.0.0/8".to_string()];
+        let peer = SocketAddr::new("10.1.2.3".parse().unwrap(), 5000);
+        let ip = effective_client_ip(&headers, Some(peer), true, &priority(), &trusted);
+        assert_eq!(ip, "198.51.100.7", "the injected left-most entry must be skipped");
+    }
+
+    /// A peer that is not a configured proxy cannot make its headers authoritative.
+    #[test]
+    fn an_untrusted_peer_cannot_forward_at_all() {
+        let headers = make_headers_with_xff("203.0.113.99");
+        let trusted = vec!["10.0.0.0/8".to_string()];
+        let ip = effective_client_ip(&headers, Some(loopback_peer()), true, &priority(), &trusted);
+        assert_eq!(ip, "127.0.0.1");
+    }
+
+    #[test]
+    fn trusted_forwarding_without_configured_proxies_uses_the_peer() {
+        let headers = make_headers_with_xff("203.0.113.99");
+        let ip = effective_client_ip(&headers, Some(loopback_peer()), true, &priority(), &[]);
+        assert_eq!(ip, "127.0.0.1");
     }
 
     // ---------------------------------------------------------------------------

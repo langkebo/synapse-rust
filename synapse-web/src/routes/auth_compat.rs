@@ -328,16 +328,6 @@ const LOGIN_MAX_ATTEMPTS: u32 = 5;
 /// Lockout duration in seconds (15 minutes).
 const LOGIN_LOCKOUT_TTL_SECS: u64 = 900;
 
-fn extract_login_client_ip(headers: &HeaderMap) -> String {
-    headers
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.split(',').next())
-        .map(|s| s.trim().to_string())
-        .or_else(|| headers.get("x-real-ip").and_then(|v| v.to_str().ok()).map(|s| s.trim().to_string()))
-        .unwrap_or_else(|| "unknown".to_string())
-}
-
 /// Check if the user is locked out due to too many failed login attempts.
 ///
 /// Failure behavior when Redis is unavailable depends on
@@ -416,6 +406,7 @@ async fn clear_login_failures(cache: &synapse_cache::CacheManager, ip: &str, use
 /// See [`login`].
 pub(crate) async fn login(
     State(ctx): State<AuthContext>,
+    peer: crate::utils::ip::PeerAddr,
     headers: HeaderMap,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -491,7 +482,32 @@ pub(crate) async fn login(
     let mfa_code = body.get("mfa_code").and_then(|v| v.as_str());
 
     // D8: Check login lockout before attempting authentication.
-    let client_ip = extract_login_client_ip(&headers);
+    //
+    // The key must not be attacker-chosen: this used to read the **left-most**
+    // `X-Forwarded-For` entry directly, and since nginx is configured with
+    // `$proxy_add_x_forwarded_for` (which *appends*) that entry is whatever the
+    // client sent — so rotating the header handed the attacker a fresh
+    // `login_fail:{ip}:{username}` bucket and the 5-attempt lockout never engaged.
+    // `effective_client_ip` is the same decision the rate limiter makes: forwarded
+    // headers only when the deployment declares them trustworthy, and even then the
+    // right-most untrusted hop rather than the client-supplied left edge.
+    //
+    // Operational note: this follows `rate_limit.trust_forwarded`, which is **false**
+    // by default and unset in `docker/config/`. Behind a reverse proxy that means the
+    // peer address (the proxy) is used, so the `(ip, username)` key degenerates to
+    // per-username — the lockout still engages, but a client cannot be isolated and
+    // any client can lock a name out. Deployments behind a proxy should set
+    // `TRUST_FORWARDED_HEADERS=true` *and* list the proxy in `trusted_proxies`, which
+    // yields the real client address via the right-most untrusted hop while remaining
+    // unspoofable (an unlisted peer's headers are ignored outright).
+    let rate_limit = &ctx.config.rate_limit;
+    let client_ip = crate::utils::ip::effective_client_ip(
+        &headers,
+        peer.0,
+        rate_limit.trust_forwarded,
+        &rate_limit.ip_header_priority,
+        &rate_limit.trusted_proxies,
+    );
     check_login_lockout(&ctx.cache, &ctx.config, &client_ip, username).await?;
 
     enforce_admin_login_mfa_svc(&ctx.config.security, ctx.user_service.as_ref(), username, mfa_code).await?;

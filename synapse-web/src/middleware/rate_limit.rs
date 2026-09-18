@@ -1,5 +1,5 @@
 use crate::routes::context::CoreContext;
-use crate::utils::ip::extract_client_ip;
+use crate::utils::ip::effective_client_ip;
 use axum::extract::{ConnectInfo, State};
 use axum::http::{HeaderValue, Request};
 use axum::response::{IntoResponse, Response};
@@ -49,12 +49,9 @@ pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Requ
     let peer_addr = request.extensions().get::<ConnectInfo<SocketAddr>>().map(|c| c.0);
     let trusted_proxies = file_config.as_ref().map_or(&config.trusted_proxies, |c| &c.trusted_proxies);
     let trust_forwarded = file_config.as_ref().map_or(config.trust_forwarded, |c| c.trust_forwarded);
-    let ip = if trust_forwarded {
-        extract_client_ip(request.headers(), ip_header_priority, peer_addr, trusted_proxies)
-            .unwrap_or_else(|| "unknown".to_string())
-    } else {
-        peer_addr.map_or_else(|| "unknown".to_string(), |a| a.ip().to_string())
-    };
+    // Shared with the login lockout (`routes::auth_compat`): both must attribute a
+    // request to the same address, or one of them can be steered by a spoofed header.
+    let ip = effective_client_ip(request.headers(), peer_addr, trust_forwarded, ip_header_priority, trusted_proxies);
 
     let (endpoint_id, per_second, burst_size) = match &file_config {
         Some(fc) => {
@@ -198,8 +195,11 @@ pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Requ
 #[cfg(test)]
 mod tests {
     use super::*;
+    // The tests below pin `extract_client_ip`'s hop-walking directly; the middleware
+    // itself now goes through `effective_client_ip`.
     #[cfg(feature = "test-utils")]
     use crate::routes::AppState;
+    use crate::utils::ip::extract_client_ip;
     #[cfg(feature = "test-utils")]
     use axum::http::StatusCode;
     #[cfg(feature = "test-utils")]
