@@ -143,7 +143,8 @@ docker/deploy/
 > 仓库根的 canonical 目录 `../../migrations:/migrations:ro`。
 > 此处**没有** `migrations/` 子目录 —— 也不要再创建。
 >
-> 历史上这里有一份手工同步的副本，它静默漂移：多出 42 个废弃 v7 文件、
+> 历史上这里有一份手工同步的副本，它静默漂移：多出 42 个废弃 v7 血统**正向**文件
+> （连同其 `.undo.sql` 回滚文件共 82 个副本独有文件，另有 `archive/` 49 个）、
 > 少了 13 个新迁移，导致全新部署的 schema 缺少这些修复。
 > `scripts/check_migration_consistency.py`（CI 阻塞步骤）会拦截副本重新出现。
 >

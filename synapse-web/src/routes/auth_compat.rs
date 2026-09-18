@@ -496,10 +496,19 @@ pub(crate) async fn login(
     // by default and unset in `docker/config/`. Behind a reverse proxy that means the
     // peer address (the proxy) is used, so the `(ip, username)` key degenerates to
     // per-username — the lockout still engages, but a client cannot be isolated and
-    // any client can lock a name out. Deployments behind a proxy should set
-    // `TRUST_FORWARDED_HEADERS=true` *and* list the proxy in `trusted_proxies`, which
-    // yields the real client address via the right-most untrusted hop while remaining
-    // unspoofable (an unlisted peer's headers are ignored outright).
+    // any client can lock a name out. Deployments behind a proxy should therefore set
+    // `SYNAPSE__RATE_LIMIT__TRUST_FORWARDED=true` in the environment (or
+    // `rate_limit.trust_forwarded: true` in `homeserver.yaml`: this lockout reads
+    // `ctx.config.rate_limit`, i.e. the `homeserver.yaml` view) *and* list the proxy in
+    // `rate_limit.trusted_proxies`, which yields the real client address via the
+    // right-most untrusted hop while remaining unspoofable (an unlisted peer's headers
+    // are ignored outright).
+    //
+    // The `TRUST_FORWARDED_HEADERS` env var is **not** the knob here: its only consumer
+    // is `is_forwarded_headers_trusted()` (`middleware/mod.rs`) →
+    // `extract_request_origin()` → `same_origin()`, i.e. the CSRF (`csrf.rs`) and CORS
+    // (`cors.rs`) same-origin decisions. It does not feed the rate limiter or this
+    // lockout.
     let rate_limit = &ctx.config.rate_limit;
     let client_ip = crate::utils::ip::effective_client_ip(
         &headers,

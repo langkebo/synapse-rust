@@ -56,25 +56,36 @@ const COMMON_LIB: &str = "synapse-common/src/lib.rs";
 /// `IF NOT EXISTS`) and was deleted, so the baseline is the single source.
 const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql");
 
-/// The baseline the shared template was built from. Any other string mints a
-/// SECOND template.
+/// The v12 baseline content the shared template was built from. Any other string
+/// mints a SECOND template.
 ///
-/// This is a **content** hash, so it changes whenever either baseline migration
-/// is legitimately edited (e.g. dropping dead tables). When that happens, update
+/// This is a **content** hash, so it changes whenever the baseline is
+/// legitimately edited (e.g. dropping dead tables). When that happens, update
 /// the constant to the newly reported `left:` value — the guard then goes back to
-/// doing its real job, which is catching a wrong *concatenation*: a separator
-/// hashes to `a05fa4488475fe1d` and a reversal to `4137af770181767b`, and neither
-/// is what any legitimate migration edit produces as long as the two files are
-/// still concatenated v12-then-extensions with nothing between them.
-// 2026-10-01：`e2ee_audit_log.device_id` 改为可空（用户级审计事件没有单一设备），
+/// doing its real job: pinning each fixture's input to the **single** v12
+/// baseline, byte for byte. `00000001_extensions_v10.sql` no longer exists (it
+/// was a no-op duplicate of objects v12 already defines and was deleted), so
+/// there is no concatenation left to preserve; a leading or trailing separator,
+/// an extra `include_str!`, or a pointer to a different migration all change the
+/// hash and would silently build a *second* template. The old two-file values
+/// (`a05fa4488475fe1d` for `v11 ++ "\n" ++ extensions`, `4137af770181767b` for the
+/// reversal) are kept only as history from before the single-baseline
+/// consolidation.
+// 2026-09-18：`e2ee_audit_log.device_id` 改为可空（用户级审计事件没有单一设备），
 // 基线内容变化 ⇒ 按上面这段说明把常量更新为新报告的 `left:` 值。
-// 2026-10-01（第二次）：`ck_room_memberships_valid` 加入 'forget' 并把 15 处
+// 2026-09-18（第二次）：`ck_room_memberships_valid` 加入 'forget' 并把 15 处
 // 约束守卫改为 schema 级判断，基线内容再次变化 ⇒ 按本守卫说明更新为最新 `left:` 值。
 // 2026-09-18（第三次）：删除 `moderation_actions` / `moderation_rules` /
 // `moderation_logs` 三张表及其索引（moderation 域整体下线），基线内容变化 ⇒
 // 更新为最新 `left:` 值。旧值 42002cba863738f8 对应的陈旧模板
 // `test_isolation_template_42002cba863738f8` 会在下次模板重建时被清理。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "4b492b815f02197b";
+// 2026-09-19（`d77d1fcf`，Task 7 收口）：更正基线内 to_device 索引注释（不再引用
+// 从未存在的 idx_to_device_recipient / idx_to_device_stream）—— 只动注释也会改变
+// 内容哈希，而该提交没有同步本常量，守卫在 `212dad12` 上因此是红的。
+// Task 7 按本守卫说明把常量更新为新报告的 `left:` 值 `45483ffa0a28b5d5`；旧值
+// `4b492b815f02197b` 对应的 `test_isolation_template_4b492b815f02197b` 会在下次
+// 模板重建时被清理。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "45483ffa0a28b5d5";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))
@@ -588,23 +599,26 @@ fn prepare_isolated_test_pool_does_not_use_the_runtime_initializer() {
 }
 
 /// Guard 5: the baseline string each fixture feeds the template builder must be
-/// exactly `v11 ++ extensions` — that order, with nothing between or around
-/// them.
+/// exactly the **single** v12 baseline file — that file's bytes, with nothing
+/// added around them or between them.
 ///
 /// The template schema name is `test_isolation_template_<FNV-1a 64 of the
-/// baseline string>`. `v11 ++ extensions` (no separator) hashes to
-/// `7c3a89659a56940f`; `v11 ++ "\n" ++ extensions` hashes to `a05fa4488475fe1d`
-/// and the reverse to `4137af770181767b`. Either variant silently builds a
-/// *second* full template, so the suite pays the whole baseline rebuild again
-/// while believing it is sharing a template.
+/// baseline string>`. The v12-only input hashes to the constant below
+/// (`45483ffa0a28b5d5`). Extra text — a leading or trailing separator, an
+/// additional `include_str!`, a pointer at a different migration — changes the
+/// hash and silently builds a *second* full template, so the suite pays the whole
+/// baseline rebuild again while believing it is sharing a template. Historical
+/// two-file values, kept only as history: `7c3a89659a56940f`
+/// (`v11 ++ extensions`), `a05fa4488475fe1d` (with a `"\n"` separator) and
+/// `4137af770181767b` (reversed).
 ///
 /// This is a property assertion, not a text heuristic. The repository-side
-/// check pins the migrations' bytes and order via `include_str!`; the
+/// check pins the migration's bytes via `include_str!`; the
 /// fixture-side check re-evaluates each fixture's `concat!` (string literals
 /// included) and hashes the result, so a leading or trailing separator — which
-/// an adjacency check misses — is caught exactly like an embedded one. A
-/// reversal, a third migration, or a pointer at a different file are all caught
-/// the same way; a rename that preserves content and order is not.
+/// an adjacency check misses — is caught exactly like an embedded one. Extra
+/// bytes, a third migration, or a pointer at a different file are all caught
+/// the same way; a rename that preserves content is not.
 #[test]
 fn baseline_fingerprint_is_the_single_v12_source() {
     assert_eq!(

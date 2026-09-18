@@ -1056,7 +1056,7 @@ fn default_template_schema_name() -> String {
 /// `join("migrations")` therefore always missed, `read_dir` failed, and the
 /// fingerprint below silently degraded to the constant `migrations-dir-missing` —
 /// so **editing the baseline never rebuilt the template** and the whole integration
-/// suite kept exercising a stale schema (observed 2026-10-01: making
+/// suite kept exercising a stale schema (observed 2026-09-18: making
 /// `e2ee_audit_log.device_id` nullable had no effect until the template was dropped
 /// by hand). `migrations/README.md` claims the opposite ("内容指纹随之变化，会铸造一次
 /// 新模板"), which is only true once this resolves correctly.

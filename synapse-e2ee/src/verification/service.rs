@@ -330,7 +330,10 @@ impl VerificationService {
         //
         // What the removed code did: `if let Some(stored_mac) = &sas_state.mac`
         // then `mac_matches`. No production path ever sets `SasState.mac` (all three
-        // `store_sas_state` call sites — `:159`/`:217`/`:262` — write `mac: None`), so the
+        // *production* `store_sas_state` call sites — `:159`/`:217`/`:262` — write
+        // `mac: None`; the only other caller is the integration fixture
+        // `tests/integration/db_schema_smoke_tests_migrated.rs:355`, which writes
+        // `mac: Some("mac")` purely to check the row round-trips), so the
         // branch was unreachable for real clients — while a unit test named
         // `confirm_sas_rejects_wrong_mac_and_cancels_transaction` asserted only
         // that `mac_matches` works, which is what made the check look live.

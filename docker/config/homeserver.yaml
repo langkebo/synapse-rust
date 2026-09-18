@@ -34,10 +34,16 @@ rate_limit:
   default:
     per_second: 20
     burst_size: 40
-  # ⚠️ 本段在运行时**不生效**：服务以 RATE_LIMIT_CONFIG_PATH 指向的
-  # `rate_limit.yaml` 整体**替换**（replace，不是字段级合并）整个 `rate_limit:`
-  # 段（见 src/web/middleware/rate_limit.rs）。
-  # 保留仅作文档/兜底说明。真正的生效值见 `config/rate_limit.yaml`。
+  # ⚠️ 本段两半各有来源，不要只看一处：
+  # - **限流中间件**：本段运行时**不生效** —— 服务以 RATE_LIMIT_CONFIG_PATH 指向的
+  #   `rate_limit.yaml` 整体**替换**（replace，不是字段级合并）整个 `rate_limit:` 段
+  #   （见 `synapse-web/src/middleware/rate_limit.rs`）。限流的真正生效值见
+  #   `docker/config/rate_limit.yaml`。
+  # - **登录锁定**：本段**生效** —— `synapse-web/src/routes/auth_compat.rs` 直接读
+  #   `ctx.config.rate_limit`（即本文件这一半）的 `trust_forwarded` /
+  #   `ip_header_priority` / `trusted_proxies`，并接受 `SYNAPSE__RATE_LIMIT__*`
+  #   环境变量覆盖。要让代理后的真实 IP 生效，两处都要改（见
+  #   `docs/audit/DEPLOY_ACTIONS_2026-09-18.md` §G）。
   endpoints: []
   ip_header_priority:
     - "x-forwarded-for"

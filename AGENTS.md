@@ -36,7 +36,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ### Database and migrations
 - Migration source of truth: `docker/db_migrate.sh` (applies `migrations/`).
-- **`migrations/` is the SINGLE source of truth for migration SQL.** The former duplicate directory `docker/deploy/migrations/` was deleted (commit `2b16dc3c`) after it drifted 82 stale files + 13 missing files from the authoritative set. Do NOT recreate any copy — the deploy path mounts `./migrations` directly.
+- **`migrations/` is the SINGLE source of truth for migration SQL.** The former duplicate directory `docker/deploy/migrations/` was deleted (commit `2b16dc3c`) after it drifted 82 stale files (including `.undo.sql`; 42 forward-only) + 13 missing files from the authoritative set. Do NOT recreate any copy — the deploy path mounts `./migrations` directly.
 - Naming convention: rollback files use `.undo.sql` suffix (32 existing). A `_undo.sql` (underscore) name is a violation — normalize it.
 - Apply migrations locally: `bash docker/db_migrate.sh migrate`
 - Validate migrations/schema locally: `bash docker/db_migrate.sh validate`
@@ -134,7 +134,10 @@ The codebase generally follows `route (synapse-web/src/) -> service (synapse-ser
 
 ### Dependency wiring
 - `synapse-services/src/container.rs` is the main dependency graph for application features.
-- It constructs storages and services for auth, rooms, sync, sliding sync, E2EE, federation helpers, media, push, moderation, retention, feature flags, worker integration, and more.
+- It constructs storages and services for auth, rooms, sync, sliding sync, E2EE, federation helpers, media, push, retention, feature flags, worker integration, and more.
+  (The client "report" routes in `synapse-web/src/routes/moderation.rs` and member
+  management in `synapse-services/src/room/membership/moderation.rs` are unrelated to
+  the removed moderation rule-engine domain, which had its own storage/service here.)
 - If you need to understand how a feature is actually enabled end-to-end, start at `ServiceContainer::new(...)`, then trace the relevant router and storage.
 
 ### Storage and schema model

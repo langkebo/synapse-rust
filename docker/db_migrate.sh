@@ -349,7 +349,8 @@ latest_baseline_file() {
 # `CREATE TABLE IF NOT EXISTS` 会对最新基线已建的表空转，而 `CREATE INDEX`
 # 可能在已被改名/删除的列上失败；更严重的是会被写进 schema_migrations，
 # 让本地机器（磁盘可能残留历史基线）与 CI 全新检出的 schema 彻底分叉。
-# 判据与 docker/deploy/scripts/container-migrate.sh 的 is_baseline_file() 一致。
+# 判据唯一实现在本文件：部署侧 `docker/deploy/scripts/container-migrate.sh` 已收敛为
+# 只 exec 本脚本的薄包装（commit 8efe7b77），不再自带 is_baseline_file()。
 is_superseded_by_latest_baseline() {
     local filename="$1"
 

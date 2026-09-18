@@ -1,6 +1,6 @@
 # 数据库迁移说明
 
-> 最后更新: 2026-09-16
+> 最后更新: 2026-09-18
 
 ## 唯一真相源（single source of truth）
 
@@ -12,7 +12,8 @@
 ```
 
 历史上 `docker/deploy/migrations/` 曾是一份**手工同步的副本**，并因此静默漂移：
-它携带 42 个已废弃 v7 血统文件，同时**缺失 13 个新迁移**
+它携带 42 个已废弃 v7 血统**正向**文件（连同其 `.undo.sql` 回滚文件共 82 个副本独有文件；
+副本另带 `archive/` 子目录 49 个文件，权威目录没有 `archive/`），同时**缺失 13 个新迁移**
 （`schema_p1_federation_and_integrity`、`schema_p2_data_integrity`、`schema_p3_perf`、
 `schema_cleanup_dedup_and_dead_code`、`extend_room_version_check`、
 `event_relations_pagination_index` 等），
@@ -90,7 +91,7 @@ python3 scripts/check_migration_consistency.py
 saml_pending_requests、room_event_txn_dedup 等，commit 2d453089/bf85f23f 已折入），
 此检查脚本即为防止复发而设。
 
-### 改 baseline 后必须让测试模板重新铸造（2026-10-01 修复）
+### 改 baseline 后必须让测试模板重新铸造（2026-09-18 修复）
 
 集成测试的 schema 来自 `synapse-test-utils` 铸造的**共享模板**
 （`test_template_v<rev>_<fingerprint>`），模板名由 `template_schema_fingerprint()`
@@ -108,6 +109,23 @@ saml_pending_requests、room_event_txn_dedup 等，commit 2d453089/bf85f23f 已�
 - 推论：**baseline 的任何改动都会让下一次集成测试重新铸造模板**（首次约 35–60s），
   这是预期行为，不要"优化"掉；反之，若改 baseline 后测试行为毫无变化，
   先怀疑模板指纹没有真的改变。
+
+### 迁移器校验和是**内容** md5，内容漂移时容错重放（2026-09-18 修复）
+
+`schema_migrations.checksum` 曾写入 `md5(filename)` —— 每个文件一个常量，因此
+**看不出 baseline 被编辑过**。本仓库的约定是把 schema 变更直接折入
+`00000000_unified_schema_v12.sql`，于是迁移器看到"版本相同、已应用"就静默跳过，
+已部署的库根本无法通过 `migrate` 升级（commit `43c29105` 修复）。
+
+现状（`docker/db_migrate.sh`）：
+
+- `file_content_checksum()` 对文件**内容**取 md5（`md5sum` / BSD `md5` / `cksum` 兜底）；
+- `init_database()` 比对 `schema_migrations` 记录值与当前内容哈希：不相同即打印
+  `基线内容已变化，重放基线以应用变更`，并**以容错模式重放**基线（基线幂等：
+  只有 `IF NOT EXISTS` / `DROP IF EXISTS` 与一次幂等的去重 `DELETE`）；
+- 记录值缺失（列或行为空）同样走重放路径，不会静默放过。
+
+判据：`grep -n 'file_content_checksum\|基线内容已变化，重放' docker/db_migrate.sh`。
 
 ## 死表清理（已于 2026-09-14 完成，原计划留待 v12）
 
