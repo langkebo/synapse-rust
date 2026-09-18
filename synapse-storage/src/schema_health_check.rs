@@ -561,14 +561,21 @@ mod tests {
     }
 
     /// 防复发守卫：`REQUIRED_INDEXES` 的每一组都必须至少有一个名字是 baseline
-    /// 真实创建的索引（`CREATE INDEX` 或具名 UNIQUE/PK 约束索引）。
+    /// **建出来且最终留着**的索引（`CREATE INDEX` 或具名 UNIQUE/PK 约束索引），
+    /// 而不是"在任意一行里出现过"。
     ///
     /// 否则每个全新库启动时都会对不存在的索引打印虚假的 `Missing indexes`
     /// 警告（DB_REVIEW §14.5：`idx_events_room_id` 曾如此；同批发现的还有
     /// `idx_user_threepids_medium_address`，其真实名字是约束生成的
     /// `uq_user_threepids_medium_address`）。
+    ///
+    /// 为什么必须要求"留着"：baseline 不是只增不改的 —— 它在 `:3390` 声明
+    /// `uq_room_invites_invite_code`，随后 v11-10 清理块把它 **DROP** 掉
+    /// （DB_REVIEW §15.3 D6）。旧版守卫只比对"声明过"的集合：把该名字加进
+    /// `REQUIRED_INDEXES` 时守卫会放行，而每个部署都会永远报缺索引。现在参考集来自
+    /// `baseline_tables::baseline_index_names()`，它已扣掉 baseline 自己删掉的名字。
     #[test]
-    fn required_indexes_are_created_by_baseline() {
+    fn required_indexes_are_created_and_kept_by_baseline() {
         let baseline = crate::baseline_tables::baseline_index_names();
         let unsatisfied: Vec<&str> = REQUIRED_INDEXES
             .iter()
@@ -577,7 +584,7 @@ mod tests {
             .collect();
         assert!(
             unsatisfied.is_empty(),
-            "REQUIRED_INDEXES lists indexes the baseline never creates (spurious startup warnings): {unsatisfied:?}"
+            "REQUIRED_INDEXES lists indexes no deployment will have (spurious startup warnings): {unsatisfied:?}"
         );
     }
 }

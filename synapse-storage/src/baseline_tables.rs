@@ -17,6 +17,7 @@
 //! dependency on `migrations/00000000_unified_schema_v12.sql` explicit and
 //! participates in cargo's normal incremental rebuild graph.
 
+use std::collections::{BTreeSet, HashSet};
 use std::sync::OnceLock;
 
 /// Raw contents of the v12 baseline schema file.
@@ -117,36 +118,144 @@ pub fn baseline_table_count() -> usize {
     baseline_tables().len()
 }
 
-/// Cached sorted list of every index name the baseline materialises.
+/// How a baseline line declares an index.
 ///
-/// Empty until the first call to [`baseline_index_names`].
-fn cached_baseline_index_names() -> &'static Vec<&'static str> {
+/// The distinction is load-bearing, not cosmetic: the baseline's own v11-10
+/// cleanup block drops every **plain** `uq_*` UNIQUE index while explicitly
+/// sparing the ones materialised by a `UNIQUE`/`PRIMARY KEY` **constraint**
+/// (it filters on `NOT EXISTS (SELECT 1 FROM pg_constraint WHERE
+/// con.conindid = c.oid)`). A name declared both ways is constraint-backed in
+/// the end — `uq_access_tokens_token_hash` is a table constraint at the top of
+/// the baseline and a no-op `CREATE UNIQUE INDEX IF NOT EXISTS` further down —
+/// so "constraint anywhere" wins over "plain somewhere else".
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum IndexDeclKind {
+    Plain,
+    Constraint,
+}
+
+/// Cached sorted list of index names the baseline leaves **in place**.
+fn cached_baseline_effective_index_names() -> &'static Vec<&'static str> {
     static CACHE: OnceLock<Vec<&'static str>> = OnceLock::new();
-    CACHE.get_or_init(parse_baseline_index_names)
+    CACHE.get_or_init(compute_baseline_effective_index_names)
 }
 
-/// Parse every index name the baseline creates.
+/// Substrings that identify the v11-10 "redundant UNIQUE index" cleanup.
 ///
-/// Two declaration forms materialise an index in Postgres, and
-/// `schema_health_check::check_missing_indexes` observes both through
-/// `pg_indexes`:
+/// That block drops indexes **dynamically** (`EXECUTE format('DROP INDEX IF
+/// EXISTS %I.%I', …)` over a `pg_index` cursor), so its name set cannot be read
+/// off a single line. The model below encodes its rule instead, and this
+/// tripwire fails loudly if the SQL changes underneath it — a silently stale
+/// model is exactly the bug this function exists to fix.
+const V11_10_DYNAMIC_DROP_MARKERS: [&str; 3] =
+    ["DROP INDEX IF EXISTS %I.%I", "c.relname LIKE 'uq_%'", "NOT IN ('uq_to_device_txn_msgid')"];
+
+/// The one index the v11-10 cleanup deliberately keeps.
+const V11_10_KEPT_INDEXES: [&str; 1] = ["uq_to_device_txn_msgid"];
+
+/// Compute the index names a fresh database ends up with: every declared index
+/// **minus** the ones the baseline removes later.
 ///
-///   1. `CREATE [UNIQUE] INDEX [CONCURRENTLY] IF NOT EXISTS <name>`.
-///   2. A named table-constraint index: `CONSTRAINT <name> UNIQUE (...)` or
-///      `CONSTRAINT <name> PRIMARY KEY (...)`.
+/// Why this is not just `parse_baseline_index_declarations`: `schema_health_check`'s
+/// `REQUIRED_INDEXES` guard used to accept any name that appeared anywhere in the
+/// baseline. The baseline is not append-only — it declares `uq_room_invites_invite_code`
+/// and then the v11-10 block drops it — so that guard would have accepted a
+/// `REQUIRED_INDEXES` entry naming it, and every fresh deployment would have
+/// logged a `Missing indexes` warning forever. Modelling removals makes the
+/// guard's verdict match the schema a deployment actually gets.
 ///
-/// Unnamed inline `PRIMARY KEY` / `UNIQUE` columns (whose index Postgres names
-/// `<table>_pkey` / `<table>_<column>_key`) are deliberately not enumerated: no
-/// value in `REQUIRED_INDEXES` relies on that form. The parser is line-based,
-/// mirroring [`parse_baseline_tables`].
-fn parse_baseline_index_names() -> Vec<&'static str> {
-    let mut names: Vec<&'static str> = BASELINE_SQL.lines().filter_map(extract_index_name).collect();
-    names.sort_unstable();
-    names.dedup();
-    names
+/// Scope and failure direction: explicit `DROP INDEX` / `DROP CONSTRAINT`
+/// statements and the one modelled dynamic block are handled. If a future
+/// baseline gains a *new* dynamic drop form, the tripwire above fires rather
+/// than silently over-approximating again.
+fn compute_baseline_effective_index_names() -> Vec<&'static str> {
+    let declarations = parse_baseline_index_declarations();
+
+    let mut constraint_backed: HashSet<&'static str> = HashSet::new();
+    let mut declared: BTreeSet<&'static str> = BTreeSet::new();
+    for (name, kind) in declarations {
+        if kind == IndexDeclKind::Constraint {
+            constraint_backed.insert(name);
+        }
+        declared.insert(name);
+    }
+
+    let removed = parse_baseline_removed_index_names();
+    let dynamic_cleanup_is_present = V11_10_DYNAMIC_DROP_MARKERS.iter().all(|marker| BASELINE_SQL.contains(marker));
+    assert!(
+        dynamic_cleanup_is_present,
+        "the v11-10 dynamic `DROP INDEX` cleanup (markers {V11_10_DYNAMIC_DROP_MARKERS:?}) is no longer \
+         present in the baseline. Either it was removed — in which case delete the modelled rule and \
+         `V11_10_KEPT_INDEXES` below — or its SQL changed and this model is now stale (it would \
+         silently claim dropped indexes still exist, which is the exact defect this reference must \
+         not have)."
+    );
+
+    declared
+        .into_iter()
+        .filter(|name| {
+            if removed.contains(name) {
+                return false;
+            }
+            // v11-10: plain `uq_*` indexes lose to their constraint-backed twins.
+            let dropped_by_v11_10 =
+                name.starts_with("uq_") && !constraint_backed.contains(name) && !V11_10_KEPT_INDEXES.contains(name);
+            !dropped_by_v11_10
+        })
+        .collect()
 }
 
-/// Extract the created index name from a single line, if the line creates one.
+/// Names the baseline declares and then removes, from explicit statements:
+/// `DROP INDEX [CONCURRENTLY] [IF EXISTS] <name>` and
+/// `ALTER TABLE … DROP CONSTRAINT [IF EXISTS] <name>`.
+///
+/// Matched on the trimmed line, so both top-level statements and indented ones
+/// inside `DO $$ … $$` blocks are found. A dynamic `EXECUTE format('DROP INDEX …')`
+/// deliberately does not match here — that is the modelled rule above.
+///
+/// `IF EXISTS` is optional in both forms: treating its absence as "no name" would
+/// silently keep a dropped index in the reference set, which is the unsafe
+/// direction (the guard would then bless a `REQUIRED_INDEXES` entry no deployment
+/// can satisfy). `parse_removed_index_names` is separated out so that this is
+/// covered by a unit test on synthetic SQL.
+fn parse_baseline_removed_index_names() -> HashSet<&'static str> {
+    parse_removed_index_names(BASELINE_SQL)
+}
+
+fn parse_removed_index_names(sql: &'static str) -> HashSet<&'static str> {
+    let mut removed: HashSet<&'static str> = HashSet::new();
+    for line in sql.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("--") {
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("DROP INDEX ") {
+            let rest = rest.strip_prefix("CONCURRENTLY ").unwrap_or(rest);
+            let rest = rest.strip_prefix("IF EXISTS ").unwrap_or(rest);
+            if let Some(name) = first_token(rest) {
+                removed.insert(name);
+            }
+            continue;
+        }
+        if let Some(at) = trimmed.find("DROP CONSTRAINT ") {
+            let rest = &trimmed[at + "DROP CONSTRAINT ".len()..];
+            let rest = rest.strip_prefix("IF EXISTS ").unwrap_or(rest);
+            if let Some(name) = first_token(rest) {
+                removed.insert(name);
+            }
+        }
+    }
+    removed
+}
+
+/// Parse every index the baseline declares, with the provenance the v11-10
+/// cleanup decision needs.
+fn parse_baseline_index_declarations() -> Vec<(&'static str, IndexDeclKind)> {
+    BASELINE_SQL.lines().filter_map(extract_index_declaration).collect()
+}
+
+/// Extract the created index from a single line, if the line creates one.
+/// Extract the created index from a single line, if the line creates one.
 ///
 /// Rejected forms (returning `None`) include comments, `CONSTRAINT <name> CHECK
 /// (...)`, and `CONSTRAINT <name> FOREIGN KEY (...)`: those do not create an
@@ -161,7 +270,20 @@ fn parse_baseline_index_names() -> Vec<&'static str> {
 /// declared inside their `CREATE TABLE`, so nothing is lost today. The failure
 /// direction is safe — an unparsed index makes `REQUIRED_INDEXES` report a
 /// missing index rather than silently skipping a check.
-fn extract_index_name(line: &'static str) -> Option<&'static str> {
+///
+/// Two declaration forms materialise an index in Postgres, and
+/// `schema_health_check::check_missing_indexes` observes both through
+/// `pg_indexes`:
+///
+///   1. `CREATE [UNIQUE] INDEX [CONCURRENTLY] IF NOT EXISTS <name>` → [`IndexDeclKind::Plain`].
+///   2. A named table-constraint index: `CONSTRAINT <name> UNIQUE (...)` or
+///      `CONSTRAINT <name> PRIMARY KEY (...)` → [`IndexDeclKind::Constraint`].
+///
+/// Unnamed inline `PRIMARY KEY` / `UNIQUE` columns (whose index Postgres names
+/// `<table>_pkey` / `<table>_<column>_key`) are deliberately not enumerated: no
+/// value in `REQUIRED_INDEXES` relies on that form. The parser is line-based,
+/// mirroring [`parse_baseline_tables`].
+fn extract_index_declaration(line: &'static str) -> Option<(&'static str, IndexDeclKind)> {
     let trimmed = line.trim_start();
     if trimmed.starts_with("--") {
         return None;
@@ -174,7 +296,7 @@ fn extract_index_name(line: &'static str) -> Option<&'static str> {
         "CREATE INDEX IF NOT EXISTS ",
     ] {
         if let Some(rest) = trimmed.strip_prefix(prefix) {
-            return first_token(rest);
+            return first_token(rest).map(|name| (name, IndexDeclKind::Plain));
         }
     }
 
@@ -182,7 +304,7 @@ fn extract_index_name(line: &'static str) -> Option<&'static str> {
     let name = first_token(rest)?;
     let tail = rest[name.len()..].trim_start();
     if tail.starts_with("UNIQUE") || tail.starts_with("PRIMARY KEY") {
-        Some(name)
+        Some((name, IndexDeclKind::Constraint))
     } else {
         None
     }
@@ -198,14 +320,20 @@ fn first_token(rest: &'static str) -> Option<&'static str> {
     }
 }
 
-/// Return the sorted, deduplicated list of index names the baseline creates,
-/// including indexes materialised by named `UNIQUE` / `PRIMARY KEY` constraints.
+/// Return the sorted, deduplicated list of index names a fresh database ends up
+/// with — every index the baseline declares, **minus** the ones it later drops
+/// (see [`compute_baseline_effective_index_names`]), including indexes
+/// materialised by named `UNIQUE` / `PRIMARY KEY` constraints.
 ///
 /// Used as the compile-time reference for `REQUIRED_INDEXES` so a required index
-/// that the baseline does not create fails a unit test instead of printing a
+/// that no deployment will have fails a unit test instead of printing a
 /// spurious `Missing indexes` warning at every startup.
+///
+/// The removal modelling is the point: reading declarations alone would accept
+/// `uq_room_invites_invite_code`, which the baseline declares at
+/// `migrations/…v12.sql:3390` and the v11-10 cleanup block then drops.
 pub fn baseline_index_names() -> &'static [&'static str] {
-    cached_baseline_index_names()
+    cached_baseline_effective_index_names()
 }
 
 #[cfg(test)]
@@ -290,12 +418,12 @@ mod tests {
     #[test]
     fn index_parser_ignores_non_index_constraints() {
         // CHECK / FOREIGN KEY constraints do not create an index.
-        assert_eq!(extract_index_name("    CONSTRAINT ck_events_depth_nonneg CHECK (depth >= 0),"), None);
-        assert_eq!(
-            extract_index_name("    CONSTRAINT fk_events_room FOREIGN KEY (room_id) REFERENCES rooms(room_id),"),
-            None
-        );
-        assert_eq!(extract_index_name("-- CONSTRAINT uq_fake UNIQUE (x)"), None);
+        assert!(extract_index_declaration("    CONSTRAINT ck_events_depth_nonneg CHECK (depth >= 0),").is_none());
+        assert!(extract_index_declaration(
+            "    CONSTRAINT fk_events_room FOREIGN KEY (room_id) REFERENCES rooms(room_id),"
+        )
+        .is_none());
+        assert!(extract_index_declaration("-- CONSTRAINT uq_fake UNIQUE (x)").is_none());
         // Index list stays sorted + deduped like the table list.
         let names = baseline_index_names();
         let mut sorted = names.to_vec();
@@ -303,5 +431,79 @@ mod tests {
         sorted.dedup();
         assert_eq!(names, &sorted[..], "baseline_index_names() must be sorted + deduped");
         assert!(names.len() >= 300, "baseline parses only {} indexes", names.len());
+    }
+
+    /// The removal parser must handle both spellings of `IF EXISTS`, stay blind to
+    /// comments, and — importantly — **not** treat the dynamic
+    /// `EXECUTE format('DROP INDEX …')` line as an explicit drop (that one is
+    /// modelled separately, by rule). Dropping the `IF EXISTS`-optional handling
+    /// here means a removed index stays in the reference set, and the
+    /// `REQUIRED_INDEXES` guard then blesses an entry no deployment can satisfy.
+    #[test]
+    fn removal_parser_handles_both_spellings_and_ignores_dynamic_drops() {
+        const SYNTHETIC: &str = "\
+DROP INDEX IF EXISTS a_idx;
+DROP INDEX CONCURRENTLY IF EXISTS b_idx;
+DROP INDEX c_idx;
+    DROP INDEX d_idx;
+ALTER TABLE t DROP CONSTRAINT IF EXISTS e_uq;
+ALTER TABLE t DROP CONSTRAINT f_uq;
+-- DROP INDEX IF EXISTS commented_idx;
+        EXECUTE format('DROP INDEX IF EXISTS %I.%I', s, n);
+";
+        let removed = parse_removed_index_names(SYNTHETIC);
+        for expected in ["a_idx", "b_idx", "c_idx", "d_idx", "e_uq", "f_uq"] {
+            assert!(removed.contains(&expected), "`{expected}` should be parsed as removed: {removed:?}");
+        }
+        assert!(!removed.contains(&"commented_idx"), "a commented-out DROP must not count as a removal: {removed:?}");
+        assert!(
+            !removed.contains(&"%I"),
+            "the dynamic `EXECUTE format('DROP INDEX …')` is modelled by rule, not by this parser: {removed:?}"
+        );
+    }
+
+    /// D6: the reference set must exclude indexes the baseline **drops**, not just
+    /// count the ones it declares.
+    ///
+    /// `uq_room_invites_invite_code` is declared at
+    /// `migrations/00000000_unified_schema_v12.sql:3390` as a plain UNIQUE index and
+    /// then removed by the v11-10 cleanup block, so a fresh database never has it.
+    /// Asserting both halves — *declared* and *not effective* — is what makes this
+    /// guard meaningful: if a future refactor reverts to the naive "declared
+    /// anywhere" set, the second assertion fails.
+    #[test]
+    fn declared_but_dropped_indexes_are_not_in_the_reference_set() {
+        let declared = parse_baseline_index_declarations();
+        assert!(
+            declared.iter().any(|(name, _)| *name == "uq_room_invites_invite_code"),
+            "the baseline is expected to declare uq_room_invites_invite_code; if that changed, \
+             update this test (and the v11-10 model) rather than deleting it"
+        );
+        assert!(
+            !baseline_index_names().contains(&"uq_room_invites_invite_code"),
+            "uq_room_invites_invite_code is declared and then dropped by the v11-10 cleanup block, \
+             so no deployment has it; the reference set must not contain it (DB_REVIEW §15.3 D6)"
+        );
+    }
+
+    /// The v11-10 block spares constraint-backed `uq_*` indexes, so a name
+    /// declared both as a constraint and as a (no-op) plain index must survive.
+    /// `uq_access_tokens_token_hash` is exactly that shape — constraint at
+    /// `:172`, `CREATE UNIQUE INDEX IF NOT EXISTS` at `:3791` — and dropping it
+    /// from the reference set would make the `REQUIRED_INDEXES` guard fail on a
+    /// perfectly valid entry.
+    #[test]
+    fn constraint_backed_indexes_survive_the_dynamic_cleanup() {
+        let names = baseline_index_names();
+        for index in ["uq_access_tokens_token_hash", "uq_refresh_tokens_token_hash", "uq_token_blacklist_token_hash"] {
+            assert!(
+                names.contains(&index),
+                "{index} is backed by a UNIQUE constraint, which the v11-10 block explicitly spares"
+            );
+        }
+        assert!(
+            names.contains(&"uq_to_device_txn_msgid"),
+            "uq_to_device_txn_msgid is the modelled exception (to-device dedup ON CONFLICT depends on it)"
+        );
     }
 }
