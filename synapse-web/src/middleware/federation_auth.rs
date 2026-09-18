@@ -126,13 +126,18 @@ pub async fn federation_auth_middleware(
         || request_target.contains("/_matrix/federation/v1/make_leave/")
         || request_target.contains("/_matrix/federation/v1/send_leave/");
 
-    let signed_bytes = canonical_federation_request_bytes(
+    // `canonical_federation_request_bytes` fails closed (an empty or
+    // uncanonicalisable payload must never reach the verifier — see its doc).
+    let signed_bytes = match canonical_federation_request_bytes(
         parts.method.as_str(),
         &request_target,
         &params.origin,
         destination,
         content.as_ref(),
-    );
+    ) {
+        Ok(bytes) => bytes,
+        Err(error) => return error.into_response(),
+    };
 
     let signature_valid = verify_federation_signature_with_cache(
         &ctx,
@@ -253,8 +258,19 @@ pub async fn replication_http_auth_middleware(
     request: Request<Body>,
     next: Next,
 ) -> Response {
+    // FAIL CLOSED. HTTP replication is the only reason this surface exists, and
+    // `replication.http.enabled` is the same switch that decides whether the
+    // shared secret must be presented. Treating "feature not enabled" as "no
+    // authentication needed" (`return next.run(request).await`) was an
+    // unauthenticated pass-through on routes that write replication positions,
+    // read the event stream, and mutate worker/task state — reachable whenever a
+    // deployment set `worker.enabled: true` but left this switch at its `false`
+    // default.
+    //
+    // `WorkerBodyModule` no longer mounts the surface in that case, so this arm
+    // is defence in depth: a future mounting path cannot silently reopen it.
     if !ctx.config.worker.replication.http.enabled {
-        return next.run(request).await;
+        return ApiError::not_found("Not found".to_string()).into_response();
     }
     let secret = if let Some(s) = &ctx.config.worker.replication.http.secret {
         s.clone()
@@ -324,21 +340,40 @@ fn parse_x_matrix_authorization(header_value: &str) -> Option<XMatrixAuthParams>
     Some(XMatrixAuthParams { origin: origin?, key: key?, sig: sig?, destination, ts })
 }
 
+/// Canonical bytes to verify a federation request signature over.
+///
+/// FAIL CLOSED on a canonicalisation error.
+///
+/// This used to return `Vec::new()` on error, and the caller passed that
+/// straight to `verify_federation_signature_with_cache`. `synapse-common`'s
+/// canonical JSON rejects **every** float and any integer beyond 2^53
+/// (`CanonicalJsonError::FloatNotAllowed`), and the request body is entirely
+/// attacker-controlled — so a peer could put one float in the body, drop the
+/// whole `method`/`uri`/`origin`/`destination`/`content` object from the signed
+/// bytes, and replay a signature it had computed once over the empty message.
+/// The signature check then succeeded for an arbitrary URI, method and body.
+///
+/// An empty payload is never legitimate: with `content: None` the canonical form
+/// is still `{"destination":..,"method":..,"origin":..,"uri":..}`.
 fn canonical_federation_request_bytes(
     method: &str,
     uri: &str,
     origin: &str,
     destination: &str,
     content: Option<&Value>,
-) -> Vec<u8> {
+) -> Result<Vec<u8>, ApiError> {
     match crate::federation::signing::canonical_federation_request_bytes(method, uri, origin, destination, content) {
-        Ok(result) => {
+        Ok(result) if !result.is_empty() => {
             tracing::debug!("Canonical request bytes: {}", String::from_utf8_lossy(&result));
-            result
+            Ok(result)
+        }
+        Ok(_) => {
+            tracing::warn!("Canonical federation request bytes were empty; rejecting the request");
+            Err(ApiError::unauthorized("Invalid federation request".to_string()))
         }
         Err(e) => {
             tracing::warn!("Canonical JSON error for federation request: {e}");
-            Vec::new()
+            Err(ApiError::unauthorized("Invalid federation request".to_string()))
         }
     }
 }

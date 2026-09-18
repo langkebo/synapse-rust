@@ -274,7 +274,6 @@ pub use voip::get_turn_server;
 pub use voip::get_voip_config;
 #[cfg(feature = "widgets")]
 pub use widget::create_widget_router;
-pub use worker::create_worker_router;
 
 #[cfg(test)]
 mod top_level_router_tests {

@@ -315,19 +315,32 @@ impl VerificationService {
         }
 
         let sas_state = self.storage.get_sas_state(transaction_id).await?;
-        let Some(sas_state) = sas_state else {
+        let Some(_sas_state) = sas_state else {
             return Err(ApiError::bad_request("SAS state not found".to_string()));
         };
 
-        if let Some(stored_mac) = &sas_state.mac {
-            // E2EE-08: use constant-time comparison to prevent timing side-channels.
-            if !mac_matches(mac, stored_mac) {
-                self.storage.update_state(transaction_id, VerificationState::Cancelled).await?;
-                tracing::warn!("SAS MAC mismatch for transaction {}", transaction_id);
-                return Err(ApiError::bad_request("MAC verification failed".to_string()));
-            }
-        }
-
+        // The homeserver cannot verify the SAS MAC, and this function no longer
+        // pretends to.
+        //
+        // The MAC is an HMAC over each side's own keys, keyed by the SAS shared
+        // secret, so only the two *clients* can check it: the server never sees
+        // that secret, and the two sides' MAC values are legitimately different
+        // (each covers the keys that side owns), so comparing one against the
+        // other would be wrong even if a value were stored.
+        //
+        // What the removed code did: `if let Some(stored_mac) = &sas_state.mac`
+        // then `mac_matches`. No production path ever sets `SasState.mac` (both
+        // `store_sas_state` call sites build it with `mac: None`), so the branch
+        // was unreachable for real clients — while a unit test named
+        // `confirm_sas_rejects_wrong_mac_and_cancels_transaction` asserted only
+        // that `mac_matches` works, which is what made the check look live.
+        // `VerificationState::Done` records what the caller's client asserts,
+        // exactly like the rest of this state machine; the trust boundary for
+        // `m.key.verification.mac` is the client, per the Matrix spec. See
+        // docs/audit/DB_REVIEW_2026-09-17.md §13.7.
+        //
+        // A non-empty `mac` is still required (here and in the routes) so the
+        // protocol shape cannot be skipped.
         self.storage.update_state(transaction_id, VerificationState::Done).await?;
 
         tracing::info!("SAS verification confirmed for transaction {}", transaction_id);
@@ -424,15 +437,6 @@ fn slice_from_ref<T>(val: &T) -> &[T] {
     std::slice::from_ref(val)
 }
 
-/// Constant-time MAC comparison (E2EE-08).
-///
-/// Wraps [`synapse_common::secure_compare`] so that MAC verification in
-/// `confirm_sas` does not leak timing information about how many leading
-/// bytes match.
-fn mac_matches(provided: &str, stored: &str) -> bool {
-    synapse_common::secure_compare(provided, stored)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -482,27 +486,6 @@ mod tests {
         let (s2, p2) = svc.generate_key_pair();
         assert_ne!(s1, s2, "secret keys must be unique");
         assert_ne!(p1, p2, "public keys must be unique");
-    }
-
-    #[test]
-    fn mac_matches_accepts_equal_macs() {
-        let mac = "dGVzdC1tYWMtdmFsdWU=";
-        assert!(mac_matches(mac, mac));
-    }
-
-    #[test]
-    fn mac_matches_rejects_different_macs() {
-        assert!(!mac_matches("dGVzdC1tYWMtdmFsdWU=", "ZGlmZmVyZW50LW1hYw=="));
-    }
-
-    #[test]
-    fn mac_matches_rejects_different_lengths() {
-        assert!(!mac_matches("short", "longer-mac-value"));
-    }
-
-    #[test]
-    fn mac_matches_rejects_prefix_match() {
-        assert!(!mac_matches("abcdef", "abcdefgh"));
     }
 
     #[tokio::test]
@@ -624,14 +607,6 @@ mod tests {
     // ════════════════════════════════════════
     // SAS/QR 状态机覆盖测试（补充 E2EE 完整性验证）
     // ════════════════════════════════════════
-    #[tokio::test]
-    async fn confirm_sas_rejects_wrong_mac_and_cancels_transaction() {
-        let svc = make_service();
-        // 初始化状态：Requested → Ready
-        // 直接测试 MAC 错误时的行为（无需完整 DB 流程，测试常量时间比较逻辑）
-        assert!(!mac_matches("bad", "correct"));
-        assert!(mac_matches("same", "same"));
-    }
 
     #[tokio::test]
     async fn cancel_verification_transitions_to_cancelled() {
@@ -648,13 +623,5 @@ mod tests {
         let result = svc.get_request("nonexistent-tx-12345").await;
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
-    }
-
-    #[test]
-    fn generate_qr_code_produces_valid_data_structure() {
-        // 纯逻辑测试：生成 QR 数据的结构完整性（不需要 DB 存储验证）
-        // 通过 VerificationService 的方法可验证生成的 QrCodeData 所有字段非空
-        // 实际集成测试需要完整 DB 流程（start → scan → confirm）
-        assert!(!"m.sas.v1".is_empty());
     }
 }

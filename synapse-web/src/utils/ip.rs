@@ -142,8 +142,17 @@ fn parse_forwarded_for(value: &str) -> Option<String> {
         let lower = part.to_ascii_lowercase();
         if lower.starts_with("for=") {
             let mut original = part[4..].trim();
-            if original.starts_with('\"') && original.ends_with('\"') {
-                original = &original[1..original.len() - 1];
+            // `strip_prefix`/`strip_suffix` require at least two characters, so a
+            // lone `"` (e.g. `Forwarded: for="`) can no longer produce
+            // `&original[1..0]`. The previous form tested
+            // `starts_with('"') && ends_with('"')`, which are BOTH true for a
+            // single quote character, and `1..len - 1` is then `1..0` — a panic.
+            // `extract_client_ip` parses this unconditionally when `peer_addr` is
+            // `None`, and `admin_auth_middleware` passes `None`, so an
+            // unauthenticated request carrying that header panicked the task
+            // (remote DoS).
+            if let Some(stripped) = original.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+                original = stripped;
             }
 
             if original.starts_with('[') {
@@ -298,6 +307,39 @@ mod tests {
     #[test]
     fn forwarded_header_trusted() {
         let headers = header_map_with("for=192.0.2.60;proto=http;by=203.0.113.43");
+        let priority = vec!["forwarded".to_string()];
+        let peer = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5)), 12345);
+        let trusted: Vec<String> = vec!["10.0.0.0/8".to_string()];
+
+        let ip = extract_client_ip(&headers, &priority, Some(peer), &trusted).unwrap();
+        assert_eq!(ip, "192.0.2.60");
+    }
+
+    /// A lone `"` after `for=` used to panic.
+    ///
+    /// `starts_with('"')` and `ends_with('"')` are both true for a single quote
+    /// character, so `&original[1..original.len() - 1]` became `&s[1..0]`.
+    /// `extract_client_ip` parses the header unconditionally when `peer_addr` is
+    /// `None`, and `admin_auth_middleware` passes `None`, so an unauthenticated
+    /// request carrying `Forwarded: for="` panicked the request task.
+    #[test]
+    fn forwarded_header_with_lone_quote_does_not_panic() {
+        let priority = vec!["forwarded".to_string()];
+        let trusted: Vec<String> = vec!["10.0.0.0/8".to_string()];
+        let peer = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5)), 12345);
+
+        for value in ["for=\"", "for=\"\"", "for=\"\"\"", "for=x\""] {
+            let headers = header_map_with(value);
+            // Both entry points: with a peer (the ordinary path) and without one
+            // (the `admin_auth_middleware` path that made this remotely reachable).
+            let _ = extract_client_ip(&headers, &priority, None, &trusted);
+            let _ = extract_client_ip(&headers, &priority, Some(peer), &trusted);
+        }
+    }
+
+    #[test]
+    fn forwarded_header_quoted_value_is_unwrapped() {
+        let headers = header_map_with("for=\"192.0.2.60\"");
         let priority = vec!["forwarded".to_string()];
         let peer = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5)), 12345);
         let trusted: Vec<String> = vec!["10.0.0.0/8".to_string()];

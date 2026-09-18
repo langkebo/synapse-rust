@@ -675,16 +675,6 @@ pub async fn select_worker(
     })))
 }
 
-/// See [`create_worker_router`].
-pub fn create_worker_router(state: AppState) -> Router<AppState> {
-    let admin = create_worker_admin_router(&state);
-    if state.services.core.config.worker.enabled {
-        admin.merge(create_worker_body_router(&state)).with_state(state)
-    } else {
-        admin.with_state(state)
-    }
-}
-
 /// Always-on admin surface of the worker router. Wired unconditionally by
 /// `create_router`; the derived route table covers exactly these routes under
 /// the `worker` label.

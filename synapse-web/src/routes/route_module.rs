@@ -194,7 +194,20 @@ impl RouteModule for OidcModule {
 
 impl RouteModule for WorkerBodyModule {
     fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState> {
-        if state.services.core.config.worker.enabled {
+        // The worker-side (body) surface is only meaningful when HTTP
+        // replication is switched on, and that same switch is what
+        // `replication_http_auth_middleware` consults before demanding the shared
+        // secret:
+        //
+        //     if !ctx.config.worker.replication.http.enabled { return next.run(request).await; }
+        //
+        // Mounting on `worker.enabled` alone therefore exposed these routes behind
+        // a pass-through middleware: with `worker.enabled: true` and the default
+        // `replication.http.enabled: false`, anyone could PUT replication
+        // positions, read the event stream, and forge worker heartbeats / command
+        // completions without any credential. Require both switches.
+        let worker = &state.services.core.config.worker;
+        if worker.enabled && worker.replication.http.enabled {
             router.merge(worker::create_worker_body_router(&state))
         } else {
             router
