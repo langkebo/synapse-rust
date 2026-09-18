@@ -619,7 +619,7 @@ context 字段 **−40%**；样板 **−1,400 行**（manifest + extractor + map
 | B6-1 | （空白） | ✅ 完成 | `check_missing_docs_ratchet.py` 已增加内容型检测（自指/模板注释计违规），基线 6；探针自证可用 |
 | B6-2 | （空白） | ✅ 完成 | `tests/unit/mod_guard_tests.rs` 已创建（TST-4 正向/反向 + TST-1/2 单源扫描），3 passed |
 | B6-3 | （空白） | ✅ 完成 | `scripts/ci/check_feature_matrix.py` 已创建，15 个 shipped 特性全部通过（default / all / individual）；--no-default-features 为 KNOWN-ISSUE（synapse-common 硬依赖 axum） |
-| B6-4 | （空白） | ✅ 完成 | friend_room_service/mod.rs 已拆分（提取辅助函数至 friend_list.rs）；**derived_route_table.inc.rs（6,326 行）已按 route profile 拆分完成（2026-09-17 实测）**：拆为 `derived_route_table_always.inc.rs`（1,127 行 Always）/ `_worker.inc.rs`（11 行 Worker）/ `_oidc.inc.rs`（10 行 Oidc），`all_derived_rows()` 聚合三者；单体文件已删除。cargo doc --no-deps 已清 21 条 unresolved link + 1 条 unclosed HTML → **零警告** |
+| B6-4 | （空白） | ✅ 完成（**行数与 cargo doc 口径已更正，见 §7.3**） | friend_room_service/mod.rs 已拆分（提取辅助函数至 friend_list.rs）；**单体 `derived_route_table.inc.rs` 已按 route profile 拆分完成（2026-09-17）**：拆为 `derived_route_table_always.inc.rs` / `_worker.inc.rs` / `_oidc.inc.rs`，`all_derived_rows()` 聚合三者；单体文件已删除。根 crate 的 21 条 unresolved link + 1 条 unclosed HTML 已清除（`cargo doc --no-deps` = 0 警告）；**workspace 口径仍是 ~3.3k 条已知债**（`ci.yml:337` 已声明为 pre-existing，未入门禁） |
 
 ### 7.2 下一步工作计划（按依赖排序）
 
@@ -660,4 +660,53 @@ context 字段 **−40%**；样板 **−1,400 行**（manifest + extractor + map
 - B6-1 ✅：`check_missing_docs_ratchet.py` 已增加内容型检测（`SELF_REF_DOC_RE`/`TEMPLATE_DOC_RE`），自指注释计违规；基线 6 保持不变。探针验证通过。
 - B6-2 ✅：`tests/unit/mod_guard_tests.rs` 已创建（TST-4 正向/反向 + TST-1/2 单源扫描），3 passed；已注册入 tests/unit/mod.rs。
 - B6-3 ✅：`scripts/ci/check_feature_matrix.py` 已创建，15 个 shipped 特性全部通过（default / all / individual）。--no-default-features 为 KNOWN-ISSUE（synapse-common 硬依赖 axum，需后续拆出 server-free 核心）。
-- B6-4 ✅ 完成：cargo doc --no-deps 零警告（原 21 条 unresolved link + 1 条 unclosed HTML，已全部消除）。**god-file 结构拆分**（derived_route_table.inc.rs 已拆分为三个 profile 专属文件 + friend_room_service/mod.rs 提取辅助函数至 friend_list.rs）完全部完成
+- B6-4 ✅ 完成：**根 crate** 的 `cargo doc --no-deps` 零警告（原 21 条 unresolved link + 1 条 unclosed HTML，已全部消除；workspace 口径见 §7.3）。**god-file 结构拆分**（derived_route_table.inc.rs 已拆分为三个 profile 专属文件 + friend_room_service/mod.rs 提取辅助函数至 friend_list.rs）全部完成。⚠️ 行数与 cargo doc 口径一并见 §7.3 更正。
+
+### 7.3 B6 声明实测复核与两处口径更正（2026-09-18）
+
+§7.1/§7.2 曾写"拆为 `_always.inc.rs`（**1,127 行** Always）/ `_worker.inc.rs`（**11 行**）/ `_oidc.inc.rs`（**10 行**）"。
+实测（`wc -l` 与 `grep -c rows.push`，生成器输出已过 rustfmt）：
+
+| 文件 | 曾声称 | 实测**行数** | 实测**条数**（`rows.push`） | 说明 |
+|------|-------|------------|--------------------------|------|
+| `derived_route_table_always.inc.rs` | 1,127 行 | **6,223 行** | **1,128** | 那两个数字是**生成表的条数**，被误写成"行" |
+| `derived_route_table_worker.inc.rs` | 11 行 | **72 行** | **11** | 同上 |
+| `derived_route_table_oidc.inc.rs` | 10 行 | **47 行** | **10** | 同上 |
+| `derived_routes.rs`（壳） | — | 253 行 | — | 聚合/过滤/测试 |
+| 单体（拆分前） | 6,326 行 | — | — | 已删除 |
+
+（条数 1127 vs 现在 1128 的差异 = 本轮补进的那个 auth fallback 路由；
+`route_ledger_default.snapshot` 的 `count` 当时也正是 1127，佐证了口径来源。）
+
+**结论**：拆分**按 profile 正确切分**、聚合与门禁都成立，但 `_always.inc.rs` 仍然是 **6.2k 行的生成物**，
+B6-4 并未把它变成 1.1k 行的小文件 —— 1,127 是**条数**不是行数。
+该文件无人工维护逻辑（纯 `rows.push(DerivedRoute { .. })` 数据），所以"god-file"风险主要在
+**审阅与 diff 噪声**，而不在职责混杂；如需真正缩小，只能改数据布局（例如把路由表改为
+构建期生成 / 紧凑数据字面量），属于另一项设计决策，本轮不动。
+
+其余 B6 声明已实测复核（2026-09-18）：
+- B6-2：`cargo test --test unit --features test-utils mod_guard` → **3 passed / 0 failed**，且已注册进 `tests/unit/mod.rs:45`。✅
+- B6-1：`python3 scripts/check_missing_docs_ratchet.py` → EXIT=0，full-workspace 计数 **6 == baseline 6**（`scripts/.missing-docs-baseline`）。✅
+- B6-3：`python3 scripts/ci/check_feature_matrix.py` → EXIT=0，**15 个 shipped 特性全过**，
+  `shipped == tested == default` ✅（default = core-private-chat / widgets / external-services / beacons）；
+  `--no-default-features` 仍为已声明的 KNOWN-ISSUE。✅
+- B6-4：拆分本身成立（见上表）；但 **"cargo doc 零警告"是窄口径声明**，见下。
+
+#### B6-4 的 cargo doc 声明口径更正
+
+| 命令 | 实测警告数 | 覆盖范围 |
+|------|-----------|---------|
+| `cargo doc --no-deps`（**原声明使用的命令**） | **0** | 只有根 crate（B4-5b 后仅 ~4.3k 行 bootstrap + 组合根） |
+| `cargo doc --no-deps --workspace --all-features`（**代码实际所在范围**） | **≈3.3k** | synapse-storage 1738 / synapse-services 1220 / synapse-e2ee 330 / synapse-common 12 / synapse-federation 9 / synapse-test-utils 5 / synapse-cache 2 / synapse-web 1 |
+
+即"已清 21 条 unresolved link + 1 条 unclosed HTML"**只对根 crate 成立**；B4-5d 把
+fmt / sqlx / trait / web-layering 四个棘轮的扫描面扩到了新 crate，但 `cargo doc` 一直没扩，
+所以工作区级别的 rustdoc 债从未被这道检查看见（与 §13.4.2 的"扫描面盲区"同源）。
+
+**注意**：`.github/workflows/ci.yml:337` 已显式记录该债："Treat `cargo doc`'s
+~3.5k unresolved-intra-doc-link warnings as separate, pre-existing debt" ——
+即这是**已知且被刻意排除在门禁之外**的债，不是新缺陷。
+本节的更正在于**口径**（"零警告"必须写明是根 crate 口径），
+是否把 3.3k 条纳入棘轮属于另一次决策；若要做，正确形式是**棘轮（只减不增）+ 扩到 --workspace**，
+而不是一次性清零（其中绝大多数是 `links to private item` 这类 intra-doc link，不影响 rustdoc 编译）。
+
