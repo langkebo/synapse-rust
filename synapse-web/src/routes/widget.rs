@@ -15,22 +15,6 @@ use synapse_services::widget_service::{
     UpdateWidgetRequest, WidgetListResponse,
 };
 
-/// The `CreateWidgetBody` struct.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CreateWidgetBody {
-    /// The `room_id` field.
-    pub room_id: Option<String>,
-    /// The `widget_type` field.
-    pub widget_type: String,
-    /// The `url` field.
-    pub url: String,
-    /// The `name` field.
-    pub name: String,
-    /// The `data` field.
-    pub data: Option<serde_json::Value>,
-}
-
 /// The `UpdateWidgetBody` struct.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -90,7 +74,7 @@ pub struct WidgetApiResponse {
     /// The `widget_id` field.
     pub widget_id: String,
     /// The `room_id` field.
-    pub room_id: Option<String>,
+    pub room_id: String,
     /// The `user_id` field.
     pub user_id: String,
     #[serde(rename = "type")]
@@ -171,24 +155,29 @@ async fn create_widget(
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .ok_or_else(|| ApiError::bad_request("Missing required field: widget_type"))?;
+    // Widgets are always room-scoped (the baseline declares
+    // `widgets.room_id NOT NULL` and there is no account-level widget surface),
+    // so a missing/empty `room_id` is a 400, not a roomless widget.
+    let room_id = raw
+        .get("room_id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| ApiError::bad_request("Missing required field: room_id"))?;
 
     validate_widget_url(url)?;
 
-    let room_id = raw.get("room_id").and_then(|v| v.as_str()).map(|s| s.to_string());
     let data = raw.get("data").cloned();
 
-    if let Some(ref room_id) = room_id {
-        let room_exists = ctx.room_service.state().room_exists(room_id).await?;
-        if !room_exists {
-            return Err(ApiError::not_found("Room not found"));
-        }
-
-        ensure_room_widget_access(&ctx, &auth_user, room_id).await?;
-        ensure_room_widget_manage_access(&ctx, &auth_user, room_id).await?;
+    let room_exists = ctx.room_service.state().room_exists(room_id).await?;
+    if !room_exists {
+        return Err(ApiError::not_found("Room not found"));
     }
 
+    ensure_room_widget_access(&ctx, &auth_user, room_id).await?;
+    ensure_room_widget_manage_access(&ctx, &auth_user, room_id).await?;
+
     let request = CreateWidgetRequest {
-        room_id,
+        room_id: room_id.to_string(),
         widget_type: widget_type.to_string(),
         url: url.to_string(),
         name: name.to_string(),
@@ -442,13 +431,11 @@ async fn get_widget_with_access(
         return Ok(widget);
     }
 
-    if let Some(room_id) = widget.room_id.as_deref() {
-        ensure_room_member_strict_admin(ctx, auth_user, room_id, "You must be a room member to access this widget")
-            .await?;
-        // Membership already verified by ensure_room_member_strict_admin above
-        if required_permission == "read" {
-            return Ok(widget);
-        }
+    ensure_room_member_strict_admin(ctx, auth_user, &widget.room_id, "You must be a room member to access this widget")
+        .await?;
+    // Membership already verified by ensure_room_member_strict_admin above
+    if required_permission == "read" {
+        return Ok(widget);
     }
 
     let has_direct_permission =
@@ -500,7 +487,7 @@ async fn get_room_widget_capabilities(
 
     let widget = ctx.widget_service.get_widget(&widget_id).await?.ok_or(ApiError::not_found("Widget not found"))?;
 
-    if widget.room_id.as_deref() != Some(&room_id) {
+    if widget.room_id != room_id {
         return Err(ApiError::bad_request("Widget does not belong to this room".to_string()));
     }
 
@@ -526,7 +513,7 @@ async fn set_room_widget_capabilities(
     .await?;
     let widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "write").await?;
 
-    if widget.room_id.as_deref() != Some(&room_id) {
+    if widget.room_id != room_id {
         return Err(ApiError::bad_request("Widget does not belong to this room".to_string()));
     }
 
@@ -571,7 +558,7 @@ async fn send_room_widget_message(
 
     let widget = ctx.widget_service.get_widget(&widget_id).await?.ok_or(ApiError::not_found("Widget not found"))?;
 
-    if widget.room_id.as_deref() != Some(&room_id) {
+    if widget.room_id != room_id {
         return Err(ApiError::bad_request("Widget does not belong to this room".to_string()));
     }
 
@@ -590,20 +577,6 @@ async fn send_room_widget_message(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_create_widget_body() {
-        let body = CreateWidgetBody {
-            room_id: Some("!room:example.com".to_string()),
-            widget_type: "customwidget".to_string(),
-            url: "https://example.com/widget".to_string(),
-            name: "My Widget".to_string(),
-            data: Some(serde_json::json!({"key": "value"})),
-        };
-
-        assert_eq!(body.widget_type, "customwidget");
-        assert!(body.room_id.is_some());
-    }
 
     #[test]
     fn test_update_widget_body() {

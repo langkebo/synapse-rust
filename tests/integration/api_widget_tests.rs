@@ -357,6 +357,46 @@ async fn test_create_widget_returns_not_found_for_missing_room() {
     assert_eq!(create_widget_response.status(), StatusCode::NOT_FOUND);
 }
 
+/// Widgets are room-scoped (`widgets.room_id NOT NULL` in the baseline), so a
+/// create without a room must be a clean 400 — not the 500 the INSERT used to
+/// produce when the typed model still allowed `room_id: None`.
+#[tokio::test]
+async fn test_create_widget_rejects_missing_room_id() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let token = register_user(&app, &format!("widget_noroom_{}", rand::random::<u32>())).await;
+
+    for body in [
+        json!({
+            "widget_type": "m.custom",
+            "url": "https://example.com/widget",
+            "name": "Roomless Widget"
+        }),
+        json!({
+            "room_id": "",
+            "widget_type": "m.custom",
+            "url": "https://example.com/widget",
+            "name": "Roomless Widget"
+        }),
+    ] {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/_matrix/client/v1/widgets")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "unexpected status for body={body}");
+        let json = read_json(response).await;
+        assert_eq!(json["errcode"], "M_BAD_JSON", "body={body}");
+        assert_eq!(json["error"], "Missing required field: room_id", "body={body}");
+    }
+}
+
 #[tokio::test]
 async fn test_get_widget_requires_authentication() {
     let Some(app) = setup_test_app().await else {

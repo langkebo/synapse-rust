@@ -8,8 +8,8 @@ use uuid::Uuid;
 /// The `CreateWidgetRequest` struct.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CreateWidgetRequest {
-    /// The `room_id` field.
-    pub room_id: Option<String>,
+    /// Room the widget belongs to. Required — widgets are always room-scoped.
+    pub room_id: String,
     /// The `widget_type` field.
     pub widget_type: String,
     /// The `url` field.
@@ -124,7 +124,7 @@ impl WidgetService {
         info!(
             widget_id = %widget.widget_id,
             user_id = %widget.user_id,
-            room_id = ?widget.room_id,
+            room_id = %widget.room_id,
             widget_type = %widget.widget_type,
             "Created widget"
         );
@@ -384,7 +384,7 @@ mod tests {
     #[test]
     fn test_create_widget_request() {
         let request = CreateWidgetRequest {
-            room_id: Some("!room:example.com".to_string()),
+            room_id: "!room:example.com".to_string(),
             widget_type: "customwidget".to_string(),
             url: "https://example.com/widget".to_string(),
             name: "My Widget".to_string(),
@@ -392,7 +392,7 @@ mod tests {
         };
 
         assert_eq!(request.widget_type, "customwidget");
-        assert!(request.room_id.is_some());
+        assert_eq!(request.room_id, "!room:example.com");
     }
 
     #[test]
@@ -431,7 +431,7 @@ mod tests {
         let widget = Widget {
             id: 1,
             widget_id: "widget_123".to_string(),
-            room_id: Some("!room:example.com".to_string()),
+            room_id: "!room:example.com".to_string(),
             user_id: "@user:example.com".to_string(),
             widget_type: "customwidget".to_string(),
             url: "https://example.com/widget".to_string(),
@@ -623,7 +623,7 @@ mod tests {
         Widget {
             id: 1,
             widget_id: "widget_test123".to_string(),
-            room_id: Some("!room:test.com".to_string()),
+            room_id: "!room:test.com".to_string(),
             user_id: "@alice:test.com".to_string(),
             widget_type: "m.custom".to_string(),
             url: "https://example.com/widget".to_string(),
@@ -671,7 +671,7 @@ mod tests {
             .create_widget(
                 "@alice:test.com",
                 CreateWidgetRequest {
-                    room_id: Some("!room:test.com".to_string()),
+                    room_id: "!room:test.com".to_string(),
                     widget_type: "m.custom".to_string(),
                     url: "https://example.com/widget".to_string(),
                     name: "Test Widget".to_string(),
@@ -693,7 +693,7 @@ mod tests {
             .create_widget(
                 "@alice:test.com",
                 CreateWidgetRequest {
-                    room_id: None,
+                    room_id: "!room:test.com".to_string(),
                     widget_type: "m.custom".to_string(),
                     url: "https://example.com".to_string(),
                     name: "W".to_string(),

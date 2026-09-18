@@ -15,8 +15,10 @@ pub struct Widget {
     pub id: i64,
     /// The `widget_id` field.
     pub widget_id: String,
-    /// The `room_id` field.
-    pub room_id: Option<String>,
+    /// Room scope of the widget. Widgets are always room-scoped: there is no
+    /// account-level widget surface, so this matches `widgets.room_id NOT NULL`
+    /// in the baseline instead of being an `Option` the database can never hold.
+    pub room_id: String,
     /// The `user_id` field.
     pub user_id: String,
     /// The `widget_type` field.
@@ -40,8 +42,8 @@ pub struct Widget {
 pub struct CreateWidgetParams {
     /// The `widget_id` field.
     pub widget_id: String,
-    /// The `room_id` field.
-    pub room_id: Option<String>,
+    /// Room the widget belongs to. Required — see [`Widget::room_id`].
+    pub room_id: String,
     /// The `user_id` field.
     pub user_id: String,
     /// The `widget_type` field.
@@ -551,7 +553,7 @@ mod tests {
     fn test_create_widget_params() {
         let params = CreateWidgetParams {
             widget_id: "widget_123".to_string(),
-            room_id: Some("!room:example.com".to_string()),
+            room_id: "!room:example.com".to_string(),
             user_id: "@user:example.com".to_string(),
             widget_type: "customwidget".to_string(),
             url: "https://example.com/widget".to_string(),
@@ -568,7 +570,7 @@ mod tests {
         let widget = Widget {
             id: 1,
             widget_id: "widget_123".to_string(),
-            room_id: Some("!room:example.com".to_string()),
+            room_id: "!room:example.com".to_string(),
             user_id: "@user:example.com".to_string(),
             widget_type: "customwidget".to_string(),
             url: "https://example.com/widget".to_string(),
@@ -657,6 +659,14 @@ mod db_tests {
         .expect("failed to create test room");
     }
 
+    /// Create a throwaway room scoped to `tag` and return its id. Widgets are
+    /// room-scoped, so every fixture that creates one needs a real room row.
+    async fn ensure_widget_room(pool: &PgPool, tag: &str) -> String {
+        let room_id = format!("!wroom_{tag}:test.com");
+        ensure_test_room(pool, &room_id).await;
+        room_id
+    }
+
     /// Hard-delete a widget and everything that cascades from it
     /// (widget_permissions, widget_sessions). Idempotent.
     async fn cleanup_widget(pool: &PgPool, widget_id: &str) {
@@ -690,7 +700,7 @@ mod db_tests {
         let created = storage
             .create_widget(CreateWidgetParams {
                 widget_id: widget_id.clone(),
-                room_id: Some(room_id.clone()),
+                room_id: room_id.clone(),
                 user_id: user_id.clone(),
                 widget_type: "customwidget".to_string(),
                 url: "https://example.com/widget".to_string(),
@@ -702,7 +712,7 @@ mod db_tests {
 
         assert!(created.id > 0);
         assert_eq!(created.widget_id, widget_id);
-        assert_eq!(created.room_id.as_deref(), Some(room_id.as_str()));
+        assert_eq!(created.room_id, room_id);
         assert_eq!(created.user_id, user_id);
         assert_eq!(created.widget_type, "customwidget");
         assert_eq!(created.url, "https://example.com/widget");
@@ -750,7 +760,7 @@ mod db_tests {
 
         let base_params = |w_id: &str, r_id: &str| CreateWidgetParams {
             widget_id: w_id.to_string(),
-            room_id: Some(r_id.to_string()),
+            room_id: r_id.to_string(),
             user_id: user_id.clone(),
             widget_type: "m.custom".to_string(),
             url: "https://example.com".to_string(),
@@ -765,7 +775,7 @@ mod db_tests {
         let room_a_widgets = storage.get_room_widgets(&room_a).await.expect("get_room_widgets should succeed");
         assert_eq!(room_a_widgets.len(), 2);
         for w in &room_a_widgets {
-            assert_eq!(w.room_id.as_deref(), Some(room_a.as_str()));
+            assert_eq!(w.room_id, room_a);
         }
 
         let room_b_widgets = storage.get_room_widgets(&room_b).await.expect("get_room_widgets should succeed");
@@ -789,13 +799,14 @@ mod db_tests {
 
         ensure_test_user(&pool, &user_a).await;
         ensure_test_user(&pool, &user_b).await;
+        let room_id = ensure_widget_room(&pool, &suffix.to_string()).await;
         for wid in &[&w1, &w2, &w3] {
             cleanup_widget(&pool, wid).await;
         }
 
         let base_params = |w_id: &str, u_id: &str| CreateWidgetParams {
             widget_id: w_id.to_string(),
-            room_id: None,
+            room_id: room_id.clone(),
             user_id: u_id.to_string(),
             widget_type: "m.custom".to_string(),
             url: "https://example.com".to_string(),
@@ -827,12 +838,13 @@ mod db_tests {
         let user_id = format!("@updater_{suffix}:test.com");
 
         ensure_test_user(&pool, &user_id).await;
+        let room_id = ensure_widget_room(&pool, &suffix.to_string()).await;
         cleanup_widget(&pool, &widget_id).await;
 
         storage
             .create_widget(CreateWidgetParams {
                 widget_id: widget_id.clone(),
-                room_id: None,
+                room_id: room_id.clone(),
                 user_id: user_id.clone(),
                 widget_type: "m.custom".to_string(),
                 url: "https://old.example.com".to_string(),
@@ -888,12 +900,13 @@ mod db_tests {
         let user_id = format!("@deleter_{suffix}:test.com");
 
         ensure_test_user(&pool, &user_id).await;
+        let room_id = ensure_widget_room(&pool, &suffix.to_string()).await;
         cleanup_widget(&pool, &widget_id).await;
 
         storage
             .create_widget(CreateWidgetParams {
                 widget_id: widget_id.clone(),
-                room_id: None,
+                room_id: room_id.clone(),
                 user_id: user_id.clone(),
                 widget_type: "m.custom".to_string(),
                 url: "https://example.com".to_string(),
@@ -938,12 +951,13 @@ mod db_tests {
 
         ensure_test_user(&pool, &user_id).await;
         ensure_test_user(&pool, &other_user).await;
+        let room_id = ensure_widget_room(&pool, &suffix.to_string()).await;
         cleanup_widget(&pool, &widget_id).await;
 
         storage
             .create_widget(CreateWidgetParams {
                 widget_id: widget_id.clone(),
-                room_id: None,
+                room_id: room_id.clone(),
                 user_id: user_id.clone(),
                 widget_type: "m.custom".to_string(),
                 url: "https://example.com".to_string(),
@@ -1000,12 +1014,13 @@ mod db_tests {
         let user_id = format!("@delpermuser_{suffix}:test.com");
 
         ensure_test_user(&pool, &user_id).await;
+        let room_id = ensure_widget_room(&pool, &suffix.to_string()).await;
         cleanup_widget(&pool, &widget_id).await;
 
         storage
             .create_widget(CreateWidgetParams {
                 widget_id: widget_id.clone(),
-                room_id: None,
+                room_id: room_id.clone(),
                 user_id: user_id.clone(),
                 widget_type: "m.custom".to_string(),
                 url: "https://example.com".to_string(),
@@ -1042,13 +1057,14 @@ mod db_tests {
         let user_id = format!("@sessuser_{suffix}:test.com");
 
         ensure_test_user(&pool, &user_id).await;
+        let room_id = ensure_widget_room(&pool, &suffix.to_string()).await;
         cleanup_widget(&pool, &widget_id).await;
         cleanup_session(&pool, &session_id).await;
 
         storage
             .create_widget(CreateWidgetParams {
                 widget_id: widget_id.clone(),
-                room_id: None,
+                room_id: room_id.clone(),
                 user_id: user_id.clone(),
                 widget_type: "m.custom".to_string(),
                 url: "https://example.com".to_string(),
@@ -1093,13 +1109,14 @@ mod db_tests {
         let user_id = format!("@actuser_{suffix}:test.com");
 
         ensure_test_user(&pool, &user_id).await;
+        let room_id = ensure_widget_room(&pool, &suffix.to_string()).await;
         cleanup_widget(&pool, &widget_id).await;
         cleanup_session(&pool, &session_id).await;
 
         storage
             .create_widget(CreateWidgetParams {
                 widget_id: widget_id.clone(),
-                room_id: None,
+                room_id: room_id.clone(),
                 user_id: user_id.clone(),
                 widget_type: "m.custom".to_string(),
                 url: "https://example.com".to_string(),
@@ -1147,6 +1164,7 @@ mod db_tests {
         let s2 = format!("lists2_{suffix}");
 
         ensure_test_user(&pool, &user_id).await;
+        let room_id = ensure_widget_room(&pool, &suffix.to_string()).await;
         cleanup_widget(&pool, &widget_id).await;
         cleanup_session(&pool, &s1).await;
         cleanup_session(&pool, &s2).await;
@@ -1154,7 +1172,7 @@ mod db_tests {
         storage
             .create_widget(CreateWidgetParams {
                 widget_id: widget_id.clone(),
-                room_id: None,
+                room_id: room_id.clone(),
                 user_id: user_id.clone(),
                 widget_type: "m.custom".to_string(),
                 url: "https://example.com".to_string(),
@@ -1187,6 +1205,7 @@ mod db_tests {
         let valid_sid = format!("valid_{suffix}");
 
         ensure_test_user(&pool, &user_id).await;
+        let room_id = ensure_widget_room(&pool, &suffix.to_string()).await;
         cleanup_widget(&pool, &widget_id).await;
         cleanup_session(&pool, &expired_sid).await;
         cleanup_session(&pool, &valid_sid).await;
@@ -1194,7 +1213,7 @@ mod db_tests {
         storage
             .create_widget(CreateWidgetParams {
                 widget_id: widget_id.clone(),
-                room_id: None,
+                room_id: room_id.clone(),
                 user_id: user_id.clone(),
                 widget_type: "m.custom".to_string(),
                 url: "https://example.com".to_string(),
@@ -1246,7 +1265,7 @@ mod db_tests {
         let created = storage
             .create_widget(CreateWidgetParams {
                 widget_id: widget_id.clone(),
-                room_id: Some(room_id.clone()),
+                room_id: room_id.clone(),
                 user_id: user_id.clone(),
                 widget_type: "m.custom".to_string(),
                 url: "https://example.com/start".to_string(),
