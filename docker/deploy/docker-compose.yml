@@ -49,7 +49,21 @@ services:
       # 配置唯一真相源是仓库根的 `docker/config/`，本目录不再保留副本。
       - ../config/postgres.conf:/etc/postgresql/postgresql.conf:ro
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-synapse}" ]
+      # ⚠️ 探针必须走 **TCP 并真正认证查询一次**，不能用默认的 unix socket。
+      # 官方 postgres 镜像在 initdb + `docker-entrypoint-initdb.d` 阶段会先起一个
+      # **只监听 unix socket** 的临时实例（entrypoint 用 `-c listen_addresses=''`）。
+      # 此时 `pg_isready`（不带 `-h`）报 "accepting connections" ⇒ 容器**在初始化
+      # 中途就被判 healthy**，而 `pg_isready` 的返回码并不校验库/用户/密码是否可用。
+      # 后果：`depends_on: condition: service_healthy` 与 deploy.sh 的
+      # `wait_for_container_health` 一起过早放行 migrator，migrator 走 TCP 连不上；
+      # 它的重试窗口只有 `retry 3 5`（约 10s），慢机器上初始化更久 ⇒ 部署以
+      # "数据库迁移失败"中止（2026-09-19 用带 `pg_sleep(30)` 初始化脚本的全新
+      # postgres:16-alpine 复现：旧探针连续 24s+ 报 rc=0，新探针同时段全部失败）。
+      # `-h 127.0.0.1` 让临时实例不满足条件；末尾那次 psql 同时证明"这个用户名/库
+      # 真的能认证并查询"，这正是 migrator 需要的语义。
+      # `$$` 是 compose 转义 —— 交给容器 shell 的是字面 `$`。
+      # 实测证据见 docs/audit/DB_REVIEW_2026-09-17.md §15.9。
+      test: [ "CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\" && PGPASSWORD=\"$${POSTGRES_PASSWORD}\" psql -h 127.0.0.1 -p 5432 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\" -tAc 'SELECT 1'" ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -107,7 +121,13 @@ services:
   migrator:
     image: postgres:16-alpine
     container_name: synapse-migrator
-    restart: "no"
+    # `on-failure:3` 而不是 `"no"`：migrator 失败的原因里最典型的一类是"postgres 还没
+    # 真正可写"（见上面 postgres.healthcheck 的注释）。`deploy.sh` 走的是
+    # `compose run --rm`，而 `run` **不套用** restart 策略、只有 `retry 3 5`（约 10s），
+    # 所以本项不影响标准部署路径；它兜住的是直接 `docker compose up` 起整个栈的用法
+    # —— 在那里 `"no"` 会让一次瞬时失败把整套服务留在"server 起来了、schema 没迁移"
+    # 的状态。重试 3 次仍失败则照样停止，不会掩盖真正的错误。
+    restart: "on-failure:3"
     cpus: ${MIGRATOR_CPU_LIMIT:-1.0}
     mem_limit: ${MIGRATOR_MEMORY_LIMIT:-1024m}
     pids_limit: ${MIGRATOR_PIDS_LIMIT:-128}

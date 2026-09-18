@@ -111,7 +111,14 @@ services:
       # 找不到配置文件而崩溃。理由详见 docker/deploy/docker-compose.yml。
       - ./config/postgres.conf:/etc/postgresql/postgresql.conf
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-synapse} -d ${DB_NAME:-synapse}" ]
+      # 与 docker/deploy/docker-compose.yml 同一判据：必须走 TCP + 一次真实认证查询。
+      # 只写 `pg_isready`（不带 `-h`）会探到 initdb 阶段那个**只监听 unix socket** 的
+      # 临时实例，容器在初始化中途就被判 healthy（旧探针实测连续 24s+ 报 rc=0），
+      # 于是依赖它的服务（本栈的 `synapse-rust` entrypoint 迁移、CI 的
+      # backend-validation）会在数据库真正可连之前启动。理由与实测见
+      # docker/deploy/docker-compose.yml 的 postgres.healthcheck 与
+      # docs/audit/DB_REVIEW_2026-09-17.md §15.9。
+      test: [ "CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\" && PGPASSWORD=\"$${POSTGRES_PASSWORD}\" psql -h 127.0.0.1 -p 5432 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\" -tAc 'SELECT 1'" ]
       interval: 10s
       timeout: 5s
       retries: 10
