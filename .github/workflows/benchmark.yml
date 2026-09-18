@@ -86,6 +86,9 @@ jobs:
           # 那种判据永远为真、抓不住静默跳过。
           BENCH_REQUIRE: "pagination"
         run: |
+          # 四条 `cargo bench … | tee` 都会把退出码换成 tee 的 0：某条基准编译失败或
+          # 崩溃时这一步照样"成功"，下面的分页门禁再基于缺失的数据做判断。
+          set -o pipefail
           : > benchmark.txt
           # pagination 基准是纯内存计算，不依赖服务/DB，因此在本 job 中真实执行。
           # 阻塞断言见下方 "Check pagination benchmark gain"。

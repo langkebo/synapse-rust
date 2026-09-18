@@ -68,6 +68,8 @@ jobs:
 
       - name: Vodozemac interop smoke
         run: |
+          # `2>&1 | tee` 会把退出码换成 tee 的 0：测试失败时这一步照样"成功"。
+          set -o pipefail
           mkdir -p "${E2EE_INTEROP_LOG}"
           cargo test --all-features --locked --lib \
             'e2ee::vodozemac_interop_tests' \
@@ -141,6 +143,7 @@ jobs:
           WAIT_SECONDS: 240
           KEEP_STACK_RUNNING: '1'
         run: |
+          set -o pipefail
           mkdir -p "${E2EE_INTEROP_LOG}"
           bash scripts/test/run_sdk_verification_real_backend.sh \
             2>&1 | tee "${E2EE_INTEROP_LOG}/matrix-js-sdk.log"
@@ -153,6 +156,7 @@ jobs:
           ELEMENT_HARNESS_ARTIFACT_DIR: ${{ github.workspace }}/artifacts/e2ee-interop
           ELEMENT_HARNESS_SCRIPT: ${{ github.event.inputs.element_harness_script }}
         run: |
+          set -o pipefail
           mkdir -p "${E2EE_INTEROP_LOG}"
           TEST_SCRIPT="${ELEMENT_HARNESS_SCRIPT:-test:basic}" \
           bash scripts/test/run_element_web_browser_harness.sh \

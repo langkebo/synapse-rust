@@ -26,6 +26,9 @@ jobs:
 
       - name: Validate baseline absorbs all incremental migrations
         run: |
+          # `| tee` 会把步骤退出码变成 tee 的（0）；bash 默认不开 pipefail，
+          # 于是脚本报 ❌ 且 exit 1 时这一步仍判绿。门禁步骤必须显式开启。
+          set -o pipefail
           mkdir -p artifacts
           python3 scripts/check_baseline_consolidation.py | tee artifacts/baseline_consolidation.txt
 

@@ -699,6 +699,8 @@ jobs:
           RUN_PERF_SMOKE: 1
           PERF_SMOKE_LOG: artifacts/perf_smoke.log
         run: |
+          # `2>&1 | tee` 掩盖退出码（bash 默认无 pipefail）。
+          set -o pipefail
           mkdir -p artifacts
           cargo test --test performance_manual --features performance-tests --locked -- --ignored --nocapture 2>&1 | tee artifacts/perf_smoke.log
 
