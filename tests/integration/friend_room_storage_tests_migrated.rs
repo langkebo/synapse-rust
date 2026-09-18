@@ -221,7 +221,7 @@ async fn test_get_friend_list_room_id_found() {
     insert_room(&pool, &room_id).await;
     insert_event(
         &pool,
-        &format!("$create_{suffix}"),
+        &format!("$create_{suffix}:localhost"),
         &room_id,
         &user_id,
         "m.room.create",
@@ -264,7 +264,16 @@ async fn test_get_friend_list_content() {
             {"user_id": "@bob:localhost", "dm_room_id": "!dm2:localhost"}
         ]
     });
-    insert_event(&pool, &format!("$flist_{suffix}"), &room_id, &user_id, "m.friends.list", Some(""), &content).await;
+    insert_event(
+        &pool,
+        &format!("$flist_{suffix}:localhost"),
+        &room_id,
+        &user_id,
+        "m.friends.list",
+        Some(""),
+        &content,
+    )
+    .await;
 
     let result = storage.get_friend_list_content(&room_id).await.unwrap();
     assert!(result.is_some());
@@ -303,7 +312,16 @@ async fn test_is_friend_true() {
             {"user_id": "@bob:localhost"}
         ]
     });
-    insert_event(&pool, &format!("$isfriend_{suffix}"), &room_id, &user_id, "m.friends.list", Some(""), &content).await;
+    insert_event(
+        &pool,
+        &format!("$isfriend_{suffix}:localhost"),
+        &room_id,
+        &user_id,
+        "m.friends.list",
+        Some(""),
+        &content,
+    )
+    .await;
 
     let result = storage.is_friend(&room_id, "@alice:localhost").await.unwrap();
     assert!(result);
@@ -326,8 +344,16 @@ async fn test_is_friend_false() {
             {"user_id": "@alice:localhost"}
         ]
     });
-    insert_event(&pool, &format!("$notfriend_{suffix}"), &room_id, &user_id, "m.friends.list", Some(""), &content)
-        .await;
+    insert_event(
+        &pool,
+        &format!("$notfriend_{suffix}:localhost"),
+        &room_id,
+        &user_id,
+        "m.friends.list",
+        Some(""),
+        &content,
+    )
+    .await;
 
     let result = storage.is_friend(&room_id, "@charlie:localhost").await.unwrap();
     assert!(!result);
@@ -351,7 +377,16 @@ async fn test_get_friend_info_found() {
             {"user_id": "@bob:localhost", "displayname": "Bob"}
         ]
     });
-    insert_event(&pool, &format!("$finfo_{suffix}"), &room_id, &user_id, "m.friends.list", Some(""), &content).await;
+    insert_event(
+        &pool,
+        &format!("$finfo_{suffix}:localhost"),
+        &room_id,
+        &user_id,
+        "m.friends.list",
+        Some(""),
+        &content,
+    )
+    .await;
 
     let result = storage.get_friend_info(&room_id, "@alice:localhost").await.unwrap();
     assert!(result.is_some());
@@ -372,7 +407,16 @@ async fn test_get_friend_info_not_found() {
     insert_room(&pool, &room_id).await;
 
     let content = json!({"friends": [{"user_id": "@alice:localhost"}]});
-    insert_event(&pool, &format!("$finfonf_{suffix}"), &room_id, &user_id, "m.friends.list", Some(""), &content).await;
+    insert_event(
+        &pool,
+        &format!("$finfonf_{suffix}:localhost"),
+        &room_id,
+        &user_id,
+        "m.friends.list",
+        Some(""),
+        &content,
+    )
+    .await;
 
     let result = storage.get_friend_info(&room_id, "@nobody:localhost").await.unwrap();
     assert_eq!(result, None);
@@ -898,7 +942,7 @@ async fn test_get_user_friend_ids() {
     insert_room(&pool, &room_id).await;
     insert_event(
         &pool,
-        &format!("$create_fids_{suffix}"),
+        &format!("$create_fids_{suffix}:localhost"),
         &room_id,
         &user_id,
         "m.room.create",
@@ -908,7 +952,7 @@ async fn test_get_user_friend_ids() {
     .await;
     insert_event(
         &pool,
-        &format!("$flist_fids_{suffix}"),
+        &format!("$flist_fids_{suffix}:localhost"),
         &room_id,
         &user_id,
         "m.friends.list",
@@ -958,7 +1002,7 @@ async fn test_get_mutual_friends() {
 
     insert_event(
         &pool,
-        &format!("$mutual_create_a_{suffix}"),
+        &format!("$mutual_create_a_{suffix}:localhost"),
         &room_a,
         &user_a,
         "m.room.create",
@@ -968,7 +1012,7 @@ async fn test_get_mutual_friends() {
     .await;
     insert_event(
         &pool,
-        &format!("$mutual_flist_a_{suffix}"),
+        &format!("$mutual_flist_a_{suffix}:localhost"),
         &room_a,
         &user_a,
         "m.friends.list",
@@ -985,7 +1029,7 @@ async fn test_get_mutual_friends() {
 
     insert_event(
         &pool,
-        &format!("$mutual_create_b_{suffix}"),
+        &format!("$mutual_create_b_{suffix}:localhost"),
         &room_b,
         &user_b,
         "m.room.create",
@@ -995,7 +1039,7 @@ async fn test_get_mutual_friends() {
     .await;
     insert_event(
         &pool,
-        &format!("$mutual_flist_b_{suffix}"),
+        &format!("$mutual_flist_b_{suffix}:localhost"),
         &room_b,
         &user_b,
         "m.friends.list",
@@ -1034,7 +1078,16 @@ async fn test_find_friend_lists_by_dm_room_id() {
             {"user_id": "@friend2:localhost", "dm_room_id": "!other_dm:localhost"}
         ]
     });
-    insert_event(&pool, &format!("$dm_flist_{suffix}"), &room_id, &user_id, "m.friends.list", Some(""), &content).await;
+    insert_event(
+        &pool,
+        &format!("$dm_flist_{suffix}:localhost"),
+        &room_id,
+        &user_id,
+        "m.friends.list",
+        Some(""),
+        &content,
+    )
+    .await;
 
     let links = storage.find_friend_lists_by_dm_room_id(&dm_room_id).await.unwrap();
     assert_eq!(links.len(), 1);
@@ -1134,7 +1187,7 @@ async fn test_get_friend_list_all_shards_batch_returns_5_room_index() {
             });
             insert_event(
                 &pool,
-                &format!("$batch_{link_idx}_{shard_idx}_{suffix}"),
+                &format!("$batch_{link_idx}_{shard_idx}_{suffix}:localhost"),
                 &rid,
                 &user_id,
                 "m.friends.list",
@@ -1190,9 +1243,12 @@ async fn test_get_friend_list_all_shards_batch_dedupes_per_shard() {
     let v1 = json!({ "friends": [{"user_id": "@old:loc"}], "version": 1 });
     let v2 = json!({ "friends": [{"user_id": "@mid:loc"}], "version": 2 });
     let v3 = json!({ "friends": [{"user_id": "@new:loc"}], "version": 3 });
-    insert_event(&pool, &format!("$dedup_a1_{suffix}"), &rid, &user_id, "m.friends.list", Some("A"), &v1).await;
-    insert_event(&pool, &format!("$dedup_a2_{suffix}"), &rid, &user_id, "m.friends.list", Some("A"), &v2).await;
-    insert_event(&pool, &format!("$dedup_a3_{suffix}"), &rid, &user_id, "m.friends.list", Some("A"), &v3).await;
+    insert_event(&pool, &format!("$dedup_a1_{suffix}:localhost"), &rid, &user_id, "m.friends.list", Some("A"), &v1)
+        .await;
+    insert_event(&pool, &format!("$dedup_a2_{suffix}:localhost"), &rid, &user_id, "m.friends.list", Some("A"), &v2)
+        .await;
+    insert_event(&pool, &format!("$dedup_a3_{suffix}:localhost"), &rid, &user_id, "m.friends.list", Some("A"), &v3)
+        .await;
 
     let index = storage.get_friend_list_all_shards_batch(std::slice::from_ref(&rid)).await.expect("batch dedup");
 

@@ -979,7 +979,7 @@ async fn test_schema_contract_room_summary_state_and_stats_query_and_write_read_
             &room_id,
             "m.room.name",
             "",
-            Some("$summary-state-initial"),
+            Some("$summary-state-initial:localhost"),
             serde_json::json!({ "name": "Schema Summary Initial" }),
         )
         .await
@@ -993,16 +993,22 @@ async fn test_schema_contract_room_summary_state_and_stats_query_and_write_read_
             &room_id,
             "m.room.name",
             "",
-            Some("$summary-state-updated"),
+            Some("$summary-state-updated:localhost"),
             serde_json::json!({ "name": "Schema Summary Updated" }),
         )
         .await
         .expect("Failed to upsert room summary state");
-    assert_eq!(updated_state.event_id.as_deref(), Some("$summary-state-updated"));
+    assert_eq!(updated_state.event_id.as_deref(), Some("$summary-state-updated:localhost"));
     assert_eq!(updated_state.content, serde_json::json!({ "name": "Schema Summary Updated" }));
 
     let topic_state = storage
-        .set_state(&room_id, "m.room.topic", "", Some("$summary-topic"), serde_json::json!({ "topic": "Schema Topic" }))
+        .set_state(
+            &room_id,
+            "m.room.topic",
+            "",
+            Some("$summary-topic:localhost"),
+            serde_json::json!({ "topic": "Schema Topic" }),
+        )
         .await
         .expect("Failed to insert second room summary state");
     assert_eq!(topic_state.event_type, "m.room.topic");
@@ -1012,7 +1018,7 @@ async fn test_schema_contract_room_summary_state_and_stats_query_and_write_read_
         .await
         .expect("Failed to fetch room summary state")
         .expect("Expected room summary state to exist");
-    assert_eq!(fetched_state.event_id.as_deref(), Some("$summary-state-updated"));
+    assert_eq!(fetched_state.event_id.as_deref(), Some("$summary-state-updated:localhost"));
     assert_eq!(fetched_state.content, serde_json::json!({ "name": "Schema Summary Updated" }));
 
     let all_state = storage.get_all_state(&room_id).await.expect("Failed to fetch all room summary state");
@@ -1122,19 +1128,19 @@ async fn test_schema_contract_room_summary_queue_and_children_query_and_write_re
     let (child_creator, child_hero, child_room_id) = seed_users_and_room(&pool, &child_suffix).await;
 
     storage
-        .queue_update(&room_id, "$summary-high", "m.room.message", None, 9)
+        .queue_update(&room_id, "$summary-high:localhost", "m.room.message", None, 9)
         .await
         .expect("Failed to queue high priority room summary update");
     storage
-        .queue_update(&room_id, "$summary-low", "m.room.topic", Some(""), 3)
+        .queue_update(&room_id, "$summary-low:localhost", "m.room.topic", Some(""), 3)
         .await
         .expect("Failed to queue low priority room summary update");
 
     let pending_updates = storage.get_pending_updates(10).await.expect("Failed to query pending room summary updates");
     assert!(pending_updates.len() >= 2, "Expected at least two pending room summary updates");
-    assert_eq!(pending_updates[0].event_id, "$summary-high");
+    assert_eq!(pending_updates[0].event_id, "$summary-high:localhost");
     assert_eq!(pending_updates[0].priority, 9);
-    assert_eq!(pending_updates[1].event_id, "$summary-low");
+    assert_eq!(pending_updates[1].event_id, "$summary-low:localhost");
     assert_eq!(pending_updates[1].priority, 3);
 
     storage
@@ -1251,8 +1257,8 @@ async fn test_schema_contract_search_index_shape() {
 async fn test_schema_contract_search_index_query_and_write_read_closure() {
     let pool = crate::require_test_pool().await;
 
-    let event_id_old = format!("$search-old-{}", uuid::Uuid::new_v4());
-    let event_id_new = format!("$search-new-{}", uuid::Uuid::new_v4());
+    let event_id_old = format!("$search-old-{}:localhost", uuid::Uuid::new_v4());
+    let event_id_new = format!("$search-new-{}:localhost", uuid::Uuid::new_v4());
     let room_id = format!("!search-room-{}:localhost", uuid::Uuid::new_v4());
     let user_id = format!("@search-user-{}:localhost", uuid::Uuid::new_v4());
     let event_type = "m.room.message";
@@ -1520,8 +1526,8 @@ async fn test_schema_contract_space_summary_query_and_write_read_closure() {
     assert_eq!(statistics_row["child_room_count"], 1);
     assert_eq!(statistics_row["member_count"], 2);
 
-    let event_id_old = format!("$space-event-old-{suffix}");
-    let event_id_new = format!("$space-event-new-{suffix}");
+    let event_id_old = format!("$space-event-old-{suffix}:localhost");
+    let event_id_new = format!("$space-event-new-{suffix}:localhost");
     sqlx::query(
         r#"
         INSERT INTO space_events (event_id, space_id, event_type, sender, content, state_key, origin_server_ts, processed_ts)
@@ -1746,9 +1752,9 @@ async fn test_schema_contract_room_summary_queue_processor_service_closure() {
         .await
         .expect("Failed to create room summary processor fixture");
 
-    let state_event_id = format!("$summary-service-state-{suffix}");
-    let message_event_id = format!("$summary-service-message-{suffix}");
-    let missing_event_id = format!("$summary-service-missing-{suffix}");
+    let state_event_id = format!("$summary-service-state-{suffix}:localhost");
+    let message_event_id = format!("$summary-service-message-{suffix}:localhost");
+    let missing_event_id = format!("$summary-service-missing-{suffix}:localhost");
 
     event_storage
         .create_event(

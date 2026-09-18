@@ -151,10 +151,10 @@ async fn test_schema_contract_room_summary_queue_driver_batches_and_message_ts()
     let (creator, hero, room_id) = seed_users_and_room(&pool, &suffix).await;
     create_summary_fixture(&pool, &room_id).await;
 
-    let state_name_event_id = format!("$summary-driver-state-name-{suffix}");
-    let state_topic_event_id = format!("$summary-driver-state-topic-{suffix}");
-    let message_event_id = format!("$summary-driver-message-{suffix}");
-    let other_event_id = format!("$summary-driver-other-{suffix}");
+    let state_name_event_id = format!("$summary-driver-state-name-{suffix}:localhost");
+    let state_topic_event_id = format!("$summary-driver-state-topic-{suffix}:localhost");
+    let message_event_id = format!("$summary-driver-message-{suffix}:localhost");
+    let other_event_id = format!("$summary-driver-other-{suffix}:localhost");
 
     event_storage
         .create_event(
@@ -298,7 +298,7 @@ async fn test_schema_contract_room_summary_queue_failed_items_are_not_reprocesse
     let (creator, hero, room_id) = seed_users_and_room(&pool, &suffix).await;
     create_summary_fixture(&pool, &room_id).await;
 
-    let missing_event_id = format!("$summary-driver-missing-{suffix}");
+    let missing_event_id = format!("$summary-driver-missing-{suffix}:localhost");
     service
         .queue_update(&room_id, &missing_event_id, "m.room.name", Some(""))
         .await

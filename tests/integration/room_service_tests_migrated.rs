@@ -651,7 +651,7 @@ async fn test_get_room_messages_supports_sync_prev_batch_token() {
             .messaging
             .create_event(
                 CreateEventParams {
-                    event_id: format!("$timeline_{id}_{ts}"),
+                    event_id: format!("$timeline_{id}_{ts}:localhost"),
                     room_id: room_id.to_string(),
                     user_id: alice_id.clone(),
                     event_type: "m.room.message".to_string(),
@@ -759,7 +759,7 @@ async fn test_get_room_messages_supports_forward_pagination_from_stream_token() 
             .messaging
             .create_event(
                 CreateEventParams {
-                    event_id: format!("$forward_timeline_{id}_{ts}"),
+                    event_id: format!("$forward_timeline_{id}_{ts}:localhost"),
                     room_id: room_id.to_string(),
                     user_id: alice_id.clone(),
                     event_type: "m.room.message".to_string(),
@@ -1064,7 +1064,7 @@ async fn test_upgrade_room_invites_all_former_local_members() {
         )
         .bind(&old_room_id)
         .bind(&uid)
-        .bind(format!("$fake-join-{i}-{id}"))
+        .bind(format!("$fake-join-{i}-{id}:localhost"))
         .execute(pool.as_ref())
         .await
         .expect("Failed to seed former-member join row");
