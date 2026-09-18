@@ -118,9 +118,15 @@ fn cleanup_script_preserves_both_live_template_families() {
     // Keep set polarity: `NOT IN` excludes kept templates from the candidate
     // set; `IN` would select them for deletion.
     assert!(
-        source.contains("nspname NOT IN ($KEEP_SQL)"),
-        "the keep set must be applied as `nspname NOT IN ($KEEP_SQL)` so a template listed by a \
-         ready-marker or `--keep-template` is excluded from the candidate set"
+        source.contains("KEEP_EXCLUDE=\"AND nspname NOT IN ("),
+        "the keep set must be applied as a `NOT IN (...)` hard exclusion so a template listed by \
+         a ready-marker, `--keep-template`, `TEST_DB_TEMPLATE_SCHEMA` or the static list is \
+         excluded from the candidate set"
+    );
+    assert!(
+        source.contains("$STATIC_KEEP_SQL") && source.contains("${KEEP_SQL:+,$KEEP_SQL}"),
+        "the hard exclusion must combine the unconditional static list with the dynamic keep set; \
+         dropping either half re-opens a way to delete a live template"
     );
     assert!(
         !source.contains("nspname IN ($KEEP_SQL)"),
@@ -132,6 +138,47 @@ fn cleanup_script_preserves_both_live_template_families() {
         !source.contains("nspname NOT LIKE 'test\\_template\\_%'"),
         "`--keep-all-templates` must exclude both fingerprint families, not just the old \
          `test_template_*` family"
+    );
+}
+
+/// The `§9` hard exclusion must not depend on the keep set being non-empty.
+///
+/// Regression context (measured 2026-09-19): `KEEP_EXCLUDE` used to be assigned
+/// **inside** `if [ -n "$KEEP_SQL" ]`. In the most common local path — no
+/// ready-marker file (fresh `CARGO_TARGET_DIR`) and no `TEST_DB_TEMPLATE_SCHEMA`
+/// (only CI exports it) — `KEEP_SQL` is empty, so the clause the script's own
+/// comment calls the "HARD EXCLUSION" disappeared exactly where it was needed.
+/// The dry run then reported `待清理: 1 个 schema / test_template_ci`: a real
+/// `--apply` would have CASCADE-dropped the shared template that CI pins in
+/// every test step. `test_template_ci` matches `test\_%` but neither fingerprint
+/// family regex, so nothing else in the candidate predicate spares it.
+///
+/// Both halves of the fix are pinned here: the static list exists, and the
+/// exclusion clause is built unconditionally from it (with a loud error if the
+/// list is ever emptied), so the exclusion can never collapse to "" again.
+#[test]
+fn cleanup_script_hard_excludes_static_live_templates_without_markers() {
+    let source = script();
+    assert!(
+        source.contains(r#"STATIC_KEEP=("test_template_ci")"#),
+        "`test_template_ci` is created by shell/CI and has no ready-marker, so it must live in the \
+         unconditional static keep list; without it a local `--apply` deletes the CI template"
+    );
+    // The old, broken shape: an empty assignment that is only filled conditionally.
+    assert!(
+        !source.contains(r#"KEEP_EXCLUDE="""#),
+        "`KEEP_EXCLUDE` must be assigned exactly once, unconditionally: an empty default filled \
+         only when `KEEP_SQL` is non-empty is what allowed `test_template_ci` to become a \
+         candidate in the no-marker/no-env path"
+    );
+    assert!(
+        source.contains(r#"KEEP_EXCLUDE="AND nspname NOT IN ($STATIC_KEEP_SQL"#),
+        "the hard exclusion must be built from `$STATIC_KEEP_SQL` first, so it is non-empty even \
+         when the marker/env-derived keep set is empty"
+    );
+    assert!(
+        source.contains(r#"[ -n "$STATIC_KEEP_SQL" ] ||"#),
+        "an emptied static list must fail loudly instead of silently disabling the exclusion"
     );
 }
 

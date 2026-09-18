@@ -45,6 +45,11 @@
 #   2. 环境变量 `TEST_DB_TEMPLATE_SCHEMA`（CI seed 钉住的名字，如 test_template_ci）
 #   3. 两者都缺 → 降级为「保留全部模板家族、仅删克隆 schema」（同 --keep-all-templates）
 # 认定为 live 的模板通过 `AND nspname NOT IN (...)` 硬排除，绝不会被 CASCADE 误删。
+#
+# ⚠️ 另有一组**静态** live 模板（`STATIC_KEEP`，目前是 `test_template_ci`）：它们由
+# shell/CI 创建、没有标记文件，本地也不会设 TEST_DB_TEMPLATE_SCHEMA，所以**无条件**
+# 参与硬排除，与上面 1/2/3 的判定结果无关。少了这条，最常见的本地路径
+# （无标记 + 无环境变量）会把它列为删除候选。
 
 set -uo pipefail
 
@@ -99,6 +104,12 @@ CURRENT_HOST=$("${PSQL[@]}" -tAc "SELECT inet_server_addr()::text || ':' || inet
 echo "    实际连到: db=$CURRENT_DB server=$CURRENT_HOST"
 
 # ── 决定要保留的 live 模板 ───────────────────────────────────────────────────
+# 静态 live 模板：名字固定、由 shell/CI 创建、**没有** Rust 标记文件，本地也通常不设
+# TEST_DB_TEMPLATE_SCHEMA，因此必须独立于下面的 keep 集合无条件保护。评审实测：
+# 少了这一条，"无标记 + 无环境变量"这条最常见的本地路径会把 `test_template_ci`
+# （CI 各测试步骤 pin 的共享模板）列为删除候选，`--apply` 即 CASCADE 掉。
+# 新增此类模板时在这里加名字，并在 tests/unit/cleanup_schema_script_tests.rs 里补守卫。
+STATIC_KEEP=("test_template_ci")
 # 标记目录与 src/test_utils.rs::template_marker_dir() 一致。
 # 允许用 SYNAPSE_TEMPLATE_MARKER_DIR 覆盖：本地自定义 CARGO_TARGET_DIR 时，
 # 默认的 $CARGO_TARGET_TMPDIR / <repo>/target/tmp 都可能指不到标记文件，
@@ -147,6 +158,22 @@ if [ "$KEEP_ALL_TEMPLATES" -eq 0 ] && [ "${#KEEP_TEMPLATES[@]}" -eq 0 ]; then
     echo "      若要连陈旧模板一起删，请显式加 --keep-all-templates（见 --help）。" >&2
 fi
 
+# 静态名单始终生效，且与上面的降级判定无关 —— 显式打印出来，便于运维核对
+# "为什么这个模板没被清理"。（空数组取 `[*]` 在 bash 3.2 + `set -u` 下会报 unbound，
+# 故用 `:-`；真为空时由下方 STATIC_KEEP_SQL 的非空断言给出明确错误。）
+echo "==> 静态保护的 live 模板（无条件硬排除）: ${STATIC_KEEP[*]:-}"
+
+# ── 静态 live 模板：无标记文件，必须**无条件**硬排除 ─────────────────────────
+# 这些模板由 shell/CI 直接创建、**没有** Rust 标记文件，而本地也通常不会设
+# TEST_DB_TEMPLATE_SCHEMA —— 于是它们既不在 KEEP_TEMPLATES 里，也不匹配任何指纹
+# 家族正则（`test_template_ci` 只匹配 `test\_%`），在"无标记 + 无环境变量"这条
+# 最常见的本地路径下会直接成为删除候选。
+#
+# 教训（2026-09-19 实测）：本文件下方那条"⚠️ HARD EXCLUSION"注释所依赖的
+# KEEP_EXCLUDE 曾在 KEEP_SQL 为空时被整体省略，于是"硬排除"在最需要它的那条路径上
+# 恰好是空的；dry-run 会打印 `待清理: test_template_ci`，`--apply` 就把 CI 各测试
+# 步骤 pin 的共享模板 CASCADE 掉了。因此静态名单必须独立于 keep 集合参与拼接。
+
 # ── 构造候选列表 ─────────────────────────────────────────────────────────────
 # KEEP_SQL is the literal list of schema names to protect. It must include every
 # name in KEEP_TEMPLATES (marker files + TEST_DB_TEMPLATE_SCHEMA fallback +
@@ -158,6 +185,13 @@ if [ "$KEEP_ALL_TEMPLATES" -eq 0 ] || [ "${#KEEP_TEMPLATES[@]}" -gt 0 ]; then
         [ -n "$t" ] && KEEP_SQL="${KEEP_SQL}${KEEP_SQL:+,}'$t'"
     done
 fi
+
+# STATIC_KEEP 是**无条件**部分：它不看 KEEP_ALL_TEMPLATES、也不看 keep 集合是否为空。
+STATIC_KEEP_SQL=""
+for t in "${STATIC_KEEP[@]}"; do
+    [ -n "$t" ] && STATIC_KEEP_SQL="${STATIC_KEEP_SQL}${STATIC_KEEP_SQL:+,}'$t'"
+done
+[ -n "$STATIC_KEEP_SQL" ] || { echo "ERROR: STATIC_KEEP 不得为空（见上方注释）" >&2; exit 2; }
 
 # 模板家族仅匹配指纹形态，避免误伤任意命名的模板：
 #   test_template_v<N>_<hex>        —— 旧 storage 家族
@@ -180,10 +214,11 @@ fi
 # 而 keep 集合（含 TEST_DB_TEMPLATE_SCHEMA）在旧逻辑里根本拦不住它，CASCADE 会把整个
 # 套件依赖的共享模板删掉。因此 keep 名单必须作为 `AND nspname NOT IN (...)` 的硬排除，
 # 叠加在最外层，而不是只塞进那个会被家族正则 OR 短路掉的谓词里。
-KEEP_EXCLUDE=""
-if [ -n "$KEEP_SQL" ]; then
-    KEEP_EXCLUDE="AND nspname NOT IN ($KEEP_SQL)"
-fi
+#
+# 且该硬排除**不允许**依赖 keep 集合非空：`STATIC_KEEP_SQL` 恒定参与拼接，所以即使
+# KEEP_SQL 为空（无标记、无环境变量、无 --keep-template —— 最常见的本地路径），
+# 排除子句依然存在且非空。
+KEEP_EXCLUDE="AND nspname NOT IN ($STATIC_KEEP_SQL${KEEP_SQL:+,$KEEP_SQL})"
 
 CANDIDATE_SQL="
 SELECT nspname FROM pg_namespace
