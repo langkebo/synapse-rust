@@ -298,7 +298,11 @@ async fn test_to_device_next_batch_token_respects_limit() {
     let user_id = "@alice:localhost";
     let device_id = "ALICEDEVICE";
 
+    // `devices` is FK-bound to `users`, so the owning user must exist first.
+    crate::ensure_test_user(&pool, user_id).await;
+
     // Create the device first, otherwise add_message will skip it
+    crate::ensure_test_user(&pool, user_id).await;
     DeviceStorage::new(&pool).create_device(device_id, user_id, Some("Alice phone")).await.unwrap();
 
     // Add 5 to-device messages
@@ -369,7 +373,11 @@ async fn test_to_device_messages_are_deleted_after_ack() {
     let user_id = "@alice:localhost";
     let device_id = "ALICEDEVICE";
 
+    // `devices` is FK-bound to `users`, so the owning user must exist first.
+    crate::ensure_test_user(&pool, user_id).await;
+
     // Create the device first
+    crate::ensure_test_user(&pool, user_id).await;
     DeviceStorage::new(&pool).create_device(device_id, user_id, Some("Alice phone")).await.unwrap();
 
     // Add a message
@@ -474,6 +482,7 @@ async fn test_to_device_messages_ordered_by_stream_id() {
     let device_id = "ALICEDEVICE";
 
     // Create the device first, otherwise add_message would skip it
+    crate::ensure_test_user(&pool, user_id).await;
     DeviceStorage::new(&pool).create_device(device_id, user_id, Some("Alice phone")).await.unwrap();
 
     // Insert messages with out-of-order stream_ids to simulate concurrent

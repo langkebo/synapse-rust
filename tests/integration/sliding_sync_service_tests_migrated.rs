@@ -1299,7 +1299,9 @@ async fn test_p1_5_room_subscription_change_reflected_immediately() {
     let suffix = unique_id();
     let user_id = format!("@p15_sub_{suffix}:localhost");
     let room_a = format!("!roomA_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_a).await;
     let room_b = format!("!roomB_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_b).await;
 
     // 物化两个房间
     update_room_state(&pool, &user_id, "DEV1", &room_a, None, 1000, 0, 0, false, false, Some("Room A"), None)
@@ -1354,6 +1356,7 @@ async fn test_p1_5_unsubscribe_rooms_takes_effect_immediately() {
     let suffix = unique_id();
     let user_id = format!("@p15_unsub_{suffix}:localhost");
     let room_a = format!("!roomA_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_a).await;
 
     update_room_state(&pool, &user_id, "DEV1", &room_a, None, 1000, 0, 0, false, false, Some("Room A"), None)
         .await
@@ -1401,6 +1404,7 @@ async fn test_p1_5_required_state_change_reflected_immediately() {
     let suffix = unique_id();
     let user_id = format!("@p15_rs_{suffix}:localhost");
     let room_a = format!("!roomA_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_a).await;
 
     update_room_state(&pool, &user_id, "DEV1", &room_a, None, 1000, 0, 0, false, false, Some("Room A"), None)
         .await
@@ -1488,6 +1492,7 @@ async fn test_p1_5_timeline_limit_change_reflected_immediately() {
     let suffix = unique_id();
     let user_id = format!("@p15_tl_{suffix}:localhost");
     let room_a = format!("!roomA_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_a).await;
 
     update_room_state(&pool, &user_id, "DEV1", &room_a, None, 1000, 0, 0, false, false, Some("Room A"), None)
         .await
@@ -1676,6 +1681,8 @@ async fn test_p1_6_failed_response_not_cached_under_txn_id() {
 //   4. 无新事件时再次增量同步不重复下发。
 
 async fn insert_wm_message_event(pool: &Arc<sqlx::PgPool>, event_id: &str, room_id: &str, user_id: &str, ts: i64) {
+    // `events` references `rooms`, and this helper is the only writer for the S14 test.
+    crate::ensure_test_room(pool, room_id).await;
     sqlx::query(
         r#"
         INSERT INTO events (event_id, room_id, user_id, sender, event_type, content, state_key, depth, origin_server_ts, processed_at, not_before, is_redacted, status, origin)
