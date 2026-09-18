@@ -329,9 +329,9 @@ impl VerificationService {
         // other would be wrong even if a value were stored.
         //
         // What the removed code did: `if let Some(stored_mac) = &sas_state.mac`
-        // then `mac_matches`. No production path ever sets `SasState.mac` (both
-        // `store_sas_state` call sites build it with `mac: None`), so the branch
-        // was unreachable for real clients — while a unit test named
+        // then `mac_matches`. No production path ever sets `SasState.mac` (all three
+        // `store_sas_state` call sites — `:159`/`:217`/`:262` — write `mac: None`), so the
+        // branch was unreachable for real clients — while a unit test named
         // `confirm_sas_rejects_wrong_mac_and_cancels_transaction` asserted only
         // that `mac_matches` works, which is what made the check look live.
         // `VerificationState::Done` records what the caller's client asserts,
