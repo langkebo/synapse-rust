@@ -926,7 +926,8 @@ mod tests {
         let state = AppState::new(services, cache);
         let ctx = FederationContext::from_ref(&state);
 
-        let signed_bytes = canonical_federation_request_bytes("PUT", uri, &origin, &origin, Some(&body));
+        let signed_bytes = canonical_federation_request_bytes("PUT", uri, &origin, &origin, Some(&body))
+            .expect("canonical bytes must be produced for a valid body");
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_bytes);
         let signature = signing_key.sign(&signed_bytes);
         let signature_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(signature.to_bytes());
