@@ -176,3 +176,35 @@
 | D1 | `synapse-test-utils/src/lib.rs:1124` | 模板指纹里 `let contents = fs::read(entry.path()).ok()?;` —— 某个 `.sql` **读失败会被静默跳过**，指纹不反映它 ⇒ 模板不重建；同函数上一行 `workspace_migrations_dir()` 用的是 `.expect`，只有这一处吞错。`template_fingerprint_inputs_tests` 只喂**可读**文件，覆盖不到该分支 | "被检查文件不可读 → 当作不存在 → 仍绿"，与 §2 同型；生产侧（非测试）路径 |
 | D2 | `synapse-common/src/test_isolation.rs:54` + `docs/audit/P1D_seed_allowlist_design_2026-09-14.md` | 文档写"pinned by `seed_reference_tables_match_baseline`"，该测试名在 Rust 代码中**不存在**；同职责的实现是 `tests/unit/test_isolation_unification_tests.rs::the_seed_allowlist_matches_what_the_baseline_seeds`（真守卫）。设计文档声称的 `allowlist_clone_matches_full_clone_row_for_row` 也未按名落地 | 契约文档与实现漂移（不是守卫缺失），会误导后续查找 |
 | D3 | `synapse-storage/src/migration_checks.rs:189`（补充 §3-B10） | 该测试对 `.undo.sql` **零断言**：删掉 `if name.ends_with(".undo.sql") { return None; }` 也**不会红**；`assert!(!versions.iter().any(\|v\| v == &0_i64))` 不可能因 baseline 复活而红，因为 `name[..14]` = `"00000000_unifie"` 非全数字、`parse::<i64>()` 直接 `None` | 该文件两条测试的**全部**断言在空集上恒真 |
+
+---
+
+## 8. 质量/架构/契约门禁审计（第一路补完）
+
+**真门禁**：`check_doc_spelling.sh`（三态 0/1/2 实测）、`quality/format_check.sh` +
+`format_audit.py`（`--fail-on-drift` 实测红）、`contract/check_route_contract.sh`
+（52 检查 + 6 变异全过；`gen_derived_routes --check` 漂移即 exit 1）。
+
+| # | 位置 | 机制 | 后果 | 状态 |
+|---|---|---|---|---|
+| E1 | `scripts/check_get_raw_usage.py:71` | 正则要求**空参数** `get_raw()`，真实 API 是 `get_raw(key)` ⇒ 永不命中；`is_allowed_path` 的 glob 全坏；`:109` 行内出现 `get_raw_shared()` 即整行豁免；红路径打印孤立代理对 emoji 抛 `UnicodeEncodeError` | **安全相关的不变量（缓存读写对称）门禁是死的**；"0 违规"是巧合 | **已修 ✅ `239c5780`**（regex + 路径谓词 + 花括号配平的 `#[cfg(test)]` 跳过 + 空扫描 fail-loud + 注释跳过，五条红绿证明） |
+| E2 | `scripts/ci/run_cargo_geiger.py:56-63,125-144` | ①`--output-format json` 小写，cargo-geiger 0.13 的 `OutputFormat` 是大小写敏感的 strum 枚举 ⇒ 子进程非零 → `sys.exit(1)`；②即便修 flag，`classify_files` 迭代的是顶层 `SafetyReport` **对象**（键 `packages`…）⇒ `'str' has no attribute 'get'`；③`sum_unsafe` 读 `unsafe|metrics.extern_blocks/traits/fns/…`，真实字段是 `unsafety.used.{functions,exprs,item_impls,item_traits,methods}` ⇒ **恒 0** | 三种形态叠加：今天"一跑即崩或恒 0"，Gate1(`prod_total>0`) / Gate2(`>baseline`) 永不触发；docstring 宣称"修掉了恒 0 假绿" | 上游源码 + 同形载荷复现；**未修** |
+| E3 | `scripts/ci/check_trait_ratchet.py` + `trait_count_baseline` | 无任何 workflow/Makefile/脚本调用（同 C4） | 棘轮永不触发；基线 TOTAL=65 与文档 86 漂移 | **未修**（需先决定接线或删除） |
+| E4 | `check_pagination_benchmark.py` | 比值来自**同一次运行**内两个手写仿真函数（`benches/performance_api_benchmarks.rs:436-484`：O(175k) 扫描 vs 二分+100 行），30% 阈值由构造满足（≈1000× 余量）；不含 `synapse-storage` 的真实分页 SQL 与存储基线 | 弱门禁：改真实 SQL 不受影响 | 未修 |
+| E5 | `check_sdk_route_coverage.py:292-305` | CI 无 SDK 且从不设 `SDK_CONTRACT_STRICT=1` ⇒ 打印 SKIPPED 后 **exit 0**；`sdk_uncovered_allowlist.txt` 0 条 ⇒ 卫生检查的 rotten 分支不可达 | "SDK ⊆ ledger"方向从未在 CI 生效（同 A12） | 未修 |
+| E6 | `quality/check_route_layering.sh` | `find` 空集/目录缺失 = PASS（无扫描面守卫）；Pattern A 的 `use crate::storage` 在 `synapse-web` 下不可能出现（真实违规是 `synapse_storage`，只由 `check_web_layering.py` 覆盖，而后者本身也无守卫，见 C6）；头注释声明的 Pattern D/E 未实现 | 弱门禁 + 死路模式 | 未修 |
+| E7 | `build_sqlx_migration_source.py` | 只写 `artifacts/` + `manifest.json`（无读者） | 生成器不是门禁；选择集无断言（当前只选 v12 baseline，`V*`/时间戳分支命中 0），下游靠 `sqlx migrate run` + `validate` 间接兜底 | 未修 |
+| E8 | `api_test/gen_client_yaml.py`、`gen_route_table.py` 与已提交的 `docs/openapi/{client.yaml,route-table.json}` | 只生成上传，**无 diff 校验**；`run_api_tests.py`/`schemathesis_*` 零 CI 引用；`scripts/api_test/ledger.json` 是 8-12 的旧文件 | 契约产物可静默过期 | 未修 |
+| E9 | `scripts/contract/extract_unresolved_allowlist.txt`（21 条） | 只有"新条目"会红；**陈旧条目仅打印提示**（`extract_registered.py:1743`） | 与 `shell_routes_allowlist.txt` 形成对比：后者已双向强制，前者仍可无声腐化 | 未修 |
+
+**宽容豁免清单（本轮口径）**：`shell_routes_allowlist.txt` 11 条已双向强制 ✅；
+`extract_unresolved_allowlist.txt` 21 条仅单向 ⚠️；`sdk_uncovered_allowlist.txt` 0 条（分支不可达）❌；
+`check_get_raw_usage.py` 的 6 条模式全失效（已在 `239c5780` 改为路径谓词）✅；
+`check_doc_spelling.sh:52` 的 `^[a-f]+$` 过滤会静默丢弃 `abcd`/`deadbeef` 这类纯十六进制词
+（对 hex 摘要有用，但也会吞掉真实单词，属已知取舍，未修）。
+
+### 8.1 关于"geiger 到底红还是空转"的诚实表述
+
+`cargo-geiger` 本机未安装且本轮禁用 `cargo`，故 E2 的结论来自 cargo-geiger 0.13.0 /
+cargo-geiger-serde 0.3.0 的上游源码 + 同形载荷复现，**未在真实 CI 跑过**。
+因此可以说的是"该脚本按其代码不可能正确工作"，而不是"今天 CI 上它是红的"。
