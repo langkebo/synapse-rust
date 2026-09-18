@@ -79,7 +79,6 @@ annotations:
 HTTP/1.1 429 Too Many Requests
 retry-after: 5
 x-ratelimit-retry-after-ms: 4800
-x-ratelimit-after: 4800
 x-ratelimit-remaining: 0
 ```
 
@@ -89,7 +88,6 @@ x-ratelimit-remaining: 0
 |--------|------|------|------|
 | `retry-after` | 秒（RFC 7231） | `5` | 标准重试间隔，所有 HTTP 客户端通用 |
 | `x-ratelimit-retry-after-ms` | 毫秒 | `4800` | Matrix SDK 精确重试计算 |
-| `x-ratelimit-after` | 毫秒 | `4800` | 备用精确重试（同 x-ratelimit-retry-after-ms） |
 | `x-ratelimit-remaining` | 数字 | `0` | 剩余请求次数（429 时恒为 0） |
 
 > **注意**: `X-RateLimit-Limit` 和 `X-RateLimit-Remaining` 头在限流中间件的请求通过时也会设置（非 429 响应），提供当前窗口配额信息。

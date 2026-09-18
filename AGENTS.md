@@ -36,7 +36,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ### Database and migrations
 - Migration source of truth: `docker/db_migrate.sh` (applies `migrations/`).
-- **`migrations/` is the SINGLE source of truth for migration SQL.** The former duplicate directory `docker/deploy/migrations/` was deleted (commit `2b16dc3c`) after it drifted 82 stale files (including `.undo.sql`; 42 forward-only) + 13 missing files from the authoritative set. Do NOT recreate any copy — the deploy path mounts `./migrations` directly.
+- **`migrations/` is the SINGLE source of truth for migration SQL.** The former duplicate directory `docker/deploy/migrations/` was deleted (commit `2b16dc3c`) after it drifted (+13 missing files) from the authoritative set. Do NOT recreate any copy — the deploy path mounts `./migrations` directly. 详见 `migrations/README.md`（副本独有 131 = 非 `archive/` 82［其中正向 42］+ `archive/` 49）。
 - Naming convention: rollback files use `.undo.sql` suffix (32 existing). A `_undo.sql` (underscore) name is a violation — normalize it.
 - Apply migrations locally: `bash docker/db_migrate.sh migrate`
 - Validate migrations/schema locally: `bash docker/db_migrate.sh validate`

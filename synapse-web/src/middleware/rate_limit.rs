@@ -169,8 +169,7 @@ pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Requ
                 response.headers_mut().insert("x-ratelimit-limit", v);
             }
             if let Ok(v) = HeaderValue::from_str(&retry_after_ms.to_string()) {
-                response.headers_mut().insert("x-ratelimit-retry-after-ms", v.clone());
-                response.headers_mut().insert("x-ratelimit-after", v);
+                response.headers_mut().insert("x-ratelimit-retry-after-ms", v);
             }
         }
 
@@ -394,7 +393,15 @@ mod tests {
         assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);
         assert!(second.headers().get("retry-after").is_some());
         assert!(second.headers().get("x-ratelimit-retry-after-ms").is_some());
-        assert!(second.headers().get("x-ratelimit-after").is_some());
+        // `x-ratelimit-after` duplicated `x-ratelimit-retry-after-ms` (same
+        // millisecond value) and had zero consumers; removed 2026-09-18 by user
+        // decision (iron rule 1). This negative guard is the reversibility proof:
+        // re-adding either emission site (`rate_limit.rs` or `error.rs`) makes it
+        // fail.
+        assert!(
+            second.headers().get("x-ratelimit-after").is_none(),
+            "`x-ratelimit-after` must not come back: it duplicated `x-ratelimit-retry-after-ms`"
+        );
     }
 
     // ── W7+: 限流指标化 ────────────────────────────────────────────

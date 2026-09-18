@@ -102,6 +102,7 @@ mod sqlx_ratio_gate_tests;
 mod storage_admin_domain_refactor_tests;
 mod storage_remaining_domains_refactor_tests;
 mod sync_rate_limit_config_tests;
+mod template_fingerprint_inputs_tests;
 mod test_fixture_error_handling_tests;
 mod test_isolation_unification_tests;
 mod test_schema_housekeeping_tests;

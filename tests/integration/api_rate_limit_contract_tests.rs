@@ -82,7 +82,6 @@ async fn test_sync_rate_limited_returns_retry_after_ms() {
         "1000",
         "millisecond precision for Matrix clients"
     );
-    assert_eq!(response.headers().get("x-ratelimit-after").unwrap(), "1000");
     assert_eq!(response.headers().get("x-ratelimit-remaining").unwrap(), "0", "always 0 on a 429");
 
     let body = axum::body::to_bytes(response.into_body(), 1024 * 16).await.unwrap();
@@ -128,7 +127,6 @@ async fn test_sliding_sync_rate_limited_returns_retry_after_ms() {
         "1000",
         "millisecond precision for Matrix clients"
     );
-    assert_eq!(response.headers().get("x-ratelimit-after").unwrap(), "1000");
     assert_eq!(response.headers().get("x-ratelimit-remaining").unwrap(), "0", "always 0 on a 429");
 
     let body = axum::body::to_bytes(response.into_body(), 1024 * 16).await.unwrap();

@@ -900,8 +900,7 @@ impl IntoResponse for ApiError {
                 response.headers_mut().insert("retry-after", value);
             }
             if let Ok(value) = HeaderValue::from_str(&ms.to_string()) {
-                response.headers_mut().insert("x-ratelimit-retry-after-ms", value.clone());
-                response.headers_mut().insert("x-ratelimit-after", value);
+                response.headers_mut().insert("x-ratelimit-retry-after-ms", value);
             }
             // Always set remaining to 0 on 429
             response.headers_mut().insert("x-ratelimit-remaining", HeaderValue::from_static("0"));

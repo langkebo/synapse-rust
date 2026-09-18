@@ -973,7 +973,7 @@ mod degradation_tests {
 #[cfg(test)]
 mod strictness_tests {
     //! `rate_limit.yaml` is the **live** rate-limit configuration (see
-    //! `src/web/middleware/rate_limit.rs`: the file replaces the whole
+    //! `synapse-web/src/middleware/rate_limit.rs`: the file replaces the whole
     //! `rate_limit:` section of `homeserver.yaml`).
     //!
     //! Before this, the struct used serde's default behaviour: unknown keys were

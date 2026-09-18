@@ -151,6 +151,16 @@ fn parse_baseline_index_names() -> Vec<&'static str> {
 /// Rejected forms (returning `None`) include comments, `CONSTRAINT <name> CHECK
 /// (...)`, and `CONSTRAINT <name> FOREIGN KEY (...)`: those do not create an
 /// index.
+///
+/// Also rejected: the named table-level **alter** form `ALTER TABLE <t> ADD
+/// CONSTRAINT <name> PRIMARY KEY|UNIQUE (...)`. Postgres does build an index for
+/// it, but this line-based parser only recognises `CREATE [UNIQUE] INDEX ...`
+/// and in-`CREATE TABLE` `CONSTRAINT <name> UNIQUE|PRIMARY KEY (...)`. The
+/// baseline has two such lines (`migrations/00000000_unified_schema_v12.sql:4164`
+/// `pk_typing`, `:4175` `pk_presence_subscriptions`); both names are also
+/// declared inside their `CREATE TABLE`, so nothing is lost today. The failure
+/// direction is safe — an unparsed index makes `REQUIRED_INDEXES` report a
+/// missing index rather than silently skipping a check.
 fn extract_index_name(line: &'static str) -> Option<&'static str> {
     let trimmed = line.trim_start();
     if trimmed.starts_with("--") {

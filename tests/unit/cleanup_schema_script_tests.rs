@@ -19,6 +19,7 @@
 //! These are all properties of the script text, so they are guarded statically —
 //! no database required.
 
+use regex::Regex;
 use std::fs;
 use std::path::PathBuf;
 
@@ -216,33 +217,111 @@ fn cleanup_script_fails_fast_on_lock_exhaustion() {
 /// was the one that decided what a real deployment actually applied. It must stay a
 /// thin wrapper: resolve the container's env/paths, then exec the single
 /// implementation with the subcommand passed through.
+///
+/// The guard is **structural**, not a string blacklist. Any re-implementation of
+/// the engine has to touch the ledger table, issue SQL, or call a DB client —
+/// no matter how the statement is spelled (`CREATE TABLE`, `CREATE TABLE IF NOT
+/// EXISTS`, `ALTER TABLE ... ADD COLUMN`, ...). It also caps the file length: the
+/// wrapper was 484 lines when it still carried the engine, is 66 now, and a real
+/// second implementation cannot fit in 80 lines.
+///
+/// Shell comments are stripped before the SQL/client checks. The wrapper
+/// legitimately mentions `psql` in a comment (the host-side H-14 guard explains
+/// it) and exports `SYNAPSE_DB_MIGRATE_ALLOW_HOST_PSQL`, so a whole-file
+/// `contains("psql")` would be a false positive.
 #[test]
 fn deploy_migrator_delegates_to_the_single_implementation() {
     let deploy = repo_file("docker/deploy/scripts/container-migrate.sh");
+
+    // (1) It must delegate to the single implementation and pass the subcommand
+    // through. The surface must not shrink to a hardcoded `migrate`: `validate`
+    // and `status` (and `docker/db_migrate.sh`'s `init`) have to pass through.
     assert!(
         deploy.contains("docker/db_migrate.sh"),
         "部署迁移器必须委托给 docker/db_migrate.sh（唯一实现），否则每次修复都要写两遍"
     );
-    for forbidden in ["CREATE TABLE IF NOT EXISTS schema_migrations", "is_migration_applied()", "record_migration()"] {
-        assert!(
-            !deploy.contains(forbidden),
-            "container-migrate.sh 不得再自带 `{forbidden}`：与 docker/db_migrate.sh 重复实现"
-        );
-    }
-    // The subcommand surface must not shrink to a hardcoded `migrate`: `validate`
-    // and `status` (and `docker/db_migrate.sh`'s `init`) have to pass through.
     assert!(
         deploy.contains("\"$@\""),
         "wrapper 必须把子命令透传给唯一实现（\"$@\"），否则 validate/status 入口静默消失"
     );
+
+    // Everything below looks at **code**, not comments.
+    let code = strip_shell_comments(&deploy);
+
+    // (2) No DB client may be invoked as a command.
+    for client in ["psql", "pg_dump", "createdb"] {
+        assert!(
+            !contains_command(&code, client),
+            "container-migrate.sh 的代码里不得调用 DB 客户端 `{client}`：\
+             一旦它自己连库执行 SQL，就不再是薄包装（唯一实现是 docker/db_migrate.sh）"
+        );
+    }
+
+    // (3) No DDL/DML statement shape. `\b(VERB)\s+(KEYWORD)\b` catches
+    //     `CREATE TABLE`, `ALTER TABLE`, `DROP INDEX`, `INSERT INTO`,
+    //     `UPDATE ... SET`, `DELETE FROM`, `SELECT ... FROM` alike, so a
+    //     same-meaning rewrite cannot slip past a literal blacklist.
+    let ddl = Regex::new(
+        r"(?i)\b(CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|SELECT)\s+(TABLE|INDEX|CONSTRAINT|COLUMN|INTO|FROM|SET)\b",
+    )
+    .expect("the DDL/DML regex must compile");
+    assert!(
+        !ddl.is_match(&code),
+        "container-migrate.sh 的代码里不得出现 DDL/DML 语句形态（命中 {:?}）：\
+         wrapper 只做委托，SQL 只在 docker/db_migrate.sh",
+        ddl.find(&code).map(|matched| matched.as_str())
+    );
+
+    // (4) The migration ledger is owned exclusively by the single implementation.
+    assert!(
+        !code.contains("schema_migrations"),
+        "container-migrate.sh 的代码里不得出现 `schema_migrations`：\
+         迁移台账由 docker/db_migrate.sh 独占读写"
+    );
+
+    // (5) Size cap. The engine alone was ~420 lines; 80 leaves room for the
+    //     env/path bridge and nothing else.
+    let line_count = deploy.lines().count();
+    assert!(
+        line_count <= 80,
+        "container-migrate.sh 必须保持薄包装（<= 80 行），实际 {line_count} 行：\
+         长出来的那部分几乎一定是第二份实现"
+    );
+
     // Delegation is only real if the migrator container can actually reach the
     // implementation. `postgres:16-alpine` does not ship the repo, so the deploy
-    // compose must bind-mount it next to the wrapper — a wrapper that execs a path
-    // the container never receives fails with exit 2 at deploy time.
+    // compose must bind-mount it at exactly the path the wrapper execs — a wrapper
+    // that execs a path the container never receives fails with exit 2 at deploy
+    // time. Pin the literal: mentioning `db_migrate.sh` anywhere is not proof the
+    // mount lands on `/scripts/db_migrate.sh`.
     let compose = repo_file("docker/deploy/docker-compose.yml");
     assert!(
-        compose.contains("db_migrate.sh"),
+        compose.contains("../db_migrate.sh:/scripts/db_migrate.sh"),
         "docker/deploy/docker-compose.yml 的 migrator 服务必须把 docker/db_migrate.sh \
-         挂载进容器（与 wrapper 同级），否则薄包装在真实部署里找不到唯一实现"
+         挂载到 `/scripts/db_migrate.sh`（wrapper exec 的确切路径）；\
+         仅仅出现 `db_migrate.sh` 字样不算数"
     );
+}
+
+/// Drop whole-line shell comments, so the structural checks above look at code
+/// only.
+///
+/// The wrapper legitimately names `psql` and `schema_migrations` in comments
+/// (they explain what it must *not* do) and exports
+/// `SYNAPSE_DB_MIGRATE_ALLOW_HOST_PSQL`; none of that is a second
+/// implementation.
+fn strip_shell_comments(source: &str) -> String {
+    source.lines().filter(|line| !line.trim_start().starts_with('#')).collect::<Vec<_>>().join("\n")
+}
+
+/// True when `word` appears as a standalone token — not embedded in a longer
+/// identifier such as `SYNAPSE_DB_MIGRATE_ALLOW_HOST_PSQL` (uppercase, so it
+/// would not match anyway) or `pg_isready`.
+fn contains_command(source: &str, word: &str) -> bool {
+    let is_boundary = |character: Option<char>| {
+        !character.is_some_and(|character| character.is_alphanumeric() || character == '_' || character == '-')
+    };
+    source.match_indices(word).any(|(start, _)| {
+        is_boundary(source[..start].chars().next_back()) && is_boundary(source[start + word.len()..].chars().next())
+    })
 }

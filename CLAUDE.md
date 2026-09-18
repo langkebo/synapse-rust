@@ -302,7 +302,7 @@ refresh_token.is_active().await.map_err(|_| ServiceError::DatabaseError)?
 - `CREATE OR REPLACE FUNCTION` 不能改参数名 → 需先 `DROP FUNCTION IF EXISTS`
 
 **❌ 迁移双副本漂移（已于 `2b16dc3c` 根治）**
-- 历史坑：`docker/deploy/migrations/` 是被 git 跟踪的手工同步副本（191 文件），与权威源 `migrations/` 严重漂移（副本独有 82 个废弃 v7 血统文件，**含 `.undo.sql`，其中正向 42 个**；另有 `archive/` 49 个文件，权威目录无 `archive/`；权威独有 13 个迁移、同名文件内容不一致）→ 走 deploy 路径的全新部署会**静默跳过这 13 个迁移**
+- 历史坑：`docker/deploy/migrations/` 是被 git 跟踪的手工同步副本（191 文件），与权威源 `migrations/` 严重漂移（详见 `migrations/README.md`（副本独有 131 = 非 `archive/` 82［其中正向 42］+ `archive/` 49）；权威独有 13 个迁移、同名文件内容不一致）→ 走 deploy 路径的全新部署会**静默跳过这 13 个迁移**
 - 现状：死副本已删除，`migrations/` 为**单一真相源**（deploy 经 docker-compose 挂载它）
 - **规则**：新增迁移只写 `migrations/`，不要再创建任何副本目录；旧文档中提到 `docker/deploy/migrations/` 的均属过时信息
 

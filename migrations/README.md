@@ -11,13 +11,33 @@
 - ../../migrations:/migrations:ro
 ```
 
-历史上 `docker/deploy/migrations/` 曾是一份**手工同步的副本**，并因此静默漂移：
-它携带 42 个已废弃 v7 血统**正向**文件（连同其 `.undo.sql` 回滚文件共 82 个副本独有文件；
-副本另带 `archive/` 子目录 49 个文件，权威目录没有 `archive/`），同时**缺失 13 个新迁移**
-（`schema_p1_federation_and_integrity`、`schema_p2_data_integrity`、`schema_p3_perf`、
-`schema_cleanup_dedup_and_dead_code`、`extend_room_version_check`、
-`event_relations_pagination_index` 等），
+历史上 `docker/deploy/migrations/` 曾是一份**手工同步的副本**，并因此静默漂移。
+**漂移数字的唯一真相源就是本节**（`AGENTS.md` / `CLAUDE.md` / `docker/deploy/README.md` /
+`docs/audit/DB_REVIEW_2026-09-17.md` §15.4 M10 只做简短引用，不重述口径）：
+
+| 口径 | 数量 |
+|---|---|
+| 副本独有文件总数（相对权威 `migrations/`） | **131** |
+| 其中 `archive/` 子目录（权威目录没有 `archive/`） | **49** |
+| 其中非 `archive/` 的副本独有文件 | **82** |
+| 其中 v7 血统**正向**迁移（再去掉 `.undo.sql` 回滚文件） | **42** |
+
+同时该副本**缺失 13 个新迁移**（`schema_p1_federation_and_integrity`、
+`schema_p2_data_integrity`、`schema_p3_perf`、`schema_cleanup_dedup_and_dead_code`、
+`extend_room_version_check`、`event_relations_pagination_index` 等），
 导致**全新部署建出的 schema 缺少这些修复**。该副本已删除（2026-09-11）。
+
+复算命令（在死副本尚存的最后一个提交 `2b16dc3c^` 上；实测 `p=db386a51`）：
+
+```console
+$ p=$(git rev-parse 2b16dc3c^)
+$ comm -23 <(git ls-tree -r --name-only $p -- docker/deploy/migrations | sed 's|docker/deploy/migrations/||' | sort) \
+           <(git ls-tree -r --name-only $p -- migrations | sed 's|migrations/||' | sort) > /tmp/copy_only.txt
+$ grep -c . /tmp/copy_only.txt                                    # 131  副本独有总数
+$ grep -c '^archive/' /tmp/copy_only.txt                          #  49  其中 archive/ 子目录
+$ grep -vc '^archive/' /tmp/copy_only.txt                         #  82  非 archive 的副本独有文件
+$ grep -v '^archive/' /tmp/copy_only.txt | grep -vc '\.undo\.sql$' #  42  再去掉回滚文件的正向迁移
+```
 
 > ⚠️ **不要再创建 `docker/deploy/migrations/` 副本。**
 > `scripts/check_migration_consistency.py` 会在检测到陈旧副本或 compose 未挂载权威目录时失败，

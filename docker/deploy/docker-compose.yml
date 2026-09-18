@@ -124,7 +124,10 @@ services:
       DB_USER: ${POSTGRES_USER:-postgres}
       DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       DB_NAME: ${POSTGRES_DB:-synapse}
-      ENABLED_EXTENSIONS: ${ENABLED_EXTENSIONS:-friends,burn-after-read}
+      # 不在此注入"扩展选择"变量：migrator 的 entrypoint 链
+      # (container-migrate.sh → db_migrate.sh) 从不读它，唯一消费者是宿主侧
+      # deploy.sh（它用 `compose run -e ...` 显式传入，见 deploy.sh:1213）。
+      # 曾在此写死该变量的第二个默认值：同一职责两份实现（铁律 2）兼死配置（铁律 1）。
     entrypoint:
       - /scripts/container-migrate.sh
     command: [ "migrate" ]

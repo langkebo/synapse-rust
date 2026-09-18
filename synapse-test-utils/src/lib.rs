@@ -1085,22 +1085,42 @@ fn template_schema_fingerprint() -> String {
     FINGERPRINT.get_or_init(compute_template_schema_fingerprint).clone()
 }
 
-fn compute_template_schema_fingerprint() -> String {
+/// Whether a regular file in `migrations/` is an input to the template schema.
+///
+/// Only `*.sql` is. The directory also holds documentation (`README.md`,
+/// `INDEXES.md`) which is legitimately edited; the fingerprint has to answer
+/// "is this schema still the one the migrations describe?", and a `.md` file
+/// never creates a table. Including documentation meant a pure doc edit renamed
+/// the template (`4dbe2a3f35bb97eb` → `854961cd2ea546e5`, observed 2026-09-18)
+/// and triggered a needless full rebuild (~35–60s), while making "editing
+/// `migrations/` re-mints the template" a noisy signal.
+pub fn is_schema_input(file_name: &str) -> bool {
+    std::path::Path::new(file_name).extension().is_some_and(|extension| extension == "sql")
+}
+
+/// Build the manifest whose FNV-1a hash is the template fingerprint.
+///
+/// Split out of [`compute_template_schema_fingerprint`] so that "which files
+/// count as schema input" is directly testable against a scratch directory,
+/// without the workspace ``migrations/`` path or `tempfile`.
+pub fn template_schema_manifest(migrations_dir: &std::path::Path) -> String {
     let mut manifest =
         format!("schema-rev:{TEST_TEMPLATE_SCHEMA_REVISION};contract-sql:{};", ensure_test_schema_contract_sql());
-    let migrations_dir = workspace_migrations_dir();
 
     // Hash the file **contents**, not (length, mtime): a `git checkout`/`git stash`
     // rewrites mtimes without changing content (needless rebuild) while a same-length
     // edit can keep both (stale template served for a changed schema). Content is the
     // only signal that matches the question being asked — "is this schema still the
     // one the migrations describe?".
-    let mut migration_entries: Vec<(String, String)> = fs::read_dir(&migrations_dir)
+    let mut migration_entries: Vec<(String, String)> = fs::read_dir(migrations_dir)
         .unwrap_or_else(|error| panic!("cannot read migrations directory {}: {error}", migrations_dir.display()))
         .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_ok_and(|file_type| file_type.is_file()))
         .filter_map(|entry| {
             let file_name = entry.file_name().to_str()?.to_string();
+            if !is_schema_input(&file_name) {
+                return None;
+            }
             let contents = fs::read(entry.path()).ok()?;
             Some((file_name, format!("{:016x}", fnv1a64(&contents))))
         })
@@ -1110,6 +1130,11 @@ fn compute_template_schema_fingerprint() -> String {
         manifest.push_str(&format!("{file_name}:{content_hash};"));
     }
 
+    manifest
+}
+
+fn compute_template_schema_fingerprint() -> String {
+    let manifest = template_schema_manifest(&workspace_migrations_dir());
     format!("{:016x}", fnv1a64(manifest.as_bytes()))
 }
 
