@@ -198,7 +198,7 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | sliding_sync_tokens | idx_sliding_sync_tokens_user | user_id, device_id | 否 | 按用户和设备查询同步 Token |
 | sliding_sync_rooms | idx_sliding_sync_rooms_unique | user_id, device_id, room_id, COALESCE(conn_id, '') | UNIQUE | Sliding Sync 房间唯一约束 |
 | sliding_sync_rooms | idx_sliding_sync_rooms_user_device | user_id, device_id | 否 | 按用户和设备查询同步房间 |
-| to_device_messages | idx_to_device_ordered | recipient_user_id, recipient_device_id, stream_id | 否 | 按收件人+设备有序取消息；文档旧名 `idx_to_device_recipient` / `idx_to_device_stream` 在 baseline 中从未存在（baseline 注释已于 Task 5 更正，见 DB_REVIEW §14.5） |
+| to_device_messages | idx_to_device_ordered | recipient_user_id, recipient_device_id, stream_id | 否 | 按收件人+设备有序取消息；文档旧名 `idx_to_device_recipient` / `idx_to_device_stream` 在 baseline 中从未存在（baseline 注释已于 Task 5 commit `d77d1fcf` 更正，见 DB_REVIEW §14.5） |
 | room_account_data | uq_room_account_data_user_room_type | user_id, room_id, data_type | UNIQUE | 按用户+房间查询账户数据（原文档名 `idx_room_account_data_user_room` 不存在） |
 | read_markers | idx_read_markers_room_user | room_id, user_id | 否 | 按房间+用户查询已读标记（原文档名 `idx_read_markers_user_room` 不存在；唯一性由 `uq_read_markers_room_user_type` 提供） |
 | lazy_loaded_members | pk_lazy_loaded_members | user_id, device_id, room_id, member_user_id | UNIQUE | 懒加载成员主键（原文档名 `idx_lazy_loaded_members_user_room` 不存在） |
@@ -220,7 +220,7 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 > | `push_devices.idx_push_devices_user` | `uq_push_devices_user_device_pushkey` | 均在 | 严格前缀，同上 |
 > | `device_lists_outbound_pokes.idx_device_lists_outbound_pokes_user` | `pk_device_lists_outbound_pokes` | 均在 | 严格前缀，同上 |
 > | `device_keys.idx_device_keys_fallback` | `uq_device_keys_user_device_key` | 均在 | **§2 分类有误**：前者是**部分索引** `WHERE is_fallback AND NOT fallback_used`，谓词选择性与体积收益真实存在，**不是**长索引的严格前缀（本文件 §1 已把它记为有意的部分索引） |
-> | `room_memberships.idx_room_memberships_user_membership` | `idx_room_memberships_user_status` | 均在 | **不可删**：`synapse-storage/src/schema_health_check.rs:169` 把它列为 `REQUIRED_INDEXES`，删除会让启动健康检查持续报缺失 |
+> | `room_memberships.idx_room_memberships_user_membership` | `idx_room_memberships_user_status` | 均在 | **不可删**：`synapse-storage/src/schema_health_check.rs` 的 `REQUIRED_INDEXES` 把它列为必需索引，删除会让启动健康检查持续报缺失 |
 > | `sliding_sync_tokens.idx_sliding_sync_tokens_user` | `idx_sliding_sync_tokens_unique`（含 `COALESCE(conn_id,'')` 表达式） | 均在 | 前导列为普通列，可前缀扫描；未实测 |
 > | `sliding_sync_lists.idx_sliding_sync_lists_user_device` | `idx_sliding_sync_lists_unique`（含表达式） | 均在 | 同上 |
 >
