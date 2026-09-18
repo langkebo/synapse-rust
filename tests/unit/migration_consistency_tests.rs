@@ -39,19 +39,33 @@ fn migrations_directory_has_exactly_one_baseline() {
     );
 }
 
-/// 两个迁移执行入口都必须按"历史基线一律跳过"的判据处理，否则上面那条不变式
+/// 迁移执行入口必须按"历史基线一律跳过"的判据处理，否则上面那条不变式
 /// 只在文件层面成立、执行层面仍会分叉。
+///
+/// 执行入口只有一个实现：`docker/db_migrate.sh`。部署侧的
+/// `docker/deploy/scripts/container-migrate.sh` 是薄包装（只桥接容器环境后 exec
+/// 唯一实现），因此它**不得**再自带这份判据 —— 那正是"同一职责两份实现"的回归，
+/// 由 `cleanup_schema_script_tests::deploy_migrator_delegates_to_the_single_implementation`
+/// 守卫。
 #[test]
 fn migration_runners_skip_every_historical_baseline() {
     let root = project_root();
-    for rel in ["docker/db_migrate.sh", "docker/deploy/scripts/container-migrate.sh"] {
-        let script = read(&root.join(rel));
-        assert!(
-            script.contains("00000000_unified_schema_v*.sql) return 0"),
-            "{rel} 必须以 `00000000_unified_schema_v*.sql` 模式跳过所有历史基线，\
-             而不是硬编码某几个版本号（v11 残留即因漏列而成为增量迁移）"
-        );
-    }
+    let script = read(&root.join("docker/db_migrate.sh"));
+    assert!(
+        script.contains("00000000_unified_schema_v*.sql) return 0"),
+        "docker/db_migrate.sh 必须以 `00000000_unified_schema_v*.sql` 模式跳过所有历史基线，\
+         而不是硬编码某几个版本号（v11 残留即因漏列而成为增量迁移）"
+    );
+
+    let deploy = read(&root.join("docker/deploy/scripts/container-migrate.sh"));
+    assert!(
+        !deploy.contains("00000000_unified_schema_v*.sql) return 0"),
+        "部署入口不得自带历史基线跳过判据：它是薄包装，该判据只在 docker/db_migrate.sh 里有一份"
+    );
+    assert!(
+        deploy.contains("docker/db_migrate.sh"),
+        "部署入口必须委托给 docker/db_migrate.sh，否则上面那条执行层不变式对它不成立"
+    );
 }
 
 /// v12 基线内的每个对象只能**声明一次**，且折入块里的 10 个索引 / 9 个约束必须存在。
@@ -186,7 +200,7 @@ fn deploy_mounts_canonical_migrations_and_has_no_copy() {
     );
 }
 
-/// `schema_migrations.executed_at` is declared in five places, and whichever one
+/// `schema_migrations.executed_at` is declared by several writers, and whichever one
 /// runs first decides the real column type. They must all say BIGINT (millisecond
 /// epoch), matching the canonical migration.
 ///
@@ -197,13 +211,17 @@ fn deploy_mounts_canonical_migrations_and_has_no_copy() {
 /// 2026-09-15: the deploy `migrator` exited 1 with 0 rows in
 /// `schema_migrations`, which also made `deploy.sh`'s version-consistency gate
 /// impossible to pass.
+///
+/// `docker/deploy/scripts/container-migrate.sh` used to be one of these writers;
+/// it is now a thin wrapper with no DDL at all, so the remaining writers below are
+/// the complete set. The wrapper's "no migration logic" invariant is guarded by
+/// `cleanup_schema_script_tests::deploy_migrator_delegates_to_the_single_implementation`.
 #[test]
 fn schema_migrations_executed_at_is_bigint_in_every_writer() {
     let root = project_root();
     let writers = [
         "migrations/00000000_unified_schema_v12.sql",
         "docker/db_migrate.sh",
-        "docker/deploy/scripts/container-migrate.sh",
         "docker/deploy/scripts/init-db.sql",
         "synapse-services/src/database_initializer/mod.rs",
     ];

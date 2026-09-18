@@ -27,6 +27,12 @@ fn script() -> String {
     fs::read_to_string(&path).unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()))
 }
 
+/// Read any repository file by path relative to the crate root.
+fn repo_file(relative: &str) -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative);
+    fs::read_to_string(&path).unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()))
+}
+
 #[test]
 fn cleanup_script_covers_every_leaked_schema_family() {
     let source = script();
@@ -197,5 +203,46 @@ fn cleanup_script_fails_fast_on_lock_exhaustion() {
         source.contains("LOCK_FAILURES"),
         "lock exhaustion must be tracked as consecutive failures, so one bad schema does not abort \
          a productive cleanup"
+    );
+}
+
+/// Guard for iron rule #2 over the migrator.
+///
+/// `docker/deploy/scripts/container-migrate.sh` used to carry its own copy of the
+/// migration engine (schema_migrations DDL, `is_migration_applied`,
+/// `record_migration`, baseline selection, superseded-baseline skipping). That is a
+/// second implementation of `docker/db_migrate.sh`: every fix — most recently
+/// content-checksum drift detection — had to be written twice, and the deploy copy
+/// was the one that decided what a real deployment actually applied. It must stay a
+/// thin wrapper: resolve the container's env/paths, then exec the single
+/// implementation with the subcommand passed through.
+#[test]
+fn deploy_migrator_delegates_to_the_single_implementation() {
+    let deploy = repo_file("docker/deploy/scripts/container-migrate.sh");
+    assert!(
+        deploy.contains("docker/db_migrate.sh"),
+        "部署迁移器必须委托给 docker/db_migrate.sh（唯一实现），否则每次修复都要写两遍"
+    );
+    for forbidden in ["CREATE TABLE IF NOT EXISTS schema_migrations", "is_migration_applied()", "record_migration()"] {
+        assert!(
+            !deploy.contains(forbidden),
+            "container-migrate.sh 不得再自带 `{forbidden}`：与 docker/db_migrate.sh 重复实现"
+        );
+    }
+    // The subcommand surface must not shrink to a hardcoded `migrate`: `validate`
+    // and `status` (and `docker/db_migrate.sh`'s `init`) have to pass through.
+    assert!(
+        deploy.contains("\"$@\""),
+        "wrapper 必须把子命令透传给唯一实现（\"$@\"），否则 validate/status 入口静默消失"
+    );
+    // Delegation is only real if the migrator container can actually reach the
+    // implementation. `postgres:16-alpine` does not ship the repo, so the deploy
+    // compose must bind-mount it next to the wrapper — a wrapper that execs a path
+    // the container never receives fails with exit 2 at deploy time.
+    let compose = repo_file("docker/deploy/docker-compose.yml");
+    assert!(
+        compose.contains("db_migrate.sh"),
+        "docker/deploy/docker-compose.yml 的 migrator 服务必须把 docker/db_migrate.sh \
+         挂载进容器（与 wrapper 同级），否则薄包装在真实部署里找不到唯一实现"
     );
 }

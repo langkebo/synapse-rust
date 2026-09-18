@@ -1,484 +1,66 @@
-#!/bin/sh
+#!/bin/bash
 # =============================================================================
-# container-migrate.sh — Database migration runner
+# container-migrate.sh — 部署编排用的薄包装（迁移唯一实现见 docker/db_migrate.sh）
 # =============================================================================
-# Applies every file in migrations/ in filename order. `ENABLED_EXTENSIONS`
-# is a *build* selector (see deploy.sh): it cannot tailor the schema, because
-# the baseline is全特性 — see migrations/README.md.
-# Core migrations are always applied. Extension migrations are skipped
-# unless their feature is listed in ENABLED_EXTENSIONS.
+# 本文件只做"容器内路径/环境 → 唯一实现所需环境"的桥接，然后 exec 真正实现。
 #
-# Examples:
-#   ENABLED_EXTENSIONS=all              — apply everything
-#   ENABLED_EXTENSIONS=friends,burn-after-read — core-private-chat (recommended default)
-#   ENABLED_EXTENSIONS=none             — core only, skip all extensions
-#   ENABLED_EXTENSIONS=friends,voice-extended  — only named extensions
+# 历史上这里自带一份完整的迁移引擎（schema_migrations DDL、判断迁移是否已应用、
+# 写入迁移记录、基线选择、历史基线跳过），与 docker/db_migrate.sh 构成同一职责的
+# 第二份实现：内容校验和漂移检测一类修复必须写两遍，且部署路径可能停在一份过时
+# 实现上（违反铁律 2）。现在所有 SQL/迁移逻辑只在 docker/db_migrate.sh。
+#
+# 保留本文件的原因：部署编排（docker-compose.yml 的 migrator 服务与 container_name）
+# 与既有容器内路径 /scripts/container-migrate.sh 依赖它。
+#
+# 唯一实现查找顺序：
+#   1. $MIGRATOR_SCRIPT 显式覆盖
+#   2. 与本文件同级 —— 镜像内 /app/scripts/、migrator 容器 /scripts/
+#   3. $REPO_ROOT/docker/db_migrate.sh —— 仓库内 <repo>/docker/deploy/scripts/ 直接运行
+#
+# 子命令（migrate / validate / status / init / help）原样透传，CLI 面不缩小。
 # =============================================================================
 
-set -eu
+set -euo pipefail
 
-MIGRATIONS_DIR="${MIGRATIONS_DIR:-/migrations}"
-DB_HOST="${DB_HOST:-postgres}"
-DB_PORT="${DB_PORT:-5432}"
-DB_NAME="${DB_NAME:-synapse}"
-DB_USER="${DB_USER:-postgres}"
-DB_PASSWORD="${DB_PASSWORD:-}"
-ENABLED_EXTENSIONS="${ENABLED_EXTENSIONS:-friends,burn-after-read}"
-DB_WAIT_ATTEMPTS="${DB_WAIT_ATTEMPTS:-30}"
-DB_WAIT_INTERVAL="${DB_WAIT_INTERVAL:-2}"
-DB_QUERY_ATTEMPTS="${DB_QUERY_ATTEMPTS:-8}"
-DB_QUERY_RETRY_INTERVAL="${DB_QUERY_RETRY_INTERVAL:-2}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# 仓库内: <repo>/docker/deploy/scripts → <repo>；容器内: /scripts → /
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
-if [ -n "$DB_PASSWORD" ]; then
-    export PGPASSWORD="$DB_PASSWORD"
+MIGRATOR="${MIGRATOR_SCRIPT:-}"
+if [ -z "$MIGRATOR" ]; then
+    for candidate in "$SCRIPT_DIR/db_migrate.sh" "$REPO_ROOT/docker/db_migrate.sh"; do
+        if [ -f "$candidate" ]; then
+            MIGRATOR="$candidate"
+            break
+        fi
+    done
+fi
+if [ -z "$MIGRATOR" ] || [ ! -f "$MIGRATOR" ]; then
+    echo "[ERROR] 找不到迁移器实现 docker/db_migrate.sh" >&2
+    echo "[ERROR] 容器内应挂载或内置到 $SCRIPT_DIR/db_migrate.sh；也可用 MIGRATOR_SCRIPT 指定。" >&2
+    exit 2
 fi
 
-log() {
-    level="$1"
-    shift
-    printf '[%s] %s\n' "$level" "$*"
-}
-
-psql_db() {
-    psql_with_retry "$DB_NAME" "$@"
-}
-
-psql_admin() {
-    psql_with_retry postgres "$@"
-}
-
-is_retryable_psql_error() {
-    grep -Eq 'Temporary failure in name resolution|Name or service not known|could not translate host name|could not connect to server|connection refused|server closed the connection unexpectedly|the database system is starting up|the database system is in recovery mode|the database system is not yet accepting connections|Consistent recovery state has not been yet reached|terminating connection due to administrator command'
-}
-
-psql_with_retry() {
-    database="$1"
-    shift
-
-    stdin_file="$(mktemp)"
-    cat >"$stdin_file"
-
-    attempt=1
-    while [ "$attempt" -le "$DB_QUERY_ATTEMPTS" ]; do
-        output=""
-        if output="$(
-            psql -v ON_ERROR_STOP=1 -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$database" "$@" <"$stdin_file" 2>&1
-        )"; then
-            if [ -n "$output" ]; then
-                printf '%s\n' "$output"
-            fi
-            rm -f "$stdin_file"
-            return 0
-        fi
-
-        if printf '%s\n' "$output" | is_retryable_psql_error && [ "$attempt" -lt "$DB_QUERY_ATTEMPTS" ]; then
-            log WARN "psql 连接失败，将重试 (${attempt}/${DB_QUERY_ATTEMPTS}): $database@$DB_HOST:$DB_PORT"
-            sleep "$DB_QUERY_RETRY_INTERVAL"
-            attempt=$((attempt + 1))
-            continue
-        fi
-
-        if [ -n "$output" ]; then
-            printf '%s\n' "$output" >&2
-        fi
-        rm -f "$stdin_file"
-        return 1
-    done
-
-    rm -f "$stdin_file"
-    return 1
-}
-
-wait_for_postgres_admin() {
-    attempt=1
-    while [ "$attempt" -le "$DB_WAIT_ATTEMPTS" ]; do
-        if psql_admin -c "SELECT 1" >/dev/null 2>&1; then
-            return 0
-        fi
-        sleep "$DB_WAIT_INTERVAL"
-        attempt=$((attempt + 1))
-    done
-    return 1
-}
-
-wait_for_target_database() {
-    attempt=1
-    while [ "$attempt" -le "$DB_WAIT_ATTEMPTS" ]; do
-        if psql_db -c "SELECT 1" >/dev/null 2>&1; then
-            return 0
-        fi
-        sleep "$DB_WAIT_INTERVAL"
-        attempt=$((attempt + 1))
-    done
-    return 1
-}
-
-ensure_database_exists() {
-    if wait_for_target_database; then
-        return 0
-    fi
-
-    if ! wait_for_postgres_admin; then
-        log ERROR "等待 PostgreSQL 管理连接超时: ${DB_HOST}:${DB_PORT}"
-        return 1
-    fi
-
-    log INFO "数据库不存在，尝试创建: $DB_NAME"
-    psql_admin -c "CREATE DATABASE \"$DB_NAME\";" >/dev/null 2>&1 || true
-    if ! wait_for_target_database; then
-        log ERROR "等待目标数据库连接超时: $DB_NAME"
-        return 1
-    fi
-
-    return 0
-}
-
-ensure_schema_migrations_table() {
-    psql_db >/dev/null <<'SQL'
-CREATE TABLE IF NOT EXISTS schema_migrations (
-    id BIGSERIAL PRIMARY KEY,
-    version TEXT NOT NULL,
-    name TEXT,
-    checksum TEXT,
-    applied_ts BIGINT,
-    execution_time_ms BIGINT,
-    is_success BOOLEAN NOT NULL DEFAULT TRUE,
-    description TEXT,
-    -- 必须与 canonical 迁移 `migrations/00000000_unified_schema_v*.sql` 和
-    -- `docker/db_migrate.sh` 保持一致：executed_at 是**毫秒 bigint**，不是 timestamptz。
-    -- 本文件曾写成 TIMESTAMPTZ，与这两处冲突：先跑的一方决定列类型，另一方写入时
-    -- 报 `column "executed_at" is of type bigint but expression is of type timestamp
-    -- with time zone`，迁移记录一条都写不进去（实测 2026-09-15：migrator exit=1，
-    -- schema_migrations 0 行，deploy.sh 版本一致性门禁必然失败）。
-    executed_at BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
-    CONSTRAINT uq_schema_migrations_version UNIQUE (version)
-);
-ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS name TEXT;
-ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS checksum TEXT;
-ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS applied_ts BIGINT;
-ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS execution_time_ms BIGINT;
-ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS is_success BOOLEAN NOT NULL DEFAULT TRUE;
-ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS description TEXT;
-ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS executed_at BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_schema_migrations_version ON schema_migrations(version);
-SQL
-}
-
-latest_baseline_file() {
-    find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '00000000_unified_schema_v*.sql' ! -name '*.undo.sql' | sort | tail -n 1
-}
-
-# Check if a file is a baseline script (any version, not just the latest).
-# Older baselines must be skipped in apply_pending_migrations to avoid
-# applying obsolete schema on top of the latest baseline.
-is_baseline_file() {
-    case "$(basename "$1")" in
-        00000000_unified_schema_v*.sql) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-table_exists() {
-    table_name="$1"
-    psql_db -tAc "SELECT EXISTS (
-        SELECT 1
-        FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_name = '$table_name'
-    )" 2>/dev/null | grep -q '^t$'
-}
-
-# Content checksum of a migration file (see docker/db_migrate.sh for the rationale:
-# `md5(filename)` is a constant per file and cannot detect an edited baseline, which
-# is exactly how schema changes are shipped in this repo).
-file_content_checksum() {
-    file="$1"
-    if command -v md5sum >/dev/null 2>&1; then
-        md5sum "$file" | awk '{print $1}'
-    elif command -v md5 >/dev/null 2>&1; then
-        md5 -q "$file"
+# 迁移目录：仓库内 <repo>/migrations；容器内即 canonical 挂载点 /migrations。
+# 必须显式导出：唯一实现被挂载到 /scripts 时它自算的 PROJECT_ROOT 是 /，
+# 而仓库内运行时它自算的是 <repo>/docker（没有 migrations 子目录）。
+if [ -z "${MIGRATIONS_DIR:-}" ]; then
+    candidate="${REPO_ROOT%/}/migrations" # REPO_ROOT=/ 时避免拼出 "//migrations"
+    if [ -d "$candidate" ]; then
+        MIGRATIONS_DIR="$candidate"
     else
-        cksum "$file" | awk '{print $1}'
+        MIGRATIONS_DIR=/migrations
     fi
-}
+fi
+export MIGRATIONS_DIR
 
-recorded_migration_checksum() {
-    version="$1"
-    psql_db -tAc "SELECT COALESCE(checksum, '') FROM schema_migrations WHERE version = '$version'" 2>/dev/null | tr -d '[:space:]'
-}
-
-is_migration_applied() {
-    version="$1"
-    psql_db -tAc "SELECT COALESCE(bool_and(is_success), FALSE) FROM schema_migrations WHERE version = '$version'" 2>/dev/null | grep -q '^t$'
-}
-
-# ---------------------------------------------------------------------------
-apply_sql_file() {
-    file="$1"
-    filename="$(basename "$file")"
-    version="${filename%.sql}"
-    started_at="$(date +%s)"
-    file_size="$(wc -c <"$file" 2>/dev/null | tr -d '[:space:]')"
-    file_checksum="$(file_content_checksum "$file")"
-
-    log INFO "应用迁移: $filename (size=${file_size:-unknown}B)"
-    if psql_db <"$file" >/dev/null; then
-        finished_at="$(date +%s)"
-        duration_ms=$(((finished_at - started_at) * 1000))
-        psql_db -c "
-            INSERT INTO schema_migrations (version, name, checksum, applied_ts, execution_time_ms, is_success, description, executed_at)
-            VALUES (
-                '$version',
-                '$filename',
-                NULLIF('$file_checksum', ''),
-                EXTRACT(EPOCH FROM NOW()) * 1000,
-                $duration_ms,
-                TRUE,
-                '$filename',
-                (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
-            )
-            ON CONFLICT (version) DO UPDATE SET
-                name = EXCLUDED.name,
-                checksum = EXCLUDED.checksum,
-                applied_ts = EXCLUDED.applied_ts,
-                execution_time_ms = EXCLUDED.execution_time_ms,
-                is_success = EXCLUDED.is_success,
-                description = EXCLUDED.description,
-                executed_at = EXCLUDED.executed_at
-        " >/dev/null
-        log INFO "迁移完成: $filename (耗时 ${duration_ms}ms)"
-        return 0
+# 容器内不存在"宿主 psql 打错实例"的 H-14 语境（DB_HOST 由 compose 给出，唯一实现
+# 自身也会在容器内跳过该护栏）。这里只在确实位于容器内时默认放行，绝不在宿主上
+# 直接运行本包装时关掉护栏 —— 那正是 H-14 要防的形态。
+if [ -z "${SYNAPSE_DB_MIGRATE_ALLOW_HOST_PSQL:-}" ]; then
+    if [ -f /.dockerenv ] || grep -qaE 'docker|containerd|kubepods' /proc/1/cgroup 2>/dev/null; then
+        export SYNAPSE_DB_MIGRATE_ALLOW_HOST_PSQL=1
     fi
+fi
 
-    finished_at="$(date +%s)"
-    duration_ms=$(((finished_at - started_at) * 1000))
-    psql_db -c "ABORT;" >/dev/null 2>&1 || true
-    psql_db -c "
-        INSERT INTO schema_migrations (version, name, checksum, applied_ts, execution_time_ms, is_success, description, executed_at)
-        VALUES (
-            '$version',
-            '$filename',
-            NULLIF('$file_checksum', ''),
-            EXTRACT(EPOCH FROM NOW()) * 1000,
-            $duration_ms,
-            FALSE,
-            '$filename',
-            (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
-        )
-        ON CONFLICT (version) DO UPDATE SET
-            name = EXCLUDED.name,
-            checksum = EXCLUDED.checksum,
-            applied_ts = EXCLUDED.applied_ts,
-            execution_time_ms = EXCLUDED.execution_time_ms,
-            is_success = EXCLUDED.is_success,
-            description = EXCLUDED.description,
-            executed_at = EXCLUDED.executed_at
-    " >/dev/null || true
-    log ERROR "迁移失败: $filename (耗时 ${duration_ms}ms) — 检查 psql 输出或文件内容以定位失败语句"
-    return 1
-}
-
-init_database() {
-    ensure_schema_migrations_table
-
-    baseline_file="$(latest_baseline_file)"
-    if [ -z "$baseline_file" ]; then
-        log ERROR "找不到统一基线脚本"
-        return 1
-    fi
-
-    # 列出所有候选基线, 说明为何选择当前版本 (避免 v07/v10 排序混淆)
-    all_baselines="$(find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '00000000_unified_schema_v*.sql' ! -name '*.undo.sql' | sort)"
-    baseline_count="$(printf '%s\n' "$all_baselines" | grep -c '\.sql')"
-    log INFO "基线选择: 候选数=${baseline_count}, 选中=$(basename "$baseline_file")"
-    if [ "$baseline_count" -gt 1 ]; then
-        log INFO "  所有候选基线 (旧版本将被跳过, 不作为增量迁移): $(printf '%s' "$all_baselines" | tr '\n' ' ')"
-    fi
-
-    baseline_name="$(basename "$baseline_file")"
-    baseline_version="${baseline_name%.sql}"
-    baseline_checksum="$(file_content_checksum "$baseline_file")"
-    if is_migration_applied "$baseline_version"; then
-        recorded_checksum="$(recorded_migration_checksum "$baseline_version")"
-        if [ "$recorded_checksum" = "$baseline_checksum" ]; then
-            log INFO "基线迁移已记录且内容未变: $baseline_name"
-            return 0
-        fi
-        # 约定：schema 变更直接折入基线，因此内容变化即"有待应用变更"。
-        # 基线幂等（IF NOT EXISTS / DROP IF EXISTS + 一次幂等去重 DELETE），重放安全。
-        log WARNING "基线内容已变化，重放基线以应用变更: $baseline_name (记录: ${recorded_checksum:-<空>} / 当前: $baseline_checksum)"
-        apply_sql_file "$baseline_file"
-        return 0
-    fi
-
-    if table_exists "users"; then
-        log INFO "检测到现有业务表，使用容错模式应用基线迁移"
-    fi
-
-    apply_sql_file "$baseline_file"
-}
-
-apply_pending_migrations() {
-    ensure_database_exists
-    ensure_schema_migrations_table
-
-    # 启动摘要: 便于排查迁移范围/扩展配置/数据库目标错配问题
-    log INFO "========================================"
-    log INFO "数据库迁移启动"
-    log INFO "  目标数据库: ${DB_USER}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
-    log INFO "  迁移目录: ${MIGRATIONS_DIR}"
-    log INFO "  扩展模式: ENABLED_EXTENSIONS=${ENABLED_EXTENSIONS}"
-    log INFO "  PG 镜像版本: $(psql_db -tAc "SELECT version();" 2>/dev/null | head -1 || echo 'unknown')"
-    log INFO "========================================"
-
-    init_database
-
-    log INFO "扩展模式: ENABLED_EXTENSIONS=$ENABLED_EXTENSIONS"
-
-    skipped=0
-    applied=0
-
-    # 注意: 不能用 `find | sort | while read` 管道 — psql_with_retry 内的
-    # `cat >"$stdin_file"` 会贪婪读取 while 循环的 stdin (即 find 的输出),
-    # 导致循环在首个调用 psql_db 的文件处被耗尽中断 (applied 恒为 0,
-    # 后续迁移全部静默跳过)。改用 for + 命令替换: for 不占用 stdin,
-    # psql_db 继承的是脚本入口 stdin (调用方以 < /dev/null 启动 migrator),
-    # cat 立即 EOF, -c/-tAc 模式的 SQL 正常执行。迁移文件名均为
-    # `数字_名称.sql` 格式, 无空格无换行, 命令替换安全。
-    for file in $(find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' ! -name '*.undo.sql' ! -name '*.conf' | sort); do
-        # Skip ALL baseline files (v07, v10, etc.) — only the latest one is applied
-        # in init_database(); older baselines must not run as incremental migrations
-        # because their CREATE TABLE IF NOT EXISTS would no-op on tables already
-        # created by the latest baseline, but their CREATE INDEX statements would
-        # fail on columns the latest baseline dropped/renamed.
-        if is_baseline_file "$file"; then
-            continue
-        fi
-
-        version="$(basename "$file" .sql)"
-        if is_migration_applied "$version"; then
-            continue
-        fi
-
-        if apply_sql_file "$file"; then
-            applied=$((applied + 1))
-        else
-            # apply_sql_file 失败时已记录 is_success=FALSE 并打 ERROR 日志;
-            # 这里不中断循环, 继续尝试后续迁移 (部分迁移失败不应阻断
-            # 其他独立的增量迁移)。
-            skipped=$((skipped + 1))
-        fi
-    done
-
-    # 结束摘要: 应用数/跳过数/表总数 便于排查迁移完整性
-    table_count="$(psql_db -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE';" 2>/dev/null | tr -d '[:space:]')"
-    migration_count="$(psql_db -tAc "SELECT count(*) FROM schema_migrations;" 2>/dev/null | tr -d '[:space:]')"
-    log INFO "========================================"
-    log INFO "数据库迁移结束"
-    log INFO "  本次应用: applied=${applied}, skipped=${skipped} (扩展过滤)"
-    log INFO "  历史迁移记录数: ${migration_count:-unknown}"
-    log INFO "  当前 public schema 表数: ${table_count:-unknown}"
-    log INFO "========================================"
-}
-
-validate_schema() {
-    ensure_database_exists
-    ensure_schema_migrations_table
-
-    missing=0
-    # Core tables — always required
-    for table in users devices access_tokens refresh_tokens rooms events event_relations rate_limits schema_migrations; do
-        if table_exists "$table"; then
-            log INFO "表存在: $table"
-        else
-            log ERROR "表缺失: $table"
-            missing=$((missing + 1))
-        fi
-    done
-
-    # Extension tables — only validate if their feature is enabled
-    if [ "$ENABLED_EXTENSIONS" = "all" ] || echo ",$ENABLED_EXTENSIONS," | grep -q ",widgets,"; then
-        for table in widgets; do
-            if table_exists "$table"; then
-                log INFO "表存在 (widgets): $table"
-            else
-                log ERROR "表缺失 (widgets): $table"
-                missing=$((missing + 1))
-            fi
-        done
-    fi
-
-    if [ "$ENABLED_EXTENSIONS" = "all" ] || echo ",$ENABLED_EXTENSIONS," | grep -q ",server-notifications,"; then
-        for table in server_notifications user_notification_status; do
-            if table_exists "$table"; then
-                log INFO "表存在 (server-notifications): $table"
-            else
-                log ERROR "表缺失 (server-notifications): $table"
-                missing=$((missing + 1))
-            fi
-        done
-    fi
-
-    if [ "$missing" -gt 0 ]; then
-        log ERROR "数据库架构验证失败，缺失 $missing 个表"
-        return 1
-    fi
-
-    log INFO "数据库架构验证通过"
-}
-
-list_applied_migrations() {
-    ensure_database_exists
-    ensure_schema_migrations_table
-    psql_db -c "
-        SELECT version, COALESCE(name, description, version) AS name, is_success, applied_ts
-        FROM schema_migrations
-        ORDER BY COALESCE(applied_ts, 0) DESC, version DESC
-    "
-}
-
-show_help() {
-    cat <<'EOF'
-用法: container-migrate.sh <命令>
-
-命令:
-  migrate    应用待执行的迁移（根据 ENABLED_EXTENSIONS 过滤扩展迁移）
-  validate   验证数据库 schema 完整性
-  status     显示已执行的迁移记录
-
-环境变量:
-  ENABLED_EXTENSIONS   控制扩展迁移范围（默认: all）
-    all                应用所有迁移（默认行为）
-    none               仅应用核心迁移，跳过所有扩展
-    <feature,...>      逗号分隔的功能列表，如: friends,voice-extended
-
-  可用功能: friends, voice-extended, saml-sso, cas-sso,
-           beacons, voip-tracking, widgets, server-notifications,
-           burn-after-read, privacy-ext, external-services
-EOF
-}
-
-main() {
-    command="${1:-migrate}"
-
-    case "$command" in
-        migrate)
-            apply_pending_migrations
-            ;;
-        validate)
-            validate_schema
-            ;;
-        status)
-            list_applied_migrations
-            ;;
-        help | --help | -h)
-            show_help
-            ;;
-        *)
-            log ERROR "未知命令: $command"
-            show_help
-            exit 1
-            ;;
-    esac
-}
-
-main "$@"
+exec bash "$MIGRATOR" "$@"

@@ -148,6 +148,11 @@ services:
       # the image from there, so the repo root is always present in this deploy path.
       - ../../migrations:/migrations:ro
       - ./scripts/container-migrate.sh:/scripts/container-migrate.sh:ro
+      # 迁移的**唯一实现**，与 wrapper 同级挂载：container-migrate.sh 只做桥接后
+      # exec 它。这里刻意用 bind mount 而**不是**复制进镜像 —— 复制就是第二份实现，
+      # 会再次漂移（铁律 2）。postgres:16-alpine 里也没有这个文件。
+      # 注意 `..` 是 docker/（compose 文件位于 docker/deploy/）。
+      - ../db_migrate.sh:/scripts/db_migrate.sh:ro
       - ./logs:/logs
     logging:
       driver: json-file
