@@ -9,6 +9,12 @@ output, and enforces a ratchet-style policy:
   - Test code (files under tests/) is tracked but non-blocking.
   - A baseline file records the historical test-unsafe count; the gate
     only fails if the test-unsafe count INCREASES above the baseline.
+  - There is NO production-unsafe allowlist: the baseline carries no
+    production ceiling, and any key the gate does not read is rejected
+    (a field nothing enforces is how `prod_unsafe_total: 4` previously
+    contradicted this hard-zero policy).
+  - cargo-geiger runs WITHOUT `--include-tests`, so `#[cfg(test)]` unsafe
+    is not counted as production; the gate refuses to run with it.
 
 This replaces the previous fragile `grep -oP '\\d+(?= unsafe)'` parsing
 which never matched cargo-geiger's actual output format, causing
@@ -34,18 +40,63 @@ ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 DEFAULT_BASELINE = ROOT_DIR / "scripts" / "ci" / "geiger_baseline.json"
 DEFAULT_REPORT = ROOT_DIR / "artifacts" / "cargo-geiger.json"
 
+# Keys the gate actually consumes. Anything else in the baseline file is inert
+# by construction, which is how `"prod_unsafe_total": 4` sat in this file for
+# months while Gate 1 hard-failed at `prod_total > 0` — a baseline field that
+# contradicts the enforced policy and that nothing reads. See
+# `validate_baseline_keys`.
+KNOWN_BASELINE_KEYS = frozenset({"test_unsafe_total", "note"})
+
+# cargo-geiger must run WITHOUT `--include-tests`. `classify_files` below splits
+# by FILE PATH, so it cannot distinguish a `#[cfg(test)]` block from production
+# code inside the same `src/` file: with tests included, a test-only
+# `std::env::set_var` makes `prod_total > 0` and trips the hard-zero Gate 1 for
+# code that never ships. Excluding test targets is what makes `prod_total` mean
+# "unsafe in code that ships". See `validate_geiger_cmd`.
+GEIGER_CMD = [
+    "cargo",
+    "geiger",
+    "--all-features",
+    "--output-format",
+    "json",
+]
+
+
+def validate_geiger_cmd(cmd: list[str]) -> str | None:
+    """Reject a scan configuration that would misclassify test-only unsafe."""
+    if "--include-tests" in cmd:
+        return (
+            "cargo-geiger is invoked with `--include-tests`, which counts "
+            "`#[cfg(test)]` unsafe inside `src/` files as production. "
+            "`classify_files` splits by file path, so it cannot tell them apart "
+            "and Gate 1 (production unsafe must be 0) would fail on test code."
+        )
+    return None
+
+
+def validate_baseline_keys(baseline: dict, path: Path) -> str | None:
+    """Reject inert baseline fields.
+
+    A baseline key nothing reads is indistinguishable from a policy change, and
+    it silently documents an allowance that is not honoured (the removed
+    `prod_unsafe_total: 4` claimed test-only unsafe was tolerated in production
+    while the code hard-failed on it).
+    """
+    unknown = sorted(set(baseline) - KNOWN_BASELINE_KEYS)
+    if unknown:
+        return (
+            f"{path} contains key(s) the gate never reads: {', '.join(unknown)}. "
+            f"Consumed keys: {', '.join(sorted(KNOWN_BASELINE_KEYS))}. "
+            "Either consume the key or delete it — an ignored field documents a "
+            "policy that is not enforced."
+        )
+    return None
+
 
 def run_geiger() -> list[dict]:
     """Run cargo geiger and return parsed JSON output."""
-    cmd = [
-        "cargo",
-        "geiger",
-        "--all-features",
-        "--output-format",
-        "json",
-    ]
     result = subprocess.run(
-        cmd,
+        GEIGER_CMD,
         capture_output=True,
         text=True,
         cwd=ROOT_DIR,
@@ -102,7 +153,6 @@ def load_baseline(path: Path) -> dict:
     if path.exists():
         return json.loads(path.read_text())
     return {
-        "prod_unsafe_total": 0,
         "test_unsafe_total": 0,
         "note": "baseline not found; using zero-defaults",
     }
@@ -115,6 +165,18 @@ def main() -> int:
     args = parser.parse_args()
 
     args.report.parent.mkdir(parents=True, exist_ok=True)
+
+    # Validate the scan configuration and the baseline BEFORE spending minutes
+    # in cargo-geiger: both guards catch a misconfiguration that would otherwise
+    # produce a misleading verdict.
+    cmd_problem = validate_geiger_cmd(GEIGER_CMD)
+    if cmd_problem:
+        print(f"FAIL: {cmd_problem}", file=sys.stderr)
+        return 2
+    baseline_problem = validate_baseline_keys(load_baseline(args.baseline), args.baseline)
+    if baseline_problem:
+        print(f"FAIL: {baseline_problem}", file=sys.stderr)
+        return 2
 
     print(">>> cargo-geiger: scanning for unsafe usage (JSON output)")
     metrics = run_geiger()
@@ -135,7 +197,6 @@ def main() -> int:
     print(f"    Test unsafe total:        {test_total}  {test_counts}")
 
     baseline = load_baseline(args.baseline)
-    baseline_prod = baseline.get("prod_unsafe_total", 0)
     baseline_test = baseline.get("test_unsafe_total", 0)
 
     # List files with unsafe for visibility
@@ -158,9 +219,12 @@ def main() -> int:
     # ── Gate 1: Production unsafe must be zero (hard block) ──
     if prod_total > 0:
         print(f"\nFAIL: {prod_total} unsafe item(s) found in production code.")
-        print("      Production unsafe is strictly prohibited.")
-        print("      If this is intentional (FFI, crypto), add the file to")
-        print("      an allowlist in the baseline file and justify why.")
+        print("      Production unsafe is strictly prohibited — there is no")
+        print("      allowlist, and the baseline carries no production ceiling.")
+        print("      If the unsafe is only inside `#[cfg(test)]`, move that code")
+        print("      under `tests/` (or behind a safe wrapper): cargo-geiger")
+        print("      reports per FILE, so test-only unsafe in a `src/` file is")
+        print("      counted as production.")
         return 1
 
     # ── Gate 2: Test unsafe must not exceed baseline (ratchet) ──

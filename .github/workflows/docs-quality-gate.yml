@@ -55,12 +55,30 @@ jobs:
             echo "No markdown files to spell-check"
             exit 0
           fi
+          # Spelling issues FAIL the workflow.
+          #
+          # The previous form was
+          #   bash scripts/check_doc_spelling.sh "$f" || { echo "::warning::..."; }
+          # which made the step unconditionally succeed: on a failure the `||`
+          # branch ran, its exit status was 0, and the `for` loop's status was
+          # therefore 0. `check_doc_spelling.sh` itself does `exit 1` on unknown
+          # words, so the gate existed but could never go red (AGENTS.md 铁律 8).
+          #
+          # Every file is checked before failing, so one run reports all of them
+          # instead of stopping at the first typo.
+          failed=""
           for f in $files; do
             echo "--- Checking $f ---"
-            bash scripts/check_doc_spelling.sh "$f" || {
-              echo "::warning::Spelling issues in $f"
-            }
+            if ! bash scripts/check_doc_spelling.sh "$f"; then
+              failed="$failed $f"
+            fi
           done
+          if [ -n "$failed" ]; then
+            echo "::error::aspell found spelling issues in:$failed"
+            echo "Fix the typos, or add legitimate words to .aspell.en.pws / .aspell.ignore.txt."
+            exit 1
+          fi
+          echo "aspell: OK (no unknown words)"
 
       - name: lychee - Active Docs
         uses: lycheeverse/lychee-action@v1.10.0
