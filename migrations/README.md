@@ -35,7 +35,7 @@ migrations/
 └── README.md                                 # 本文件
 ```
 
-**当前活跃链路**: `v12 baseline + 1 个扩展文件 = 2 个 forward SQL 文件`。历史时间戳迁移已全部折入 baseline，目录下不存在时间戳增量文件、`.undo.sql` 文件，也不存在 `archive/` 子目录。
+**当前活跃链路**: **只有 1 个 forward SQL 文件**（`00000000_unified_schema_v12.sql`，已含全部扩展表）。历史时间戳迁移与扩展文件均已折入/删除，目录下不存在时间戳增量文件、扩展文件、`.undo.sql` 文件，也不存在 `archive/` 子目录。（`scripts/build_sqlx_migration_source.py` 仍保留 `00000001_extensions*` 的识别分支：找不到就是空操作，但文中不再声称存在该文件。）
 
 > **目录下必须只有一个基线文件。** 历史基线（v8/v10/v11）一旦与最新基线并存，
 > 迁移器会把它们当"增量迁移"再执行一遍并写进 `schema_migrations`，导致本地机器
@@ -230,7 +230,7 @@ v11 基线相对 v8/v10 的主要变更：
 
 1. `00000000_unified_schema_v12.sql` — 唯一基线（`IF NOT EXISTS`，可重复执行）
 
-> `migrations/` 目前只有上述两个正向文件（外加 `V*` 扩展）；所有时间戳迁移已删除，
+> `migrations/` 目前只有上述**唯一**一个正向文件（扩展文件已于 v12 折入后删除）；所有时间戳迁移已删除，
 > 不存在"按时间戳顺序逐一应用"的步骤。测试路径
 > （`scripts/build_sqlx_migration_source.py`）也显式只选 baseline + extensions + `V*`。
 > 部署路径（`docker/db_migrate.sh`）会应用目录下全部正向 SQL，因此**任何未折入 baseline
