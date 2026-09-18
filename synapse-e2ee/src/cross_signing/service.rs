@@ -8,6 +8,21 @@ use synapse_common::current_timestamp_utc;
 use synapse_common::traits::DehydratedDeviceProvider;
 use synapse_common::ApiError;
 
+/// Public cross-signing keys returned by `get_public_cross_signing_keys`.
+///
+/// Each field is `Option` because clients may have uploaded only a subset of
+/// the three keys (master, self_signing, user_signing). Callers should handle
+/// missing keys gracefully rather than treating them as server errors.
+#[derive(Debug, Clone)]
+pub struct PublicCrossSigningKeys {
+    /// The master cross-signing key, if uploaded by the user.
+    pub master_key: Option<serde_json::Value>,
+    /// The self-signing key, if uploaded by the user.
+    pub self_signing_key: Option<serde_json::Value>,
+    /// The user-signing key, if uploaded by the user.
+    pub user_signing_key: Option<serde_json::Value>,
+}
+
 #[derive(Clone)]
 /// The `CrossSigningService` type.
 pub struct CrossSigningService {
@@ -106,14 +121,17 @@ impl CrossSigningService {
     pub async fn get_public_cross_signing_keys(
         &self,
         user_id: &str,
-    ) -> Result<(Option<serde_json::Value>, Option<serde_json::Value>), ApiError> {
+    ) -> Result<PublicCrossSigningKeys, ApiError> {
         let keys = self.storage.get_cross_signing_keys(user_id).await?;
 
-        let master_key = keys.iter().find(|key| key.key_type == "master").and_then(|key| key.key_json.clone());
-        let self_signing_key =
-            keys.iter().find(|key| key.key_type == "self_signing").and_then(|key| key.key_json.clone());
-
-        Ok((master_key, self_signing_key))
+        let pick = |kind: &str| {
+            keys.iter().find(|k| k.key_type == kind).and_then(|k| k.key_json.clone())
+        };
+        Ok(PublicCrossSigningKeys {
+            master_key: pick("master"),
+            self_signing_key: pick("self_signing"),
+            user_signing_key: pick("user_signing"),
+        })
     }
 
     /// See [`upload_key_signature`].
@@ -161,26 +179,39 @@ impl CrossSigningService {
         };
 
         let keys = key.get("keys").and_then(|v| v.as_object());
-        let (_algorithm, public_key) = if let Some(k_map) = keys {
+
+        let (algorithm, public_key) = if let Some(k_map) = keys {
             if let Some((k, v)) = k_map.iter().next() {
                 let parts: Vec<&str> = k.splitn(2, ':').collect();
-                if parts.len() == 2 {
-                    (parts[0].to_string(), v.as_str().unwrap_or("").to_string())
+                let algorithm = if parts.len() == 2 {
+                    parts[0].to_string()
                 } else {
-                    ("ed25519".to_string(), v.as_str().unwrap_or("").to_string())
-                }
+                    "ed25519".to_string()
+                };
+                let public_key = v.as_str().unwrap_or("").to_string();
+                (algorithm, public_key)
             } else {
-                ("".to_string(), "".to_string())
+                return Err(ApiError::bad_request("No keys provided".to_string()));
             }
+        } else if let Some(algorithm) = key.get("algorithm").and_then(|v| v.as_str()) {
+            let public_key = key
+                .get("key")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ApiError::bad_request("Missing 'key' field in key JSON".to_string()))?
+                .to_string();
+            (algorithm.to_string(), public_key)
         } else {
-            (
-                key.get("algorithm").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                key.get("key").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            )
+            return Err(ApiError::bad_request("Missing 'algorithm' field in key JSON".to_string()));
         };
 
+        if algorithm.is_empty() {
+            return Err(ApiError::bad_request("Algorithm cannot be empty".to_string()));
+        }
         if public_key.is_empty() {
-            return Err(ApiError::bad_request("Missing algorithm or public key".to_string()));
+            return Err(ApiError::bad_request(format!(
+                "Public key is empty for algorithm '{}'",
+                algorithm
+            )));
         }
 
         match key_type {

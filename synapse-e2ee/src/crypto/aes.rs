@@ -83,7 +83,8 @@ impl Aes256GcmNonce {
         Self { bytes }
     }
 
-    fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<Self, CryptoError> {
+    /// Create a nonce from raw bytes.
+    pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<Self, CryptoError> {
         let bytes = bytes.as_ref();
         if bytes.len() != 12 {
             return Err(CryptoError::InvalidNonceLength);

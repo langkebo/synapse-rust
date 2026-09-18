@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use synapse_cache::CacheManager;
 use synapse_e2ee::backup::KeyBackupService;
+use synapse_e2ee::crypto::key_at_rest::KeyAtRest;
 use synapse_e2ee::cross_signing::CrossSigningService;
 use synapse_e2ee::device_keys::DeviceKeyService;
 use synapse_e2ee::device_keys::DeviceKeyStoreApi;
@@ -50,6 +51,7 @@ pub struct E2eeServices {
 
 impl E2eeServices {
     /// See [`new`].
+    #[allow(clippy::expect_used)]
     pub async fn new(
         pool: &Arc<sqlx::PgPool>,
         cache: &Arc<CacheManager>,
@@ -69,8 +71,10 @@ impl E2eeServices {
             .with_dehydrated_device_storage(dehydrated_device_storage.clone());
 
         let megolm_storage = synapse_e2ee::megolm::MegolmSessionStorage::new(pool);
-        let encryption_key = generate_encryption_key(megolm_encryption_key_path);
-        let megolm_service = MegolmProvider::from_env(megolm_storage, cache.clone(), encryption_key);
+        let at_rest_key = KeyAtRest::load_plaintext(megolm_encryption_key_path.unwrap_or_default())
+            .expect("Failed to load megolm encryption key — server cannot start without a valid key file");
+        let at_rest = KeyAtRest::new(at_rest_key);
+        let megolm_service = MegolmProvider::from_env(megolm_storage, cache.clone(), at_rest);
 
         let key_request_storage = synapse_e2ee::key_request::KeyRequestStorage::new(pool.as_ref());
         let key_request_service = KeyRequestService::new(key_request_storage, megolm_service.clone());
@@ -125,97 +129,4 @@ impl E2eeServices {
             to_device_storage,
         }
     }
-}
-
-/// See [`generate_encryption_key`].
-pub(crate) fn generate_encryption_key(config_path: Option<&str>) -> [u8; 32] {
-    use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
-
-    let path = config_path.map(|p| p.to_string());
-
-    if let Some(ref p) = path {
-        let path_buf = std::path::PathBuf::from(p);
-        if path_buf.exists() {
-            match std::fs::read_to_string(&path_buf) {
-                Ok(content) => {
-                    let trimmed = content.trim();
-                    match B64.decode(trimmed) {
-                        Ok(bytes) if bytes.len() == 32 => {
-                            let mut key = [0u8; 32];
-                            key.copy_from_slice(&bytes);
-                            ::tracing::info!(path = %path_buf.display(), "Loaded megolm encryption key");
-                            return key;
-                        }
-                        Ok(bytes) => {
-                            ::tracing::error!(
-                                "Megolm key at {} has wrong length ({} != 32); refusing to \
-                                 overwrite — fix or remove the file",
-                                path_buf.display(),
-                                bytes.len()
-                            );
-                        }
-                        Err(e) => {
-                            ::tracing::error!(
-                                "Megolm key at {} is not valid base64: {} — refusing to \
-                                 overwrite",
-                                path_buf.display(),
-                                e
-                            );
-                        }
-                    }
-                }
-                Err(e) => {
-                    ::tracing::error!(
-                        "Failed to read megolm key {}: {} — generating ephemeral key",
-                        path_buf.display(),
-                        e
-                    );
-                }
-            }
-        }
-    }
-
-    let mut key = [0u8; 32];
-    use rand::RngCore;
-    rand::rng().fill_bytes(&mut key);
-
-    if let Some(ref p) = path {
-        let path_buf = std::path::PathBuf::from(p);
-        if !path_buf.exists() {
-            if let Some(parent) = path_buf.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            let encoded = B64.encode(key);
-            match std::fs::write(&path_buf, encoded.as_bytes()) {
-                Ok(_) => {
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::fs::PermissionsExt;
-                        if let Err(e) = std::fs::set_permissions(&path_buf, std::fs::Permissions::from_mode(0o600)) {
-                            ::tracing::warn!(path = %path_buf.display(), error = %e, "Failed to set 0600 permissions on megolm key file");
-                        }
-                    }
-                    ::tracing::info!(path = %path_buf.display(), "Persisted new megolm encryption key");
-                }
-                Err(e) => {
-                    ::tracing::error!(
-                        "Failed to persist megolm key to {}: {} — key is ephemeral, \
-                         existing encrypted sessions will be lost on restart",
-                        path_buf.display(),
-                        e
-                    );
-                }
-            }
-        }
-    } else {
-        ::tracing::warn!(
-            "server.megolm_encryption_key_path is not configured; megolm encryption key is \
-             ephemeral — all encrypted megolm sessions will be unreadable after server \
-             restart. Set `server.megolm_encryption_key_path` or \
-             `SYNAPSE__SERVER__MEGOLM_ENCRYPTION_KEY_PATH` to a writable file path for \
-             production."
-        );
-    }
-
-    key
 }

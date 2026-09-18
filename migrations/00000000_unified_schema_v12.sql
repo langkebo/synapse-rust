@@ -2244,11 +2244,12 @@ CREATE TABLE IF NOT EXISTS key_rotation_state (
 );
 
 CREATE TABLE IF NOT EXISTS megolm_key_shares (
-    room_id TEXT NOT NULL,
-    session_id TEXT NOT NULL,
-    share_reason TEXT NOT NULL,
-    shared_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000),
-    PRIMARY KEY (room_id, session_id)
+    room_id            TEXT   NOT NULL,
+    session_id         TEXT   NOT NULL,
+    recipient_user_id  TEXT   NOT NULL,
+    share_reason       TEXT   NOT NULL,
+    shared_at          BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000),
+    PRIMARY KEY (room_id, session_id, recipient_user_id)
 );
 
 CREATE TABLE IF NOT EXISTS key_rotation_config (
@@ -3651,6 +3652,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_burn_log_user_event ON burn_after_read_log(
 CREATE INDEX IF NOT EXISTS idx_key_rotation_pending_room ON key_rotation_pending(room_id);
 CREATE INDEX IF NOT EXISTS idx_key_rotation_state_user ON key_rotation_state(user_id);
 CREATE INDEX IF NOT EXISTS idx_megolm_key_shares_room ON megolm_key_shares(room_id);
+CREATE INDEX IF NOT EXISTS idx_megolm_key_shares_recipient ON megolm_key_shares(recipient_user_id, room_id);
 
 -- Megolm session keys
 CREATE INDEX IF NOT EXISTS idx_megolm_session_keys_expiry ON megolm_session_keys(expires_at) WHERE expires_at IS NOT NULL;

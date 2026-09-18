@@ -75,7 +75,6 @@ mod filter_storage_tests_migrated;
 mod friend_room_storage_tests_migrated;
 mod key_backup_recovery_tests;
 mod key_backup_storage_tests_migrated;
-mod megolm_dual_write_storage_tests_migrated;
 mod membership_storage_tests_migrated;
 mod openid_token_storage_tests_migrated;
 mod permission_escalation_tests;

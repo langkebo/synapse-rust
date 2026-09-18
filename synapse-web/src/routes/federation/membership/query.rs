@@ -90,7 +90,7 @@ pub(crate) async fn get_user_devices(
 
     let stream_id = ctx.account_device_list_service.get_max_device_list_stream_id_for_user(&user_id).await?;
 
-    let (master_key, self_signing_key) = ctx
+    let keys = ctx
         .cross_signing_service
         .get_public_cross_signing_keys(&user_id)
         .await
@@ -117,8 +117,9 @@ pub(crate) async fn get_user_devices(
         "user_id": user_id,
         "stream_id": stream_id,
         "devices": devices_json,
-        "master_key": master_key,
-        "self_signing_key": self_signing_key
+        "master_key": keys.master_key,
+        "self_signing_key": keys.self_signing_key,
+        "user_signing_key": keys.user_signing_key
     })))
 }
 

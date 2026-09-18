@@ -21,6 +21,7 @@
 //! See `docs/synapse-rust/E2EE_VODOZEMAC_MIGRATION.md` for the full
 //! migration plan.
 
+use crate::crypto::key_at_rest::KeyAtRest;
 use crate::megolm::models::{MegolmSession, PickleFormat, RoomKeyDistributionData};
 use crate::megolm::storage::MegolmSessionStorage;
 use std::sync::Arc;
@@ -34,23 +35,6 @@ use synapse_common::ApiError;
 use vodozemac::megolm::{
     GroupSession, GroupSessionPickle, InboundGroupSession, InboundGroupSessionPickle, SessionConfig,
 };
-
-/// Phase 2 dual-write 开关（默认 `false`）。
-///
-/// 当设为 `true` 时，`MegolmVodozemacService::create_session` 会在写 vodozemac
-/// pickle 之外，**额外**调用 legacy 加密路径生成一份 `session_key`（用服务器
-/// `encryption_key` 加密的 32 字节 session key），并把 `pickle_format` 设为
-/// `dual`。这样 legacy 路径在只读场景下也能识别这些 session。
-static DUAL_WRITE_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-
-fn is_dual_write_enabled() -> bool {
-    *DUAL_WRITE_ENABLED.get_or_init(|| {
-        std::env::var("E2EE_DUAL_WRITE")
-            .ok()
-            .map(|s| s.to_ascii_lowercase())
-            .is_some_and(|s| matches!(s.as_str(), "1" | "true" | "yes" | "on"))
-    })
-}
 
 /// Maximum age of a megolm session in days before rotation.
 static MEGOLM_SESSION_MAX_AGE_DAYS: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
@@ -128,59 +112,27 @@ pub struct MegolmVodozemacService {
     storage: MegolmSessionStorage,
     cache: Arc<CacheManager>,
     server_metrics: Option<Arc<ServerMetrics>>,
-    /// 服务器侧加密密钥（用于 Phase 2 双写：把 32 字节 vodozemac session_key
-    /// 用 legacy 路径的 `Aes256GcmCipher` 加密后写入 `session_key` 列）。
-    /// 当 `E2EE_DUAL_WRITE=true` 时必须设置；否则可保持 None（仅写 vodozemac 路径）。
-    encryption_key: Option<[u8; 32]>,
-    /// AES-256-GCM cipher with nonce reuse detection (E2EE-04).
-    aes_cipher: crate::crypto::Aes256GcmCipher,
+    /// Key-at-rest for encrypting session keys before persisting to Redis / Postgres.
+    /// E-08: all session keys must be encrypted with this at-rest key.
+    at_rest: KeyAtRest,
 }
 
 /// (see code)
 impl MegolmVodozemacService {
-    /// See [`new`].
-    pub fn new(storage: MegolmSessionStorage, cache: Arc<CacheManager>) -> Self {
+    /// Create a new VodozemacMegolmService with the given at-rest encryption key.
+    pub fn new(storage: MegolmSessionStorage, cache: Arc<CacheManager>, at_rest: KeyAtRest) -> Self {
         Self {
             storage,
             cache,
             server_metrics: None,
-            encryption_key: None,
-            aes_cipher: crate::crypto::Aes256GcmCipher::default(),
+            at_rest,
         }
-    }
-
-    /// 设置服务器侧加密密钥（启用 Phase 2 双写时调用）
-    pub fn with_encryption_key(mut self, key: [u8; 32]) -> Self {
-        self.encryption_key = Some(key);
-        self
     }
 
     /// See [`with_server_metrics`].
     pub fn with_server_metrics(mut self, metrics: Arc<ServerMetrics>) -> Self {
         self.server_metrics = Some(metrics);
         self
-    }
-
-    /// 计算在双写场景下要写入 `session_key` 的 legacy 加密格式
-    ///
-    /// 输入：vodozemac `GroupSession::session_key()` 的原始 32 字节
-    /// 输出：base64 编码的 AES-GCM 密文（nonce ‖ ciphertext）
-    /// 当双写关闭或缺 encryption_key 时返回 None（仅写 vodozemac）。
-    ///
-    /// 注意：早期版本曾把密文先 `serde_json::to_string(&Vec<u8>)`（产出十进制 JSON 数组）
-    /// 再 base64，导致 60 字节密文膨胀到约 280 字节（4.7x）。现改为直接 base64 原始字节，
-    /// 60 字节 → 约 80 字节，消除双重冗余编码。
-    fn dual_write_legacy_session_key(&self, raw_session_key: &[u8]) -> Option<String> {
-        if !is_dual_write_enabled() {
-            return None;
-        }
-        let key = self.encryption_key?;
-        use crate::crypto::Aes256GcmKey;
-
-        let cipher_key = Aes256GcmKey::from_bytes(key);
-        let encrypted = self.aes_cipher.encrypt_with_nonce(&cipher_key, raw_session_key).ok()?;
-        use base64::Engine;
-        Some(base64::engine::general_purpose::STANDARD.encode(&encrypted))
     }
 
     /// Create a new outbound Megolm session for a room.
@@ -194,33 +146,20 @@ impl MegolmVodozemacService {
 
         // Serialise the group session to a pickle for storage.
         let pickle_str = pickle_to_string(&outbound.pickle())?;
-        let session_key_b64 = outbound.session_key().to_base64();
-
-        // 解码 session_key 为 32 字节原始对称密钥
-        // vodozemac 使用 STANDARD base64 (无 padding)，与 base64ct::Base64Unpadded 一致
-        let raw_session_key =
-            base64::Engine::decode(&base64::engine::general_purpose::STANDARD_NO_PAD, &session_key_b64)
-                .map_err(|_| ApiError::encryption_error("Invalid vodozemac session_key base64".to_string()))?;
-
-        // Phase 2: 双写 legacy 加密格式（仅当 E2EE_DUAL_WRITE=true 且 encryption_key 已设置）
-        let (legacy_session_key, pickle_format) = match self.dual_write_legacy_session_key(&raw_session_key) {
-            Some(legacy) => (legacy, PickleFormat::Dual),
-            None => (pickle_str.clone(), PickleFormat::Vodozemac),
-        };
 
         let session = MegolmSession {
             id: uuid::Uuid::new_v4(),
             session_id: session_id.clone(),
             room_id: room_id.to_string(),
             sender_key: sender_key.to_string(),
-            session_key: legacy_session_key,
+            // session_key stores the vodozemac pickle (base64-encoded JSON)
+            session_key: pickle_str,
             algorithm: "m.megolm.v1.aes-sha2".to_string(),
             message_index: 0,
             created_ts: current_timestamp_utc(),
             last_used_ts: current_timestamp_utc(),
             expires_at: Some(current_timestamp_utc() + chrono::Duration::days(get_session_max_age_days())),
-            pickle_format,
-            vodozemac_pickle: Some(pickle_str.clone()),
+            pickle_format: PickleFormat::Vodozemac,
         };
 
         self.storage.create_session(&session).await?;
@@ -228,11 +167,6 @@ impl MegolmVodozemacService {
         let cache_key = format!("megolm_session:{session_id}");
         if let Err(e) = self.cache.set(&cache_key, &session, 600).await {
             ::tracing::warn!(session_id = %session_id, cache_key = %cache_key, error = %e, "Failed to cache outbound megolm session");
-        }
-
-        let key_cache_key = format!("megolm_session_key_raw:{session_id}");
-        if let Err(e) = self.cache.set(&key_cache_key, &session_key_b64, 600).await {
-            ::tracing::warn!(session_id = %session_id, cache_key = %key_cache_key, error = %e, "Failed to cache raw megolm session key");
         }
 
         ::tracing::info!(
@@ -268,15 +202,14 @@ impl MegolmVodozemacService {
             session_id: session_id.clone(),
             room_id: room_id.to_string(),
             sender_key: sender_key.to_string(),
-            // inbound pickle 写在 `session_key` 列（Phase 1 行为）
-            session_key: pickle_str.clone(),
+            // inbound pickle written to `session_key` column
+            session_key: pickle_str,
             algorithm: "m.megolm.v1.aes-sha2".to_string(),
             message_index: 0,
             created_ts: current_timestamp_utc(),
             last_used_ts: current_timestamp_utc(),
             expires_at: Some(current_timestamp_utc() + chrono::Duration::days(get_session_max_age_days())),
             pickle_format: PickleFormat::Vodozemac,
-            vodozemac_pickle: Some(pickle_str.clone()),
         };
 
         self.storage.create_session(&session).await?;
@@ -372,40 +305,13 @@ impl MegolmVodozemacService {
                 },
             )?;
 
-        // Phase 2: 把最新 vodozemac pickle 持久化到 `vodozemac_pickle` 列
-        // 失败仅记日志：cache 中已有更新副本，不阻塞本次 encrypt 返回
-        let persist_start = Instant::now();
-        let persist_result = self.storage.update_vodozemac_pickle(session_id, &new_pickle_str, now_ms).await;
-        let persist_duration_ms = persist_start.elapsed().as_secs_f64() * 1000.0;
-        match &persist_result {
-            Ok(_) => {
-                if let Some(metrics) = &self.server_metrics {
-                    metrics.record_megolm_vodozemac_pickle_persist(persist_duration_ms, true);
-                }
-            }
-            Err(e) => {
-                if let Some(metrics) = &self.server_metrics {
-                    metrics.record_megolm_vodozemac_pickle_persist(persist_duration_ms, false);
-                }
-                ::tracing::warn!(
-                    target: "security_audit",
-                    event = "vodozemac_megolm_pickle_persist_failed",
-                    session_id = %session_id,
-                    duration_ms = persist_duration_ms,
-                    error = %e,
-                    "Failed to persist vodozemac pickle (continuing with cache-only state)"
-                );
-            }
-        }
-
         // Update the pickle in storage and cache.
         let cache_key = format!("megolm_session:{session_id}");
         let updated_session = MegolmSession {
-            session_key: new_pickle_str.clone(),
+            session_key: new_pickle_str,
             message_index: new_index,
             last_used_ts: current_timestamp_utc(),
             pickle_format: PickleFormat::Vodozemac,
-            vodozemac_pickle: Some(new_pickle_str),
             ..session
         };
         if let Err(e) = self.cache.set(&cache_key, &updated_session, 600).await {
@@ -481,24 +387,11 @@ impl MegolmVodozemacService {
         // Persist the updated pickle.
         let new_pickle_str = inbound_pickle_to_string(&inbound.pickle())?;
 
-        // Phase 2: 持久化新 pickle 到 vodozemac_pickle 列（best-effort）
-        let now_ms = current_timestamp_millis();
-        if let Err(e) = self.storage.update_vodozemac_pickle(session_id, &new_pickle_str, now_ms).await {
-            ::tracing::warn!(
-                target: "security_audit",
-                event = "vodozemac_megolm_inbound_pickle_persist_failed",
-                session_id = %session_id,
-                error = %e,
-                "Failed to persist vodozemac inbound pickle (continuing with cache-only state)"
-            );
-        }
-
         let cache_key = format!("megolm_session:{session_id}");
         let updated_session = MegolmSession {
-            session_key: new_pickle_str.clone(),
+            session_key: new_pickle_str,
             last_used_ts: current_timestamp_utc(),
             pickle_format: PickleFormat::Vodozemac,
-            vodozemac_pickle: Some(new_pickle_str),
             ..session
         };
         if let Err(e) = self.cache.set(&cache_key, &updated_session, 600).await {
@@ -530,13 +423,19 @@ impl MegolmVodozemacService {
         let (session, outbound) = self.load_outbound(session_id).await?;
         let session_key_b64 = outbound.session_key().to_base64();
 
+        // E-08 Step 2: Encrypt session key at-rest before storing
+        let sealed_key = self.at_rest.seal(session_key_b64.as_bytes()).map_err(|e| {
+            ::tracing::error!(session_id = %session_id, error = %e, "Failed to seal session key at-rest");
+            ApiError::internal(format!("Failed to seal session key at-rest: {e}"))
+        })?;
+
         let created_ts = current_timestamp_millis();
         let expires_at = session.expires_at.map_or_else(|| created_ts + 7 * 24 * 3600 * 1000, |t| t.timestamp_millis());
 
         let db_start = Instant::now();
         let db_result = self
             .storage
-            .upsert_session_keys_batch(user_ids, session_id, &session_key_b64, created_ts, Some(expires_at))
+            .upsert_session_keys_batch(user_ids, session_id, &sealed_key, created_ts, Some(expires_at))
             .await;
         let db_duration_ms = db_start.elapsed().as_secs_f64() * 1000.0;
 
@@ -547,7 +446,7 @@ impl MegolmVodozemacService {
                     recipients = user_ids.len(),
                     rows_written = rows,
                     db_duration_ms = db_duration_ms,
-                    "Bulk-persisted vodozemac megolm session keys"
+                    "Bulk-persisted sealed vodozemac megolm session keys"
                 );
             }
             Err(e) => {
@@ -569,12 +468,12 @@ impl MegolmVodozemacService {
         let cache_start = Instant::now();
         for user_id in user_ids {
             let cache_key = format!("megolm_session_key:{user_id}:{session_id}");
-            if let Err(e) = self.cache.set(&cache_key, &session_key_b64, 600).await {
+            if let Err(e) = self.cache.set(&cache_key, &sealed_key, 600).await {
                 ::tracing::warn!(
                     user_id = %user_id,
                     session_id = %session_id,
                     error = %e,
-                    "Failed to cache vodozemac megolm session key"
+                    "Failed to cache sealed vodozemac megolm session key"
                 );
                 if let Some(metrics) = &self.server_metrics {
                     metrics.record_megolm_share_cache_error();
@@ -591,36 +490,61 @@ impl MegolmVodozemacService {
     }
 
     /// Recipient-side read of a previously-shared session key.
+    ///
+    /// E-08 Step 3: Decrypts the at-rest sealed key. Decryption failure is a
+    /// hard error (not graceful degradation to None), as returning garbage
+    /// or skipping a key would hide key rotation or compromise failures.
     pub async fn get_session_key_for_user(&self, user_id: &str, session_id: &str) -> Result<Option<String>, ApiError> {
         let start = Instant::now();
         let cache_key = format!("megolm_session_key:{user_id}:{session_id}");
 
-        if let Ok(Some(encrypted)) = self.cache.get::<String>(&cache_key).await {
+        let sealed = match self.cache.get::<String>(&cache_key).await {
+            Ok(Some(v)) => Some(v),
+            _ => self.storage.get_session_key(user_id, session_id).await?,
+        };
+
+        let Some(sealed) = sealed else {
             if let Some(metrics) = &self.server_metrics {
-                metrics.record_megolm_session_key_read("hit", start.elapsed().as_secs_f64() * 1000.0);
+                metrics.record_megolm_session_key_read("miss_db_miss", start.elapsed().as_secs_f64() * 1000.0);
             }
-            return Ok(Some(encrypted));
-        }
+            return Ok(None);
+        };
 
-        let encrypted = self.storage.get_session_key(user_id, session_id).await?;
-        let result_label = if encrypted.is_some() { "miss_db_hit" } else { "miss_db_miss" };
-
-        if let Some(ref value) = encrypted {
-            if let Err(e) = self.cache.set(&cache_key, value, 600).await {
-                ::tracing::warn!(
-                    user_id = %user_id,
-                    session_id = %session_id,
-                    error = %e,
-                    "Failed to backfill vodozemac megolm session key into cache"
-                );
+        // E-08 Step 3: Decrypt the sealed key - failure is a hard error
+        let plaintext = self.at_rest.open(&sealed).map_err(|e| {
+            ::tracing::error!(
+                target: "security_audit",
+                event = "e2ee_session_key_at_rest_errors_total",
+                user_id = %user_id,
+                session_id = %session_id,
+                error = %e,
+                "Failed to decrypt session key at-rest"
+            );
+            if let Some(metrics) = &self.server_metrics {
+                metrics.record_megolm_session_key_read("decryption_failed", start.elapsed().as_secs_f64() * 1000.0);
             }
+            e
+        })?;
+
+        // Verify it's valid UTF-8 (should always be session_key_base64)
+        let session_key_b64 = String::from_utf8(plaintext)
+            .map_err(|_| ApiError::internal("session key is not valid UTF-8"))?;
+
+        // Cache the decrypted key for fast path (best-effort, don't fail on cache error)
+        if let Err(e) = self.cache.set(&cache_key, &sealed, 600).await {
+            ::tracing::warn!(
+                user_id = %user_id,
+                session_id = %session_id,
+                error = %e,
+                "Failed to backfill vodozemac megolm session key into cache (using DB value on next read)"
+            );
         }
 
         if let Some(metrics) = &self.server_metrics {
-            metrics.record_megolm_session_key_read(result_label, start.elapsed().as_secs_f64() * 1000.0);
+            metrics.record_megolm_session_key_read("miss_db_hit", start.elapsed().as_secs_f64() * 1000.0);
         }
 
-        Ok(encrypted)
+        Ok(Some(session_key_b64))
     }
 
     /// List all sessions for a room.
@@ -733,50 +657,42 @@ mod tests {
     }
 
     // ========================================================================
-    // Phase 2: dual-write logic unit tests
+    // E-12: convergence — only vodozemac pickle format (legacy/dual removed)
     // ========================================================================
 
-    /// 验证 MegolmSession 模型与 Phase 2 pickle_format 字段的序列化兼容
+    /// Verify MegolmSession model serializes with Vodozemac format after E-12 convergence
     #[test]
-    fn megolm_session_phase2_fields_serialize() {
+    fn megolm_session_e12_convergence_format() {
         let session = MegolmSession {
             id: uuid::Uuid::new_v4(),
-            session_id: "phase2_test".to_string(),
+            session_id: "e12_convergence".to_string(),
             room_id: "!room:test.example".to_string(),
             sender_key: "sender_key_b64".to_string(),
-            session_key: "legacy_encrypted_session_key".to_string(),
+            session_key: "vodozemac_pickle_string".to_string(),
             algorithm: "m.megolm.v1.aes-sha2".to_string(),
             message_index: 0,
             created_ts: current_timestamp_utc(),
             last_used_ts: current_timestamp_utc(),
             expires_at: Some(current_timestamp_utc() + chrono::Duration::days(7)),
-            pickle_format: PickleFormat::Dual,
-            vodozemac_pickle: Some("base64_vodozemac_pickle".to_string()),
+            pickle_format: PickleFormat::Vodozemac,
         };
 
         let json = serde_json::to_string(&session).expect("serialize");
-        assert!(json.contains("\"pickle_format\":\"dual\""), "json should include dual format: {json}");
-        assert!(
-            json.contains("\"vodozemac_pickle\":\"base64_vodozemac_pickle\""),
-            "json should include vodozemac_pickle: {json}"
-        );
+        assert!(json.contains("\"pickle_format\":\"vodozemac\""), "json should include vodozemac format: {json}");
 
         let deserialized: MegolmSession = serde_json::from_str(&json).expect("deserialize");
-        assert_eq!(deserialized.pickle_format, PickleFormat::Dual);
-        assert_eq!(deserialized.vodozemac_pickle.as_deref(), Some("base64_vodozemac_pickle"));
+        assert_eq!(deserialized.pickle_format, PickleFormat::Vodozemac);
     }
 
-    /// 验证 PickleFormat 枚举三种变体都能正确序列化（小写）
+    /// Verify PickleFormat enum only has Vodozemac variant after E-12
     #[test]
-    fn pickle_format_serde_all_variants() {
-        for (fmt, expected) in [
-            (PickleFormat::Legacy, "\"legacy\""),
-            (PickleFormat::Vodozemac, "\"vodozemac\""),
-            (PickleFormat::Dual, "\"dual\""),
-        ] {
-            let s = serde_json::to_string(&fmt).expect("serialize");
-            assert_eq!(s, expected, "PickleFormat {fmt:?} should serialize to {expected}");
-        }
+    fn pickle_format_e12_only_vodozemac() {
+        let fmt = PickleFormat::Vodozemac;
+        let s = serde_json::to_string(&fmt).expect("serialize");
+        assert_eq!(s, "\"vodozemac\"", "PickleFormat should only serialize to vodozemac");
+        
+        let parsed: PickleFormat = serde_json::from_str(&s).expect("deserialize");
+        assert_eq!(parsed, PickleFormat::Vodozemac);
     }
 
     /// 验证 vodozemac session_key 的 base64 字符串非空且长度合理

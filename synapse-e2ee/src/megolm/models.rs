@@ -3,48 +3,32 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use uuid::Uuid;
 
-/// Pickle 格式标识（Phase 2 引入：megolm_sessions.pickle_format 列）
-///
-/// - `Legacy`:     自研 AES-256-GCM pickle，写在 `session_key` 列
-/// - `Vodozemac`:  vodozemac 0.9 pickle，写在 `session_key` 列
-/// - `Dual`:       同时持有两种 pickle（`session_key`=legacy, `vodozemac_pickle`=vodozemac）
-///
-/// 历史数据全部回填为 `Legacy`；新增 session 在 `MegolmProvider::Vodozemac`
-/// 路径下会同时写两种 pickle 以支持平滑回滚。
+/// Pickle format identifier for megolm sessions.
+/// Since E-12, only Vodozemac pickle format is supported (legacy/dual removed).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum PickleFormat {
-    /// Legacy libolm pickle format (default).
+    /// The vodozemac 0.9 pickle format (default).
     #[default]
-    Legacy,
-    /// The `Vodozemac` variant.
-    /// The `Dual` variant.
     Vodozemac,
-    /// The `Dual` variant.
-    Dual,
 }
 
-/// (see code)
 impl PickleFormat {
     /// See [`as_str`].
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Legacy => "legacy",
             Self::Vodozemac => "vodozemac",
-            Self::Dual => "dual",
         }
     }
 }
 
-/// (see code)
 impl FromStr for PickleFormat {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s {
             "vodozemac" => Self::Vodozemac,
-            "dual" => Self::Dual,
-            _ => Self::Legacy,
+            _ => Self::Vodozemac, // All unknown values default to Vodozemac
         })
     }
 }
@@ -53,76 +37,28 @@ impl FromStr for PickleFormat {
 /// The `MegolmSession` type.
 pub struct MegolmSession {
     /// The `id` field.
-    /// The `session_id` field.
-    /// The `room_id` field.
-    /// The `sender_key` field.
-    /// The `session_key` field.
-    /// The `algorithm` field.
-    /// The `message_index` field.
-    /// The `created_ts` field.
-    /// The `last_used_ts` field.
-    /// The `expires_at` field.
     pub id: Uuid,
     /// The `session_id` field.
-    /// The `room_id` field.
-    /// The `sender_key` field.
-    /// The `session_key` field.
-    /// The `algorithm` field.
-    /// The `message_index` field.
-    /// The `created_ts` field.
-    /// The `last_used_ts` field.
-    /// The `expires_at` field.
     pub session_id: String,
     /// The `room_id` field.
-    /// The `sender_key` field.
-    /// The `session_key` field.
-    /// The `algorithm` field.
-    /// The `message_index` field.
-    /// The `created_ts` field.
-    /// The `last_used_ts` field.
-    /// The `expires_at` field.
     pub room_id: String,
     /// The `sender_key` field.
-    /// The `session_key` field.
-    /// The `algorithm` field.
-    /// The `message_index` field.
-    /// The `created_ts` field.
-    /// The `last_used_ts` field.
-    /// The `expires_at` field.
     pub sender_key: String,
-    /// The `session_key` field.
-    /// The `algorithm` field.
-    /// The `message_index` field.
-    /// The `created_ts` field.
-    /// The `last_used_ts` field.
-    /// The `expires_at` field.
+    /// Session key: vodozemac pickle (outbound) or raw key bytes (inbound, base64 encoded)
     pub session_key: String,
     /// The `algorithm` field.
-    /// The `message_index` field.
-    /// The `created_ts` field.
-    /// The `last_used_ts` field.
-    /// The `expires_at` field.
     pub algorithm: String,
     /// The `message_index` field.
-    /// The `created_ts` field.
-    /// The `last_used_ts` field.
-    /// The `expires_at` field.
     pub message_index: i64,
     /// The `created_ts` field.
-    /// The `last_used_ts` field.
-    /// The `expires_at` field.
     pub created_ts: DateTime<Utc>,
     /// The `last_used_ts` field.
-    /// The `expires_at` field.
     pub last_used_ts: DateTime<Utc>,
     /// The `expires_at` field.
     pub expires_at: Option<DateTime<Utc>>,
-    /// Pickle 格式（Phase 2 引入，默认 `Legacy`）
+    /// Pickle format (default Vodozemac; kept for schema compatibility but always Vodozemac after E-12)
     #[serde(default)]
     pub pickle_format: PickleFormat,
-    /// vodozemac 0.9 pickle 副本（当 `pickle_format` 为 `Vodozemac` 或 `Dual` 时非空）
-    #[serde(default)]
-    pub vodozemac_pickle: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -211,15 +147,13 @@ mod tests {
             created_ts: current_timestamp_utc(),
             last_used_ts: current_timestamp_utc(),
             expires_at: None,
-            pickle_format: PickleFormat::Legacy,
-            vodozemac_pickle: None,
+            pickle_format: PickleFormat::Vodozemac,
         };
 
         assert_eq!(session.room_id, "!room:example.com");
         assert_eq!(session.algorithm, "m.megolm.v1.aes-sha2");
         assert_eq!(session.message_index, 0);
-        assert_eq!(session.pickle_format, PickleFormat::Legacy);
-        assert!(session.vodozemac_pickle.is_none());
+        assert_eq!(session.pickle_format, PickleFormat::Vodozemac);
     }
 
     #[test]
@@ -236,14 +170,11 @@ mod tests {
             created_ts: current_timestamp_utc(),
             last_used_ts: current_timestamp_utc(),
             expires_at: Some(expires),
-            pickle_format: PickleFormat::Dual,
-            vodozemac_pickle: Some("base64_pickle".to_string()),
+            pickle_format: PickleFormat::Vodozemac,
         };
 
         assert!(session.expires_at.is_some());
         assert!(session.expires_at.unwrap() > current_timestamp_utc());
-        assert_eq!(session.pickle_format, PickleFormat::Dual);
-        assert!(session.vodozemac_pickle.is_some());
     }
 
     #[test]
@@ -280,8 +211,7 @@ mod tests {
             created_ts: current_timestamp_utc(),
             last_used_ts: current_timestamp_utc(),
             expires_at: None,
-            pickle_format: PickleFormat::Legacy,
-            vodozemac_pickle: None,
+            pickle_format: PickleFormat::Vodozemac,
         };
 
         assert!(session.session_id.starts_with("megolm"));
@@ -327,8 +257,7 @@ mod tests {
                 created_ts: current_timestamp_utc(),
                 last_used_ts: current_timestamp_utc(),
                 expires_at: None,
-                pickle_format: PickleFormat::Legacy,
-                vodozemac_pickle: None,
+                pickle_format: PickleFormat::Vodozemac,
             };
 
             assert_eq!(session.algorithm, algo);
@@ -349,7 +278,6 @@ mod tests {
             last_used_ts: current_timestamp_utc(),
             expires_at: None,
             pickle_format: PickleFormat::Vodozemac,
-            vodozemac_pickle: Some("abc123".to_string()),
         };
 
         let json = serde_json::to_string(&session).unwrap();
@@ -359,19 +287,11 @@ mod tests {
         assert_eq!(session.room_id, deserialized.room_id);
         assert_eq!(session.message_index, deserialized.message_index);
         assert_eq!(deserialized.pickle_format, PickleFormat::Vodozemac);
-        assert_eq!(deserialized.vodozemac_pickle.as_deref(), Some("abc123"));
     }
 
     #[test]
     fn test_pickle_format_default_and_roundtrip() {
-        assert_eq!(PickleFormat::default(), PickleFormat::Legacy);
-        assert_eq!(PickleFormat::Legacy.as_str(), "legacy");
+        assert_eq!(PickleFormat::default(), PickleFormat::Vodozemac);
         assert_eq!(PickleFormat::Vodozemac.as_str(), "vodozemac");
-        assert_eq!(PickleFormat::Dual.as_str(), "dual");
-
-        // 兼容未知字符串（fallback 到 legacy）
-        assert_eq!(PickleFormat::from_str("unknown").unwrap(), PickleFormat::Legacy);
-        assert_eq!(PickleFormat::from_str("vodozemac").unwrap(), PickleFormat::Vodozemac);
-        assert_eq!(PickleFormat::from_str("dual").unwrap(), PickleFormat::Dual);
     }
 }

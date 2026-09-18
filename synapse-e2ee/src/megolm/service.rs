@@ -1,5 +1,6 @@
 use super::models::*;
 use super::storage::MegolmSessionStorage;
+use crate::crypto::key_at_rest::KeyAtRest;
 use crate::vodozemac_megolm::MegolmVodozemacService;
 use std::sync::Arc;
 use synapse_cache::CacheManager;
@@ -18,8 +19,8 @@ pub struct MegolmProvider {
 /// (see code)
 impl MegolmProvider {
     /// See [`from_env`].
-    pub fn from_env(storage: MegolmSessionStorage, cache: Arc<CacheManager>, encryption_key: [u8; 32]) -> Self {
-        Self { inner: MegolmVodozemacService::new(storage, cache).with_encryption_key(encryption_key) }
+    pub fn from_env(storage: MegolmSessionStorage, cache: Arc<CacheManager>, at_rest: KeyAtRest) -> Self {
+        Self { inner: MegolmVodozemacService::new(storage, cache, at_rest) }
     }
 
     /// See [`create_session`].

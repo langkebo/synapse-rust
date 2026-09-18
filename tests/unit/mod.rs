@@ -39,7 +39,6 @@ mod ledger_export_tests;
 mod media_api_tests;
 mod media_quota_api_tests;
 mod media_service_tests;
-mod megolm_dual_write_metrics_tests;
 mod migration_consistency_tests;
 mod migration_replayability_guard_tests;
 mod migration_search_path_tests;

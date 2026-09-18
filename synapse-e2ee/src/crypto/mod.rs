@@ -5,6 +5,8 @@ mod ed25519;
 pub use aes::{Aes256GcmCipher, Aes256GcmKey, Aes256GcmNonce, NonceTracker};
 pub use ed25519::{Ed25519KeyPair, Ed25519PublicKey};
 
+pub mod key_at_rest;
+
 use thiserror::Error;
 
 #[derive(Debug, Error)]

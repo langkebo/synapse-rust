@@ -53,7 +53,15 @@ impl CrossSigningKeyRow {
             .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
             .unwrap_or_default();
 
-        let added_ts_dt = chrono::DateTime::from_timestamp_millis(self.added_ts).unwrap_or_default();
+        let added_ts_dt = chrono::DateTime::from_timestamp_millis(self.added_ts).unwrap_or_else(|| {
+            tracing::warn!(
+                "Invalid timestamp {} for user {} key type {}, using Unix epoch",
+                self.added_ts, self.user_id, self.key_type
+            );
+            // Unix epoch is always valid - unwrap is safe here
+            #[allow(clippy::expect_used)]
+            chrono::DateTime::from_timestamp(0, 0).expect("Unix epoch is always valid")
+        });
 
         CrossSigningKey {
             id: uuid::Uuid::new_v4(),

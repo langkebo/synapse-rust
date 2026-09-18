@@ -60,22 +60,37 @@ impl KeyRotationConfig {
             .get_rotation_config("olm_rotation_days")
             .await?
             .and_then(|v| v.parse().ok())
-            .unwrap_or(DEFAULT_OLM_ROTATION_DAYS);
+            .unwrap_or_else(|| {
+                tracing::warn!("Failed to parse olm_rotation_days, using default");
+                DEFAULT_OLM_ROTATION_DAYS
+            });
 
         let megolm_rotation_messages: i64 = storage
             .get_rotation_config("megolm_rotation_messages")
             .await?
             .and_then(|v| v.parse().ok())
-            .unwrap_or(DEFAULT_MEGOLM_ROTATION_MESSAGES);
+            .unwrap_or_else(|| {
+                tracing::warn!("Failed to parse megolm_rotation_messages, using default");
+                DEFAULT_MEGOLM_ROTATION_MESSAGES
+            });
 
         let max_session_age_days: i64 = storage
             .get_rotation_config("max_session_age_days")
             .await?
             .and_then(|v| v.parse().ok())
-            .unwrap_or(DEFAULT_MAX_SESSION_AGE_DAYS);
+            .unwrap_or_else(|| {
+                tracing::warn!("Failed to parse max_session_age_days, using default");
+                DEFAULT_MAX_SESSION_AGE_DAYS
+            });
 
-        let enable_auto_rotation: bool =
-            storage.get_rotation_config("enable_auto_rotation").await?.and_then(|v| v.parse().ok()).unwrap_or(true);
+        let enable_auto_rotation: bool = storage
+            .get_rotation_config("enable_auto_rotation")
+            .await?
+            .and_then(|v| v.parse().ok())
+            .unwrap_or_else(|| {
+                tracing::warn!("Failed to parse enable_auto_rotation, using default");
+                true
+            });
 
         Ok(Self { olm_rotation_days, megolm_rotation_messages, max_session_age_days, enable_auto_rotation })
     }
@@ -225,6 +240,12 @@ impl KeyRotationService {
             }
         }
 
+        tracing::warn!(
+            session_id = %session.session_id,
+            room_id = %session.room_id,
+            "Timestamp conversion failed or expired_at is invalid; treating session as not expired"
+        );
+
         Ok(false)
     }
 
@@ -234,7 +255,7 @@ impl KeyRotationService {
 
         self.storage.log_rotation(user_id, room_id, "megolm").await?;
 
-        self.share_new_key(room_id, &new_session).await?;
+        self.share_new_key(room_id, &new_session, user_id).await?;
 
         self.mark_session_as_rotated(room_id, user_id).await?;
 
@@ -268,10 +289,10 @@ impl KeyRotationService {
         self.storage.get_rotation_status(user_id).await
     }
 
-    async fn share_new_key(&self, room_id: &str, session: &MegolmSession) -> Result<(), ApiError> {
+    async fn share_new_key(&self, room_id: &str, session: &MegolmSession, recipient_user_id: &str) -> Result<(), ApiError> {
         tracing::info!("Sharing new megolm key for room {}, session {}", room_id, session.session_id);
         self.storage
-            .record_key_share(room_id, &session.session_id, "rotated")
+            .record_key_share(room_id, &session.session_id, recipient_user_id, "rotated")
             .await
             .map_err(map_database!("Failed to record key share for rotation"))
     }
@@ -319,24 +340,13 @@ impl KeyRotationService {
         let sessions = self.megolm_service.get_room_sessions(room_id).await?;
 
         for session in &sessions {
-            // E-07: dedup at the service layer. The current schema only
-            // records `(room_id, session_id)` in `megolm_key_shares` and
-            // cannot distinguish between "first share to user X" and a
-            // repeat of the same share after a re-join. To avoid blasting
-            // a duplicate `m.room_key` to-device message we check the
-            // share_reason in the audit log: a row already exists for
-            // this (room, session) — only re-share if the previous share
-            // reason differs (e.g. `member_left` then re-join). This is
-            // conservative: the to-device send is suppressed whenever
-            // there is *any* prior share for the room+session tuple,
-            // which is the right default for the "new_member" case.
-            //
-            // TODO(arch): once `megolm_key_shares` is extended with a
-            // `recipient_user_id` column, replace this with a per-user
-            // dedup check.
+            // E-07: dedup at per-recipient granularity. A row exists in
+            // `megolm_key_shares` only if we already shipped this session's
+            // key to `new_user_id`. Repeat forwards (e.g. re-join) are
+            // suppressed per-recipient, while other members remain unaffected.
             let already_shared = self
                 .storage
-                .key_share_exists(room_id, &session.session_id)
+                .key_share_exists(room_id, &session.session_id, new_user_id)
                 .await
                 .map_err(map_database!("Failed to check existing key shares"))?;
             if already_shared {
@@ -351,7 +361,7 @@ impl KeyRotationService {
             self.megolm_service.share_session(&session.session_id, &[new_user_id.to_string()]).await?;
 
             self.storage
-                .record_key_share(room_id, &session.session_id, "new_member")
+                .record_key_share(room_id, &session.session_id, new_user_id, "new_member")
                 .await
                 .map_err(map_database!("Failed to record key share for new member"))?;
         }
@@ -408,13 +418,20 @@ impl KeyRotationStorage {
         let now = Utc::now();
         let new_key_id = uuid::Uuid::new_v4().to_string();
 
+        tracing::debug!(
+            user_id = %user_id,
+            room_id = %room_id,
+            rotation_type = %rotation_type,
+            "Logging key rotation (device_id unknown)"
+        );
+
         sqlx::query(
             "INSERT INTO key_rotation_log
              (user_id, device_id, room_id, rotation_type, old_key_id, new_key_id, reason, rotated_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
         )
         .bind(user_id)
-        .bind("")
+        .bind(None::<String>)
         .bind(room_id)
         .bind(rotation_type)
         .bind(None::<String>)
@@ -451,17 +468,25 @@ impl KeyRotationStorage {
     }
 
     /// See [`record_key_share`].
-    pub async fn record_key_share(&self, room_id: &str, session_id: &str, share_reason: &str) -> Result<(), ApiError> {
+    pub async fn record_key_share(
+        &self,
+        room_id: &str,
+        session_id: &str,
+        recipient_user_id: &str,
+        share_reason: &str,
+    ) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
         sqlx::query(
             r"
-            INSERT INTO megolm_key_shares (room_id, session_id, share_reason, shared_at)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (room_id, session_id) DO UPDATE SET share_reason = $3, shared_at = $4
+            INSERT INTO megolm_key_shares (room_id, session_id, recipient_user_id, share_reason, shared_at)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (room_id, session_id, recipient_user_id)
+            DO UPDATE SET share_reason = $4, shared_at = $5
             ",
         )
         .bind(room_id)
         .bind(session_id)
+        .bind(recipient_user_id)
         .bind(share_reason)
         .bind(now)
         .execute(&*self.pool)
@@ -471,29 +496,27 @@ impl KeyRotationStorage {
         Ok(())
     }
 
-    /// E-07 dedup helper. Returns `true` if a `(room_id, session_id)` row
-    /// already exists in `megolm_key_shares`. Used by
+    /// E-07 dedup helper. Returns `true` if a `(room_id, session_id, recipient_user_id)`
+    /// row already exists in `megolm_key_shares`. Used by
     /// `KeyRotationService::forward_keys_for_new_member` to suppress
-    /// duplicate to-device `m.room_key` messages.
-    ///
-    /// The current `megolm_key_shares` schema records
-    /// `(room_id, session_id)` as the primary key (no `recipient_user_id`
-    /// column), so this check is *room+session* scoped, not per-recipient.
-    /// That is a conservative approximation for the new-member case: any
-    /// prior share for the same room+session means we already shipped the
-    /// key to *some* recipient, and we do not want to re-blast it for a
-    /// re-join event.
-    pub async fn key_share_exists(&self, room_id: &str, session_id: &str) -> Result<bool, ApiError> {
+    /// duplicate to-device `m.room_key` messages for the same recipient.
+    pub async fn key_share_exists(
+        &self,
+        room_id: &str,
+        session_id: &str,
+        recipient_user_id: &str,
+    ) -> Result<bool, ApiError> {
         let row = sqlx::query(
             r"
             SELECT 1
             FROM megolm_key_shares
-            WHERE room_id = $1 AND session_id = $2
+            WHERE room_id = $1 AND session_id = $2 AND recipient_user_id = $3
             LIMIT 1
             ",
         )
         .bind(room_id)
         .bind(session_id)
+        .bind(recipient_user_id)
         .fetch_optional(&*self.pool)
         .await
         .map_err(map_database!("key_share_exists"))?;
@@ -815,7 +838,8 @@ mod tests {
         // 懒连接池：should_rotate 只用 config，不真正触达 olm/megolm/storage 的 DB。
         let pool = Arc::new(PgPoolOptions::new().connect_lazy_with(PgConnectOptions::new()));
         let cache = Arc::new(synapse_cache::CacheManager::new(&CacheConfig::default()));
-        let megolm = Arc::new(MegolmProvider::from_env(MegolmSessionStorage::new(&pool), cache.clone(), [0u8; 32]));
+        let at_rest = crate::crypto::key_at_rest::KeyAtRest::new([0u8; 32]);
+        let megolm = Arc::new(MegolmProvider::from_env(MegolmSessionStorage::new(&pool), cache.clone(), at_rest));
         let storage = Arc::new(KeyRotationStorage::new(pool));
         KeyRotationService::new(megolm, storage, config)
     }
@@ -836,8 +860,7 @@ mod tests {
             created_ts: last_used_ts,
             last_used_ts,
             expires_at,
-            pickle_format: crate::megolm::PickleFormat::Legacy,
-            vodozemac_pickle: None,
+            pickle_format: crate::megolm::PickleFormat::Vodozemac,
         }
     }
 
@@ -893,23 +916,26 @@ mod tests {
     // -------------------------------------------------------------------------
 
     /// E-07 invariant: `forward_keys_for_new_member` must skip a session
-    /// that already appears in `megolm_key_shares`. We exercise this by
-    /// asserting the storage-level dedup helper is the gating function
-    /// (return value contract) and the SQL it executes is correct.
+    /// that already appears in `megolm_key_shares` for the SAME RECIPIENT.
+    /// We exercise this by asserting the storage-level dedup helper is the
+    /// gating function (return value contract) and the SQL it executes is
+    /// correct — now with a three-tuple (`room_id`, `session_id`,
+    /// `recipient_user_id`) primary key.
     #[test]
     fn test_e07_dedup_helper_query() {
-        // The query MUST filter by both room_id and session_id — without
-        // session_id the function would always return true for any prior
-        // share in the room, killing legitimate key distribution.
-        // This test asserts the SQL contract by static introspection:
-        // we look for the exact substring that makes the check
-        // session-scoped.
+        // The query MUST filter by room_id, session_id, AND recipient_user_id —
+        // without the recipient dimension a prior share to user A would
+        // suppress the key for user B. This test asserts the SQL contract
+        // by static introspection: we look for the exact substrings that
+        // make the check per-recipient.
         let src = include_str!("service.rs");
         let helper_section =
             src.split("pub async fn key_share_exists").nth(1).expect("key_share_exists should be defined");
         let body = helper_section.split("}\n    }").next().expect("helper should have a body");
         assert!(body.contains("room_id = $1"));
         assert!(body.contains("session_id = $2"));
+        assert!(body.contains("recipient_user_id = $3"),
+                "key_share_exists must filter by recipient_user_id (E-07 fix)");
     }
 
     #[test]

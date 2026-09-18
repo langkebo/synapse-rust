@@ -96,12 +96,28 @@ impl DeviceKeyRow {
         let parsed: serde_json::Value =
             self.key_data.as_deref().and_then(|k| serde_json::from_str(k).ok()).unwrap_or_default();
 
-        let created_ts = chrono::DateTime::from_timestamp_millis(self.added_ts).unwrap_or_default();
+        let created_ts = chrono::DateTime::from_timestamp_millis(self.added_ts).unwrap_or_else(|| {
+            tracing::warn!(
+                "Invalid timestamp {} for device {} user {}, using Unix epoch",
+                self.added_ts, self.device_id, self.user_id
+            );
+            // Unix epoch is always valid - unwrap is safe here
+            #[allow(clippy::expect_used)]
+            chrono::DateTime::from_timestamp(0, 0).expect("Unix epoch is always valid")
+        });
         #[allow(clippy::redundant_closure)]
         let updated_ts = self
             .ts_updated_ms
             .and_then(chrono::DateTime::from_timestamp_millis as fn(i64) -> Option<chrono::DateTime<chrono::Utc>>)
-            .unwrap_or_default();
+            .unwrap_or_else(|| {
+                tracing::warn!(
+                    "Invalid ts_updated_ms for device {} user {}",
+                    self.device_id, self.user_id
+                );
+                // Unix epoch is always valid - unwrap is safe here
+                #[allow(clippy::expect_used)]
+                chrono::DateTime::from_timestamp(0, 0).expect("Unix epoch is always valid")
+            });
 
         DeviceKey {
             id: 0,

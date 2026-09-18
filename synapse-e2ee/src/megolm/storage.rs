@@ -12,95 +12,27 @@ use synapse_common::ApiError;
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct MegolmSessionRow {
     /// The `id` field.
-    /// The `session_id` field.
-    /// The `room_id` field.
-    /// The `sender_key` field.
-    /// The `session_key` field.
-    /// The `algorithm` field.
-    /// The `message_index` field.
-    /// The `created_ts` field.
-    /// The `last_used_ts` field.
-    /// The `expires_at` field.
-    /// The `pickle_format` field.
-    /// The `vodozemac_pickle` field.
     pub id: uuid::Uuid,
     /// The `session_id` field.
-    /// The `room_id` field.
-    /// The `sender_key` field.
-    /// The `session_key` field.
-    /// The `algorithm` field.
-    /// The `message_index` field.
-    /// The `created_ts` field.
-    /// The `last_used_ts` field.
-    /// The `expires_at` field.
-    /// The `pickle_format` field.
-    /// The `vodozemac_pickle` field.
     pub session_id: String,
     /// The `room_id` field.
-    /// The `sender_key` field.
-    /// The `session_key` field.
-    /// The `algorithm` field.
-    /// The `message_index` field.
-    /// The `created_ts` field.
-    /// The `last_used_ts` field.
-    /// The `expires_at` field.
-    /// The `pickle_format` field.
-    /// The `vodozemac_pickle` field.
     pub room_id: String,
     /// The `sender_key` field.
-    /// The `session_key` field.
-    /// The `algorithm` field.
-    /// The `message_index` field.
-    /// The `created_ts` field.
-    /// The `last_used_ts` field.
-    /// The `expires_at` field.
-    /// The `pickle_format` field.
-    /// The `vodozemac_pickle` field.
     pub sender_key: String,
     /// The `session_key` field.
-    /// The `algorithm` field.
-    /// The `message_index` field.
-    /// The `created_ts` field.
-    /// The `last_used_ts` field.
-    /// The `expires_at` field.
-    /// The `pickle_format` field.
-    /// The `vodozemac_pickle` field.
     pub session_key: String,
     /// The `algorithm` field.
-    /// The `message_index` field.
-    /// The `created_ts` field.
-    /// The `last_used_ts` field.
-    /// The `expires_at` field.
-    /// The `pickle_format` field.
-    /// The `vodozemac_pickle` field.
     pub algorithm: String,
     /// The `message_index` field.
-    /// The `created_ts` field.
-    /// The `last_used_ts` field.
-    /// The `expires_at` field.
-    /// The `pickle_format` field.
-    /// The `vodozemac_pickle` field.
     pub message_index: i64,
     /// The `created_ts` field.
-    /// The `last_used_ts` field.
-    /// The `expires_at` field.
-    /// The `pickle_format` field.
-    /// The `vodozemac_pickle` field.
     pub created_ts: i64,
     /// The `last_used_ts` field.
-    /// The `expires_at` field.
-    /// The `pickle_format` field.
-    /// The `vodozemac_pickle` field.
     pub last_used_ts: Option<i64>,
     /// The `expires_at` field.
-    /// The `pickle_format` field.
-    /// The `vodozemac_pickle` field.
     pub expires_at: Option<i64>,
     /// The `pickle_format` field.
-    /// The `vodozemac_pickle` field.
     pub pickle_format: String,
-    /// The `vodozemac_pickle` field.
-    pub vodozemac_pickle: Option<String>,
 }
 
 /// (see code)
@@ -122,8 +54,7 @@ impl From<MegolmSessionRow> for MegolmSession {
             created_ts: created_ts_dt,
             last_used_ts: last_used_ts_dt,
             expires_at: expires_at_dt,
-            pickle_format: PickleFormat::from_str(&row.pickle_format).unwrap_or(PickleFormat::Legacy),
-            vodozemac_pickle: row.vodozemac_pickle,
+            pickle_format: PickleFormat::from_str(&row.pickle_format).unwrap_or(PickleFormat::Vodozemac),
         }
     }
 }
@@ -148,10 +79,9 @@ impl MegolmSessionStorage {
             r"
             INSERT INTO megolm_sessions (
                 id, session_id, room_id, sender_key, session_key, algorithm,
-                message_index, created_ts, last_used_ts, expires_at,
-                pickle_format, vodozemac_pickle
+                message_index, created_ts, last_used_ts, expires_at, pickle_format
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ",
         )
         .bind(session.id)
@@ -165,7 +95,6 @@ impl MegolmSessionStorage {
         .bind(session.last_used_ts.timestamp_millis())
         .bind(session.expires_at.map(|t| t.timestamp_millis()))
         .bind(session.pickle_format.as_str())
-        .bind(session.vodozemac_pickle.as_deref())
         .execute(&*self.pool)
         .await
         .map_err(map_database!("Failed to create megolm session"))?;
@@ -188,8 +117,7 @@ impl MegolmSessionStorage {
                 created_ts,
                 last_used_ts,
                 expires_at,
-                pickle_format,
-                vodozemac_pickle
+                pickle_format
             FROM megolm_sessions
             WHERE session_id = $1
             ",
@@ -217,8 +145,7 @@ impl MegolmSessionStorage {
                 created_ts,
                 last_used_ts,
                 expires_at,
-                pickle_format,
-                vodozemac_pickle
+                pickle_format
             FROM megolm_sessions
             WHERE room_id = $1
             ",
@@ -240,8 +167,7 @@ impl MegolmSessionStorage {
                 message_index = $3,
                 last_used_ts = $4,
                 expires_at = $5,
-                pickle_format = $6,
-                vodozemac_pickle = $7
+                pickle_format = $6
             WHERE session_id = $1
             ",
         )
@@ -251,7 +177,6 @@ impl MegolmSessionStorage {
         .bind(session.last_used_ts.timestamp_millis())
         .bind(session.expires_at.map(|t| t.timestamp_millis()))
         .bind(session.pickle_format.as_str())
-        .bind(session.vodozemac_pickle.as_deref())
         .execute(&*self.pool)
         .await
         .map_err(map_database!("Failed to update megolm session"))?;
@@ -303,33 +228,6 @@ impl MegolmSessionStorage {
         .map_err(map_database!("Failed to increment megolm message index"))?;
 
         Ok(row.map(|r| r.message_index))
-    }
-
-    /// 更新 vodozemac pickle 副本（Phase 2 双写：encrypt/decrypt 后持久化新 ratchet state）
-    ///
-    /// 同时刷新 `last_used_ts` 便于监控。
-    pub async fn update_vodozemac_pickle(
-        &self,
-        session_id: &str,
-        vodozemac_pickle: &str,
-        now_ms: i64,
-    ) -> Result<bool, ApiError> {
-        let result = sqlx::query(
-            r"
-            UPDATE megolm_sessions
-            SET vodozemac_pickle = $2,
-                last_used_ts = $3
-            WHERE session_id = $1
-            ",
-        )
-        .bind(session_id)
-        .bind(vodozemac_pickle)
-        .bind(now_ms)
-        .execute(&*self.pool)
-        .await
-        .map_err(map_database!("Failed to update vodozemac pickle"))?;
-
-        Ok(result.rows_affected() > 0)
     }
 
     /// 批量 upsert session keys（向多个用户共享 session_key 时使用）
@@ -385,108 +283,6 @@ impl MegolmSessionStorage {
         Ok(row.map(|r| r.encrypted_key))
     }
 
-    // ========================================================================
-    // Phase 2 (Megolm 双写): 懒迁移辅助方法
-    // ========================================================================
-
-    /// 将已有 legacy session 升级为 dual 格式（追加 vodozemac_pickle）
-    ///
-    /// 仅在 `pickle_format = 'legacy'` 时执行，避免重复写入。
-    /// 返回是否实际更新了行。
-    pub async fn promote_to_dual(
-        &self,
-        session_id: &str,
-        vodozemac_pickle: &str,
-        now_ms: i64,
-    ) -> Result<bool, ApiError> {
-        let result = sqlx::query(
-            r"
-            UPDATE megolm_sessions
-            SET pickle_format = 'dual',
-                vodozemac_pickle = $2,
-                last_used_ts = $3
-            WHERE session_id = $1
-              AND pickle_format = 'legacy'
-              AND vodozemac_pickle IS NULL
-            ",
-        )
-        .bind(session_id)
-        .bind(vodozemac_pickle)
-        .bind(now_ms)
-        .execute(&*self.pool)
-        .await
-        .map_err(map_database!("Failed to promote megolm session to dual"))?;
-
-        Ok(result.rows_affected() > 0)
-    }
-
-    /// 分页查询存量 legacy session（懒迁移扫描）
-    ///
-    /// 按 `session_id` 排序确保多次调用结果稳定；游标分页避免内存爆炸。
-    pub async fn list_legacy_sessions(
-        &self,
-        after_session_id: Option<&str>,
-        limit: i64,
-    ) -> Result<Vec<MegolmSession>, ApiError> {
-        let limit = limit.clamp(1, 1000);
-        let rows: Vec<MegolmSessionRow> = match after_session_id {
-            Some(cursor) => sqlx::query_as::<_, MegolmSessionRow>(
-                r"
-                SELECT
-                    id,
-                    session_id,
-                    room_id,
-                    sender_key,
-                    session_key,
-                    algorithm,
-                    message_index,
-                    created_ts,
-                    last_used_ts,
-                    expires_at,
-                    pickle_format,
-                    vodozemac_pickle
-                FROM megolm_sessions
-                WHERE pickle_format = 'legacy'
-                  AND session_id > $1
-                ORDER BY session_id ASC
-                LIMIT $2
-                ",
-            )
-            .bind(cursor)
-            .bind(limit)
-            .fetch_all(&*self.pool)
-            .await
-            .map_err(map_database!("Failed to list legacy megolm sessions"))?,
-            None => sqlx::query_as::<_, MegolmSessionRow>(
-                r"
-                SELECT
-                    id,
-                    session_id,
-                    room_id,
-                    sender_key,
-                    session_key,
-                    algorithm,
-                    message_index,
-                    created_ts,
-                    last_used_ts,
-                    expires_at,
-                    pickle_format,
-                    vodozemac_pickle
-                FROM megolm_sessions
-                WHERE pickle_format = 'legacy'
-                ORDER BY session_id ASC
-                LIMIT $1
-                ",
-            )
-            .bind(limit)
-            .fetch_all(&*self.pool)
-            .await
-            .map_err(map_database!("Failed to list legacy megolm sessions"))?,
-        };
-
-        Ok(rows.into_iter().map(Into::into).collect())
-    }
-
     /// 统计各 pickle_format 的 session 数量（监控/迁移进度）
     pub async fn count_by_pickle_format(&self) -> Result<Vec<(String, i64)>, ApiError> {
         let rows: Vec<PickleFormatCountRow> = sqlx::query_as::<_, PickleFormatCountRow>(
@@ -529,18 +325,25 @@ impl MegolmSessionStorage {
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
+/// The `MegolmIncrementRow` type.
 struct MegolmIncrementRow {
+    /// The `message_index` field.
     message_index: i64,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
+/// The `MegolmSessionKeyRow` type.
 struct MegolmSessionKeyRow {
+    /// The `encrypted_key` field.
     encrypted_key: String,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
+/// The `PickleFormatCountRow` type.
 struct PickleFormatCountRow {
+    /// The `pickle_format` field.
     pickle_format: String,
+    /// The `cnt` field.
     cnt: i64,
 }
 
@@ -561,42 +364,49 @@ mod tests {
             created_ts: Utc::now(),
             last_used_ts: Utc::now(),
             expires_at: None,
-            pickle_format: PickleFormat::Legacy,
-            vodozemac_pickle: None,
+            pickle_format: PickleFormat::Vodozemac,
         }
-    }
-
-    fn create_dual_test_session() -> MegolmSession {
-        let mut s = create_test_session();
-        s.pickle_format = PickleFormat::Dual;
-        s.vodozemac_pickle = Some("base64_vodozemac_pickle".to_string());
-        s
     }
 
     #[test]
     fn test_megolm_session_storage_creation() {
-        let session = create_test_session();
+        let session = MegolmSession {
+            id: uuid::Uuid::new_v4(),
+            session_id: format!("test_session_{}", uuid::Uuid::new_v4()),
+            room_id: "!testroom:example.com".to_string(),
+            sender_key: "test_sender_key_base64".to_string(),
+            session_key: "test_session_key_base64".to_string(),
+            algorithm: "m.megolm.v1.aes-sha2".to_string(),
+            message_index: 0,
+            created_ts: Utc::now(),
+            last_used_ts: Utc::now(),
+            expires_at: None,
+            pickle_format: PickleFormat::Vodozemac,
+        };
 
         assert!(!session.session_id.is_empty());
         assert!(!session.room_id.is_empty());
         assert!(!session.sender_key.is_empty());
         assert!(!session.session_key.is_empty());
         assert_eq!(session.algorithm, "m.megolm.v1.aes-sha2");
-        assert_eq!(session.pickle_format, PickleFormat::Legacy);
-        assert!(session.vodozemac_pickle.is_none());
-    }
-
-    #[test]
-    fn test_megolm_session_dual_format() {
-        let session = create_dual_test_session();
-        assert_eq!(session.pickle_format, PickleFormat::Dual);
-        assert!(session.vodozemac_pickle.is_some());
-        assert_eq!(session.vodozemac_pickle.as_deref(), Some("base64_vodozemac_pickle"));
+        assert_eq!(session.pickle_format, PickleFormat::Vodozemac);
     }
 
     #[test]
     fn test_megolm_session_field_validation() {
-        let session = create_test_session();
+        let session = MegolmSession {
+            id: uuid::Uuid::new_v4(),
+            session_id: "test".to_string(),
+            room_id: "!testroom:example.com".to_string(),
+            sender_key: "test_sender_key_base64".to_string(),
+            session_key: "test_session_key_base64".to_string(),
+            algorithm: "m.megolm.v1.aes-sha2".to_string(),
+            message_index: 0,
+            created_ts: Utc::now(),
+            last_used_ts: Utc::now(),
+            expires_at: None,
+            pickle_format: PickleFormat::Vodozemac,
+        };
 
         assert!(session.room_id.starts_with('!'), "Room ID should start with !");
         assert!(session.algorithm.starts_with("m.megolm"), "Algorithm should be megolm");
@@ -709,8 +519,7 @@ mod tests {
             created_ts: created,
             last_used_ts: last_used,
             expires_at: Some(expires),
-            pickle_format: PickleFormat::Legacy,
-            vodozemac_pickle: None,
+            pickle_format: PickleFormat::Vodozemac,
         };
 
         assert!(session.created_ts <= session.last_used_ts);
