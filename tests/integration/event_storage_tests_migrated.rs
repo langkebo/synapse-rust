@@ -53,6 +53,8 @@ async fn test_create_event_success() {
     setup_test_database(&pool).await;
     let storage = EventStorage::new(&pool, "localhost".to_string());
 
+    crate::ensure_test_room(&pool, "!room1:localhost").await;
+
     let params = CreateEventParams {
         event_id: "$event1:localhost".to_string(),
         room_id: "!room1:localhost".to_string(),
@@ -98,6 +100,7 @@ async fn test_get_room_events_batch_multiple_rooms() {
     let ts = current_timestamp_millis();
 
     for i in 1..=3 {
+        crate::ensure_test_room(&pool, &format!("!room{i}:localhost")).await;
         let params = CreateEventParams {
             event_id: format!("$event{i}:localhost"),
             room_id: format!("!room{i}:localhost"),
@@ -112,6 +115,9 @@ async fn test_get_room_events_batch_multiple_rooms() {
     }
 
     let room_ids = vec!["!room1:localhost".to_string(), "!room2:localhost".to_string(), "!room3:localhost".to_string()];
+    crate::ensure_test_room(&pool, "!room1:localhost").await;
+    crate::ensure_test_room(&pool, "!room2:localhost").await;
+    crate::ensure_test_room(&pool, "!room3:localhost").await;
     let result = storage.get_room_events_batch(&room_ids, 10).await;
     assert!(result.is_ok());
 
@@ -136,6 +142,7 @@ async fn test_get_room_events_since_batch() {
 
     let base_ts = current_timestamp_millis();
     let room_id = "!room_batch:localhost".to_string();
+    crate::ensure_test_room(&pool, "!room_batch:localhost").await;
 
     for i in 1..=5 {
         let params = CreateEventParams {
@@ -173,6 +180,7 @@ async fn test_get_room_events_batch_limit_per_room() {
 
     let base_ts = current_timestamp_millis();
     let room_id = "!room_limit:localhost".to_string();
+    crate::ensure_test_room(&pool, "!room_limit:localhost").await;
 
     for i in 1..=10 {
         let params = CreateEventParams {
@@ -207,6 +215,7 @@ async fn test_encrypted_event_origin_decode_handles_null_boundary_and_malformed_
     setup_test_database(&pool).await;
     let storage = EventStorage::new(&pool, "localhost".to_string());
     let room_id = "!origin-room:localhost";
+    crate::ensure_test_room(&pool, "!origin-room:localhost").await;
     let base_ts = current_timestamp_millis();
     let cases = [
         ("$origin_null:localhost", None, "self"),

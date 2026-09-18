@@ -20,6 +20,7 @@ async fn sto05_concurrent_record_report_counts_exactly() {
     let pool = crate::require_test_pool().await;
     let storage = Arc::new(EventReportStorage::new(&pool));
     let user_id = "@sto05_concurrent:example.com";
+    crate::ensure_test_user(&pool, "@sto05_concurrent:example.com").await;
     cleanup(&pool, user_id).await;
 
     const N: usize = 20;
@@ -51,6 +52,7 @@ async fn sto05_record_report_resets_count_after_one_day() {
     let pool = crate::require_test_pool().await;
     let storage = EventReportStorage::new(&pool);
     let user_id = "@sto05_window:example.com";
+    crate::ensure_test_user(&pool, "@sto05_window:example.com").await;
     cleanup(&pool, user_id).await;
 
     // 手工种一条「昨天」的记录，count=50
@@ -81,6 +83,7 @@ async fn sto05_check_rate_limit_lifts_only_expired_blocks() {
     let pool = crate::require_test_pool().await;
     let storage = EventReportStorage::new(&pool);
     let user_id = "@sto05_unblock:example.com";
+    crate::ensure_test_user(&pool, "@sto05_unblock:example.com").await;
     cleanup(&pool, user_id).await;
 
     // 过期封锁 → 解除并放行

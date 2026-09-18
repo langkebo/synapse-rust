@@ -233,6 +233,7 @@ async fn test_get_beacon_info_by_state_key() {
     let suffix = unique_id();
     let state_key = format!("@state_user_{suffix}:localhost");
     let room_id = format!("!state_room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let now = current_timestamp_millis();
 
     let params1 = CreateBeaconInfoParams {
@@ -285,6 +286,7 @@ async fn test_get_active_beacons() {
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!active_room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let now = current_timestamp_millis();
 
     let live_params = CreateBeaconInfoParams {
@@ -337,6 +339,7 @@ async fn test_deactivate_beacons_by_state_key() {
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!deact_room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let state_key = format!("@deact_user_{suffix}:localhost");
     let now = current_timestamp_millis();
 
@@ -638,6 +641,7 @@ async fn test_count_locations_in_room_since() {
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!count_room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
 
     let info_params = CreateBeaconInfoParams {
         room_id: room_id.clone(),
@@ -683,6 +687,7 @@ async fn test_count_locations_in_room_by_sender_since() {
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!sender_count_room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let sender = format!("@sender_count_user_{suffix}:localhost");
     let other_sender = format!("@other_sender_{suffix}:localhost");
 
@@ -743,7 +748,13 @@ async fn test_get_joined_member_count() {
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!member_count_room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let now = current_timestamp_millis();
+
+    // `room_memberships` references both `rooms` and `users`.
+    crate::ensure_test_user(&pool, &format!("@member1_{suffix}:localhost")).await;
+    crate::ensure_test_user(&pool, &format!("@member2_{suffix}:localhost")).await;
+    crate::ensure_test_user(&pool, &format!("@invited_{suffix}:localhost")).await;
 
     sqlx::query("INSERT INTO room_memberships (room_id, user_id, membership, joined_ts) VALUES ($1, $2, 'join', $3)")
         .bind(&room_id)
@@ -841,6 +852,7 @@ async fn test_cleanup_expired_beacons() {
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!cleanup_room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let now = current_timestamp_millis();
 
     let expired_params = CreateBeaconInfoParams {
@@ -902,6 +914,7 @@ async fn test_get_room_beacons_include_expired() {
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_beacons_room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let now = current_timestamp_millis();
 
     let params1 = CreateBeaconInfoParams {
@@ -942,6 +955,7 @@ async fn test_get_room_beacons_exclude_expired() {
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!exclude_room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let now = current_timestamp_millis();
 
     let valid_params = CreateBeaconInfoParams {
@@ -1114,6 +1128,7 @@ async fn test_full_beacon_lifecycle() {
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!lifecycle_room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
     let state_key = format!("@lifecycle_user_{suffix}:localhost");
     let now = current_timestamp_millis();
 
