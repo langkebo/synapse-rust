@@ -928,6 +928,40 @@ mod tests {
         Ok(())
     }
 
+    // 部署实测（2026）：`homeserver.yaml` 里
+    // `signing_key_master_key: "${FEDERATION_MASTER_KEY:-}"` 在变量未设置时
+    // 解析为**空字符串**，而不是"未配置"。`Some("")` 会让密钥管理器走加密分支，
+    // 用空的 HKDF 输入派生 AES 密钥（HKDF 接受空 IKM），于是联邦签名私钥以 `enc:`
+    // 前缀入库 —— 看似加密、实则任何拿到库导出的人都能解开，同时 fail-closed
+    // 分支（`None` → 拒绝持久化）永远走不到。归一化必须发生在配置边界这一处。
+    #[test]
+    fn test_resolve_env_variables_normalizes_blank_signing_key_master_key() -> Result<(), String> {
+        for blank in ["", "   ", "\n"] {
+            let mut config = Config::default();
+            config.federation.signing_key_master_key = Some(blank.to_string());
+
+            config.resolve_env_variables()?;
+
+            assert_eq!(
+                config.federation.signing_key_master_key, None,
+                "blank master key {blank:?} must normalize to None, not stay as an empty string"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_resolve_env_variables_keeps_a_real_signing_key_master_key() -> Result<(), String> {
+        let mut config = Config::default();
+        let key = "k".repeat(crate::key_encryption::MIN_MASTER_KEY_LEN);
+        config.federation.signing_key_master_key = Some(key.clone());
+
+        config.resolve_env_variables()?;
+
+        assert_eq!(config.federation.signing_key_master_key.as_deref(), Some(key.as_str()));
+        Ok(())
+    }
+
     #[test]
     fn test_circuit_breaker_config_defaults() {
         let config = CircuitBreakerConfig::default();

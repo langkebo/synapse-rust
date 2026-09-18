@@ -840,6 +840,9 @@ check_env_file() {
         SECRET_KEY
         MACAROON_SECRET
         FORM_SECRET
+        # 空值不被接受：它会让 HKDF 用零熵输入派生密钥，联邦签名私钥会以
+        # 看似加密、实则无保密性的形式入库（详见 docker-compose.yml 同处注释）。
+        FEDERATION_MASTER_KEY
     )
     local missing_vars=()
     local var

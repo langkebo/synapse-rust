@@ -80,6 +80,8 @@ generate_missing_or_all() {
     maybe_set_secret "SECRET_KEY" "$(generate_hex_key 64)" "$force_generate"
     maybe_set_secret "MACAROON_SECRET" "$(generate_hex_key 64)" "$force_generate"
     maybe_set_secret "FORM_SECRET" "$(generate_hex_key 64)" "$force_generate"
+    # 64 十六进制字符 = 32 字节，满足 signing_key_master_key 的长度下限。
+    maybe_set_secret "FEDERATION_MASTER_KEY" "$(generate_hex_key 64)" "$force_generate"
 }
 
 current_env_value() {

@@ -40,6 +40,23 @@ impl Config {
         // 复用 SecurityValidator::validate_jwt_secret（此前为死代码，仅测试引用）。
         crate::security::SecurityValidator::validate_jwt_secret(&self.security.secret)?;
 
+        // federation.signing_key_master_key 用于在库里加密联邦签名私钥。
+        // HKDF 对**任何**输入（含空串）都能派生出可用的 AES 密钥，因此短密钥会
+        // 产出带 `enc:` 前缀、看似加密却毫无保密性的数据 —— 拿到库导出即可解出
+        // 联邦签名私钥。`resolve_env_variables` 已把空白值归一化为 None，这里对
+        // 仍然存在的值强制长度下限（与 encrypt_key/decrypt_key 共用同一常量）。
+        if let Some(master_key) = &self.federation.signing_key_master_key {
+            if master_key.len() < crate::key_encryption::MIN_MASTER_KEY_LEN {
+                return Err(format!(
+                    "federation.signing_key_master_key must be at least {} bytes but is {} bytes. \
+                     A short key does not protect the federation signing key stored at rest. \
+                     Generate one with `openssl rand -hex 32`.",
+                    crate::key_encryption::MIN_MASTER_KEY_LEN,
+                    master_key.len()
+                ));
+            }
+        }
+
         if self.cors.allowed_origins.iter().any(|o| o == "*") && self.cors.allow_credentials {
             tracing::warn!(
                 "CORS is configured to allow all origins ('*') with credentials. \
@@ -106,6 +123,35 @@ mod tests {
     #[test]
     fn validate_ok_with_valid_config() {
         let config = valid_config();
+        assert!(config.validate().is_ok());
+    }
+
+    // 部署实测（2026）：`homeserver.yaml` 里 `signing_key_master_key: "${FEDERATION_MASTER_KEY:-}"`
+    // 在变量未设置时解析为**空字符串**而不是"未配置"，于是 `KeyRotationManager`
+    // 走了加密分支并用空的 HKDF 输入派生出 AES 密钥 —— 联邦签名私钥以 `enc:`
+    // 前缀入库，看似加密实则零保密性，且 fail-closed 分支被绕过。
+    #[test]
+    fn validate_rejects_short_signing_key_master_key() {
+        let mut config = valid_config();
+        config.federation.signing_key_master_key = Some("too-short".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("signing_key_master_key"), "{err}");
+        assert!(err.contains("at least"), "{err}");
+    }
+
+    #[test]
+    fn validate_accepts_minimum_length_signing_key_master_key() {
+        let mut config = valid_config();
+        config.federation.signing_key_master_key = Some("k".repeat(crate::key_encryption::MIN_MASTER_KEY_LEN));
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_accepts_absent_signing_key_master_key() {
+        // `None` is the supported "no encryption at rest" state: the key manager then
+        // decides via `allow_plaintext_signing_keys` (refuse by default).
+        let mut config = valid_config();
+        config.federation.signing_key_master_key = None;
         assert!(config.validate().is_ok());
     }
 

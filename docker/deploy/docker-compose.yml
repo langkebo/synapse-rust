@@ -196,6 +196,13 @@ services:
       MACAROON_SECRET: ${MACAROON_SECRET:?MACAROON_SECRET must be set}
       FORM_SECRET: ${FORM_SECRET:?FORM_SECRET must be set}
       FEDERATION_SIGNING_KEY: ${FEDERATION_SIGNING_KEY:?FEDERATION_SIGNING_KEY must be set}
+      # 用于在数据库中加密联邦签名私钥（HKDF-SHA256 → AES-256-GCM）。
+      # 这里用 `:?` 显式做非空校验：`env_file: ./.env` 本来就会把该变量传进容器，
+      # 但 `.env.example` 里它是**空值**，而 `${FEDERATION_MASTER_KEY:-}` 的空值会
+      # 解析成空字符串 —— HKDF 对空输入照样派生出可用的 AES 密钥，于是私钥带
+      # `enc:` 前缀入库，看似加密、实则拿到库导出即可解开，同时 fail-closed 的
+      # "未配置主密钥"分支永远走不到。`:?` 让"空/缺失"变成启动即失败。
+      FEDERATION_MASTER_KEY: ${FEDERATION_MASTER_KEY:?FEDERATION_MASTER_KEY must be set (openssl rand -hex 32, or scripts/generate-secrets.sh missing)}
       FEDERATION_KEY_ID: ${FEDERATION_KEY_ID:-ed25519:auto}
       WORKER_REPLICATION_SECRET: ${WORKER_REPLICATION_SECRET:?WORKER_REPLICATION_SECRET must be set}
       TOKEN_HASH_SECRET: ${TOKEN_HASH_SECRET:?TOKEN_HASH_SECRET must be set (>=32 bytes)}

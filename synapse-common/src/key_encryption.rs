@@ -7,11 +7,37 @@ use base64::Engine;
 const NONCE_SIZE: usize = 12;
 const KEY_DERIVATION_INFO: &[u8] = b"synapse-rust-signing-key-encryption-v1";
 
+/// Minimum accepted length of `master_key`.
+///
+/// HKDF accepts an **empty** input keying material and still expands it into a
+/// valid 32-byte AES key, so `encrypt_key(.., b"")` used to succeed and produce an
+/// `enc:`-prefixed value that round-tripped — indistinguishable from real
+/// encryption while carrying no secrecy whatsoever. That is how a
+/// `signing_key_master_key` that resolved to the empty string (a `${VAR:-}`
+/// placeholder with the variable unset) turned into "encrypted at rest" that any
+/// holder of a database dump could decrypt with no secret at all.
+///
+/// Enforced in both directions so this class of mistake can only fail loudly.
+pub const MIN_MASTER_KEY_LEN: usize = 32;
+
+fn validate_master_key(master_key: &[u8]) -> Result<(), String> {
+    if master_key.len() < MIN_MASTER_KEY_LEN {
+        return Err(format!(
+            "master key must be at least {MIN_MASTER_KEY_LEN} bytes, got {} — a missing or short key provides no \
+             secrecy (HKDF derives a usable AES key from any input, including an empty one). \
+             Generate one with `openssl rand -hex 32`.",
+            master_key.len()
+        ));
+    }
+    Ok(())
+}
+
 /// Encrypt a plaintext string using AES-256-GCM.
 ///
 /// Returns a base64-encoded string of `nonce || ciphertext || tag`,
 /// prefixed with `enc:` to indicate encryption.
 pub fn encrypt_key(plaintext: &str, master_key: &[u8]) -> Result<String, String> {
+    validate_master_key(master_key)?;
     let key = derive_key(master_key, KEY_DERIVATION_INFO);
     let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| format!("Invalid key length: {e}"))?;
 
@@ -32,6 +58,7 @@ pub fn encrypt_key(plaintext: &str, master_key: &[u8]) -> Result<String, String>
 /// Accepts both `enc:`-prefixed and raw base64 formats.
 /// Returns the original plaintext string.
 pub fn decrypt_key(ciphertext: &str, master_key: &[u8]) -> Result<String, String> {
+    validate_master_key(master_key)?;
     let b64_data =
         ciphertext.strip_prefix("enc:").ok_or_else(|| "Ciphertext must start with 'enc:' prefix".to_string())?;
 
@@ -80,7 +107,7 @@ mod tests {
 
     #[test]
     fn test_encrypt_decrypt_roundtrip() {
-        let master_key = b"test-master-key-32-bytes-long!!";
+        let master_key = b"test-master-key-32-bytes-long!!!";
         let plaintext = "my-secret-signing-key";
 
         let encrypted = encrypt_key(plaintext, master_key).unwrap();
@@ -93,7 +120,7 @@ mod tests {
 
     #[test]
     fn test_encrypt_produces_different_ciphertexts() {
-        let master_key = b"test-master-key-32-bytes-long!!";
+        let master_key = b"test-master-key-32-bytes-long!!!";
         let plaintext = "same-plaintext";
 
         let enc1 = encrypt_key(plaintext, master_key).unwrap();
@@ -109,8 +136,8 @@ mod tests {
 
     #[test]
     fn test_decrypt_wrong_key_fails() {
-        let master_key = b"test-master-key-32-bytes-long!!";
-        let wrong_key = b"wrong-master-key-32-bytes-lon!";
+        let master_key = b"test-master-key-32-bytes-long!!!";
+        let wrong_key = b"wrong-master-key-32-bytes-long!!";
         let plaintext = "secret-data";
 
         let encrypted = encrypt_key(plaintext, master_key).unwrap();
@@ -120,7 +147,7 @@ mod tests {
 
     #[test]
     fn test_decrypt_without_prefix_fails() {
-        let master_key = b"test-master-key-32-bytes-long!!";
+        let master_key = b"test-master-key-32-bytes-long!!!";
         let result = decrypt_key("no-prefix-here", master_key);
         assert!(result.is_err());
     }
@@ -141,5 +168,49 @@ mod tests {
 
         let key3 = derive_key(b"different", info);
         assert_ne!(key1, key3);
+    }
+
+    // ── master-key strength floor ────────────────────────────────────────
+    //
+    // Regression: `signing_key_master_key` resolved from `${FEDERATION_MASTER_KEY:-}`
+    // with the variable unset becomes the **empty string**, which HKDF happily
+    // expands into a usable AES key. The stored value carried the `enc:` prefix and
+    // round-tripped, so it was indistinguishable from real encryption while an
+    // attacker holding a database dump needed no secret at all.
+
+    #[test]
+    fn empty_master_key_is_rejected_by_encrypt() {
+        let error = encrypt_key("signing-secret", b"").expect_err("an empty master key must never encrypt");
+        assert!(error.contains("at least"), "{error}");
+    }
+
+    #[test]
+    fn empty_master_key_is_rejected_by_decrypt() {
+        // Even a value produced under the old behaviour must not be silently
+        // "decrypted" with a key that holds no secret.
+        let error = decrypt_key("enc:AAAAAAAAAAAAAAAAAAAAAA==", b"").expect_err("empty key must be rejected");
+        assert!(error.contains("at least"), "{error}");
+    }
+
+    #[test]
+    fn short_master_key_is_rejected() {
+        let short = vec![b'k'; MIN_MASTER_KEY_LEN - 1];
+        let error = encrypt_key("signing-secret", &short).expect_err("a short master key must be rejected");
+        assert!(error.contains("at least"), "{error}");
+    }
+
+    #[test]
+    fn minimum_length_master_key_is_accepted() {
+        let key = vec![b'k'; MIN_MASTER_KEY_LEN];
+        let encrypted = encrypt_key("signing-secret", &key).expect("exactly the minimum must work");
+        assert_eq!(decrypt_key(&encrypted, &key).expect("roundtrip"), "signing-secret");
+    }
+
+    #[test]
+    fn test_fixtures_meet_the_minimum_length() {
+        // The fixtures used to claim "32 bytes" in their names while being 31 and 30
+        // bytes long; that is exactly the kind of drift this floor exists to catch.
+        assert!(b"test-master-key-32-bytes-long!!!".len() >= MIN_MASTER_KEY_LEN);
+        assert!(b"wrong-master-key-32-bytes-long!!".len() >= MIN_MASTER_KEY_LEN);
     }
 }

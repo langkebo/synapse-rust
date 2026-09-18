@@ -92,6 +92,20 @@ impl Config {
         self.federation.key_id = self.federation.key_id.take().map(|v| resolve_env_in_string(&v)).transpose()?;
         self.federation.signing_key_master_key =
             self.federation.signing_key_master_key.take().map(|v| resolve_env_in_string(&v)).transpose()?;
+        if self.federation.signing_key_master_key.as_deref().is_some_and(|key| key.trim().is_empty()) {
+            // `${FEDERATION_MASTER_KEY:-}` with the variable unset resolves to the
+            // **empty string**, not to "absent". Left as `Some("")` it takes the
+            // *encrypt* branch in `KeyRotationManager::resolve_stored_secret_key`
+            // with an empty HKDF input — i.e. the federation signing key is written
+            // with an `enc:` prefix under a key that contains no secret at all,
+            // while the fail-closed "no master key configured" path is skipped.
+            // Normalise at this single boundary where config text becomes typed
+            // config, so the rest of the code only ever sees `Some(real key)`/`None`.
+            tracing::info!(
+                "federation.signing_key_master_key resolved to an empty value — treating it as not configured"
+            );
+            self.federation.signing_key_master_key = None;
+        }
         self.federation.ca_file = self
             .federation
             .ca_file
