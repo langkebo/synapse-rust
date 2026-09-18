@@ -131,6 +131,36 @@ fn test_cache_manager_new() {
     assert!(manager.redis.is_none());
 }
 
+/// `set_raw` is documented as best-effort for L2: an unreachable Redis must not
+/// panic, must not abort the write, and must still leave the value in L1. The
+/// callers that store auth-relevant markers (`user:logout_all:*`,
+/// `token:revocation_ok:*`) rely on exactly this shape — a visible warning plus a
+/// durable fallback elsewhere — rather than on the write being infallible.
+#[tokio::test]
+#[allow(missing_docs)]
+async fn test_set_raw_with_unreachable_redis_keeps_l1_and_does_not_panic() {
+    let redis_config = synapse_common::config::RedisConfig {
+        host: "127.0.0.1".to_string(),
+        // Port 1 is reserved and nothing listens there, so the pool is built lazily
+        // (`RedisCache::new` does not connect) and every command fails on use.
+        port: 1,
+        password: None,
+        key_prefix: "test:".to_string(),
+        pool_size: 1,
+        enabled: true,
+        connection_timeout_ms: 200,
+        command_timeout_ms: 200,
+        circuit_breaker: synapse_common::config::CircuitBreakerConfig::default(),
+    };
+    let manager = CacheManager::with_redis(&redis_config, &CacheConfig::default())
+        .expect("pool construction must not require a live server");
+    assert!(manager.redis.is_some(), "the Redis path must actually be exercised");
+
+    manager.set_raw("best_effort_key", "best_effort_value", 30).await;
+
+    assert_eq!(manager.get_raw("best_effort_key").as_deref(), Some("best_effort_value"));
+}
+
 #[tokio::test]
 #[allow(missing_docs)]
 async fn test_cache_manager_set_and_get() {

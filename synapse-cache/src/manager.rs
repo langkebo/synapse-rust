@@ -395,12 +395,32 @@ impl CacheManager {
     }
 
     /// Stores a raw string value with an explicit TTL in both L1 and L2.
+    ///
+    /// **Best-effort contract**: the L1 write is unconditional, but an L2 (Redis)
+    /// failure is logged and swallowed — this method cannot fail. That is the right
+    /// trade-off for the de-duplication/payload caches that make up most callers, but
+    /// it is **not** true that nothing written here is auth-relevant: `user:logout_all:*`
+    /// (`auth/session.rs`) and `token:revocation_ok:*` (`auth/token.rs`) both go through
+    /// this path. Those two are safe only because of what sits *behind* them — the logout
+    /// marker is a fast path over a durable DB blacklist, and the revocation marker is a
+    /// positive cache whose absence merely forces the DB checks — so a lost L2 write
+    /// costs performance or cross-instance immediacy, never correctness. A caller whose
+    /// value would be *authoritative* must not depend on this succeeding: give it a
+    /// durable fallback first.
     pub async fn set_raw(&self, key: &str, value: &str, ttl: u64) {
         // D-1: L1 也按调用方 TTL 过期，与 L2 Redis 保持一致
         self.local.set_raw_with_ttl(key, value, Duration::from_secs(ttl));
         if let Some(redis) = &self.redis {
-            // 纯缓存写：Redis 写失败仅导致跨实例不命中（去重键等），非鉴权语义，fail-open 安全。
-            let _ = redis.set(key, value, ttl).await;
+            if let Err(error) = redis.set(key, value, ttl).await {
+                // Was `let _ =`: a Redis outage silently degraded cross-instance behaviour
+                // with no trace in the logs at all.
+                ::tracing::warn!(
+                    target: "cache",
+                    cache_key = %key,
+                    %error,
+                    "Failed to write cache entry to Redis; L1 updated, other instances will not see it"
+                );
+            }
         }
     }
 
