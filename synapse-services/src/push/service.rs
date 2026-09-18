@@ -520,15 +520,22 @@ impl PushNotificationService {
 
             // Send via push gateway with SSRF protection (URL validation inside send_notification)
             match gateway.send_notification(_target, &gateway_notification).await {
-                Ok(_response) => Ok(PushResult::success()),
+                Ok(response) => {
+                    info!(
+                        rejected = response.rejected.len(),
+                        "Push gateway delivery completed"
+                    );
+                    Ok(PushResult::success())
+                }
                 Err(e) => {
                     error!(error = %e, "Push gateway delivery failed");
-                    Ok(PushResult::failure(&format!("Push gateway error: {e}")))
+                    Err(ApiError::internal_with_cause("Push gateway error", e))
                 }
             }
         } else {
-            // Fallback to fake success when no gateway is configured
-            Ok(PushResult::success_with_response("Upstream accepted"))
+            Err(ApiError::internal(
+                "upstream push provider is not initialized; configure push_gateway_url",
+            ))
         }
     }
 
