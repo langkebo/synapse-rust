@@ -191,26 +191,13 @@ run_rust_checks() {
     cargo fmt --all -- --check
     cargo check --locked
     TEST_THREADS="${TEST_THREADS:-4}" TEST_RETRIES="${TEST_RETRIES:-2}" bash scripts/run_ci_tests.sh
-    emit_skip_report || true
-}
-
-emit_skip_report() {
-    local skipped_file="$ROOT_DIR/test-results/api-integration.skipped.txt"
-    local report_file="$ROOT_DIR/test-results/api-integration.skipped-analysis.txt"
-    if [ ! -f "$skipped_file" ]; then
-        log "未发现 skipped 结果文件，跳过分类报告: $skipped_file"
-        return 0
-    fi
-    log "输出 skipped 分类报告: $report_file"
-    local -a analyzer_args
-    analyzer_args=(
-        --input "$skipped_file"
-        --output "$report_file"
-    )
-    if [ "${FAIL_ON_SKIP_BACKEND_GAP:-1}" = "1" ]; then
-        analyzer_args+=(--fail-on-backend-gap)
-    fi
-    python3 "$ROOT_DIR/scripts/quality/analyze_skipped_tests.py" "${analyzer_args[@]}"
+    # NOTE: the skipped-test classification report used to run here via
+    # `emit_skip_report || true`. Its analyzer
+    # (scripts/quality/analyze_skipped_tests.py) no longer exists, so the helper
+    # could never produce a report, and `|| true` discarded whatever it did
+    # return — a check that reported nothing and could not fail. Both the helper
+    # and the call were removed rather than left as a dead reference. Re-adding
+    # the capability means writing the analyzer AND a call site without `|| true`.
 }
 
 run_migration_checks() {
@@ -221,8 +208,17 @@ run_migration_checks() {
     docker_compose run --rm --no-deps --entrypoint /app/scripts/db_migrate.sh synapse-rust validate
 
     cd "$ROOT_DIR"
-    # Default guard for refactor-era schema drift: fail fast if critical tables are missing.
-    bash scripts/db/pre_refactor_schema_guard.sh check
+    # The refactor-era `bash scripts/db/pre_refactor_schema_guard.sh check` line
+    # used to run here. That script (and `scripts/db/`) no longer exist, so this
+    # step failed on every run — which made the whole `Backend Validation`
+    # workflow permanently red and therefore signal-free.
+    #
+    # Its stated job ("fail fast if critical tables are missing") is already
+    # covered by the `db_migrate.sh validate` call above: `validate_schema()`
+    # checks a 16-table `required_tables` list and errors on any missing table
+    # (docker/db_migrate.sh:537-567). The workspace-wide table/schema coverage
+    # checks live in the db-migration-gate workflow.
+    :
 }
 
 run_docker_smoke() {

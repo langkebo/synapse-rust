@@ -41,12 +41,59 @@ def load_baseline(path: pathlib.Path) -> Dict[str, float]:
     return {}
 
 
-def save_baseline(path: pathlib.Path, files: Dict[str, float]) -> None:
-    """Save coverage snapshot for future regression checks."""
+def require_baseline(path: pathlib.Path, baseline: Dict[str, float]) -> Optional[str]:
+    """Refuse to run the ratchet without a baseline.
+
+    With an empty baseline every file takes the `is_new` branch
+    (`floor = new_file_threshold`, 30%) and the `TOUCHED` branch
+    (`floor = max(prev, global_threshold)`) is **unreachable** — so "a touched
+    file must not regress" was never enforced while the gate still reported a
+    normal verdict. The four sibling ratchets in this repo
+    (`.fmt-baseline`, `.missing-docs-baseline`, `trait_count_baseline`,
+    `sqlx_dynamic_ratio_baseline`) all fail closed when their baseline is
+    missing; this one silently degraded instead, and its baseline is the only one
+    that was never committed to the repo, so the branch had never run.
+
+    Returns an error message when the ratchet cannot be enforced, else None.
+    """
+    if not path.exists():
+        return (
+            f"coverage baseline not found: {path}\n"
+            "  The per-file ratchet cannot enforce 'touched files must not regress'\n"
+            "  without it, and would silently treat every file as new.\n"
+            "  Bootstrap it once and commit the result:\n"
+            "    python3 scripts/check_file_coverage.py --report coverage/lcov.info \\\n"
+            "      --format lcov --baseline " + str(path) + " --save-baseline " + str(path) + " \\\n"
+            "      --threshold 0 --global-floor 0 --new-file-floor 0 --core-threshold 0"
+        )
+    if not baseline:
+        return (
+            f"coverage baseline is empty: {path}\n"
+            "  An empty baseline makes every file 'new', which disables the\n"
+            "  regression check. Re-bootstrap it (see the command above)."
+        )
+    return None
+
+
+def save_baseline(
+    path: pathlib.Path, files: Dict[str, float], previous: Optional[Dict[str, float]] = None
+) -> None:
+    """Save the coverage snapshot, never LOWERING a recorded floor.
+
+    A ratchet must be monotone. The previous version overwrote every entry with
+    the current number, so a file whose coverage dropped had its floor lowered to
+    the new, worse value — the next run would then accept the regression. With
+    `previous`, each entry keeps `max(previous, current)`, so the baseline can
+    only tighten. Deliberately lowering a floor is an explicit edit of this file.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
+    previous = previous or {}
+    merged = {
+        p: max(float(previous.get(p, 0.0)), float(v)) for p, v in files.items()
+    }
     payload = {
         "files": [
-            {"path": p, "line_pct": round(v, 2)} for p, v in sorted(files.items())
+            {"path": p, "line_pct": round(v, 2)} for p, v in sorted(merged.items())
         ]
     }
     with open(path, "w") as f:
@@ -426,6 +473,15 @@ def main() -> int:
     else:
         current = parse_tarpaulin_json(args.report)
     baseline = load_baseline(args.baseline)
+
+    # A ratchet without its baseline cannot enforce anything (see
+    # `require_baseline`). Checked before the expensive per-file loop so the
+    # failure is unambiguous.
+    baseline_problem = require_baseline(args.baseline, baseline)
+    if baseline_problem:
+        print(f"Coverage ratchet cannot run: {baseline_problem}", file=sys.stderr)
+        return 2
+
     tdd_files = load_tdd_files(args.tdd_files)
 
     # A --core-files that is missing or entirely stale used to degrade to "no
@@ -467,7 +523,7 @@ def main() -> int:
     )
 
     save_path = args.save_baseline or args.baseline
-    save_baseline(save_path, current)
+    save_baseline(save_path, current, previous=baseline)
 
     return exit_code
 

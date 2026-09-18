@@ -910,12 +910,40 @@ jobs:
             -- --skip ledger_export_tests
           python3 scripts/merge_lcov.py /tmp/storage.lcov /tmp/rest.lcov -o coverage/lcov.info
 
+      - name: Bootstrap coverage baseline (main/develop, first run only)
+        # The per-file ratchet is meaningless without a baseline: with an empty
+        # one every file takes the "new" branch (30% ramp-up floor) and the
+        # "touched files must not regress" branch is unreachable. That is the
+        # state this repo was actually in — artifacts/coverage_baseline.json was
+        # never committed, while all four sibling ratchet baselines
+        # (.fmt-baseline, .missing-docs-baseline, trait_count_baseline,
+        # sqlx_dynamic_ratio_baseline) are in git.
+        #
+        # check_file_coverage.py now exits 2 when the baseline is missing, so the
+        # bootstrap runs first, with every floor at 0 (a pass by construction),
+        # purely to materialise the file for the follow-up commit step.
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+        run: |
+          if [ -f artifacts/coverage_baseline.json ]; then
+            echo "Baseline present; nothing to bootstrap."
+            exit 0
+          fi
+          mkdir -p artifacts
+          python3 scripts/check_file_coverage.py \
+            --report coverage/lcov.info \
+            --format lcov \
+            --baseline artifacts/coverage_baseline.json \
+            --save-baseline artifacts/coverage_baseline.json \
+            --threshold 0 --global-floor 0 --new-file-floor 0 --core-threshold 0
+
       - name: Per-file coverage ratchet (B.3)
-        # Enforces: TDD-mandated files ≥80%, core 13 paths ≥70%,
+        # Enforces: TDD-mandated files ≥80%, core paths ≥70%,
         # new files ≥30% (ramp-up grace), touched files must not regress,
         # global floor ≥40%.
-        # Baseline at artifacts/coverage_baseline.json is auto-saved on first run
-        # and auto-committed by the next step on main/develop pushes.
+        # Fails (exit 2) when artifacts/coverage_baseline.json is absent, because
+        # the "touched must not regress" half of the ratchet is unreachable
+        # without it. On main/develop the previous step bootstraps it and the
+        # follow-up step commits it; fix locally with the same command.
         run: |
           mkdir -p artifacts
           python3 scripts/check_file_coverage.py \

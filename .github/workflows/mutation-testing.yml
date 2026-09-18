@@ -15,7 +15,7 @@ on:
         description: 'Whitespace-separated file list for batched smoke runs'
         required: false
         type: string
-        default: 'synapse-web/src/routes/extractors/pagination.rs synapse-web/src/routes/extractors/json.rs src/services/media/mod.rs synapse-web/src/middleware/security.rs'
+        default: 'synapse-web/src/routes/extractors/json.rs synapse-web/src/middleware/security.rs synapse-services/src/media/mod.rs synapse-storage/src/event/pagination.rs'
 
 env:
   CARGO_TERM_COLOR: always
@@ -88,22 +88,62 @@ jobs:
         run: |
           MUTATION_FILES="${{ inputs.mutation_files }}"
           if [ -z "$MUTATION_FILES" ]; then
-            MUTATION_FILES="synapse-web/src/routes/extractors/pagination.rs synapse-web/src/routes/extractors/json.rs src/services/media/mod.rs synapse-web/src/middleware/security.rs"
+            MUTATION_FILES="synapse-web/src/routes/extractors/json.rs synapse-web/src/middleware/security.rs synapse-services/src/media/mod.rs synapse-storage/src/event/pagination.rs"
           fi
 
           if [ -n "${{ inputs.package }}" ]; then
             cargo mutants --package "${{ inputs.package }}" \
               --timeout 30 \
               -- --test-threads=2
-          else
-            for file in $MUTATION_FILES; do
-              echo "==> $file"
-              cargo mutants --package synapse-rust \
-                --file "$file" \
-                --timeout 30 \
-                --baseline skip \
-                -- --test-threads=2
-            done
+            exit 0
+          fi
+
+          # Two things used to make this loop a no-op:
+          #
+          #   1. `--package synapse-rust` was hard-coded for every entry, but the
+          #      default list is entirely outside that package (the root package
+          #      only covers `src/` and `benches/`). cargo-mutants matches
+          #      `--file` against the selected package, so nothing was mutated.
+          #   2. Two of the four default paths did not exist at all
+          #      (`src/services/media/mod.rs` moved to `synapse-services/src/...`
+          #      in the B4-5b crate split; there is no
+          #      `routes/extractors/pagination.rs` — the pagination module is
+          #      `synapse-storage/src/event/pagination.rs`).
+          #
+          # Both are now checked up front, so a stale path fails loudly instead of
+          # silently producing an empty mutation run.
+          package_for() {
+            case "$1" in
+              synapse-*/src/*) printf '%s\n' "${1%%/src/*}" ;;
+              src/*|benches/*) printf '%s\n' "synapse-rust" ;;
+              *)               printf '%s\n' "" ;;
+            esac
+          }
+
+          failures=""
+          for file in $MUTATION_FILES; do
+            if [ ! -f "$file" ]; then
+              echo "::error::mutation-testing: listed file does not exist: $file"
+              failures="$failures $file"
+              continue
+            fi
+            pkg="$(package_for "$file")"
+            if [ -z "$pkg" ]; then
+              echo "::error::mutation-testing: cannot map $file to a workspace package"
+              failures="$failures $file"
+              continue
+            fi
+            echo "==> $file (package $pkg)"
+            cargo mutants --package "$pkg" \
+              --file "$file" \
+              --timeout 30 \
+              --baseline skip \
+              -- --test-threads=2 || true
+          done
+
+          if [ -n "$failures" ]; then
+            echo "::error::mutation-testing: invalid file list entries:$failures"
+            exit 1
           fi
 
       - name: Upload mutation report
