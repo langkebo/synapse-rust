@@ -121,7 +121,6 @@ pub fn verify_one_time_key_signature(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aes_gcm::aead::OsRng;
     use base64::Engine;
     use ed25519_dalek::Signer;
     use ed25519_dalek::SigningKey;
@@ -180,7 +179,6 @@ mod tests {
 
     #[test]
     fn test_verify_signed_json_roundtrip() {
-        let _rng = OsRng;
         let secret_bytes: [u8; 32] = [42u8; 32];
         let signing_key = SigningKey::from_bytes(&secret_bytes);
         let verifying_key = signing_key.verifying_key();
@@ -216,7 +214,6 @@ mod tests {
 
     #[test]
     fn test_verify_signed_json_wrong_signature() {
-        let mut _rng = OsRng;
         let secret_bytes1: [u8; 32] = [42u8; 32];
         let secret_bytes2: [u8; 32] = [43u8; 32];
         let signing_key1 = SigningKey::from_bytes(&secret_bytes1);
@@ -239,7 +236,6 @@ mod tests {
 
     #[test]
     fn test_verify_device_keys_signature_valid() {
-        let mut rng = OsRng;
         let secret_bytes: [u8; 32] = [42u8; 32];
         let signing_key = SigningKey::from_bytes(&secret_bytes);
         let verifying_key = signing_key.verifying_key();
@@ -288,7 +284,6 @@ mod tests {
 
     #[test]
     fn test_verify_one_time_key_signature_valid() {
-        let mut rng = OsRng;
         let secret_bytes: [u8; 32] = [42u8; 32];
         let signing_key = SigningKey::from_bytes(&secret_bytes);
         let verifying_key = signing_key.verifying_key();

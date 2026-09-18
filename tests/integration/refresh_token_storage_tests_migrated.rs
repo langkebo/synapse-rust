@@ -866,8 +866,14 @@ async fn test_create_and_get_family() {
     .await
     .unwrap();
 
-    // make_request always references `device_{suffix}`; the FK requires that row.
-    crate::ensure_test_device(&pool, &user_id, &format!("device_{suffix}")).await;
+    // `create_family` below binds the literal id `device_1`, so the
+    // `fk_refresh_token_families_device` FK requires exactly that `devices` row.
+    // Seeding `device_{suffix}` instead is not enough: it only happened to work
+    // when `unique_id()` returned 1 (i.e. under nextest's process-per-test model,
+    // where this test is the process's first `unique_id()` caller). Under the
+    // `cargo test` runner the shared counter is already past 1 and the insert
+    // fails the FK. Seed the literal id the test actually asserts on.
+    crate::ensure_test_device(&pool, &user_id, "device_1").await;
 
     let family = storage.create_family(&family_id, &user_id, Some("device_1")).await.unwrap();
 

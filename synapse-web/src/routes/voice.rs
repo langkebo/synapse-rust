@@ -106,24 +106,18 @@ async fn upload_voice_message(
     let mut room_id: Option<String> = None;
     let mut duration_ms: Option<i32> = None;
     let mut waveform: Option<Vec<u16>> = None;
-    let mut filename: Option<String> = None;
 
     while let Some(field) = multipart
         .next_field()
         .await
         .map_err(|e| ApiError::bad_request(format!("Failed to parse multipart data: {}", e)))?
     {
+        // `Field` is consumed by `bytes()` below, so every header read must
+        // happen first — `name()` itself comes from `Content-Disposition`.
+        // (The `filename=` param is intentionally not consumed: the handler
+        // derives the stored name from `content_type`, and a hand-rolled
+        // `filename=` scan here was dead code that contradicted its own comment.)
         let name = field.name().unwrap_or("").to_string();
-
-        // Read `Content-Disposition` *before* consuming the field: `Field::bytes`
-        // takes `self` by value, so touching `field.headers()` afterwards does not
-        // compile (E0382) — the filename it carries would be lost anyway.
-        let disposition_filename = field
-            .headers()
-            .get("Content-Disposition")
-            .and_then(|disposition| disposition.to_str().ok())
-            .and_then(|disposition| disposition.find("filename=").map(|start| disposition[start + 9..].to_string()))
-            .map(|raw| raw.trim_matches('"').to_string());
 
         let data =
             field.bytes().await.map_err(|e| ApiError::bad_request(format!("Failed to read multipart field: {}", e)))?;
@@ -131,7 +125,6 @@ async fn upload_voice_message(
         match name.as_str() {
             "file" => {
                 content = data.to_vec();
-                filename = disposition_filename;
             }
             "content_type" => content_type = Some(String::from_utf8_lossy(&data).to_string()),
             "room_id" => room_id = Some(String::from_utf8_lossy(&data).to_string()),

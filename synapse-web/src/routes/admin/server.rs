@@ -288,7 +288,14 @@ pub async fn get_health(_admin: AdminUser, State(ctx): State<AdminContext>) -> R
 /// - `active_rules`: number of endpoint-specific rules
 /// - `exempt_paths`: count of exempt paths
 /// - `metrics`: real-time counters from `rate_limit_metrics`
-#[axum::debug_handler]
+// NOTE: no `#[axum::debug_handler]` here on purpose. This handler has no `await`,
+// so it needs `#[allow(clippy::unused_async)]` (axum handlers must be `async`),
+// and `debug_handler` re-emits a duplicate item that the item-level allow does not
+// cover — clippy then still fails on the generated copy. The two attributes are
+// mutually exclusive under `-D warnings`; the other no-await handlers in this file
+// make the same trade-off. `debug_handler` is a diagnostics aid only, so dropping
+// it costs nothing functional.
+#[allow(clippy::unused_async)] // axum handler: the body is synchronous diagnostics (no await)
 pub async fn get_rate_limit_status(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,

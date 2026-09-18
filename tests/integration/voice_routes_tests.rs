@@ -2,7 +2,6 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use base64::Engine as _;
 use serde_json::{json, Value};
 use tower::ServiceExt;
 
@@ -64,18 +63,48 @@ async fn create_room(app: &axum::Router, token: &str) -> String {
 }
 
 async fn upload_voice_message(app: &axum::Router, token: &str, room_id: Option<&str>) -> (StatusCode, Value) {
-    let content =
-        base64::engine::general_purpose::STANDARD.encode(include_bytes!("../../docker/media/test/message.mp3"));
+    // P0-2: 后端已切换为 multipart/form-data（提交 a80a0071），测试同步改为 multipart。
+    //
+    // The value declared in `Content-Type: boundary=` must be *exactly* the token
+    // that follows the `--` prefix on every delimiter line. The previous form
+    // declared `boundary` with its own four leading dashes and then tried to strip
+    // them back off for the header only — but `trim_start_matches("--")` removes
+    // *every* leading `--` group, not one, so the header advertised `TestBoundary…`
+    // while the body carried `------TestBoundary…`. multer never matched the first
+    // delimiter and the handler returned 400 before parsing a single field.
+    // Define the token once and use it verbatim in both places.
+    const BOUNDARY: &str = "----TestBoundary7MaYWYWzKZzvRP5j";
 
-    let mut payload = json!({
-        "content": content,
-        "content_type": "audio/mpeg",
-        "duration_ms": 1200
-    });
+    let audio_bytes: &[u8] = include_bytes!("../../docker/media/test/message.mp3");
+    let delimiter = format!("--{BOUNDARY}\r\n");
 
-    if let Some(room_id) = room_id {
-        payload["room_id"] = json!(room_id);
+    let mut body_bytes: Vec<u8> = Vec::new();
+
+    // file field
+    body_bytes.extend_from_slice(delimiter.as_bytes());
+    body_bytes.extend_from_slice(b"Content-Disposition: form-data; name=\"file\"; filename=\"test.mp3\"\r\n");
+    body_bytes.extend_from_slice(b"Content-Type: audio/mpeg\r\n\r\n");
+    body_bytes.extend_from_slice(audio_bytes);
+    body_bytes.extend_from_slice(b"\r\n");
+
+    // content_type field
+    body_bytes.extend_from_slice(delimiter.as_bytes());
+    body_bytes.extend_from_slice(b"Content-Disposition: form-data; name=\"content_type\"\r\n\r\naudio/mpeg\r\n");
+
+    // duration_ms field
+    body_bytes.extend_from_slice(delimiter.as_bytes());
+    body_bytes.extend_from_slice(b"Content-Disposition: form-data; name=\"duration_ms\"\r\n\r\n1200\r\n");
+
+    // room_id field (optional)
+    if let Some(rid) = room_id {
+        body_bytes.extend_from_slice(delimiter.as_bytes());
+        body_bytes.extend_from_slice(b"Content-Disposition: form-data; name=\"room_id\"\r\n\r\n");
+        body_bytes.extend_from_slice(rid.as_bytes());
+        body_bytes.extend_from_slice(b"\r\n");
     }
+
+    // End boundary
+    body_bytes.extend_from_slice(format!("--{BOUNDARY}--\r\n").as_bytes());
 
     let response = app
         .clone()
@@ -84,8 +113,8 @@ async fn upload_voice_message(app: &axum::Router, token: &str, room_id: Option<&
                 .uri("/_matrix/client/v3/voice/upload")
                 .method("POST")
                 .header("Authorization", format!("Bearer {}", token))
-                .header("Content-Type", "application/json")
-                .body(Body::from(payload.to_string()))
+                .header("Content-Type", format!("multipart/form-data; boundary={BOUNDARY}"))
+                .body(Body::from(body_bytes))
                 .unwrap(),
         )
         .await
