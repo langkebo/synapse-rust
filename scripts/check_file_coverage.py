@@ -29,11 +29,27 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 def load_baseline(path: pathlib.Path) -> Dict[str, float]:
-    """Load prior coverage baseline (file_path -> line_pct)."""
+    """Load prior coverage baseline (file_path -> line_pct).
+
+    A truncated / zero-byte / non-JSON baseline is treated as **no baseline**
+    rather than crashing: `json.load` used to raise `JSONDecodeError` straight out
+    of `main`, so the run died with a traceback and exit 1 (measured 2026-09-19)
+    and `require_baseline`'s "baseline is empty … re-bootstrap it" message was
+    unreachable for exactly the file shape that message describes. Treating it as
+    empty keeps the ratchet fail-closed (exit 2 with an actionable message) while
+    still letting `--save-baseline` overwrite the corrupt file.
+    """
     if not path.exists():
         return {}
-    with open(path) as f:
-        data = json.load(f)
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError) as error:
+        print(
+            f"warning: coverage baseline {path} is unreadable ({error}); treating it as empty",
+            file=sys.stderr,
+        )
+        return {}
     if isinstance(data, dict) and "files" in data:
         return {item["path"]: item["line_pct"] for item in data["files"]}
     if isinstance(data, dict):
@@ -324,6 +340,14 @@ def check_file_coverage(
         if cur is None:
             continue
 
+        # 与基线**同一精度**比较：基线是用 `round(v, 2)` 存的（见 save_baseline），
+        # 而这里的 cur 是未取整的原始比值。不取整就会出现"同一份覆盖率的
+        # 往返不对称"：66.67（存储）vs 66.666…（实时）⇒ `cur < prev` 成立，
+        # 每个百分比不能用两位小数精确表示的文件（2/3、1/3、1/7…）都会永远
+        # 报 `[TOUCHED] … < … (delta=-0.0%)`，棘轮一旦有基线就恒红
+        # （实测 2026-09-19）。取整到存储精度后往返无损，`delta` 也不再显示 -0.0。
+        cur = round(cur, 2)
+
         is_tdd = path in tdd_files
         is_core = not is_tdd and _matches_core_prefix(path, core_prefixes)
         is_new = prev is None
@@ -477,7 +501,31 @@ def main() -> int:
     # A ratchet without its baseline cannot enforce anything (see
     # `require_baseline`). Checked before the expensive per-file loop so the
     # failure is unambiguous.
-    baseline_problem = require_baseline(args.baseline, baseline)
+    #
+    # ⚠️ Bootstrap must be exempt, otherwise the gate deadlocks: `require_baseline`
+    # used to run unconditionally, so the very command it tells the operator to run
+    # (`--baseline X --save-baseline X` on a missing X) exited 2 **before**
+    # `save_baseline` could create X — and CI's bootstrap step
+    # (`ci.yml`, "Bootstrap coverage baseline") is exactly that command, so
+    # artifacts/coverage_baseline.json was never produced and the per-file ratchet
+    # never evaluated a single file (measured 2026-09-19).
+    #
+    # Bootstrap means: the same path is read and written, and it is missing or
+    # empty, so creating it *is* the operation. Reading one path while writing
+    # another still requires the read-side baseline (that is a real ratchet run).
+    bootstrapping = (
+        args.save_baseline is not None
+        and pathlib.Path(args.save_baseline) == pathlib.Path(args.baseline)
+        and not baseline
+    )
+    if bootstrapping:
+        print(
+            "==> Bootstrap: --baseline and --save-baseline are the same path and it has no "
+            "entries yet; creating the baseline snapshot (the ratchet comparison is skipped)."
+        )
+        baseline_problem = None
+    else:
+        baseline_problem = require_baseline(args.baseline, baseline)
     if baseline_problem:
         print(f"Coverage ratchet cannot run: {baseline_problem}", file=sys.stderr)
         return 2
