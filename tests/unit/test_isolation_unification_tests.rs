@@ -85,7 +85,15 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // Task 7 按本守卫说明把常量更新为新报告的 `left:` 值 `45483ffa0a28b5d5`；旧值
 // `4b492b815f02197b` 对应的 `test_isolation_template_4b492b815f02197b` 会在下次
 // 模板重建时被清理。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "45483ffa0a28b5d5";
+// 2026-09-19（`98a90a58`，E2EE 优化批次）：给 `megolm_key_shares` 加
+// `recipient_user_id`、主键改三元组并新增 `idx_megolm_key_shares_recipient` ——
+// 基线内容变化，但该提交同样没同步本常量，于是 `main` 上的 `--test unit` 是红的
+// （复现：left=b6a8b06fb13d22f9 / right=45483ffa0a28b5d5）。
+// 这里按本守卫自身的说明更新为新报告的 `left:` 值 `b6a8b06fb13d22f9`。
+// 纪律（已经踩过三次：`d77d1fcf`、本次、以及 Task 8 期间的工作树状态）：
+// **改 `migrations/` 后必须跑一次本守卫**，哪怕只改注释 —— 模板指纹按文件字节哈希，
+// 内容一变常量就必须同步，否则每个新库都会铸出第二份模板。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "b6a8b06fb13d22f9";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))
