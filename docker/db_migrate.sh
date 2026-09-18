@@ -4,7 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-MIGRATIONS_DIR="$PROJECT_ROOT/migrations"
+MIGRATIONS_DIR="${MIGRATIONS_DIR:-$PROJECT_ROOT/migrations}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -360,11 +360,41 @@ is_superseded_by_latest_baseline() {
     return 1
 }
 
+# Content checksum of a migration file.
+#
+# `schema_migrations.checksum` used to store `md5(filename)` — a constant per file,
+# so it could never tell that a baseline had been *edited*. That matters because this
+# repo's convention is to fold schema changes directly into
+# `00000000_unified_schema_v12.sql`; with a filename hash the runner saw "same
+# version, already applied" and silently skipped every such change (a deployed
+# database could not be upgraded by `migrate` at all).
+#
+# `md5sum` (coreutils) and `md5` (BSD/macOS) differ in flags, so try both.
+file_content_checksum() {
+    local file="$1"
+    if command -v md5sum >/dev/null 2>&1; then
+        md5sum "$file" | awk '{print $1}'
+    elif command -v md5 >/dev/null 2>&1; then
+        md5 -q "$file"
+    else
+        cksum "$file" | awk '{print $1}'
+    fi
+}
+
+# Checksum recorded for `version`, or empty when the row/column is absent.
+recorded_migration_checksum() {
+    local version="$1"
+    psql_db -v ON_ERROR_STOP=1 -v ver="$version" -tA <<'SQL' 2>/dev/null | tr -d '[:space:]'
+SELECT COALESCE(checksum, '') FROM schema_migrations WHERE version = :'ver';
+SQL
+}
+
 record_migration() {
     local version="$1"
     local filename="$2"
     local duration_ms="$3"
     local success="$4"
+    local checksum="${5:-}"
 
     if ! [[ "$duration_ms" =~ ^[0-9]+$ ]]; then duration_ms=0; fi
     if [ "$success" != "TRUE" ] && [ "$success" != "FALSE" ]; then success="FALSE"; fi
@@ -374,12 +404,13 @@ record_migration() {
         -v fname="$filename" \
         -v dur="$duration_ms" \
         -v ok="$success" \
+        -v cksum="$checksum" \
         <<'SQL' >/dev/null
 INSERT INTO schema_migrations (version, name, checksum, applied_ts, execution_time_ms, is_success, description, executed_at)
 VALUES (
     :'ver',
     :'fname',
-    md5(:'fname'),
+    NULLIF(:'cksum', ''),
     EXTRACT(EPOCH FROM NOW()) * 1000,
     :'dur'::BIGINT,
     :'ok'::BOOLEAN,
@@ -412,6 +443,8 @@ apply_sql_file() {
     local version="${filename%.sql}"
     local started_at
     started_at="$(now_ms)"
+    local checksum
+    checksum="$(file_content_checksum "$file")"
 
     log_info "应用迁移: $filename"
 
@@ -419,7 +452,7 @@ apply_sql_file() {
         psql_db <"$file" >/dev/null 2>&1 || true
         local finished_at
         finished_at="$(now_ms)"
-        record_migration "$version" "$filename" "$((finished_at - started_at))" TRUE
+        record_migration "$version" "$filename" "$((finished_at - started_at))" TRUE "$checksum"
         log_success "迁移完成 (容错模式): $filename"
         return 0
     fi
@@ -427,7 +460,7 @@ apply_sql_file() {
     if psql_db -v ON_ERROR_STOP=1 <"$file" >/dev/null; then
         local finished_at
         finished_at="$(now_ms)"
-        record_migration "$version" "$filename" "$((finished_at - started_at))" TRUE
+        record_migration "$version" "$filename" "$((finished_at - started_at))" TRUE "$checksum"
         log_success "迁移完成: $filename"
         return 0
     fi
@@ -435,7 +468,7 @@ apply_sql_file() {
     local finished_at
     finished_at="$(now_ms)"
     psql_db -c "ABORT;" >/dev/null 2>&1 || true
-    record_migration "$version" "$filename" "$((finished_at - started_at))" FALSE || true
+    record_migration "$version" "$filename" "$((finished_at - started_at))" FALSE "$checksum" || true
     log_error "迁移失败: $filename"
     return 1
 }
@@ -455,8 +488,21 @@ init_database() {
     baseline_name="$(basename "$baseline_file")"
     local baseline_version="${baseline_name%.sql}"
 
+    local baseline_checksum
+    baseline_checksum="$(file_content_checksum "$baseline_file")"
+
     if is_migration_applied "$baseline_version"; then
-        log_info "基线迁移已记录: $baseline_name"
+        local recorded_checksum
+        recorded_checksum="$(recorded_migration_checksum "$baseline_version")"
+        if [ "$recorded_checksum" = "$baseline_checksum" ]; then
+            log_info "基线迁移已记录且内容未变: $baseline_name"
+            return 0
+        fi
+        # 本仓库约定：schema 变更直接折入基线（没有时间戳增量文件），所以内容变化
+        # 就是"有待应用的变更"。基线是幂等的（只有 IF NOT EXISTS / DROP IF EXISTS
+        # 与一次幂等的去重 DELETE），因此以容错模式重放。
+        log_warning "基线内容已变化，重放基线以应用变更: $baseline_name (记录: ${recorded_checksum:-<空>} / 当前: $baseline_checksum)"
+        apply_sql_file "$baseline_file" "true"
         return 0
     fi
 

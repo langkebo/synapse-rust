@@ -187,6 +187,25 @@ table_exists() {
     )" 2>/dev/null | grep -q '^t$'
 }
 
+# Content checksum of a migration file (see docker/db_migrate.sh for the rationale:
+# `md5(filename)` is a constant per file and cannot detect an edited baseline, which
+# is exactly how schema changes are shipped in this repo).
+file_content_checksum() {
+    file="$1"
+    if command -v md5sum >/dev/null 2>&1; then
+        md5sum "$file" | awk '{print $1}'
+    elif command -v md5 >/dev/null 2>&1; then
+        md5 -q "$file"
+    else
+        cksum "$file" | awk '{print $1}'
+    fi
+}
+
+recorded_migration_checksum() {
+    version="$1"
+    psql_db -tAc "SELECT COALESCE(checksum, '') FROM schema_migrations WHERE version = '$version'" 2>/dev/null | tr -d '[:space:]'
+}
+
 is_migration_applied() {
     version="$1"
     psql_db -tAc "SELECT COALESCE(bool_and(is_success), FALSE) FROM schema_migrations WHERE version = '$version'" 2>/dev/null | grep -q '^t$'
@@ -199,6 +218,7 @@ apply_sql_file() {
     version="${filename%.sql}"
     started_at="$(date +%s)"
     file_size="$(wc -c <"$file" 2>/dev/null | tr -d '[:space:]')"
+    file_checksum="$(file_content_checksum "$file")"
 
     log INFO "应用迁移: $filename (size=${file_size:-unknown}B)"
     if psql_db <"$file" >/dev/null; then
@@ -209,7 +229,7 @@ apply_sql_file() {
             VALUES (
                 '$version',
                 '$filename',
-                md5('$filename'),
+                NULLIF('$file_checksum', ''),
                 EXTRACT(EPOCH FROM NOW()) * 1000,
                 $duration_ms,
                 TRUE,
@@ -237,7 +257,7 @@ apply_sql_file() {
         VALUES (
             '$version',
             '$filename',
-            md5('$filename'),
+            NULLIF('$file_checksum', ''),
             EXTRACT(EPOCH FROM NOW()) * 1000,
             $duration_ms,
             FALSE,
@@ -276,8 +296,17 @@ init_database() {
 
     baseline_name="$(basename "$baseline_file")"
     baseline_version="${baseline_name%.sql}"
+    baseline_checksum="$(file_content_checksum "$baseline_file")"
     if is_migration_applied "$baseline_version"; then
-        log INFO "基线迁移已记录: $baseline_name"
+        recorded_checksum="$(recorded_migration_checksum "$baseline_version")"
+        if [ "$recorded_checksum" = "$baseline_checksum" ]; then
+            log INFO "基线迁移已记录且内容未变: $baseline_name"
+            return 0
+        fi
+        # 约定：schema 变更直接折入基线，因此内容变化即"有待应用变更"。
+        # 基线幂等（IF NOT EXISTS / DROP IF EXISTS + 一次幂等去重 DELETE），重放安全。
+        log WARNING "基线内容已变化，重放基线以应用变更: $baseline_name (记录: ${recorded_checksum:-<空>} / 当前: $baseline_checksum)"
+        apply_sql_file "$baseline_file"
         return 0
     fi
 
