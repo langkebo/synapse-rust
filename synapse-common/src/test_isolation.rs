@@ -2429,6 +2429,12 @@ CREATE TABLE IF NOT EXISTS unify_short_b (id bigint PRIMARY KEY);
     /// (legacy template) as "potentially in use", backfills a fresh timestamp,
     /// and spares it — preventing accidental deletion of a template another
     /// session may still be cloning from.
+    ///
+    /// The zero-row template must be a **candidate**: prune deliberately skips the
+    /// `keep` schema, so the backfill only ever happens for the *other* templates.
+    /// This test used to delete the marker rows of `keep` itself and assert they came
+    /// back, which prune cannot do — it passed only when another test happened to
+    /// rebuild that same baseline concurrently, and failed deterministically otherwise.
     #[tokio::test]
     async fn prune_backfills_legacy_zero_row_marker_and_spares_it() {
         let Some(url) = test_database_url() else {
@@ -2438,7 +2444,7 @@ CREATE TABLE IF NOT EXISTS unify_short_b (id bigint PRIMARY KEY);
         let template = template_schema_name(baseline);
         let admin = PgPoolOptions::new().max_connections(1).connect(&url).await.expect("admin pool");
 
-        // Build a complete template first.
+        // A complete template, which prune is told to keep.
         let _ = ensure_template_schema(&url, baseline).await.expect("build template");
         let has_rows: i64 =
             sqlx::query_scalar(&format!("SELECT count(*) FROM \"{template}\".\"{TEMPLATE_READY_TABLE}\""))
@@ -2447,28 +2453,32 @@ CREATE TABLE IF NOT EXISTS unify_short_b (id bigint PRIMARY KEY);
                 .expect("count marker rows after build");
         assert!(has_rows > 0, "a freshly built template must have at least one marker row, got {has_rows}");
 
-        // Simulate a legacy template: DELETE all rows from the marker table.
-        let deleted: u64 = sqlx::query(&format!("DELETE FROM \"{template}\".\"{TEMPLATE_READY_TABLE}\""))
-            .execute(&admin)
-            .await
-            .expect("delete marker rows")
-            .rows_affected();
-        assert!(deleted > 0, "must have deleted at least one row, got {deleted}");
+        // A legacy candidate: the schema naming pattern prune looks for, with an
+        // existing but empty marker table (`built_at` is the only column).
+        let legacy = format!("test_isolation_template_{:016x}", 0xfeed_face_dead_beefu64);
+        sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{legacy}" CASCADE"#)).execute(&admin).await.expect("cleanup");
+        sqlx::query(&format!(r#"CREATE SCHEMA "{legacy}""#)).execute(&admin).await.expect("create legacy schema");
+        sqlx::query(&format!(
+            r#"CREATE TABLE "{legacy}"."{TEMPLATE_READY_TABLE}" (built_at timestamptz NOT NULL DEFAULT now())"#
+        ))
+        .execute(&admin)
+        .await
+        .expect("create legacy marker table");
 
-        // Now run prune while keeping the same template as the "protected" one.
-        // The prune function should detect row_count==0, backfill a row, and spare it.
         let dropped = prune_stale_isolation_templates(&admin, &template).await.expect("prune");
-        assert!(!dropped.iter().any(|s| s == &template), "the legacy template must not be dropped, got {dropped:?}");
+        assert!(!dropped.iter().any(|s| s == &legacy), "the zero-row legacy candidate must be spared, got {dropped:?}");
+        assert!(!dropped.iter().any(|s| s == &template), "the protected template must never be dropped");
 
-        // Verify it was backfilled.
+        // The legacy candidate must have been backfilled (starting its age clock).
         let backfilled: i64 =
-            sqlx::query_scalar(&format!("SELECT count(*) FROM \"{template}\".\"{TEMPLATE_READY_TABLE}\""))
+            sqlx::query_scalar(&format!("SELECT count(*) FROM \"{legacy}\".\"{TEMPLATE_READY_TABLE}\""))
                 .fetch_one(&admin)
                 .await
                 .expect("count marker rows after prune");
         assert!(backfilled > 0, "prune must have backfilled a marker row, got {backfilled}");
 
         // Cleanup
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{legacy}" CASCADE"#)).execute(&admin).await;
         let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{template}" CASCADE"#)).execute(&admin).await;
     }
 }
