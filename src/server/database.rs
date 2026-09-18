@@ -143,12 +143,16 @@ pub async fn build_database_pool(config: &Config) -> Result<PgPool, Box<dyn std:
                              DATABASE_URL=\"postgresql://USER:PASS@HOST:PORT/DBNAME\" \\\n   \
                              bash docker/db_migrate.sh migrate\n   \
                              If you understand the risk and want to start anyway, set \
-                             SYNAPSE_SKIP_SCHEMA_CHECK=true (NOT recommended for production)."
+                             {} (NOT recommended for production).",
+                            skip_schema_check_hint()
                         );
-                        return Err("Database schema validation failed: missing critical tables or columns. \
+                        return Err(format!(
+                            "Database schema validation failed: missing critical tables or columns. \
                              Run `docker/db_migrate.sh migrate` against the configured database \
-                             (or set SYNAPSE_SKIP_SCHEMA_CHECK=true to bypass this check)."
-                            .into());
+                             (or set {} to bypass this check).",
+                            skip_schema_check_hint()
+                        )
+                        .into());
                     }
                 }
                 if !result.warnings.is_empty() {
@@ -162,8 +166,9 @@ pub async fn build_database_pool(config: &Config) -> Result<PgPool, Box<dyn std:
                 return Err(format!(
                     "Database schema health check failed to execute: {e}. \
                      This may indicate a connectivity issue or a corrupt migration state. \
-                     Fix the database connection or set SYNAPSE_SKIP_SCHEMA_CHECK=true \
-                     to bypass this check (NOT recommended for production)."
+                     Fix the database connection or set {} \
+                     to bypass this check (NOT recommended for production).",
+                    skip_schema_check_hint()
                 )
                 .into());
             }
@@ -204,6 +209,19 @@ fn schema_check_skip_requested(value: Option<&str>) -> bool {
     value.is_some_and(|v| v.trim().eq_ignore_ascii_case(SKIP_SCHEMA_CHECK_SENTINEL))
 }
 
+/// Operator-facing instruction for enabling the bypass.
+///
+/// Derived from [`SKIP_SCHEMA_CHECK_ENV`] and [`SKIP_SCHEMA_CHECK_SENTINEL`] rather
+/// than written as a literal. The three startup error messages used to spell out
+/// `SYNAPSE_SKIP_SCHEMA_CHECK=true` — which is exactly the value
+/// [`schema_check_skip_requested`] now *rejects*, so they advised operators to set a
+/// variable that leaves the schema check running. Building the hint from the two
+/// constants keeps the message and the check from drifting again;
+/// `schema_check_skip_hint_names_an_accepted_value` pins that.
+fn skip_schema_check_hint() -> String {
+    format!("{SKIP_SCHEMA_CHECK_ENV}={SKIP_SCHEMA_CHECK_SENTINEL}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,5 +240,15 @@ mod tests {
         for value in [None, Some(""), Some("   "), Some("true"), Some("TRUE"), Some("1"), Some("yes"), Some("skip")] {
             assert!(!schema_check_skip_requested(value), "{value:?} must NOT skip the schema health check");
         }
+    }
+
+    #[test]
+    fn schema_check_skip_hint_names_an_accepted_value() {
+        let hint = skip_schema_check_hint();
+        let (name, value) = hint.split_once('=').expect("hint must be NAME=VALUE");
+        assert_eq!(name, SKIP_SCHEMA_CHECK_ENV);
+        // If the hint ever goes back to naming `true`, this fails: the startup error
+        // would tell an operator to set a value that leaves the schema check running.
+        assert!(schema_check_skip_requested(Some(value)), "hint must name a value the bypass accepts: {hint}");
     }
 }
