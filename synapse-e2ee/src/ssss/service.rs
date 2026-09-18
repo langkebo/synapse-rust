@@ -21,7 +21,8 @@ const SSSS_KEY_LENGTH: usize = 32;
 const SSSS_IV_LENGTH: usize = 12;
 
 /// HKDF-SHA256 info parameter for SSSS key derivation (domain separation).
-const SSSS_HKDF_INFO: &[u8] = b"matrix:ssss:curve25519-aes-sha2";#[derive(Clone)]
+const SSSS_HKDF_INFO: &[u8] = b"matrix:ssss:curve25519-aes-sha2";
+#[derive(Clone)]
 /// The `SecretStorageService` type.
 pub struct SecretStorageService {
     storage: SecretStorage,

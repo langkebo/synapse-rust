@@ -101,7 +101,8 @@ impl OlmSessionManager {
     ) -> Result<OlmEncryptedMessage, ApiError> {
         let session_config = SessionConfig::default();
 
-        let mut session = account.create_outbound_session(session_config, their_identity_key, their_one_time_key)
+        let mut session = account
+            .create_outbound_session(session_config, their_identity_key, their_one_time_key)
             .map_err(|e| ApiError::internal(format!("Failed to create outbound session: {e}")))?;
 
         let session_id = session.session_id();
@@ -172,7 +173,9 @@ impl OlmSessionManager {
             .get_mut(session_id)
             .ok_or_else(|| ApiError::not_found(format!("Session not found: {session_id}")))?;
 
-        let message = entry.session.encrypt(plaintext.as_bytes())
+        let message = entry
+            .session
+            .encrypt(plaintext.as_bytes())
             .map_err(|e| ApiError::internal(format!("Failed to encrypt: {e}")))?;
 
         entry.dirty = true;

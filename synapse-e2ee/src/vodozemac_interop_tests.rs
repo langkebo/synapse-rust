@@ -142,9 +142,9 @@ fn olm_session_roundtrip() {
 
     let bob_identity = bob.identity_keys().curve25519;
 
-    let mut alice_session =
-        alice.create_outbound_session(SessionConfig::default(), bob_identity, bob_one_time)
-            .expect("alice creates outbound session");
+    let mut alice_session = alice
+        .create_outbound_session(SessionConfig::default(), bob_identity, bob_one_time)
+        .expect("alice creates outbound session");
     let plaintext = b"hello bob";
     let pre_key = match alice_session.encrypt(plaintext).expect("alice encrypts") {
         vodozemac::olm::OlmMessage::PreKey(m) => m,
@@ -152,7 +152,8 @@ fn olm_session_roundtrip() {
     };
 
     let alice_identity = alice.identity_keys().curve25519;
-    let inbound = bob.create_inbound_session(SessionConfig::default(), alice_identity, &pre_key)
+    let inbound = bob
+        .create_inbound_session(SessionConfig::default(), alice_identity, &pre_key)
         .expect("bob creates session from inbound");
     assert_eq!(inbound.plaintext, plaintext, "pre-key message plaintext matches");
     let mut bob_session = inbound.session;
@@ -185,20 +186,20 @@ fn olm_multi_session_independent_decryption() {
     let alice_identity = alice.identity_keys().curve25519;
 
     // Build two outbound sessions, each consuming a different one-time key.
-    let mut outbound_a =
-        alice.create_outbound_session(SessionConfig::default(), bob_identity, bob_otks[0])
-            .expect("alice creates outbound session A");
-    let mut outbound_b =
-        alice.create_outbound_session(SessionConfig::default(), bob_identity, bob_otks[1])
-            .expect("alice creates outbound session B");
+    let mut outbound_a = alice
+        .create_outbound_session(SessionConfig::default(), bob_identity, bob_otks[0])
+        .expect("alice creates outbound session A");
+    let mut outbound_b = alice
+        .create_outbound_session(SessionConfig::default(), bob_identity, bob_otks[1])
+        .expect("alice creates outbound session B");
 
     // Encrypt on session A — must be a pre-key message.
     let msg_a = match outbound_a.encrypt(b"stream A").expect("alice encrypts A") {
         vodozemac::olm::OlmMessage::PreKey(m) => m,
         vodozemac::olm::OlmMessage::Normal(_) => panic!("session A first message should be a pre-key"),
     };
-    let inbound_a = bob.create_inbound_session(SessionConfig::default(), alice_identity, &msg_a)
-        .expect("session A established");
+    let inbound_a =
+        bob.create_inbound_session(SessionConfig::default(), alice_identity, &msg_a).expect("session A established");
     assert_eq!(inbound_a.plaintext, b"stream A");
     let mut session_a = inbound_a.session;
 
@@ -208,8 +209,8 @@ fn olm_multi_session_independent_decryption() {
         vodozemac::olm::OlmMessage::PreKey(m) => m,
         vodozemac::olm::OlmMessage::Normal(_) => panic!("session B first message should be a pre-key"),
     };
-    let inbound_b = bob.create_inbound_session(SessionConfig::default(), alice_identity, &msg_b)
-        .expect("session B established");
+    let inbound_b =
+        bob.create_inbound_session(SessionConfig::default(), alice_identity, &msg_b).expect("session B established");
     assert_eq!(inbound_b.plaintext, b"stream B");
     let _session_b = inbound_b.session;
 
@@ -243,9 +244,9 @@ fn olm_message_wire_roundtrip() {
     let bob_identity = bob.identity_keys().curve25519;
     let alice_identity = alice.identity_keys().curve25519;
 
-    let mut alice_session =
-        alice.create_outbound_session(SessionConfig::default(), bob_identity, bob_one_time)
-            .expect("alice creates outbound session");
+    let mut alice_session = alice
+        .create_outbound_session(SessionConfig::default(), bob_identity, bob_one_time)
+        .expect("alice creates outbound session");
     let original = match alice_session.encrypt(b"wire test").expect("alice encrypts") {
         vodozemac::olm::OlmMessage::PreKey(m) => m,
         vodozemac::olm::OlmMessage::Normal(_) => panic!("expected pre-key"),
@@ -258,8 +259,8 @@ fn olm_message_wire_roundtrip() {
     // Parse it back on the receiver side.
     let parsed: vodozemac::olm::PreKeyMessage =
         vodozemac::olm::PreKeyMessage::from_bytes(&wire_bytes).expect("pre-key message parses");
-    let inbound = bob.create_inbound_session(SessionConfig::default(), alice_identity, &parsed)
-        .expect("inbound session");
+    let inbound =
+        bob.create_inbound_session(SessionConfig::default(), alice_identity, &parsed).expect("inbound session");
     assert_eq!(inbound.plaintext, b"wire test");
 }
 

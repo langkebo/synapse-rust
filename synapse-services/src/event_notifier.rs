@@ -356,12 +356,12 @@ impl EventNotifier {
                     }
                     Err(e) => {
                         warn!("EventNotifier subscription error: {e}, reconnecting in {reconnect_backoff_ms}ms...");
-                        
+
                         // S-6: Record subscriber failure in Prometheus
                         if let Some(ref counter) = subscriber_failures_total {
                             counter.inc();
                         }
-                        
+
                         // Race the backoff sleep against shutdown so a SIGTERM
                         // arriving mid-retry exits immediately. The backoff is
                         // configured via [`EventNotifier::with_reconnect_backoff_ms`].

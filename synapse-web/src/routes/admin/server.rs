@@ -295,9 +295,7 @@ pub async fn get_rate_limit_status(
 ) -> Result<Json<Value>, ApiError> {
     use synapse_common::RateLimitBackend;
 
-    let file_config = ctx.rate_limit_config_manager
-        .as_ref()
-        .map(|manager| manager.get_config());
+    let file_config = ctx.rate_limit_config_manager.as_ref().map(|manager| manager.get_config());
     let rl_config = &ctx.config.rate_limit;
 
     let (enabled, backend, active_rules, exempt_paths) = if let Some(fc) = &file_config {

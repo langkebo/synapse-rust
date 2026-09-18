@@ -356,7 +356,8 @@ impl ServiceContainer {
             match redis_cfg.create_pool(Some(deadpool_redis::Runtime::Tokio1)) {
                 Ok(pool) => {
                     // S-6: Wire the Prometheus counter for subscriber failures
-                    let subscriber_failure_counter = infra.server_metrics.event_notifier_subscriber_failures_total.clone();
+                    let subscriber_failure_counter =
+                        infra.server_metrics.event_notifier_subscriber_failures_total.clone();
                     let notifier = crate::event_notifier::EventNotifier::new()
                         .with_redis(pool, redis_url)
                         .with_metrics(subscriber_failure_counter)
