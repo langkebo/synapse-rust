@@ -13,16 +13,33 @@
 >   原 `20260904*_schema_p*.sql` 审计迁移已删除，其对象已**全部**折入 baseline 尾部
 >   的"完整性约束与性能索引折入块"）
 
-> **覆盖率说明**：v12 baseline 中共 **369** 条
-> `CREATE (UNIQUE) INDEX IF NOT EXISTS` 语句，**369** 个不同索引名，**0** 个重复名。
-> （2026-09-14 审计时曾为 367 条 / 359 个不同名 / 6 个名重复定义，该缺陷已于
-> 2026-09-16 去重时清零：删掉 3 份重复的折入块副本与主体内 5 条重复索引语句，
-> 同时补齐了原先只在尾部出现的 10 个索引。守卫见
-> `tests/unit/migration_consistency_tests.rs::baseline_declares_each_object_exactly_once`。）
-> 本文档精选 97 个有代表性的 partial / composite / 覆盖 / GIN 索引作重点记录，
-> 覆盖核心查询路径。完整索引清单请直接查看 `00000000_unified_schema_v12.sql`
-> 中的 `CREATE INDEX` 语句，或在数据库中执行 `SELECT indexname FROM pg_indexes
-> WHERE schemaname = 'public'`。
+> **覆盖率说明**：v12 baseline 中共 **358** 条
+> `CREATE (UNIQUE) INDEX [CONCURRENTLY] IF NOT EXISTS` 语句，**358** 个不同索引名，
+> **0** 个重复名。守卫见
+> `tests/unit/migration_consistency_tests.rs::baseline_declares_each_object_exactly_once`。
+> 本文档（两张表去重后）共记录 **139** 个索引名，覆盖核心查询路径。
+> 完整索引清单请直接查看 `00000000_unified_schema_v12.sql` 中的 `CREATE INDEX`
+> 语句，或在数据库中执行 `SELECT indexname FROM pg_indexes WHERE schemaname = 'public'`。
+>
+> **2026-09-18 事实核对（Task 5）**：本文档原先的"369 条 / 369 个不同名"与"97 个"
+> 均为**过期读数**，已按实测更正为上列数字。核对方法（可复现）：
+> 把 baseline 应用进克隆 schema，再把本文档表格中的索引名与该 schema 的
+> `pg_indexes` 做差集，**逐条**以目录为准修正。本次修正了 **11 个本文档有、
+> 目录无**的索引名（原表把"不存在的索引"当成在建对象记录），清单与依据见
+> `docs/audit/DB_REVIEW_2026-09-17.md` §14.4。判据：文档中的每个索引名都必须在
+> `pg_indexes` 里存在；被 baseline 主动删除的（如 v11-10 块删掉的 `uq_*`）
+> 必须标注为"已删除"，不得继续以"在建索引"出现。
+>
+> 复现"358/358"的命令（先剥掉 `--` 注释行，再匹配
+> `CREATE\s+(UNIQUE\s+)?INDEX\s+(CONCURRENTLY\s+)?IF\s+NOT\s+EXISTS\s+<name>`）：
+> ```bash
+> python3 -c "
+> import re
+> L=[l for l in open('migrations/00000000_unified_schema_v12.sql') if not l.strip().startswith('--')]
+> n=re.findall(r'CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?IF\s+NOT\s+EXISTS\s+([A-Za-z0-9_]+)','\n'.join(L),re.I)
+> print(len(n), len(set(n)))"   # → 358 358
+> ```
+> （裸用 `grep -c` 会多算 1 行**注释续行**得 359，勿用。）
 
 ---
 
@@ -55,7 +72,7 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | events | idx_events_friend_list | room_id, origin_server_ts DESC | event_type = 'm.friends.list' AND state_key = '' | 查找好友列表事件 |
 | room_summaries | idx_room_summaries_space | is_space | is_space = TRUE | 查找 Space 类型的房间摘要 |
 | room_directory | idx_room_directory_public | is_public | is_public = TRUE | 查找公开房间目录 |
-| room_invites | uq_room_invites_invite_code | invite_code (UNIQUE) | invite_code IS NOT NULL | 邀请码唯一约束（排除空值） |
+| ~~room_invites~~ | ~~uq_room_invites_invite_code~~ | ~~invite_code (UNIQUE)~~ | — | **已删除**：baseline 的 v11-10 去重块（`DO $$` 循环删除非约束 `uq_*`）在建后即删；目录中不存在 |
 | room_retention_policies | idx_room_retention_policies_server_default | is_server_default | is_server_default = TRUE | 查找服务器默认保留策略 |
 | device_keys | idx_device_keys_fallback | user_id, device_id | is_fallback = TRUE | 查找回退设备密钥 |
 | megolm_sessions | idx_megolm_sessions_pickle_format | pickle_format | pickle_format = 'legacy' | 查找旧格式 Megolm 会话（懒迁移） |
@@ -93,12 +110,12 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | application_services | idx_application_services_enabled | is_enabled | is_enabled = TRUE | 查找启用的应用服务 |
 | application_service_transactions | idx_application_service_transactions_processed | is_processed | is_processed = FALSE | 查找未处理的应用服务事务 |
 | presence | idx_presence_last_active_ts | last_active_ts | last_active_ts IS NOT NULL | 查找有活跃时间的在线状态 |
-| rendezvous_sessions | idx_rendezvous_sessions_expires | expires_at | expires_at IS NOT NULL | 查找有过期时间的 Rendezvous 会话 |
-| qr_login_codes | idx_qr_login_codes_expires | expires_at | expires_at IS NOT NULL | 查找有过期时间的二维码登录码 |
+| rendezvous_session | idx_rendezvous_session_expires | expires_at | expires_at IS NOT NULL | 查找有过期时间的 Rendezvous 会话（原表名误写为 `rendezvous_sessions`，该表不存在） |
+| qr_login_transactions | idx_qr_login_transactions_expires | expires_at | expires_at IS NOT NULL | 查找有过期时间的二维码登录码（原表名误写为 `qr_login_codes`，该表不存在） |
 | user_locks | idx_user_locks_user_active | user_id, is_active (UNIQUE) | is_active = TRUE | 用户活跃锁定唯一约束 |
 | user_locks | idx_user_locks_active | is_active, created_ts DESC | is_active = TRUE | 查找活跃锁定记录 |
 | rooms_summaries_mv | idx_rooms_summaries_mv_public_activity | is_public, joined_members DESC, last_activity_ts DESC | is_public = TRUE | 物化视图：公开房间排序 |
-| key_rotation_pending | idx_key_rotation_pending_unprocessed | user_id | processed = FALSE | 查找未处理的密钥轮换任务（Rust 代码定义） |
+| ~~key_rotation_pending~~ | ~~idx_key_rotation_pending_unprocessed~~ | — | — | **不存在**：baseline 中无此索引，全部 Rust 源码里也无创建处；`key_rotation_pending` 只有 `key_rotation_pending_pkey(room_id, triggered_by_user_id)` 与 `idx_key_rotation_pending_room(room_id)` |
 
 ---
 
@@ -129,7 +146,7 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | events | idx_events_room_stream_ordering_not_redacted | room_id, stream_ordering DESC | 否 | 未删除事件流序号查询（Partial） |
 | events | idx_events_friend_room | sender, room_id, origin_server_ts DESC | 否 | 好友房间事件查询（Partial） |
 | events | idx_events_friend_list | room_id, origin_server_ts DESC | 否 | 好友列表事件查询（Partial） |
-| events | idx_events_prev_event_id | prev_event_id | 否 | 按前驱事件查找事件边（P1 审计新增，`20260904010000`） |
+| ~~events~~ | ~~idx_events_prev_event_id~~ | — | — | **不存在**：`events` 无 `prev_event_id` 列（只有 `prev_events` / `prev_state_events`）；`20260904010000` 实际建的是下一行的 `event_edges.idx_event_edges_prev_room` |
 | event_edges | idx_event_edges_prev_room | prev_event_id, event_id | 否 | 按前驱事件+事件查找房间路径（P1 审计新增，`20260904010000`） |
 | event_relations | idx_event_relations_unique | event_id, relation_type, sender | UNIQUE | 事件关系唯一约束 |
 | event_relations | idx_event_relations_room_event | room_id, relates_to_event_id, relation_type | 否 | 按房间和关联事件查询关系 |
@@ -181,17 +198,37 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | sliding_sync_tokens | idx_sliding_sync_tokens_user | user_id, device_id | 否 | 按用户和设备查询同步 Token |
 | sliding_sync_rooms | idx_sliding_sync_rooms_unique | user_id, device_id, room_id, COALESCE(conn_id, '') | UNIQUE | Sliding Sync 房间唯一约束 |
 | sliding_sync_rooms | idx_sliding_sync_rooms_user_device | user_id, device_id | 否 | 按用户和设备查询同步房间 |
-| to_device_messages | idx_to_device_recipient | recipient_user_id, recipient_device_id | 否 | 按收件人和设备查询 To-Device 消息 |
-| to_device_messages | idx_to_device_stream | recipient_user_id, stream_id | 否 | 按收件人和流 ID 查询 To-Device 消息 |
-| room_account_data | idx_room_account_data_user_room | user_id, room_id | 否 | 按用户和房间查询账户数据 |
-| read_markers | idx_read_markers_user_room | user_id, room_id | 否 | 按用户和房间查询已读标记 |
-| lazy_loaded_members | idx_lazy_loaded_members_user_room | user_id, room_id | 否 | 按用户和房间查询懒加载成员 |
-| thread_subscriptions | idx_thread_subscriptions_room_thread | room_id, thread_id | 否 | 按房间和线程查询订阅 |
+| to_device_messages | idx_to_device_ordered | recipient_user_id, recipient_device_id, stream_id | 否 | 按收件人+设备有序取消息；取代了文档中从未存在的 `idx_to_device_recipient` / `idx_to_device_stream`（baseline 注释仍引用旧名，见 DB_REVIEW §14.5） |
+| room_account_data | uq_room_account_data_user_room_type | user_id, room_id, data_type | UNIQUE | 按用户+房间查询账户数据（原文档名 `idx_room_account_data_user_room` 不存在） |
+| read_markers | idx_read_markers_room_user | room_id, user_id | 否 | 按房间+用户查询已读标记（原文档名 `idx_read_markers_user_room` 不存在；唯一性由 `uq_read_markers_room_user_type` 提供） |
+| lazy_loaded_members | pk_lazy_loaded_members | user_id, device_id, room_id, member_user_id | UNIQUE | 懒加载成员主键（原文档名 `idx_lazy_loaded_members_user_room` 不存在） |
+| thread_subscriptions | uq_thread_subscriptions | room_id, thread_id, user_id | UNIQUE | 按房间+线程查询订阅（原文档名 `idx_thread_subscriptions_room_thread` 不存在） |
 | thread_read_receipts | idx_thread_read_receipts_user_room | user_id, room_id | 否 | 按用户和房间查询线程已读回执 |
 | quarantined_media_changes | idx_quarantined_media_changes_media | media_id, server_name | 否 | 按媒体和服务器查询隔离变更 |
 | rooms_summaries_mv | idx_rooms_summaries_mv_creator | creator, created_ts DESC | 否 | 物化视图：按创建者查询 |
 | rooms_summaries_mv | idx_rooms_summaries_mv_members | joined_members DESC, last_activity_ts DESC | 否 | 物化视图：按成员数排序 |
 | public_room_directory | idx_public_room_directory_members | joined_members DESC, last_event_ts DESC | 否 | 物化视图：公开房间按成员排序 |
+
+> **2026-09-18 核对：`docs/audit/DB_REVIEW_2026-09-17.md` §2 所列 8 个"前缀冗余"索引的当前状态。**
+> 逐条查 `pg_indexes`（克隆 schema）后确认：**8 个全部仍在 baseline 中**（即 §2 的删除建议
+> 一条都**未执行**）。逐条判定如下，"短索引 ⊂ 长索引"的结论与目录一致，但**不能据此直接删**：
+>
+> | 短索引 | 长索引（同表） | 目录状态 | 判定 |
+> |---|---|---|---|
+> | `key_signatures.idx_key_signatures_target` | `uq_key_signatures_signature` | 均在 | 严格前缀，**未被实测证明"无人使用"** |
+> | `space_hierarchy.idx_space_hierarchy_space` | `uq_space_hierarchy` | 均在 | 严格前缀，同上 |
+> | `push_devices.idx_push_devices_user` | `uq_push_devices_user_device_pushkey` | 均在 | 严格前缀，同上 |
+> | `device_lists_outbound_pokes.idx_device_lists_outbound_pokes_user` | `pk_device_lists_outbound_pokes` | 均在 | 严格前缀，同上 |
+> | `device_keys.idx_device_keys_fallback` | `uq_device_keys_user_device_key` | 均在 | **§2 分类有误**：前者是**部分索引** `WHERE is_fallback AND NOT fallback_used`，谓词选择性与体积收益真实存在，**不是**长索引的严格前缀（本文件 §1 已把它记为有意的部分索引） |
+> | `room_memberships.idx_room_memberships_user_membership` | `idx_room_memberships_user_status` | 均在 | **不可删**：`synapse-storage/src/schema_health_check.rs:169` 把它列为 `REQUIRED_INDEXES`，删除会让启动健康检查持续报缺失 |
+> | `sliding_sync_tokens.idx_sliding_sync_tokens_user` | `idx_sliding_sync_tokens_unique`（含 `COALESCE(conn_id,'')` 表达式） | 均在 | 前导列为普通列，可前缀扫描；未实测 |
+> | `sliding_sync_lists.idx_sliding_sync_lists_user_device` | `idx_sliding_sync_lists_unique`（含表达式） | 均在 | 同上 |
+>
+> **本轮不改 baseline 的依据**：删除判据要求"`EXPLAIN` 证明该索引在任何查询形状下不被选中，
+> 或被同表另一索引严格支配"，且本轮为**实测驱动**任务。对 `room_memberships` 的实测
+> （15 万合成行）显示规划器**确实会选中**短索引/长索引/部分索引中的不同成员
+> （见 DB_REVIEW §14.3），删除属"改变计划"而非"消除死对象"，因此不在无真实负载证据时执行。
+> 结论：**这 8 个索引保留原样**，删除建议挂起，待有真实查询负载（`pg_stat_user_indexes.idx_scan`）后再定。
 
 ---
 
