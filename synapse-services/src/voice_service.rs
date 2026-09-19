@@ -136,6 +136,28 @@ impl VoiceService {
         }))
     }
 
+    /// Register an encrypted voice attachment (uploaded via standard media) into the
+    /// `voice_usage_stats` table so it appears in room/user voice lists.
+    ///
+    /// Used after `uploadEncryptedFile` for encrypted rooms: the file is stored in
+    /// the `media` table (not `voice_usage_stats`), so we explicitly record it here
+    /// to make it discoverable by the list endpoints.
+    pub async fn register_encrypted_voice(
+        &self,
+        user_id: &str,
+        room_id: Option<&str>,
+        media_id: &str,
+        content_type: &str,
+        duration_ms: i32,
+        size_bytes: i64,
+    ) -> ApiResult<()> {
+        self.voice_storage
+            .record_upload(user_id, room_id, media_id, content_type, duration_ms, size_bytes)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to register encrypted voice: {}", e)))?;
+        Ok(())
+    }
+
     /// See [`get_voice_media`].
     pub async fn get_voice_media(&self, media_id: &str) -> ApiResult<Option<Vec<u8>>> {
         Ok(self.media_service.get_media(&self.server_name, media_id).await)

@@ -13,6 +13,21 @@ use serde_json::Value;
 use synapse_common::{ApiError, ApiResult};
 use synapse_services::voice_service::VoiceMessageUploadParams;
 
+/// Request body for `POST /voice/register` - registering an encrypted voice attachment.
+#[derive(Debug, Deserialize)]
+pub struct RegisterEncryptedVoiceRequest {
+    /// The media_id of the uploaded voice (from mxc:// URL)
+    pub media_id: String,
+    /// The room_id the voice belongs to
+    pub room_id: Option<String>,
+    /// The content type (should be "audio/*" for unencrypted, omitted/encrypted for encrypted)
+    pub content_type: String,
+    /// Duration in milliseconds
+    pub duration_ms: i32,
+    /// File size in bytes
+    pub size_bytes: i64,
+}
+
 /// Clamp the `limit` query parameter for voice listing endpoints.
 ///
 /// Lower bound is 1, upper bound is 100, default (when `None`) is 50.
@@ -46,10 +61,12 @@ pub fn create_voice_router(_state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_matrix/client/v1/voice/config", get(get_voice_config))
         .route("/_matrix/client/v1/voice/upload", post(upload_voice_message))
+        .route("/_matrix/client/v1/voice/register", post(register_encrypted_voice))
         .route("/_matrix/client/v1/voice/stats", get(get_voice_stats))
         .route("/_matrix/client/v1/voice/room/{room_id}/stats", get(get_room_voice_stats))
         .route("/_matrix/client/v1/voice/user/{user_id}/stats", get(get_user_voice_stats))
         .route("/_matrix/client/v3/voice/upload", post(upload_voice_message))
+        .route("/_matrix/client/v3/voice/register", post(register_encrypted_voice))
         .route("/_matrix/client/v3/voice/config", get(get_voice_config))
         .route("/_matrix/client/v3/voice/stats", get(get_voice_stats))
         .route("/_matrix/client/v3/voice/room/{room_id}/stats", get(get_room_voice_stats))
@@ -72,6 +89,7 @@ pub fn create_voice_router(_state: AppState) -> Router<AppState> {
         .route("/_matrix/vendor/v1/voice/{media_id}/convert", post(convert_voice_message))
         .route("/_matrix/vendor/v1/voice/{media_id}/optimize", post(optimize_voice_message))
         .route("/_matrix/vendor/v1/voice/{media_id}/transcription", post(transcribe_voice_message))
+        .route("/_matrix/vendor/v1/voice/register", post(register_encrypted_voice))
 }
 
 #[axum::debug_handler]
@@ -325,4 +343,63 @@ async fn transcribe_voice_message(
     Err(ApiError::not_implemented(
         "Voice transcription is handled client-side per MSC3245. Use Web Speech API or local Whisper model on the client",
     ))
+}
+
+#[axum::debug_handler]
+async fn register_encrypted_voice(
+    State(ctx): State<RoomContext>,
+    auth_user: AuthenticatedUser,
+    Json(req): Json<RegisterEncryptedVoiceRequest>,
+) -> Result<Json<Value>, ApiError> {
+    // Validate room_id from request body
+    let room_id = req.room_id.as_ref().ok_or_else(|| ApiError::bad_request("room_id is required".to_string()))?;
+
+    // Validate room membership
+    ensure_room_member_ctx(&ctx, &auth_user, room_id, "You must be a member of this room to register voice messages")
+        .await?;
+
+    // Validate media_id
+    if req.media_id.is_empty() {
+        return Err(ApiError::bad_request("media_id is required".to_string()));
+    }
+
+    // Check if this voice was already registered (idempotent)
+    if let Ok(Some(existing)) = ctx.voice_service.get_voice_message_content(&req.media_id).await {
+        let existing_user = existing.get("user_id").and_then(|v| v.as_str());
+        if existing_user.map(|u| u == auth_user.user_id).unwrap_or(false) {
+            // Already registered by this user, return success
+            let content_uri = synapse_common::media_locator::MediaLocator {
+                server_name: ctx.server_name.clone(),
+                media_id: req.media_id.clone(),
+            }
+            .to_mxc_url();
+            return Ok(Json(json!({
+                "content_uri": content_uri,
+                "exists": true
+            })));
+        }
+    }
+
+    // Register the encrypted voice
+    ctx.voice_service
+        .register_encrypted_voice(
+            &auth_user.user_id,
+            Some(room_id),
+            &req.media_id,
+            &req.content_type,
+            req.duration_ms,
+            req.size_bytes,
+        )
+        .await?;
+
+    let content_uri = synapse_common::media_locator::MediaLocator {
+        server_name: ctx.server_name.clone(),
+        media_id: req.media_id,
+    }
+    .to_mxc_url();
+
+    Ok(Json(json!({
+        "content_uri": content_uri,
+        "exists": false
+    })))
 }
