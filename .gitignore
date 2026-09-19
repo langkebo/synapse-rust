@@ -42,7 +42,6 @@ test-results/
 docker/test-results/
 reports/
 artifacts/*
-!artifacts/coverage_baseline.json
 test-artifacts/
 # 生成的 HTML 测试报告（54 个字体二进制 + echarts，6.3MB，仓库内无任何引用）
 test-suite-report/

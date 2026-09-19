@@ -197,7 +197,8 @@ All review reports go to docs/audit/NN_<name>.md (NN = 01..13).
 Audit branch naming: optimization/audit-YYYY-MM.
 Baseline files (ratchet inputs that actually exist):
 `scripts/.fmt-baseline`, `scripts/.missing-docs-baseline`, `scripts/ci/trait_count_baseline`,
-`scripts/ci/sqlx_dynamic_ratio_baseline`, `scripts/ci/geiger_baseline.json`.
+`scripts/ci/sqlx_dynamic_ratio_baseline`, `scripts/ci/geiger_baseline.json`,
+`scripts/ci/coverage_baseline.json`（per-file 覆盖率棘轮；2026-09-19 从 `artifacts/` 移入 —— `artifacts/*` 被 gitignore 而只有它一个例外，属反冗余铁律 4 的破例）。
 
 ## TDD Workflow
 

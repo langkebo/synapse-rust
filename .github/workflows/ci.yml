@@ -928,7 +928,7 @@ jobs:
         # The per-file ratchet is meaningless without a baseline: with an empty
         # one every file takes the "new" branch (30% ramp-up floor) and the
         # "touched files must not regress" branch is unreachable. That is the
-        # state this repo was actually in — artifacts/coverage_baseline.json was
+        # state this repo was actually in — scripts/ci/coverage_baseline.json was
         # never committed, while all four sibling ratchet baselines
         # (.fmt-baseline, .missing-docs-baseline, trait_count_baseline,
         # sqlx_dynamic_ratio_baseline) are in git.
@@ -938,7 +938,7 @@ jobs:
         # purely to materialise the file for the follow-up commit step.
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
         run: |
-          if [ -f artifacts/coverage_baseline.json ]; then
+          if [ -f scripts/ci/coverage_baseline.json ]; then
             echo "Baseline present; nothing to bootstrap."
             exit 0
           fi
@@ -946,15 +946,15 @@ jobs:
           python3 scripts/check_file_coverage.py \
             --report coverage/lcov.info \
             --format lcov \
-            --baseline artifacts/coverage_baseline.json \
-            --save-baseline artifacts/coverage_baseline.json \
+            --baseline scripts/ci/coverage_baseline.json \
+            --save-baseline scripts/ci/coverage_baseline.json \
             --threshold 0 --global-floor 0 --new-file-floor 0 --core-threshold 0
 
       - name: Per-file coverage ratchet (B.3)
         # Enforces: TDD-mandated files ≥80%, core paths ≥70%,
         # new files ≥30% (ramp-up grace), touched files must not regress,
         # global floor ≥40%.
-        # Fails (exit 2) when artifacts/coverage_baseline.json is absent, because
+        # Fails (exit 2) when scripts/ci/coverage_baseline.json is absent, because
         # the "touched must not regress" half of the ratchet is unreachable
         # without it. On main/develop the previous step bootstraps it and the
         # follow-up step commits it; fix locally with the same command.
@@ -963,7 +963,7 @@ jobs:
           python3 scripts/check_file_coverage.py \
             --report coverage/lcov.info \
             --format lcov \
-            --baseline artifacts/coverage_baseline.json \
+            --baseline scripts/ci/coverage_baseline.json \
             --threshold 80 \
             --global-floor 40 \
             --new-file-floor 30 \
@@ -992,7 +992,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add artifacts/coverage_baseline.json
+          git add scripts/ci/coverage_baseline.json
           if git diff --cached --quiet; then
             echo "No baseline change; skipping commit."
           else
