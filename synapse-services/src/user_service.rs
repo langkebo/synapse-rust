@@ -37,7 +37,6 @@ pub struct UserService {
     server_name: RwLock<String>,
 }
 
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 impl UserService {
     /// See [`new`].
     pub fn new(user_storage: Arc<dyn UserStore>) -> Self {
@@ -60,28 +59,33 @@ impl UserService {
     /// MSC4262: Inject the federation broadcaster and this server's name so
     /// profile updates can be propagated to remote homeservers as
     /// `m.profile_update` EDUs.
+    #[allow(clippy::unwrap_used)] // initialization pattern; RwLock poison is acceptable
     pub fn set_federation_broadcaster(&self, broadcaster: Arc<EventBroadcaster>, server_name: String) {
         *self.federation_broadcaster.write().unwrap() = Some(broadcaster);
         *self.server_name.write().unwrap() = server_name;
     }
 
     /// MSC4204: Inject `member_storage` (the real Postgres implementation).
+    #[allow(clippy::unwrap_used)] // initialization pattern; RwLock poison is acceptable
     pub fn set_member_storage(&self, member_storage: Arc<dyn MemberStoreApi>) {
         *self.member_storage.write().unwrap() = Some(member_storage);
     }
 
     /// MSC4204: Inject `event_reader` (the real Postgres implementation).
     #[allow(dead_code)]
+    #[allow(clippy::unwrap_used)] // initialization pattern; RwLock poison is acceptable
     pub fn set_event_reader(&self, event_reader: Arc<dyn EventReader>) {
         *self.event_reader.write().unwrap() = Some(event_reader);
     }
 
     /// MSC4204: Inject `event_notifier` (the real one with Redis slots).
+    #[allow(clippy::unwrap_used)] // initialization pattern; RwLock poison is acceptable
     pub fn set_event_notifier(&self, event_notifier: EventNotifier) {
         *self.event_notifier.write().unwrap() = event_notifier;
     }
 
     /// Helper to get event_notifier read lock (used in notify_profile_update)
+    #[allow(clippy::unwrap_used)] // initialization pattern; RwLock poison is acceptable
     fn with_event_notifier<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&EventNotifier) -> R,
@@ -242,11 +246,22 @@ impl UserService {
     /// Failures are logged and not propagated: profile update notification is
     /// best-effort and must not roll back the local profile change.
     async fn broadcast_profile_update_edu(&self, user_id: &str) {
-        let broadcaster = match self.federation_broadcaster.read().unwrap().as_ref() {
-            Some(b) => b.clone(),
+        // Extract broadcaster while dropping the guard
+        let broadcaster = {
+            #[allow(clippy::unwrap_used)] // initialization pattern; RwLock poison is acceptable
+            let guard = self.federation_broadcaster.read().unwrap();
+            guard.as_ref().cloned()
+        };
+        let broadcaster = match broadcaster {
+            Some(b) => b,
             None => return, // federation disabled or not yet injected
         };
-        let server_name = self.server_name.read().unwrap().clone();
+
+        // Extract server_name while dropping the lock
+        let server_name = {
+            #[allow(clippy::unwrap_used)] // initialization pattern; RwLock poison is acceptable
+            self.server_name.read().unwrap().clone()
+        };
         if server_name.is_empty() {
             return;
         }
@@ -268,48 +283,51 @@ impl UserService {
         });
 
         // Collect remote servers from shared joined rooms
-        let member_storage = match self.member_storage.read().unwrap().as_ref() {
-            Some(ms) => ms.clone(),
-            None => {
-                ::tracing::warn!(user_id, "MSC4262: member_storage not injected, skipping profile update EDU");
-                return;
-            }
-        };
+        #[allow(clippy::unwrap_used)] // initialization pattern; RwLock poison is acceptable
+        let member_storage = {
+            let guard = self.member_storage.read().unwrap();
+            guard.as_ref().cloned()
+        }; // guard dropped here
 
-        let joined_rooms: Vec<String> = match member_storage.get_joined_rooms(user_id).await {
-            Ok(rooms) => rooms,
-            Err(e) => {
-                ::tracing::warn!(%e, user_id, "MSC4262: failed to get joined rooms for profile update EDU");
-                return;
-            }
-        };
-
-        let mut destinations: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for room_id in &joined_rooms {
-            let members = match member_storage.get_joined_members(room_id).await {
-                Ok(m) => m,
-                Err(e) => {
-                    ::tracing::warn!(%e, %room_id, %user_id, "MSC4262: failed to get room members for profile update EDU");
-                    continue;
-                }
-            };
-            for member in members {
-                if let Some(pos) = member.user_id.find(':') {
-                    let server = &member.user_id[pos + 1..];
-                    if server != server_name {
-                        destinations.insert(server.to_string());
+        if let Some(ms) = member_storage {
+            let joined_rooms: Result<Vec<String>, sqlx::Error> = ms.get_joined_rooms(user_id).await;
+            match joined_rooms {
+                Ok(rooms) => {
+                    let mut destinations: std::collections::HashSet<String> = std::collections::HashSet::new();
+                    for room_id in &rooms {
+                        let members = ms.get_joined_members(room_id).await;
+                        match members {
+                            Ok(m) => {
+                                for member in m {
+                                    if let Some(pos) = member.user_id.find(':') {
+                                        let server = &member.user_id[pos + 1..];
+                                        if server != server_name {
+                                            destinations.insert(server.to_string());
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                ::tracing::warn!(%e, %room_id, %user_id, "MSC4262: failed to get room members for profile update EDU");
+                            }
+                        }
                     }
+
+                    let count = destinations.len();
+                    for destination in destinations {
+                        if let Err(e) = broadcaster.broadcast_edu(&destination, &edu, &server_name).await {
+                            ::tracing::warn!(%e, %destination, %user_id, "MSC4262: failed to broadcast profile update EDU");
+                        }
+                    }
+                    ::tracing::info!(user_id = %user_id, destination_count = count, "MSC4262: broadcast m.profile_update EDU");
+                }
+                Err(e) => {
+                    ::tracing::warn!(%e, user_id, "MSC4262: failed to get joined rooms for profile update EDU");
                 }
             }
+        } else {
+            ::tracing::warn!(user_id, "MSC4262: member_storage not injected, skipping profile update EDU");
         }
-
-        let count = destinations.len();
-        for destination in destinations {
-            if let Err(e) = broadcaster.broadcast_edu(&destination, &edu, &server_name).await {
-                ::tracing::warn!(%e, %destination, %user_id, "MSC4262: failed to broadcast profile update EDU");
-            }
-        }
-        ::tracing::info!(user_id = %user_id, destination_count = count, "MSC4262: broadcast m.profile_update EDU");
     }
 
     /// MSC4204: Notify all shared room users that `user_id`'s profile changed.
@@ -322,46 +340,48 @@ impl UserService {
     /// Errors are logged and not propagated: a notification failure should
     /// not prevent the profile update from completing.
     async fn notify_profile_update(&self, user_id: &str) {
-        let member_storage = match self.member_storage.read().unwrap().as_ref() {
-            Some(ms) => ms.clone(),
-            None => {
-                ::tracing::warn!(user_id, "MSC4204: member_storage not injected, skipping profile update notification");
-                return;
-            }
+        let member_storage = {
+            #[allow(clippy::unwrap_used)] // initialization pattern; RwLock poison is acceptable
+            let guard = self.member_storage.read().unwrap();
+            guard.as_ref().cloned()
         };
 
-        let joined_rooms: Vec<String> = match member_storage.get_joined_rooms(user_id).await {
-            Ok(rooms) => rooms,
-            Err(e) => {
-                ::tracing::warn!(%e, user_id, "MSC4204: failed to get joined rooms for profile update notification");
-                return;
-            }
-        };
-
-        let mut notified_users: std::collections::HashSet<String> = std::collections::HashSet::new();
-
-        for room_id in joined_rooms {
-            let members = match member_storage.get_joined_members(&room_id).await {
-                Ok(m) => m,
+        if let Some(ms) = member_storage {
+            let joined_rooms: Vec<String> = match ms.get_joined_rooms(user_id).await {
+                Ok(rooms) => rooms,
                 Err(e) => {
-                    ::tracing::warn!(%e, %room_id, %user_id, "MSC4204: failed to get room members for profile update notification");
-                    continue;
+                    ::tracing::warn!(%e, user_id, "MSC4204: failed to get joined rooms for profile update notification");
+                    return;
                 }
             };
 
-            for member in members {
-                if member.user_id != user_id && notified_users.insert(member.user_id.clone()) {
-                    self.with_event_notifier(|en| en.notify_user(&member.user_id));
+            let mut notified_users: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+            for room_id in joined_rooms {
+                let members = match ms.get_joined_members(&room_id).await {
+                    Ok(m) => m,
+                    Err(e) => {
+                        ::tracing::warn!(%e, %room_id, %user_id, "MSC4204: failed to get room members for profile update notification");
+                        continue;
+                    }
+                };
+
+                for member in members {
+                    if member.user_id != user_id && notified_users.insert(member.user_id.clone()) {
+                        self.with_event_notifier(|en| en.notify_user(&member.user_id));
+                    }
                 }
             }
-        }
 
-        let count = notified_users.len();
-        ::tracing::info!(
-            user_id = %user_id,
-            notified_count = count,
-            "MSC4204: notified shared room users of profile update"
-        );
+            let count = notified_users.len();
+            ::tracing::info!(
+                user_id = %user_id,
+                notified_count = count,
+                "MSC4204: notified shared room users of profile update"
+            );
+        } else {
+            ::tracing::warn!(user_id, "MSC4204: member_storage not injected, skipping profile update notification");
+        }
     }
 
     // ── search / listing ───────────────────────────────────────────────
