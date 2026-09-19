@@ -66,9 +66,13 @@ docker/*.txt
 docker/load_obs_*
 docker/obs_*
 # deploy/ 里除 scripts/ 外都是运行时数据, 其中 backups/ 就有 38MB
+# [P0-3] 新增：deploy/ssl/ 含 TLS 私钥，必须排除出构建上下文
 docker/deploy/backups/
 docker/deploy/logs/
 docker/deploy/media/
+docker/deploy/ssl/
+docker/deploy/test-results/
+docker/deploy/synapse-data/
 
 # 工作区文档 / PR 草稿 / 计划文件 (不应进镜像)
 *.md
@@ -81,6 +85,10 @@ tests/
 # Element 客户端 (前端代码不应进后端镜像)
 element-desktop/
 element-web/
+
+# docker/ 下的非运行时目录（构建工具/测试产物不应进上下文）
+docker/element/
+docker/complement/
 
 # AI / 开发工具的本地状态目录。
 # .claude 单独就有 22GB, 不排除的话每次 docker build 都要把它推给 daemon,

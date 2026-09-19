@@ -36,8 +36,10 @@ services:
     networks:
       - synapse_network
     ports:
-      - "${SYNAPSE_PORT:-8008}:8008"
-      - "${FEDERATION_PORT:-28448}:8448"
+      # [O2-8] 收紧端口暴露：dev 栈也改为只绑定回环，与 deploy 一致
+      # 原 0.0.0.0 暴露会在笔记本接入不可信网络时使明文 HTTP 的 Matrix API 对外可及
+      - "127.0.0.1:${SYNAPSE_PORT:-8008}:8008"
+      - "127.0.0.1:${FEDERATION_PORT:-28448}:8448"
     environment:
       SYNAPSE_CONFIG_PATH: /app/config/homeserver.yaml
       RATE_LIMIT_CONFIG_PATH: /app/config/rate_limit.yaml
@@ -96,6 +98,8 @@ services:
     cpus: ${DB_CPU_LIMIT:-1.5}
     mem_limit: ${DB_MEMORY_LIMIT:-1536m}
     pids_limit: ${DB_PIDS_LIMIT:-256}
+    # [O3-4] dev 栈补 shm_size，与 deploy 对齐，避免大连接数下 shared memory 不足
+    shm_size: "256m"
     env_file:
       - ./.env
     environment:

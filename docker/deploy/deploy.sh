@@ -988,8 +988,9 @@ clear_project_caches() {
     # 注意：不清理 npm/yarn/pnpm 全局缓存——本项目为 Rust 后端，这些 JS 包管理器
     # 缓存与构建无关，且 `pnpm store prune` 会触发环境 safe-delete hook
     # （删除 ~/.cache 下大量文件），故明确移除，仅清理项目级与 Docker 缓存。
-    docker builder prune -af >/dev/null 2>&1 || true
-    docker buildx prune -af >/dev/null 2>&1 || true
+    # [O2-2] 改为有界清理：只清 7 天前的缓存，不清除其他项目的构建缓存
+    docker builder prune --filter 'until=168h' -f >/dev/null 2>&1 || true
+    docker buildx prune --filter 'until=168h' -f >/dev/null 2>&1 || true
 
     log_success "缓存清理完成"
 }
@@ -1164,13 +1165,15 @@ build_images() {
     log_info "构建新的 Docker 镜像..."
     local feature_args
     feature_args="$(docker_feature_args)"
-    # 覆盖基础镜像 digest pin，使用本地已拉取的 tag 版本，避免网络抖动导致 digest 拉取失败
+    # [O1-2] 保留 Dockerfile 顶部的 digest pin，不再用浮动 tag 覆盖。
+    # 若网络抖动导致 digest 拉取失败，应改为：
+    #   1) 提前 `docker pull <image>@sha256:...` 并保留在本地
+    #   2) 搭建内部 registry mirror（Harbor/pull-through cache）
+    #   3) 在 deploy.sh 里加"预拉取并校验 digest"步骤，失败时明确报错
     docker build --no-cache \
         -f "$PROJECT_ROOT/docker/Dockerfile" \
         --target tools \
         --build-arg "CARGO_FEATURE_ARGS=${feature_args}" \
-        --build-arg "RUST_BUILDER_IMAGE=rust:1.93.0-slim-bookworm" \
-        --build-arg "DEBIAN_BASE_IMAGE=debian:bookworm-slim" \
         -t "$(local_image_ref)" \
         "$PROJECT_ROOT"
     docker image inspect "$(local_image_ref)" >/dev/null

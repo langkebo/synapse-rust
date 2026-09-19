@@ -200,7 +200,10 @@ services:
     pids_limit: ${SYNAPSE_PIDS_LIMIT:-512}
     env_file:
       - ./.env
+    # [O2-3] 等待 migrator 完成迁移，确保 app 启动时 schema 已是最新
     depends_on:
+      migrator:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -280,6 +283,8 @@ services:
       start_period: 90s
     security_opt:
       - no-new-privileges:true
+    # [O3-1] 给 /sync 长轮询和 DB 事务留出优雅关闭时间
+    stop_grace_period: 30s
     cap_drop:
       - ALL
     ulimits:

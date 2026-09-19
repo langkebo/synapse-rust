@@ -1,4 +1,4 @@
-ARG RUST_VERSION=1.93.0
+ARG RUST_VERSION=1.93.0  # [DEPRECATED] 已移除实际使用，保留仅用于文档引用。当前版本由 RUST_BUILDER_IMAGE pin 管理。
 ARG RUST_BUILDER_IMAGE=rust:1.93.0-slim-bookworm@sha256:776861219cd851131c1cec3bbd7cbeb16b99a794048097eb69ad9682a8ed0d57
 ARG RUNTIME_BASE_IMAGE=gcr.io/distroless/cc-debian12@sha256:e8e7ee4b8b106d4c5fde9e422a321b2b8a2d5cca546c97adcce927f3e1d36e36
 ARG DEBIAN_BASE_IMAGE=debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818
@@ -60,6 +60,7 @@ COPY vendor/                       ./vendor/
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/workspace/target,sharing=locked \
     mkdir -p src src/bin synapse-common/src synapse-cache/src synapse-storage/src synapse-e2ee/src \
              synapse-federation/src synapse-services/src synapse-web/src synapse-test-utils/src && \
     echo "fn main() {}" > src/main.rs && \
@@ -87,15 +88,18 @@ COPY . .
 # or flaky-network browser harness runs.
 RUN rm -f rust-toolchain rust-toolchain.toml
 
-# 强制重新链接最终二进制 (force_relink hack 触发 build script 在缓存中也重新执行)
+# [O2-1] 真实编译阶段：使用 target/ 缓存，增量构建不再重编依赖
+# CACHE_BUST 为常量时不会 invalidate COPY 层，由 Cargo.lock 变更触发重建
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/workspace/target,sharing=locked \
     cargo build --release --locked ${CARGO_FEATURE_ARGS} --bin synapse-rust --bin healthcheck && \
     install -Dm755 target/release/synapse-rust          /out/app/synapse-rust && \
     install -Dm755 target/release/healthcheck           /out/app/healthcheck && \
     install -Dm755 docker/db_migrate.sh                 /out/app/scripts/db_migrate.sh && \
     install -Dm755 docker/deploy/scripts/container-migrate.sh /out/app/scripts/container-migrate.sh && \
-    install -Dm755 docker/healthcheck.sh                /out/app/scripts/healthcheck.sh && \
+    # [O3-7] 移除 docker/healthcheck.sh — 未被任何 compose/Dockerfile 引用，且依赖 curl
+    # 实际使用的是 Rust 二进制 /app/healthcheck（直接走 /health 端点）
     install -Dm755 docker/entrypoint.sh                 /out/app/entrypoint.sh && \
     install -Dm644 docker/config/rate_limit.yaml          /out/app/config_defaults/rate_limit.yaml && \
     mkdir -p /out/app/config /out/app/data /out/app/logs /out/app/migrations && \
@@ -128,8 +132,9 @@ RUN set -eux; \
 
 # ============================================================================
 # Stage 3: runtime-distroless — 极简 distroless 镜像 (~30MB)
-# 不含 psql, 故 entrypoint 中的迁移会跳过 (set RUN_MIGRATIONS=false).
-# 用于追求最小镜像体积、由外部 Job/initContainer 负责迁移的场景.
+# ⚠️ 注意：distroless 无 shell (无 /bin/bash, /bin/sh)，因此不能依赖任何 shell 脚本。
+# 迁移已由外部 Job/initContainer (如 deploy 栈的 migrator) 完成，
+# DB 等待由 compose `depends_on: condition: service_healthy` 或 Rust 二进制自身重试处理。
 # 选用方法: docker build --target runtime-distroless ...
 # ============================================================================
 FROM ${RUNTIME_BASE_IMAGE} AS runtime-distroless
@@ -159,10 +164,11 @@ COPY --chown=1000:1000 --from=builder /out/app /app
 
 WORKDIR /app
 USER 1000:1000
-EXPOSE 8008 8448 9090
+EXPOSE 8008 8448
+# distroless 无 tini，由 compose/runtime 的 --init 或 systemd 接管 PID 1
 HEALTHCHECK --interval=15s --timeout=10s --start-period=60s --retries=5 CMD ["/app/healthcheck"]
-ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["/app/synapse-rust"]
+# [O1-1] distroless 无 shell，直接 exec 二进制，不走 entrypoint.sh
+ENTRYPOINT ["/app/synapse-rust"]
 
 # ============================================================================
 # Stage 4 (DEFAULT): tools — 生产推荐目标

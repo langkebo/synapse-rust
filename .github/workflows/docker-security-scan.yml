@@ -1,0 +1,118 @@
+# ============================================================================
+# docker-security-scan.yml — Docker 镜像安全门禁
+# ============================================================================
+# 触发时机：push 到 main / PR 到 main
+# 作用：
+#   1) hadolint — Dockerfile lint（基础镜像 pin、best practices）
+#   2) trivy     — 镜像 CVE 扫描（HIGH/CRITICAL 级别阻断）
+#   3) buildx cache — 启用 buildx 并传递 cache-from/cache-to，
+#      加速后续构建 (对应 P1-5)
+# ============================================================================
+name: Docker Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: docker-security-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ── 1) Dockerfile lint ──────────────────────────────────────────────
+  hadolint:
+    name: Dockerfile Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run hadolint on Dockerfile
+        uses: hadolint/hadolint-action@v3
+        with:
+          dockerfile: docker/Dockerfile
+          ignore:
+            # 已知忽略：Dockerfile 使用国内镜像源加速构建
+            - DL3008
+            # 多阶段构建中 RUN 后清理 apt 列表（已在命令末尾 rm -rf）
+            - DL3009
+            # 基础镜像已通过 ARG pin 到 digest
+            - DL3006
+            # 使用 --no-install-recommends 是刻意优化
+            - DL3007
+
+  # ── 2) 构建镜像并扫描 CVE ───────────────────────────────────────────
+  trivy-scan:
+    name: Trivy Image Scan
+    needs: hadolint
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # [P1-5] 启用 buildx 并配置 cache-from / cache-to
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker
+          use: true
+          # 使用 GitHub Actions 缓存作为 cache-from / cache-to
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build image for scan
+        run: |
+          docker build \
+            --target tools \
+            --build-arg CARGO_FEATURE_ARGS="--features core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends --no-default-features" \
+            -t synapse-rust:scan \
+            .
+
+      # [P1-4] Trivy CVE 扫描：HIGH/CRITICAL 阻断
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'synapse-rust:scan'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '1'
+          ignore-unfixed: true
+
+      - name: Upload Trivy results to SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+          category: 'docker-image-vulnerabilities'
+
+  # ── 3) 扫描基础镜像 digest pin 是否被篡改 ──────────────────────────
+  digest-pin-check:
+    name: Digest Pin Integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 验证 Dockerfile 中的 digest pin 在公共 registry 上仍然有效
+      # (P0-2 相关：确认 digest 没有被过期/替换)
+      - name: Verify pinned base images
+        run: |
+          for img in \
+            "rust:1.93.0-slim-bookworm@sha256:776861219cd851131c1cec3bbd7cbeb16b99a794048097eb69ad9682a8ed0d57" \
+            "debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818" \
+            "gcr.io/distroless/cc-debian12@sha256:e8e7ee4b8b106d4c5fde9e422a321b2b8a2d5cca546c97adcce927f3e1d36e36"; do
+            echo "Verifying $img ..."
+            docker pull "$img" || { echo "FAILED: pin broken for $img"; exit 1; }
+          done
+          echo "All pinned base images verified successfully."

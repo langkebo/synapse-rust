@@ -289,7 +289,7 @@ docker-build:
 	    .
 
 docker-redeploy: docker-build
-	@cd docker && docker compose -f docker-compose.yml -f docker-compose.web.yml \
+	@cd docker && docker compose -f docker-compose.yml \
 	    up -d --no-deps --force-recreate synapse-rust
 
 # Help
