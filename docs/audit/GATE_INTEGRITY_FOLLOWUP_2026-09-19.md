@@ -501,47 +501,162 @@ python3 scripts/ci/check_workflow_steps.py
 
 ---
 
-## 5. 下一步建议顺序
+## 5. 下一步建议顺序（⚠️ 旧版本，已由 §7 取代；仅保留历史）
 
-已完成（见上文各节）：§1.6（`Result` 穿透）、§2.1、§2.2、§2.3、§2.5、A9、A10、A12、
-B8、B13、B14、B15、C7、D1，CI 等效验证（§1.8），以及 CI 等效跑发现的 beacon 竞争与
-表覆盖门禁命中的一次性表名。
+已完成（见上文各节）：§1.6（`Result` 穿透）、§2.1、§2.2、§2.3、§2.5、A10、A12、
+B8（**仅扫描面**；匹配面见 §6.5）、B13、B14、B15、C7、D1，CI 等效验证（§1.8），以及
+CI 等效跑发现的 beacon 竞争与表覆盖门禁命中的一次性表名。
+**注**：本行此前把 A9 记为"已完成"，第二轮核实（§6.5）表明 A9 只是**部分修复**
+（`mutation-testing.yml:37` 的 job 级 `continue-on-error` 仍在）；且"`ledger-export.yml` job 级 COE"
+的说法是错的（该文件只有可选通知 step 的 step 级 COE）。以 §6/§7 为准。
 
-剩余（按建议优先级）：
+## 6. 逐项核实（第二轮，2026-09-19 晚）：用户列出的 5 组问题
 
-0. ✅ **测试稳定性（§1.8 结论 1）—— 已查明并结构修复（§1.9）**：
-   `media::tests::*` 是 fixture 提前丢掉 `Arc<PgPool>` → janitor 在测试进行中删掉 per-test schema
-   → 未限定表名的查询静默落回共享 `public`；`validate_clone_rejects_an_incomplete_clone` 是
-   公开的无锁 prune 删掉了正在构建的模板（"无 marker = 可删"的规则在锁外不成立）；
-   本轮复跑又当场抓到同类第三条 `audit::db_tests`（共享 `public` + `delete_events_before` 全表 sweep），
-   一并改为 per-test schema。三条各配常驻守护测试并做了红证明；
-   同类残留风险与"连接级租约"收敛方向见 §1.9.4。
+> 方法：三路只读审计（A1–A6 / A7–A12 / B7–B16）直接读文件、跑 `grep`/`git log -S`，不采信本文件旧结论；
+> §1.6/§2.4/§2.5/文档措辞由我本人核实。真实 CI 仍无法触发（`gh` token 失效，见 §1.8）。
 
-1. **§2.4**：为非 test-only 的 <30% 文件补测试，或明确把 `src/bin` 也列为豁免。
-2. ✅ **A6**：六处 `| tee` 已在 `dee46f6e` 补 `set -o pipefail`（`benchmark.yml` 4 处、
-   `ci.yml` perf-smoke、`db-migration-gate.yml`、`e2ee-interop.yml` 2 处）。本轮又补了
-   `ci.yml` 的 `cargo-outdated` 步骤（该步骤 `continue-on-error`，但状态仍应是命令自己的），
-   并把它升级为**常驻门禁** `tests/unit/workflow_pipefail_tests.rs`：扫描所有
-   `.github/workflows/*.yml` 的 `run: |` 块，要求首个 `| tee` 之前出现真正的
-   `set -o pipefail`，且扫描面 ≥6 块（扫不到东西不算通过）。
-   **证据**：故意删掉 `benchmark.yml` 的 `set -o pipefail` → 该测试变红并点名 4 处 tee 行
-   （`benchmark.yml:95,96,99,100`）；行为探针用**真实 step body**（`bash -e` 镜像 Actions
-   默认 shell）配失败 stub：有 pipefail → EXIT 7，去掉后 → EXIT 0（失败被 tee 吞掉）。
-3. **A9 残留**：`ledger-export.yml` 的 job 级 `continue-on-error` —— 要么变真门禁，
-   要么在 job 名/注释里明确"纯报告"并确认它不在分支保护里。
-4. **A11**：`drift-detection.yml` 的 PR 分支只挂 `main` + 同目录 basename `uniq -d` 恒空。
-5. **B7 / B9 / B11 / B12**：`perf_gate_honesty` 断言弱；`schema_lifecycle_guard` 扫描根
-   仍缺 `synapse-test-utils/src`、`tests/`（也不含 `synapse-web/src`）；
-   `migration_replayability_guard`/`migration_search_path` 主体为空；`mock_fidelity`
-   仍是文本存在性断言。
-6. **C3 / C8 / C10**：`check_baseline_consolidation` 对空集生效；
-   `check_missing_docs_ratchet` 里 `-A/-D missing_docs` 的机制描述是错的；
-   `REQUIRED_V8_BATCHES` 为空。
-7. **D2**：设计文档仍引用不存在的守卫名。
-8. **E4 / E6 / E7 / E8 / E9**：分页基准自比；`check_route_layering.sh` 无扫描面守卫；
-   `build_sqlx_migration_source.py` 无断言；openapi/route-table 无 diff 校验；
-   `extract_unresolved_allowlist.txt` 只对新条目变红。
-9. **文档**：`AGENTS.md` / `CLAUDE.md` 仍把 `run_ci_tests.sh` 写成 CI 等价入口
-   （TESTING.md 已改标为本地封装）；fmt 棘轮计数含义是"差异块数 × 重复次数"。
-10. **A7/A8**：integration/coverage/build 保持 push-only 是既定取舍，需在分支保护侧
-    确认这三个 job 确实被要求。
+### 6.1 §1.6 `Result` 穿透 —— ✅ 已解决（本轮之前 `a30ea637`）
+
+- `synapse-services/src/wiring/e2ee.rs:62-68` `E2eeServices::new(...) -> Result<Self, String>`；
+  `:159-187` `resolve_at_rest_key(...) -> Result<[u8;32], String>`，缺键时返回**命名了两个配置键**的
+  `Err`（`megolm_encryption_key_path` / `macaroon_secret_key`），不再 panic。
+- `synapse-services/src/container.rs:146` `ServiceContainer::new(...) -> Result<Self, String>`、
+  `:306` `build_domains(...) -> Result<DomainPhase, String>`；`src/server/services.rs:66-68` 用
+  `.map_err(...)?` 把它变成启动错误。
+- 全仓已无生产路径的作用域 `#[allow(clippy::panic)]`：仅剩
+  `src/bin/synapse_worker.rs:1` / `synapse_ledger_export.rs:2` 的 `#![cfg_attr(test, allow(clippy::panic))]`（测试专用）。
+- 守护：`tests/unit/container_service_tests.rs:244` `container_construction_reports_a_missing_megolm_at_rest_key`
+  断言 `Err` 且错误文本含两个键名。
+
+### 6.2 §2.5 模板 ready 标记路径统一 —— ✅ 已解决（`8cfb683f` + 后续），留 1 个守卫缺口
+
+- 单一实现：`synapse-common/src/test_isolation.rs:47` `TEMPLATE_READY_MARKER_PREFIX`、
+  `:63` `template_marker_dir()`、`:82` `template_ready_marker_path()`；模块**无条件编译**
+  （`synapse-common/src/lib.rs:89 pub mod test_isolation;`，不在 `cfg(test)` 下）。
+- 隔离模板也写标记文件：`build_template` 在写完 in-schema 标记后于 `:732-742` 写
+  `synapse_test_template_ready_<schema>`（best-effort + warning）；prune 时 `:631-634` 同步删文件标记。
+- 消费者：`synapse-test-utils/src/lib.rs:928` 直接 `use synapse_common::test_isolation::template_ready_marker_path`；
+  `scripts/cleanup_test_schemas.sh:123-134` 用同一目录/前缀构造 keep 集合，无标记时降级 `--keep-all-templates`；
+  `scripts/ci/prepare_test_db.sh:82-86` 也写同一约定的标记。
+- 🟡 **缺口**：三个写入方（Rust 常量、cleanup 脚本、prepare_test_db 脚本）之间**没有守卫**钉住前缀/目录一致
+  （`grep -rn "TEMPLATE_READY_MARKER_PREFIX" tests/` 为空）。改常量或改脚本任一侧都会静默漂移
+  （后果：清理脚本认不出 live 模板 → 误删 → 重建约 2 秒，或更糟：删掉正在被并发 clone 的模板）。
+  **下一步**：加一条只读守卫测试（读常量 + 断言两个脚本含 `<PREFIX>_` 与 `synapse_test_templates`），
+  红证明 = 改常量后该测试失败。
+
+### 6.3 §2.4 覆盖率 <30% 文件 —— 🟡 决策未落地，但**已被基线豁免**（不是红门禁）
+
+- 复算：`scripts/ci/coverage_baseline.json` 623 条中非 test-only 且 <30% 的仍是 **88** 个；
+  其中 **46** 个命中 `core_file_coverage_prefixes.txt` 的 29 个前缀；**37** 个行覆盖为 **0.0%**
+  （`src/main.rs`、`src/server/{router,services,telemetry}.rs`、`src/bin/*`、`src/common/error.rs`、
+  `synapse-common/{config/manager,logging}.rs` …）。
+- 棘轮语义（`scripts/check_file_coverage.py:370-390`，优先级 **baseline-known > core > new**）：
+  基线已知文件 `floor = prev`（只管不回退）⇒ 这 88 个今天**不红**，`--core-threshold 70` 对它们不生效。
+- 🟡 **真正的两个坑**：(1) **新文件**走 30%（core 前缀走 70%）；(2) **重命名/移动**一个低覆盖的 core 前缀文件
+  会让它变成 "new" → 直接按 70% 判 → 必红（例如 `synapse-storage/event/*.rs` 现为 0–20%）。
+- **下一步（二选一，建议 A）**：
+  A. 把"覆盖率腿不执行"的路径显式豁免并加注释清单：`src/bin/**`、`src/main.rs`（可选 `src/server/{router,services,telemetry}.rs`），
+     同时在 `check_file_coverage.py` 里为该豁免加**只读守卫测试**（清单里的路径必须真的不可从 `--lib`/`--test unit` 触达），
+     红证明 = 往清单塞一个普通模块 → 测试变红。
+  B. 保持现状，只在文档里写明"重命名 core 低覆盖文件会触发 70% 地板"，避免下一个人踩坑。
+
+### 6.4 TESTING.md / AGENTS.md / CLAUDE.md 措辞 —— ✅ 本轮修正
+
+- `TESTING.md`（更早一轮已修）：`:111`、`:438` 已把 `run_ci_tests.sh` 标为"本地便利封装；不在 CI 中调用；改 CI 需同步（sweep A13）"。
+- `AGENTS.md` **本轮修正**（此前是错的）：
+  - `:11` 原写"counts diff blocks via `grep -c '^Diff in'`"（那是坏掉的旧实现）→ 改为"独立 `rustfmt --check` 的
+    `Diff in` 块计数；同一文件可有多个块（实测 2）；`cargo fmt -- --check` 不打印该标记，所以旧计数恒 0"。
+  - `:13` 原写"CI clippy 不覆盖 workspace 测试代码（只有 `-p synapse-services --tests`）"→ 改为 CI 两档
+    `--workspace --all-targets --features test-utils [--all-features]`（`ci.yml:301`），旧缺口已关。
+  - `:16` 原写"CI-equivalent Rust test entrypoint: `run_ci_tests.sh`" → 改为"本地 CI 复刻（**非** CI 入口，无 workflow 调用）"。
+- `CLAUDE.md` **本轮修正**：`:12` clippy 命令、`:28` "Full CI suite"→"Local CI replica (not the CI entrypoint)"、
+  `:376` 速查表同步。
+
+### 6.5 sweep 剩余项逐项核实
+
+**A 组（workflow 接线）**
+
+| 项 | 核实结论 | 证据 / 残留 |
+|---|---|---|
+| A1 | ✅ 已修 `e60832c6` | `e2ee-interop.yml:10` 含 `synapse-e2ee/**`；`scripts/ci/require_tests_ran.sh` 让"0 命中"变 exit 1；3 处 tee 均有 pipefail。残留：19 条 interop 测试在 `E2EE_INTEROP!=1` 时**早退仍计为 passed** |
+| A2 | ✅ 已修 `e60832c6` | 5 步改为 `--test integration <mod>_migrated` + 包装器；模块真实存在。残留：feature 列表是显式 6 个而非 `--all-features` |
+| A3 | ✅ 已修 `e60832c6` | 不存在的测试名只剩注释；改为 4 个真实名字循环 + 包装器。残留：`database_integrity_tests::connect_integrity_pool()` 返回 `None` 时测试**早退即 passed** |
+| A4 | ✅ 已修 `e60832c6` | 改用 `--test integration invite_blocklist_tests_migrated`（5 条真测试）；`tests/unit/msc_tests.rs:41` 的玩具模块仍在但无人引用 |
+| A5 | ✅ 已修 `dee46f6e` | `db-migration-gate.yml:31` `set -o pipefail` 在 `:33` 的 `\| tee` 之前 |
+| A6 | ✅ 已修 `dee46f6e` + `7eb97e47` | 6 个**步骤**、9 处 tee 全部有前置 pipefail；常驻扫描门禁 `tests/unit/workflow_pipefail_tests.rs`（我 Python 复刻扫描 7 块 / 0 违规）。§5 旧文案的"4 处/e2ee 2 处"是错的（分别应为 4 处 tee=1 个块、e2ee **3** 处） |
+| A7 | ❌ **未修（刻意取舍）** | `ci.yml:568/850/888` 的 `integration-test`/`build`/`coverage` 仍是 `schedule \|\| push(main/develop)`；PR 上 skip。取舍只在 audit 文档里，`AGENTS.md`/`TESTING.md` 零记录 |
+| A8 | ✅ 已修 `4565cecd`/`68b0ec83` | `scripts/ci/coverage_baseline.json` 已入库（623 文件）；CI 引用的路径已更新；`check_file_coverage.py` 增加 bootstrapping 豁免，C1 死锁消除。残留：ratchet 仍只在 push/schedule 的 coverage job 里跑（受 A7 影响） |
+| A9 | 🟡 **部分** | `mutation-testing.yml:37` **job 级 `continue-on-error` 仍在**（新增的 `require_mutation_report()` 只能让 step 红，job 永不阻断）；`ledger-export.yml` **没有** job 级 COE——只有 `:74` 可选通知 step 的 step 级 COE，**本文件 §5 旧文案这一点是错的** |
+| A10 | ✅ 已修 `a8ce30f4` | `db-replica-consistency.yml:17-41` preflight + `configured` 输出；`db-tests-manual.yml:77` `ON_ERROR_STOP=1`，`\|\| echo` 已删 |
+| A11 | ❌ **未修（3 个子问题全在）** | `drift-detection.yml:14-16` PR 只挂 `branches:[main]`；`:225-238` 单目录 `uniq -d` 结构性恒空；`:330` 硬编码 v12 文件名 |
+| A12 | ✅ 已修 `a8ce30f4`（有 PR 覆盖缺口） | `e2ee-interop.yml:125-129` strict + `SDK_CONTRACT_STRICT=1`；缺 SDK + `GITHUB_ACTIONS=true` 时 `check_route_contract.sh:72-74` 发 warning。残留：strict 步骤所在 job 只在 nightly/dispatch/feature 分支触发，普通 PR 仍不跑 |
+
+**B 组（Rust 弱守卫）**
+
+| 项 | 核实结论 | 证据 / 残留 |
+|---|---|---|
+| B7 | ❌ 未修 | `perf_gate_honesty_tests.rs:74-82` 仍是三条文本断言；`\|\| script.contains("missing")` **仍在**（脚本散文即可满足）；`compute_perf_gate.sh:54` 的 `:-1` 无任何断言；无用例执行脚本/断言退出码 |
+| B8 | 🟡 部分 | 扫描面已修（`SCAN_ROOTS` 8 根含 `tests`，非空性断言 ≥100 文件/≥10 在 tests 下），docstring 已诚实；但匹配仍只有 `.ok();`；**187** 处 `let _ = …execute(…).await;`（test-support 子集 **99**）仍未强制，docstring 声称的"债务记录"在 docs 里**不存在** |
+| B9 | ❌ 未修 | `schema_lifecycle_guard_tests.rs:48-56` 扫描根仍缺 `synapse-test-utils/src` 与 `tests`；非空性仍只有 `total_sites > 0`。根外真实站点：test-utils 6 处 + tests 2 处 |
+| B11 | ❌ 未修 | `migrations/` 只有 1 个 baseline ⇒ 两个守卫的 `entries` 为空、断言 `violations.is_empty()` 空集恒真；无非空性守卫、无"合并基线"豁免注释 |
+| B12 | 🟡 部分 | 第一条断言已钉住唯一测试名；第二条仍是文本代理 `src.contains("block_room") && src.contains("MOCK DEVIATION")`，可被无关生产函数/断言消息满足 |
+| B13 | ✅ 已修 `fff782dd` | `read_dir`/`read_to_string` 失败 panic；非空性 ≥50 模块 + fixtures 非空；`iter().min().unwrap()` 区间断言已删；实现与 docstring 一致 |
+| B14 | ✅ 已修 `fff782dd` | 调用生产 helper、钉住 digest `655dc0be…`、独立重算、对 admin/user_type/password/nonce/secret 逐个 `assert_ne!` |
+| B15 | ✅ 已修 `fff782dd` | `nextest_marker_present(value)` 注入环境值，测试在 `cargo test` 与 nextest 下都真跑 |
+| B16 | ✅ 已修 `f9701d8c` | `ci.yml:419-424` 新增 `-p synapse-web --lib --features test-utils`；`derived_manifest_tests` 3 条在该 feature 集下确实编译（commit body 记录 3 run/3 passed，此前 0） |
+
+### 6.6 A7/A8：分支保护侧需要人工确认（无法用 `gh` 查询）
+
+`ci.yml` 中承载受影响门禁的 check 名（矩阵展开后）：
+- `Integration Tests`（`integration-test`，`:568`）
+- `Code Coverage`（`coverage`，`:888`）—— 覆盖率 + per-file 棘轮
+- `Build Check (core-matrix-min)` / `Build Check (core-private-chat)` / `Build Check (all-extensions)`（`build`，`:850`，矩阵 `:860-866`）
+- 常开 PR 门禁（需一并确认是否 required）：`Repo Sanity`、`Test & Lint (stable, default-features)`、
+  `Test & Lint (stable, all-features)`、`Test & Lint (1.93.0, default-features)`、`Test & Lint (1.93.0, all-features)`、
+  `Security Audit`、`PR Benchmark Gate`
+
+需要人确认的 3 件事：(a) 上述三个 push-only job 是否在 required checks 里；(b) 如果它们在 required 里，
+PR 侧"从未上报/skip"的 check GitHub 如何判定（Expected 会不会卡住合并）；(c) 确认
+`Mutation Testing (nightly, REPORT ONLY — not a merge gate)`、`Secrets preflight`、`Logical Checksum Compare` **不在** required 里。
+
+---
+
+## 7. 修正后的下一步清单（替代 §5 的旧版本，按投入产出排序）
+
+> 纪律不变：每条"检查类"改动都要 **故意违规 → 必须失败 → 撤销** 的红证明（铁律 8）；
+> 每条的完成判据写进本文件，不要只写"已修"。
+
+1. **A9 收口（最小、最诚实）**：`mutation-testing.yml:37` 的 job 级 `continue-on-error: true`
+   要么删掉（让 `require_mutation_report()` 真能阻断），要么在 job 名/注释里把"REPORT ONLY"写死
+   并确认它不在分支保护里。**红证明**：删掉 COE 后注入 `mutants.out` 缺失 → job 红。
+   同时修正本文件 §5 关于 `ledger-export.yml` job 级 COE 的错误描述（§6.5 已给正确事实）。
+2. **B9 / B11 补"扫描面非空"守卫（各 1 条断言 + 红证明）**：B9 把 `synapse-test-utils/src`、`tests`
+   加入扫描根；B11 为两个守卫加"entries 为空时必须显式声明合并基线豁免"的断言。
+   **红证明**：把扫描根改回旧集合 / 清空 entries → 测试红。
+3. **B7 改成真执行 + 正反控**：用 `Command` 跑 `compute_perf_gate.sh`，断言
+   (a) 默认 strict（缺少测量必须非 0 退出）、(b) 显式 `COMPUTE_PERF_GATE_STRICT=0` 时为 0，
+   删掉 `|| script.contains("missing")`。**红证明**：把脚本 `:-1` 改成 `:-0` → 测试红。
+4. **DB 门禁"假跳过"统一收口（A2/A3 残留）**：`database_integrity_tests::connect_integrity_pool()`
+   与 `tests/common/mod.rs::db_tests_required()` 都自建了一套"DB 不可达就跳过"的判断
+   （铁律 2：同一职责两份实现）。统一到 `tests/integration/mod.rs::skip_or_fail_without_db()`
+   （已存在、已按 `CI` 决定 fail-closed）。**红证明**：CI=1 且 DB 不可达 → 测试必须红，而不是 pass。
+5. **A1 残留**：`require_tests_ran.sh` 只能证明"跑了 ≥1 条"，无法证明"断言真的执行了"。
+   让 interop 测试在 `E2EE_INTEROP!=1` 时 **panic（CI 下）** 而不是早退，或让包装器把
+   "全部测试都走早退分支"识别为失败（成本更高）。**红证明**：去掉 env 变量 → 步骤红。
+6. **§2.5 标记约定守卫（§6.2）**：一条只读测试钉住 `TEMPLATE_READY_MARKER_PREFIX` 与两个 shell 脚本的
+   前缀/目录一致。**红证明**：改常量 → 测试红。
+7. **§2.4 覆盖率豁免决策（§6.3）**：建议方案 A（显式豁免 `src/bin/**` + `src/main.rs`，附只读守卫）；
+   否则方案 B（只在文档写明"重命名 core 低覆盖文件会触发 70% 地板"）。
+8. **A11 三处修复**（各自可独立提交）：PR 触发补 `develop`；重复迁移检查改为跨目录（或对
+   `migrations/` 与 `artifacts/sqlx-migrations` 同时扫描）；去掉硬编码 v12 文件名（用
+   `ls migrations/00000000_*.sql` 或复用 `migrations/README.md` 的约定）。**红证明**：构造一个重复
+   basename 的临时迁移 → 检查必须红。
+9. **B8 / B12 补强**：B8 把 `let _ = …await;` 形态纳入扫描（或把 99 处按模块 allowlist 白名单化并把
+   债务写进 `docs/`——目前 docstring 指向的债务记录不存在，属文档撒谎，至少要删掉那句话）；
+   B12 把第二条断言改成"真的调用了 `block_room`"的语法级/行为级检查。
+10. **A7/A8 取舍落地（§6.6）**：人工确认分支保护后，把结论写进 `TESTING.md`（当前
+    `AGENTS.md`/`TESTING.md` 对"这三个 job 只在 push 跑"零记录）。若确认它们不在 required 里，
+    至少把 CI 预算取舍写成明文决定，避免下一个人再当漏洞重报。
+11. **C3 / C8 / C10、D2、E4 / E6 / E7 / E8 / E9**：维持 §5 旧清单（本轮未复核，不下结论）。
+
+已完成且本轮**已复核**的：§1.6、§2.5（代码侧）、A1–A6、A8、A10、A12、B13、B14、B15、B16、§1.9 的四条测试稳定性修复。

@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Run server: `SYNAPSE_CONFIG_PATH=homeserver.yaml cargo run --release`
 - Run worker binary: `cargo run --bin synapse_worker`
 - Format check: `cargo fmt --all -- --check`
-- Clippy: `SQLX_OFFLINE=true cargo clippy --all-features --locked -- -D warnings`
+- Clippy (CI runs both matrix entries): `SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils [--all-features] --locked -- -D warnings`
 - Doc tests: `cargo test --doc --locked`
 
 - Enable local git hooks: `git config core.hooksPath .githooks` (pre-commit: cargo audit advisory, pre-push: cargo deny advisories blocking)
@@ -25,8 +25,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Integration tests (requires PostgreSQL):**
   `cargo nt --features privacy-ext,voice-extended,voip-tracking,beacons,server-notifications --test integration`
 - **Single named integration test:** `cargo nt --test integration <test_name>`
-- **Full CI suite:** `bash scripts/run_ci_tests.sh`
-- **Clippy:** `SQLX_OFFLINE=true cargo clippy --all-features --locked -- -D warnings`
+- **Local CI replica (⚠️ not the CI entrypoint — no workflow calls it):** `bash scripts/run_ci_tests.sh`
+- **Clippy (CI runs both matrix entries):** `SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils [--all-features] --locked -- -D warnings`
 - **E2E tests:** `cargo nextest run --test e2e`
 - **Performance manual tests:** `cargo nextest run --features performance-tests --test performance_manual -- --nocapture`
 
@@ -373,7 +373,7 @@ refresh_token.is_active().await.map_err(|_| ServiceError::DatabaseError)?
 | 同步测试 | `cargo nextest run -p <crate> <test_name> -P tdd` |
 | DB 迁移 | `DATABASE_URL=... bash docker/db_migrate.sh migrate` |
 | 覆盖率 | `bash scripts/run_local_coverage.sh` |
-| 完整 CI 本地复刻 | `bash scripts/run_ci_tests.sh` |
+| 完整 CI 本地复刻（**非** CI 入口，CI 内联重实现） | `bash scripts/run_ci_tests.sh` |
 
 ### 记住：每次提交前必检
 ```bash

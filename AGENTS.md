@@ -8,12 +8,11 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 - Build: `cargo build --locked`
 - Run server: `SYNAPSE_CONFIG_PATH=homeserver.yaml cargo run --release`
 - Run worker binary: `cargo run --bin synapse_worker`
-- Format check: `cargo fmt --all -- --check` — but the **real CI gate** is `./scripts/check_fmt_ratchet.sh` (ratchet with baseline 0, counts diff blocks via `grep -c '^Diff in'`; both `current > baseline` and `current < baseline` fail, so after `cargo fmt --all` you are at `current=0=baseline` and pass).
-- Clippy: `SQLX_OFFLINE=true cargo clippy --all-features --locked -- -D warnings`
-- ⚠️ CI clippy does NOT cover test code across the workspace (only `-p synapse-services --tests`); `cargo clippy --workspace --all-targets --all-features` may show extra warnings in test code.
+- Format check: `cargo fmt --all` before every commit — the **real CI gate** is `./scripts/check_fmt_ratchet.sh` (ratchet, baseline 0, both `current > baseline` and `current < baseline` fail). It counts **standalone `rustfmt --check`'s `Diff in` blocks**: one file can contribute several (measured: two disjoint hunks in one file = 2), and `cargo fmt -- --check` prints no such marker at all — which is exactly why the old counter reported `current=0` for 56 unformatted files across 21 CI runs. After `cargo fmt --all` you are at `current=0=baseline` and pass.
+- Clippy (CI runs both matrix entries — `features-args` empty and `--all-features`): `SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils [--all-features] --locked -- -D warnings`. `--all-targets` covers test code workspace-wide; the old gap (CI checked only `-p synapse-services --tests`) was closed in `ci.yml:301`.
 - Doc tests: `cargo test --doc --locked` — ⚠️ **this is currently an empty gate** (root crate has 0 doc tests; workspace-wide there are only 4 and all are `#[ignore]`d). A real rustdoc-only compile error (E0106) once shipped green through this gate. Prefer `cargo test --doc --locked --workspace` when touching doc examples, and note rustdoc catches lifetime elision errors that `cargo check`/`clippy` miss entirely.
 - Full test suite: `cargo test --all-features --locked -- --test-threads=4`
-- CI-equivalent Rust test entrypoint: `TEST_THREADS=4 TEST_RETRIES=2 bash scripts/run_ci_tests.sh`
+- Local CI replica (⚠️ **not** the CI entrypoint): `TEST_THREADS=4 TEST_RETRIES=2 bash scripts/run_ci_tests.sh`. No workflow calls it — `ci.yml` re-implements the same test batches inline, so the two must be kept in sync or they drift (sweep A13). For what CI actually runs, read `ci.yml` / `TESTING.md`.
 - If `cargo-nextest` is installed, `scripts/run_ci_tests.sh` uses it automatically; otherwise it falls back to `cargo test` with retries.
 - `cargo nt` is a repo alias (`.cargo/config.toml`) for `cargo nextest run --profile test --features test-utils`. It works for `--lib`/`--test unit` but **not for `--test integration`** (nextest 0.9.140 silently ignores `features` in profiles + the integration target has `required-features`); use the explicit `--all-features` command below for integration.
 
