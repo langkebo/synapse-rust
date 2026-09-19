@@ -193,6 +193,37 @@ bef65f53 style(fmt): 归零 fmt debt（HEAD 实测 99 块 vs baseline 0，1.93.0
   "全部 JSON shape 烟雾测试 … 若覆盖率无法提升则删除以避免误导"。
 - 验证：unit target 1675 passed / 2 skipped；覆盖率基线里 `tests/` 条目为 0。
 
+### 1.8 CI 等效验证跑了一次（真实 CI 无法触发）
+
+`gh auth status` 显示 token 失效（`The token in keyring is invalid`）且没有收到推送指令，
+**无法触发/观察真实 GitHub Actions**，故在本地逐条复刻 `.github/workflows/ci.yml` 的步骤：
+
+| CI 步骤 | 本地结果 |
+|---|---|
+| fmt 棘轮（`check_fmt_ratchet.sh`） | ✅ current=0=baseline |
+| clippy 默认档（`--workspace --all-targets --features test-utils -D warnings`） | ✅ 0 error |
+| clippy `--all-features` 档 | ✅ 0 error |
+| doc tests（`cargo test --doc --workspace`） | ✅ 0 failed（**0 个测试** —— 这就是 AGENTS.md 说的空门禁） |
+| seed（`ci/prepare_test_db.sh`） | ✅ EXIT=0，public 228 + 模板 227 BASE TABLE + 10 trgm；不可达库时 EXIT=2 |
+| workspace lib `--all-features --test-threads 4`（**带 `NEXTEST_RETRIES=2`**，与 CI 的 env 一致） | ✅ **6081/6081 passed（1 flaky）**，EXIT=0 |
+| 同一命令**不带 retries**（更严格） | ❌ 三次跑出三个不同失败：`beacon::db_tests::test_create_and_get_beacon_info`（已修，见 `fff782dd`）、`synapse-common test_isolation::tests::validate_clone_rejects_an_incomplete_clone`、`synapse-services media::tests::test_chunked_complete_can_be_downloaded_via_media_service`；三条都能单独通过 |
+| repo-sanity 各门禁 | ✅（下表） |
+
+repo-sanity：schema table coverage / migration consistency / route-storage boundary /
+sqlx ratio / web layering / trait ratchet / workflow steps / schema blind guards /
+schema contract coverage / connection budget / route layering **全部 exit 0**。
+
+**两个结论**：
+1. **CI 的 `test` job 在「4 线程 + 2 次重试」下是绿的**，但 `--test-threads 4` 下存在
+   跨 crate 资源争用导致的**偶发失败**（同一次提交三次跑出三个不同测试），
+   由 `NEXTEST_RETRIES=2` 掩盖。这与仓库既有记录一致
+   （`TEST_THREADS >= 6` 需先 `tune_test_db.sh`；本机 `max_locks_per_transaction=256`、
+   `max_connections=100`）。**这是残留的测试稳定性问题，不是产品缺陷**，
+   但值得单独一轮把这三条查明（它们的共同点是重 DB + 共享/克隆 schema）。
+2. 门禁确实在拦人：`check_schema_table_coverage.py` 抓到了我新增测试里的
+   `INSERT INTO fts_invalid_probe`（一次性表名）并 exit 1 —— 已改用 CTAS 消除
+   （`34dd5982`），**没有**加例外。
+
 ---
 
 ## 2. 本会话新发现
@@ -365,9 +396,15 @@ python3 scripts/ci/check_workflow_steps.py
 ## 5. 下一步建议顺序
 
 已完成（见上文各节）：§1.6（`Result` 穿透）、§2.1、§2.2、§2.3、§2.5、A9、A10、A12、
-B8、B13、B14、B15、C7、D1，以及 CI 等效跑发现的 beacon 竞争。
+B8、B13、B14、B15、C7、D1，CI 等效验证（§1.8），以及 CI 等效跑发现的 beacon 竞争与
+表覆盖门禁命中的一次性表名。
 
 剩余（按建议优先级）：
+
+0. **测试稳定性（§1.8 结论 1）**：`--test-threads 4` 下 `validate_clone_rejects_an_incomplete_clone`
+   与 `media::tests::test_chunked_complete_can_be_downloaded_via_media_service` 会偶发失败
+   （单独跑必过，由 `NEXTEST_RETRIES=2` 掩盖）。三者（含已修的 beacon）都是重 DB +
+   共享/克隆 schema，值得一轮查清是锁表、连接预算还是共享状态。
 
 1. **§2.4**：为非 test-only 的 <30% 文件补测试，或明确把 `src/bin` 也列为豁免。
 2. **A6**：`benchmark.yml`（4 处裸 `| tee`，无 `set -o pipefail`）与
