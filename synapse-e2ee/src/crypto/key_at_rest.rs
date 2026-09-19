@@ -267,12 +267,17 @@ mod tests {
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("test.key");
 
+        // Generate a fresh key and persist it as encrypted (v1: prefix format)
         let key = KeyAtRest::generate_and_persist(&path.to_string_lossy()).unwrap();
         assert_eq!(key.len(), 32);
 
-        // Load back as plaintext and verify
-        let loaded = KeyAtRest::load_plaintext(&path.to_string_lossy()).unwrap();
-        assert_eq!(loaded, key);
+        // Load back using the encrypted loader with the same encryption key
+        let at_rest = KeyAtRest::new(key);
+        let content = std::fs::read_to_string(&path).unwrap();
+        let opened = at_rest.open(&content).unwrap();
+        
+        // The decrypted content should be the original key bytes
+        assert_eq!(opened.as_slice(), &key[..]);
 
         // Cleanup
         let _ = std::fs::remove_file(&path);
