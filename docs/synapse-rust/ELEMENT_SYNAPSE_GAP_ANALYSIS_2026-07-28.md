@@ -164,7 +164,7 @@ synapse-rust v6.2.0 对标 Element Synapse v1.156.0 的整体覆盖率达到 **~
 | Sliding Sync 订阅变更即时响应 | v1.155 修复 (#19734) | ✅ 已验证（P1-5：4 个测试覆盖 room_subscriptions/unsubscribe_rooms/required_state/timeline_limit 变更） | P1 |
 | /sync 瞬态错误缓存修复 | v1.156 修复 (#19845) | ✅ 已验证（P1-6：确认无 response cache，txn_id 缓存不缓存失败响应，2 个测试验证） | P1 |
 | 通知计数膨胀修复 | v1.156 修复 (#19785, #19834) | ✅ 已修复（P1-7：read_markers.origin_server_ts 冗余列 + COALESCE 兜底 + 迁移 + 测试） | P1 |
-| Sliding Sync 性能回滚机制 | v1.153 回滚经验 | ✅ 已实现（P2-13：`scripts/ci/sliding_sync_perf_gate.sh` 阈值门禁 + `sliding_sync_perf_gate_tests.rs` 14 个单元测试） | P2 |
+| Sliding Sync 性能回滚机制 | v1.153 回滚经验 | ✅ 已实现（P2-13：`scripts/ci/sliding_sync_perf_gate.sh` 阈值门禁，由 `benchmark.yml:226` 实际调用。⚠️ 2026-09-19：Rust 侧 `sliding_sync_perf_gate_tests.rs` 的 14 条"镜像逻辑"测试已删除 —— 它们从不执行脚本，属重复实现，见 sweep §3 B5） | P2 |
 
 **优化方案 — P1 Sliding Sync 订阅变更即时响应：**
 - **实现路径**: 审查 `sliding_sync_service` 的 `poll` 逻辑，当 subscription 的 `required_state` 或 `timeline_limit` 变更时，立即返回新响应而非等待超时

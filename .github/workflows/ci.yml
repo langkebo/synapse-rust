@@ -391,6 +391,39 @@ jobs:
           NEXTEST_RETRIES: 2
         run: cargo nextest run --test unit --features test-utils --locked --test-threads 4
 
+      # ── B16: 让 `cfg(not(any(...)))` 门控的 golden 真正编译 ──
+      # `synapse-web/src/routes/derived_routes.rs` 里 default/worker/all 三个
+      # ledger golden 用 `#[cfg(not(any(all-extensions, voice-extended, saml-sso,
+      # cas-sso, voip-tracking, server-notifications, privacy-ext, builtin-oidc)))]`
+      # 门控；上方 `--workspace --lib --all-features`（line ~380）打开
+      # all-extensions 后它们被关掉，而 `--test unit` 不编译依赖 crate 的
+      # `cfg(test)` ⇒ 三份 `ledger_export/*.json` 在 CI 里从未被校验
+      # （sweep §3 B16）。用最小 feature 集单独跑 synapse-web 的 lib 测试补上；
+      # all-features 下的三个 `ledger_export_sdk/*` golden 仍由上面那步覆盖。
+      - name: Run synapse-web lib tests (minimal features, default ledger golden)
+        if: matrix.features-args == '--all-features'
+        env:
+          SQLX_OFFLINE: "true"
+          RUST_BACKTRACE: 1
+        run: cargo nextest run -p synapse-web --lib --features test-utils --locked --test-threads 4
+
+      # ── B17: 让 `#[cfg(feature = "voice-extended")]` 的 unit 模块真正编译 ──
+      # `tests/unit/{voice_service_tests,voice_route_tests}.rs` 在 mod.rs 里按
+      # `voice-extended` 门控，而 `--test unit` 步骤只带 `test-utils`
+      # ⇒ 这两个模块从未在 CI 编译过（sweep §3 B17）。第一次让它们编译就暴露了
+      # 两条真红（FT-130 断言写反、`get_event_context_admin` 断言永不成立），
+      # 已在 993a1dd6 修复。
+      - name: Run voice-gated unit modules (voice-extended)
+        if: matrix.features-args == '--all-features'
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
+          REDIS_URL: redis://localhost:6379
+          RUST_BACKTRACE: 1
+          NEXTEST_RETRIES: 2
+        run: cargo nextest run --test unit --features "test-utils,voice-extended" --locked --test-threads 4 -E 'test(voice_)'
+
       # ── §6 修复：clippy 门禁覆盖范围 ──
       # 上方 `Run clippy` 已改为 `--workspace --all-targets --features test-utils`，
       # 覆盖全部 workspace crate 的 lib + test + bin 代码（旧版仅根 crate lib，

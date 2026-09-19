@@ -13,7 +13,9 @@
 //!
 //! 本文件用**子进程实际执行脚本**来锁定行为（对照 `sliding_sync_perf_gate_tests.rs`
 //! 的教训：那个文件只用 Rust 重写了一遍解析逻辑，从不执行脚本，因此脚本长期
-//! 失效却始终"测试通过"）。
+//! 失效却始终"测试通过"。该文件已于 2026-09-19 删除 —— 真门禁是
+//! `benchmark.yml` 里实际调用的 `scripts/ci/sliding_sync_perf_gate.sh`，
+//! Rust 侧副本属重复实现，见 `docs/audit/GATE_INTEGRITY_SWEEP_2026-09-19.md` §3 B5）。
 
 use std::fs;
 use std::path::PathBuf;
