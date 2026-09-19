@@ -60,7 +60,12 @@ pub async fn build_service_container(
         Arc::new(CacheManager::new(&CacheConfig::default()))
     };
 
-    let services = ServiceContainer::new(pool, cache.clone(), config.clone(), task_queue).await;
+    // Propagated rather than panicked: the message names the config keys the
+    // operator has to set (e.g. the megolm at-rest key sources), and the caller
+    // turns it into a startup failure.
+    let services = ServiceContainer::new(pool, cache.clone(), config.clone(), task_queue)
+        .await
+        .map_err(|error| format!("failed to build the service container: {error}"))?;
 
     Ok((services, cache, redis_pool_option))
 }

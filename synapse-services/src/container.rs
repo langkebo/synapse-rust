@@ -133,13 +133,17 @@ impl ServiceContainer {
         self.account.user_storage.pool().clone()
     }
 
-    /// See [`new`].
+    /// Assemble the whole service graph.
+    ///
+    /// Fallible because a server that cannot derive a server-side megolm at-rest
+    /// key must fail startup with the operator-facing message rather than panic
+    /// deep inside the wiring (sweep, follow-up doc §1.6).
     pub async fn new(
         pool: &Arc<sqlx::PgPool>,
         cache: Arc<CacheManager>,
         config: Config,
         task_queue: Option<Arc<RedisTaskQueue>>,
-    ) -> Self {
+    ) -> Result<Self, String> {
         // Phase 1: Build shared infrastructure
         let infra_phase = Self::build_infrastructure(pool, cache, config, task_queue).await;
 
@@ -153,7 +157,7 @@ impl ServiceContainer {
         .await;
 
         // Phase 3: Build domain assemblies (linearized DAG)
-        let domain_phase = Self::build_domains(&infra_phase, &storage_phase).await;
+        let domain_phase = Self::build_domains(&infra_phase, &storage_phase).await?;
 
         // Phase 4: Build extensions + account services + assemble container
         let container = Self::build_container(&infra_phase, &storage_phase, domain_phase).await;
@@ -161,7 +165,7 @@ impl ServiceContainer {
         // Phase 5: Post-construction side effects (burn-after-read processor)
         Self::start_burn_after_read_processor(&container, &infra_phase.infra.config).await;
 
-        container
+        Ok(container)
     }
 
     // -------------------------------------------------------------------------
@@ -294,7 +298,12 @@ impl ServiceContainer {
     // Phase 3: Domain assemblies
     // -------------------------------------------------------------------------
 
-    async fn build_domains(infra: &InfraPhase, storage: &StoragePhase) -> DomainPhase {
+    /// Build the domain assemblies.
+    ///
+    /// Fallible only for the E2EE wiring, which refuses to start when no
+    /// server-side megolm at-rest key is derivable (see
+    /// [`wiring::E2eeServices::new`]). The message is the operator-facing one.
+    async fn build_domains(infra: &InfraPhase, storage: &StoragePhase) -> Result<DomainPhase, String> {
         let pool = &infra.infra.pool;
         let cache = &infra.infra.cache;
         let config = &infra.infra.config;
@@ -307,7 +316,7 @@ impl ServiceContainer {
             config.server.megolm_encryption_key_path.as_deref(),
             config.server.macaroon_secret_key.as_deref(),
         )
-        .await;
+        .await?;
 
         // Admin — builds app_service_manager; no rooms/federation/core dependency
         let admin = wiring::AdminServices::new(
@@ -465,7 +474,7 @@ impl ServiceContainer {
             svc.with_quarantine_stream(quarantine_storage, cache_invalidation)
         });
 
-        DomainPhase { e2ee, rooms, admin, federation, sso, core, media_domain_service, event_broadcaster }
+        Ok(DomainPhase { e2ee, rooms, admin, federation, sso, core, media_domain_service, event_broadcaster })
     }
 
     // -------------------------------------------------------------------------
@@ -627,16 +636,20 @@ impl ServiceContainer {
 
     /// See [`new_test_with_pool`].
     #[cfg(any(test, feature = "test-utils"))]
+    #[allow(clippy::expect_used)]
     pub async fn new_test_with_pool(pool: Arc<sqlx::PgPool>) -> Self {
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let config = crate::test_config::build_test_config();
-        Self::new(&pool, cache, config, None).await
+        // Test helper: a fixture whose config cannot produce a container is a test
+        // bug, so failing loudly here is correct (the real `new` returns `Result`).
+        Self::new(&pool, cache, config, None).await.expect("test service container")
     }
 
     /// See [`new_test_with_pool_and_cache`].
     #[cfg(any(test, feature = "test-utils"))]
+    #[allow(clippy::expect_used)]
     pub async fn new_test_with_pool_and_cache(pool: Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> Self {
         let config = crate::test_config::build_test_config();
-        Self::new(&pool, cache, config, None).await
+        Self::new(&pool, cache, config, None).await.expect("test service container")
     }
 }

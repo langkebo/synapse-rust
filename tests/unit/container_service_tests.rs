@@ -230,3 +230,31 @@ fn service_container_test_constructors_are_available_under_test_utils_feature() 
     let _new_test_with_pool = ServiceContainer::new_test_with_pool;
     let _new_test_with_pool_and_cache = ServiceContainer::new_test_with_pool_and_cache;
 }
+
+/// A config with neither megolm at-rest key source must make container
+/// construction return an `Err` naming both keys — not panic from inside the
+/// wiring.
+///
+/// `E2eeServices::new` used to be `-> Self` and panicked behind a scoped
+/// `#[allow(clippy::panic)]`; the `Result` plumbing exists precisely so that a
+/// misconfigured server fails startup with the operator-facing message
+/// (follow-up doc §1.6). The message is asserted because the operator needs to
+/// know *which* two config keys to set.
+#[tokio::test]
+async fn container_construction_reports_a_missing_megolm_at_rest_key() {
+    let mut config = synapse_services::test_config::build_test_config();
+    config.server.megolm_encryption_key_path = None;
+    config.server.macaroon_secret_key = None;
+
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+
+    // `ServiceContainer` has no `Debug`, so `expect_err` is unavailable; match
+    // instead of unwrapping.
+    match ServiceContainer::new(&lazy_pool(), cache, config, None).await {
+        Ok(_) => panic!("with no at-rest key source, construction must fail instead of panicking"),
+        Err(error) => assert!(
+            error.contains("megolm_encryption_key_path") && error.contains("macaroon_secret_key"),
+            "the error must name both config keys so the operator can fix it; got: {error}"
+        ),
+    }
+}
