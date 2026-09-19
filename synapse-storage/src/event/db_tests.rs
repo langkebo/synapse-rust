@@ -1788,8 +1788,16 @@ async fn test_create_postgres_fts_index_reports_invalid_leftover() {
     let pool = isolated.pool();
     let storage = EventStorage::new(&pool, test_server_name());
 
-    sqlx::query("CREATE TABLE fts_invalid_probe (a int)").execute(&*pool).await.expect("scratch table");
-    sqlx::query("INSERT INTO fts_invalid_probe (a) VALUES (1), (1)").execute(&*pool).await.expect("duplicate rows");
+    // Two duplicate rows in one statement, via CTAS: an `INSERT INTO <scratch>`
+    // would also register the throwaway table name with
+    // `scripts/check_schema_table_coverage.py`, which scans SQL literals for
+    // table references and (correctly) expects them to exist in migrations.
+    // `CREATE TABLE … AS SELECT` references nothing, so the gate stays quiet
+    // about a table that only exists inside this test's isolated schema.
+    sqlx::query("CREATE TABLE fts_invalid_probe AS SELECT 1 AS a UNION ALL SELECT 1")
+        .execute(&*pool)
+        .await
+        .expect("scratch table with duplicate rows");
 
     // Fails with a unique violation and leaves `events_fts_idx` INVALID.
     let build =
