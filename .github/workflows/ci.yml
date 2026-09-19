@@ -1047,7 +1047,13 @@ jobs:
     runs-on: ubuntu-latest
     # Run even if all upstream jobs were skipped (cancelled/no-op)
     if: always()
-    needs: [changes, test, integration-test, security-audit, build, pr-benchmark-gate]
+    # `repo-sanity` carries four real gates (migration consistency, schema table
+    # coverage, schema contract coverage, route-storage boundary). It was missing
+    # from this list, so its failures never appeared in the digest — and the
+    # digest is what a PR author reads first. Whether the job *blocks* a merge is
+    # decided by branch protection, not by this list; this only makes a failure
+    # visible.
+    needs: [changes, repo-sanity, test, integration-test, security-audit, build, pr-benchmark-gate]
     steps:
       - name: Print compact failure digest
         uses: actions/github-script@v7
