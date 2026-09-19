@@ -364,8 +364,10 @@ async fn register_encrypted_voice(
     }
 
     // Check if this voice was already registered (idempotent)
-    if let Ok(Some(existing)) = ctx.voice_service.get_voice_message_content(&req.media_id).await {
-        let existing_user = existing.get("user_id").and_then(|v: &serde_json::Value| v.as_str());
+    // Note: get_voice_message_content returns Result<Value, ApiError> where NotFound
+    // means no existing record exists - we handle this via the Ok(existing) pattern
+    if let Ok(existing) = ctx.voice_service.get_voice_message_content(&req.media_id).await {
+        let existing_user = existing.get("user_id").and_then(|v| v.as_str());
         if existing_user.map(|u| u == auth_user.user_id).unwrap_or(false) {
             // Already registered by this user, return success
             let content_uri = synapse_common::media_locator::MediaLocator {
