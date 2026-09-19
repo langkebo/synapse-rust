@@ -1772,6 +1772,45 @@ async fn test_create_postgres_fts_index_idempotent() {
     storage.create_postgres_fts_index().await.expect("create_postgres_fts_index second call should succeed");
 }
 
+/// A `CONCURRENTLY` build that fails leaves an **INVALID** index behind, and
+/// `IF NOT EXISTS` then skips that name forever — so `create_postgres_fts_index`
+/// must not report success in that state.
+///
+/// The INVALID state is reproduced the way PostgreSQL actually produces it: a
+/// concurrent UNIQUE build over a table with duplicate rows fails and keeps the
+/// index. This runs on a **per-test isolated schema** (not the shared
+/// `test_pool()`), because the leftover index would otherwise outlive the test
+/// and break `test_create_postgres_fts_index_idempotent`, which shares that
+/// schema.
+#[tokio::test]
+async fn test_create_postgres_fts_index_reports_invalid_leftover() {
+    let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+    let pool = isolated.pool();
+    let storage = EventStorage::new(&pool, test_server_name());
+
+    sqlx::query("CREATE TABLE fts_invalid_probe (a int)").execute(&*pool).await.expect("scratch table");
+    sqlx::query("INSERT INTO fts_invalid_probe (a) VALUES (1), (1)").execute(&*pool).await.expect("duplicate rows");
+
+    // Fails with a unique violation and leaves `events_fts_idx` INVALID.
+    let build =
+        sqlx::query("CREATE UNIQUE INDEX CONCURRENTLY events_fts_idx ON fts_invalid_probe (a)").execute(&*pool).await;
+    assert!(build.is_err(), "a concurrent UNIQUE build over duplicate rows must fail");
+
+    let invalid: bool = sqlx::query_scalar(
+        "SELECT NOT i.indisvalid FROM pg_index i WHERE i.indexrelid = to_regclass('events_fts_idx')",
+    )
+    .fetch_one(&*pool)
+    .await
+    .expect("the failed build must leave the index present");
+    assert!(invalid, "precondition: the leftover index must be INVALID");
+
+    let err = storage
+        .create_postgres_fts_index()
+        .await
+        .expect_err("an INVALID leftover index must not be reported as success");
+    assert!(err.to_string().contains("INVALID"), "the error must name the INVALID state and the remedy, got: {err}");
+}
+
 #[tokio::test]
 async fn test_search_joined_room_events_empty_joined() {
     let pool = test_pool().await;

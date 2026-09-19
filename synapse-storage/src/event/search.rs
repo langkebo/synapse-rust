@@ -222,11 +222,33 @@ impl EventStorage {
         }
     }
 
-    /// See [`create_postgres_fts_index`].
+    /// Create the PostgreSQL FTS index on `events` if it is missing.
+    ///
+    /// `CONCURRENTLY` as of 2026-09-19: this is called from `SearchService`
+    /// during wiring/startup (`synapse-services/src/wiring/core.rs`) and `events`
+    /// is the hot table. A plain `CREATE INDEX` holds a write lock for the whole
+    /// build, so the first startup against a large existing database blocks
+    /// every write to `events` until it finishes. `CONCURRENTLY` builds without
+    /// blocking writes.
+    ///
+    /// The trade-off is that a concurrent build which fails leaves an **INVALID**
+    /// index behind, and `IF NOT EXISTS` then skips it forever — search would
+    /// stay unindexed while startup reported success. So this checks
+    /// `pg_index.indisvalid` and returns an explicit error naming the remedy
+    /// instead of trusting "the statement did not error".
+    ///
+    /// sqlx runs a bare `execute` in autocommit, which is what `CONCURRENTLY`
+    /// requires (it cannot run inside a transaction block).
     pub async fn create_postgres_fts_index(&self) -> Result<(), sqlx::Error> {
+        // Checked BEFORE the create: with an invalid leftover of the same name,
+        // `IF NOT EXISTS` skips the build (or PostgreSQL rejects it), and either
+        // way startup would otherwise look successful while search stays
+        // unindexed.
+        self.fail_if_fts_index_invalid().await?;
+
         sqlx::query(
             r"
-            CREATE INDEX IF NOT EXISTS events_fts_idx
+            CREATE INDEX CONCURRENTLY IF NOT EXISTS events_fts_idx
             ON events
             USING GIN (to_tsvector('english', content))
             WHERE event_type = 'm.room.message' AND stream_ordering > 0
@@ -234,6 +256,39 @@ impl EventStorage {
         )
         .execute(&*self.pool)
         .await?;
+
+        // And again after: a build that reports no error but leaves the index
+        // invalid must not be treated as success either.
+        self.fail_if_fts_index_invalid().await
+    }
+
+    /// Error out when `events_fts_idx` exists but is not valid.
+    ///
+    /// PostgreSQL leaves such an index behind when a `CONCURRENTLY` build fails
+    /// (the classic cause is a duplicate value during a concurrent UNIQUE
+    /// build). `IF NOT EXISTS` will then skip the name forever, so the only
+    /// recovery is an explicit `DROP INDEX CONCURRENTLY` — which the message
+    /// spells out.
+    async fn fail_if_fts_index_invalid(&self) -> Result<(), sqlx::Error> {
+        // `to_regclass` resolves the name through the session `search_path`, i.e.
+        // it names the index this connection would actually use. Matching on
+        // `pg_class.relname` alone is wrong: `pg_class` is database-wide, so an
+        // unrelated index with the same name in another schema (e.g. a leftover
+        // `public.events_fts_idx`) would satisfy the check. Measured 2026-09-19:
+        // that made the first version of this guard look at the wrong index.
+        let invalid: Option<String> = sqlx::query_scalar(
+            "SELECT c.relname FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid \
+             WHERE i.indexrelid = to_regclass('events_fts_idx') AND NOT i.indisvalid",
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
+        if let Some(name) = invalid {
+            return Err(sqlx::Error::Protocol(format!(
+                "index {name} exists but is INVALID: a concurrent build did not finish. \
+                 Drop it with `DROP INDEX CONCURRENTLY {name}` and retry — `IF NOT EXISTS` \
+                 would otherwise skip it forever and full-text search stays unindexed."
+            )));
+        }
         Ok(())
     }
 
