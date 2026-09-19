@@ -1,6 +1,6 @@
 # synapse-rust 路由契约（Route Contract）
 
-> 自动生成于 2026-09-18，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含 `derived_route_table.inc.rs`）派生覆盖。
+> 自动生成于 2026-09-19，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含 `derived_route_table.inc.rs`）派生覆盖。
 >
 > 本文件是后端 HTTP 契约的**事实来源之一**（机器侧权威为 `derived_routes.rs` 生成的 `RouteLedger`，启动时校验、集成测试 PATCH 探测）。人工文档（INDEX.md / API_COVERAGE_REPORT.md）须与之保持一致。
 >
