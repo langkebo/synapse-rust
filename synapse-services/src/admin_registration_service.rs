@@ -14,6 +14,58 @@ use synapse_common::*;
 
 type HmacSha256 = Hmac<Sha256>;
 
+/// Feed the admin-registration request framing into `mac`.
+///
+/// One implementation of the byte layout, shared by [`AdminRegistrationService::verify_hmac`]
+/// (which must keep verifying with `verify_slice` — a constant-time comparison)
+/// and [`admin_registration_signature_hex`] (the testable seam). Before this
+/// split the layout existed **only** inside `verify_hmac`, so the root-crate
+/// guard had to re-implement it and could not detect a framing change (sweep B14).
+fn update_admin_registration_mac(
+    mac: &mut HmacSha256,
+    nonce: &str,
+    username: &str,
+    password: &str,
+    admin: bool,
+    user_type: Option<&str>,
+) {
+    mac.update(nonce.as_bytes());
+    mac.update(b"\0");
+    mac.update(username.as_bytes());
+    mac.update(b"\0");
+    mac.update(password.as_bytes());
+    mac.update(b"\0");
+
+    if admin {
+        mac.update(b"admin\x00\x00\x00");
+    } else {
+        mac.update(b"notadmin");
+    }
+
+    if let Some(user_type) = user_type {
+        mac.update(b"\0");
+        mac.update(user_type.as_bytes());
+    }
+}
+
+/// Hex HMAC-SHA256 of the admin-registration framing, for tests and callers that
+/// need to *produce* a signature (the admin-registration script does).
+///
+/// The value is the contract the external script signs against: it pins
+/// `nonce \0 username \0 password \0 ("admin\0\0\0" | "notadmin") [\0 user_type]`.
+pub fn admin_registration_signature_hex(
+    shared_secret: &[u8],
+    nonce: &str,
+    username: &str,
+    password: &str,
+    admin: bool,
+    user_type: Option<&str>,
+) -> Result<String, String> {
+    let mut mac = HmacSha256::new_from_slice(shared_secret).map_err(|e| format!("invalid shared secret: {e}"))?;
+    update_admin_registration_mac(&mut mac, nonce, username, password, admin, user_type);
+    Ok(mac.finalize().into_bytes().iter().map(|b| format!("{b:02x}")).collect())
+}
+
 /// The `AdminRegistrationService` struct.
 #[derive(Clone)]
 #[allow(dead_code)] // Reserved fields for future use; see field-level comments.
@@ -190,24 +242,20 @@ impl AdminRegistrationService {
         let mut mac = HmacSha256::new_from_slice(self.config.shared_secret.as_bytes())
             .map_err(|e| ApiError::internal_with_cause("Invalid shared secret", e))?;
 
-        mac.update(request.nonce.as_bytes());
-        mac.update(b"\0");
-        mac.update(request.username.as_bytes());
-        mac.update(b"\0");
-        mac.update(request.password.as_bytes());
-        mac.update(b"\0");
+        // Shared with `admin_registration_signature_hex` so the byte layout has a
+        // single definition (and is therefore testable from outside this module).
+        update_admin_registration_mac(
+            &mut mac,
+            &request.nonce,
+            &request.username,
+            &request.password,
+            request.admin.unwrap_or(false),
+            request.user_type.as_deref(),
+        );
 
-        if request.admin.unwrap_or(false) {
-            mac.update(b"admin\x00\x00\x00");
-        } else {
-            mac.update(b"notadmin");
-        }
-
-        if let Some(user_type) = &request.user_type {
-            mac.update(b"\0");
-            mac.update(user_type.as_bytes());
-        }
-
+        // `verify_slice` is deliberate: it is the constant-time comparison, so
+        // this path must NOT be implemented by recomputing
+        // `admin_registration_signature_hex` and comparing hex strings.
         mac.verify_slice(&provided).map_err(|_| ApiError::forbidden("HMAC incorrect".to_string()))
     }
 }

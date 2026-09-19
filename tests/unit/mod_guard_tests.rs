@@ -17,28 +17,42 @@ const TESTS_UNIT_MOD: &str = "tests/unit/mod.rs";
 
 fn list_unit_rs_files() -> HashSet<String> {
     let dir = Path::new(TESTS_UNIT_DIR);
+    // Fail loud: `if let Ok(entries) = read_dir(..)` treated an unreadable /
+    // renamed directory as "zero files", and every caller then compared an empty
+    // set against the registered mods — the guard passed while scanning nothing
+    // (sweep B13).
+    let entries = std::fs::read_dir(dir).unwrap_or_else(|error| {
+        panic!(
+            "mod_guard: cannot read {TESTS_UNIT_DIR} ({error}) — this guard is meaningless without \
+             the directory; if the test tree moved, update TESTS_UNIT_DIR in this file"
+        )
+    });
     let mut names: HashSet<String> = HashSet::new();
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.extension().is_some_and(|e| e == "rs") {
-                if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
-                    // 跳过 mod.rs 自身（不是子模块）
-                    if stem != "mod" {
-                        names.insert(stem.to_string());
-                    }
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if p.extension().is_some_and(|e| e == "rs") {
+            if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
+                // 跳过 mod.rs 自身（不是子模块）
+                if stem != "mod" {
+                    names.insert(stem.to_string());
                 }
             }
         }
     }
+    assert!(
+        names.len() >= 50,
+        "mod_guard: {TESTS_UNIT_DIR} yielded only {} .rs modules; the scan looks broken",
+        names.len()
+    );
     names
 }
 
 fn extract_registered_mods() -> HashSet<String> {
-    let content = match std::fs::read_to_string(TESTS_UNIT_MOD) {
-        Ok(c) => c,
-        Err(_) => return HashSet::new(),
-    };
+    // Same fail-loud rule as `list_unit_rs_files`: an unreadable manifest used to
+    // yield an empty registered set, so "every registered mod has a file" passed
+    // vacuously.
+    let content = std::fs::read_to_string(TESTS_UNIT_MOD)
+        .unwrap_or_else(|error| panic!("mod_guard: cannot read {TESTS_UNIT_MOD} ({error})"));
     let mut names: HashSet<String> = HashSet::new();
     // Compiled once: this is a hot loop over every line of `tests/unit/mod.rs`.
     let mod_decl = regex::Regex::new(r"^\s*mod\s+([a-zA-Z0-9_]+)\s*[;{]").expect("static mod pattern");
@@ -100,11 +114,24 @@ fn test_no_duplicate_fixture_names() {
     // 此处先收集所有 fixture/ 下的文件名与测试 mod 名的交集
     let fixture_path = format!("{}/fixtures", TESTS_UNIT_DIR);
     let fixture_dir = Path::new(&fixture_path);
-    let fixture_names: HashSet<String> = if let Ok(entries) = std::fs::read_dir(fixture_dir) {
-        entries.flatten().filter_map(|e| e.path().file_stem().and_then(|s| s.to_str()).map(|s| s.to_string())).collect()
-    } else {
-        HashSet::new()
-    };
+    // Fail loud rather than degrading to an empty set: with zero fixture names the
+    // intersection below is always empty, so the guard passed no matter what the
+    // fixtures were called (sweep B13).
+    assert!(
+        fixture_dir.is_dir(),
+        "mod_guard: {fixture_path} does not exist — this guard exists to compare fixture names \
+         against registered mods and cannot do so without the directory"
+    );
+    let entries = std::fs::read_dir(fixture_dir)
+        .unwrap_or_else(|error| panic!("mod_guard: cannot read {fixture_path} ({error})"));
+    let fixture_names: HashSet<String> = entries
+        .flatten()
+        .filter_map(|e| e.path().file_stem().and_then(|s| s.to_str()).map(|s| s.to_string()))
+        .collect();
+    assert!(
+        !fixture_names.is_empty(),
+        "mod_guard: {fixture_path} yielded no fixture file names; the comparison would be vacuous"
+    );
 
     let registered = extract_registered_mods();
     let duplicates: Vec<String> = fixture_names.intersection(&registered).cloned().collect();

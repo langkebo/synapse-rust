@@ -105,11 +105,34 @@ fn cfg_test_mask(lines: &[&str]) -> Vec<bool> {
     mask
 }
 
-/// Lines where a DB write's result is discarded.
+/// Every source root this guard walks. Shared by the enforcement test and the
+/// non-vacuity sanity test so the two can never disagree about the scan surface.
+const SCAN_ROOTS: [&str; 8] = [
+    "src",
+    "synapse-common/src",
+    "synapse-cache/src",
+    "synapse-storage/src",
+    "synapse-e2ee/src",
+    "synapse-federation/src",
+    "synapse-services/src",
+    "tests",
+];
+
+/// Lines where a DB write's result is discarded with `.ok()`.
 ///
-/// Matches the two spellings in use:
-///   * `... .execute(pool).await.ok();`
-///   * `let _ = sqlx::query(...).execute(pool).await;`
+/// **Scope (measured 2026-09-19):** the `.ok();` spelling only. The file header
+/// and this docstring used to claim that `let _ = …execute(…).await;` was matched
+/// too; it never was, and `tests/` was missing from the root list even though
+/// `is_test_support()` already claimed it (gate-integrity sweep B8).
+///
+/// The `let _ = …await;` spelling is deliberately **not** enforced wholesale:
+/// there are 98 such sites in test-support files and most are best-effort
+/// *cleanup* helpers (`cleanup_with_suffix`, `cleanup_summary_data`) where
+/// deleting zero rows is not an error. Flagging them all would make this guard
+/// noisy, and a noisy guard gets disabled (see the file header). The risky
+/// sub-case — a swallowed *setup* write such as an `ensure_test_user` insert — is
+/// recorded as known debt in `docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md`
+/// rather than silently ignored.
 fn swallowed_write_lines(source: &str) -> Vec<String> {
     let mut found = Vec::new();
     let lines: Vec<&str> = source.lines().collect();
@@ -136,16 +159,17 @@ fn swallowed_write_lines(source: &str) -> Vec<String> {
 fn test_fixtures_do_not_swallow_database_writes() {
     let root = repo_root();
     let mut files = Vec::new();
-    for crate_dir in [
-        "src",
-        "synapse-common/src",
-        "synapse-cache/src",
-        "synapse-storage/src",
-        "synapse-e2ee/src",
-        "synapse-federation/src",
-        "synapse-services/src",
-    ] {
-        rust_files(&root.join(crate_dir), &mut files);
+    for crate_dir in SCAN_ROOTS {
+        let dir = root.join(crate_dir);
+        // Fail loud: `rust_files` returns an empty set for an unreadable/missing
+        // directory, so a moved tree would silently narrow the scan.
+        assert!(
+            dir.is_dir(),
+            "guard scan root `{crate_dir}` does not exist (looked at {}) — the scan would cover \
+             less than this guard claims",
+            dir.display()
+        );
+        rust_files(&dir, &mut files);
     }
 
     let mut offenders: Vec<String> = Vec::new();
@@ -190,7 +214,16 @@ fn test_fixtures_do_not_swallow_database_writes() {
 fn guard_scans_test_support_files() {
     let root = repo_root();
     let mut files = Vec::new();
-    rust_files(&root.join("synapse-storage/src"), &mut files);
+    for crate_dir in SCAN_ROOTS {
+        let dir = root.join(crate_dir);
+        assert!(dir.is_dir(), "scan root `{crate_dir}` is missing — the walk would silently shrink");
+        rust_files(&dir, &mut files);
+    }
     let test_files: Vec<_> = files.iter().filter(|p| is_test_support(p)).collect();
-    assert!(test_files.len() >= 10, "应扫描到 >= 10 个测试支持文件，实际 {}；路径或命名是否变了？", test_files.len());
+    assert!(test_files.len() >= 100, "应扫描到 >= 100 个测试支持文件，实际 {}；路径或命名是否变了？", test_files.len());
+    // `tests/` was absent from the root list while `is_test_support()` already
+    // treated it as test support, so its 14 `.ok()` sites escaped the guard
+    // (sweep B8). Pin that the tree is really part of the scan.
+    let under_tests = test_files.iter().filter(|p| p.to_string_lossy().contains("/tests/")).count();
+    assert!(under_tests >= 10, "`tests/` must be scanned; found only {under_tests} test-support files there");
 }

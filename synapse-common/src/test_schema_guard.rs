@@ -113,7 +113,24 @@ impl SchemaCleanup {
 /// case per process, so mid-process schema reuse can never pay off there and
 /// every cleanup should be a plain DROP.
 pub fn running_under_nextest() -> bool {
-    std::env::var_os("NEXTEST").is_some()
+    nextest_marker_present(std::env::var_os("NEXTEST").as_deref())
+}
+
+/// The decision behind [`running_under_nextest`], with the environment value
+/// injected.
+///
+/// Split out for testability: the previous test was
+/// `if NEXTEST.is_none() { assert!(!running_under_nextest()) }`, whose body is
+/// **skipped under nextest** — i.e. in CI, where nextest is what runs the suite
+/// (sweep B15), so the guard asserted nothing where it mattered. With the value
+/// injected the assertion runs in both environments and is deterministic (no
+/// process-env mutation, which would race the other tests in this binary).
+///
+/// An empty value counts as present: nextest always writes `1`, and treating
+/// `NEXTEST=""` as unset would silently flip the cleanup strategy back to
+/// TRUNCATE-and-reuse in a one-test-per-process run.
+fn nextest_marker_present(value: Option<&std::ffi::OsStr>) -> bool {
+    value.is_some()
 }
 
 /// Builds a cleanup closure that synchronously runs
@@ -490,11 +507,19 @@ mod tests {
 
     #[test]
     fn nextest_detection_follows_env() {
-        // Only assert the unset case: mutating process env here would race
-        // other tests in the same binary.
-        if std::env::var_os("NEXTEST").is_none() {
-            assert!(!running_under_nextest());
-        }
+        // Assertions on an injected value, so this runs identically under
+        // `cargo test` and under nextest (the previous body was skipped under
+        // nextest — i.e. precisely in the environment it was about; sweep B15).
+        assert!(!nextest_marker_present(None), "unset NEXTEST must mean 'not nextest'");
+        assert!(
+            nextest_marker_present(Some(std::ffi::OsStr::new("1"))),
+            "nextest exports NEXTEST=1 in every test process"
+        );
+        assert!(
+            nextest_marker_present(Some(std::ffi::OsStr::new(""))),
+            "an empty NEXTEST still means 'set': treating it as unset would silently flip the \
+             cleanup strategy (reuse vs plain DROP) in a one-test-per-process run"
+        );
     }
 
     /// The exit hand-off: a release batch collected *before* `EXITING` was set

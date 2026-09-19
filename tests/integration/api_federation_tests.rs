@@ -229,8 +229,16 @@ async fn test_federation_query_directory_resolves_alias_after_creation() {
     assert_eq!(json["room_id"], room_id);
     assert_eq!(json["servers"][0], "localhost");
 
-    sqlx::query("DELETE FROM room_aliases WHERE alias = $1").bind(&alias).execute(&*pool).await.ok();
-    sqlx::query("DELETE FROM rooms WHERE room_id = $1").bind(&room_id).execute(&*pool).await.ok();
+    sqlx::query("DELETE FROM room_aliases WHERE alias = $1")
+        .bind(&alias)
+        .execute(&*pool)
+        .await
+        .expect("clean up the federated room alias");
+    sqlx::query("DELETE FROM rooms WHERE room_id = $1")
+        .bind(&room_id)
+        .execute(&*pool)
+        .await
+        .expect("clean up the federated room");
 }
 
 #[tokio::test]

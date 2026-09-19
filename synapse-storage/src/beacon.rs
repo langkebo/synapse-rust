@@ -643,10 +643,25 @@ mod tests {
 mod db_tests {
     use super::*;
 
-    async fn test_pool() -> Arc<Pool<Postgres>> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// A **per-test isolated schema**, not the shared pool.
+    ///
+    /// `cleanup_expired_beacons()` is a global `DELETE FROM beacon_info WHERE
+    /// expires_at < now`, and several tests here seed beacons with `created_ts`
+    /// in 2023 (so already expired). On the shared schema that made
+    /// `test_create_and_get_beacon_info` fail whenever
+    /// `test_cleanup_expired_beacons` ran between its INSERT and its SELECT —
+    /// measured 2026-09-19 as the single failure of the CI-equivalent
+    /// `cargo nextest run --workspace --lib --all-features`, which is also why
+    /// `test_pool` used to expose the whole-module risk. Isolation removes the
+    /// shared state instead of serialising the suite (AGENTS.md rule 7).
+    ///
+    /// Returned together with the pool so the caller keeps the schema alive for
+    /// the whole test: dropping the guard early spawns a background
+    /// `DROP SCHEMA` that can race with in-flight queries.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<Pool<Postgres>>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     fn unique_room_id() -> String {
@@ -679,7 +694,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_and_get_beacon_info() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BeaconStorage::new(Arc::clone(&pool));
         let room_id = unique_room_id();
         let event_id = unique_event_id();
@@ -723,7 +738,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_beacon_info_not_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BeaconStorage::new(Arc::clone(&pool));
 
         let result =
@@ -733,7 +748,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_beacon_info_by_state_key_ordering() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BeaconStorage::new(Arc::clone(&pool));
         let room_id = unique_room_id();
         let state_key = format!("@alice_{}:example.com", uuid::Uuid::new_v4());
@@ -779,7 +794,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_active_beacons_filters_correctly() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BeaconStorage::new(Arc::clone(&pool));
         let room_id = unique_room_id();
         let far_future = current_timestamp_millis() + 86_400_000; // 1 day from now
@@ -839,7 +854,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_deactivate_beacons_by_state_key() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BeaconStorage::new(Arc::clone(&pool));
         let room_id = unique_room_id();
         let state_key = format!("@bob_{}:example.com", uuid::Uuid::new_v4());
@@ -866,7 +881,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_update_beacon_info_collesce_behavior() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BeaconStorage::new(Arc::clone(&pool));
         let room_id = unique_room_id();
         let event_id = unique_event_id();
@@ -899,7 +914,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_beacon_info() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BeaconStorage::new(Arc::clone(&pool));
         let room_id = unique_room_id();
         let event_id = unique_event_id();
@@ -925,7 +940,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_and_get_beacon_locations() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BeaconStorage::new(Arc::clone(&pool));
         let room_id = unique_room_id();
         let beacon_event_id = unique_event_id();
@@ -981,7 +996,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_latest_location() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BeaconStorage::new(Arc::clone(&pool));
         let room_id = unique_room_id();
         let beacon_event_id = unique_event_id();
@@ -1035,7 +1050,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_count_locations_in_room_since() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BeaconStorage::new(Arc::clone(&pool));
         let room_id = unique_room_id();
         let beacon_event_id = unique_event_id();
@@ -1075,7 +1090,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_count_locations_in_room_by_sender_since() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BeaconStorage::new(Arc::clone(&pool));
         let room_id = unique_room_id();
         let beacon_event_id = unique_event_id();
@@ -1140,7 +1155,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_beacon_with_locations() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BeaconStorage::new(Arc::clone(&pool));
         let room_id = unique_room_id();
         let beacon_event_id = unique_event_id();
@@ -1180,7 +1195,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_cleanup_expired_beacons() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BeaconStorage::new(Arc::clone(&pool));
         let room_id = unique_room_id();
 
@@ -1240,7 +1255,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_room_beacons_with_and_without_expired() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BeaconStorage::new(Arc::clone(&pool));
         let room_id = unique_room_id();
         let now = current_timestamp_millis();
@@ -1293,7 +1308,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_beacon_locations_batch() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BeaconStorage::new(Arc::clone(&pool));
         let room_id = unique_room_id();
         let beacon1_id = unique_event_id();
@@ -1359,7 +1374,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_beacon_info_zero_timeout_no_expiry() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BeaconStorage::new(Arc::clone(&pool));
         let room_id = unique_room_id();
         let event_id = unique_event_id();
@@ -1385,7 +1400,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_update_beacon_info_nonexistent_returns_none() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BeaconStorage::new(Arc::clone(&pool));
 
         let result = storage

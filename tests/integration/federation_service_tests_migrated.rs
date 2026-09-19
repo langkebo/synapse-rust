@@ -32,11 +32,14 @@ async fn setup_test_database(pool: &Pool<Postgres>) {
     )
     .execute(pool)
     .await
-    .ok();
+    .expect("create the federation signing-keys table in the isolated schema");
 }
 
 async fn cleanup_test_database(pool: &Pool<Postgres>) {
-    sqlx::query("DELETE FROM federation_signing_keys WHERE server_name LIKE 'test%'").execute(pool).await.ok();
+    sqlx::query("DELETE FROM federation_signing_keys WHERE server_name LIKE 'test%'")
+        .execute(pool)
+        .await
+        .expect("clean up federation signing keys for the test server prefix");
 }
 
 fn generate_valid_test_key() -> String {
@@ -140,7 +143,7 @@ async fn test_device_sync_cache() {
     )
     .execute(&*pool)
     .await
-    .ok();
+    .expect("create the devices table in the isolated schema");
 
     let devices = manager.get_local_devices("@test:example.com").await.unwrap();
     assert!(devices.is_empty());
@@ -167,7 +170,7 @@ async fn test_device_revocation() {
     )
     .execute(&*pool)
     .await
-    .ok();
+    .expect("create the devices table in the isolated schema");
 
     let result = manager.revoke_device("DEVICE123", "@test:example.com").await;
     assert!(result.is_ok());

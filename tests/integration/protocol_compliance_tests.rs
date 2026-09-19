@@ -19,12 +19,34 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
         }
     };
 
-    sqlx::query("DELETE FROM read_markers WHERE user_id LIKE '@%:localhost'").execute(&*pool).await.ok();
-    sqlx::query("DELETE FROM event_receipts WHERE user_id LIKE '@%:localhost'").execute(&*pool).await.ok();
-    sqlx::query("DELETE FROM typing WHERE user_id LIKE '@%:localhost'").execute(&*pool).await.ok();
-    sqlx::query("DELETE FROM events WHERE room_id = '!room:test'").execute(&*pool).await.ok();
-    sqlx::query("DELETE FROM rooms WHERE room_id = '!room:test'").execute(&*pool).await.ok();
-    sqlx::query("DELETE FROM users WHERE user_id LIKE '@%:localhost'").execute(&*pool).await.ok();
+    // Setup must not swallow failures: an `.ok()` here would leave the test
+    // running against half-reset state and the failure would surface later as
+    // something unrelated (sweep B8 — this file is now inside the guard's scan
+    // roots).
+    sqlx::query("DELETE FROM read_markers WHERE user_id LIKE '@%:localhost'")
+        .execute(&*pool)
+        .await
+        .expect("reset read_markers in the isolated schema");
+    sqlx::query("DELETE FROM event_receipts WHERE user_id LIKE '@%:localhost'")
+        .execute(&*pool)
+        .await
+        .expect("reset event_receipts in the isolated schema");
+    sqlx::query("DELETE FROM typing WHERE user_id LIKE '@%:localhost'")
+        .execute(&*pool)
+        .await
+        .expect("reset typing in the isolated schema");
+    sqlx::query("DELETE FROM events WHERE room_id = '!room:test'")
+        .execute(&*pool)
+        .await
+        .expect("reset events in the isolated schema");
+    sqlx::query("DELETE FROM rooms WHERE room_id = '!room:test'")
+        .execute(&*pool)
+        .await
+        .expect("reset rooms in the isolated schema");
+    sqlx::query("DELETE FROM users WHERE user_id LIKE '@%:localhost'")
+        .execute(&*pool)
+        .await
+        .expect("reset users in the isolated schema");
 
     Some((*pool).clone())
 }
@@ -45,7 +67,7 @@ async fn create_test_user(pool: &Pool<Postgres>, user_id: &str) {
     .bind(1) // generation
     .execute(pool)
     .await
-    .ok();
+    .expect("seed the protocol-compliance test user");
 }
 
 async fn create_test_room(pool: &Pool<Postgres>, room_id: &str) {
@@ -66,7 +88,7 @@ async fn create_test_room(pool: &Pool<Postgres>, room_id: &str) {
     .bind(now) // last_activity_ts
     .execute(pool)
     .await
-    .ok();
+    .expect("seed the protocol-compliance test room");
 }
 
 #[test]

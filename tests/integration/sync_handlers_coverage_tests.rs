@@ -39,6 +39,9 @@ fn unique_id() -> u64 {
 
 /// Set up the sliding_sync tables if they don't exist (same as the migrated tests).
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
+    // None of these may swallow their result: a failed `CREATE TABLE` leaves the
+    // test running against a schema that is missing the table, and the failure
+    // resurfaces later as an unrelated-looking error (sweep B8).
     sqlx::query("CREATE SEQUENCE IF NOT EXISTS sliding_sync_pos_seq")
         .execute(pool.as_ref())
         .await
@@ -48,21 +51,21 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     )
     .execute(pool.as_ref())
     .await
-    .ok();
+    .expect("ensure sliding_sync_connections exists in the isolated schema");
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS sliding_sync_room_state (LIKE sliding_sync_room_state INCLUDING ALL DEFAULT)",
     )
     .execute(pool.as_ref())
     .await
-    .ok();
+    .expect("ensure sliding_sync_room_state exists in the isolated schema");
     sqlx::query("CREATE TABLE IF NOT EXISTS sliding_sync_lists (LIKE sliding_sync_lists INCLUDING ALL DEFAULT)")
         .execute(pool.as_ref())
         .await
-        .ok();
+        .expect("ensure sliding_sync_lists exists in the isolated schema");
     sqlx::query("CREATE TABLE IF NOT EXISTS sliding_sync_to_device_queue (LIKE sliding_sync_to_device_queue INCLUDING ALL DEFAULT)")
         .execute(pool.as_ref())
         .await
-        .ok();
+        .expect("ensure sliding_sync_to_device_queue exists in the isolated schema");
 }
 
 fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {

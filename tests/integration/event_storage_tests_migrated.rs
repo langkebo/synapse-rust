@@ -11,7 +11,10 @@ fn event_storage_test_guard() -> &'static Mutex<()> {
 
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     // Clean data without dropping table to avoid blocking concurrent shared-schema tests
-    sqlx::query("DELETE FROM events").execute(pool.as_ref()).await.ok();
+    sqlx::query("DELETE FROM events")
+        .execute(pool.as_ref())
+        .await
+        .expect("reset events before the test (isolated schema)");
 
     sqlx::query(
         r#"
@@ -42,7 +45,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 }
 
 async fn teardown_test_database(pool: &sqlx::PgPool) {
-    sqlx::query("DELETE FROM events").execute(pool).await.ok();
+    sqlx::query("DELETE FROM events").execute(pool).await.expect("clean up events after the test");
 }
 
 #[allow(clippy::await_holding_lock)]
