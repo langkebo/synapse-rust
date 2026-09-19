@@ -17,7 +17,7 @@
 | Phase 2 覆盖率链路跑到产出 lcov 并提交基线 | ✅ 完成（**过程中又发现并修了 3 个环 + 2 个环境缺陷**） |
 | Phase 3 B 系列假守卫 | ✅ B1 / B3 / B10 / B17 已修；B4 已按新口径重算并可真红；B5 / B6 / **B2** 已删除或保留并说明；B18 弱边已修一半 |
 | Phase 4 CI 门禁 | ✅ C6 / C9 / C11 / C12 已修；A13 完成接线 1 个、删除 2 个（其余登记处置） |
-| Phase 5 观察项 | ✅ 三条已修（`prepare_test_db.sh` `39211779`、janitor 退出 `4456eb80`、`events_fts_idx` `2904cbf4`）；清理脚本力度待办 |
+| Phase 5 观察项 | ✅ 三条全修（`prepare_test_db.sh` `39211779`、janitor 退出 `4456eb80`、`events_fts_idx` `2904cbf4`）；清理脚本力度部分修（`8cfb683f`，剩隔离模板标记约定待抽公共实现） |
 | 额外 | 🔴 **HEAD 的 fmt 门禁当时就是红的**（99 块 vs baseline 0）——已修 |
 | 额外 | 🔴 **HEAD 的 clippy 两个矩阵档都是红的**（见 §1.6）——已修 |
 
@@ -279,11 +279,21 @@ bef65f53 style(fmt): 归零 fmt debt（HEAD 实测 99 块 vs baseline 0，1.93.0
 其中不少是 `src/bin/*`（覆盖率腿不跑 bin）—— 是否把 `src/bin` 也纳入 test-only 豁免，
 或给 bin 加测试，属后续取舍。
 
-### 2.5 🟡 清理脚本的力度（Phase 5，观察项）
+### 2.5 🟡→✅ 部分已修 `8cfb683f`：清理脚本的 live 模板保护
 
-`docs/audit/GATE_INTEGRITY_SWEEP_2026-09-19.md` §15.8.4：候选谓词仍是"名称黑名单 +
-家族正则"，将来出现**新的** shell 创建、无标记的 live 模板需手工加进 `STATIC_KEEP`。
-本轮未动。
+- **原观察**（sweep §15.8.4）：候选谓词是"名称黑名单 + 家族正则"，将来出现**新的**
+  shell 创建、无标记的 live 模板需手工加进 `STATIC_KEEP`；漏一次就是一次 `--apply`
+  CASCADE 误删。
+- **已修**：`scripts/ci/prepare_test_db.sh` 现在按
+  `synapse-test-utils::template_marker_dir()` 的同一约定写标记文件，于是清理脚本用
+  通用机制（keep reason #1）就能认出 `test_template_ci`；`STATIC_KEEP` 保留为无条件兜底。
+  实测：预演输出 `由标记文件认定的 live 模板: 1 个 test_template_ci`，且候选里不含它。
+  脚本内已写明"新增 shell 建的 live 模板要写标记，而不是加名单"。
+- **仍存的缝**：`test_isolation_template_<fingerprint>` 由测试框架用 **schema 内标记表**
+  （`_synapse_test_template_ready`）标记，不是标记文件，所以清理脚本仍会把"当前那个"
+  当候选删掉 —— 下次测试重建（约 2 秒），**无正确性影响**，且该家族由框架自己的
+  `prune_stale_isolation_templates` 管理。彻底关闭需要把标记路径抽到
+  `synapse-common::test_isolation` 供两侧共用（改动面较大，单独一轮）。
 
 ---
 
@@ -353,7 +363,9 @@ python3 scripts/ci/check_workflow_steps.py
 0. **§1.6 的正解**：把 `Result` 穿透 `ServiceContainer::new` → `build_domains` →
    `E2eeServices::new`，让"缺 at-rest 密钥"成为一条干净的启动错误，去掉那条
    作用域 `#[allow(clippy::panic)]`（当前是刻意 fail-fast 的临时形态）。
-1. **§2.5**：清理脚本力度（`STATIC_KEEP` 手工维护）。
+1. **§2.5 残留**：把"模板 ready 标记"的路径约定抽到 `synapse-common::test_isolation`
+   （无条件编译）供 `synapse-test-utils` 与清理脚本共用，并让隔离模板也写标记文件，
+   这样清理脚本就不再可能删掉当前隔离模板（现为"重建 2 秒"的无害代价）。
 2. **§2.4**：为非 test-only 的 <30% 文件补测试，或明确把 `src/bin` 也列为豁免。
 3. TESTING.md / AGENTS.md 的措辞修正：fmt debt 已归零（本轮修），但棘轮计数含义是
    "差异块数 × 重复次数"；`run_ci_tests.sh` 已改标为本地封装（本轮修）。
