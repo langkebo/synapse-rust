@@ -15,12 +15,27 @@
 # deployment on 2026-09-12. This makes the wipe structurally impossible, not
 # merely guarded.
 #
-# Implementation notes:
-#   * Migrations are NOT schema-qualified (`CREATE TABLE IF NOT EXISTS x`), so
-#     `sqlx migrate run` lands tables in the FIRST schema of `search_path`.
-#   * The template is therefore built by re-running the same migrations with
-#     `PGOPTIONS='-c search_path=test_template_ci,public'` so they land in the
-#     template schema instead of public.
+# Both schemas come from ONE implementation, `scripts/init_test_public_schema.sh`,
+# which applies `migrations/*.sql` with psql one file at a time. This script used
+# to drive `sqlx migrate run` twice (with a `?options=-c search_path=…` URL hack
+# for the template). That cannot work with the current baseline:
+#
+#   * sqlx-cli 0.8.x does **not** honour a migration file's `-- no-transaction`
+#     directive — reproduced 2026-09-19 with a minimal probe (a migration
+#     containing only the directive plus one `CREATE INDEX CONCURRENTLY` still
+#     failed with "cannot run inside a transaction block"), while
+#     `sqlx migrate run --help` offers no `--no-transaction` flag either;
+#   * the baseline contains 14 such statements, so the seed step aborted with
+#     `error: while executing migration 0: … CREATE INDEX CONCURRENTLY cannot run
+#     inside a transaction block` — i.e. `test_template_ci` was never actually
+#     (re)built on any machine that ran this script.
+#
+# psql runs in autocommit and is the same path `docker/db_migrate.sh` (the
+# documented migration source of truth) uses. `RESET_PUBLIC=0` is passed so the
+# apply is idempotent and never `DROP SCHEMA public CASCADE` — that cascade also
+# removes objects in *other* schemas that depend on public's extensions (e.g. the
+# `gin_trgm_ops` indexes on the isolation templates), which silently degrades a
+# template that still carries its "ready" marker.
 #
 # The DB-name guard in src/test_utils.rs (`current_database()` contains "test")
 # additionally protects against pointing at a deployed DB. That flag stays OFF
@@ -30,30 +45,31 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../.."   # repo root (scripts/ci -> repo root)
 
-export SQLX_OFFLINE=true
 export TEST_DATABASE_URL="${TEST_DATABASE_URL:-postgresql://synapse:synapse@localhost:5432/synapse_test}"
 export DATABASE_URL="$TEST_DATABASE_URL"
 unset SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE
 
 TEMPLATE_SCHEMA="${TEST_DB_TEMPLATE_SCHEMA:-test_template_ci}"
 
-echo "==> [1/3] migrating public baseline into $TEST_DATABASE_URL"
-sqlx migrate run --source artifacts/sqlx-migrations
+echo "==> [1/3] applying the migration baseline to public in $TEST_DATABASE_URL"
+RESET_PUBLIC=0 TARGET_SCHEMA=public bash scripts/init_test_public_schema.sh
 
 echo "==> [2/3] building template schema '$TEMPLATE_SCHEMA' (same migrations, pinned search_path)"
-# The target schema must EXIST first: unqualified `CREATE TABLE IF NOT EXISTS x`
-# lands in the FIRST schema of the search_path that exists. If the template
-# schema is missing, `_sqlx_migrations` (also unqualified) falls back to
-# `public`, sqlx sees the migrations as already applied, and the template ends
-# up with 0 tables.
-psql "$TEST_DATABASE_URL" -tAc "CREATE SCHEMA IF NOT EXISTS ${TEMPLATE_SCHEMA}" >/dev/null
-# NOTE: PGOPTIONS env does NOT work with sqlx-cli — the sqlx driver (rust-postgres)
-# does not read libpq environment variables. search_path must be injected through
-# the connection URL's `options` parameter. `-c search_path=<schema>,public` makes
-# the unqualified `CREATE TABLE IF NOT EXISTS x` statements land in the FIRST
-# schema of the search_path (the template schema) instead of public.
-SQLX_OFFLINE=true DATABASE_URL="${TEST_DATABASE_URL}?options=-c%20search_path%3D${TEMPLATE_SCHEMA}%2Cpublic" \
-  sqlx migrate run --source artifacts/sqlx-migrations
+# Rebuild it from scratch. The previous sqlx-based version never dropped it: once
+# `_sqlx_migrations` recorded the baseline as applied, the template pass became a
+# no-op and a template built from an *older* baseline stayed stale forever
+# (silently missing columns/tables added since). Re-applying over a stale schema
+# is not a repair either — the baseline is idempotent on a current schema, not on
+# an arbitrary older one (measured 2026-09-19: `column "recipient_user_id" does
+# not exist` at migrations/…_v12.sql:3655 against a stale template). Dropping is
+# safe: the template is a derived cache, and dropping it cannot touch `public`
+# (the dependency direction is template → public).
+psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c "DROP SCHEMA IF EXISTS \"$TEMPLATE_SCHEMA\" CASCADE" >/dev/null
+# Order matters: public must already carry the extensions — `CREATE EXTENSION
+# IF NOT EXISTS` is database-wide, so the second pass no-ops instead of installing
+# them inside the template. The unqualified DDL of this pass lands in the FIRST
+# search_path entry, which the init script pins via PGOPTIONS.
+TARGET_SCHEMA="$TEMPLATE_SCHEMA" bash scripts/init_test_public_schema.sh
 
 echo "==> [3/3] verifying both schemas"
 # 用 $TEST_DATABASE_URL 而不是硬编码 `-d synapse_test`：库名是本脚本的输入
