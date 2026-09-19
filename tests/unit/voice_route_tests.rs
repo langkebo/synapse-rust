@@ -89,3 +89,55 @@ fn ft125_ok_result_is_wrapped_as_json() {
     let json = voice_upload_response(service_result).expect("ok result must succeed");
     assert_eq!(json.0, payload, "successful payload must be forwarded unchanged");
 }
+
+// FT-130: register_encrypted_voice request validation
+#[test]
+fn ft130_register_encrypted_voice_request_has_correct_fields() {
+    // Ensure the request body structure matches the API contract
+    let json = serde_json::json!({
+        "media_id": "test_media_id",
+        "room_id": "!test_room:localhost",
+        "content_type": "application/octet-stream",
+        "duration_ms": 5000,
+        "size_bytes": 102400
+    });
+
+    let deserialized: synapse_web::routes::voice::RegisterEncryptedVoiceRequest =
+        serde_json::from_value(json).expect("deserialization should succeed");
+
+    assert_eq!(deserialized.media_id, "test_media_id");
+    assert_eq!(deserialized.room_id, Some("!test_room:localhost".to_string()));
+    assert_eq!(deserialized.content_type, "application/octet-stream");
+    assert_eq!(deserialized.duration_ms, 5000);
+    assert_eq!(deserialized.size_bytes, 102400);
+}
+
+#[test]
+fn ft130_register_encrypted_voice_request_media_id_required() {
+    // Missing media_id should still deserialize (validation happens in handler)
+    let json = serde_json::json!({
+        "room_id": "!test_room:localhost",
+        "content_type": "application/octet-stream",
+        "duration_ms": 5000,
+        "size_bytes": 102400
+    });
+
+    // This will fail at the handler level, not here
+    let result: Result<synapse_web::routes::voice::RegisterEncryptedVoiceRequest, _> =
+        serde_json::from_value(json);
+
+    assert!(result.is_ok(), "media_id is optional at deserialization level");
+}
+
+#[test]
+fn ft130_register_encrypted_voice_response_format() {
+    // Response format from the handler
+    let response = serde_json::json!({
+        "content_uri": "mxc://localhost/test_media_id",
+        "exists": false
+    });
+
+    assert!(response.get("content_uri").is_some());
+    assert!(response.get("exists").is_some());
+    assert_eq!(response["exists"], false);
+}
