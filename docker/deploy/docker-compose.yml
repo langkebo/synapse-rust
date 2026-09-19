@@ -83,6 +83,9 @@ services:
     cpus: ${REDIS_CPU_LIMIT:-1.0}
     mem_limit: ${REDIS_MEMORY_LIMIT:-512m}
     pids_limit: ${REDIS_PIDS_LIMIT:-128}
+    # [O2-4] 通过 REDISCLI_AUTH 传递密码，避免在 healthcheck argv 中暴露
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
     command:
       - redis-server
       - --requirepass
@@ -105,7 +108,7 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: [ "CMD-SHELL", "redis-cli -a \"${REDIS_PASSWORD:?REDIS_PASSWORD must be set}\" ping | grep PONG" ]
+      test: [ "CMD-SHELL", "redis-cli ping | grep PONG" ]
       interval: 10s
       timeout: 5s
       retries: 10

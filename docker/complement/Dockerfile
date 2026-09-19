@@ -13,7 +13,7 @@
 #   COMPLEMENT_BASE_IMAGE=complement-synapse-rust \
 #     go test -v ./tests/complement/...
 
-ARG RUST_VERSION=1.93.0
+ARG RUST_VERSION=1.93.0  # [DEPRECATED] 已移除实际使用，保留仅用于文档引用。当前版本由 RUST_BUILDER_IMAGE pin 管理。
 ARG RUST_BUILDER_IMAGE=rust:1.93.0-slim-bookworm@sha256:776861219cd851131c1cec3bbd7cbeb16b99a794048097eb69ad9682a8ed0d57
 ARG DEBIAN_BASE_IMAGE=debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818
 
@@ -23,7 +23,8 @@ ARG DEBIAN_BASE_IMAGE=debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe
 FROM ${RUST_BUILDER_IMAGE} AS builder
 
 ARG CARGO_FEATURE_ARGS="--features core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends --no-default-features"
-ARG CARGO_BUILD_JOBS=2
+# [O2-1] 与主 Dockerfile 保持一致，提高并行编译速度
+ARG CARGO_BUILD_JOBS=4
 
 WORKDIR /workspace
 
@@ -63,6 +64,7 @@ COPY synapse-test-utils/Cargo.toml  ./synapse-test-utils/Cargo.toml
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/workspace/target,sharing=locked \
     mkdir -p src src/bin synapse-common/src synapse-cache/src synapse-storage/src synapse-e2ee/src \
              synapse-federation/src synapse-services/src synapse-web/src synapse-test-utils/src && \
     echo "fn main() {}" > src/main.rs && \
@@ -88,7 +90,6 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     install -Dm755 target/release/synapse-rust          /out/app/synapse-rust && \
     install -Dm755 target/release/healthcheck           /out/app/healthcheck && \
     install -Dm755 docker/db_migrate.sh                 /out/app/scripts/db_migrate.sh && \
-    install -Dm755 docker/healthcheck.sh                /out/app/scripts/healthcheck.sh && \
     mkdir -p /out/app/config /out/app/data /out/app/logs /out/app/migrations && \
     cp -R migrations/. /out/app/migrations/
 
