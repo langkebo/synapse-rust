@@ -15,9 +15,9 @@
 |---|---|
 | Phase 1 解开阻塞（`IsolatedTestPool` 迁 crate） | ✅ 完成 + 双红证明 |
 | Phase 2 覆盖率链路跑到产出 lcov 并提交基线 | ✅ 完成（**过程中又发现并修了 3 个环 + 2 个环境缺陷**） |
-| Phase 3 B 系列假守卫 | ✅ B1 / B3 / B10 / B17 已修；B4 已按新口径重算并可真红；B5 / B6 删除；B18 弱边已修一半 |
+| Phase 3 B 系列假守卫 | ✅ B1 / B3 / B10 / B17 已修；B4 已按新口径重算并可真红；B5 / B6 / **B2** 已删除或保留并说明；B18 弱边已修一半 |
 | Phase 4 CI 门禁 | ✅ C6 / C9 / C11 / C12 已修；A13 完成接线 1 个、删除 2 个（其余登记处置） |
-| Phase 5 观察项 | ✅ 两条已修（`prepare_test_db.sh` `39211779`、janitor 退出 `4456eb80`）；`events_fts_idx` 与清理脚本力度待裁定 |
+| Phase 5 观察项 | ✅ 三条已修（`prepare_test_db.sh` `39211779`、janitor 退出 `4456eb80`、`events_fts_idx` `2904cbf4`）；清理脚本力度待办 |
 | 额外 | 🔴 **HEAD 的 fmt 门禁当时就是红的**（99 块 vs baseline 0）——已修 |
 | 额外 | 🔴 **HEAD 的 clippy 两个矩阵档都是红的**（见 §1.6）——已修 |
 
@@ -181,6 +181,18 @@ bef65f53 style(fmt): 归零 fmt debt（HEAD 实测 99 块 vs baseline 0，1.93.0
 - **验证**：两条 clippy 命令均 exit 0；`voice_` 单测 22/22；unit target 1787/1787；
   fmt 棘轮 0。
 
+### 1.7 B2 零耦合 JSON 烟雾测试：删除三个整文件 `9ec10145`
+
+- 逐个核对后删除（整文件只有 `json!` 字面量，无可指向的生产对象）：
+  `tests/unit/coverage_tests.rs`(34)、`tests/unit/api_optimization_verification_tests.rs`
+  （0 处 `synapse_` 引用）、`tests/unit/boundary_tests.rs`（断言 `String::len()`）。
+- `tests/unit/worker_coverage_tests.rs` **保留**：核对后它确有生产耦合
+  （`ReplicationCommand::parse/to_string`、`WorkerType::from_str`、serde round-trip 等），
+  sweep 称其"~18 条零耦合"不成立；唯一的字面重言式已在 B3 修掉。
+- 依据：`.trae/documents/测试覆盖率提升至80%优化方案-v2.md` 自己就裁定
+  "全部 JSON shape 烟雾测试 … 若覆盖率无法提升则删除以避免误导"。
+- 验证：unit target 1675 passed / 2 skipped；覆盖率基线里 `tests/` 条目为 0。
+
 ---
 
 ## 2. 本会话新发现
@@ -240,14 +252,26 @@ bef65f53 style(fmt): 归零 fmt debt（HEAD 实测 99 块 vs baseline 0，1.93.0
   探针把判定改成 `if false && is_exiting()`（旧行为）→ FAIL
   `left: [0,1,2] / right: [0]`；撤销后 PASS。clippy 0；fmt 0；`test_schema_guard` 4/4。
 
-### 2.3 🟡 `events_fts_idx` 在热表上非并发创建（Phase 5，待裁定）
+### 2.3 ✅ 已修 `2904cbf4`：`events_fts_idx` 改 CONCURRENTLY + 检测 INVALID 残留
 
-- `synapse-storage/src/event/search.rs:226` 的 `CREATE INDEX IF NOT EXISTS events_fts_idx
-  ON events USING GIN (…)` 由 `synapse-services/src/wiring/core.rs:109` 在 **wiring/启动**时调用。
-- `IF NOT EXISTS` 让它在已有索引时是 no-op，但**首次**在大库上会以非 `CONCURRENTLY`
-  持写锁建索引。该索引也不在 schema 契约内。候选：(a) 改 `CONCURRENTLY`（需非事务执行；
-  代价是失败会留下 INVALID 索引而 `IF NOT EXISTS` 之后永远跳过它），(b) 移进 `migrations/`
-  （要动 baseline 指纹并同步常量），(c) 保持现状并写入 runbook。**需产品/负责人裁定**。
+- **问题**：`synapse-storage/src/event/search.rs` 的 `CREATE INDEX IF NOT EXISTS
+  events_fts_idx ON events USING GIN (…)` 由 `synapse-services/src/wiring/core.rs:109`
+  在 **wiring/启动**时调用；`events` 是热表，普通 `CREATE INDEX` 整个构建期持写锁，
+  大库首次启动会阻塞所有写。该索引也不在 schema 契约内（`migrations/` 里 0 处引用）。
+- **修复**（用户裁定）：改 `CREATE INDEX CONCURRENTLY IF NOT EXISTS`（sqlx 裸
+  `execute` 是 autocommit，满足"不能进事务"的要求）；并新增
+  `fail_if_fts_index_invalid()`，在创建**前后各查一次** `pg_index.indisvalid` ——
+  CONCURRENTLY 失败会留下 INVALID 索引，而 `IF NOT EXISTS` 之后永远跳过它，
+  启动会"成功"但检索无索引。命中即返回明确错误并给出补救命令。
+- **踩坑记录**：检查必须用 `to_regclass('events_fts_idx')`（按 `search_path` 解析）
+  而非 `pg_class.relname` —— `pg_class` 是全库的，本库里存在有效的
+  `public.events_fts_idx`，第一版守卫因此看错了索引（测试先红在 precondition 上）。
+- **红证明**：新增 `test_create_postgres_fts_index_reports_invalid_leftover`，
+  用 PostgreSQL 真正产生 INVALID 的方式复现（对含重复行的表做并发 UNIQUE 构建 →
+  报 `could not create unique index` 且 `indisvalid=f`，索引保留），断言此时不能再报成功；
+  用**每测试隔离 schema**避免残留污染共享池的 idempotent 测试。
+  探针把检查改成 `Ok(())` → FAIL `an INVALID leftover index must not be reported as
+  success: ()`；撤销后 2/2 通过。clippy 0；fmt 0。
 
 ### 2.4 🟡 覆盖率基线里仍有 88 个非 test-only 文件 <30%
 
@@ -329,11 +353,9 @@ python3 scripts/ci/check_workflow_steps.py
 0. **§1.6 的正解**：把 `Result` 穿透 `ServiceContainer::new` → `build_domains` →
    `E2eeServices::new`，让"缺 at-rest 密钥"成为一条干净的启动错误，去掉那条
    作用域 `#[allow(clippy::panic)]`（当前是刻意 fail-fast 的临时形态）。
-1. **§2.3 待裁定**：`events_fts_idx` 改 `CONCURRENTLY` / 移进 migrations / 保持现状 + runbook。
-2. **B2 待裁定**：`coverage_tests.rs`(34) / `worker_coverage_tests.rs`(~18) /
-   `boundary_tests.rs` / `api_optimization_verification_tests.rs` 这批零耦合测试的
-   去留（删除 / 改写为真断言 / 标注为非门禁）。
-3. **§2.5**：清理脚本力度（`STATIC_KEEP` 手工维护）。
-4. **§2.4**：为非 test-only 的 <30% 文件补测试，或明确把 `src/bin` 也列为豁免。
-5. TESTING.md / AGENTS.md 的措辞修正：fmt debt 已归零（本轮修），但棘轮计数含义是
+1. **§2.5**：清理脚本力度（`STATIC_KEEP` 手工维护）。
+2. **§2.4**：为非 test-only 的 <30% 文件补测试，或明确把 `src/bin` 也列为豁免。
+3. TESTING.md / AGENTS.md 的措辞修正：fmt debt 已归零（本轮修），但棘轮计数含义是
    "差异块数 × 重复次数"；`run_ci_tests.sh` 已改标为本地封装（本轮修）。
+4. sweep 剩余项（A1–A6 / A9–A12 / B7–B9 / B11–B16）：按 sweep §3/§4 的裁定逐个处理，
+   每项都要红证明；A7/A8 保持 push-only 的取舍需在分支保护侧确认。
