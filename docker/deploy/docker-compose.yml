@@ -19,12 +19,14 @@
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # [O2-7] digest pin，避免浮动 tag 导致静默升级
+    image: postgres:16-alpine@sha256:3c5c8892d184f738f4fe282d14ddaa613a38f00f4189d2d94725ebe6f2909ddb
     container_name: synapse-postgres
     restart: unless-stopped
     shm_size: 256m
     cpus: ${POSTGRES_CPU_LIMIT:-1.5}
     mem_limit: ${POSTGRES_MEMORY_LIMIT:-1536m}
+    memswap_limit: ${POSTGRES_MEMORY_LIMIT:-1536m}
     pids_limit: ${POSTGRES_PIDS_LIMIT:-256}
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -77,11 +79,13 @@ services:
       - synapse-network
 
   redis:
-    image: redis:7-alpine
+    # [O2-7] digest pin
+    image: redis:7-alpine@sha256:520775a41a63e77e06c73e35d2fd9cc15921a609516818796b4ecbb813078bc7
     container_name: synapse-redis
     restart: unless-stopped
     cpus: ${REDIS_CPU_LIMIT:-1.0}
     mem_limit: ${REDIS_MEMORY_LIMIT:-512m}
+    memswap_limit: ${REDIS_MEMORY_LIMIT:-512m}
     pids_limit: ${REDIS_PIDS_LIMIT:-128}
     # [O2-4] 通过 REDISCLI_AUTH 传递密码，避免在 healthcheck argv 中暴露
     environment:
@@ -122,7 +126,8 @@ services:
       - synapse-network
 
   migrator:
-    image: postgres:16-alpine
+    # [O2-7] digest pin，与 postgres 保持同一 digest
+    image: postgres:16-alpine@sha256:3c5c8892d184f738f4fe282d14ddaa613a38f00f4189d2d94725ebe6f2909ddb
     container_name: synapse-migrator
     # `on-failure:3` 而不是 `"no"`：migrator 失败的原因里最典型的一类是"postgres 还没
     # 真正可写"（见上面 postgres.healthcheck 的注释）。`deploy.sh` 走的是
@@ -133,6 +138,7 @@ services:
     restart: "on-failure:3"
     cpus: ${MIGRATOR_CPU_LIMIT:-1.0}
     mem_limit: ${MIGRATOR_MEMORY_LIMIT:-1024m}
+    memswap_limit: ${MIGRATOR_MEMORY_LIMIT:-1024m}
     pids_limit: ${MIGRATOR_PIDS_LIMIT:-128}
     env_file:
       - ./.env
@@ -200,6 +206,7 @@ services:
       - /tmp
     cpus: ${SYNAPSE_CPU_LIMIT:-2.0}
     mem_limit: ${SYNAPSE_MEMORY_LIMIT:-2048m}
+    memswap_limit: ${SYNAPSE_MEMORY_LIMIT:-2048m}
     pids_limit: ${SYNAPSE_PIDS_LIMIT:-512}
     env_file:
       - ./.env
@@ -313,7 +320,8 @@ services:
       - synapse-network
 
   nginx:
-    image: nginx:1.27-alpine
+    # [O2-7] digest pin
+    image: nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
     container_name: synapse-nginx
     restart: unless-stopped
     init: true
@@ -324,6 +332,7 @@ services:
       - /var/run
     cpus: ${NGINX_CPU_LIMIT:-0.5}
     mem_limit: ${NGINX_MEMORY_LIMIT:-256m}
+    memswap_limit: ${NGINX_MEMORY_LIMIT:-256m}
     pids_limit: ${NGINX_PIDS_LIMIT:-128}
     depends_on:
       synapse:
@@ -336,7 +345,7 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./ssl:/etc/nginx/ssl:ro
-      - nginx_logs:/var/log/nginx
+    # [O3-2] 日志已改为 stdout，无需挂载 nginx_logs
     healthcheck:
       test: [ "CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/health || exit 1" ]
       interval: 15s
@@ -364,11 +373,23 @@ networks:
     name: ${COMPOSE_PROJECT_NAME:-synapse}_network
 
 volumes:
+  # [O3-14] 数据卷标签：标识用途与备份策略，便于运维自动化发现与恢复
   postgres_data:
     driver: local
+    labels:
+      synapse-rust.backup: "daily"
+      synapse-rust.data-type: "postgres"
   redis_data:
     driver: local
+    labels:
+      synapse-rust.backup: "hourly"
+      synapse-rust.data-type: "redis"
   synapse_data:
     driver: local
+    labels:
+      synapse-rust.backup: "daily"
+      synapse-rust.data-type: "matrix"
   nginx_logs:
     driver: local
+    labels:
+      synapse-rust.data-type: "nginx-logs"

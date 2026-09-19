@@ -41,7 +41,8 @@ ENV CARGO_INCREMENTAL=0 \
     CARGO_PROFILE_RELEASE_PANIC=abort \
     RUSTFLAGS="-C link-arg=-Wl,--gc-sections -C link-arg=-Wl,-z,relro,-z,now"
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g' /etc/apt/sources.list.d/debian.sources && \
+    apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     clang \
     file \
@@ -86,6 +87,7 @@ RUN rm -f rust-toolchain rust-toolchain.toml
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/workspace/target,sharing=locked \
     cargo build --release --locked ${CARGO_FEATURE_ARGS} --bin synapse-rust --bin healthcheck && \
     install -Dm755 target/release/synapse-rust          /out/app/synapse-rust && \
     install -Dm755 target/release/healthcheck           /out/app/healthcheck && \
@@ -98,7 +100,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 # ============================================================================
 FROM ${DEBIAN_BASE_IMAGE}
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g' /etc/apt/sources.list.d/debian.sources && \
+    apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
     postgresql-client \

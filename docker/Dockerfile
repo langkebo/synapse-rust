@@ -215,7 +215,8 @@ ENV RUST_LOG=info \
     SYNAPSE_HEALTHCHECK_PORT=8008 \
     PATH=/app:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-EXPOSE 8008 8448 9090
+# [O2-8] EXPOSE 去掉 9090 — metrics 路由无鉴权，外部不应暴露
+EXPOSE 8008 8448
 HEALTHCHECK --interval=15s --timeout=10s --start-period=60s --retries=5 CMD ["/app/healthcheck"]
 ENTRYPOINT ["/usr/bin/tini", "--", "/app/entrypoint.sh"]
 CMD ["/app/synapse-rust"]
