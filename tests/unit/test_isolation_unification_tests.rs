@@ -47,6 +47,10 @@ const SERVICES: &str = "synapse-services/src/test_utils.rs";
 const ROOT: &str = "synapse-test-utils/src/lib.rs";
 const COMMON: &str = "synapse-common/src/test_isolation.rs";
 const COMMON_LIB: &str = "synapse-common/src/lib.rs";
+/// `synapse-e2ee`'s DB-backed verification tests. They use the shared
+/// `IsolatedTestPool` and therefore must feed it the same baseline bytes as
+/// every other caller, or they mint a second template.
+const E2EE: &str = "synapse-e2ee/src/verification/service.rs";
 
 /// The baseline migration, compiled in. Guard 5 hashes it to pin the template
 /// the database already holds.
@@ -106,8 +110,22 @@ fn read(path: &str) -> String {
 /// legitimately unit-tests the shared `split_sql_statements` parser against
 /// literal SQL. That is not a per-test baseline replay, so a whole-file
 /// `contains` check would fail on correct code.
+///
+/// The marker must be a **real attribute** (the only non-whitespace text on its
+/// line), not a mention inside a doc comment — `synapse-storage/src/test_isolation.rs`
+/// documents its `#[cfg(test)]` reachability in its module docs, and a naive
+/// `find` would truncate the production half to the first 7 lines, silently
+/// disabling every negative assertion this guard makes on that file. That is
+/// the exact failure mode `AGENTS.md` rule 8 describes for guards that stop
+/// measuring what they claim to measure.
 fn production_half(src: &str) -> &str {
-    &src[..src.find("#[cfg(test)]").unwrap_or(src.len())]
+    for (i, _) in src.match_indices("#[cfg(test)]") {
+        let line_start = src[..i].rfind('\n').map_or(0, |newline| newline + 1);
+        if src[line_start..i].trim().is_empty() {
+            return &src[..i];
+        }
+    }
+    src
 }
 
 /// Column-0 spellings that start (or end) a top-level item, used to bound the
@@ -413,23 +431,46 @@ fn fixture_baseline_sql(path: &str) -> String {
 /// guarantee of the environment, not of this function. ROOT must still
 /// delegate clone — a hand-rolled clone there is the third implementation this
 /// guard exists to prevent.
+///
+/// `STORAGE` no longer names either primitive: the per-test pool lifecycle
+/// (`IsolatedTestPool`) moved into `COMMON`, because a `#[cfg(test)]` module in
+/// a dependency crate is invisible to sibling crates' fixtures — which is how
+/// `synapse-e2ee` ended up hand-rolling a pool against `public`. STORAGE is now
+/// a thin adapter and is asserted to go through the shared pool instead.
 #[test]
 fn every_fixture_delegates_clone_to_the_shared_module() {
-    for path in [ROOT, STORAGE, SERVICES] {
-        let src = read(path);
-        assert!(
-            src.contains("synapse_common::test_isolation::clone_schema_from_template"),
-            "{path} must clone its per-test schema from the shared template module"
-        );
+    // The shared module is the one implementation: it owns both the template
+    // builder and the clone. Asserting them on COMMON keeps the guard honest
+    // after the pool moved here.
+    let common = read(COMMON);
+    for symbol in ["pub async fn ensure_template_schema", "pub async fn clone_schema_from_template"] {
+        assert!(common.contains(symbol), "{COMMON} must own `{symbol}` — it is the single implementation");
     }
 
-    for path in [STORAGE, SERVICES] {
-        let src = read(path);
-        assert!(
-            src.contains("synapse_common::test_isolation::ensure_template_schema"),
-            "{path} must build/reuse its isolated template through the shared module"
-        );
+    // storage now reaches the primitives through the shared pool wrapper.
+    let storage = read(STORAGE);
+    assert!(
+        storage.contains("IsolatedTestPool"),
+        "{STORAGE} must build its per-test pool through the shared `IsolatedTestPool` (the shared \
+         module is the single implementation of the pool lifecycle)"
+    );
+
+    // services drives the shared primitives directly.
+    let services = read(SERVICES);
+    for symbol in [
+        "synapse_common::test_isolation::clone_schema_from_template",
+        "synapse_common::test_isolation::ensure_template_schema",
+    ] {
+        assert!(services.contains(symbol), "{SERVICES} must delegate to `{symbol}`");
     }
+
+    // ROOT cannot delegate template building (the CI script pre-builds the
+    // pinned template) but must delegate the clone.
+    let root = read(ROOT);
+    assert!(
+        root.contains("synapse_common::test_isolation::clone_schema_from_template"),
+        "{ROOT} must clone its per-test schema from the shared template module"
+    );
 
     for path in [ROOT, STORAGE, SERVICES] {
         let src = read(path);
@@ -636,7 +677,7 @@ fn baseline_fingerprint_is_the_single_v12_source() {
          or a SECOND template is minted"
     );
 
-    for path in [STORAGE, SERVICES] {
+    for path in [STORAGE, SERVICES, E2EE] {
         let baseline = fixture_baseline_sql(path);
         assert_eq!(
             fingerprint_hex(&baseline),

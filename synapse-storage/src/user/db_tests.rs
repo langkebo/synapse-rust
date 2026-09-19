@@ -21,7 +21,7 @@ use synapse_common::current_timestamp_millis;
 /// guard alive for the whole test — dropping it early spawns a background
 /// `DROP SCHEMA` that can race with in-flight queries.
 async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<Pool<Postgres>>) {
-    let isolated = crate::test_isolation::IsolatedTestPool::new().await.expect("isolated pool");
+    let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
     let pool = isolated.pool();
     (isolated, pool)
 }

@@ -528,7 +528,7 @@ mod db_tests {
         // IsolatedTestPool: each test gets a fresh schema, so parallel tests
         // can't add rows to our isolated room_invite_allowlist. This restores
         // the exact `== 2` assertion from the original design.
-        let isolated = crate::test_isolation::IsolatedTestPool::new().await.expect("isolated pool");
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
         let pool = isolated.pool();
         let storage = InviteBlocklistStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();

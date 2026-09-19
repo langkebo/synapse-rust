@@ -648,7 +648,7 @@ mod db_tests {
     async fn test_sweep_expired_removes_expired() {
         // IsolatedTestPool: each test gets a fresh schema, so parallel
         // `sweep_expired()` calls can't steal the row we need to delete.
-        let isolated = crate::test_isolation::IsolatedTestPool::new().await.expect("isolated pool");
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
         let pool = isolated.pool();
         let storage = DehydratedDeviceStorage::new(&pool);
         let user_id = format!("@sweep_expired_{}:test", uuid::Uuid::new_v4());

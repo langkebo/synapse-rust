@@ -1092,7 +1092,7 @@ mod db_tests {
     // share the same DB schema.
     #[tokio::test]
     async fn test_get_all_blacklist_pagination() {
-        let isolated = crate::test_isolation::IsolatedTestPool::new().await.expect("isolated pool");
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
         let pool = isolated.pool();
 
         let storage = FederationBlacklistStorage::new(&pool);

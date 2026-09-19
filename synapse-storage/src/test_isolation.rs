@@ -1,7 +1,10 @@
 //! Schema isolation for test pools.
 //!
-//! Provides `TestPool` wrapper that connects to a dedicated test schema,
-//! isolating each test from `pg_stat_*` and data pollution from other tests.
+//! Storage's entry point to the shared per-test isolated pool. The pool
+//! lifecycle (struct, construction, `Drop` cleanup) lives in
+//! [`synapse_common::test_isolation::IsolatedTestPool`] because that module is
+//! compiled unconditionally and is therefore reachable from every sibling
+//! crate's `#[cfg(test)]` fixtures — a `#[cfg(test)]` module here is not.
 //!
 //! Usage:
 //! ```ignore
@@ -9,232 +12,43 @@
 //! let pool = test_pool().await;
 //!
 //! // With:
-//! let test_pool = IsolatedTestPool::new().await;
+//! let test_pool = isolated_test_pool().await.unwrap();
 //! let pool = test_pool.pool();
 //! // Schema is auto-dropped when test_pool is dropped
 //! ```
 //!
 //! The template-schema machinery (fingerprint, naming, advisory lock, build,
-//! single-round-trip clone, inventory validation) lives in
+//! single-round-trip clone, inventory validation) also lives in
 //! [`synapse_common::test_isolation`]. This module is the `synapse-storage`
-//! adapter: it owns test-DB URL resolution and the per-test pool lifecycle,
-//! and delegates the shared work.
+//! adapter: it owns the storage-local copy of the baseline SQL and supplies it
+//! to the shared pool.
 
-use sqlx::postgres::{PgPool, PgPoolOptions};
-use std::sync::Arc;
-use std::time::Duration;
+pub use synapse_common::test_isolation::IsolatedTestPool;
 
-/// Resolve the test database URL.
+/// Baseline SQL for isolated schemas, handed to the shared pool constructor.
 ///
-/// Precedence: `TEST_DATABASE_URL`, then `DATABASE_URL`, then the documented
-/// local convention. The env-var path is deliberately zero-probe so the hot
-/// path never pays connection-probe latency.
+/// The exact bytes are load-bearing: the template name is a content
+/// fingerprint of this string, so any edit forks a second template (the shared
+/// `ensure_template_schema` rebuilds from scratch) instead of reusing the one
+/// already in the database.
 ///
-/// Storage keeps its own resolver only because of *how* it probes (a cheap
-/// `TcpStream::connect_timeout` here vs. a real `PgPool` connect elsewhere);
-/// the fallback *chain* is the shared one, asserted for every copy by
-/// `tests/unit/test_db_url_convention_tests.rs`.
-fn test_database_url() -> String {
-    if let Ok(url) = std::env::var("TEST_DATABASE_URL") {
-        return url;
-    }
-    if let Ok(url) = std::env::var("DATABASE_URL") {
-        return url;
-    }
-    // Test-DB fallback convention — asserted by
-    // `tests/unit/test_db_url_convention_tests.rs`, so keep every copy in sync:
-    //   * port `5432`: what CI exports, what the dev compose override publishes
-    //     (`${DB_EXPOSE_PORT:-5432}:5432`) and what `init_test_public_schema.sh`
-    //     defaults to;
-    //   * `synapse_test` only, never the application database — a harness that
-    //     silently falls back to the database under test turns a configuration
-    //     mistake into data loss;
-    //   * no `15432`: a dead host-forward from an older compose file. Nothing
-    //     listens there, so probing it first cost a connect timeout in every
-    //     DB-backed test process before falling through (H-12).
-    for candidate in [
-        "postgresql://synapse:synapse@localhost:5432/synapse_test",
-        "postgresql://synapse:secret@localhost:5432/synapse_test",
-    ] {
-        if tcp_reachable(candidate) {
-            return candidate.to_string();
-        }
-    }
-    "postgresql://synapse:synapse@localhost:5432/synapse_test".to_string()
+/// The v12 baseline already contains every object the former
+/// `00000001_extensions_v10.sql` defined (14 tables + 1 index, all
+/// `IF NOT EXISTS`), so that file was a byte-for-byte no-op duplicate and was
+/// deleted — see migrations/README.md §"为什么只有一个 baseline".
+///
+/// It stays here, rather than being embedded by `synapse-common`, because that
+/// crate must not compile the workspace migrations into its production build.
+fn isolated_baseline_sql() -> &'static str {
+    include_str!("../../migrations/00000000_unified_schema_v12.sql")
 }
 
-/// Cheap synchronous reachability probe for a Postgres URL's host:port.
-fn tcp_reachable(url: &str) -> bool {
-    let Some(authority) = url.split("://").nth(1).and_then(|rest| rest.split('/').next()) else {
-        return false;
-    };
-    let Some(host_port) = authority.rsplit('@').next() else {
-        return false;
-    };
-    let (host, port) = match host_port.rsplit_once(':') {
-        Some((host, port)) => (host, port.parse::<u16>().unwrap_or(5432)),
-        None => (host_port, 5432),
-    };
-    let Ok(addrs) = std::net::ToSocketAddrs::to_socket_addrs(&(host, port)) else {
-        return false;
-    };
-    addrs.into_iter().any(|addr| std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(500)).is_ok())
-}
-
-/// Creates a pool connected to a fresh isolated schema per test.
-/// Each schema is cloned from the shared v11 baseline template and dropped on Drop.
-pub struct IsolatedTestPool {
-    pool: Arc<PgPool>,
-    schema: String,
-}
-
-impl IsolatedTestPool {
-    /// Create a new isolated test pool with a unique schema.
-    pub async fn new() -> Result<Self, sqlx::Error> {
-        let db_url = test_database_url();
-
-        // The template name is a content fingerprint of this string, so the
-        // exact bytes are load-bearing: any edit forks a second template (the
-        // shared `ensure_template_schema` rebuilds from scratch) instead of
-        // reusing the one already in the database.
-        //
-        // The v12 baseline already contains every object the former
-        // `00000001_extensions_v10.sql` defined (14 tables + 1 index, all
-        // `IF NOT EXISTS`), so that file was a byte-for-byte no-op duplicate and
-        // was deleted — see migrations/README.md §"为什么只有一个 baseline".
-        let baseline_sql = include_str!("../../migrations/00000000_unified_schema_v12.sql");
-        let template = synapse_common::test_isolation::ensure_template_schema(&db_url, baseline_sql)
-            .await
-            .map_err(sqlx::Error::Protocol)?;
-
-        let schema = format!("test_{}", uuid::Uuid::new_v4().as_simple());
-
-        // One round trip: every table, index, constraint, function, view and
-        // trigger. The shared clone helper does not create the schema, so the
-        // caller creates it and puts it first on the session `search_path`.
-        let clone_pool =
-            PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(60)).connect(&db_url).await?;
-        sqlx::query(&format!(r#"CREATE SCHEMA "{schema}""#)).execute(&clone_pool).await?;
-        sqlx::query(&format!(r#"SET search_path TO "{schema}", public"#)).execute(&clone_pool).await?;
-        synapse_common::test_isolation::clone_schema_from_template(
-            &clone_pool,
-            &schema,
-            &template,
-            synapse_common::test_isolation::SeedSource::Everything,
-        )
-        .await
-        .map_err(sqlx::Error::Protocol)?;
-        drop(clone_pool);
-
-        // Create test pool with isolated search_path.  Use `connect_lazy` so we
-        // can also run a `SET search_path` on the first connection *before* any
-        // other query.  `after_connect` only fires for connections acquired
-        // from the pool after the initial `connect()` (which would otherwise
-        // default to the `public` schema and leak data across parallel tests).
-        //
-        // Connection budget is deliberately minimal: db_tests issue queries
-        // serially, so one connection suffices, and every pool holds its
-        // connection open until the test ends.  With dozens of tests creating
-        // isolated pools in parallel, an idle connection pool with a large
-        // cap / no idle timeout can exceed the Postgres `max_connections`
-        // limit (100) and make unrelated `test_pool()` connections fail.
-        let pool_schema = schema.clone();
-        let set_path_for_pool = format!(r#"SET search_path TO "{}", public"#, schema);
-        let pool = PgPoolOptions::new()
-            .max_connections(1)
-            .acquire_timeout(Duration::from_secs(30))
-            .idle_timeout(Some(Duration::from_secs(60)))
-            .after_connect(move |conn, _| {
-                let schema = pool_schema.clone();
-                Box::pin(async move {
-                    sqlx::query(&format!(r#"SET search_path TO "{}", public"#, schema)).execute(conn).await?;
-                    Ok(())
-                })
-            })
-            .connect_lazy(&db_url)?;
-
-        // Force a connection acquisition and immediately set the search_path.
-        // This ensures even the very first connection (which bypasses
-        // `after_connect`) lands in the correct schema.  Pre-warm the single
-        // pooled connection so no later connection (created while the test is
-        // running) can silently default to the `public` schema and leak data
-        // across parallel tests.
-        let mut conn = pool.acquire().await?;
-        sqlx::query(&set_path_for_pool).execute(&mut *conn).await?;
-        drop(conn);
-
-        Ok(Self { pool: Arc::new(pool), schema })
-    }
-
-    /// Get the underlying pool.
-    pub fn pool(&self) -> Arc<PgPool> {
-        self.pool.clone()
-    }
-
-    /// Get the schema name for debugging.
-    pub fn schema_name(&self) -> &str {
-        &self.schema
-    }
-}
-
-// NOTE on cleanup strategy (2026-09-11)
-//
-// `Drop::drop` is synchronous and cannot await, so schema cleanup must be
-// delegated. Three approaches were tried:
-//
-//   1. `std::thread::spawn` + block_on — **leaked 100%**. Under nextest (one
-//      process per test) the process exits before the thread reaches Postgres.
-//   2. `LazyLock<Runtime>::spawn` — **also leaked 100%**. Dropping the runtime
-//      at process exit *cancels* in-flight async tasks rather than awaiting
-//      them, so the `DROP SCHEMA` never ran.
-//   3. Spawn a thread and **join it** before `drop` returns — this is the only
-//      variant that guarantees the schema is gone before the process exits.
-//      It costs a connect + DROP per test, which is the price of not
-//      accumulating schemas.
-//
-// Measured: 24 isolated tests leaked exactly 24 schemas under (1) and (2); the
-// local database had accumulated 22,532 `test_*` schemas.
-
-impl Drop for IsolatedTestPool {
-    fn drop(&mut self) {
-        let schema = self.schema.clone();
-        let db_url = test_database_url();
-
-        // Never drop the shared template. `new()` only ever puts a `test_<uuid>`
-        // schema in `self.schema`, so this guards a future refactor rather than
-        // a reachable path today.
-        if schema.starts_with("test_isolation_template_") {
-            tracing::error!("refusing to drop the shared isolation template schema {schema}");
-            return;
-        }
-
-        // Spawn a thread and JOIN it: dropping the schema must complete before
-        // this returns, otherwise process exit races the cleanup and leaks the
-        // schema (measured 100% leak with both fire-and-forget variants).
-        let handle = std::thread::spawn(move || {
-            let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
-                return;
-            };
-            rt.block_on(async {
-                let Ok(pool) = PgPoolOptions::new()
-                    .max_connections(1)
-                    .acquire_timeout(Duration::from_secs(10))
-                    .connect(&db_url)
-                    .await
-                else {
-                    return;
-                };
-                let drop_sql = format!(r#"DROP SCHEMA IF EXISTS "{}" CASCADE"#, schema);
-                if let Err(e) = sqlx::query(&drop_sql).execute(&pool).await {
-                    tracing::error!("Failed to drop test schema {}: {}", schema, e);
-                }
-            });
-        });
-
-        // If the cleanup thread panicked, do not propagate from `drop`
-        // (a panic during unwinding would abort the process).
-        let _ = handle.join();
-    }
+/// Create a pool backed by a fresh schema cloned from the shared v12 template.
+///
+/// Every DB test in this crate should start here: the schema is dropped on
+/// `Drop`, so tests cannot leak state into each other or into `public`.
+pub async fn isolated_test_pool() -> Result<IsolatedTestPool, sqlx::Error> {
+    IsolatedTestPool::new(isolated_baseline_sql()).await
 }
 
 #[cfg(test)]
@@ -320,7 +134,7 @@ INSERT INTO t VALUES ('it''s;here');
 
     #[tokio::test]
     async fn test_isolated_pool_search_path_is_schema() {
-        let iso = IsolatedTestPool::new().await.expect("isolated pool");
+        let iso = isolated_test_pool().await.expect("isolated pool");
         let pool = iso.pool();
         let (schema,): (String,) =
             sqlx::query_as("SELECT current_schema()").fetch_one(&*pool).await.expect("query current_schema");
@@ -338,7 +152,7 @@ INSERT INTO t VALUES ('it''s;here');
     /// must contain the core user tables.
     #[tokio::test]
     async fn test_isolated_schema_contains_core_user_tables() {
-        let iso = IsolatedTestPool::new().await.expect("isolated pool");
+        let iso = isolated_test_pool().await.expect("isolated pool");
         let pool = iso.pool();
         let schema = iso.schema_name();
         let (users,): (Option<String>,) = sqlx::query_as("SELECT to_regclass($1)::text")

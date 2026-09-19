@@ -443,17 +443,40 @@ fn slice_from_ref<T>(val: &T) -> &[T] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use synapse_common::test_isolation::IsolatedTestPool;
 
-    fn make_service() -> VerificationService {
-        let pool = sqlx::PgPool::connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
-            .expect("connect_lazy should not perform I/O");
-        let pool = std::sync::Arc::new(pool);
+    /// The workspace baseline migration, compiled in so the isolated schemas
+    /// these tests use carry every table the storage layer queries.
+    ///
+    /// The bytes are load-bearing: the shared template's name is a content
+    /// fingerprint, so this must stay byte-identical to the copy
+    /// `synapse-storage` and `synapse-services` pass (pinned by
+    /// `tests/unit/test_isolation_unification_tests.rs`). It lives in the
+    /// fixture rather than in `synapse-common` because that crate must not
+    /// compile the workspace migrations into its production build.
+    const BASELINE_SQL: &str = include_str!("../../../migrations/00000000_unified_schema_v12.sql");
+
+    fn make_service(pool: Arc<sqlx::PgPool>) -> VerificationService {
         VerificationService::new(Arc::new(VerificationStorage::new(&pool)))
+    }
+
+    /// A service whose pool is never connected to.
+    ///
+    /// The non-DB tests only need a `VerificationService` value, and
+    /// `connect_lazy` performs no I/O, so they run without a database. The URL
+    /// comes from the shared resolver rather than a literal so a future test
+    /// that *does* query cannot silently target a different database than the
+    /// isolated pools — DB-touching tests must use [`make_service`] with an
+    /// [`IsolatedTestPool`] instead.
+    fn lazy_service() -> VerificationService {
+        let pool = sqlx::PgPool::connect_lazy(&synapse_common::test_isolation::test_database_url())
+            .expect("connect_lazy should not perform I/O");
+        make_service(Arc::new(pool))
     }
 
     #[tokio::test]
     async fn generate_key_pair_produces_valid_base64_public_key() {
-        let svc = make_service();
+        let svc = lazy_service();
         let (_secret, public) = svc.generate_key_pair();
         // Public key should be 32 bytes → 44 base64 chars (no padding for URL-safe)
         let decoded = base64::engine::general_purpose::STANDARD.decode(&public).unwrap();
@@ -462,7 +485,7 @@ mod tests {
 
     #[tokio::test]
     async fn generate_key_pair_returns_non_empty_secret_key() {
-        let svc = make_service();
+        let svc = lazy_service();
         let (secret, _public) = svc.generate_key_pair();
         // E2EE-02: the secret key must NOT be empty — it is needed for ECDH.
         assert!(!secret.is_empty(), "private key must not be discarded");
@@ -472,7 +495,7 @@ mod tests {
 
     #[tokio::test]
     async fn generate_key_pair_secret_and_public_form_valid_pair() {
-        let svc = make_service();
+        let svc = lazy_service();
         let (secret, public) = svc.generate_key_pair();
         // E2EE-02: the returned (secret, public) must be a genuine Curve25519 pair.
         // Computing the shared secret with our own public key must succeed and
@@ -484,7 +507,7 @@ mod tests {
 
     #[tokio::test]
     async fn generate_key_pair_produces_unique_keys() {
-        let svc = make_service();
+        let svc = lazy_service();
         let (s1, p1) = svc.generate_key_pair();
         let (s2, p2) = svc.generate_key_pair();
         assert_ne!(s1, s2, "secret keys must be unique");
@@ -493,7 +516,7 @@ mod tests {
 
     #[tokio::test]
     async fn derive_sas_is_deterministic() {
-        let svc = make_service();
+        let svc = lazy_service();
         let shared_secret = [0x42u8; 32];
         let sas1 = svc.derive_sas(&shared_secret, "SAS");
         let sas2 = svc.derive_sas(&shared_secret, "SAS");
@@ -503,7 +526,7 @@ mod tests {
 
     #[tokio::test]
     async fn derive_sas_different_info_produces_different_result() {
-        let svc = make_service();
+        let svc = lazy_service();
         let shared_secret = [0x42u8; 32];
         let sas1 = svc.derive_sas(&shared_secret, "SAS");
         let sas2 = svc.derive_sas(&shared_secret, "OTHER");
@@ -512,7 +535,7 @@ mod tests {
 
     #[tokio::test]
     async fn compute_mac_is_deterministic() {
-        let svc = make_service();
+        let svc = lazy_service();
         let shared_secret = [0xABu8; 32];
         let keys = vec!["key1".to_string(), "key2".to_string()];
         let mac1 = svc.compute_mac(&keys, &shared_secret, "test.info").unwrap();
@@ -522,7 +545,7 @@ mod tests {
 
     #[tokio::test]
     async fn compute_mac_different_keys_produce_different_result() {
-        let svc = make_service();
+        let svc = lazy_service();
         let shared_secret = [0xABu8; 32];
         let mac1 = svc.compute_mac(&["a".into()], &shared_secret, "info").unwrap();
         let mac2 = svc.compute_mac(&["b".into()], &shared_secret, "info").unwrap();
@@ -531,7 +554,7 @@ mod tests {
 
     #[tokio::test]
     async fn compute_mac_valid_base64_output() {
-        let svc = make_service();
+        let svc = lazy_service();
         let shared_secret = [0xFFu8; 32];
         let mac = svc.compute_mac(&["test".into()], &shared_secret, "info").unwrap();
         let decoded = base64::engine::general_purpose::STANDARD.decode(&mac);
@@ -557,7 +580,7 @@ mod tests {
 
     #[tokio::test]
     async fn compute_shared_secret_is_symmetric() {
-        let svc = make_service();
+        let svc = lazy_service();
         let a_secret = StaticSecret::random_from_rng(aes_gcm::aead::OsRng);
         let a_public = PublicKey::from(&a_secret);
         let b_secret = StaticSecret::random_from_rng(aes_gcm::aead::OsRng);
@@ -574,7 +597,7 @@ mod tests {
 
     #[tokio::test]
     async fn compute_shared_secret_self_consistency() {
-        let svc = make_service();
+        let svc = lazy_service();
         let secret = StaticSecret::random_from_rng(aes_gcm::aead::OsRng);
         let public = PublicKey::from(&secret);
         let sec_b64 = base64::engine::general_purpose::STANDARD.encode(secret.as_bytes());
@@ -586,13 +609,13 @@ mod tests {
 
     #[tokio::test]
     async fn compute_shared_secret_rejects_invalid_base64() {
-        let svc = make_service();
+        let svc = lazy_service();
         assert!(svc.compute_shared_secret("not-base64!!!", "also!!!bad").is_err());
     }
 
     #[tokio::test]
     async fn compute_shared_secret_rejects_wrong_length() {
-        let svc = make_service();
+        let svc = lazy_service();
         let short = base64::engine::general_purpose::STANDARD.encode([0u8; 16]);
         let valid = base64::engine::general_purpose::STANDARD.encode([0u8; 32]);
         assert!(svc.compute_shared_secret(&short, &valid).is_err());
@@ -601,7 +624,7 @@ mod tests {
 
     #[tokio::test]
     async fn derive_sas_produces_6_byte_output() {
-        let svc = make_service();
+        let svc = lazy_service();
         let shared_secret = [0x00u8; 32];
         let sas = svc.derive_sas(&shared_secret, "MATRIX_QR_CODE_LOGIN_INITIATE");
         assert_eq!(sas.len(), 6);
@@ -613,15 +636,10 @@ mod tests {
 
     #[tokio::test]
     async fn cancel_verification_transitions_to_cancelled() {
-        // 预存验证测试：cancel_verification 需要 DB，但测试以无异常为主
-        // 直接创建 pool 不触发 IO，DB 不可连时也不应 panic
-        let pool =
-            sqlx::PgPool::connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test").unwrap_or_else(|_| {
-                sqlx::PgPool::connect_lazy("postgres://synapse:synapse@127.0.0.1:5432/synapse_test")
-                    .expect("pool creation")
-            });
-        let pool = std::sync::Arc::new(pool);
-        let svc = VerificationService::new(Arc::new(VerificationStorage::new(&pool)));
+        // 隔离 schema：`public` 会被同一次 workspace 运行的 unit 目标清空，
+        // 直连它会让本测试以 42P01 假失败。
+        let isolated = IsolatedTestPool::new(BASELINE_SQL).await.expect("isolated test pool");
+        let svc = make_service(isolated.pool());
 
         // 验证取消操作不会 panic；DB 连接成功时应返回 Ok，若无数据则 update 无匹配行也不报错
         let result = svc.cancel_verification("test-tx-id", "test_code", "test_reason").await;
@@ -630,14 +648,9 @@ mod tests {
 
     #[tokio::test]
     async fn get_request_returns_none_for_unknown_transaction() {
-        // 预存验证测试：get_request 需要 DB，但测试以无异常为主
-        let pool =
-            sqlx::PgPool::connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test").unwrap_or_else(|_| {
-                sqlx::PgPool::connect_lazy("postgres://synapse:synapse@127.0.0.1:5432/synapse_test")
-                    .expect("pool creation")
-            });
-        let pool = std::sync::Arc::new(pool);
-        let svc = VerificationService::new(Arc::new(VerificationStorage::new(&pool)));
+        // 隔离 schema，理由同 `cancel_verification_transitions_to_cancelled`。
+        let isolated = IsolatedTestPool::new(BASELINE_SQL).await.expect("isolated test pool");
+        let svc = make_service(isolated.pool());
 
         let result = svc.get_request("nonexistent-tx-12345").await;
         assert!(result.is_ok(), "get_request must not fail: {result:?}");

@@ -31,11 +31,16 @@ const CANONICAL_FALLBACKS: [&str; 2] = [
 ];
 
 /// Every Rust file that resolves a test-database target.
+///
+/// The pool lifecycle moved to `synapse-common/src/test_isolation.rs` (so every
+/// crate's `#[cfg(test)]` fixtures can reach it); the resolver moved with it.
+/// `synapse-storage/src/test_isolation.rs` is now a thin adapter with no chain
+/// of its own, so it is no longer listed.
 const RUST_RESOLVERS: [&str; 5] = [
     "synapse-test-utils/src/lib.rs",
     "synapse-services/src/test_utils.rs",
     "synapse-storage/src/test_utils.rs",
-    "synapse-storage/src/test_isolation.rs",
+    "synapse-common/src/test_isolation.rs",
     "tests/common/mod.rs",
 ];
 

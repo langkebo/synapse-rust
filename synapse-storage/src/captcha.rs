@@ -533,7 +533,7 @@ mod db_tests {
     /// guard alive for the whole test — dropping it early spawns a background
     /// `DROP SCHEMA` that can race with in-flight queries.
     async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<PgPool>) {
-        let isolated = crate::test_isolation::IsolatedTestPool::new().await.expect("isolated pool");
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
         let pool = isolated.pool();
         (isolated, pool)
     }
@@ -1403,7 +1403,7 @@ mod db_tests {
     async fn test_cleanup_expired_captchas_deletes_expired_pending() {
         // IsolatedTestPool: each test gets a fresh schema, so parallel
         // `cleanup_expired_captchas()` calls can't race to delete our row.
-        let isolated = crate::test_isolation::IsolatedTestPool::new().await.expect("isolated pool");
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
         let pool = isolated.pool();
         let storage = CaptchaStorage::new(&pool);
         let target = format!("test_cleanup_{}@example.com", unique_suffix());
@@ -1458,7 +1458,7 @@ mod db_tests {
     async fn test_cleanup_expired_captchas_skips_non_pending() {
         // IsolatedTestPool: parallel tests can't mark our captcha as 'pending'
         // before our cleanup runs.
-        let isolated = crate::test_isolation::IsolatedTestPool::new().await.expect("isolated pool");
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
         let pool = isolated.pool();
         let storage = CaptchaStorage::new(&pool);
         let target = format!("test_cleanup_skip_{}@example.com", unique_suffix());

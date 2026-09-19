@@ -714,7 +714,7 @@ async fn test_get_pending_tasks_returns_pending_only() {
 async fn test_claim_next_pending_task_assigns_to_worker() {
     // IsolatedTestPool: each test gets a fresh schema, so parallel
     // `claim_next_pending_task()` calls can't steal our pending task.
-    let isolated = crate::test_isolation::IsolatedTestPool::new().await.expect("isolated pool");
+    let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
     let pool = isolated.pool();
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-claim-{}", uuid::Uuid::new_v4());
@@ -751,7 +751,7 @@ async fn test_claim_next_pending_task_none_when_empty() {
     // IsolatedTestPool: each test gets a fresh schema, so orphaned tasks
     // from other tests can't leak in to make this test's claim return Some.
     // No need to call `cleanup_orphaned_tasks` because the schema is empty.
-    let isolated = crate::test_isolation::IsolatedTestPool::new().await.expect("isolated pool");
+    let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
     let pool = isolated.pool();
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-claim2-{}", uuid::Uuid::new_v4());
@@ -777,7 +777,7 @@ async fn test_claim_next_pending_task_none_when_empty() {
 #[tokio::test]
 async fn test_claim_next_pending_task_for_types_matches() {
     // IsolatedTestPool: parallel claims can't steal our push_delivery task.
-    let isolated = crate::test_isolation::IsolatedTestPool::new().await.expect("isolated pool");
+    let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
     let pool = isolated.pool();
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-claimt-{}", uuid::Uuid::new_v4());
@@ -813,7 +813,7 @@ async fn test_claim_next_pending_task_for_types_matches() {
 #[tokio::test]
 async fn test_claim_next_pending_task_for_types_no_match() {
     // IsolatedTestPool: orphaned tasks from other tests can't leak in.
-    let isolated = crate::test_isolation::IsolatedTestPool::new().await.expect("isolated pool");
+    let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
     let pool = isolated.pool();
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-claimt2-{}", uuid::Uuid::new_v4());
