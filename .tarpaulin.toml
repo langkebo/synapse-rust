@@ -20,9 +20,13 @@ integration = "tests/**/*.rs"
 # P4-1: file-level coverage thresholds.
 # Tarpaulin's TOML config does not natively support per-file fail-under, but the
 # CLI flag `--fail-under-file path:threshold` does. The CI coverage job
-# (.github/workflows/ci.yml `coverage` job) post-processes tarpaulin's JSON
-# output via scripts/check_file_coverage.py to enforce:
-#   - new files (no prior coverage baseline): ≥60% (ramp-up grace)
-#   - existing touched files: must not regress below prior baseline
-#   - TDD-mandated files (Phase 3 trait seams): ≥80%
+# (.github/workflows/ci.yml `coverage` job) post-processes the report via
+# scripts/check_file_coverage.py to enforce:
+#   - files the baseline already records: must not regress below the recorded
+#     value (absolute floors are NOT re-applied — see the script's docstring for
+#     why `max(prev, global)` made a fresh baseline unsatisfiable)
+#   - new files (no prior baseline): TDD ≥80% > core ≥70% > 30% ramp-up
+#   - test-support sources (test_mocks/, synapse-test-utils/, *test_utils.rs,
+#     *test_isolation.rs, *test_schema_guard.rs) are skipped: neither coverage
+#     leg can measure code that only *other* crates' tests exercise.
 # See .trae/documents/TDD落地执行清单.md P4-1 for the policy.

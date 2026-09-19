@@ -951,9 +951,13 @@ jobs:
             --threshold 0 --global-floor 0 --new-file-floor 0 --core-threshold 0
 
       - name: Per-file coverage ratchet (B.3)
-        # Enforces: TDD-mandated files ≥80%, core paths ≥70%,
-        # new files ≥30% (ramp-up grace), touched files must not regress,
-        # global floor ≥40%.
+        # Enforces: any file already recorded in the baseline must not regress;
+        # NEW files must clear TDD ≥80% > core ≥70% > 30% ramp-up; test-support
+        # sources are skipped (see scripts/check_file_coverage.py's docstring).
+        # `--global-floor 40` is retained for the ramp-up warning only; absolute
+        # floors are deliberately not re-applied to baseline-known files, because
+        # doing so made the first committed baseline red on 188 files that had not
+        # regressed at all (measured 2026-09-19).
         # Fails (exit 2) when scripts/ci/coverage_baseline.json is absent, because
         # the "touched must not regress" half of the ratchet is unreachable
         # without it. On main/develop the previous step bootstraps it and the

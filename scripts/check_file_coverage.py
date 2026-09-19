@@ -1,31 +1,60 @@
 #!/usr/bin/env python3
-"""Per-file coverage threshold enforcement for tarpaulin JSON reports.
+"""Per-file coverage ratchet for lcov / tarpaulin JSON reports.
 
-Reads a tarpaulin JSON report (--out Json), compares per-file line coverage
-against configurable thresholds, and exits non-zero if any file falls below
-its floor.  Designed to be called from CI after `cargo tarpaulin --out Json`.
+Reads a coverage report, compares per-file line coverage against the committed
+baseline, and exits non-zero when a file falls below its floor.
 
-Policy (from .tarpaulin.toml and TDD落地执行清单 P4-1):
-  - TDD-mandated files (Phase 3 trait seams):                    ≥ 80%
-  - New files (not in the baseline):                              ≥ 60%  (ramp-up grace)
-  - Existing touched files:                                       must not regress below prior baseline
-  - All other src/**/*.rs files:                                   ≥ 70%  (global floor, warn-only)
+Policy (revised 2026-09-19; see docs/audit/GATE_INTEGRITY_SWEEP_2026-09-19.md §6):
+  - A file the baseline already records: **must not regress** below its recorded
+    value. Absolute floors are NOT re-applied to it.
+  - A file seen for the first time (new): TDD ≥ 80% > core ≥ 70% >
+    otherwise the new-file ramp-up floor (30%).
+  - Test-support sources (`test_mocks/`, `synapse-test-utils/`, `*test_utils.rs`,
+    `*test_isolation.rs`, `*test_schema_guard.rs`, `scripts/bench_harness.rs`)
+    are skipped: they are compiled under `cfg(test)`/`test-utils` and consumed by
+    *other* crates' tests, so neither coverage leg can measure them — recording a
+    permanent 0% would say nothing about the product.
+
+Why the baseline-known rule is "no regression" and not `max(prev, global)`:
+the previous floor made a freshly bootstrapped baseline unsatisfiable by
+construction. Measured 2026-09-19 immediately after committing the first
+baseline: exit 1 with 188 files red, every one of them reporting
+`was X%, delta=+0.0%` — i.e. not a regression, just an absolute floor the repo
+has never met. A ratchet that is red the moment it starts working teaches people
+to ignore it (`AGENTS.md` rule 8's converse).
 
 Usage:
   python3 scripts/check_file_coverage.py \\
-      --report tarpaulin-report.json \\
-      --baseline artifacts/coverage_baseline.json \\
-      --threshold 80 \\
-      --tdd-files artifacts/tdd_file_list.txt
+      --report coverage/lcov.info --format lcov \\
+      --baseline scripts/ci/coverage_baseline.json \\
+      --threshold 80 --core-files scripts/ci/core_file_coverage_prefixes.txt
 """
 
 import argparse
 import json
 import pathlib
 import sys
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+# Path fragments that mark a source file as test-only support code. Compared
+# against the *normalized* path the report yields (e.g.
+# `synapse-storage/test_mocks/room.rs`, `synapse-test-utils/lib.rs`).
+TEST_ONLY_MARKERS: Tuple[str, ...] = (
+    "test_mocks/",
+    "synapse-test-utils/",
+    "/test_utils.rs",
+    "/test_isolation.rs",
+    "/test_schema_guard.rs",
+    "scripts/bench_harness.rs",
+)
+
+
+def is_test_only(path: str) -> bool:
+    """True for test-support sources the coverage ratchet must ignore."""
+    normalized = path if path.startswith("/") else "/" + path
+    return any(marker in normalized for marker in TEST_ONLY_MARKERS)
 
 
 def load_baseline(path: pathlib.Path) -> Dict[str, float]:
@@ -340,6 +369,11 @@ def check_file_coverage(
         if cur is None:
             continue
 
+        # Test-support sources are structurally unmeasurable here (see
+        # TEST_ONLY_MARKERS); the ratchet must not record a meaningless 0%.
+        if is_test_only(path):
+            continue
+
         # 与基线**同一精度**比较：基线是用 `round(v, 2)` 存的（见 save_baseline），
         # 而这里的 cur 是未取整的原始比值。不取整就会出现"同一份覆盖率的
         # 往返不对称"：66.67（存储）vs 66.666…（实时）⇒ `cur < prev` 成立，
@@ -348,22 +382,22 @@ def check_file_coverage(
         # （实测 2026-09-19）。取整到存储精度后往返无损，`delta` 也不再显示 -0.0。
         cur = round(cur, 2)
 
-        is_tdd = path in tdd_files
-        is_core = not is_tdd and _matches_core_prefix(path, core_prefixes)
         is_new = prev is None
 
-        if is_tdd:
+        if not is_new:
+            # A file the baseline already knows: only regression matters. See the
+            # module docstring for why `max(prev, global_threshold)` was wrong.
+            floor = prev
+            tag = "TOUCHED"
+        elif path in tdd_files:
             floor = tdd_threshold
             tag = "TDD"
-        elif is_core:
+        elif _matches_core_prefix(path, core_prefixes):
             floor = core_threshold
             tag = "CORE"
-        elif is_new:
+        else:
             floor = new_file_threshold
             tag = "NEW"
-        else:
-            floor = max(prev, global_threshold)
-            tag = "TOUCHED"
 
         if cur < floor:
             delta = cur - (prev or 0.0)
@@ -376,7 +410,7 @@ def check_file_coverage(
                 f"[{tag}] {path}: {cur:.1f}% < {floor:.0f}% "
                 f"(was {prev_txt}, delta={delta:+.1f}%)"
             )
-            if is_core:
+            if tag == "CORE":
                 core_failures.append(msg)
             else:
                 failures.append(msg)
@@ -406,18 +440,17 @@ def check_file_coverage(
 
     if failures or core_failures:
         print(
-            f"Thresholds: TDD ≥{tdd_threshold:.0f}%, "
-            f"core ≥{core_threshold:.0f}%, "
-            f"new files ≥{new_file_threshold:.0f}%, "
-            f"touched must not regress below baseline, "
-            f"global floor ≥{global_threshold:.0f}%"
+            f"Thresholds: baseline-known files must not regress; "
+            f"new files: TDD ≥{tdd_threshold:.0f}%, core ≥{core_threshold:.0f}%, "
+            f"otherwise ≥{new_file_threshold:.0f}% (ramp-up); "
+            f"global ≥{global_threshold:.0f}% is a warning only."
         )
         return 1
 
     print(
         f"All {len(current)} source files meet coverage thresholds "
-        f"(TDD≥{tdd_threshold:.0f}%, core≥{core_threshold:.0f}%, "
-        f"new≥{new_file_threshold:.0f}%, global≥{global_threshold:.0f}%)."
+        f"(baseline-known: no regression; new: TDD≥{tdd_threshold:.0f}%, "
+        f"core≥{core_threshold:.0f}%, otherwise≥{new_file_threshold:.0f}%)."
     )
     return 0
 
