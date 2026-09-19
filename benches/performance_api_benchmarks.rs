@@ -401,21 +401,25 @@ fn benchmark_concurrent_throughput(c: &mut Criterion) {
 }
 
 // ---------------------------------------------------------------------------
-//  Pagination strategy benchmarks (in-process, no server required)
+//  Pagination strategy benchmarks (in-process simulation, no server/DB)
 // ---------------------------------------------------------------------------
 //
 // ⚠️ 历史背景：这两个基准由 `a465d0fd` 引入，与
-// `.github/workflows/benchmark.yml` 的阻塞步骤
+// `.github/workflows/benchmark.yml` 的步骤
 // `python3 scripts/check_pagination_benchmark.py benchmark.txt --minimum-improvement 0.30`
-// 配对，用于证明 keyset 分页相对 offset 分页有 ≥30% 的收益。
+// 配对。它们在 `8c7b4860`（2026-06-05）随一次"slimming"重构被删除，而 workflow
+// 的断言步骤没有同步移除 —— 该阻塞步骤从 2026-06-05 起必然失败，同时分页性能
+// 完全没有被测量。这里恢复的是基准本体。
 //
-// 它们在 `8c7b4860`（2026-06-05）随一次"slimming"重构被一并删除，
-// 但 workflow 的断言步骤没有被同步移除 —— 于是该阻塞步骤从 2026-06-05 起
-// 必然失败（脚本对缺失的基准行 `raise SystemExit`），
-// 同时分页性能**完全没有被测量**。
+// ⚠️ 但它们是**内存仿真**（250k 合成行上的 Vec 扫描 vs 二分），不是真实
+// `synapse-storage` SQL。仿真差值约 1500×，30% 阈值由构造满足，**真实 SQL 退化
+// 不可能触发它**（E4，docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md §9）。
+// 因此 `check_pagination_benchmark.py` 是**计算路径的 smoke check**，不是分页门禁。
 //
-// 这里恢复基准本体。它是**纯内存**测量（250k 合成行），不依赖服务与数据库，
-// 因此可以在 CI 中真实运行 —— 这正是门禁需要它的原因。
+// 真实分页保护（DB 支撑、可被真实退化打红）在：
+//   * `benches/performance_pagination_benchmarks.rs`
+//   * `scripts/ci/pagination_perf_gate.sh`（真实 keyset SQL vs 真实 OFFSET，
+//     阈值 PAGINATION_MIN_GAIN 默认 2×，并核对两者返回同一页）
 // 回归保护见 `tests/unit/pagination_gate_tests.rs`。
 
 #[derive(Clone, Copy)]

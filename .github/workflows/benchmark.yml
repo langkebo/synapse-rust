@@ -87,11 +87,12 @@ jobs:
           BENCH_REQUIRE: "pagination"
         run: |
           # 四条 `cargo bench … | tee` 都会把退出码换成 tee 的 0：某条基准编译失败或
-          # 崩溃时这一步照样"成功"，下面的分页门禁再基于缺失的数据做判断。
+          # 崩溃时这一步照样"成功"，下面的计算 smoke check 再基于缺失的数据做判断。
           set -o pipefail
           : > benchmark.txt
           # pagination 基准是纯内存计算，不依赖服务/DB，因此在本 job 中真实执行。
-          # 阻塞断言见下方 "Check pagination benchmark gain"。
+          # 阻塞断言见下方 "Check in-memory pagination compute smoke check (no DB)"。
+          # 真实（DB 支撑）的分页门禁在 benchmark.yml::pagination-perf-gate。
           cargo bench --locked --profile release-perf --bench performance_api_benchmarks \
             -- --output-format bencher pagination_ | tee -a benchmark.txt
           cargo bench --locked --profile release-perf --bench performance_federation_benchmarks -- --output-format bencher | tee -a benchmark.txt
@@ -100,13 +101,25 @@ jobs:
           cargo bench --locked --profile release-perf --bench performance_federation_benchmarks -- --noplot | tee -a benchmark_standard.txt
           cargo bench --locked --profile release-perf --bench performance_membership_benchmarks -- --noplot | tee -a benchmark_standard.txt
 
-      # 分页门禁：断言 keyset 分页相对 offset 有 ≥30% 收益。
-      # 历史：本步骤自 a465d0fd（2026-05-09）起存在，但它断言的
-      # `pagination_offset_deep_page` / `pagination_keyset_deep_page`
-      # 在 8c7b4860（2026-06-05）被从 benches 中删除而未同步移除本步骤，
-      # 于是该阻塞步骤**必然失败**且分页性能完全未被测量（持续 98 天）。
-      # 基准已恢复，回归保护见 tests/unit/pagination_gate_tests.rs。
-      - name: Check pagination benchmark gain
+      # 分页**计算路径** smoke check（不是分页性能门禁）。
+      #
+      # 本步骤比较的 `pagination_offset_deep_page` / `pagination_keyset_deep_page`
+      # 是 `benches/performance_api_benchmarks.rs` 里的两个**内存仿真**函数
+      # （250k 合成行上的 Vec 扫描 vs 二分）。仿真差值约 1500×，30% 阈值由构造
+      # 满足，因此**真实 SQL 退化不可能触发它**（E4，见
+      # docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md §9）。
+      #
+      # 历史：本步骤自 a465d0fd（2026-05-09）起存在，但它断言的基准在
+      # 8c7b4860（2026-06-05）被从 benches 中删除而未同步移除本步骤，于是它
+      # **必然失败**且分页性能完全未被测量（持续 98 天）。基准已恢复。
+      #
+      # 本步骤仍然有价值：它 fail-closed 地证明这两个计算基准存在、被执行、
+      # 且计算路径本身没有退化。**真实分页保护不在本 job**（本 job 无 DB）——
+      # 它在 benchmark.yml::pagination-perf-gate：真实 `synapse-storage` keyset
+      # SQL vs 真实 `LIMIT/OFFSET`，阈值 PAGINATION_MIN_GAIN（默认 2×，实测
+      # 5–9×），见 scripts/ci/pagination_perf_gate.sh。
+      # 回归保护见 tests/unit/pagination_gate_tests.rs。
+      - name: Check in-memory pagination compute smoke check (no DB)
         run: |
           python3 scripts/check_pagination_benchmark.py benchmark.txt --minimum-improvement 0.30
 
@@ -135,7 +148,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           cat benchmark.txt >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Pagination Gain Gate" >> $GITHUB_STEP_SUMMARY
+          echo "## Pagination Compute Smoke Check (in-memory simulation; real DB gate is pagination-perf-gate)" >> $GITHUB_STEP_SUMMARY
           python3 scripts/check_pagination_benchmark.py benchmark.txt --minimum-improvement 0.30 >> $GITHUB_STEP_SUMMARY
 
       - name: Upload benchmark results
@@ -213,8 +226,13 @@ jobs:
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_bench
         run: |
-          python3 scripts/build_sqlx_migration_source.py artifacts/sqlx-migrations
-          sqlx migrate run --source artifacts/sqlx-migrations
+          # `sqlx migrate run` cannot apply this baseline: it executes the file
+          # inside a transaction, and `CREATE INDEX CONCURRENTLY` refuses to run
+          # in one (measured 2026-09-19: `error: while executing migration 0:
+          # CREATE INDEX CONCURRENTLY cannot run inside a transaction block`).
+          # Apply the single-source `migrations/` with psql per file (autocommit),
+          # exactly like the DB-backed `pagination-perf-gate` job does.
+          bash scripts/init_test_public_schema.sh
 
       - name: Run sliding sync perf gate (strict)
         env:
@@ -231,6 +249,92 @@ jobs:
         with:
           name: sliding-sync-perf-gate
           path: artifacts/sliding_sync_perf_gate.log
+          retention-days: 14
+
+  pagination-perf-gate:
+    # ── E4：DB 支撑的真实分页门禁 ────────────────────────────────────────────
+    #
+    # `scripts/check_pagination_benchmark.py`（benchmark job）比较的是两个
+    # **内存仿真**函数，仿真差值约 1500×，真实 SQL 退化永远不会触发它的 30%
+    # 阈值 —— 它只是计算路径的 smoke check。真正的分页保护在这里。
+    #
+    # `benches/performance_pagination_benchmarks.rs` 在真实迁移过的 `events`
+    # 表上跑生产 keyset 查询（`EventStorage::get_room_events_paginated_cursor`，
+    # 即 /messages 使用的 SQL）与 ISSUE-06 之前的 `LIMIT/OFFSET` 形状，比较
+    # 同一深页；`scripts/ci/pagination_perf_gate.sh` 断言真实差距 ≥2×（实测
+    # 5–9×）、两者返回同一页、且计划仍走索引。故意退化 keyset（去掉索引或改回
+    # OFFSET）会把差距压到 ~1–1.5× 并让它变红。
+    #
+    # 为什么是独立 job 而不是复用 `sliding-sync-perf-gate` 的步骤：那个 job 的
+    # "Prepare benchmark database schema" 用 `sqlx migrate run`，而合并 baseline
+    # 含 14 处 `CREATE INDEX CONCURRENTLY`（不能在事务内执行），该步骤在当前
+    # 基线下必然失败；追加在那里的步骤永远不会执行。本 job 改用
+    # `scripts/init_test_public_schema.sh`（psql 逐文件 apply，autocommit），
+    # 与 ci.yml 的测试库 seed 是同一实现。
+    name: Pagination perf gate (DB-backed)
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_benchmarks == 'true'
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: synapse
+          POSTGRES_PASSWORD: synapse
+          POSTGRES_DB: synapse_bench
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.0
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-pagination-gate-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-pagination-gate-
+
+      - name: Install PostgreSQL tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Prepare benchmark database schema
+        env:
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_bench
+        # psql 逐文件 apply `migrations/`（单一迁移实现）；`sqlx migrate run`
+        # 在合并 baseline 上必然失败，见 scripts/init_test_public_schema.sh 头注释。
+        run: bash scripts/init_test_public_schema.sh
+
+      - name: Run DB-backed pagination perf gate
+        env:
+          BENCHMARK_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_bench
+          PAGINATION_MIN_GAIN: "2.0"
+          RUSTFLAGS: "-Ccodegen-units=16"
+        run: bash scripts/ci/pagination_perf_gate.sh
+
+      - name: Upload pagination perf log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pagination-perf-gate
+          path: artifacts/pagination_perf_gate.log
           retention-days: 14
 
   performance-comparison:

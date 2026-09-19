@@ -3342,6 +3342,15 @@ CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
 CREATE INDEX IF NOT EXISTS idx_events_origin_server_ts ON events(origin_server_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_events_not_redacted ON events(room_id, origin_server_ts DESC) WHERE is_redacted = FALSE;
 CREATE INDEX IF NOT EXISTS idx_events_room_time ON events(room_id, origin_server_ts DESC);
+-- Keyset (cursor) deep-page index for `get_room_events_paginated_cursor`
+-- (`synapse-storage/src/event/pagination.rs`): room equality plus the exact
+-- `(origin_server_ts, stream_ordering)` order the row-value cursor predicate
+-- needs, so the planner can walk the index instead of Bitmap+Sort.
+-- Measured 2026-09-19 with the DB-backed gate (`scripts/ci/pagination_perf_gate.sh`):
+-- the pre-fix OR-form predicate scanned 2 999 rows into a top-N heapsort
+-- (`index_scan=0`, gain 1.44x); with this index and the row-value predicate the
+-- plan is `Index Scan` + incremental sort over ~101 rows (0.7 ms).
+CREATE INDEX IF NOT EXISTS idx_events_room_ts_stream ON events(room_id, origin_server_ts DESC, stream_ordering DESC);
 CREATE INDEX IF NOT EXISTS idx_events_sender_type ON events(sender, event_type);
 CREATE INDEX IF NOT EXISTS idx_events_content_gin ON events USING GIN (content jsonb_path_ops);
 CREATE INDEX IF NOT EXISTS idx_events_type_state ON events(room_id, event_type, state_key) WHERE event_type LIKE 'm.room.%';

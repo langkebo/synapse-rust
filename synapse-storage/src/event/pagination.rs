@@ -300,7 +300,7 @@ impl EventStorage {
                     "SELECT {ROOM_EVENT_COLS}
                     FROM events
                     WHERE room_id = $1
-                      AND (origin_server_ts > $2 OR (origin_server_ts = $2 AND stream_ordering > $3))
+                      AND (origin_server_ts, stream_ordering) > ($2, $3)
                     ORDER BY origin_server_ts ASC, stream_ordering ASC
                     LIMIT $4
                     "
@@ -331,7 +331,7 @@ impl EventStorage {
                     "SELECT {ROOM_EVENT_COLS}
                     FROM events
                     WHERE room_id = $1
-                      AND (origin_server_ts < $2 OR (origin_server_ts = $2 AND stream_ordering < $3))
+                      AND (origin_server_ts, stream_ordering) < ($2, $3)
                     ORDER BY origin_server_ts DESC, stream_ordering DESC
                     LIMIT $4
                     "

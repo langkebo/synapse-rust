@@ -1,4 +1,26 @@
 #!/usr/bin/env python3
+"""Compute-path smoke check for the *simulated* pagination functions.
+
+⚠️  This is **not** the pagination performance gate. It compares two
+in-memory functions in `benches/performance_api_benchmarks.rs`
+(`pagination_offset_deep_page` walks a synthetic `Vec` of 250k rows,
+`pagination_keyset_deep_page` binary-searches the same `Vec`). Neither touches a
+database, and the simulated margin is ~1500x, so **no real `synapse-storage`
+SQL regression can move the ratio below the 30% threshold** (E4,
+`docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md` §9).
+
+What this script still buys: a fail-closed smoke check that the two compute
+benchmarks keep existing, keep being emitted by the harness, and that the
+compute path itself has not regressed. Its parser guards (duplicate row /
+missing file / empty output → exit 2) stay in place.
+
+The real pagination protection lives in the DB-backed gate:
+  * bench: `benches/performance_pagination_benchmarks.rs`
+  * gate:  `scripts/ci/pagination_perf_gate.sh`
+    (real keyset SQL vs real `LIMIT/OFFSET`, threshold `PAGINATION_MIN_GAIN`,
+    plus a same-page correctness check; wired into
+    `.github/workflows/benchmark.yml::pagination-perf-gate`)
+"""
 from __future__ import annotations
 
 import argparse
@@ -45,7 +67,11 @@ def parse_benchmarks(text: str) -> dict[str, float]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Assert keyset pagination benchmark gain."
+        description=(
+            "Smoke check the in-memory pagination compute benchmarks. "
+            "This is NOT the DB-backed pagination gate; see "
+            "scripts/ci/pagination_perf_gate.sh."
+        )
     )
     parser.add_argument("benchmark_file")
     parser.add_argument("--minimum-improvement", type=float, default=0.30)
@@ -77,6 +103,10 @@ def main() -> int:
         fail(f"offset measurement is not positive ({offset}); the ratio is undefined")
 
     improvement = (offset - keyset) / offset
+    print(
+        "in-memory compute smoke check (NOT the DB-backed pagination gate; "
+        "the real guard is scripts/ci/pagination_perf_gate.sh)"
+    )
     print(
         f"offset={offset:.2f}ns keyset={keyset:.2f}ns improvement={improvement * 100:.2f}%"
     )

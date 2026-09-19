@@ -828,3 +828,68 @@ unit 目标 **1691 passed / 2 skipped / 0 failed**；全量 `--workspace --lib -
   待其收尾后统一跑 fmt/clippy/unit/全量 lib 并提交。
 - Python harness 的 `--mutation-check` 尚未**永久**自证陈旧方向（本次为手工证明）；如需铁律 8 的常驻自证，
   可在其 mutation 列表里加一条（小跟进项）。
+
+---
+
+## 11. 第六轮：E4 收口 —— 真实 DB 分页门禁 + 产品侧修复（行值改写 + 复合索引）
+
+### 11.1 结论
+E4 已完成。分页保护从"两个内存仿真函数的烟雾检查（余量 ~1500×，对真实 SQL 退化完全失明）"
+换成**真实 DB 支撑的门禁**，并且它当场抓出一个真实性能缺陷；修复（谓词改写 + 复合索引）经实测把
+深翻页计划从 `Bitmap + Sort(2999 行)` 变成 `Index Scan + Incremental Sort(101 行)`。
+
+### 11.2 产品侧修复（用户批准后落地）
+| 文件 | 改动 |
+|---|---|
+| `synapse-storage/src/event/pagination.rs:303/334` | keyset 谓词 `(origin_server_ts > $2 OR (origin_server_ts = $2 AND stream_ordering > $3))` → **行值比较** `(origin_server_ts, stream_ordering) > ($2, $3)`（`:334` 是 `<` 镜像） |
+| `migrations/00000000_unified_schema_v12.sql` | 新增 `idx_events_room_ts_stream ON events(room_id, origin_server_ts DESC, stream_ordering DESC)`（含实测依据注释） |
+| `tests/unit/test_isolation_unification_tests.rs` | 基线指纹常量 `b6a8b06fb13d22f9` → **`7d0fa95f2729793e`**（基线变了必须同步；该守卫已 ok） |
+| `benches/performance_pagination_benchmarks.rs`（新） | 真实 keyset（调用生产 `get_room_events_paginated_cursor`）vs `LIMIT/OFFSET`，`EXPLAIN` 探针同步改为行值谓词 |
+| `scripts/ci/pagination_perf_gate.sh`（新） | 门禁：fixture ≥150k 行、同页正确性、**计划不得 Seq Scan**、深翻页增益 ≥ `PAGINATION_MIN_GAIN`（默认 2.0×），无法自证前提时 **exit 2** |
+| `.github/workflows/benchmark.yml` | 新 job `pagination-perf-gate`（postgres:16 `synapse_bench` + health-check + psql 逐文件 apply `migrations/` + 日志 artifact）；原内存步骤改名 *Pagination Compute Smoke Check…* |
+| `scripts/check_pagination_benchmark.py` | 如实声明"**不是**分页门禁，只是计算路径烟雾检查"，并把真实门禁指路 |
+
+### 11.3 EXPLAIN 前后对比（我本机 `synapse_bench` 实测，未强制任何 GUC）
+- **改前**（OR 形态 + 既有索引）：`Bitmap Index Scan(idx_events_room_time)` → **Bitmap Heap Scan 2999 行** → top-N heapsort。
+- **改后**（行值 + 复合索引）：**`Index Scan` + `Incremental Sort`（101 行）**，`Execution Time = 0.717 ms`。
+- 对照 (b)（OR 形态 + 新增复合索引）仍是 Bitmap+Sort ⇒ **关键在谓词形态**，复合索引是配套。
+
+### 11.4 门禁新鲜数字与红证明（CI 等价库：从当前 v12 **重新迁移**，已确认含 `idx_events_room_ts_stream`）
+```
+[perf] pagination rows=150000 target_room_events=30000 deep_offset=27000 page_limit=100 \
+       keyset_deep_us=1686.2 offset_deep_us=15038.2 gain_x=8.92 index_scan=1 correct=1
+OK: fixture rows=150000 / OK: same deep page / OK: index / OK: 8.92x >= 2.0x  ==> PASSED (exit 0)
+```
+**红证明（库级降级，源码零改动）**：`ALTER DATABASE <probe> SET enable_indexscan=off; … enable_bitmapscan=off;`
+→ `index_scan=0 gain_x=1.24` → `BREACH` ×2 → **FAILED (exit 1)**；而同一次降级下
+`python3 scripts/check_pagination_benchmark.py …` 仍 `improvement=99.95%` **exit 0**
+⇒ 证明新门禁是真保护、旧内存检查对 SQL 退化**失明**。
+
+### 11.5 撤回的污染数字（诚实记录）
+- 先前引用的 `index_scan=0 / gain 1.44×` **作废**：bench 的 `connect_bench_pool` 里遗留了降级探针
+  `enable_indexscan=off` + `enable_bitmapscan=off`（强制 Seq Scan，门禁永远不可能过）。该探针已删除。
+- 我把探针改成行值谓词时短暂**编译失败**（2 个占位符 `({}, {})` 却传 3 个参数，`cargo bench` 报
+  `argument never used`）；已修为 `cursor_ts(), cursor_stream()`（与 `pagination.rs:334` 一致）。
+  这也说明当时那次 "PASS" 用的是旧二进制。
+- `synapse_bench` 里还有我手工建的等价索引 `idx_bench_pagination`；**迁移可信的验证以重新迁移的 probe 库为准**
+  （见 11.4），`test_template_ci` 重建后也已确认包含 `idx_events_room_ts_stream`。
+
+### 11.6 顺带发现并修复的真实问题
+`benchmark.yml::sliding-sync-perf-gate` 的 schema 步骤用 `sqlx migrate run --source artifacts/sqlx-migrations`
+——**在当前合并基线下必然失败**（实测 `error: while executing migration 0: CREATE INDEX CONCURRENTLY cannot
+run inside a transaction block`）。已改为 `bash scripts/init_test_public_schema.sh`（psql 逐文件、autocommit），
+与新门禁 job 同一实现。
+
+### 11.7 本轮门禁（本地等效）
+fmt 棘轮 `current=0=baseline`；clippy 两档 0 error；unit **1706 passed / 2 skipped / 0 failed**；
+全量 `--workspace --lib --all-features --test-threads 4`（无 retries）**6083/6083**；
+`check_baseline_consolidation` / `check_migration_consistency` / `check_schema_table_coverage` 全通过。
+
+### 11.8 残留（已记录，不阻塞）
+1. 真实分页保护只在 `benchmark.yml::pagination-perf-gate`（**非** 合并阻断工作流）；PR 上不跑（受 A7 取舍影响）。
+2. `check_pagination_benchmark.py` 仍是计算路径烟雾检查，**不覆盖** SQL。
+3. `ROOM_EVENT_COLS` 为 bench 放宽为 `pub`（公共 API 面扩大）；可改为 bench 侧本地常量。
+4. 新 bench/门禁**没有单元测试钉住**（`tests/unit/pagination_gate_tests.rs` 只覆盖内存检查）。
+5. `seed_fixture` 只按自己的 room_id 前缀清理：外部夹具若复用 `$benchpag*`/`$benchother*` 的 event_id 命名，
+   本地重跑会 seed 失败（**fail-closed，不是假绿**，但对本地复跑是个坑）。
+6. `keyset_shallow_us` 被输出但未参与判定，且在 `force_generic_plan` 下测得偏高（11–16ms），像另一个待查问题。

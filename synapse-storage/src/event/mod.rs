@@ -50,7 +50,12 @@ pub use writer::EventWriter;
 /// ever populated it. See `.scratch/db-schema-audit-2026-09-04.md` §4.3.
 ///
 /// Ref: TDD落地执行清单 §8.2 ARC-1..5 (Problem #2 SQL Column Boilerplate)
-pub(crate) const ROOM_EVENT_COLS: &str = "\
+///
+/// `pub` (not `pub(crate)`) so the DB-backed pagination benchmark
+/// (`benches/performance_pagination_benchmarks.rs`) can build its naive
+/// `LIMIT/OFFSET` baseline from the *same* column list instead of duplicating
+/// it — a second copy would drift and make the comparison meaningless.
+pub const ROOM_EVENT_COLS: &str = "\
     event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key, \
     COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, \
     COALESCE(origin_server_ts, 0) as processed_at, COALESCE(not_before, 0) as not_before, \

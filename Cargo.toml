@@ -202,6 +202,14 @@ name = "performance_membership_benchmarks"
 path = "benches/performance_membership_benchmarks.rs"
 harness = false
 
+# E4: DB-backed pagination gate. Deliberately has no `required-features` so the
+# `benchmark.yml::pagination-perf-gate` job can run it with the default feature
+# set (the in-memory pagination bench stays in `performance_api_benchmarks`).
+[[bench]]
+name = "performance_pagination_benchmarks"
+path = "benches/performance_pagination_benchmarks.rs"
+harness = false
+
 [workspace]
 members = [
     "synapse-common",

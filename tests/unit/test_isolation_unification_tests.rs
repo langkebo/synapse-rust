@@ -97,7 +97,7 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // 纪律（已经踩过三次：`d77d1fcf`、本次、以及 Task 8 期间的工作树状态）：
 // **改 `migrations/` 后必须跑一次本守卫**，哪怕只改注释 —— 模板指纹按文件字节哈希，
 // 内容一变常量就必须同步，否则每个新库都会铸出第二份模板。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "b6a8b06fb13d22f9";
+const EXPECTED_BASELINE_FINGERPRINT: &str = "7d0fa95f2729793e";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))
