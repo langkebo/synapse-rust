@@ -14,7 +14,6 @@ use synapse_storage::{MemberStoreApi, RoomStoreApi, UserStore};
 /// Domain service for room lifecycle operations — create, upgrade, and
 /// migration.
 #[derive(Clone)]
-#[allow(dead_code)] // Reserved fields for future use; see field-level comments.
 pub struct LifecycleService {
     pub(crate) room_storage: Arc<dyn RoomStoreApi>,
     pub(crate) member_storage: Arc<dyn MemberStoreApi>,
@@ -22,6 +21,7 @@ pub struct LifecycleService {
     pub(crate) event_writer: Arc<dyn synapse_storage::event::EventWriter>,
     pub(crate) user_storage: Arc<dyn UserStore>,
     // Reserved for future use by room lifecycle hooks; stored for constructor parity.
+    #[allow(dead_code)]
     pub(crate) user_service: Arc<UserService>,
     pub(crate) validator: Arc<Validator>,
     pub(crate) server_name: String,

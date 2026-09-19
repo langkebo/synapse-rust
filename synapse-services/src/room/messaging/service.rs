@@ -21,7 +21,6 @@ use crate::room::summary::RoomSummaryService;
 /// Domain service for messaging operations — events, messages, receipts,
 /// read markers, burn-after-read, and federation broadcast.
 #[derive(Clone)]
-#[allow(dead_code)]
 pub struct MessagingService {
     pub(crate) event_reader: Arc<dyn EventReader>,
     pub(crate) event_writer: Arc<dyn EventWriter>,
@@ -31,6 +30,7 @@ pub struct MessagingService {
     #[cfg(feature = "beacons")]
     pub(crate) beacon_service: Option<Arc<crate::beacon_service::BeaconService>>,
     #[cfg(not(feature = "beacons"))]
+    #[allow(dead_code)]
     pub(crate) beacon_service: Option<()>, // Feature-gated placeholder
     pub(crate) task_queue: Option<Arc<RedisTaskQueue>>,
     pub(crate) active_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,

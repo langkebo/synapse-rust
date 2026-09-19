@@ -131,7 +131,6 @@ pub struct RoomServiceConfig {
 }
 
 /// The `RoomService` struct.
-#[allow(dead_code)] // Reserved fields for future use; see field-level comments.
 pub struct RoomService {
     /// Domain sub-service: membership operations (join, leave, invite, etc.)
     pub membership: MembershipService,
@@ -161,6 +160,7 @@ pub struct RoomService {
     pub(crate) event_reader: Arc<dyn synapse_storage::event::EventReader>,
     // Reserved: stored for potential direct use by RoomService methods;
     // currently sub-services receive their own clones via RoomInfrastructure.
+    #[allow(dead_code)]
     pub(crate) event_writer: Arc<dyn synapse_storage::event::EventWriter>,
 }
 
