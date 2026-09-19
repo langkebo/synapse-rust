@@ -89,3 +89,49 @@ fn schema_input_fingerprint_ignores_markdown_but_tracks_sql() {
     scratch.write("y.sql", "CREATE TABLE u (id INT);\n");
     assert_ne!(scratch.manifest(), after_sql_edit, "a new `.sql` file MUST change the fingerprint");
 }
+
+/// A schema input that cannot be read must **panic**, not silently drop out of
+/// the manifest.
+///
+/// A dropped file means the fingerprint no longer describes the schema, so the
+/// template is treated as up to date and a stale schema keeps being served — the
+/// exact failure the fingerprint exists to prevent. `template_schema_manifest`
+/// used `fs::read(…).ok()?` (and `.filter_map(Result::ok)` for the directory
+/// entries) while the line above it already used `panic!`; this test covers the
+/// branch that the readable-inputs-only tests could not reach (sweep D1).
+#[cfg(unix)]
+#[test]
+fn unreadable_schema_input_fails_loudly_instead_of_being_skipped() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let scratch = ScratchDir::new("unreadable");
+    scratch.write("00000000_unified_schema_v12.sql", "CREATE TABLE t (id INT);\n");
+    let path = scratch.0.join("00000000_unified_schema_v12.sql");
+    let readable_manifest = scratch.manifest();
+    assert!(
+        readable_manifest.contains("00000000_unified_schema_v12.sql"),
+        "precondition: a readable input is part of the manifest"
+    );
+
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).expect("chmod 000");
+    if fs::read(&path).is_ok() {
+        // Running as root, or on a filesystem that ignores mode bits: the premise
+        // cannot be established, so say so rather than asserting nothing.
+        eprintln!("SKIPPING unreadable_schema_input_fails_loudly…: mode 000 is still readable here");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).expect("chmod 644");
+        return;
+    }
+
+    let outcome = std::panic::catch_unwind(|| scratch.manifest());
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).expect("chmod 644");
+
+    let payload = outcome.expect_err("an unreadable schema input must not be skipped silently");
+    let message = payload.downcast_ref::<String>().map_or("", String::as_str);
+    assert!(
+        message.contains("cannot read schema input"),
+        "the panic must name the unreadable file and the reason, got: {message:?}"
+    );
+
+    // And once readable again the manifest is exactly what it was.
+    assert_eq!(scratch.manifest(), readable_manifest, "restoring readability must restore the manifest");
+}

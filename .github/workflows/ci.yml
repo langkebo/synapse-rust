@@ -259,6 +259,13 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # `check_missing_docs_ratchet.sh` diffs against `HEAD~1` (and the
+          # follow-up `--base origin/main` form needs the ref too). A default
+          # shallow checkout cannot resolve either, so the script exited 2 with
+          # `fatal: ambiguous argument 'HEAD~1'` — the incremental pub-doc check
+          # never actually ran in CI (gate-integrity sweep C7).
+          fetch-depth: 0
 
       - name: Install Rust toolchain (${{ matrix.rust-toolchain }})
         uses: dtolnay/rust-toolchain@stable

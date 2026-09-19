@@ -1115,14 +1115,30 @@ pub fn template_schema_manifest(migrations_dir: &std::path::Path) -> String {
     // one the migrations describe?".
     let mut migration_entries: Vec<(String, String)> = fs::read_dir(migrations_dir)
         .unwrap_or_else(|error| panic!("cannot read migrations directory {}: {error}", migrations_dir.display()))
-        .filter_map(Result::ok)
-        .filter(|entry| entry.file_type().is_ok_and(|file_type| file_type.is_file()))
         .filter_map(|entry| {
-            let file_name = entry.file_name().to_str()?.to_string();
+            // Every failure in this loop changes the fingerprint, so none of them
+            // may be skipped. The old shape used `.filter_map(Result::ok)` for the
+            // directory entries and `fs::read(..).ok()?` for the contents: a file
+            // that could not be stat'ed or read silently dropped out of the
+            // manifest, the fingerprint stopped describing the schema, and the
+            // stale template kept being served (sweep D1 — note the line above
+            // already used `panic!`, so only these two were swallowing).
+            let entry =
+                entry.unwrap_or_else(|error| panic!("cannot read an entry of {}: {error}", migrations_dir.display()));
+            let file_type =
+                entry.file_type().unwrap_or_else(|error| panic!("cannot stat {}: {error}", entry.path().display()));
+            if !file_type.is_file() {
+                return None;
+            }
+            let file_name = entry.file_name().to_str().map_or_else(
+                || panic!("migrations entry is not valid UTF-8: {}", entry.path().display()),
+                str::to_string,
+            );
             if !is_schema_input(&file_name) {
                 return None;
             }
-            let contents = fs::read(entry.path()).ok()?;
+            let contents = fs::read(entry.path())
+                .unwrap_or_else(|error| panic!("cannot read schema input {}: {error}", entry.path().display()));
             Some((file_name, format!("{:016x}", fnv1a64(&contents))))
         })
         .collect();

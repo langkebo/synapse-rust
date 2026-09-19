@@ -105,6 +105,18 @@ def run(cmd: list[str], cwd: Path | None = None) -> str:
     result = subprocess.run(cmd, cwd=cwd or REPO_ROOT, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         print(f"::error::command failed: {' '.join(cmd)}\n{result.stderr}", file=sys.stderr)
+        # A shallow clone cannot resolve `HEAD~1` (or `origin/main`), which is
+        # exactly how this gate stopped running in CI: `actions/checkout@v4`
+        # defaults to depth 1, the diff failed, and the step exited 2 — so the
+        # incremental pub-doc check never evaluated a file (sweep C7). Name the
+        # remedy instead of leaving a bare `ambiguous argument` behind.
+        if "ambiguous argument" in result.stderr or "unknown revision" in result.stderr:
+            print(
+                "::error::the diff base is not resolvable in this clone. CI must check out full "
+                "history (`actions/checkout@v4` with `fetch-depth: 0`); locally, fetch the base "
+                "ref or pass `--base <ref>`.",
+                file=sys.stderr,
+            )
         sys.exit(2)
     return result.stdout
 
