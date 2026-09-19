@@ -9,7 +9,7 @@ use axum::{
     Json, Router,
 };
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 use synapse_common::{ApiError, ApiResult};
 use synapse_services::voice_service::VoiceMessageUploadParams;
 
