@@ -17,7 +17,13 @@ server:
   expire_access_token_lifetime: 86400
   refresh_token_sliding_window_size: 3600
   warmup_pool: true
-  megolm_encryption_key_path: "/app/data/megolm.key"
+  # 可选：服务端 megolm at-rest 密钥（保护**本仓库自有扩展**存储的 megolm 会话）。
+  # Matrix 规范不要求 homeserver 持有 megolm 密钥（Megolm 是客户端棘轮；服务器只存
+  # 不透明密文、key backup 也是客户端加密的 blob），上游 Synapse 无需此键即可启动。
+  # 故默认不配置：未设置时从 server.macaroon_secret_key 派生并打 warn；只有**显式
+  # 配置却读不出/非 base64/长度不对**才拒绝启动。显式配置可让该密钥与 macaroon
+  # 轮换解耦（轮换 macaroon 会使已存的服务端 megolm 行不可解密）。
+  # megolm_encryption_key_path: "/app/data/megolm.key"
   # Background-task tuning (seconds). Defaults shown; 0 falls back to compile-time constant.
   # federation_retry_max_count: 5
   # drain_timeout_secs: 30

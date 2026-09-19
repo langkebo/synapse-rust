@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 use synapse_cache::CacheManager;
 use synapse_e2ee::backup::KeyBackupService;
-use synapse_e2ee::crypto::key_at_rest::KeyAtRest;
 use synapse_e2ee::cross_signing::CrossSigningService;
+use synapse_e2ee::crypto::key_at_rest::KeyAtRest;
 use synapse_e2ee::device_keys::DeviceKeyService;
 use synapse_e2ee::device_keys::DeviceKeyStoreApi;
 use synapse_e2ee::key_request::KeyRequestService;
@@ -57,6 +57,7 @@ impl E2eeServices {
         cache: &Arc<CacheManager>,
         user_storage: &Arc<dyn UserStore>,
         megolm_encryption_key_path: Option<&str>,
+        macaroon_secret_key: Option<&str>,
     ) -> Self {
         let device_key_storage = synapse_e2ee::device_keys::DeviceKeyStorage::new(pool);
         let device_key_storage_arc: Arc<dyn DeviceKeyStoreApi> = Arc::new(device_key_storage);
@@ -71,8 +72,8 @@ impl E2eeServices {
             .with_dehydrated_device_storage(dehydrated_device_storage.clone());
 
         let megolm_storage = synapse_e2ee::megolm::MegolmSessionStorage::new(pool);
-        let at_rest_key = KeyAtRest::load_plaintext(megolm_encryption_key_path.unwrap_or_default())
-            .expect("Failed to load megolm encryption key — server cannot start without a valid key file");
+        let at_rest_key = resolve_at_rest_key(megolm_encryption_key_path, macaroon_secret_key)
+            .unwrap_or_else(|problem| panic!("{problem}"));
         let at_rest = KeyAtRest::new(at_rest_key);
         let megolm_service = MegolmProvider::from_env(megolm_storage, cache.clone(), at_rest);
 
@@ -128,5 +129,101 @@ impl E2eeServices {
             device_trust_service,
             to_device_storage,
         }
+    }
+}
+
+/// Decide which server-side megolm at-rest key to use.
+///
+/// Matrix does **not** require a homeserver to hold megolm keys: Megolm is a
+/// client-side ratchet, the server stores `m.room.encrypted` as opaque
+/// ciphertext, and key-backup blobs are encrypted client-side. Upstream Synapse
+/// likewise starts with no megolm key configured. So an **unset** path must not be
+/// fatal — only a path the operator *did* configure and that is unusable is a real
+/// misconfiguration (and stays fail-closed).
+///
+/// - `Some(non-empty)` -> load it; any read/decode/length problem is an error.
+/// - `None` / empty / whitespace -> derive a stable key from
+///   `server.macaroon_secret_key` (domain-separated SHA-256) and warn. Rotating
+///   that secret therefore makes already-stored server-side megolm rows
+///   undecryptable, which is why an explicit key is the documented way to
+///   decouple the two.
+/// - `None` and no macaroon secret -> error: *something* must protect the store.
+fn resolve_at_rest_key(
+    megolm_encryption_key_path: Option<&str>,
+    macaroon_secret_key: Option<&str>,
+) -> Result<[u8; 32], String> {
+    match megolm_encryption_key_path.map(str::trim).filter(|path| !path.is_empty()) {
+        Some(path) => KeyAtRest::load_plaintext(path).map_err(|error| {
+            format!(
+                "server.megolm_encryption_key_path is configured ({path}) but unusable: {error}. \
+                 Refusing to start rather than protecting server-side megolm sessions with a key \
+                 the operator did not intend."
+            )
+        }),
+        None => {
+            let secret = macaroon_secret_key.map(str::trim).filter(|secret| !secret.is_empty()).ok_or_else(|| {
+                "neither server.megolm_encryption_key_path nor server.macaroon_secret_key is \
+                     configured; one of them is required to protect server-side megolm sessions at rest"
+                    .to_string()
+            })?;
+            tracing::warn!(
+                "server.megolm_encryption_key_path is not configured: deriving the server-side megolm \
+                 at-rest key from server.macaroon_secret_key. Server-side megolm storage is optional \
+                 (Matrix keeps Megolm on the client); set an explicit path to decouple it from \
+                 macaroon-secret rotation."
+            );
+            Ok(derive_at_rest_key(secret))
+        }
+    }
+}
+
+/// Derive a stable at-rest key from an existing server secret.
+///
+/// Domain-separated SHA-256 is deliberately enough: the input is already a
+/// high-entropy server secret, and the output protects only the optional
+/// server-side megolm store (never user-facing cryptography).
+fn derive_at_rest_key(secret: &str) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(b"synapse-rust/megolm-at-rest/v1\0");
+    hasher.update(secret.as_bytes());
+    hasher.finalize().into()
+}
+
+#[cfg(test)]
+mod at_rest_key_tests {
+    use super::*;
+
+    #[test]
+    fn unset_path_derives_from_the_macaroon_secret() {
+        let derived = resolve_at_rest_key(None, Some("macaroon-secret")).expect("should derive");
+        assert_eq!(derived, derive_at_rest_key("macaroon-secret"));
+        assert_ne!(derived, [0u8; 32]);
+    }
+
+    #[test]
+    fn empty_or_blank_path_counts_as_unset() {
+        for path in ["", "   "] {
+            let derived = resolve_at_rest_key(Some(path), Some("macaroon-secret")).expect("should derive");
+            assert_eq!(derived, derive_at_rest_key("macaroon-secret"), "path {path:?} must count as unset");
+        }
+    }
+
+    #[test]
+    fn explicitly_configured_but_unreadable_path_is_an_error() {
+        let error = resolve_at_rest_key(Some("/nonexistent/megolm.key"), Some("macaroon-secret"))
+            .expect_err("an explicitly configured, unreadable path must stay fail-closed");
+        assert!(error.contains("megolm_encryption_key_path is configured"), "{error}");
+    }
+
+    #[test]
+    fn no_path_and_no_macaroon_secret_is_an_error() {
+        let error = resolve_at_rest_key(None, None).expect_err("something must protect the store");
+        assert!(error.contains("neither"), "{error}");
+    }
+
+    #[test]
+    fn derivation_is_domain_separated() {
+        assert_ne!(derive_at_rest_key("a"), derive_at_rest_key("b"));
     }
 }
