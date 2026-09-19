@@ -168,18 +168,20 @@ async fn upload_voice_message(
     if content.is_empty() {
         return Err(ApiError::bad_request("File content is required".to_string()));
     }
-    if duration_ms.is_none() || duration_ms.unwrap() <= 0 {
+    // Bind the validated value instead of `is_none()` followed by `unwrap()`:
+    // this crate denies `clippy::unwrap_used`, and shadowing makes the
+    // "positive duration" invariant explicit for the use below.
+    let Some(duration_ms) = duration_ms.filter(|duration| *duration > 0) else {
         return Err(ApiError::bad_request("Duration must be positive".to_string()));
-    }
+    };
 
     const MAX_SIZE: usize = 50 * 1024 * 1024;
     if content.len() > MAX_SIZE {
         return Err(ApiError::bad_request(format!("Voice message too large. Max size is {} bytes", MAX_SIZE)));
     }
 
-    let content_type = content_type.unwrap_or_else(|| {
-        infer::get(&content).map(|k| k.mime_type().to_string()).unwrap_or_else(|| "audio/ogg".to_string())
-    });
+    let content_type = content_type
+        .unwrap_or_else(|| infer::get(&content).map_or_else(|| "audio/ogg".to_string(), |k| k.mime_type().to_string()));
 
     // Validate audio content type
     synapse_services::voice_service::VoiceService::validate_audio_content_type(&content_type)?;
@@ -196,7 +198,7 @@ async fn upload_voice_message(
             room_id,
             content,
             content_type,
-            duration_ms: duration_ms.unwrap(),
+            duration_ms,
             waveform,
         })
         .await;
@@ -368,7 +370,7 @@ async fn register_encrypted_voice(
     // means no existing record exists - we handle this via the Ok(existing) pattern
     if let Ok(existing) = ctx.voice_service.get_voice_message_content(&req.media_id).await {
         let existing_user = existing.get("user_id").and_then(|v| v.as_str());
-        if existing_user.map(|u| u == auth_user.user_id).unwrap_or(false) {
+        if existing_user.is_some_and(|u| u == auth_user.user_id) {
             // Already registered by this user, return success
             let content_uri = synapse_common::media_locator::MediaLocator {
                 server_name: ctx.server_name.clone(),

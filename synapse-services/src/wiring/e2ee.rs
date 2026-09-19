@@ -72,6 +72,19 @@ impl E2eeServices {
             .with_dehydrated_device_storage(dehydrated_device_storage.clone());
 
         let megolm_storage = synapse_e2ee::megolm::MegolmSessionStorage::new(pool);
+        // `E2eeServices::new` is infallible by signature — `ServiceContainer::new`
+        // builds the whole graph eagerly and returns `Self` — so a server with
+        // neither at-rest key source configured is a deliberate **startup
+        // fail-fast**, and the panic is the only way to surface the detailed
+        // operator message that `resolve_at_rest_key` produced (`Result::expect`
+        // cannot carry it). This crate denies `clippy::panic`; the allow is scoped
+        // to this statement because aborting startup is the intended behaviour
+        // here. CI clippy (`--workspace --all-targets --features test-utils
+        // -- -D warnings`) was red from `c22b41d4` until this.
+        //
+        // Proper follow-up: thread `Result` through `ServiceContainer::new` /
+        // `build_domains` so the same message becomes a clean startup error.
+        #[allow(clippy::panic)]
         let at_rest_key = resolve_at_rest_key(megolm_encryption_key_path, macaroon_secret_key)
             .unwrap_or_else(|problem| panic!("{problem}"));
         let at_rest = KeyAtRest::new(at_rest_key);

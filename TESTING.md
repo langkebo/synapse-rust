@@ -93,7 +93,7 @@
 
 | 分类 | 入口 | 作用 | 是否阻断发布 | 备注 |
 |-----|------|------|-------------|------|
-| 主门禁 | `cargo fmt --all -- --check` / `cargo clippy --all-features --locked -- -D warnings` / `cargo test --doc --locked` / `bash scripts/run_ci_tests.sh` / `cargo test --test unit --features test-utils placeholder_scan_tests` / `bash scripts/contract/check_route_contract.sh` | 保障格式、静态检查、文档测试、默认回归与仓库治理检查 | 是 | 当前发布判断应以 `.github/workflows/ci.yml` 的 blocking 路径为准 |
+| 主门禁 | `cargo fmt --all -- --check` / `cargo clippy --all-features --locked -- -D warnings` / `cargo test --doc --locked` / `cargo test --test unit --features test-utils placeholder_scan_tests` / `bash scripts/contract/check_route_contract.sh` | 保障格式、静态检查、文档测试、默认回归与仓库治理检查 | 是 | 当前发布判断应以 `.github/workflows/ci.yml` 的 blocking 路径为准 |
 | 扩展验证 | `cargo test --test e2e -- --ignored --nocapture`、覆盖率、专项能力验证、Criterion 基准 | 补充用户路径、覆盖率与专项能力证据 | 否（默认） | 仅补充证据，不自动升级为“已实现并验证” |
 | 手动分析 | `cargo test --features performance-tests --test performance_manual -- --nocapture` | 手动性能分析与人工观察 | 否 | 不计入常规发布门禁 |
 
@@ -108,7 +108,7 @@
 
 | 测试入口 | 分类 | 说明 |
 |---------|------|------|
-| `bash scripts/run_ci_tests.sh` | 主门禁 | 当前 CI 等价默认测试入口 |
+| `bash scripts/run_ci_tests.sh` | 本地便利封装 | **不在 CI 中调用**：`ci.yml` 内联重实现了同一批测试。权威入口是 `ci.yml`；本脚本是本地复刻，改 CI 时必须同步，否则漂移（sweep A13） |
 | `cargo test --test unit --features test-utils placeholder_scan_tests` | 主门禁 | 阻断新增 shell route / 空成功响应回归 |
 | `bash scripts/contract/check_route_contract.sh` | 主门禁 | 阻断新增未接线的导出路由 handler / router factory |
 | `cargo test --test e2e -- --ignored --nocapture` | 扩展验证 | 真实流程需显式启用，默认不纳入自动主门禁 |
@@ -385,11 +385,13 @@ cargo criterion --output-file BENCHMARK RESULTS.md
 当前以两个工作流为主：
 
 - `.github/workflows/ci.yml`
-  - `repo-sanity`：扫描私钥、危险制品、仓库异常文件与 shell route 回归
-  - `test`：执行 `cargo fmt --all -- --check`、`cargo clippy --all-features --locked -- -D warnings`、doc test 与 `bash scripts/run_ci_tests.sh`
-  - `security-audit`：执行 RustSec 审计
+  - `repo-sanity`：私钥/危险制品扫描 + schema 表覆盖、schema 契约覆盖、迁移一致性、
+    route↔storage 边界、web 分层、SQLx 动态比、trait 计数、连接预算等棘轮
+  - `test`：`cargo nextest run --workspace --lib --all-features`、`--test unit --features test-utils`、
+    fmt 棘轮、`cargo clippy --workspace --all-targets`（两种 feature 档）、doc test
+  - `security-audit`：执行 RustSec 审计（`scripts/ci/supply_chain_gate.sh`）
   - `build`：执行 release 构建
-  - `coverage`：执行 tarpaulin 覆盖率（补充证据）
+  - `coverage`：`cargo llvm-cov` 两腿合并（tarpaulin 已于 2026-08 被替换）+ per-file 棘轮
   - `quality-evidence`：收集测试与质量证据（non-blocking）
 - `.github/workflows/benchmark.yml`
   - 运行 `performance_api_benchmarks` 与 `performance_federation_benchmarks`
@@ -428,11 +430,12 @@ cargo test --test unit --features test-utils placeholder_scan_tests
 1. 格式检查
 2. Clippy 静态分析
 3. doc test
-4. `bash scripts/run_ci_tests.sh` 覆盖的默认测试集
+4. workspace lib 测试（`--all-features`）与 root unit target（`--features test-utils`）
 5. `cargo test --test unit --features test-utils placeholder_scan_tests` 的仓库治理检查
 
 说明：
-- “默认自动触发”应以 `.github/workflows/ci.yml` 为准；
+- “默认自动触发”应以 `.github/workflows/ci.yml` 为准；本地想一次跑完同一批测试可用
+  `bash scripts/run_ci_tests.sh`，但它是**本地封装**（CI 不调用），改 CI 时需同步。
 - E2E、覆盖率、性能基准属于扩展验证或手动分析，不应在这里写成默认主门禁。
 
 ### 6.2 手动回归清单
