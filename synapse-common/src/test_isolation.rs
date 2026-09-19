@@ -1476,6 +1476,18 @@ pub fn test_database_url() -> String {
     "postgresql://synapse:synapse@localhost:5432/synapse_test".to_string()
 }
 
+/// True when a test harness may fall back to a hard-coded local test database.
+///
+/// CI always exports `DATABASE_URL`/`TEST_DATABASE_URL`, so a fallback there can
+/// only paper over a misconfiguration: measured 2026-09-19 with
+/// `CI=1 TEST_DATABASE_URL=…/does_not_exist`, the integration fixture still
+/// resolved to `localhost:5432/synapse_test` and **passed** against a database
+/// other than the one it was told to use. When this returns false a resolver
+/// must probe only the URLs the environment actually provided.
+pub fn test_db_fallback_allowed() -> bool {
+    std::env::var_os("CI").is_none()
+}
+
 /// Cheap synchronous reachability probe for a Postgres URL's host:port.
 fn tcp_reachable(url: &str) -> bool {
     let Some(authority) = url.split("://").nth(1).and_then(|rest| rest.split('/').next()) else {

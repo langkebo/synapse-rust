@@ -210,3 +210,35 @@ fn the_checker_rejects_the_old_chain() {
     assert!(found[0].contains("15432"), "the dead port must be reported: {found:?}");
     assert!(found[1].contains("application database"), "the app database must be reported: {found:?}");
 }
+
+/// The localhost fallback must be **disabled under CI** in every resolver copy.
+///
+/// Measured 2026-09-19: with `CI=1 TEST_DATABASE_URL=…/does_not_exist` the
+/// integration fixture resolved to the hard-coded `localhost:5432/synapse_test`
+/// fallback and the test **passed** against a database other than the one the
+/// environment named. The gate below is what turns that misconfiguration into a
+/// failure, and it lives in every copy of the resolver (they are kept in sync by
+/// this file's convention checks). Removing a gate must therefore fail here.
+#[test]
+fn every_resolver_copy_disables_the_fallback_under_ci() {
+    let resolvers = [
+        "synapse-common/src/test_isolation.rs",
+        "synapse-test-utils/src/lib.rs",
+        "synapse-services/src/test_utils.rs",
+        "synapse-storage/src/test_utils.rs",
+        "tests/common/mod.rs",
+    ];
+    assert!(resolvers.len() >= 5, "the resolver list shrank; the convention must cover every copy");
+    let mut gated = 0;
+    for path in resolvers {
+        let source = read(path);
+        assert!(
+            source.contains("test_db_fallback_allowed"),
+            "{path} must consult synapse_common::test_isolation::test_db_fallback_allowed before \
+             using the hard-coded localhost fallback (otherwise a wrong TEST_DATABASE_URL is \
+             silently masked under CI)"
+        );
+        gated += 1;
+    }
+    assert_eq!(gated, resolvers.len(), "every resolver copy must gate the fallback");
+}

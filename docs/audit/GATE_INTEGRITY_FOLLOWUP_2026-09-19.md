@@ -688,5 +688,13 @@ fmt 棘轮 `current=0=baseline`；clippy 两档（`--workspace --all-targets --f
 unit 目标 **1691 passed / 2 skipped / 0 failed**；全量 `--workspace --lib --all-features --test-threads 4`
 （**无 retries**）**6083/6083 passed**。
 
-**新增待办（本轮发现）**：`candidate_database_urls()` 的 `localhost:5432/synapse_test` 兜底会让 CI 下配置错误的 `TEST_DATABASE_URL` 静默回退到本机库；
-建议要么在 `CI=1` 时禁用该兜底（fail-closed），要么在回退时打印显眼 warning 并让 `INTEGRATION_TESTS_REQUIRED=1` 直接失败。红证明方式：`CI=1` + 错误 URL + 兜底被禁用 → 必须红。
+**✅ 已修（第四轮）——`candidate_database_urls()` 的 CI 兜底改为 fail-closed**：
+在 `synapse-common::test_isolation` 新增**唯一判定** `test_db_fallback_allowed()`（`CI` 存在即 false），
+5 份 resolver 副本（synapse-common / synapse-test-utils / synapse-services / synapse-storage / tests/common）
+在追加 hard-coded localhost 兜底之前统一 `if !… { return urls; }`。
+**红证明**：修复前 `CI=1 TEST_DATABASE_URL=…/does_not_exist`（不设 `TEST_DB_CONNECT_TIMEOUT_SECS`）→
+`test_audit_critical_indexes_exist` **PASS**（静默回退到 localhost 库，即"配错了也绿"）；修复后同一命令
+**FAIL ×3**；`CI=1` + 正确 URL → PASS；无 `CI`（本地默认）→ 兜底仍生效（PASS）。
+**守卫**：`tests/unit/test_db_url_convention_tests.rs::every_resolver_copy_disables_the_fallback_under_ci`
+断言 5 份副本都含该判定（非空性：`resolvers.len() >= 5`）；**红证明**：删掉 `tests/common/mod.rs` 的 gate 块
+→ 该测试 FAILED 并点名该文件，恢复 → 7 passed。

@@ -34,6 +34,11 @@ fn candidate_database_urls() -> Vec<String> {
     //   * no `15432`: a dead host-forward from an older compose file. Nothing
     //     listens there, so probing it first cost a connect timeout in every
     //     DB-backed test process before falling through (H-12).
+    // Fail closed under CI: a wrong TEST_DATABASE_URL must not be papered over by the
+    // hard-coded localhost fallback. See synapse_common::test_isolation::test_db_fallback_allowed.
+    if !synapse_common::test_isolation::test_db_fallback_allowed() {
+        return urls;
+    }
     for fallback in [
         "postgresql://synapse:synapse@localhost:5432/synapse_test",
         "postgresql://synapse:secret@localhost:5432/synapse_test",
