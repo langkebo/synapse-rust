@@ -17,7 +17,7 @@
 | Phase 2 覆盖率链路跑到产出 lcov 并提交基线 | ✅ 完成（**过程中又发现并修了 3 个环 + 2 个环境缺陷**） |
 | Phase 3 B 系列假守卫 | ✅ B1 / B3 / B10 / B17 已修；B4 已按新口径重算并可真红；B5 / B6 删除；B18 弱边已修一半 |
 | Phase 4 CI 门禁 | ✅ C6 / C9 / C11 / C12 已修；A13 完成接线 1 个、删除 2 个（其余登记处置） |
-| Phase 5 观察项 | ⏳ 只登记，未动手（`events_fts_idx`、janitor 退出、`prepare_test_db.sh`） |
+| Phase 5 观察项 | ✅ 两条已修（`prepare_test_db.sh` `39211779`、janitor 退出 `4456eb80`）；`events_fts_idx` 与清理脚本力度待裁定 |
 | 额外 | 🔴 **HEAD 的 fmt 门禁当时就是红的**（99 块 vs baseline 0）——已修 |
 | 额外 | 🔴 **HEAD 的 clippy 两个矩阵档都是红的**（见 §1.6）——已修 |
 
@@ -183,9 +183,9 @@ bef65f53 style(fmt): 归零 fmt debt（HEAD 实测 99 块 vs baseline 0，1.93.0
 
 ---
 
-## 2. 本会话新发现（**未修**，需后续）
+## 2. 本会话新发现
 
-### 2.1 🔴 `scripts/ci/prepare_test_db.sh` 在当前基线下跑不起来
+### 2.1 ✅ 已修 `39211779`：`scripts/ci/prepare_test_db.sh` 在当前基线下必然失败
 
 - **复现**（本机，`sqlx-cli 0.8.6`，`artifacts/sqlx-migrations` 已存在）：
   ```
@@ -195,17 +195,26 @@ bef65f53 style(fmt): 归零 fmt debt（HEAD 实测 99 块 vs baseline 0，1.93.0
   error: while executing migration 0: error returned from database:
          CREATE INDEX CONCURRENTLY cannot run inside a transaction block
   ```
-- **细节**：`artifacts/sqlx-migrations/00000000_unified_schema_v12.sql` 第 1 行**已经是**
-  `-- no-transaction`，文件里 14 处 `CREATE INDEX CONCURRENTLY`；`sqlx migrate run --help`
-  没有 `--no-transaction` 开关。即：这个用于**构建 `test_template_ci`** 的 CI seed 步骤
-  在当前 baseline 下会失败。
-- **影响**：若 CI 真的执行该脚本，则 `test_template_ci` 从未被正确重建，CI 的
-  `TEST_DB_TEMPLATE_SCHEMA` 只是"碰巧存在"；需要确认 CI 上该步骤的实际结果。
-- **候选修法**：不依赖 sqlx 的事务语义 —— 用 `psql`（与 `docker/db_migrate.sh` 同一路径）
-  以 `PGOPTIONS`/`options=-c search_path=…` 建模板，或让生成器把 CONCURRENTLY 拆成
-  独立步骤并显式声明不套事务。
+- **根因**（最小探针复现）：**sqlx-cli 0.8.x 不认**迁移文件首行的 `-- no-transaction`
+  指令 —— 一个只含该指令 + 一条 `CREATE INDEX CONCURRENTLY` 的临时迁移仍然报同样的错；
+  `sqlx migrate run --help` 也没有 `--no-transaction` 开关。baseline 有 14 处
+  CONCURRENTLY ⇒ 该 seed 步骤在 ci.yml 的 3 处调用（:342 / :672 / :940）全部失败，
+  `test_template_ci` 从未被真正重建。
+- **修复**：改为调用**唯一实现** `scripts/init_test_public_schema.sh`（psql，逐个迁移文件、
+  无事务包裹）= `docker/db_migrate.sh` 同一条路径；模板显式 `DROP … CASCADE` 后重建
+  （旧版靠 `_sqlx_migrations` 判定"已应用"，会让旧 baseline 造出的模板**永远陈旧**；
+  而对陈旧 schema 重放 baseline 也不是修复，实测 `column "recipient_user_id" does not exist`）。
+  `init_test_public_schema.sh` 同时：
+  * 加 `TARGET_SCHEMA` / `RESET_PUBLIC`（`RESET_PUBLIC=0` 不 DROP public，避免级联删掉
+    其它 schema 依赖 public 扩展的对象 —— 这正是把隔离模板 10 个 `gin_trgm_ops`
+    清成 0 的机制）；
+  * `ON_ERROR_STOP=0`+忽略返回值 → `ON_ERROR_STOP=1`；结尾由"echo 表数"改为
+    **断言 ≥100 表否则 exit 1**（旧版迁移整段没落地也 exit 0）。
+- **验证**：`prepare_test_db.sh` EXIT=0，public 228 BASE TABLE / 模板 227 BASE TABLE + 10 trgm；
+  红证明：`TEST_DATABASE_URL=…:59999` → EXIT=2 且报 "Connection refused"；
+  隔离模板重建后 230 表 + 10 trgm；`check_schema_blind_guards.py` PASSED。
 
-### 2.2 🟠 `test-schema-janitor` 让进程退出慢到数十分钟（不是死锁）
+### 2.2 ✅ 已修 `4456eb80`：`test-schema-janitor` 让进程退出慢到数十分钟（不是死锁）
 
 - **现象**：覆盖率的 integration 二进制在打印 `1424 passed` 后**卡在退出** 19 分钟以上。
   `sample` 栈：
@@ -221,24 +230,36 @@ bef65f53 style(fmt): 归零 fmt debt（HEAD 实测 99 块 vs baseline 0，1.93.0
 - **根因**：`janitor_exit_handler` 先置 `EXITING` 再 `join()`；但 janitor 当时已进入
   `run_release_cleanups(ready)` 的**串行**循环，`ready` 是 `EXITING` 置位**之前**收集的，
   所以那批（数百个）走的是"逐个 DROP"而不是 `run_exit_drain` 的**有界并行**路径。
-- **候选修法**：在 `run_release_cleanups` 每次迭代前检查 `EXITING`，一旦置位就把**剩余**
-  entries 交给 `run_exit_drain`；并给 `janitor_exit_handler` 的有界等待加兜底
-  （`JoinHandle::join` 无超时，可轮询 `is_finished()` 到 deadline 后放弃 join 并记日志）。
-- **影响**：CI 覆盖率 job 有超时风险；本地一次完整覆盖率因此多花 ~20 分钟。
+- **修复**：`run_release_cleanups` 拆出可注入判定的 `run_release_cleanups_with`，
+  每次迭代前询问"是否退出"，一旦置位就把当前条目 + 剩余全部交给 `run_exit_drain`
+  （4 线程、走便宜的 `on_exit` DROP）；`janitor_exit_handler` 的 `join()` 改为**有界等待**
+  （轮询 `is_finished()`，上限 120s），超时 detach 并把残留交给
+  `scripts/cleanup_test_schemas.sh`，不再无限阻塞 CI。
+- **红证明**：新测试 `release_pass_hands_the_remainder_to_the_exit_drain_once_exiting`
+  用注入谓词（首 false 后 true）断言"只有 in-flight 条目走 `on_release`"；
+  探针把判定改成 `if false && is_exiting()`（旧行为）→ FAIL
+  `left: [0,1,2] / right: [0]`；撤销后 PASS。clippy 0；fmt 0；`test_schema_guard` 4/4。
 
-### 2.3 🟡 `events_fts_idx` 在热表上非并发创建（Phase 5）
+### 2.3 🟡 `events_fts_idx` 在热表上非并发创建（Phase 5，待裁定）
 
 - `synapse-storage/src/event/search.rs:226` 的 `CREATE INDEX IF NOT EXISTS events_fts_idx
   ON events USING GIN (…)` 由 `synapse-services/src/wiring/core.rs:109` 在 **wiring/启动**时调用。
 - `IF NOT EXISTS` 让它在已有索引时是 no-op，但**首次**在大库上会以非 `CONCURRENTLY`
-  持写锁建索引。该索引也不在 schema 契约内。候选：改 `CONCURRENTLY`（需非事务执行）
-  或移进 migrations。
+  持写锁建索引。该索引也不在 schema 契约内。候选：(a) 改 `CONCURRENTLY`（需非事务执行；
+  代价是失败会留下 INVALID 索引而 `IF NOT EXISTS` 之后永远跳过它），(b) 移进 `migrations/`
+  （要动 baseline 指纹并同步常量），(c) 保持现状并写入 runbook。**需产品/负责人裁定**。
 
 ### 2.4 🟡 覆盖率基线里仍有 88 个非 test-only 文件 <30%
 
 按新语义它们不再红（基线只管不回退），但"新文件 30% ramp-up"这条未来会拦人。
 其中不少是 `src/bin/*`（覆盖率腿不跑 bin）—— 是否把 `src/bin` 也纳入 test-only 豁免，
 或给 bin 加测试，属后续取舍。
+
+### 2.5 🟡 清理脚本的力度（Phase 5，观察项）
+
+`docs/audit/GATE_INTEGRITY_SWEEP_2026-09-19.md` §15.8.4：候选谓词仍是"名称黑名单 +
+家族正则"，将来出现**新的** shell 创建、无标记的 live 模板需手工加进 `STATIC_KEEP`。
+本轮未动。
 
 ---
 
@@ -308,11 +329,11 @@ python3 scripts/ci/check_workflow_steps.py
 0. **§1.6 的正解**：把 `Result` 穿透 `ServiceContainer::new` → `build_domains` →
    `E2eeServices::new`，让"缺 at-rest 密钥"成为一条干净的启动错误，去掉那条
    作用域 `#[allow(clippy::panic)]`（当前是刻意 fail-fast 的临时形态）。
-1. **§2.1** 确认 CI 上 `prepare_test_db.sh` 是否真的失败；若是，改为 psql/非事务路径。
-   （这是"CI 数据库 seed 是否可信"的地基。）
-2. **§2.2** 给 janitor 退出加"剩余 entries 走并行 exit drain" + 有界 join；红证明用
-   注入 300 个待清理 schema 的方式量测退出耗时。
-3. **§2.3** `events_fts_idx` 改 `CONCURRENTLY` 或进 migrations。
-4. TESTING.md / AGENTS.md 的措辞修正：`run_ci_tests.sh` 是本地封装、权威是 ci.yml；
-   fmt debt 已归零（本轮修）但棘轮计数含义是"差异块数 × 重复次数"。
-5. 覆盖率债务（§2.4）：为非 test-only 的 <30% 文件补测试，或明确把 `src/bin` 也列为豁免。
+1. **§2.3 待裁定**：`events_fts_idx` 改 `CONCURRENTLY` / 移进 migrations / 保持现状 + runbook。
+2. **B2 待裁定**：`coverage_tests.rs`(34) / `worker_coverage_tests.rs`(~18) /
+   `boundary_tests.rs` / `api_optimization_verification_tests.rs` 这批零耦合测试的
+   去留（删除 / 改写为真断言 / 标注为非门禁）。
+3. **§2.5**：清理脚本力度（`STATIC_KEEP` 手工维护）。
+4. **§2.4**：为非 test-only 的 <30% 文件补测试，或明确把 `src/bin` 也列为豁免。
+5. TESTING.md / AGENTS.md 的措辞修正：fmt debt 已归零（本轮修），但棘轮计数含义是
+   "差异块数 × 重复次数"；`run_ci_tests.sh` 已改标为本地封装（本轮修）。
