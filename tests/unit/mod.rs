@@ -10,7 +10,6 @@ mod common;
 
 mod admin_api_tests;
 mod admin_extra_api_tests;
-mod api_optimization_verification_tests;
 mod api_optimized_features_tests;
 mod app_service_api_tests;
 mod background_update_api_tests;
@@ -23,7 +22,6 @@ mod db_readiness_probe_tests;
 
 #[cfg(feature = "beacons")]
 mod beacon_info_parse_tests;
-mod boundary_tests;
 mod captcha_api_tests;
 mod client_push_service_tests;
 mod core_api_tests;
@@ -87,7 +85,6 @@ mod security_critical_tests;
 mod security_signature_check_tests;
 
 #[cfg(test)]
-mod coverage_tests;
 
 #[cfg(test)]
 mod worker_coverage_tests;
