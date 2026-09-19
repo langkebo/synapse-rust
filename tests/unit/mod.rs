@@ -85,8 +85,6 @@ mod security_critical_tests;
 mod security_signature_check_tests;
 
 #[cfg(test)]
-
-#[cfg(test)]
 mod worker_coverage_tests;
 
 mod room_domain_refactor_tests;
