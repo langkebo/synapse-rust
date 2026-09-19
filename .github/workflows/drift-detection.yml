@@ -14,6 +14,7 @@ on:
   pull_request:
     branches:
       - main
+      - develop
     paths:
       - 'migrations/**/*.sql'
       - 'scripts/**'
@@ -224,18 +225,41 @@ jobs:
 
       - name: Check for duplicate migrations
         run: |
-          echo "Checking for duplicate migration scripts..."
-          duplicates=$(find migrations -maxdepth 1 -name "*.sql" -not -name "*undo*" -not -name "*rollback*" | \
-            xargs basename -a 2>/dev/null | \
-            sort | \
-            uniq -d)
+          echo "Checking for duplicate migration scripts across every shipped source..."
+          # `migrations/` is the single source of truth (AGENTS.md rule 4); any
+          # migration copy in another shipped directory is a duplicate. The old
+          # check ran `basename | sort | uniq -d` over `migrations/` alone, where
+          # filenames are unique by construction — structurally always empty
+          # (sweep A11.2). Scanning *across* source directories can actually fail.
+          sources=()
+          for dir in migrations artifacts/sqlx-migrations artifacts/sqlx-migrations-*; do
+            [ -d "$dir" ] || continue
+            sources+=("$dir")
+          done
+          echo "Migration source directories: ${sources[*]}"
+
+          duplicates=$(
+            for dir in "${sources[@]}"; do
+              for f in "$dir"/*.sql; do
+                [ -e "$f" ] || continue
+                name=$(basename "$f")
+                if [[ "$name" == *undo* || "$name" == *rollback* ]]; then
+                  continue
+                fi
+                printf '%s\t%s\n' "$name" "$f"
+              done
+            done | sort | awk -F'\t' '
+                  { count[$1]++; where[$1] = where[$1] " " $2 }
+                  END { for (n in count) if (count[n] > 1) printf "%s ->%s\n", n, where[n] }
+                ' | sort
+          )
 
           if [ -n "$duplicates" ]; then
-            echo "Duplicate migration scripts found:"
+            echo "::error::duplicate migration scripts found across source directories:"
             echo "$duplicates"
             exit 1
           fi
-          echo "No duplicate migration scripts found in root migrations directory"
+          echo "No duplicate migration scripts across ${#sources[@]} source director(ies)"
 
       - name: Check for missing rollback scripts
         run: |
@@ -326,8 +350,24 @@ jobs:
           set -euo pipefail
           export PGPASSWORD=synapse
           PSQL="psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1"
+
+          # The baseline filename is versioned (00000000_unified_schema_v12.sql ->
+          # ..._v13.sql ...). A hard-coded path rots into "psql: ... No such file
+          # or directory" the moment it is bumped (sweep A11.3). Resolve it from the
+          # single `migrations/00000000_*.sql` and fail loudly unless exactly one
+          # exists.
+          baselines=$(find migrations -maxdepth 1 -type f -name '00000000_*.sql' | sort || true)
+          baseline_count=$(printf '%s\n' "$baselines" | grep -c . || true)
+          if [ "$baseline_count" -ne 1 ]; then
+            echo "::error::expected exactly one migrations/00000000_*.sql baseline, found $baseline_count"
+            printf '  candidate: %s\n' "$baselines"
+            exit 1
+          fi
+          baseline="$baselines"
+          echo "Applying migration baseline: $baseline"
+
           start=$(date +%s)
-          $PSQL -f migrations/00000000_unified_schema_v12.sql
+          $PSQL -f "$baseline"
           elapsed=$(( $(date +%s) - start ))
           tables=$($PSQL -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'")
           indexes=$($PSQL -tAc "SELECT count(*) FROM pg_indexes WHERE schemaname='public'")

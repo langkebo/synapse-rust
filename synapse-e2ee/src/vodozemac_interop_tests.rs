@@ -42,7 +42,21 @@ fn skip_unless_interop() -> bool {
     !interop_enabled()
 }
 
+/// Report a skipped interop case.
+///
+/// **Fails closed under CI** (sweep A1 residual): the `e2ee-interop` workflow
+/// exports `E2EE_INTEROP=1` before this step, so taking the skip path *there*
+/// means the gate executed zero assertions while `scripts/ci/require_tests_ran.sh`
+/// still counted these early returns as `passed` (it can see that tests ran, not
+/// that they asserted anything). Losing the env var must therefore be a hard
+/// failure, never a silent green. Locally the skip stays a skip.
 fn skip_message(reason: &str) {
+    if std::env::var("CI").is_ok() {
+        panic!(
+            "E2EE_INTEROP=1 is required in CI, but this interop case took the skip path ({reason}); \
+             the step would otherwise report success with zero assertions."
+        );
+    }
     eprintln!("E2EE_INTEROP=1 not set, skipping ({reason})");
 }
 

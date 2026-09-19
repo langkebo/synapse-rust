@@ -8,12 +8,21 @@ Policy (revised 2026-09-19; see docs/audit/GATE_INTEGRITY_SWEEP_2026-09-19.md §
   - A file the baseline already records: **must not regress** below its recorded
     value. Absolute floors are NOT re-applied to it.
   - A file seen for the first time (new): core ≥ 70%, otherwise the new-file
-    ramp-up floor (30%).
+    ramp-up floor (30%) — **unless** it matches a `--non-unit-coverable` prefix.
   - Test-support sources (`test_mocks/`, `synapse-test-utils/`, `*test_utils.rs`,
     `*test_isolation.rs`, `*test_schema_guard.rs`, `scripts/bench_harness.rs`)
     are skipped: they are compiled under `cfg(test)`/`test-utils` and consumed by
     *other* crates' tests, so neither coverage leg can measure them — recording a
     permanent 0% would say nothing about the product.
+  - `--non-unit-coverable` lists paths the coverage leg cannot execute at all
+    (`src/bin/`, `src/main.rs`): CI runs `cargo llvm-cov --lib`, which never
+    links or calls a binary entry point, so those files record 0.0% by
+    construction and no new-file floor can ever be met. Exempting them removes
+    only the NEW-file floors: a baseline-known file is still checked for
+    regression first (the exemption cannot hide a regression), exempt files are
+    still written back by `--save-baseline`, and each one is printed in the
+    run's exemption list. A missing/empty list, or a prefix matching no file on
+    disk, is a hard error (exit 2), exactly like `--core-files`.
 
 Why the baseline-known rule is "no regression" and not `max(prev, global)`:
 the previous floor made a freshly bootstrapped baseline unsatisfiable by
@@ -27,10 +36,13 @@ Usage:
   python3 scripts/check_file_coverage.py \\
       --report coverage/lcov.info --format lcov \\
       --baseline scripts/ci/coverage_baseline.json \\
-      --threshold 80 --core-files scripts/ci/core_file_coverage_prefixes.txt
+      --global-floor 40 --new-file-floor 30 \\
+      --core-files scripts/ci/core_file_coverage_prefixes.txt \\
+      --non-unit-coverable scripts/ci/non_unit_coverable_prefixes.txt
 """
 
 import argparse
+import functools
 import json
 import pathlib
 import sys
@@ -146,14 +158,19 @@ def save_baseline(
         f.write("\n")
 
 
-def load_core_prefixes(path: Optional[pathlib.Path]) -> List[str]:
-    """Load list of core path prefixes (one per line, supports dir/ prefix matching)."""
+def load_prefix_list(path: Optional[pathlib.Path]) -> List[str]:
+    """Load list of path prefixes (one per line, supports dir/ prefix matching).
+
+    Shared by `--core-files` and `--non-unit-coverable`; comments (`#`) and blank
+    lines are ignored.
+    """
     if path is None or not path.exists():
         return []
     with open(path) as f:
         return [line.strip() for line in f if line.strip() and not line.startswith("#")]
 
 
+@functools.lru_cache(maxsize=1)
 def _normalized_source_paths() -> List[str]:
     """Normalized paths of every .rs file in the repo (excluding build/vendor)."""
     skip = {"target", "vendor", ".git", ".claude", "node_modules"}
@@ -165,20 +182,23 @@ def _normalized_source_paths() -> List[str]:
     return out
 
 
-def stale_core_prefixes(core_prefixes: List[str]) -> List[str]:
+def stale_prefixes(prefixes: List[str]) -> List[str]:
     """Prefixes that match no file on disk.
 
-    The list was historically a gitignored, never-generated artifact, so this
-    threshold silently applied to zero files in CI. A prefix that matches
-    nothing means the guard is dead — fail loudly instead of passing vacuously.
+    Used for both `--core-files` and `--non-unit-coverable`. Each list was
+    historically a gitignored, never-generated artifact, so a threshold could
+    silently apply to zero files in CI. A prefix that matches nothing means the
+    guard is dead — fail loudly instead of passing vacuously.
     """
+    if not prefixes:
+        return []
     normalized = _normalized_source_paths()
-    return [p for p in core_prefixes if not any(n.startswith(p) for n in normalized)]
+    return [p for p in prefixes if not any(n.startswith(p) for n in normalized)]
 
 
-def _matches_core_prefix(path: str, core_prefixes: List[str]) -> bool:
-    """Check if a path matches any core prefix (directory or file prefix)."""
-    for prefix in core_prefixes:
+def _matches_prefix(path: str, prefixes: List[str]) -> bool:
+    """Check if a path matches any prefix in `prefixes` (directory or file prefix)."""
+    for prefix in prefixes:
         if path.startswith(prefix):
             return True
     return False
@@ -341,15 +361,22 @@ def check_file_coverage(
     new_file_threshold: float,
     core_prefixes: List[str],
     core_threshold: float,
+    non_unit_prefixes: List[str],
     report_path: pathlib.Path,
 ) -> int:
     """Enforce per-file coverage thresholds.  Returns exit code.
 
-    Priority (highest wins): baseline-known (no regression) > core > new.
+    Priority (highest wins): baseline-known (no regression) > core > new >
+    non-unit-coverable exemption.
+
+    The exemption is checked **after** the baseline-known branch on purpose: a
+    file the coverage leg cannot execute is still forbidden from regressing below
+    its recorded value, so the list can never hide a regression.
     """
     failures: List[str] = []
     warnings: List[str] = []
     core_failures: List[str] = []
+    exemptions: List[str] = []
     all_paths = sorted(set(current.keys()) | set(baseline.keys()))
 
     for path in all_paths:
@@ -379,7 +406,18 @@ def check_file_coverage(
             # module docstring for why `max(prev, global_threshold)` was wrong.
             floor = prev
             tag = "TOUCHED"
-        elif _matches_core_prefix(path, core_prefixes):
+        elif _matches_prefix(path, non_unit_prefixes):
+            # Paths the coverage leg cannot execute (`cargo llvm-cov --lib` never
+            # runs a binary entry point, see the module docstring). No floor can
+            # ever be met, so none is applied — but the baseline-known branch
+            # above already ran, and these files are still saved to the baseline
+            # and listed here so the exemption is never silent.
+            exemptions.append(
+                f"[EXEMPT] {path}: {cur:.1f}% (new file under a --non-unit-coverable "
+                f"prefix; the coverage leg cannot execute it)"
+            )
+            continue
+        elif _matches_prefix(path, core_prefixes):
             floor = core_threshold
             tag = "CORE"
         else:
@@ -406,6 +444,12 @@ def check_file_coverage(
                 f"[{tag}] {path}: {cur:.1f}% (below global {global_threshold:.0f}% "
                 f"but above new-file ramp-up {new_file_threshold:.0f}%)"
             )
+
+    if exemptions:
+        print("=== Non-unit-coverable exemptions (new files; no floor applied) ===")
+        for e in exemptions:
+            print(f"  {e}")
+        print()
 
     if warnings:
         print("=== Coverage warnings (ramp-up grace) ===")
@@ -437,7 +481,8 @@ def check_file_coverage(
     print(
         f"All {len(current)} source files meet coverage thresholds "
         f"(baseline-known: no regression; new: core≥{core_threshold:.0f}%, "
-        f"otherwise≥{new_file_threshold:.0f}%)."
+        f"otherwise≥{new_file_threshold:.0f}%; "
+        f"non-unit-coverable exempted: {len(exemptions)})."
     )
     return 0
 
@@ -487,6 +532,17 @@ def main() -> int:
         type=float,
         default=70.0,
         help="Core-path coverage floor (default: 70).",
+    )
+    parser.add_argument(
+        "--non-unit-coverable",
+        type=pathlib.Path,
+        default=None,
+        help=(
+            "File listing path prefixes the unit coverage leg cannot execute "
+            "(one prefix per line, matched by prefix). New files under these "
+            "prefixes are exempt from the new-file floors; baseline-known "
+            "regression checks still apply."
+        ),
     )
     parser.add_argument(
         "--save-baseline",
@@ -543,11 +599,11 @@ def main() -> int:
     if args.core_files is not None and not args.core_files.exists():
         print(f"Core-file list not found: {args.core_files}", file=sys.stderr)
         return 2
-    core_prefixes = load_core_prefixes(args.core_files)
+    core_prefixes = load_prefix_list(args.core_files)
     if args.core_files is not None and not core_prefixes:
         print(f"Core-file list is empty: {args.core_files}", file=sys.stderr)
         return 2
-    stale = stale_core_prefixes(core_prefixes)
+    stale = stale_prefixes(core_prefixes)
     if stale:
         print(
             "Stale core-file prefixes (match no file on disk):\n  " + "\n  ".join(stale),
@@ -556,9 +612,36 @@ def main() -> int:
         return 2
     if core_prefixes:
         matched = sum(
-            1 for n in _normalized_source_paths() if _matches_core_prefix(n, core_prefixes)
+            1 for n in _normalized_source_paths() if _matches_prefix(n, core_prefixes)
         )
         print(f"Core-path guard: {len(core_prefixes)} prefixes match {matched} files.")
+
+    # `--non-unit-coverable` gets the same fail-closed treatment as
+    # `--core-files`: a missing list, an empty list, or a prefix matching no file
+    # all mean the exemption silently stopped applying (or applies to nothing),
+    # which is exactly the state nobody notices.
+    if args.non_unit_coverable is not None and not args.non_unit_coverable.exists():
+        print(f"Non-unit-coverable list not found: {args.non_unit_coverable}", file=sys.stderr)
+        return 2
+    non_unit_prefixes = load_prefix_list(args.non_unit_coverable)
+    if args.non_unit_coverable is not None and not non_unit_prefixes:
+        print(f"Non-unit-coverable list is empty: {args.non_unit_coverable}", file=sys.stderr)
+        return 2
+    stale_non_unit = stale_prefixes(non_unit_prefixes)
+    if stale_non_unit:
+        print(
+            "Stale non-unit-coverable prefixes (match no file on disk):\n  "
+            + "\n  ".join(stale_non_unit),
+            file=sys.stderr,
+        )
+        return 2
+    if non_unit_prefixes:
+        matched = sum(
+            1 for n in _normalized_source_paths() if _matches_prefix(n, non_unit_prefixes)
+        )
+        print(
+            f"Non-unit-coverable guard: {len(non_unit_prefixes)} prefixes match {matched} files."
+        )
 
     if not current:
         print("No source-file coverage data found in report.", file=sys.stderr)
@@ -571,6 +654,7 @@ def main() -> int:
         new_file_threshold=args.new_file_floor,
         core_prefixes=core_prefixes,
         core_threshold=args.core_threshold,
+        non_unit_prefixes=non_unit_prefixes,
         report_path=args.report,
     )
 

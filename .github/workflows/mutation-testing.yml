@@ -27,14 +27,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     # REPORT ONLY. Surviving mutants are *data*, not a build failure, so this job
-    # stays non-blocking (nightly schedule + manual dispatch; never on a PR) and
-    # must NOT be part of branch protection. Gate-integrity sweep A9 flagged it
-    # for looking like a gate while being unable to fail at all — and for
-    # swallowing `cargo mutants`' exit code with `|| true` while only asserting
-    # that the file list was valid. The step below now fails when a run produced
-    # no `mutants.out` report, so "the tool never ran / mutated nothing" can no
-    # longer masquerade as a clean report.
-    continue-on-error: true
+    # stays off the merge path (nightly schedule + manual dispatch; never on a PR)
+    # and must NOT be part of branch protection.
+    #
+    # Sweep A9: the job used to carry a job-level `continue-on-error: true`, which
+    # suppressed even the one honest failure mode below — a run that produced no
+    # `mutants.out` report (`require_mutation_report`) still reported success, so a
+    # crashed or never-run cargo-mutants looked green. That COE is removed: this
+    # job now fails ONLY when the report cannot be produced, never because mutants
+    # survived (`cargo mutants` keeps its deliberate `|| true`).
 
     services:
       postgres:

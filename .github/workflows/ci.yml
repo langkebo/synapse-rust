@@ -1007,6 +1007,11 @@ jobs:
         # Enforces: any file already recorded in the baseline must not regress;
         # NEW files must clear core ≥70% (or the 30% ramp-up otherwise);
         # test-support sources are skipped (see scripts/check_file_coverage.py).
+        # `--non-unit-coverable` exempts `src/bin/` and `src/main.rs` from the
+        # NEW-file floors only: `cargo llvm-cov --workspace --lib` never executes a
+        # binary entry point, so those files record 0.0% by construction. A
+        # baseline-known file under an exempt prefix is still checked for
+        # regression, and a missing/empty/stale list exits 2 (fail-closed).
         # `--global-floor 40` is retained for the ramp-up warning only; absolute
         # floors are deliberately not re-applied to baseline-known files, because
         # doing so made the first committed baseline red on 188 files that had not
@@ -1024,7 +1029,8 @@ jobs:
             --global-floor 40 \
             --new-file-floor 30 \
             --core-files scripts/ci/core_file_coverage_prefixes.txt \
-            --core-threshold 70
+            --core-threshold 70 \
+            --non-unit-coverable scripts/ci/non_unit_coverable_prefixes.txt
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4

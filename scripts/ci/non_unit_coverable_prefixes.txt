@@ -1,0 +1,22 @@
+# Paths the coverage leg cannot execute, for
+# `scripts/check_file_coverage.py --non-unit-coverable`.
+#
+# CI's coverage legs run `cargo llvm-cov --workspace --lib` (and
+# `-p synapse-storage --lib`). `--lib` compiles and runs library unit tests
+# only: binary entry points (`src/bin/*.rs`, `src/main.rs`) are never linked or
+# invoked by that leg, so every line in them is structurally unreachable and the
+# report records 0.0% no matter how much integration / e2e coverage they have.
+# Re-applying the new-file floor to them would therefore be unsatisfiable by
+# construction, and a low-coverage core file that is *renamed or moved* (so it
+# loses its baseline entry) would go red for reasons the coverage leg cannot fix.
+#
+# The exemption removes only the NEW-file floors. A file recorded in
+# `scripts/ci/coverage_baseline.json` is still checked for regression first, and
+# exempt files are still written back to the baseline by `--save-baseline` and
+# listed in the run's exemption report — so this list can never hide a
+# baseline-known regression.
+#
+# Prefixes are matched against the crate-qualified key from `_normalize_path()`
+# (e.g. `src/bin/healthcheck.rs`, `src/main.rs`).
+src/bin/
+src/main.rs

@@ -120,19 +120,9 @@ const SCAN_ROOTS: [&str; 8] = [
 
 /// Lines where a DB write's result is discarded with `.ok()`.
 ///
-/// **Scope (measured 2026-09-19):** the `.ok();` spelling only. The file header
-/// and this docstring used to claim that `let _ = …execute(…).await;` was matched
-/// too; it never was, and `tests/` was missing from the root list even though
-/// `is_test_support()` already claimed it (gate-integrity sweep B8).
-///
-/// The `let _ = …await;` spelling is deliberately **not** enforced wholesale:
-/// there are 98 such sites in test-support files and most are best-effort
-/// *cleanup* helpers (`cleanup_with_suffix`, `cleanup_summary_data`) where
-/// deleting zero rows is not an error. Flagging them all would make this guard
-/// noisy, and a noisy guard gets disabled (see the file header). The risky
-/// sub-case — a swallowed *setup* write such as an `ensure_test_user` insert — is
-/// recorded as known debt in `docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md`
-/// rather than silently ignored.
+/// **Scope:** the `.ok();` spelling only. `tests/` was missing from the root
+/// list even though `is_test_support()` already claimed it (gate-integrity
+/// sweep B8); that is fixed here.
 fn swallowed_write_lines(source: &str) -> Vec<String> {
     let mut found = Vec::new();
     let lines: Vec<&str> = source.lines().collect();
@@ -155,14 +145,100 @@ fn swallowed_write_lines(source: &str) -> Vec<String> {
     found
 }
 
-#[test]
-fn test_fixtures_do_not_swallow_database_writes() {
-    let root = repo_root();
+/// Lines where a DB write's result is discarded with `let _ = …await;`.
+///
+/// This is the second spelling of the same swallowed-setup-error mistake as
+/// `.ok()`. The 2026-09-19 sweep counted 187 such statements overall, 99 under
+/// path-named test support; this statement-level scan (which also catches
+/// multi-line chains and inline `#[cfg(test)]` blocks) measures 231 in the
+/// test-support scope it shares with the `.ok()` guard — see
+/// [`LET_UNDERSCORE_AWAIT_WRITE_BASELINE`]. It is deliberately **not** forbidden
+/// outright: most of these sites are best-effort cleanup/teardown
+/// (`cleanup_with_suffix`, `cleanup_summary_data`) where deleting zero rows is
+/// not an error, and flagging every one would get this guard disabled. The
+/// risky sub-case — a swallowed *setup* write such as an `ensure_test_user`
+/// insert — is instead **ratcheted**: the test-support count is pinned in
+/// [`LET_UNDERSCORE_AWAIT_WRITE_BASELINE`] so it can only shrink.
+///
+/// The debt is recorded right here, next to the scanner that measures it. An
+/// earlier version of this docstring pointed at
+/// `docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md`; that document only
+/// records that this form is *not* enforced, so the pointer named a record
+/// that does not exist.
+fn swallowed_let_underscore_lines(source: &str) -> Vec<String> {
+    let lines: Vec<&str> = source.lines().collect();
+    let mut found = Vec::new();
+    let mut i = 0;
+
+    while i < lines.len() {
+        let trimmed = lines[i].trim();
+        if trimmed.starts_with("//") || !trimmed.starts_with("let _ =") {
+            i += 1;
+            continue;
+        }
+        // A `let _ = …;` statement routinely spans lines
+        // (`sqlx::query(…).bind(…).execute(…).await;`), so accumulate up to its
+        // terminating `;` instead of matching a single line. The cap keeps a
+        // malformed statement from swallowing the rest of the file.
+        let start = i;
+        let mut end = i;
+        let mut window = String::new();
+        while end < lines.len() && end - start < 50 {
+            window.push_str(lines[end]);
+            window.push(' ');
+            if lines[end].trim_end().ends_with(';') {
+                break;
+            }
+            end += 1;
+        }
+        if window.contains(".execute(") && window.contains(".await") {
+            found.push(format!("line {}: {}", start + 1, trimmed));
+        }
+        i = end + 1;
+    }
+    found
+}
+
+/// Both swallowed-write spellings found in `path`, restricted to test support.
+///
+/// Test support is either a whole-file property (named fixtures) or a per-line
+/// property (inline `#[cfg(test)]` modules), exactly as the `.ok()` guard
+/// already decided it. Returns `(ok_offenders, let_underscore_offenders)`.
+fn test_support_swallowed_writes(path: &Path) -> (Vec<String>, Vec<String>) {
+    let Ok(source) = fs::read_to_string(path) else {
+        return (Vec::new(), Vec::new());
+    };
+    let lines: Vec<&str> = source.lines().collect();
+    let in_cfg_test = cfg_test_mask(&lines);
+    let whole_file = is_test_support(path);
+    let keep = |hit: &str| -> bool {
+        let lineno: usize =
+            hit.split_whitespace().nth(1).and_then(|t| t.trim_end_matches(':').parse().ok()).unwrap_or(0);
+        let idx = lineno.saturating_sub(1);
+        whole_file || in_cfg_test.get(idx).copied().unwrap_or(false)
+    };
+
+    let mut ok_hits = Vec::new();
+    for hit in swallowed_write_lines(&source) {
+        if keep(&hit) {
+            ok_hits.push(hit);
+        }
+    }
+    let mut let_hits = Vec::new();
+    for hit in swallowed_let_underscore_lines(&source) {
+        if keep(&hit) {
+            let_hits.push(hit);
+        }
+    }
+    (ok_hits, let_hits)
+}
+
+/// The files this guard walks: every [`SCAN_ROOTS`] entry, failing loud when a
+/// root is missing so a moved tree cannot silently narrow the scan.
+fn scan_files(root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     for crate_dir in SCAN_ROOTS {
         let dir = root.join(crate_dir);
-        // Fail loud: `rust_files` returns an empty set for an unreadable/missing
-        // directory, so a moved tree would silently narrow the scan.
         assert!(
             dir.is_dir(),
             "guard scan root `{crate_dir}` does not exist (looked at {}) — the scan would cover \
@@ -171,32 +247,21 @@ fn test_fixtures_do_not_swallow_database_writes() {
         );
         rust_files(&dir, &mut files);
     }
+    files
+}
 
+#[test]
+fn test_fixtures_do_not_swallow_database_writes() {
+    let root = repo_root();
     let mut offenders: Vec<String> = Vec::new();
-    for path in files.iter() {
-        let Ok(source) = fs::read_to_string(path) else { continue };
-        let lines: Vec<&str> = source.lines().collect();
-        let in_cfg_test = cfg_test_mask(&lines);
-        // Test support is either a whole-file property (named fixtures) or a
-        // per-line property (inline `#[cfg(test)]` modules).
-        let whole_file = is_test_support(path);
-        let mut file_offenders: Vec<String> = Vec::new();
-        for (i, hit) in swallowed_write_lines(&source).into_iter().enumerate() {
-            let _ = i;
-            // Recover the 1-based line number from the hit text.
-            let lineno: usize =
-                hit.split_whitespace().nth(1).and_then(|t| t.trim_end_matches(':').parse().ok()).unwrap_or(0);
-            let idx = lineno.saturating_sub(1);
-            let in_test_block = in_cfg_test.get(idx).copied().unwrap_or(false);
-            if whole_file || in_test_block {
-                file_offenders.push(hit);
-            }
+    for path in scan_files(&root) {
+        let (ok_offenders, _) = test_support_swallowed_writes(&path);
+        if ok_offenders.is_empty() {
+            continue;
         }
-        if !file_offenders.is_empty() {
-            let rel = path.strip_prefix(&root).unwrap_or(path);
-            for hit in file_offenders {
-                offenders.push(format!("{}: {hit}", rel.display()));
-            }
+        let rel = path.strip_prefix(&root).unwrap_or(&path);
+        for hit in ok_offenders {
+            offenders.push(format!("{}: {hit}", rel.display()));
         }
     }
 
@@ -209,16 +274,57 @@ fn test_fixtures_do_not_swallow_database_writes() {
     );
 }
 
+/// Measured count of `let _ = …execute(…).await;` sites in test-support code.
+///
+/// Measured 2026-09-19 over every [`SCAN_ROOTS`] entry, using the same
+/// test-support scope as the `.ok()` guard: whole-file fixtures plus inline
+/// `#[cfg(test)]` modules. The 2026-09-19 sweep quoted **99** because it was a
+/// single-line grep restricted to path-named fixtures; the statement-level scan
+/// used here also catches multi-line chains and `#[cfg(test)]` blocks, hence the
+/// larger pinned number.
+///
+/// This is a ratchet, not a target: the count may only shrink. When you remove
+/// such a site, tighten this constant by the same amount in the same change so
+/// the debt can never silently grow back.
+const LET_UNDERSCORE_AWAIT_WRITE_BASELINE: usize = 231;
+
+/// Ratchet for the `let _ = …execute(…).await;` spelling.
+///
+/// It cannot be asserted as zero (see [`swallowed_let_underscore_lines`]), but
+/// it must not exceed the measured baseline either — otherwise a new swallowed
+/// setup write enters the tree with no gate noticing. Lowering the constant
+/// below the measured count fails, so tightening it is a deliberate act.
+#[test]
+fn let_underscore_await_writes_do_not_exceed_baseline() {
+    let root = repo_root();
+    let mut found: Vec<String> = Vec::new();
+    for path in scan_files(&root) {
+        let (_, let_hits) = test_support_swallowed_writes(&path);
+        if let_hits.is_empty() {
+            continue;
+        }
+        let rel = path.strip_prefix(&root).unwrap_or(&path);
+        for hit in let_hits {
+            found.push(format!("{}: {hit}", rel.display()));
+        }
+    }
+
+    assert!(
+        found.len() <= LET_UNDERSCORE_AWAIT_WRITE_BASELINE,
+        "测试支持代码里的 `let _ = …execute(…).await;` 数量 {} 超过了钉住的基线 {}。\n\
+         这种写法与 `.ok()` 一样会吞掉 setup 错误。新增的这类写入请改成 `.expect(\"...\")`；\n\
+         若确实只是 best-effort 清理，也请先把它从基线里去掉再说明理由（基线只允许缩小）：\n{}",
+        found.len(),
+        LET_UNDERSCORE_AWAIT_WRITE_BASELINE,
+        found.join("\n")
+    );
+}
+
 /// Sanity: the guard must actually be scanning files (otherwise it is vacuous).
 #[test]
 fn guard_scans_test_support_files() {
     let root = repo_root();
-    let mut files = Vec::new();
-    for crate_dir in SCAN_ROOTS {
-        let dir = root.join(crate_dir);
-        assert!(dir.is_dir(), "scan root `{crate_dir}` is missing — the walk would silently shrink");
-        rust_files(&dir, &mut files);
-    }
+    let files = scan_files(&root);
     let test_files: Vec<_> = files.iter().filter(|p| is_test_support(p)).collect();
     assert!(test_files.len() >= 100, "应扫描到 >= 100 个测试支持文件，实际 {}；路径或命名是否变了？", test_files.len());
     // `tests/` was absent from the root list while `is_test_support()` already

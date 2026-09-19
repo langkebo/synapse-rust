@@ -19,7 +19,7 @@ fn candidate_database_urls() -> Vec<String> {
         }
     }
 
-    if urls.is_empty() && !db_tests_required() {
+    if urls.is_empty() && !integration_tests_required() {
         return urls;
     }
 
@@ -71,19 +71,30 @@ pub async fn get_test_pool_async() -> Result<Arc<Pool<Postgres>>, String> {
     }
 
     let message = format!("Failed to connect to any configured test database: {}", errors.join(" | "));
-    if db_tests_required() {
+    if integration_tests_required() {
         panic!("{message}");
     }
     Err(message)
 }
 
-fn db_tests_required() -> bool {
-    for key in ["DB_TESTS_REQUIRED", "INTEGRATION_TESTS_REQUIRED"] {
+/// Single source of truth for "this run must not silently skip DB tests".
+///
+/// It lives here, in the module that both `--test unit` and `--test integration`
+/// compile (`#[path = "../common/mod.rs"]`), which is why
+/// `tests/integration/mod.rs` re-exports it rather than keeping its own copy.
+/// That copy (`db_tests_required`) was a near-duplicate of the integration
+/// helper; two implementations of an infrastructure decision is precisely the
+/// defect AGENTS.md iron rule 2 names.
+///
+/// Semantics: the first of `INTEGRATION_TESTS_REQUIRED` / `DB_TESTS_REQUIRED`
+/// that is set decides the answer (`1`/`true`/`yes`/`required` ⇒ required;
+/// anything else ⇒ explicitly not required, even under `CI`). When neither is
+/// set, a present `CI` means required.
+pub(crate) fn integration_tests_required() -> bool {
+    for key in ["INTEGRATION_TESTS_REQUIRED", "DB_TESTS_REQUIRED"] {
         if let Ok(value) = std::env::var(key) {
             let value = value.trim().to_ascii_lowercase();
-            if value == "1" || value == "true" || value == "yes" || value == "required" {
-                return true;
-            }
+            return value == "1" || value == "true" || value == "yes" || value == "required";
         }
     }
     std::env::var("CI").is_ok()

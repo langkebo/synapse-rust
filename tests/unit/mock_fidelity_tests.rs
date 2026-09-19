@@ -107,8 +107,42 @@ fn deviation_markers_explain_what_is_unmodelled() {
     }
 }
 
+/// Returns the body of `fn <name>` in `source`, delimited by that function's
+/// own braces.
+///
+/// Extracting the *body* is the point: a whole-file `contains("block_room")`
+/// is satisfied by the unrelated production `pub async fn block_room` and by
+/// the assert message, so it never observed the test under guard.
+fn function_body<'a>(source: &'a str, name: &str) -> Option<&'a str> {
+    let needle = format!("fn {name}");
+    let start = source.find(&needle)?;
+    let after = &source[start..];
+    let open = after.find('{')?;
+    let mut depth = 0usize;
+    for (offset, byte) in after.as_bytes().iter().enumerate().skip(open) {
+        match byte {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(&after[open + 1..offset]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 /// The one test that previously asserted a mock's stub behaviour as though it
-/// were coverage must keep saying that it is doing so.
+/// were coverage must keep saying that it is doing so — by *doing it*, not by
+/// containing a keyword somewhere in the file.
+///
+/// The old form asserted `src.contains("block_room") && src.contains("MOCK
+/// DEVIATION")` over the whole of `info.rs`. Both halves are satisfied without
+/// the guarded test running: the file declares `pub async fn block_room` at
+/// L121, and `MOCK DEVIATION` appears in the assert message. Deleting the
+/// `svc.block_room(...)` call therefore left the guard green (sweep B12).
 #[test]
 fn block_status_test_documents_that_it_tests_the_mock_not_the_service() {
     let src = fs::read_to_string(repo_root().join("synapse-services/src/room/state/info.rs"))
@@ -119,9 +153,18 @@ fn block_status_test_documents_that_it_tests_the_mock_not_the_service() {
          旧名 `get_room_block_status_returns_none_for_unknown_room` 会被误读为\
          服务层对未知房间的行为覆盖"
     );
+
+    let body = function_body(&src, "get_room_block_status_is_unmodelled_by_the_in_memory_store")
+        .expect("受守卫的测试函数必须存在且花括号配对");
     assert!(
-        src.contains("block_room") && src.contains("MOCK DEVIATION"),
-        "该测试应先调用 block_room（使断言有意义）并引用 MOCK DEVIATION 说明"
+        body.contains("block_room("),
+        "受守卫测试的函数体必须先真的调用 `block_room(`，断言才有意义；\
+         仅在文件其它地方出现 `block_room` 字样不算（生产函数名/断言文案都会满足）"
+    );
+    assert!(
+        body.contains("MOCK DEVIATION"),
+        "受守卫测试的函数体必须就地记录 `MOCK DEVIATION` 偏差说明，\
+         使它测得的是 mock 的未建模行为而不是服务行为"
     );
 }
 

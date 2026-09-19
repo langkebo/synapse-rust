@@ -147,13 +147,15 @@ pub fn with_local_connect_info(mut request: hyper::Request<axum::body::Body>) ->
     request
 }
 
-pub(crate) fn integration_tests_required() -> bool {
-    if let Ok(value) = std::env::var("INTEGRATION_TESTS_REQUIRED") {
-        let value = value.trim().to_ascii_lowercase();
-        return value == "1" || value == "true" || value == "yes" || value == "required";
-    }
-    std::env::var("CI").is_ok()
-}
+/// Re-export of the single "is a database required here?" decision.
+///
+/// The implementation lives in `tests/common/mod.rs` because that module is
+/// compiled into **both** the `--test unit` and `--test integration` binaries
+/// (`#[path = "../common/mod.rs"]`). Keeping a second copy here is what iron
+/// rule 2 forbids; `common::integration_tests_required` is the one
+/// implementation, and this alias preserves the integration-side name used by
+/// `skip_or_fail_without_db` and the pool helpers below.
+pub(crate) use common::integration_tests_required;
 
 /// Fail closed when CI requires a database but a fixture came back empty.
 ///
@@ -163,6 +165,8 @@ pub(crate) fn integration_tests_required() -> bool {
 /// That is the only end-to-end guard for the ledger contract chain
 /// (`route_manifest → router_ledger → ledger_export → SDK`), so the chain was
 /// never actually validated. See `docs/audit/PROJECT_ACTUAL_ISSUES_2026-09-14.md` §2.5.
+/// `database_integrity_tests` × 5 hit the same silent skip through
+/// `connect_integrity_pool()` returning `None`, and now route through this helper too.
 ///
 /// Reuses the existing `integration_tests_required()` decision (which already
 /// treats `CI=1` as "must not skip") rather than inventing a second env-var

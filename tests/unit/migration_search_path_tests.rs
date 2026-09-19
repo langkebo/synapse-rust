@@ -37,8 +37,57 @@ fn project_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
+/// The consolidated baseline: it creates its tables inline, so it is exempt
+/// from the incremental-migration scan.
+const BASELINE: &str = "00000000_unified_schema_v12.sql";
+
+/// Marker emitted when the forward chain is the consolidated baseline alone.
+const NO_INCREMENTAL_MIGRATIONS_MARKER: &str = "consolidated-baseline-only";
+
 fn read(path: &Path) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()))
+}
+
+/// Assert that an empty incremental-migration set means "the consolidated
+/// baseline is the whole forward chain", not "the filter silently dropped
+/// everything".
+///
+/// The single-forward-file count is asserted here, so the exemption is a
+/// measured fact rather than an assumption.
+fn assert_baseline_is_the_only_forward_migration(migrations: &Path) {
+    let mut forward_sql: Vec<PathBuf> = fs::read_dir(migrations)
+        .expect("migrations dir must be readable")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension().is_some_and(|ext| ext == "sql")
+                && !path.file_name().is_some_and(|name| name.to_string_lossy().ends_with(".undo.sql"))
+        })
+        .collect();
+    forward_sql.sort();
+
+    assert_eq!(
+        forward_sql.len(),
+        1,
+        "no incremental migration was iterated, yet migrations/ holds {} forward .sql files: \
+         the consolidated-baseline exemption needs exactly one — `{BASELINE}`. The entry filter is \
+         broken and the search_path invariant never ran. Found: {forward_sql:#?}",
+        forward_sql.len()
+    );
+    assert_eq!(
+        forward_sql[0].file_name().and_then(|name| name.to_str()),
+        Some(BASELINE),
+        "no incremental migration was iterated and the single forward file is not the consolidated \
+         baseline `{BASELINE}`"
+    );
+
+    // Emitted rather than silent: with `--nocapture` the run states why the
+    // invariant loop was skipped. Any `migrations/*.sql` turns the loop back on.
+    eprintln!(
+        "migration_search_path_guard: {NO_INCREMENTAL_MIGRATIONS_MARKER} — migrations/ contains \
+         only the consolidated baseline `{BASELINE}`, so the search_path FK invariant is \
+         intentionally vacuous. Adding any migrations/*.sql makes the loop run again."
+    );
 }
 
 /// Table names created by the v11 baseline. These are exactly the names that a
@@ -116,7 +165,7 @@ fn unqualified_baseline_refs(sql: &str, baseline_tables: &[String]) -> Vec<(usiz
 fn migration_foreign_keys_must_not_rely_on_search_path() {
     let root = project_root();
     let migrations_dir = root.join("migrations");
-    let baseline = read(&migrations_dir.join("00000000_unified_schema_v12.sql"));
+    let baseline = read(&migrations_dir.join(BASELINE));
     let baseline_tables = baseline_table_names(&baseline);
     assert!(baseline_tables.len() > 100, "baseline table extraction looks broken: {}", baseline_tables.len());
 
@@ -129,20 +178,30 @@ fn migration_foreign_keys_must_not_rely_on_search_path() {
             path.extension().is_some_and(|ext| ext == "sql")
                 // The baseline itself creates its tables inline; an unqualified
                 // parent reference there cannot outlive the CREATE that made it.
-                && path.file_name().is_none_or(|name| name != "00000000_unified_schema_v12.sql")
+                && path.file_name().is_none_or(|name| name != BASELINE)
+                // `.undo.sql` files are rollback scripts, not part of the forward chain.
+                && !path.file_name().is_some_and(|name| name.to_string_lossy().ends_with(".undo.sql"))
         })
         .collect();
     entries.sort();
 
-    for path in entries {
-        let sql = read(&path);
-        for (line_no, parent) in unqualified_baseline_refs(&sql, &baseline_tables) {
-            violations.push(format!(
-                "{}:{} REFERENCES {parent} is resolved via search_path; a leftover public.{parent} \
-                 can capture the constraint. Pin it with current_schema()",
-                path.strip_prefix(&root).unwrap_or(&path).display(),
-                line_no
-            ));
+    if entries.is_empty() {
+        // The consolidated baseline is the only forward migration right now, so
+        // the invariant loop below cannot run. Say so explicitly and *check* it:
+        // an empty iteration that just falls through to `violations.is_empty()`
+        // is how this guard went vacuous once the chain was consolidated.
+        assert_baseline_is_the_only_forward_migration(&migrations_dir);
+    } else {
+        for path in entries {
+            let sql = read(&path);
+            for (line_no, parent) in unqualified_baseline_refs(&sql, &baseline_tables) {
+                violations.push(format!(
+                    "{}:{} REFERENCES {parent} is resolved via search_path; a leftover public.{parent} \
+                     can capture the constraint. Pin it with current_schema()",
+                    path.strip_prefix(&root).unwrap_or(&path).display(),
+                    line_no
+                ));
+            }
         }
     }
 

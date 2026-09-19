@@ -202,17 +202,25 @@ fn incremental_add_column_must_be_idempotent_when_baseline_has_the_column() {
     entries.sort();
 
     let mut violations = Vec::new();
-    for path in entries {
-        let sql = read(&path);
-        for (line_no, pair, guarded) in add_column_sites(&sql) {
-            if existing.contains(&pair) && !guarded {
-                violations.push(format!(
-                    "{}:{} — `ADD COLUMN {}` is unguarded, but the v11 baseline already declares it. \
-                     A fresh database cannot replay the chain past this file",
-                    path.strip_prefix(&root).unwrap_or(&path).display(),
-                    line_no,
-                    pair
-                ));
+    if entries.is_empty() {
+        // The consolidated baseline is the only forward migration right now, so
+        // the invariant loop below cannot run. Say so explicitly and *check* it:
+        // an empty iteration that just falls through to `violations.is_empty()`
+        // is how this guard went vacuous once the chain was consolidated.
+        assert_baseline_is_the_only_forward_migration(&migrations);
+    } else {
+        for path in entries {
+            let sql = read(&path);
+            for (line_no, pair, guarded) in add_column_sites(&sql) {
+                if existing.contains(&pair) && !guarded {
+                    violations.push(format!(
+                        "{}:{} — `ADD COLUMN {}` is unguarded, but the v11 baseline already declares it. \
+                         A fresh database cannot replay the chain past this file",
+                        path.strip_prefix(&root).unwrap_or(&path).display(),
+                        line_no,
+                        pair
+                    ));
+                }
             }
         }
     }
@@ -221,5 +229,50 @@ fn incremental_add_column_must_be_idempotent_when_baseline_has_the_column() {
         violations.is_empty(),
         "non-idempotent ADD COLUMN conflicting with the baseline:\n  {}",
         violations.join("\n  ")
+    );
+}
+
+/// Marker emitted when the forward chain is the consolidated baseline alone.
+const NO_INCREMENTAL_MIGRATIONS_MARKER: &str = "consolidated-baseline-only";
+
+/// Assert that an empty incremental-migration set means "the consolidated
+/// baseline is the whole forward chain", not "the filter silently dropped
+/// everything".
+///
+/// The single-forward-file count is asserted here, so the exemption is a
+/// measured fact rather than an assumption.
+fn assert_baseline_is_the_only_forward_migration(migrations: &Path) {
+    let mut forward_sql: Vec<PathBuf> = fs::read_dir(migrations)
+        .expect("migrations dir readable")
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| {
+            p.extension().is_some_and(|e| e == "sql")
+                && !p.file_name().is_some_and(|n| n.to_string_lossy().ends_with(".undo.sql"))
+        })
+        .collect();
+    forward_sql.sort();
+
+    assert_eq!(
+        forward_sql.len(),
+        1,
+        "no incremental migration was iterated, yet migrations/ holds {} forward .sql files: \
+         the consolidated-baseline exemption needs exactly one — `{BASELINE}`. The entry filter is \
+         broken and the ADD COLUMN replay invariant never ran. Found: {forward_sql:#?}",
+        forward_sql.len()
+    );
+    assert_eq!(
+        forward_sql[0].file_name().and_then(|n| n.to_str()),
+        Some(BASELINE),
+        "no incremental migration was iterated and the single forward file is not the consolidated \
+         baseline `{BASELINE}`"
+    );
+
+    // Emitted rather than silent: with `--nocapture` the run states why the
+    // invariant loop was skipped. Any `migrations/*.sql` turns the loop back on.
+    eprintln!(
+        "migration_replayability_guard: {NO_INCREMENTAL_MIGRATIONS_MARKER} — migrations/ contains \
+         only the consolidated baseline `{BASELINE}`, so the ADD COLUMN replay invariant is \
+         intentionally vacuous. Adding any migrations/*.sql makes the loop run again."
     );
 }

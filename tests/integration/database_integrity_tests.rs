@@ -394,7 +394,15 @@ mod tests {
                 Some(pool)
             }
             Err(error) => {
-                eprintln!("Skipping database integrity tests: unable to prepare isolated schema: {}", error);
+                eprintln!("Database integrity tests cannot prepare an isolated schema: {}", error);
+                // Fail closed when the environment says a database is required
+                // (`CI` / `INTEGRATION_TESTS_REQUIRED=1`). Every caller below starts
+                // with `let Some(pool) = … else { return; }`, so returning `None`
+                // here made all five integrity tests "pass" without running a
+                // single assertion — in CI, where a database is guaranteed, that
+                // is a fake skip. Route through the one shared decision helper
+                // (`skip_or_fail_without_db`) instead of a second convention.
+                super::super::skip_or_fail_without_db();
                 None
             }
         }

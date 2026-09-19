@@ -93,7 +93,7 @@
 
 | 分类 | 入口 | 作用 | 是否阻断发布 | 备注 |
 |-----|------|------|-------------|------|
-| 主门禁 | `cargo fmt --all -- --check` / `cargo clippy --all-features --locked -- -D warnings` / `cargo test --doc --locked` / `cargo test --test unit --features test-utils placeholder_scan_tests` / `bash scripts/contract/check_route_contract.sh` | 保障格式、静态检查、文档测试、默认回归与仓库治理检查 | 是 | 当前发布判断应以 `.github/workflows/ci.yml` 的 blocking 路径为准 |
+| 主门禁 | `./scripts/check_fmt_ratchet.sh`（fmt 棘轮，baseline=0）/ `SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils [--all-features] --locked -- -D warnings`（CI 两档）/ `cargo test --doc --workspace --locked` / `cargo test --test unit --features test-utils placeholder_scan_tests` / `bash scripts/contract/check_route_contract.sh` | 保障格式、静态检查、文档测试、默认回归与仓库治理检查 | 是 | 当前发布判断应以 `.github/workflows/ci.yml` 的 blocking 路径为准 |
 | 扩展验证 | `cargo test --test e2e -- --ignored --nocapture`、覆盖率、专项能力验证、Criterion 基准 | 补充用户路径、覆盖率与专项能力证据 | 否（默认） | 仅补充证据，不自动升级为“已实现并验证” |
 | 手动分析 | `cargo test --features performance-tests --test performance_manual -- --nocapture` | 手动性能分析与人工观察 | 否 | 不计入常规发布门禁 |
 
@@ -117,6 +117,30 @@
 | `cargo bench --bench performance_api_benchmarks --no-run` | 扩展验证 | 性能专项基准 |
 | `cargo bench --bench performance_federation_benchmarks --no-run` | 扩展验证 | 联邦性能专项基准 |
 | `cargo test --features performance-tests --test performance_manual -- --nocapture` | 手动分析 | 手动性能套件 |
+
+### 2.4 CI 中只在 push/schedule 运行的门禁（刻意取舍；需在分支保护侧确认）
+
+`ci.yml` 里有三个 job 的 `if:` 明确要求 `github.event_name == 'push'`（分支 `main`/`develop`）或 `schedule`，
+**PR 上会被跳过**（被跳过的 job 不阻断合并）：
+
+| job 名（分支保护里的 check 名） | 承载的门禁 | 为什么不在 PR 跑 |
+|---|---|---|
+| `Integration Tests` | 真实 PostgreSQL/Redis 集成套件 | 需要 DB service + 分钟级运行时，逐 PR 跑的成本取舍 |
+| `Code Coverage` | `cargo llvm-cov` + per-file 覆盖率棘轮（`scripts/ci/coverage_baseline.json`） | 同上（覆盖率腿约 30–40 分钟） |
+| `Build Check (core-matrix-min / core-private-chat / all-extensions)` | 三档 feature 组合的真实构建 | 同上 |
+
+**推论（必须知道，否则会把它误报成"门禁漏洞"）**：
+- 合并前真正兜底的是常开 PR 门禁：`Repo Sanity`、`Test & Lint (stable/1.93.0 × default-features/all-features)`、
+  `Security Audit`、`PR Benchmark Gate`；集成/覆盖率/构建证据只在 push 到 main/develop 或 nightly 产生。
+- 因此**"PR 全绿"不等于"集成与覆盖率也验证过"**；发布判断要看 main 上 push 运行的结果。
+
+**需要人工在 GitHub 分支保护里确认（本地无法查询，`gh` token 失效）**：
+1. 上述三个 job 是否被列为 required status checks；
+2. 若被列为 required，PR 上"从未上报/被跳过"的 check GitHub 如何判定（会不会以 Expected 卡住合并）；
+3. 确认 `Mutation Testing (nightly, REPORT ONLY — not a merge gate)`、`Secrets preflight`、
+   `Logical Checksum Compare` **不在** required 列表里。
+
+> 依据：`docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md` §6.5（A7/A8）与 §6.6（check 名清单）。
 
 ## 三、运行测试
 

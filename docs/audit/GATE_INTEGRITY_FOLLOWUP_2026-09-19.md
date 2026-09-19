@@ -660,3 +660,33 @@ PR 侧"从未上报/skip"的 check GitHub 如何判定（Expected 会不会卡�
 11. **C3 / C8 / C10、D2、E4 / E6 / E7 / E8 / E9**：维持 §5 旧清单（本轮未复核，不下结论）。
 
 已完成且本轮**已复核**的：§1.6、§2.5（代码侧）、A1–A6、A8、A10、A12、B13、B14、B15、B16、§1.9 的四条测试稳定性修复。
+
+---
+
+## 8. 第三轮落地：§7 清单的执行结果（全部带红证明）
+
+> 规则：每项都是"先复现弱点 / 制造违规 → 变红 → 撤销 → 修 → 绿"。改动未提交前先在本地跑聚焦用例；
+> 合并后统一跑 fmt/clippy/unit/全量 lib（见本节末尾"门禁"）。
+
+| §7 项 | 状态 | 改了什么 | 红证明（关键输出） | 残留 |
+|---|---|---|---|---|
+| 1 A9 | ✅ | `.github/workflows/mutation-testing.yml` **删掉 job 级 `continue-on-error`**（保留 `cargo mutants … \|\| true` 与 "REPORT ONLY" 命名，并改写注释说明"只在报告无法产出时失败，突变存活不算失败"） | 抽出 `require_mutation_report()` 逐字逻辑：无 `mutants.out` → `exit 1`；存在 → `exit 0`；YAML `safe_load` 通过；`grep continue-on-error` 只剩注释 | job 仍 `if: always()` 上传 artifact（不变） |
+| 2 B9 | ✅ | `tests/unit/schema_lifecycle_guard_tests.rs`：两份重复根列表合一为 `SCAN_ROOTS`（9 根，新增 `synapse-test-utils/src`、`tests`）+ `EXPECTED_SCAN_ROOT_COUNT` + 6 个已知站点必须被扫到 | 在 `tests/` 注入 `CREATE SCHEMA probe_without_cleanup` → 新守卫 FAILED（同输入跑 HEAD 版本守卫 `ok`）；删 `"tests",` → `left: 8 right: 9`；删站点文件断言 → 点名未找到 | 站点计数 = 6；注释识别仍是行首式（既有行为） |
+| 3 B11 | ✅ | 两个守卫在 `entries` 为空时改为：独立重扫并断言"前向 `.sql` 恰好 1 个且等于 BASELINE"，并打印 `consolidated-baseline-only` 标记；一旦出现增量迁移，原不变量循环照常生效 | 造 `migrations/99999999999999_probe.sql`（含未守卫 `ADD COLUMN events.soft_failed` + 未限定 `REFERENCES rooms`）→ 两个守卫均 FAILED 并点名 `probe.sql:2` / `:3`；删 probe → 均 GREEN；模拟"subject 发现逻辑腐化" → FAILED（`left: 2 right: 1`） | 要求前向 `.sql` 恰好 1 个：将来出现非 `*.undo.sql` 回滚文件会（正确地）变红 |
+| 4 B7 | ✅ | `tests/unit/perf_gate_honesty_tests.rs`：删掉文本断言，改为用 `std::process::Command` **真跑** `compute_perf_gate.sh`（脚本按字节复制到 temp，stub `cargo` 产出 Criterion 形状输出），4 条测试：默认严格缺测量→非 0、`=1` 同、`=0`→0 且破顶仍非 0、健康输入正控制→0 | 旧文本断言下 `sed 's/:-1/:-0/'` → `1 passed`（完全盲）；新测试同 flip → `compute_perf_gate_fails_on_missing_measurements_by_default FAILED`（`exit=Some(0)`、`Summary: measured=0 breaches=0 missing=0`、`PASSED`）；恢复 → 6 passed | 只 stub 了 benchmark runner，不校验真实 Criterion 目标名仍存在 |
+| 5 DB 假跳过（A2/A3 残留） | ✅ | `tests/integration/database_integrity_tests.rs` 的 Err 分支改调 `skip_or_fail_without_db()`；删掉 `tests/common/mod.rs::db_tests_required()`，唯一实现 `integration_tests_required()` 放 common（`#[path]` 双目标编译），`tests/integration/mod.rs` 改为 `pub(crate) use common::integration_tests_required;` | `CI=1 TEST_DB_CONNECT_TIMEOUT_SECS=0 TEST_DATABASE_URL=…/does_not_exist` → FAILED「refusing to silently skip」（改前同环境 `ok` / exit 0）；真库 → 5/5 通过；无 CI + 不可达 → 仍跳过 | **新发现**：`candidate_database_urls()` 无条件追加 `localhost:5432/synapse_test` 兜底，CI 下写错的 `TEST_DATABASE_URL` 会被兜底掩盖（见 §7 新增项） |
+| 6 A1 残留 | ✅ | `synapse-e2ee/src/vodozemac_interop_tests.rs::skip_message()` 在 **CI 下 panic**（本地仍打印跳过）；每条 skip 路径都走它 | `CI=1` 且无 `E2EE_INTEROP` → **19 failed**（改前 19 passed、0 断言）；无 CI → 19 passed | CI 下 `E2EE_INTEROP=1` 但 interop 环境缺失时仍按原逻辑失败（正确） |
+| 7 §2.5 | ✅ | 新增 `tests/unit/test_isolation_marker_convention_tests.rs`（3 条：常量前缀 vs 两个脚本、目录叶子 `synapse_test_templates`、逐脚本非空性） | 把 `TEMPLATE_READY_MARKER_PREFIX` 改成 `…_v2` → FAILED 并说明"cleanup 会认不出 live 模板、可能删掉它"；恢复 → 3 passed | 只钉字面量，不校验脚本周边逻辑 |
+| 8 §2.4 | ✅ | 新增 `scripts/ci/non_unit_coverable_prefixes.txt`（**仅** `src/bin/`、`src/main.rs`）+ `check_file_coverage.py --non-unit-coverable`（fail-closed：缺失/空/过期前缀 → exit 2；豁免只影响 new-file 地板，基线回退仍拦）+ ci.yml 棘轮调用接线；新增 `tests/unit/coverage_ratchet_exemption_tests.rs`（5 条，含合成 lcov 端到端） | 往清单塞 `synapse-services/src/` → 守卫 `FAILED`，e2e 因 stale 前缀 exit 2；合成 lcov：豁免文件 0% + flag → exit 0、无 flag → exit 1、非豁免文件 → exit 1、基线回退不被掩盖 | 将来新增 `src/bin/*` 自动获得豁免（有意），扩大豁免需同时改清单与守卫 |
+| 9 B8 | ✅ | `tests/unit/test_fixture_error_handling_tests.rs` 增加语句级 `let _ = …execute(…).await;` 扫描（可跨行），棘轮常量 `LET_UNDERSCORE_AWAIT_WRITE_BASELINE = 231`（实测，含多行链与内联 `#[cfg(test)]`）；docstring 不再指向不存在的记录 | 注入一行 → `232 > 231` FAILED 并点名文件/行；把常量改 230 → `231 > 230` FAILED | 语句边界是文本启发式（`;` 收尾）；棘轮只封上限，收紧需手动改常量 |
+| 10 B12 | ✅ | `tests/unit/mock_fidelity_tests.rs` 增加 `function_body()`（按名字取大括号内函数体），断言体内真的调用 `block_room(` 且含 `MOCK DEVIATION`，替换整文件 `contains` 代理 | 删掉 `info.rs` 里的 `svc.block_room(...)` → FAILED；恢复 → 4 passed | 大括号计数式提取，函数体内出现字符串/注释花括号会误判（当前无） |
+| 11 A11 | ✅ | `drift-detection.yml`：PR 触发补 `develop`；重复迁移检查改**跨目录 basename 冲突**检测（`migrations/` + `artifacts/sqlx-migrations*`）；性能基线段改为动态解析 `migrations/00000000_*.sql`（0 个或 2 个 → `::error::` 退出 1） | 构造两目录同名迁移：旧命令 `exit 0` + 空输出（结构性失明），新检查 `exit 1` 并点名两个路径；临时把 v12 改名/移出前缀/加第二个 baseline → 分别 exit 0 / exit 1 / exit 1；YAML + `bash -n` 全通过 | 跨目录检查会在本地跑过 `build_sqlx_migration_source.py` 后对 `artifacts/` 副本报警（按铁律 4 这算正确） |
+| 12 A7/A8 | 🟡 人工项 | 已在 `TESTING.md` §2.4 记录 push-only 取舍、影响与需确认的 3 个问题（check 名清单见 §6.6），并把主门禁表格里的 fmt/clippy 命令改成事实 | 无代码改动，故无红证明（分支保护无法本地验证） | 仍需人工在 GitHub 侧确认 required checks |
+
+**门禁（本轮合并后，本地等效；真实 CI 无法触发）**：
+fmt 棘轮 `current=0=baseline`；clippy 两档（`--workspace --all-targets --features test-utils` 与 `--all-features`）均 exit 0；
+unit 目标 **1691 passed / 2 skipped / 0 failed**；全量 `--workspace --lib --all-features --test-threads 4`
+（**无 retries**）**6083/6083 passed**。
+
+**新增待办（本轮发现）**：`candidate_database_urls()` 的 `localhost:5432/synapse_test` 兜底会让 CI 下配置错误的 `TEST_DATABASE_URL` 静默回退到本机库；
+建议要么在 `CI=1` 时禁用该兜底（fail-closed），要么在回退时打印显眼 warning 并让 `INTEGRATION_TESTS_REQUIRED=1` 直接失败。红证明方式：`CI=1` + 错误 URL + 兜底被禁用 → 必须红。
