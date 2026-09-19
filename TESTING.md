@@ -147,7 +147,10 @@ PR 侧只要求常开门禁（`Repo Sanity`、`Test & Lint (...)`、`Security Au
 - `Require branches to be up to date`（strict）= 已勾选，但因 required 列表为空**当前不生效**
   （页面自述：只有在至少勾选一项状态检查后才会生效）。
 - `Require a pull request before merging` = 未勾选；`Include administrators` / “请勿允许绕过以上设置” = 未勾选。
-- `develop` 的规则未出现在截图中；若仓库没有针对 `develop` 的单独规则，则 `develop` 不受保护。
+- `develop` 规则：**存在但“适用于 0 个分行”**（截图为证）；远端实测也**没有 `develop` 分支**
+  （`git ls-remote --heads origin` 只有 `main` + 2 个 feature 分支）⇒ 该规则对任何分支都不生效，
+  required 列表同样为空、strict 勾选但空转。**推论**：`ci.yml` / `drift-detection.yml` 里所有 `develop`
+  触发条件目前都是空转配置（无害，但按铁律 1 属可清理的死配置；是否删除是策略决定）。
 
 > 待确认（策略决定，不属本文件裁定）：是否要把常开门禁设为 required，让 PR 真正被拦；
 > 以及是否给 `develop` 加同等规则。核对命令如下，读到的结果请回填本段。

@@ -610,7 +610,11 @@ CI 等效跑发现的 beacon 竞争与表覆盖门禁命中的一次性表名。
 > **状态（2026-09-19，据维护者提供的 GitHub 设置页截图核对）**：`main` 的 required status checks **为空**
 > （“尚未添加任何检查”）⇒ 三个 push-only job 确认不在 required（A7/A8 的可执行检查项全部满足）；
 > `Require branches to be up to date` 已勾选但**当前不生效**（无 required 检查）；`Require a pull request`、
-> `请勿允许绕过以上设置` 均未勾选；截图中只有 `main` 一条规则，`develop` 未见单独规则（待确认）。
+> `请勿允许绕过以上设置` 均未勾选。另有 `develop` 规则，但页面显示**适用于 0 个分行**，且远端实测
+> 没有 `develop` 分支（`git ls-remote --heads origin` = main + 2 个 feature 分支）⇒ 该规则不生效，
+> CI 中所有 `develop` 触发条件均为空转配置（记录为可清理项，删除与否属策略决定）。
+> 结论：A7/A8 要核对的可执行项**全部满足**（三个 push-only job 在任何规则里都不在 required）；
+> 反过来两条规则的 required 列表都是空的，所以目前"PR 全绿"没有任何强制力。
 > 策略层面的未决问题：是否把常开门禁设为 required、是否给 `develop` 加规则。
 >
 > **裁定（2026-09-19，维护者确认）：保持 push-only。** 三个 job 不加入 `pull_request`；PR 侧只要求
