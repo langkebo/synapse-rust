@@ -7,7 +7,7 @@ pub struct SignatureStorage<'a> {
     pool: &'a PgPool,
 }
 
-/// (see code)
+/// Storage operations for matrix encryption signatures.
 impl<'a> SignatureStorage<'a> {
     /// See [`new`].
     pub fn new(pool: &'a PgPool) -> Self {

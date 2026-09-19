@@ -61,7 +61,7 @@ pub struct DeviceSyncManager {
     task_queue: Option<Arc<RedisTaskQueue>>,
 }
 
-/// (see code)
+/// Implementation of [`DeviceSyncManager`] methods.
 impl DeviceSyncManager {
     /// See [`new`.
     pub fn new(

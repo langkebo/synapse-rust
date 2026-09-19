@@ -14,7 +14,7 @@ pub struct ToDeviceService {
     user_storage: Option<Arc<dyn UserStore>>,
 }
 
-/// (see code)
+/// Implementation of [`ToDeviceService`] methods.
 impl ToDeviceService {
     /// See [`new`].
     pub fn new(storage: Arc<dyn ToDeviceStorageApi>) -> Self {

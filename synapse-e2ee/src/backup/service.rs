@@ -64,7 +64,7 @@ pub struct KeyBackupService {
     device_key_storage: Option<Arc<dyn DeviceKeyStoreApi>>,
 }
 
-/// (see code)
+/// Implementation of [`KeyBackupService`] methods.
 impl KeyBackupService {
     /// See [`new`].
     pub fn new(storage: &KeyBackupStorage) -> Self {

@@ -10,7 +10,7 @@ pub struct KeyRequestStorage {
     pool: PgPool,
 }
 
-/// (see code)
+/// Implementation of [`KeyRequestStorage`] methods.
 impl KeyRequestStorage {
     /// See [`new`].
     pub fn new(pool: &PgPool) -> Self {

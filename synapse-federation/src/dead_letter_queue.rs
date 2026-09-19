@@ -65,7 +65,7 @@ pub struct DlqEntry {
     pub is_resolved: bool,
 }
 
-/// (see code)
+/// Implementation of [`DlqEntry`] methods.
 impl DlqEntry {
     /// Create a new unresolved DLQ entry with the given fields.
     ///
@@ -128,7 +128,7 @@ pub struct InMemoryDeadLetterQueue {
     next_id: Arc<std::sync::atomic::AtomicI64>,
 }
 
-/// (see code)
+/// Implementation of [`InMemoryDeadLetterQueue`] methods.
 impl InMemoryDeadLetterQueue {
     /// Create a new empty in-memory DLQ.
     pub fn new() -> Self {
@@ -137,7 +137,7 @@ impl InMemoryDeadLetterQueue {
 }
 
 #[async_trait]
-/// (see code)
+/// Implementation of [`DeadLetterQueueApi`] methods.
 impl DeadLetterQueueApi for InMemoryDeadLetterQueue {
     async fn enqueue(&self, entry: &DlqEntry) -> Result<(), DeadLetterQueueError> {
         let mut entries = self.entries.write().await;
@@ -183,7 +183,7 @@ pub struct PgDeadLetterQueue {
     pool: Arc<sqlx::PgPool>,
 }
 
-/// (see code)
+/// Implementation of [`PgDeadLetterQueue`] methods.
 impl PgDeadLetterQueue {
     /// Create a new DLQ backed by the given connection pool.
     pub fn new(pool: Arc<sqlx::PgPool>) -> Self {
@@ -192,7 +192,7 @@ impl PgDeadLetterQueue {
 }
 
 #[async_trait]
-/// (see code)
+/// Implementation of [`DeadLetterQueueApi`] methods.
 impl DeadLetterQueueApi for PgDeadLetterQueue {
     async fn enqueue(&self, entry: &DlqEntry) -> Result<(), DeadLetterQueueError> {
         sqlx::query(

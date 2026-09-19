@@ -200,7 +200,7 @@ pub struct BackupVersion {
     pub created_ts: i64,
 }
 
-/// (see code)
+/// Implementation of [`SecureBackupInfo`] methods.
 impl SecureBackupInfo {
     /// See [`new`].
     pub fn new(user_id: &str, algorithm: &str, auth_data: SecureBackupAuthData) -> Self {

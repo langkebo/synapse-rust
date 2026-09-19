@@ -9,7 +9,7 @@ pub use models::*;
 
 use std::collections::{HashMap, VecDeque};
 
-/// (see code)
+/// Implementation of [`EventAuthChain`] methods.
 impl EventAuthChain {
     /// See [`get_cached_auth_chain`.
     pub fn get_cached_auth_chain(&self, event_id: &str) -> Option<Vec<String>> {

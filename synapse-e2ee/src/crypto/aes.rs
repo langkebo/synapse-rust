@@ -38,7 +38,7 @@ pub struct Aes256GcmKey {
     bytes: [u8; 32],
 }
 
-/// (see code)
+/// Implementation of [`Aes256GcmKey`] methods.
 impl Aes256GcmKey {
     /// See [`generate`].
     pub fn generate() -> Self {
@@ -59,14 +59,14 @@ pub struct Aes256GcmNonce {
     bytes: [u8; 12],
 }
 
-/// (see code)
+/// Serialization for [`Aes256GcmNonce`].
 impl Serialize for Aes256GcmNonce {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(&base64::engine::general_purpose::STANDARD.encode(self.bytes))
     }
 }
 
-/// (see code)
+/// Deserialization for [`Aes256GcmNonce`].
 impl<'de> Deserialize<'de> for Aes256GcmNonce {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let s = String::deserialize(deserializer)?;
@@ -75,7 +75,7 @@ impl<'de> Deserialize<'de> for Aes256GcmNonce {
     }
 }
 
-/// (see code)
+/// Implementation of [`Aes256GcmNonce`] methods.
 impl Aes256GcmNonce {
     fn generate() -> Self {
         let mut bytes = [0u8; 12];
@@ -108,7 +108,7 @@ pub struct XChaCha20Poly1305Nonce {
 }
 
 #[cfg(test)]
-/// (see code)
+/// Serialization for [`XChaCha20Poly1305Nonce`].
 impl Serialize for XChaCha20Poly1305Nonce {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(&base64::engine::general_purpose::STANDARD.encode(self.bytes))
@@ -116,7 +116,7 @@ impl Serialize for XChaCha20Poly1305Nonce {
 }
 
 #[cfg(test)]
-/// (see code)
+/// Deserialization for [`XChaCha20Poly1305Nonce`].
 impl<'de> Deserialize<'de> for XChaCha20Poly1305Nonce {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let s = String::deserialize(deserializer)?;
@@ -126,7 +126,7 @@ impl<'de> Deserialize<'de> for XChaCha20Poly1305Nonce {
 }
 
 #[cfg(test)]
-/// (see code)
+/// Implementation of [`XChaCha20Poly1305Nonce`] methods.
 impl XChaCha20Poly1305Nonce {
     /// See [`generate`].
     pub fn generate() -> Self {
@@ -161,7 +161,7 @@ pub struct Aes256GcmCiphertext {
 }
 
 #[cfg(test)]
-/// (see code)
+/// Serialization for [`Aes256GcmCiphertext`].
 impl Serialize for Aes256GcmCiphertext {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
@@ -173,7 +173,7 @@ impl Serialize for Aes256GcmCiphertext {
 }
 
 #[cfg(test)]
-/// (see code)
+/// Deserialization for [`Aes256GcmCiphertext`].
 impl<'de> Deserialize<'de> for Aes256GcmCiphertext {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = serde_json::Value::deserialize(deserializer)?;
@@ -190,7 +190,7 @@ impl<'de> Deserialize<'de> for Aes256GcmCiphertext {
 }
 
 #[cfg(test)]
-/// (see code)
+/// Implementation of [`Aes256GcmCiphertext`] methods.
 impl Aes256GcmCiphertext {
     /// See [`new`].
     pub fn new(nonce: Aes256GcmNonce, ciphertext: Vec<u8>) -> Self {
@@ -209,7 +209,7 @@ impl Aes256GcmCiphertext {
 }
 
 #[cfg(test)]
-/// (see code)
+/// Implementation of [`AsRef`] methods.
 impl AsRef<[u8]> for Aes256GcmCiphertext {
     fn as_ref(&self) -> &[u8] {
         &self.ciphertext
@@ -226,7 +226,7 @@ pub struct XChaCha20Poly1305Ciphertext {
 }
 
 #[cfg(test)]
-/// (see code)
+/// Serialization for [`XChaCha20Poly1305Ciphertext`].
 impl Serialize for XChaCha20Poly1305Ciphertext {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
@@ -238,7 +238,7 @@ impl Serialize for XChaCha20Poly1305Ciphertext {
 }
 
 #[cfg(test)]
-/// (see code)
+/// Deserialization for [`XChaCha20Poly1305Ciphertext`].
 impl<'de> Deserialize<'de> for XChaCha20Poly1305Ciphertext {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = serde_json::Value::deserialize(deserializer)?;
@@ -256,7 +256,7 @@ impl<'de> Deserialize<'de> for XChaCha20Poly1305Ciphertext {
 
 #[cfg(test)]
 #[allow(dead_code)]
-/// (see code)
+/// Implementation of [`XChaCha20Poly1305Ciphertext`] methods.
 impl XChaCha20Poly1305Ciphertext {
     /// See [`new`].
     pub fn new(nonce: XChaCha20Poly1305Nonce, ciphertext: Vec<u8>) -> Self {
@@ -275,7 +275,7 @@ impl XChaCha20Poly1305Ciphertext {
 }
 
 #[cfg(test)]
-/// (see code)
+/// Implementation of [`AsRef`] methods.
 impl AsRef<[u8]> for XChaCha20Poly1305Ciphertext {
     fn as_ref(&self) -> &[u8] {
         &self.ciphertext
@@ -299,7 +299,7 @@ struct NonceKey {
     bytes: [u8; MAX_NONCE_LEN],
 }
 
-/// (see code)
+/// Implementation of [`NonceKey`] methods.
 impl NonceKey {
     /// Returns `None` when the nonce is empty or longer than [`MAX_NONCE_LEN`],
     /// so oversized input is rejected instead of silently truncated.
@@ -326,7 +326,7 @@ pub struct NonceTracker {
     max_history_size: usize,
 }
 
-/// (see code)
+/// Implementation of [`NonceTracker`] methods.
 impl NonceTracker {
     /// See [`new`].
     pub fn new() -> Self {
@@ -402,7 +402,7 @@ impl NonceTracker {
     }
 }
 
-/// (see code)
+/// Default implementation for [`NonceTracker`].
 impl Default for NonceTracker {
     fn default() -> Self {
         Self::new()
@@ -431,7 +431,7 @@ pub struct SecureNonceGenerator {
     tracker: Arc<NonceTracker>,
 }
 
-/// (see code)
+/// Implementation of [`SecureNonceGenerator`] methods.
 impl SecureNonceGenerator {
     /// See [`new`].
     pub fn new(tracker: Arc<NonceTracker>) -> Self {
@@ -491,7 +491,7 @@ pub struct Aes256GcmCipher {
     nonce_generator: Option<Arc<SecureNonceGenerator>>,
 }
 
-/// (see code)
+/// Default implementation for [`Aes256GcmCipher`].
 impl Default for Aes256GcmCipher {
     fn default() -> Self {
         let tracker = Arc::new(NonceTracker::new());
@@ -500,7 +500,7 @@ impl Default for Aes256GcmCipher {
     }
 }
 
-/// (see code)
+/// Implementation of [`Aes256GcmCipher`] methods.
 impl Aes256GcmCipher {
     /// See [`with_nonce_tracker`].
     pub fn with_nonce_tracker(tracker: Arc<NonceTracker>) -> Self {
@@ -575,7 +575,7 @@ pub struct XChaCha20Poly1305Cipher {
 }
 
 #[cfg(test)]
-/// (see code)
+/// Implementation of [`XChaCha20Poly1305Cipher`] methods.
 impl XChaCha20Poly1305Cipher {
     /// See [`new`].
     pub fn new() -> Self {
@@ -622,7 +622,7 @@ impl XChaCha20Poly1305Cipher {
 }
 
 #[cfg(test)]
-/// (see code)
+/// Default implementation for [`XChaCha20Poly1305Cipher`].
 impl Default for XChaCha20Poly1305Cipher {
     fn default() -> Self {
         Self::new()
@@ -640,7 +640,7 @@ pub struct E2eeCryptoProvider {
 
 #[cfg(test)]
 #[allow(dead_code)]
-/// (see code)
+/// Implementation of [`E2eeCryptoProvider`] methods.
 impl E2eeCryptoProvider {
     /// See [`new`].
     pub fn new() -> Self {
@@ -711,7 +711,7 @@ impl E2eeCryptoProvider {
 }
 
 #[cfg(test)]
-/// (see code)
+/// Default implementation for [`E2eeCryptoProvider`].
 impl Default for E2eeCryptoProvider {
     fn default() -> Self {
         Self::new()

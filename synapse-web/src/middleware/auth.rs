@@ -20,6 +20,7 @@ pub fn extract_token(headers: &HeaderMap, uri: &str) -> Option<String> {
 ///
 /// `role` and `device_id` describe the *authenticated* admin path; for the
 /// *denied* path callers override them via the returned mutable reference.
+#[allow(clippy::too_many_arguments)]
 fn build_admin_audit_event(
     actor_id: String,
     method: &Method,
@@ -199,7 +200,7 @@ pub async fn admin_auth_middleware(
         Err(err) => {
             let response = err.into_response();
             let status = response.status().as_u16();
-            let (actor_id, device_id, authenticated_admin) = match bearer_token(&headers) {
+            let (actor_id, device_id, _authenticated_admin) = match bearer_token(&headers) {
                 Ok(token) => match ctx.token_auth.validate_token(&token).await {
                     Ok((user_id, device_id, is_admin, _, _)) => (user_id, device_id, Some(is_admin)),
                     Err(_) => ("anonymous".to_string(), None, None),

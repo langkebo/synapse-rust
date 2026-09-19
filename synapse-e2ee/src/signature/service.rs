@@ -10,7 +10,7 @@ pub struct SignatureService {
     storage: SignatureStorage<'static>,
 }
 
-/// (see code)
+/// Implementation of [`SignatureService`] methods.
 impl SignatureService {
     /// See [`new`].
     pub fn new(storage: SignatureStorage<'static>) -> Self {

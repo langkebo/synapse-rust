@@ -13,7 +13,7 @@ pub struct DeviceTrustStorage {
     pool: Arc<PgPool>,
 }
 
-/// (see code)
+/// Implementation of [`DeviceTrustStorage`] methods.
 impl DeviceTrustStorage {
     /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
@@ -484,7 +484,7 @@ struct DeviceTrustCount {
     blocked: i64,
 }
 
-/// (see code)
+/// Implementation of [`From`] methods.
 impl From<SqlxDeviceTrustStatus> for DeviceTrustStatus {
     fn from(row: SqlxDeviceTrustStatus) -> Self {
         Self {
@@ -516,7 +516,7 @@ struct SqlxVerificationRequest {
     completed_at: Option<i64>,
 }
 
-/// (see code)
+/// Implementation of [`From`] methods.
 impl From<SqlxVerificationRequest> for DeviceVerificationRequest {
     fn from(row: SqlxVerificationRequest) -> Self {
         Self {
@@ -548,7 +548,7 @@ struct SqlxSecurityEvent {
     created_ts: i64,
 }
 
-/// (see code)
+/// Implementation of [`From`] methods.
 impl From<SqlxSecurityEvent> for E2eeSecurityEvent {
     fn from(row: SqlxSecurityEvent) -> Self {
         Self {

@@ -30,7 +30,7 @@ struct FederationRotationConfig {
     rotation_interval_ms: i64,
 }
 
-/// (see code)
+/// Default implementation for [`FederationRotationConfig`].
 impl Default for FederationRotationConfig {
     fn default() -> Self {
         Self {
@@ -162,7 +162,7 @@ pub struct KeyRotationManager {
     signature_cache: Arc<ParkingLotRwLock<Option<Arc<FederationSignatureCache>>>>,
 }
 
-/// (see code)
+/// Implementation of [`KeyRotationManager`] methods.
 impl KeyRotationManager {
     /// See [`new`.
     pub fn new(pool: &Arc<Pool<Postgres>>, server_name: &str) -> Self {
@@ -973,7 +973,7 @@ impl KeyRotationManager {
 }
 
 #[async_trait]
-/// (see code)
+/// Implementation of [`KeyRotationManagerApi`] methods.
 impl KeyRotationManagerApi for KeyRotationManager {
     async fn get_rotation_status(&self) -> serde_json::Value {
         self.get_rotation_status().await

@@ -15,7 +15,7 @@ pub struct ResolutionResult {
 /// The `StateResolutionService` type.
 pub struct StateResolutionService;
 
-/// (see code)
+/// Implementation of [`StateResolutionService`] methods.
 impl StateResolutionService {
     /// See [`new`.
     pub fn new() -> Self {
@@ -109,7 +109,7 @@ impl StateResolutionService {
     }
 }
 
-/// (see code)
+/// Default implementation for [`StateResolutionService`].
 impl Default for StateResolutionService {
     fn default() -> Self {
         Self::new()

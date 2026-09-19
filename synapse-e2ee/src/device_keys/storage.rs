@@ -90,7 +90,7 @@ pub struct DeviceKeyRow {
     pub is_fallback: Option<bool>,
 }
 
-/// (see code)
+/// Implementation of [`DeviceKeyRow`] methods.
 impl DeviceKeyRow {
     fn into_device_key(self) -> DeviceKey {
         let parsed: serde_json::Value =
@@ -223,7 +223,7 @@ pub trait DeviceKeyStoreApi: Send + Sync {
     ) -> Result<(), ApiError>;
 }
 
-/// (see code)
+/// Implementation of [`DeviceKeyStorage`] methods.
 impl DeviceKeyStorage {
     /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
@@ -288,7 +288,7 @@ impl DeviceKeyStorage {
 }
 
 #[async_trait::async_trait]
-/// (see code)
+/// Implementation of [`DeviceKeyStoreApi`] methods.
 impl DeviceKeyStoreApi for DeviceKeyStorage {
     async fn record_device_list_change_best_effort(&self, user_id: &str, device_id: Option<&str>, change_type: &str) {
         let now = current_timestamp_millis();

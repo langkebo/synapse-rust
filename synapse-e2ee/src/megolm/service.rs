@@ -16,7 +16,7 @@ pub struct MegolmProvider {
     inner: MegolmVodozemacService,
 }
 
-/// (see code)
+/// Implementation of [`MegolmProvider`] methods.
 impl MegolmProvider {
     /// See [`from_env`].
     pub fn from_env(storage: MegolmSessionStorage, cache: Arc<CacheManager>, at_rest: KeyAtRest) -> Self {

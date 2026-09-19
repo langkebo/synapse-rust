@@ -32,7 +32,7 @@ pub struct CrossSigningKeyRow {
     pub added_ts: i64,
 }
 
-/// (see code)
+/// Implementation of [`CrossSigningKeyRow`] methods.
 impl CrossSigningKeyRow {
     fn into_key(self) -> CrossSigningKey {
         let key_json: Option<serde_json::Value> = serde_json::from_str(&self.key_data).ok();
@@ -117,7 +117,7 @@ pub struct DeviceSignatureRow {
     pub created_ts: i64,
 }
 
-/// (see code)
+/// Implementation of [`DeviceSignatureRow`] methods.
 impl DeviceSignatureRow {
     fn into_signature(self) -> DeviceSignature {
         DeviceSignature {
@@ -140,7 +140,7 @@ pub struct CrossSigningStorage {
     pub pool: Arc<PgPool>,
 }
 
-/// (see code)
+/// Implementation of [`CrossSigningStorage`] methods.
 impl CrossSigningStorage {
     /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {

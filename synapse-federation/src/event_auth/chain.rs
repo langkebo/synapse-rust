@@ -1,7 +1,7 @@
 use super::models::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 
-/// (see code)
+/// Implementation of [`EventAuthChain`] methods.
 impl EventAuthChain {
     /// See [`build_auth_chain_from_events`.
     pub fn build_auth_chain_from_events(&self, events: &HashMap<String, EventData>, event_id: &str) -> Vec<String> {

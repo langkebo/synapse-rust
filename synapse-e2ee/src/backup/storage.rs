@@ -60,7 +60,7 @@ pub struct KeyBackupStorage {
     pub pool: Arc<PgPool>,
 }
 
-/// (see code)
+/// Implementation of [`KeyBackupStorage`] methods.
 impl KeyBackupStorage {
     /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
@@ -252,7 +252,7 @@ pub struct BackupKeyStorage {
     pool: Arc<PgPool>,
 }
 
-/// (see code)
+/// Implementation of [`BackupKeyStorage`] methods.
 impl BackupKeyStorage {
     /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {

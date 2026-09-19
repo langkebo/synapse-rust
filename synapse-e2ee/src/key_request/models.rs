@@ -69,7 +69,7 @@ pub enum KeyRequestAction {
     Cancelled,
 }
 
-/// (see code)
+/// Implementation of [`KeyRequestAction`] methods.
 impl KeyRequestAction {
     /// See [`as_str`].
     pub fn as_str(&self) -> &'static str {
@@ -82,7 +82,7 @@ impl KeyRequestAction {
     }
 }
 
-/// (see code)
+/// Implementation of [`std`] methods.
 impl std::str::FromStr for KeyRequestAction {
     type Err = String;
 

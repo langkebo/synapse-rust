@@ -22,7 +22,7 @@ pub struct DeviceKeyService {
     cache: Arc<CacheManager>,
 }
 
-/// (see code)
+/// Implementation of [`DeviceKeyService`] methods.
 impl DeviceKeyService {
     /// See [`new`].
     pub fn new(storage: Arc<dyn DeviceKeyStoreApi>, cache: Arc<CacheManager>) -> Self {

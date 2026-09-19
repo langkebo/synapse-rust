@@ -76,7 +76,7 @@ pub struct OlmSessionRow {
     pub expires_at: Option<i64>,
 }
 
-/// (see code)
+/// Implementation of [`From`] methods.
 impl From<OlmSessionRow> for OlmSessionData {
     fn from(row: OlmSessionRow) -> Self {
         OlmSessionData {
@@ -100,7 +100,7 @@ pub struct OlmStorage {
     pool: Arc<PgPool>,
 }
 
-/// (see code)
+/// Implementation of [`OlmStorage`] methods.
 impl OlmStorage {
     /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {

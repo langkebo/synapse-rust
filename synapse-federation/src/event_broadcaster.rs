@@ -106,7 +106,7 @@ pub struct EventBroadcaster {
 type DbPendingRow = (i64, String, String, Option<String>, serde_json::Value, i64, i32);
 type BatchSender = mpsc::Sender<(String, OutgoingItem)>;
 
-/// (see code)
+/// Implementation of [`EventBroadcaster`] methods.
 impl EventBroadcaster {
     /// See [`new`.
     pub fn new(server_name: String) -> Self {
@@ -833,7 +833,7 @@ pub struct FederationBroadcastMessage {
     pub event: FederationEvent,
 }
 
-/// (see code)
+/// Implementation of [`synapse_common`] methods.
 impl synapse_common::traits::EventBroadcaster for EventBroadcaster {
     type Message = FederationBroadcastMessage;
 
@@ -853,7 +853,7 @@ impl synapse_common::traits::EventBroadcaster for EventBroadcaster {
     }
 }
 
-/// (see code)
+/// Implementation of [`From`] methods.
 impl From<FederationBroadcastError> for synapse_common::traits::BroadcastError {
     fn from(e: FederationBroadcastError) -> Self {
         match e {

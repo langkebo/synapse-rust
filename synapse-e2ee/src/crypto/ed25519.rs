@@ -20,7 +20,7 @@ pub struct Ed25519PublicKey {
     bytes: [u8; 32],
 }
 
-/// (see code)
+/// Implementation of [`Ed25519PublicKey`] methods.
 impl Ed25519PublicKey {
     fn from_bytes(bytes: [u8; 32]) -> Self {
         Self { bytes }
@@ -55,7 +55,7 @@ struct Ed25519SecretKey {
     bytes: [u8; 32],
 }
 
-/// (see code)
+/// Implementation of [`Ed25519SecretKey`] methods.
 impl Ed25519SecretKey {
     #[cfg(test)]
     fn generate() -> Self {
@@ -94,7 +94,7 @@ pub struct Ed25519KeyPair {
     secret: Ed25519SecretKey,
 }
 
-/// (see code)
+/// Implementation of [`Ed25519KeyPair`] methods.
 impl Ed25519KeyPair {
     /// See [`generate`].
     pub fn generate() -> Self {

@@ -29,7 +29,7 @@ pub struct SecretStorageService {
     dehydrated_device_service: Option<Arc<dyn DehydratedDeviceProvider>>,
 }
 
-/// (see code)
+/// Implementation of [`SecretStorageService`] methods.
 impl SecretStorageService {
     /// See [`new`].
     pub fn new(storage: SecretStorage) -> Self {

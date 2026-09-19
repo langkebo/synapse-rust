@@ -117,7 +117,7 @@ pub struct MegolmVodozemacService {
     at_rest: KeyAtRest,
 }
 
-/// (see code)
+/// Implementation of [`MegolmVodozemacService`] methods.
 impl MegolmVodozemacService {
     /// Create a new VodozemacMegolmService with the given at-rest encryption key.
     pub fn new(storage: MegolmSessionStorage, cache: Arc<CacheManager>, at_rest: KeyAtRest) -> Self {

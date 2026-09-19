@@ -18,7 +18,7 @@ pub struct FriendFederationClient {
     missing_signing_key_logged: AtomicBool,
 }
 
-/// (see code)
+/// Implementation of [`FriendFederationClient`] methods.
 impl FriendFederationClient {
     /// See [`new`.
     pub fn new(server_name: String, key_rotation_manager: Option<Arc<KeyRotationManager>>) -> Self {
@@ -275,7 +275,7 @@ mod tests {
         original: Option<std::ffi::OsString>,
     }
 
-    /// (see code)
+/// Implementation of [`EnvVarGuard`] methods.
     impl EnvVarGuard {
         fn set(key: &'static str, value: &str) -> Self {
             let original = std::env::var_os(key);
@@ -287,7 +287,7 @@ mod tests {
         }
     }
 
-    /// (see code)
+/// Implementation of [`Drop`] methods.
     impl Drop for EnvVarGuard {
         fn drop(&mut self) {
             match &self.original {

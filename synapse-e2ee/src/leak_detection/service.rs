@@ -28,7 +28,7 @@ pub struct LeakDetectionConfig {
     pub enable_detection: bool,
 }
 
-/// (see code)
+/// Default implementation for [`LeakDetectionConfig`].
 impl Default for LeakDetectionConfig {
     fn default() -> Self {
         Self { max_message_index_gap: 10, max_time_gap_hours: 24, enable_detection: true }
@@ -89,7 +89,7 @@ pub struct LeakDetectionResult {
     pub risk_level: String,
 }
 
-/// (see code)
+/// Implementation of [`LeakDetectionService`] methods.
 impl LeakDetectionService {
     /// See [`new`].
     pub fn new(storage: Arc<LeakDetectionStorage>, config: LeakDetectionConfig) -> Self {
@@ -236,7 +236,7 @@ pub struct LeakDetectionStorage {
     pool: Arc<sqlx::PgPool>,
 }
 
-/// (see code)
+/// Implementation of [`LeakDetectionStorage`] methods.
 impl LeakDetectionStorage {
     /// See [`new`].
     pub fn new(pool: Arc<sqlx::PgPool>) -> Self {

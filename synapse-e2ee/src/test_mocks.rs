@@ -25,7 +25,7 @@ pub struct InMemoryKeyRotationStorage {
     marked_rotations: Arc<RwLock<Vec<(String, String)>>>,
 }
 
-/// (see code)
+/// Implementation of [`InMemoryKeyRotationStorage`] methods.
 impl InMemoryKeyRotationStorage {
     /// See [`new`].
     pub fn new() -> Self {
@@ -56,7 +56,7 @@ impl InMemoryKeyRotationStorage {
 }
 
 #[async_trait::async_trait]
-/// (see code)
+/// Implementation of [`KeyRotationStorageApi`] methods.
 impl KeyRotationStorageApi for InMemoryKeyRotationStorage {
     async fn get_user_last_rotation_ts(&self, user_id: &str) -> Result<Option<i64>, ApiError> {
         Ok(self.last_rotation_ts.read().await.get(user_id).copied())
@@ -130,7 +130,7 @@ struct DeviceListStreamEntry {
     created_ts: i64,
 }
 
-/// (see code)
+/// Implementation of [`InMemoryDeviceKeyStore`] methods.
 impl InMemoryDeviceKeyStore {
     /// See [`new`].
     pub fn new() -> Self {
@@ -155,7 +155,7 @@ impl InMemoryDeviceKeyStore {
 }
 
 #[async_trait::async_trait]
-/// (see code)
+/// Implementation of [`DeviceKeyStoreApi`] methods.
 impl DeviceKeyStoreApi for InMemoryDeviceKeyStore {
     async fn record_device_list_change_best_effort(&self, user_id: &str, device_id: Option<&str>, change_type: &str) {
         let now = current_timestamp_millis();

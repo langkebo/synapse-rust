@@ -93,7 +93,7 @@ pub struct ToDeviceStorage {
     pool: Arc<Pool<Postgres>>,
 }
 
-/// (see code)
+/// Implementation of [`ToDeviceStorage`] methods.
 impl ToDeviceStorage {
     /// See [`new`].
     pub fn new(pool: &Arc<Pool<Postgres>>) -> Self {

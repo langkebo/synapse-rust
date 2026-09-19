@@ -35,7 +35,7 @@ pub struct MegolmSessionRow {
     pub pickle_format: String,
 }
 
-/// (see code)
+/// Implementation of [`From`] methods.
 impl From<MegolmSessionRow> for MegolmSession {
     fn from(row: MegolmSessionRow) -> Self {
         let created_ts_dt = chrono::DateTime::from_timestamp_millis(row.created_ts).unwrap_or_else(Utc::now);
@@ -66,7 +66,7 @@ pub struct MegolmSessionStorage {
     pub pool: Arc<PgPool>,
 }
 
-/// (see code)
+/// Implementation of [`MegolmSessionStorage`] methods.
 impl MegolmSessionStorage {
     /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {

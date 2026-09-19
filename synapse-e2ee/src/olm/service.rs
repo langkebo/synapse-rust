@@ -75,7 +75,7 @@ pub struct OlmService {
     device_id: RwLock<Option<String>>,
 }
 
-/// (see code)
+/// Implementation of [`OlmService`] methods.
 impl OlmService {
     /// See [`new`].
     pub fn new(cache: Arc<CacheManager>, storage: OlmStorage) -> Self {

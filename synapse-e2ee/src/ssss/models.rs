@@ -233,7 +233,7 @@ pub struct SecretStorageAlgorithm {
     pub config: serde_json::Value,
 }
 
-/// (see code)
+/// Default implementation for [`SecretStorageAlgorithm`].
 impl Default for SecretStorageAlgorithm {
     fn default() -> Self {
         Self {
@@ -260,7 +260,7 @@ pub struct SecretStorageEncryptionInfo {
     pub key_count: std::collections::HashMap<String, u32>,
 }
 
-/// (see code)
+/// Default implementation for [`SecretStorageEncryptionInfo`].
 impl Default for SecretStorageEncryptionInfo {
     fn default() -> Self {
         Self {
@@ -285,7 +285,7 @@ pub struct SecretStorageSessionKey {
     pub mac: String,
 }
 
-/// (see code)
+/// Implementation of [`SecretStorageSessionKey`] methods.
 impl SecretStorageSessionKey {
     /// See [`from_key_parts`].
     pub fn from_key_parts(key: &str, iv: &str, mac: &str) -> Self {

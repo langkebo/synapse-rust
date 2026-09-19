@@ -461,7 +461,7 @@ pub enum FederationClientError {
     Timeout,
 }
 
-/// (see code)
+/// Implementation of [`From`] methods.
 impl From<FederationClientError> for ApiError {
     fn from(e: FederationClientError) -> Self {
         Self::internal(format!("Federation error: {e}"))
@@ -528,14 +528,14 @@ pub struct FederationClient {
     dlq: Option<Arc<dyn DeadLetterQueueApi>>,
 }
 
-/// (see code)
+/// Implementation of [`std`] methods.
 impl std::fmt::Debug for FederationClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FederationClient").field("server_name", &self.server_name).finish()
     }
 }
 
-/// (see code)
+/// Implementation of [`FederationClient`] methods.
 impl FederationClient {
     /// See [`new`.
     pub fn new(server_name: String, key_rotation_manager: Arc<KeyRotationManager>) -> Self {

@@ -31,7 +31,7 @@ pub struct CrossSigningService {
     dehydrated_device_service: Option<Arc<dyn DehydratedDeviceProvider>>,
 }
 
-/// (see code)
+/// Implementation of [`CrossSigningService`] methods.
 impl CrossSigningService {
     async fn record_cross_signing_change(&self, user_id: &str) {
         if let Some(device_keys_storage) = &self.device_keys_storage {

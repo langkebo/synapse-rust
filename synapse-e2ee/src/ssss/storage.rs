@@ -51,7 +51,7 @@ pub struct SecretStorageKeyRow {
     pub created_ts: i64,
 }
 
-/// (see code)
+/// Implementation of [`SecretStorageKeyRow`] methods.
 impl SecretStorageKeyRow {
     fn into_storage_key(self) -> SecretStorageKey {
         SecretStorageKey {
@@ -80,7 +80,7 @@ pub struct StoredSecretRow {
     pub key_id: Option<String>,
 }
 
-/// (see code)
+/// Implementation of [`StoredSecretRow`] methods.
 impl StoredSecretRow {
     fn into_stored_secret(self) -> StoredSecret {
         StoredSecret {
@@ -97,7 +97,7 @@ pub struct SecretStorage {
     pool: PgPool,
 }
 
-/// (see code)
+/// Implementation of [`SecretStorage`] methods.
 impl SecretStorage {
     /// See [`new`].
     pub fn new(pool: &PgPool) -> Self {

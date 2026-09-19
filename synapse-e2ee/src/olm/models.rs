@@ -185,7 +185,7 @@ pub struct FallbackKey {
     pub used: bool,
 }
 
-/// (see code)
+/// Implementation of [`OlmSessionData`] methods.
 impl OlmSessionData {
     /// See [`new`].
     pub fn new(
@@ -231,7 +231,7 @@ impl OlmSessionData {
     }
 }
 
-/// (see code)
+/// Implementation of [`OlmAccountData`] methods.
 impl OlmAccountData {
     /// See [`new`].
     pub fn new(user_id: String, device_id: String, identity_key: String, serialized_account: String) -> Self {

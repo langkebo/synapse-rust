@@ -14,7 +14,7 @@ pub struct VerificationStorage {
     pool: Arc<PgPool>,
 }
 
-/// (see code)
+/// Implementation of [`VerificationStorage`] methods.
 impl VerificationStorage {
     /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {

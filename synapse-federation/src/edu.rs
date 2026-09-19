@@ -38,17 +38,17 @@ pub enum EduType {
 /// The `UnknownEduType` type.
 pub struct UnknownEduType(pub String);
 
-/// (see code)
+/// Implementation of [`std`] methods.
 impl std::fmt::Display for UnknownEduType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "unknown EDU type: {}", self.0)
     }
 }
 
-/// (see code)
+/// Implementation of [`std`] methods.
 impl std::error::Error for UnknownEduType {}
 
-/// (see code)
+/// Implementation of [`FromStr`] methods.
 impl FromStr for EduType {
     type Err = UnknownEduType;
 
@@ -99,7 +99,7 @@ pub struct EduProcessResult {
     pub errored: usize,
 }
 
-/// (see code)
+/// Implementation of [`EduProcessResult`] methods.
 impl EduProcessResult {
     /// See [`is_empty`.
     pub fn is_empty(&self) -> bool {

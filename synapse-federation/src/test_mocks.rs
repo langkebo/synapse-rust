@@ -43,7 +43,7 @@ pub struct MockFederationClient {
     backfill_responses: Arc<RwLock<HashMap<String, BackfillResponse>>>,
 }
 
-/// (see code)
+/// Implementation of [`MockFederationClient`] methods.
 impl MockFederationClient {
     /// See [`new`.
     pub fn new(server_name: impl Into<String>) -> Self {
@@ -114,7 +114,7 @@ impl MockFederationClient {
 // ============================================================================
 
 #[async_trait::async_trait]
-/// (see code)
+/// Implementation of [`crate`] methods.
 impl crate::client_api::FederationClientApi for MockFederationClient {
     fn server_name(&self) -> &str {
         &self.server_name
@@ -391,7 +391,7 @@ pub struct InMemoryKeyRotationManager {
     rotation_status: Arc<RwLock<serde_json::Value>>,
 }
 
-/// (see code)
+/// Implementation of [`InMemoryKeyRotationManager`] methods.
 impl InMemoryKeyRotationManager {
     /// See [`new`.
     pub fn new() -> Self {
@@ -422,7 +422,7 @@ impl InMemoryKeyRotationManager {
     }
 }
 
-/// (see code)
+/// Default implementation for [`InMemoryKeyRotationManager`].
 impl Default for InMemoryKeyRotationManager {
     fn default() -> Self {
         Self::new()
@@ -430,7 +430,7 @@ impl Default for InMemoryKeyRotationManager {
 }
 
 #[async_trait::async_trait]
-/// (see code)
+/// Implementation of [`KeyRotationManagerApi`] methods.
 impl KeyRotationManagerApi for InMemoryKeyRotationManager {
     async fn get_rotation_status(&self) -> serde_json::Value {
         self.rotation_status.read().await.clone()

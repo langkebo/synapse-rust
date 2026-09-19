@@ -24,7 +24,7 @@ struct OlmSessionEntry {
     dirty: bool,
 }
 
-/// (see code)
+/// Implementation of [`OlmSessionManager`] methods.
 impl OlmSessionManager {
     /// See [`new`].
     pub fn new(storage: OlmStorage, user_id: String, device_id: String) -> Self {

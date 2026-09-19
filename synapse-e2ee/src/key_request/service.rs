@@ -24,7 +24,7 @@ pub enum KeyRequestStatusFilter {
     All,
 }
 
-/// (see code)
+/// Implementation of [`KeyRequestStatusFilter`] methods.
 impl KeyRequestStatusFilter {
     /// See [`from_query`].
     pub fn from_query(status: Option<&str>) -> Result<Self, ApiError> {
@@ -45,7 +45,7 @@ pub struct KeyRequestService {
     megolm_service: MegolmProvider,
 }
 
-/// (see code)
+/// Implementation of [`KeyRequestService`] methods.
 impl KeyRequestService {
     /// See [`new`].
     pub fn new(storage: KeyRequestStorage, megolm_service: MegolmProvider) -> Self {

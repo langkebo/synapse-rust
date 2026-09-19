@@ -99,7 +99,7 @@ pub struct KeyBackupRow {
     pub etag: Option<String>,
 }
 
-/// (see code)
+/// Implementation of [`From`] methods.
 impl From<KeyBackupRow> for KeyBackup {
     fn from(row: KeyBackupRow) -> Self {
         Self {

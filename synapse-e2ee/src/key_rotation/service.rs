@@ -40,7 +40,7 @@ pub struct KeyRotationConfig {
     pub enable_auto_rotation: bool,
 }
 
-/// (see code)
+/// Default implementation for [`KeyRotationConfig`].
 impl Default for KeyRotationConfig {
     fn default() -> Self {
         Self {
@@ -52,7 +52,7 @@ impl Default for KeyRotationConfig {
     }
 }
 
-/// (see code)
+/// Implementation of [`KeyRotationConfig`] methods.
 impl KeyRotationConfig {
     /// See [`load_from_storage`].
     pub async fn load_from_storage(storage: &KeyRotationStorage) -> Result<Self, ApiError> {
@@ -178,7 +178,7 @@ pub struct RotationStatus {
     pub last_rotation: Option<DateTime<Utc>>,
 }
 
-/// (see code)
+/// Implementation of [`KeyRotationService`] methods.
 impl KeyRotationService {
     /// See [`new`].
     pub fn new(
@@ -406,7 +406,7 @@ pub struct KeyRotationStorage {
     pool: Arc<sqlx::PgPool>,
 }
 
-/// (see code)
+/// Implementation of [`KeyRotationStorage`] methods.
 impl KeyRotationStorage {
     /// See [`new`].
     pub fn new(pool: Arc<sqlx::PgPool>) -> Self {
@@ -772,7 +772,7 @@ impl KeyRotationStorage {
 }
 
 #[async_trait]
-/// (see code)
+/// Implementation of [`KeyRotationStorageApi`] methods.
 impl KeyRotationStorageApi for KeyRotationStorage {
     async fn get_user_last_rotation_ts(&self, user_id: &str) -> Result<Option<i64>, ApiError> {
         self.get_user_last_rotation_ts(user_id).await

@@ -23,14 +23,14 @@ pub struct EventAuthChain {
     pub(crate) depth_cache: Cache<String, i64>,
 }
 
-/// (see code)
+/// Default implementation for [`EventAuthChain`].
 impl Default for EventAuthChain {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// (see code)
+/// Implementation of [`EventAuthChain`] methods.
 impl EventAuthChain {
     /// See [`new`.
     pub fn new() -> Self {

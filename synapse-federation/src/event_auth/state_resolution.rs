@@ -2,7 +2,7 @@ use super::models::*;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
 
-/// (see code)
+/// Implementation of [`EventAuthChain`] methods.
 impl EventAuthChain {
     /// See [`detect_conflicts`.
     pub fn detect_conflicts(&self, state_events: &[Value]) -> Vec<ConflictInfo> {

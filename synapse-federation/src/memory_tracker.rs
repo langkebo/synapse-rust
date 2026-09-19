@@ -33,7 +33,7 @@ pub struct MemoryStats {
     last_operation_time: RwLock<Instant>,
 }
 
-/// (see code)
+/// Default implementation for [`MemoryStats`].
 impl Default for MemoryStats {
     fn default() -> Self {
         Self {
@@ -47,7 +47,7 @@ impl Default for MemoryStats {
     }
 }
 
-/// (see code)
+/// Implementation of [`MemoryStats`] methods.
 impl MemoryStats {
     /// See [`new`.
     pub fn new() -> Self {
@@ -137,7 +137,7 @@ pub struct MemoryStatsSnapshot {
     pub operation_count: usize,
 }
 
-/// (see code)
+/// Implementation of [`MemoryStatsSnapshot`] methods.
 impl MemoryStatsSnapshot {
     /// See [`leak_count`.
     pub fn leak_count(&self) -> usize {
@@ -163,7 +163,7 @@ pub struct FederationMemoryTracker {
     state_resolution_stats: MemoryStats,
 }
 
-/// (see code)
+/// Implementation of [`FederationMemoryTracker`] methods.
 impl FederationMemoryTracker {
     /// See [`new`.
     pub fn new() -> Self {
@@ -251,7 +251,7 @@ pub struct FederationMemoryReport {
     pub total_peak: usize,
 }
 
-/// (see code)
+/// Implementation of [`FederationMemoryReport`] methods.
 impl FederationMemoryReport {
     /// See [`format_human_readable`.
     pub fn format_human_readable(&self) -> String {

@@ -8,7 +8,7 @@ pub struct FriendFederation {
     friend_service: Arc<dyn FriendRoomProvider>,
 }
 
-/// (see code)
+/// Implementation of [`FriendFederation`] methods.
 impl FriendFederation {
     /// See [`new`.
     pub fn new(friend_service: Arc<dyn FriendRoomProvider>) -> Self {
@@ -198,7 +198,7 @@ mod tests {
         next_result: Mutex<Result<(), ApiError>>,
     }
 
-    /// (see code)
+/// Implementation of [`MockFriendRoomProvider`] methods.
     impl MockFriendRoomProvider {
         fn new_returning_ok() -> Arc<Self> {
             Arc::new(Self { calls: Mutex::new(Vec::new()), next_result: Mutex::new(Ok(())) })
@@ -214,7 +214,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    /// (see code)
+/// Implementation of [`FriendRoomProvider`] methods.
     impl FriendRoomProvider for MockFriendRoomProvider {
         async fn handle_incoming_friend_request(
             &self,

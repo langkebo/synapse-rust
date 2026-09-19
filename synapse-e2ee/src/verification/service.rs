@@ -23,14 +23,14 @@ pub struct VerificationService {
     storage: Arc<VerificationStorage>,
 }
 
-/// (see code)
+/// Clone implementation for [`VerificationService`].
 impl Clone for VerificationService {
     fn clone(&self) -> Self {
         Self { storage: self.storage.clone() }
     }
 }
 
-/// (see code)
+/// Implementation of [`VerificationService`] methods.
 impl VerificationService {
     /// See [`new`].
     pub fn new(storage: Arc<VerificationStorage>) -> Self {

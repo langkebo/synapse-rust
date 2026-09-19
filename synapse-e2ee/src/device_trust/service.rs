@@ -33,14 +33,14 @@ pub struct DeviceTrustConfig {
     pub require_verification_for_history: bool,
 }
 
-/// (see code)
+/// Default implementation for [`DeviceTrustConfig`].
 impl Default for DeviceTrustConfig {
     fn default() -> Self {
         Self { verification_timeout_minutes: 5, max_unverified_devices: 3, require_verification_for_history: true }
     }
 }
 
-/// (see code)
+/// Clone implementation for [`DeviceTrustService`].
 impl Clone for DeviceTrustService {
     fn clone(&self) -> Self {
         Self {
@@ -53,7 +53,7 @@ impl Clone for DeviceTrustService {
     }
 }
 
-/// (see code)
+/// Implementation of [`DeviceTrustService`] methods.
 impl DeviceTrustService {
     /// See [`new`].
     pub fn new(

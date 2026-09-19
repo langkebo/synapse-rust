@@ -49,7 +49,7 @@ pub enum CryptoError {
     InvalidNonceLength,
 }
 
-/// (see code)
+/// Equality comparison for [`CryptoError`].
 impl PartialEq for CryptoError {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -67,7 +67,7 @@ impl PartialEq for CryptoError {
     }
 }
 
-/// (see code)
+/// Implementation of [`From`] methods.
 impl From<CryptoError> for ApiError {
     fn from(err: CryptoError) -> Self {
         match err {

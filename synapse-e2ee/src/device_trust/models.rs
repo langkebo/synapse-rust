@@ -19,7 +19,7 @@ pub enum DeviceTrustLevel {
     Blocked, // Blocked - cannot decrypt any messages
 }
 
-/// (see code)
+/// Implementation of [`std`] methods.
 impl std::fmt::Display for DeviceTrustLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -30,7 +30,7 @@ impl std::fmt::Display for DeviceTrustLevel {
     }
 }
 
-/// (see code)
+/// Implementation of [`std`] methods.
 impl std::str::FromStr for DeviceTrustLevel {
     type Err = String;
 
@@ -93,7 +93,7 @@ pub struct DeviceTrustStatus {
     pub updated_ts: i64,
 }
 
-/// (see code)
+/// Implementation of [`DeviceTrustStatus`] methods.
 impl DeviceTrustStatus {
     /// See [`new`].
     pub fn new(user_id: &str, device_id: &str) -> Self {
@@ -142,7 +142,7 @@ pub enum VerificationMethod {
     Emoji, // Emoji verification (alias for SAS)
 }
 
-/// (see code)
+/// Implementation of [`std`] methods.
 impl std::fmt::Display for VerificationMethod {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -153,7 +153,7 @@ impl std::fmt::Display for VerificationMethod {
     }
 }
 
-/// (see code)
+/// Implementation of [`std`] methods.
 impl std::str::FromStr for VerificationMethod {
     type Err = String;
 
@@ -186,7 +186,7 @@ pub enum VerificationRequestStatus {
     Expired, // Verification timeout
 }
 
-/// (see code)
+/// Implementation of [`std`] methods.
 impl std::fmt::Display for VerificationRequestStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -198,7 +198,7 @@ impl std::fmt::Display for VerificationRequestStatus {
     }
 }
 
-/// (see code)
+/// Implementation of [`std`] methods.
 impl std::str::FromStr for VerificationRequestStatus {
     type Err = String;
 
@@ -308,7 +308,7 @@ pub struct DeviceVerificationRequest {
     pub completed_at: Option<i64>,
 }
 
-/// (see code)
+/// Implementation of [`DeviceVerificationRequest`] methods.
 impl DeviceVerificationRequest {
     /// See [`new`].
     pub fn new(
@@ -418,7 +418,7 @@ pub struct KeyRotationLog {
     pub rotated_at: i64,
 }
 
-/// (see code)
+/// Implementation of [`KeyRotationLog`] methods.
 impl KeyRotationLog {
     /// See [`new`].
     pub fn new(user_id: &str, device_id: &str, rotation_type: &str) -> Self {
@@ -504,7 +504,7 @@ pub struct E2eeSecurityEvent {
     pub created_ts: i64,
 }
 
-/// (see code)
+/// Implementation of [`E2eeSecurityEvent`] methods.
 impl E2eeSecurityEvent {
     /// See [`new`].
     pub fn new(user_id: &str, event_type: &str) -> Self {
@@ -626,7 +626,7 @@ pub struct SecuritySummary {
     pub recommendations: Vec<String>,
 }
 
-/// (see code)
+/// Implementation of [`SecuritySummary`] methods.
 impl SecuritySummary {
     /// See [`calculate`].
     pub fn calculate(verified: i64, unverified: i64, blocked: i64, has_master_key: bool) -> Self {

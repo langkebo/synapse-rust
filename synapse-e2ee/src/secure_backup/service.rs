@@ -13,7 +13,7 @@ pub struct SecureBackupService {
     pool: Arc<PgPool>,
 }
 
-/// (see code)
+/// Implementation of [`SecureBackupService`] methods.
 impl SecureBackupService {
     /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
