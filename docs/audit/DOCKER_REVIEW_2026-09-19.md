@@ -1,13 +1,41 @@
 # Docker 配置审计与优化方案 — synapse-rust
 
 > 审计日期：2026-09-19
+> 最后更新：2026-09-19（实施完成批次 1 + 批次 2）
 > 审计范围：`docker/Dockerfile`、`docker/complement/Dockerfile`、`docker/docker-compose.yml`、
 > `docker/deploy/docker-compose.yml`、两个 `docker-compose.dev-host-access.yml`、`.dockerignore`、
 > `docker/entrypoint.sh`、`docker/healthcheck.sh`、`docker/deploy/deploy.sh`、`Makefile` 的 docker 目标、
 > `.github/workflows/*` 中的 docker 环节、`docker/deploy/nginx/*`。
-> 方式：**只读审查，未修改任何代码**（按用户要求）。
-> 说明：本次未实际执行 `docker build`（构建上下文所在主机未完成本机构建验证），镜像体积/耗时为**估算值**，
-> 已在文中逐项标注 `[估算]`；凡标注 `[实测需复核]` 的条目建议在实施前用一次真实构建确认。
+> 方式：**只读审查**（批次 1）→ **已实施优化并验证**（批次 2）。
+>
+> 已完成批次（按提交序号）：
+> - **Commit 1**（35a4186f）：P0 组全部 + P1×7 + P2×4
+>   - O1-1: runtime-distroless ENTRYPOINT 修复为直接 exec
+>   - O1-2: deploy.sh digest pin 覆盖移除
+>   - O1-3: .dockerignore 增加 deploy/ssl/ 等排除
+>   - O1-4: git rm --cached creds.env + server.crt（token 已过期）
+>   - O2-1: Dockerfile 与 complement/Dockerfile target cache mount
+>   - O2-2: deploy.sh prune 从 -af 改为有界清理
+>   - O2-3: deploy compose synapse 等待 migrator
+>   - O2-4: redis healthcheck 改用 REDISCLI_AUTH（两栈均已修复）
+>   - O2-5: CI 新增 docker-security-scan.yml（hadolint + trivy）
+>   - O2-6: Makefile docker-redeploy 移除不存在的 web.yml
+>   - O2-8: dev 栈端口收紧为 127.0.0.1（两栈）+ deploy 端口注释
+>   - O3-1: deploy synapse stop_grace_period 30s
+>   - O3-4: dev 栈 postgres shm_size 256m
+>   - O3-7: 移除 healthcheck.sh 死文件安装
+>   - O3-11: .dockerignore 补齐遗漏项
+> - **Commit 2**（a6f4f851）：P1×2 + P2×5
+>   - O2-7: 两栈依赖镜像（postgres/redis/nginx）pin digest
+>   - O2-8（补）: tools 阶段 EXPOSE 去掉 9090
+>   - O3-2: nginx 日志路由到 stdout（Docker json-file 轮转）
+>   - O3-3: .well-known CORS `*` 添加说明（Matrix 发现协议要求）
+>   - O3-5: 所有服务的 memswap_limit
+>   - O3-9: complement builder target cache mount
+>   - O3-13: dev 栈移除无意义的 ./logs 挂载
+>   - O3-14: 数据卷加 backup/data-type 标签
+>
+> `[实测需复核]` 的条目仍需真实构建验证。
 
 ---
 
