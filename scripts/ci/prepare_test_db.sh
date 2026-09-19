@@ -71,7 +71,8 @@ psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c "DROP SCHEMA IF EXISTS \"$TEMPLA
 # search_path entry, which the init script pins via PGOPTIONS.
 TARGET_SCHEMA="$TEMPLATE_SCHEMA" bash scripts/init_test_public_schema.sh
 
-# Write the ready-marker that `synapse-test-utils::template_marker_dir()` uses, so
+# Write the ready-marker that `synapse_common::test_isolation::template_marker_dir()`
+# uses (the single implementation, shared with the isolation template family), so
 # `scripts/cleanup_test_schemas.sh` recognises this template through its generic
 # marker mechanism (keep reason #1) instead of depending on the static
 # `STATIC_KEEP` list. That is what keeps a *future* shell-created live template

@@ -289,11 +289,15 @@ bef65f53 style(fmt): 归零 fmt debt（HEAD 实测 99 块 vs baseline 0，1.93.0
   通用机制（keep reason #1）就能认出 `test_template_ci`；`STATIC_KEEP` 保留为无条件兜底。
   实测：预演输出 `由标记文件认定的 live 模板: 1 个 test_template_ci`，且候选里不含它。
   脚本内已写明"新增 shell 建的 live 模板要写标记，而不是加名单"。
-- **仍存的缝**：`test_isolation_template_<fingerprint>` 由测试框架用 **schema 内标记表**
-  （`_synapse_test_template_ready`）标记，不是标记文件，所以清理脚本仍会把"当前那个"
-  当候选删掉 —— 下次测试重建（约 2 秒），**无正确性影响**，且该家族由框架自己的
-  `prune_stale_isolation_templates` 管理。彻底关闭需要把标记路径抽到
-  `synapse-common::test_isolation` 供两侧共用（改动面较大，单独一轮）。
+- **仍存的缝（已关闭）**：`test_isolation_template_<fingerprint>` 原本只用 **schema 内标记表**
+  标记，清理脚本看不见它，于是会把"当前那个"当候选删掉（下次测试重建 ~2s，无正确性影响）。
+  现已把标记路径抽成 `synapse_common::test_isolation::{template_marker_dir,
+  template_ready_marker_path}` 的**唯一实现**，供 `synapse-test-utils`、隔离模板与清理脚本
+  共用；`build_template` 在写 schema 内标记表的同一处也写文件标记，`prune_stale_isolation_templates`
+  删除被清模板的标记文件。实测：隔离模板重建后出现
+  `synapse_test_template_ready_test_isolation_template_b6a8b06fb13d22f9`，清理预演把它列为
+  **由标记文件认定的 live 模板**（2 个）而不再是候选；删掉该标记文件则它立刻重新成为候选
+  （6 个）、放回后又是 5 个 —— 证明是标记在保护它。
 
 ---
 
@@ -360,14 +364,29 @@ python3 scripts/ci/check_workflow_steps.py
 
 ## 5. 下一步建议顺序
 
-0. **§1.6 的正解**：把 `Result` 穿透 `ServiceContainer::new` → `build_domains` →
-   `E2eeServices::new`，让"缺 at-rest 密钥"成为一条干净的启动错误，去掉那条
-   作用域 `#[allow(clippy::panic)]`（当前是刻意 fail-fast 的临时形态）。
-1. **§2.5 残留**：把"模板 ready 标记"的路径约定抽到 `synapse-common::test_isolation`
-   （无条件编译）供 `synapse-test-utils` 与清理脚本共用，并让隔离模板也写标记文件，
-   这样清理脚本就不再可能删掉当前隔离模板（现为"重建 2 秒"的无害代价）。
-2. **§2.4**：为非 test-only 的 <30% 文件补测试，或明确把 `src/bin` 也列为豁免。
-3. TESTING.md / AGENTS.md 的措辞修正：fmt debt 已归零（本轮修），但棘轮计数含义是
-   "差异块数 × 重复次数"；`run_ci_tests.sh` 已改标为本地封装（本轮修）。
-4. sweep 剩余项（A1–A6 / A9–A12 / B7–B9 / B11–B16）：按 sweep §3/§4 的裁定逐个处理，
-   每项都要红证明；A7/A8 保持 push-only 的取舍需在分支保护侧确认。
+已完成（见上文各节）：§1.6（`Result` 穿透）、§2.1、§2.2、§2.3、§2.5、A9、A10、A12、
+B8、B13、B14、B15、C7、D1，以及 CI 等效跑发现的 beacon 竞争。
+
+剩余（按建议优先级）：
+
+1. **§2.4**：为非 test-only 的 <30% 文件补测试，或明确把 `src/bin` 也列为豁免。
+2. **A6**：`benchmark.yml`（4 处裸 `| tee`，无 `set -o pipefail`）与
+   `e2ee-interop.yml` 的同类写法 —— 失败仍会被 tee 的 0 吞掉。
+3. **A9 残留**：`ledger-export.yml` 的 job 级 `continue-on-error` —— 要么变真门禁，
+   要么在 job 名/注释里明确"纯报告"并确认它不在分支保护里。
+4. **A11**：`drift-detection.yml` 的 PR 分支只挂 `main` + 同目录 basename `uniq -d` 恒空。
+5. **B7 / B9 / B11 / B12**：`perf_gate_honesty` 断言弱；`schema_lifecycle_guard` 扫描根
+   仍缺 `synapse-test-utils/src`、`tests/`（也不含 `synapse-web/src`）；
+   `migration_replayability_guard`/`migration_search_path` 主体为空；`mock_fidelity`
+   仍是文本存在性断言。
+6. **C3 / C8 / C10**：`check_baseline_consolidation` 对空集生效；
+   `check_missing_docs_ratchet` 里 `-A/-D missing_docs` 的机制描述是错的；
+   `REQUIRED_V8_BATCHES` 为空。
+7. **D2**：设计文档仍引用不存在的守卫名。
+8. **E4 / E6 / E7 / E8 / E9**：分页基准自比；`check_route_layering.sh` 无扫描面守卫；
+   `build_sqlx_migration_source.py` 无断言；openapi/route-table 无 diff 校验；
+   `extract_unresolved_allowlist.txt` 只对新条目变红。
+9. **文档**：`AGENTS.md` / `CLAUDE.md` 仍把 `run_ci_tests.sh` 写成 CI 等价入口
+   （TESTING.md 已改标为本地封装）；fmt 棘轮计数含义是"差异块数 × 重复次数"。
+10. **A7/A8**：integration/coverage/build 保持 push-only 是既定取舍，需在分支保护侧
+    确认这三个 job 确实被要求。

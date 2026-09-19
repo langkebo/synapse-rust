@@ -114,7 +114,8 @@ echo "    实际连到: db=$CURRENT_DB server=$CURRENT_HOST"
 # （CI 各测试步骤 pin 的共享模板）列为删除候选，`--apply` 即 CASCADE 掉。
 # 新增此类模板时在这里加名字，并在 tests/unit/cleanup_schema_script_tests.rs 里补守卫。
 STATIC_KEEP=("test_template_ci")
-# 标记目录与 src/test_utils.rs::template_marker_dir() 一致。
+# 标记目录与 synapse_common::test_isolation::template_marker_dir() 一致（该实现是唯一一份：
+# 隔离模板与共享模板都写它，清理脚本读它）。
 # 允许用 SYNAPSE_TEMPLATE_MARKER_DIR 覆盖：本地自定义 CARGO_TARGET_DIR 时，
 # 默认的 $CARGO_TARGET_TMPDIR / <repo>/target/tmp 都可能指不到标记文件，
 # 导致这里找不到任何 live 模板而中止（§9 的实测痛点）。CI 里则应指向

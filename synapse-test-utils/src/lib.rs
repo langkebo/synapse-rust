@@ -160,7 +160,6 @@ const DEFAULT_TEST_DB_INIT_TIMEOUT_SECS: u64 = 300;
 // `--test-threads`, or lower TEST_DB_MAX_CONNECTIONS.
 const DEFAULT_TEST_DB_SHARED_CLONE_CONCURRENCY: usize = 12;
 const TEST_TEMPLATE_SCHEMA_REVISION: u32 = 2;
-const TEST_TEMPLATE_READY_MARKER_PREFIX: &str = "synapse_test_template_ready";
 
 /// The `EnvLockGuard` struct.
 pub struct EnvLockGuard {
@@ -920,25 +919,13 @@ async fn ensure_template_schema_exists(database_url: &str, schema_name: &str) ->
     Ok(())
 }
 
-/// Directory holding the `*_ready_<schema>` marker files that record which
-/// template schemas are usable. Shared by the marker writer, the readiness
-/// check, and [`prune_stale_template_schemas`] (which deletes the markers of
-/// templates it drops).
-fn template_marker_dir() -> std::path::PathBuf {
-    let dir = std::env::var("CARGO_TARGET_TMPDIR")
-        .ok()
-        .map_or_else(
-            || std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target").join("tmp"),
-            std::path::PathBuf::from,
-        )
-        .join("synapse_test_templates");
-    let _ = std::fs::create_dir_all(&dir);
-    dir
-}
-
-fn template_ready_marker_path(schema_name: &str) -> std::path::PathBuf {
-    template_marker_dir().join(format!("{TEST_TEMPLATE_READY_MARKER_PREFIX}_{schema_name}"))
-}
+// The ready-marker directory/file helpers now live in
+// `synapse_common::test_isolation` — one definition shared with the isolation
+// template family (which previously wrote no file marker at all, so
+// `cleanup_test_schemas.sh` treated the current isolation template as a deletion
+// candidate; follow-up doc §2.5). Re-exported under the old names so this module's
+// call sites and the marker reader keep a single path convention.
+use synapse_common::test_isolation::template_ready_marker_path;
 
 /// Drop template schemas superseded by `keep`.
 ///

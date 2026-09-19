@@ -41,6 +41,48 @@ const TEMPLATE_LOCK_POLL_INTERVAL: Duration = Duration::from_millis(100);
 /// Marker table written into the template only after a complete build.
 pub const TEMPLATE_READY_TABLE: &str = "_synapse_test_template_ready";
 
+/// Prefix of the *file* marker name. Must stay in sync with
+/// `scripts/cleanup_test_schemas.sh`, whose keep-reason #1 globs
+/// `synapse_test_template_ready_*`.
+pub const TEMPLATE_READY_MARKER_PREFIX: &str = "synapse_test_template_ready";
+
+/// Directory holding the `synapse_test_template_ready_<schema>` files that record
+/// which template schemas are live.
+///
+/// One definition, three consumers: this module (writes it for the isolation
+/// template family), `synapse-test-utils` (writes it for the shared templates it
+/// builds), and `scripts/cleanup_test_schemas.sh` (reads it to decide what to
+/// keep). The path logic used to exist twice and the isolation family wrote **no**
+/// file marker at all, so the cleanup script could not tell the current isolation
+/// template from a superseded one and listed it as a deletion candidate
+/// (follow-up doc §2.5).
+///
+/// `CARGO_TARGET_TMPDIR` is set by cargo for integration-test binaries; the
+/// fallback is the workspace-root `target/tmp`, which is also the cleanup
+/// script's default — so a locally-run script finds what a `--lib` test wrote.
+pub fn template_marker_dir() -> std::path::PathBuf {
+    let dir = std::env::var("CARGO_TARGET_TMPDIR")
+        .ok()
+        .map_or_else(
+            || {
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new("."))
+                    .join("target")
+                    .join("tmp")
+            },
+            std::path::PathBuf::from,
+        )
+        .join("synapse_test_templates");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+/// Path of the ready-marker file that marks `schema_name` as a live template.
+pub fn template_ready_marker_path(schema_name: &str) -> std::path::PathBuf {
+    template_marker_dir().join(format!("{TEMPLATE_READY_MARKER_PREFIX}_{schema_name}"))
+}
+
 /// The template rows the **baseline migrations** seed, and therefore the only
 /// tables [`SeedSource::Only`] ever has anything to copy for.
 ///
@@ -559,7 +601,19 @@ async fn prune_isolation_templates(conn: &mut sqlx::PgConnection, keep: &str) ->
         }
 
         match sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#)).execute(&mut *conn).await {
-            Ok(_) => dropped.push(schema),
+            Ok(_) => {
+                // Drop the file marker too: a marker for a schema that no longer
+                // exists would keep `cleanup_test_schemas.sh` from ever reporting
+                // the name as stale (same bookkeeping `synapse-test-utils` does
+                // when it prunes its own family).
+                let marker_path = template_ready_marker_path(&schema);
+                if marker_path.exists() {
+                    if let Err(error) = std::fs::remove_file(&marker_path) {
+                        tracing::warn!(path = %marker_path.display(), %error, "failed to remove the pruned template's ready marker");
+                    }
+                }
+                dropped.push(schema);
+            }
             Err(error) => {
                 tracing::warn!(schema = %schema, %error, "failed to drop stale test isolation template schema");
             }
@@ -647,6 +701,21 @@ async fn build_template(conn: &mut sqlx::PgConnection, template: &str, baseline_
         .execute(&mut *conn)
         .await
         .map_err(|e| format!("failed to seed the readiness marker of template {template}: {e}"))?;
+
+    // Publish the same conclusion as a *file*, because
+    // `scripts/cleanup_test_schemas.sh` cannot see the in-schema marker table: its
+    // keep list is built from `synapse_test_template_ready_*` files. Best-effort —
+    // an unwritable target directory must not fail template construction (the
+    // template itself is complete and usable; only the cleanup hint is missing).
+    let marker_path = template_ready_marker_path(template);
+    if let Err(error) = std::fs::write(&marker_path, b"") {
+        tracing::warn!(
+            path = %marker_path.display(),
+            %error,
+            "could not write the template ready marker file; cleanup_test_schemas.sh will not \
+             recognise this template without --keep-template"
+        );
+    }
 
     Ok(())
 }
