@@ -136,27 +136,28 @@ const DEFAULT_TEST_DB_MAX_LIFETIME_SECS: u64 = 300;
 const DEFAULT_TEST_DB_INIT_TIMEOUT_SECS: u64 = 300;
 // P1: raised from 8 → 12 to match nextest ci test-threads=12.
 //
-// Connection-budget reality check (corrected 2026-09-11; the previous comment
-// claimed "PostgreSQL max_connections=100 supports 12*~5=60 conns", but `~5` was
-// a guess at *actual* usage while the pool is configured to grow to
-// DEFAULT_TEST_DB_MAX_CONNECTIONS = 40):
+// Connection-budget accounting (recalibrated 2026-09-19 — see
+// `tests/unit/test_connection_budget_tests.rs`):
 //
-//   - `tests/common::get_test_pool_async()` builds a NEW pool per test (there is
-//     no shared/static pool), so each concurrently running test owns a pool that
-//     may hold up to 40 connections.
-//   - Worst-case demand is therefore `concurrency × pool_max`. At ci
-//     test-threads=12 that is 12 × 40 = 480, far beyond PostgreSQL's default
-//     max_connections=100.
-//   - This semaphore only bounds concurrent *template-schema clones*; it does
-//     NOT bound connections.
+//   - `tests/common::get_test_pool_async()` builds a NEW pool per test, so each
+//     concurrently running test owns a pool whose *ceiling* is
+//     `DEFAULT_TEST_DB_MAX_CONNECTIONS = 40`.
+//   - That ceiling is not demand. `DEFAULT_TEST_DB_MIN_CONNECTIONS = 0` (sqlx
+//     opens lazily) and every DB fixture issues its queries serially — the
+//     isolated pool documents this and caps itself at `max_connections(1)`.
+//   - The budget therefore counts **demand**: `test-threads × connections held
+//     per test` + a reserve for the admin/template/clone pools, which at
+//     test-threads=12 is 12 × 1 + 20 = 32 ≤ 100.
+//   - The earlier model (`12 × 40 = 480 > 100`) described a violation that never
+//     happened and was only `println!`-ed, so it enforced nothing. The gate now
+//     asserts the demand model and can go red (raise test-threads or the
+//     per-test constant).
 //
-// Consequence (measured, see docs/audit/P0_baseline_2026-09-10.md §2.2.1): the
-// same commit reports "1417 passed / 9 flagged" at low system load and
+// History: the same commit reported "1417 passed / 9 flagged" at low load and
 // "1408 passed, 12 failed, 7 timed out" under load, while the timed-out set
-// passes 13/13 when re-run serially. That is connection starvation, not a code
-// defect. Keep heavy groups on low `--test-threads`, or lower
-// TEST_DB_MAX_CONNECTIONS. `tests/unit/test_connection_budget_tests.rs` prints
-// the live numbers and fails if a single pool could exhaust the server.
+// passed 13/13 when re-run serially — starvation, not a code defect (see
+// docs/audit/P0_baseline_2026-09-10.md §2.2.1). Keep heavy groups on low
+// `--test-threads`, or lower TEST_DB_MAX_CONNECTIONS.
 const DEFAULT_TEST_DB_SHARED_CLONE_CONCURRENCY: usize = 12;
 const TEST_TEMPLATE_SCHEMA_REVISION: u32 = 2;
 const TEST_TEMPLATE_READY_MARKER_PREFIX: &str = "synapse_test_template_ready";

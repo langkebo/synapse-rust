@@ -73,16 +73,35 @@ fn ci_profile_test_threads() -> u32 {
     panic!("test-threads not found in [profile.ci] of .config/nextest.toml");
 }
 
-/// The invariant: one pool per concurrently-running test, each able to open
-/// `pool_max` connections, must not assume more than PostgreSQL's default
-/// `max_connections` (100) — otherwise connection acquisition blocks and tests
-/// time out under load while passing serially.
+/// Connections one concurrently-running DB test actually holds at once.
 ///
-/// This documents the *current* relationship rather than asserting an ideal:
-/// the assertion below uses a deliberately conservative "at most 3 concurrent
-/// pools" bound so that it fails only on a real regression of the pool ceiling,
-/// not on every change to the profile's thread count. The measured numbers are
-/// printed so drift is visible in test output.
+/// The pool **ceiling** (`pool_max = 40`) is not demand: sqlx opens connections
+/// lazily (`DEFAULT_TEST_DB_MIN_CONNECTIONS = 0`) and every DB fixture issues its
+/// queries serially — the isolated pool documents exactly that and caps itself at
+/// `max_connections(1)`. The budget must model demand, not the ceiling.
+///
+/// The previous model (`test-threads × pool_max` = 12 × 40 = 480 vs the server's
+/// 100) therefore reported a 4.8× "violation" that never occurred, and the only
+/// thing it did about it was `println!`. The invariant was neither enforced nor
+/// true: there was no assertion at all, so no change to the pool or the profile
+/// could turn it red. Re-measured 2026-09-19 and recalibrated here.
+///
+/// If a fixture ever starts issuing concurrent queries, raise this constant (and
+/// say why) — that is the deliberate, visible decision the gate exists to force.
+const CONNECTIONS_HELD_PER_TEST: u32 = 1;
+
+/// Head-room for the admin/template/clone pools the harness also opens (the
+/// template builder, the schema-clone pool and the exit-cleanup pools each allow
+/// a small number of connections in addition to the per-test pools).
+const HARNESS_POOL_RESERVE: u32 = 20;
+
+/// The invariant: the suite's worst-case **simultaneous demand** must fit
+/// PostgreSQL's default `max_connections` (100), otherwise connection acquisition
+/// blocks and tests time out under load while passing serially.
+///
+/// The assertion is a real one (it can fail): raising the ci profile's
+/// `test-threads`, raising `CONNECTIONS_HELD_PER_TEST`, or lowering the server
+/// limit makes it red.
 #[test]
 fn test_db_connection_budget_is_documented_and_bounded() {
     let pool_max = default_test_db_max_connections();
@@ -92,11 +111,21 @@ fn test_db_connection_budget_is_documented_and_bounded() {
     // .github/workflows/*.yml — verified when this test was written).
     const PG_DEFAULT_MAX_CONNECTIONS: u32 = 100;
 
-    let worst_case_demand = ci_threads.saturating_mul(pool_max);
+    let worst_case_demand = ci_threads.saturating_mul(CONNECTIONS_HELD_PER_TEST).saturating_add(HARNESS_POOL_RESERVE);
 
     println!(
-        "test DB connection budget: ci test-threads={ci_threads}, pool_max={pool_max} \
-         → worst-case demand={worst_case_demand} vs PG max_connections={PG_DEFAULT_MAX_CONNECTIONS}"
+        "test DB connection budget: ci test-threads={ci_threads} x {CONNECTIONS_HELD_PER_TEST} conn/test \
+         + {HARNESS_POOL_RESERVE} harness reserve = {worst_case_demand} vs PG max_connections=\
+         {PG_DEFAULT_MAX_CONNECTIONS} (the per-pool ceiling {pool_max} is a bound on one pool, not demand)"
+    );
+
+    assert!(
+        worst_case_demand <= PG_DEFAULT_MAX_CONNECTIONS,
+        "the suite's worst-case simultaneous connection demand ({ci_threads} test processes x \
+         {CONNECTIONS_HELD_PER_TEST} connection(s) each + {HARNESS_POOL_RESERVE} harness reserve = \
+         {worst_case_demand}) must fit PostgreSQL's max_connections ({PG_DEFAULT_MAX_CONNECTIONS}). \
+         Lower `[profile.ci] test-threads` in .config/nextest.toml, raise the server limit, or justify \
+         a higher per-test demand in CONNECTIONS_HELD_PER_TEST."
     );
 
     // The pool ceiling itself must stay sane. 40 is already 40% of the default
@@ -108,17 +137,4 @@ fn test_db_connection_budget_is_documented_and_bounded() {
          max_connections ({PG_DEFAULT_MAX_CONNECTIONS}) — a single pool must never be able to \
          exhaust the whole server"
     );
-
-    // Guard the documented relationship: if worst-case demand exceeds the server
-    // budget, the suite MUST be run serially (or the ceiling lowered). Record that
-    // expectation explicitly so lowering the ceiling or raising threads is a
-    // conscious decision.
-    if worst_case_demand > PG_DEFAULT_MAX_CONNECTIONS {
-        println!(
-            "NOTE: worst-case demand {worst_case_demand} exceeds {PG_DEFAULT_MAX_CONNECTIONS}; \
-             the suite relies on (a) pools not growing to their ceiling in practice and \
-             (b) running heavy groups with low --test-threads. See \
-             docs/audit/P0_baseline_2026-09-10.md §2.2.1."
-        );
-    }
 }
