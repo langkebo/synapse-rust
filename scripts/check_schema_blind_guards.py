@@ -44,6 +44,12 @@ SAFE_FILES: dict[str, str] = {
     "synapse-test-utils/src/lib.rs": "test isolation framework, guarded DROP public with deploy detection",
     # test_isolation.rs 里的 DROP 字面量是 SQL 注入防御的测试 payload（不是真实 DROP）
     "synapse-common/src/test_isolation.rs": "test payloads for SQL injection defense — DROP strings are test inputs, not real operations",
+    # CI 工作流：明确针对 synapse 生产库的迁移验证，非 schema-blind guard 缺陷
+    ".github/workflows/ci.yml": "CI migration validation against synapse production DB, public refs are intentional",
+    ".github/workflows/db-tests-manual.yml": "Manual db test script targeting synapse DB, public schema explicit by design",
+    ".github/workflows/drift-detection.yml": "Drift detection baseline apply to synapse DB, public schema is target",
+    # database_initializer：生产代码迁移后完整性验证，非守卫缺陷
+    "synapse-services/src/database_initializer/mod.rs": "Production migration validation & normalization utility, not a schema-blind guard",
 }
 
 # ── 检查目标 ──────────────────────────────────────────────────────────────────
@@ -77,6 +83,9 @@ PATTERNS: list[tuple[str, str, str]] = [
         "error",
     ),
     # 3. SQL catalog 查询硬编码 table_schema='public'（守卫只看 public → 盲区）
+    #    注：以下文件中的 table_schema='public' 已确认为合法用途（SAFE_FILES 中有理由），
+    #    但仍报 warning 保留可见性，便于后续审计人员核查上下文。
+    #    真正危险的模式是 Rust current_schema() 字面量比较（pattern 2，error 级）。
     (
         r"table_schema\s*=\s*['\"]public['\"]",
         "hardcoded table_schema='public' in catalog query — verify this is intentional "
