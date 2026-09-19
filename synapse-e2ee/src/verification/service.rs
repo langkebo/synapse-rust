@@ -615,26 +615,32 @@ mod tests {
     async fn cancel_verification_transitions_to_cancelled() {
         // 预存验证测试：cancel_verification 需要 DB，但测试以无异常为主
         // 直接创建 pool 不触发 IO，DB 不可连时也不应 panic
-        let pool = sqlx::PgPool::connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
-            .unwrap_or_else(|_| sqlx::PgPool::connect_lazy("postgres://synapse:synapse@127.0.0.1:5432/synapse_test").expect("pool creation"));
+        let pool =
+            sqlx::PgPool::connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test").unwrap_or_else(|_| {
+                sqlx::PgPool::connect_lazy("postgres://synapse:synapse@127.0.0.1:5432/synapse_test")
+                    .expect("pool creation")
+            });
         let pool = std::sync::Arc::new(pool);
         let svc = VerificationService::new(Arc::new(VerificationStorage::new(&pool)));
-        
+
         // 验证取消操作不会 panic；DB 连接成功时应返回 Ok，若无数据则 update 无匹配行也不报错
         let result = svc.cancel_verification("test-tx-id", "test_code", "test_reason").await;
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "cancel_verification must not fail: {result:?}");
     }
 
     #[tokio::test]
     async fn get_request_returns_none_for_unknown_transaction() {
         // 预存验证测试：get_request 需要 DB，但测试以无异常为主
-        let pool = sqlx::PgPool::connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
-            .unwrap_or_else(|_| sqlx::PgPool::connect_lazy("postgres://synapse:synapse@127.0.0.1:5432/synapse_test").expect("pool creation"));
+        let pool =
+            sqlx::PgPool::connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test").unwrap_or_else(|_| {
+                sqlx::PgPool::connect_lazy("postgres://synapse:synapse@127.0.0.1:5432/synapse_test")
+                    .expect("pool creation")
+            });
         let pool = std::sync::Arc::new(pool);
         let svc = VerificationService::new(Arc::new(VerificationStorage::new(&pool)));
-        
+
         let result = svc.get_request("nonexistent-tx-12345").await;
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "get_request must not fail: {result:?}");
         assert!(result.unwrap().is_none());
     }
 }
