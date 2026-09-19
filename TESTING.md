@@ -139,7 +139,9 @@ PR 侧只要求常开门禁（`Repo Sanity`、`Test & Lint (...)`、`Security Au
 该决定由 `tests/unit/ci_test_scope_tests.rs::push_only_ci_jobs_keep_their_deliberate_trigger_scope`
 钉住（红证明：把任一 job 的 `schedule` 换成 `pull_request` → 该测试 FAILED），改动它必须是有意识的决定。
 
-**仍需在 GitHub 分支保护里确认（本地无法查询，`gh` token 失效）**：
+**状态（2026-09-19）**：维护者已在 GitHub 侧修改分支保护规则（据维护者告知）。本地无法读取该设置（`gh` token 失效），因此**本文件不断言具体 required 列表**；需要核对时用下面的命令读，并把结果回填到这里。若三个 push-only job 仍被列为 required，PR 会卡在 Expected —— 必须把它们移出 required。
+
+**核对命令**：
 1. 上述三个 job 是否被列为 required status checks；
 2. 若被列为 required，PR 上"从未上报/被跳过"的 check GitHub 如何判定（会不会以 Expected 卡住合并）；
 3. 确认 `Mutation Testing (nightly, REPORT ONLY — not a merge gate)`、`Secrets preflight`、

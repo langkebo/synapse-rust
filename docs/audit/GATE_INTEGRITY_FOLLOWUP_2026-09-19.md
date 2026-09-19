@@ -607,6 +607,8 @@ CI 等效跑发现的 beacon 竞争与表覆盖门禁命中的一次性表名。
 
 ### 6.6 A7/A8：分支保护侧需要人工确认（无法用 `gh` 查询）
 
+> **状态（2026-09-19）**：分支保护已在 GitHub 侧修改（维护者告知）；本地 `gh` token 失效、无法读取，故此处不写具体 required 列表，核对命令见本节下方与 `TESTING.md` §2.4。
+>
 > **裁定（2026-09-19，维护者确认）：保持 push-only。** 三个 job 不加入 `pull_request`；PR 侧只要求
 > 常开门禁。决定已用 `tests/unit/ci_test_scope_tests.rs::push_only_ci_jobs_keep_their_deliberate_trigger_scope`
 > 钉住（非空性：恰好 3 个 job；红证明：把 `integration-test` 的 `schedule` 换成 `pull_request` →
