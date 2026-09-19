@@ -9,7 +9,7 @@ license = "AGPL-3.0-only"
 
 [lints.clippy]
 unwrap_used = "deny"
-expect_used = "warn"
+expect_used = "deny"
 panic = "allow"
 todo = "warn"
 unimplemented = "warn"
@@ -228,7 +228,7 @@ exclude = ["vendor/pastey"]
 # until it is migrated too.
 [workspace.lints.clippy]
 unwrap_used = "deny"
-expect_used = "warn"
+expect_used = "deny"
 panic = "allow"
 todo = "warn"
 unimplemented = "warn"
