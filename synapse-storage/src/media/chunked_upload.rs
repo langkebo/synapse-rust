@@ -120,15 +120,23 @@ pub struct StoreUploadChunkRequest {
 // ── Trait ───────────────────────────────────────────────────────────────
 
 /// The `ChunkedUploadStorage` struct.
+///
+/// Keeps the `Arc<PgPool>` handle rather than a downgraded inner clone. The
+/// test-schema janitor frees a per-test schema as soon as the last
+/// `Arc<PgPool>` is released, so downgrading here let a fixture drop the schema
+/// while the chunked-upload flow was still writing to it: the chunk INSERTs
+/// landed in the isolated schema, the later `SELECT chunk_data` resolved into
+/// `public` through `search_path`, and the download came back empty
+/// (`left: []` in `test_chunked_complete_can_be_downloaded_via_media_service`).
 #[derive(Clone)]
 pub struct ChunkedUploadStorage {
-    pool: PgPool,
+    pool: Arc<PgPool>,
 }
 
 impl ChunkedUploadStorage {
     /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
-        Self { pool: (**pool).clone() }
+        Self { pool: pool.clone() }
     }
 
     /// See [`create_upload`].
@@ -148,7 +156,7 @@ impl ChunkedUploadStorage {
         .bind(request.total_chunks)
         .bind(request.created_ts)
         .bind(request.expires_at)
-        .execute(&self.pool)
+        .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to start upload", e))?;
 
@@ -171,7 +179,7 @@ impl ChunkedUploadStorage {
         .bind(&request.chunk_data)
         .bind(request.chunk_size)
         .bind(request.created_ts)
-        .execute(&self.pool)
+        .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to store chunk", e))?;
 
@@ -198,7 +206,7 @@ impl ChunkedUploadStorage {
         .bind(upload_id)
         .bind(chunk_size)
         .bind(now_ts)
-        .execute(&self.pool)
+        .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to update progress", e))?;
 
@@ -211,7 +219,7 @@ impl ChunkedUploadStorage {
             "SELECT upload_id, user_id, filename, content_type, total_size, uploaded_size, total_chunks, uploaded_chunks, status, created_ts, updated_ts, expires_at FROM upload_progress WHERE upload_id = $1",
         )
         .bind(upload_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get progress", e))
     }
@@ -220,7 +228,7 @@ impl ChunkedUploadStorage {
     pub async fn load_chunk_data(&self, upload_id: &str) -> Result<Vec<Vec<u8>>, ApiError> {
         let rows = sqlx::query("SELECT chunk_data FROM upload_chunks WHERE upload_id = $1 ORDER BY chunk_index")
             .bind(upload_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get chunks", e))?;
 
@@ -288,7 +296,7 @@ impl ChunkedUploadStorage {
     pub async fn list_expired_upload_ids(&self, now_ts: i64) -> Result<Vec<String>, ApiError> {
         sqlx::query_scalar("SELECT upload_id FROM upload_progress WHERE expires_at < $1")
             .bind(now_ts)
-            .fetch_all(&self.pool)
+            .fetch_all(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to find expired uploads", e))
     }
@@ -299,7 +307,7 @@ impl ChunkedUploadStorage {
             "SELECT upload_id, user_id, filename, content_type, total_size, uploaded_size, total_chunks, uploaded_chunks, status, created_ts, updated_ts, expires_at FROM upload_progress WHERE user_id = $1 AND status != 'finalized' ORDER BY created_ts DESC",
         )
         .bind(user_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to list uploads", e))
     }

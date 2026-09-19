@@ -345,10 +345,20 @@ mod db_tests {
     use synapse_common::current_timestamp_millis;
     use uuid::Uuid;
 
-    async fn test_pool() -> Arc<PgPool> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// A per-test schema, not the shared `public` one.
+    ///
+    /// `delete_events_before(now)` sweeps **every** audit event older than the
+    /// caller's timestamp, so on the shared schema one test's cleanup deleted
+    /// another test's freshly inserted fixture row and `deleted >= 1` failed
+    /// with `deleted == 0` (measured 2026-09-19 under `--test-threads 4`; it
+    /// showed up as `test_delete_events_before_bypasses_append_only_guard` and
+    /// as the `test_audit_events_reject_unflagged_delete` retry-flake). Dropping
+    /// the shared state removes the race instead of serialising around it
+    /// (AGENTS.md rule 7) — the same fix `beacon::db_tests` took in `fff782dd`.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     fn sample_request(event_id: &str) -> CreateAuditEventRequest {
@@ -365,7 +375,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_events_before_bypasses_append_only_guard() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AuditEventStorage::new(&pool);
 
         let event_id = Uuid::new_v4().to_string();
@@ -403,7 +413,7 @@ mod db_tests {
     /// removal of `20260710190001_audit_log_append_only.sql` went unnoticed.
     #[tokio::test]
     async fn test_audit_events_reject_unflagged_delete() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AuditEventStorage::new(&pool);
         let event_id = Uuid::new_v4().to_string();
         let ts = current_timestamp_millis();

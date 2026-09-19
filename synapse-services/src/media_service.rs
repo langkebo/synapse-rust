@@ -126,7 +126,7 @@ impl MediaService {
             task_queue,
             default_thumbnail_configs,
             server_name: server_name.to_string(),
-            admin_media_storage: pool.as_ref().map(|p| AdminMediaStorage::new(p)),
+            admin_media_storage: pool.as_ref().map(AdminMediaStorage::new),
             link_signer: None,
         }
     }

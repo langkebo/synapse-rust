@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use std::sync::Arc;
 use synapse_common::ApiError;
 
 /// The `MediaCursor` struct.
@@ -95,9 +96,17 @@ fn map_media_row(row: AdminMediaRow) -> AdminMediaInfo {
 }
 
 /// The `AdminMediaStorage` struct.
+///
+/// Holds the `Arc<PgPool>` handle it was built with, not a downgraded inner
+/// clone: the test-schema janitor drops a per-test schema as soon as the last
+/// `Arc<PgPool>` is released (`synapse_common::test_schema_guard`), so a
+/// service that downgrades the handle lets a fixture release the schema while
+/// the service is still querying it. Unqualified queries then resolve through
+/// `search_path` into the shared `public` schema — the media chunked-download
+/// and quota flakes of 2026-09-19.
 #[derive(Clone)]
 pub struct AdminMediaStorage {
-    pool: sqlx::PgPool,
+    pool: Arc<sqlx::PgPool>,
 }
 
 /// The `AdminMediaStoreApi` trait.
@@ -119,7 +128,7 @@ pub trait AdminMediaStoreApi: Send + Sync {
 
 impl AdminMediaStorage {
     /// See [`new`].
-    pub fn new(pool: &sqlx::PgPool) -> Self {
+    pub fn new(pool: &Arc<sqlx::PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
@@ -152,7 +161,7 @@ impl AdminMediaStorage {
         .bind(size)
         .bind(uploader_user_id)
         .bind(created_ts)
-        .execute(&self.pool)
+        .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
@@ -173,7 +182,7 @@ impl AdminMediaStorage {
         .bind(cursor.as_ref().map(|cursor| cursor.created_ts))
         .bind(cursor.as_ref().map(|cursor| cursor.media_id.as_str()))
         .bind(limit)
-        .fetch_all(&self.pool)
+        .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
@@ -195,7 +204,7 @@ impl AdminMediaStorage {
                FROM media_metadata WHERE media_id = $1"#,
         )
         .bind(media_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
@@ -206,7 +215,7 @@ impl AdminMediaStorage {
     pub async fn delete_media(&self, media_id: &str) -> Result<bool, ApiError> {
         let result = sqlx::query("DELETE FROM media_metadata WHERE media_id = $1")
             .bind(media_id)
-            .execute(&self.pool)
+            .execute(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
@@ -216,11 +225,11 @@ impl AdminMediaStorage {
     /// See [`get_media_quota`].
     pub async fn get_media_quota(&self) -> Result<AdminMediaQuotaSummary, ApiError> {
         let total_size = sqlx::query_scalar::<_, i64>("SELECT COALESCE(SUM(size), 0)::BIGINT FROM media_metadata")
-            .fetch_one(&self.pool)
+            .fetch_one(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
         let total_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*)::BIGINT FROM media_metadata")
-            .fetch_one(&self.pool)
+            .fetch_one(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
@@ -235,7 +244,7 @@ impl AdminMediaStorage {
                FROM media_metadata WHERE uploader_user_id = $1 ORDER BY created_ts DESC"#,
         )
         .bind(user_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
@@ -246,7 +255,7 @@ impl AdminMediaStorage {
     pub async fn delete_user_media(&self, user_id: &str) -> Result<u64, ApiError> {
         let result = sqlx::query("DELETE FROM media_metadata WHERE uploader_user_id = $1")
             .bind(user_id)
-            .execute(&self.pool)
+            .execute(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 

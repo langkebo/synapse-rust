@@ -194,10 +194,21 @@ mod db_tests {
     const BASE_TS: i64 = 1700000000000;
     const ONE_HOUR_MS: i64 = 3_600_000;
 
-    async fn test_pool() -> Arc<PgPool> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// A per-test schema, not the shared `public` one.
+    ///
+    /// `cleanup_expired_previews(now)` deletes **every** preview whose
+    /// `expires_at <= now` in the current schema, and these fixtures are pinned
+    /// to `BASE_TS` (2023-11), i.e. long expired relative to wall-clock `now`.
+    /// On the shared schema a sibling test's sweep therefore deleted a row this
+    /// test had just saved, and `test_round_trip_all_option_fields_none` failed
+    /// with "preview should be found" (measured 2026-09-19 under
+    /// `--test-threads 4`). Per-test schemas remove the shared state instead of
+    /// serialising around it — the same fix `audit::db_tests` and
+    /// `beacon::db_tests` took (`fff782dd`).
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     async fn cleanup_by_prefix(pool: &PgPool, prefix: &str) {
@@ -227,7 +238,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_save_and_get_preview() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = UrlPreviewStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let url = format!("https://example.com/test-save-{suffix}");
@@ -265,7 +276,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_preview_not_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = UrlPreviewStorage::new(&pool);
         let nonexistent_url = format!("https://example.com/nonexistent-{}", uuid::Uuid::new_v4());
 
@@ -279,7 +290,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_expired_preview_returns_none() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = UrlPreviewStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let url = format!("https://example.com/test-expired-{suffix}");
@@ -304,7 +315,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_update_preview_via_upsert() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = UrlPreviewStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let url = format!("https://example.com/test-upsert-{suffix}");
@@ -359,7 +370,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_cleanup_expired_previews() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = UrlPreviewStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let prefix = format!("https://example.com/test-cleanup-{suffix}");
@@ -408,7 +419,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_round_trip_all_option_fields_none() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = UrlPreviewStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let url = format!("https://example.com/test-minimal-{suffix}");

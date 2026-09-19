@@ -7,14 +7,21 @@ use synapse_common::ApiError;
 use super::models::*;
 
 /// The `MediaQuotaStorage` struct.
+///
+/// Keeps the `Arc<PgPool>` handle rather than a downgraded inner clone: the
+/// test-schema janitor frees a per-test schema as soon as the last
+/// `Arc<PgPool>` is released, so a storage that only keeps the inner `PgPool`
+/// lets a fixture release the schema while this storage is still querying it —
+/// the unqualified quota queries then silently resolve into `public` (observed
+/// as a `fk_user_media_quota_user` violation from the shared schema).
 pub struct MediaQuotaStorage {
-    pool: PgPool,
+    pool: Arc<PgPool>,
 }
 
 impl MediaQuotaStorage {
     /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
-        Self { pool: (**pool).clone() }
+        Self { pool: pool.clone() }
     }
 
     /// See [`get_default_config`].
@@ -22,7 +29,7 @@ impl MediaQuotaStorage {
         let config = sqlx::query_as::<_, MediaQuotaConfig>(
             r"SELECT id, name, description, max_storage_bytes, max_file_size_bytes, max_files_count, allowed_mime_types, blocked_mime_types, is_default, is_enabled, created_ts, updated_ts FROM media_quota_config WHERE is_default = TRUE AND is_enabled = TRUE LIMIT 1",
         )
-        .fetch_optional(&self.pool)
+        .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get default quota config", e))?;
 
@@ -33,7 +40,7 @@ impl MediaQuotaStorage {
     pub async fn get_config(&self, config_id: i64) -> Result<Option<MediaQuotaConfig>, ApiError> {
         let config = sqlx::query_as::<_, MediaQuotaConfig>(r"SELECT id, name, description, max_storage_bytes, max_file_size_bytes, max_files_count, allowed_mime_types, blocked_mime_types, is_default, is_enabled, created_ts, updated_ts FROM media_quota_config WHERE id = $1")
             .bind(config_id)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get quota config", e))?;
 
@@ -50,7 +57,7 @@ impl MediaQuotaStorage {
 
         if request.is_default.unwrap_or(false) {
             sqlx::query(r"UPDATE media_quota_config SET is_default = FALSE WHERE is_default = TRUE")
-                .execute(&self.pool)
+                .execute(&*self.pool)
                 .await
                 .ok();
         }
@@ -74,7 +81,7 @@ impl MediaQuotaStorage {
         .bind(&blocked_mime_types)
         .bind(request.is_default.unwrap_or(false))
         .bind(now)
-        .fetch_one(&self.pool)
+        .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to create quota config", e))?;
 
@@ -86,7 +93,7 @@ impl MediaQuotaStorage {
         let configs = sqlx::query_as::<_, MediaQuotaConfig>(
             r"SELECT id, name, description, max_storage_bytes, max_file_size_bytes, max_files_count, allowed_mime_types, blocked_mime_types, is_default, is_enabled, created_ts, updated_ts FROM media_quota_config WHERE is_enabled = TRUE ORDER BY created_ts DESC",
         )
-        .fetch_all(&self.pool)
+        .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to list quota configs", e))?;
 
@@ -98,7 +105,7 @@ impl MediaQuotaStorage {
         let result =
             sqlx::query(r"UPDATE media_quota_config SET is_enabled = FALSE WHERE id = $1 AND is_enabled = TRUE")
                 .bind(config_id)
-                .execute(&self.pool)
+                .execute(&*self.pool)
                 .await
                 .map_err(|e| ApiError::internal_with_cause("Failed to delete quota config", e))?;
 
@@ -109,7 +116,7 @@ impl MediaQuotaStorage {
     pub async fn get_user_quota(&self, user_id: &str) -> Result<Option<UserMediaQuota>, ApiError> {
         let quota = sqlx::query_as::<_, UserMediaQuota>(r"SELECT id, user_id, quota_config_id, custom_max_storage_bytes, custom_max_file_size_bytes, custom_max_files_count, current_storage_bytes, current_files_count, created_ts, updated_ts FROM user_media_quota WHERE user_id = $1")
             .bind(user_id)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get user quota", e))?;
 
@@ -137,7 +144,7 @@ impl MediaQuotaStorage {
         .bind(user_id)
         .bind(quota_config_id)
         .bind(now)
-        .fetch_one(&self.pool)
+        .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to create user quota", e))?;
 
@@ -171,7 +178,7 @@ impl MediaQuotaStorage {
         .bind(request.custom_max_file_size_bytes)
         .bind(request.custom_max_files_count)
         .bind(now)
-        .fetch_one(&self.pool)
+        .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to set user quota", e))?;
 
@@ -194,7 +201,7 @@ impl MediaQuotaStorage {
         .bind(&request.mime_type)
         .bind(&request.operation)
         .bind(now)
-        .execute(&self.pool)
+        .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to log media usage", e))?;
 
@@ -227,7 +234,7 @@ impl MediaQuotaStorage {
         .bind(delta)
         .bind(&request.operation)
         .bind(now)
-        .execute(&self.pool)
+        .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to update user quota usage", e))?;
 
@@ -247,7 +254,7 @@ impl MediaQuotaStorage {
         .bind(delta)
         .bind(&request.operation)
         .bind(now)
-        .execute(&self.pool)
+        .execute(&*self.pool)
         .await
         .ok();
 
@@ -292,7 +299,7 @@ impl MediaQuotaStorage {
     /// See [`get_server_quota`].
     pub async fn get_server_quota(&self) -> Result<ServerMediaQuota, ApiError> {
         let quota = sqlx::query_as::<_, ServerMediaQuota>(r"SELECT id, max_storage_bytes, max_file_size_bytes, max_files_count, current_storage_bytes, current_files_count, alert_threshold_percent, updated_ts FROM server_media_quota WHERE id = 1")
-            .fetch_optional(&self.pool)
+            .fetch_optional(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get server quota", e))?;
 
@@ -312,7 +319,7 @@ impl MediaQuotaStorage {
              RETURNING id, max_storage_bytes, max_file_size_bytes, max_files_count, current_storage_bytes, current_files_count, alert_threshold_percent, updated_ts"
         )
         .bind(now)
-        .fetch_one(&self.pool)
+        .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to create default server quota", e))?;
 
@@ -347,7 +354,7 @@ impl MediaQuotaStorage {
         .bind(max_files_count)
         .bind(alert_threshold_percent)
         .bind(now)
-        .fetch_one(&self.pool)
+        .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to update server quota", e))?;
 
@@ -382,7 +389,7 @@ impl MediaQuotaStorage {
         .bind(quota_limit)
         .bind(message)
         .bind(now)
-        .fetch_one(&self.pool)
+        .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to create quota alert", e))?;
 
@@ -396,14 +403,14 @@ impl MediaQuotaStorage {
                 r"SELECT id, user_id, alert_type, threshold_percent, current_usage_bytes, quota_limit_bytes, message, is_read, created_ts FROM media_quota_alerts WHERE user_id = $1 AND is_read = FALSE ORDER BY created_ts DESC",
             )
             .bind(user_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&*self.pool)
             .await
         } else {
             sqlx::query_as::<_, MediaQuotaAlert>(
                 r"SELECT id, user_id, alert_type, threshold_percent, current_usage_bytes, quota_limit_bytes, message, is_read, created_ts FROM media_quota_alerts WHERE user_id = $1 ORDER BY created_ts DESC",
             )
             .bind(user_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&*self.pool)
             .await
         };
 
@@ -414,7 +421,7 @@ impl MediaQuotaStorage {
     pub async fn mark_alert_read(&self, alert_id: i64) -> Result<bool, ApiError> {
         let result = sqlx::query(r"UPDATE media_quota_alerts SET is_read = TRUE WHERE id = $1 AND is_read = FALSE")
             .bind(alert_id)
-            .execute(&self.pool)
+            .execute(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to mark alert read", e))?;
 
@@ -432,7 +439,7 @@ impl MediaQuotaStorage {
         )
         .bind(user_id)
         .bind(seven_days_ago)
-        .fetch_one(&self.pool)
+        .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to aggregate usage stats", e))?;
 

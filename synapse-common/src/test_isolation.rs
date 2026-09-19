@@ -514,12 +514,34 @@ const TEMPLATE_PRUNE_GRACE: Duration = Duration::from_secs(6 * 60 * 60);
 /// [`keep`] is verified present before anything is dropped, so a failure in
 /// the current build can never leave the database template-less. Returns the
 /// names dropped.
+/// The template advisory lock is **not optional** here.
+///
+/// [`prune_isolation_templates`] classifies a template with no readiness-marker
+/// table as an interrupted build and drops it. That classification is only
+/// sound while no builder can sit between `CREATE SCHEMA` and `CREATE TABLE
+/// <marker>` — the window every builder covers by holding
+/// [`TEMPLATE_ADVISORY_LOCK_KEY`] for the whole build. This wrapper used to run
+/// unlocked, so a concurrent prune dropped templates **mid-build**; measured
+/// 2026-09-19 with a hammer probe, 30 of 30 concurrent builds died with
+/// `relation "…_synapse_test_template_ready" does not exist`, which is how an
+/// unrelated test (`validate_clone_rejects_an_incomplete_clone`) came to fail
+/// at random in full-suite runs. The documented precondition is now enforced
+/// instead of merely documented.
 pub async fn prune_stale_isolation_templates(admin_pool: &PgPool, keep: &str) -> Result<Vec<String>, String> {
     let mut conn = admin_pool
         .acquire()
         .await
         .map_err(|error| format!("failed to acquire connection to prune isolation templates: {error}"))?;
-    prune_isolation_templates(&mut conn, keep).await
+
+    acquire_template_lock(&mut conn, TEMPLATE_LOCK_WAIT_TIMEOUT).await?;
+    let result = prune_isolation_templates(&mut conn, keep).await;
+    if let Err(error) =
+        sqlx::query("SELECT pg_advisory_unlock($1)").bind(TEMPLATE_ADVISORY_LOCK_KEY).execute(&mut *conn).await
+    {
+        tracing::error!("failed to release the template advisory lock after pruning: {error}");
+    }
+
+    result
 }
 
 /// [`prune_stale_isolation_templates`] over a borrowable connection, so the
@@ -2768,5 +2790,55 @@ CREATE TABLE IF NOT EXISTS unify_short_b (id bigint PRIMARY KEY);
         // Cleanup
         let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{legacy}" CASCADE"#)).execute(&admin).await;
         let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{template}" CASCADE"#)).execute(&admin).await;
+    }
+
+    /// A concurrent prune must never drop a template that is **mid-build**.
+    ///
+    /// [`prune_isolation_templates`] drops a marker-less template as an
+    /// interrupted build, which is only sound while every builder holds
+    /// [`TEMPLATE_ADVISORY_LOCK_KEY`] across its `CREATE SCHEMA` → marker
+    /// window. The public [`prune_stale_isolation_templates`] wrapper used to
+    /// prune unlocked, so this hammer — one builder racing a prune loop —
+    /// killed 30 of 30 builds with `relation "…_synapse_test_template_ready"
+    /// does not exist`; that is what made `validate_clone_rejects_an_incomplete_clone`
+    /// fail at random in full-suite runs. Removing the lock from the wrapper
+    /// turns this test red.
+    #[tokio::test]
+    async fn concurrent_pruning_does_not_drop_a_mid_build_template() {
+        let Some(url) = test_database_url() else {
+            return;
+        };
+        let admin = PgPoolOptions::new().max_connections(2).connect(&url).await.expect("admin pool");
+        let keep_sql = "CREATE TABLE IF NOT EXISTS unify_race_keep (id bigint PRIMARY KEY);";
+        let keep = ensure_template_schema(&url, keep_sql).await.expect("keep template");
+
+        let mut failures: Vec<String> = Vec::new();
+        let mut built_templates: Vec<String> = vec![keep.clone()];
+        for i in 0..8 {
+            let baseline = format!("CREATE TABLE IF NOT EXISTS unify_race_{i} (id bigint PRIMARY KEY);");
+            built_templates.push(template_schema_name(&baseline));
+            let build = ensure_template_schema(&url, &baseline);
+            let prune = async {
+                for _ in 0..20 {
+                    let _ = prune_stale_isolation_templates(&admin, &keep).await;
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            };
+            let (built, ()) = tokio::join!(build, prune);
+            if let Err(error) = built {
+                failures.push(error);
+            }
+        }
+
+        for template in &built_templates {
+            let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{template}" CASCADE"#)).execute(&admin).await;
+        }
+
+        assert!(
+            failures.is_empty(),
+            "a concurrent prune dropped a template mid-build ({} of 8): {}",
+            failures.len(),
+            failures.join(" | ")
+        );
     }
 }
