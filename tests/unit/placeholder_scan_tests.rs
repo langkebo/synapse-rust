@@ -174,8 +174,8 @@ fn run_python(script: &Path, args: &[&str]) {
 ///   before this deliberate E8 regeneration; `generated_at` unchanged);
 /// - the CI export (`--profile=default`, fixed timestamp) — **1049** routes,
 ///   byte-matching the committed artifact;
-/// - an all-extensions build with `--profile=default` — **1129** routes: the
-///   extra 80 are feature-gated modules that must not appear in the default
+/// - an all-extensions build with `--profile=default` — **1132** routes: the
+///   extra 83 are feature-gated modules that must not appear in the default
 ///   artifact, which is why the gate is fed from a default-feature build;
 /// - `scripts/api_test/ledger.json` is a stale 2026-08-12 input yielding 1292
 ///   and is deliberately **not** the route-table gate's source.

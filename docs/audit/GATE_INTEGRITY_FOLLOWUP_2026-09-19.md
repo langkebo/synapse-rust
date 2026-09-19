@@ -762,3 +762,68 @@ unit 目标 **1691 passed / 2 skipped / 0 failed**；全量 `--workspace --lib -
   内容已逐条复核无误，后续以 §9.1 为准（不再重写历史）。
 - **§9 末尾"新增待办"相应收敛为 2 条**：E4 的真实 DB 分页基准；`extract_registered.py` Python 侧棘轮仍单向
   + `EXTRACT_STRICT=1` 在 HEAD 上的 3 类既有失败。
+
+---
+
+## 10. 第五轮：路由契约漂移（EXTRACT_STRICT 的 3 类失败）已修 + 过程教训
+
+> 本节**取代** §9 中关于 "`EXTRACT_STRICT=1` 在 HEAD 上仍有 3 类既有失败" 与 "新增待办收敛为 2 条" 的表述：
+> 3 类失败已修复并复核（下面），待办收敛为 **1 条**（E4 的真实 DB 分页基准，仍在收尾）。
+
+### 10.1 根因：一次功能提交没有重新生成派生/契约产物
+
+`10a18b3f`（feat(voice): POST /voice/register）在 `synapse-web/src/routes/voice.rs:64,69,92` 加了 3 条路由，
+但**没有重新生成任何派生产物**（`15540350` 上一次生成是 9-18；`e23e2dd0` 只重新生成了 `route-table.json`）。
+**代码是权威侧**（`create_voice_router` 确实在 `voice-extended` 下经 `route_module.rs:256` 合并），
+派发表 / SDK 车道 fixture / 生成型契约文档才是过期的。**没有任何检查被放宽**；重新生成由
+`gen_derived_routes.py --check`（派发表必须能复现两条 fixture 车道）与 SDK 车道 golden 测试共同校验。
+
+三"类"失败其实是同一批 3 条路由的三种表现：
+
+| 类 | 表现 | 实体 |
+|---|---|---|
+| S-14 | 3 条已服务路由在**两条 ledger 车道**都缺席 | `POST /_matrix/client/v1/voice/register`、`POST /_matrix/client/v3/voice/register`、`POST /_matrix/vendor/v1/voice/register` |
+| ledger_export_sdk 车道/profile 集 | 派发表比 SDK fixture **多 3 条** | 同上 3 条（default 1129 / worker 1140 / all 1148 → 1132 / 1143 / 1151） |
+| emitted-cfg | sdk 1151 vs fixture 1148，差正好 3 | 同上 3 条 |
+
+顺带澄清：本轮简报里点名的两条（`GET /_matrix/client/v3/auth/{auth_type}/fallback/web`、
+`GET /_synapse/admin/v1/rate-limit-status`）**在六个 ledger fixture 里本来就都在**，属已收口的 E8/route-table 故事。
+`scripts/api_test/ledger.json`（1292 条、2026-08-12）是另一条遗留输入，不受影响。
+
+### 10.2 修复与精确 delta
+
+| 文件 | delta |
+|---|---|
+| `synapse-web/src/routes/derived_route_table_always.inc.rs` | +16/−1：容量 1129→1132，**只多 3 行** `#[cfg(feature = "voice-extended")] POST …/voice/register "voice"`；`worker`/`oidc`/`derived_routes.rs` 逐字节未变 |
+| `tests/unit/fixtures/ledger_export_sdk/{default,worker,all}.json` | 各 **+3 条目**，`entry_count` 1129→1132 / 1140→1143 / 1148→1151；golden 车道 `tests/unit/fixtures/ledger_export/*` 未动；重跑**幂等**（字节一致） |
+| `docs/synapse-rust/ROUTE_CONTRACT.md`（生成型契约文档，非审计交接文档） | 1148→1151、voice 27→30、+3 条路由项（另仅时间戳行变化） |
+| `scripts/contract/test_extract_registered.py` | `check_ratchet` 增加**陈旧条目**分支（+14 行），与 `extract_registered.py` 的 `strict_failures` 对齐 ⇒ Python 侧棘轮**双向** |
+
+### 10.3 红/绿证明（agent 侧 + 我独立复核）
+
+- **改前**：`EXTRACT_STRICT=1 bash scripts/contract/check_route_contract.sh` → `❌ 6 check(s) failed`，**EXIT=1**
+  （S-14 ×2、sdk all/default/worker、emitted-cfg 1151 vs 1148）。
+- **改后（已提交 HEAD 上，我本人复核）**：同一命令 → **EXIT=0**，
+  `✅ 所有 SDK 调用的端点都在 ledger 中（且 method 一致）`、`✅ ROUTE_CONTRACT.md is up to date`；
+  `python3 scripts/contract/test_extract_registered.py --mutation-check` → **`✅ all 53 guard checks passed`**（EXIT=0）。
+- **Python 棘轮双向红证明**：往 `extract_unresolved_allowlist.txt` 追加 1 条陈旧条目 → `FAIL no stale
+  unresolved-allowlist entry (bidirectional ratchet)` EXIT=1；删掉 1 条真实条目 → `FAIL no new unresolved
+  parser construct` EXIT=1；两者撤销后绿（清单与 HEAD 字节一致）。
+- 聚焦验证：`py_compile` / `bash -n` 全通过；`-p synapse-web --lib --all-features derived_manifest_tests` 3/3、
+  golden 车道 3/3；`placeholder` 5 项、`ledger` 7 项通过。
+
+### 10.4 过程教训（必须记住）
+
+**`git commit` 提交的是整个 index，不只是你刚 `git add` 的文件。** 本次（以及 §9.1 那次）出现了同一类事故：
+并发 subagent 自己 `git add` 过它的修复文件，我用**显式路径** `git add` 自己的文件后提交，
+结果把它 6 个文件一并卷进了消息完全不相关的 commit（`79ce60e3` develop 清理；`9fb0e46a` 分支保护回填）。
+**规矩**：共享工作区提交前必须先 `git diff --cached --stat` 核对 index；跨 agent 并行时优先"一个 agent 一个提交"，
+或串行化提交动作。本文档 §9.1 与本节各留一条记录，避免重复踩。
+
+### 10.5 残留
+
+- **E4（真实 DB 分页基准）**：仍在收尾（工作树未提交），见 §9 的 E4 行；其新增
+  `benches/performance_pagination_benchmarks.rs` 目前是 `check_fmt_ratchet.sh` 唯一的违规来源（`current=1`），
+  待其收尾后统一跑 fmt/clippy/unit/全量 lib 并提交。
+- Python harness 的 `--mutation-check` 尚未**永久**自证陈旧方向（本次为手工证明）；如需铁律 8 的常驻自证，
+  可在其 mutation 列表里加一条（小跟进项）。
