@@ -1,7 +1,15 @@
 use crate::common::config::Config;
 use crate::common::{start_config_watcher, RateLimitConfigFile, RateLimitConfigManager};
 use crate::tasks::ScheduledTasks;
-use axum::{response::IntoResponse, routing::get, Router};
+use axum::{
+    http::StatusCode,
+    middleware,
+    middleware::Next,
+    response::IntoResponse,
+    routing::get,
+    Extension,
+    Router,
+};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -808,8 +816,14 @@ impl SynapseServer {
                 metrics: self.app_state.services.core.metrics.clone(),
                 app_service_manager: self.app_state.services.admin.modules.app_service_manager.clone(),
             };
-            let prometheus_router =
-                Router::new().route(&prometheus_path, get(render_prometheus_metrics)).with_state(metrics_state);
+            // 读取 PROMETHEUS_AUTH_TOKEN 环境变量，为空时不启用鉴权（向后兼容）
+            let prometheus_auth_token =
+                std::env::var("PROMETHEUS_AUTH_TOKEN").ok().filter(|s| !s.is_empty());
+            let prometheus_router = Router::new()
+                .route(&prometheus_path, get(render_prometheus_metrics))
+                .with_state(metrics_state)
+                .layer(Extension(prometheus_auth_token))
+                .layer(middleware::from_fn(prometheus_auth_middleware));
 
             tokio::spawn(async move {
                 axum::serve(prometheus_listener, prometheus_router.into_make_service())
@@ -1019,6 +1033,35 @@ async fn spawn_shutdown_signal_handler(
     );
     let _ = shutdown_tx_signal.send(());
     shutdown_token.cancel();
+}
+
+/// Prometheus metrics endpoint middleware — requires Bearer token if configured.
+///
+/// When `PROMETHEUS_AUTH_TOKEN` env var is set, all `/metrics` requests must include
+/// `Authorization: Bearer <token>` header. Without the token, returns 401.
+/// This prevents unauthenticated access to internal metrics (CPU, memory, request counts).
+async fn prometheus_auth_middleware(
+    Extension(auth_token): Extension<Option<String>>,
+    req: axum::http::Request<axum::body::Body>,
+    next: Next,
+) -> Result<impl IntoResponse, StatusCode> {
+    let Some(expected_token) = auth_token else {
+        // No auth configured — allow unauthenticated access (backward compatible)
+        return Ok(next.run(req).await);
+    };
+
+    let auth_header = req
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string());
+
+    match auth_header {
+        Some(ref h) if h.starts_with("Bearer ") && &h[7..] == expected_token.as_str() => {
+            Ok(next.run(req).await)
+        }
+        _ => Err(StatusCode::UNAUTHORIZED),
+    }
 }
 
 async fn render_prometheus_metrics(
