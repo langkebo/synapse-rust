@@ -94,7 +94,7 @@ pub fn template_ready_marker_path(schema_name: &str) -> std::path::PathBuf {
 /// row-identical clones.
 ///
 /// That equality is not self-maintaining: it is pinned by
-/// `seed_reference_tables_match_baseline`, which parses the inlined migrations
+/// `the_seed_allowlist_matches_what_the_baseline_seeds`, which parses the inlined migrations
 /// and goes red the moment a future migration seeds a fourth table. Without that
 /// guard, a new seed would silently appear in `Everything` clones and silently
 /// be missing from `Only` clones — a fork with no compiler or test signal.

@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 /// Collect `*.rs` files under `dir`, **failing loudly if `dir` is not a
 /// directory**.
@@ -139,4 +140,187 @@ fn test_empty_json_successes_are_allowlisted() {
          them (or fix the line number if the site moved):\n{}",
         stale.iter().map(|entry| entry.as_str()).collect::<Vec<_>>().join("\n")
     );
+}
+
+fn python_status(script: &Path, args: &[&str]) -> std::process::ExitStatus {
+    Command::new("python3").arg(script).args(args).status().expect("failed to spawn python3")
+}
+
+fn run_python(script: &Path, args: &[&str]) {
+    let status = python_status(script, args);
+    assert!(status.success(), "python3 {script:?} {args:?} failed with {status}");
+}
+
+/// E8: the OpenAPI `route-table.json` generator must be byte-deterministic and
+/// its output shape pinned, because the committed artifact is currently stale
+/// and a content gate would be red for a reason a gate fix cannot legitimately
+/// repair (regenerating `docs/openapi/route-table.json` is a separate,
+/// deliberate artifact update).
+///
+/// Measured 2026-09-19 with the exact CI command (`cargo build --bin
+/// synapse_ledger_export`, i.e. the crate's default features):
+///
+/// - committed `docs/openapi/route-table.json` — **1047** routes,
+///   `generated_at` 2026-09-16T00:00:00Z, committed in `92ca6f66`;
+/// - a fresh `synapse_ledger_export --profile=default` of current source —
+///   **1049** routes.
+///
+/// The committed table is a strict subset of the fresh one; the two missing
+/// routes are real, ungated contract drift:
+///
+/// - `GET /_matrix/client/v3/auth/{auth_type}/fallback/web` (assembly::auth_compat)
+/// - `GET /_synapse/admin/v1/rate-limit-status` (admin::server)
+///
+/// (For contrast: the committed `scripts/api_test/ledger.json` is a different,
+/// 2026-08-12 input and yields 1292; an all-extensions export yields 1129, the
+/// extra 80 being feature-gated modules. Neither is the committed file's
+/// source.) What can be pinned honestly today is the generator's own contract:
+/// same input → byte-identical output, entries sorted by
+/// `(path, method, registered_by)`, keys in a fixed order. A change to that
+/// shape now requires a deliberate update of the pinned bytes below (AGENTS.md
+/// iron law 8). The `--check` red path is exercised too, so the mechanism is
+/// proven rather than declared.
+#[test]
+fn test_route_table_generator_is_deterministic_and_shape_pinned() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let script = root.join("scripts").join("api_test").join("gen_route_table.py");
+    let tmp = std::env::temp_dir().join(format!("synapse-route-table-shape-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&tmp);
+    fs::create_dir_all(&tmp).expect("create temp dir");
+
+    // Intentionally unsorted input with a missing optional field, so the sort
+    // order and the `auth: null` / `path_params: []` defaults are both part of
+    // what the pin protects.
+    let ledger = tmp.join("ledger.json");
+    fs::write(
+        &ledger,
+        r#"{
+  "schema_version": "1",
+  "generated_at": "2020-01-01T00:00:00Z",
+  "state_profile": "default",
+  "entries": [
+    {"method": "POST", "path": "/b", "registered_by": "mod::two", "path_params": ["id"], "query_params": []},
+    {"method": "GET", "path": "/a", "registered_by": "mod::one"}
+  ]
+}
+"#,
+    )
+    .expect("write ledger");
+
+    let out1 = tmp.join("out1.json");
+    let out2 = tmp.join("out2.json");
+    run_python(&script, &["--ledger", ledger.to_str().unwrap(), "--output", out1.to_str().unwrap()]);
+    run_python(&script, &["--ledger", ledger.to_str().unwrap(), "--output", out2.to_str().unwrap()]);
+    let first = fs::read(&out1).expect("read out1");
+    let second = fs::read(&out2).expect("read out2");
+    assert_eq!(first, second, "route-table generation is not byte-deterministic for the same ledger");
+
+    // Pinned bytes: updating this literal is the deliberate acknowledgement that
+    // the route-table artifact's shape/order changed.
+    const PINNED: &str = r#"{
+  "schema_version": "1",
+  "generated_at": "2020-01-01T00:00:00Z",
+  "source": "synapse_ledger_export",
+  "profile": "default",
+  "total_routes": 2,
+  "_meta": {
+    "generated_by": "gen_route_table.py",
+    "note": "本文件由 CI 自动生成，禁止手改。如需刷新: python3 scripts/api_test/gen_route_table.py"
+  },
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/a",
+      "registered_by": "mod::one",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/b",
+      "registered_by": "mod::two",
+      "path_params": [
+        "id"
+      ],
+      "query_params": [],
+      "auth": null
+    }
+  ]
+}
+"#;
+    assert_eq!(
+        String::from_utf8(first).expect("utf-8"),
+        PINNED,
+        "gen_route_table.py output shape/order changed. If intended, update the PINNED literal in \
+         this test in the same commit — this pin is what forces a deliberate update."
+    );
+
+    // `--check` green on a matching reference...
+    run_python(&script, &["--ledger", ledger.to_str().unwrap(), "--check", "--expected", out1.to_str().unwrap()]);
+    // ...and red once the reference drifts, so a gate that cannot fail is not
+    // what we are pinning here.
+    fs::write(&out1, "{}\n").expect("mutate reference");
+    let status = python_status(
+        &script,
+        &["--ledger", ledger.to_str().unwrap(), "--check", "--expected", out1.to_str().unwrap()],
+    );
+    assert!(!status.success(), "gen_route_table.py --check must fail when the reference artifact differs");
+
+    let _ = fs::remove_dir_all(&tmp);
+}
+
+/// E9: `EXTRACT_STRICT=1` must go red for a **stale** unresolved-allowlist entry
+/// (one that matches no construct the parser still cannot follow), not only for
+/// a new one.
+///
+/// Why this file: it already guards the *other* allowlist
+/// (`shell_routes_allowlist.txt`) in both directions for exactly this reason —
+/// a one-way allowlist can only grow, so stale entries keep "covering" blind
+/// spots that are gone and quietly absorb the next regression. The extractor's
+/// allowlist was measured 2026-09-19 with 5 stale entries out of 21 while
+/// `EXTRACT_STRICT=1` still exited 0 (they were printed as a `note:` on stdout
+/// and never entered `strict_failures`).
+///
+/// The committed allowlist legitimately has stale entries if this test fails its
+/// second half — prune them rather than relaxing the assertion. The first half
+/// injects a synthetic stale entry through `EXTRACT_UNRESOLVED_ALLOWLIST` so the
+/// red path is exercised without touching the committed file.
+#[test]
+fn test_extract_unresolved_allowlist_stale_entry_is_red() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let script = root.join("scripts").join("contract").join("extract_registered.py");
+    let real_allow = root.join("scripts").join("contract").join("extract_unresolved_allowlist.txt");
+    let tmp = std::env::temp_dir().join(format!("synapse-unresolved-allow-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&tmp);
+    fs::create_dir_all(&tmp).expect("create temp dir");
+
+    let stale_allow = tmp.join("stale_allowlist.txt");
+    let mut content = fs::read_to_string(&real_allow).expect("read committed allowlist");
+    content.push_str("\nambiguous fn this_construct_does_not_exist (99 defs)\n");
+    fs::write(&stale_allow, content).expect("write injected allowlist");
+
+    let mut stale_cmd = Command::new("python3");
+    stale_cmd.arg(&script).env("EXTRACT_STRICT", "1").env("EXTRACT_UNRESOLVED_ALLOWLIST", &stale_allow);
+    let stale = stale_cmd.output().expect("spawn extract_registered.py");
+    let stale_stderr = String::from_utf8_lossy(&stale.stderr);
+    assert!(!stale.status.success(), "a stale allowlist entry must fail EXTRACT_STRICT=1");
+    assert!(
+        stale_stderr.contains("stale unresolved-allowlist entries match nothing"),
+        "the gate must name a stale allowlist entry as a strict failure, got stderr:\n{stale_stderr}"
+    );
+
+    // The committed allowlist must itself be free of stale entries, otherwise no
+    // one could satisfy the gate. (This checks only the E9-specific message;
+    // other strict failures in the repo are unrelated to this ratchet.)
+    let mut real_cmd = Command::new("python3");
+    real_cmd.arg(&script).env("EXTRACT_STRICT", "1").env("EXTRACT_UNRESOLVED_ALLOWLIST", &real_allow);
+    let real = real_cmd.output().expect("spawn extract_registered.py");
+    let real_stderr = String::from_utf8_lossy(&real.stderr);
+    assert!(
+        !real_stderr.contains("stale unresolved-allowlist entries"),
+        "the committed extract_unresolved_allowlist.txt contains stale entries; prune them:\n{real_stderr}"
+    );
+
+    let _ = fs::remove_dir_all(&tmp);
 }

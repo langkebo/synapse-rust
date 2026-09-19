@@ -158,8 +158,8 @@ pub enum SeedSource<'a> {
 /// tables phase 1b has anything to copy for. Measured against
 /// `migrations/00000000_unified_schema_v11.sql` (3 `INSERT INTO` statements)
 /// and `00000001_extensions_v10.sql` (0). Guarded by
-/// `seed_reference_tables_match_baseline` — if a future migration seeds a
-/// fourth table, that test goes red and this constant must be extended.
+/// `the_seed_allowlist_matches_what_the_baseline_seeds` — if a future migration
+/// seeds a fourth table, that test goes red and this constant must be extended.
 pub const SEED_REFERENCE_TABLES: &[&str] =
     &["server_media_quota", "server_retention_policy", "sync_stream_id"];
 ```
@@ -274,7 +274,7 @@ Phase 1d 的索引配对是 `PARTITION BY tbl` 的，与行数据无关。白名
    旧模板不被复用。**这一步是自动的**（`synapse-common/src/test_isolation.rs:44/54`）。
 2. `SeedSource::Everything` 的调用点：**自动**拿到新增 seed 行。
 3. `SeedSource::Only(&SEED_REFERENCE_TABLES)` 的调用点：**不会**拿到该行。
-4. §9 的 `seed_reference_tables_match_baseline` 测试**变红**，强制维护者更新常量。
+4. §9 的 `the_seed_allowlist_matches_what_the_baseline_seeds` 测试**变红**，强制维护者更新常量。
 
 即"沉默的语义分叉"被转成"一个必须处理的红色测试"。这是本设计的**主要价值**——
 不是今天省几行，而是把"两个 fixture 的种子内容一致"变成被机器守护的不变量。
@@ -328,10 +328,18 @@ for table in synapse_common::test_isolation::SEED_REFERENCE_TABLES {
 
 ## 9. 验证方案（实现后必须提供的证据）
 
-### 9.1 `seed_reference_tables_match_baseline`（无 DB，纯静态，**必做**）
+### 9.1 `the_seed_allowlist_matches_what_the_baseline_seeds`（无 DB，纯静态，**必做**）
 
-从 `include_str!` 的 v11 基线出发，用既有的 `split_sql_statements` +
-`strip_copy_blocks` 切出语句，取出所有 `INSERT INTO <tbl>` 的 `<tbl>` 集合，
+> **落地位（2026-09-19 复核）**：
+> `tests/unit/test_isolation_unification_tests.rs::the_seed_allowlist_matches_what_the_baseline_seeds`。
+> 本节原写的测试名 seed_reference_tables_match_baseline **从未在 Rust 中落地**，
+> 已按现存测试改名（sweep D2）。落地实现与本节设计的机制略有差异：守卫用
+> `insert_statements` 逐行解析并跳过注释行、剥离单引号字面量，而**不是**
+> `split_sql_statements` + `strip_copy_blocks`（那两个服务于模板构建，都还在，
+> 只是不在这条守卫里）。基线文件在设计时是 v11；当前是单一基线
+> `00000000_unified_schema_v12.sql`（守卫文件顶部的 `V12` 常量 `include_str!` 它）。
+
+从 `include_str!` 的基线出发，取出所有 `INSERT INTO <tbl>` 的 `<tbl>` 集合，
 断言其等于 `SEED_REFERENCE_TABLES` 的集合（顺序无关）。
 
 - **为什么必须做**：这是"复制全部 == 复制白名单"这一等价性赖以成立的**唯一前提**。
@@ -340,7 +348,7 @@ for table in synapse_common::test_isolation::SEED_REFERENCE_TABLES {
   `INSERT INTO <某第四张表> ...`，该测试必须变红；恢复后必须变绿。
   本设计不接受"我读了迁移文件所以它是对的"作为证据。
 
-### 9.2 `allowlist_clone_matches_full_clone_row_for_row`（DB，**必做**）
+### 9.2 `allowlist_clone_copies_only_the_allowlisted_rows`（DB，**必做**）
 
 对同一模板做两次克隆——一次 `Everything`，一次 `Only(SEED_REFERENCE_TABLES)`——
 然后逐表比对。本次已在本机库上**原样执行过比对用的 CTE**（输出见 §3），
@@ -377,6 +385,35 @@ SELECT relname, n FROM cnt WHERE n <> 0 ORDER BY relname;
   语句，逐列比对不会增加任何信息量，只会引入一个假的失败源。若将来要加，
   必须显式排除这两列，并用 `xpath(... query_to_xml('SELECT row_to_json(t)::text ...'))`
   逐行集合比对。
+
+> **落地现状（2026-09-19 复核）**：本节原写的测试名
+> allowlist_clone_matches_full_clone_row_for_row **从未落地**。"逐表行数比对"这一
+> 职责并入 `allowlist_clone_copies_only_the_allowlisted_rows`
+> （`synapse-common/src/test_isolation.rs`，源码内 `#[tokio::test]`）。覆盖它的
+> 断言是：
+>
+> - `full == [("unify_seed_in_allowlist", 1), ("unify_seed_outside_allowlist", 1), ("unify_seed_empty", 0)]`
+>   —— 证明 `SeedSource::Everything` 真的复制了被 seed 的行，防"两个空克隆互等"
+>   （对应上面"变异 2"的方向）。
+> - `allowlisted == [("unify_seed_in_allowlist", 1), ("unify_seed_outside_allowlist", 0), ("unify_seed_empty", 0)]`
+>   —— 证明 `SeedSource::Only(ALLOWLIST)` 只复制白名单内的行，未列入白名单的表的
+>   **行被扣下**（对应上面"变异 1"的方向：参数声明了却没接进 SQL 时这里会读到 1）。
+> - `to_regclass(...) IS NOT NULL` —— 证明白名单限制的是**行**而不是表结构，否则
+>   上一条对一个"整表都没克隆出来"的错误克隆也会成立。
+>
+> 落地测试对**合成**基线（一张命中白名单的种子表、一张空表、一张不在白名单里的
+> 种子表）做两次克隆后逐表 `count(*)`，而非对生产模板跑上面的 CTE。
+> 未按名落地的部分：
+>
+> - 原"变异 1"要求的 `Only(&[])` 克隆结果集必须为空，没有以 DB 断言落地；其机制由
+>   `seed_where_clause_selects_the_requested_tables` 的静态断言
+>   `seed_where_clause(SeedSource::Only(&[])) == "1 = 0"` 覆盖。
+> - 原"变异 2"要求的生产基线名字级计数（`sync_stream_id` 恰 4 行、
+>   `server_media_quota` 恰 1 行）没有落地：生产基线的"常量 == 迁移里的 INSERT
+>   表集合"由 §9.1 的守卫钉住，通用 seed 行内容由 `clone_copies_seeded_rows` 钉住。
+>
+> 这两条设计承诺**不再指向任何未落地的测试名**，所以不会被下一个人当成缺失的
+> 守卫来找。
 
 ### 9.3 既有隔离测试保持全绿
 

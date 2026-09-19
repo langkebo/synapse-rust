@@ -2,12 +2,23 @@
 """
 B2 棘轮：missing_docs 增量门禁。
 
-仓库现状：7 个 crate 都开了 crate 级 `#![allow(missing_docs)]`，累积约
-~1900 个 warning（每个 crate 200-500 不等）。如果直接打开 `-W missing_docs`，
-CI 会立刻红一长串——长红 CI 等于无 CI。
+仓库现状（2026-09-19 实测）：7 个 library target 的 crate 根带 crate 级
+`#![deny(missing_docs)]`（synapse-cache / synapse-common / synapse-storage /
+synapse-federation / synapse-e2ee / synapse-services / 根 crate 的
+`src/lib.rs`）；`synapse-web` 与 `synapse-test-utils` 的 lib 两者皆无；根包的
+二进制 target（`src/main.rs` 与 5 个 `src/bin/*.rs`）也没有任何 crate 级 lint
+属性。baseline 是 6，这 6 条全部来自那些没有 `//!` crate 文档的二进制入口
+（实测 `cargo clippy -p synapse-rust -- -D missing_docs` 报 6，其余 8 个
+`-p` 各报 0）。
+
+lint 优先级（rustc 实测，最小复现见 `count_total_debt`）：源码里的 crate 级
+`#![deny]` / `#![allow]` **压过**命令行 `-A` / `-D`；只有完全没有 crate 级属性
+的 target，命令行 `-D missing_docs` 才说了算。所以本棘轮不是靠"抵消 crate 级
+allow"工作（仓库里根本没有 crate 用 `#![allow(missing_docs)]`），而是靠
+"对所有 target 强制 `-D`，带属性的 target 由属性自己把关"。
 
 棘轮策略：
-  - 存量不动（保持 crate 级 `allow`）
+  - 存量不动（baseline=6，即 6 个缺 crate 文档的二进制入口）
   - 只卡**新增** `pub` 项：增量代码必须配 doc
   - 每修一点存量，必须收紧 baseline（防止 baseline 形同虚设）
 
@@ -18,13 +29,14 @@ CI 会立刻红一长串——长红 CI 等于无 CI。
      的前几行）。
   2. 修改文件（git diff --diff-filter=M）: 在 diff hunk 中**新增的 pub 项**也
      必须配 doc。
-  3. baseline 记录当前 debt 数字（对每个 crate 单独记），debt 数字减少时 CI
-     失败，强制收紧 baseline。
+  3. baseline 记录当前 debt 总数（`scripts/.missing-docs-baseline` 里的单个整数，
+     不是按 crate 分行记录）；debt 数字减少时 CI 失败，强制收紧 baseline。
 
 退出码：
-  0: 通过（debt 未增）
-  1: 失败（debt 增了 / 新增 pub 缺 doc）
-  2: 通过（debt 减了，提示更新 baseline）
+  0: 通过（debt 等于 baseline）
+  1: 失败（debt 增了 / 新增 pub 缺 doc / debt 减了但 baseline 未收紧）
+  2: 测量失败或 diff base 不可解析（绝不与 baseline 比较，避免"编译坏了"被
+     误读成"debt 下降"）
 """
 from __future__ import annotations
 
@@ -208,23 +220,38 @@ def scan_diff_for_new_pub(file: Path, base_ref: str) -> list[Violation]:
     return violations
 
 
-def list_changed_rs_files(base_ref: str = "HEAD~1") -> tuple[list[Path], list[Path]]:
-    """返回 (新增文件, 修改文件) 的 .rs 列表。"""
-    out = run(["git", "diff", "--name-only", "--diff-filter=A", base_ref])
-    added = [REPO_ROOT / p for p in out.splitlines() if p.endswith(".rs") and (REPO_ROOT / p).exists()]
-    out2 = run(["git", "diff", "--name-only", "--diff-filter=M", base_ref])
-    modified = [REPO_ROOT / p for p in out2.splitlines() if p.endswith(".rs") and (REPO_ROOT / p).exists()]
-    return added, modified
-
-
 def count_total_debt() -> int:
-    """统计整个 workspace 缺 doc 的 pub 项总数。
+    """统计整个 workspace 的 `missing_docs` 诊断条数（crate 级 + pub 项）。
 
-    由于各 crate 用 `#![allow(missing_docs)]` 抑制了警告，本函数通过
-    对每个 crate 临时加 `-A missing_docs -D missing_docs` 让编译器严格
-    报告所有缺 doc 的项。需要 SQLX_OFFLINE。
+    这里只传 `-D missing_docs`。rustc 的 lint 优先级是 **源码属性 > 命令行**，
+    所以"抵消 crate 级 allow"这个说法描述的机制并不存在——实测（rustc 1.93，
+    `rustc --crate-type=lib --emit=metadata` 的最小文件）：
 
-    编译失败时抛 [`MeasurementFailed`]，**不返回 0**。原因见该异常。
+      * `#![allow(missing_docs)]` + `-D missing_docs` → 不报（属性 allow 胜出）
+      * `#![deny(missing_docs)]`  + `-A missing_docs` → 照报（属性 deny 胜出）
+      * 无属性 + `-A missing_docs -D missing_docs`    → 报（命令行内后一个覆盖前一个）
+      * 无属性 + `-D missing_docs -A missing_docs`    → 不报
+
+    于是本函数实际测量到的是：
+      * 7 个带 `#![deny(missing_docs)]` 的 lib target —— 由**属性**强制报告，
+        命令行给 `-D` / `-A` / 都不给都一样；今天各报 0（存量已补完）。
+      * `synapse-web` / `synapse-test-utils` 的 lib —— 两者皆无属性，命令行
+        `-D` 是唯一让它们可测的东西；今天各报 0。
+      * 根包的二进制 target（无属性）—— `-D` 让它们报出全部 6 条
+        "missing documentation for the crate"；baseline=6 就是这 6 条。
+
+    结论：`-D` 是**承重**的。删掉它，根包二进制那 6 条会消失，总数从 6 掉到 0，
+    棘轮会误报"debt 下降"并要求把 baseline 收紧到 0 —— 门禁从此永久失明。
+    `-A missing_docs` 则是**死参数**：它对带 `#![deny]` 的 target 无效，对无属性
+    target 又只是被同一命令行里靠后的 `-D` 覆盖（两者同时给与只给 `-D` 实测同
+    结果），且其"抵消 crate 级 allow"的存在理由不成立（没有 crate 用
+    `#![allow(missing_docs)]`）。故已删除，只留 `-D`。
+
+    注意：`missing_docs` 对二进制 crate 里的 `pub` 项不诊断，只诊断 crate 本身；
+    所以那 6 条全部是 crate 级（crate root `//!`）文档缺失。
+
+    需要 SQLX_OFFLINE。编译失败时抛 [`MeasurementFailed`]，**不返回 0**。
+    原因见该异常。
     """
     env = os.environ.copy()
     env.setdefault("SQLX_OFFLINE", "true")
@@ -250,10 +277,12 @@ def count_total_debt() -> int:
                 "--locked",
                 "--message-format=short",
                 "--",
-                "-A",
-                "missing_docs",  # 抵消 crate 级 allow
+                # 承重：不带 crate 级 lint 属性的 target（synapse-web /
+                # synapse-test-utils 的 lib、根包的 main.rs 与 src/bin/*）只靠
+                # 这个 flag 才会报告。带 `#![deny]` 的 lib 由属性把关，属性压过
+                # 命令行；带 `#![allow]` 的（本仓为 0 个）连它也会被属性压掉。
                 "-D",
-                "missing_docs",  # 强制报缺 doc
+                "missing_docs",
             ],
             cwd=REPO_ROOT,
             env=env,

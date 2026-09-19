@@ -194,6 +194,18 @@ jobs:
       - name: Build synapse_ledger_export binary
         run: cargo build --quiet --bin synapse_ledger_export
 
+      # Must run BEFORE the generation steps below (they overwrite the committed
+      # file in the workspace). client.yaml is byte-reproducible from the
+      # committed scripts/api_test/ledger.json, so this is a real drift gate: a
+      # ledger/generator change that ships without regenerating client.yaml
+      # fails here instead of silently uploading a contract that disagrees with
+      # the committed one. (route-table.json is not checked this way: it is
+      # already 2 routes behind a fresh default-feature export — see the pin in
+      # tests/unit/placeholder_scan_tests.rs — so a content gate would be red
+      # until the artifact is deliberately regenerated.)
+      - name: Verify committed client.yaml is in sync (fails on drift)
+        run: python3 scripts/api_test/gen_client_yaml.py --skip-export --check
+
       - name: Generate client.yaml (OpenAPI 3.0.3)
         run: |
           mkdir -p docs/openapi

@@ -863,3 +863,147 @@ fn exactly_one_place_builds_the_schema_clone() {
          instead. If the shared clause was renamed or reseeded, update MARKER in this guard."
     );
 }
+
+/// Backticked `snake_case` identifiers in `doc` that have the shape of a Rust
+/// test name pinned by the P1-D design document.
+///
+/// The document also backticks helpers, constants, catalog objects and table
+/// names, and gives no machine-readable marker for "this one is a test", so
+/// shape is the only available signal. Every test name the document pins is a
+/// full descriptive sentence of five or more underscore-separated words, while
+/// the non-test identifiers top out at four (`clone_schema_from_template`,
+/// `pg_get_serial_sequence`, `truncate_and_reseed_schema`,
+/// `test_isolation_template_<hex>`, `sqlx_ratio_gate_tests`). An identifier with
+/// digits or a `pg_` prefix is a catalog/fingerprint name, never a test.
+///
+/// The rule is deliberately conservative: it can miss a hypothetical four-word
+/// test name pinned in prose, but it never false-positives on the document's
+/// helpers — a guard that goes red on a correct document gets deleted.
+fn pinned_test_names(doc: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut rest = doc;
+    while let Some(open) = rest.find('`') {
+        let after = &rest[open + 1..];
+        let Some(close) = after.find('`') else { break };
+        let candidate = &after[..close];
+        rest = &after[close + 1..];
+        let test_shaped = candidate.split('_').count() >= 5
+            && !candidate.starts_with("pg_")
+            && candidate.chars().all(|c| c.is_ascii_lowercase() || c == '_');
+        if test_shaped {
+            names.push(candidate.to_string());
+        }
+    }
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// Whether `sources` declares `fn name` at a real word boundary.
+///
+/// A bare `contains("fn name")` would also match a longer function whose name
+/// merely starts with `name` (`fn foo_bar` for a pinned `foo`), which would let
+/// a renamed test pass the guard.
+fn declares_fn(sources: &str, name: &str) -> bool {
+    let needle = format!("fn {name}");
+    let mut from = 0;
+    while let Some(found) = sources[from..].find(&needle) {
+        let end = from + found + needle.len();
+        let boundary = sources[end..].chars().next().is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '_'));
+        if boundary {
+            return true;
+        }
+        from = end;
+    }
+    false
+}
+
+/// Concatenated source of `tests/` and every workspace crate's `src/`, plus the
+/// number of files read (the non-vacuity control for guard 8).
+fn pinned_test_sources() -> (String, usize) {
+    let mut roots = vec![std::path::PathBuf::from("tests")];
+    if let Ok(entries) = fs::read_dir(".") {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let src = entry.path().join("src");
+            if name.starts_with("synapse-") && src.is_dir() {
+                roots.push(src);
+            }
+        }
+    }
+    let mut sources = String::new();
+    let mut visited = 0usize;
+    for root in roots {
+        collect_rs_sources(&root, &mut sources, &mut visited);
+    }
+    (sources, visited)
+}
+
+/// Append every `.rs` file under `dir` (recursively) to `out`, counting reads.
+fn collect_rs_sources(dir: &std::path::Path, out: &mut String, visited: &mut usize) {
+    let Ok(entries) = fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_rs_sources(&path, out, visited);
+        } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+            *visited += 1;
+            if let Ok(content) = fs::read_to_string(&path) {
+                out.push_str(&content);
+                out.push('\n');
+            }
+        }
+    }
+}
+
+/// Guard 8: every test name the P1-D design document pins must exist in Rust.
+///
+/// `docs/audit/P1D_seed_allowlist_design_2026-09-14.md` is the written contract
+/// for the seed allowlist. It used to promise `seed_reference_tables_match_baseline`
+/// (the real guard is `the_seed_allowlist_matches_what_the_baseline_seeds`) and
+/// `allowlist_clone_matches_full_clone_row_for_row` (folded into
+/// `allowlist_clone_copies_only_the_allowlisted_rows`). Neither promised name was
+/// ever declared in Rust, so the next reader who grepped the document found
+/// nothing and could not tell whether the contract had been dropped (sweep D2).
+///
+/// This guard extracts the backticked test-shaped names and asserts each is
+/// declared somewhere under `tests/` or `synapse-*/src/`. It is read-only and
+/// needs no database.
+#[test]
+fn every_test_name_the_design_document_pins_exists() {
+    const DESIGN_DOC: &str = "docs/audit/P1D_seed_allowlist_design_2026-09-14.md";
+
+    let pinned = pinned_test_names(&read(DESIGN_DOC));
+
+    assert!(
+        pinned.len() >= 2,
+        "{DESIGN_DOC} must pin at least two test names, otherwise this guard checks nothing; parsed \
+         {pinned:?}"
+    );
+    for anchor in
+        ["allowlist_clone_copies_only_the_allowlisted_rows", "the_seed_allowlist_matches_what_the_baseline_seeds"]
+    {
+        assert!(
+            pinned.iter().any(|name| name.as_str() == anchor),
+            "{DESIGN_DOC} must pin `{anchor}` — the landed guard for this responsibility. Parsed \
+             {pinned:?}. If the test was renamed, update the design document with it."
+        );
+    }
+
+    let (sources, visited) = pinned_test_sources();
+    assert!(
+        visited > 100,
+        "the source scan only visited {visited} .rs files under tests/ and synapse-*/src/; the walk \
+         is broken, so this guard would pass vacuously"
+    );
+
+    let missing: Vec<&String> = pinned.iter().filter(|name| !declares_fn(&sources, name)).collect();
+    assert!(
+        missing.is_empty(),
+        "{DESIGN_DOC} pins test names that no Rust source declares: {missing:?}. A design document \
+         that points at a test which does not exist is worse than no pin at all (sweep D2): the next \
+         reader greps for it, finds nothing, and cannot tell whether the contract was dropped. Name \
+         the test that actually exists, or record in the document why the responsibility was folded \
+         into another test."
+    );
+}

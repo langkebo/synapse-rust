@@ -11,6 +11,35 @@ fn read(path: &Path) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()))
 }
 
+/// Run one of the migration gate scripts from `root`, capturing its output.
+fn run_gate_script(root: &Path, script: &str) -> std::process::Output {
+    Command::new("python3")
+        .arg(script)
+        .current_dir(root)
+        .output()
+        .unwrap_or_else(|error| panic!("failed to run {script}: {error}"))
+}
+
+/// Copy `src` to `dst`, creating `dst`'s parent directory first.
+fn copy_file(src: &Path, dst: &Path) {
+    if let Some(parent) = dst.parent() {
+        fs::create_dir_all(parent).unwrap_or_else(|error| panic!("failed to create {}: {error}", parent.display()));
+    }
+    fs::copy(src, dst).unwrap_or_else(|error| panic!("failed to copy {} -> {}: {error}", src.display(), dst.display()));
+}
+
+/// Fresh temp scene directory, unique per test and process so parallel test
+/// threads cannot collide, and deliberately **outside** `migrations/` (the
+/// repo's migration directory is never mutated by these probes).
+fn temp_scene(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("synapse-migration-gate-{}-{name}", std::process::id()));
+    if dir.exists() {
+        fs::remove_dir_all(&dir).unwrap_or_else(|error| panic!("failed to clean {}: {error}", dir.display()));
+    }
+    fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
 /// `migrations/` 必须只有**一个** `00000000_unified_schema_v*.sql`。
 ///
 /// 历史基线若与最新基线并存，迁移器会把它当作"增量迁移"再执行一遍
@@ -371,4 +400,158 @@ fn test_build_sqlx_migration_source_outputs_canonical_baseline() {
 
     let manifest = read(&output_dir.join("manifest.json"));
     assert!(manifest.contains("\"baseline\": \"00000000_unified_schema_v12.sql\""));
+}
+
+/// C3/C10 (GATE_INTEGRITY_SWEEP_2026-09-19 §6): both migration gates must say
+/// the `consolidated-baseline-only` case out loud instead of passing on an
+/// empty subject set.
+///
+/// `check_baseline_consolidation.py`'s subject is timestamped incremental
+/// migrations; `check_migration_consistency.py`'s undo-pairing sub-check
+/// iterates the same set. With the consolidated baseline as the only forward
+/// file those loops ran over 0 subjects, so "long green" was an artifact of an
+/// empty scan surface. The marker assertion is conditional on the surface
+/// actually being empty, so adding a real incremental migration does not make
+/// this test lie — it just has to be a *deliberate* new state.
+#[test]
+fn migration_gates_are_explicit_about_the_consolidated_baseline_only_case() {
+    let root = project_root();
+
+    let consolidation = run_gate_script(&root, "scripts/check_baseline_consolidation.py");
+    let consolidation_out = String::from_utf8_lossy(&consolidation.stdout);
+    assert!(
+        consolidation.status.success(),
+        "check_baseline_consolidation.py must pass on the current tree: {consolidation_out}{}",
+        String::from_utf8_lossy(&consolidation.stderr)
+    );
+    if consolidation_out.contains("已吸收全部 0 个增量迁移") {
+        assert!(
+            consolidation_out.contains("consolidated-baseline-only"),
+            "an empty incremental-migration subject set must be reported with the documented \
+             marker, not silently accepted: {consolidation_out}"
+        );
+    }
+
+    let consistency = run_gate_script(&root, "scripts/check_migration_consistency.py");
+    let consistency_out = String::from_utf8_lossy(&consistency.stdout);
+    assert!(
+        consistency.status.success(),
+        "check_migration_consistency.py must pass on the current tree: {consistency_out}"
+    );
+    if consistency_out.contains("\"incremental_files\": []") {
+        assert!(
+            consistency_out.contains("\"marker\": \"consolidated-baseline-only\""),
+            "an empty incremental subject set must carry the documented marker: {consistency_out}"
+        );
+    }
+}
+
+/// Red proof for C3: emptying the subject set by making the discovery regex
+/// miss the real files must fail loudly, not report success on nothing.
+///
+/// The probe builds a temp copy (the repo's `migrations/` is never mutated)
+/// holding the consolidated baseline plus one genuine incremental migration.
+/// First the shipped regex detects the violation; then the regex is broken in
+/// the temp copy and the gate must refuse to pass vacuously.
+#[test]
+fn baseline_consolidation_gate_fails_closed_on_an_emptied_scan_surface() {
+    let root = project_root();
+    let scene = temp_scene("baseline-consolidation-emptied-scan");
+    let baseline = "00000000_unified_schema_v12.sql";
+
+    copy_file(
+        &root.join("scripts/check_baseline_consolidation.py"),
+        &scene.join("scripts/check_baseline_consolidation.py"),
+    );
+    copy_file(&root.join("migrations").join(baseline), &scene.join("migrations").join(baseline));
+    fs::write(
+        scene.join("migrations/20260101000000_probe.sql"),
+        "CREATE TABLE probe_gate_table (id BIGSERIAL PRIMARY KEY);\n",
+    )
+    .unwrap();
+
+    let detected = run_gate_script(&scene, "scripts/check_baseline_consolidation.py");
+    assert!(
+        !detected.status.success(),
+        "an incremental migration creating an object the baseline does not absorb must fail: {}",
+        String::from_utf8_lossy(&detected.stdout)
+    );
+
+    // Simulate a naming-convention change: the regex no longer matches the real
+    // incremental file. Pre-fix this printed "0 个增量迁移" and exited 0.
+    let script = scene.join("scripts/check_baseline_consolidation.py");
+    let broken = fs::read_to_string(&script).unwrap().replace(r#"r"^\d{14}_.*\.sql$""#, r#"r"^\d{20}_.*\.sql$""#);
+    fs::write(&script, broken).unwrap();
+
+    let emptied = run_gate_script(&scene, "scripts/check_baseline_consolidation.py");
+    let emptied_out = String::from_utf8_lossy(&emptied.stdout);
+    assert!(!emptied.status.success(), "an emptied scan surface must fail loudly, not pass vacuously: {emptied_out}");
+    assert!(
+        emptied_out.contains("扫描面自检失败"),
+        "the scan-surface self-check must explain the failure: {emptied_out}"
+    );
+
+    fs::remove_dir_all(&scene).ok();
+}
+
+/// Red proof for C10: the undo-pairing sub-check must run whenever incremental
+/// migrations exist, and a changed naming convention or deleted file must not
+/// silently empty the scan.
+#[test]
+fn migration_consistency_gate_pairs_undo_files_and_fails_on_an_emptied_scan_surface() {
+    let root = project_root();
+    let scene = temp_scene("migration-consistency-emptied-scan");
+    let baseline = "00000000_unified_schema_v12.sql";
+
+    copy_file(
+        &root.join("scripts/check_migration_consistency.py"),
+        &scene.join("scripts/check_migration_consistency.py"),
+    );
+    copy_file(&root.join("migrations").join(baseline), &scene.join("migrations").join(baseline));
+    copy_file(&root.join("docker/deploy/docker-compose.yml"), &scene.join("docker/deploy/docker-compose.yml"));
+
+    // Undo pairing still runs when a genuine incremental migration exists.
+    fs::write(scene.join("migrations/20260101000000_probe.sql"), "-- probe\n").unwrap();
+    let missing_undo = run_gate_script(&scene, "scripts/check_migration_consistency.py");
+    let missing_undo_out = String::from_utf8_lossy(&missing_undo.stdout);
+    assert!(
+        !missing_undo.status.success(),
+        "an incremental migration without a `.undo.sql` companion must fail: {missing_undo_out}"
+    );
+    assert!(missing_undo_out.contains("missing_primary_undo"), "expected missing_primary_undo: {missing_undo_out}");
+
+    fs::write(scene.join("migrations/20260101000000_probe.undo.sql"), "-- undo\n").unwrap();
+    let paired = run_gate_script(&scene, "scripts/check_migration_consistency.py");
+    let paired_out = String::from_utf8_lossy(&paired.stdout);
+    assert!(paired.status.success(), "an incremental migration with a matching undo must pass: {paired_out}");
+    assert!(
+        paired_out.contains("\"incremental_files\"") && paired_out.contains("20260101000000_probe.sql"),
+        "the paired incremental must be reported in the scan surface: {paired_out}"
+    );
+    assert!(
+        paired_out.contains("\"marker\": null"),
+        "the consolidated-baseline-only marker must not be emitted while incrementals exist: {paired_out}"
+    );
+
+    // A changed naming convention must not silently empty the scan surface.
+    fs::remove_file(scene.join("migrations/20260101000000_probe.sql")).unwrap();
+    fs::remove_file(scene.join("migrations/20260101000000_probe.undo.sql")).unwrap();
+    fs::write(scene.join("migrations/20260101_probe.sql"), "-- probe\n").unwrap();
+    let drifted = run_gate_script(&scene, "scripts/check_migration_consistency.py");
+    let drifted_out = String::from_utf8_lossy(&drifted.stdout);
+    assert!(
+        !drifted.status.success(),
+        "a changed naming convention must fail loudly, not pass vacuously: {drifted_out}"
+    );
+    assert!(drifted_out.contains("unaccounted_forward_migration"), "got: {drifted_out}");
+    assert!(drifted_out.contains("empty_incremental_scan_surface"), "got: {drifted_out}");
+
+    // A deleted file must not silently empty the scan surface either.
+    fs::remove_file(scene.join("migrations").join(baseline)).unwrap();
+    let deleted = run_gate_script(&scene, "scripts/check_migration_consistency.py");
+    let deleted_out = String::from_utf8_lossy(&deleted.stdout);
+    assert!(!deleted.status.success(), "deleting the only forward file must fail loudly: {deleted_out}");
+    assert!(deleted_out.contains("missing_unified_baseline"), "got: {deleted_out}");
+
+    fs::remove_dir_all(&scene).ok();
 }

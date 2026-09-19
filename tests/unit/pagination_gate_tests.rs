@@ -32,7 +32,7 @@
 //!   * bench harness 端到端 → `#[ignore]`，按需显式运行（命令见各测试文档）
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// 门禁断言的两个基准名（来自 `scripts/check_pagination_benchmark.py`）。
@@ -177,6 +177,45 @@ test pagination_keyset_deep_page ... bench:  70,000,000 ns/iter (+/- 900,000)
 fn pagination_gate_script_exists() {
     let path = gate_script();
     assert!(path.is_file(), "门禁脚本应存在于 {path:?}");
+}
+
+/// 同一个基准名出现两次时必须失败。
+///
+/// `benchmark.txt` 由多个 `cargo bench` 步骤 `tee -a` 追加而成。旧实现用
+/// `dict[name] = value` 保留**最后**一行，于是"第一次采样 900ms、第二次 71ms"
+/// 会被读成 71ms —— 门禁拿一个并非本次测量的值去比较，实测 exit 0。
+#[test]
+fn pagination_gate_rejects_duplicate_rows_instead_of_last_wins() {
+    let log = "\
+test pagination_offset_deep_page ... bench: 900,000,000 ns/iter (+/- 1,200,000)
+test pagination_offset_deep_page ... bench:  71,200,000 ns/iter (+/- 1,200,000)
+test pagination_keyset_deep_page ... bench:  43,100,000 ns/iter (+/- 900,000)
+";
+    let (code, output) = run_gate_with(log);
+    assert_ne!(code, 0, "重复样本必须失败，而不是静默取最后一行\n输出:\n{output}");
+    assert!(output.contains("more than once"), "失败信息应指出重复行\n输出:\n{output}");
+}
+
+/// 输入文件不存在时必须以清晰信息 fail-closed，而不是抛裸 `FileNotFoundError`。
+#[test]
+fn pagination_gate_fails_closed_when_input_file_is_missing() {
+    let dir = unique_temp_dir("pagination_missing");
+    let missing = dir.join("does-not-exist.txt");
+
+    let out = Command::new("python3")
+        .arg(gate_script())
+        .arg(&missing)
+        .arg("--minimum-improvement")
+        .arg("0.30")
+        .current_dir(repo_root())
+        .output()
+        .expect("gate script must be spawnable");
+    let _ = fs::remove_dir_all(&dir);
+
+    let mut combined = String::from_utf8_lossy(&out.stdout).into_owned();
+    combined.push_str(&String::from_utf8_lossy(&out.stderr));
+    assert_ne!(out.status.code().unwrap_or(-1), 0, "缺失输入必须非零退出\n输出:\n{combined}");
+    assert!(combined.contains("nothing was measured"), "失败信息应说明没有测量数据\n输出:\n{combined}");
 }
 
 // =============================================================================
@@ -351,6 +390,116 @@ fn api_bench_require_unfulfillable_group_fails() {
 }
 
 // =============================================================================
+// 扫描面守卫（E6 / E7）：输入缺失或为空时必须响亮失败，而不是打印 PASS
+// =============================================================================
+//
+// `scripts/quality/check_route_layering.sh`（E6）与
+// `scripts/build_sqlx_migration_source.py`（E7）此前都可以在"扫到 0 个文件"
+// 或"选择集静默丢迁移"的情况下成功退出：前者对空目录打印 PASS，后者的输出直接
+// 喂给 `sqlx migrate run`，少一个迁移就是一套不完整的 schema。
+//
+// 本文件只被允许扩展现有的 `tests/unit/` 测试文件（不允许新建），因此这三条
+// 门禁的"扫描面为空即失败"断言集中在这里 —— 三者判据同型。
+
+/// E6：扫描面存在但没有 `.rs` 文件时，旧实现打印 PASS 并 exit 0。
+/// 这里用 `SYNAPSE_WEB_CRATE_DIR` 指向一个空的 `src/routes`，断言必须 exit 2。
+#[test]
+fn route_layering_gate_fails_closed_on_empty_scan_surface() {
+    let dir = unique_temp_dir("route_layering_empty");
+    let routes = dir.join("src/routes");
+    fs::create_dir_all(&routes).expect("temp routes dir must be creatable");
+
+    let (code, output) = run_bash_script(
+        &repo_root().join("scripts/quality/check_route_layering.sh"),
+        &[("SYNAPSE_WEB_CRATE_DIR", dir.to_str().expect("temp path must be UTF-8"))],
+    );
+    let _ = fs::remove_dir_all(&dir);
+
+    assert_ne!(code, 0, "扫描面为空时门禁必须非零退出（旧实现对空目录打印 PASS/exit 0）\n输出:\n{output}");
+    assert!(output.contains("inspect nothing"), "失败信息应说明门禁什么也没扫到\n输出:\n{output}");
+}
+
+/// E6 绿对照：真实路由树上门禁必须仍然通过，否则守卫会把 CI 判死。
+#[test]
+fn route_layering_gate_passes_on_the_real_route_tree() {
+    // 空字符串会被 `${VAR:-default}` 当作"未设置"，从而落回 synapse-web。
+    let (code, output) =
+        run_bash_script(&repo_root().join("scripts/quality/check_route_layering.sh"), &[("SYNAPSE_WEB_CRATE_DIR", "")]);
+    assert_eq!(code, 0, "真实路由树上门禁应通过\n输出:\n{output}");
+}
+
+/// E7：`migrations/` 里出现一个未被选择的前向迁移时，旧实现静默只输出
+/// baseline（count=1），把不完整的 source 交给 `sqlx migrate run`。
+#[test]
+fn sqlx_migration_source_fails_closed_when_a_forward_migration_is_dropped() {
+    let dir = unique_temp_dir("sqlx_migrations_drop");
+    let migrations = dir.join("migrations");
+    fs::create_dir_all(&migrations).expect("temp migrations dir must be creatable");
+    let baseline = real_baseline();
+    fs::copy(&baseline, migrations.join(baseline.file_name().expect("baseline must have a file name")))
+        .expect("baseline copy must succeed");
+    fs::write(migrations.join("20990101000000_probe.sql"), "-- probe\n").expect("probe migration must be writable");
+
+    let out = dir.join("out");
+    let (code, output) = run_python_script(
+        &repo_root().join("scripts/build_sqlx_migration_source.py"),
+        &[out.to_str().expect("temp path must be UTF-8")],
+        &[("SYNAPSE_MIGRATIONS_DIR", migrations.to_str().expect("temp path must be UTF-8"))],
+    );
+    let _ = fs::remove_dir_all(&dir);
+
+    assert_ne!(code, 0, "少一个前向迁移必须非零退出（旧实现静默 count=1）\n输出:\n{output}");
+    assert!(
+        output.contains("silently drop") && output.contains("20990101000000_probe.sql"),
+        "失败信息应点名被丢弃的迁移\n输出:\n{output}"
+    );
+}
+
+/// E7：`migrations/` 为空时必须失败，而不是生成一个空 source。
+#[test]
+fn sqlx_migration_source_fails_closed_on_empty_migrations_dir() {
+    let dir = unique_temp_dir("sqlx_migrations_empty");
+    let migrations = dir.join("migrations");
+    fs::create_dir_all(&migrations).expect("temp migrations dir must be creatable");
+
+    let out = dir.join("out");
+    let (code, output) = run_python_script(
+        &repo_root().join("scripts/build_sqlx_migration_source.py"),
+        &[out.to_str().expect("temp path must be UTF-8")],
+        &[("SYNAPSE_MIGRATIONS_DIR", migrations.to_str().expect("temp path must be UTF-8"))],
+    );
+    let _ = fs::remove_dir_all(&dir);
+
+    assert_ne!(code, 0, "空迁移目录必须非零退出\n输出:\n{output}");
+    assert!(output.contains("no forward .sql"), "失败信息应说明扫描面为空\n输出:\n{output}");
+}
+
+/// E7 绿对照：只有 baseline 的临时树必须通过，并真的把 baseline + manifest 写出来。
+#[test]
+fn sqlx_migration_source_passes_and_copies_on_baseline_only_tree() {
+    let dir = unique_temp_dir("sqlx_migrations_ok");
+    let migrations = dir.join("migrations");
+    fs::create_dir_all(&migrations).expect("temp migrations dir must be creatable");
+    let baseline = real_baseline();
+    let baseline_name = baseline.file_name().expect("baseline must have a file name").to_string_lossy().into_owned();
+    fs::copy(&baseline, migrations.join(&baseline_name)).expect("baseline copy must succeed");
+
+    let out = dir.join("out");
+    let (code, output) = run_python_script(
+        &repo_root().join("scripts/build_sqlx_migration_source.py"),
+        &[out.to_str().expect("temp path must be UTF-8")],
+        &[("SYNAPSE_MIGRATIONS_DIR", migrations.to_str().expect("temp path must be UTF-8"))],
+    );
+
+    let copied = out.join(&baseline_name);
+    let manifest = out.join("manifest.json");
+    assert_eq!(code, 0, "只有 baseline 时必须通过\n输出:\n{output}");
+    assert!(copied.is_file(), "baseline 必须被复制到输出目录");
+    assert!(manifest.is_file(), "manifest.json 必须被写出");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+// =============================================================================
 // helpers
 // =============================================================================
 
@@ -380,4 +529,61 @@ fn combined_output(out: &std::process::Output) -> String {
     let mut s = String::from_utf8_lossy(&out.stdout).into_owned();
     s.push_str(&String::from_utf8_lossy(&out.stderr));
     s
+}
+
+/// 唯一的临时目录（进程内计数 + pid），避免并行测试互相踩。
+fn unique_temp_dir(tag: &str) -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let dir = PathBuf::from(format!("/tmp/{tag}_{}_{}", std::process::id(), id));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("temp dir must be creatable");
+    dir
+}
+
+/// 以 `envs` 覆盖环境跑一个 shell 门禁，返回 `(exit_code, stdout+stderr)`。
+fn run_bash_script(script: &Path, envs: &[(&str, &str)]) -> (i32, String) {
+    let mut cmd = Command::new("bash");
+    cmd.arg(script);
+    for (key, value) in envs {
+        cmd.env(key, value);
+    }
+    cmd.current_dir(repo_root());
+    let out = cmd.output().expect("script must be spawnable");
+    (out.status.code().unwrap_or(-1), combined_output(&out))
+}
+
+/// 以 `envs` 覆盖环境跑一个 python 脚本，返回 `(exit_code, stdout+stderr)`。
+fn run_python_script(script: &Path, args: &[&str], envs: &[(&str, &str)]) -> (i32, String) {
+    let mut cmd = Command::new("python3");
+    cmd.arg(script);
+    cmd.args(args);
+    for (key, value) in envs {
+        cmd.env(key, value);
+    }
+    cmd.current_dir(repo_root());
+    let out = cmd.output().expect("script must be spawnable");
+    (out.status.code().unwrap_or(-1), combined_output(&out))
+}
+
+/// `migrations/` 里唯一的 consolidated baseline（不硬编码版本号，避免基线换代即脆）。
+fn real_baseline() -> PathBuf {
+    let dir = repo_root().join("migrations");
+    let mut baselines: Vec<PathBuf> = fs::read_dir(&dir)
+        .expect("migrations dir must be readable")
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("00000000_unified_schema_v") && name.ends_with(".sql"))
+        })
+        .collect();
+    baselines.sort();
+    assert_eq!(
+        baselines.len(),
+        1,
+        "migrations/ 必须恰好有一个 consolidated baseline，测试才能构造临时迁移树: {baselines:?}"
+    );
+    baselines.pop().expect("one baseline")
 }

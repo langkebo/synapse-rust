@@ -46,6 +46,11 @@ LEDGER_ORIGINS = os.path.join(SCRIPT_DIR, "ledger_origins.txt")
 # `.route()` calls (they are *builder intent*, not part of the path/method
 # tuple). See `load_ledger_annotations`.
 LEDGER_ANNOTATIONS = os.path.join(SCRIPT_DIR, "ledger_annotations.txt")
+# Known-benign non-resolutions. Overridable so the bidirectional ratchet can be
+# exercised against a synthetic file without mutating the committed one.
+UNRESOLVED_ALLOWLIST = os.environ.get("EXTRACT_UNRESOLVED_ALLOWLIST") or os.path.join(
+    SCRIPT_DIR, "extract_unresolved_allowlist.txt"
+)
 # Allowed annotation keys. Rejecting an unknown key turns a typo in a field
 # name into a RED gate instead of a silently-ignored line.
 ANNOTATION_KEYS = ("rate_limit_exempt", "auth", "query_params")
@@ -1714,12 +1719,18 @@ def main() -> int:
         for u in sorted(res.unresolved)[:40]:
             print(f"    {u}")
 
-    # Ratchet: the unresolved set must not grow. Every entry here is a known,
-    # benign non-resolution (same-name overloads resolved by same-file-first,
-    # or opaque `RouteModule` dynamic dispatch). A *new* entry means the parser
-    # met a construct it cannot follow, which is exactly how the chained-method
-    # defect went unnoticed — so it must fail rather than accumulate.
-    allow_path = os.path.join(SCRIPT_DIR, "extract_unresolved_allowlist.txt")
+    # Ratchet: the unresolved set must not grow, and the allowlist must not
+    # rot. Every entry here is a known, benign non-resolution (same-name
+    # overloads resolved by same-file-first, or opaque `RouteModule` dynamic
+    # dispatch). A *new* entry means the parser met a construct it cannot
+    # follow, which is exactly how the chained-method defect went unnoticed —
+    # so it must fail rather than accumulate. The other direction matters just
+    # as much: an entry that no longer matches anything is a stale claim that
+    # keeps "covering" a blind spot that is gone, so it must fail too and be
+    # pruned. Without that, the file can only ever grow and stops describing
+    # the parser it is supposed to describe (iron law 8 / shell_routes_allowlist
+    # is already bidirectional for the same reason).
+    allow_path = UNRESOLVED_ALLOWLIST
     allowed: set = set()
     if os.path.exists(allow_path):
         with open(allow_path) as fh:
@@ -1740,9 +1751,19 @@ def main() -> int:
         )
     stale_allowed = sorted(allowed - res.unresolved)
     if stale_allowed:
-        print(f"\nnote: {len(stale_allowed)} allowlist entries are no longer produced — please prune:")
+        print(
+            f"\n!! STALE allowlist entries ({len(stale_allowed)}) — the parser no longer produces "
+            "them:",
+            file=sys.stderr,
+        )
         for u in stale_allowed:
-            print(f"    {u}")
+            print(f"    {u}", file=sys.stderr)
+        print(
+            "    Delete them from scripts/contract/extract_unresolved_allowlist.txt. An entry that "
+            "matches no unresolved construct is not an exemption, it is a stale claim about the "
+            "parser — keeping it is how the allowlist silently absorbs future regressions.",
+            file=sys.stderr,
+        )
 
     print(f"\n-- registrations outside the Matrix namespaces ({len(non_ns)}) --")
     print("   intentional host-root protocol/probe endpoints only (CAS, liveness);")
@@ -1916,6 +1937,11 @@ def main() -> int:
         )
     if new_unresolved:
         strict_failures.append(f"{len(new_unresolved)} new unresolved parser constructs")
+    if stale_allowed:
+        strict_failures.append(
+            f"{len(stale_allowed)} stale unresolved-allowlist entries match nothing in the current "
+            f"source (prune them — the allowlist must be able to shrink): {stale_allowed}"
+        )
     if label_mismatches:
         strict_failures.append(
             f"{len(label_mismatches)} routes resolve to the wrong `registered_by` (B2-1 step 2): "

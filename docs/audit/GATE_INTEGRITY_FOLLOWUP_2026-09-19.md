@@ -705,3 +705,24 @@ unit 目标 **1691 passed / 2 skipped / 0 failed**；全量 `--workspace --lib -
 **守卫**：`tests/unit/test_db_url_convention_tests.rs::every_resolver_copy_disables_the_fallback_under_ci`
 断言 5 份副本都含该判定（非空性：`resolvers.len() >= 5`）；**红证明**：删掉 `tests/common/mod.rs` 的 gate 块
 → 该测试 FAILED 并点名该文件，恢复 → 7 passed。
+
+---
+
+## 9. 第四轮落地：§7 第 11 条尾巴（C3/C8/C10/D2/E4/E6/E7/E8/E9）
+
+> 每个"检查类"改动都做了"故意违规 → 变红 → 撤销 → 绿"，且违规探针一律在 temp 副本里构造，
+> `migrations/` 与生成产物从未被就地改动。
+
+| 项 | 状态 | 改了什么 | 红证明（关键输出） | 残留 |
+|---|---|---|---|---|
+| **C3** `check_baseline_consolidation.py` | ✅ | 空扫描面不再报绿：新增 `consolidated-baseline-only` 标记 + `scan_surface_problems()` 自检（正向迁移必须恰为 baseline） | 改前真仓库 `已吸收全部 0 个增量迁移` EXIT=0；把 `TS_RE` 打坏 `\d{14}`→`\d{20}`（temp）→ 改前 EXIT=0 空转、改后 EXIT=1「扫描面自检失败」点名漏掉的迁移；构造"未吸收表/重复索引" → EXIT=1 | 将来新增合法 `00000001_extensions*` 会触发该断言，需有意更新（已写进 docstring） |
+| **C8** `check_missing_docs_ratchet.py` | ✅ | 机制描述改为 rustc 事实；删掉**字节级重复**的 `list_changed_rs_files`（铁律 2）；移除已失效的 `-A missing_docs`（只留 `-D`） | rustc 1.93 实验：`#![allow]`+`-D` 绿、`#![deny]`+`-A` 红 ⇒ **属性压过 CLI**；无属性时 `-A -D` 红 / `-D -A` 绿 ⇒ CLI 内**后者生效**（旧"`-A` 抵消 crate allow"的机制从不存在，`-A` 早已被后面的 `-D` 覆盖）；棘轮红/绿：temp 包 baseline 2 → 注入无 `//!` 的 `src/bin/three.rs` → `3>2` EXIT=1 → 撤销 EXIT=0 | 单次全量计数受并发编辑影响（快照）；`-D` 对 6 个 bin crate root 是必要的 |
+| **C10** `check_migration_consistency.py` | ✅ | 删除空的 `REQUIRED_V8_BATCHES` 与其空转循环（铁律 1/2 残留）；`scan_surface()` 单一实现供两条分支共用；空集显式自证 + JSON 增 `marker`/`scan_surface` | 改前：undo 配对迭代 0 主体仍 ok；temp 构造"增量无 `.undo.sql`" → EXIT=1 `missing_primary_undo`；命名漂移/删基线 → EXIT=1 `empty_incremental_scan_surface`；真仓库 EXIT=0 且 JSON 含 `marker: consolidated-baseline-only` | 旧 mirror 分支保留（非本次范围）；marker 走 stderr（stdout 仍是纯 JSON） |
+| **D2** P1D 设计文档 | ✅ | 3 处把不存在的 `seed_reference_tables_match_baseline` 改成真实测试名，§9.2 落地说明改为真实实现（含"哪些断言落地/哪些没落地、由谁覆盖"）；新增 Guard 8 守卫（解析文档里反引号 snake_case 名并断言 Rust 源码里有 `fn`，非空性 ≥2 名/实际 6 名） | 往文档塞 `nonexistent_probe_test_name_here` → FAILED 点名；把文档还原成提交版（含两个漂移名）→ FAILED；恢复 → 9 passed | **已顺手修掉**：`synapse-common/src/test_isolation.rs:97` 的同一陈旧名字（该 agent 无权改） |
+| **E4** `check_pagination_benchmark.py` | 🟡 部分（审计所述"自比"不成立） | 审计说的"自比/永不变化"**不成立**（offset/keyset 是两行独立测量，且能变红）；真正可修的是解析器：重复行 last-wins 会静默换样本 → 新增重复行/缺文件/空行守卫，全部 exit 2 | 改前：重复行（900ms 后 71ms）→ EXIT=0 且用 71ms 算出 39.47%；缺文件 → 裸 traceback。改后：同输入 EXIT=2「appears more than once」；真 Criterion 输出 → `improvement=99.94%` EXIT=0 | **需要单独一轮**：bench 本身是内存仿真（`benches/performance_api_benchmarks.rs:436-484`），30% 阈值余量约 1550×，真实分页 SQL 改动不可能触发；需改为 DB 支撑的真实基准（超出本轮允许文件集） |
+| **E6** `scripts/quality/check_route_layering.sh` | ✅ | 补"扫描面非空"守卫（`find -print -quit`，空目录 EXIT=2，与 `check_route_storage_boundary.sh` 同型）；header 不再宣传未实现的 Pattern D/E | 改前：`SYNAPSE_WEB_CRATE_DIR=<tmp>` 且 `<tmp>/src/routes` 为空 → `PASS` EXIT=0；改后 → EXIT=2「would inspect nothing and pass」；真仓库 `bash scripts/quality/check_route_layering.sh` EXIT=0 | Pattern A 对 synapse-web 仍不可达（真实违规在 synapse_storage，由 `check_web_layering.py` 覆盖） |
+| **E7** `build_sqlx_migration_source.py` | ✅ | 选择集完整性改为 fail-closed：正向 `.sql` 必须全部被选中，否则 EXIT=2 并列出漏掉的迁移；新增空/缺目录守卫与拷贝后字节一致性校验（含 `SYNAPSE_MIGRATIONS_DIR` 测试缝） | 改前：temp 树 = v12 + `20990101000000_probe.sql` → EXIT=0 且 manifest count=1（探针被静默丢弃 → 迁移源不完整）；改后同输入 EXIT=2「would silently drop 1 migration(s)」；真 CI 调用 EXIT=0 | 将来新增时间戳迁移必须先折进 baseline 或显式选中（有意的 fail-closed） |
+| **E8** OpenAPI/route-table | ✅（按裁定缩小范围） | 新增共享 `scripts/api_test/artifact_common.py`（`describe_drift()` 单一实现）；两个生成器都加 `--check/--expected`（temp 生成 + diff，漂移 EXIT=1，永不写被检文件）；把**字节可复现**的 `client.yaml` 校验接进 `ci.yml`（放在生成步骤之前，避免"生成后再校验"变成空转）；route-table 走"确定性输出形状钉住"+ `--check` 红/绿证明 | 改前：两个生成器永远 EXIT=0，无 diff 步骤；`gen_route_table.py --check`（新）对提交产物 → EXIT=1（提交 1047 vs ledger.json 1292，且默认 feature 源导出 1049 → 恰好缺 2 条）；`gen_client_yaml.py --skip-export --check` 对真文件 → EXIT=0（已接线） | **需有意重新生成 `docs/openapi/route-table.json`**：缺 2 条真实未门控路由（`GET /_matrix/client/v3/auth/{auth_type}/fallback/web`、`GET /_synapse/admin/v1/rate-limit-status`），另有 80 条是 feature 门控差异；CI 现在用 `ledger.json`（1292 条）生成上传，与提交的 1047 不一致 —— 重新生成时应改用"默认 feature 的新导出 + 固定 timestamp" |
+| **E9** `extract_unresolved_allowlist.txt` | ✅ | 陈旧条目从"只打印提示"改为进入 `strict_failures`（双向棘轮）；清理 5 条已不再命中的条目（21→16）并重写 header；新增回归测试 | 改前：隔离 `EXTRACT_STRICT=1` 对 5/21 条陈旧条目仍 EXIT=0（只在 stdout 提示）；改后同输入 EXIT=1 并列出 5 条；"新条目"方向仍红；沙箱 + 清理后的真清单 EXIT=0 | `scripts/contract/test_extract_registered.py::check_ratchet`（Python 侧）仍是单向（超出允许文件集）；`EXTRACT_STRICT=1` 在 HEAD 上另有 **3 类既有失败**（S-14 三条真路由缺席两条车道、3 条 ledger_export_sdk 车道/profile 集不匹配、1 条 emitted-cfg 计数 1151 vs 1148），均为本轮之前既有 |
+
+**本轮门禁**：见 §9 末尾补记（fmt 棘轮 / clippy 两档 / unit 目标 / 全量 lib 无 retries）。

@@ -1,12 +1,16 @@
 # Known-benign non-resolutions for scripts/contract/extract_registered.py.
 #
-# The ratchet works in one direction only: a line here allows an existing
-# construct the parser cannot follow, but a NEW unresolved string fails the
-# strict gate (EXTRACT_STRICT=1). That is deliberate — silently tolerating new
-# blind spots is how the chained-method defect (`.route(p, get().put().delete())`
-# reported only GET) went unnoticed for so long.
+# The ratchet is bidirectional (EXTRACT_STRICT=1 enforces both directions):
+#   * a line here allows an existing construct the parser cannot follow, but a
+#     NEW unresolved string fails the gate — silently tolerating new blind spots
+#     is how the chained-method defect (`.route(p, get().put().delete())`
+#     reported only GET) went unnoticed for so long;
+#   * a line that matches NO current unresolved construct also fails, so the
+#     allowlist must shrink as the parser improves. A one-way allowlist can only
+#     grow: stale entries keep "covering" positions that no longer exist and
+#     make the next regression easier to absorb.
 #
-# Why the 19 entries below are safe to allow is not a matter of taste: the
+# Why the 16 entries below are safe to allow is not a matter of taste: the
 # strict gate independently proves the *outcome* is correct —
 #   * every route declared by a `*_route_manifest()` is derived  (0 missing), and
 #   * every route present in the authoritative `ledger_export` fixtures is
@@ -26,21 +30,16 @@ ambiguous fn create_room_router (2 defs)         # admin/room/mod.rs vs room.rs 
 ambiguous fn create_router (2 defs)              # assembly.rs vs federation/membership/mod.rs — both kept as roots
 ambiguous fn new (3 defs)                        # `RouteLedger::new()` / `Router::new()` — constructors, never router builders
 ambiguous fn from_ref (11 defs)                  # axum `FromRef` impls — request-state extraction, not routing
-ambiguous same-file fn new in route_ledger.rs    # two inherent `new` constructors on ledger types
 
 # --- opaque chain methods ----------------------------------------------------
 # Called on an accumulator that already holds the routes, so the correct action
 # is to keep the accumulator unchanged.
 chain method .any() in admin/server.rs                        # iterator adapter on a config list
 chain method .any() in federation/mod.rs                      # iterator adapter on a feature list
-chain method .any() in route_module.rs                        # iterator adapter on the module list
 chain method .collect() in assembly.rs                        # iterator adapter on a route list
 chain method .collect() in route_ledger.rs                    # iterator adapter inside the ledger
-chain method .extend_from_slice() in admin/notification.rs    # Vec<String> page helpers, no routes
 chain method .filter() in assembly.rs                         # iterator adapter on the rate-limit exempt list
 chain method .filter() in route_ledger.rs                     # iterator adapter inside the ledger
-chain method .manifest_for_profile() in assembly.rs           # RouteModule dynamic dispatch — covered by the `merge_into` roots
-chain method .manifest_for_profile() in route_module.rs       # RouteModule dynamic dispatch — covered by the `merge_into` roots
 chain method .merge_into() in assembly.rs                     # RouteModule dynamic dispatch — covered by the `merge_into` roots
 chain method .with_rate_limit_exempt_paths() in assembly.rs   # AppState mutation, not a router
 chain method .rank() in derived_routes.rs                     # Generated derived_route_manifest helper, not a route definition

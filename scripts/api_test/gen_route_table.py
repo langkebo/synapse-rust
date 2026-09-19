@@ -14,6 +14,8 @@ import json
 import sys
 from pathlib import Path
 
+from artifact_common import describe_drift
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
 
@@ -64,23 +66,59 @@ def build_route_table(ledger: dict) -> dict:
     }
 
 
+def render_table(route_table: dict) -> str:
+    """Canonical serialization — the single byte-for-byte definition of the artifact."""
+    return json.dumps(route_table, indent=2, ensure_ascii=False) + "\n"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Generate route-table.json from ledger")
     ap.add_argument("--ledger", default=str(DEFAULT_LEDGER), help="Path to ledger JSON")
     ap.add_argument("--output", default=str(OUTPUT_FILE), help="Output path for route-table.json")
+    ap.add_argument(
+        "--check",
+        action="store_true",
+        help="Do not write: regenerate from --ledger and diff against --expected; exit 1 on drift",
+    )
+    ap.add_argument(
+        "--expected",
+        default=str(OUTPUT_FILE),
+        help="Reference artifact for --check (default: committed docs/openapi/route-table.json)",
+    )
     args = ap.parse_args()
 
-    ledger_path = Path(args.ledger)
+    ledger = load_ledger(Path(args.ledger))
+    route_table = build_route_table(ledger)
+    rendered = render_table(route_table)
+
+    if args.check:
+        expected_path = Path(args.expected)
+        if not expected_path.exists():
+            print(
+                f"[gen_route_table] CHECK FAILED: reference artifact not found: {expected_path}",
+                file=sys.stderr,
+            )
+            return 1
+        expected = expected_path.read_text(encoding="utf-8")
+        if expected == rendered:
+            print(f"[gen_route_table] OK: {expected_path} matches a fresh generation from {args.ledger}")
+            return 0
+        print(
+            f"[gen_route_table] CHECK FAILED: {expected_path} is stale — it differs from a fresh "
+            f"generation from {args.ledger} ({route_table['total_routes']} routes).",
+            file=sys.stderr,
+        )
+        print(describe_drift(expected, rendered), file=sys.stderr)
+        print(
+            "    Regenerate and commit it with:\n"
+            f"      python3 scripts/api_test/gen_route_table.py --ledger {args.ledger}",
+            file=sys.stderr,
+        )
+        return 1
+
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    ledger = load_ledger(ledger_path)
-    route_table = build_route_table(ledger)
-
-    output_path.write_text(
-        json.dumps(route_table, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    output_path.write_text(rendered, encoding="utf-8")
     print(f"[gen_route_table] generated {output_path} ({route_table['total_routes']} routes)")
     return 0
 

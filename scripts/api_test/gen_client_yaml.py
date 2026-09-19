@@ -19,7 +19,10 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
+
+from artifact_common import describe_drift
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
@@ -63,19 +66,19 @@ def run_cargo_export(commit: str | None, timestamp: str) -> Path:
     return ledger_path
 
 
-def run_openapi_generator(ledger_path: Path) -> None:
-    """Run generate_openapi.py to produce client.yaml."""
+def run_openapi_generator(ledger_path: Path, output_path: Path) -> None:
+    """Run generate_openapi.py to produce client.yaml at `output_path`."""
     cmd = [
         sys.executable, str(GENERATOR_SCRIPT),
         "--ledger", str(ledger_path),
-        "--output", str(OUTPUT_FILE),
+        "--output", str(output_path),
     ]
     print(f"[gen_client_yaml] Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=PROJECT_ROOT)
     if result.returncode != 0:
         print(f"[gen_client_yaml] generator FAILED:\n{result.stderr}", file=sys.stderr)
         sys.exit(1)
-    print(f"[gen_client_yaml] generated {OUTPUT_FILE}")
+    print(f"[gen_client_yaml] generated {output_path}")
 
 
 def add_forbidden_header(file_path: Path) -> None:
@@ -93,9 +96,17 @@ def main() -> int:
     ap.add_argument("--commit", default=None, help="synapse-rust commit SHA to record")
     ap.add_argument("--timestamp", default=FIXED_TIMESTAMP, help="Fixed generated_at timestamp")
     ap.add_argument("--skip-export", action="store_true", help="Skip cargo export, use existing ledger.json")
+    ap.add_argument(
+        "--check",
+        action="store_true",
+        help="Do not write: generate into a temp path and diff against --expected; exit 1 on drift",
+    )
+    ap.add_argument(
+        "--expected",
+        default=str(OUTPUT_FILE),
+        help="Reference artifact for --check (default: committed docs/openapi/client.yaml)",
+    )
     args = ap.parse_args()
-
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # Phase 1: Export ledger JSON (unless skipped)
     if args.skip_export:
@@ -104,8 +115,41 @@ def main() -> int:
     else:
         ledger_path = run_cargo_export(args.commit, args.timestamp)
 
+    if args.check:
+        expected_path = Path(args.expected)
+        if not expected_path.exists():
+            print(
+                f"[gen_client_yaml] CHECK FAILED: reference artifact not found: {expected_path}",
+                file=sys.stderr,
+            )
+            return 1
+        # Generate to a temp path: --check must never touch the committed artifact.
+        with tempfile.TemporaryDirectory(prefix="client-yaml-check-") as tmpdir:
+            generated_path = Path(tmpdir) / "client.yaml"
+            run_openapi_generator(ledger_path, generated_path)
+            add_forbidden_header(generated_path)
+            rendered = generated_path.read_text(encoding="utf-8")
+        expected = expected_path.read_text(encoding="utf-8")
+        if expected == rendered:
+            print(f"[gen_client_yaml] OK: {expected_path} matches a fresh generation from {ledger_path}")
+            return 0
+        print(
+            f"[gen_client_yaml] CHECK FAILED: {expected_path} is stale — it differs from a fresh "
+            f"generation from {ledger_path}.",
+            file=sys.stderr,
+        )
+        print(describe_drift(expected, rendered), file=sys.stderr)
+        print(
+            "    Regenerate and commit it with:\n"
+            "      python3 scripts/api_test/refresh_openapi_specs.py --profile default",
+            file=sys.stderr,
+        )
+        return 1
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
     # Phase 2: Generate OpenAPI YAML
-    run_openapi_generator(ledger_path)
+    run_openapi_generator(ledger_path, OUTPUT_FILE)
 
     # Phase 3: Add forbidden header
     add_forbidden_header(OUTPUT_FILE)

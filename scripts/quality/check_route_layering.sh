@@ -33,15 +33,31 @@ if [ ! -d "$ROUTES_DIR" ]; then
     exit 2
 fi
 
+# Guard the scan surface itself (mirrors the two guards in
+# scripts/ci/check_route_storage_boundary.sh): a directory that exists but
+# contains no Rust files makes every pattern below vacuous, so `violations`
+# stays empty and the gate prints PASS while inspecting nothing — the "move
+# code out of the gate's scan surface" escape from AGENTS.md 铁律 8. Fail
+# loudly so the fix is to re-point the gate, not to delete it.
+first_rs="$(find "$ROUTES_DIR" -name '*.rs' -print -quit 2>/dev/null || true)"
+if [ -z "$first_rs" ]; then
+    echo "ERROR: no .rs files under $ROUTES_DIR — the gate would inspect nothing and pass" >&2
+    echo "  Re-point the scan surface (SYNAPSE_WEB_CRATE_DIR) rather than deleting this check." >&2
+    exit 2
+fi
+
 # ---------------------------------------------------------------------------
 # Detection patterns
 # ---------------------------------------------------------------------------
 
 # Pattern A: `use crate::storage` (or `use crate::storage::...`)
 # Pattern B: `sqlx::query` / `sqlx::query_as` / `sqlx::query_scalar`
-# Pattern C: `PgPool` / `Pool<Postgres>` / `.pool` (direct pool access)
-# Pattern D: `use sqlx::PgPool` / `use sqlx::Pool`
-# Pattern E: `as_ref()` on pool (never needed in a route handler)
+# Pattern C: `PgPool` / `Pool<Postgres>` (direct pool access). This also catches
+#            `use sqlx::PgPool` / `use sqlx::Pool`, which the header used to
+#            advertise as a separate "Pattern D".
+# (The former header also listed "Pattern E: `as_ref()` on the pool", which was
+#  never implemented here; the wider `synapse_storage` rule is enforced by
+#  scripts/ci/check_web_layering.py.)
 
 violations=()
 

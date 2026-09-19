@@ -5,21 +5,37 @@ import argparse
 import hashlib
 import json
 import re
+import sys
 from pathlib import Path
 
 
-REQUIRED_V8_BATCHES: list[str] = []
 TIMESTAMP_RE = re.compile(r"^\d{14}_.*\.sql$")
+BASELINE_PREFIX = "00000000_unified_schema_v"
+EXTENSION_PREFIX = "00000001_extensions"
+
+# 扫描面自检（2026-09-19，GATE_INTEGRITY_SWEEP §6 C10）：consolidated baseline 是
+# 唯一正向文件时，undo 配对子检查迭代 0 个增量迁移，脚本只剩 compose 挂载串这一条
+# 近乎恒真的断言（旧的 `REQUIRED_V8_BATCHES: list[str] = []` 循环同样在空表上空转，
+# 已按"同一职责一份实现 + 禁止冗余残留"删除）。这里显式承认
+# consolidated-baseline-only 形态并打印 marker，同时保证命名约定变化/文件被删
+# 都会让扫描面自检报错退出，而不是静默通过。
+CONSOLIDATED_BASELINE_ONLY_MARKER = "consolidated-baseline-only"
 
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def is_baseline(path: Path) -> bool:
+    return path.name.startswith(BASELINE_PREFIX) and path.name.endswith(".sql")
+
+
+def is_extension(path: Path) -> bool:
+    return path.name.startswith(EXTENSION_PREFIX) and path.name.endswith(".sql")
+
+
 def requires_undo(path: Path) -> bool:
-    if path.name.startswith("00000000_unified_schema_v"):
-        return False
-    if path.name.startswith("00000001_extensions_v8"):
+    if is_baseline(path) or is_extension(path):
         return False
     return bool(TIMESTAMP_RE.match(path.name) or path.name.startswith("V"))
 
@@ -28,6 +44,85 @@ def collect_forward_sql(path: Path) -> list[Path]:
     return sorted(
         item for item in path.glob("*.sql") if not item.name.endswith(".undo.sql")
     )
+
+
+def scan_surface(
+    forward: list[Path], label: str
+) -> tuple[list[dict[str, str]], list[Path], list[Path]]:
+    """Non-vacuity guard for the forward-migration scan surface.
+
+    Returns `(issues, baseline_files, incremental_files)`. The undo-pairing
+    sub-check only iterates `incremental_files`, so if the naming convention
+    drifts — or a file is deleted — that set can go empty and the sub-check
+    passes on nothing. Two measured facts are asserted instead:
+
+      * exactly one consolidated baseline exists, and every other forward
+        `.sql` is a timestamp/`V*` incremental or a known `00000001_extensions*`
+        chain member; anything else is reported as unaccounted;
+      * when no incremental migration matched at all, the forward chain must
+        *be* that single consolidated baseline — the empty case is the
+        documented `consolidated-baseline-only` exemption, not an accident.
+    """
+    baselines = [p for p in forward if is_baseline(p)]
+    incrementals = [p for p in forward if requires_undo(p)]
+    issues: list[dict[str, str]] = []
+
+    if not baselines:
+        issues.append(
+            {
+                "type": "missing_unified_baseline",
+                "file": f"{label}/{BASELINE_PREFIX}*.sql",
+                "detail": (
+                    "no consolidated baseline found: every forward .sql is an "
+                    "incremental migration, so the undo-pairing sub-check no "
+                    "longer evaluates the documented model"
+                ),
+            }
+        )
+    elif len(baselines) > 1:
+        issues.append(
+            {
+                "type": "multiple_unified_baselines",
+                "file": ", ".join(p.name for p in baselines),
+                "detail": (
+                    "more than one `00000000_unified_schema_v*.sql` baseline: the "
+                    "migrator treats every non-latest baseline as an incremental "
+                    "migration, so a fresh database gets two baseline versions applied"
+                ),
+            }
+        )
+
+    for path in forward:
+        if path in baselines or path in incrementals or is_extension(path):
+            continue
+        issues.append(
+            {
+                "type": "unaccounted_forward_migration",
+                "file": path.name,
+                "detail": (
+                    f"{label}/{path.name} is neither the consolidated baseline, an "
+                    f"`{EXTENSION_PREFIX}*` file, nor a timestamp/`V*` incremental "
+                    "migration, so the undo-pairing sub-check silently skips it. A "
+                    "changed naming convention must not empty the scan surface."
+                ),
+            }
+        )
+
+    if not incrementals and (len(baselines) != 1 or forward != baselines):
+        issues.append(
+            {
+                "type": "empty_incremental_scan_surface",
+                "file": label,
+                "detail": (
+                    "no incremental migration was iterated, yet the forward chain is "
+                    "not the single consolidated baseline "
+                    f"(found: {[p.name for p in forward]}): the undo-pairing "
+                    "sub-check is vacuous, not clean."
+                ),
+            }
+        )
+
+    return issues, baselines, incrementals
 
 
 def emit(report: dict, json_report: str | None) -> int:
@@ -107,16 +202,42 @@ def check_single_source(primary_dir: Path, deploy_dir: Path, compose_file: Path)
 
     primary_forward = collect_forward_sql(primary_dir)
 
+    # Non-vacuity first: prove the surface is either genuine incrementals or the
+    # measured consolidated-baseline-only case before reporting "ok".
+    surface_issues, baseline_files, incrementals = scan_surface(
+        primary_forward, "migrations"
+    )
+    issues.extend(surface_issues)
+
     # Canonical undo pairing — this is where real, actionable gaps show up.
-    for path in primary_forward:
-        if requires_undo(path):
-            undo_name = path.with_suffix(".undo.sql").name
-            if not (primary_dir / undo_name).exists():
-                issues.append({"type": "missing_primary_undo", "file": undo_name})
+    for path in incrementals:
+        undo_name = path.with_suffix(".undo.sql").name
+        if not (primary_dir / undo_name).exists():
+            issues.append({"type": "missing_primary_undo", "file": undo_name})
+
+    marker = (
+        CONSOLIDATED_BASELINE_ONLY_MARKER
+        if not incrementals and not surface_issues
+        else None
+    )
+    if marker:
+        print(
+            f"check_migration_consistency: {marker} — migrations/ holds only the "
+            f"consolidated baseline ({', '.join(p.name for p in baseline_files)}); the "
+            "undo-pairing sub-check is intentionally vacuous. Adding any timestamped/V* "
+            "migration makes it run again.",
+            file=sys.stderr,
+        )
 
     return {
         "status": "ok" if not issues else "failed",
         "model": "single-source",
+        "marker": marker,
+        "scan_surface": {
+            "forward_files": [p.name for p in primary_forward],
+            "baseline_files": [p.name for p in baseline_files],
+            "incremental_files": [p.name for p in incrementals],
+        },
         "summary": {
             "issues": len(issues),
             "warnings": len(warnings),
@@ -179,11 +300,11 @@ def main() -> int:
     primary_names = {path.name for path in primary_forward}
     deploy_names = {path.name for path in deploy_forward}
 
-    for filename in REQUIRED_V8_BATCHES:
-        if filename not in primary_names:
-            issues.append({"type": "missing_primary_batch", "file": filename})
-        if filename not in deploy_names:
-            issues.append({"type": "missing_deploy_batch", "file": filename})
+    # Same non-vacuity guard as the single-source branch (one implementation).
+    surface_issues, baseline_files, incrementals = scan_surface(
+        primary_forward, "migrations"
+    )
+    issues.extend(surface_issues)
 
     for path in primary_forward:
         mirror = deploy_dir / path.name
@@ -193,19 +314,17 @@ def main() -> int:
         if sha256(path) != sha256(mirror):
             issues.append({"type": "content_mismatch", "file": path.name})
 
-        if requires_undo(path):
-            undo_name = path.with_suffix(".undo.sql").name
-            if not (primary_dir / undo_name).exists():
-                issues.append({"type": "missing_primary_undo", "file": undo_name})
-            if not (deploy_dir / undo_name).exists():
-                issues.append({"type": "missing_deploy_undo", "file": undo_name})
+    for path in incrementals:
+        undo_name = path.with_suffix(".undo.sql").name
+        if not (primary_dir / undo_name).exists():
+            issues.append({"type": "missing_primary_undo", "file": undo_name})
+        if not (deploy_dir / undo_name).exists():
+            issues.append({"type": "missing_deploy_undo", "file": undo_name})
 
     for extra in sorted(deploy_names - primary_names):
         warnings.append({"type": "deploy_extra_file", "file": extra})
 
-    latest_baselines = sorted(
-        name for name in primary_names if name.startswith("00000000_unified_schema_v")
-    )
+    latest_baselines = sorted(name for name in primary_names if name.startswith("00000000_unified_schema_v"))
     if latest_baselines:
         latest = latest_baselines[-1]
         # Warn only when the latest baseline has not been mirrored to deploy yet.
@@ -218,9 +337,28 @@ def main() -> int:
                 }
             )
 
+    marker = (
+        CONSOLIDATED_BASELINE_ONLY_MARKER
+        if not incrementals and not surface_issues
+        else None
+    )
+    if marker:
+        print(
+            f"check_migration_consistency: {marker} — migrations/ holds only the "
+            f"consolidated baseline ({', '.join(p.name for p in baseline_files)}); the "
+            "undo-pairing sub-check is intentionally vacuous.",
+            file=sys.stderr,
+        )
+
     report = {
         "status": "ok" if not issues else "failed",
         "model": "mirror",
+        "marker": marker,
+        "scan_surface": {
+            "forward_files": [p.name for p in primary_forward],
+            "baseline_files": [p.name for p in baseline_files],
+            "incremental_files": [p.name for p in incrementals],
+        },
         "summary": {
             "issues": len(issues),
             "warnings": len(warnings),
