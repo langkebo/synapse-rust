@@ -361,7 +361,9 @@ impl SynapseServer {
         );
 
         if run_global_maintenance {
-            self.app_state.services.federation.key_rotation_manager.start_auto_rotation().await;
+            self.app_state.services.federation.key_rotation_manager.start_auto_rotation(
+                self.app_state.services.shutdown_token.clone(),
+            ).await;
             ::tracing::info!("Starting scheduled database monitoring and maintenance tasks...");
             self.scheduled_tasks.start_all(self.app_state.services.shutdown_token.clone());
         } else {

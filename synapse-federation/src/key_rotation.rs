@@ -15,6 +15,7 @@ use synapse_common::key_encryption::{decrypt_key, encrypt_key, is_encrypted};
 use synapse_common::ApiError;
 use tokio::sync::RwLock;
 use tokio::time::{interval, Duration as TokioDuration};
+use tokio_util::sync::CancellationToken;
 
 const DEFAULT_KEY_ROTATION_INTERVAL_DAYS: i64 = 7;
 const DEFAULT_KEY_ROTATION_THRESHOLD_DAYS: i64 = 1;
@@ -424,7 +425,7 @@ impl KeyRotationManager {
     }
 
     /// See [`start_auto_rotation`.
-    pub async fn start_auto_rotation(&self) {
+    pub async fn start_auto_rotation(&self, shutdown: CancellationToken) {
         let manager = Arc::new(self.clone());
 
         let init_result = manager.load_or_create_key().await;
@@ -439,16 +440,25 @@ impl KeyRotationManager {
         let scheduler_interval_ms = manager.get_interval_ms().await;
         tracing::info!("Auto-rotation scheduler interval: {}ms", scheduler_interval_ms);
 
-        let mut interval = interval(TokioDuration::from_millis(scheduler_interval_ms as u64));
+        let mut ticker = interval(TokioDuration::from_millis(scheduler_interval_ms as u64));
+        // Skip the immediate first tick; the initial key load was just done above.
+        ticker.tick().await;
 
         tokio::spawn(async move {
             loop {
-                interval.tick().await;
-
-                if *manager.rotation_enabled.read().await && manager.should_rotate_keys().await {
-                    tracing::info!("Auto-rotating federation signing keys");
-                    if let Err(e) = manager.rotate_keys(None).await {
-                        tracing::error!("Failed to auto-rotate keys: {}", e);
+                tokio::select! {
+                    biased;
+                    _ = shutdown.cancelled() => {
+                        tracing::info!("Key rotation scheduler shutting down");
+                        break;
+                    }
+                    _ = ticker.tick() => {
+                        if *manager.rotation_enabled.read().await && manager.should_rotate_keys().await {
+                            tracing::info!("Auto-rotating federation signing keys");
+                            if let Err(e) = manager.rotate_keys(None).await {
+                                tracing::error!("Failed to auto-rotate keys: {}", e);
+                            }
+                        }
                     }
                 }
             }
