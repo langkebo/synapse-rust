@@ -664,7 +664,7 @@ PR 侧"从未上报/skip"的 check GitHub 如何判定（Expected 会不会卡�
 10. **A7/A8 取舍落地（§6.6）**：人工确认分支保护后，把结论写进 `TESTING.md`（当前
     `AGENTS.md`/`TESTING.md` 对"这三个 job 只在 push 跑"零记录）。若确认它们不在 required 里，
     至少把 CI 预算取舍写成明文决定，避免下一个人再当漏洞重报。
-11. **C3 / C8 / C10、D2、E4 / E6 / E7 / E8 / E9**：维持 §5 旧清单（本轮未复核，不下结论）。
+11. ✅ **C3 / C8 / C10、D2、E4 / E6 / E7 / E8 / E9**：第四轮已逐项核实并修复（见 §9）。其中 E4 只做到了解析器 fail-closed（审计所述自比不成立），真实修法需改 benches（见 §9 残留）；另新增 3 条待办：route-table.json 需有意重新生成（缺 2 条未门控路由，且 CI 用 ledger.json 生成 1292 条与提交的 1047 不一致）、E4 的真实 DB 分页基准、`extract_registered.py` Python 侧棘轮仍单向 + `EXTRACT_STRICT=1` 在 HEAD 上的 3 类既有失败。
 
 已完成且本轮**已复核**的：§1.6、§2.5（代码侧）、A1–A6、A8、A10、A12、B13、B14、B15、B16、§1.9 的四条测试稳定性修复。
 
@@ -725,4 +725,4 @@ unit 目标 **1691 passed / 2 skipped / 0 failed**；全量 `--workspace --lib -
 | **E8** OpenAPI/route-table | ✅（按裁定缩小范围） | 新增共享 `scripts/api_test/artifact_common.py`（`describe_drift()` 单一实现）；两个生成器都加 `--check/--expected`（temp 生成 + diff，漂移 EXIT=1，永不写被检文件）；把**字节可复现**的 `client.yaml` 校验接进 `ci.yml`（放在生成步骤之前，避免"生成后再校验"变成空转）；route-table 走"确定性输出形状钉住"+ `--check` 红/绿证明 | 改前：两个生成器永远 EXIT=0，无 diff 步骤；`gen_route_table.py --check`（新）对提交产物 → EXIT=1（提交 1047 vs ledger.json 1292，且默认 feature 源导出 1049 → 恰好缺 2 条）；`gen_client_yaml.py --skip-export --check` 对真文件 → EXIT=0（已接线） | **需有意重新生成 `docs/openapi/route-table.json`**：缺 2 条真实未门控路由（`GET /_matrix/client/v3/auth/{auth_type}/fallback/web`、`GET /_synapse/admin/v1/rate-limit-status`），另有 80 条是 feature 门控差异；CI 现在用 `ledger.json`（1292 条）生成上传，与提交的 1047 不一致 —— 重新生成时应改用"默认 feature 的新导出 + 固定 timestamp" |
 | **E9** `extract_unresolved_allowlist.txt` | ✅ | 陈旧条目从"只打印提示"改为进入 `strict_failures`（双向棘轮）；清理 5 条已不再命中的条目（21→16）并重写 header；新增回归测试 | 改前：隔离 `EXTRACT_STRICT=1` 对 5/21 条陈旧条目仍 EXIT=0（只在 stdout 提示）；改后同输入 EXIT=1 并列出 5 条；"新条目"方向仍红；沙箱 + 清理后的真清单 EXIT=0 | `scripts/contract/test_extract_registered.py::check_ratchet`（Python 侧）仍是单向（超出允许文件集）；`EXTRACT_STRICT=1` 在 HEAD 上另有 **3 类既有失败**（S-14 三条真路由缺席两条车道、3 条 ledger_export_sdk 车道/profile 集不匹配、1 条 emitted-cfg 计数 1151 vs 1148），均为本轮之前既有 |
 
-**本轮门禁**：见 §9 末尾补记（fmt 棘轮 / clippy 两档 / unit 目标 / 全量 lib 无 retries）。
+**本轮门禁（本地等效；真实 CI 无法触发）**：fmt 棘轮 `current=0=baseline`；clippy 两档（`--workspace --all-targets --features test-utils` 与 `--all-features`）均 exit 0；unit 目标 **1706 passed / 2 skipped / 0 failed**；全量 `--workspace --lib --all-features --test-threads 4`（**无 retries**）**6083/6083 passed**。
