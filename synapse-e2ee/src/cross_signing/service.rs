@@ -118,15 +118,10 @@ impl CrossSigningService {
     }
 
     /// See [`get_public_cross_signing_keys`].
-    pub async fn get_public_cross_signing_keys(
-        &self,
-        user_id: &str,
-    ) -> Result<PublicCrossSigningKeys, ApiError> {
+    pub async fn get_public_cross_signing_keys(&self, user_id: &str) -> Result<PublicCrossSigningKeys, ApiError> {
         let keys = self.storage.get_cross_signing_keys(user_id).await?;
 
-        let pick = |kind: &str| {
-            keys.iter().find(|k| k.key_type == kind).and_then(|k| k.key_json.clone())
-        };
+        let pick = |kind: &str| keys.iter().find(|k| k.key_type == kind).and_then(|k| k.key_json.clone());
         Ok(PublicCrossSigningKeys {
             master_key: pick("master"),
             self_signing_key: pick("self_signing"),
@@ -183,11 +178,7 @@ impl CrossSigningService {
         let (algorithm, public_key) = if let Some(k_map) = keys {
             if let Some((k, v)) = k_map.iter().next() {
                 let parts: Vec<&str> = k.splitn(2, ':').collect();
-                let algorithm = if parts.len() == 2 {
-                    parts[0].to_string()
-                } else {
-                    "ed25519".to_string()
-                };
+                let algorithm = if parts.len() == 2 { parts[0].to_string() } else { "ed25519".to_string() };
                 let public_key = v.as_str().unwrap_or("").to_string();
                 (algorithm, public_key)
             } else {
@@ -208,10 +199,7 @@ impl CrossSigningService {
             return Err(ApiError::bad_request("Algorithm cannot be empty".to_string()));
         }
         if public_key.is_empty() {
-            return Err(ApiError::bad_request(format!(
-                "Public key is empty for algorithm '{}'",
-                algorithm
-            )));
+            return Err(ApiError::bad_request(format!("Public key is empty for algorithm '{}'", algorithm)));
         }
 
         match key_type {

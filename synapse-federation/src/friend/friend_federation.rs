@@ -198,7 +198,7 @@ mod tests {
         next_result: Mutex<Result<(), ApiError>>,
     }
 
-/// Implementation of [`MockFriendRoomProvider`] methods.
+    /// Implementation of [`MockFriendRoomProvider`] methods.
     impl MockFriendRoomProvider {
         fn new_returning_ok() -> Arc<Self> {
             Arc::new(Self { calls: Mutex::new(Vec::new()), next_result: Mutex::new(Ok(())) })
@@ -214,7 +214,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-/// Implementation of [`FriendRoomProvider`] methods.
+    /// Implementation of [`FriendRoomProvider`] methods.
     impl FriendRoomProvider for MockFriendRoomProvider {
         async fn handle_incoming_friend_request(
             &self,

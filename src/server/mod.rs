@@ -1,15 +1,7 @@
 use crate::common::config::Config;
 use crate::common::{start_config_watcher, RateLimitConfigFile, RateLimitConfigManager};
 use crate::tasks::ScheduledTasks;
-use axum::{
-    http::StatusCode,
-    middleware,
-    middleware::Next,
-    response::IntoResponse,
-    routing::get,
-    Extension,
-    Router,
-};
+use axum::{http::StatusCode, middleware, middleware::Next, response::IntoResponse, routing::get, Extension, Router};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -369,9 +361,12 @@ impl SynapseServer {
         );
 
         if run_global_maintenance {
-            self.app_state.services.federation.key_rotation_manager.start_auto_rotation(
-                self.app_state.services.shutdown_token.clone(),
-            ).await;
+            self.app_state
+                .services
+                .federation
+                .key_rotation_manager
+                .start_auto_rotation(self.app_state.services.shutdown_token.clone())
+                .await;
             ::tracing::info!("Starting scheduled database monitoring and maintenance tasks...");
             self.scheduled_tasks.start_all(self.app_state.services.shutdown_token.clone());
         } else {
@@ -817,8 +812,7 @@ impl SynapseServer {
                 app_service_manager: self.app_state.services.admin.modules.app_service_manager.clone(),
             };
             // 读取 PROMETHEUS_AUTH_TOKEN 环境变量，为空时不启用鉴权（向后兼容）
-            let prometheus_auth_token =
-                std::env::var("PROMETHEUS_AUTH_TOKEN").ok().filter(|s| !s.is_empty());
+            let prometheus_auth_token = std::env::var("PROMETHEUS_AUTH_TOKEN").ok().filter(|s| !s.is_empty());
             let prometheus_router = Router::new()
                 .route(&prometheus_path, get(render_prometheus_metrics))
                 .with_state(metrics_state)
@@ -1050,16 +1044,11 @@ async fn prometheus_auth_middleware(
         return Ok(next.run(req).await);
     };
 
-    let auth_header = req
-        .headers()
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|h| h.to_str().ok())
-        .map(|s| s.to_string());
+    let auth_header =
+        req.headers().get(axum::http::header::AUTHORIZATION).and_then(|h| h.to_str().ok()).map(|s| s.to_string());
 
     match auth_header {
-        Some(ref h) if h.starts_with("Bearer ") && &h[7..] == expected_token.as_str() => {
-            Ok(next.run(req).await)
-        }
+        Some(ref h) if h.starts_with("Bearer ") && &h[7..] == expected_token.as_str() => Ok(next.run(req).await),
         _ => Err(StatusCode::UNAUTHORIZED),
     }
 }

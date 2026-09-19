@@ -121,12 +121,7 @@ pub struct MegolmVodozemacService {
 impl MegolmVodozemacService {
     /// Create a new VodozemacMegolmService with the given at-rest encryption key.
     pub fn new(storage: MegolmSessionStorage, cache: Arc<CacheManager>, at_rest: KeyAtRest) -> Self {
-        Self {
-            storage,
-            cache,
-            server_metrics: None,
-            at_rest,
-        }
+        Self { storage, cache, server_metrics: None, at_rest }
     }
 
     /// See [`with_server_metrics`].
@@ -527,8 +522,8 @@ impl MegolmVodozemacService {
         })?;
 
         // Verify it's valid UTF-8 (should always be session_key_base64)
-        let session_key_b64 = String::from_utf8(plaintext)
-            .map_err(|_| ApiError::internal("session key is not valid UTF-8"))?;
+        let session_key_b64 =
+            String::from_utf8(plaintext).map_err(|_| ApiError::internal("session key is not valid UTF-8"))?;
 
         // Cache the decrypted key for fast path (best-effort, don't fail on cache error)
         if let Err(e) = self.cache.set(&cache_key, &sealed, 600).await {
@@ -690,7 +685,7 @@ mod tests {
         let fmt = PickleFormat::Vodozemac;
         let s = serde_json::to_string(&fmt).expect("serialize");
         assert_eq!(s, "\"vodozemac\"", "PickleFormat should only serialize to vodozemac");
-        
+
         let parsed: PickleFormat = serde_json::from_str(&s).expect("deserialize");
         assert_eq!(parsed, PickleFormat::Vodozemac);
     }

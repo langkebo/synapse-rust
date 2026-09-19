@@ -99,7 +99,9 @@ impl DeviceKeyRow {
         let created_ts = chrono::DateTime::from_timestamp_millis(self.added_ts).unwrap_or_else(|| {
             tracing::warn!(
                 "Invalid timestamp {} for device {} user {}, using Unix epoch",
-                self.added_ts, self.device_id, self.user_id
+                self.added_ts,
+                self.device_id,
+                self.user_id
             );
             // Unix epoch is always valid - unwrap is safe here
             #[allow(clippy::expect_used)]
@@ -110,10 +112,7 @@ impl DeviceKeyRow {
             .ts_updated_ms
             .and_then(chrono::DateTime::from_timestamp_millis as fn(i64) -> Option<chrono::DateTime<chrono::Utc>>)
             .unwrap_or_else(|| {
-                tracing::warn!(
-                    "Invalid ts_updated_ms for device {} user {}",
-                    self.device_id, self.user_id
-                );
+                tracing::warn!("Invalid ts_updated_ms for device {} user {}", self.device_id, self.user_id);
                 // Unix epoch is always valid - unwrap is safe here
                 #[allow(clippy::expect_used)]
                 chrono::DateTime::from_timestamp(0, 0).expect("Unix epoch is always valid")

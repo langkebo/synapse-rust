@@ -218,11 +218,7 @@ pub async fn admin_auth_middleware(
                 None, // role not known (denied)
                 device_id.as_deref(),
             );
-            if let Err(error) = ctx
-                .admin_audit_service
-                .create_event(event)
-                .await
-            {
+            if let Err(error) = ctx.admin_audit_service.create_event(event).await {
                 tracing::warn!(
                     target: "admin_auth",
                     %error,
@@ -249,11 +245,7 @@ pub async fn admin_auth_middleware(
     );
     event.result = result.to_string();
 
-    if let Err(error) = ctx
-        .admin_audit_service
-        .create_event(event)
-        .await
-    {
+    if let Err(error) = ctx.admin_audit_service.create_event(event).await {
         tracing::warn!(target: "admin_auth", %error, "Failed to persist admin audit event");
     }
 

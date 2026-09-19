@@ -123,8 +123,7 @@ fn ft130_register_encrypted_voice_request_media_id_required() {
     });
 
     // This will fail at the handler level, not here
-    let result: Result<synapse_web::routes::voice::RegisterEncryptedVoiceRequest, _> =
-        serde_json::from_value(json);
+    let result: Result<synapse_web::routes::voice::RegisterEncryptedVoiceRequest, _> = serde_json::from_value(json);
 
     assert!(result.is_ok(), "media_id is optional at deserialization level");
 }

@@ -56,41 +56,35 @@ impl Default for KeyRotationConfig {
 impl KeyRotationConfig {
     /// See [`load_from_storage`].
     pub async fn load_from_storage(storage: &KeyRotationStorage) -> Result<Self, ApiError> {
-        let olm_rotation_days: i64 = storage
-            .get_rotation_config("olm_rotation_days")
-            .await?
-            .and_then(|v| v.parse().ok())
-            .unwrap_or_else(|| {
+        let olm_rotation_days: i64 =
+            storage.get_rotation_config("olm_rotation_days").await?.and_then(|v| v.parse().ok()).unwrap_or_else(|| {
                 tracing::warn!("Failed to parse olm_rotation_days, using default");
                 DEFAULT_OLM_ROTATION_DAYS
             });
 
-        let megolm_rotation_messages: i64 = storage
-            .get_rotation_config("megolm_rotation_messages")
-            .await?
-            .and_then(|v| v.parse().ok())
-            .unwrap_or_else(|| {
-                tracing::warn!("Failed to parse megolm_rotation_messages, using default");
-                DEFAULT_MEGOLM_ROTATION_MESSAGES
-            });
+        let megolm_rotation_messages: i64 =
+            storage.get_rotation_config("megolm_rotation_messages").await?.and_then(|v| v.parse().ok()).unwrap_or_else(
+                || {
+                    tracing::warn!("Failed to parse megolm_rotation_messages, using default");
+                    DEFAULT_MEGOLM_ROTATION_MESSAGES
+                },
+            );
 
-        let max_session_age_days: i64 = storage
-            .get_rotation_config("max_session_age_days")
-            .await?
-            .and_then(|v| v.parse().ok())
-            .unwrap_or_else(|| {
-                tracing::warn!("Failed to parse max_session_age_days, using default");
-                DEFAULT_MAX_SESSION_AGE_DAYS
-            });
+        let max_session_age_days: i64 =
+            storage.get_rotation_config("max_session_age_days").await?.and_then(|v| v.parse().ok()).unwrap_or_else(
+                || {
+                    tracing::warn!("Failed to parse max_session_age_days, using default");
+                    DEFAULT_MAX_SESSION_AGE_DAYS
+                },
+            );
 
-        let enable_auto_rotation: bool = storage
-            .get_rotation_config("enable_auto_rotation")
-            .await?
-            .and_then(|v| v.parse().ok())
-            .unwrap_or_else(|| {
-                tracing::warn!("Failed to parse enable_auto_rotation, using default");
-                true
-            });
+        let enable_auto_rotation: bool =
+            storage.get_rotation_config("enable_auto_rotation").await?.and_then(|v| v.parse().ok()).unwrap_or_else(
+                || {
+                    tracing::warn!("Failed to parse enable_auto_rotation, using default");
+                    true
+                },
+            );
 
         Ok(Self { olm_rotation_days, megolm_rotation_messages, max_session_age_days, enable_auto_rotation })
     }
@@ -289,7 +283,12 @@ impl KeyRotationService {
         self.storage.get_rotation_status(user_id).await
     }
 
-    async fn share_new_key(&self, room_id: &str, session: &MegolmSession, recipient_user_id: &str) -> Result<(), ApiError> {
+    async fn share_new_key(
+        &self,
+        room_id: &str,
+        session: &MegolmSession,
+        recipient_user_id: &str,
+    ) -> Result<(), ApiError> {
         tracing::info!("Sharing new megolm key for room {}, session {}", room_id, session.session_id);
         self.storage
             .record_key_share(room_id, &session.session_id, recipient_user_id, "rotated")
@@ -934,8 +933,10 @@ mod tests {
         let body = helper_section.split("}\n    }").next().expect("helper should have a body");
         assert!(body.contains("room_id = $1"));
         assert!(body.contains("session_id = $2"));
-        assert!(body.contains("recipient_user_id = $3"),
-                "key_share_exists must filter by recipient_user_id (E-07 fix)");
+        assert!(
+            body.contains("recipient_user_id = $3"),
+            "key_share_exists must filter by recipient_user_id (E-07 fix)"
+        );
     }
 
     #[test]

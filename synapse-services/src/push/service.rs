@@ -521,10 +521,7 @@ impl PushNotificationService {
             // Send via push gateway with SSRF protection (URL validation inside send_notification)
             match gateway.send_notification(_target, &gateway_notification).await {
                 Ok(response) => {
-                    info!(
-                        rejected = response.rejected.len(),
-                        "Push gateway delivery completed"
-                    );
+                    info!(rejected = response.rejected.len(), "Push gateway delivery completed");
                     Ok(PushResult::success())
                 }
                 Err(e) => {
@@ -533,9 +530,7 @@ impl PushNotificationService {
                 }
             }
         } else {
-            Err(ApiError::internal(
-                "upstream push provider is not initialized; configure push_gateway_url",
-            ))
+            Err(ApiError::internal("upstream push provider is not initialized; configure push_gateway_url"))
         }
     }
 

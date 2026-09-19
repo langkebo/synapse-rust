@@ -39,10 +39,7 @@ impl KeyAtRest {
     /// protection. A fresh CSPRNG-derived nonce is generated per seal
     /// operation via the internal `Aes256GcmCipher`.
     pub fn new(key: [u8; 32]) -> Self {
-        Self {
-            cipher: Aes256GcmCipher::default(),
-            key,
-        }
+        Self { cipher: Aes256GcmCipher::default(), key }
     }
 
     /// Encrypt `plaintext` and return a `v1:`-prefixed base64 string.
@@ -88,9 +85,8 @@ impl KeyAtRest {
     /// the file should contain PLAINTEXT base64 (not v1: prefix).
     /// Use [`Self::load_plaintext`] for that case.
     pub fn load(path: &str) -> Result<[u8; 32], ApiError> {
-        let content = std::fs::read_to_string(path).map_err(|e| {
-            ApiError::internal(format!("Failed to read key-at-rest file {}: {}", path, e))
-        })?;
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| ApiError::internal(format!("Failed to read key-at-rest file {}: {}", path, e)))?;
         let plaintext = Self::new([0u8; 32]).open(&content)?;
         if plaintext.len() != 32 {
             return Err(ApiError::internal("Key-at-rest decrypted to wrong length"));
@@ -102,18 +98,14 @@ impl KeyAtRest {
 
     /// Load a plaintext base64-encoded 32-byte key from file (for megolm_encryption_key_path).
     pub fn load_plaintext(path: &str) -> Result<[u8; 32], ApiError> {
-        let content = std::fs::read_to_string(path).map_err(|e| {
-            ApiError::internal(format!("Failed to read key file {}: {}", path, e))
-        })?;
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| ApiError::internal(format!("Failed to read key file {}: {}", path, e)))?;
         let trimmed = content.trim();
         let decoded = base64::engine::general_purpose::STANDARD
             .decode(trimmed)
             .map_err(|e| ApiError::internal(format!("Key file is not valid base64: {}", e)))?;
         if decoded.len() != 32 {
-            return Err(ApiError::internal(format!(
-                "Key file has wrong length ({} != 32)",
-                decoded.len()
-            )));
+            return Err(ApiError::internal(format!("Key file has wrong length ({} != 32)", decoded.len())));
         }
         let mut key = [0u8; 32];
         key.copy_from_slice(&decoded);
@@ -136,11 +128,7 @@ impl KeyAtRest {
         let path_buf = PathBuf::from(path);
         if let Some(parent) = path_buf.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
-                ApiError::internal(format!(
-                    "Cannot create directory for key file {}: {}",
-                    path_buf.display(),
-                    e
-                ))
+                ApiError::internal(format!("Cannot create directory for key file {}: {}", path_buf.display(), e))
             })?;
         }
 
@@ -148,28 +136,17 @@ impl KeyAtRest {
         rand::rng().fill_bytes(&mut key_bytes);
 
         let at_rest = Self::new(key_bytes);
-        let sealed = at_rest.seal(&key_bytes).map_err(|e| {
-            ApiError::internal(format!("Failed to seal generated key: {}", e))
-        })?;
-        std::fs::write(&path_buf, sealed.as_bytes()).map_err(|e| {
-            ApiError::internal(format!(
-                "Failed to persist key file {}: {}",
-                path_buf.display(),
-                e
-            ))
-        })?;
+        let sealed =
+            at_rest.seal(&key_bytes).map_err(|e| ApiError::internal(format!("Failed to seal generated key: {}", e)))?;
+        std::fs::write(&path_buf, sealed.as_bytes())
+            .map_err(|e| ApiError::internal(format!("Failed to persist key file {}: {}", path_buf.display(), e)))?;
 
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&path_buf, std::fs::Permissions::from_mode(0o600))
-                .map_err(|e| {
-                    ApiError::internal(format!(
-                        "Failed to set 0600 permissions on key file {}: {}",
-                        path_buf.display(),
-                        e
-                    ))
-                })?;
+            std::fs::set_permissions(&path_buf, std::fs::Permissions::from_mode(0o600)).map_err(|e| {
+                ApiError::internal(format!("Failed to set 0600 permissions on key file {}: {}", path_buf.display(), e))
+            })?;
         }
 
         Ok(key_bytes)
@@ -275,7 +252,7 @@ mod tests {
         let at_rest = KeyAtRest::new(key);
         let content = std::fs::read_to_string(&path).unwrap();
         let opened = at_rest.open(&content).unwrap();
-        
+
         // The decrypted content should be the original key bytes
         assert_eq!(opened.as_slice(), &key[..]);
 

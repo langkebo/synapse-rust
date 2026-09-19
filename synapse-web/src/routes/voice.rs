@@ -394,11 +394,9 @@ async fn register_encrypted_voice(
         )
         .await?;
 
-    let content_uri = synapse_common::media_locator::MediaLocator {
-        server_name: ctx.server_name.clone(),
-        media_id: req.media_id,
-    }
-    .to_mxc_url();
+    let content_uri =
+        synapse_common::media_locator::MediaLocator { server_name: ctx.server_name.clone(), media_id: req.media_id }
+            .to_mxc_url();
 
     Ok(Json(json!({
         "content_uri": content_uri,

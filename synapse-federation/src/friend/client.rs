@@ -275,7 +275,7 @@ mod tests {
         original: Option<std::ffi::OsString>,
     }
 
-/// Implementation of [`EnvVarGuard`] methods.
+    /// Implementation of [`EnvVarGuard`] methods.
     impl EnvVarGuard {
         fn set(key: &'static str, value: &str) -> Self {
             let original = std::env::var_os(key);
@@ -287,7 +287,7 @@ mod tests {
         }
     }
 
-/// Implementation of [`Drop`] methods.
+    /// Implementation of [`Drop`] methods.
     impl Drop for EnvVarGuard {
         fn drop(&mut self) {
             match &self.original {

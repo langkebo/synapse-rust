@@ -51,10 +51,7 @@ fn compose_service(compose: &str, service: &str) -> String {
             Some((at, line))
         })
         .find(|(_, line)| *line == format!("{header}\n"))
-        .map_or_else(
-            || panic!("compose file has no `{header}` service"),
-            |(at, _)| at,
-        );
+        .map_or_else(|| panic!("compose file has no `{header}` service"), |(at, _)| at);
     let rest = &compose[start..];
     let mut end = rest.len();
     for (at, line) in rest.split_inclusive('\n').scan(0usize, |offset, line| {
