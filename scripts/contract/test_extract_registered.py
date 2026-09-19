@@ -441,6 +441,20 @@ def check_ratchet(res: "ex.Resolver") -> None:
     new = sorted(res.unresolved - allowed)
     check("no new unresolved parser construct (ratchet)", not new, f"new: {new[:5]}")
 
+    # The other direction. `extract_registered.py` under `EXTRACT_STRICT=1`
+    # already fails on an allowlist entry that matches nothing (see the
+    # `stale_allowed` branch in its `main()`), because such an entry keeps
+    # "covering" a blind spot that no longer exists and lets the file only ever
+    # grow. Until now this harness enforced only the growth direction, so a
+    # stale entry passed here while the real gate went red — the guard test was
+    # weaker than the thing it guards (铁律 8). Mirror the extractor exactly.
+    stale = sorted(allowed - res.unresolved)
+    check(
+        "no stale unresolved-allowlist entry (bidirectional ratchet)",
+        not stale,
+        f"stale: {stale[:5]} — prune it from extract_unresolved_allowlist.txt",
+    )
+
 
 def check_ledger_origins() -> None:
     """B2-1 step 2: `registered_by` must stay derivable, not just transcribed.

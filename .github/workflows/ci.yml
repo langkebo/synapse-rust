@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main ]
   schedule:
     - cron: '0 2 * * 1'
   workflow_dispatch:
@@ -588,7 +588,7 @@ jobs:
           retention-days: 7
 
   # ──────────────────────────────────────────────────────────
-  # Slow Tier — runs on merge to main/develop + weekly schedule
+  # Slow Tier — runs on merge to main + weekly schedule
   # Skipped when only docs (*.md, docs/) changed
   # ──────────────────────────────────────────────────────────
 
@@ -600,7 +600,7 @@ jobs:
       github.event_name == 'schedule' ||
       (needs.changes.outputs.non-docs == 'true' &&
        github.event_name == 'push' &&
-       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'))
+       (github.ref == 'refs/heads/main'))
 
     services:
       postgres:
@@ -798,7 +798,7 @@ jobs:
       (needs.changes.outputs.non-docs == 'true' &&
        (github.event_name == 'pull_request' ||
         (github.event_name == 'push' &&
-         (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'))))
+         (github.ref == 'refs/heads/main'))))
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -882,7 +882,7 @@ jobs:
       github.event_name == 'schedule' ||
       (needs.changes.outputs.non-docs == 'true' &&
        github.event_name == 'push' &&
-       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'))
+       (github.ref == 'refs/heads/main'))
     strategy:
       matrix:
         profile:
@@ -920,7 +920,7 @@ jobs:
       github.event_name == 'schedule' ||
       (needs.changes.outputs.non-docs == 'true' &&
        github.event_name == 'push' &&
-       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'))
+       (github.ref == 'refs/heads/main'))
 
     services:
       postgres:
@@ -1005,7 +1005,7 @@ jobs:
             -- --skip ledger_export_tests
           python3 scripts/merge_lcov.py /tmp/storage.lcov /tmp/rest.lcov -o coverage/lcov.info
 
-      - name: Bootstrap coverage baseline (main/develop, first run only)
+      - name: Bootstrap coverage baseline (main, first run only)
         # The per-file ratchet is meaningless without a baseline: with an empty
         # one every file takes the "new" branch (30% ramp-up floor) and the
         # "touched files must not regress" branch is unreachable. That is the
@@ -1017,7 +1017,7 @@ jobs:
         # check_file_coverage.py now exits 2 when the baseline is missing, so the
         # bootstrap runs first, with every floor at 0 (a pass by construction),
         # purely to materialise the file for the follow-up commit step.
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main')
         run: |
           if [ -f scripts/ci/coverage_baseline.json ]; then
             echo "Baseline present; nothing to bootstrap."
@@ -1046,7 +1046,7 @@ jobs:
         # regressed at all (measured 2026-09-19).
         # Fails (exit 2) when scripts/ci/coverage_baseline.json is absent, because
         # the "touched must not regress" half of the ratchet is unreachable
-        # without it. On main/develop the previous step bootstraps it and the
+        # without it. On main the previous step bootstraps it and the
         # follow-up step commits it; fix locally with the same command.
         run: |
           mkdir -p artifacts
@@ -1076,9 +1076,9 @@ jobs:
           retention-days: 14
 
       - name: Commit coverage baseline (auto-ratchet)
-        # Only on main/develop push; skip on PRs, schedules, and dispatches.
+        # Only on main push; skip on PRs, schedules, and dispatches.
         # The baseline file is the only artifact this step touches.
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main')
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

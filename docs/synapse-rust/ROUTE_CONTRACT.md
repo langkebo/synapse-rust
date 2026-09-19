@@ -1,6 +1,6 @@
 # synapse-rust 路由契约（Route Contract）
 
-> 自动生成于 2026-09-19，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含 `derived_route_table.inc.rs`）派生覆盖。
+> 自动生成于 2026-09-20，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含 `derived_route_table.inc.rs`）派生覆盖。
 >
 > 本文件是后端 HTTP 契约的**事实来源之一**（机器侧权威为 `derived_routes.rs` 生成的 `RouteLedger`，启动时校验、集成测试 PATCH 探测）。人工文档（INDEX.md / API_COVERAGE_REPORT.md）须与之保持一致。
 >
@@ -8,7 +8,7 @@
 
 ## 总览
 
-- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1148**
+- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1151**
 - 含路由注册的模块文件：**66**
 - `derived_routes.rs` 中的 `registered_by` 标签：**74**
 - 已被派生表覆盖的模块：**66**
@@ -1363,9 +1363,9 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_matrix/client/v3/account/guest/upgrade`
 - `POST` `/_matrix/client/v3/register/guest`
 
-### 语音 (Voice) （27 条）
+### 语音 (Voice) （30 条）
 
-#### `voice.rs` — 27 条 ✅派生表
+#### `voice.rs` — 30 条 ✅派生表
 
 - `GET` `/_matrix/client/v1/voice/config`
 - `GET` `/_matrix/client/v1/voice/room/{room_id}/stats`
@@ -1385,11 +1385,14 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/vendor/v1/voice/user/{user_id}`
 - `GET` `/_matrix/vendor/v1/voice/user/{user_id}/stats`
 - `GET` `/_matrix/vendor/v1/voice/{media_id}`
+- `POST` `/_matrix/client/v1/voice/register`
 - `POST` `/_matrix/client/v1/voice/upload`
+- `POST` `/_matrix/client/v3/voice/register`
 - `POST` `/_matrix/client/v3/voice/upload`
 - `POST` `/_matrix/client/v3/voice/{media_id}/convert`
 - `POST` `/_matrix/client/v3/voice/{media_id}/optimize`
 - `POST` `/_matrix/client/v3/voice/{media_id}/transcription`
+- `POST` `/_matrix/vendor/v1/voice/register`
 - `POST` `/_matrix/vendor/v1/voice/upload`
 - `POST` `/_matrix/vendor/v1/voice/{media_id}/convert`
 - `POST` `/_matrix/vendor/v1/voice/{media_id}/optimize`

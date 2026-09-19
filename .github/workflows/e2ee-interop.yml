@@ -2,7 +2,7 @@ name: E2EE Interop (vodozemac)
 
 on:
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main ]
     paths:
       - 'src/e2ee/**'
       # 真正的实现与测试在 synapse-e2ee crate 里：漏掉这条会让这个 job 在
@@ -15,7 +15,6 @@ on:
   push:
     branches:
       - main
-      - develop
       - 'feature/e2ee-vodozemac/**'
   schedule:
     # Sunday 02:00 UTC, after the nightly dependency refresh.

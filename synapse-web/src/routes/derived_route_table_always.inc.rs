@@ -1,5 +1,5 @@
 fn all_derived_always_rows() -> Vec<DerivedRoute> {
-    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1129);
+    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1132);
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/", "assembly::create_router");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
@@ -1468,6 +1468,11 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     #[cfg(feature = "voice-extended")]
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/voice/config", "voice");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    #[cfg(feature = "voice-extended")]
+    {
+        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v1/voice/register", "voice");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "voice-extended")]
@@ -3688,6 +3693,11 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     #[cfg(feature = "voice-extended")]
     {
+        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v3/voice/register", "voice");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    #[cfg(feature = "voice-extended")]
+    {
         let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/voice/room/{room_id}", "voice");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
@@ -4493,6 +4503,11 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     #[cfg(feature = "voice-extended")]
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/vendor/v1/voice/config", "voice");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    #[cfg(feature = "voice-extended")]
+    {
+        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/vendor/v1/voice/register", "voice");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "voice-extended")]

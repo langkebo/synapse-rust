@@ -149,8 +149,13 @@ PR 侧只要求常开门禁（`Repo Sanity`、`Test & Lint (...)`、`Security Au
 - `Require a pull request before merging` = 未勾选；`Include administrators` / “请勿允许绕过以上设置” = 未勾选。
 - `develop` 规则：**存在但“适用于 0 个分行”**（截图为证）；远端实测也**没有 `develop` 分支**
   （`git ls-remote --heads origin` 只有 `main` + 2 个 feature 分支）⇒ 该规则对任何分支都不生效，
-  required 列表同样为空、strict 勾选但空转。**推论**：`ci.yml` / `drift-detection.yml` 里所有 `develop`
-  触发条件目前都是空转配置（无害，但按铁律 1 属可清理的死配置；是否删除是策略决定）。
+  required 列表同样为空、strict 勾选但空转。
+- ✅ **`develop` 死配置已清理**（铁律 1）：9 个 workflow（`ci` / `benchmark` / `db-migration-gate` /
+  `docs-quality-gate` / `drift-detection` / `e2ee-interop` / `format-governance` / `ledger-export` /
+  `schema-health-check`）的 push/PR `branches` 列表、三个 push-only job 的 `if:` 条件与相关注释
+  都不再引用 `develop`；`grep -rn develop .github/workflows/` 为空，YAML 全部可解析，
+  `push_only_ci_jobs_keep_their_deliberate_trigger_scope` 与 `check_workflow_steps.py` 仍绿。
+  **若将来要重建 develop 流程**，必须有意把这些触发条件加回来（不要因为"以前有"而默认恢复）。
 
 > 待确认（策略决定，不属本文件裁定）：是否要把常开门禁设为 required，让 PR 真正被拦；
 > 以及是否给 `develop` 加同等规则。核对命令如下，读到的结果请回填本段。

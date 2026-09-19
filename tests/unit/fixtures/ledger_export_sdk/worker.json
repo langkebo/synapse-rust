@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": false
   },
-  "entry_count": 1140,
+  "entry_count": 1143,
   "entries": [
     {
       "method": "GET",
@@ -2063,6 +2063,13 @@
     {
       "method": "GET",
       "path": "/_matrix/client/v1/voice/config",
+      "registered_by": "voice",
+      "path_params": [],
+      "query_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v1/voice/register",
       "registered_by": "voice",
       "path_params": [],
       "query_params": []
@@ -5574,6 +5581,13 @@
       "query_params": []
     },
     {
+      "method": "POST",
+      "path": "/_matrix/client/v3/voice/register",
+      "registered_by": "voice",
+      "path_params": [],
+      "query_params": []
+    },
+    {
       "method": "GET",
       "path": "/_matrix/client/v3/voice/room/{room_id}",
       "registered_by": "voice",
@@ -6818,6 +6832,13 @@
     {
       "method": "GET",
       "path": "/_matrix/vendor/v1/voice/config",
+      "registered_by": "voice",
+      "path_params": [],
+      "query_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/vendor/v1/voice/register",
       "registered_by": "voice",
       "path_params": [],
       "query_params": []

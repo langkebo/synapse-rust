@@ -2,7 +2,7 @@ name: Ledger Export
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main ]
     tags: [ "v*", "release-*" ]
   workflow_dispatch:
 
