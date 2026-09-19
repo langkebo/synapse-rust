@@ -161,8 +161,11 @@ fn cleanup_script_hard_excludes_static_live_templates_without_markers() {
     let source = script();
     assert!(
         source.contains(r#"STATIC_KEEP=("test_template_ci")"#),
-        "`test_template_ci` is created by shell/CI and has no ready-marker, so it must live in the \
-         unconditional static keep list; without it a local `--apply` deletes the CI template"
+        "`test_template_ci` must stay in the unconditional static keep list as a BACKSTOP: \
+         `scripts/ci/prepare_test_db.sh` now writes the ready-marker, so the marker mechanism \
+         (#1) normally recognises it — but a database seeded before that change (or by a tool \
+         that does not follow the marker convention) has no marker and no \
+         `TEST_DB_TEMPLATE_SCHEMA`, and then a local `--apply` would CASCADE the CI template"
     );
     // The old, broken shape: an empty assignment that is only filled conditionally.
     assert!(

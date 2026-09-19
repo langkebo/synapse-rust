@@ -71,6 +71,19 @@ psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c "DROP SCHEMA IF EXISTS \"$TEMPLA
 # search_path entry, which the init script pins via PGOPTIONS.
 TARGET_SCHEMA="$TEMPLATE_SCHEMA" bash scripts/init_test_public_schema.sh
 
+# Write the ready-marker that `synapse-test-utils::template_marker_dir()` uses, so
+# `scripts/cleanup_test_schemas.sh` recognises this template through its generic
+# marker mechanism (keep reason #1) instead of depending on the static
+# `STATIC_KEEP` list. That is what keeps a *future* shell-created live template
+# from being one forgotten list entry away from a `--apply` CASCADE drop
+# (sweep §15.8.4 / this round's §2.5). `STATIC_KEEP` stays as an unconditional
+# backstop for templates seeded before this change or by non-marker-aware tools.
+MARKER_ROOT="${SYNAPSE_TEMPLATE_MARKER_DIR:-${CARGO_TARGET_TMPDIR:-$PWD/target/tmp}}"
+MARKER_DIR="$MARKER_ROOT/synapse_test_templates"
+mkdir -p "$MARKER_DIR"
+touch "$MARKER_DIR/synapse_test_template_ready_${TEMPLATE_SCHEMA}"
+echo "==> ready-marker written: $MARKER_DIR/synapse_test_template_ready_${TEMPLATE_SCHEMA}"
+
 echo "==> [3/3] verifying both schemas"
 # 用 $TEST_DATABASE_URL 而不是硬编码 `-d synapse_test`：库名是本脚本的输入
 # （第 34 行的默认值可在调用处覆盖），硬编码会让 `PUBLIC_TABLES`/`TEMPLATE_TABLES`

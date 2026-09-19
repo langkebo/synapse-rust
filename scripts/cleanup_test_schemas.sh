@@ -41,15 +41,19 @@
 #
 # ── §9 兜底机制（CI 无文件系统标记文件时的 live 模板保护）────────────────────
 # 脚本按优先级认定 live 模板：
-#   1. 标记文件 `synapse_test_template_ready_<schema>`（test_utils.rs 写入）
+#   1. 标记文件 `synapse_test_template_ready_<schema>`（test_utils.rs 写入；
+#      **shell/CI 建的模板也应写它** —— `scripts/ci/prepare_test_db.sh` 已这么做）
 #   2. 环境变量 `TEST_DB_TEMPLATE_SCHEMA`（CI seed 钉住的名字，如 test_template_ci）
 #   3. 两者都缺 → 降级为「保留全部模板家族、仅删克隆 schema」（同 --keep-all-templates）
 # 认定为 live 的模板通过 `AND nspname NOT IN (...)` 硬排除，绝不会被 CASCADE 误删。
 #
-# ⚠️ 另有一组**静态** live 模板（`STATIC_KEEP`，目前是 `test_template_ci`）：它们由
-# shell/CI 创建、没有标记文件，本地也不会设 TEST_DB_TEMPLATE_SCHEMA，所以**无条件**
-# 参与硬排除，与上面 1/2/3 的判定结果无关。少了这条，最常见的本地路径
-# （无标记 + 无环境变量）会把它列为删除候选。
+# ⚠️ 另有一组**静态** live 模板（`STATIC_KEEP`，目前是 `test_template_ci`）：它作为
+# **无条件兜底**，覆盖"标记文件还没写"的历史状态、以及不认识标记约定的工具建出来的
+# 模板。少了这条，最常见的本地路径（无标记 + 无环境变量）会把它列为删除候选。
+#
+# 新增 shell 建的 live 模板时的正确做法：**写标记文件**（见 prepare_test_db.sh），
+# 而不是往 STATIC_KEEP 里加名字 —— 标记是自动的，名单需要人记得维护
+#（sweep §15.8.4 / GATE_INTEGRITY_FOLLOWUP §2.5）。
 
 set -uo pipefail
 
