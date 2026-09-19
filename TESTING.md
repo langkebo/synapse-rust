@@ -134,7 +134,12 @@
   `Security Audit`、`PR Benchmark Gate`；集成/覆盖率/构建证据只在 push 到 main/develop 或 nightly 产生。
 - 因此**"PR 全绿"不等于"集成与覆盖率也验证过"**；发布判断要看 main 上 push 运行的结果。
 
-**需要人工在 GitHub 分支保护里确认（本地无法查询，`gh` token 失效）**：
+**裁定（2026-09-19，维护者确认）：保持 push-only。** 这三个 job **不得**加入 `pull_request`；
+PR 侧只要求常开门禁（`Repo Sanity`、`Test & Lint (...)`、`Security Audit`、`PR Benchmark Gate`）。
+该决定由 `tests/unit/ci_test_scope_tests.rs::push_only_ci_jobs_keep_their_deliberate_trigger_scope`
+钉住（红证明：把任一 job 的 `schedule` 换成 `pull_request` → 该测试 FAILED），改动它必须是有意识的决定。
+
+**仍需在 GitHub 分支保护里确认（本地无法查询，`gh` token 失效）**：
 1. 上述三个 job 是否被列为 required status checks；
 2. 若被列为 required，PR 上"从未上报/被跳过"的 check GitHub 如何判定（会不会以 Expected 卡住合并）；
 3. 确认 `Mutation Testing (nightly, REPORT ONLY — not a merge gate)`、`Secrets preflight`、

@@ -607,6 +607,13 @@ CI 等效跑发现的 beacon 竞争与表覆盖门禁命中的一次性表名。
 
 ### 6.6 A7/A8：分支保护侧需要人工确认（无法用 `gh` 查询）
 
+> **裁定（2026-09-19，维护者确认）：保持 push-only。** 三个 job 不加入 `pull_request`；PR 侧只要求
+> 常开门禁。决定已用 `tests/unit/ci_test_scope_tests.rs::push_only_ci_jobs_keep_their_deliberate_trigger_scope`
+> 钉住（非空性：恰好 3 个 job；红证明：把 `integration-test` 的 `schedule` 换成 `pull_request` →
+> 该测试 FAILED 并提示"这是该门禁唯一真正运行的地方"）。**剩下只需人工确认**：这三者不在 required
+> checks 里（否则 PR 会卡在 Expected），且 `Mutation Testing (nightly, REPORT ONLY …)`/`Secrets preflight`/
+> `Logical Checksum Compare` 也不在 required 里。
+
 `ci.yml` 中承载受影响门禁的 check 名（矩阵展开后）：
 - `Integration Tests`（`integration-test`，`:568`）
 - `Code Coverage`（`coverage`，`:888`）—— 覆盖率 + per-file 棘轮

@@ -191,3 +191,41 @@ fn media_exemption_is_fully_removed_from_ci() {
         "media 豁免守卫脚本 scripts/ci/check_media_exemption_still_needed.sh 已随 §4 修复删除。"
     );
 }
+
+/// A7 ruling (2026-09-19, maintainer decision): `integration-test`, `build` and
+/// `coverage` are deliberately **push/schedule-only**.
+///
+/// They need a Postgres/Redis service and minutes of runtime, so running them on
+/// every PR was traded away; PR protection relies on `Repo Sanity`,
+/// `Test & Lint`, `Security Audit` and `PR Benchmark Gate` instead
+/// (`TESTING.md` §2.4, `docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md` §6.6).
+///
+/// This pins the *decision*, not just the YAML: enabling any of these on
+/// `pull_request` (or dropping the push/schedule trigger that is the only place
+/// they actually run) must be a conscious edit of this test plus the docs,
+/// never a silent drift. Red proof: swap `schedule` for `pull_request` in any
+/// job's `if:` and this test fails.
+#[test]
+fn push_only_ci_jobs_keep_their_deliberate_trigger_scope() {
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let ci = std::fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("read ci.yml");
+    let mut checked = 0;
+    for job in ["integration-test", "build", "coverage"] {
+        let header = format!("\n  {job}:\n");
+        let start = ci.find(&header).unwrap_or_else(|| panic!("the `{job}` job must exist in ci.yml"));
+        let rest = &ci[start..];
+        let end = rest[1..].find("\n  [a-z]").map_or(rest.len(), |offset| offset + 1);
+        let block = &rest[..end];
+        let job_if = &block[..block.find("steps:").unwrap_or(block.len())];
+        assert!(
+            job_if.contains("github.event_name == 'push'") && job_if.contains("github.event_name == 'schedule'"),
+            "the `{job}` job must stay push/schedule-only (TESTING.md §2.4): it is the only place this gate runs"
+        );
+        assert!(
+            !job_if.contains("pull_request"),
+            "the `{job}` job must not gain a pull_request trigger without a deliberate ruling (update this test and TESTING.md §2.4)"
+        );
+        checked += 1;
+    }
+    assert_eq!(checked, 3, "the push-only job list shrank; the ruling covers exactly these three jobs");
+}
