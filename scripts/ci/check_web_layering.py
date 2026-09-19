@@ -68,7 +68,44 @@ def read_allowlist() -> set[str]:
     return entries
 
 
+# A working `synapse-web/src/` tree has hundreds of files; requiring a couple of
+# dozen is a floor that a rename/move cannot accidentally satisfy.
+MIN_SCANNED_FILES = 20
+
+
+def scan_surface() -> int:
+    """Number of `.rs` files the walk will inspect.
+
+    Both branches of this gate are computed from that set, so an empty scan
+    (the directory was renamed, deleted, or the walk excluded everything) made
+    it print OK and exit 0 — the same "gate is dead but green" failure mode as
+    `AGENTS.md` rule 8. Callers must treat a too-small surface as a failure, not
+    as "no offenders".
+    """
+    if not WEB.is_dir():
+        return 0
+    count = 0
+    for dirpath, _dirnames, filenames in os.walk(WEB):
+        if is_excluded(dirpath):
+            continue
+        count += sum(1 for name in filenames if name.endswith(".rs"))
+    return count
+
+
 def main() -> int:
+    # The scan-surface guard runs first, including for `--update`: rewriting the
+    # allowlist from a broken scan would persist an empty (meaningless) list.
+    scanned = scan_surface()
+    if scanned < MIN_SCANNED_FILES:
+        print(
+            f"FAIL: web_layering scanned only {scanned} .rs file(s) under {WEB} "
+            f"(expected at least {MIN_SCANNED_FILES}). The scan surface is missing or "
+            "misconfigured, so 'no offenders' would be meaningless. Fix the path, or "
+            "update MIN_SCANNED_FILES if the tree legitimately shrank.",
+            file=sys.stderr,
+        )
+        return 1
+
     current = offenders()
 
     if "--update" in sys.argv:

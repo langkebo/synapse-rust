@@ -66,7 +66,10 @@ fn test_media_thumbnail_settings_path_identity() {
 
 #[test]
 fn test_push_notification_service_path_identity() {
-    let legacy_ref: Option<&synapse_services::push::PushNotificationService> = None;
+    // Legacy flat alias `pub use push::service as push_notification_service;`
+    // (synapse-services/src/lib.rs). Comparing `push::…` against itself would
+    // pass even if the alias were deleted.
+    let legacy_ref: Option<&synapse_services::push_notification_service::PushNotificationService> = None;
     let grouped_ref: Option<&synapse_services::push::PushNotificationService> = None;
     if let (Some(a), Some(b)) = (legacy_ref, grouped_ref) {
         assert_same_type(a, b);
@@ -75,7 +78,7 @@ fn test_push_notification_service_path_identity() {
 
 #[test]
 fn test_account_registration_service_path_identity() {
-    let legacy_ref: Option<&synapse_services::account::RegistrationService> = None;
+    let legacy_ref: Option<&synapse_services::registration_service::RegistrationService> = None;
     let grouped_ref: Option<&synapse_services::account::RegistrationService> = None;
     if let (Some(a), Some(b)) = (legacy_ref, grouped_ref) {
         assert_same_type(a, b);
@@ -84,7 +87,7 @@ fn test_account_registration_service_path_identity() {
 
 #[test]
 fn test_account_identity_service_path_identity() {
-    let legacy_ref: Option<&synapse_services::account::AccountIdentityService> = None;
+    let legacy_ref: Option<&synapse_services::account_identity_service::AccountIdentityService> = None;
     let grouped_ref: Option<&synapse_services::account::AccountIdentityService> = None;
     if let (Some(a), Some(b)) = (legacy_ref, grouped_ref) {
         assert_same_type(a, b);
@@ -111,7 +114,9 @@ fn test_event_report_service_path_identity() {
 
 #[test]
 fn test_room_service_path_identity() {
-    let legacy_ref: Option<&synapse_services::room::RoomService> = None;
+    // `RoomService` is defined in `room::service`; there was never a flat
+    // `room_service` module, so the direct module path is the reference.
+    let legacy_ref: Option<&synapse_services::room::service::RoomService> = None;
     let grouped_ref: Option<&synapse_services::room::RoomService> = None;
     if let (Some(a), Some(b)) = (legacy_ref, grouped_ref) {
         assert_same_type(a, b);
@@ -120,7 +125,7 @@ fn test_room_service_path_identity() {
 
 #[test]
 fn test_infra_feature_flag_service_path_identity() {
-    let legacy_ref: Option<&synapse_services::infra::FeatureFlagService> = None;
+    let legacy_ref: Option<&synapse_services::feature_flag_service::FeatureFlagService> = None;
     let grouped_ref: Option<&synapse_services::infra::FeatureFlagService> = None;
     if let (Some(a), Some(b)) = (legacy_ref, grouped_ref) {
         assert_same_type(a, b);

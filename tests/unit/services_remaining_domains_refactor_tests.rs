@@ -17,7 +17,9 @@ fn assert_same_type<T: ?Sized>(_a: &T, _b: &T) {}
 
 #[test]
 fn test_account_user_service_path_identity() {
-    let legacy: Option<synapse_services::account::UserService> = None;
+    // Legacy flat module (`synapse-services/src/lib.rs:175`), not the grouped
+    // re-export compared against itself.
+    let legacy: Option<synapse_services::user_service::UserService> = None;
     let grouped: Option<synapse_services::account::UserService> = None;
     if let (Some(a), Some(b)) = (legacy, grouped) {
         assert_same_type(&a, &b);

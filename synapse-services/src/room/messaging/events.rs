@@ -788,7 +788,12 @@ mod tests {
         let result = svc.get_event_context_admin("!room:ex.com", "$nonexistent:ex.com", 5).await;
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.to_string().contains("not found"), "expected not_found error, got: {err}");
+        // Assert the machine-readable kind, not the human message: the storage
+        // layer maps `EventNotFound(event_id)` to `ApiError::not_found(event_id)`,
+        // so `Display` is `M_NOT_FOUND: $nonexistent:ex.com` and an
+        // `err.to_string().contains("not found")` assertion can never hold. The
+        // kind is the contract; the message may legitimately be the event id.
+        assert!(err.is_not_found(), "a missing event must surface as NotFound (errcode M_NOT_FOUND), got: {err}");
     }
 
     #[tokio::test]

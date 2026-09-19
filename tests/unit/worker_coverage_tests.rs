@@ -399,7 +399,22 @@ fn test_worker_capabilities_all_types() {
 
     for wt in types {
         let caps = WorkerCapabilities::for_type(&wt);
-        assert!(!caps.supported_protocols.is_empty() || caps.supported_protocols.is_empty());
+        // `can_handle_http` / `can_handle_federation` and
+        // `supported_protocols` are two views of the same fact (the worker
+        // models expose both, so consumers may read either). Assert they agree
+        // instead of the `P || !P` tautology that used to stand here, which no
+        // change to `for_type` could ever falsify.
+        assert_eq!(
+            caps.can_handle_http,
+            caps.supported_protocols.iter().any(|p| p == "matrix"),
+            "{wt:?}: can_handle_http must mirror the advertised matrix protocol"
+        );
+        assert_eq!(
+            caps.can_handle_federation,
+            caps.supported_protocols.iter().any(|p| p == "federation"),
+            "{wt:?}: can_handle_federation must mirror the advertised federation protocol"
+        );
+        assert!(caps.max_concurrent_requests > 0, "{wt:?}: a concrete worker type must accept some concurrency");
     }
 }
 

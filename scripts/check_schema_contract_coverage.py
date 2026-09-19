@@ -536,8 +536,12 @@ def main() -> int:
     parser.add_argument(
         "--threshold",
         type=float,
-        default=90.0,
-        help="Minimum coverage percentage required (default: 90.0)",
+        # Every CI call site passes `--threshold 100`; a lax default meant that
+        # invoking the gate by hand (the way a developer reproduces CI) exited 0
+        # while printing "missing table definition" for a table that was dropped
+        # from the contract. The default must be the gate's real bar.
+        default=100.0,
+        help="Minimum coverage percentage required (default: 100.0)",
     )
     parser.add_argument(
         "--report", type=str, help="Generate detailed coverage report to file"

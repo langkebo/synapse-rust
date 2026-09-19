@@ -24,8 +24,10 @@
 #   bash scripts/run_local_coverage.sh
 #   TEST_THREADS=6 bash scripts/run_local_coverage.sh
 #
-# 前置：本地测试库需已初始化 public schema（255 表），见
-#   scripts/init_test_public_schema.sh（或手动 psql 跳过 .undo.sql 跑 migrations/*.sql）。
+# 前置：本地测试库需已初始化 public schema（≥100 表）**和** `test_template_ci`
+#   模板（共享池 clone 它；见下方 TEST_DB_TEMPLATE_SCHEMA 的说明）。
+#   一次搞定两个：bash scripts/ci/prepare_test_db.sh
+#   仅重建 public：bash scripts/init_test_public_schema.sh
 # 如需 TEST_THREADS >= 6 跑集成测试，先调高锁表上限（避免 clone 并发 "out of
 # shared memory"）：bash scripts/tune_test_db.sh（一次性，ALTER SYSTEM 持久化）。
 
@@ -38,6 +40,32 @@ export TEST_DATABASE_URL="${TEST_DATABASE_URL:-$DATABASE_URL}"
 TEST_THREADS="${TEST_THREADS:-4}"
 OUTPUT_DIR="coverage"
 
+# The shared-pool fixture (`synapse-test-utils::prepare_shared_test_pool`) clones
+# `TEST_DB_TEMPLATE_SCHEMA` when it is set and takes the verify-only path. When it
+# is UNSET it falls back to `init_template_schema`, which delegates to the runtime
+# `DatabaseInitService` — and that service is a **no-op** unless
+# `SYNAPSE_ENABLE_RUNTIME_DB_INIT` is set (deliberately: migrations are owned by
+# `docker/db_migrate.sh`). The "rebuild" therefore leaves a template containing
+# only `schema_migrations`, `ensure_test_schema_contract` fails, and every
+# shared-pool test dies with `relation "users" does not exist`.
+#
+# CI never sees that path because it pre-builds `test_template_ci`
+# (`scripts/ci/prepare_test_db.sh`) and exports the name. Local runs must pin the
+# same template, so do it here instead of silently depending on a template that
+# happens to be lying around.
+export TEST_DB_TEMPLATE_SCHEMA="${TEST_DB_TEMPLATE_SCHEMA:-test_template_ci}"
+
+# Preflight: fail fast (and say how to fix it) rather than spending ~20 minutes
+# compiling before the first shared-pool test fails.
+_tpl_tables="$(psql "$TEST_DATABASE_URL" -tAc \
+    "SELECT count(*) FROM information_schema.tables WHERE table_schema='${TEST_DB_TEMPLATE_SCHEMA}'" 2>/dev/null || echo 0)"
+if [ "${_tpl_tables:-0}" -lt 100 ]; then
+    echo "::error::TEST_DB_TEMPLATE_SCHEMA='${TEST_DB_TEMPLATE_SCHEMA}' has ${_tpl_tables} tables (expected >100)." >&2
+    echo "  Seed both public and the template first:" >&2
+    echo "    DATABASE_URL=$TEST_DATABASE_URL bash scripts/ci/prepare_test_db.sh" >&2
+    exit 1
+fi
+
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -47,8 +75,9 @@ REST_LCOV="$TMP_DIR/rest.lcov"
 mkdir -p "$OUTPUT_DIR"
 
 echo "==> 方案 B：分两步生成覆盖率"
-echo "    DATABASE_URL  = $DATABASE_URL"
-echo "    TEST_THREADS  = $TEST_THREADS"
+echo "    DATABASE_URL            = $DATABASE_URL"
+echo "    TEST_DB_TEMPLATE_SCHEMA = $TEST_DB_TEMPLATE_SCHEMA (${_tpl_tables} tables)"
+echo "    TEST_THREADS            = $TEST_THREADS"
 
 echo
 echo "==> 步骤 1/2: synapse-storage 单独跑（db_tests 直连 public，单线程避免并发竞争）"

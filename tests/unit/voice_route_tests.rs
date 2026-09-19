@@ -114,7 +114,17 @@ fn ft130_register_encrypted_voice_request_has_correct_fields() {
 
 #[test]
 fn ft130_register_encrypted_voice_request_media_id_required() {
-    // Missing media_id should still deserialize (validation happens in handler)
+    // FT-130: `media_id` is a **required** field on
+    // `RegisterEncryptedVoiceRequest` (`String`, not `Option<String>`), so a body
+    // that omits it must be rejected by serde before the handler runs.
+    //
+    // The previous body asserted the opposite (`result.is_ok()`, with the message
+    // "media_id is optional at deserialization level"), contradicting both the
+    // struct and this test's own name. It went unnoticed because CI's unit step
+    // runs without `voice-extended`, so `#[cfg(feature = "voice-extended")]`
+    // kept this module out of every CI run (sweep §3 B17); the first
+    // configuration that compiled it — `run_local_coverage.sh`'s feature set —
+    // failed here.
     let json = serde_json::json!({
         "room_id": "!test_room:localhost",
         "content_type": "application/octet-stream",
@@ -122,10 +132,9 @@ fn ft130_register_encrypted_voice_request_media_id_required() {
         "size_bytes": 102400
     });
 
-    // This will fail at the handler level, not here
     let result: Result<synapse_web::routes::voice::RegisterEncryptedVoiceRequest, _> = serde_json::from_value(json);
 
-    assert!(result.is_ok(), "media_id is optional at deserialization level");
+    assert!(result.is_err(), "a body missing `media_id` must fail deserialization, not reach the handler");
 }
 
 #[test]

@@ -22,7 +22,11 @@ fn create_test_config() -> Config {
             port: 8008,
             public_baseurl: None,
             signing_key_path: None,
-            macaroon_secret_key: None,
+            // A macaroon secret is a *required* server secret (access tokens). The e2ee
+            // wiring also derives the optional server-side megolm at-rest key from it when
+            // `megolm_encryption_key_path` is unset, so a test container must not leave it
+            // empty; fixed non-production value. Same fixture defect as `d8fcedab`.
+            macaroon_secret_key: Some("test-macaroon-secret-not-for-production".to_string()),
             form_secret: None,
             server_name: None,
             suppress_key_server_warning: false,
