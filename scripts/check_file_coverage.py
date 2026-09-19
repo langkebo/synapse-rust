@@ -7,8 +7,8 @@ baseline, and exits non-zero when a file falls below its floor.
 Policy (revised 2026-09-19; see docs/audit/GATE_INTEGRITY_SWEEP_2026-09-19.md §6):
   - A file the baseline already records: **must not regress** below its recorded
     value. Absolute floors are NOT re-applied to it.
-  - A file seen for the first time (new): TDD ≥ 80% > core ≥ 70% >
-    otherwise the new-file ramp-up floor (30%).
+  - A file seen for the first time (new): core ≥ 70%, otherwise the new-file
+    ramp-up floor (30%).
   - Test-support sources (`test_mocks/`, `synapse-test-utils/`, `*test_utils.rs`,
     `*test_isolation.rs`, `*test_schema_guard.rs`, `scripts/bench_harness.rs`)
     are skipped: they are compiled under `cfg(test)`/`test-utils` and consumed by
@@ -144,14 +144,6 @@ def save_baseline(
     with open(path, "w") as f:
         json.dump(payload, f, indent=2)
         f.write("\n")
-
-
-def load_tdd_files(path: Optional[pathlib.Path]) -> set:
-    """Load list of TDD-mandated files (one relative path per line)."""
-    if path is None or not path.exists():
-        return set()
-    with open(path) as f:
-        return {line.strip() for line in f if line.strip() and not line.startswith("#")}
 
 
 def load_core_prefixes(path: Optional[pathlib.Path]) -> List[str]:
@@ -345,9 +337,7 @@ def _count(entry) -> int:
 def check_file_coverage(
     current: Dict[str, float],
     baseline: Dict[str, float],
-    tdd_files: set,
     global_threshold: float,
-    tdd_threshold: float,
     new_file_threshold: float,
     core_prefixes: List[str],
     core_threshold: float,
@@ -355,7 +345,7 @@ def check_file_coverage(
 ) -> int:
     """Enforce per-file coverage thresholds.  Returns exit code.
 
-    Priority (highest wins): TDD > core > new/touched baseline.
+    Priority (highest wins): baseline-known (no regression) > core > new.
     """
     failures: List[str] = []
     warnings: List[str] = []
@@ -389,9 +379,6 @@ def check_file_coverage(
             # module docstring for why `max(prev, global_threshold)` was wrong.
             floor = prev
             tag = "TOUCHED"
-        elif path in tdd_files:
-            floor = tdd_threshold
-            tag = "TDD"
         elif _matches_core_prefix(path, core_prefixes):
             floor = core_threshold
             tag = "CORE"
@@ -441,7 +428,7 @@ def check_file_coverage(
     if failures or core_failures:
         print(
             f"Thresholds: baseline-known files must not regress; "
-            f"new files: TDD ≥{tdd_threshold:.0f}%, core ≥{core_threshold:.0f}%, "
+            f"new files: core ≥{core_threshold:.0f}%, "
             f"otherwise ≥{new_file_threshold:.0f}% (ramp-up); "
             f"global ≥{global_threshold:.0f}% is a warning only."
         )
@@ -449,8 +436,8 @@ def check_file_coverage(
 
     print(
         f"All {len(current)} source files meet coverage thresholds "
-        f"(baseline-known: no regression; new: TDD≥{tdd_threshold:.0f}%, "
-        f"core≥{core_threshold:.0f}%, otherwise≥{new_file_threshold:.0f}%)."
+        f"(baseline-known: no regression; new: core≥{core_threshold:.0f}%, "
+        f"otherwise≥{new_file_threshold:.0f}%)."
     )
     return 0
 
@@ -478,22 +465,10 @@ def main() -> int:
         help="Path to prior coverage baseline JSON (created if missing).",
     )
     parser.add_argument(
-        "--threshold",
-        type=float,
-        default=80.0,
-        help="TDD-mandated file line-coverage floor (default: 80).",
-    )
-    parser.add_argument(
-        "--tdd-files",
-        type=pathlib.Path,
-        default=None,
-        help="File listing TDD-mandated paths (one per line, relative to src/).",
-    )
-    parser.add_argument(
         "--global-floor",
         type=float,
         default=70.0,
-        help="Global coverage floor for all src files (default: 70).",
+        help="Global coverage floor, used only for the below-global warning on new files (default: 70).",
     )
     parser.add_argument(
         "--new-file-floor",
@@ -563,8 +538,6 @@ def main() -> int:
         print(f"Coverage ratchet cannot run: {baseline_problem}", file=sys.stderr)
         return 2
 
-    tdd_files = load_tdd_files(args.tdd_files)
-
     # A --core-files that is missing or entirely stale used to degrade to "no
     # core paths", i.e. the core threshold silently checked nothing.
     if args.core_files is not None and not args.core_files.exists():
@@ -594,9 +567,7 @@ def main() -> int:
     exit_code = check_file_coverage(
         current=current,
         baseline=baseline,
-        tdd_files=tdd_files,
         global_threshold=args.global_floor,
-        tdd_threshold=args.threshold,
         new_file_threshold=args.new_file_floor,
         core_prefixes=core_prefixes,
         core_threshold=args.core_threshold,

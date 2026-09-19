@@ -8,9 +8,11 @@ out = ["Html", "Lcov", "Json"]
 # Output directory
 output-dir = "coverage"
 
-# B.3: hard floor 40% overall. Core 13 paths ≥70% enforced separately via
-# scripts/check_file_coverage.py --core-files. Long-term 70% target for all
-# paths enforced via per-file ratchet.
+# B.3: hard floor 40% overall (tarpaulin's own `--fail-under`). Per-file policy
+# is enforced by scripts/check_file_coverage.py against the committed baseline:
+# baseline-known files must not regress, new files must clear core ≥70% (the
+# 29-prefix list in scripts/ci/core_file_coverage_prefixes.txt, currently
+# matching 258 files) or the 30% ramp-up floor otherwise.
 fail-under = 40
 
 # Include only library code (exclude tests, examples, benches)

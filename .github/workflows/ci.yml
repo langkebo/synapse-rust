@@ -990,12 +990,12 @@ jobs:
             --format lcov \
             --baseline scripts/ci/coverage_baseline.json \
             --save-baseline scripts/ci/coverage_baseline.json \
-            --threshold 0 --global-floor 0 --new-file-floor 0 --core-threshold 0
+            --global-floor 0 --new-file-floor 0 --core-threshold 0
 
       - name: Per-file coverage ratchet (B.3)
         # Enforces: any file already recorded in the baseline must not regress;
-        # NEW files must clear TDD ≥80% > core ≥70% > 30% ramp-up; test-support
-        # sources are skipped (see scripts/check_file_coverage.py's docstring).
+        # NEW files must clear core ≥70% (or the 30% ramp-up otherwise);
+        # test-support sources are skipped (see scripts/check_file_coverage.py).
         # `--global-floor 40` is retained for the ramp-up warning only; absolute
         # floors are deliberately not re-applied to baseline-known files, because
         # doing so made the first committed baseline red on 188 files that had not
@@ -1010,7 +1010,6 @@ jobs:
             --report coverage/lcov.info \
             --format lcov \
             --baseline scripts/ci/coverage_baseline.json \
-            --threshold 80 \
             --global-floor 40 \
             --new-file-floor 30 \
             --core-files scripts/ci/core_file_coverage_prefixes.txt \

@@ -25,8 +25,14 @@ integration = "tests/**/*.rs"
 #   - files the baseline already records: must not regress below the recorded
 #     value (absolute floors are NOT re-applied — see the script's docstring for
 #     why `max(prev, global)` made a fresh baseline unsatisfiable)
-#   - new files (no prior baseline): TDD ≥80% > core ≥70% > 30% ramp-up
+#   - new files (no prior baseline): core ≥70%, otherwise 30% ramp-up
 #   - test-support sources (test_mocks/, synapse-test-utils/, *test_utils.rs,
 #     *test_isolation.rs, *test_schema_guard.rs) are skipped: neither coverage
 #     leg can measure code that only *other* crates' tests exercise.
+#
+# The former "TDD-mandated files ≥80%" lane was REMOVED 2026-09-19: its file list
+# (`artifacts/tdd_file_list.txt`) was gitignored and never generated, and
+# `--tdd-files` was never passed by any caller, so the threshold applied to zero
+# files for its entire life (sweep C9). Reintroduce it only together with a
+# tracked list and a CI call site.
 # See .trae/documents/TDD落地执行清单.md P4-1 for the policy.
