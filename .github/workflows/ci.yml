@@ -152,6 +152,15 @@ jobs:
       - name: Connection budget invariant
         run: python3 scripts/ci/check_connection_budget.py
 
+      # A5 / B4-1: `pub trait` and `*StoreApi` counts may only go DOWN. The
+      # baseline (`scripts/ci/trait_count_baseline`, TOTAL=65 / STORE_API=33) has
+      # existed since 2026-09-15, but no workflow ever read it, so the ratchet
+      # could not fire at all — a new storage trait had no gate (sweep C4 / E3).
+      # Red-proved 2026-09-19: injecting one `pub trait` probe → exit 1
+      # (`65 -> 66`); removing it → exit 0.
+      - name: Trait-count ratchet (no new pub trait / StoreApi)
+        run: python3 scripts/ci/check_trait_ratchet.py
+
       # Supply-chain hardening (cargo-deny + cargo-audit) runs in the
       # `security-audit` job, which installs both tools first. It used to be
       # invoked here as well ("for fast PR feedback"), but this job installs no

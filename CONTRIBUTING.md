@@ -107,9 +107,13 @@ Before opening a PR, ensure all gates pass:
 cargo fmt --all -- --check
 cargo clippy --all-features --locked -- -D warnings
 cargo check --workspace --all-features --locked
-bash scripts/ci/check_sqlx_offline_cache.sh
 python3 scripts/ci/check_root_canonical_ledger.py
 ```
+
+> `.sqlx` 离线缓存不需要单独校验：`.cargo/config.toml` 已全局设置
+> `SQLX_OFFLINE=true`，所以上面的 `cargo clippy`/`cargo check` 就是在用这份缓存；
+> 缓存过期或缺条目会直接编译失败。原先的 `scripts/ci/check_sqlx_offline_cache.sh`
+> 只是把同一件事再做一遍（且从未接线），已于 2026-09-19 删除。
 
 ## PR Checklist
 
