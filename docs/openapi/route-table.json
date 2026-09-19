@@ -3,7 +3,7 @@
   "generated_at": "2026-09-16T00:00:00Z",
   "source": "synapse_ledger_export",
   "profile": "default",
-  "total_routes": 1047,
+  "total_routes": 1049,
   "_meta": {
     "generated_by": "gen_route_table.py",
     "note": "本文件由 CI 自动生成，禁止手改。如需刷新: python3 scripts/api_test/gen_route_table.py"
@@ -2565,6 +2565,16 @@
       "path": "/_matrix/client/v3/appservice/user",
       "registered_by": "app_service",
       "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/auth/{auth_type}/fallback/web",
+      "registered_by": "assembly::auth_compat",
+      "path_params": [
+        "auth_type"
+      ],
       "query_params": [],
       "auth": null
     },
@@ -8543,6 +8553,14 @@
       "path_params": [
         "media_id"
       ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/rate-limit-status",
+      "registered_by": "admin::server",
+      "path_params": [],
       "query_params": [],
       "auth": null
     },

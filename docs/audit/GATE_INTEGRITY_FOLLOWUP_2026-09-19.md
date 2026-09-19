@@ -607,7 +607,11 @@ CI 等效跑发现的 beacon 竞争与表覆盖门禁命中的一次性表名。
 
 ### 6.6 A7/A8：分支保护侧需要人工确认（无法用 `gh` 查询）
 
-> **状态（2026-09-19）**：分支保护已在 GitHub 侧修改（维护者告知）；本地 `gh` token 失效、无法读取，故此处不写具体 required 列表，核对命令见本节下方与 `TESTING.md` §2.4。
+> **状态（2026-09-19，据维护者提供的 GitHub 设置页截图核对）**：`main` 的 required status checks **为空**
+> （“尚未添加任何检查”）⇒ 三个 push-only job 确认不在 required（A7/A8 的可执行检查项全部满足）；
+> `Require branches to be up to date` 已勾选但**当前不生效**（无 required 检查）；`Require a pull request`、
+> `请勿允许绕过以上设置` 均未勾选；截图中只有 `main` 一条规则，`develop` 未见单独规则（待确认）。
+> 策略层面的未决问题：是否把常开门禁设为 required、是否给 `develop` 加规则。
 >
 > **裁定（2026-09-19，维护者确认）：保持 push-only。** 三个 job 不加入 `pull_request`；PR 侧只要求
 > 常开门禁。决定已用 `tests/unit/ci_test_scope_tests.rs::push_only_ci_jobs_keep_their_deliberate_trigger_scope`

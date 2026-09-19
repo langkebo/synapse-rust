@@ -139,7 +139,18 @@ PR 侧只要求常开门禁（`Repo Sanity`、`Test & Lint (...)`、`Security Au
 该决定由 `tests/unit/ci_test_scope_tests.rs::push_only_ci_jobs_keep_their_deliberate_trigger_scope`
 钉住（红证明：把任一 job 的 `schedule` 换成 `pull_request` → 该测试 FAILED），改动它必须是有意识的决定。
 
-**状态（2026-09-19）**：维护者已在 GitHub 侧修改分支保护规则（据维护者告知）。本地无法读取该设置（`gh` token 失效），因此**本文件不断言具体 required 列表**；需要核对时用下面的命令读，并把结果回填到这里。若三个 push-only job 仍被列为 required，PR 会卡在 Expected —— 必须把它们移出 required。
+**状态（2026-09-19，据维护者提供的 GitHub 设置页截图核对）**：
+
+- `main` 规则：**required status checks 为空**（页面显示“无需检查 / 尚未添加任何检查”）⇒ 三个 push-only job
+  确实**不在** required（符合本裁定）；但常开门禁（Repo Sanity / Test & Lint / Security Audit / PR Benchmark Gate）
+  同样未被 required。
+- `Require branches to be up to date`（strict）= 已勾选，但因 required 列表为空**当前不生效**
+  （页面自述：只有在至少勾选一项状态检查后才会生效）。
+- `Require a pull request before merging` = 未勾选；`Include administrators` / “请勿允许绕过以上设置” = 未勾选。
+- `develop` 的规则未出现在截图中；若仓库没有针对 `develop` 的单独规则，则 `develop` 不受保护。
+
+> 待确认（策略决定，不属本文件裁定）：是否要把常开门禁设为 required，让 PR 真正被拦；
+> 以及是否给 `develop` 加同等规则。核对命令如下，读到的结果请回填本段。
 
 **核对命令**：
 1. 上述三个 job 是否被列为 required status checks；

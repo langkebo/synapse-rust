@@ -194,25 +194,41 @@ jobs:
       - name: Build synapse_ledger_export binary
         run: cargo build --quiet --bin synapse_ledger_export
 
-      # Must run BEFORE the generation steps below (they overwrite the committed
-      # file in the workspace). client.yaml is byte-reproducible from the
-      # committed scripts/api_test/ledger.json, so this is a real drift gate: a
-      # ledger/generator change that ships without regenerating client.yaml
-      # fails here instead of silently uploading a contract that disagrees with
-      # the committed one. (route-table.json is not checked this way: it is
-      # already 2 routes behind a fresh default-feature export — see the pin in
-      # tests/unit/placeholder_scan_tests.rs — so a content gate would be red
-      # until the artifact is deliberately regenerated.)
+      # route-table.json's source is a fresh DEFAULT-FEATURE export, not the
+      # committed scripts/api_test/ledger.json (a stale 2026-08-12 input that
+      # yields a different route set). The timestamp is pinned so the export is
+      # reproducible; it must equal the committed artifact's `generated_at` and
+      # gen_client_yaml.py's FIXED_TIMESTAMP. If it drifts, the route-table
+      # --check below goes red, so the pin is self-guarding.
+      - name: Export default-feature ledger (fixed timestamp)
+        run: |
+          ./target/debug/synapse_ledger_export \
+            --profile=default \
+            --output="$RUNNER_TEMP/ledger_default_ci.json" \
+            --timestamp=2026-09-16T00:00:00Z
+
+      # Both checks MUST run BEFORE the generation steps below, which overwrite
+      # the committed artifacts in the workspace; --check itself only ever writes
+      # to a temp path. client.yaml is byte-reproducible from the committed
+      # scripts/api_test/ledger.json, route-table.json from the fresh
+      # default-feature export above. A ledger/generator change that ships
+      # without regenerating the artifact fails here instead of silently
+      # uploading a contract that disagrees with the committed one.
       - name: Verify committed client.yaml is in sync (fails on drift)
         run: python3 scripts/api_test/gen_client_yaml.py --skip-export --check
+
+      - name: Verify committed route-table.json is in sync (fails on drift)
+        run: python3 scripts/api_test/gen_route_table.py --check --ledger "$RUNNER_TEMP/ledger_default_ci.json"
 
       - name: Generate client.yaml (OpenAPI 3.0.3)
         run: |
           mkdir -p docs/openapi
           python3 scripts/api_test/gen_client_yaml.py --skip-export
 
+      # Same fresh default-feature export as the check above, so the uploaded
+      # artifact matches the committed one byte-for-byte.
       - name: Generate route-table.json
-        run: python3 scripts/api_test/gen_route_table.py
+        run: python3 scripts/api_test/gen_route_table.py --ledger "$RUNNER_TEMP/ledger_default_ci.json"
 
       - name: Upload client.yaml artifact
         uses: actions/upload-artifact@v4
