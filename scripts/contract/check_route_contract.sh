@@ -64,6 +64,14 @@ python3 scripts/contract/gen_derived_routes.py --check
 # allowlist hygiene check still run, because they don't need the SDK. The SKIPPED
 # banner says so explicitly so nobody mistakes it for a pass.
 echo "==> SDK ⊆ ledger coverage (B2-4b, scripts/contract/check_sdk_route_coverage.py) ..."
+# Surface the uncovered direction where a human will actually see it: a SKIPPED
+# line buried in a long step log reads as a pass (sweep A12 / E5 — that direction
+# had never run anywhere, because no caller ever set SDK_CONTRACT_STRICT). GitHub
+# renders `::warning::` in the checks summary. The strict run lives in
+# `e2ee-interop.yml`, the one lane that checks out matrix-js-sdk.
+if [ ! -d "${SDK_ROOT:-$PWD/../matrix-js-sdk}/src" ] && [ "${GITHUB_ACTIONS:-false}" = "true" ]; then
+    echo "::warning title=SDK⊆ledger not verified::matrix-js-sdk is not checked out in this lane, so the SDK⊆ledger direction was SKIPPED (not passed). It runs strictly in e2ee-interop.yml."
+fi
 python3 scripts/contract/check_sdk_route_coverage.py
 
 if git diff --quiet -- "$DOC"; then

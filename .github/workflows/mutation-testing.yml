@@ -23,10 +23,17 @@ env:
 
 jobs:
   mutation-test:
-    name: Mutation Testing (nightly)
+    name: Mutation Testing (nightly, REPORT ONLY — not a merge gate)
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    # Non-blocking: failure does not prevent merge
+    # REPORT ONLY. Surviving mutants are *data*, not a build failure, so this job
+    # stays non-blocking (nightly schedule + manual dispatch; never on a PR) and
+    # must NOT be part of branch protection. Gate-integrity sweep A9 flagged it
+    # for looking like a gate while being unable to fail at all — and for
+    # swallowing `cargo mutants`' exit code with `|| true` while only asserting
+    # that the file list was valid. The step below now fails when a run produced
+    # no `mutants.out` report, so "the tool never ran / mutated nothing" can no
+    # longer masquerade as a clean report.
     continue-on-error: true
 
     services:
@@ -91,10 +98,28 @@ jobs:
             MUTATION_FILES="synapse-web/src/routes/extractors/json.rs synapse-web/src/middleware/security.rs synapse-services/src/media/mod.rs synapse-storage/src/event/pagination.rs"
           fi
 
+          # A run that wrote no `mutants.out` report proves nothing: it means the
+          # tool crashed, the flags were wrong, or nothing was mutated at all.
+          # That is the one condition this report-only job must treat as failure
+          # (sweep A9): otherwise `|| true` below turns every possible outcome
+          # into a green step.
+          require_mutation_report() {
+            local label="$1"
+            if [ ! -d mutants.out ] || [ -z "$(find mutants.out -type f -print -quit)" ]; then
+              echo "::error::mutation-testing: $label produced no mutants.out report — cargo-mutants did not actually run"
+              return 1
+            fi
+            echo "==> $label: $(find mutants.out -type f | wc -l) report file(s)"
+          }
+
           if [ -n "${{ inputs.package }}" ]; then
+            # `cargo mutants` exits non-zero when mutants survive — that is report
+            # data, not a build failure, so the exit code is deliberately ignored;
+            # the report's existence is what gets asserted.
             cargo mutants --package "${{ inputs.package }}" \
               --timeout 30 \
-              -- --test-threads=2
+              -- --test-threads=2 || true
+            require_mutation_report "package ${{ inputs.package }}"
             exit 0
           fi
 
@@ -121,6 +146,7 @@ jobs:
           }
 
           failures=""
+          no_report=""
           for file in $MUTATION_FILES; do
             if [ ! -f "$file" ]; then
               echo "::error::mutation-testing: listed file does not exist: $file"
@@ -134,15 +160,21 @@ jobs:
               continue
             fi
             echo "==> $file (package $pkg)"
+            rm -rf mutants.out
             cargo mutants --package "$pkg" \
               --file "$file" \
               --timeout 30 \
               --baseline skip \
               -- --test-threads=2 || true
+            require_mutation_report "$pkg/$file" || no_report="$no_report $file"
           done
 
           if [ -n "$failures" ]; then
             echo "::error::mutation-testing: invalid file list entries:$failures"
+            exit 1
+          fi
+          if [ -n "$no_report" ]; then
+            echo "::error::mutation-testing: these files produced no mutation report:$no_report"
             exit 1
           fi
 

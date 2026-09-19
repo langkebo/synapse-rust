@@ -115,6 +115,19 @@ jobs:
           repository: ${{ env.SDK_REPOSITORY }}
           path: matrix-js-sdk
 
+      # The "SDK ⊆ ledger" direction can only be verified where the SDK exists.
+      # `scripts/contract/check_route_contract.sh` (run by ci.yml) has no SDK and
+      # therefore prints SKIPPED; and no caller anywhere set SDK_CONTRACT_STRICT,
+      # so the comparison had never run (sweep A12 / E5). This lane does check the
+      # SDK out, so run it strictly here: a divergence fails the job instead of
+      # being skipped as a notice. Not gated on the PR path (this job is heavy:
+      # docker stack + node + playwright) — the nightly schedule covers it.
+      - name: SDK ⊆ ledger route coverage (strict)
+        env:
+          SDK_ROOT: ${{ github.workspace }}/matrix-js-sdk
+          SDK_CONTRACT_STRICT: '1'
+        run: python3 scripts/contract/check_sdk_route_coverage.py
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:

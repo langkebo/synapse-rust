@@ -6,22 +6,43 @@ on:
     - cron: "0 3 * * *"
 
 jobs:
-  logical-checksum-compare:
-    name: Logical Checksum Compare
+  # A missing secret must produce a **skipped** job, not a green one.
+  #
+  # This workflow used to `echo "… skipping."; exit 0` inside its first step when
+  # `PRIMARY_DATABASE_URL`/`REPLICA_DATABASE_URL` were unset — so a scheduled run
+  # with no secrets reported the whole job as success while running zero checks
+  # (gate-integrity sweep A10). `secrets` cannot be referenced in a job-level
+  # `if:`, hence this one-step preflight that publishes the decision as an output
+  # and makes the real job show up as *skipped* in the Actions UI.
+  preflight:
+    name: Secrets preflight
     runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Validate required secrets
+      - name: Check whether the replica secrets are configured
+        id: check
         env:
           PRIMARY_DATABASE_URL: ${{ secrets.PRIMARY_DATABASE_URL }}
           REPLICA_DATABASE_URL: ${{ secrets.REPLICA_DATABASE_URL }}
         run: |
           if [ -z "${PRIMARY_DATABASE_URL}" ] || [ -z "${REPLICA_DATABASE_URL}" ]; then
-            echo "PRIMARY_DATABASE_URL / REPLICA_DATABASE_URL secrets are not configured; skipping."
-            exit 0
+            echo "::notice::PRIMARY_DATABASE_URL / REPLICA_DATABASE_URL are not configured — the checksum comparison will be SKIPPED (not passed). Configure the secrets to run it."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
           fi
+
+  logical-checksum-compare:
+    name: Logical Checksum Compare
+    needs: preflight
+    # Explicit skip semantics: without the secrets this job is *skipped*, which is
+    # visibly different from a passing run.
+    if: needs.preflight.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Install PostgreSQL client
         run: |

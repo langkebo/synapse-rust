@@ -69,7 +69,12 @@ jobs:
           SQL
           for f in $(ls migrations/*.sql | grep -v '\.undo\.sql$' | sort); do
             echo "==> $f"
-            psql -h localhost -p 5432 -U synapse -d synapse -v ON_ERROR_STOP=0 -q -f "$f" || echo "  (non-fatal) $f"
+            # `ON_ERROR_STOP=1` + no `|| echo`: a half-applied baseline used to be
+            # reported as success here ("(non-fatal)"), so the manual suite ran
+            # against a schema that was missing whatever the failing statement
+            # would have created — and the resulting failures pointed at the
+            # tests, not at the migration (gate-integrity sweep A10).
+            psql -h localhost -p 5432 -U synapse -d synapse -v ON_ERROR_STOP=1 -q -f "$f"
           done
 
       - name: Verify schema readiness
