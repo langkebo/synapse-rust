@@ -16,6 +16,38 @@ pub fn extract_token(headers: &HeaderMap, uri: &str) -> Option<String> {
     crate::utils::auth::extract_token_opt(headers, uri)
 }
 
+/// Build a common audit-event payload for admin-auth middleware.
+///
+/// `role` and `device_id` describe the *authenticated* admin path; for the
+/// *denied* path callers override them via the returned mutable reference.
+fn build_admin_audit_event(
+    actor_id: String,
+    method: &Method,
+    path: &str,
+    status: u16,
+    client_ip: Option<&str>,
+    request_id: String,
+    role: Option<&str>,
+    device_id: Option<&str>,
+) -> CreateAuditEventRequest {
+    CreateAuditEventRequest {
+        actor_id,
+        action: format!("{method} {path}"),
+        resource_type: "admin_api".to_string(),
+        resource_id: path.to_owned(),
+        result: "unknown".to_string(), // caller overrides with "success"/"failure"
+        request_id,
+        details: Some(json!({
+            "method": method.as_str(),
+            "path": path,
+            "status": status,
+            "client_ip": client_ip,
+            "role": role,
+            "device_id": device_id,
+        })),
+    }
+}
+
 /// See [`auth_middleware`].
 pub async fn auth_middleware(
     State(ctx): State<CoreContext>,
@@ -175,24 +207,19 @@ pub async fn admin_auth_middleware(
                 Err(_) => ("anonymous".to_string(), None, None),
             };
 
+            let event = build_admin_audit_event(
+                actor_id,
+                &method,
+                &path,
+                status,
+                client_ip.as_deref(),
+                request_id.clone(),
+                None, // role not known (denied)
+                device_id.as_deref(),
+            );
             if let Err(error) = ctx
                 .admin_audit_service
-                .create_event(CreateAuditEventRequest {
-                    actor_id,
-                    action: format!("{method} {path}"),
-                    resource_type: "admin_api".to_string(),
-                    resource_id: path.clone(),
-                    result: "failure".to_string(),
-                    request_id: request_id.clone(),
-                    details: Some(json!({
-                        "method": method.as_str(),
-                        "path": path,
-                        "status": status,
-                        "client_ip": client_ip,
-                        "authenticated_admin": authenticated_admin,
-                        "device_id": device_id,
-                    })),
-                })
+                .create_event(event)
                 .await
             {
                 tracing::warn!(
@@ -209,24 +236,21 @@ pub async fn admin_auth_middleware(
     let mut response = next.run(request).await;
     let result = if response.status().is_success() { "success" } else { "failure" };
 
+    let mut event = build_admin_audit_event(
+        admin.user_id.clone(),
+        &method,
+        &path,
+        response.status().as_u16(),
+        client_ip.as_deref(),
+        request_id.clone(),
+        Some(admin.role.as_str()),
+        admin.device_id.as_deref(),
+    );
+    event.result = result.to_string();
+
     if let Err(error) = ctx
         .admin_audit_service
-        .create_event(CreateAuditEventRequest {
-            actor_id: admin.user_id.clone(),
-            action: format!("{method} {path}"),
-            resource_type: "admin_api".to_string(),
-            resource_id: path.clone(),
-            result: result.to_string(),
-            request_id: request_id.clone(),
-            details: Some(json!({
-                "method": method.as_str(),
-                "path": path,
-                "role": admin.role,
-                "device_id": admin.device_id,
-                "status": response.status().as_u16(),
-                "client_ip": client_ip,
-            })),
-        })
+        .create_event(event)
         .await
     {
         tracing::warn!(target: "admin_auth", %error, "Failed to persist admin audit event");
