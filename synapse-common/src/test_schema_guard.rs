@@ -23,10 +23,13 @@
 //! 2. The janitor polls the registry; when the last `Arc<PgPool>` clone is
 //!    released (test function returned), the weak reference dies and the
 //!    cleanup runs — mid-process, seconds before exit.
-//! 3. A `libc::atexit` handler flips an `EXITING` flag and **joins** the
-//!    janitor, so the process cannot exit before every remaining schema
-//!    (including pools still held by `static`s, which never drop) has been
-//!    dropped with the cheap exit variant of its cleanup.
+//! 3. A `libc::atexit` handler flips an `EXITING` flag and waits (bounded —
+//!    see `JANITOR_EXIT_JOIN_TIMEOUT`) for the janitor, so the process cannot
+//!    exit before every remaining schema (including pools still held by
+//!    `static`s, which never drop) has been dropped with the cheap exit variant
+//!    of its cleanup. A release batch that was already mid-flight when the flag
+//!    flipped hands its remainder to the **parallel** exit drain instead of
+//!    finishing serially — see `run_release_cleanups`.
 //!
 //! This works identically under `cargo test` (many tests per process) and
 //! nextest (one test per process), and requires no cooperation from call
@@ -43,7 +46,7 @@ use std::ops::Deref;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard, Once, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// How often the janitor checks whether registered pools have been released.
 const JANITOR_POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -53,6 +56,18 @@ const CLEANUP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// `DROP SCHEMA` calls on independent connections, so a small worker pool
 /// keeps process shutdown fast even if a backlog accumulated.
 const EXIT_DRAIN_WORKERS: usize = 4;
+
+/// Upper bound on how long the `atexit` handler waits for the janitor thread.
+///
+/// `JoinHandle::join()` has no timeout, so a janitor parked in a database
+/// `await` (unreachable server, pathological lock wait) would hang `exit()` —
+/// and with it the whole test process — forever. Measured 2026-09-19: a full
+/// integration run left 377 schemas behind and shutdown spent >19 minutes in
+/// the *serial* drain; the delegation in [`run_release_cleanups`] removes that
+/// specific cause, and this deadline is the remaining fail-safe. Past it the
+/// process exits and any un-dropped schemas are left to
+/// `scripts/cleanup_test_schemas.sh` rather than blocking CI indefinitely.
+const JANITOR_EXIT_JOIN_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Cleanup closure: runs synchronously on the calling thread and must not
 /// panic (panics are caught by the janitor and reported on stderr).
@@ -229,6 +244,19 @@ extern "C" fn janitor_exit_handler() {
     EXITING.store(true, Ordering::SeqCst);
     let handle = lock_mutex(&JANITOR_HANDLE).take();
     if let Some(handle) = handle {
+        // Bounded wait — see [`JANITOR_EXIT_JOIN_TIMEOUT`]. Returning without
+        // joining detaches the thread, which the process teardown then kills.
+        let deadline = Instant::now() + JANITOR_EXIT_JOIN_TIMEOUT;
+        while !handle.is_finished() {
+            if Instant::now() >= deadline {
+                eprintln!(
+                    "test schema janitor: still busy after {JANITOR_EXIT_JOIN_TIMEOUT:?}; exiting \
+                     anyway. Schemas it had not dropped are left to scripts/cleanup_test_schemas.sh."
+                );
+                return;
+            }
+            std::thread::sleep(JANITOR_POLL_INTERVAL);
+        }
         let _ = handle.join();
     }
 }
@@ -281,8 +309,36 @@ fn collect_released_entries(exiting: bool) -> Vec<PendingCleanup> {
 
 /// Run each collected entry's `on_release` cleanup (panics are caught and
 /// reported, never propagated into the janitor thread).
+///
+/// **Exit hand-off**: the entries here were collected *before* `EXITING` was
+/// set, so without the check below the whole batch would be processed serially,
+/// one `DROP SCHEMA … CASCADE` at a time, while the `atexit` handler blocks in
+/// `join()`. Measured 2026-09-19 on a full integration run: 377 leftover schemas
+/// turned process shutdown into >19 minutes of serial drops (sampled stack:
+/// `exit → janitor_exit_handler → JoinHandle::join` blocked, janitor inside
+/// `run_release_cleanups`). Once the process is exiting, reuse-oriented
+/// `on_release` work is pointless anyway, so hand the current entry **and the
+/// rest** to the bounded-parallel exit drain instead.
 fn run_release_cleanups(ready: Vec<PendingCleanup>) {
-    for mut entry in ready {
+    run_release_cleanups_with(ready, || EXITING.load(Ordering::SeqCst));
+}
+
+/// [`run_release_cleanups`] with the "is the process exiting?" decision injected.
+///
+/// Split out so a test can flip the answer **without** touching the
+/// process-global `EXITING` flag: setting that flag in one test would silently
+/// change the behaviour of every other test sharing the binary (registrations
+/// would take the inline `on_exit` path). This mirrors the existing split of
+/// [`collect_released_entries`] from the janitor loop.
+fn run_release_cleanups_with(ready: Vec<PendingCleanup>, is_exiting: impl Fn() -> bool) {
+    let mut iter = ready.into_iter();
+    while let Some(mut entry) = iter.next() {
+        if is_exiting() {
+            let mut rest = vec![entry];
+            rest.extend(iter);
+            run_exit_drain(rest);
+            return;
+        }
         if let Some(cleanup) = entry.cleanup.take() {
             let on_release = cleanup.on_release;
             if catch_unwind(AssertUnwindSafe(on_release)).is_err() {
@@ -439,5 +495,50 @@ mod tests {
         if std::env::var_os("NEXTEST").is_none() {
             assert!(!running_under_nextest());
         }
+    }
+
+    /// The exit hand-off: a release batch collected *before* `EXITING` was set
+    /// must not finish serially once the process is exiting — the in-flight
+    /// entry and everything after it go to the bounded-parallel exit drain
+    /// (`on_exit`), because the `atexit` handler is blocked waiting on this
+    /// thread. Measured 2026-09-19: without this, a full integration run spent
+    /// >19 minutes dropping 377 schemas one at a time during `exit()`.
+    ///
+    /// Deterministic and global-state-free: the injected predicate flips after
+    /// the first call, so entry 0 takes `on_release` and 1.. take `on_exit`.
+    /// Setting the real `EXITING` flag in a test would change behaviour for
+    /// every other test sharing the binary (registrations would take the inline
+    /// `on_exit` path).
+    #[test]
+    fn release_pass_hands_the_remainder_to_the_exit_drain_once_exiting() {
+        use std::sync::atomic::AtomicUsize;
+
+        let releases = Arc::new(Mutex::new(Vec::new()));
+        let exits = Arc::new(Mutex::new(Vec::new()));
+
+        let entries: Vec<PendingCleanup> = (0..3)
+            .map(|index| {
+                let releases = Arc::clone(&releases);
+                let exits = Arc::clone(&exits);
+                PendingCleanup {
+                    // Never upgraded: these are synthetic entries, so the pool
+                    // lifetime plays no part in this assertion.
+                    weak: Weak::<PgPool>::new(),
+                    schema_name: format!("test_janitor_exit_handoff_{index}"),
+                    cleanup: Some(SchemaCleanup {
+                        on_release: Box::new(move || lock_mutex(&releases).push(index)),
+                        on_exit: Box::new(move || lock_mutex(&exits).push(index)),
+                    }),
+                }
+            })
+            .collect();
+
+        let calls = AtomicUsize::new(0);
+        run_release_cleanups_with(entries, || calls.fetch_add(1, Ordering::SeqCst) >= 1);
+
+        assert_eq!(*lock_mutex(&releases), vec![0], "only the in-flight entry may take on_release");
+        let mut exited = lock_mutex(&exits).clone();
+        exited.sort_unstable();
+        assert_eq!(exited, vec![1, 2], "the remainder must go through the exit drain (on_exit)");
     }
 }
