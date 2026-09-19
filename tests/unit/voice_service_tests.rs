@@ -23,7 +23,22 @@ fn ft130_register_encrypted_voice_signature_exists() {
     use synapse_services::voice_service::VoiceService;
     // Compile-time check: method must be callable with these parameters.
     // Runtime check requires DB; compile check ensures API contract is preserved.
-    let _ = || -> Option<fn(&VoiceService, &str, Option<&str>, &str, &str, i32, i64)> {
-        Some(VoiceService::register_encrypted_voice)
-    };
+    // Compile-time check: the method must remain callable with these parameters.
+    // A `fn`-pointer coercion cannot express an `async fn` (its return type is an
+    // unnameable future) and a closure cannot express the borrows, so pin the
+    // parameter list with a nested `async fn` instead: this still fails to compile
+    // if the method disappears, or its arity / any parameter type changes.
+    async fn _pin_signature(
+        service: &VoiceService,
+        user_id: &str,
+        room_id: Option<&str>,
+        media_id: &str,
+        content_type: &str,
+        duration_ms: i32,
+        size_bytes: i64,
+    ) {
+        let _ =
+            service.register_encrypted_voice(user_id, room_id, media_id, content_type, duration_ms, size_bytes).await;
+    }
+    let _ = _pin_signature;
 }
