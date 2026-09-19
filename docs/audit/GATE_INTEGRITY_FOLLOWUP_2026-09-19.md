@@ -736,3 +736,27 @@ unit 目标 **1691 passed / 2 skipped / 0 failed**；全量 `--workspace --lib -
 | **E9** `extract_unresolved_allowlist.txt` | ✅ | 陈旧条目从"只打印提示"改为进入 `strict_failures`（双向棘轮）；清理 5 条已不再命中的条目（21→16）并重写 header；新增回归测试 | 改前：隔离 `EXTRACT_STRICT=1` 对 5/21 条陈旧条目仍 EXIT=0（只在 stdout 提示）；改后同输入 EXIT=1 并列出 5 条；"新条目"方向仍红；沙箱 + 清理后的真清单 EXIT=0 | `scripts/contract/test_extract_registered.py::check_ratchet`（Python 侧）仍是单向（超出允许文件集）；`EXTRACT_STRICT=1` 在 HEAD 上另有 **3 类既有失败**（S-14 三条真路由缺席两条车道、3 条 ledger_export_sdk 车道/profile 集不匹配、1 条 emitted-cfg 计数 1151 vs 1148），均为本轮之前既有 |
 
 **本轮门禁（本地等效；真实 CI 无法触发）**：fmt 棘轮 `current=0=baseline`；clippy 两档（`--workspace --all-targets --features test-utils` 与 `--all-features`）均 exit 0；unit 目标 **1706 passed / 2 skipped / 0 failed**；全量 `--workspace --lib --all-features --test-threads 4`（**无 retries**）**6083/6083 passed**。
+
+### 9.1 E8 收尾补记（route-table 已重新生成，门禁已真实阻塞）
+
+- **产物已更新**：`docs/openapi/route-table.json` 由默认 feature 的新导出 + 固定 timestamp
+  (`2026-09-16T00:00:00Z`) 重新生成，1047 → **1049**，diff = `19 insertions(+), 1 deletion(-)`，
+  **恰好新增 2 条未门控路由、删除 0**：
+  `GET /_matrix/client/v3/auth/{auth_type}/fallback/web`（assembly::auth_compat）、
+  `GET /_synapse/admin/v1/rate-limit-status`（admin::server）；`total_routes` 之外的 `generated_at`/`source`/
+  `profile`/`schema_version`/`_meta` 与既有 1047 条路由对象**逐字节且同序**不变（非 churn）。
+  ⇒ §9 E8 行里"需有意重新生成"这条待办**已关闭**。
+- **CI 现在真的会拦**（`ci.yml` `openapi-artifact`，步骤顺序）：build → **新增**默认 feature 导出到
+  `$RUNNER_TEMP`（固定 timestamp）→ `client.yaml --check` → **新增阻塞** `gen_route_table.py --check`
+  → 生成 client.yaml → 用**同一份**新导出生成 route-table（不再用会产出 1292 条的旧 `ledger.json`）→ 上传。
+  两个 check 都在任何"就地覆盖"之前，避免"先覆盖再校验"的空转。
+- **红证明**（全部在 temp 副本，未改动提交产物）：(a) 篡改一行 `method: GET` → `GET_MUTATED` → EXIT=1 且
+  diff 点名该行，恢复 → EXIT=0；(b) 用 all-extensions 导出（1129 条 / profile=all 1148 条）→ EXIT=1，
+  diff 显示 `total_routes 1049→1129` 与 voice 门控路由 ⇒ 门禁是 profile-aware、非空转；
+  (c) 删掉一条真实路由 → EXIT=1 并把该行加回。端到端模拟：导出 1049 → 两个 check EXIT=0 →
+  生成字节与提交产物 `cmp` 完全一致。
+- **过程记录（诚实说明）**：这批 E8 改动（`docs/openapi/route-table.json` 与 `ci.yml`）是在我提交
+  `9fb0e46a`（本意只改两份文档）时被 `git add -A` **一并卷入**的，因此该 commit 的 message 未提及 E8；
+  内容已逐条复核无误，后续以 §9.1 为准（不再重写历史）。
+- **§9 末尾"新增待办"相应收敛为 2 条**：E4 的真实 DB 分页基准；`extract_registered.py` Python 侧棘轮仍单向
+  + `EXTRACT_STRICT=1` 在 HEAD 上的 3 类既有失败。

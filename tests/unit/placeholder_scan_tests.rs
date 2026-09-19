@@ -152,34 +152,33 @@ fn run_python(script: &Path, args: &[&str]) {
 }
 
 /// E8: the OpenAPI `route-table.json` generator must be byte-deterministic and
-/// its output shape pinned, because the committed artifact is currently stale
-/// and a content gate would be red for a reason a gate fix cannot legitimately
-/// repair (regenerating `docs/openapi/route-table.json` is a separate,
-/// deliberate artifact update).
+/// its output shape pinned. The artifact itself is now regenerated and gated:
+/// `docs/openapi/route-table.json` holds **1049** routes (regenerated from a
+/// fresh default-feature export at `generated_at` 2026-09-16T00:00:00Z, the two
+/// previously-missing ungated routes being
+/// `GET /_matrix/client/v3/auth/{auth_type}/fallback/web`
+/// (assembly::auth_compat) and `GET /_synapse/admin/v1/rate-limit-status`
+/// (admin::server)). The `openapi-artifact` job in `.github/workflows/ci.yml`
+/// now runs `gen_route_table.py --check --ledger <fresh default-feature
+/// export>` **before** the generation step that overwrites the file. What this
+/// test pins is the generator's own contract: same input → byte-identical
+/// output, entries sorted by `(path, method, registered_by)`, keys in a fixed
+/// order. A change to that shape requires a deliberate update of the pinned
+/// bytes below (AGENTS.md iron law 8). The `--check` red path is exercised too,
+/// so the mechanism is proven rather than declared.
 ///
-/// Measured 2026-09-19 with the exact CI command (`cargo build --bin
+/// Measured 2026-09-19 with the exact CI commands (`cargo build --bin
 /// synapse_ledger_export`, i.e. the crate's default features):
 ///
-/// - committed `docs/openapi/route-table.json` — **1047** routes,
-///   `generated_at` 2026-09-16T00:00:00Z, committed in `92ca6f66`;
-/// - a fresh `synapse_ledger_export --profile=default` of current source —
-///   **1049** routes.
-///
-/// The committed table is a strict subset of the fresh one; the two missing
-/// routes are real, ungated contract drift:
-///
-/// - `GET /_matrix/client/v3/auth/{auth_type}/fallback/web` (assembly::auth_compat)
-/// - `GET /_synapse/admin/v1/rate-limit-status` (admin::server)
-///
-/// (For contrast: the committed `scripts/api_test/ledger.json` is a different,
-/// 2026-08-12 input and yields 1292; an all-extensions export yields 1129, the
-/// extra 80 being feature-gated modules. Neither is the committed file's
-/// source.) What can be pinned honestly today is the generator's own contract:
-/// same input → byte-identical output, entries sorted by
-/// `(path, method, registered_by)`, keys in a fixed order. A change to that
-/// shape now requires a deliberate update of the pinned bytes below (AGENTS.md
-/// iron law 8). The `--check` red path is exercised too, so the mechanism is
-/// proven rather than declared.
+/// - committed `docs/openapi/route-table.json` — **1049** routes (it was 1047
+///   before this deliberate E8 regeneration; `generated_at` unchanged);
+/// - the CI export (`--profile=default`, fixed timestamp) — **1049** routes,
+///   byte-matching the committed artifact;
+/// - an all-extensions build with `--profile=default` — **1129** routes: the
+///   extra 80 are feature-gated modules that must not appear in the default
+///   artifact, which is why the gate is fed from a default-feature build;
+/// - `scripts/api_test/ledger.json` is a stale 2026-08-12 input yielding 1292
+///   and is deliberately **not** the route-table gate's source.
 #[test]
 fn test_route_table_generator_is_deterministic_and_shape_pinned() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
