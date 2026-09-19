@@ -220,9 +220,117 @@ schema contract coverage / connection budget / route layering **全部 exit 0**�
    （`TEST_THREADS >= 6` 需先 `tune_test_db.sh`；本机 `max_locks_per_transaction=256`、
    `max_connections=100`）。**这是残留的测试稳定性问题，不是产品缺陷**，
    但值得单独一轮把这三条查明（它们的共同点是重 DB + 共享/克隆 schema）。
+   → **已在 §1.9 查明并结构修复**：`media::tests`（fixture 提前释放 schema 租约 → 查询静默落回
+   `public`）与 `validate_clone_rejects_an_incomplete_clone`（无锁 prune 删掉了正在构建的模板）；
+   本轮复跑时又当场抓到同类的第三条 `audit::db_tests`（共享 `public` + 全表 sweep），见 §1.9.3。
 2. 门禁确实在拦人：`check_schema_table_coverage.py` 抓到了我新增测试里的
    `INSERT INTO fts_invalid_probe`（一次性表名）并 exit 1 —— 已改用 CTAS 消除
    （`34dd5982`），**没有**加例外。
+
+### 1.9 ✅ 测试稳定性：两条偶发失败的根因（各自"复现 → 结构修复 → 红/绿证明"）
+
+§1.8 结论 1 记的三条偶发失败里，beacon 已在 `fff782dd` 修掉；本轮把剩下两条查成了
+**两个互不相同的结构缺陷**，都在测试基础设施里，都**没有**用重试/串行化绕过（AGENTS.md 铁律 7）。
+
+#### 1.9.1 `media::tests::*`（chunked download + quota）：fixture 提前释放了 schema 租约
+
+- **机制**：`setup_test_media_domain*` 用 `prepare_isolated_test_pool()` 建 per-test schema，
+  把 `Arc<PgPool>` 交给服务后**在 setup 返回时丢掉了最后一个 `Arc<PgPool>`**；而 media 侧三个
+  storage（`ChunkedUploadStorage` / `MediaQuotaStorage` / `AdminMediaStorage`）当时都写
+  `(**pool).clone()`，只留下**内层** `PgPool`。`test_schema_guard` 的 janitor 用
+  `Weak<Arc<PgPool>>` 判断"池已释放"，于是它在测试体仍在查询时 `DROP SCHEMA`；连接的
+  `search_path` 仍指向已消失的 schema，**未限定表名的查询静默回落到共享 `public`**。
+- **复现（探针，改前）**：
+  `PROBE schema=test_63977_1_1789820587877316000 dropped_while_in_use=true current_schema=public`
+  （临时 `#[ignore]` 探针：建池 → 取内层 `PgPool` → drop 外层 `Arc` → 轮询 `to_regnamespace`）
+- **同期 CI 日志佐证**（同一机制在三种数据状态下的三种表现）：
+  - `/tmp/svc_lib_run3.log`：`test_delete_media_rolls_back_quota_usage` 失败于
+    `23503 … schema: Some("public"), table: Some("user_media_quota")` —— 写入落到了 public，FK 指向 public.users；
+  - `/tmp/svc_serial2.log`：`relation "upload_progress" does not exist` —— public 也没有该表时，静默回落变成响亮的 42P01；
+  - `/tmp/lib_all_full.log`：`left: []` —— chunk 写进隔离 schema、读取落到 `public.upload_chunks`（0 行）→ 空文件。
+- **修复**：三个 storage 改为持有 `Arc<PgPool>`（查询处 `&*self.pool`），
+  于是 fixture 返回的服务本身把租约留到测试结束。
+- **红/绿证明**：新增常驻守护 `media_fixture_keeps_its_isolated_schema_for_the_whole_test`
+  （setup 返回 → 等 4 个 janitor 轮询周期 → 写一条 `upload_progress` → 断言 `public` 里没有它）：
+  降级 storage 时它复现了与 CI **完全相同**的报错
+  （`23503 / schema: Some("public") / table: Some("user_media_quota")`），修复后通过。
+
+#### 1.9.2 `validate_clone_rejects_an_incomplete_clone`：无锁 prune 删掉了"半成品模板"
+
+- **机制**：`prune_isolation_templates` 的规则是"**没有 readiness marker 表 = 构建被打断 = 可删**"。
+  该规则只在"没有 builder 正处在 `CREATE SCHEMA` → `CREATE TABLE <marker>` 之间"时成立，
+  即 builder 全程持有 `TEMPLATE_ADVISORY_LOCK_KEY` 的那个窗口。但公开入口
+  `prune_stale_isolation_templates` **自己不取锁**（只有注释写"调用方需持锁"）。
+  同二进制的 `prune_backfills_legacy_zero_row_marker_and_spares_it` 调它，
+  并发时就把 `validate_clone…` 正在构建的短模板删了，builder 随后失败（0.2s 级快失败）。
+- **复现（hammer 探针，改前）**：builder 与 prune 循环并发 30 轮：
+  `PROBE mid_build_failures=30 of 30; first=Some("failed to seed the readiness marker of template … relation \"…_synapse_test_template_ready\" does not exist")`
+- **修复**：公开入口自己 `acquire_template_lock(…)` / `pg_advisory_unlock(…)`，
+  把"需持锁"从注释升级为不变量。
+- **红/绿证明**：探针转为常驻守护 `concurrent_pruning_does_not_drop_a_mid_build_template`
+  （8 轮）：改前 30/30 失败；修后 30/30 通过；去掉公开入口的锁该测试即变红。
+
+#### 1.9.3 ✅ `audit::db_tests`：共享 public schema + 全表 sweep（本轮证据跑当场抓到）
+
+- **机制**：`audit::db_tests::test_pool()` 用的是 `connect_shared_test_pool()`（共享 `public`），
+  而 `delete_events_before(now)` 会删掉**所有**早于该时间戳的审计事件 ——
+  一个测试的清理会删掉另一个测试刚插入的 fixture 行。
+- **证据（本轮 3×全量跑的第 1 次，`--test-threads 4`，无 retries）**：
+  `FAIL synapse-storage audit::db_tests::test_delete_events_before_bypasses_append_only_guard`
+  → `panicked at synapse-storage/src/audit.rs:390: should have deleted at least the test event`
+  （即 `deleted == 0`）。同模块的 `test_audit_events_reject_unflagged_delete` 在 §1.8 的
+  CI 等效跑里也是 `TRY 1 FAIL → TRY 2 PASS` 的重试掩盖对象。
+  注意后者源码里原本就写着一段"db_tests 共享 public、并发下兄弟测试的 `delete_events_before`
+  可能已经删掉本行，所以不断言行数"的注释 —— 这正是把共享状态当成既定事实来绕过的写法。
+- **修复**：`audit::db_tests::test_pool()` 改用
+  `crate::test_isolation::isolated_test_pool()`（per-test schema），两个调用点绑定 `_isolated` 租约。
+  这是 `beacon::db_tests` 在 `fff782dd` 用过的同一修法（铁律 7：消除共享，而不是串行/重试）。
+
+#### 1.9.4 ✅ `url_preview_storage::db_tests`：同一个"共享 public + 全局 sweep"（第三次复跑抓到）
+
+- **机制**：`cleanup_expired_previews(now)` 删掉当前 schema 里**所有** `expires_at <= now` 的行，
+  而这些 fixture 的时间戳钉在 `BASE_TS = 1700000000000`（2023-11），相对墙钟早已过期。
+  共享 `public` 下，兄弟测试的一次 sweep 就能删掉本测试刚 save 的行。
+- **证据（本轮 3×全量跑的第 3 次）**：
+  `FAIL … url_preview_storage::db_tests::test_round_trip_all_option_fields_none`
+  → `panicked at synapse-storage/src/url_preview_storage.rs:438: preview should be found`。
+- **修复**：同一修法 —— `test_pool()` 改用 `isolated_test_pool()`，6 个调用点绑定 `_isolated`。
+
+#### 1.9.5 🟡 同类残留风险（已记录，本轮未展开）
+
+1. **`synapse-storage` 的共享 `public` db_tests 是成片的**：51 个文件仍用
+   `connect_shared_test_pool()`，其中约 20 个模块同时存在"全局 sweep"型操作
+   （`cleanup_expired*` / `delete_*_before` / `purge_*` / `DELETE FROM <table>` 无前缀过滤等），
+   也就是**任何一个都可能复现 §1.9.3 / §1.9.4**。判定口径：文件既 `connect_shared_test_pool`
+   又含全局 sweep 即高风险。整批迁移到 `isolated_test_pool()` 是机械但面广的一轮工作。
+2. **janitor 的租约口径仍是"最后一个 `Arc<PgPool>` 被释放"**，而仓库里仍有十几处 storage
+   只持有内层 `PgPool`（`grep -rn '(**pool).clone()'`）。任何"fixture 造好服务后丢掉 `Arc`"
+   的组合都会复现 §1.9.1（media 只是被 CI 撞到的那一个）。结构性收敛方向是把租约从
+   "Arc 计数"换成**连接级租约**（隔离池 `after_connect` 里按 schema 名取一把 session advisory
+   lock；janitor 释放前 `pg_try_advisory_lock` 失败即让位重排），一处生效、与具体 storage 是否
+   降级无关；改动面覆盖全部隔离池构造点，需单独一轮。
+
+#### 1.9.6 本轮门禁与证据汇总（全部本地等效，真实 CI 仍无法触发）
+
+| 项 | 结果 |
+|---|---|
+| fmt 棘轮 | ✅ `current=0 baseline=0` |
+| clippy 默认档（`--workspace --all-targets --features test-utils`） | ✅ `CLIPPY1_EXIT=0` |
+| clippy `--all-features` 档 | ✅ `CLIPPY2_EXIT=0` |
+| sqlx 动态/静态棘轮 | ✅ `dynamic=1484 <= 1484`，`static=61 >= 61`（新增的守护测试改用生产读路径，未抬基线） |
+| unit 目标（`--test unit --features test-utils --test-threads 4`） | ✅ **1679 passed / 2 skipped / 0 failed**（含新增 `workflow_pipefail_tests` 2 条） |
+| 全量 `--workspace --lib --all-features --test-threads 4`（**无 retries**） | 见下方"确认跑" |
+
+**确认跑（无 retries，`--no-fail-fast`）**：
+
+- 跑 1：❌ 1 失败 = `audit::db_tests::test_delete_events_before_bypasses_append_only_guard`（§1.9.3 的现场证据）
+- 跑 2：✅ 6083/6083
+- 跑 3：❌ 1 失败 = `url_preview_storage::db_tests::test_round_trip_all_option_fields_none`（§1.9.4 的现场证据）
+- 跑 4/5：✅ **6083/6083 ×2**（冻结树、修复全部落地后、同一命令连跑两次，`--test-threads 4` 无 retries）
+
+结论：用户点名的两条（`validate_clone_rejects_an_incomplete_clone`、
+`media::tests::test_chunked_complete_can_be_downloaded_via_media_service`）在本轮所有复跑中
+**一次都没有再出现**；跑 1/跑 3 暴露的是同一类的其他两条，已一并按同一原则修掉。
 
 ---
 
@@ -401,14 +509,24 @@ B8、B13、B14、B15、C7、D1，CI 等效验证（§1.8），以及 CI 等效�
 
 剩余（按建议优先级）：
 
-0. **测试稳定性（§1.8 结论 1）**：`--test-threads 4` 下 `validate_clone_rejects_an_incomplete_clone`
-   与 `media::tests::test_chunked_complete_can_be_downloaded_via_media_service` 会偶发失败
-   （单独跑必过，由 `NEXTEST_RETRIES=2` 掩盖）。三者（含已修的 beacon）都是重 DB +
-   共享/克隆 schema，值得一轮查清是锁表、连接预算还是共享状态。
+0. ✅ **测试稳定性（§1.8 结论 1）—— 已查明并结构修复（§1.9）**：
+   `media::tests::*` 是 fixture 提前丢掉 `Arc<PgPool>` → janitor 在测试进行中删掉 per-test schema
+   → 未限定表名的查询静默落回共享 `public`；`validate_clone_rejects_an_incomplete_clone` 是
+   公开的无锁 prune 删掉了正在构建的模板（"无 marker = 可删"的规则在锁外不成立）；
+   本轮复跑又当场抓到同类第三条 `audit::db_tests`（共享 `public` + `delete_events_before` 全表 sweep），
+   一并改为 per-test schema。三条各配常驻守护测试并做了红证明；
+   同类残留风险与"连接级租约"收敛方向见 §1.9.4。
 
 1. **§2.4**：为非 test-only 的 <30% 文件补测试，或明确把 `src/bin` 也列为豁免。
-2. **A6**：`benchmark.yml`（4 处裸 `| tee`，无 `set -o pipefail`）与
-   `e2ee-interop.yml` 的同类写法 —— 失败仍会被 tee 的 0 吞掉。
+2. ✅ **A6**：六处 `| tee` 已在 `dee46f6e` 补 `set -o pipefail`（`benchmark.yml` 4 处、
+   `ci.yml` perf-smoke、`db-migration-gate.yml`、`e2ee-interop.yml` 2 处）。本轮又补了
+   `ci.yml` 的 `cargo-outdated` 步骤（该步骤 `continue-on-error`，但状态仍应是命令自己的），
+   并把它升级为**常驻门禁** `tests/unit/workflow_pipefail_tests.rs`：扫描所有
+   `.github/workflows/*.yml` 的 `run: |` 块，要求首个 `| tee` 之前出现真正的
+   `set -o pipefail`，且扫描面 ≥6 块（扫不到东西不算通过）。
+   **证据**：故意删掉 `benchmark.yml` 的 `set -o pipefail` → 该测试变红并点名 4 处 tee 行
+   （`benchmark.yml:95,96,99,100`）；行为探针用**真实 step body**（`bash -e` 镜像 Actions
+   默认 shell）配失败 stub：有 pipefail → EXIT 7，去掉后 → EXIT 0（失败被 tee 吞掉）。
 3. **A9 残留**：`ledger-export.yml` 的 job 级 `continue-on-error` —— 要么变真门禁，
    要么在 job 名/注释里明确"纯报告"并确认它不在分支保护里。
 4. **A11**：`drift-detection.yml` 的 PR 分支只挂 `main` + 同目录 basename `uniq -d` 恒空。
