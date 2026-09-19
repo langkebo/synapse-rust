@@ -827,6 +827,10 @@ jobs:
       - name: Check outdated dependencies (cargo-outdated)
         continue-on-error: true
         run: |
+          # Even though this step is `continue-on-error`, the pipeline must not
+          # lie about what `cargo outdated` did: `| tee` alone reports tee's 0.
+          # `set -o pipefail` keeps the reported status the command's own.
+          set -o pipefail
           cargo install cargo-outdated --locked
           echo "=== Outdated dependencies (focus: crypto) ==="
           cargo outdated --root-deps-only 2>&1 | tee artifacts/outdated-deps.txt
