@@ -246,3 +246,50 @@ pub struct ReportEntry { pub package: PackageInfo, pub unsafety: UnsafeInfo }
   **我没有擅自选**：三种方式产出的门禁语义不同（B 会放弃测试侧棘轮），且都无法在本机
   端到端验证。另外 CI 是 `cargo install cargo-geiger --locked`（未钉版本），上游 schema
   一变就会再次漂移——无论选哪种，都应把版本钉住并把"schema 不符即 loud fail"写进脚本。
+
+---
+
+## 9. 交接：当前阻塞与执行顺序（2026-09-19）
+
+> 详版见 `docs/superpowers/plans/2026-09-19-gate-integrity-and-coverage-followup.md`（该目录被 gitignore，
+> 换 worktree 读不到，故把"必须随仓库走"的要点记在此处）。
+
+### 9.1 当前唯一阻塞：`IsolatedTestPool` 放错 crate（铁律 2）
+
+- 共享模块 `synapse-common::test_isolation` **无条件编译**且注释写明"给兄弟 crate 的 fixture 用"
+  （`synapse-common/src/lib.rs:87-89`），但只提供**原语**（`test_isolation.rs:329/1254/1290/474`）；
+  每个 DB 测试真正要的封装 `IsolatedTestPool` 只存在于 **`synapse-storage/src/test_isolation.rs:86`**，
+  且除 storage 外**无人能用**。
+- 后果：其它 crate 手搓 pool。`synapse-e2ee/src/verification/service.rs` 的两条测试因此
+  **硬编码** `connect_lazy("postgres://…/synapse_test")` 直连 `public`，而同一 `--tests` 运行里的
+  **unit 目标会清空 `public`**（T-1 陷阱）⇒ 42P01 `verification_requests does not exist`。
+  **不是产品回归**：基线 `:750` 建了该表、storage 层一致地查它。
+- 修法：把 `IsolatedTestPool` 搬进 `synapse-common/src/test_isolation.rs`，storage 保留 re-export；
+  再改那两条测试（+ 同文件 `make_service()` 的同一颗雷）。**替换跨度陷阱**：rustfmt 把该语句排成
+  `let pool =` 换行接 `connect_lazy(...)`，必须从 `let pool =` 那一行开始替换，否则报
+  `expected expression, found let statement`。红证明：① `public` 被清空时两条测试必须通过；
+  ② 未设 `TEST_DATABASE_URL` 时必须**明确报错**而非 42P01/静默。
+
+### 9.2 覆盖率棘轮（链条进度）
+
+```
+synapse-rust 92 ✓ → synapse-common 895 ✓ → synapse-e2ee 431/2（§9.1）→ storage 腿 → 其余 crate → lcov
+```
+基线路径已迁移到 `scripts/ci/coverage_baseline.json`（见 §6 C1 的修复），**文件尚未生成**；
+生成命令与"不要用失败那次的数据 bootstrap"的理由见 plan 文件 §2（棘轮 `save_baseline` 只升不降，
+会永久固化偏低的基线）。播种：`DATABASE_URL=…/synapse_test bash docker/db_migrate.sh migrate`。
+
+### 9.3 建议顺序
+
+Phase 0 独立 worktree + 播种 → Phase 1 §9.1（解开阻塞）→ Phase 2 §9.2（跑到 lcov 并提交基线）
+→ Phase 3 §3 的 B 系列（先 B1/B3/B10/B16，再 B5/B6 需决策，最后 B2）
+→ Phase 4 §2/§3.1 的门禁接线（C6/C9/C11 最便宜；A9/A10/A12/A13 需决策）
+→ Phase 5 §3.3 观察项。每个 Phase 都要**红证明**。
+
+### 9.4 纪律（本会话 4 次踩坑的总结）
+
+- **不要在共享 checkout 改**：另一 agent 的 `git reset`/rebase 已 4 次清掉改动甚至提交；用 worktree + 分支。
+  已被清掉时 `git reflog` + `git cat-file -t <sha>` 通常能救回（本会话救回过一次）。
+- 改 `migrations/` 后必须跑 `baseline_fingerprint` 守卫（哪怕只改注释）；改 `migrations/` 期间不要跑集成套件。
+- `synapse_test.public` 会被 unit 目标清空（T-1），跑直连 `public` 的测试前先播种。
+- 门禁改动一律要求"故意违规 → 必须失败 → 撤销"。
