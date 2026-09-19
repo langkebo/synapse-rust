@@ -617,7 +617,8 @@ CI 等效跑发现的 beacon 竞争与表覆盖门禁命中的一次性表名。
 > 为空，YAML 可解析，push-only 钉住测试与 `check_workflow_steps.py` 仍绿）。
 > 结论：A7/A8 要核对的可执行项**全部满足**（三个 push-only job 在任何规则里都不在 required）；
 > 反过来两条规则的 required 列表都是空的，所以目前"PR 全绿"没有任何强制力。
-> 策略层面的未决问题：是否把常开门禁设为 required、是否给 `develop` 加规则。
+> **裁定（2026-09-19，维护者）：维持现状**——不设 required 检查、不强制 PR、允许绕过；`develop` 规则已清理，
+> 不再作为缺陷跟踪（铁律 1 的死配置已处理）。
 >
 > **裁定（2026-09-19，维护者确认）：保持 push-only。** 三个 job 不加入 `pull_request`；PR 侧只要求
 > 常开门禁。决定已用 `tests/unit/ci_test_scope_tests.rs::push_only_ci_jobs_keep_their_deliberate_trigger_scope`

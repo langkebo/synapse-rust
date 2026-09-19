@@ -157,6 +157,10 @@ PR 侧只要求常开门禁（`Repo Sanity`、`Test & Lint (...)`、`Security Au
   `push_only_ci_jobs_keep_their_deliberate_trigger_scope` 与 `check_workflow_steps.py` 仍绿。
   **若将来要重建 develop 流程**，必须有意把这些触发条件加回来（不要因为"以前有"而默认恢复）。
 
+**裁定（2026-09-19，维护者）：维持现状 —— 不设 required 检查、不强制 PR、允许绕过。**
+即：三个 push-only job 不在 required 是自洽的；PR 侧没有强制门禁属已知取舍，不再作为缺陷跟踪。
+若将来要把常开门禁设为 required，务必**不要**把那三个 push-only job 加进去（PR 上它们永不上报）。
+
 > 待确认（策略决定，不属本文件裁定）：是否要把常开门禁设为 required，让 PR 真正被拦；
 > 以及是否给 `develop` 加同等规则。核对命令如下，读到的结果请回填本段。
 
