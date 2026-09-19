@@ -305,6 +305,7 @@ impl ServiceContainer {
             cache,
             &storage.user_storage,
             config.server.megolm_encryption_key_path.as_deref(),
+            config.server.macaroon_secret_key.as_deref(),
         )
         .await;
 
