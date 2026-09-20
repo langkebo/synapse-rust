@@ -1945,8 +1945,25 @@ out of shared memory"
 …、`v24`）——与 `hadolint/hadolint-action@v3` 那次"浮动 tag 根本不存在、整个 job
 一个 step 都不跑"的缺陷**不同型**，这里不是同一个坑。
 
-**真 CI 结论待下一轮**：本改动要等下一次 push 后、在某个 PR 上首次拿到 `main`
-基线才能验证（本轮无法触发）。这是 §14.10 ⑦ 待办的直接延续，登记为残留而非已完成。
+**为什么这两个缺陷能潜伏这么久**：`performance-comparison` 的 `needs: benchmark`，
+而 `benchmark.yml` 在**每一次** PR 运行里 `Run benchmarks` 都失败，于是这个 job 一律
+被 `skipped` —— 它的代码路径**从未在 CI 上执行过**。已核对的 5 次 PR 运行
+（35489156862 / 30038028359 / 30036981233 / 30036922763 / 30001632519）全部是
+`Run benchmarks → failure` + `Performance comparison → skipped`。那次失败发生在
+`Upload benchmark results` 这一步，而该步骤正是 `5de35abf` 已删除的
+`benchmark-action/github-action-benchmark@v1`（`git log -S "Upload benchmark results"`
+指向它），所以**当前文件**上这个具体的失败原因已经不存在。
+
+**基线侧的前提已核实成立**（此前 §14.8 ① 记录的是"产物从未上传过"，现已不同）：
+main 上最近一次成功运行 **35503161321**（`50cba8c2`）的 artifacts 里
+`benchmark-results` 存在且 `expired=false`（1144 B）。即 `branch: main` +
+`workflow_conclusion: success` 这两个新条件能解析到一次**真实成功**的运行，而不是
+空集。
+
+**真 CI 结论仍待一次 PR**：`performance-comparison` 的 `if` 是
+`github.event_name == 'pull_request'`，`workflow_dispatch` 也绕过不了它，而当前仓库
+**没有任何 open PR**（`gh pr list --state open` 为空），本轮无法触发。所以本节只做到
+"结构正确 + 前提成立"，端到端结论登记为残留（见 ⑤），不在本节宣告已完成。
 
 #### ② P0-7 已修：`docker build` 必须传 `-f`，守卫自证能变红
 
@@ -2030,6 +2047,9 @@ HIGH/CRITICAL"的直接证据 —— §14.10 ⑥/⑦ 的 CVE 议题**双向闭�
 #### ⑤ 本轮残留
 
 - **P0-4**：由并行会话处理（见本节开头）。
-- **P0-6 的真 CI 结论**：需下一次 push 后在 PR 上验证，见 ①。
+- **P0-6 的真 CI 结论**：本轮已 push（`0e289e25`，触发 9 个 workflow，其中
+  `Benchmark` = 35508257337、`Docker Security Scan` = 35508257346）。但
+  `performance-comparison` 只在 PR 上跑，而仓库当前无 open PR，故端到端结论**仍待
+  一次 PR**；已核实的只是"结构正确 + main 基线前提成立"，见 ①。
 - **`pr-benchmark-gate`**：§14.8 ① 的基线铸造已解决"找不到产物"，其真结论仍待
   下一轮 push 后回填。
