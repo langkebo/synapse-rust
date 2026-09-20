@@ -113,6 +113,7 @@ mod ephemeral_route_tests;
 mod formatting_route_tests;
 mod guest_route_tests;
 mod mock_fidelity_tests;
+mod pagination_db_gate_tests;
 mod pagination_gate_tests;
 mod perf_gate_honesty_tests;
 mod pinned_route_tests;

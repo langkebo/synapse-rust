@@ -220,9 +220,16 @@ fn other_room_id(room: i64) -> String {
 async fn seed_fixture(pool: &Arc<sqlx::PgPool>) -> Result<(), sqlx::Error> {
     let other_like = format!("{OTHER_ROOM_PREFIX}%");
 
-    sqlx::query("DELETE FROM events WHERE room_id = $1 OR room_id LIKE $2")
+    // Also clear rows by this bench's *event-id* namespace: a fixture left by an
+    // earlier run (or hand-seeded) can carry the same `$benchpag*` /
+    // `$benchother*` ids under different room_ids, and the INSERT below would then
+    // die on `pk_events` — failing closed, but a trap for local reruns (measured
+    // 2026-09-19).
+    let bench_event_like = "$bench%".to_string();
+    sqlx::query("DELETE FROM events WHERE room_id = $1 OR room_id LIKE $2 OR event_id LIKE $3")
         .bind(TARGET_ROOM)
         .bind(&other_like)
+        .bind(&bench_event_like)
         .execute(&**pool)
         .await?;
     sqlx::query("DELETE FROM rooms WHERE room_id = $1 OR room_id LIKE $2")
