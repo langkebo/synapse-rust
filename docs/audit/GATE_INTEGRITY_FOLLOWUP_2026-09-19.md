@@ -2053,3 +2053,139 @@ HIGH/CRITICAL"的直接证据 —— §14.10 ⑥/⑦ 的 CVE 议题**双向闭�
   一次 PR**；已核实的只是"结构正确 + main 基线前提成立"，见 ①。
 - **`pr-benchmark-gate`**：§14.8 ① 的基线铸造已解决"找不到产物"，其真结论仍待
   下一轮 push 后回填。
+
+### 14.13 第十三轮：修掉 main CI 连续 6 轮的红 —— 模板克隆按表分批，消除 PostgreSQL 锁表溢出
+
+§14.11 ④ 把 `--workspace --lib` 的红定位到"锁表耗尽"但没修。本轮修掉它，并补上
+"为什么不能从 CI 侧加参数"的源码级结论。
+
+#### ① 现象与量级（不是偶发 flake）
+
+main 上 `Test & Lint (…, all-features)` 的 `Run library unit tests (--workspace --lib)`
+**连续 6 轮**红（`93a652a0` / `f58cc519` / `60715bcf` / `dd61537a` …），每轮错误同型、
+多点并发出现：
+
+```text
+failed to prepare media test pool: "clone of test_55690_1_… from
+test_isolation_template_7d0fa95f2729793e failed: error returned from database:
+out of shared memory"
+```
+
+同类位置：`synapse-services/src/media/mod.rs:711`、`synapse-services/src/push/service.rs:587`、
+`synapse-storage/src/admin_federation.rs:302`、`synapse-storage/src/captcha.rs:536`。
+
+#### ② 容量是唯一变量（A/B + 直接钉容量）
+
+| 环境 | `max_locks_per_transaction` | 结果 |
+|---|---|---|
+| CI `postgres:16` service（`ci.yml` 三处均无覆盖） | **64**（镜像默认） | 红（多例） |
+| 本机 PG | **256** | 6092/6092 绿 |
+
+在 64 设置下用单事务 `pg_advisory_lock` 直接测容量：**11,500 把 OK / 11,800 把 → `out of shared memory`**。
+形状探针（4 个并发会话，phase 1+1b）对比：
+
+| 克隆形状 | 4 并发峰值（不同锁项） |
+|---|---|
+| 整个 baseline 一条语句（旧） | **11,459**（饱和，逼近 11,500 上限） |
+| 每 24 表一批（新） | **1,190**（≈9.6× 低） |
+
+#### ③ 为什么不能从 CI 侧加 service 参数（源码级结论）
+
+`actions/runner` 的 `DockerCommandManager.DockerCreate` 把 `services.<id>.options:`
+（`container.ContainerCreateOptions`）插在 **镜像名之前** 的 docker flag 区：
+
+```text
+--name … --network … -p …  →  {ContainerCreateOptions}  →  -e …  →  --entrypoint …  →  {Image}  →  {EntryPointArgs}
+```
+
+所以 `-c max_locks_per_transaction=256` 会被 docker 当成 `-c/--cpu-shares`：本地
+`docker create --health-cmd pg_isready … -c max_locks_per_transaction=256 postgres:16`
+实测直接回 usage。service container 又没有覆盖 CMD/args 的通道 ⇒ 服务端 GUC **无法**从
+`options:` 传入，只能改结构。
+
+#### ④ 修复：`clone_statements()` 按表分批（每批一个隐式事务）
+
+`synapse-common/src/test_isolation.rs`（+330/−143）：
+
+- 新增 `pub const CLONE_TABLES_PER_STATEMENT: usize = 24;` 与
+  `pub fn clone_statements(schema, template, seeds, tables: &[String]) -> Result<Vec<String>, String>`，
+  依次产出：**每 24 表一个 `DO` 块**（phases 1 + 1b + 1c + 1d，用
+  `tablename = ANY(ARRAY[…])` 限定到本批）、**一个"无主序列"语句**（模板里没有任何列
+  默认值引用的序列，恰好建一次）、**一个全局 phase 2 语句**（函数 / 视图 / 物化视图按依赖
+  深度叶子优先 / 外键 / 触发器）——phase 2 **必须是最后一条**。
+- `clone_schema_from_template`：取 **一条**连接 → 读一次有序表名（`SELECT tablename::text
+  FROM pg_tables WHERE schemaname=… AND tablename<>… ORDER BY tablename`，走
+  `sqlx::raw_sql` 以免动 sqlx 动态比棘轮）→ **逐条** `raw_sql(...).execute(&mut *conn)`（每条
+  自带隐式事务；若合并回一条字符串会重新变成单事务、锁峰值回归）→ 释放连接 → `validate_clone`。
+- 不变量保持：1b 的行拷贝早于 FK 重放与 matview 创建（所有批先跑完）；1d 的索引按
+  ordinal 配对（两侧 CTE 都加了 `relname = ANY(chunk)`）；1c 的 `OWNED BY` + 默认值重绑 +
+  `setval`；`SeedSource::{Everything,Only}` 走未改动的 `seed_where_clause`（`AND {seed_where}`
+  字面量仍在，单源守卫仍过）；错误契约 `Result<_, String>` 不吞错；无新依赖、无第二个克隆路径、
+  无 feature 开关；`TEMPLATE_READY_TABLE` 仍被排除。**唯一行为变化：227 表 baseline 由 1 次
+  round trip 变成 12 次。**
+- 复核点（我逐条看过 diff）：`table_array_literal` 转义单引号；phase 1d 的 clone/template
+  两侧 CTE 都按批过滤；无主序列语句用 `NOT EXISTS(pg_attrdef 边)` + `CREATE SEQUENCE IF NOT
+  EXISTS` 幂等；phase 2 语句含 `pg_get_functiondef` / `pg_get_viewdef` / `CREATE MATERIALIZED
+  VIEW` / `ALTER TABLE … ADD CONSTRAINT` / `pg_get_triggerdef` 全部标记。旧实现是
+  `.execute(pool)` 的单语句（同样取自池连接），新实现显式持一条连接不构成语义回归：仓库内
+  调用方都是 `max_connections(1)` 的管理池（已核），因此 phase 2 里用
+  `current_schemas(false)` 重建 search_path 尾部的语义与旧实现一致，且连接在 `validate_clone`
+  之前释放。
+
+#### ⑤ 证据（同一台 scratch `postgres:16 -c max_locks_per_transaction=64`，:55432，baseline 已播种）
+
+| 观测 | 修复前 | 修复后 |
+|---|---|---|
+| 聚焦 media lib（`--test-threads 4`） | **失败**：`clone of test_74665_… failed: … out of shared memory`（25 passed / 2 failed） | **58/58 passed** |
+| `synapse-common --lib --all-features`（64 锁） | —— | **900/900 passed** |
+| 全量 `--workspace --lib --all-features --test-threads 4`（64 锁，CI 复刻） | 红 | **6092/6092 passed（1 leaky）** |
+| 峰值 `pg_locks` | **23,313** 行 | 11,014 行，但分解显示残峰来自 janitor 并发 `DROP SCHEMA … CASCADE`（6,300 个 object 锁 + 4,692 个 relation 锁，均为 AccessExclusiveLock；三个 `test_*` schema），**克隆本身 ~1.2k** |
+
+#### ⑥ 可红守卫（不新建测试文件）
+
+`tests/unit/test_isolation_unification_tests.rs::clone_statements_split_the_clone_into_per_chunk_transactions`
+（+118，纯函数、无 DB）：断言语句数 > 1、73 表恰好 4 个 phase-1 块、每张表**恰好**属于一个块、
+每块 ≤ `CLONE_TABLES_PER_STATEMENT`、最后一条是 phase 2（含视图/FK/触发器/函数标记）、
+`SeedSource::Only` 的 allowlist 仍生效、非法 allowlist 名返回 `Err`。
+**红证明**：把 `.chunks(CLONE_TABLES_PER_STATEMENT)` 换成"整表一个块" → FAILED
+（`expected one phase-1 block per chunk of 24 tables …, got 1`）；恢复（文件哈希
+`ea6990ab351af633988187a8df3c969a48f7938e`）→ PASSED。
+
+#### ⑦ 本会话的独立复核（不复用实施者的数字）
+
+| 检查（本机，冻结树） | 结果 |
+|---|---|
+| `-p synapse-services --lib --all-features --test-threads 4` **@64 锁**（先前失败区） | ✅ **2019/2019 passed**（571s） |
+| `--test unit --features test-utils --test-threads 4` | ✅ **1693 passed / 2 skipped** |
+| clippy 默认档 / `--all-features` 档（`--all-targets`） | ✅ 0 error（1m24s / 1m38s） |
+| `./scripts/check_fmt_ratchet.sh` | ✅ `current=0 baseline=0` |
+| 全量 `--workspace --lib --all-features --test-threads 4`（本机 256 锁） | ⚠️ 首跑 **6091 passed / 1 failed**，唯一失败是**负载敏感的计时断言**（见下）；二跑结论见 §14.13.1 |
+
+**首跑那 1 例的诚实记录**：失败的是
+`synapse-services friend_room_service::tests::bench_friend_list_1000_sharded`
+（`P99 < 100ms` 之类的计时断言）。该测试自己在源码注释里写明
+"性能断言对并行负载敏感（其他测试同时跑会放大 DB/CPU 延迟），因此这些 bench 测试串行执行"
+（`#[serial]` 只在进程内串行，4 个 nextest 进程仍并行）。隔离复跑：**PASS（16.4s）**。
+首跑时本机同时有 postgres 双实例（5432 + 55432）、多个 cargo 与 janitor 清理在跑，
+故判定为**负载抖动**而非本改动引入；实施者两次全量（5432 与 64 锁的 55432）均为 6092/6092。
+不因此调阈值或加 retry —— 只把事实记下来（见 §14.13.1 的二跑结论）。
+
+#### 14.13.1 二跑（同命令、同环境，用于区分抖动与真实回归）
+
+**✅ 6092 tests run: 6092 passed, 0 skipped（1472s ≈ 24.5 min）** —— 首跑那唯一一例
+`bench_friend_list_1000_sharded` 在二跑中 **PASS（15.56s）**，且隔离复跑也 PASS。
+结论：首跑是**负载抖动**（该计时断言自己的注释就这么说），**不是**分批克隆引入的回归；
+没有为了变绿去调阈值、也没有加 retry。
+
+#### ⑧ 残留（登记，不在本轮）
+
+- **phase 2 仍是单事务**：本轮只验证端到端通过，未单独测它的锁足迹；baseline 大幅增长时它是
+  下一个候选（天然切分点：按"被引用表"分批重放 FK）。
+- **"无主序列"判据是全局的**（模板内任何 `pg_attrdef` 边都没有），不是 chunk 列表的精确补集。
+  对本 baseline 可证等价（182 个序列 = 180 列绑定 + 2 无主；0 个外部表）；将来若出现
+  `pg_tables` 之外的关系带序列默认值，`validate_clone` 会**响亮失败**（序列数不匹配），不会静默。
+- `pool.acquire()` 现在为整个克隆持一条连接（仓库内调用方均为 `max_connections(1)` 管理池，已核）。
+- **负载敏感的计时断言**（既有问题，与本次改动无关）：`friend_room_service::tests` 的几个
+  `bench_*` 用绝对毫秒阈值（如 P99 < 100ms）断言共享 DB 上的延迟，`#[serial]` 只在**进程内**
+  串行，而 `--test-threads 4` 会并行 4 个进程。首跑的唯一失败正是这一类。要么把阈值改成
+  机器相对量，要么让它们只在专门的单线程车道跑；本轮只记录，不做（避免用放宽阈值来"修"门禁）。

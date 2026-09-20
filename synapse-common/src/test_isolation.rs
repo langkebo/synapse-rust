@@ -1,4 +1,4 @@
-//! Shared test-isolation fixture: template schema + single-round-trip clone.
+//! Shared test-isolation fixture: template schema + chunked clone.
 //!
 //! ## Why this module exists
 //!
@@ -109,7 +109,7 @@ pub const SEED_REFERENCE_TABLES: &[&str] = &["server_media_quota", "server_reten
 /// Which template rows a clone starts with.
 ///
 /// Both variants read the same template schema; they differ only in which tables
-/// phase 1b of [`clone_statement`] copies. They are deliberately distinct types
+/// phase 1b of [`clone_table_chunk_statement`] copies. They are deliberately distinct types
 /// rather than a bare `&[&str]`: `Everything` copies whatever the template
 /// happens to hold, while `Only` is a written-down contract that fails the clone
 /// loudly if a named table has vanished from the template — a silently missing
@@ -351,7 +351,9 @@ pub fn split_sql_statements(sql: &str) -> Vec<String> {
 // tail crosses the 30s acquire window, surfacing as `Operation timed out`.
 //
 // After: the baseline is applied exactly once per database into a *template*
-// schema, and each test clones it with a single `DO $$` round trip.
+// schema, and each test clones it with a bounded number of `DO $$` round trips
+// (see `clone_statements`), one per chunk of baseline tables, so no single
+// transaction holds the whole baseline's lock set.
 //
 // Serialization: nextest runs one process per test, so a process-local
 // `OnceLock` cannot stop concurrent processes from racing to `CREATE SCHEMA`.
@@ -743,30 +745,105 @@ async fn build_template(conn: &mut sqlx::PgConnection, template: &str, baseline_
     Ok(())
 }
 
-/// Build the single-round-trip clone statement for `schema` from `template`.
+/// Number of baseline tables cloned by each per-statement chunk.
 ///
-/// Four steps, deliberately:
+/// The clone used to be a single `DO` block, i.e. **one implicit transaction**
+/// holding locks on every template object it touched from its first `LIKE` to
+/// its last trigger. On the v12 baseline (227 tables, 707 indexes, 182
+/// sequences, 106 foreign keys) that is several thousand lock entries for one
+/// clone. With the CI command's `--test-threads 4` four such clones run
+/// concurrently and overflow PostgreSQL's shared lock table at the CI service
+/// container's `max_locks_per_transaction = 64`, so the clone dies with
+/// `out of shared memory` before it commits anything (measured 2026-09-20 on
+/// `postgres:16 -c max_locks_per_transaction=64`: the media fixture failed with
+/// exactly the CI message and `pg_locks` peaked at 23,313 rows).
+///
+/// Splitting the per-table phases into one statement (one implicit transaction,
+/// autocommit) per chunk releases each chunk's locks at its end, so the peak is
+/// one chunk rather than the whole baseline. 24 keeps the full v12 baseline at
+/// ten round trips while a chunk of 24 tables plus its indexes and sequences
+/// stays a small fraction of the lock table. Lowering the bound is always safe;
+/// raising it back towards the baseline size re-introduces the exhaustion,
+/// which is why
+/// `clone_statements_split_the_clone_into_per_chunk_transactions` in
+/// `tests/unit/test_isolation_unification_tests.rs` pins it.
+pub const CLONE_TABLES_PER_STATEMENT: usize = 24;
+
+/// Build the statements that clone `template` into `schema`.
+///
+/// The clone is `N > 1` statements, each executed as its own round trip /
+/// implicit transaction by [`clone_schema_from_template`]:
+///
+/// 1. one `DO` block per chunk of at most [`CLONE_TABLES_PER_STATEMENT`]
+///    baseline tables, running phases 1, 1b, 1c and 1d for **that chunk only**
+///    ([`clone_table_chunk_statement`]);
+/// 2. one `DO` block creating the template sequences that no column default in
+///    the template references, exactly once
+///    ([`clone_unowned_sequences_statement`]);
+/// 3. one `DO` block running the global phase 2 — functions, views,
+///    materialized views, foreign keys and triggers
+///    ([`clone_phase2_statement`]).
+///
+/// That order keeps every invariant of the former single statement: phase 1b
+/// still copies rows before the foreign keys of phase 2 are replayed (all
+/// chunks finish before phase 2 starts), and the materialized views of phase 2
+/// are still created after every base table holds its rows. Sequences still
+/// exist before phase 2's functions and views, so an unqualified `nextval`
+/// resolves. What changed is the granularity: phase 1c's sequence rebinding and
+/// phase 1d's index rename are now scoped to their chunk's tables, and the
+/// sequences no chunk owns are created by the second statement.
+///
+/// `tables` is the ordered baseline table list, read once by
+/// [`clone_schema_from_template`] from
+/// `SELECT tablename FROM pg_tables WHERE schemaname = $1 AND tablename <> $2
+/// ORDER BY tablename` (the template's bookkeeping table excluded, exactly as
+/// before). Chunking in Rust rather than with an in-SQL predicate (a
+/// `row_number()` window, a hash bucket) keeps the partition deterministic and
+/// testable without a database, and bounds every chunk by a constant rather
+/// than by a fraction of an unknown table count.
+///
+/// The error contract is unchanged: a non-identifier `SeedSource::Only` name is
+/// returned as `Err(String)` by [`seed_where_clause`], never swallowed into an
+/// empty clone.
+pub fn clone_statements(
+    schema: &str,
+    template: &str,
+    seeds: SeedSource<'_>,
+    tables: &[String],
+) -> Result<Vec<String>, String> {
+    let seed_where = seed_where_clause(seeds)?;
+    let mut statements: Vec<String> = tables
+        .chunks(CLONE_TABLES_PER_STATEMENT)
+        .map(|chunk| clone_table_chunk_statement(schema, template, &seed_where, chunk))
+        .collect();
+    statements.push(clone_unowned_sequences_statement(schema, template));
+    statements.push(clone_phase2_statement(schema, template));
+    Ok(statements)
+}
+
+/// Phases 1, 1b, 1c and 1d of the clone for one chunk of baseline tables.
 ///
 /// * Phase 1 (`search_path` unchanged): `CREATE TABLE ... (LIKE ... INCLUDING
 ///   ALL)`. This carries columns, defaults, generated expressions, identity,
 ///   indexes and PRIMARY KEY / UNIQUE / CHECK constraints. It does **not**
 ///   carry FOREIGN KEYs (measured: 0/127 survived the copy), so those are
-///   replayed explicitly in phase 2. It does **not** carry row data either, so
-///   phase 1b copies the rows.
+///   replayed explicitly by [`clone_phase2_statement`]. It does **not** carry
+///   row data either, so phase 1b copies the rows.
 ///
 /// * Phase 1b (`search_path` unchanged, fully-qualified): `INSERT INTO
-///   <clone>.<t> SELECT * FROM <template>.<t>` for every baseline table.
-///   `LIKE` copies structure only, which silently dropped the v11 baseline's
-///   singleton seeds (`sync_stream_id`, `server_retention_policy`,
-///   `server_media_quota`) from every clone. This runs after phase 1 (the
-///   tables must exist) and before the materialized views of phase 2, because
-///   a matview is populated at creation time and would otherwise be stale at 0
-///   rows. It also runs before the FOREIGN KEYs are replayed, so the arbitrary
-///   `ORDER BY tablename` copy order cannot trip a not-yet-satisfied FK.
+///   <clone>.<t> SELECT * FROM <template>.<t>` for the chunk's tables selected
+///   by `seed_where`. `LIKE` copies structure only, which silently dropped the
+///   v12 baseline's singleton seeds (`sync_stream_id`, `server_retention_policy`,
+///   `server_media_quota`) from every clone. This runs after phase 1 (the tables
+///   must exist) and before the materialized views of phase 2, because a matview
+///   is populated at creation time and would otherwise be stale at 0 rows. It
+///   also runs before the FOREIGN KEYs are replayed, so the arbitrary `ORDER BY
+///   tablename` copy order cannot trip a not-yet-satisfied FK — across chunks as
+///   well, because **every** chunk's phase 1b commits before phase 2 starts.
 ///
 /// * Phase 1c (fully-qualified): create a clone-owned copy of every template
-///   sequence and rebind each serial column's default to it, then advance each
-///   clone sequence past the rows copied in phase 1b. `LIKE ... INCLUDING ALL`
+///   sequence this chunk's columns default from and rebind those columns to it,
+///   then advance it past the rows phase 1b copied. `LIKE ... INCLUDING ALL`
 ///   copies a serial column's DEFAULT *expression*, which still names the
 ///   **template's** sequence, and creates no sequence in the clone — so without
 ///   this phase every clone drew ids from one shared template sequence and owned
@@ -774,54 +851,43 @@ async fn build_template(conn: &mut sqlx::PgConnection, template: &str, baseline_
 ///   fixture gave each schema fresh sequences, and a copied row `id = 1` plus a
 ///   template sequence still at `last_value = 1, is_called = false` made an
 ///   `INSERT` that omits `id` fail with `duplicate key value violates unique
-///   constraint`.
+///   constraint`. Sequences the template never binds to a column (e.g.
+///   `to_device_stream_id_seq`, `sliding_sync_pos_seq`, which an unqualified
+///   `nextval` would otherwise fail to find) are not covered here; they are
+///   created exactly once by [`clone_unowned_sequences_statement`]. The sequence
+///   is derived from the catalog (`pg_attrdef` -> the `pg_depend` edge to a
+///   `relkind = 'S'` relation), never by slicing the default expression text.
 ///
-/// * Phase 2 (`search_path` = clone, then the caller's remaining entries):
-///   replay functions, views, materialized views, foreign keys and triggers,
-///   which `LIKE` cannot copy. The `search_path` matters for *correctness*
-///   because views, materialized views and FK constraint definitions are
-///   **parsed and OID-bound at creation time**: their definitions are replayed
-///   with the template qualifier stripped, so `search_path` must already name
-///   the clone or the unqualified references bind to the template (or, when the
-///   template lacks them, to `public`). PL/pgSQL bodies are the opposite case —
-///   they resolve unqualified names at **execution** time through the calling
-///   session's `search_path` — and every caller's session path starts with the
-///   clone, so the clone's functions read and write the clone's tables. (The
-///   baseline's six functions are all PL/pgSQL; a `LANGUAGE sql` body *is* parsed
-///   at creation time and would depend on this switch as well.) The caller's tail
-///   (everything after the clone) is preserved rather than replaced with a
-///   literal `public`, so a caller path such as `<clone>, public, extensions`
-///   keeps its `extensions` entry.
-///
-/// This statement deliberately does **not** create `schema`: the caller
-/// guarantees it already exists (and that its session `search_path` already
-/// begins with it). A `CREATE SCHEMA` here would fail with `42P06
-/// duplicate_schema` for every caller. A caller that never set a path (fresh
-/// session, `"$user", public`) still works: phase 2 explicitly puts the clone
-/// first and appends the effective tail.
-///
-/// The template's own bookkeeping table ([`TEMPLATE_READY_TABLE`]) is skipped:
-/// it is fixture metadata, not baseline inventory, and a clone is expected to
-/// reproduce exactly the baseline objects (so `clone_matches_template_inventory`
-/// sees 2 tables for a 2-table baseline). [`validate_clone`] excludes the same
-/// table from both sides of its comparison.
-fn clone_statement(schema: &str, template: &str, seeds: SeedSource<'_>) -> Result<String, String> {
-    let seed_where = seed_where_clause(seeds)?;
-    Ok(format!(
+/// * Phase 1d: restore index and UNIQUE-constraint NAMES for the chunk's
+///   tables. `LIKE ... INCLUDING ALL` copies indexes but PostgreSQL assigns
+///   auto-generated names (a template's `idx_t_v_named` becomes `t_v_idx`), and
+///   it renames UNIQUE constraints (`uq_c_pid_named` -> `c_pid_key`). PRIMARY
+///   KEY names survive. Tests assert on those names (`has_index_named` has 24
+///   call sites in `tests/integration/schema_contract_p0_tests_migrated.rs`),
+///   and `validate_clone` compares only COUNTS, so a rename is invisible to it.
+///   Measured on a two-table probe: template `idx_t_v_named,uq_c_pid_named` ->
+///   clone `t_v_idx,c_pid_key`. An index that backs a constraint cannot be
+///   dropped or renamed independently of it, so those are renamed in place;
+///   plain indexes are dropped and rebuilt from the template's own definition
+///   (which preserves expression / partial / opclass details that
+///   reconstructing the DDL by hand would lose). Pairing is by ORDINALITY
+///   within the table, which the chunk filter does not disturb.
+fn clone_table_chunk_statement(schema: &str, template: &str, seed_where: &str, tables: &[String]) -> String {
+    let chunk = table_array_literal(tables);
+    format!(
         r#"
         DO $do$
         DECLARE
             r RECORD;
-            def TEXT;
-            rest TEXT;
             seq_q TEXT;
             max_id BIGINT;
         BEGIN
-            -- Phase 1: every baseline table, with indexes / defaults / CHECK / PK.
-            -- The readiness marker is template bookkeeping, not baseline content.
+            -- Phase 1: this chunk's baseline tables, with indexes / defaults /
+            -- CHECK / PK. The chunk list is built from pg_tables, so the
+            -- template's bookkeeping table is never in it.
             FOR r IN
                 SELECT tablename FROM pg_tables
-                WHERE schemaname = '{template}' AND tablename <> '{TEMPLATE_READY_TABLE}'
+                WHERE schemaname = '{template}' AND tablename = ANY({chunk})
                 ORDER BY tablename
             LOOP
                 EXECUTE format(
@@ -830,22 +896,11 @@ fn clone_statement(schema: &str, template: &str, seeds: SeedSource<'_>) -> Resul
                 );
             END LOOP;
 
-            -- Phase 1b: copy the template's row data. `LIKE ... INCLUDING ALL`
-            -- copies structure only, so the singleton rows the v11 baseline
-            -- seeds (`sync_stream_id`, `server_retention_policy`,
-            -- `server_media_quota`) were silently missing from every clone even
-            -- though the previous statement-by-statement fixture had them.
-            -- Positional `SELECT *` matches because `LIKE` preserves column
-            -- order. The copy runs HERE, before the materialized views in phase
-            -- 2: a matview is populated at creation time, so creating it over an
-            -- empty table and filling the base table afterwards would leave it
-            -- permanently stale at 0 rows. It also runs before the foreign keys
-            -- are replayed, so the arbitrary `ORDER BY tablename` order cannot
-            -- trip a not-yet-satisfied FK. The readiness marker is excluded for
-            -- the same reason as phase 1 (and it must be, or the `INSERT` would
-            -- fail with `42P01`: the clone has no such table).
+            -- Phase 1b: copy this chunk's template row data. See the doc comment
+            -- on `clone_table_chunk_statement` for why the copy happens here,
+            -- before the materialized views and foreign keys of phase 2.
             --
-            -- Which tables are copied is the caller's choice:
+            -- Which of the chunk's tables are copied is the caller's choice:
             -- `SeedSource::Everything` (the historical behaviour, and what every
             -- production call site passes) copies all of them, while
             -- `SeedSource::Only` restricts the set to the baseline's seeded
@@ -853,7 +908,7 @@ fn clone_statement(schema: &str, template: &str, seeds: SeedSource<'_>) -> Resul
             -- `seed_where_clause`, never by a caller-supplied string.
             FOR r IN
                 SELECT tablename FROM pg_tables
-                WHERE schemaname = '{template}' AND {seed_where}
+                WHERE schemaname = '{template}' AND tablename = ANY({chunk}) AND {seed_where}
                 ORDER BY tablename
             LOOP
                 EXECUTE format(
@@ -862,55 +917,33 @@ fn clone_statement(schema: &str, template: &str, seeds: SeedSource<'_>) -> Resul
                 );
             END LOOP;
 
-            -- Phase 1c: clone-owned sequences. `LIKE ... INCLUDING ALL` copies a
-            -- serial column's DEFAULT *expression* — still
-            -- `nextval('<template>.<seq>'::regclass)` — but creates no sequence
-            -- in the clone. Every clone therefore drew ids from ONE shared
-            -- template sequence and owned ZERO sequences of its own. Copying a
-            -- row with an explicit `id = 1` leaves the template sequence at
-            -- `last_value = 1, is_called = false`, so an `INSERT` that omits
-            -- `id` on the clone fails with a duplicate-key error. The
-            -- pre-unification fixture gave every schema fresh sequences, so this
-            -- is a regression in isolation semantics, not just a latent hazard.
-            --
-            -- Create every template sequence in the clone — including the two
-            -- the baseline never binds to a column (`to_device_stream_id_seq`,
-            -- `sliding_sync_pos_seq`), which an unqualified `nextval` would
-            -- otherwise fail to find — copying its data type. Then rebind each
-            -- serial default to the clone's own sequence and advance it past the
-            -- rows phase 1b copied, so a later default-id insert cannot collide.
-            -- The sequence is derived from the catalog (`pg_attrdef` -> the
-            -- `pg_depend` edge to a `relkind = 'S'` relation), never by slicing
-            -- the default expression text.
-            FOR r IN
-                SELECT c.relname AS seq_rel,
-                       COALESCE(sq.data_type, 'bigint') AS seq_type
-                FROM pg_class c
-                JOIN pg_namespace n ON n.oid = c.relnamespace
-                LEFT JOIN pg_sequences sq
-                       ON sq.schemaname = n.nspname AND sq.sequencename = c.relname
-                WHERE n.nspname = '{template}' AND c.relkind = 'S'
-                ORDER BY c.relname
-            LOOP
-                EXECUTE format(
-                    'CREATE SEQUENCE IF NOT EXISTS %I.%I AS %s',
-                    '{schema}', r.seq_rel, r.seq_type
-                );
-            END LOOP;
-
+            -- Phase 1c: clone-owned sequences for this chunk's columns. See the
+            -- doc comment on `clone_table_chunk_statement` for the isolation
+            -- regression this repairs. Only sequences some column of THIS chunk
+            -- defaults from are created here; the rest (unowned ones) are
+            -- created exactly once by `clone_unowned_sequences_statement`.
             FOR r IN
                 SELECT t.relname AS tbl,
                        a.attname AS col,
-                       s.relname AS seq_rel
+                       s.relname AS seq_rel,
+                       COALESCE(sq.data_type, 'bigint') AS seq_type
                 FROM pg_attrdef ad
                 JOIN pg_class t ON t.oid = ad.adrelid
                 JOIN pg_namespace tn ON tn.oid = t.relnamespace
                 JOIN pg_attribute a ON a.attrelid = ad.adrelid AND a.attnum = ad.adnum
                 JOIN pg_depend d ON d.classid = 'pg_attrdef'::regclass AND d.objid = ad.oid
                 JOIN pg_class s ON s.oid = d.refobjid AND s.relkind = 'S'
-                WHERE tn.nspname = '{template}' AND a.attnum > 0 AND NOT a.attisdropped
+                LEFT JOIN pg_sequences sq
+                       ON sq.schemaname = '{template}' AND sq.sequencename = s.relname
+                WHERE tn.nspname = '{template}'
+                  AND t.relname = ANY({chunk})
+                  AND a.attnum > 0 AND NOT a.attisdropped
                 ORDER BY t.relname, a.attname
             LOOP
+                EXECUTE format(
+                    'CREATE SEQUENCE IF NOT EXISTS %I.%I AS %s',
+                    '{schema}', r.seq_rel, r.seq_type
+                );
                 seq_q := format('%I.%I', '{schema}', r.seq_rel);
                 -- `OWNED BY` matters and is easy to leave out: a plain
                 -- `CREATE SEQUENCE` plus `SET DEFAULT nextval(...)` leaves the
@@ -947,23 +980,9 @@ fn clone_statement(schema: &str, template: &str, seeds: SeedSource<'_>) -> Resul
                 END IF;
             END LOOP;
 
-            -- Phase 1d: restore index and UNIQUE-constraint NAMES.
-            --
-            -- `LIKE ... INCLUDING ALL` copies indexes but PostgreSQL assigns
-            -- auto-generated names (a template's `idx_t_v_named` becomes
-            -- `t_v_idx`), and it renames UNIQUE constraints
-            -- (`uq_c_pid_named` -> `c_pid_key`). PRIMARY KEY names survive.
-            -- Tests assert on those names (`has_index_named` has 24 call sites
-            -- in tests/integration/schema_contract_p0_tests_migrated.rs), and
-            -- `validate_clone` compares only COUNTS, so a rename is invisible
-            -- to it. Measured on a two-table probe: template
-            -- `idx_t_v_named,uq_c_pid_named` -> clone `t_v_idx,c_pid_key`.
-            --
-            -- An index that backs a constraint cannot be dropped or renamed
-            -- independently of it, so those are renamed in place; plain indexes
-            -- are dropped and rebuilt from the template's own definition (which
-            -- preserves expression / partial / opclass details that
-            -- reconstructing the DDL by hand would lose).
+            -- Phase 1d: restore index and UNIQUE-constraint NAMES for this
+            -- chunk's tables. See the doc comment on
+            -- `clone_table_chunk_statement`.
             FOR r IN
                 -- `FOR r IN` requires a SELECT: a top-level WITH is a syntax
                 -- error in PL/pgSQL, so the CTEs are wrapped in a subquery.
@@ -974,7 +993,8 @@ fn clone_statement(schema: &str, template: &str, seeds: SeedSource<'_>) -> Resul
                 -- work (the clone's names are auto-generated, which is the very
                 -- thing being fixed). Verified: the paired definitions match
                 -- modulo the name (`users_email_idx` <-> `idx_users_email`, both
-                -- `USING btree (email)`).
+                -- `USING btree (email)`). The `= ANY(...)` filter keeps the
+                -- pairing per table, so it is unaffected by chunking.
                 WITH clone_idx AS (
                     SELECT ci.indexrelid,
                            ct.relname AS tbl_name,
@@ -985,6 +1005,7 @@ fn clone_statement(schema: &str, template: &str, seeds: SeedSource<'_>) -> Resul
                     JOIN pg_class ct ON ct.oid = ci.indrelid
                     JOIN pg_namespace cn ON cn.oid = ct.relnamespace
                     WHERE cn.nspname = '{schema}'
+                      AND ct.relname = ANY({chunk})
                       AND NOT EXISTS (
                           SELECT 1 FROM pg_constraint cc
                           WHERE cc.conindid = ci.indexrelid
@@ -1005,6 +1026,7 @@ fn clone_statement(schema: &str, template: &str, seeds: SeedSource<'_>) -> Resul
                     JOIN pg_class tt ON tt.oid = ti.indrelid
                     JOIN pg_namespace tn ON tn.oid = tt.relnamespace
                     WHERE tn.nspname = '{template}'
+                      AND tt.relname = ANY({chunk})
                       -- Constraint-backed indexes (PK/UNIQUE) are handled by
                       -- the constraints themselves: `LIKE` already preserves
                       -- the PRIMARY KEY name, and renaming a constraint's
@@ -1036,7 +1058,94 @@ fn clone_statement(schema: &str, template: &str, seeds: SeedSource<'_>) -> Resul
                     r.tmpl_idx_name, '{schema}', r.tbl_name, r.idx_tail
                 );
             END LOOP;
+        END
+        $do$;
+        "#
+    )
+}
 
+/// Phase 1c's sequence creation for the template sequences that **no** column
+/// default references.
+///
+/// The per-chunk statement creates every sequence a chunk's columns default
+/// from. Two sequences in the baseline are bound to no column at all
+/// (`to_device_stream_id_seq`, `sliding_sync_pos_seq`), and the template may
+/// reference them from a function or view whose unqualified `nextval` must
+/// resolve inside the clone. They belong to no chunk, so they are created
+/// exactly once here, deterministically, rather than being duplicated into
+/// every chunk or skipped.
+///
+/// Membership is computed from the catalog — a template sequence with no
+/// `pg_attrdef` -> `pg_depend` edge to it — which is the exact complement of the
+/// per-chunk loop, so no sequence is created twice and none is missed.
+fn clone_unowned_sequences_statement(schema: &str, template: &str) -> String {
+    format!(
+        r#"
+        DO $do$
+        DECLARE
+            r RECORD;
+        BEGIN
+            FOR r IN
+                SELECT c.relname AS seq_rel,
+                       COALESCE(sq.data_type, 'bigint') AS seq_type
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                LEFT JOIN pg_sequences sq
+                       ON sq.schemaname = n.nspname AND sq.sequencename = c.relname
+                WHERE n.nspname = '{template}' AND c.relkind = 'S'
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM pg_depend d
+                      JOIN pg_attrdef ad ON d.classid = 'pg_attrdef'::regclass AND d.objid = ad.oid
+                      JOIN pg_class t ON t.oid = ad.adrelid
+                      JOIN pg_namespace tn ON tn.oid = t.relnamespace
+                      WHERE d.refobjid = c.oid AND tn.nspname = '{template}'
+                  )
+                ORDER BY c.relname
+            LOOP
+                EXECUTE format(
+                    'CREATE SEQUENCE IF NOT EXISTS %I.%I AS %s',
+                    '{schema}', r.seq_rel, r.seq_type
+                );
+            END LOOP;
+        END
+        $do$;
+        "#
+    )
+}
+
+/// Phase 2 of the clone: every non-table object, once all tables exist and hold
+/// their copied rows.
+///
+/// This must be its own final statement (not part of a chunk): foreign keys can
+/// reference a table from any chunk, and materialized views must be populated
+/// *after* the base tables' rows were copied, or they would be permanently
+/// stale at 0 rows.
+///
+/// The `search_path` matters for *correctness* because views, materialized views
+/// and FK constraint definitions are **parsed and OID-bound at creation time**:
+/// their definitions are replayed with the template qualifier stripped, so
+/// `search_path` must already name the clone or the unqualified references bind
+/// to the template (or, when the template lacks them, to `public`). PL/pgSQL
+/// bodies are the opposite case — they resolve unqualified names at
+/// **execution** time through the calling session's `search_path` — and every
+/// caller's session path starts with the clone, so the clone's functions read
+/// and write the clone's tables. (The baseline's six functions are all
+/// PL/pgSQL; a `LANGUAGE sql` body *is* parsed at creation time and would depend
+/// on this switch as well.) The caller's tail (everything after the clone) is
+/// preserved rather than replaced with a literal `public`, so a caller path such
+/// as `<clone>, public, extensions` keeps its `extensions` entry. Rebuilding it
+/// here is safe precisely because all clone statements run on one connection
+/// (see [`clone_schema_from_template`]).
+fn clone_phase2_statement(schema: &str, template: &str) -> String {
+    format!(
+        r#"
+        DO $do$
+        DECLARE
+            r RECORD;
+            def TEXT;
+            rest TEXT;
+        BEGIN
             -- Phase 2: non-table objects must bind to the clone, not the template.
             -- Rebuild the path as the clone followed by the caller's remaining
             -- entries. The documented precondition only guarantees the caller's
@@ -1137,7 +1246,8 @@ fn clone_statement(schema: &str, template: &str, seeds: SeedSource<'_>) -> Resul
             -- over), so replay them. The existence test is computed in the
             -- query and returned as a column, so the `IF` has one simple
             -- condition; a duplicate means the FK is already present, which is
-            -- the desired end state.
+            -- the desired end state. This loop spans every chunk's tables, which
+            -- is why it cannot live in a chunk statement.
             FOR r IN
                 SELECT fkrel.relname AS tbl,
                        con.conname AS name,
@@ -1188,7 +1298,23 @@ fn clone_statement(schema: &str, template: &str, seeds: SeedSource<'_>) -> Resul
         END
         $do$;
         "#
-    ))
+    )
+}
+
+/// `ARRAY['a', 'b', …]` for a chunk of catalog table names.
+///
+/// The names come from `pg_tables`, so they are real identifiers, but they are
+/// embedded as *string literals* here (not `%I`-quoted identifiers) because the
+/// chunk is consumed by `tablename = ANY(...)`. Embedded single quotes are
+/// doubled rather than assumed away.
+fn table_array_literal(tables: &[String]) -> String {
+    let names = tables.iter().map(|name| format!("'{}'", escape_sql_literal(name))).collect::<Vec<_>>().join(", ");
+    format!("ARRAY[{names}]")
+}
+
+/// Quote a value for a single-quoted SQL literal by doubling embedded quotes.
+fn escape_sql_literal(value: &str) -> String {
+    value.replace('\'', "''")
 }
 
 /// Verify the clone reproduces the template's object inventory.
@@ -1200,10 +1326,10 @@ fn clone_statement(schema: &str, template: &str, seeds: SeedSource<'_>) -> Resul
 /// The comparison also covers **sequences**, because a clone that owns none
 /// while its serial defaults still point at the template's sequences has given
 /// up clone-local id allocation — the failure mode behind the duplicate-key
-/// error on a default-id insert (see [`clone_statement`] phase 1c).
+/// error on a default-id insert (see [`clone_table_chunk_statement`] phase 1c).
 ///
 /// The template-only bookkeeping table ([`TEMPLATE_READY_TABLE`]) is excluded
-/// from the table count on both sides, matching [`clone_statement`], which does
+/// from the table count on both sides, matching [`clone_statements`], which does
 /// not copy it.
 async fn validate_clone(pool: &PgPool, schema: &str, template: &str) -> Result<(), String> {
     // One query against a fixed set of relations, aggregating per schema.
@@ -1241,7 +1367,7 @@ async fn validate_clone(pool: &PgPool, schema: &str, template: &str) -> Result<(
             (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
               WHERE n.nspname = t.nsp AND p.prokind = 'f'
                 -- Extension members are excluded on BOTH sides of this
-                -- comparison. `clone_statement` deliberately does not replay them
+                -- comparison. `clone_phase2_statement` deliberately does not replay them
                 -- (they are database-scoped, and `LANGUAGE c` needs superuser), so
                 -- counting them here would declare every clone "incomplete" —
                 -- which is exactly how this check fired while the replay skip was
@@ -1319,7 +1445,8 @@ async fn validate_clone(pool: &PgPool, schema: &str, template: &str) -> Result<(
     Ok(())
 }
 
-/// Clone the complete `template` schema into `schema` in one round trip.
+/// Clone the complete `template` schema into `schema`, one statement per chunk
+/// of baseline tables.
 ///
 /// `seeds` chooses which template tables phase 1b copies the rows of: pass
 /// [`SeedSource::Everything`] to reproduce a freshly migrated database in full,
@@ -1327,17 +1454,35 @@ async fn validate_clone(pool: &PgPool, schema: &str, template: &str) -> Result<(
 /// [`SEED_REFERENCE_TABLES`]. Structure (tables, indexes, constraints,
 /// sequences, functions, views, triggers) is copied identically either way.
 ///
+/// The work is split across the statements [`clone_statements`] returns, and
+/// **each is its own round trip / implicit transaction**. That is the point, not
+/// an implementation detail: one statement covering the whole baseline holds
+/// locks on every template object until it commits, which overflows PostgreSQL's
+/// shared lock table at the CI service container's `max_locks_per_transaction =
+/// 64` and fails the clone with `out of shared memory`. Joining the statements
+/// back into one `raw_sql` string would put them all in a single transaction
+/// again and restore both the lock peak and the failure, so they must be
+/// executed one at a time.
+///
+/// All statements run on **one** connection, acquired for the duration of the
+/// clone: phase 2 rebuilds the session `search_path` from whatever the caller
+/// left on its session, so a pool that handed phase 2 a different connection
+/// would drop the caller's path (and the clone's) and bind views to the
+/// template. The connection is released before [`validate_clone`] so a
+/// single-connection admin pool cannot deadlock against itself.
+///
 /// **Precondition (the caller guarantees it):** `schema` already exists and the
 /// connection's `search_path` begins with `schema`. The function does **not**
 /// `CREATE SCHEMA` — callers that already created it would otherwise fail with
 /// `42P06 duplicate_schema`. Any entries the caller had *after* `schema` are
-/// preserved (see `clone_statement`), not replaced with a hard-coded `public`.
+/// preserved (see [`clone_phase2_statement`]), not replaced with a hard-coded
+/// `public`.
 ///
-/// The `DO` block embeds `pg_get_functiondef` output, so it is executed with
+/// The `DO` blocks embed `pg_get_functiondef` output, so they are executed with
 /// [`sqlx::raw_sql`] (simple protocol) rather than `sqlx::query` (extended
 /// protocol): the extended protocol's statement description mangles the
 /// dollar-quoted bodies into a truncated statement
-/// (`42601 syntax error at end of input`). The block has no bind parameters, so
+/// (`42601 syntax error at end of input`). The blocks have no bind parameters, so
 /// the simple protocol is both correct and cheaper.
 ///
 /// Finally the clone's object inventory is compared against the template's and
@@ -1350,16 +1495,57 @@ pub async fn clone_schema_from_template(
     template: &str,
     seeds: SeedSource<'_>,
 ) -> Result<(), String> {
-    sqlx::raw_sql(&clone_statement(schema, template, seeds)?)
-        .execute(pool)
+    let mut conn = pool
+        .acquire()
         .await
-        .map_err(|e| format!("clone of {schema} from {template} failed: {e}"))?;
+        .map_err(|e| format!("failed to acquire a connection to clone {schema} from {template}: {e}"))?;
+    let tables = baseline_tables(&mut conn, template).await?;
+    for statement in clone_statements(schema, template, seeds, &tables)? {
+        sqlx::raw_sql(&statement)
+            .execute(&mut *conn)
+            .await
+            .map_err(|e| format!("clone of {schema} from {template} failed: {e}"))?;
+    }
+    drop(conn);
     validate_clone(pool, schema, template).await
+}
+
+/// The ordered baseline table list of `template`, read once per clone.
+///
+/// Same predicate as the former single-statement clone's table loops, including
+/// the [`TEMPLATE_READY_TABLE`] exclusion: the readiness marker is fixture
+/// metadata, not baseline inventory, and a clone must not try to copy it (the
+/// `INSERT` would fail with `42P01`).
+///
+/// Read through `sqlx::raw_sql` rather than `sqlx::query_scalar` because the
+/// template name is an identifier that cannot be bound as a parameter *and* the
+/// dynamic-SQL ratchet counts every non-macro `sqlx::query*` call; this is one
+/// `SELECT` with no user input, and its identifier is embedded with
+/// [`escape_sql_literal`].
+async fn baseline_tables(conn: &mut sqlx::PgConnection, template: &str) -> Result<Vec<String>, String> {
+    use sqlx::Row as _;
+    let sql = format!(
+        "SELECT tablename::text FROM pg_tables \
+         WHERE schemaname = '{}' AND tablename <> '{}' ORDER BY tablename",
+        escape_sql_literal(template),
+        escape_sql_literal(TEMPLATE_READY_TABLE)
+    );
+    let rows = sqlx::raw_sql(&sql)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(|e| format!("failed to list the baseline tables of template {template}: {e}"))?;
+    let mut tables = Vec::with_capacity(rows.len());
+    for row in rows {
+        let name: String =
+            row.try_get(0).map_err(|e| format!("failed to read a baseline table name of template {template}: {e}"))?;
+        tables.push(name);
+    }
+    Ok(tables)
 }
 
 /// Advance `schema`'s sequences past the rows its tables already hold.
 ///
-/// Phase 1c of [`clone_statement`] does this as part of a clone. A fixture that
+/// Phase 1c of [`clone_table_chunk_statement`] does this as part of a clone. A fixture that
 /// **reuses** a schema has to do it too, and the reason is easy to miss:
 /// `TRUNCATE ... RESTART IDENTITY` resets every sequence to 1 *without* touching
 /// `is_called`, and the rows a fixture then copies back usually carry explicit
@@ -1535,9 +1721,10 @@ impl IsolatedTestPool {
 
         let schema = format!("test_{}", uuid::Uuid::new_v4().as_simple());
 
-        // One round trip: every table, index, constraint, function, view and
-        // trigger. The shared clone helper does not create the schema, so the
-        // caller creates it and puts it first on the session `search_path`.
+        // One round trip per baseline-table chunk, plus the unowned-sequence and
+        // global phase-2 statements: every table, index, constraint, function,
+        // view and trigger. The shared clone helper does not create the schema,
+        // so the caller creates it and puts it first on the session `search_path`.
         let clone_pool =
             PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(60)).connect(&db_url).await?;
         sqlx::query(&format!(r#"CREATE SCHEMA "{schema}""#)).execute(&clone_pool).await?;

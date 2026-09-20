@@ -4,6 +4,7 @@
 # 不在此列，仍会被 scripts/check_doc_spelling.sh 检出。
 # 说明见 docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md §14.7。
 # 追加（2026-09-20，§14.11 独立复核）：ghcr、io（来自 ghcr.io）。
+# 追加（2026-09-20，§14.13）：args、cmd（正文里 "CMD/args" 这类写法）。
 abi
 accessexclusivelock
 accessor
@@ -46,6 +47,7 @@ appservice
 appstate
 arg
 argparse
+args
 argv
 asc
 asic
@@ -120,6 +122,7 @@ clientpushservice
 clippy
 clokep
 cloner
+cmd
 codebase
 codegen
 codemod

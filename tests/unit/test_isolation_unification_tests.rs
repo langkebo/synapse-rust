@@ -638,6 +638,124 @@ fn the_clone_path_does_not_replay_the_baseline_per_test() {
     }
 }
 
+/// Guard 3b: the clone is emitted as **several** statements (one implicit
+/// transaction each), with every chunk bounded to
+/// [`synapse_common::test_isolation::CLONE_TABLES_PER_STATEMENT`] tables.
+///
+/// This is the structural fix for the CI failure this file's fixture caused:
+/// the clone used to be one `DO` block, i.e. one transaction holding locks on
+/// every template object from the first `LIKE` to the last trigger. Against the
+/// GitHub `postgres:16` service container's default
+/// `max_locks_per_transaction = 64`, four concurrent clones (CI runs
+/// `--test-threads 4`) exhausted the shared lock table and the clone failed with
+/// `out of shared memory` inside `prepare_media_test_pool` (measured 2026-09-20
+/// on `postgres:16 -c max_locks_per_transaction=64`: `pg_locks` peaked at 23,313
+/// rows and the media fixture failed with the exact CI message). The fix only
+/// works if the statements stay separate: joining them back into one `raw_sql`
+/// string re-wraps them in a single transaction, restores the lock peak and
+/// brings the failure back.
+///
+/// It is deliberately a pure function test (no database): `clone_statements`
+/// takes the table list as an argument, which is what makes the partition
+/// inspectable here at all.
+///
+/// **RED-able:** replacing the `.chunks(CLONE_TABLES_PER_STATEMENT)` in
+/// `clone_statements` with a single whole-list chunk makes `statements.len()`
+/// 3 for one chunk (and the chunk-block count 1 instead of 4), so the
+/// assertions below fail. That was verified by doing exactly that.
+#[test]
+fn clone_statements_split_the_clone_into_per_chunk_transactions() {
+    use synapse_common::test_isolation::{clone_statements, SeedSource, CLONE_TABLES_PER_STATEMENT};
+
+    // Three full chunks plus a partial fourth, so the expected chunk count is
+    // not a function of the bound's exact value. The list is strictly larger
+    // than one chunk, which is what makes the "more than one statement"
+    // assertion below non-vacuous.
+    let tables: Vec<String> = (0..CLONE_TABLES_PER_STATEMENT * 3 + 1).map(|i| format!("tbl_{i:04}")).collect();
+
+    let statements = clone_statements("clone_schema", "template_schema", SeedSource::Everything, &tables)
+        .expect("a valid table list must build clone statements");
+
+    // RED-able non-vacuity: the pre-fix clone was exactly one statement.
+    assert!(
+        statements.len() > 1,
+        "the clone must be split across more than one statement/transaction, got {} statement(s)",
+        statements.len()
+    );
+
+    let chunk_blocks: Vec<&String> =
+        statements.iter().filter(|statement| statement.contains("LIKE %I.%I INCLUDING ALL")).collect();
+    assert_eq!(
+        chunk_blocks.len(),
+        4,
+        "expected one phase-1 block per chunk of {} tables (3 full + 1 partial), got {}",
+        CLONE_TABLES_PER_STATEMENT,
+        chunk_blocks.len()
+    );
+
+    // The blocks that do not carry `LIKE ... INCLUDING ALL` must be exactly the
+    // two global statements: the once-only unowned-sequence block and phase 2.
+    assert_eq!(
+        statements.len(),
+        chunk_blocks.len() + 2,
+        "beyond the chunk blocks there must be exactly the unowned-sequence statement and the \
+         global phase-2 statement; got {} statement(s) for {} chunk block(s)",
+        statements.len(),
+        chunk_blocks.len()
+    );
+
+    // Every baseline table lands in exactly one chunk block, and no block covers
+    // more than the bound. This is the property that bounds the locks a single
+    // transaction can hold, so it is asserted per block rather than in aggregate.
+    for table in &tables {
+        let quoted = format!("'{table}'");
+        let owners = chunk_blocks.iter().filter(|block| block.contains(&quoted)).count();
+        assert_eq!(owners, 1, "table {table} must be cloned by exactly one chunk block, found {owners}");
+    }
+    for block in &chunk_blocks {
+        let covered = tables.iter().filter(|table| block.contains(&format!("'{table}'"))).count();
+        assert!(
+            covered > 0 && covered <= CLONE_TABLES_PER_STATEMENT,
+            "a phase-1 block must cover between 1 and {CLONE_TABLES_PER_STATEMENT} tables, got {covered}"
+        );
+    }
+
+    // The global phase 2 must be the LAST statement: it is the one that needs
+    // every table present and holding its copied rows (foreign keys, views and
+    // materialized views).
+    let last = statements.last().expect("the builder always emits a phase-2 statement");
+    for marker in [
+        "CREATE MATERIALIZED VIEW",
+        "pg_get_viewdef",
+        "ALTER TABLE %I.%I ADD CONSTRAINT",
+        "pg_get_triggerdef",
+        "pg_get_functiondef",
+    ] {
+        assert!(last.contains(marker), "the last statement must be the global phase 2; it is missing `{marker}`");
+    }
+    assert!(
+        !last.contains("LIKE %I.%I INCLUDING ALL"),
+        "phase 2 must not create tables — those come from the chunk statements that run first"
+    );
+
+    // Seed selection still reaches phase 1b, and the error contract is intact:
+    // a non-identifier allowlist name must be an `Err`, never an empty clone.
+    let only = clone_statements("clone_schema", "template_schema", SeedSource::Only(&["server_media_quota"]), &tables)
+        .expect("a valid allowlist must build clone statements");
+    let only_chunk = only
+        .iter()
+        .find(|statement| statement.contains("LIKE %I.%I INCLUDING ALL"))
+        .expect("the allowlist clone must still emit its phase-1 block");
+    assert!(
+        only_chunk.contains("tablename IN ('server_media_quota')"),
+        "phase 1b must still be restricted to the allowlist"
+    );
+    assert!(
+        clone_statements("clone_schema", "template_schema", SeedSource::Only(&["x; DROP TABLE y"]), &tables).is_err(),
+        "a non-identifier allowlist name must surface as Err, not be swallowed"
+    );
+}
+
 /// Guard 4: `prepare_isolated_test_pool` does not fill the schema with the
 /// runtime initializer.
 ///
