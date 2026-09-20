@@ -39,15 +39,17 @@ jobs:
         uses: hadolint/hadolint-action@v3
         with:
           dockerfile: docker/Dockerfile
-          ignore:
-            # 已知忽略：Dockerfile 使用国内镜像源加速构建
-            - DL3008
-            # 多阶段构建中 RUN 后清理 apt 列表（已在命令末尾 rm -rf）
-            - DL3009
-            # 基础镜像已通过 ARG pin 到 digest
-            - DL3006
-            # 使用 --no-install-recommends 是刻意优化
-            - DL3007
+          # ⚠️ `ignore` must be a **comma-separated string**, not a YAML list.
+          # As a list, GitHub's workflow validator rejects the file
+          # ("expected scalar node for string value but found sequence node")
+          # and every run fails at startup with 0 jobs — which is exactly what
+          # happened from the moment this workflow was added (2026-09-19) until
+          # 2026-09-20. Verified with actionlint.
+          #   已知忽略：Dockerfile 使用国内镜像源加速构建 (DL3008)
+          #   多阶段构建中 RUN 后清理 apt 列表 (DL3009)
+          #   基础镜像已通过 ARG pin 到 digest (DL3006)
+          #   使用 --no-install-recommends 是刻意优化 (DL3007)
+          ignore: DL3008,DL3009,DL3006,DL3007
 
   # ── 2) 构建镜像并扫描 CVE ───────────────────────────────────────────
   trivy-scan:
@@ -59,15 +61,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # [P1-5] 启用 buildx 并配置 cache-from / cache-to
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver: docker
-          use: true
-          # 使用 GitHub Actions 缓存作为 cache-from / cache-to
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      # P1-5 note (2026-09-20): the previous "Set up Docker Buildx" step passed
+      # `cache-from` / `cache-to` to `docker/setup-buildx-action@v3`, which does
+      # not define those inputs (actionlint: available inputs are append,
+      # buildkitd-config, buildkitd-flags, cache-binary, cleanup, config,
+      # driver, driver-opts, endpoint, install, keep-state, name, platforms,
+      # use, version). Because the whole workflow file was invalid, nothing here
+      # ever executed. The step is removed rather than corrected: the GHA build
+      # cache is *not* wired, because `type=gha` cache export requires
+      # `docker buildx build` with the docker-container driver, while the build
+      # below is a plain `docker build`. P1-5 stays open in
+      # docs/audit/DOCKER_REVIEW_2026-09-19.md.
 
       - name: Build image for scan
         run: |

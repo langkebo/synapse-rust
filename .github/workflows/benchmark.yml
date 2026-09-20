@@ -45,10 +45,12 @@ jobs:
     name: Run benchmarks
     runs-on: ubuntu-latest
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_benchmarks == 'true'
+    # `pages: write` / `id-token: write` existed only for the removed
+    # `github-action-benchmark` gh-pages push (see the note at `Store benchmark
+    # results`). Publishing the report page is done by `peaceiris/actions-gh-pages`
+    # in the `Generate benchmark report` job, which declares its own permissions.
     permissions:
       contents: read
-      pages: write
-      id-token: write
 
     steps:
       - name: Checkout repository
@@ -151,17 +153,23 @@ jobs:
           echo "## Pagination Compute Smoke Check (in-memory simulation; real DB gate is pagination-perf-gate)" >> $GITHUB_STEP_SUMMARY
           python3 scripts/check_pagination_benchmark.py benchmark.txt --minimum-improvement 0.30 >> $GITHUB_STEP_SUMMARY
 
-      - name: Upload benchmark results
-        uses: benchmark-action/github-action-benchmark@v1
-        with:
-          tool: 'cargo'
-          output-file-path: benchmark.txt
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          auto-push: true
-          comment-on-alert: true
-          alert-threshold: '10%'
-          fail-on-alert: true
-
+      # ⚠️ The `benchmark-action/github-action-benchmark@v1` step that used to sit
+      # here (`auto-push: true`) was removed 2026-09-20. It could never succeed,
+      # for two independent reasons measured on `main` (run 35484657071):
+      #   * `auto-push` fetches and pushes the `gh-pages` branch, but this repo
+      #     has none: `fatal: couldn't find remote ref gh-pages`;
+      #   * even with the branch, this job's permissions are `contents: read`
+      #     (pages: write / id-token: write), so the push would be denied.
+      # It was also circular: `gh-pages` is (re)created by the `Generate
+      # benchmark report` job, which `needs: benchmark` — the job that required
+      # the branch to exist.
+      # Regression comparison is not lost: `scripts/ci/compute_perf_gate.sh`
+      # (ceilings, above), `performance-comparison` (artifact diff), and
+      # `pr-benchmark-gate` (threshold, below) all measure it. Because this step
+      # aborted the job, `Store benchmark results` never ran, so no
+      # `benchmark-results` artifact has ever been uploaded on `main` — which is
+      # why `pr-benchmark-gate` failed with
+      # `no matching workflow run found with any artifacts?`.
       - name: Store benchmark results
         uses: actions/upload-artifact@v4
         with:
@@ -219,12 +227,17 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-perf-gate-
 
-      - name: Install sqlx-cli
-        run: cargo install sqlx-cli --version '^0.8' --locked --no-default-features --features postgres
-
       - name: Prepare benchmark database schema
         env:
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_bench
+          # `scripts/init_test_public_schema.sh` reads `TEST_DATABASE_URL` (or the
+          # `TEST_DB_*` parts) — it does **not** read `DATABASE_URL`. Passing the
+          # URL under the wrong name made the script fall back to its default
+          # database `synapse_test`, which does not exist in this job's postgres
+          # service (`POSTGRES_DB: synapse_bench`), so the step failed with
+          # `FATAL: database "synapse_test" does not exist` (CI run 35489156862)
+          # and the strict perf gate below was skipped. The pagination job
+          # further down already passes `TEST_DATABASE_URL`.
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_bench
         run: |
           # `sqlx migrate run` cannot apply this baseline: it executes the file
           # inside a transaction, and `CREATE INDEX CONCURRENTLY` refuses to run
@@ -488,7 +501,7 @@ jobs:
           cat reports/benchmark.txt >> reports/REPORT.md
 
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+        uses: peaceiris/actions-gh-pages@v4
         if: github.ref == 'refs/heads/main'
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
