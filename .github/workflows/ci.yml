@@ -340,27 +340,11 @@ jobs:
           python3 scripts/check_get_raw_usage.py
           echo "S-8: get_raw() audit passed"
 
-      - name: Install sqlx-cli
-        if: matrix.features-args == '--all-features'
-        # Pin to 0.8.x: matches the project's sqlx 0.8 and stays within MSRV.
-        # sqlx-cli 0.9+ requires rustc >= 1.94, which the CI toolchain lacks.
-        run: cargo install sqlx-cli --version '^0.8' --locked --no-default-features --features postgres
-
       - name: Install cargo-nextest
         if: matrix.features-args == '--all-features'
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
-
-      - name: Build forward-only sqlx migration source
-        if: matrix.features-args == '--all-features'
-        run: python3 scripts/build_sqlx_migration_source.py artifacts/sqlx-migrations
-
-      - name: Create synapse_test database (idempotent)
-        if: matrix.features-args == '--all-features'
-        env:
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/postgres
-        run: psql -c "CREATE DATABASE synapse_test;" || true
 
       # ── seed: public (storage) + template (services/root) 一库两态 ──────────
       # storage db_tests 直连 `public`；services/root 的 `prepare_shared_test_pool`
@@ -647,11 +631,6 @@ jobs:
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
 
-      - name: Install sqlx-cli
-        # Pin to 0.8.x: matches the project's sqlx 0.8 and stays within MSRV.
-        # sqlx-cli 0.9+ requires rustc >= 1.94, which the CI toolchain lacks.
-        run: cargo install sqlx-cli --version '^0.8' --locked --no-default-features --features postgres
-
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2
         with:
@@ -665,11 +644,9 @@ jobs:
       - name: Pre-cache swagger-ui zip
         run: bash scripts/precache-swagger-ui.sh
 
-      - name: Build forward-only sqlx migration source
-        run: python3 scripts/build_sqlx_migration_source.py artifacts/sqlx-migrations
-
-      # `synapse` 是"部署形态"库：只用来验证 `artifacts/sqlx-migrations`（部署路径的
-      # 迁移源）能干净地 apply 到应用库形状上。**测试步骤不连它。**
+      # `synapse` 是"部署形态"库：只用来验证 `migrations/`（部署路径的唯一迁移源，
+      # 由 `docker/db_migrate.sh` 应用）能干净地 apply 到应用库形状上。
+      # **测试步骤不连它。**
       #
       # 这里曾经把 integration/e2e/snapshot/perf 四步指向 `synapse`，那是坏的：
       # `src/test_utils.rs::init_template_schema` 的守卫只把"库名含 test"的库当作
@@ -680,19 +657,25 @@ jobs:
       # 从未真正跑过**（18 处静默跳过，见 PROJECT_ACTUAL_ISSUES §2.5）。
       # 现统一改为 `synapse_test` + 钉死 `TEST_DB_TEMPLATE_SCHEMA`，并让跳过行为
       # fail-closed（`tests/integration/mod.rs::skip_or_fail_without_db`）。
-      - name: Create synapse_test database (idempotent)
-        env:
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/postgres
-        run: psql -c "CREATE DATABASE synapse_test;" || true
-
+      #
+      # 数据库本身（`synapse_test`）由 `scripts/ci/prepare_test_db.sh` 在下方**按需创建**，
+      # 不再由工作流里一条 `psql -c "CREATE DATABASE …" || true` 承担：psql/libpq 不读
+      # `DATABASE_URL`，那条命令实际连的是 runner 的隐式默认库，从未建库，而 `|| true`
+      # 把失败吞掉 —— CI 实测（run 35489156849）下一步直接
+      # `FATAL: database "synapse_test" does not exist`。
+      #
       # 只做"部署路径迁移源能否干净 apply 到应用库形状"的验证，**不供任何测试使用**。
       # 后续步骤一律连 `synapse_test`。
       - name: Verify deploy-path migrations apply to an app-shaped DB (synapse, not used by tests)
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
         run: |
-          sqlx database create
-          sqlx migrate run --source artifacts/sqlx-migrations
+          # 单一迁移实现：`docker/db_migrate.sh`（psql 逐文件、autocommit，且会按需
+          # 建库）。旧的 `sqlx migrate run` 在本 baseline 上**必然失败**——它把每个
+          # 迁移文件放进一个事务，而 baseline 含 14 处 `CREATE INDEX CONCURRENTLY`
+          # （实测：`error: while executing migration 0: … cannot run inside a
+          # transaction block`），所以这条验证从未真正跑过。
+          bash docker/db_migrate.sh migrate
           # P2 fail-fast: same guard as Test & Lint job — refuse to start tests
           # if critical tables are missing after migration.
           missing=0
@@ -961,24 +944,12 @@ jobs:
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov --locked
 
-      - name: Install sqlx-cli
-        # Pin to 0.8.x: matches the project's sqlx 0.8 and stays within MSRV.
-        # sqlx-cli 0.9+ requires rustc >= 1.94, which the CI toolchain lacks.
-        run: cargo install sqlx-cli --version '^0.8' --locked --no-default-features --features postgres
-
-      - name: Build forward-only sqlx migration source
-        run: python3 scripts/build_sqlx_migration_source.py artifacts/sqlx-migrations
-
       # Coverage 要走 root/services 的 `prepare_shared_test_pool`（模板克隆路径），
       # 所以必须连**测试库**并钉死模板 schema。此前这里连的是应用库 `synapse`，
       # 守卫（`current_database()` 不含 "test" 且 public.schema_migrations 存在）
       # 会直接拒绝 → 非 storage 的用例全部拿不到池。改用与 integration-test job
-      # 同一套 seed（`prepare_test_db.sh` 同时产出 public + test_template_ci）。
-      - name: Create synapse_test database (idempotent)
-        env:
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/postgres
-        run: psql -c "CREATE DATABASE synapse_test;" || true
-
+      # 同一套 seed（`prepare_test_db.sh` 同时产出 public + test_template_ci，
+      # 并在库不存在时按需创建）。
       - name: Set up test database (public + test_template_ci in synapse_test)
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test

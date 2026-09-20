@@ -10,7 +10,7 @@
 --
 -- USAGE:
 --   Run this ONLY on a fresh database that you are setting up for the first time.
---   Run it AFTER `cargo sqlx migrate run` completes.
+--   Run it AFTER `bash docker/db_migrate.sh migrate` completes.
 --
 --   psql "$DATABASE_URL" -f scripts/create-default-admin.sql
 --

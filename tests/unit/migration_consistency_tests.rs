@@ -380,28 +380,6 @@ fn every_ci_db_migrate_call_supplies_an_explicit_target() {
     assert!(checked > 0, "应至少有一个 CI 步骤调用 db_migrate.sh");
 }
 
-#[test]
-fn test_build_sqlx_migration_source_outputs_canonical_baseline() {
-    let root = project_root();
-    let output_dir = root.join("artifacts/sqlx-migrations-test");
-    if output_dir.exists() {
-        fs::remove_dir_all(&output_dir)
-            .unwrap_or_else(|error| panic!("failed to clean {}: {error}", output_dir.display()));
-    }
-
-    let output = Command::new("python3")
-        .arg("scripts/build_sqlx_migration_source.py")
-        .arg(&output_dir)
-        .current_dir(&root)
-        .output()
-        .expect("failed to run build_sqlx_migration_source.py");
-
-    assert!(output.status.success(), "script failed: {}", String::from_utf8_lossy(&output.stderr));
-
-    let manifest = read(&output_dir.join("manifest.json"));
-    assert!(manifest.contains("\"baseline\": \"00000000_unified_schema_v12.sql\""));
-}
-
 /// C3/C10 (GATE_INTEGRITY_SWEEP_2026-09-19 §6): both migration gates must say
 /// the `consolidated-baseline-only` case out loud instead of passing on an
 /// empty subject set.

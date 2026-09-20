@@ -83,18 +83,14 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
       - name: Install Python dependencies
         run: |
           pip install psycopg2-binary pg8000
 
-      - name: Install PostgreSQL and sqlx tools
+      - name: Install PostgreSQL client
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client
-          cargo install sqlx-cli --version '^0.8' --locked --no-default-features --features postgres
 
       - name: Wait for PostgreSQL
         run: |
@@ -115,15 +111,28 @@ jobs:
           python3 scripts/check_migration_consistency.py \
             --json-report artifacts/migration_consistency.json
 
-      - name: Build forward-only sqlx migration source
-        run: python3 scripts/build_sqlx_migration_source.py artifacts/sqlx-migrations
-
+      # `sqlx migrate run` executes each migration inside a transaction block, and
+      # the consolidated baseline contains `CREATE INDEX CONCURRENTLY`, which
+      # PostgreSQL refuses to run in a transaction. Measured failure:
+      #   error: while executing migration 0: error returned from database:
+      #   CREATE INDEX CONCURRENTLY cannot run inside a transaction block
+      # Apply through the project's single migration implementation
+      # (`docker/db_migrate.sh` -> psql per file, autocommit) — the same tool the
+      # next step validates with, and the same one used by db-migration-gate.yml
+      # and by benchmark.yml's two perf gates (`scripts/init_test_public_schema.sh`,
+      # the test-schema variant). The forward-only sqlx source build this step used
+      # to consume was deleted along with the `sqlx migrate run` path: it copied
+      # `migrations/` into `artifacts/` (AGENTS.md rules 2/4) and its only consumer
+      # could never apply the consolidated baseline.
+      #
+      # Keep the rationale outside `run:` — `every_ci_db_migrate_call_supplies_an_explicit_target`
+      # (tests/unit/migration_consistency_tests.rs) requires `DATABASE_URL:` within
+      # 15 lines above the call, so a long in-`run` comment silently breaks H-14.
       - name: Apply consolidated migration chain
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
         run: |
-          sqlx database create
-          sqlx migrate run --source artifacts/sqlx-migrations
+          bash docker/db_migrate.sh migrate
 
       - name: Validate schema after migration
         env:
@@ -228,24 +237,27 @@ jobs:
           # migration copy in another shipped directory is a duplicate. The old
           # check ran `basename | sort | uniq -d` over `migrations/` alone, where
           # filenames are unique by construction — structurally always empty
-          # (sweep A11.2). Scanning *across* source directories can actually fail.
+          # (sweep A11.2). It then scanned `artifacts/sqlx-migrations*`, generated
+          # build outputs that were deleted together with the `sqlx migrate run`
+          # path (2026-09-20), so the scan went empty a second time. Enumerate
+          # every `*.sql` in the working tree instead: a reintroduced copy (e.g.
+          # `docker/deploy/migrations/`) collides by basename and fails the job.
           sources=()
-          for dir in migrations artifacts/sqlx-migrations artifacts/sqlx-migrations-*; do
-            [ -d "$dir" ] || continue
-            sources+=("$dir")
-          done
-          echo "Migration source directories: ${sources[*]}"
+          while IFS= read -r f; do
+            sources+=("$f")
+          done < <(
+            find . \( -name .git -o -name target -o -name node_modules -o -name artifacts \) -prune -o \
+              -type f -name '*.sql' -print | sed 's|^\./||' | sort
+          )
+          echo "Migration source directories: $(printf '%s\n' "${sources[@]}" | xargs -n1 dirname | sort -u | tr '\n' ' ')"
 
           duplicates=$(
-            for dir in "${sources[@]}"; do
-              for f in "$dir"/*.sql; do
-                [ -e "$f" ] || continue
-                name=$(basename "$f")
-                if [[ "$name" == *undo* || "$name" == *rollback* ]]; then
-                  continue
-                fi
-                printf '%s\t%s\n' "$name" "$f"
-              done
+            for f in "${sources[@]}"; do
+              name=$(basename "$f")
+              if [[ "$name" == *undo* || "$name" == *rollback* ]]; then
+                continue
+              fi
+              printf '%s\t%s\n' "$name" "$f"
             done | sort | awk -F'\t' '
                   { count[$1]++; where[$1] = where[$1] " " $2 }
                   END { for (n in count) if (count[n] > 1) printf "%s ->%s\n", n, where[n] }
@@ -257,7 +269,7 @@ jobs:
             echo "$duplicates"
             exit 1
           fi
-          echo "No duplicate migration scripts across ${#sources[@]} source director(ies)"
+          echo "No duplicate migration scripts across ${#sources[@]} .sql file(s)"
 
       - name: Check for missing rollback scripts
         run: |

@@ -187,8 +187,8 @@ jobs:
           DB_PASSWORD: synapse
         run: bash docker/db_migrate.sh validate
 
-  sqlx-migrate-run:
-    name: sqlx Migrate Run
+  app-shape-migrate-smoke:
+    name: App-shape migrate smoke
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -224,18 +224,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql-client
 
-      - name: Install sqlx-cli
-        run: cargo install sqlx-cli --version '^0.8' --locked --no-default-features --features postgres
-
-      - name: Build forward-only sqlx migration source
-        run: python3 scripts/build_sqlx_migration_source.py artifacts/sqlx-migrations
-
       - name: Create database and run migrations
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
         run: |
-          sqlx database create
-          sqlx migrate run --source artifacts/sqlx-migrations
+          # 单一迁移实现：`docker/db_migrate.sh`（psql 逐文件、autocommit；内部
+          # `ensure_database_exists` 负责建库，所以旧步骤里的 `sqlx database create`
+          # 没有需要保留的职责）。
+          #
+          # 旧写法 `sqlx migrate run --source artifacts/sqlx-migrations` 在本仓库
+          # **必然失败**：sqlx 把每个迁移文件放进一个事务，而 consolidated baseline
+          # 含 14 处 `CREATE INDEX CONCURRENTLY`（实测 2026-09-20 CI run 35489156824：
+          # `error: while executing migration 0: error returned from database:
+          # CREATE INDEX CONCURRENTLY cannot run inside a transaction block`）。
+          # forward-only sqlx source（`scripts/build_sqlx_migration_source.py`）已
+          # 随该路径一并删除：它把 `migrations/` 复制到 `artifacts/`，与 AGENTS.md
+          # 反冗余铁律 2/4 冲突，且唯一消费者就是这个跑不通的命令。
+          bash docker/db_migrate.sh migrate
 
       # ⚠️ 下面 5 个 "storage/db smoke" 步骤原先写的是
       #   `--test unit <module>`，但那些模块**只存在于 tests/integration**，且名字带
@@ -300,7 +305,8 @@ jobs:
       # 只留注释后，**反而使整个 workflow 文件非法**：GitHub Actions 要求每个 step
       # 必须有 `run:` 或 `uses:`，否则整套 workflow 校验失败
       # （"Required property is missing: run"）—— 一个非法文件会让
-      # `sqlx-migrate-run` 里**所有**步骤（包括下方真实存在的门禁）一起不生效。
+      # `app-shape-migrate-smoke`（当时的 `sqlx-migrate-run`）里**所有**步骤
+      # （包括下方真实存在的门禁）一起不生效。
       # 即"删掉空 echo"这个正确意图，因保留 `- name:` 骨架而产生了更坏的后果。
       #
       # 这 18 个 cargo test 目标（`--test schema_contract_*_tests`）在当前树中并不

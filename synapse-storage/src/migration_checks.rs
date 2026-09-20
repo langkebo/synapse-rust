@@ -17,9 +17,8 @@
 //! [`check_migration_completeness`] must read the on-disk migration set, so it
 //! resolves the directory explicitly instead of degrading to "no migrations":
 //!
-//! 1. `SYNAPSE_MIGRATIONS_DIR` (trimmed, non-empty) — the same override
-//!    `scripts/build_sqlx_migration_source.py` honours, so the build gate and the
-//!    runtime check can be pointed at one tree.
+//! 1. `SYNAPSE_MIGRATIONS_DIR` (trimmed, non-empty) — an explicit location for
+//!    deployments that store `migrations/` outside the image layout.
 //! 2. `<CARGO_MANIFEST_DIR>/migrations`, then `<CARGO_MANIFEST_DIR>/../migrations`.
 //!    The second candidate exists because `synapse-storage` is a workspace member:
 //!    `CARGO_MANIFEST_DIR` is `synapse-storage/`, while the single source of truth
@@ -42,15 +41,14 @@ use tracing::debug;
 
 /// Environment variable that overrides the migration source directory.
 ///
-/// The name mirrors `scripts/build_sqlx_migration_source.py`, which already uses
-/// it to point the sqlx build gate at a temp tree.
+/// Read only by `discover_migration_files`; the sqlx build gate that used to
+/// share the name was deleted together with the `sqlx migrate run` path.
 const MIGRATIONS_DIR_ENV: &str = "SYNAPSE_MIGRATIONS_DIR";
 
 /// Prefix of the consolidated unified-schema baseline (`migrations/README.md`).
 ///
-/// Shared with `scripts/build_sqlx_migration_source.py`; the baseline is applied
-/// as a whole and carries no 14-digit version, so it is a recognised artifact and
-/// never a forward migration.
+/// The baseline is applied as a whole and carries no 14-digit version, so it is a
+/// recognised artifact and never a forward migration.
 const BASELINE_PREFIX: &str = "00000000_unified_schema_v";
 
 /// Prefix of the `00000001_extensions*` entry that the baseline supersedes.
