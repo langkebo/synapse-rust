@@ -1890,3 +1890,146 @@ out of shared memory"
 实测），所以该写法能否生效取决于 runner 把 options 放在镜像前还是后 ——
 **不能靠"看起来像"就提交**；替代方案是结构性降低克隆的锁压力（分批克隆）或
 降低该步骤的 `--test-threads`。三条路线都需下一轮真 CI 验证。
+
+---
+
+### 14.12 第十二轮：`benchmark.yml` 基线来源（P0-6）与 `docker build -f` 可红守卫（P0-7）
+
+本轮把 §14.10 ⑦ 待办清单里的 **P0-6 / P0-7** 收口。**P0-4 不在本节**：那 11 个
+`db_tests` 的 `out of shared memory` 由并行会话在同一工作树上按 §14.11 ④ 的
+**结构性**方案（把单条 `DO` 块的克隆切成按表分批、各自一个隐式事务）处理，
+结论归它那节，避免同一件事在两处各记一遍。
+
+#### ① P0-6 已修：`performance-comparison` 的基线必须来自 `main`
+
+`benchmark.yml::performance-comparison` 的基线下载步骤：
+
+```yaml
+# 修前
+- name: Download baseline results
+  uses: dawidd6/action-download-artifact@v3
+  if: github.event_name == 'pull_request'
+  with:
+    workflow: benchmark.yml
+    name: benchmark-results
+    path: baseline
+    check_artifacts: true
+    search_artifacts: true
+
+# 修后（只加两行 + 一段注释）
+  with:
+    workflow: benchmark.yml
+    workflow_conclusion: success
+    branch: main
+    ...
+```
+
+两个缺陷，各自独立地让这个 job 失去意义：
+
+1. **缺 `branch`。** 该 job 的 `if` 是 `github.event_name == 'pull_request'`，
+   而 `dawidd6/action-download-artifact` 在未指定 `branch` 时按**当前分支**解析
+   要读哪个 workflow run。于是它去找 PR **自己那条分支**上的 `benchmark.yml` 运行：
+   要么根本不存在 —— 此时 `if_no_artifact_found` 默认 `fail`，步骤直接失败，
+   PR 因一个与它无关的原因变红；要么存在 —— 那就是 PR 自己那次运行，
+   于是 `diff baseline/benchmark.txt current/benchmark.txt` 变成**自己跟自己比**，
+   永远打印"无差异"。基线只能是 `main` 上的成功运行，所以 `branch: main` 不是
+   可选优化而是正确性前提。
+2. **`workflow_conclusion` 只靠默认值。** 默认是 `success`，但默认值不写在文件里
+   就无法审计：一旦有人为了"能拿到基线"把它放宽成 `''`/`failure`，基线会变成
+   一次**失败运行**的产物 —— 而 `benchmark` job 失败时会在
+   `Store benchmark results` 之前中止，产物里的 `benchmark.txt` 是截断或空的。
+   显式写 `success` 把这条要求从"继承来的"变成"写下来的"。
+
+顺带核对：`refs/tags/v3` 在 `dawidd6/action-download-artifact` 上**确实存在**
+（`gh api repos/dawidd6/action-download-artifact/git/refs/tags` 列出 `v3`、`v3.1.4`、
+…、`v24`）——与 `hadolint/hadolint-action@v3` 那次"浮动 tag 根本不存在、整个 job
+一个 step 都不跑"的缺陷**不同型**，这里不是同一个坑。
+
+**真 CI 结论待下一轮**：本改动要等下一次 push 后、在某个 PR 上首次拿到 `main`
+基线才能验证（本轮无法触发）。这是 §14.10 ⑦ 待办的直接延续，登记为残留而非已完成。
+
+#### ② P0-7 已修：`docker build` 必须传 `-f`，守卫自证能变红
+
+**缺陷回顾**（`f58cc519` 已修行为，本轮补守卫）：`docker-security-scan.yml` 的
+`Build image for scan` 是 `docker build … .`，构建上下文是**仓库根**，而 Dockerfile
+在 `docker/` 下。不给 `-f` 时 docker 找 `./Dockerfile`，实测 main run **35497543078**
+在 5 秒内死掉：
+
+```text
+failed to read dockerfile: open Dockerfile: no such file or directory
+```
+
+于是 `trivy-results.sarif` 从未产出、其后的 SARIF 上传再报 `Path does not exist`
+—— **镜像根本没被扫描**，而 job 看上去只是"坏了"。全仓其余 5 处调用点
+（`Makefile`、`build-and-push.sh`、`docker/deploy/deploy.sh`、
+`docker/docker-compose.yml`、`scripts/ci/run_complement_tests.sh`）都显式给了路径，
+workflow 是唯一的漏网处。
+
+**守卫落点**：`tests/unit/workflow_pipefail_tests.rs` 新增 **Guard 3**
+（`every_workflow_docker_build_names_its_dockerfile`）。放在这个文件而不是新开文件，
+因为该文件已经是"workflow YAML 陷阱"守卫的落点（Guard 1 = `| tee` 必须有
+`pipefail`，Guard 2 = 折叠 `run: >` 不得有更深缩进的续行）；同一职责只留一份实现
+（AGENTS.md 铁律 2）。文件头注释已改为列出三条 Guard。
+
+**门禁确实会跑到它**：`ci.yml:432`
+`cargo nextest run --test unit --features test-utils --locked --test-threads 4`
+编译并运行 `tests/unit/mod.rs`，其中 `mod workflow_pipefail_tests;`（`mod.rs:123`）。
+
+**机制**（不靠"看起来对"）：
+
+| 环节 | 做法 |
+|---|---|
+| 折叠续行 | `logical_commands()` 把 `\` 续行折成一条逻辑命令 —— 真实那处跨 6 行，逐行扫既看不到动词也看不到 `-f` |
+| 去注释 | `strip_comment()` 只在行首/空白后认 `#`，所以解释性注释里出现的 `docker build` 不会误报 |
+| 认动词 | `is_docker_build()` 要求 `docker` 位于命令开头或紧跟 `&&`/`\|\|`/`;`/`\|`/`!`/`sudo`/`command`/`exec`/`time`，故 `echo docker build .`、`docker compose build`、`docker image inspect` 都不误报 |
+| 认豁免 | `names_the_dockerfile()` 接受 `-f <path>`、`--file <path>`、`--file=<path>`、`-f=<path>` |
+| 防空扫 | 断言 `inspected >= 1`（已知集合 = 1 处），消息里写明"若该步骤确已移除，请**有意识地**下调这个下限" |
+
+**红/绿双向证明**（铁律 8）：
+
+- **绿**：`cargo test --features test-utils --test unit workflow_pipefail` → **4 passed**。
+- **红**：把真实那处的 `-f docker/Dockerfile \` 一行删掉后重跑 → **FAILED**，且失败
+  消息打印出精确位置与**折行后**的完整命令：
+
+```text
+  .../docker-security-scan.yml:106 — docker build --target tools --build-arg
+  CARGO_FEATURE_ARGS="--features core-private-chat,... --no-default-features"
+  -t synapse-rust:scan .
+```
+
+  注意报的行号是 **106**（命令首行），不是 `-f` 原本所在行 —— 说明折叠逻辑按
+  预期工作。恢复该行后重新变绿，`git diff .github/workflows/docker-security-scan.yml`
+  为空（改动完全还原，未留下痕迹）。
+
+#### ③ 顺带闭合 §14.10 ⑥ 的遗留：Trivy 在**真 CI** 上已绿
+
+§14.10 ⑦ 当时写"能否清干净只有真 CI 能证"，§14.11 ① 用本地 Trivy 实测闭合到
+3 → 0。本轮补上真 CI 侧：
+
+| run | commit | Trivy Image Scan |
+|---|---|---|
+| 35500545895 | `60715bcf` | **failure**（3 个 HIGH） |
+| 35502174869 | `dd61537a` | **success** |
+| 35503161336 | `50cba8c2` | **success**（09:52:00 → 10:02:42，10m42s） |
+
+同一 workflow 的 `Digest Pin Integrity` 与 `Dockerfile Lint` 两个 job 在
+35503161336 上也都 `success`。该步骤的判据未改（`severity: HIGH,CRITICAL`、
+`exit-code: '1'`、`ignore-unfixed: true`），所以 `success` 就是"无阻断性
+HIGH/CRITICAL"的直接证据 —— §14.10 ⑥/⑦ 的 CVE 议题**双向闭合**（本地 + 真 CI）。
+
+#### ④ 本轮本地门禁
+
+| 门禁 | 结果 |
+|---|---|
+| `./scripts/check_fmt_ratchet.sh` | `fmt debt: current=0 baseline=0` → OK |
+| `cargo clippy --features test-utils --test unit -- -D warnings` | 通过（无 warning） |
+| `cargo test --features test-utils --test unit workflow_pipefail` | 4 passed |
+| benchmark.yml 相关守卫（`pagination_gate_tests` / `pagination_db_gate_tests` / `sqlx_ratio_gate_tests`） | 18+4+10 passed，0 failed |
+| YAML 解析（`yaml.safe_load`：benchmark / docker-security-scan / ci） | 3/3 OK |
+
+#### ⑤ 本轮残留
+
+- **P0-4**：由并行会话处理（见本节开头）。
+- **P0-6 的真 CI 结论**：需下一次 push 后在 PR 上验证，见 ①。
+- **`pr-benchmark-gate`**：§14.8 ① 的基线铸造已解决"找不到产物"，其真结论仍待
+  下一轮 push 后回填。

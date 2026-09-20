@@ -362,11 +362,27 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # The baseline MUST come from `main`, not from the branch this PR is on.
+      # `dawidd6/action-download-artifact` resolves the workflow run to read from
+      # the *current* branch unless `branch` is given, and this job only runs on
+      # `pull_request` — so the unqualified form looked for a `benchmark.yml` run
+      # on the PR's own head branch. That is either absent (the action then fails
+      # the step, because `if_no_artifact_found` defaults to `fail`) or, worse,
+      # the PR's own run, which makes the comparison diff a run against itself
+      # and always print "no difference".
+      #
+      # `workflow_conclusion` is spelled out rather than left implicit: its
+      # default is `success`, and a baseline from a failed or cancelled run would
+      # compare against a truncated `benchmark.txt` (the job that uploads it
+      # aborts before `Store benchmark results` on failure). Naming the value
+      # makes the requirement auditable instead of inherited.
       - name: Download baseline results
         uses: dawidd6/action-download-artifact@v3
         if: github.event_name == 'pull_request'
         with:
           workflow: benchmark.yml
+          workflow_conclusion: success
+          branch: main
           name: benchmark-results
           path: baseline
           check_artifacts: true

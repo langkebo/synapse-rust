@@ -1,4 +1,16 @@
-//! Guard: a workflow `run:` block that pipes into `tee` must enable `pipefail`.
+//! Guards for `.github/workflows/*.yml` footguns that make a CI step report
+//! success — or a misleading failure — while the work it claims to do did not
+//! happen at all.
+//!
+//! * **Guard 1** — a `run:` block that pipes into `tee` must enable `pipefail`.
+//! * **Guard 2** — a folded `run: >` scalar must not use deeper-indented
+//!   continuation lines (YAML keeps a line break there, so one intended command
+//!   becomes several shell commands).
+//! * **Guard 3** — every `docker build` in a workflow must name its Dockerfile
+//!   with `-f` / `--file`.
+//!
+//! Guard 1's rationale follows; Guards 2 and 3 document themselves at their
+//! sections.
 //!
 //! ## Why this file exists
 //!
@@ -291,5 +303,214 @@ fn no_folded_run_scalar_uses_deeper_indented_continuation_lines() {
          line break and the shell runs them as separate commands (a feature-less `cargo test` \
          was how run 35494142003 failed with E0432):\n  {}",
         real.join("\n  ")
+    );
+}
+
+// =============================================================================
+// Guard 3: every `docker build` in a workflow must pass `-f`/`--file`.
+// =============================================================================
+//
+// `docker build` defaults to `<context>/Dockerfile`. In this repo the build
+// context is the **repository root** — the Dockerfile's `COPY Cargo.toml
+// Cargo.lock ./` and friends are root-relative — while the Dockerfile itself
+// lives in `docker/`. A bare `docker build … .` therefore looks for
+// `./Dockerfile`, which does not exist.
+//
+// Measured on `main` (run 35497543078): the Trivy step in
+// `docker-security-scan.yml` died within 5 s with
+// `failed to read dockerfile: open Dockerfile: no such file or directory`, so
+// `trivy-results.sarif` was never produced and the SARIF upload that follows
+// then reported `Path does not exist`. The image was never scanned, and the job
+// looked *broken* rather than *unscanned*.
+//
+// Every other call site in the repo already passes an explicit path
+// (`Makefile`, `build-and-push.sh`, `docker/deploy/deploy.sh`,
+// `docker/docker-compose.yml`, `scripts/ci/run_complement_tests.sh`); the
+// workflow was the only one that did not. Fixing it once is not enough — the
+// next `docker build` added to a workflow reintroduces the same silent
+// unscanned-image failure, so this guard makes the fix self-proving.
+
+/// Drops a trailing `# …` comment.
+///
+/// A `#` only starts a comment at the start of a line or after whitespace;
+/// inside a word (`--build-arg FOO=a#b`) it is part of the argument. The
+/// repo's own explanatory comments mention `docker build`, so not stripping
+/// them would flag prose.
+fn strip_comment(line: &str) -> &str {
+    let bytes = line.as_bytes();
+    for (i, b) in bytes.iter().enumerate() {
+        if *b == b'#' && (i == 0 || bytes[i - 1].is_ascii_whitespace()) {
+            return &line[..i];
+        }
+    }
+    line
+}
+
+/// Folds a `run:` block into logical commands: `\`-continued lines join into
+/// one command, comments and blank lines are dropped.
+///
+/// Joining matters here because the build command in
+/// `docker-security-scan.yml` is written across six `\`-continued lines — a
+/// per-line scan would see neither the verb nor the flags together.
+fn logical_commands(block: &[(usize, String)]) -> Vec<(usize, String)> {
+    let mut out: Vec<(usize, String)> = Vec::new();
+    let mut start: Option<usize> = None;
+    let mut acc = String::new();
+
+    for (line_no, raw) in block {
+        let code = strip_comment(raw).trim();
+        if code.is_empty() {
+            continue;
+        }
+        if start.is_none() {
+            start = Some(*line_no);
+        }
+        let continues = code.ends_with('\\');
+        let piece = code.trim_end_matches('\\').trim();
+        if !acc.is_empty() {
+            acc.push(' ');
+        }
+        acc.push_str(piece);
+        if !continues {
+            out.push((start.take().unwrap_or(*line_no), std::mem::take(&mut acc)));
+        }
+    }
+    if let Some(line_no) = start {
+        out.push((line_no, acc));
+    }
+    out
+}
+
+/// True when `command` invokes `docker build` / `docker buildx build`.
+///
+/// The `docker` word only counts as the verb when it starts the command or
+/// follows a shell operator / wrapper, so prose such as `echo docker build .`
+/// (and the explanatory comments, once stripped) is not mistaken for a build.
+fn is_docker_build(command: &str) -> bool {
+    let tokens: Vec<&str> = command.split_whitespace().collect();
+    for (i, token) in tokens.iter().enumerate() {
+        if *token != "docker" {
+            continue;
+        }
+        let preceded_by_operator = match i.checked_sub(1).and_then(|p| tokens.get(p)) {
+            None => true,
+            Some(prev) => matches!(*prev, "&&" | "||" | ";" | "|" | "!" | "sudo" | "command" | "exec" | "time"),
+        };
+        if !preceded_by_operator {
+            continue;
+        }
+        return matches!(
+            (tokens.get(i + 1), tokens.get(i + 2)),
+            (Some(&"build"), _) | (Some(&"buildx"), Some(&"build"))
+        );
+    }
+    false
+}
+
+/// True when the command names the Dockerfile explicitly.
+fn names_the_dockerfile(command: &str) -> bool {
+    command
+        .split_whitespace()
+        .any(|token| token == "-f" || token == "--file" || token.starts_with("-f=") || token.starts_with("--file="))
+}
+
+#[test]
+fn every_workflow_docker_build_names_its_dockerfile() {
+    // Mechanism self-proof first. The real tree holds exactly one such command,
+    // so a scan-only assertion would be thin: these fixtures pin both the
+    // detection and the exemption, and they fail if `is_docker_build` /
+    // `names_the_dockerfile` stop discriminating.
+    assert!(
+        is_docker_build("docker build -t x ."),
+        "a bare `docker build` with the default Dockerfile path must be detected"
+    );
+    assert!(
+        !names_the_dockerfile("docker build -t x ."),
+        "a bare `docker build` must be reported as naming no Dockerfile"
+    );
+    for ok in [
+        "docker build -f docker/Dockerfile -t x .",
+        "docker build --file docker/Dockerfile -t x .",
+        "docker build --file=docker/Dockerfile -t x .",
+        "docker build -f=docker/Dockerfile -t x .",
+        "docker buildx build -f docker/Dockerfile --push .",
+        "sudo docker build -f docker/Dockerfile .",
+        "cd repo && docker build -f docker/Dockerfile .",
+    ] {
+        assert!(is_docker_build(ok), "`{ok}` invokes a docker build and must be detected");
+        assert!(names_the_dockerfile(ok), "`{ok}` names its Dockerfile and must not be flagged");
+    }
+    assert!(
+        is_docker_build("docker buildx build --push ."),
+        "`docker buildx build` shares the Dockerfile-path default and must be detected too"
+    );
+    for not_a_build in ["docker compose build", "docker image inspect x", "echo docker build ."] {
+        assert!(
+            !is_docker_build(not_a_build),
+            "`{not_a_build}` does not invoke a docker build and must not be flagged"
+        );
+    }
+
+    // Line continuation folding: the real step spans six `\`-continued lines.
+    let block = vec![
+        (100, "          docker build \\".to_string()),
+        (101, "            -f docker/Dockerfile \\".to_string()),
+        (102, "            --target tools \\".to_string()),
+        (103, "            .".to_string()),
+    ];
+    let commands = logical_commands(&block);
+    assert_eq!(commands.len(), 1, "a `\\`-continued command must fold into one logical command: {commands:?}");
+    assert_eq!(commands[0].0, 100, "the folded command must keep its first line number");
+    assert!(names_the_dockerfile(&commands[0].1), "the folded command must still carry the `-f` flag");
+
+    let unguarded = vec![(7, "          docker build -t x .".to_string())];
+    assert!(
+        logical_commands(&unguarded)
+            .iter()
+            .any(|(_, command)| is_docker_build(command) && !names_the_dockerfile(command)),
+        "a one-line unguarded build must fold and be flagged"
+    );
+
+    // Real tree.
+    let dir = repo_root().join(".github/workflows");
+    let mut entries: Vec<PathBuf> = fs::read_dir(&dir)
+        .expect(".github/workflows must be readable")
+        .map(|entry| entry.expect("readable dir entry").path())
+        .filter(|path| matches!(path.extension().and_then(|ext| ext.to_str()), Some("yml" | "yaml")))
+        .collect();
+    entries.sort();
+    assert!(!entries.is_empty(), "no workflow files found to scan");
+
+    let mut inspected = 0usize;
+    let mut offenders: Vec<String> = Vec::new();
+    for path in entries {
+        let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path:?} must be readable: {e}"));
+        for block in run_blocks(&text) {
+            for (line_no, command) in logical_commands(&block) {
+                if !is_docker_build(&command) {
+                    continue;
+                }
+                inspected += 1;
+                if !names_the_dockerfile(&command) {
+                    offenders.push(format!("{}:{line_no} — {command}", path.display()));
+                }
+            }
+        }
+    }
+
+    assert!(
+        inspected >= 1,
+        "the scanner inspected no `docker build` in any workflow. The known set is 1 \
+         (`docker-security-scan.yml` → `Build image for scan`); if that step is genuinely gone, \
+         lower this floor deliberately rather than letting the guard pass vacuously — a scanner \
+         that matches nothing proves nothing."
+    );
+    assert!(
+        offenders.is_empty(),
+        "these workflow `docker build` commands omit `-f`/`--file`, so docker looks for \
+         `<context>/Dockerfile` (i.e. `./Dockerfile` for the repo-root context) and dies with \
+         `failed to read dockerfile` — the image is never built or scanned while the job looks \
+         merely broken (measured: main run 35497543078):\n  {}",
+        offenders.join("\n  ")
     );
 }
