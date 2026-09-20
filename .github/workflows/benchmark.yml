@@ -376,9 +376,12 @@ jobs:
       # compare against a truncated `benchmark.txt` (the job that uploads it
       # aborts before `Store benchmark results` on failure). Naming the value
       # makes the requirement auditable instead of inherited.
+      #
+      # The step carries no `if:` of its own: the job already declares
+      # `if: github.event_name == 'pull_request'`, so repeating the condition
+      # here was dead weight that also hid which level actually gates the step.
       - name: Download baseline results
         uses: dawidd6/action-download-artifact@v3
-        if: github.event_name == 'pull_request'
         with:
           workflow: benchmark.yml
           workflow_conclusion: success
@@ -405,8 +408,8 @@ jobs:
             echo "No baseline found for comparison"
           fi
 
+      # Same dead `if:` as above — the job-level condition already gates this.
       - name: Post performance comparison
-        if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
