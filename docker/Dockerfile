@@ -1,7 +1,12 @@
 ARG RUST_VERSION=1.93.0  # [DEPRECATED] 已移除实际使用，保留仅用于文档引用。当前版本由 RUST_BUILDER_IMAGE pin 管理。
 ARG RUST_BUILDER_IMAGE=rust:1.93.0-slim-bookworm@sha256:776861219cd851131c1cec3bbd7cbeb16b99a794048097eb69ad9682a8ed0d57
 ARG RUNTIME_BASE_IMAGE=gcr.io/distroless/cc-debian12@sha256:e8e7ee4b8b106d4c5fde9e422a321b2b8a2d5cca546c97adcce927f3e1d36e36
-ARG DEBIAN_BASE_IMAGE=debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818
+# 2026-09-20 升 digest 清 Trivy 的 3 个 HIGH：旧 pin（2026-07-30 的 7b140f37…）里
+# libpcre2-8-0 是 10.42-1，而 DLA-4772-1 的修复版本 10.42-1+deb12u1 已在当前官方
+# 镜像内（同批还修了 liblzma5 5.4.1-1+deb12u1 → +deb12u2）。此 digest 为 index，
+# 与旧 pin 同类。⚠️ 三处引用必须同步：docker/complement/Dockerfile、
+# .github/workflows/docker-security-scan.yml 的 digest-pin-check。
+ARG DEBIAN_BASE_IMAGE=debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
 ARG CARGO_FEATURE_ARGS="--features core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends --no-default-features"
 
 # ============================================================================

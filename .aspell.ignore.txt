@@ -34,6 +34,7 @@ ai
 aiconnection
 alertmanager
 all
+amd
 ansible
 api
 apierror
@@ -160,6 +161,7 @@ dbacp
 ddl
 deadpool
 debian
+debuerreotype
 decrypt
 dedup
 deduplicate
@@ -183,6 +185,7 @@ directoryservice
 dirs
 displayname
 distroless
+dla
 dlq
 dm
 dml
@@ -199,6 +202,7 @@ dup
 dyn
 ecdh
 echarts
+ecr
 edu
 eeroom
 eeroomcontext
@@ -353,6 +357,7 @@ lifecycleservice
 lifecycleserviceconfig
 limitexceeded
 linter
+linux
 ljf
 loc
 localcache

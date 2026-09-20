@@ -1652,14 +1652,164 @@ NO_PROXY='*' no_proxy='*' cargo test -p synapse-services --lib --all-features \
 | `content_scanner` 33 测试（`NO_PROXY='*'`） | 33 passed |
 | 铁律 8 自证（`rustfmt_all.sh` 探针） | 旧版伪造 diff / 新版报工具失败（见 ③） |
 
-#### ⑥ 仍未验证
+#### ⑥ 真 CI 回填（`60715bcf`，2026-09-20）
 
-- 第 7–9 个缺陷的修复**尚未经过真 CI**：`Trivy Image Scan` 仍会因真实的
-  HIGH/CRITICAL 以 `exit-code 1` 失败（门禁刻意不放松），因此该 job 在 CVE 被
-  处置前**会继续是红的**；本轮改动只保证 SARIF 能上传、CVE 清单可见、失败原因
-  可归因。
-- `f58cc519` 的 `Benchmark`（run 35498321534）在写作时仍在进行中。
+`60715bcf` 推 main 后触发 10 个 workflow（run id 均为 `35500545xxx`）：
+
+| workflow | run id | 结论 |
+|---|---|---|
+| Schema Drift Detection | 35500545860 | ✅ |
+| E2EE Interop (vodozemac) | 35500545849 | ✅ |
+| Docs Quality Gate | 35500545864 | ✅ |
+| **Format Governance** | 35500545862 | ✅ **缺陷 ⑧ 修复确认** |
+| Schema Health Check | 35500545861 | ✅ |
+| **DB Migration Gate** | 35500545918 | ✅ |
+| Ledger Export | 35500545819 | ✅ |
+| **Docker Security Scan** | 35500545895 | ❌ 真实 CVE（见 §14.10） |
+| **CI** | 35500545841 | ❌ 失败集已变（见下） |
+| Benchmark | 35500545839 | 🔄 写作时仍在跑 |
+
+**缺陷 ⑧ 修复确认**：`Format Governance` 从上一轮的"伪造整文件 diff"（`@@ -1,65
++0,0 @@`）变为 ✅，说明 `rustfmt_all.sh` 的退出码校验与 workflow 显式装 `rust-src`
+两条改动都生效，而不是又一轮假绿。
+
+**缺陷 ⑦ 修复确认**：`Docker Security Scan` 的 `trivy-sarif` artifact 可下载
+（`gh run download 35500545895 -R langkebo/synapse-rust` → 21996 字节），说明
+`security-events: write` 与 artifact 上传都已生效。该 job 仍是红的，但原因现在
+**可归因**：不再是权限缺失，而是真实 CVE。
+
+**CI 的失败集已变**：`content_scanner`（缺陷 ⑨）已从失败列表中消失，取而代之的是
+11 个 `db_tests` 形态的测试：
+
+```text
+test admin_federation::db_tests::test_get_destination_status_not_found ... FAILED
+test admin_federation::db_tests::test_get_federation_cache ... FAILED
+test captcha::db_tests::test_get_template_returns_enabled_template ... FAILED
+（captcha::db_tests 共 5 个）
+test media::tests::media_fixture_keeps_its_isolated_schema_for_the_whole_test ... FAILED
+（media::tests 共 4 个）
+```
+
+形态为 `test result: FAILED. 0 passed; 1 failed; … 1758 filtered out`。这些全部是
+`db_tests` 模块，**疑似该步骤缺数据库环境**（`--workspace --lib` 步骤未配 DB URL），
+而非业务逻辑缺陷。**尚未诊断**，记入 §14.10 ⑦。
+
+#### ⑦ 仍未验证
+
+- `60715bcf` 的 `Benchmark`（run 35500545839）在写作时仍在进行中。
 - `benches/performance_membership_benchmarks.rs` 的"整文件删空"已在本地证伪（③），
-  但**下一轮 Format Governance 的绿**只有真跑能确认 —— 若 rustup 的 `rust-src`
-  冲突在 runner 镜像侧复现，该 job 现在会在 `Install Rust toolchain` 步骤**明确**
-  失败，而不是伪造一个格式 diff。
+  且下一轮 Format Governance 已真跑转绿（⑥），该疑点关闭。
+
+---
+
+### 14.10 第十一轮：Trivy CVE 裁定与基础镜像 digest 升级
+
+`60715bcf` 的 `Docker Security Scan`（run 35500545895）虽已能上传 SARIF，job 本身
+仍是红的 —— 这是**真实 CVE**，不是门禁故障。按用户要求**先裁定、后处置**。
+
+#### ① 裁定：升级基础镜像 digest
+
+**结论：升级**（不评估豁免、不调门禁、不放松 `exit-code`）。依据见 ②–⑤。
+
+#### ② findings 全貌：8 条，全部来自 `debian:bookworm-slim`
+
+Trivy 只扫 `--target tools`（见 `.github/workflows/docker-security-scan.yml` 的
+`Build image for scan` 步骤），该 target 的 base 是 `DEBIAN_BASE_IMAGE`。从
+`trivy-sarif` artifact 解析（`gh run download 35500545895 -R langkebo/synapse-rust`）：
+
+| 包 | 已装版本 | 漏洞 | 严重度 | 修复版本 |
+|---|---|---|---|---|
+| `libpcre2-8-0` | `10.42-1` | CVE-2026-86145 | **HIGH** | `10.42-1+deb12u1` |
+| `libpcre2-8-0` | `10.42-1` | CVE-2026-89157 | **HIGH** | `10.42-1+deb12u1` |
+| `libpcre2-8-0` | `10.42-1` | CVE-2026-89161 | **HIGH** | `10.42-1+deb12u1` |
+| `libpcre2-8-0` | `10.42-1` | CVE-2026-89156 / 89158 / 89160 | MEDIUM ×3 | `10.42-1+deb12u1` |
+| `liblzma5` | `5.4.1-1+deb12u1` | DLA-4783-1 | UNKNOWN | `5.4.1-1+deb12u2` |
+| `liblzma5` | `5.4.1-1+deb12u1` | TEMP-1147318-639065 | UNKNOWN | 无 |
+
+`exit-code: 1` **只由那 3 个 HIGH 触发**。三者都有可安装修复版本，因此
+`ignore-unfixed: true` 救不了它们 —— 这正是"有修复却不升"的情形，豁免无正当性。
+
+#### ③ DLA-4772-1 确认修复版本确实存在
+
+`https://security-tracker.debian.org/tracker/DLA-4772-1` 原文：
+
+```text
+pcre2 | bookworm            | 10.42-1           | vulnerable
+pcre2 | bookworm (security) | 10.42-1+deb12u1   | fixed
+Fixed Version: 10.42-1+deb12u1
+References: CVE-2026-86145, CVE-2026-89156, CVE-2026-89157,
+            CVE-2026-89158, CVE-2026-89160, CVE-2026-89161
+```
+
+这 6 个 CVE 与 ② 里 Trivy 报的 `libpcre2-8-0` findings 完全对上。
+
+#### ④ 决定性证据：当前官方镜像已带修复
+
+取 `debuerreotype/docker-debian-artifacts@dist-amd64` 的 `bookworm/slim/rootfs.manifest`
+（与当前 digest **同一次构建**，`rootfs.debuerreotype-epoch` = `1789689600` =
+**2026-09-18 00:00:00Z**）：
+
+```text
+libpcre2-8-0:amd64   10.42-1+deb12u1   ← 我们 pin 的镜像是 10.42-1
+liblzma5:amd64       5.4.1-1+deb12u2   ← 我们 pin 的是 5.4.1-1+deb12u1
+```
+
+**pin 陈旧性**：该 digest 由 `1312657b`（**2026-07-30**）引入，至今未变；
+实测旧 pin `7b140f37…` 与当前 index `3783cc01…` **不同**，且旧 pin 也是 index 类型
+（非 amd64 manifest），与 ② 里 `10.42-1` 的观测一致。
+
+**digest 解析路径**：本机到 `registry-1.docker.io` / `auth.docker.io` 均不可达
+（`HTTP=000`），故改用 **ECR Public**（`public.ecr.aws/docker/library/debian`，
+Docker Hub 官方镜像的等价镜像）。其 amd64 digest 与 debuerreotype 的
+`bookworm/slim/oci/index.json` **逐字一致**：
+
+| | digest |
+|---|---|
+| 当前 index（已替换为） | `sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251` |
+| 当前 linux/amd64 manifest | `sha256:f3034a6ec3c1205360777c4aae76234998866ad18806ae62b63a3f84ccad782b` |
+| 旧 pin index → amd64 | `sha256:63a496b5d3b99…`（陈旧） |
+
+#### ⑤ 为什么是「升 digest」而不是其它四种方案
+
+| 方案 | 判定 | 理由 |
+|---|---|---|
+| **升 digest** | ✅ 采用 | 最小改动；保持仓库"digest 钉死、构建可复现"的既有哲学 |
+| `tools` 阶段加 `apt-get upgrade` | ❌ | 构建结果随运行日期漂移，与「门禁结论不应随运行日期变化」直接冲突 |
+| pin `libpcre2-8-0=10.42-1+deb12u1` | ❌ | 该版本被 `deb12u2` 取代后 apt 找不到，构建硬失败 |
+| 评估豁免 / 调 `severity` | ❌ | 3 个 HIGH 均有修复版本，豁免无正当性 |
+| 换 base（改用 distroless 做 tools） | ❌ | `tools` 需要 shell + `psql` + `curl` + `tini`，distroless 不满足 |
+
+#### ⑥ 执行：3 处引用同步
+
+digest 在仓库中被引用 **3 处**，漏改任一都会让 `Digest Pin Integrity` job 红：
+
+| 文件 | 位置 | 角色 |
+|---|---|---|
+| `docker/Dockerfile` | `DEBIAN_BASE_IMAGE` | 构建 `runtime-libs` 与 `tools` |
+| `docker/complement/Dockerfile` | `DEBIAN_BASE_IMAGE` | Complement 镜像，必须与主 Dockerfile 同名 ARG 一致 |
+| `.github/workflows/docker-security-scan.yml` | `digest-pin-check` 的校验列表 | `docker pull <img>@<digest>` 复核 pin 有效 |
+
+改后全仓 grep：旧 digest 零残留，新 digest 恰好 3 处。
+
+#### ⑦ 诚实边界与待办
+
+**三条边界（不提前宣称通过）：**
+
+1. **能否清干净只有真 CI 的 Trivy 能证**。本轮本地只证明了「新镜像的包清单含修复
+   版本」，不等于「Trivy 报 0 findings」—— 本地无法 pull/扫描（registry 被墙）。
+2. `3783cc01…` 由 **ECR Public** 解析。ECR 镜像官方镜像且保 digest，但本地无法对
+   Docker Hub 复核；`Digest Pin Integrity` 的 `docker pull` 会在 CI 里做这个复核。
+   若该 digest 在 Docker Hub 上不存在，该 job 会明确失败并指出是哪个 pin。
+3. Trivy 只扫 `--target tools`。`runtime-distroless`（`RUNTIME_BASE_IMAGE`）与
+   `rust:1.93.0-slim-bookworm`（`RUST_BUILDER_IMAGE`）这两个 pin **从未被扫过**
+   —— 这是独立缺口，不在本次裁定范围内。
+
+**待办（本轮未做）：**
+
+- **诊断 CI 的 11 个 `db_tests` 失败**（§14.9 ⑥）：`admin_federation::db_tests` 2 个、
+  `captcha::db_tests` 5 个、`media::tests` 4 个，在 `--workspace --lib` 步骤失败，
+  疑似该步骤缺 DB 环境。
+- **补齐另外两个 base 的扫描面**（边界 3）。
+- **`benchmark.yml` 的 `performance-comparison`**：`dawidd6` 仍用默认
+  `workflow_conclusion: success` 且未指定 `branch`（仅记录，未获授权改动）。
+- **`docker build` 必须传 `-f` 的可红守卫**（仅记录，未获授权）。
