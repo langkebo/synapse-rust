@@ -22,6 +22,16 @@
 //! - **批量查询**：用 `ANY($1)` 或 `unnest` 一次往返而不是 N 次 (先前 C-4 优化)。
 //! - **迁移完整性**：通过 [`crate::migration_checks`] 验证 `_sqlx_migrations` 表
 //!   与 migrations 目录的一致性。
+//! - **迁移源解析（B10，fail closed）**：迁移目录按 `SYNAPSE_MIGRATIONS_DIR`
+//!   （trimmed 非空）→ `<CARGO_MANIFEST_DIR>/migrations` /
+//!   `<CARGO_MANIFEST_DIR>/../migrations` → 进程 CWD 的 `./migrations` 顺序解析。
+//!   解析失败、目录不可读、`.sql` 条目不可读或名字不可分类时，
+//!   [`crate::migration_checks::check_migration_completeness`] 返回 `Err`，本函数
+//!   随即以 `?` 传播（与缺失表/字段检查同型），启动调用方
+//!   （`src/server/database.rs`）把该错误视为致命。**没有**额外的"跳过迁移源"
+//!   变量：正常镜像把 `migrations/` 复制到 `/app/migrations` 且 `WORKDIR /app`，
+//!   部署到别处请把 `SYNAPSE_MIGRATIONS_DIR` 指向真实目录（这是显式定位，不是
+//!   绕过）；应急逃生舱仍是 `SYNAPSE_SKIP_SCHEMA_CHECK`。
 //! - **Drift 警告**：实际基础表（`table_type = 'BASE TABLE'`，排除视图）数量与
 //!   baseline 期望差距过大时发警告。
 
@@ -252,6 +262,11 @@ impl Default for HealthCheckResult {
 ///
 /// # Returns
 /// * `HealthCheckResult` - 健康检查结果
+///
+/// # Errors
+/// 返回 `Err(sqlx::Error)` 有两种情形，调用方（启动路径）都把二者视为致命：
+/// 数据库查询失败，或磁盘上的迁移源无法解析/读取（B10 fail closed，见
+/// [`crate::migration_checks`]）。迁移源不可用**不会**退化成"空的 missing 集合"。
 pub async fn run_schema_health_check(
     pool: &Pool<Postgres>,
     auto_repair: bool,
@@ -294,21 +309,17 @@ pub async fn run_schema_health_check(
     result.warnings.append(&mut naming_issues);
 
     // 5. DB-02 新增：迁移完整性检查
-    match check_migration_completeness(pool).await {
-        Ok((applied, missing)) => {
-            result.applied_migration_count = applied;
-            result.missing_migrations = missing.clone();
-            if !missing.is_empty() {
-                result.passed = false;
-                let preview_count = missing.len().min(10);
-                error!(missing_count = missing.len(), "Missing sqlx migrations: {:?}", &missing[..preview_count]);
-            }
-        }
-        Err(e) => {
-            let msg = format!("Could not check _sqlx_migrations table: {e}");
-            error!("{}", msg);
-            result.warnings.push(msg);
-        }
+    //
+    // B10 fail closed：迁移*源*不可解析/不可读时这里返回 Err，并以 `?` 传播出去，
+    // 与上面的缺表/缺字段检查同型 —— 启动调用方把 `run_schema_health_check` 的 Err
+    // 视为致命。刻意不再把它降级成 warning + 空 `missing`（那样检查是死的）。
+    let (applied, missing) = check_migration_completeness(pool).await?;
+    result.applied_migration_count = applied;
+    result.missing_migrations = missing.clone();
+    if !missing.is_empty() {
+        result.passed = false;
+        let preview_count = missing.len().min(10);
+        error!(missing_count = missing.len(), "Missing sqlx migrations: {:?}", &missing[..preview_count]);
     }
 
     // 6. DB-02 新增：Drift 警告
