@@ -1198,3 +1198,34 @@ workflow 的 soak / gh-pages job 失败"的 run 一并排除，即使 `benchmark
 （`fcd26843` 第 248-249 行）的基线下载仍是 action 默认 `success` 且无 `branch`。
 它只在 `pull_request` 上运行，**不影响 main 铸造基线**，但在 PR 上会与 ④ 修好前的
 `pr-benchmark-gate` 同型失败。
+
+### 14.6 推送 `faa306cf` 后的首轮实测（push 触发 9 个 workflow）
+
+`main` 从 `fcd26843` 推到 `faa306cf`（70 个 commit）。基线铸造本身仍在进行中
+（`Benchmark` 的 `Run benchmarks` job 约 50 分钟），但 §14.2 的修复已在真 CI 上可确认：
+
+| workflow / job | 结论 |
+|---|---|
+| Benchmark / `Run benchmarks` | 🔄 进行中 —— step 序列里已无 `benchmark-action`，`Store benchmark results` 变成 step 10 |
+| Benchmark / `Sliding sync perf gate` | 🔄 进行中 —— **step 7 `Prepare benchmark database schema` 已通过**（此前必失败），真门禁 step 7 正在跑 |
+| Benchmark / `Pagination perf gate (DB-backed)` | 🔄 进行中 |
+| Benchmark / soak、manual | ⏭ skipped（push 事件按设计排除，见 ⑤） |
+| Docker Security Scan | ❌ —— 见下 |
+| Schema Drift Detection / DB Migration Gate / E2EE Interop / Schema Health Check / Format Governance / Ledger Export / Docs Quality Gate / CI | 🔄 进行中 |
+
+**Docker Security Scan 的首次真跑 = P0-6 的剩余一半**：workflow 文件已合法 ——
+不再 `startup_failure` 0 job，run 里能看到 `Digest Pin Integrity` ✅、
+`Dockerfile Lint` ❌、`Trivy Image Scan` ⏭（`needs: hadolint`）。但
+`Dockerfile Lint` 在 **step 1 `Set up job`** 就失败，一个 step 都没跑：
+
+```
+##[error]Unable to resolve action `hadolint/hadolint-action@v3`, unable to find version `v3`
+```
+
+`hadolint/hadolint-action` 只有 `v3.0.0` … `v3.5.0` 这类完整版本 tag，
+**没有浮动的 `v3` tag**（`gh api repos/hadolint/hadolint-action/git/ref/tags/v3` → 404）。
+由于该 workflow 此前从未执行过任何 step（§14.1），这个错误也从未暴露 —— 与
+§14.2 第 8 条修掉的"文件非法"是两个独立缺陷。已钉到 `@v3.5.0`（与
+`format-governance.yml` 钉 `ruff==0.16.8` 同一判据：门禁结论不应随运行日期变化），
+并断言 `with:` 仍保有 `dockerfile` / `ignore` 两个子键（`ignore` 在 v3.5.0 的
+`action.yml` 里确认是 "A comma separated string"，故 §14.2 第 8 条的写法成立）。

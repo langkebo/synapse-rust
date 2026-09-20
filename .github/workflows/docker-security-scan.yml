@@ -35,8 +35,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # ⚠️ `@v3` 不存在：该仓库只有 `v3.0.0` … `v3.5.0` 这类完整版本 tag，
+      # 没有浮动的 `v3` tag（`gh api .../git/ref/tags/v3` → 404）。写成 `@v3`
+      # 时 GitHub 在 **Set up job** 阶段就报
+      #   Unable to resolve action `hadolint/hadolint-action@v3`,
+      #   unable to find version `v3`
+      # 整个 job 一个 step 都不跑（2026-09-20 push run 35493936815 实测）。
+      # 这里钉到完整版本，而不是补一个浮动 tag —— 与 format-governance.yml
+      # 钉 `ruff==0.16.8` 同一判据：门禁结论不应随运行日期变化。
       - name: Run hadolint on Dockerfile
-        uses: hadolint/hadolint-action@v3
+        uses: hadolint/hadolint-action@v3.5.0
         with:
           dockerfile: docker/Dockerfile
           # ⚠️ `ignore` must be a **comma-separated string**, not a YAML list.
