@@ -1,7 +1,7 @@
 //! Schema isolation for test pools.
 //!
 //! Storage's entry point to the shared per-test isolated pool. The pool
-//! lifecycle (struct, construction, `Drop` cleanup) lives in
+//! lifecycle (struct, construction, janitor-registered cleanup) lives in
 //! [`synapse_common::test_isolation::IsolatedTestPool`] because that module is
 //! compiled unconditionally and is therefore reachable from every sibling
 //! crate's `#[cfg(test)]` fixtures — a `#[cfg(test)]` module here is not.
