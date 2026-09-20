@@ -292,7 +292,7 @@ Matrix `POST /_matrix/client/v3/join/{roomIdOrAlias}` 与
 | # | 项 |
 |---|---|
 | 6 | 给 `CacheManager::get_raw()` 加 `#[deprecated]`（L1-only，易被误用为跨实例读） |
-| 7 | 清理 `RateLimitConfigAdapter` 死表面；给 `RateLimitConfig` 补 `backend`/`reload_interval_seconds` 或加 `deny_unknown_fields` | ✅ **适配器已删除**（提交 `1e237234`）；`RateLimitConfig` 补字段/`deny_unknown_fields` 仍待办 |
+| 7 | 清理 `RateLimitConfigAdapter` 死表面；给 `RateLimitConfig` 补 `backend`/`reload_interval_seconds` 或加 `deny_unknown_fields`；✅ **适配器已删除**（提交 `1e237234`）；`RateLimitConfig` 补字段/`deny_unknown_fields` 仍待办 |
 | 8 | 统一 4 套限流机制 + ad-hoc 桶的配置入口 |
 | 9 | `tests/unit/sliding_sync_perf_gate_tests.rs` 类的"镜像逻辑"测试应改为真实子进程执行（参考 `pagination_gate_tests.rs`） |
 

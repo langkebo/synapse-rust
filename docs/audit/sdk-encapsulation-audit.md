@@ -86,7 +86,7 @@
 
 | # | 模块 | 契约条目 | 缺失描述 | 修复 |
 |---|---|---|---|---|
-| A1 | **AppService** | 25 条（`/_matrix/client/v3/appservice/alias|user`、`/_matrix/app/v1/...`、`/_synapse/admin/v1/appservices*`） | 原：`ApplicationServiceManager extends BaseManager` 存在但未 `registerManagerClass`、`matrix-client-extensions.d.ts` 无 `getAppServiceManager` getter。 | ✅ 提交 `2e192c97c`：`app-service/index.ts` 加 `extendMatrixClient()` 上浮 `getAppServiceManager()`；`manager-extensions/index.ts|types.ts` 加 `includeAppService`；`matrix-client-extensions.ts` 加 typed getter；codegen 脚本 `generate-manager-extensions.mjs` 同步。 |
+| A1 | **AppService** | 25 条（`/_matrix/client/v3/appservice/alias\|user`、`/_matrix/app/v1/...`、`/_synapse/admin/v1/appservices*`） | 原：`ApplicationServiceManager extends BaseManager` 存在但未 `registerManagerClass`、`matrix-client-extensions.d.ts` 无 `getAppServiceManager` getter。 | ✅ 提交 `2e192c97c`：`app-service/index.ts` 加 `extendMatrixClient()` 上浮 `getAppServiceManager()`；`manager-extensions/index.ts\|types.ts` 加 `includeAppService`；`matrix-client-extensions.ts` 加 typed getter；codegen 脚本 `generate-manager-extensions.mjs` 同步。 |
 
 > 优先级评估：appservice 路由多为 server↔appservice 进程间回调（`/_matrix/app/v1/...`）、普通客户端很少调用，
 > 但 `appservice/alias`、`appservice/user` 查询确有客户端用途，补齐 getter 消除真缺口。
@@ -608,4 +608,3 @@
 7. Tjg 线程测试修正 6 例 stale mock（改为 SDK snake_case 原生形状，验证 API 层 camelCase 映射）；`MatrixThreadApi/Service/threadUtils` 测试 98/98 通过；`vue-tsc --noEmit` EXIT=0。
 8. **S-14 裸调用彻底收口（2026-09-11）**：Tjg `UserService.activateUser()` 由裸 `authedRequestWithPath` 改为 `admin.activateUser(userId)`（SDK `AdminUserManager` 同 v2 PUT 路由），并移除 `authedRequestWithPath` 相关 import；经 `vue-tsc --noEmit` 验证 EXIT=0。至此全仓检索 `_synapse` admin 域已无裸调点。
 9. **Q-1 复核确认已落地**：`client.manager(name)` 类型安全访问器（`client-infra/manager-accessor.ts`）配 `ManagerName`/`ManagerTypeMap`（`manager-registry.ts`）；核心 Manager（admin/auth/dm/friend/presence/threading/media/profile/account/serverCapabilities）均在各自 `extendMatrixClient()` 内 `registerManagerClass()`；`spec/unit/manager-accessor.spec.ts` 7/7 通过。
-

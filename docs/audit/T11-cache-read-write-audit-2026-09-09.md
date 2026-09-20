@@ -50,7 +50,7 @@ if self.cache.get_raw(&revocation_ok_key).is_none() { // ← L1 only read
 }
 ```
 
-**风险**: 
+**风险**:
 - Instance A 完成撤销检查后 `set_raw` 写入 L1+A, Redis
 - Instance B 新的请求 `get_raw` 时 L1 为空 → 误判为"未缓存" → 再次查询 DB
 - 这不是数据不正确，但会增加 DB 负载
@@ -83,7 +83,7 @@ if let Some(marker_val) = self.cache.get_raw(&logout_marker) { // ← L1 only re
 
 ---
 
-#### 2. auth/session.rs 
+#### 2. auth/session.rs
 
 **风险点**: Line 104
 ```rust
@@ -190,7 +190,7 @@ if self.cache.get_raw_shared(&revocation_ok_key).await.is_none() {
 | auth/token.rs revocation_ok_key | ✅ **已修复** (性能优化) |
 | auth/session.rs | ✅ 写入方正确 (L1+Redis) |
 
-**总计**: 
+**总计**:
 - 发现 2 个违规项
 - **全部已修复**
 - 4 个 S4 测试验证通过

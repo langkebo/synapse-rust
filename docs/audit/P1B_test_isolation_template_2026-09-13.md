@@ -66,7 +66,7 @@ CREATE INDEX + 45 ALTER TABLE + 函数/视图/触发器），逐语句一个往�
 | `synapse-storage --lib` @threads=4 | **1760 passed / 0 failed** |
 | `captcha::db_tests` | 33 passed / 0 failed |
 | `worker::db_tests`（依赖 `active_workers` 视图） | 41 passed / 0 failed |
-| `user|openid_token|media_quota|cas::db_tests` | 113 passed / 0 failed |
+| `user\|openid_token\|media_quota\|cas::db_tests` | 113 passed / 0 failed |
 
 改动前同命令：`1760 run: 1758 passed, 2 failed`（`captcha::db_tests` 两个用例
 `Io(Os { code: 60, kind: TimedOut })`）。

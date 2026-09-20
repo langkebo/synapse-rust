@@ -354,12 +354,12 @@ expose `Bencher::throughput` on the parameterised path"）。因此：
 
 **修复（本次）**：
 
-* `benchmark.yml` 新增 `sliding-sync-perf-gate` job：起 Postgres service、
+- `benchmark.yml` 新增 `sliding-sync-perf-gate` job：起 Postgres service、
   应用迁移、以 `SLIDING_SYNC_PERF_GATE_STRICT=1` 运行脚本。
-* 脚本原先用 `pg_isready` 做预检，而它属于 `postgresql-client`、GitHub runner
+- 脚本原先用 `pg_isready` 做预检，而它属于 `postgresql-client`、GitHub runner
   上**未必存在**，会让门禁永久"数据库不可达"。已改为三级回退：
   `pg_isready` → Python TCP 探测 → bash `/dev/tcp`。
-* 基准侧的"零执行"守卫原为 `BENCH_STRICT` 式的计数判定，同样因
+- 基准侧的"零执行"守卫原为 `BENCH_STRICT` 式的计数判定，同样因
   `benchmark_request_construction`（纯内存、总会执行）而**永不触发**；
   已改为 `SLIDING_SYNC_REQUIRE=sliding_sync_p95_p99_latency` 按组点名。
 

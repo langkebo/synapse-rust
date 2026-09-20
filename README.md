@@ -143,7 +143,7 @@ cargo run --release
 - Docker 容器只是由入口脚本自动调用该迁移入口，不构成第二套迁移方案
 - 服务启动默认只执行 schema health check，不执行运行时迁移
 - 仅在显式开启 `SYNAPSE_ENABLE_RUNTIME_DB_INIT` 且未设置 `SYNAPSE_SKIP_DB_INIT` 时，才进入运行时兼容初始化路径
-- CI 会在构建前执行 `scripts/check_migration_consistency.py`，并通过 `scripts/build_sqlx_migration_source.py` 生成 forward-only 迁移链以检测 schema 漂移
+- CI 会在构建前执行 `scripts/check_migration_consistency.py`，并统一通过 `docker/db_migrate.sh`（psql 逐文件、autocommit）把 `migrations/` 应用到干净库以检测 schema 漂移
 
 ## 环境变量（覆盖配置）
 

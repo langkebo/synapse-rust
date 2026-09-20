@@ -45,7 +45,7 @@
 
 #### N-01: `cross_signing` 空字符串默认值可能导致验证绕过风险
 **位置**: `cross_signing/service.rs:186, 188, 195, 196`
-**问题**: 
+**问题**:
 ```rust
 // 当 JSON 缺少 algorithm/key 字段时，返回空字符串
 key.get("algorithm").and_then(|v| v.as_str()).unwrap_or("").to_string(),
@@ -76,7 +76,7 @@ chrono::DateTime::from_timestamp_millis(row.created_ts).unwrap_or_else(Utc::now)
 
 #### M-03: `log_rotation` 硬编码空 device_id
 **位置**: `key_rotation/service.rs:406`
-**问题**: 
+**问题**:
 ```rust
 .bind("")  // device_id 始终为空
 ```

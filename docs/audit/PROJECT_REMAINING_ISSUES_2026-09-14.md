@@ -703,7 +703,7 @@ mod tests {         <- 125 行
 
 | # | 问题 | 位置 | 修复 |
 |---|------|------|------|
-| 1 | **死步骤**：`--exclude synapse_worker` 引用不存在的 package（实际是 bin target），加上 `|| true` 使步骤永远绿（**红灯门禁的相反失效：完全不可见**） | `.github/workflows/ci.yml:739` | 改为 `--bin synapse_worker --locked`（无 `|| true`，失败可见） |
+| 1 | **死步骤**：`--exclude synapse_worker` 引用不存在的 package（实际是 bin target），加上 `\|\| true` 使步骤永远绿（**红灯门禁的相反失效：完全不可见**） | `.github/workflows/ci.yml:739` | 改为 `--bin synapse_worker --locked`（无 `\|\| true`，失败可见） |
 | 2 | **必红门禁**：schema-health-check 引用不存在的 `unified_schema_v10.sql`（实际只有 `_v11.sql`），每次 push/PR **必红**，因而长期被忽略 | `.github/workflows/schema-health-check.yml:73` | 改为 `unified_schema_v11.sql` |
 | 3 | **空转门禁**：drift-detection 的 performance-baseline 引用 4 个不存在的 `performance_indexes*.sql` 路径（两个 `migrations/archive/` 目录、两个 `docker/deploy/migrations/` 目录均不存在），每轮 100% warning + skip | `.github/workflows/drift-detection.yml:347-350` | 删除整段 for 循环，改为 `::warning::` 声明"该门禁随冗余清理已移除"（避免下次有人误以为该门禁在运行） |
 | 4 | **冗余 workflow**：`test.yml` 与 `format-drift-tracking.yml` 功能已被 `ci.yml`（coverage job）与 `format-governance.yml`（format compliance）覆盖，属重复门禁 | `.github/workflows/test.yml` + `format-drift-tracking.yml` | 删除 |
@@ -894,7 +894,7 @@ test_template_v2_b6fa43a1d62f6181  (根夹具模板)
 
 规范要求（insecure rendezvous 小节）：
 
-> ##### Common HTTP response headers
+> ### Common HTTP response headers
 > - `ETag` - **required**
 > - `Expires` - **required**
 > - `Last-Modified` - **required**

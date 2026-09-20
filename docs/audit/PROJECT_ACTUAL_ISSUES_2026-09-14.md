@@ -583,7 +583,7 @@ Ledger 契约链同步：golden + SDK 两条车道的 6 个 fixture、`ROUTE_CON
 - **孤儿可达性证据（S-9）**：新增"前缀之外 / 未装配的注册"表。
   解析器沿整条装配链递归后仍未获得任何前缀的注册只有 16 条：
   3 条根级探活（`/`、`/health`、`/_health`）+ 11 条 CAS 根协议/遗留 admin 端点（有意为之）
-  + **2 条 threepid 孤儿**（`/requestToken`、`/submitToken`）——机器上可直接区分
+  - **2 条 threepid 孤儿**（`/requestToken`、`/submitToken`）——机器上可直接区分
   "有意根级" 与 "从未装配"。
   **（B5-4 已处置 threepid 孤儿，此表现为 14 条纯有意根级注册；见 §11。）**
 - **附带发现**：`push.rs` 的 `/pushers/` 是 `get().post()` 链，旧解析器只报 GET；
@@ -1624,7 +1624,7 @@ check_sqlx_dynamic_ratio: dynamic=1484 static=61 total=1545 ratio=0.9605   # OK�
   上一轮基线 `66339069`（2026-09-15 22:21）。区间 **51 个提交 / 491 个文件 / +21,863 −36,721 行**。
 - **被复核对象**：本文档 §1–§18 的全部"仍存在"条目 + 区间内新增的 B2/B3/B4 系列改动。
 - **工作树状态**：**17 个脏路径**，全部是并发会话的 B3-5 错误收敛 WIP（暂存 3 个新 `error.rs`
-  + 6 个 `synapse-web/src/routes/*`）。**凡"HEAD 自身"的结论都在 `git archive HEAD` 的纯净快照上复跑**
+  - 6 个 `synapse-web/src/routes/*`）。**凡"HEAD 自身"的结论都在 `git archive HEAD` 的纯净快照上复跑**
   （快照与 target 目录用完即删，已确认工作树未残留）。
 - **数据库**：`postgresql://synapse:synapse@localhost:5432/synapse_test`（PG 15.18 Homebrew）。
   除只读查询外，另建一个用完即删的 scratch schema `audit_v12` **实灌当前 baseline** 取证。
@@ -1880,7 +1880,7 @@ $ grep -c ERROR /tmp/v12_apply.log        # → 0
     > CI 工作流同步清理。
 17. ~~**H-8**~~ 仍**没有**任何测试把 `docker/config/homeserver.yaml` 反序列化进 Rust `Config`。
     > **✅ 本轮已修复**：新增 `homeserver_yaml_deserializes_into_config` 测试（`deny_unknown_fields` 门禁）
-    > + `homeserver_yaml_has_no_deprecated_pool_size` 测试。
+    > - `homeserver_yaml_has_no_deprecated_pool_size` 测试。
 18. ~~**H-9**~~ `ci.yml:337-338` 自认 "~3.5k unresolved-intra-doc-link warnings"，
     ~~但仍无棘轮/baseline~~（`scripts/` 下只有 `.fmt-baseline` 与 `.missing-docs-baseline`）。
     > **✅ 前一轮已修复**：`cargo doc --no-deps` 0 warnings。
@@ -1919,7 +1919,7 @@ $ grep -c ERROR /tmp/v12_apply.log        # → 0
     所以"减少错误枚举数量"这个目标本身已被进程**否决**（转向"每域一个错误类型 + 统一转换"）。
     ⇒ A-6 应重新定义为"是否存在**多份**同义错误类型"，不再是"数量要少"。
 26. **A-7 / A-8**（口径不稳定，仅给可复现近似值）：8 个 src crate 内 `^///` 行 = **25,339**，
-    其中 `/// The \`x\` field.` 模板行 = **7,890**；上下文对象 pub 字段 = **249**
+    其中 `/// The \`x\` field.`模板行 = **7,890**；上下文对象 pub 字段 = **249**
     （`synapse-web/src/routes/context.rs` 的 11 个 `*Context`：Admin 55 / Room 36 / Federation 36 /
     Device 24 / Auth 22 / Sso 20 / Media 14 / Sync 13 / Friend 13 / Core 9 / E2eeRoom 7）。第二轮 287。
 27. **A-9** 根 crate **已缩到 4,326 行**（37 个 `.rs`），`src/web` 与 `src/services` 均已不存在；

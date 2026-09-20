@@ -94,8 +94,8 @@ create/join/upgrade/redaction/auth 行为与声明一致。
 
 > 这与 AGENTS.md 的明文要求冲突：
 > > "Room-version capability must match actual event/auth behavior.
-> >  Do not add a room version to `m.room_versions` until
-> >  create/join/upgrade/redaction/state-resolution behavior is reviewed."
+> > Do not add a room version to `m.room_versions` until
+> > create/join/upgrade/redaction/state-resolution behavior is reviewed."
 
 ### 2.5 建议（**未擅自实施**）
 

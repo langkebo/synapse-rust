@@ -124,7 +124,7 @@ seed 数据的**唯一**来源是 `migrations/00000000_unified_schema_v11.sql`�
 
 - 不改变任何调用点的运行时行为（本次收敛后行为零变化）。
 - 不做 `src/test_utils.rs` 的收敛改造——该文件当前正被另一 agent 编辑
-  （写本文时 `git status` 显示 ` M src/test_utils.rs`）。本文只提供接口契约。
+  （写本文时 `git status` 显示 `M src/test_utils.rs`）。本文只提供接口契约。
 - 不引入"表名正则"、"按前缀匹配"、"复制前 N 行"等更花哨的过滤能力。
   当前没有任何调用方需要它们，属于过度设计（铁律 1）。
 

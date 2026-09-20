@@ -369,7 +369,7 @@ jobs:
 
 **修订人**: glm-5.3 (via Audit Correction Turn)
 **修订日期**: 2026-09-13 16:45
-**修订内容**: 
+**修订内容**:
 - B-3: 推翻「SDK 只引用 vendor」结论，确认 64 条 client 前缀是 codegen 死账，实际全走 vendor
 - B-4: 推翻「SDK 已迁移到 v1」结论，确认 SDK 实际使用 unstable 路径
 - 新增「核心修正说明」章节，解释 route-table 不代表实际调用的判定逻辑

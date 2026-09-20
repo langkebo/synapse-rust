@@ -61,7 +61,7 @@ artifact 在同步 workflow 里**解析即失败**，镜像自 `f6029a81` 后再
   `moduleKeyFor(registeredBy)`），**根本不读 `module`**
 
 **处置**：按"未发布项目不留冗余"**删除字段**，而不是补全它（补全需要改 93 处调用点
-+ 白名单校验，收益仅是一个仍无消费方的字段）。连带删除：
+- 白名单校验，收益仅是一个仍无消费方的字段）。连带删除：
 `RouteEntry.module`、`with_module()`、`LedgerEntryJson.module` 与其序列化分支、
 `assembly.rs` 的 3 处调用；`SCHEMA_VERSION` 2 → 3；两条车道 fixture 重生成；
 SDK pin 与镜像同步到 3。

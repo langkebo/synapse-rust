@@ -198,9 +198,9 @@ CARGO_TARGET_DIR=/tmp/verify cargo test --doc --locked --workspace
 | `synapse-services/src/friend_room_service/mod.rs` | 1,833 | 1,832 | **1,831** | 生产（几乎无内联测试） |
 
 **判定**：
-- 表面最"god"的两个 5K/2.5K 文件是**生成产物**（`api_doc/`），不应计入债务
-- 其次两个 2.3K/2.2K 文件是**纯测试文件**，拆分收益低
-- **真正值得关注的是 4 个 1,000–1,450 行的生产文件**
++ 表面最"god"的两个 5K/2.5K 文件是**生成产物**（`api_doc/`），不应计入债务
++ 其次两个 2.3K/2.2K 文件是**纯测试文件**，拆分收益低
++ **真正值得关注的是 4 个 1,000–1,450 行的生产文件**
   （`room`/`device`/`refresh_token`/`membership` 的 `mod.rs`）
   以及 **1,831 行的 `friend_room_service/mod.rs`**（几乎无内联测试）
 
@@ -229,7 +229,7 @@ CARGO_TARGET_DIR=/tmp/verify cargo test --doc --locked --workspace
 | 仅 `membership = 'join'` | `a.membership='join' AND b.membership='join'` | 两侧 filter `== "join"` | ✅ |
 | 求交集 | 自连接 | `HashSet::intersection` | ✅ |
 | 排序 | `ORDER BY a.room_id` | `rooms.sort()` | ✅ |
-| 游标过滤 | `a.room_id > $3` | `retain(|r| r.as_str() > after)` | ✅ |
+| 游标过滤 | `a.room_id > $3` | `retain(\|r\| r.as_str() > after)` | ✅ |
 | `has_more` 探测 | `LIMIT limit+1` 后比较 | `len() > limit` | ✅ |
 | `next_batch_token` | `rooms.last().cloned()` | `result.last().cloned()` | ✅ |
 
@@ -335,8 +335,8 @@ CARGO_TARGET_DIR=/tmp/verify cargo test --doc --locked --workspace
 **同步**：`audit_event` mock 一并改为锚定末行，使 mock 与生产语义一致。
 
 **回归测试**（2 个）：
-- `list_events_total_is_independent_of_cursor`：第二页断言 `len == 1`（修复前为 0）
-- `paginating_visits_every_row_exactly_once`：**完整遍历不变量** —— 5 行 + limit=2
++ `list_events_total_is_independent_of_cursor`：第二页断言 `len == 1`（修复前为 0）
++ `paginating_visits_every_row_exactly_once`：**完整遍历不变量** —— 5 行 + limit=2
   逐页走完，断言访问集合 == 插入集合
 
 **RED 验证**（证据确凿）：临时恢复缺陷 cursor 后，不变量测试如期 FAILED：

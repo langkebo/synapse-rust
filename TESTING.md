@@ -652,10 +652,10 @@ bash scripts/cleanup_test_schemas.sh --apply
 （`synapse-test-utils/src/lib.rs`、`synapse-services/src/test_utils.rs`、
 `synapse-storage/src/test_utils.rs`），但它们**对本场景无效**：
 
-* `sweep` 的触发时机是"**下一次**取池时"；
-* 而 nextest **一个用例一个进程** —— 进程取一次池、建一个 schema、然后退出，
+- `sweep` 的触发时机是"**下一次**取池时"；
+- 而 nextest **一个用例一个进程** —— 进程取一次池、建一个 schema、然后退出，
   **"下一次取池"永远不会发生**；
-* 登记表是**进程内** static，sweep 又不在进程退出时执行，于是随进程一起消失。
+- 登记表是**进程内** static，sweep 又不在进程退出时执行，于是随进程一起消失。
 
 **因此不要依赖代码自动回收，必须定期跑上面的清理脚本（或重建测试库）。**
 正确修法（未实现）是让 `prepare_empty_isolated_test_pool` 返回一个持有 schema 名

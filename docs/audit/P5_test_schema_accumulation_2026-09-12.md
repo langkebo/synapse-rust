@@ -478,7 +478,7 @@ PostgreSQL 15 硬崩溃恢复的第一步 `SyncDataDirectory()` 对数据目录�
 | `DROP SCHEMA ... CASCADE` 报 out of shared memory | 1,197 个对象 > `max_locks_per_transaction=256` |
 | `DROP DATABASE` 挂 30 分钟 | 要 `unlink` 数百万文件 |
 | 单用例 133s；catalog 缩小 8% 后同用例 162s→108s | 每次 fsync / 目录遍历都要走文件树 |
-| `du -sh`、`ls | wc -l` 在单个库目录都超时 | 文件数本身 |
+| `du -sh`、`ls \| wc -l` 在单个库目录都超时 | 文件数本身 |
 
 **结论：本缺陷不只是"catalog 膨胀"，而是"文件系统 inode 膨胀"。** 这抬高了
 它的严重度——它会让**任何** PostgreSQL 重启（包括正常维护重启）变成小时级事件。
@@ -656,10 +656,10 @@ Test Janitor 绕开了这个缺陷：回收触发点是**池的强引用计数�
 
 2026-09-13 完成裸 `test_pool()` 收敛并做全量回归。执行内容：
 
-- `synapse-storage/src/test_utils.rs`: 新增 `connect_shared_test_pool`，**54 处**裸 `async fn test_pool()` 委托调用（覆盖全部 54 个 db_tests 模块）
-- `synapse-services/src/test_utils.rs`: 同步新增同名 helper，`retention_service.rs` 等用其收敛
-- `synapse-services/src/retention_service.rs`: 编排层已通过 `connect_shared_test_pool` 收敛
-- **保留的隔离池不变**：`prepare_isolated_test_pool`、`prepare_shared_test_pool`、`prepare_empty_isolated_test_pool`、`prepare_media_test_pool`（均为 `CREATE SCHEMA` 隔离路径，需独占 schema）
+* `synapse-storage/src/test_utils.rs`: 新增 `connect_shared_test_pool`，**54 处**裸 `async fn test_pool()` 委托调用（覆盖全部 54 个 db_tests 模块）
+* `synapse-services/src/test_utils.rs`: 同步新增同名 helper，`retention_service.rs` 等用其收敛
+* `synapse-services/src/retention_service.rs`: 编排层已通过 `connect_shared_test_pool` 收敛
+* **保留的隔离池不变**：`prepare_isolated_test_pool`、`prepare_shared_test_pool`、`prepare_empty_isolated_test_pool`、`prepare_media_test_pool`（均为 `CREATE SCHEMA` 隔离路径，需独占 schema）
 
 #### 1. 存储层（synapse-storage）
 
@@ -713,11 +713,10 @@ P5 夹具收敛已完成并验证有效：
 2. **功能无退化**：3575 个测试除 1 个既有顺序 flaky 外全部通过
 3. **既有 flaky 已修复**：media `test_chunked_complete_can_be_downloaded_via_media_service` 失败由 `media_service.rs::get_media_metadata()` 文件系统回退路径的文件名前缀污染引起（返回 `{media_id}_greeting.txt` 而非 `greeting.txt`）。已修复（Day5）：回退路径提取原始文件名 `strip_prefix(&media_id)` → 成功；13/13 全绿。**顺序依赖已消除**，不再是 flaky。
 4. **retention serial 测试与 nextest 并发模型冲突（实测记录 & 已修复）**：`retention_service::db_tests` 中 3 个用例带 `#[serial_test::serial]`（`test_effective_policy_room_over_server` / `test_effective_policy_server_fallback` / `test_run_cleanup_requires_room_policy`），它们变更全局 `server_retention_policy` 单行（id=1）。nextest 一测试一进程模型下 serial 锁跨进程失效：实测 `cargo nextest run -E 'test(retention)'` 20 passed / 1 failed（`test_run_cleanup_requires_room_policy` 读到其他并发进程留下的 server policy 行，`run_cleanup` 未按预期报错）；`--test-threads=1` 串行下 6/6 全绿。
-   - **修复**：`.config/nextest.toml` 新增 `[test-groups] retention-server-policy = { max-threads = 1 }` + default profile override，给这 3 个用例配 nextest 跨进程互斥锁；保留 `#[serial_test::serial]` 使 `cargo test` 单进程路径仍正确。实测 `-j 6` → 21/21 passed。属测试设计缺陷，由 nextest test-group 解决。
+   * **修复**：`.config/nextest.toml` 新增 `[test-groups] retention-server-policy = { max-threads = 1 }` + default profile override，给这 3 个用例配 nextest 跨进程互斥锁；保留 `#[serial_test::serial]` 使 `cargo test` 单进程路径仍正确。实测 `-j 6` → 21/21 passed。属测试设计缺陷，由 nextest test-group 解决。
 
 **后续工作（已完成到 Day5 2026-09-13）**：
-- `test_chunked_complete...` 文件名修复已验证（13 passed）；
-- P5 夹具收敛已完成（54 处委托 + 5 处隔离保留，0 schema 泄漏，commit 23a92e38）；
-- retention serial 测试 nextest 串行分组已实施（commit 84b650c8），`cargo nextest run -E 'test(retention)' -j 6` 21/21 passed；
-- `nextest` 全量回归：1760 storage + 1814 services passed（1 flaky 既有），schema 残留 0。
-
+* `test_chunked_complete...` 文件名修复已验证（13 passed）；
+* P5 夹具收敛已完成（54 处委托 + 5 处隔离保留，0 schema 泄漏，commit 23a92e38）；
+* retention serial 测试 nextest 串行分组已实施（commit 84b650c8），`cargo nextest run -E 'test(retention)' -j 6` 21/21 passed；
+* `nextest` 全量回归：1760 storage + 1814 services passed（1 flaky 既有），schema 残留 0。

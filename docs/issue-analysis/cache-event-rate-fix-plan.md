@@ -171,7 +171,7 @@ if long_poll_waiters.is_empty() {
 2. ⚠️ 测试/基准环境：无 `EventNotifier` → **250ms 轮询**（合理降级）
 
 #### 真正的问题（未实现的优化）
-1. **Presence 回声自激**: 
+1. **Presence 回声自激**:
    ```rust
    // synapse-services/src/sync_service/data_fetch.rs:237
    // 变化或新增的目标；无变化时返回空，避免 250ms 轮询下 presence 回声自激

@@ -295,7 +295,7 @@ ServiceContainer (23 个顶层字段，嵌套分组)
 | INF-15 | 缓存族普查：10 个 Cache 结构体 + 10 处 moka builder + 9 个散落 TTL 常量 | `LocalCache`/`NamespaceCache`/`RedisCache`/`FederationSignatureCache`/`QueryCache`/`RegexCache`/`ReplayProtectionCache`/`FederationNonceCache`/`FriendListSortCache`/`UrlPreviewCache`；统一失效通道 `CacheInvalidationManager`(481 行) 仅被 2 处使用，其余 8 个各靠 moka TTL。**这是 `AGENTS.md` 已知坑「`set_raw` 写 L1+L2 / 同步 `get_raw` 只读 L1」的结构性根因** | 961 已计入 INF-2 | high（普查）/ medium（合并） |
 | INF-16 | `FederationNonceCache` 与 `ReplayProtectionCache` 同职责双实现，前者零使用者 | `nonce_cache.rs:28,37`（203 行，moka future::Cache）全仓 **0 引用**；`security.rs:30,46 ReplayProtectionCache::check_and_record` 已接线于 `routes/state.rs:6,28,87`、`middleware/federation_auth.rs:189` | 203 | high |
 | INF-17 | `Validator`(725) 与 `routes/validators.rs`(332) 职责重复 + 死函数 | `synapse-common/src/validation.rs:45 Validator` 含 13 个 validate_*；`src/web/routes/validators.rs` 独立实现 9 个；room_id 校验两边都有（web 侧 131 次引用）；`validate_server_name` **0 调用**；该文件 `:5-10` 注释自称"互补而非重复" | ~60（彻底统一需改 ~150 行调用点） | medium |
-| INF-18 | 文档噪声：5,512 行 `See [x].` + 10,059 行样板，含连续重复行 | `src/tasks/mod.rs:47-48` 两行 `/// See [\`new\`].`（`:346-347/:352-353/:358-359/…` 成对重复）；`src/server/mod.rs:899-900` 两行 `/// See [\`metrics_collector\`].`（**已独立核验**） | ~2,000+（保守） | high（计数）/ medium（删除范围） |
+| INF-18 | 文档噪声：5,512 行 `See [x].` + 10,059 行样板，含连续重复行 | `src/tasks/mod.rs:47-48` 两行 `/// See [\`new\`].`（`:346-347/:352-353/:358-359/…`成对重复）；`src/server/mod.rs:899-900` 两行 `/// See [\`metrics_collector\`].`（**已独立核验**） | ~2,000+（保守） | high（计数）/ medium（删除范围） |
 
 ### 3.4 SVC — `synapse-services` 服务层（94,188 行 / 201 文件）
 
@@ -803,4 +803,3 @@ v11++extensions 的拼接，任何迁移编辑都会触发。已更新常数（`
 - 第一批删除以 commit **`a0f2819d`**（附录 C）为主体：189 文件变更、删除 39,432 行、新增 508 行、整文件删除 149 个。
 - 验证（附录 C.5）：fmt/cargo check/clippy 全绿；`cargo test --test unit --all-features` 1915 passed / 2 failed（既有 sqlx 棘轮红灯）。
 - 与 `main` 的差异不在本报告记录范围（参见该分支的独立审计）。
-

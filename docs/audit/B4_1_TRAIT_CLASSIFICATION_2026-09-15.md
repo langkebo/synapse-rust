@@ -5,7 +5,6 @@
 > 由 `ci.yml` 的 `repo-sanity` 步骤实跑 `scripts/ci/check_trait_ratchet.py` 校验；已独立复核
 > `TOTAL=65 (baseline 65) STORE_API=33 (baseline 33) OK`）。历史数字保留不改，以免伪造记录。
 
-
 - 日期：2026-09-15
 - 依据：`docs/audit/OPTIMIZATION_EXECUTION_PLAN_2026-09-15.md` §3 `B4-1` / `B4-2`
 - 基线：`main @ 66339069` + 本批改动（工作树含其它会话在 `src/web/routes/**` 的 codemod，未触碰）
@@ -216,7 +215,7 @@ mock 实现单独放在 `synapse-storage/src/test_mocks/`。故本桶**无需改
 
 ```python
 # 关键点：dyn 的正则必须匹配「可能带路径前缀」的形式，并取**最后一段**
-DYN = re.compile(r'\bdyn\s+(?:[A-Za-z_][A-Za-z0-9_]*::)*([A-Za-z0-9_]+)')
+DYN = re.compile(r"\bdyn\s+(?:[A-Za-z_][A-Za-z0-9_]*::)*([A-Za-z0-9_]+)")
 ```
 
 > **坑（本轮实际踩到，值得记录）**：第一版写成 `\bdyn\s+([A-Za-z0-9_]+)`，
@@ -316,7 +315,6 @@ B4-1/B4-1b/B4-1c 之后剩下 **33 个**「有 `dyn` 且有 ≥2 个实现」的
 SYNC-5 单测钉着）。因此 35 个接缝全部承重，选 B 等于每个 trait 至少毁掉 1 个、多数毁掉数个
 **无需 DB** 的单测，只换来省掉一层 vtable 解引用；而 `synapse-services --lib` 已有 2000+
 用例跑在隔离 schema 上，大批推去碰 DB 会同时变慢变脆。**裁定：保留 trait 与 mock 注入点。**
-
 
 - **A（保守，推荐先不动）**：保留现状。trait 有正当理由，`dyn` 的 vtable 成本在这些服务上是可接受的；
   A5 的"零收益抽象"目标已经达成（10 + 23 个已清）。

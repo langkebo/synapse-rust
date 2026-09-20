@@ -77,7 +77,7 @@
 | A10 | `db-replica-consistency.yml:23`、`db-tests-manual.yml:72` | secret 缺失 `exit 0` 假跳过；`ON_ERROR_STOP=0 … \|\| echo "(non-fatal)"` | 未验证却报成功 | 复算 |
 | A11 | `drift-detection.yml:14-16,225-238,330` | PR 只挂 `branches:[main]`（PR→develop 不触发）；重复迁移检查对同目录 basename `uniq -d` ⇒ 结构恒空；硬编码 v12 文件名 | 漂移检测有洞 | 复算 |
 | A12 | `scripts/ci/check_sdk_route_coverage.py` | 被 `check_route_contract.sh` 调用，但 CI 无 SDK、未设 `SDK_CONTRACT_STRICT=1` ⇒ 恒 SKIPPED | "SDK ⊆ ledger"方向从未在 CI 生效 | 复算 |
-| A13 | 孤儿真门禁脚本 | `check_trait_ratchet.py`（文档称门禁；**基线已是 TOTAL=65，文档写 86，已漂移**）、`check_feature_matrix.py`、`run_ci_tests.sh`（TESTING.md 的"主门禁/CI 等价入口"，ci.yml 内联重实现）、`run_complement_tests.sh`、`check_sqlx_offline_cache.sh`、`run_cargo_audit.sh`、`ci_schema_health_check.sh`、`validate_config.sh`、`generate_sdk_ledger_fixtures.sh` | 无任何 workflow 调用 | 文档称门禁而实际从不运行 | 复算 |
+| A13 | 孤儿真门禁脚本 | `check_trait_ratchet.py`（文档称门禁；**基线已是 TOTAL=65，文档写 86，已漂移**）、`check_feature_matrix.py`、`run_ci_tests.sh`（TESTING.md 的"主门禁/CI 等价入口"，ci.yml 内联重实现）、`run_complement_tests.sh`、`check_sqlx_offline_cache.sh`、`run_cargo_audit.sh`、`ci_schema_health_check.sh`、`validate_config.sh`、`generate_sdk_ledger_fixtures.sh` | 无任何 workflow 调用；文档称门禁而实际从不运行 | 复算 |
 
 ---
 
@@ -188,7 +188,7 @@
 | # | 位置 | 机制 | 后果 | 状态 |
 |---|---|---|---|---|
 | E1 | `scripts/check_get_raw_usage.py:71` | 正则要求**空参数** `get_raw()`，真实 API 是 `get_raw(key)` ⇒ 永不命中；`is_allowed_path` 的 glob 全坏；`:109` 行内出现 `get_raw_shared()` 即整行豁免；红路径打印孤立代理对 emoji 抛 `UnicodeEncodeError` | **安全相关的不变量（缓存读写对称）门禁是死的**；"0 违规"是巧合 | **已修 ✅ `239c5780`**（regex + 路径谓词 + 花括号配平的 `#[cfg(test)]` 跳过 + 空扫描 fail-loud + 注释跳过，五条红绿证明） |
-| E2 | `scripts/ci/run_cargo_geiger.py:56-63,125-144` | ①`--output-format json` 小写，cargo-geiger 0.13 的 `OutputFormat` 是大小写敏感的 strum 枚举 ⇒ 子进程非零 → `sys.exit(1)`；②即便修 flag，`classify_files` 迭代的是顶层 `SafetyReport` **对象**（键 `packages`…）⇒ `'str' has no attribute 'get'`；③`sum_unsafe` 读 `unsafe|metrics.extern_blocks/traits/fns/…`，真实字段是 `unsafety.used.{functions,exprs,item_impls,item_traits,methods}` ⇒ **恒 0** | 三种形态叠加：今天"一跑即崩或恒 0"，Gate1(`prod_total>0`) / Gate2(`>baseline`) 永不触发；docstring 宣称"修掉了恒 0 假绿" | 上游源码 + 同形载荷复现；**未修** |
+| E2 | `scripts/ci/run_cargo_geiger.py:56-63,125-144` | ①`--output-format json` 小写，cargo-geiger 0.13 的 `OutputFormat` 是大小写敏感的 strum 枚举 ⇒ 子进程非零 → `sys.exit(1)`；②即便修 flag，`classify_files` 迭代的是顶层 `SafetyReport` **对象**（键 `packages`…）⇒ `'str' has no attribute 'get'`；③`sum_unsafe` 读 `unsafe\|metrics.extern_blocks/traits/fns/…`，真实字段是`unsafety.used.{functions,exprs,item_impls,item_traits,methods}` ⇒ **恒 0** | 三种形态叠加：今天"一跑即崩或恒 0"，Gate1(`prod_total>0`) / Gate2(`>baseline`) 永不触发；docstring 宣称"修掉了恒 0 假绿" | 上游源码 + 同形载荷复现；**未修** |
 | E3 | `scripts/ci/check_trait_ratchet.py` + `trait_count_baseline` | 无任何 workflow/Makefile/脚本调用（同 C4） | 棘轮永不触发；基线 TOTAL=65 与文档 86 漂移 | **未修**（需先决定接线或删除） |
 | E4 | `check_pagination_benchmark.py` | 比值来自**同一次运行**内两个手写仿真函数（`benches/performance_api_benchmarks.rs:436-484`：O(175k) 扫描 vs 二分+100 行），30% 阈值由构造满足（≈1000× 余量）；不含 `synapse-storage` 的真实分页 SQL 与存储基线 | 弱门禁：改真实 SQL 不受影响 | 未修 |
 | E5 | `check_sdk_route_coverage.py:292-305` | CI 无 SDK 且从不设 `SDK_CONTRACT_STRICT=1` ⇒ 打印 SKIPPED 后 **exit 0**；`sdk_uncovered_allowlist.txt` 0 条 ⇒ 卫生检查的 rotten 分支不可达 | "SDK ⊆ ledger"方向从未在 CI 生效（同 A12） | 未修 |
@@ -235,12 +235,12 @@ pub struct ReportEntry { pub package: PackageInfo, pub unsafety: UnsafeInfo }
    item_traits,methods}`，我未逐字复核该层）⇒ 即便修好 1、2 也是**恒 0**。
 
   可选的落地方式（都需要在 CI 里真跑一次才能确认，本机做不到）：
-  - **(A) 解析文本输出**：`cargo geiger` 默认输出按文件分组，能恢复"按路径分生产/测试"的
+- **(A) 解析文本输出**：`cargo geiger` 默认输出按文件分组，能恢复"按路径分生产/测试"的
     设计；代价是要写一个**有 fixture 单测**的解析器（旧版正是脆弱的 `grep -oP` 才坏掉的）。
-  - **(B) 保留 JSON、改政策**：`--include-tests` 关闭时所有计数都属"要发布的代码"，
+- **(B) 保留 JSON、改政策**：`--include-tests` 关闭时所有计数都属"要发布的代码"，
     于是"生产 unsafe 必须为 0"直接成立，而 `test_unsafe_total` 基线与 Gate 2 失去数据来源
     ⇒ 必须删掉该基线字段与 Gate 2（铁律 1），文档同步。
-  - **(C) 跑两次取差**：不带 `--include-tests` 得生产计数、带它再跑一次，按包相减得
+- **(C) 跑两次取差**：不带 `--include-tests` 得生产计数、带它再跑一次，按包相减得
     "仅测试"计数 ⇒ 两个 gate 都保住，代价是 2× 扫描时间。
 
   **我没有擅自选**：三种方式产出的门禁语义不同（B 会放弃测试侧棘轮），且都无法在本机
