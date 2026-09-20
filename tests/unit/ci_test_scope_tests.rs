@@ -229,3 +229,99 @@ fn push_only_ci_jobs_keep_their_deliberate_trigger_scope() {
     }
     assert_eq!(checked, 3, "the push-only job list shrank; the ruling covers exactly these three jobs");
 }
+
+/// 收回 `NEXTEST_RETRIES`（2026-09-20）：重试把偶发失败重跑成"绿"。
+///
+/// main 上那 11 个 `out of shared memory` 克隆失败，就是靠 `NEXTEST_RETRIES: 2`
+/// 在两轮里被重跑成 flaky 而不是红的（§14.13）；而根因（锁表）当时**根本没被修**。
+/// flake 的正确处理是修根因或给它专用 `--test-threads 1` 车道，不是重试。
+///
+/// **红证明**：把 `NEXTEST_RETRIES: 2` 加回任一 nextest 步骤 → 本测试 FAILED。
+#[test]
+fn ci_nextest_steps_do_not_retry_flaky_tests() {
+    let ci = fs::read_to_string(repo_root().join(".github/workflows/ci.yml")).expect("read ci.yml");
+    assert!(
+        !ci.contains("NEXTEST_RETRIES:"),
+        "ci.yml 不得再给 nextest 步骤设 NEXTEST_RETRIES：它把偶发失败重跑成绿，\
+         掩盖过 main 上 11 个 `out of shared memory`（§14.13）。要处理 flake 请修根因，\
+         或给它专用 `--test-threads 1` 车道。"
+    );
+}
+
+/// 绝对延迟断言的用例必须**既**被并行步骤排除、**又**在单线程车道里真跑。
+///
+/// 只排除 = 永久不跑；只加车道 = 并行与串行各跑一遍（并发时仍会红）。
+/// `#[serial]`（serial_test，未开 file_locks）在 nextest 下**不生效**：每个测试一个
+/// 进程，进程内互斥形同虚设 —— 真正串行的只有 `--test-threads 1`。
+///
+/// **红证明**：删掉并行步骤里的 `-E 'not test(/…/)'`（或车道里的 `--test-threads 1`、
+/// `require_tests_ran.sh`）→ 本测试 FAILED。
+#[test]
+fn latency_tests_are_excluded_from_parallel_and_run_in_a_serial_lane() {
+    let ci = fs::read_to_string(repo_root().join(".github/workflows/ci.yml")).expect("read ci.yml");
+    let pattern = "friend_room_service::tests::bench_friend_list_";
+    assert!(
+        ci.contains(&format!("-E 'not test(/{pattern}/)'")),
+        "并行 lib 步骤必须用 `-E 'not test(/{pattern}/)'` 排除绝对延迟断言的用例"
+    );
+    let lane = ci.find("Run latency benchmarks serially").expect("必须存在单线程延迟车道步骤");
+    let lane_block = &ci[lane..];
+    let end = lane_block[1..].find("\n      - name:").map_or(lane_block.len(), |offset| offset + 1);
+    let lane_block = &lane_block[..end];
+    assert!(
+        lane_block.contains("--test-threads 1"),
+        "延迟车道必须以 --test-threads 1 运行（nextest 每测试一进程，`#[serial]` 不生效）"
+    );
+    assert!(
+        lane_block.contains(&format!("test(/{pattern}/)")),
+        "延迟车道必须用同一个模式选中这批用例，否则它们既不在并行步骤、也不在车道里（永久不跑）"
+    );
+    assert!(
+        lane_block.contains("require_tests_ran.sh"),
+        "延迟车道必须用 require_tests_ran.sh 包裹：过滤器不再匹配时这步必须失败，而不是空转报绿"
+    );
+}
+
+/// 慢速车道"必须真的跑过"的哨兵（§14.14）。
+///
+/// 最近 30 个 CI run 里 `Integration Tests` / `Code Coverage` / `Build Check`
+/// **全部 skipped**（`needs: test` 长期红），而唯一兜底 weekly schedule 的最近 5 次
+/// run 每个 job 都在 2–11s 内失败、一个 step 都没执行 ⇒ 这三条门禁从未真正执行过。
+/// 哨兵把"要求的车道必须真的跑了"变成退出码；这条测试钉住哨兵本身不会被删/被架空。
+///
+/// **红证明**：从 `ci-summary.needs` 删掉 `coverage` → 本测试 FAILED；把任一慢速 job 的
+/// `if` 里的 `run_slow_tier` 分支删掉 → FAILED。
+#[test]
+fn ci_summary_sentinel_requires_the_slow_tier_to_have_run() {
+    let ci = fs::read_to_string(repo_root().join(".github/workflows/ci.yml")).expect("read ci.yml");
+    let sentinel = ci.find("Sentinel — required lanes actually ran").expect("ci-summary 必须有慢速车道哨兵步骤");
+    let block = &ci[sentinel..];
+    for needle in ["TEST_RESULT", "INTEGRATION_RESULT", "COVERAGE_RESULT", "BUILD_RESULT", "did not run"] {
+        assert!(block.contains(needle), "哨兵必须检查 {needle}（否则它无法证明被要求的车道真的跑过）");
+    }
+    // Anchor on the `ci-summary` job itself: `coverage`'s own
+    // `needs: [integration-test, changes]` line would otherwise match first.
+    let summary_start = ci.find("\n  ci-summary:\n").expect("ci-summary job must exist");
+    let needs_line = ci[summary_start..]
+        .lines()
+        .find(|line| line.trim_start().starts_with("needs:"))
+        .expect("ci-summary must have a needs line");
+    assert!(
+        needs_line.contains("coverage"),
+        "ci-summary 的 needs 必须含 coverage，否则摘要可能早于覆盖率先结束：{needs_line}"
+    );
+    assert!(ci.contains("run_slow_tier"), "workflow_dispatch 必须提供 run_slow_tier 输入（慢速车道的按需触发路径）");
+    let mut checked = 0;
+    for job in ["integration-test", "build", "coverage"] {
+        let header = format!("\n  {job}:\n");
+        let start = ci.find(&header).unwrap_or_else(|| panic!("the `{job}` job must exist in ci.yml"));
+        let rest = &ci[start..];
+        let end = rest[1..].find("\n  [a-z]").map_or(rest.len(), |offset| offset + 1);
+        assert!(
+            rest[..end].contains("run_slow_tier"),
+            "`{job}` 的 if 必须认 run_slow_tier 输入，否则 dispatch 无法强制慢速车道"
+        );
+        checked += 1;
+    }
+    assert_eq!(checked, 3, "按需慢速车道覆盖的 job 数变了；请同步 §14.14 的说明");
+}

@@ -2189,3 +2189,106 @@ out of shared memory"
   `bench_*` 用绝对毫秒阈值（如 P99 < 100ms）断言共享 DB 上的延迟，`#[serial]` 只在**进程内**
   串行，而 `--test-threads 4` 会并行 4 个进程。首跑的唯一失败正是这一类。要么把阈值改成
   机器相对量，要么让它们只在专门的单线程车道跑；本轮只记录，不做（避免用放宽阈值来"修"门禁）。
+  → **已由 §14.14 处理**：它们现在被排除出并行 lib 步骤，改在 `--test-threads 1` 的专用车道真跑。
+
+---
+
+### 14.14 第十四轮：慢速车道首次真跑 + schedule 哨兵 + 收回 retry
+
+§14.13 之后列出的"当前项目问题"里第 1–3 条，本轮开工。
+
+#### ① 核实：三条慢速门禁**从未真正执行过**
+
+- 最近 **30 个 CI run** 里 `Integration Tests` / `Code Coverage` / `Build Check` **全部
+  `skipped`**。原因不是门控写错，而是 `needs: test` 长期是红的（fast tier 红 ⇒ 慢速车道按设计
+  不跑）；但结果是这三条门禁在整个仓库历史里**一次都没跑过**。
+- 唯一的兜底路径 weekly `schedule`：最近 5 次 run（`34819552198` 2026-09-14 等）**每个 job 都在
+  2–11s 内失败，且 `steps` 里没有任何失败 step**（job 级失败，一个 step 都没执行）。
+- 也就是说"慢速车道"原本只有两条自动触发路径，两条都没有产出过真跑。
+
+#### ② 改动一：慢速车道可按需触发（`run_slow_tier`）
+
+`ci.yml` 的 `workflow_dispatch` 新增 boolean 输入 `run_slow_tier`；`integration-test` /
+`coverage` / `build` / `security-audit` 的 `if` 增加分支：
+
+```text
+(github.event_name == 'workflow_dispatch' && github.event.inputs.run_slow_tier == 'true')
+```
+
+这样首跑（以及任何一次复跑）不必等"周一"或"下一次 main push"，`Actions → CI → Run workflow` 即可。
+既有的 push/schedule 语义不变，且 `push_only_ci_jobs_keep_their_deliberate_trigger_scope`
+（A7 裁定：这三个 job 不得变成 PR 触发）仍然通过。
+
+#### ③ 改动二：`ci-summary` 哨兵 —— "被要求的车道必须真的跑过"
+
+`ci-summary` 新增步骤 `Sentinel — required lanes actually ran`，`needs` 补上 `coverage`：
+
+- **① 空跑守卫**：`Test & Lint` 的结果必须是 success/failure；`skipped` / `cancelled` / 空
+  ⇒ **失败**（工作流写坏或门控写错时，不允许安静通过）。
+- **② 慢速车道不变量**：当事件**要求**慢速车道时（非 docs 的 main push，或 dispatch 里
+  `run_slow_tier=true`，且快速车道通过），`Integration Tests` / `Build Check` 不得是
+  `skipped`；`Code Coverage` 只在其上游 `integration-test` **成功**时才被要求（上游失败时
+  coverage 被 skip 是正确行为，不重复归因）。
+
+**本地 9 例行为矩阵**（把哨兵的 `run:` 抽出来直接跑）：
+
+| 场景 | 退出码 |
+|---|---|
+| 快速车道 skipped（空跑） | **1**（①） |
+| main push 且全跑 | 0 |
+| main push 但慢速车道 skipped | **1**（②，即"30 个 run"那一形态） |
+| docs-only push | 0 |
+| pull_request | 0 |
+| dispatch 但未强制 | 0 |
+| dispatch 强制且全跑 | 0 |
+| dispatch 强制但慢速 skipped | **1** |
+| integration 失败 → coverage skipped | 0（不误归因） |
+
+#### ④ 改动三：收回 `NEXTEST_RETRIES`，给 flake 一条真车道
+
+- **删掉 6 处 `NEXTEST_RETRIES: 2`**（`test` job 4 处 + `integration-test` job 2 处）。
+  它曾把 main 上 11 个 `out of shared memory` 重跑成 flaky 而不是红（§14.13），而根因当时没被修。
+- **绝对延迟断言改用专用车道**：3 个 `friend_room_service::tests::bench_friend_list_*`
+  （P99 < 100ms / 端到端 < 20ms 这类**绝对**阈值）从并行 lib 步骤用
+  `-E 'not test(/friend_room_service::tests::bench_friend_list_/)'` 排除，新增步骤
+  `Run latency benchmarks serially (--test-threads 1)`（同一个模式 + `require_tests_ran.sh` 包裹）。
+- **顺带更正一条错误注释**：`friend_room_service/tests.rs` 3 处写着"这些 bench 测试串行执行
+  （`#[serial]`）"。`serial_test` 未开 `file_locks`，`#[serial]` 只在**同一进程内**互斥；nextest
+  每个测试一个进程 ⇒ **它在 CI 里等于没有**。真正串行的只有 `--test-threads 1`。
+- 车道验证（本地）：`cargo nextest list` 车道选中**恰 3 条**、并行步骤为其余；
+  `bash scripts/ci/require_tests_ran.sh cargo nextest run … --test-threads 1 -E '…'`
+  → **3/3 passed（45s）**，脚本打印 `OK: this step actually ran tests.`
+
+#### ⑤ 可红守卫（`tests/unit/ci_test_scope_tests.rs`，3 条，全部现场红证明）
+
+| 守卫 | 钉住 | 红证明（现场执行） |
+|---|---|---|
+| `ci_nextest_steps_do_not_retry_flaky_tests` | ci.yml 不得再出现 `NEXTEST_RETRIES:` | 加回一处 → **FAILED**；还原 → PASS |
+| `latency_tests_are_excluded_from_parallel_and_run_in_a_serial_lane` | 并行步骤必须排除、车道必须 `--test-threads 1` + `require_tests_ran.sh`、两侧同一模式 | 删掉排除 → **FAILED**；还原 → PASS |
+| `ci_summary_sentinel_requires_the_slow_tier_to_have_run` | 哨兵存在且检查四条结果、`ci-summary.needs` 含 `coverage`、三个慢速 job 的 `if` 认 `run_slow_tier` | needs 去掉 `coverage` → **FAILED**；还原 → PASS |
+
+同时守卫 `push_only_ci_jobs_keep_their_deliberate_trigger_scope`（A7：这三个 job 不得变成
+PR 触发）在本轮改动后仍通过 —— 新增的是**手动** dispatch 分支，不改变 PR 语义。
+
+#### ⑥ 本轮门禁（本地，冻结树）
+
+| 门禁 | 结果 |
+|---|---|
+| `./scripts/check_fmt_ratchet.sh` | ✅ `current=0 baseline=0` |
+| `--test unit --features test-utils --test-threads 4` | ✅ **1696 passed / 2 skipped**（含 3 条新守卫） |
+| clippy 默认档 / `--all-features` 档（`--all-targets`） | ✅ 0 error（38s / 28s） |
+| `actionlint`（14 个 workflow） / `check_workflow_steps.py` | ✅ 0 / 0 |
+| 折叠标量陷阱复扫（`yaml.compose`，`style='>'` 且保留换行） | ✅ 仅剩 4 处 `if:` 表达式（合法），`run:` 为 0 |
+
+#### ⑦ 首跑与残留
+
+- **首跑**：本次 push 是非 docs 的 main push ⇒ `Integration Tests` / `Code Coverage` /
+  `Build Check` 将**第一次**真正执行；结论回填 §14.14.1。预期会暴露一批"从未被执行过的路径"
+  （模板 seed 之外的东西、coverage 棘轮、release build 形状）。
+- **`k6-smoke-test`** 仍是 `if: github.event_name == 'workflow_dispatch'` —— 它其实**早已**会被
+  任何手动 dispatch 触发（本轮新增 `run_slow_tier` 后依然如此），但从未有人跑过；是否纳入
+  慢速车道需另行裁定（它要 k6 + 一个可达的 base URL）。
+- `ci-summary.needs` 仍缺 `k6-smoke-test` / `openapi-artifact`（本轮只补了哨兵所需的
+  `coverage`）；它们的失败不进摘要（原 C12 残留，未扩大）。
+- `NEXTEST_RETRIES` 收回后，任何**尚未修根因**的 flake 都会立刻显形；这是本轮的目的，
+  处理方式是修根因或再开专用车道，**不得**把重试加回来（守卫会失败）。

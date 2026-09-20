@@ -7,7 +7,21 @@ on:
     branches: [ main ]
   schedule:
     - cron: '0 2 * * 1'
+  # `run_slow_tier` exists because the slow tier's only automatic triggers are
+  # "non-docs push to main" and the weekly schedule. Before this input, the
+  # weekly run was the sole fallback, and every schedule run in the repo's
+  # history had failed before any step executed — so the slow tier (Integration
+  # Tests / Code Coverage / Build Check) had **never** actually run (verified
+  # 2026-09-20: the last 30 CI runs all show those jobs `skipped`). Being able
+  # to force it from the Actions UI removes the "wait for Monday (or for the
+  # fast tier to be green)" dependency and makes the first real run repeatable.
   workflow_dispatch:
+    inputs:
+      run_slow_tier:
+        description: '强制运行慢速车道（Integration Tests / Code Coverage / Build Check / Security Audit）'
+        required: false
+        default: false
+        type: boolean
 
 env:
   CARGO_TERM_COLOR: always
@@ -407,7 +421,6 @@ jobs:
           REDIS_URL: redis://localhost:6379
           RUST_BACKTRACE: 1
           RUST_LOG: info
-          NEXTEST_RETRIES: 2
           # `synapse-e2ee::vodozemac_interop_tests` 里的 `skip_message()` 在 `CI` 下
           # **故意 fail-closed**：缺少 `E2EE_INTEROP=1` 时 panic，而不是静默跳过
           # （sweep A1 残留；否则 lib 门禁会以"零断言"报绿）。这个模块属于
@@ -417,7 +430,37 @@ jobs:
           # `e2ee-interop.yml` 的 vodozemac job 早就这么设；两处跑同一批本地向量
           # （毫秒级），但只有这里能覆盖"lib 门禁里的静默跳过"。
           E2EE_INTEROP: '1'
-        run: cargo nextest run --workspace --lib --all-features --locked --test-threads 4
+        # ⚠️ 本步骤（以及其它 nextest 步骤）**不设 `NEXTEST_RETRIES`**。
+        # 它曾在 6 个步骤里设为 2，把偶发失败重跑成"绿"：main 上那 11 个
+        # `out of shared memory` 克隆失败就是这样被掩盖了两轮（§14.13），
+        # 而 flake 本身从未被修。收回重试后，flaky 会立刻显形 —— 这是有意的，
+        # 处理方式是**修根因或给它专用车道**，不是把重试加回来。
+        #
+        # `-E 'not test(/friend_room_service::tests::bench_friend_list_/)'`：
+        # 这三个用例用**绝对毫秒阈值**（P99 < 100ms / 端到端 < 20ms）断言共享库上的延迟，
+        # 必须独占机器；它们由下方 "Run latency benchmarks serially" 车道
+        # 以 `--test-threads 1` 真跑（`#[serial]` 在 nextest 下**不生效**：
+        # serial_test 未开 file_locks，每个测试一个进程 ⇒ 进程内互斥形同虚设）。
+        run: >-
+          cargo nextest run --workspace --lib --all-features --locked --test-threads 4
+          -E 'not test(/friend_room_service::tests::bench_friend_list_/)'
+
+      # 绝对延迟断言车道：`--test-threads 1` 是本仓库唯一能真正串行 nextest
+      # 测试的方式（每个测试一个进程）。用 `require_tests_ran.sh` 包一层，
+      # 保证"过滤器不再匹配任何用例"时这步会失败，而不是空转报绿。
+      - name: Run latency benchmarks serially (--test-threads 1)
+        if: matrix.features-args == '--all-features'
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
+          REDIS_URL: redis://localhost:6379
+          RUST_BACKTRACE: 1
+          RUST_LOG: info
+        run: |
+          bash scripts/ci/require_tests_ran.sh \
+            cargo nextest run --workspace --lib --all-features --locked --test-threads 1 \
+            -E 'test(/friend_room_service::tests::bench_friend_list_/)'
 
       - name: Run unit test target (--test unit)
         if: matrix.features-args == '--all-features'
@@ -428,7 +471,6 @@ jobs:
           REDIS_URL: redis://localhost:6379
           RUST_BACKTRACE: 1
           RUST_LOG: info
-          NEXTEST_RETRIES: 2
         run: cargo nextest run --test unit --features test-utils --locked --test-threads 4
 
       # ── B16: 让 `cfg(not(any(...)))` 门控的 golden 真正编译 ──
@@ -466,7 +508,6 @@ jobs:
           TEST_DB_TEMPLATE_SCHEMA: test_template_ci
           REDIS_URL: redis://localhost:6379
           RUST_BACKTRACE: 1
-          NEXTEST_RETRIES: 2
         run: cargo nextest run --test unit --all-features --locked --test-threads 4 -E 'test(voice_) | test(beacon_info_parse_tests) | test(storage_remaining_domains_refactor_tests) | test(server_notification_service_tests) | test(context_route_tests) | test(burn_after_read_route_tests) | test(api_optimized_features_tests)'
 
       # ── §6 修复：clippy 门禁覆盖范围 ──
@@ -605,7 +646,9 @@ jobs:
           retention-days: 7
 
   # ──────────────────────────────────────────────────────────
-  # Slow Tier — runs on merge to main + weekly schedule
+  # Slow Tier — runs on merge to main + weekly schedule, and on demand via the
+  # `run_slow_tier` workflow_dispatch input (added 2026-09-20 because neither
+  # automatic path had ever produced a real run, see `ci-summary`'s sentinel).
   # Skipped when only docs (*.md, docs/) changed
   # ──────────────────────────────────────────────────────────
 
@@ -615,6 +658,7 @@ jobs:
     needs: [test, changes]
     if: >-
       github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.run_slow_tier == 'true') ||
       (needs.changes.outputs.non-docs == 'true' &&
        github.event_name == 'push' &&
        (github.ref == 'refs/heads/main'))
@@ -738,7 +782,6 @@ jobs:
           REDIS_URL: redis://localhost:6379
           RUST_BACKTRACE: 1
           RUST_LOG: info
-          NEXTEST_RETRIES: 2
         run: cargo nextest run --test integration 'admin_registration_service_tests_migrated' --all-features --locked --test-threads 1
 
       - name: Run integration tests (--test integration)
@@ -749,7 +792,6 @@ jobs:
           REDIS_URL: redis://localhost:6379
           RUST_BACKTRACE: 1
           RUST_LOG: info
-          NEXTEST_RETRIES: 2
         run: cargo nextest run --test integration --all-features --locked --test-threads 6
 
       # e2e 目标此前**没有任何 workflow 调用**（`grep -rn "test e2e" .github/workflows/` 无命中），
@@ -780,7 +822,6 @@ jobs:
           TEST_DB_TEMPLATE_SCHEMA: test_template_ci
           REDIS_URL: redis://localhost:6379
           RUST_BACKTRACE: 1
-          NEXTEST_RETRIES: 2
         run: cargo insta test --no-review --test-runner nextest -- --all-features --locked --test-threads 8
 
       - name: Run performance smoke gate
@@ -811,6 +852,7 @@ jobs:
     needs: [test, changes]
     if: >-
       github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.run_slow_tier == 'true') ||
       (needs.changes.outputs.non-docs == 'true' &&
        (github.event_name == 'pull_request' ||
         (github.event_name == 'push' &&
@@ -896,6 +938,7 @@ jobs:
     needs: [test, changes]
     if: >-
       github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.run_slow_tier == 'true') ||
       (needs.changes.outputs.non-docs == 'true' &&
        github.event_name == 'push' &&
        (github.ref == 'refs/heads/main'))
@@ -934,6 +977,7 @@ jobs:
     needs: [integration-test, changes]
     if: >-
       github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.run_slow_tier == 'true') ||
       (needs.changes.outputs.non-docs == 'true' &&
        github.event_name == 'push' &&
        (github.ref == 'refs/heads/main'))
@@ -1147,7 +1191,7 @@ jobs:
     # digest is what a PR author reads first. Whether the job *blocks* a merge is
     # decided by branch protection, not by this list; this only makes a failure
     # visible.
-    needs: [changes, repo-sanity, test, integration-test, security-audit, build, pr-benchmark-gate]
+    needs: [changes, repo-sanity, test, integration-test, security-audit, build, coverage, pr-benchmark-gate]
     steps:
       - name: Print compact failure digest
         uses: actions/github-script@v7
@@ -1202,3 +1246,68 @@ jobs:
             core.summary.addRaw(html);
             core.summary.write();
             console.log('Failed jobs:', failed.join(', '));
+
+      # ── 哨兵：这次 run 到底"真的验证了什么" ────────────────────────────────
+      #
+      # 背景（2026-09-20 实测）：慢速车道（Integration Tests / Code Coverage /
+      # Build Check）在最近 30 个 CI run 里**全部 skipped**（因为 `needs: test`
+      # 长期是红的），而唯一的兜底 weekly schedule 最近 5 次 run 的每个 job 都在
+      # 2–11s 内失败、一个 step 都没执行。这三条门禁从未真正跑过，但"全 skipped"
+      # 的 run 在摘要里并不显眼 —— 所以把"门禁必须真的执行"变成退出码。
+      #
+      # 两条不变量：
+      #   ① 快速车道必须真的执行过（skipped / cancelled / 空都不算验证）：
+      #      工作流文件写坏或门控写错时不允许安静通过；
+      #   ② 事件**要求**慢速车道时（非 docs 的 main push、或 dispatch 里
+      #      run_slow_tier=true）且快速车道通过 ⇒ 慢速车道不得 skipped。
+      #      这正是"30 个 run 没跑过慢速车道"那一形态的常驻守卫。
+      - name: Sentinel — required lanes actually ran
+        if: always()
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          NON_DOCS: ${{ needs.changes.outputs.non-docs }}
+          FORCED_SLOW_TIER: ${{ github.event.inputs.run_slow_tier }}
+          TEST_RESULT: ${{ needs.test.result }}
+          INTEGRATION_RESULT: ${{ needs.integration-test.result }}
+          COVERAGE_RESULT: ${{ needs.coverage.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: |
+          set -euo pipefail
+          echo "event=$EVENT_NAME non-docs=$NON_DOCS forced=$FORCED_SLOW_TIER"
+          echo "test=$TEST_RESULT integration=$INTEGRATION_RESULT coverage=$COVERAGE_RESULT build=$BUILD_RESULT"
+
+          if [ "$TEST_RESULT" != "success" ] && [ "$TEST_RESULT" != "failure" ]; then
+            echo "::error::fast tier did not execute (Test & Lint result='$TEST_RESULT') — an empty run must not look like a verification"
+            exit 1
+          fi
+
+          require_lane() {
+            local name="$1" result="$2"
+            if [ "$result" != "success" ] && [ "$result" != "failure" ]; then
+              echo "::error::slow-tier lane '$name' did not run (result='$result') although this event requires it — the slow tier is not actually wired"
+              exit 1
+            fi
+            echo "ok: $name ran ($result)"
+          }
+
+          need_slow_tier=0
+          if [ "$EVENT_NAME" = "push" ] && [ "$NON_DOCS" = "true" ] && [ "$TEST_RESULT" = "success" ]; then
+            need_slow_tier=1
+          fi
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$FORCED_SLOW_TIER" = "true" ] && [ "$TEST_RESULT" = "success" ]; then
+            need_slow_tier=1
+          fi
+
+          if [ "$need_slow_tier" = "1" ]; then
+            require_lane "Integration Tests" "$INTEGRATION_RESULT"
+            require_lane "Build Check" "$BUILD_RESULT"
+            # Code Coverage `needs: integration-test`：只有上游**成功**时才要求它也跑过；
+            # 上游失败时它被 skip 是正确行为（错误已经由上游报了，不该在这里重复归因）。
+            case "$INTEGRATION_RESULT" in
+              success) require_lane "Code Coverage" "$COVERAGE_RESULT" ;;
+              *) echo "info: Code Coverage depends on Integration Tests ('$INTEGRATION_RESULT'); not requiring it" ;;
+            esac
+          else
+            echo "info: this event does not require the slow tier (fast tier will still be checked above)"
+          fi
+          echo "sentinel OK: every lane required by this event actually ran"

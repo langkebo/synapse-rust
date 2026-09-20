@@ -546,7 +546,11 @@ async fn test_get_dm_partner_for_room_returns_profile_info() {
 // 限制 2704 字节。5008 字节超限 → PG 54000。生产 100 好友更真实，
 // 1000 是极端上限。100 已足够验证 W3 缓存优化效果。
 // 性能断言对并行负载敏感（其他测试同时跑会放大 DB/CPU 延迟），
-// 因此这些 bench 测试串行执行。
+// 因此这些 bench 测试必须**独占机器**。⚠️ `#[serial]`（serial_test，未开
+// file_locks）只在**同一进程内**串行，而 nextest 每个测试一个进程 ⇒ 它在 CI 里
+// 等于没有（实测 2026-09-20 全量 lib 首跑就中了一例）。真正让它们串行的是
+// `ci.yml` 的 "Run latency benchmarks serially (--test-threads 1)" 车道，
+// 它们同时被并行 lib 步骤用 `-E` 排除。改这些用例前先看那条车道。
 #[tokio::test]
 #[serial]
 async fn bench_friend_list_100_limit_50() {
@@ -674,7 +678,11 @@ async fn bench_friend_list_100_limit_50() {
 // - 读取：fan-out 28 shard + 合并 + 排序 + sort_cache 写回 + 分页
 // - hot 路径：sort_cache hit，分页切片 O(1)
 // 性能断言对并行负载敏感（其他测试同时跑会放大 DB/CPU 延迟），
-// 因此这些 bench 测试串行执行。
+// 因此这些 bench 测试必须**独占机器**。⚠️ `#[serial]`（serial_test，未开
+// file_locks）只在**同一进程内**串行，而 nextest 每个测试一个进程 ⇒ 它在 CI 里
+// 等于没有（实测 2026-09-20 全量 lib 首跑就中了一例）。真正让它们串行的是
+// `ci.yml` 的 "Run latency benchmarks serially (--test-threads 1)" 车道，
+// 它们同时被并行 lib 步骤用 `-E` 排除。改这些用例前先看那条车道。
 #[tokio::test]
 #[serial]
 async fn bench_friend_list_1000_sharded() {
@@ -895,7 +903,11 @@ fn resolve_cursor_start_index_matches_position_scan() {
 // 1. 端到端 hot path < 20ms（DB RTT 噪声）—— 证明 cursor 翻页没引入回归
 // 2. 纯函数 resolve_cursor_start_index 1000 好友 < 50us —— 证明二分成本可忽略
 // 性能断言对并行负载敏感（其他测试同时跑会放大 DB/CPU 延迟），
-// 因此这些 bench 测试串行执行。
+// 因此这些 bench 测试必须**独占机器**。⚠️ `#[serial]`（serial_test，未开
+// file_locks）只在**同一进程内**串行，而 nextest 每个测试一个进程 ⇒ 它在 CI 里
+// 等于没有（实测 2026-09-20 全量 lib 首跑就中了一例）。真正让它们串行的是
+// `ci.yml` 的 "Run latency benchmarks serially (--test-threads 1)" 车道，
+// 它们同时被并行 lib 步骤用 `-E` 排除。改这些用例前先看那条车道。
 #[tokio::test]
 #[serial]
 async fn bench_friend_list_cursor_pagination_1000() {
