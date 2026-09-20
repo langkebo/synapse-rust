@@ -1,3 +1,6 @@
+# 2026-09-20: dynamic 由 1484 上调到 1499，全部来自测试基础设施（schema 连接级租约在
+# test_schema_guard.rs / 各 test_utils.rs 的 after_connect 里新增的 pg_advisory_lock_shared /
+# pg_try_advisory_lock / pg_advisory_unlock 等带绑定的动态语句）；生产路径未新增动态 SQL。
 # SQLx 动态/静态查询棘轮基线
 #
 # 由 scripts/ci/check_sqlx_dynamic_ratio.sh 读取。
@@ -48,7 +51,7 @@
 # 历史对照：2026-06-03 审计记录动态占比 99.6%（含测试代码口径）；
 # 本基线口径（仅 workspace 生产目录，含内联测试模块）为 95.90%。
 
-BASELINE_DYNAMIC=1484
+BASELINE_DYNAMIC=1499
 BASELINE_STATIC=61
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
