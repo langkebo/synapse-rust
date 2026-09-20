@@ -889,7 +889,7 @@ fmt 棘轮 `current=0=baseline`；clippy 两档 0 error；unit **1706 passed / 2
 1. 真实分页保护只在 `benchmark.yml::pagination-perf-gate`（**非** 合并阻断工作流）；PR 上不跑（受 A7 取舍影响）。
 2. `check_pagination_benchmark.py` 仍是计算路径烟雾检查，**不覆盖** SQL。
 3. `ROOM_EVENT_COLS` 为 bench 放宽为 `pub`（公共 API 面扩大）；可改为 bench 侧本地常量。
-4. 新 bench/门禁**没有单元测试钉住**（`tests/unit/pagination_gate_tests.rs` 只覆盖内存检查）。
-5. `seed_fixture` 只按自己的 room_id 前缀清理：外部夹具若复用 `$benchpag*`/`$benchother*` 的 event_id 命名，
+4. ✅ 已补（`tests/unit/pagination_db_gate_tests.rs`，4 条）：钉住门禁接线（job 名 + `BENCHMARK_DATABASE_URL` + `synapse_bench` service）、门禁**可失败**（`PAGINATION_MIN_GAIN` / `index_scan` / `correct` / `BENCH_REQUIRE` / `BREACH`+`FAILED`）、bench 调的是**生产** `get_room_events_paginated_cursor` 且计划探针用**行值**谓词、生产两侧谓词都保持行值形态、内存检查仍声明「不是门禁」并指路真实门禁。**红证明**：把 `benchmark.yml` 的 job 名改掉 → 守卫 FAILED（"the DB-backed pagination gate job must exist"）；恢复 → 4 passed。
+5. ✅ 已修：`seed_fixture` 的清理扩展到**本 bench 的 event_id 命名空间**（`event_id LIKE '$bench%'`），外来同名夹具不再让本地重跑在 `pk_events` 上 seed 失败（CI 先重置 schema，不受影响）。
    本地重跑会 seed 失败（**fail-closed，不是假绿**，但对本地复跑是个坑）。
 6. `keyset_shallow_us` 被输出但未参与判定，且在 `force_generic_plan` 下测得偏高（11–16ms），像另一个待查问题。
