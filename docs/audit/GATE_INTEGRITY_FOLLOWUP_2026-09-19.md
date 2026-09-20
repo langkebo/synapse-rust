@@ -141,7 +141,6 @@ bef65f53 style(fmt): 归零 fmt debt（HEAD 实测 99 块 vs baseline 0，1.93.0
 
 ### 1.5 Phase 4：CI 门禁 `29ed5655` `003a54f2` `753f29ad` `d32419e9`
 
-
 - **C6** `check_web_layering.py`：加"扫描面存在且非平凡"守卫（≥20 个 `.rs`，`--update`
   也先过这道），并补上此前**磁盘上不存在**的 `scripts/ci/web_layering_allowlist.txt`。
   红证明：`WEB` 指向不存在目录 → 明确 FAIL、exit 1。
@@ -356,10 +355,10 @@ schema contract coverage / connection budget / route layering **全部 exit 0**�
   （旧版靠 `_sqlx_migrations` 判定"已应用"，会让旧 baseline 造出的模板**永远陈旧**；
   而对陈旧 schema 重放 baseline 也不是修复，实测 `column "recipient_user_id" does not exist`）。
   `init_test_public_schema.sh` 同时：
-  * 加 `TARGET_SCHEMA` / `RESET_PUBLIC`（`RESET_PUBLIC=0` 不 DROP public，避免级联删掉
+  - 加 `TARGET_SCHEMA` / `RESET_PUBLIC`（`RESET_PUBLIC=0` 不 DROP public，避免级联删掉
     其它 schema 依赖 public 扩展的对象 —— 这正是把隔离模板 10 个 `gin_trgm_ops`
     清成 0 的机制）；
-  * `ON_ERROR_STOP=0`+忽略返回值 → `ON_ERROR_STOP=1`；结尾由"echo 表数"改为
+  - `ON_ERROR_STOP=0`+忽略返回值 → `ON_ERROR_STOP=1`；结尾由"echo 表数"改为
     **断言 ≥100 表否则 exit 1**（旧版迁移整段没落地也 exit 0）。
 - **验证**：`prepare_test_db.sh` EXIT=0，public 228 BASE TABLE / 模板 227 BASE TABLE + 10 trgm；
   红证明：`TEST_DATABASE_URL=…:59999` → EXIT=2 且报 "Connection refused"；
@@ -762,7 +761,7 @@ unit 目标 **1691 passed / 2 skipped / 0 failed**；全量 `--workspace --lib -
   `9fb0e46a`（本意只改两份文档）时被 `git add -A` **一并卷入**的，因此该 commit 的 message 未提及 E8；
   内容已逐条复核无误，后续以 §9.1 为准（不再重写历史）。
 - **§9 末尾"新增待办"相应收敛为 2 条**：E4 的真实 DB 分页基准；`extract_registered.py` Python 侧棘轮仍单向
-  + `EXTRACT_STRICT=1` 在 HEAD 上的 3 类既有失败。
+  - `EXTRACT_STRICT=1` 在 HEAD 上的 3 类既有失败。
 
 ---
 
@@ -960,7 +959,7 @@ worker, schema_validator。
 行值谓词与 `ROOM_EVENT_COLS` 未动。
 
 **门禁对齐与增强**：① 计划探针从"窄 `SELECT event_id` 代理形状"改为**生产形状**（`ROOM_EVENT_COLS` + 行值谓词
-+ 限定 ORDER BY），并要求命中 `idx_events_room_ts_stream` 且**无 Sort 节点**（旧的 Bitmap+Sort 不再算绿）；
+- 限定 ORDER BY），并要求命中 `idx_events_room_ts_stream` 且**无 Sort 节点**（旧的 Bitmap+Sort 不再算绿）；
 ② 深浅采样改为**交错**（消除块采样在负载抖动下的假阳性），新增 `shallow_over_deep_x` 与检查 5
 （`PAGINATION_MAX_SHALLOW_RATIO=4.0`，floor `PAGINATION_SHALLOW_BREACH_FLOOR_US=5000`）。
 **红证明（回退 14 处限定名）**：`shallow_over_deep_x=7.17` → BREACH → **FAILED exit 1**，而
@@ -1026,3 +1025,134 @@ dynamic 从 1484 升到 **1499**（15 处**全部**来自 §12.1 的租约：`af
 | B18 | ✅ **本轮修** | `production_half` 原在首个 `#[cfg(test)]` 截断（文件前部插一个小 cfg(test) 项即可整段关掉负向守卫）→ 新增 `production_anchor`/`production_half_checked` 断言窗口必须覆盖已知生产符号；导出守卫改为 `strip_rust_comments` 后再判定。三条红证明：① 顶部插 `#[cfg(test)]` 探针 → Guard1/1b FAILED；② 注释掉导出 → 修复后 FAILED 而旧写法 PASSED；③ 生产半区加 `for stmt in …` → Guard1 FAILED。`"for stmt in"` 字面量守卫判定 **NOT A DEFECT**（有效绊线；承重且可红的是 `!contains("split_sql_statements")`，放宽会引入误报） |
 | D1 | ✅ 已修（前序 `2112f43f`） | `template_schema_manifest` 对目录项/类型/UTF-8/读取失败全部 panic；chmod-000 测试通过并打印 `Permission denied (os error 13)` |
 | D3 | ✅ 已修（前序） | `classify_ignores_…` 钉住 `.undo.sql`；删掉 `.undo.sql` 守卫 → `left: Some(20260101000000) right: None` |
+
+---
+
+## 14. 第九轮：首次真 CI（PR #5 `ci-verify-2026-09-20`）与由此暴露的修复
+
+`gh` 登录后第一次真正触发 GitHub Actions（此前所有"CI 结论"都是本地等效）。PR 分支
+`ci-verify-2026-09-20`（63 个本地 commit，HEAD `cfe2e8ff`）在 `2026-09-20T04:26Z` 产生 5 个 run。
+**这一轮的价值不是"变绿"，而是第一次让 14 个 workflow 真的被执行** —— 立刻暴露出若干
+"文件级非法 / 必然失败 / 从未被触发"的门禁。
+
+### 14.1 首跑结论（run id 为 35489156822–35489156862）
+
+| Workflow / job | 首跑 | 根因 |
+|---|---|---|
+| Schema Drift Detection | ❌ | `sqlx migrate run` 应用含 `CREATE INDEX CONCURRENTLY` 的 baseline（事务内禁止） |
+| DB Migration Gate / `sqlx Migrate Run` | ❌ | 同上（同一命令） |
+| Format Governance | ❌ | `rustfmt_all.sh` 把 `vendor/pastey` 也纳入 rustfmt（与 fmt 棘轮的扫描面不一致） |
+| Docs Quality Gate | ❌ | markdownlint 232 处（MD004 158 + MD056/MD012/MD055 等，全部存量） |
+| CI / Test & Lint ×2 | ❌ | `psql -c "CREATE DATABASE synapse_test" \|\| true` 从未建库（psql 不读 `DATABASE_URL`） |
+| CI / Test & Lint ×2 | ❌ | `missing_docs` 棘轮 "debt decreased 3 < 6"（baseline 未收紧） |
+| CI / PR Benchmark Gate | ❌ | `no matching workflow run found with any artifacts?`（main 从未成功上传 `benchmark-results`） |
+| Benchmark / Sliding sync perf gate | ❌ | schema 步骤把 URL 传成 `DATABASE_URL`，而脚本只读 `TEST_DATABASE_URL` → 落到不存在的 `synapse_test` |
+| docker-security-scan.yml（push） | ❌ 0s | **workflow 文件非法**：hadolint `ignore` 写成 YAML 序列（该输入要求标量字符串）+ `setup-buildx-action` 的 `cache-from/cache-to` 不是该 action 的输入。自 2026-09-19 加入起每次 push 都是 `startup_failure`（0 job） |
+| Schema Health Check / E2EE Interop | ✅ | —— |
+| ci.yml 的 `Integration Tests` / `Code Coverage` / `Build Check` | 跳过 | 按既定裁定为 push-only |
+
+### 14.2 本轮修复（每项都带红/绿证据）
+
+1. **删除 forward-only sqlx 迁移源（反冗余铁律 2/4）**：`scripts/build_sqlx_migration_source.py`
+   被删除，连带删除 5 处 workflow 步骤（`ci.yml` ×3、`db-migration-gate.yml` ×1、`benchmark.yml` ×1）、
+   5 处 `cargo install sqlx-cli`、以及 4 条守卫测试（E7 ×3 + migration_consistency ×1）。
+   *为什么它必须死*：它把 `migrations/` 复制到 `artifacts/`（铁律 4 明文禁止"迁移副本"），
+   且唯一消费者 `sqlx migrate run` 在本仓库**必然失败** —— `scripts/ci/prepare_test_db.sh`
+   与 `scripts/init_test_public_schema.sh` 的头注释早已记录该结论（sqlx-cli 0.8.x 不认
+   `-- no-transaction`；baseline 含 14 处 `CREATE INDEX CONCURRENTLY`），真 CI 再次实测：
+   `error: while executing migration 0: error returned from database: CREATE INDEX CONCURRENTLY
+   cannot run inside a transaction block`（run 35489156855 / 35489156824）。
+   增量折叠的完整性没有失去守卫：`scripts/check_baseline_consolidation.py` 的扫描面自检
+   独立断言"每个正向 `.sql` 都被归类"且在出现增量时恢复对象吸收检查。
+   连带修掉 `drift-detection.yml::Check for duplicate migrations` 的**第二次扫描面落空**：它原本
+   只扫 `migrations/ artifacts/sqlx-migrations*`，删掉 artifacts 之后就只剩 `migrations/`
+   （文件名天然唯一）—— 与 sweep A11.2 记录的"结构性恒空"同型。现改为 `find` 全树 `*.sql`
+   （prune `.git`/`target`/`node_modules`/`artifacts`）按 basename 查重：重新引入的任何副本
+   （例如 `docker/deploy/migrations/`）会立刻撞名变红。本地实测：6 个 `.sql` / 5 个目录，无重复。
+   绿：`check_migration_consistency.py` / `check_baseline_consolidation.py` /
+   `check_schema_blind_guards.py` / `check_workflow_steps.py` 全部 EXIT 0。
+2. **迁移应用统一到单一实现**：`drift-detection.yml`、
+   `db-migration-gate.yml`（job 更名为 `App-shape migrate smoke`）、
+   `ci.yml::integration-test` 的"部署形态库"验证全部改走 `bash docker/db_migrate.sh migrate`。
+   ⚠️ 其中 `ci.yml::integration-test` 是**合并后才会暴露的潜伏红**：该 job 在 PR 上被跳过，
+   但它的 `sqlx migrate run` 与 drift 完全同型（`sqlx database create` 的职责已由
+   `db_migrate.sh::ensure_database_exists` 承接）。测试 `every_ci_db_migrate_call_supplies_an_explicit_target`
+   要求每个调用点显式给目标，新增的 3 处都带 `DATABASE_URL`。
+3. **`synapse_test` 建库改为单一实现**：删除 2 条 `psql -c "CREATE DATABASE synapse_test;" || true`
+   （实测失败文本：`psql: error: connection to server at "localhost" (::1), port 5432 failed:
+   FATAL: database "synapse_test" does not exist` 出现在**下一步**，说明上一步被 `|| true` 吞掉）。
+   改由 `scripts/ci/prepare_test_db.sh` 在 3 个调用点统一按需建库（`psql "$admin_url" -c CREATE DATABASE`，
+   `ON_ERROR_STOP=1`）：库缺失会补上，服务器不可达仍然响亮失败，不再有吞错点。
+4. **`missing_docs` 存量归零**：给根包 6 个二进制入口（`src/main.rs` 与 5 个 `src/bin/*.rs`）
+   补 crate 级 `//!` 文档，`scripts/.missing-docs-baseline` 6 → **0**，棘轮与两处文首说明同步更新。
+   绿：本地 `--all-features` 全 workspace 实测 debt = 0（CI 两个工具链的 3 / 2 差异随之消失）。
+5. **Format Compliance 的四段全部对齐**：
+   `rustfmt_all.sh` 排除 `vendor/`、`target/`（与 `check_fmt_ratchet.sh` 的扫描面一致，并注入探针证明仍可红）；
+   `format_audit.py` 的 Tabs 判据改为**只认行首缩进 tab**——原判据把
+   `scripts/ci/compute_perf_gate.sh`（quoted heredoc 里的 `名称<TAB>上限` 表）与
+   `scripts/ci/benchmark_pr_gate.sh`（`grep -F "${name}<TAB>"`）里的**数据 tab** 当成格式漂移，
+   照它改会静默废掉两条性能门禁的基线解析；同时修掉 5 个缺尾部换行的文件。
+   对 8 个 shell 文件跑 CI 同版本 `shfmt 3.8.0 -w -i 4 -ci`（**两种版本都验证为 0 diff**：3.8.0 与本地 3.13.1），
+   并确认数据 tab 未被改写（`compute_perf_gate.sh` 仍 3 个、`benchmark_pr_gate.sh` 仍 1 个）。
+6. **Docs Quality**：30 个 markdown 按 workflow 的确切文件表 + `.markdownlint.json` 清到 0
+   （本地 237 → 0；用 CI 同款 `markdownlint-cli` 对 137 个 active docs 复跑 → exit 0）。
+   ⚠️ **过程中发现并修掉一处"修门禁反而改坏内容"**：`markdownlint --fix` 的 MD010（no-hard-tabs）
+   会把**围栏代码块里语义性 tab** 换成空格 —— 实测两处：`DOCKER_REVIEW_2026-09-19.md` 的
+   Makefile recipe（`\t@cd docker …` 变成空格开头，等于把"可用的 Makefile 片段"改成不可用的）、
+   `PROJECT_ACTUAL_ISSUES_2026-09-14.md` 引用的 `git check-ignore -v` 输出（源与路径之间本就是 tab）。
+   tab 已还原，并在 `.markdownlint.json` 显式设 `"MD010": { "code_blocks": false }`：
+   tab 在散文里是噪声、在引用的终端输出/Makefile 里是**数据**。校验：30 个改动 md 的
+   **围栏代码块内容与 HEAD 逐字节相同**（脚本比对），markdownlint 仍 exit 0。
+7. **`benchmark.yml` sliding-sync**：schema 步骤的 `DATABASE_URL` → `TEST_DATABASE_URL`（与下面
+   pagination job 一致）。
+8. **`docker-security-scan.yml` 恢复可执行**：`ignore` 改为逗号分隔标量；删除向
+   `setup-buildx-action` 传 `cache-from/cache-to` 的步骤（该 action 无此输入，是文件非法的另一半；
+   且 P1-5 声称的 GHA cache 从未生效 —— `type=gha` 导出需要 `docker buildx build`）。
+   `actionlint` 全 14 个 workflow：0 告警（顺带把 `pre-fix` 就存在的
+   `peaceiris/actions-gh-pages@v3` 升到 `@v4`：v3.9.3 被 actionlint/GitHub 判为 runner 过旧，
+   而 v4 的输入与用法不变）。
+9. **`benchmark.yml` 的 gh-pages 循环依赖**：删除 `benchmark-action/github-action-benchmark@v1`
+   （`auto-push: true` 要求 `gh-pages` 分支；本仓库没有，且该 job 权限只有 `contents: read`，
+   推送也会被拒）——它每次都在 `Store benchmark results` **之前**失败，因此 main 从未产出
+   `benchmark-results` artifact，这正是 PR Benchmark Gate 报"找不到任何带 artifact 的 run"的原因。
+   同时收回只服务于它的 `pages: write` / `id-token: write` 权限。回归比较未失守：
+   `compute_perf_gate.sh`（上限）、`performance-comparison`（artifact diff）、`pr-benchmark-gate`（阈值）都在。
+10. **过时指令**：`scripts/create-default-admin.sql` 的 `cargo sqlx migrate run` → `bash docker/db_migrate.sh migrate`。
+11. **`ruff format` 存量归零**（Format Compliance 的第 3 段）：仓库没有 `pyproject.toml`/`ruff.toml`，
+    ruff 用默认 88 列，而 Python 是手写风格 ⇒ `ruff format --check .` 实测 **25 个文件需重排**
+    （`--line-length 120` 反而 49 个，说明"改配置对齐现有风格"这条路走不通）。
+    用 CI 同款最新 ruff（0.16.8）跑 `ruff format .` → **284 files already formatted**，
+    并把 workflow 的 `pip install ruff` **钉到 `ruff==0.16.8`**（格式化输出随版本变化，不钉版本等于让门禁结论取决于运行日期）。
+    **安全性验证**：25 个改动文件里 22 个与 HEAD 的 **Python AST 完全相同**（纯格式），
+    余下 3 个正是本轮手改过的 `format_audit.py` / `check_baseline_consolidation.py` /
+    `check_missing_docs_ratchet.py`。pre-commit 三段（`check-json`/`check-toml`/`check-yaml`）
+    的等价本地校验：194 个 tracked json/toml/yaml 全部解析通过。
+
+### 14.3 仍未解决 / 需要决策
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| CI / PR Benchmark Gate | 🔴 仍会红 | 需要 main 上至少一次成功的 benchmark run 产出 `benchmark-results`。本分支已修掉 gh-pages 阻塞，但**必须推到 main 并触发 `workflow_dispatch`**（约 50 分钟）才能生成基线。main 的 Benchmark 另有 2 个独立失败：`Run performance soak gate`（`SOAK_BASE_URL` secret 缺失即 exit 1，属 fail-closed）、`Sliding sync perf gate`（本分支已修 env） |
+| Format Compliance 的 pre-commit 段 | ⚠️ 部分未能本地验证 | 本机无 `pre-commit`（PyPI TLS 被阻断），无法跑到 hook 环境下载那一步；但 `check-json`/`check-toml`/`check-yaml` 的等价校验已通过 194/194。CI 重跑给出确切结论 |
+| `peaceiris/actions-gh-pages@v3` | ✅ 本轮升级 | actionlint 报 "runner of ... is too old to run on GitHub Actions"（GitHub 已不支持旧 node）→ 升 `@v4`（`v4.1.0` 存在，输入不变），`actionlint` 全仓 0 告警。仍需 main 实跑确认发布动作本身 |
+| `docker-security-scan.yml` 首次真跑 | ⚠️ 未知 | 它过去**从未执行过任何 step**。修复后 hadolint/trivy 会第一次真正运行，可能出现新的 lint/CVE 结论 |
+| B10 残留 ⑤ | ⚠️ 未做 | `SYNAPSE_MIGRATIONS_DIR` 未在 docker-compose 的 `environment:` 里显式声明（镜像 `WORKDIR /app` + `cp -R migrations/. /app/migrations` 已使默认解析成功，故非阻塞） |
+
+### 14.4 本轮本地门禁（冻结树 = 当前工作树，2026-09-20；真 CI 需推送后重跑）
+
+| 门禁 | 结果 |
+|---|---|
+| `./scripts/check_fmt_ratchet.sh` | ✅ `current=0 baseline=0` |
+| clippy 默认档（`--workspace --all-targets --features test-utils`） | ✅ 0 error（6m45s） |
+| clippy `--all-features` 档 | ✅ 0 error（4m09s） |
+| doc-test（`--workspace --all-features`，rustdoc 编译门禁） | ✅ EXIT 0 |
+| unit 目标（`--test unit --features test-utils --test-threads 4`） | ✅ **1689 passed / 2 skipped / 0 failed**（E7 四条守卫随脚本删除，1693 → 1689） |
+| 全量 `--workspace --lib --all-features --test-threads 4`（**无 retries**） | ✅ **6092/6092 passed**（987s） |
+| `missing_docs` 棘轮（`--base cfe2e8ff`） | ✅ debt `0` = baseline `0` |
+| `format_audit.py --fail-on-drift` | ✅ EXIT 0（tabs 信号另有红证明：行首 tab → 1；行中数据 tab → 0） |
+| `ruff format --check .`（0.16.8，即 workflow 新钉版本） | ✅ 284 files already formatted |
+| `shfmt -d -i 4 -ci`（3.8.0 = ubuntu-24.04 apt 版；3.13.1 = 本机版） | ✅ 两种版本都 0 diff，且数据 tab 未被改写 |
+| `markdownlint-cli -c .markdownlint.json`（CI 同款 137 个 active docs） | ✅ EXIT 0 |
+| `actionlint`（14 个 workflow） | ✅ 0 告警（修复前：`docker-security-scan.yml` 文件非法，`startup_failure` 0 job） |
+| `check_migration_consistency.py` / `check_baseline_consolidation.py` / `check_schema_blind_guards.py` / `check_workflow_steps.py` | ✅ 全部 EXIT 0 |
+| `prepare_test_db.sh` 端到端（scratch 库 `synapse_prepare_probe`） | ✅ `[0/3]` 自动建库 + public/模板双 schema 落库，EXIT 0（探针库已 DROP） |
