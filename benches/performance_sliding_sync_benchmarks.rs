@@ -80,9 +80,15 @@ static BENCH_USER_COUNTER: AtomicU64 = AtomicU64::new(1);
 // that mistake.)
 //
 // Instead, `SLIDING_SYNC_REQUIRE=<group>[,<group>...]` names the groups that
-// must execute. `scripts/ci/sliding_sync_perf_gate.sh` requires
-// `sliding_sync_p95_p99_latency`, so a skipped measurement cannot be mistaken
-// for a passing one.
+// must execute. `scripts/ci/sliding_sync_perf_gate.sh` requires the group name
+// spelled exactly as it is passed to `require_bench_group` below, i.e.
+// **`p95_p99`** — *not* the criterion benchmark id
+// `sliding_sync_p95_p99_latency`, which is a different string and is only used
+// as the CLI filter. Naming the id here (as this comment did before
+// 2026-09-20) makes the harness fail every run:
+//   "required benchmark group(s) did not execute: sliding_sync_p95_p99_latency"
+// because the registry only ever contains `p95_p99`.
+// So a skipped measurement cannot be mistaken for a passing one.
 
 /// Group names that actually reached their `bench_function` call.
 static EXECUTED_GROUPS: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());

@@ -1127,12 +1127,56 @@ dynamic 从 1484 升到 **1499**（15 处**全部**来自 §12.1 的租约：`af
     余下 3 个正是本轮手改过的 `format_audit.py` / `check_baseline_consolidation.py` /
     `check_missing_docs_ratchet.py`。pre-commit 三段（`check-json`/`check-toml`/`check-yaml`）
     的等价本地校验：194 个 tracked json/toml/yaml 全部解析通过。
+12. **Sliding sync perf gate 里藏着两个必失败**（把 CI 的这几步在本地**原样复现**才发现；
+    CI 里它们被更早的 schema 步骤挡住，所以"修完 env"仍会红）：
+
+    (a) `cargo bench --bench performance_sliding_sync_benchmarks` 缺 `--features test-utils`，
+    而 `Cargo.toml` 对该 target 声明了 `required-features = ["test-utils"]`：
+
+    ```text
+    error: target `performance_sliding_sync_benchmarks` in package `synapse-rust`
+    requires the features: `test-utils`
+    ```
+
+    修法：给脚本的 bench 调用加 `--features test-utils`。（pagination bench 不需要，是因为
+    Cargo.toml 里**刻意**没有给它 required-features，见该文件的 E4 注释。）
+
+    (b) `SLIDING_SYNC_REQUIRE` 填的是 **criterion 基准 id**
+    `sliding_sync_p95_p99_latency`，而 bench 的 required-group 注册表里只有组名
+    `p95_p99`（`require_bench_group("p95_p99")` 与 `c.bench_function("sliding_sync_p95_p99_latency", …)`
+    是**两个不同的字符串**）。后果最阴：33 条 `[perf]` 采样全部打印、p95 全部远低于阈值，
+    但 bench 收尾仍判失败并 exit 1：
+
+    ```text
+    SLIDING_SYNC_REQUIRE: required benchmark group(s) did not execute: sliding_sync_p95_p99_latency.
+    Executed groups: ["request_construction", "sync_response", "subscription_changes", "p95_p99"].
+    ```
+
+    修法：`SLIDING_SYNC_REQUIRE="p95_p99"`；bench 文件里那句把人引向基准 id 的注释
+    （"…requires `sliding_sync_p95_p99_latency`"）同步订正。并补一条**可红的守卫**
+    `tests/unit/pagination_gate_tests.rs::sliding_gate_require_names_a_registered_group`：
+    从 bench 源里抽出 `require_bench_group("…")` 注册表，断言脚本里的值是注册过的组名
+    （注册表 <4 个也判失败，避免空扫通过）。红证明：把脚本值改回
+    `sliding_sync_p95_p99_latency` → FAILED；改回 `p95_p99` → PASS。
+    **绿**：本地 `SLIDING_SYNC_PERF_GATE_STRICT=1` 端到端
+    （`synapse_bench` + `init_test_public_schema.sh`）→ **33/33 samples within threshold,
+    PASSED, EXIT 0**（p95 实测 0.7–11 ms vs 阈值 5000 ms）。
+13. **PR Benchmark Gate 与"整条 run 是否 success"解耦**：`dawidd6/action-download-artifact`
+    默认 `workflow_conclusion: success`，于是基线取决于**整条 Benchmark run 成功**——
+    而该 run 里有两个与"有没有基线"无关、却按设计/环境会失败的 job：
+    `Run performance soak gate`（仅 schedule 触发，缺 `SOAK_BASE_URL` secret 时 fail-closed）
+    与 `Generate benchmark report`（往 gh-pages 推送）。改为 `branch: main` +
+    `workflow_conclusion: completed` + `search_artifacts`/`check_artifacts`：语义精确为
+    "最近一次**真的产出了 `benchmark-results`** 的 main run"，仍然 fail-closed
+    （从未产出过 artifact 就失败）。`branch: main` 同时修掉一个**自我比较漏洞**：
+    gh-pages 阻塞移除后 PR run 也会上传同名 artifact，没有 branch 过滤时 PR 门禁可能
+    把"自己这次 run"当基线，永远报没有回归。
 
 ### 14.3 仍未解决 / 需要决策
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| CI / PR Benchmark Gate | 🔴 仍会红 | 需要 main 上至少一次成功的 benchmark run 产出 `benchmark-results`。本分支已修掉 gh-pages 阻塞，但**必须推到 main 并触发 `workflow_dispatch`**（约 50 分钟）才能生成基线。main 的 Benchmark 另有 2 个独立失败：`Run performance soak gate`（`SOAK_BASE_URL` secret 缺失即 exit 1，属 fail-closed）、`Sliding sync perf gate`（本分支已修 env） |
+| CI / PR Benchmark Gate | 🟡 需一次 main run（已与 run 结论解耦） | 下载改为 `branch: main` + `workflow_conclusion: completed` + `search_artifacts`/`check_artifacts`，语义 = "最近一次真的产出 `benchmark-results` 的 main run"：soak（schedule-only、缺 secret 属设计 fail-closed）或 report 发布失败不再让基线不可得；从未产出过 artifact 仍 fail-closed。首次基线仍需推 main 触发一次 benchmark（push 时 soak 被 `if` 排除，闭合路径 = 提交 → 推 main → 等绿，约 50 分钟；`Sliding sync perf gate` 的两个必失败——`--features test-utils` 与 `SLIDING_SYNC_REQUIRE` 组名——已在本轮修掉，本地端到端 EXIT 0） |
 | Format Compliance 的 pre-commit 段 | ⚠️ 部分未能本地验证 | 本机无 `pre-commit`（PyPI TLS 被阻断），无法跑到 hook 环境下载那一步；但 `check-json`/`check-toml`/`check-yaml` 的等价校验已通过 194/194。CI 重跑给出确切结论 |
 | `peaceiris/actions-gh-pages@v3` | ✅ 本轮升级 | actionlint 报 "runner of ... is too old to run on GitHub Actions"（GitHub 已不支持旧 node）→ 升 `@v4`（`v4.1.0` 存在，输入不变），`actionlint` 全仓 0 告警。仍需 main 实跑确认发布动作本身 |
 | `docker-security-scan.yml` 首次真跑 | ⚠️ 未知 | 它过去**从未执行过任何 step**。修复后 hadolint/trivy 会第一次真正运行，可能出现新的 lint/CVE 结论 |

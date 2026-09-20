@@ -101,13 +101,25 @@ echo "    database reachable: $DB_URL"
 # ---------------------------------------------------------------------------
 BENCH_LOG="artifacts/sliding_sync_perf_gate.log"
 echo "    running performance_sliding_sync_benchmarks..."
-# The p95/p99 benchmark group is `sliding_sync_p95_p99_latency`. We run only
-# that group to keep the gate fast (~20s measurement + warmup).
+# The p95/p99 measurement is criterion benchmark id
+# `sliding_sync_p95_p99_latency` (that is what the CLI filter below selects),
+# while the harness's **required-group** registry calls the same group
+# `p95_p99` (see `require_bench_group("p95_p99")` /
+# `c.bench_function("sliding_sync_p95_p99_latency", …)` in
+# `benches/performance_sliding_sync_benchmarks.rs`). The two names are
+# different strings and mixing them up is fatal, not cosmetic:
 #
-# SLIDING_SYNC_REQUIRE=sliding_sync_p95_p99_latency makes the bench harness
-# itself fail when that group did not execute (e.g. the DB vanished between the
-# pre-flight check and the run). Without it the harness would skip the group and
-# still exit 0 — the exact false-green this gate exists to prevent.
+#   SLIDING_SYNC_REQUIRE=sliding_sync_p95_p99_latency  # ❌ never matches a group
+#   → "required benchmark group(s) did not execute: sliding_sync_p95_p99_latency"
+#   → bench exit 1, even though all 30 `[perf]` samples were emitted
+#   (measured locally 2026-09-20). Correct value: `p95_p99`.
+#   `tests/unit/pagination_gate_tests.rs::sliding_gate_require_names_a_registered_group`
+#   now pins this mapping so it cannot silently drift again.
+#
+# SLIDING_SYNC_REQUIRE makes the bench harness itself fail when the group did
+# not execute (e.g. the DB vanished between the pre-flight check and the run).
+# Without it the harness would skip the group and still exit 0 — the exact
+# false-green this gate exists to prevent.
 #
 # Note: a "did any group run?" check would NOT work here, because the
 # in-process `benchmark_request_construction` group always runs.
@@ -121,7 +133,7 @@ echo "    running performance_sliding_sync_benchmarks..."
 # schema step failed first). Unlike the pagination bench, this target was not
 # given a `required-features`-free declaration, so the feature flag must come
 # from the caller.
-SLIDING_SYNC_REQUIRE="sliding_sync_p95_p99_latency" \
+SLIDING_SYNC_REQUIRE="p95_p99" \
     cargo bench --locked --features test-utils --bench performance_sliding_sync_benchmarks \
     -- --noplot sliding_sync_p95_p99_latency 2>"$BENCH_LOG" || {
     echo "ERROR: sliding sync benchmark failed to run"

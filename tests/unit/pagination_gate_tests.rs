@@ -430,6 +430,49 @@ fn route_layering_gate_passes_on_the_real_route_tree() {
     assert_eq!(code, 0, "真实路由树上门禁应通过\n输出:\n{output}");
 }
 
+/// Sliding-sync 门禁的 `SLIDING_SYNC_REQUIRE` 必须点名 bench **注册过的组名**。
+///
+/// 该 bench 有两套名字：criterion 基准 id `sliding_sync_p95_p99_latency`
+/// （只用于 CLI 过滤）与 `require_bench_group("p95_p99")` 注册的**组名**。
+/// 门禁脚本曾把 id 填进 `SLIDING_SYNC_REQUIRE`，于是 30 条 `[perf]` 采样全部
+/// 打印、bench 却在收尾时判 "required benchmark group(s) did not execute" 并
+/// exit 1（本地实测 2026-09-20；CI 里被更早的 schema/env 阻塞掩盖）。本测试把
+/// 映射钉死：值必须能在 `require_bench_group(...)` 里找到；注册表为空时也失败，
+/// 避免"两个空集合相等"式的空扫通过。
+#[test]
+fn sliding_gate_require_names_a_registered_group() {
+    let bench_path = repo_root().join("benches/performance_sliding_sync_benchmarks.rs");
+    let bench_src = fs::read_to_string(&bench_path).expect("sliding sync bench must be readable");
+    let marker = "require_bench_group(\"";
+    let registered: Vec<String> = bench_src
+        .match_indices(marker)
+        .map(|(index, pattern)| {
+            let rest = &bench_src[index + pattern.len()..];
+            rest[..rest.find('"').expect("closing quote must exist")].to_string()
+        })
+        .collect();
+    assert!(registered.len() >= 4, "bench 必须注册 ≥4 个组（含纯内存组），否则下面的匹配是空扫: {registered:?}");
+    assert!(registered.iter().any(|group| group == "p95_p99"), "bench 必须注册 DB-backed 组 `p95_p99`: {registered:?}");
+
+    let gate_path = repo_root().join("scripts/ci/sliding_sync_perf_gate.sh");
+    let gate = fs::read_to_string(&gate_path).expect("sliding sync gate script must be readable");
+    let line = gate
+        .lines()
+        .find(|line| line.trim_start().starts_with("SLIDING_SYNC_REQUIRE="))
+        .expect("门禁脚本必须设置 SLIDING_SYNC_REQUIRE");
+    let value = line.split('"').nth(1).expect("SLIDING_SYNC_REQUIRE 必须是双引号字符串").to_string();
+    let required: Vec<&str> = value.split([',', ' ']).filter(|item| !item.is_empty()).collect();
+    assert!(!required.is_empty(), "SLIDING_SYNC_REQUIRE 至少要点名一个组");
+    for group in required {
+        assert!(
+            registered.iter().any(|registered_group| registered_group == group),
+            "SLIDING_SYNC_REQUIRE 点名了 `{group}`，但它不是注册过的组名 \
+             (`require_bench_group` 注册表: {registered:?})。criterion 基准 id 是另一个字符串，\
+             填错会让 bench 收尾时判 \"required benchmark group(s) did not execute\" 并 exit 1。"
+        );
+    }
+}
+
 // =============================================================================
 // helpers
 // =============================================================================
