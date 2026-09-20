@@ -64,8 +64,8 @@ fi
 # `^[0-9]+$` 校验失败 —— 绝不返回 0。
 fmt_targets() {
     find src synapse-common synapse-cache synapse-storage synapse-e2ee \
-         synapse-federation synapse-services synapse-web synapse-test-utils benches tests \
-         -name '*.rs' -not -path '*/target/*' -print0 2>/dev/null
+        synapse-federation synapse-services synapse-web synapse-test-utils benches tests \
+        -name '*.rs' -not -path '*/target/*' -print0 2>/dev/null
 }
 
 count_fmt_diffs() {

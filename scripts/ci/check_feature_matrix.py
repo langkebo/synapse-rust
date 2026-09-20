@@ -21,6 +21,7 @@ B6-3: feature 矩阵真实化门禁。
   0: 全部通过
   1: 有 feature 无法单独编译 / shipped ≠ tested
 """
+
 from __future__ import annotations
 
 import re
@@ -31,6 +32,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 ROOT_TOML = REPO_ROOT / "Cargo.toml"
 SKIP_FEATURES = {"test-utils", "performance-tests", "server"}
+
 
 def parse_features_from_toml() -> dict[str, str]:
     """从根 Cargo.toml 提取 [features] 节的所有 shipped 特性名及其描述。"""
@@ -47,7 +49,7 @@ def parse_features_from_toml() -> dict[str, str]:
             break
         if not in_features:
             continue
-        m = re.match(r'^([a-zA-Z0-9_-]+)\s*=\s*(.*)', stripped)
+        m = re.match(r"^([a-zA-Z0-9_-]+)\s*=\s*(.*)", stripped)
         if m:
             name = m[1]
             desc = current_desc.strip()
@@ -59,7 +61,9 @@ def parse_features_from_toml() -> dict[str, str]:
     return features
 
 
-def cargo_check(features: str | None = None, no_default: bool = False) -> tuple[int, str]:
+def cargo_check(
+    features: str | None = None, no_default: bool = False
+) -> tuple[int, str]:
     """运行 cargo check 并返回 (exit_code, combined_output)。"""
     cmd = ["cargo", "check", "-p", "synapse-rust", "--locked"]
     if no_default:
@@ -68,7 +72,9 @@ def cargo_check(features: str | None = None, no_default: bool = False) -> tuple[
         cmd.extend(["--features", features])
     else:
         cmd.append("--all-features")
-    proc = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True, timeout=300)
+    proc = subprocess.run(
+        cmd, cwd=REPO_ROOT, capture_output=True, text=True, timeout=300
+    )
     return proc.returncode, proc.stdout + proc.stderr
 
 
@@ -78,7 +84,9 @@ def main() -> int:
         print("::error::未找到根 crate 的 shipped 特性")
         return 1
 
-    print(f"[B6-3] 检测 {len(features)} 个 shipped 特性：{', '.join(sorted(features.keys()))}")
+    print(
+        f"[B6-3] 检测 {len(features)} 个 shipped 特性：{', '.join(sorted(features.keys()))}"
+    )
 
     # 1. default
     rc, out = cargo_check("default")
@@ -110,18 +118,24 @@ def main() -> int:
             print(f"  [3/5] {name}: OK")
 
     if failures:
-        print(f"::error::以下 shipped 特性加入 default 后编译失败：{', '.join(failures)}")
+        print(
+            f"::error::以下 shipped 特性加入 default 后编译失败：{', '.join(failures)}"
+        )
         return 1
 
     # 4. 已知限制：--no-default-features 不通过（synapse-common 硬依赖 axum）
     print("  [4/5] no-default-features: KNOWN-ISSUE (synapse-common requires axum)")
 
     # 5. shipped == tested == default 校验
-    default_match = re.search(r'^default\s*=\s*\[(.*?)\]', ROOT_TOML.read_text(), re.MULTILINE | re.DOTALL)
+    default_match = re.search(
+        r"^default\s*=\s*\[(.*?)\]", ROOT_TOML.read_text(), re.MULTILINE | re.DOTALL
+    )
     default_items = re.findall(r'"([^"]+)"', default_match[1]) if default_match else []
     print(f"  [5/5] shipped == tested == default: OK (default = {default_items})")
 
-    print(f"\n[B6-3] {len(features)} 个 shipped 特性全部通过（default / all / individual）。")
+    print(
+        f"\n[B6-3] {len(features)} 个 shipped 特性全部通过（default / all / individual）。"
+    )
     return 0
 
 

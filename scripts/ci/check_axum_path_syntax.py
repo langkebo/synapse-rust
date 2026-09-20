@@ -61,7 +61,9 @@ RE_PATH_CALL = re.compile(r'\.(?:route|route_service|nest)\(\s*"([^"]*)"', re.S)
 def scan(root: str) -> list[tuple[str, str]]:
     """Return ``(relative_path, path_literal)`` for every offending literal."""
     violations: list[tuple[str, str]] = []
-    for file_path in sorted(glob.glob(os.path.join(root, "**", "*.rs"), recursive=True)):
+    for file_path in sorted(
+        glob.glob(os.path.join(root, "**", "*.rs"), recursive=True)
+    ):
         with open(file_path, encoding="utf-8") as fh:
             source = fh.read()
         for literal in RE_PATH_CALL.findall(source):
@@ -77,7 +79,9 @@ def scan(root: str) -> list[tuple[str, str]]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--root", default=SCAN_ROOT, help="directory to scan (default: synapse-web/src)")
+    ap.add_argument(
+        "--root", default=SCAN_ROOT, help="directory to scan (default: synapse-web/src)"
+    )
     args = ap.parse_args()
 
     if not os.path.isdir(args.root):
@@ -89,12 +93,21 @@ def main() -> int:
         print("axum path syntax: OK (no `:param` / `*wildcard` route literals)")
         return 0
 
-    print("::error::axum 0.7-style path syntax found — axum 0.8 panics on these at router build time", file=sys.stderr)
+    print(
+        "::error::axum 0.7-style path syntax found — axum 0.8 panics on these at router build time",
+        file=sys.stderr,
+    )
     for rel, literal in violations:
         print(f"  {rel}: {literal}", file=sys.stderr)
     print("", file=sys.stderr)
-    print("  Use `{param}` / `{*wildcard}` instead. `:param` is a LITERAL segment in matchit 0.8,", file=sys.stderr)
-    print("  so even under `.without_v07_checks()` the route never matches a real request.", file=sys.stderr)
+    print(
+        "  Use `{param}` / `{*wildcard}` instead. `:param` is a LITERAL segment in matchit 0.8,",
+        file=sys.stderr,
+    )
+    print(
+        "  so even under `.without_v07_checks()` the route never matches a real request.",
+        file=sys.stderr,
+    )
     return 1
 
 

@@ -6,6 +6,7 @@ and compare with the committed artifact. The comparison and its diagnostic live
 here so the two gates cannot drift apart (AGENTS.md iron law 2: one
 implementation per responsibility).
 """
+
 from __future__ import annotations
 
 import difflib
@@ -46,7 +47,9 @@ def describe_drift(expected: str, actual: str, *, limit: int = 40) -> str:
         )
     )
     shown = "\n".join(diff[:limit])
-    omitted = "" if len(diff) <= limit else f"\n    ... {len(diff) - limit} more diff line(s)"
+    omitted = (
+        "" if len(diff) <= limit else f"\n    ... {len(diff) - limit} more diff line(s)"
+    )
     return (
         f"    committed: {len(expected_lines)} lines, regenerated: {len(actual_lines)} lines\n"
         f"{shown}{omitted}"

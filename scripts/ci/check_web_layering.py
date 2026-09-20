@@ -130,17 +130,29 @@ def main() -> int:
 
     failed = False
     if new:
-        print(f"\nFAIL: {len(new)} synapse-web/src/ file(s) reference synapse_storage but are not allowlisted:", file=sys.stderr)
+        print(
+            f"\nFAIL: {len(new)} synapse-web/src/ file(s) reference synapse_storage but are not allowlisted:",
+            file=sys.stderr,
+        )
         for path in new:
             print(f"  {path}", file=sys.stderr)
-        print("  Route through synapse-services instead, or (if genuinely unavoidable) add the file", file=sys.stderr)
+        print(
+            "  Route through synapse-services instead, or (if genuinely unavoidable) add the file",
+            file=sys.stderr,
+        )
         print("  to the allowlist in the same commit and say why.", file=sys.stderr)
         failed = True
     if stale:
-        print(f"\nFAIL: {len(stale)} allowlist entr(ies) no longer reference synapse_storage:", file=sys.stderr)
+        print(
+            f"\nFAIL: {len(stale)} allowlist entr(ies) no longer reference synapse_storage:",
+            file=sys.stderr,
+        )
         for path in stale:
             print(f"  {path}", file=sys.stderr)
-        print("  Remove them: python3 scripts/ci/check_web_layering.py --update", file=sys.stderr)
+        print(
+            "  Remove them: python3 scripts/ci/check_web_layering.py --update",
+            file=sys.stderr,
+        )
         failed = True
     if not failed:
         print("OK: no new offenders, no stale allowlist entries")

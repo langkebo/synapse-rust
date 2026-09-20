@@ -42,7 +42,9 @@ DERIVED = f"{ROOT}/synapse-web/src/routes/derived_routes.rs"
 # `derived_labels` empty, so every module rendered as "⚠️派生表缺" and this gate
 # was permanently red. Glob the whole family so the split cannot silently
 # empty the label set again.
-_derived_table_glob = sorted(glob.glob(f"{ROOT}/synapse-web/src/routes/derived_route_table*.inc.rs"))
+_derived_table_glob = sorted(
+    glob.glob(f"{ROOT}/synapse-web/src/routes/derived_route_table*.inc.rs")
+)
 derived_labels = set()
 for _derived_path in (DERIVED, *_derived_table_glob):
     if os.path.exists(_derived_path):
@@ -77,6 +79,7 @@ def derived_candidates(mod):
 
 def derived_covered(mod):
     return any(c in derived_labels for c in derived_candidates(mod))
+
 
 CAT = {
     "federation": "联邦 (Federation)",
@@ -186,14 +189,26 @@ lines.append(
 lines.append("")
 lines.append("## 总览")
 lines.append("")
-lines.append(f"- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**{total}**")
+lines.append(
+    f"- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**{total}**"
+)
 lines.append(f"- 含路由注册的模块文件：**{sum(1 for v in reg.values() if v)}**")
-lines.append(f"- `derived_routes.rs` 中的 `registered_by` 标签：**{len(derived_labels)}**")
-lines.append(f"- 已被派生表覆盖的模块：**{sum(1 for m, v in reg.items() if v and derived_covered(m))}**")
+lines.append(
+    f"- `derived_routes.rs` 中的 `registered_by` 标签：**{len(derived_labels)}**"
+)
+lines.append(
+    f"- 已被派生表覆盖的模块：**{sum(1 for m, v in reg.items() if v and derived_covered(m))}**"
+)
 lines.append("")
-lines.append("> **路径为何是绝对的**：本清单由 `extract_registered.py` 从真实 router 构造解析得到，")
-lines.append("> 已递归应用 `.nest(\"/prefix\", ..)` 与 `expand_under_prefixes(..)` 的前缀。")
-lines.append("> 因此每一条都是客户端可直接拼接的 serve 路径，而不是子 router 内的相对字面量。")
+lines.append(
+    "> **路径为何是绝对的**：本清单由 `extract_registered.py` 从真实 router 构造解析得到，"
+)
+lines.append(
+    '> 已递归应用 `.nest("/prefix", ..)` 与 `expand_under_prefixes(..)` 的前缀。'
+)
+lines.append(
+    "> 因此每一条都是客户端可直接拼接的 serve 路径，而不是子 router 内的相对字面量。"
+)
 lines.append("")
 lines.append("## 生成期自校验（不是自证）")
 lines.append("")
@@ -209,8 +224,12 @@ lines.append(
 )
 lines.append("")
 lines.append("第二条尤其关键：它保证本清单**不会漏掉任何一个真实对外服务的路由**。")
-lines.append("反向差额（本清单多于 ledger）来自源码扫描会看到、而默认 feature 构建不注册的路由")
-lines.append("（SAML / CAS / Voice / ExternalServices 等 gated 模块）以及 manifest 的漏声明。")
+lines.append(
+    "反向差额（本清单多于 ledger）来自源码扫描会看到、而默认 feature 构建不注册的路由"
+)
+lines.append(
+    "（SAML / CAS / Voice / ExternalServices 等 gated 模块）以及 manifest 的漏声明。"
+)
 lines.append("")
 lines.append("## 前缀之外 / 未装配的注册")
 lines.append("")

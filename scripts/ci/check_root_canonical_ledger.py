@@ -31,6 +31,7 @@ SERVICE_SCAN_ROOTS = (CANONICAL_SERVICE_ROOT, SERVICE_ROOT)
 class ScanSurfaceMissing(RuntimeError):
     """The service layer could not be located, so no verdict can be trusted."""
 
+
 FORBIDDEN_STORAGE_GLOB = re.compile(r"pub\s+use\s+crate::storage::\*")
 FACADE_EXPORT = re.compile(
     r"pub\s+use\s+synapse_(services|storage|common|cache|e2ee|federation)[^;]*;"

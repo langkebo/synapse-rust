@@ -7,6 +7,7 @@ gen_route_table.py — 生成 docs/openapi/route-table.json（CI artifact）
 用法:
   python3 scripts/api_test/gen_route_table.py [--ledger PATH] [--output PATH]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -27,7 +28,9 @@ OUTPUT_FILE = OUTPUT_DIR / "route-table.json"
 def load_ledger(ledger_path: Path) -> dict:
     """Load and validate ledger JSON."""
     if not ledger_path.exists():
-        print(f"[gen_route_table] ERROR: ledger not found: {ledger_path}", file=sys.stderr)
+        print(
+            f"[gen_route_table] ERROR: ledger not found: {ledger_path}", file=sys.stderr
+        )
         sys.exit(1)
     data = json.loads(ledger_path.read_text(encoding="utf-8"))
     if "entries" not in data:
@@ -74,7 +77,9 @@ def render_table(route_table: dict) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Generate route-table.json from ledger")
     ap.add_argument("--ledger", default=str(DEFAULT_LEDGER), help="Path to ledger JSON")
-    ap.add_argument("--output", default=str(OUTPUT_FILE), help="Output path for route-table.json")
+    ap.add_argument(
+        "--output", default=str(OUTPUT_FILE), help="Output path for route-table.json"
+    )
     ap.add_argument(
         "--check",
         action="store_true",
@@ -101,7 +106,9 @@ def main() -> int:
             return 1
         expected = expected_path.read_text(encoding="utf-8")
         if expected == rendered:
-            print(f"[gen_route_table] OK: {expected_path} matches a fresh generation from {args.ledger}")
+            print(
+                f"[gen_route_table] OK: {expected_path} matches a fresh generation from {args.ledger}"
+            )
             return 0
         print(
             f"[gen_route_table] CHECK FAILED: {expected_path} is stale — it differs from a fresh "
@@ -119,7 +126,9 @@ def main() -> int:
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(rendered, encoding="utf-8")
-    print(f"[gen_route_table] generated {output_path} ({route_table['total_routes']} routes)")
+    print(
+        f"[gen_route_table] generated {output_path} ({route_table['total_routes']} routes)"
+    )
     return 0
 
 

@@ -100,7 +100,9 @@ def shipped_unsafe_totals(report: dict, label: str) -> dict[str, int]:
     defect this function exists to prevent.
     """
     if not isinstance(report, dict) or not isinstance(report.get("packages"), dict):
-        keys = sorted(report.keys()) if isinstance(report, dict) else type(report).__name__
+        keys = (
+            sorted(report.keys()) if isinstance(report, dict) else type(report).__name__
+        )
         print(
             f"FAIL: {label}: expected a SafetyReport with a `packages` object, got {keys}. "
             "cargo-geiger's schema may have changed — fix the parser instead of letting the "
@@ -112,7 +114,9 @@ def shipped_unsafe_totals(report: dict, label: str) -> dict[str, int]:
     totals: dict[str, int] = {}
     for pkg_id, entry in report["packages"].items():
         if not isinstance(entry, dict):
-            print(f"FAIL: {label}: package {pkg_id!r} is not an object", file=sys.stderr)
+            print(
+                f"FAIL: {label}: package {pkg_id!r} is not an object", file=sys.stderr
+            )
             sys.exit(2)
         # Only our own crates: workspace members are path dependencies.
         if "path+file://" not in str(pkg_id):
@@ -173,7 +177,9 @@ def validate_baseline_keys(baseline: dict, path: Path) -> str | None:
         )
     value = baseline.get("test_unsafe_total", 0)
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        return f"{path}: test_unsafe_total must be a non-negative integer, got {value!r}"
+        return (
+            f"{path}: test_unsafe_total must be a non-negative integer, got {value!r}"
+        )
     return None
 
 
@@ -206,7 +212,10 @@ def main() -> int:
     offline = args.prod_report is not None or args.all_report is not None
     if offline:
         if args.prod_report is None or args.all_report is None:
-            print("FAIL: offline mode needs BOTH --prod-report and --all-report", file=sys.stderr)
+            print(
+                "FAIL: offline mode needs BOTH --prod-report and --all-report",
+                file=sys.stderr,
+            )
             return 2
         prod_report = json.loads(args.prod_report.read_text())
         all_report = json.loads(args.all_report.read_text())
@@ -214,7 +223,9 @@ def main() -> int:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         prod_report = run_geiger([])
         all_report = run_geiger(["--include-tests"])
-        args.report.write_text(json.dumps({"prod": prod_report, "all": all_report}, indent=2))
+        args.report.write_text(
+            json.dumps({"prod": prod_report, "all": all_report}, indent=2)
+        )
         print(f"    Report saved: {args.report}")
 
     prod_per_pkg = shipped_unsafe_totals(prod_report, "prod scan")
@@ -260,14 +271,22 @@ def main() -> int:
     # ── Gate 1: Production unsafe must be zero (hard block) ──
     if prod_total > 0:
         print(f"\nFAIL: {prod_total} unsafe usage(s) in shipped code.")
-        print("      Production unsafe is strictly prohibited — no allowlist, no baseline ceiling.")
-        print("      If it is really only inside `#[cfg(test)]`, move that code under `tests/`,")
-        print("      because the prod scan excludes test *targets*, not test *modules* in src/.")
+        print(
+            "      Production unsafe is strictly prohibited — no allowlist, no baseline ceiling."
+        )
+        print(
+            "      If it is really only inside `#[cfg(test)]`, move that code under `tests/`,"
+        )
+        print(
+            "      because the prod scan excludes test *targets*, not test *modules* in src/."
+        )
         return 1
 
     # ── Gate 2: Test-only unsafe must not exceed baseline (ratchet) ──
     if test_total > baseline_test:
-        print(f"\nFAIL: test-only unsafe ({test_total}) exceeds baseline ({baseline_test}).")
+        print(
+            f"\nFAIL: test-only unsafe ({test_total}) exceeds baseline ({baseline_test})."
+        )
         print(f"      Raise `test_unsafe_total` in {args.baseline} with justification.")
         return 1
 

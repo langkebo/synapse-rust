@@ -97,7 +97,7 @@ normalize_to_ns() {
     value="${value//,/}"
     case "$unit" in
         ns) printf '%.4f' "$value" ;;
-        us|µs) awk -v v="$value" 'BEGIN { printf "%.4f", v * 1000 }' ;;
+        us | µs) awk -v v="$value" 'BEGIN { printf "%.4f", v * 1000 }' ;;
         ms) awk -v v="$value" 'BEGIN { printf "%.4f", v * 1000000 }' ;;
         s) awk -v v="$value" 'BEGIN { printf "%.4f", v * 1000000000 }' ;;
         *) return 1 ;;
@@ -123,9 +123,9 @@ else
     cargo bench --locked --profile "${PROFILE}" --bench performance_membership_benchmarks \
         -- --noplot 2>&1 | tee artifacts/bench_membership.log
 
-    : > "${CURRENT_RESULTS}"
-    extract_benchmarks artifacts/bench_federation.log >> "${CURRENT_RESULTS}"
-    extract_benchmarks artifacts/bench_membership.log >> "${CURRENT_RESULTS}"
+    : >"${CURRENT_RESULTS}"
+    extract_benchmarks artifacts/bench_federation.log >>"${CURRENT_RESULTS}"
+    extract_benchmarks artifacts/bench_membership.log >>"${CURRENT_RESULTS}"
 fi
 
 if [ ! -s "${CURRENT_RESULTS}" ]; then
@@ -154,7 +154,7 @@ if [ ! -f "${BENCH_BASELINE_PATH}" ]; then
     exit 1
 fi
 
-extract_benchmarks "${BENCH_BASELINE_PATH}" > "${PARSED_REPORT}"
+extract_benchmarks "${BENCH_BASELINE_PATH}" >"${PARSED_REPORT}"
 
 if [ ! -s "${PARSED_REPORT}" ]; then
     echo "ERROR: 基线格式无法解析（解析出 0 个基准）: ${BENCH_BASELINE_PATH}" >&2
@@ -214,7 +214,7 @@ while IFS=$'\t' read -r bench_name bench_value bench_unit; do
     else
         echo "OK: ${bench_name} changed by ${pct_change}% (within threshold)"
     fi
-done < "${CURRENT_RESULTS}"
+done <"${CURRENT_RESULTS}"
 
 echo ""
 echo "Compared ${COMPARED} benchmark(s); ${MISSING_BASELINE} had no baseline entry."
@@ -253,11 +253,11 @@ JSON_REPORT="artifacts/pr_benchmark_results.json"
             echo ","
         fi
         printf '    {"name": "%s", "value": "%s", "unit": "%s"}' "${bench_name}" "${bench_value}" "${bench_unit}"
-    done < "${CURRENT_RESULTS}"
+    done <"${CURRENT_RESULTS}"
     echo ""
     echo "  ]"
     echo "}"
-} > "${JSON_REPORT}"
+} >"${JSON_REPORT}"
 
 echo ""
 echo "Benchmark report generated: ${JSON_REPORT}"

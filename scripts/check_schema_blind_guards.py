@@ -77,7 +77,7 @@ PATTERNS: list[tuple[str, str, str]] = [
     # 2. Rust 里的 schema 字面量比较（B3-3 类缺陷的直接特征）
     #    例如: current_schema() == Some("public") / schema != "public"
     (
-        r'''current_schema\(\)\s*[=!]=\s*(?:Some\()?["']public["']''',
+        r"""current_schema\(\)\s*[=!]=\s*(?:Some\()?["']public["']""",
         "hardcoded 'public' comparison against current_schema() — guard is schema-blind "
         "(fails on isolated test schemas); use the configured schema name instead",
         "error",
@@ -158,7 +158,9 @@ def main() -> int:
             print(f"         {issue['content']}")
         print("=" * 80)
 
-    print(f"Summary: {len(errors)} errors, {len(warns)} warnings, {len(infos)} exempted(info)")
+    print(
+        f"Summary: {len(errors)} errors, {len(warns)} warnings, {len(infos)} exempted(info)"
+    )
     if errors:
         print("\nFAILED: schema-blind guard violations (see above)")
         return 1

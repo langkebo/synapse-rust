@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,8 +28,6 @@ IGNORED_PARTS = {
 IGNORED_PATH_SUBSTRINGS = (
     "docker/deploy/backups/",
     "docker/artifacts/",
-    "artifacts/sqlx-migrations/",
-    "artifacts/sqlx-migrations-test/",
     "target_arm64/",
     "target_x86_64/",
 )
@@ -99,6 +98,36 @@ def read_text(path: Path) -> str | None:
     return data.decode("utf-8", errors="ignore")
 
 
+_FENCE = re.compile(r"^\s*(```|~~~)")
+
+
+def markdown_prose_lines(lines: list[str]) -> list[str]:
+    """Return the lines of a Markdown file that are outside fenced code blocks.
+
+    A leading tab inside a fence is *data*, not indentation — the same reasoning
+    that made `tabs` count only indentation tabs (see `collect_metrics`).
+    Measured 2026-09-20, the only remaining hit was
+    `docs/audit/DOCKER_REVIEW_2026-09-19.md`, whose fenced ```make block holds a
+    real Makefile recipe; Makefile recipes *require* a leading tab, so "fixing"
+    the document would publish a broken example. Lines outside fences are still
+    scanned, so a genuinely tab-indented document still counts.
+    """
+    prose: list[str] = []
+    fence: str | None = None
+    for line in lines:
+        match = _FENCE.match(line)
+        if match:
+            marker = match.group(1)
+            if fence is None:
+                fence = marker
+            elif fence == marker:
+                fence = None
+            continue
+        if fence is None:
+            prose.append(line)
+    return prose
+
+
 def collect_metrics(files: list[Path]) -> tuple[Counter, dict[str, Counter]]:
     counts: Counter[str] = Counter()
     style: dict[str, Counter] = defaultdict(Counter)
@@ -115,7 +144,21 @@ def collect_metrics(files: list[Path]) -> tuple[Counter, dict[str, Counter]]:
             style[ext]["trailing_ws"] += 1
         if "\r\n" in text:
             style[ext]["crlf"] += 1
-        if any("\t" in line for line in lines):
+        # Only *indentation* tabs count as formatting drift. `.editorconfig`
+        # declares `indent_style = space`, so a leading tab is the thing that
+        # conflicts with the declared style. A tab **inside** a line is usually
+        # data, and flagging it made this gate unable to go green without
+        # breaking real tools: measured 2026-09-20, the only two hits were
+        #   * scripts/ci/compute_perf_gate.sh — a `<bench_name>\t<ceiling_ns>`
+        #     table inside a quoted heredoc, consumed by an `IFS=$'\t'` reader;
+        #   * scripts/ci/benchmark_pr_gate.sh — `grep -F "${bench_name}<TAB>"`
+        #     against a TSV report.
+        # Replacing those tabs with spaces would silently stop both perf gates
+        # from finding their baselines. The signal still catches a genuinely
+        # tab-indented file (proof: a file whose first line starts with a tab is
+        # still counted).
+        tab_lines = markdown_prose_lines(lines) if ext == ".md" else lines
+        if any("\t" in line[: len(line) - len(line.lstrip())] for line in tab_lines):
             style[ext]["tabs"] += 1
         if text and not text.endswith("\n"):
             style[ext]["missing_final_newline"] += 1

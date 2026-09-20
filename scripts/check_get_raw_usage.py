@@ -110,7 +110,12 @@ def find_get_raw_usages(root_dir: str) -> Tuple[Dict[str, List[Tuple[int, str]]]
 
             if pattern_test_cfg.search(line):
                 pending_cfg_test = True
-            elif pending_cfg_test and stripped and not stripped.startswith("#") and not stripped.startswith("mod "):
+            elif (
+                pending_cfg_test
+                and stripped
+                and not stripped.startswith("#")
+                and not stripped.startswith("mod ")
+            ):
                 # 属性后面不是 `mod …` 声明（例如 `#[cfg(test)] use …;`）：不构成需要跳过的
                 # "测试模块块"，撤销 pending，避免误吞后续生产代码。
                 pending_cfg_test = False

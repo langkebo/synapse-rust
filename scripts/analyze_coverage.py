@@ -352,11 +352,19 @@ def render_markdown(
             "device_sync",
             ["synapse-federation/src/device_sync.rs"],
         ),
-        ("synapse-web/src/routes", "login", ["synapse-web/src/routes/auth.rs", "synapse-web/src/routes/auth/"]),
+        (
+            "synapse-web/src/routes",
+            "login",
+            ["synapse-web/src/routes/auth.rs", "synapse-web/src/routes/auth/"],
+        ),
         ("synapse-web/src/routes", "register", ["synapse-web/src/routes/register.rs"]),
         ("synapse-web/src/routes", "sync", ["synapse-web/src/routes/sync.rs"]),
         ("synapse-web/src/routes", "profile", ["synapse-web/src/routes/profile"]),
-        ("synapse-web/src/routes", "room_summary", ["synapse-web/src/routes/room_summary.rs"]),
+        (
+            "synapse-web/src/routes",
+            "room_summary",
+            ["synapse-web/src/routes/room_summary.rs"],
+        ),
     ]
 
     out.append("## 6. TDD 落地清单关键模块交叉对照")

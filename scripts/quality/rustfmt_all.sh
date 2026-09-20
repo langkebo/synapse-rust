@@ -8,6 +8,17 @@ cd "$ROOT_DIR"
 
 rust_files=()
 while IFS= read -r -d '' file; do
+    # Vendored/patched upstream code and build output are out of format scope.
+    # `vendor/pastey` is a byte-exact copy of upstream pastey 0.2.3 with only the
+    # package name changed (see the T-PASTE-PATCH note in the root Cargo.toml),
+    # so reformatting it is churn against upstream with no benefit. This mirrors
+    # `scripts/check_fmt_ratchet.sh`, which enumerates real source dirs and never
+    # walks `vendor/` (AGENTS.md rules 1/4). Without this exclusion the
+    # `Format Compliance` job reformats vendored code while the ratchet reports
+    # `current=0` — two gates disagreeing about the same tree.
+    case "$file" in
+        vendor/* | target/*) continue ;;
+    esac
     rust_files+=("$file")
 done < <(git ls-files -z "*.rs")
 

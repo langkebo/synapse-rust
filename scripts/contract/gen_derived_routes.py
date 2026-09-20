@@ -41,20 +41,33 @@ _spec.loader.exec_module(ex)
 
 LANE_DEFAULT = "ledger_export"
 LANE_SDK = "ledger_export_sdk"
-OUT_DATA = os.path.join(ROOT, "synapse-web", "src", "routes", "derived_route_table.inc.rs")
-OUT_DATA_ALWAYS = os.path.join(ROOT, "synapse-web", "src", "routes", "derived_route_table_always.inc.rs")
-OUT_DATA_WORKER = os.path.join(ROOT, "synapse-web", "src", "routes", "derived_route_table_worker.inc.rs")
-OUT_DATA_OIDC = os.path.join(ROOT, "synapse-web", "src", "routes", "derived_route_table_oidc.inc.rs")
+OUT_DATA = os.path.join(
+    ROOT, "synapse-web", "src", "routes", "derived_route_table.inc.rs"
+)
+OUT_DATA_ALWAYS = os.path.join(
+    ROOT, "synapse-web", "src", "routes", "derived_route_table_always.inc.rs"
+)
+OUT_DATA_WORKER = os.path.join(
+    ROOT, "synapse-web", "src", "routes", "derived_route_table_worker.inc.rs"
+)
+OUT_DATA_OIDC = os.path.join(
+    ROOT, "synapse-web", "src", "routes", "derived_route_table_oidc.inc.rs"
+)
 OUT = os.path.join(ROOT, "synapse-web", "src", "routes", "derived_routes.rs")
 
 PROFILES = ["default", "worker", "all"]
 PROFILE_RANK = {"Always": 0, "Worker": 1, "Oidc": 2}
 PROFILE_MAX_RANK = {"default": 0, "worker": 1, "all": 2}
-ALLOWED = {"default": {""}, "worker": {"", "worker_enabled"}, "all": {"", "worker_enabled", "oidc_enabled"}}
+ALLOWED = {
+    "default": {""},
+    "worker": {"", "worker_enabled"},
+    "all": {"", "worker_enabled", "oidc_enabled"},
+}
 
 # ---------------------------------------------------------------------------
 # Row model
 # ---------------------------------------------------------------------------
+
 
 def _build_lane(feats):
     srcs = ex.load_sources(feats)
@@ -90,7 +103,9 @@ def build_rows():
 
     def label(t, prof):
         regs = res_sdk.registrars.get(t, set())
-        active = {(f, fn) for (f, fn) in regs if res_sdk.gated.get(fn, "") in ALLOWED[prof]}
+        active = {
+            (f, fn) for (f, fn) in regs if res_sdk.gated.get(fn, "") in ALLOWED[prof]
+        }
         return ex.resolve_label(t[1], active, origins)
 
     def gate_for(t, prof):
@@ -117,10 +132,22 @@ def build_rows():
         prof_name = {"Always": "default", "Worker": "worker", "Oidc": "all"}[rp]
         lbl = label(t, prof_name)
         if lbl is None:
-            raise SystemExit(f"gen_derived_routes: undecidable label for {t} (profile={prof_name})")
+            raise SystemExit(
+                f"gen_derived_routes: undecidable label for {t} (profile={prof_name})"
+            )
         cfg = cfg_of(t)
         ann = ann_for(t)
-        rows.add((t[0], t[1], lbl, cfg, PROFILE_RANK[rp], ann.get("auth"), ann.get("rate_limit_exempt", False)))
+        rows.add(
+            (
+                t[0],
+                t[1],
+                lbl,
+                cfg,
+                PROFILE_RANK[rp],
+                ann.get("auth"),
+                ann.get("rate_limit_exempt", False),
+            )
+        )
 
     # Collision twins: same (method, path) served at a higher profile with a
     # different registered_by (the two /.well-known OIDC routes). Emit an extra
@@ -135,7 +162,17 @@ def build_rows():
                 continue
             cfg = gate_for(t, prof_h)
             ann = ann_for(t)
-            rows.add((t[0], t[1], b, cfg, PROFILE_RANK[rp], ann.get("auth"), ann.get("rate_limit_exempt", False)))
+            rows.add(
+                (
+                    t[0],
+                    t[1],
+                    b,
+                    cfg,
+                    PROFILE_RANK[rp],
+                    ann.get("auth"),
+                    ann.get("rate_limit_exempt", False),
+                )
+            )
 
     rows = sorted(rows, key=lambda r: (r[1], r[0], r[2], r[4], tuple(sorted(r[3]))))
     return rows, feats_gold, feats_sdk
@@ -146,10 +183,11 @@ def build_rows():
 # rows exactly as the Rust code will, and compare against the committed files.
 # ---------------------------------------------------------------------------
 
+
 def reconstruct(rows, cfgset, prof):
     max_rank = PROFILE_MAX_RANK[prof]
     best = {}  # (m,p) -> (rank, label)
-    for (m, p, lbl, cfg, rank, _auth, _exempt) in rows:
+    for m, p, lbl, cfg, rank, _auth, _exempt in rows:
         if cfg and not ex.cfg_all_allow(list(cfg), cfgset):
             continue
         if rank > max_rank:
@@ -170,11 +208,15 @@ def verify_fixtures(rows, feats_gold, feats_sdk):
             want = {(e["method"], e["path"]): e["registered_by"] for e in entries}
             got = reconstruct(rows, cfgset, prof)
             if set(want) != set(got):
-                fails.append(f"{lane}/{prof}: tuple set mismatch (missing={sorted(set(want) - set(got))[:3]} extra={sorted(set(got) - set(want))[:3]})")
+                fails.append(
+                    f"{lane}/{prof}: tuple set mismatch (missing={sorted(set(want) - set(got))[:3]} extra={sorted(set(got) - set(want))[:3]})"
+                )
                 continue
             mism = {k: (got[k], want[k]) for k in want if got.get(k) != want[k]}
             if mism:
-                fails.append(f"{lane}/{prof}: label mismatch on {len(mism)} routes: {list(mism.items())[:3]}")
+                fails.append(
+                    f"{lane}/{prof}: label mismatch on {len(mism)} routes: {list(mism.items())[:3]}"
+                )
     return fails
 
 
@@ -182,7 +224,13 @@ def verify_fixtures(rows, feats_gold, feats_sdk):
 # Rust emission helpers
 # ---------------------------------------------------------------------------
 
-_METHOD = {"GET": "GET", "POST": "POST", "PUT": "PUT", "DELETE": "DELETE", "PATCH": "PATCH"}
+_METHOD = {
+    "GET": "GET",
+    "POST": "POST",
+    "PUT": "PUT",
+    "DELETE": "DELETE",
+    "PATCH": "PATCH",
+}
 _RANK = {0: "RouteProfile::Always", 1: "RouteProfile::Worker", 2: "RouteProfile::Oidc"}
 
 
@@ -210,7 +258,11 @@ def _row_rust(row):
     )
     if cfg:
         preds = sorted(cfg)
-        attr = "#[cfg(all(" + ", ".join(preds) + "))]\n" if len(preds) > 1 else f"#[cfg({preds[0]})]\n"
+        attr = (
+            "#[cfg(all(" + ", ".join(preds) + "))]\n"
+            if len(preds) > 1
+            else f"#[cfg({preds[0]})]\n"
+        )
         return attr + push
     return push
 
@@ -227,7 +279,9 @@ def _rustfmt(text):
     import subprocess
     import tempfile
 
-    with tempfile.NamedTemporaryFile("w", suffix=".rs", dir=os.path.dirname(OUT) or ".", delete=False) as fh:
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".rs", dir=os.path.dirname(OUT) or ".", delete=False
+    ) as fh:
         fh.write(text)
         tmp = fh.name
     try:
@@ -244,7 +298,9 @@ def _rustfmt(text):
         os.unlink(tmp)
 
     if proc.returncode != 0 or not proc.stdout.strip():
-        raise RuntimeError(f"rustfmt rejected the generated table:\n{proc.stderr.strip()}")
+        raise RuntimeError(
+            f"rustfmt rejected the generated table:\n{proc.stderr.strip()}"
+        )
 
     # `rustfmt --emit stdout` prefixes the result with the source path:
     #   <abs path>:
@@ -299,13 +355,19 @@ def emit_data_per_profile(rows):
         emit_group(oidc_rows, "oidc"),
     )
 
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--check", action="store_true", help="fail (exit 1) if the committed file differs")
+    ap.add_argument(
+        "--check",
+        action="store_true",
+        help="fail (exit 1) if the committed file differs",
+    )
     args = ap.parse_args()
 
     rows, feats_gold, feats_sdk = build_rows()

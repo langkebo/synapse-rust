@@ -137,7 +137,9 @@ def emit(report: dict, json_report: str | None) -> int:
     return 0 if report["status"] == "ok" else 1
 
 
-def check_single_source(primary_dir: Path, deploy_dir: Path, compose_file: Path) -> dict:
+def check_single_source(
+    primary_dir: Path, deploy_dir: Path, compose_file: Path
+) -> dict:
     """Single-source model: the deploy migrator mounts the canonical `migrations/`.
 
     History: `docker/deploy/migrations` used to be a hand-synced copy. It drifted
@@ -324,7 +326,9 @@ def main() -> int:
     for extra in sorted(deploy_names - primary_names):
         warnings.append({"type": "deploy_extra_file", "file": extra})
 
-    latest_baselines = sorted(name for name in primary_names if name.startswith("00000000_unified_schema_v"))
+    latest_baselines = sorted(
+        name for name in primary_names if name.startswith("00000000_unified_schema_v")
+    )
     if latest_baselines:
         latest = latest_baselines[-1]
         # Warn only when the latest baseline has not been mirrored to deploy yet.

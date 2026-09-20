@@ -102,13 +102,17 @@ def check_file(path: str) -> list[str]:
             if has_run:
                 body = step.get("run")
                 if not isinstance(body, str) or not body.strip():
-                    problems.append(f"{label}: `run:` 为空 —— 恒绿占位门禁等同于没有门禁")
+                    problems.append(
+                        f"{label}: `run:` 为空 —— 恒绿占位门禁等同于没有门禁"
+                    )
 
     return problems
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Assert every Actions step has run/uses.")
+    parser = argparse.ArgumentParser(
+        description="Assert every Actions step has run/uses."
+    )
     parser.add_argument("--json-report", help="可选：把结果写成 JSON 供 CI 归档")
     args = parser.parse_args()
 
@@ -124,7 +128,11 @@ def main() -> int:
     if args.json_report:
         with open(args.json_report, "w", encoding="utf-8") as handle:
             json.dump(
-                {"checked_files": files, "violations": problems, "count": len(problems)},
+                {
+                    "checked_files": files,
+                    "violations": problems,
+                    "count": len(problems),
+                },
                 handle,
                 ensure_ascii=False,
                 indent=2,

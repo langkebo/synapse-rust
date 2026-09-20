@@ -56,7 +56,7 @@ migrations/
 └── README.md                                 # 本文件
 ```
 
-**当前活跃链路**: **只有 1 个 forward SQL 文件**（`00000000_unified_schema_v12.sql`，已含全部扩展表）。历史时间戳迁移与扩展文件均已折入/删除，目录下不存在时间戳增量文件、扩展文件、`.undo.sql` 文件，也不存在 `archive/` 子目录。（`scripts/build_sqlx_migration_source.py` 仍保留 `00000001_extensions*` 的识别分支：找不到就是空操作，但文中不再声称存在该文件。）
+**当前活跃链路**: **只有 1 个 forward SQL 文件**（`00000000_unified_schema_v12.sql`，已含全部扩展表）。历史时间戳迁移与扩展文件均已折入/删除，目录下不存在时间戳增量文件、扩展文件、`.undo.sql` 文件，也不存在 `archive/` 子目录。
 
 > **目录下必须只有一个基线文件。** 历史基线（v8/v10/v11）一旦与最新基线并存，
 > 迁移器会把它们当"增量迁移"再执行一遍并写进 `schema_migrations`，导致本地机器
@@ -69,7 +69,6 @@ migrations/
 > 校验脚本位于 **`scripts/`**（本目录下没有）：
 > - `scripts/check_migration_consistency.py` — 检查单一真相源、compose 挂载、undo 配对与命名一致性
 > - `scripts/check_baseline_consolidation.py` — 检查 v* baseline 是否吸收所有增量迁移
-> - `scripts/build_sqlx_migration_source.py` — 生成 forward-only migration source
 
 > 目录下不存在 `archive/` 子目录：v8 及更早基线已随 v11/v12 迭代从仓库移除。
 > schema 健康回归统一走当前基线 —— `scripts/ci_schema_health_check.sh` 通过
@@ -95,10 +94,10 @@ friends）。历史上还有一个 `00000001_extensions_v10.sql`，它定义的 
 
 ## 新增迁移流程（务必同步折入 baseline）
 
-`build_sqlx_migration_source.py` 生成的 forward-only source 只含 baseline +
-extension（CI 用它建库），因此**每次新增时间戳迁移后，必须把幂等的增量变更
-（新表/新列/新索引，须用 `IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS`）同步
-折入 `00000000_unified_schema_v12.sql` 尾部**，否则 CI 的 DB 会缺表/列/索引。
+CI 只用 `migrations/` 这一份迁移源建库（`docker/db_migrate.sh`，psql 逐文件、
+autocommit），因此**每次新增时间戳迁移后，必须把幂等的增量变更（新表/新列/新索引，
+须用 `IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS`）同步折入
+`00000000_unified_schema_v12.sql` 尾部**，否则 CI 的 DB 会缺表/列/索引。
 
 提交前请运行一致性检查：
 
@@ -156,9 +155,10 @@ v11 baseline 曾包含 `openclaw_connections` / `ai_conversations` / `ai_connect
 
 1. 项目**未发布、无外部用户、无生产数据**（`AGENTS.md` 铁律 1），不存在"已应用过
    的迁移不可修改"的兼容义务 —— 该义务的前提是有存量部署需要保护。
-2. 即使保留独立的 DROP 迁移也无效：`build_sqlx_migration_source.py` 只选
-   baseline + extension + `V*` 迁移，时间戳命名的 DROP 迁移**根本不会被执行**。
-   因此"留待 v12"在实践中等于永久不清。
+2. 即使保留独立的 DROP 迁移也无效：当时的测试路径（`build_sqlx_migration_source.py`，
+   已于 2026-09-20 随 `sqlx migrate run` 一并删除）只选 baseline + extension +
+   `V*` 迁移，时间戳命名的 DROP 迁移**根本不会被执行**。因此"留待 v12"在实践中
+   等于永久不清。
 
 本次共删除 **23 张零引用表**（Rust 全仓 `\b<表名>\b` 引用计数为 0）：
 `user_account_data`、`voice_messages`、`user_reputations`、`typing_stream`、
@@ -258,21 +258,21 @@ v11 基线相对 v8/v10 的主要变更：
 - `events.depth` / `events.not_before` CHECK 约束：✅ 已折入（`ck_events_depth_nonneg` /
   `ck_events_not_before_nonneg`）。
 
-> **这些对象此前长期没被发现的原因**：测试路径
-> （`scripts/build_sqlx_migration_source.py`）只选 baseline + extensions + `V*`，
-> 时间戳迁移压根不参与；而部署路径（`docker/db_migrate.sh`）会应用目录下全部正向 SQL。
-> 于是"CI 建出来的库缺对象"只在生产路径被掩盖为"恰好有对象"。时间戳迁移文件既已删除，
-> 两条路径现在都以 baseline 为准。
+> **这些对象此前长期没被发现的原因**：当时的测试路径
+> （`scripts/build_sqlx_migration_source.py`，已于 2026-09-20 删除）只选 baseline +
+> extensions + `V*`，时间戳迁移压根不参与；而部署路径（`docker/db_migrate.sh`）会应用
+> 目录下全部正向 SQL。于是"CI 建出来的库缺对象"只在生产路径被掩盖为"恰好有对象"。
+> 时间戳迁移文件既已删除，两条路径现在都以 baseline 为准。
 
 ## 迁移执行顺序
 
 1. `00000000_unified_schema_v12.sql` — 唯一基线（`IF NOT EXISTS`，可重复执行）
 
 > `migrations/` 目前只有上述**唯一**一个正向文件（扩展文件已于 v12 折入后删除）；所有时间戳迁移已删除，
-> 不存在"按时间戳顺序逐一应用"的步骤。测试路径
-> （`scripts/build_sqlx_migration_source.py`）也显式只选 baseline + extensions + `V*`。
-> 部署路径（`docker/db_migrate.sh`）会应用目录下全部正向 SQL，因此**任何未折入 baseline
-> 的对象都只存在于部署路径**——这正是 §1 缺口长期未被测试发现的原因。
+> 不存在"按时间戳顺序逐一应用"的步骤。测试路径（`scripts/init_test_public_schema.sh`）
+> 与部署路径（`docker/db_migrate.sh`）现在都是 psql 逐文件应用目录下全部正向 SQL，
+> 因此**任何未折入 baseline 的对象在两条路径上都缺失**——这正是 §1 缺口长期未被
+> 测试发现的原因。
 
 ## 首次部署
 

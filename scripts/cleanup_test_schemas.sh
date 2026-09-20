@@ -67,14 +67,20 @@ while [ $# -gt 0 ]; do
         --keep-all-templates) KEEP_ALL_TEMPLATES=1 ;;
         --keep-template)
             shift
-            [ $# -gt 0 ] || { echo "ERROR: --keep-template 需要一个 schema 名" >&2; exit 2; }
+            [ $# -gt 0 ] || {
+                echo "ERROR: --keep-template 需要一个 schema 名" >&2
+                exit 2
+            }
             EXTRA_KEEP+=("$1")
             ;;
-        -h|--help)
+        -h | --help)
             sed -n '2,48p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
-        *) echo "ERROR: 未知参数 $1（见 --help）" >&2; exit 2 ;;
+        *)
+            echo "ERROR: 未知参数 $1（见 --help）" >&2
+            exit 2
+            ;;
     esac
     shift
 done
@@ -130,7 +136,7 @@ elif [ -d "$MARKER_DIR" ]; then
         [ -z "$m" ] && continue
         KEEP_TEMPLATES+=("${m##*synapse_test_template_ready_}")
     done < <(find "$MARKER_DIR" -maxdepth 1 -name 'synapse_test_template_ready_*' -type f 2>/dev/null | sort)
-    [ "${#KEEP_TEMPLATES[@]}" -gt 0 ] && \
+    [ "${#KEEP_TEMPLATES[@]}" -gt 0 ] &&
         echo "==> 由标记文件认定的 live 模板: ${#KEEP_TEMPLATES[@]} 个 ${KEEP_TEMPLATES[*]:-}"
 fi
 for extra in "${EXTRA_KEEP[@]:-}"; do
@@ -196,7 +202,10 @@ STATIC_KEEP_SQL=""
 for t in "${STATIC_KEEP[@]}"; do
     [ -n "$t" ] && STATIC_KEEP_SQL="${STATIC_KEEP_SQL}${STATIC_KEEP_SQL:+,}'$t'"
 done
-[ -n "$STATIC_KEEP_SQL" ] || { echo "ERROR: STATIC_KEEP 不得为空（见上方注释）" >&2; exit 2; }
+[ -n "$STATIC_KEEP_SQL" ] || {
+    echo "ERROR: STATIC_KEEP 不得为空（见上方注释）" >&2
+    exit 2
+}
 
 # 模板家族仅匹配指纹形态，避免误伤任意命名的模板：
 #   test_template_v<N>_<hex>        —— 旧 storage 家族
@@ -275,7 +284,7 @@ while IFS= read -r s; do
         fi
         [ "$FAILED" -le 5 ] && echo "    WARN: 清理失败 $s — $ERR"
         case "$ERR" in
-            *"out of shared memory"*|*max_locks_per_transaction*)
+            *"out of shared memory"* | *max_locks_per_transaction*)
                 LOCK_FAILURES=$((LOCK_FAILURES + 1))
                 if [ "$LOCK_FAILURES" -ge 3 ]; then
                     echo "" >&2

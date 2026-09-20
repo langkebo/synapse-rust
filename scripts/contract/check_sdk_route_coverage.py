@@ -180,7 +180,10 @@ def load_prefixes(sdk: pathlib.Path) -> dict[str, str]:
 
 def load_methods(sdk: pathlib.Path) -> dict[str, str]:
     text = (sdk / "src/http-api/method.ts").read_text(errors="ignore")
-    return {m.group(1): m.group(2) for m in re.finditer(r'^\s*(\w+)\s*=\s*"([A-Z]+)"', text, re.M)}
+    return {
+        m.group(1): m.group(2)
+        for m in re.finditer(r'^\s*(\w+)\s*=\s*"([A-Z]+)"', text, re.M)
+    }
 
 
 def collect_sites(sdk: pathlib.Path) -> list[dict[str, object]]:
@@ -230,28 +233,29 @@ def self_test(backend: list[tuple[str, str]]) -> None:
         "谓词没有拒绝伪造路径 —— 下面的结论全部是空转的"
     )
     # 相对路径（省略 /_matrix/client/v3 头）必须能锚定到真实 ledger 路径上
-    assert path_match("/rooms/$roomId/messages", "/_matrix/client/v3/rooms/{room_id}/messages"), (
-        "谓词认不出真实存在的相对路径 —— 谓词写错了"
-    )
+    assert path_match(
+        "/rooms/$roomId/messages", "/_matrix/client/v3/rooms/{room_id}/messages"
+    ), "谓词认不出真实存在的相对路径 —— 谓词写错了"
     # 完整路径（SDK 风格 3）也必须认得
-    assert path_match("/_matrix/client/v3/rooms/{room_id}/messages",
-                      "/_matrix/client/v3/rooms/{room_id}/messages"), (
-        "谓词认不出完整路径 —— 谓词写错了"
-    )
+    assert path_match(
+        "/_matrix/client/v3/rooms/{room_id}/messages",
+        "/_matrix/client/v3/rooms/{room_id}/messages",
+    ), "谓词认不出完整路径 —— 谓词写错了"
     # 假阳防线：剩余段数不等必须不匹配，否则 /rooms/{}/xxx 会命中 /rooms/{}/state/{y}
-    assert not path_match("/rooms/{}/guest_access",
-                          "/_matrix/client/v3/rooms/{room_id}/state/{event_type}"), (
-        "首段锚定/段数谓词失效 —— 不存在的端点会被误判为已覆盖"
-    )
+    assert not path_match(
+        "/rooms/{}/guest_access",
+        "/_matrix/client/v3/rooms/{room_id}/state/{event_type}",
+    ), "首段锚定/段数谓词失效 —— 不存在的端点会被误判为已覆盖"
     # 假阳防线：末段字面量不同必须不匹配
-    assert not path_match("/rooms/$roomId/messages",
-                          "/_matrix/client/v3/rooms/{room_id}/join"), (
-        "末段字面量没有参与比对 —— 谓词过宽"
-    )
+    assert not path_match(
+        "/rooms/$roomId/messages", "/_matrix/client/v3/rooms/{room_id}/join"
+    ), "末段字面量没有参与比对 —— 谓词过宽"
     # allowlist 键的归一化：SDK 变量改名不能让豁免条目失效
-    assert canonical_shape("/rooms/$roomId/x") == canonical_shape("/rooms/{room_id}/x") == "/rooms/{}/x", (
-        "canonical_shape 没有把 $var 与 {var} 同时折成 {} —— 豁免条目会因改名静默失效"
-    )
+    assert (
+        canonical_shape("/rooms/$roomId/x")
+        == canonical_shape("/rooms/{room_id}/x")
+        == "/rooms/{}/x"
+    ), "canonical_shape 没有把 $var 与 {var} 同时折成 {} —— 豁免条目会因改名静默失效"
 
 
 def audit_allowlist_without_sdk(
@@ -272,7 +276,9 @@ def audit_allowlist_without_sdk(
                 continue
             if method not in ("*", served_method):
                 continue
-            rotten.append(f"{key}   ← 后端现在已服务 {served_method} {served_path}，豁免应删除")
+            rotten.append(
+                f"{key}   ← 后端现在已服务 {served_method} {served_path}，豁免应删除"
+            )
             break
     return rotten
 
@@ -332,14 +338,18 @@ def main() -> int:
             elif alt_key in allowed:
                 used_keys.add(alt_key)
             else:
-                uncovered.append(f"{method or '*':6} {shape}\n         {site['file']}:{site['line']}")
+                uncovered.append(
+                    f"{method or '*':6} {shape}\n         {site['file']}:{site['line']}"
+                )
             continue
 
         # 次判据（收紧）：窗口内解析出唯一 method 时，方法必须真的被后端服务
         if method:
             tightened += 1
             if full:
-                scoped = [(m, p) for m, p in candidates if path_match(full, p)] or candidates
+                scoped = [
+                    (m, p) for m, p in candidates if path_match(full, p)
+                ] or candidates
             else:
                 scoped = candidates
             if method not in {m for m, _ in scoped}:
@@ -364,19 +374,28 @@ def main() -> int:
             print(f"  {item}", file=sys.stderr)
         status = 1
     if method_mismatch:
-        print(f"\n❌ 方法不匹配 {len(method_mismatch)} 条（路径存在但后端不服务这个 method）：", file=sys.stderr)
+        print(
+            f"\n❌ 方法不匹配 {len(method_mismatch)} 条（路径存在但后端不服务这个 method）：",
+            file=sys.stderr,
+        )
         for item in method_mismatch:
             print(f"  {item}", file=sys.stderr)
         status = 1
     if stale_keys:
-        print(f"\n❌ allowlist 中有 {len(stale_keys)} 条已失效（对应端点现在已被覆盖，应删掉）：", file=sys.stderr)
+        print(
+            f"\n❌ allowlist 中有 {len(stale_keys)} 条已失效（对应端点现在已被覆盖，应删掉）：",
+            file=sys.stderr,
+        )
         for key in stale_keys:
             print(f"  {key}", file=sys.stderr)
         status = 1
     # 与 stale 重叠的不重复报（stale 的判定更强）
     extra_rot = [item for item in rotten if item.partition("   ←")[0] not in stale_keys]
     if extra_rot:
-        print(f"\n❌ allowlist 中有 {len(extra_rot)} 条已无意义（后端已服务该形状）：", file=sys.stderr)
+        print(
+            f"\n❌ allowlist 中有 {len(extra_rot)} 条已无意义（后端已服务该形状）：",
+            file=sys.stderr,
+        )
         for item in extra_rot:
             print(f"  {item}", file=sys.stderr)
         status = 1

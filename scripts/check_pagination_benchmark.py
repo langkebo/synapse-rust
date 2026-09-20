@@ -21,6 +21,7 @@ The real pagination protection lives in the DB-backed gate:
     plus a same-page correctness check; wired into
     `.github/workflows/benchmark.yml::pagination-perf-gate`)
 """
+
 from __future__ import annotations
 
 import argparse

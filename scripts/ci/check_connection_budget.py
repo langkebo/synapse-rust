@@ -30,7 +30,10 @@ def effective_pool_per_process() -> int:
     text = DB_CONFIG.read_text(encoding="utf-8", errors="replace")
     m = re.search(r"fn default_database_max_size\(\) -> u32 \{\s*(\d+)", text)
     if not m:
-        print(f"❌ 无法从 {DB_CONFIG.relative_to(ROOT)} 解析 default_database_max_size()", file=sys.stderr)
+        print(
+            f"❌ 无法从 {DB_CONFIG.relative_to(ROOT)} 解析 default_database_max_size()",
+            file=sys.stderr,
+        )
         sys.exit(2)
     return int(m.group(1))
 
@@ -86,7 +89,9 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-    print(f"✅ 连接预算成立：{needed} ≤ {doc['max_connections']}（余量 {doc['max_connections'] - needed}）")
+    print(
+        f"✅ 连接预算成立：{needed} ≤ {doc['max_connections']}（余量 {doc['max_connections'] - needed}）"
+    )
     return 0
 
 

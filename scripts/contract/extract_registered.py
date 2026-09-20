@@ -37,7 +37,9 @@ import sys
 from collections import defaultdict
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.environ.get("SYNAPSE_RUST_ROOT") or os.path.dirname(os.path.dirname(SCRIPT_DIR))
+ROOT = os.environ.get("SYNAPSE_RUST_ROOT") or os.path.dirname(
+    os.path.dirname(SCRIPT_DIR)
+)
 ROUTES_DIR = os.path.join(ROOT, "synapse-web", "src", "routes")
 # `registered_by` overrides — the routes whose ledger origin is not derivable
 # from their file path. See `load_ledger_origins`.
@@ -242,7 +244,9 @@ def split_statements(body: str) -> list[str]:
                 cur.append(c)  # the closing brace belongs to the statement
                 _preds, head = strip_leading_attrs("".join(cur))
                 head = head.lstrip()
-                if head.startswith("{") or re.match(r"(?:%s)\b" % "|".join(_BLOCK_KEYWORDS), head):
+                if head.startswith("{") or re.match(
+                    r"(?:%s)\b" % "|".join(_BLOCK_KEYWORDS), head
+                ):
                     stmts.append("".join(cur))
                     cur = []
                     i += 1
@@ -381,7 +385,9 @@ def strip_test_mods(src: str) -> str:
             if not mm:
                 break
             j += mm.end()
-        mm = re.match(r"(?:pub(?:\([^)]*\))?\s+)?mod\s+[A-Za-z_][A-Za-z0-9_]*\s*\{", out[j:])
+        mm = re.match(
+            r"(?:pub(?:\([^)]*\))?\s+)?mod\s+[A-Za-z_][A-Za-z0-9_]*\s*\{", out[j:]
+        )
         if not mm:
             # not a test module — drop just the attribute
             out = out[: m.start()] + out[m.end() :]
@@ -475,7 +481,11 @@ _CFG_FEATURE = re.compile(r'feature\s*=\s*"([^"]+)"')
 
 # Flag stems as they appear in a `merge_into` condition -> the `ProfileFlags`
 # field they stand for.
-_PROFILE_FLAG_STEMS = (("oidc", "oidc_enabled"), ("worker", "worker_enabled"), ("saml", "saml_enabled"))
+_PROFILE_FLAG_STEMS = (
+    ("oidc", "oidc_enabled"),
+    ("worker", "worker_enabled"),
+    ("saml", "saml_enabled"),
+)
 
 
 def cargo_feature_table(cargo_toml: str) -> dict:
@@ -495,7 +505,9 @@ def cargo_feature_table(cargo_toml: str) -> dict:
         body = body[: nxt.start()]
     table: dict = {}
     for entry in _CARGO_FEATURE_ENTRY.finditer(body):
-        table[entry.group(1)] = [i for i in re.findall(r'"([^"]+)"', entry.group(2)) if "/" not in i]
+        table[entry.group(1)] = [
+            i for i in re.findall(r'"([^"]+)"', entry.group(2)) if "/" not in i
+        ]
     return table
 
 
@@ -528,7 +540,10 @@ def cfg_allows(predicate: str, features) -> bool:
             close = match_delim(text, len(keyword))
             if close == -1:
                 return True
-            return combine(cfg_allows(part, features) for part in split_top_level(text[len(keyword) + 1 : close]))
+            return combine(
+                cfg_allows(part, features)
+                for part in split_top_level(text[len(keyword) + 1 : close])
+            )
     if text.startswith("not("):
         close = match_delim(text, 3)
         if close == -1:
@@ -573,7 +588,9 @@ def gated_router_builders(files: dict) -> dict:
                     r"\.merge\s*\(\s*(?:[A-Za-z_][A-Za-z0-9_]*::)*([A-Za-z_][A-Za-z0-9_]*)\s*\(",
                     body[brace + 1 : end],
                 )
-                hits = [flag for stem, flag in _PROFILE_FLAG_STEMS if stem in match.group(1)]
+                hits = [
+                    flag for stem, flag in _PROFILE_FLAG_STEMS if stem in match.group(1)
+                ]
                 if not merges or len(hits) != 1:
                     continue
                 for callee in merges:
@@ -661,7 +678,9 @@ def load_ledger_origins() -> list:
                 continue
             parts = body.split()
             if len(parts) != 2 or "::" not in parts[0]:
-                raise SystemExit(f"{LEDGER_ORIGINS}:{lineno}: expected `<file>::<fn|*>[@<prefix>]  <registered_by>`, got {line!r}")
+                raise SystemExit(
+                    f"{LEDGER_ORIGINS}:{lineno}: expected `<file>::<fn|*>[@<prefix>]  <registered_by>`, got {line!r}"
+                )
             where, origin = parts
             owner, _, fn = where.rpartition("::")
             fn, _, qual = fn.partition("@")
@@ -715,7 +734,9 @@ def load_ledger_annotations() -> dict:
             for pair in annotation.split():
                 key, sep, value = pair.partition("=")
                 if not sep:
-                    raise SystemExit(f"{LEDGER_ANNOTATIONS}:{lineno}: expected `key=value` in {pair!r}")
+                    raise SystemExit(
+                        f"{LEDGER_ANNOTATIONS}:{lineno}: expected `key=value` in {pair!r}"
+                    )
                 if key not in ANNOTATION_KEYS:
                     raise SystemExit(
                         f"{LEDGER_ANNOTATIONS}:{lineno}: unknown annotation key {key!r} "
@@ -750,9 +771,15 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/client/v3/sync"): {"rate_limit_exempt": True},
     ("POST", "/_matrix/client/v1/sync"): {"rate_limit_exempt": True},
     ("POST", "/_matrix/client/v4/sync"): {"rate_limit_exempt": True},
-    ("POST", "/_matrix/client/unstable/org.matrix.msc3575/sync"): {"rate_limit_exempt": True},
-    ("POST", "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"): {"rate_limit_exempt": True},
-    ("POST", "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}"): {"auth": "user"},
+    ("POST", "/_matrix/client/unstable/org.matrix.msc3575/sync"): {
+        "rate_limit_exempt": True
+    },
+    ("POST", "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"): {
+        "rate_limit_exempt": True
+    },
+    ("POST", "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}"): {
+        "auth": "user"
+    },
 }
 
 
@@ -775,19 +802,27 @@ def check_annotation_fidelity() -> list:
     failures: list = []
     annotations = load_ledger_annotations()
     if not annotations:
-        return ["ledger_annotations.txt missing or empty — the annotation table must exist (B2-1 §3.5)"]
+        return [
+            "ledger_annotations.txt missing or empty — the annotation table must exist (B2-1 §3.5)"
+        ]
 
     # layer 1: the table equals the pinned expectation exactly.
     if annotations != EXPECTED_ANNOTATIONS:
         missing = sorted(set(EXPECTED_ANNOTATIONS) - set(annotations))
         extra = sorted(set(annotations) - set(EXPECTED_ANNOTATIONS))
-        changed = sorted(k for k in set(annotations) & set(EXPECTED_ANNOTATIONS) if annotations[k] != EXPECTED_ANNOTATIONS[k])
+        changed = sorted(
+            k
+            for k in set(annotations) & set(EXPECTED_ANNOTATIONS)
+            if annotations[k] != EXPECTED_ANNOTATIONS[k]
+        )
         if missing:
             failures.append(f"ledger_annotations.txt is missing rows: {missing}")
         if extra:
             failures.append(f"ledger_annotations.txt has unexpected rows: {extra}")
         if changed:
-            failures.append(f"ledger_annotations.txt rows disagree with EXPECTED_ANNOTATIONS: {changed}")
+            failures.append(
+                f"ledger_annotations.txt rows disagree with EXPECTED_ANNOTATIONS: {changed}"
+            )
 
     # layer 2: auth <-> fixtures.
     annotated_auth = {(m, p) for (m, p), row in annotations.items() if row.get("auth")}
@@ -807,19 +842,27 @@ def check_annotation_fidelity() -> list:
         missing = sorted(fixture_auth - annotated_auth)
         extra = sorted(annotated_auth - fixture_auth)
         if missing:
-            failures.append(f"ledger_annotations.txt is missing `auth` the fixtures carry: {missing}")
+            failures.append(
+                f"ledger_annotations.txt is missing `auth` the fixtures carry: {missing}"
+            )
         if extra:
-            failures.append(f"ledger_annotations.txt declares `auth` no fixture carries: {extra}")
+            failures.append(
+                f"ledger_annotations.txt declares `auth` no fixture carries: {extra}"
+            )
 
     # layer 3: each exempt path is still a literal somewhere in the route tree.
-    annotated_exempt = [p for (m, p), row in annotations.items() if row.get("rate_limit_exempt")]
+    annotated_exempt = [
+        p for (m, p), row in annotations.items() if row.get("rate_limit_exempt")
+    ]
     joined_blob = "\n".join(load_sources().values())
     for p in annotated_exempt:
         # the manifest declares either the absolute path (sliding_sync) or the
         # relative tail under an expand prefix (sync.rs `/sync`); accept either.
         tail = p.rsplit("/", 1)[-1]
         if f'"{p}"' not in joined_blob and f'"/{tail}"' not in joined_blob:
-            failures.append(f"rate_limit_exempt path {p!r} is not present in any manifest source — stale row?")
+            failures.append(
+                f"rate_limit_exempt path {p!r} is not present in any manifest source — stale row?"
+            )
 
     return failures
 
@@ -892,7 +935,9 @@ def parse_chain(expr: str):
 
 
 class Resolver:
-    def __init__(self, files: dict[str, str], features=None, module_gates: dict | None = None):
+    def __init__(
+        self, files: dict[str, str], features=None, module_gates: dict | None = None
+    ):
         self.files = files  # relpath -> comment-stripped source
         # `features is None` is *union mode*: every `#[cfg]` predicate is
         # treated as satisfied, reproducing the historical extraction that
@@ -1049,7 +1094,10 @@ class Resolver:
             return ("routes", self._tuples(t, owner))
 
         # declarative manifest helper
-        if re.match(r"^(?:crate::web::routes::route_ledger::|route_ledger::)?expand_under_prefixes\s*\(", t):
+        if re.match(
+            r"^(?:crate::web::routes::route_ledger::|route_ledger::)?expand_under_prefixes\s*\(",
+            t,
+        ):
             return ("routes", self._expand_under_prefixes(t, env, owner))
 
         # bare identifier: local binding or const
@@ -1180,7 +1228,9 @@ class Resolver:
                 continue
 
             # `let [mut] name[: Type] = EXPR`
-            m = re.match(r"let\s+(?:mut\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^=]*)?=", s, re.S)
+            m = re.match(
+                r"let\s+(?:mut\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^=]*)?=", s, re.S
+            )
             if m:
                 name_b = m.group(1)
                 eq = s.index("=", m.start() + len(name_b))
@@ -1217,7 +1267,9 @@ class Resolver:
                 # already resolved; those routes come from the `merge_into`
                 # roots anyway. Replacing with `[]` would drop live endpoints.
                 if new_val[0] == "routes" and not new_val[1] and env[var][1]:
-                    self.unresolved.add(f"opaque rebind of {var} kept previous value ({owner})")
+                    self.unresolved.add(
+                        f"opaque rebind of {var} kept previous value ({owner})"
+                    )
                 else:
                     env[var] = new_val
                 continue
@@ -1281,7 +1333,11 @@ class Resolver:
           fidelity gate below is what proves neither happens.
         """
         contexts = self.cfg_of.get(row, set())
-        base = set(min(sorted(contexts, key=lambda c: (len(c), sorted(c))))) if contexts else set()
+        base = (
+            set(min(sorted(contexts, key=lambda c: (len(c), sorted(c)))))
+            if contexts
+            else set()
+        )
         for file, _fn in self.registrars.get(row, set()):
             base |= set(self.module_gates.get(file, ()))
         return frozenset(base)
@@ -1302,7 +1358,9 @@ class Resolver:
         """
         if tag_registrar and self._current_fn and "manifest" not in self._current_fn:
             for route in routes:
-                self.registrars[(route[0], route[1])].add((self._current_owner, self._current_fn))
+                self.registrars[(route[0], route[1])].add(
+                    (self._current_owner, self._current_fn)
+                )
                 self.cfg_of[(route[0], route[1])].add(self._current_cfg)
         for route in routes:
             self.guards[(route[0], route[1])].add(self._current_guard)
@@ -1332,7 +1390,9 @@ class Resolver:
             if contexts:
                 self.cfg_of[(am, ap)] |= {ctx | self._current_cfg for ctx in contexts}
 
-    def apply_call(self, acc: list, name: str, args: str, env: dict, owner: str) -> list:
+    def apply_call(
+        self, acc: list, name: str, args: str, env: dict, owner: str
+    ) -> list:
         if name == "route":
             parts = split_top_level(args)
             if not parts:
@@ -1361,7 +1421,9 @@ class Resolver:
             sub = self.eval_value(parts[1], env, owner)
             subs = sub[1] if sub[0] == "routes" else []
             if not subs:
-                self.unresolved.add(f"nest {prefix} -> unresolved {parts[1].strip()[:60]} in {owner}")
+                self.unresolved.add(
+                    f"nest {prefix} -> unresolved {parts[1].strip()[:60]} in {owner}"
+                )
             added = [(meth, prefix + path, own) for (meth, path, own) in subs]
             self._record_guards(added, tag_registrar=False)
             self._inherit_registrars(added, subs)
@@ -1460,7 +1522,8 @@ class Resolver:
                 # a callee may hide inside a `#[cfg(..)] { .. }` block too
                 for _inner in [stmt] + extract_blocks(stmt):
                     for cm in re.finditer(
-                        r"(?:[A-Za-z_][A-Za-z0-9_]*::)*([A-Za-z_][A-Za-z0-9_]*)\s*\(", _inner
+                        r"(?:[A-Za-z_][A-Za-z0-9_]*::)*([A-Za-z_][A-Za-z0-9_]*)\s*\(",
+                        _inner,
                     ):
                         cname = cm.group(1)
                         if cname in skip_names:
@@ -1479,7 +1542,9 @@ class Resolver:
         for _file, name, body in self.fn_all:
             if "manifest" not in name:
                 continue
-            out.extend(self.eval_fn_body(name, body, _file, memo_key=(_file, name, body)))
+            out.extend(
+                self.eval_fn_body(name, body, _file, memo_key=(_file, name, body))
+            )
         return out
 
 
@@ -1519,7 +1584,10 @@ def mod_gated_files(rel_sources: dict) -> dict:
         for m in _MOD_DECL.finditer(src):
             child = m.group(1)
             preds = predicates_before(src, m.start())
-            for cand in (os.path.join(base, child + ".rs"), os.path.join(base, child, "mod.rs")):
+            for cand in (
+                os.path.join(base, child + ".rs"),
+                os.path.join(base, child, "mod.rs"),
+            ):
                 if cand in rel_sources:
                     stack.append((cand, inherited + preds))
                     break
@@ -1591,7 +1659,9 @@ def profile_sets(res: "Resolver") -> dict:
     """
     per: dict = {}
     for owner, name, body in res.roots():
-        for meth, path, own in res.eval_fn_body(name, body, owner, memo_key=(owner, name, body)):
+        for meth, path, own in res.eval_fn_body(
+            name, body, owner, memo_key=(owner, name, body)
+        ):
             if meth and path:
                 per.setdefault(own, set()).add((meth, path))
     routes = {t for rs in per.values() for t in rs}
@@ -1637,7 +1707,9 @@ def main() -> int:
 
     per_module: dict[str, list] = defaultdict(list)
     for owner, _name, body in res.roots():
-        for meth, path, own in res.eval_fn_body(_name, body, owner, memo_key=(owner, _name, body)):
+        for meth, path, own in res.eval_fn_body(
+            _name, body, owner, memo_key=(owner, _name, body)
+        ):
             if not meth or not path:
                 continue
             per_module[own].append((meth, path))
@@ -1682,7 +1754,12 @@ def main() -> int:
     man = res.manifest_routes()
     man_set = sorted({(m, p) for (m, p, _o) in man if m and p})
     with open(os.path.join(ROOT, "artifacts", "manifest_routes.json"), "w") as f:
-        json.dump({"routes": man_set, "total_routes": len(man_set)}, f, indent=1, ensure_ascii=False)
+        json.dump(
+            {"routes": man_set, "total_routes": len(man_set)},
+            f,
+            indent=1,
+            ensure_ascii=False,
+        )
 
     router_set = {(m, p) for v in out.values() for m, p in v}
     # `(method, path) -> module`, so the S-14 diagnostic names the owning file
@@ -1741,7 +1818,10 @@ def main() -> int:
                     allowed.add(entry)
     new_unresolved = sorted(res.unresolved - allowed)
     if new_unresolved:
-        print(f"\n!! NEW unresolved constructs ({len(new_unresolved)}) — parser gap:", file=sys.stderr)
+        print(
+            f"\n!! NEW unresolved constructs ({len(new_unresolved)}) — parser gap:",
+            file=sys.stderr,
+        )
         for u in new_unresolved:
             print(f"    {u}", file=sys.stderr)
         print(
@@ -1767,7 +1847,9 @@ def main() -> int:
 
     print(f"\n-- registrations outside the Matrix namespaces ({len(non_ns)}) --")
     print("   intentional host-root protocol/probe endpoints only (CAS, liveness);")
-    print("   an unwired-router orphan appearing here again must be a deliberate choice")
+    print(
+        "   an unwired-router orphan appearing here again must be a deliberate choice"
+    )
     for mod, meth, path in non_ns:
         print(f"    {mod:16} {meth:6} {path}")
 
@@ -1827,7 +1909,9 @@ def main() -> int:
         for lane_name, feats in sorted(lanes.items()):
             lane_sets = profile_sets(Resolver(load_sources(feats), feats))
             for prof, got in sorted(lane_sets.items()):
-                fp = os.path.join(ROOT, "tests", "unit", "fixtures", lane_name, f"{prof}.json")
+                fp = os.path.join(
+                    ROOT, "tests", "unit", "fixtures", lane_name, f"{prof}.json"
+                )
                 if not os.path.exists(fp):
                     continue
                 with open(fp) as fh:
@@ -1836,7 +1920,9 @@ def main() -> int:
                     print(f"   ok   {lane_name:18} {prof:8} {len(got):5} routes")
                     continue
                 profile_mismatches.append(f"{lane_name}/{prof}")
-                print(f"   FAIL {lane_name:18} {prof:8} derived {len(got):5}, fixture {len(want):5}")
+                print(
+                    f"   FAIL {lane_name:18} {prof:8} derived {len(got):5}, fixture {len(want):5}"
+                )
                 for m, p in sorted(want - got)[:10]:
                     print(f"        derived is missing: {m:6} {p}")
                 for m, p in sorted(got - want)[:10]:
@@ -1867,11 +1953,15 @@ def main() -> int:
             bad = 0
             for e in entries:
                 key = (e["method"], e["path"])
-                got = resolve_label(e["path"], res_lane.registrars.get(key, set()), origins)
+                got = resolve_label(
+                    e["path"], res_lane.registrars.get(key, set()), origins
+                )
                 if got == e["registered_by"]:
                     continue
                 bad += 1
-                label_mismatches.append(f"{lane_name}: {e['method']} {e['path']}: {got!r} != {e['registered_by']!r}")
+                label_mismatches.append(
+                    f"{lane_name}: {e['method']} {e['path']}: {got!r} != {e['registered_by']!r}"
+                )
             if bad:
                 print(f"   FAIL {lane_name:18} {bad} of {len(entries)} labels wrong")
                 for line in label_mismatches[-bad:][:10]:
@@ -1897,14 +1987,24 @@ def main() -> int:
                 continue
             with open(fp) as fh:
                 want = {(e["method"], e["path"]) for e in json.load(fh)["entries"]}
-            got = {r for r in union_rows if cfg_all_allow(list(union.gate_of(r)), feats)}
+            got = {
+                r for r in union_rows if cfg_all_allow(list(union.gate_of(r)), feats)
+            }
             if got == want:
-                print(f"   ok   {lane_name:18} gate-filtered == fixture ({len(got)} routes)")
+                print(
+                    f"   ok   {lane_name:18} gate-filtered == fixture ({len(got)} routes)"
+                )
                 continue
-            gate_mismatches.append(f"{lane_name}: gate-filtered {len(got)} vs fixture {len(want)}")
-            print(f"   FAIL {lane_name:18} gate-filtered {len(got)}, fixture {len(want)}")
+            gate_mismatches.append(
+                f"{lane_name}: gate-filtered {len(got)} vs fixture {len(want)}"
+            )
+            print(
+                f"   FAIL {lane_name:18} gate-filtered {len(got)}, fixture {len(want)}"
+            )
             for m, p in sorted(want - got)[:8]:
-                print(f"        gate hides a real route: {m:6} {p}  gate={sorted(union.gate_of((m, p)))}")
+                print(
+                    f"        gate hides a real route: {m:6} {p}  gate={sorted(union.gate_of((m, p)))}"
+                )
             for m, p in sorted(got - want)[:8]:
                 print(f"        gate admits a foreign route: {m:6} {p}")
 
@@ -1922,7 +2022,9 @@ def main() -> int:
     # not a reason to tolerate it.
     strict_failures = []
     if only_manifest:
-        strict_failures.append(f"{len(only_manifest)} manifest-declared routes were not derived")
+        strict_failures.append(
+            f"{len(only_manifest)} manifest-declared routes were not derived"
+        )
     if missed:
         strict_failures.append(f"{len(missed)} ledger routes were not derived")
     if undeclared:
@@ -1936,7 +2038,9 @@ def main() -> int:
             f"{profile_mismatches} — a cfg lane or a runtime profile guard is wrong"
         )
     if new_unresolved:
-        strict_failures.append(f"{len(new_unresolved)} new unresolved parser constructs")
+        strict_failures.append(
+            f"{len(new_unresolved)} new unresolved parser constructs"
+        )
     if stale_allowed:
         strict_failures.append(
             f"{len(stale_allowed)} stale unresolved-allowlist entries match nothing in the current "
@@ -1967,7 +2071,9 @@ def main() -> int:
         return 1
 
     print("\nTop modules by route count:")
-    for mod, cnt in sorted(((m, len(v)) for m, v in out.items()), key=lambda x: -x[1])[:15]:
+    for mod, cnt in sorted(((m, len(v)) for m, v in out.items()), key=lambda x: -x[1])[
+        :15
+    ]:
         print(f"  {cnt:4d}  {mod}")
     return 0
 

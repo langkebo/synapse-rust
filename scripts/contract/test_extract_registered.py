@@ -21,9 +21,13 @@ import os
 import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.environ.get("SYNAPSE_RUST_ROOT") or os.path.dirname(os.path.dirname(SCRIPT_DIR))
+ROOT = os.environ.get("SYNAPSE_RUST_ROOT") or os.path.dirname(
+    os.path.dirname(SCRIPT_DIR)
+)
 
-_spec = importlib.util.spec_from_file_location("extract_registered", os.path.join(SCRIPT_DIR, "extract_registered.py"))
+_spec = importlib.util.spec_from_file_location(
+    "extract_registered", os.path.join(SCRIPT_DIR, "extract_registered.py")
+)
 ex = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ex)
 
@@ -49,7 +53,9 @@ def derived(res: "ex.Resolver") -> dict:
     """Run the same extraction `main()` performs, returning `{module: {(m, p)}}`."""
     per: dict[str, set] = {}
     for owner, name, body in res.roots():
-        for meth, path, own in res.eval_fn_body(name, body, owner, memo_key=(owner, name, body)):
+        for meth, path, own in res.eval_fn_body(
+            name, body, owner, memo_key=(owner, name, body)
+        ):
             if meth and path:
                 per.setdefault(own, set()).add((meth, path))
     return per
@@ -58,7 +64,9 @@ def derived(res: "ex.Resolver") -> dict:
 def ledger_fixture_tuples(lane: str = "ledger_export") -> set:
     out: set = set()
     for prof in ("default", "worker", "all"):
-        fp = os.path.join(ROOT, "tests", "unit", "fixtures", lane, f"{profile_name(prof)}.json")
+        fp = os.path.join(
+            ROOT, "tests", "unit", "fixtures", lane, f"{profile_name(prof)}.json"
+        )
         if not os.path.exists(fp):
             continue
         with open(fp) as fh:
@@ -86,8 +94,14 @@ def check_chained_methods(per: dict) -> None:
         methods == {"GET", "PUT", "DELETE"},
         f"got {sorted(methods)} — the pre-fix extractor returned only ['GET']",
     )
-    create = {m for (m, p) in msc if p == "/_matrix/client/unstable/org.matrix.msc4108/rendezvous"}
-    check("MSC4108 /rendezvous exposes POST", create == {"POST"}, f"got {sorted(create)}")
+    create = {
+        m
+        for (m, p) in msc
+        if p == "/_matrix/client/unstable/org.matrix.msc4108/rendezvous"
+    }
+    check(
+        "MSC4108 /rendezvous exposes POST", create == {"POST"}, f"got {sorted(create)}"
+    )
 
     # A second, independent chained chain: `get(get_pushers).post(set_pusher)`.
     push = per.get("push.rs", set())
@@ -113,13 +127,18 @@ def check_nest_prefixes(per: dict) -> None:
         "/_matrix/client/v3/spaces/{space_id}" in paths,
         f"sample: {sorted(paths)[:4]}",
     )
-    check("space/lifecycle_query.rs contributes 9 routes x 2 prefixes", len(spaces) == 18, f"got {len(spaces)}")
+    check(
+        "space/lifecycle_query.rs contributes 9 routes x 2 prefixes",
+        len(spaces) == 18,
+        f"got {len(spaces)}",
+    )
 
     # Cross-file nesting: space.rs nests routers defined in space/*.rs.
     hier = {p for _m, p in per.get("space/children_hierarchy.rs", set())}
     check(
         "cross-file nest: children_hierarchy inherits space.rs prefixes",
-        "/_matrix/client/v1/spaces/{space_id}/children" in hier and "/_matrix/client/v3/spaces/{space_id}/children" in hier,
+        "/_matrix/client/v1/spaces/{space_id}/children" in hier
+        and "/_matrix/client/v3/spaces/{space_id}/children" in hier,
         f"sample: {sorted(hier)[:4]}",
     )
 
@@ -127,7 +146,8 @@ def check_nest_prefixes(per: dict) -> None:
     e2ee = per.get("e2ee/keys.rs", set())
     check(
         "e2ee /keys/upload is v1 + v3",
-        {"/_matrix/client/v1/keys/upload", "/_matrix/client/v3/keys/upload"} <= {p for _m, p in e2ee},
+        {"/_matrix/client/v1/keys/upload", "/_matrix/client/v3/keys/upload"}
+        <= {p for _m, p in e2ee},
         f"sample: {sorted(p for _m, p in e2ee)[:4]}",
     )
     check(
@@ -138,8 +158,18 @@ def check_nest_prefixes(per: dict) -> None:
     )
 
     # No bare `/spaces/...` must survive anywhere in the derived surface.
-    bare = sorted({p for mod, rs in per.items() if "space" in mod for _m, p in rs if p.startswith("/spaces/")})
-    check("no derive-time relative /spaces/ path remains", not bare, f"leaked: {bare[:5]}")
+    bare = sorted(
+        {
+            p
+            for mod, rs in per.items()
+            if "space" in mod
+            for _m, p in rs
+            if p.startswith("/spaces/")
+        }
+    )
+    check(
+        "no derive-time relative /spaces/ path remains", not bare, f"leaked: {bare[:5]}"
+    )
 
     # The doc itself is what consumers read.
     doc = os.path.join(ROOT, "docs", "synapse-rust", "ROUTE_CONTRACT.md")
@@ -147,9 +177,13 @@ def check_nest_prefixes(per: dict) -> None:
         text = open(doc, encoding="utf-8").read()
         check(
             "ROUTE_CONTRACT.md lists prefixed space routes",
-            "/_matrix/client/v1/spaces/{space_id}`" in text and "/_matrix/client/v3/spaces/{space_id}`" in text,
+            "/_matrix/client/v1/spaces/{space_id}`" in text
+            and "/_matrix/client/v3/spaces/{space_id}`" in text,
         )
-        check("ROUTE_CONTRACT.md has no bare `/spaces/` bullet", "- `GET` `/spaces/" not in text)
+        check(
+            "ROUTE_CONTRACT.md has no bare `/spaces/` bullet",
+            "- `GET` `/spaces/" not in text,
+        )
 
 
 def check_test_module_excision(per: dict) -> None:
@@ -165,7 +199,10 @@ def check_test_module_excision(per: dict) -> None:
         "create_space_lifecycle_query_routes" in src,
         "the router builder was excised with the test module",
     )
-    check("lifecycle_query.rs still yields its 18 routes", len(per.get("space/lifecycle_query.rs", set())) == 18)
+    check(
+        "lifecycle_query.rs still yields its 18 routes",
+        len(per.get("space/lifecycle_query.rs", set())) == 18,
+    )
 
 
 def check_oracles(res: "ex.Resolver", per: dict) -> None:
@@ -308,7 +345,11 @@ def check_lane_profile_modeling() -> None:
     if not lanes:
         return
     golden, sdk = lanes["ledger_export"], lanes["ledger_export_sdk"]
-    check("golden lane is a strict subset of the SDK lane", golden < sdk, "the lanes must nest")
+    check(
+        "golden lane is a strict subset of the SDK lane",
+        golden < sdk,
+        "the lanes must nest",
+    )
     check(
         "the lanes really differ (voice-extended is not in `default`)",
         "voice-extended" not in golden and "voice-extended" in sdk,
@@ -329,7 +370,10 @@ def check_lane_profile_modeling() -> None:
     )
     check(
         "cfg(all(..) / any(..) / not(..)) compose exactly as Rust does",
-        ex.cfg_allows('all(feature = "widgets", not(feature = "voice-extended"))', golden) is True
+        ex.cfg_allows(
+            'all(feature = "widgets", not(feature = "voice-extended"))', golden
+        )
+        is True
         and ex.cfg_allows('any(feature = "nope", feature = "cas-sso")', golden) is False
         and ex.cfg_allows('any(feature = "nope", feature = "cas-sso")', sdk) is True,
     )
@@ -337,13 +381,20 @@ def check_lane_profile_modeling() -> None:
         "an unknown bare cfg flag evaluates to off (no cfg(test) code survives extraction)",
         ex.cfg_allows("test", sdk) is False,
     )
-    check("union mode satisfies every predicate (the historic behaviour)", ex.cfg_allows('feature = "nope"', None) is True)
+    check(
+        "union mode satisfies every predicate (the historic behaviour)",
+        ex.cfg_allows('feature = "nope"', None) is True,
+    )
 
     # Runtime profile guards must be *read from the assembly*, not guessed.
     gated = ex.gated_router_builders(ex.load_sources())
     check(
         "runtime profile guards are read out of merge_into (exactly two gated routers)",
-        gated == {"create_oidc_router": "oidc_enabled", "create_worker_body_router": "worker_enabled"},
+        gated
+        == {
+            "create_oidc_router": "oidc_enabled",
+            "create_worker_body_router": "worker_enabled",
+        },
         f"got {gated}",
     )
 
@@ -355,9 +406,14 @@ def check_lane_profile_modeling() -> None:
             all(res.guards.get(r) for r in sets["all"]),
             "an unrecorded route would be silently classified as always-on",
         )
-        check(f"{lane_name}: default ⊆ worker ⊆ all", sets["default"] <= sets["worker"] <= sets["all"])
+        check(
+            f"{lane_name}: default ⊆ worker ⊆ all",
+            sets["default"] <= sets["worker"] <= sets["all"],
+        )
         for prof, got in sorted(sets.items()):
-            fp = os.path.join(ROOT, "tests", "unit", "fixtures", lane_name, f"{prof}.json")
+            fp = os.path.join(
+                ROOT, "tests", "unit", "fixtures", lane_name, f"{prof}.json"
+            )
             if not os.path.exists(fp):
                 print(f"  skip {lane_name}/{prof} (fixture absent)")
                 continue
@@ -391,12 +447,16 @@ def check_emitted_gates() -> None:
     non_empty = {g for g in distinct if g}
     check(
         "every route carries a gate, and the gate set is not vacuous",
-        len(rows) == len({r for r in rows if union.gate_of(r) is not None}) and len(distinct) >= 8 and len(non_empty) >= 6,
+        len(rows) == len({r for r in rows if union.gate_of(r) is not None})
+        and len(distinct) >= 8
+        and len(non_empty) >= 6,
         f"{len(distinct)} distinct gates, {len(non_empty)} of them non-empty",
     )
     check(
-        "every gate predicate is a plain `feature = \"..\"`",
-        all(p.startswith('feature = "') and p.endswith('"') for g in distinct for p in g),
+        'every gate predicate is a plain `feature = ".."`',
+        all(
+            p.startswith('feature = "') and p.endswith('"') for g in distinct for p in g
+        ),
         f"odd predicates: {sorted({p for g in distinct for p in g if not p.startswith('feature = ')})[:5]}",
     )
 
@@ -407,7 +467,8 @@ def check_emitted_gates() -> None:
     voip = ("GET", "/_matrix/client/v3/rooms/{room_id}/call/{call_id}")
     check(
         "a `#[cfg]` block inside an ungated file is still gated",
-        voip in rows and union.gate_of(voip) == frozenset({'feature = "voip-tracking"'}),
+        voip in rows
+        and union.gate_of(voip) == frozenset({'feature = "voip-tracking"'}),
         f"gate={sorted(union.gate_of(voip)) if voip in rows else 'row missing'}",
     )
     # ...and the reverse: a route whose relative path is also registered by an
@@ -415,7 +476,8 @@ def check_emitted_gates() -> None:
     root_login = ("GET", "/login")
     check(
         "a path shared by a gated and an ungated router keeps the gated condition",
-        root_login in rows and union.gate_of(root_login) == frozenset({'feature = "cas-sso"'}),
+        root_login in rows
+        and union.gate_of(root_login) == frozenset({'feature = "cas-sso"'}),
         f"gate={sorted(union.gate_of(root_login)) if root_login in rows else 'row missing'}",
     )
 
@@ -426,7 +488,11 @@ def check_emitted_gates() -> None:
         with open(fp) as fh:
             want = {(e["method"], e["path"]) for e in json.load(fh)["entries"]}
         got = {r for r in rows if ex.cfg_all_allow(list(union.gate_of(r)), feats)}
-        check(f"gate-filtered union reproduces {lane_name}/all", got == want, f"{len(got)} vs {len(want)}")
+        check(
+            f"gate-filtered union reproduces {lane_name}/all",
+            got == want,
+            f"{len(got)} vs {len(want)}",
+        )
 
 
 def check_ratchet(res: "ex.Resolver") -> None:
@@ -466,7 +532,11 @@ def check_ledger_origins() -> None:
     would let a rename slip through. Each is checked here.
     """
     origins = ex.load_ledger_origins()
-    check("ledger_origins.txt parses and is non-trivial", len(origins) >= 20, f"{len(origins)} rules")
+    check(
+        "ledger_origins.txt parses and is non-trivial",
+        len(origins) >= 20,
+        f"{len(origins)} rules",
+    )
     check(
         "every rule carries a registered_by and a file",
         all(origin and owner for owner, _who, _qual, origin in origins),
@@ -494,30 +564,67 @@ def check_ledger_origins() -> None:
     # all-extensions lane reads `oidc` while the default lane reads
     # `oidc_fallback`.
     probe = "/.well-known/jwks.json"
-    ra = ex.resolve_label(probe, {("oidc/mod.rs", "create_oidc_router"), ("oidc/mod.rs", "create_oidc_fallback_router")}, origins)
-    rb = ex.resolve_label(probe, {("oidc/mod.rs", "create_oidc_fallback_router")}, origins)
+    ra = ex.resolve_label(
+        probe,
+        {
+            ("oidc/mod.rs", "create_oidc_router"),
+            ("oidc/mod.rs", "create_oidc_fallback_router"),
+        },
+        origins,
+    )
+    rb = ex.resolve_label(
+        probe, {("oidc/mod.rs", "create_oidc_fallback_router")}, origins
+    )
     check(
         "the two OIDC registrars resolve to different ledger names",
         ra == "oidc" and rb == "oidc_fallback",
         f"both-registrars={ra!r}, fallback-only={rb!r}",
     )
     flipped = [(o, w, q, v) for (o, w, q, v) in origins]
-    i = next(n for n, (o, w, q, _v) in enumerate(flipped) if (o, w, q) == ("oidc/mod.rs", "create_oidc_router", "/.well-known/"))
-    j = next(n for n, (o, w, q, _v) in enumerate(flipped) if (o, w, q) == ("oidc/mod.rs", "create_oidc_fallback_router", "/.well-known/"))
+    i = next(
+        n
+        for n, (o, w, q, _v) in enumerate(flipped)
+        if (o, w, q) == ("oidc/mod.rs", "create_oidc_router", "/.well-known/")
+    )
+    j = next(
+        n
+        for n, (o, w, q, _v) in enumerate(flipped)
+        if (o, w, q) == ("oidc/mod.rs", "create_oidc_fallback_router", "/.well-known/")
+    )
     flipped[i], flipped[j] = flipped[j], flipped[i]
-    swapped = ex.resolve_label(probe, {("oidc/mod.rs", "create_oidc_router"), ("oidc/mod.rs", "create_oidc_fallback_router")}, flipped)
-    check("rule order is what decides, not an accident of the set", swapped == "oidc_fallback", f"got {swapped!r}")
+    swapped = ex.resolve_label(
+        probe,
+        {
+            ("oidc/mod.rs", "create_oidc_router"),
+            ("oidc/mod.rs", "create_oidc_fallback_router"),
+        },
+        flipped,
+    )
+    check(
+        "rule order is what decides, not an accident of the set",
+        swapped == "oidc_fallback",
+        f"got {swapped!r}",
+    )
 
     # Ambiguity must fail loudly rather than pick. Two registrars with two
     # defaults and no rule to separate them is exactly the state that used to be
     # resolved by "whatever the manifest happened to say".
     check(
         "an unruled registrar conflict resolves to None, not a guess",
-        ex.resolve_label("/whatever", {("room.rs", "create_room_router"), ("media/mod.rs", "create_media_router")}, origins) is None,
+        ex.resolve_label(
+            "/whatever",
+            {
+                ("room.rs", "create_room_router"),
+                ("media/mod.rs", "create_media_router"),
+            },
+            origins,
+        )
+        is None,
     )
     check(
         "a single unruled registrar still falls through to the path rule",
-        ex.resolve_label("/whatever", {("room.rs", "create_room_router")}, origins) == "room",
+        ex.resolve_label("/whatever", {("room.rs", "create_room_router")}, origins)
+        == "room",
     )
 
 
@@ -538,7 +645,9 @@ def mutation_check() -> int:
 
     # Mutation 1 — chained methods collapsed to the first one.
     orig_methods_of = ex.Resolver._methods_of
-    ex.Resolver._methods_of = staticmethod(lambda text: ([orig_methods_of(text)[0]] if orig_methods_of(text) else []))
+    ex.Resolver._methods_of = staticmethod(
+        lambda text: [orig_methods_of(text)[0]] if orig_methods_of(text) else []
+    )
     try:
         per = derived(resolve())
         failed = []
@@ -547,15 +656,27 @@ def mutation_check() -> int:
             if not cond:
                 failed.append(label)
 
-        msc = {m for (m, p) in per.get("msc4108_rendezvous.rs", set()) if p.endswith("/rendezvous/{session_id}")}
+        msc = {
+            m
+            for (m, p) in per.get("msc4108_rendezvous.rs", set())
+            if p.endswith("/rendezvous/{session_id}")
+        }
         record("chained", msc == {"GET", "PUT", "DELETE"})
-        push = {m for (m, p) in per.get("push.rs", set()) if p == "/_matrix/client/v3/pushers/"}
+        push = {
+            m
+            for (m, p) in per.get("push.rs", set())
+            if p == "/_matrix/client/v3/pushers/"
+        }
         record("pushers", push == {"GET", "POST"})
         if failed:
-            print(f"  ok   mutation#1 (first-method-only) turns the suite RED via: {failed}")
+            print(
+                f"  ok   mutation#1 (first-method-only) turns the suite RED via: {failed}"
+            )
             bad += 0
         else:
-            print("  FAIL mutation#1 did NOT turn the suite red — the guard is self-proving")
+            print(
+                "  FAIL mutation#1 did NOT turn the suite red — the guard is self-proving"
+            )
             bad += 1
     finally:
         # `_methods_of` is a staticmethod: restore it as one, otherwise it
@@ -577,12 +698,20 @@ def mutation_check() -> int:
         # Without prefix propagation the sub-router's routes are never reached at
         # all (the `let router = ..` binding is not itself the return value), so
         # the faithful expectation is *disappearance*, not a leaked relative path.
-        prefixed = sorted(p for p in spaces if p.startswith(("/_matrix/client/v1/spaces", "/_matrix/client/v3/spaces")))
+        prefixed = sorted(
+            p
+            for p in spaces
+            if p.startswith(("/_matrix/client/v1/spaces", "/_matrix/client/v3/spaces"))
+        )
         bare_or_missing = not prefixed
         if bare_or_missing:
-            print("  ok   mutation#2 (no nest propagation) turns the suite RED: prefixed space routes vanish")
+            print(
+                "  ok   mutation#2 (no nest propagation) turns the suite RED: prefixed space routes vanish"
+            )
         else:
-            print(f"  FAIL mutation#2 did NOT turn the suite red — the guard is self-proving; got {prefixed[:2]}")
+            print(
+                f"  FAIL mutation#2 did NOT turn the suite red — the guard is self-proving; got {prefixed[:2]}"
+            )
             bad += 1
     finally:
         ex.Resolver.apply_call = orig_apply
@@ -599,13 +728,19 @@ def mutation_check() -> int:
     ex.cfg_allows = lambda predicate, features: True
     try:
         lanes = ex.load_lanes()
-        res = ex.Resolver(ex.load_sources(lanes["ledger_export"]), lanes["ledger_export"])
+        res = ex.Resolver(
+            ex.load_sources(lanes["ledger_export"]), lanes["ledger_export"]
+        )
         got = ex.profile_sets(res)["all"]
         want = fixture("ledger_export", "all")
         if got != want:
-            print(f"  ok   mutation#3 (cfg gates ignored) turns the suite RED: golden lane reports {len(got)} vs {len(want)}")
+            print(
+                f"  ok   mutation#3 (cfg gates ignored) turns the suite RED: golden lane reports {len(got)} vs {len(want)}"
+            )
         else:
-            print("  FAIL mutation#3 did NOT turn the suite red — the lane guard is self-proving")
+            print(
+                "  FAIL mutation#3 did NOT turn the suite red — the lane guard is self-proving"
+            )
             bad += 1
     finally:
         ex.cfg_allows = orig_cfg
@@ -616,13 +751,19 @@ def mutation_check() -> int:
     ex.gated_router_builders = lambda files: {}
     try:
         lanes = ex.load_lanes()
-        res = ex.Resolver(ex.load_sources(lanes["ledger_export_sdk"]), lanes["ledger_export_sdk"])
+        res = ex.Resolver(
+            ex.load_sources(lanes["ledger_export_sdk"]), lanes["ledger_export_sdk"]
+        )
         got = ex.profile_sets(res)["default"]
         want = fixture("ledger_export_sdk", "default")
         if got != want:
-            print(f"  ok   mutation#4 (profile guards dropped) turns the suite RED: default reports {len(got)} vs {len(want)}")
+            print(
+                f"  ok   mutation#4 (profile guards dropped) turns the suite RED: default reports {len(got)} vs {len(want)}"
+            )
         else:
-            print("  FAIL mutation#4 did NOT turn the suite red — the profile guard is self-proving")
+            print(
+                "  FAIL mutation#4 did NOT turn the suite red — the profile guard is self-proving"
+            )
             bad += 1
     finally:
         ex.gated_router_builders = orig_gated
@@ -648,15 +789,20 @@ def mutation_check() -> int:
             with open(fp) as fh:
                 for e in json.load(fh)["entries"]:
                     got = ex.resolve_label(
-                        e["path"], res_lane.registrars.get((e["method"], e["path"]), set()),
+                        e["path"],
+                        res_lane.registrars.get((e["method"], e["path"]), set()),
                         ex.load_ledger_origins(),
                     )
                     if got != e["registered_by"]:
                         drift += 1
         if drift:
-            print(f"  ok   mutation#5 (swimlane rules dropped) turns the suite RED: {drift} label(s) drift")
+            print(
+                f"  ok   mutation#5 (swimlane rules dropped) turns the suite RED: {drift} label(s) drift"
+            )
         else:
-            print("  FAIL mutation#5 did NOT turn the suite red — the label guard is self-proving")
+            print(
+                "  FAIL mutation#5 did NOT turn the suite red — the label guard is self-proving"
+            )
             bad += 1
     finally:
         ex.load_ledger_origins = orig_load
@@ -676,7 +822,9 @@ def mutation_check() -> int:
     ex.Resolver.gate_of = scope_only
     try:
         lanes = ex.load_lanes()
-        union = ex.Resolver(ex.load_sources(), None, ex.mod_gated_files(ex.raw_sources()))
+        union = ex.Resolver(
+            ex.load_sources(), None, ex.mod_gated_files(ex.raw_sources())
+        )
         union_rows = ex.profile_sets(union)["all"]
         drifted = []
         for lane_name, feats in sorted(lanes.items()):
@@ -685,13 +833,19 @@ def mutation_check() -> int:
                 continue
             with open(fp) as fh:
                 want = {(e["method"], e["path"]) for e in json.load(fh)["entries"]}
-            got = {r for r in union_rows if ex.cfg_all_allow(list(union.gate_of(r)), feats)}
+            got = {
+                r for r in union_rows if ex.cfg_all_allow(list(union.gate_of(r)), feats)
+            }
             if got != want:
                 drifted.append(f"{lane_name}:{len(got)}vs{len(want)}")
         if drifted:
-            print(f"  ok   mutation#6 (module gates dropped) turns the suite RED: {drifted}")
+            print(
+                f"  ok   mutation#6 (module gates dropped) turns the suite RED: {drifted}"
+            )
         else:
-            print("  FAIL mutation#6 did NOT turn the suite red — the cfg gate guard is self-proving")
+            print(
+                "  FAIL mutation#6 did NOT turn the suite red — the cfg gate guard is self-proving"
+            )
             bad += 1
     finally:
         ex.Resolver.gate_of = orig_gate_of
@@ -732,9 +886,15 @@ def main() -> int:
 
     print()
     if FAILURES or bad:
-        print(f"❌ {len(FAILURES)} check(s) failed" + (f", {bad} mutation(s) self-proving" if bad else ""))
+        print(
+            f"❌ {len(FAILURES)} check(s) failed"
+            + (f", {bad} mutation(s) self-proving" if bad else "")
+        )
         return 1
-    print(f"✅ all {CHECKS} guard checks passed" + (" (+ mutation check)" if mutation else ""))
+    print(
+        f"✅ all {CHECKS} guard checks passed"
+        + (" (+ mutation check)" if mutation else "")
+    )
     return 0
 
 

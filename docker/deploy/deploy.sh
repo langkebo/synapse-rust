@@ -442,7 +442,7 @@ run_step() {
     "$@"
 
     COMPLETED_STEPS+=("$name")
-    log_success "✔ 步骤完成: ${name} ($(( $(date +%s) - start_ts ))s)"
+    log_success "✔ 步骤完成: ${name} ($(($(date +%s) - start_ts))s)"
 }
 
 trap 'on_error "$LINENO" "$?"' ERR

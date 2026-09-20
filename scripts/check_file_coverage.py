@@ -120,7 +120,11 @@ def require_baseline(path: pathlib.Path, baseline: Dict[str, float]) -> Optional
             "  without it, and would silently treat every file as new.\n"
             "  Bootstrap it once and commit the result:\n"
             "    python3 scripts/check_file_coverage.py --report coverage/lcov.info \\\n"
-            "      --format lcov --baseline " + str(path) + " --save-baseline " + str(path) + " \\\n"
+            "      --format lcov --baseline "
+            + str(path)
+            + " --save-baseline "
+            + str(path)
+            + " \\\n"
             "      --threshold 0 --global-floor 0 --new-file-floor 0 --core-threshold 0"
         )
     if not baseline:
@@ -133,7 +137,9 @@ def require_baseline(path: pathlib.Path, baseline: Dict[str, float]) -> Optional
 
 
 def save_baseline(
-    path: pathlib.Path, files: Dict[str, float], previous: Optional[Dict[str, float]] = None
+    path: pathlib.Path,
+    files: Dict[str, float],
+    previous: Optional[Dict[str, float]] = None,
 ) -> None:
     """Save the coverage snapshot, never LOWERING a recorded floor.
 
@@ -145,9 +151,7 @@ def save_baseline(
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     previous = previous or {}
-    merged = {
-        p: max(float(previous.get(p, 0.0)), float(v)) for p, v in files.items()
-    }
+    merged = {p: max(float(previous.get(p, 0.0)), float(v)) for p, v in files.items()}
     payload = {
         "files": [
             {"path": p, "line_pct": round(v, 2)} for p, v in sorted(merged.items())
@@ -306,7 +310,7 @@ def _normalize_path(p: str) -> str:
     p = p.replace("\\", "/")
     root = str(ROOT).replace("\\", "/").rstrip("/")
     if p.startswith(root + "/"):
-        rel = p[len(root) + 1:]
+        rel = p[len(root) + 1 :]
     elif p.startswith("/"):
         # Absolute but outside the repo (should not happen for this repo's own
         # coverage reports). Return the full path: it is unique by construction,
@@ -327,7 +331,7 @@ def _normalize_path(p: str) -> str:
         # A single leading segment means a workspace crate (`synapse-web`). A
         # nested prefix means some other layout; fall through untouched.
         if "/" not in crate:
-            return f"{crate}/{rel[idx + len(marker):]}"
+            return f"{crate}/{rel[idx + len(marker) :]}"
     return rel
 
 
@@ -606,7 +610,8 @@ def main() -> int:
     stale = stale_prefixes(core_prefixes)
     if stale:
         print(
-            "Stale core-file prefixes (match no file on disk):\n  " + "\n  ".join(stale),
+            "Stale core-file prefixes (match no file on disk):\n  "
+            + "\n  ".join(stale),
             file=sys.stderr,
         )
         return 2
@@ -621,11 +626,17 @@ def main() -> int:
     # all mean the exemption silently stopped applying (or applies to nothing),
     # which is exactly the state nobody notices.
     if args.non_unit_coverable is not None and not args.non_unit_coverable.exists():
-        print(f"Non-unit-coverable list not found: {args.non_unit_coverable}", file=sys.stderr)
+        print(
+            f"Non-unit-coverable list not found: {args.non_unit_coverable}",
+            file=sys.stderr,
+        )
         return 2
     non_unit_prefixes = load_prefix_list(args.non_unit_coverable)
     if args.non_unit_coverable is not None and not non_unit_prefixes:
-        print(f"Non-unit-coverable list is empty: {args.non_unit_coverable}", file=sys.stderr)
+        print(
+            f"Non-unit-coverable list is empty: {args.non_unit_coverable}",
+            file=sys.stderr,
+        )
         return 2
     stale_non_unit = stale_prefixes(non_unit_prefixes)
     if stale_non_unit:
@@ -637,7 +648,9 @@ def main() -> int:
         return 2
     if non_unit_prefixes:
         matched = sum(
-            1 for n in _normalized_source_paths() if _matches_prefix(n, non_unit_prefixes)
+            1
+            for n in _normalized_source_paths()
+            if _matches_prefix(n, non_unit_prefixes)
         )
         print(
             f"Non-unit-coverable guard: {len(non_unit_prefixes)} prefixes match {matched} files."

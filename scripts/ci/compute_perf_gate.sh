@@ -59,7 +59,8 @@ echo "==> Compute Performance Regression Gate"
 # ---------------------------------------------------------------------------
 # 1) Ceilings: "benchmark_name<TAB>ceiling_in_ns"
 # ---------------------------------------------------------------------------
-CEILINGS="$(cat <<'EOF'
+CEILINGS="$(
+    cat <<'EOF'
 state_resolution_chain_10	3000
 state_resolution_chain_100	3000
 auth_chain_build_10	60000
@@ -82,7 +83,8 @@ MISSING=0
 # Criterion prints long benchmark ids on their own line followed by the time
 # line, so we join those pairs before parsing.
 run_target() {
-    local target="$1"; shift
+    local target="$1"
+    shift
     local filter="${1:-}"
     local log="artifacts/compute_perf_${target}.log"
 
@@ -106,12 +108,12 @@ run_target() {
             next
         }
         { pending = "" }
-    ' "${log}" >> "${MEASUREMENTS_FILE}"
+    ' "${log}" >>"${MEASUREMENTS_FILE}"
 }
 
 # Reset once, before the first target: `run_target` only appends.
 MEASUREMENTS_FILE="artifacts/compute_perf_measurements.txt"
-: > "${MEASUREMENTS_FILE}"
+: >"${MEASUREMENTS_FILE}"
 run_target performance_federation_benchmarks
 run_target performance_membership_benchmarks
 
@@ -134,10 +136,14 @@ while IFS=$'\t' read -r name time_line; do
 
     case "${unit}" in
         ns) factor=1 ;;
-        µs|us) factor=1000 ;;
+        µs | us) factor=1000 ;;
         ms) factor=1000000 ;;
         s) factor=1000000000 ;;
-        *) echo "      WARNING: unknown unit '${unit}' for ${name}"; MISSING=$((MISSING + 1)); continue ;;
+        *)
+            echo "      WARNING: unknown unit '${unit}' for ${name}"
+            MISSING=$((MISSING + 1))
+            continue
+            ;;
     esac
 
     value_ns="$(awk -v v="${value}" -v f="${factor}" 'BEGIN { printf "%.0f", v * f }')"
@@ -146,8 +152,11 @@ while IFS=$'\t' read -r name time_line; do
     ceiling=""
     while IFS=$'\t' read -r c_name c_ns; do
         [[ -z "${c_name}" ]] && continue
-        if [[ "${name}" == "${c_name}" ]]; then ceiling="${c_ns}"; break; fi
-    done <<< "${CEILINGS}"
+        if [[ "${name}" == "${c_name}" ]]; then
+            ceiling="${c_ns}"
+            break
+        fi
+    done <<<"${CEILINGS}"
     if [[ -z "${ceiling}" && "${name}" == membership_transitions/* ]]; then
         ceiling="${MEMBERSHIP_CEILING_NS}"
     fi
@@ -163,12 +172,12 @@ while IFS=$'\t' read -r name time_line; do
     else
         echo "      OK: ${name}: ${value} ${unit} (${value_ns} ns <= ${ceiling} ns)"
     fi
-done < "${MEASUREMENTS_FILE}"
+done <"${MEASUREMENTS_FILE}"
 
 # ---------------------------------------------------------------------------
 # 4) Assert we actually measured the benchmarks we think we did
 # ---------------------------------------------------------------------------
-EXPECTED=4   # 3 federation + at least 1 membership
+EXPECTED=4 # 3 federation + at least 1 membership
 if [[ "${TOTAL}" -lt "${EXPECTED}" ]]; then
     echo "ERROR: 只测得 ${TOTAL} 个基准（期望 >= ${EXPECTED}）—— 基准可能被静默跳过"
     if [[ "${STRICT}" = "1" ]]; then

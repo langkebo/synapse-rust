@@ -14,6 +14,7 @@ gen_client_yaml.py — 生成 docs/openapi/client.yaml（CI artifact）
   # 跳过 export (假定 ledger.json 已就绪)
   python3 scripts/api_test/gen_client_yaml.py --skip-export
 """
+
 from __future__ import annotations
 
 import argparse
@@ -52,8 +53,13 @@ def run_cargo_export(commit: str | None, timestamp: str) -> Path:
     """Run synapse_ledger_export binary for default profile."""
     ledger_path = SCRIPT_DIR / "ledger_default_gen.json"
     cmd = [
-        "cargo", "run", "--quiet", "--bin", LEDGER_EXPORT_BIN,
-        "--", "--profile=default",
+        "cargo",
+        "run",
+        "--quiet",
+        "--bin",
+        LEDGER_EXPORT_BIN,
+        "--",
+        "--profile=default",
         f"--output={ledger_path}",
         f"--timestamp={timestamp}",
     ]
@@ -63,7 +69,9 @@ def run_cargo_export(commit: str | None, timestamp: str) -> Path:
     print(f"[gen_client_yaml] Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=PROJECT_ROOT)
     if result.returncode != 0:
-        print(f"[gen_client_yaml] cargo export FAILED:\n{result.stderr}", file=sys.stderr)
+        print(
+            f"[gen_client_yaml] cargo export FAILED:\n{result.stderr}", file=sys.stderr
+        )
         sys.exit(1)
     print(f"[gen_client_yaml] ledger exported to {ledger_path}")
     return ledger_path
@@ -72,9 +80,12 @@ def run_cargo_export(commit: str | None, timestamp: str) -> Path:
 def run_openapi_generator(ledger_path: Path, output_path: Path) -> None:
     """Run generate_openapi.py to produce client.yaml at `output_path`."""
     cmd = [
-        sys.executable, str(GENERATOR_SCRIPT),
-        "--ledger", str(ledger_path),
-        "--output", str(output_path),
+        sys.executable,
+        str(GENERATOR_SCRIPT),
+        "--ledger",
+        str(ledger_path),
+        "--output",
+        str(output_path),
     ]
     print(f"[gen_client_yaml] Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=PROJECT_ROOT)
@@ -87,7 +98,9 @@ def run_openapi_generator(ledger_path: Path, output_path: Path) -> None:
 def add_forbidden_header(file_path: Path) -> None:
     """Prepend the '禁止手改' header to the generated YAML file."""
     content = file_path.read_text(encoding="utf-8")
-    if content.startswith("# ============================================================================"):
+    if content.startswith(
+        "# ============================================================================"
+    ):
         print("[gen_client_yaml] header already present, skipping")
         return
     file_path.write_text(FORBIDDEN_HEADER + content, encoding="utf-8")
@@ -97,8 +110,14 @@ def add_forbidden_header(file_path: Path) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Generate client.yaml as CI artifact")
     ap.add_argument("--commit", default=None, help="synapse-rust commit SHA to record")
-    ap.add_argument("--timestamp", default=FIXED_TIMESTAMP, help="Fixed generated_at timestamp")
-    ap.add_argument("--skip-export", action="store_true", help="Skip cargo export, use existing ledger.json")
+    ap.add_argument(
+        "--timestamp", default=FIXED_TIMESTAMP, help="Fixed generated_at timestamp"
+    )
+    ap.add_argument(
+        "--skip-export",
+        action="store_true",
+        help="Skip cargo export, use existing ledger.json",
+    )
     ap.add_argument(
         "--check",
         action="store_true",
@@ -134,7 +153,9 @@ def main() -> int:
             rendered = generated_path.read_text(encoding="utf-8")
         expected = expected_path.read_text(encoding="utf-8")
         if expected == rendered:
-            print(f"[gen_client_yaml] OK: {expected_path} matches a fresh generation from {ledger_path}")
+            print(
+                f"[gen_client_yaml] OK: {expected_path} matches a fresh generation from {ledger_path}"
+            )
             return 0
         print(
             f"[gen_client_yaml] CHECK FAILED: {expected_path} is stale — it differs from a fresh "

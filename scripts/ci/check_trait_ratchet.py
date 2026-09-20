@@ -44,7 +44,12 @@ ROOTS = [
 ]
 # Directories that must never be walked: stale worktree copies double every count,
 # and the element-web harness carries 266 MB of screenshots.
-EXCLUDED = ("/target/", "/.claude/", "/tests/element-web-harness/artifacts/", "/artifacts/")
+EXCLUDED = (
+    "/target/",
+    "/.claude/",
+    "/tests/element-web-harness/artifacts/",
+    "/artifacts/",
+)
 
 TRAIT_RE = re.compile(r"^pub trait\s+([A-Za-z0-9_]+)", re.M)
 
@@ -59,7 +64,9 @@ def count() -> tuple[int, int]:
             for name in filenames:
                 if not name.endswith(".rs"):
                     continue
-                text = (Path(dirpath) / name).read_text(encoding="utf-8", errors="replace")
+                text = (Path(dirpath) / name).read_text(
+                    encoding="utf-8", errors="replace"
+                )
                 names = TRAIT_RE.findall(text)
                 total += len(names)
                 store_api += sum(1 for n in names if n.endswith("StoreApi"))
@@ -92,11 +99,16 @@ def main() -> int:
         return 0
 
     base_total, base_store = read_baseline()
-    print(f"trait_count: TOTAL={total} (baseline {base_total})  STORE_API={store_api} (baseline {base_store})")
+    print(
+        f"trait_count: TOTAL={total} (baseline {base_total})  STORE_API={store_api} (baseline {base_store})"
+    )
 
     failed = False
     if total > base_total:
-        print(f"FAIL: `pub trait` count increased by {total - base_total} ({base_total} -> {total})", file=sys.stderr)
+        print(
+            f"FAIL: `pub trait` count increased by {total - base_total} ({base_total} -> {total})",
+            file=sys.stderr,
+        )
         failed = True
     if store_api > base_store:
         print(
@@ -107,8 +119,12 @@ def main() -> int:
         failed = True
     if not failed:
         if total < base_total or store_api < base_store:
-            print(f"OK: decreased (TOTAL {base_total} -> {total}, STORE_API {base_store} -> {store_api})")
-            print("    tighten the baseline: python3 scripts/ci/check_trait_ratchet.py --update")
+            print(
+                f"OK: decreased (TOTAL {base_total} -> {total}, STORE_API {base_store} -> {store_api})"
+            )
+            print(
+                "    tighten the baseline: python3 scripts/ci/check_trait_ratchet.py --update"
+            )
         else:
             print("OK: trait counts at baseline")
     return 1 if failed else 0

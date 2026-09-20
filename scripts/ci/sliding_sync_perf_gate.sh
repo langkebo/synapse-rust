@@ -112,7 +112,7 @@ echo "    running performance_sliding_sync_benchmarks..."
 # Note: a "did any group run?" check would NOT work here, because the
 # in-process `benchmark_request_construction` group always runs.
 SLIDING_SYNC_REQUIRE="sliding_sync_p95_p99_latency" \
-cargo bench --locked --bench performance_sliding_sync_benchmarks \
+    cargo bench --locked --bench performance_sliding_sync_benchmarks \
     -- --noplot sliding_sync_p95_p99_latency 2>"$BENCH_LOG" || {
     echo "ERROR: sliding sync benchmark failed to run"
     cat "$BENCH_LOG"
