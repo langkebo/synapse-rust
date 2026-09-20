@@ -1,5 +1,11 @@
 # 优化执行方案（合并版）
 
+> **现状提示（2026-09-20）**：本文中的 `TOTAL=86 / STORE_API=56` 是 2026-09-15 那批 B4-1 的**历史快照**，
+> 不是现状。当前实时基线为 **`TOTAL=65 / STORE_API=33`**（`scripts/ci/trait_count_baseline`，
+> 由 `ci.yml` 的 `repo-sanity` 步骤实跑 `scripts/ci/check_trait_ratchet.py` 校验；已独立复核
+> `TOTAL=65 (baseline 65) STORE_API=33 (baseline 33) OK`）。历史数字保留不改，以免伪造记录。
+
+
 - 日期：2026-09-15
 - 输入：`ARCHITECTURE_REMEDIATION_ROADMAP_2026-09-15.md`（架构层 A1–A12 路线图）
   ＋ `PROJECT_ACTUAL_ISSUES_2026-09-14.md`（33 篇 audit × 代码复核总清单 §1–§8）

@@ -1,5 +1,11 @@
 # B4-1 / B4-2 交付物：`*StoreApi` trait 分类清单（存档）
 
+> **现状提示（2026-09-20）**：本文中的 `TOTAL=86 / STORE_API=56` 是 2026-09-15 那批 B4-1 的**历史快照**，
+> 不是现状。当前实时基线为 **`TOTAL=65 / STORE_API=33`**（`scripts/ci/trait_count_baseline`，
+> 由 `ci.yml` 的 `repo-sanity` 步骤实跑 `scripts/ci/check_trait_ratchet.py` 校验；已独立复核
+> `TOTAL=65 (baseline 65) STORE_API=33 (baseline 33) OK`）。历史数字保留不改，以免伪造记录。
+
+
 - 日期：2026-09-15
 - 依据：`docs/audit/OPTIMIZATION_EXECUTION_PLAN_2026-09-15.md` §3 `B4-1` / `B4-2`
 - 基线：`main @ 66339069` + 本批改动（工作树含其它会话在 `src/web/routes/**` 的 codemod，未触碰）
