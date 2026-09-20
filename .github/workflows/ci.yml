@@ -408,6 +408,15 @@ jobs:
           RUST_BACKTRACE: 1
           RUST_LOG: info
           NEXTEST_RETRIES: 2
+          # `synapse-e2ee::vodozemac_interop_tests` 里的 `skip_message()` 在 `CI` 下
+          # **故意 fail-closed**：缺少 `E2EE_INTEROP=1` 时 panic，而不是静默跳过
+          # （sweep A1 残留；否则 lib 门禁会以"零断言"报绿）。这个模块属于
+          # `synapse-e2ee` 的 lib test，所以 `--all-features` 的 lib 步骤必然会执行它；
+          # 不给这个变量时 main 上实测 2 例失败（run 35494141979：
+          # `ed25519_sign_verify` / `megolm_ciphertext_wire_roundtrip`）。
+          # `e2ee-interop.yml` 的 vodozemac job 早就这么设；两处跑同一批本地向量
+          # （毫秒级），但只有这里能覆盖"lib 门禁里的静默跳过"。
+          E2EE_INTEROP: '1'
         run: cargo nextest run --workspace --lib --all-features --locked --test-threads 4
 
       - name: Run unit test target (--test unit)

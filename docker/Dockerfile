@@ -111,6 +111,12 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 # ============================================================================
 FROM ${DEBIAN_BASE_IMAGE} AS runtime-libs
 
+# hadolint DL4006: this stage pipes `find` into `head`, and a POSIX `sh` reports
+# only the last command's status. With `pipefail` a failing `find` inside the
+# `$( … )` cannot silently yield an empty path that the following `dirname`
+# turns into a bogus destination. `debian:bookworm-slim` ships bash.
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
 RUN sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g' /etc/apt/sources.list.d/debian.sources && \
     apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -205,7 +211,13 @@ RUN groupadd -g 1000 synapse && \
 COPY --chown=1000:1000 --from=builder /out/app /app
 
 WORKDIR /app
-USER synapse
+# hadolint DL3066: use the numeric uid/gid that `useradd -u 1000 -g synapse`
+# created (and that `COPY --chown=1000:1000` above already assumes) instead of
+# the name. A name is only resolvable through `/etc/passwd`, which is absent in
+# distroless-style runtimes and when the image is started with `--user`; the
+# numeric form works everywhere and matches `USER 1000:1000` used elsewhere in
+# this file.
+USER 1000:1000
 
 ENV RUST_LOG=info \
     RUST_BACKTRACE=1 \

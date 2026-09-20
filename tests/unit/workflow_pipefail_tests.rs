@@ -170,3 +170,126 @@ fn pipefail_is_what_turns_a_swallowed_failure_into_a_failed_step() {
     assert_eq!(pipeline_status("set -o pipefail; false | tee /dev/null >/dev/null 2>&1; echo $?"), "1");
     assert_eq!(pipeline_status("set -o pipefail; true | tee /dev/null >/dev/null 2>&1; echo $?"), "0");
 }
+
+// =============================================================================
+// Guard 2: `run:` **folded** scalars must not use deeper-indented continuation
+// lines — YAML keeps the newline before them, so one intended command becomes
+// several shell commands.
+// =============================================================================
+//
+// Measured on `main` (run 35494142003): `db-migration-gate.yml` wrote six smoke
+// steps as
+//
+//     run: >-
+//       bash scripts/ci/require_tests_ran.sh
+//       cargo test --locked
+//         --features test-utils,privacy-ext,…
+//         --test integration thread_storage_tests_migrated -- --test-threads=1
+//
+// The two deeper-indented lines keep their preceding line breaks, so the shell
+// ran `bash scripts/ci/require_tests_ran.sh cargo test --locked` **without any
+// features** and then tried to execute `--features …` as its own command. The
+// feature-less `cargo test --locked` compiles the lib test target, which needs
+// `synapse_test_utils`, so the job died with
+// `error[E0432]: unresolved import synapse_test_utils` at
+// `src/common/config/tests.rs:9` — a hard-to-attribute failure caused purely by
+// YAML indentation. The six sites are now `run: |` with `\` continuations; this
+// guard pins the pattern so the next folded multi-line `run:` cannot silently
+// reintroduce it.
+
+/// Returns `(line_no, content)` for every line of a `run:` **folded** scalar
+/// (`run: >`, `run: >-`, `run: >+`) that is indented deeper than the scalar's
+/// base indent (the first non-empty line), i.e. every line YAML will keep a
+/// line break before.
+fn folded_run_deeper_continuations(text: &str) -> Vec<(usize, String)> {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut offenders = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        // Accept both `run: >-` on its own line and the inline `- run: >-` form.
+        let trimmed = line.trim_start().trim_start_matches("- ");
+        if !matches!(trimmed, "run: >" | "run: >-" | "run: >+") {
+            i += 1;
+            continue;
+        }
+        let key_indent = line.len() - trimmed.len();
+        let mut block: Vec<(usize, String, usize)> = Vec::new();
+        let mut j = i + 1;
+        while j < lines.len() {
+            let current = lines[j];
+            if current.trim().is_empty() {
+                j += 1;
+                continue;
+            }
+            let indent = current.len() - current.trim_start().len();
+            if indent <= key_indent {
+                break;
+            }
+            block.push((j + 1, current.trim_start().to_string(), indent));
+            j += 1;
+        }
+        if let Some(base) = block.iter().map(|(_, _, indent)| *indent).min() {
+            for (line_no, content, indent) in &block {
+                if *indent > base {
+                    offenders.push((*line_no, content.clone()));
+                }
+            }
+        }
+        i = j;
+    }
+    offenders
+}
+
+#[test]
+fn no_folded_run_scalar_uses_deeper_indented_continuation_lines() {
+    // Mechanism self-proof (the real tree currently has zero folded `run:`
+    // scalars, so a scan-only assertion would be vacuous).
+    let broken = "jobs:\n  a:\n    steps:\n      - run: >-\n          cmd --flag\n            --deeper\n";
+    let offenders = folded_run_deeper_continuations(broken);
+    assert_eq!(
+        offenders.len(),
+        1,
+        "the scanner must catch a deeper-indented continuation line of a folded run scalar: {offenders:?}"
+    );
+    assert_eq!(offenders[0].1, "--deeper");
+
+    // Same-indent continuation lines fold into ONE command → correct, not flagged.
+    let folded_ok = "jobs:\n  a:\n    steps:\n      - run: >-\n          cmd --flag\n          --same\n";
+    assert!(
+        folded_run_deeper_continuations(folded_ok).is_empty(),
+        "a folded scalar with equally-indented lines folds to a single command and must pass"
+    );
+
+    // A literal block with backslash continuations is the recommended form.
+    let literal_ok = "jobs:\n  a:\n    steps:\n      - run: |\n          cmd --flag \\\n            --deeper\n";
+    assert!(
+        folded_run_deeper_continuations(literal_ok).is_empty(),
+        "deeper indentation inside a `run: |` block is fine (the backslash joins the lines)"
+    );
+
+    // Real tree.
+    let dir = repo_root().join(".github/workflows");
+    let mut entries: Vec<PathBuf> = fs::read_dir(&dir)
+        .expect(".github/workflows must be readable")
+        .map(|entry| entry.expect("readable dir entry").path())
+        .filter(|path| matches!(path.extension().and_then(|ext| ext.to_str()), Some("yml" | "yaml")))
+        .collect();
+    entries.sort();
+    assert!(!entries.is_empty(), "no workflow files found to scan");
+
+    let mut real: Vec<String> = Vec::new();
+    for path in entries {
+        let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path:?} must be readable: {e}"));
+        for (line_no, content) in folded_run_deeper_continuations(&text) {
+            real.push(format!("{}:{line_no} — {content}", path.display()));
+        }
+    }
+    assert!(
+        real.is_empty(),
+        "these `run:` folded scalars have deeper-indented continuation lines, so YAML keeps a \
+         line break and the shell runs them as separate commands (a feature-less `cargo test` \
+         was how run 35494142003 failed with E0432):\n  {}",
+        real.join("\n  ")
+    );
+}
