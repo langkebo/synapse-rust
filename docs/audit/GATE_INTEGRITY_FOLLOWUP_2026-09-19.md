@@ -1813,3 +1813,80 @@ digest 在仓库中被引用 **3 处**，漏改任一都会让 `Digest Pin Integ
 - **`benchmark.yml` 的 `performance-comparison`**：`dawidd6` 仍用默认
   `workflow_conclusion: success` 且未指定 `branch`（仅记录，未获授权改动）。
 - **`docker build` 必须传 `-f` 的可红守卫**（仅记录，未获授权）。
+
+### 14.11 独立复核（并会话）：digest 升级的本地 Trivy 实测，闭合 §14.10 的三条边界 + 一处根因更正
+
+`dd61537a` 落地后，另一会话在同一工作树上做了独立复核：把 §14.10 ⑦ 里"本地无法
+pull/扫描（registry 被墙）"的三条边界逐条闭合，并更正一条根因判断。
+
+#### ① 边界 1 闭合：本地**能**扫，旧 pin 3 个 HIGH → 新 pin **0**
+
+本机 shell 到 `registry-1.docker.io` 确实不通，但 **docker daemon 的网络通**
+（`docker pull` 正常），而 `aquasecurity/trivy` 在 Docker Hub 已下线（`pull access
+denied`），正确镜像是 **`ghcr.io/aquasecurity/trivy:latest`**（ghcr.io 可达）。
+用与 CI 完全相同的判据（`--severity HIGH,CRITICAL --ignore-unfixed`）：
+
+| 扫描对象 | 结果 |
+|---|---|
+| 旧 pin `debian@sha256:7b140f37…` | **`Total: 3 (HIGH: 3, CRITICAL: 0)`** = `libpcre2-8-0` 的 CVE-2026-86145 / CVE-2026-89157 / CVE-2026-89161（`10.42-1` → fixed `10.42-1+deb12u1`），与 CI SARIF 的 3 条 **逐条一致** |
+| 新 pin `debian@sha256:3783cc01…` | **0 vulnerabilities**（`Report Summary` 直接给 `0`） |
+
+包版本对照（`dpkg -s`）：
+
+| 包 | 旧 pin | 新 pin | SARIF 的 Fixed Version |
+|---|---|---|---|
+| `libpcre2-8-0` | `10.42-1` | `10.42-1+deb12u1` | `10.42-1+deb12u1` |
+| `liblzma5` | `5.4.1-1+deb12u1` | `5.4.1-1+deb12u2` | `5.4.1-1+deb12u2` |
+
+⇒ §14.10 的"能否清干净只有真 CI 能证"**已由本地实测闭合**：同一 scanner、同一
+severity 过滤下 3 → 0。
+
+#### ② 边界 2 闭合：`3783cc01…` 确实在 Docker Hub，且是多架构 index
+
+- `docker pull debian:bookworm-slim` 打印的 `Digest:` = `sha256:3783cc01…`（= pin）。
+- 容器内直连 registry（`python:3.13-alpine` + `auth.docker.io` token）：
+  `Content-Type: application/vnd.oci.image.index.v1+json`，
+  `sha256(响应体) == 3783cc01…`，`architectures = [386, amd64, arm, arm64, ppc64le, unknown]`
+  ⇒ 是 index，不是单架构 manifest（与 §14.10 用 ECR Public 的结论一致，且这次是**直连 Docker Hub**）。
+- 旁证：`rust:1.93.0-slim-bookworm` 的 tag digest 与 pin **相同**（该 tag 未重建）；
+  distroless 的 tag digest 与 pin **不同**（见 ③）。
+
+#### ③ 边界 3 部分闭合：distroless 无 CVE、rust builder 有 475 条（构建期面）
+
+| pin | Trivy（HIGH,CRITICAL，ignore-unfixed） | 判定 |
+|---|---|---|
+| distroless 旧 pin `e8e7ee4b…` | **0** | 陈旧但**不是 CVE 问题** |
+| distroless 当前 tag `e5d81ddd…`（两种 `--platform` 的 tag pull 打印同一 digest ⇒ 是 index） | **0** | 本轮**不必**升；若为一致性要升，用它 |
+| `rust:1.93.0-slim-bookworm@776861…` | **475（HIGH: 467, CRITICAL: 8）**，OS 是 Debian **12.13**（比 `debian:bookworm-slim` 的 12.15 旧） | 该 tag 的 index digest 与 pin 相同 ⇒ **没有更新的镜像可换**，只能换 Rust 版本（未授权的大改） |
+
+⚠️ 关键限定：`rust` builder 的 475 条**不随产物发布** —— `tools`/`runtime-*` 只
+`COPY --from=builder /out/app`，系统库来自 `debian:bookworm-slim`/distroless。
+它属构建期供应链面，登记为残留而不是运行时风险。
+
+#### ④ 更正 §14.10 ⑦ 待办第 1 条：不是"缺 DB 环境"，是 PostgreSQL 锁表耗尽
+
+实测 panic 文本（CI run 35500545841，`--workspace --lib` 步骤）：
+
+```text
+failed to prepare media test pool: "clone of test_56870_1_… from
+test_isolation_template_7d0fa95f2729793e failed: error returned from database:
+out of shared memory"
+```
+
+同类还有 `synapse-storage/src/admin_federation.rs:302`、`synapse-storage/src/captcha.rs:536`。
+`out of shared memory` 是 PostgreSQL 锁表/共享内存耗尽的报错（典型于
+`max_locks_per_transaction` 偏小、对 230 表模板做 schema 克隆时）——**不是环境变量
+缺失**：该步骤 `DATABASE_URL` / `TEST_DATABASE_URL` / `TEST_DB_TEMPLATE_SCHEMA`
+都设了，且同一套 env 在 default-features 档通过。旁证（A/B）：
+
+| 环境 | `max_locks_per_transaction` | 结果 |
+|---|---|---|
+| 本机 PG（`bash scripts/run_ci_tests.sh` 等价命令，4 线程） | **256** | 6092/6092 passed |
+| CI `postgres:16` service（ci.yml 三处均无该参数覆盖） | **64**（镜像默认） | 1 failed（+11 flaky 被 `NEXTEST_RETRIES=2` 重试掩盖） |
+
+修复方向（**未擅自改**，需裁定）：给 ci.yml 三个 postgres service 加这个参数。
+注意 `options:` 是拼进 `docker create` 的，`-c max_locks_per_transaction=256`
+在镜像名**之前**会被 docker 当成 `--cpu-shares` 直接报 usage（本地 `docker create`
+实测），所以该写法能否生效取决于 runner 把 options 放在镜像前还是后 ——
+**不能靠"看起来像"就提交**；替代方案是结构性降低克隆的锁压力（分批克隆）或
+降低该步骤的 `--test-threads`。三条路线都需下一轮真 CI 验证。
