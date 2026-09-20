@@ -1,3 +1,8 @@
+//! CLI helper that signs a federation request with a local ed25519 key.
+//!
+//! Used when debugging federation `X-Matrix` authorization headers against a
+//! real or simulated remote server.
+
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use base64::Engine;
 use ed25519_dalek::Signer;

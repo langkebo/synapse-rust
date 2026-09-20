@@ -1,3 +1,9 @@
+//! Worker process entry point.
+//!
+//! Runs queue, replication, and metrics processing and serves the worker
+//! metrics endpoint (`/metrics`), alongside (or instead of) the main homeserver
+//! process.
+
 #![cfg_attr(test, allow(clippy::panic))]
 
 use axum::{extract::State, response::IntoResponse, routing::get, Router};

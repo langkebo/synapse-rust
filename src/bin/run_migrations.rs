@@ -1,3 +1,8 @@
+//! Wrapper that runs the project's single migration entry point.
+//!
+//! Delegates to `docker/db_migrate.sh` rather than applying SQL itself, so the
+//! migration ledger and apply order stay owned by exactly one implementation.
+
 use std::path::PathBuf;
 use tokio::process::Command;
 

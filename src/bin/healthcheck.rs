@@ -1,3 +1,9 @@
+//! Container health probe for the homeserver.
+//!
+//! Probes the HTTP health endpoint and, as a fallback, the TCP listener; it
+//! exits non-zero only when both fail, so the container runtime can restart the
+//! service.
+
 use reqwest::Client;
 use std::time::Duration;
 use tokio::net::TcpStream;

@@ -1,3 +1,8 @@
+//! Test helper that prints a fresh federation signing keypair.
+//!
+//! Requires the `test-utils` feature; without it the binary prints a usage
+//! error and exits non-zero instead of silently doing nothing.
+
 #[cfg(feature = "test-utils")]
 use synapse_rust::common::federation_test_keys::generate_federation_test_keypair;
 

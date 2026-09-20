@@ -2,12 +2,13 @@
 #
 # B2 棘轮：missing_docs 增量门禁。
 #
-# 仓库现状：7 个 crate 都开了 crate 级 `#![allow(missing_docs)]`，累积了
-# 几百个 warning。如果直接打开 `-W missing_docs`，CI 会立刻红一长串——
-# 长红 CI 等于无 CI，新引入的问题会淹没在既有噪声里。
+# 仓库现状（2026-09-20）：7 个 library crate 用 crate 级 `#![deny(missing_docs)]`
+# 自我把关，`synapse-web` / `synapse-test-utils` 的 lib 与根包的 6 个二进制入口
+# 没有 crate 级属性 —— 二进制入口曾贡献全部 6 条存量 debt，补齐 `//!` 后
+# workspace debt 已归零（baseline=0）。
 #
 # 棘轮策略：
-#   - 存量不动（保持 crate 级 `allow`）
+#   - 存量归零：任何一条新 debt 都会立刻让 CI 变红
 #   - 只卡**增量** pub 项：每个 PR 新增的 pub 必须有 `///` doc
 #   - workspace 整体 debt 用 baseline 文件记录，减少时 CI 失败，
 #     强制收紧 baseline（防止 ratchet 形同虚设）

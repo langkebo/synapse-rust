@@ -1,3 +1,8 @@
+//! Binary entry point for the Synapse homeserver daemon.
+//!
+//! Bootstraps configuration and telemetry, builds the server, and runs the
+//! client and federation listeners until shutdown.
+
 use synapse_rust::common::config::Config;
 
 // jemalloc 全局分配器（profiling feature）：配合 MALLOC_CONF 定位内存泄漏/OOM。

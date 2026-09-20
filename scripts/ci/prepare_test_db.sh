@@ -43,13 +43,37 @@
 # `synapse`, the guard fails fast instead of silently wiping it.
 set -euo pipefail
 
-cd "$(dirname "$0")/../.."   # repo root (scripts/ci -> repo root)
+cd "$(dirname "$0")/../.." # repo root (scripts/ci -> repo root)
 
 export TEST_DATABASE_URL="${TEST_DATABASE_URL:-postgresql://synapse:synapse@localhost:5432/synapse_test}"
 export DATABASE_URL="$TEST_DATABASE_URL"
 unset SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE
 
 TEMPLATE_SCHEMA="${TEST_DB_TEMPLATE_SCHEMA:-test_template_ci}"
+
+# Ensure the target database exists before touching any schema.
+#
+# This used to be a separate workflow step, `psql -c "CREATE DATABASE synapse_test;" || true`
+# with `DATABASE_URL` in the environment. libpq/psql do **not** read `DATABASE_URL`
+# (only `PG*`), so the command connected to the runner's implicit default, never
+# created anything, and `|| true` hid the failure. Measured in CI run 35489156849
+# (2026-09-20): the *next* step died with
+#   psql: error: connection to server at "localhost" (::1), port 5432 failed:
+#   FATAL:  database "synapse_test" does not exist
+# Bootstrapping here keeps one implementation for every caller (this script is the
+# only CI entry point for the test database) and stays loud: a missing/mistyped
+# database gets created, while a down server still fails instead of being masked.
+db_url_without_query="${TEST_DATABASE_URL%%\?*}"
+db_name="${db_url_without_query##*/}"
+if [ -z "$db_name" ]; then
+    echo "::error::cannot derive a database name from TEST_DATABASE_URL" >&2
+    exit 1
+fi
+if ! psql "$TEST_DATABASE_URL" -tAc "SELECT 1" >/dev/null 2>&1; then
+    admin_url="${db_url_without_query%/*}/postgres"
+    echo "==> [0/3] creating database '$db_name' (not present at $admin_url)"
+    psql "$admin_url" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$db_name\"" >/dev/null
+fi
 
 echo "==> [1/3] applying the migration baseline to public in $TEST_DATABASE_URL"
 RESET_PUBLIC=0 TARGET_SCHEMA=public bash scripts/init_test_public_schema.sh
@@ -93,8 +117,8 @@ PUBLIC_TABLES=$(psql "$TEST_DATABASE_URL" -tAc "SELECT count(*) FROM information
 TEMPLATE_TABLES=$(psql "$TEST_DATABASE_URL" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='${TEMPLATE_SCHEMA}' AND table_type='BASE TABLE'")
 echo "==> public: ${PUBLIC_TABLES} tables; ${TEMPLATE_SCHEMA}: ${TEMPLATE_TABLES} tables"
 if [ "$PUBLIC_TABLES" -lt 200 ] || [ "$TEMPLATE_TABLES" -lt 200 ]; then
-  echo "::error::Seed incomplete: expected >=200 tables in both public and ${TEMPLATE_SCHEMA} (got ${PUBLIC_TABLES} / ${TEMPLATE_TABLES})"
-  exit 1
+    echo "::error::Seed incomplete: expected >=200 tables in both public and ${TEMPLATE_SCHEMA} (got ${PUBLIC_TABLES} / ${TEMPLATE_TABLES})"
+    exit 1
 fi
 
 echo "==> synapse_test ready: public + ${TEMPLATE_SCHEMA} coexist."

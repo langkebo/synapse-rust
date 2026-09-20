@@ -2,14 +2,15 @@
 """
 B2 棘轮：missing_docs 增量门禁。
 
-仓库现状（2026-09-19 实测）：7 个 library target 的 crate 根带 crate 级
+仓库现状（2026-09-20 实测）：7 个 library target 的 crate 根带 crate 级
 `#![deny(missing_docs)]`（synapse-cache / synapse-common / synapse-storage /
 synapse-federation / synapse-e2ee / synapse-services / 根 crate 的
-`src/lib.rs`）；`synapse-web` 与 `synapse-test-utils` 的 lib 两者皆无；根包的
-二进制 target（`src/main.rs` 与 5 个 `src/bin/*.rs`）也没有任何 crate 级 lint
-属性。baseline 是 6，这 6 条全部来自那些没有 `//!` crate 文档的二进制入口
-（实测 `cargo clippy -p synapse-rust -- -D missing_docs` 报 6，其余 8 个
-`-p` 各报 0）。
+`src/lib.rs`）；`synapse-web` 与 `synapse-test-utils` 的 lib 两者皆无。根包的
+6 个二进制 target（`src/main.rs` 与 5 个 `src/bin/*.rs`）曾经是**唯一的存量
+debt**（各缺一条 crate 级 `//!` 文档，baseline 曾是 6）；2026-09-20 补齐后
+workspace 实测 debt = **0**，baseline 因此收紧到 0（CI 两个工具链实测分别为
+3/2 的旧计数差异随之消失：差异来自各二进制 target 是否被本轮 cargo 调用编译到，
+补齐 `//!` 之后不论编译到几个 target 都是 0）。
 
 lint 优先级（rustc 实测，最小复现见 `count_total_debt`）：源码里的 crate 级
 `#![deny]` / `#![allow]` **压过**命令行 `-A` / `-D`；只有完全没有 crate 级属性
@@ -18,9 +19,9 @@ allow"工作（仓库里根本没有 crate 用 `#![allow(missing_docs)]`），�
 "对所有 target 强制 `-D`，带属性的 target 由属性自己把关"。
 
 棘轮策略：
-  - 存量不动（baseline=6，即 6 个缺 crate 文档的二进制入口）
+  - 存量已归零（baseline=0）：任何一条新 debt 都会立刻把门禁变红
   - 只卡**新增** `pub` 项：增量代码必须配 doc
-  - 每修一点存量，必须收紧 baseline（防止 baseline 形同虚设）
+  - baseline 只许收紧不许放宽；debt 减少而 baseline 未收紧同样失败
 
 具体规则：
   1. 新增文件（git diff --diff-filter=A 出来的 .rs）: 任何 pub item
@@ -38,6 +39,7 @@ allow"工作（仓库里根本没有 crate 用 `#![allow(missing_docs)]`），�
   2: 测量失败或 diff base 不可解析（绝不与 baseline 比较，避免"编译坏了"被
      误读成"debt 下降"）
 """
+
 from __future__ import annotations
 
 import argparse
@@ -49,7 +51,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent  # scripts/check_missing_docs_ratchet.py -> synapse-rust/
+REPO_ROOT = (
+    Path(__file__).resolve().parent.parent
+)  # scripts/check_missing_docs_ratchet.py -> synapse-rust/
 BASELINE_FILE = REPO_ROOT / "scripts" / ".missing-docs-baseline"
 
 
@@ -75,6 +79,7 @@ class MeasurementFailed(RuntimeError):
     while a missing-docs diagnostic has none, so a coded error is treated as a
     measurement failure.
     """
+
 
 # pub item 正则：pub fn / pub async fn / pub struct / pub enum / pub trait /
 # pub const / pub static / pub type / pub mod。注意 pub(crate) / pub(super)
@@ -114,9 +119,14 @@ class Violation:
 
 
 def run(cmd: list[str], cwd: Path | None = None) -> str:
-    result = subprocess.run(cmd, cwd=cwd or REPO_ROOT, capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        cmd, cwd=cwd or REPO_ROOT, capture_output=True, text=True, check=False
+    )
     if result.returncode != 0:
-        print(f"::error::command failed: {' '.join(cmd)}\n{result.stderr}", file=sys.stderr)
+        print(
+            f"::error::command failed: {' '.join(cmd)}\n{result.stderr}",
+            file=sys.stderr,
+        )
         # A shallow clone cannot resolve `HEAD~1` (or `origin/main`), which is
         # exactly how this gate stopped running in CI: `actions/checkout@v4`
         # defaults to depth 1, the diff failed, and the step exited 2 — so the
@@ -136,9 +146,17 @@ def run(cmd: list[str], cwd: Path | None = None) -> str:
 def list_changed_rs_files(base_ref: str = "HEAD~1") -> tuple[list[Path], list[Path]]:
     """返回 (新增文件, 修改文件) 的 .rs 列表。"""
     out = run(["git", "diff", "--name-only", "--diff-filter=A", base_ref])
-    added = [REPO_ROOT / p for p in out.splitlines() if p.endswith(".rs") and (REPO_ROOT / p).exists()]
+    added = [
+        REPO_ROOT / p
+        for p in out.splitlines()
+        if p.endswith(".rs") and (REPO_ROOT / p).exists()
+    ]
     out2 = run(["git", "diff", "--name-only", "--diff-filter=M", base_ref])
-    modified = [REPO_ROOT / p for p in out2.splitlines() if p.endswith(".rs") and (REPO_ROOT / p).exists()]
+    modified = [
+        REPO_ROOT / p
+        for p in out2.splitlines()
+        if p.endswith(".rs") and (REPO_ROOT / p).exists()
+    ]
     return added, modified
 
 
@@ -182,7 +200,11 @@ def scan_file_for_pub(file: Path) -> list[Violation]:
         if PUB_ITEM_RE.match(line):
             reason = check_pub_has_doc(file, i, lines)
             if reason:
-                violations.append(Violation(str(file.relative_to(REPO_ROOT)), i + 1, line.strip(), reason))
+                violations.append(
+                    Violation(
+                        str(file.relative_to(REPO_ROOT)), i + 1, line.strip(), reason
+                    )
+                )
     return violations
 
 
@@ -317,14 +339,20 @@ def count_total_debt() -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--update", action="store_true", help="重算并写入 baseline")
-    parser.add_argument("--base", default="HEAD~1", help="对比的 base ref (默认 HEAD~1，方便本地测试)")
-    parser.add_argument("--no-clippy", action="store_true", help="跳过 clippy debt 计数（仅做新增检查）")
+    parser.add_argument(
+        "--base", default="HEAD~1", help="对比的 base ref (默认 HEAD~1，方便本地测试)"
+    )
+    parser.add_argument(
+        "--no-clippy", action="store_true", help="跳过 clippy debt 计数（仅做新增检查）"
+    )
     args = parser.parse_args()
 
     # 1. 增量文件扫描：新增文件（全量检查），修改文件（仅新增行中的 pub）
     added, modified = list_changed_rs_files(args.base)
     total = len(added) + len(modified)
-    print(f"[1/2] scanning {len(added)} new + {len(modified)} modified .rs files vs {args.base}")
+    print(
+        f"[1/2] scanning {len(added)} new + {len(modified)} modified .rs files vs {args.base}"
+    )
 
     violations: list[Violation] = []
     for f in added:
@@ -332,7 +360,10 @@ def main() -> int:
     for f in modified:
         violations.extend(scan_diff_for_new_pub(f, args.base))
     if violations:
-        print(f"\n::error::新增 pub 项缺少 doc 注释 ({len(violations)} 处):", file=sys.stderr)
+        print(
+            f"\n::error::新增 pub 项缺少 doc 注释 ({len(violations)} 处):",
+            file=sys.stderr,
+        )
         for v in violations:
             print(f"  - {v.file}:{v.line}  {v.pub_text[:80]}", file=sys.stderr)
             print(f"      reason: {v.reason}", file=sys.stderr)
@@ -351,7 +382,10 @@ def main() -> int:
         # ratchet violation, and NEVER fall through to the baseline comparison —
         # that is how "build is broken" became "debt decreased, tighten the
         # baseline".
-        print(f"\n::error::missing_docs debt could not be measured: {error}", file=sys.stderr)
+        print(
+            f"\n::error::missing_docs debt could not be measured: {error}",
+            file=sys.stderr,
+        )
         print(
             "  Refusing to compare (or update) the baseline against a failed measurement.",
             file=sys.stderr,
@@ -375,10 +409,16 @@ def main() -> int:
     print(f"  baseline: {baseline}")
 
     if current > baseline:
-        print(f"\n::error::missing_docs debt increased: {current} > {baseline}", file=sys.stderr)
+        print(
+            f"\n::error::missing_docs debt increased: {current} > {baseline}",
+            file=sys.stderr,
+        )
         return 1
     if current < baseline:
-        print(f"\n::error::missing_docs debt decreased: {current} < {baseline}", file=sys.stderr)
+        print(
+            f"\n::error::missing_docs debt decreased: {current} < {baseline}",
+            file=sys.stderr,
+        )
         print(f"  Good — tighten the baseline:", file=sys.stderr)
         print(f"    {sys.argv[0]} --update", file=sys.stderr)
         return 1
