@@ -65,6 +65,18 @@ jobs:
     needs: hadolint
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # `upload-sarif` needs `security-events: write` to publish into Code
+    # Scanning. This workflow had no `permissions:` block at all, so the upload
+    # failed with `Resource not accessible by integration` (measured: main run
+    # 35498321562) — the SARIF had already been produced and post-processed
+    # (`Post-processing sarif files: ["trivy-results.sarif"]`), so the scan
+    # result was simply discarded. Granted per-job instead of workflow-wide: the
+    # hadolint and digest-pin jobs need no write scope. `actions: read` is what
+    # codeql-action uses to correlate an upload with its workflow run.
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -115,6 +127,21 @@ jobs:
         with:
           sarif_file: 'trivy-results.sarif'
           category: 'docker-image-vulnerabilities'
+
+      # The SARIF upload above publishes to Code Scanning, which is the only
+      # place the findings were readable — and it silently discards everything
+      # when the token lacks `security-events: write`. Keeping the file as an
+      # artifact makes the CVE list readable from the run itself, which is what
+      # the gate's verdict has to be justified against. `if: always()` because
+      # the scan step exits 1 by design when fixable HIGH/CRITICAL are found —
+      # i.e. exactly in the case where the report is most needed.
+      - name: Upload Trivy SARIF report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-sarif
+          path: trivy-results.sarif
+          retention-days: 14
 
   # ── 3) 扫描基础镜像 digest pin 是否被篡改 ──────────────────────────
   digest-pin-check:

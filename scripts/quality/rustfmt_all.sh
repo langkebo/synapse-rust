@@ -52,12 +52,42 @@ is_stdin_format_candidate() {
     esac
 }
 
+# Format one file through stdin, keeping rustfmt's exit status separate from the
+# resulting text.
+#
+# The status matters because `rustfmt` is not the only thing that can fail here:
+# it is a rustup shim, so every invocation re-resolves the toolchain, and a
+# component install failure makes rustfmt never run at all. `rust-toolchain.toml`
+# declares `rust-src`, so on a runner whose cached 1.93.0 image has that
+# component stripped, the shim aborts with
+#   error: failed to install component: 'rust-src', detected conflict:
+#   'lib/rustlib/src/rust/library/Cargo.lock'
+# (measured on main run 35498321546). Discarding the status made that case
+# indistinguishable from a real diff: the redirect left an EMPTY temp file,
+# `cmp` then reported "different", and the gate printed a bogus
+# `@@ -1,65 +0,0 @@` "whole file deleted" diff for
+# `benches/performance_membership_benchmarks.rs` — a file with no real drift
+# (`cargo fmt --all -- --check` is clean). In write mode the same path would
+# `mv` the empty temp file over the source, i.e. truncate it.
+run_rustfmt_stdin() {
+    local file="$1" tmp="$2"
+    local status=0
+    rustfmt --edition 2021 <"$file" >"$tmp" || status=$?
+    if [ "$status" -ne 0 ]; then
+        echo "ERROR: rustfmt exited $status on $ROOT_DIR/$file — toolchain/tool failure, not a formatting diff" >&2
+        return 1
+    fi
+}
+
 check_file() {
     local file="$1"
     if is_stdin_format_candidate "$file"; then
         local tmp
         tmp="$(mktemp)"
-        rustfmt --edition 2021 <"$file" >"$tmp"
+        if ! run_rustfmt_stdin "$file" "$tmp"; then
+            rm -f "$tmp"
+            return 1
+        fi
         if ! cmp -s "$tmp" "$file"; then
             echo "Diff in $ROOT_DIR/$file:" >&2
             diff -u "$file" "$tmp" >&2 || true
@@ -75,7 +105,10 @@ write_file() {
     if is_stdin_format_candidate "$file"; then
         local tmp
         tmp="$(mktemp)"
-        rustfmt --edition 2021 <"$file" >"$tmp"
+        if ! run_rustfmt_stdin "$file" "$tmp"; then
+            rm -f "$tmp"
+            return 1
+        fi
         if ! cmp -s "$tmp" "$file"; then
             mv "$tmp" "$file"
         else
@@ -91,7 +124,7 @@ for file in "${rust_files[@]}"; do
     if [ "$MODE" = "--check" ]; then
         check_file "$file" || failed=1
     else
-        write_file "$file"
+        write_file "$file" || failed=1
     fi
 done
 

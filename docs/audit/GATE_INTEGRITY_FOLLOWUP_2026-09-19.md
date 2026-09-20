@@ -1518,10 +1518,148 @@ if !is_throwaway && !is_test_db {
 `Generate logical checksum report` 必须一起改：它同样指回了 `synapse`，而本 job
 已不再迁移那个库，指回它只会去校验一个空库。
 
+#### ⑥ 真 CI 回填（`f58cc519`，2026-09-20 07:59Z）
+
+原文写"仍未验证"的两项，已由 `f58cc519` 的 push 跑全部关闭：
+
+| 待验证项 | run id | 结论 |
+|---|---|---|
+| `App-shape migrate smoke` 的 `prepare_test_db.sh` 种子步骤 | 35498321554 | ✅ **DB Migration Gate 7/7 全绿（该门禁历史首次）**，`Seed the test database` 与 8 个 smoke 步骤全部 success |
+| `Trivy Image Scan` 能否在 `timeout-minutes: 45` 内构建完 `--target tools` | 35498321562 | ✅ 镜像真的构建成功（`Detected OS family="debian" version="12.15"`、`pkg_num=120`）并真的扫完 |
+
+即第 5、6 个缺陷的修复本身**已经过真 CI**。`93a652a0` 的 `Benchmark` / `CI`
+结论、以及 `f58cc519` 跑本身暴露的第 7–9 个缺陷，见 §14.9。
+
+### 14.9 第十轮：`f58cc519` 的真 CI 结论与第 7–9 个缺陷
+
+#### ① `f58cc519` 触发的 9 个 workflow 逐条结论
+
+| workflow | run id | 结论 |
+|---|---|---|
+| Docs Quality Gate | 35498321552 | ✅ |
+| Schema Health Check | 35498321578 | ✅ |
+| E2EE Interop (vodozemac) | 35498321544 | ✅ |
+| Ledger Export | 35498321549 | ✅ |
+| **DB Migration Gate** | 35498321554 | ✅ **7/7 全绿** |
+| **Docker Security Scan** | 35498321562 | ❌ 但大幅推进：`Dockerfile Lint` ✅、`Digest Pin Integrity` ✅、`Trivy Image Scan` **首次真跑**；失败原因见 ② |
+| **Format Governance** | 35498321546 | ❌ **回归**（前两轮均 ✅）；根因见 ③，**不是真实格式漂移** |
+| **CI** | 35498321548 | ❌ `Run library unit tests (--workspace --lib)`；根因见 ④ |
+| Benchmark | 35498321534 | 🔄 写作时仍在进行中 |
+
+#### ② 第 7 个缺陷：`docker-security-scan.yml` 完全没有 `permissions:` 块
+
+`Trivy Image Scan` 这次真的跑起来了：镜像构建成功、Trivy 扫完、SARIF 已产出并
+后处理（`Post-processing sarif files: ["trivy-results.sarif"]` / `Validating
+trivy-results.sarif`）。但上传步骤失败：
+
+```text
+##[error]Resource not accessible by integration - https://docs.github.com/rest
+```
+
+根因：该 workflow 全文没有 `permissions:` 块，`github/codeql-action/upload-sarif`
+需要 `security-events: write` 才能写入 Code Scanning。**扫描结果被整个丢弃** ——
+这也是 §② 里"看不到 CVE 清单"的原因。
+
+同时 `Run Trivy vulnerability scanner` 本身以 `exit-code: '1'` 退出：`severity:
+HIGH,CRITICAL` + `ignore-unfixed: true` 扫出了**可修复**的 HIGH/CRITICAL。这是
+门禁在正常工作，**不是配置缺陷**，需独立决策（升基础镜像 digest 或评估豁免），
+不靠调门禁掩盖。
+
+#### ③ 第 8 个缺陷：`rustfmt_all.sh` 把"工具失败"伪装成"整文件格式漂移"
+
+Format Governance 的 `Run format compliance` 报：
+
+```text
+error: failed to install component: 'rust-src', detected conflict:
+  'lib/rustlib/src/rust/library/Cargo.lock'      # 重试 3 次后放弃
+Diff in /home/runner/work/synapse-rust/synapse-rust/benches/performance_membership_benchmarks.rs:
+@@ -1,65 +0,0 @@
+-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+```
+
+`@@ -1,65 +0,0 @@` 是**整文件被删空**，而该文件本轮从未被改动，本地
+`cargo fmt --all -- --check` 也是 exit 0 —— 真实格式漂移不存在。
+
+根因在 `scripts/quality/rustfmt_all.sh` 的 stdin 分支（首行是 `use` / `#!` /
+`extern crate` 开头的文件走这条路径）：
+
+```bash
+tmp="$(mktemp)"
+rustfmt --edition 2021 <"$file" >"$tmp"     # ← 退出码被丢弃
+if ! cmp -s "$tmp" "$file"; then            # ← tmp 为空 ⇒ 必然"不同"
+```
+
+`check_file` 是以 `check_file "$file" || failed=1` 调用的，而 bash 在 `||` 列表里
+**关闭 errexit**，所以 `rustfmt` 非零退出不会中断脚本，只是留下一个**空的临时文件**。
+`rustfmt` 是 rustup shim，每次调用都会重新解析 `rust-toolchain.toml`（其中声明了
+`rust-src`），组件安装冲突时 rustfmt **根本没运行** ⇒ 空 tmp ⇒ 伪造的"删空"diff。
+写模式下同一条路径会把空文件 `mv` 覆盖源文件，即**截断源文件**。
+
+铁律 8 自证（本地实测，探针为语法不完整的 `use` 开头文件）：
+
+| 脚本版本 | 探针输出 |
+|---|---|
+| `HEAD`（旧） | `Diff in …/.rustfmt_tool_failure_probe.rs:` + `@@ -1,3 +0,0 @@` —— 伪造 diff |
+| 本轮（新） | `ERROR: rustfmt exited 1 on …/.rustfmt_tool_failure_probe.rs — toolchain/tool failure, not a formatting diff` |
+
+修复：`run_rustfmt_stdin()` 显式保留并校验 rustfmt 退出码，`check_file` /
+`write_file` 两条路径都先判工具失败；写模式循环也改为 `|| failed=1`（原来非零退出
+会因 errexit 直接中断循环，丢失原因）。
+
+#### ④ 第 9 个缺陷：`content_scanner` 的 fail-open 只覆盖"响应非 2xx"一条路径
+
+`CI` 的 `--workspace --lib` 稳定失败（两个 matrix 条目 × 3 次重试）：
+
+```text
+test content_scanner::service::tests::scan_webhook_fail_open_passes_through ... FAILED
+fail-open path should not return error: ApiError { kind: Internal,
+  message: "Internal error: Webhook request failed",
+  source: … ConnectError("tcp connect error", 127.0.0.1:9999, ConnectionRefused) }
+```
+
+`synapse-services/src/content_scanner/service.rs` 的 `scan_with_webhook` 只在
+**响应非 2xx** 分支里查了 `block_on_scan_failure`；**传输失败 / 超时 / JSON 解析
+失败**一律无条件 `Err`。而模块文档写明的是：
+
+> With `block_on_failure=false`, the error is swallowed and a safe pass-through is
+> returned (the fail-open policy).
+
+即运维显式选定的 fail-open 策略在"扫描服务不可达"这一**最典型的故障场景**下失效：
+配置承诺放行，实际返回硬错误，扫描服务一挂就阻断消息流。默认值仍是
+`block_on_scan_failure: true`（`models.rs`），fail-closed 未被放松。
+
+复现要点（**本地默认会假绿**）：本机 `localhost:9999` 无监听，但 reqwest 会读
+macOS 系统代理，请求被代理拦成非 2xx ⇒ 走 fail-open 分支 ⇒ 测试通过。加
+`NO_PROXY='*' no_proxy='*'` 强制走连接拒绝路径后，本地报出与 CI **逐字相同**的错误：
+
+```bash
+NO_PROXY='*' no_proxy='*' cargo test -p synapse-services --lib --all-features \
+  scan_webhook_fail_open -- --nocapture
+```
+
+修复：新增 `on_webhook_failure(&self, error: ApiError)`，**四条失败路径共用同一实现**
+（铁律 2）——`block_on_scan_failure=true` 时传播原错误，否则返回
+`safe=true` + `"Scan service unavailable"` 的 fail-open 结果。修后该模块 33 个测试
+在 `NO_PROXY='*'` 下全绿（1986 filtered out）。
+
+#### ⑤ 本轮本地门禁
+
+| 检查 | 结果 |
+|---|---|
+| `cargo fmt --all -- --check` | exit 0 |
+| `shfmt -d -i 4 -ci scripts/quality/rustfmt_all.sh` | 无差异 |
+| 两个 workflow `yaml.safe_load` | 通过；`trivy-scan.permissions` = `{actions: read, contents: read, security-events: write}` |
+| `content_scanner` 33 测试（`NO_PROXY='*'`） | 33 passed |
+| 铁律 8 自证（`rustfmt_all.sh` 探针） | 旧版伪造 diff / 新版报工具失败（见 ③） |
+
 #### ⑥ 仍未验证
 
-- `93a652a0` 的 `Benchmark` / `CI` 在写作时仍在进行中，其结论未回填。
-- 第 5、6 个缺陷的修复本身**尚未经过真 CI**：`Trivy Image Scan` 会开始真正构建
-  `--target tools` 的完整 release 镜像（`timeout-minutes: 45`），能否在时限内完成
-  只有真跑能回答；`App-shape migrate smoke` 的 `prepare_test_db.sh` 种子步骤同理。
-  按"必须先见真 CI 结论"处理，不在本地提前宣称通过。
+- 第 7–9 个缺陷的修复**尚未经过真 CI**：`Trivy Image Scan` 仍会因真实的
+  HIGH/CRITICAL 以 `exit-code 1` 失败（门禁刻意不放松），因此该 job 在 CVE 被
+  处置前**会继续是红的**；本轮改动只保证 SARIF 能上传、CVE 清单可见、失败原因
+  可归因。
+- `f58cc519` 的 `Benchmark`（run 35498321534）在写作时仍在进行中。
+- `benches/performance_membership_benchmarks.rs` 的"整文件删空"已在本地证伪（③），
+  但**下一轮 Format Governance 的绿**只有真跑能确认 —— 若 rustup 的 `rust-src`
+  冲突在 runner 镜像侧复现，该 job 现在会在 `Install Rust toolchain` 步骤**明确**
+  失败，而不是伪造一个格式 diff。

@@ -16,11 +16,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # `rust-src` must be listed here even though this job only runs `rustfmt`,
+      # `ruff` and `shfmt`: `rust-toolchain.toml` declares it, so every rustup
+      # shim invocation re-resolves the toolchain and tries to install it. Left
+      # implicit, that install happened lazily inside the *first* `rustfmt` call,
+      # and when it failed (main run 35498321546: `detected conflict:
+      # 'lib/rustlib/src/rust/library/Cargo.lock'` against the runner's cached
+      # 1.93.0) rustfmt never ran — the gate then reported a phantom
+      # "whole file deleted" diff instead of a toolchain error. Declaring it here
+      # moves the failure into the step that owns toolchain installation, where
+      # rustup's own message is visible and attributable.
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.93.0
-          components: rustfmt, clippy
+          components: rustfmt, clippy, rust-src
 
       - name: Set up Python
         uses: actions/setup-python@v5

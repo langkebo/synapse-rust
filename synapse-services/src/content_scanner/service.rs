@@ -124,30 +124,57 @@ impl ContentScanner {
             req_builder = req_builder.header("X-Webhook-Secret", secret);
         }
 
-        let response = timeout(Duration::from_millis(self.config.scan_timeout_ms), req_builder.send())
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Webhook request timeout", e))?
-            .map_err(|e| ApiError::internal_with_cause("Webhook request failed", e))?;
+        let response = match timeout(Duration::from_millis(self.config.scan_timeout_ms), req_builder.send()).await {
+            Ok(Ok(response)) => response,
+            Ok(Err(e)) => {
+                return self.on_webhook_failure(ApiError::internal_with_cause("Webhook request failed", e));
+            }
+            Err(e) => {
+                return self.on_webhook_failure(ApiError::internal_with_cause("Webhook request timeout", e));
+            }
+        };
 
         if !response.status().is_success() {
-            if self.config.block_on_scan_failure {
-                return Err(ApiError::internal_with_context("Webhook scan failed", &response.status()));
-            }
-            return Ok(ContentScanResult {
-                safe: true,
-                threat_type: None,
-                threat_message: Some("Scan service unavailable".to_string()),
-                scan_timestamp: current_timestamp_millis(),
-            });
+            return self.on_webhook_failure(ApiError::internal_with_context("Webhook scan failed", &response.status()));
         }
 
-        let scan_response: WebhookScanResponse =
-            response.json().await.map_err(|e| ApiError::internal_with_cause("Failed to parse webhook response", e))?;
+        let scan_response: WebhookScanResponse = match response.json().await {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                return self.on_webhook_failure(ApiError::internal_with_cause("Failed to parse webhook response", e));
+            }
+        };
 
         Ok(ContentScanResult {
             safe: scan_response.safe,
             threat_type: scan_response.threat_type,
             threat_message: scan_response.threat_message,
+            scan_timestamp: current_timestamp_millis(),
+        })
+    }
+
+    /// Apply the configured failure policy to a webhook scan failure.
+    ///
+    /// `block_on_scan_failure = true` is the default and propagates `error`, so
+    /// a broken scanner blocks the content. With `false` the operator has opted
+    /// into the **fail-open** policy described in the `tests` module docs: the
+    /// error is swallowed and a safe pass-through is returned.
+    ///
+    /// All four webhook failure paths (transport error, timeout, non-2xx
+    /// status, unparsable body) must route through here. Only the non-2xx path
+    /// used to consult the flag, so under the fail-open policy an unreachable
+    /// scanner still returned `Err` — the caller got a hard failure exactly
+    /// where the policy promised a pass-through, and a scanner outage took down
+    /// message flow. Reproduced in CI run 35498321548 (both matrix entries,
+    /// 3/3 retries) and locally with `NO_PROXY='*'`.
+    fn on_webhook_failure(&self, error: ApiError) -> Result<ContentScanResult, ApiError> {
+        if self.config.block_on_scan_failure {
+            return Err(error);
+        }
+        Ok(ContentScanResult {
+            safe: true,
+            threat_type: None,
+            threat_message: Some("Scan service unavailable".to_string()),
             scan_timestamp: current_timestamp_millis(),
         })
     }
