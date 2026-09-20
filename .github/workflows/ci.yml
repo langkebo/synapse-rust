@@ -197,15 +197,18 @@ jobs:
       # route-table.json's source is a fresh DEFAULT-FEATURE export, not the
       # committed scripts/api_test/ledger.json (a stale 2026-08-12 input that
       # yields a different route set). The timestamp is pinned so the export is
-      # reproducible; it must equal the committed artifact's `generated_at` and
-      # gen_client_yaml.py's FIXED_TIMESTAMP. If it drifts, the route-table
+      # reproducible, and it is READ from scripts/api_test/artifact_common.py
+      # (`FIXED_TIMESTAMP`, the single literal — gen_client_yaml.py imports the
+      # same constant) rather than hard-coded here. The committed
+      # route-table.json carries that value; if it drifts, the route-table
       # --check below goes red, so the pin is self-guarding.
       - name: Export default-feature ledger (fixed timestamp)
         run: |
+          TIMESTAMP="$(python3 -c 'import sys; sys.path.insert(0, "scripts/api_test"); import artifact_common; print(artifact_common.FIXED_TIMESTAMP)')"
           ./target/debug/synapse_ledger_export \
             --profile=default \
             --output="$RUNNER_TEMP/ledger_default_ci.json" \
-            --timestamp=2026-09-16T00:00:00Z
+            --timestamp="$TIMESTAMP"
 
       # Both checks MUST run BEFORE the generation steps below, which overwrite
       # the committed artifacts in the workspace; --check itself only ever writes

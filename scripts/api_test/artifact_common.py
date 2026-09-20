@@ -10,6 +10,22 @@ from __future__ import annotations
 
 import difflib
 
+#: The fixed `generated_at` timestamp shared by every reproducer of the OpenAPI
+#: artifacts. Three things must agree on this exact instant, and they used to
+#: each carry their own literal (AGENTS.md iron law 2: one implementation per
+#: responsibility):
+#:
+#:   * this constant (the only literal left),
+#:   * `.github/workflows/ci.yml`'s `synapse_ledger_export --timestamp=…` export,
+#:     which now reads it back with `python3 -c` instead of hard-coding a copy,
+#:   * the committed artifacts it feeds — `docs/openapi/route-table.json`
+#:     (`generated_at`) and the exported ledger.
+#:
+#: Drift is still caught by the wired `--check` steps (`gen_client_yaml.py
+#: --check`, `gen_route_table.py --check`): change this value without
+#: regenerating the committed artifact and CI goes red.
+FIXED_TIMESTAMP = "2026-09-16T00:00:00Z"
+
 
 def describe_drift(expected: str, actual: str, *, limit: int = 40) -> str:
     """A bounded unified diff of the committed vs regenerated artifact.

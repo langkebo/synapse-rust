@@ -22,7 +22,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from artifact_common import describe_drift
+from artifact_common import FIXED_TIMESTAMP, describe_drift
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
@@ -33,7 +33,10 @@ OUTPUT_DIR = PROJECT_ROOT / "docs" / "openapi"
 OUTPUT_FILE = OUTPUT_DIR / "client.yaml"
 LEDGER_DEFAULT = SCRIPT_DIR / "ledger.json"
 
-FIXED_TIMESTAMP = "2026-09-16T00:00:00Z"
+# `FIXED_TIMESTAMP` lives in artifact_common.py (the single literal, also read by
+# `.github/workflows/ci.yml`'s export step and carried by
+# `docs/openapi/route-table.json`); it is imported above so this file cannot
+# drift from the committed artifact.
 
 FORBIDDEN_HEADER = """# ============================================================================
 # 本文件由 CI gen_client_yaml.py 自动生成，禁止手改。
