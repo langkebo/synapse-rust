@@ -397,15 +397,43 @@ jobs:
           name: benchmark-results
           path: current
 
+      # Fail-closed. This step used to be
+      #   if [ -f baseline/… ] && [ -f current/… ]; then diff … || true
+      #   else echo "No baseline found for comparison"; fi
+      # — i.e. a missing file took the `else` branch and exited 0, so the job
+      # stayed green and "the baseline never arrived" was indistinguishable from
+      # "no difference". That is the same false-green pattern as §14.8 ① (the
+      # `pr-benchmark-gate` job once used `continue-on-error: true` and reported
+      # "PASSED (baseline comparison skipped)" whenever the download failed).
+      # The window is narrow — `check_artifacts` guarantees the artifact exists —
+      # but the whole point of that check is that the baseline is *required*.
       - name: Compare results
         run: |
-          if [ -f baseline/benchmark.txt ] && [ -f current/benchmark.txt ]; then
-            echo "## Performance Comparison" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "Comparing with baseline..." >> $GITHUB_STEP_SUMMARY
-            diff baseline/benchmark.txt current/benchmark.txt || true
-          else
-            echo "No baseline found for comparison"
+          set -euo pipefail
+          for f in baseline/benchmark.txt current/benchmark.txt; do
+            if [ ! -f "$f" ]; then
+              echo "::error::$f 不存在，无法对比。"
+              echo "::error::baseline/ 来自 main 上成功运行的 benchmark-results 产物，"
+              echo "::error::current/ 来自本次运行的同名产物；缺任一个都说明链路断了，"
+              echo "::error::而不是「没有差异」。"
+              exit 1
+            fi
+          done
+
+          echo "## Performance Comparison" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Comparing with baseline..." >> "$GITHUB_STEP_SUMMARY"
+
+          # diff 的退出码：0 = 无差异，1 = 有差异（本步骤的正常情形 —— 阈值判定在
+          # `pr-benchmark-gate`，这里只做信息性对比），2+ = 无法比较（真实故障）。
+          # 所以只把 >1 当失败，而不是 `|| true` 把真实故障一并吞掉。
+          set +e
+          diff baseline/benchmark.txt current/benchmark.txt >> "$GITHUB_STEP_SUMMARY"
+          diff_rc=$?
+          set -e
+          if [ "$diff_rc" -gt 1 ]; then
+            echo "::error::diff 退出码 $diff_rc：这两个文件无法比较"
+            exit 1
           fi
 
       # Same dead `if:` as above — the job-level condition already gates this.
