@@ -990,3 +990,39 @@ dynamic 从 1484 升到 **1499**（15 处**全部**来自 §12.1 的租约：`af
 `pg_advisory_lock_shared`、janitor 的 `pg_try_advisory_lock`/`pg_advisory_unlock`、以及 reuse 路径的租约检查；
 生产路径未新增动态 SQL，static 仍为 61）。按门禁自身允许的方式把基线更新为 1499 并在基线文件里写明来源，
 随后 `check_sqlx_dynamic_ratio.sh` → OK，聚焦复跑 10 passed，**整跑 unit 目标 1710 passed / 0 failed**。
+
+---
+
+## 13. 第八轮：sweep 尚未复核编号的逐项结论（B1–B6 / B10 / B17 / B18 / C1·C2·C4–C7·C9·C11·C12 / D1·D3 / A13）
+
+> 真实 CI 仍无法触发（`gh` 未登录），以下均为**本地等效**的核实与实测；每项都先取"当前状态"证据再判定。
+> 本轮提交：`ad197dc4`（trait 计数历史快照加现状提示）、`f6fd05ef`（B2/B3）、`4dec3be1`（B17/B18）。
+
+### 13.1 C 组 + A13：十项全部**已解决**（复核者未改任何文件，独立复现为证）
+| 项 | 结论 | 关键证据 / 红证明 |
+|---|---|---|
+| C1 | ✅ 已修 | `check_file_coverage.py:580-595` bootstrapping 豁免；`scripts/ci/coverage_baseline.json` 已入库（623 条）。新鲜红/绿：缺基线不 `--save` → EXIT 2 且不建文件；同路径 `--save` → EXIT 0 并建文件；异构 `--save` → EXIT 2 |
+| C2 | ✅ 已修 | `db-migration-gate.yml:31` pipefail 在 `:33` 的 `\| tee` 之前；常驻扫描器 `tests/unit/workflow_pipefail_tests.rs`（扫描面 ≥6 + 机制自证）；全仓 10 处 tee 均有 pipefail |
+| C4 | ✅ 已修（已接线） | `ci.yml:161-162` 在 `repo-sanity` 内实跑；`TOTAL=65 (baseline 65) STORE_API=33 (baseline 33) OK`；沙箱注入一个 `pub trait` → EXIT 1。文档漂移已由 `ad197dc4` 加"现状提示"处理 |
+| C5 | ✅ 已删（正确） | 脚本不存在（`003a54f2` 删）；守卫由 `.cargo/config.toml` 的 `SQLX_OFFLINE=true` + clippy `--all-features` 承担（原脚本等价于该步），`.sqlx/` 仍 60 文件 |
+| C6 | ✅ 已修 | `MIN_SCANNED_FILES=20` 守卫先于 `--update`；allowlist 文件已入库。沙箱：新违规→1、**陈旧条目→1（此前不可达）**、正确→0、目录改名→1 |
+| C7 | ✅ 已修 | `test` job checkout 已是 `fetch-depth: 0`（唯一调用点同 job）；脚本在 base 不可解析时显式报错。本地无浅 clone 可复现（静态 + 记录证据） |
+| C9 | ✅ 已修 | `grep -rin tdd` 在脚本与全部 workflow **0 命中** |
+| C11 | ✅ 已修 | 默认阈值 100.0；沙箱注入一张"期望存在但缺失"的表 → 99.5% 打印 `missing table definition`，默认 EXIT 1，`--threshold 90` EXIT 0（复现旧宽松行为） |
+| C12 | ✅ 已修 | `ci-summary.needs` 已含 `repo-sanity`。（越界观察：`coverage`/`k6-smoke-test`/`openapi-artifact` 仍不在 `needs`，digest 用 API 取全量，影响有限） |
+| A13 | ✅ 已裁定 | trait 棘轮已接线；`run_cargo_audit.sh`/`check_sqlx_offline_cache.sh` 的删除**正确**（分别与 `supply_chain_gate.sh:93`、clippy 离线编译重复）；`run_ci_tests.sh`（← `ci_backend_validation.sh:193`）、`run_complement_tests.sh`（← TESTING.md 手动）、`ci_schema_health_check.sh`（← `Makefile:216`）、`validate_config.sh`（← `dev_start.sh:29`）、`generate_sdk_ledger_fixtures.sh`（← `ledger_export_tests.rs:26`）**保留且各有真实调用方**；`check_feature_matrix.py` **保留为手动工具**（按既定人类裁定 §3.1；它确实能抓"默认/全 feature 矩阵都看不见的 feature 交叉依赖"，但需 ~15 次 `cargo check`，建议将来在 schedule 车道验证为绿后再接线） |
+
+### 13.2 B 组：五项已修/已删，一项需设计决策
+| 项 | 结论 | 证据 / 红证明 |
+|---|---|---|
+| B1 | ✅ 已修（前序） | 6 处比较现在都是"legacy 平铺路径 vs 分组路径"（如 `push_notification_service::PushNotificationService` vs `push::…`）；两侧任删其一即编译失败（编译期守卫） |
+| B2 | ✅ **本轮补修**（含自我更正） | `coverage_tests.rs`/`boundary_tests.rs`/`api_optimization_verification_tests.rs` 前序已删；本轮复核发现 `worker_coverage_tests.rs` 里**确仍有 17 条字面重言式**（followup §1.7 当初"该文件有生产耦合、保留"的判断对这部分不成立）→ 已删除 17 条 + 26 处孤立分节注释 + 不再使用的 `HashMap` import（否则 clippy `-D warnings` 会红）：**0 插入 / 332 删除，56→39 条**；全量 unit 计数 1794→1777，1775 passed / 2 ignored |
+| B3 | ✅ 已修 | `test_worker_capabilities_all_types` 改为可证伪断言（`can_handle_http == supported_protocols.contains("matrix")` 等）；探针（`can_handle_http=true` 且 `supported_protocols=[]`）使同一断言 FAILED |
+| B4 | ✅ 已修 | `test_connection_budget_tests.rs:122-129` 现在是真断言 `worst_case_demand <= 100`（12×1+20=32）；探针把常数 1→8 → `116 > 100` FAILED，撤销 → PASS |
+| B5 | ✅ 已删（僵尸文件） | `sliding_sync_perf_gate_tests.rs` 已删（0 处 `Command::new`，是在 Rust 里重刻脚本 sed/awk）；真门禁 `benchmark.yml:244` 跑脚本 + `STRICT=1`，实测不可达库 EXIT=1 / `STRICT=0` EXIT=0 |
+| B6 | ✅ 已删（僵尸文件） | `benchmark_pr_gate_tests.rs` 已删；真版本 `pr_benchmark_gate_tests.rs` 用 `std::process::Command` 且带正/负控制（7/7 passed） |
+| B10 | 🟡 **测试侧已修；生产侧仍需决策** | 测试侧：`workspace_scan()` 非空性断言（使 `scan_migration_files_in` 返回空会 FAILED 2 条）。生产侧 `discover_migration_files()` 在目录缺失/`CARGO_MANIFEST_DIR` 未设时仍只 `warn!` + `Vec::new()` ⇒ `check_migration_completeness` 的 `missing` 恒空（**不 fail closed**）。修它要动 `schema_health_check.rs`/部署接线（本轮允许集之外），且当前只有一个 baseline，`missing` 本就为空；**方案**：要么在生产路径上 fail-closed（目录缺失即报错），要么在文档里明确"完整性检查仅在增量迁移存在时有意义" |
+| B17 | ✅ **本轮修** | 主 unit 步骤只带 `--features test-utils`，原 voice 步骤只加 `voice-extended` ⇒ `storage_remaining_domains_refactor_tests`、`beacon_info_parse_tests`、`server_notification_service_tests`、`context_route_tests`、`burn_after_read_route_tests`、`api_optimized_features_tests` 等 9+ 门控测试从未编译。改为一条步骤：`--all-features` + 明确 `-E` 过滤 → 实测 **183/183 passed**。残留：将来新增门控模块必须加入 `-E`（编译由 `--all-features` 保证） |
+| B18 | ✅ **本轮修** | `production_half` 原在首个 `#[cfg(test)]` 截断（文件前部插一个小 cfg(test) 项即可整段关掉负向守卫）→ 新增 `production_anchor`/`production_half_checked` 断言窗口必须覆盖已知生产符号；导出守卫改为 `strip_rust_comments` 后再判定。三条红证明：① 顶部插 `#[cfg(test)]` 探针 → Guard1/1b FAILED；② 注释掉导出 → 修复后 FAILED 而旧写法 PASSED；③ 生产半区加 `for stmt in …` → Guard1 FAILED。`"for stmt in"` 字面量守卫判定 **NOT A DEFECT**（有效绊线；承重且可红的是 `!contains("split_sql_statements")`，放宽会引入误报） |
+| D1 | ✅ 已修（前序 `2112f43f`） | `template_schema_manifest` 对目录项/类型/UTF-8/读取失败全部 panic；chmod-000 测试通过并打印 `Permission denied (os error 13)` |
+| D3 | ✅ 已修（前序） | `classify_ignores_…` 钉住 `.undo.sql`；删掉 `.undo.sql` 守卫 → `left: Some(20260101000000) right: None` |
