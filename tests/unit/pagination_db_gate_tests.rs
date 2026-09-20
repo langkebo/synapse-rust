@@ -18,8 +18,9 @@
 //! to be a deliberate edit of this file too.
 //!
 //! Red proof: rename the workflow job, drop `BENCHMARK_DATABASE_URL` from it,
-//! change the bench back to the OR-form predicate, or revert either predicate in
-//! `synapse-storage/src/event/pagination.rs` — each makes this test fail.
+//! change the bench back to the OR-form predicate, revert the qualified
+//! `ORDER BY` in `synapse-storage/src/event/pagination.rs`, or drop the
+//! shallow/deep ratio check — each makes this test fail.
 
 use std::fs;
 use std::path::PathBuf;
@@ -57,7 +58,15 @@ fn db_pagination_gate_is_wired_to_a_migrated_database() {
 #[test]
 fn db_pagination_gate_can_actually_fail() {
     let gate = read("scripts/ci/pagination_perf_gate.sh");
-    for needle in ["PAGINATION_MIN_GAIN", "index_scan", "correct", "BENCH_REQUIRE"] {
+    for needle in [
+        "PAGINATION_MIN_GAIN",
+        "PAGINATION_MAX_SHALLOW_RATIO",
+        "PAGINATION_SHALLOW_BREACH_FLOOR_US",
+        "index_scan",
+        "keyset_shallow_us",
+        "correct",
+        "BENCH_REQUIRE",
+    ] {
         assert!(
             gate.contains(needle),
             "the gate must keep checking `{needle}`; dropping it is how a gate stops being one"
@@ -82,6 +91,16 @@ fn gate_measures_the_production_keyset_query_and_its_index_plan() {
         "the index-plan probe must EXPLAIN the row-value predicate production uses; the old OR form planned as \
          Bitmap+Sort, so an OR-form probe reports `index_scan=0` for a shape nobody runs"
     );
+    assert!(
+        bench.contains("EXPLAIN (FORMAT TEXT) SELECT {ROOM_EVENT_COLS}"),
+        "the index-plan probe must EXPLAIN the wide production select list (`ROOM_EVENT_COLS`), not a narrow \
+         `SELECT event_id` proxy: with no COALESCE output column the bare ORDER BY binds to the input column and \
+         the proxy stays green while the real query sorts every row above the cursor"
+    );
+    assert!(
+        bench.contains("ORDER BY events.origin_server_ts DESC, events.stream_ordering DESC"),
+        "the index-plan probe must EXPLAIN the same qualified ORDER BY production uses"
+    );
 
     let production = read("synapse-storage/src/event/pagination.rs");
     assert!(
@@ -89,6 +108,18 @@ fn gate_measures_the_production_keyset_query_and_its_index_plan() {
             && production.contains("(origin_server_ts, stream_ordering) < ($2, $3)"),
         "both keyset directions must keep the row-value predicate; reverting either to the OR form restores the \
          Bitmap+Sort plan this change removed"
+    );
+    assert!(
+        production.contains("ORDER BY events.origin_server_ts ASC, events.stream_ordering ASC")
+            && production.contains("ORDER BY events.origin_server_ts DESC, events.stream_ordering DESC"),
+        "both keyset directions must qualify their sort keys with the table name; a bare `ORDER BY \
+         origin_server_ts` binds to the `COALESCE(origin_server_ts, 0) AS origin_server_ts` output column and \
+         loses `idx_events_room_ts_stream`"
+    );
+    assert!(
+        !production.contains("ORDER BY origin_server_ts"),
+        "no ORDER BY may resolve `origin_server_ts` against the ROOM_EVENT_COLS output alias; every keyset sort \
+         key must be `events.origin_server_ts`"
     );
 }
 

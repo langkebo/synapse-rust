@@ -19,7 +19,7 @@ impl EventStorage {
                     "SELECT {ROOM_EVENT_COLS}
                     FROM events
                     WHERE room_id = $1 AND origin_server_ts > $2
-                    ORDER BY origin_server_ts ASC
+                    ORDER BY events.origin_server_ts ASC
                     LIMIT $3
                     "
                 ))
@@ -34,7 +34,7 @@ impl EventStorage {
                     "SELECT {ROOM_EVENT_COLS}
                     FROM events
                     WHERE room_id = $1
-                    ORDER BY origin_server_ts ASC
+                    ORDER BY events.origin_server_ts ASC
                     LIMIT $2
                     "
                 ))
@@ -48,7 +48,7 @@ impl EventStorage {
                     "SELECT {ROOM_EVENT_COLS}
                     FROM events
                     WHERE room_id = $1 AND origin_server_ts < $2
-                    ORDER BY origin_server_ts DESC
+                    ORDER BY events.origin_server_ts DESC
                     LIMIT $3
                     "
                 ))
@@ -63,7 +63,7 @@ impl EventStorage {
                     "SELECT {ROOM_EVENT_COLS}
                     FROM events
                     WHERE room_id = $1
-                    ORDER BY origin_server_ts DESC
+                    ORDER BY events.origin_server_ts DESC
                     LIMIT $2
                     "
                 ))
@@ -92,7 +92,7 @@ impl EventStorage {
             "SELECT {ROOM_EVENT_COLS}
             FROM events
             WHERE room_id = $1 AND stream_ordering > $2
-            ORDER BY stream_ordering DESC
+            ORDER BY events.stream_ordering DESC
             LIMIT $3
             "
         ))
@@ -120,7 +120,7 @@ impl EventStorage {
             WHERE room_id = $1
               AND origin_server_ts IS NOT NULL
               AND origin_server_ts <= $2
-            ORDER BY origin_server_ts DESC
+            ORDER BY events.origin_server_ts DESC
             LIMIT 1
             ",
         )
@@ -174,7 +174,7 @@ impl EventStorage {
                 WHERE room_id = $1
                   AND origin_server_ts IS NOT NULL
                   AND origin_server_ts >= $2
-                ORDER BY origin_server_ts ASC
+                ORDER BY events.origin_server_ts ASC
                 LIMIT 1
                 ",
             )
@@ -190,7 +190,7 @@ impl EventStorage {
                 WHERE room_id = $1
                   AND origin_server_ts IS NOT NULL
                   AND origin_server_ts <= $2
-                ORDER BY origin_server_ts DESC
+                ORDER BY events.origin_server_ts DESC
                 LIMIT 1
                 ",
             )
@@ -213,7 +213,7 @@ impl EventStorage {
             SELECT event_id, event_type AS type, COALESCE(user_id, sender) AS sender, content, origin_server_ts
             FROM events
             WHERE room_id = $1 AND origin_server_ts < $2
-            ORDER BY origin_server_ts DESC
+            ORDER BY events.origin_server_ts DESC
             LIMIT $3
             ",
         )
@@ -250,7 +250,7 @@ impl EventStorage {
             SELECT event_id, event_type AS type, COALESCE(user_id, sender) AS sender, content, origin_server_ts
             FROM events
             WHERE room_id = $1 AND origin_server_ts > $2
-            ORDER BY origin_server_ts ASC
+            ORDER BY events.origin_server_ts ASC
             LIMIT $3
             ",
         )
@@ -281,6 +281,15 @@ impl EventStorage {
     /// `from` 为 `Some((ts, Some(stream)))` 时使用元组比较；
     /// `Some((ts, None))`（legacy `t{ts}` token）保持旧的严格时间戳语义；
     /// `None` 取最新/最旧一页。
+    ///
+    /// ORDER BY 的列**必须带 `events.` 限定**：`ROOM_EVENT_COLS` 把
+    /// `origin_server_ts` 输出为 `COALESCE(origin_server_ts, 0)`，而 Postgres
+    /// 的裸 `ORDER BY` 名字先匹配输出列，于是排序键会变成那个 COALESCE 表达式
+    /// （`EXPLAIN` 打印 `Sort Key: (COALESCE(origin_server_ts, '0'::bigint))`），
+    /// 复合索引 `idx_events_room_ts_stream` 无法提供顺序，计划退化为
+    /// “对游标之上的每一行排序”——越浅的页越慢，无游标首页最慢（实测
+    /// 18.2ms vs 深页 1.2ms）。限定后各深度都是纯 `Index Scan`
+    /// （0.07–0.09ms）。详见 `benches/performance_pagination_benchmarks.rs`。
     pub async fn get_room_events_paginated_cursor(
         &self,
         room_id: &str,
@@ -301,7 +310,7 @@ impl EventStorage {
                     FROM events
                     WHERE room_id = $1
                       AND (origin_server_ts, stream_ordering) > ($2, $3)
-                    ORDER BY origin_server_ts ASC, stream_ordering ASC
+                    ORDER BY events.origin_server_ts ASC, events.stream_ordering ASC
                     LIMIT $4
                     "
                 ))
@@ -317,7 +326,7 @@ impl EventStorage {
                     "SELECT {ROOM_EVENT_COLS}
                     FROM events
                     WHERE room_id = $1
-                    ORDER BY origin_server_ts ASC, stream_ordering ASC
+                    ORDER BY events.origin_server_ts ASC, events.stream_ordering ASC
                     LIMIT $2
                     "
                 ))
@@ -332,7 +341,7 @@ impl EventStorage {
                     FROM events
                     WHERE room_id = $1
                       AND (origin_server_ts, stream_ordering) < ($2, $3)
-                    ORDER BY origin_server_ts DESC, stream_ordering DESC
+                    ORDER BY events.origin_server_ts DESC, events.stream_ordering DESC
                     LIMIT $4
                     "
                 ))
@@ -349,7 +358,7 @@ impl EventStorage {
                     "SELECT {ROOM_EVENT_COLS}
                     FROM events
                     WHERE room_id = $1
-                    ORDER BY origin_server_ts DESC, stream_ordering DESC
+                    ORDER BY events.origin_server_ts DESC, events.stream_ordering DESC
                     LIMIT $2
                     "
                 ))

@@ -27,18 +27,69 @@
 //!
 //! ```text
 //! [perf] pagination rows=... deep_offset=... keyset_deep_us=... \
-//!        keyset_shallow_us=... offset_deep_us=... gain_x=... \
-//!        index_scan=1 correct=1
+//!        keyset_shallow_us=... shallow_over_deep_x=... offset_deep_us=... \
+//!        gain_x=... index_scan=1 correct=1
 //! ```
 //!
 //! `scripts/ci/pagination_perf_gate.sh` parses that line and fails the build
 //! unless the real keyset page is at least `PAGINATION_MIN_GAIN` (default 2x)
-//! faster than the offset page, the plan still uses an index, and the keyset
-//! page is the *same* page as the offset query.
+//! faster than the offset page, the plan still uses an ordered index, the
+//! keyset page is the *same* page as the offset query, and the shallow page is
+//! not more than `PAGINATION_MAX_SHALLOW_RATIO` (default 4x) slower than the
+//! deep page.
 //!
-//! The OFFSET baseline selects the same `ROOM_EVENT_COLS` as the production
-//! keyset query, so both sides decode identical rows and the comparison is
-//! apples-to-apples.
+//! ## The alias-shadowing bug this bench found (now fixed)
+//!
+//! The first measurement of this bench exposed a real production defect: the
+//! keyset SQL wrote `ORDER BY origin_server_ts DESC, stream_ordering DESC`
+//! unqualified, while `ROOM_EVENT_COLS` selects
+//! `COALESCE(origin_server_ts, 0) AS origin_server_ts`. Postgres resolves a
+//! bare `ORDER BY` name against an **output** column before an input column, so
+//! the sort key became `COALESCE(origin_server_ts, 0)` — `EXPLAIN` printed
+//! `Sort Key: (COALESCE(origin_server_ts, '0'::bigint))` — and
+//! `idx_events_room_ts_stream` could no longer supply the order. The planner
+//! then sorted the *candidate* set ("every row above the cursor"), so a
+//! shallower page was genuinely slower and the no-cursor page (the first
+//! `/messages` call) was the worst case:
+//!
+//! ```text
+//!   page                          plan (production ROOM_EVENT_COLS)                       exec (force_generic_plan)
+//!   BEFORE no cursor (shallowest) Sort(COALESCE(ts,0)) <- Bitmap Heap Scan 30000 rows      18.2 ms
+//!   BEFORE 1% cursor              Sort(COALESCE(ts,0)) <- Bitmap Heap Scan 29701 rows      10.6 ms
+//!   BEFORE 90% deep cursor        Sort(COALESCE(ts,0)) <- Bitmap Heap Scan  3000 rows       1.2 ms
+//!   AFTER  no cursor              Index Scan using idx_events_room_ts_stream (100 rows)     0.049 ms
+//!   AFTER  1% cursor              Index Scan using idx_events_room_ts_stream (100 rows)     0.044 ms
+//!   AFTER  90% deep cursor        Index Scan using idx_events_room_ts_stream (100 rows)     0.052 ms
+//! ```
+//!
+//! (150k-row local fixture, 30k-row target room + 60 x 2000 filler rooms,
+//! `ANALYZE`d, `plan_cache_mode=force_generic_plan`.)
+//!
+//! `synapse-storage/src/event/pagination.rs` now qualifies every keyset sort
+//! key (`ORDER BY events.origin_server_ts, events.stream_ordering`), so the
+//! index supplies the order at every depth and the first page is no longer the
+//! worst case. `keyset_shallow_us` is therefore **gated**:
+//! `PAGINATION_MAX_SHALLOW_RATIO` (default 4x, with an absolute
+//! `PAGINATION_SHALLOW_BREACH_FLOOR_US` floor) requires the first page to be no
+//! more than a small factor slower than the deep page. Reverting the
+//! qualification measured ~10-15x (18.2 ms vs 1.2 ms) and reddens the gate;
+//! healthy it is ~0.6-1.4x. The deep and shallow pages are sampled
+//! **interleaved** so a transient load spike cannot inflate the ratio on a
+//! healthy tree (that failure mode was observed once: 3.2 ms vs 0.32 ms).
+//!
+//! The `index_scan` probe EXPLAINs the *production shape* — the same
+//! `ROOM_EVENT_COLS` select list, the same row-value predicate and the same
+//! qualified `ORDER BY` — and requires an ordered `Index Scan` with no `Sort`
+//! node. The previous probe used a narrow `SELECT event_id`, which cannot see
+//! this bug at all: with no `COALESCE` output column the bare `ORDER BY` binds
+//! to the input column, so the proxy stayed green while production sorted
+//! every row above the cursor. A proxy shape is exactly how a gate keeps
+//! passing while production is broken.
+//!
+//! The OFFSET baseline selects the same `ROOM_EVENT_COLS` **and the same
+//! qualified `ORDER BY`** as the production keyset query, so both sides decode
+//! identical rows and neither side is accidentally penalised by the
+//! alias-shadowing plan.
 //!
 //! Sessions pin `plan_cache_mode=force_generic_plan` (see
 //! [`connect_bench_pool`]): with the server default (`auto`) Postgres flips
@@ -51,7 +102,7 @@
 //! One target room with `TARGET_EVENTS` events plus `OTHER_ROOMS` rooms with
 //! `OTHER_ROOM_EVENTS` events each. The other rooms exist so the `room_id`
 //! predicate is selective enough for the planner to prefer
-//! `idx_events_room_time` over a sequential scan — the same shape a real
+//! `idx_events_room_ts_stream` over a sequential scan — the same shape a real
 //! homeserver has (many rooms, one deep-paginated room). `ANALYZE` is run
 //! before measuring so the planner has real statistics.
 //!
@@ -296,31 +347,56 @@ fn median(mut samples: Vec<f64>) -> f64 {
     samples[samples.len() / 2]
 }
 
-async fn sample_keyset(storage: &EventStorage, from: Option<(i64, Option<i64>)>) -> Result<Vec<f64>, sqlx::Error> {
+/// Times one production keyset page and returns microseconds.
+async fn time_keyset(storage: &EventStorage, from: Option<(i64, Option<i64>)>) -> Result<f64, sqlx::Error> {
+    let started = Instant::now();
+    let rows = storage.get_room_events_paginated_cursor(TARGET_ROOM, from, PAGE_LIMIT, "b").await?;
+    black_box(&rows);
+    Ok(started.elapsed().as_secs_f64() * 1_000_000.0)
+}
+
+/// Median microseconds for the deep and the shallowest production keyset page.
+///
+/// The two shapes are sampled **interleaved** (in both orders), not in two
+/// sequential blocks: with block sampling a transient load spike that lands on
+/// the shallow block inflates `shallow/deep` and looks exactly like the ORDER BY
+/// regression (measured on an otherwise healthy tree: 3.2 ms shallow vs 0.32 ms
+/// deep → 9.9x). Interleaved, a spike hits both shapes and the ratio stays at
+/// the ~1x the fix produces.
+async fn sample_keyset_pair(
+    storage: &EventStorage,
+    deep_from: Option<(i64, Option<i64>)>,
+) -> Result<(f64, f64), sqlx::Error> {
     let mut warmup = 0;
-    let mut samples = Vec::with_capacity(RECORDED_SAMPLES);
     while warmup < WARMUP_SAMPLES {
-        let rows = storage.get_room_events_paginated_cursor(TARGET_ROOM, from, PAGE_LIMIT, "b").await?;
-        black_box(&rows);
+        black_box(storage.get_room_events_paginated_cursor(TARGET_ROOM, deep_from, PAGE_LIMIT, "b").await?);
+        black_box(storage.get_room_events_paginated_cursor(TARGET_ROOM, None, PAGE_LIMIT, "b").await?);
         warmup += 1;
     }
-    for _ in 0..RECORDED_SAMPLES {
-        let started = Instant::now();
-        let rows = storage.get_room_events_paginated_cursor(TARGET_ROOM, from, PAGE_LIMIT, "b").await?;
-        black_box(&rows);
-        samples.push(started.elapsed().as_secs_f64() * 1_000_000.0);
+    let mut deep = Vec::with_capacity(RECORDED_SAMPLES);
+    let mut shallow = Vec::with_capacity(RECORDED_SAMPLES);
+    for i in 0..RECORDED_SAMPLES {
+        if i % 2 == 0 {
+            deep.push(time_keyset(storage, deep_from).await?);
+            shallow.push(time_keyset(storage, None).await?);
+        } else {
+            shallow.push(time_keyset(storage, None).await?);
+            deep.push(time_keyset(storage, deep_from).await?);
+        }
     }
-    Ok(samples)
+    Ok((median(deep), median(shallow)))
 }
 
 /// The naive `LIMIT/OFFSET` page that ISSUE-06 replaced. It is not production
 /// code any more; it exists here only as the baseline the keyset query must
-/// beat. It selects the *same* `ROOM_EVENT_COLS` as the production keyset query
-/// so the two sides decode identical rows.
+/// beat. It selects the *same* `ROOM_EVENT_COLS` and the same qualified
+/// `ORDER BY` as the production keyset query, so the two sides decode
+/// identical rows in the same order and neither is accidentally penalised by
+/// the alias-shadowing plan.
 async fn fetch_offset_page(pool: &Arc<sqlx::PgPool>) -> Result<Vec<RoomEvent>, sqlx::Error> {
     sqlx::query_as(&format!(
         "SELECT {ROOM_EVENT_COLS} FROM events WHERE room_id = $1 \
-         ORDER BY origin_server_ts DESC, stream_ordering DESC LIMIT $2 OFFSET $3"
+         ORDER BY events.origin_server_ts DESC, events.stream_ordering DESC LIMIT $2 OFFSET $3"
     ))
     .bind(TARGET_ROOM)
     .bind(PAGE_LIMIT)
@@ -344,22 +420,33 @@ async fn sample_offset(pool: &Arc<sqlx::PgPool>) -> Result<Vec<f64>, sqlx::Error
     Ok(samples)
 }
 
-/// `true` when the production keyset deep-page predicate is served by an index
-/// (no `Seq Scan` node in its plan).
+/// `true` when the production keyset deep-page query is served by the ordered
+/// composite index (`idx_events_room_ts_stream`) — i.e. the index supplies the
+/// sort and no `Sort`/`Seq Scan` node remains.
+///
+/// The probe must EXPLAIN the *same shape* the benchmark measures: the same
+/// `ROOM_EVENT_COLS` select list, the same row-value predicate and the same
+/// qualified `ORDER BY events.origin_server_ts DESC, events.stream_ordering
+/// DESC`. A narrow `SELECT event_id` proxy stays green under the
+/// alias-shadowing bug (no `COALESCE` output column, so the bare `ORDER BY`
+/// binds to the input column), which is how the gate previously passed while
+/// production sorted every row above the cursor. Literals are fine here:
+/// `EXPLAIN` is a utility statement and this probe is about the access path.
 async fn keyset_plan_uses_index(pool: &Arc<sqlx::PgPool>) -> Result<bool, sqlx::Error> {
-    // Literals, not binds: `EXPLAIN` is a utility statement and the plan check
-    // is about the access path, so embedding the fixture's integer cursor is
-    // both safe and simpler than a prepared statement.
     let sql = format!(
-        "EXPLAIN (FORMAT TEXT) SELECT event_id FROM events \
+        "EXPLAIN (FORMAT TEXT) SELECT {ROOM_EVENT_COLS} FROM events \
          WHERE room_id = '{TARGET_ROOM}' \
            AND (origin_server_ts, stream_ordering) < ({}, {}) \
-         ORDER BY origin_server_ts DESC, stream_ordering DESC LIMIT {PAGE_LIMIT}",
+         ORDER BY events.origin_server_ts DESC, events.stream_ordering DESC LIMIT {PAGE_LIMIT}",
         cursor_ts(),
         cursor_stream()
     );
     let plan: Vec<String> = sqlx::query_scalar(&sql).fetch_all(&**pool).await?;
-    Ok(!plan.iter().any(|line| line.contains("Seq Scan")))
+    // Match the index by name so a forward or backward ordered scan both
+    // count; `Bitmap Index Scan on ...` intentionally does not match.
+    let ordered_index_scan = plan.iter().any(|line| line.contains("using idx_events_room_ts_stream"));
+    let needs_sort = plan.iter().any(|line| line.contains("Sort"));
+    Ok(ordered_index_scan && !needs_sort)
 }
 
 struct Measurement {
@@ -373,10 +460,11 @@ struct Measurement {
 
 fn emit_perf_line(m: &Measurement) {
     let gain = if m.keyset_deep_us > 0.0 { m.offset_deep_us / m.keyset_deep_us } else { 0.0 };
+    let shallow_over_deep = if m.keyset_deep_us > 0.0 { m.keyset_shallow_us / m.keyset_deep_us } else { 0.0 };
     eprintln!(
         "[perf] pagination rows={} target_room_events={TARGET_EVENTS} deep_offset={} page_limit={PAGE_LIMIT} \
-         keyset_deep_us={:.1} keyset_shallow_us={:.1} offset_deep_us={:.1} gain_x={gain:.2} \
-         index_scan={} correct={}",
+         keyset_deep_us={:.1} keyset_shallow_us={:.1} shallow_over_deep_x={shallow_over_deep:.2} \
+         offset_deep_us={:.1} gain_x={gain:.2} index_scan={} correct={}",
         m.rows,
         deep_offset(),
         m.keyset_deep_us,
@@ -408,8 +496,15 @@ async fn measure(pool: &Arc<sqlx::PgPool>) -> Result<Measurement, sqlx::Error> {
 
     let index_scan = keyset_plan_uses_index(pool).await?;
 
-    let keyset_deep_us = median(sample_keyset(&storage, Some((cursor_ts(), Some(cursor_stream())))).await?);
-    let keyset_shallow_us = median(sample_keyset(&storage, None).await?);
+    // Deep and shallow pages are sampled interleaved: the shallowest page is the
+    // first `/messages` call (`from = None`) and must stay within
+    // `PAGINATION_MAX_SHALLOW_RATIO` (with an absolute breach floor) of the deep
+    // page. With the ORDER BY alias-shadowing bug it was ~10-15x slower (18.2 ms vs
+    // 1.2 ms); after the fix both are plain index scans (~1x). Interleaving keeps a
+    // transient load spike from inflating the ratio on a healthy tree. See the
+    // module docs.
+    let (keyset_deep_us, keyset_shallow_us) =
+        sample_keyset_pair(&storage, Some((cursor_ts(), Some(cursor_stream())))).await?;
     let offset_deep_us = median(sample_offset(pool).await?);
 
     Ok(Measurement { rows, keyset_deep_us, keyset_shallow_us, offset_deep_us, index_scan, correct })
