@@ -975,6 +975,18 @@ worker, schema_validator。
 （其门禁归一化该行）；`client.yaml` 的 `Generated at` 来自提交的 `ledger.json` —— 所以"三处一致"实际是
 **一处代码常量 + 提交产物的 `generated_at`（作为守卫）**。
 
-### 12.5 提示：门禁四件套是本轮最后的验证动作
-`fmt + clippy 两档 + unit + 全量 lib（无 retries）` 在**冻结树**（提交 `6c3c6b38` / `85cbcfa8` / `2b6f41f6`
-/ `e05c5141`）上跑，作为本轮收尾证据；结果见本节补记。
+### 12.5 本轮门禁（冻结树：`6c3c6b38` / `85cbcfa8` / `2b6f41f6` / `e05c5141` / `04dd417d` / `7cc0aee6`）
+
+| 门禁 | 结果 |
+|---|---|
+| fmt 棘轮 `./scripts/check_fmt_ratchet.sh` | ✅ `current=0 baseline=0` |
+| clippy 默认档（`--workspace --all-targets --features test-utils`） | ✅ 0 error |
+| clippy `--all-features` 档 | ✅ 0 error |
+| unit 目标（`--test unit --features test-utils --test-threads 4`） | ✅ **1710 passed / 2 skipped / 0 failed** |
+| 全量 `--workspace --lib --all-features --test-threads 4`（**无 retries**） | ✅ **6086/6086 passed** |
+
+**过程中的一次真实红/绿**：首跑 unit 目标有 **2 个失败**，均为 `sqlx_ratio_gate_tests` —— 棘轮发现
+dynamic 从 1484 升到 **1499**（15 处**全部**来自 §12.1 的租约：`after_connect` 的
+`pg_advisory_lock_shared`、janitor 的 `pg_try_advisory_lock`/`pg_advisory_unlock`、以及 reuse 路径的租约检查；
+生产路径未新增动态 SQL，static 仍为 61）。按门禁自身允许的方式把基线更新为 1499 并在基线文件里写明来源，
+随后 `check_sqlx_dynamic_ratio.sh` → OK，聚焦复跑 10 passed，**整跑 unit 目标 1710 passed / 0 failed**。
