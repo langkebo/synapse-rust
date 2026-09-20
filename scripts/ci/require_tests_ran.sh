@@ -34,10 +34,21 @@ fi
 
 # libtest:  `test result: ok. 12 passed; 0 failed; …`
 # nextest:  `Starting 12 tests across 1 binary`
+#
+# ⚠️ 匹配前必须**剥掉 ANSI SGR 序列**。workflow 级 `CARGO_TERM_COLOR: always`
+# 让 nextest 即使在管道里也带颜色输出，日志里是
+#   `\x1b[32;1m    Starting\x1b[0m \x1b[1m3\x1b[0m tests …`
+# 于是 `Starting [1-9][0-9]* tests` 匹配不到，本脚本会对一个**真跑了 3 个测试**的
+# 步骤报 "ran ZERO tests" 并 exit 1（CI 实测 2026-09-20：新增的
+# "Run latency benchmarks serially" 车道 3/3 passed，却被本脚本判空转）。
+# 本地之所以没复现：本地没有 `CARGO_TERM_COLOR=always`，输出里没有颜色。
+ANSI_ESC=$'\033'
+strip_ansi() { sed -E "s/${ANSI_ESC}\\[[0-9;]*[A-Za-z]//g"; }
+
 ran_zero=0
-if grep -qE '^test result: (ok|FAILED)\. 0 passed' "$log"; then
+if strip_ansi <"$log" | grep -qE '^[[:space:]]*test result: (ok|FAILED)\. 0 passed'; then
     ran_zero=1
-elif ! grep -qE '(^test result: (ok|FAILED)\. [1-9][0-9]* passed|Starting [1-9][0-9]* tests)' "$log"; then
+elif ! strip_ansi <"$log" | grep -qE '(^[[:space:]]*test result: (ok|FAILED)\. [1-9][0-9]* passed|Starting [1-9][0-9]* tests)'; then
     # 既看不到"0 passed"也看不到任何正数 —— 说明命令根本没跑测试框架
     # （例如目标名写错、被 feature 门控掉、或输出格式变了）。
     ran_zero=1

@@ -2280,11 +2280,52 @@ PR 触发）在本轮改动后仍通过 —— 新增的是**手动** dispatch �
 | `actionlint`（14 个 workflow） / `check_workflow_steps.py` | ✅ 0 / 0 |
 | 折叠标量陷阱复扫（`yaml.compose`，`style='>'` 且保留换行） | ✅ 仅剩 4 处 `if:` 表达式（合法），`run:` 为 0 |
 
+#### ⑧ 首跑立即暴露的门禁缺陷：`require_tests_ran.sh` 的 ANSI 盲区
+
+新车道在真 CI（run `35515122277`）第一次跑就抓到一个**已有门禁脚本的真 bug**：
+
+- 真 CI 里 3 个用例 **3/3 passed**（stable 19.1s / 1.93.0 21.1s，`--test-threads 1`）；
+- 但包裹它的 `scripts/ci/require_tests_ran.sh` 却报
+  `::error::this step ran ZERO tests …` 并 exit 1 ⇒ 整个 `Test & Lint` job 红。
+
+根因：workflow 级 `CARGO_TERM_COLOR: always` 让 nextest 即使在管道里也输出 ANSI 颜色，
+日志里是
+
+```text
+\x1b[32;1m    Starting\x1b[0m \x1b[1m3\x1b[0m tests across \x1b[1m9\x1b[0m binaries
+```
+
+于是 `grep -E 'Starting [1-9][0-9]* tests'` 匹配不到 —— 脚本把"真跑了"判成"空转"。
+本地之所以一直没复现：本地没有 `CARGO_TERM_COLOR=always`，输出无颜色。
+（这也解释了为什么它此前 8 个调用点都"正常"：那些步骤走 `cargo test`，libtest 在管道里不带色。）
+
+**修法**：匹配前先剥掉 ANSI SGR 序列（`strip_ansi()`，单一实现，所有调用点受益），
+并把两条正则都放宽到允许行首空白（nextest 缩进 4 空格）。新增可红守卫
+`tests/unit/ci_test_scope_tests.rs::require_tests_ran_sees_through_ansi_color`：
+① 带颜色的非零 ⇒ 绿；② 带颜色的 `0 passed` ⇒ 仍红（颜色不能把真空转一起放过）；
+③ 无颜色 libtest ⇒ 行为不变。
+
+**红/绿**：去掉 `strip_ansi`（回到裸 `grep "$log"`）→ 守卫 **FAILED**；
+恢复 → PASS。端到端：`CARGO_TERM_COLOR=always` + 真实车道 → 3/3 passed 且脚本打印
+`OK: this step actually ran tests.`（修复前同命令被误判空转）。
+
+**由此产生的直接后果**：本轮 fast tier 因这条假红而失败 ⇒ 慢速车道**按设计被 skip**，
+`ci-summary` 哨兵**正确保持沉默**（不变量②的前提是快速车道通过）。
+所以"慢速车道首跑"顺延到下一次 push（即本次修复的 push）。
+
 #### ⑦ 首跑与残留
 
-- **首跑**：本次 push 是非 docs 的 main push ⇒ `Integration Tests` / `Code Coverage` /
-  `Build Check` 将**第一次**真正执行；结论回填 §14.14.1。预期会暴露一批"从未被执行过的路径"
-  （模板 seed 之外的东西、coverage 棘轮、release build 形状）。
+- **首跑（顺延一次）**：`06d2b751` 的 push 本来会让 `Integration Tests` / `Code Coverage` /
+  `Build Check` **第一次**真正执行，但 fast tier 被 ⑧ 那条**假红**（`require_tests_ran.sh`
+  的 ANSI 盲区）挡住 ⇒ 慢速车道按设计 skip。修复后再 push 才是真正的首跑；结论回填
+  §14.14.1。预期会暴露一批"从未被执行过的路径"（模板 seed 之外的东西、coverage 棘轮、
+  release build 形状）。
+- **已经真 CI 验证过的部分**（同一轮）：`--workspace --lib`（**无重试**）✅ success；
+  新延迟车道 **3/3 passed**（3 个用例本身没问题，红的是外层脚本）；
+  `Docs Quality Gate` ✅ 36s；`PR Benchmark Gate`/慢速车道按设计 skip；
+  慢速车道 job **已被创建**（`total_count` 8 → 14：Integration Tests / Code Coverage /
+  Build Check / Security Audit / k6 / CI Summary），说明它们确实在事件图里，
+  只是等 `needs: test` 绿。
 - **`k6-smoke-test`** 仍是 `if: github.event_name == 'workflow_dispatch'` —— 它其实**早已**会被
   任何手动 dispatch 触发（本轮新增 `run_slow_tier` 后依然如此），但从未有人跑过；是否纳入
   慢速车道需另行裁定（它要 k6 + 一个可达的 base URL）。

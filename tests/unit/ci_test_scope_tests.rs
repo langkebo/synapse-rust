@@ -325,3 +325,47 @@ fn ci_summary_sentinel_requires_the_slow_tier_to_have_run() {
     }
     assert_eq!(checked, 3, "按需慢速车道覆盖的 job 数变了；请同步 §14.14 的说明");
 }
+
+/// `require_tests_ran.sh` 必须能看穿 ANSI 颜色。
+///
+/// workflow 级 `CARGO_TERM_COLOR: always` 让 nextest 即使在管道里也带颜色，
+/// 日志里是 `\x1b[32;1m    Starting\x1b[0m \x1b[1m3\x1b[0m tests`；裸
+/// `grep 'Starting [0-9]* tests'` 因此匹配不到，脚本会对一个**真跑了 3 个测试**的
+/// 步骤报 `ran ZERO tests` 并 exit 1（CI 实测 2026-09-20：新增的
+/// "Run latency benchmarks serially" 车道 3/3 passed 却被判空转）。本地没复现是因为
+/// 本地没有 `CARGO_TERM_COLOR=always`。
+///
+/// 三种输入都要对：带颜色的非零 ⇒ 绿；带颜色的 `0 passed` ⇒ 红（颜色不能把真空转
+/// 一起放过）；无颜色的 libtest ⇒ 行为不变。
+///
+/// **红证明**：把脚本里的 `strip_ansi` 去掉（回到裸 `grep "$log"`）→ 本测试 FAILED。
+#[test]
+fn require_tests_ran_sees_through_ansi_color() {
+    let script = repo_root().join("scripts/ci/require_tests_ran.sh");
+    let run = |body: &str| {
+        std::process::Command::new("bash")
+            .arg(&script)
+            .arg("bash")
+            .arg("-c")
+            .arg(body)
+            .output()
+            .expect("require_tests_ran.sh must be runnable")
+    };
+    let combined = |out: &std::process::Output| {
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
+    };
+
+    let colored_ok =
+        run(r#"printf '\033[32;1m    Starting\033[0m \033[1m3\033[0m tests across \033[1m9\033[0m binaries\n'"#);
+    assert!(
+        colored_ok.status.success(),
+        "带 ANSI 颜色的 `Starting 3 tests` 必须被判为「真的跑了」：\n{}",
+        combined(&colored_ok)
+    );
+
+    let colored_zero = run(r#"printf '\033[32;1mtest result\033[0m: ok. 0 passed; 0 failed\n'"#);
+    assert!(!colored_zero.status.success(), "带 ANSI 颜色的 `0 passed` 必须仍然判红：\n{}", combined(&colored_zero));
+
+    let plain_ok = run(r#"printf 'test result: ok. 12 passed; 0 failed; 0 ignored\n'"#);
+    assert!(plain_ok.status.success(), "无颜色的 `12 passed` 必须仍然绿：\n{}", combined(&plain_ok));
+}
