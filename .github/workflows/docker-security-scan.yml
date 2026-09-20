@@ -83,7 +83,16 @@ jobs:
 
       - name: Build image for scan
         run: |
+          # `-f docker/Dockerfile` 不可省：构建上下文是仓库根（Dockerfile 的
+          # `COPY Cargo.toml Cargo.lock ./` 等都以根为基准），但 Dockerfile 本身在
+          # `docker/` 下。不给 `-f` 时 docker 默认找 `./Dockerfile`，实测 main run
+          # 35497543078 报 `failed to read dockerfile: open Dockerfile: no such file
+          # or directory`，job 在 5 秒内死掉、trivy-results.sarif 从未产出（于是
+          # 上传 SARIF 步骤再报 `Path does not exist`）。本仓库其余 4 处调用点
+          # （Makefile:285、build-and-push.sh:59、deploy.sh:1174、
+          # docker/docker-compose.yml:23）都显式给了路径，这里是唯一的漏网处。
           docker build \
+            -f docker/Dockerfile \
             --target tools \
             --build-arg CARGO_FEATURE_ARGS="--features core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends --no-default-features" \
             -t synapse-rust:scan \

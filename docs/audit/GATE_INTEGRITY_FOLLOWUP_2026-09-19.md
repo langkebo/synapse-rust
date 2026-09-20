@@ -1391,3 +1391,137 @@ aaa af bb cb cd cefbfcf da de dee df ee eee fd ffa fffd
 "本机 137 文件全绿"**不等于**"CI 全绿"。并集白名单（⑤）已覆盖 CI 上一轮报出的
 全部 577 词，但 CI 重跑后若出现词典差异导致的**新**词，仍需按同一判据追加。
 这条按"必须先见真 CI 结论"处理，不在本地提前宣称通过。
+
+### 14.8 收尾补录：`2babd601` / `93a652a0` 两轮真 CI 结论，及由此暴露的第 5、6 个缺陷
+
+本节回填 §14.6 里标为"🔄 进行中"的全部条目，并记录基线铸造完成后**又**暴露的
+两个缺陷 —— 它们的共同特征是：**只有前面的缺陷被修掉、job 真正往下走之后才会出现**，
+因此每一轮都只能看到"下一个"。
+
+#### ① 基线铸造：`benchmark-results` artifact 已在 `main` 首次产出
+
+`benchmark.yml` 的 `benchmark` job 此前卡在已删除的 `benchmark-action` 步骤
+（§14.2 第 1 条），`Store benchmark results` 永不执行 ⇒ artifact 从未产出 ⇒
+`ci.yml::pr-benchmark-gate` 的 `Download baseline benchmark results` 必然报
+`no matching workflow run found with any artifacts`。修复后实测：
+
+| run | commit | artifact 大小 | `Run benchmarks` job |
+|---|---|---|---|
+| 35493936748 | `faa306cf` | 1160 B | ✅ success |
+| 35494141984 | `88ac3dcb` | 1139 B | ✅ success |
+
+即 **PR Benchmark Gate 的永久红已被结构性解除**：`main` 上有了可被 `branch: main` +
+`workflow_conclusion: completed` 匹配到的基线。
+
+#### ② `2babd601` 触发的 10 个 workflow（逐条结论）
+
+| workflow | 结论 | 备注 |
+|---|---|---|
+| **Docs Quality Gate** | ✅ **历史首次全绿** | step 6 markdownlint / step 7 Install aspell / **step 8 aspell** / step 9 lychee 全 success |
+| Format Governance | ✅ | |
+| Schema Drift Detection | ✅ | |
+| Schema Health Check | ✅ | |
+| E2EE Interop (vodozemac) | ✅ | |
+| Ledger Export | ✅ | |
+| Docker Security Scan | ❌ | 从"文件非法、0 step"推进到**真跑**（见 ③） |
+| DB Migration Gate | ❌ | 6/7 绿；`App-shape migrate smoke` 报 `E0432`（见 ④） |
+| Benchmark | 🔄 | run 35496528940 |
+| CI | 🔄 | |
+
+§14.7 ⑧ 留的悬念在此关闭：**CI 的 `aspell-en` 与本机 `aspell 0.60.8.2` 词典差异
+没有产生新词**，并集白名单（777 词）一次通过。§14.6 里 `hadolint@v3` 的
+"`Set up job` 即失败"也随之被后续真跑取代。
+
+#### ③ 第 5 个缺陷：`docker-security-scan.yml` 的 `docker build` 缺 `-f`
+
+`hadolint` 钉到真实 tag 后 job 首次真跑，报两条：
+
+```text
+docker/Dockerfile:120 DL4006 warning: Set the SHELL option -o pipefail before RUN with a pipe in it
+docker/Dockerfile:208 DL3066 info:    Non-numeric user-id
+```
+
+（注意 hadolint action 默认 `failure-threshold: info`，所以 info 级也会让 job 失败。）
+已修（`93a652a0`）：`runtime-libs` stage 确有 `find … | head -n 1` 管道，补
+`SHELL ["/bin/bash", "-o", "pipefail", "-c"]`（`debian:bookworm-slim` 自带 bash）；
+`USER synapse` 改 `USER 1000:1000`，与同 stage 的 `useradd -u 1000 -g synapse` 及
+`COPY --chown=1000:1000` 本就一致。实测 `93a652a0`：**`Dockerfile Lint` 已转 ✅**。
+
+但它把 job 推进到了下一个 step，于是暴露 `Trivy Image Scan` 的缺陷：
+
+```text
+ERROR: failed to build: failed to solve: failed to read dockerfile: open Dockerfile: no such file or directory
+```
+
+`docker build` 的构建上下文是仓库根（Dockerfile 的 `COPY Cargo.toml Cargo.lock ./`
+等都以根为基准），但 Dockerfile 本身在 `docker/` 下，而该步骤**没有给 `-f`**，
+docker 于是去找 `./Dockerfile`。本仓库其余 4 处调用点都显式给了路径：
+
+| 调用点 | 写法 |
+|---|---|
+| `Makefile:285` | `-f docker/Dockerfile` |
+| `build-and-push.sh:59` | `--file docker/Dockerfile` |
+| `docker/deploy/deploy.sh:1174` | `-f "$PROJECT_ROOT/docker/Dockerfile"` |
+| `docker/docker-compose.yml:23` | `dockerfile: docker/Dockerfile` |
+| `.github/workflows/docker-security-scan.yml:86` | **（缺，唯一漏网）** |
+
+构建失败 ⇒ `trivy-results.sarif` 从未产出 ⇒ 上传步骤再报
+`Path does not exist: trivy-results.sarif`。两个错误是同一根因的上下游。
+（`.dockerignore:44` 把 `docker/Dockerfile` 排除出**上下文**不影响 `-f`：
+Dockerfile 由 `-f` 从磁盘读，不进上下文。）
+
+#### ④ 第 6 个缺陷：`db-migration-gate.yml` 把 `TEST_DATABASE_URL` 指回了应用库
+
+§14.2 修掉 `run: >-` 折叠标量后（该修复生效：`--features` 已真正应用，测试从
+"0 命中"变成真的编译并跑了 2 个 case），`App-shape migrate smoke` 报出新错误：
+
+```text
+thread_storage_tests_migrated::test_thread_read_receipt_roundtrip ... FAILED
+refusing to DROP SCHEMA public on a database that looks deployed (public.schema_migrations exists).
+This step is destructive and previously wiped a real deployment.
+```
+
+根因：该 job 的 8 个测试步骤把 `DATABASE_URL` / `TEST_DATABASE_URL` 都指向
+`postgresql://…/synapse`，而**同一个 job 的上一step刚用 `db_migrate.sh` 迁移过这个库**
+⇒ `public.schema_migrations` 存在。守卫判据
+（`synapse-test-utils/src/lib.rs`，2026-09-12 那次"清空真实部署"事故的产物）：
+
+```rust
+let is_test_db = current_database().to_lowercase().contains("test");
+if !is_throwaway && !is_test_db {
+    // public.schema_migrations 存在 ⇒ 拒绝
+}
+```
+
+即**库名含 `test` 才被视为一次性库**。`ci.yml:16` 用的是独立库 `synapse_test`，
+且 `ci.yml:357-359` 早就写明「若有人把 `TEST_DATABASE_URL` 指回应用库，守卫应失败
+而不是静默清库」。这条缺陷此前不可能被发现：该 job 长期死在更早的 sqlx / 折叠标量
+步骤上，从未走到测试。
+
+#### ⑤ 修复方式：与 `ci.yml` 同形，复用既有唯一实现
+
+改 3 处，全部复用现成实现（AGENTS.md 反冗余铁律 2）：
+
+1. `Create database and run migrations` 的 `DATABASE_URL` → `…/synapse_test`
+   （该 job 不再迁移 `synapse`；迁移应用本身另有 `db-migrate-script-run` job 覆盖）；
+2. 新增 `Seed the test database (public baseline + template schema)` 步骤，调用
+   **`scripts/ci/prepare_test_db.sh`** —— CI 里测试库的唯一入口（建库、public 基线、
+   模板 schema 种子、表数断言四件事），`ci.yml:364` 已在用；
+3. 8 个测试步骤 + `Generate logical checksum report` 的 DB URL → `…/synapse_test`，
+   并统一加 `TEST_DB_TEMPLATE_SCHEMA: test_template_ci`。
+
+第 3 步的模板变量是关键：设了它，`prepare_shared_test_pool` 走 **verify-only** 路径
+（`ensure_template_schema_exists`）、**永不进入** `init_template_schema` ——
+清库因此是**结构上不可能**，而不只是被守卫拦住（与 `prepare_test_db.sh` 头部注释
+的论证一致）。
+
+`Generate logical checksum report` 必须一起改：它同样指回了 `synapse`，而本 job
+已不再迁移那个库，指回它只会去校验一个空库。
+
+#### ⑥ 仍未验证
+
+- `93a652a0` 的 `Benchmark` / `CI` 在写作时仍在进行中，其结论未回填。
+- 第 5、6 个缺陷的修复本身**尚未经过真 CI**：`Trivy Image Scan` 会开始真正构建
+  `--target tools` 的完整 release 镜像（`timeout-minutes: 45`），能否在时限内完成
+  只有真跑能回答；`App-shape migrate smoke` 的 `prepare_test_db.sh` 种子步骤同理。
+  按"必须先见真 CI 结论"处理，不在本地提前宣称通过。

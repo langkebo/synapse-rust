@@ -226,7 +226,7 @@ jobs:
 
       - name: Create database and run migrations
         env:
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
         run: |
           # 单一迁移实现：`docker/db_migrate.sh`（psql 逐文件、autocommit；内部
           # `ensure_database_exists` 负责建库，所以旧步骤里的 `sqlx database create`
@@ -241,6 +241,26 @@ jobs:
           # 随该路径一并删除：它把 `migrations/` 复制到 `artifacts/`，与 AGENTS.md
           # 反冗余铁律 2/4 冲突，且唯一消费者就是这个跑不通的命令。
           bash docker/db_migrate.sh migrate
+
+      # ⚠️ 只有真跑才会暴露的第 3 个坑（main run 35497543081）：下面 6+2 个 smoke
+      # 步骤原把 `TEST_DATABASE_URL` 指回**应用库** `synapse`（上面刚被
+      # `db_migrate.sh` 迁移过），于是 `synapse-test-utils` 的防误删守卫拒绝执行：
+      #   refusing to DROP SCHEMA public on a database that looks deployed
+      #   (public.schema_migrations exists)
+      # 守卫判据（synapse-test-utils/src/lib.rs）：库名含 `test` 即视为一次性库；
+      # 否则若 `public.schema_migrations` 存在就拒绝 DROP。`ci.yml:357-359` 早就写明
+      # 「若有人把 TEST_DATABASE_URL 指回应用库，守卫应失败而不是静默清库」。
+      # 现改为与 `ci.yml` 同形：迁移与测试都落在一次性库 `synapse_test`，并复用
+      # `scripts/ci/prepare_test_db.sh` —— CI 里测试库的唯一入口（建库 + public
+      # 基线 + 模板 schema 种子 + 表数断言）。设了 `TEST_DB_TEMPLATE_SCHEMA` 后，
+      # `prepare_shared_test_pool` 走 verify-only 路径、**永不进入**清库分支，
+      # 清库因此是结构上不可能，而不只是被守卫拦住。
+      - name: Seed the test database (public baseline + template schema)
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
+        run: bash scripts/ci/prepare_test_db.sh
 
       # ⚠️ 下面 5 个 "storage/db smoke" 步骤原先写的是
       #   `--test unit <module>`，但那些模块**只存在于 tests/integration**，且名字带
@@ -262,8 +282,9 @@ jobs:
       # 现统一改为 `|` + 反斜杠续行，保证是**一条**命令。
       - name: Run thread storage database smoke tests
         env:
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
         run: |
           bash scripts/ci/require_tests_ran.sh \
             cargo test --locked \
@@ -272,8 +293,9 @@ jobs:
 
       - name: Run retention storage database smoke tests
         env:
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
         run: |
           bash scripts/ci/require_tests_ran.sh \
             cargo test --locked \
@@ -282,8 +304,9 @@ jobs:
 
       - name: Run room summary storage database smoke tests
         env:
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
         run: |
           bash scripts/ci/require_tests_ran.sh \
             cargo test --locked \
@@ -292,8 +315,9 @@ jobs:
 
       - name: Run db schema smoke tests
         env:
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
         run: |
           bash scripts/ci/require_tests_ran.sh \
             cargo test --locked \
@@ -302,8 +326,9 @@ jobs:
 
       - name: Run schema contract p0 tests
         env:
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
         run: |
           bash scripts/ci/require_tests_ran.sh \
             cargo test --locked \
@@ -330,8 +355,9 @@ jobs:
 
       - name: Run placeholder contract P1/P2 integration tests
         env:
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
           INTEGRATION_TESTS_REQUIRED: "1"
         run: |
           cargo test --locked \
@@ -340,8 +366,9 @@ jobs:
 
       - name: Run database integrity migration gates
         env:
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
           INTEGRATION_TESTS_REQUIRED: "1"
         run: |
           set -euo pipefail
@@ -366,8 +393,9 @@ jobs:
 
       - name: Run invite blocklist database smoke tests
         env:
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
         run: |
           bash scripts/ci/require_tests_ran.sh \
             cargo test --locked \
@@ -376,7 +404,9 @@ jobs:
 
       - name: Generate logical checksum report
         env:
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          # 与上面所有步骤一致指向本 job 实际迁移的那一个库（`synapse_test`）：
+          # 本 job 不再迁移 `synapse`，指回它只会去校验一个空库。
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
           LOGICAL_CHECKSUM_TABLES_FILE: scripts/logical_checksum_tables.txt
           LOGICAL_CHECKSUM_REPORT: artifacts/db-logical-checksum-report.json
         run: python3 scripts/generate_logical_checksum_report.py
