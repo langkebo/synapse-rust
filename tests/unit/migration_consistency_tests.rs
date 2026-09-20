@@ -380,6 +380,58 @@ fn every_ci_db_migrate_call_supplies_an_explicit_target() {
     assert!(checked > 0, "应至少有一个 CI 步骤调用 db_migrate.sh");
 }
 
+/// 与上一条同型的调用侧不变式：CI 里的每次 `psql` 都必须**显式给出连接目标**。
+///
+/// libpq/psql **不读 `DATABASE_URL`**。写 `psql -d synapse` 时它会用 runner 的隐式默认
+/// （OS 用户名、无密码）去连：连接失败 ⇒ `grep -q 1` 恒不匹配 ⇒ 检查恒报"缺失"。
+/// 这个形态在 CI 里踩过两次：
+///   * `psql -c "CREATE DATABASE synapse_test" || true`（run 35489156849）—— 从未建库，
+///     下一步才报 `database "synapse_test" does not exist`；
+///   * `psql -d synapse -tAc …`（run 35517095792，§14.14）—— 4 张 `burn_after_read_*`
+///     表其实都在 baseline 里，却全部被判"缺失"并中止 Integration Tests。
+///
+/// 判据：命令行里必须有 URL（`postgres[ql]://` 或 `$…DATABASE_URL`）**或**同时有
+/// `-h` 与 `-U`。注释行不计。
+#[test]
+fn every_ci_psql_call_supplies_an_explicit_connection() {
+    let root = project_root();
+    let workflows = root.join(".github/workflows");
+    let mut entries: Vec<_> = fs::read_dir(&workflows)
+        .expect(".github/workflows must exist")
+        .map(|entry| entry.expect("readable dir entry").path())
+        .filter(|path| matches!(path.extension().and_then(|ext| ext.to_str()), Some("yml" | "yaml")))
+        .collect();
+    entries.sort();
+
+    let mut checked = 0usize;
+    for path in entries {
+        let file = path.file_name().unwrap().to_string_lossy().to_string();
+        let text = read(&path);
+        for (index, line) in text.lines().enumerate() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with('#') || !trimmed.contains("psql ") {
+                continue;
+            }
+            checked += 1;
+            let has_url = line.contains("postgres://")
+                || line.contains("postgresql://")
+                || line.contains("$DATABASE_URL")
+                || line.contains("$TEST_DATABASE_URL")
+                || line.contains("$POSTGRES_ADMIN_URL");
+            let has_host_and_user = line.contains("-h ") && line.contains("-U ");
+            assert!(
+                has_url || has_host_and_user,
+                "{file}:{} 的 psql 调用没有显式连接目标（URL 或 -h + -U）——\
+                 libpq 不读 DATABASE_URL，`psql -d <db>` 会连到 runner 的隐式默认并直接失败，\
+                 检查于是恒报「缺失」（§14.14 的 burn_after_read 假红）:\n  {}",
+                index + 1,
+                trimmed
+            );
+        }
+    }
+    assert!(checked > 0, "应至少有一个 CI 步骤调用 psql —— 扫描面是否已失效？");
+}
+
 /// C3/C10 (GATE_INTEGRITY_SWEEP_2026-09-19 §6): both migration gates must say
 /// the `consolidated-baseline-only` case out loud instead of passing on an
 /// empty subject set.

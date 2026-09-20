@@ -2333,3 +2333,40 @@ PR 触发）在本轮改动后仍通过 —— 新增的是**手动** dispatch �
   `coverage`）；它们的失败不进摘要（原 C12 残留，未扩大）。
 - `NEXTEST_RETRIES` 收回后，任何**尚未修根因**的 flake 都会立刻显形；这是本轮的目的，
   处理方式是修根因或再开专用车道，**不得**把重试加回来（守卫会失败）。
+
+### 14.14.1 慢速车道首跑结论（`973d0ce6`，run `35517095792`）：一次真跑抓出 3 个真 bug
+
+**Fast tier 4/4 ✅**：包括**无重试**的 `--workspace --lib` 与新延迟车道
+（`Run latency benchmarks serially (--test-threads 1)` = **success**，ANSI 修复生效）。
+**慢速车道第一次真正执行**（job 数 8 → 16），立刻红 3 条 —— 全部是"从未被执行过的路径"的
+典型形态：
+
+| # | job / step | 根因（实测） | 修法 |
+|---|---|---|---|
+| 1 | **Integration Tests** → `Verify deploy-path migrations apply…` | P2 表检查写的是 `psql -d synapse`：libpq **不读 `DATABASE_URL`**，于是用 runner 的隐式默认（OS 用户/无密码）连接 → 连接失败 → 4 张 `burn_after_read_*` 全部被判"缺失"并 `aborting`（实际 baseline 里有 8 处引用）。**同类错误的第二次出现**（第一次是 `psql -c "CREATE DATABASE …" \|\| true`，run 35489156849） | 改用 `psql "$DATABASE_URL"`；新增守卫 `every_ci_psql_call_supplies_an_explicit_connection`（扫全部 workflow：每个 `psql` 必须有 URL 或 `-h`+`-U`） |
+| 2 | **Build Check (core-matrix-min)** | 两层：① 步骤把 matrix 值裸插进命令行 `--features ${{ matrix.profile.features }}`，而该车道列表**故意为空** ⇒ `--features  --locked` ⇒ `error: a value is required for '--features <FEATURES>' but none was supplied`；② 修掉语法错误后本地实测 `cargo check --no-default-features` 仍红：`error[E0432]: unresolved import synapse_services::CreateRoomConfig`（`synapse-web/src/routes/dm.rs:18`）—— `room/` 合并（P2-1/P2-2）后 crate root 不再 re-export 它，只有 `room::service`（经 `room/mod.rs` 的 `pub use service::{…}`）导出；而这条 `#[cfg(not(feature = "friends"))]` 分支只在 `friends` 关掉时编译，默认 feature 里它开着 ⇒ **死路径，从未被编译过**（另外两个 matrix 车道因兄弟失败被 cancelled，cancelled ≠ 通过） | ① matrix 值先入 `PROFILE_FEATURES` shell 变量、判空后再决定是否传 `--features`；② 路径改为 `synapse_services::room::CreateRoomConfig`。守卫 `build_matrix_features_are_not_interpolated_raw`（禁 `--features ${{ matrix`）；最小 feature 构建本身由 Build Check 车道把守（本地实跑 `cargo check --no-default-features` = exit 0，仅剩 6 条 feature-off 下的 unused-variable warnings） |
+| 3 | **Security Audit** → `Supply-chain gate` | runner 镜像自带**半成品** `~/.cargo/advisory-db`，`cargo audit` 的 fetch 报 `Refusing to initialize the non-empty directory as '/home/runner/.cargo/advisory-db'`，随后 `jq` 对空 JSON 报 parse error（exit 5） | `cargo audit` 前 `rm -rf "$CARGO_HOME/advisory-db"`（**缓存重置，不是绕过**：fetch 失败仍会让门禁红）；守卫 `supply_chain_gate_resets_the_cached_advisory_db` |
+
+三条守卫均现场红证明（改回旧写法 → FAILED；恢复 → PASS）。
+另：`Code Coverage` 因 `needs: integration-test` 失败而 skipped —— 正确行为，`ci-summary`
+哨兵本轮**没有误报**（不变量②只要求"事件要求的车道不许 skipped"，且 coverage 只在其上游
+**成功**时才被要求，本地 9 例矩阵已覆盖这一格）。
+
+**第 4 个发现（本地补跑）**：修掉 `--features ""` 的语法错误后，`cargo check
+--no-default-features` 在本机仍然红 —— 见上表第 2 行的 ②（`dm.rs` 的死分支导入）。
+即这条车道藏着**两层**问题：先是一行语法错误挡住编译，语法修好后立刻暴露一个真实的
+feature-gating 缺陷。这也说明"修到第一个错误为止"是不够的，必须把整条车道跑完。
+
+**结论**：把三条从未跑过的门禁接上电，第一次就换回 **4 个真实缺陷**（CI 配置 2 个、
+shell/脚本对 runner 环境的假设 1 个、产品侧 feature-gating 1 个）—— 这本身就是"门禁必须
+真的执行"这条不变量（§14.14 ③）的价值证明。下一轮 push 将把这四条跑道第一次跑绿
+（或暴露更多）。
+
+**残留（本轮登记，未做）**：
+- `core-matrix-min` 下仍有 **6 条 unused-variable warnings**（`admin/room/management.rs` 3 条、
+  `handlers/room/members.rs` 3 条）—— 它们是 feature-off 配置特有的（`request_id` 等只在
+  某些 feature 下被使用）。`cargo build` 不因警告失败，但按要求本应清零；安全修法是给这些
+  绑定加 `#[cfg_attr]`/`_` 前缀**并逐个确认在 feature-on 时仍被使用**，属于独立小任务。
+- Build Check 现在要跑 **3 个 release profile + 1 个 worker bin**，首次真跑会很慢
+  （release 全量编译 ×3）；若成本不可接受，可评估改为 `cargo check --release`
+  （会失去链接期检查，属权衡，不在本轮改）。

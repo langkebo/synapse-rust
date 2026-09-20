@@ -369,3 +369,59 @@ fn require_tests_ran_sees_through_ansi_color() {
     let plain_ok = run(r#"printf 'test result: ok. 12 passed; 0 failed; 0 ignored\n'"#);
     assert!(plain_ok.status.success(), "无颜色的 `12 passed` 必须仍然绿：\n{}", combined(&plain_ok));
 }
+
+/// Build Check 的 matrix 里有一个 **feature 列表为空**的车道（`core-matrix-min`，
+/// 证明不打开任何可选 feature 也能编译）。把 matrix 值直接插进命令行会变成
+/// `--features  --locked`，cargo 直接报
+/// `error: a value is required for '--features <FEATURES>' but none was supplied`
+/// —— 本 job 第一次真正执行时（run 35517095792）就是这样红的（§14.14）。
+///
+/// 判据：ci.yml 不得出现裸插值 `--features ${{ matrix`；Build 步骤必须先把
+/// matrix 值放进 shell 变量并判空。
+///
+/// **红证明**：把 Build 步骤改回
+/// `run: cargo build --release --no-default-features --features ${{ matrix.profile.features }} --locked`
+/// → 本测试 FAILED。
+#[test]
+fn build_matrix_features_are_not_interpolated_raw() {
+    let ci = fs::read_to_string(repo_root().join(".github/workflows/ci.yml")).expect("read ci.yml");
+    assert!(
+        ci.contains("features: \"\""),
+        "Build Check 的 matrix 必须仍有一个空 feature 列表的车道（core-matrix-min），否则本守卫的前提消失"
+    );
+    assert!(
+        !ci.contains("--features ${{ matrix"),
+        "不得把 matrix 的 features 直接插进命令行：空值会让 cargo 报 \
+         `a value is required for '--features <FEATURES>' but none was supplied`"
+    );
+    assert!(
+        ci.contains("PROFILE_FEATURES: ${{ matrix.profile.features }}")
+            && ci.contains("if [ -n \"${PROFILE_FEATURES}\" ]"),
+        "Build 步骤必须把 matrix features 放进 shell 变量并判空后再决定是否传 --features"
+    );
+}
+
+/// 供应链门禁必须先清掉 runner 镜像里那份**半成品** RustSec DB。
+///
+/// `cargo audit` 把 DB clone 到 `${CARGO_HOME}/advisory-db`，并**拒绝**把它初始化进一个
+/// 非空目录。GitHub runner 镜像自带一个残留的 `~/.cargo/advisory-db`，于是本 job
+/// 第一次真正执行时（run 35517095792）报
+/// `error: couldn't fetch advisory database: git operation failed: failed to prepare clone
+///  -> Refusing to initialize the non-empty directory as '/home/runner/.cargo/advisory-db'`，
+/// 后面的 `jq` 再对空 JSON 报 parse error（§14.14）。
+///
+/// **红证明**：删掉脚本里 `cargo audit` 之前那行 `rm -rf … advisory-db` → 本测试 FAILED。
+#[test]
+fn supply_chain_gate_resets_the_cached_advisory_db() {
+    let gate =
+        fs::read_to_string(repo_root().join("scripts/ci/supply_chain_gate.sh")).expect("read supply_chain_gate.sh");
+    let audit = gate.find("cargo audit \\").or_else(|| gate.find("cargo audit")).expect("脚本必须调用 cargo audit");
+    let before = &gate[..audit];
+    let cleanup = before
+        .rfind("advisory-db")
+        .expect("cargo audit 之前必须先重置缓存的 advisory-db（否则非空目录会让 fetch 失败）");
+    assert!(
+        before[..cleanup].contains("rm -rf"),
+        "重置 advisory-db 必须用 `rm -rf`（runner 镜像里那份可能是半成品 git 目录）"
+    );
+}

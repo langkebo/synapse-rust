@@ -72,6 +72,21 @@ fi
 # audit DB must be fresh on every run.
 if command -v cargo-audit >/dev/null 2>&1; then
     echo "==> cargo-audit"
+    # `cargo audit` clones the RustSec DB into `${CARGO_HOME:-~/.cargo}/advisory-db`
+    # and **refuses to initialize a non-empty directory**. The GitHub runner image
+    # already ships a partial `~/.cargo/advisory-db`, so the first time this job
+    # ever ran it aborted with:
+    #   error: couldn't fetch advisory database: git operation failed:
+    #   failed to prepare clone
+    #     -> Refusing to initialize the non-empty directory as
+    #        '/home/runner/.cargo/advisory-db'
+    # and the follow-up `jq` then failed on the (empty) JSON
+    # (measured 2026-09-20, CI run 35517095792 — the job had been skipped for 30
+    # runs before that). Removing the cached DB makes the fetch start clean, which
+    # is also what the comment above demands: the audit DB must be fresh on every
+    # run. This is a cache reset, not a check bypass — a failed fetch still fails
+    # the gate below.
+    rm -rf "${CARGO_HOME:-$HOME/.cargo}/advisory-db"
     mkdir -p artifacts
     cargo audit \
         --deny warnings \

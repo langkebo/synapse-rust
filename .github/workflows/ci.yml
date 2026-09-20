@@ -747,9 +747,18 @@ jobs:
           bash docker/db_migrate.sh migrate
           # P2 fail-fast: same guard as Test & Lint job — refuse to start tests
           # if critical tables are missing after migration.
+          #
+          # ⚠️ 必须用 `psql "$DATABASE_URL"`，不能写 `psql -d synapse`：libpq/psql
+          # **不读 `DATABASE_URL`**，后者会用 runner 的隐式默认（OS 用户 + 无密码）
+          # 去连，连接直接失败 ⇒ `grep -q 1` 恒不匹配 ⇒ 4 张表全部报"缺失"并中止。
+          # 这正是本 job 第一次真正执行时（run 35517095792）的失败形态：
+          #   `##[error]Required table missing after migration: burn_after_read_pending`
+          # 而库里这些表其实都在（baseline 建了 8 处引用）。同一类错误此前在
+          # `CREATE DATABASE synapse_test` 那条 `|| true` 上已经踩过一次（run 35489156849）。
+          # 守卫：`tests/unit/migration_consistency_tests.rs::every_ci_psql_call_supplies_an_explicit_connection`。
           missing=0
           for table in burn_after_read_pending burn_after_read_settings burn_after_read_log burn_after_read_user_defaults; do
-            if ! psql -d synapse -tAc "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='$table'" | grep -q 1; then
+            if ! psql "$DATABASE_URL" -tAc "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='$table'" | grep -q 1; then
               echo "::error::Required table missing after migration: $table"
               missing=$((missing+1))
             fi
@@ -966,7 +975,20 @@ jobs:
           key: ${{ matrix.profile.name }}
 
       - name: Build ${{ matrix.profile.name }}
-        run: cargo build --release --no-default-features --features ${{ matrix.profile.features }} --locked
+        env:
+          PROFILE_FEATURES: ${{ matrix.profile.features }}
+        run: |
+          # `core-matrix-min` 的 feature 列表**故意为空**（证明不打开任何可选 feature
+          # 也能编译）。把 matrix 值直接插进命令行会变成 `--features  --locked`，
+          # cargo 直接报
+          #   `error: a value is required for '--features <FEATURES>' but none was supplied`
+          # —— 本 job 第一次真正执行时（run 35517095792）就是这样红的。
+          # 守卫：`tests/unit/ci_test_scope_tests.rs::build_matrix_features_are_not_interpolated_raw`.
+          if [ -n "${PROFILE_FEATURES}" ]; then
+            cargo build --release --no-default-features --features "${PROFILE_FEATURES}" --locked
+          else
+            cargo build --release --no-default-features --locked
+          fi
 
       - name: Build wasm (if applicable)
         run: cargo build --release --bin synapse_worker --locked

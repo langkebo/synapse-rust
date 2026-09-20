@@ -14,8 +14,15 @@ use serde_json::{json, Map, Value};
 use synapse_common::current_timestamp_millis;
 #[cfg(feature = "friends")]
 use synapse_services::friend_room_service::FriendRoomCreateRoomConfig;
+// 路径必须是 `synapse_services::room::CreateRoomConfig`：`room/` 合并（P2-1/P2-2）之后
+// crate root 不再 re-export 这个类型，只有 `room::service`（经 `room/mod.rs`
+// 的 `pub use service::{…}`）导出它。写 `synapse_services::CreateRoomConfig` 会
+// `error[E0432]: unresolved import`，而这条分支只在 **`friends` 关掉**时编译 ——
+// 默认 feature 里 `friends` 是开的，所以这个死路径一直没人编译过，直到
+// Build Check 的 `core-matrix-min`（`--no-default-features`）第一次真正执行
+// （run 35517095792，§14.14.1）。
 #[cfg(not(feature = "friends"))]
-use synapse_services::CreateRoomConfig;
+use synapse_services::room::CreateRoomConfig;
 use validator::Validate;
 
 /// The `CreateDmRequest` struct.
