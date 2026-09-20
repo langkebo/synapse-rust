@@ -893,3 +893,88 @@ fmt 棘轮 `current=0=baseline`；clippy 两档 0 error；unit **1706 passed / 2
 5. ✅ 已修：`seed_fixture` 的清理扩展到**本 bench 的 event_id 命名空间**（`event_id LIKE '$bench%'`），外来同名夹具不再让本地重跑在 `pk_events` 上 seed 失败（CI 先重置 schema，不受影响）。
    本地重跑会 seed 失败（**fail-closed，不是假绿**，但对本地复跑是个坑）。
 6. `keyset_shallow_us` 被输出但未参与判定，且在 `force_generic_plan` 下测得偏高（11–16ms），像另一个待查问题。
+
+---
+
+## 12. 第七轮：结构性收敛（连接级租约 / db_tests 迁移 / ORDER BY 别名缺陷 / 时间戳单源化）
+
+### 12.1 连接派生 schema 租约（§1.9.5 第 2 条 → 已收敛）
+janitor 原先用 `Weak<Arc<PgPool>>` 判定"池已释放"，而服务只持**内层** `PgPool` 克隆 ⇒ fixture 把服务交给
+调用方、自己丢掉 `Arc` 后，janitor 会在测试仍在查询时 `DROP SCHEMA`，未限定名 SQL 静默落到共享 `public`
+（原始探针：`dropped_while_in_use=true current_schema=public`）。
+
+**新机制（连接派生）**
+- 单一 key `synapse_common::test_schema_guard::schema_lease_key(schema)`（FNV-1a 64），fixtures 与 janitor 共用；
+- **发布**：隔离池每条连接的 `after_connect` 在设完 `search_path` 后取 `pg_advisory_lock_shared(k)`（会话级，
+  连接关闭自动释放）。**共享锁是必需的**：首版排他锁会把多连接池串行化（media 守卫测试 **608s → 2.68s**）；
+- **收割**：janitor 用冲突的排他 `pg_try_advisory_lock(k)`：拿到才 `DROP`（持锁期间删），拿不到 ⇒
+  `CleanupOutcome::Retry`，条目回 `PENDING` 并 `next_attempt = now + 250ms`，后续 pass 重试；
+- 退出路径不变（`on_exit` 仍是无条件 `DROP`）；`IsolatedTestPool` 删除自带 `Drop`，改为注册 janitor（一套实现）。
+
+**红证明（已转常驻测试 `janitor_does_not_drop_a_schema_held_through_an_inner_pool_clone`）**
+改前：`the janitor dropped <schema> while an inner PgPool clone was still open: to_regnamespace=false
+current_schema=public` → FAILED；改后：ok（含"内层克隆释放后 janitor 必须删、不泄漏"的另一半）。
+验证：`cargo test -p synapse-common --lib --all-features` = **900 passed / 0 failed**；janitor 模块 7 passed。
+
+**顺带修掉的两个真实缺陷**：① `#[tokio::test]` 运行时内驱动全局清理会 panic，且被 `catch_unwind` 吞掉、
+条目被消费 ⇒ **泄漏**（改为 runtime-aware 的 `run_cleanup_future`）；② `guard_exposes_pool_and_schema_name`
+对不可达 URL 注册真实清理，造成套件级 10s 停顿。
+
+**残留（已记录）**：① 租约是**连接级**的——活着的 handle 若连接全部因 `idle_timeout` 关闭，schema 仍可能被删，
+下次查询落到 `public`（窗口远窄于原先"存在内层克隆就必然中招"，但未消除）；janitor 持排他锁期间卡在
+`after_connect` 的连接同理。② 连接/DDL 失败时 `drop_schema_if_unleased_blocking` 返回 `Done`（避免 DB 故障期
+热重试），这类 schema 交 `scripts/cleanup_test_schemas.sh`。③ 清理由同步 `Drop` 变为异步（≤ 一个 poll 间隔），
+进程退出仍由 atexit 的无条件 DROP 兜底。
+
+### 12.2 共享 `public` db_tests 迁移（§1.9.5 第 1 条 → 已收敛 27 个模块）
+把带 **schema 级 sweep / 级联计数**的模块改为 per-test 隔离池（`isolated_test_pool()` + `_isolated` 绑定），
+并把原先"因共享 schema 才放宽"的断言收紧为精确值（`deleted >= 1` → `== 1` 等，共 23 处，均注明为何现在安全）。
+迁移清单（27）：retention, token, threepid, dehydrated_device, widget, qr_login, federation_blacklist,
+sticky_event, invite_blocklist, cas, room, room::admin, search_index, maintenance, registration_token,
+federation_queue, presence, device, filter, sliding_sync, call_session, login_token, matrixrtc,
+media::chunked_upload, saml, e2ee_audit, admin_federation（+ 更早已修的 beacon/audit/url_preview/media-service）。
+
+**确定性红证明**：matrixrtc 用共享池 + 收紧断言 → `left 9 / right 1`；admin_federation → `count 233 vs 3`、
+`pending 101 vs 2`、`clear cache 4 vs 2`、分页被外来行挤出页窗。隔离后稳定（`28/28 ×3`、`75/75 ×3`）。
+**剩余 22 个模块判定 safe-as-is**（增删/计数都按 per-test 唯一 id）：account_data, application_service,
+burn_after_read, event_report, event, friend_room, membership, oidc_user_mapping, privacy, push, rate_limit,
+relations, room_account_data, room_summary, room_tag, server_notification, space, state_groups, thread, voice,
+worker, schema_validator。
+⚠️ **长期约束**：这 22 个模块**一旦长出 schema 级 sweep / 全局 COUNT 就会重新进入 flake 类**——新增此类操作
+必须同时改用隔离池（`tests/common` 与 `synapse-storage/src/test_utils.rs` 的注释里已写明该判据）。
+另记一条可靠性瑕疵（非 flake）：`schema_validator::validate_column_exists` 缺 `table_schema` 过滤，会跨 schema 计数。
+
+### 12.3 真实生产缺陷：`ORDER BY` 输出别名遮蔽（E4 的 ⑥ → 已修并纳入门禁）
+`ROOM_EVENT_COLS` 里 `COALESCE(origin_server_ts, 0) as origin_server_ts` 遮蔽同名列，而 keyset SQL 用
+**不带限定名**的 `ORDER BY origin_server_ts` ⇒ PG 优先绑定**输出列**，排序键变成 `COALESCE(...)`，
+`idx_events_room_ts_stream` 无法提供有序扫描，计划退化为"对游标之上所有行排序"——**越浅越慢**，
+`/messages` **第一页是最坏情况**。实测（150k 夹具、prepared + `force_generic_plan` = 生产形状）：
+
+| 页 | 改前 | 改后 |
+|---|---|---|
+| 无游标（最浅） | 30000 行 / **18.180 ms**（Sort(COALESCE) + Bitmap） | 100 行 / **0.049 ms**（Index Scan） |
+| 1% 游标 | 29701 行 / 10.648 ms | 100 行 / 0.044 ms |
+| 90% 深页 | 3000 行 / 1.210 ms | 100 行 / 0.052 ms |
+
+修复：`pagination.rs` 中 **14 处** `ORDER BY` 全部限定为 `events.*`（含 5 处良性输出列，使守卫可全量断言）；
+行值谓词与 `ROOM_EVENT_COLS` 未动。
+
+**门禁对齐与增强**：① 计划探针从"窄 `SELECT event_id` 代理形状"改为**生产形状**（`ROOM_EVENT_COLS` + 行值谓词
++ 限定 ORDER BY），并要求命中 `idx_events_room_ts_stream` 且**无 Sort 节点**（旧的 Bitmap+Sort 不再算绿）；
+② 深浅采样改为**交错**（消除块采样在负载抖动下的假阳性），新增 `shallow_over_deep_x` 与检查 5
+（`PAGINATION_MAX_SHALLOW_RATIO=4.0`，floor `PAGINATION_SHALLOW_BREACH_FLOOR_US=5000`）。
+**红证明（回退 14 处限定名）**：`shallow_over_deep_x=7.17` → BREACH → **FAILED exit 1**，而
+`gain_x=4.39` / `index_scan=1` 仍绿——**只有新增的浅页检查能抓住这个回归**。绿：
+`gain_x=19.21 shallow_over_deep_x=0.95 index_scan=1 correct=1` → PASSED。
+
+### 12.4 固定时间戳单源化（E8 残留 → 已收敛）
+常量只留在 `scripts/api_test/artifact_common.py::FIXED_TIMESTAMP`；`gen_client_yaml.py` 改为 import；
+`ci.yml` 导出步骤用 `python3 -c … artifact_common.FIXED_TIMESTAMP` 读取后传 `--timestamp`。
+**红/绿**：改常量 → `gen_route_table.py --check` 报 stale（diff 出 `generated_at`）exit 1；还原 → exit 0。
+**前提纠正**：该字面量不在 `benchmark.yml` 而在 `ci.yml`；`ROUTE_CONTRACT.md` 用 `datetime.date.today()`
+（其门禁归一化该行）；`client.yaml` 的 `Generated at` 来自提交的 `ledger.json` —— 所以"三处一致"实际是
+**一处代码常量 + 提交产物的 `generated_at`（作为守卫）**。
+
+### 12.5 提示：门禁四件套是本轮最后的验证动作
+`fmt + clippy 两档 + unit + 全量 lib（无 retries）` 在**冻结树**（提交 `6c3c6b38` / `85cbcfa8` / `2b6f41f6`
+/ `e05c5141`）上跑，作为本轮收尾证据；结果见本节补记。
