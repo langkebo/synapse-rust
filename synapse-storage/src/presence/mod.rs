@@ -759,10 +759,17 @@ mod db_tests {
     use std::sync::Arc;
     use synapse_cache::{CacheConfig, CacheManager};
 
-    async fn test_pool() -> Arc<Pool<Postgres>> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// Shared `public` is deliberately replaced by a per-test schema here:
+    /// the presence/typing helpers delete rows by user suffix and several tests assert
+    /// on counts over the whole schema, which sibling fixtures changed.
+    ///
+    /// Eliminating the shared state removes the race instead of serialising around it
+    /// (AGENTS.md rule 7). The guard is returned with the pool so the schema outlives
+    /// the whole test — dropping it early spawns a background `DROP SCHEMA`.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<Pool<Postgres>>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     fn test_cache() -> Arc<CacheManager> {
@@ -797,7 +804,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_presence_online() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@pres_test_online_{suffix}:localhost");
         cleanup_presence_data(&pool, &suffix).await;
@@ -821,7 +828,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_presence_offline() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@pres_test_offline_{suffix}:localhost");
         cleanup_presence_data(&pool, &suffix).await;
@@ -843,7 +850,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_presence_unavailable_with_status() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@pres_test_unavail_{suffix}:localhost");
         cleanup_presence_data(&pool, &suffix).await;
@@ -874,7 +881,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_presence_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@pres_test_get_found_{suffix}:localhost");
         cleanup_presence_data(&pool, &suffix).await;
@@ -895,7 +902,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_presence_not_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@pres_test_get_miss_{suffix}:localhost");
         cleanup_presence_data(&pool, &suffix).await;
@@ -919,7 +926,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_presence_with_meta_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@pres_test_meta_{suffix}:localhost");
         cleanup_presence_data(&pool, &suffix).await;
@@ -946,7 +953,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_presences_multiple_users() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_a = format!("@pres_test_bulk_a_{suffix}:localhost");
         let user_b = format!("@pres_test_bulk_b_{suffix}:localhost");
@@ -970,7 +977,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_presences_empty_batch() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = PresenceStorage::new(pool.clone(), test_cache());
 
         let map = storage.get_presences(&[]).await.expect("get_presences should succeed");
@@ -983,7 +990,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_typing_true() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@pres_test_typing_t_{suffix}:localhost");
         let room_id = format!("!test_room_typing_t_{suffix}:localhost");
@@ -1009,7 +1016,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_typing_false_removes_row() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@pres_test_typing_f_{suffix}:localhost");
         let room_id = format!("!test_room_typing_f_{suffix}:localhost");
@@ -1033,7 +1040,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_typing_updates_timestamp() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@pres_test_typing_upd_{suffix}:localhost");
         let room_id = format!("!test_room_typing_upd_{suffix}:localhost");
@@ -1076,7 +1083,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_add_subscription_subscribes() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let subscriber = format!("@pres_test_sub_a_{suffix}:localhost");
         let target = format!("@pres_test_sub_t_{suffix}:localhost");
@@ -1100,7 +1107,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_add_subscription_idempotent() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let subscriber = format!("@pres_test_idem_s_{suffix}:localhost");
         let target = format!("@pres_test_idem_t_{suffix}:localhost");
@@ -1120,7 +1127,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_remove_subscription_removes() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let subscriber = format!("@pres_test_rem_s_{suffix}:localhost");
         let target = format!("@pres_test_rem_t_{suffix}:localhost");
@@ -1140,7 +1147,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_remove_subscription_idempotent() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let subscriber = format!("@pres_test_rem_ni_{suffix}:localhost");
         let target = format!("@pres_test_rem_nt_{suffix}:localhost");
@@ -1162,7 +1169,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_subscriptions_returns_list() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let subscriber = format!("@pres_test_gsubs_s_{suffix}:localhost");
         let target_a = format!("@pres_test_gsubs_a_{suffix}:localhost");
@@ -1186,7 +1193,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_subscriptions_empty() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let subscriber = format!("@pres_test_gsubs_e_{suffix}:localhost");
         cleanup_presence_data(&pool, &suffix).await;
@@ -1205,7 +1212,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_subscribers_returns_list() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let target = format!("@pres_test_follow_t_{suffix}:localhost");
         let follower_a = format!("@pres_test_follow_a_{suffix}:localhost");
@@ -1229,7 +1236,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_subscribers_empty() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let target = format!("@pres_test_follow_e_{suffix}:localhost");
         cleanup_presence_data(&pool, &suffix).await;
@@ -1248,7 +1255,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_presence_batch_multiple_users() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_a = format!("@pres_test_batch_a_{suffix}:localhost");
         let user_b = format!("@pres_test_batch_b_{suffix}:localhost");
@@ -1280,7 +1287,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_presence_batch_with_meta() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user = format!("@pres_test_batch_m_{suffix}:localhost");
         cleanup_presence_data(&pool, &suffix).await;
@@ -1311,7 +1318,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_presence_snapshots_returns_data() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_a = format!("@pres_test_snap_a_{suffix}:localhost");
         let user_b = format!("@pres_test_snap_b_{suffix}:localhost");
@@ -1341,7 +1348,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_presence_snapshots_empty() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = PresenceStorage::new(pool.clone(), test_cache());
 
         let snapshots = storage.get_presence_snapshots(&[]).await.expect("get_presence_snapshots should succeed");
@@ -1354,7 +1361,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_presence_batch_inserts_multiple_users() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_a = format!("@pres_batch_ins_a_{suffix}:localhost");
         let user_b = format!("@pres_batch_ins_b_{suffix}:localhost");
@@ -1390,7 +1397,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_presence_batch_upserts_existing_rows() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_a = format!("@pres_batch_ups_a_{suffix}:localhost");
         let user_b = format!("@pres_batch_ups_b_{suffix}:localhost");
@@ -1424,7 +1431,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_presence_batch_empty_is_noop() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = PresenceStorage::new(pool.clone(), test_cache());
 
         let entries: Vec<(String, String, Option<String>)> = vec![];
@@ -1433,7 +1440,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_presence_batch_populates_cache() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_a = format!("@pres_batch_cache_a_{suffix}:localhost");
         let user_b = format!("@pres_batch_cache_b_{suffix}:localhost");
@@ -1464,7 +1471,7 @@ mod db_tests {
     async fn test_get_presence_snapshots_uses_batch_cache() {
         // C-3: Verify that get_presence_snapshots populates cache via batch
         // (not N+1 individual cache.set calls).
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_a = format!("@pres_snap_batch_a_{suffix}:localhost");
         let user_b = format!("@pres_snap_batch_b_{suffix}:localhost");

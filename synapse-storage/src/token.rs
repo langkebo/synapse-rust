@@ -598,10 +598,17 @@ mod tests {
 mod db_tests {
     use super::*;
 
-    async fn test_pool() -> Arc<Pool<Postgres>> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// Shared `public` is deliberately replaced by a per-test schema here:
+    /// `cleanup_expired_tokens()` is a schema-wide `DELETE FROM access_tokens`, so a
+    /// sibling test's token could be revoked by this module's sweep (and vice versa).
+    ///
+    /// Eliminating the shared state removes the race instead of serialising around it
+    /// (AGENTS.md rule 7). The guard is returned with the pool so the schema outlives
+    /// the whole test — dropping it early spawns a background `DROP SCHEMA`.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<Pool<Postgres>>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     /// Insert a minimal user row so the foreign-key constraint on
@@ -643,7 +650,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_token_returns_valid_record() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AccessTokenStorage::new(&pool);
         let token_str = &format!("test_token_{}", uuid::Uuid::new_v4());
         let user_id = "@test_user:example.com";
@@ -662,7 +669,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_token_with_device_id() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AccessTokenStorage::new(&pool);
         let token_str = &format!("test_device_token_{}", uuid::Uuid::new_v4());
         let device_id = &format!("device_{}", uuid::Uuid::new_v4());
@@ -680,7 +687,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_token_with_expiry() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AccessTokenStorage::new(&pool);
         let token_str = &format!("test_expiring_token_{}", uuid::Uuid::new_v4());
         let expires_at = current_timestamp_millis() + 3600000;
@@ -697,7 +704,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_token_finds_created_token() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AccessTokenStorage::new(&pool);
         let token_str = &format!("test_retrieve_{}", uuid::Uuid::new_v4());
 
@@ -713,7 +720,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_token_returns_none_for_nonexistent() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AccessTokenStorage::new(&pool);
 
         let result = storage.get_token("nonexistent_token_12345").await.expect("query should succeed");
@@ -723,7 +730,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_tokens_returns_only_user_tokens() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AccessTokenStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user_a = &format!("@user_a_{suffix}:test.com");
@@ -741,7 +748,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_token_revokes_it() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AccessTokenStorage::new(&pool);
         let token_str = &format!("test_revoke_{}", uuid::Uuid::new_v4());
 
@@ -755,7 +762,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_is_token_revoked_detects_revoked() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AccessTokenStorage::new(&pool);
         let token_str = &format!("test_is_revoked_{}", uuid::Uuid::new_v4());
 
@@ -769,7 +776,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_user_tokens_revokes_all_for_user() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AccessTokenStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user = &format!("@bulk_revoke_{suffix}:test.com");
@@ -786,7 +793,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_token_exists_positive_and_negative() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AccessTokenStorage::new(&pool);
         let token_str = &format!("test_exists_{}", uuid::Uuid::new_v4());
 
@@ -799,7 +806,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_blacklist_add_and_check() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AccessTokenStorage::new(&pool);
         let token_str = &format!("test_blacklist_{}", uuid::Uuid::new_v4());
 
@@ -812,7 +819,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_user_device_tokens_targets_specific_device() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AccessTokenStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user = &format!("@device_revoke_{suffix}:test.com");

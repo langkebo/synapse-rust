@@ -286,10 +286,22 @@ mod db_tests {
     use std::sync::Arc;
     use uuid::Uuid;
 
-    async fn test_pool() -> Arc<PgPool> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// Shared `public` is deliberately replaced by a per-test schema here:
+    /// `count_destinations()` is a schema-wide `SELECT COUNT(*) FROM
+    /// federation_servers` and `count_pending_federation()` is a schema-wide
+    /// `status = 'pending'` count, so a sibling test's rows inflated both. The
+    /// sibling rows also shifted `list_destinations()`' page windows, which could
+    /// push this module's own rows across a page boundary while
+    /// `test_list_destinations_pagination` walked the cursor.
+    ///
+    /// Eliminating the shared state removes the interference instead of
+    /// serialising around it (AGENTS.md rule 7). The guard is returned with the
+    /// pool so the schema outlives the whole test — dropping it early spawns a
+    /// background `DROP SCHEMA` that can race with in-flight queries.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     async fn cleanup_server_prefix(pool: &PgPool, prefix: &str) {
@@ -327,7 +339,7 @@ mod db_tests {
     // 1. count_destinations returns total count of federation_servers.
     #[tokio::test]
     async fn test_count_destinations() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let prefix = format!("test-count-{}%", suffix);
@@ -340,7 +352,9 @@ mod db_tests {
         }
 
         let count = storage.count_destinations().await.expect("count_destinations should succeed");
-        assert!(count >= 3, "should count at least 3 servers, got {count}");
+        // Exact: per-test schema (see `test_pool`) — `SELECT COUNT(*)` spans the whole
+        // schema, and the only rows in it are the 3 inserted above.
+        assert_eq!(count, 3, "isolated schema must hold exactly our 3 servers, got {count}");
 
         cleanup_server_prefix(&pool, &prefix).await;
     }
@@ -348,7 +362,7 @@ mod db_tests {
     // 2. list_destinations returns cursor-paginated results ordered by server_name.
     #[tokio::test]
     async fn test_list_destinations_pagination() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let prefix = format!("test-list-{}%", suffix);
@@ -363,7 +377,9 @@ mod db_tests {
 
         // First page: no cursor, limit=3.
         let page1 = storage.list_destinations(None, 3).await.expect("list_destinations page 1 should succeed");
-        assert!(!page1.is_empty(), "first page should not be empty");
+        // Exact: per-test schema (see `test_pool`) — no sibling rows exist to fill the
+        // page, so page 1 is exactly the page size.
+        assert_eq!(page1.len(), 3, "isolated schema's first page must be exactly the page size");
 
         // Collect all our test servers across pages by paginating until done.
         let mut all_seen: Vec<String> = Vec::new();
@@ -381,15 +397,14 @@ mod db_tests {
             cursor = page.last().and_then(|r| r.server_name.clone());
         }
 
-        // All our test servers should appear in the full result set.
-        for s in &servers {
-            assert!(all_seen.contains(s), "server {} should appear in paginated results", s);
-        }
-
-        // Verify ascending order across results.
-        for w in all_seen.windows(2) {
-            assert!(w[0] < w[1], "server_name should be ascending: {} < {}", w[0], w[1]);
-        }
+        // The walk must surface exactly this test's 5 servers, in ascending order.
+        // `servers` is already sorted, so the exact comparison subsumes both the old
+        // "each of ours appears" loop and the ascending-order check, while keeping the
+        // walking-the-pages intent intact.
+        //
+        // Exact: per-test schema (see `test_pool`) — sibling rows used to shift the page
+        // windows and could split our rows across a boundary; this equality would fail.
+        assert_eq!(all_seen, servers, "cursor walk must return exactly our own servers, in ascending order");
 
         cleanup_server_prefix(&pool, &prefix).await;
     }
@@ -397,7 +412,7 @@ mod db_tests {
     // 3. get_destination retrieves a specific server record.
     #[tokio::test]
     async fn test_get_destination_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-get-{}.com", suffix);
@@ -422,7 +437,7 @@ mod db_tests {
     // 4. get_destination returns None for unknown server.
     #[tokio::test]
     async fn test_get_destination_not_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-get-nonexist-{}.com", suffix);
@@ -434,7 +449,7 @@ mod db_tests {
     // 5. reset_connection clears last_failed_connect_at and failure_count.
     #[tokio::test]
     async fn test_reset_connection() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-reset-{}.com", suffix);
@@ -474,7 +489,7 @@ mod db_tests {
     // 6. reset_connection returns 0 when server does not exist.
     #[tokio::test]
     async fn test_reset_connection_no_match() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-reset-nonexist-{}.com", suffix);
@@ -486,7 +501,7 @@ mod db_tests {
     // 7. delete_destination removes a server row and returns rows_affected.
     #[tokio::test]
     async fn test_delete_destination() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-del-{}.com", suffix);
@@ -510,7 +525,7 @@ mod db_tests {
     // 8. delete_destination returns 0 when server does not exist.
     #[tokio::test]
     async fn test_delete_destination_no_match() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-del-nonexist-{}.com", suffix);
@@ -522,7 +537,7 @@ mod db_tests {
     // 9. destination_exists returns true for a known server.
     #[tokio::test]
     async fn test_destination_exists_true() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-exists-{}.com", suffix);
@@ -542,7 +557,7 @@ mod db_tests {
     // 10. destination_exists returns false for an unknown server.
     #[tokio::test]
     async fn test_destination_exists_false() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-exists-nonexist-{}.com", suffix);
@@ -554,7 +569,7 @@ mod db_tests {
     // 11. get_destination_rooms returns distinct room_ids from federation_queue.
     #[tokio::test]
     async fn test_get_destination_rooms() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
 
@@ -615,7 +630,7 @@ mod db_tests {
     // 12. get_destination_rooms returns empty vector when no rows match.
     #[tokio::test]
     async fn test_get_destination_rooms_empty() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-rooms-empty-{}.com", suffix);
@@ -627,7 +642,7 @@ mod db_tests {
     // 13. get_destination_status returns COALESCE(status, 'active').
     #[tokio::test]
     async fn test_get_destination_status_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-status-{}.com", suffix);
@@ -647,7 +662,7 @@ mod db_tests {
     // 14. get_destination_status returns None for unknown server.
     #[tokio::test]
     async fn test_get_destination_status_not_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-status-nonexist-{}.com", suffix);
@@ -659,7 +674,7 @@ mod db_tests {
     // 15. get_server_admission_status: unknown server returns None.
     #[tokio::test]
     async fn test_get_server_admission_status_unknown() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-admission-unknown-{}.com", suffix);
@@ -674,7 +689,7 @@ mod db_tests {
     // 16. get_server_admission_status: known server with explicit status returns Some(Some(...)).
     #[tokio::test]
     async fn test_get_server_admission_status_known() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-admission-known-{}.com", suffix);
@@ -697,7 +712,7 @@ mod db_tests {
     // 17. insert_pending_server inserts a new row with status='pending' and returns rows_affected=1.
     #[tokio::test]
     async fn test_insert_pending_server_new() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-insert-pending-{}.com", suffix);
@@ -725,7 +740,7 @@ mod db_tests {
     // 18. insert_pending_server with ON CONFLICT DO NOTHING returns rows_affected=0 on duplicate.
     #[tokio::test]
     async fn test_insert_pending_server_duplicate() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-insert-dup-{}.com", suffix);
@@ -759,7 +774,7 @@ mod db_tests {
     // 19. update_destination_status sets status and updated_ts for an existing server.
     #[tokio::test]
     async fn test_update_destination_status() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-update-status-{}.com", suffix);
@@ -791,7 +806,7 @@ mod db_tests {
     // 20. update_destination_status returns 0 when server does not exist.
     #[tokio::test]
     async fn test_update_destination_status_no_match() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-update-nonexist-{}.com", suffix);
@@ -807,7 +822,7 @@ mod db_tests {
     // 21. list_pending_federation returns servers with status='pending' using cursor pagination.
     #[tokio::test]
     async fn test_list_pending_federation_pagination() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let prefix = format!("test-pending-list-{}%", suffix);
@@ -860,34 +875,22 @@ mod db_tests {
     // 22. list_pending_federation returns empty when no pending servers exist.
     #[tokio::test]
     async fn test_list_pending_federation_empty() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
 
         let results =
             storage.list_pending_federation(None, None, 10).await.expect("list_pending_federation should succeed");
 
-        // Verify no results for pending status (there may be none, validate each is pending).
-        // We can't assert length is zero since other tests may leave pending rows.
-        for r in &results {
-            // All returned rows should correspond to pending servers.
-            let raw_status: Option<String> =
-                sqlx::query_scalar("SELECT status FROM federation_servers WHERE server_name = $1")
-                    .bind(&r.server_name)
-                    .fetch_optional(&*pool)
-                    .await
-                    .expect("status lookup should succeed")
-                    .flatten();
-            assert!(
-                raw_status.as_deref().is_none_or(|s| s == "pending"),
-                "list_pending_federation should only return pending servers, got status={raw_status:?}"
-            );
-        }
+        // Exact: per-test schema (see `test_pool`) — nothing in it has status='pending',
+        // so a schema-wide pending query must come back empty. On the shared schema this
+        // could only be asserted per-row because sibling tests left pending rows behind.
+        assert!(results.is_empty(), "isolated schema has no pending servers, got {} rows", results.len());
     }
 
     // 23. count_pending_federation returns count of servers with status='pending'.
     #[tokio::test]
     async fn test_count_pending_federation() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let prefix = format!("test-pending-count-{}%", suffix);
@@ -909,7 +912,9 @@ mod db_tests {
         insert_test_server(&pool, &format!("test-pending-count-active-{}.com", suffix), "active", now).await;
 
         let count = storage.count_pending_federation().await.expect("count_pending_federation should succeed");
-        assert!(count >= 2, "should count at least 2 pending servers, got {count}");
+        // Exact: per-test schema (see `test_pool`) — the schema-wide pending count sees
+        // only the 2 pending rows inserted above (the active one must not be counted).
+        assert_eq!(count, 2, "isolated schema must hold exactly our 2 pending servers, got {count}");
 
         cleanup_server_prefix(&pool, &prefix).await;
     }
@@ -917,7 +922,7 @@ mod db_tests {
     // 24. get_federation_cache returns all cache entries ordered by key.
     #[tokio::test]
     async fn test_get_federation_cache() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let prefix = format!("test-cache-{}%", suffix);
@@ -946,17 +951,11 @@ mod db_tests {
 
         let entries = storage.get_federation_cache().await.expect("get_federation_cache should succeed");
 
-        // Find our test entries.
-        let ours: Vec<&FederationCacheRecord> = entries
-            .iter()
-            .filter(|e| e.key.starts_with("test-cache-") && e.key.ends_with(&suffix.to_string()))
-            .collect();
-        assert_eq!(ours.len(), 2, "should find 2 test cache entries");
-
-        // Verify ordering by key.
-        for w in ours.windows(2) {
-            assert!(w[0].key < w[1].key, "cache entries should be ordered by key ASC");
-        }
+        // Exact: per-test schema (see `test_pool`) — `get_federation_cache()` reads the
+        // whole schema-wide table, which holds only the 2 entries inserted above, so the
+        // old prefix filter is no longer needed to hide sibling rows.
+        assert_eq!(entries.len(), 2, "isolated schema must hold exactly our 2 cache entries");
+        assert!(entries[0].key < entries[1].key, "cache entries should be ordered by key ASC");
 
         cleanup_cache_prefix(&pool, &prefix).await;
     }
@@ -964,21 +963,17 @@ mod db_tests {
     // 25. get_federation_cache returns empty when no entries exist.
     #[tokio::test]
     async fn test_get_federation_cache_empty() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let prefix = format!("test-cache-empty-{}%", suffix);
 
         cleanup_cache_prefix(&pool, &prefix).await;
 
-        // With no matching entries, the function should return an empty vec.
+        // Exact: per-test schema (see `test_pool`) — nothing else writes this schema's
+        // `federation_cache`, so the schema-wide read is genuinely empty.
         let entries = storage.get_federation_cache().await.expect("get_federation_cache should succeed");
-
-        let ours: Vec<&FederationCacheRecord> = entries
-            .iter()
-            .filter(|e| e.key.starts_with("test-cache-empty-") && e.key.ends_with(&suffix.to_string()))
-            .collect();
-        assert!(ours.is_empty());
+        assert!(entries.is_empty(), "isolated schema's federation_cache must be empty, got {} rows", entries.len());
 
         cleanup_cache_prefix(&pool, &prefix).await;
     }
@@ -986,7 +981,7 @@ mod db_tests {
     // 26. delete_federation_cache_entry removes a single entry by key.
     #[tokio::test]
     async fn test_delete_federation_cache_entry() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let prefix = format!("test-cache-del-{}%", suffix);
@@ -1022,7 +1017,7 @@ mod db_tests {
     // 27. delete_federation_cache_entry returns 0 when key does not exist.
     #[tokio::test]
     async fn test_delete_federation_cache_entry_no_match() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let key = format!("test-cache-del-nonexist-{}", suffix);
@@ -1035,7 +1030,7 @@ mod db_tests {
     // 28. clear_federation_cache deletes all entries and returns rows_affected.
     #[tokio::test]
     async fn test_clear_federation_cache() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let prefix = format!("test-cache-clear-{}%", suffix);
@@ -1055,8 +1050,9 @@ mod db_tests {
         }
 
         let affected = storage.clear_federation_cache().await.expect("clear_federation_cache should succeed");
-        // Global DELETE — just assert it didn't error (rows affected >= our 2 entries).
-        assert!(affected >= 2, "should delete at least 2 entries, got {affected}");
+        // Exact: per-test schema (see `test_pool`) — the `DELETE` has no `WHERE` and the
+        // schema holds only the 2 entries inserted above, so it cannot sweep sibling rows.
+        assert_eq!(affected, 2, "isolated schema must lose exactly our 2 entries, got {affected}");
 
         // Verify cache has been fully cleared.
         let entries = storage.get_federation_cache().await.expect("get_federation_cache should succeed");

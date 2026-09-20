@@ -346,10 +346,17 @@ impl ChunkedUploadStorage {
 mod db_tests {
     use super::*;
 
-    async fn test_pool() -> Arc<PgPool> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// Shared `public` is deliberately replaced by a per-test schema here:
+    /// `cleanup_expired()` deletes every expired upload/chunk row in the schema, so a
+    /// sibling fixture could remove this test's rows mid-assertion.
+    ///
+    /// Eliminating the shared state removes the race instead of serialising around it
+    /// (AGENTS.md rule 7). The guard is returned with the pool so the schema outlives
+    /// the whole test — dropping it early spawns a background `DROP SCHEMA`.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     /// Insert a minimal user row so the foreign-key constraint on
@@ -378,7 +385,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_upload_session() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = ChunkedUploadStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let upload_id = format!("upload-create-{suffix}");
@@ -421,7 +428,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_progress_nonexistent_returns_none() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = ChunkedUploadStorage::new(&pool);
 
         let result = storage.get_progress("nonexistent-upload-id").await.expect("query should succeed");
@@ -431,7 +438,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_store_chunk_and_increment_progress() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = ChunkedUploadStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let upload_id = format!("upload-chunk-{suffix}");
@@ -485,7 +492,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_store_chunk_upserts_on_conflict() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = ChunkedUploadStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let upload_id = format!("upload-upsert-{suffix}");
@@ -544,7 +551,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_load_chunk_data_ordered_by_index() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = ChunkedUploadStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let upload_id = format!("upload-order-{suffix}");
@@ -619,7 +626,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_finalize_upload_cleans_chunks() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = ChunkedUploadStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let upload_id = format!("upload-finalize-{suffix}");
@@ -675,7 +682,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_upload_removes_progress_and_chunks() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = ChunkedUploadStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let upload_id = format!("upload-delete-{suffix}");
@@ -725,7 +732,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_list_user_uploads_excludes_finalized() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = ChunkedUploadStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user_id = format!("@list-test_{suffix}:example.com");
@@ -801,7 +808,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_cleanup_expired_removes_expired_uploads() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = ChunkedUploadStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user_id = format!("@expired-test_{suffix}:example.com");
@@ -861,7 +868,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_round_trip_full_upload_flow() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = ChunkedUploadStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let upload_id = format!("upload-roundtrip-{suffix}");
@@ -950,7 +957,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_list_user_uploads_isolated_per_user() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = ChunkedUploadStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user_a = format!("@user-a_{suffix}:example.com");

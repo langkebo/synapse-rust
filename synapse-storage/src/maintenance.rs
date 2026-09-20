@@ -303,10 +303,18 @@ mod db_tests {
     use std::sync::Arc;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    async fn test_pool() -> Arc<PgPool> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// Shared `public` is deliberately replaced by a per-test schema here:
+    /// these tests run schema-wide DDL (`VACUUM ANALYZE`, `REINDEX`) and read
+    /// `pg_stat_user_tables`; on shared `public` a sibling test's concurrent writes made
+    /// the statistics asserted here non-deterministic.
+    ///
+    /// Eliminating the shared state removes the race instead of serialising around it
+    /// (AGENTS.md rule 7). The guard is returned with the pool so the schema outlives
+    /// the whole test — dropping it early spawns a background `DROP SCHEMA`.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     /// NOTE: No cleanup function is needed here. `DatabaseMaintenance` only
@@ -318,7 +326,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_maintenance_analyze_table_stats_populates_data() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let maintenance = DatabaseMaintenance::new((*pool).clone());
 
         // analyze_table_stats is private; exercise it via perform_maintenance.
@@ -336,7 +344,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_maintenance_analyze_table_stats_stays_within_limit() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let maintenance = DatabaseMaintenance::new((*pool).clone());
 
         // The internal query uses LIMIT 20, so table_stats should never exceed that.
@@ -349,7 +357,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_perform_maintenance_returns_valid_report() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let maintenance = DatabaseMaintenance::new((*pool).clone());
 
         let report = maintenance.perform_maintenance().await.expect("perform_maintenance should return Ok");
@@ -368,7 +376,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_perform_maintenance_errors_field_is_present() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let maintenance = DatabaseMaintenance::new((*pool).clone());
 
         let report = maintenance.perform_maintenance().await.expect("perform_maintenance should return Ok");
@@ -386,7 +394,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_perform_maintenance_vacuum_result_is_present() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let maintenance = DatabaseMaintenance::new((*pool).clone());
 
         let report = maintenance.perform_maintenance().await.expect("perform_maintenance should return Ok");
@@ -402,7 +410,7 @@ mod db_tests {
     #[tokio::test]
     #[serial]
     async fn test_perform_maintenance_idempotent_twice() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let maintenance = DatabaseMaintenance::new((*pool).clone());
 
         let report1 = maintenance.perform_maintenance().await.expect("first perform_maintenance should succeed");
@@ -430,7 +438,7 @@ mod db_tests {
     async fn test_maintenance_report_timestamps_are_recent() {
         let before = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
 
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let maintenance = DatabaseMaintenance::new((*pool).clone());
 
         let report = maintenance.perform_maintenance().await.expect("perform_maintenance should return Ok");
@@ -455,7 +463,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_database_maintenance_new_creates_instance() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let maintenance = DatabaseMaintenance::new((*pool).clone());
 
         // Construction succeeded. Now call a method to prove the pool is usable.

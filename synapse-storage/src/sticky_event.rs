@@ -211,10 +211,17 @@ mod tests {
 mod db_tests {
     use super::*;
 
-    async fn test_pool() -> Arc<PgPool> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// Shared `public` is deliberately replaced by a per-test schema here:
+    /// the delete helpers are keyed on `(room_id, user_id)`, but shared `public` still let
+    /// a sibling purge that row between this test's write and its read.
+    ///
+    /// Eliminating the shared state removes the race instead of serialising around it
+    /// (AGENTS.md rule 7). The guard is returned with the pool so the schema outlives
+    /// the whole test — dropping it early spawns a background `DROP SCHEMA`.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     /// Insert a minimal user row to satisfy the FK from room_sticky_events.user_id.
@@ -263,7 +270,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_and_get_sticky_event() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = StickyEventStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let room_id = &format!("!room_get_{suffix}:test.com");
@@ -298,7 +305,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_sticky_event_not_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = StickyEventStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let room_id = &format!("!room_nf_{suffix}:test.com");
@@ -316,7 +323,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_update_sticky_event() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = StickyEventStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let room_id = &format!("!room_upd_{suffix}:test.com");
@@ -354,7 +361,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_clear_sticky_event() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = StickyEventStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let room_id = &format!("!room_clr_{suffix}:test.com");
@@ -382,7 +389,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_all_sticky_events() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = StickyEventStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let room_id = &format!("!room_all_{suffix}:test.com");
@@ -415,7 +422,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_rooms_with_sticky_events() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = StickyEventStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let user_id = &format!("@user_rooms_{suffix}:test.com");
@@ -452,7 +459,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_sticky_event_round_trip() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = StickyEventStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let room_id = &format!("!room_rt_{suffix}:test.com");

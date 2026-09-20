@@ -21,6 +21,7 @@
 //! is a design rule, not a path limitation. Keeping `migrations/` out of this
 //! crate's build keeps the workspace-root SQL the single source of truth.
 
+use crate::test_schema_guard::{register_schema_cleanup, schema_lease_key, SchemaCleanup};
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use std::sync::Arc;
 use std::time::Duration;
@@ -1509,7 +1510,11 @@ fn tcp_reachable(url: &str) -> bool {
 /// Creates a pool connected to a fresh isolated schema per test.
 ///
 /// The schema is cloned from the shared template that
-/// [`ensure_template_schema`] builds from `baseline_sql` and dropped on `Drop`.
+/// [`ensure_template_schema`] builds from `baseline_sql`. Its lifetime is owned
+/// by the shared janitor from construction onward, and the janitor drops it
+/// only when no connection of the pool is still open (a connection-derived
+/// lease, see `synapse_common::test_schema_guard`), so handing the pool to a
+/// service that keeps an inner `PgPool` clone cannot drop the schema mid-test.
 ///
 /// `baseline_sql` is the caller's copy of the workspace baseline: callers in
 /// different crates must pass byte-identical strings so they all share one
@@ -1563,7 +1568,26 @@ impl IsolatedTestPool {
             .after_connect(move |conn, _| {
                 let schema = pool_schema.clone();
                 Box::pin(async move {
-                    sqlx::query(&format!(r#"SET search_path TO "{}", public"#, schema)).execute(conn).await?;
+                    sqlx::query(&format!(r#"SET search_path TO "{}", public"#, schema)).execute(&mut *conn).await?;
+                    // Connection-derived lease: the janitor will not DROP this
+                    // schema while any connection of this pool is open, so a
+                    // service that keeps only an inner `PgPool` clone
+                    // (`(**pool).clone()`) keeps the schema alive after this
+                    // handle is dropped. PostgreSQL releases the lock when the
+                    // connection closes.
+                    //
+                    // **Shared**, not exclusive: a pool may legitimately open
+                    // several connections concurrently, and an exclusive lock
+                    // here would make the second one block in `after_connect`
+                    // until the first closed — i.e. silently pin the pool to one
+                    // connection. The janitor takes the *exclusive* lock with
+                    // `pg_try_advisory_lock`, which conflicts with every shared
+                    // holder, so "exclusive acquired" still means "no connection
+                    // is open".
+                    sqlx::query("SELECT pg_advisory_lock_shared($1)")
+                        .bind(schema_lease_key(&schema))
+                        .execute(&mut *conn)
+                        .await?;
                     Ok(())
                 })
             })
@@ -1579,7 +1603,18 @@ impl IsolatedTestPool {
         sqlx::query(&set_path_for_pool).execute(&mut *conn).await?;
         drop(conn);
 
-        Ok(Self { pool: Arc::new(pool), schema })
+        let pool = Arc::new(pool);
+        // The schema's lifetime is owned by the shared janitor — the same
+        // engine every other per-test schema uses — from construction onward.
+        // The old bespoke `Drop` ran an unconditional `DROP SCHEMA`, which
+        // raced services that held only an inner `PgPool` clone: it dropped the
+        // schema out from under a live connection, and unqualified SQL then
+        // resolved through `search_path` into the shared `public` schema. The
+        // janitor's drop is lease-guarded instead, so it waits for the last
+        // connection of the pool to close (see `synapse_common::test_schema_guard`).
+        register_schema_cleanup(&pool, &schema, SchemaCleanup::drop_only(&db_url, &schema));
+
+        Ok(Self { pool, schema })
     }
 
     /// Get the underlying pool.
@@ -1593,65 +1628,24 @@ impl IsolatedTestPool {
     }
 }
 
-// NOTE on cleanup strategy (2026-09-11)
+// NOTE on cleanup strategy (2026-09-11, revised 2026-09-19)
 //
-// `Drop::drop` is synchronous and cannot await, so schema cleanup must be
-// delegated. Three approaches were tried:
+// `Drop::drop` is synchronous and cannot await, so an earlier version of this
+// type delegated cleanup to a spawned thread that was joined before `drop`
+// returned. That guaranteed the schema was gone before the process exited, but
+// it decided "the test is done with the schema" from the *handle's* lifetime,
+// which is not the same question: a service that stored an inner `PgPool` clone
+// (`(**pool).clone()`) keeps querying the schema after the fixture's handle is
+// dropped, and the unconditional `DROP SCHEMA` then sent its unqualified SQL to
+// the shared `public` schema through `search_path` (the media flake, follow-up
+// doc §1.9.1).
 //
-//   1. `std::thread::spawn` + block_on — **leaked 100%**. Under nextest (one
-//      process per test) the process exits before the thread reaches Postgres.
-//   2. `LazyLock<Runtime>::spawn` — **also leaked 100%**. Dropping the runtime
-//      at process exit *cancels* in-flight async tasks rather than awaiting
-//      them, so the `DROP SCHEMA` never ran.
-//   3. Spawn a thread and **join it** before `drop` returns — this is the only
-//      variant that guarantees the schema is gone before the process exits.
-//      It costs a connect + DROP per test, which is the price of not
-//      accumulating schemas.
-//
-// Measured: 24 isolated tests leaked exactly 24 schemas under (1) and (2); the
-// local database had accumulated 22,532 `test_*` schemas.
-
-impl Drop for IsolatedTestPool {
-    fn drop(&mut self) {
-        let schema = self.schema.clone();
-        let db_url = test_database_url();
-
-        // Never drop the shared template. `new()` only ever puts a `test_<uuid>`
-        // schema in `self.schema`, so this guards a future refactor rather than
-        // a reachable path today.
-        if schema.starts_with("test_isolation_template_") {
-            tracing::error!("refusing to drop the shared isolation template schema {schema}");
-            return;
-        }
-
-        // Spawn a thread and JOIN it: dropping the schema must complete before
-        // this returns, otherwise process exit races the cleanup and leaks the
-        // schema (measured 100% leak with both fire-and-forget variants).
-        let handle = std::thread::spawn(move || {
-            let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
-                return;
-            };
-            rt.block_on(async {
-                let Ok(pool) = PgPoolOptions::new()
-                    .max_connections(1)
-                    .acquire_timeout(Duration::from_secs(10))
-                    .connect(&db_url)
-                    .await
-                else {
-                    return;
-                };
-                let drop_sql = format!(r#"DROP SCHEMA IF EXISTS "{}" CASCADE"#, schema);
-                if let Err(e) = sqlx::query(&drop_sql).execute(&pool).await {
-                    tracing::error!("Failed to drop test schema {}: {}", schema, e);
-                }
-            });
-        });
-
-        // If the cleanup thread panicked, do not propagate from `drop`
-        // (a panic during unwinding would abort the process).
-        let _ = handle.join();
-    }
-}
+// Cleanup is now the shared janitor's job (registered in `new()`), and the
+// janitor's drop is guarded by a **connection-derived lease**: every connection
+// of this pool takes a session advisory lock in `after_connect`, and the DROP
+// only runs once no connection holds it. That makes the release trigger the
+// pool's connections, not this handle, and keeps process-exit reclamation
+// deterministic through the janitor's `atexit` join.
 
 #[cfg(test)]
 mod tests {

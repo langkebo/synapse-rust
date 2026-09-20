@@ -440,10 +440,18 @@ mod db_tests {
     use serde_json::json;
     use std::sync::Arc;
 
-    async fn test_pool() -> Arc<Pool<Postgres>> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// Shared `public` is deliberately replaced by a per-test schema here:
+    /// `cleanup_expired_memberships()` deactivates **every** expired active
+    /// `matrixrtc_memberships` row in the schema, so sibling fixtures could be swept by
+    /// this test's call.
+    ///
+    /// Eliminating the shared state removes the race instead of serialising around it
+    /// (AGENTS.md rule 7). The guard is returned with the pool so the schema outlives
+    /// the whole test — dropping it early spawns a background `DROP SCHEMA`.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<Pool<Postgres>>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     /// Clean up test data in all three matrixRTC tables for a given room_id suffix.
@@ -466,7 +474,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_session_returns_valid_record() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
@@ -500,7 +508,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_session_upsert_updates_existing() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
@@ -543,7 +551,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_session_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
@@ -578,7 +586,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_session_not_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = MatrixRTCStorage::new(pool.clone());
 
         let result = storage
@@ -591,7 +599,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_active_sessions_for_room() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
@@ -649,7 +657,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_end_session() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
@@ -683,7 +691,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_membership_returns_valid_record() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
@@ -746,7 +754,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_membership_upsert_updates_existing() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
@@ -818,7 +826,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_memberships_for_session() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
@@ -888,7 +896,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_membership_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
@@ -942,7 +950,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_membership_not_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = MatrixRTCStorage::new(pool.clone());
 
         let result = storage
@@ -955,7 +963,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_end_membership() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
@@ -1013,7 +1021,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_cleanup_expired_memberships() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
@@ -1083,7 +1091,9 @@ mod db_tests {
         // Call cleanup — the expired membership should be deactivated
         let affected = storage.cleanup_expired_memberships().await.expect("cleanup_expired_memberships should succeed");
 
-        assert!(affected >= 1, "should have cleaned up at least 1 expired membership");
+        // Exact: per-test schema (see `test_pool`) — the only expired active membership
+        // in it is the one inserted above, so no sibling sweep can interfere.
+        assert_eq!(affected, 1, "should have cleaned up exactly the 1 expired membership");
 
         // Only the non-expired membership should remain in get_memberships_for_session
         let remaining = storage
@@ -1101,7 +1111,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_store_and_get_encryption_keys() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
@@ -1176,7 +1186,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_store_encryption_key_upsert() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
@@ -1236,7 +1246,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_encryption_keys_empty_for_nonexistent() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = MatrixRTCStorage::new(pool.clone());
 
         let keys = storage
@@ -1251,7 +1261,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_session_with_memberships() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
@@ -1323,7 +1333,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_session_with_memberships_not_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = MatrixRTCStorage::new(pool.clone());
 
         let result = storage

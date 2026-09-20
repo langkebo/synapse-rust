@@ -1468,10 +1468,18 @@ impl RoomStorage {
 mod db_tests {
     use super::*;
 
-    async fn test_pool() -> Arc<Pool<Postgres>> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// Shared `public` is deliberately replaced by a per-test schema here:
+    /// `purge_room`/`delete_room` sweep `events` and `rooms` for whole rooms and several
+    /// tests assert on the resulting counts; shared `public` let a sibling's purge
+    /// remove the rows counted here.
+    ///
+    /// Eliminating the shared state removes the race instead of serialising around it
+    /// (AGENTS.md rule 7). The guard is returned with the pool so the schema outlives
+    /// the whole test — dropping it early spawns a background `DROP SCHEMA`.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<Pool<Postgres>>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     async fn ensure_test_room(pool: &Pool<Postgres>, room_id: &str, creator: &str) {
@@ -1491,7 +1499,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_room_returns_valid_room() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!create_test_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&room_id).await;
@@ -1511,7 +1519,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_room_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!get_test_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&room_id).await;
@@ -1526,7 +1534,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_room_not_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let result = storage.get_room("!nonexistent:example.com").await.expect("get_room should succeed");
         assert!(result.is_none());
@@ -1534,7 +1542,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_room_exists() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!exists_test_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&room_id).await;
@@ -1548,7 +1556,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_room_creator() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!creator_test_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&room_id).await;
@@ -1562,7 +1570,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_rooms_batch() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let rid1 = format!("!batch1_{}:example.com", uuid::Uuid::new_v4());
         let rid2 = format!("!batch2_{}:example.com", uuid::Uuid::new_v4());
@@ -1581,7 +1589,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_update_room_name() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!name_test_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&room_id).await;
@@ -1596,7 +1604,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_update_room_topic() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!topic_test_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&room_id).await;
@@ -1611,7 +1619,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_room_count() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let count = storage.get_room_count().await.expect("get_room_count should succeed");
         assert!(count >= 0);
@@ -1619,7 +1627,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_room_public_and_directory() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!pub_test_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&room_id).await;
@@ -1664,7 +1672,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_room() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!delete_test_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&room_id).await;
@@ -1677,7 +1685,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_public_rooms() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let rooms = storage.get_public_rooms(5).await.expect("get_public_rooms should succeed");
         // All returned rooms should be public
@@ -1688,7 +1696,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_count_public_rooms() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let count = storage.count_public_rooms().await.expect("count_public_rooms should succeed");
         assert!(count >= 0);
@@ -1696,7 +1704,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_public_rooms_paginated() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let rooms =
             storage.get_public_rooms_paginated(5, None, None).await.expect("get_public_rooms_paginated should succeed");
@@ -1708,7 +1716,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_room_alias_crud() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!alias_test_{}:example.com", suffix);
@@ -1733,7 +1741,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_search_room_directory() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let results = storage.search_room_directory("test", 10).await.expect("search_room_directory should succeed");
         // Search may return 0 results — just verify it doesn't error
@@ -1742,7 +1750,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_rooms() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let room_ids = storage.get_user_rooms("@testuser:example.com").await.expect("get_user_rooms should succeed");
         // Room membership may be empty for a test user — the .expect() above
@@ -1752,7 +1760,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_update_room_avatar() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!avatar_test_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&room_id).await;
@@ -1770,7 +1778,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_canonical_alias_some_then_none() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!alias_set_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&room_id).await;
@@ -1792,7 +1800,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_update_canonical_alias() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!upd_alias_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&room_id).await;
@@ -1810,7 +1818,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_room_alias_singular() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!single_alias_{}:example.com", suffix);
@@ -1832,7 +1840,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_remove_room_alias_by_room_id() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!rm_alias_{}:example.com", suffix);
@@ -1850,7 +1858,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_room_version() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!version_test_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&room_id).await;
@@ -1869,7 +1877,7 @@ mod db_tests {
     /// `rooms.room_version` must therefore accept any digits/dots version, not just 1..11.
     #[tokio::test]
     async fn test_room_version_check_accepts_versions_beyond_eleven() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!v12_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&room_id).await;
@@ -1894,7 +1902,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_shutdown_room_marks_private_and_renames() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!shutdown_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&room_id).await;
@@ -1911,7 +1919,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_rooms_map_empty_input() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let map = storage.get_rooms_map(&[]).await.expect("get_rooms_map empty should succeed");
         assert!(map.is_empty());
@@ -1919,7 +1927,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_rooms_map_with_rooms() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let rid1 = format!("!map1_{}:example.com", uuid::Uuid::new_v4());
         let rid2 = format!("!map2_{}:example.com", uuid::Uuid::new_v4());
@@ -1939,7 +1947,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_rooms_batch_empty_input() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let rooms = storage.get_rooms_batch(&[]).await.expect("get_rooms_batch empty should succeed");
         assert!(rooms.is_empty());
@@ -1947,7 +1955,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_rooms_paginated_no_cursor() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         // Querying for a user with no memberships should return empty without error
         let rooms = storage
@@ -1959,7 +1967,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_room_list_summary_empty() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let summaries = storage
             .get_user_room_list_summary("@summary_nobody:example.com")
@@ -1970,7 +1978,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_room_account_data_upsert() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!acct_{}:example.com", uuid::Uuid::new_v4());
         let user_id = format!("@acct_user_{}:example.com", uuid::Uuid::new_v4());
@@ -1997,7 +2005,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_update_read_marker_default_type() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!rm_{}:example.com", uuid::Uuid::new_v4());
         let user_id = format!("@rm_user_{}:example.com", uuid::Uuid::new_v4());
@@ -2017,7 +2025,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_update_read_marker_with_type() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!rmt_{}:example.com", uuid::Uuid::new_v4());
         let user_id = format!("@rmt_user_{}:example.com", uuid::Uuid::new_v4());
@@ -2041,7 +2049,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_read_marker_absent() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let marker = storage
             .get_read_marker("!nope:example.com", "@nobody:example.com", "m.fully_read")
@@ -2052,7 +2060,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_all_read_markers() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!allrm_{}:example.com", uuid::Uuid::new_v4());
         let user_id = format!("@allrm_user_{}:example.com", uuid::Uuid::new_v4());
@@ -2070,7 +2078,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_all_read_markers_empty() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let all = storage
             .get_all_read_markers("!nope:example.com", "@nobody:example.com")
@@ -2083,7 +2091,7 @@ mod db_tests {
     /// backwards must be silently dropped (return `false`, no update).
     #[tokio::test]
     async fn test_update_read_marker_monotonic_blocks_backward() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!msc4446_blk_{}:example.com", suffix);
@@ -2134,7 +2142,7 @@ mod db_tests {
     /// backwards is accepted, but `m.read` still enforces monotonicity.
     #[tokio::test]
     async fn test_update_read_marker_monotonic_allows_backward_with_flag() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!msc4446_ab_{}:example.com", suffix);
@@ -2193,7 +2201,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_add_receipt_and_get_receipts() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!rcpt_{}:example.com", uuid::Uuid::new_v4());
         let user_id = format!("@rcpt_user_{}:example.com", uuid::Uuid::new_v4());
@@ -2215,7 +2223,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_add_receipt_replaces_previous_for_same_type() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!rcpt2_{}:example.com", uuid::Uuid::new_v4());
         let user_id = format!("@rcpt2_user_{}:example.com", uuid::Uuid::new_v4());
@@ -2241,7 +2249,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_receipts_empty() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let receipts = storage
             .get_receipts("!nope:example.com", "m.read", "$nope:example.com")
@@ -2252,7 +2260,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_remove_room_directory() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!dirdel_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&room_id).await;
@@ -2268,7 +2276,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_room_visibility_invalid_defaults_private() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!vis_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&room_id).await;
@@ -2288,7 +2296,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_public_rooms_paginated_with_cursor() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         // First page
         let first_page = storage.get_public_rooms_paginated(5, None, None).await.unwrap();

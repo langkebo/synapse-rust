@@ -446,10 +446,18 @@ mod db_tests {
     use super::*;
     use sqlx::PgPool;
 
-    async fn test_pool() -> Arc<PgPool> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// Shared `public` is deliberately replaced by a per-test schema here:
+    /// `count_room_policies()` counts every policy row, and
+    /// `delete_local_messages_before()` sweeps a room's events; on shared `public` a
+    /// sibling test's policy row / sweep changed the counts asserted here.
+    ///
+    /// Eliminating the shared state removes the race instead of serialising around it
+    /// (AGENTS.md rule 7). The guard is returned with the pool so the schema outlives
+    /// the whole test — dropping it early spawns a background `DROP SCHEMA`.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     /// Insert a minimal room row to satisfy `room_retention_policies.room_id` FK →
@@ -497,7 +505,7 @@ mod db_tests {
     // ------------------------------------------------------------------
     #[tokio::test]
     async fn test_create_room_policy() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RetentionStorage::new(&pool);
         let room_id = &format!("!ret_create_{}:test.com", uuid::Uuid::new_v4());
 
@@ -530,7 +538,7 @@ mod db_tests {
     // ------------------------------------------------------------------
     #[tokio::test]
     async fn test_get_room_policy_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RetentionStorage::new(&pool);
         let room_id = &format!("!ret_get_{}:test.com", uuid::Uuid::new_v4());
 
@@ -561,7 +569,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_room_policy_not_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RetentionStorage::new(&pool);
         let room_id = &format!("!ret_nonexist_{}:test.com", uuid::Uuid::new_v4());
 
@@ -575,7 +583,7 @@ mod db_tests {
     // ------------------------------------------------------------------
     #[tokio::test]
     async fn test_update_room_policy() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RetentionStorage::new(&pool);
         let room_id = &format!("!ret_update_{}:test.com", uuid::Uuid::new_v4());
 
@@ -622,7 +630,7 @@ mod db_tests {
     // ------------------------------------------------------------------
     #[tokio::test]
     async fn test_delete_room_policy() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RetentionStorage::new(&pool);
         let room_id = &format!("!ret_delete_{}:test.com", uuid::Uuid::new_v4());
 
@@ -653,7 +661,7 @@ mod db_tests {
     // ------------------------------------------------------------------
     #[tokio::test]
     async fn test_get_rooms_with_policies() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RetentionStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_a = &format!("!ret_batch_a_{}:test.com", suffix);
@@ -698,7 +706,7 @@ mod db_tests {
     // ------------------------------------------------------------------
     #[tokio::test]
     async fn test_effective_policy_favors_room_over_server() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RetentionStorage::new(&pool);
         let room_id = &format!("!ret_eff_{}:test.com", uuid::Uuid::new_v4());
 
@@ -741,7 +749,7 @@ mod db_tests {
     // ------------------------------------------------------------------
     #[tokio::test]
     async fn test_upsert_and_has_server_policy() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RetentionStorage::new(&pool);
 
         // Server policy always exists (seeded by migration with ON CONFLICT DO NOTHING)
@@ -777,7 +785,7 @@ mod db_tests {
     // ------------------------------------------------------------------
     #[tokio::test]
     async fn test_count_room_policies() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RetentionStorage::new(&pool);
         let room_id = &format!("!ret_count_{}:test.com", uuid::Uuid::new_v4());
 
@@ -796,7 +804,9 @@ mod db_tests {
 
         let count = storage.count_room_policies().await.expect("count_room_policies should succeed");
 
-        assert!(count >= 1, "should count at least our newly-inserted policy");
+        // Exact: `test_pool()` is per-test isolated (see above), so no sibling test can
+        // insert a policy row into this schema or sweep it away behind `count >= 1`.
+        assert_eq!(count, 1, "the isolated schema holds exactly our newly-inserted policy");
 
         cleanup_room(&pool, room_id).await;
     }
@@ -806,7 +816,7 @@ mod db_tests {
     // ------------------------------------------------------------------
     #[tokio::test]
     async fn test_delete_local_messages_before() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RetentionStorage::new(&pool);
         let room_id = &format!("!ret_delev_{}:test.com", uuid::Uuid::new_v4());
 
@@ -840,7 +850,9 @@ mod db_tests {
             .await
             .expect("delete_local_messages_before should succeed");
 
-        assert!(deleted >= 1, "should delete at least the old event");
+        // Exact: per-test schema (see `test_pool`) — only the 1-day-old event inserted
+        // above is below the cutoff, and no sibling can add a row or sweep this one.
+        assert_eq!(deleted, 1, "the isolated schema must lose exactly the old event");
 
         cleanup_room(&pool, room_id).await;
     }
@@ -850,7 +862,7 @@ mod db_tests {
     // ------------------------------------------------------------------
     #[tokio::test]
     async fn test_round_trip_create_get_update_delete() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RetentionStorage::new(&pool);
         let room_id = &format!("!ret_roundtrip_{}:test.com", uuid::Uuid::new_v4());
 

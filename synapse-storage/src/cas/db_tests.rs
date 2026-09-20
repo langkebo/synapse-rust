@@ -4,10 +4,18 @@ use super::*;
 
 // ---- test infrastructure ----
 
-async fn test_pool() -> Arc<sqlx::PgPool> {
-    crate::test_utils::connect_shared_test_pool()
-        .await
-        .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+/// Shared `public` is deliberately replaced by a per-test schema here:
+/// `cleanup_expired_tickets()` is a schema-wide delete over `cas_tickets`, so a
+/// sibling ticket created with a negative expiry was removed by this test's sweep
+/// (the reverse interference happened too).
+///
+/// Eliminating the shared state removes the race instead of serialising around it
+/// (AGENTS.md rule 7). The guard is returned with the pool so the schema outlives
+/// the whole test — dropping it early spawns a background `DROP SCHEMA`.
+async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<sqlx::PgPool>) {
+    let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+    let pool = isolated.pool();
+    (isolated, pool)
 }
 
 fn storage(pool: &Arc<sqlx::PgPool>) -> CasStorage {
@@ -41,7 +49,7 @@ async fn ensure_test_user(pool: &sqlx::PgPool, user_id: &str) {
 
 #[tokio::test]
 async fn test_create_ticket() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@testuser-{suffix}:example.com");
     let ticket_id = format!("cas_ticket_{suffix}");
@@ -72,7 +80,7 @@ async fn test_create_ticket() {
 
 #[tokio::test]
 async fn test_create_duplicate_ticket() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@testuser-{suffix}:example.com");
     let ticket_id = format!("cas_ticket_{suffix}");
@@ -101,7 +109,7 @@ async fn test_create_duplicate_ticket() {
 
 #[tokio::test]
 async fn test_validate_ticket_valid() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@testuser-{suffix}:example.com");
     let ticket_id = format!("cas_ticket_{suffix}");
@@ -137,7 +145,7 @@ async fn test_validate_ticket_valid() {
 
 #[tokio::test]
 async fn test_validate_ticket_expired() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@testuser-{suffix}:example.com");
     let ticket_id = format!("cas_ticket_{suffix}");
@@ -165,7 +173,7 @@ async fn test_validate_ticket_expired() {
 
 #[tokio::test]
 async fn test_validate_ticket_wrong_url() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@testuser-{suffix}:example.com");
     let ticket_id = format!("cas_ticket_{suffix}");
@@ -193,7 +201,7 @@ async fn test_validate_ticket_wrong_url() {
 
 #[tokio::test]
 async fn test_get_ticket() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@testuser-{suffix}:example.com");
     let ticket_id = format!("cas_ticket_{suffix}");
@@ -225,7 +233,7 @@ async fn test_get_ticket() {
 
 #[tokio::test]
 async fn test_delete_ticket() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@testuser-{suffix}:example.com");
     let ticket_id = format!("cas_ticket_{suffix}");
@@ -265,7 +273,7 @@ async fn test_delete_ticket() {
 
 #[tokio::test]
 async fn test_cleanup_expired_tickets() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@testuser-{suffix}:example.com");
     let expired_id = format!("expired_ticket_{suffix}");
@@ -299,7 +307,9 @@ async fn test_cleanup_expired_tickets() {
 
     // Cleanup should remove the expired one.
     let removed = cas.cleanup_expired_tickets().await.expect("should succeed");
-    assert!(removed >= 1, "should remove at least 1 expired ticket");
+    // Exact: per-test schema (see `test_pool`) — the only ticket with a negative expiry
+    // is the one created above; a sibling sweep used to be able to take it first.
+    assert_eq!(removed, 1, "should remove exactly the 1 expired ticket");
 
     // Expired ticket should be gone.
     let expired_after = cas.get_ticket(&expired_id).await.expect("should succeed");
@@ -317,7 +327,7 @@ async fn test_cleanup_expired_tickets() {
 
 #[tokio::test]
 async fn test_create_proxy_ticket() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@testuser-{suffix}:example.com");
     let proxy_ticket_id = format!("proxy_ticket_{suffix}");
@@ -349,7 +359,7 @@ async fn test_create_proxy_ticket() {
 
 #[tokio::test]
 async fn test_validate_proxy_ticket() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@testuser-{suffix}:example.com");
     let valid_pt_id = format!("valid_pt_{suffix}");
@@ -407,7 +417,7 @@ async fn test_validate_proxy_ticket() {
 
 #[tokio::test]
 async fn test_pgt_create_and_retrieve() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@testuser-{suffix}:example.com");
     let pgt_id = format!("pgt_{suffix}");
@@ -445,7 +455,7 @@ async fn test_pgt_create_and_retrieve() {
 
 #[tokio::test]
 async fn test_pgt_by_iou() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@testuser-{suffix}:example.com");
     let pgt_id = format!("pgt_{suffix}");
@@ -482,7 +492,7 @@ async fn test_pgt_by_iou() {
 
 #[tokio::test]
 async fn test_register_service() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let service_id = format!("svc_{suffix}");
 
@@ -514,7 +524,7 @@ async fn test_register_service() {
 
 #[tokio::test]
 async fn test_get_service() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let service_id = format!("svc_{suffix}");
 
@@ -547,7 +557,7 @@ async fn test_get_service() {
 
 #[tokio::test]
 async fn test_get_service_by_url() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let service_id = format!("svc_{suffix}");
     let service_url = format!("https://svc-{suffix}.example.com");
@@ -586,7 +596,7 @@ async fn test_get_service_by_url() {
 
 #[tokio::test]
 async fn test_list_services() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let service_id = format!("svc_{suffix}");
 
@@ -615,7 +625,7 @@ async fn test_list_services() {
 
 #[tokio::test]
 async fn test_delete_service() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let service_id = format!("svc_{suffix}");
 
@@ -658,7 +668,7 @@ async fn test_delete_service() {
 
 #[tokio::test]
 async fn test_user_attributes() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@testuser-{suffix}:example.com");
 
@@ -705,7 +715,7 @@ async fn test_user_attributes() {
 
 #[tokio::test]
 async fn test_slo_session_create_and_mark() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@testuser-{suffix}:example.com");
     let session_id = format!("slo_session_{suffix}");
@@ -741,7 +751,7 @@ async fn test_slo_session_create_and_mark() {
 
 #[tokio::test]
 async fn test_get_active_slo_sessions() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@testuser-{suffix}:example.com");
     let session_id_1 = format!("active_slo_{suffix}_1");
@@ -781,7 +791,7 @@ async fn test_get_active_slo_sessions() {
 
 #[tokio::test]
 async fn test_full_ticket_lifecycle() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@testuser-{suffix}:example.com");
     let ticket_id = format!("lifecycle_ticket_{suffix}");
@@ -829,7 +839,7 @@ async fn test_full_ticket_lifecycle() {
 
 #[tokio::test]
 async fn test_full_service_lifecycle() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let service_id = format!("lifecycle_svc_{suffix}");
 
@@ -876,7 +886,7 @@ async fn test_full_service_lifecycle() {
 
 #[tokio::test]
 async fn test_slo_session_lifecycle() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@testuser-{suffix}:example.com");
     let session_id = format!("slo_lifecycle_{suffix}");
@@ -910,7 +920,7 @@ async fn test_slo_session_lifecycle() {
 
 #[tokio::test]
 async fn test_pgt_full_lifecycle() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@testuser-{suffix}:example.com");
     let pgt_id = format!("pgt_lifecycle_{suffix}");

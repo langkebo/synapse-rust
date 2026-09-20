@@ -623,10 +623,18 @@ mod tests {
 mod db_tests {
     use super::*;
 
-    async fn test_pool() -> Arc<PgPool> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// Shared `public` is deliberately replaced by a per-test schema here:
+    /// `cleanup_expired_sessions()` updates **every** expired `widget_sessions` row in
+    /// the schema, and these fixtures pin `expires_at` in the past, so a sibling sweep
+    /// could deactivate this test's sessions mid-assertion.
+    ///
+    /// Eliminating the shared state removes the race instead of serialising around it
+    /// (AGENTS.md rule 7). The guard is returned with the pool so the schema outlives
+    /// the whole test — dropping it early spawns a background `DROP SCHEMA`.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     async fn ensure_test_user(pool: &PgPool, user_id: &str) {
@@ -686,7 +694,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn create_and_get_widget() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = WidgetStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let widget_id = format!("widget_{suffix}");
@@ -732,7 +740,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn get_widget_not_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = WidgetStorage::new(pool.clone());
 
         let result = storage.get_widget("nonexistent_widget_12345").await.expect("query should succeed");
@@ -741,7 +749,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn get_room_widgets_filters_by_room() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = WidgetStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let user_id = format!("@roomtest_{suffix}:test.com");
@@ -788,7 +796,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn get_user_widgets_filters_by_user() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = WidgetStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let user_a = format!("@usera_{suffix}:test.com");
@@ -831,7 +839,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn update_widget_changes_fields() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = WidgetStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let widget_id = format!("upd_{suffix}");
@@ -881,7 +889,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn update_widget_not_found_returns_none() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = WidgetStorage::new(pool.clone());
 
         let result = storage
@@ -893,7 +901,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn delete_widget_soft_deactivates() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = WidgetStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let widget_id = format!("del_{suffix}");
@@ -931,7 +939,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn delete_widget_not_found_returns_false() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = WidgetStorage::new(pool.clone());
 
         let result = storage.delete_widget("nonexistent_widget").await.expect("query should succeed");
@@ -942,7 +950,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn set_and_get_widget_permission() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = WidgetStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let widget_id = format!("perm_{suffix}");
@@ -1007,7 +1015,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn delete_widget_permission_hard_deletes() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = WidgetStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let widget_id = format!("delperm_{suffix}");
@@ -1049,7 +1057,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn create_and_get_session() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = WidgetStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let widget_id = format!("sessw_{suffix}");
@@ -1101,7 +1109,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn update_session_activity_and_terminate() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = WidgetStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let widget_id = format!("actsessw_{suffix}");
@@ -1155,7 +1163,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn get_widget_sessions_lists_active() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = WidgetStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let widget_id = format!("listw_{suffix}");
@@ -1196,7 +1204,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn cleanup_expired_sessions_deactivates_old() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = WidgetStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let widget_id = format!("expw_{suffix}");
@@ -1237,7 +1245,9 @@ mod db_tests {
             .unwrap();
 
         let count = storage.cleanup_expired_sessions().await.expect("cleanup_expired_sessions should succeed");
-        assert!(count >= 1, "should have cleaned up at least one expired session");
+        // Exact: per-test schema (see `test_pool`) — exactly one session was pinned to a
+        // past `expires_at` above, and no sibling sweep can touch this schema.
+        assert_eq!(count, 1, "should have cleaned up exactly the one expired session");
 
         let expired = storage.get_session(&expired_sid).await.unwrap();
         assert!(expired.is_none(), "expired session should be deactivated");
@@ -1250,7 +1260,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn widget_round_trip_full_lifecycle() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = WidgetStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let widget_id = format!("rt_{suffix}");

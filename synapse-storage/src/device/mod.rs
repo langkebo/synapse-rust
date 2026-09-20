@@ -1645,10 +1645,17 @@ mod tests {
 mod db_tests {
     use super::*;
 
-    async fn test_pool() -> Arc<Pool<Postgres>> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// Shared `public` is deliberately replaced by a per-test schema here:
+    /// the fixtures delete `devices`/`lazy_loaded_members` by user and assert on counts;
+    /// shared `public` let sibling fixtures change those counts.
+    ///
+    /// Eliminating the shared state removes the race instead of serialising around it
+    /// (AGENTS.md rule 7). The guard is returned with the pool so the schema outlives
+    /// the whole test — dropping it early spawns a background `DROP SCHEMA`.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<Pool<Postgres>>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     async fn ensure_test_user(pool: &Pool<Postgres>, user_id: &str) {
@@ -1669,7 +1676,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_device_returns_valid_record() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let device_id = &format!("dev_create_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
         let user_id = "@testuser:example.com";
@@ -1688,7 +1695,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_device_without_display_name() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let device_id = &format!("dev_nodesc_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
         let user_id = "@nodesc:example.com";
@@ -1706,7 +1713,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_device_finds_created_device() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let device_id = &format!("dev_get_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
         let user_id = "@getuser:example.com";
@@ -1725,7 +1732,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_device_not_found_returns_none() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
 
         let result = storage.get_device("nonexistent_device_id_12345").await.expect("get_device should succeed");
@@ -1735,7 +1742,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_devices_returns_all() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0.to_string();
         let user_id = format!("@multidev_{}:example.com", suffix);
@@ -1758,7 +1765,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_devices_empty_for_new_user() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let user_id = "@nodevices:example.com";
 
@@ -1771,7 +1778,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_update_device_display_name() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let device_id =
             &format!("dev_updname_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
@@ -1791,7 +1798,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_update_user_device_display_name_returns_rows_affected() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let device_id =
             &format!("dev_upduser_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
@@ -1810,7 +1817,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_update_user_device_display_name_wrong_user_returns_zero() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let device_id =
             &format!("dev_wrongusr_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
@@ -1829,7 +1836,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_update_device_last_seen() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let device_id = &format!("dev_seen_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
         let user_id = "@seen:example.com";
@@ -1846,7 +1853,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_user_device_returns_rows_affected() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let device_id = &format!("dev_del_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
         let user_id = "@deleteusr:example.com";
@@ -1864,7 +1871,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_user_device_nonexistent_returns_zero() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
 
         let rows = storage
@@ -1877,7 +1884,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_device_exists_returns_true_for_created_device() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let device_id = &format!("dev_exists_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
         let user_id =
@@ -1891,7 +1898,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_device_exists_returns_false_for_unknown_device() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
 
         assert!(!storage.device_exists("no_such_device_xyz").await.expect("device_exists should succeed"));
@@ -1899,7 +1906,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_device_count_counts_correctly() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0.to_string();
         let user_id = format!("@countusr_{}:example.com", suffix);
@@ -1919,7 +1926,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_user_devices_removes_all() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let user_id = "@purge:example.com";
         let d1 = &format!("purge_1_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
@@ -1936,7 +1943,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_device_finds_by_user_and_device() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let device_id =
             &format!("dev_userdev_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
@@ -1953,7 +1960,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_device_returns_none_for_wrong_user() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let device_id =
             &format!("dev_wrongusr2_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
@@ -1971,7 +1978,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_devices_batch_returns_requested_devices() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let user_id = "@batchusr:example.com";
         let d1 = &format!("batch_1_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
@@ -1991,7 +1998,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_devices_batch_empty_input_returns_empty() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
 
         let devices = storage.get_devices_batch(&[]).await.expect("get_devices_batch with empty input should succeed");
@@ -2001,7 +2008,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_filter_existing_users_returns_only_users_with_devices() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0.to_string();
         let user_id = format!("@filterusr_{}:example.com", suffix);
@@ -2024,7 +2031,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_filter_existing_users_empty_input_returns_empty() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
 
         let result =
@@ -2035,7 +2042,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_max_device_list_stream_id_returns_zero_for_empty() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
 
         let max_id =
@@ -2046,7 +2053,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_device_list_stream_id_advances_after_create_device() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let user_id = "@streamusr:example.com";
         let device_id = &format!("stream_dev_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
@@ -2063,7 +2070,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_device_by_id_cleans_up_record() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let device_id =
             &format!("dev_delbyid_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
@@ -2079,7 +2086,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_device_commits_atomically() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0.to_string();
         let user_id = format!("@txcreate_{}:example.com", suffix);
@@ -2117,7 +2124,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_user_device_is_atomic() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0.to_string();
         let user_id = format!("@txdel_{}:example.com", suffix);
@@ -2155,7 +2162,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_devices_batch_uses_batch_side_effects() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0.to_string();
         let user_id = format!("@bdel_{}:example.com", suffix);

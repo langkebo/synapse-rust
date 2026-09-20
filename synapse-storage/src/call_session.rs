@@ -234,10 +234,18 @@ impl CallSessionStorage {
 mod db_tests {
     use super::*;
 
-    async fn test_pool() -> Arc<Pool<Postgres>> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// Shared `public` is deliberately replaced by a per-test schema here:
+    /// `cleanup_expired()` ends **every** non-ended expired `call_sessions` row in the
+    /// schema; the fixture creates a session whose lifetime has already elapsed, so a
+    /// sibling sweep used to be able to end it first (and this sweep ended theirs).
+    ///
+    /// Eliminating the shared state removes the race instead of serialising around it
+    /// (AGENTS.md rule 7). The guard is returned with the pool so the schema outlives
+    /// the whole test — dropping it early spawns a background `DROP SCHEMA`.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<Pool<Postgres>>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     /// Clean up test call sessions and candidates matching a UUID suffix.
@@ -254,7 +262,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_session_returns_valid_record() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_test_data(&pool, &suffix).await;
 
@@ -289,7 +297,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_session_default_lifetime() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_test_data(&pool, &suffix).await;
 
@@ -313,7 +321,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_session_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_test_data(&pool, &suffix).await;
 
@@ -346,7 +354,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_session_not_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = CallSessionStorage::new(pool.clone());
 
         let result = storage
@@ -359,7 +367,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_update_state() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_test_data(&pool, &suffix).await;
 
@@ -391,7 +399,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_answer_and_verify_connected() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_test_data(&pool, &suffix).await;
 
@@ -422,7 +430,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_end_session() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_test_data(&pool, &suffix).await;
 
@@ -452,7 +460,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_cleanup_expired() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_test_data(&pool, &suffix).await;
 
@@ -476,7 +484,9 @@ mod db_tests {
 
         let affected = storage.cleanup_expired().await.expect("cleanup_expired should succeed");
 
-        assert!(affected >= 1, "should have cleaned up at least 1 expired session");
+        // Exact: per-test schema (see `test_pool`) — this test created the only session
+        // in it and its lifetime already elapsed, so no sibling sweep can take it first.
+        assert_eq!(affected, 1, "should have cleaned up exactly the 1 expired session");
 
         let cleaned = storage.get_session(&call_id, &room_id).await.unwrap().expect("session should exist");
 
@@ -488,7 +498,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_candidates_round_trip() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_test_data(&pool, &suffix).await;
 
@@ -541,7 +551,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_candidates_empty_when_none_added() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_test_data(&pool, &suffix).await;
 

@@ -406,10 +406,17 @@ mod db_tests {
     use serde_json::json;
     use std::sync::Arc;
 
-    async fn test_pool() -> Arc<Pool<Postgres>> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// Shared `public` is deliberately replaced by a per-test schema here:
+    /// the device delete paths sweep `dehydrated_devices` / `to_device_messages` and the
+    /// tests assert on the surviving rows; a sibling fixture in shared `public` changed them.
+    ///
+    /// Eliminating the shared state removes the race instead of serialising around it
+    /// (AGENTS.md rule 7). The guard is returned with the pool so the schema outlives
+    /// the whole test — dropping it early spawns a background `DROP SCHEMA`.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<Pool<Postgres>>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     /// Clean up dehydrated devices and to_device messages for a given user.
@@ -470,7 +477,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_by_user_returns_none_when_no_device() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DehydratedDeviceStorage::new(&pool);
         let user_id = format!("@no_device_{}:test", uuid::Uuid::new_v4());
 
@@ -484,7 +491,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_upsert_and_get_by_user() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DehydratedDeviceStorage::new(&pool);
         let user_id = format!("@upsert_get_{}:test", uuid::Uuid::new_v4());
 
@@ -527,7 +534,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_by_user_respects_expiry() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DehydratedDeviceStorage::new(&pool);
         let user_id = format!("@expired_get_{}:test", uuid::Uuid::new_v4());
 
@@ -553,7 +560,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_upsert_replaces_existing() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DehydratedDeviceStorage::new(&pool);
         let user_id = format!("@upsert_replace_{}:test", uuid::Uuid::new_v4());
 
@@ -605,7 +612,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_by_user_removes_device() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DehydratedDeviceStorage::new(&pool);
         let user_id = format!("@delete_test_{}:test", uuid::Uuid::new_v4());
 
@@ -632,7 +639,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_by_user_returns_zero_when_no_device() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DehydratedDeviceStorage::new(&pool);
         let user_id = format!("@delete_none_{}:test", uuid::Uuid::new_v4());
 
@@ -699,7 +706,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_sweep_expired_keeps_valid() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DehydratedDeviceStorage::new(&pool);
         let user_id = format!("@sweep_keep_{}:test", uuid::Uuid::new_v4());
 
@@ -728,7 +735,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_claim_to_device_events_pagination() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DehydratedDeviceStorage::new(&pool);
         let user_id = format!("@claim_td_{}:test", uuid::Uuid::new_v4());
         let device_id = "DEV_CLAIM_TD";
@@ -783,7 +790,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_claim_to_device_events_empty_when_no_messages() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DehydratedDeviceStorage::new(&pool);
         let user_id = format!("@claim_empty_{}:test", uuid::Uuid::new_v4());
         let device_id = "DEV_CLAIM_EMPTY";
@@ -811,7 +818,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_claim_one_time_key_claims_otk_and_consumes() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DehydratedDeviceStorage::new(&pool);
         let user_id = format!("@otk_claim_{}:test", uuid::Uuid::new_v4());
         let device_id = "DEV_OTK_CLAIM";
@@ -864,7 +871,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_claim_one_time_key_none_when_no_device() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DehydratedDeviceStorage::new(&pool);
         let user_id = format!("@otk_nodev_{}:test", uuid::Uuid::new_v4());
 
@@ -881,7 +888,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_claim_one_time_key_none_when_no_matching_algorithm() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DehydratedDeviceStorage::new(&pool);
         let user_id = format!("@otk_noalg_{}:test", uuid::Uuid::new_v4());
         let device_id = "DEV_OTK_NOALG";
@@ -921,7 +928,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_claim_one_time_key_fallback_only_no_otk() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DehydratedDeviceStorage::new(&pool);
         let user_id = format!("@otk_fbonly_{}:test", uuid::Uuid::new_v4());
         let device_id = "DEV_OTK_FBONLY";
@@ -969,7 +976,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_by_user_cleans_up_to_device_messages() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = DehydratedDeviceStorage::new(&pool);
         let user_id = format!("@del_cleanup_{}:test", uuid::Uuid::new_v4());
         let device_id = "DEV_DEL_CLEANUP";

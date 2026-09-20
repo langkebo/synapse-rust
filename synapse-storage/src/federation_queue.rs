@@ -190,11 +190,17 @@ mod db_tests {
         SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64
     }
 
-    async fn test_pool() -> sqlx::PgPool {
-        let pool = crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure");
-        (*pool).clone()
+    /// Shared `public` is deliberately replaced by a per-test schema here:
+    /// the cleanup/delete paths sweep `federation_queue` by destination and the tests
+    /// assert on counts; sibling rows in shared `public` changed those counts.
+    ///
+    /// Eliminating the shared state removes the race instead of serialising around it
+    /// (AGENTS.md rule 7). The guard is returned with the pool so the schema outlives
+    /// the whole test — dropping it early spawns a background `DROP SCHEMA`.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, sqlx::PgPool) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = (*isolated.pool()).clone();
+        (isolated, pool)
     }
 
     async fn cleanup_queue(pool: &PgPool, suffix: &str) {
@@ -219,7 +225,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_insert_returns_id() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_queue(&pool, &suffix).await;
 
@@ -235,7 +241,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_mark_sent_updates_status_and_sent_at() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_queue(&pool, &suffix).await;
 
@@ -264,7 +270,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_increment_retry_increases_count() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_queue(&pool, &suffix).await;
 
@@ -302,7 +308,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_mark_failed_updates_status() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_queue(&pool, &suffix).await;
 
@@ -327,7 +333,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_pending_by_destination_filters_by_destination() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let dest = format!("server-{suffix}.example.com");
         cleanup_queue(&pool, &suffix).await;
@@ -357,7 +363,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_pending_by_destination_orders_by_created_ts_asc() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let dest = format!("server-{suffix}.example.com");
         cleanup_queue(&pool, &suffix).await;
@@ -383,7 +389,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_pending_by_destination_respects_limit() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let dest = format!("server-{suffix}.example.com");
         cleanup_queue(&pool, &suffix).await;
@@ -407,7 +413,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_pending_by_destination_omits_non_pending() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let dest = format!("server-{suffix}.example.com");
         cleanup_queue(&pool, &suffix).await;
@@ -436,7 +442,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_all_pending_returns_only_pending() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_queue(&pool, &suffix).await;
 
@@ -470,7 +476,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_completed_removes_old_completed_and_keeps_pending() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_queue(&pool, &suffix).await;
 
@@ -547,7 +553,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_count_pending_returns_correct_count() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_queue(&pool, &suffix).await;
 

@@ -202,10 +202,17 @@ mod db_tests {
     use super::*;
     use std::sync::Arc;
 
-    async fn test_pool() -> Arc<sqlx::PgPool> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// Shared `public` is deliberately replaced by a per-test schema here:
+    /// `cleanup_old_logs(7)` deletes **every** `e2ee_audit_log` row older than the cutoff
+    /// in the schema, so one test's cleanup removed another test's fixture rows.
+    ///
+    /// Eliminating the shared state removes the race instead of serialising around it
+    /// (AGENTS.md rule 7). The guard is returned with the pool so the schema outlives
+    /// the whole test — dropping it early spawns a background `DROP SCHEMA`.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<sqlx::PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     fn make_test_event(user_id: &str, operation: &str, device_id: &str) -> KeyEvent {
@@ -223,7 +230,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_log_key_operation_full_round_trip() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = E2eeAuditStorage::new(&pool);
         let user_id = format!("@roundtrip_{}:example.com", uuid::Uuid::new_v4());
 
@@ -259,7 +266,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_key_history_user_isolation() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = E2eeAuditStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user_a = format!("@alice_{}:example.com", suffix);
@@ -282,7 +289,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_operations_by_type_filtering() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = E2eeAuditStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user_id = format!("@optype_{}:example.com", suffix);
@@ -319,7 +326,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_key_history_paginated_with_cursor() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = E2eeAuditStorage::new(&pool);
         let user_id = format!("@paged_{}:example.com", uuid::Uuid::new_v4());
 
@@ -369,7 +376,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_device_history_filtering() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = E2eeAuditStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user_id = format!("@devhist_{}:example.com", suffix);
@@ -416,7 +423,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_cleanup_old_logs_removes_old_events() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = E2eeAuditStorage::new(&pool);
         let user_id = format!("@cleanup_{}:example.com", uuid::Uuid::new_v4());
 
@@ -440,7 +447,10 @@ mod db_tests {
         // Cleanup logs older than 7 days — should remove the 31-day-old event
         // but keep the 1-day-old event.
         let deleted = storage.cleanup_old_logs(7).await.expect("cleanup should succeed");
-        assert!(deleted >= 1, "should have deleted at least 1 old event");
+        // Exact: `cleanup_old_logs` sweeps the whole table and `test_pool()` is now
+        // per-test isolated (see above), so only the 31-day-old event inserted here is
+        // older than the 7-day cutoff.
+        assert_eq!(deleted, 1, "should have deleted exactly the 1 old event");
 
         // Verify recent event still exists
         let history = storage.get_key_history(&user_id).await.expect("get_key_history should succeed");
@@ -451,7 +461,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_batch_audit_logging_returns_ordered_by_recency() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = E2eeAuditStorage::new(&pool);
         let user_id = format!("@batch_{}:example.com", uuid::Uuid::new_v4());
 

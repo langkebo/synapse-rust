@@ -223,10 +223,17 @@ mod tests {
 mod db_tests {
     use super::*;
 
-    async fn test_pool() -> Arc<PgPool> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// Shared `public` is deliberately replaced by a per-test schema here:
+    /// the blocklist/allowlist helpers are keyed on `room_id`, so on shared `public` a
+    /// sibling test that reused a fixture room could clear the rows asserted here.
+    ///
+    /// Eliminating the shared state removes the race instead of serialising around it
+    /// (AGENTS.md rule 7). The guard is returned with the pool so the schema outlives
+    /// the whole test — dropping it early spawns a background `DROP SCHEMA`.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     /// Insert a minimal room row so the FK constraint on
@@ -273,7 +280,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_and_get_invite_blocklist() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = InviteBlocklistStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!room_bl_{suffix}:test.com");
@@ -299,7 +306,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_is_user_blocked_positive_and_negative() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = InviteBlocklistStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!room_blocked_{suffix}:test.com");
@@ -329,7 +336,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_invite_blocklist_overwrites_previous() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = InviteBlocklistStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!room_overwrite_{suffix}:test.com");
@@ -361,7 +368,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_and_get_invite_allowlist() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = InviteBlocklistStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!room_al_{suffix}:test.com");
@@ -387,7 +394,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_is_user_allowed_positive_and_negative() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = InviteBlocklistStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!room_allowed_{suffix}:test.com");
@@ -417,7 +424,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_has_any_invite_restriction() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = InviteBlocklistStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let room_no_restrict = format!("!room_none_{suffix}:test.com");
@@ -485,7 +492,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_global_invite_blocklist() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = InviteBlocklistStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let room_a = format!("!room_ga_{suffix}:test.com");
@@ -575,7 +582,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_round_trip_blocklist_set_and_clear() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = InviteBlocklistStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!room_clear_{suffix}:test.com");

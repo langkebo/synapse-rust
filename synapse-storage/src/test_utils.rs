@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use synapse_common::test_schema_guard::{SchemaCleanup, TestSchemaGuard};
+use synapse_common::test_schema_guard::{schema_lease_key, SchemaCleanup, TestSchemaGuard};
 
 static TEST_SCHEMA_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -161,14 +161,26 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<TestSchemaGuard, Strin
     }
 
     let search_path_sql = format!("SET search_path TO {schema_name}, public");
+    let lease_schema = schema_name.clone();
     let pool = PgPoolOptions::new()
         .max_connections(4)
         .min_connections(0)
         .acquire_timeout(Duration::from_secs(30))
         .after_connect(move |connection, _meta| {
             let search_path_sql = search_path_sql.clone();
+            let lease_schema = lease_schema.clone();
             Box::pin(async move {
-                sqlx::query(&search_path_sql).execute(connection).await?;
+                sqlx::query(&search_path_sql).execute(&mut *connection).await?;
+                // Connection-derived lease: the janitor's drop waits for every
+                // connection of this pool to close, so an inner `PgPool` clone
+                // (`(**pool).clone()`) held by a service keeps the schema alive
+                // after the fixture's `Arc<PgPool>` is dropped. The lock is
+                // **shared** so this pool's own 4 connections can coexist; the
+                // janitor takes the conflicting *exclusive* lock with `try`.
+                sqlx::query("SELECT pg_advisory_lock_shared($1)")
+                    .bind(schema_lease_key(&lease_schema))
+                    .execute(&mut *connection)
+                    .await?;
                 Ok(())
             })
         })

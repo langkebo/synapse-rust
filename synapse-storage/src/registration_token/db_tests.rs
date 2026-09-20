@@ -3,10 +3,17 @@ use synapse_common::current_timestamp_millis;
 
 use super::*;
 
-async fn test_pool() -> Arc<sqlx::PgPool> {
-    crate::test_utils::connect_shared_test_pool()
-        .await
-        .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+/// Shared `public` is deliberately replaced by a per-test schema here:
+/// `cleanup_expired_tokens()` disables every expired token in the schema, which
+/// includes sibling fixtures created with a past `expires_at`.
+///
+/// Eliminating the shared state removes the race instead of serialising around it
+/// (AGENTS.md rule 7). The guard is returned with the pool so the schema outlives
+/// the whole test — dropping it early spawns a background `DROP SCHEMA`.
+async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<sqlx::PgPool>) {
+    let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+    let pool = isolated.pool();
+    (isolated, pool)
 }
 
 async fn cleanup_test_data(pool: &sqlx::PgPool, suffix: &str) {
@@ -76,7 +83,7 @@ fn empty_token_request() -> CreateRegistrationTokenRequest {
 
 #[tokio::test]
 async fn test_create_token_with_all_fields() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     cleanup_test_data(&pool, &suffix).await;
 
@@ -123,7 +130,7 @@ async fn test_create_token_with_all_fields() {
 
 #[tokio::test]
 async fn test_get_token_found_and_not_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     cleanup_test_data(&pool, &suffix).await;
 
@@ -154,7 +161,7 @@ async fn test_get_token_found_and_not_found() {
 
 #[tokio::test]
 async fn test_get_token_by_id_found_and_not_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     cleanup_test_data(&pool, &suffix).await;
 
@@ -182,7 +189,7 @@ async fn test_get_token_by_id_found_and_not_found() {
 
 #[tokio::test]
 async fn test_update_token_success_and_not_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     cleanup_test_data(&pool, &suffix).await;
 
@@ -226,7 +233,7 @@ async fn test_update_token_success_and_not_found() {
 
 #[tokio::test]
 async fn test_delete_token_and_idempotent() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     cleanup_test_data(&pool, &suffix).await;
 
@@ -260,7 +267,7 @@ async fn test_delete_token_and_idempotent() {
 
 #[tokio::test]
 async fn test_validate_token_valid() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     cleanup_test_data(&pool, &suffix).await;
 
@@ -291,7 +298,7 @@ async fn test_validate_token_valid() {
 
 #[tokio::test]
 async fn test_validate_token_expired() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     cleanup_test_data(&pool, &suffix).await;
 
@@ -322,7 +329,7 @@ async fn test_validate_token_expired() {
 
 #[tokio::test]
 async fn test_validate_token_exhausted() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     cleanup_test_data(&pool, &suffix).await;
 
@@ -363,7 +370,7 @@ async fn test_validate_token_exhausted() {
 
 #[tokio::test]
 async fn test_validate_token_disabled() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     cleanup_test_data(&pool, &suffix).await;
 
@@ -392,7 +399,7 @@ async fn test_validate_token_disabled() {
 
 #[tokio::test]
 async fn test_validate_token_not_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     cleanup_test_data(&pool, &suffix).await;
 
@@ -413,7 +420,7 @@ async fn test_validate_token_not_found() {
 
 #[tokio::test]
 async fn test_use_token_increments_counter() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     cleanup_test_data(&pool, &suffix).await;
 
@@ -464,7 +471,7 @@ async fn test_use_token_increments_counter() {
 
 #[tokio::test]
 async fn test_use_token_fails_when_exhausted() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     cleanup_test_data(&pool, &suffix).await;
 
@@ -504,7 +511,7 @@ async fn test_use_token_fails_when_exhausted() {
 
 #[tokio::test]
 async fn test_get_all_tokens_cursor_pagination() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     cleanup_test_data(&pool, &suffix).await;
 
@@ -549,7 +556,7 @@ async fn test_get_all_tokens_cursor_pagination() {
 
 #[tokio::test]
 async fn test_get_all_tokens_returns_without_error() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     cleanup_test_data(&pool, &suffix).await;
 
@@ -568,7 +575,7 @@ async fn test_get_all_tokens_returns_without_error() {
 
 #[tokio::test]
 async fn test_get_active_tokens_returns_active_only() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     cleanup_test_data(&pool, &suffix).await;
 
@@ -624,7 +631,7 @@ async fn test_get_active_tokens_returns_active_only() {
 
 #[tokio::test]
 async fn test_get_token_usage_with_records() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     cleanup_test_data(&pool, &suffix).await;
 
@@ -676,7 +683,7 @@ async fn test_get_token_usage_with_records() {
 
 #[tokio::test]
 async fn test_deactivate_token_and_idempotent() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     cleanup_test_data(&pool, &suffix).await;
 
@@ -711,7 +718,7 @@ async fn test_deactivate_token_and_idempotent() {
 
 #[tokio::test]
 async fn test_cleanup_expired_tokens() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     cleanup_test_data(&pool, &suffix).await;
 
@@ -740,7 +747,9 @@ async fn test_cleanup_expired_tokens() {
 
     // Run cleanup
     let affected = storage.cleanup_expired_tokens().await.expect("cleanup_expired_tokens should succeed");
-    assert!(affected >= 1, "should have affected at least 1 expired token");
+    // Exact: per-test schema (see `test_pool`) — the only expired token in it is the one
+    // created above (the valid token has no expiry), so no sibling can be swept instead.
+    assert_eq!(affected, 1, "should have affected exactly the 1 expired token");
 
     // Valid token should still be enabled
     let valid_after = storage.get_token_by_id(valid.id).await.expect("get should succeed").unwrap();
@@ -763,7 +772,7 @@ async fn test_cleanup_expired_tokens() {
 
 #[tokio::test]
 async fn test_create_token_auto_generates_token() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     cleanup_test_data(&pool, &suffix).await;
 
@@ -802,7 +811,7 @@ async fn test_create_token_auto_generates_token() {
 
 #[tokio::test]
 async fn test_get_room_invite_found_and_not_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     cleanup_test_data(&pool, &suffix).await;
 

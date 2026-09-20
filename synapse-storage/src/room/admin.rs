@@ -834,10 +834,17 @@ mod db_tests {
     use sqlx::{Pool, Postgres};
     use std::sync::Arc;
 
-    async fn test_pool() -> Arc<Pool<Postgres>> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// Shared `public` is deliberately replaced by a per-test schema here:
+    /// `purge_room_events`/`delete_room` delete rows for whole rooms and these tests
+    /// assert on the resulting counts, which a sibling test could change via `public`.
+    ///
+    /// Eliminating the shared state removes the race instead of serialising around it
+    /// (AGENTS.md rule 7). The guard is returned with the pool so the schema outlives
+    /// the whole test — dropping it early spawns a background `DROP SCHEMA`.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<Pool<Postgres>>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     async fn ensure_test_room(pool: &Pool<Postgres>, room_id: &str) {
@@ -856,7 +863,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_check_rooms_exist_batch() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage { pool: pool.clone() };
         let room_id = format!("!check_batch_{}:example.com", uuid::Uuid::new_v4());
 
@@ -873,7 +880,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_check_rooms_exist_batch_empty() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage { pool: pool.clone() };
 
         let existing = storage.check_rooms_exist_batch(&[]).await.expect("should succeed");
@@ -882,7 +889,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_block_room_and_get_status() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage { pool: pool.clone() };
         let room_id = format!("!block_test_{}:example.com", uuid::Uuid::new_v4());
 
@@ -906,7 +913,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_room_block_status_not_blocked() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage { pool: pool.clone() };
         let room_id = format!("!notblocked_{}:example.com", uuid::Uuid::new_v4());
 
@@ -923,7 +930,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_unblock_room() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage { pool: pool.clone() };
         let room_id = format!("!unblock_test_{}:example.com", uuid::Uuid::new_v4());
 
@@ -945,7 +952,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_room_version_only_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage { pool: pool.clone() };
         let room_id = format!("!version_test_{}:example.com", uuid::Uuid::new_v4());
 
@@ -962,7 +969,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_room_version_only_not_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage { pool: pool.clone() };
 
         let version = storage.get_room_version_only("!nonexistent:example.com").await.expect("should succeed");
@@ -971,7 +978,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_room_public_with_directory() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage { pool: pool.clone() };
         let room_id = format!("!pubdir_test_{}:example.com", uuid::Uuid::new_v4());
 
@@ -996,7 +1003,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_room_private_with_directory() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage { pool: pool.clone() };
         let room_id = format!("!privdir_test_{}:example.com", uuid::Uuid::new_v4());
 
@@ -1025,7 +1032,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_room_listings_status() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage { pool: pool.clone() };
         let room_id = format!("!listing_test_{}:example.com", uuid::Uuid::new_v4());
 
@@ -1044,7 +1051,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_single_room_stats() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage { pool: pool.clone() };
         let room_id = format!("!stats_test_{}:example.com", uuid::Uuid::new_v4());
 
@@ -1063,7 +1070,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_room_stats_overview() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage { pool: pool.clone() };
         let room_id = format!("!overview_test_{}:example.com", uuid::Uuid::new_v4());
 
@@ -1083,7 +1090,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_room_aliases_batch() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage { pool: pool.clone() };
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!aliasbt_{}:example.com", suffix);

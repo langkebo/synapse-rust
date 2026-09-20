@@ -19,8 +19,9 @@ use std::sync::{Arc, Mutex, Once};
 use std::time::Duration;
 use synapse_common::current_timestamp_millis;
 use synapse_common::test_schema_guard::{
-    drop_schema_blocking, register_exit_callback, register_schema_cleanup, run_cleanup_blocking, running_under_nextest,
-    CleanupFn, SchemaCleanup,
+    drop_schema_blocking, drop_schema_if_unleased_blocking, register_exit_callback, register_schema_cleanup,
+    release_schema_lease, run_cleanup_blocking_outcome, running_under_nextest, schema_lease_key,
+    try_acquire_schema_lease, CleanupFn, CleanupOutcome, SchemaCleanup,
 };
 use synapse_services::database_initializer::{DatabaseInitMode, DatabaseInitService};
 use tokio::sync::OnceCell;
@@ -378,6 +379,20 @@ async fn pin_public_extensions(pool: &PgPool) {
     }
 }
 
+/// Take the schema's **connection lease** on `conn`.
+///
+/// The lock is session-scoped and **shared**, so PostgreSQL releases it when the
+/// connection closes, several connections of the same pool may hold it at once,
+/// and the janitor's *exclusive* `pg_try_advisory_lock` (see
+/// `synapse_common::test_schema_guard::schema_lease_key`) succeeds only once
+/// none of them is open. This is what keeps a per-test schema alive while a
+/// service holds only an inner `PgPool` clone (`(**pool).clone()`) after the
+/// fixture dropped its `Arc<PgPool>` — the §1.9.1 media flake.
+async fn attach_schema_lease(conn: &mut sqlx::PgConnection, schema: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("SELECT pg_advisory_lock_shared($1)").bind(schema_lease_key(schema)).execute(&mut *conn).await?;
+    Ok(())
+}
+
 /// See [`prepare_isolated_test_pool`].
 pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     let database_url = resolve_test_database_url().await?;
@@ -410,6 +425,7 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     pin_public_extensions(&admin_pool).await;
 
     let search_path_sql = format!("SET search_path TO {schema_name}, public");
+    let lease_schema = schema_name.clone();
     let pool = tokio::time::timeout(
         connect_timeout,
         PgPoolOptions::new()
@@ -420,8 +436,10 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
             .max_lifetime(Some(configured_test_pool_max_lifetime()))
             .after_connect(move |connection, _meta| {
                 let search_path_sql = search_path_sql.clone();
+                let lease_schema = lease_schema.clone();
                 Box::pin(async move {
-                    sqlx::query(&search_path_sql).execute(connection).await?;
+                    sqlx::query(&search_path_sql).execute(&mut *connection).await?;
+                    attach_schema_lease(connection, &lease_schema).await?;
                     Ok(())
                 })
             })
@@ -1239,6 +1257,7 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
     .await?;
 
     let search_path_sql = format!("SET search_path TO {schema_name}, public");
+    let lease_schema = schema_name.clone();
     let pool = tokio::time::timeout(
         connect_timeout,
         PgPoolOptions::new()
@@ -1249,8 +1268,10 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
             .max_lifetime(Some(configured_test_pool_max_lifetime()))
             .after_connect(move |connection, _meta| {
                 let search_path_sql = search_path_sql.clone();
+                let lease_schema = lease_schema.clone();
                 Box::pin(async move {
-                    sqlx::query(&search_path_sql).execute(connection).await?;
+                    sqlx::query(&search_path_sql).execute(&mut *connection).await?;
+                    attach_schema_lease(connection, &lease_schema).await?;
                     Ok(())
                 })
             })
@@ -1315,20 +1336,34 @@ impl LeasedSchema {
 // The `inner` field is kept only so `poison()` can reach the shared flag.
 
 /// Shared background cleanup body for a leased/returned schema: connect an admin
-/// pool, TRUNCATE + re-seed (returning the schema name to SCHEMA_POOL) or DROP it
-/// if poisoned/corrupted. Used by both `LeasedSchema::drop` (TestContext path)
-/// and the deferred `prepare_shared_test_pool` return path.
-async fn cleanup_schema(database_url: String, schema_name: String, template_name: String, poisoned: bool) {
+/// pool, take the schema's connection lease, then TRUNCATE + re-seed (returning
+/// the schema name to `SCHEMA_POOL`) or DROP it if poisoned/corrupted. Used by
+/// both the `LeasedSchema` path and the deferred `prepare_shared_test_pool`
+/// return path.
+///
+/// Returns [`CleanupOutcome::Retry`] when the lease cannot be taken: a
+/// connection of the leased pool is still open, so the schema is still in use
+/// and must be neither TRUNCATEd nor DROPped. The janitor re-queues the entry
+/// for a later pass.
+async fn cleanup_schema(
+    database_url: String,
+    schema_name: String,
+    template_name: String,
+    poisoned: bool,
+) -> CleanupOutcome {
     // Serialize cleanup (see CLEANUP_SEMAPHORE docs) to bound peak lock usage.
     // The semaphore is a process-lifetime static and never closed.
     let Ok(_cleanup_permit) = CLEANUP_SEMAPHORE.acquire().await else {
         eprintln!("schema pool: cleanup semaphore closed; skipping cleanup of {schema_name}");
-        return;
+        return CleanupOutcome::Done;
     };
 
+    // Two connections: one that holds the session-level lease for the whole
+    // cleanup, one for the TRUNCATE / DROP. The lease must stay on a distinct
+    // session from the work, because the work runs through the pool.
     let admin_pool = tokio::time::timeout(
         Duration::from_secs(10),
-        PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(&database_url),
+        PgPoolOptions::new().max_connections(2).acquire_timeout(Duration::from_secs(5)).connect(&database_url),
     )
     .await;
 
@@ -1336,27 +1371,50 @@ async fn cleanup_schema(database_url: String, schema_name: String, template_name
         Ok(Ok(pool)) => pool,
         _ => {
             eprintln!("schema pool: failed to connect admin pool for cleanup of {schema_name}; schema orphaned");
-            return;
+            return CleanupOutcome::Done;
         }
     };
 
-    if poisoned {
-        let _ = drop_schema(&admin_pool, &schema_name).await;
-        admin_pool.close().await;
-        return;
+    let mut lease_conn = match admin_pool.acquire().await {
+        Ok(conn) => conn,
+        Err(error) => {
+            eprintln!("schema pool: failed to acquire the lease connection for {schema_name}: {error}");
+            return CleanupOutcome::Done;
+        }
+    };
+    match try_acquire_schema_lease(&mut lease_conn, &schema_name).await {
+        Ok(true) => {}
+        Ok(false) => return CleanupOutcome::Retry,
+        Err(error) => {
+            eprintln!("schema pool: failed to take the schema lease for {schema_name}: {error}");
+            return CleanupOutcome::Done;
+        }
     }
 
-    match truncate_and_reseed_schema(&admin_pool, &database_url, &schema_name, &template_name).await {
-        Ok(()) => {
-            // Safety check passed — return schema name to pool for reuse
-            SCHEMA_POOL.lock().await.push(schema_name);
+    let outcome = if poisoned {
+        let _ = drop_schema(&admin_pool, &schema_name).await;
+        CleanupOutcome::Done
+    } else {
+        match truncate_and_reseed_schema(&admin_pool, &database_url, &schema_name, &template_name).await {
+            Ok(()) => {
+                // Safety check passed — return schema name to pool for reuse
+                SCHEMA_POOL.lock().await.push(schema_name.clone());
+                CleanupOutcome::Done
+            }
+            Err(error) => {
+                eprintln!("schema pool: cleanup failed for {schema_name} ({error}); dropping schema");
+                let _ = drop_schema(&admin_pool, &schema_name).await;
+                CleanupOutcome::Done
+            }
         }
-        Err(error) => {
-            eprintln!("schema pool: cleanup failed for {schema_name} ({error}); dropping schema");
-            let _ = drop_schema(&admin_pool, &schema_name).await;
-        }
+    };
+
+    if let Err(error) = release_schema_lease(&mut lease_conn, &schema_name).await {
+        eprintln!("schema pool: failed to release the schema lease for {schema_name}: {error}");
     }
+    drop(lease_conn);
     admin_pool.close().await;
+    outcome
 }
 
 /// Register a schema returned by `prepare_shared_test_pool` for deferred return.
@@ -1364,6 +1422,9 @@ async fn cleanup_schema(database_url: String, schema_name: String, template_name
 /// to `SCHEMA_POOL` once the last `Arc<PgPool>` is released. Under nextest the
 /// `on_release` path is a plain DROP because reuse never pays off, and the
 /// shared-pool exit drain will clean any still-parking names.
+///
+/// Both paths are lease-guarded: releasing the outer `Arc<PgPool>` is not proof
+/// the schema is free, because services can keep only an inner `PgPool` clone.
 fn register_pending_schema_return(pool: &Arc<PgPool>, schema_name: &str, template_name: String, database_url: &str) {
     ensure_schema_pool_exit_drain(database_url);
     let db = database_url.to_string();
@@ -1374,12 +1435,12 @@ fn register_pending_schema_return(pool: &Arc<PgPool>, schema_name: &str, templat
     let on_release: CleanupFn = Box::new(move || {
         // Under nextest, dropping immediately beats the wasted TRUNCATE+return.
         if running_under_nextest() {
-            drop_schema_blocking(&db, &sn);
-            return;
+            return drop_schema_if_unleased_blocking(&db, &sn);
         }
-        run_cleanup_blocking(async move {
-            cleanup_schema(db, sn, tn, false).await;
-        });
+        let db = db.clone();
+        let sn = sn.clone();
+        let tn = tn.clone();
+        run_cleanup_blocking_outcome(async move { cleanup_schema(db, sn, tn, false).await })
     });
     register_schema_cleanup(
         pool,
@@ -1407,12 +1468,13 @@ fn ensure_schema_pool_exit_drain(database_url: &str) {
                 Err(_) => Vec::new(),
             };
             if names.is_empty() {
-                return;
+                return CleanupOutcome::Done;
             }
             eprintln!("schema pool: dropping {} parked reusable schema(s) at exit", names.len());
             for name in &names {
                 drop_schema_blocking(&database_url, name);
             }
+            CleanupOutcome::Done
         }));
     });
 }
@@ -1445,12 +1507,14 @@ pub async fn acquire_pooled_schema() -> Result<LeasedSchema, String> {
         let db_clone = database_url.clone();
         let on_release: CleanupFn = Box::new(move || {
             if running_under_nextest() || closure_poisoned.load(Ordering::SeqCst) {
-                drop_schema_blocking(&db_clone, &schema_name_clone);
-                return;
+                return drop_schema_if_unleased_blocking(&db_clone, &schema_name_clone);
             }
-            run_cleanup_blocking(async move {
-                cleanup_schema(db_clone, schema_name_clone, template_name_clone, false).await;
-            });
+            let db_clone = db_clone.clone();
+            let schema_name_clone = schema_name_clone.clone();
+            let template_name_clone = template_name_clone.clone();
+            run_cleanup_blocking_outcome(async move {
+                cleanup_schema(db_clone, schema_name_clone, template_name_clone, false).await
+            })
         });
         register_schema_cleanup(
             &pool,
@@ -1475,12 +1539,14 @@ pub async fn acquire_pooled_schema() -> Result<LeasedSchema, String> {
     let db_clone = database_url.clone();
     let on_release: CleanupFn = Box::new(move || {
         if running_under_nextest() || closure_poisoned.load(Ordering::SeqCst) {
-            drop_schema_blocking(&db_clone, &schema_name_clone);
-            return;
+            return drop_schema_if_unleased_blocking(&db_clone, &schema_name_clone);
         }
-        run_cleanup_blocking(async move {
-            cleanup_schema(db_clone, schema_name_clone, template_name_clone, false).await;
-        });
+        let db_clone = db_clone.clone();
+        let schema_name_clone = schema_name_clone.clone();
+        let template_name_clone = template_name_clone.clone();
+        run_cleanup_blocking_outcome(async move {
+            cleanup_schema(db_clone, schema_name_clone, template_name_clone, false).await
+        })
     });
     register_schema_cleanup(
         &pool,
@@ -1497,6 +1563,7 @@ pub async fn acquire_pooled_schema() -> Result<LeasedSchema, String> {
 /// not PgPools, to avoid cross-runtime pool issues).
 async fn create_pool_for_schema(database_url: &str, schema_name: &str) -> Result<Arc<PgPool>, String> {
     let search_path_sql = format!("SET search_path TO {schema_name}, public");
+    let lease_schema = schema_name.to_string();
     let connect_timeout = configured_test_pool_connect_timeout();
 
     let pool = tokio::time::timeout(
@@ -1509,8 +1576,10 @@ async fn create_pool_for_schema(database_url: &str, schema_name: &str) -> Result
             .max_lifetime(Some(configured_test_pool_max_lifetime()))
             .after_connect(move |connection, _meta| {
                 let search_path_sql = search_path_sql.clone();
+                let lease_schema = lease_schema.clone();
                 Box::pin(async move {
-                    sqlx::query(&search_path_sql).execute(connection).await?;
+                    sqlx::query(&search_path_sql).execute(&mut *connection).await?;
+                    attach_schema_lease(connection, &lease_schema).await?;
                     Ok(())
                 })
             })
@@ -1620,6 +1689,7 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     pin_public_extensions(&admin_pool).await;
 
     let search_path_sql = format!("SET search_path TO {schema_name}, public");
+    let lease_schema = schema_name.clone();
     let pool = tokio::time::timeout(
         connect_timeout,
         PgPoolOptions::new()
@@ -1630,8 +1700,10 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
             .max_lifetime(Some(configured_test_pool_max_lifetime()))
             .after_connect(move |connection, _meta| {
                 let search_path_sql = search_path_sql.clone();
+                let lease_schema = lease_schema.clone();
                 Box::pin(async move {
-                    sqlx::query(&search_path_sql).execute(connection).await?;
+                    sqlx::query(&search_path_sql).execute(&mut *connection).await?;
+                    attach_schema_lease(connection, &lease_schema).await?;
                     Ok(())
                 })
             })

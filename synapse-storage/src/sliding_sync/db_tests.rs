@@ -5,10 +5,17 @@ use sqlx::{Pool, Postgres};
 
 use super::*;
 
-async fn test_pool() -> Arc<Pool<Postgres>> {
-    crate::test_utils::connect_shared_test_pool()
-        .await
-        .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+/// Shared `public` is deliberately replaced by a per-test schema here:
+/// `cleanup_expired_tokens()` deletes every expired `sliding_sync_tokens` row in the
+/// schema, including a sibling fixture's manually-expired token.
+///
+/// Eliminating the shared state removes the race instead of serialising around it
+/// (AGENTS.md rule 7). The guard is returned with the pool so the schema outlives
+/// the whole test — dropping it early spawns a background `DROP SCHEMA`.
+async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<Pool<Postgres>>) {
+    let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+    let pool = isolated.pool();
+    (isolated, pool)
 }
 
 fn unique_id(prefix: &str) -> String {
@@ -17,7 +24,7 @@ fn unique_id(prefix: &str) -> String {
 
 #[tokio::test]
 async fn test_create_or_update_token_insert_then_update() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
@@ -43,7 +50,7 @@ async fn test_create_or_update_token_insert_then_update() {
 
 #[tokio::test]
 async fn test_create_or_update_token_with_conn_id() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
@@ -60,7 +67,7 @@ async fn test_create_or_update_token_with_conn_id() {
 
 #[tokio::test]
 async fn test_get_token_returns_none_when_absent() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@missing");
     let device_id = unique_id("DEV");
@@ -71,7 +78,7 @@ async fn test_get_token_returns_none_when_absent() {
 
 #[tokio::test]
 async fn test_get_token_returns_inserted_token() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
@@ -86,7 +93,7 @@ async fn test_get_token_returns_inserted_token() {
 
 #[tokio::test]
 async fn test_validate_pos_valid_and_invalid() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
@@ -104,7 +111,7 @@ async fn test_validate_pos_valid_and_invalid() {
 
 #[tokio::test]
 async fn test_save_list_insert_and_update() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
@@ -133,7 +140,7 @@ async fn test_save_list_insert_and_update() {
 
 #[tokio::test]
 async fn test_get_lists_returns_saved_lists() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
@@ -151,7 +158,7 @@ async fn test_get_lists_returns_saved_lists() {
 
 #[tokio::test]
 async fn test_get_lists_empty() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
@@ -162,7 +169,7 @@ async fn test_get_lists_empty() {
 
 #[tokio::test]
 async fn test_delete_list_removes_single_list() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
@@ -183,7 +190,7 @@ async fn test_delete_list_removes_single_list() {
 
 #[tokio::test]
 async fn test_upsert_room_insert_and_update() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
@@ -247,7 +254,7 @@ async fn test_upsert_room_insert_and_update() {
 
 #[tokio::test]
 async fn test_get_room_returns_none_when_absent() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
@@ -259,7 +266,7 @@ async fn test_get_room_returns_none_when_absent() {
 
 #[tokio::test]
 async fn test_get_room_returns_inserted_room() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
@@ -295,7 +302,7 @@ async fn test_get_room_returns_inserted_room() {
 
 #[tokio::test]
 async fn test_get_rooms_for_list_pagination() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
@@ -356,7 +363,7 @@ async fn test_get_rooms_for_list_pagination() {
 
 #[tokio::test]
 async fn test_count_rooms_for_list() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
@@ -397,7 +404,7 @@ async fn test_count_rooms_for_list() {
 
 #[tokio::test]
 async fn test_count_rooms_for_list_with_filters() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
@@ -437,7 +444,7 @@ async fn test_count_rooms_for_list_with_filters() {
 
 #[tokio::test]
 async fn test_delete_room_removes_room() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
@@ -471,7 +478,7 @@ async fn test_delete_room_removes_room() {
 
 #[tokio::test]
 async fn test_update_notification_counts() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
@@ -512,7 +519,7 @@ async fn test_update_notification_counts() {
 
 #[tokio::test]
 async fn test_bump_room_does_not_decrease() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
@@ -554,7 +561,7 @@ async fn test_bump_room_does_not_decrease() {
 
 #[tokio::test]
 async fn test_cleanup_expired_tokens_removes_only_expired() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
@@ -573,7 +580,9 @@ async fn test_cleanup_expired_tokens_removes_only_expired() {
         .expect("should expire token");
 
     let removed = storage.cleanup_expired_tokens().await.expect("cleanup_expired_tokens should succeed");
-    assert!(removed >= 1, "should have removed at least the expired token");
+    // Exact: per-test schema (see `test_pool`) — the only `sliding_sync_tokens` row in it
+    // is the one expired above, and no sibling fixture can be swept instead.
+    assert_eq!(removed, 1, "should have removed exactly the expired token");
 
     // The expired token should no longer be retrievable
     let fetched = storage.get_token(&user_id, &device_id, None).await.unwrap();
@@ -582,7 +591,7 @@ async fn test_cleanup_expired_tokens_removes_only_expired() {
 
 #[tokio::test]
 async fn test_count_room_token_sync() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let room_id = unique_id("!room");
     let user_id = unique_id("@user");
@@ -620,7 +629,7 @@ async fn test_count_room_token_sync() {
 
 #[tokio::test]
 async fn test_list_room_token_sync_without_cursor() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let room_id = unique_id("!room");
     let user_id = unique_id("@user");
@@ -659,7 +668,7 @@ async fn test_list_room_token_sync_without_cursor() {
 
 #[tokio::test]
 async fn test_list_room_token_sync_limit_truncates() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let room_id = unique_id("!room");
 
@@ -698,7 +707,7 @@ async fn test_list_room_token_sync_limit_truncates() {
 
 #[tokio::test]
 async fn test_get_global_account_data_empty() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
 
@@ -708,7 +717,7 @@ async fn test_get_global_account_data_empty() {
 
 #[tokio::test]
 async fn test_get_global_account_data_with_rows() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let now = current_timestamp_millis();
@@ -737,7 +746,7 @@ async fn test_get_global_account_data_with_rows() {
 
 #[tokio::test]
 async fn test_get_room_account_data_empty_input() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
 
     let data = storage.get_room_account_data("@nobody:x", &[]).await.expect("get_room_account_data empty");
@@ -746,7 +755,7 @@ async fn test_get_room_account_data_empty_input() {
 
 #[tokio::test]
 async fn test_get_room_account_data_with_rows() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let room_id = unique_id("!room");
@@ -780,7 +789,7 @@ async fn test_get_room_account_data_with_rows() {
 
 #[tokio::test]
 async fn test_get_receipts_for_rooms_empty_input() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
 
     let data = storage.get_receipts_for_rooms(&[]).await.expect("get_receipts_for_rooms empty");
@@ -789,7 +798,7 @@ async fn test_get_receipts_for_rooms_empty_input() {
 
 #[tokio::test]
 async fn test_get_receipts_for_rooms_with_rows() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let room_id = unique_id("!room");
     let user_id = unique_id("@user");
@@ -825,7 +834,7 @@ async fn test_get_receipts_for_rooms_with_rows() {
 
 #[tokio::test]
 async fn test_delete_connection_data_removes_all() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
@@ -865,7 +874,7 @@ async fn test_delete_connection_data_removes_all() {
 
 #[tokio::test]
 async fn test_get_rooms_for_list_with_filters() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
@@ -915,7 +924,7 @@ async fn test_get_rooms_for_list_with_filters() {
 
 #[tokio::test]
 async fn test_get_rooms_for_list_with_room_name_like_filter() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
@@ -963,7 +972,7 @@ async fn test_get_rooms_for_list_with_room_name_like_filter() {
 
 #[tokio::test]
 async fn test_sliding_sync_room_is_invited_column() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
@@ -1083,7 +1092,7 @@ async fn cleanup_bump_test(
 /// 而无关状态事件（如 `m.room.topic`）即使时间更晚也不 bump。
 #[tokio::test]
 async fn test_materialize_default_bump_types_include_beacon_info_not_topic() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
@@ -1108,7 +1117,7 @@ async fn test_materialize_default_bump_types_include_beacon_info_not_topic() {
 /// A3: 显式传入 `bump_event_types` 时应按传入集合过滤（覆盖默认集合）。
 #[tokio::test]
 async fn test_materialize_honors_explicit_bump_event_types() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");

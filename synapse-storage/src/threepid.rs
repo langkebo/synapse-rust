@@ -700,11 +700,17 @@ mod db_tests {
     use super::*;
     use sqlx::PgPool;
 
-    async fn test_pool() -> PgPool {
-        let pool = crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure");
-        (*pool).clone()
+    /// Shared `public` is deliberately replaced by a per-test schema here:
+    /// `cleanup_expired_verifications()` is a schema-wide `DELETE FROM user_threepids`,
+    /// so a sibling test's still-valid fixture row could be removed before its assertion.
+    ///
+    /// Eliminating the shared state removes the race instead of serialising around it
+    /// (AGENTS.md rule 7). The guard is returned with the pool so the schema outlives
+    /// the whole test — dropping it early spawns a background `DROP SCHEMA`.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, PgPool) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = (*isolated.pool()).clone();
+        (isolated, pool)
     }
 
     async fn ensure_test_user(pool: &PgPool, user_id: &str) {
@@ -725,7 +731,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_add_threepid() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = ThreepidStorage::new(&pool);
         let uuid = uuid::Uuid::new_v4();
         let user_id = format!("@add_{uuid}:test.com");
@@ -759,7 +765,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_threepid_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = ThreepidStorage::new(&pool);
         let uuid = uuid::Uuid::new_v4();
         let user_id = format!("@getf_{uuid}:test.com");
@@ -792,7 +798,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_threepid_not_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = ThreepidStorage::new(&pool);
         let uuid = uuid::Uuid::new_v4();
         let user_id = format!("@nofind_{uuid}:test.com");
@@ -809,7 +815,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_threepids_by_user() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = ThreepidStorage::new(&pool);
         let uuid = uuid::Uuid::new_v4();
         let user_id = format!("@list_{uuid}:test.com");
@@ -856,7 +862,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_threepid_by_address() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = ThreepidStorage::new(&pool);
         let uuid = uuid::Uuid::new_v4();
         let user_id = format!("@addr_{uuid}:test.com");
@@ -887,7 +893,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_verify_threepid() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = ThreepidStorage::new(&pool);
         let uuid = uuid::Uuid::new_v4();
         let user_id = format!("@verify_{uuid}:test.com");
@@ -925,7 +931,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_remove_threepid() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = ThreepidStorage::new(&pool);
         let uuid = uuid::Uuid::new_v4();
         let user_id = format!("@remove_{uuid}:test.com");
@@ -957,7 +963,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_add_verified_threepid() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = ThreepidStorage::new(&pool);
         let uuid = uuid::Uuid::new_v4();
         let user_id = format!("@addv_{uuid}:test.com");
@@ -988,7 +994,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_verified_threepid_by_address() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = ThreepidStorage::new(&pool);
         let uuid = uuid::Uuid::new_v4();
         let user_id = format!("@gvaddr_{uuid}:test.com");
@@ -1042,7 +1048,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_validation_session() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = ThreepidStorage::new(&pool);
         let uuid = uuid::Uuid::new_v4();
         let session_id = format!("session_{uuid}");
@@ -1078,7 +1084,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_pending_threepids() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = ThreepidStorage::new(&pool);
         let uuid = uuid::Uuid::new_v4();
         let user_id = format!("@pend_{uuid}:test.com");
@@ -1095,14 +1101,16 @@ mod db_tests {
 
         let pending = storage.get_pending_threepids(10).await.expect("get_pending_threepids should succeed");
 
-        assert!(!pending.is_empty(), "expected at least 1 pending threepid, got {}", pending.len());
+        // Exact: `get_pending_threepids()` scans the whole table and `test_pool()` is now
+        // per-test isolated (see above), so this is the only row it can return.
+        assert_eq!(pending.len(), 1, "expected exactly 1 pending threepid, got {}", pending.len());
 
         let _ = storage.remove_threepid(&user_id, "email", &address).await;
     }
 
     #[tokio::test]
     async fn test_cleanup_expired_verifications() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = ThreepidStorage::new(&pool);
         let uuid = uuid::Uuid::new_v4();
         let user_id = format!("@cleanup_{uuid}:test.com");
@@ -1127,7 +1135,9 @@ mod db_tests {
         let cleaned =
             storage.cleanup_expired_verifications().await.expect("cleanup_expired_verifications should succeed");
 
-        assert!(cleaned >= 1, "should clean at least 1 expired verification, got {}", cleaned);
+        // Exact: per-test schema (see `test_pool`) — this test inserted the only expired,
+        // unverified threepid in it, so no sibling can inflate or drain the count.
+        assert_eq!(cleaned, 1, "should clean exactly the 1 expired verification, got {}", cleaned);
 
         // Verify threepid was removed
         let found = storage.get_threepid(&user_id, "email", &address).await.expect("get should succeed");
@@ -1137,7 +1147,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_verify_threepid_by_token() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = ThreepidStorage::new(&pool);
         let uuid = uuid::Uuid::new_v4();
         let user_id = format!("@vbt_{uuid}:test.com");
@@ -1173,7 +1183,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_threepid_round_trip() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = ThreepidStorage::new(&pool);
         let uuid = uuid::Uuid::new_v4();
         let user_id = format!("@rt_{uuid}:test.com");

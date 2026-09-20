@@ -729,10 +729,18 @@ mod db_tests {
     use std::sync::Arc;
     use uuid::Uuid;
 
-    async fn test_pool() -> Arc<PgPool> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// Shared `public` is deliberately replaced by a per-test schema here:
+    /// `cleanup_expired_entries()` disables **every** expired `federation_blacklist` row
+    /// in the schema, so sibling fixtures with a past expiry were swept by this test's
+    /// call and this test's row by theirs.
+    ///
+    /// Eliminating the shared state removes the race instead of serialising around it
+    /// (AGENTS.md rule 7). The guard is returned with the pool so the schema outlives
+    /// the whole test — dropping it early spawns a background `DROP SCHEMA`.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     async fn cleanup_by_server(pool: &PgPool, server_name: &str) {
@@ -772,7 +780,7 @@ mod db_tests {
     // 1. add_to_blacklist inserts a new record and returns it.
     #[tokio::test]
     async fn test_add_to_blacklist_succeeds() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = FederationBlacklistStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-add-{}.com", suffix);
@@ -805,7 +813,7 @@ mod db_tests {
     // 2. add_to_blacklist upserts on server_name conflict.
     #[tokio::test]
     async fn test_add_to_blacklist_upsert() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = FederationBlacklistStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-upsert-{}.com", suffix);
@@ -851,7 +859,7 @@ mod db_tests {
     // 3. get_blacklist_entry finds an existing entry.
     #[tokio::test]
     async fn test_get_blacklist_entry_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = FederationBlacklistStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-get-{}.com", suffix);
@@ -886,7 +894,7 @@ mod db_tests {
     // 4. get_blacklist_entry returns None for unknown server_name.
     #[tokio::test]
     async fn test_get_blacklist_entry_not_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = FederationBlacklistStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-nonexist-{}.com", suffix);
@@ -901,7 +909,7 @@ mod db_tests {
     // 5. remove_from_blacklist sets is_enabled=false and creates a log entry.
     #[tokio::test]
     async fn test_remove_from_blacklist_creates_log() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = FederationBlacklistStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-remove-{}.com", suffix);
@@ -953,7 +961,7 @@ mod db_tests {
     // 6. is_server_blocked returns true for an active blacklist entry.
     #[tokio::test]
     async fn test_is_server_blocked_true() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = FederationBlacklistStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-blocked-{}.com", suffix);
@@ -982,7 +990,7 @@ mod db_tests {
     // 7. is_server_blocked returns false when expiry is in the past.
     #[tokio::test]
     async fn test_is_server_blocked_expired() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = FederationBlacklistStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-expired-{}.com", suffix);
@@ -1012,7 +1020,7 @@ mod db_tests {
     // 8. is_server_blocked returns false when block_type is not "blacklist".
     #[tokio::test]
     async fn test_is_server_blocked_wrong_type() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = FederationBlacklistStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-notblack-{}.com", suffix);
@@ -1041,7 +1049,7 @@ mod db_tests {
     // 9. is_server_whitelisted returns true for a whitelist entry.
     #[tokio::test]
     async fn test_is_server_whitelisted_true() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = FederationBlacklistStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-wl-{}.com", suffix);
@@ -1070,7 +1078,7 @@ mod db_tests {
     // 10. is_server_whitelisted returns false for a non-whitelist server.
     #[tokio::test]
     async fn test_is_server_whitelisted_false() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = FederationBlacklistStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-notwl-{}.com", suffix);
@@ -1163,7 +1171,7 @@ mod db_tests {
     // 12. create_log inserts a log record and returns it.
     #[tokio::test]
     async fn test_create_log_succeeds() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = FederationBlacklistStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-log-{}.com", suffix);
@@ -1202,7 +1210,7 @@ mod db_tests {
     // 13. update_access_stats inserts a new stats row.
     #[tokio::test]
     async fn test_update_access_stats_succeeds() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = FederationBlacklistStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-stats-{}.com", suffix);
@@ -1234,7 +1242,7 @@ mod db_tests {
     // 14. update_access_stats accumulates counts on upsert.
     #[tokio::test]
     async fn test_update_access_stats_accumulates() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = FederationBlacklistStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-stats-acc-{}.com", suffix);
@@ -1275,7 +1283,7 @@ mod db_tests {
     // 15. get_access_stats returns existing stats.
     #[tokio::test]
     async fn test_get_access_stats_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = FederationBlacklistStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-get-stats-{}.com", suffix);
@@ -1303,7 +1311,7 @@ mod db_tests {
     // 16. get_access_stats returns None for an unknown server.
     #[tokio::test]
     async fn test_get_access_stats_not_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = FederationBlacklistStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name = format!("test-no-stats-{}.com", suffix);
@@ -1316,7 +1324,7 @@ mod db_tests {
     // 17. create_rule inserts a new rule and returns it.
     #[tokio::test]
     async fn test_create_rule_succeeds() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = FederationBlacklistStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let rule_name = format!("test-rule-{}", suffix);
@@ -1351,7 +1359,7 @@ mod db_tests {
     // 18. get_all_rules returns only enabled rules (filters out disabled).
     #[tokio::test]
     async fn test_get_all_rules_filters_disabled() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = FederationBlacklistStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let rule_name_a = format!("test-rules-a-{}", suffix);
@@ -1409,7 +1417,7 @@ mod db_tests {
     // 19. cleanup_expired_entries disables entries with past expires_at.
     #[tokio::test]
     async fn test_cleanup_expired_entries() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = FederationBlacklistStorage::new(&pool);
         let suffix = Uuid::new_v4();
         let server_name_exp = format!("test-cleanup-exp-{}.com", suffix);
@@ -1446,8 +1454,9 @@ mod db_tests {
 
         let cleaned = storage.cleanup_expired_entries().await.expect("cleanup should succeed");
 
-        // At least our expired entry should have been cleaned.
-        assert!(cleaned >= 1, "should clean at least 1 expired entry, got {cleaned}");
+        // Exact: per-test schema (see `test_pool`) — only our entry has a past expiry,
+        // and no sibling test can add another expired row or sweep this one.
+        assert_eq!(cleaned, 1, "should clean exactly 1 expired entry, got {cleaned}");
 
         // Expired entry should now be disabled.
         let expired_entry = storage

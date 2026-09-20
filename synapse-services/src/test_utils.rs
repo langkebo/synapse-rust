@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use synapse_common::test_schema_guard::{register_schema_cleanup, SchemaCleanup};
+use synapse_common::test_schema_guard::{register_schema_cleanup, schema_lease_key, SchemaCleanup};
 use tokio::sync::OnceCell;
 use tokio::sync::{Mutex as TokioMutex, Semaphore};
 
@@ -49,6 +49,20 @@ static RESOLVED_TEST_DB_URL: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| 
 /// place instead of letting each module re-invent it.
 pub fn register_pending_schema_drop_for_media(pool: &Arc<PgPool>, schema_name: String, database_url: String) {
     register_schema_cleanup(pool, &schema_name, SchemaCleanup::drop_only(&database_url, &schema_name));
+}
+
+/// Take the schema's **connection lease** on `conn`.
+///
+/// The lock is session-scoped and **shared**, so PostgreSQL releases it when the
+/// connection closes, several connections of the same pool may hold it at once,
+/// and the janitor's *exclusive* `pg_try_advisory_lock` (see
+/// `synapse_common::test_schema_guard::schema_lease_key`) succeeds only once
+/// none of them is open. This is what keeps a per-test schema alive while a
+/// service holds only an inner `PgPool` clone (`(**pool).clone()`) after the
+/// fixture dropped its `Arc<PgPool>` — the §1.9.1 media flake.
+async fn attach_schema_lease(conn: &mut sqlx::PgConnection, schema: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("SELECT pg_advisory_lock_shared($1)").bind(schema_lease_key(schema)).execute(&mut *conn).await?;
+    Ok(())
 }
 /// Static `TEST_ENV_LOCK`.
 pub static TEST_ENV_LOCK: LazyLock<TokioMutex<()>> = LazyLock::new(|| TokioMutex::new(()));
@@ -268,6 +282,7 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     .await?;
 
     let search_path_sql = format!("SET search_path TO {schema_name}, public");
+    let lease_schema = schema_name.clone();
     let pool = tokio::time::timeout(
         connect_timeout,
         PgPoolOptions::new()
@@ -278,8 +293,10 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
             .max_lifetime(Some(configured_test_pool_max_lifetime()))
             .after_connect(move |connection, _meta| {
                 let search_path_sql = search_path_sql.clone();
+                let lease_schema = lease_schema.clone();
                 Box::pin(async move {
-                    sqlx::query(&search_path_sql).execute(connection).await?;
+                    sqlx::query(&search_path_sql).execute(&mut *connection).await?;
+                    attach_schema_lease(connection, &lease_schema).await?;
                     Ok(())
                 })
             })
@@ -503,6 +520,11 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
     let schema_name = next_test_schema_name();
     let connect_timeout = configured_test_pool_connect_timeout();
 
+    // `after_connect` is what makes every connection of the returned pool land
+    // in the clone (the explicit `SET search_path` below only covers whichever
+    // connection it happened to run on) **and** what publishes the schema's
+    // connection lease for the janitor.
+    let lease_schema = schema_name.clone();
     let pool = tokio::time::timeout(
         connect_timeout,
         PgPoolOptions::new()
@@ -511,6 +533,16 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
             .acquire_timeout(configured_test_pool_acquire_timeout())
             .idle_timeout(Some(configured_test_pool_idle_timeout()))
             .max_lifetime(Some(configured_test_pool_max_lifetime()))
+            .after_connect(move |connection, _meta| {
+                let lease_schema = lease_schema.clone();
+                Box::pin(async move {
+                    sqlx::query(&format!(r#"SET search_path TO "{lease_schema}", public"#))
+                        .execute(&mut *connection)
+                        .await?;
+                    attach_schema_lease(connection, &lease_schema).await?;
+                    Ok(())
+                })
+            })
             .connect(database_url),
     )
     .await
@@ -570,6 +602,7 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     }
 
     let search_path_sql = format!("SET search_path TO {schema_name}, public");
+    let lease_schema = schema_name.clone();
     let pool = tokio::time::timeout(
         connect_timeout,
         PgPoolOptions::new()
@@ -580,8 +613,10 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
             .max_lifetime(Some(configured_test_pool_max_lifetime()))
             .after_connect(move |connection, _meta| {
                 let search_path_sql = search_path_sql.clone();
+                let lease_schema = lease_schema.clone();
                 Box::pin(async move {
-                    sqlx::query(&search_path_sql).execute(connection).await?;
+                    sqlx::query(&search_path_sql).execute(&mut *connection).await?;
+                    attach_schema_lease(connection, &lease_schema).await?;
                     Ok(())
                 })
             })

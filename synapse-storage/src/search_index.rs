@@ -420,10 +420,17 @@ mod db_tests {
     use sqlx::PgPool;
     use std::sync::Arc;
 
-    async fn test_pool() -> Arc<PgPool> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// Shared `public` is deliberately replaced by a per-test schema here:
+    /// `get_stats()` counts **every** `search_index` row in the schema and
+    /// `delete_room_index()` sweeps a whole room, so sibling fixtures changed both.
+    ///
+    /// Eliminating the shared state removes the race instead of serialising around it
+    /// (AGENTS.md rule 7). The guard is returned with the pool so the schema outlives
+    /// the whole test — dropping it early spawns a background `DROP SCHEMA`.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     async fn cleanup_search_index(pool: &PgPool, suffix: &str) {
@@ -453,7 +460,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_index_event_insert() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = make_suffix();
         cleanup_search_index(&pool, &suffix).await;
 
@@ -485,7 +492,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_index_event_upsert_updates_content() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = make_suffix();
         cleanup_search_index(&pool, &suffix).await;
 
@@ -539,7 +546,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_index_event_upsert_content_replaced() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = make_suffix();
         cleanup_search_index(&pool, &suffix).await;
 
@@ -612,7 +619,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_index_events_batch_inserts_all() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = make_suffix();
         cleanup_search_index(&pool, &suffix).await;
 
@@ -643,7 +650,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_search_events_exact_match() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = make_suffix();
         cleanup_search_index(&pool, &suffix).await;
 
@@ -670,7 +677,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_search_events_case_insensitive() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = make_suffix();
         cleanup_search_index(&pool, &suffix).await;
 
@@ -697,7 +704,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_search_events_partial_word_match() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = make_suffix();
         cleanup_search_index(&pool, &suffix).await;
 
@@ -738,7 +745,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_search_events_no_results() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = make_suffix();
         cleanup_search_index(&pool, &suffix).await;
 
@@ -764,7 +771,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_search_events_limit_respected() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = make_suffix();
         cleanup_search_index(&pool, &suffix).await;
 
@@ -793,7 +800,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_search_events_pagination_with_cursor() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = make_suffix();
         cleanup_search_index(&pool, &suffix).await;
 
@@ -856,7 +863,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_search_events_order_desc_by_created_ts() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = make_suffix();
         cleanup_search_index(&pool, &suffix).await;
 
@@ -904,7 +911,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_event_removes_from_index() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = make_suffix();
         cleanup_search_index(&pool, &suffix).await;
 
@@ -937,7 +944,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_event_nonexistent_is_noop() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = make_suffix();
         cleanup_search_index(&pool, &suffix).await;
 
@@ -953,7 +960,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_room_index_removes_all_events_for_room() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = make_suffix();
         cleanup_search_index(&pool, &suffix).await;
 
@@ -1030,7 +1037,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_room_index_returns_zero_for_nonexistent_room() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = make_suffix();
         cleanup_search_index(&pool, &suffix).await;
 
@@ -1045,7 +1052,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_stats_counts_events() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = make_suffix();
         cleanup_search_index(&pool, &suffix).await;
 
@@ -1065,7 +1072,9 @@ mod db_tests {
         storage.index_event(&entry).await.unwrap();
 
         let stats = storage.get_stats().await.expect("get_stats should succeed");
-        assert!(stats.total_count >= 1, "total_count should be at least 1");
+        // Exact: `get_stats()` counts every row in `search_index`, and `test_pool()` is
+        // now per-test isolated (see above), so the one row indexed here is the only one.
+        assert_eq!(stats.total_count, 1, "total_count should be exactly 1");
         assert!(stats.by_event_type.contains_key("m.room.message"), "by_event_type should contain m.room.message");
 
         cleanup_search_index(&pool, &suffix).await;
@@ -1094,7 +1103,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_rebuild_room_index_from_events_table() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = make_suffix();
         cleanup_room_and_events(&pool, &suffix).await;
 
@@ -1155,7 +1164,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_rebuild_room_index_empty_room() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = make_suffix();
         cleanup_room_and_events(&pool, &suffix).await;
 
@@ -1172,7 +1181,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_rebuild_room_index_replaces_existing() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = make_suffix();
         cleanup_room_and_events(&pool, &suffix).await;
 

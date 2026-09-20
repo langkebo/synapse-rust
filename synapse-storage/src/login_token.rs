@@ -160,10 +160,17 @@ mod db_tests {
     use super::*;
     use std::sync::Arc;
 
-    async fn test_pool() -> Arc<PgPool> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// Shared `public` is deliberately replaced by a per-test schema here:
+    /// `cleanup_expired_tokens()` is a schema-wide delete over `login_tokens`, so a
+    /// sibling fixture with a past expiry was swept by this test's call (and vice versa).
+    ///
+    /// Eliminating the shared state removes the race instead of serialising around it
+    /// (AGENTS.md rule 7). The guard is returned with the pool so the schema outlives
+    /// the whole test — dropping it early spawns a background `DROP SCHEMA`.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     fn make_suffix() -> String {
@@ -172,7 +179,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn create_login_token_then_consume_returns_token() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = LoginTokenStorage::new(&pool);
         let suffix = make_suffix();
         let token = format!("qr_token_{suffix}");
@@ -188,7 +195,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn consume_login_token_expired_returns_none() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = LoginTokenStorage::new(&pool);
         let suffix = make_suffix();
         let token = format!("qr_expired_{suffix}");
@@ -203,7 +210,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn consume_login_token_second_time_returns_none() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = LoginTokenStorage::new(&pool);
         let suffix = make_suffix();
         let token = format!("qr_single_{suffix}");
@@ -218,7 +225,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn cleanup_expired_tokens_removes_expired_only() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = LoginTokenStorage::new(&pool);
         let suffix = make_suffix();
         let expired_token = format!("qr_cleanup_exp_{suffix}");
@@ -230,9 +237,10 @@ mod db_tests {
         storage.create_login_token(&valid_token, &user_id, None, now + 60_000).await.unwrap();
 
         let removed = storage.cleanup_expired_tokens(now).await.unwrap();
-        // 共享 public schema 下可能有其它测试残留的过期 token，故只断言「至少删除
-        // 我们自己的过期 token」，核心语义是「不误删有效 token」。
-        assert!(removed >= 1, "cleanup 应至少删除我们插入的过期 token，实际 removed={removed}");
+        // Exact: per-test schema (see `test_pool`) — the only expired token in it is the
+        // one inserted above (the other expires in 60s). The old `>= 1` was a workaround
+        // for shared-`public` residue, which is exactly the flake this migration removes.
+        assert_eq!(removed, 1, "cleanup 应恰好删除我们插入的那条过期 token，实际 removed={removed}");
 
         // 有效 token 仍可消费（cleanup 未误删）
         assert!(storage.consume_login_token(&valid_token).await.unwrap().is_some());

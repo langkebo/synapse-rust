@@ -179,10 +179,17 @@ mod db_tests {
     use super::*;
     use std::sync::Arc;
 
-    async fn test_pool() -> Arc<PgPool> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// Shared `public` is deliberately replaced by a per-test schema here:
+    /// `cleanup_expired()` deletes every expired `qr_login_transactions` row; the
+    /// fixture inserts `expires_at` in the past, so any sibling sweep removed it.
+    ///
+    /// Eliminating the shared state removes the race instead of serialising around it
+    /// (AGENTS.md rule 7). The guard is returned with the pool so the schema outlives
+    /// the whole test — dropping it early spawns a background `DROP SCHEMA`.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     async fn ensure_test_user(pool: &PgPool, user_id: &str) {
@@ -203,7 +210,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn create_qr_login_then_get() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = QrLoginStorage::new(pool.clone());
         let suffix = make_suffix();
         let txn_id = format!("qr_txn_{suffix}");
@@ -226,7 +233,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn get_qr_transaction_none_for_missing() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = QrLoginStorage::new(pool);
         let suffix = make_suffix();
         assert!(storage.get_qr_transaction(&format!("missing_{suffix}")).await.unwrap().is_none());
@@ -234,7 +241,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn update_qr_status_changes_status() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = QrLoginStorage::new(pool.clone());
         let suffix = make_suffix();
         let txn_id = format!("qr_txn_{suffix}");
@@ -256,7 +263,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn delete_qr_transaction_removes() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = QrLoginStorage::new(pool.clone());
         let suffix = make_suffix();
         let txn_id = format!("qr_txn_{suffix}");
@@ -272,7 +279,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn cleanup_expired_removes_expired_keeps_valid() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = QrLoginStorage::new(pool.clone());
         let suffix = make_suffix();
         let user_id = format!("@qrcleanup_{suffix}:test");
@@ -296,7 +303,10 @@ mod db_tests {
         storage.create_qr_login(&valid_txn, &user_id, None).await.unwrap();
 
         let removed = storage.cleanup_expired().await.unwrap();
-        assert!(removed >= 1, "应至少删除我们插入的过期记录，实际 removed={removed}");
+        // Exact: per-test schema (see `test_pool`) — this test inserted the only expired
+        // transaction in it; a sibling sweep could previously remove it first, which is
+        // exactly what made `removed >= 1` order-dependent.
+        assert_eq!(removed, 1, "应恰好删除我们插入的那条过期记录，实际 removed={removed}");
         assert!(storage.get_qr_transaction(&expired_txn).await.unwrap().is_none());
         assert!(storage.get_qr_transaction(&valid_txn).await.unwrap().is_some());
 

@@ -209,10 +209,17 @@ mod db_tests {
     use super::*;
     use std::sync::Arc;
 
-    async fn test_pool() -> Arc<PgPool> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// Shared `public` is deliberately replaced by a per-test schema here:
+    /// the filter storage deletes rows by `user_id`, so on shared `public` a sibling test
+    /// reusing the fixture user id could clear the filters asserted here.
+    ///
+    /// Eliminating the shared state removes the race instead of serialising around it
+    /// (AGENTS.md rule 7). The guard is returned with the pool so the schema outlives
+    /// the whole test — dropping it early spawns a background `DROP SCHEMA`.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     fn make_suffix() -> String {
@@ -229,7 +236,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn create_filter_then_get() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = FilterStorage::new(&pool);
         let suffix = make_suffix();
         let user_id = format!("@filter_create_{suffix}:test");
@@ -247,7 +254,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn get_filter_none_for_missing() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = FilterStorage::new(&pool);
         let suffix = make_suffix();
         let user_id = format!("@filter_missing_{suffix}:test");
@@ -256,7 +263,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn get_filters_by_user_returns_multiple() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = FilterStorage::new(&pool);
         let suffix = make_suffix();
         let user_id = format!("@filter_multi_{suffix}:test");
@@ -272,7 +279,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn delete_filter_removes_record() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = FilterStorage::new(&pool);
         let suffix = make_suffix();
         let user_id = format!("@filter_delete_{suffix}:test");
@@ -287,7 +294,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn delete_filters_by_user_removes_all() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = FilterStorage::new(&pool);
         let suffix = make_suffix();
         let user_id = format!("@filter_delete_all_{suffix}:test");
