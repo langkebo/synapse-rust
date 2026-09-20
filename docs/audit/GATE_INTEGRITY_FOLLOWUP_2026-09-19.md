@@ -1273,3 +1273,121 @@ workflow 的 soak / gh-pages job 失败"的 run 一并排除，即使 `benchmark
 `format-governance.yml` 钉 `ruff==0.16.8` 同一判据：门禁结论不应随运行日期变化），
 并断言 `with:` 仍保有 `dockerfile` / `ignore` 两个子键（`ignore` 在 v3.5.0 的
 `action.yml` 里确认是 "A comma separated string"，故 §14.2 第 8 条的写法成立）。
+
+### 14.7 收尾补录：Docs Quality Gate 的 aspell 从未绿过，及其**被实测否定**的修法假设
+
+#### ① 现象：该门禁 30 次 run 全红，且红在 aspell
+
+`gh run list --workflow=docs-quality-gate.yml` 取到的最早一条是 2026-09-02，
+到本轮为止**每一条都是 failure**，一条 success 都没有。§14.2 第 8 条修掉
+
+```bash
+bash scripts/check_doc_spelling.sh "$f" || { echo "::warning::..."; }   # 旧写法
+```
+
+之后，job 的 step 级序列（run 35494141985，job 106034035325）是：
+
+| step | 名称 | 结论 |
+|---|---|---|
+| 1–5 | Set up job / Checkout / Setup Node / Install markdownlint / Discover active markdown files | ✅ |
+| 6 | `markdownlint - Active Docs` | ✅（§14.2 第 8 条的修复生效） |
+| 7 | `Install aspell` | ✅ |
+| 8 | **`aspell - Active Docs`** | ❌ |
+| 9 | `lychee - Active Docs` | ⏭ skipped |
+
+即：`||` 掩盖修掉后，门禁**第一次真的能红**，同时也第一次把存量债务暴露出来。
+这与 AGENTS.md 铁律 8 的推论一致 —— 长期全绿的门禁要怀疑它没在工作；反过来说，
+长期全红的门禁同样说明它从未提供过信号。
+
+#### ② 规模：CI 577 词 / 98 文件，本地 758 词 / 133 文件
+
+从 job log 的 `--- Checking <file> ---` 分块完整解析（不是 grep `error`，那样只会
+取到 6 个含 "error" 的词）：CI 报 **577 个唯一未知词、1432 处、98 个文件**；
+本机 `aspell 0.60.8.2`（Homebrew）复现得 **758 个唯一词、133 个文件** —— 数量级
+一致，差异来自两边的 `aspell-en` 词典版本不同，这也正是下面 ⑤ 取并集的理由。
+
+#### ③ **关键更正**：把未知词归因于「行内代码」是错的
+
+我最初的假设是"未知词主要来自 `` `AppState` ``/`sqlx` 这类行内代码 span，而
+aspell 的 markdown 模式不剥行内代码"。**实测把这个假设否掉了**，两组对照：
+
+```text
+$ printf 'Use the `AppState` here\n' | aspell --lang=en_US --mode=markdown list
+（无输出 → 行内代码已被剥离）
+$ printf 'Use the AppState here\n'  | aspell --lang=en_US --mode=markdown list
+AppState
+```
+
+也就是说 `--mode=markdown` **本来就剥行内代码**。把它当成缺口去补，不仅无效，
+还违反铁律 2（同一职责只允许一份实现）。
+
+更有价值的一次反证：我把"剥围栏代码块 + 剥行内代码"的预处理接进流水线后，
+未知词从 **758 升到 1191**（+435）。原因是预处理把围栏标记 ```` ``` ```` 一起
+吃掉了，aspell 于是**不再认为那是代码块**，转而开始检查整段代码内容：
+
+```text
+剥离器：s/```[^\n]*\n.*?```//gs; s/`[^`\n]*`//g   → 1191 词（更糟）
+只剥行内代码                                        → 757 词（−1，等于噪声）
+不剥（现状）                                        → 758 词
+```
+
+净效果 1/758 ≈ 0.3%，且会破坏 aspell 自带的代码块跳过。**结论：不加任何预处理。**
+
+#### ④ 真正根因
+
+两件事叠加，与代码 span 无关：
+
+1. **通用英文词典 vs 技术语料**：`aspell-en` 不含 crate 名、类型名、CLI 工具名、
+   协议缩写 —— `axum tokio sqlx clippy nextest megolm jemalloc middleware bigserial
+   camelcase deduplication` 这类词在**散文里**被正常书写（不是代码 span），
+   必然被判未知。
+2. **中文文档里的英文片段**：`docs/` 下大量文档正文是中文，内嵌英文路径/标识符
+   （`synapse-test-utils/src/lib.rs:574`、`DROP SCHEMA IF EXISTS public CASCADE`）。
+   脚本的 `sed -E 's/[^a-z].*$//'` 会在首个非字母处截断，于是产出 `hu`（← `hu_ts`）
+   之类的碎片词。
+
+#### ⑤ 处置：把 17 词的白名单扩成 776 词的技术词典
+
+`.aspell.ignore.txt` 由 17 行扩到 **776 个词条**（+4 行注释头），内容 =
+**CI 577 词 ∪ 本机 758 词 ∪ 原有 17 词**。取并集而非只用本机结果，是因为 CI 与
+本机的 `aspell-en` 词典版本不同（②），只按本机结果写会漏掉 CI 独有的词。
+
+这份白名单的性质需要说清楚：**它是「合法技术词表」，不是「忽略拼写错误」**。
+通用英文词的错拼不在其中，仍会被检出（见 ⑥）。
+
+#### ⑥ 铁律 8 自证：扩完白名单后门禁仍能变红
+
+用探针文件（跑完即删）三组对照：
+
+```text
+A) 注入真错拼 recieve/seperate/occured/adress/sucessful/definately/managment/teh
+   → 8 个词全部打印，exit=1        ✅ 仍能变红
+B) 真实审计文档 docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md
+   → exit=0                        ✅ 不误报
+C) 技术词 AppState ServiceContainer sqlx axum megolm jemalloc middleware
+   → exit=0                        ✅ 新白名单生效
+```
+
+全量复核：**137 个 active doc 全部 exit=0**（`find . -maxdepth 1 -name '*.md'` ∪
+`find docs -name '*.md' -not -path '*/archive/*'`，与 workflow 的扫描面一致）。
+
+#### ⑦ 顺带测量但**刻意未改**的一处：`grep -Ev '^[a-f]+$'`
+
+脚本里这行本意是丢弃 git SHA，副作用是丢弃所有只含 a–f 的串。实测在 137 个
+active doc 里被它丢掉的词只有：
+
+```text
+aaa af bb cb cd cefbfcf da de dee df ee eee fd ffa fffd
+```
+
+全部是哈希片段/十六进制残渣/两字母代码，**没有一个是有意义的英文词**，因此
+检出能力的实际损失可忽略。改它（例如收窄为 `^[0-9a-f]{7,40}$`）会重新引入
+`dead`/`face` 这类真实英文词的误报，需要再补一轮白名单 —— 收益不成比例，
+按 YAGNI 不动，仅在此记录测量结果。
+
+#### ⑧ 仍未验证的部分
+
+本机 `aspell 0.60.8.2` 与 CI 的 `aspell-en`（Ubuntu）不是同一份词典，所以
+"本机 137 文件全绿"**不等于**"CI 全绿"。并集白名单（⑤）已覆盖 CI 上一轮报出的
+全部 577 词，但 CI 重跑后若出现词典差异导致的**新**词，仍需按同一判据追加。
+这条按"必须先见真 CI 结论"处理，不在本地提前宣称通过。
