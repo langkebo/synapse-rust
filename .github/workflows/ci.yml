@@ -454,13 +454,18 @@ jobs:
           RUST_BACKTRACE: 1
         run: cargo nextest run -p synapse-web --lib --features test-utils --locked --test-threads 4
 
-      # ── B17: 让 `#[cfg(feature = "voice-extended")]` 的 unit 模块真正编译 ──
-      # `tests/unit/{voice_service_tests,voice_route_tests}.rs` 在 mod.rs 里按
-      # `voice-extended` 门控，而 `--test unit` 步骤只带 `test-utils`
-      # ⇒ 这两个模块从未在 CI 编译过（sweep §3 B17）。第一次让它们编译就暴露了
-      # 两条真红（FT-130 断言写反、`get_event_context_admin` 断言永不成立），
-      # 已在 993a1dd6 修复。
-      - name: Run voice-gated unit modules (voice-extended)
+      # ── B17: 让 `#[cfg(feature = …)]` 门控的 unit 模块真正编译 ──
+      # 主 unit 步骤只带 `test-utils`，而 `tests/unit/mod.rs` 有
+      # `#[cfg(feature = "voice-extended")]` / `#[cfg(feature = "beacons")]` 门控的模块，
+      # `storage_remaining_domains_refactor_tests` / `server_notification_service_tests` /
+      # `context_route_tests` / `burn_after_read_route_tests` / `api_optimized_features_tests`
+      # 里还有按 `server-notifications` / `saml-sso` / `cas-sso` / `privacy-ext` / `widgets` /
+      # `burn-after-read` / `friends` / `voip-tracking` 门控的测试 —— 这些在 CI 里从未编译过
+      # （sweep §3 B17）。第一次让 voice_ 编译就暴露了两条真红（FT-130 断言写反、
+      # `get_event_context_admin` 断言永不成立），已在 993a1dd6 修复；这里用
+      # `--all-features` 编译**整个** unit target（所有门控模块都过编译期），并用过滤表达式
+      # 把运行限定在门控模块上（其余用例仍由上方 `--test unit --features test-utils` 步骤跑）。
+      - name: Run feature-gated unit modules (all features)
         if: matrix.features-args == '--all-features'
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
@@ -469,7 +474,7 @@ jobs:
           REDIS_URL: redis://localhost:6379
           RUST_BACKTRACE: 1
           NEXTEST_RETRIES: 2
-        run: cargo nextest run --test unit --features "test-utils,voice-extended" --locked --test-threads 4 -E 'test(voice_)'
+        run: cargo nextest run --test unit --all-features --locked --test-threads 4 -E 'test(voice_) | test(beacon_info_parse_tests) | test(storage_remaining_domains_refactor_tests) | test(server_notification_service_tests) | test(context_route_tests) | test(burn_after_read_route_tests) | test(api_optimized_features_tests)'
 
       # ── §6 修复：clippy 门禁覆盖范围 ──
       # 上方 `Run clippy` 已改为 `--workspace --all-targets --features test-utils`，

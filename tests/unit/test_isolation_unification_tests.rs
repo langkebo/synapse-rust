@@ -128,6 +128,41 @@ fn production_half(src: &str) -> &str {
     src
 }
 
+/// A production symbol every fixture's window must still contain.
+///
+/// Truncating at the first real `#[cfg(test)]` is correct for the fixtures whose
+/// test module legitimately sits at the end, but it is also the weak edge sweep
+/// B18 names: a *small* `#[cfg(test)]` item near the top of the file ends the
+/// window before the production code, and then every negative assertion below
+/// passes vacuously against a comment-sized prefix. Pinning a known production
+/// anchor turns that silent shrink into a red test.
+fn production_anchor(path: &str) -> &'static str {
+    if path == STORAGE {
+        "pub async fn isolated_test_pool"
+    } else if path == SERVICES {
+        "pub async fn prepare_isolated_test_pool"
+    } else if path == ROOT {
+        "synapse_common::test_isolation::clone_schema_from_template"
+    } else {
+        panic!("no production anchor registered for {path}")
+    }
+}
+
+/// [`production_half`] plus the non-vacuity control above.
+fn production_half_checked(path: &str) -> String {
+    let source = read(path);
+    let production = production_half(&source).to_string();
+    let anchor = production_anchor(path);
+    assert!(
+        production.contains(anchor),
+        "{path}: `production_half` stopped before `{anchor}` — an earlier `#[cfg(test)]` item \
+         shrank the window, so the negative assertions that follow would pass vacuously (sweep \
+         B18). Remove the foreign `#[cfg(test)]` item from the production half, or register the \
+         fixture's new production anchor in `production_anchor`."
+    );
+    production
+}
+
 /// Column-0 spellings that start (or end) a top-level item, used to bound the
 /// slice returned by [`item_body`].
 ///
@@ -473,8 +508,7 @@ fn every_fixture_delegates_clone_to_the_shared_module() {
     );
 
     for path in [ROOT, STORAGE, SERVICES] {
-        let src = read(path);
-        let production = production_half(&src);
+        let production = production_half_checked(path);
         assert!(
             !production.contains("split_sql_statements"),
             "{path} must not replay the baseline per test (it must delegate to the shared clone)"
@@ -505,8 +539,7 @@ fn every_fixture_delegates_clone_to_the_shared_module() {
 #[test]
 fn no_fixture_resurrects_a_hand_rolled_clone() {
     for path in [ROOT, STORAGE, SERVICES] {
-        let src = read(path);
-        let production = production_half(&src);
+        let production = production_half_checked(path);
         assert!(
             !production.contains("LIKE %I.%I INCLUDING ALL"),
             "{path} must not contain the shared clone's `LIKE ... INCLUDING ALL` DDL: a fixture \
@@ -532,7 +565,10 @@ fn no_fixture_resurrects_a_hand_rolled_clone() {
 /// replay this plan removed.
 #[test]
 fn the_shared_module_exists_is_exported_and_keeps_its_mechanisms() {
-    let lib = read(COMMON_LIB);
+    // Comment-stripped: `// pub mod test_isolation;` must not satisfy an export
+    // guard that claims the module *is* exported (sweep B18). A commented-out
+    // declaration is exactly the shape a "temporarily disabled" export takes.
+    let lib = strip_rust_comments(&read(COMMON_LIB));
     assert!(lib.contains("pub mod test_isolation;"), "synapse-common must export the shared test-isolation module");
 
     let src = read(COMMON);
