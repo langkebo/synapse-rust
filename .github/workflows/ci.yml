@@ -539,12 +539,28 @@ jobs:
         # 现在缺基线会让门禁明确失败（首次在 main 上跑完后即有基线）。
         with:
           workflow: benchmark.yml
+          # 基线必须来自 **main**：benchmark.yml 在 PR 上也跑（`benchmark` job
+          # 只在 workflow_dispatch 时受 `if` 限制），修掉 gh-pages 阻塞后 PR run
+          # 也会上传 `benchmark-results`。没有 branch 过滤时，PR 门禁可能把
+          # **自己这次 run** 当成基线 —— 自我比较永远"没有回归"。
+          branch: main
           name: benchmark-results
           path: baseline
           # 基线必须是 Criterion **文本**格式。benchmark.txt 是
           # --output-format bencher 的产物，本门禁的解析器读不了。
           check_artifacts: true
           search_artifacts: true
+          # `success`（action 默认）会把"测量成功但同一 workflow 的其它 job 失败"
+          # 的 run 一并排除：`Run performance soak gate` 只在 schedule 触发，
+          # 缺 `SOAK_BASE_URL` secret 时按设计 fail-closed（main run 35484657071）；
+          # `Generate benchmark report` 还要往 gh-pages 推送。二者与"有没有基线"
+          # 无关，却会让整个 run 变成 failure ⇒ 找不到基线、PR 门禁永久红。
+          # `completed` 匹配任意已完成 run（action 的判据是
+          # `workflowConclusion != run.conclusion && workflowConclusion != run.status`），
+          # 配合下面的 `search_artifacts` + `check_artifacts`，语义精确为
+          # "最近一次**真的产出了 `benchmark-results`** 的 main run"。
+          # 仍然 fail-closed：任何 run 都没产出过 artifact 时照样失败。
+          workflow_conclusion: completed
 
       - name: Locate baseline (Criterion text format)
         id: baseline

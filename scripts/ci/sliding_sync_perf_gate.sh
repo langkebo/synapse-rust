@@ -111,8 +111,18 @@ echo "    running performance_sliding_sync_benchmarks..."
 #
 # Note: a "did any group run?" check would NOT work here, because the
 # in-process `benchmark_request_construction` group always runs.
+#
+# `--features test-utils` is **required**: `Cargo.toml` declares
+# `required-features = ["test-utils"]` for this bench target, so without it
+# cargo refuses to build it and the gate dies with
+#   error: target `performance_sliding_sync_benchmarks` in package
+#   `synapse-rust` requires the features: `test-utils`
+# (measured 2026-09-20; the gate had never reached this line in CI because the
+# schema step failed first). Unlike the pagination bench, this target was not
+# given a `required-features`-free declaration, so the feature flag must come
+# from the caller.
 SLIDING_SYNC_REQUIRE="sliding_sync_p95_p99_latency" \
-    cargo bench --locked --bench performance_sliding_sync_benchmarks \
+    cargo bench --locked --features test-utils --bench performance_sliding_sync_benchmarks \
     -- --noplot sliding_sync_p95_p99_latency 2>"$BENCH_LOG" || {
     echo "ERROR: sliding sync benchmark failed to run"
     cat "$BENCH_LOG"

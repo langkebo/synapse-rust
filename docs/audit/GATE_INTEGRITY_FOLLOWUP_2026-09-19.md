@@ -1156,3 +1156,45 @@ dynamic 从 1484 升到 **1499**（15 处**全部**来自 §12.1 的租约：`af
 | `actionlint`（14 个 workflow） | ✅ 0 告警（修复前：`docker-security-scan.yml` 文件非法，`startup_failure` 0 job） |
 | `check_migration_consistency.py` / `check_baseline_consolidation.py` / `check_schema_blind_guards.py` / `check_workflow_steps.py` | ✅ 全部 EXIT 0 |
 | `prepare_test_db.sh` 端到端（scratch 库 `synapse_prepare_probe`） | ✅ `[0/3]` 自动建库 + public/模板双 schema 落库，EXIT 0（探针库已 DROP） |
+
+### 14.5 收尾补录：main 基线链路的 step 级复核与 §14.3 结论更正
+
+推送前对 main 上最近一次 Benchmark run（`35484657071`，`schedule`）做了 step 级复核。
+**结论与 §14.3 的"必须触发 `workflow_dispatch`"不同**，故单独补录。
+
+**① `Run benchmarks` job 的真实失败点**
+
+| step | 结论 |
+|---|---|
+| 5 `Run benchmarks` | ✅ success —— 四条 `cargo bench` 全部通过 |
+| 6 `Check pagination benchmark gain` … 9 `Analyze results` | ✅ success |
+| 10 `Upload benchmark results` | ❌ failure —— 该 step 即 `benchmark-action/github-action-benchmark@v1`（`fcd26843` 的 `benchmark.yml:141-142`） |
+| 11 `Store benchmark results` | ⏭ skipped —— `upload-artifact` **从未执行** |
+
+即：artifact 缺失的唯一原因是 step 10 中止了整个 job，**基准测量本身是成功的**。
+这正是 §14.2 第 9 条删除该 action 的直接判据。
+
+**② `Sliding sync perf gate` job 的失败点**：step 6 `Install sqlx-cli` ✅ → step 7
+`Prepare benchmark database schema` ❌（§14.2 第 7 条已修）→ step 8 真门禁被 skip。
+
+**③ 由此暴露的一处潜伏失败（本轮补修）**：`scripts/ci/sliding_sync_perf_gate.sh`
+的 bench 调用缺 `--features test-utils`。`Cargo.toml` 给该 bench 声明了
+`required-features = ["test-utils"]`，不带该 feature 时 cargo 直接拒绝构建并报
+`target ... requires the features: test-utils`。它此前**从未被执行到**（step 7 先失败），
+属"修好前置步骤才会暴露"的潜伏红 —— 与 §14.2 第 2 条 `ci.yml::integration-test` 同型。
+
+**④ 基线下载的两处判据修正（本轮补修）**：`ci.yml::pr-benchmark-gate` 补
+`branch: main`（否则 PR run 会把**自己**当基线 —— 自我比较永远"没有回归"）与
+`workflow_conclusion: completed`（action 默认 `success` 会把"测量成功、但同一
+workflow 的 soak / gh-pages job 失败"的 run 一并排除，即使 `benchmark-results`
+已经产出）。
+
+**⑤ §14.3 结论更正**：`CI / PR Benchmark Gate` 不再需要"main 上存在一次 `success`
+的 Benchmark run"，也不再需要 `workflow_dispatch` —— push 触发的 run 只要
+`benchmark` job 走完 `Store benchmark results` 即可铸造基线。仍 fail-closed：
+任何 main run 都没产出过 `benchmark-results` 时照样红。
+
+**⑥ 未改的姊妹点（需裁定）**：`benchmark.yml::performance-comparison`
+（`fcd26843` 第 248-249 行）的基线下载仍是 action 默认 `success` 且无 `branch`。
+它只在 `pull_request` 上运行，**不影响 main 铸造基线**，但在 PR 上会与 ④ 修好前的
+`pr-benchmark-gate` 同型失败。
