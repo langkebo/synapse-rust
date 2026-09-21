@@ -687,46 +687,72 @@ fn cargo_geiger_gate_is_a_one_way_ratchet() {
     let _ = fs::remove_dir_all(&tmp);
 }
 
-/// Snapshot gate 必须用 cargo-insta **1.48 的**旗标，并且并发不超过锁预算。
+/// Snapshot gate 必须是 **insta assert-only**，并且不依赖 cargo-insta。
 ///
-/// run 35563084512 第一次真正执行这个步骤时立刻红：`--no-review` 在 cargo-insta 1.48 已被
-/// 删除（非交互是默认行为，`--review` 才是 opt-in）——
-/// `error: unexpected argument '--no-review' found` + `Usage: cargo insta test --review …`。
-/// 这正是本会话反复出现的同一型缺陷："从未执行过的检查"一上电就报自己的配置错。
-/// 同时把 `--test-threads 8` 降到 4（CI 的 postgres 无法加大 `max_locks_per_transaction`，
-/// 8 并发克隆模板 schema 会 `53200 out of shared memory`，见 §14.13 ③）。
+/// 这条门禁在真 CI 里两次执行、两次因 cargo-insta 的 CLI 语义变动而红：
+///   ① run `35563084512`：`--no-review` 在 cargo-insta 1.48 已被删除
+///      （`error: unexpected argument '--no-review' found`）；
+///   ② run `35571855133`：改用 `--check --test-runner nextest -- --all-features … --test unit`
+///      后，`--` 之后的 **cargo/nextest 旗标被当成测试二进制参数**传下去，
+///      nextest 报 `failed to parse test binary arguments … arguments are unsupported`。
+/// 结论：工具链语义反复变动，而"快照漂移必须红"**不需要它** —— insta 在 `INSTA_UPDATE=no`
+/// 下就会让漂移的测试失败。因此本步骤改为直接用 nextest 跑 unit 目标 + 显式 assert-only 模式
+/// + `.snap.new` 兜底检查，并删除 cargo-insta 的安装步骤。
 ///
-/// 判定：① 该步骤存在且调用 `cargo insta test`；② 用 `--check`（1.48 的 CI 语义）而不是
-/// 已被删除的 `--no-review`；③ `--test-threads` ≤ 4；④ 只跑 `--test unit`（integration
-/// 目标自带的快照由 integration 步骤在 `--all-features` 下断言，重复跑等于白烧 35 分钟）。
+/// 判定：① ci.yml 里**没有** `cargo insta` / `cargo-insta`（工具已移除）；
+/// ② 该步骤跑 `cargo nextest run --test unit --all-features`（20 个 unit 快照的覆盖来源）；
+/// ③ 显式 `INSTA_UPDATE: "no"`（只断言、不写 `.snap.new`，不依赖环境里的 CI 变量）；
+/// ④ 有 `.snap.new` 兜底检查（已提交 + 未跟踪两种）；⑤ 并发 ≤ 4（锁预算，同 integration）。
 ///
-/// **红证明**：把 `--check` 改回 `--no-review` → FAILED；把并发改回 8 → FAILED。
+/// **红证明**：删掉 `INSTA_UPDATE` → FAILED；把 `cargo insta test` 加回来 → FAILED；
+/// 删掉 `.snap.new` 兜底检查 → FAILED。
 #[test]
-fn snapshot_gate_uses_cargo_insta_148_flags() {
+fn snapshot_gate_is_insta_assert_only() {
     let ci = fs::read_to_string(repo_root().join(".github/workflows/ci.yml")).expect("read ci.yml");
+    // 只看**非注释行**：本步骤的注释里必须能解释"为什么不再用 cargo-insta"，
+    // 否则守卫会把自己的说明文字当成违规（扫描型守卫的老坑）。
+    let insta_tool_lines: Vec<&str> = ci
+        .lines()
+        .filter(|l| {
+            let t = l.trim_start();
+            !t.starts_with('#')
+                && (t.contains("cargo insta test") || t.contains("cargo-insta") || t.contains("tool: cargo-insta"))
+        })
+        .collect();
+    assert!(
+        insta_tool_lines.is_empty(),
+        "Snapshot gate 不得再依赖 cargo-insta（它的 CLI 语义两次把这条门禁弄红：`--no-review` 被删、\
+         `--` 之后的 cargo 旗标被当成测试二进制参数），而 insta 自身的 `INSTA_UPDATE=no` 已足够。\
+         违规行：{insta_tool_lines:?}"
+    );
     let step =
         ci.split("- name: ").find(|s| s.starts_with("Snapshot gate")).expect("ci.yml 必须有 `Snapshot gate` 步骤");
     let run = step
         .lines()
-        .find(|l| l.trim_start().starts_with("run: cargo insta test"))
-        .expect("Snapshot gate 必须调用 `cargo insta test`");
+        .find(|l| l.trim_start().starts_with("cargo nextest run --test unit"))
+        .unwrap_or_else(|| panic!("Snapshot gate 必须用 `cargo nextest run --test unit` 跑 unit 快照：\n{step}"));
     assert!(
-        !run.contains("--no-review"),
-        "cargo-insta 1.48 已删除 `--no-review`（非交互是默认行为）：该旗标会让这一步以\
-         `unexpected argument` 失败。实际命令：{run}"
+        run.contains("--all-features") && run.contains("--test unit"),
+        "Snapshot gate 必须在 `--all-features` 下跑 unit 目标（fast tier 的 unit 车道是 \
+         `--features test-utils` 或带 `-E` 的子集，覆盖不到这 20 个快照）：{run}"
     );
-    assert!(run.contains("--check"), "Snapshot gate 必须用 1.48 的 CI 语义 `--check`：{run}");
     assert!(
-        run.contains("--test-threads 4")
-            || run.contains("--test-threads 3")
-            || run.contains("--test-threads 2")
-            || run.contains("--test-threads 1"),
+        !run.contains("--test-threads 8")
+            && (run.contains("--test-threads 4")
+                || run.contains("--test-threads 3")
+                || run.contains("--test-threads 2")
+                || run.contains("--test-threads 1")),
         "Snapshot gate 的并发必须 <= 4（CI 锁预算，同 integration 车道）：{run}"
     );
     assert!(
-        run.contains("--test unit"),
-        "Snapshot gate 应只跑 unit 目标：integration 目标的快照已由 integration 步骤断言，\
-         重复跑一遍整套 integration 只是浪费 ~35 分钟。实际命令：{run}"
+        step.contains("INSTA_UPDATE: \"no\"") || step.contains("INSTA_UPDATE: no"),
+        "Snapshot gate 必须显式设 `INSTA_UPDATE=no`（只断言、绝不写 `.snap.new`），\
+         否则漂移会被写成待接受文件而门禁可能放行"
+    );
+    assert!(
+        step.contains("git ls-files --error-unmatch '*.snap.new'")
+            && step.contains("git ls-files --others --exclude-standard '*.snap.new'"),
+        "Snapshot gate 必须有 `.snap.new` 兜底检查（已提交与未跟踪两种）"
     );
 }
 
