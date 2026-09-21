@@ -1,3 +1,14 @@
+# 2026-09-21: dynamic 由 1499 上调到 1501（+2），来源是 `6c6216cc`（MSC4155 账号级邀请
+# 策略）对 `synapse-storage/src/invite_blocklist.rs` 的改动。逐行核对（把两个 commit 的
+# 该文件分别导出后按 `#[cfg(test)]` 边界统计）：
+#   改动前: production=6  test=4  （合计 10）
+#   改动后: production=4  test=8  （合计 12）
+# 即**生产侧动态 SQL 减少 2 处**（两处 `SELECT 1 … LIMIT 1` 探测被合并进一个
+# `query_as::<_, (bool,bool,bool)>`，两处 DELETE 改进事务），净增的 2 处全部是
+# `db_tests` 里的 poison-row 触发器夹具（`CREATE TRIGGER` / `set_config(
+# 'synapse.test_poison_user', …)` / `DROP TRIGGER`）—— DDL 与 `set_config` 无法用
+# `query!` 静态化，属本文件既有"测试基础设施"类别。
+# 触发原因：`6c6216cc` 未同步上调基线，main 的 Repo Sanity 因此红（run 35548900072）。
 # 2026-09-20: dynamic 由 1484 上调到 1499，全部来自测试基础设施（schema 连接级租约在
 # test_schema_guard.rs / 各 test_utils.rs 的 after_connect 里新增的 pg_advisory_lock_shared /
 # pg_try_advisory_lock / pg_advisory_unlock 等带绑定的动态语句）；生产路径未新增动态 SQL。
@@ -51,7 +62,7 @@
 # 历史对照：2026-06-03 审计记录动态占比 99.6%（含测试代码口径）；
 # 本基线口径（仅 workspace 生产目录，含内联测试模块）为 95.90%。
 
-BASELINE_DYNAMIC=1499
+BASELINE_DYNAMIC=1501
 BASELINE_STATIC=61
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────

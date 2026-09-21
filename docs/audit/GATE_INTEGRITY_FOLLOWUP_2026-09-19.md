@@ -2448,12 +2448,51 @@ unsound --deny yanked` = **exit 0**（新清单下门禁仍绿，实测）。`ca
 "子集"守卫，**真正的 cargo-deny 判定留给下一轮 CI 的 Security Audit**（这也正是慢速车道的
 用途）。
 
+**7) 本提交的 push 顺带把并行会话的 `6c6216cc` 带上了 main，它让 Repo Sanity 变红**：
+`6c6216cc`（MSC4155 账号级邀请策略）改了 `synapse-storage/src/invite_blocklist.rs`，
+SQLx 棘轮从 `dynamic=1499` 变成 `1501`，而基线没跟着上调 ⇒ `Repo Sanity` 红
+（run 35548900072）。**这不是"门禁太严"**：逐行核对（把两个 commit 的该文件分别导出，
+按 `#[cfg(test)]` 边界统计）后确认生产侧动态 SQL 反而**减少**了 2 处（两处
+`SELECT 1 … LIMIT 1` 探测合并进一个 `query_as::<_, (bool,bool,bool)>`、两处 DELETE 改事务），
+净增的 2 处全在 `db_tests` 的 poison-row 触发器夹具里（`CREATE TRIGGER` / `set_config` /
+`DROP TRIGGER`，DDL 与 `set_config` 无法静态化）。因此按该文件既有协议**显式上调基线并写明
+理由**（1499 → 1501），本地 `bash scripts/ci/sqlx_dynamic_ratio.sh` 由 FAIL 转 OK。
+教训：棘轮基线是**同一次改动的一部分**，改了生产动态 SQL 的 commit 必须连基线一起改，
+否则 main 会红在一个"和改动无关"的 job 上。
+
 **守卫自指的坑（本轮踩到并修）**：两个新守卫一开始都是**红的**，因为 `git grep` 把守卫文件
 自己数了进去 —— 守卫必须写出被禁模式（文档注释 / 断言消息 / 它自己那条 `git grep` 命令）才能
 自证能变红，于是 `rand::rng()` 实测从 47 被抬到 55、`room_aliases WHERE alias` 命中 3 处全是
 它自己。修法是两边用**同一个** `:(exclude)tests/unit/ci_test_scope_tests.rs`（脚本里的
 `EXCLUDE_GUARD` 与守卫内的路径必须一致，否则两者实测值不同、当场变红）。教训：**扫描型守卫
 的第一件事是排除自己**，否则要么假红，要么被迫把 baseline 抬高到失真。
+
+**8) route-ledger 快照漂移（3 条 `voice/register` 路由）**：本地全量枚举 integration 目标
+（同一命令 + `--no-fail-fast`）时发现 `api_route_ledger_tests` 的两条快照断言红：
+`route_ledger_default.snapshot` expected 1129 / actual 1132，`route_ledger_worker_enabled.snapshot`
+expected 1140 / actual 1143 —— 差的 3 行全是
+`POST /_matrix/{client/v1,client/v3,vendor/v1}/voice/register [voice]`。
+
+根因：`10a18b3f`（feat(voice): add POST /voice/register）**只加了路由与 handler，没有同步
+ledger 产物**（`ledger_export_sdk/*` 是后来别的提交顺带刷新的；`route-table.json` 走
+default-feature 口径，本来就不含 voice 路由；`ledger_export/*` 同理），于是只有 integration
+快照漏了这 3 条。
+
+修法：用测试自己输出的 `actual` 字符串重写这两份快照（+3 行、`count` 同步），并在写入前
+核对磁盘内容与本轮 `expected` 逐字节一致、写入后与本轮 `actual` 逐字节一致 —— 等价于
+`UPDATE_ROUTE_LEDGER_SNAPSHOTS=1` 的重生成，只是没有占用 cargo（当时 artifact 目录被
+integration 枚举占着）。**教训同第 7 条**：改路由面必须把 ledger 产物（快照 / fixture /
+route-table / ROUTE_CONTRACT）当成同一次改动的一部分。
+
+**9) k6 冒烟测试不能跟着每次 dispatch 跑**：`k6-smoke-test` 的触发条件是裸
+`github.event_name == 'workflow_dispatch'`，但它打的是**外部**目标
+（`secrets.K6_SMOKE_BASE_URL`，缺省 `http://localhost:8448`），而该 job **不启动任何服务**
+—— 于是"只想验证慢速车道"的 dispatch 会顺带拉起它，并因为一个与本次改动无关的原因变红。
+修法：新增显式输入 `run_k6`（默认 `false`），job 的 `if` 改为
+`workflow_dispatch && inputs.run_k6 == 'true'`；守卫
+`k6_smoke_requires_an_explicit_dispatch_input`。**它不进 `ci-summary.needs`**，理由写在输入
+注释里：哨兵保证的是"事件要求的慢速车道没有被静默跳过"，而 k6 需要外部环境 + secret，
+只能由人显式要求并自行认领结果（`OpenAPI Artifact` 同理，它是 fast tier 的产物、不是车道）。
 
 **红证明**（全部现场做过，恢复后转绿）：
 - 棘轮脚本：往 `tests/integration/api_federation_tests.rs` 加一行含 `rand::rng()` 的注释
@@ -2465,6 +2504,8 @@ unsound --deny yanked` = **exit 0**（新清单下门禁仍绿，实测）。`ca
 - `integration_step_reports_every_failure`：删掉 `--no-fail-fast` ⇒ FAILED；恢复 ⇒ PASS。
 - `advisory_review_dates_are_not_overdue`：把 `Review-by` 改成 `2020-01-01` ⇒ FAILED；
   往 `deny.toml` 的清单里加一个 `.cargo/audit.toml` 没有的编号 ⇒ FAILED（子集被破坏）；恢复 ⇒ PASS。
+- `k6_smoke_requires_an_explicit_dispatch_input`：把 `if` 退回裸 `workflow_dispatch` ⇒ FAILED；
+  恢复 ⇒ PASS。
 
 **顺带修掉的一个 Docs Quality 红**：`docs-quality-gate` 在 `6009ff85` 上红，aspell 只报一个词
 `sgr`（来自 §14.14.1 的 "ANSI SGR 序列"）—— 合法技术词，已入 `.aspell.ignore.txt`（本地
@@ -2475,6 +2516,10 @@ unsound --deny yanked` = **exit 0**（新清单下门禁仍绿，实测）。`ca
 不是替代 job 结论），但阅读 CI 时不要只看 CI Summary。
 
 **残留（本轮登记，未做）**：
-- `k6 Smoke Test` 仍是 dispatch-only（本仓库当前无 k6 触发条件）且不在 `ci-summary.needs`；
-  `OpenAPI Artifact` 也不在 `needs`。是否纳入哨兵需要一次裁定。
-- integration 目标的全量失败清单见 §14.14.3（本地枚举）。
+- `core-matrix-min` 车道的 **6 条 unused-variable warnings**（`synapse-web/src/routes/admin/
+  room/management.rs:430/509/511`、`synapse-web/src/routes/handlers/room/members.rs:186/611/657`，
+  变量为 `request_id` ×5 + `actor_user_id` ×1）—— feature-off 配置特有，`cargo build` 不因警告
+  失败。修法（下次）：给这些绑定加 `#[cfg_attr(not(feature = …), allow(unused_variables))]`
+  或改名 `_request_id` 并同步 feature-on 分支的全部引用，**必须用 `cargo check
+  --no-default-features` 验证**（本地需冷编译，本轮 artifact 目录被 integration 枚举占用）。
+- integration 目标的全量失败清单见 §14.14.3（本地枚举进行中）。

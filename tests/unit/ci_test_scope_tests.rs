@@ -639,3 +639,43 @@ fn advisory_review_dates_are_not_overdue() {
         }
     }
 }
+
+/// k6 冒烟测试必须由**显式**的 dispatch 输入触发，不能挂在裸 `workflow_dispatch` 上。
+///
+/// 该 job 打的是**外部**目标（`secrets.K6_SMOKE_BASE_URL`，缺省 `http://localhost:8448`），
+/// 而它自己**不启动任何服务** —— 所以"只想验证慢速车道"的 `run_slow_tier` dispatch 会
+/// 顺带把它拉起来，并因为一个与本次改动无关的原因变红。k6 进不进 `ci-summary` 哨兵
+/// 也有明确答案：不进 —— 哨兵保证的是"事件要求的慢速车道没有被静默跳过"，而 k6 需要
+/// 外部环境 + secret，只能由人显式要求并自行认领结果。
+///
+/// **红证明**：把该 job 的 `if` 改回裸 `github.event_name == 'workflow_dispatch'` → FAILED。
+#[test]
+fn k6_smoke_requires_an_explicit_dispatch_input() {
+    let ci = fs::read_to_string(repo_root().join(".github/workflows/ci.yml")).expect("read ci.yml");
+    let k6 = ci.split("k6-smoke-test:").nth(1).expect("ci.yml 必须有 k6-smoke-test job");
+    // 只取该 job 自己的内容（到下一个顶层 job 头为止），避免把后续 job 的条件算进来。
+    let mut head = String::new();
+    for line in k6.lines() {
+        let is_next_job = line.starts_with("  ")
+            && !line.starts_with("   ")
+            && line.ends_with(':')
+            && line.trim_end_matches(':').chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+        if is_next_job {
+            break;
+        }
+        head.push_str(line);
+        head.push('\n');
+    }
+    assert!(
+        head.contains("github.event.inputs.run_k6 == 'true'"),
+        "k6 job 必须由显式输入 `run_k6` 触发（它打外部环境、自己不启动服务）：\n{head}"
+    );
+    assert!(
+        !head.contains("if: github.event_name == 'workflow_dispatch'\n"),
+        "不得把 k6 job 的触发条件退回裸 `workflow_dispatch`"
+    );
+    assert!(
+        ci.contains("      run_k6:") && ci.contains("运行 k6 冒烟测试"),
+        "`workflow_dispatch.inputs` 必须声明 `run_k6`（默认 false），否则没人能显式要求它"
+    );
+}

@@ -1,5 +1,5 @@
 # route-ledger snapshot: default
-count: 1129
+count: 1132
 
 DELETE /_matrix/admin/v1/external_services/{as_id} [external_service]
 DELETE /_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device [assembly::create_router]
@@ -730,6 +730,7 @@ POST /_matrix/client/v1/spaces/{space_id}/join [space]
 POST /_matrix/client/v1/spaces/{space_id}/leave [space]
 POST /_matrix/client/v1/sync [sliding_sync]
 POST /_matrix/client/v1/threads [thread]
+POST /_matrix/client/v1/voice/register [voice]
 POST /_matrix/client/v1/voice/upload [voice]
 POST /_matrix/client/v1/widgets [widget]
 POST /_matrix/client/v1/widgets/{widget_id}/permissions [widget]
@@ -858,6 +859,7 @@ POST /_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/{type} [acco
 POST /_matrix/client/v3/user_directory/list [assembly::directory_compat]
 POST /_matrix/client/v3/user_directory/search [assembly::directory_compat]
 POST /_matrix/client/v3/users/{user_id}/report [moderation]
+POST /_matrix/client/v3/voice/register [voice]
 POST /_matrix/client/v3/voice/upload [voice]
 POST /_matrix/client/v3/voice/{media_id}/convert [voice]
 POST /_matrix/client/v3/voice/{media_id}/optimize [voice]
@@ -903,6 +905,7 @@ POST /_matrix/vendor/v1/rooms/{room_id}/invite_allowlist [vendor]
 POST /_matrix/vendor/v1/rooms/{room_id}/invite_blocklist [vendor]
 POST /_matrix/vendor/v1/search_recipients [vendor]
 POST /_matrix/vendor/v1/search_rooms [vendor]
+POST /_matrix/vendor/v1/voice/register [voice]
 POST /_matrix/vendor/v1/voice/upload [voice]
 POST /_matrix/vendor/v1/voice/{media_id}/convert [voice]
 POST /_matrix/vendor/v1/voice/{media_id}/optimize [voice]
