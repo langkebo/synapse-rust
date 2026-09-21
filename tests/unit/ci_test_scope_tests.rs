@@ -953,3 +953,164 @@ fn performance_smoke_step_declares_required_features() {
         );
     }
 }
+
+/// 每个"测试期会向 janitor 注册 schema"的 crate，都必须由**自己的测试构建**注册退出排空钩子。
+///
+/// 背景（B' 设计，见 `docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md` §14.14.8.1）：
+/// `libc::atexit(drain_schemas_at_exit)` 是 `unsafe`，把它留在
+/// `synapse_common::test_schema_guard` 里会让 cargo-geiger 的**生产**扫描把它算成
+/// production unsafe。它被移到各个测试构建：生产库零 `unsafe`，而 `--include-tests`
+/// 扫描照样看得见（落到 test-only 差值里），**运行时行为完全不变**。
+///
+/// 这条守卫把"哪些 crate 需要注册"钉成静态不变量：
+/// ① 任何 `src/` 里调用 `register_schema_cleanup` 的 workspace crate，其 `Cargo.toml`
+///    的 `[dev-dependencies]` 必须有 `libc`（否则注册代码编不过）；
+/// ② 该 crate 的源码里必须出现 `drain_schemas_at_exit`（注册点或其模块）；
+/// ③ 根 crate 的两个测试二进制（`tests/unit`、`tests/integration`）共用
+///    `tests/common/mod.rs`，其中必须有 `ensure_schema_exit_hook` 且真正被调用；
+/// ④ `synapse-common/src` 的**非注释**代码里不得出现 `unsafe`（这正是 B' 的目的）。
+///
+/// **红证明**：删掉任一 crate 的 `libc` dev-dependency → FAILED；删掉任一 crate 的注册
+/// （模块/调用）→ FAILED；往 `synapse-common/src` 的生产代码插一个 `unsafe {}` → FAILED。
+#[test]
+fn every_db_test_binary_registers_the_exit_drain() {
+    let root = repo_root();
+
+    // ① 找出所有会在测试期注册 schema 的 workspace crate（以调用 register_schema_cleanup 为准）。
+    // 用普通 `grep -rl` 而不是 `git grep`：注册点/钩子模块里有**新增文件**，而
+    // `git grep` 默认只看已跟踪文件 —— 守卫不能因为文件还没 `git add` 就假红。
+    let grep = std::process::Command::new("bash")
+        .arg("-c")
+        .arg("grep -rl register_schema_cleanup src synapse-common/src synapse-cache/src synapse-e2ee/src synapse-federation/src synapse-services/src synapse-storage/src synapse-test-utils/src synapse-web/src 2>/dev/null || true")
+        .current_dir(&root)
+        .output()
+        .expect("git grep must be runnable");
+    let hits = String::from_utf8_lossy(&grep.stdout);
+    let mut crates: Vec<String> = hits
+        .lines()
+        .filter_map(|l| l.split('/').next())
+        .map(|c| if c == "src" { "synapse-rust".to_string() } else { c.to_string() })
+        .collect();
+    crates.sort();
+    crates.dedup();
+    assert!(!crates.is_empty(), "守卫前提：必须至少有一个 crate 注册 schema 清理");
+
+    for krate in &crates {
+        let manifest =
+            if krate == "synapse-rust" { root.join("Cargo.toml") } else { root.join(krate).join("Cargo.toml") };
+        let toml = fs::read_to_string(&manifest).unwrap_or_else(|e| panic!("read {}: {e}", manifest.display()));
+        assert!(
+            toml.contains("libc = \"0.2\""),
+            "{krate} 在测试期注册 schema 清理，因此它的 [dev-dependencies] 必须有 libc（atexit 钩子是 unsafe）"
+        );
+        // ② 该 crate 源码里必须出现注册点（测试期注册模块或测试目标里的注册函数）。
+        let grep_reg = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(format!("grep -rl drain_schemas_at_exit {krate}/src {krate}/tests-support 2>/dev/null || true"))
+            .current_dir(&root)
+            .output()
+            .expect("git grep must be runnable");
+        let reg = String::from_utf8_lossy(&grep_reg.stdout);
+        assert!(
+            !reg.trim().is_empty(),
+            "{krate} 必须在自己可编译进测试构建的代码里注册 drain_schemas_at_exit（依赖里的 #[cfg(test)] 对它的测试构建不可见）"
+        );
+        // 只"存在钩子模块"不算注册：必须真的在某个共享夹具里调用 `test_exit_hook::ensure()`。
+        let grep_call = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(format!("grep -rl 'test_exit_hook::ensure()' {krate}/src 2>/dev/null || true"))
+            .current_dir(&root)
+            .output()
+            .expect("grep must be runnable");
+        let call = String::from_utf8_lossy(&grep_call.stdout);
+        assert!(
+            !call.trim().is_empty(),
+            "{krate} 的钩子模块必须被**调用**（`test_exit_hook::ensure()`）——只有模块没有调用等于没注册"
+        );
+    }
+
+    // ③ 根 crate 的测试目标（tests/unit、tests/integration）共用 tests/common/mod.rs。
+    let common = fs::read_to_string(root.join("tests/common/mod.rs")).expect("read tests/common/mod.rs");
+    assert!(
+        common.contains("pub fn ensure_schema_exit_hook()"),
+        "tests/common/mod.rs 必须定义 ensure_schema_exit_hook（被 tests/unit 与 tests/integration 两个测试二进制共用）"
+    );
+    let common_calls = common.matches("ensure_schema_exit_hook();").count();
+    let integration = fs::read_to_string(root.join("tests/integration/mod.rs")).expect("read tests/integration/mod.rs");
+    let integration_calls = integration.matches("ensure_schema_exit_hook()").count();
+    assert!(
+        common_calls >= 1 && integration_calls >= 1,
+        "注册必须被真正调用：tests/common/mod.rs 的 `get_test_pool_async` 至少调一次、\
+         tests/integration/mod.rs 的 `require_test_pool` 至少调一次（定义行的写法不以分号结尾，\
+         因此不计入 `ensure_schema_exit_hook();` 的调用计数）\
+         （common_calls={common_calls}, integration_calls={integration_calls}）"
+    );
+
+    // ④ B' 的两条硬不变量：`synapse-common/src` 不得再引用 `libc`（依赖已移到 dev），
+    //    且 `test_schema_guard.rs` 里不得再有非注释的 `unsafe`；同时把整个 crate 里**其余**
+    //    非注释 unsafe 行钉成"仅限已知的两处测试块"，这样新出现的 unsafe 一定被看见。
+    let grep_libc = std::process::Command::new("bash")
+        .arg("-c")
+        .arg("grep -rn 'libc' synapse-common/src 2>/dev/null | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|///|//!)' || true")
+        .current_dir(&root)
+        .output()
+        .expect("grep must be runnable");
+    let libc_hits = String::from_utf8_lossy(&grep_libc.stdout);
+    assert!(
+        libc_hits.trim().is_empty(),
+        "`synapse-common/src` 的**非注释**代码不得再引用 libc（atexit 钩子已移到测试目标，libc 是 dev-dependency）：\n{libc_hits}"
+    );
+
+    let non_comment_unsafe = |pathspec: &str| -> String {
+        // grep -rn omits the filename prefix when searching a single file,
+        // which breaks the `^[^:]+:[0-9]+:` filter below. Normalize to a
+        // directory search so every output line carries `file:line:`.
+        let dir = if std::path::Path::new(pathspec).is_file() {
+            std::path::Path::new(pathspec)
+                .parent()
+                .map(|p| p.to_str().unwrap())
+                .unwrap_or(pathspec)
+        } else {
+            pathspec
+        };
+        let file_re = if std::path::Path::new(pathspec).is_file() {
+            Some(format!("^{}:", pathspec.replace('\\', "/")))
+        } else {
+            None
+        };
+        let out = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(format!(
+                "grep -rn 'unsafe' {dir} 2>/dev/null | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|///|//!)' || true"
+            ))
+            .current_dir(&root)
+            .output()
+            .expect("grep must be runnable");
+        let raw = String::from_utf8_lossy(&out.stdout).to_string();
+        raw.lines()
+            .filter(|l| file_re.as_ref().map_or(true, |re| l.starts_with(re)))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    let janitor_unsafe = non_comment_unsafe("synapse-common/src/test_schema_guard.rs");
+    assert!(
+        janitor_unsafe.trim().is_empty(),
+        "B' 后 `test_schema_guard.rs`（生产模块）不得再有任何 unsafe：\n{janitor_unsafe}"
+    );
+
+    let all_unsafe = non_comment_unsafe("synapse-common/src");
+    let unexpected: Vec<&str> =
+        all_unsafe.lines().filter(|l| !l.starts_with("synapse-common/src/config/mod.rs:")).collect();
+    assert!(
+        unexpected.is_empty(),
+        "`synapse-common/src` 里除 `config/mod.rs` 的两处已知 `#[cfg(test)]` set_var 块外，\
+         不得有非注释 unsafe（新增的必须显式审阅后再加入本守卫的允许集合）：\n{unexpected:?}"
+    );
+    assert_eq!(
+        all_unsafe.lines().count(),
+        2,
+        "已知集合是 config/mod.rs 的两处 `#[cfg(test)]` set_var 块；数量变了说明有新增/删除，\
+         请复核后更新本断言：\n{all_unsafe}"
+    );
+}
