@@ -144,10 +144,17 @@ mod db_tests {
     use super::*;
     use std::sync::Arc;
 
-    async fn test_pool() -> Arc<sqlx::PgPool> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// 每个测试一个从迁移 baseline 克隆出来的独立 schema（返回 guard 与 pool）。
+    ///
+    /// 2026-09-21：原先用 `connect_shared_test_pool()`（共享 `public`）。共享池的两个问题：
+    /// 测试结果取决于环境里 `public` 的残渣（本地 `public` 落后于迁移 baseline 时会直接
+    /// 42P01），且并行测试互相影响。按铁律 7 消除共享状态：从模板克隆的 per-test schema
+    /// 保证表一定存在、行数从 0 开始（同 `admin_federation.rs` 与 `event_report/db_tests.rs`
+    /// 的迁移方式）。
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<sqlx::PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated test pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     fn make_suffix() -> String {
@@ -156,7 +163,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn get_all_tags_empty_for_new_user() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomTagStorage::new(pool);
         let suffix = make_suffix();
         let user_id = format!("@roomtag_empty_{suffix}:test");
@@ -165,7 +172,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn add_tag_then_get_tags() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomTagStorage::new(pool.clone());
         let suffix = make_suffix();
         let user_id = format!("@roomtag_add_{suffix}:test");
@@ -186,7 +193,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn add_tag_upserts_existing_tag() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomTagStorage::new(pool.clone());
         let suffix = make_suffix();
         let user_id = format!("@roomtag_upsert_{suffix}:test");
@@ -207,7 +214,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn remove_tag_deletes_record() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomTagStorage::new(pool.clone());
         let suffix = make_suffix();
         let user_id = format!("@roomtag_remove_{suffix}:test");
@@ -226,7 +233,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn get_all_tags_returns_multiple_tags() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomTagStorage::new(pool.clone());
         let suffix = make_suffix();
         let user_id = format!("@roomtag_multi_{suffix}:test");
