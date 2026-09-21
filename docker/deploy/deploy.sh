@@ -913,7 +913,10 @@ start_monitoring() {
     fi
 
     # 网络由核心栈创建；没有它监控栈抓不到 synapse-app:9090。
-    local net="${COMPOSE_PROJECT_NAME:-synapse}_network"
+    # 名字必须与两份 compose 里的 `name:` 一致 —— 那里刻意用 ${SYNAPSE_NETWORK_NAME}
+    # 而非 ${COMPOSE_PROJECT_NAME}，因为监控栈是以 `-p synapse-monitoring` 启动的，
+    # `-p` 会覆盖 COMPOSE_PROJECT_NAME，导致监控栈去引用一个不存在的网络。
+    local net="${SYNAPSE_NETWORK_NAME:-synapse_network}"
     if ! docker network inspect "$net" >/dev/null 2>&1; then
         log_warning "网络 $net 不存在（核心栈未启动？），跳过监控栈"
         return 0
@@ -1226,7 +1229,7 @@ remove_existing_deployment() {
     # 项目标签导致 `compose down` 未回收），后续 `compose up` 会报
     # "network with name X already exists" 并连带引发容器重名冲突，使启动步骤
     # 失败。此处仅在网络已无容器占用时删除，避免误删其它项目在用的网络。
-    local net="${COMPOSE_PROJECT_NAME:-synapse}_network"
+    local net="${SYNAPSE_NETWORK_NAME:-synapse_network}"
     if docker network inspect "$net" >/dev/null 2>&1; then
         local attached
         attached="$(docker network inspect "$net" --format '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null || true)"

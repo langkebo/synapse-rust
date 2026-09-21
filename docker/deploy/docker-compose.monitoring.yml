@@ -47,7 +47,14 @@ services:
       # 所以部署流程必须保证它先存在。
       - ./prometheus/auth/worker-token:/etc/prometheus/worker-token:ro
     ports:
-      - "127.0.0.1:${PROMETHEUS_PORT:-9092}:9090"
+      # 变量必须叫 PROMETHEUS_UI_PORT，**不能**复用 PROMETHEUS_PORT：
+      # 后者在核心栈里是「**应用自身**的 /metrics 端口」
+      # （docker-compose.yml 的 `127.0.0.1:${PROMETHEUS_PORT:-9090}:9090`，
+      #  且 homeserver.yaml 的 prometheus.port 也是 9090）。
+      # 复用会让本服务去抢宿主 9090 —— 而它已被 synapse-app 占用，实测报错：
+      #   Bind for 127.0.0.1:9090 failed: port is already allocated
+      # 9092 与 grafana 数据源注释（datasources.yml）以及本站文档保持一致。
+      - "127.0.0.1:${PROMETHEUS_UI_PORT:-9092}:9090"
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9090/-/healthy || exit 1"]
       interval: 30s
@@ -153,11 +160,16 @@ services:
 
 networks:
   synapse-network:
-    # 由核心栈 `docker-compose.yml` 创建（name: ${COMPOSE_PROJECT_NAME:-synapse}_network）。
+    # 由核心栈 `docker-compose.yml` 创建（name: ${SYNAPSE_NETWORK_NAME:-synapse_network}）。
     # 这里只引用，不拥有 —— 两个 compose 声明同名非 external 网络会让 Docker 报
     # “network ... was found but has incorrect label”。
+    #
+    # 变量必须是 SYNAPSE_NETWORK_NAME，不能是 COMPOSE_PROJECT_NAME：本文件由
+    # deploy.sh 以 `compose -p synapse-monitoring -f …` 启动，`-p` 会把
+    # COMPOSE_PROJECT_NAME 覆盖成 `synapse-monitoring`，用后者会解析出一个
+    # 不存在的 `synapse-monitoring_network` 而启动失败（2026-09-22 实测）。
     external: true
-    name: ${COMPOSE_PROJECT_NAME:-synapse}_network
+    name: ${SYNAPSE_NETWORK_NAME:-synapse_network}
 
 volumes:
   prometheus_data:

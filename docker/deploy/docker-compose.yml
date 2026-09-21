@@ -389,7 +389,14 @@ services:
 networks:
   synapse-network:
     driver: bridge
-    name: ${COMPOSE_PROJECT_NAME:-synapse}_network
+    # 刻意**不**用 `${COMPOSE_PROJECT_NAME:-synapse}_network`：
+    # 监控栈是以 `docker compose -p synapse-monitoring -f docker-compose.monitoring.yml`
+    # 启动的，`-p` 会把 COMPOSE_PROJECT_NAME 覆盖成 `synapse-monitoring`，于是同一个
+    # 表达式在监控栈里解析成 `synapse-monitoring_network` —— 而该网络并不存在
+    # （网络由核心栈拥有），实测报错：
+    #   network synapse-monitoring_network declared as external, but could not be found
+    # 用一个**独立**的变量名做「网络名」这一个用途，两个 compose 才不会随 `-p` 漂移。
+    name: ${SYNAPSE_NETWORK_NAME:-synapse_network}
 
 volumes:
   # [O3-14] 数据卷标签：标识用途与备份策略，便于运维自动化发现与恢复

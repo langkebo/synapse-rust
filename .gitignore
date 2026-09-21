@@ -84,6 +84,14 @@ docker/deploy/logs/
 docker/deploy/prometheus/auth/*
 !docker/deploy/prometheus/auth/README.md
 
+# /app/data 的宿主机落点（compose 把 `./synapse-data` 挂到容器的 /app/data）。
+# 内含服务端 megolm 静态密钥 megolm.key、联邦签名私钥 signing.key（二者已由上面的
+# `*.key` / `signing.key` 覆盖），以及 jemalloc 的 profile 产物 jeprof.out.*.heap
+# ——后者的 prof_prefix 就指向 /app/data，会随运行不断增长，必须忽略。
+# 同样只保留可提交的 README。
+docker/deploy/synapse-data/*
+!docker/deploy/synapse-data/README.md
+
 # 临时令牌和测试凭证（不应入库）
 *_token.txt
 test_tokens.json
