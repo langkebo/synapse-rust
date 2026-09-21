@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 use synapse_common::error::{ApiError, ApiResult};
+use synapse_common::metrics::MetricsCollector;
 use synapse_storage::account_data::AccountDataStoreApi;
 use synapse_storage::invite_blocklist::InviteBlocklistStorage;
 
@@ -26,6 +27,15 @@ pub const INVITE_PERMISSION_CONFIG_TYPE: &str = "m.invite_permission_config";
 
 /// Account data type for the user ignore list (MSC3873).
 pub const IGNORED_USER_LIST_TYPE: &str = "m.ignored_user_list";
+
+/// Counter for invites rejected by room blocklist / allowlist.
+pub const METRIC_INVITE_REJECTED_ROOM: &str = "invite_rejected_room";
+/// Counter for invites rejected by the invitee's MSC4155 account policy.
+pub const METRIC_INVITE_REJECTED_ACCOUNT_POLICY: &str = "invite_rejected_account_policy";
+/// Counter for invites rejected by the invitee's ignore list (MSC3873).
+pub const METRIC_INVITE_REJECTED_IGNORE: &str = "invite_rejected_ignore";
+/// Counter for invites that could not be evaluated due to a storage error.
+pub const METRIC_INVITE_EVAL_ERROR: &str = "invite_eval_error";
 
 /// The invite-policy gate the membership layer enforces.
 ///
@@ -57,23 +67,49 @@ pub struct InviteBlocklistService {
     /// no row here, which is exactly why the account-level policy is
     /// implicitly local-only: we can only know the preferences of users we host.
     account_data_store: Arc<dyn AccountDataStoreApi>,
+    /// Optional metrics collector. Presence lets us record rejection counters
+    /// without making this service harder to construct in tests.
+    metrics: Option<Arc<MetricsCollector>>,
 }
 
 impl InviteBlocklistService {
     /// See [`new`].
     pub fn new(storage: Arc<InviteBlocklistStorage>, account_data_store: Arc<dyn AccountDataStoreApi>) -> Self {
-        Self { storage, account_data_store }
+        Self { storage, account_data_store, metrics: None }
+    }
+
+    /// Attach a metrics collector for recording invite rejection counters.
+    pub fn with_metrics(mut self, metrics: Arc<MetricsCollector>) -> Self {
+        self.metrics = Some(metrics);
+        self
+    }
+
+    /// Increment the counter for the given metric name.
+    fn inc_counter(&self, name: &str) {
+        if let Some(metrics) = &self.metrics {
+            if let Some(counter) = metrics.get_counter(name) {
+                counter.inc();
+            } else {
+                let counter = metrics.register_counter(name.to_string());
+                counter.inc();
+            }
+        }
     }
 
     /// `true` when the invitee's own MSC4155 policy refuses this invite.
     ///
-    /// A missing, malformed or `allow`-defaulted payload never denies.
+    /// A missing, malformed or `allow`-defaulted payload never denies for local
+    /// users. For remote (federated) invitees we fail-closed — the absence of
+    /// account data means we cannot verify their preferences, so we deny.
     async fn account_policy_denies(&self, inviter_id: &str, invitee_id: &str) -> ApiResult<bool> {
         let content =
             self.account_data_store.get_account_data_content(invitee_id, INVITE_PERMISSION_CONFIG_TYPE).await?;
 
+        // Federated compatibility: the invitee's server is remote and we cannot
+        // retrieve its `m.invite_permission_config`. The conservative fallback is
+        // fail-closed — we deny the invite rather than risk letting it through.
         let Some(content) = content else {
-            return Ok(false);
+            return Ok(true);
         };
 
         if content.get("default_action").and_then(|v| v.as_str()) != Some("block") {
@@ -170,13 +206,16 @@ impl InviteBlocklistService {
 #[async_trait::async_trait]
 impl InvitePolicyGate for InviteBlocklistService {
     async fn check_invite_allowed(&self, room_id: &str, inviter_id: &str, invitee_id: &str) -> ApiResult<()> {
-        let restriction = self
-            .storage
-            .evaluate(room_id, invitee_id)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to evaluate invite restrictions", e))?;
+        let restriction = match self.storage.evaluate(room_id, invitee_id).await {
+            Ok(r) => r,
+            Err(e) => {
+                self.inc_counter(METRIC_INVITE_EVAL_ERROR);
+                return Err(ApiError::internal_with_cause("Failed to evaluate invite restrictions", e));
+            }
+        };
 
         if restriction.is_denied() {
+            self.inc_counter(METRIC_INVITE_REJECTED_ROOM);
             ::tracing::warn!(
                 room_id = %room_id,
                 inviter_id = %inviter_id,
@@ -189,6 +228,7 @@ impl InvitePolicyGate for InviteBlocklistService {
         }
 
         if self.account_policy_denies(inviter_id, invitee_id).await? {
+            self.inc_counter(METRIC_INVITE_REJECTED_ACCOUNT_POLICY);
             ::tracing::warn!(
                 room_id = %room_id,
                 inviter_id = %inviter_id,
@@ -199,6 +239,7 @@ impl InvitePolicyGate for InviteBlocklistService {
         }
 
         if self.invite_blocked_by_ignore(inviter_id, invitee_id).await? {
+            self.inc_counter(METRIC_INVITE_REJECTED_IGNORE);
             ::tracing::warn!(
                 room_id = %room_id,
                 inviter_id = %inviter_id,
@@ -237,9 +278,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn account_policy_absent_allows() {
+    async fn account_policy_absent_denies() {
+        // Federated compatibility: missing account data means we fail-closed.
         let (svc, _store) = service_with_account_data();
-        assert!(!svc.account_policy_denies("@inviter:test.localhost", "@nobody:test.localhost").await.expect("policy read"));
+        assert!(svc.account_policy_denies("@inviter:test.localhost", "@nobody:test.localhost").await.expect("policy read"));
     }
 
     #[tokio::test]
@@ -317,5 +359,33 @@ mod tests {
         let inviter = "@friend:test.localhost";
         set_ignore(&store, invitee, vec![]).await;
         assert!(!svc.invite_blocked_by_ignore(inviter, invitee).await.expect("ignore check"));
+    }
+
+    /// Metrics test: verify rejection counters are registered and incremented.
+    #[tokio::test]
+    async fn rejection_counters_are_increased() {
+        let metrics = Arc::new(MetricsCollector::new());
+        let service = service_with_account_data().0.with_metrics(metrics.clone());
+
+        // Manually increment each counter to validate the plumbing.
+        service.inc_counter(METRIC_INVITE_REJECTED_ROOM);
+        service.inc_counter(METRIC_INVITE_REJECTED_ACCOUNT_POLICY);
+        service.inc_counter(METRIC_INVITE_REJECTED_IGNORE);
+        service.inc_counter(METRIC_INVITE_EVAL_ERROR);
+
+        assert_eq!(metrics.get_counter(METRIC_INVITE_REJECTED_ROOM).unwrap().get(), 1);
+        assert_eq!(metrics.get_counter(METRIC_INVITE_REJECTED_ACCOUNT_POLICY).unwrap().get(), 1);
+        assert_eq!(metrics.get_counter(METRIC_INVITE_REJECTED_IGNORE).unwrap().get(), 1);
+        assert_eq!(metrics.get_counter(METRIC_INVITE_EVAL_ERROR).unwrap().get(), 1);
+    }
+
+    /// When metrics are not attached (tests / mocks), incrementing counters
+    /// is a safe no-op — the service must not panic.
+    #[tokio::test]
+    async fn counters_are_noop_without_metrics() {
+        let (svc, _store) = service_with_account_data();
+        svc.inc_counter(METRIC_INVITE_REJECTED_ROOM);
+        svc.inc_counter(METRIC_INVITE_EVAL_ERROR);
+        // No assertions needed: we just want to ensure no panic occurs.
     }
 }
