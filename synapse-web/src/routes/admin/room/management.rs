@@ -421,6 +421,10 @@ async fn remove_room_member_internal(
     }))
 }
 
+// `request_id` 只在 `friends` 打开时的 DM 同步失败日志（下方 `#[cfg(feature = "friends")]`
+// 块）里被使用；feature-off（`core-matrix-min` 车道）下它必然未使用。用 cfg_attr 精确放行
+// 这个配置下的 `unused_variables`，而不是无条件 `#[allow]`、也不是删掉参数。
+#[cfg_attr(not(feature = "friends"), allow(unused_variables))]
 async fn ban_user_internal(
     ctx: &AdminContext,
     room_id: &str,
@@ -502,6 +506,8 @@ async fn unban_user_internal(
     }))
 }
 
+// 同 `ban_user_internal`：`actor_user_id`/`request_id` 只在该 `friends` 块里使用。
+#[cfg_attr(not(feature = "friends"), allow(unused_variables))]
 async fn kick_user_internal(
     ctx: &AdminContext,
     room_id: &str,

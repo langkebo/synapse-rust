@@ -37,36 +37,18 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-/// Set up the sliding_sync tables if they don't exist (same as the migrated tests).
-async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-    // None of these may swallow their result: a failed `CREATE TABLE` leaves the
-    // test running against a schema that is missing the table, and the failure
-    // resurfaces later as an unrelated-looking error (sweep B8).
-    sqlx::query("CREATE SEQUENCE IF NOT EXISTS sliding_sync_pos_seq")
-        .execute(pool.as_ref())
-        .await
-        .expect("Failed to create sliding_sync_pos_seq");
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS sliding_sync_connections (LIKE sliding_sync_connections INCLUDING ALL DEFAULT)",
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("ensure sliding_sync_connections exists in the isolated schema");
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS sliding_sync_room_state (LIKE sliding_sync_room_state INCLUDING ALL DEFAULT)",
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("ensure sliding_sync_room_state exists in the isolated schema");
-    sqlx::query("CREATE TABLE IF NOT EXISTS sliding_sync_lists (LIKE sliding_sync_lists INCLUDING ALL DEFAULT)")
-        .execute(pool.as_ref())
-        .await
-        .expect("ensure sliding_sync_lists exists in the isolated schema");
-    sqlx::query("CREATE TABLE IF NOT EXISTS sliding_sync_to_device_queue (LIKE sliding_sync_to_device_queue INCLUDING ALL DEFAULT)")
-        .execute(pool.as_ref())
-        .await
-        .expect("ensure sliding_sync_to_device_queue exists in the isolated schema");
-}
+// 这里原本有一个 `setup_test_database()` 夹具，用 5 条 `CREATE ... IF NOT EXISTS` 去
+// "确保" sliding_sync 的表存在。它**两头都错**，已于 2026-09-21 删除：
+//   1. 名字是过时的：`sliding_sync_connections` / `sliding_sync_room_state` /
+//      `sliding_sync_to_device_queue` 在全仓（迁移 + 生产代码）已不存在，真实表是
+//      `sliding_sync_lists` / `sliding_sync_rooms` / `sliding_sync_tokens`（+ `sliding_sync_pos_seq`）。
+//   2. 语法是错的：`(LIKE <table> INCLUDING ALL DEFAULT)` 里的尾巴 `DEFAULT` 不是
+//      PostgreSQL 的 `LIKE` 选项（应为 `INCLUDING DEFAULTS`，且已被 `INCLUDING ALL` 覆盖），
+//      Postgres 报 `42601 syntax error at or near "DEFAULT"`。
+// 每个测试都在 `require_test_pool()` 之后立刻调用它，所以这个文件里的 15 个测试**全部**
+// 死在夹具上（CI 的 integration 车道此前从未真正执行过，故一直没暴露；2026-09-21 本地
+// 全量枚举一次性抓出 15 条）。现在无需任何夹具：`require_test_pool()` 返回的是从迁移
+// baseline 克隆出来的 per-test schema，表本来就在。
 
 fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
@@ -136,7 +118,6 @@ fn make_main_list(ranges: Vec<Vec<u32>>) -> HashMap<String, SlidingSyncListData>
 #[tokio::test]
 async fn test_latency_threshold_ms_returns_configured_default() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
 
     // PerformanceConfig::default() should set a positive threshold.
@@ -147,7 +128,6 @@ async fn test_latency_threshold_ms_returns_configured_default() {
 #[tokio::test]
 async fn test_sync_latency_p95_ms_is_none_before_any_sync() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
 
     assert!(service.sync_latency_p95_ms().is_none(), "p95 should be None before any sync observation");
@@ -156,7 +136,6 @@ async fn test_sync_latency_p95_ms_is_none_before_any_sync() {
 #[tokio::test]
 async fn test_slow_sync_request_count_is_zero_initially() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
 
     assert_eq!(service.slow_sync_request_count(), 0, "slow request count should be 0 before any sync");
@@ -165,7 +144,6 @@ async fn test_slow_sync_request_count_is_zero_initially() {
 #[tokio::test]
 async fn test_sync_latency_p95_ms_is_some_after_sync() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@p95_{suffix}:localhost");
@@ -186,7 +164,6 @@ async fn test_sync_records_slow_request_when_threshold_exceeded() {
     // We can't easily force a slow sync, but we can verify the counter
     // mechanism works by checking it stays at 0 for fast syncs.
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@slow_{suffix}:localhost");
@@ -207,7 +184,6 @@ async fn test_sync_records_slow_request_when_threshold_exceeded() {
 #[tokio::test]
 async fn test_sync_with_empty_lists_and_no_extensions() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@empty_{suffix}:localhost");
@@ -222,7 +198,6 @@ async fn test_sync_with_empty_lists_and_no_extensions() {
 #[tokio::test]
 async fn test_sync_with_multiple_conn_ids_same_user() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@multi_{suffix}:localhost");
@@ -250,7 +225,6 @@ async fn test_sync_with_multiple_conn_ids_same_user() {
 #[tokio::test]
 async fn test_sync_incremental_with_pos_advances_position() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@inc_{suffix}:localhost");
@@ -273,7 +247,6 @@ async fn test_sync_incremental_with_pos_advances_position() {
 #[tokio::test]
 async fn test_sync_with_room_subscriptions() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@subs_{suffix}:localhost");
@@ -294,7 +267,6 @@ async fn test_sync_with_room_subscriptions() {
 #[tokio::test]
 async fn test_sync_with_to_device_extension_enabled() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@todev_{suffix}:localhost");
@@ -314,7 +286,6 @@ async fn test_sync_with_to_device_extension_enabled() {
 #[tokio::test]
 async fn test_sync_with_e2ee_extension_enabled() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@e2ee_{suffix}:localhost");
@@ -331,7 +302,6 @@ async fn test_sync_with_e2ee_extension_enabled() {
 #[tokio::test]
 async fn test_sync_with_typing_extension_enabled() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@typing_{suffix}:localhost");
@@ -348,7 +318,6 @@ async fn test_sync_with_typing_extension_enabled() {
 #[tokio::test]
 async fn test_sync_with_zero_timeout() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@zero_{suffix}:localhost");
@@ -363,7 +332,6 @@ async fn test_sync_with_zero_timeout() {
 #[tokio::test]
 async fn test_sync_with_multiple_lists() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@lists_{suffix}:localhost");
@@ -402,7 +370,6 @@ async fn test_sync_with_multiple_lists() {
 #[tokio::test]
 async fn test_sync_with_unsubscribe_rooms() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@unsub_{suffix}:localhost");

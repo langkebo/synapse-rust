@@ -1,7 +1,19 @@
 # Trait-count ratchet baseline (A5 / B4-1). See scripts/ci/check_trait_ratchet.py.
 # The numbers may only go DOWN. Bump them deliberately and say why.
-TOTAL=65
+TOTAL=66
 STORE_API=33
+#
+# 2026-09-21  TOTAL 65 -> 66 (+1) —— MSC4155 邀请策略的 DI 接缝 trait
+#   来源：synapse-services/src/invite_blocklist_service.rs:35
+#         `pub trait InvitePolicyGate: Send + Sync`（随 `6c6216cc` 进入 main）。
+#   为什么放行而不是删掉这条接缝：它**同时**有生产实现与测试替身，且被注入进
+#   `RoomService`/membership（`Arc<dyn InvitePolicyGate>`）——
+#     · 生产实现：`impl InvitePolicyGate for InviteBlocklistService`（同文件 :151）；
+#     · 测试替身：`synapse-services/src/test_mocks.rs` 的 `FakeInvitePolicyGate`
+#       （支持 `denying()` 构造被拒场景），被 membership/moderation/service 的测试使用。
+#   即：它是"为了可测性而存在的接缝"这一类，与本文件既有的 DI trait 同型；
+#   删掉它就得把邀请策略判断硬编码进 membership，测试将无法构造拒绝路径。
+#   `*StoreApi` 未增加（33 == 33），存储抽象棘轮没有被放宽。
 #
 # 2026-09-15  TOTAL 63 -> 65 (+2) —— B4-3 引入的两个 DI 接缝 trait
 #   来源：synapse-web/src/routes/auth_source.rs 的 `AuthSource` 与 `AdminAuthSource: AuthSource`。

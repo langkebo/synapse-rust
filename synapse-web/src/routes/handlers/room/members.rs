@@ -176,6 +176,9 @@ pub(crate) async fn join_room_by_id_or_alias(
 }
 
 /// See [`leave_room`].
+// `request_id`（以及为它而读的 `headers`）只在 `friends` 打开时的 DM 同步失败日志里使用；
+// feature-off（`core-matrix-min` 车道）下必然未使用，故按配置精确放行该 lint。
+#[cfg_attr(not(feature = "friends"), allow(unused_variables))]
 pub(crate) async fn leave_room(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
@@ -601,6 +604,8 @@ pub(crate) async fn get_room_invites(
 }
 
 /// See [`kick_user`].
+// 同 `leave_room`。
+#[cfg_attr(not(feature = "friends"), allow(unused_variables))]
 pub(crate) async fn kick_user(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
@@ -647,6 +652,8 @@ pub(crate) async fn kick_user(
 }
 
 /// See [`ban_user`].
+// 同 `leave_room`。
+#[cfg_attr(not(feature = "friends"), allow(unused_variables))]
 pub(crate) async fn ban_user(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,

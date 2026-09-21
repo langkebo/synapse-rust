@@ -2494,6 +2494,37 @@ route-table / ROUTE_CONTRACT）当成同一次改动的一部分。
 注释里：哨兵保证的是"事件要求的慢速车道没有被静默跳过"，而 k6 需要外部环境 + secret，
 只能由人显式要求并自行认领结果（`OpenAPI Artifact` 同理，它是 fast tier 的产物、不是车道）。
 
+**10) `--workspace --lib` 的假红 —— `event_report::db_tests` 还在共享 `public` 池上**：
+run 35549300075 的 `Test & Lint (stable, all-features)` 在
+`synapse-storage event_report::db_tests::test_count_all_reports_is_global`
+报 `global count should increase by at least 3 (before=3, after=3)`。两个症状同一根因
+（测试依赖**环境里 `public` 的残渣**，而不是被测代码）：
+- CI：`public` 有 3 行遗留 `event_reports`，并行测试让计数在断言窗口内不可见 ⇒ 假红；
+- 本地：该文件直接 `42P01 relation "event_reports" does not exist` —— 实测
+  `event_reports` 只存在于迁移 baseline / 模板 schema（`test_template_ci`、
+  `test_isolation_template_*`），**不在 `public`**。
+
+按铁律 7 消除共享状态而不是"加锁/串行/放宽断言"：把该文件从
+`connect_shared_test_pool()` 迁到 per-test 独立 schema
+（`crate::test_isolation::isolated_test_pool()`，返回 guard + pool；同
+`synapse-storage/src/admin_federation.rs::test_pool` 的既有迁移方式），28 个调用点
+全部改成 `let (_isolated, pool) = test_pool().await;`。验证：
+`cargo nextest run -p synapse-storage --lib --all-features -E 'test(event_report::db_tests)'`
+= **28/28 passed**（迁移前本地第一个测试就 42P01）。
+
+**11) `Repo Sanity` 里被前一个棘轮挡住的下一个红 —— trait-count 65 → 66**：
+SQLx 棘轮修好后，同一个 job 走到 `Trait-count ratchet` 又红：`pub trait` 65 → 66
+（`*StoreApi` 未变，33 == 33）。新增的是 `6c6216cc` 的
+`pub trait InvitePolicyGate: Send + Sync`（`synapse-services/src/invite_blocklist_service.rs:35`）。
+它有**生产实现**（`impl InvitePolicyGate for InviteBlocklistService`）与**测试替身**
+（`test_mocks::FakeInvitePolicyGate`，支持 `denying()` 构造拒绝路径），并以
+`Arc<dyn InvitePolicyGate>` 注入 `RoomService`/membership —— 属该文件既有的"为 DI/可测性
+而存在的接缝"类别，删掉它会把策略判断硬编码进 membership 且无法测拒绝分支。故按该文件
+协议显式上调基线并写明理由（TOTAL 65 → 66）。`python3 scripts/ci/check_trait_ratchet.py`
+= OK。**注意这就是"红在第一个失败就停"的代价**：一个 job 里串了多个棘轮，前一个不修就
+永远看不到后一个（同一类问题在 run 35542783982 已经出现过一次：Security Audit 的
+advisory-db 挡住 rand 禁令）。
+
 **红证明**（全部现场做过，恢复后转绿）：
 - 棘轮脚本：往 `tests/integration/api_federation_tests.rs` 加一行含 `rand::rng()` 的注释
   ⇒ `::error::rand::rng() 用法增加了: 48 > 47`，exit 1；恢复 ⇒ `OK: …（47）`，exit 0。
@@ -2519,7 +2550,46 @@ route-table / ROUTE_CONTRACT）当成同一次改动的一部分。
 - `core-matrix-min` 车道的 **6 条 unused-variable warnings**（`synapse-web/src/routes/admin/
   room/management.rs:430/509/511`、`synapse-web/src/routes/handlers/room/members.rs:186/611/657`，
   变量为 `request_id` ×5 + `actor_user_id` ×1）—— feature-off 配置特有，`cargo build` 不因警告
-  失败。修法（下次）：给这些绑定加 `#[cfg_attr(not(feature = …), allow(unused_variables))]`
-  或改名 `_request_id` 并同步 feature-on 分支的全部引用，**必须用 `cargo check
-  --no-default-features` 验证**（本地需冷编译，本轮 artifact 目录被 integration 枚举占用）。
-- integration 目标的全量失败清单见 §14.14.3（本地枚举进行中）。
+  失败。已按第 12 条修掉（见 §14.14.4），此处保留记录。
+
+### 14.14.3 integration 目标全量枚举结论（本地，2026-09-21）
+
+命令与 CI 的 integration 步骤**完全一致**，只多一个 `--no-fail-fast`（正是 §14.14.2 那条门禁
+盲区的修法），本地 PG + `TEST_DB_TEMPLATE_SCHEMA=test_template_ci`，`--test-threads 4`：
+
+```bash
+DATABASE_URL=… TEST_DATABASE_URL=… TEST_DB_TEMPLATE_SCHEMA=test_template_ci REDIS_URL=… \
+  cargo nextest run --test integration --all-features --locked --test-threads 4 --no-fail-fast
+```
+
+**结果：1424 tests run: 1407 passed (2 slow), 17 failed, 0 skipped（2797s ≈ 46.6 min）。**
+
+17 条失败只有**两个根因**，且都已修并**重新跑过验证**：
+
+| # | 失败集 | 根因 | 状态 |
+|---|---|---|---|
+| 1 | `api_route_ledger_tests::declared_route_manifest_full_snapshot_matches_{default,worker_enabled}_state`（2 条） | route-ledger 快照缺 3 条 `POST …/voice/register`（§14.14.2 第 8 条） | 已修；重跑 `api_route_ledger_tests` **15/15 passed** |
+| 2 | `sync_handlers_coverage_tests::*`（15 条，全部） | 文件自带的 `setup_test_database()` 夹具：① 表名过时（`sliding_sync_connections` / `_room_state` / `_to_device_queue` 在迁移与生产代码里都不存在）；② 语法错误 `(LIKE t INCLUDING ALL DEFAULT)` → `42601 syntax error at or near "DEFAULT"`。每个测试都在 `require_test_pool()` 后立刻调它 ⇒ 15 条全部死在夹具上 | 已删夹具（per-test schema 由迁移 baseline 克隆，表本来就在）；重跑 **30/30 passed**（15 sync + 15 ledger） |
+
+**这 17 条此前从未被任何门禁看到**：integration 车道在本会话之前从未真正执行过；即使执行了，
+`fail-fast` 也会让第一条失败就中止（run 35542783982 只跑了 139/1424）。这正是"**把没跑过的
+车道接上电**"的直接收益 —— 46 分钟换回 17 条确定性的红，而不是 17 轮 CI。
+
+**口径说明**：枚举跑在**工作树**上（HEAD + 本会话未提交的修复），而不是某个纯净 checkout，
+所以它同时覆盖了并行会话已 push 的路由改动（`6c6216cc`）。本地残留 `test_*` schema 会随枚举
+累积（每个测试一个），必要时用 `scripts/cleanup_test_schemas.sh` 清理。
+
+### 14.14.4 `core-matrix-min` 的 6 条 unused-variable warnings：清零
+
+来源是 feature-off 配置：这 5 个函数里 `request_id`（以及 `kick_user_internal` 的
+`actor_user_id`、`leave_room`/`kick_user`/`ban_user` 为取 `request_id` 而读的 `headers`）
+**只在 `#[cfg(feature = "friends")]` 的 DM 同步失败日志块里被使用**，`--no-default-features`
+下必然未使用。
+
+修法：在这 5 个函数上加
+`#[cfg_attr(not(feature = "friends"), allow(unused_variables))]`（精确到"这个配置下才放行"），
+并写明原因。**没有**选择"删参数"（feature-on 时它仍被使用）或"无条件 `#[allow]`"。
+
+验证：`cargo check -p synapse-web --no-default-features --locked` = **exit 0**，输出里
+`warning` **0 条**、`unused variable` **0 条**（本次实测；同一命令在修复前对应 CI 的
+`core-matrix-min` 车道里的那 6 条警告）。
