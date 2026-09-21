@@ -289,7 +289,9 @@ impl InvitePolicyGate for InviteBlocklistService {
         // means "this user is explicitly permitted everywhere". The allowlist
         // overrides the blocklist on a per-user basis — whichever is present wins.
         if !self.dm_rooms_bypass_global_policy || !self.is_dm_room(inviter_id, invitee_id).await? {
-            if self.storage.is_user_in_global_blocklist(invitee_id).await.map_err(|e| ApiError::internal_with_cause("Failed to check global blocklist", e))? {
+            if self.storage.is_user_in_global_allowlist(invitee_id).await.map_err(|e| ApiError::internal_with_cause("Failed to check global allowlist", e))? {
+                self.inc_counter(METRIC_INVITE_ALLOWED_GLOBAL_ALLOW);
+            } else if self.storage.is_user_in_global_blocklist(invitee_id).await.map_err(|e| ApiError::internal_with_cause("Failed to check global blocklist", e))? {
                 self.inc_counter(METRIC_INVITE_REJECTED_GLOBAL_BLOCK);
                 ::tracing::warn!(
                     room_id = %room_id,
@@ -298,9 +300,6 @@ impl InvitePolicyGate for InviteBlocklistService {
                     "Invite rejected by the global server-wide blocklist"
                 );
                 return Err(ApiError::forbidden("This user is globally blocked from being invited".to_string()));
-            }
-            if self.storage.is_user_in_global_allowlist(invitee_id).await.map_err(|e| ApiError::internal_with_cause("Failed to check global allowlist", e))? {
-                self.inc_counter(METRIC_INVITE_ALLOWED_GLOBAL_ALLOW);
             }
         }
 
