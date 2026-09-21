@@ -332,10 +332,15 @@ mod db_tests {
     use super::*;
     use std::sync::Arc;
 
-    async fn test_pool() -> Arc<sqlx::Pool<Postgres>> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// 每个测试一个从迁移 baseline 克隆出来的独立 schema（返回 guard 与 pool）。
+    ///
+    /// 2026-09-21：原先用共享 `public` 池。共享池的两个问题：测试结果取决于环境里
+    /// `public` 的残渣（本地 `public` 落后于迁移 baseline 时会直接 42P01），且并行测试
+    /// 互相影响。按铁律 7 消除状态共享：per-test schema 由模板克隆，表一定存在、行数从 0 开始。
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<sqlx::PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated test pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     /// Clean up all test data matching the given suffix from privacy-related tables.
@@ -405,7 +410,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_privacy_tables_exist() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
@@ -421,7 +426,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_settings_nonexistent_user() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
@@ -436,7 +441,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_settings_returns_existing() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
@@ -463,7 +468,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_or_create_settings_creates_with_defaults() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
@@ -489,7 +494,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_or_create_settings_is_idempotent() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
@@ -511,7 +516,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_update_settings_all_fields() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
@@ -545,7 +550,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_update_settings_partial_fields() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
@@ -577,7 +582,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_update_settings_creates_for_nonexistent_user() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
@@ -608,7 +613,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_can_view_profile_public_visible_to_other() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
@@ -629,7 +634,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_can_view_profile_public_visible_to_anonymous() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
@@ -647,7 +652,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_can_view_profile_private_self() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
@@ -674,7 +679,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_can_view_profile_private_other() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
@@ -702,7 +707,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_can_view_profile_private_anonymous() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
@@ -728,7 +733,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_can_view_profile_contacts_with_shared_room() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
@@ -763,7 +768,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_can_view_profile_contacts_without_shared_room() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
@@ -792,7 +797,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_can_view_profile_contacts_anonymous() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
@@ -820,7 +825,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_can_view_presence_public_visible_to_other() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
@@ -848,7 +853,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_can_view_presence_private_self_only() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
@@ -880,7 +885,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_can_view_presence_contacts_with_shared_room() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
@@ -907,7 +912,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_can_view_presence_contacts_without_shared_room() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
@@ -930,7 +935,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_batch_can_view_profile_empty_input() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
 
         let storage = PrivacyStorage::new(pool.clone());
 
@@ -942,7 +947,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_batch_can_view_profile_basic() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 

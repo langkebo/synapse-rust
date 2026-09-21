@@ -6,10 +6,15 @@ use sqlx::{Pool, Postgres};
 
 use super::*;
 
-async fn test_pool() -> Arc<Pool<Postgres>> {
-    crate::test_utils::connect_shared_test_pool()
-        .await
-        .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+/// 每个测试一个从迁移 baseline 克隆出来的独立 schema（返回 guard 与 pool）。
+///
+/// 2026-09-21：原先用共享 `public` 池。共享池的两个问题：测试结果取决于环境里
+/// `public` 的残渣（本地 `public` 落后于迁移 baseline 时会直接 42P01），且并行测试
+/// 互相影响。按铁律 7 消除状态共享：per-test schema 由模板克隆，表一定存在、行数从 0 开始。
+async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<sqlx::PgPool>) {
+    let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated test pool");
+    let pool = isolated.pool();
+    (isolated, pool)
 }
 
 async fn ensure_test_user(pool: &Pool<Postgres>, user_id: &str) {
@@ -88,7 +93,7 @@ async fn cleanup_all(pool: &Pool<Postgres>, suffix: &str) {
 
 #[tokio::test]
 async fn test_get_friend_list_room_id() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
@@ -122,7 +127,7 @@ async fn test_get_friend_list_room_id() {
 
 #[tokio::test]
 async fn test_get_friend_list_content() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
@@ -163,7 +168,7 @@ async fn test_get_friend_list_content() {
 
 #[tokio::test]
 async fn test_get_friend_list_shard_returns_latest_per_state_key() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
@@ -194,7 +199,7 @@ async fn test_get_friend_list_shard_returns_latest_per_state_key() {
 
 #[tokio::test]
 async fn test_get_friend_list_all_shards_fan_out_merged_sorted() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
@@ -237,7 +242,7 @@ async fn test_get_friend_list_all_shards_fan_out_merged_sorted() {
 
 #[tokio::test]
 async fn test_get_friend_list_all_shards_empty_when_no_events() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
@@ -257,7 +262,7 @@ async fn test_get_friend_list_all_shards_empty_when_no_events() {
 
 #[tokio::test]
 async fn test_find_friend_lists_by_dm_room_id() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
@@ -295,7 +300,7 @@ async fn test_find_friend_lists_by_dm_room_id() {
 
 #[tokio::test]
 async fn test_get_effective_direct_links_fallback() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
@@ -358,7 +363,7 @@ async fn test_get_effective_direct_links_fallback() {
 
 #[tokio::test]
 async fn test_get_existing_direct_room_id() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
@@ -416,7 +421,7 @@ async fn test_get_existing_direct_room_id() {
 
 #[tokio::test]
 async fn test_get_dm_partner_for_room() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
@@ -478,7 +483,7 @@ async fn test_get_dm_partner_for_room() {
 
 #[tokio::test]
 async fn test_get_friend_requests() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
@@ -518,7 +523,7 @@ async fn test_get_friend_requests() {
 
 #[tokio::test]
 async fn test_is_friend() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
@@ -553,7 +558,7 @@ async fn test_is_friend() {
 
 #[tokio::test]
 async fn test_get_friend_info() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
@@ -594,7 +599,7 @@ async fn test_get_friend_info() {
 
 #[tokio::test]
 async fn test_is_friend_routes_to_target_shard_only() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
@@ -636,7 +641,7 @@ async fn test_is_friend_routes_to_target_shard_only() {
 
 #[tokio::test]
 async fn test_get_friend_info_routes_to_target_shard_only() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
@@ -682,7 +687,7 @@ async fn test_get_friend_info_routes_to_target_shard_only() {
 
 #[tokio::test]
 async fn test_get_friend_groups() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
@@ -724,7 +729,7 @@ async fn test_get_friend_groups() {
 
 #[tokio::test]
 async fn test_get_friend_groups_for_user() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
@@ -765,7 +770,7 @@ async fn test_get_friend_groups_for_user() {
 
 #[tokio::test]
 async fn test_create_friend_group() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
@@ -800,7 +805,7 @@ async fn test_create_friend_group() {
 
 #[tokio::test]
 async fn test_delete_friend_group() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
@@ -837,7 +842,7 @@ async fn test_delete_friend_group() {
 
 #[tokio::test]
 async fn test_rename_friend_group() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
@@ -877,7 +882,7 @@ async fn test_rename_friend_group() {
 
 #[tokio::test]
 async fn test_add_friend_to_group() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
@@ -913,7 +918,7 @@ async fn test_add_friend_to_group() {
 
 #[tokio::test]
 async fn test_remove_friend_from_group() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
@@ -954,7 +959,7 @@ async fn test_remove_friend_from_group() {
 
 #[tokio::test]
 async fn test_create_friend_request() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
@@ -992,7 +997,7 @@ async fn test_create_friend_request() {
 
 #[tokio::test]
 async fn test_get_friend_request() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
@@ -1027,7 +1032,7 @@ async fn test_get_friend_request() {
 
 #[tokio::test]
 async fn test_get_pending_friend_request() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 

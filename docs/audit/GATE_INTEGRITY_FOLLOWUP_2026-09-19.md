@@ -2785,7 +2785,7 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 
 | # | 问题 | 规模估计 |
 |---|---|---|
-| 7 | **仍有 14 个 `synapse-storage/src` 文件用 `connect_shared_test_pool()`（共享 `public`）** | 本轮已迁 8 个（`event_report` + 批次 1 三个 + 批次 2 四个，共 87 条测试本地全绿）。**计数更正**：先前写的 23 是把**注释里提到** `connect_shared_test_pool` 的文件也算进去了；按真实调用 `test_utils::connect_shared_test_pool()` 统计是 14 个（`git grep -ln "test_utils::connect_shared_test_pool()"`）。共性风险：CI 绿本地红、并行测试互相影响 |
+| 7 | **仍有 14 个 `synapse-storage/src` 文件用 `connect_shared_test_pool()`（共享 `public`）** | 本轮已迁 8 个（`event_report` + 批次 1 三个 + 批次 2 四个，共 87 条测试本地全绿）。**计数更正**：先前写的 23 是把**注释里提到** `connect_shared_test_pool` 的文件也算进去了；按真实调用 `test_utils::connect_shared_test_pool()` 统计是 14 个（`git grep -ln "test_utils::connect_shared_test_pool()"`）。共性风险：CI 绿本地红、并行测试互相影响。**本轮新发现（重要）**：`CREATE TABLE new (LIKE old INCLUDING ALL)` **不保留索引名** —— 实测克隆里 `users` 的索引是 `users_pkey` / `users_email_idx`，而模板（由 baseline 直接建成）里是 `pk_users` / `idx_users_email`。所以**断言对象命名**的测试（`schema_validator.rs` 断言 `pk_users`/`pk_rooms`）不能迁到克隆 schema（实测：迁后 59 passed / 1 failed），已回退并在该文件写明原因；将来若要让它本地也绿，需要一个"绑定模板 schema 的只读池" helper（~1h）|
 | 8 | `scripts/run_ci_tests.sh` 与 `ci.yml` 内联批次重复（sweep A13） | 两处实现必然漂移 |
 | 9 | `.config/nextest.toml` 的 `[profile.ci]`（`retries=2, threads=12`）与 CI 实际命令行口径不一致 | 配置与事实不符，容易误导 |
 | 10 | 慢速车道时长上升（integration 并发降到 4 后 ~42 分钟；Build Check 3×release 18–19 分钟） | 若锁表仍偶发，需把 `CLONE_TABLES_PER_STATEMENT` 24→12 |
@@ -2818,7 +2818,7 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 | 任务 | 估算 |
 |---|---|
 | ~~`test_schema_guard` 收紧~~ → **需先裁定**（见 §14.16 A⑤ 的更正：feature gate 在本门禁的 `--all-features` prod 扫描下无效）：要么去掉 atexit 兜底（改代码 + 重验 janitor），要么改 prod 扫描的 feature 集 | 2–4h（含验证） |
-| 剩余 14 个共享池文件迁移到 per-test schema | **5–7h**（每个 20–30 min，建议每批 3–4 个文件一个提交 —— 批次 1/2 实测：每批改动 ~13–35 个调用点，本地验证 1–8 分钟） |
+| 剩余 13 个共享池文件迁移到 per-test schema（`schema_validator.rs` 除外，见 A⑦ 的克隆命名发现） | **5–7h**（每个 20–30 min，建议每批 3–4 个文件一个提交 —— 批次 1/2 实测：每批改动 ~13–35 个调用点，本地验证 1–8 分钟） |
 | 本地 `test_*` schema 清理 + 把 cleanup 接入流程 | ✅ 已核实：实测只剩 4 个残留（其余 3 个是 live 模板），janitor 正常工作；降为定期抽查 |
 | A13：`run_ci_tests.sh` 与 `ci.yml` 二选一（删除重复实现） | 1–2h |
 | `nextest` profile 口径统一（`.config/nextest.toml` 与 CI 命令行一致或删 `profile.ci`） | 30 min |
