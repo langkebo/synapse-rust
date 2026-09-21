@@ -2370,3 +2370,111 @@ shell/脚本对 runner 环境的假设 1 个、产品侧 feature-gating 1 个）
 - Build Check 现在要跑 **3 个 release profile + 1 个 worker bin**，首次真跑会很慢
   （release 全量编译 ×3）；若成本不可接受，可评估改为 `cargo check --release`
   （会失去链接期检查，属权衡，不在本轮改）。
+
+### 14.14.2 慢速车道第二跑（`6009ff85`，run `35542783982`）：再抓 2 个真缺陷 + 1 个门禁盲区
+
+**Fast tier 4/4 ✅**（含无重试 `--workspace --lib` 与延迟串行车道）。
+**Build Check ×3 首次全绿 ✅**（`all-extensions` / `core-private-chat` / `core-matrix-min`，
+耗时 18–19 分钟）—— §14.14.1 的两个修法（matrix 判空 + `dm.rs` 导入）都成立。
+`Supply-chain gate` 也过了（`cargo-deny` + `cargo-audit` 均执行成功）—— advisory-db 重置
+成立。剩下两条红：
+
+| # | job / step | 根因（实测） | 修法 |
+|---|---|---|---|
+| 5 | **Integration Tests** → `Run integration tests (--test integration)` | `tests/integration/api_federation_tests.rs:232` 的清理语句写 `DELETE FROM room_aliases WHERE alias = $1`，而该表列名是 `room_alias`（baseline `CREATE TABLE room_aliases (room_alias TEXT …)`）⇒ `SQLSTATE 42703 column "alias" does not exist`。**只有 integration 目标在执行**（该测试跑完才走清理），而它在 CI 里从未真正跑过（§14.14.1） | 改为 `WHERE room_alias = $1`；守卫 `no_source_queries_a_non_existent_room_aliases_column`（扫全部 `.rs`） |
+| 6 | **Security Audit** → `Assert rand::rng() is unused` | 这一步是**绝对禁令**，而树上本就有 47 处 `rand::rng()` 存量 ⇒ **永远不可能绿**。它从未被执行过，因为本 job 长期死在更早的 advisory-db 步骤（§14.14.1 第 3 条）—— 修掉第 3 条后它立刻暴露 | 先改成棘轮 `scripts/ci/check_rand_rng_ratchet.sh`（`current > baseline` / `current < baseline` 都红，`--update` 重算），baseline = `scripts/ci/rand_rng_baseline`（47）；**随后复核发现这条禁令本身针对的是已修复版本**，于是把 ignore 一起删掉，只保留棘轮作纵深防御（见 §14.14.2.1）。守卫 `rand_rng_step_is_a_ratchet_with_an_honest_baseline`（钉住 ① ci.yml 调脚本 ② baseline 是整数 ③ baseline == 实测计数） |
+
+**门禁盲区（本轮发现并修）**：integration 步骤用 nextest **默认 profile**，而 nextest 默认
+`fail-fast = true` ⇒ 上面那条 42703 一出现就中止，**1424 个测试只跑了 139 个**，"后面还有多少
+失败"完全未知。这条车道一轮 15–40 分钟，一次只报一个失败等于把 N 个缺陷摊成 N 轮。已加
+`--no-fail-fast`（只取消**隐藏**，不改变计数与退出码，更不是 retry —— retry 会掩盖 flake，
+见 `ci_nextest_steps_do_not_retry_flaky_tests`），守卫
+`integration_step_reports_every_failure`。本地随即以同一命令（+ `--no-fail-fast`）全量枚举
+integration 目标，结果记于 §14.14.3。
+
+#### 14.14.2.1 顺带做掉的供应链复核：3 条死 ignore + 3 个过期日期 + 1 份漂移副本
+
+处置第 6 条时发现"为什么会有这条禁令"这一层也站不住，于是把整个 advisory 例外清单复核了一遍。
+判据不是"看注释觉得有道理"，而是**当场重跑**：把 `.cargo/audit.toml` 临时移开，
+`cargo audit --no-fetch --db <advisory-db 副本> --json`（本地 advisory-db 为 2026-09-18），
+看不带 ignore 时到底报什么。结果只有两条：
+
+| 编号 | 不带 ignore 的结果 | 结论 |
+|---|---|---|
+| RUSTSEC-2023-0071 | **报**（rsa 0.9.10, Marvin Attack） | 例外必要；续期 |
+| RUSTSEC-2024-0436 | **报**（paste 1.0.16, unmaintained；`--deny warnings` 会红） | 例外必要；续期 |
+| RUSTSEC-2026-0097 | **不报** | **死条目，删除** |
+| RUSTSEC-2024-0388 | 不报 | 死条目，删除（`cargo tree -i derivative` = 未匹配） |
+| RUSTSEC-2026-0173 | 不报 | 死条目，删除（`cargo tree -i proc-macro-error2` = 未匹配，现为 proc-macro-error3） |
+
+三条复核证据（都能重跑）：
+- **rand**：advisory-db 原文的 `patched` 区间是 `>= 0.10.1` / `>= 0.9.3, < 0.10.0` /
+  `>= 0.8.6, < 0.9.0`，而 `Cargo.lock` 是 **0.8.7** 与 **0.9.5** —— 两条都在已修复区间内。
+  旧 ignore 是"针对已修复版本"的死条目，**去掉它比留着更强**：一旦 rand 被降级回受影响区间，
+  cargo-audit 会自己报出来，而不是被这行吃掉。CI 里那条 `rand::rng()` 棘轮作为纵深防御保留。
+- **rsa**：`cargo tree -i rsa` = 0.9.10，唯一直接使用者是
+  `synapse-services/src/builtin_oidc_provider.rs`，用法只有 `pkcs1v15::SigningKey` /
+  `EncodeRsaPrivateKey` / `from_pkcs8_pem` / `RsaPrivateKey::new` —— **签名与生成**；
+  该文件里 `decrypt` 零命中。受影响的 PKCS#1 v1.5 **解密**路径不存在。
+- **paste**：`cargo tree -i paste` 显示它实际由本地 `[patch.crates-io]` 指向
+  `vendor/pastey`（pastey fork，包名改成 `paste`，版本对齐 1.0.16）—— 真正编译的是维护中的
+  fork，advisory 只是按"名字 + 版本"命中。用法是编译期宏（image → ravif → rav1e / pulp）。
+
+**日期腐烂是结构性的，所以补了结构性的守卫**：三处 `Review-by`（2026-05-15 / 2026-06-30 ×2）
+早就过期而没有任何门禁会红 —— `cargo-audit` 不读 `review-by`。新守卫
+`tests/unit/ci_test_scope_tests.rs::advisory_review_dates_are_not_overdue` 要求：
+① `deny.toml` 的清单是 `.cargo/audit.toml` 的**子集**（cargo-deny 不得忽略一条在理由
+真相源里不存在的编号）；② `.cargo/audit.toml` 里每个被 ignore 的编号都有注释说明
+（理由单一真相源）；③ 两份文件里每个 `Review-by YYYY-MM-DD` 都未过期（对比 `date -u +%F`）。
+
+**这条 M-6 七个月前就报过，但没修**：`docs/audit/PROJECT_ACTUAL_ISSUES_2026-09-14.md` M-6
+[P2] 已经记录了 cargo-deny 的 3 条 `warning[advisory-not-detected]`（derivative / paste /
+proc-macro-error2），并把修法定为"3 条全删"。那条建议**不完整**：实测 cargo-audit 会命中
+paste 1.0.16（`--deny warnings` 直接红），所以 paste 不能从 `.cargo/audit.toml` 删。本轮按
+"各自工具的实际命中面"处置：`deny.toml` 只留 rsa（真正的漏洞类，两个工具都命中），
+`.cargo/audit.toml` 留 rsa + paste。**不追求两边清单"看起来一致"** —— 强行对称会在某一侧
+留死条目，而这次要修的正是死条目。
+
+**顺手删掉一份漂移副本**：`docs/security/ci-security-grading.md` 里那张"当前例外清单"表格是
+同一职责的**第三份**副本，且已经漂移 —— 它列了任何配置里都不存在的 `RUSTSEC-2025-0123`
+（`cargo tree -i opentelemetry-jaeger` = 未匹配），又漏了配置里的 `RUSTSEC-2024-0388`。
+表格已删除，改为指向两份配置文件（符合铁律 2：同一职责只允许一份实现）。该文档的
+`rand::rng()` 一节也同步改成棘轮口径并写明版本证据。
+
+**本地验证边界**：`cargo audit --no-fetch --db <本地 advisory-db> --deny warnings --deny
+unsound --deny yanked` = **exit 0**（新清单下门禁仍绿，实测）。`cargo deny check advisories`
+在本地**跑不起来**（`cargo metadata` 要下载缓存里没有的 `fiat-crypto 0.3.0`，沙箱不允许写
+`~/.cargo`；离线模式则报同一个 crate 缺失）—— 因此 deny.toml 的改动只做了 TOML 解析校验 +
+"子集"守卫，**真正的 cargo-deny 判定留给下一轮 CI 的 Security Audit**（这也正是慢速车道的
+用途）。
+
+**守卫自指的坑（本轮踩到并修）**：两个新守卫一开始都是**红的**，因为 `git grep` 把守卫文件
+自己数了进去 —— 守卫必须写出被禁模式（文档注释 / 断言消息 / 它自己那条 `git grep` 命令）才能
+自证能变红，于是 `rand::rng()` 实测从 47 被抬到 55、`room_aliases WHERE alias` 命中 3 处全是
+它自己。修法是两边用**同一个** `:(exclude)tests/unit/ci_test_scope_tests.rs`（脚本里的
+`EXCLUDE_GUARD` 与守卫内的路径必须一致，否则两者实测值不同、当场变红）。教训：**扫描型守卫
+的第一件事是排除自己**，否则要么假红，要么被迫把 baseline 抬高到失真。
+
+**红证明**（全部现场做过，恢复后转绿）：
+- 棘轮脚本：往 `tests/integration/api_federation_tests.rs` 加一行含 `rand::rng()` 的注释
+  ⇒ `::error::rand::rng() 用法增加了: 48 > 47`，exit 1；恢复 ⇒ `OK: …（47）`，exit 0。
+- `rand_rng_step_is_a_ratchet_with_an_honest_baseline`：同上注入 ⇒
+  `实测 48 / baseline 47` FAILED；恢复 ⇒ PASS。
+- `no_source_queries_a_non_existent_room_aliases_column`：注入
+  `room_aliases WHERE alias` ⇒ FAILED 并点名注入位置；恢复 ⇒ PASS。
+- `integration_step_reports_every_failure`：删掉 `--no-fail-fast` ⇒ FAILED；恢复 ⇒ PASS。
+- `advisory_review_dates_are_not_overdue`：把 `Review-by` 改成 `2020-01-01` ⇒ FAILED；
+  往 `deny.toml` 的清单里加一个 `.cargo/audit.toml` 没有的编号 ⇒ FAILED（子集被破坏）；恢复 ⇒ PASS。
+
+**顺带修掉的一个 Docs Quality 红**：`docs-quality-gate` 在 `6009ff85` 上红，aspell 只报一个词
+`sgr`（来自 §14.14.1 的 "ANSI SGR 序列"）—— 合法技术词，已入 `.aspell.ignore.txt`（本地
+`bash scripts/check_doc_spelling.sh docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md` = exit 0）。
+
+**注意 `ci-summary` 的语义**：本轮两个 job 失败，`CI Summary` 仍报 **success** —— 哨兵只检查
+"事件要求的车道**没有被 skipped**"，整体红由各 job 自己承担。这是设计如此（哨兵防的是"静默不跑"，
+不是替代 job 结论），但阅读 CI 时不要只看 CI Summary。
+
+**残留（本轮登记，未做）**：
+- `k6 Smoke Test` 仍是 dispatch-only（本仓库当前无 k6 触发条件）且不在 `ci-summary.needs`；
+  `OpenAPI Artifact` 也不在 `needs`。是否纳入哨兵需要一次裁定。
+- integration 目标的全量失败清单见 §14.14.3（本地枚举）。

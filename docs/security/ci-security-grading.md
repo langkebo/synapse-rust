@@ -29,7 +29,8 @@
   - 依赖了未知 registry 或 git 来源
   - 存在 wildcard 版本依赖
   - yanked crate（仅 warn，但会升级为阻断）
-- **例外管理**：在 `deny.toml` 的 `ignore` 列表中记录，需带理由和 review-by 日期
+- **例外管理**：在 `deny.toml` 的 `advisories.ignore` 列表中记录编号 + review-by 日期；
+  **理由只写在 `.cargo/audit.toml`**（单一真相源），两份清单必须一致
 
 #### cargo-audit
 - **检查内容**：RustSec 安全公告数据库中的已知 CVE
@@ -37,10 +38,11 @@
   - 高危（critical/high）CVE 未列入 ignore 清单
   - 中危（medium）CVE 未评估即合并
 - **例外管理**：在 `.cargo/audit.toml` 的 `ignore` 列表中记录，需带：
-  - 漏洞编号（如 `RUSTSEC-2026-0097`）
+  - 漏洞编号（如 `RUSTSEC-2023-0071`）
   - 影响范围说明
   - 缓解措施
-  - review-by 日期
+  - 复核证据（**能当场重跑的命令及其输出**）与 review-by 日期
+  - 不再匹配任何依赖的条目：**删除**，不要续期（死条目会在降级时静默放行）
 
 #### cargo-geiger
 - **实现**：`scripts/ci/run_cargo_geiger.py`（JSON 输出 + baseline ratchet）
@@ -56,9 +58,16 @@
 - **注意**：cargo-geiger 按文件级别报告，不区分同一文件中的 `#[test]` 函数和非测试代码。baseline 中的 4 个 "生产" unsafe 实际上是 `src/` 文件内 `#[test]` 函数的环境变量操作，未来可通过迁移到 test-only helper crate 来降低 baseline。
 
 #### rand::rng() 扫描
-- **检查内容**：代码中是否出现 `rand::rng()` 调用
-- **阻断条件**：任何 `rand::rng()` 调用
+- **检查内容**：代码中 `rand::rng()` 调用的数量是否超过 baseline
+- **阻断条件**：**新增**调用（棘轮：`current > baseline` 红；`current < baseline` 也红，要求收紧）
+- **实现**：`scripts/ci/check_rand_rng_ratchet.sh` + `scripts/ci/rand_rng_baseline`
 - **背景**：防御 RUSTSEC-2026-0097（rand unsoundness with custom logger）
+- **2026-09-21 复核**：advisory 的 `patched` 区间为 `>= 0.10.1` / `>= 0.9.3, < 0.10.0` /
+  `>= 0.8.6, < 0.9.0`，而 `Cargo.lock` 是 rand **0.8.7** 与 **0.9.5** —— 都在已修复区间内，
+  所以 `.cargo/audit.toml` 的 `RUSTSEC-2026-0097` ignore 已**删除**（它在依赖降级回受影响
+  版本时会静默放行，去掉它反而让 cargo-audit 自己把关）。本扫描作为**纵深防御**保留。
+- 原实现是绝对禁令，而树上有 47 处存量 ⇒ 永远不可能绿（§14.14.2）
+- **Review-by 2026-12-21**
 
 ---
 
@@ -107,13 +116,25 @@
 
 ### 当前例外清单
 
-| 工具 | 例外编号 | 理由 | review-by |
-|------|---------|------|-----------|
-| cargo-audit | RUSTSEC-2023-0071 | rsa 仅用于签名，不涉及解密 | 2026-06-30 |
-| cargo-audit | RUSTSEC-2024-0436 | paste 为编译时宏，无运行时风险 | 2026-06-30 |
-| cargo-audit | RUSTSEC-2025-0123 | opentelemetry-jaeger 为非默认可选依赖 | 2026-06-30 |
-| cargo-audit | RUSTSEC-2026-0097 | 项目使用 tracing_subscriber 而非自定义 logger | 2026-05-15 |
-| cargo-audit | RUSTSEC-2026-0173 | proc-macro-error2 为编译时 proc-macro | 长期跟踪 |
+**单一真相源 = 配置文件本身**，不在这里再抄一份：
+
+| 工具 | 例外清单所在 |
+|------|-------------|
+| cargo-audit | `.cargo/audit.toml` 的 `ignore`（含理由、复核证据、`Review-by`）—— **理由的单一真相源** |
+| cargo-deny | `deny.toml` 的 `advisories.ignore`（只放 cargo-deny 真的会命中的编号 + `Review-by`） |
+
+`deny.toml` 的清单必须是 `.cargo/audit.toml` 的**子集**（不要求相等：同一个编号在两个工具里
+命中面可能不同，实测 `RUSTSEC-2024-0436`/paste 只在 cargo-audit 侧命中），且两份文件里每个
+`Review-by` 都不得过期 —— 由
+`tests/unit/ci_test_scope_tests.rs::advisory_review_dates_are_not_overdue` 把守。
+
+本文档原来那张表**已删除**：它是同一职责的第三份副本，且已经漂移（列了配置里根本不存在的
+`RUSTSEC-2025-0123`，又漏了配置里的 `RUSTSEC-2024-0388`）。2026-09-21 复核时另外删掉了三条
+**不再匹配任何依赖**的 ignore：`RUSTSEC-2024-0388`（derivative）、`RUSTSEC-2026-0173`
+（proc-macro-error2，现为 proc-macro-error3）、`RUSTSEC-2026-0097`（rand 0.8.7/0.9.5 已在
+advisory 的 `patched` 区间内）。这批失效条目在
+`docs/audit/PROJECT_ACTUAL_ISSUES_2026-09-14.md` M-6 里已被记录，但当时建议"三条全删"时没有
+核对 cargo-audit 侧（paste 仍会被它命中），所以一直没修。
 
 ---
 

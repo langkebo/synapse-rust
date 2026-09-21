@@ -513,6 +513,8 @@ rankers
 ratelimit
 ratelimitconfig
 ratelimitstorage
+rav
+ravif
 rbac
 rc
 reachability
@@ -612,6 +614,7 @@ serviceerror
 servlet
 sessioncontext
 sfu
+sgr
 sha
 sharedcontext
 shippable

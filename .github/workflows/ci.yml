@@ -793,6 +793,12 @@ jobs:
           RUST_LOG: info
         run: cargo nextest run --test integration 'admin_registration_service_tests_migrated' --all-features --locked --test-threads 1
 
+      # `--no-fail-fast`：nextest **默认** fail-fast，所以本步骤过去只报第一个失败就退出
+      # —— 2026-09-20 的 run 35542783982 在 `api_federation_tests.rs` 的清理语句上
+      # 因错列名（42703）中止，1424 个测试只跑了 139 个，后面是否还有失败**无从得知**。
+      # 慢速车道一次要 ~15–40 分钟，一次只报一个失败等于把 N 个缺陷摊成 N 轮。
+      # 注意这与"用 retry 掩盖 flake"是两回事：它只是不再**隐藏**失败，计数与退出码不变。
+      # 守卫：`tests/unit/ci_test_scope_tests.rs::integration_step_reports_every_failure`。
       - name: Run integration tests (--test integration)
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
@@ -801,7 +807,7 @@ jobs:
           REDIS_URL: redis://localhost:6379
           RUST_BACKTRACE: 1
           RUST_LOG: info
-        run: cargo nextest run --test integration --all-features --locked --test-threads 6
+        run: cargo nextest run --test integration --all-features --locked --test-threads 6 --no-fail-fast
 
       # e2e 目标此前**没有任何 workflow 调用**（`grep -rn "test e2e" .github/workflows/` 无命中），
       # 而 CLAUDE.md 把它记为可用命令 —— 未被执行的测试会静默腐坏。
@@ -882,18 +888,21 @@ jobs:
         run: cargo install cargo-audit --locked
 
       # Run the unified supply-chain gate. This is the same script that
-      # `repo-sanity` invokes for fast PR feedback, but here we also
-      # assert that no `rand::rng()` calls leaked into the tree (the
-      # RUSTSEC-2026-0097 watch-out).
+      # `repo-sanity` invokes for fast PR feedback; the next step then enforces the
+      # RUSTSEC-2026-0097 watch-out as a ratchet on `rand::rng()` (no *new* usages).
       - name: Supply-chain gate (cargo-deny + cargo-audit)
         run: bash scripts/ci/supply_chain_gate.sh
 
-      - name: Assert rand::rng() is unused
-        run: |
-          if git grep -n "rand::rng()" -- '*.rs'; then
-            echo "rand::rng() is temporarily banned until RUSTSEC-2026-0097 is resolved"
-            exit 1
-          fi
+      - name: Check rand::rng() ratchet
+        # 政策（`.cargo/audit.toml`，RUSTSEC-2026-0097）= 禁止**新增** `rand::rng()`
+        # 用法，不是绝对禁令：树上本就有 47 处存量，旧写法
+        # `if git grep -n "rand::rng()" -- '*.rs'; then exit 1; fi` **永远不可能绿**，
+        # 而且因为本 job 长期死在更早的 advisory-db 步骤，它从未被执行过
+        # （2026-09-20 第一次真跑才暴露，§14.14.1）。棘轮实现见脚本头注释。
+        # 2026-09-21 复核：advisory 的 patched 区间覆盖锁定的 rand 0.8.7 / 0.9.5，
+        # 故 `.cargo/audit.toml` 里那条 ignore 已删（降级会让 cargo-audit 自己红），
+        # 本棘轮作为纵深防御保留。
+        run: bash scripts/ci/check_rand_rng_ratchet.sh
 
       # ── cargo-geiger: unsafe usage scan ──
       # Uses JSON output + baseline ratchet via scripts/ci/run_cargo_geiger.py.

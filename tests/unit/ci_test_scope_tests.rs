@@ -425,3 +425,217 @@ fn supply_chain_gate_resets_the_cached_advisory_db() {
         "重置 advisory-db 必须用 `rm -rf`（runner 镜像里那份可能是半成品 git 目录）"
     );
 }
+
+/// `rand::rng()` 的 CI 步骤必须是**棘轮**，而且 baseline 必须等于实测值。
+///
+/// `.cargo/audit.toml` 对 RUSTSEC-2026-0097 的裁定是"禁止**新增** `rand::rng()`
+/// 用法"（本项目不在暴露面内：用 tracing_subscriber 而非自定义 logger）。旧步骤写成
+/// 绝对禁令 `if git grep -n "rand::rng()" -- '*.rs'; then exit 1; fi`，而树上有
+/// **47 处**存量 ⇒ 永远不可能绿；又因为该 job 长期死在更早的 advisory-db 步骤，
+/// 它从未被执行过（§14.14.1）。
+///
+/// 本测试钉住三件事：① ci.yml 调棘轮脚本而不是绝对禁令；② baseline 文件存在且是整数；
+/// ③ baseline == 实测计数（松了会放过新增，紧了会假红）。
+///
+/// **扫描面排除本文件**：本守卫必须写出被禁模式（文档注释、断言消息、它自己那条 `git grep`
+/// 命令），否则无法自证能变红；不排除的话这 8 处自指命中会把实测值从 47 抬到 55。这里的
+/// 排除路径与 `scripts/ci/check_rand_rng_ratchet.sh` 的 `EXCLUDE_GUARD` **必须一致**，
+/// 否则两者算出的实测值不同 —— 本测试当场变红。
+///
+/// **红证明**：往任意 `.rs` 加一处 `rand::rng()` → 本测试 FAILED（且棘轮脚本同时 FAILED）；
+/// 把 ci.yml 改回绝对禁令 → FAILED。
+#[test]
+fn rand_rng_step_is_a_ratchet_with_an_honest_baseline() {
+    let root = repo_root();
+    let ci = fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("read ci.yml");
+    assert!(
+        ci.contains("scripts/ci/check_rand_rng_ratchet.sh"),
+        "Security Audit 必须调用 `scripts/ci/check_rand_rng_ratchet.sh`"
+    );
+    assert!(
+        !ci.contains("Assert rand::rng() is unused"),
+        "不得回到绝对禁令步骤 `Assert rand::rng() is unused`：树上有 47 处存量，政策是禁止新增"
+    );
+
+    let measured = std::process::Command::new("bash")
+        .arg("-c")
+        .arg("git grep -n 'rand::rng()' -- '*.rs' ':(exclude)tests/unit/ci_test_scope_tests.rs' | wc -l")
+        .current_dir(&root)
+        .output()
+        .expect("git grep must be runnable");
+    let measured: usize =
+        String::from_utf8_lossy(&measured.stdout).trim().parse().expect("git grep count must be an integer");
+    let baseline_raw =
+        fs::read_to_string(root.join("scripts/ci/rand_rng_baseline")).expect("rand_rng_baseline must exist");
+    let baseline: usize = baseline_raw.trim().parse().expect("rand_rng_baseline must be a single integer");
+    assert_eq!(
+        measured, baseline,
+        "rand::rng() 的 baseline 必须等于实测计数（实测 {measured} / baseline {baseline}）：\
+         偏松会放过新增用法，偏紧会假红。收紧/放宽都要走 \
+         `bash scripts/ci/check_rand_rng_ratchet.sh --update` 并说明理由。"
+    );
+}
+
+/// `room_aliases` 的主键列是 `room_alias`，不是 `alias`。
+///
+/// 写 `DELETE FROM room_aliases WHERE alias = $1` 会 `42703 column "alias" does not
+/// exist`。这个错列名存在于 `tests/integration/api_federation_tests.rs` 的清理代码里，
+/// 而 integration 目标在 CI 里从未真正跑过（§14.14.1），所以直到慢速车道第一次执行
+/// 才暴露。本守卫扫全部 `.rs`，防止同一列名漂移再犯。
+///
+/// **扫描面排除本文件**：理由同 `rand_rng_step_is_a_ratchet_with_an_honest_baseline` ——
+/// 本守卫的文档注释与扫描命令里各有一份被禁模式，不排除就会自己告自己。
+///
+/// **红证明**：把任一处改回 `room_aliases WHERE alias` → 本测试 FAILED。
+#[test]
+fn no_source_queries_a_non_existent_room_aliases_column() {
+    let root = repo_root();
+    let out = std::process::Command::new("bash")
+        .arg("-c")
+        .arg("git grep -n 'room_aliases WHERE alias' -- '*.rs' ':(exclude)tests/unit/ci_test_scope_tests.rs' || true")
+        .current_dir(&root)
+        .output()
+        .expect("git grep must be runnable");
+    let hits = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        hits.trim().is_empty(),
+        "`room_aliases` 的列名是 `room_alias`：以下位置仍在用不存在的 `alias` 列（SQLSTATE 42703）:\n{hits}"
+    );
+}
+
+/// 慢速车道的 integration 步骤必须**报出全部失败**，而不是只报第一个。
+///
+/// nextest 默认 `fail-fast = true`（`.config/nextest.toml` 只定义了 `ci`/`tdd`/`test`
+/// 三个 profile，该步骤用的是**默认** profile）。run 35542783982 因此中止在
+/// `tests/integration/api_federation_tests.rs` 的清理语句（错列名，SQLSTATE 42703）上：
+/// 1424 个测试只跑了 139 个，后面还有多少失败**无从得知** —— 而这条车道一轮 15–40 分钟，
+/// N 个缺陷要摊成 N 轮。`--no-fail-fast` 只是不再**隐藏**失败，不改变计数与退出码，
+/// 也不是 retry（retry 会掩盖 flake，见 `ci_nextest_steps_do_not_retry_flaky_tests`）。
+///
+/// **红证明**：把该步骤 `run:` 末尾的 `--no-fail-fast` 删掉 → 本测试 FAILED。
+#[test]
+fn integration_step_reports_every_failure() {
+    let ci = fs::read_to_string(repo_root().join(".github/workflows/ci.yml")).expect("read ci.yml");
+    let step = ci
+        .split("- name: ")
+        .find(|s| s.starts_with("Run integration tests (--test integration)"))
+        .expect("ci.yml 必须有 `Run integration tests (--test integration)` 步骤");
+    let run = step
+        .lines()
+        .find(|l| l.trim_start().starts_with("run: cargo nextest run"))
+        .expect("该步骤必须有 cargo nextest run 命令");
+    assert!(
+        run.contains("--test integration") && run.contains("--all-features"),
+        "integration 步骤必须仍然跑全量 integration 目标：{run}"
+    );
+    assert!(
+        run.contains("--no-fail-fast"),
+        "integration 步骤必须带 `--no-fail-fast`：nextest 默认 fail-fast，会让一轮慢速车道只报\
+         第一个失败（run 35542783982：1424 个测试只跑了 139 个）。实际命令：{run}"
+    );
+}
+
+/// 供应链例外（advisory ignore）必须**三件事同时成立**，否则红：
+///
+/// ① `deny.toml` 的 `ignore` 是 `.cargo/audit.toml` 的**子集**（cargo-deny 不得忽略一条
+///    在理由单一真相源里根本不存在的 advisory）；注意**不要求两边相等** —— 同一个编号在
+///    两个工具里命中面可能不同（实测：`RUSTSEC-2024-0436`/paste 在 cargo-audit 侧命中，
+///    在 cargo-deny 侧是 `warning[advisory-not-detected]`），强行让清单"看起来一致"只会
+///    在某一侧留下死条目；
+/// ② `.cargo/audit.toml` 里每个被 ignore 的编号都**有注释说明**（理由单一真相源就在那里）；
+/// ③ 两份文件里的每个 `Review-by YYYY-MM-DD` 都**没有过期**。
+///
+/// 为什么需要 ③：2026-09-21 复核发现三条裁定日期早就过期（RUSTSEC-2023-0071 /
+/// RUSTSEC-2024-0436 的 2026-06-30、RUSTSEC-2026-0097 的 2026-05-15），同时**三条
+/// ignore 已经不再匹配任何依赖**（derivative / proc-macro-error2 已不在 Cargo.lock，
+/// rand 0.8.7/0.9.5 落在 advisory 的 `patched` 区间内）。没有任何门禁检查这些日期，
+/// 所以它们只会烂在那里：`cargo-audit` 不读 `review-by`，过期不会红。日期一烂，
+/// 一条不再匹配的 ignore 就变成"依赖降级回受影响版本时继续静默放行"的通道 ——
+/// 门禁看起来更严，实际更弱。
+///
+/// 这两件事在 `docs/audit/PROJECT_ACTUAL_ISSUES_2026-09-14.md` M-6 里已被记录过
+/// （cargo-deny 报了 3 条 `warning[advisory-not-detected]`），但当时建议"3 条全删"，
+/// 没有核对 cargo-audit 侧，所以一直没修。
+///
+/// `docs/security/ci-security-grading.md` 里还曾有一份**第三份**例外清单表格（已删：
+/// 它列了配置里根本没有的 RUSTSEC-2025-0123，又漏了配置里的 RUSTSEC-2024-0388），
+/// 那正是"同一职责两份实现必然漂移"的例子。
+///
+/// **红证明**：把任一 `Review-by` 改成 `2020-01-01` → FAILED；往 `deny.toml` 的清单里
+/// 加一个 `.cargo/audit.toml` 没有的编号 → FAILED。
+#[test]
+fn advisory_review_dates_are_not_overdue() {
+    let root = repo_root();
+    let today = std::process::Command::new("date")
+        .arg("-u")
+        .arg("+%F")
+        .output()
+        .expect("`date` must be runnable (guards run on macOS and ubuntu runners)");
+    let today = String::from_utf8_lossy(&today.stdout).trim().to_string();
+    assert!(
+        today.len() == 10 && today.as_bytes()[4] == b'-',
+        "`date -u +%F` 必须给出 ISO 日期（字符串比较按字典序 == 按时间序）：{today}"
+    );
+
+    let read =
+        |relative: &str| fs::read_to_string(root.join(relative)).unwrap_or_else(|e| panic!("read {relative}: {e}"));
+    let audit = read(".cargo/audit.toml");
+    let deny = read("deny.toml");
+
+    // 只取 `ignore = [ … ]` 块里的编号：注释里提到的编号（含"已删除"说明）不算清单成员。
+    // 块尾必须用行首的 `\n]` 定位 —— 块内注释可能含方括号（如 `[patch.crates-io]`），
+    // 用第一个 `]` 会提前截断，把后半段清单吞掉（实测会漏掉 paste 那条）。
+    let ignore_ids = |text: &str, file: &str| -> Vec<String> {
+        let start = text.find("ignore = [").unwrap_or_else(|| panic!("{file} 必须有 `ignore = [` 块"));
+        let rest = &text[start..];
+        let end = rest.find("\n]").unwrap_or_else(|| panic!("{file} 的 `ignore = [` 块必须闭合"));
+        let block = &rest[..end];
+        let mut ids = Vec::new();
+        let mut cursor = 0usize;
+        while let Some(offset) = block[cursor..].find("RUSTSEC-") {
+            let at = cursor + offset;
+            let id: String = block[at..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-').collect();
+            ids.push(id);
+            cursor = at + 1;
+        }
+        ids.sort();
+        ids.dedup();
+        ids
+    };
+
+    let audit_ids = ignore_ids(&audit, ".cargo/audit.toml");
+    let deny_ids = ignore_ids(&deny, "deny.toml");
+    assert!(!audit_ids.is_empty(), ".cargo/audit.toml 的 ignore 清单不该是空的（守卫前提消失）");
+    for id in &deny_ids {
+        assert!(
+            audit_ids.contains(id),
+            "`deny.toml` 里的 {id} 不在 `.cargo/audit.toml` 的清单里：cargo-deny 的 ignore \
+             必须是 cargo-audit 那份（理由与复核证据的单一真相源）的子集，否则就是一条没有\
+             任何理由记录的白名单"
+        );
+    }
+    for id in &audit_ids {
+        assert!(
+            audit.lines().any(|line| line.trim_start().starts_with('#') && line.contains(id.as_str())),
+            "被 ignore 的 {id} 必须在 .cargo/audit.toml 里带注释说明理由与 `Review-by` 日期"
+        );
+    }
+
+    for (file, text) in [(".cargo/audit.toml", &audit), ("deny.toml", &deny)] {
+        let mut dates = Vec::new();
+        let mut cursor = 0usize;
+        while let Some(offset) = text[cursor..].find("Review-by ") {
+            let at = cursor + offset + "Review-by ".len();
+            dates.push(text[at..].chars().take(10).collect::<String>());
+            cursor = at;
+        }
+        assert!(!dates.is_empty(), "{file} 必须带有 `Review-by YYYY-MM-DD`（没有日期的例外永不复核）");
+        for date in dates {
+            assert!(
+                date.as_str() >= today.as_str(),
+                "{file}: Review-by {date} 已过期（今天 {today}）。请重新做一次复核（把证据写进 \
+                 .cargo/audit.toml）再续期；确认不再匹配任何依赖的条目应当**删除**而不是续期。"
+            );
+        }
+    }
+}

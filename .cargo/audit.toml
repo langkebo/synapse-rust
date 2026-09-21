@@ -6,32 +6,43 @@
 # and were never read by cargo-audit 0.22. Do not re-add them.
 # RUSTSEC-2026-0221 (event-listener unsound) was resolved by upgrading to
 # event-listener 5.4.2 on 2026-08-11; no ignore entry needed.
+#
+# 2026-09-21 复核（`cargo audit --no-fetch --json`，本地 advisory-db 2026-09-18）：
+# 每一条 ignore 都必须**仍然真的被匹配**，且理由必须写在这里（守卫
+# `tests/unit/ci_test_scope_tests.rs::advisory_review_dates_are_not_overdue` 会拒绝过期
+# 的 `Review-by`，以及"被 ignore 却没有任何注释说明"的编号）。
+# 本轮删掉了 3 条**死条目**——它们已经不再匹配任何依赖：
+#   RUSTSEC-2024-0388 (derivative)         —— crate 已不在 Cargo.lock（`cargo tree -i` 报未匹配）。
+#   RUSTSEC-2026-0173 (proc-macro-error2)  —— crate 已不在 Cargo.lock（现为 proc-macro-error3）。
+#   RUSTSEC-2026-0097 (rand)               —— 见下方注释：已修复版本内，ignore 反而会掩盖降级。
+# 删掉死条目的意义不是"清理好看"：一条不再匹配的 ignore 会在依赖**降级**回受影响版本时
+# 继续静默放行，让门禁看起来更严、实际更弱。
 
 [advisories]
 # RUSTSEC-2023-0071 — rsa 0.9.10 Marvin Attack (PKCS#1 v1.5 decryption
-# timing side-channel). Direct usage in src/services/builtin_oidc_provider.rs
-# is restricted to *signing* (RsaPrivateKey::to_pkcs8_pem /
-# pkcs1v15::SigningKey); no PKCS#1 v1.5 *decryption* code path is exposed
-# to network input. Transitive path is through sqlx-mysql which is not
-# invoked at runtime (PG-only). Tracked for migration to ES256 (already
-# used elsewhere). Review-by 2026-06-30.
-# RUSTSEC-2024-0388 — derivative 2.2.0 unmaintained. Transitive via
-# synapse-common. Compile-time proc-macro (#[derive(...)]) use only;
-# no runtime risk. Review-by 2026-12-31 (track upstream maintained fork).
-# RUSTSEC-2024-0436 — paste 1.0.15 unmaintained. Transitive via
-# image → ravif → rav1e → paste. Compile-time macro use only; no
-# runtime risk. Review-by 2026-06-30.
-# RUSTSEC-2026-0097 — rand 0.8.5 / 0.10.0 unsound with custom logger
-# that calls rand::rng() during panic. Project uses tracing_subscriber
-# not a custom logger, so not exposed. No upstream fix; block new
-# rand::rng() usages and re-evaluate on patch. Review-by 2026-05-15.
-# RUSTSEC-2026-0173 — proc-macro-error2 unmaintained. Transitive via
-# validator_derive → validator → synapse-common. Compile-time proc-macro
-# only; no runtime risk. Long-term: migrate away from validator crate.
+# timing side-channel). 复核证据（2026-09-21）：`cargo tree -i rsa` = rsa 0.9.10，
+# 唯一直接使用者是 `synapse-services/src/builtin_oidc_provider.rs`，其用法为
+# `pkcs1v15::SigningKey` / `EncodeRsaPrivateKey` / `from_pkcs8_pem` / `RsaPrivateKey::new`
+# —— 全是**签名与生成**，该文件里没有任何 `decrypt` 路径（`git grep -n decrypt` 为空）。
+# 受影响的是 PKCS#1 v1.5 **解密**时序侧信道，故不在暴露面内。Transitive path 经
+# sqlx-mysql，运行时不启用（PG-only）。长期方案仍是迁到 ES256（别处已用）。
+# 到期要重新做上面两处核查。 Review-by 2026-12-21.
+# RUSTSEC-2024-0436 — paste unmaintained（advisory 覆盖 1.0.16，Cargo.lock 里就是它）。
+# 复核证据（2026-09-21）：`cargo tree -i paste` 显示该 crate 实际由本地
+# `[patch.crates-io]` 指向 `vendor/pastey`（pastey fork，包名改成 `paste`）——
+# 真正编译的是维护中的 fork，advisory 只是按"名字 + 版本"命中。用法为编译期宏
+# （image → ravif → rav1e → paste / pulp），无运行时风险。 Review-by 2026-12-21.
+# RUSTSEC-2026-0097 — rand unsound with custom logger that calls rand::rng() during panic.
+# **不再需要 ignore**（2026-09-21 实证）：advisory 的 `patched` 区间是
+# `>= 0.10.1`, `>= 0.9.3, < 0.10.0`, `>= 0.8.6, < 0.9.0`（advisory-db 2026-09-18 原文），
+# 而 Cargo.lock 里是 rand **0.8.7** 与 **0.9.5**，两个都在已修复区间内 ——
+# `cargo audit` 不带任何 ignore 跑也只报 RUSTSEC-2023-0071 与 RUSTSEC-2024-0436。
+# 所以旧 ignore 是"针对已修复版本"的死条目，去掉它反而更强：一旦 rand 被降级回
+# 受影响区间，cargo-audit 会**自己**报出来，而不是被这行静默吃掉。
+# 纵深防御仍保留：CI 用棘轮禁止**新增** `rand::rng()` 用法
+# （`scripts/ci/check_rand_rng_ratchet.sh`，baseline 47；政策说明见
+# docs/security/ci-security-grading.md）。 Review-by 2026-12-21.
 ignore = [
     "RUSTSEC-2023-0071",
-    "RUSTSEC-2024-0388",
     "RUSTSEC-2024-0436",
-    "RUSTSEC-2026-0097",
-    "RUSTSEC-2026-0173",
 ]

@@ -229,7 +229,12 @@ async fn test_federation_query_directory_resolves_alias_after_creation() {
     assert_eq!(json["room_id"], room_id);
     assert_eq!(json["servers"][0], "localhost");
 
-    sqlx::query("DELETE FROM room_aliases WHERE alias = $1")
+    // 列名是 `room_alias`（baseline `CREATE TABLE room_aliases (room_alias TEXT …)`），
+    // 不是 `alias`：写错会 `42703 column "alias" does not exist`。这个清理只在
+    // 测试**跑完**时执行，而 integration 目标在 CI 里从未真正跑过（§14.14.1），
+    // 所以这个错列名一直没被暴露。守卫：
+    // `tests/unit/ci_test_scope_tests.rs::no_source_queries_a_non_existent_room_aliases_column`。
+    sqlx::query("DELETE FROM room_aliases WHERE room_alias = $1")
         .bind(&alias)
         .execute(&*pool)
         .await

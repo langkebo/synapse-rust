@@ -10,6 +10,23 @@
 # crates that already have an accepted exception in
 # `.cargo/audit.toml`. Everything else will fail CI.
 #
+# 理由（rationale）只写在 `.cargo/audit.toml` 一处 —— 那份文件是裁定与复核证据的
+# 单一真相源（铁律 2：同一职责只允许一份实现）。这里的清单必须是那份的**子集**
+# （守卫 `tests/unit/ci_test_scope_tests.rs::advisory_review_dates_are_not_overdue`）：
+# 只放 cargo-deny **真的会命中**的条目，放检测不到的条目就是死配置。
+#
+# 2026-09-21 复核删掉 3 条：
+#   RUSTSEC-2024-0388 (derivative)、RUSTSEC-2026-0173 (proc-macro-error2) ——
+#     crate 已不在 Cargo.lock，`cargo tree -i` 直接报未匹配；
+#   RUSTSEC-2024-0436 (paste) —— **只从本文件删除**，保留在 `.cargo/audit.toml`：
+#     2026-09-14 实测 cargo-deny 对这条报 `warning[advisory-not-detected]`（cargo-deny 的
+#     `unmaintained` 检测面默认不覆盖经 `[patch.crates-io]` 替换/传递依赖的 crate），
+#     而 cargo-audit `--deny warnings` **会**命中 paste 1.0.16 —— 同一个编号在两边命中面
+#     不同，清单按各自工具的实际命中面维护，不搞"看起来一致"的假对称。
+# 不再匹配任何依赖的 ignore 会在依赖降级时静默放行，所以宁可少列。
+# 历史：docs/audit/PROJECT_ACTUAL_ISSUES_2026-09-14.md M-6 已记录这 3 条失效，但当时
+# 建议"3 条全删"，未核对 cargo-audit 侧 —— 实测 paste 在 cargo-audit 侧仍然命中。
+#
 # See: docs/synapse-rust/COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md
 #      (recommendation step "引入 cargo-deny / cargo-audit / cargo-mutants 入 CI")
 
@@ -19,22 +36,9 @@ db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "deny"
 ignore = [
-    # RUSTSEC-2023-0071 — rsa 0.9.10 Marvin Attack (PKCS#1 v1.5 decryption
-    # timing side-channel). Direct usage in
-    # `src/services/builtin_oidc_provider.rs` is restricted to *signing*
-    # only; no decryption code path. Review-by 2026-06-30 (target: ES256
-    # migration).
+    # rsa 仅用于签名/生成，无 PKCS#1 v1.5 解密路径。
+    # Review-by 2026-12-21.
     "RUSTSEC-2023-0071",
-    # RUSTSEC-2024-0388 — derivative 2.2.0 unmaintained. Transitive via
-    # synapse-common. Compile-time proc-macro only; no runtime risk.
-    # Review-by 2026-12-31.
-    "RUSTSEC-2024-0388",
-    # RUSTSEC-2024-0436 — paste 1.0.15 unmaintained. Transitive via
-    # image → ravif → rav1e → paste. Compile-time macro use only.
-    "RUSTSEC-2024-0436",
-    # RUSTSEC-2026-0173 — proc-macro-error2 unmaintained. Transitive via
-    # validator. Compile-time macro use only.
-    "RUSTSEC-2026-0173",
 ]
 
 [bans]
