@@ -27,7 +27,7 @@ struct PushProviders {
 pub struct PushNotificationService {
     storage: Arc<synapse_storage::push_notification::PushNotificationStorage>,
     providers: Arc<RwLock<PushProviders>>,
-    push_gateway: Option<Arc<PushGateway>>,
+    push_gateway: Arc<RwLock<Option<Arc<PushGateway>>>>,
     /// Optional account_data storage for looking up `m.ignored_user_list`
     /// so that push notifications from ignored users are suppressed.
     account_data_storage: Option<Arc<dyn synapse_storage::account_data::AccountDataStoreApi>>,
@@ -100,7 +100,7 @@ impl PushNotificationService {
         Self {
             storage,
             providers: Arc::new(RwLock::new(PushProviders::default())),
-            push_gateway: None,
+            push_gateway: Arc::new(RwLock::new(None)),
             account_data_storage: None,
         }
     }
@@ -134,9 +134,15 @@ impl PushNotificationService {
     }
 
     /// See [`with_push_gateway`].
-    pub fn with_push_gateway(mut self, gateway: Arc<PushGateway>) -> Self {
-        self.push_gateway = Some(gateway);
+    pub fn with_push_gateway(self, gateway: Arc<PushGateway>) -> Self {
+        *self.push_gateway.write().unwrap() = Some(gateway);
         self
+    }
+
+    /// Set the push gateway at runtime (takes &self so it can be called
+    /// from initialize_providers).
+    pub fn set_push_gateway(&self, gateway: Arc<PushGateway>) {
+        *self.push_gateway.write().unwrap() = Some(gateway);
     }
 
     /// Enable `m.ignored_user_list` filtering for push rule evaluation.
@@ -190,8 +196,29 @@ impl PushNotificationService {
         }
 
         *self.write_providers() = providers;
+
+        // Read push_gateway_url from push_config and initialize the
+        // push gateway so send_upstream can use it. Without this the
+        // push_gateway field stays None and upstream delivery is always
+        // reported as failed (A-10 false-delivery fix).
+        if let Ok(Some(gateway_url)) = self.storage.get_config("push_gateway_url").await {
+            if let Ok(()) = self.initialize_push_gateway(&gateway_url).await {
+                info!(gateway_url = %gateway_url, "Push gateway initialized from push_config");
+            }
+        }
+
         Ok(())
     }
+
+    /// Initialize the push gateway from a URL string.
+    async fn initialize_push_gateway(&self, url: &str) -> Result<(), ApiError> {
+        super::gateway::validate_push_gateway_url(url)?;
+        let gateway_config = super::gateway::PushGatewayConfig::default();
+        let gateway = Arc::new(super::gateway::PushGateway::new(&gateway_config));
+        self.set_push_gateway(gateway);
+        Ok(())
+    }
+
 
     /// Names of the push providers that [`initialize_providers`](Self::initialize_providers)
     /// successfully built, in a stable order.
@@ -483,7 +510,7 @@ impl PushNotificationService {
         )))
     }
 
-    async fn send_upstream(&self, _target: &str, payload: &NotificationPayload) -> Result<PushResult, ApiError> {
+    async fn send_upstream(&self, target: &str, payload: &NotificationPayload) -> Result<PushResult, ApiError> {
         info!(
             provider = %"upstream",
             event_id = ?payload.event_id,
@@ -493,7 +520,8 @@ impl PushNotificationService {
         );
 
         // If push_gateway is configured, use it to send real HTTP notification
-        if let Some(gateway) = &self.push_gateway {
+        let gateway = self.push_gateway.read().unwrap().clone();
+        if let Some(gateway) = gateway {
             // Build PushNotification from NotificationPayload
             let gateway_notification = super::gateway::PushNotification {
                 notification: super::gateway::NotificationContent {
@@ -519,7 +547,7 @@ impl PushNotificationService {
             };
 
             // Send via push gateway with SSRF protection (URL validation inside send_notification)
-            match gateway.send_notification(_target, &gateway_notification).await {
+            match gateway.send_notification(target, &gateway_notification).await {
                 Ok(response) => {
                     info!(rejected = response.rejected.len(), "Push gateway delivery completed");
                     Ok(PushResult::success())

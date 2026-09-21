@@ -288,6 +288,20 @@ impl AdminServices {
         let push_notification_service =
             crate::push_notification_service::PushNotificationService::new(push_notification_storage.clone())
                 .with_account_data_storage(account_data_storage_for_push);
+        // Wire up the push gateway from the app config so send_upstream
+        // can use it. Without this push_gateway stays None and upstream
+        // delivery is always reported as failed (A-10 false-delivery fix).
+        let push_notification_service = if let Some(gateway_url) = config.push.push_gateway_url.as_ref() {
+            if crate::push::gateway::validate_push_gateway_url(gateway_url).is_ok() {
+                let gateway_config = crate::push::gateway::PushGatewayConfig::default();
+                let gateway = Arc::new(crate::push::gateway::PushGateway::new(&gateway_config));
+                push_notification_service.with_push_gateway(gateway)
+            } else {
+                push_notification_service
+            }
+        } else {
+            push_notification_service
+        };
         // Providers are configured by rows in the `push_config` table. Without this
         // call every provider stays `None`, so `send_to_provider` can never reach
         // `send_with_retry` and no push is actually delivered.
