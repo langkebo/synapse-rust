@@ -24,6 +24,9 @@ use synapse_storage::invite_blocklist::InviteBlocklistStorage;
 /// which is how MSC4155 describes them.
 pub const INVITE_PERMISSION_CONFIG_TYPE: &str = "m.invite_permission_config";
 
+/// Account data type for the user ignore list (MSC3873).
+pub const IGNORED_USER_LIST_TYPE: &str = "m.ignored_user_list";
+
 /// The invite-policy gate the membership layer enforces.
 ///
 /// Deliberately narrow: the membership layer must be able to *enforce* policy
@@ -65,7 +68,7 @@ impl InviteBlocklistService {
     /// `true` when the invitee's own MSC4155 policy refuses this invite.
     ///
     /// A missing, malformed or `allow`-defaulted payload never denies.
-    async fn account_policy_denies(&self, invitee_id: &str) -> ApiResult<bool> {
+    async fn account_policy_denies(&self, inviter_id: &str, invitee_id: &str) -> ApiResult<bool> {
         let content =
             self.account_data_store.get_account_data_content(invitee_id, INVITE_PERMISSION_CONFIG_TYPE).await?;
 
@@ -80,13 +83,13 @@ impl InviteBlocklistService {
         if content
             .get("user_exceptions")
             .and_then(|v| v.as_array())
-            .is_some_and(|exceptions| exceptions.iter().any(|v| v.as_str() == Some(invitee_id)))
+            .is_some_and(|exceptions| exceptions.iter().any(|v| v.as_str() == Some(inviter_id)))
         {
             return Ok(false);
         }
 
-        let invitee_server = invitee_id.rsplit_once(':').map(|(_, server)| server);
-        if invitee_server.is_some_and(|server| {
+        let inviter_server = inviter_id.rsplit_once(':').map(|(_, server)| server);
+        if inviter_server.is_some_and(|server| {
             content
                 .get("server_exceptions")
                 .and_then(|v| v.as_array())
@@ -96,6 +99,23 @@ impl InviteBlocklistService {
         }
 
         Ok(true)
+    }
+
+    /// `true` when the invitee has ignored the inviter (MSC3873).
+    ///
+    /// Checks the invitee's `m.ignored_user_list` account data. Missing or malformed data is treated as no ignore.
+    async fn invite_blocked_by_ignore(&self, inviter_id: &str, invitee_id: &str) -> ApiResult<bool> {
+        let content = self.account_data_store.get_account_data_content(invitee_id, IGNORED_USER_LIST_TYPE).await?;
+        let Some(content) = content else {
+            return Ok(false);
+        };
+
+        let ignore_list = content.get("ignored_users");
+        let Some(arr) = ignore_list.and_then(|v| v.as_array()) else {
+            return Ok(false);
+        };
+
+        Ok(arr.iter().any(|v| v.as_str() == Some(inviter_id)))
     }
 
     /// Replace the room's invite blocklist.
@@ -168,7 +188,7 @@ impl InvitePolicyGate for InviteBlocklistService {
             return Err(ApiError::forbidden("This user cannot be invited to this room".to_string()));
         }
 
-        if self.account_policy_denies(invitee_id).await? {
+        if self.account_policy_denies(inviter_id, invitee_id).await? {
             ::tracing::warn!(
                 room_id = %room_id,
                 inviter_id = %inviter_id,
@@ -176,6 +196,16 @@ impl InvitePolicyGate for InviteBlocklistService {
                 "Invite rejected by the invitee's m.invite_permission_config"
             );
             return Err(ApiError::forbidden("This user is not accepting invites".to_string()));
+        }
+
+        if self.invite_blocked_by_ignore(inviter_id, invitee_id).await? {
+            ::tracing::warn!(
+                room_id = %room_id,
+                inviter_id = %inviter_id,
+                invitee_id = %invitee_id,
+                "Invite rejected by the invitee's ignore list (MSC3873)"
+            );
+            return Err(ApiError::forbidden("This user is ignoring you".to_string()));
         }
 
         Ok(())
@@ -209,57 +239,83 @@ mod tests {
     #[tokio::test]
     async fn account_policy_absent_allows() {
         let (svc, _store) = service_with_account_data();
-        assert!(!svc.account_policy_denies("@nobody:test.localhost").await.expect("policy read"));
+        assert!(!svc.account_policy_denies("@inviter:test.localhost", "@nobody:test.localhost").await.expect("policy read"));
     }
 
     #[tokio::test]
     async fn account_policy_default_allow_allows() {
         let (svc, store) = service_with_account_data();
-        let user = "@open:test.localhost";
-        set_policy(&store, user, json!({"default_action": "allow"})).await;
-        assert!(!svc.account_policy_denies(user).await.expect("policy read"));
+        let invitee = "@open:test.localhost";
+        set_policy(&store, invitee, json!({"default_action": "allow"})).await;
+        assert!(!svc.account_policy_denies("@inviter:test.localhost", invitee).await.expect("policy read"));
     }
 
     #[tokio::test]
     async fn account_policy_default_block_denies_unlisted() {
         let (svc, store) = service_with_account_data();
-        let user = "@closed:test.localhost";
-        set_policy(&store, user, json!({"default_action": "block"})).await;
-        assert!(svc.account_policy_denies(user).await.expect("policy read"));
+        let invitee = "@closed:test.localhost";
+        set_policy(&store, invitee, json!({"default_action": "block"})).await;
+        assert!(svc.account_policy_denies("@inviter:test.localhost", invitee).await.expect("policy read"));
     }
 
     #[tokio::test]
     async fn account_policy_user_exception_allows() {
         let (svc, store) = service_with_account_data();
-        let user = "@closed:test.localhost";
-        set_policy(&store, user, json!({"default_action": "block", "user_exceptions": [user]})).await;
-        assert!(!svc.account_policy_denies(user).await.expect("policy read"));
+        let invitee = "@closed:test.localhost";
+        let inviter = "@friend:test.localhost";
+        set_policy(&store, invitee, json!({"default_action": "block", "user_exceptions": [inviter]})).await;
+        assert!(!svc.account_policy_denies(inviter, invitee).await.expect("policy read"));
     }
 
     #[tokio::test]
     async fn account_policy_server_exception_allows() {
         let (svc, store) = service_with_account_data();
-        let user = "@closed:trusted.example";
-        set_policy(&store, user, json!({"default_action": "block", "server_exceptions": ["trusted.example"]})).await;
-        assert!(!svc.account_policy_denies(user).await.expect("policy read"));
+        let invitee = "@closed:trusted.example";
+        let inviter = "@inviter:trusted.example";
+        set_policy(&store, invitee, json!({"default_action": "block", "server_exceptions": ["trusted.example"]})).await;
+        assert!(!svc.account_policy_denies(inviter, invitee).await.expect("policy read"));
     }
 
     #[tokio::test]
     async fn account_policy_server_exception_does_not_match_other_server() {
         let (svc, store) = service_with_account_data();
-        let user = "@closed:other.example";
-        set_policy(&store, user, json!({"default_action": "block", "server_exceptions": ["trusted.example"]})).await;
-        assert!(svc.account_policy_denies(user).await.expect("policy read"));
+        let invitee = "@closed:other.example";
+        let inviter = "@inviter:other.example";
+        set_policy(&store, invitee, json!({"default_action": "block", "server_exceptions": ["trusted.example"]})).await;
+        assert!(svc.account_policy_denies(inviter, invitee).await.expect("policy read"));
     }
 
     #[tokio::test]
     async fn account_policy_malformed_is_not_a_policy() {
         let (svc, store) = service_with_account_data();
-        let user = "@broken:test.localhost";
-        set_policy(&store, user, json!({"default_action": 42, "user_exceptions": "nope"})).await;
+        let invitee = "@broken:test.localhost";
+        set_policy(&store, invitee, json!({"default_action": 42, "user_exceptions": "nope"})).await;
         assert!(
-            !svc.account_policy_denies(user).await.expect("policy read"),
+            !svc.account_policy_denies("@inviter:test.localhost", invitee).await.expect("policy read"),
             "unparseable payload must not lock the account out of all invites"
         );
+    }
+
+    async fn set_ignore(store: &Arc<InMemoryAccountDataStore>, user_id: &str, ignored: Vec<&str>) {
+        let list = json!({"ignored_users": ignored});
+        store.upsert_account_data(user_id, IGNORED_USER_LIST_TYPE, list).await.expect("ignore write");
+    }
+
+    #[tokio::test]
+    async fn ignore_blocks_invite() {
+        let (svc, store) = service_with_account_data();
+        let invitee = "@victim:test.localhost";
+        let inviter = "@spammer:test.localhost";
+        set_ignore(&store, invitee, vec![inviter]).await;
+        assert!(svc.invite_blocked_by_ignore(inviter, invitee).await.expect("ignore check"));
+    }
+
+    #[tokio::test]
+    async fn ignore_allows_when_not_ignored() {
+        let (svc, store) = service_with_account_data();
+        let invitee = "@victim:test.localhost";
+        let inviter = "@friend:test.localhost";
+        set_ignore(&store, invitee, vec![]).await;
+        assert!(!svc.invite_blocked_by_ignore(inviter, invitee).await.expect("ignore check"));
     }
 }
