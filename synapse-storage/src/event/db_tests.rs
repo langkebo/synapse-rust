@@ -3,10 +3,15 @@ use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
-async fn test_pool() -> Arc<Pool<Postgres>> {
-    crate::test_utils::connect_shared_test_pool()
-        .await
-        .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+/// 每个测试一个从迁移 baseline 克隆出来的独立 schema（返回 guard 与 pool）。
+///
+/// 2026-09-21：原先用共享 `public` 池。共享池的问题：测试结果取决于环境里 `public` 的
+/// 状态（本地 `public` 落后于迁移 baseline 时会直接 42P01），且并行测试互相影响。
+/// 按铁律 7 消除状态共享：per-test schema 由模板克隆，表一定存在、行数从 0 开始。
+async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<sqlx::PgPool>) {
+    let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated test pool");
+    let pool = isolated.pool();
+    (isolated, pool)
 }
 
 async fn ensure_test_room(pool: &Pool<Postgres>, room_id: &str) {
@@ -47,7 +52,7 @@ fn test_server_name() -> String {
 
 #[tokio::test]
 async fn test_create_event_returns_valid_record() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!evt_create_{}:example.com", uuid::Uuid::new_v4());
     let event_id = format!("$evt_{}:example.com", uuid::Uuid::new_v4());
@@ -78,7 +83,7 @@ async fn test_create_event_returns_valid_record() {
 
 #[tokio::test]
 async fn test_get_event_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!evt_get_{}:example.com", uuid::Uuid::new_v4());
     let event_id = format!("$evt_get_{}:example.com", uuid::Uuid::new_v4());
@@ -109,7 +114,7 @@ async fn test_get_event_found() {
 
 #[tokio::test]
 async fn test_get_event_not_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let result = storage.get_event("$nonexistent:example.com").await.expect("get_event should succeed");
     assert!(result.is_none());
@@ -117,7 +122,7 @@ async fn test_get_event_not_found() {
 
 #[tokio::test]
 async fn test_get_room_events_returns_list() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!evt_list_{}:example.com", uuid::Uuid::new_v4());
     let user_id = "@lister:example.com";
@@ -150,7 +155,7 @@ async fn test_get_room_events_returns_list() {
 
 #[tokio::test]
 async fn test_count_room_events() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!evt_count_{}:example.com", uuid::Uuid::new_v4());
     let user_id = "@counter:example.com";
@@ -181,7 +186,7 @@ async fn test_count_room_events() {
 
 #[tokio::test]
 async fn test_get_room_events_paginated() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!evt_page_{}:example.com", uuid::Uuid::new_v4());
     let user_id = "@pager:example.com";
@@ -200,7 +205,7 @@ async fn test_get_room_events_paginated() {
 /// 缓存失效后仍能查到原始 event_id。
 #[tokio::test]
 async fn test_record_event_txn_dedups_and_lookups() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!txn_{}:example.com", uuid::Uuid::new_v4());
     let user_id = "@txnuser:example.com";
@@ -241,7 +246,7 @@ async fn test_record_event_txn_dedups_and_lookups() {
 
 #[tokio::test]
 async fn test_delete_room_events() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!evt_del_{}:example.com", uuid::Uuid::new_v4());
     let user_id = "@deleter:example.com";
@@ -269,7 +274,7 @@ async fn test_delete_room_events() {
 
 #[tokio::test]
 async fn test_get_room_message_count() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let count =
         storage.get_room_message_count("!any:example.com").await.expect("get_room_message_count should succeed");
@@ -280,7 +285,7 @@ async fn test_get_room_message_count() {
 
 #[tokio::test]
 async fn test_ephemeral_event_crud() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!eph_{}:example.com", uuid::Uuid::new_v4());
     let user_id = "@epher:example.com";
@@ -311,7 +316,7 @@ async fn test_ephemeral_event_crud() {
 
 #[tokio::test]
 async fn test_report_event() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!report_{}:example.com", uuid::Uuid::new_v4());
     let event_id = format!("$report_{}:example.com", uuid::Uuid::new_v4());
@@ -350,7 +355,7 @@ async fn test_report_event() {
 
 #[tokio::test]
 async fn test_redact_event_content() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!redact_{}:example.com", suffix);
@@ -398,7 +403,7 @@ async fn test_redact_event_content() {
 
 #[tokio::test]
 async fn test_save_and_get_event_signatures() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!sig_{}:example.com", uuid::Uuid::new_v4());
     let event_id = format!("$sig_{}:example.com", uuid::Uuid::new_v4());
@@ -441,7 +446,7 @@ async fn test_save_and_get_event_signatures() {
 
 #[tokio::test]
 async fn test_find_missing_event_ids() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let input = vec![format!("$missing_{}:example.com", uuid::Uuid::new_v4())];
     let missing = storage.find_missing_event_ids(&input).await.expect("find_missing_event_ids should succeed");
@@ -450,7 +455,7 @@ async fn test_find_missing_event_ids() {
 
 #[tokio::test]
 async fn test_get_total_message_count() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let count = storage.get_total_message_count().await.expect("get_total_message_count should succeed");
     assert!(count >= 0);
@@ -458,7 +463,7 @@ async fn test_get_total_message_count() {
 
 #[tokio::test]
 async fn test_get_daily_message_count() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let count = storage.get_daily_message_count().await.expect("get_daily_message_count should succeed");
     assert!(count >= 0);
@@ -466,7 +471,7 @@ async fn test_get_daily_message_count() {
 
 #[tokio::test]
 async fn test_delete_remote_events_before() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!evt_old_{}:example.com", uuid::Uuid::new_v4());
 
@@ -489,7 +494,7 @@ async fn test_delete_remote_events_before() {
 /// of locally-originated outbound events during history purge operations.
 #[tokio::test]
 async fn test_purge_history_preserves_local_events() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!purge_sec_{}:example.com", uuid::Uuid::new_v4());
     let user_id = "@purger:example.com";
@@ -554,7 +559,7 @@ async fn test_purge_history_preserves_local_events() {
 /// returns the same count without deleting anything.
 #[tokio::test]
 async fn test_count_events_before_and_dry_run() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!dryrun_{}:example.com", uuid::Uuid::new_v4());
     let user_id = "@dryrunner:example.com";
@@ -610,7 +615,7 @@ async fn test_count_events_before_and_dry_run() {
 
 #[tokio::test]
 async fn test_get_room_create_event_none_for_non_existent() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let result =
         storage.get_room_create_event("!nonexistent:example.com").await.expect("get_room_create_event should succeed");
@@ -619,7 +624,7 @@ async fn test_get_room_create_event_none_for_non_existent() {
 
 #[tokio::test]
 async fn test_get_events_batch_empty_input() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let results = storage.get_events_batch(&[]).await.expect("get_events_batch should succeed");
     assert!(results.is_empty());
@@ -627,7 +632,7 @@ async fn test_get_events_batch_empty_input() {
 
 #[tokio::test]
 async fn test_get_forward_extremities_count() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let count = storage
         .get_forward_extremities_count("!any:example.com")
@@ -640,7 +645,7 @@ async fn test_get_forward_extremities_count() {
 
 #[tokio::test]
 async fn test_create_event_with_graph_no_prev_events() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!graph_{}:example.com", uuid::Uuid::new_v4());
     let event_id = format!("$graph_{}:example.com", uuid::Uuid::new_v4());
@@ -671,7 +676,7 @@ async fn test_create_event_with_graph_no_prev_events() {
 
 #[tokio::test]
 async fn test_create_event_with_graph_with_prev_events() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!graphp_{}:example.com", uuid::Uuid::new_v4());
     let user_id = "@grapherp:example.com";
@@ -725,7 +730,7 @@ async fn test_create_event_with_graph_with_prev_events() {
 
 #[tokio::test]
 async fn test_create_event_with_graph_in_transaction() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!graphtx_{}:example.com", uuid::Uuid::new_v4());
     let user_id = "@graphtx:example.com";
@@ -759,7 +764,7 @@ async fn test_create_event_with_graph_in_transaction() {
 
 #[tokio::test]
 async fn test_update_event_signatures_and_hashes() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!sighash_{}:example.com", uuid::Uuid::new_v4());
     let event_id = format!("$sighash_{}:example.com", uuid::Uuid::new_v4());
@@ -795,7 +800,7 @@ async fn test_update_event_signatures_and_hashes() {
 
 #[tokio::test]
 async fn test_find_missing_event_ids_empty_input() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let missing =
         storage.find_missing_event_ids(&[]).await.expect("find_missing_event_ids with empty input should succeed");
@@ -804,7 +809,7 @@ async fn test_find_missing_event_ids_empty_input() {
 
 #[tokio::test]
 async fn test_find_missing_event_ids_partial_existing() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!miss_{}:example.com", uuid::Uuid::new_v4());
     let existing_id = format!("$exists_{}:example.com", uuid::Uuid::new_v4());
@@ -839,7 +844,7 @@ async fn test_find_missing_event_ids_partial_existing() {
 
 #[tokio::test]
 async fn test_get_missing_events_between_empty_latest() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let result = storage
         .get_missing_events_between("!any:example.com", &["$a:example.com".to_string()], &[], 10)
@@ -850,7 +855,7 @@ async fn test_get_missing_events_between_empty_latest() {
 
 #[tokio::test]
 async fn test_get_missing_events_between_walks_dag() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!dag_{}:example.com", uuid::Uuid::new_v4());
     let user_id = "@dagger:example.com";
@@ -899,7 +904,7 @@ async fn test_get_missing_events_between_walks_dag() {
 
 #[tokio::test]
 async fn test_upsert_ephemeral_event_updates_existing() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!ephup_{}:example.com", uuid::Uuid::new_v4());
     let user_id = "@ephup:example.com";
@@ -934,7 +939,7 @@ async fn test_upsert_ephemeral_event_updates_existing() {
 
 #[tokio::test]
 async fn test_get_ephemeral_events_filters_expired() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!ephexp_{}:example.com", uuid::Uuid::new_v4());
     let user_id = "@ephexp:example.com";
@@ -974,7 +979,7 @@ async fn test_get_ephemeral_events_filters_expired() {
 
 #[tokio::test]
 async fn test_get_ephemeral_events_batch_empty_rooms() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let now = current_timestamp_millis();
     let result = storage
@@ -986,7 +991,7 @@ async fn test_get_ephemeral_events_batch_empty_rooms() {
 
 #[tokio::test]
 async fn test_get_ephemeral_events_batch_multiple_rooms() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room1 = format!("!ephb1_{}:example.com", uuid::Uuid::new_v4());
     let room2 = format!("!ephb2_{}:example.com", uuid::Uuid::new_v4());
@@ -1027,7 +1032,7 @@ async fn test_get_ephemeral_events_batch_multiple_rooms() {
 
 #[tokio::test]
 async fn test_get_room_events_paginated_forward_with_from() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!pagef_{}:example.com", uuid::Uuid::new_v4());
     let user_id = "@pagef:example.com";
@@ -1066,7 +1071,7 @@ async fn test_get_room_events_paginated_forward_with_from() {
 
 #[tokio::test]
 async fn test_get_room_events_paginated_forward_no_from() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!pagefn_{}:example.com", uuid::Uuid::new_v4());
     let user_id = "@pagefn:example.com";
@@ -1100,7 +1105,7 @@ async fn test_get_room_events_paginated_forward_no_from() {
 
 #[tokio::test]
 async fn test_get_room_events_paginated_backward_with_from() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!pageb_{}:example.com", uuid::Uuid::new_v4());
     let user_id = "@pageb:example.com";
@@ -1142,7 +1147,7 @@ async fn test_get_room_events_paginated_backward_with_from() {
 /// 新的游标 API 以 (origin_server_ts, stream_ordering) 复合游标精确翻页。
 #[tokio::test]
 async fn test_paginated_cursor_same_millisecond_no_loss_no_dup() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!pagems_{}:example.com", uuid::Uuid::new_v4());
     let user_id = "@pagems:example.com";
@@ -1222,7 +1227,7 @@ async fn test_paginated_cursor_same_millisecond_no_loss_no_dup() {
 
 #[tokio::test]
 async fn test_find_event_by_timestamp_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!tsfind_{}:example.com", uuid::Uuid::new_v4());
     let event_id = format!("$tsfind_{}:example.com", uuid::Uuid::new_v4());
@@ -1254,7 +1259,7 @@ async fn test_find_event_by_timestamp_found() {
 
 #[tokio::test]
 async fn test_find_event_by_timestamp_none() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let result = storage
         .find_event_by_timestamp("!nonexistent:example.com", 1_000_000)
@@ -1265,7 +1270,7 @@ async fn test_find_event_by_timestamp_none() {
 
 #[tokio::test]
 async fn test_find_event_id_by_timestamp_forward() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!tsfwd_{}:example.com", uuid::Uuid::new_v4());
     let event_id = format!("$tsfwd_{}:example.com", uuid::Uuid::new_v4());
@@ -1301,7 +1306,7 @@ async fn test_find_event_id_by_timestamp_forward() {
 
 #[tokio::test]
 async fn test_find_event_id_by_timestamp_backward() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!tsbwd_{}:example.com", uuid::Uuid::new_v4());
     let event_id = format!("$tsbwd_{}:example.com", uuid::Uuid::new_v4());
@@ -1339,7 +1344,7 @@ async fn test_find_event_id_by_timestamp_backward() {
 
 #[tokio::test]
 async fn test_get_room_events_by_type_filters() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!type_{}:example.com", uuid::Uuid::new_v4());
     let user_id = "@typer:example.com";
@@ -1384,7 +1389,7 @@ async fn test_get_room_events_by_type_filters() {
 
 #[tokio::test]
 async fn test_get_sender_events_filters() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!sender_{}:example.com", uuid::Uuid::new_v4());
     let user_id = format!("@sender_{}:example.com", uuid::Uuid::new_v4());
@@ -1415,7 +1420,7 @@ async fn test_get_sender_events_filters() {
 
 #[tokio::test]
 async fn test_update_event_report_score_by_id() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!rscore_{}:example.com", uuid::Uuid::new_v4());
     let event_id = format!("$rscore_{}:example.com", uuid::Uuid::new_v4());
@@ -1455,7 +1460,7 @@ async fn test_update_event_report_score_by_id() {
 
 #[tokio::test]
 async fn test_update_event_report_score_by_event() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!rscoreev_{}:example.com", uuid::Uuid::new_v4());
     let event_id = format!("$rscoreev_{}:example.com", uuid::Uuid::new_v4());
@@ -1495,7 +1500,7 @@ async fn test_update_event_report_score_by_event() {
 
 #[tokio::test]
 async fn test_upsert_power_levels_event_insert_and_update() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!pl_{}:example.com", uuid::Uuid::new_v4());
     let event_id = format!("$pl_{}:example.com", uuid::Uuid::new_v4());
@@ -1527,7 +1532,7 @@ async fn test_upsert_power_levels_event_insert_and_update() {
 
 #[tokio::test]
 async fn test_get_events_before_context() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!ctxb_{}:example.com", uuid::Uuid::new_v4());
     let user_id = "@ctxb:example.com";
@@ -1563,7 +1568,7 @@ async fn test_get_events_before_context() {
 
 #[tokio::test]
 async fn test_get_events_after_context() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!ctxa_{}:example.com", uuid::Uuid::new_v4());
     let user_id = "@ctxa:example.com";
@@ -1597,7 +1602,7 @@ async fn test_get_events_after_context() {
 
 #[tokio::test]
 async fn test_search_room_messages_admin_matches() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!adminsearch_{}:example.com", uuid::Uuid::new_v4());
     let user_id = "@adminsearch:example.com";
@@ -1631,7 +1636,7 @@ async fn test_search_room_messages_admin_matches() {
 
 #[tokio::test]
 async fn test_get_latest_event_ids_in_room() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!latest_{}:example.com", uuid::Uuid::new_v4());
     let user_id = "@latest:example.com";
@@ -1667,7 +1672,7 @@ async fn test_get_latest_event_ids_in_room() {
 
 #[tokio::test]
 async fn test_get_room_events_paginated_with_filter_no_filter() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!filt_{}:example.com", uuid::Uuid::new_v4());
     let user_id = "@filt:example.com";
@@ -1701,7 +1706,7 @@ async fn test_get_room_events_paginated_with_filter_no_filter() {
 
 #[tokio::test]
 async fn test_get_room_create_event_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!createev_{}:example.com", uuid::Uuid::new_v4());
     let event_id = format!("$createev_{}:example.com", uuid::Uuid::new_v4());
@@ -1732,7 +1737,7 @@ async fn test_get_room_create_event_found() {
 
 #[tokio::test]
 async fn test_search_room_postgres_messages_matches() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!pgfts_{}:example.com", uuid::Uuid::new_v4());
     let user_id = "@pgfts:example.com";
@@ -1765,7 +1770,7 @@ async fn test_search_room_postgres_messages_matches() {
 
 #[tokio::test]
 async fn test_create_postgres_fts_index_idempotent() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     // Creating the FTS index twice should not error (idempotent).
     storage.create_postgres_fts_index().await.expect("create_postgres_fts_index first call should succeed");
@@ -1821,7 +1826,7 @@ async fn test_create_postgres_fts_index_reports_invalid_leftover() {
 
 #[tokio::test]
 async fn test_search_joined_room_events_empty_joined() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let results = storage
         .search_joined_room_events(&[], "%anything%", None, None, None, None, None, 10)
@@ -1832,7 +1837,7 @@ async fn test_search_joined_room_events_empty_joined() {
 
 #[tokio::test]
 async fn test_search_joined_room_events_matches() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_id = format!("!jrsearch_{}:example.com", uuid::Uuid::new_v4());
     let user_id = format!("@jrsearch_{}:example.com", uuid::Uuid::new_v4());
@@ -1904,7 +1909,7 @@ async fn insert_remote_event(
 ///   is counted as unread → count=2 (bloat)
 #[tokio::test]
 async fn test_p1_7_unread_count_not_bloated_after_purge_history() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
     let room_storage = crate::room::RoomStorage::new(&pool);
 
@@ -1981,7 +1986,7 @@ async fn test_p1_7_unread_count_not_bloated_after_purge_history() {
 /// `get_prev_state_events`.
 #[tokio::test]
 async fn test_p2_14_state_event_stores_prev_state_events() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
 
     let suffix = uuid::Uuid::new_v4();
@@ -2052,7 +2057,7 @@ async fn test_p2_14_state_event_stores_prev_state_events() {
 /// pairs for a room, forming the complete state DAG edge list.
 #[tokio::test]
 async fn test_p2_14_get_state_dag_edges_returns_all_edges() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
 
     let suffix = uuid::Uuid::new_v4();
@@ -2157,7 +2162,7 @@ async fn test_p2_14_get_state_dag_edges_returns_all_edges() {
 /// need backfilling (MSC4242 mandates servers fill in unknown prev_state_events).
 #[tokio::test]
 async fn test_p2_14_find_events_referencing_missing_state() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
 
     let suffix = uuid::Uuid::new_v4();

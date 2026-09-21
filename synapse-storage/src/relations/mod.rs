@@ -621,10 +621,15 @@ mod db_tests {
     use serde_json::json;
     use std::sync::Arc;
 
-    async fn test_pool() -> Arc<Pool<Postgres>> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// 每个测试一个从迁移 baseline 克隆出来的独立 schema（返回 guard 与 pool）。
+    ///
+    /// 2026-09-21：原先用共享 `public` 池。共享池的问题：测试结果取决于环境里 `public` 的
+    /// 状态（本地 `public` 落后于迁移 baseline 时会直接 42P01），且并行测试互相影响。
+    /// 按铁律 7 消除状态共享：per-test schema 由模板克隆，表一定存在、行数从 0 开始。
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<sqlx::PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated test pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     /// Ensure a room row exists so FK constraints on event_relations are satisfied.
@@ -663,7 +668,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_relation_returns_valid_record() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
@@ -688,7 +693,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_relation_upsert_updates_existing() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
@@ -725,7 +730,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_relation_returns_existing() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
@@ -750,7 +755,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_relation_returns_none_for_unknown() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
@@ -770,7 +775,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_relation_skips_redacted() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
@@ -801,7 +806,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_count_relations_no_filter() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
@@ -836,7 +841,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_count_relations_with_type_filter() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
@@ -892,7 +897,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_relations_forward_pagination() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
@@ -939,7 +944,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_relations_backward_pagination() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
@@ -982,7 +987,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_relations_with_cursor() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
@@ -1045,7 +1050,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_relations_with_type_filter() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
@@ -1102,7 +1107,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_annotations_returns_only_annotations() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
@@ -1152,7 +1157,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_annotations_respects_limit() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
@@ -1188,7 +1193,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_references_returns_only_references() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
@@ -1240,7 +1245,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_replacement_returns_latest() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
@@ -1281,7 +1286,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_replacement_returns_none_for_different_sender() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
@@ -1315,7 +1320,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_aggregate_annotations_groups_by_body() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
@@ -1371,7 +1376,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_aggregate_annotations_excludes_non_annotations() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
@@ -1421,7 +1426,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_redact_relation_sets_flags_and_clears_content() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
@@ -1458,7 +1463,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_relation_removes_and_returns_true() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
@@ -1494,7 +1499,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_relation_returns_false_for_nonexistent() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
@@ -1518,7 +1523,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_relation_returns_false_for_wrong_sender() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
@@ -1557,7 +1562,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_relation_exists_returns_true_for_existing() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
@@ -1584,7 +1589,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_relation_exists_returns_false_for_nonexistent() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
@@ -1609,7 +1614,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_relation_exists_returns_false_after_redaction() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;

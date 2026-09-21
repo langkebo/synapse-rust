@@ -2775,7 +2775,7 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 | # | 问题 | 现状 / 影响 |
 |---|---|---|
 | 1 | **Code Coverage 从未真正执行** | 依赖 integration 全绿；`scripts/ci/coverage_baseline.json` 的 per-file 棘轮因此从未生效过 |
-| 2 | **k6 Smoke Test 从未真正执行** | 需要 `K6_SMOKE_BASE_URL` 指向真实环境（secret）；现在必须显式 `run_k6=true` 才触发 |
+| 2 | ~~k6 Smoke Test 从未真正执行~~ → **本地首跑已做（2026-09-21）**，CI 侧仍待真实环境 | 用 docker `grafana/k6:0.47.0`（与 CI 同版本）在本机 docker 栈上真跑 `run_tests.sh smoke`：10 VUs × 30s = 280 iterations、summary 正常导出、k6 自身 `errors` 阈值确实会红（本地无管理员凭据 ⇒ 属目标侧问题）。**首跑即抓到门禁缺陷**：`guardrail.py` 读不了 k6 0.47 的扁平 `--summary-export`（0.47 把聚合平铺在 `metrics.<name>`：trend `{"p(95)":12}`、rate `{"value":1}`；脚本只认`metric["values"]["p(95)"]`）⇒ 七项指标恒为 `missing`/FAIL，**目标再健康也只会红**。已修（扁平优先 + 嵌套回退）并加守卫 `k6_guardrail_reads_the_flat_summary_export`。CI 侧仍需 `K6_SMOKE_BASE_URL` 指向真实环境 |
 | 3 | 分支保护允许绕过、不强制 PR（既有裁定） | 门禁绿不绿依赖人工看 run；漏看即漏合并 |
 | 4 | ~~根 crate 的 1 处 production unsafe 未定位~~ → **已定位（2026-09-21）** | `-Zunpretty=hir` 全量核对：该 crate 展开后的 284 个 unsafe **全部**来自 `format_args!`（155）与 `.await`/tokio 宏脱糖（129），源码零 `unsafe` 字面量 ⇒ cargo-geiger 的 span 归因产物，**无需改代码**（§14.14.6） |
 | 5 | `test_schema_guard` 的 `libc::atexit` | "测试基础设施被编进产品库"的已知代价（已按裁定 B 进基线）。**2026-09-21 更正**：原先写的"靠 feature gate 就能收紧"**不成立** —— cargo-geiger 的 prod 扫描是 `cargo geiger --all-features`（`run_cargo_geiger.py:94`），`--all-features` 会把每个 crate 的 `test-utils` 一起打开，所以 gate 在 `any(test, feature = "test-utils")` 的代码**照样被编进 prod 扫描**。真正可行的只有两条：(i) 去掉 atexit 退出兜底（会削弱 schema 回收的确定性，需重新验证 janitor），或 (ii) 把 prod 扫描的 feature 集改成"生产实际使用的那个"（如 Dockerfile 的 CARGO_FEATURE_ARGS），代价是 test-only 的差值会混入 feature 差异。两者都要先有裁定，当前维持基线 |
@@ -2785,7 +2785,7 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 
 | # | 问题 | 规模估计 |
 |---|---|---|
-| 7 | **仍有 14 个 `synapse-storage/src` 文件用 `connect_shared_test_pool()`（共享 `public`）** | 本轮已迁 8 个（`event_report` + 批次 1 三个 + 批次 2 四个，共 87 条测试本地全绿）。**计数更正**：先前写的 23 是把**注释里提到** `connect_shared_test_pool` 的文件也算进去了；按真实调用 `test_utils::connect_shared_test_pool()` 统计是 14 个（`git grep -ln "test_utils::connect_shared_test_pool()"`）。共性风险：CI 绿本地红、并行测试互相影响。**本轮新发现（重要）**：`CREATE TABLE new (LIKE old INCLUDING ALL)` **不保留索引名** —— 实测克隆里 `users` 的索引是 `users_pkey` / `users_email_idx`，而模板（由 baseline 直接建成）里是 `pk_users` / `idx_users_email`。所以**断言对象命名**的测试（`schema_validator.rs` 断言 `pk_users`/`pk_rooms`）不能迁到克隆 schema（实测：迁后 59 passed / 1 failed），已回退并在该文件写明原因；将来若要让它本地也绿，需要一个"绑定模板 schema 的只读池" helper（~1h）|
+| 7 | **仍有 14 个 `synapse-storage/src` 文件用 `connect_shared_test_pool()`（共享 `public`）** | 本轮已迁 **24 个**（`event_report` + 批次 1–6；每批都本地跑过：33/51/56/59/192/待记 条测试全绿），现在**只剩 `schema_validator.rs`**，且它按设计必须留在共享池（见本条后半段的克隆命名发现）。**计数更正**：先前写的 23 是把**注释里提到** `connect_shared_test_pool` 的文件也算进去了；按真实调用 `test_utils::connect_shared_test_pool()` 统计是 14 个（`git grep -ln "test_utils::connect_shared_test_pool()"`）。共性风险：CI 绿本地红、并行测试互相影响。**本轮新发现（重要）**：`CREATE TABLE new (LIKE old INCLUDING ALL)` **不保留索引名** —— 实测克隆里 `users` 的索引是 `users_pkey` / `users_email_idx`，而模板（由 baseline 直接建成）里是 `pk_users` / `idx_users_email`。所以**断言对象命名**的测试（`schema_validator.rs` 断言 `pk_users`/`pk_rooms`）不能迁到克隆 schema（实测：迁后 59 passed / 1 failed），已回退并在该文件写明原因；将来若要让它本地也绿，需要一个"绑定模板 schema 的只读池" helper（~1h）|
 | 8 | `scripts/run_ci_tests.sh` 与 `ci.yml` 内联批次重复（sweep A13） | 两处实现必然漂移 |
 | 9 | `.config/nextest.toml` 的 `[profile.ci]`（`retries=2, threads=12`）与 CI 实际命令行口径不一致 | 配置与事实不符，容易误导 |
 | 10 | 慢速车道时长上升（integration 并发降到 4 后 ~42 分钟；Build Check 3×release 18–19 分钟） | 若锁表仍偶发，需把 `CLONE_TABLES_PER_STATEMENT` 24→12 |

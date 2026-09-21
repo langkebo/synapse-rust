@@ -5,10 +5,15 @@ use serde_json::json;
 use sqlx::PgPool;
 use std::sync::Arc;
 
-async fn test_pool() -> Arc<PgPool> {
-    crate::test_utils::connect_shared_test_pool()
-        .await
-        .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+/// 每个测试一个从迁移 baseline 克隆出来的独立 schema（返回 guard 与 pool）。
+///
+/// 2026-09-21：原先用共享 `public` 池。共享池的问题：测试结果取决于环境里 `public` 的
+/// 状态（本地 `public` 落后于迁移 baseline 时会直接 42P01），且并行测试互相影响。
+/// 按铁律 7 消除状态共享：per-test schema 由模板克隆，表一定存在、行数从 0 开始。
+async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<sqlx::PgPool>) {
+    let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated test pool");
+    let pool = isolated.pool();
+    (isolated, pool)
 }
 
 async fn ensure_test_user(pool: &PgPool, user_id: &str) {
@@ -60,7 +65,7 @@ fn make_suffix() -> String {
 
 #[tokio::test]
 async fn test_create_summary_with_all_fields() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_cs_{suffix}:localhost");
     cleanup_summary_data(&pool, &suffix).await;
@@ -107,7 +112,7 @@ async fn test_create_summary_with_all_fields() {
 
 #[tokio::test]
 async fn test_create_summary_default_values() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_csd_{suffix}:localhost");
     cleanup_summary_data(&pool, &suffix).await;
@@ -146,7 +151,7 @@ async fn test_create_summary_default_values() {
 
 #[tokio::test]
 async fn test_get_summary_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_gs_{suffix}:localhost");
     cleanup_summary_data(&pool, &suffix).await;
@@ -179,7 +184,7 @@ async fn test_get_summary_found() {
 
 #[tokio::test]
 async fn test_get_summary_not_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let nonexistent = format!("!nonexistent_{suffix}:localhost");
     cleanup_summary_data(&pool, &suffix).await;
@@ -195,7 +200,7 @@ async fn test_get_summary_not_found() {
 
 #[tokio::test]
 async fn test_update_summary_updates_fields() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_us_{suffix}:localhost");
     cleanup_summary_data(&pool, &suffix).await;
@@ -243,7 +248,7 @@ async fn test_update_summary_updates_fields() {
 
 #[tokio::test]
 async fn test_update_summary_keeps_unchanged_fields() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_usk_{suffix}:localhost");
     cleanup_summary_data(&pool, &suffix).await;
@@ -282,7 +287,7 @@ async fn test_update_summary_keeps_unchanged_fields() {
 
 #[tokio::test]
 async fn test_update_summary_not_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_usnf_{suffix}:localhost");
     cleanup_summary_data(&pool, &suffix).await;
@@ -301,7 +306,7 @@ async fn test_update_summary_not_found() {
 
 #[tokio::test]
 async fn test_set_canonical_alias_sets_and_clears() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_sca_{suffix}:localhost");
     cleanup_summary_data(&pool, &suffix).await;
@@ -340,7 +345,7 @@ async fn test_set_canonical_alias_sets_and_clears() {
 
 #[tokio::test]
 async fn test_delete_summary_removes_record() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_ds_{suffix}:localhost");
     cleanup_summary_data(&pool, &suffix).await;
@@ -378,7 +383,7 @@ async fn test_delete_summary_removes_record() {
 
 #[tokio::test]
 async fn test_get_summaries_by_ids_multiple() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_a = format!("!rs_gsi_a_{suffix}:localhost");
     let room_b = format!("!rs_gsi_b_{suffix}:localhost");
@@ -427,7 +432,7 @@ async fn test_get_summaries_by_ids_multiple() {
 
 #[tokio::test]
 async fn test_get_summaries_for_user_returns_joined_rooms() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_a = format!("!rs_gsu_a_{suffix}:localhost");
     let room_b = format!("!rs_gsu_b_{suffix}:localhost");
@@ -479,7 +484,7 @@ async fn test_get_summaries_for_user_returns_joined_rooms() {
 
 #[tokio::test]
 async fn test_add_member_creates_record() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_am_{suffix}:localhost");
     let user_id = format!("@rs_am_{suffix}:localhost");
@@ -536,7 +541,7 @@ async fn test_add_member_creates_record() {
 
 #[tokio::test]
 async fn test_add_member_duplicate_upserts() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_amd_{suffix}:localhost");
     let user_id = format!("@rs_amd_{suffix}:localhost");
@@ -602,7 +607,7 @@ async fn test_add_member_duplicate_upserts() {
 
 #[tokio::test]
 async fn test_add_members_batch_inserts_multiple() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_amb_{suffix}:localhost");
     let u1 = format!("@rs_amb1_{suffix}:localhost");
@@ -684,7 +689,7 @@ async fn test_add_members_batch_inserts_multiple() {
 
 #[tokio::test]
 async fn test_add_members_batch_empty_returns_zero() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_ambe_{suffix}:localhost");
     cleanup_summary_data(&pool, &suffix).await;
@@ -700,7 +705,7 @@ async fn test_add_members_batch_empty_returns_zero() {
 
 #[tokio::test]
 async fn test_update_member_changes_fields() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_um_{suffix}:localhost");
     let user_id = format!("@rs_um_{suffix}:localhost");
@@ -765,7 +770,7 @@ async fn test_update_member_changes_fields() {
 
 #[tokio::test]
 async fn test_remove_member_deletes_and_updates_counts() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_rm_{suffix}:localhost");
     let user_id = format!("@rs_rm_{suffix}:localhost");
@@ -822,7 +827,7 @@ async fn test_remove_member_deletes_and_updates_counts() {
 
 #[tokio::test]
 async fn test_get_members_returns_ordered_list() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_gm_{suffix}:localhost");
     let u1 = format!("@rs_gma_{suffix}:localhost");
@@ -888,7 +893,7 @@ async fn test_get_members_returns_ordered_list() {
 
 #[tokio::test]
 async fn test_get_members_empty_room() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_gme_{suffix}:localhost");
     cleanup_summary_data(&pool, &suffix).await;
@@ -922,7 +927,7 @@ async fn test_get_members_empty_room() {
 
 #[tokio::test]
 async fn test_get_heroes_ordered_and_limited() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_gh_{suffix}:localhost");
     let u1 = format!("@rs_gh1_{suffix}:localhost");
@@ -1007,7 +1012,7 @@ async fn test_get_heroes_ordered_and_limited() {
 
 #[tokio::test]
 async fn test_get_heroes_batch_multiple_rooms() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_a = format!("!rs_ghb_a_{suffix}:localhost");
     let room_b = format!("!rs_ghb_b_{suffix}:localhost");
@@ -1067,7 +1072,7 @@ async fn test_get_heroes_batch_multiple_rooms() {
 
 #[tokio::test]
 async fn test_get_hero_candidates_returns_joined_sorted() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_ghc_{suffix}:localhost");
     let u1 = format!("@rs_ghc1_{suffix}:localhost");
@@ -1152,7 +1157,7 @@ async fn test_get_hero_candidates_returns_joined_sorted() {
 
 #[tokio::test]
 async fn test_set_hero_members_updates_flags() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_shm_{suffix}:localhost");
     let u1 = format!("@rs_shm1_{suffix}:localhost");
@@ -1238,7 +1243,7 @@ async fn test_set_hero_members_updates_flags() {
 
 #[tokio::test]
 async fn test_state_crud_single() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_scs_{suffix}:localhost");
     cleanup_summary_data(&pool, &suffix).await;
@@ -1268,7 +1273,7 @@ async fn test_state_crud_single() {
 
 #[tokio::test]
 async fn test_state_upsert_overwrites_existing() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_suo_{suffix}:localhost");
     cleanup_summary_data(&pool, &suffix).await;
@@ -1294,7 +1299,7 @@ async fn test_state_upsert_overwrites_existing() {
 
 #[tokio::test]
 async fn test_set_states_batch_inserts_all() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_ssb_{suffix}:localhost");
     cleanup_summary_data(&pool, &suffix).await;
@@ -1342,7 +1347,7 @@ async fn test_set_states_batch_inserts_all() {
 
 #[tokio::test]
 async fn test_get_all_state_returns_all_entries() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_gas_{suffix}:localhost");
     cleanup_summary_data(&pool, &suffix).await;
@@ -1385,7 +1390,7 @@ async fn test_get_all_state_returns_all_entries() {
 
 #[tokio::test]
 async fn test_stats_crud() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_st_{suffix}:localhost");
     cleanup_summary_data(&pool, &suffix).await;
@@ -1421,7 +1426,7 @@ async fn test_stats_crud() {
 
 #[tokio::test]
 async fn test_queue_lifecycle() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_ql_{suffix}:localhost");
     cleanup_summary_data(&pool, &suffix).await;
@@ -1467,7 +1472,7 @@ async fn test_queue_lifecycle() {
 
 #[tokio::test]
 async fn test_unread_notifications_increment_and_clear() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!rs_un_{suffix}:localhost");
     cleanup_summary_data(&pool, &suffix).await;

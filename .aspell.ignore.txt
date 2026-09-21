@@ -772,6 +772,7 @@ vscode
 vtable
 vue
 vuln
+vus
 walkthroughs
 webhook
 webpush

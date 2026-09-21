@@ -3,10 +3,15 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
-async fn test_pool() -> Arc<PgPool> {
-    crate::test_utils::connect_shared_test_pool()
-        .await
-        .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+/// 每个测试一个从迁移 baseline 克隆出来的独立 schema（返回 guard 与 pool）。
+///
+/// 2026-09-21：原先用共享 `public` 池。共享池的问题：测试结果取决于环境里 `public` 的
+/// 状态（本地 `public` 落后于迁移 baseline 时会直接 42P01），且并行测试互相影响。
+/// 按铁律 7 消除状态共享：per-test schema 由模板克隆，表一定存在、行数从 0 开始。
+async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<sqlx::PgPool>) {
+    let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated test pool");
+    let pool = isolated.pool();
+    (isolated, pool)
 }
 
 /// Clean up any leftover data from previous test runs.
@@ -21,7 +26,7 @@ async fn cleanup(pool: &Arc<PgPool>, space_id: &str) {
 // === Test 1: create_space ===
 #[tokio::test]
 async fn test_create_space_returns_valid_space() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!space_create_{}:example.com", uuid::Uuid::new_v4());
 
@@ -49,7 +54,7 @@ async fn test_create_space_returns_valid_space() {
 // === Test 2: get_space (found) ===
 #[tokio::test]
 async fn test_get_space_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!space_get_{}:example.com", uuid::Uuid::new_v4());
 
@@ -76,7 +81,7 @@ async fn test_get_space_found() {
 // === Test 3: get_space (not found) ===
 #[tokio::test]
 async fn test_get_space_not_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let result = storage.get_space("!nonexistent_space:example.com").await.expect("get_space should succeed");
     assert!(result.is_none());
@@ -85,7 +90,7 @@ async fn test_get_space_not_found() {
 // === Test 4: get_space_by_room ===
 #[tokio::test]
 async fn test_get_space_by_room() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!space_by_room_{}:example.com", uuid::Uuid::new_v4());
 
@@ -112,7 +117,7 @@ async fn test_get_space_by_room() {
 // === Test 5: update_space ===
 #[tokio::test]
 async fn test_update_space() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!space_update_{}:example.com", uuid::Uuid::new_v4());
 
@@ -140,7 +145,7 @@ async fn test_update_space() {
 // === Test 6: delete_space ===
 #[tokio::test]
 async fn test_delete_space() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!space_del_{}:example.com", uuid::Uuid::new_v4());
 
@@ -168,7 +173,7 @@ async fn test_delete_space() {
 // === Test 7: space children CRUD ===
 #[tokio::test]
 async fn test_space_children_crud() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_child_{}:example.com", uuid::Uuid::new_v4());
     let child_room_id = format!("!childroom_{}:example.com", uuid::Uuid::new_v4());
@@ -211,7 +216,7 @@ async fn test_space_children_crud() {
 // === Test 8: space members CRUD ===
 #[tokio::test]
 async fn test_space_members_crud() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_member_{}:example.com", uuid::Uuid::new_v4());
 
@@ -256,7 +261,7 @@ async fn test_space_members_crud() {
 // === Test 9: get_user_spaces ===
 #[tokio::test]
 async fn test_get_user_spaces() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_user_{}:example.com", uuid::Uuid::new_v4());
 
@@ -283,7 +288,7 @@ async fn test_get_user_spaces() {
 // === Test 10: get_public_spaces ===
 #[tokio::test]
 async fn test_get_public_spaces() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let spaces = storage.get_public_spaces(10, None, None).await.expect("get_public_spaces should succeed");
     // All returned spaces should be public
@@ -295,7 +300,7 @@ async fn test_get_public_spaces() {
 // === Test 11: get_spaces_by_rooms_batch ===
 #[tokio::test]
 async fn test_get_spaces_by_rooms_batch() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_batch_{}:example.com", uuid::Uuid::new_v4());
 
@@ -329,7 +334,7 @@ async fn test_get_spaces_by_rooms_batch() {
 // === Test 12: get_space_summary and update_space_summary ===
 #[tokio::test]
 async fn test_get_space_summary_and_update() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_sum_{}:example.com", uuid::Uuid::new_v4());
 
@@ -363,7 +368,7 @@ async fn test_get_space_summary_and_update() {
 // === Test 13: get_child_spaces (reverse lookup) ===
 #[tokio::test]
 async fn test_get_child_spaces() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_child_of_{}:example.com", uuid::Uuid::new_v4());
     let child_room_id = format!("!child_of_{}:example.com", uuid::Uuid::new_v4());
@@ -404,7 +409,7 @@ async fn test_get_child_spaces() {
 // === Test 14: get_space_hierarchy ===
 #[tokio::test]
 async fn test_get_space_hierarchy() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_hier_{}:example.com", uuid::Uuid::new_v4());
 
@@ -436,7 +441,7 @@ async fn test_get_space_hierarchy() {
 // === Test 15: add_space_event and get_space_events ===
 #[tokio::test]
 async fn test_add_and_get_space_events() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_evt_{}:example.com", uuid::Uuid::new_v4());
     let event_id = format!("$evt_{}:example.com", uuid::Uuid::new_v4());
@@ -494,7 +499,7 @@ async fn test_add_and_get_space_events() {
 // === Test 16: get_space_member_and_child_count ===
 #[tokio::test]
 async fn test_get_space_member_and_child_count() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_count_{}:example.com", uuid::Uuid::new_v4());
     let child_room_id = format!("!child_count_{}:example.com", uuid::Uuid::new_v4());
@@ -546,7 +551,7 @@ async fn test_get_space_member_and_child_count() {
 // === Test 17: search_spaces (empty query returns empty) ===
 #[tokio::test]
 async fn test_search_spaces_empty_query_returns_empty() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
 
     let results = storage.search_spaces("", 10, None).await.expect("search_spaces should succeed");
@@ -559,7 +564,7 @@ async fn test_search_spaces_empty_query_returns_empty() {
 // === Test 18: search_spaces (anonymous finds public spaces only) ===
 #[tokio::test]
 async fn test_search_spaces_anonymous_finds_public() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_search_pub_{}:example.com", uuid::Uuid::new_v4());
 
@@ -592,7 +597,7 @@ async fn test_search_spaces_anonymous_finds_public() {
 // === Test 19: search_spaces (with user finds private spaces) ===
 #[tokio::test]
 async fn test_search_spaces_with_user_finds_private() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_search_priv_{}:example.com", uuid::Uuid::new_v4());
 
@@ -627,7 +632,7 @@ async fn test_search_spaces_with_user_finds_private() {
 // === Test 20: get_space_statistics ===
 #[tokio::test]
 async fn test_get_space_statistics_returns_rows() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_stat_{}:example.com", uuid::Uuid::new_v4());
 
@@ -670,7 +675,7 @@ async fn test_get_space_statistics_returns_rows() {
 // === Test 21: get_recursive_hierarchy (flat, no children) ===
 #[tokio::test]
 async fn test_get_recursive_hierarchy_flat() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_rec_flat_{}:example.com", uuid::Uuid::new_v4());
 
@@ -700,7 +705,7 @@ async fn test_get_recursive_hierarchy_flat() {
 // === Test 22: get_recursive_hierarchy (with children) ===
 #[tokio::test]
 async fn test_get_recursive_hierarchy_with_children() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_rec_parent_{}:example.com", uuid::Uuid::new_v4());
     let child_room_id = format!("!rec_child_{}:example.com", uuid::Uuid::new_v4());
@@ -753,7 +758,7 @@ async fn test_get_recursive_hierarchy_with_children() {
 // === Test 23: get_space_hierarchy_paginated (no children) ===
 #[tokio::test]
 async fn test_get_space_hierarchy_paginated_no_children() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_pag_{}:example.com", uuid::Uuid::new_v4());
 
@@ -783,7 +788,7 @@ async fn test_get_space_hierarchy_paginated_no_children() {
 // === Test 24: get_space_hierarchy_paginated (with from cursor) ===
 #[tokio::test]
 async fn test_get_space_hierarchy_paginated_with_from() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_pag_from_{}:example.com", uuid::Uuid::new_v4());
     let child_room_1 = format!("!pag_child1_{}:example.com", uuid::Uuid::new_v4());
@@ -841,7 +846,7 @@ async fn test_get_space_hierarchy_paginated_with_from() {
 // === Test 25: check_user_can_see_space (public space) ===
 #[tokio::test]
 async fn test_check_user_can_see_space_public() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_see_pub_{}:example.com", uuid::Uuid::new_v4());
 
@@ -869,7 +874,7 @@ async fn test_check_user_can_see_space_public() {
 // === Test 26: check_user_can_see_space (private, member) ===
 #[tokio::test]
 async fn test_check_user_can_see_space_private_member() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_see_priv_{}:example.com", uuid::Uuid::new_v4());
 
@@ -907,7 +912,7 @@ async fn test_check_user_can_see_space_private_member() {
 // === Test 27: check_user_can_see_space (private, non-member) ===
 #[tokio::test]
 async fn test_check_user_can_see_space_private_non_member() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_see_nonmem_{}:example.com", uuid::Uuid::new_v4());
 
@@ -937,7 +942,7 @@ async fn test_check_user_can_see_space_private_non_member() {
 // === Test 28: check_user_can_see_space (nonexistent returns false) ===
 #[tokio::test]
 async fn test_check_user_can_see_space_nonexistent() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
 
     let can_see = storage
@@ -950,7 +955,7 @@ async fn test_check_user_can_see_space_nonexistent() {
 // === Test 29: get_parent_spaces ===
 #[tokio::test]
 async fn test_get_parent_spaces() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let parent_room_id = format!("!sp_parent_{}:example.com", uuid::Uuid::new_v4());
     let child_room_id = format!("!sp_child_room_{}:example.com", uuid::Uuid::new_v4());
@@ -991,7 +996,7 @@ async fn test_get_parent_spaces() {
 // === Test 30: get_space_tree_path (root space) ===
 #[tokio::test]
 async fn test_get_space_tree_path_root() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_tree_root_{}:example.com", uuid::Uuid::new_v4());
 
@@ -1019,7 +1024,7 @@ async fn test_get_space_tree_path_root() {
 // === Test 31: get_space_tree_path (nested space) ===
 #[tokio::test]
 async fn test_get_space_tree_path_nested() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let parent_room_id = format!("!sp_tree_parent_{}:example.com", uuid::Uuid::new_v4());
     let child_room_id = format!("!sp_tree_child_{}:example.com", uuid::Uuid::new_v4());
@@ -1066,7 +1071,7 @@ async fn test_get_space_tree_path_nested() {
 // === Test 32: resolve_space_id (by space_id) ===
 #[tokio::test]
 async fn test_resolve_space_id_by_space_id() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_resolve_sid_{}:example.com", uuid::Uuid::new_v4());
 
@@ -1093,7 +1098,7 @@ async fn test_resolve_space_id_by_space_id() {
 // === Test 33: resolve_space_id (by room_id) ===
 #[tokio::test]
 async fn test_resolve_space_id_by_room_id() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_resolve_rid_{}:example.com", uuid::Uuid::new_v4());
 
@@ -1120,7 +1125,7 @@ async fn test_resolve_space_id_by_room_id() {
 // === Test 34: resolve_space_id (not found) ===
 #[tokio::test]
 async fn test_resolve_space_id_not_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
 
     let resolved =
@@ -1131,7 +1136,7 @@ async fn test_resolve_space_id_not_found() {
 // === Test 35: get_all_spaces_for_admin ===
 #[tokio::test]
 async fn test_get_all_spaces_for_admin() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_admin_{}:example.com", uuid::Uuid::new_v4());
 
@@ -1157,7 +1162,7 @@ async fn test_get_all_spaces_for_admin() {
 // === Test 36: get_space_by_identifier (by space_id) ===
 #[tokio::test]
 async fn test_get_space_by_identifier_by_space_id() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_ident_sid_{}:example.com", uuid::Uuid::new_v4());
 
@@ -1187,7 +1192,7 @@ async fn test_get_space_by_identifier_by_space_id() {
 // === Test 37: get_space_by_identifier (by room_id) ===
 #[tokio::test]
 async fn test_get_space_by_identifier_by_room_id() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_ident_rid_{}:example.com", uuid::Uuid::new_v4());
 
@@ -1215,7 +1220,7 @@ async fn test_get_space_by_identifier_by_room_id() {
 // === Test 38: get_space_by_identifier (not found) ===
 #[tokio::test]
 async fn test_get_space_by_identifier_not_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
 
     let found = storage
@@ -1228,7 +1233,7 @@ async fn test_get_space_by_identifier_not_found() {
 // === Test 39: get_space_user_ids ===
 #[tokio::test]
 async fn test_get_space_user_ids() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_uids_{}:example.com", uuid::Uuid::new_v4());
 
@@ -1258,7 +1263,7 @@ async fn test_get_space_user_ids() {
 // === Test 40: get_space_room_ids ===
 #[tokio::test]
 async fn test_get_space_room_ids() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_rids_{}:example.com", uuid::Uuid::new_v4());
     let child_room_1 = format!("!rids_child1_{}:example.com", uuid::Uuid::new_v4());
@@ -1300,7 +1305,7 @@ async fn test_get_space_room_ids() {
 // === Test 41: delete_space_returning_count ===
 #[tokio::test]
 async fn test_delete_space_returning_count() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_delcnt_{}:example.com", uuid::Uuid::new_v4());
 
@@ -1333,7 +1338,7 @@ async fn test_delete_space_returning_count() {
 // === Test 42: delete_space_returning_count (nonexistent returns 0) ===
 #[tokio::test]
 async fn test_delete_space_returning_count_nonexistent() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
 
     let count = storage
@@ -1346,7 +1351,7 @@ async fn test_delete_space_returning_count_nonexistent() {
 // === Test 43: get_space_children_paginated (no cursor) ===
 #[tokio::test]
 async fn test_get_space_children_paginated_no_cursor() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_childpag_{}:example.com", uuid::Uuid::new_v4());
     let child_room_1 = format!("!childpag1_{}:example.com", uuid::Uuid::new_v4());
@@ -1398,7 +1403,7 @@ async fn test_get_space_children_paginated_no_cursor() {
 // === Test 44: get_space_children_paginated (with cursor) ===
 #[tokio::test]
 async fn test_get_space_children_paginated_with_cursor() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_childcur_{}:example.com", uuid::Uuid::new_v4());
     let child_room_1 = format!("!childcur1_{}:example.com", uuid::Uuid::new_v4());
@@ -1450,7 +1455,7 @@ async fn test_get_space_children_paginated_with_cursor() {
 // === Test 45: get_space_members_paginated (no cursor) ===
 #[tokio::test]
 async fn test_get_space_members_paginated_no_cursor() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_mempag_{}:example.com", uuid::Uuid::new_v4());
 
@@ -1489,7 +1494,7 @@ async fn test_get_space_members_paginated_no_cursor() {
 // === Test 46: get_space_members_paginated (with cursor) ===
 #[tokio::test]
 async fn test_get_space_members_paginated_with_cursor() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = SpaceStorage::new(&pool);
     let room_id = format!("!sp_memcur_{}:example.com", uuid::Uuid::new_v4());
 

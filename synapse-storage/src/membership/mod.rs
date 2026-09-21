@@ -1263,10 +1263,15 @@ mod db_tests {
     use super::*;
     use std::sync::Arc;
 
-    async fn test_pool() -> Arc<sqlx::Pool<sqlx::Postgres>> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// 每个测试一个从迁移 baseline 克隆出来的独立 schema（返回 guard 与 pool）。
+    ///
+    /// 2026-09-21：原先用共享 `public` 池。共享池的问题：测试结果取决于环境里 `public` 的
+    /// 状态（本地 `public` 落后于迁移 baseline 时会直接 42P01），且并行测试互相影响。
+    /// 按铁律 7 消除状态共享：per-test schema 由模板克隆，表一定存在、行数从 0 开始。
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<sqlx::PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated test pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     async fn ensure_test_room(pool: &sqlx::PgPool, room_id: &str) {
@@ -1316,7 +1321,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_add_member_all_membership_types() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_test_types_{suffix}:localhost");
@@ -1349,7 +1354,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_add_member_with_sender() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_sender_{suffix}:localhost");
@@ -1371,7 +1376,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_member_found_and_not_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_found_{suffix}:localhost");
@@ -1403,7 +1408,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_room_members_filtered_by_type() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_a = format!("@mem_filter_a_{suffix}:localhost");
@@ -1436,7 +1441,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_has_any_non_banned_member_from_server_true() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_srv_true_{suffix}:localhost");
@@ -1456,7 +1461,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_has_any_non_banned_member_from_server_false() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_srv_false_{suffix}:localhost");
@@ -1482,7 +1487,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_room_member_count() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_a = format!("@mem_count_a_{suffix}:localhost");
@@ -1518,7 +1523,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_room_members_paginated() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_0 = format!("@mem_page_0_{suffix}:localhost");
@@ -1560,7 +1565,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_remove_member() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_remove_{suffix}:localhost");
@@ -1586,7 +1591,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_remove_member_idempotent() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_rm_idem_{suffix}:localhost");
@@ -1608,7 +1613,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_forget_member() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_forget_{suffix}:localhost");
@@ -1631,7 +1636,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_is_forgotten_returns_false() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_not_fgt_{suffix}:localhost");
@@ -1656,7 +1661,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_shared_room_users_shared() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_a = format!("@mem_share_a_{suffix}:localhost");
@@ -1680,7 +1685,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_shared_room_users_no_shared() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_a = format!("@mem_noshare_{suffix}:localhost");
@@ -1702,7 +1707,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_remove_all_members() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_a = format!("@mem_clr_a_{suffix}:localhost");
@@ -1736,7 +1741,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_ban_and_unban_member() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_ban_{suffix}:localhost");
@@ -1767,7 +1772,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_ban_member_idempotent() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_ban2_{suffix}:localhost");
@@ -1791,7 +1796,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_joined_rooms_multiple() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_jrooms_{suffix}:localhost");
@@ -1816,7 +1821,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_joined_rooms_empty() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_nojr_{suffix}:localhost");
@@ -1834,7 +1839,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_sync_rooms() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_sync_{suffix}:localhost");
@@ -1870,7 +1875,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_membership_state() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_state_{suffix}:localhost");
@@ -1901,7 +1906,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_joined_room_count() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_jrcount_{suffix}:localhost");
@@ -1930,7 +1935,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_is_member() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_ismem_{suffix}:localhost");
@@ -1958,7 +1963,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_room_member() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_rmem_{suffix}:localhost");
@@ -1985,7 +1990,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_joined_members() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_a = format!("@mem_jm_a_{suffix}:localhost");
@@ -2013,7 +2018,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_joined_member() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_jm_one_{suffix}:localhost");
@@ -2044,7 +2049,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_share_common_room() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_a = format!("@mem_scr_a_{suffix}:localhost");
@@ -2074,7 +2079,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_membership_history() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_a = format!("@mem_hist_a_{suffix}:localhost");
