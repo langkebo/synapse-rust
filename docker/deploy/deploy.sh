@@ -738,6 +738,14 @@ ensure_app_data_keys() {
             return 1
         fi
         log_success "megolm.key 已存在且合法（解码 32 字节）"
+        # 顺手收紧权限：历史遗留的密钥是 0644（宿主机任何本地用户可读）。与
+        # ensure_ssl_certs 对 TLS 私钥的处理保持一致，统一 0600。
+        local current_mode
+        current_mode="$(stat -f '%Lp' "$key_file" 2>/dev/null || stat -c '%a' "$key_file" 2>/dev/null || echo '')"
+        if [ -n "$current_mode" ] && [ "$current_mode" != "600" ]; then
+            chmod 600 "$key_file"
+            log_warning "已将 megolm.key 权限由 ${current_mode} 收紧为 600"
+        fi
         return
     fi
 
