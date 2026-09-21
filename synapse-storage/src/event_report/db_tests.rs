@@ -8,11 +8,13 @@ use super::*;
 /// 每个测试一个从迁移 baseline 克隆出来的独立 schema（返回 guard 与 pool）。
 ///
 /// 2026-09-21 之前这里用的是 `connect_shared_test_pool()`（即共享 `public`），有两个问题：
-///   1. **共享状态竞态**：`test_count_all_reports_is_global` 断言"全局计数至少 +3"，
-///      而 CI 上并行跑的同库测试会改变 `public.event_reports` 的可见行数 —— 实测
-///      `before=3, after=3` 直接假红（run 35549300075），本地则因 `public` 根本没有
-///      `event_reports`（该表只在迁移 baseline / 模板 schema 里）而报 42P01。
-///   2. 测试结果取决于环境里 `public` 的残渣，而不是取决于被测代码。
+///
+/// 1. **共享状态竞态**：`test_count_all_reports_is_global` 断言"全局计数至少 +3"，
+///    而 CI 上并行跑的同库测试会改变 `public.event_reports` 的可见行数 —— 实测
+///    `before=3, after=3` 直接假红（run 35549300075），本地则因 `public` 根本没有
+///    `event_reports`（该表只在迁移 baseline / 模板 schema 里）而报 42P01。
+/// 2. 测试结果取决于环境里 `public` 的残渣，而不是取决于被测代码。
+///
 /// 按铁律 7 消除共享状态：per-test schema 由模板克隆而来，表一定存在、行数从 0 开始，
 /// 竞态与被测对象一起消失（同 `admin_federation.rs::test_pool` 的迁移方式）。
 async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<PgPool>) {

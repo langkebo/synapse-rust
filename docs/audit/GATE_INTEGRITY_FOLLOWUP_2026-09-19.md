@@ -1180,7 +1180,7 @@ dynamic 从 1484 升到 **1499**（15 处**全部**来自 §12.1 的租约：`af
 | Format Compliance 的 pre-commit 段 | ⚠️ 部分未能本地验证 | 本机无 `pre-commit`（PyPI TLS 被阻断），无法跑到 hook 环境下载那一步；但 `check-json`/`check-toml`/`check-yaml` 的等价校验已通过 194/194。CI 重跑给出确切结论 |
 | `peaceiris/actions-gh-pages@v3` | ✅ 本轮升级 | actionlint 报 "runner of ... is too old to run on GitHub Actions"（GitHub 已不支持旧 node）→ 升 `@v4`（`v4.1.0` 存在，输入不变），`actionlint` 全仓 0 告警。仍需 main 实跑确认发布动作本身 |
 | `docker-security-scan.yml` 首次真跑 | ⚠️ 未知 | 它过去**从未执行过任何 step**。修复后 hadolint/trivy 会第一次真正运行，可能出现新的 lint/CVE 结论 |
-| B10 残留 ⑤ | ⚠️ 未做 | `SYNAPSE_MIGRATIONS_DIR` 未在 docker-compose 的 `environment:` 里显式声明（镜像 `WORKDIR /app` + `cp -R migrations/. /app/migrations` 已使默认解析成功，故非阻塞） |
+| B10 残留 ⑤ | ✅ 裁定：**不需要**（2026-09-21） | `SYNAPSE_MIGRATIONS_DIR` 不写进 docker-compose `environment:`。理由（实测）：运行镜像 `docker/Dockerfile:176` 的 `WORKDIR /app` + `:111` 的 `cp -R migrations/. /out/app/migrations/` 使默认解析（`<cwd>/migrations`）必然命中；显式声明一份指向同一目录的环境变量属铁律 1 的"唯一存在理由是冗余"配置。而 B10 的 fail-closed 解析器已保证：布局若被改坏，服务启动时会**报错**（`… contains no .sql migrations; …`）而不是静默跳过 schema 检查 |
 
 ### 14.4 本轮本地门禁（冻结树 = 当前工作树，2026-09-20；真 CI 需推送后重跑）
 
@@ -2593,3 +2593,31 @@ DATABASE_URL=… TEST_DATABASE_URL=… TEST_DB_TEMPLATE_SCHEMA=test_template_ci 
 验证：`cargo check -p synapse-web --no-default-features --locked` = **exit 0**，输出里
 `warning` **0 条**、`unused variable` **0 条**（本次实测；同一命令在修复前对应 CI 的
 `core-matrix-min` 车道里的那 6 条警告）。
+
+### 14.14.5 过程教训：只跑 `cargo check` 会漏掉 clippy 的 style lint（4 条车道全红）
+
+`71280550` 的四条 `Test & Lint` 车道**全部**红在 `Run clippy`（slow tier 因此被 skipped），
+根因只有一个 6 行的文档注释：
+
+```
+error: doc list item without indentation
+  --> synapse-storage/src/event_report/db_tests.rs:16:5
+16 | /// 按铁律 7 消除共享状态：per-test schema 由模板克隆而来，…
+```
+
+第 14.14.3 条迁移 `event_report/db_tests.rs` 时，我在 `test_pool()` 上写了一段 `///`
+注释，里面是「编号列表 + 紧跟其后的普通段落」。clippy 的 `doc_lazy_continuation` 会把那段
+未缩进的文字当成列表项的续行并判错（`-D warnings` ⇒ 红）。修法：列表与后续段落之间补一行
+空的 `///`。
+
+**教训（值得记住）**：本地只跑 `cargo check`/`rustfmt` 是不够的 —— `doc_lazy_continuation`
+一类 **style/pedantic lint 只在 clippy 里报**。改任何 Rust 源码或测试后，必须跑 CI 口径的
+**两条** clippy 变体：
+
+```bash
+SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils --locked -- -D warnings
+SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils --all-features --locked -- -D warnings
+```
+
+（这也解释了为什么 CI 把 clippy 放在 fast tier 的最前面之一：它比测试快得多，能在 15 分钟内
+拦住这类纯机械错误。本轮代价是一条被取消/重跑的 CI run。）
