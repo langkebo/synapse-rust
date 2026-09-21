@@ -2778,7 +2778,7 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 | 2 | ~~k6 Smoke Test 从未真正执行~~ → **本地首跑已做（2026-09-21）**，CI 侧仍待真实环境 | 用 docker `grafana/k6:0.47.0`（与 CI 同版本）在本机 docker 栈上真跑 `run_tests.sh smoke`：10 VUs × 30s = 280 iterations、summary 正常导出、k6 自身 `errors` 阈值确实会红（本地无管理员凭据 ⇒ 属目标侧问题）。**首跑即抓到门禁缺陷**：`guardrail.py` 读不了 k6 0.47 的扁平 `--summary-export`（0.47 把聚合平铺在 `metrics.<name>`：trend `{"p(95)":12}`、rate `{"value":1}`；脚本只认`metric["values"]["p(95)"]`）⇒ 七项指标恒为 `missing`/FAIL，**目标再健康也只会红**。已修（扁平优先 + 嵌套回退）并加守卫 `k6_guardrail_reads_the_flat_summary_export`。CI 侧仍需 `K6_SMOKE_BASE_URL` 指向真实环境 |
 | 3 | 分支保护允许绕过、不强制 PR（既有裁定） | 门禁绿不绿依赖人工看 run；漏看即漏合并 |
 | 4 | ~~根 crate 的 1 处 production unsafe 未定位~~ → **已定位（2026-09-21）** | `-Zunpretty=hir` 全量核对：该 crate 展开后的 284 个 unsafe **全部**来自 `format_args!`（155）与 `.await`/tokio 宏脱糖（129），源码零 `unsafe` 字面量 ⇒ cargo-geiger 的 span 归因产物，**无需改代码**（§14.14.6） |
-| 5 | `test_schema_guard` 的 `libc::atexit` | "测试基础设施被编进产品库"的已知代价（已按裁定 B 进基线）。**2026-09-21 更正**：原先写的"靠 feature gate 就能收紧"**不成立** —— cargo-geiger 的 prod 扫描是 `cargo geiger --all-features`（`run_cargo_geiger.py:94`），`--all-features` 会把每个 crate 的 `test-utils` 一起打开，所以 gate 在 `any(test, feature = "test-utils")` 的代码**照样被编进 prod 扫描**。真正可行的只有两条：(i) 去掉 atexit 退出兜底（会削弱 schema 回收的确定性，需重新验证 janitor），或 (ii) 把 prod 扫描的 feature 集改成"生产实际使用的那个"（如 Dockerfile 的 CARGO_FEATURE_ARGS），代价是 test-only 的差值会混入 feature 差异。两者都要先有裁定，当前维持基线 |
+| 5 | `test_schema_guard` 的 `libc::atexit` | "测试基础设施被编进产品库"的已知代价（已按裁定 B 进基线）。**2026-09-21 更正**：原先写的"靠 feature gate 就能收紧"**不成立** —— cargo-geiger 的 prod 扫描是 `cargo geiger --all-features`（`run_cargo_geiger.py:94`），`--all-features` 会把每个 crate 的 `test-utils` 一起打开，所以 gate 在 `any(test, feature = "test-utils")` 的代码**照样被编进 prod 扫描**。真正可行的只有两条：(i) 去掉 atexit 退出兜底（会削弱 schema 回收的确定性，需重新验证 janitor），或 (ii) 把 prod 扫描的 feature 集改成"生产实际使用的那个"（如 Dockerfile 的 CARGO_FEATURE_ARGS），代价是 test-only 的差值会混入 feature 差异。两者都要先有裁定，当前维持基线。**2026-09-21 尝试执行 (i) 并失败（结果已回滚，atexit 保留）** —— 见 §14.14.8：把"池释放时同步清理"实现成 `Drop { pool.close().await; drop_schema_if_unleased() }` + join 会在 `#[tokio::test]` 的 current-thread runtime 上**死锁**（sqlx 的 `Pool::close()` 会 `await` 每个空闲连接的关闭握手，而那需要被 `join` 阻塞住的那个 runtime）；此外退出钩子还覆盖着 3 处 `static PREPARED_TEST_POOLS`（永远不 drop 的池），去掉它需要有替代覆盖 |
 | 6 | distroless pin 偏旧（`e5d81ddd…`，0 CVE）、builder `rust:1.93.0-slim-bookworm`（475 HIGH/CRITICAL，仅 build-time） | 已知权衡，未动；Docker Security Scan 目前绿 |
 
 **B. 代码 / 工程债（可动，本轮未做）**
@@ -2817,7 +2817,7 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 **P2（已识别、可独立排期）**
 | 任务 | 估算 |
 |---|---|
-| ~~`test_schema_guard` 收紧~~ → **需先裁定**（见 §14.16 A⑤ 的更正：feature gate 在本门禁的 `--all-features` prod 扫描下无效）：要么去掉 atexit 兜底（改代码 + 重验 janitor），要么改 prod 扫描的 feature 集 | 2–4h（含验证） |
+| ~~`test_schema_guard` 收紧~~ → **首次尝试失败（§14.14.8），精化设计待裁定**：(a) 把"最后一个 `Arc<PgPool>` 移出句柄 + 在清理线程 drop"（不要 `close()+join`，实测在 `#[tokio::test]` 上死锁）；(b) 为 3 处 `static PREPARED_TEST_POOLS`（永不 drop ⇒ Weak 永活 ⇒ janitor 收不到，原由 exit drain 覆盖）找替代覆盖。**(b) 无解就只能保留 atexit** | **3–5h**（含验证；需先裁定是否值得） |
 | 剩余 13 个共享池文件迁移到 per-test schema（`schema_validator.rs` 除外，见 A⑦ 的克隆命名发现） | **5–7h**（每个 20–30 min，建议每批 3–4 个文件一个提交 —— 批次 1/2 实测：每批改动 ~13–35 个调用点，本地验证 1–8 分钟） |
 | 本地 `test_*` schema 清理 + 把 cleanup 接入流程 | ✅ 已核实：实测只剩 4 个残留（其余 3 个是 live 模板），janitor 正常工作；降为定期抽查 |
 | A13：`run_ci_tests.sh` 与 `ci.yml` 二选一（删除重复实现） | 1–2h |
@@ -2832,3 +2832,65 @@ schema 迁移，可分批推进，每批都能独立验证与提交）。原计�
 **建议的下一个会话顺序**：① 读 P0 结果并按 P1 处置（含 Coverage 首次执行）→ ② 每批 3–5 个文件
 迁移共享池（可随时中断，风险低，收益是把"CI 绿本地红"这一类隐患消掉）→ ③ `test_schema_guard` /
 geiger prod 口径二选一（需裁定，2–4h）→ ④ k6 的首次真跑（视外部条件）。
+
+### 14.14.8 尝试执行裁定 (i)（移除 `libc::atexit`）失败并回滚：close+join 死锁，且静态停放的池失去覆盖
+
+**范围**：按"去掉 atexit、改成池释放时同步清理"实施了一遍，**全部已回滚**（工作树回到 atexit 保留状态），
+本节记录失败原因、实测证据与替代方案，供下一次决定。
+
+**做了什么**（编译层面成立）：
+- `drop_schema_if_unleased_blocking` 的 async 主体抽成 `pub async fn drop_schema_if_unleased`；
+- 删掉整套退出机制：`libc::atexit` / `EXITING` / `JANITOR_HANDLE` / `JANITOR_EXIT_JOIN_TIMEOUT` /
+  `EXIT_DRAIN_WORKERS` / `EXIT_CALLBACKS` / `register_exit_callback` / `janitor_exit_handler` /
+  `run_exit_drain` / `SchemaCleanup::on_exit` / `release_or_exit_drop` / `drop_schema_cleanup` /
+  `drop_schema_blocking`，`collect_released_entries` 去掉 `exiting` 参数；
+- `IsolatedTestPool` 与 `LeasedSchema` 各加一个 `Drop`：具名线程里 `pool.close().await` 后跑
+  租约守卫的 drop，并 `join`；`synapse-common` 的 `libc` 依赖与 `Cargo.lock` 条目一并删除。
+- 编译验证：`cargo check -p synapse-common -p synapse-test-utils --all-features` = **0 error / 0 warning**。
+
+**运行时不成立（实测）**：`cargo nextest run -p synapse-common --all-features --test-threads 4`
+—— 815 条通过后出现两类问题，且第一类是**死锁**：
+
+1. **`pool.close()` + `join()` 在 `#[tokio::test]` 上互相等待（致命）**。
+   `test_schema_guard::tests::janitor_does_not_drop_a_schema_held_through_an_inner_pool_clone`
+   卡死 >780 s 且无 panic（HEAD 上约 0.4 s 通过）。源码级根因：sqlx-core 0.8.6
+   `src/pool/inner.rs:97-114` 的 `Pool::close()` 会对每个空闲连接
+   `await idle.live.float(...).close().await`；PostgreSQL 侧这是一次 Terminate 握手 + socket flush，
+   其 I/O reactor 属于**调用方**的 runtime —— 而 `Drop` 的 `join()` 正把那个（`#[tokio::test]` 默认
+   的 current-thread）runtime 阻塞住。nextest 下这是致命的：测试体结束时局部变量（含
+   `IsolatedTestPool`）就在该 runtime 内 drop。
+2. **顺带暴露一个既有 race**：`released_pool_triggers_cleanup_without_any_sweep` 报
+   `on_release must run once the pool is released: Empty`。该测试 drop 一个 lazy 池、驱动一次 release
+   pass、再 `try_recv()`；若 janitor 这次刚好抢先 claim 了条目，测试的 pass 什么都收不到，而 janitor
+   的回调可能尚未 send。改动让 `ensure_janitor_started` 变便宜（不再存 handle、不再 `atexit`），
+   时序偏移把这条一直存在的 race 暴露出来。修法：用 `recv_timeout(5s)` 取代 `try_recv()`。
+
+**语义与覆盖面的两个缺口**（即使死锁修好也要一起解决）：
+
+3. **`close()` 会关掉共享池**，于是"测试通过内层 `PgPool` clone 继续查询"的既有契约（media flake
+   §1.9.1 的修复对象）不再成立；上面那条回归测试的断言必须重写。当前设计是**延迟** DROP（Retry），
+   而不是关池。
+4. **静态停放的池没有替代覆盖**：`synapse-services` / `synapse-storage` / `synapse-test-utils`
+   各有一处 `static PREPARED_TEST_POOLS: LazyLock<Mutex<Vec<Arc<PgPool>>>>`，进程退出时永不 drop，
+   其 `Weak` 一直活着 ⇒ janitor 永远不会收它们。atexit 的 exit drain 以 `exiting=true` 收集
+   **全部**条目（不看 `Weak`）+ 无条件 DROP，正是覆盖这一类。去掉钩子必须给它替代（不再停放池，
+   或在测试结束时清空）。
+
+**建议的替代设计（未实施，待裁定）**——保留"池释放即清理"的确定性，同时避开死锁：
+- 不要 `close()`；把句柄里的**最后一个 `Arc<PgPool>` 移出**（`IsolatedTestPool.pool` 改
+  `Option<Arc<PgPool>>`；`LeasedSchema.pool` 是 `pub` 字段，可先在 `Drop` 里用 `connect_lazy`
+  的 dummy swap 出来），移动后的 Arc 在清理线程里 `drop` —— socket 关闭是同步的、不需要 reactor；
+- 随后在同一线程跑租约守卫的 drop，并**有界等待**（例如 20 × 50 ms）等服务器处理完断开；
+- 内层 clone 仍存活时租约不释放 ⇒ `Retry` ⇒ 交给 janitor，media flake 的契约与测试都保持成立；
+- 仍要单独解决第 4 条（静态停放的池）。
+- 若做不到第 4 条，则保留 atexit 是唯一能覆盖"进程退出时仍被 static 持有的池"的机制（裁定 B 的
+  geiger 基线 2 维持不变）。
+
+**当次验证输出（实际）**：
+```
+cargo check -p synapse-common -p synapse-test-utils --all-features      → 0 error / 0 warning
+cargo nextest run -p synapse-common --all-features --test-threads 4     → 815 passed, 1 FAIL, 1 卡死（未跑完 899）
+```
+**外部阻塞（与本任务无关）**：`synapse-common/src/server_metrics.rs`（并行会话的在改文件）当前
+**编译不过**（`error[E0560]: unknown field http_request_errors_total_total`，:217），而它
+`pub mod server_metrics;` 无条件编译 ⇒ 整个 workspace 的编译/验证都被挡住。本任务未触碰该文件。
