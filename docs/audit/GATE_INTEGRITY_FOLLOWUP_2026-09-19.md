@@ -2778,7 +2778,7 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 | 2 | **k6 Smoke Test 从未真正执行** | 需要 `K6_SMOKE_BASE_URL` 指向真实环境（secret）；现在必须显式 `run_k6=true` 才触发 |
 | 3 | 分支保护允许绕过、不强制 PR（既有裁定） | 门禁绿不绿依赖人工看 run；漏看即漏合并 |
 | 4 | ~~根 crate 的 1 处 production unsafe 未定位~~ → **已定位（2026-09-21）** | `-Zunpretty=hir` 全量核对：该 crate 展开后的 284 个 unsafe **全部**来自 `format_args!`（155）与 `.await`/tokio 宏脱糖（129），源码零 `unsafe` 字面量 ⇒ cargo-geiger 的 span 归因产物，**无需改代码**（§14.14.6） |
-| 5 | `test_schema_guard` 的 `libc::atexit` | "测试基础设施被编进产品库"的已知代价；收紧路径（dev-dependencies 启用 `test-utils` + gate 模块）已写进基线 |
+| 5 | `test_schema_guard` 的 `libc::atexit` | "测试基础设施被编进产品库"的已知代价（已按裁定 B 进基线）。**2026-09-21 更正**：原先写的"靠 feature gate 就能收紧"**不成立** —— cargo-geiger 的 prod 扫描是 `cargo geiger --all-features`（`run_cargo_geiger.py:94`），`--all-features` 会把每个 crate 的 `test-utils` 一起打开，所以 gate 在 `any(test, feature = "test-utils")` 的代码**照样被编进 prod 扫描**。真正可行的只有两条：(i) 去掉 atexit 退出兜底（会削弱 schema 回收的确定性，需重新验证 janitor），或 (ii) 把 prod 扫描的 feature 集改成"生产实际使用的那个"（如 Dockerfile 的 CARGO_FEATURE_ARGS），代价是 test-only 的差值会混入 feature 差异。两者都要先有裁定，当前维持基线 |
 | 6 | distroless pin 偏旧（`e5d81ddd…`，0 CVE）、builder `rust:1.93.0-slim-bookworm`（475 HIGH/CRITICAL，仅 build-time） | 已知权衡，未动；Docker Security Scan 目前绿 |
 
 **B. 代码 / 工程债（可动，本轮未做）**
@@ -2817,7 +2817,7 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 **P2（已识别、可独立排期）**
 | 任务 | 估算 |
 |---|---|
-| `test_schema_guard` 收紧（依赖方 `[dev-dependencies]` 启用 `test-utils` + gate 模块 + 5 crate 回归） | 3–4h |
+| ~~`test_schema_guard` 收紧~~ → **需先裁定**（见 §14.16 A⑤ 的更正：feature gate 在本门禁的 `--all-features` prod 扫描下无效）：要么去掉 atexit 兜底（改代码 + 重验 janitor），要么改 prod 扫描的 feature 集 | 2–4h（含验证） |
 | 23 个共享池 `db_tests` 迁移到 per-test schema | **8–12h**（每个 20–30 min，建议每批 3–5 个文件一个提交，本地跑该文件 + CI 抽验） |
 | 本地 `test_*` schema 清理 + 把 cleanup 接入流程 | ✅ 已核实：实测只剩 4 个残留（其余 3 个是 live 模板），janitor 正常工作；降为定期抽查 |
 | A13：`run_ci_tests.sh` 与 `ci.yml` 二选一（删除重复实现） | 1–2h |
@@ -2829,6 +2829,6 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 schema 迁移，可分批推进，每批都能独立验证与提交）。原计划里的「定位那 1 处 unsafe」（1–2h）
 与「本地 schema 清理」（30 min）已在本轮完成或证伪，不再计入。
 
-**建议的下一个会话顺序**：① 读 P0 结果并按 P1 处置 → ② `test_schema_guard` 收紧（3–4h，
-可把 production unsafe 从 2 降到 1）→ ③ 每批 3–5 个文件迁移共享池（可随时中断，风险低）
-→ ④ k6 / Coverage 的首次真跑（视外部条件）。
+**建议的下一个会话顺序**：① 读 P0 结果并按 P1 处置（含 Coverage 首次执行）→ ② 每批 3–5 个文件
+迁移共享池（可随时中断，风险低，收益是把"CI 绿本地红"这一类隐患消掉）→ ③ `test_schema_guard` /
+geiger prod 口径二选一（需裁定，2–4h）→ ④ k6 的首次真跑（视外部条件）。
