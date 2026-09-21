@@ -2833,6 +2833,25 @@ schema 迁移，可分批推进，每批都能独立验证与提交）。原计�
 迁移共享池（可随时中断，风险低，收益是把"CI 绿本地红"这一类隐患消掉）→ ③ `test_schema_guard` /
 geiger prod 口径二选一（需裁定，2–4h）→ ④ k6 的首次真跑（视外部条件）。
 
+### 14.14.9 run `35580479156`（`9c374ce1`）：integration 与快照门禁双绿，perf smoke 卡在缺 feature
+
+**这是 integration 车道第一次走到最后一步之前只剩一个非测试问题**：
+
+| 步骤 | 结果 |
+|---|---|
+| `Run integration tests (--test integration)` | ✅ **1424 passed**（4 并发，零锁表错误） |
+| `Run e2e target` | ✅ 20 passed |
+| `Snapshot gate (insta assert-only, unit snapshots, no .snap.new)` | ✅ 20 passed（**§14.14.7 的新形态第一次真跑就绿**，`.snap.new` 两项检查也过） |
+| `Run performance smoke gate` | ❌ `error: target \`performance_manual\` … requires the features: \`performance-tests\`, \`test-utils\`` |
+| `Code Coverage` | ⏸ 仍被上一步挡住（skipped） |
+
+**根因与修法**：`Cargo.toml:309` 的 `[[test]] performance_manual` 声明了**两个**
+`required-features = ["performance-tests", "test-utils"]`，而该步骤只传了 `performance-tests`
+⇒ cargo 在编译前拒绝。改为 `--features performance-tests,test-utils`。
+同型缺陷（"排在其它红之后的步骤从未执行过，一上电就报自己的配置错"）在本会话已是第 8 次；
+守卫 `performance_smoke_step_declares_required_features` 待能编译时补上（当时并行会话的
+`synapse-common/src/server_metrics.rs` WIP 有 E0560，本地无法编译验证任何 Rust 测试）。
+
 ### 14.14.8 尝试执行裁定 (i)（移除 `libc::atexit`）失败并回滚：close+join 死锁，且静态停放的池失去覆盖
 
 **范围**：按"去掉 atexit、改成池释放时同步清理"实施了一遍，**全部已回滚**（工作树回到 atexit 保留状态），

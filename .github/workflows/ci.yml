@@ -883,6 +883,13 @@ jobs:
             echo "::error::pending insta snapshots left by this run:"; echo "${untracked}"; exit 1
           fi
 
+      # 2026-09-21 修复（run 35580479156 第一次真正执行到本步骤时暴露）：
+      #   error: target `performance_manual` in package `synapse-rust` requires the
+      #          features: `performance-tests`, `test-utils`
+      # `Cargo.toml:309` 的 `[[test]] performance_manual` 声明了**两个** required-features，
+      # 而这里只传了 `performance-tests` ⇒ cargo 在编译前就拒绝。同型缺陷在本会话已出现多次：
+      # 排在其它红之后的步骤从未执行过，一上电就报自己的配置错。
+      # 守卫：`tests/unit/ci_test_scope_tests.rs::performance_smoke_step_declares_required_features`。
       - name: Run performance smoke gate
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
@@ -895,7 +902,7 @@ jobs:
           # `2>&1 | tee` 掩盖退出码（bash 默认无 pipefail）。
           set -o pipefail
           mkdir -p artifacts
-          cargo test --test performance_manual --features performance-tests --locked -- --ignored --nocapture 2>&1 | tee artifacts/perf_smoke.log
+          cargo test --test performance_manual --features performance-tests,test-utils --locked -- --ignored --nocapture 2>&1 | tee artifacts/perf_smoke.log
 
       - name: Upload performance smoke log
         if: always()
