@@ -256,10 +256,16 @@ impl VoiceStorage {
 mod db_tests {
     use super::*;
 
-    async fn test_pool() -> Arc<PgPool> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// 每个测试一个从迁移 baseline 克隆出来的独立 schema（返回 guard 与 pool）。
+    ///
+    /// 2026-09-21：原先用 `connect_shared_test_pool()`（共享 `public`）。共享池的两个问题：
+    /// 测试结果取决于环境里 `public` 的残渣（本地 `public` 落后于迁移 baseline 时会直接
+    /// 42P01），且并行测试互相影响。按铁律 7 消除共享状态：从模板克隆的 per-test schema
+    /// 保证表一定存在、行数从 0 开始（同 `admin_federation.rs`、`event_report/db_tests.rs`）。
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<sqlx::PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated test pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     #[cfg(test)]
@@ -305,7 +311,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_record_upload_success() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = VoiceStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@voice_user_{suffix}:test.com");
@@ -331,7 +337,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_by_media_id_found_and_not_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = VoiceStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@voice_get_{suffix}:test.com");
@@ -370,7 +376,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_room_messages_with_pagination() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = VoiceStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@voice_room_{suffix}:test.com");
@@ -408,7 +414,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_messages_basic() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = VoiceStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@voice_usermsgs_{suffix}:test.com");
@@ -439,7 +445,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_stats_aggregation() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = VoiceStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@voice_ustats_{suffix}:test.com");
@@ -472,7 +478,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_room_stats_aggregation() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = VoiceStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@voice_rstats_{suffix}:test.com");
@@ -512,7 +518,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_user_stats_removes_rows() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = VoiceStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@voice_deluser_{suffix}:test.com");
@@ -542,7 +548,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_round_trip_all_fields() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = VoiceStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@voice_roundtrip_{suffix}:test.com");

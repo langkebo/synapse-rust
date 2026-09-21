@@ -8,10 +8,16 @@
 use super::*;
 use std::sync::Arc;
 
-async fn test_pool() -> Arc<sqlx::PgPool> {
-    crate::test_utils::connect_shared_test_pool()
-        .await
-        .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+/// 每个测试一个从迁移 baseline 克隆出来的独立 schema（返回 guard 与 pool）。
+///
+/// 2026-09-21：原先用 `connect_shared_test_pool()`（共享 `public`）。共享池的两个问题：
+/// 测试结果取决于环境里 `public` 的残渣（本地 `public` 落后于迁移 baseline 时会直接
+/// 42P01），且并行测试互相影响。按铁律 7 消除状态共享：per-test schema 由模板克隆，
+/// 表一定存在、行数从 0 开始。
+async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<sqlx::PgPool>) {
+    let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated test pool");
+    let pool = isolated.pool();
+    (isolated, pool)
 }
 
 fn make_suffix() -> String {
@@ -49,7 +55,7 @@ async fn ensure_test_user(pool: &sqlx::PgPool, user_id: &str) {
 
 #[tokio::test]
 async fn create_notification_then_get() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ServerNotificationStorage::new(&pool);
     let suffix = make_suffix();
     let title = format!("notif_{suffix}");
@@ -68,14 +74,14 @@ async fn create_notification_then_get() {
 
 #[tokio::test]
 async fn get_notification_none_for_missing() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ServerNotificationStorage::new(&pool);
     assert!(storage.get_notification(i64::MAX).await.unwrap().is_none());
 }
 
 #[tokio::test]
 async fn list_active_notifications_filters_expired() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ServerNotificationStorage::new(&pool);
     let suffix = make_suffix();
 
@@ -106,7 +112,7 @@ async fn list_active_notifications_filters_expired() {
 
 #[tokio::test]
 async fn update_notification_changes_fields() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ServerNotificationStorage::new(&pool);
     let suffix = make_suffix();
 
@@ -122,7 +128,7 @@ async fn update_notification_changes_fields() {
 
 #[tokio::test]
 async fn delete_notification_returns_true_then_get_none() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ServerNotificationStorage::new(&pool);
     let suffix = make_suffix();
 
@@ -135,7 +141,7 @@ async fn delete_notification_returns_true_then_get_none() {
 
 #[tokio::test]
 async fn deactivate_notification_sets_disabled() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ServerNotificationStorage::new(&pool);
     let suffix = make_suffix();
 
@@ -151,7 +157,7 @@ async fn deactivate_notification_sets_disabled() {
 
 #[tokio::test]
 async fn create_template_then_get() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ServerNotificationStorage::new(&pool);
     let suffix = make_suffix();
     let name = format!("tpl_{suffix}");
@@ -174,7 +180,7 @@ async fn create_template_then_get() {
 
 #[tokio::test]
 async fn mark_as_read_creates_status() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ServerNotificationStorage::new(&pool);
     let suffix = make_suffix();
     let user_id = format!("@sn_read_{suffix}:test");
@@ -192,7 +198,7 @@ async fn mark_as_read_creates_status() {
 
 #[tokio::test]
 async fn mark_as_read_missing_notification_returns_not_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ServerNotificationStorage::new(&pool);
     let suffix = make_suffix();
     let user_id = format!("@sn_missing_{suffix}:test");
@@ -218,7 +224,7 @@ async fn mark_as_read_missing_notification_returns_not_found() {
 
 #[tokio::test]
 async fn delete_room_cascade_reports_success_only_when_rows_are_gone() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let suffix = make_suffix();
     let room_id = format!("!snc_{suffix}:localhost");
     let storage = ServerNotificationStorage::new(&pool);

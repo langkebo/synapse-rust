@@ -97,10 +97,16 @@ mod db_tests {
     use super::*;
     use serde_json::json;
 
-    async fn test_pool() -> Arc<PgPool> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// 每个测试一个从迁移 baseline 克隆出来的独立 schema（返回 guard 与 pool）。
+    ///
+    /// 2026-09-21：原先用 `connect_shared_test_pool()`（共享 `public`）。共享池的两个问题：
+    /// 测试结果取决于环境里 `public` 的残渣（本地 `public` 落后于迁移 baseline 时会直接
+    /// 42P01），且并行测试互相影响。按铁律 7 消除共享状态：从模板克隆的 per-test schema
+    /// 保证表一定存在、行数从 0 开始（同 `admin_federation.rs`、`event_report/db_tests.rs`）。
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<sqlx::PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated test pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     fn unique_suffix() -> String {
@@ -136,7 +142,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_upsert_and_get() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = unique_suffix();
         let user_id = test_user_id(&suffix);
         ensure_test_user(&pool, &user_id).await;
@@ -157,7 +163,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_not_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = unique_suffix();
         let user_id = test_user_id(&suffix);
         ensure_test_user(&pool, &user_id).await;
@@ -177,7 +183,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_list_multiple() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = unique_suffix();
         let user_id = test_user_id(&suffix);
         ensure_test_user(&pool, &user_id).await;
@@ -204,7 +210,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_list_empty() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = unique_suffix();
         let user_id = test_user_id(&suffix);
         ensure_test_user(&pool, &user_id).await;
@@ -221,7 +227,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_existing() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = unique_suffix();
         let user_id = test_user_id(&suffix);
         ensure_test_user(&pool, &user_id).await;
@@ -248,7 +254,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_not_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = unique_suffix();
         let user_id = test_user_id(&suffix);
         ensure_test_user(&pool, &user_id).await;
@@ -266,7 +272,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_overwrite_account_data() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = unique_suffix();
         let user_id = test_user_id(&suffix);
         ensure_test_user(&pool, &user_id).await;
@@ -295,7 +301,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_multiple_users_isolation() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = unique_suffix();
         let user_a = format!("@ad_test_a_{suffix}:localhost");
         let user_b = format!("@ad_test_b_{suffix}:localhost");
@@ -334,7 +340,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_nested_json_preservation() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let suffix = unique_suffix();
         let user_id = test_user_id(&suffix);
         ensure_test_user(&pool, &user_id).await;
