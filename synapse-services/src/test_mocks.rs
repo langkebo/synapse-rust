@@ -450,6 +450,46 @@ impl RegistrationTokenApi for InMemoryRegistrationTokenService {
     }
 }
 
+// ── Invite policy gate ───────────────────────────────────────────────
+
+/// In-memory double for [`crate::invite_blocklist_service::InvitePolicyGate`].
+///
+/// Permissive by default, so membership tests that are about something else
+/// (state machine, power levels, federation backfill) are not forced through
+/// Postgres. [`Self::denying`] builds the variant that rejects every invite,
+/// which is how the enforcement tests prove the gate is actually consulted.
+pub struct FakeInvitePolicyGate {
+    deny: bool,
+}
+
+impl FakeInvitePolicyGate {
+    /// See [`new`].
+    pub fn new() -> Self {
+        Self { deny: false }
+    }
+
+    /// A gate that refuses every invite.
+    pub fn denying() -> Self {
+        Self { deny: true }
+    }
+}
+
+impl Default for FakeInvitePolicyGate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl crate::invite_blocklist_service::InvitePolicyGate for FakeInvitePolicyGate {
+    async fn check_invite_allowed(&self, _room_id: &str, _inviter_id: &str, invitee_id: &str) -> ApiResult<()> {
+        if self.deny {
+            return Err(ApiError::forbidden(format!("{invitee_id} is not accepting invites")));
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

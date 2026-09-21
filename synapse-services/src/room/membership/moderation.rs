@@ -20,6 +20,12 @@ impl MembershipService {
             return Err(ApiError::not_found("Room not found".to_string()));
         }
 
+        // Invite policy: the room's invite lists, the invitee's own MSC4155
+        // account policy, and the MSC4284 policy server. Checked here — before
+        // the remote-invite branch below — because that branch returns early,
+        // and a remote invitee must not be a way around the policy.
+        self.authorize_invite_policy(room_id, inviter_id, invitee_id).await?;
+
         // If the invitee is on a remote server, use the federation invite
         // flow instead of the local invite path.
         if self.is_remote_user(invitee_id) {
@@ -59,12 +65,6 @@ impl MembershipService {
         let ctx =
             TransitionCtx::state_only(JoinRule::Invite, /* actor_is_target */ false, target_is_banned, false);
         is_legal(from, Membership::Invite, &ctx)?;
-
-        // MSC4284: consult the policy server before persisting the invite.
-        // Placed after the state-machine gate so we don't issue an HTTP request
-        // for invites that are already rejected locally. No-op when no policy
-        // service is configured.
-        self.check_invite_policy(room_id, inviter_id, invitee_id).await?;
 
         let member = self
             .member_storage
@@ -490,6 +490,7 @@ mod tests {
             app_service_manager: None,
             db_pool: None,
             policy_service: None,
+            invite_policy_gate: Arc::new(crate::test_mocks::FakeInvitePolicyGate::new()),
         };
         (MembershipService::new(config), user_store)
     }
@@ -699,6 +700,57 @@ mod tests {
         assert!(
             member.as_ref().is_some_and(|m| m.membership == "invite"),
             "invitee should be in invite state, got: {member:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn invite_user_denied_by_policy_gate_is_rejected() {
+        let (mut svc, _user_store) = build_membership_service();
+        svc.invite_policy_gate = Arc::new(crate::test_mocks::FakeInvitePolicyGate::denying());
+
+        let room_id = "!denied:test.localhost";
+        let inviter = "@inviter:test.localhost";
+        let invitee = "@invitee:test.localhost";
+
+        let room_store = svc.room_storage.clone();
+        let mem_store = svc.member_storage.clone();
+        let user_store = svc.user_storage.clone();
+
+        room_store.create_room(room_id, inviter, "invite", "1", false).await.expect("create_room");
+        mem_store.add_member(room_id, inviter, "join", None, None, None, None).await.expect("inviter join");
+        let username = invitee.trim_start_matches('@').split(':').next().unwrap_or(invitee).to_string();
+        user_store.create_user(invitee, &username, None, false).await.expect("create_user");
+
+        let err =
+            svc.invite_user(room_id, inviter, invitee).await.expect_err("the policy gate must reject this invite");
+        assert_eq!(err.code, synapse_common::MatrixErrorCode::Forbidden, "expected M_FORBIDDEN, got: {err:?}");
+
+        let member = mem_store.get_room_member(room_id, invitee).await.expect("get_room_member");
+        assert!(
+            member.as_ref().is_none_or(|m| m.membership != "invite"),
+            "a rejected invite must not be persisted, got: {member:?}"
+        );
+    }
+
+    /// The remote-invite branch returns early, so the gate has to run before
+    /// it — otherwise inviting a remote user would be a way around the lists.
+    #[tokio::test]
+    async fn invite_user_gate_runs_before_the_remote_branch() {
+        let (mut svc, _user_store) = build_membership_service();
+        svc.invite_policy_gate = Arc::new(crate::test_mocks::FakeInvitePolicyGate::denying());
+
+        let room_id = "!remote:test.localhost";
+        let inviter = "@inviter:test.localhost";
+        svc.room_storage.create_room(room_id, inviter, "invite", "1", false).await.expect("create_room");
+
+        let err = svc
+            .invite_user(room_id, inviter, "@remote:other.example")
+            .await
+            .expect_err("a remote invitee must not bypass the policy gate");
+        assert_eq!(
+            err.code,
+            synapse_common::MatrixErrorCode::Forbidden,
+            "expected the gate's M_FORBIDDEN, not a federation-client error: {err:?}"
         );
     }
 }

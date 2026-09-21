@@ -16,12 +16,11 @@ use crate::routes::{
     get_room_service_types, get_room_spaces, get_room_state, get_room_sync, get_room_thread, get_room_thread_by_id,
     get_room_timeline, get_room_turn_server, get_room_unread_count, get_room_user_fragments, get_room_vault_data,
     get_room_version, get_room_visibility, get_single_event, get_state_by_type, get_state_event,
-    get_state_event_empty_key, get_user_rooms, invite_blocklist, invite_user, invite_user_by_room, join_room,
-    join_room_by_id_or_alias, kick_user, knock_room, leave_room, pinned, put_power_levels, put_state_event,
-    put_state_event_empty_key, put_state_event_no_key, redact_event, room_initial_sync, search_room_messages,
-    send_message, send_receipt, send_state_event, set_read_markers, set_room_account_data, set_room_vault_data,
-    set_room_visibility, sign_room_event, sticky_event, translate_room_event, translate_text, unban_user,
-    verify_room_event, AppState,
+    get_state_event_empty_key, get_user_rooms, invite_user, invite_user_by_room, join_room, join_room_by_id_or_alias,
+    kick_user, knock_room, leave_room, pinned, put_power_levels, put_state_event, put_state_event_empty_key,
+    put_state_event_no_key, redact_event, room_initial_sync, search_room_messages, send_message, send_receipt,
+    send_state_event, set_read_markers, set_room_account_data, set_room_vault_data, set_room_visibility,
+    sign_room_event, sticky_event, translate_room_event, translate_text, unban_user, verify_room_event, AppState,
 };
 use axum::{
     extract::{Path, State},
@@ -124,14 +123,6 @@ fn create_room_v3_router() -> Router<AppState> {
         .route("/join/{room_id_or_alias}", post(join_room_by_id_or_alias))
         .route("/knock/{room_id_or_alias}", post(knock_room))
         .route("/invite/{room_id}", post(invite_user_by_room))
-        .route(
-            "/rooms/{room_id}/invite_blocklist",
-            get(invite_blocklist::get_invite_blocklist).post(invite_blocklist::set_invite_blocklist),
-        )
-        .route(
-            "/rooms/{room_id}/invite_allowlist",
-            get(invite_blocklist::get_invite_allowlist).post(invite_blocklist::set_invite_allowlist),
-        )
         .route(
             "/rooms/{room_id}/sticky_events",
             get(sticky_event::get_sticky_events).post(sticky_event::set_sticky_events),

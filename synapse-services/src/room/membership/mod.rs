@@ -456,6 +456,7 @@ mod coverage_tests {
             app_service_manager: None,
             db_pool: None,
             policy_service: None,
+            invite_policy_gate: StdArc::new(crate::test_mocks::FakeInvitePolicyGate::new()),
         });
 
         TestService { svc, member_store, room_store, summary_store }

@@ -3912,42 +3912,6 @@
     },
     {
       "method": "GET",
-      "path": "/_matrix/client/v3/rooms/{room_id}/invite_allowlist",
-      "registered_by": "room",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v3/rooms/{room_id}/invite_allowlist",
-      "registered_by": "room",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v3/rooms/{room_id}/invite_blocklist",
-      "registered_by": "room",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v3/rooms/{room_id}/invite_blocklist",
-      "registered_by": "room",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": []
-    },
-    {
-      "method": "GET",
       "path": "/_matrix/client/v3/rooms/{room_id}/invites",
       "registered_by": "room",
       "path_params": [
@@ -6588,6 +6552,42 @@
       "path_params": [
         "room_id",
         "event_id"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/rooms/{room_id}/invite_allowlist",
+      "registered_by": "vendor",
+      "path_params": [
+        "room_id"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/vendor/v1/rooms/{room_id}/invite_allowlist",
+      "registered_by": "vendor",
+      "path_params": [
+        "room_id"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/rooms/{room_id}/invite_blocklist",
+      "registered_by": "vendor",
+      "path_params": [
+        "room_id"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/vendor/v1/rooms/{room_id}/invite_blocklist",
+      "registered_by": "vendor",
+      "path_params": [
+        "room_id"
       ],
       "query_params": []
     },

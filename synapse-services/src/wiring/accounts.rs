@@ -58,8 +58,8 @@ pub struct AccountServicesDeps {
     pub presence_service: Arc<crate::presence_service::PresenceService>,
     /// The `qr_login_storage` field.
     pub qr_login_storage: Arc<synapse_storage::qr_login::QrLoginStorage>,
-    /// The `invite_blocklist_storage` field.
-    pub invite_blocklist_storage: Arc<synapse_storage::invite_blocklist::InviteBlocklistStorage>,
+    /// The `invite_blocklist_service` field.
+    pub invite_blocklist_service: Arc<crate::invite_blocklist_service::InviteBlocklistService>,
     /// The `sticky_event_storage` field.
     pub sticky_event_storage: Arc<synapse_storage::sticky_event::StickyEventStorage>,
     /// The `account_device_list_service` field.
@@ -83,9 +83,7 @@ impl AccountServices {
             presence_storage: deps.presence_storage,
             presence_service: deps.presence_service,
             qr_login_storage: deps.qr_login_storage,
-            invite_blocklist_service: Arc::new(crate::invite_blocklist_service::InviteBlocklistService::new(
-                deps.invite_blocklist_storage,
-            )),
+            invite_blocklist_service: deps.invite_blocklist_service,
             sticky_event_storage: deps.sticky_event_storage,
             user_service: deps.user_service,
         }

@@ -89,7 +89,11 @@ struct StoragePhase {
     presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
     presence_service: Arc<crate::presence_service::PresenceService>,
     qr_login_storage: Arc<synapse_storage::qr_login::QrLoginStorage>,
-    invite_blocklist_storage: Arc<synapse_storage::invite_blocklist::InviteBlocklistStorage>,
+    /// Built here, not in the account phase, because the rooms phase (which is
+    /// assembled first) needs the same `Arc` as its invite enforcement gate.
+    /// One instance, so the admin routes and the enforcement path cannot read
+    /// different list state.
+    invite_blocklist_service: Arc<crate::invite_blocklist_service::InviteBlocklistService>,
     sticky_event_storage: Arc<synapse_storage::sticky_event::StickyEventStorage>,
 }
 
@@ -271,6 +275,14 @@ impl ServiceContainer {
             Arc::new(QrLoginStorage::new(pool.clone()));
         let invite_blocklist_storage: Arc<synapse_storage::invite_blocklist::InviteBlocklistStorage> =
             Arc::new(InviteBlocklistStorage::new(pool.clone()));
+        // Constructed in this phase rather than the account phase because the
+        // rooms phase consumes the same `Arc` as its invite enforcement gate.
+        // The MSC4155 policy is account data, so the gate reads it through the
+        // account-data storage rather than the user store.
+        let invite_blocklist_service = Arc::new(crate::invite_blocklist_service::InviteBlocklistService::new(
+            invite_blocklist_storage,
+            Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool)),
+        ));
         let sticky_event_storage: Arc<synapse_storage::sticky_event::StickyEventStorage> =
             Arc::new(StickyEventStorage::new(pool.clone()));
 
@@ -289,7 +301,7 @@ impl ServiceContainer {
             presence_storage,
             presence_service,
             qr_login_storage,
-            invite_blocklist_storage,
+            invite_blocklist_service,
             sticky_event_storage,
         }
     }
@@ -435,6 +447,9 @@ impl ServiceContainer {
             event_notifier.clone(),
             // MSC4284: inject policy service for room create/join/invite enforcement.
             Some(admin.modules.policy_service.clone()),
+            // Invite policy gate — same instance the account phase exposes to
+            // the admin blocklist routes.
+            storage.invite_blocklist_service.clone(),
         )
         .await;
 
@@ -542,7 +557,7 @@ impl ServiceContainer {
                 presence_storage: storage.presence_storage.clone(),
                 presence_service: storage.presence_service.clone(),
                 qr_login_storage: storage.qr_login_storage.clone(),
-                invite_blocklist_storage: storage.invite_blocklist_storage.clone(),
+                invite_blocklist_service: storage.invite_blocklist_service.clone(),
                 sticky_event_storage: storage.sticky_event_storage.clone(),
                 account_device_list_service,
                 account_identity_service,

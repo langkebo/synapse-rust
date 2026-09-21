@@ -337,6 +337,11 @@ fn create_room_service(
     let room_summary_service =
         Arc::new(RoomSummaryService::new(room_summary_storage, event_storage.clone(), Some(member_storage.clone())));
     let cache = Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default()));
+    // The real gate, not a test double — see `room_service_tests_migrated`.
+    let invite_policy_gate = Arc::new(synapse_services::invite_blocklist_service::InviteBlocklistService::new(
+        Arc::new(synapse_storage::invite_blocklist::InviteBlocklistStorage::new(pool.clone())),
+        Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool)),
+    ));
 
     RoomService::new(synapse_services::room::service::RoomServiceConfig {
         room_storage,
@@ -368,6 +373,7 @@ fn create_room_service(
         key_rotation_storage: None,
         db_pool: None,
         policy_service: None,
+        invite_policy_gate,
     })
 }
 

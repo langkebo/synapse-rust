@@ -39,6 +39,11 @@ pub(crate) async fn thirdparty_invite(
     super::validate_federation_origin_can_observe_room(&ctx, room_id, &auth.origin).await?;
     let _room_version = federatable_room_version(&ctx, room_id).await?;
 
+    // Same gate as the client invite path: a remote inviter must not be able
+    // to place an invite that the room's lists or the invitee's own account
+    // policy would have refused locally.
+    ctx.room_service.membership().authorize_invite_policy(room_id, sender, invitee).await?;
+
     let event_id = format!("${}", synapse_common::crypto::generate_event_id(&ctx.server_name));
 
     let content = json!({
@@ -105,6 +110,9 @@ pub(crate) async fn invite_v2(
     super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
     let _room_version = federatable_room_version(&ctx, &room_id).await?;
     let content = body.get("content").cloned().unwrap_or(json!({}));
+
+    // Same gate as the client invite path — see `thirdparty_invite`.
+    ctx.room_service.membership().authorize_invite_policy(&room_id, sender, state_key).await?;
 
     let content_for_as = content.clone();
 

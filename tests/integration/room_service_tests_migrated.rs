@@ -317,6 +317,13 @@ fn build_room_service(
     let room_summary_service =
         Arc::new(RoomSummaryService::new(room_summary_storage, event_storage.clone(), Some(member_storage.clone())));
     let user_storage = Arc::new(UserStorage::new(pool, canonical_cache.clone()));
+    // The real gate, not a test double: this builder already talks to Postgres,
+    // and a permissive fake here would hide invite-policy regressions from
+    // every test that goes through it.
+    let invite_policy_gate = Arc::new(synapse_services::invite_blocklist_service::InviteBlocklistService::new(
+        Arc::new(synapse_storage::invite_blocklist::InviteBlocklistStorage::new(pool.clone())),
+        Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool)),
+    ));
 
     RoomService::new(synapse_services::room::service::RoomServiceConfig {
         room_storage: Arc::new(RoomStorage::new(pool)),
@@ -348,6 +355,7 @@ fn build_room_service(
         key_rotation_storage: None,
         db_pool: None,
         policy_service: None,
+        invite_policy_gate,
     })
 }
 

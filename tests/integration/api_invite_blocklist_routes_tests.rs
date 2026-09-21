@@ -118,7 +118,7 @@ async fn leave_room(app: &axum::Router, token: &str, room_id: &str) {
 async fn set_invite_list(app: &axum::Router, token: &str, room_id: &str, path: &str, user_ids: &[&str]) -> StatusCode {
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v3/rooms/{}/{}", room_id, path))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/{}", room_id, path))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -149,7 +149,7 @@ async fn test_invite_blocklist_read_rejects_non_member() {
 
     let guest_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/invite_blocklist", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/invite_blocklist", room_id))
         .header("Authorization", format!("Bearer {}", guest_token))
         .body(Body::empty())
         .unwrap();
@@ -158,7 +158,7 @@ async fn test_invite_blocklist_read_rejects_non_member() {
 
     let admin_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/invite_blocklist", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/invite_blocklist", room_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -167,7 +167,7 @@ async fn test_invite_blocklist_read_rejects_non_member() {
 
     let owner_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/invite_blocklist", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/invite_blocklist", room_id))
         .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();
@@ -192,7 +192,7 @@ async fn test_invite_allowlist_read_rejects_non_member() {
 
     let guest_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/invite_allowlist", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/invite_allowlist", room_id))
         .header("Authorization", format!("Bearer {}", guest_token))
         .body(Body::empty())
         .unwrap();
@@ -201,7 +201,7 @@ async fn test_invite_allowlist_read_rejects_non_member() {
 
     let admin_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/invite_allowlist", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/invite_allowlist", room_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -210,7 +210,7 @@ async fn test_invite_allowlist_read_rejects_non_member() {
 
     let owner_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/invite_allowlist", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/invite_allowlist", room_id))
         .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();

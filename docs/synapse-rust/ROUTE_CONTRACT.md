@@ -1,6 +1,6 @@
 # synapse-rust 路由契约（Route Contract）
 
-> 自动生成于 2026-09-20，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含 `derived_route_table.inc.rs`）派生覆盖。
+> 自动生成于 2026-09-21，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含 `derived_route_table.inc.rs`）派生覆盖。
 >
 > 本文件是后端 HTTP 契约的**事实来源之一**（机器侧权威为 `derived_routes.rs` 生成的 `RouteLedger`，启动时校验、集成测试 PATCH 探测）。人工文档（INDEX.md / API_COVERAGE_REPORT.md）须与之保持一致。
 >
@@ -609,9 +609,9 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 
 - `POST` `/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}`
 
-### 房间 (Room) （123 条）
+### 房间 (Room) （119 条）
 
-#### `room.rs` — 102 条 ✅派生表
+#### `room.rs` — 98 条 ✅派生表
 
 - `DELETE` `/_matrix/client/v3/rooms/{room_id}/pinned_events/{event_id}`
 - `DELETE` `/_matrix/client/v3/rooms/{room_id}/sticky_events/{event_type}`
@@ -631,8 +631,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/client/v3/rooms/{room_id}/external_ids`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/fragments/{user_id}`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/initialSync`
-- `GET` `/_matrix/client/v3/rooms/{room_id}/invite_allowlist`
-- `GET` `/_matrix/client/v3/rooms/{room_id}/invite_blocklist`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/invites`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/joined_members`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/keys`
@@ -682,8 +680,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_matrix/client/v3/rooms/{room_id}/forget`
 - `POST` `/_matrix/client/v3/rooms/{room_id}/get_membership_events`
 - `POST` `/_matrix/client/v3/rooms/{room_id}/invite`
-- `POST` `/_matrix/client/v3/rooms/{room_id}/invite_allowlist`
-- `POST` `/_matrix/client/v3/rooms/{room_id}/invite_blocklist`
 - `POST` `/_matrix/client/v3/rooms/{room_id}/join`
 - `POST` `/_matrix/client/v3/rooms/{room_id}/keys/claim`
 - `POST` `/_matrix/client/v3/rooms/{room_id}/kick`
@@ -1237,9 +1233,9 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_matrix/federation/v2/send_join/{room_id}/{event_id}`
 - `PUT` `/_matrix/federation/v2/send_leave/{room_id}/{event_id}`
 
-### 装配 (Assembly) （102 条）
+### 装配 (Assembly) （106 条）
 
-#### `assembly.rs` — 102 条 ✅派生表
+#### `assembly.rs` — 106 条 ✅派生表
 
 - `DELETE` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device`
 - `DELETE` `/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}`
@@ -1292,6 +1288,8 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/server_version`
 - `GET` `/_matrix/static/client/login/`
 - `GET` `/_matrix/vendor/v1/my_rooms`
+- `GET` `/_matrix/vendor/v1/rooms/{room_id}/invite_allowlist`
+- `GET` `/_matrix/vendor/v1/rooms/{room_id}/invite_blocklist`
 - `GET` `/health`
 - `POST` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events`
 - `POST` `/_matrix/client/v1/account/3pid`
@@ -1328,6 +1326,8 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_matrix/client/v3/user_directory/list`
 - `POST` `/_matrix/client/v3/user_directory/search`
 - `POST` `/_matrix/client/v3/voip/turnServer`
+- `POST` `/_matrix/vendor/v1/rooms/{room_id}/invite_allowlist`
+- `POST` `/_matrix/vendor/v1/rooms/{room_id}/invite_blocklist`
 - `POST` `/_matrix/vendor/v1/search_recipients`
 - `POST` `/_matrix/vendor/v1/search_rooms`
 - `PUT` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device`

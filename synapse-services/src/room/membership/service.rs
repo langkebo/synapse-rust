@@ -64,6 +64,11 @@ pub struct MembershipService {
     /// operations consult the policy server before persisting. `None` in
     /// test setups or when the policy server is not configured.
     pub(crate) policy_service: Option<Arc<PolicyService>>,
+    /// The invite policy gate: the room's blocklist/allowlist plus the
+    /// invitee's own MSC4155 account policy. Required, not optional — every
+    /// invite entry point routes through [`Self::authorize_invite_policy`],
+    /// and a gate that can be absent is a gate that can be skipped.
+    pub(crate) invite_policy_gate: Arc<dyn crate::invite_blocklist_service::InvitePolicyGate>,
 }
 
 /// Configuration for constructing a [`MembershipService`].
@@ -104,6 +109,9 @@ pub struct MembershipServiceConfig {
     /// MSC4284 — Policy server service. `None` in test setups or when
     /// the policy server is not configured.
     pub policy_service: Option<Arc<PolicyService>>,
+    /// The invite policy gate. Required — see the field docs on
+    /// [`MembershipService`].
+    pub invite_policy_gate: Arc<dyn crate::invite_blocklist_service::InvitePolicyGate>,
 }
 
 impl MembershipService {
@@ -127,6 +135,7 @@ impl MembershipService {
             app_service_manager: config.app_service_manager,
             db_pool: config.db_pool,
             policy_service: config.policy_service,
+            invite_policy_gate: config.invite_policy_gate,
         }
     }
 
@@ -175,6 +184,25 @@ impl MembershipService {
                 Err(ApiError::forbidden(format!("Denied by policy server: {}", reason)))
             }
         }
+    }
+
+    /// The single invite-policy enforcement point.
+    ///
+    /// Every invite entry point calls this and nothing else — the client
+    /// `/invite` handler (via [`Self::invite_user`]), the federation
+    /// `/invite` endpoints, and inbound federation `m.room.member` PDUs with
+    /// `membership: invite` (via [`Self::authorize_inbound_member_transition`]).
+    /// Two gates, in order:
+    ///
+    /// 1. [`crate::invite_blocklist_service::InvitePolicyGate`] — the room's
+    ///    blocklist/allowlist and the invitee's own MSC4155 account policy;
+    /// 2. [`Self::check_invite_policy`] — the MSC4284 policy server, when one
+    ///    is configured.
+    ///
+    /// Fails closed: a storage error in gate 1 is an error, not an allow.
+    pub async fn authorize_invite_policy(&self, room_id: &str, inviter_id: &str, invitee_id: &str) -> ApiResult<()> {
+        self.invite_policy_gate.check_invite_allowed(room_id, inviter_id, invitee_id).await?;
+        self.check_invite_policy(room_id, inviter_id, invitee_id).await
     }
 
     // =========================================================================
@@ -445,7 +473,16 @@ impl MembershipService {
         let (from, target_is_banned) = self.resolve_membership_from(room_id, target).await?;
         let join_rule = if to == Membership::Knock { self.resolve_join_rule(room_id).await? } else { JoinRule::Public };
         let ctx = TransitionCtx::state_only(join_rule, sender == target, target_is_banned, /* restricted */ true);
-        is_legal(from, to, &ctx).map_err(ApiError::from)
+        is_legal(from, to, &ctx).map_err(ApiError::from)?;
+
+        // An invite arriving over federation is the same invite as one issued
+        // locally, so it goes through the same gate. Checked after the
+        // transition table so a locally-illegal invite does not cost a query.
+        if to == Membership::Invite {
+            self.authorize_invite_policy(room_id, sender, target).await?;
+        }
+
+        Ok(())
     }
 
     /// Sign a locally-produced event and broadcast it to all remote servers
@@ -897,6 +934,7 @@ mod tests {
             app_service_manager: None,
             db_pool: None,
             policy_service: None,
+            invite_policy_gate: StdArc::new(crate::test_mocks::FakeInvitePolicyGate::new()),
         })
     }
 
@@ -935,6 +973,25 @@ mod tests {
         let r =
             svc.authorize_inbound_member_transition(ROOM, "@ghost:remote", "@ghost:remote", Membership::Leave).await;
         assert!(r.is_ok(), "leave should be accepted idempotently: {r:?}");
+    }
+
+    #[tokio::test]
+    async fn inbound_invite_denied_by_policy_gate_is_rejected() {
+        let mut svc = inbound_service(&[]).await;
+        svc.invite_policy_gate = StdArc::new(crate::test_mocks::FakeInvitePolicyGate::denying());
+        let r = svc.authorize_inbound_member_transition(ROOM, "@admin:remote", "@bob:remote", Membership::Invite).await;
+        assert!(r.is_err(), "an invite refused by the policy gate must be rejected, got: {r:?}");
+    }
+
+    /// The gate is scoped to invites. A join arriving over federation must not
+    /// be filtered by the invite lists, or a room that blocks invites would
+    /// also stop its own members from joining.
+    #[tokio::test]
+    async fn inbound_join_is_not_gated_by_invite_policy() {
+        let mut svc = inbound_service(&[]).await;
+        svc.invite_policy_gate = StdArc::new(crate::test_mocks::FakeInvitePolicyGate::denying());
+        let r = svc.authorize_inbound_member_transition(ROOM, "@bob:remote", "@bob:remote", Membership::Join).await;
+        assert!(r.is_ok(), "a join is not an invite and must not be gated by invite policy: {r:?}");
     }
 
     // ── MSC2666: Mutual Rooms (get_mutual_rooms_between) ─────────
@@ -984,6 +1041,7 @@ mod tests {
             app_service_manager: None,
             db_pool: None,
             policy_service: None,
+            invite_policy_gate: StdArc::new(crate::test_mocks::FakeInvitePolicyGate::new()),
         })
     }
 

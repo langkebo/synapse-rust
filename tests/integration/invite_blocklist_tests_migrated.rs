@@ -101,12 +101,11 @@ async fn test_invite_blocklist_operations() {
     assert!(result.contains(&blocked_users[1]));
 
     // Check if user is blocked
-    let is_blocked = storage.is_user_blocked(&room_id, &blocked_users[0]).await.expect("Failed to check blocklist");
-    assert!(is_blocked);
+    let is_blocked = storage.evaluate(&room_id, &blocked_users[0]).await.expect("Failed to check blocklist");
+    assert!(is_blocked.blocked);
 
-    let is_not_blocked =
-        storage.is_user_blocked(&room_id, "@notblocked:localhost").await.expect("Failed to check blocklist");
-    assert!(!is_not_blocked);
+    let is_not_blocked = storage.evaluate(&room_id, "@notblocked:localhost").await.expect("Failed to check blocklist");
+    assert!(!is_not_blocked.blocked);
 
     cleanup(&pool, &room_id, &users).await;
 }
@@ -131,12 +130,11 @@ async fn test_invite_allowlist_operations() {
     assert!(result.contains(&allowed_users[1]));
 
     // Check if user is allowed
-    let is_allowed = storage.is_user_allowed(&room_id, &allowed_users[0]).await.expect("Failed to check allowlist");
-    assert!(is_allowed);
+    let is_allowed = storage.evaluate(&room_id, &allowed_users[0]).await.expect("Failed to check allowlist");
+    assert!(is_allowed.allowed);
 
-    let is_not_allowed =
-        storage.is_user_allowed(&room_id, "@notallowed:localhost").await.expect("Failed to check allowlist");
-    assert!(!is_not_allowed);
+    let is_not_allowed = storage.evaluate(&room_id, "@notallowed:localhost").await.expect("Failed to check allowlist");
+    assert!(!is_not_allowed.allowed);
 
     cleanup(&pool, &room_id, &users).await;
 }
@@ -151,14 +149,16 @@ async fn test_has_invite_restriction() {
     let (_creator, room_id, users) = seed_room(&pool, suffix, &seed_users).await;
 
     // Initially no restriction
-    let has_restriction = storage.has_any_invite_restriction(&room_id).await.expect("Failed to check restriction");
+    let has_restriction =
+        storage.evaluate(&room_id, &seed_users[0]).await.expect("Failed to check restriction").is_denied();
     assert!(!has_restriction);
 
     // Set blocklist
     storage.set_invite_blocklist(&room_id, vec![seed_users[0].clone()]).await.expect("Failed to set blocklist");
 
     // Now should have restriction
-    let has_restriction = storage.has_any_invite_restriction(&room_id).await.expect("Failed to check restriction");
+    let has_restriction =
+        storage.evaluate(&room_id, &seed_users[0]).await.expect("Failed to check restriction").is_denied();
     assert!(has_restriction);
 
     cleanup(&pool, &room_id, &users).await;

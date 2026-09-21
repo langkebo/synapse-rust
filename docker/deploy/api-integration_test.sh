@@ -2439,25 +2439,25 @@ echo "96. Invite Blocklist/Allowlist APIs"
 echo "=========================================="
 echo "96. Get Invite Blocklist"
 ROOM_ENC=$(echo "$ROOM_ID" | sed 's/!/%21/g' | sed 's/:/%3A/g')
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ENC/invite_blocklist" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/rooms/$ROOM_ENC/invite_blocklist" "$TOKEN"
 INVITE_BLOCKLIST_RESP="$HTTP_BODY"
 assert_success_json "Get Invite Blocklist" "$INVITE_BLOCKLIST_RESP" "$HTTP_STATUS" "blocklist"
 
 echo ""
 echo "97. Set Invite Blocklist"
-http_json POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ENC/invite_blocklist" "$TOKEN" '{"user_ids": ["'"$TARGET_USER_ID"'"]}'
+http_json POST "$SERVER_URL/_matrix/vendor/v1/rooms/$ROOM_ENC/invite_blocklist" "$TOKEN" '{"user_ids": ["'"$TARGET_USER_ID"'"]}'
 SET_INVITE_BLOCKLIST_RESP="$HTTP_BODY"
 assert_success_json "Set Invite Blocklist" "$SET_INVITE_BLOCKLIST_RESP" "$HTTP_STATUS"
 
 echo ""
 echo "98. Get Invite Allowlist"
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ENC/invite_allowlist" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/rooms/$ROOM_ENC/invite_allowlist" "$TOKEN"
 INVITE_ALLOWLIST_RESP="$HTTP_BODY"
 assert_success_json "Get Invite Allowlist" "$INVITE_ALLOWLIST_RESP" "$HTTP_STATUS" "allowlist"
 
 echo ""
 echo "99. Set Invite Allowlist"
-http_json POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ENC/invite_allowlist" "$TOKEN" '{"user_ids": ["'"$TARGET_USER_ID"'"]}'
+http_json POST "$SERVER_URL/_matrix/vendor/v1/rooms/$ROOM_ENC/invite_allowlist" "$TOKEN" '{"user_ids": ["'"$TARGET_USER_ID"'"]}'
 SET_INVITE_ALLOWLIST_RESP="$HTTP_BODY"
 assert_success_json "Set Invite Allowlist" "$SET_INVITE_ALLOWLIST_RESP" "$HTTP_STATUS"
 
@@ -7174,7 +7174,7 @@ fi
 
 echo ""
 echo "565. Get Invite Blocklist"
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$REPRESENTATIVE_ROOM_ENC/invite_blocklist" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/rooms/$REPRESENTATIVE_ROOM_ENC/invite_blocklist" "$TOKEN"
 BLOCKLIST_RESP="$HTTP_BODY"
 if check_success_json "$BLOCKLIST_RESP" "$HTTP_STATUS"; then
     pass "Get Invite Blocklist"
@@ -7184,7 +7184,7 @@ fi
 
 echo ""
 echo "566. Set Invite Blocklist"
-http_json POST "$SERVER_URL/_matrix/client/v3/rooms/$REPRESENTATIVE_ROOM_ENC/invite_blocklist" "$TOKEN" '{"user_ids": ["'"$TARGET_USER_ID"'"]}'
+http_json POST "$SERVER_URL/_matrix/vendor/v1/rooms/$REPRESENTATIVE_ROOM_ENC/invite_blocklist" "$TOKEN" '{"user_ids": ["'"$TARGET_USER_ID"'"]}'
 SET_BLOCKLIST_RESP="$HTTP_BODY"
 if check_success_json "$SET_BLOCKLIST_RESP" "$HTTP_STATUS"; then
     pass "Set Invite Blocklist"

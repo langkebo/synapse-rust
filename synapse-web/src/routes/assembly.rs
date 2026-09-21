@@ -92,15 +92,25 @@ fn create_voip_compat_router() -> Router<AppState> {
 
 /// ISSUE-13: Vendor-prefixed router for private/non-standard endpoints.
 ///
-/// Maps the same handlers as the legacy `/_matrix/client/v3/{path}` routes
-/// under the new `/_matrix/vendor/v1` prefix. The old routes remain
-/// registered (via `create_sync_router` and `create_search_router`) for
-/// backward compatibility — see the deprecation warning in [`create_router`].
+/// Everything here is non-standard, so `/_matrix/vendor/v1` is its only home —
+/// there is no `/_matrix/client/v3` twin. (`my_rooms`, `search_rooms` and
+/// `search_recipients` are additionally reachable under their legacy `/v3`
+/// paths via `create_sync_router` / `create_search_router`.)
 fn create_vendor_router() -> Router<AppState> {
     Router::new()
         .route("/my_rooms", get(get_my_rooms))
         .route("/search_rooms", post(handlers::search::search::search_rooms))
         .route("/search_recipients", post(handlers::search::search::search_recipients))
+        // MSC4380 room invite lists. Non-standard, so they live under the
+        // vendor prefix rather than `/_matrix/client/v3`.
+        .route(
+            "/rooms/{room_id}/invite_blocklist",
+            get(invite_blocklist::get_invite_blocklist).post(invite_blocklist::set_invite_blocklist),
+        )
+        .route(
+            "/rooms/{room_id}/invite_allowlist",
+            get(invite_blocklist::get_invite_allowlist).post(invite_blocklist::set_invite_allowlist),
+        )
 }
 
 /// See [`create_router`].

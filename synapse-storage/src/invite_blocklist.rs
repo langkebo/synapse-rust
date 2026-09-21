@@ -6,6 +6,27 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
+/// Room-level invite restriction verdict for one invitee.
+///
+/// Produced by [`InviteBlocklistStorage::evaluate`] in a single round-trip so
+/// the blocklist and the allowlist can never be read from different snapshots.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InviteRestriction {
+    /// The invitee is explicitly listed on the room blocklist.
+    pub blocked: bool,
+    /// The room has a non-empty allowlist, which therefore acts as a whitelist.
+    pub allowlist_set: bool,
+    /// The invitee is listed on the room allowlist.
+    pub allowed: bool,
+}
+
+impl InviteRestriction {
+    /// `true` when the room's lists refuse this invitee.
+    pub fn is_denied(&self) -> bool {
+        self.blocked || (self.allowlist_set && !self.allowed)
+    }
+}
+
 /// The `InviteBlocklistStorage` struct.
 #[derive(Clone)]
 pub struct InviteBlocklistStorage {
@@ -18,14 +39,17 @@ impl InviteBlocklistStorage {
         Self { pool }
     }
 
-    /// Set the invite blocklist for a room (users that cannot be invited)
+    /// Set the invite blocklist for a room (users that cannot be invited).
+    ///
+    /// The clear-then-insert pair runs in one transaction: a reader can never
+    /// observe the empty window between them, which would otherwise read as
+    /// "no restriction" and let a blocked invitee through.
     pub async fn set_invite_blocklist(&self, room_id: &str, user_ids: Vec<String>) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
+        let mut tx = self.pool.begin().await?;
 
-        // Clear existing blocklist
-        sqlx::query("DELETE FROM room_invite_blocklist WHERE room_id = $1").bind(room_id).execute(&*self.pool).await?;
+        sqlx::query("DELETE FROM room_invite_blocklist WHERE room_id = $1").bind(room_id).execute(&mut *tx).await?;
 
-        // Insert new blocklist
         if !user_ids.is_empty() {
             sqlx::query(
                 r"
@@ -37,10 +61,11 @@ impl InviteBlocklistStorage {
             .bind(room_id)
             .bind(&user_ids)
             .bind(now)
-            .execute(&*self.pool)
+            .execute(&mut *tx)
             .await?;
         }
 
+        tx.commit().await?;
         Ok(())
     }
 
@@ -58,30 +83,34 @@ impl InviteBlocklistStorage {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
-    /// Check if a user is blocked from being invited
-    pub async fn is_user_blocked(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query_as::<_, (String,)>(
+    /// Evaluate both room lists for one invitee in a single round-trip.
+    pub async fn evaluate(&self, room_id: &str, user_id: &str) -> Result<InviteRestriction, sqlx::Error> {
+        let (blocked, allowed, allowlist_set) = sqlx::query_as::<_, (bool, bool, bool)>(
             r"
-            SELECT user_id FROM room_invite_blocklist
-            WHERE room_id = $1 AND user_id = $2
+            SELECT
+                EXISTS (SELECT 1 FROM room_invite_blocklist b WHERE b.room_id = $1 AND b.user_id = $2),
+                EXISTS (SELECT 1 FROM room_invite_allowlist a WHERE a.room_id = $1 AND a.user_id = $2),
+                EXISTS (SELECT 1 FROM room_invite_allowlist w WHERE w.room_id = $1)
             ",
         )
         .bind(room_id)
         .bind(user_id)
-        .fetch_optional(&*self.pool)
+        .fetch_one(&*self.pool)
         .await?;
 
-        Ok(result.is_some())
+        Ok(InviteRestriction { blocked, allowlist_set, allowed })
     }
 
-    /// Set the invite allowlist for a room (only these users can be invited)
+    /// Set the invite allowlist for a room (only these users can be invited).
+    ///
+    /// Runs in one transaction for the same reason as
+    /// [`Self::set_invite_blocklist`].
     pub async fn set_invite_allowlist(&self, room_id: &str, user_ids: Vec<String>) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
+        let mut tx = self.pool.begin().await?;
 
-        // Clear existing allowlist
-        sqlx::query("DELETE FROM room_invite_allowlist WHERE room_id = $1").bind(room_id).execute(&*self.pool).await?;
+        sqlx::query("DELETE FROM room_invite_allowlist WHERE room_id = $1").bind(room_id).execute(&mut *tx).await?;
 
-        // Insert new allowlist
         if !user_ids.is_empty() {
             sqlx::query(
                 r"
@@ -93,10 +122,11 @@ impl InviteBlocklistStorage {
             .bind(room_id)
             .bind(&user_ids)
             .bind(now)
-            .execute(&*self.pool)
+            .execute(&mut *tx)
             .await?;
         }
 
+        tx.commit().await?;
         Ok(())
     }
 
@@ -112,41 +142,6 @@ impl InviteBlocklistStorage {
         .await?;
 
         Ok(rows.into_iter().map(|r| r.0).collect())
-    }
-
-    /// Check if a user is allowed to be invited (when allowlist is set)
-    pub async fn is_user_allowed(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query_as::<_, (String,)>(
-            r"
-            SELECT user_id FROM room_invite_allowlist
-            WHERE room_id = $1 AND user_id = $2
-            ",
-        )
-        .bind(room_id)
-        .bind(user_id)
-        .fetch_optional(&*self.pool)
-        .await?;
-
-        Ok(result.is_some())
-    }
-
-    /// Check if invite blocking is enabled for a room
-    pub async fn has_any_invite_restriction(&self, room_id: &str) -> Result<bool, sqlx::Error> {
-        let blocklist = sqlx::query("SELECT 1 FROM room_invite_blocklist WHERE room_id = $1 LIMIT 1")
-            .bind(room_id)
-            .fetch_optional(&*self.pool)
-            .await?;
-
-        if blocklist.is_some() {
-            return Ok(true);
-        }
-
-        let allowlist = sqlx::query("SELECT 1 FROM room_invite_allowlist WHERE room_id = $1 LIMIT 1")
-            .bind(room_id)
-            .fetch_optional(&*self.pool)
-            .await?;
-
-        Ok(allowlist.is_some())
     }
 
     /// Get global invite blocklist (all rooms)
@@ -305,7 +300,7 @@ mod db_tests {
     }
 
     #[tokio::test]
-    async fn test_is_user_blocked_positive_and_negative() {
+    async fn test_evaluate_blocklist_denies_listed_user() {
         let (_isolated, pool) = test_pool().await;
         let storage = InviteBlocklistStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
@@ -321,15 +316,13 @@ mod db_tests {
             .await
             .expect("set_invite_blocklist should succeed");
 
-        assert!(
-            storage.is_user_blocked(&room_id, &blocked_user).await.expect("is_user_blocked should succeed"),
-            "blocked user should be reported as blocked"
-        );
+        let listed = storage.evaluate(&room_id, &blocked_user).await.expect("evaluate should succeed");
+        assert!(listed.blocked, "listed user should be reported as blocked");
+        assert!(listed.is_denied(), "listed user must be denied");
 
-        assert!(
-            !storage.is_user_blocked(&room_id, &free_user).await.expect("is_user_blocked should succeed"),
-            "non-blocked user should not be reported as blocked"
-        );
+        let unlisted = storage.evaluate(&room_id, &free_user).await.expect("evaluate should succeed");
+        assert!(!unlisted.blocked, "unlisted user should not be reported as blocked");
+        assert!(!unlisted.is_denied(), "unlisted user must not be denied by an empty allowlist");
 
         cleanup_blocklist(&pool, &room_id).await;
     }
@@ -393,7 +386,7 @@ mod db_tests {
     }
 
     #[tokio::test]
-    async fn test_is_user_allowed_positive_and_negative() {
+    async fn test_evaluate_allowlist_is_whitelist_when_non_empty() {
         let (_isolated, pool) = test_pool().await;
         let storage = InviteBlocklistStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
@@ -404,26 +397,96 @@ mod db_tests {
         cleanup_allowlist(&pool, &room_id).await;
         ensure_test_room(&pool, &room_id).await;
 
+        // An empty allowlist is not a whitelist: everyone passes.
+        let before = storage.evaluate(&room_id, &not_allowed_user).await.expect("evaluate should succeed");
+        assert!(!before.allowlist_set, "no allowlist rows means the allowlist is not in force");
+        assert!(!before.is_denied(), "empty allowlist must not deny");
+
         storage
             .set_invite_allowlist(&room_id, vec![allowed_user.clone()])
             .await
             .expect("set_invite_allowlist should succeed");
 
-        assert!(
-            storage.is_user_allowed(&room_id, &allowed_user).await.expect("is_user_allowed should succeed"),
-            "allowed user should be reported as allowed"
-        );
+        let listed = storage.evaluate(&room_id, &allowed_user).await.expect("evaluate should succeed");
+        assert!(listed.allowed && listed.allowlist_set, "listed user should be reported as allowed");
+        assert!(!listed.is_denied(), "allowlisted user must not be denied");
 
-        assert!(
-            !storage.is_user_allowed(&room_id, &not_allowed_user).await.expect("is_user_allowed should succeed"),
-            "non-allowed user should not be reported as allowed"
-        );
+        let unlisted = storage.evaluate(&room_id, &not_allowed_user).await.expect("evaluate should succeed");
+        assert!(!unlisted.allowed, "unlisted user should not be reported as allowed");
+        assert!(unlisted.is_denied(), "non-empty allowlist must deny users missing from it");
 
         cleanup_allowlist(&pool, &room_id).await;
     }
 
+    /// A rewrite that fails halfway must leave the previous list intact.
+    ///
+    /// The failure is injected with a `BEFORE INSERT` trigger rather than a
+    /// constraint violation because the only constraints on these tables are
+    /// the FK (already satisfied by `ensure_test_room`) and a UNIQUE that the
+    /// statement's `ON CONFLICT DO NOTHING` swallows.
     #[tokio::test]
-    async fn test_has_any_invite_restriction() {
+    async fn test_set_invite_blocklist_is_atomic_on_insert_failure() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = InviteBlocklistStorage::new(pool.clone());
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = format!("!room_atomic_{suffix}:test.com");
+        let keep_user = format!("@keep_{suffix}:test.com");
+        let poison_user = format!("@poison_{suffix}:test.com");
+
+        cleanup_blocklist(&pool, &room_id).await;
+        ensure_test_room(&pool, &room_id).await;
+
+        storage.set_invite_blocklist(&room_id, vec![keep_user.clone()]).await.expect("initial set should succeed");
+
+        sqlx::query(
+            r#"
+            CREATE OR REPLACE FUNCTION invite_blocklist_poison_insert() RETURNS trigger AS $$
+            BEGIN
+                IF NEW.user_id = current_setting('synapse.test_poison_user') THEN
+                    RAISE EXCEPTION 'injected insert failure';
+                END IF;
+                RETURN NEW;
+            END;
+            $$ LANGUAGE plpgsql
+            "#,
+        )
+        .execute(&*pool)
+        .await
+        .expect("test fixture: poison function must be created");
+
+        sqlx::query("CREATE TRIGGER trg_invite_blocklist_poison BEFORE INSERT ON room_invite_blocklist FOR EACH ROW EXECUTE FUNCTION invite_blocklist_poison_insert()")
+            .execute(&*pool)
+            .await
+            .expect("test fixture: poison trigger must be created");
+
+        sqlx::query("SELECT set_config('synapse.test_poison_user', $1, false)")
+            .bind(&poison_user)
+            .execute(&*pool)
+            .await
+            .expect("test fixture: poison target must be set");
+
+        let err = storage
+            .set_invite_blocklist(&room_id, vec![keep_user.clone(), poison_user.clone()])
+            .await
+            .expect_err("the poisoned insert must surface as an error");
+        assert!(err.to_string().contains("injected insert failure"), "expected the injected trigger error, got: {err}");
+
+        let surviving = storage.get_invite_blocklist(&room_id).await.expect("get_invite_blocklist should succeed");
+        assert_eq!(
+            surviving,
+            vec![keep_user.clone()],
+            "a failed rewrite must roll back to the previous blocklist, not leave it empty"
+        );
+
+        sqlx::query("DROP TRIGGER IF EXISTS trg_invite_blocklist_poison ON room_invite_blocklist")
+            .execute(&*pool)
+            .await
+            .expect("test fixture: trigger cleanup must succeed");
+        cleanup_blocklist(&pool, &room_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_reports_allowlist_scope_per_room() {
         let (_isolated, pool) = test_pool().await;
         let storage = InviteBlocklistStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
@@ -440,48 +503,41 @@ mod db_tests {
             ensure_test_room(&pool, rid).await;
         }
 
-        // Room with no restrictions
-        assert!(
-            !storage
-                .has_any_invite_restriction(&room_no_restrict)
-                .await
-                .expect("has_any_invite_restriction should succeed"),
-            "room with no entries should have no restrictions"
-        );
+        // Room with no entries at all.
+        let none = storage.evaluate(&room_no_restrict, &user).await.expect("evaluate should succeed");
+        assert_eq!(none, InviteRestriction { blocked: false, allowlist_set: false, allowed: false });
+        assert!(!none.is_denied());
 
-        // Room with only blocklist
+        // Room with only a blocklist.
         storage
             .set_invite_blocklist(&room_block, vec![user.clone()])
             .await
             .expect("set_invite_blocklist should succeed");
-        assert!(
-            storage.has_any_invite_restriction(&room_block).await.expect("has_any_invite_restriction should succeed"),
-            "room with blocklist should have restrictions"
-        );
+        let blocked = storage.evaluate(&room_block, &user).await.expect("evaluate should succeed");
+        assert!(blocked.blocked && !blocked.allowlist_set);
+        assert!(blocked.is_denied());
 
-        // Room with only allowlist
+        // Room with only an allowlist: the list is in force for everyone.
         storage
             .set_invite_allowlist(&room_allow, vec![user.clone()])
             .await
             .expect("set_invite_allowlist should succeed");
-        assert!(
-            storage.has_any_invite_restriction(&room_allow).await.expect("has_any_invite_restriction should succeed"),
-            "room with allowlist should have restrictions"
-        );
+        let allow_only = storage.evaluate(&room_allow, &user).await.expect("evaluate should succeed");
+        assert!(allow_only.allowlist_set && allow_only.allowed);
+        assert!(!allow_only.is_denied());
 
-        // Room with both
+        // Room with both lists: the blocklist wins over the allowlist.
         storage
-            .set_invite_blocklist(&room_both, vec![format!("@other_{suffix}:test.com")])
+            .set_invite_blocklist(&room_both, vec![user.clone()])
             .await
             .expect("set_invite_blocklist for both should succeed");
         storage
             .set_invite_allowlist(&room_both, vec![user.clone()])
             .await
             .expect("set_invite_allowlist for both should succeed");
-        assert!(
-            storage.has_any_invite_restriction(&room_both).await.expect("has_any_invite_restriction should succeed"),
-            "room with both lists should have restrictions"
-        );
+        let both = storage.evaluate(&room_both, &user).await.expect("evaluate should succeed");
+        assert!(both.blocked && both.allowlist_set && both.allowed);
+        assert!(both.is_denied(), "an explicitly blocked user stays blocked even when allowlisted");
 
         // Cleanup
         for rid in [&room_no_restrict, &room_block, &room_allow, &room_both] {

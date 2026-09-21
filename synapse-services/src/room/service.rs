@@ -128,6 +128,9 @@ pub struct RoomServiceConfig {
     /// MSC4284 — Policy server service for room/user/content moderation.
     /// `None` in test setups or when the policy server is not configured.
     pub policy_service: Option<Arc<PolicyService>>,
+    /// The invite policy gate (room lists + invitee account policy).
+    /// Required — see [`MembershipService`].
+    pub invite_policy_gate: Arc<dyn crate::invite_blocklist_service::InvitePolicyGate>,
 }
 
 /// The `RoomService` struct.
@@ -196,6 +199,7 @@ impl RoomService {
             app_service_manager: config.app_service_manager.clone(),
             db_pool: config.db_pool.clone(),
             policy_service: config.policy_service.clone(),
+            invite_policy_gate: config.invite_policy_gate.clone(),
         };
         let membership = MembershipService::new(membership_cfg);
 

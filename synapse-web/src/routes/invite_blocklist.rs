@@ -48,7 +48,7 @@ async fn ensure_invite_list_manage_access(
 }
 
 /// Get room invite blocklist
-/// GET /_matrix/client/v3/rooms/{room_id}/invite_blocklist
+/// GET /_matrix/vendor/v1/rooms/{room_id}/invite_blocklist
 pub async fn get_invite_blocklist(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
@@ -65,7 +65,7 @@ pub async fn get_invite_blocklist(
 }
 
 /// Set room invite blocklist
-/// POST /_matrix/client/v3/rooms/{room_id}/invite_blocklist
+/// POST /_matrix/vendor/v1/rooms/{room_id}/invite_blocklist
 pub async fn set_invite_blocklist(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
@@ -91,7 +91,7 @@ pub async fn set_invite_blocklist(
 }
 
 /// Get room invite allowlist
-/// GET /_matrix/client/v3/rooms/{room_id}/invite_allowlist
+/// GET /_matrix/vendor/v1/rooms/{room_id}/invite_allowlist
 pub async fn get_invite_allowlist(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
@@ -108,7 +108,7 @@ pub async fn get_invite_allowlist(
 }
 
 /// Set room invite allowlist
-/// POST /_matrix/client/v3/rooms/{room_id}/invite_allowlist
+/// POST /_matrix/vendor/v1/rooms/{room_id}/invite_allowlist
 pub async fn set_invite_allowlist(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,

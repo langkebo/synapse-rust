@@ -518,6 +518,7 @@ mod tests {
             app_service_manager: None,
             db_pool: None,
             policy_service: None,
+            invite_policy_gate: Arc::new(crate::test_mocks::FakeInvitePolicyGate::new()),
         })
     }
 
@@ -654,6 +655,7 @@ mod tests {
             app_service_manager: None,
             db_pool: None,
             policy_service: None,
+            invite_policy_gate: Arc::new(crate::test_mocks::FakeInvitePolicyGate::new()),
         })
     }
 

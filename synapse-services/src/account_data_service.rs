@@ -252,6 +252,35 @@ fn validate_account_data_payload(data_type: &str, body: &Value) -> Result<(), Ap
         }
     }
 
+    // Validate the shape of `m.invite_permission_config` (MSC4155): the invite
+    // gate reads `default_action` and the two exception arrays, so a payload
+    // that cannot be read that way must be rejected at write time rather than
+    // silently degrading to "no policy" on every later invite.
+    if data_type == crate::invite_blocklist_service::INVITE_PERMISSION_CONFIG_TYPE {
+        let Some(obj) = body.as_object() else {
+            return Err(ApiError::bad_request("m.invite_permission_config content must be a JSON object".to_string()));
+        };
+        if let Some(default_action) = obj.get("default_action") {
+            match default_action.as_str() {
+                Some("allow") | Some("block") => {}
+                _ => {
+                    return Err(ApiError::bad_request("'default_action' must be either 'allow' or 'block'".to_string()))
+                }
+            }
+        }
+        for field in ["user_exceptions", "server_exceptions"] {
+            let Some(value) = obj.get(field) else {
+                continue;
+            };
+            let Some(entries) = value.as_array() else {
+                return Err(ApiError::bad_request(format!("'{field}' must be an array of strings")));
+            };
+            if entries.iter().any(|entry| entry.as_str().is_none()) {
+                return Err(ApiError::bad_request(format!("'{field}' must be an array of strings")));
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -335,8 +364,55 @@ mod tests {
         assert!(validate_account_data_payload("test.type", &body).is_ok());
     }
 
-    // ---------- m.ignored_user_list validation tests ----------
+    // ---------- m.invite_permission_config validation tests (MSC4155) ----------
 
+    #[test]
+    fn test_validate_invite_permission_config_valid() {
+        let body = json!({
+            "default_action": "block",
+            "user_exceptions": ["@friend:example.org"],
+            "server_exceptions": ["example.org"]
+        });
+        assert!(validate_account_data_payload("m.invite_permission_config", &body).is_ok());
+    }
+
+    #[test]
+    fn test_validate_invite_permission_config_empty_object() {
+        assert!(validate_account_data_payload("m.invite_permission_config", &json!({})).is_ok());
+    }
+
+    #[test]
+    fn test_validate_invite_permission_config_rejects_bad_default_action() {
+        let body = json!({"default_action": "maybe"});
+        let result = validate_account_data_payload("m.invite_permission_config", &body);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("'default_action' must be either"));
+    }
+
+    #[test]
+    fn test_validate_invite_permission_config_rejects_non_object() {
+        let result = validate_account_data_payload("m.invite_permission_config", &json!(["nope"]));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("must be a JSON object"));
+    }
+
+    #[test]
+    fn test_validate_invite_permission_config_rejects_non_string_exception() {
+        let body = json!({"default_action": "block", "user_exceptions": ["@ok:x.org", 7]});
+        let result = validate_account_data_payload("m.invite_permission_config", &body);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("'user_exceptions' must be an array of strings"));
+    }
+
+    #[test]
+    fn test_validate_invite_permission_config_rejects_non_array_exceptions() {
+        let body = json!({"default_action": "block", "server_exceptions": "example.org"});
+        let result = validate_account_data_payload("m.invite_permission_config", &body);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("'server_exceptions' must be an array of strings"));
+    }
+
+    // ---------- m.ignored_user_list validation tests ----------
     #[test]
     fn test_validate_ignored_user_list_valid() {
         let body = json!({

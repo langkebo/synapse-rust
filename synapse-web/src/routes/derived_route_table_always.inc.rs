@@ -2713,24 +2713,6 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/rooms/{room_id}/invite_allowlist", "room");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e =
-            RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v3/rooms/{room_id}/invite_allowlist", "room");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/rooms/{room_id}/invite_blocklist", "room");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e =
-            RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v3/rooms/{room_id}/invite_blocklist", "room");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
         let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/rooms/{room_id}/invites", "room");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
@@ -4480,6 +4462,26 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             "/_matrix/vendor/v1/rooms/{room_id}/burn/{event_id}",
             "burn_after_read",
         );
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e =
+            RouteEntry::new(axum::http::Method::GET, "/_matrix/vendor/v1/rooms/{room_id}/invite_allowlist", "vendor");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e =
+            RouteEntry::new(axum::http::Method::POST, "/_matrix/vendor/v1/rooms/{room_id}/invite_allowlist", "vendor");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e =
+            RouteEntry::new(axum::http::Method::GET, "/_matrix/vendor/v1/rooms/{room_id}/invite_blocklist", "vendor");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e =
+            RouteEntry::new(axum::http::Method::POST, "/_matrix/vendor/v1/rooms/{room_id}/invite_blocklist", "vendor");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
