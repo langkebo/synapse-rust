@@ -2785,7 +2785,7 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 
 | # | 问题 | 规模估计 |
 |---|---|---|
-| 7 | **仍有 23 个 `synapse-storage/src` 文件用 `connect_shared_test_pool()`（共享 `public`）** | 本轮只迁了 `event_report`（它本地 42P01）。共性风险：CI 绿本地红、并行测试互相影响 |
+| 7 | **仍有 14 个 `synapse-storage/src` 文件用 `connect_shared_test_pool()`（共享 `public`）** | 本轮已迁 8 个（`event_report` + 批次 1 三个 + 批次 2 四个，共 87 条测试本地全绿）。**计数更正**：先前写的 23 是把**注释里提到** `connect_shared_test_pool` 的文件也算进去了；按真实调用 `test_utils::connect_shared_test_pool()` 统计是 14 个（`git grep -ln "test_utils::connect_shared_test_pool()"`）。共性风险：CI 绿本地红、并行测试互相影响 |
 | 8 | `scripts/run_ci_tests.sh` 与 `ci.yml` 内联批次重复（sweep A13） | 两处实现必然漂移 |
 | 9 | `.config/nextest.toml` 的 `[profile.ci]`（`retries=2, threads=12`）与 CI 实际命令行口径不一致 | 配置与事实不符，容易误导 |
 | 10 | 慢速车道时长上升（integration 并发降到 4 后 ~42 分钟；Build Check 3×release 18–19 分钟） | 若锁表仍偶发，需把 `CLONE_TABLES_PER_STATEMENT` 24→12 |
@@ -2818,7 +2818,7 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 | 任务 | 估算 |
 |---|---|
 | ~~`test_schema_guard` 收紧~~ → **需先裁定**（见 §14.16 A⑤ 的更正：feature gate 在本门禁的 `--all-features` prod 扫描下无效）：要么去掉 atexit 兜底（改代码 + 重验 janitor），要么改 prod 扫描的 feature 集 | 2–4h（含验证） |
-| 23 个共享池 `db_tests` 迁移到 per-test schema | **8–12h**（每个 20–30 min，建议每批 3–5 个文件一个提交，本地跑该文件 + CI 抽验） |
+| 剩余 14 个共享池文件迁移到 per-test schema | **5–7h**（每个 20–30 min，建议每批 3–4 个文件一个提交 —— 批次 1/2 实测：每批改动 ~13–35 个调用点，本地验证 1–8 分钟） |
 | 本地 `test_*` schema 清理 + 把 cleanup 接入流程 | ✅ 已核实：实测只剩 4 个残留（其余 3 个是 live 模板），janitor 正常工作；降为定期抽查 |
 | A13：`run_ci_tests.sh` 与 `ci.yml` 二选一（删除重复实现） | 1–2h |
 | `nextest` profile 口径统一（`.config/nextest.toml` 与 CI 命令行一致或删 `profile.ci`） | 30 min |

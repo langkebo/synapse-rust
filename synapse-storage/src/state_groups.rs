@@ -424,10 +424,15 @@ mod db_tests {
     use super::*;
     use sqlx::{Pool, Postgres};
 
-    async fn test_pool() -> Arc<PgPool> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// 每个测试一个从迁移 baseline 克隆出来的独立 schema（返回 guard 与 pool）。
+    ///
+    /// 2026-09-21：原先用共享 `public` 池。共享池的两个问题：测试结果取决于环境里
+    /// `public` 的残渣（本地 `public` 落后于迁移 baseline 时会直接 42P01），且并行测试
+    /// 互相影响。按铁律 7 消除状态共享：per-test schema 由模板克隆，表一定存在、行数从 0 开始。
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<sqlx::PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated test pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     async fn ensure_test_room(pool: &Pool<Postgres>, room_id: &str) {
@@ -500,7 +505,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_state_group() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = StateGroupStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!test_create_sg_{suffix}:localhost");
@@ -523,7 +528,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_state_group_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = StateGroupStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!test_get_sg_{suffix}:localhost");
@@ -553,7 +558,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_state_group_not_found() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = StateGroupStorage::new(&pool);
 
         let result = storage.get_state_group(99999999).await.expect("query should succeed");
@@ -563,7 +568,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_state_group_by_event() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = StateGroupStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!test_sg_by_ev_{suffix}:localhost");
@@ -595,7 +600,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_room_state_groups() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = StateGroupStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!test_room_sgs_{suffix}:localhost");
@@ -641,7 +646,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_add_state_group_edge() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = StateGroupStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!test_edge_{suffix}:localhost");
@@ -672,7 +677,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_add_state_group_edges_batch() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = StateGroupStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!test_batch_edges_{suffix}:localhost");
@@ -722,7 +727,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_prev_state_groups() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = StateGroupStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!test_prev_{suffix}:localhost");
@@ -757,7 +762,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_next_state_groups() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = StateGroupStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!test_next_{suffix}:localhost");
@@ -791,7 +796,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_bind_event_to_state_group() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = StateGroupStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!test_bind_{suffix}:localhost");
@@ -835,7 +840,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_state_entry() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = StateGroupStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!test_state_entry_{suffix}:localhost");
@@ -879,7 +884,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_state_entries_batch() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = StateGroupStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!test_batch_state_{suffix}:localhost");

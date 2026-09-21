@@ -505,10 +505,15 @@ mod db_tests {
     use sqlx::Row;
     use std::sync::Arc;
 
-    async fn test_pool() -> Arc<sqlx::PgPool> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// 每个测试一个从迁移 baseline 克隆出来的独立 schema（返回 guard 与 pool）。
+    ///
+    /// 2026-09-21：原先用共享 `public` 池。共享池的两个问题：测试结果取决于环境里
+    /// `public` 的残渣（本地 `public` 落后于迁移 baseline 时会直接 42P01），且并行测试
+    /// 互相影响。按铁律 7 消除状态共享：per-test schema 由模板克隆，表一定存在、行数从 0 开始。
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<sqlx::PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated test pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     fn unique_user_id(prefix: &str) -> String {
@@ -560,7 +565,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_upsert_and_get_pushers_with_device_id() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
         let device_id = "device1";
@@ -598,7 +603,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_pushers_filters_by_specific_device_id() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
 
@@ -630,7 +635,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_pushers_with_none_device_id() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
 
@@ -654,7 +659,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_pushers_returns_empty_for_unknown_user() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@unknown");
 
@@ -664,7 +669,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_upsert_pusher_updates_existing() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
         let device_id = "dev_update";
@@ -695,7 +700,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_pusher() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
         let device_id = "dev_del";
@@ -719,7 +724,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_pusher_nonexistent_does_not_error() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
 
@@ -733,7 +738,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_upsert_and_get_push_rule() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
         let now = current_timestamp_millis();
@@ -762,7 +767,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_push_rules_returns_empty_for_no_rules() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
 
@@ -775,7 +780,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_upsert_push_rule_updates_existing() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
         let now = current_timestamp_millis();
@@ -822,7 +827,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_update_push_rule_actions() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
         let now = current_timestamp_millis();
@@ -858,7 +863,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_push_rule() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
         let now = current_timestamp_millis();
@@ -887,7 +892,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_push_rule_enabled_returns_none_for_nonexistent() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
 
@@ -900,7 +905,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_push_rule_enabled() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
         let now = current_timestamp_millis();
@@ -939,7 +944,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_push_rules_scoped_by_scope_and_kind() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
         let now = current_timestamp_millis();
@@ -982,7 +987,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_notifications_returns_rows() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
         let now = current_timestamp_millis();
@@ -1002,7 +1007,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_notifications_respects_limit() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
         let now = current_timestamp_millis();
@@ -1022,7 +1027,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_notifications_empty_for_unknown_user() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@unknown");
 
@@ -1032,7 +1037,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_ack_notification_marks_read_and_returns_id() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
         let now = current_timestamp_millis();
@@ -1051,7 +1056,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_ack_notification_returns_none_for_wrong_user() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
         let other_user = unique_user_id("@other");
@@ -1073,7 +1078,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_ack_notification_returns_none_for_nonexistent_id() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
 
@@ -1089,7 +1094,7 @@ mod db_tests {
     /// order because no writer ever set `priority`.
     #[tokio::test]
     async fn test_get_user_push_rules_orders_by_rule_id_not_insertion_time() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@pushorder");
         cleanup_push_rules(&pool, &user_id).await;

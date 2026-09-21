@@ -664,10 +664,15 @@ mod db_tests {
     use sqlx::PgPool;
     use std::sync::Arc;
 
-    async fn test_pool() -> Arc<PgPool> {
-        crate::test_utils::connect_shared_test_pool()
-            .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+    /// 每个测试一个从迁移 baseline 克隆出来的独立 schema（返回 guard 与 pool）。
+    ///
+    /// 2026-09-21：原先用共享 `public` 池。共享池的两个问题：测试结果取决于环境里
+    /// `public` 的残渣（本地 `public` 落后于迁移 baseline 时会直接 42P01），且并行测试
+    /// 互相影响。按铁律 7 消除状态共享：per-test schema 由模板克隆，表一定存在、行数从 0 开始。
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<sqlx::PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated test pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     async fn cleanup_burn_settings(pool: &PgPool, user_id: &str, room_id: &str) {
@@ -711,7 +716,7 @@ mod db_tests {
     // 1. Set burn settings and retrieve them.
     #[tokio::test]
     async fn test_set_and_get_settings() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BurnAfterReadStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user_id = format!("@settings_{suffix}:test.com");
@@ -746,7 +751,7 @@ mod db_tests {
     // 2. get_settings returns None for nonexistent settings.
     #[tokio::test]
     async fn test_get_settings_nonexistent() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BurnAfterReadStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user_id = format!("@nonexist_{suffix}:test.com");
@@ -760,7 +765,7 @@ mod db_tests {
     // 3. set_settings with upsert updates an existing row.
     #[tokio::test]
     async fn test_set_settings_update_existing() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BurnAfterReadStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user_id = format!("@upsert_{suffix}:test.com");
@@ -793,7 +798,7 @@ mod db_tests {
     // 4. Schedule a burn and retrieve pending burns.
     #[tokio::test]
     async fn test_schedule_and_get_pending_burns() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BurnAfterReadStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user_id = format!("@pending_{suffix}:test.com");
@@ -829,7 +834,7 @@ mod db_tests {
     // 5. Cancel a burn marks it as processed so it no longer appears as pending.
     #[tokio::test]
     async fn test_cancel_burn_removes_from_pending() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BurnAfterReadStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user_id = format!("@cancel_{suffix}:test.com");
@@ -854,7 +859,7 @@ mod db_tests {
     // 6. get_expired_burns returns only burns whose delete_ts has passed.
     #[tokio::test]
     async fn test_get_expired_burns() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BurnAfterReadStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user_id = format!("@expired_{suffix}:test.com");
@@ -897,7 +902,7 @@ mod db_tests {
     // 7. Mark a burn as processed by id.
     #[tokio::test]
     async fn test_mark_burn_processed_by_id() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BurnAfterReadStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user_id = format!("@processed_{suffix}:test.com");
@@ -929,7 +934,7 @@ mod db_tests {
     // 8. Log a burned event and verify user stats.
     #[tokio::test]
     async fn test_log_burned_event_and_get_stats() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BurnAfterReadStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user_id = format!("@logstats_{suffix}:test.com");
@@ -964,7 +969,7 @@ mod db_tests {
     // it PostgreSQL rejects the `ON CONFLICT (user_id, event_id) DO NOTHING` with 42P10.
     #[tokio::test]
     async fn test_log_burned_event_batch_is_idempotent_on_conflict_target() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BurnAfterReadStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user_id = format!("@batchlog_{suffix}:test.com");
@@ -999,7 +1004,7 @@ mod db_tests {
     // 9. Set and retrieve user default burn time.
     #[tokio::test]
     async fn test_set_and_get_user_default() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BurnAfterReadStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user_id = format!("@default_{suffix}:test.com");
@@ -1044,7 +1049,7 @@ mod db_tests {
     // 10. Full round-trip: settings -> schedule -> get pending -> mark processed -> log -> stats.
     #[tokio::test]
     async fn test_full_round_trip() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BurnAfterReadStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user_id = format!("@roundtrip_{suffix}:test.com");
@@ -1102,7 +1107,7 @@ mod db_tests {
     // 11. Multiple pending burns with mixed expiration times.
     #[tokio::test]
     async fn test_batch_cleanup_expired() {
-        let pool = test_pool().await;
+        let (_isolated, pool) = test_pool().await;
         let storage = BurnAfterReadStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user_id = format!("@batch_{suffix}:test.com");
