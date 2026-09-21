@@ -900,3 +900,56 @@ fn k6_smoke_requires_an_explicit_dispatch_input() {
         "`workflow_dispatch.inputs` 必须声明 `run_k6`（默认 false），否则没人能显式要求它"
     );
 }
+
+/// perf smoke 步骤必须列出 `performance_manual` 的**全部** `required-features`。
+///
+/// run 35580479156 第一次真正执行到 `Run performance smoke gate`（它排在 integration /
+/// e2e / snapshot gate 之后，此前从未轮到）时立刻红：
+///   `error: target \`performance_manual\` in package \`synapse-rust\` requires the`
+///   `features: \`performance-tests\`, \`test-utils\``
+/// —— `Cargo.toml` 的 `[[test]] performance_manual` 声明了**两个** required-features，而该步骤
+/// 只传了 `performance-tests`。本守卫从清单（Cargo.toml）推导出要求，再断言 ci.yml 的
+/// `--features` 里**逐项**列出，避免以后再加一个 required-feature 又漏传。
+///
+/// **红证明**：把步骤里的 `--features performance-tests,test-utils` 改回
+/// `--features performance-tests` → FAILED。
+#[test]
+fn performance_smoke_step_declares_required_features() {
+    let root = repo_root();
+    let manifest = fs::read_to_string(root.join("Cargo.toml")).expect("read Cargo.toml");
+    let block = manifest
+        .split("[[test]]")
+        .find(|b| b.contains("name = \"performance_manual\""))
+        .expect("Cargo.toml 必须有 `[[test]] performance_manual`（守卫前提）");
+    let required: Vec<String> = block
+        .lines()
+        .find(|l| l.trim_start().starts_with("required-features"))
+        .and_then(|l| l.split('[').nth(1))
+        .and_then(|l| l.split(']').next())
+        .map(|list| {
+            list.split(',')
+                .map(|item| item.trim().trim_matches('"').to_string())
+                .filter(|item| !item.is_empty())
+                .collect()
+        })
+        .expect("`performance_manual` 必须声明 `required-features`");
+    assert!(!required.is_empty(), "守卫前提：required-features 不应为空");
+
+    let ci = fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("read ci.yml");
+    let step = ci
+        .split("- name: ")
+        .find(|s| s.starts_with("Run performance smoke gate"))
+        .expect("ci.yml 必须有 `Run performance smoke gate` 步骤");
+    let run = step
+        .lines()
+        .find(|l| l.trim_start().starts_with("cargo test --test performance_manual"))
+        .expect("该步骤必须跑 `cargo test --test performance_manual`");
+    let features = run.split("--features").nth(1).and_then(|rest| rest.split_whitespace().next()).unwrap_or("");
+    for feature in &required {
+        assert!(
+            features.split(',').any(|f| f.trim() == feature),
+            "perf smoke 步骤的 `--features` 必须列出 `performance_manual` 的全部 required-features；\
+             缺 `{feature}`（Cargo.toml 声明 {required:?}，ci.yml 传 {features:?}）"
+        );
+    }
+}
