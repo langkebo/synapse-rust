@@ -1,0 +1,109 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "network-connections",
+    "title": "网络与连接",
+    "tags": ["coturn", "network", "connections"],
+    "timezone": "utc",
+    "schemaVersion": 38,
+    "version": 1,
+    "refresh": "15s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "活跃连接数",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "coturn_active_connections",
+            "refId": "A",
+            "legendFormat": "{{instance}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 1000},
+                {"color": "red", "value": 5000}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "TURN 分配速率",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 6, "y": 0},
+        "targets": [
+          {
+            "expr": "rate(coturn_allocations_total[5m])",
+            "refId": "A",
+            "legendFormat": "分配/秒"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "STUN 请求速率",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "rate(coturn_stun_requests_total[5m])",
+            "refId": "A",
+            "legendFormat": "{{type}}"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "中继地址使用率",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 6, "x": 0, "y": 16},
+        "targets": [
+          {
+            "expr": "coturn_relay_addresses_in_use / coturn_relay_addresses_total * 100",
+            "refId": "A",
+            "legendFormat": "中继地址使用率"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "TURN 延迟",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 6, "y": 16},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(coturn_turn_allocation_duration_seconds_bucket[5m]))",
+            "refId": "A",
+            "legendFormat": "p95 延迟(秒)"
+          }
+        ]
+      }
+    ],
+    "templating": {
+      "list": []
+    },
+    "time": {"from": "now-1h", "to": "now"},
+    "title": "网络与连接"
+  },
+  "meta": {
+    "folder": "synapse-rust",
+    "slug": "network-connections",
+    "version": 1
+  }
+}

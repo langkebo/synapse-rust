@@ -4979,6 +4979,7 @@ dependencies = [
  "insta",
  "ipnetwork",
  "lettre",
+ "libc",
  "mockall",
  "opentelemetry",
  "opentelemetry_sdk",
@@ -5037,6 +5038,7 @@ dependencies = [
  "image",
  "infer",
  "jsonwebtoken",
+ "libc",
  "lru",
  "moka",
  "opentelemetry",
@@ -5080,6 +5082,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "deadpool-redis",
+ "libc",
  "rand 0.9.5",
  "redis",
  "serde",
@@ -5097,6 +5100,7 @@ dependencies = [
 name = "synapse-test-utils"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "sqlx",
  "synapse-common",
  "synapse-services",

@@ -7,6 +7,7 @@ use futures::stream::{self, StreamExt};
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use synapse_common::error::ApiError;
+use synapse_common::server_metrics::ServerMetrics;
 use synapse_storage::push_notification::*;
 use tracing::{error, info, warn};
 
@@ -31,6 +32,11 @@ pub struct PushNotificationService {
     /// Optional account_data storage for looking up `m.ignored_user_list`
     /// so that push notifications from ignored users are suppressed.
     account_data_storage: Option<Arc<dyn synapse_storage::account_data::AccountDataStoreApi>>,
+    /// Delivery counters (`push_notifications_total` / `push_notification_errors_total`).
+    ///
+    /// `None` in unit tests that build the service directly; the container wires
+    /// the real handle so `/metrics` reports live push delivery.
+    server_metrics: Option<Arc<ServerMetrics>>,
 }
 
 /// Treats an empty/whitespace-only config value as "not set".
@@ -102,6 +108,7 @@ impl PushNotificationService {
             providers: Arc::new(RwLock::new(PushProviders::default())),
             push_gateway: None,
             account_data_storage: None,
+            server_metrics: None,
         }
     }
 
@@ -136,6 +143,17 @@ impl PushNotificationService {
     /// See [`with_push_gateway`].
     pub fn with_push_gateway(mut self, gateway: Arc<PushGateway>) -> Self {
         self.push_gateway = Some(gateway);
+        self
+    }
+
+    /// Attach the server metrics handle so push delivery is observable.
+    ///
+    /// Without this the `push_notifications_total` / `push_notification_errors_total`
+    /// counters stay at zero forever: they would be registered and exported, yet no
+    /// send path would ever increment them — a metric that silently lies to
+    /// dashboards and alerts.
+    pub fn with_server_metrics(mut self, server_metrics: Arc<ServerMetrics>) -> Self {
+        self.server_metrics = Some(server_metrics);
         self
     }
 
@@ -329,12 +347,24 @@ impl PushNotificationService {
 
         let mut processed = 0u64;
         for (notification, result) in results {
+            // `push_notifications_total` / `push_notification_errors_total` are
+            // incremented here, at the single point where the delivery outcome is
+            // decided: every `send_to_provider` error path (uninitialized provider,
+            // gateway failure, device lookup failure) collapses into this `Err`
+            // arm, so counting here cannot miss one — which counting inside
+            // `send_to_provider` would, because several of its branches return early.
+            if let Some(metrics) = &self.server_metrics {
+                metrics.push_notifications_total.inc();
+            }
             match result {
                 Ok(_) => {
                     self.storage.mark_notification_sent(notification.id).await?;
                     processed += 1;
                 }
                 Err(e) => {
+                    if let Some(metrics) = &self.server_metrics {
+                        metrics.push_notification_errors_total.inc();
+                    }
                     let should_retry = notification.attempts < notification.max_attempts - 1;
                     self.storage.mark_notification_failed(notification.id, &e.to_string(), should_retry).await?;
                 }

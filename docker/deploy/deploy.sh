@@ -14,6 +14,7 @@
 #   ./deploy.sh --skip-build      # 跳过编译与镜像构建
 #   ./deploy.sh --install-deps    # 自动安装缺失依赖 (brew/apt/yum)
 #   ./deploy.sh --no-turn         # 跳过本地 coturn TURN 检查
+#   ./deploy.sh --no-monitoring   # 跳过监控栈启动（prometheus/grafana/...）
 #   ./deploy.sh --image REF       # 使用指定的远程镜像（跳过本地构建，自动 pull）
 #   ./deploy.sh --keep-images     # 保留历史项目镜像（默认全量删除旧镜像）
 #   ./deploy.sh --no-strict-warnings # 未知 WARNING 不阻断部署（默认阻断）
@@ -25,7 +26,7 @@
 #           部署前备份 → 缓存清理 → 项目编译 → 容器优雅停止 →
 #           移除旧部署 → 旧镜像清理 → 镜像构建 → 服务启动(含迁移) →
 #           数据库连接验证 → DB 版本一致性校验 → 健康/HTTPS 验证 →
-#           日志告警分析 → 状态与访问信息
+#           日志告警分析 → 监控栈启动 → 状态与访问信息
 #
 # 可靠性: 全部步骤经 run_step 包装，失败时打印失败的步骤/命令/行号/退出码，
 #         并按 ROLLBACK_ENABLED 自动回滚（恢复旧镜像标签 + 还原数据库备份
@@ -66,6 +67,9 @@ REMOTE_IMAGE=""
 USE_REMOTE_IMAGE=false
 INSTALL_DEPS=false
 CHECK_TURN=true
+# 监控栈（prometheus/alertmanager/grafana/node-exporter/alert-handler）随部署启动。
+# 它是**非致命**步骤：失败只告警，不触发核心栈回滚（监控不在对外服务关键路径上）。
+CHECK_MONITORING="${CHECK_MONITORING:-true}"
 # 旧项目镜像清理：默认全量删除（保留当前镜像与本次回滚标签）
 KEEP_IMAGES=false
 # 未知 WARNING 是否阻断部署：默认阻断（部署门禁要求"日志无未知告警"）
@@ -169,6 +173,9 @@ parse_args() {
             --no-turn)
                 CHECK_TURN=false
                 ;;
+            --no-monitoring)
+                CHECK_MONITORING=false
+                ;;
             --keep-images)
                 KEEP_IMAGES=true
                 ;;
@@ -217,6 +224,7 @@ show_usage() {
   --skip-build      跳过 cargo build 和 Docker 镜像构建
   --install-deps    自动安装缺失的依赖 (macOS: brew / Linux: apt/yum)
   --no-turn         跳过本地 coturn TURN 服务检查与启动
+  --no-monitoring   跳过监控栈启动（prometheus/alertmanager/grafana/node-exporter/alert-handler）
   --image REF       使用指定的远程镜像（自动 docker pull，跳过本地构建）
   --keep-images     保留历史项目镜像（默认删除所有旧项目镜像以释放空间）
   --no-strict-warnings 未知 WARNING 仅提示、不阻断部署（默认阻断）
@@ -786,6 +794,60 @@ check_local_turn() {
     else
         log_warning "coturn 不可用，VoIP 通话功能将不可用（不影响其他服务）"
     fi
+}
+
+# =============================================================================
+# 监控栈启动（prometheus / alertmanager / grafana / node-exporter / alert-handler）
+# =============================================================================
+# 监控栈通过独立的 `docker-compose.monitoring.yml` 编排（此前是裸 `docker run`
+# 手工起的，配置能改、栈无法重建）。它复用核心栈创建的网络，因此必须在核心栈
+# 起来之后再启动。
+#
+# **非致命**：监控不在对外服务关键路径上，任一环节失败只告警、返回 0，
+# 不触发核心栈回滚。用 `--no-monitoring` 可整体跳过。
+MONITORING_COMPOSE_FILE="docker-compose.monitoring.yml"
+MONITORING_PROJECT="synapse-monitoring"
+
+start_monitoring() {
+    DEPLOYMENT_PHASE="monitoring"
+    if [ "$CHECK_MONITORING" != "true" ]; then
+        log_info "跳过监控栈启动 (--no-monitoring)"
+        return 0
+    fi
+    if [ ! -f "$DEPLOY_ROOT/$MONITORING_COMPOSE_FILE" ]; then
+        log_warning "未找到 $MONITORING_COMPOSE_FILE，跳过监控栈"
+        return 0
+    fi
+
+    # 网络由核心栈创建；没有它监控栈抓不到 synapse-app:9090。
+    local net="${COMPOSE_PROJECT_NAME:-synapse}_network"
+    if ! docker network inspect "$net" >/dev/null 2>&1; then
+        log_warning "网络 $net 不存在（核心栈未启动？），跳过监控栈"
+        return 0
+    fi
+
+    # worker 抓取凭证：缺失时生成。必须先生成再 up —— 源文件不存在时 Docker 会
+    # 建一个**目录**再挂载，prometheus 会把它当文件读取失败。
+    local token_file="$DEPLOY_ROOT/prometheus/auth/worker-token"
+    if [ ! -s "$token_file" ]; then
+        mkdir -p "$(dirname "$token_file")"
+        if openssl rand -hex 32 >"$token_file" 2>/dev/null; then
+            chmod 600 "$token_file" 2>/dev/null || true
+            log_info "已生成 prometheus worker-token"
+        else
+            log_warning "无法生成 worker-token（openssl 不可用），prometheus worker 抓取将不可用"
+            rm -f "$token_file" 2>/dev/null || true
+        fi
+    fi
+
+    log_info "启动监控栈 (project=$MONITORING_PROJECT)..."
+    if compose -p "$MONITORING_PROJECT" -f "$MONITORING_COMPOSE_FILE" up -d --remove-orphans >/dev/null 2>&1; then
+        log_success "监控栈已启动: prometheus / alertmanager / grafana / node-exporter / alert-handler"
+    else
+        log_warning "监控栈启动失败（不影响核心服务）。手动排查:"
+        log_warning "  cd $DEPLOY_ROOT && docker compose -p $MONITORING_PROJECT -f $MONITORING_COMPOSE_FILE up -d"
+    fi
+    return 0
 }
 
 # =============================================================================
@@ -1536,6 +1598,8 @@ main() {
     run_step "健康检查验证" verify_health_endpoints
     run_step "HTTPS 接口验证" verify_https_endpoints
     run_step "日志告警分析" verify_logs_clean
+    # 监控栈放在最后：它抓取的核心服务此时已就绪，且失败不影响核心服务。
+    run_step "启动监控栈" start_monitoring
 
     show_status
     show_access_info

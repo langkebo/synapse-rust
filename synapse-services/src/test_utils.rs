@@ -249,6 +249,8 @@ fn isolated_baseline_sql() -> &'static str {
 /// unqualified queries silently fell back to the shared `public` schema through
 /// `search_path = <schema>, public` and produced order-dependent failures.
 pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
+    #[cfg(test)]
+    crate::test_exit_hook::ensure();
     let database_url = resolve_test_database_url().await?;
     let schema_name = next_test_schema_name();
     let template =
@@ -324,6 +326,8 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
 /// Cloning tables from the template is ~100x faster than re-running all migrations.
 /// Set TEST_ISOLATED_SCHEMAS=1 to force the old per-test migration behavior.
 pub async fn prepare_shared_test_pool() -> Result<Arc<PgPool>, String> {
+    #[cfg(test)]
+    crate::test_exit_hook::ensure();
     let database_url = resolve_test_database_url().await?;
 
     // Step 1: Ensure the template schema exists (one-time init)
@@ -354,6 +358,8 @@ pub async fn prepare_shared_test_pool() -> Result<Arc<PgPool>, String> {
 /// Returns an `Arc<PgPool>`; callers that need a bare `PgPool` (cheap internal
 /// `Arc` alias) can `(*pool).clone()`.
 pub async fn connect_shared_test_pool() -> Result<Arc<PgPool>, String> {
+    #[cfg(test)]
+    crate::test_exit_hook::ensure();
     let database_url = resolve_test_database_url().await?;
     let pool = PgPoolOptions::new()
         .max_connections(2)
@@ -576,6 +582,8 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
 
 /// See [`prepare_empty_isolated_test_pool`].
 pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
+    #[cfg(test)]
+    crate::test_exit_hook::ensure();
     let database_url = resolve_test_database_url().await?;
     let schema_name = next_test_schema_name();
 

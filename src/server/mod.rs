@@ -816,8 +816,8 @@ impl SynapseServer {
             let prometheus_router = Router::new()
                 .route(&prometheus_path, get(render_prometheus_metrics))
                 .with_state(metrics_state)
-                .layer(Extension(prometheus_auth_token))
-                .layer(middleware::from_fn(prometheus_auth_middleware));
+                .layer(middleware::from_fn(prometheus_auth_middleware))
+                .layer(Extension(prometheus_auth_token));
 
             tokio::spawn(async move {
                 axum::serve(prometheus_listener, prometheus_router.into_make_service())
@@ -1307,6 +1307,8 @@ mod tests {
     #[cfg(feature = "test-utils")]
     #[tokio::test]
     async fn render_appservice_scheduler_prometheus_metrics_reflects_recovery_summary() {
+        #[cfg(test)]
+        crate::test_exit_hook::ensure();
         let pool = prepare_shared_test_pool().await.expect("shared test pool should be available");
         let container = synapse_services::ServiceContainer::new_test_with_pool(pool.clone()).await;
         let manager = container.admin.modules.app_service_manager.clone();

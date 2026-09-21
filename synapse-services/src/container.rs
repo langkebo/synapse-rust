@@ -337,6 +337,7 @@ impl ServiceContainer {
             config,
             &infra.infra.task_queue,
             &infra.infra.metrics,
+            &infra.server_metrics,
             &storage.token_auth,
             &storage.credential_auth,
             &storage.room_auth,

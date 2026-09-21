@@ -79,6 +79,11 @@ docker/deploy/test-results/
 docker/deploy/test-results-matrix/
 docker/deploy/logs/
 
+# Prometheus 抓取/web 认证凭证（含明文 bearer token 与 apr1 口令哈希）。
+# 由部署流程生成，绝不可入仓；目录内只保留可提交的 README 说明。
+docker/deploy/prometheus/auth/*
+!docker/deploy/prometheus/auth/README.md
+
 # 临时令牌和测试凭证（不应入库）
 *_token.txt
 test_tokens.json

@@ -1,0 +1,127 @@
+# =============================================================================
+# Prometheus 抓取配置 — HuLa/Tjg 监控栈
+# =============================================================================
+# 部署路径：/etc/prometheus/prometheus.yml (容器内)
+# 宿主路径：docker/monitoring/prometheus/prometheus.yml
+#
+# 抓取目标：
+#   1. synapse-rust :9090    — 后端指标（回环内访问）
+#   2. synapse-worker       — Worker 指标（需 bearer_token）
+#   3. coturn :9641         — TURN/STUN 指标
+#   4. node-exporter :9100  — 宿主机系统指标
+#
+# 历史数据保留：30天
+# 抓取间隔：15s（synapse）/ 30s（其他）
+# =============================================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+  external_labels:
+    monitor: synapse-rust
+    environment: production
+    cluster: hula-matrix
+    region: cn-north
+
+# 告警规则文件
+rule_files:
+  - /etc/prometheus/alerting-rules.yml
+  - /etc/prometheus/recording-rules.yml
+
+# 告警管理器
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - synapse-alertmanager:9093
+      timeout: 10s
+
+# 抓取配置
+scrape_configs:
+  # === 1. synapse-rust 后端 ===
+  # 注意：/metrics 端点在独立端口 9090（见 synapse-web/src/routes/telemetry.rs:202）
+  # port 8008 是 Matrix 客户端 API 端口，不在其中暴露 /metrics
+  - job_name: synapse-rust
+    static_configs:
+      - targets:
+          - synapse-app:9090
+        labels:
+          role: backend
+          service: synapse-rust
+          team: backend-ops
+    metrics_path: /metrics
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  # === 2. synapse worker metrics ===
+  # 注释掉：Worker 端口 9091 未在 compose 中暴露，无 worker 服务运行
+  # - job_name: synapse-worker
+  #   static_configs:
+  #     - targets:
+  #         - synapse-app:9091
+  #       labels:
+  #         role: worker
+  #         service: synapse-rust-worker
+  #         team: backend-ops
+  #   metrics_path: /metrics
+  #   scrape_interval: 30s
+  #   scrape_timeout: 5s
+  #   # Worker 端口当前未在 compose 中暴露，标记为 down 待配置
+
+  # === 3. coturn TURN/STUN ===
+  - job_name: coturn
+    static_configs:
+      - targets:
+          - coturn:9641
+        labels:
+          role: turn-server
+          service: coturn
+          team: voip-ops
+    metrics_path: /metrics
+    scrape_interval: 30s
+    scrape_timeout: 5s
+
+  # === 4. Node Exporter 系统指标 ===
+  - job_name: node-exporter
+    static_configs:
+      - targets:
+          - synapse-node-exporter:9100
+        labels:
+          role: infrastructure
+          team: infra-ops
+    scrape_interval: 30s
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'node_nfs_.*'
+        action: drop
+
+  # === 5. Prometheus 自身 ===
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - synapse-prometheus:9090
+        labels:
+          role: monitoring
+          service: prometheus
+          team: sre-team
+    scrape_interval: 15s
+
+  # === 6. Alertmanager 自身 ===
+  - job_name: alertmanager
+    static_configs:
+      - targets:
+          - synapse-alertmanager:9093
+        labels:
+          role: monitoring
+          service: alertmanager
+          team: sre-team
+
+  # === 7. cAdvisor（容器资源监控，可选）===
+  # 注释掉，按需启用
+  # - job_name: cadvisor
+  #   static_configs:
+  #     - targets:
+  #         - cadvisor:8080
+  #   labels:
+  #     role: container-metrics

@@ -395,6 +395,8 @@ async fn attach_schema_lease(conn: &mut sqlx::PgConnection, schema: &str) -> Res
 
 /// See [`prepare_isolated_test_pool`].
 pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
+    #[cfg(test)]
+    crate::test_exit_hook::ensure();
     let database_url = resolve_test_database_url().await?;
     let schema_name = next_test_schema_name();
 
@@ -493,6 +495,8 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
 /// Note: For new code, prefer `acquire_pooled_schema()` which reuses TRUNCATEd
 /// schemas across tests (15-20x faster than cloning on every call).
 pub async fn prepare_shared_test_pool() -> Result<Arc<PgPool>, String> {
+    #[cfg(test)]
+    crate::test_exit_hook::ensure();
     let database_url = resolve_test_database_url().await?;
     let template = get_template_schema_name(&database_url).await?;
 
@@ -1486,6 +1490,8 @@ fn ensure_schema_pool_exit_drain(database_url: &str) {
 /// The returned `LeasedSchema` auto-cleans on Drop — no explicit release needed.
 /// Tests using `TestContext` get this automatically; no test code changes required.
 pub async fn acquire_pooled_schema() -> Result<LeasedSchema, String> {
+    #[cfg(test)]
+    crate::test_exit_hook::ensure();
     let database_url = resolve_test_database_url().await?;
     let template_name = get_template_schema_name(&database_url).await?;
 
@@ -1918,3 +1924,7 @@ mod pooled_schema_reseed_tests {
         admin.close().await;
     }
 }
+
+/// Test-build-only schema-cleanup exit hook (B'). See the module docs.
+#[cfg(test)]
+mod test_exit_hook;

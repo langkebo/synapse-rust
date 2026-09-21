@@ -53,7 +53,7 @@ pub struct ServerMetrics {
     /// HTTP request duration histogram (ms).
     pub http_request_duration: Histogram,
     /// HTTP requests that returned 4xx/5xx.
-    pub http_request_errors: Counter,
+    pub http_request_errors_total: Counter,
     /// Currently in-flight HTTP requests.
     pub http_active_requests: Gauge,
 
@@ -92,6 +92,12 @@ pub struct ServerMetrics {
     pub room_joins_total: Counter,
     /// Total room leave operations.
     pub room_leaves_total: Counter,
+
+    // Push Notification Metrics
+    /// Total push notifications attempted.
+    pub push_notifications_total: Counter,
+    /// Total push notification failures.
+    pub push_notification_errors_total: Counter,
     /// Room operation duration histogram (ms).
     pub room_operation_duration: Histogram,
 
@@ -214,7 +220,7 @@ impl ServerMetrics {
                 "http_request_duration_ms".to_string(),
                 Self::labels(&[("unit", "ms")]),
             ),
-            http_request_errors: collector.register_counter("http_request_errors".to_string()),
+            http_request_errors_total: collector.register_counter("http_request_errors_total".to_string()),
             http_active_requests: collector.register_gauge("http_active_requests".to_string()),
 
             security_jwt_validation_errors: collector.register_counter("security_jwt_validation_errors".to_string()),
@@ -241,6 +247,10 @@ impl ServerMetrics {
             room_creates_total: collector.register_counter("room_creates_total".to_string()),
             room_joins_total: collector.register_counter("room_joins_total".to_string()),
             room_leaves_total: collector.register_counter("room_leaves_total".to_string()),
+
+            push_notifications_total: collector.register_counter("push_notifications_total".to_string()),
+            push_notification_errors_total: collector.register_counter("push_notification_errors_total".to_string()),
+
             room_operation_duration: collector.register_histogram_with_labels(
                 "room_operation_duration_ms".to_string(),
                 Self::labels(&[("unit", "ms")]),
@@ -386,7 +396,7 @@ impl ServerMetrics {
         self.http_requests_total.inc();
         self.http_request_duration.observe(duration_ms);
         if !success {
-            self.http_request_errors.inc();
+            self.http_request_errors_total.inc();
         }
     }
 
@@ -542,7 +552,7 @@ impl ServerMetrics {
             federation_errors: self.federation_signature_errors.get(),
             replay_attacks_blocked: self.federation_replay_attacks_blocked.get(),
             http_requests: self.http_requests_total.get(),
-            http_errors: self.http_request_errors.get(),
+            http_errors: self.http_request_errors_total.get(),
             db_errors: self.db_query_errors.get(),
             room_creates: self.room_creates_total.get(),
             room_joins: self.room_joins_total.get(),
@@ -871,12 +881,12 @@ mod tests {
 
         metrics.record_http_request(100.0, true);
         assert_eq!(metrics.http_requests_total.get(), 1);
-        assert_eq!(metrics.http_request_errors.get(), 0);
+        assert_eq!(metrics.http_request_errors_total.get(), 0);
         assert_eq!(metrics.http_request_duration.get_count(), 1);
 
         metrics.record_http_request(200.0, false);
         assert_eq!(metrics.http_requests_total.get(), 2);
-        assert_eq!(metrics.http_request_errors.get(), 1);
+        assert_eq!(metrics.http_request_errors_total.get(), 1);
     }
 
     #[test]

@@ -67,6 +67,48 @@ fn rust_files(root: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+/// Tokens that begin a Rust **item** whose definition follows an attribute.
+///
+/// Shared shape with `test_isolation_unification_tests::CFG_TEST_ITEM_HEADS`:
+/// both guards asked "is this `#[cfg(test)]` a boundary?", and both got the
+/// wrong answer for a statement-level gate.
+const CFG_TEST_ITEM_HEADS: [&str; 15] = [
+    "pub ", "pub(", "fn ", "async ", "mod ", "impl ", "struct ", "enum ", "trait ", "type ", "const ", "static ",
+    "use ", "extern ", "unsafe ",
+];
+
+/// Whether the `#[cfg(test)]` on `lines[idx]` introduces an **item** rather
+/// than gating a statement.
+///
+/// This distinction is load-bearing. `#[cfg(test)] crate::test_exit_hook::ensure();`
+/// — the idiom that keeps the test-only `atexit` registration out of production
+/// builds — is *indented inside a function body*. The old rule (`raw.trim()`
+/// starts with `#[cfg(test)]`) armed on it, and because `armed` is only cleared
+/// by a line containing `{`, it stayed armed into the following lines and marked
+/// an arbitrary stretch of unambiguously *production* code as test support. The
+/// `let _ = …execute(…).await;` ratchet then counted hits that are not
+/// test-support at all, and the baseline went red on a correct tree.
+fn cfg_test_introduces_an_item(lines: &[&str], idx: usize) -> bool {
+    // Remainder of the attribute's own line (an item may share it), then the
+    // lines below — skipping further attributes and doc lines, as
+    // `synapse-common/src/test_schema_guard.rs` stacks `#[cfg(test)]` with
+    // `#[path = "…"]`.
+    let own = lines[idx].trim();
+    let same_line = own.split_once(']').map_or("", |(_, rest)| rest).trim();
+    let mut candidates: Vec<&str> = Vec::new();
+    if !same_line.is_empty() {
+        candidates.push(same_line);
+    }
+    candidates.extend(lines.iter().skip(idx + 1).map(|raw| raw.trim()));
+    for line in candidates {
+        if line.is_empty() || line.starts_with("#[") || line.starts_with("//") {
+            continue;
+        }
+        return CFG_TEST_ITEM_HEADS.iter().any(|head| line.starts_with(head));
+    }
+    false
+}
+
 /// Returns, for each line index, whether it sits inside a `#[cfg(test)]` module.
 ///
 /// Test fixtures also live in inline `#[cfg(test)] mod tests { ... }` blocks
@@ -76,11 +118,13 @@ fn rust_files(root: &Path, out: &mut Vec<PathBuf>) {
 fn cfg_test_mask(lines: &[&str]) -> Vec<bool> {
     let mut mask = vec![false; lines.len()];
     let mut depth: i32 = 0; // brace depth once inside a cfg(test) module
-    let mut armed = false; // saw `#[cfg(test)]`, waiting for its `{`
+    let mut armed = false; // saw an item-level `#[cfg(test)]`, waiting for its `{`
 
     for (i, raw) in lines.iter().enumerate() {
         let line = raw.trim();
-        if line.starts_with("#[cfg(test)]") || line.starts_with("#[cfg(all(test") {
+        if (line.starts_with("#[cfg(test)]") || line.starts_with("#[cfg(all(test"))
+            && cfg_test_introduces_an_item(lines, i)
+        {
             armed = true;
         }
         if armed || depth > 0 {

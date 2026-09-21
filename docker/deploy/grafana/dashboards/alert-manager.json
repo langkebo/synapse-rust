@@ -1,0 +1,134 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "alert-manager",
+    "title": "告警管理",
+    "tags": ["alertmanager", "alerts"],
+    "timezone": "utc",
+    "schemaVersion": 38,
+    "version": 1,
+    "refresh": "30s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "触发告警数",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 4, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "ALERTS{alertstate=\"firing\"}",
+            "refId": "A",
+            "legendFormat": "firing"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 5},
+                {"color": "red", "value": 20}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "静默告警数",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 4, "x": 4, "y": 0},
+        "targets": [
+          {
+            "expr": "ALERTS{alertstate=\"pending\"}",
+            "refId": "A",
+            "legendFormat": "pending"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "已解决告警",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 4, "x": 8, "y": 0},
+        "targets": [
+          {
+            "expr": "ALERTS{alertstate=\"inactive\"}",
+            "refId": "A",
+            "legendFormat": "inactive"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "告警历史趋势",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "targets": [
+          {
+            "expr": "ALERTS",
+            "refId": "A",
+            "legendFormat": "{{alertname}} {{alertstate}}"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "告警管理器状态",
+        "type": "table",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "alertmanager_cluster_members",
+            "refId": "A",
+            "legendFormat": "{{name}}"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {},
+              "includeByName": {"name": true, "value": true}
+            }
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "告警发送延迟",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+        "targets": [
+          {
+            "expr": "rate(alertmanager_notifications_total[5m])",
+            "refId": "A",
+            "legendFormat": "通知速率"
+          }
+        ]
+      }
+    ],
+    "templating": {
+      "list": []
+    },
+    "time": {"from": "now-1h", "to": "now"},
+    "title": "告警管理"
+  },
+  "meta": {
+    "folder": "synapse-rust",
+    "slug": "alert-manager",
+    "version": 1
+  }
+}

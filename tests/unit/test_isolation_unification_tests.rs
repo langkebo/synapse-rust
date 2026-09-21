@@ -118,14 +118,50 @@ fn read(path: &str) -> String {
 /// disabling every negative assertion this guard makes on that file. That is
 /// the exact failure mode `AGENTS.md` rule 8 describes for guards that stop
 /// measuring what they claim to measure.
+///
+/// The marker must also be **item-level** (see [`cfg_test_introduces_an_item`]).
+/// A statement-level gate — the `#[cfg(test)] crate::test_exit_hook::ensure();`
+/// idiom that keeps test-only setup out of production builds — sits *inside* a
+/// production function. Truncating there does not cut at a test boundary: it
+/// cuts halfway through `prepare_isolated_test_pool`, so the anchor check fires
+/// and the fixture looks broken while the code is correct.
 fn production_half(src: &str) -> &str {
-    for (i, _) in src.match_indices("#[cfg(test)]") {
+    for (i, marker) in src.match_indices("#[cfg(test)]") {
         let line_start = src[..i].rfind('\n').map_or(0, |newline| newline + 1);
-        if src[line_start..i].trim().is_empty() {
+        if src[line_start..i].trim().is_empty() && cfg_test_introduces_an_item(src, i + marker.len()) {
             return &src[..i];
         }
     }
     src
+}
+
+/// Tokens that begin a Rust **item** whose definition follows an attribute.
+///
+/// A `#[cfg(test)]` attribute ends the production half only when it introduces
+/// one of these. A statement-level gate introduces a statement instead, and
+/// truncating on it would end the window mid-function.
+const CFG_TEST_ITEM_HEADS: [&str; 15] = [
+    "pub ", "pub(", "fn ", "async ", "mod ", "impl ", "struct ", "enum ", "trait ", "type ", "const ", "static ",
+    "use ", "extern ", "unsafe ",
+];
+
+/// Whether the `#[cfg(test)]` ending at byte `marker_end` introduces an item.
+///
+/// Stacked attributes (`#[cfg(test)]` followed by `#[path = "…"]`, as in
+/// `synapse-common/src/test_schema_guard.rs`) and doc lines are skipped before
+/// the item itself is inspected, and the attribute's own line is considered in
+/// case rustfmt ever puts the item on it.
+fn cfg_test_introduces_an_item(src: &str, marker_end: usize) -> bool {
+    let tail = &src[marker_end..];
+    let same_line = tail.split('\n').next().unwrap_or("");
+    for raw in std::iter::once(same_line).chain(tail.lines().skip(1)) {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with("#[") || line.starts_with("//") {
+            continue;
+        }
+        return CFG_TEST_ITEM_HEADS.iter().any(|head| line.starts_with(head));
+    }
+    false
 }
 
 /// A production symbol every fixture's window must still contain.

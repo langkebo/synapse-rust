@@ -2778,7 +2778,7 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 | 2 | ~~k6 Smoke Test 从未真正执行~~ → **本地首跑已做（2026-09-21）**，CI 侧仍待真实环境 | 用 docker `grafana/k6:0.47.0`（与 CI 同版本）在本机 docker 栈上真跑 `run_tests.sh smoke`：10 VUs × 30s = 280 iterations、summary 正常导出、k6 自身 `errors` 阈值确实会红（本地无管理员凭据 ⇒ 属目标侧问题）。**首跑即抓到门禁缺陷**：`guardrail.py` 读不了 k6 0.47 的扁平 `--summary-export`（0.47 把聚合平铺在 `metrics.<name>`：trend `{"p(95)":12}`、rate `{"value":1}`；脚本只认`metric["values"]["p(95)"]`）⇒ 七项指标恒为 `missing`/FAIL，**目标再健康也只会红**。已修（扁平优先 + 嵌套回退）并加守卫 `k6_guardrail_reads_the_flat_summary_export`。CI 侧仍需 `K6_SMOKE_BASE_URL` 指向真实环境 |
 | 3 | 分支保护允许绕过、不强制 PR（既有裁定） | 门禁绿不绿依赖人工看 run；漏看即漏合并 |
 | 4 | ~~根 crate 的 1 处 production unsafe 未定位~~ → **已定位（2026-09-21）** | `-Zunpretty=hir` 全量核对：该 crate 展开后的 284 个 unsafe **全部**来自 `format_args!`（155）与 `.await`/tokio 宏脱糖（129），源码零 `unsafe` 字面量 ⇒ cargo-geiger 的 span 归因产物，**无需改代码**（§14.14.6） |
-| 5 | `test_schema_guard` 的 `libc::atexit` | "测试基础设施被编进产品库"的已知代价（已按裁定 B 进基线）。**2026-09-21 更正**：原先写的"靠 feature gate 就能收紧"**不成立** —— cargo-geiger 的 prod 扫描是 `cargo geiger --all-features`（`run_cargo_geiger.py:94`），`--all-features` 会把每个 crate 的 `test-utils` 一起打开，所以 gate 在 `any(test, feature = "test-utils")` 的代码**照样被编进 prod 扫描**。真正可行的只有两条：(i) 去掉 atexit 退出兜底（会削弱 schema 回收的确定性，需重新验证 janitor），或 (ii) 把 prod 扫描的 feature 集改成"生产实际使用的那个"（如 Dockerfile 的 CARGO_FEATURE_ARGS），代价是 test-only 的差值会混入 feature 差异。两者都要先有裁定，当前维持基线。**2026-09-21 尝试执行 (i) 并失败（结果已回滚，atexit 保留）** —— 见 §14.14.8：把"池释放时同步清理"实现成 `Drop { pool.close().await; drop_schema_if_unleased() }` + join 会在 `#[tokio::test]` 的 current-thread runtime 上**死锁**（sqlx 的 `Pool::close()` 会 `await` 每个空闲连接的关闭握手，而那需要被 `join` 阻塞住的那个 runtime）；此外退出钩子还覆盖着 3 处 `static PREPARED_TEST_POOLS`（永远不 drop 的池），去掉它需要有替代覆盖。**2026-09-21 第二次尝试（精化设计：把最后一个 `Arc` 移出句柄后在清理线程 drop）同样失败** —— §14.14.8.1：sqlx 0.8 释放池化连接是**运行时任务**（`Drop for PoolConnection` → `rt::spawn`），在当前线程 runtime 上阻塞 `join()` 会让它永远拿不到 poll ⇒ 连接与租约在重试窗口内一直存活；同一条测试换 `flavor = "multi_thread"` 就零泄漏。另外那 3 处 `PREPARED_TEST_POOLS` 其实是**死代码**（`enqueue_prepared_test_pool` 从未被调用），已可删。**推荐的新路径见 §14.14.8.1 末尾**：把 `unsafe` 挪进**测试目标**（`libc` 进 dev-dependencies），生产侧只留安全 API ⇒ geiger prod 2→1 |
+| 5 | `test_schema_guard` 的 `libc::atexit` | ✅ **已解决（裁定 B'，2026-09-21）**：`unsafe` 从生产库挪进**测试目标**（`drain_schemas_at_exit` 保持安全代码 + 每个测试二进制用 `libc` dev-dependency 注册一次），生产构建零 `unsafe`、运行时行为不变（退出照样排空）。实测：泄漏 A/B delta=0（对照 +28 证明钩子 load-bearing）、`synapse-common` 900 passed；守卫 `every_db_test_binary_registers_the_exit_drain`。详见 §14.14.8.2 |
 | 6 | distroless pin 偏旧（`e5d81ddd…`，0 CVE）、builder `rust:1.93.0-slim-bookworm`（475 HIGH/CRITICAL，仅 build-time） | 已知权衡，未动；Docker Security Scan 目前绿 |
 
 **B. 代码 / 工程债（可动，本轮未做）**
@@ -2817,7 +2817,7 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 **P2（已识别、可独立排期）**
 | 任务 | 估算 |
 |---|---|
-| `test_schema_guard` 的 `unsafe` 归属（两次实现尝试都失败：§14.14.8 close+join 死锁、§14.14.8.1 当前线程 runtime 上连接归还任务拿不到 poll）→ **改成"把 `unsafe` 挪进测试目标"**：`synapse-common` 提供安全排空 API，`libc` 进 `[dev-dependencies]`，`unsafe { libc::atexit }` 只出现在测试二进制（约 6–8 处注册）；行为不变，geiger prod 2→1。顺带删掉 3 处死的 `PREPARED_TEST_POOLS` | **2–3h**（含逐测试目标验证） |
+| ✅ `test_schema_guard` 的 `unsafe` 归属 → **裁定 B' 已实施**（§14.14.8.2）：`unsafe` 挪进各测试二进制、生产库零 `unsafe`、运行时不变（泄漏 A/B delta=0，对照 +28）。3 处 `PREPARED_TEST_POOLS` 经查是**死代码**（全仓没有任何入队调用），不构成缺口 | 已完成（约 2h，含 worktree 交叉验证） |
 | 剩余 13 个共享池文件迁移到 per-test schema（`schema_validator.rs` 除外，见 A⑦ 的克隆命名发现） | **5–7h**（每个 20–30 min，建议每批 3–4 个文件一个提交 —— 批次 1/2 实测：每批改动 ~13–35 个调用点，本地验证 1–8 分钟） |
 | 本地 `test_*` schema 清理 + 把 cleanup 接入流程 | ✅ 已核实：实测只剩 4 个残留（其余 3 个是 live 模板），janitor 正常工作；降为定期抽查 |
 | A13：`run_ci_tests.sh` 与 `ci.yml` 二选一（删除重复实现） | 1–2h |
@@ -2829,9 +2829,9 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 schema 迁移，可分批推进，每批都能独立验证与提交）。原计划里的「定位那 1 处 unsafe」（1–2h）
 与「本地 schema 清理」（30 min）已在本轮完成或证伪，不再计入。
 
-**建议的下一个会话顺序**：① 读 P0 结果并按 P1 处置（含 Coverage 首次执行）→ ② 每批 3–5 个文件
-迁移共享池（可随时中断，风险低，收益是把"CI 绿本地红"这一类隐患消掉）→ ③ `test_schema_guard` /
-geiger prod 口径二选一（需裁定，2–4h）→ ④ k6 的首次真跑（视外部条件）。
+**建议的下一个会话顺序**：① 读 P0 结果并按 P1 处置（含 Coverage 首次执行）→ ② 每批 3–4 个文件
+迁移共享池（可随时中断，风险低）→ ③ k6 的首次真跑（视外部条件）。（`test_schema_guard` 的 `unsafe`
+归属已按裁定 B' 落地，不再在计划里。）
 
 ### 14.14.10 run `35588897665`（`dccae34f`）：perf smoke 编译通过后的下一个红 —— 注册漏了 UIA
 
@@ -2849,6 +2849,55 @@ register response should contain access_token string:
 
 修法：注册体里带上 `"auth": {"type": "m.login.dummy"}`，一次完成 dummy 阶段
 （与 `tests/integration/*` 里各处注册夹具同一写法）。修好后 Code Coverage 才有机会真正执行。
+
+#### 14.14.8.2 第三次尝试（裁定 B'）：把 `unsafe` 挪进**测试目标** —— 成功，运行时行为不变
+
+**设计**：`janitor_exit_handler` 改名为 `pub extern "C" fn drain_schemas_at_exit()`（**全是安全代码**，
+函数体不变），`ensure_janitor_started` 里那行 `unsafe { libc::atexit(…) }` **删除**；
+`libc` 从 `synapse-common` 的 `[dependencies]` 移到 `[dev-dependencies]`。注册改由**每个测试二进制**
+自己做一次，于是 `unsafe` 只被编进测试构建 —— cargo-geiger 的**生产**扫描看不到它，
+`--include-tests` 扫描照样看得见，**运行时行为完全不变**（同一个 `drain_schemas_at_exit`
+照样在进程退出时排空剩余 schema）。
+
+**"谁必须注册"的规则**：凡是 `src/` 里会调用 `register_schema_cleanup`（直接或经夹具）的 crate，
+其**测试构建**必须注册。测试二进制就是被测 crate 本身，因此依赖里的 `#[cfg(test)]` 对它不可见 ——
+每个 crate 各需一份：
+
+| 测试二进制 | 注册点 |
+|---|---|
+| `synapse-common`（自身 lib 测试） | `src/test_schema_guard.rs` 的 `#[cfg(test)] #[path = "../tests-support/exit_hook_impl.rs"] mod test_exit_hook;` + `register_schema_cleanup` 里的 `#[cfg(test)] test_exit_hook::ensure();` |
+| `synapse-storage` lib 测试 | `src/test_exit_hook.rs`（`#![cfg(test)]`）+ `test_utils::connect_shared_test_pool`、`test_isolation::isolated_test_pool` 两处 `#[cfg(test)]` 调用 |
+| `synapse-services` lib 测试 | 同上，注册点在该 crate 的 4 个池夹具（`prepare_isolated_test_pool` / `prepare_shared_test_pool` / `connect_shared_test_pool` / `prepare_empty_isolated_test_pool`） |
+| `synapse-test-utils` lib 测试 | 同上（`prepare_isolated_test_pool` / `prepare_shared_test_pool` / `acquire_pooled_schema`） |
+| 根 crate lib 测试 | `src/test_exit_hook.rs` + `src/server/mod.rs` 的 `#[cfg(test)]` 调用 |
+| `tests/unit` + `tests/integration` 两个测试目标 | `tests/common/mod.rs::ensure_schema_exit_hook()`（定义处）并在 `get_test_pool_async` / `tests/integration/mod.rs::require_test_pool` 调用 |
+
+`synapse-common` 的实现文件刻意放在 `src/` **之外**（`tests-support/exit_hook_impl.rs`，用 `#[path]` 引入），
+这样 `git grep -n unsafe synapse-common/src` 为空 —— 该 crate 出货代码里一个 `unsafe` 都没有。
+
+**3 处 `static PREPARED_TEST_POOLS` 的覆盖问题不存在**（§14.14.8.1 已查明）：`enqueue_prepared_test_pool`
+在全仓**从未被调用**（只有文档引用），队列永远是空的、不含池；`take_prepared_test_pool` 唯一的调用者
+`synapse-services/src/container.rs:633` 因此恒走 `unwrap_or_else` 新建池。B' 保留 atexit 排空本身，
+`SCHEMA_POOL` 停放的**名字**照旧由退出排空覆盖，所以这两条路径都不受影响。
+
+**实测（worktree @ `b4774dd5` + 本改动，绕开并行会话 `server_metrics.rs` 的 E0560）**：
+```
+cargo nextest run -p synapse-common --all-features --test-threads 4
+  → 900 passed, 0 failed（含 janitor 的 inner-pool-clone 回归，无死锁）
+
+泄漏 A/B（`-p synapse-storage --lib --all-features -E 'test(event_report::db_tests)'`，28 条，
+统计 `nspname like 'test\_%' and not like 'test\_template%' and not like 'test\_isolation\_template%'`）：
+  装钩子（本改动）：before=33  after=33   → delta = 0
+  对照实验（临时删掉 isolated_test_pool 的注册）：before=33  after=61   → delta = +28
+  ⇒ 钩子确实 load-bearing：没有它，每个 nextest 测试进程漏一个 schema。
+```
+
+**守卫** `every_db_test_binary_registers_the_exit_drain`（静态、可红证明）：① 每个 `src/` 里调用
+`register_schema_cleanup` 的 crate，`Cargo.toml` 的 `[dev-dependencies]` 必须有 `libc`；
+② 其源码里必须出现 `drain_schemas_at_exit`；③ `tests/common/mod.rs` 必须定义并**调用**
+`ensure_schema_exit_hook`（integration 也必须调）；④ `synapse-common/src` 的**非注释**代码里不得出现
+`unsafe`。红证明：删任一 crate 的 `libc` 的 dev-dependency / 删任一注册 / 往 `synapse-common/src` 插 `unsafe`
+→ 均 FAILED。
 
 ### 14.14.9 run `35580479156`（`9c374ce1`）：integration 与快照门禁双绿，perf smoke 卡在缺 feature
 
@@ -2992,3 +3041,37 @@ cargo nextest run -p synapse-common --all-features --test-threads 4     → 815 
 **外部阻塞（与本任务无关）**：`synapse-common/src/server_metrics.rs`（并行会话的在改文件）当前
 **编译不过**（`error[E0560]: unknown field http_request_errors_total_total`，:217），而它
 `pub mod server_metrics;` 无条件编译 ⇒ 整个 workspace 的编译/验证都被挡住。本任务未触碰该文件。
+
+### 14.14.11 B' 的连带影响：两条静态守卫把「语句级 `#[cfg(test)]`」误判为测试模块边界（已修）
+
+B' 在每个池夹具里插了一条**语句级**门（缩进在函数体内）：
+
+    pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
+        #[cfg(test)]
+        crate::test_exit_hook::ensure();
+        ...
+
+`cargo nt --test unit` 随即两红，且两条红**同一个根因** —— 两条守卫都把「某一行独立出现的
+`#[cfg(test)]`」当作**测试模块的起点**，而语句级门不是：
+
+| 守卫 | 现象 | 影响 |
+|---|---|---|
+| `test_isolation_unification_tests::every_fixture_delegates_clone_to_the_shared_module` | `synapse-test-utils/src/lib.rs: production_half stopped before synapse_common::test_isolation::clone_schema_from_template` | `production_half` 在 `prepare_isolated_test_pool` **函数体中间**截断（插入点 398 行早于锚点调用点），"生产半区"退化成签名行大小，负向断言全部空转 —— 正是 sweep B18 描述的形态，只是这次由守卫自己抓到 |
+| `test_fixture_error_handling_tests::let_underscore_await_writes_do_not_exceed_baseline` | `数量 232 超过了钉住的基线 231` | `cfg_test_mask` 用 `armed` 表示"已见到 `#[cfg(test)]`、等着它的 `{`"；语句级门之后长期不出现 `{`，`armed` 一路带到下一处 `{`，把**生产代码**若干行标成"测试支持"，凭空多计 1 条 `let _ = …execute(…).await;` |
+
+**根因**：两条守卫的判据都是「`raw.trim()` 以 `#[cfg(test)]` 开头」。但
+`#[cfg(test)] crate::test_exit_hook::ensure();` 是**合法且常见**的写法（把 test-only 的 setup 挡在
+生产构建之外），它缩进在函数体里，不引入任何 item，因而不是模块边界。
+
+**修法（两条守卫共用同一判据：只有「引入 item 的 `#[cfg(test)]`」才算边界）**：新增
+`CFG_TEST_ITEM_HEADS`（`pub ` / `pub(` / `fn ` / `async ` / `mod ` / `impl ` / `struct ` / `enum ` /
+`trait ` / `type ` / `const ` / `static ` / `use ` / `extern ` / `unsafe `），并跳过堆叠属性与文档行
+（`synapse-common/src/test_schema_guard.rs` 是 `#[cfg(test)]` + `#[path = "…"]` 两行）；
+`production_half` 保留原有「该属性单独占一行」的约束，`cfg_test_mask` 保留原有**与缩进无关**的判定，
+因此嵌套在别的模块里的 `#[cfg(test)] mod tests { … }`（缩进）**照旧**被识别为边界。
+
+**方向性（为什么这个修法不会引入新红）**：判据放宽只**移除** arming 机会 ⇒ `cfg_test_mask` 只会变小、
+`let_underscore` 计数只降不升；`production_half` 的截断点只会**后移** ⇒ 窗口只增不减、锚点更可能出现、
+负向断言只会更强。两个方向都单调安全，因此不需要重新校准 `LET_UNDERSCORE_AWAIT_WRITE_BASELINE`。
+
+**验证**：修后两条守卫均 PASS（2026-09-21）；`cargo fmt --all -- --check` 干净。

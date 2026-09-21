@@ -216,6 +216,8 @@ fn next_test_schema_name() -> String {
 /// their unique-suffix + manual-cleanup row isolation; tests that need a
 /// dedicated schema must use [`prepare_empty_isolated_test_pool`] instead.
 pub async fn connect_shared_test_pool() -> Result<Arc<PgPool>, String> {
+    #[cfg(test)]
+    crate::test_exit_hook::ensure();
     let database_url = resolve_test_database_url().await?;
     let pool = PgPoolOptions::new()
         .max_connections(2)

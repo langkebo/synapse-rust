@@ -1066,10 +1066,7 @@ fn every_db_test_binary_registers_the_exit_drain() {
         // which breaks the `^[^:]+:[0-9]+:` filter below. Normalize to a
         // directory search so every output line carries `file:line:`.
         let dir = if std::path::Path::new(pathspec).is_file() {
-            std::path::Path::new(pathspec)
-                .parent()
-                .map(|p| p.to_str().unwrap())
-                .unwrap_or(pathspec)
+            std::path::Path::new(pathspec).parent().map_or(pathspec, |p| p.to_str().unwrap())
         } else {
             pathspec
         };
@@ -1087,10 +1084,7 @@ fn every_db_test_binary_registers_the_exit_drain() {
             .output()
             .expect("grep must be runnable");
         let raw = String::from_utf8_lossy(&out.stdout).to_string();
-        raw.lines()
-            .filter(|l| file_re.as_ref().map_or(true, |re| l.starts_with(re)))
-            .collect::<Vec<_>>()
-            .join("\n")
+        raw.lines().filter(|l| file_re.as_ref().is_none_or(|re| l.starts_with(re))).collect::<Vec<_>>().join("\n")
     };
 
     let janitor_unsafe = non_comment_unsafe("synapse-common/src/test_schema_guard.rs");

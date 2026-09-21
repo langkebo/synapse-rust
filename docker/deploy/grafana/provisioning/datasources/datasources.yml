@@ -1,0 +1,33 @@
+# =============================================================================
+# Grafana 数据源配置
+# =============================================================================
+# 主机名必须与容器在 `synapse_network` 上的**实际 DNS 名**一致：
+#   - 监控栈 compose 把 prometheus 服务命名为 `synapse-prometheus`
+#     （prometheus.yml 的自抓取任务也用这个名字）
+#   - 裸名 `prometheus` 在网络上**不解析**。2026-09-21 实测：
+#       docker exec synapse-grafana getent hosts prometheus         -> 解析失败
+#       docker exec synapse-grafana getent hosts synapse-prometheus -> 192.168.97.3
+#     结果是数据源必然 dial 失败，所有面板无数据。
+#
+# 端口用**容器内**端口 9090。9092 是宿主映射端口（127.0.0.1:9092->9090），
+# 容器之间不能走它。
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://synapse-prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      timeInterval: 15s
+      httpMethod: POST
+      preferredMetricsQueryContext: 0
+      queryOptions:
+        maxDataPoints: 500
+        minInterval: 15s
+      alerts:
+        enabled: true
+    version: 1
+    readonly: false
