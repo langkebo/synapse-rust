@@ -2594,7 +2594,94 @@ DATABASE_URL=… TEST_DATABASE_URL=… TEST_DB_TEMPLATE_SCHEMA=test_template_ci 
 `warning` **0 条**、`unused variable` **0 条**（本次实测；同一命令在修复前对应 CI 的
 `core-matrix-min` 车道里的那 6 条警告）。
 
-### 14.14.5 过程教训：只跑 `cargo check` 会漏掉 clippy 的 style lint（4 条车道全红）
+### 14.14.5 真 CI 全量结果（run `35553786373` on `909d458a`）：慢速车道第一次跑完全部 1424 条
+
+**Fast tier 全绿 ✅**（4× `Test & Lint` + `Repo Sanity` + `OpenAPI Artifact`）；
+**Build Check ×3 全绿 ✅**；同 SHA 的另外 8 条 workflow 也全绿
+（Docs Quality / Docker Security Scan / E2EE Interop / Benchmark / Format Governance /
+DB Migration Gate / Schema Health Check / Ledger Export）—— 其中 Docker Security Scan 与
+Benchmark 在本会话之前从未真正执行过。
+
+**Integration Tests 第一次跑完全部 1424 条**：`1421 passed (1 slow), 3 failed`，耗时 1939s
+（≈32 分钟）。这正是 §14.14.2 那两条修法的效果（此前 139 条就中止）：
+
+- route-ledger 快照 2 条 → 已修，本次通过；
+- `sync_handlers_coverage_tests` 15 条 → 夹具已删，本次通过。
+
+**剩下 3 条红的根因是同一个基础设施故障，不是产品缺陷**：
+`nullable_decode_tests::{admin_room_token_sync_entry_decodes_null_room_timestamp_and_bump_stamp,
+room_summary_decodes_null_member_counts}` 与
+`schema_contract_p0_tests_migrated::test_schema_contract_space_children_and_hierarchy_query_and_write_read_closure`
+全部报 `53200 out of shared memory`（hint: `You might need to increase max_locks_per_transaction`），
+即"并发克隆 227 表模板 schema"把 PostgreSQL 锁表挤爆。本机的直接对照：`--test-threads 4`
+跑完 1424 条**零**锁表错误，`--test-threads 6` 出现 3 条。
+
+**修法**：把 integration 步骤的 `--test-threads 6` 降为 **4**（与 lib 车道一致）。
+CI 的 postgres service container **无法**加大 `max_locks_per_transaction`
+（runner 把 `-c` 当 `--cpu-shares`，§14.13 ③ 的源码级结论），所以降并发是唯一的结构性杠杆；
+代价是该车道从 ~32 分钟变成 ~42 分钟。守卫
+`integration_step_reports_every_failure` 增加断言"并发必须 ≤ 4"（红证明：改回 6 → FAILED）。
+**不是 retry**：没有掩盖任何产品缺陷，只是把并发降到 CI 锁预算之内。
+
+### 14.14.6 Security Audit 的 `cargo-geiger`：解析器撞上 0.13 的 schema 变化 + 真判定暴露 2 处 production unsafe
+
+rand 棘轮接上电之后，同一个 job 走到下一步 `Run cargo-geiger (unsafe usage scan)` 又红：
+
+```
+FAIL: prod scan: expected a SafetyReport with a `packages` object, got
+      ['packages', 'packages_without_metrics', 'used_but_not_scanned_files'].
+      cargo-geiger's schema may have changed — fix the parser instead of letting the gate count zero.
+```
+
+**根因**：cargo-geiger **0.13** 把 `packages` 从"以旧式 package id 为键的 map + 扁平整数计数"
+改成了 **list**，计数器**嵌套**（`unsafety.used.functions.unsafe_` / `.exprs.unsafe_` / …），
+workspace 成员用 `id.source = {"Path": "file://…"}` 标记。旧解析器要求 `packages` 是 dict，
+于是每跑必红（exit 2）——**这道门禁从来没有成功过**。
+
+**修法**（`scripts/ci/run_cargo_geiger.py`）：按 0.13 的 schema 重写 `shipped_unsafe_totals`，
+并新增 `unsafe_used_total`（递归求和，不硬编码计数器名），同时保留全部"响亮失败"路径
+（`packages` 不是 list、条目缺 `package.id`/`unsafety`/`unsafety.used`、一个 `unsafe_` 计数器
+都没找到、path 包出现在 `packages_without_metrics`、两次扫描的包集合不一致、差值为负）。
+**本地红→绿证明**：用 CI 上传的 `cargo-geiger-report` 工件（真实数据）离线复跑
+`--prod-report/--all-report`，修前 exit 2 + 上面那条消息，修后
+
+```
+    Workspace packages scanned: 10
+    Production unsafe total:    2
+    Test-only unsafe total:     8
+  Packages with production unsafe:
+    synapse-common 0.1.0: 1
+    synapse-rust 6.2.0: 1
+FAIL: 2 unsafe usage(s) in shipped code.   （exit 1）
+```
+
+**于是暴露一个真问题**：把解析器修对之后，`prod_total > 0` —— 硬零政策被违反，2 处
+production unsafe：
+- `synapse-common 0.1.0`（1）：`synapse-common/src/test_schema_guard.rs:477` 的
+  `unsafe { libc::atexit(janitor_exit_handler) }`。该模块按设计**无条件编译**
+  （`synapse-common/src/lib.rs:90-93`：兄弟 crate 的 `#[cfg(test)]` 夹具要能直接调用它，
+  不能 gate 在 `test-utils` 之后），而 `libc::atexit` 是"测试 schema janitor"退出兜底 ——
+  即**测试基础设施被编进了产品库**。
+- `synapse-rust 6.2.0`（1）：**未定位**。全仓 `git grep -nE "\bunsafe\b"` 在根 crate 的
+  `src/`/`benches/` 里**零命中**（`unsafe {` 全仓只有 5 处，都在 `synapse-common` 与
+  `synapse-services`），所以它更像宏展开（`--all-features` 下的某个 derive/属性宏）或
+  某个 feature 带来的代码，而不是手写 unsafe 块。本机装了 cargo-geiger 0.13 想去二分，
+  但单包扫描在本地跑得太慢（>25 分钟未出结果）故未完成。
+- Test-only 8 = `synapse-common: 2` + `synapse-rust: 4` + `synapse-services: 2`，
+  对应 `config/mod.rs` 的 `set_var`/`remove_var` 与 `topology_validator.rs` 的测试块 ——
+  这些在旧口径里被误记成 "prod_unsafe_total: 4" 的正是它们，新口径（两次扫描相减）已能正确
+  区分，符合该文件注释里的设计意图。
+
+**待裁定（需要决定后才能让这条门禁绿）**：
+- **A. 保持硬零**：把 `libc::atexit` 兜底去掉或重构（例如把 janitor 注册整体改为
+  `test-utils` feature 门控，并让依赖方在 `[dev-dependencies]` 里启用该 feature），
+  同时定位并处理根 crate 那 1 处。
+- **B. 把 production unsafe 改成"极紧的、逐条列明的棘轮"**（基线里显式记这 2 处 +
+  每处的理由与复核日期），并同步改掉基线文件里"禁止任何 prod 键"的约定与文档口径。
+- 无论选哪个，解析器修复与"解析不了必须响亮失败"都要保留（当前状态是 exit 1 + 真实数字，
+  比 exit 2 + 假零好得多）。
+
+### 14.14.7 过程教训：只跑 `cargo check` 会漏掉 clippy 的 style lint（4 条车道全红）
 
 `71280550` 的四条 `Test & Lint` 车道**全部**红在 `Run clippy`（slow tier 因此被 skipped），
 根因只有一个 6 行的文档注释：

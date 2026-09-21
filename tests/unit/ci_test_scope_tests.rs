@@ -503,7 +503,8 @@ fn no_source_queries_a_non_existent_room_aliases_column() {
     );
 }
 
-/// 慢速车道的 integration 步骤必须**报出全部失败**，而不是只报第一个。
+/// 慢速车道的 integration 步骤必须**报出全部失败**，而不是只报第一个；并且并发度不得
+/// 超过 CI 锁预算能承受的上限。
 ///
 /// nextest 默认 `fail-fast = true`（`.config/nextest.toml` 只定义了 `ci`/`tdd`/`test`
 /// 三个 profile，该步骤用的是**默认** profile）。run 35542783982 因此中止在
@@ -512,7 +513,14 @@ fn no_source_queries_a_non_existent_room_aliases_column() {
 /// N 个缺陷要摊成 N 轮。`--no-fail-fast` 只是不再**隐藏**失败，不改变计数与退出码，
 /// 也不是 retry（retry 会掩盖 flake，见 `ci_nextest_steps_do_not_retry_flaky_tests`）。
 ///
-/// **红证明**：把该步骤 `run:` 末尾的 `--no-fail-fast` 删掉 → 本测试 FAILED。
+/// `--test-threads` ≤ 4：run 35553786373 全量跑完 1424 条后只剩 3 条红，且 3 条全是
+/// `53200 out of shared memory`（PostgreSQL 锁表被"并发克隆 227 表模板 schema"挤爆，
+/// hint 是 `increase max_locks_per_transaction`）—— 基础设施故障。CI 的 postgres
+/// service container **无法**传 `-c max_locks_per_transaction`（runner 把 `-c` 当
+/// `--cpu-shares`，见 §14.13 ③），所以唯一的结构性杠杆是降并发。
+///
+/// **红证明**：把该步骤 `run:` 末尾的 `--no-fail-fast` 删掉 → 本测试 FAILED；
+/// 把 `--test-threads` 改回 6 → 本测试 FAILED。
 #[test]
 fn integration_step_reports_every_failure() {
     let ci = fs::read_to_string(repo_root().join(".github/workflows/ci.yml")).expect("read ci.yml");
@@ -532,6 +540,13 @@ fn integration_step_reports_every_failure() {
         run.contains("--no-fail-fast"),
         "integration 步骤必须带 `--no-fail-fast`：nextest 默认 fail-fast，会让一轮慢速车道只报\
          第一个失败（run 35542783982：1424 个测试只跑了 139 个）。实际命令：{run}"
+    );
+    assert!(
+        run.contains("--test-threads 4") || run.contains("--test-threads 3") || run.contains("--test-threads 2"),
+        "integration 步骤的并发必须 <= 4：CI 的 postgres 无法加大 max_locks_per_transaction\
+         （runner 把 service container 的 `-c` 当 `--cpu-shares`，§14.13 ③），而 6 并发克隆\
+         227 表模板 schema 会挤爆锁表，run 35553786373 因此有 3/1424 条 `53200 out of shared\
+         memory`。实际命令：{run}"
     );
 }
 

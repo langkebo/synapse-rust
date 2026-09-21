@@ -9,14 +9,28 @@ Policy
 
 How "production" and "test-only" are separated (option C)
 ---------------------------------------------------------
-`cargo-geiger --output-format Json` emits a `SafetyReport` indexed **by package**
-(`{"packages": {<package id>: {"package": …, "unsafety": …}}, …}`) and it contains
-**no file paths at all**. The previous design ("split the JSON entries by `/tests/`
-in the file path") therefore could never work: it iterated the top-level object as
-if it were a list of file entries and read counter names (`extern_blocks`/… ) that
-are not in the schema. On top of that `--output-format json` was the wrong case
-(the enum is `Json`, case-sensitive), so the subprocess exited non-zero before
-scanning. Result: the gate either crashed or counted 0 forever.
+`cargo-geiger --output-format Json` emits a `SafetyReport` per package and contains
+**no file paths at all**, so production/test split can only be done by scanning
+twice and subtracting. Two schema generations exist and the gate now supports only
+the one it can observe (failing loudly otherwise, so a silent zero is impossible):
+
+  * **0.13** (current):
+    `{"packages": [ {"package": {"id": {"name": …, "version": …, "source":
+    {"Path": "file://…"} | {"Registry": …}}}, "unsafety": {"used": {"functions":
+    {"safe": n, "unsafe_": m}, "exprs": …, "item_impls": …, "methods": …}, …}}, … ],
+    "packages_without_metrics": [...], "used_but_not_scanned_files": [...]}`
+    — a **list**, counters **nested**, workspace members marked by
+    `source = {"Path": "file://…"}`.
+  * **0.12 and earlier**: `{"packages": {<package id>: {…}}}` — a map keyed by the
+    old-style package id (`"path+file://…"`). The previous design ("split the JSON
+    entries by `/tests/` in the file path") could never work on either: it iterated
+    the top-level object as if it were a list of file entries and read counter names
+    (`extern_blocks`/…) that are not in the schema. On top of that `--output-format
+    json` was the wrong case (the enum is `Json`, case-sensitive), so the subprocess
+    exited non-zero before scanning. Result: the gate crashed on 0.13 (measured
+    2026-09-21, CI run 35553786373: `expected a SafetyReport with a packages object,
+    got ['packages', 'packages_without_metrics', 'used_but_not_scanned_files']`) and
+    counted 0 before that.
 
 This version runs cargo-geiger **twice** and subtracts per package:
 
@@ -24,15 +38,16 @@ This version runs cargo-geiger **twice** and subtracts per package:
     all  = cargo geiger --include-tests      (test targets included)
     test = all - prod                        (unsafe that exists only in tests)
 
-Counter names are **not** hardcoded: per package we sum every integer under
-`unsafety.used`, so an upstream counter rename keeps working, while any structural
-surprise (missing `packages`, non-dict entry, non-integer counter, differing
-package sets, negative difference) is a **loud failure** instead of a silent zero.
+Counter names are **not** hardcoded: per package we sum every `unsafe_` integer
+found anywhere under `unsafety.used`, so an upstream counter rename keeps working,
+while any structural surprise (wrong `packages` type, non-dict entry, missing
+`unsafety`/`used`, no `unsafe_` counter at all, a path package listed in
+`packages_without_metrics`, differing package sets, negative difference) is a **loud
+failure** instead of a silent zero.
 
-Scope: only packages that are path dependencies of this workspace
-(`path+file://` in the package id) are counted. Third-party registry crates are
-ignored — their unsafe is not ours to fix, and including it would make the
-hard-zero Gate 1 unenforceable.
+Scope: only packages whose `id.source` is a `Path` (i.e. this workspace's members)
+are counted. Third-party registry crates are ignored — their unsafe is not ours to
+fix, and including it would make the hard-zero Gate 1 unenforceable.
 
 Usage
 -----
@@ -93,38 +108,110 @@ def run_geiger(extra: list[str]) -> dict:
     sys.exit(2)
 
 
+def is_path_package(source) -> bool:
+    """True when a package `id.source` marks a workspace-member (path) package."""
+    return isinstance(source, dict) and "Path" in source
+
+
+def unsafe_used_total(used: dict, label: str, who: str) -> int:
+    """Sum every `unsafe_` counter anywhere under `unsafety.used`.
+
+    Counter names may be renamed upstream (`exprs`/`functions`/`item_impls`/…),
+    so nothing is hardcoded — but finding **no** `unsafe_` counter at all is a
+    loud failure: that is exactly the shape change that used to make this gate
+    report zero.
+    """
+    total = 0
+    seen = 0
+    stack: list[object] = [used]
+    while stack:
+        node = stack.pop()
+        if not isinstance(node, dict):
+            print(
+                f"FAIL: {label}: {who}: expected an object in `unsafety.used`, got "
+                f"{type(node).__name__}",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        for key, value in node.items():
+            if key == "unsafe_":
+                if isinstance(value, bool) or not isinstance(value, int):
+                    print(
+                        f"FAIL: {label}: {who}: counter 'unsafe_' is not an integer "
+                        f"({value!r}); refusing to guess.",
+                        file=sys.stderr,
+                    )
+                    sys.exit(2)
+                total += value
+                seen += 1
+            elif isinstance(value, dict):
+                stack.append(value)
+            elif isinstance(value, int) and not isinstance(value, bool):
+                continue
+            else:
+                print(
+                    f"FAIL: {label}: {who}: unexpected {key!r} value {value!r} under "
+                    "`unsafety.used`; the schema changed — fix the parser instead of "
+                    "letting the gate guess.",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+    if seen == 0:
+        print(
+            f"FAIL: {label}: {who}: no `unsafe_` counter found under `unsafety.used` "
+            f"(keys: {sorted(used.keys())}). cargo-geiger's schema changed — fix the "
+            "parser instead of letting the gate count zero.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    return total
+
+
 def shipped_unsafe_totals(report: dict, label: str) -> dict[str, int]:
     """Sum unsafe usages per **workspace (path) package** in a SafetyReport.
 
     Fails loudly on any structural surprise: a silently-zero gate is precisely the
     defect this function exists to prevent.
     """
-    if not isinstance(report, dict) or not isinstance(report.get("packages"), dict):
-        keys = (
-            sorted(report.keys()) if isinstance(report, dict) else type(report).__name__
-        )
+    if not isinstance(report, dict) or not isinstance(report.get("packages"), list):
+        keys = sorted(report.keys()) if isinstance(report, dict) else type(report).__name__
+        shape = type(report.get("packages")).__name__ if isinstance(report, dict) else "n/a"
         print(
-            f"FAIL: {label}: expected a SafetyReport with a `packages` object, got {keys}. "
-            "cargo-geiger's schema may have changed — fix the parser instead of letting the "
-            "gate count zero.",
+            f"FAIL: {label}: expected a SafetyReport whose `packages` is a LIST "
+            f"(cargo-geiger >= 0.13), got report keys {keys} with `packages` = {shape}. "
+            "cargo-geiger's schema may have changed — fix the parser instead of letting "
+            "the gate count zero.",
             file=sys.stderr,
         )
         sys.exit(2)
 
     totals: dict[str, int] = {}
-    for pkg_id, entry in report["packages"].items():
+    for entry in report["packages"]:
         if not isinstance(entry, dict):
             print(
-                f"FAIL: {label}: package {pkg_id!r} is not an object", file=sys.stderr
+                f"FAIL: {label}: package entry is not an object ({type(entry).__name__})",
+                file=sys.stderr,
             )
             sys.exit(2)
-        # Only our own crates: workspace members are path dependencies.
-        if "path+file://" not in str(pkg_id):
+        package = entry.get("package")
+        pkg_id = package.get("id") if isinstance(package, dict) else None
+        if not isinstance(pkg_id, dict):
+            print(
+                f"FAIL: {label}: package entry has no `package.id` object "
+                f"(keys: {sorted(entry.keys())})",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        # Only our own crates: workspace members carry a `Path` source.
+        if not is_path_package(pkg_id.get("source")):
             continue
+        name = str(pkg_id.get("name", "<unnamed>"))
+        version = pkg_id.get("version")
+        who = f"{name} {version}" if version else name
         unsafety = entry.get("unsafety")
         if not isinstance(unsafety, dict):
             print(
-                f"FAIL: {label}: package {pkg_id!r} has no `unsafety` object "
+                f"FAIL: {label}: package {who} has no `unsafety` object "
                 f"(keys: {sorted(entry.keys())})",
                 file=sys.stderr,
             )
@@ -132,22 +219,28 @@ def shipped_unsafe_totals(report: dict, label: str) -> dict[str, int]:
         used = unsafety.get("used")
         if not isinstance(used, dict):
             print(
-                f"FAIL: {label}: package {pkg_id!r} has no `unsafety.used` object "
+                f"FAIL: {label}: package {who} has no `unsafety.used` object "
                 f"(keys: {sorted(unsafety.keys())})",
                 file=sys.stderr,
             )
             sys.exit(2)
-        total = 0
-        for counter, value in used.items():
-            if isinstance(value, bool) or not isinstance(value, int):
-                print(
-                    f"FAIL: {label}: package {pkg_id!r} counter {counter!r} is not an integer "
-                    f"({value!r}); refusing to guess.",
-                    file=sys.stderr,
-                )
-                sys.exit(2)
-            total += value
-        totals[str(pkg_id)] = total
+        totals[who] = unsafe_used_total(used, label, who)
+
+    without_metrics = report.get("packages_without_metrics")
+    if isinstance(without_metrics, list):
+        blind = [
+            str(item.get("id", {}).get("name", item))
+            for item in without_metrics
+            if isinstance(item, dict) and is_path_package(item.get("id", {}).get("source"))
+        ]
+        if blind:
+            print(
+                f"FAIL: {label}: workspace package(s) {blind} appear in "
+                "`packages_without_metrics` — the scan did not measure them, so the "
+                "unsafe total below would be an undercount. Refusing to report a green gate.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
 
     if not totals:
         print(

@@ -810,6 +810,14 @@ jobs:
       # 慢速车道一次要 ~15–40 分钟，一次只报一个失败等于把 N 个缺陷摊成 N 轮。
       # 注意这与"用 retry 掩盖 flake"是两回事：它只是不再**隐藏**失败，计数与退出码不变。
       # 守卫：`tests/unit/ci_test_scope_tests.rs::integration_step_reports_every_failure`。
+      #
+      # `--test-threads 4`（原为 6）：run 35553786373 全量跑完 1424 条，**只剩 3 条红**，
+      # 且 3 条全是 `53200 out of shared memory`（hint: increase max_locks_per_transaction）
+      # —— 即"并发克隆 227 表模板 schema"把锁表挤爆的基础设施故障，不是产品缺陷。
+      # CI 的 postgres service container **无法**传 `-c max_locks_per_transaction`
+      # （runner 会把 `-c` 当成 `--cpu-shares`，见 §14.13 ③ 的源码级结论），所以能做的是
+      # 降并发：与 lib 车道一致用 4（本地 `pg_lock64` 实测 4 并发克隆锁条目 ~1,190，余量充足；
+      # 6 并发时会出现 3/1424 的 53200）。代价是这一车道从 ~32 分钟变成 ~42 分钟。
       - name: Run integration tests (--test integration)
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
@@ -818,7 +826,7 @@ jobs:
           REDIS_URL: redis://localhost:6379
           RUST_BACKTRACE: 1
           RUST_LOG: info
-        run: cargo nextest run --test integration --all-features --locked --test-threads 6 --no-fail-fast
+        run: cargo nextest run --test integration --all-features --locked --test-threads 4 --no-fail-fast
 
       # e2e 目标此前**没有任何 workflow 调用**（`grep -rn "test e2e" .github/workflows/` 无命中），
       # 而 CLAUDE.md 把它记为可用命令 —— 未被执行的测试会静默腐坏。
