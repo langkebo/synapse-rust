@@ -550,6 +550,65 @@ fn integration_step_reports_every_failure() {
     );
 }
 
+/// k6 guardrail 必须读得懂 k6 **0.47 的扁平** `--summary-export`，并且 `--fail-on-breach`
+/// 真的以非零码退出。
+///
+/// 2026-09-21 本地第一次真跑 k6 冒烟（docker `grafana/k6:0.47.0`，与 CI 同版本）时发现：
+/// 0.47 的导出把聚合值**平铺**在 `metrics.<name>` 下（`{"p(95)":12}` / errors 是
+/// `{"value":1}`），而 `guardrail.py` 只认 `metric["values"]["p(95)"]`（更老的
+/// summary-handler 形态）⇒ 七项指标全部渲染成 `Actual: missing / Status: FAIL`，
+/// **即使目标完全健康也只会 FAIL**。这正是本会话反复出现的"从未执行过的门禁"缺陷。
+///
+/// **红证明**：把 `metric_value` 改回只读 `metric["values"]` → 本测试的健康用例报
+/// `missing` 且退出非零 → FAILED。
+#[test]
+fn k6_guardrail_reads_the_flat_summary_export() {
+    let root = repo_root();
+    let tmp = std::env::temp_dir().join(format!("dsh-k6-guard-{}", std::process::id()));
+    fs::create_dir_all(&tmp).expect("create temp dir for synthetic k6 summaries");
+    let run = |metrics_json: &str| -> (i32, String) {
+        fs::write(tmp.join("smoke_results.json"), format!("{{\"metrics\":{metrics_json}}}"))
+            .expect("write synthetic k6 summary");
+        let out = std::process::Command::new("python3")
+            .arg(root.join("scripts/test/perf/guardrail.py"))
+            .arg("--results-dir")
+            .arg(&tmp)
+            .arg("--scenario")
+            .arg("smoke")
+            .arg("--fail-on-breach")
+            .output()
+            .expect("guardrail.py must be runnable with python3");
+        (out.status.code().unwrap_or(-1), String::from_utf8_lossy(&out.stdout).to_string())
+    };
+
+    const FLAT_HEALTHY: &str = r#"{"login_duration":{"p(95)":12},"create_room_duration":{"p(95)":8},
+        "send_message_duration":{"p(95)":5},"sync_duration":{"p(95)":40},
+        "room_summary_duration":{"p(95)":9},"errors":{"value":0.0}}"#;
+    let (code, out) = run(FLAT_HEALTHY);
+    assert_eq!(code, 0, "健康目标（所有 P95 远低于阈值、错误率 0）必须 PASS：\n{out}");
+    assert!(
+        !out.contains("missing"),
+        "k6 0.47 的扁平 summary-export 必须被读到；出现 `missing` 说明解析器只认旧的`values` 形态：\n{out}"
+    );
+
+    const FLAT_BREACH: &str = r#"{"login_duration":{"p(95)":12},"create_room_duration":{"p(95)":8},
+        "send_message_duration":{"p(95)":5},"sync_duration":{"p(95)":40},
+        "room_summary_duration":{"p(95)":9},"errors":{"value":1.0}}"#;
+    let (code, out) = run(FLAT_BREACH);
+    assert_eq!(code, 1, "错误率 100% 必须让 `--fail-on-breach` 以非零退出：\n{out}");
+
+    // 旧的嵌套形态（summary-handler 风格）仍要能读：同一份数据的另一种写法。
+    const NESTED_HEALTHY: &str = r#"{"login_duration":{"values":{"p(95)":12}},
+        "create_room_duration":{"values":{"p(95)":8}},"send_message_duration":{"values":{"p(95)":5}},
+        "sync_duration":{"values":{"p(95)":40}},"room_summary_duration":{"values":{"p(95)":9}},
+        "errors":{"values":{"rate":0.0}}}"#;
+    let (code, out) = run(NESTED_HEALTHY);
+    assert_eq!(code, 0, "嵌套形态（旧 summary-handler 输出）也必须能读：\n{out}");
+    assert!(!out.contains("missing"), "嵌套形态不应出现 `missing`：\n{out}");
+
+    let _ = fs::remove_dir_all(&tmp);
+}
+
 /// cargo-geiger 门禁必须是**单向棘轮**，且基线里的逐条理由必须自洽（2026-09-21 裁定 B）。
 ///
 /// 背景（§14.14.6）：解析器修好 cargo-geiger 0.13 的 schema 之后，这道门禁第一次给出真判定

@@ -43,6 +43,10 @@ docker/test-results/
 reports/
 artifacts/*
 test-artifacts/
+# k6 的本地默认输出目录（`scripts/test/perf/run_tests.sh` 的 RESULTS_DIR 缺省值）。
+# CI 走 `artifacts/k6-smoke`（已被上面 `artifacts/*` 覆盖），但本地直跑会写到这里，
+# 而这些 JSON 是产物不是源文件（2026-09-21 第一次真跑 k6 时发现未忽略）。
+scripts/test/perf/results/
 # 生成的 HTML 测试报告（54 个字体二进制 + echarts，6.3MB，仓库内无任何引用）
 test-suite-report/
 scripts/db/__pycache__/

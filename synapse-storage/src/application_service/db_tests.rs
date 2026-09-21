@@ -2,10 +2,15 @@ use std::sync::Arc;
 
 use super::*;
 
-async fn test_pool() -> Arc<sqlx::PgPool> {
-    crate::test_utils::connect_shared_test_pool()
-        .await
-        .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+/// 每个测试一个从迁移 baseline 克隆出来的独立 schema（返回 guard 与 pool）。
+///
+/// 2026-09-21：原先用共享 `public` 池。共享池的问题：测试结果取决于环境里 `public` 的
+/// 状态（本地 `public` 落后于迁移 baseline 时会直接 42P01），且并行测试互相影响。
+/// 按铁律 7 消除状态共享：per-test schema 由模板克隆，表一定存在、行数从 0 开始。
+async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<sqlx::PgPool>) {
+    let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated test pool");
+    let pool = isolated.pool();
+    (isolated, pool)
 }
 
 /// Clean all application-service-related tables for rows matching the given suffix pattern.
@@ -69,7 +74,7 @@ fn make_registration(
 
 #[tokio::test]
 async fn test_register_creates_service() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
@@ -97,7 +102,7 @@ async fn test_register_creates_service() {
 
 #[tokio::test]
 async fn test_register_duplicate_as_id_fails() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
@@ -121,7 +126,7 @@ async fn test_register_duplicate_as_id_fails() {
 
 #[tokio::test]
 async fn test_upsert_registration_inserts_new() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
@@ -142,7 +147,7 @@ async fn test_upsert_registration_inserts_new() {
 
 #[tokio::test]
 async fn test_upsert_registration_updates_existing() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
@@ -178,7 +183,7 @@ async fn test_upsert_registration_updates_existing() {
 
 #[tokio::test]
 async fn test_get_by_id_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
@@ -200,7 +205,7 @@ async fn test_get_by_id_found() {
 
 #[tokio::test]
 async fn test_get_by_id_not_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_nonexistent_{suffix}");
@@ -217,7 +222,7 @@ async fn test_get_by_id_not_found() {
 
 #[tokio::test]
 async fn test_get_by_token_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
@@ -239,7 +244,7 @@ async fn test_get_by_token_found() {
 
 #[tokio::test]
 async fn test_get_by_token_not_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
 
@@ -253,7 +258,7 @@ async fn test_get_by_token_not_found() {
 
 #[tokio::test]
 async fn test_get_by_token_ignores_disabled_service() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
@@ -282,7 +287,7 @@ async fn test_get_by_token_ignores_disabled_service() {
 
 #[tokio::test]
 async fn test_get_by_hs_token_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
@@ -304,7 +309,7 @@ async fn test_get_by_hs_token_found() {
 
 #[tokio::test]
 async fn test_get_by_hs_token_not_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
 
@@ -320,7 +325,7 @@ async fn test_get_by_hs_token_not_found() {
 
 #[tokio::test]
 async fn test_get_all_active_returns_only_enabled() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id1 = format!("as_active_{suffix}");
@@ -360,7 +365,7 @@ async fn test_get_all_active_returns_only_enabled() {
 
 #[tokio::test]
 async fn test_get_all_active_returns_empty_when_no_enabled() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_inactive_{suffix}");
@@ -392,7 +397,7 @@ async fn test_get_all_active_returns_empty_when_no_enabled() {
 
 #[tokio::test]
 async fn test_update_modifies_fields() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
@@ -436,7 +441,7 @@ async fn test_update_modifies_fields() {
 
 #[tokio::test]
 async fn test_update_timestamp_sets_updated_ts() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
@@ -463,7 +468,7 @@ async fn test_update_timestamp_sets_updated_ts() {
 
 #[tokio::test]
 async fn test_unregister_removes_service() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
@@ -492,7 +497,7 @@ async fn test_unregister_removes_service() {
 
 #[tokio::test]
 async fn test_set_and_get_state() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
@@ -523,7 +528,7 @@ async fn test_set_and_get_state() {
 
 #[tokio::test]
 async fn test_set_state_overwrites_existing() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
@@ -550,7 +555,7 @@ async fn test_set_state_overwrites_existing() {
 
 #[tokio::test]
 async fn test_get_all_states_for_as_id() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
@@ -580,7 +585,7 @@ async fn test_get_all_states_for_as_id() {
 
 #[tokio::test]
 async fn test_get_state_not_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
@@ -597,7 +602,7 @@ async fn test_get_state_not_found() {
 
 #[tokio::test]
 async fn test_event_lifecycle() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
@@ -636,7 +641,7 @@ async fn test_event_lifecycle() {
 
 #[tokio::test]
 async fn test_get_pending_events_respects_limit() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
@@ -670,7 +675,7 @@ async fn test_get_pending_events_respects_limit() {
 
 #[tokio::test]
 async fn test_mark_event_processed_idempotent() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
@@ -698,7 +703,7 @@ async fn test_mark_event_processed_idempotent() {
 
 #[tokio::test]
 async fn test_create_and_complete_transaction() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
@@ -734,7 +739,7 @@ async fn test_create_and_complete_transaction() {
 
 #[tokio::test]
 async fn test_fail_transaction_increments_retry() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
@@ -765,7 +770,7 @@ async fn test_fail_transaction_increments_retry() {
 
 #[tokio::test]
 async fn test_register_and_get_virtual_users() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
@@ -807,7 +812,7 @@ async fn test_register_and_get_virtual_users() {
 
 #[tokio::test]
 async fn test_register_virtual_user_upserts() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
@@ -846,7 +851,7 @@ async fn test_register_virtual_user_upserts() {
 
 #[tokio::test]
 async fn test_get_virtual_users_empty_for_unknown_as_id() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_unknown_{suffix}");

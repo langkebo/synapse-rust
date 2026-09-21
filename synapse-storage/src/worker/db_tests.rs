@@ -2,10 +2,15 @@ use super::*;
 use sqlx::PgPool;
 use std::sync::Arc;
 
-async fn test_pool() -> Arc<PgPool> {
-    crate::test_utils::connect_shared_test_pool()
-        .await
-        .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+/// 每个测试一个从迁移 baseline 克隆出来的独立 schema（返回 guard 与 pool）。
+///
+/// 2026-09-21：原先用共享 `public` 池。共享池的问题：测试结果取决于环境里 `public` 的
+/// 状态（本地 `public` 落后于迁移 baseline 时会直接 42P01），且并行测试互相影响。
+/// 按铁律 7 消除状态共享：per-test schema 由模板克隆，表一定存在、行数从 0 开始。
+async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<sqlx::PgPool>) {
+    let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated test pool");
+    let pool = isolated.pool();
+    (isolated, pool)
 }
 
 fn make_register_request(worker_id: &str, worker_type: WorkerType) -> RegisterWorkerRequest {
@@ -48,7 +53,7 @@ async fn cleanup_task(pool: &Arc<PgPool>, task_id: &str) {
 // === register_worker ===
 #[tokio::test]
 async fn test_register_worker_creates_worker() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-reg-{}", uuid::Uuid::new_v4());
     cleanup_worker(&pool, &worker_id).await;
@@ -72,7 +77,7 @@ async fn test_register_worker_creates_worker() {
 
 #[tokio::test]
 async fn test_register_worker_minimal_fields() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-min-{}", uuid::Uuid::new_v4());
     cleanup_worker(&pool, &worker_id).await;
@@ -99,7 +104,7 @@ async fn test_register_worker_minimal_fields() {
 // === get_worker ===
 #[tokio::test]
 async fn test_get_worker_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-get-{}", uuid::Uuid::new_v4());
     cleanup_worker(&pool, &worker_id).await;
@@ -118,7 +123,7 @@ async fn test_get_worker_found() {
 
 #[tokio::test]
 async fn test_get_worker_not_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let result = storage.get_worker("nonexistent-worker-id").await.expect("get_worker should succeed");
     assert!(result.is_none());
@@ -127,7 +132,7 @@ async fn test_get_worker_not_found() {
 // === get_workers_by_type ===
 #[tokio::test]
 async fn test_get_workers_by_type() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-type-{}", uuid::Uuid::new_v4());
     cleanup_worker(&pool, &worker_id).await;
@@ -145,7 +150,7 @@ async fn test_get_workers_by_type() {
 
 #[tokio::test]
 async fn test_get_workers_by_type_empty_result() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let workers =
         storage.get_workers_by_type("nonexistent_type_xyz").await.expect("get_workers_by_type should succeed");
@@ -155,7 +160,7 @@ async fn test_get_workers_by_type_empty_result() {
 // === get_active_workers ===
 #[tokio::test]
 async fn test_get_active_workers_includes_starting() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-active-{}", uuid::Uuid::new_v4());
     cleanup_worker(&pool, &worker_id).await;
@@ -173,7 +178,7 @@ async fn test_get_active_workers_includes_starting() {
 
 #[tokio::test]
 async fn test_get_active_workers_excludes_stopped() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-stopped-{}", uuid::Uuid::new_v4());
     cleanup_worker(&pool, &worker_id).await;
@@ -193,7 +198,7 @@ async fn test_get_active_workers_excludes_stopped() {
 // === update_worker_status ===
 #[tokio::test]
 async fn test_update_worker_status_to_running() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-run-{}", uuid::Uuid::new_v4());
     cleanup_worker(&pool, &worker_id).await;
@@ -213,7 +218,7 @@ async fn test_update_worker_status_to_running() {
 
 #[tokio::test]
 async fn test_update_worker_status_to_stopped_sets_stopped_ts() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-stop-{}", uuid::Uuid::new_v4());
     cleanup_worker(&pool, &worker_id).await;
@@ -233,7 +238,7 @@ async fn test_update_worker_status_to_stopped_sets_stopped_ts() {
 
 #[tokio::test]
 async fn test_update_worker_status_to_error_releases_in_flight_tasks() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-err-{}", uuid::Uuid::new_v4());
     cleanup_worker(&pool, &worker_id).await;
@@ -268,7 +273,7 @@ async fn test_update_worker_status_to_error_releases_in_flight_tasks() {
 // === update_heartbeat ===
 #[tokio::test]
 async fn test_update_heartbeat_sets_running_and_ts() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-hb-{}", uuid::Uuid::new_v4());
     cleanup_worker(&pool, &worker_id).await;
@@ -289,7 +294,7 @@ async fn test_update_heartbeat_sets_running_and_ts() {
 // === unregister_worker ===
 #[tokio::test]
 async fn test_unregister_worker_sets_stopped() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-unreg-{}", uuid::Uuid::new_v4());
     cleanup_worker(&pool, &worker_id).await;
@@ -309,7 +314,7 @@ async fn test_unregister_worker_sets_stopped() {
 
 #[tokio::test]
 async fn test_unregister_worker_releases_in_flight_tasks() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-unreg2-{}", uuid::Uuid::new_v4());
     cleanup_worker(&pool, &worker_id).await;
@@ -342,7 +347,7 @@ async fn test_unregister_worker_releases_in_flight_tasks() {
 // === create_command ===
 #[tokio::test]
 async fn test_create_command_returns_pending() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-cmd-{}", uuid::Uuid::new_v4());
     cleanup_worker(&pool, &worker_id).await;
@@ -367,7 +372,7 @@ async fn test_create_command_returns_pending() {
 
 #[tokio::test]
 async fn test_create_command_default_priority_and_retries() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-cmd2-{}", uuid::Uuid::new_v4());
 
@@ -388,7 +393,7 @@ async fn test_create_command_default_priority_and_retries() {
 // === get_pending_commands ===
 #[tokio::test]
 async fn test_get_pending_commands_orders_by_priority() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-pend-{}", uuid::Uuid::new_v4());
 
@@ -424,7 +429,7 @@ async fn test_get_pending_commands_orders_by_priority() {
 
 #[tokio::test]
 async fn test_get_pending_commands_excludes_non_pending() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-pend2-{}", uuid::Uuid::new_v4());
 
@@ -449,7 +454,7 @@ async fn test_get_pending_commands_excludes_non_pending() {
 // === mark_command_sent ===
 #[tokio::test]
 async fn test_mark_command_sent_updates_status() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-sent-{}", uuid::Uuid::new_v4());
 
@@ -471,7 +476,7 @@ async fn test_mark_command_sent_updates_status() {
 // === complete_command ===
 #[tokio::test]
 async fn test_complete_command_updates_status() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-comp-{}", uuid::Uuid::new_v4());
 
@@ -493,7 +498,7 @@ async fn test_complete_command_updates_status() {
 // === fail_command ===
 #[tokio::test]
 async fn test_fail_command_under_max_retries_stays_pending() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-fail-{}", uuid::Uuid::new_v4());
 
@@ -520,7 +525,7 @@ async fn test_fail_command_under_max_retries_stays_pending() {
 
 #[tokio::test]
 async fn test_fail_command_at_max_retries_becomes_failed() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-fail2-{}", uuid::Uuid::new_v4());
 
@@ -549,7 +554,7 @@ async fn test_fail_command_at_max_retries_becomes_failed() {
 // === add_event / get_events_since / mark_event_processed ===
 #[tokio::test]
 async fn test_add_event_creates_event() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let event_id = format!("$evt-add-{}", uuid::Uuid::new_v4());
     cleanup_event(&pool, &event_id).await;
@@ -573,7 +578,7 @@ async fn test_add_event_creates_event() {
 
 #[tokio::test]
 async fn test_get_events_since_returns_ordered() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let event_id1 = format!("$evt-g1-{}", uuid::Uuid::new_v4());
     let event_id2 = format!("$evt-g2-{}", uuid::Uuid::new_v4());
@@ -600,7 +605,7 @@ async fn test_get_events_since_returns_ordered() {
 
 #[tokio::test]
 async fn test_mark_event_processed_appends_worker() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let event_id = format!("$evt-proc-{}", uuid::Uuid::new_v4());
     cleanup_event(&pool, &event_id).await;
@@ -620,7 +625,7 @@ async fn test_mark_event_processed_appends_worker() {
 // === update_replication_position / get_replication_position ===
 #[tokio::test]
 async fn test_update_and_get_replication_position() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-repl-{}", uuid::Uuid::new_v4());
     cleanup_worker(&pool, &worker_id).await;
@@ -652,7 +657,7 @@ async fn test_update_and_get_replication_position() {
 
 #[tokio::test]
 async fn test_get_replication_position_not_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-repl2-{}", uuid::Uuid::new_v4());
 
@@ -666,7 +671,7 @@ async fn test_get_replication_position_not_found() {
 // === assign_task ===
 #[tokio::test]
 async fn test_assign_task_creates_pending_task() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
 
     let task = storage
@@ -690,7 +695,7 @@ async fn test_assign_task_creates_pending_task() {
 // === get_pending_tasks ===
 #[tokio::test]
 async fn test_get_pending_tasks_returns_pending_only() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
 
     let task = storage
@@ -850,7 +855,7 @@ async fn test_claim_next_pending_task_for_types_no_match() {
 // === assign_task_to_worker ===
 #[tokio::test]
 async fn test_assign_task_to_worker_succeeds_for_pending() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-asgntw-{}", uuid::Uuid::new_v4());
     cleanup_worker(&pool, &worker_id).await;
@@ -880,7 +885,7 @@ async fn test_assign_task_to_worker_succeeds_for_pending() {
 
 #[tokio::test]
 async fn test_assign_task_to_worker_fails_for_nonexistent() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-asgntw2-{}", uuid::Uuid::new_v4());
 
@@ -894,7 +899,7 @@ async fn test_assign_task_to_worker_fails_for_nonexistent() {
 // === complete_task ===
 #[tokio::test]
 async fn test_complete_task_sets_completed() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
 
     let task = storage
@@ -918,7 +923,7 @@ async fn test_complete_task_sets_completed() {
 // === fail_task ===
 #[tokio::test]
 async fn test_fail_task_sets_failed() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
 
     let task = storage
@@ -943,7 +948,7 @@ async fn test_fail_task_sets_failed() {
 // === get_type_statistics ===
 #[tokio::test]
 async fn test_get_type_statistics_returns_rows() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-typstat-{}", uuid::Uuid::new_v4());
     cleanup_worker(&pool, &worker_id).await;

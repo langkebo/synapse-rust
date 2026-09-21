@@ -66,13 +66,37 @@ DISPLAY_NAMES = {
 
 
 def metric_value(metrics: dict, metric_name: str) -> float | None:
+    """Read one metric's aggregate out of a k6 `--summary-export` document.
+
+    Two shapes exist and both must be supported, because this gate is the only
+    consumer and it had **never actually run** before 2026-09-21 (CI run
+    `35571855133` only reaches it on a `workflow_dispatch` with `run_k6=true`):
+
+      * k6 >= 0.47 (measured locally with the same v0.47.0 image CI installs) writes
+        the aggregates **flat**:
+            "login_duration": {"med":3,"avg":75.1,"p(90)":8,"p(95)":12,"thresholds":{…}}
+            "errors":         {"passes":840,"fails":0,"value":1,"thresholds":{…}}
+      * older/summary-handler output nests them under `values`:
+            {"values": {"p(95)": 12, "rate": 0.0}}
+
+    Reading only the nested form made every metric report `missing`, so the
+    guardrail rendered "Actual: missing / Status: FAIL" for all seven rows even
+    against a perfectly healthy target — a gate that can only ever fail.
+    """
     metric = metrics.get(metric_name)
-    if not metric:
+    if not isinstance(metric, dict):
         return None
-    values = metric.get("values", {})
+    nested = metric.get("values")
+    nested = nested if isinstance(nested, dict) else {}
     if metric_name == "errors":
-        return values.get("rate")
-    return values.get("p(95)")
+        for candidate in (metric.get("value"), nested.get("rate"), metric.get("rate")):
+            if candidate is not None:
+                return candidate
+        return None
+    for candidate in (metric.get("p(95)"), nested.get("p(95)")):
+        if candidate is not None:
+            return candidate
+    return None
 
 
 def metric_unit(metric_name: str) -> str:

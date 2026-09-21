@@ -4,10 +4,15 @@ use synapse_common::current_timestamp_millis;
 
 use super::*;
 
-async fn test_pool() -> Arc<Pool<Postgres>> {
-    crate::test_utils::connect_shared_test_pool()
-        .await
-        .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+/// 每个测试一个从迁移 baseline 克隆出来的独立 schema（返回 guard 与 pool）。
+///
+/// 2026-09-21：原先用共享 `public` 池。共享池的问题：测试结果取决于环境里 `public` 的
+/// 状态（本地 `public` 落后于迁移 baseline 时会直接 42P01），且并行测试互相影响。
+/// 按铁律 7 消除状态共享：per-test schema 由模板克隆，表一定存在、行数从 0 开始。
+async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<sqlx::PgPool>) {
+    let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated test pool");
+    let pool = isolated.pool();
+    (isolated, pool)
 }
 
 async fn ensure_test_user(pool: &Pool<Postgres>, user_id: &str) {
@@ -72,7 +77,7 @@ async fn cleanup_thread_data(pool: &Pool<Postgres>, room_id: &str, thread_id: &s
 // 1. test_create_thread_root
 #[tokio::test]
 async fn test_create_thread_root() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_cr_{suffix}:localhost");
@@ -103,7 +108,7 @@ async fn test_create_thread_root() {
 // 2. test_get_thread_root_found
 #[tokio::test]
 async fn test_get_thread_root_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_gt_{suffix}:localhost");
@@ -135,7 +140,7 @@ async fn test_get_thread_root_found() {
 // 3. test_get_thread_root_not_found
 #[tokio::test]
 async fn test_get_thread_root_not_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
 
     let result =
@@ -147,7 +152,7 @@ async fn test_get_thread_root_not_found() {
 // 4. test_get_thread_root_by_event
 #[tokio::test]
 async fn test_get_thread_root_by_event() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_gte_{suffix}:localhost");
@@ -181,7 +186,7 @@ async fn test_get_thread_root_by_event() {
 // 5. test_list_thread_roots
 #[tokio::test]
 async fn test_list_thread_roots() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_lt_{suffix}:localhost");
@@ -223,7 +228,7 @@ async fn test_list_thread_roots() {
 // 6. test_list_all_thread_roots
 #[tokio::test]
 async fn test_list_all_thread_roots() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_la_{suffix}:localhost");
@@ -252,7 +257,7 @@ async fn test_list_all_thread_roots() {
 // 7. test_create_thread_reply
 #[tokio::test]
 async fn test_create_thread_reply() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_rp_{suffix}:localhost");
@@ -298,7 +303,7 @@ async fn test_create_thread_reply() {
 // 8. test_get_thread_replies
 #[tokio::test]
 async fn test_get_thread_replies() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_gtr_{suffix}:localhost");
@@ -356,7 +361,7 @@ async fn test_get_thread_replies() {
 // 9. test_get_reply_count
 #[tokio::test]
 async fn test_get_reply_count() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_rc_{suffix}:localhost");
@@ -419,7 +424,7 @@ async fn test_get_reply_count() {
 // 10. test_subscribe_to_thread
 #[tokio::test]
 async fn test_subscribe_to_thread() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_sub_{suffix}:localhost");
@@ -455,7 +460,7 @@ async fn test_subscribe_to_thread() {
 // 11. test_unsubscribe_from_thread
 #[tokio::test]
 async fn test_unsubscribe_from_thread() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_unsub_{suffix}:localhost");
@@ -490,7 +495,7 @@ async fn test_unsubscribe_from_thread() {
 // 12. test_get_thread_subscription — found / not found
 #[tokio::test]
 async fn test_get_thread_subscription() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_gsub_{suffix}:localhost");
@@ -530,7 +535,7 @@ async fn test_get_thread_subscription() {
 // 13. test_get_user_thread_subscriptions
 #[tokio::test]
 async fn test_get_user_thread_subscriptions() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_uts_{suffix}:localhost");
@@ -567,7 +572,7 @@ async fn test_get_user_thread_subscriptions() {
 // 14. test_update_read_receipt
 #[tokio::test]
 async fn test_update_read_receipt() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_urr_{suffix}:localhost");
@@ -607,7 +612,7 @@ async fn test_update_read_receipt() {
 // 15. test_get_read_receipt
 #[tokio::test]
 async fn test_get_read_receipt() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_grr_{suffix}:localhost");
@@ -647,7 +652,7 @@ async fn test_get_read_receipt() {
 // 16. test_delete_thread
 #[tokio::test]
 async fn test_delete_thread() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_del_{suffix}:localhost");
@@ -725,7 +730,7 @@ async fn insert_test_event(
 // 17. test_get_thread_participants
 #[tokio::test]
 async fn test_get_thread_participants() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_gp_{suffix}:localhost");
@@ -770,7 +775,7 @@ async fn test_get_thread_participants() {
 // 18. test_mute_thread (creates a new muted subscription)
 #[tokio::test]
 async fn test_mute_thread() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_mt_{suffix}:localhost");
@@ -801,7 +806,7 @@ async fn test_mute_thread() {
 // 19. test_mute_thread_updates_existing_subscription
 #[tokio::test]
 async fn test_mute_thread_updates_existing_subscription() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_mt2_{suffix}:localhost");
@@ -840,7 +845,7 @@ async fn test_mute_thread_updates_existing_subscription() {
 // 20. test_increment_unread_count (from 0 to 1)
 #[tokio::test]
 async fn test_increment_unread_count() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_iu_{suffix}:localhost");
@@ -867,7 +872,7 @@ async fn test_increment_unread_count() {
 // 21. test_increment_unread_count_accumulates
 #[tokio::test]
 async fn test_increment_unread_count_accumulates() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_iu2_{suffix}:localhost");
@@ -892,7 +897,7 @@ async fn test_increment_unread_count_accumulates() {
 // 22. test_create_thread_relation
 #[tokio::test]
 async fn test_create_thread_relation() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_tr_{suffix}:localhost");
@@ -929,7 +934,7 @@ async fn test_create_thread_relation() {
 // 23. test_create_thread_relation_with_fallback
 #[tokio::test]
 async fn test_create_thread_relation_with_fallback() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_trfb_{suffix}:localhost");
@@ -959,7 +964,7 @@ async fn test_create_thread_relation_with_fallback() {
 // 24. test_mark_reply_edited
 #[tokio::test]
 async fn test_mark_reply_edited() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_me_{suffix}:localhost");
@@ -1012,7 +1017,7 @@ async fn test_mark_reply_edited() {
 // 25. test_mark_reply_redacted
 #[tokio::test]
 async fn test_mark_reply_redacted() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_mr_{suffix}:localhost");
@@ -1066,7 +1071,7 @@ async fn test_mark_reply_redacted() {
 // 26. test_get_threads_with_unread_with_room_id
 #[tokio::test]
 async fn test_get_threads_with_unread_with_room_id() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_twu_{suffix}:localhost");
@@ -1097,7 +1102,7 @@ async fn test_get_threads_with_unread_with_room_id() {
 // 27. test_get_threads_with_unread_without_room_id
 #[tokio::test]
 async fn test_get_threads_with_unread_without_room_id() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_twu2_{suffix}:localhost");
@@ -1121,7 +1126,7 @@ async fn test_get_threads_with_unread_without_room_id() {
 // 28. test_get_thread_summary
 #[tokio::test]
 async fn test_get_thread_summary() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_ts_{suffix}:localhost");
@@ -1170,7 +1175,7 @@ async fn test_get_thread_summary() {
 // 29. test_get_thread_summary_not_found
 #[tokio::test]
 async fn test_get_thread_summary_not_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
 
     let summary =
@@ -1181,7 +1186,7 @@ async fn test_get_thread_summary_not_found() {
 // 30. test_get_thread_statistics
 #[tokio::test]
 async fn test_get_thread_statistics() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_tstat_{suffix}:localhost");
@@ -1232,7 +1237,7 @@ async fn test_get_thread_statistics() {
 // 31. test_get_thread_statistics_not_found
 #[tokio::test]
 async fn test_get_thread_statistics_not_found() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
 
     let stats = storage
@@ -1245,7 +1250,7 @@ async fn test_get_thread_statistics_not_found() {
 // 32. test_search_threads_finds_match
 #[tokio::test]
 async fn test_search_threads_finds_match() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_st_{suffix}:localhost");
@@ -1283,7 +1288,7 @@ async fn test_search_threads_finds_match() {
 // 33. test_search_threads_no_match
 #[tokio::test]
 async fn test_search_threads_no_match() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_stnm_{suffix}:localhost");
@@ -1318,7 +1323,7 @@ async fn test_search_threads_no_match() {
 // 34. test_freeze_thread
 #[tokio::test]
 async fn test_freeze_thread() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_fr_{suffix}:localhost");
@@ -1354,7 +1359,7 @@ async fn test_freeze_thread() {
 // 35. test_unfreeze_thread
 #[tokio::test]
 async fn test_unfreeze_thread() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_uf_{suffix}:localhost");
@@ -1391,7 +1396,7 @@ async fn test_unfreeze_thread() {
 // 36. test_list_thread_roots_with_from_cursor
 #[tokio::test]
 async fn test_list_thread_roots_with_from_cursor() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_ltf_{suffix}:localhost");
@@ -1451,7 +1456,7 @@ async fn test_list_thread_roots_with_from_cursor() {
 // 37. test_list_all_thread_roots_with_from_cursor
 #[tokio::test]
 async fn test_list_all_thread_roots_with_from_cursor() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_latf_{suffix}:localhost");
@@ -1495,7 +1500,7 @@ async fn test_list_all_thread_roots_with_from_cursor() {
 // 38. test_get_thread_replies_with_from_cursor
 #[tokio::test]
 async fn test_get_thread_replies_with_from_cursor() {
-    let pool = test_pool().await;
+    let (_isolated, pool) = test_pool().await;
     let storage = ThreadStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4();
     let room_id = format!("!room_gtrf_{suffix}:localhost");
