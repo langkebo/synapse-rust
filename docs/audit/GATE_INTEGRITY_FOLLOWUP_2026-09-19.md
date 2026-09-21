@@ -2833,6 +2833,23 @@ schema 迁移，可分批推进，每批都能独立验证与提交）。原计�
 迁移共享池（可随时中断，风险低，收益是把"CI 绿本地红"这一类隐患消掉）→ ③ `test_schema_guard` /
 geiger prod 口径二选一（需裁定，2–4h）→ ④ k6 的首次真跑（视外部条件）。
 
+### 14.14.10 run `35588897665`（`dccae34f`）：perf smoke 编译通过后的下一个红 —— 注册漏了 UIA
+
+修掉 `--features performance-tests,test-utils` 之后，perf smoke 第一次真的**跑起来**：
+`test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 16 filtered out`（153s）。
+
+两条失败（`manual_smoke_tests::sliding_sync_poc_load_smoke`、
+`beacon_hot_room_backpressure_load_smoke`）同一个根因：`create_test_user()` 只 POST 一次
+`/register` 就取 `access_token`，而服务器返回的是 UIA 挑战
+
+```
+register response should contain access_token string:
+{"flows":[{"stages":["m.login.dummy"]},{"stages":["m.login.password"]}],"session":"…"}
+```
+
+修法：注册体里带上 `"auth": {"type": "m.login.dummy"}`，一次完成 dummy 阶段
+（与 `tests/integration/*` 里各处注册夹具同一写法）。修好后 Code Coverage 才有机会真正执行。
+
 ### 14.14.9 run `35580479156`（`9c374ce1`）：integration 与快照门禁双绿，perf smoke 卡在缺 feature
 
 **这是 integration 车道第一次走到最后一步之前只剩一个非测试问题**：

@@ -49,7 +49,14 @@ async fn create_test_user(app: &axum::Router) -> String {
                 serde_json::json!({
                     "username": format!("user_{}", rand::random::<u32>()),
                     "password": "UserTest@123",
-                    "device_id": "TESTDEVICE"
+                    "device_id": "TESTDEVICE",
+                    // 注册需要完成 UIA。服务器给出的 flows 里含 `m.login.dummy`，直接带上
+                    // `auth` 即可一次拿到 access_token —— 不带就只会收回一个 401 风格的
+                    // `{"flows":[…],"session":…}` 挑战（run 35588897665：perf smoke 首次真跑
+                    // 时 2/4 个用例就因为这里没有 auth 而报
+                    // `register response should contain access_token string: {"flows":…}`）。
+                    // 与 tests/integration/* 里各处的注册夹具保持同一写法。
+                    "auth": { "type": "m.login.dummy" }
                 })
                 .to_string(),
             )),
