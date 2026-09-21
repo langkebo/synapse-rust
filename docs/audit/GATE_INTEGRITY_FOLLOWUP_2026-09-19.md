@@ -2672,14 +2672,26 @@ production unsafe：
   这些在旧口径里被误记成 "prod_unsafe_total: 4" 的正是它们，新口径（两次扫描相减）已能正确
   区分，符合该文件注释里的设计意图。
 
-**待裁定（需要决定后才能让这条门禁绿）**：
-- **A. 保持硬零**：把 `libc::atexit` 兜底去掉或重构（例如把 janitor 注册整体改为
-  `test-utils` feature 门控，并让依赖方在 `[dev-dependencies]` 里启用该 feature），
-  同时定位并处理根 crate 那 1 处。
-- **B. 把 production unsafe 改成"极紧的、逐条列明的棘轮"**（基线里显式记这 2 处 +
-  每处的理由与复核日期），并同步改掉基线文件里"禁止任何 prod 键"的约定与文档口径。
-- 无论选哪个，解析器修复与"解析不了必须响亮失败"都要保留（当前状态是 exit 1 + 真实数字，
-  比 exit 2 + 假零好得多）。
+**裁定（2026-09-21，用户选 B）与落地**：production unsafe 从"硬零、无白名单"改为
+**极紧的逐条棘轮**——只许减少；每一条都必须在 `scripts/ci/geiger_baseline.json` 里写明
+站点、理由与 `review_by`；**逐条清单之和必须等于总数**；减少时必须同步收紧基线，否则红。
+理由：这 2 处里有一处（`libc::atexit`）是"按设计无条件编译的测试基础设施"，继续硬零只会
+逼出一个没有记录的例外；而解析器修好后数字已经**可见且逐条可审**，比一个从未生效的硬零
+更接近政策的本意。
+
+实现（`scripts/ci/run_cargo_geiger.py` + `geiger_baseline.json`）：
+- Gate 1 改为双向棘轮（`prod > baseline` 红；`prod < baseline` 红并要求收紧基线）；
+- `KNOWN_BASELINE_KEYS` 纳入 `prod_unsafe_sites` / `test_unsafe_sites`，并**校验**它们：
+  每条必须有 `package`/`count`/`why`/`review_by`，`review_by` 不得过期，**清单之和 == 总数**；
+- 新守卫 `tests/unit/ci_test_scope_tests.rs::cargo_geiger_gate_is_a_one_way_ratchet`
+  用**合成报告**离线驱动脚本（不需要 cargo-geiger），钉住 5 种判定：
+  `prod=2/test=8 ⇒ 0`、`prod=3 ⇒ 1`（新增）、`prod=1 ⇒ 1`（要求收紧）、`test=9 ⇒ 1`、
+  `清单之和 ≠ 总数 ⇒ 2`。
+  **红证明**：Gate 1 改回硬零 ⇒ ① 变红；删掉求和校验 ⇒ ⑤ 变红；恢复后转绿。
+- **真实数据验证**：用 CI 工件（`cargo-geiger-report`）离线复跑，门禁由 exit 1 转 **exit 0**：
+  `Production unsafe: 2 (baseline: 2; ratchet, may only go down) / Test-only unsafe: 8 (baseline: 8)`。
+- 文档口径同步：`docs/security/ci-security-grading.md` 的 cargo-geiger 一节改成棘轮语义
+  （原来写的"生产 unsafe 超过 baseline / 新文件出现 unsafe"与实现不一致）。
 
 ### 14.14.7 过程教训：只跑 `cargo check` 会漏掉 clippy 的 style lint（4 条车道全红）
 

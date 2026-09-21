@@ -1,4 +1,41 @@
 {
-  "test_unsafe_total": 0,
-  "note": "Ratchet for TEST unsafe only (files under tests/). Production unsafe is a hard ZERO with no allowlist and no baseline ceiling: scripts/ci/run_cargo_geiger.py rejects any baseline key it does not read, so a `prod_unsafe_total` entry here would contradict the enforced policy without changing it (that is exactly what happened between 2026-07-23 and 2026-09-18). The previous version of this file recorded `prod_unsafe_total: 4`, which were the #[cfg(test)] blocks `std::env::set_var`/`remove_var` in synapse-common/src/config/mod.rs (inside mod tests at :310; unsafe at :759 and :924) and synapse-services/src/worker/topology_validator.rs (mod tests at :385; unsafe at :665 and :677). They are excluded by running cargo-geiger WITHOUT `--include-tests` (asserted by validate_geiger_cmd), because cargo-geiger reports per FILE and the gate classifies by file path, so it cannot separate a #[cfg(test)] block from shipping code in the same src/ file. Update this file only to RAISE the test-unsafe baseline, with a justification."
+  "prod_unsafe_total": 2,
+  "test_unsafe_total": 8,
+  "note": "cargo-geiger one-way ratchet (both counters may only go DOWN; the gate FAILs on an increase AND on an unexplained decrease, so the baselines cannot rot into loose ceilings). 2026-09-21 ruling: production unsafe was a hard zero with no allowlist, but that policy had never actually been enforced — the gate could not parse cargo-geiger 0.13's JSON at all (see scripts/ci/run_cargo_geiger.py's docstring). Once the parser was fixed the first true verdict was prod=2 / test=8; one of the two production sites is test infrastructure that is unconditionally compiled by design, so the ruling was to keep the number visible and itemised instead of forcing an undocumented exception. Background: docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md §14.14.6.",
+  "prod_unsafe_sites": [
+    {
+      "package": "synapse-common",
+      "count": 1,
+      "site": "synapse-common/src/test_schema_guard.rs:477 — unsafe { libc::atexit(janitor_exit_handler) }",
+      "why": "Test-schema janitor's process-exit backstop: when a pool is held by a `static`, Rust never runs Drop, so only atexit can let the janitor finish. The module is compiled unconditionally ON PURPOSE (synapse-common/src/lib.rs:90-93: `#[cfg(test)]` fixtures in sibling crates must be able to call it, so it cannot be gated behind `test-utils`), hence it necessarily shows up in the prod scan. This is the known cost of shipping test infrastructure inside the library, not `unsafe` in product code. Tightening path: have dependents enable `test-utils` in `[dev-dependencies]` and gate the module, which would reclaim this unit.",
+      "review_by": "2026-12-21"
+    },
+    {
+      "package": "synapse-rust",
+      "count": 1,
+      "site": "not located (cargo-geiger's JSON carries no file paths)",
+      "why": "The root crate's src/ and benches/ contain no `unsafe` token at all (git grep -nE '\\bunsafe\\b' has zero hits; the repo's only five `unsafe {` blocks live in synapse-common and synapse-services), so this is most likely a macro expansion produced by some `--all-features` attribute/derive macro rather than a hand-written block. To locate it: run cargo-geiger 0.13 for `-p synapse-rust` across feature subsets and bisect (installed locally, but a single-package scan did not finish within 25 minutes).",
+      "review_by": "2026-12-21"
+    }
+  ],
+  "test_unsafe_sites": [
+    {
+      "package": "synapse-common",
+      "count": 2,
+      "why": "Hand-written `#[cfg(test)]` blocks calling `std::env::set_var`/`remove_var` in synapse-common/src/config/mod.rs (:759, :924) — Rust 2024 requires `unsafe` for those.",
+      "review_by": "2026-12-21"
+    },
+    {
+      "package": "synapse-services",
+      "count": 2,
+      "why": "Same pattern in synapse-services/src/worker/topology_validator.rs (:663, :675, inside `mod tests`).",
+      "review_by": "2026-12-21"
+    },
+    {
+      "package": "synapse-rust",
+      "count": 4,
+      "why": "Not attributable to source: the root crate's tests/ contain no `unsafe` token either (the four hits are in comments/strings only). The count is consistent with one macro-generated unsafe expression per test binary (unit / integration / e2e) under `--include-tests`, i.e. the same unexplained macro-expansion class as the root crate's single prod unit.",
+      "review_by": "2026-12-21"
+    }
+  ]
 }

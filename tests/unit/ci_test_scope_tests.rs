@@ -550,6 +550,84 @@ fn integration_step_reports_every_failure() {
     );
 }
 
+/// cargo-geiger 门禁必须是**单向棘轮**，且基线里的逐条理由必须自洽（2026-09-21 裁定 B）。
+///
+/// 背景（§14.14.6）：解析器修好 cargo-geiger 0.13 的 schema 之后，这道门禁第一次给出真判定
+/// —— production unsafe = 2 / test-only = 8 —— 于是"production 硬零、无白名单"的政策被违反。
+/// 裁定：改成"极紧的逐条棘轮"——只许减少，减少时**必须**同步收紧基线，每一处都要在基线里
+/// 写明理由与 `review_by`，并且**逐条清单之和必须等于总数**（否则基线写的和门禁管的是两回事）。
+///
+/// 本测试用**合成报告**离线驱动脚本（不需要 cargo-geiger），钉住 5 件事：
+/// ① 与仓库基线一致的 prod=2 / test=8 ⇒ exit 0；② prod=3 ⇒ exit 1（有人新增）：
+/// ③ prod=1 ⇒ exit 1（好事，但必须收紧基线）；④ test=9 ⇒ exit 1；⑤ 逐条清单之和与总数
+/// 不一致的基线 ⇒ exit 2。
+///
+/// **红证明**：把 Gate 1 改回硬零（`prod_total > 0 ⇒ FAIL`）→ ① 变成 exit 1，本测试 FAILED；
+/// 把 `validate_baseline_keys` 的求和校验删掉 → ⑤ 变成 exit 0，本测试 FAILED。
+#[test]
+fn cargo_geiger_gate_is_a_one_way_ratchet() {
+    let root = repo_root();
+    let tmp = std::env::temp_dir().join(format!("dsh-geiger-guard-{}", std::process::id()));
+    fs::create_dir_all(&tmp).expect("create temp dir for synthetic reports");
+
+    // 合成报告的形状与 cargo-geiger 0.13 一致：`packages` 是 list，计数器嵌套在
+    // `unsafety.used.exprs.unsafe_`，workspace 成员用 `id.source = {"Path": …}` 标记。
+    // 用 `str::replace` 而不是 `format!`，省掉 JSON 花括号的转义噪音。
+    let write_pair = |prod: i64, test: i64, tag: &str| -> (std::path::PathBuf, std::path::PathBuf) {
+        const TEMPLATE: &str = r#"{"packages":[{"package":{"id":{"name":"synapse-rust","version":"0.1.0","source":{"Path":"file:///w/root"}}},"unsafety":{"used":{"exprs":{"safe":1,"unsafe_":USED}}}}],"packages_without_metrics":[],"used_but_not_scanned_files":[]}"#;
+        let report = |used: i64| TEMPLATE.replace("USED", &used.to_string());
+        let prod_path = tmp.join(format!("prod-{tag}.json"));
+        let all_path = tmp.join(format!("all-{tag}.json"));
+        fs::write(&prod_path, report(prod)).expect("write synthetic prod report");
+        fs::write(&all_path, report(prod + test)).expect("write synthetic all report");
+        (prod_path, all_path)
+    };
+
+    let script = root.join("scripts/ci/run_cargo_geiger.py");
+    let repo_baseline = root.join("scripts/ci/geiger_baseline.json");
+    let run = |prod: i64, test: i64, tag: &str, baseline: &std::path::Path| -> i32 {
+        let (p, a) = write_pair(prod, test, tag);
+        let out = std::process::Command::new("python3")
+            .arg(&script)
+            .arg("--prod-report")
+            .arg(&p)
+            .arg("--all-report")
+            .arg(&a)
+            .arg("--baseline")
+            .arg(baseline)
+            .output()
+            .expect("run_cargo_geiger.py must be runnable with python3");
+        let code = out.status.code().unwrap_or(-1);
+        if std::env::var_os("GEIGER_GUARD_VERBOSE").is_some() {
+            eprintln!(
+                "--- prod={prod} test={test} baseline={} -> {code}\n{}{}",
+                baseline.display(),
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+        code
+    };
+
+    assert_eq!(run(2, 8, "ok", &repo_baseline), 0, "基线内的 prod=2/test=8 必须 PASS");
+    assert_eq!(run(3, 8, "increase", &repo_baseline), 1, "prod 增加到 3 必须 FAIL（单向棘轮）");
+    assert_eq!(run(1, 8, "decrease", &repo_baseline), 1, "prod 降到 1 必须 FAIL 并要求收紧基线");
+    assert_eq!(run(2, 9, "test-increase", &repo_baseline), 1, "test-only 超过基线必须 FAIL");
+
+    // ⑤ 逐条清单之和 != 总数：基线在骗人，必须 exit 2 而不是照常判定。
+    let bad_baseline = tmp.join("bad-baseline.json");
+    fs::write(
+        &bad_baseline,
+        r#"{"prod_unsafe_total":2,"test_unsafe_total":8,
+            "prod_unsafe_sites":[{"package":"x","count":1,"why":"synthetic","review_by":"2099-01-01"}],
+            "test_unsafe_sites":[{"package":"y","count":8,"why":"synthetic","review_by":"2099-01-01"}]}"#,
+    )
+    .expect("write synthetic baseline");
+    assert_eq!(run(2, 8, "sum-mismatch", &bad_baseline), 2, "逐条清单之和与总数不一致必须 exit 2");
+
+    let _ = fs::remove_dir_all(&tmp);
+}
+
 /// 供应链例外（advisory ignore）必须**三件事同时成立**，否则红：
 ///
 /// ① `deny.toml` 的 `ignore` 是 `.cargo/audit.toml` 的**子集**（cargo-deny 不得忽略一条

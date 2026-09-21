@@ -47,7 +47,7 @@ failure** instead of a silent zero.
 
 Scope: only packages whose `id.source` is a `Path` (i.e. this workspace's members)
 are counted. Third-party registry crates are ignored — their unsafe is not ours to
-fix, and including it would make the hard-zero Gate 1 unenforceable.
+fix, and including it would drown the counters we enforce.
 
 Usage
 -----
@@ -66,6 +66,7 @@ import argparse
 import json
 import subprocess
 import sys
+from datetime import date
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
@@ -73,10 +74,20 @@ DEFAULT_BASELINE = ROOT_DIR / "scripts" / "ci" / "geiger_baseline.json"
 DEFAULT_REPORT = ROOT_DIR / "artifacts" / "cargo-geiger.json"
 
 # Keys the gate actually consumes. Anything else in the baseline file is inert by
-# construction, which is how `"prod_unsafe_total": 4` sat here for months while
-# Gate 1 hard-failed at `prod_total > 0` — a field contradicting the enforced
-# policy that nothing read.
-KNOWN_BASELINE_KEYS = frozenset({"test_unsafe_total", "note"})
+# construction, which is how `"prod_unsafe_total": 4` once sat here for months while
+# the gate hard-failed at `prod_total > 0` — a field contradicting the enforced
+# policy that nothing read. Everything below is read *and* enforced: the itemised
+# site lists must add up to their totals, every site needs a justification and a
+# `review_by` date that has not passed.
+KNOWN_BASELINE_KEYS = frozenset(
+    {
+        "test_unsafe_total",
+        "prod_unsafe_total",
+        "prod_unsafe_sites",
+        "test_unsafe_sites",
+        "note",
+    }
+)
 
 # `--output-format Json` (capital J): OutputFormat is a case-sensitive strum enum,
 # so the lowercase `json` made the subprocess exit before any scanning happened.
@@ -174,8 +185,12 @@ def shipped_unsafe_totals(report: dict, label: str) -> dict[str, int]:
     defect this function exists to prevent.
     """
     if not isinstance(report, dict) or not isinstance(report.get("packages"), list):
-        keys = sorted(report.keys()) if isinstance(report, dict) else type(report).__name__
-        shape = type(report.get("packages")).__name__ if isinstance(report, dict) else "n/a"
+        keys = (
+            sorted(report.keys()) if isinstance(report, dict) else type(report).__name__
+        )
+        shape = (
+            type(report.get("packages")).__name__ if isinstance(report, dict) else "n/a"
+        )
         print(
             f"FAIL: {label}: expected a SafetyReport whose `packages` is a LIST "
             f"(cargo-geiger >= 0.13), got report keys {keys} with `packages` = {shape}. "
@@ -231,7 +246,8 @@ def shipped_unsafe_totals(report: dict, label: str) -> dict[str, int]:
         blind = [
             str(item.get("id", {}).get("name", item))
             for item in without_metrics
-            if isinstance(item, dict) and is_path_package(item.get("id", {}).get("source"))
+            if isinstance(item, dict)
+            and is_path_package(item.get("id", {}).get("source"))
         ]
         if blind:
             print(
@@ -256,23 +272,78 @@ def load_baseline(path: Path) -> dict:
     """Load baseline file, or return defaults if not present."""
     if path.exists():
         return json.loads(path.read_text())
-    return {"test_unsafe_total": 0, "note": "baseline not found; using zero-defaults"}
+    return {
+        "prod_unsafe_total": 0,
+        "test_unsafe_total": 0,
+        "note": "baseline not found; using zero-defaults",
+    }
 
 
 def validate_baseline_keys(baseline: dict, path: Path) -> str | None:
-    """Reject a baseline field that nothing enforces."""
+    """Reject inert fields; validate every field the gate reads.
+
+    Since 2026-09-21 the production counter is a one-way ratchet, so its units must
+    be **itemised, justified and dated** right here: the site lists must add up to
+    their totals (otherwise the baseline documents one thing and enforces another)
+    and no `review_by` date may be in the past (a stale justification is how an
+    accepted exception silently becomes permanent).
+    """
     unknown = sorted(set(baseline) - KNOWN_BASELINE_KEYS)
     if unknown:
         return (
             f"{path} contains keys the gate does not read: {unknown}. Every field here must be "
             f"enforced (known: {sorted(KNOWN_BASELINE_KEYS)}) — an inert field is how a "
-            f"`prod_unsafe_total` ceiling contradicted the hard-zero policy without changing it."
+            f"`prod_unsafe_total` ceiling once contradicted the enforced policy without "
+            f"changing it."
         )
-    value = baseline.get("test_unsafe_total", 0)
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        return (
-            f"{path}: test_unsafe_total must be a non-negative integer, got {value!r}"
-        )
+    for key in ("prod_unsafe_total", "test_unsafe_total"):
+        value = baseline.get(key, 0)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            return f"{path}: {key} must be a non-negative integer, got {value!r}"
+
+    today = date.today().isoformat()
+    for total_key, sites_key in (
+        ("prod_unsafe_total", "prod_unsafe_sites"),
+        ("test_unsafe_total", "test_unsafe_sites"),
+    ):
+        sites = baseline.get(sites_key)
+        if not isinstance(sites, list):
+            return (
+                f"{path}: {sites_key} must be a list itemising every unit counted by "
+                f"{total_key} (got {type(sites).__name__})"
+            )
+        summed = 0
+        for index, site in enumerate(sites):
+            if not isinstance(site, dict):
+                return f"{path}: {sites_key}[{index}] is not an object"
+            for field in ("package", "count", "why", "review_by"):
+                if field not in site:
+                    return f"{path}: {sites_key}[{index}] is missing `{field}`"
+            count = site["count"]
+            if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+                return f"{path}: {sites_key}[{index}].count must be a positive integer, got {count!r}"
+            if not isinstance(site["why"], str) or not site["why"].strip():
+                return f"{path}: {sites_key}[{index}].why must be a non-empty justification"
+            review_by = site["review_by"]
+            if (
+                not isinstance(review_by, str)
+                or len(review_by) != 10
+                or review_by[4] != "-"
+            ):
+                return f"{path}: {sites_key}[{index}].review_by must be an ISO date (YYYY-MM-DD)"
+            if review_by < today:
+                return (
+                    f"{path}: {sites_key}[{index}] (package {site['package']!r}) is overdue: "
+                    f"review_by {review_by} < today {today}. Re-review the site with fresh "
+                    f"evidence and either renew the date or remove the unsafe usage."
+                )
+            summed += count
+        if summed != baseline.get(total_key, 0):
+            return (
+                f"{path}: {sites_key} sums to {summed} but {total_key} is "
+                f"{baseline.get(total_key, 0)} — the itemised list must account for every unit "
+                "the gate enforces."
+            )
     return None
 
 
@@ -301,6 +372,7 @@ def main() -> int:
         print(f"FAIL: {baseline_problem}", file=sys.stderr)
         return 2
     baseline_test = baseline.get("test_unsafe_total", 0)
+    baseline_prod = baseline.get("prod_unsafe_total", 0)
 
     offline = args.prod_report is not None or args.all_report is not None
     if offline:
@@ -361,17 +433,38 @@ def main() -> int:
             if value > 0:
                 print(f"    {pkg}: {value}")
 
-    # ── Gate 1: Production unsafe must be zero (hard block) ──
-    if prod_total > 0:
-        print(f"\nFAIL: {prod_total} unsafe usage(s) in shipped code.")
+    # ── Gate 1: Production unsafe is a **one-way ratchet** (2026-09-21 ruling) ──
+    #
+    # Policy history: this used to be a hard zero with no allowlist. Fixing the
+    # 0.13 parser (see the module docstring) made the gate report its first *true*
+    # verdict ever — 2 production unsafe usages — and a hard zero would have forced
+    # either a redesign of the test-schema janitor's `atexit` backstop or an
+    # unexplained red. The ruling was to keep the number **visible and itemised**
+    # instead: production unsafe may only go DOWN, every unit must be justified in
+    # the baseline, and an unexplained decrease fails so the baseline cannot rot
+    # into a loose ceiling.
+    if prod_total > baseline_prod:
+        print(f"\nFAIL: production unsafe increased ({baseline_prod} -> {prod_total}).")
         print(
-            "      Production unsafe is strictly prohibited — no allowlist, no baseline ceiling."
+            "      Production unsafe is a one-way ratchet: it may only go down. New unsafe in"
         )
         print(
-            "      If it is really only inside `#[cfg(test)]`, move that code under `tests/`,"
+            "      shipped code must be removed, not baselined — rewrite it without `unsafe`,"
         )
         print(
-            "      because the prod scan excludes test *targets*, not test *modules* in src/."
+            "      or move it under `tests/` (the prod scan excludes test *targets*, not test"
+        )
+        print("      *modules* in src/).")
+        return 1
+    if prod_total < baseline_prod:
+        print(
+            f"\nFAIL: production unsafe decreased ({baseline_prod} -> {prod_total}) — good news,"
+        )
+        print(
+            f"      but the ratchet must be tightened: set `prod_unsafe_total` to {prod_total} in"
+        )
+        print(
+            f"      {args.baseline}, delete the now-obsolete justification(s), and say why."
         )
         return 1
 
@@ -384,7 +477,9 @@ def main() -> int:
         return 1
 
     print("\ncargo-geiger: PASS")
-    print(f"  Production unsafe: {prod_total} (must be 0)")
+    print(
+        f"  Production unsafe: {prod_total} (baseline: {baseline_prod}; ratchet, may only go down)"
+    )
     print(f"  Test-only unsafe:  {test_total} (baseline: {baseline_test})")
     return 0
 

@@ -10,9 +10,9 @@
 |------|------|------|---------|---------|
 | `cargo-deny` | 许可证 / 依赖 bans / 来源 | **Grade A (阻断)** | 许可证违规、未知 registry、wildcard 依赖、yanked crate | `deny.toml` |
 | `cargo-audit` | CVE / 安全公告 | **Grade A (阻断)** | 高危/中危 CVE 未列入 ignore 清单 | `.cargo/audit.toml` |
-| `cargo-geiger` | `unsafe` 代码检测 | **Grade A (阻断)** | 生产代码 `unsafe` 超过 baseline | `scripts/ci/run_cargo_geiger.py` + `geiger_baseline.json` |
+| `cargo-geiger` | `unsafe` 代码检测 | **Grade A (阻断)** | production `unsafe` 单向棘轮（只许减少；减少须收紧基线）| `scripts/ci/run_cargo_geiger.py` + `geiger_baseline.json` |
 | `cargo-outdated` | 依赖新鲜度 | **Grade B (警告)** | 安全相关 crate 有更新时告警 | CI 步骤 (`continue-on-error: true`) |
-| `rand::rng()` 扫描 | 特定漏洞防护 | **Grade A (阻断)** | 代码中出现 `rand::rng()` 调用 | CI 步骤 (`git grep`) |
+| `rand::rng()` 扫描 | 特定漏洞防护 | **Grade A (阻断)** | **新增** `rand::rng()` 调用（棘轮，baseline 47）| `scripts/ci/check_rand_rng_ratchet.sh` |
 
 ---
 
@@ -45,17 +45,23 @@
   - 不再匹配任何依赖的条目：**删除**，不要续期（死条目会在降级时静默放行）
 
 #### cargo-geiger
-- **实现**：`scripts/ci/run_cargo_geiger.py`（JSON 输出 + baseline ratchet）
-- **检查内容**：Rust 代码中的 `unsafe` 块
-- **阻断条件**：
-  - 生产代码（非 `tests/` 目录文件）unsafe 总数超过 baseline
-  - 新文件出现 unsafe（baseline 中未记录）
-- **非阻断但追踪**：
-  - 测试代码（`tests/` 目录）中的 `unsafe` 块数量需记录基线，新增时告警
-- **当前基线**（截至 2026-07-23，`scripts/ci/geiger_baseline.json`）：
-  - 生产文件 unsafe：4（全部在 `src/` 文件的 `#[test]` 函数中，cargo-geiger 按文件统计不区分 `#[test]`；用于 `std::env::set_var`/`remove_var`，Rust 2024 要求 unsafe）
-  - 测试文件 unsafe：0
-- **注意**：cargo-geiger 按文件级别报告，不区分同一文件中的 `#[test]` 函数和非测试代码。baseline 中的 4 个 "生产" unsafe 实际上是 `src/` 文件内 `#[test]` 函数的环境变量操作，未来可通过迁移到 test-only helper crate 来降低 baseline。
+- **实现**：`scripts/ci/run_cargo_geiger.py`（同 feature 集扫两次：`cargo geiger` 与
+  `cargo geiger --include-tests`，逐包相减得到 test-only）
+- **检查内容**：workspace 成员（`id.source = {"Path": …}`）的 `unsafe` 表达式数量
+- **阻断条件**（**两个单向棘轮**，2026-09-21 裁定）：
+  - production unsafe **超过**基线 ⇒ 红（新增 unsafe 必须改掉，不许加基线）
+  - production unsafe **低于**基线 ⇒ 也红（好事，但必须同步收紧基线，否则基线会腐烂成松上限）
+  - test-only unsafe 超过基线 ⇒ 红
+  - 解析不到、`packages` 形状变化、逐条清单之和与总数不一致、`review_by` 过期 ⇒ exit 2
+- **当前基线**（`scripts/ci/geiger_baseline.json`，逐条列明理由 + `review_by`）：
+  - production unsafe：**2**（`synapse-common` 1 = `test_schema_guard.rs` 的 `libc::atexit`
+    退出兜底，该模块按设计无条件编译；`synapse-rust` 1 = 未定位，源码里没有任何 unsafe
+    字面量，疑为宏展开）
+  - test-only unsafe：**8**（`synapse-common` 2 + `synapse-services` 2 是手写的
+    `set_var`/`remove_var`；`synapse-rust` 4 同为未定位的宏展开类）
+- **注意**：cargo-geiger 的 JSON **不含文件路径**（0.13 起 `packages` 是 list、计数器嵌套），
+  所以生产/测试的区分只能靠两次扫描相减，无法按文件分类；`geiger_baseline.json` 里每条
+  production 记录都必须写明站点、理由与 `review_by`，且清单之和必须等于总数，否则门禁 exit 2。
 
 #### rand::rng() 扫描
 - **检查内容**：代码中 `rand::rng()` 调用的数量是否超过 baseline
