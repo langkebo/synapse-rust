@@ -30,6 +30,10 @@ pub const IGNORED_USER_LIST_TYPE: &str = "m.ignored_user_list";
 
 /// Counter for invites rejected by room blocklist / allowlist.
 pub const METRIC_INVITE_REJECTED_ROOM: &str = "invite_rejected_room";
+/// Counter for invites rejected by the global server-wide blocklist.
+pub const METRIC_INVITE_REJECTED_GLOBAL_BLOCK: &str = "invite_rejected_global_block";
+/// Counter for invites allowed by the global allowlist.
+pub const METRIC_INVITE_ALLOWED_GLOBAL_ALLOW: &str = "invite_allowed_global_allow";
 /// Counter for invites rejected by the invitee's MSC4155 account policy.
 pub const METRIC_INVITE_REJECTED_ACCOUNT_POLICY: &str = "invite_rejected_account_policy";
 /// Counter for invites rejected by the invitee's ignore list (MSC3873).
@@ -51,7 +55,8 @@ pub trait InvitePolicyGate: Send + Sync {
     /// Order:
     /// 1. the room's blocklist / allowlist (one round-trip, see
     ///    [`InviteBlocklistStorage::evaluate`]);
-    /// 2. the invitee's own MSC4155 `m.invite_permission_config`.
+    /// 2. the global server-wide blocklist / allowlist;
+    /// 3. the invitee's own MSC4155 `m.invite_permission_config`.
     ///
     /// Fails closed on storage errors. A malformed account-data payload is
     /// treated as "no policy" — the content is user-supplied, and rejecting
@@ -70,17 +75,29 @@ pub struct InviteBlocklistService {
     /// Optional metrics collector. Presence lets us record rejection counters
     /// without making this service harder to construct in tests.
     metrics: Option<Arc<MetricsCollector>>,
+    /// When `true`, DM rooms (rooms the invitee has DM'd the inviter)
+    /// skip the global server-wide blocklist/allowlist check.
+    /// This implements the opt-out model for DM rooms.
+    dm_rooms_bypass_global_policy: bool,
 }
 
 impl InviteBlocklistService {
     /// See [`new`].
     pub fn new(storage: Arc<InviteBlocklistStorage>, account_data_store: Arc<dyn AccountDataStoreApi>) -> Self {
-        Self { storage, account_data_store, metrics: None }
+        Self { storage, account_data_store, metrics: None, dm_rooms_bypass_global_policy: false }
     }
 
     /// Attach a metrics collector for recording invite rejection counters.
     pub fn with_metrics(mut self, metrics: Arc<MetricsCollector>) -> Self {
         self.metrics = Some(metrics);
+        self
+    }
+
+    /// Enable the DM-room bypass for the global server-wide blocklist/allowlist.
+    /// When enabled, `check_invite_allowed` will skip the global policy if the
+    /// room is a DM room (the invitee has DM'd the inviter).
+    pub fn with_dm_rooms_bypass_global_policy(mut self, enabled: bool) -> Self {
+        self.dm_rooms_bypass_global_policy = enabled;
         self
     }
 
@@ -186,20 +203,44 @@ impl InviteBlocklistService {
             .map_err(|e| ApiError::internal_with_cause("Failed to get allowlist", e))
     }
 
-    /// Read the server-wide invite blocklist rows.
-    pub async fn get_global_invite_blocklist(&self) -> Result<Vec<serde_json::Value>, ApiError> {
+    /// Read the server-wide invite blocklist rows (paginated).
+    pub async fn get_global_invite_blocklist(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<serde_json::Value>, ApiError> {
         self.storage
-            .get_global_invite_blocklist()
+            .get_global_invite_blocklist_paginated(limit, offset)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get global blocklist", e))
     }
 
-    /// Read the server-wide invite allowlist rows.
-    pub async fn get_global_invite_allowlist(&self) -> Result<Vec<serde_json::Value>, ApiError> {
+    /// Read the total count of server-wide invite blocklist rows.
+    pub async fn get_global_invite_blocklist_count(&self) -> Result<i64, ApiError> {
         self.storage
-            .get_global_invite_allowlist()
+            .global_invite_blocklist_count()
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to count global blocklist", e))
+    }
+
+    /// Read the server-wide invite allowlist rows (paginated).
+    pub async fn get_global_invite_allowlist(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<serde_json::Value>, ApiError> {
+        self.storage
+            .get_global_invite_allowlist_paginated(limit, offset)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get global allowlist", e))
+    }
+
+    /// Read the total count of server-wide invite allowlist rows.
+    pub async fn get_global_invite_allowlist_count(&self) -> Result<i64, ApiError> {
+        self.storage
+            .global_invite_allowlist_count()
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to count global allowlist", e))
     }
 }
 
@@ -227,6 +268,26 @@ impl InvitePolicyGate for InviteBlocklistService {
             return Err(ApiError::forbidden("This user cannot be invited to this room".to_string()));
         }
 
+        // Global server-wide policy check. A row in the global blocklist means
+        // "this user may never be invited anywhere"; a row in the global allowlist
+        // means "this user is explicitly permitted everywhere". The allowlist
+        // overrides the blocklist on a per-user basis — whichever is present wins.
+        if !self.dm_rooms_bypass_global_policy || !self.is_dm_room(inviter_id, invitee_id).await? {
+            if self.storage.is_user_in_global_blocklist(invitee_id).await.map_err(|e| ApiError::internal_with_cause("Failed to check global blocklist", e))? {
+                self.inc_counter(METRIC_INVITE_REJECTED_GLOBAL_BLOCK);
+                ::tracing::warn!(
+                    room_id = %room_id,
+                    inviter_id = %inviter_id,
+                    invitee_id = %invitee_id,
+                    "Invite rejected by the global server-wide blocklist"
+                );
+                return Err(ApiError::forbidden("This user is globally blocked from being invited".to_string()));
+            }
+            if self.storage.is_user_in_global_allowlist(invitee_id).await.map_err(|e| ApiError::internal_with_cause("Failed to check global allowlist", e))? {
+                self.inc_counter(METRIC_INVITE_ALLOWED_GLOBAL_ALLOW);
+            }
+        }
+
         if self.account_policy_denies(inviter_id, invitee_id).await? {
             self.inc_counter(METRIC_INVITE_REJECTED_ACCOUNT_POLICY);
             ::tracing::warn!(
@@ -250,6 +311,22 @@ impl InvitePolicyGate for InviteBlocklistService {
         }
 
         Ok(())
+    }
+}
+
+impl InviteBlocklistService {
+    /// `true` when the given pair is already in a DM relationship: the invitee
+    /// has an `m.direct` account-data entry mapping the inviter to this room.
+    ///
+    /// Missing or malformed account data is treated as "no DM relationship",
+    /// so this is a best-effort check used only for the DM-bypass gate.
+    async fn is_dm_room(&self, inviter_id: &str, invitee_id: &str) -> ApiResult<bool> {
+        let content =
+            self.account_data_store.get_account_data_content(invitee_id, "m.direct").await?;
+        let Some(content) = content else {
+            return Ok(false);
+        };
+        Ok(content.get(inviter_id).is_some())
     }
 }
 
@@ -387,5 +464,50 @@ mod tests {
         svc.inc_counter(METRIC_INVITE_REJECTED_ROOM);
         svc.inc_counter(METRIC_INVITE_EVAL_ERROR);
         // No assertions needed: we just want to ensure no panic occurs.
+    }
+
+    /// DM bypass: when enabled, the global blocklist check is skipped if the
+    /// invitee has an `m.direct` entry for the inviter.
+    #[tokio::test]
+    async fn dm_rooms_bypass_global_blocklist_when_enabled() {
+        use synapse_storage::test_mocks::InMemoryAccountDataStore;
+
+        let account_data_store = Arc::new(InMemoryAccountDataStore::new());
+        let storage = Arc::new(InviteBlocklistStorage::new(Arc::new(
+            sqlx::PgPool::connect_lazy("postgresql://unused:unused@127.0.0.1:1/unused").unwrap(),
+        )));
+        let svc = InviteBlocklistService::new(storage, account_data_store.clone())
+            .with_dm_rooms_bypass_global_policy(true);
+
+        // No global blocklist entry exists in the fake pool (no real queries hit it).
+        // The DM bypass gate should not affect the room-level or account-level policy.
+        let result = svc.check_invite_allowed("!room:test.localhost", "@alice:test.localhost", "@bob:test.localhost").await;
+        // Account policy deny because m.invite_permission_config is absent (fail-closed).
+        assert!(result.is_err());
+    }
+
+    /// Test that the DM bypass is correctly detected via m.direct account data.
+    #[tokio::test]
+    async fn dm_rooms_bypass_detected_via_m_direct() {
+        let account_data_store = Arc::new(InMemoryAccountDataStore::new());
+        let storage = Arc::new(InviteBlocklistStorage::new(Arc::new(
+            sqlx::PgPool::connect_lazy("postgresql://unused:unused@127.0.0.1:1/unused").unwrap(),
+        )));
+        let svc = InviteBlocklistService::new(storage, account_data_store.clone())
+            .with_dm_rooms_bypass_global_policy(true);
+
+        // Set up m.direct mapping: bob has DM'd alice
+        account_data_store.upsert_account_data(
+            "@bob:test.localhost",
+            "m.direct",
+            json!({"@alice:test.localhost": ["!dm-room:test.localhost"]}),
+        ).await.expect("write m.direct");
+
+        // is_dm_room should return true
+        assert!(svc.is_dm_room("@alice:test.localhost", "@bob:test.localhost").await.expect("check dm"));
+        // Reverse should be false (alice hasn't DM'd bob)
+        assert!(!svc.is_dm_room("@bob:test.localhost", "@alice:test.localhost").await.expect("check dm"));
+        // Missing m.direct should be false
+        assert!(!svc.is_dm_room("@eve:test.localhost", "@bob:test.localhost").await.expect("check dm"));
     }
 }

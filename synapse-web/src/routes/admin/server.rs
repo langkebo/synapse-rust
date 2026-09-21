@@ -1,10 +1,11 @@
 use crate::routes::context::AdminContext;
 use crate::routes::{AdminUser, AppState};
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     routing::{get, post},
     Json, Router,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::types::{DeviceId, UserId};
@@ -416,11 +417,16 @@ pub async fn get_jitsi_config(_admin: AdminUser, State(ctx): State<AdminContext>
 pub async fn get_invite_blocklist_admin(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
+    Query(params): Query<InviteListParams>,
 ) -> Result<Json<Value>, ApiError> {
-    let blocklist = ctx.invite_blocklist_service.get_global_invite_blocklist().await?;
+    let blocklist = ctx.invite_blocklist_service.get_global_invite_blocklist(params.limit, params.offset).await?;
+    let count = ctx.invite_blocklist_service.get_global_invite_blocklist_count().await?;
 
     Ok(Json(json!({
-        "blocklist": blocklist
+        "blocklist": blocklist,
+        "total_count": count,
+        "limit": params.limit,
+        "offset": params.offset
     })))
 }
 
@@ -429,12 +435,32 @@ pub async fn get_invite_blocklist_admin(
 pub async fn get_invite_allowlist_admin(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
+    Query(params): Query<InviteListParams>,
 ) -> Result<Json<Value>, ApiError> {
-    let allowlist = ctx.invite_blocklist_service.get_global_invite_allowlist().await?;
+    let allowlist = ctx.invite_blocklist_service.get_global_invite_allowlist(params.limit, params.offset).await?;
+    let count = ctx.invite_blocklist_service.get_global_invite_allowlist_count().await?;
 
     Ok(Json(json!({
-        "allowlist": allowlist
+        "allowlist": allowlist,
+        "total_count": count,
+        "limit": params.limit,
+        "offset": params.offset
     })))
+}
+
+/// Pagination parameters for the invite blocklist/allowlist admin endpoints.
+#[derive(Deserialize, Debug, Clone, Copy)]
+pub struct InviteListParams {
+    /// Maximum number of rows to return. Defaults to 100.
+    #[serde(default = "default_limit")]
+    pub limit: i64,
+    /// Number of rows to skip for pagination. Defaults to 0.
+    #[serde(default)]
+    pub offset: i64,
+}
+
+fn default_limit() -> i64 {
+    100
 }
 
 #[cfg(test)]

@@ -189,6 +189,110 @@ impl InviteBlocklistStorage {
             })
             .collect())
     }
+
+    /// Check whether `user_id` appears in any row of the global blocklist.
+    /// This is the server-wide equivalent of the room-level blocklist check.
+    pub async fn is_user_in_global_blocklist(&self, user_id: &str) -> Result<bool, sqlx::Error> {
+        let exists: bool = sqlx::query_scalar(
+            r"
+            SELECT EXISTS (SELECT 1 FROM room_invite_blocklist WHERE user_id = $1)
+            ",
+        )
+        .bind(user_id)
+        .fetch_one(&*self.pool)
+        .await?;
+        Ok(exists)
+    }
+
+    /// Check whether `user_id` appears in any row of the global allowlist.
+    /// A row here means "this user is explicitly allowed to be invited anywhere".
+    pub async fn is_user_in_global_allowlist(&self, user_id: &str) -> Result<bool, sqlx::Error> {
+        let exists: bool = sqlx::query_scalar(
+            r"
+            SELECT EXISTS (SELECT 1 FROM room_invite_allowlist WHERE user_id = $1)
+            ",
+        )
+        .bind(user_id)
+        .fetch_one(&*self.pool)
+        .await?;
+        Ok(exists)
+    }
+
+    /// Get global invite blocklist (all rooms) with pagination.
+    pub async fn get_global_invite_blocklist_paginated(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, (String, String, i64)>(
+            r"
+            SELECT room_id, user_id, created_ts FROM room_invite_blocklist
+            ORDER BY created_ts DESC
+            LIMIT $1 OFFSET $2
+            ",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(room_id, user_id, created_ts)| {
+                serde_json::json!({
+                    "room_id": room_id,
+                    "user_id": user_id,
+                    "created_ts": created_ts
+                })
+            })
+            .collect())
+    }
+
+    /// Get global invite allowlist (all rooms) with pagination.
+    pub async fn get_global_invite_allowlist_paginated(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, (String, String, i64)>(
+            r"
+            SELECT room_id, user_id, created_ts FROM room_invite_allowlist
+            ORDER BY created_ts DESC
+            LIMIT $1 OFFSET $2
+            ",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(room_id, user_id, created_ts)| {
+                serde_json::json!({
+                    "room_id": room_id,
+                    "user_id": user_id,
+                    "created_ts": created_ts
+                })
+            })
+            .collect())
+    }
+
+    /// Return the total row count for the global invite blocklist.
+    pub async fn global_invite_blocklist_count(&self) -> Result<i64, sqlx::Error> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM room_invite_blocklist")
+            .fetch_one(&*self.pool)
+            .await?;
+        Ok(count)
+    }
+
+    /// Return the total row count for the global invite allowlist.
+    pub async fn global_invite_allowlist_count(&self) -> Result<i64, sqlx::Error> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM room_invite_allowlist")
+            .fetch_one(&*self.pool)
+            .await?;
+        Ok(count)
+    }
 }
 
 #[cfg(test)]

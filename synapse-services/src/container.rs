@@ -282,7 +282,8 @@ impl ServiceContainer {
         let invite_blocklist_service = Arc::new(crate::invite_blocklist_service::InviteBlocklistService::new(
             invite_blocklist_storage,
             Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool)),
-        ).with_metrics(metrics.clone()));
+        ).with_metrics(metrics.clone())
+         .with_dm_rooms_bypass_global_policy(true));
         let sticky_event_storage: Arc<synapse_storage::sticky_event::StickyEventStorage> =
             Arc::new(StickyEventStorage::new(pool.clone()));
 
