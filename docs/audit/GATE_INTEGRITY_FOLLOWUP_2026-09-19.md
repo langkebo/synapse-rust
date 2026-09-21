@@ -2664,11 +2664,15 @@ production unsafe：
   （`synapse-common/src/lib.rs:90-93`：兄弟 crate 的 `#[cfg(test)]` 夹具要能直接调用它，
   不能 gate 在 `test-utils` 之后），而 `libc::atexit` 是"测试 schema janitor"退出兜底 ——
   即**测试基础设施被编进了产品库**。
-- `synapse-rust 6.2.0`（1）：**未定位**。全仓 `git grep -nE "\bunsafe\b"` 在根 crate 的
-  `src/`/`benches/` 里**零命中**（`unsafe {` 全仓只有 5 处，都在 `synapse-common` 与
-  `synapse-services`），所以它更像宏展开（`--all-features` 下的某个 derive/属性宏）或
-  某个 feature 带来的代码，而不是手写 unsafe 块。本机装了 cargo-geiger 0.13 想去二分，
-  但单包扫描在本地跑得太慢（>25 分钟未出结果）故未完成。
+- `synapse-rust 6.2.0`（1）：**已定位（2026-09-21）——不是本仓手写代码**。根 crate 的
+  `src/`/`benches/` 里没有任何 `unsafe` 字面量（`git grep -nE "\bunsafe\b"` 零命中；
+  `unsafe {` 全仓只有 5 处，都在 `synapse-common` 与 `synapse-services`）。定位方法：
+  `RUSTC_BOOTSTRAP=1 cargo rustc -p synapse-rust --lib --all-features -- -Zunpretty=hir`
+  导出**展开后**的 HIR，全量核对 284 个 unsafe 表达式，**全部**来自宏/编译器脱糖：
+  155 个 `unsafe { format_arguments::new(…) }`（std 的 `format_args!` 实现，Rust 1.93 的新机制）
+  再加 129 个 `unsafe { … Pin::new_unchecked(…) }`（`.await` 脱糖与 `tokio::join!/select!`）。
+  cargo-geiger 用 span 过滤后仍把其中 1 个归到本 crate，属**工具侧归因产物**：
+  没有一行需要改的代码。test-only 里 synapse-rust 的 4 个同理（每个测试 target 各 1 个）。
 - Test-only 8 = `synapse-common: 2` + `synapse-rust: 4` + `synapse-services: 2`，
   对应 `config/mod.rs` 的 `set_var`/`remove_var` 与 `topology_validator.rs` 的测试块 ——
   这些在旧口径里被误记成 "prod_unsafe_total: 4" 的正是它们，新口径（两次扫描相减）已能正确
@@ -2773,7 +2777,7 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 | 1 | **Code Coverage 从未真正执行** | 依赖 integration 全绿；`scripts/ci/coverage_baseline.json` 的 per-file 棘轮因此从未生效过 |
 | 2 | **k6 Smoke Test 从未真正执行** | 需要 `K6_SMOKE_BASE_URL` 指向真实环境（secret）；现在必须显式 `run_k6=true` 才触发 |
 | 3 | 分支保护允许绕过、不强制 PR（既有裁定） | 门禁绿不绿依赖人工看 run；漏看即漏合并 |
-| 4 | 根 crate 的 1 处 production unsafe **未定位** | 已进 geiger 基线（带理由与 `review_by 2026-12-21`）；定位方法写在基线里 |
+| 4 | ~~根 crate 的 1 处 production unsafe 未定位~~ → **已定位（2026-09-21）** | `-Zunpretty=hir` 全量核对：该 crate 展开后的 284 个 unsafe **全部**来自 `format_args!`（155）与 `.await`/tokio 宏脱糖（129），源码零 `unsafe` 字面量 ⇒ cargo-geiger 的 span 归因产物，**无需改代码**（§14.14.6） |
 | 5 | `test_schema_guard` 的 `libc::atexit` | "测试基础设施被编进产品库"的已知代价；收紧路径（dev-dependencies 启用 `test-utils` + gate 模块）已写进基线 |
 | 6 | distroless pin 偏旧（`e5d81ddd…`，0 CVE）、builder `rust:1.93.0-slim-bookworm`（475 HIGH/CRITICAL，仅 build-time） | 已知权衡，未动；Docker Security Scan 目前绿 |
 
@@ -2813,18 +2817,18 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 **P2（已识别、可独立排期）**
 | 任务 | 估算 |
 |---|---|
-| 定位根 crate 那 1 处 production unsafe（cargo-geiger feature 二分） | 1–2h |
 | `test_schema_guard` 收紧（依赖方 `[dev-dependencies]` 启用 `test-utils` + gate 模块 + 5 crate 回归） | 3–4h |
 | 23 个共享池 `db_tests` 迁移到 per-test schema | **8–12h**（每个 20–30 min，建议每批 3–5 个文件一个提交，本地跑该文件 + CI 抽验） |
-| 本地 `test_*` schema 清理 + 把 cleanup 接入流程 | 30 min |
+| 本地 `test_*` schema 清理 + 把 cleanup 接入流程 | ✅ 已核实：实测只剩 4 个残留（其余 3 个是 live 模板），janitor 正常工作；降为定期抽查 |
 | A13：`run_ci_tests.sh` 与 `ci.yml` 二选一（删除重复实现） | 1–2h |
 | `nextest` profile 口径统一（`.config/nextest.toml` 与 CI 命令行一致或删 `profile.ci`） | 30 min |
 | `docs/` 口径全量复核（与实现不符的叙述） | 2–3h |
 | k6 首次真跑（需部署环境/secret） | 1h |
 
-**总计**：P0 被动 1–2h；P1 条件性 1.5–3h；P2 合计约 **17–26h**（其中 8–12h 是机械的
-schema 迁移，可分批推进，每批都能独立验证与提交）。
+**总计**：P0 被动 1–2h；P1 条件性 1.5–3h；P2 合计约 **15–24h**（其中 8–12h 是机械的
+schema 迁移，可分批推进，每批都能独立验证与提交）。原计划里的「定位那 1 处 unsafe」（1–2h）
+与「本地 schema 清理」（30 min）已在本轮完成或证伪，不再计入。
 
-**建议的下一个会话顺序**：① 读 P0 结果并按 P1 处置 → ② 定位那 1 处 unsafe（1–2h，闭合
-geiger 的"未定位"项）→ ③ 每批 3–5 个文件迁移共享池（可随时中断，风险低）→ ④ k6 / Coverage
-的首次真跑（视外部条件）。
+**建议的下一个会话顺序**：① 读 P0 结果并按 P1 处置 → ② `test_schema_guard` 收紧（3–4h，
+可把 production unsafe 从 2 降到 1）→ ③ 每批 3–5 个文件迁移共享池（可随时中断，风险低）
+→ ④ k6 / Coverage 的首次真跑（视外部条件）。

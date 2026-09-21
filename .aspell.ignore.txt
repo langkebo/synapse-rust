@@ -283,6 +283,7 @@ healthcheck
 healthchecker
 heapsort
 heredoc
+hir
 hkdf
 hmac
 homebrew

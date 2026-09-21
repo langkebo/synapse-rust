@@ -13,8 +13,8 @@
     {
       "package": "synapse-rust",
       "count": 1,
-      "site": "not located (cargo-geiger's JSON carries no file paths)",
-      "why": "The root crate's src/ and benches/ contain no `unsafe` token at all (git grep -nE '\\bunsafe\\b' has zero hits; the repo's only five `unsafe {` blocks live in synapse-common and synapse-services), so this is most likely a macro expansion produced by some `--all-features` attribute/derive macro rather than a hand-written block. To locate it: run cargo-geiger 0.13 for `-p synapse-rust` across feature subsets and bisect (installed locally, but a single-package scan did not finish within 25 minutes).",
+      "site": "已定位（2026-09-21）：全部来自宏/编译器展开，不是本仓手写代码",
+      "why": "根 crate 的 src/ 与 benches/ 里没有任何 `unsafe` 字面量（git grep -nE '\\\\bunsafe\\\\b' 零命中）。用 `RUSTC_BOOTSTRAP=1 cargo rustc -p synapse-rust --lib --all-features -- -Zunpretty=hir` 导出**展开后**的 HIR 全量核对：整棵 lib 共 284 个 unsafe 表达式，全部来自宏/编译器脱糖 —— 155 个 `unsafe { format_arguments::new(...) }`（std 的 `format_args!` 实现）与 129 个 `unsafe { … Pin::new_unchecked(…) }`（`.await` 脱糖与 `tokio::join!/select!`）。cargo-geiger 通过 span 过滤后仍把其中 1 个归到本 crate，属工具侧归因产物，不是需要修改的代码。同类现象也解释了 test-only 里 synapse-rust 的 4 个（每个测试 target 各 1 个）。",
       "review_by": "2026-12-21"
     }
   ],
@@ -34,7 +34,7 @@
     {
       "package": "synapse-rust",
       "count": 4,
-      "why": "Not attributable to source: the root crate's tests/ contain no `unsafe` token either (the four hits are in comments/strings only). The count is consistent with one macro-generated unsafe expression per test binary (unit / integration / e2e) under `--include-tests`, i.e. the same unexplained macro-expansion class as the root crate's single prod unit.",
+      "why": "同 production 那条：不是手写 unsafe。根 crate 的 tests/ 里也没有任何 `unsafe` 字面量（4 处命中全在注释/字符串）。展开后 HIR 里的 unsafe 全部来自 `format_args!` 与 `.await`/tokio 宏脱糖；这 4 个是 cargo-geiger 按 target 归因的产物（每个测试 target 各 1 个）。",
       "review_by": "2026-12-21"
     }
   ]
