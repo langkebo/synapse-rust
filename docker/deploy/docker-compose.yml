@@ -264,7 +264,26 @@ services:
       REDIS_KEY_PREFIX: ${REDIS_KEY_PREFIX:-synapse:}
       SYNAPSE__SERVER__MEGOLM_ENCRYPTION_KEY_PATH: ${SYNAPSE_MEGOLM_ENCRYPTION_KEY_PATH:-/app/data/megolm.key}
     volumes:
-      - synapse_data:/app/data
+      # 必须挂载宿主机**目录**，不要改回 `synapse_data` 命名卷。
+      #
+      # /app/data 存放两把必须在容器启动前就存在的密钥：
+      #   - megolm.key  ← SYNAPSE__SERVER__MEGOLM_ENCRYPTION_KEY_PATH 指向它。
+      #     `resolve_at_rest_key` 是 **fail-closed** 的：只要路径被配置而文件缺失
+      #     或不是合法的 32 字节 base64，服务就拒绝启动。
+      #   - signing.key ← homeserver.yaml 的 server.signing_key_path，由服务写出。
+      #
+      # 用命名卷时这个目录是**空白**的，部署脚本也无从落盘（distroless 镜像没有
+      # shell，无法在卷里生成文件）。实测（2026-09-21）：干净卷首次部署时
+      # synapse-app 启动即 panic —— `Failed to read key file /app/data/megolm.key`，
+      # 崩溃循环 exit 133。
+      #
+      # 改成宿主机目录后：deploy.sh 的 ensure_app_data_keys 可以先在宿主机把密钥
+      # 备好（已实测 uid 1000 对该目录可读写），运维也能直接备份/审计它 ——
+      # 与 ssl/、prometheus/auth/ 的做法一致。
+      #
+      # 注：`./media` 为嵌套挂载，Docker 会按路径深度先挂 /app/data/media，
+      # 因此媒体文件仍落在 deploy/media/，不会进 synapse-data/。
+      - ./synapse-data:/app/data
       - ./media:/app/data/media
       # ⚠️ 必须挂载**目录**，不要改回逐个文件挂载。
       #
@@ -384,11 +403,12 @@ volumes:
     labels:
       synapse-rust.backup: "hourly"
       synapse-rust.data-type: "redis"
-  synapse_data:
-    driver: local
-    labels:
-      synapse-rust.backup: "daily"
-      synapse-rust.data-type: "matrix"
+  # 注：原先的 `synapse_data` 命名卷已移除 —— /app/data 现为宿主机 bind mount
+  # （`./synapse-data`），见 synapse 服务的 volumes 注释。若宿主机上还残留该卷，
+  # 请先确认其中是否有现役 megolm.key（有则搬进 ./synapse-data 再删卷），
+  # 然后 `docker volume rm ${COMPOSE_PROJECT_NAME:-synapse}_synapse_data` 清理。
+  # deploy.sh 的 ensure_app_data_keys 在该卷**仍存在**时会拒绝继续 —— 这是刻意的
+  # fail-closed：宁可要人确认一次，也不要静默换钥导致已入库的 megolm 密文不可解。
   nginx_logs:
     driver: local
     labels:

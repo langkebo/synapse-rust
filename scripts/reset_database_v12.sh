@@ -41,7 +41,7 @@ echo "    keep_existing=$KEEP_EXISTING"
 
 # === 前置检查 ===
 if ! "${PSQL[@]}" -c "SELECT 1" >/dev/null 2>&1; then
-    echo "ERROR: 无法连接数据库 $DB_NAME，请确保 PostgreSQL 运行中"
+    echo "ERROR: 无法连接数据库 ${DB_NAME}，请确保 PostgreSQL 运行中"
     echo "  命令: PGPASSWORD=$DB_PASSWORD psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME"
     exit 1
 fi

@@ -22,7 +22,8 @@
 #   ./deploy.sh --stop-timeout 30 # 容器优雅停止(SIGTERM)等待秒数，默认 30
 #
 # 完整流程: 环境检查 → 依赖安装(可选) → 配置检查 → 功能选择 → 目录准备 →
-#           SSL 证书自动生成 → /etc/hosts 检查 → 本地 coturn 检查/启动 →
+#           SSL 证书自动生成 → 应用数据密钥( megolm.key )准备 → /etc/hosts 检查 →
+#           本地 coturn 检查/启动 →
 #           部署前备份 → 缓存清理 → 项目编译 → 容器优雅停止 →
 #           移除旧部署 → 旧镜像清理 → 镜像构建 → 服务启动(含迁移) →
 #           数据库连接验证 → DB 版本一致性校验 → 健康/HTTPS 验证 →
@@ -424,7 +425,7 @@ on_error() {
     if [ "$ROLLBACK_ENABLED" = "true" ] && [ "$ROLLBACK_IN_PROGRESS" = "false" ]; then
         rollback_deployment || true
     else
-        log_warning "未执行自动回滚（ROLLBACK_ENABLED=$ROLLBACK_ENABLED）；排障指引:"
+        log_warning "未执行自动回滚（ROLLBACK_ENABLED=${ROLLBACK_ENABLED}）；排障指引:"
         log_warning "  1) 查看失败步骤日志: $LOG_FILE"
         log_warning "  2) 当前容器状态: docker compose ps"
         log_warning "  3) 重新部署: ./deploy.sh --all"
@@ -657,7 +658,7 @@ ensure_ssl_certs() {
     fi
 
     if [ -f "$cert_file" ] || [ -f "$key_file" ]; then
-        log_warning "SSL 证书缺失或不匹配域名 $server_name，重新生成..."
+        log_warning "SSL 证书缺失或不匹配域名 ${server_name}，重新生成..."
     fi
     mkdir -p ssl
 
@@ -688,6 +689,76 @@ ensure_ssl_certs() {
 }
 
 # =============================================================================
+# /app/data 密钥供给 (megolm.key)
+# =============================================================================
+# SYNAPSE__SERVER__MEGOLM_ENCRYPTION_KEY_PATH 指向 /app/data/megolm.key，
+# 它是服务端 megolm 会话的静态加密密钥。`resolve_at_rest_key` 是 fail-closed 的：
+# 路径被配置而文件缺失 / 非法 base64 / 解码后不是 32 字节，服务直接拒绝启动。
+#
+# 而 distroless 镜像里没有 shell，应用自己无从在空目录/空卷里落盘首把密钥 ——
+# 供给只能发生在部署脚本侧。2026-09-21 实测：干净命名卷首次部署时 synapse-app
+# 启动即 panic（`Failed to read key file /app/data/megolm.key`），崩溃循环 exit 133。
+#
+# 本步骤保证：
+#   1. 宿主机 $SYNAPSE_DATA_DIR/megolm.key 存在且可用（缺失则生成）；
+#   2. **绝不覆盖**已存在的合法密钥（覆盖等于让已入库的密文永久不可解）；
+#   3. 现存的密钥若不可用则 fail-closed 报错，而不是悄悄换一把新的。
+SYNAPSE_DATA_DIR="${SYNAPSE_DATA_DIR:-synapse-data}"
+
+ensure_app_data_keys() {
+    DEPLOYMENT_PHASE="app-data-keys"
+    log_info "检查 /app/data 密钥（megolm.key）..."
+
+    local data_dir="$SYNAPSE_DATA_DIR"
+    local key_file="${data_dir}/megolm.key"
+
+    # 遗留命名卷守卫：改绑宿主机目录后，旧命名卷里的 megolm.key 会被"看不见"。
+    # 静默生成新钥 → 旧密文永久不可解，所以这里 fail-closed，并给出搬运命令。
+    local legacy_volume="${COMPOSE_PROJECT_NAME:-synapse}_synapse_data"
+    if docker volume inspect "$legacy_volume" >/dev/null 2>&1; then
+        log_error "检测到遗留命名卷 $legacy_volume —— 它可能仍保存着现役 megolm.key。"
+        log_error "直接改绑宿主机目录会静默换钥，导致已入库的 megolm 密文无法解密。"
+        log_error "请先确认并搬运密钥（假定卷内有 megolm.key），然后删除该卷："
+        log_error "  docker run --rm -v $legacy_volume:/src -v \"\$PWD/${data_dir}:/dst\" alpine \\"
+        log_error "    sh -c 'cp -n /src/megolm.key /dst/megolm.key'"
+        log_error "  docker volume rm $legacy_volume"
+        return 1
+    fi
+
+    mkdir -p "$data_dir"
+
+    if [ -s "$key_file" ]; then
+        # 已在位：只做完整性校验，绝不重写。
+        local decoded_bytes
+        decoded_bytes="$(openssl base64 -d -in "$key_file" 2>/dev/null | wc -c | tr -d '[:space:]')"
+        if [ "$decoded_bytes" != "32" ]; then
+            log_error "现有密钥不可用: ${key_file}（base64 解码后 ${decoded_bytes:-0} 字节，需为 32）"
+            log_error "服务会因 fail-closed 拒绝启动。请从备份恢复正确密钥；"
+            log_error "若确认这把钥从未被使用过，可删除该文件后重跑本步骤以重新生成。"
+            return 1
+        fi
+        log_success "megolm.key 已存在且合法（解码 32 字节）"
+        return
+    fi
+
+    if [ -e "$key_file" ]; then
+        log_warning "megolm.key 存在但为空，视为未供给，重新生成..."
+    fi
+    log_info "生成新的 megolm 静态加密密钥..."
+    # `openssl rand -base64 32` 恰好给出 base64(32 字节)。先写临时文件再原子改名，
+    # 避免中途失败留下半截文件 —— 半截文件同样会让服务 fail-closed。
+    local tmp_file="${key_file}.tmp.$$"
+    if ! (umask 077 && openssl rand -base64 32 >"$tmp_file" && [ -s "$tmp_file" ]); then
+        log_error "生成 megolm.key 失败"
+        rm -f "$tmp_file"
+        return 1
+    fi
+    mv -f "$tmp_file" "$key_file"
+    chmod 600 "$key_file"
+    log_success "已生成 megolm.key: ${key_file}（权限 0600）"
+}
+
+# =============================================================================
 # /etc/hosts 域名映射检查 (matrix.test -> 127.0.0.1)
 # =============================================================================
 ensure_hosts_entry() {
@@ -695,7 +766,21 @@ ensure_hosts_entry() {
     log_info "检查 /etc/hosts 域名映射..."
     local server_name="${SERVER_NAME:-matrix.test}"
 
-    if grep -Eq "(^|[[:space:]])127\.0\.0\.1([[:space:]]+.*)?${server_name}\b" /etc/hosts 2>/dev/null; then
+    # 逐字段判断：先去掉行内注释，再要求该行第一个字段是 127.0.0.1 且**任一后续
+    # 字段**等于域名。刻意不用
+    #   grep -Eq "(^|[[:space:]])127\.0\.0\.1([[:space:]]+.*)?${server_name}\b"
+    # 这种写法：BSD grep 走最左最长匹配，会把 `([[:space:]]+.*)?` 一路吃到行尾，
+    # 之后再要求匹配域名就永远失败 —— 于是对**正确**的 hosts（形如
+    # `127.0.0.1 matrix.test element.test`，域名不在首位）误报「缺少域名映射」，
+    # 还会诱导运维再追加一条重复记录（2026-09-21 在本机 /etc/hosts 上实测：
+    # 旧正则不匹配、新写法匹配）。字段比较同时天然避开注释行与 IPv6 行。
+    if awk -v host="$server_name" '
+        { sub(/#.*/, "") }
+        $1 == "127.0.0.1" {
+            for (i = 2; i <= NF; i++) if ($i == host) { found = 1 }
+        }
+        END { exit(found ? 0 : 1) }
+    ' /etc/hosts 2>/dev/null; then
         log_success "/etc/hosts 已包含: 127.0.0.1 $server_name"
         return
     fi
@@ -815,7 +900,7 @@ start_monitoring() {
         return 0
     fi
     if [ ! -f "$DEPLOY_ROOT/$MONITORING_COMPOSE_FILE" ]; then
-        log_warning "未找到 $MONITORING_COMPOSE_FILE，跳过监控栈"
+        log_warning "未找到 ${MONITORING_COMPOSE_FILE}，跳过监控栈"
         return 0
     fi
 
@@ -941,6 +1026,10 @@ create_directories() {
     # 在 deploy 目录下创建空的 config/ 会形成"看似有副本"的假象，并让 compose
     # 挂载到空目录（镜像内 /app/config 本身为空，服务会因缺配置启动失败）。
     mkdir -p ssl media logs backups
+    # $SYNAPSE_DATA_DIR 是 /app/data 的宿主机落点（见 docker-compose.yml 的 volumes
+    # 注释）。必须在 `compose up` 之前存在，否则 Docker 会代为创建；那样在 Linux
+    # 上目录属主是 root，而容器以 uid 1000 运行，后续写 signing.key 可能失败。
+    mkdir -p "$SYNAPSE_DATA_DIR"
     # P3-fix: migrations are no longer a hand-synced copy under docker/deploy/.
     # The migrator mounts the canonical $PROJECT_ROOT/migrations directly, so that
     # is what must exist (and contain a baseline) before we start containers.
@@ -1575,6 +1664,7 @@ main() {
     run_step "功能摘要" show_feature_summary
     run_step "目录准备" create_directories
     run_step "SSL 证书准备" ensure_ssl_certs
+    run_step "应用数据密钥准备" ensure_app_data_keys
     run_step "hosts 检查" ensure_hosts_entry
     run_step "本地 TURN 检查" check_local_turn
 

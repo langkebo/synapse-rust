@@ -75,6 +75,6 @@ echo "==> 验证 \"$TARGET_SCHEMA\""
 count="$("${PSQL[@]}" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='$TARGET_SCHEMA'")"
 echo "    $TARGET_SCHEMA 表数: $count"
 if ((count < MIN_TABLES)); then
-    echo "::error::$TARGET_SCHEMA 只有 $count 张表（预期 ≥$MIN_TABLES）—— 迁移没有真正落进该 schema" >&2
+    echo "::error::$TARGET_SCHEMA 只有 $count 张表（预期 ≥${MIN_TABLES}）—— 迁移没有真正落进该 schema" >&2
     exit 1
 fi
