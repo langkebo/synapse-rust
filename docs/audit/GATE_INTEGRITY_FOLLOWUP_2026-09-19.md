@@ -2551,6 +2551,8 @@ advisory-db 挡住 rand 禁令）。
   room/management.rs:430/509/511`、`synapse-web/src/routes/handlers/room/members.rs:186/611/657`，
   变量为 `request_id` ×5 + `actor_user_id` ×1）—— feature-off 配置特有，`cargo build` 不因警告
   失败。已按第 12 条修掉（见 §14.14.4），此处保留记录。
+- **未解决问题的统一清单与下一步计划见 §14.16 / §14.17**（本节及 §14.14.6 的"残留"不再各自维护
+  一份，避免同一职责多份副本再次漂移）。
 
 ### 14.14.3 integration 目标全量枚举结论（本地，2026-09-21）
 
@@ -2720,3 +2722,109 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 
 （这也解释了为什么 CI 把 clippy 放在 fast tier 的最前面之一：它比测试快得多，能在 15 分钟内
 拦住这类纯机械错误。本轮代价是一条被取消/重跑的 CI run。）
+
+### 14.15 近段工作总结（2026-09-20 → 2026-09-21）：从"门禁长期假绿"到"能判真"
+
+**一句话**：把 6 道**从未真正执行过**的门禁接上电，修掉它们一上电就抓出的 20+ 个真实缺陷，
+并把其中 4 道从"不可能通过 / 解析不了"改成**有红证明的单向棘轮**。
+
+| 门禁 | 起点（本段之前） | 现状 | 证据 |
+|---|---|---|---|
+| Fast tier（4× `Test & Lint` + `Repo Sanity` + `OpenAPI Artifact`） | 30 轮里长期红或靠 retry 掩盖 | **全绿** | run `35553786373` |
+| Integration Tests | **从未真正执行**；首跑 139/1424 就 fail-fast 中止 | 跑完 **1424 条**：1421 passed；3 条是锁表基础设施红 → 并发 6→4 | run `35553786373` + 本地 `pg_lock64` 对照（4 并发零错、6 并发出 3 条） |
+| Build Check ×3（release） | 从未执行；一上电两层 bug（空 `--features` + `dm.rs` 死分支） | **三条车道全绿**（18–19 分钟） | run `35553786373` |
+| Security Audit | advisory-db 缓存 → rand 绝对禁令 → cargo-geiger 解析器 | 前两步绿；cargo-geiger 改成**逐条棘轮**并离线用真工件验证 exit 0 | §14.14.6 |
+| Code Coverage | 从未执行（`needs: integration-test` 一直被跳过） | **仍未执行**（等 integration 全绿） | 待验证 |
+| k6 Smoke Test | 每次 `workflow_dispatch` 都被误触发（打外部环境、自己不启动服务） | 改为显式 `run_k6`（默认关） | §14.14.2 第 9 条 |
+| Docs Quality / Docker Security Scan / Benchmark / Format Governance / DB Migration Gate / Schema Health Check / Ledger Export / E2EE Interop | 其中多条从未执行过任何 step | **同 SHA 全绿** | run `35553786xxx` 系列 |
+
+**新增守卫**：`tests/unit/ci_test_scope_tests.rs` 现有 **17 条**，本轮新增/改写 6 条
+（rand 棘轮、advisory 复核日期、`--no-fail-fast` + 并发≤4、k6 显式触发、
+`room_aliases` 列名、cargo-geiger 单向棘轮），每条都有"故意违规 → 红 → 恢复 → 绿"的现场证明。
+
+#### 14.15.1 遇到的问题（工作方法层面，可复用）
+
+1. **"从未执行"的门禁是最大的缺陷来源**：6 道门禁（integration / coverage / build ×3 /
+   security audit / k6）里，凡是没跑过的，一上电就有真缺陷 —— 这不是巧合：未被执行的检查
+   会静默腐坏（AGENTS.md 铁律 8 的推论）。
+2. **一个 job 串多个棘轮 ⇒ 修一个才露下一个**：`Repo Sanity` 是 SQLx → trait；
+   `Security Audit` 是 advisory-db → rand 禁令 → cargo-geiger。每一轮只能看到一个红。
+3. **红在第一个失败就停会掩盖其余**：integration 的 `fail-fast` 让 1424 条只跑 139 条；
+   加 `--no-fail-fast` 后一轮就拿到全部失败清单（省下 N 轮 CI）。
+4. **扫描型守卫必须排除自身**：两个 `git grep` 守卫第一次都是红的 —— 守卫必须写出被禁模式
+   才能自证能变红，于是把自己数了进去（rand 47→55）。
+5. **共享工作树 + 并行会话**：提交必须只 stage 自己的文件（`git diff --cached --stat` 先看）；
+   而 push 会**顺带发布**对方"已提交但未推送"的 commit —— `6c6216cc` 就是这样上的 main，
+   并连带 2 个棘轮红（SQLx + trait）。这不是错误，但必须知道自己在发布什么。
+6. **`--all-features` 会把 `test-utils` 编进"生产"口径**：cargo-geiger 的 prod 扫描因此
+   看到测试基础设施的 `unsafe`；路由/快照口径同理。判定"生产"时要先确认 feature 集。
+7. **本地 ≠ CI 的环境差异**：本地 `public` schema 缺表（`event_reports` 只在模板 schema 里）、
+   `max_locks_per_transaction` 不同（本地 256 / CI 64）、runner 自带半成品 advisory-db。
+   凡是"本地绿 CI 红"或反之，先怀疑这三处。
+8. **只跑 `cargo check` 会漏 clippy 的 style lint**（`doc_lazy_continuation` 让 4 条车道全红）；
+   改 Rust 源码/测试后必须跑 CI 口径的**两条** clippy 变体。
+
+### 14.16 项目仍未解决的问题（本会话结束时的核实清单）
+
+**A. 需要外部条件或裁定才能推进**
+
+| # | 问题 | 现状 / 影响 |
+|---|---|---|
+| 1 | **Code Coverage 从未真正执行** | 依赖 integration 全绿；`scripts/ci/coverage_baseline.json` 的 per-file 棘轮因此从未生效过 |
+| 2 | **k6 Smoke Test 从未真正执行** | 需要 `K6_SMOKE_BASE_URL` 指向真实环境（secret）；现在必须显式 `run_k6=true` 才触发 |
+| 3 | 分支保护允许绕过、不强制 PR（既有裁定） | 门禁绿不绿依赖人工看 run；漏看即漏合并 |
+| 4 | 根 crate 的 1 处 production unsafe **未定位** | 已进 geiger 基线（带理由与 `review_by 2026-12-21`）；定位方法写在基线里 |
+| 5 | `test_schema_guard` 的 `libc::atexit` | "测试基础设施被编进产品库"的已知代价；收紧路径（dev-dependencies 启用 `test-utils` + gate 模块）已写进基线 |
+| 6 | distroless pin 偏旧（`e5d81ddd…`，0 CVE）、builder `rust:1.93.0-slim-bookworm`（475 HIGH/CRITICAL，仅 build-time） | 已知权衡，未动；Docker Security Scan 目前绿 |
+
+**B. 代码 / 工程债（可动，本轮未做）**
+
+| # | 问题 | 规模估计 |
+|---|---|---|
+| 7 | **仍有 23 个 `synapse-storage/src` 文件用 `connect_shared_test_pool()`（共享 `public`）** | 本轮只迁了 `event_report`（它本地 42P01）。共性风险：CI 绿本地红、并行测试互相影响 |
+| 8 | `scripts/run_ci_tests.sh` 与 `ci.yml` 内联批次重复（sweep A13） | 两处实现必然漂移 |
+| 9 | `.config/nextest.toml` 的 `[profile.ci]`（`retries=2, threads=12`）与 CI 实际命令行口径不一致 | 配置与事实不符，容易误导 |
+| 10 | 慢速车道时长上升（integration 并发降到 4 后 ~42 分钟；Build Check 3×release 18–19 分钟） | 若锁表仍偶发，需把 `CLONE_TABLES_PER_STATEMENT` 24→12 |
+| 11 | 本地 `test_*` schema 残留（枚举一轮产生数百个） | `scripts/cleanup_test_schemas.sh` 未自动接入 |
+| 12 | `.aspell.ignore.txt` 是人工棘轮 | 新增散文词会让 Docs Quality 红，无自动提示 |
+| 13 | `docs/` 里可能还有与实现不符的口径 | 本会话只修了 `ci-security-grading.md` 的 cargo-geiger 与 rand 两处 |
+
+**C. 日期驱动的棘轮 / 例外（到期必须复审）**
+
+- `.cargo/audit.toml` + `deny.toml`：`RUSTSEC-2023-0071`(rsa) / `RUSTSEC-2024-0436`(paste)
+  —— `Review-by 2026-12-21`（已由守卫强制不得过期）。
+- `scripts/ci/geiger_baseline.json`：2 处 production unsafe —— `review_by 2026-12-21`
+  （已由脚本校验清单求和与日期）。
+- 数值基线：`rand_rng_baseline` = 47；SQLx = 1501 / 61；trait = 66 / 33；geiger = 2 / 8。
+
+### 14.17 下一步工作计划与时间估算
+
+**P0（被动等待，最高优先）**
+- 等 `5597f8d2`（run `35563084512`）的慢速车道：integration（4 并发）、Security Audit
+  （cargo-geiger 棘轮首次判真）、Code Coverage（首次执行）。
+  **等待 1–2h + 复核 15 min。** 若三条全绿，则本段"把门禁接上电"的目标达成。
+
+**P1（仅当 P0 出现新红时才做）**
+- integration 再次 `53200 out of shared memory` → `CLONE_TABLES_PER_STATEMENT` 24→12，
+  本地 `pg_lock64` 验证 + 一轮 CI。**改代码 20 min + 本地验证 60 min + CI 60 min。**
+- Code Coverage 首跑暴露 per-file 覆盖率红 → 逐文件定位，修代码或按协议调基线。
+  **30–90 min。**
+
+**P2（已识别、可独立排期）**
+| 任务 | 估算 |
+|---|---|
+| 定位根 crate 那 1 处 production unsafe（cargo-geiger feature 二分） | 1–2h |
+| `test_schema_guard` 收紧（依赖方 `[dev-dependencies]` 启用 `test-utils` + gate 模块 + 5 crate 回归） | 3–4h |
+| 23 个共享池 `db_tests` 迁移到 per-test schema | **8–12h**（每个 20–30 min，建议每批 3–5 个文件一个提交，本地跑该文件 + CI 抽验） |
+| 本地 `test_*` schema 清理 + 把 cleanup 接入流程 | 30 min |
+| A13：`run_ci_tests.sh` 与 `ci.yml` 二选一（删除重复实现） | 1–2h |
+| `nextest` profile 口径统一（`.config/nextest.toml` 与 CI 命令行一致或删 `profile.ci`） | 30 min |
+| `docs/` 口径全量复核（与实现不符的叙述） | 2–3h |
+| k6 首次真跑（需部署环境/secret） | 1h |
+
+**总计**：P0 被动 1–2h；P1 条件性 1.5–3h；P2 合计约 **17–26h**（其中 8–12h 是机械的
+schema 迁移，可分批推进，每批都能独立验证与提交）。
+
+**建议的下一个会话顺序**：① 读 P0 结果并按 P1 处置 → ② 定位那 1 处 unsafe（1–2h，闭合
+geiger 的"未定位"项）→ ③ 每批 3–5 个文件迁移共享池（可随时中断，风险低）→ ④ k6 / Coverage
+的首次真跑（视外部条件）。
