@@ -628,6 +628,49 @@ fn cargo_geiger_gate_is_a_one_way_ratchet() {
     let _ = fs::remove_dir_all(&tmp);
 }
 
+/// Snapshot gate 必须用 cargo-insta **1.48 的**旗标，并且并发不超过锁预算。
+///
+/// run 35563084512 第一次真正执行这个步骤时立刻红：`--no-review` 在 cargo-insta 1.48 已被
+/// 删除（非交互是默认行为，`--review` 才是 opt-in）——
+/// `error: unexpected argument '--no-review' found` + `Usage: cargo insta test --review …`。
+/// 这正是本会话反复出现的同一型缺陷："从未执行过的检查"一上电就报自己的配置错。
+/// 同时把 `--test-threads 8` 降到 4（CI 的 postgres 无法加大 `max_locks_per_transaction`，
+/// 8 并发克隆模板 schema 会 `53200 out of shared memory`，见 §14.13 ③）。
+///
+/// 判定：① 该步骤存在且调用 `cargo insta test`；② 用 `--check`（1.48 的 CI 语义）而不是
+/// 已被删除的 `--no-review`；③ `--test-threads` ≤ 4；④ 只跑 `--test unit`（integration
+/// 目标自带的快照由 integration 步骤在 `--all-features` 下断言，重复跑等于白烧 35 分钟）。
+///
+/// **红证明**：把 `--check` 改回 `--no-review` → FAILED；把并发改回 8 → FAILED。
+#[test]
+fn snapshot_gate_uses_cargo_insta_148_flags() {
+    let ci = fs::read_to_string(repo_root().join(".github/workflows/ci.yml")).expect("read ci.yml");
+    let step =
+        ci.split("- name: ").find(|s| s.starts_with("Snapshot gate")).expect("ci.yml 必须有 `Snapshot gate` 步骤");
+    let run = step
+        .lines()
+        .find(|l| l.trim_start().starts_with("run: cargo insta test"))
+        .expect("Snapshot gate 必须调用 `cargo insta test`");
+    assert!(
+        !run.contains("--no-review"),
+        "cargo-insta 1.48 已删除 `--no-review`（非交互是默认行为）：该旗标会让这一步以\
+         `unexpected argument` 失败。实际命令：{run}"
+    );
+    assert!(run.contains("--check"), "Snapshot gate 必须用 1.48 的 CI 语义 `--check`：{run}");
+    assert!(
+        run.contains("--test-threads 4")
+            || run.contains("--test-threads 3")
+            || run.contains("--test-threads 2")
+            || run.contains("--test-threads 1"),
+        "Snapshot gate 的并发必须 <= 4（CI 锁预算，同 integration 车道）：{run}"
+    );
+    assert!(
+        run.contains("--test unit"),
+        "Snapshot gate 应只跑 unit 目标：integration 目标的快照已由 integration 步骤断言，\
+         重复跑一遍整套 integration 只是浪费 ~35 分钟。实际命令：{run}"
+    );
+}
+
 /// 供应链例外（advisory ignore）必须**三件事同时成立**，否则红：
 ///
 /// ① `deny.toml` 的 `ignore` 是 `.cargo/audit.toml` 的**子集**（cargo-deny 不得忽略一条

@@ -845,18 +845,29 @@ jobs:
           RUST_BACKTRACE: 1
         run: cargo nextest run --test e2e --all-features --locked --test-threads 4
 
-      # Snapshot gate: fail if any insta snapshot drifted or is missing.
-      # Local devs must run `cargo insta test --review` to accept new snapshots
-      # before pushing; CI runs in non-interactive --no-review mode and fails
-      # on any pending .snap.new files.
-      - name: Snapshot gate (cargo insta test --no-review)
+      # Snapshot gate：insta 快照漂移 / 缺失 / 遗留 `.snap.new` 一律红。
+      #
+      # 2026-09-21 修复（run 35563084512 第一次真正执行本步骤时暴露）：
+      #   ① `--no-review` 在 cargo-insta **1.48 已被删除**（非交互是默认行为，`--review`
+      #      才是 opt-in），所以这条命令是 `error: unexpected argument '--no-review' found`
+      #      + `Usage: cargo insta test --review …` 直接失败 —— 与其它门禁同型："从未执行过
+      #      的检查"一上电就红。改用 1.48 的 CI 语义 `--check`（只断言、不写 `.snap.new`）。
+      #   ② `--test-threads 8` 改 4：与 integration 车道同一锁预算理由（§14.13 ③），
+      #      8 并发克隆模板 schema 会 `53200 out of shared memory`。
+      #   ③ 只跑 `--test unit`：integration 目标自带的 11 个快照由上面那条 integration
+      #      步骤在 `--all-features` 下已经断言过（同一份命令、同一批测试），这里再跑一遍
+      #      等于把 35 分钟的 integration 套件重复一次；而 unit 目标在本 job 之前的车道里
+      #      **从未以 `--all-features` 全量跑过**（fast tier 是 `--features test-utils`
+      #      或带 `-E` 过滤的子集），20 个 unit 快照只有这里能覆盖。
+      # 守卫：`tests/unit/ci_test_scope_tests.rs::snapshot_gate_uses_cargo_insta_148_flags`。
+      - name: Snapshot gate (cargo insta test --check, unit target)
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
           TEST_DB_TEMPLATE_SCHEMA: test_template_ci
           REDIS_URL: redis://localhost:6379
           RUST_BACKTRACE: 1
-        run: cargo insta test --no-review --test-runner nextest -- --all-features --locked --test-threads 8
+        run: cargo insta test --check --test-runner nextest -- --all-features --locked --test-threads 4 --test unit
 
       - name: Run performance smoke gate
         env:
