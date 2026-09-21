@@ -242,6 +242,22 @@ impl InviteBlocklistService {
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to count global allowlist", e))
     }
+
+    /// Replace the global invite blocklist with the given users.
+    pub async fn set_global_invite_blocklist(&self, user_ids: Vec<String>) -> Result<(), ApiError> {
+        self.storage
+            .set_global_invite_blocklist(user_ids)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to set global blocklist", e))
+    }
+
+    /// Replace the global invite allowlist with the given users.
+    pub async fn set_global_invite_allowlist(&self, user_ids: Vec<String>) -> Result<(), ApiError> {
+        self.storage
+            .set_global_invite_allowlist(user_ids)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to set global allowlist", e))
+    }
 }
 
 #[async_trait::async_trait]

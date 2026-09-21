@@ -144,11 +144,11 @@ impl InviteBlocklistStorage {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
-    /// Get global invite blocklist (all rooms)
+    /// Get global invite blocklist (all users).
     pub async fn get_global_invite_blocklist(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, (String, String, i64)>(
+        let rows = sqlx::query_as::<_, (String, i64)>(
             r"
-            SELECT room_id, user_id, created_ts FROM room_invite_blocklist
+            SELECT user_id, created_ts FROM global_invite_blocklist
             ORDER BY created_ts DESC
             ",
         )
@@ -157,9 +157,8 @@ impl InviteBlocklistStorage {
 
         Ok(rows
             .into_iter()
-            .map(|(room_id, user_id, created_ts)| {
+            .map(|(user_id, created_ts)| {
                 serde_json::json!({
-                    "room_id": room_id,
                     "user_id": user_id,
                     "created_ts": created_ts
                 })
@@ -167,11 +166,11 @@ impl InviteBlocklistStorage {
             .collect())
     }
 
-    /// Get global invite allowlist (all rooms)
+    /// Get global invite allowlist (all users).
     pub async fn get_global_invite_allowlist(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, (String, String, i64)>(
+        let rows = sqlx::query_as::<_, (String, i64)>(
             r"
-            SELECT room_id, user_id, created_ts FROM room_invite_allowlist
+            SELECT user_id, created_ts FROM global_invite_allowlist
             ORDER BY created_ts DESC
             ",
         )
@@ -180,9 +179,8 @@ impl InviteBlocklistStorage {
 
         Ok(rows
             .into_iter()
-            .map(|(room_id, user_id, created_ts)| {
+            .map(|(user_id, created_ts)| {
                 serde_json::json!({
-                    "room_id": room_id,
                     "user_id": user_id,
                     "created_ts": created_ts
                 })
@@ -190,12 +188,11 @@ impl InviteBlocklistStorage {
             .collect())
     }
 
-    /// Check whether `user_id` appears in any row of the global blocklist.
-    /// This is the server-wide equivalent of the room-level blocklist check.
+    /// Check whether `user_id` appears in the global blocklist.
     pub async fn is_user_in_global_blocklist(&self, user_id: &str) -> Result<bool, sqlx::Error> {
         let exists: bool = sqlx::query_scalar(
             r"
-            SELECT EXISTS (SELECT 1 FROM room_invite_blocklist WHERE user_id = $1)
+            SELECT EXISTS (SELECT 1 FROM global_invite_blocklist WHERE user_id = $1)
             ",
         )
         .bind(user_id)
@@ -204,12 +201,11 @@ impl InviteBlocklistStorage {
         Ok(exists)
     }
 
-    /// Check whether `user_id` appears in any row of the global allowlist.
-    /// A row here means "this user is explicitly allowed to be invited anywhere".
+    /// Check whether `user_id` appears in the global allowlist.
     pub async fn is_user_in_global_allowlist(&self, user_id: &str) -> Result<bool, sqlx::Error> {
         let exists: bool = sqlx::query_scalar(
             r"
-            SELECT EXISTS (SELECT 1 FROM room_invite_allowlist WHERE user_id = $1)
+            SELECT EXISTS (SELECT 1 FROM global_invite_allowlist WHERE user_id = $1)
             ",
         )
         .bind(user_id)
@@ -218,15 +214,68 @@ impl InviteBlocklistStorage {
         Ok(exists)
     }
 
-    /// Get global invite blocklist (all rooms) with pagination.
+    /// Set the global invite blocklist (replace-all semantics).
+    ///
+    /// Removes all existing global blocklist entries and inserts the
+    /// given users. Runs in one transaction for atomicity.
+    pub async fn set_global_invite_blocklist(&self, user_ids: Vec<String>) -> Result<(), sqlx::Error> {
+        let now = current_timestamp_millis();
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query("DELETE FROM global_invite_blocklist").execute(&mut *tx).await?;
+
+        if !user_ids.is_empty() {
+            sqlx::query(
+                r"
+                INSERT INTO global_invite_blocklist (user_id, created_ts)
+                SELECT unnest($1::text[]), $2
+                ON CONFLICT (user_id) DO NOTHING
+                ",
+            )
+            .bind(&user_ids)
+            .bind(now)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Set the global invite allowlist (replace-all semantics).
+    pub async fn set_global_invite_allowlist(&self, user_ids: Vec<String>) -> Result<(), sqlx::Error> {
+        let now = current_timestamp_millis();
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query("DELETE FROM global_invite_allowlist").execute(&mut *tx).await?;
+
+        if !user_ids.is_empty() {
+            sqlx::query(
+                r"
+                INSERT INTO global_invite_allowlist (user_id, created_ts)
+                SELECT unnest($1::text[]), $2
+                ON CONFLICT (user_id) DO NOTHING
+                ",
+            )
+            .bind(&user_ids)
+            .bind(now)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Get global invite blocklist (all users) with pagination.
     pub async fn get_global_invite_blocklist_paginated(
         &self,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, (String, String, i64)>(
+        let rows = sqlx::query_as::<_, (String, i64)>(
             r"
-            SELECT room_id, user_id, created_ts FROM room_invite_blocklist
+            SELECT user_id, created_ts FROM global_invite_blocklist
             ORDER BY created_ts DESC
             LIMIT $1 OFFSET $2
             ",
@@ -238,9 +287,8 @@ impl InviteBlocklistStorage {
 
         Ok(rows
             .into_iter()
-            .map(|(room_id, user_id, created_ts)| {
+            .map(|(user_id, created_ts)| {
                 serde_json::json!({
-                    "room_id": room_id,
                     "user_id": user_id,
                     "created_ts": created_ts
                 })
@@ -248,15 +296,15 @@ impl InviteBlocklistStorage {
             .collect())
     }
 
-    /// Get global invite allowlist (all rooms) with pagination.
+    /// Get global invite allowlist (all users) with pagination.
     pub async fn get_global_invite_allowlist_paginated(
         &self,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, (String, String, i64)>(
+        let rows = sqlx::query_as::<_, (String, i64)>(
             r"
-            SELECT room_id, user_id, created_ts FROM room_invite_allowlist
+            SELECT user_id, created_ts FROM global_invite_allowlist
             ORDER BY created_ts DESC
             LIMIT $1 OFFSET $2
             ",
@@ -268,9 +316,8 @@ impl InviteBlocklistStorage {
 
         Ok(rows
             .into_iter()
-            .map(|(room_id, user_id, created_ts)| {
+            .map(|(user_id, created_ts)| {
                 serde_json::json!({
-                    "room_id": room_id,
                     "user_id": user_id,
                     "created_ts": created_ts
                 })
@@ -280,7 +327,7 @@ impl InviteBlocklistStorage {
 
     /// Return the total row count for the global invite blocklist.
     pub async fn global_invite_blocklist_count(&self) -> Result<i64, sqlx::Error> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM room_invite_blocklist")
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM global_invite_blocklist")
             .fetch_one(&*self.pool)
             .await?;
         Ok(count)
@@ -288,7 +335,7 @@ impl InviteBlocklistStorage {
 
     /// Return the total row count for the global invite allowlist.
     pub async fn global_invite_allowlist_count(&self) -> Result<i64, sqlx::Error> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM room_invite_allowlist")
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM global_invite_allowlist")
             .fetch_one(&*self.pool)
             .await?;
         Ok(count)
@@ -655,72 +702,44 @@ mod db_tests {
         let (_isolated, pool) = test_pool().await;
         let storage = InviteBlocklistStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
-        let room_a = format!("!room_ga_{suffix}:test.com");
-        let room_b = format!("!room_gb_{suffix}:test.com");
         let user_a = format!("@global_user_a_{suffix}:test.com");
         let user_b = format!("@global_user_b_{suffix}:test.com");
 
-        cleanup_blocklist(&pool, &room_a).await;
-        cleanup_blocklist(&pool, &room_b).await;
-        ensure_test_room(&pool, &room_a).await;
-        ensure_test_room(&pool, &room_b).await;
+        cleanup_global_blocklist(&pool).await;
 
         storage
-            .set_invite_blocklist(&room_a, vec![user_a.clone()])
+            .set_global_invite_blocklist(vec![user_a.clone(), user_b.clone()])
             .await
-            .expect("set blocklist for room_a should succeed");
-        storage
-            .set_invite_blocklist(&room_b, vec![user_b.clone()])
-            .await
-            .expect("set blocklist for room_b should succeed");
+            .expect("set global blocklist should succeed");
 
         let global = storage.get_global_invite_blocklist().await.expect("get_global_invite_blocklist should succeed");
 
-        assert!(global.len() >= 2, "global blocklist should have at least 2 entries across 2 rooms");
-
-        let room_ids: Vec<&str> = global.iter().map(|v| v["room_id"].as_str().unwrap()).collect();
-        assert!(room_ids.contains(&room_a.as_str()), "global should contain room_a");
-        assert!(room_ids.contains(&room_b.as_str()), "global should contain room_b");
+        assert_eq!(global.len(), 2, "global blocklist should have exactly 2 entries");
 
         let user_ids: Vec<&str> = global.iter().map(|v| v["user_id"].as_str().unwrap()).collect();
         assert!(user_ids.contains(&user_a.as_str()), "global should contain user_a");
         assert!(user_ids.contains(&user_b.as_str()), "global should contain user_b");
 
-        cleanup_blocklist(&pool, &room_a).await;
-        cleanup_blocklist(&pool, &room_b).await;
+        cleanup_global_blocklist(&pool).await;
     }
 
     #[tokio::test]
     async fn test_get_global_invite_allowlist() {
-        // IsolatedTestPool: each test gets a fresh schema, so parallel tests
-        // can't add rows to our isolated room_invite_allowlist. This restores
-        // the exact `== 2` assertion from the original design.
-        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
-        let pool = isolated.pool();
+        let (_isolated, pool) = test_pool().await;
         let storage = InviteBlocklistStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
-        let room_a = format!("!room_gal_a_{suffix}:test.com");
-        let room_b = format!("!room_gal_b_{suffix}:test.com");
         let user_a = format!("@global_al_a_{suffix}:test.com");
         let user_b = format!("@global_al_b_{suffix}:test.com");
 
-        // Clean up by suffix pattern to ensure test isolation
-        cleanup_allowlist_by_suffix(&pool, &suffix).await;
-        ensure_test_room(&pool, &room_a).await;
-        ensure_test_room(&pool, &room_b).await;
+        cleanup_global_allowlist(&pool).await;
 
         storage
-            .set_invite_allowlist(&room_a, vec![user_a.clone()])
+            .set_global_invite_allowlist(vec![user_a.clone(), user_b.clone()])
             .await
-            .expect("set allowlist for room_a should succeed");
-        storage
-            .set_invite_allowlist(&room_b, vec![user_b.clone()])
-            .await
-            .expect("set allowlist for room_b should succeed");
+            .expect("set global allowlist should succeed");
 
         let global = storage.get_global_invite_allowlist().await.expect("get_global_invite_allowlist should succeed");
 
-        // Isolated schema: only our 2 rows exist, so exact count is stable.
         assert_eq!(
             global.len(),
             2,
@@ -728,16 +747,11 @@ mod db_tests {
             global.len()
         );
 
-        let room_ids: Vec<&str> = global.iter().map(|v| v["room_id"].as_str().unwrap()).collect();
-        assert!(room_ids.contains(&room_a.as_str()));
-        assert!(room_ids.contains(&room_b.as_str()));
-
         let user_ids: Vec<&str> = global.iter().map(|v| v["user_id"].as_str().unwrap()).collect();
         assert!(user_ids.contains(&user_a.as_str()));
         assert!(user_ids.contains(&user_b.as_str()));
 
-        // Clean up by suffix pattern to ensure test isolation
-        cleanup_allowlist_by_suffix(&pool, &suffix).await;
+        cleanup_global_allowlist(&pool).await;
     }
 
     #[tokio::test]
@@ -767,5 +781,103 @@ mod db_tests {
         assert!(cleared.is_empty(), "blocklist should be empty after setting empty vec");
 
         cleanup_blocklist(&pool, &room_id).await;
+    }
+
+    /// Cleanup global blocklist rows (idempotent, skips errors).
+    async fn cleanup_global_blocklist(pool: &PgPool) {
+        sqlx::query("DELETE FROM global_invite_blocklist")
+            .execute(pool)
+            .await
+            .expect("cleanup global blocklist must succeed");
+    }
+
+    /// Cleanup global allowlist rows (idempotent, skips errors).
+    async fn cleanup_global_allowlist(pool: &PgPool) {
+        sqlx::query("DELETE FROM global_invite_allowlist")
+            .execute(pool)
+            .await
+            .expect("cleanup global allowlist must succeed");
+    }
+
+    #[tokio::test]
+    async fn test_set_global_invite_blocklist() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = InviteBlocklistStorage::new(pool.clone());
+
+        cleanup_global_blocklist(&pool).await;
+
+        storage
+            .set_global_invite_blocklist(vec!["@user_a:test.com".into(), "@user_b:test.com".into()])
+            .await
+            .expect("set_global_invite_blocklist should succeed");
+
+        let exists_a = storage.is_user_in_global_blocklist("@user_a:test.com").await.expect("check user_a");
+        let exists_b = storage.is_user_in_global_blocklist("@user_b:test.com").await.expect("check user_b");
+        assert!(exists_a, "user_a should be in global blocklist");
+        assert!(exists_b, "user_b should be in global blocklist");
+
+        // Replace with different users
+        storage
+            .set_global_invite_blocklist(vec!["@user_c:test.com".into()])
+            .await
+            .expect("replace should succeed");
+
+        let exists_a2 = storage.is_user_in_global_blocklist("@user_a:test.com").await.expect("check user_a after replace");
+        let exists_c = storage.is_user_in_global_blocklist("@user_c:test.com").await.expect("check user_c");
+        assert!(!exists_a2, "user_a should be removed after replace");
+        assert!(exists_c, "user_c should be in global blocklist");
+
+        cleanup_global_blocklist(&pool).await;
+    }
+
+    #[tokio::test]
+    async fn test_set_global_invite_allowlist() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = InviteBlocklistStorage::new(pool.clone());
+
+        cleanup_global_allowlist(&pool).await;
+
+        storage
+            .set_global_invite_allowlist(vec!["@user_a:test.com".into(), "@user_b:test.com".into()])
+            .await
+            .expect("set_global_invite_allowlist should succeed");
+
+        let exists_a = storage.is_user_in_global_allowlist("@user_a:test.com").await.expect("check user_a");
+        let exists_b = storage.is_user_in_global_allowlist("@user_b:test.com").await.expect("check user_b");
+        assert!(exists_a, "user_a should be in global allowlist");
+        assert!(exists_b, "user_b should be in global allowlist");
+
+        // Replace with different user
+        storage
+            .set_global_invite_allowlist(vec!["@user_c:test.com".into()])
+            .await
+            .expect("replace should succeed");
+
+        let exists_a2 = storage.is_user_in_global_allowlist("@user_a:test.com").await.expect("check user_a after replace");
+        let exists_c = storage.is_user_in_global_allowlist("@user_c:test.com").await.expect("check user_c");
+        assert!(!exists_a2, "user_a should be removed after replace");
+        assert!(exists_c, "user_c should be in global allowlist");
+
+        cleanup_global_allowlist(&pool).await;
+    }
+
+    #[tokio::test]
+    async fn test_global_list_empty_after_set() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = InviteBlocklistStorage::new(pool.clone());
+
+        cleanup_global_blocklist(&pool).await;
+        cleanup_global_allowlist(&pool).await;
+
+        // Empty vec should clear the list
+        storage
+            .set_global_invite_blocklist(vec![])
+            .await
+            .expect("set_global_invite_blocklist with empty vec should succeed");
+
+        let exists = storage.is_user_in_global_blocklist("@nobody:test.com").await.expect("check");
+        assert!(!exists, "global blocklist should be empty");
+
+        cleanup_global_blocklist(&pool).await;
     }
 }
