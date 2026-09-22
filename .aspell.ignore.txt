@@ -1,10 +1,10 @@
+# 说明见 docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md §14.7。
+# 不在此列，仍会被 scripts/check_doc_spelling.sh 检出。
+# 追加（2026-09-20，§14.11 独立复核）：ghcr、io（来自 ghcr.io）。
+# 追加（2026-09-20，§14.13）：args、cmd（正文里 "CMD/args" 这类写法）。
 # 项目技术词典：aspell 通用英文词典（en_US）不含本仓技术语料的词汇。
 # 由本轮实测生成：CI run 35494141985 的 577 词 ∪ 本地 aspell 0.60.8.2 的 757 词 ∪ 原有 17 词。
 # 内容为「合法技术词」，不是「忽略拼写错误」：通用英文词的错拼（recieve/seperate/occured…）
-# 不在此列，仍会被 scripts/check_doc_spelling.sh 检出。
-# 说明见 docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md §14.7。
-# 追加（2026-09-20，§14.11 独立复核）：ghcr、io（来自 ghcr.io）。
-# 追加（2026-09-20，§14.13）：args、cmd（正文里 "CMD/args" 这类写法）。
 abi
 accessexclusivelock
 accessor
@@ -185,6 +185,7 @@ devicecontext
 devicekeystorage
 devicerepository
 devicestorage
+devops
 dir
 directoryservice
 dirs
@@ -269,10 +270,12 @@ gitignore
 gitignored
 gitleaks
 glm
+grafana
 gstack
 guc
 gzip
 hadolint
+handlesummary
 handoff
 hardcoded
 hashbrown
@@ -359,6 +362,7 @@ lcov
 libc
 libcrypto
 libolm
+libpcre
 libpq
 libssl
 libtest
@@ -445,6 +449,7 @@ nt
 nullable
 oauth
 oauthclientstoreapi
+observability
 oid
 oidc
 oidcsessionstoreapi
@@ -629,6 +634,7 @@ sharedcontext
 shippable
 shm
 sigkill
+sigterm
 simd
 sincefilter
 slidingsync
@@ -810,4 +816,3 @@ zeroize
 zeroized
 zeroizeondrop
 zsh
-sigterm
