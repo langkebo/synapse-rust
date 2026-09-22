@@ -120,11 +120,7 @@ def require_baseline(path: pathlib.Path, baseline: Dict[str, float]) -> Optional
             "  without it, and would silently treat every file as new.\n"
             "  Bootstrap it once and commit the result:\n"
             "    python3 scripts/check_file_coverage.py --report coverage/lcov.info \\\n"
-            "      --baseline "
-            + str(path)
-            + " --save-baseline "
-            + str(path)
-            + " \\\n"
+            "      --baseline " + str(path) + " --save-baseline " + str(path) + " \\\n"
             "      --threshold 0 --global-floor 0 --new-file-floor 0 --core-threshold 0"
         )
     if not baseline:
