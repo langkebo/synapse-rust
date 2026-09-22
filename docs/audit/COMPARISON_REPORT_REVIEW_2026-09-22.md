@@ -282,15 +282,15 @@
 
 | 编号 | 项 | 原文档定级 | 建议定级 | 理由 | 验收判据 |
 |------|----|-----------|----------|------|----------|
-| C1 | E2EE SAS 规范对齐（HKDF + 真实 MAC 校验） | 未列（被判 ✅ 完整） | **高** | 影响与 Element 客户端的验证互操作；`confirm_sas` 接受任意 MAC 是安全弱化 | 对齐规范的 HKDF 派生向量测试；篡改 MAC 必须拒绝 |
-| C2 | E2EE QR 验证实现或标注为未实现 | 未列 | **高（或明确降级声明）** | 当前为桩（复用公钥 + 空签名），文档称"完整"属误报 | 要么实现真实签名/ECDH，要么在文档与 capabilities 中标注不支持 |
-| C3 | `leak_detection` 处置 | "泄漏检测全部实现" | **高** | 未编译模块 + 编译错误 + 桩计数 + schema 列缺失；文档称已实现 | 二选一：接入 `lib.rs` 并修复 4 处缺陷（含测试），或按铁律 1 删除整目录 |
+| C1 | E2EE SAS 规范对齐（HKDF + 真实 MAC 校验） | 未列（被判 ✅ 完整） | **高** | 影响与 Element 客户端的验证互操作；`confirm_sas` 接受任意 MAC 是安全弱化 | ✅ **已修（Phase 3）**：HKDF-SHA256 已知答案向量；篡改 MAC 拒绝；缺证据 fail-closed |
+| C2 | E2EE QR 验证实现或标注为未实现 | 未列 | **高（或明确降级声明）** | 当前为桩（复用公钥 + 空签名），文档称"完整"属误报 | ✅ **已修（Phase 3）**：服务端无私钥无法签名 ⇒ 两个方法显式返回 M_UNRECOGNIZED 且不写状态；文档改为"不支持" |
+| C3 | `leak_detection` 处置 | "泄漏检测全部实现" | **高** | 未编译模块 + 编译错误 + 桩计数 + schema 列缺失；文档称已实现 | ✅ **已修（Phase 3）**：按铁律 1 删除整目录（从未编译、零引用）；文档声明该能力不存在 |
 | C4 | `ContentScanner` 装配或删除 | P0"缺存储层" | **中（决策项）** | 现状是孤儿模块；补存储的前提是先决定是否上线该功能 | 决策记录；若上线则补 schema + config + 构造点 + 测试；否则删模块 |
 | C5 | MSC4140 联邦（EDU）支持 | "✅ 已对齐" | **中** | 客户端链路真实，缺联邦；需按 MSC4140 草案确认是否必须 | 明确"是否支持跨服务器延迟事件"的声明与测试 |
 | C6 | MSC4242 State DAG | P0 阻断性 | **低（观察项）** | 上游本身是 experimental + "storage functions for future work"；无房间版本启用；`dag.rs` 注释需修正为"预留" | 修正不实注释；跟踪上游房间版本进展 |
 | C7 | MSC4512 App Service 代理 | P0 阻断性 | **低（观察项）** | 上游为 experimental、opt-in | 同上 |
 | C8 | SMS 提供商多元化 | P1 | **低** | 已有 `SmsProvider` trait + 通用 HTTP provider，Twilio 属可选 | 新提供商仅需实现 trait + 工厂分支 |
-| C9 | OIDC `validate_id_token_claims` 接线 | 未列 | **高（安全）** | 死代码，声明校验未生效 | 接入调用点或删除并说明替代校验 |
+| C9 | OIDC `validate_id_token_claims` 接线 | 未列 | **高（安全）** | 死代码，声明校验未生效 | ✅ **已修（Phase 3，含纠正）**：该函数校验**未验签**的 payload，接上它等于认证绕过 ⇒ 删除；真实缺陷是 live 路径"仅告警不拦截"+ nonce 从未发给 IdP，均已修 |
 | C10 | 死字段/保留字段清理（3 处） | 未列 | **中** | 违反铁律 1 | `grep` 无 "Reserved"/"constructor parity" 保留字段 |
 
 ### D 类：把"文档可信度"变成可执行守卫（建议新增）
@@ -480,3 +480,47 @@ derived route 表（always/worker/oidc + `derived_routes.rs`）、6 个 ledger f
 4. **ledger `query_params` 是"接受但无消费方"的死元数据**：`ledger_annotations.txt` 允许该键，但 `extract_registered.py` / `gen_derived_routes.py` 从不消费它，因此导出里恒为空 —— 新增的 GET query 参数（`next_batch`/`limit`）无法记录进契约。
 5. **共享 `synapse_test.public` 被并发工作反复清空**：`media::tests::media_fixture_keeps_its_isolated_schema_for_the_whole_test` 依赖已迁移的 public schema，本轮两次因环境失效而红；重跑 `scripts/ci/prepare_test_db.sh`（`RESET_PUBLIC=0`，非破坏性）后即绿。
 6. **跨仓破坏（B4）**：`../matrix-js-sdk/src/rust-crypto/DehydratedDeviceManager.ts:275-280` 仍以 POST + body 游标调用该端点，后端改为 GET 后该 SDK 需同步修改，否则 SDK 车道 `check_sdk_route_coverage.py` 会变红。
+
+
+---
+
+## 13. Phase 3 安全修复证据（2026-09-22）
+
+分支 `opt/phase3-security`（基线 `main @ 7ec37484`）。C1/C2/C3/C9 全部完成。
+
+### 13.1 每项的"能变红"证据
+
+| 项 | 红 | 绿 | 提交 |
+|----|----|----|------|
+| C1 SAS HKDF | 已知答案测试失败（旧 `SHA256(secret\|\|info)` 得 `4cc1cf67c070…`，HKDF 应为 `b096eeb579a0`） | HKDF 向量 + 规范 info 串 + 现有 6 个 SAS 测试全绿 | `a6f797f3` |
+| C1 MAC 校验 | 变异探针：跳过 `secure_compare` ⇒ 篡改用例 FAIL | 正确 MAC 通过并置 Done；篡改/缺 keys/缺 peer key/无私钥一律拒绝且不置 Done | `a6f797f3` |
+| C1 无随机 SAS | `generate_sas_fails_closed_without_key_material`（旧实现返回随机字节） | fail-closed 返回错误 | `a6f797f3`/`fda1317f` |
+| C2 QR | 两个用例 FAIL：`scan_qr_code` 旧实现返回 `Ok(())` 并创建请求 | 两方法返回 M_UNRECOGNIZED 且不写状态 | `fda1317f` |
+| C3 死模块 | （无测试可红；删除前从未编译） | `cargo check -p synapse-e2ee` 通过；零引用 | `db570918` |
+| C9 fail-closed | 变异探针：把 `return Err` 去掉 ⇒ 用例 FAIL（旧实现仅 warn 后返回 Ok） | 伪造 alg=none id_token ⇒ 401；授权 URL 携带 nonce | `c010135c` |
+
+### 13.2 对原审计建议的纠正（重要）
+
+1. **C9 原建议"接线 `validate_id_token_claims`"是错的**：该函数只解析并校验**未验签**的 base64 payload（iss/aud/exp），其自身注释记录了它曾被当作 fallback 后被 OPT-001 移除。接上它等于引入认证绕过。真正需要修的是 live 路径的两个漏洞：
+   - `exchange_code` 对 `validate_id_token` 失败**仅 `tracing::warn!` 后照常返回 Ok** ⇒ id_token 校验形同虚设，已改为 401 fail-closed；
+   - `sso.rs`/`provider.rs` 生成并存储 nonce 却**从不发给 IdP** ⇒ 合规 IdP 不回传 nonce，live nonce 校验永远失败（也是仅告警），已改为授权 URL 携带 nonce。
+2. **C1 的 MAC 校验受 schema 限制**：`verification_sas` 是 `tx_id` 单行主键，只存一侧私钥，peer 公钥从不落库 ⇒ 服务端在 `confirm_sas` 时无法自行重算共享密钥。本轮采取"证据随请求携带"（请求体新增 `keys` + `peer_pubkey`，服务端用本地私钥 + 该公钥重算）而不是新增敏感列存共享密钥。**行为变化**：旧的 `verify_mac`/`verify_done` 调用（只有 `mac`）现在 fail-closed 被拒；前端需补 `keys`/`peer_pubkey`。
+3. **C2 无法在服务端"实现"**：QR 载荷必须用设备私钥签名，而服务端只有公钥材料（`device_keys` 存的都是 public）。因此选择明确不支持，而不是继续伪造。
+
+### 13.3 门禁
+
+| 门禁 | 结果 |
+|------|------|
+| `./scripts/check_fmt_ratchet.sh` | `current=0 baseline=0` **OK** |
+| clippy 默认矩阵 / `--all-features` | **exit 0** |
+| SQLx 棘轮 | `dynamic=2151 static=61` **OK**（本轮未新增 SQL） |
+| `ORDER BY <*_ts>` 单键棘轮 | **收紧**：删除文件后该棘轮先报"基线已过期"（证明它会变红），`--update` 后 `103 处 / 46 文件 OK` |
+| `synapse-e2ee` 全量 | **439 passed** |
+| `synapse-web` verification 路由 | **14 passed** |
+| OIDC 相关单测 | **5 passed**（含新增 fail-closed） |
+
+### 13.4 残留（可选清理，未在本轮做）
+
+- `migrations/00000000_unified_schema_v12.sql` 的 `leak_alerts` 表（+ 3 索引、`INDEXES.md` 行）随模块删除后已无写入方；删表需动合并基线，属独立清理项。
+- `verification_qr` 表与 `QrState`/`store_qr_state` 在 QR 明确不支持后同样失去写入方。
+- C1 的请求体扩展是**破坏性**变更（旧客户端缺 `keys`/`peer_pubkey` 会被拒），需要前端同步。

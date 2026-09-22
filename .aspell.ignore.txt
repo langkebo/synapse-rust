@@ -6,6 +6,7 @@
 # 由本轮实测生成：CI run 35494141985 的 577 词 ∪ 本地 aspell 0.60.8.2 的 757 词 ∪ 原有 17 词。
 # 内容为「合法技术词」，不是「忽略拼写错误」：通用英文词的错拼（recieve/seperate/occured…）
 # 追加（2026-09-22，对比报告 v1.2 复核）：aliyun、cancellable、clamav、dags、livekit、redactions、sharding、twilio、webhooks、websocket、bugfix、elementsec、ghsa、noop、glibc。
+# 追加（2026-09-22，Phase 3 安全复核）：alg、aud、iss。
 abi
 accessexclusivelock
 accessor
@@ -36,6 +37,7 @@ agpl
 ai
 aiconnection
 alertmanager
+alg
 aliyun
 all
 amd
@@ -57,6 +59,7 @@ ast
 async
 at
 atexit
+aud
 auditable
 auditeventstorage
 auth
@@ -344,6 +347,7 @@ ios
 ipv
 isort
 isready
+iss
 iteratively
 itertools
 jaeger

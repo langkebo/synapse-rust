@@ -295,10 +295,10 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 |------|-------------------|--------------|
 | **E2EE 引擎** | libolm (C 库 binding) | vodozemac `>=0.10.0`（Cargo.lock 实锁 **0.11.0**，纯 Rust；Megolm/Olm 走 `GroupSession`/`InboundGroupSession`/`Account`/`Session` + 加密 pickle） |
 | **密钥轮转** | 有 | `synapse-e2ee/src/key_rotation/`（1017 行）+ `synapse-federation/src/key_rotation.rs`（1157 行） |
-| **跨设备验证** | 有（成熟） | ⚠️ **PARTIAL**：交叉签名（`e2ee/cross_signing/`，信任链真实验证）与设备信任（`e2ee/device_trust/`）**真实**；但 **SAS 派生不合规范**（`verification/service.rs:82-93` 用 `SHA256(secret‖info)` 而非 HKDF-SHA256，且 `confirm_sas:296-351` 接受任意非空 MAC）；**QR 为桩**（`:384-390` 复用同一公钥、`signature` 空串） |
+| **跨设备验证** | 有（成熟） | ⚠️ **PARTIAL（Phase 3 已修 SAS/QR）**：交叉签名、设备信任真实；**SAS 已对齐规范**（HKDF-SHA256 + 规范 info 串，`confirm_sas` 用常量时间比较真实校验 MAC，无法校验时 fail-closed）；**QR 验证明确不支持**（服务端无设备私钥，返回 `M_UNRECOGNIZED`，不再伪造载荷）。⚠️ 行为变化：`verify_mac`/`verify_done` 现需 `keys` + `peer_pubkey`，旧调用会被拒 |
 | **密钥备份** | 有 | `synapse-e2ee/src/backup/` + `synapse-web/src/routes/e2ee/backup.rs`（`synapse-common/src/secure_backup` 摘要派生另有实现，`ssss/service.rs:251` 的 curve25519 路径从密文自身派生 AES 密钥，非 ECDH） |
 | **SSSS** | 有 | `e2ee/ssss/`（AES-256-GCM） |
-| **泄漏检测** | 有 | ❌ **未实现/死代码**：`synapse-e2ee/src/leak_detection/` **未在 `lib.rs` 声明**（从未编译）；若启用则因未导入 `Utc::now()`（`service.rs:129`）编译失败，且 `get_session_device_count` 恒返回 `Ok(1)`（`:267-269`） |
+| **泄漏检测** | 有 | ❌ **未实现**：`synapse-e2ee/src/leak_detection/` 从未编译（无 `mod.rs`、`lib.rs` 未声明），且启用即报错、核心检测恒真/恒假；Phase 3 已按铁律 1 删除该目录，能力**不存在**（旧文档"泄漏检测全部实现"不再成立） |
 | **内存安全** | Python 管理但 binding 可能有漏洞 | Rust 所有权模型 + `zeroize`（当前仅 `synapse-e2ee` 依赖） |
 
 ### 7.3 网络安全
@@ -325,7 +325,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | | 优势 | 劣势 |
 |---|------|------|
 | **Synapse** | - 安全审计历史长，CVE 记录完善<br>- libolm 经过专业密码学审计<br>- 生产环境安全事件响应经验丰富 | - C binding 可能引入内存安全漏洞<br>- bcrypt 不如 Argon2 抗 GPU/ASIC 破解<br>- Python 运行时类型安全问题 |
-| **synapse-rust** | - Rust 编译时内存安全保证<br>- Argon2 密码哈希（抗 GPU/ASIC）<br>- 主动跟踪 RUSTSEC 并替换不安全依赖<br>- `zeroize` 清理敏感数据<br>- E2EE 跨设备验证完整（SAS/QR + 交叉签名 + 设备信任） | - vodozemac 审计历史短于 libolm（但已升级至 >=0.10.0，Soatok 2026-02 DH 贡献性问题已修复） |
+| **synapse-rust** | - Rust 编译时内存安全保证<br>- Argon2 密码哈希（抗 GPU/ASIC）<br>- 主动跟踪 RUSTSEC 并替换不安全依赖<br>- `zeroize` 清理敏感数据<br>- E2EE 跨设备验证：交叉签名 + 设备信任 + **规范 SAS（HKDF + MAC 校验）**；QR 明确不支持 | - vodozemac 审计历史短于 libolm（但已升级至 >=0.10.0，Soatok 2026-02 DH 贡献性问题已修复） |
 
 ---
 
@@ -463,7 +463,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 |------------|--------------------------|----------------------|----------|
 | **核心 CS API** | ✅ 完整 | 路由面完整（`ROUTE_CONTRACT.md` 1,151 条注册路由）；按类别人工统计覆盖率 **80–97%**（`API_COVERAGE_REPORT.md`，2026-05-28 口径，非逐端点实测） | ⚠️ 未逐端点验证 |
 | **联邦协议** | ✅ 完整 | ✅ 完整（`synapse-federation/` 模块） | ✅ 已对齐 |
-| **E2EE** | ✅ 完整（libolm） | ⚠️ **PARTIAL**：Megolm/Olm、交叉签名、设备信任、密钥备份**真实**；**SAS 派生非规范**（`verification/service.rs:82-93` 用 SHA256 而非 HKDF，`confirm_sas:296-351` 接受任意非空 MAC）；**QR 为桩**（`:384-390` 复用公钥、空签名）；**泄漏检测为未编译死代码**（`lib.rs` 未声明） | ⚠️ 部分对齐 |
+| **E2EE** | ✅ 完整（libolm） | ⚠️ **PARTIAL**：Megolm/Olm、交叉签名、设备信任、密钥备份真实；**SAS 已按规范用 HKDF-SHA256 派生并真实校验 MAC**（Phase 3，含 fail-closed）；**QR 验证明确不支持**；**泄漏检测已删除（能力不存在）** | ⚠️ 部分对齐 |
 | **Sliding Sync** | ✅ 完整 | ✅ 完整（独立 `sliding_sync_service/` 模块 + benchmark；另有 `msc4186` 简化滑动同步引用） | ✅ 已对齐 |
 | **MSC3030** (Timestamp to event) | ✅ | ✅ | ✅ 已对齐 |
 | **MSC2776** (Presence list) | ✅ | ✅（代码中无 `MSC2776` 标识，按路由 `presence.rs` 判定） | ✅ 已对齐 |
@@ -713,6 +713,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | §12.5 | 重写为 A/B/C/D 分层，删除人日估算，改为指向权威清单并按验收判据验收 |
 | **代码修复（Phase 1）** | **B1** v11+ 撤回目标写入 `content.redacts`（服务层唯一写入口）+ PDU 不再重复写顶层 `redacts`；**B8** `create_event_with_graph` 无事务分支改单事务；**B10a** `send_message` 传播 `origin_server_ts` 读取错误；**B5** 修正过期房间版本注释。计划见 `docs/superpowers/plans/2026-09-22-protocol-correctness-phase1.md`（gitignored），验证证据见 `docs/audit/COMPARISON_REPORT_REVIEW_2026-09-22.md` §10 |
 | **代码修复（Phase 2）** | **B10b** 联邦 gap-fill 查重吞错；**B11** 默认搜索面纳入 `m.room.name`/`m.room.topic`；**B3** 举报端点 per-user `rc_reports` 限流（可配 + 守卫）；**B9** 事务去重标记失败时 soft-fail 已提交事件。计划见 `docs/superpowers/plans/2026-09-22-phase2-protocol-fixes.md`（gitignored），证据见复核报告 §11。**Phase 2 全部完成**：B3/B4/B9/B10b/B10c/B11/B13；证据与门禁见复核报告 §12。遗留缺陷另记：`scripts/api_test/scan_handler_schemas.py` 的 `ROOT` 为硬编码绝对路径（会写错工作树）、ledger `query_params` 字段无消费方 |
+| **安全修复（Phase 3）** | **C1** SAS 对齐规范（HKDF-SHA256 + 真实 MAC 校验 + fail-closed，含已知答案向量与篡改拒绝）；**C2** QR 明确不支持（不再伪造公钥/空签名）；**C3** 删除从未编译的 `leak_detection` 死模块；**C9** OIDC id_token 校验改 fail-closed + 授权 URL 携带 nonce + 删除绕过校验的死函数。证据见复核报告 §13。**破坏性变更**：`verify_mac`/`verify_done` 需带 `keys`+`peer_pubkey` |
 
 ---
 

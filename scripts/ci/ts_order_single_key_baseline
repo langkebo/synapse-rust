@@ -4,7 +4,6 @@
 
 synapse-e2ee/src/device_trust/storage.rs 1
 synapse-e2ee/src/key_request/storage.rs 2
-synapse-e2ee/src/leak_detection/service.rs 1
 synapse-e2ee/src/olm/storage.rs 2
 synapse-e2ee/src/secure_backup/service.rs 1
 synapse-federation/src/dead_letter_queue.rs 1
