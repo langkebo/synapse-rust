@@ -1,3 +1,15 @@
+# 2026-09-22: dynamic 由 2146 上调到 2147（+1）。
+#   (+1) `synapse-storage/src/refresh_token/mod.rs` 的
+#        `test_db_get_rotations_breaks_ties_on_the_same_millisecond_by_id` 夹具：
+#        它必须**显式写同一个 `rotated_ts`** 来构造"同毫秒并列"，而公开 API
+#        （`record_rotation`）总是自己打 `current_timestamp_millis()`，无法注入。
+#        为什么不用 `query!` 宏：`#[cfg(test)]` 里的查询宏不会被
+#        `cargo sqlx prepare --workspace`（默认 target 集）收集，而
+#        `-- --all-targets` 又会因为测试目标缺少 feature 而 E0432 ⇒
+#        `SQLX_OFFLINE=true … --all-targets` 会报 `no cached data`（均实测）。
+#        因此这类**测试夹具**只能走动态 SQL；收紧方向：等 sqlx 支持为 cfg(test)
+#        生成元数据，或把该夹具搬到独立测试目标（`tests/`）后重估。
+#
 # 2026-09-22: dynamic 由 1501 上调到 1504（+3），并修正计数器缺陷后更新为 2146。
 # 修正事项：
 #   1. 正则未匹配 turbofish 形式 `sqlx::query_as::<T>(` / `sqlx::query_scalar::<T>(`
@@ -95,7 +107,7 @@
 # 历史对照：2026-06-03 审计记录动态占比 99.6%（含测试代码口径）；
 # 本基线口径（仅 workspace 生产目录，含内联测试模块）为 95.90%。
 
-BASELINE_DYNAMIC=2146
+BASELINE_DYNAMIC=2147
 BASELINE_STATIC=61
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────

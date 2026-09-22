@@ -1930,17 +1930,20 @@ mod tests {
 
         let tied_ts = current_timestamp_millis();
         for (old, new) in [("old_hash_1", "new_hash_1"), ("new_hash_1", "new_hash_2")] {
-            sqlx::query!(
-                r#"
-                INSERT INTO refresh_token_rotations
-                    (family_id, old_token_hash, new_token_hash, rotated_ts, rotation_reason)
-                VALUES ($1, $2, $3, $4, 'refresh')
-                "#,
-                &family_id,
-                old,
-                new,
-                tied_ts
+            // 用**动态**查询而不是 `query!`：夹具要显式写同一个 `rotated_ts` 来构造并列，
+            // 而 `#[cfg(test)]` 里的查询宏在 `cargo sqlx prepare --workspace`（默认 target 集）
+            // 里不会被收集 —— 那会让 `SQLX_OFFLINE=true ... --all-targets` 直接报
+            // `no cached data for this query`（实测）。代价是动态 SQL 棘轮 +1，
+            // 已在 `scripts/ci/sqlx_dynamic_ratio_baseline` 逐条登记。
+            sqlx::query(
+                "INSERT INTO refresh_token_rotations \
+                 (family_id, old_token_hash, new_token_hash, rotated_ts, rotation_reason) \
+                 VALUES ($1, $2, $3, $4, 'refresh')",
             )
+            .bind(&family_id)
+            .bind(old)
+            .bind(new)
+            .bind(tied_ts)
             .execute(&*pool)
             .await
             .expect("insert a tied rotation");
