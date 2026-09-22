@@ -14,7 +14,7 @@
 
 | # | 状态 | 问题 | 现状与判据 | 下一步 |
 |---|---|---|---|---|
-| 1 | ⏳ | **Code Coverage 从未真正执行过** | 它排在 integration 之后，历史每次都在那里红掉。`scripts/ci/coverage_baseline.json`（623 文件）已入库，但 per-file 棘轮一次都没评估过；`check_file_coverage.py` 在基线缺失时 exit 2（fail-closed，已修）。**2026-09-22 实测**：慢速车道 dispatch（run `35683146324`）**又被跳过**——`integration-test`/`coverage` 都 `needs: [test, changes]`，而 fast tier 的两条 **default-features** 车道红在 `Check metric instrumentation reachability`。**根因不是"基线过期"**：该脚本把 PCRE 的 `\b`/`\s` 用在 `git grep -E` 里，Linux 上生效后**连 `server_metrics.rs` 自己的定义都被当成同名冲突** ⇒ 25 个方法全"不可判定" ⇒ `已接通 0 / 未接通 0` ⇒ 棘轮的 stale 规则误报（macOS 上 `\b` 不生效，所以本机一直"通过"）。**详细方案**：`docs/audit/CODE_COVERAGE_FIRST_RUN_PLAN_2026-09-22.md` | 按方案 Stage 0 修该门禁（POSIX 字符类 + 排除定义文件 + 守卫/红证明）→ fast tier 全绿 → Stage 1 收敛覆盖率命令为一份实现 → Stage 2 本地按 CI 口径干跑并量化基线风险（棘轮单调，`max(prev,cur)`）→ Stage 3 处理 Codecov（仓库无 secret 且 `fail_ci_if_error: true`）→ Stage 4 dispatch `run_slow_tier=true` |
+| 1 | 🟡 | **Code Coverage 从未真正执行过** | 它排在 integration 之后，历史每次都在那里红掉。`scripts/ci/coverage_baseline.json`（623 文件）已入库，但 per-file 棘轮一次都没评估过；`check_file_coverage.py` 在基线缺失时 exit 2（fail-closed，已修）。**2026-09-22 实测**：慢速车道 dispatch（run `35683146324`）**又被跳过**——`integration-test`/`coverage` 都 `needs: [test, changes]`，而 fast tier 的两条 **default-features** 车道红在 `Check metric instrumentation reachability`。**根因不是"基线过期"**：该脚本把 PCRE 的 `\b`/`\s` 用在 `git grep -E` 里，Linux 上生效后**连 `server_metrics.rs` 自己的定义都被当成同名冲突** ⇒ 25 个方法全"不可判定" ⇒ `已接通 0 / 未接通 0` ⇒ 棘轮的 stale 规则误报（macOS 上 `\b` 不生效，所以本机一直"通过"）。**方案见 `docs/audit/CODE_COVERAGE_FIRST_RUN_PLAN_2026-09-22.md`**；Stage 0/1/3/5 已落地（提交 `6b3f5312` + `2f4d9074` + `5a7a7f24`）：该门禁改成 POSIX 字符类 + 排除定义文件 + `--self-test`/`--print-ambiguous`（各带红证明）；覆盖率命令收敛为 `scripts/ci/run_coverage.sh` 唯一实现（本地那份已按裁定删除）；`cargo-llvm-cov` 钉 0.8.7；Codecov 按裁定降级为 `fail_ci_if_error: false` | 剩 **Stage 2/4**：本地按 CI 口径干跑并与基线副本比对（棘轮单调 `max(prev,cur)`，误红不会自动降；基线重置已获授权、需逐项理由）→ fast tier 全绿后 dispatch `run_slow_tier=true`，盯 `Integration Tests` → `Code Coverage` |
 | 2 | ⚠️ | **k6 Smoke Test 的 CI 侧仍需真实环境** | 本地首跑已完成并抓到门禁缺陷（`guardrail.py` 读不了 k6 0.47 扁平 summary，已修 + 守卫 `k6_guardrail_reads_the_flat_summary_export`）。CI 侧缺 `K6_SMOKE_BASE_URL`，且 job 由显式输入 `run_k6` 触发（刻意权衡，守卫 `k6_smoke_requires_an_explicit_dispatch_input`）。当前 `ci.yml` 工作区版本含 k6-action + `--scenarios` 改动（另一会话在途），须与 `scripts/test/perf/guardrail.py` 同步落地 | 提供指向真实/staging 环境的 URL 后手动 dispatch 一次；若要常态化，见 §3.3 |
 | 3 | ✅ | **分支保护允许绕过、不强制 PR**（既有裁定，不再变更） | 后果：门禁绿不绿依赖人工看 run，漏看即漏合并。`ci.yml` 里三条 job 只在 push/schedule 跑，PR 上被跳过 | 结论已定为"接受"。`TESTING.md` §2.4 已写明这才是"哪些门禁在 PR 上不跑"的权威口径来源（已闭环） |
 | 4 | ✅ | **两个基础镜像从未被扫描** | 已闭环（2026-09-22）。新增 `docker-security-scan.yml::base-image-scan` job，从 `docker/Dockerfile` 的唯一真相源读三个 pin 并逐个扫描：**distroless 与 debian 阻断**（实测都是 0 HIGH/CRITICAL ⇒ 是能变红的棘轮），**builder report-only**（实测 **476 条 fixable**：468 HIGH + 8 CRITICAL，构建期镜像、产物才是运行镜像；阻断等于永久红）。顺带修掉一个真缺陷：`Digest Pin Integrity` 过去把三个 digest **抄写**在 workflow 里，Dockerfile 升级 pin 后它仍在验旧 digest ⇒ 现在两个 job 共用 `scripts/ci/read_base_image_pins.sh`（ARG 缺失/未 pin 时 exit 2） | 收紧 builder 的路径（**pin 一个已清理的 builder digest**）已登记：`rust:1.93.0-slim-bookworm` 的 tag 当前就指向这个 stale digest，仓库又刻意钉 1.93.0，所以要等上游重建或升 1.94 —— 在那之前保持 report-only 并让 Code Scanning 累积可见 |
@@ -132,3 +132,44 @@ P0-4 的 builder 收紧（pin 已清理 digest）作为独立条件项留在行�
 | SQLx 棘轮基线未跟上 +3 | ✅ 已登记并调整到 1504（含缺陷登记） | §14.18.8 |
 | Grafana 面板从未加载 + 指标名全错 | ✅ 已修 + 可达性门禁 | §14.19 |
 | 基础镜像从未被扫描 + digest 在 workflow 里被抄了第二份 | ✅ 新增 `base-image-scan` job（distroless/debian 阻断、builder report-only）+ pin 单一真相源 + 两条守卫（各带红证明） | §14.10 / §14.11 |
+
+---
+
+## 7. 2026-09-22 附：按 CI 口径首次干跑覆盖率时抓到的一个**真产品缺陷**
+
+Stage 2（本地按 `scripts/ci/run_coverage.sh` 的 CI 口径干跑）第一轮结果：
+storage 步 **1694 passed / 1 failed**，失败是
+`refresh_token::tests::test_db_record_rotation_and_get_rotations`
+（`synapse-storage/src/refresh_token/mod.rs:1897`）：
+
+```
+assertion `left == right` failed
+  left: "new_hash_1"
+ right: "new_hash_2"
+```
+
+**根因（已复现、已修、有确定性红证明）**：`refresh_token_rotations.rotated_ts` 是
+**BIGINT 毫秒**时间戳（`current_timestamp_millis()`），而 `get_rotations` 的 SQL 是
+`ORDER BY rotated_ts DESC` —— **没有并列决胜键**。同一毫秒内发生的两次轮换会并列，
+PostgreSQL 可任意顺序返回（小表顺序扫描下通常就是插入顺序 ⇒ 恰好把最旧的排在前面），
+于是"最近的在前"这条契约在并列时**不确定**。它不是测试写法问题：`ORDER BY` 缺决胜键
+是产品侧的可观察顺序缺陷（同类已修的先例：`admin_media.rs:179`、`audit.rs:217`、
+`background_update.rs:609`、`e2ee_audit.rs:94` 都带了 `, <pk> DESC`）。
+
+**修法**：`ORDER BY rotated_ts DESC, id DESC`（`id` 是 BIGSERIAL，单调）。
+**回归测试**：新增刻意构造并列的
+`test_db_get_rotations_breaks_ties_on_the_same_millisecond_by_id`（两次插入显式写同一个
+`rotated_ts`）—— **红证明**：去掉 `, id DESC` → 该测试 FAILED 且报出与上面**完全相同**的
+`left: "new_hash_1" / right: "new_hash_2"`；加回 → PASS。
+**sqlx 离线缓存**：该查询是 `query_as!` 宏，改 SQL 会换掉缓存键。本机 `cargo sqlx prepare`
+被沙箱挡住（`cargo metadata` 报 `Operation not permitted: ~/.cargo`），因此按 sqlx 0.8.6 的
+算法手工生成条目（`hash = sha256(SQL 文本)`，文件名 `query-<hash>.json`，`describe` 不变），
+并**自证其承重**：移走条目 + 强制重编译 → `error: SQLX_OFFLINE=true but there is no cached
+data for this query`（exit 101）；放回 → 编译通过（exit 0）。
+
+### 7.1 同类残留（已登记，未在本次修）
+
+同一形态（`ORDER BY <毫秒时间戳> DESC` 无决胜键）在 `synapse-storage/src` 里还有多处，
+本次只修了挡住覆盖率的那一处。**建议**：加一条静态守卫
+（`ORDER BY <x>_ts DESC` 必须带第二排序键或显式说明为何唯一），再逐处决定 `, id DESC`
+还是 `, <业务唯一键> DESC`；一次改完再统一跑一次 `cargo sqlx prepare`。

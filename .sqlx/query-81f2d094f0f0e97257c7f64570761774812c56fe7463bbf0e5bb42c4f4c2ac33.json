@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                id as \"id!\",\n                family_id as \"family_id!\",\n                old_token_hash as \"old_token_hash?\",\n                new_token_hash as \"new_token_hash!\",\n                rotated_ts as \"rotated_ts!\",\n                rotation_reason as \"rotation_reason?\"\n            FROM refresh_token_rotations WHERE family_id = $1 ORDER BY rotated_ts DESC\n            ",
+  "query": "\n            SELECT\n                id as \"id!\",\n                family_id as \"family_id!\",\n                old_token_hash as \"old_token_hash?\",\n                new_token_hash as \"new_token_hash!\",\n                rotated_ts as \"rotated_ts!\",\n                rotation_reason as \"rotation_reason?\"\n            FROM refresh_token_rotations WHERE family_id = $1 ORDER BY rotated_ts DESC, id DESC\n            ",
   "describe": {
     "columns": [
       {
@@ -48,5 +48,5 @@
       true
     ]
   },
-  "hash": "a754fa5e2a0254861fdea3e8ee82679c110edd76ca09429080590848019c65ac"
+  "hash": "81f2d094f0f0e97257c7f64570761774812c56fe7463bbf0e5bb42c4f4c2ac33"
 }

@@ -814,7 +814,7 @@ impl RefreshTokenStorage {
                 new_token_hash as "new_token_hash!",
                 rotated_ts as "rotated_ts!",
                 rotation_reason as "rotation_reason?"
-            FROM refresh_token_rotations WHERE family_id = $1 ORDER BY rotated_ts DESC
+            FROM refresh_token_rotations WHERE family_id = $1 ORDER BY rotated_ts DESC, id DESC
             "#,
             family_id
         )
@@ -1901,6 +1901,65 @@ mod tests {
         let family = storage.get_family(&family_id).await.expect("Failed to get family").unwrap();
         assert_eq!(family.refresh_count, 2);
         assert!(family.last_refresh_ts.is_some());
+    }
+
+    /// `rotated_ts` 是**毫秒**时间戳（`current_timestamp_millis()`），同一毫秒内的两次
+    /// 轮换会并列。`get_rotations` 的契约是"最近的在前"，所以并列时必须有**确定性**的
+    /// 决胜键，否则 PostgreSQL 可以按任意顺序返回（小表顺序扫描下通常就是插入顺序 ⇒
+    /// 恰好把最旧的排在前面）。
+    ///
+    /// 不是理论问题：2026-09-22 按 CI 口径跑覆盖率时
+    /// `test_db_record_rotation_and_get_rotations` 实测失败
+    /// （`left: "new_hash_1" right: "new_hash_2"`），根因就是并列 + 缺决胜键；
+    /// 修法是 `ORDER BY rotated_ts DESC, id DESC`（`id` 是 BIGSERIAL，单调）。
+    /// 本测试**刻意构造并列**（两次插入显式写同一个 `rotated_ts`），
+    /// 因此在"有/无决胜键"之间是确定性的红/绿，而不是靠时序运气。
+    #[tokio::test]
+    async fn test_db_get_rotations_breaks_ties_on_the_same_millisecond_by_id() {
+        let pool = match get_rt_test_pool().await {
+            Some(p) => p,
+            None => return,
+        };
+        setup_refresh_token_db(&pool).await;
+
+        let storage = RefreshTokenStorage::new(&pool);
+        let suffix = rt_unique_suffix();
+        let family_id = format!("family_{suffix}");
+        let user_id = format!("@user_{suffix}:localhost");
+        storage.create_family(&family_id, &user_id, None).await.expect("Failed to create family");
+
+        let tied_ts = current_timestamp_millis();
+        for (old, new) in [("old_hash_1", "new_hash_1"), ("new_hash_1", "new_hash_2")] {
+            sqlx::query!(
+                r#"
+                INSERT INTO refresh_token_rotations
+                    (family_id, old_token_hash, new_token_hash, rotated_ts, rotation_reason)
+                VALUES ($1, $2, $3, $4, 'refresh')
+                "#,
+                &family_id,
+                old,
+                new,
+                tied_ts
+            )
+            .execute(&*pool)
+            .await
+            .expect("insert a tied rotation");
+        }
+
+        let rows = storage.get_rotations(&family_id).await.expect("Failed to get rotations");
+        assert_eq!(rows.len(), 2, "both tied rotations must come back");
+        assert!(
+            rows[0].rotated_ts == rows[1].rotated_ts,
+            "precondition: the two rows must be tied on rotated_ts ({} vs {})",
+            rows[0].rotated_ts,
+            rows[1].rotated_ts
+        );
+        assert_eq!(
+            rows[0].new_token_hash, "new_hash_2",
+            "并列时必须以 id DESC 决胜（后插入的在前），否则返回顺序不确定"
+        );
+        assert_eq!(rows[1].new_token_hash, "new_hash_1");
+        assert!(rows[0].id > rows[1].id, "the tie-break must be monotonic in id");
     }
 
     #[tokio::test]

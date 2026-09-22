@@ -52,7 +52,9 @@ const SCRIPT_PORT_DEFAULTS: [(&str, &str); 6] = [
     ("scripts/tune_test_db.sh", "PGPORT:-5432"),
     ("scripts/seed_test_db.sh", "DB_PORT:-5432"),
     ("scripts/run_bench_server.sh", "BENCH_DB_PORT:-5432"),
-    ("scripts/run_local_coverage.sh", "localhost:5432/synapse_test"),
+    // 2026-09-22：覆盖率命令收敛为唯一实现 `scripts/ci/run_coverage.sh`
+    // （本地那份 `run_local_coverage.sh` 已按裁定删除）。
+    ("scripts/ci/run_coverage.sh", "localhost:5432/synapse_test"),
 ];
 
 fn read(relative: &str) -> String {

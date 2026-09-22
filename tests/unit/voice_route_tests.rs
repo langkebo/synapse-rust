@@ -123,7 +123,7 @@ fn ft130_register_encrypted_voice_request_media_id_required() {
     // struct and this test's own name. It went unnoticed because CI's unit step
     // runs without `voice-extended`, so `#[cfg(feature = "voice-extended")]`
     // kept this module out of every CI run (sweep §3 B17); the first
-    // configuration that compiled it — `run_local_coverage.sh`'s feature set —
+    // configuration that compiled it — the coverage leg's feature set (`scripts/ci/run_coverage.sh`) —
     // failed here.
     let json = serde_json::json!({
         "room_id": "!test_room:localhost",
