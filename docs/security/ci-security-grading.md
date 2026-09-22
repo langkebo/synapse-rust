@@ -54,20 +54,21 @@
   - test-only unsafe 超过基线 ⇒ 红
   - 解析不到、`packages` 形状变化、逐条清单之和与总数不一致、`review_by` 过期 ⇒ exit 2
 - **当前基线**（`scripts/ci/geiger_baseline.json`，逐条列明理由 + `review_by 2026-12-21`）：
-  - production unsafe：**2** —— 两条都是**宏/编译器展开的 span 归因产物，不是手写 unsafe**。
-    2026-09-21 用 `RUSTC_BOOTSTRAP=1 cargo rustc … -- -Zunpretty=hir` 导出展开后的 HIR 全量分类：
-    `synapse-common` 444 个 unsafe = 292 个 `format_args!` + 127 个 `.await`/tokio 宏脱糖 +
-    25 个 `derive(Clone)` 的 `TrivialClone`（**手写 0**），根 crate 284 个同理
-    （155 + 129，源码零 `unsafe` 字面量）。
-    ⚠️ **订正**：这条以前写成 "`synapse-common` 1 = `test_schema_guard.rs` 的 `libc::atexit`"，
-    那是错的 —— 该站点已按裁定 B' 移出生产库（`libc` 进 `[dev-dependencies]`，注册只发生在测试
-    目标），而扫描计数**没有变化**，恰好证明这个单位本来就不是它。cargo-geiger 的 JSON 不含
-    文件路径，代码层面删不掉，只能靠基线逐条登记。
-  - test-only unsafe：**8**（`synapse-common` 2 + `synapse-services` 2 是手写的
-    `set_var`/`remove_var`；根 crate 4 个是测试 target 上的同类宏展开归因产物）
+  - production unsafe：**0**（2026-09-22 由 2 收紧）。2026-09-21 记下的那 2 处随裁定 B'
+    （`298f74b8`）一起搬进了**测试目标**：`test_schema_guard.rs` 的 `libc::atexit` 注册改为
+    各个测试二进制用 `libc`（`[dev-dependencies]`）自行注册，生产构建里再无手写 `unsafe`。
+    门禁自己的实测：prod 扫描 10/10 workspace 包每种计数全 0，`packages_without_metrics`
+    为空（没有静默跳过）；with-tests 扫描 9 条。
+    ⚠️ **订正**：本文件此前写"prod 仍是 2、两条都是宏展开归因产物"——**错的**。cargo-geiger
+    数的是 unsafe **表达式**，宏展开不是这里的解释；那个数字是 B' 之后没有同步收紧基线留下的
+    旧值（门禁因此每次都报 `production unsafe decreased`）。
+  - test-only unsafe：**9**（`synapse-common` 2 + `synapse-services` 2 是手写的
+    `set_var`/`remove_var`；根 crate 5 = 1 处 B' 落点的 `src/test_exit_hook.rs:29`
+    `unsafe { libc::atexit(...) }` + 4 处测试 target 上的宏展开归因产物）
 - **注意**：cargo-geiger 的 JSON **不含文件路径**（0.13 起 `packages` 是 list、计数器嵌套），
-  所以生产/测试的区分只能靠两次扫描相减，无法按文件分类；`geiger_baseline.json` 里每条
-  production 记录都必须写明站点、理由与 `review_by`，且清单之和必须等于总数，否则门禁 exit 2。
+  所以生产/测试的区分只能靠两次扫描相减，无法按文件分类；`geiger_baseline.json` 里
+  production 一旦不为 0，每条记录都必须写明站点、理由与 `review_by`，且清单之和必须等于总数，
+  否则门禁 exit 2。
 
 #### rand::rng() 扫描
 - **检查内容**：代码中 `rand::rng()` 调用的数量是否超过 baseline
