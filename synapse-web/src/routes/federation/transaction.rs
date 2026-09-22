@@ -352,15 +352,9 @@ pub(super) async fn send_transaction(
                                     if let Some(missing_event_id) = missing_pdu.get("event_id").and_then(|v| v.as_str())
                                     {
                                         // Skip if already exists (race or duplicate).
-                                        if ctx
-                                            .room_service
-                                            .messaging()
-                                            .get_event_record(missing_event_id)
-                                            .await
-                                            .ok()
-                                            .flatten()
-                                            .is_some()
-                                        {
+                                        if gap_fill_already_persisted(
+                                            ctx.room_service.messaging().get_event_record(missing_event_id).await,
+                                        )? {
                                             continue;
                                         }
 
@@ -684,4 +678,36 @@ async fn get_presence_backoff_remaining_ms(ctx: &FederationContext, origin: &str
     let guard = ctx.federation_presence_backoff_until.read().await;
     let until = guard.get(origin).copied()?;
     (until > now).then_some((until - now) as u64)
+}
+
+/// Returns whether a gap-fill PDU is already stored locally.
+///
+/// A database read failure must propagate instead of being treated as
+/// "not present" (CLAUDE.md §踩过的坑: never swallow DB errors): the caller
+/// would otherwise re-validate and re-insert an event that may already exist,
+/// masking the real failure.
+fn gap_fill_already_persisted<T>(lookup: Result<Option<T>, ApiError>) -> Result<bool, ApiError> {
+    lookup.map(|existing| existing.is_some())
+}
+
+#[cfg(test)]
+mod gap_fill_tests {
+    use super::gap_fill_already_persisted;
+    use synapse_common::ApiError;
+
+    #[test]
+    fn gap_fill_propagates_lookup_error() {
+        let result = gap_fill_already_persisted::<()>(Err(ApiError::internal("db down".to_string())));
+        assert!(result.is_err(), "DB 读取失败必须传播，不得被当作'事件不存在'");
+    }
+
+    #[test]
+    fn gap_fill_detects_known_event() {
+        assert!(gap_fill_already_persisted(Ok(Some(()))).expect("ok"));
+    }
+
+    #[test]
+    fn gap_fill_detects_unknown_event() {
+        assert!(!gap_fill_already_persisted::<()>(Ok(None)).expect("ok"));
+    }
 }
