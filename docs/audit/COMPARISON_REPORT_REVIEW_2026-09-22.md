@@ -258,6 +258,9 @@
 
 > **Phase 1 已修（2026-09-22）**：**B1**（v11 撤回格式，含 PDU 侧）、**B5**（过期注释）、**B8**（半写窗口）、**B10a**（`messages.rs:32` 的 `origin_server_ts` 吞错）。
 > 仍待处理：B10 其余两处（`federation/transaction.rs:358-362`、`membership/federation.rs:191-216,251-268`）、B2/B3/B4/B6/B7/B9/B11/B12/B13/B14。
+>
+> **Phase 2 增量（2026-09-22）**：**B10b**（gap-fill 查重吞错）、**B11**（默认搜索面纳入 `m.room.name`/`m.room.topic`）、**B3**（举报端点 per-user `rc_reports` 限流）、**B9**（事务去重标记失败时 soft-fail 已提交事件）已修并提交（见 §11）。
+> 仍待处理：**B10c**（入站联邦成员持久化 fail-closed，需要可注入的 EventWriter 替身/DB 注入夹具）、**B4**（Dehydrated `/events` POST→GET，含 6 个 ledger fixture/2 个 snapshot/openapi 产物再生成，且会破坏 `../matrix-js-sdk` 的现有 POST 调用）、**B13**（App Service 登录；`M_APPSERVICE_LOGIN_UNSUPPORTED` 经复核属 `POST /register` 而非 `/login`）、以及 B2/B6/B7/B12/B14 与 C 类。
 
 | 编号 | 现象 | 证据 | 动作 | 验收判据 | 关联 |
 |------|------|------|------|----------|------|
@@ -395,3 +398,34 @@ bash scripts/check_doc_spelling.sh docs/synapse-rust-vs-synapse-comparison.md
 B2（#20189 完整作用面）、B3（`rc_reports` 限流）、B4（Dehydrated `/events` POST→GET）、B6（v12/v13 创建）、
 B7（v1.157.2 公告同类性）、B9（txn 去重补偿）、B10b/c（`transaction.rs` 与 `membership/federation.rs`）、
 B11（搜索索引死存储）、B12（Profile 语义）、B13（App Service 登录）、B14（LiveKit `ws_url`）、C1–C10。
+
+
+---
+
+## 11. Phase 2 门禁与验证证据（2026-09-22）
+
+分支 `opt/phase2-protocol`（基线 `main @ 3041dcb7`，即含 Phase 1 的 main）。
+
+| 门禁 | 结果 |
+|------|------|
+| `./scripts/check_fmt_ratchet.sh` | `current=0 baseline=0` **OK** |
+| clippy 默认矩阵 / `--all-features` | 均 **exit 0**（1m38s / 1m37s） |
+| SQLx 棘轮 | `dynamic=2150 static=61` **OK**（基线 2147 → 2150，+3 全部为 `#[cfg(test)]` 夹具，理由见基线文件 2026-09-22 段） |
+| 受影响 crate 全量 | **5122 passed / 0 failed / 0 skipped**（1134s，含新增 4 个测试） |
+| `--test unit`（排除既有红模块） | **1799 passed / 0 failed** |
+| integration `rate_limit` 过滤 | **10 passed** |
+| integration `search` 过滤 | **24 passed** |
+
+### 11.1 每项的"能变红"证据
+
+| 项 | 红 | 绿 |
+|----|----|----|
+| B10b | 编译错误 `cannot find function gap_fill_already_persisted` | 3 passed |
+| B11 | DB 测试实测 **0/2** 命中（`m.room.name`+`m.room.topic`） | 62 个 search 用例通过 |
+| B3 | 编译错误（缺 `take_rc_reports_token`）；yaml 守卫用**删除配置键**探针证明能红 | 2 个桶用例 + 1 个 yaml 守卫通过 |
+| B9 | DB 测试：事件已落库（`total=1`）但仍可见（`visible=1`）→ 失败 | 1 passed（+ send_message 回归 2 passed） |
+
+### 11.2 环境与既有问题（非本分支引入）
+
+- **`synapse_test` 的 public schema 未迁移**导致 `media::tests::media_fixture_keeps_its_isolated_schema_for_the_whole_test` 报错；执行仓库自带的 `scripts/ci/prepare_test_db.sh`（`RESET_PUBLIC=0`，非破坏性）后 `public`/`test_template_ci` 各 227 表，该用例转绿。
+- **`coverage_ratchet_exemption_tests` 3 个用例在 main 上即为红**：`tests/unit/coverage_ratchet_exemption_tests.rs:82` 仍向 `scripts/check_file_coverage.py` 传 `--format lcov`，而该参数已在 `6ad96b03`"删掉覆盖率棘轮的 --format 兼容残留"中被移除（`scripts/ci/run_coverage.sh:101` 同样残留）。**不在本分支范围**（本分支 0 个提交触及 coverage），但 main 当前该门禁不可通过，建议单独修复。
