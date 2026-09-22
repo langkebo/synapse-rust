@@ -1056,3 +1056,159 @@ impl ServerNotificationStorage {
         Ok(notice_id)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_create_notification_request_serialization() {
+        let request = CreateNotificationRequest {
+            title: "Test Title".to_string(),
+            content: "Test Content".to_string(),
+            notification_type: Some("warning".to_string()),
+            priority: Some(5),
+            target_audience: Some("all".to_string()),
+            target_user_ids: Some(vec!["@user1:example.com".to_string(), "@user2:example.com".to_string()]),
+            starts_at: Some(1000),
+            expires_at: Some(2000),
+            is_dismissable: Some(true),
+            action_url: Some("https://example.com".to_string()),
+            action_text: Some("Click here".to_string()),
+            created_by: "@admin:example.com".to_string(),
+        };
+
+        let target_user_ids = serde_json::to_value(request.target_user_ids.unwrap_or_default()).unwrap();
+        assert_eq!(target_user_ids, json!(["@user1:example.com", "@user2:example.com"]));
+    }
+
+    #[test]
+    fn test_create_notification_request_defaults() {
+        let request = CreateNotificationRequest {
+            title: "Test".to_string(),
+            content: "Content".to_string(),
+            notification_type: None,
+            priority: None,
+            target_audience: None,
+            target_user_ids: None,
+            starts_at: None,
+            expires_at: None,
+            is_dismissable: None,
+            action_url: None,
+            action_text: None,
+            created_by: "@admin:example.com".to_string(),
+        };
+
+        let notification_type = request
+            .notification_type
+            .unwrap_or_else(|| "info".to_string());
+        let priority = request.priority.unwrap_or(0);
+        let target_audience = request.target_audience.unwrap_or_else(|| "all".to_string());
+        let target_user_ids = request.target_user_ids.unwrap_or_default();
+        let is_dismissable = request.is_dismissable.unwrap_or(true);
+
+        assert_eq!(notification_type, "info");
+        assert_eq!(priority, 0);
+        assert_eq!(target_audience, "all");
+        assert!(target_user_ids.is_empty());
+        assert!(is_dismissable);
+    }
+
+    #[test]
+    fn test_server_notification_model_fields() {
+        let notification = ServerNotification {
+            id: 1,
+            title: "Test".to_string(),
+            content: "Content".to_string(),
+            notification_type: "info".to_string(),
+            priority: 0,
+            target_audience: "all".to_string(),
+            target_user_ids: json!([]),
+            starts_at: None,
+            expires_at: None,
+            is_enabled: true,
+            is_dismissable: true,
+            action_url: None,
+            action_text: None,
+            created_by: "@admin:example.com".to_string(),
+            created_ts: 1000,
+            updated_ts: 1000,
+        };
+
+        assert_eq!(notification.id, 1);
+        assert_eq!(notification.notification_type, "info");
+        assert!(notification.is_enabled);
+    }
+
+    #[test]
+    fn test_notification_priority_ordering() {
+        // Test that higher priority notifications should be listed first
+        let mut notifications = vec![
+            ServerNotification {
+                id: 1,
+                title: "Low Priority".to_string(),
+                content: "Content".to_string(),
+                notification_type: "info".to_string(),
+                priority: 1,
+                target_audience: "all".to_string(),
+                target_user_ids: json!([]),
+                starts_at: None,
+                expires_at: None,
+                is_enabled: true,
+                is_dismissable: true,
+                action_url: None,
+                action_text: None,
+                created_by: "@admin:example.com".to_string(),
+                created_ts: 1000,
+                updated_ts: 1000,
+            },
+            ServerNotification {
+                id: 2,
+                title: "High Priority".to_string(),
+                content: "Content".to_string(),
+                notification_type: "alert".to_string(),
+                priority: 10,
+                target_audience: "all".to_string(),
+                target_user_ids: json!([]),
+                starts_at: None,
+                expires_at: None,
+                is_enabled: true,
+                is_dismissable: true,
+                action_url: None,
+                action_text: None,
+                created_by: "@admin:example.com".to_string(),
+                created_ts: 2000,
+                updated_ts: 2000,
+            },
+        ];
+
+        // Sort by priority DESC, created_ts DESC (as in list_active_notifications query)
+        notifications.sort_by(|a, b| {
+            b.priority.cmp(&a.priority).then_with(|| b.created_ts.cmp(&a.created_ts))
+        });
+
+        assert_eq!(notifications[0].id, 2);
+        assert_eq!(notifications[0].priority, 10);
+        assert_eq!(notifications[1].id, 1);
+        assert_eq!(notifications[1].priority, 1);
+    }
+
+    #[test]
+    fn test_target_user_ids_json_conversion() {
+        // Test empty vector
+        let empty_ids: Vec<String> = vec![];
+        let json_val = serde_json::to_value(empty_ids).unwrap();
+        assert_eq!(json_val, json!([]));
+
+        // Test single user
+        let single_id = vec!["@user:example.com".to_string()];
+        let json_val = serde_json::to_value(single_id).unwrap();
+        assert_eq!(json_val, json!(["@user:example.com"]));
+
+        // Test multiple users
+        let multi_ids = vec!["@user1:example.com".to_string(), "@user2:example.com".to_string()];
+        let json_val = serde_json::to_value(multi_ids).unwrap();
+        assert_eq!(json_val, json!(["@user1:example.com", "@user2:example.com"]));
+    }
+}

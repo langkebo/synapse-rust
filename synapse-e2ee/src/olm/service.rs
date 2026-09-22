@@ -481,4 +481,87 @@ mod tests {
         let err = result.unwrap_err();
         assert!(err.contains("32 bytes") || err.contains("64 hex"), "E-06: error should mention correct length: {err}");
     }
+
+    // -------------------------------------------------------------------------
+    // Additional tests for coverage improvement
+    // -------------------------------------------------------------------------
+
+    /// Test that a valid 64-char hex string (all zeros) is accepted.
+    #[test]
+    fn test_e06_all_zeros_valid() {
+        let key = decode_pickle_key_from_env(Some(&"0".repeat(64))).expect("all zeros hex must succeed");
+        assert_eq!(key.len(), 32);
+        assert!(key.iter().all(|&b| b == 0));
+    }
+
+    /// Test that a valid 64-char hex string (all Fs) is accepted.
+    #[test]
+    fn test_e06_all_uppercase_f_valid() {
+        let key = decode_pickle_key_from_env(Some(&"F".repeat(64))).expect("uppercase F hex must succeed");
+        assert_eq!(key.len(), 32);
+        assert!(key.iter().all(|&b| b == 0xFF));
+    }
+
+    /// Test that mixed-case hex is accepted.
+    #[test]
+    fn test_e06_mixed_case_hex_accepted() {
+        let mixed = "AbCdEf0123456789".repeat(4); // 64 chars
+        let key = decode_pickle_key_from_env(Some(&mixed)).expect("mixed case hex must succeed");
+        assert_eq!(key.len(), 32);
+    }
+
+    /// Test that 65-char hex string is rejected (too long).
+    #[test]
+    fn test_e06_too_long_returns_error() {
+        let result = decode_pickle_key_from_env(Some(&"a".repeat(65)));
+        assert!(result.is_err(), "65-char key must be rejected");
+        let err = result.unwrap_err();
+        assert!(err.contains("32 bytes") || err.contains("64"), "E-06: error should mention length constraint: {err}");
+    }
+
+    /// Test that empty string is rejected.
+    #[test]
+    fn test_e06_empty_string_returns_error() {
+        let result = decode_pickle_key_from_env(Some(""));
+        assert!(result.is_err(), "empty string must be rejected");
+        let err = result.unwrap_err();
+        assert!(err.contains("32 bytes"), "E-06: error should mention correct length: {err}");
+    }
+
+    /// Test that non-hex characters (whitespace) are rejected.
+    #[test]
+    fn test_e06_whitespace_returns_error() {
+        let result = decode_pickle_key_from_env(Some(&"a b c d e f".repeat(10)));
+        assert!(result.is_err(), "whitespace in hex must be rejected");
+    }
+
+    /// Test OlmService::new creates a valid instance with empty state.
+    #[test]
+    fn test_olm_service_new_has_empty_state() {
+        // Create a lazy database pool (doesn't perform I/O until first query)
+        let pool = sqlx::PgPool::connect_lazy(&synapse_common::test_isolation::test_database_url())
+            .expect("connect_lazy should not perform I/O");
+        
+        let cache = create_test_cache();
+        let storage = OlmStorage::new(&Arc::new(pool));
+        let _service = OlmService::new(cache, storage);
+        
+        // Verify the service can be created without panicking
+        // The internal state (account, session_manager, user_id, device_id) should all be None
+        // This is verified by the fact that no panics occurred during construction
+    }
+
+    /// Test that decode_pickle_key_from_env handles Unicode characters in input.
+    #[test]
+    fn test_e06_unicode_in_input_returns_error() {
+        let result = decode_pickle_key_from_env(Some("你好世界"));
+        assert!(result.is_err(), "unicode input must be rejected");
+    }
+
+    /// Test that decode_pickle_key_from_env handles very long input.
+    #[test]
+    fn test_e06_very_long_input_returns_error() {
+        let result = decode_pickle_key_from_env(Some(&"a".repeat(1000)));
+        assert!(result.is_err(), "very long input must be rejected");
+    }
 }

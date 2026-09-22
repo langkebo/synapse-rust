@@ -350,3 +350,174 @@ pub fn create_push_notification_router(state: AppState) -> axum::Router<AppState
 
     public_routes.merge(admin_routes).with_state(state)
 }
+
+// -------------------------------------------------------------------------
+// Tests
+// -------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test that `mask_secret` masks all but the last 4 characters.
+    #[test]
+    fn test_mask_secret_long_value() {
+        let masked = mask_secret("abcdefghij");
+        assert_eq!(masked, "******ghij");
+    }
+
+    /// Test that `mask_secret` masks short values completely.
+    #[test]
+    fn test_mask_secret_short_value() {
+        let masked = mask_secret("ab");
+        assert_eq!(masked, "**");
+    }
+
+    /// Test that `mask_secret` handles exactly 4 characters.
+    #[test]
+    fn test_mask_secret_exactly_four() {
+        let masked = mask_secret("abcd");
+        assert_eq!(masked, "****");
+    }
+
+    /// Test that `validate_push_config_patch` rejects empty config.
+    #[test]
+    fn test_validate_push_config_patch_empty_rejected() {
+        let config = std::collections::BTreeMap::new();
+        let result = validate_push_config_patch(&config);
+        assert!(result.is_err());
+    }
+
+    /// Test that `validate_push_config_patch` rejects unsupported keys.
+    #[test]
+    fn test_validate_push_config_patch_unsupported_key_rejected() {
+        let mut config = std::collections::BTreeMap::new();
+        config.insert("unsupported_key".to_string(), Some("value".to_string()));
+        let result = validate_push_config_patch(&config);
+        assert!(result.is_err());
+    }
+
+    /// Test that `validate_push_config_patch` rejects invalid boolean values.
+    #[test]
+    fn test_validate_push_config_patch_invalid_boolean_rejected() {
+        let mut config = std::collections::BTreeMap::new();
+        config.insert("apns.enabled".to_string(), Some("not_a_bool".to_string()));
+        let result = validate_push_config_patch(&config);
+        assert!(result.is_err());
+    }
+
+    /// Test that `validate_push_config_patch` accepts valid boolean values.
+    #[test]
+    fn test_validate_push_config_patch_valid_boolean_accepted() {
+        let mut config = std::collections::BTreeMap::new();
+        config.insert("apns.enabled".to_string(), Some("true".to_string()));
+        let result = validate_push_config_patch(&config);
+        assert!(result.is_ok());
+    }
+
+    /// Test that `validate_push_config_patch` accepts valid config.
+    #[test]
+    fn test_validate_push_config_patch_valid_config_accepted() {
+        let mut config = std::collections::BTreeMap::new();
+        config.insert("apns.enabled".to_string(), Some("true".to_string()));
+        config.insert("apns.token".to_string(), Some("test-token".to_string()));
+        let result = validate_push_config_patch(&config);
+        assert!(result.is_ok());
+    }
+
+    /// Test that `DeviceResponse::from` correctly converts PushDevice.
+    #[test]
+    fn test_device_response_from_push_device() {
+        let device = PushDevice {
+            id: 1,
+            user_id: "@user:example.com".to_string(),
+            device_id: "test-device".to_string(),
+            push_token: "token-1".to_string(),
+            push_type: "apns".to_string(),
+            app_id: Some("app-1".to_string()),
+            platform: Some("ios".to_string()),
+            platform_version: Some("17.0".to_string()),
+            app_version: Some("1.0.0".to_string()),
+            locale: Some("en".to_string()),
+            timezone: Some("UTC".to_string()),
+            is_enabled: true,
+            created_ts: 1000,
+            updated_ts: Some(2000),
+            last_used_ts: Some(2000),
+            last_error: None,
+            error_count: 0,
+            metadata: serde_json::Value::Null,
+        };
+        let response = DeviceResponse::from(device);
+        assert_eq!(response.device_id, "test-device");
+        assert_eq!(response.push_type, "apns");
+        assert!(response.enabled);
+    }
+
+    /// Test that `RegisterDeviceBody` deserialization works with all fields.
+    #[test]
+    fn test_register_device_body_deserialization() {
+        let json = serde_json::json!({
+            "device_id": "dev-1",
+            "push_token": "token-1",
+            "push_type": "apns",
+            "app_id": "app-1",
+            "platform": "ios",
+            "platform_version": "17.0",
+            "app_version": "1.0.0",
+            "locale": "en",
+            "timezone": "UTC"
+        });
+        let body: RegisterDeviceBody = serde_json::from_value(json).unwrap();
+        assert_eq!(body.device_id, "dev-1");
+        assert_eq!(body.push_type, "apns");
+        assert_eq!(body.app_id, Some("app-1".to_string()));
+    }
+
+    /// Test that `RegisterDeviceBody` deserialization rejects unknown fields.
+    #[test]
+    fn test_register_device_body_rejects_unknown_fields() {
+        let json = serde_json::json!({
+            "device_id": "dev-1",
+            "push_token": "token-1",
+            "push_type": "apns",
+            "unknown_field": "should_fail"
+        });
+        let result: Result<RegisterDeviceBody, _> = serde_json::from_value(json);
+        assert!(result.is_err());
+    }
+
+    /// Test that `SendNotificationBody` deserialization works.
+    #[test]
+    fn test_send_notification_body_deserialization() {
+        let json = serde_json::json!({
+            "title": "Test",
+            "body": "Message body",
+            "priority": 5
+        });
+        let body: SendNotificationBody = serde_json::from_value(json).unwrap();
+        assert_eq!(body.title, "Test");
+        assert_eq!(body.body, "Message body");
+        assert_eq!(body.priority, Some(5));
+    }
+
+    /// Test that `ProcessQueueQuery` deserialization works.
+    #[test]
+    fn test_process_queue_query_deserialization() {
+        let json = serde_json::json!({
+            "batch_size": 50
+        });
+        let query: ProcessQueueQuery = serde_json::from_value(json).unwrap();
+        assert_eq!(query.batch_size, Some(50));
+    }
+
+    /// Test that `CleanupQuery` deserialization works.
+    #[test]
+    fn test_cleanup_query_deserialization() {
+        let json = serde_json::json!({
+            "days": 7
+        });
+        let query: CleanupQuery = serde_json::from_value(json).unwrap();
+        assert_eq!(query.days, Some(7));
+    }
+}

@@ -374,3 +374,91 @@ async fn get_user_attributes(
 
     Ok(Json(response))
 }
+
+// -------------------------------------------------------------------------
+// Tests
+// -------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test that `ServiceResponse::from` correctly converts CasRegisteredService.
+    #[test]
+    fn test_service_response_from_cas_registered_service() {
+        let service = CasRegisteredService {
+            service_id: "test-service".to_string(),
+            name: "Test Service".to_string(),
+            description: Some("A test service".to_string()),
+            service_url_pattern: "https://example.com/*".to_string(),
+            is_enabled: true,
+        };
+        let response = ServiceResponse::from(service);
+        assert_eq!(response.service_id, "test-service");
+        assert_eq!(response.name, "Test Service");
+        assert!(response.is_enabled);
+    }
+
+    /// Test that `ServiceTicketQuery` deserialization works.
+    #[test]
+    fn test_service_ticket_query_deserialization() {
+        let json = serde_json::json!({
+            "service": "https://example.com",
+            "renew": true
+        });
+        let query: ServiceTicketQuery = serde_json::from_value(json).unwrap();
+        assert_eq!(query.service, "https://example.com");
+        assert_eq!(query._renew, Some(true));
+    }
+
+    /// Test that `LogoutQuery` deserialization works.
+    #[test]
+    fn test_logout_query_deserialization() {
+        let json = serde_json::json!({
+            "service": "https://example.com/logout"
+        });
+        let query: LogoutQuery = serde_json::from_value(json).unwrap();
+        assert_eq!(query.service, Some("https://example.com/logout".to_string()));
+    }
+
+    /// Test that `ValidateQuery` deserialization works.
+    #[test]
+    fn test_validate_query_deserialization() {
+        let json = serde_json::json!({
+            "service": "https://example.com",
+            "ticket": "ST-12345"
+        });
+        let query: ValidateQuery = serde_json::from_value(json).unwrap();
+        assert_eq!(query.service, "https://example.com");
+        assert_eq!(query.ticket, "ST-12345");
+    }
+
+    /// Test that `RegisterServiceBody` deserialization works.
+    #[test]
+    fn test_register_service_body_deserialization() {
+        let json = serde_json::json!({
+            "service_id": "svc-1",
+            "name": "My Service",
+            "description": "A service",
+            "service_url_pattern": "https://*.example.com/*",
+            "require_secure": true,
+            "single_logout": false
+        });
+        let body: RegisterServiceBody = serde_json::from_value(json).unwrap();
+        assert_eq!(body.service_id, "svc-1");
+        assert_eq!(body.name, "My Service");
+        assert_eq!(body.require_secure, Some(true));
+    }
+
+    /// Test that `SetAttributeBody` deserialization works.
+    #[test]
+    fn test_set_attribute_body_deserialization() {
+        let json = serde_json::json!({
+            "attribute_name": "email",
+            "attribute_value": "user@example.com"
+        });
+        let body: SetAttributeBody = serde_json::from_value(json).unwrap();
+        assert_eq!(body.attribute_name, "email");
+        assert_eq!(body.attribute_value, "user@example.com");
+    }
+}

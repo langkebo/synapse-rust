@@ -204,3 +204,53 @@ pub async fn delete_user_override_rate_limit(
 ) -> Result<Json<Value>, ApiError> {
     delete_user_rate_limit(admin, State(ctx), Path(user_id), headers).await
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_rate_limit_request_defaults() {
+        let request = RateLimitRequest {
+            messages_per_second: None,
+            burst_count: None,
+        };
+        
+        assert!(request.messages_per_second.is_none());
+        assert!(request.burst_count.is_none());
+    }
+
+    #[test]
+    fn test_rate_limit_request_with_values() {
+        let request = RateLimitRequest {
+            messages_per_second: Some(10.5),
+            burst_count: Some(20),
+        };
+        
+        assert_eq!(request.messages_per_second, Some(10.5));
+        assert_eq!(request.burst_count, Some(20));
+    }
+
+    #[test]
+    fn test_rate_limit_request_zero_values() {
+        let request = RateLimitRequest {
+            messages_per_second: Some(0.0),
+            burst_count: Some(0),
+        };
+        
+        assert_eq!(request.messages_per_second, Some(0.0));
+        assert_eq!(request.burst_count, Some(0));
+    }
+
+    #[test]
+    fn test_rate_limit_request_negative_burst() {
+        let request = RateLimitRequest {
+            messages_per_second: Some(5.0),
+            burst_count: Some(-1),
+        };
+        
+        assert_eq!(request.messages_per_second, Some(5.0));
+        assert_eq!(request.burst_count, Some(-1));
+    }
+}
