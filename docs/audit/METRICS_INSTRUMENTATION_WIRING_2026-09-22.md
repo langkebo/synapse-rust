@@ -159,15 +159,11 @@
 
 ---
 
-## 7. 未完成 / 建议后续
+## 7. 线上复验（已完成，见 §8）
 
-1. **线上复验（强烈建议下一步）**：本轮只做了源码 + 单测 + 门禁级验证。
+1. ~~线上复验（强烈建议下一步）~~ → **已于 2026-09-22 完成，结果见 §8**。
    上一轮的决定性实验（连打 20 次 `/_matrix/client/versions` 全 200 后
-   `http_requests_total` 仍为 0，而同期 `rate_limit_requests_total` 从 7 涨到 30）
-   **尚未在新镜像上重跑**。需：重建镜像 → 重启 `synapse-app` → 打流量 →
-   确认 `http_requests_total` / `http_request_duration_ms_count` / `db_query_duration_ms_count` /
-   `db_query_errors` / `federation_requests_total` 真正动起来（这才是"告警会响"的字面闭环）。
-   构建须非沙箱执行（见项目记忆里 `BUILDX_CONFIG` 绕行说明）。
+   `http_requests_total` 仍为 0）已在新镜像上重跑，**前后对比明确**。
 2. **`update_pool_metrics` 死点**：见 §4，需一个周期任务宿主，建议单开 ticket。
 3. **Grafana 面板命名空间错配仍未处理**（上一轮 §4.3 量化为 **命中 0/22**）：
    面板引用 `synapse_database_pool_used` / `synapse_active_users` / `coturn_*` 等，
@@ -207,3 +203,121 @@ synapse-web/src/middleware/mod.rs                 导出 http_metrics
 docker/deploy/prometheus/recording-rules.yml      4 项规则修正
 docker/deploy/prometheus/alerting-rules.yml       3 项阈值/表达式修正
 ```
+
+---
+
+## 8. 线上复验（2026-09-22，新镜像实测）
+
+### 8.1 前后对比：同一实验，同一镜像构建参数
+
+镜像 `synapse-rust:distroless`，构建参数 `--features friends,burn-after-read --no-default-features`
+（与 `.env` 的 `ENABLED_EXTENSIONS` 一致）。
+
+对 `/_matrix/client/versions` 连打 **20 次，全部 200**：
+
+| 指标 | 改造前（旧镜像） | 改造后（新镜像，容器刚重建） |
+| --- | --- | --- |
+| `http_requests_total` | **0** | **20** |
+| `http_request_duration_ms_count` | **0** | **20** |
+| `db_query_duration_ms_count` | **0** | **47** |
+| `http_active_requests` | 0 | 0（RAII 正常释放） |
+| `rate_limit_requests_total`（旁证） | 209 | 21（新容器计数） |
+
+⇒ `http_requests_total == 20` **恰好等于**打进去的 20 次，且 `/health` 探针未计入
+（若计入会大于 20）⇒ **埋点与排除规则同时生效**。
+`db_query_duration_ms_count == 47` 证明 sqlx 事件层在真实流量下工作（启动 + 健康检查产生的查询）。
+
+### 8.2 错误路径
+
+补打 **5 次 `/versions/nope`（404）** 后：
+
+```
+http_requests_total 55          (= 20 + 5 + 30)
+http_request_errors_total 5     (= 那 5 个 404)
+```
+
+⇒ 4xx 被正确计为错误，且 `record_http_request(_, false)` 分支确实走到。
+
+### 8.3 `histogram_quantile` 真的算出数了（本轮的终点）
+
+```
+histogram_quantile(0.99, sum(rate(http_request_duration_ms_bucket[5m])) by (le))  -> 9.083
+histogram_quantile(0.95, sum(rate(db_query_duration_ms_bucket[5m])) by (le))      -> 18.125
+```
+
+**改造前这两条查询返回空 result**（`_bucket` 不存在）；现在返回真实数值。
+原生分桶也已带上真实计数：
+
+```
+http_request_duration_ms_bucket{unit="ms",le="1"} 4
+http_request_duration_ms_bucket{unit="ms",le="2.5"} 33
+http_request_duration_ms_bucket{unit="ms",le="10"} 55
+```
+
+### 8.4 录制规则逐条核对
+
+⚠️ **Prometheus 不会自动重载规则文件**（bind mount 已更新但进程仍用旧规则）。
+必须 `curl -X POST :9092/-/reload`（本栈已启用 lifecycle）或 `docker kill -s HUP synapse-prometheus`。
+**未重载时观测到的值是旧规则算出来的**，会得出完全相反的结论 —— 本次实测就踩到了（见下）。
+
+重载后：
+
+| 录制规则 | 值 | 结论 |
+| --- | --- | --- |
+| `job:http_request_duration:p50_5m` | 2.231 | ✅ 原本 EMPTY，现可用 |
+| `job:http_request_duration:p95_5m` | 6.25 | ✅ 原本 EMPTY，现可用 |
+| `job:http_request_duration:p99_5m` | 26.25 | ✅ 原本 EMPTY，现可用 |
+| `instance:db_query_duration:p95_5m` | 22.05 | ✅ 原本 EMPTY，现可用 |
+| `job:http_error_rate:ratio5m` | 0.053 | ✅ |
+| `instance:cpu_usage:percent` | 10.13 | ✅ |
+| `instance:disk_usage:percent` | **35.623** | ✅ 修正前实测 **268.911%** ⇒ `max by(instance)` 修复生效 |
+| `instance:db_pool_utilization:ratio` | **nan** | ❌ `0 / (0+0)` —— 死埋点 `update_pool_metrics` 的可见后果 |
+| `instance:megolm_share_duration:p95_5m` | **nan** | ⚠️ 无 E2EE 流量 ⇒ `_count == 0` |
+
+### 8.5 ⚠️ 新发现的一类行为：`_bucket` 存在但零观测 ⇒ `histogram_quantile` 返回 **NaN**（不是空）
+
+这是本轮的副产物，值得下游注意：
+
+- **改造前**：`_bucket` 根本不存在 ⇒ 表达式返回**空向量**（EMPTY）。
+- **改造后**：`_bucket` 存在但计数全 0 ⇒ `histogram_quantile` 对全零桶返回 **NaN**。
+
+影响评估：
+
+- **告警安全**：PromQL 里 `NaN > 100` 为 **false** ⇒ 不会误触发。已实测
+  `E2EESessionKeyReadSlow` 等未因 NaN 而 pending。
+- **面板**：Grafana 对 NaN 显示为断点/No data，与空向量观感一致，可接受。
+- **需要显式防护的场景**：若下游对结果做**算术**（相加、比值），NaN 会传播。
+  稳妥写法是 `... unless ...`、`clamp_min`，或在面板里用 `> 0` 过滤。
+
+### 8.6 告警状态的前后对照（副作用证伪）
+
+| 告警 | 重载前 | 重载后 | 说明 |
+| --- | --- | --- | --- |
+| `DatabaseQueryDurationHigh` | **pending** | **已消失** | 重载前用的是被降级的 `> 0.5`（=0.5ms）阈值，而 DB p95 实测 22ms ⇒ 必然 pending。改回 `> 500` 后正确恢复平静 ⇒ **阈值修正得到线上验证** |
+| `HighHTTPErrorRate` | 无 | **pending（5.26%）** | 由本次人为制造的 5 个 404 引起（5/95）⇒ **表达式确实在有数据上求值**。改造前 `http_requests_total == 0` ⇒ `0/0` 无数据 ⇒ 该告警`永不触发` |
+| 其余 | — | 无 | 阈值（2000ms / 500ms）远高于实测 p95/p99，不乱报 |
+
+### 8.7 部署过程中踩到的两个环境坑（非仓库缺陷）
+
+1. **`deploy.sh` 在"缓存清理"步骤失败**：`rm -rf "$PROJECT_ROOT/target"` 被本工具环境的
+   safe-delete 守卫拦截（`count=10011 > threshold=50`，`SAFE_DELETE_BULK_CONFIRM_REQUIRED`）
+   ⇒ 部署在构建**之前**中止并触发回滚（回滚本身工作正常，服务已恢复）。
+   由于 `.dockerignore` 已排除 `target/`、且 `SKIP_HOST_BUILD=true` 使主机 `target/` 与
+   Docker 构建无关，**绕行办法是直接构建镜像再重建容器**：
+
+   ```bash
+   # 1) 构建（--build-arg CACHE_BUST=<epoch> 强制源码层失效；保留依赖编译缓存挂载）
+   BUILDX_CONFIG=/tmp/buildx-cfg docker build -f docker/Dockerfile --target tools \
+     --build-arg CACHE_BUST="$(date +%s)" \
+     --build-arg "CARGO_FEATURE_ARGS=--features friends,burn-after-read --no-default-features" \
+     -t synapse-rust:distroless .
+   # 2) 重建 app 容器（注意 service 名是 synapse，不是 app）
+   cd docker/deploy && docker compose up -d --force-recreate synapse
+   ```
+
+   实测编译 **8m34s**（依赖走 `--mount=type=cache,target=/workspace/target` 缓存，
+   仅重编本 workspace 的 8 个 crate；比 `--no-cache` 快得多且同样正确）。
+   注意 `--all` 会把 `ENABLED_EXTENSIONS` 改成 `all`，与 `.env` 不符，**不要用**。
+
+2. **compose service 名是 `synapse`**（`container_name: synapse-app`），
+   `docker compose up app` 会报 `no such service: app`。
