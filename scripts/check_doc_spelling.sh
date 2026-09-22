@@ -59,7 +59,12 @@ else
 fi
 
 if [ -s "$filtered" ]; then
+    echo "=== 未识别词汇 ==="
     cat "$filtered"
+    echo ""
+    echo "将上述词汇添加到 .aspell.ignore.txt（每行一个，按字母序）："
+    echo "  echo '<词汇>' >> .aspell.ignore.txt && sort -u -o .aspell.ignore.txt .aspell.ignore.txt"
+    echo "    （或使用：sed -i '' '1i <词汇>' .aspell.ignore.txt && sort -u -o .aspell.ignore.txt .aspell.ignore.txt）"
     exit 1
 fi
 

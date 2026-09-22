@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Per-file coverage ratchet for lcov / tarpaulin JSON reports.
+"""Per-file coverage ratchet for lcov reports.
 
 Reads a coverage report, compares per-file line coverage against the committed
 baseline, and exits non-zero when a file falls below its floor.
@@ -34,7 +34,7 @@ to ignore it (`AGENTS.md` rule 8's converse).
 
 Usage:
   python3 scripts/check_file_coverage.py \\
-      --report coverage/lcov.info --format lcov \\
+      --report coverage/lcov.info \\
       --baseline scripts/ci/coverage_baseline.json \\
       --global-floor 40 --new-file-floor 30 \\
       --core-files scripts/ci/core_file_coverage_prefixes.txt \\
@@ -120,7 +120,7 @@ def require_baseline(path: pathlib.Path, baseline: Dict[str, float]) -> Optional
             "  without it, and would silently treat every file as new.\n"
             "  Bootstrap it once and commit the result:\n"
             "    python3 scripts/check_file_coverage.py --report coverage/lcov.info \\\n"
-            "      --format lcov --baseline "
+            "      --baseline "
             + str(path)
             + " --save-baseline "
             + str(path)
@@ -208,39 +208,6 @@ def _matches_prefix(path: str, prefixes: List[str]) -> bool:
     return False
 
 
-def parse_tarpaulin_json(report_path: pathlib.Path) -> Dict[str, float]:
-    """Parse a tarpaulin JSON report and return {rel_path: line_pct}.
-
-    Handles both the 'files' array format and the 'coverage' map format.
-    """
-    with open(report_path) as f:
-        data = json.load(f)
-
-    result: Dict[str, float] = {}
-
-    # Format: { "files": [ { "path": "...", "coverage": [...] }, ... ] }
-    if "files" in data:
-        for entry in data["files"]:
-            rel = _normalize_path(entry.get("path", ""))
-            if not rel or not _is_src_rs(rel):
-                continue
-            cov = entry.get("coverage", [])
-            result[rel] = _compute_line_pct(cov)
-        return result
-
-    # Format: { "path": coverage_array, ... } (flat map)
-    for path, cov in data.items():
-        rel = _normalize_path(path)
-        if not rel or not _is_src_rs(rel):
-            continue
-        if isinstance(cov, list):
-            result[rel] = _compute_line_pct(cov)
-        elif isinstance(cov, (int, float)):
-            result[rel] = float(cov)
-
-    return result
-
-
 def parse_lcov(report_path: pathlib.Path) -> Dict[str, float]:
     """Parse an lcov.info report and return {rel_path: line_pct}.
 
@@ -317,7 +284,7 @@ def _normalize_path(p: str) -> str:
         # so it can never silently overwrite another file's entry.
         return p.lstrip("/")
     else:
-        # Already repo-relative (`tarpaulin`/`lcov` differ from `Path.rglob`,
+        # Already repo-relative (`lcov` paths differ from `Path.rglob` output)
         # which is absolute). Normalise both to the same key.
         rel = p[2:] if p.startswith("./") else p
 
@@ -341,7 +308,7 @@ def _is_src_rs(rel: str) -> bool:
 
 
 def _compute_line_pct(coverage: list) -> float:
-    """Given tarpaulin's per-line counts, return line coverage percentage."""
+    """Given lcov LF/LH counters, return line coverage percentage."""
     if not coverage:
         return 0.0
     covered = sum(1 for entry in coverage if _count(entry) > 0)
@@ -350,7 +317,7 @@ def _compute_line_pct(coverage: list) -> float:
 
 
 def _count(entry) -> int:
-    """Extract the hit count from a tarpaulin coverage entry."""
+    """Extract the hit count from an lcov LH value."""
     if isinstance(entry, dict):
         return entry.get("count", 0)
     if isinstance(entry, (int, float)):
@@ -493,19 +460,13 @@ def check_file_coverage(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Enforce per-file coverage thresholds from a tarpaulin JSON or lcov report."
+        description="Enforce per-file coverage thresholds from an lcov report."
     )
     parser.add_argument(
         "--report",
         required=True,
         type=pathlib.Path,
-        help="Path to coverage report (tarpaulin JSON or lcov.info).",
-    )
-    parser.add_argument(
-        "--format",
-        choices=["tarpaulin", "lcov"],
-        default="tarpaulin",
-        help="Report format to parse (default: tarpaulin).",
+        help="Path to coverage report (lcov.info).",
     )
     parser.add_argument(
         "--baseline",
@@ -549,6 +510,12 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--format",
+        type=str,
+        default="lcov",
+        help="Report format (lcov only; deprecated, kept for CI compatibility).",
+    )
+    parser.add_argument(
         "--save-baseline",
         type=pathlib.Path,
         default=None,
@@ -560,10 +527,7 @@ def main() -> int:
         print(f"Coverage report not found: {args.report}", file=sys.stderr)
         return 1
 
-    if args.format == "lcov":
-        current = parse_lcov(args.report)
-    else:
-        current = parse_tarpaulin_json(args.report)
+    current = parse_lcov(args.report)
     baseline = load_baseline(args.baseline)
 
     # A ratchet without its baseline cannot enforce anything (see

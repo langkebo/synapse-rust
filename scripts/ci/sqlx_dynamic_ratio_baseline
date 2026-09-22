@@ -1,4 +1,8 @@
-# 2026-09-22: dynamic 由 1501 上调到 1504（+3）。两笔来源，逐条核对如下
+# 2026-09-22: dynamic 由 1501 上调到 1504（+3），并修正计数器缺陷后更新为 2146。
+# 修正事项：
+#   1. 正则未匹配 turbofish 形式 `sqlx::query_as::<T>(` / `sqlx::query_scalar::<T>(`
+#   2. 注释行 (`//! sqlx::query(..)`) 误算为调用
+# 两者导致：实际动态调用数 = 计数值 + 643 (turbofish) - 1 (注释误算)
 # （方法：`git grep -cE 'sqlx::query(_as|_scalar)?\(' <rev> -- <扫描目录>` 逐文件求和）。
 #
 #   (+1) `a283328f`（指标埋点接线）新增的 `synapse-common/src/db_query_metrics.rs`
@@ -59,9 +63,11 @@
 #       会随本地 worktree 状态漂移，导致基线无法稳定复现）
 #
 # ⚠️ 计数**包含** crate 内 `#[cfg(test)]` 内联测试模块
-#    （例如 synapse-storage/src/event/db_tests.rs）。它们由 `cargo test`
-#    编译、同样存在 schema 漂移风险，故一并计入。
+#    （例如 synapse-storage/src/event/db_tests.rs）。
 #    独立测试目录 tests/ 与 artifacts/ **不在**扫描范围内。
+#
+# ⚠️ 2026-09-22 修正：脚本现已排除 doc comments（//! /// 行），
+#    且正则匹配 turbofish 形式 `sqlx::query_as::<(...)>/sqlx::query_scalar::<(...)>`
 #
 # ── 基线测量记录 ─────────────────────────────────────────────────────────────
 # 测量日期: 2026-09-11
@@ -89,7 +95,7 @@
 # 历史对照：2026-06-03 审计记录动态占比 99.6%（含测试代码口径）；
 # 本基线口径（仅 workspace 生产目录，含内联测试模块）为 95.90%。
 
-BASELINE_DYNAMIC=1504
+BASELINE_DYNAMIC=2146
 BASELINE_STATIC=61
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
