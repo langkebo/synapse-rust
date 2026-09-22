@@ -18724,14 +18724,14 @@ paths:
       security:
       - AccessToken: []
   /_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events:
-    post:
-      summary: POST /_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events
+    get:
+      summary: GET /_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events
       description: 'Auto-generated from RouteLedger.
 
         Source module: `assembly::create_router`.
 
         TODO: Hand-written description, request body schema, and detailed response schema will be added in subsequent iterations.'
-      operationId: post_unstable_dehydrated_device_device_id_events
+      operationId: get_unstable_dehydrated_device_device_id_events
       tags:
       - assembly::create_router
       responses:
@@ -18783,14 +18783,6 @@ paths:
           example: ${device_id}
       security:
       - AccessToken: []
-      requestBody:
-        required: false
-        description: 'TODO: Per-endpoint request body schema will be filled from handler signatures'
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
   /_matrix/client/unstable/org.matrix.msc4108/rendezvous:
     post:
       summary: POST /_matrix/client/unstable/org.matrix.msc4108/rendezvous

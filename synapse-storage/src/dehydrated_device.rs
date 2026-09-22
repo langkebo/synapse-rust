@@ -62,7 +62,7 @@ pub trait DehydratedDeviceStoreApi: Send + Sync {
         device_id: &str,
         since_stream_id: i64,
         limit: i64,
-    ) -> Result<(Vec<Value>, i64), sqlx::Error>;
+    ) -> Result<(Vec<Value>, Option<i64>), sqlx::Error>;
     /// See [`claim_one_time_key`].
     async fn claim_one_time_key(
         &self,
@@ -225,13 +225,18 @@ impl DehydratedDeviceStorage {
     /// Returns `(events, next_stream_id)` where `next_stream_id` is the highest
     /// `stream_id` returned (suitable as the next `next_batch` cursor) or
     /// `since_stream_id` when nothing was returned.
+    /// Returns the next page plus the cursor to use for the following call.
+    ///
+    /// The cursor is `None` when the page was not full, i.e. no further events
+    /// can be found — MSC3814 requires `next_batch` to be `null` in that case
+    /// (upstream Synapse v1.157 #19896).
     pub async fn claim_to_device_events(
         &self,
         user_id: &str,
         device_id: &str,
         since_stream_id: i64,
         limit: i64,
-    ) -> Result<(Vec<Value>, i64), sqlx::Error> {
+    ) -> Result<(Vec<Value>, Option<i64>), sqlx::Error> {
         use sqlx::Row;
 
         let rows = sqlx::query(
@@ -252,6 +257,7 @@ impl DehydratedDeviceStorage {
         .fetch_all(&*self.pool)
         .await?;
 
+        let page_full = rows.len() as i64 == limit;
         let mut max_stream_id = since_stream_id;
         let mut events = Vec::with_capacity(rows.len());
         for row in rows {
@@ -275,7 +281,7 @@ impl DehydratedDeviceStorage {
             events.push(Value::Object(event));
         }
 
-        Ok((events, max_stream_id))
+        Ok((events, page_full.then_some(max_stream_id)))
     }
 
     /// Claim a single one-time key (or fallback key, if no OTK is available)
@@ -386,7 +392,7 @@ impl DehydratedDeviceStoreApi for DehydratedDeviceStorage {
         device_id: &str,
         since_stream_id: i64,
         limit: i64,
-    ) -> Result<(Vec<Value>, i64), sqlx::Error> {
+    ) -> Result<(Vec<Value>, Option<i64>), sqlx::Error> {
         self.claim_to_device_events(user_id, device_id, since_stream_id, limit).await
     }
 
@@ -767,23 +773,25 @@ mod db_tests {
             .await;
         }
 
-        // Fetch first 3 (stream_id > 0)
-        let (events, max_id) =
+        // Fetch first 3 (stream_id > 0) — full page ⇒ cursor present
+        let (events, cursor) =
             storage.claim_to_device_events(&user_id, device_id, 0, 3).await.expect("claim should succeed");
         assert_eq!(events.len(), 3);
-        assert_eq!(max_id, 102);
+        assert_eq!(cursor, Some(102));
 
-        // Fetch remaining 2 (stream_id > 102)
-        let (events2, max_id2) =
-            storage.claim_to_device_events(&user_id, device_id, max_id, 3).await.expect("second claim should succeed");
+        // Remaining 2 — partial page ⇒ no further events, cursor must be None
+        let (events2, cursor2) = storage
+            .claim_to_device_events(&user_id, device_id, cursor.expect("cursor"), 3)
+            .await
+            .expect("second claim should succeed");
         assert_eq!(events2.len(), 2);
-        assert_eq!(max_id2, 104);
+        assert_eq!(cursor2, None, "不足一页表示已到末尾，next_batch 必须为 null");
 
-        // No more messages
-        let (events3, max_id3) =
-            storage.claim_to_device_events(&user_id, device_id, max_id2, 3).await.expect("third claim should succeed");
+        // Nothing left after the last stream_id
+        let (events3, cursor3) =
+            storage.claim_to_device_events(&user_id, device_id, 104, 3).await.expect("third claim should succeed");
         assert_eq!(events3.len(), 0);
-        assert_eq!(max_id3, max_id2); // cursor unchanged when empty
+        assert_eq!(cursor3, None, "空页必须返回 null 游标");
 
         cleanup_user(&pool, &user_id).await;
     }
@@ -808,10 +816,10 @@ mod db_tests {
         };
         storage.upsert_for_user(params).await.expect("upsert should succeed");
 
-        let (events, max_id) =
+        let (events, cursor) =
             storage.claim_to_device_events(&user_id, device_id, 0, 10).await.expect("claim should succeed");
         assert_eq!(events.len(), 0);
-        assert_eq!(max_id, 0); // cursor unchanged when empty
+        assert_eq!(cursor, None, "没有事件时 next_batch 必须为 null");
 
         cleanup_user(&pool, &user_id).await;
     }

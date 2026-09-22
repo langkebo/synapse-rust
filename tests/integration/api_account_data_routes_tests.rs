@@ -675,3 +675,95 @@ async fn test_dehydrated_device_ssss_precondition_accepts_account_data_default_k
         "dehydrated_device PUT should pass SSSS precondition via m.secret_storage.default_key account_data"
     );
 }
+
+/// B4：`/dehydrated_device/{device_id}/events` 必须是 `GET`（query 参数
+/// `next_batch`/`limit`），且空页时 `next_batch` 为 `null`；旧的 `POST` 形态必须消失。
+#[tokio::test]
+async fn test_dehydrated_device_events_is_get_with_null_cursor_when_empty() {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
+        return;
+    };
+    let username = unique_username("dh_events_get");
+    let (token, user_id) = register_user(&app, &username).await;
+
+    sqlx::query(
+        r"
+        INSERT INTO cross_signing_keys (user_id, key_type, key_data, signatures, added_ts)
+        VALUES ($1, 'master', $2, $3, $4)
+        ON CONFLICT (user_id, key_type) DO UPDATE
+            SET key_data = EXCLUDED.key_data,
+                signatures = EXCLUDED.signatures,
+                added_ts = EXCLUDED.added_ts
+        ",
+    )
+    .bind(&user_id)
+    .bind("{}")
+    .bind(serde_json::json!({}))
+    .bind(current_timestamp_millis())
+    .execute(&*pool)
+    .await
+    .expect("failed to seed cross-signing master key");
+
+    let put_default = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/user/{}/account_data/m.secret_storage.default_key", user_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "key_id": "dh-events-key" }).to_string()))
+        .unwrap();
+    let put_default_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), put_default).await.unwrap();
+    assert_eq!(put_default_response.status(), StatusCode::OK);
+
+    let device_id = "DHEVENTSGET1";
+    let put_dh = Request::builder()
+        .method("PUT")
+        .uri("/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "device_id": device_id,
+                "device_keys": {
+                    "user_id": user_id,
+                    "device_id": device_id,
+                    "algorithms": ["m.olm.v1.curve25519-aes-sha2"],
+                    "keys": {
+                        "curve25519:DHEVENTSGET1": "AAAA",
+                        "ed25519:DHEVENTSGET1": "BBBB"
+                    },
+                    "signatures": {}
+                },
+                "device_data": { "algorithm": "org.matrix.msc3814.v1.olm" }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let put_dh_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), put_dh).await.unwrap();
+    assert_eq!(put_dh_response.status(), StatusCode::OK, "dehydrated device PUT should succeed");
+
+    let events_path =
+        format!("/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events?limit=10");
+    let get_events = Request::builder()
+        .method("GET")
+        .uri(&events_path)
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_events).await.unwrap();
+    assert_eq!(get_response.status(), StatusCode::OK, "GET events 必须存在（旧版为 POST）");
+    let get_body = axum::body::to_bytes(get_response.into_body(), 4096).await.unwrap();
+    let get_json: Value = serde_json::from_slice(&get_body).unwrap();
+    assert_eq!(get_json["events"], json!([]), "空队列应返回空 events");
+    assert!(get_json["next_batch"].is_null(), "空页时 next_batch 必须为 null，实际 {get_json}");
+
+    // 旧形态必须消失：POST 同一路径应为 405 Method Not Allowed。
+    let post_events = Request::builder()
+        .method("POST")
+        .uri(&events_path)
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "next_batch": "0" }).to_string()))
+        .unwrap();
+    let post_response = ServiceExt::<Request<Body>>::oneshot(app, post_events).await.unwrap();
+    assert_eq!(post_response.status(), StatusCode::METHOD_NOT_ALLOWED, "POST 形态必须已移除（MSC3814 规定 GET）");
+}

@@ -214,7 +214,7 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route(
             "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events",
-            post(handlers::dehydrated_device::post_dehydrated_device_events),
+            get(handlers::dehydrated_device::get_dehydrated_device_events),
         )
         .route(
             "/_matrix/client/unstable/org.matrix.msc4143/rtc/transports",

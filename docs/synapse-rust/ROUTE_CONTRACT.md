@@ -1,6 +1,6 @@
 # synapse-rust 路由契约（Route Contract）
 
-> 自动生成于 2026-09-21，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含 `derived_route_table.inc.rs`）派生覆盖。
+> 自动生成于 2026-09-22，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含 `derived_route_table.inc.rs`）派生覆盖。
 >
 > 本文件是后端 HTTP 契约的**事实来源之一**（机器侧权威为 `derived_routes.rs` 生成的 `RouteLedger`，启动时校验、集成测试 PATCH 探测）。人工文档（INDEX.md / API_COVERAGE_REPORT.md）须与之保持一致。
 >
@@ -1250,6 +1250,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/client/unstable/org.matrix.msc2965/auth_metadata`
 - `GET` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device`
 - `GET` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/status`
+- `GET` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events`
 - `GET` `/_matrix/client/unstable/org.matrix.msc4143/rtc/transports`
 - `GET` `/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}`
 - `GET` `/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}`
@@ -1291,7 +1292,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/vendor/v1/rooms/{room_id}/invite_allowlist`
 - `GET` `/_matrix/vendor/v1/rooms/{room_id}/invite_blocklist`
 - `GET` `/health`
-- `POST` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events`
 - `POST` `/_matrix/client/v1/account/3pid`
 - `POST` `/_matrix/client/v1/account/3pid/add`
 - `POST` `/_matrix/client/v1/account/3pid/bind`
