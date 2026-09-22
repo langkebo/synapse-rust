@@ -215,3 +215,31 @@ fn rate_limit_config_adapter_stays_deleted() {
     let lib = fs::read_to_string(repo_root().join("synapse-common/src/lib.rs")).expect("lib.rs must be readable");
     assert!(!lib.contains("RateLimitConfigAdapter"), "不应再从 synapse-common 重导出 RateLimitConfigAdapter");
 }
+
+// =============================================================================
+// rc_reports: handler-enforced per-user limit for the report endpoints
+// =============================================================================
+
+/// Guard: the bundled `homeserver.yaml` must declare a tight `rc_reports` limit.
+///
+/// The report handlers read `ctx.config.rate_limit.rc_reports` directly because
+/// the path-based middleware cannot express `/_matrix/client/v3/rooms/{room_id}
+/// /report` (a `/_matrix/client/v3/rooms/` prefix would cover every room
+/// endpoint).  Deleting the key silently falls back to a looser default, so it
+/// is pinned here — the same failure mode that produced B3.
+#[test]
+fn bundled_homeserver_yaml_declares_tight_rc_reports_limit() {
+    let text = read(HOMESERVER_CONFIG);
+    let value: serde_yaml::Value = serde_yaml::from_str(&text).expect("homeserver.yaml must parse");
+
+    let rule = value
+        .get("rate_limit")
+        .and_then(|rate_limit| rate_limit.get("rc_reports"))
+        .expect("rate_limit.rc_reports must be declared in homeserver.yaml");
+
+    let per_second = rule.get("per_second").and_then(|value| value.as_u64()).expect("rc_reports.per_second");
+    let burst_size = rule.get("burst_size").and_then(|value| value.as_u64()).expect("rc_reports.burst_size");
+
+    assert!(per_second <= 5, "rc_reports.per_second 必须收紧（<=5），实际 {per_second}");
+    assert!(burst_size <= 50, "rc_reports.burst_size 必须收紧（<=50），实际 {burst_size}");
+}

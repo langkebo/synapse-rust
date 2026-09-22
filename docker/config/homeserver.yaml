@@ -40,6 +40,12 @@ rate_limit:
   default:
     per_second: 20
     burst_size: 40
+  # 举报端点 per-user 限流（handler 直接读本段；限流中间件的生效值在 rate_limit.yaml）。
+  # 上游 #20036 对 /rooms/{room_id}/report 应用 rc_reports 限流；路径中间件不支持
+  # 精确匹配 /rooms/*/report，故在 handler 内按用户取桶。
+  rc_reports:
+    per_second: 1
+    burst_size: 10
   # ⚠️ 本段两半各有来源，不要只看一处：
   # - **限流中间件**：本段运行时**不生效** —— 服务以 RATE_LIMIT_CONFIG_PATH 指向的
   #   `rate_limit.yaml` 整体**替换**（replace，不是字段级合并）整个 `rate_limit:` 段

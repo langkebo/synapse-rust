@@ -490,7 +490,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | #20169 `/sync` 左房成员泄漏（MSC4222 `state_after`） | ✅ 修复 | **❌ 旧版 ✅ 系误判**：全仓 `state_after`/`MSC4222` = 0；旧版引用的 `include_redundant_members` 是另一功能（`sync_service/filter.rs:110`）。左房成员态取自**当前** state（`data_fetch.rs:156-184`） | ⚠️ 机制不同/未对齐 |
 | #20149/#20172 Profile 500 | ✅ 修复 | 不存在用户 → 404 已对；account_data 非 JSON 对象仍 500（`extended_profile.rs:47-50`）；**已停用但存在用户写自定义字段返回 404**（`user/storage.rs:663-673`），与上游"应成功"相反；稳定 `GET /_matrix/client/v3/profile/{userId}/{keyName}` 未注册（仅 `uk.tcpip.msc4133`） | ⚠️ PARTIAL |
 | #20173 Profile PUT/DELETE 400→403 | ✅ 修复 | ✅ 已正确返回 403 + `M_FORBIDDEN`（`account_compat.rs:195-197,224-226`）；上游触发配置（`enable_set_displayname` 等）本仓不存在 | ✅ 已对齐 |
-| #20036 房间举报端点 `rc_reports` 限流 | ✅ 修复 | ❌ **缺失**：`report_room`（`directory_reporting.rs:226-266`）无专职限流；全仓 `rc_reports` 0 命中；`rate_limit.yaml` 无该路径 | ❌ 未实现 |
+| #20036 房间举报端点 `rc_reports` 限流 | ✅ 修复 | ✅ **已实现（Phase 2）**：路径中间件无法表达 `/rooms/{room_id}/report`（只有精确/前缀匹配），故在 `report_room`/`report_user` 内按用户取桶（`ratelimit:rc_reports:{user_id}`），规则可配（`rate_limit.rc_reports`，默认 1/s、burst 10），并有"配置键被删即变红"的守卫测试 | ✅ 已对齐 |
 | #20180 `M_APPSERVICE_LOGIN_UNSUPPORTED` | ✅ 稳定化 | ❌ **无 appservice 登录功能**：该错误码全仓仅出现在本文档；无 `m.login.application_service`/`MSC4190`；登录类型仅 password/token/sso/cas/oidc/dummy | ❌ 未实现 |
 | #20146 LiveKit SFU WebSocket URL | ✅ 弃用 `livekit_service_url` 并新增 SFU URL | ⚠️ `livekit_service_url` 本仓不存在（无可弃用）；`LivekitConfig.ws_url`（`config/voip.rs:92`）**从未被读取**（死配置）；`rtc/transports` 只返回 ICE | ⚠️ PARTIAL |
 
@@ -539,7 +539,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | **Key Backup** | 有 | ✅ `synapse-web/src/routes/e2ee/backup.rs` 完整实现 | ✅ 已对齐 |
 | **Push Notifications** | 有 | ✅ `push/` + `push_notification.rs` + `client_push_service.rs` 完整实现 | ✅ 已对齐 |
 | **Relations** | 有 | ✅ `relations_service.rs` + `synapse-storage/src/relations/`（不含 `content.redacts` 与级联撤回，见 §11.1） | ⚠️ 部分对齐 |
-| **Search** | 有 | ⚠️ `search_service.rs` + 在线 FTS 真实，但 `synapse-storage/src/search_index.rs` **无调用者（死代码）**，在线查询硬限定 `m.room.message`（`event/search.rs:170,210,311`）⇒ 房间名/主题默认不可搜 | ⚠️ 能力受限 |
+| **Search** | 有 | ⚠️ **默认搜索面已修（Phase 2）**：未传 `filter.types` 时改为 `IN (m.room.message, m.room.name, m.room.topic)`（`event/search.rs:84`，内容按 `content::text` LIKE 匹配，无需回填）；**仍存**：`search_index.rs` 为死代码、其 partial GIN 索引谓词未同步（FTS 路径不可达），列为独立清理项 | ⚠️ 部分对齐 |
 | **Webhooks/App Services** | 完整 | ⚠️ `app_service.rs` 提供 AS 管理/事务/命名空间；`external_service.rs` 是私有桥接扩展，**不能**算作 Matrix AS API；缺 pushers/设备管理/AS 登录/虚拟用户调用 C-S/MSC4512 | ⚠️ 部分对齐 |
 
 **优势与劣势**:
@@ -633,7 +633,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
   - **Content Scanner 整模块孤儿**（无存储、无 config、无构造点），非"仅缺存储层"。
   - **App Service 登录整体缺失**（无 `m.login.application_service` / `M_APPSERVICE_LOGIN_UNSUPPORTED`），
     以及 pushers、设备管理、虚拟用户调用 C-S、MSC4512 代理缺失。
-  - **`rc_reports` 专项限流缺失**；**LiveKit `ws_url` 为死配置**；稳定 `/_matrix/client/v3/profile/{userId}/{keyName}` 未注册。
+  - ~~**`rc_reports` 专项限流缺失**~~ → **Phase 2 已修**（handler 内 per-user 桶 + 可配规则 + 守卫测试）；**LiveKit `ws_url` 仍为死配置**；稳定 `/_matrix/client/v3/profile/{userId}/{keyName}` 未注册。
 - **未验证/待决策**：v12/v13 房间能否从"可 join/联邦"推进到"可创建"；`MSC4186/4262/4502/2409` 等代码中已出现的编号
   其语义是否与官方一致（须查 `MSC_SEMANTICS.md`，当前未登记）。
 - **对齐基准更新建议**：当前最新稳定版为 v1.161.0（2026-09-15）。后续审查须记录 tag + CHANGES 链接 + 复核日期；
@@ -712,6 +712,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | §12.4 | 风险改为只保留实测/明确未验证项；CVE 占位符替换为真实 GHSA/CVE 编号 |
 | §12.5 | 重写为 A/B/C/D 分层，删除人日估算，改为指向权威清单并按验收判据验收 |
 | **代码修复（Phase 1）** | **B1** v11+ 撤回目标写入 `content.redacts`（服务层唯一写入口）+ PDU 不再重复写顶层 `redacts`；**B8** `create_event_with_graph` 无事务分支改单事务；**B10a** `send_message` 传播 `origin_server_ts` 读取错误；**B5** 修正过期房间版本注释。计划见 `docs/superpowers/plans/2026-09-22-protocol-correctness-phase1.md`（gitignored），验证证据见 `docs/audit/COMPARISON_REPORT_REVIEW_2026-09-22.md` §10 |
+| **代码修复（Phase 2）** | **B10b** 联邦 gap-fill 查重吞错；**B11** 默认搜索面纳入 `m.room.name`/`m.room.topic`；**B3** 举报端点 per-user `rc_reports` 限流（可配 + 守卫）；**B9** 事务去重标记失败时 soft-fail 已提交事件。计划见 `docs/superpowers/plans/2026-09-22-phase2-protocol-fixes.md`（gitignored），证据见复核报告 §11。**未完成**：B10c / B4 / B13（见报告 §11） |
 
 ---
 

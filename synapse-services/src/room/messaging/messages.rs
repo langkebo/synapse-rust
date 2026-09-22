@@ -297,11 +297,26 @@ impl MessagingService {
             return Ok(result);
         }
 
-        let inserted = self
-            .event_writer
-            .record_event_txn(user_id, room_id, txn_id, &event_id)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to record txn dedup marker", e))?;
+        let inserted = match self.event_writer.record_event_txn(user_id, room_id, txn_id, &event_id).await {
+            Ok(inserted) => inserted,
+            Err(error) => {
+                // The event is already committed, but without a dedup marker a
+                // client retry would create a second *visible* copy (B9).  Hide
+                // this event and surface the failure so the retry starts from a
+                // clean slate.
+                if let Err(mark_error) = self.event_writer.mark_event_soft_failed(&event_id).await {
+                    ::tracing::warn!(
+                        room_id = %room_id,
+                        user_id = %user_id,
+                        txn_id = %txn_id,
+                        event_id = %event_id,
+                        error = %mark_error,
+                        "Failed to soft-fail event after dedup marker write failure"
+                    );
+                }
+                return Err(ApiError::internal_with_cause("Failed to record txn dedup marker", error));
+            }
+        };
 
         if !inserted {
             // 并发相同 txn：本地事件落败，返回获胜方的 event_id
@@ -598,5 +613,86 @@ mod tests {
     #[test]
     fn next_event_ts_advances_past_max() {
         assert_eq!(super::next_event_ts(100, Ok(500)).expect("ok"), 501);
+    }
+}
+
+#[cfg(test)]
+mod txn_dedup_compensation_tests {
+    use crate::container::ServiceContainer;
+    use std::sync::Arc;
+    use synapse_cache::{CacheConfig, CacheManager};
+    use synapse_common::current_timestamp_millis;
+
+    /// B9：`send_message_with_txn` 先提交事件、后写 `room_event_txn_dedup` 去重标记。
+    /// 标记写失败时事件已存在但去重表无记录 ⇒ 客户端重试会再建一条可见重复事件。
+    /// 修复后：标记失败必须先 soft-fail 刚创建的事件，再返回错误。
+    #[tokio::test]
+    async fn dedup_marker_failure_soft_fails_the_created_event() {
+        let pool = match crate::test_utils::prepare_isolated_test_pool().await {
+            Ok(pool) => pool,
+            Err(error) => {
+                eprintln!("Skipping txn dedup compensation test, test database unavailable: {error}");
+                return;
+            }
+        };
+        let container = ServiceContainer::new_test_with_pool_and_cache(
+            pool.clone(),
+            Arc::new(CacheManager::new(&CacheConfig::default())),
+        )
+        .await;
+
+        let room_id = "!txndedup:example.com";
+        let user_id = "@txndedup:example.com";
+        let now = current_timestamp_millis();
+        // 三个夹具插入合并成一条 data-modifying CTE：SQLx 棘轮会把 #[cfg(test)]
+        // 内联模块里的动态调用也计入，合并可少增 2 处（见基线文件的同类登记）。
+        sqlx::query(
+            r#"WITH r AS (
+                   INSERT INTO rooms (room_id, creator, join_rules, room_version, is_public, history_visibility, created_ts, last_activity_ts)
+                   VALUES ($1, $2, 'invite', '10', false, 'joined', $3, $3) ON CONFLICT (room_id) DO NOTHING
+               ), u AS (
+                   INSERT INTO users (user_id, username, created_ts) VALUES ($2, 'txndedup', $3)
+                   ON CONFLICT (user_id) DO NOTHING
+               ), m AS (
+                   INSERT INTO room_memberships (room_id, user_id, membership) VALUES ($1, $2, 'join')
+                   ON CONFLICT (room_id, user_id) DO NOTHING
+               )
+               SELECT 1"#,
+        )
+        .bind(room_id)
+        .bind(user_id)
+        .bind(now)
+        .execute(&*pool)
+        .await
+        .expect("insert room/user/membership fixtures");
+
+        // 注入：只让**标记写入**失败，查重读取仍可用（否则会在 lookup 阶段就返回，
+        // 根本走不到"事件已提交、标记未写"的目标路径）。
+        // CHECK (false) NOT VALID 对既有行不校验、对**新插入行**强制校验 ⇒ INSERT 必失败。
+        sqlx::query("ALTER TABLE room_event_txn_dedup ADD CONSTRAINT injected_fail_insert CHECK (false) NOT VALID")
+            .execute(&*pool)
+            .await
+            .expect("inject dedup insert failure");
+
+        let result = container
+            .rooms
+            .room_service
+            .messaging()
+            .send_message_with_txn(room_id, user_id, "m.room.message", &serde_json::json!({"body": "hi"}), "txn-1")
+            .await;
+        let err = result.expect_err("去重标记写入失败必须返回错误");
+        assert!(
+            err.to_string().contains("record txn dedup marker"),
+            "必须是去重标记写入失败这条路径（事件已提交），实际错误 = {err}"
+        );
+        let visible: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM events WHERE room_id = $1 AND sender = $2 AND soft_failed = FALSE",
+        )
+        .bind(room_id)
+        .bind(user_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("count visible events");
+        assert_eq!(visible, 0, "去重标记失败后，刚创建的事件必须 soft-fail；否则客户端重试会产生可见重复事件");
     }
 }
