@@ -2,8 +2,9 @@
 """埋点可达性门禁：`ServerMetrics` 的埋点方法必须在生产代码里真的被调用。
 
 用法:
-    python3 scripts/ci/check_metric_instrumentation.py            # 校验
-    python3 scripts/ci/check_metric_instrumentation.py --update   # 收紧基线
+    python3 scripts/ci/check_metric_instrumentation.py                # 校验
+    python3 scripts/ci/check_metric_instrumentation.py --update       # 收紧基线
+    python3 scripts/ci/check_metric_instrumentation.py --print-ambiguous  # 只打印同名冲突集合
 
 背景（2026-09-22 实测的 P0 观测面缺陷）：
 - `ServerMetrics::record_http_request` / `record_db_query` / `record_federation_request`
@@ -63,6 +64,53 @@ EXCLUDED_NAMES = frozenset({"new", "get_collector", "get_summary"})
 TEST_DIR_SEGMENTS = ("tests", "benches", "test_mocks")
 TEST_FILE_SUFFIXES = ("_tests.rs", "_test.rs")
 TEST_FILE_NAMES = ("tests.rs", "test_utils.rs", "db_tests.rs", "test_exit_hook.rs")
+
+# ── 可移植正则（2026-09-22：修掉一次"macOS 假绿 / Linux 假红"） ────────────────
+#
+# `grep()` 走 `git grep -E`，那是各平台的 **POSIX ERE** 引擎，**不支持** PCRE 的
+# `\b` / `\s`，而且两个平台失败的方向相反：
+#   * macOS（git 自带 regex / BSD）：`\b` 不生效 ⇒ 定义扫描**静默零命中** ⇒
+#     同名冲突集合为空 ⇒ 本机"通过"（假绿：冲突检查其实从未生效）；
+#   * Linux（glibc）：两者都生效 ⇒ 连 `server_metrics.rs` 自己的 `pub fn X(` 都被
+#     当成"同名冲突" ⇒ 25 个埋点方法全部不可判定 ⇒ 已接通/未接通都是 0 ⇒
+#     棘轮的 stale 规则报 `FAIL 基线已过期`（假红）。
+# 本机对照（同一仓、同一命令）：
+#   git grep -n -E '\bfn\s+record_auth_attempt\s*[(<]' -- '*.rs'          # 无输出
+#   git grep -n -E 'fn[[:space:]]+record_auth_attempt[[:space:]]*[(<]'    # 命中 :360
+# 因此模式一律用 POSIX 字符类；守卫（tests/unit）钉住这里不得再出现 `\s` / `\b`。
+_POSIX_SPACE = "[[:space:]]"
+# 词边界用显式的"前一个字符不是标识符字符"表达（`\b` 不可移植）。
+_POSIX_WORD_START = "(^|[^[:alnum:]_])"
+
+
+def _fn_definition_pattern(names: Set[str], *, for_git_grep: bool) -> str:
+    """`fn <name>(` / `fn <name><` 的定义模式。
+
+    `for_git_grep=True` 产出 **POSIX ERE**（给 `git grep -E`）；
+    `False` 产出 Python `re` 语法。两者语义相同、**语法必须分开**：
+    Python 的 `re` 不认识 `[[:space:]]`（会当成嵌套集合并告警），
+    而 `git grep -E` 不认识 `\\s` / `\\b`（见上面的平台对照）。
+    """
+    space = _POSIX_SPACE if for_git_grep else r"\s"
+    word_start = _POSIX_WORD_START if for_git_grep else r"\b"
+    alternation = "|".join(sorted(map(re.escape, names)))
+    return f"{word_start}fn{space}+({alternation}){space}*[(<]"
+
+
+def _method_call_pattern(names: Set[str], *, for_git_grep: bool) -> str:
+    """`.<name>(` 的调用点模式（同样分 POSIX / Python 两种语法）。"""
+    space = _POSIX_SPACE if for_git_grep else r"\s"
+    alternation = "|".join(sorted(map(re.escape, names)))
+    return f"\\.{space}*({alternation}){space}*\\("
+
+
+def _is_definition_file(rel_path: str) -> bool:
+    """`synapse-common/src/server_metrics.rs`：埋点方法的**定义**，不是调用点。"""
+    try:
+        return (ROOT / rel_path).resolve() == SERVER_METRICS_SRC.resolve()
+    except OSError:  # pragma: no cover - resolve() 失败时按"不是定义文件"处理
+        return False
+
 
 # 基线里各条"已知未接通"的埋点为何仍未接通（打印时附上，避免有人误以为它是豁免）。
 BASELINE_REASONS = {
@@ -218,14 +266,20 @@ def extract_instrumentation_methods() -> List[str]:
 
 
 def find_ambiguous_names(names: Set[str]) -> Set[str]:
-    """找出在同仓其它类型上同名的函数，纯文本扫描无法安全判定这些名字。"""
-    pattern = r"\bfn\s+(" + "|".join(sorted(map(re.escape, names))) + r")\s*[(<]"
+    """找出在**其它类型**上同名的函数，纯文本扫描无法安全判定这些名字。
+
+    定义文件本身（`synapse-common/src/server_metrics.rs`）必须排除：它里面的
+    `pub fn X(` 是**被测对象自己的定义**，不是"另一个同名函数"。不排除时（2026-09-22
+    在 Linux 上实测）每个埋点方法都会被判为同名冲突 ⇒ 可判定 0 个 ⇒ 棘轮的 stale
+    规则把整份基线误报成"已过期"。
+    """
+    pattern = _fn_definition_pattern(names, for_git_grep=True)
     ambiguity: Dict[str, Set[str]] = {name: set() for name in names}
     for rel, _line_no, text in grep(pattern):
-        if is_test_path(rel):
+        if is_test_path(rel) or _is_definition_file(rel):
             continue
         for name in names:
-            if re.search(r"\bfn\s+" + re.escape(name) + r"\s*[(<]", text):
+            if re.search(_fn_definition_pattern({name}, for_git_grep=False), text):
                 ambiguity[name].add(rel)
     return {name for name, files in ambiguity.items() if files}
 
@@ -301,13 +355,15 @@ def find_production_call_sites(names: Set[str]) -> Tuple[Dict[str, List[str]], i
             "git ls-files returned 0 .rs files — the tree or the invocation is wrong"
         )
 
-    pattern = r"\.\s*(" + "|".join(sorted(map(re.escape, names))) + r")\s*\("
+    pattern = _method_call_pattern(names, for_git_grep=True)
     candidates: Dict[str, List[Tuple[str, int]]] = {name: [] for name in names}
     for rel, line_no, text in grep(pattern):
-        if is_test_path(rel):
+        # 定义文件既不是调用点来源（它的 `pub fn X(` 没有点号，本来也不会命中），
+        # 也与 `list_rust_files()` 的口径保持一致：定义文件不参与判定。
+        if is_test_path(rel) or _is_definition_file(rel):
             continue
         for name in names:
-            if re.search(r"\.\s*" + re.escape(name) + r"\s*\(", text):
+            if re.search(_method_call_pattern({name}, for_git_grep=False), text):
                 candidates[name].append((rel, line_no))
 
     # 只读取有候选命中的文件，判断该行是否落在 `#[cfg(test)]` 块内。
@@ -354,8 +410,80 @@ def write_baseline(unreachable: List[str], ambiguous: Set[str]) -> None:
     )
 
 
+def run_self_test() -> int:
+    """平台无关自证：**本机**的 `git grep` 引擎必须真的命中定义，且定义文件被排除。
+
+    这是那次"macOS 假绿 / Linux 假红"的回归测试：旧写法 `\bfn\s+…` 在 macOS 上
+    零命中（检查静默失效），在 Linux 上命中定义文件自己的 `pub fn`（全判冲突）。
+    四条断言：① POSIX 模式在本机命中定义；② Python 模式与它判断一致；
+    ③ 定义文件不算同名冲突；④ 真正跨类型重名仍被检出（正对照，防"修好①却关掉冲突检查"）。
+    """
+    failures: List[str] = []
+
+    hits = grep(_fn_definition_pattern({"record_auth_attempt"}, for_git_grep=True))
+    definition_hit = [text for rel, _line, text in hits if _is_definition_file(rel)]
+    if not definition_hit:
+        failures.append(
+            "POSIX 定义模式在本机 `git grep` 上未命中 server_metrics.rs —— "
+            "正则又变成平台相关了（旧写法 `\\bfn\\s+…` 在 macOS 上就是零命中）"
+        )
+
+    py_definition = re.compile(
+        _fn_definition_pattern({"record_auth_attempt"}, for_git_grep=False)
+    )
+    if definition_hit and not any(py_definition.search(text) for text in definition_hit):
+        failures.append("POSIX 与 Python 两种模式对同一行的判断不一致")
+
+    # ⑤ 模式形状：POSIX 分支里不得出现 `\s` / `\b`（Python 分支才用它们）。
+    #    这条与平台无关，因此无论本机是 macOS 还是 Linux 都能挡住回归 —— ① 在
+    #    Linux 上其实挡不住 `\b`（glibc 支持它），形状检查才是两条腿里稳的那条。
+    for label, pattern in (
+        ("定义", _fn_definition_pattern({"record_auth_attempt"}, for_git_grep=True)),
+        ("调用", _method_call_pattern({"record_auth_attempt"}, for_git_grep=True)),
+    ):
+        if "[[:space:]]" not in pattern or "\\s" in pattern or "\\b" in pattern:
+            failures.append(
+                f"POSIX {label}模式里出现了 PCRE 专有构造（git grep -E 不支持）: {pattern}"
+            )
+
+    if find_ambiguous_names({"record_auth_attempt"}):
+        failures.append(
+            "record_auth_attempt 被判为同名冲突 ⇒ 定义文件没有被排除"
+            "（它只在 ServerMetrics 上定义）"
+        )
+
+    # 正对照的 fixture：`record_failure` 在 synapse-cache 的 CircuitBreaker 与
+    # synapse-services 的 scheduler 上都有同名定义。若它将来消失，换一个"在其它类型上
+    # 也有同名定义"的方法即可（这条断言的作用是证明冲突检查本身没有被一起关掉）。
+    if not find_ambiguous_names({"record_failure"}):
+        failures.append(
+            "record_failure（circuit_breaker/scheduler 上同名）未被检出 ⇒ 同名冲突检查失效"
+        )
+
+    if failures:
+        print("FAIL self-test：")
+        for item in failures:
+            print(f"  - {item}")
+        return 1
+    print("OK self-test：POSIX 模式命中定义、定义文件被排除、跨类型重名仍被检出")
+    return 0
+
+
 def main() -> int:
     update = "--update" in sys.argv
+
+    # 两个机器接口都放在横幅之前：stdout 只放结果，守卫可直接断言。
+    if "--self-test" in sys.argv:
+        return run_self_test()
+    if "--print-ambiguous" in sys.argv:
+        try:
+            ambiguous_only = find_ambiguous_names(set(extract_instrumentation_methods()))
+        except GateError as exc:
+            print(f"::error::{exc}", file=sys.stderr)
+            return 2
+        for name in sorted(ambiguous_only):
+            print(name)
+        return 0
 
     print("-" * 35)
     print("埋点可达性门禁：ServerMetrics 埋点是否在生产路径上被调用")
