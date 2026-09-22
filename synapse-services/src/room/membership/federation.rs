@@ -187,7 +187,10 @@ impl MembershipService {
 
                 let redacts = state_event.get("redacts").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-                // Best-effort persistence — skip on error to avoid blocking the join.
+                // Fail closed: dropping `_tx` without committing rolls back the
+                // state events written so far, and membership is never claimed,
+                // so a persistence failure cannot leave the local event graph
+                // out of sync with the membership tables (B10c).
                 if let Err(e) = self
                     .event_writer
                     .create_event_with_graph(
@@ -213,6 +216,10 @@ impl MembershipService {
                         error = %e,
                         "Failed to persist federated state event during join"
                     );
+                    return Err(ApiError::internal_with_cause(
+                        "Failed to persist federated state event during join",
+                        e,
+                    ));
                 }
             }
         }
@@ -227,18 +234,9 @@ impl MembershipService {
         // Invalidate room-state cache after persisting federated state events.
         let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
 
-        // 6. Add the user as a joined member.
-        self.member_storage
-            .add_member(room_id, user_id, "join", None, None, None, None)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to add member after federation join", e))?;
-
-        self.room_storage
-            .increment_member_count(room_id)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to update member count after federation join", e))?;
-
-        // Persist the join event itself.
+        // Persist the join event itself **before** claiming membership, so that a
+        // persistence failure cannot leave membership tables (or the member
+        // count) claiming a join the event graph does not contain (B10c).
         let join_event_id = event_template.get("event_id").and_then(|v| v.as_str()).unwrap_or(&event_id).to_string();
 
         let join_sender = event_template.get("sender").and_then(|v| v.as_str()).unwrap_or(user_id).to_string();
@@ -266,10 +264,22 @@ impl MembershipService {
             .await
         {
             ::tracing::warn!(error = %e, "Failed to persist join event after federation join");
-        } else {
-            // Invalidate room-state cache after membership state change.
-            let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+            return Err(ApiError::internal_with_cause("Failed to persist join event after federation join", e));
         }
+
+        // Invalidate room-state cache after membership state change.
+        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+
+        // 6. Claim membership only once the event graph is durable.
+        self.member_storage
+            .add_member(room_id, user_id, "join", None, None, None, None)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to add member after federation join", e))?;
+
+        self.room_storage
+            .increment_member_count(room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to update member count after federation join", e))?;
 
         Ok(())
     }
@@ -322,25 +332,9 @@ impl MembershipService {
             ApiError::bad_request(format!("Remote server rejected send_leave: {e}"))
         })?;
 
-        // 4. Update local membership.
-        let existing_member = self
-            .member_storage
-            .get_room_member(room_id, user_id)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to check membership before federation leave", e))?;
-
-        self.member_storage
-            .remove_member(room_id, user_id, None)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to leave federated room", e))?;
-
-        if existing_member.as_ref().is_some_and(|member| member.membership == "join") {
-            self.room_storage.decrement_member_count(room_id, None).await.map_err(|e| {
-                ApiError::internal_with_cause("Failed to update member count after federation leave", e)
-            })?;
-        }
-
-        // Persist the leave event locally.
+        // Persist the leave event locally **before** mutating membership, so a
+        // persistence failure cannot leave membership tables claiming a leave
+        // the event graph does not contain (B10c).
         let leave_sender = event_template.get("sender").and_then(|v| v.as_str()).unwrap_or(user_id).to_string();
 
         let leave_content = event_template.get("content").cloned().unwrap_or(json!({ "membership": "leave" }));
@@ -366,9 +360,28 @@ impl MembershipService {
             .await
         {
             ::tracing::warn!(error = %e, "Failed to persist leave event after federation leave");
-        } else {
-            // Invalidate room-state cache after membership state change.
-            let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+            return Err(ApiError::internal_with_cause("Failed to persist leave event after federation leave", e));
+        }
+
+        // Invalidate room-state cache after membership state change.
+        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+
+        // 4. Update local membership.
+        let existing_member = self
+            .member_storage
+            .get_room_member(room_id, user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to check membership before federation leave", e))?;
+
+        self.member_storage
+            .remove_member(room_id, user_id, None)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to leave federated room", e))?;
+
+        if existing_member.as_ref().is_some_and(|member| member.membership == "join") {
+            self.room_storage.decrement_member_count(room_id, None).await.map_err(|e| {
+                ApiError::internal_with_cause("Failed to update member count after federation leave", e)
+            })?;
         }
 
         Ok(())
@@ -568,5 +581,142 @@ impl MembershipService {
         }
 
         Ok(signed_event)
+    }
+}
+
+#[cfg(test)]
+mod join_persistence_failure_tests {
+    use super::*;
+    use crate::room::membership::service::MembershipServiceConfig;
+    use crate::room::summary::RoomSummaryService;
+    use crate::test_mocks::{FakeInvitePolicyGate, FakeRoomAuth};
+    use crate::user_service::UserService;
+    use std::sync::Arc as StdArc;
+    use synapse_cache::{CacheConfig, CacheManager};
+    use synapse_federation::client::{MakeJoinResponse, SendJoinResponse};
+    use synapse_federation::key_rotation::KeyRotationManager;
+    use synapse_federation::test_mocks::MockFederationClient;
+    use synapse_storage::event::{EventReader, EventStorage, EventWriter};
+    use synapse_storage::room::RoomStorage;
+    use synapse_storage::test_mocks::room_summary::InMemoryRoomSummaryStore;
+    use synapse_storage::test_mocks::{FakeUserStore, InMemoryMemberStore};
+    use synapse_storage::{MemberStoreApi, RoomStoreApi, UserStore};
+
+    /// B10c：`join_room_via_federation` 的事件持久化失败当前只 `warn!` 后继续，
+    /// 于是成员表会被写成 join、而本地事件图里没有 `m.room.member` 事件（本地/远端分叉）。
+    /// 修复后：任一步持久化失败都必须 fail-closed，且**不得**先宣称成员关系。
+    #[tokio::test]
+    async fn join_fails_closed_without_claiming_membership_when_event_persistence_fails() {
+        let pool = match crate::test_utils::prepare_isolated_test_pool().await {
+            Ok(pool) => pool,
+            Err(error) => {
+                eprintln!("Skipping federation join persistence test, test database unavailable: {error}");
+                return;
+            }
+        };
+
+        let server = "test.example.com";
+        let destination = "remote.example.com";
+        let room_id = "!fedjoin:remote.example.com";
+        let user_id = "@joiner:test.example.com";
+        let now = current_timestamp_millis();
+
+        let event_storage = StdArc::new(EventStorage::new(&pool, server.to_string()));
+        let event_reader: StdArc<dyn EventReader> = event_storage.clone();
+        let event_writer: StdArc<dyn EventWriter> = event_storage;
+        // 用内存成员存储：本用例只让**事件持久化**失败，成员关系是否被宣称才是观测点。
+        // 真实成员表有 users 外键，会把无关的夹具缺失变成"错误"，使测试因错误原因通过。
+        let member_store = InMemoryMemberStore::new();
+        let member_storage: StdArc<dyn MemberStoreApi> = StdArc::new(member_store);
+        let room_storage: StdArc<dyn RoomStoreApi> = StdArc::new(RoomStorage::new(&pool));
+
+        // 测试环境显式允许明文签名密钥（生产默认拒绝，除非配置 master key）。
+        let key_manager = StdArc::new(KeyRotationManager::new(&pool, server).with_allow_plaintext_signing_keys(true));
+        key_manager.load_or_create_key().await.expect("create signing key");
+
+        let federation_client = StdArc::new(MockFederationClient::new(server));
+        federation_client
+            .seed_make_join(
+                room_id,
+                MakeJoinResponse {
+                    room_id: room_id.to_string(),
+                    room_version: Some("10".to_string()),
+                    event: serde_json::json!({
+                        "event_id": "$join:test.example.com",
+                        "room_id": room_id,
+                        "sender": user_id,
+                        "type": "m.room.member",
+                        "state_key": user_id,
+                        "origin_server_ts": now,
+                        "content": {"membership": "join"},
+                        "prev_events": [],
+                        "auth_events": [],
+                    }),
+                },
+            )
+            .await;
+        federation_client
+            .seed_send_join(
+                room_id,
+                SendJoinResponse {
+                    room_id: room_id.to_string(),
+                    origin: destination.to_string(),
+                    state: vec![serde_json::json!({
+                        "event_id": "$create:remote.example.com",
+                        "room_id": room_id,
+                        "sender": "@creator:remote.example.com",
+                        "type": "m.room.create",
+                        "state_key": "",
+                        "origin_server_ts": now,
+                        "content": {"creator": "@creator:remote.example.com", "room_version": "10"},
+                        "prev_events": [],
+                        "auth_events": [],
+                    })],
+                    auth_chain: vec![],
+                    event: None,
+                },
+            )
+            .await;
+
+        let user_storage: StdArc<dyn UserStore> = StdArc::new(FakeUserStore::new());
+        let user_service = StdArc::new(UserService::new(user_storage.clone()));
+        let room_summary_service = StdArc::new(RoomSummaryService::new(
+            StdArc::new(InMemoryRoomSummaryStore::new()),
+            event_reader.clone(),
+            Some(member_storage.clone()),
+        ));
+
+        let svc = MembershipService::new(MembershipServiceConfig {
+            member_storage: member_storage.clone(),
+            room_storage,
+            event_reader,
+            event_writer,
+            user_storage,
+            user_service,
+            room_auth: StdArc::new(FakeRoomAuth::new()),
+            server_name: server.to_string(),
+            federation_client: Some(federation_client),
+            key_rotation_manager: Some(key_manager),
+            event_broadcaster: None,
+            room_summary_service,
+            cache: StdArc::new(CacheManager::new(&CacheConfig::default())),
+            key_rotation_storage: None,
+            app_service_manager: None,
+            db_pool: Some(pool.as_ref().clone()),
+            policy_service: None,
+            invite_policy_gate: StdArc::new(FakeInvitePolicyGate::new()),
+        });
+
+        // 注入：events 写入必失败。CHECK (false) NOT VALID 只校验**新插入行**。
+        sqlx::query("ALTER TABLE events ADD CONSTRAINT injected_fail_event CHECK (false) NOT VALID")
+            .execute(&*pool)
+            .await
+            .expect("inject event write failure");
+
+        let result = svc.join_room_via_federation(destination, room_id, user_id).await;
+
+        assert!(result.is_err(), "事件持久化失败必须 fail-closed，不得静默返回 Ok(())");
+        let is_member = member_storage.is_member(room_id, user_id).await.expect("membership lookup");
+        assert!(!is_member, "事件未持久化时不得宣称用户已加入，否则本地成员表与事件图分叉");
     }
 }

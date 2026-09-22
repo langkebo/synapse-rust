@@ -192,7 +192,7 @@
       "query_params": []
     },
     {
-      "method": "POST",
+      "method": "GET",
       "path": "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events",
       "registered_by": "assembly::create_router",
       "path_params": [

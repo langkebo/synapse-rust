@@ -74,9 +74,11 @@ impl DehydratedDeviceStoreApi for InMemoryDehydratedDeviceStore {
         _device_id: &str,
         since_stream_id: i64,
         _limit: i64,
-    ) -> Result<(Vec<Value>, i64), sqlx::Error> {
-        // `to_device_messages` is not modelled in this mock; report no new events.
-        Ok((Vec::new(), since_stream_id))
+    ) -> Result<(Vec<Value>, Option<i64>), sqlx::Error> {
+        // `to_device_messages` is not modelled in this mock; report no new events
+        // (empty page ⇒ null cursor per MSC3814).
+        let _ = since_stream_id;
+        Ok((Vec::new(), None))
     }
 
     async fn claim_one_time_key(

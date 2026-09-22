@@ -394,3 +394,20 @@ fn test_top_level_inline_manifest_contributes_routes_to_default_profile() {
         assert!(paths.contains(*path), "top-level inline path missing from default manifest: {path}");
     }
 }
+
+/// B4：dehydrated device `/events` 必须是 **GET only**（MSC3814 / 上游 v1.157 #19896）。
+///
+/// 该端点原为 POST + body 游标；若回退，回归会在这里变红（而不是只在契约产物里）。
+#[test]
+fn dehydrated_device_events_route_is_get_only() {
+    use axum::http::Method;
+    use synapse_web::routes::declared_ledger_all;
+
+    let ledger = declared_ledger_all();
+    let entries: Vec<_> =
+        ledger.iter().filter(|entry| entry.path.ends_with("/dehydrated_device/{device_id}/events")).collect();
+
+    assert_eq!(entries.len(), 1, "该路径应恰好注册一次，实际 {entries:?}");
+    assert_eq!(entries[0].method, Method::GET, "必须是 GET（query 参数 next_batch/limit）");
+    assert_ne!(entries[0].method, Method::POST, "不得再注册 POST 形态");
+}

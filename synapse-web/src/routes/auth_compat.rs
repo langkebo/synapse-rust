@@ -452,6 +452,66 @@ pub(crate) async fn login(
         )));
     }
 
+    // ── m.login.application_service: Application Service impersonation ──
+    // The AS authenticates with its `as_token` and may only log in as a user
+    // inside one of its exclusive namespaces.  Deliberately NOT advertised in
+    // `/login` `flows` (upstream does not either).
+    if login_type == "m.login.application_service" {
+        let as_token = crate::routes::app_service::extract_as_token(&headers)?;
+        let service = ctx.app_service_manager.validate_token(&as_token).await?;
+
+        let user_id = body
+            .get("identifier")
+            .and_then(|identifier| identifier.get("user"))
+            .or_else(|| body.get("user"))
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| ApiError::bad_request("User required for m.login.application_service".to_string()))?;
+
+        if !ctx.app_service_manager.can_login_as(&service, user_id) {
+            return Err(ApiError::forbidden("Application service may not log in as this user".to_string()));
+        }
+
+        let user = ctx
+            .user_service
+            .get_user(user_id)
+            .await?
+            .ok_or_else(|| ApiError::forbidden("User not found".to_string()))?;
+        if user.is_deactivated {
+            return Err(ApiError::forbidden("User is deactivated".to_string()));
+        }
+
+        let device_id = body.get("device_id").and_then(|value| value.as_str()).unwrap_or("AS_LOGIN_DEVICE");
+
+        // The refresh token carries a FK to `devices(device_id)`, so an
+        // application-service login must materialise the device row before
+        // tokens are issued (the AS supplies a device_id, it does not go
+        // through the password/QR device flow).
+        if ctx.account_device_list_service.get_device(device_id).await?.is_none() {
+            ctx.account_device_list_service.create_device(device_id, user_id, None).await?;
+        }
+
+        let access_token = ctx
+            .token_auth
+            .generate_access_token(user_id, device_id, user.is_admin)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to generate access token", e))?;
+
+        let refresh_token = ctx
+            .token_auth
+            .generate_refresh_token(user_id, device_id, &access_token)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to generate refresh token", e))?;
+
+        return Ok(Json(format_token_response(
+            &access_token,
+            &refresh_token,
+            ctx.token_auth.token_expiry(),
+            device_id,
+            user_id,
+            &ctx.config.server.get_public_baseurl(),
+        )));
+    }
+
     // ── m.login.password (default) ──
     let username = body
         .get("identifier")

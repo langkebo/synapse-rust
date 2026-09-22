@@ -742,3 +742,140 @@ async fn test_appservice_query_requires_as_token() {
     let response = app.clone().oneshot(cross_as).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN, "a token must not describe another application service");
 }
+
+/// B13: `m.login.application_service` — App Service 用 `as_token` 冒充其**排他**
+/// 命名空间内的本地用户；命名空间外的用户必须被拒；无效 as_token 必须 401。
+#[tokio::test]
+async fn test_appservice_login_impersonates_exclusive_namespace_user() {
+    let Some(app) = setup_fresh_test_app().await else {
+        return;
+    };
+    let (admin_token, _) = get_admin_token(&app).await;
+
+    let suffix = rand::random::<u32>();
+    let username = format!("aslogin{suffix}");
+    let user_id = format!("@{username}:localhost");
+    let as_token = format!("as_login_token_{suffix}");
+    let as_id = format!("test_as_login_{suffix}");
+
+    // 1. 注册带**排他** users 命名空间的 AS
+    let register_request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/appservices")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {admin_token}"))
+        .body(Body::from(
+            json!({
+                "id": as_id,
+                "url": "http://localhost:8080",
+                "as_token": as_token,
+                "hs_token": format!("hs_login_{suffix}"),
+                "sender_localpart": format!("botlogin{suffix}"),
+                "namespaces": {
+                    "users": [{"regex": format!("^@{username}:localhost$"), "exclusive": true}],
+                    "aliases": [],
+                    "rooms": []
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = app.clone().oneshot(register_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED, "AppService 注册应成功");
+
+    // 2. 创建命名空间内的用户
+    let register_user = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "username": username,
+                "password": "AsLoginPass123!",
+                "auth": {"type": "m.login.dummy"}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let register_user_response = app.clone().oneshot(register_user).await.unwrap();
+    if register_user_response.status() != StatusCode::OK {
+        eprintln!("Skipping AS login test: user registration disabled in this config");
+        return;
+    }
+
+    // 3. AS 登录其命名空间内的用户 → 200 + 令牌
+    let login_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/login")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {as_token}"))
+        .body(Body::from(
+            json!({
+                "type": "m.login.application_service",
+                "identifier": {"type": "m.id.user", "user": user_id},
+                "device_id": "ASDEV"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let login_response = app.clone().oneshot(login_request).await.unwrap();
+    let login_status = login_response.status();
+    let body = axum::body::to_bytes(login_response.into_body(), 8192).await.unwrap();
+    if login_status != StatusCode::OK {
+        panic!("命名空间内的 AS 登录应成功，实际 {login_status}，body={}", String::from_utf8_lossy(&body));
+    }
+    let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(value["user_id"].as_str(), Some(user_id.as_str()));
+    assert_eq!(value["device_id"].as_str(), Some("ASDEV"));
+    assert!(value["access_token"].as_str().is_some_and(|token| !token.is_empty()), "必须返回 access_token: {value}");
+
+    // 4. 命名空间外的用户 → 403
+    let outsider = format!("@outsider{suffix}:localhost");
+    let register_outsider = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "username": format!("outsider{suffix}"),
+                "password": "AsLoginPass123!",
+                "auth": {"type": "m.login.dummy"}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let _ = app.clone().oneshot(register_outsider).await.unwrap();
+
+    let login_outsider = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/login")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {as_token}"))
+        .body(Body::from(
+            json!({
+                "type": "m.login.application_service",
+                "identifier": {"type": "m.id.user", "user": outsider}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let outsider_response = app.clone().oneshot(login_outsider).await.unwrap();
+    assert_eq!(outsider_response.status(), StatusCode::FORBIDDEN, "AS 不得冒充命名空间外的用户");
+
+    // 5. 无效 as_token → 401
+    let bad_token_login = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/login")
+        .header("Content-Type", "application/json")
+        .header("Authorization", "Bearer definitely-not-a-valid-as-token")
+        .body(Body::from(
+            json!({
+                "type": "m.login.application_service",
+                "identifier": {"type": "m.id.user", "user": user_id}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let bad_token_response = app.clone().oneshot(bad_token_login).await.unwrap();
+    assert_eq!(bad_token_response.status(), StatusCode::UNAUTHORIZED);
+}

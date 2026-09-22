@@ -107,7 +107,7 @@
 # 历史对照：2026-06-03 审计记录动态占比 99.6%（含测试代码口径）；
 # 本基线口径（仅 workspace 生产目录，含内联测试模块）为 95.90%。
 
-BASELINE_DYNAMIC=2150
+BASELINE_DYNAMIC=2151
 BASELINE_STATIC=61
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
@@ -282,3 +282,19 @@ BASELINE_STATIC=61
 # 收紧方向：若 ServiceContainer 暴露"建房间/加成员"的生产 API 或可注入的 EventWriter
 # 测试替身（B10c 也需要后者），夹具可改为调用生产 API，本文件可回收 1-2 处；
 # 故障注入那处在其存在期间无法回收。
+
+# ── 2026-09-22 基线调整（+1，2150 → 2151）────────────────────────────────
+#
+# 来源：B10c 修复的 DB 测试 `synapse-services/src/room/membership/federation.rs`
+# `join_persistence_failure_tests::join_fails_closed_without_claiming_membership_when_event_persistence_fails`。
+# 唯一新增点是故障注入：
+#   `ALTER TABLE events ADD CONSTRAINT injected_fail_event CHECK (false) NOT VALID`
+# 它必须只让 **events 写入**失败，而让 make_join/send_join/成员存储照常工作——
+# 否则测试会因"更早的错误"而通过（本轮已实测踩到两次：先用 DROP TABLE 打掉了查重
+# 读取；后因缺少 users 行触发 room_memberships 外键，均属"因错误原因通过"）。
+# DDL 无法用 `query!` 静态化，且 `#[cfg(test)]` 内的宏不进 `cargo sqlx prepare` 缓存
+# （见本文件既有登记）。夹具其余部分全部走生产 API：MockFederationClient +
+# KeyRotationManager + EventStorage，仅成员存储用内存替身（避免 users 外键噪声）。
+#
+# 收紧方向：若后续提供"注入存储层失败"的测试替身（EventWriter fault injection），
+# 可去掉该 DDL，届时回收 1 处。

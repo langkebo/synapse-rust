@@ -111,14 +111,15 @@ pub async fn delete_dehydrated_device(
 /// underlying `to_device_messages` table, returning the cursor as a string in
 /// `next_batch`. When the cursor stops advancing the queue is empty and the
 /// client is expected to `DELETE` the dehydrated device.
-pub async fn post_dehydrated_device_events(
+pub async fn get_dehydrated_device_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(device_id): Path<DeviceId>,
     Query(query): Query<serde_json::Value>,
-    Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let next_batch = body.get("next_batch").and_then(|v| v.as_str());
+    // MSC3814 / upstream v1.157 #19896: GET with both parameters as query
+    // parameters (`next_batch`, `limit`), not in a JSON body.
+    let next_batch = query.get("next_batch").and_then(|v| v.as_str());
     let limit = query.get("limit").and_then(|v| v.as_i64()).unwrap_or(100);
     let response =
         ctx.dehydrated_device_service.claim_events(&auth_user.user_id, device_id.as_str(), next_batch, limit).await?;

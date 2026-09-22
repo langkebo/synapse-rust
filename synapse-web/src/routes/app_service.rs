@@ -244,7 +244,7 @@ fn app_service_state_json(state_entry: &ApplicationServiceState) -> Json<serde_j
     }))
 }
 
-fn extract_as_token(headers: &HeaderMap) -> Result<String, ApiError> {
+pub(crate) fn extract_as_token(headers: &HeaderMap) -> Result<String, ApiError> {
     headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())

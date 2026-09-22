@@ -139,7 +139,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(
-            axum::http::Method::POST,
+            axum::http::Method::GET,
             "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events",
             "assembly::create_router",
         );

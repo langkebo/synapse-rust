@@ -161,9 +161,15 @@ impl DehydratedDeviceService {
                 ApiError::internal_with_cause("Failed to fetch to-device events for dehydrated device", e)
             })?;
 
+        // MSC3814: `next_batch` is null when no further events can be found.
+        let next_batch = match max_stream_id {
+            Some(stream_id) => Value::String(stream_id.to_string()),
+            None => Value::Null,
+        };
+
         Ok(serde_json::json!({
             "events": events,
-            "next_batch": max_stream_id.to_string(),
+            "next_batch": next_batch,
         }))
     }
 
