@@ -519,7 +519,27 @@ derived route 表（always/worker/oidc + `derived_routes.rs`）、6 个 ledger f
 | `synapse-web` verification 路由 | **14 passed** |
 | OIDC 相关单测 | **5 passed**（含新增 fail-closed） |
 
-### 13.4 残留（可选清理，未在本轮做）
+### 13.4 验证方法学发现：共享 CARGO_TARGET_DIR 会跨 worktree 复用测试二进制
+
+本轮用一个 `CARGO_TARGET_DIR` 指向主工作树以复用依赖缓存，结果 `--test unit` 里出现一个与改动无关的失败：
+
+```
+FAIL synapse-rust::unit ts_order_tiebreak_tests::timestamp_ordering_tiebreak_ratchet_passes_on_current_tree
+  执行：python3 scripts/ci/check_ts_order_tiebreak.py --update
+  synapse-storage/src/voice.rs: 4 -> 0   （等 19 个文件计数下降）
+```
+
+**根因已证实**：该测试用 `env!("CARGO_MANIFEST_DIR")` 作为 `current_dir` 去跑检查脚本，而共享 target 目录里
+`unit-*` 二进制是**另一工作树**编译出来的（`strings` 显示其内嵌路径为 `/Users/ljf/Desktop/hu_ts/synapse-rust`），
+于是它扫描了那棵树（76 处）而不是本树（103 处）。两棵工作树用相同 feature 编译同一测试目标时会产生**相同
+artifact hash**，互相覆盖 —— cargo 的 freshness 校验只看源文件，不区分 manifest 目录。
+
+**影响与建议**：
+- 用共享 target 目录跑出的"绿"未必是本树代码的结果；**跨 worktree 验证必须用独立 target 目录**（本轮最终门禁已改用 `/tmp/phase3-target` 重跑）。
+- 该测试的 `repo_root()` 依赖编译期路径，本质上无法在多 worktree 场景下自证；若要让它在共享 target 下也可信，
+  应改为运行时定位（如从 `CARGO_TARGET_DIR` 反推不可靠，需显式传入仓库根）。
+
+### 13.5 残留（可选清理，未在本轮做）
 
 - `migrations/00000000_unified_schema_v12.sql` 的 `leak_alerts` 表（+ 3 索引、`INDEXES.md` 行）随模块删除后已无写入方；删表需动合并基线，属独立清理项。
 - `verification_qr` 表与 `QrState`/`store_qr_state` 在 QR 明确不支持后同样失去写入方。
