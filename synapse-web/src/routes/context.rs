@@ -436,6 +436,8 @@ pub struct AuthContext {
     pub rendezvous_service: Arc<synapse_services::rendezvous_service::RendezvousService>,
     /// The `login_token_service` field.
     pub login_token_service: Arc<synapse_services::login_token_service::LoginTokenService>,
+    /// The `app_service_manager` field — used by `m.login.application_service`.
+    pub app_service_manager: Arc<synapse_services::application_service::ApplicationServiceManager>,
 }
 
 impl FromRef<AppState> for AuthContext {
@@ -464,6 +466,7 @@ impl FromRef<AppState> for AuthContext {
             builtin_oidc_provider: state.services.sso.builtin_oidc_provider.clone(),
             rendezvous_service: state.services.admin.modules.rendezvous_service.clone(),
             login_token_service: state.services.admin.modules.login_token_service.clone(),
+            app_service_manager: state.services.admin.modules.app_service_manager.clone(),
         }
     }
 }

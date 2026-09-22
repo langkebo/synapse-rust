@@ -334,6 +334,16 @@ impl ApplicationServiceManager {
             .map_err(|e| ApiError::internal_with_cause("Failed to query user namespace", e))
     }
 
+    /// Login gate for `m.login.application_service`.
+    ///
+    /// The target must be a **local** user id and fall inside one of the
+    /// service's *exclusive* `users` namespaces — an application service may
+    /// only impersonate users it owns (MSC4190 / long-standing AS login).
+    pub fn can_login_as(&self, service: &ApplicationService, user_id: &str) -> bool {
+        Self::is_local_user_id(user_id, &self.server_name)
+            && Self::namespace_matches(&service.namespaces, "users", user_id, true)
+    }
+
     /// See [`query_room_alias`].
     #[instrument(skip(self))]
     pub async fn query_room_alias(&self, alias: &str) -> Result<Option<String>, ApiError> {
