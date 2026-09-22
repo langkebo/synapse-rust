@@ -883,26 +883,34 @@ jobs:
             echo "::error::pending insta snapshots left by this run:"; echo "${untracked}"; exit 1
           fi
 
-      # 2026-09-21 修复（run 35580479156 第一次真正执行到本步骤时暴露）：
-      #   error: target `performance_manual` in package `synapse-rust` requires the
-      #          features: `performance-tests`, `test-utils`
-      # `Cargo.toml:309` 的 `[[test]] performance_manual` 声明了**两个** required-features，
-      # 而这里只传了 `performance-tests` ⇒ cargo 在编译前就拒绝。同型缺陷在本会话已出现多次：
-      # 排在其它红之后的步骤从未执行过，一上电就报自己的配置错。
-      # 守卫：`tests/unit/ci_test_scope_tests.rs::performance_smoke_step_declares_required_features`。
+      # 2026-09-21 两次修复（这条步骤此前从未执行过，一上电连爆两个自己的配置错）：
+      #   ① run 35580479156：`error: target performance_manual … requires the features:
+      #      performance-tests, test-utils` —— `Cargo.toml:309` 声明了**两个**
+      #      required-features，而这里只传了一个；
+      #   ② run 35599998883：补上 feature 后测试真的跑起来了，但 `--ignored` 选中的 4 条
+      #      **手工负载冒烟**全部自带"结果依赖机器负载，在 CI 上会假失败"的 ignore 说明
+      #      （`manual_smoke_tests::sliding_sync_poc_load_smoke` /
+      #      `beacon_hot_room_backpressure_load_smoke` /
+      #      `appservice_scheduler_perf_tests::*_load_smoke`），实测 2 passed / 2 failed、
+      #      耗时 172s。它们的设计意图就是**显式手工运行**（ignore 文案里给了命令）。
+      # 因此本步骤改为跑该目标里**未被 ignore 的 16 条确定性性能测试**（本地实测
+      # `16 passed; 0 failed; 4 ignored; finished in 5.09s`），不再用 `--ignored` 拉进
+      # 那些按设计在 CI 上必然假失败的负载冒烟。
+      # 另：`RUN_PERF_SMOKE` 全仓无任何消费者（`git grep RUN_PERF_SMOKE` 为空），按铁律 1 一并删除。
+      # 守卫：`performance_smoke_step_declares_required_features`（feature 齐全）+
+      # `performance_smoke_step_excludes_manual_load_tests`（不得带 `--ignored`）。
       - name: Run performance smoke gate
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
           TEST_DB_TEMPLATE_SCHEMA: test_template_ci
           REDIS_URL: redis://localhost:6379
-          RUN_PERF_SMOKE: 1
           PERF_SMOKE_LOG: artifacts/perf_smoke.log
         run: |
           # `2>&1 | tee` 掩盖退出码（bash 默认无 pipefail）。
           set -o pipefail
           mkdir -p artifacts
-          cargo test --test performance_manual --features performance-tests,test-utils --locked -- --ignored --nocapture 2>&1 | tee artifacts/perf_smoke.log
+          cargo test --test performance_manual --features performance-tests,test-utils --locked -- --nocapture 2>&1 | tee artifacts/perf_smoke.log
 
       - name: Upload performance smoke log
         if: always()

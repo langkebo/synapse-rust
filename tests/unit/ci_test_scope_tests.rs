@@ -1108,3 +1108,59 @@ fn every_db_test_binary_registers_the_exit_drain() {
          请复核后更新本断言：\n{all_unsafe}"
     );
 }
+
+/// perf smoke 步骤**不得**带 `--ignored`：该目标里被 ignore 的 4 条全是**手工负载冒烟**，
+/// 它们自己的 ignore 文案就写着"结果依赖机器负载，在 CI 上会假失败"。
+///
+/// run `35599998883`（`b4774dd5`）在补上 required-features 之后第一次真跑：`--ignored` 把 4 条
+/// 手工冒烟全选中 ⇒ `2 passed; 2 failed`（172s），失败是
+/// `manual_smoke_tests::{sliding_sync_poc_load_smoke, beacon_hot_room_backpressure_load_smoke}`
+/// 的 `unexpected non-429 failures`（200 / 40 个非 429 响应）—— 与它们的 ignore 说明完全一致：
+/// 按墙钟/机器负载断言，在 CI 上必然假失败。因此改为只跑该目标里**未被 ignore 的 16 条确定性
+/// 性能测试**（本地实测 `16 passed; 0 failed; 4 ignored; finished in 5.09s`）。
+///
+/// 本守卫同时校验**前提仍然成立**：那 4 条手工冒烟仍然是 `#[ignore]` 且 ignore 文案仍写明
+/// "在 CI 上会假失败"。若有人把它们改成非 ignore（前提变了），这条守卫会提醒重新审视。
+///
+/// **红证明**：把 `--ignored` 加回该步骤 → FAILED；把 `manual_smoke_tests` 里某条的
+/// `#[ignore]` 去掉 → FAILED（前提不再成立）。
+#[test]
+fn performance_smoke_step_excludes_manual_load_tests() {
+    let root = repo_root();
+    let ci = fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("read ci.yml");
+    let step = ci
+        .split("- name: ")
+        .find(|s| s.starts_with("Run performance smoke gate"))
+        .expect("ci.yml 必须有 `Run performance smoke gate` 步骤");
+    // 只看命令行本身：步骤注释里会提到 `--ignored`（解释为什么不用它），不能把注释当违规。
+    let run = step
+        .lines()
+        .find(|l| l.trim_start().starts_with("cargo test --test performance_manual"))
+        .expect("该步骤必须跑 `cargo test --test performance_manual`");
+    assert!(
+        !run.contains("--ignored"),
+        "perf smoke 步骤不得带 `--ignored`：那会选中 4 条按设计在 CI 上假失败的手工负载冒烟\
+         （run 35599998883 实测 2 passed / 2 failed）。实际命令：{run}"
+    );
+    assert!(
+        run.contains("--test performance_manual") && run.contains("--features"),
+        "perf smoke 步骤必须仍然跑 performance_manual 目标并传 features：{run}"
+    );
+
+    // 前提校验：手工冒烟仍然是 `#[ignore]` 且说明"在 CI 上会假失败"。
+    let manual = fs::read_to_string(root.join("tests/performance/manual_smoke_tests.rs"))
+        .expect("read tests/performance/manual_smoke_tests.rs");
+    for name in ["sliding_sync_poc_load_smoke", "beacon_hot_room_backpressure_load_smoke"] {
+        let idx = manual
+            .find(&format!("async fn {name}"))
+            .unwrap_or_else(|| panic!("`{name}` 必须仍然存在（本守卫的前提：它是被 ignore 的手工冒烟）"));
+        let before = &manual[..idx];
+        let attr_at = before
+            .rfind("#[ignore")
+            .unwrap_or_else(|| panic!("`{name}` 必须仍然是 `#[ignore]`（否则 `--ignored` 的排除理由不再成立）"));
+        assert!(
+            before[attr_at..].contains("CI 上会假失败"),
+            "`{name}` 的 ignore 文案应继续写明「在 CI 上会假失败」——本守卫靠它判断该测试属于手工冒烟"
+        );
+    }
+}
