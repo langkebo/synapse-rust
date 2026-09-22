@@ -124,6 +124,7 @@ clokep
 cloner
 cmd
 codebase
+codecov
 codegen
 codemod
 codereviewexpert
@@ -201,6 +202,7 @@ dockerfile
 dockerignore
 docstring
 doctest
+dod
 dos
 dsl
 dto
@@ -269,6 +271,7 @@ ghcr
 gitignore
 gitignored
 gitleaks
+glibc
 glm
 grafana
 gstack
@@ -473,6 +476,7 @@ parameterised
 params
 pastey
 pbkdf
+pcre
 pdu
 pem
 perf
@@ -487,6 +491,7 @@ plaintext
 pluggable
 pooltimedout
 pos
+posix
 postgres
 postgresql
 powerset
@@ -714,10 +719,12 @@ toctou
 todevicemanager
 todo
 tokenauth
+tokenless
 tokio
 toml
 toolchain
 totp
+toybox
 traceback
 tracecontext
 tracemalloc
@@ -746,6 +753,7 @@ ubuntu
 ui
 uia
 uiaservice
+uid
 uk
 ula
 unban
@@ -777,6 +785,7 @@ ux
 validator
 validators
 varchar
+vcpu
 vec
 vendored
 vitest
@@ -801,6 +810,7 @@ wip
 wiremock
 withretry
 wkwebview
+workbuddy
 workerbus
 workermanager
 worktree
