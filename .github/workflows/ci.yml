@@ -381,6 +381,22 @@ jobs:
           python3 scripts/ci/check_metric_instrumentation.py
           echo "Observability: metric instrumentation reachability audit passed"
 
+      # 面板指标名可达性: Grafana 面板引用的每个指标名必须在三处之一能查到
+      # (Rust register_* 注册点 / Prometheus 录制规则 / 显式外部白名单)。
+      # 为什么需要: 面板引用不存在的名字时**没有任何门禁会红** —— 它只会在 Grafana
+      # 里安静地显示 "No data"; 更糟的是整批改名后标题与表达式语义错位,
+      # 于是显示一个自信的错数字(实测: '活跃用户数' 挂 pool_utilization、
+      # '消息发送速率' 挂 federation_signature_verify_total)。
+      # 本门禁同时拦 `{dashboard, meta}` API 导出信封 —— 那种形态会让
+      # Grafana 文件 provisioning 整体失败("Dashboard title cannot be empty"),
+      # 7 个面板一个都加载不出来(2026-09-22 实测)。
+      # 历史欠账记在 scripts/ci/dashboard_metrics_baseline(棘轮, 只减不增)。
+      - name: Check dashboard metric reachability
+        if: matrix.features-args == ''
+        run: |
+          python3 scripts/ci/check_dashboard_metrics.py
+          echo "Observability: dashboard metric reachability audit passed"
+
       - name: Install cargo-nextest
         if: matrix.features-args == '--all-features'
         uses: taiki-e/install-action@v2
@@ -1261,9 +1277,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup k6
-        run: |
-          curl https://github.com/grafana/k6/releases/download/v0.47.0/k6-v0.47.0-linux-amd64.tar.gz -L | tar xvz
-          sudo mv k6-*/k6 /usr/local/bin/
+        uses: grafana/k6-action@v0.3.0
+        with:
+          version: 0.47.0
 
       - name: Run smoke test
         run: bash scripts/test/perf/run_tests.sh smoke
@@ -1272,7 +1288,7 @@ jobs:
           RESULTS_DIR: artifacts/k6-smoke
 
       - name: Evaluate guardrails
-        run: python3 scripts/test/perf/guardrail.py --results-dir artifacts/k6-smoke --scenario smoke --fail-on-breach
+        run: python3 scripts/test/perf/guardrail.py --results-dir artifacts/k6-smoke --scenarios smoke --fail-on-breach
 
       - name: Upload k6 smoke results
         if: always()

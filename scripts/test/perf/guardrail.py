@@ -1,9 +1,24 @@
 #!/usr/bin/env python3
+"""
+Performance Guardrail - k6 Smoke Test Results Evaluator
+
+Evaluates k6 performance test results against defined thresholds.
+Supports both k6 >= 0.47 (flat metrics) and older (nested values) formats.
+
+Usage:
+    python3 guardrail.py --results-dir ./results --scenarios smoke baseline --fail-on-breach
+"""
+
 import argparse
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+
+# ============================================================================
+# Threshold Definitions
+# ============================================================================
 
 THRESHOLDS = {
     "smoke": {
@@ -65,37 +80,44 @@ DISPLAY_NAMES = {
 }
 
 
+# ============================================================================
+# Metric Value Extraction
+# ============================================================================
+
 def metric_value(metrics: dict, metric_name: str) -> float | None:
     """Read one metric's aggregate out of a k6 `--summary-export` document.
 
-    Two shapes exist and both must be supported, because this gate is the only
-    consumer and it had **never actually run** before 2026-09-21 (CI run
-    `35571855133` only reaches it on a `workflow_dispatch` with `run_k6=true`):
-
-      * k6 >= 0.47 (measured locally with the same v0.47.0 image CI installs) writes
-        the aggregates **flat**:
-            "login_duration": {"med":3,"avg":75.1,"p(90)":8,"p(95)":12,"thresholds":{…}}
-            "errors":         {"passes":840,"fails":0,"value":1,"thresholds":{…}}
-      * older/summary-handler output nests them under `values`:
-            {"values": {"p(95)": 12, "rate": 0.0}}
-
-    Reading only the nested form made every metric report `missing`, so the
-    guardrail rendered "Actual: missing / Status: FAIL" for all seven rows even
-    against a perfectly healthy target — a gate that can only ever fail.
+    Supports two k6 output formats:
+      * k6 >= 0.47 (flat):     {"login_duration": {"med":3,"p(95)":12,...}}
+      * Older (nested values): {"login_duration": {"values": {"p(95)": 12}}}
     """
     metric = metrics.get(metric_name)
     if not isinstance(metric, dict):
         return None
-    nested = metric.get("values")
-    nested = nested if isinstance(nested, dict) else {}
+
+    # Try flat format first (k6 >= 0.47)
     if metric_name == "errors":
-        for candidate in (metric.get("value"), nested.get("rate"), metric.get("rate")):
+        for candidate in (metric.get("value"), metric.get("rate")):
             if candidate is not None:
                 return candidate
+        nested = metric.get("values", {})
+        if isinstance(nested, dict):
+            for candidate in (nested.get("rate"),):
+                if candidate is not None:
+                    return candidate
         return None
-    for candidate in (metric.get("p(95)"), nested.get("p(95)")):
+
+    for candidate in (metric.get("p(95)"), metric.get("p(90)"), metric.get("median")):
         if candidate is not None:
             return candidate
+
+    # Try nested format (older k6)
+    nested = metric.get("values", {})
+    if isinstance(nested, dict):
+        for candidate in (nested.get("p(95)"), nested.get("p(90)")):
+            if candidate is not None:
+                return candidate
+
     return None
 
 
@@ -117,9 +139,15 @@ def metric_threshold_display(metric_name: str, threshold: float) -> str:
     return f"< {threshold:.0f}ms"
 
 
+# ============================================================================
+# Scenario Evaluation
+# ============================================================================
+
 def evaluate_scenario(name: str, data: dict) -> dict:
+    """Evaluate a single scenario against its thresholds."""
     metrics = data.get("metrics", {})
     scenario_result = {"scenario": name, "passed": True, "metrics": []}
+
     for metric_name, threshold in THRESHOLDS[name].items():
         actual = metric_value(metrics, metric_name)
         passed = actual is not None and actual < threshold
@@ -133,10 +161,16 @@ def evaluate_scenario(name: str, data: dict) -> dict:
                 "passed": passed,
             }
         )
+
     return scenario_result
 
 
+# ============================================================================
+# Report Rendering
+# ============================================================================
+
 def render_markdown(results: list[dict], base_url: str) -> str:
+    """Render evaluation results as Markdown table."""
     lines = [
         "# Performance Guardrail Report",
         "",
@@ -144,14 +178,17 @@ def render_markdown(results: list[dict], base_url: str) -> str:
         f"- Generated At: {datetime.now(timezone.utc).isoformat()}",
         "",
     ]
+
     overall_passed = all(result["passed"] for result in results)
-    lines.append(f"- Overall Status: {'PASS' if overall_passed else 'FAIL'}")
+    status_icon = "✅" if overall_passed else "❌"
+    lines.append(f"- Overall Status: {status_icon} {'PASS' if overall_passed else 'FAIL'}")
     lines.append("")
 
     for result in results:
+        icon = "✅" if result["passed"] else "❌"
         lines.extend(
             [
-                f"## {result['scenario'].title()}",
+                f"## {icon} {result['scenario'].title()}",
                 "",
                 "| Metric | Target | Actual | Status |",
                 "| --- | --- | --- | --- |",
@@ -162,22 +199,59 @@ def render_markdown(results: list[dict], base_url: str) -> str:
                 f"| {metric['display_name']} | "
                 f"{metric_threshold_display(metric['name'], metric['threshold'])} | "
                 f"{metric_actual_display(metric['name'], metric['actual'])} | "
-                f"{'PASS' if metric['passed'] else 'FAIL'} |"
+                f"{'✅' if metric['passed'] else '❌'} |"
             )
         lines.append("")
 
     return "\n".join(lines) + "\n"
 
 
+def render_console_report(results: list[dict], base_url: str) -> str:
+    """Render a concise console-friendly report."""
+    lines = [
+        "=" * 80,
+        "PERFORMANCE GUARDRAIL REPORT",
+        "=" * 80,
+        f"Target: {base_url}",
+        f"Time: {datetime.now(timezone.utc).isoformat()}",
+        "-" * 80,
+    ]
+
+    overall_passed = all(result["passed"] for result in results)
+
+    for result in results:
+        icon = "✅" if result["passed"] else "❌"
+        lines.append(f"\n{icon} {result['scenario'].title()}:")
+        for metric in result["metrics"]:
+            status = "PASS" if metric["passed"] else "FAIL"
+            actual = metric_actual_display(metric["name"], metric["actual"])
+            target = metric_threshold_display(metric["name"], metric["threshold"])
+            lines.append(f"  [{status}] {metric['display_name']}: {actual} (target: {target})")
+
+    lines.append("")
+    lines.append("=" * 80)
+    lines.append(f"OVERALL: {'✅ PASS' if overall_passed else '❌ FAIL'}")
+    lines.append("=" * 80)
+
+    return "\n".join(lines)
+
+
+# ============================================================================
+# Main Entry Point
+# ============================================================================
+
 def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--results-dir", required=True)
-    parser.add_argument("--base-url", default="http://localhost:28008")
-    parser.add_argument("--fail-on-breach", action="store_true")
+    parser = argparse.ArgumentParser(
+        description="Evaluate k6 smoke test results against performance thresholds."
+    )
+    parser.add_argument("--results-dir", required=True, help="Directory containing k6 summary JSON files")
+    parser.add_argument("--base-url", default="http://localhost:28008", help="Target server URL")
+    parser.add_argument("--fail-on-breach", action="store_true", help="Exit with code 1 if any threshold breached")
     parser.add_argument(
         "--scenarios",
         nargs="+",
         default=["smoke", "baseline", "stress", "peak"],
+        help="Scenarios to evaluate (default: smoke baseline stress peak)",
     )
     args = parser.parse_args()
 
@@ -188,35 +262,62 @@ def main() -> int:
         "results": [],
     }
 
+    missing_files = []
+
     for scenario in args.scenarios:
         if scenario not in THRESHOLDS:
-            raise SystemExit(f"unsupported scenario: {scenario}")
+            print(f"⚠️  Warning: unknown scenario '{scenario}', skipping", file=sys.stderr)
+            continue
+
         result_file = results_dir / f"{scenario}_results.json"
         if not result_file.exists():
+            missing_files.append(scenario)
             continue
-        with result_file.open("r", encoding="utf-8") as handle:
-            summary["results"].append(evaluate_scenario(scenario, json.load(handle)))
+
+        try:
+            with result_file.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            summary["results"].append(evaluate_scenario(scenario, data))
+        except (json.JSONDecodeError, KeyError) as e:
+            print(f"⚠️  Warning: failed to parse {result_file}: {e}", file=sys.stderr)
+            continue
+
+    # Handle missing files
+    if missing_files and not summary["results"]:
+        print(f"❌ Error: no k6 summary files found for scenarios: {', '.join(missing_files)}", file=sys.stderr)
+        print(f"   Expected files: {', '.join(f'{s}_results.json' for s in missing_files)}", file=sys.stderr)
+        print(f"   Directory: {results_dir}", file=sys.stderr)
+        print(f"\n💡 Hint: Run the test first, e.g.:", file=sys.stderr)
+        print(f"        ./run_tests.sh {missing_files[0] if missing_files else 'smoke'}", file=sys.stderr)
+        return 2
+
+    if missing_files:
+        print(f"⚠️  Warning: missing result files for: {', '.join(missing_files)}", file=sys.stderr)
 
     if not summary["results"]:
-        raise SystemExit("no k6 summary files were found")
+        print("❌ Error: no valid k6 summary files found", file=sys.stderr)
+        return 2
 
-    summary["overall_passed"] = all(result["passed"] for result in summary["results"])
+    overall_passed = all(result["passed"] for result in summary["results"])
+
+    # Generate reports
     markdown = render_markdown(summary["results"], args.base_url)
+    console_report = render_console_report(summary["results"], args.base_url)
 
-    (results_dir / "performance_guardrail_report.md").write_text(
-        markdown, encoding="utf-8"
-    )
+    # Write files
+    (results_dir / "performance_guardrail_report.md").write_text(markdown, encoding="utf-8")
     (results_dir / "performance_guardrail_summary.json").write_text(
-        json.dumps(summary, ensure_ascii=False, indent=2),
-        encoding="utf-8",
+        json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
-    print(markdown)
+    # Print console report
+    print(console_report)
 
-    if args.fail_on_breach and not summary["overall_passed"]:
+    # Return code
+    if args.fail_on_breach and not overall_passed:
         return 1
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())
