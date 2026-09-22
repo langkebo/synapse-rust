@@ -24,11 +24,21 @@
 //! **红证明**：把 `_POSIX_WORD_START` 改回 `\b`（或在 POSIX 分支里写 `\s`）→ ① FAILED；
 //! 把基线删一行（未接通集合 ≠ 基线）→ ② FAILED。
 
+use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
+/// 去掉注释行后的步骤正文。
+///
+/// 扫描型守卫的老坑：**注释里会提到被禁止的东西**（这里就有
+/// "`fail_ci_if_error: false`（2026-09-22 用户裁定）" 这种说明文字）。不剥注释时，
+/// 把真实的 YAML 键改回 `true` 守卫也照样通过 —— 自证变红的第一步就是别匹配自己的说明。
+fn without_comments(block: &str) -> String {
+    block.lines().filter(|l| !l.trim_start().starts_with('#')).collect::<Vec<_>>().join("\n")
 }
 
 fn run_checker(args: &[&str]) -> (i32, String) {
@@ -157,8 +167,9 @@ fn coverage_job_cannot_be_blocked_by_codecov_and_pins_llvm_cov() {
         .split("- name: ")
         .find(|s| s.starts_with("Upload coverage to Codecov"))
         .expect("ci.yml 必须有 `Upload coverage to Codecov` 步骤（可视化）");
+    let codecov_keys = without_comments(codecov_step);
     assert!(
-        codecov_step.contains("fail_ci_if_error: false"),
+        codecov_keys.lines().any(|l| l.trim() == "fail_ci_if_error: false"),
         "Codecov 是可视化、不是门禁（用户 2026-09-22 裁定）：`fail_ci_if_error` 必须为 false，\
          否则仓库没有 CODECOV_TOKEN 时会在棘轮通过之后把 job 弄红：\n{codecov_step}"
     );
@@ -167,8 +178,9 @@ fn coverage_job_cannot_be_blocked_by_codecov_and_pins_llvm_cov() {
         .split("- name: ")
         .find(|s| s.starts_with("Install cargo-llvm-cov"))
         .expect("ci.yml 必须有 `Install cargo-llvm-cov` 步骤");
+    let install_cmd = without_comments(install_step);
     assert!(
-        install_step.contains("--version 0.8.7"),
+        install_cmd.contains("--version 0.8.7"),
         "cargo-llvm-cov 必须钉版本（覆盖率棘轮的结论要可复现）：\n{install_step}"
     );
 }
@@ -194,6 +206,9 @@ fn coverage_ratchet_step_declares_the_documented_flags() {
         "--core-threshold 70",
         "--non-unit-coverable scripts/ci/non_unit_coverable_prefixes.txt",
     ] {
-        assert!(step.contains(needle), "coverage 棘轮步骤必须带 `{needle}`：\n{step}");
+        assert!(
+            without_comments(step).contains(needle),
+            "coverage 棘轮步骤必须带 `{needle}`（注释里的说明不算）：\n{step}"
+        );
     }
 }

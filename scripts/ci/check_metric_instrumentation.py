@@ -411,7 +411,7 @@ def write_baseline(unreachable: List[str], ambiguous: Set[str]) -> None:
 
 
 def run_self_test() -> int:
-    """平台无关自证：**本机**的 `git grep` 引擎必须真的命中定义，且定义文件被排除。
+    r"""平台无关自证：**本机**的 `git grep` 引擎必须真的命中定义，且定义文件被排除。
 
     这是那次"macOS 假绿 / Linux 假红"的回归测试：旧写法 `\bfn\s+…` 在 macOS 上
     零命中（检查静默失效），在 Linux 上命中定义文件自己的 `pub fn`（全判冲突）。
@@ -431,7 +431,9 @@ def run_self_test() -> int:
     py_definition = re.compile(
         _fn_definition_pattern({"record_auth_attempt"}, for_git_grep=False)
     )
-    if definition_hit and not any(py_definition.search(text) for text in definition_hit):
+    if definition_hit and not any(
+        py_definition.search(text) for text in definition_hit
+    ):
         failures.append("POSIX 与 Python 两种模式对同一行的判断不一致")
 
     # ⑤ 模式形状：POSIX 分支里不得出现 `\s` / `\b`（Python 分支才用它们）。
@@ -477,7 +479,9 @@ def main() -> int:
         return run_self_test()
     if "--print-ambiguous" in sys.argv:
         try:
-            ambiguous_only = find_ambiguous_names(set(extract_instrumentation_methods()))
+            ambiguous_only = find_ambiguous_names(
+                set(extract_instrumentation_methods())
+            )
         except GateError as exc:
             print(f"::error::{exc}", file=sys.stderr)
             return 2

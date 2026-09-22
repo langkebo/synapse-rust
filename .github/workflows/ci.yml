@@ -1133,7 +1133,10 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-llvm-cov
-        run: cargo install cargo-llvm-cov --locked
+        # 钉版本（2026-09-22）：不钉 = 同一条命令在不同日期可能给出不同覆盖率 ⇒
+        # per-file 棘轮的结论不可复现。0.8.7 是本地实测版本，也是本脚本要求的版本。
+        # 与 hadolint（@v3.5.0）、ruff（0.16.8）、trivy-action（@v0.36.0）同一判据。
+        run: cargo install cargo-llvm-cov --locked --version 0.8.7
 
       # Coverage 要走 root/services 的 `prepare_shared_test_pool`（模板克隆路径），
       # 所以必须连**测试库**并钉死模板 schema。此前这里连的是应用库 `synapse`，
@@ -1148,32 +1151,17 @@ jobs:
           TEST_DB_TEMPLATE_SCHEMA: test_template_ci
         run: bash scripts/ci/prepare_test_db.sh
 
+      # 覆盖率命令**只有一份实现**：`scripts/ci/run_coverage.sh`（CI 与本地共用）。
+      # 此前这里内联一份、`scripts/run_local_coverage.sh` 又一份，两边的 storage 步
+      # feature 集已经不同（8 vs 10）—— per-file 棘轮是单向的（`max(prev,cur)`），
+      # 口径分叉的代价是永久红。该脚本在模板 schema 缺位时报错退出，不会静默降级。
       - name: Run coverage
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
           TEST_DB_TEMPLATE_SCHEMA: test_template_ci
           REDIS_URL: redis://localhost:6379
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-        run: |
-          # llvm-cov two-step (mirrors scripts/run_local_coverage.sh; tarpaulin is
-          # dropped because 0.35.2 has a broken --implicit-test-threads and drops
-          # coverage data when any test exits non-zero):
-          #   step 1: synapse-storage alone, single-threaded — its db_tests connect
-          #           straight to the public schema and race under concurrency.
-          #   step 2: everything else (--exclude synapse-storage) with the feature
-          #           set that route_ledger snapshots were generated against.
-          #   step 3: merge the two lcov files.
-          mkdir -p coverage
-          COV_FEATURES="test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications,cas-sso,saml-sso"
-          RUST_TEST_THREADS=1 cargo llvm-cov -p synapse-storage \
-            --features "$COV_FEATURES" --lib \
-            --lcov --output-path /tmp/storage.lcov
-          cargo llvm-cov --workspace --exclude synapse-storage \
-            --features "$COV_FEATURES" \
-            --lcov --output-path /tmp/rest.lcov \
-            -- --skip ledger_export_tests
-          python3 scripts/merge_lcov.py /tmp/storage.lcov /tmp/rest.lcov -o coverage/lcov.info
+        run: bash scripts/ci/run_coverage.sh
 
       - name: Bootstrap coverage baseline (main, first run only)
         # The per-file ratchet is meaningless without a baseline: with an empty
@@ -1231,11 +1219,16 @@ jobs:
             --non-unit-coverable scripts/ci/non_unit_coverable_prefixes.txt
 
       - name: Upload coverage to Codecov
+        # ⚠️ `fail_ci_if_error: false`（2026-09-22 用户裁定）：**门禁是 per-file 棘轮**
+        # （上一步 `Per-file coverage ratchet`），Codecov 只是可视化。此前是 `true`，
+        # 而仓库 `gh secret list` 为空 —— tokenless 上传一旦失败，就会在棘轮已经判定通过
+        # **之后**把整个 job 弄红，既不能反映覆盖率也不能被本地复现。
+        # 想恢复阻塞式上传：配 `CODECOV_TOKEN` 并把它改回 true（属独立决策）。
         uses: codecov/codecov-action@v4
         with:
           files: ./coverage/lcov.info
           flags: unittests
-          fail_ci_if_error: true
+          fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Upload coverage artifacts
