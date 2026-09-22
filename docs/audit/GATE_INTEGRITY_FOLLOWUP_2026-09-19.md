@@ -167,9 +167,40 @@ PostgreSQL 可任意顺序返回（小表顺序扫描下通常就是插入顺序
 并**自证其承重**：移走条目 + 强制重编译 → `error: SQLX_OFFLINE=true but there is no cached
 data for this query`（exit 101）；放回 → 编译通过（exit 0）。
 
-### 7.1 同类残留（已登记，未在本次修）
+### 7.1 同类残留的处置（2026-09-22 当日完成）
 
-同一形态（`ORDER BY <毫秒时间戳> DESC` 无决胜键）在 `synapse-storage/src` 里还有多处，
-本次只修了挡住覆盖率的那一处。**建议**：加一条静态守卫
-（`ORDER BY <x>_ts DESC` 必须带第二排序键或显式说明为何唯一），再逐处决定 `, id DESC`
-还是 `, <业务唯一键> DESC`；一次改完再统一跑一次 `cargo sqlx prepare`。
+全仓共 **111 处** `ORDER BY <*_ts>` 单键站点（含内联 `#[cfg(test)]` 夹具）。当天处置：
+
+- **本轮修掉 12 处**（`490497a8`）+ `get_rotations`（`6ead0065`）＝ 13 处，全部按表的主键/唯一键
+  补第二排序键（`, id DESC` / `, media_id DESC` / `, device_id DESC`），并核对了每一处的表定义。
+- **静态守卫已接线**：`scripts/ci/check_ts_order_tiebreak.py` +
+  `scripts/ci/ts_order_single_key_baseline`（逐文件计数棘轮：增加 ⇒ 红；减少 ⇒ 红并要求
+  `--update` 收紧）+ 2 条测试（`tests/unit/ts_order_tiebreak_tests.rs`）。红证明两条都已实测：
+  去掉 `admin_media.rs:179` 的决胜键 ⇒ FAILED 且点名 `0 -> 1` + 行号；基线计数减 1 ⇒ FAILED（过期）。
+  扫描会跳过 Rust 注释行（避免把散文里的 "ORDER BY …" 计成 SQL）。
+- **剩余 104 处已在基线里登记**（47 个文件）。其中**最高价值的一批**是
+  `synapse-storage/src/event/*` 的 **26 处**按 `origin_server_ts` 排序且无第二键 ——
+  Matrix 事件排序的正解是补 `stream_ordering`（部分站点已这么写：
+  `event/basic.rs:94`、`dag.rs:214`、`pagination.rs:313/329`）。那批牵动 keyset 分页语义
+  （E4 门禁），必须单独一轮 + 逐条评审 + 一轮 CI，**不应与其它清理混在一起做**。
+- ⚠️ 更正上一版建议里的"一次改完再统一跑 `cargo sqlx prepare`"：本轮 13 处全部是
+  `sqlx::query_as::<_, T>(…)` **动态**查询 ⇒ 不触碰离线缓存。缓存那条另见 §7.2。
+
+### 7.2 `cargo sqlx prepare` 与"测试模块里的查询宏"（2026-09-22 定论）
+
+沙箱问题：`cargo sqlx prepare` 需要写 `~/.cargo`，在本机 sandbox 下报
+`cargo metadata → Operation not permitted (os error 1)`。用一次性提权跑通后得到两条结论：
+
+1. **手造的缓存条目是规范的**：官方 `cargo sqlx prepare --workspace` 对
+   `get_rotations` 那条宏查询**原样重写**了同一份缓存（`hash = sha256(SQL)`，无 diff）——
+   所以 §7 里"手工补条目"不是权宜之计，而是与工具一致的。日常仍应在**允许写 cargo home**
+   的环境里跑官方命令（本机需要提权）。
+2. **测试模块里不能放查询宏**：`cargo sqlx prepare --workspace`（默认 target 集）不会收集
+   `#[cfg(test)]` 里的查询宏，于是它把测试夹具那条缓存**删掉**了；
+   而 `cargo sqlx prepare --workspace -- --all-targets` 又会因为测试目标缺 feature 报
+   `E0432`。两者叠加的后果是 `SQLX_OFFLINE=true cargo check --all-targets` 直接红
+   （实测 `no cached data for this query`）。
+   **定论**：本仓的约定是**测试夹具用动态 SQL**，离线缓存只覆盖默认 target；
+   回归夹具（`test_db_get_rotations_breaks_ties_on_the_same_millisecond_by_id`）已按此改回
+   `sqlx::query(…).bind(…)`，其 +1 在 `scripts/ci/sqlx_dynamic_ratio_baseline` 里逐条登记
+   （2146 → 2147，写明"公开 API 总是自己打时间戳、夹具必须注入同一个值"）。
