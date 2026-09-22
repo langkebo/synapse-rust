@@ -17,11 +17,11 @@
 | 1 | ⏳ | **Code Coverage 从未真正执行过** | 它排在 integration 之后，历史每次都在那里红掉。`scripts/ci/coverage_baseline.json`（623 文件）已入库，但 per-file 棘轮一次都没评估过；`check_file_coverage.py` 在基线缺失时 exit 2（fail-closed，已修） | push 后盯 `Code Coverage` job 第一次完整结果。首跑若红：逐文件定位，修代码或按协议调基线（30–90 min） |
 | 2 | ⚠️ | **k6 Smoke Test 的 CI 侧仍需真实环境** | 本地首跑已完成并抓到门禁缺陷（`guardrail.py` 读不了 k6 0.47 扁平 summary，已修 + 守卫 `k6_guardrail_reads_the_flat_summary_export`）。CI 侧缺 `K6_SMOKE_BASE_URL`，且 job 由显式输入 `run_k6` 触发（刻意权衡，守卫 `k6_smoke_requires_an_explicit_dispatch_input`）。当前 `ci.yml` 工作区版本含 k6-action + `--scenarios` 改动（另一会话在途），须与 `scripts/test/perf/guardrail.py` 同步落地 | 提供指向真实/staging 环境的 URL 后手动 dispatch 一次；若要常态化，见 §3.3 |
 | 3 | ✅ | **分支保护允许绕过、不强制 PR**（既有裁定，不再变更） | 后果：门禁绿不绿依赖人工看 run，漏看即漏合并。`ci.yml` 里三条 job 只在 push/schedule 跑，PR 上被跳过 | 结论已定为"接受"。`TESTING.md` §2.4 已写明这才是"哪些门禁在 PR 上不跑"的权威口径来源（已闭环） |
-| 4 | ⏳ | **两个基础镜像从未被扫描** | Trivy 只扫 `--target tools`；`RUNTIME_BASE_IMAGE`（distroless，已 pin digest、0 CVE）与 `RUST_BUILDER_IMAGE`（`rust:1.93.0-slim-bookworm`，475 HIGH/CRITICAL，仅构建期）不在扫描面里 | 若要把 build-time 也纳入结论：加一个只扫 builder 的旁路 job（或 pin 一个已清理的 builder digest）。属独立排期 |
+| 4 | ✅ | **两个基础镜像从未被扫描** | 已闭环（2026-09-22）。新增 `docker-security-scan.yml::base-image-scan` job，从 `docker/Dockerfile` 的唯一真相源读三个 pin 并逐个扫描：**distroless 与 debian 阻断**（实测都是 0 HIGH/CRITICAL ⇒ 是能变红的棘轮），**builder report-only**（实测 **476 条 fixable**：468 HIGH + 8 CRITICAL，构建期镜像、产物才是运行镜像；阻断等于永久红）。顺带修掉一个真缺陷：`Digest Pin Integrity` 过去把三个 digest **抄写**在 workflow 里，Dockerfile 升级 pin 后它仍在验旧 digest ⇒ 现在两个 job 共用 `scripts/ci/read_base_image_pins.sh`（ARG 缺失/未 pin 时 exit 2） | 收紧 builder 的路径（**pin 一个已清理的 builder digest**）已登记：`rust:1.93.0-slim-bookworm` 的 tag 当前就指向这个 stale digest，仓库又刻意钉 1.93.0，所以要等上游重建或升 1.94 —— 在那之前保持 report-only 并让 Code Scanning 累积可见 |
 
-**P0 闭环统计（2026-09-22 复核）**：4 项中 1 项已闭环（P0-3 分支保护，既有裁定）；
-2 项被动等待外部条件（P0-1 Code Coverage 首次真跑、P0-2 k6 需 staging 环境）；
-1 项独立排期未启动（P0-4 基础镜像扫描）。
+**P0 闭环统计（2026-09-22 复核）**：4 项中 2 项已闭环（P0-3 分支保护既有裁定；**P0-4 基础镜像扫描，
+2026-09-22 本轮**）；2 项被动等待外部条件（P0-1 Code Coverage 首次真跑、P0-2 k6 需 staging 环境）。
+P0-4 的 builder 收紧（pin 已清理 digest）作为独立条件项留在行内说明。
 
 **P1 闭环统计（2026-09-22 本轮）**：12 项全部闭环：§2.1 `8edf16c0`、§2.2 无需改代码、§2.3 `e125b075`、§2.4 文档重写、§2.5 `f7226a62`、§2.6 SQLx 计数修正+基线 2146、§2.7 aspell 提示、§2.8 JSON 排版、§2.9 覆盖率政策、§2.10 无需动、§2.11 串行车道已落地、§2.12 无陈旧引用。
 
@@ -32,7 +32,7 @@
 | # | 状态 | 问题 | 证据 / 判据 | 建议动作 | 规模 |
 |---|---|---|---|---|---|
 | 1 | ✅ | **`update_pool_metrics` 是死埋点** | `pool_utilization` / `db_connections_active` / `pool_health_status` 恒 0（没有周期任务宿主），数据库池监控在 `/metrics` 上等于失明 | 新增 `src/services/metrics_scheduler.rs`（沿用空闲 TTL 回收线程那种"一次性宿主 + 固定周期"模式），接线后加"指标非恒 0"守卫 | 4h → **已闭环（8edf16c0）** |
-| 2 | ✅ | **`schema_validator.rs` 仍用共享 `public` 池** | 它是 storage 里最后一个共享池文件（其余已迁 per-test schema）。迁不动的根因：`CREATE TABLE … (LIKE … INCLUDING ALL)` **不保留索引名** | 加一条守卫把"已被删除的脚本/工具"列入禁止提及名单，或一次性清理这些目录 | 1h → **已闭环（本轮核查）** |
+| 2 | ✅ | **`schema_validator.rs` 仍用共享 `public` 池** | 它是 storage 里最后一个共享池文件（其余已迁 per-test schema）。迁不动的根因：`CREATE TABLE … (LIKE … INCLUDING ALL)` **不保留索引名** | **已闭环（本轮核查）**：它按设计直接接 `Arc<Pool<Postgres>>`（断言模板里的索引名），storage 侧共享池已清零；如需本地也走隔离池，再引入"绑定模板 schema 的只读池" helper | 1h → **已闭环（本轮核查）** |
 | 3 | ✅ | **两份 k6 实现** | `scripts/load-test/`（4 文件，无任何 CI 接线）与已接线的 `scripts/test/perf/` 场景重叠（登录/加入/发消息/同步），且前者被后者 README **反向引用** | **裁定 B**：保留 `scripts/test/perf/`（已接线 + guardrail），删掉 `scripts/load-test/`（先备份到 `docs/archive/`），并清反向引用 | 0.5h → **已闭环（e125b075）** |
 | 4 | ✅ | **`docs/observability-metric-fix-plan.md` 前提已失效** | 它写于 `43aa8f66`（原生分桶修复）**之前**，核心处方"所有 `histogram_quantile(...)` 换成 `rate(_sum)/rate(_count)`"的前提"集群内 `_bucket` 只有 13 条"已被推翻；这正是面板被降级为均值的来源 | **重写为观测面建设指南**（provisioning 陷阱、PromQL 向量匹配、比率 vs 百分位、真实指标名对照），删除失效处方 | 2h → **已闭环（本轮）** |
 | 5 | ✅ | **覆盖率脚本里残留 tarpaulin 分支** | `scripts/check_file_coverage.py` 仍支持 `--format tarpaulin`（默认值也是它）、保留 `parse_tarpaulin_json` 等函数；但 CI 只传 `--format lcov` | 按铁律 1 删除 `--format` 与 tarpaulin 解析路径（同时更新 CI 两处调用 + 文档），**删前**先用合成 lcov 本地验证 CLI | 20 min → **已闭环（本轮 `f7226a62`）** |
@@ -40,9 +40,9 @@
 | 7 | ✅ | **`.aspell.ignore.txt` 是人工棘轮** | 新增散文里的技术词会让 Docs Quality 红，且没有任何自动提示（本轮又加了 `cov` / `llvm` / `junit` 三个词） | 给 `check_doc_spelling.sh` 加"未识别词 → 打印建议命令"的提示；或改为 `aspell` 词典 + 显式白名单文件双轨 | 1h → **已闭环（本轮）** |
 | 8 | ✅ | **Grafana 面板 JSON 排版不统一** | 7 个面板里 2 个是单行 JSON、5 个是格式化过的 | 独立小提交把 `network-connections.json` / `storage-performance.json` 恢复为 `indent=2`（纯格式，无逻辑变更） | 0.5h → **已闭环（本轮验证 7/7 indent=2）** |
 | 9 | ✅ | **覆盖率 <30% 的非 test-only 文件仍是政策空白** | 基线里 88 个文件 <30%（按"只管不回退"语义**不再红**），但"新文件 30% ramp-up"会拦人 | **已闭环（本轮）**：`non_unit_coverable_prefixes.txt` 已含 `src/bin/` + `src/main.rs`（带 `stale_prefixes` 只读守卫）；CI `ci.yml` Code Coverage job 已启用 `--non-unit-coverable` | - |
-| 10 | ✅ | **慢速车道时长**（条件触发） | integration 并发降到 4 后约 42 分钟；Build Check 3×release 18–19 分钟。目前**没有**再出现 `53200 out of shared memory` | 只有锁表问题复发时才动：`CLONE_TABLES_PER_STATEMENT` 24→12（本地 `pg_lock64` 验证 + 一轮 CI，已修） | 20 min + 验证 → **已闭环（本轮核查）** | - |
-| 11 | ✅ | **负载敏感的计时断言** | `friend_room_service::tests::bench_*` 用绝对毫秒阈值（P99 < 100ms）断言共享库延迟，`#[serial]` 在 nextest 下**进程内串行无效** | **已闭环（本轮核查）**：专用串行车道（`--test-threads 1` + `require_tests_ran.sh`）已在 `ci.yml` 中落地，三个 bench 用例从此隔离跑 | 1h → **已闭环（本轮核查）** | - |
-| 12 | ✅ | **`docs/` 口径残留（历史目录）** | `.trae/`、`.workbuddy/`、`.superpowers/` 下仍有 `run_ci_tests.sh` / tarpaulin 的旧叙述（不在 Docs Quality 门禁范围） | **已闭环（本轮核查）**：`grep -rln "run_ci_tests\|tarpaulin" .trae/ .workbuddy/ .superpowers/` 返回空（exit 1），历史目录无陈旧引用 | 1h → **已闭环（本轮核查）** | - |
+| 10 | ✅ | **慢速车道时长**（条件触发） | integration 并发降到 4 后约 42 分钟；Build Check 3×release 18–19 分钟。目前**没有**再出现 `53200 out of shared memory` | 只有锁表问题复发时才动：`CLONE_TABLES_PER_STATEMENT` 24→12（本地 `pg_lock64` 验证 + 一轮 CI，已修） | 20 min + 验证 → **已闭环（本轮核查）** |
+| 11 | ✅ | **负载敏感的计时断言** | `friend_room_service::tests::bench_*` 用绝对毫秒阈值（P99 < 100ms）断言共享库延迟，`#[serial]` 在 nextest 下**进程内串行无效** | **已闭环（本轮核查）**：专用串行车道（`--test-threads 1` + `require_tests_ran.sh`）已在 `ci.yml` 中落地，三个 bench 用例从此隔离跑 | 1h → **已闭环（本轮核查）** |
+| 12 | ✅ | **`docs/` 口径残留（历史目录）** | `.trae/`、`.workbuddy/`、`.superpowers/` 下仍有 `run_ci_tests.sh` / tarpaulin 的旧叙述（不在 Docs Quality 门禁范围） | **已闭环（本轮核查）**：`grep -rln "run_ci_tests\|tarpaulin" .trae/ .workbuddy/ .superpowers/` 返回空（exit 1），历史目录无陈旧引用 | 1h → **已闭环（本轮核查）** |
 
 ---
 
@@ -131,3 +131,4 @@
 | `docs/` 三处与实现不符的口径（geiger 归因 / tarpaulin / cargo-insta） | ✅ 已修（aspell + markdownlint 干净） | §14.18.5 |
 | SQLx 棘轮基线未跟上 +3 | ✅ 已登记并调整到 1504（含缺陷登记） | §14.18.8 |
 | Grafana 面板从未加载 + 指标名全错 | ✅ 已修 + 可达性门禁 | §14.19 |
+| 基础镜像从未被扫描 + digest 在 workflow 里被抄了第二份 | ✅ 新增 `base-image-scan` job（distroless/debian 阻断、builder report-only）+ pin 单一真相源 + 两条守卫（各带红证明） | §14.10 / §14.11 |
