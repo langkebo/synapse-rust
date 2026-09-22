@@ -491,7 +491,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | #20149/#20172 Profile 500 | ✅ 修复 | 不存在用户 → 404 已对；account_data 非 JSON 对象仍 500（`extended_profile.rs:47-50`）；**已停用但存在用户写自定义字段返回 404**（`user/storage.rs:663-673`），与上游"应成功"相反；稳定 `GET /_matrix/client/v3/profile/{userId}/{keyName}` 未注册（仅 `uk.tcpip.msc4133`） | ⚠️ PARTIAL |
 | #20173 Profile PUT/DELETE 400→403 | ✅ 修复 | ✅ 已正确返回 403 + `M_FORBIDDEN`（`account_compat.rs:195-197,224-226`）；上游触发配置（`enable_set_displayname` 等）本仓不存在 | ✅ 已对齐 |
 | #20036 房间举报端点 `rc_reports` 限流 | ✅ 修复 | ✅ **已实现（Phase 2）**：路径中间件无法表达 `/rooms/{room_id}/report`（只有精确/前缀匹配），故在 `report_room`/`report_user` 内按用户取桶（`ratelimit:rc_reports:{user_id}`），规则可配（`rate_limit.rc_reports`，默认 1/s、burst 10），并有"配置键被删即变红"的守卫测试 | ✅ 已对齐 |
-| #20180 `M_APPSERVICE_LOGIN_UNSUPPORTED` | ✅ 稳定化 | ❌ **无 appservice 登录功能**：该错误码全仓仅出现在本文档；无 `m.login.application_service`/`MSC4190`；登录类型仅 password/token/sso/cas/oidc/dummy | ❌ 未实现 |
+| #20180 `M_APPSERVICE_LOGIN_UNSUPPORTED` | ✅ 稳定化 | ⚠️ **部分**：`m.login.application_service` 已实现（Phase 2：as_token + 排他命名空间校验 + 设备物化 + 令牌签发，测试覆盖 200/403/401）。但该**错误码本身经复核属 `POST /register`**（MSC4190：appservice 未传 `inhibit_login=true`），不属 `/login`；上游 diff 本地无法取证，故未臆造该码 | ⚠️ 登录已实现，错误码待定 |
 | #20146 LiveKit SFU WebSocket URL | ✅ 弃用 `livekit_service_url` 并新增 SFU URL | ⚠️ `livekit_service_url` 本仓不存在（无可弃用）；`LivekitConfig.ws_url`（`config/voip.rs:92`）**从未被读取**（死配置）；`rtc/transports` 只返回 ICE | ⚠️ PARTIAL |
 
 **v1.2 遗漏的上游条目（同基准期，v1.3 补记）**：
@@ -520,7 +520,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | **Space** | 有 | ✅ `synapse-web/src/routes/space/` 完整实现（children_hierarchy/lifecycle_query/membership_state/summary/types） | ✅ 完整实现 |
 | **Thread** | 有 | ✅ `thread_service.rs` + `synapse-storage/src/thread/` + `handlers/thread.rs` | ✅ 已实现（相对精简） |
 | **LiveKit / RTC** | 有 | ⚠️ **PARTIAL**：`rtc/` 存在；`livekit_service_url` 本仓从未存在，`LivekitConfig.ws_url`（`config/voip.rs:92`）**声明但无读取点**（死配置），`rtc/transports` 仅返回 ICE | ⚠️ 能力不完整 |
-| **Dehydrated Devices** | 有 | ⚠️ **PARTIAL**：服务/存储真实（554 + 1047 行），但 `/events` **仅注册 POST 且游标走 body**（`assembly.rs:216-217`、`handlers/dehydrated_device.rs:121`），上游 v1.157 #19896 已改为 **GET + query**，且 `next_batch` 允许为 null（本仓恒返回非空） | ⚠️ 端点漂移 |
+| **Dehydrated Devices** | 有 | ✅ **已对齐（Phase 2）**：`/events` 改为 `GET` + query 参数，`next_batch` 空页返回 `null`（storage `Option<i64>` → service → handler 三层同步）；契约产物（derived 表、6 fixture、2 快照、ROUTE_CONTRACT、route-table、client.yaml、api_test 输入）已再生成；端到端测试断言 GET 200 + `events: []` + `next_batch: null` + 旧 POST 返回 405 | ✅ 已对齐 |
 | **Rendezvous** | 有 | ✅ `rendezvous.rs` + `msc4108_rendezvous.rs` 完整实现 | ✅ 完整实现 |
 | **Key Rotation** | 有 | ✅ `synapse-e2ee/src/key_rotation/` + `synapse-federation/src/key_rotation.rs` 完整实现 | ✅ 完整实现 |
 | **事件报告** | 有 | ✅ `event_report_service.rs` + `synapse-storage/src/event_report/`（1662 行）；admin 举报端点**已实现**（`admin/report.rs:20-24`）——`API_COVERAGE_REPORT.md:126-127` 把它列为"缺失"是**过时信息** | ✅ 完整实现 |
@@ -540,7 +540,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | **Push Notifications** | 有 | ✅ `push/` + `push_notification.rs` + `client_push_service.rs` 完整实现 | ✅ 已对齐 |
 | **Relations** | 有 | ✅ `relations_service.rs` + `synapse-storage/src/relations/`（不含 `content.redacts` 与级联撤回，见 §11.1） | ⚠️ 部分对齐 |
 | **Search** | 有 | ⚠️ **默认搜索面已修（Phase 2）**：未传 `filter.types` 时改为 `IN (m.room.message, m.room.name, m.room.topic)`（`event/search.rs:84`，内容按 `content::text` LIKE 匹配，无需回填）；**仍存**：`search_index.rs` 为死代码、其 partial GIN 索引谓词未同步（FTS 路径不可达），列为独立清理项 | ⚠️ 部分对齐 |
-| **Webhooks/App Services** | 完整 | ⚠️ `app_service.rs` 提供 AS 管理/事务/命名空间；`external_service.rs` 是私有桥接扩展，**不能**算作 Matrix AS API；缺 pushers/设备管理/AS 登录/虚拟用户调用 C-S/MSC4512 | ⚠️ 部分对齐 |
+| **Webhooks/App Services** | 完整 | ⚠️ `app_service.rs` 提供 AS 管理/事务/命名空间；**AS 登录（`m.login.application_service`）已于 Phase 2 实现**；`external_service.rs` 是私有桥接扩展，**不能**算作 Matrix AS API；仍缺 pushers/设备管理/虚拟用户调用 C-S/MSC4512 | ⚠️ 部分对齐 |
 
 **优势与劣势**:
 
@@ -712,7 +712,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | §12.4 | 风险改为只保留实测/明确未验证项；CVE 占位符替换为真实 GHSA/CVE 编号 |
 | §12.5 | 重写为 A/B/C/D 分层，删除人日估算，改为指向权威清单并按验收判据验收 |
 | **代码修复（Phase 1）** | **B1** v11+ 撤回目标写入 `content.redacts`（服务层唯一写入口）+ PDU 不再重复写顶层 `redacts`；**B8** `create_event_with_graph` 无事务分支改单事务；**B10a** `send_message` 传播 `origin_server_ts` 读取错误；**B5** 修正过期房间版本注释。计划见 `docs/superpowers/plans/2026-09-22-protocol-correctness-phase1.md`（gitignored），验证证据见 `docs/audit/COMPARISON_REPORT_REVIEW_2026-09-22.md` §10 |
-| **代码修复（Phase 2）** | **B10b** 联邦 gap-fill 查重吞错；**B11** 默认搜索面纳入 `m.room.name`/`m.room.topic`；**B3** 举报端点 per-user `rc_reports` 限流（可配 + 守卫）；**B9** 事务去重标记失败时 soft-fail 已提交事件。计划见 `docs/superpowers/plans/2026-09-22-phase2-protocol-fixes.md`（gitignored），证据见复核报告 §11。**未完成**：B10c / B4 / B13（见报告 §11） |
+| **代码修复（Phase 2）** | **B10b** 联邦 gap-fill 查重吞错；**B11** 默认搜索面纳入 `m.room.name`/`m.room.topic`；**B3** 举报端点 per-user `rc_reports` 限流（可配 + 守卫）；**B9** 事务去重标记失败时 soft-fail 已提交事件。计划见 `docs/superpowers/plans/2026-09-22-phase2-protocol-fixes.md`（gitignored），证据见复核报告 §11。**Phase 2 全部完成**：B3/B4/B9/B10b/B10c/B11/B13；证据与门禁见复核报告 §12。遗留缺陷另记：`scripts/api_test/scan_handler_schemas.py` 的 `ROOT` 为硬编码绝对路径（会写错工作树）、ledger `query_params` 字段无消费方 |
 
 ---
 

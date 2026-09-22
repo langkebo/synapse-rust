@@ -259,8 +259,7 @@
 > **Phase 1 已修（2026-09-22）**：**B1**（v11 撤回格式，含 PDU 侧）、**B5**（过期注释）、**B8**（半写窗口）、**B10a**（`messages.rs:32` 的 `origin_server_ts` 吞错）。
 > 仍待处理：B10 其余两处（`federation/transaction.rs:358-362`、`membership/federation.rs:191-216,251-268`）、B2/B3/B4/B6/B7/B9/B11/B12/B13/B14。
 >
-> **Phase 2 增量（2026-09-22）**：**B10b**（gap-fill 查重吞错）、**B11**（默认搜索面纳入 `m.room.name`/`m.room.topic`）、**B3**（举报端点 per-user `rc_reports` 限流）、**B9**（事务去重标记失败时 soft-fail 已提交事件）已修并提交（见 §11）。
-> 仍待处理：**B10c**（入站联邦成员持久化 fail-closed，需要可注入的 EventWriter 替身/DB 注入夹具）、**B4**（Dehydrated `/events` POST→GET，含 6 个 ledger fixture/2 个 snapshot/openapi 产物再生成，且会破坏 `../matrix-js-sdk` 的现有 POST 调用）、**B13**（App Service 登录；`M_APPSERVICE_LOGIN_UNSUPPORTED` 经复核属 `POST /register` 而非 `/login`）、以及 B2/B6/B7/B12/B14 与 C 类。
+> **Phase 2 增量（2026-09-22，全部完成）**：**B10b**（gap-fill 查重吞错）、**B11**（默认搜索面纳入 `m.room.name`/`m.room.topic`）、**B3**（举报端点 per-user `rc_reports` 限流）、**B9**（去重标记失败 soft-fail 已提交事件）、**B10c**（入站联邦加入/离开 fail-closed 且先事件后成员）、**B4**（Dehydrated `/events` POST→GET + 可空 `next_batch`，含全部契约产物再生成）、**B13**（`m.login.application_service`）。证据见 §12。
 
 | 编号 | 现象 | 证据 | 动作 | 验收判据 | 关联 |
 |------|------|------|------|----------|------|
@@ -429,3 +428,55 @@ B11（搜索索引死存储）、B12（Profile 语义）、B13（App Service 登
 
 - **`synapse_test` 的 public schema 未迁移**导致 `media::tests::media_fixture_keeps_its_isolated_schema_for_the_whole_test` 报错；执行仓库自带的 `scripts/ci/prepare_test_db.sh`（`RESET_PUBLIC=0`，非破坏性）后 `public`/`test_template_ci` 各 227 表，该用例转绿。
 - **`coverage_ratchet_exemption_tests` 3 个用例在 main 上即为红**：`tests/unit/coverage_ratchet_exemption_tests.rs:82` 仍向 `scripts/check_file_coverage.py` 传 `--format lcov`，而该参数已在 `6ad96b03`"删掉覆盖率棘轮的 --format 兼容残留"中被移除（`scripts/ci/run_coverage.sh:101` 同样残留）。**不在本分支范围**（本分支 0 个提交触及 coverage），但 main 当前该门禁不可通过，建议单独修复。
+
+
+---
+
+## 12. Phase 2 门禁与验证证据（2026-09-22）
+
+分支 `opt/phase2-protocol`（基线 `main @ 3041dcb7`）。全部 7 项改动（B3/B4/B9/B10b/B10c/B11/B13）已实现并验证。
+
+### 12.1 门禁
+
+| 门禁 | 结果 |
+|------|------|
+| `./scripts/check_fmt_ratchet.sh` | `current=0 baseline=0` **OK** |
+| clippy 默认矩阵 / `--all-features` | 均 **exit 0** |
+| SQLx 棘轮 | `dynamic=2151 static=61` **OK**（2147→2151：B9 夹具 +3、B10c 注入 +1，均已在基线文件登记理由） |
+| 受影响 crate 全量 | **5122 passed / 0 failed / 1 skipped**（1501s；排除环境型 media 守卫） |
+| `--test unit`（排除既有红模块） | **1799 passed**（另 1 个既有 flaky，见 §12.4） |
+| integration：ledger + dehydrated 过滤 | **17 passed** |
+| integration：login 过滤 | **20 passed** |
+| integration：rate_limit 过滤 | **10 passed** |
+| integration：search 过滤 | **24 passed** |
+| crate 内 membership / federation 过滤 | **124 / 39 passed** |
+| 契约 CI 三项检查 | `gen_client_yaml --check` **0**、`gen_route_table --check` **0**、`gen_derived_routes --check` **OK** |
+
+### 12.2 每项的"能变红"证据
+
+| 项 | 红 | 绿 | 提交 |
+|----|----|----|------|
+| B10b | 编译错误（缺 `gap_fill_already_persisted`） | 3 passed | `51fe643f` |
+| B11 | DB 测试实测 **0/2** 命中（name+topic） | 62 个 search 用例 | `5d781469` |
+| B3 | 缺 `take_rc_reports_token`（编译红）；yaml 守卫用**删除配置键**探针变红 | 2 桶用例 + 1 守卫 | `cfeb3800` |
+| B9 | DB 测试：事件已落库（`total=1`）但**仍可见**（`visible=1`）→ FAIL | DB 测试通过 + send_message 回归 | `f0432358` |
+| B10c | DB 测试：持久化失败仍返回 `Ok(())` 且成员关系已写入 → FAIL | DB 测试通过（Err + 未写成员） | `83dcd547` |
+| B13 | （新功能）集成测试直接覆盖 200/403/401 | 20 个 login 用例不回归 | `e4d594cc` |
+| B4 | storage 分页 Option 语义按新契约改写；端到端断言 GET+null+405 | 1 端到端 + 1 ledger GET-only + 2 storage | `5566094b` |
+
+### 12.3 B4 契约产物再生成清单（全部已提交）
+
+derived route 表（always/worker/oidc + `derived_routes.rs`）、6 个 ledger fixture（两车道 ×3 profile）、
+2 个 route-ledger 快照、`docs/synapse-rust/ROUTE_CONTRACT.md`、`docs/openapi/route-table.json`、
+`docs/openapi/client.yaml`、`scripts/api_test/ledger.json`、`scripts/api_test/handler_schemas.json`。
+两条 fixture 车道在再生成后**逐字节稳定**（手改为 GET 后由 `synapse_ledger_export` 复现），
+`LEDGER_SCHEMA_VERSION` 无需 bump（方法值变化非形状变化）。
+
+### 12.4 本轮暴露的既有问题（均非 Phase 2 引入）
+
+1. **`coverage_ratchet_exemption_tests` 3 个用例在 main 上即为红**：`tests/unit/coverage_ratchet_exemption_tests.rs:82` 仍传 `--format lcov`，而该参数已在 `6ad96b03` 移除（`scripts/ci/run_coverage.sh:101` 同样残留）。
+2. **`sync_helpers_tests::room_event_to_json_age_is_zero_when_event_is_now` 为时钟边界 flaky**：默认 nextest 下失败、`--no-capture` 下通过；本分支 0 个提交触及 sync helpers。
+3. **`scripts/api_test/scan_handler_schemas.py` 的 `ROOT` 是硬编码绝对路径**（指向主工作树 `/Users/ljf/Desktop/hu_ts/synapse-rust`）。本轮运行该脚本时**误写入另一工作树**的 `docs/openapi/client.yaml` 与 `scripts/api_test/handler_schemas.json`；已改为手动修补本工作树输入。该脚本在 worktree 场景下不可用，应改为 `Path(__file__).resolve().parents[2]`。
+4. **ledger `query_params` 是"接受但无消费方"的死元数据**：`ledger_annotations.txt` 允许该键，但 `extract_registered.py` / `gen_derived_routes.py` 从不消费它，因此导出里恒为空 —— 新增的 GET query 参数（`next_batch`/`limit`）无法记录进契约。
+5. **共享 `synapse_test.public` 被并发工作反复清空**：`media::tests::media_fixture_keeps_its_isolated_schema_for_the_whole_test` 依赖已迁移的 public schema，本轮两次因环境失效而红；重跑 `scripts/ci/prepare_test_db.sh`（`RESET_PUBLIC=0`，非破坏性）后即绿。
+6. **跨仓破坏（B4）**：`../matrix-js-sdk/src/rust-crypto/DehydratedDeviceManager.ts:275-280` 仍以 POST + body 游标调用该端点，后端改为 GET 后该 SDK 需同步修改，否则 SDK 车道 `check_sdk_route_coverage.py` 会变红。
