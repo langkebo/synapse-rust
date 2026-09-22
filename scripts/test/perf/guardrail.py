@@ -15,7 +15,6 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-
 # ============================================================================
 # Threshold Definitions
 # ============================================================================
@@ -84,6 +83,7 @@ DISPLAY_NAMES = {
 # Metric Value Extraction
 # ============================================================================
 
+
 def metric_value(metrics: dict, metric_name: str) -> float | None:
     """Read one metric's aggregate out of a k6 `--summary-export` document.
 
@@ -143,6 +143,7 @@ def metric_threshold_display(metric_name: str, threshold: float) -> str:
 # Scenario Evaluation
 # ============================================================================
 
+
 def evaluate_scenario(name: str, data: dict) -> dict:
     """Evaluate a single scenario against its thresholds."""
     metrics = data.get("metrics", {})
@@ -169,6 +170,7 @@ def evaluate_scenario(name: str, data: dict) -> dict:
 # Report Rendering
 # ============================================================================
 
+
 def render_markdown(results: list[dict], base_url: str) -> str:
     """Render evaluation results as Markdown table."""
     lines = [
@@ -181,7 +183,9 @@ def render_markdown(results: list[dict], base_url: str) -> str:
 
     overall_passed = all(result["passed"] for result in results)
     status_icon = "✅" if overall_passed else "❌"
-    lines.append(f"- Overall Status: {status_icon} {'PASS' if overall_passed else 'FAIL'}")
+    lines.append(
+        f"- Overall Status: {status_icon} {'PASS' if overall_passed else 'FAIL'}"
+    )
     lines.append("")
 
     for result in results:
@@ -226,7 +230,9 @@ def render_console_report(results: list[dict], base_url: str) -> str:
             status = "PASS" if metric["passed"] else "FAIL"
             actual = metric_actual_display(metric["name"], metric["actual"])
             target = metric_threshold_display(metric["name"], metric["threshold"])
-            lines.append(f"  [{status}] {metric['display_name']}: {actual} (target: {target})")
+            lines.append(
+                f"  [{status}] {metric['display_name']}: {actual} (target: {target})"
+            )
 
     lines.append("")
     lines.append("=" * 80)
@@ -240,13 +246,24 @@ def render_console_report(results: list[dict], base_url: str) -> str:
 # Main Entry Point
 # ============================================================================
 
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Evaluate k6 smoke test results against performance thresholds."
     )
-    parser.add_argument("--results-dir", required=True, help="Directory containing k6 summary JSON files")
-    parser.add_argument("--base-url", default="http://localhost:28008", help="Target server URL")
-    parser.add_argument("--fail-on-breach", action="store_true", help="Exit with code 1 if any threshold breached")
+    parser.add_argument(
+        "--results-dir",
+        required=True,
+        help="Directory containing k6 summary JSON files",
+    )
+    parser.add_argument(
+        "--base-url", default="http://localhost:28008", help="Target server URL"
+    )
+    parser.add_argument(
+        "--fail-on-breach",
+        action="store_true",
+        help="Exit with code 1 if any threshold breached",
+    )
     parser.add_argument(
         "--scenarios",
         nargs="+",
@@ -266,7 +283,9 @@ def main() -> int:
 
     for scenario in args.scenarios:
         if scenario not in THRESHOLDS:
-            print(f"⚠️  Warning: unknown scenario '{scenario}', skipping", file=sys.stderr)
+            print(
+                f"⚠️  Warning: unknown scenario '{scenario}', skipping", file=sys.stderr
+            )
             continue
 
         result_file = results_dir / f"{scenario}_results.json"
@@ -284,15 +303,27 @@ def main() -> int:
 
     # Handle missing files
     if missing_files and not summary["results"]:
-        print(f"❌ Error: no k6 summary files found for scenarios: {', '.join(missing_files)}", file=sys.stderr)
-        print(f"   Expected files: {', '.join(f'{s}_results.json' for s in missing_files)}", file=sys.stderr)
+        print(
+            f"❌ Error: no k6 summary files found for scenarios: {', '.join(missing_files)}",
+            file=sys.stderr,
+        )
+        print(
+            f"   Expected files: {', '.join(f'{s}_results.json' for s in missing_files)}",
+            file=sys.stderr,
+        )
         print(f"   Directory: {results_dir}", file=sys.stderr)
         print(f"\n💡 Hint: Run the test first, e.g.:", file=sys.stderr)
-        print(f"        ./run_tests.sh {missing_files[0] if missing_files else 'smoke'}", file=sys.stderr)
+        print(
+            f"        ./run_tests.sh {missing_files[0] if missing_files else 'smoke'}",
+            file=sys.stderr,
+        )
         return 2
 
     if missing_files:
-        print(f"⚠️  Warning: missing result files for: {', '.join(missing_files)}", file=sys.stderr)
+        print(
+            f"⚠️  Warning: missing result files for: {', '.join(missing_files)}",
+            file=sys.stderr,
+        )
 
     if not summary["results"]:
         print("❌ Error: no valid k6 summary files found", file=sys.stderr)
@@ -305,7 +336,9 @@ def main() -> int:
     console_report = render_console_report(summary["results"], args.base_url)
 
     # Write files
-    (results_dir / "performance_guardrail_report.md").write_text(markdown, encoding="utf-8")
+    (results_dir / "performance_guardrail_report.md").write_text(
+        markdown, encoding="utf-8"
+    )
     (results_dir / "performance_guardrail_summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
     )
