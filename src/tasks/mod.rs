@@ -31,7 +31,11 @@ const DEFAULT_MAINTENANCE_INTERVAL_SECS: u64 = 86400;
 
 /// The `ScheduledTasks` struct.
 pub struct ScheduledTasks {
-    database: Arc<Database>,
+    /// The database instance for periodic tasks.
+    pub database: Arc<Database>,
+    /// Optional reference to ServerMetrics for publishing pool stats.
+    /// Set by server wiring; if None, pool metrics are not published.
+    pub server_metrics: Option<Arc<synapse_common::server_metrics::ServerMetrics>>,
     last_health_status: Arc<RwLock<Option<DatabaseHealthStatus>>>,
     last_performance_metrics: Arc<RwLock<Option<PerformanceMetrics>>>,
     last_integrity_report: Arc<RwLock<Option<DataIntegrityReport>>>,
@@ -43,10 +47,13 @@ pub struct ScheduledTasks {
 }
 
 impl ScheduledTasks {
-    /// Construct [] using intervals from the global config.
-    ///
-    /// A zero / unset value in config falls back to the historical default.
-    pub fn from_config(database: Arc<Database>, server_config: &synapse_common::config::ServerConfig) -> Self {
+    /// Construct [] using intervals from the global config, plus an optional
+    /// ServerMetrics handle for publishing pool stats.
+    pub fn from_config(
+        database: Arc<Database>,
+        server_config: &synapse_common::config::ServerConfig,
+        server_metrics: Option<Arc<synapse_common::server_metrics::ServerMetrics>>,
+    ) -> Self {
         let health = if server_config.health_check_interval_secs > 0 {
             Duration::from_secs(server_config.health_check_interval_secs)
         } else {
@@ -67,7 +74,7 @@ impl ScheduledTasks {
         } else {
             Duration::from_secs(DEFAULT_MAINTENANCE_INTERVAL_SECS)
         };
-        Self::from_parts(database, health, performance, integrity, maintenance)
+        Self::from_parts(database, health, performance, integrity, maintenance, server_metrics)
     }
 
     fn from_parts(
@@ -76,9 +83,11 @@ impl ScheduledTasks {
         performance_check_interval: Duration,
         integrity_check_interval: Duration,
         maintenance_interval: Duration,
+        server_metrics: Option<Arc<synapse_common::server_metrics::ServerMetrics>>,
     ) -> Self {
         Self {
             database,
+            server_metrics,
             last_health_status: Arc::new(RwLock::new(None)),
             last_performance_metrics: Arc::new(RwLock::new(None)),
             last_integrity_report: Arc::new(RwLock::new(None)),
@@ -109,6 +118,7 @@ impl ScheduledTasks {
         let interval = self.health_check_interval;
         let database = self.database.clone();
         let last_status = self.last_health_status.clone();
+        let server_metrics = self.server_metrics.clone();
 
         tokio::spawn(async move {
             let mut interval_timer = time::interval(interval);
@@ -128,6 +138,18 @@ impl ScheduledTasks {
                         match database.health_check().await {
                             Ok(status) => {
                                 *last_status.write().await = Some(status.clone());
+
+                                // Publish pool metrics to Prometheus if ServerMetrics is wired.
+                                if let Some(ref metrics) = server_metrics {
+                                    let pool = &status.connection_pool_status;
+                                    let utilization = pool.connection_utilization / 100.0;
+                                    metrics.update_pool_metrics(
+                                        pool.busy_connections as f64,
+                                        pool.idle_connections as f64,
+                                        utilization,
+                                        status.is_healthy,
+                                    );
+                                }
 
                                 if !status.is_healthy {
                                     error!("Database health check failed: {:?}", status);

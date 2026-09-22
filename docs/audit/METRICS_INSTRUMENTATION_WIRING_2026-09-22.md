@@ -164,7 +164,15 @@
 1. ~~线上复验（强烈建议下一步）~~ → **已于 2026-09-22 完成，结果见 §8**。
    上一轮的决定性实验（连打 20 次 `/_matrix/client/versions` 全 200 后
    `http_requests_total` 仍为 0）已在新镜像上重跑，**前后对比明确**。
-2. **`update_pool_metrics` 死点**：见 §4，需一个周期任务宿主，建议单开 ticket。
+2. **`update_pool_metrics` 已接通（2026-09-22 P0-2 修复）**：
+   - 在 `src/server/mod.rs` 的 `run` 方法中新增 30s 周期任务
+   - 通过 `ScheduledTasks::database.pool()` 获取 `Pool<Postgres>` 引用
+   - 调用 `server_metrics.update_pool_metrics(active, idle, utilization, healthy)`
+   - 量纲：`utilization = pool_size / max_size`（0–1 比率，与 Grafana `* 100` 对齐）
+   - 已更新基线 `scripts/ci/metric_instrumentation_baseline`（移除 `update_pool_metrics`）
+   - 验证：`cargo clippy` + `nextest -p synapse-common test_update_pool_metrics` 全绿
+   - 影响：`db_connections_active`/`db_connections_idle`/`pool_utilization`/`pool_health_status` 不再恒 0，
+     `DatabasePoolUtilizationHigh` 与 `DatabasePoolExhausted` 告警规则可触发
 3. **Grafana 面板命名空间错配仍未处理**（上一轮 §4.3 量化为 **命中 0/22**）：
    面板引用 `synapse_database_pool_used` / `synapse_active_users` / `coturn_*` 等，
    而应用真实名是 `pool_utilization` / `auth_attempts_total` / `turn_*`。

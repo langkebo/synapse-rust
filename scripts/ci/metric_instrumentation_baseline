@@ -18,6 +18,5 @@ record_security_validation
 record_state_group_resolve
 record_sync_request
 record_token_validation
-update_pool_metrics
 
 # 因同名冲突而跳过检查（纯文本扫描无法区分接收者类型）的方法：
