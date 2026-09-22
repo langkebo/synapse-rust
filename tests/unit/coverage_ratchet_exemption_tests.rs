@@ -79,8 +79,6 @@ fn run_ratchet(list: &Path, records: &[(&str, u32, u32)], baseline: &[(&str, f64
         .arg(script_path())
         .arg("--report")
         .arg(&report)
-        .arg("--format")
-        .arg("lcov")
         .arg("--baseline")
         .arg(&baseline_file)
         .arg("--global-floor")
