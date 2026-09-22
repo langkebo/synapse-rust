@@ -956,11 +956,9 @@ pub(crate) async fn redact_event(
     let new_event_id = synapse_common::crypto::generate_event_id(&ctx.server_name);
     let now = current_timestamp_millis();
 
-    // P0-05: redaction events must carry the target event_id in the `redacts`
-    // field.  For room versions 1-10 this is a top-level PDU field (stored in
-    // the `events.redacts` column); for v11+ it would live in
-    // `content.redacts` (MSC2174/MSC3820), but v11+ creation is disabled until
-    // the redaction chain is fully landed.
+    // The target event_id is always passed as `redacts`; the room-version
+    // dependent placement (v1-v10 top-level field vs v11+ `content.redacts`)
+    // is decided centrally in `RoomMessagingService::create_event`.
     let content = json!({
         "reason": reason
     });
