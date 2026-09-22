@@ -110,7 +110,7 @@ impl MessagingService {
     /// See [`create_event`].
     pub async fn create_event(
         &self,
-        params: CreateEventParams,
+        mut params: CreateEventParams,
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> ApiResult<synapse_storage::RoomEvent> {
         let room_id = params.room_id.clone();
@@ -118,6 +118,29 @@ impl MessagingService {
         let event_type = params.event_type.clone();
         let state_key = params.state_key.clone();
         let should_update_summary = tx.is_none();
+
+        // Redaction format depends on the room version: v11+ (MSC2174/MSC3820)
+        // carries the target in `content.redacts`, v1-v10 uses the top-level
+        // `redacts` PDU field.  Handling it here — the single write entry point
+        // — covers every creator (client redactions, burn-after-read, admin).
+        if event_type == "m.room.redaction" {
+            if let Some(target) = params.redacts.clone() {
+                let room_version = self
+                    .room_storage
+                    .get_room_version_only(&params.room_id)
+                    .await
+                    .map_err(|e| ApiError::internal_with_cause("Failed to read room version", e))?;
+                if let Some(version) = room_version {
+                    if let Some(object) = params.content.as_object_mut() {
+                        if synapse_common::redaction::redacts_in_content(&version) {
+                            object.insert("redacts".to_string(), serde_json::Value::String(target));
+                        } else {
+                            object.remove("redacts");
+                        }
+                    }
+                }
+            }
+        }
 
         let event = self
             .event_writer
@@ -925,5 +948,82 @@ mod tests {
         // InMemoryEventStore::report_event is a no-op returning Ok(1).
         let result = svc.report_event("$missing:ex.com", "!room:ex.com", "@alice:ex.com", Some("spam"), -100).await;
         assert!(result.is_ok(), "report_event should not fail for missing event: {:?}", result);
+    }
+
+    // -------------------------------------------------------------------------
+    // Redaction placement by room version (B1)
+    // -------------------------------------------------------------------------
+
+    /// Like `make_service`, but seeds a room with `version` into the in-memory
+    /// room store so the room-version branch in `create_event` can be asserted.
+    async fn make_service_with_room(room_id: &str, version: &str) -> MessagingService {
+        let event_store = Arc::new(InMemoryEventStore::new());
+        let room_store = Arc::new(InMemoryRoomStore::new());
+        room_store.create_room(room_id, "@alice:test.example.com", "invite", version, false).await.expect("seed room");
+        let room_summary_service = Arc::new(RoomSummaryService {
+            storage: Arc::new(InMemoryRoomSummaryStore::new()),
+            event_reader: event_store.clone(),
+            member_storage: Some(Arc::new(InMemoryMemberStore::new())),
+        });
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+        MessagingService::new(MessagingServiceConfig {
+            event_reader: event_store.clone(),
+            event_writer: event_store,
+            room_storage: room_store,
+            member_storage: Arc::new(InMemoryMemberStore::new()),
+            server_name: "test.example.com".to_string(),
+            beacon_service: None,
+            task_queue: None,
+            relations_storage: Arc::new(InMemoryRelationsStore::new()),
+            event_broadcaster: None,
+            app_service_manager: None,
+            key_rotation_manager: None,
+            room_summary_service,
+            cache,
+        })
+    }
+
+    fn redaction_params(room_id: &str, target: &str) -> CreateEventParams {
+        CreateEventParams {
+            event_id: "$redaction:test.example.com".to_string(),
+            room_id: room_id.to_string(),
+            user_id: "@alice:test.example.com".to_string(),
+            event_type: "m.room.redaction".to_string(),
+            content: serde_json::json!({ "reason": "spam" }),
+            state_key: None,
+            origin_server_ts: 1_700_000_000_000,
+            redacts: Some(target.to_string()),
+        }
+    }
+
+    #[tokio::test]
+    async fn create_redaction_in_v11_room_puts_target_in_content() {
+        let svc = make_service_with_room("!v11:test.example.com", "11").await;
+        let event = svc
+            .create_event(redaction_params("!v11:test.example.com", "$target:test.example.com"), None)
+            .await
+            .expect("create redaction");
+        assert_eq!(
+            event.content.get("redacts").and_then(|v| v.as_str()),
+            Some("$target:test.example.com"),
+            "v11+ 必须在 content.redacts 携带目标，实际 content = {}",
+            event.content
+        );
+        assert_eq!(event.redacts.as_deref(), Some("$target:test.example.com"), "DB 列仍应填充");
+    }
+
+    #[tokio::test]
+    async fn create_redaction_in_v10_room_keeps_content_clean() {
+        let svc = make_service_with_room("!v10:test.example.com", "10").await;
+        let event = svc
+            .create_event(redaction_params("!v10:test.example.com", "$target:test.example.com"), None)
+            .await
+            .expect("create redaction");
+        assert!(
+            event.content.get("redacts").is_none(),
+            "v1-v10 不得写入 content.redacts，实际 content = {}",
+            event.content
+        );
+        assert_eq!(event.redacts.as_deref(), Some("$target:test.example.com"));
     }
 }
