@@ -109,6 +109,11 @@ impl EventStorage {
             }
             event
         } else {
+            // No caller transaction: wrap the event row and its DAG edges in a
+            // local transaction so that a failed `event_edges` insert cannot
+            // leave an orphaned `events` row behind (B8).
+            let mut local_tx = self.pool.begin().await?;
+
             let event = sqlx::query_as(query)
                 .bind(&params.event_id)
                 .bind(&params.room_id)
@@ -122,10 +127,9 @@ impl EventStorage {
                 .bind(depth)
                 .bind(&prev_events_json)
                 .bind(&auth_events_json)
-                .fetch_one(&*self.pool)
+                .fetch_one(&mut *local_tx)
                 .await?;
 
-            // Populate event_edges outside a transaction.
             if !prev_events.is_empty() {
                 sqlx::query(
                     r"
@@ -136,9 +140,11 @@ impl EventStorage {
                 )
                 .bind(&params.event_id)
                 .bind(prev_events)
-                .execute(&*self.pool)
+                .execute(&mut *local_tx)
                 .await?;
             }
+
+            local_tx.commit().await?;
             event
         };
 
