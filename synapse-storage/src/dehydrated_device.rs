@@ -92,7 +92,7 @@ impl DehydratedDeviceStorage {
             FROM dehydrated_devices
             WHERE user_id = $1
               AND (expires_at IS NULL OR expires_at > $2)
-            ORDER BY updated_ts DESC
+            ORDER BY updated_ts DESC, id DESC
             LIMIT 1
             ",
         )

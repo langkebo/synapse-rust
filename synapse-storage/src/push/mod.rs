@@ -132,7 +132,7 @@ impl PushStorage {
         sqlx::query(
             "SELECT pushkey, kind, app_id, app_display_name, device_display_name, \
              profile_tag, lang, data, device_id \
-             FROM pushers WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2 ORDER BY created_ts DESC",
+             FROM pushers WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2 ORDER BY created_ts DESC, pushkey ASC",
         )
         .bind(user_id)
         .bind(device_id)

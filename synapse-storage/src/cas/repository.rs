@@ -307,7 +307,7 @@ impl CasStorage {
                    allowed_attributes, allowed_proxy_callbacks,
                    is_enabled, is_require_secure, is_single_logout, created_ts, updated_ts
             FROM cas_services
-            ORDER BY created_ts DESC
+            ORDER BY created_ts DESC, id DESC
             ",
         )
         .fetch_all(&self.pool)

@@ -975,7 +975,7 @@ impl ModuleStorage {
     #[instrument(skip(self))]
     pub async fn get_account_data_callbacks(&self) -> Result<Vec<AccountDataCallback>, sqlx::Error> {
         let rows = sqlx::query_as::<_, AccountDataCallback>(
-            "SELECT id, callback_name, is_enabled, data_types, config, created_ts FROM account_data_callbacks WHERE is_enabled = true ORDER BY created_ts DESC",
+            "SELECT id, callback_name, is_enabled, data_types, config, created_ts FROM account_data_callbacks WHERE is_enabled = true ORDER BY created_ts DESC, id DESC",
         )
         .fetch_all(&*self.pool)
         .await?;

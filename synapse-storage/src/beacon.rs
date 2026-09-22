@@ -199,7 +199,7 @@ impl BeaconStorage {
             r#"
             SELECT id, room_id, event_id, state_key, sender, description, timeout, is_live, asset_type, created_ts, updated_ts, expires_at FROM beacon_info
             WHERE room_id = $1 AND state_key = $2
-            ORDER BY created_ts DESC
+            ORDER BY created_ts DESC, id DESC
             "#,
         )
         .bind(room_id)
@@ -220,7 +220,7 @@ impl BeaconStorage {
             WHERE room_id = $1
               AND is_live = true
               AND (expires_at IS NULL OR expires_at > $2)
-            ORDER BY created_ts DESC
+            ORDER BY created_ts DESC, id DESC
             "#,
         )
         .bind(room_id)
@@ -521,7 +521,7 @@ impl BeaconStorage {
                 r#"
                 SELECT id, room_id, event_id, state_key, sender, description, timeout, is_live, asset_type, created_ts, updated_ts, expires_at FROM beacon_info
                 WHERE room_id = $1
-                ORDER BY created_ts DESC
+                ORDER BY created_ts DESC, id DESC
                 "#,
             )
             .bind(room_id)
@@ -533,7 +533,7 @@ impl BeaconStorage {
                 SELECT id, room_id, event_id, state_key, sender, description, timeout, is_live, asset_type, created_ts, updated_ts, expires_at FROM beacon_info
                 WHERE room_id = $1
                   AND (expires_at IS NULL OR expires_at > $2)
-                ORDER BY created_ts DESC
+                ORDER BY created_ts DESC, id DESC
                 "#,
             )
             .bind(room_id)

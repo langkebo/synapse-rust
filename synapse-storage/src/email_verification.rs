@@ -232,7 +232,7 @@ impl EmailVerificationStorage {
             SELECT id, user_id, email, token, expires_at, created_ts, is_used, session_data
             FROM email_verification_tokens
             WHERE email = $1 AND is_used = FALSE AND expires_at > $2
-            ORDER BY created_ts DESC
+            ORDER BY created_ts DESC, id DESC
             LIMIT 1
             ",
         )

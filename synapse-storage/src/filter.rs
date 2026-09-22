@@ -105,7 +105,7 @@ impl FilterStorage {
             SELECT id, user_id, filter_id, content, created_ts
             FROM filters
             WHERE user_id = $1
-            ORDER BY created_ts DESC
+            ORDER BY created_ts DESC, id DESC
             ",
         )
         .bind(user_id)

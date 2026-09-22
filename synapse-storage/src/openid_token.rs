@@ -187,7 +187,7 @@ impl OpenIdTokenStorage {
             SELECT id, token, user_id, device_id, created_ts, expires_at, is_valid
             FROM openid_tokens
             WHERE user_id = $1
-            ORDER BY created_ts DESC
+            ORDER BY created_ts DESC, id DESC
             ",
         )
         .bind(user_id)

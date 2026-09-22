@@ -241,7 +241,7 @@ impl AdminMediaStorage {
         let media: Vec<AdminMediaRow> = sqlx::query_as::<_, AdminMediaRow>(
             r#"SELECT media_id, content_type, file_name, size, uploader_user_id, created_ts,
                NULL::BIGINT AS last_accessed_at, NULL::TEXT AS quarantine_status
-               FROM media_metadata WHERE uploader_user_id = $1 ORDER BY created_ts DESC"#,
+               FROM media_metadata WHERE uploader_user_id = $1 ORDER BY created_ts DESC, media_id DESC"#,
         )
         .bind(user_id)
         .fetch_all(&*self.pool)

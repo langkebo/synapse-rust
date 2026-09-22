@@ -168,7 +168,7 @@ impl VoiceStorage {
                 SELECT id, user_id, room_id, media_id, content_type, duration_ms, size_bytes, created_ts
                 FROM voice_usage_stats
                 WHERE room_id = $1 AND created_ts < $2
-                ORDER BY created_ts DESC
+                ORDER BY created_ts DESC, id DESC
                 LIMIT $3
                 "#,
             )
@@ -183,7 +183,7 @@ impl VoiceStorage {
                 SELECT id, user_id, room_id, media_id, content_type, duration_ms, size_bytes, created_ts
                 FROM voice_usage_stats
                 WHERE room_id = $1
-                ORDER BY created_ts DESC
+                ORDER BY created_ts DESC, id DESC
                 LIMIT $2
                 "#,
             )
@@ -209,7 +209,7 @@ impl VoiceStorage {
                 SELECT id, user_id, room_id, media_id, content_type, duration_ms, size_bytes, created_ts
                 FROM voice_usage_stats
                 WHERE user_id = $1 AND created_ts < $2
-                ORDER BY created_ts DESC
+                ORDER BY created_ts DESC, id DESC
                 LIMIT $3
                 "#,
             )
@@ -224,7 +224,7 @@ impl VoiceStorage {
                 SELECT id, user_id, room_id, media_id, content_type, duration_ms, size_bytes, created_ts
                 FROM voice_usage_stats
                 WHERE user_id = $1
-                ORDER BY created_ts DESC
+                ORDER BY created_ts DESC, id DESC
                 LIMIT $2
                 "#,
             )

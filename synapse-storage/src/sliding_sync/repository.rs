@@ -169,7 +169,7 @@ impl SlidingSyncStorage {
             r"
             SELECT id, user_id, device_id, conn_id, list_key, sort, filters, room_subscription, ranges, created_ts, updated_ts FROM sliding_sync_lists
             WHERE user_id = $1 AND device_id = $2 AND (conn_id = $3 OR ($3 IS NULL AND conn_id IS NULL))
-            ORDER BY created_ts ASC
+            ORDER BY created_ts ASC, id ASC
             ",
         )
         .bind(user_id)

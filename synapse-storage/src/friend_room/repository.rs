@@ -745,7 +745,7 @@ impl FriendRoomStorage {
             SELECT id, sender_id, receiver_id, message, status, created_ts, updated_ts
             FROM friend_requests
             WHERE receiver_id = $1 AND status = 'pending'
-            ORDER BY created_ts DESC
+            ORDER BY created_ts DESC, id DESC
             ",
         )
         .bind(receiver_id)
@@ -762,7 +762,7 @@ impl FriendRoomStorage {
             SELECT id, sender_id, receiver_id, message, status, created_ts, updated_ts
             FROM friend_requests
             WHERE sender_id = $1 AND status = 'pending'
-            ORDER BY created_ts DESC
+            ORDER BY created_ts DESC, id DESC
             ",
         )
         .bind(sender_id)
