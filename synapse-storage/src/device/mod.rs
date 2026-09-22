@@ -506,7 +506,7 @@ impl DeviceStorage {
         sqlx::query_as::<_, Device>(
             r"
             SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list
-            FROM devices WHERE user_id = $1 ORDER BY last_seen_ts DESC
+            FROM devices WHERE user_id = $1 ORDER BY last_seen_ts DESC, device_id DESC
             ",
         )
         .bind(user_id)
@@ -764,7 +764,7 @@ impl DeviceStorage {
             r"
             SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list
             FROM devices WHERE device_id = ANY($1)
-            ORDER BY last_seen_ts DESC
+            ORDER BY last_seen_ts DESC, device_id DESC
             ",
         )
         .bind(device_ids)
