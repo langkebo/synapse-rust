@@ -235,7 +235,7 @@ impl ApplicationServiceStorage {
     /// See [`get_all_active`].
     pub async fn get_all_active(&self) -> Result<Vec<ApplicationService>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationService>(
-            r"SELECT id, as_id, url, as_token, hs_token, sender_localpart, is_enabled, is_rate_limited, protocols, namespaces, created_ts, updated_ts, description, api_key, config FROM application_services WHERE is_enabled = TRUE ORDER BY created_ts DESC, id DESC", 
+            r"SELECT id, as_id, url, as_token, hs_token, sender_localpart, is_enabled, is_rate_limited, protocols, namespaces, created_ts, updated_ts, description, api_key, config FROM application_services WHERE is_enabled = TRUE ORDER BY created_ts DESC, id DESC",
         )
         .fetch_all(&*self.pool)
         .await
