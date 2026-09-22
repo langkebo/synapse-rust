@@ -374,3 +374,144 @@ fn validate_federation_exchange_third_party_invite_event<'a>(
 
     Ok((sender, state_key))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Test third-party invite event validation
+    #[test]
+    fn test_validate_federation_exchange_third_party_invite_event_valid() {
+        let event = json!({
+            "origin": "example.com",
+            "sender": "@user:example.com",
+            "room_id": "!room123:example.com",
+            "type": "m.room.member",
+            "state_key": "@invited:example.com",
+            "content": {
+                "membership": "invite"
+            }
+        });
+
+        let result = validate_federation_exchange_third_party_invite_event(
+            "example.com",
+            "!room123:example.com",
+            &event
+        );
+
+        assert!(result.is_ok());
+        let (sender, state_key) = result.unwrap();
+        assert_eq!(sender, "@user:example.com");
+        assert_eq!(state_key, "@invited:example.com");
+    }
+
+    #[test]
+    fn test_validate_missing_sender() {
+        let event = json!({
+            "origin": "example.com",
+            "room_id": "!room123:example.com",
+            "type": "m.room.member",
+            "state_key": "@invited:example.com",
+            "content": {
+                "membership": "invite"
+            }
+        });
+
+        let result = validate_federation_exchange_third_party_invite_event(
+            "example.com",
+            "!room123:example.com",
+            &event
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_wrong_membership() {
+        let event = json!({
+            "origin": "example.com",
+            "sender": "@user:example.com",
+            "room_id": "!room123:example.com",
+            "type": "m.room.member",
+            "state_key": "@invited:example.com",
+            "content": {
+                "membership": "join"
+            }
+        });
+
+        let result = validate_federation_exchange_third_party_invite_event(
+            "example.com",
+            "!room123:example.com",
+            &event
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_empty_state_key() {
+        let event = json!({
+            "origin": "example.com",
+            "sender": "@user:example.com",
+            "room_id": "!room123:example.com",
+            "type": "m.room.member",
+            "state_key": "",
+            "content": {
+                "membership": "invite"
+            }
+        });
+
+        let result = validate_federation_exchange_third_party_invite_event(
+            "example.com",
+            "!room123:example.com",
+            &event
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_wrong_event_type() {
+        let event = json!({
+            "origin": "example.com",
+            "sender": "@user:example.com",
+            "room_id": "!room123:example.com",
+            "type": "m.room.create",
+            "state_key": "@invited:example.com",
+            "content": {
+                "membership": "invite"
+            }
+        });
+
+        let result = validate_federation_exchange_third_party_invite_event(
+            "example.com",
+            "!room123:example.com",
+            &event
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_room_id_mismatch() {
+        let event = json!({
+            "origin": "example.com",
+            "sender": "@user:example.com",
+            "room_id": "!wrong-room:example.com",
+            "type": "m.room.member",
+            "state_key": "@invited:example.com",
+            "content": {
+                "membership": "invite"
+            }
+        });
+
+        let result = validate_federation_exchange_third_party_invite_event(
+            "example.com",
+            "!room123:example.com",
+            &event
+        );
+
+        assert!(result.is_err());
+    }
+}

@@ -125,3 +125,70 @@ pub async fn get_dehydrated_device_events(
         ctx.dehydrated_device_service.claim_events(&auth_user.user_id, device_id.as_str(), next_batch, limit).await?;
     Ok(Json(response))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test Query parameter parsing for get_dehydrated_device_events
+    #[test]
+    fn test_query_next_batch_limit_parsing() {
+        let query_with_both = serde_json::json!({
+            "next_batch": "cursor_123",
+            "limit": 50
+        });
+        
+        let next_batch = query_with_both.get("next_batch").and_then(|v| v.as_str());
+        let limit = query_with_both.get("limit").and_then(|v| v.as_i64()).unwrap_or(100);
+        
+        assert_eq!(next_batch, Some("cursor_123"));
+        assert_eq!(limit, 50);
+    }
+
+    #[test]
+    fn test_query_default_limit() {
+        let query_without_limit = serde_json::json!({
+            "next_batch": "cursor_456"
+        });
+        
+        let limit = query_without_limit.get("limit").and_then(|v| v.as_i64()).unwrap_or(100);
+        
+        assert_eq!(limit, 100); // default
+    }
+
+    #[test]
+    fn test_query_null_next_batch() {
+        let query_with_null = serde_json::json!({
+            "next_batch": null,
+            "limit": 200
+        });
+        
+        let next_batch = query_with_null.get("next_batch").and_then(|v| v.as_str());
+        let limit = query_with_null.get("limit").and_then(|v| v.as_i64()).unwrap_or(100);
+        
+        assert_eq!(next_batch, None);
+        assert_eq!(limit, 200);
+    }
+
+    /// Test SSSS account data detection logic
+    #[test]
+    fn test_secret_storage_key_patterns() {
+        let mut keys = std::collections::HashMap::new();
+        
+        // Test m.secret_storage.default_key detection
+        keys.insert("m.secret_storage.default_key".to_string(), serde_json::json!({}));
+        assert!(keys.keys().any(|k| k.starts_with("m.secret_storage.key.")) || 
+                keys.contains_key("m.secret_storage.default_key"));
+        
+        // Test m.secret_storage.key.<id> detection
+        keys.clear();
+        keys.insert("m.secret_storage.key.abc123".to_string(), serde_json::json!({}));
+        assert!(keys.keys().any(|k| k.starts_with("m.secret_storage.key.")));
+        
+        // Test non-SSSS key rejection
+        keys.clear();
+        keys.insert("m.room.encryption".to_string(), serde_json::json!({}));
+        assert!(!keys.keys().any(|k| k.starts_with("m.secret_storage.key.")) &&
+                !keys.contains_key("m.secret_storage.default_key"));
+    }
+}

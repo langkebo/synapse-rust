@@ -479,5 +479,59 @@ mod tests {
         assert_eq!(body.service_type, "trendradar");
         assert_eq!(body.service_id, "news-bot");
         assert!(body.webhook_url.is_some());
+        assert!(body.display_name == "News Bot");
+    }
+
+    #[test]
+    fn test_update_external_service_body_deserialization() {
+        let json = r#"{
+            "webhook_url": "https://new.example.com/webhook",
+            "api_key": "new-api-key",
+            "config": {"topic": "updated"},
+            "is_enabled": false
+        }"#;
+
+        let body: UpdateExternalServiceBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.webhook_url, Some("https://new.example.com/webhook".into()));
+        assert_eq!(body.api_key, Some("new-api-key".into()));
+        assert_eq!(body.is_enabled, Some(false));
+    }
+
+    #[test]
+    fn test_list_services_query_deserialization() {
+        // With service_type filter
+        let query_with_filter: ListServicesQuery = serde_json::from_str(r#"{"service_type": "trendradar"}"#).unwrap();
+        assert_eq!(query_with_filter.service_type, Some("trendradar".into()));
+
+        // Without service_type filter (default)
+        let query_no_filter: ListServicesQuery = serde_json::from_str("{}").unwrap();
+        assert_eq!(query_no_filter.service_type, None);
+    }
+
+    #[test]
+    fn test_external_service_response_conversion() {
+        let app_service = synapse_services::application_service::ApplicationService {
+            as_id: "trendradar_news-bot".into(),
+            is_enabled: true,
+            created_ts: 1234567890,
+            ..Default::default()
+        };
+
+        let response: ExternalServiceResponse = app_service.into();
+        assert_eq!(response.service_type, "trendradar");
+        assert_eq!(response.service_id, "news-bot");
+        assert!(response.is_enabled);
+    }
+
+    #[test]
+    fn test_webhook_payload_serialization() {
+        let payload = WebhookPayload {
+            signature: Some("sig123".into()),
+            data: serde_json::json!({"event": "test"}),
+        };
+
+        let json = serde_json::to_json(&payload).unwrap();
+        assert!(json.contains("signature"));
+        assert!(json.contains("data"));
     }
 }
