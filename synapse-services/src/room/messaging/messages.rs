@@ -29,8 +29,7 @@ impl MessagingService {
 
         let event_id = generate_event_id(&self.server_name);
         let now = current_timestamp_millis();
-        let max_ts = self.event_reader.get_max_origin_server_ts_for_room(room_id).await.unwrap_or(0);
-        let now = now.max(max_ts + 1);
+        let now = next_event_ts(now, self.event_reader.get_max_origin_server_ts_for_room(room_id).await)?;
 
         #[allow(unused_variables)]
         let beacon_location_params = {
@@ -467,6 +466,17 @@ impl MessagingService {
     }
 }
 
+/// Computes the next `origin_server_ts` for a locally created event.
+///
+/// A database failure must fail the send instead of silently degrading to a
+/// timestamp of `0` (CLAUDE.md §踩过的坑: never `unwrap_or_default()` on DB
+/// queries).  The timestamp is kept strictly greater than the room's current
+/// maximum so ordering survives clock skew.
+fn next_event_ts(now: i64, max_ts: Result<i64, sqlx::Error>) -> ApiResult<i64> {
+    let max_ts = max_ts.map_err(|e| ApiError::internal_with_cause("Failed to read room max origin_server_ts", e))?;
+    Ok(now.max(max_ts + 1))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -572,5 +582,21 @@ mod tests {
         let svc = make_service().await;
         let result = svc.clear_typing_ephemeral_event("!room:ex.com", "@alice:ex.com").await;
         assert!(result.is_ok(), "clear_typing should not fail: {:?}", result);
+    }
+
+    #[test]
+    fn next_event_ts_propagates_db_error() {
+        let result = super::next_event_ts(1_000, Err(sqlx::Error::RowNotFound));
+        assert!(result.is_err(), "DB 读取失败必须传播，不得退化为 0");
+    }
+
+    #[test]
+    fn next_event_ts_is_monotonic() {
+        assert_eq!(super::next_event_ts(1_000, Ok(500)).expect("ok"), 1_000);
+    }
+
+    #[test]
+    fn next_event_ts_advances_past_max() {
+        assert_eq!(super::next_event_ts(100, Ok(500)).expect("ok"), 501);
     }
 }
