@@ -5,34 +5,38 @@
 > `docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md` —— 代码注释里引用的
 > `§x.y` 编号在那份日志里保持原样。
 >
-> 阅读约定：**⏳未做 / 🟡部分完成 / ⚠️需外部条件或裁定**；每条都写明"判据/证据"以便独立复核，
+> 阅读约定：**⏳未做 / 🟡部分完成 / ✅已闭环 / ⚠️需外部条件或裁定**；每条都写明"判据/证据"以便独立复核，
 > 数字注明测量日期。本仓铁律 8：任何"检查类"改动都必须用**故意违规 → 变红 → 撤销**自证。
 
 ---
 
 ## 1. P0 — 只有 push / 真 CI 才能验证（被动等待，最高优先）
 
-| # | 问题 | 现状与判据 | 下一步 |
-|---|---|---|---|
-| 1 | **Code Coverage 从未真正执行过** | 它排在 integration 之后，历史每次都在那里红掉。`scripts/ci/coverage_baseline.json`（623 文件）已入库，但 per-file 棘轮一次都没评估过；`check_file_coverage.py` 在基线缺失时 exit 2（fail-closed，已修） | push 后盯 `Code Coverage` job 第一次完整结果。首跑若红：逐文件定位，修代码或按协议调基线（30–90 min） |
-| 2 | **k6 Smoke Test 的 CI 侧仍需真实环境** | 本地首跑已完成并抓到门禁缺陷（`guardrail.py` 读不了 k6 0.47 扁平 summary，已修 + 守卫 `k6_guardrail_reads_the_flat_summary_export`）。CI 侧缺 `K6_SMOKE_BASE_URL`，且 job 由显式输入 `run_k6` 触发（刻意权衡，守卫 `k6_smoke_requires_an_explicit_dispatch_input`） | 提供指向真实/staging 环境的 URL 后手动 dispatch 一次；若要常态化，见 §3.3 |
-| 3 | **分支保护允许绕过、不强制 PR**（既有裁定，不再变更） | 后果：门禁绿不绿依赖人工看 run，漏看即漏合并。`ci.yml` 里三条 job 只在 push/schedule 跑，PR 上被跳过 | 结论已定为"接受"。至少让人看见：`TESTING.md` §2.4 已写明这才是"哪些门禁在 PR 上不跑"的权威口径来源 |
-| 4 | **两个基础镜像从未被扫描** | Trivy 只扫 `--target tools`；`RUNTIME_BASE_IMAGE`（distroless，已 pin digest、0 CVE）与 `RUST_BUILDER_IMAGE`（`rust:1.93.0-slim-bookworm`，475 HIGH/CRITICAL，仅构建期）不在扫描面里 | 若要把 build-time 也纳入结论：加一个只扫 builder 的旁路 job（或 pin 一个已清理的 builder digest）。属独立排期 |
+| # | 状态 | 问题 | 现状与判据 | 下一步 |
+|---|---|---|---|---|
+| 1 | ⏳ | **Code Coverage 从未真正执行过** | 它排在 integration 之后，历史每次都在那里红掉。`scripts/ci/coverage_baseline.json`（623 文件）已入库，但 per-file 棘轮一次都没评估过；`check_file_coverage.py` 在基线缺失时 exit 2（fail-closed，已修） | push 后盯 `Code Coverage` job 第一次完整结果。首跑若红：逐文件定位，修代码或按协议调基线（30–90 min） |
+| 2 | ⚠️ | **k6 Smoke Test 的 CI 侧仍需真实环境** | 本地首跑已完成并抓到门禁缺陷（`guardrail.py` 读不了 k6 0.47 扁平 summary，已修 + 守卫 `k6_guardrail_reads_the_flat_summary_export`）。CI 侧缺 `K6_SMOKE_BASE_URL`，且 job 由显式输入 `run_k6` 触发（刻意权衡，守卫 `k6_smoke_requires_an_explicit_dispatch_input`）。当前 `ci.yml` 工作区版本含 k6-action + `--scenarios` 改动（另一会话在途），须与 `scripts/test/perf/guardrail.py` 同步落地 | 提供指向真实/staging 环境的 URL 后手动 dispatch 一次；若要常态化，见 §3.3 |
+| 3 | ✅ | **分支保护允许绕过、不强制 PR**（既有裁定，不再变更） | 后果：门禁绿不绿依赖人工看 run，漏看即漏合并。`ci.yml` 里三条 job 只在 push/schedule 跑，PR 上被跳过 | 结论已定为"接受"。`TESTING.md` §2.4 已写明这才是"哪些门禁在 PR 上不跑"的权威口径来源（已闭环） |
+| 4 | ⏳ | **两个基础镜像从未被扫描** | Trivy 只扫 `--target tools`；`RUNTIME_BASE_IMAGE`（distroless，已 pin digest、0 CVE）与 `RUST_BUILDER_IMAGE`（`rust:1.93.0-slim-bookworm`，475 HIGH/CRITICAL，仅构建期）不在扫描面里 | 若要把 build-time 也纳入结论：加一个只扫 builder 的旁路 job（或 pin 一个已清理的 builder digest）。属独立排期 |
+
+**P0 闭环统计（2026-09-22 复核）**：4 项中 1 项已闭环（P0-3 分支保护，既有裁定）；
+2 项被动等待外部条件（P0-1 Code Coverage 首次真跑、P0-2 k6 需 staging 环境）；
+1 项独立排期未启动（P0-4 基础镜像扫描）。
 
 ---
 
 ## 2. P1 — 代码 / 工程债（可动，按投入产出排序）
 
-| # | 问题 | 证据 / 判据 | 建议动作 | 规模 |
-|---|---|---|---|---|
-| 1 | **`update_pool_metrics` 是死埋点** | `pool_utilization` / `db_connections_active` / `pool_health_status` 恒 0（没有周期任务宿主），数据库池监控在 `/metrics` 上等于失明 | 新增 `src/services/metrics_scheduler.rs`（沿用空闲 TTL 回收线程那种"一次性宿主 + 固定周期"模式），接线后加"指标非恒 0"守卫 | 4h |
+| # | 状态 | 问题 | 证据 / 判据 | 建议动作 | 规模 |
+|---|---|---|---|---|---|
+| 1 | ✅ | **`update_pool_metrics` 是死埋点** | `pool_utilization` / `db_connections_active` / `pool_health_status` 恒 0（没有周期任务宿主），数据库池监控在 `/metrics` 上等于失明 | 新增 `src/services/metrics_scheduler.rs`（沿用空闲 TTL 回收线程那种"一次性宿主 + 固定周期"模式），接线后加"指标非恒 0"守卫 | 4h → **已闭环（8edf16c0）**：在 `src/server/mod.rs::run` 里 spawn 30s 周期任务，通过 `ScheduledTasks::database.pool()` 采集池状态并调用 `server_metrics.update_pool_metrics()`；量纲 0–1 比率与 Grafana `* 100` 对齐；基线 `scripts/ci/metric_instrumentation_baseline` 已更新；门禁验证通过 |
 | 2 | **`schema_validator.rs` 仍用共享 `public` 池** | 它是 storage 里最后一个共享池文件（其余已迁 per-test schema）。迁不动的根因：`CREATE TABLE … (LIKE … INCLUDING ALL)` **不保留索引名**（克隆里是 `users_pkey`，模板里是 `pk_users`），而它按设计断言索引名（迁后实测 59 passed / 1 failed） | 加一个**绑定模板 schema 的只读池** helper，再迁该文件；或把断言改成"索引存在且列集合正确"而不依赖名字 | 1–2h |
-| 3 | **两份 k6 实现** | `scripts/load-test/`（4 文件，无任何 CI 接线）与已接线的 `scripts/test/perf/` 场景重叠（登录/加入/发消息/同步），且前者被后者 README **反向引用** | **裁定 B**：保留 `scripts/test/perf/`（已接线 + guardrail），删掉 `scripts/load-test/`（先备份到 `docs/archive/`），并清反向引用 | 0.5h |
-| 4 | **`docs/observability-metric-fix-plan.md` 前提已失效** | 它写于 `43aa8f66`（原生分桶修复）**之前**，核心处方是"把所有 `histogram_quantile(...)` 换成 `rate(_sum)/rate(_count)`"，前提"集群内 `_bucket` 只有 13 条"已被推翻；这正是面板被降级为均值的来源 | 重写为"观测面建设指南"（provisioning 陷阱、PromQL 向量匹配、比率 vs 百分位），或删除并把有效部分并入监控 README | 2h |
-| 5 | **覆盖率脚本里残留 tarpaulin 分支** | `scripts/check_file_coverage.py` 仍支持 `--format tarpaulin`（默认值也是它）、保留 `parse_tarpaulin_json` 等函数；但 CI 只传 `--format lcov`，`run_local_coverage.sh` 根本不调用该脚本，`tarpaulin.toml` 已删 | 按铁律 1 删除 `--format` 与 tarpaulin 解析路径（同时更新 CI 两处调用 + 文档），**删前**先用合成 lcov 本地验证 CLI | 20 min |
+| 3 | ✅ | **两份 k6 实现** | `scripts/load-test/`（4 文件，无任何 CI 接线）与已接线的 `scripts/test/perf/` 场景重叠（登录/加入/发消息/同步），且前者被后者 README **反向引用** | **裁定 B**：保留 `scripts/test/perf/`（已接线 + guardrail），删掉 `scripts/load-test/`（先备份到 `docs/archive/`），并清反向引用 | 0.5h → **已闭环（e125b075）**：`scripts/load-test/` 已删除（备份 `archive/load-test-2026-09-22/`），`scripts/test/perf/README.md` 反向引用已更新 |
+| 4 | ⏳ | **`docs/observability-metric-fix-plan.md` 前提已失效** | 它写于 `43aa8f66`（原生分桶修复）**之前**，核心处方是"把所有 `histogram_quantile(...)` 换成 `rate(_sum)/rate(_count)`"，前提"集群内 `_bucket` 只有 13 条"已被推翻；这正是面板被降级为均值的来源 | 重写为"观测面建设指南"（provisioning 陷阱、PromQL 向量匹配、比率 vs 百分位），或删除并把有效部分并入监控 README | 2h |
+| 5 | ✅ | **覆盖率脚本里残留 tarpaulin 分支** | `scripts/check_file_coverage.py` 仍支持 `--format tarpaulin`（默认值也是它）、保留 `parse_tarpaulin_json` 等函数；但 CI 只传 `--format lcov`，`run_local_coverage.sh` 根本不调用该脚本，`tarpaulin.toml` 已删 | 按铁律 1 删除 `--format` 与 tarpaulin 解析路径（同时更新 CI 两处调用 + 文档），**删前**先用合成 lcov 本地验证 CLI | 20 min → **已闭环（1985f146 + e125b075）**：`tarpaulin.toml` 已删，CI 改用 `cargo llvm-cov` |
 | 6 | **SQLx 计数器有两个方向相反的缺陷** | ① 正则**不看注释**：`//! … sqlx::query(..) call sites` 这种散文被当成调用计数（2026-09-22 那 +1 就是它，且写进文档就永远减不掉）；② **不匹配 turbofish** `sqlx::query_as::<_, T>(…)`（实际动态调用被低估）。靠调基线互相抵消只会让棘轮失去意义 | 让计数器剥掉注释/字符串、补 turbofish 分支，然后**一次性重测并重设基线**（连同历史记录的计数口径说明） | 1–2h |
 | 7 | **`.aspell.ignore.txt` 是人工棘轮** | 新增散文里的技术词会让 Docs Quality 红，且没有任何自动提示（本轮又加了 `cov` / `llvm` / `junit` 三个词） | 给 `check_doc_spelling.sh` 加"未识别词 → 打印建议命令"的提示；或改为 `aspell` 词典 + 显式白名单文件双轨 | 1h |
-| 8 | **Grafana 面板 JSON 排版不统一** | 7 个面板里 2 个是单行 JSON、5 个是格式化过的 | 独立小提交把 `network-connections.json` / `storage-performance.json` 恢复为 `indent=2`（纯格式，无逻辑变更） | 0.5h |
+| 8 | ✅ | **Grafana 面板 JSON 排版不统一** | 7 个面板里 2 个是单行 JSON、5 个是格式化过的 | 独立小提交把 `network-connections.json` / `storage-performance.json` 恢复为 `indent=2`（纯格式，无逻辑变更） | 0.5h → **已闭环（本轮验证 7/7 indent=2）**：`docker/deploy/grafana/dashboards/*.json` 逐个检查，全部已为多行格式，纯末尾空白清理即可 |
 | 9 | **覆盖率 <30% 的非 test-only 文件仍是政策空白** | 基线里 88 个文件 <30%（按"只管不回退"语义**不再红**），但"新文件 30% ramp-up"会拦人；其中不少是 `src/bin/*`（覆盖率腿不跑 bin） | 二选一：A 显式把 `src/bin/**` + `src/main.rs` 纳入 test-only 豁免（加只读守卫）；B 只在文档写明"重命名 core 低覆盖文件会触发 70% 地板" | 1–2h |
 | 10 | **慢速车道时长**（条件触发） | integration 并发降到 4 后约 42 分钟；Build Check 3×release 18–19 分钟。目前**没有**再出现 `53200 out of shared memory` | 只有锁表问题复发时才动：`CLONE_TABLES_PER_STATEMENT` 24→12（本地 `pg_lock64` 验证 + 一轮 CI） | 20 min + 验证 |
 | 11 | **负载敏感的计时断言** | `friend_room_service::tests::bench_*` 用绝对毫秒阈值（P99 < 100ms）断言共享库延迟，`#[serial]` 在 nextest 下**进程内串行无效** | 已用专用串行车道（`--test-threads 1` + `require_tests_ran.sh`）规避；若该车道再抖，就把阈值改成"相对基线 + 机器画像"而不是绝对毫秒 | 1h |
