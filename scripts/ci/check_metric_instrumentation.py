@@ -118,15 +118,21 @@ def run_git(args: List[str]) -> str:
             check=False,
         )
     except FileNotFoundError as exc:  # git 未安装
-        raise GateError("git is not available; this gate needs an index-backed scan") from exc
+        raise GateError(
+            "git is not available; this gate needs an index-backed scan"
+        ) from exc
     if completed.returncode not in (0, 1):  # grep 无匹配返回 1，属正常
-        raise GateError(f"git {' '.join(args)} failed rc={completed.returncode}: {completed.stderr.strip()[:300]}")
+        raise GateError(
+            f"git {' '.join(args)} failed rc={completed.returncode}: {completed.stderr.strip()[:300]}"
+        )
     return completed.stdout
 
 
 def list_rust_files() -> List[str]:
     """列出参与判定的生产 .rs 文件（tracked + untracked，排除测试路径与定义文件）。"""
-    out = run_git(["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "*.rs"])
+    out = run_git(
+        ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "*.rs"]
+    )
     files = [p for p in out.split("\0") if p]
     kept = []
     for rel in files:
@@ -185,7 +191,9 @@ def extract_instrumentation_methods() -> List[str]:
             impl_start = index
             break
     if impl_start is None:
-        raise GateError("could not locate `impl ServerMetrics {` — the scan anchor moved")
+        raise GateError(
+            "could not locate `impl ServerMetrics {` — the scan anchor moved"
+        )
 
     names: List[str] = []
     fn_pattern = re.compile(r"^\s+pub fn ([a-z_][a-z0-9_]*)\s*\(")
@@ -196,9 +204,16 @@ def extract_instrumentation_methods() -> List[str]:
         if match:
             names.append(match.group(1))
 
-    checked = [n for n in names if n not in EXCLUDED_NAMES and (n.startswith(CHECKED_PREFIXES) or n in CHECKED_EXTRA)]
+    checked = [
+        n
+        for n in names
+        if n not in EXCLUDED_NAMES
+        and (n.startswith(CHECKED_PREFIXES) or n in CHECKED_EXTRA)
+    ]
     if not checked:
-        raise GateError("no instrumentation methods found — the anchor or prefixes are stale")
+        raise GateError(
+            "no instrumentation methods found — the anchor or prefixes are stale"
+        )
     return checked
 
 
@@ -221,7 +236,9 @@ def cfg_test_lines(rel_path: str) -> Set[int]:
     只对**有候选命中**的少数文件调用，避免全仓逐文件读取。
     """
     try:
-        lines = (ROOT / rel_path).read_text(encoding="utf-8", errors="ignore").splitlines()
+        lines = (
+            (ROOT / rel_path).read_text(encoding="utf-8", errors="ignore").splitlines()
+        )
     except OSError:
         return set()
     cfg_test_pattern = re.compile(r"#\[cfg\s*\(\s*test\s*\)\s*\]")
@@ -249,7 +266,12 @@ def cfg_test_lines(rel_path: str) -> Set[int]:
             continue
         if cfg_test_pattern.search(line):
             pending = True
-        elif pending and stripped and not stripped.startswith("#") and not stripped.startswith("mod "):
+        elif (
+            pending
+            and stripped
+            and not stripped.startswith("#")
+            and not stripped.startswith("mod ")
+        ):
             pending = False
         opens = line.count("{")
         closes = line.count("}")
@@ -275,7 +297,9 @@ def find_production_call_sites(names: Set[str]) -> Tuple[Dict[str, List[str]], i
     production_files = list_rust_files()
     scanned = len(production_files)
     if scanned == 0:
-        raise GateError("git ls-files returned 0 .rs files — the tree or the invocation is wrong")
+        raise GateError(
+            "git ls-files returned 0 .rs files — the tree or the invocation is wrong"
+        )
 
     pattern = r"\.\s*(" + "|".join(sorted(map(re.escape, names))) + r")\s*\("
     candidates: Dict[str, List[Tuple[str, int]]] = {name: [] for name in names}
@@ -325,7 +349,9 @@ def write_baseline(unreachable: List[str], ambiguous: Set[str]) -> None:
     for name in sorted(ambiguous):
         body.append(f"#   - {name}")
     BASELINE.write_text("\n".join(body) + "\n", encoding="utf-8")
-    print(f"metric_instrumentation: baseline rewritten with {len(unreachable)} entries -> {BASELINE}")
+    print(
+        f"metric_instrumentation: baseline rewritten with {len(unreachable)} entries -> {BASELINE}"
+    )
 
 
 def main() -> int:
@@ -346,7 +372,9 @@ def main() -> int:
         return 2
 
     if ambiguous:
-        print(f"跳过 {len(ambiguous)} 个同名冲突方法（无法安全判定）：{', '.join(sorted(ambiguous))}\n")
+        print(
+            f"跳过 {len(ambiguous)} 个同名冲突方法（无法安全判定）：{', '.join(sorted(ambiguous))}\n"
+        )
 
     reachable = sorted(name for name in checkable if call_sites[name])
     unreachable = sorted(name for name in checkable if not call_sites[name])
@@ -395,7 +423,9 @@ def main() -> int:
 
     print("-" * 35)
     print(f"参与判定文件：{scanned} 个 .rs    （tracked + untracked，已排除测试路径）")
-    print(f"已接通：{len(reachable)}    未接通：{len(unreachable)}    基线：{len(baseline)}")
+    print(
+        f"已接通：{len(reachable)}    未接通：{len(unreachable)}    基线：{len(baseline)}"
+    )
     print("-" * 35)
 
     if failed:

@@ -810,3 +810,4 @@ zeroize
 zeroized
 zeroizeondrop
 zsh
+sigterm

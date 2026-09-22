@@ -88,9 +88,7 @@ class GateError(RuntimeError):
 
 def run_git(args: list[str]) -> str:
     try:
-        out = subprocess.run(
-            ["git", *args], capture_output=True, text=True, check=True
-        )
+        out = subprocess.run(["git", *args], capture_output=True, text=True, check=True)
     except FileNotFoundError as exc:  # pragma: no cover - 环境问题
         raise GateError("git 不可用，无法枚举源码/规则文件") from exc
     except subprocess.CalledProcessError as exc:
@@ -113,7 +111,7 @@ def registered_names(repo: Path) -> set[str]:
             base.update(REGISTER_RE.findall(text))
     if not base:
         raise GateError(
-            "在 Rust 源码里一个 register_*(\"name\") 都没扫到 —— 扫描范围失效，"
+            '在 Rust 源码里一个 register_*("name") 都没扫到 —— 扫描范围失效，'
             "不要把它当成'没有指标'"
         )
     out = set()
@@ -216,7 +214,9 @@ def write_baseline(repo: Path, names: set[str]) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--repo-root", default=None)
-    ap.add_argument("--dir", default=DASHBOARDS_DIR, help="面板目录（自证时指向 HEAD 副本）")
+    ap.add_argument(
+        "--dir", default=DASHBOARDS_DIR, help="面板目录（自证时指向 HEAD 副本）"
+    )
     ap.add_argument("--update", action="store_true", help="用当前结果重写基线")
     args = ap.parse_args()
 
@@ -253,7 +253,9 @@ def main() -> int:
     print(
         f"面板表达式引用的指标名：{len(known)} 个已知名（Rust 注册 + 录制规则 + 外部白名单）"
     )
-    print(f"违规（三处都查不到）：{len(violations)}；其中新增 {len(new)}、基线内 {len(violations) - len(new)}")
+    print(
+        f"违规（三处都查不到）：{len(violations)}；其中新增 {len(new)}、基线内 {len(violations) - len(new)}"
+    )
 
     if new:
         print("\n新增违规（这些面板会永远 No data，或更糟 —— 标题与语义错位）：")
@@ -266,7 +268,9 @@ def main() -> int:
         return 1
 
     if stale:
-        print(f"\n⚠️ 基线里有 {len(stale)} 条已不再违规，请 --update 收缩：{sorted(stale)}")
+        print(
+            f"\n⚠️ 基线里有 {len(stale)} 条已不再违规，请 --update 收缩：{sorted(stale)}"
+        )
 
     print("\nOK：面板引用的指标名全部可达")
     return 0
