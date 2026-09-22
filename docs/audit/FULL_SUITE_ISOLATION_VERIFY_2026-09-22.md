@@ -138,3 +138,46 @@ AGENTS.md 把 `cargo test --all-features --locked -- --test-threads=4` 标注为
 4. **测试代码中写死的 `synapse_test` URL**：`synapse-services/src/{account_identity_service,saml_service}.rs`
    存在 `connect_lazy` 形式写死库名。本次未造成跨界（这些用例使用 in-memory store，
    lazy 池未取连接），但它们使 `TEST_DATABASE_URL` 的隔离在这些用例上不是结构性的，建议改为读同一配置源。
+
+---
+
+## 7. 后续复核：`main` 推进到 `048a0fc6` 之后
+
+验证完成后 `main` 又推进了一个提交：`048a0fc6 feat: Add unit tests to 7 Quick Win coverage files`
+（**1313 行纯新增、0 删除**，且逐文件核对确认新增行**全部落在 `#[cfg(test)] mod tests` 内**，
+生产代码零改动）。因此 §1 的结论对该尖端仍然成立：**生产行为与已验的 `3ca9cb46` 完全一致**。
+
+但该提交自身带入了新的红：
+
+### 7.1 fmt 棘轮变红（严格棘轮，baseline=0）
+
+| 尖端 | 门禁输出 | 结果 |
+|---|---|---|
+| `3ca9cb46`（本次验证的 SHA） | `fmt debt: current=0 baseline=0` | OK |
+| `048a0fc6`（当前 `main`） | `fmt debt: current=49 baseline=0` | **RED** |
+
+违规分布（4 个文件，共 **15 处**不同违规点）：`rtc/metrics.rs` 7、`admin/security.rs` 4、
+`olm/service.rs` 2、`server_notification/repository.rs` 2。
+
+⚠️ **计数口径提醒**：门禁报的 `49` 不是 49 个不同位置 —— 独立 `rustfmt --check` 在按目录批量传入时
+会沿 `mod` 递归把子模块重复计入，同一文件被重复报告 3～4 次（`6+6+21+16=49`）。
+判据是"同一文件同一行号重复出现"。判断"是否变红"不受影响，但**引用数字时不要把它当成不同缺陷数**。
+
+### 7.2 `--all-features` 下测试代码编译失败
+
+| 位置 | 诊断 |
+|---|---|
+| `synapse-web/src/routes/cas.rs:389` | `E0063`：`CasRegisteredService` 初始化缺 `allowed_attributes` 等 7 个字段 |
+| `synapse-storage/src/server_notification/repository.rs:1079/1100/1134/1162/1180` | `E0308`：类型不匹配 ×5 |
+| `synapse-web/src/routes/admin/security.rs:211` | 未使用导入 `serde_json::json`（clippy 带 `-D warnings` 时同样红） |
+
+**判据**：以 `-p` 选择受影响 crate 复跑，`cargo test --all-features` 直接以 exit 101 结束，
+日志中**没有任何一行 `test result`**（即根本没进入运行阶段）。
+CI 的 blocking lib 批次是 `cargo nextest run --workspace --lib --all-features`，
+`--workspace` 是本次 `-p` 选择的超集、且 feature 只增不减（`E0063` 是"结构体字段变多"，
+只会更多不会更少），故该批次同样失败。
+
+**结论**：`main` 当前**不是绿的**。这批新测试需先 `cargo fmt --all` 并修掉上述编译错误，
+才能重新认定 `main` 为绿；§1 对 `3ca9cb46` 的验证不受影响。另注意这批测试是在
+**未跑 `--all-features`** 的情况下提交的 —— 与 AGENTS.md/`TESTING.md` 反复强调的
+"`--all-features` 是 CI 口径、窄 feature 集会产生假绿"是同一类问题。
