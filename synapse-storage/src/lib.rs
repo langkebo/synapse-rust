@@ -13,6 +13,7 @@
 use deadpool_redis::Pool as RedisPool;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+use synapse_common::server_metrics::ServerMetrics;
 use tokio::sync::RwLock;
 
 // =============================================================================
@@ -281,6 +282,22 @@ impl Database {
         Self { pool, monitor }
     }
 
+    /// 创建带有 ServerMetrics 的数据库实例（用于生产环境）。
+    pub fn from_pool_with_metrics(
+        pool: Pool<Postgres>,
+        redis_pool: Option<RedisPool>,
+        max_connections: u32,
+        server_metrics: Arc<ServerMetrics>,
+    ) -> Self {
+        let monitor = Arc::new(RwLock::new(DatabaseMonitor::with_server_metrics(
+            pool.clone(),
+            redis_pool,
+            max_connections,
+            server_metrics,
+        )));
+        Self { pool, monitor }
+    }
+
     /// 获取数据库连接池引用。
     pub fn pool(&self) -> &Pool<Postgres> {
         &self.pool
@@ -300,6 +317,11 @@ impl Database {
     /// 验证数据完整性。
     pub async fn verify_data_integrity(&self) -> Result<DataIntegrityReport, sqlx::Error> {
         self.monitor.read().await.verify_data_integrity().await
+    }
+
+    /// Update pool metrics on Prometheus (if configured).
+    pub async fn update_pool_metrics(&self) {
+        self.monitor.read().await.update_pool_metrics();
     }
 }
 

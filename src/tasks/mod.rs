@@ -20,6 +20,9 @@ const MAINTENANCE_STARTUP_DELAY: Duration = Duration::from_secs(300);
 /// Default health check interval (seconds) when not configured.
 const DEFAULT_HEALTH_CHECK_INTERVAL_SECS: u64 = 10;
 
+/// Default pool metrics update interval (seconds) when not configured.
+const DEFAULT_POOL_METRICS_UPDATE_INTERVAL_SECS: u64 = 5;
+
 /// Default performance check interval (seconds) when not configured.
 const DEFAULT_PERFORMANCE_CHECK_INTERVAL_SECS: u64 = 300;
 
@@ -37,6 +40,7 @@ pub struct ScheduledTasks {
     last_integrity_report: Arc<RwLock<Option<DataIntegrityReport>>>,
     last_maintenance_report: Arc<RwLock<Option<MaintenanceReport>>>,
     health_check_interval: Duration,
+    pool_metrics_update_interval: Duration,
     performance_check_interval: Duration,
     integrity_check_interval: Duration,
     maintenance_interval: Duration,
@@ -51,6 +55,11 @@ impl ScheduledTasks {
             Duration::from_secs(server_config.health_check_interval_secs)
         } else {
             Duration::from_secs(DEFAULT_HEALTH_CHECK_INTERVAL_SECS)
+        };
+        let pool_metrics = if server_config.pool_metrics_update_interval_secs > 0 {
+            Duration::from_secs(server_config.pool_metrics_update_interval_secs)
+        } else {
+            Duration::from_secs(DEFAULT_POOL_METRICS_UPDATE_INTERVAL_SECS)
         };
         let performance = if server_config.performance_check_interval_secs > 0 {
             Duration::from_secs(server_config.performance_check_interval_secs)
@@ -67,12 +76,13 @@ impl ScheduledTasks {
         } else {
             Duration::from_secs(DEFAULT_MAINTENANCE_INTERVAL_SECS)
         };
-        Self::from_parts(database, health, performance, integrity, maintenance)
+        Self::from_parts(database, health, pool_metrics, performance, integrity, maintenance)
     }
 
     fn from_parts(
         database: Arc<Database>,
         health_check_interval: Duration,
+        pool_metrics_update_interval: Duration,
         performance_check_interval: Duration,
         integrity_check_interval: Duration,
         maintenance_interval: Duration,
@@ -84,6 +94,7 @@ impl ScheduledTasks {
             last_integrity_report: Arc::new(RwLock::new(None)),
             last_maintenance_report: Arc::new(RwLock::new(None)),
             health_check_interval,
+            pool_metrics_update_interval,
             performance_check_interval,
             integrity_check_interval,
             maintenance_interval,
@@ -100,6 +111,7 @@ impl ScheduledTasks {
     /// interval.
     pub fn start_all(&self, shutdown: CancellationToken) {
         self.start_health_check_task(shutdown.clone());
+        self.start_pool_metrics_update_task(shutdown.clone());
         self.start_performance_check_task(shutdown.clone());
         self.start_integrity_check_task(shutdown.clone());
         self.start_maintenance_task(shutdown);
@@ -147,6 +159,29 @@ impl ScheduledTasks {
                                 error!("Failed to perform database health check: {}", e);
                             }
                         }
+                    }
+                }
+            }
+        });
+    }
+
+    fn start_pool_metrics_update_task(&self, shutdown: CancellationToken) {
+        let interval = self.pool_metrics_update_interval;
+        let database = self.database.clone();
+
+        tokio::spawn(async move {
+            let mut interval_timer = time::interval(interval);
+            interval_timer.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
+
+            loop {
+                tokio::select! {
+                    biased;
+                    _ = shutdown.cancelled() => {
+                        info!("pool metrics update task exiting on shutdown");
+                        break;
+                    }
+                    _ = interval_timer.tick() => {
+                        database.update_pool_metrics().await;
                     }
                 }
             }

@@ -1596,6 +1596,20 @@
         "post"
       ]
     ],
+    "register_encrypted_voice": [
+      [
+        "/_matrix/client/v1/voice/register",
+        "post"
+      ],
+      [
+        "/_matrix/client/v3/voice/register",
+        "post"
+      ],
+      [
+        "/_matrix/vendor/v1/voice/register",
+        "post"
+      ]
+    ],
     "convert_voice_message": [
       [
         "/_matrix/client/v3/voice/{media_id}/convert",
@@ -1859,6 +1873,7 @@
     "verification_cancel": "VerificationCancelBody",
     "scan_qr_code": "ScanQrBody",
     "compat_verification_request": "CompatVerificationRequestBody",
+    "register_encrypted_voice": "RegisterEncryptedVoiceRequest",
     "call_invite": "CallInviteEvent",
     "call_candidates": "CallCandidatesEvent",
     "call_answer": "CallAnswerEvent",
@@ -4862,6 +4877,45 @@
       "file": "synapse-web/src/routes/verification_routes.rs",
       "field_count": 6
     },
+    "RegisterEncryptedVoiceRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "media_id": {
+            "type": "string"
+          },
+          "room_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "media_id",
+          "content_type",
+          "duration_ms",
+          "size_bytes"
+        ]
+      },
+      "file": "synapse-web/src/routes/voice.rs",
+      "field_count": 5
+    },
     "UpdateWidgetBody": {
       "schema": {
         "type": "object",
@@ -6597,6 +6651,21 @@
       "/keys/verification/request",
       "post",
       "CompatVerificationRequestBody"
+    ],
+    "post /_matrix/client/v1/voice/register": [
+      "/_matrix/client/v1/voice/register",
+      "post",
+      "RegisterEncryptedVoiceRequest"
+    ],
+    "post /_matrix/client/v3/voice/register": [
+      "/_matrix/client/v3/voice/register",
+      "post",
+      "RegisterEncryptedVoiceRequest"
+    ],
+    "post /_matrix/vendor/v1/voice/register": [
+      "/_matrix/vendor/v1/voice/register",
+      "post",
+      "RegisterEncryptedVoiceRequest"
     ],
     "put /_matrix/client/v1/widgets/{widget_id}": [
       "/_matrix/client/v1/widgets/{widget_id}",

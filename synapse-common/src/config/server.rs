@@ -341,6 +341,13 @@ pub struct ServerConfig {
     /// `health_check_interval_secs` field.
     pub health_check_interval_secs: u64,
 
+    /// 数据库连接池指标更新间隔（秒）。
+    ///
+    /// 定期更新 Prometheus 监控中的连接池活跃数、空闲数和利用率指标。
+    #[serde(default = "default_pool_metrics_update_interval_secs")]
+    /// `pool_metrics_update_interval_secs` field.
+    pub pool_metrics_update_interval_secs: u64,
+
     /// 性能指标采集间隔（秒）。
     ///
     /// 定期采集慢查询数、平均查询时间、TPS、缓存命中率等。
@@ -482,6 +489,10 @@ fn default_delayed_event_dispatch_interval_secs() -> u64 {
 
 fn default_health_check_interval_secs() -> u64 {
     10
+}
+
+fn default_pool_metrics_update_interval_secs() -> u64 {
+    5 // 5 seconds for frequent pool metrics updates
 }
 
 fn default_performance_check_interval_secs() -> u64 {
