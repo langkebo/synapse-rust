@@ -171,7 +171,7 @@ impl MessagingService {
         }
 
         if let Some(ref redacts) = event.redacts {
-            pdu["redacts"] = serde_json::Value::String(redacts.clone());
+            apply_redacts(&mut pdu, redacts);
         }
 
         // 3. Sign and hash the PDU.
@@ -211,5 +211,45 @@ impl MessagingService {
         }
 
         Ok(())
+    }
+}
+
+/// Places a redaction target on the outbound PDU.
+///
+/// v11+ (MSC2174/MSC3820) already carries the target in `content.redacts`
+/// (injected in `RoomMessagingService::create_event`), so the top-level field
+/// must **not** be added.  v1-v10 keeps the top-level `redacts` field.
+fn apply_redacts(pdu: &mut serde_json::Value, redacts: &str) {
+    let content_has_redacts = pdu.get("content").and_then(|content| content.get("redacts")).is_some();
+    if !content_has_redacts {
+        if let Some(object) = pdu.as_object_mut() {
+            object.insert("redacts".to_string(), serde_json::Value::String(redacts.to_string()));
+        }
+    }
+}
+
+#[cfg(test)]
+mod redacts_placement_tests {
+    use super::apply_redacts;
+    use serde_json::json;
+
+    #[test]
+    fn v11_pdu_does_not_gain_top_level_redacts() {
+        let mut pdu = json!({
+            "type": "m.room.redaction",
+            "content": { "reason": "spam", "redacts": "$target:example.com" }
+        });
+        apply_redacts(&mut pdu, "$target:example.com");
+        assert!(pdu.get("redacts").is_none(), "v11+ 不得再写顶层 redacts: {pdu}");
+    }
+
+    #[test]
+    fn v10_pdu_gets_top_level_redacts() {
+        let mut pdu = json!({
+            "type": "m.room.redaction",
+            "content": { "reason": "spam" }
+        });
+        apply_redacts(&mut pdu, "$target:example.com");
+        assert_eq!(pdu.get("redacts").and_then(|v| v.as_str()), Some("$target:example.com"));
     }
 }
