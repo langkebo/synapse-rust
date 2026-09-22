@@ -67,24 +67,24 @@ pub mod histogram {
 ## 问题根因
 
 1. **当前 MetricsCollector 实现**
-   
- MetricsCollector 使用自研的 `register_histogram` 方法，生成格式为：
-   - `{name}_count`
-   - `{name}_sum`
- - 缺少 Prometheus 标准要求的 `{name}_bucket{le="..."}` 系列
+
+MetricsCollector 使用自研的 `register_histogram` 方法，生成格式为：
+  - `{name}_count`
+  - `{name}_sum`
+  - 缺少 Prometheus 标准要求的 `{name}_bucket{le="..."}` 系列
 
 2. **Prometheus 要求**
-   
- Prometheus Histogram 必须包含：
-   - `_bucket{le="0.005",...}`：各桶累积计数
-   - `_count`：总样本数
-   - `_sum`：总和
+
+Prometheus Histogram 必须包含：
+  - `_bucket{le="0.005",...}`：各桶累积计数
+  - `_count`：总样本数
+  - `_sum`：总和
 
 3. **当前影响**
-   
- - P0 警告记录规则无效（如 `http_request_duration_ms_bucket` 不存在）
- - Grafana 面板无法渲染百分位
- - Prometheus 警告规则触发条件不成立
+
+  - P0 警告记录规则无效（如 `http_request_duration_ms_bucket` 不存在）
+  - Grafana 面板无法渲染百分位
+  - Prometheus 警告规则触发条件不成立
 
 ## 长期修复方案 (P2)
 

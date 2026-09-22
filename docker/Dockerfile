@@ -7,6 +7,7 @@ ARG RUNTIME_BASE_IMAGE=gcr.io/distroless/cc-debian12@sha256:e8e7ee4b8b106d4c5fde
 # 与旧 pin 同类。⚠️ 三处引用必须同步：docker/complement/Dockerfile、
 # .github/workflows/docker-security-scan.yml 的 digest-pin-check。
 ARG DEBIAN_BASE_IMAGE=debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
+ARG MIRROR_URL=
 ARG CARGO_FEATURE_ARGS="--features core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends --no-default-features"
 
 # ============================================================================
@@ -37,7 +38,7 @@ ENV CARGO_INCREMENTAL=0 \
     CARGO_PROFILE_RELEASE_PANIC=abort \
     RUSTFLAGS="-C link-arg=-Wl,--gc-sections -C link-arg=-Wl,-z,relro,-z,now"
 
-RUN sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g' /etc/apt/sources.list.d/debian.sources && \
+RUN if [ -n "${MIRROR_URL}" ]; then sed -i "s|deb.debian.org|${MIRROR_URL}|g" /etc/apt/sources.list.d/debian.sources; fi && \
     apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     clang \
@@ -122,7 +123,7 @@ FROM ${DEBIAN_BASE_IMAGE} AS runtime-libs
 # turns into a bogus destination. `debian:bookworm-slim` ships bash.
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-RUN sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g' /etc/apt/sources.list.d/debian.sources && \
+RUN if [ -n "${MIRROR_URL}" ]; then sed -i "s|deb.debian.org|${MIRROR_URL}|g" /etc/apt/sources.list.d/debian.sources; fi && \
     apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
@@ -201,7 +202,7 @@ LABEL org.opencontainers.image.title="synapse-rust" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
 
-RUN sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g' /etc/apt/sources.list.d/debian.sources && \
+RUN if [ -n "${MIRROR_URL}" ]; then sed -i "s|deb.debian.org|${MIRROR_URL}|g" /etc/apt/sources.list.d/debian.sources; fi && \
     apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
