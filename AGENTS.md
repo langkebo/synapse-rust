@@ -30,7 +30,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 ### Benchmarks and coverage
 - API benchmark compile/run path: `cargo bench --bench performance_api_benchmarks --no-run`
 - Federation benchmark compile/run path: `cargo bench --bench performance_federation_benchmarks --no-run`
-- Coverage: CI uses `cargo llvm-cov --workspace` (tarpaulin was replaced). Local end-to-end run: `bash scripts/run_local_coverage.sh` (~15 min, ~68% line coverage as of 2026-08).
+- Coverage: CI uses `cargo llvm-cov --workspace` (tarpaulin was replaced). Local end-to-end run: `bash scripts/ci/run_coverage.sh`（CI 调用的**同一条命令**；本机 ~35–50 min）。
 - Note: Coverage scripts may timeout when DB has accumulated many test schemas (1363 x 255 tables observed). Run `scripts/cleanup_test_schemas.sh` before coverage if needed.
 
 ### Database and migrations

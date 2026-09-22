@@ -113,7 +113,7 @@
 | `bash scripts/contract/check_route_contract.sh` | 主门禁 | 阻断新增未接线的导出路由 handler / router factory |
 | `cargo test --test e2e -- --ignored --nocapture` | 扩展验证 | 真实流程需显式启用，默认不纳入自动主门禁 |
 | `cargo test --test unit --features test-utils e2ee_api_tests` | 扩展验证 | 串联 `/_matrix/client/*/keys/changes`、经典 `/sync` 与 `sliding-sync` 的 E2EE 观察面组合门 |
-| `bash scripts/run_local_coverage.sh`（`cargo llvm-cov` 两步 + 合并 lcov） | 扩展验证 | 提供覆盖率证据；per-file 棘轮由 `scripts/check_file_coverage.py` 执行 |
+| `bash scripts/ci/run_coverage.sh`（`cargo llvm-cov` 两步 + 合并 lcov；CI 同款唯一实现） | 扩展验证 | 提供覆盖率证据；per-file 棘轮由 `scripts/check_file_coverage.py` 执行 |
 | `cargo bench --bench performance_api_benchmarks --no-run` | 扩展验证 | 性能专项基准 |
 | `cargo bench --bench performance_federation_benchmarks --no-run` | 扩展验证 | 联邦性能专项基准 |
 | `cargo test --features performance-tests --test performance_manual -- --nocapture` | 手动分析 | 手动性能套件 |
@@ -255,7 +255,7 @@ rustup component add llvm-tools-preview
 cargo install cargo-llvm-cov
 
 # 本地端到端（两步 + 合并 lcov，约 15 分钟；内部已处理 storage 直连 public 的冲突）
-bash scripts/run_local_coverage.sh
+bash scripts/ci/run_coverage.sh
 
 # 只跑棘轮（CI 口径：先产出 coverage/lcov.info）
 python3 scripts/check_file_coverage.py \
@@ -270,7 +270,7 @@ python3 scripts/check_file_coverage.py \
 - 自动门槛：**per-file 棘轮**（`scripts/ci/coverage_baseline.json`）
   —— 已登记文件不得回退；新文件核心前缀 ≥70%、其余 ≥30% 爬坡；
   基线缺失/为空时 `check_file_coverage.py` **exit 2（fail-closed）**。
-- 最近一次全量实测：`~68%` 行覆盖（2026-08，`bash scripts/run_local_coverage.sh`）。
+- 最近一次全量实测：`~68%` 行覆盖（2026-08，`bash scripts/ci/run_coverage.sh`）。
 - ⚠️ **CI 的 Code Coverage job 从未真正跑完过**（它排在 integration 之后）：
   在它第一次真跑并写出基线之前，上面的棘轮数字只是"协议"而非"已执行的门禁"，
   见 `docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md` §14.16 A①。
@@ -279,7 +279,7 @@ python3 scripts/check_file_coverage.py \
 > `--test-threads=<CPU>` 注入测试 argv（本地多核 ⇒ 8+ 并发 DB 集成测试抢共享
 > `public` schema），且它的 LLVM 引擎在测试非零退出时**不返回任何覆盖数据**
 > （一个 flaky 就让 lcov 全空）。`tarpaulin.toml` 因此已删除；细节见
-> `scripts/run_local_coverage.sh` 头部注释。
+> `scripts/ci/run_coverage.sh` 头部注释。
 
 ### 2.3 性能基准测试
 

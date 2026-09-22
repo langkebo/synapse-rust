@@ -115,29 +115,31 @@ test-fast:
 	@echo "Running tests with nextest (fast, no coverage)..."
 	@cargo nextest run --profile test --features "test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications,cas-sso,saml-sso" --locked
 
-# 覆盖率测量：改用 cargo llvm-cov（tarpaulin 0.35.2 有 --implicit-test-threads bug
-# + LLVM 引擎测试失败不产 lcov）。分两步（storage 单独单线程 + rest），跑完自动
-# 兜底清理累积 schema。详见 scripts/run_local_coverage.sh。
+# 覆盖率测量：cargo llvm-cov 两步（storage 单独单线程 + rest），唯一实现在
+# `scripts/ci/run_coverage.sh`（CI 调用的同一条命令，口径不分叉）。
 test-coverage:
 	@echo "Running tests with coverage (llvm-cov)..."
-	@bash scripts/run_local_coverage.sh
+	@bash scripts/ci/run_coverage.sh
 	@python3 scripts/analyze_coverage.py
 
-# 覆盖率阈值门禁（per-file ratchet）。check_file_coverage.py 已支持 lcov
-# （--format lcov），与 test-coverage 共用 run_local_coverage.sh 产物。
+# 覆盖率阈值门禁（per-file ratchet），参数与 ci.yml 的 `Per-file coverage ratchet`
+# 步骤逐字一致。注意基线路径是 `scripts/ci/coverage_baseline.json`
+# （2026-09-19 从 artifacts/ 移入；旧写法 `artifacts/coverage_baseline.json` + `--threshold`
+# 既指向不存在的文件、又传了已不存在的旗标 ⇒ 该 target 此前必然报错）。
 test-coverage-check:
-	@echo "Running tests with coverage threshold check (≥40% hard floor, per-file ratchet enforces ≥80% on TDD files)..."
-	@bash scripts/run_local_coverage.sh
+	@echo "Running tests with coverage threshold check (per-file ratchet)..."
+	@bash scripts/ci/run_coverage.sh
 	@python3 scripts/check_file_coverage.py \
 	  --report coverage/lcov.info \
 	  --format lcov \
-	  --baseline artifacts/coverage_baseline.json \
-	  --threshold 80 --global-floor 40 --new-file-floor 30 \
-	  --core-files scripts/ci/core_file_coverage_prefixes.txt --core-threshold 70
+	  --baseline scripts/ci/coverage_baseline.json \
+	  --global-floor 40 --new-file-floor 30 \
+	  --core-files scripts/ci/core_file_coverage_prefixes.txt --core-threshold 70 \
+	  --non-unit-coverable scripts/ci/non_unit_coverable_prefixes.txt
 
 test-cov-local:
 	@echo "Running llvm-cov coverage locally (alias of test-coverage)..."
-	@bash scripts/run_local_coverage.sh
+	@bash scripts/ci/run_coverage.sh
 	@python3 scripts/analyze_coverage.py
 
 test-mutation:

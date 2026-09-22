@@ -96,8 +96,8 @@ count_matches() {
         [[ -d "${dir}" ]] || continue
         # 过滤 doc comments：grep -v 排除以 //! /// 开头的行
         local n
-        n=$(grep -rE --exclude-dir=target --exclude-dir=.claude --exclude-dir=.git -e "${pattern}" "${dir}" 2>/dev/null \
-            | grep -vE ':.*//!|:.*///' | wc -l | tr -d ' ') || true
+        n=$(grep -rE --exclude-dir=target --exclude-dir=.claude --exclude-dir=.git -e "${pattern}" "${dir}" 2>/dev/null |
+            grep -vE ':.*//!|:.*///' | wc -l | tr -d ' ') || true
         total=$((total + n))
     done
     echo "${total}"

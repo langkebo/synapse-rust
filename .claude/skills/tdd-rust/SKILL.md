@@ -54,7 +54,7 @@ REFACTOR→ 全绿后才能动；每步重构后立即重跑同一测试
 | 集成回归 | `cargo test --features test-utils --test integration <module> -- --nocapture` | 防止破坏既有契约 |
 | 快照验收 | `cargo insta review` （首次写）/ `cargo test --features test-utils --test unit <snap_test>` （验收） | API 输出格式锁定 |
 | 全量门禁 | `bash scripts/ci_backend_validation.sh` | 提交前最终校验（逐字执行 `ci.yml` 的 lib/unit/integration 批次） |
-| 覆盖率 | `bash scripts/run_local_coverage.sh` | 周期性覆盖率回归（cargo llvm-cov；tarpaulin 已弃用） |
+| 覆盖率 | `bash scripts/ci/run_coverage.sh` | 周期性覆盖率回归（cargo llvm-cov；tarpaulin 已弃用；CI 调用的同一条命令） |
 | 编译检查 | `cargo clippy --all-features --locked -- -D warnings` | 类型/lint 不破 |
 
 **首选 nextest**：若装了 `cargo-nextest`，RED/GREEN 用 `cargo nextest run -p <crate> <test_name>`，比 cargo test 快 2-3 倍。

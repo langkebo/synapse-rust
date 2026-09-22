@@ -44,7 +44,7 @@ an alias for `cargo nextest run --profile test --features test-utils`.
 ### Benchmarks and coverage
 - API benchmark compile/run path: `cargo bench --bench performance_api_benchmarks --no-run`
 - Federation benchmark compile/run path: `cargo bench --bench performance_federation_benchmarks --no-run`
-- Coverage: CI uses `cargo llvm-cov --workspace` (tarpaulin was replaced). Local end-to-end run: `bash scripts/run_local_coverage.sh` (~15 min, ~68% line coverage as of 2026-08).
+- Coverage: CI uses `cargo llvm-cov --workspace` (tarpaulin was replaced). Local end-to-end run: `bash scripts/ci/run_coverage.sh`（CI 调用的**同一条命令**；本机 ~35–50 min）。
 
 ### Database and migrations
 - Migration source of truth: `docker/db_migrate.sh`
@@ -373,7 +373,7 @@ refresh_token.is_active().await.map_err(|_| ServiceError::DatabaseError)?
 | 集成测试 | `cargo nextest run --profile ci --all-features --test integration --test-threads 1` |
 | 同步测试 | `cargo nextest run -p <crate> <test_name> -P tdd` |
 | DB 迁移 | `DATABASE_URL=... bash docker/db_migrate.sh migrate` |
-| 覆盖率 | `bash scripts/run_local_coverage.sh` |
+| 覆盖率 | `bash scripts/ci/run_coverage.sh`（唯一实现，CI 同款） |
 | 完整 CI 本地入口（**非** CI 触发；逐字执行 ci.yml 的 lib/unit/integration 批次） | `bash scripts/ci_backend_validation.sh` |
 
 ### 记住：每次提交前必检

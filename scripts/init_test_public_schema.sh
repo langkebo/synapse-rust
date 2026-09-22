@@ -45,7 +45,7 @@ MIN_TABLES="${MIN_TABLES:-100}"
 
 export PGPASSWORD="$DB_PASSWORD"
 # A full URL wins when provided (that is how `scripts/ci/prepare_test_db.sh` and
-# `run_local_coverage.sh` pass the target); otherwise assemble from TEST_DB_*.
+# `scripts/ci/run_coverage.sh` pass the target); otherwise assemble from TEST_DB_*.
 if [[ -n "${TEST_DATABASE_URL:-}" ]]; then
     PSQL=(psql "$TEST_DATABASE_URL")
 else

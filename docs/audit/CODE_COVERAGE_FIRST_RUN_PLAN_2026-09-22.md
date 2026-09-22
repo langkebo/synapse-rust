@@ -173,13 +173,16 @@ gh run watch <run-id>          # 关注 Integration Tests → Code Coverage
   `--non-unit-coverable scripts/ci/non_unit_coverable_prefixes.txt`、`--format lcov`、
   基线路径为 `scripts/ci/coverage_baseline.json`；红证明：删掉 `--non-unit-coverable` → FAILED。
 
-## 3. 三个决策点（需要拍板）
+## 3. 三个决策点 —— 已裁定（2026-09-22，用户）
 
-1. **Codecov**：配 token（阻塞式）还是降级为可视化（`fail_ci_if_error: false`）？建议后者。
-2. **覆盖率命令唯一实现**：放 `scripts/ci/run_coverage.sh`（建议），
-   `scripts/run_local_coverage.sh` 变薄封装还是删除？
-3. **基线重置授权**：若 Stage 2 发现哪些文件的 floor 是"本地口径产物"，
-   允许用 CI 口径重算并**下调**这些条目的 floor 吗（需逐项理由）？
+1. **Codecov = 可视化**：`fail_ci_if_error: false`（门禁是 per-file 棘轮，Codecov 只做可视化）。
+   已落地，守卫 `coverage_job_cannot_be_blocked_by_codecov_and_pins_llvm_cov` 钉住
+   （红证明：改回 `true` → FAILED）。
+2. **唯一实现**：`scripts/ci/run_coverage.sh`；本地 `scripts/run_local_coverage.sh` **删除**。
+   已落地，守卫 `coverage_command_has_a_single_implementation` 钉住
+   （红证明：把 `cargo llvm-cov` 写回 `ci.yml`、或重建那份本地脚本 → FAILED）。
+3. **基线重置已授权**：Stage 2 若判定某些文件的 floor 属于"本地口径产物"，
+   允许用 CI 口径重算并**下调**这些条目 —— 逐项写明理由，单独提交。
 
 ## 4. 工时与 CI 预算
 
