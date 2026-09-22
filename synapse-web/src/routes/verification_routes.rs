@@ -214,8 +214,15 @@ async fn verification_key_agreement(
 pub struct VerificationMacBody {
     /// The `transaction_id` field.
     pub transaction_id: String,
-    /// The `mac` field.
+    /// The `mac` field (base64 HMAC over `keys`, keyed by the SAS shared secret).
     pub mac: String,
+    /// The keys the MAC covers (`key_id` → key value).  Required — the server
+    /// cannot verify a MAC without knowing the covered key material.
+    #[serde(default)]
+    pub keys: std::collections::BTreeMap<String, String>,
+    /// The peer's Curve25519 public key, as sent at key agreement.
+    #[serde(default)]
+    pub peer_pubkey: String,
 }
 
 async fn verification_mac(
@@ -234,7 +241,8 @@ async fn verification_mac(
         return Err(ApiError::bad_request("MAC must not be empty".to_string()));
     }
 
-    let verified: bool = ctx.verification_service.confirm_sas(&body.transaction_id, &body.mac).await?;
+    let verified: bool =
+        ctx.verification_service.confirm_sas(&body.transaction_id, &body.mac, &body.keys, &body.peer_pubkey).await?;
 
     Ok(Json(json!({
         "transaction_id": body.transaction_id,
@@ -266,7 +274,19 @@ async fn verification_done(
         return Err(ApiError::bad_request("MAC must not be empty for verification completion".to_string()));
     }
 
-    ctx.verification_service.confirm_sas(transaction_id, mac).await?;
+    let keys: std::collections::BTreeMap<String, String> = body
+        .get("keys")
+        .and_then(|value| value.as_object())
+        .map(|object| {
+            object
+                .iter()
+                .filter_map(|(key, value)| value.as_str().map(|value| (key.clone(), value.to_string())))
+                .collect()
+        })
+        .unwrap_or_default();
+    let peer_pubkey: &str = body.get("peer_pubkey").and_then(|value| value.as_str()).unwrap_or("");
+
+    ctx.verification_service.confirm_sas(transaction_id, mac, &keys, peer_pubkey).await?;
 
     Ok(Json(json!({
         "transaction_id": transaction_id

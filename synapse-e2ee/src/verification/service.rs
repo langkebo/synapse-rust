@@ -31,6 +31,24 @@ impl Clone for VerificationService {
 }
 
 /// Implementation of [`VerificationService`] methods.
+/// Builds the Matrix SAS info string for a verification transaction.
+///
+/// `MATRIX_KEY_VERIFICATION_SAS|<initiator user>|<initiator device>|<tx id>|<responder user>|<responder device>`
+///
+/// Both sides must derive the SAS from the same string, so it is built from the
+/// stored request rather than a constant (the previous code passed the literal
+/// `"SAS"`, which no conforming client uses).
+fn sas_info(request: &VerificationRequest) -> String {
+    format!(
+        "MATRIX_KEY_VERIFICATION_SAS|{}|{}|{}|{}|{}",
+        request.from_user,
+        request.from_device,
+        request.transaction_id,
+        request.to_user,
+        request.to_device.as_deref().unwrap_or("")
+    )
+}
+
 impl VerificationService {
     /// See [`new`].
     pub fn new(storage: Arc<VerificationStorage>) -> Self {
@@ -79,16 +97,15 @@ impl VerificationService {
     }
 
     /// See [`derive_sas`].
+    ///
+    /// Spec-compliant HKDF-SHA256 (RFC 5869) with the ECDH shared secret as IKM,
+    /// no salt, and `info` as the context string; the first 6 bytes are the SAS.
+    /// The previous `SHA256(shared_secret || info)` construction was not HKDF and
+    /// produced SAS bytes no conforming client could reproduce.
     pub fn derive_sas(&self, shared_secret: &[u8; 32], info: &str) -> [u8; 6] {
-        use sha2::{Digest, Sha256};
-
-        let mut hasher = Sha256::new();
-        hasher.update(shared_secret);
-        hasher.update(info.as_bytes());
-        let result = hasher.finalize();
-
+        let hkdf = hkdf::Hkdf::<sha2::Sha256>::new(None, shared_secret);
         let mut sas_bytes = [0u8; 6];
-        sas_bytes.copy_from_slice(&result[..6]);
+        hkdf.expand(info.as_bytes(), &mut sas_bytes).expect("6 bytes is a valid HKDF output length");
         sas_bytes
     }
 
@@ -234,7 +251,7 @@ impl VerificationService {
     /// See [`generate_sas`].
     pub async fn generate_sas(&self, transaction_id: &str, other_pubkey: &str) -> Result<SasResult, ApiError> {
         let request = self.storage.get_request(transaction_id).await?;
-        let Some(_request) = request else {
+        let Some(request) = request else {
             return Err(ApiError::not_found("Verification request not found".to_string()));
         };
 
@@ -250,30 +267,16 @@ impl VerificationService {
                 self.compute_shared_secret(secret, other_pubkey)?
             }
             _ => {
-                // Fallback: if no stored secret exists yet, generate a key pair,
-                // persist it, and compute the shared secret.
-                tracing::warn!("No stored SAS secret key for transaction {transaction_id}; generating new key pair");
-                let (new_secret, new_public) = self.generate_key_pair();
-                // Persist for subsequent calls.
-                if let Some(ref mut sas) = sas_state.clone() {
-                    sas.pubkey = Some(new_public.clone());
-                    sas.secret_key = Some(new_secret.clone());
-                    sas.state = VerificationState::Ready;
-                    if let Err(e) = self.storage.store_sas_state(sas).await {
-                        tracing::error!("Failed to persist SAS state for transaction {transaction_id}: {e}");
-                    }
-                }
-                if !other_pubkey.is_empty() {
-                    self.compute_shared_secret(&new_secret, other_pubkey)?
-                } else {
-                    let mut bytes = [0u8; 32];
-                    rand::rng().fill_bytes(&mut bytes);
-                    bytes
-                }
+                // Fail closed. Without our stored private key (from accept_sas) and
+                // the peer's public key there is no shared secret; a random SAS can
+                // never match the peer, so returning one would fake a verification.
+                return Err(ApiError::bad_request(
+                    "SAS key agreement requires a stored private key and the peer's public key".to_string(),
+                ));
             }
         };
 
-        let sas_bytes = self.derive_sas(&shared_secret, "SAS");
+        let sas_bytes = self.derive_sas(&shared_secret, &sas_info(&request));
 
         let decimal = ((sas_bytes[0] as u32) << 16) | ((sas_bytes[1] as u32) << 8) | (sas_bytes[2] as u32);
         let _decimal = (decimal % 900000) + 100000;
@@ -293,7 +296,27 @@ impl VerificationService {
     }
 
     /// See [`confirm_sas`].
-    pub async fn confirm_sas(&self, transaction_id: &str, mac: &str) -> Result<bool, ApiError> {
+    ///
+    /// Verifies the client's MAC **before** the transaction can reach `Done`.
+    ///
+    /// The MAC covers the key material the client claims (`keys`), keyed by the
+    /// ECDH shared secret:
+    /// `HMAC-SHA256(shared_secret, concat(sorted(key_id || 0x00 || key_value)))`,
+    /// base64-encoded.  The shared secret is recomputed from our stored private
+    /// key and the peer public key supplied by the caller (the server does not
+    /// persist the peer key).
+    ///
+    /// Everything the server cannot verify is rejected instead of silently
+    /// marking the transaction done: no `keys`, no peer key, no stored private
+    /// key, or a MAC mismatch.  The previous implementation accepted any
+    /// non-empty string, which meant "verified" could be asserted without proof.
+    pub async fn confirm_sas(
+        &self,
+        transaction_id: &str,
+        mac: &str,
+        keys: &std::collections::BTreeMap<String, String>,
+        peer_pubkey: &str,
+    ) -> Result<bool, ApiError> {
         if mac.is_empty() {
             return Err(ApiError::bad_request("MAC must not be empty".to_string()));
         }
@@ -314,36 +337,34 @@ impl VerificationService {
             _ => {}
         }
 
+        if keys.is_empty() {
+            return Err(ApiError::bad_request(
+                "MAC verification requires `keys` (the key material the MAC covers)".to_string(),
+            ));
+        }
+        if peer_pubkey.is_empty() {
+            return Err(ApiError::bad_request("MAC verification requires the peer's public key".to_string()));
+        }
+
         let sas_state = self.storage.get_sas_state(transaction_id).await?;
-        let Some(_sas_state) = sas_state else {
+        let Some(sas_state) = sas_state else {
             return Err(ApiError::bad_request("SAS state not found".to_string()));
         };
 
-        // The homeserver cannot verify the SAS MAC, and this function no longer
-        // pretends to.
-        //
-        // The MAC is an HMAC over each side's own keys, keyed by the SAS shared
-        // secret, so only the two *clients* can check it: the server never sees
-        // that secret, and the two sides' MAC values are legitimately different
-        // (each covers the keys that side owns), so comparing one against the
-        // other would be wrong even if a value were stored.
-        //
-        // What the removed code did: `if let Some(stored_mac) = &sas_state.mac`
-        // then `mac_matches`. No production path ever sets `SasState.mac` (all three
-        // *production* `store_sas_state` call sites — `:159`/`:217`/`:262` — write
-        // `mac: None`; the only other caller is the integration fixture
-        // `tests/integration/db_schema_smoke_tests_migrated.rs:355`, which writes
-        // `mac: Some("mac")` purely to check the row round-trips), so the
-        // branch was unreachable for real clients — while a unit test named
-        // `confirm_sas_rejects_wrong_mac_and_cancels_transaction` asserted only
-        // that `mac_matches` works, which is what made the check look live.
-        // `VerificationState::Done` records what the caller's client asserts,
-        // exactly like the rest of this state machine; the trust boundary for
-        // `m.key.verification.mac` is the client, per the Matrix spec. See
-        // docs/audit/DB_REVIEW_2026-09-17.md §13.7.
-        //
-        // A non-empty `mac` is still required (here and in the routes) so the
-        // protocol shape cannot be skipped.
+        let secret_key = sas_state.secret_key.as_deref().filter(|secret| !secret.is_empty()).ok_or_else(|| {
+            ApiError::bad_request("SAS state has no local private key; cannot verify the MAC".to_string())
+        })?;
+
+        let shared_secret = self.compute_shared_secret(secret_key, peer_pubkey)?;
+
+        // `BTreeMap` iterates in key order, so both sides build the same message.
+        let entries: Vec<String> = keys.iter().map(|(key_id, value)| format!("{key_id}\u{0}{value}")).collect();
+        let expected = self.compute_mac(&entries, &shared_secret, "")?;
+
+        if !synapse_common::crypto::secure_compare(&expected, mac) {
+            return Err(ApiError::forbidden("MAC verification failed".to_string()));
+        }
+
         self.storage.update_state(transaction_id, VerificationState::Done).await?;
 
         tracing::info!("SAS verification confirmed for transaction {}", transaction_id);
@@ -655,5 +676,173 @@ mod tests {
         let result = svc.get_request("nonexistent-tx-12345").await;
         assert!(result.is_ok(), "get_request must not fail: {result:?}");
         assert!(result.unwrap().is_none());
+    }
+
+    // ════════════════════════════════════════
+    // C1：SAS 规范对齐（HKDF-SHA256 + 规范 info 串 + fail-closed）
+    // ════════════════════════════════════════
+
+    /// 期望值由**独立实现**算出：Python `hmac`/`hashlib` 手写 HKDF（RFC 5869），
+    /// input = ikm 0x00..0x1f, salt = 空（=32 字节零）, info = 规范 SAS 串, L = 6。
+    #[tokio::test]
+    async fn derive_sas_matches_hkdf_sha256_known_answer() {
+        let svc = lazy_service();
+        let mut secret = [0u8; 32];
+        for (index, byte) in secret.iter_mut().enumerate() {
+            *byte = index as u8;
+        }
+        let info = "MATRIX_KEY_VERIFICATION_SAS|@alice:example.com|ALICEDEV|tx-1|@bob:example.com|BOBDEV";
+        assert_eq!(
+            svc.derive_sas(&secret, info),
+            [0xb0, 0x96, 0xee, 0xb5, 0x79, 0xa0],
+            "SAS 必须按 HKDF-SHA256(salt=空, ikm=shared_secret, info) 派生；\
+             旧实现 SHA256(secret||info) 会得到 4cc1cf67c070…"
+        );
+    }
+
+    /// 两端必须能各自算出同一个 SAS ⇒ info 串必须是规范形式（含双方 user/device 与 tx）。
+    #[test]
+    fn sas_info_matches_matrix_spec() {
+        let request = VerificationRequest {
+            transaction_id: "tx-1".to_string(),
+            from_user: "@alice:example.com".to_string(),
+            from_device: "ALICEDEV".to_string(),
+            to_user: "@bob:example.com".to_string(),
+            to_device: Some("BOBDEV".to_string()),
+            method: VerificationMethod::Sas,
+            state: VerificationState::Ready,
+            created_ts: 0,
+            updated_ts: None,
+        };
+        assert_eq!(
+            super::sas_info(&request),
+            "MATRIX_KEY_VERIFICATION_SAS|@alice:example.com|ALICEDEV|tx-1|@bob:example.com|BOBDEV"
+        );
+    }
+
+    /// 没有密钥材料时必须 fail-closed：随机字节的 SAS 永远不可能与对端一致，
+    /// 静默返回它等于伪造一次验证。
+    #[tokio::test]
+    async fn generate_sas_fails_closed_without_key_material() {
+        let isolated = IsolatedTestPool::new(BASELINE_SQL).await.expect("isolated test pool");
+        let svc = make_service(isolated.pool());
+
+        svc.storage
+            .create_request(&VerificationRequest {
+                transaction_id: "tx-nokey".to_string(),
+                from_user: "@alice:example.com".to_string(),
+                from_device: "ALICEDEV".to_string(),
+                to_user: "@bob:example.com".to_string(),
+                to_device: Some("BOBDEV".to_string()),
+                method: VerificationMethod::Sas,
+                state: VerificationState::Ready,
+                created_ts: current_timestamp_millis(),
+                updated_ts: None,
+            })
+            .await
+            .expect("create request");
+
+        let result = svc.generate_sas("tx-nokey", "").await;
+        assert!(result.is_err(), "无密钥材料时必须报错，不得返回随机 SAS: {result:?}");
+    }
+
+    // ════════════════════════════════════════
+    // C1b：MAC 必须真正校验；无法校验一律 fail-closed
+    // ════════════════════════════════════════
+
+    /// Seeds a `Ready` SAS transaction with a real X25519 key pair and returns
+    /// `(peer_public, keys, correct_mac)`.
+    async fn seed_sas_with_known_mac(
+        svc: &VerificationService,
+        tx: &str,
+    ) -> (String, std::collections::BTreeMap<String, String>, String) {
+        let (own_secret, own_public) = svc.generate_key_pair();
+        let (_peer_secret, peer_public) = svc.generate_key_pair();
+
+        svc.storage
+            .create_request(&VerificationRequest {
+                transaction_id: tx.to_string(),
+                from_user: "@alice:example.com".to_string(),
+                from_device: "ALICEDEV".to_string(),
+                to_user: "@bob:example.com".to_string(),
+                to_device: Some("BOBDEV".to_string()),
+                method: VerificationMethod::Sas,
+                state: VerificationState::Ready,
+                created_ts: current_timestamp_millis(),
+                updated_ts: None,
+            })
+            .await
+            .expect("create request");
+        svc.storage
+            .store_sas_state(&SasState {
+                tx_id: tx.to_string(),
+                from_device: "ALICEDEV".to_string(),
+                to_device: Some("BOBDEV".to_string()),
+                method: VerificationMethod::Sas,
+                state: VerificationState::Ready,
+                exchange_hashes: Vec::new(),
+                commitment: None,
+                pubkey: Some(own_public),
+                secret_key: Some(own_secret.clone()),
+                sas_bytes: None,
+                mac: None,
+            })
+            .await
+            .expect("store sas state");
+
+        let shared = svc.compute_shared_secret(&own_secret, &peer_public).expect("shared secret");
+        let mut keys = std::collections::BTreeMap::new();
+        keys.insert("ed25519:ALICEDEV".to_string(), "alice-key-value".to_string());
+        let mac =
+            svc.compute_mac(&["ed25519:ALICEDEV\u{0}alice-key-value".to_string()], &shared, "").expect("compute mac");
+        (peer_public, keys, mac)
+    }
+
+    async fn request_state(svc: &VerificationService, tx: &str) -> VerificationState {
+        svc.storage.get_request(tx).await.expect("get request").expect("request exists").state
+    }
+
+    #[tokio::test]
+    async fn confirm_sas_accepts_correct_mac_and_marks_done() {
+        let isolated = IsolatedTestPool::new(BASELINE_SQL).await.expect("isolated test pool");
+        let svc = make_service(isolated.pool());
+        let (peer_public, keys, mac) = seed_sas_with_known_mac(&svc, "tx-mac-ok").await;
+
+        let confirmed = svc.confirm_sas("tx-mac-ok", &mac, &keys, &peer_public).await.expect("valid MAC accepted");
+        assert!(confirmed);
+        assert_eq!(request_state(&svc, "tx-mac-ok").await, VerificationState::Done);
+    }
+
+    /// 篡改 MAC 必须被拒绝，且**不得**把交易标记为 Done（旧实现接受任意非空串）。
+    #[tokio::test]
+    async fn confirm_sas_rejects_tampered_mac() {
+        let isolated = IsolatedTestPool::new(BASELINE_SQL).await.expect("isolated test pool");
+        let svc = make_service(isolated.pool());
+        let (peer_public, keys, mac) = seed_sas_with_known_mac(&svc, "tx-mac-bad").await;
+
+        let tampered = format!("{}x", mac);
+        let result = svc.confirm_sas("tx-mac-bad", &tampered, &keys, &peer_public).await;
+        assert!(result.is_err(), "篡改的 MAC 必须被拒绝: {result:?}");
+        assert_ne!(
+            request_state(&svc, "tx-mac-bad").await,
+            VerificationState::Done,
+            "MAC 校验失败不得把交易标记为 Done"
+        );
+    }
+
+    /// 无法校验时必须 fail-closed：缺 keys / 缺 peer key 都不得 Done。
+    #[tokio::test]
+    async fn confirm_sas_fails_closed_without_proof() {
+        let isolated = IsolatedTestPool::new(BASELINE_SQL).await.expect("isolated test pool");
+        let svc = make_service(isolated.pool());
+        let (peer_public, keys, mac) = seed_sas_with_known_mac(&svc, "tx-mac-noproof").await;
+
+        let empty_keys = std::collections::BTreeMap::new();
+        assert!(
+            svc.confirm_sas("tx-mac-noproof", &mac, &empty_keys, &peer_public).await.is_err(),
+            "缺 keys 时必须拒绝"
+        );
+        assert!(svc.confirm_sas("tx-mac-noproof", &mac, &keys, "").await.is_err(), "缺 peer public key 时必须拒绝");
+        assert_ne!(request_state(&svc, "tx-mac-noproof").await, VerificationState::Done, "缺少校验材料时不得标记 Done");
     }
 }
