@@ -5,6 +5,7 @@
 # 项目技术词典：aspell 通用英文词典（en_US）不含本仓技术语料的词汇。
 # 由本轮实测生成：CI run 35494141985 的 577 词 ∪ 本地 aspell 0.60.8.2 的 757 词 ∪ 原有 17 词。
 # 内容为「合法技术词」，不是「忽略拼写错误」：通用英文词的错拼（recieve/seperate/occured…）
+# 追加（2026-09-22，对比报告 v1.2 复核）：aliyun、cancellable、clamav、dags、livekit、redactions、sharding、twilio、webhooks、websocket、bugfix、elementsec、ghsa、noop、glibc。
 abi
 accessexclusivelock
 accessor
@@ -35,6 +36,7 @@ agpl
 ai
 aiconnection
 alertmanager
+aliyun
 all
 amd
 ansible
@@ -95,12 +97,14 @@ booleans
 br
 bre
 btree
+bugfix
 buildable
 buildkit
 buildx
 burnafterreadservice
 cacheregistry
 camelcase
+cancellable
 cancellationtoken
 cancelled
 canonicalevent
@@ -115,6 +119,7 @@ changelog
 chmod
 cidr
 ciphertext
+clamav
 clapcy
 claude
 cli
@@ -161,6 +166,7 @@ cte
 ctx
 cve
 cwd
+dags
 dalek
 dashmap
 dbacp
@@ -214,6 +220,7 @@ ecr
 edu
 eeroom
 eeroomcontext
+elementsec
 enablement
 eng
 entrypoint
@@ -268,6 +275,7 @@ getter
 gh
 gha
 ghcr
+ghsa
 gitignore
 gitignored
 gitleaks
@@ -375,6 +383,7 @@ lifecycleserviceconfig
 limitexceeded
 linter
 linux
+livekit
 ljf
 llvm
 loc
@@ -443,6 +452,7 @@ nn
 nom
 nonces
 noncetracker
+noop
 notauthorized
 notfound
 nothing
@@ -541,6 +551,7 @@ readme
 readreceipts
 readreceiptsmanager
 rebase
+redactions
 redirecturl
 redis
 rediscli
@@ -635,6 +646,7 @@ sessioncontext
 sfu
 sgr
 sha
+sharding
 sharedcontext
 shippable
 shm
@@ -744,6 +756,7 @@ tst
 ttf
 ttl
 turbofish
+twilio
 tx
 txn
 txpostgres
@@ -800,8 +813,10 @@ vuln
 vus
 walkthroughs
 webhook
+webhooks
 webpush
 webrtc
+websocket
 webview
 whitespace
 whoami
