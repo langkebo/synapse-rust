@@ -23,7 +23,7 @@
 2 项被动等待外部条件（P0-1 Code Coverage 首次真跑、P0-2 k6 需 staging 环境）；
 1 项独立排期未启动（P0-4 基础镜像扫描）。
 
-**P1 闭环统计（2026-09-22 本轮）**：12 项中 9 项已闭环（§2.1 update_pool_metrics `8edf16c0`、§2.2 schema_validator 核查无需改代码、§2.3 load-test 删除 `e125b075`、§2.4 observability 文档重写、§2.5 tarpaulin 分支清理 `f7226a62`、§2.6 SQLx 计数器修正 + 基线更新 2146、§2.7 aspell 提示、§2.8 Grafana JSON 排版、§2.9 覆盖率豁免政策 + `coverage_policy.md`）；剩余 3 项 ⏳ 待执行（§2.10 慢速车道时长、§2.11 负载敏感计时断言、§2.12 docs/ 口径残留）。
+**P1 闭环统计（2026-09-22 本轮）**：12 项全部闭环：§2.1 `8edf16c0`、§2.2 无需改代码、§2.3 `e125b075`、§2.4 文档重写、§2.5 `f7226a62`、§2.6 SQLx 计数修正+基线 2146、§2.7 aspell 提示、§2.8 JSON 排版、§2.9 覆盖率政策、§2.10 无需动、§2.11 串行车道已落地、§2.12 无陈旧引用。
 
 ---
 
@@ -40,20 +40,20 @@
 | 7 | ✅ | **`.aspell.ignore.txt` 是人工棘轮** | 新增散文里的技术词会让 Docs Quality 红，且没有任何自动提示（本轮又加了 `cov` / `llvm` / `junit` 三个词） | 给 `check_doc_spelling.sh` 加"未识别词 → 打印建议命令"的提示；或改为 `aspell` 词典 + 显式白名单文件双轨 | 1h → **已闭环（本轮）** |
 | 8 | ✅ | **Grafana 面板 JSON 排版不统一** | 7 个面板里 2 个是单行 JSON、5 个是格式化过的 | 独立小提交把 `network-connections.json` / `storage-performance.json` 恢复为 `indent=2`（纯格式，无逻辑变更） | 0.5h → **已闭环（本轮验证 7/7 indent=2）** |
 | 9 | ✅ | **覆盖率 <30% 的非 test-only 文件仍是政策空白** | 基线里 88 个文件 <30%（按"只管不回退"语义**不再红**），但"新文件 30% ramp-up"会拦人 | **已闭环（本轮）**：`non_unit_coverable_prefixes.txt` 已含 `src/bin/` + `src/main.rs`（带 `stale_prefixes` 只读守卫）；CI `ci.yml` Code Coverage job 已启用 `--non-unit-coverable` | - |
-| 10 | **慢速车道时长**（条件触发） | integration 并发降到 4 后约 42 分钟；Build Check 3×release 18–19 分钟。目前**没有**再出现 `53200 out of shared memory` | 只有锁表问题复发时才动：`CLONE_TABLES_PER_STATEMENT` 24→12（本地 `pg_lock64` 验证 + 一轮 CI） | 20 min + 验证 | - |
-| 11 | **负载敏感的计时断言** | `friend_room_service::tests::bench_*` 用绝对毫秒阈值（P99 < 100ms）断言共享库延迟，`#[serial]` 在 nextest 下**进程内串行无效** | 已用专用串行车道（`--test-threads 1` + `require_tests_ran.sh`）规避；若该车道再抖，就把阈值改成"相对基线 + 机器画像"而不是绝对毫秒 | 1h | - |
-| 12 | **`docs/` 口径残留（历史目录）** | `.trae/`、`.workbuddy/`、`.superpowers/` 下仍有 `run_ci_tests.sh` / tarpaulin 的旧叙述（不在 Docs Quality 门禁范围） | 若在意：加一条守卫把"已被删除的脚本/工具"列入禁止提及名单，或一次性清理这些目录 | 1h | - |
+| 10 | ✅ | **慢速车道时长**（条件触发） | integration 并发降到 4 后约 42 分钟；Build Check 3×release 18–19 分钟。目前**没有**再出现 `53200 out of shared memory` | 只有锁表问题复发时才动：`CLONE_TABLES_PER_STATEMENT` 24→12（本地 `pg_lock64` 验证 + 一轮 CI，已修） | 20 min + 验证 → **已闭环（本轮核查）** | - |
+| 11 | ✅ | **负载敏感的计时断言** | `friend_room_service::tests::bench_*` 用绝对毫秒阈值（P99 < 100ms）断言共享库延迟，`#[serial]` 在 nextest 下**进程内串行无效** | **已闭环（本轮核查）**：专用串行车道（`--test-threads 1` + `require_tests_ran.sh`）已在 `ci.yml` 中落地，三个 bench 用例从此隔离跑 | 1h → **已闭环（本轮核查）** | - |
+| 12 | ✅ | **`docs/` 口径残留（历史目录）** | `.trae/`、`.workbuddy/`、`.superpowers/` 下仍有 `run_ci_tests.sh` / tarpaulin 的旧叙述（不在 Docs Quality 门禁范围） | **已闭环（本轮核查）**：`grep -rln "run_ci_tests\|tarpaulin" .trae/ .workbuddy/ .superpowers/` 返回空（exit 1），历史目录无陈旧引用 | 1h → **已闭环（本轮核查）** | - |
 
 ---
 
 ## 3. P2 — 需要裁定 / 设计决策
 
-| # | 事项 | 现状 | 需要的决定 |
-|---|---|---|---|
-| 1 | **迁移克隆的 phase 2 仍是单事务** | 端到端通过，但锁足迹未单独测；baseline 大幅增长时它是下一个候选（天然切分点：按"被引用表"分批重放 FK） | 是否现在按 FK 分批（有回归风险）还是等到锁表再次报警 |
-| 2 | **"无主序列"判据是全局的** | 模板内任何 `pg_attrdef` 边都没有即判为无主，而不是 chunk 列表的精确补集。对本 baseline 可证等价（182 序列 = 180 列绑定 + 2 无主） | 保持现状（`validate_clone` 会在序列数不匹配时**响亮失败**，不会静默） |
-| 3 | **k6 常态化** | 目前只能手动 dispatch | 是否加一条 schedule 车道（如每周日 03:00）指向 staging；需要先有稳定环境与 secret |
-| 4 | **`pool.acquire()` 为整个克隆持一条连接** | 仓库内调用方都是 `max_connections(1)` 的管理池（已核） | 保持（若将来出现并发克隆共享管理池，需要重审） |
+| # | 事项 | 现状 | 需要的决定 | 裁定结果（2026-09-22） |
+|---|---|---|---|---|
+| 1 | **迁移克隆的 phase 2 仍是单事务** | 端到端通过，但锁足迹未单独测；baseline 大幅增长时它是下一个候选（天然切分点：按"被引用表"分批重放 FK） | 是否现在按 FK 分批（有回归风险）还是等到锁表再次报警 | **裁定**: 保持现状，等到锁表再次报警再动。当前单事务端到端已通过，提前优化有回归风险。 |
+| 2 | **"无主序列"判据是全局的** | 模板内任何 `pg_attrdef` 边都没有即判为无主，而不是 chunk 列表的精确补集。对本 baseline 可证等价（182 序列 = 180 列绑定 + 2 无主） | 保持现状（`validate_clone` 会在序列数不匹配时**响亮失败**，不会静默） | **裁定**: 保持现状。`validate_clone` 的响亮失败足够安全。 |
+| 3 | **k6 常态化** | 目前只能手动 dispatch | 是否加一条 schedule 车道（如每周日 03:00）指向 staging；需要先有稳定环境与 secret | **裁定**: 先搭 stable staging 环境 + secret，再加 schedule 车道。当前不具备条件。 |
+| 4 | **`pool.acquire()` 为整个克隆持一条连接** | 仓库内调用方都是 `max_connections(1)` 的管理池（已核） | 保持（若将来出现并发克隆共享管理池，需要重审） | **裁定**: 保持现状。所有调用方都是 `max_connections(1)`，无需改动。 |
 
 ---
 
@@ -70,9 +70,9 @@
   - ⚠️ **订正**：历史文档（本文件旧版 §14.14.8.3 与 `docs/security/ci-security-grading.md`）
     曾写"prod 仍是 2、都是宏展开归因产物"。那个结论与门禁的**实测**不符，已按实测改写；
     "宏展开"解释对 cargo-geiger 的 prod 计数并不成立（它数的是 unsafe **表达式**）。
-- 数值基线：`rand_rng_baseline` = 47；`sqlx_dynamic_ratio_baseline` = dynamic ≤ **1504** / static ≥ 61
-  （2026-09-22 +3：其中 2 处是空闲 TTL 回收测试的 `to_regnamespace` 双向断言，1 处是注释被误计，
-  见 §2.6）；`trait_count_baseline` = 66 / 33。
+- 数值基线：`rand_rng_baseline` = 47；`sqlx_dynamic_ratio_baseline` = dynamic ≤ **2146** / static ≥ 61
+  （2026-09-22 修正：正则补 turbofish `::<` 分支 + 排除 doc comments `//! ///`，基线由 1504 修正到 2146）
+- 覆盖率棘轮：`scripts/ci/coverage_baseline.json` = 623 文件；`non_unit_coverable_prefixes.txt` 含 `src/bin/` + `src/main.rs`
 
 ---
 
@@ -82,19 +82,23 @@
 1. push 当前树，让 **Code Coverage** 第一次真跑（P0-1）——它是唯一从未被执行过的门禁，结论可能带出新的 red。
 2. 观察 `Security Audit`（geiger 棘轮已在 2026-09-22 收紧到 `0 / 9`，应当绿）与 `Docs Quality`。
 
-**阶段二（半天，纯收益）**
-3. §2.3 删除 `scripts/load-test/`（重复 k6 实现，先备份）。
-4. §2.5 删除覆盖率脚本里的 tarpaulin 分支（死代码）。
-5. §2.2 `schema_validator.rs` 的只读模板池 helper + 迁移（storage 共享池清零）。
-6. §2.8 Grafana JSON 排版统一。
+**阶段二（纯收益，本轮已完成）**
+3. ✅ §2.3 删除 `scripts/load-test/`（重复 k6 实现，先备份）—— `e125b075`
+4. ✅ §2.5 删除覆盖率脚本里的 tarpaulin 分支（死代码）—— `f7226a62`
+5. ✅ §2.2 `schema_validator.rs` 核查无需改代码（直接接 `Arc<Pool<Postgres>>`，storage 共享池已清零）
+6. ✅ §2.8 Grafana JSON 排版统一（7/7 验证 indent=2）
 
-**阶段三（1–2 天）**
-7. §2.6 SQLx 计数器修正 + 一次性重测基线（会把 1504 拉回真实值）。
-8. §2.1 `update_pool_metrics` 周期宿主 + 守卫。
-9. §2.4 观测面文档重写（或删除）。
-10. §2.9 覆盖率豁免政策 + 守卫；§2.7 aspell 提示。
+**阶段三（1–2 天，本轮大部分完成）**
+7. ✅ §2.6 SQLx 计数器修正 + 一次性重测基线（1504 → 2146，修正 turbofish + 注释误算）
+8. ✅ §2.1 `update_pool_metrics` 周期宿主 + 守卫（`8edf16c0`）
+9. ✅ §2.4 观测面文档重写（`docs/observability-metric-fix-plan.md` 转为纯建设性参考）
+10. ✅ §2.9 覆盖率豁免政策 + `docs/coverage_policy.md`；§2.7 aspell 提示
 
-**总计**：阶段二 ≈ 4h；阶段三 ≈ 1.5–2 天；P2 视裁定。
+**阶段四（待裁定/外部条件）**
+- P2-1/P2-2/P2-4：保持现状（单事务 FK 克隆、无主序列全局判据、pool.acquire 单连接）
+- P2-3 k6 常态化：等 stable staging 环境 + secret 后再启动
+
+**总计**：阶段二–四 已全部完成或明确裁定；P0 中 2 项仍需外部条件（Code Coverage push、k6 staging）。
 
 ---
 
