@@ -3439,12 +3439,13 @@ rate(auth_success_total[5m]) / rate(auth_attempts_total[5m])     -- 返回 EMPTY
 
 #### 14.19.6 遗留与建议（2026-09-22 10:30 刷新）
 
-##### 一、当前工作树状态（2026-09-22 10:30）
+##### 一、当前工作树状态（2026-09-22 10:32 §14.18 已提交）
 
 ```
-已提交（本轮）：3f3178ee（13 文件：7 dashboards + 3 gate 文件 + GATE 文档 §14.19 + observability-metric-fix-plan.md + .aspell.ignore.txt）
-未提交（§14.18 系列）：~20+ 文件（含 ci.yml、synapse-test-utils、docs/、脚本等）
-未跟踪（冗余候选）：scripts/load-test/（4 文件）、docs/K6_DEPRECATION_ANALYSIS.md 等
+已提交（本轮）：e125b075（§14.18 系列，16 文件：SCHEMA_POOL 回收线程 + nextest profile 对齐 + perf smoke 引用同步 + SQLx 棘轮基线 1501→1504 + geiger 归因订正 + A13 文档口径 + GATE 文档 §14.19.6 刷新 + run_ci_tests.sh git rm + tarpaulin.toml git rm + perf README 引用更新）
+已提交（上轮）：3f3178ee（13 文件：7 dashboards + gate + docs + .aspell）
+未提交（另一会话 · k6-action 依赖）：.github/workflows/ci.yml + scripts/test/perf/{api_matrix_core.js,guardrail.py,run_tests.sh}
+未跟踪（冗余候选）：archive/（load-test 备份）、docs/K6_DEPRECATION_ANALYSIS.md、docs/audit/DEPLOY_VERIFICATION_2026-09-21.md、docs/backend-binary-status.md
 ```
 
 **关键依赖关系**：
@@ -3456,12 +3457,12 @@ rate(auth_success_total[5m]) / rate(auth_attempts_total[5m])     -- 返回 EMPTY
 
 | 优先级 | 问题 | 影响范围 | 根因 | 建议处置 | 预计工时 |
 |--------|------|----------|------|----------|----------|
-| **P0-1** | §14.18 系列未提交（SCHEMA_POOL 回收线程、perf smoke 守卫对齐、SQLx 基线调整等） | CI 门禁假绿、测试稳定性 | 并发会话隔离策略（故意暂存） | 优先提交（不含 `ci.yml`），解除门禁盲区 | 1h |
+| **P0-1** ~~§14.18 系列未提交~~ | ✅ 已提交 `e125b075` | CI 门禁盲区已解除 | — | 已解决 | 0h |
 | **P0-2** | `update_pool_metrics` 死埋点（`pool_utilization`/`db_connections_active`/`pool_health_status` 恒 0） | 数据库池监控完全失明 | 缺少周期任务宿主 | 新增 `src/services/metrics_scheduler.rs`（TTL-based reclaimer 同类模式） | 4h |
 | **P1-1** | `scripts/load-test/` 与 `scripts/test/perf/` 双重 k6 实现 | 维护成本高、场景不一致、CI 无接线 | 缺乏性能测试收口决策 | **裁定 B**：保留 `scripts/test/perf/`（已接线 CI + guardrail），删除 `scripts/load-test/` | 0.5h |
 | **P1-2** | `docs/observability-metric-fix-plan.md` 前提失效但未完整重写 | 误导后续观测面改造 | 写于 `43aa8f66` 之前 | 重写为"观测面建设指南"（含 provisioning 陷阱、PromQL 向量匹配、比率 vs percent 等） | 2h |
 | **P1-3** | Grafana 面板排版不统一（2 个单行 JSON + 5 个格式化） | PR 审查噪音 | 上一轮压成单行 | 独立小提交恢复 `network-connections.json` + `storage-performance.json` 为 `indent=2` | 0.5h |
-| **P2-1** | `scripts/ci_backend_validation.sh` 仍引用已删除的 `run_ci_tests.sh` | CI 脚本断裂 | 未同步更新 | 改为直接执行 CI 的三个 nextest 批次（参照 §14.18.4） | 0.5h |
+| **P2-1** ~~ci_backend_validation.sh 引用已删文件~~ | ✅ 已提交 `e125b075` | 已同步为三个 CI 批次 | — | 已解决 | 0h |
 | **P2-2** | `docs/` 口径仍有遗漏（仅本轮修正 3 处） | 文档不一致 | 未全量复核 | 用 `check_missing_docs_ratchet.py` 扫描后逐条订正 | 1h |
 | **P2-3** | k6 无 CI 自动跑（需手动 dispatch） | 性能回归可能漏检 | 刻意权衡（缺真实环境） | 增加 schedule 车道（每周日凌晨 3 点），指向 staging 环境 | 1h |
 
