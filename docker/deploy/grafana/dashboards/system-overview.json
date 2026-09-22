@@ -1,160 +1,241 @@
 {
-  "dashboard": {
-    "id": null,
-    "uid": "system-overview",
-    "title": "系统概览",
-    "tags": ["synapse-rust", "infrastructure"],
-    "timezone": "utc",
-    "schemaVersion": 38,
-    "version": 1,
-    "refresh": "15s",
-    "panels": [
-      {
-        "id": 1,
-        "title": "CPU 使用率",
-        "type": "stat",
-        "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0},
-        "targets": [
-          {
-            "expr": "instance:cpu_usage:percent",
-            "refId": "A",
-            "legendFormat": "{{instance}}"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "min": 0,
-            "max": 100,
-            "unit": "percent",
-            "thresholds": {"mode": "absolute", "steps": [
-              {"color": "green", "value": null},
-              {"color": "yellow", "value": 70},
-              {"color": "red", "value": 85}
-            ]}
+  "id": null,
+  "uid": "system-overview",
+  "title": "系统概览",
+  "tags": [
+    "synapse-rust",
+    "infrastructure"
+  ],
+  "timezone": "utc",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "15s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "CPU 使用率",
+      "type": "stat",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "instance:cpu_usage:percent",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 100,
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 85
+              }
+            ]
           }
         }
-      },
-      {
-        "id": 2,
-        "title": "内存使用率",
-        "type": "stat",
-        "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0},
-        "targets": [
-          {
-            "expr": "instance:memory_usage:percent",
-            "refId": "A"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "min": 0,
-            "max": 100,
-            "unit": "percent",
-            "thresholds": {"mode": "absolute", "steps": [
-              {"color": "green", "value": null},
-              {"color": "yellow", "value": 80},
-              {"color": "red", "value": 90}
-            ]}
-          }
-        }
-      },
-      {
-        "id": 3,
-        "title": "磁盘使用率",
-        "type": "stat",
-        "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0},
-        "targets": [
-          {
-            "expr": "instance:disk_usage:percent",
-            "refId": "A"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "min": 0,
-            "max": 100,
-            "unit": "percent",
-            "thresholds": {"mode": "absolute", "steps": [
-              {"color": "green", "value": null},
-              {"color": "yellow", "value": 75},
-              {"color": "red", "value": 90}
-            ]}
-          }
-        }
-      },
-      {
-        "id": 4,
-        "title": "服务状态",
-        "type": "table",
-        "gridPos": {"h": 8, "w": 6, "x": 0, "y": 8},
-        "targets": [
-          {
-            "expr": "up",
-            "refId": "A",
-            "legendFormat": "{{job}}",
-            "instant": true
-          }
-        ]
-      },
-      {
-        "id": 5,
-        "title": "HTTP 请求速率",
-        "type": "timeseries",
-        "gridPos": {"h": 8, "w": 12, "x": 6, "y": 8},
-        "targets": [
-          {
-            "expr": "job:http_requests:rate5m",
-            "refId": "A",
-            "legendFormat": "{{job}}"
-          }
-        ]
-      },
-      {
-        "id": 6,
-        "title": "HTTP 错误率",
-        "type": "timeseries",
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
-        "targets": [
-          {
-            "expr": "job:http_error_rate:ratio5m",
-            "refId": "A",
-            "legendFormat": "{{job}}"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "percentunit",
-            "thresholds": {"mode": "absolute", "steps": [
-              {"color": "green", "value": null},
-              {"color": "yellow", "value": 0.01},
-              {"color": "red", "value": 0.05}
-            ]}
-          }
-        }
-      },
-      {
-        "id": 7,
-        "title": "告警状态",
-        "type": "stat",
-        "gridPos": {"h": 8, "w": 6, "x": 12, "y": 16},
-        "targets": [
-          {
-            "expr": "ALERTS{alertstate=\"firing\"}",
-            "refId": "A",
-            "legendFormat": "{{alertname}}"
-          }
-        ]
       }
-    ],
-    "templating": {
-      "list": []
     },
-    "time": {"from": "now-1h", "to": "now"},
-    "title": "系统概览"
+    {
+      "id": 2,
+      "title": "内存使用率",
+      "type": "stat",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "instance:memory_usage:percent",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 100,
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "磁盘使用率",
+      "type": "stat",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "instance:disk_usage:percent",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 100,
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 75
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "服务状态",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "up",
+          "refId": "A",
+          "legendFormat": "{{job}}",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "HTTP 请求速率",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 6,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "job:http_requests:rate5m",
+          "refId": "A",
+          "legendFormat": "{{job}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "HTTP 错误率",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "job:http_error_rate:ratio5m",
+          "refId": "A",
+          "legendFormat": "{{job}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.01
+              },
+              {
+                "color": "red",
+                "value": 0.05
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "告警状态",
+      "type": "stat",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "ALERTS{alertstate=\"firing\"}",
+          "refId": "A",
+          "legendFormat": "{{alertname}}"
+        }
+      ]
+    }
+  ],
+  "templating": {
+    "list": []
   },
-  "meta": {
-    "folder": "synapse-rust",
-    "slug": "system-overview",
-    "version": 1
+  "time": {
+    "from": "now-1h",
+    "to": "now"
   }
 }

@@ -453,7 +453,7 @@ schema contract coverage / connection budget / route layering **全部 exit 0**�
 
 | 脚本 | 引用方 | 处置 |
 |---|---|---|
-| `scripts/run_ci_tests.sh` | AGENTS.md / CLAUDE.md / TESTING.md / CHECKLIST.md / `ci_backend_validation.sh:193` | **保留**为本地入口。但 TESTING.md 把它列为"主门禁"而 ci.yml 是内联重实现 ⇒ 文档应注明"权威是 ci.yml，本脚本是本地便利封装"，否则双源漂移（铁律 2 的文档面） |
+| ~~`scripts/run_ci_tests.sh`~~ | ~~AGENTS.md / CLAUDE.md / TESTING.md / CHECKLIST.md / `ci_backend_validation.sh:193`~~ | ~~**保留**为本地入口。但 TESTING.md 把它列为"主门禁"而 ci.yml 是内联重实现 ⇒ 文档应注明"权威是 ci.yml，本脚本是本地便利封装"，否则双源漂移（铁律 2 的文档面）~~ → ⚠️ **本节裁定已被推翻（2026-09-22）**：第二实现**已删除**（裁定 A），`ci_backend_validation.sh:193` 改为逐字执行 `ci.yml` 的三个批次。保留而非删除的前提是"它只是便利封装、不会漂移"，实测它**已经漂移出真实危害**（仍用 `--ignored` 跑 4 条 CI 上会假失败的手工负载冒烟、`TEST_RETRIES=2`、`TEST_THREADS=8`）。见 §14.18.4 与 §14.19 |
 | `scripts/ci/run_complement_tests.sh` | TESTING.md（手动章节） | 保留（手动工具；interop 由 `e2ee-interop.yml` 承担） |
 | `scripts/ci_schema_health_check.sh` | `Makefile:216`、migrations/README.md | 保留（`make` 可达） |
 | `scripts/validate_config.sh` | `scripts/dev_start.sh:29`、README.md | 保留（被 dev 脚本调用） |
@@ -2778,7 +2778,7 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 | 2 | ~~k6 Smoke Test 从未真正执行~~ → **本地首跑已做（2026-09-21）**，CI 侧仍待真实环境 | 用 docker `grafana/k6:0.47.0`（与 CI 同版本）在本机 docker 栈上真跑 `run_tests.sh smoke`：10 VUs × 30s = 280 iterations、summary 正常导出、k6 自身 `errors` 阈值确实会红（本地无管理员凭据 ⇒ 属目标侧问题）。**首跑即抓到门禁缺陷**：`guardrail.py` 读不了 k6 0.47 的扁平 `--summary-export`（0.47 把聚合平铺在 `metrics.<name>`：trend `{"p(95)":12}`、rate `{"value":1}`；脚本只认`metric["values"]["p(95)"]`）⇒ 七项指标恒为 `missing`/FAIL，**目标再健康也只会红**。已修（扁平优先 + 嵌套回退）并加守卫 `k6_guardrail_reads_the_flat_summary_export`。CI 侧仍需 `K6_SMOKE_BASE_URL` 指向真实环境 |
 | 3 | 分支保护允许绕过、不强制 PR（既有裁定） | 门禁绿不绿依赖人工看 run；漏看即漏合并 |
 | 4 | ~~根 crate 的 1 处 production unsafe 未定位~~ → **已定位（2026-09-21）** | `-Zunpretty=hir` 全量核对：该 crate 展开后的 284 个 unsafe **全部**来自 `format_args!`（155）与 `.await`/tokio 宏脱糖（129），源码零 `unsafe` 字面量 ⇒ cargo-geiger 的 span 归因产物，**无需改代码**（§14.14.6） |
-| 5 | `test_schema_guard` 的 `libc::atexit` | ✅ **已解决（裁定 B'，2026-09-21）**：`unsafe` 从生产库挪进**测试目标**（`drain_schemas_at_exit` 保持安全代码 + 每个测试二进制用 `libc` dev-dependency 注册一次），生产构建零 `unsafe`、运行时行为不变（退出照样排空）。实测：泄漏 A/B delta=0（对照 +28 证明钩子 load-bearing）、`synapse-common` 900 passed；守卫 `every_db_test_binary_registers_the_exit_drain`。详见 §14.14.8.2 |
+| 5 | `test_schema_guard` 的 `libc::atexit` | ✅ **手写 unsafe 已移出生产库（裁定 B'，2026-09-21）**：`unsafe` 挪进**测试目标**（`drain_schemas_at_exit` 保持安全代码 + 每个测试二进制用 `libc` dev-dependency 注册一次），生产构建零手写 `unsafe`、运行时行为不变（退出照样排空）。实测：泄漏 A/B delta=0（对照 +28 证明钩子 load-bearing）、`synapse-common` 900 passed；守卫 `every_db_test_binary_registers_the_exit_drain`。⚠️ **口径更正（2026-09-21）**：**cargo-geiger 的 prod 计数没有降到 1**——最新 prod 扫描仍是 2，因为 `synapse-common` 与 `synapse-rust` 各那 1 个都是**宏/编译器展开的 span 归因产物**（HIR 全量分类：synapse-common 444 个 unsafe = 292 `format_args!` + 127 `.await`/tokio 宏 + 25 `derive(Clone)` 的 `TrivialClone` + **0 手写**；根 crate 284 个同理）。**代码层面删不掉**，只能靠基线的逐条登记；详见 §14.14.8.2 与本表末尾的订正 |
 | 6 | distroless pin 偏旧（`e5d81ddd…`，0 CVE）、builder `rust:1.93.0-slim-bookworm`（475 HIGH/CRITICAL，仅 build-time） | 已知权衡，未动；Docker Security Scan 目前绿 |
 
 **B. 代码 / 工程债（可动，本轮未做）**
@@ -2786,12 +2786,12 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 | # | 问题 | 规模估计 |
 |---|---|---|
 | 7 | **仍有 14 个 `synapse-storage/src` 文件用 `connect_shared_test_pool()`（共享 `public`）** | 本轮已迁 **24 个**（`event_report` + 批次 1–6；每批都本地跑过：33/51/56/59/192/待记 条测试全绿），现在**只剩 `schema_validator.rs`**，且它按设计必须留在共享池（见本条后半段的克隆命名发现）。**计数更正**：先前写的 23 是把**注释里提到** `connect_shared_test_pool` 的文件也算进去了；按真实调用 `test_utils::connect_shared_test_pool()` 统计是 14 个（`git grep -ln "test_utils::connect_shared_test_pool()"`）。共性风险：CI 绿本地红、并行测试互相影响。**本轮新发现（重要）**：`CREATE TABLE new (LIKE old INCLUDING ALL)` **不保留索引名** —— 实测克隆里 `users` 的索引是 `users_pkey` / `users_email_idx`，而模板（由 baseline 直接建成）里是 `pk_users` / `idx_users_email`。所以**断言对象命名**的测试（`schema_validator.rs` 断言 `pk_users`/`pk_rooms`）不能迁到克隆 schema（实测：迁后 59 passed / 1 failed），已回退并在该文件写明原因；将来若要让它本地也绿，需要一个"绑定模板 schema 的只读池" helper（~1h）|
-| 8 | `scripts/run_ci_tests.sh` 与 `ci.yml` 内联批次重复（sweep A13） | 两处实现必然漂移 |
-| 9 | `.config/nextest.toml` 的 `[profile.ci]`（`retries=2, threads=12`）与 CI 实际命令行口径不一致 | 配置与事实不符，容易误导 |
+| 8 | ~~`scripts/run_ci_tests.sh` 与 `ci.yml` 内联批次重复（sweep A13）~~ → ✅ **已按裁定 A 删除（2026-09-22）** | 第二实现已经漂移出真实危害：它仍用 `--ignored` 跑 4 条「在 CI 上会假失败」的手工负载冒烟（= 上一轮刚从 `ci.yml` 修掉的同一个 bug）、带 `TEST_RETRIES=2`（CI 已明确收回重试）、`TEST_THREADS=8`（CI=4），并让 `ci.yml` 里「`RUN_PERF_SMOKE` 全仓无消费者」这句变成假话。调用方 `ci_backend_validation.sh:193` 改为逐字执行 CI 的三个 nextest 批次；TESTING.md / AGENTS.md / CLAUDE.md / CHECKLIST.md / `tdd-rust` SKILL 的引用同步。见 §14.18 |
+| 9 | ~~`.config/nextest.toml` 的 `[profile.ci]`（`retries=2, threads=12`）与 CI 实际命令行口径不一致~~ → ✅ **已对齐 + 加守卫（2026-09-22）** | profile 改为 `retries=0 / test-threads=4 / fail-fast=false`（= `ci.yml` 集成车道），并加守卫 `local_ci_nextest_profile_matches_the_ci_command_line`（红证明：`threads→12` FAILED、`retries→2` FAILED）。见 §14.18 |
 | 10 | 慢速车道时长上升（integration 并发降到 4 后 ~42 分钟；Build Check 3×release 18–19 分钟） | 若锁表仍偶发，需把 `CLONE_TABLES_PER_STATEMENT` 24→12 |
 | 11 | 本地 `test_*` schema 残留（枚举一轮产生数百个） | `scripts/cleanup_test_schemas.sh` 未自动接入 |
 | 12 | `.aspell.ignore.txt` 是人工棘轮 | 新增散文词会让 Docs Quality 红，无自动提示 |
-| 13 | `docs/` 里可能还有与实现不符的口径 | 本会话只修了 `ci-security-grading.md` 的 cargo-geiger 与 rand 两处 |
+| 13 | `docs/` 里还有与实现不符的口径 | **本轮修了 3 处已证实的**：`docs/security/ci-security-grading.md` 的 geiger 基线归因（旧文把 prod 那 1 个说成 `test_schema_guard.rs` 的 `libc::atexit`，实测是宏展开产物）、`TESTING.md` 整套 tarpaulin 覆盖率口径（现为 cargo llvm-cov + per-file 棘轮 + CI 从未跑完的提示）、`tdd-rust` SKILL 的 `cargo insta test --no-review`（该旗标 1.48 已删，且 CI 已不用 cargo-insta）。**新增两条待办**：① `tarpaulin.toml` 已删（死配置），但 `scripts/check_file_coverage.py` 仍保留 tarpaulin JSON 解析分支与 `--format` 默认值 —— CI 只传 `--format lcov`、`run_local_coverage.sh` 也不调用它，按铁律 1 应一并删除，须先用合成 lcov 本地验证 CLI（~20 min）；② `.trae/`、`.workbuddy/`、`.superpowers/` 下仍有 `run_ci_tests.sh` / tarpaulin 的旧叙述（不在 Docs Quality 门禁范围内，属历史记录，未动） |
 
 **C. 日期驱动的棘轮 / 例外（到期必须复审）**
 
@@ -2799,7 +2799,8 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
   —— `Review-by 2026-12-21`（已由守卫强制不得过期）。
 - `scripts/ci/geiger_baseline.json`：2 处 production unsafe —— `review_by 2026-12-21`
   （已由脚本校验清单求和与日期）。
-- 数值基线：`rand_rng_baseline` = 47；SQLx = 1501 / 61；trait = 66 / 33；geiger = 2 / 8。
+- 数值基线：`rand_rng_baseline` = 47；SQLx = **1504** / 61（2026-09-22 由 1501 上调 +3，见 §14.18.8）；
+  trait = 66 / 33；geiger = 2 / 8。
 
 ### 14.17 下一步工作计划与时间估算
 
@@ -2820,8 +2821,8 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 | ✅ `test_schema_guard` 的 `unsafe` 归属 → **裁定 B' 已实施**（§14.14.8.2）：`unsafe` 挪进各测试二进制、生产库零 `unsafe`、运行时不变（泄漏 A/B delta=0，对照 +28）。3 处 `PREPARED_TEST_POOLS` 经查是**死代码**（全仓没有任何入队调用），不构成缺口 | 已完成（约 2h，含 worktree 交叉验证） |
 | 剩余 13 个共享池文件迁移到 per-test schema（`schema_validator.rs` 除外，见 A⑦ 的克隆命名发现） | **5–7h**（每个 20–30 min，建议每批 3–4 个文件一个提交 —— 批次 1/2 实测：每批改动 ~13–35 个调用点，本地验证 1–8 分钟） |
 | 本地 `test_*` schema 清理 + 把 cleanup 接入流程 | ✅ 已核实：实测只剩 4 个残留（其余 3 个是 live 模板），janitor 正常工作；降为定期抽查 |
-| A13：`run_ci_tests.sh` 与 `ci.yml` 二选一（删除重复实现） | 1–2h |
-| `nextest` profile 口径统一（`.config/nextest.toml` 与 CI 命令行一致或删 `profile.ci`） | 30 min |
+| A13：`run_ci_tests.sh` 与 `ci.yml` 二选一（删除重复实现） | ✅ 已完成（2026-09-22，裁定 A：删除；见 §14.18） |
+| `nextest` profile 口径统一（`.config/nextest.toml` 与 CI 命令行一致或删 `profile.ci`） | ✅ 已完成（2026-09-22：对齐为 CI 的 `4 / 0 / no-fail-fast` + 守卫；见 §14.18） |
 | `docs/` 口径全量复核（与实现不符的叙述） | 2–3h |
 | k6 首次真跑（需部署环境/secret） | 1h |
 
@@ -2850,7 +2851,33 @@ register response should contain access_token string:
 修法：注册体里带上 `"auth": {"type": "m.login.dummy"}`，一次完成 dummy 阶段
 （与 `tests/integration/*` 里各处注册夹具同一写法）。修好后 Code Coverage 才有机会真正执行。
 
-#### 14.14.8.2 第三次尝试（裁定 B'）：把 `unsafe` 挪进**测试目标** —— 成功，运行时行为不变
+#### 14.14.8.3 订正：B' 的收益是"生产库零手写 unsafe"，不是"geiger 计数 2→1"
+
+B' 落地后我重跑了 cargo-geiger（本地 0.13.0，两次扫描）：
+
+```
+              prod      test-only
+synapse-common  1            ?      ← 该 crate 的 src/ 已零 unsafe 字面量
+synapse-rust    1            ?      ← 同上一行
+TOTAL           2
+```
+
+并对 `synapse-common` 做了**展开后 HIR** 的全量分类（`RUSTC_BOOTSTRAP=1 cargo rustc -p synapse-common
+--lib --all-features -- -Zunpretty=hir`，485 万字符）：**444 个 unsafe 表达式 = 292 个
+`unsafe { format_arguments::new(…) }`（std `format_args!`）+ 127 个 `.await`/tokio 宏的
+`new_unchecked` + 25 个编译器为 `#[derive(Clone)]` 生成的 `unsafe impl TrivialClone`，
+**手写 unsafe 块 0 个**。根 crate 的 284 个同理（155 + 129）。
+
+⇒ 结论：这两处**都不是可修的代码**，而是 cargo-geiger 对宏展开代码的 span 归因（JSON 里没有文件
+路径，工具无法区分"展开产物"与"手写块"）。因此：
+- `geiger_baseline.json` 里 `synapse-common` 原来的理由（`test_schema_guard.rs:477 libc::atexit`）
+  **已失真并已改写**为上面的 HIR 证据；
+- "把 production unsafe 降到 1"这条计划项**关闭为"代码不可达"**（除非改门禁语义去过滤展开产物，
+  那是另一类裁定）；
+- B' 的真实收益仍成立：**生产构建里不再有任何手写 `unsafe`**（`git grep -nE '\\bunsafe\\b' synapse-common/src`
+  的非注释命中为空），这是卫生上的实质改进。
+
+### 14.14.8.2 第三次尝试（裁定 B'）：把 `unsafe` 挪进**测试目标** —— 成功，运行时行为不变
 
 **设计**：`janitor_exit_handler` 改名为 `pub extern "C" fn drain_schemas_at_exit()`（**全是安全代码**，
 函数体不变），`ensure_janitor_started` 里那行 `unsafe { libc::atexit(…) }` **删除**；
@@ -3046,10 +3073,12 @@ cargo nextest run -p synapse-common --all-features --test-threads 4     → 815 
 
 B' 在每个池夹具里插了一条**语句级**门（缩进在函数体内）：
 
-    pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
-        #[cfg(test)]
-        crate::test_exit_hook::ensure();
-        ...
+```rust
+pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
+    #[cfg(test)]
+    crate::test_exit_hook::ensure();
+    ...
+```
 
 `cargo nt --test unit` 随即两红，且两条红**同一个根因** —— 两条守卫都把「某一行独立出现的
 `#[cfg(test)]`」当作**测试模块的起点**，而语句级门不是：
@@ -3064,8 +3093,9 @@ B' 在每个池夹具里插了一条**语句级**门（缩进在函数体内）�
 生产构建之外），它缩进在函数体里，不引入任何 item，因而不是模块边界。
 
 **修法（两条守卫共用同一判据：只有「引入 item 的 `#[cfg(test)]`」才算边界）**：新增
-`CFG_TEST_ITEM_HEADS`（`pub ` / `pub(` / `fn ` / `async ` / `mod ` / `impl ` / `struct ` / `enum ` /
-`trait ` / `type ` / `const ` / `static ` / `use ` / `extern ` / `unsafe `），并跳过堆叠属性与文档行
+`CFG_TEST_ITEM_HEADS`（`pub` / `pub(` / `fn` / `async` / `mod` / `impl` / `struct` / `enum` /
+`trait` / `type` / `const` / `static` / `use` / `extern` / `unsafe` —— 均为**带尾随空格的**
+item 前缀），并跳过堆叠属性与文档行
 （`synapse-common/src/test_schema_guard.rs` 是 `#[cfg(test)]` + `#[path = "…"]` 两行）；
 `production_half` 保留原有「该属性单独占一行」的约束，`cfg_test_mask` 保留原有**与缩进无关**的判定，
 因此嵌套在别的模块里的 `#[cfg(test)] mod tests { … }`（缩进）**照旧**被识别为边界。
@@ -3075,3 +3105,348 @@ B' 在每个池夹具里插了一条**语句级**门（缩进在函数体内）�
 负向断言只会更强。两个方向都单调安全，因此不需要重新校准 `LET_UNDERSCORE_AWAIT_WRITE_BASELINE`。
 
 **验证**：修后两条守卫均 PASS（2026-09-21）；`cargo fmt --all -- --check` 干净。
+
+### 14.18 第十五轮（2026-09-22）：既有工程债 9–13 的处置
+
+本轮的输入是上一轮结束时的待办清单第 9–13 条（含用户裁定）。逐条给出**证据、动作、验证**。
+
+#### 14.18.1 第 9 条：3 处死的 `PREPARED_TEST_POOLS` 队列 —— ✅ 删除（提交 `2c2f7b5d`）
+
+`synapse-services/src/test_utils.rs`、`synapse-storage/src/test_utils.rs`、`synapse-test-utils/src/lib.rs`
+各有一份 `static PREPARED_TEST_POOLS: Mutex<VecDeque<Arc<PgPool>>>` + `enqueue_prepared_test_pool()` +
+`take_prepared_test_pool()`。**判据**：全仓没有任何入队调用（只有 `take` 与测试辅助），即
+`take` 永远返回空 —— 它是"先留着以后可能有人用"的中间态（铁律 1）。
+动作：三处队列与 `take` 调用点（`synapse-services/src/container.rs::new_test`）一并删除，
+未使用的 `VecDeque` import 清理；`new_test` 直接在原处建池并写明原因。
+验证：workspace 编译 0 error / 0 warning。
+
+#### 14.18.2 第 10 条：`SCHEMA_POOL` 只停放名字、没有任何回收路径 —— ✅ 空闲 TTL 回收线程
+
+**问题**：`SCHEMA_POOL` 里放的是**名字**（没有 live `PgPool`），janitor 的弱引用监听看不到它们。
+进程退出有排空钩子兜底，但"进程还活着、却长时间不再取池"时名字会一直占着 schema（≈255 张表）。
+
+**动作**（`synapse-test-utils/src/lib.rs`）：
+- `ParkedSchema { name, parked_at }`（`SCHEMA_POOL` 的元素类型由 `String` 改成它）；
+- `SCHEMA_POOL_IDLE_TTL = 60s`、`SCHEMA_POOL_SWEEP_INTERVAL = 15s`；
+- `take_expired(pool, now, ttl)`（纯函数，按 `saturating_duration_since` 判定 `>= ttl`）；
+- `sweep_idle_parked_schemas(url, now, ttl)`（取 + `drop_schema_blocking` 的实际清扫，与线程共用同一段代码）；
+- `ensure_schema_pool_idle_reclaimer(url)`：`Once` + **普通 OS 线程**（不是 tokio 任务 —— 它必须比每个
+  测试的短命 runtime 活得久、也不能把它们拽住），每 15s `try_lock` 扫一次；nextest 下池子永不回填
+  （`on_release` 是纯 DROP），因此直接不启动。
+
+**为什么不是等进程退出就够**：退出排空只在离开时跑；`cargo test`（一个进程跑几千个测试）中间那段
+"停一会儿"正是 TTL 要覆盖的窗口。两条路径互补，都保留。
+
+**验证（3 项，含 1 项 DB 实证）**：`schema_pool_idle_reclaimer_tests` 3/3 PASS
+（`takes_only_names_parked_for_at_least_the_ttl`、`sweeping_a_fresh_or_empty_pool_takes_nothing`、
+`expired_parked_schema_is_dropped_from_the_database`）。最后一条是**双向**证明：清扫前断言克隆 schema
+**存在**（否则"不存在"的断言在查询写错时也会通过 —— 空转门禁的形态），清扫后断言**不存在**，
+且用生产 TTL（不传 0，避免误清别的测试刚停放的池）。红证明：把判定从 `>=` 改成 `>` →
+`takes_only_names_parked_for_at_least_the_ttl` FAILED（`left: ["test_stale"]` vs
+`right: ["test_at_boundary", "test_stale"]`），改回即绿。
+泄漏核验：运行前后 `select count(*) from pg_namespace where nspname like 'test\_%' and nspname not like
+'test\_template%'` 均为 **11**（delta 0）。`cargo clippy -p synapse-test-utils --all-targets
+--all-features --locked -- -D warnings` 干净。
+
+#### 14.18.3 第 12 条之一：`[profile.ci]` 与 CI 命令行口径不一致 —— ✅ 对齐 + 守卫
+
+**事实**：`ci.yml` 的每个 nextest 步骤都跑在**默认** profile 上、用命令行旗标表达口径
+（`--test-threads 4`、`--no-fail-fast`）；`[profile.ci]` 只服务本地 `--profile ci`
+（AGENTS.md / TESTING.md 推荐的集成命令）。而它写着 `test-threads = 12` / `retries = 2`：
+- 12 线程会重现 CI 已经修掉的 `53200 out of shared memory`（§14.13：共享锁表在 6 线程即爆）；
+- 重试被 `ci.yml` 的 lib 步骤注释明确收回（它曾把 main 上 11 个真实克隆失败重跑成绿），
+  且 `flaky-result = "fail"` 下重试**改变不了判定**，只白花时间。
+
+**动作**：`[profile.ci]` 改为 `retries = 0 / test-threads = 4 / fail-fast = false`，并把
+"这些值必须等于 `ci.yml`、改一处必须同步另一处"写进段头注释。
+**守卫**：`tests/unit/ci_test_scope_tests.rs::local_ci_nextest_profile_matches_the_ci_command_line`
+—— 从 `.config/nextest.toml` 读 `[profile.ci]`（只认非注释行）、从 `ci.yml` 定位带 `--no-fail-fast`
+的集成车道（同 job 那条单用例 `--test-threads 1` 步骤是刻意的串行复现，不算车道口径），断言
+`test-threads` 相等、`retries == 0`、`fail-fast == false`，并要求 `ci.yml` 没有生效的重试配置
+（注释里提到 `NEXTEST_RETRIES` 不算）。**红证明**：`test-threads = 12` → FAILED；
+`retries = 2` → FAILED；复原后 PASS。
+
+**残留（已登记，见 §14.16 B13）**：`ci.yml` 仍然自己写命令行旗标而不是 `--profile ci`。
+改成用 profile 会牵动 JUnit 产物路径（`artifacts/nextest-junit.xml` vs 当前上传的
+`target/nextest/default-*`），属于另一件事；本轮的判据是"两处口径必须一致"，已由守卫钉住。
+
+#### 14.18.4 第 12 条之二：A13 `run_ci_tests.sh` 与 `ci.yml` 双实现 —— ✅ 删除（裁定 A）
+
+**核实到的漂移（不是理论漂移）**：`scripts/run_ci_tests.sh`（283 行）
+- 仍以 `--ignored` 跑 `performance_manual`，会选中那 4 条 ignore 文案写着"在 CI 上会假失败"的
+  **手工负载冒烟** —— 这正是上一轮刚从 `ci.yml` 里修掉的那个 bug；
+- `TEST_RETRIES=2`（CI 已收回重试）、`TEST_THREADS=8`（CI=4）；
+- 定义了 `RUN_PERF_SMOKE` 这个 `ci.yml` 已删除的开关 —— 于是 `ci.yml:915` 那句
+  "`RUN_PERF_SMOKE` 全仓无任何消费者（`git grep RUN_PERF_SMOKE` 为空）"**是假话**
+  （真话只在它被删掉后才成立）。
+
+**裁定**：用户选 A —— 删除第二份实现。动作：`git rm scripts/run_ci_tests.sh`；
+`scripts/ci_backend_validation.sh:193`（唯一真实调用方）改为逐字执行 `ci.yml` 的三个批次
+（`--workspace --lib --all-features --test-threads 4 -E 'not test(/...bench_friend_list_/)'`、
+`--test unit --features test-utils --test-threads 4`、
+`--test integration --all-features --test-threads 4 --no-fail-fast`），并在缺 `cargo-nextest` 时
+显式报错而不是静默降级；TESTING.md（§2.3/§3.1/§5.1/§6.1/回填模板）、AGENTS.md、CLAUDE.md、
+CHECKLIST.md、`.claude/skills/tdd-rust/SKILL.md` 同步到 `ci_backend_validation.sh`。
+验证：`bash -n scripts/ci_backend_validation.sh` 通过；`git grep run_ci_tests` 只剩"已删除"的说明与
+历史审计记录。
+
+#### 14.18.5 第 12 条之三：`docs/` 口径复核（本轮修 3 处已证实的）
+
+| 文档 | 旧口径（错） | 现在的口径 | 证据 |
+|---|---|---|---|
+| `docs/security/ci-security-grading.md` | production unsafe 的 2 = "`synapse-common` 1 是 `test_schema_guard.rs` 的 `libc::atexit`；`synapse-rust` 1 未定位，疑为宏展开" | 两条都是**宏/编译器展开的归因产物**（手写 0），并写明 B' 移出 `atexit` 后**计数没变** ⇒ 原有归因是错的 | HIR 全量分类（444 = 292 + 127 + 25；根 crate 284 = 155 + 129）见 `geiger_baseline.json` 与 §14.14.8.3 |
+| `TESTING.md` §1.2/§2.2/§2.3 | 覆盖率 = `cargo tarpaulin`、门槛 `tarpaulin.toml` 的 `fail-under=70`、2026-06 实测 20.11% | 覆盖率 = `cargo llvm-cov`（`rustup component add llvm-tools-preview` + `cargo install cargo-llvm-cov`）、门槛 = per-file 棘轮（`scripts/ci/coverage_baseline.json`，缺失即 exit 2）、最近全量 ~68%（2026-08）、并标注 **CI 的 Code Coverage job 从未跑完** | `scripts/run_local_coverage.sh` 头注释（tarpaulin 三个根因）、`ci.yml` coverage job 用 `--format lcov` |
+| `.claude/skills/tdd-rust/SKILL.md` §5.4 | CI 用 `cargo insta test --no-review` | CI 用 `INSTA_UPDATE=no` + nextest + `.snap.new` 兜底检查，**不用 cargo-insta**（该旗标 1.48 已删、`--check --test-runner` 传参也被踩过）；本地接受新快照仍用 `cargo insta review` | `ci.yml` 的 `Snapshot gate` 步骤注释（两次真跑各暴露一个缺陷） |
+
+**顺带删掉的死配置**：`tarpaulin.toml`（无任何调用方：CI 用 llvm-cov、`Makefile` 与
+`run_local_coverage.sh` 都已注明改用 llvm-cov；`git grep tarpaulin.toml` 只剩 CHANGELOG 的历史条目
+与本轮改写后的 TESTING.md 说明）。
+
+验证：`bash scripts/check_doc_spelling.sh`（aspell）对 5 个改动文档 0 未识别词
+（新增 `cov` / `llvm` 到 `.aspell.ignore.txt`，按字母序插入）；`markdownlint-cli@0.44.0 -c
+.markdownlint.json` 对同样 5 个文件 0 告警。
+
+#### 14.18.6 第 13 条：B' 守卫在 main 上的实跑 —— ⏳ 待 push 后由 CI 完成
+
+`tests/unit/ci_test_scope_tests.rs::every_db_test_binary_registers_the_exit_drain` 的 4 项断言
+（每个注册 crate ① 有 `libc` dev-dependency、② 源码/`tests-support` 里出现 `drain_schemas_at_exit`
+注册点、③ 真的有 `test_exit_hook::ensure()` 调用、④ `tests/common/mod.rs` 定义
+`ensure_schema_exit_hook`）在本地实跑 **PASS**（本轮 `cargo test --test unit --features test-utils
+ci_test_scope_tests` 23 项里 22 PASS + 新增 profile 守卫 PASS；随后单跑该守卫亦 PASS）。
+`b4774dd5`（= 当前 `origin/main`）之后的提交尚未 push，因此"CI 在 main 上跑绿"这一半必须等 push
+之后，不能预先宣称。
+
+#### 14.18.7 第 11 条：k6 / distroless / builder / 分支保护 —— 结论（不改代码）
+
+| 项 | 核查结论 |
+|---|---|
+| k6 Smoke Test | **本地首跑已完成**（上一轮，抓到并修掉 `guardrail.py` 读不了 k6 0.47 扁平 summary 的真缺陷）；CI 侧仍缺 `K6_SMOKE_BASE_URL` 指向真实环境，且该 job 由显式输入 `run_k6` 触发（守卫 `k6_smoke_requires_an_explicit_dispatch_input`）。**未动**：需要外部环境/secret，属被动等待项 |
+| distroless 基础镜像 | 已按 digest pin（`e5d81ddd…`），当前 **0 CVE**；Docker Security Scan 绿 |
+| builder 镜像 `rust:1.93.0-slim-bookworm` | 扫描出 475 HIGH/CRITICAL，但**只存在于构建阶段**（产物是 distroless 运行镜像，扫描运行镜像是 0 CVE）⇒ 已知权衡，未动；若要收紧可选 pin 一个已清理的 builder digest（属独立排期） |
+| 分支保护 | 维持既有裁定：**不强制 PR、允许绕过**。含义是"门禁绿不绿依赖人工看 run"——本轮不做变更，只在 §14.16 A3 保留可见 |
+
+#### 14.18.8 SQLx 动态查询棘轮：+3 的逐条核对与基线调整（1501 → 1504）
+
+跑全量 unit 目标时 `sqlx_ratio_gate_tests::sqlx_ratio_gate_passes_on_current_tree` 变红：
+`dynamic=1504 static=61`（基线 1501）。逐条核对（方法：
+`git grep -cE 'sqlx::query(_as|_scalar)?\(' <rev> -- <扫描目录>`，按文件求和）：
+
+| 来源 | 数量 | 性质 |
+|---|---|---|
+| `a283328f`（另一会话的指标埋点接线）新增的 `synapse-common/src/db_query_metrics.rs` | +1 | **假阳性**：命中是 doc 注释里的 `//! ··· ~1700 direct sqlx::query(..) call sites`。`git grep -c` 在 `6c6216cc`（= 1501 那次测量）与 HEAD 之间**只有这一个文件**有差异（1501 → 1502） |
+| 本轮 `synapse-test-utils/src/lib.rs` 的空闲 TTL 回收测试 | +2 | **真新增**：`SELECT to_regnamespace($1)::text` ×2，做"清扫前必须存在 / 清扫后必须不存在"的双向断言。只断言不存在会让查询写错时空转通过（本仓反复踩过的"门禁不会变红"形态），不能为省 1 处计数删掉前置断言；且该测试必须内联（要访问私有 `SCHEMA_POOL`/`take_expired`），而 `tests/` 目录不在本棘轮扫描范围内 |
+
+动作：`scripts/ci/sqlx_dynamic_ratio_baseline` 的 `BASELINE_DYNAMIC` 1501 → **1504**，并在文件头部
+写下这两笔来源与收紧方向。验证：`bash scripts/ci/check_sqlx_dynamic_ratio.sh` → OK；
+`cargo test --test unit --features test-utils sqlx_ratio_gate_tests` → **10 passed / 0 failed**。
+
+**同时登记本计数器的两个方向相反的缺陷**（本轮不修，避免在别的会话正在改门禁时重设共享基线）：
+1. **不剥注释**：散文里提到 `sqlx::query(` 就计数（上表那 +1 即此类，且一旦写进文档就永远减不掉）；
+2. **不匹配 turbofish**：`sqlx::query_as::<_, T>(...)` 不计（文件末尾早有登记）——实际动态调用被低估。
+
+正确修法是先让计数器剥掉注释/字符串、再补 turbofish 分支，然后**一次性重测并重设基线**（连同历史
+记录的计数口径说明），作为独立条目排期；两条缺陷方向相反，靠调基线互相抵消只会让棘轮失去意义。
+
+---
+
+### 14.19 第十六轮（2026-09-22）：外部审查 13 条的逐条核实 + 面板/provisioning 的真实修复
+
+**背景**：另有一路审查给出 13 条意见（5 条 P0「会误导运维或让 CI 假失败」、3 条 P1
+「口径/文档必须更正」、5 条 P2「既有工程债」）。本节逐条核实**在当前 HEAD 上是否仍然成立**。
+结论先行：**13 条里有 8 条在本轮开始前就已经修好或已过期**（意见是在移动的 HEAD 之前的快照），
+**5 条成立**，而真正的第一因是审查**没有看到**的一层（§14.19.2）。
+
+#### 14.19.1 逐条核实（判定优先于结论）
+
+| # | 审查意见 | 判定 | 取证（全部在本机实跑） |
+|---|---|---|---|
+| 1 | 规则/面板 WIP 应**整体回退到 HEAD**；其"没有 `_bucket`"前提被同会话 `43aa8f66` 与"容器早于该提交"推翻；合入会丢掉刚复活的 P95/P99 | **面板面成立；规则面不成立；且"回退"是错误处方** | ① **规则面无 WIP 可退**：`git status -- docker/deploy/prometheus/` 为空，HEAD 的规则**已经是修好的版本**。② **面板面成立**：`histogram_quantile` 出现次数 `network/security/storage` = HEAD `1/1/1` → 工作区 `0/0/0`，3 个分位面板被降级成均值，且 `storage-performance` 的 `'数据库查询时长'` legend 仍写 `p95 延迟` 而 expr 是 `rate(_sum)/rate(_count)` ⇒ **标题在说谎**。③ **但"回退到 HEAD"会把问题换成另一个问题**：HEAD 面板的指标名 **11/11 全部不存在**（`synapse_active_users` / `coturn_*` …）⇒ 回退等于用"完全没数据"替换"有数据但标签是均值"。正确路径是**两边都修**（§14.19.3） |
+| 2 | `DatabaseQueryDurationHigh` 阈值 `> 0.5` 是 **1000 倍单位 bug**（应为 500） | **已修（意见已过期）** | HEAD 现为 `histogram_quantile(0.95, sum(rate(db_query_duration_ms_bucket[5m])) by (le)) > 500`。线上反证：规则重载**前**该告警 pending（DB p95 实测 ~21ms 顶着 0.5ms 阈值），重载后**消失** |
+| 3 | 面板里 `auth_requests_total` / `e2ee_session_count` / `persist_events_duration_ms` / `federation_signature_*_total` / `turn_*` 都不存在 ⇒ 仍会 No data，与刚修的 `http_request_errors_total` 同类 | **成立** | 对活的 Prometheus（760 个族）做差集：上述名字**全部 MISSING**。真实名见 §14.19.3 对照表。⚠️ 但"面板 No data"的诊断**不完整** —— 第一因是 provisioning（§14.19.2 a），**改名字本身不足以让面板亮起来** |
+| 4 | `instance:disk_usage:percent` 用 `sum by(instance)` 累加各分区百分比（还丢 `mountpoint`）⇒ 可能 >100%，而 `system-overview.json` 按 0–100 用 | **已修（意见已过期）** | HEAD 现为 `max by(instance)(100*(1 - avail/size))`。线上同规则重载前后实测：**268.911% → 35.623%** |
+| 5 | CI 的 perf smoke 仍红；worktree 里已去掉 `--ignored` 并加守卫，"**尚未提交**"；提交后 Code Coverage 才能首跑 | **已提交（意见已过期）** | `git log` 里有 `3d5fd87a fix(ci): perf smoke 只跑 CI 稳定子集（去掉 --ignored），补两条守卫`，含 `tests/unit/ci_test_scope_tests.rs::performance_smoke_step_excludes_manual_load_tests`。工作区 ci.yml 剩余的 4 行是**另一件事**（k6-action 换用 + `guardrail.py --scenarios`） |
+| 6 | `geiger_baseline.json` 的 `synapse-common` 站点理由改为"宏展开归因（292 format_args / 127 await-tokio / 25 TrivialClone / 0 手写）" | **已在工作区完成（未提交）** | `git diff -- scripts/ci/geiger_baseline.json` 已含该理由与 HIR 分类证据 |
+| 7 | §14.16 A⑤ 与 §14.17 的"prod 2→1 已完成"改为"手写 unsafe 已移出生产库；geiger 计数 2 是工具归因" | **已完成** | §14.16 A⑤ 与 §14.14.8.3 已是订正后的口径 |
+| 8 | 运行 stack 是旧镜像（`created=2026-09-21T17:32Z`，早于 `43aa8f66`）⇒ 任何"没数据"的观察**不可作为改规则的依据**；应先重建再复核 `curl :9090/metrics \| grep _bucket` | **观察已过期；方法论正确且已满足** | 运行镜像 `created=2026-09-22T01:29:42Z`（= 09:29 CST），而 `43aa8f66` 提交于 **07:25 CST** ⇒ 镜像**晚于**该提交。实测 `/metrics` 有 **222 行 `_bucket`**，例如 `db_query_duration_ms_bucket{le="1"} 363`。**方法论仍然要保留**：见 §14.19.2(e) 的 `__name__` 陈旧序列陷阱 |
+| 9 | 3 处 `static PREPARED_TEST_POOLS` 是死代码（`enqueue_*` 从未调用、`take_*` 恒 `None`）→ 可删并简化 `container.rs:633` | **已完成** | 提交 `2c2f7b5d`；`container.rs:638` 现留说明性注释而非死队列 |
+| 10 | `SCHEMA_POOL` 停放名字可换成"空闲 TTL 回收线程"，彻底不依赖退出钩子 | **已在工作区完成（未提交）** | `synapse-test-utils/src/lib.rs`：`SCHEMA_POOL_IDLE_RECLAIMER_ONCE` / `SCHEMA_POOL_IDLE_TTL` / `sweep_idle_parked_schemas` + 3 条测试（§14.18.2） |
+| 11 | k6 仍无 CI 侧真跑；distroless pin 偏旧、builder 475 HIGH/CRITICAL；分支保护允许绕过 | **成立，但均为已知的刻意权衡** | k6 job 由显式输入 `run_k6` 触发且需 `K6_SMOKE_BASE_URL`（缺省 `localhost:8448` 在 CI 里无服务 ⇒ 跟着每次 dispatch 跑只会制造无关的红，故刻意不自动跑）；distroless 已按 digest pin 且 0 CVE，475 条全部来自 **builder**（仅 build-time，**不进运行镜像**）；分支保护维持既有裁定 |
+| 12 | A13：`run_ci_tests.sh` 与 `ci.yml` 双实现；`[profile.ci]` 与 CI 命令行口径不一致；`docs/` 口径未全量复核 | **已完成** | `run_ci_tests.sh` 已 `git rm`（暂存）；`[profile.ci]` 已对齐 `4 / 0 / no-fail-fast` + 守卫 `local_ci_nextest_profile_matches_the_ci_command_line`；`docs/` 3 处口径已改（§14.18.3–14.18.5）。**配套修正**：本文档 §3.1 那张表原先仍写"**保留**为本地入口"，与 §14.18.4 自相矛盾，已改为显式标注"裁定已被推翻" |
+| 13 | 确认 B' 的守卫 `every_db_test_binary_registers_the_exit_drain` 在 main 上实跑通过（含 4 项断言） | **本轮独立复跑通过**；但"在 main 上"这半句**不成立** | 本人实跑 `cargo nextest run --test unit --features test-utils -E 'test(every_db_test_binary_registers_the_exit_drain)'` → **1 passed / 0 failed**（编译 9m59s）。⚠️ 该守卫连同 §14.18 全部改动**尚未提交**（工作区 `tests/unit/ci_test_scope_tests.rs` 未 staged），所以"CI 在 main 上跑绿"仍不能预先宣称 |
+
+#### 14.19.2 本轮新发现：比原意见更深的一层
+
+**(a) 第一因是 provisioning，不是指标名 —— 7 个面板从未被加载过**
+
+7 个面板文件顶层都是 Grafana **API 导出信封**：
+
+```json
+{ "dashboard": { "id": null, "uid": "...", "title": "...", "panels": [...] }, "meta": { "isFolder": false } }
+```
+
+而 `docker-compose.monitoring.yml` 用的是 `type: file` 的 provisioning
+（`./grafana/dashboards:/var/lib/grafana/dashboards:ro`），它**读不了信封**。容器日志实证：
+
+```
+logger=provisioning.dashboard type=file name=synapse-dashboards level=error
+  msg="failed to load dashboard from" file=/var/lib/grafana/dashboards/system-overview.json
+  error="Dashboard title cannot be empty"
+```
+
+**7/7 全部**报同一错误；`GET /api/search?type=dash-db` 返回 `[]`。
+⇒ 此前所有"面板命中 0/22""相关面板永久空白"的结论都**建立在一个更早的失败之上**：
+面板根本没进 Grafana。**只改指标名不可能让任何一个面板亮起来。**
+
+去掉信封（只留裸仪表板对象）后：Grafana 日志 0 条 error，`/api/search` 返回
+**7 个面板**（folder `synapse-rust`），并经 Grafana 自身的查询路径实测有值：
+
+```
+histogram_quantile(0.95, sum(rate(db_query_duration_ms_bucket[5m])) by (le))  -> 21.1375
+prometheus_tsdb_blocks_loaded                                               -> 4
+instance:disk_usage:percent                                                  -> 35.826
+```
+
+**(b) 标题/表达式语义错位 —— 比 "No data" 更危险**
+
+整批改名时**保留了旧标题**，于是标题与表达式对不上：
+
+| 面板标题 | 工作区被换成的 expr | 实际含义 |
+|---|---|---|
+| 活跃用户数 | `pool_utilization` | 数据库连接池使用率 |
+| 联合房间数 | `rate_limit_requests_rejected_total` | 限流拒绝数（累计，非速率） |
+| 消息发送速率 | `rate(federation_signature_verify_total[5m])` | 联邦签名验证数 |
+
+这类面板**不会报错、不会显示 No data** —— 它会显示一个"自信的错数字"。所以本条的
+处置不是"补数据"，而是**标题与表达式必须互相成立**（§14.19.3 已按此重写）。
+
+**(c) PromQL 向量匹配：比率表达式静默返回空**
+
+```promql
+rate(auth_success_total[5m]) / rate(auth_attempts_total[5m])     -- 返回 EMPTY
+```
+两个 counter 的 `type` 标签取值不同（`success` vs `attempt`），**没有匹配的标签集**，
+除法结果为空向量（不是 0、不是 NaN）。实测：不加聚合 → `EMPTY`；改为
+`100 * sum(rate(auth_success_total[5m])) / sum(rate(auth_attempts_total[5m]))` → 有序列。
+⇒ 凡是把两个**维度不同**的 counter 相除，都必须先 `sum()` / `sum by()` 抹平标签。
+
+**(d) 量纲：比率与 percent 混用**
+
+`instance:cache_hit_ratio:ratio5m` 的规则 expr 是 `hits/(hits+misses)` ⇒ **0–1 比率**，
+而面板 `unit=percent` 却直接引用（少 `×100`）。同理 `pool_utilization` 也是比率
+（`server_metrics.rs` 的单测断言 `0.75` = 75%）。已在修复中补齐 `×100`。
+
+**(e) `__name__` 会返回陈旧序列 —— 复核录制规则产物的假阳性陷阱**
+
+`/api/v1/label/__name__/values` 读的是 **TSDB 索引**，包含**已经不再产生**的历史序列。
+实测：活的命名空间里有 `job:http_request_duration:mean_p95_5m`、`instance:db_query_duration:mean5m`，
+而规则文件里**一个 `mean*` 记录都没有**（`grep -n mean recording-rules.yml` 为空 —— 它们是
+被废弃的旧规则版本的残影）。⇒ **复核录制规则/告警产物必须用 instant query**，不能只看
+`__name__`；否则会把"旧规则的名"当成"现有指标"，得出完全相反的结论。
+（同类已知陷阱：按 `:` 分词把 `instance:x:y` 误判成指标名。）
+
+#### 14.19.3 修复清单
+
+**面板（`docker/deploy/grafana/dashboards/`，7 个文件）**
+
+1. **去掉 API 导出信封** → 裸仪表板对象（7/7）。这是"面板一个都不显示"的真正修复。
+2. **恢复 3 个被降级的分位面板**为真 `histogram_quantile`，并补 `sum ... by (le)`：
+   `storage-performance:数据库查询 P95 时长`、`security-auth:联邦请求 P95 延迟`、
+   `backend-services:事件持久化 P95 延迟`。
+3. **指标名改为实测存在的真实名**（逐个经 instant query 验收）：
+
+| 面板原引用（不存在） | 改为（实测存在） | 备注 |
+|---|---|---|
+| `auth_requests_total` | `auth_attempts_total` | 且比率需 `sum()` 聚合 |
+| `e2ee_session_count` | `megolm_session_key_read_total` | 无"会话数"指标；改用密钥读取速率（标题同步改） |
+| `persist_events_duration_ms_*` | `db_transaction_duration_ms_bucket` / `db_query_duration_ms_count` | 事件持久化的真实载体是 DB 事务 |
+| `federation_signature_verify_total` | `federation_signature_verifications` | ⚠️ **没有** `_total` 后缀 |
+| `federation_signature_fail_total` | `federation_signature_errors` | |
+| `federation_signature_duration_ms_*` | `federation_request_duration_ms_bucket` | 只有请求级延迟，没有签名级 |
+| `database_query_duration_ms_*` | `db_query_duration_ms_*` | 前缀是 `db_`，不是 `database_` |
+| `turn_allocations_total` | `turn_total_allocations` | 语序相反 |
+| `turn_active_connections` | `turn_total_allocations` | 该 exporter 无"活跃连接" gauge |
+| `turn_stun_requests_total` | `turn_packet_processed` | |
+| `turn_relay_addresses_in_use / total` | `100 * turn_ratelimit_occupied_buckets / turn_ratelimit_total_buckets` | |
+| `turn_allocation_duration_ms_*` | `rate(turn_total_traffic_rcvb[5m])` | 该 exporter 不暴露分配耗时 |
+| `prometheus_tsdb_storage_classes_bytes` | `prometheus_tsdb_blocks_loaded` | `storage_classes` 需额外 feature |
+| `synapse_active_users` / `synapse_federated_rooms` | `synapse_total_users` / `synapse_total_rooms` | |
+| `synapse_federation_txmsg_*_total` | `rate(messages_sent_total[5m])` | 原 B 目标（"发送失败"）**无任何真实指标可对**，已删除该 target 并在此登记 |
+| `instance:cache_hit_ratio:ratio5m` | `100 * instance:cache_hit_ratio:ratio5m` | 比率 → percent |
+
+4. **标题与表达式对齐**：凡语义已变的（"活跃用户数"、"联合房间数"、"TURN 延迟"、
+   "签名验证延迟"、"STUN 请求速率"、"TSDB 磁盘使用"、"事件处理速率"…）标题同步改写，
+   并在 `fieldConfig.unit` 上补齐量纲（`ms` / `Bps` / `percent` / `short`）。
+5. **保留原文件的排版风格**（逐文件判断多行/单行），不因修复产生整文件重排 ——
+   但 `network-connections.json` / `storage-performance.json` 已被上一轮**压成单行 JSON**
+   （不可评审），本轮的写回仍沿用单行以免混入额外格式噪音；建议另开一条把它们恢复成
+   `indent=2`（与 `alert-manager.json` / `system-overview.json` 一致）。
+
+**验收（不是"名字看着对"，而是"Grafana 自己能查出值"）**
+
+- 面板表达式全量 instant query：**34/36 返回序列**；2 个 EMPTY 是
+  `ALERTS{alertstate="pending"|"inactive"}`（当下确实没有 pending/inactive 告警，非缺陷）。
+- `histogram_quantile` 返回真数字（DB p95 = 21.14ms），不再是空向量。
+- Grafana 自身 `POST /api/ds/query` 路径同样返回值 ⇒ 端到端打通。
+- 4 个面板出现 `NaN`（`事件持久化 P95` / `联邦请求 P95` / `缓存命中率` / 登录错误率）——
+  这是 §14.19.2(c)(d) 的 0/0 与"`_bucket` 存在但零观测"行为，**有流量即成数字**，
+  与告警侧安全（`NaN > 阈值` 为 false）。
+
+#### 14.19.4 新增门禁：`scripts/ci/check_dashboard_metrics.py`
+
+**为什么需要**：面板引用不存在的指标名时，**没有任何门禁会变红** —— 它只在 Grafana 里安静地
+显示 No data（或更糟：语义错位后显示错数字）。同类问题在本仓**已发生两次**
+（`http_request_errors_total` 那一批 + 本轮这批），所以把它做成门禁而不是靠人眼看。
+
+**判据（静态，无需活的 Prometheus，可在 CI 跑）**：抽出面板表达式里的**指标选择器**，
+逐个比对三处"名字的真实来源"：
+
+1. Rust 注册点 `register_{counter,gauge,histogram}[...]("name")`（直方图展开 `_bucket/_count/_sum`，计数器兼容 `_total`）；
+2. 录制规则 `- record: <name>`；
+3. 显式外部白名单 `scripts/ci/dashboard_metrics_allowlist`（node_exporter / prometheus 自监控 / alertmanager / coturn exporter，**逐字登记并写明来源**）。
+
+**关键设计：不按前缀放行。** `turn_*` 前缀看着像 coturn exporter，但
+`turn_active_connections` / `turn_allocations_total` 都**不存在**（真实名是 `turn_total_allocations`）。
+按前缀放行正是让这类"看着像但不是"的名字蒙混过关的原因。
+
+**同时拦 `{dashboard, meta}` 信封**：因为那种形态会让 provisioning 整体失败
+（§14.19.2 a），是本轮最严重缺陷的等价物。**不自动拆信封** —— 拆掉后门禁会通过，
+但 Grafana 依旧加载不了，那就是新的假绿。
+
+**响亮失败**：面板目录不存在、Rust 侧一个注册点都扫不到、面板里一条 expr 都没有
+⇒ **exit 2**，绝不静默当成通过（本仓反复踩过的"门禁不会变红"形态）。
+
+**变异自证（4 种）**：
+
+| 输入 | 期望 | 实测 |
+|---|---|---|
+| 修复后的工作区面板 | 绿 | **exit 0**，`面板引用的指标名全部可达` |
+| HEAD 面板（信封原样） | 红 | **exit 1**（信封违规 + 死指标名） |
+| HEAD 面板（拆信封后） | 红 | **exit 1**（11 个死指标名全部点名到面板与标题） |
+| `--dir /nonexistent` | 响亮失败 | **exit 2** |
+
+已接线进 `ci.yml`（紧邻 `check_metric_instrumentation.py`），棘轮基线
+`scripts/ci/dashboard_metrics_baseline`（当前为空 = 零欠账，只减不增）。
+
+#### 14.19.5 冗余 / 重复 / 无效清单与处置
+
+| 项 | 性质 | 处置 |
+|---|---|---|
+| `docs/observability-metric-fix-plan.md` | **无效前提（失效的处方）** | 该文档写于 `43aa8f66` **之前**，核心处方是"所有 `histogram_quantile(...)` 替换为 `rate(_sum)/rate(_count)`"，前提"集群内 `_bucket` 序列只有 13 个（全是 prometheus 自监控）"**已被推翻**。它正是本轮面板被降级为均值的来源 ⇒ 已在文首加失效横幅并订正该处方 |
+| `scripts/load-test/`（4 文件：`matrix-load-test.js` / `run-load-test.sh` / `grafana-load-dashboard.json` / `PERFORMANCE_BASELINE.md`） | **重复实现** | 它是**第二份 k6 实现**，场景与 `scripts/test/perf/api_matrix_core.js` 重叠（登录/加入/发消息/同步），且**无任何 CI 接线**（`scripts/test/perf/README.md` 反向引用它）。与 A13 已裁定删除的 `run_ci_tests.sh` 同类。**未删**（未跟踪文件删掉不可恢复，且属另一会话在途工作）⇒ 建议二选一：并入 `scripts/test/perf/`，或接线进 CI 后删除重复场景文件 |
+| GATE 文档 §3.1 表格 | **自相矛盾** | 仍写 `run_ci_tests.sh`"**保留**为本地入口"，与 §14.18.4"已删除"冲突 ⇒ **本轮已修正**（改为显式标注裁定被推翻） |
+| `.trae/` / `.claude/settings.local.json` / `.superpowers/` 里对 `run_ci_tests.sh`、tarpaulin 的旧叙述 | 历史记录 | **不动**（不在 Docs Quality 门禁范围；属历史留痕） |
+| `scripts/ci_backend_validation.sh` / `.config/nextest.toml` / `tests/unit/ci_test_scope_tests.rs` | 已在途修复 | 保留（§14.18.3 / §14.18.4） |
+
+#### 14.19.6 遗留与建议
+
+1. **§14.18 全部改动仍未提交**（`git status` 显示 20+ 个文件处于 `M`/`D`/`??`）。
+   §14.19.1 的 #6/#10/#12 判定为"已在工作区完成（未提交）"**不等于**已经落地 ——
+   本节不预设它们会被合入。
+2. **`ci.yml` 处于"两方在途"状态**：工作区里同时有本轮的
+   `Check dashboard metric reachability` 步骤与另一会话的 k6-action + `--scenarios` 两处改动。
+   后者**必须与 `scripts/test/perf/guardrail.py` 的 `--scenarios` 同时落地**，否则参数不匹配会红
+   ⇒ 本轮**不单独提交 ci.yml**。
+3. **`update_pool_metrics` 仍是死埋点**（`pool_utilization` / `db_connections_active|idle` /
+   `pool_health_status` 恒 0），需要周期任务宿主 ⇒ 独立排期。
+4. **`docs/observability-metric-fix-plan.md` 的完整重写**（而非只订正处方）建议与本轮修复合并评审。
+5. **面板排版统一**（把两个单行 JSON 恢复成 `indent=2`）作为独立小提交。

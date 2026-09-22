@@ -138,6 +138,7 @@ coreservices
 coreutils
 cors
 coturn
+cov
 coverable
 cpython
 cqrs
@@ -229,6 +230,7 @@ eventstorage
 eventstore
 eventstoreapi
 eventwriter
+expr
 externalservices
 fakeauth
 fakecredentialauth
@@ -343,6 +345,7 @@ js
 jsdoc
 json
 jsonb
+junit
 jwks
 jwt
 keyatrest
@@ -366,6 +369,7 @@ limitexceeded
 linter
 linux
 ljf
+llvm
 loc
 localcache
 localhost
@@ -400,6 +404,7 @@ memswap
 mergeable
 messagingservice
 messagingserviceconfig
+metricscollector
 middleware
 migrator
 missingtoken
@@ -422,6 +427,7 @@ mypy
 mysqlcheck
 namespace
 namespaced
+nan
 newtype
 nextest
 nginx
@@ -448,6 +454,7 @@ olm
 oncecell
 oncelock
 oneshot
+oom
 openapi
 openclaw
 openid
@@ -487,6 +494,7 @@ presencestorage
 prev
 probabilistically
 proc
+prometheus
 promql
 prost
 prs
@@ -714,9 +722,11 @@ treq
 trgm
 trigram
 trigramranking
+trivialclone
 trivy
 trufflehog
 truncated
+tsdb
 tst
 ttf
 ttl

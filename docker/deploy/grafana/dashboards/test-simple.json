@@ -1,18 +1,13 @@
 {
-  "dashboard": {
-    "id": null,
-    "uid": "test-dashboard",
-    "title": "测试仪表板",
-    "timezone": "utc",
-    "schemaVersion": 38,
-    "version": 1,
-    "refresh": "10s",
-    "panels": [],
-    "templating": {
-      "list": []
-    }
-  },
-  "meta": {
-    "isFolder": false
+  "id": null,
+  "uid": "test-dashboard",
+  "title": "测试仪表板",
+  "timezone": "utc",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [],
+  "templating": {
+    "list": []
   }
 }
