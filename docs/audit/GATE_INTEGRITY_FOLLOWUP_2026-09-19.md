@@ -15,15 +15,15 @@
 | # | 状态 | 问题 | 现状与判据 | 下一步 |
 |---|---|---|---|---|
 | 1 | 🟡 | **Code Coverage 从未真正执行过** | 它排在 integration 之后，历史每次都在那里红掉。`scripts/ci/coverage_baseline.json`（623 文件）已入库，但 per-file 棘轮一次都没评估过；`check_file_coverage.py` 在基线缺失时 exit 2（fail-closed，已修）。**2026-09-22 实测**：慢速车道 dispatch（run `35683146324`）**又被跳过**——`integration-test`/`coverage` 都 `needs: [test, changes]`，而 fast tier 的两条 **default-features** 车道红在 `Check metric instrumentation reachability`。**根因不是"基线过期"**：该脚本把 PCRE 的 `\b`/`\s` 用在 `git grep -E` 里，Linux 上生效后**连 `server_metrics.rs` 自己的定义都被当成同名冲突** ⇒ 25 个方法全"不可判定" ⇒ `已接通 0 / 未接通 0` ⇒ 棘轮的 stale 规则误报（macOS 上 `\b` 不生效，所以本机一直"通过"）。**方案见 `docs/audit/CODE_COVERAGE_FIRST_RUN_PLAN_2026-09-22.md`**；Stage 0/1/3/5 已落地（提交 `6b3f5312` + `2f4d9074` + `5a7a7f24`）：该门禁改成 POSIX 字符类 + 排除定义文件 + `--self-test`/`--print-ambiguous`（各带红证明）；覆盖率命令收敛为 `scripts/ci/run_coverage.sh` 唯一实现（本地那份已按裁定删除）；`cargo-llvm-cov` 钉 0.8.7；Codecov 按裁定降级为 `fail_ci_if_error: false` | 剩 **Stage 2/4**：本地按 CI 口径干跑并与基线副本比对（棘轮单调 `max(prev,cur)`，误红不会自动降；基线重置已获授权、需逐项理由）→ fast tier 全绿后 dispatch `run_slow_tier=true`，盯 `Integration Tests` → `Code Coverage` |
-| 2 | ⚠️ | **k6 Smoke Test 的 CI 侧仍需真实环境** | 本地首跑已完成并抓到门禁缺陷（`guardrail.py` 读不了 k6 0.47 扁平 summary，已修 + 守卫 `k6_guardrail_reads_the_flat_summary_export`）。CI 侧缺 `K6_SMOKE_BASE_URL`，且 job 由显式输入 `run_k6` 触发（刻意权衡，守卫 `k6_smoke_requires_an_explicit_dispatch_input`）。当前 `ci.yml` 工作区版本含 k6-action + `--scenarios` 改动（另一会话在途），须与 `scripts/test/perf/guardrail.py` 同步落地 | 提供指向真实/staging 环境的 URL 后手动 dispatch 一次；若要常态化，见 §3.3 |
+| 2 | ✅ | **k6 Smoke Test 的 CI 侧仍需真实环境** | 本地首跑已完成并抓到门禁缺陷（`guardrail.py` 读不了 k6 0.47 扁平 summary，已修 + 守卫 `k6_guardrail_reads_the_flat_summary_export`）。CI 侧缺 `K6_SMOKE_BASE_URL`，且 job 由显式输入 `run_k6` 触发。**2026-09-22 已删除全部 k6 相关代码**（CI job、benchmark job、性能测试脚本、守卫测试、Makefile targets），替代方案：Prometheus 自研渲染器已接通生产埋点，性能监控改用 Prometheus / Grafana 面板 | 删除闭环（2026-09-22）。替代能力：Prometheus 渲染器已覆盖性能观测需求 |
 | 3 | ✅ | **分支保护允许绕过、不强制 PR**（既有裁定，不再变更） | 后果：门禁绿不绿依赖人工看 run，漏看即漏合并。`ci.yml` 里三条 job 只在 push/schedule 跑，PR 上被跳过 | 结论已定为"接受"。`TESTING.md` §2.4 已写明这才是"哪些门禁在 PR 上不跑"的权威口径来源（已闭环） |
 | 4 | ✅ | **两个基础镜像从未被扫描** | 已闭环（2026-09-22）。新增 `docker-security-scan.yml::base-image-scan` job，从 `docker/Dockerfile` 的唯一真相源读三个 pin 并逐个扫描：**distroless 与 debian 阻断**（实测都是 0 HIGH/CRITICAL ⇒ 是能变红的棘轮），**builder report-only**（实测 **476 条 fixable**：468 HIGH + 8 CRITICAL，构建期镜像、产物才是运行镜像；阻断等于永久红）。顺带修掉一个真缺陷：`Digest Pin Integrity` 过去把三个 digest **抄写**在 workflow 里，Dockerfile 升级 pin 后它仍在验旧 digest ⇒ 现在两个 job 共用 `scripts/ci/read_base_image_pins.sh`（ARG 缺失/未 pin 时 exit 2） | 收紧 builder 的路径（**pin 一个已清理的 builder digest**）已登记：`rust:1.93.0-slim-bookworm` 的 tag 当前就指向这个 stale digest，仓库又刻意钉 1.93.0，所以要等上游重建或升 1.94 —— 在那之前保持 report-only 并让 Code Scanning 累积可见 |
 
-**P0 闭环统计（2026-09-22 复核）**：4 项中 2 项已闭环（P0-3 分支保护既有裁定；**P0-4 基础镜像扫描，
-2026-09-22 本轮**）；2 项被动等待外部条件（P0-1 Code Coverage 首次真跑、P0-2 k6 需 staging 环境）。
+**P0 闭环统计（2026-09-22 复核）**：4 项中 3 项已闭环（P0-3 分支保护既有裁定；**P0-4 基础镜像扫描，
+2026-09-22 本轮**；**P0-2 k6 全部删除**）；1 项被动等待外部条件（P0-1 Code Coverage 首次真跑）。
 P0-4 的 builder 收紧（pin 已清理 digest）作为独立条件项留在行内说明。
 
-**P1 闭环统计（2026-09-22 本轮）**：12 项全部闭环：§2.1 `8edf16c0`、§2.2 无需改代码、§2.3 `e125b075`、§2.4 文档重写、§2.5 `f7226a62`、§2.6 SQLx 计数修正+基线 2146、§2.7 aspell 提示、§2.8 JSON 排版、§2.9 覆盖率政策、§2.10 无需动、§2.11 串行车道已落地、§2.12 无陈旧引用。
+**P1 闭环统计（2026-09-22 本轮）**：13 项全部闭环：§2.1 `8edf16c0`、§2.2 无需改代码、§2.3 `e125b075`、§2.4 文档重写、§2.5 `f7226a62`、§2.6 SQLx 计数修正 + 基线 2146、§2.7 aspell 提示、§2.8 JSON 排版、§2.9 覆盖率政策、§2.10 无需动、§2.11 串行车道已落地、§2.12 无陈旧引用、**§2.3 k6 全部删除**。
 
 ---
 
@@ -33,7 +33,7 @@ P0-4 的 builder 收紧（pin 已清理 digest）作为独立条件项留在行�
 |---|---|---|---|---|---|
 | 1 | ✅ | **`update_pool_metrics` 是死埋点** | `pool_utilization` / `db_connections_active` / `pool_health_status` 恒 0（没有周期任务宿主），数据库池监控在 `/metrics` 上等于失明 | 新增 `src/services/metrics_scheduler.rs`（沿用空闲 TTL 回收线程那种"一次性宿主 + 固定周期"模式），接线后加"指标非恒 0"守卫 | 4h → **已闭环（8edf16c0）** |
 | 2 | ✅ | **`schema_validator.rs` 仍用共享 `public` 池** | 它是 storage 里最后一个共享池文件（其余已迁 per-test schema）。迁不动的根因：`CREATE TABLE … (LIKE … INCLUDING ALL)` **不保留索引名** | **已闭环（本轮核查）**：它按设计直接接 `Arc<Pool<Postgres>>`（断言模板里的索引名），storage 侧共享池已清零；如需本地也走隔离池，再引入"绑定模板 schema 的只读池" helper | 1h → **已闭环（本轮核查）** |
-| 3 | ✅ | **两份 k6 实现** | `scripts/load-test/`（4 文件，无任何 CI 接线）与已接线的 `scripts/test/perf/` 场景重叠（登录/加入/发消息/同步），且前者被后者 README **反向引用** | **裁定 B**：保留 `scripts/test/perf/`（已接线 + guardrail），删掉 `scripts/load-test/`（先备份到 `docs/archive/`），并清反向引用 | 0.5h → **已闭环（e125b075）** |
+| 3 | ✅ | **两份 k6 实现** | `scripts/load-test/`（4 文件，无任何 CI 接线）与已接线的 `scripts/test/perf/` 场景重叠（登录/加入/发消息/同步），且前者被后者 README **反向引用** | **裁定 B**：保留 `scripts/test/perf/`（已接线 + guardrail），删掉 `scripts/load-test/`（先备份到 `docs/archive/`），并清反向引用。**2026-09-22 更新：k6 全部能力已删除**（用户裁定），`scripts/test/perf/` 与 `scripts/load-test/` 均不再存在 | 0.5h → **已闭环（e125b075 + 2026-09-22 k6 删除）** |
 | 4 | ✅ | **`docs/observability-metric-fix-plan.md` 前提已失效** | 它写于 `43aa8f66`（原生分桶修复）**之前**，核心处方"所有 `histogram_quantile(...)` 换成 `rate(_sum)/rate(_count)`"的前提"集群内 `_bucket` 只有 13 条"已被推翻；这正是面板被降级为均值的来源 | **重写为观测面建设指南**（provisioning 陷阱、PromQL 向量匹配、比率 vs 百分位、真实指标名对照），删除失效处方 | 2h → **已闭环（本轮）** |
 | 5 | ✅ | **覆盖率脚本里残留 tarpaulin 分支** | `scripts/check_file_coverage.py` 仍支持 `--format tarpaulin`（默认值也是它）、保留 `parse_tarpaulin_json` 等函数；但 CI 只传 `--format lcov` | 按铁律 1 删除 `--format` 与 tarpaulin 解析路径（同时更新 CI 两处调用 + 文档），**删前**先用合成 lcov 本地验证 CLI | 20 min → **已闭环（本轮 `f7226a62`）** |
 | 6 | ✅ | **SQLx 计数器有两个方向相反的缺陷** | ① 正则**不看注释**：`//! … sqlx::query(..) call sites` 这种散文被当成调用计数；② **不匹配 turbofish** `sqlx::query_as::<_, T>(…)`（实际动态调用被低估）。靠调基线互相抵消只会让棘轮失去意义 | 让计数器剥掉注释/字符串、补 turbofish 分支，然后**一次性重测并重设基线**（连同历史记录的计数口径说明） | 1–2h → **已闭环（本轮）** |

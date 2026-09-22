@@ -549,67 +549,6 @@ fn integration_step_reports_every_failure() {
          memory`。实际命令：{run}"
     );
 }
-
-/// k6 guardrail 必须读得懂 k6 **0.47 的扁平** `--summary-export`，并且 `--fail-on-breach`
-/// 真的以非零码退出。
-///
-/// 2026-09-21 本地第一次真跑 k6 冒烟（docker `grafana/k6:0.47.0`，与 CI 同版本）时发现：
-/// 0.47 的导出把聚合值**平铺**在 `metrics.<name>` 下（`{"p(95)":12}` / errors 是
-/// `{"value":1}`），而 `guardrail.py` 只认 `metric["values"]["p(95)"]`（更老的
-/// summary-handler 形态）⇒ 七项指标全部渲染成 `Actual: missing / Status: FAIL`，
-/// **即使目标完全健康也只会 FAIL**。这正是本会话反复出现的"从未执行过的门禁"缺陷。
-///
-/// **红证明**：把 `metric_value` 改回只读 `metric["values"]` → 本测试的健康用例报
-/// `missing` 且退出非零 → FAILED。
-#[test]
-fn k6_guardrail_reads_the_flat_summary_export() {
-    let root = repo_root();
-    let tmp = std::env::temp_dir().join(format!("dsh-k6-guard-{}", std::process::id()));
-    fs::create_dir_all(&tmp).expect("create temp dir for synthetic k6 summaries");
-    let run = |metrics_json: &str| -> (i32, String) {
-        fs::write(tmp.join("smoke_results.json"), format!("{{\"metrics\":{metrics_json}}}"))
-            .expect("write synthetic k6 summary");
-        let out = std::process::Command::new("python3")
-            .arg(root.join("scripts/test/perf/guardrail.py"))
-            .arg("--results-dir")
-            .arg(&tmp)
-            .arg("--scenario")
-            .arg("smoke")
-            .arg("--fail-on-breach")
-            .output()
-            .expect("guardrail.py must be runnable with python3");
-        (out.status.code().unwrap_or(-1), String::from_utf8_lossy(&out.stdout).to_string())
-    };
-
-    const FLAT_HEALTHY: &str = r#"{"login_duration":{"p(95)":12},"create_room_duration":{"p(95)":8},
-        "send_message_duration":{"p(95)":5},"sync_duration":{"p(95)":40},
-        "room_summary_duration":{"p(95)":9},"errors":{"value":0.0}}"#;
-    let (code, out) = run(FLAT_HEALTHY);
-    assert_eq!(code, 0, "健康目标（所有 P95 远低于阈值、错误率 0）必须 PASS：\n{out}");
-    assert!(
-        !out.contains("missing"),
-        "k6 0.47 的扁平 summary-export 必须被读到；出现 `missing` 说明解析器只认旧的`values` 形态：\n{out}"
-    );
-
-    const FLAT_BREACH: &str = r#"{"login_duration":{"p(95)":12},"create_room_duration":{"p(95)":8},
-        "send_message_duration":{"p(95)":5},"sync_duration":{"p(95)":40},
-        "room_summary_duration":{"p(95)":9},"errors":{"value":1.0}}"#;
-    let (code, out) = run(FLAT_BREACH);
-    assert_eq!(code, 1, "错误率 100% 必须让 `--fail-on-breach` 以非零退出：\n{out}");
-
-    // 旧的嵌套形态（summary-handler 风格）仍要能读：同一份数据的另一种写法。
-    const NESTED_HEALTHY: &str = r#"{"login_duration":{"values":{"p(95)":12}},
-        "create_room_duration":{"values":{"p(95)":8}},"send_message_duration":{"values":{"p(95)":5}},
-        "sync_duration":{"values":{"p(95)":40}},"room_summary_duration":{"values":{"p(95)":9}},
-        "errors":{"values":{"rate":0.0}}}"#;
-    let (code, out) = run(NESTED_HEALTHY);
-    assert_eq!(code, 0, "嵌套形态（旧 summary-handler 输出）也必须能读：\n{out}");
-    assert!(!out.contains("missing"), "嵌套形态不应出现 `missing`：\n{out}");
-
-    let _ = fs::remove_dir_all(&tmp);
-}
-
-/// cargo-geiger 门禁必须是**单向棘轮**，且基线里的逐条理由必须自洽（2026-09-21 裁定 B）。
 ///
 /// 背景（§14.14.6）：解析器修好 cargo-geiger 0.13 的 schema 之后，这道门禁第一次给出真判定
 /// —— 当时是 production unsafe = 2 / test-only = 8 —— 于是"production 硬零、无白名单"的政策被违反。
@@ -874,46 +813,6 @@ fn advisory_review_dates_are_not_overdue() {
             );
         }
     }
-}
-
-/// k6 冒烟测试必须由**显式**的 dispatch 输入触发，不能挂在裸 `workflow_dispatch` 上。
-///
-/// 该 job 打的是**外部**目标（`secrets.K6_SMOKE_BASE_URL`，缺省 `http://localhost:8448`），
-/// 而它自己**不启动任何服务** —— 所以"只想验证慢速车道"的 `run_slow_tier` dispatch 会
-/// 顺带把它拉起来，并因为一个与本次改动无关的原因变红。k6 进不进 `ci-summary` 哨兵
-/// 也有明确答案：不进 —— 哨兵保证的是"事件要求的慢速车道没有被静默跳过"，而 k6 需要
-/// 外部环境 + secret，只能由人显式要求并自行认领结果。
-///
-/// **红证明**：把该 job 的 `if` 改回裸 `github.event_name == 'workflow_dispatch'` → FAILED。
-#[test]
-fn k6_smoke_requires_an_explicit_dispatch_input() {
-    let ci = fs::read_to_string(repo_root().join(".github/workflows/ci.yml")).expect("read ci.yml");
-    let k6 = ci.split("k6-smoke-test:").nth(1).expect("ci.yml 必须有 k6-smoke-test job");
-    // 只取该 job 自己的内容（到下一个顶层 job 头为止），避免把后续 job 的条件算进来。
-    let mut head = String::new();
-    for line in k6.lines() {
-        let is_next_job = line.starts_with("  ")
-            && !line.starts_with("   ")
-            && line.ends_with(':')
-            && line.trim_end_matches(':').chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
-        if is_next_job {
-            break;
-        }
-        head.push_str(line);
-        head.push('\n');
-    }
-    assert!(
-        head.contains("github.event.inputs.run_k6 == 'true'"),
-        "k6 job 必须由显式输入 `run_k6` 触发（它打外部环境、自己不启动服务）：\n{head}"
-    );
-    assert!(
-        !head.contains("if: github.event_name == 'workflow_dispatch'\n"),
-        "不得把 k6 job 的触发条件退回裸 `workflow_dispatch`"
-    );
-    assert!(
-        ci.contains("      run_k6:") && ci.contains("运行 k6 冒烟测试"),
-        "`workflow_dispatch.inputs` 必须声明 `run_k6`（默认 false），否则没人能显式要求它"
-    );
 }
 
 /// perf smoke 步骤必须列出 `performance_manual` 的**全部** `required-features`。

@@ -22,17 +22,6 @@ on:
         required: false
         default: false
         type: boolean
-      run_k6:
-        # k6 打的是**外部**目标（`secrets.K6_SMOKE_BASE_URL`，缺省就是本机 8448 ——
-        # 而本 job 不启动任何服务），所以它不能在每次手动 dispatch 时跟着跑：
-        # 那会让"只想验证慢速车道"的 dispatch 因为一个与本次改动无关的 job 变红。
-        # 之前它挂在裸 `github.event_name == 'workflow_dispatch'` 上。
-        # 说明：它**不**进 `ci-summary.needs` —— 哨兵保证的是"事件要求的慢速车道没被
-        # 静默跳过"，而 k6 需要外部环境与 secret，只能由人显式要求并自行认领结果。
-        description: '运行 k6 冒烟测试（需要 K6_SMOKE_BASE_URL 指向真实环境）'
-        required: false
-        default: false
-        type: boolean
 
 env:
   CARGO_TERM_COLOR: always
@@ -1252,44 +1241,6 @@ jobs:
             git commit -m "chore(coverage): auto-update per-file baseline [skip ci]"
             git push
           fi
-
-  # ──────────────────────────────────────────────────────────
-  # k6 Smoke Test — manual/dispatch only
-  # Requires a running Synapse server; start one via Docker or
-  # point BASE_URL to an existing instance before triggering.
-  # ──────────────────────────────────────────────────────────
-
-  k6-smoke-test:
-    name: k6 Smoke Test
-    runs-on: ubuntu-latest
-    needs: [test]
-    # 必须显式要求（`run_k6`），理由见该输入的注释：它打的是外部环境，缺省目标是
-    # 本机 8448 而本 job 不起服务，跟着每次 dispatch 跑只会制造与本次改动无关的红。
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_k6 == 'true'
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup k6
-        uses: grafana/k6-action@v0.3.0
-        with:
-          version: 0.47.0
-
-      - name: Run smoke test
-        run: bash scripts/test/perf/run_tests.sh smoke
-        env:
-          BASE_URL: ${{ secrets.K6_SMOKE_BASE_URL || 'http://localhost:8448' }}
-          RESULTS_DIR: artifacts/k6-smoke
-
-      - name: Evaluate guardrails
-        run: python3 scripts/test/perf/guardrail.py --results-dir artifacts/k6-smoke --scenarios smoke --fail-on-breach
-
-      - name: Upload k6 smoke results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: k6-smoke-results
-          path: artifacts/k6-smoke
-          retention-days: 14
 
   # ──────────────────────────────────────────────────────────────
   # CI Summary — compact failure digest for maintainers

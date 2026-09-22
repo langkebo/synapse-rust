@@ -230,19 +230,6 @@ build-release:
 	@echo "Building release version..."
 	@cargo build --release --all-features
 
-# Performance Test
-perf-test:
-	@echo "Running performance tests..."
-	@bash scripts/test/perf/run_tests.sh smoke
-
-perf-test-baseline:
-	@echo "Running baseline performance test..."
-	@bash scripts/test/perf/run_tests.sh baseline
-
-perf-test-all:
-	@echo "Running all performance tests..."
-	@bash scripts/test/perf/run_tests.sh all
-
 # Cleanup
 clean:
 	@echo "Cleaning build artifacts..."
