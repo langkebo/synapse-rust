@@ -17,7 +17,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Running tests
 
 - **Full suite (all lib + unit tests, no DB):**
-  `cargo nt --lib --test unit`
+  `cargo nextest run --workspace --lib --all-features --locked --test-threads 4` then
+  `cargo nextest run --test unit --features test-utils --locked --test-threads 4`
+  ⚠️ `--workspace` 不可省：不带它时 lib 批次只覆盖 root package（root `Cargo.toml` 无 `default-members`），
+  8 个 member crate 的 lib 单测不会执行（2026-09-22 实测漏 6139 个用例，判据见
+  `docs/audit/FULL_SUITE_ISOLATION_VERIFY_2026-09-22.md` §5）。`cargo nt --lib` 同样只覆盖 root。
 - **Lib tests only:** `cargo nt --lib`
 - **Unit test target only:** `cargo nt --test unit`
 - **Single named test:**
