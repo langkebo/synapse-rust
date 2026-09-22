@@ -102,11 +102,14 @@ impl VerificationService {
     /// no salt, and `info` as the context string; the first 6 bytes are the SAS.
     /// The previous `SHA256(shared_secret || info)` construction was not HKDF and
     /// produced SAS bytes no conforming client could reproduce.
-    pub fn derive_sas(&self, shared_secret: &[u8; 32], info: &str) -> [u8; 6] {
+    pub fn derive_sas(&self, shared_secret: &[u8; 32], info: &str) -> Result<[u8; 6], ApiError> {
         let hkdf = hkdf::Hkdf::<sha2::Sha256>::new(None, shared_secret);
         let mut sas_bytes = [0u8; 6];
-        hkdf.expand(info.as_bytes(), &mut sas_bytes).expect("6 bytes is a valid HKDF output length");
-        sas_bytes
+        // `expand` only fails when the requested length exceeds 255 * HashLen;
+        // 6 bytes can never trip that, but propagate rather than panic.
+        hkdf.expand(info.as_bytes(), &mut sas_bytes)
+            .map_err(|_| ApiError::internal("Failed to derive SAS bytes".to_string()))?;
+        Ok(sas_bytes)
     }
 
     /// See [`compute_mac`].
@@ -276,7 +279,7 @@ impl VerificationService {
             }
         };
 
-        let sas_bytes = self.derive_sas(&shared_secret, &sas_info(&request));
+        let sas_bytes = self.derive_sas(&shared_secret, &sas_info(&request))?;
 
         let decimal = ((sas_bytes[0] as u32) << 16) | ((sas_bytes[1] as u32) << 8) | (sas_bytes[2] as u32);
         let _decimal = (decimal % 900000) + 100000;
@@ -389,65 +392,35 @@ impl VerificationService {
     }
 
     /// See [`generate_qr_code`].
+    ///
+    /// **Not supported.** A QR payload must be signed with the *device's* private
+    /// key, which only the client holds — the homeserver stores public key
+    /// material only.  The previous implementation fabricated a payload by reusing
+    /// one key for both `device_ed25519_key` and `device_curve25519_key` and
+    /// leaving `signature` empty, which no verifier can accept; returning it
+    /// pretended the feature worked.  Failing loudly is the honest behaviour
+    /// until the client-side flow (rendezvous + device signature) is implemented.
     pub async fn generate_qr_code(
         &self,
-        user_id: &str,
-        device_id: &str,
-        server_name: &str,
+        _user_id: &str,
+        _device_id: &str,
+        _server_name: &str,
     ) -> Result<QrCodeData, ApiError> {
-        let transaction_id = generate_transaction_id();
-
-        let (_secret_key, public_key) = self.generate_key_pair();
-
-        let qr_data = QrCodeData {
-            transaction_id: transaction_id.clone(),
-            server_name: server_name.to_string(),
-            server_public_key: public_key.clone(),
-            user_id: user_id.to_string(),
-            device_id: device_id.to_string(),
-            device_ed25519_key: public_key.clone(),
-            device_curve25519_key: public_key,
-            signature: String::new(),
-        };
-
-        let qr_state = QrState {
-            tx_id: transaction_id,
-            from_device: device_id.to_string(),
-            to_device: None,
-            state: VerificationState::Ready,
-            qr_code_data: Some(serde_json::to_string(&qr_data).unwrap_or_default()),
-            scanned_data: None,
-        };
-
-        self.storage.store_qr_state(&qr_state).await?;
-
-        Ok(qr_data)
+        Err(ApiError::unsupported("QR code verification is not supported by this homeserver".to_string()))
     }
 
     /// See [`scan_qr_code`].
+    ///
+    /// **Not supported** — see [`generate_qr_code`].  Fails closed instead of
+    /// creating a `Pending` verification request from a payload whose signature
+    /// was never checked (the previous behaviour).
     pub async fn scan_qr_code(
         &self,
-        qr_data: &QrCodeData,
-        scanner_device: &str,
-        scanner_user_id: &str,
+        _qr_data: &QrCodeData,
+        _scanner_device: &str,
+        _scanner_user_id: &str,
     ) -> Result<(), ApiError> {
-        let now = current_timestamp_millis();
-
-        let request = VerificationRequest {
-            transaction_id: qr_data.transaction_id.clone(),
-            from_user: qr_data.user_id.clone(),
-            from_device: qr_data.device_id.clone(),
-            to_user: scanner_user_id.to_string(),
-            to_device: Some(scanner_device.to_string()),
-            method: VerificationMethod::Qr,
-            state: VerificationState::Pending,
-            created_ts: now,
-            updated_ts: Some(now),
-        };
-
-        self.storage.create_request(&request).await?;
-
-        Ok(())
+        Err(ApiError::unsupported("QR code verification is not supported by this homeserver".to_string()))
     }
 }
 
@@ -539,8 +512,8 @@ mod tests {
     async fn derive_sas_is_deterministic() {
         let svc = lazy_service();
         let shared_secret = [0x42u8; 32];
-        let sas1 = svc.derive_sas(&shared_secret, "SAS");
-        let sas2 = svc.derive_sas(&shared_secret, "SAS");
+        let sas1 = svc.derive_sas(&shared_secret, "SAS").expect("derive");
+        let sas2 = svc.derive_sas(&shared_secret, "SAS").expect("derive");
         assert_eq!(sas1, sas2);
         assert_eq!(sas1.len(), 6);
     }
@@ -647,7 +620,7 @@ mod tests {
     async fn derive_sas_produces_6_byte_output() {
         let svc = lazy_service();
         let shared_secret = [0x00u8; 32];
-        let sas = svc.derive_sas(&shared_secret, "MATRIX_QR_CODE_LOGIN_INITIATE");
+        let sas = svc.derive_sas(&shared_secret, "MATRIX_QR_CODE_LOGIN_INITIATE").expect("derive");
         assert_eq!(sas.len(), 6);
     }
 
@@ -693,7 +666,7 @@ mod tests {
         }
         let info = "MATRIX_KEY_VERIFICATION_SAS|@alice:example.com|ALICEDEV|tx-1|@bob:example.com|BOBDEV";
         assert_eq!(
-            svc.derive_sas(&secret, info),
+            svc.derive_sas(&secret, info).expect("derive SAS"),
             [0xb0, 0x96, 0xee, 0xb5, 0x79, 0xa0],
             "SAS 必须按 HKDF-SHA256(salt=空, ikm=shared_secret, info) 派生；\
              旧实现 SHA256(secret||info) 会得到 4cc1cf67c070…"
@@ -844,5 +817,50 @@ mod tests {
         );
         assert!(svc.confirm_sas("tx-mac-noproof", &mac, &keys, "").await.is_err(), "缺 peer public key 时必须拒绝");
         assert_ne!(request_state(&svc, "tx-mac-noproof").await, VerificationState::Done, "缺少校验材料时不得标记 Done");
+    }
+
+    // ════════════════════════════════════════
+    // C2：QR 载荷不得伪造；未实现即 fail-closed
+    // ════════════════════════════════════════
+
+    /// 旧实现把**同一个公钥**同时填进 `device_ed25519_key` 与
+    /// `device_curve25519_key`，并把 `signature` 留成空串 —— 这是无法通过任何校验的
+    /// 伪造载荷。设备私钥只存在于客户端，服务端无法产生合规签名，因此必须明确拒绝。
+    #[tokio::test]
+    async fn generate_qr_code_fails_closed_instead_of_fabricating_a_payload() {
+        let isolated = IsolatedTestPool::new(BASELINE_SQL).await.expect("isolated test pool");
+        let svc = make_service(isolated.pool());
+
+        let result = svc.generate_qr_code("@alice:example.com", "ALICEDEV", "example.com").await;
+        let err = result.expect_err("QR 验证未实现时必须返回错误，而不是伪造载荷");
+        let message = err.to_string().to_lowercase();
+        assert!(
+            message.contains("not supported") || message.contains("unsupported"),
+            "错误信息应明确说明不支持: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn scan_qr_code_fails_closed_without_creating_a_request() {
+        let isolated = IsolatedTestPool::new(BASELINE_SQL).await.expect("isolated test pool");
+        let svc = make_service(isolated.pool());
+
+        let qr = QrCodeData {
+            transaction_id: "tx-qr-scan".to_string(),
+            server_name: "example.com".to_string(),
+            server_public_key: String::new(),
+            user_id: "@alice:example.com".to_string(),
+            device_id: "ALICEDEV".to_string(),
+            device_ed25519_key: String::new(),
+            device_curve25519_key: String::new(),
+            signature: String::new(),
+        };
+
+        let result = svc.scan_qr_code(&qr, "SCANNERDEV", "@bob:example.com").await;
+        assert!(result.is_err(), "QR 扫描未实现时必须 fail-closed: {result:?}");
+        assert!(
+            svc.get_request("tx-qr-scan").await.expect("get_request").is_none(),
+            "不得为未经验证的 QR 扫描创建请求"
+        );
     }
 }
