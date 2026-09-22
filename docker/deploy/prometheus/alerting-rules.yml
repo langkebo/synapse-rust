@@ -145,7 +145,10 @@ groups:
             请求将阻塞等待。检查是否有长事务或锁竞争。
 
       - alert: DatabaseQueryDurationHigh
-        expr: histogram_quantile(0.95, rate(db_query_duration_ms_bucket[5m])) > 500
+        # 阈值单位是**毫秒**（`db_query_duration_ms`）。被降级时写成 `> 0.5`，
+        # 等于 0.5ms —— 比原阈值严 1000 倍，会长期误报；同批另两条规则保留了
+        # 2000 / 100 的 ms 量级，自相矛盾，判为笔误。
+        expr: histogram_quantile(0.95, sum(rate(db_query_duration_ms_bucket[5m])) by (le)) > 500
         for: 5m
         labels:
           severity: warning
@@ -175,8 +178,11 @@ groups:
             检查最近代码变更或依赖服务故障。
 
       - alert: HTTPRequestDurationHigh
+        # 恢复真 P99（描述一直写的是 P99，降级后表达式实际算的是均值，名不符实）。
+        # `sum by (le)` 是 histogram_quantile 的稳健写法：漏掉聚合时，
+        # 任一新增标签都会把分布切成多份而静默失效。
         expr: |
-          histogram_quantile(0.99, rate(http_request_duration_ms_bucket[5m])) > 2000
+          histogram_quantile(0.99, sum(rate(http_request_duration_ms_bucket[5m])) by (le)) > 2000
         for: 5m
         labels:
           severity: warning
@@ -246,7 +252,10 @@ groups:
             检查存储和密钥文件权限。
 
       - alert: E2EESessionKeyReadSlow
-        expr: histogram_quantile(0.95, rate(megolm_session_key_read_duration_ms_bucket[5m])) > 100
+        # 恢复真 P95（描述写的是 P95）。该 histogram 带 `result` 标签，
+        # 必须 `sum by (le)` 合并后再取分位数。
+        expr: |
+          histogram_quantile(0.95, sum(rate(megolm_session_key_read_duration_ms_bucket[5m])) by (le)) > 100
         for: 5m
         labels:
           severity: warning

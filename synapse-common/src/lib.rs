@@ -32,6 +32,7 @@ pub mod config;
 pub mod constants;
 /// Module `crypto`.
 pub mod crypto;
+pub mod db_query_metrics;
 /// Module `error`.
 pub mod error;
 /// Module `event_models`.

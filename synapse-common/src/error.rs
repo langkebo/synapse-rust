@@ -922,6 +922,22 @@ impl From<sqlx::Error> for ApiError {
         // positives (审查 #19).
         let is_unique_violation = err.as_database_error().map(|e| e.is_unique_violation()).unwrap_or(false);
 
+        // Metrics: this `From` impl is the single point every storage-layer
+        // `sqlx::Error` funnels through on its way to an `ApiError`, so it is the
+        // natural place to count DB failures. `db_query_duration_ms` is fed
+        // separately by `DbQueryMetricsLayer` (sqlx reports duration but no
+        // success flag — see `db_query_metrics.rs`).
+        //
+        // Two "expected" variants are excluded on purpose:
+        //   * `RowNotFound` — a normal "no rows matched" outcome. Counting it
+        //     would make `db_query_errors` track empty fetches, not failures.
+        //   * unique violations — business-level conflicts, classified as 400 below.
+        if !is_unique_violation && !matches!(&err, sqlx::Error::RowNotFound) {
+            if let Some(metrics) = crate::server_metrics::global_server_metrics() {
+                metrics.db_query_errors.inc();
+            }
+        }
+
         if is_unique_violation {
             tracing::error!(%err, "duplicate database entry");
             ApiError::bad_request("A duplicate entry was found")

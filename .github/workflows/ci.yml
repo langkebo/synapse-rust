@@ -365,6 +365,22 @@ jobs:
           python3 scripts/check_get_raw_usage.py
           echo "S-8: get_raw() audit passed"
 
+      # 埋点可达性: `ServerMetrics` 的 record_* / observe_* / update_* 必须在生产代码里
+      # 真的被调用。2026-09-22 实测: 这些方法定义完整、单测齐全, 但生产路径零调用点,
+      # 于是 http_requests_total / http_request_duration_ms / db_query_duration_ms /
+      # db_query_errors / federation_requests_total 全部恒为 0 —— 序列照样渲染、
+      # 抓取照样成功、规则语法照样合法, 但 rate() 永远为 0,
+      # HighHTTPErrorRate / HTTPRequestDurationHigh / HTTPActiveRequestsGrowing /
+      # DatabaseQueryDurationHigh / DatabasePoolUtilizationHigh / DatabasePoolExhausted
+      # 全部永不触发。取证: 对 /_matrix/client/versions 连打 20 次(全 200)后
+      # http_requests_total 仍为 0, 而同期 rate_limit_requests_total 从 7 涨到 30。
+      # 已有历史欠账记在 scripts/ci/metric_instrumentation_baseline(棘轮, 只减不增)。
+      - name: Check metric instrumentation reachability
+        if: matrix.features-args == ''
+        run: |
+          python3 scripts/ci/check_metric_instrumentation.py
+          echo "Observability: metric instrumentation reachability audit passed"
+
       - name: Install cargo-nextest
         if: matrix.features-args == '--all-features'
         uses: taiki-e/install-action@v2

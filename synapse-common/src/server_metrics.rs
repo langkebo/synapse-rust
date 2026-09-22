@@ -2,7 +2,30 @@
 
 use crate::metrics::{Counter, Gauge, Histogram, MetricsCollector};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+
+/// Process-wide handle to the single [`ServerMetrics`] instance.
+///
+/// Needed by code paths that cannot take a constructor dependency on the container:
+/// the `sqlx::query` tracing layer (which records `db_query_duration_ms`) and the
+/// `From<sqlx::Error> for ApiError` conversion (which records `db_query_errors`).
+/// Without it, both would have to be threaded through every call site — see the
+/// `check_metric_instrumentation.py` gate for why that is worth avoiding.
+static GLOBAL_SERVER_METRICS: OnceLock<Arc<ServerMetrics>> = OnceLock::new();
+
+/// Installs the process-wide [`ServerMetrics`] handle. Idempotent: the first
+/// installation wins, later ones are ignored (matching `init_error_metrics`).
+pub fn install_global_server_metrics(metrics: Arc<ServerMetrics>) {
+    let _ = GLOBAL_SERVER_METRICS.set(metrics);
+}
+
+/// Returns the process-wide [`ServerMetrics`] handle, if installed yet.
+///
+/// `None` before startup wiring completes and in most test binaries; callers
+/// must treat it as optional (metrics are best-effort and never load-bearing).
+pub fn global_server_metrics() -> Option<&'static Arc<ServerMetrics>> {
+    GLOBAL_SERVER_METRICS.get()
+}
 
 /// All server-level Prometheus metrics counters/gauges/histograms, wired into `MetricsCollector`.
 pub struct ServerMetrics {
@@ -41,6 +64,12 @@ pub struct ServerMetrics {
     pub federation_requests_total: Counter,
     /// Federation request duration histogram (ms).
     pub federation_request_duration: Histogram,
+    /// Outgoing federation requests that failed at the transport/remote layer.
+    ///
+    /// Deliberately distinct from [`federation_signature_errors`](Self::federation_signature_errors):
+    /// a DNS failure or a remote 503 is not a signature problem, and conflating the two
+    /// made the signature counter unusable for alerting.
+    pub federation_request_errors_total: Counter,
     /// Successful X-Matrix signature verifications.
     pub federation_signature_verifications: Counter,
     /// Failed signature verifications.
@@ -211,6 +240,7 @@ impl ServerMetrics {
             ),
             federation_signature_verifications: collector
                 .register_counter("federation_signature_verifications".to_string()),
+            federation_request_errors_total: collector.register_counter("federation_request_errors_total".to_string()),
             federation_signature_errors: collector.register_counter("federation_signature_errors".to_string()),
             federation_replay_attacks_blocked: collector
                 .register_counter("federation_replay_attacks_blocked".to_string()),
@@ -352,6 +382,15 @@ impl ServerMetrics {
         }
     }
 
+    /// Observes a DB query duration without touching the error counter.
+    ///
+    /// Used by the `sqlx::query` tracing layer: sqlx reports per-statement
+    /// duration but no success flag (see `DbQueryMetricsLayer`). Failures are
+    /// counted separately at the `From<sqlx::Error> for ApiError` boundary.
+    pub fn observe_db_query_duration(&self, duration_ms: f64) {
+        self.db_query_duration.observe(duration_ms);
+    }
+
     /// Sets pool connection counts, utilization, and health status.
     pub fn update_pool_metrics(&self, active: f64, idle: f64, utilization: f64, is_healthy: bool) {
         self.db_connections_active.set(active);
@@ -370,11 +409,17 @@ impl ServerMetrics {
     }
 
     /// Increments federation request counter and records duration.
+    ///
+    /// `success` describes the **outbound exchange**, not signature validity:
+    /// a failure increments [`federation_request_errors_total`](Self::federation_request_errors_total).
+    /// Signature failures are recorded by [`record_federation_signature_verification`]
+    /// (Self::record_federation_signature_verification) instead — mixing the two made
+    /// `federation_signature_errors` count DNS timeouts as signature problems.
     pub fn record_federation_request(&self, duration_ms: f64, success: bool) {
         self.federation_requests_total.inc();
         self.federation_request_duration.observe(duration_ms);
         if !success {
-            self.federation_signature_errors.inc();
+            self.federation_request_errors_total.inc();
         }
     }
 
@@ -549,7 +594,7 @@ impl ServerMetrics {
             cache_misses: self.cache_misses_total.get(),
             cache_hit_rate: self.calculate_cache_hit_rate(),
             federation_requests: self.federation_requests_total.get(),
-            federation_errors: self.federation_signature_errors.get(),
+            federation_errors: self.federation_request_errors_total.get(),
             replay_attacks_blocked: self.federation_replay_attacks_blocked.get(),
             http_requests: self.http_requests_total.get(),
             http_errors: self.http_request_errors_total.get(),
@@ -727,7 +772,10 @@ mod tests {
         metrics.record_federation_request(100.0, false);
 
         assert_eq!(metrics.federation_requests_total.get(), 2);
-        assert_eq!(metrics.federation_signature_errors.get(), 1);
+        // A transport/remote failure is not a signature failure: it must land on
+        // `federation_request_errors_total`, leaving the signature counter untouched.
+        assert_eq!(metrics.federation_request_errors_total.get(), 1);
+        assert_eq!(metrics.federation_signature_errors.get(), 0);
     }
 
     #[test]
