@@ -91,7 +91,7 @@ impl MediaQuotaStorage {
     /// See [`list_configs`].
     pub async fn list_configs(&self) -> Result<Vec<MediaQuotaConfig>, ApiError> {
         let configs = sqlx::query_as::<_, MediaQuotaConfig>(
-            r"SELECT id, name, description, max_storage_bytes, max_file_size_bytes, max_files_count, allowed_mime_types, blocked_mime_types, is_default, is_enabled, created_ts, updated_ts FROM media_quota_config WHERE is_enabled = TRUE ORDER BY created_ts DESC",
+            r"SELECT id, name, description, max_storage_bytes, max_file_size_bytes, max_files_count, allowed_mime_types, blocked_mime_types, is_default, is_enabled, created_ts, updated_ts FROM media_quota_config WHERE is_enabled = TRUE ORDER BY created_ts DESC, id DESC",
         )
         .fetch_all(&*self.pool)
         .await

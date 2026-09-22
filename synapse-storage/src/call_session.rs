@@ -194,7 +194,7 @@ impl CallSessionStorage {
             r#"
             SELECT id, call_id, room_id, sender_id, candidate, created_ts FROM call_candidates
             WHERE call_id = $1 AND room_id = $2
-            ORDER BY created_ts ASC
+            ORDER BY created_ts ASC, id ASC
             "#,
         )
         .bind(call_id)

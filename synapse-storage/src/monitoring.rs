@@ -2,6 +2,8 @@ use chrono::Utc;
 use deadpool_redis::Pool as RedisPool;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
+use std::sync::Arc;
+use synapse_common::server_metrics::ServerMetrics;
 use tracing::{debug, error};
 
 /// The `DatabaseHealthStatus` struct.
@@ -140,12 +142,24 @@ pub struct DatabaseMonitor {
     pool: Pool<Postgres>,
     redis_pool: Option<RedisPool>,
     max_connections: u32,
+    /// Reference to Prometheus metrics
+    server_metrics: Option<Arc<ServerMetrics>>,
 }
 
 impl DatabaseMonitor {
     /// See [`new`].
     pub fn new(pool: Pool<Postgres>, redis_pool: Option<RedisPool>, max_connections: u32) -> Self {
-        Self { pool, redis_pool, max_connections }
+        Self { pool, redis_pool, max_connections, server_metrics: None }
+    }
+
+    /// Create a new DatabaseMonitor with server metrics reference.
+    pub fn with_server_metrics(
+        pool: Pool<Postgres>,
+        redis_pool: Option<RedisPool>,
+        max_connections: u32,
+        server_metrics: Arc<ServerMetrics>,
+    ) -> Self {
+        Self { pool, redis_pool, max_connections, server_metrics: Some(server_metrics) }
     }
 
     /// See [`check_connection`].
@@ -180,6 +194,23 @@ impl DatabaseMonitor {
                 0.0
             },
         })
+    }
+
+    /// Update pool metrics on the Prometheus collector if available.
+    pub fn update_pool_metrics(&self) {
+        if let Some(ref metrics) = self.server_metrics {
+            let status = match self.get_connection_pool_status() {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+            let is_healthy = self.pool.size() > 0;
+            metrics.update_pool_metrics(
+                status.busy_connections as f64,
+                status.idle_connections as f64,
+                status.connection_utilization / 100.0,
+                is_healthy,
+            );
+        }
     }
 
     /// See [`get_full_health_status`].

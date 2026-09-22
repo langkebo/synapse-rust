@@ -149,7 +149,7 @@ impl InviteBlocklistStorage {
         let rows = sqlx::query_as::<_, (String, String, i64)>(
             r"
             SELECT room_id, user_id, created_ts FROM room_invite_blocklist
-            ORDER BY created_ts DESC
+            ORDER BY created_ts DESC, room_id ASC, user_id ASC
             ",
         )
         .fetch_all(&*self.pool)
@@ -172,7 +172,7 @@ impl InviteBlocklistStorage {
         let rows = sqlx::query_as::<_, (String, String, i64)>(
             r"
             SELECT room_id, user_id, created_ts FROM room_invite_allowlist
-            ORDER BY created_ts DESC
+            ORDER BY created_ts DESC, room_id ASC, user_id ASC
             ",
         )
         .fetch_all(&*self.pool)

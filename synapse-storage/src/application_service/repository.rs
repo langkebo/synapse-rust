@@ -433,7 +433,7 @@ impl ApplicationServiceStorage {
                 NULL::text AS transaction_id
             FROM application_service_events
             WHERE as_id = $1 AND is_processed = FALSE
-            ORDER BY created_ts ASC
+            ORDER BY created_ts ASC, id ASC
             LIMIT $2
             ",
         )

@@ -130,7 +130,7 @@ impl FederationQueueStorage {
             SELECT id, destination, event_id, event_type, room_id, content, created_ts, sent_at, retry_count, status
             FROM federation_queue
             WHERE destination = $1 AND status = 'pending'
-            ORDER BY created_ts ASC
+            ORDER BY created_ts ASC, id ASC
             LIMIT $2
             ",
         )
@@ -147,7 +147,7 @@ impl FederationQueueStorage {
             SELECT id, destination, event_id, event_type, room_id, content, created_ts, sent_at, retry_count, status
             FROM federation_queue
             WHERE status = 'pending'
-            ORDER BY created_ts ASC
+            ORDER BY created_ts ASC, id ASC
             LIMIT 1000
             ",
         )

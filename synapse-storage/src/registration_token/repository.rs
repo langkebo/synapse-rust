@@ -291,7 +291,7 @@ impl RegistrationTokenStorage {
             WHERE is_enabled = TRUE
             AND (expires_at IS NULL OR expires_at > $1)
             AND (max_uses = 0 OR uses_count < max_uses)
-            ORDER BY created_ts DESC
+            ORDER BY created_ts DESC, id DESC
             ",
         )
         .bind(now)

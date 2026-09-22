@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                id as \"id!\",\n                token_hash as \"token_hash!\",\n                user_id as \"user_id!\",\n                device_id as \"device_id?\",\n                access_token_id as \"access_token_id?\",\n                scope as \"scope?\",\n                created_ts as \"created_ts!\",\n                expires_at as \"expires_at?\",\n                last_used_ts as \"last_used_ts?\",\n                COALESCE(use_count, 0) as \"use_count!\",\n                COALESCE(is_revoked, false) as \"is_revoked!\",\n                revoked_reason as \"revoked_reason?\",\n                client_info as \"client_info?\",\n                ip_address as \"ip_address?\",\n                user_agent as \"user_agent?\"\n            FROM refresh_tokens WHERE user_id = $1 ORDER BY created_ts DESC\n            ",
+  "query": "\n            SELECT\n                id as \"id!\",\n                token_hash as \"token_hash!\",\n                user_id as \"user_id!\",\n                device_id as \"device_id?\",\n                access_token_id as \"access_token_id?\",\n                scope as \"scope?\",\n                created_ts as \"created_ts!\",\n                expires_at as \"expires_at?\",\n                last_used_ts as \"last_used_ts?\",\n                COALESCE(use_count, 0) as \"use_count!\",\n                COALESCE(is_revoked, false) as \"is_revoked!\",\n                revoked_reason as \"revoked_reason?\",\n                client_info as \"client_info?\",\n                ip_address as \"ip_address?\",\n                user_agent as \"user_agent?\"\n            FROM refresh_tokens\n            WHERE user_id = $1\n            AND is_revoked = FALSE\n            AND expires_at > $2\n            ORDER BY created_ts DESC, id DESC\n            ",
   "describe": {
     "columns": [
       {
@@ -81,7 +81,8 @@
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Text",
+        "Int8"
       ]
     },
     "nullable": [
@@ -102,5 +103,5 @@
       true
     ]
   },
-  "hash": "4458f2c56514131f408b1878c57e8c61013f7009958ba4275db954594fc41b2a"
+  "hash": "b5359044b9b8b369c4f7dac8cb674da9cbd89a1bd3111861c9728d95ec764972"
 }

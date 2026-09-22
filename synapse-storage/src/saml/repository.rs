@@ -69,7 +69,7 @@ impl SamlStorage {
             r#"
             SELECT id, session_id, user_id, name_id, issuer, session_index, attributes, created_ts, expires_at, last_used_ts, status FROM saml_sessions
             WHERE user_id = $1 AND status = 'active' AND expires_at > $2
-            ORDER BY created_ts DESC
+            ORDER BY created_ts DESC, id DESC
             LIMIT 1
             "#,
         )
@@ -480,7 +480,7 @@ impl SamlStorage {
             r#"
             SELECT id, session_id, user_id, name_id, issuer, event_type, status, error_message, ip_address, user_agent, request_id, attributes, created_ts FROM saml_auth_events
             WHERE user_id = $1
-            ORDER BY created_ts DESC
+            ORDER BY created_ts DESC, id DESC
             LIMIT $2
             "#,
         )

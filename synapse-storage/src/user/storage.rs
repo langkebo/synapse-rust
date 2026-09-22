@@ -402,7 +402,7 @@ impl UserStorage {
                    email, phone, password_changed_ts, is_password_change_required,
                    password_expires_at, failed_login_attempts, locked_until, must_change_password
             FROM users
-            ORDER BY created_ts DESC
+            ORDER BY created_ts DESC, user_id DESC
             LIMIT $1
             ",
         )
@@ -1498,7 +1498,7 @@ impl UserStorage {
             SELECT id, user_id, reason, locked_by, created_ts, unlocked_ts, is_active
             FROM user_locks
             WHERE is_active = TRUE
-            ORDER BY created_ts DESC
+            ORDER BY created_ts DESC, id DESC
             LIMIT $1 OFFSET $2
             ",
         )

@@ -339,7 +339,7 @@ impl BackgroundUpdateStorage {
     /// See [`get_updates_by_status`].
     pub async fn get_updates_by_status(&self, status: &str) -> Result<Vec<BackgroundUpdate>, sqlx::Error> {
         let rows = sqlx::query_as::<_, BackgroundUpdate>(
-            "SELECT job_name, job_type, description, table_name, column_name, status, progress, total_items, processed_items, created_ts, started_ts, completed_ts, updated_ts, error_message, retry_count, max_retries, batch_size, sleep_ms, depends_on, metadata FROM background_updates WHERE status = $1 ORDER BY created_ts ASC",
+            "SELECT job_name, job_type, description, table_name, column_name, status, progress, total_items, processed_items, created_ts, started_ts, completed_ts, updated_ts, error_message, retry_count, max_retries, batch_size, sleep_ms, depends_on, metadata FROM background_updates WHERE status = $1 ORDER BY created_ts ASC, id ASC",
         )
         .bind(status)
         .fetch_all(&*self.pool)

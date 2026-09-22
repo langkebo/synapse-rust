@@ -903,7 +903,7 @@ impl SpaceStorage {
     /// See [`get_all_spaces_for_admin`].
     pub async fn get_all_spaces_for_admin(&self) -> Result<Vec<Space>, sqlx::Error> {
         sqlx::query_as::<_, Space>(
-            r"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type FROM spaces ORDER BY created_ts DESC",
+            r"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type FROM spaces ORDER BY created_ts DESC, space_id DESC",
         )
         .fetch_all(&*self.pool)
         .await

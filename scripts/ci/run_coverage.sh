@@ -98,7 +98,7 @@ if [ "${SKIP_CLEANUP:-0}" != "1" ] && [ -f scripts/cleanup_test_schemas.sh ]; th
 fi
 
 log "覆盖率报告已写入 $OUTPUT_DIR/lcov.info"
-log "棘轮：python3 scripts/check_file_coverage.py --report $OUTPUT_DIR/lcov.info --format lcov \\"
+log "棘轮：python3 scripts/check_file_coverage.py --report $OUTPUT_DIR/lcov.info \\"
 log "        --baseline scripts/ci/coverage_baseline.json --global-floor 40 --new-file-floor 30 \\"
 log "        --core-files scripts/ci/core_file_coverage_prefixes.txt --core-threshold 70 \\"
 log "        --non-unit-coverable scripts/ci/non_unit_coverable_prefixes.txt"

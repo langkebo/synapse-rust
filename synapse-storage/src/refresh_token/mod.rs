@@ -466,7 +466,7 @@ impl RefreshTokenStorage {
                 client_info as "client_info?",
                 ip_address as "ip_address?",
                 user_agent as "user_agent?"
-            FROM refresh_tokens WHERE user_id = $1 ORDER BY created_ts DESC
+            FROM refresh_tokens WHERE user_id = $1 ORDER BY created_ts DESC, id DESC
             "#,
             user_id
         )
@@ -503,7 +503,7 @@ impl RefreshTokenStorage {
             WHERE user_id = $1
             AND is_revoked = FALSE
             AND expires_at > $2
-            ORDER BY created_ts DESC
+            ORDER BY created_ts DESC, id DESC
             "#,
             user_id,
             now
