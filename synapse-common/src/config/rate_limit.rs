@@ -77,6 +77,22 @@ pub struct RateLimitConfig {
     #[serde(default)]
     /// `trust_forwarded` field.
     pub trust_forwarded: bool,
+    /// Per-user limit for the report endpoints (rooms + users).
+    ///
+    /// Enforced in the handlers rather than by the path-based middleware, which
+    /// only supports exact/prefix path rules and therefore cannot express
+    /// `/_matrix/client/v3/rooms/{room_id}/report`.  Upstream #20036 applies the
+    /// `rc_reports` limit to the room report endpoint.
+    #[serde(default = "default_rc_reports")]
+    /// `rc_reports` field.
+    pub rc_reports: RateLimitRule,
+}
+
+/// Conservative default for the report endpoints: a user may file 10 reports in
+/// a burst and then one per second.  Deliberately tight because reports are an
+/// abuse vector; operators can raise it in `homeserver.yaml`.
+fn default_rc_reports() -> RateLimitRule {
+    RateLimitRule { per_second: 1, burst_size: 10 }
 }
 
 fn default_rate_limit_enabled() -> bool {
@@ -106,6 +122,7 @@ impl Default for RateLimitConfig {
             sync: SyncRateLimitConfig::default(),
             trusted_proxies: Vec::new(),
             trust_forwarded: false,
+            rc_reports: default_rc_reports(),
         }
     }
 }

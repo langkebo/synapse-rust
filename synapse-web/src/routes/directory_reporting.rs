@@ -232,6 +232,7 @@ pub(crate) async fn report_room(
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
+    take_rc_reports_token(&ctx.cache, &auth_user.user_id, &ctx.config.rate_limit.rc_reports).await?;
     ensure_room_member_admin(&ctx, &auth_user, &room_id, "You must be a room member to report this room").await?;
 
     let reason = body.get("reason").and_then(|v| v.as_str()).map(str::to_string);
@@ -289,6 +290,7 @@ pub(crate) async fn report_user(
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_user_id(&reported_user_id)?;
+    take_rc_reports_token(&ctx.cache, &auth_user.user_id, &ctx.config.rate_limit.rc_reports).await?;
 
     // MSC4260: `reason` is a REQUIRED field (the key must be present). The
     // value may be an empty string. Missing key → M_BAD_JSON.
@@ -631,4 +633,56 @@ pub(crate) async fn query_public_rooms(
         "total_room_count_estimate": total,
         "next_batch": next_batch,
     })))
+}
+
+/// Applies the per-user `rc_reports` token bucket to a report request.
+///
+/// The path-based middleware only supports exact/prefix rules and therefore
+/// cannot express `/_matrix/client/v3/rooms/{room_id}/report` (a
+/// `/_matrix/client/v3/rooms/` prefix would cover every room endpoint), so the
+/// limit is enforced here.  Upstream #20036 applies the `rc_reports` limit to
+/// the room reporting endpoint, which the spec declares as rate-limited.
+async fn take_rc_reports_token(
+    cache: &synapse_cache::CacheManager,
+    user_id: &str,
+    rule: &synapse_common::RateLimitRule,
+) -> Result<(), ApiError> {
+    let key = format!("ratelimit:rc_reports:{user_id}");
+    let decision = cache.rate_limit_token_bucket_take(&key, rule.per_second, rule.burst_size).await?;
+    if !decision.allowed {
+        return Err(ApiError::rate_limited("Too many report requests"));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod rc_reports_limit_tests {
+    use super::take_rc_reports_token;
+    use synapse_cache::{CacheConfig, CacheManager};
+    use synapse_common::RateLimitRule;
+
+    fn cache() -> CacheManager {
+        CacheManager::new(&CacheConfig::default())
+    }
+
+    #[tokio::test]
+    async fn rc_reports_bucket_blocks_after_burst() {
+        let cache = cache();
+        let rule = RateLimitRule { per_second: 1, burst_size: 1 };
+        assert!(take_rc_reports_token(&cache, "@alice:example.com", &rule).await.is_ok(), "首个请求应放行");
+        let second = take_rc_reports_token(&cache, "@alice:example.com", &rule).await;
+        let err = second.expect_err("突发额度用尽后必须限流");
+        assert!(err.is_rate_limited(), "必须是 429 M_LIMIT_EXCEEDED，实际: {err}");
+    }
+
+    #[tokio::test]
+    async fn rc_reports_bucket_is_per_user() {
+        let cache = cache();
+        let rule = RateLimitRule { per_second: 1, burst_size: 1 };
+        assert!(take_rc_reports_token(&cache, "@alice:example.com", &rule).await.is_ok());
+        assert!(
+            take_rc_reports_token(&cache, "@bob:example.com", &rule).await.is_ok(),
+            "限流桶必须按用户隔离，否则一个用户可耗尽他人的举报额度"
+        );
+    }
 }
