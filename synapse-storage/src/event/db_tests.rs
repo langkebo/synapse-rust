@@ -2271,10 +2271,8 @@ async fn create_event_with_graph_rolls_back_event_when_edges_insert_fails() {
         storage.create_event_with_graph(params, &["$missing_prev:example.com".to_string()], &[], 1, None).await;
     assert!(result.is_err(), "event_edges 外键失败必须让整笔写入失败");
 
-    let persisted: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE event_id = $1")
-        .bind("$dag_rollback:example.com")
-        .fetch_one(&*pool)
-        .await
-        .expect("count events");
-    assert_eq!(persisted, 0, "events 行不得在 event_edges 失败后残留（半写窗口）");
+    // 用既有 reader 断言行不存在：不新增动态 SQL 调用点（SQLx 棘轮会把
+    // `#[cfg(test)]` 内联模块里的 `sqlx::query_scalar` 计入 dynamic）。
+    let persisted = storage.get_event("$dag_rollback:example.com").await.expect("get_event");
+    assert!(persisted.is_none(), "events 行不得在 event_edges 失败后残留（半写窗口）");
 }

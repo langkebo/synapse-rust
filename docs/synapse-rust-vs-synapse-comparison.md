@@ -477,7 +477,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | **MSC4354** (Sticky Event) | ✅ | ✅（`sticky_event.rs` 服务 + 存储） | ✅ 已对齐 |
 | **MSC4261** (Widget API) | ✅ | ✅ | ✅ 已对齐 |
 | **MSC4140** (Cancellable Delayed Events) | ✅（v1.143 起；v1.161 仅新增"查询单个延迟事件"端点） | ⚠️ **PARTIAL**：单机链路真实（`delayed_event_service.rs` + `synapse-storage/src/delayed_events.rs` + 调度器 `src/server/mod.rs:745-843` + 所有权 fail-closed），但**无 EDU/联邦同步**（`EduType` 无该类型，全仓 `m.delayed_event` 0 命中），且 schedule 的 `state_key` 硬编码 `None` | ⚠️ 单机可用，联邦缺失 |
-| **MSC3912 / v11 撤回格式** | ✅（v1.161 #19782：room version > 10 时 `redacts` 放入 `content`） | ❌ **未按房间版本分支**：撤回事件 `content` 只有 `reason`，目标仍写**顶层** `redacts`（`handlers/room/events.rs:959-982`、`messaging/service.rs:173-175`），只有读路径兼容两处（`synapse-common/src/redaction.rs:132-139`）；而本仓 `DEFAULT_ROOM_VERSION="11"` 且 v11 `can_create=true`（`room_versions.rs:89,113`）——**默认创建 v11 房间却按 v10 格式撤回**；关系性级联撤回未实现；`MSC3912` 代码标识 0 命中 | ❌ 存在互操作缺陷 |
+| **MSC3912 / v11 撤回格式** | ✅（v1.161 #19782：room version > 10 时 `redacts` 放入 `content`） | ⚠️ **创建路径已修（Phase 1，2026-09-22）**：`RoomMessagingService::create_event` 按房间版本注入 `content.redacts`（v11+），出站 PDU 不再重复写顶层 `redacts`；测试 `create_redaction_in_v11_room_puts_target_in_content` / `v11_pdu_does_not_gain_top_level_redacts` 锁定。**仍缺**：关系性（`rel_type`）级联撤回未实现；`MSC3912` 代码标识 0 命中 | ⚠️ 格式已对齐，级联未实现 |
 | **MSC4242** (State DAGs) | ✅ 实验性（v1.161 #20127 联邦客户端 + #19718 存储函数） | ⚠️ **仅存储层**（`event/dag.rs:179/208/237` + `create.rs:161`），无服务/联邦/路由/房间版本启用；且 `dag.rs:200-205,231-234` 注释声称被 `/send_join`、`/get_missing_events` 使用，实测**无调用点**（不实注释） | ❌ 缺失（实验性） |
 | **MSC4512** (Application Services Proxy) | ✅ v1.161 实验性（#19972 代理命名空间 + #19977 联邦请求） | ❌ **未实现**（`MSC4512`/`proxy_namespace` 0 命中）；另注：`module_service.rs` 实际不止 spam/3P/auth，还含模块 CRUD、媒体与 account_data 回调、account validity（原表述低估） | ❌ 缺失（实验性） |
 
@@ -621,7 +621,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 - SDK 封装层存在已知 Bug（URL 重复前缀、batch 接口不存在等）。
 - Worker 拓扑验证仍在建设中，水平扩展方案成熟度待验证。
 - **协议正确性风险（本轮实测，优先级最高）**：
-  - **撤回格式 × 房间版本**：默认 v11 却生成 v10 顶层 `redacts`（见 §11.1 MSC3912 行），存在联邦互操作风险。
+  - ~~**撤回格式 × 房间版本**：默认 v11 却生成 v10 顶层 `redacts`~~ → **已于 Phase 1 修复**（2026-09-22：服务层按房间版本注入 `content.redacts`，PDU 不再重复写顶层）；关系性级联撤回仍未实现（见 §11.1 MSC3912 行）。
   - **E2EE**：SAS 派生非 HKDF、`confirm_sas` 接受任意非空 MAC、QR 为桩、泄漏检测未编译（见 §7.2）。
   - **MSC4140**：无 EDU/联邦。
   - **Dehydrated device `/events`**：仅 POST + body 游标，落后上游 v1.157（#19896）的 GET 语义。
@@ -711,6 +711,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | §11.1 v1.161 表 | 8 项"待核查"全部实测判定；其中 #20169 的旧 ✅ 属误判（机制不同）；#20036、#20180 确认缺失 |
 | §12.4 | 风险改为只保留实测/明确未验证项；CVE 占位符替换为真实 GHSA/CVE 编号 |
 | §12.5 | 重写为 A/B/C/D 分层，删除人日估算，改为指向权威清单并按验收判据验收 |
+| **代码修复（Phase 1）** | **B1** v11+ 撤回目标写入 `content.redacts`（服务层唯一写入口）+ PDU 不再重复写顶层 `redacts`；**B8** `create_event_with_graph` 无事务分支改单事务；**B10a** `send_message` 传播 `origin_server_ts` 读取错误；**B5** 修正过期房间版本注释。计划见 `docs/superpowers/plans/2026-09-22-protocol-correctness-phase1.md`（gitignored），验证证据见 `docs/audit/COMPARISON_REPORT_REVIEW_2026-09-22.md` §10 |
 
 ---
 

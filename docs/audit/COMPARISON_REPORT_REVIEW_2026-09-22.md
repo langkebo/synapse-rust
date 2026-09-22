@@ -252,8 +252,12 @@
 | A4 | 修正 sqlx/静态链接/特性片段等事实错误 | 同 §2 | ✅ |
 | A5 | §12.5 重写为"差异描述 + 指向权威清单" | 与 `OPTIMIZATION_EXECUTION_PLAN` 无冲突项 | ✅ |
 | A6 | 建立"文档数字必须来自命令"的守卫（建议） | 见 D1 | 待决 |
+| A7 | **修复 Phase 1 代码项**：B1（v11 撤回格式）、B8（事件图半写）、B10a（`origin_server_ts` 吞错）、B5（过期注释） | 每项均由"修复前失败 → 修复后通过"的测试覆盖，并对纯函数做变异探针；提交 `64ca3345`/`d20164d6`/`a963fad0`/`a1b6cca8`/`f6913602`/`71cb5f91`；门禁见本文件 §10 | ✅ |
 
 ### B 类：协议正确性（本轮实测发现，建议优先于 MSC4242/4512）
+
+> **Phase 1 已修（2026-09-22）**：**B1**（v11 撤回格式，含 PDU 侧）、**B5**（过期注释）、**B8**（半写窗口）、**B10a**（`messages.rs:32` 的 `origin_server_ts` 吞错）。
+> 仍待处理：B10 其余两处（`federation/transaction.rs:358-362`、`membership/federation.rs:191-216,251-268`）、B2/B3/B4/B6/B7/B9/B11/B12/B13/B14。
 
 | 编号 | 现象 | 证据 | 动作 | 验收判据 | 关联 |
 |------|------|------|------|----------|------|
@@ -353,3 +357,41 @@ bash scripts/check_doc_spelling.sh docs/synapse-rust-vs-synapse-comparison.md
 | `docs/synapse-rust-vs-synapse-comparison.md` | 升至 v1.3；修正 §1/§2/§3/§4/§5/§6/§7/§9/§10/§12 的计数、版本、伪造引用、特性片段、静态链接断言；§11 增加证据状态说明；§12.5 重写为指向权威清单的方案 |
 | `.aspell.ignore.txt` | 增补 10 个合法技术词（aliyun/cancellable/clamav/dags/livekit/redactions/sharding/twilio/webhooks/websocket），修复 docs-quality-gate 回归 |
 | `docs/audit/COMPARISON_REPORT_REVIEW_2026-09-22.md` | 本文件 |
+
+---
+
+## 10. Phase 1 门禁与验证证据（2026-09-22）
+
+环境：分支 `opt/protocol-correctness-2026-09-22`（基线 `main @ db1538b7`）；
+`SQLX_OFFLINE=true`、`TEST_DATABASE_URL=postgresql://synapse:synapse@localhost:5432/synapse_test`（per-test schema）。
+
+| 门禁 | 命令 | 结果 |
+|------|------|------|
+| 格式棘轮 | `./scripts/check_fmt_ratchet.sh` | `fmt debt: current=0 baseline=0` → **OK** |
+| Clippy（默认矩阵） | `cargo clippy --workspace --all-targets --features test-utils --locked -- -D warnings` | **exit 0**（4m42s） |
+| Clippy（全特性） | `cargo clippy --workspace --all-targets --features test-utils --all-features --locked -- -D warnings` | **exit 0**（14m02s） |
+| SQLx 棘轮 | `bash scripts/ci/check_sqlx_dynamic_ratio.sh` | `dynamic=1501 static=61 ratio=0.9609` → **OK**（基线未上调） |
+| 受影响 crate 测试 | `cargo nextest run -p synapse-common -p synapse-services -p synapse-storage -P tdd --features test-utils` | **4235 passed / 0 failed / 0 skipped**（663s） |
+| 单元测试目标 | `cargo nextest run --profile ci --all-features --test unit --test-threads 4` | **1792 passed / 0 failed / 2 skipped**（既有 skip） |
+| 撤回相关集成测试 | `cargo nextest run --profile ci --all-features --test integration redact --test-threads 1` | **15 passed** |
+
+### 10.1 每项修复的"能变红"证据
+
+| 项 | 红（修复前） | 绿（修复后） |
+|----|--------------|--------------|
+| B1（common） | `cargo nextest … test_redacts_in_content` → **E0425**（函数不存在） | 3 passed |
+| B1（服务层 content 注入） | `create_redaction_in_v11_room_puts_target_in_content` → FAIL：`content = {"reason":"spam"}` | 2 passed（v11 + v10 对照） |
+| B1（PDU 顶层字段） | 变异探针：把 `if !content_has_redacts` 改为恒真 → v11 用例 FAIL（顶层 `redacts` 出现） | 2 passed |
+| B8（半写窗口） | 用**修复前的真实代码**做探针 → FAIL：`events` 行残留（`persisted = Some(..)`） | 4 passed（含 3 个既有 DAG 用例） |
+| B10a（吞错） | 变异探针：`max_ts.unwrap_or(0)` → `next_event_ts_propagates_db_error` FAIL | 3 passed |
+| SQLx 棘轮自身 | 仓库既有 `sqlx_ratio_gate_fails_when_dynamic_exceeds_baseline` | 10 passed |
+
+> **一处实现调整**：B8 的断言最初用 `SELECT COUNT(*)`，触发 SQLx 棘轮 +1（该棘轮把 `#[cfg(test)]` 内联查询也计入 dynamic）。
+> 因 `#[cfg(test)]` 内的 `query!` 宏无法进入 `cargo sqlx prepare` 缓存（基线文件已记录该约束），改为调用既有 `EventStorage::get_event`
+> 断言行不存在 —— **不新增动态调用点，也不上调基线**。随后用修复前代码重新确认该断言仍能变红。
+
+### 10.2 Phase 1 未覆盖（保持不变，见 §7 表）
+
+B2（#20189 完整作用面）、B3（`rc_reports` 限流）、B4（Dehydrated `/events` POST→GET）、B6（v12/v13 创建）、
+B7（v1.157.2 公告同类性）、B9（txn 去重补偿）、B10b/c（`transaction.rs` 与 `membership/federation.rs`）、
+B11（搜索索引死存储）、B12（Profile 语义）、B13（App Service 登录）、B14（LiveKit `ws_url`）、C1–C10。
