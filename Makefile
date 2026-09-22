@@ -131,7 +131,6 @@ test-coverage-check:
 	@bash scripts/ci/run_coverage.sh
 	@python3 scripts/check_file_coverage.py \
 	  --report coverage/lcov.info \
-	  --format lcov \
 	  --baseline scripts/ci/coverage_baseline.json \
 	  --global-floor 40 --new-file-floor 30 \
 	  --core-files scripts/ci/core_file_coverage_prefixes.txt --core-threshold 70 \

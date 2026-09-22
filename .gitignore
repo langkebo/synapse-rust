@@ -136,3 +136,9 @@ target_amd64/
 target_arm64/
 .scratch/
 api_test/response_schemas.json
+
+# 编辑器/打补丁留下的备份产物：既不是源码，也会让 format / pre-commit 门禁变红
+# （2026-09-22 实测：未跟踪的 *.sh.orig 让 `format_check.sh` 的 shfmt 段直接红，
+#  且 `git add -A` 会把它们卷进提交）。禁止 `git add -f` 绕过。
+*.orig
+*.rej

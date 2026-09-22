@@ -103,6 +103,15 @@ start the stack **by these service names**) and `docker/deploy/docker-compose.ym
    **推论**：看到"长期 0 违规 / 长期全绿"的门禁，优先怀疑它没在工作，而不是
    相信代码很干净。
 
+9. **同一工作树同一时刻只允许一个写者（含"另一个 AI 会话"）。** 本仓实际发生过三次
+   危害（2026-09-22）：① 一端 `git add -A` 把另一端尚未完成的改动卷进自己的提交
+   （提交信息与内容不符）；② 一端 `git commit` 把另一端 **已 staged** 的删除一起提交
+   （`git commit` 提交的是整个索引，不只是你 `git add` 的路径）；③ HEAD 一度自相矛盾
+   （守卫还在读一个刚被删掉的脚本）。
+   **规则**：`git add` **逐路径**（禁止 `git add -A` / `git add .`）；提交前
+   `git diff --cached --stat` 复核；提交后 `git status --short` 确认没有把别人的在途
+   改动带走；需要并行时用 `git worktree` 开独立目录。
+
 ## High-level architecture
 
 ### Runtime shape

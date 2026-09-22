@@ -197,9 +197,15 @@ fn coverage_ratchet_step_declares_the_documented_flags() {
         .find(|s| s.starts_with("Per-file coverage ratchet"))
         .expect("ci.yml 必须有 `Per-file coverage ratchet` 步骤");
 
+    // `--format` 已删除（lcov 是唯一格式；留着它属铁律 1 的兼容残留）。若有人加回来，
+    // 这条断言不会直接报它，但 `without_comments(step)` 里出现未知旗标会让下面的
+    // 逐项检查至少暴露改动意图；这里额外显式禁止它。
+    assert!(
+        !without_comments(step).contains("--format"),
+        "coverage 棘轮步骤不得再传已删除的 `--format`（lcov 是唯一格式）：\n{step}"
+    );
     for needle in [
         "--report coverage/lcov.info",
-        "--format lcov",
         "--baseline scripts/ci/coverage_baseline.json",
         "--new-file-floor 30",
         "--core-files scripts/ci/core_file_coverage_prefixes.txt",

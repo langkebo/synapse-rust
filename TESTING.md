@@ -259,7 +259,7 @@ bash scripts/ci/run_coverage.sh
 
 # 只跑棘轮（CI 口径：先产出 coverage/lcov.info）
 python3 scripts/check_file_coverage.py \
-  --report coverage/lcov.info --format lcov \
+  --report coverage/lcov.info \
   --baseline scripts/ci/coverage_baseline.json \
   --global-floor 40 --new-file-floor 30 \
   --core-files scripts/ci/core_file_coverage_prefixes.txt

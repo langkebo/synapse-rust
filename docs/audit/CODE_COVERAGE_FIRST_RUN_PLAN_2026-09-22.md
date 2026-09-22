@@ -121,7 +121,7 @@ synapse-common/src/server_metrics.rs:360:    pub fn record_auth_attempt(&self, s
 bash scripts/ci/prepare_test_db.sh                 # public + test_template_ci
 bash scripts/ci/run_coverage.sh                    # → coverage/lcov.info（CI 口径）
 cp scripts/ci/coverage_baseline.json /tmp/cov-baseline.probe.json   # 副本，避免探针改写仓库文件
-python3 scripts/check_file_coverage.py --report coverage/lcov.info --format lcov \
+python3 scripts/check_file_coverage.py --report coverage/lcov.info \
   --baseline /tmp/cov-baseline.probe.json --global-floor 40 --new-file-floor 30 \
   --core-files scripts/ci/core_file_coverage_prefixes.txt --core-threshold 70 \
   --non-unit-coverable scripts/ci/non_unit_coverable_prefixes.txt

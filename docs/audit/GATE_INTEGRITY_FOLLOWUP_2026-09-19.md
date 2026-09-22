@@ -42,7 +42,7 @@ P0-4 的 builder 收紧（pin 已清理 digest）作为独立条件项留在行�
 | 9 | ✅ | **覆盖率 <30% 的非 test-only 文件仍是政策空白** | 基线里 88 个文件 <30%（按"只管不回退"语义**不再红**），但"新文件 30% ramp-up"会拦人 | **已闭环（本轮）**：`non_unit_coverable_prefixes.txt` 已含 `src/bin/` + `src/main.rs`（带 `stale_prefixes` 只读守卫）；CI `ci.yml` Code Coverage job 已启用 `--non-unit-coverable` | - |
 | 10 | ✅ | **慢速车道时长**（条件触发） | integration 并发降到 4 后约 42 分钟；Build Check 3×release 18–19 分钟。目前**没有**再出现 `53200 out of shared memory` | 只有锁表问题复发时才动：`CLONE_TABLES_PER_STATEMENT` 24→12（本地 `pg_lock64` 验证 + 一轮 CI，已修） | 20 min + 验证 → **已闭环（本轮核查）** |
 | 11 | ✅ | **负载敏感的计时断言** | `friend_room_service::tests::bench_*` 用绝对毫秒阈值（P99 < 100ms）断言共享库延迟，`#[serial]` 在 nextest 下**进程内串行无效** | **已闭环（本轮核查）**：专用串行车道（`--test-threads 1` + `require_tests_ran.sh`）已在 `ci.yml` 中落地，三个 bench 用例从此隔离跑 | 1h → **已闭环（本轮核查）** |
-| 12 | ✅ | **`docs/` 口径残留（历史目录）** | `.trae/`、`.workbuddy/`、`.superpowers/` 下仍有 `run_ci_tests.sh` / tarpaulin 的旧叙述（不在 Docs Quality 门禁范围） | **已闭环（本轮核查）**：`grep -rln "run_ci_tests\|tarpaulin" .trae/ .workbuddy/ .superpowers/` 返回空（exit 1），历史目录无陈旧引用 | 1h → **已闭环（本轮核查）** |
+| 12 | 🟡 | **`docs/` 口径残留（历史目录）** | `.trae/`、`.workbuddy/`、`.superpowers/` 下仍有 `run_ci_tests.sh` / tarpaulin 的旧叙述（不在 Docs Quality 门禁范围） | **2026-09-22 独立复核：推翻"已清零"的说法。** 实测 `grep -rln "run_ci_tests\|tarpaulin" .trae .workbuddy .superpowers` **非空**：`.trae/documents/TDD落地执行清单.md`（7 处）、`.trae/documents/测试覆盖率提升至80%优化方案.md`（14 处）、`.trae/specs/analyze-synapse-gap-and-optimization/{tasks,checklist,task11_scan_and_ci_gate}.md`。**裁定：保留** —— 它们是有日期的**历史冲刺文档**（2026-07-06 那代 tarpaulin 口径），改写等于篡改历史记录；与 `docs/archive/`、`CHANGELOG.md` 同一处置。真正的口径源（`AGENTS.md`/`CLAUDE.md`/`TESTING.md`/`.claude/skills/`）已全部同步 | 0（历史记录，不再宣称"已清零"） |
 
 ---
 

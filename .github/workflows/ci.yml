@@ -1173,7 +1173,6 @@ jobs:
           mkdir -p artifacts
           python3 scripts/check_file_coverage.py \
             --report coverage/lcov.info \
-            --format lcov \
             --baseline scripts/ci/coverage_baseline.json \
             --save-baseline scripts/ci/coverage_baseline.json \
             --global-floor 0 --new-file-floor 0 --core-threshold 0
@@ -1199,7 +1198,6 @@ jobs:
           mkdir -p artifacts
           python3 scripts/check_file_coverage.py \
             --report coverage/lcov.info \
-            --format lcov \
             --baseline scripts/ci/coverage_baseline.json \
             --global-floor 40 \
             --new-file-floor 30 \

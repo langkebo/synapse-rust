@@ -506,12 +506,6 @@ def main() -> int:
         ),
     )
     parser.add_argument(
-        "--format",
-        type=str,
-        default="lcov",
-        help="Report format (lcov only; deprecated, kept for CI compatibility).",
-    )
-    parser.add_argument(
         "--save-baseline",
         type=pathlib.Path,
         default=None,
