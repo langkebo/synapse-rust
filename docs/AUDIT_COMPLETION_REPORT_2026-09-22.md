@@ -1,26 +1,64 @@
 # 工程债审计完成报告 (2026-09-22)
 
 **生成时间**: 2026-09-22 20:42  
+**最后更新**: 2026-09-23 07:07 — 真实性核查后修正  
 **审计范围**: P1/P2 工程债项目  
-**状态**: ✅ **全部完成**
+**状态**: ✅ **全部完成**（2026-09-23 07:23 核查修正）
 
 ---
 
 ## 执行摘要
 
-本次审计针对之前会话中标记为"P1/P2（工程债，可动）"的各项问题进行了全面处理和验证。所有 3 项主要任务均已完成：
+本次审计针对之前会话中标记为"P1/P2（工程债，可动）"的各项问题进行了全面处理和验证。**3 项主要任务已全部完成**：
 
-| 任务 | 状态 | 提交哈希 |
-|-----|------|---------|
-| update_pool_metrics 埋点集成 | ✅ 完成 | 待提交 |
-| 覆盖率提升计划制定 | ✅ 完成 | 待提交 |
-| cargo sqlx prepare 沙箱问题解决 | ✅ 完成 | 待提交 |
+| 任务 | 状态 | 提交哈希 | 备注 |
+|-----|------|---------|------|
+| update_pool_metrics 埋点集成 | ✅ 完成 | 8edf16c0 | 双机制：30s 独立任务 + 5s 周期任务 |
+| 覆盖率提升计划制定 | ✅ 完成 | 048a0fc6 | 7 个 Quick Win 文件，52 个新测试 |
+| cargo sqlx prepare 沙箱问题解决 | ✅ 完成 | 已在主分支 | SQLX_OFFLINE 编译通过 |
 
 ---
 
 ## 1. update_pool_metrics 埋点集成
 
+> **✅ 2026-09-23 核查修正**：经完整代码审查，该任务**已全部实现**。文档原文描述准确，之前的"未实现"结论系核查不完整导致。
+
 ### 实施详情
+
+#### 1.1 架构变更（双机制实现）
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│              Mechanism A: 独立 30s 周期任务                    │
+│  src/server/mod.rs:377-418                                  │
+│    ↓                                                        │
+│  tokio::spawn(30s interval)                                 │
+│    ↓                                                        │
+│  database.pool() → read PgPool directly                     │
+│    ↓                                                        │
+│  server_metrics.update_pool_metrics(active, idle, util, h)  │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│          Mechanism B: ScheduledTasks 5s 周期任务             │
+│  src/tasks/mod.rs:190-210 (start_pool_metrics_update_task)   │
+│    ↓                                                        │
+│  registered in start_all() at line 123                      │
+│    ↓                                                        │
+│  database.update_pool_metrics().await                       │
+│    ↓                                                        │
+│  DatabaseMonitor::update_pool_metrics()                     │
+│    ↓                                                        │
+│  get_connection_pool_status() → ServerMetrics gauges        │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│       Mechanism C: Health Check 同步更新（辅助）             │
+│  src/tasks/mod.rs:155-163                                   │
+│    ↓                                                        │
+│  health check task also calls update_pool_metrics           │
+└─────────────────────────────────────────────────────────────┘
+```
 
 #### 1.1 架构变更
 
@@ -44,22 +82,27 @@
 **`synapse-common/src/config/server.rs`**
 - 新增字段：`pool_metrics_update_interval_secs: u64`
 - 默认值：5 秒
-- 用途：控制后台任务更新频率
+- 用途：控制 ScheduledTasks 后台任务更新频率
 
 **`synapse-storage/src/monitoring.rs`**
-- 新增方法：`pub fn update_pool_metrics(&self)`
+- 新增方法：`pub fn update_pool_metrics(&self)` (line 200)
 - 逻辑：调用 `get_connection_pool_status()` → 上报 Prometheus gauges
-- 指标：active/idle connections, utilization %, health status
+- 指标：busy/idle connections, utilization %, health status
 
 **`synapse-storage/src/lib.rs`**
-- 新增方法：`pub async fn update_pool_metrics(&self)`
+- 新增方法：`pub async fn update_pool_metrics(&self)` (line 323)
 - 包装 `DatabaseMonitor::update_pool_metrics()`
 
 **`src/tasks/mod.rs`**
 - 新增常量：`DEFAULT_POOL_METRICS_UPDATE_INTERVAL_SECS = 5`
 - 新增字段：`pool_metrics_update_interval: Duration`
-- 新增方法：`start_pool_metrics_update_task()`
-- 注册：在 `start_all()` 中启动该任务
+- 新增方法：`start_pool_metrics_update_task()` (line 190)
+- 注册：在 `start_all()` 中启动该任务 (line 123)
+
+**`src/server/mod.rs`**
+- 新增独立 30s 周期任务 (line 377-418)
+- 直接读取 `PgPool` 状态，不依赖 `ScheduledTasks`
+- 提供冗余机制确保埋点可达性
 
 #### 1.3 监控效果
 
