@@ -2276,3 +2276,43 @@ async fn create_event_with_graph_rolls_back_event_when_edges_insert_fails() {
     let persisted = storage.get_event("$dag_rollback:example.com").await.expect("get_event");
     assert!(persisted.is_none(), "events 行不得在 event_edges 失败后残留（半写窗口）");
 }
+
+/// B11：`/search` 在客户端未显式传 `filter.types` 时，默认必须覆盖房间名与主题，
+/// 而不是硬编码只搜 `m.room.message`（上游 v1.161 #20119 的同类修复）。
+#[tokio::test]
+async fn test_search_joined_room_events_default_types_include_name_and_topic() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+    let room_id = format!("!nametopic_{}:example.com", uuid::Uuid::new_v4());
+    let user_id = format!("@nametopic_{}:example.com", uuid::Uuid::new_v4());
+    let needle = format!("ztopic{}", uuid::Uuid::new_v4().simple());
+
+    ensure_test_room(&pool, &room_id).await;
+    ensure_test_user(&pool, &user_id).await;
+
+    for (event_type, content) in [
+        ("m.room.name", serde_json::json!({ "name": needle.clone() })),
+        ("m.room.topic", serde_json::json!({ "topic": needle.clone() })),
+    ] {
+        let params = CreateEventParams {
+            event_id: format!("$nametopic_{}:example.com", uuid::Uuid::new_v4().simple()),
+            room_id: room_id.clone(),
+            user_id: user_id.clone(),
+            event_type: event_type.to_string(),
+            content,
+            state_key: Some(String::new()),
+            origin_server_ts: current_timestamp_millis(),
+            redacts: None,
+        };
+        storage.create_event(params, None).await.expect("insert name/topic event");
+    }
+
+    let pattern = format!("%{}%", needle.to_lowercase());
+    let results = storage
+        .search_joined_room_events(std::slice::from_ref(&room_id), &pattern, None, None, None, None, None, 10)
+        .await
+        .expect("search_joined_room_events should succeed");
+    assert_eq!(results.len(), 2, "默认搜索必须同时覆盖 m.room.name 与 m.room.topic，实际 {} 条", results.len());
+
+    let _ = storage.delete_room_events(&room_id).await;
+}

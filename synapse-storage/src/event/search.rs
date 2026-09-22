@@ -81,7 +81,12 @@ impl EventStorage {
 
         let has_explicit_types = event_types.is_some_and(|types| !types.is_empty());
         if !has_explicit_types {
-            query_builder.push(" AND event_type = 'm.room.message'");
+            // Default search surface: messages plus room name/topic, matching the
+            // reindexer's type set (upstream Synapse v1.161 #20119 fixed its
+            // reindexer to include `m.room.topic`).  Content is matched with
+            // `LOWER(content::text) LIKE`, so the JSON of these state events is
+            // searchable without any schema change or backfill.
+            query_builder.push(" AND event_type IN ('m.room.message', 'm.room.name', 'm.room.topic')");
         }
 
         if let Some(rooms) = rooms.filter(|rooms| !rooms.is_empty()) {
