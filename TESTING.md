@@ -170,7 +170,7 @@ PR 侧只要求常开门禁（`Repo Sanity`、`Test & Lint (...)`、`Security Au
 3. 确认 `Mutation Testing (nightly, REPORT ONLY — not a merge gate)`、`Secrets preflight`、
    `Logical Checksum Compare` **不在** required 列表里。
 
-> 依据：`docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md` §6.5（A7/A8）与 §6.6（check 名清单）。
+> 依据：`docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md` §6.5（A7/A8）与 §6.6（check 名清单）。
 
 ## 三、运行测试
 
@@ -273,7 +273,7 @@ python3 scripts/check_file_coverage.py \
 - 最近一次全量实测：`~68%` 行覆盖（2026-08，`bash scripts/run_local_coverage.sh`）。
 - ⚠️ **CI 的 Code Coverage job 从未真正跑完过**（它排在 integration 之后）：
   在它第一次真跑并写出基线之前，上面的棘轮数字只是"协议"而非"已执行的门禁"，
-  见 `docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md` §14.16 A①。
+  见 `docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md` §14.16 A①。
 
 > **为什么不再是 tarpaulin**：tarpaulin 0.35.2 的 `--implicit-test-threads` 会把
 > `--test-threads=<CPU>` 注入测试 argv（本地多核 ⇒ 8+ 并发 DB 集成测试抢共享

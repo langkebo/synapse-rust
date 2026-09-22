@@ -206,7 +206,7 @@ fn swallowed_write_lines(source: &str) -> Vec<String> {
 ///
 /// The debt is recorded right here, next to the scanner that measures it. An
 /// earlier version of this docstring pointed at
-/// `docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md`; that document only
+/// `docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md`; that document only
 /// records that this form is *not* enforced, so the pointer named a record
 /// that does not exist.
 fn swallowed_let_underscore_lines(source: &str) -> Vec<String> {

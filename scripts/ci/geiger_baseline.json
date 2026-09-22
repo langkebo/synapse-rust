@@ -1,23 +1,8 @@
 {
-  "prod_unsafe_total": 2,
-  "test_unsafe_total": 8,
-  "note": "cargo-geiger one-way ratchet (both counters may only go DOWN; the gate FAILs on an increase AND on an unexplained decrease, so the baselines cannot rot into loose ceilings). 2026-09-21 ruling: production unsafe was a hard zero with no allowlist, but that policy had never actually been enforced — the gate could not parse cargo-geiger 0.13's JSON at all (see scripts/ci/run_cargo_geiger.py's docstring). Once the parser was fixed the first true verdict was prod=2 / test=8; one of the two production sites is test infrastructure that is unconditionally compiled by design, so the ruling was to keep the number visible and itemised instead of forcing an undocumented exception. Background: docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md §14.14.6.",
-  "prod_unsafe_sites": [
-    {
-      "package": "synapse-common",
-      "count": 1,
-      "site": "**宏/编译器展开归因产物（不是手写 unsafe）**",
-      "why": "2026-09-21 用 `RUSTC_BOOTSTRAP=1 cargo rustc -p synapse-common --lib --all-features -- -Zunpretty=hir` 导出**展开后**的 HIR 全量分类（共 444 个 unsafe 表达式）：292 个 `unsafe { format_arguments::new(…) }`（std `format_args!`）、127 个 `unsafe { … new_unchecked(…) }`（`.await` 脱糖与 tokio 宏）、25 个 `unsafe impl ::core::clone::TrivialClone for …`（编译器为 `#[derive(Clone)]` 生成）；**手写 unsafe 块 = 0**（`git grep -nE '\\bunsafe\\b' synapse-common/src` 非注释命中为空）。此前这条理由写的是 `test_schema_guard.rs:477 libc::atexit`，那是**错的**：该站点已在裁定 B' 中移出生产库（`libc` 进 dev-dependencies、注册只发生在测试目标），而扫描计数**没有变化**——证明这 1 个单位本来就是宏展开产物。cargo-geiger 的 JSON 不含文件路径，无法与手写块区分，所以代码层面删不掉它，只能靠本基线登记。",
-      "review_by": "2026-12-21"
-    },
-    {
-      "package": "synapse-rust",
-      "count": 1,
-      "site": "已定位（2026-09-21）：全部来自宏/编译器展开，不是本仓手写代码",
-      "why": "同 `synapse-common` 那条：根 crate 展开后的 HIR 里 284 个 unsafe **全部**来自宏/编译器脱糖（155 个 `format_arguments::new`、129 个 `.await`/tokio 宏的 `new_unchecked`），源码零 `unsafe`。属 cargo-geiger 的 span 归因产物，代码层面无解。",
-      "review_by": "2026-12-21"
-    }
-  ],
+  "prod_unsafe_total": 0,
+  "test_unsafe_total": 9,
+  "note": "cargo-geiger one-way ratchet for BOTH counters: production may only go DOWN (and an unexplained decrease fails, so the number cannot rot into a loose ceiling), test-only may not go UP. 2026-09-22 tightening: the 2 production units recorded on 2026-09-21 were relocated into test targets by the B' landing (commit 298f74b8) and the baseline was never updated, so the gate had been reporting `production unsafe decreased (2 -> 0)`. Re-measured with the gate itself (`python3 scripts/ci/run_cargo_geiger.py`, artifact `artifacts/cargo-geiger.json`): all 10 workspace packages report 0 in every counter of the prod scan, `packages_without_metrics` is empty (nothing silently skipped), and the with-tests scan reports 9 test-only units. Test-only therefore went 8 -> 9, and that +1 is itemised below as the hand-written `libc::atexit` that B' moved out of the production build. Background: docs/audit/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md.",
+  "prod_unsafe_sites": [],
   "test_unsafe_sites": [
     {
       "package": "synapse-common",
@@ -33,8 +18,8 @@
     },
     {
       "package": "synapse-rust",
-      "count": 4,
-      "why": "同 production 那条：不是手写 unsafe。根 crate 的 tests/ 里也没有任何 `unsafe` 字面量（4 处命中全在注释/字符串）。展开后 HIR 里的 unsafe 全部来自 `format_args!` 与 `.await`/tokio 宏脱糖；这 4 个是 cargo-geiger 按 target 归因的产物（每个测试 target 各 1 个）。",
+      "count": 5,
+      "why": "Two kinds, both test-build-only (the production build is 0): (a) 1 hand-written unit — `src/test_exit_hook.rs:29`, `unsafe { libc::atexit(synapse_common::test_schema_guard::drain_schemas_at_exit) }`, added by the B' landing (298f74b8) so the process-exit schema drain is registered without any `unsafe` in a shipped binary; `libc` is a `[dev-dependencies]` entry. (b) 4 cargo-geiger span/target attribution products (one per test target) from macro expansion — the same `format_args!` / `.await`-tokio-macro class as the historical entries; `tests/` itself contains no `unsafe` literal. This 5 is the old 4 plus (a); the production side of B' is the 2 -> 0 decrease that this file now records.",
       "review_by": "2026-12-21"
     }
   ]

@@ -510,7 +510,7 @@ fn ensure_janitor_started() {
 /// registration deliberately does not live here: `libc::atexit` is `unsafe`, and
 /// compiling it into this crate — which is part of every production build —
 /// made it the crate's only production `unsafe` (cargo-geiger's hard-zero era,
-/// see `docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md` §14.14.8/§14.14.9).
+/// see `docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md` §14.14.8/§14.14.9).
 /// Registering from test targets keeps the *runtime* behaviour identical (the
 /// drain still runs at process exit) while moving the `unsafe` into the
 /// `--include-tests` half of cargo-geiger's two-scan difference.

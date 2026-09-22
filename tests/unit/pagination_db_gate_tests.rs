@@ -5,7 +5,7 @@
 //! The original "pagination gate" compared two **in-memory simulation** functions
 //! (`benches/performance_api_benchmarks.rs`) whose margin is ~1500x, so no real
 //! `synapse-storage` SQL regression could ever trip it — a long-green gate that
-//! was measuring the wrong thing (E4, `docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md`
+//! was measuring the wrong thing (E4, `docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md`
 //! §9/§11). The replacement is a real DB-backed gate: it calls the **production**
 //! keyset query against a migrated events table, checks the page is the *same*
 //! page, checks the plan still uses an index, and only then compares it with real

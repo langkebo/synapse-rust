@@ -2,7 +2,7 @@
 # 由本轮实测生成：CI run 35494141985 的 577 词 ∪ 本地 aspell 0.60.8.2 的 757 词 ∪ 原有 17 词。
 # 内容为「合法技术词」，不是「忽略拼写错误」：通用英文词的错拼（recieve/seperate/occured…）
 # 不在此列，仍会被 scripts/check_doc_spelling.sh 检出。
-# 说明见 docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md §14.7。
+# 说明见 docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md §14.7。
 # 追加（2026-09-20，§14.11 独立复核）：ghcr、io（来自 ghcr.io）。
 # 追加（2026-09-20，§14.13）：args、cmd（正文里 "CMD/args" 这类写法）。
 abi

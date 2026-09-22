@@ -109,7 +109,7 @@ jobs:
       # 是 `benches/performance_api_benchmarks.rs` 里的两个**内存仿真**函数
       # （250k 合成行上的 Vec 扫描 vs 二分）。仿真差值约 1500×，30% 阈值由构造
       # 满足，因此**真实 SQL 退化不可能触发它**（E4，见
-      # docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md §9）。
+      # docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md §9）。
       #
       # 历史：本步骤自 a465d0fd（2026-05-09）起存在，但它断言的基准在
       # 8c7b4860（2026-06-05）被从 benches 中删除而未同步移除本步骤，于是它

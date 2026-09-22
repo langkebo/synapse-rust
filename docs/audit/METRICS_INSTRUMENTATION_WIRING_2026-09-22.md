@@ -172,7 +172,7 @@
    （它们同时正被并发会话编辑，改动会冲突）。
 4. **并发会话隔离**：本仓同一工作区存在另一会话的未提交改动
    （`scripts/ci/geiger_baseline.json`、`synapse-test-utils/src/lib.rs`、
-   `docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md`、4 个 Grafana dashboard）。
+   `docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md`、4 个 Grafana dashboard）。
    本报告的改动**不含**这些文件，提交时须逐个 `git add`，禁止 `git add -A`。
 
 ---

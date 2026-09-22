@@ -7,7 +7,7 @@ in-memory functions in `benches/performance_api_benchmarks.rs`
 `pagination_keyset_deep_page` binary-searches the same `Vec`). Neither touches a
 database, and the simulated margin is ~1500x, so **no real `synapse-storage`
 SQL regression can move the ratio below the 30% threshold** (E4,
-`docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md` §9).
+`docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md` §9).
 
 What this script still buys: a fail-closed smoke check that the two compute
 benchmarks keep existing, keep being emitted by the harness, and that the

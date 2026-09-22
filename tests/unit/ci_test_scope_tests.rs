@@ -198,7 +198,7 @@ fn media_exemption_is_fully_removed_from_ci() {
 /// They need a Postgres/Redis service and minutes of runtime, so running them on
 /// every PR was traded away; PR protection relies on `Repo Sanity`,
 /// `Test & Lint`, `Security Audit` and `PR Benchmark Gate` instead
-/// (`TESTING.md` §2.4, `docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md` §6.6).
+/// (`TESTING.md` §2.4, `docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md` §6.6).
 ///
 /// This pins the *decision*, not just the YAML: enabling any of these on
 /// `pull_request` (or dropping the push/schedule trigger that is the only place
@@ -612,13 +612,18 @@ fn k6_guardrail_reads_the_flat_summary_export() {
 /// cargo-geiger 门禁必须是**单向棘轮**，且基线里的逐条理由必须自洽（2026-09-21 裁定 B）。
 ///
 /// 背景（§14.14.6）：解析器修好 cargo-geiger 0.13 的 schema 之后，这道门禁第一次给出真判定
-/// —— production unsafe = 2 / test-only = 8 —— 于是"production 硬零、无白名单"的政策被违反。
+/// —— 当时是 production unsafe = 2 / test-only = 8 —— 于是"production 硬零、无白名单"的政策被违反。
 /// 裁定：改成"极紧的逐条棘轮"——只许减少，减少时**必须**同步收紧基线，每一处都要在基线里
 /// 写明理由与 `review_by`，并且**逐条清单之和必须等于总数**（否则基线写的和门禁管的是两回事）。
 ///
+/// 2026-09-22 收紧：B'（`298f74b8`）把那 2 处 production unsafe 搬进了测试目标，基线却一直
+/// 停在 2/8 ⇒ 门禁此后每次都报"production unsafe decreased (2 -> 0)"。实测（10/10 workspace 包
+/// prod 全 0、`packages_without_metrics` 为空）后基线改为 **prod=0 / test=9**，本测试随之更新。
+///
 /// 本测试用**合成报告**离线驱动脚本（不需要 cargo-geiger），钉住 5 件事：
-/// ① 与仓库基线一致的 prod=2 / test=8 ⇒ exit 0；② prod=3 ⇒ exit 1（有人新增）：
-/// ③ prod=1 ⇒ exit 1（好事，但必须收紧基线）；④ test=9 ⇒ exit 1；⑤ 逐条清单之和与总数
+/// ① 与仓库基线一致的 prod=0 / test=9 ⇒ exit 0；② prod=1 ⇒ exit 1（有人新增）：
+/// ③ prod=0 对**合成基线 prod=1** ⇒ exit 1（好事，但必须收紧基线；仓库基线已是 0，无法表达下降，
+/// 故用合成基线保住这条分支的红证明）；④ test=10 ⇒ exit 1；⑤ 逐条清单之和与总数
 /// 不一致的基线 ⇒ exit 2。
 ///
 /// **红证明**：把 Gate 1 改回硬零（`prod_total > 0 ⇒ FAIL`）→ ① 变成 exit 1，本测试 FAILED；
@@ -668,21 +673,31 @@ fn cargo_geiger_gate_is_a_one_way_ratchet() {
         code
     };
 
-    assert_eq!(run(2, 8, "ok", &repo_baseline), 0, "基线内的 prod=2/test=8 必须 PASS");
-    assert_eq!(run(3, 8, "increase", &repo_baseline), 1, "prod 增加到 3 必须 FAIL（单向棘轮）");
-    assert_eq!(run(1, 8, "decrease", &repo_baseline), 1, "prod 降到 1 必须 FAIL 并要求收紧基线");
-    assert_eq!(run(2, 9, "test-increase", &repo_baseline), 1, "test-only 超过基线必须 FAIL");
+    assert_eq!(run(0, 9, "ok", &repo_baseline), 0, "基线内的 prod=0/test=9 必须 PASS");
+    assert_eq!(run(1, 9, "prod-increase", &repo_baseline), 1, "prod 从 0 增加到 1 必须 FAIL（单向棘轮）");
+    assert_eq!(run(0, 10, "test-increase", &repo_baseline), 1, "test-only 超过基线必须 FAIL");
+
+    // ③ 仓库基线已经是 prod=0，"下降"无法用它表达 ⇒ 用合成基线 prod=1 保住这条分支的红证明。
+    let prod_one_baseline = tmp.join("prod-one-baseline.json");
+    fs::write(
+        &prod_one_baseline,
+        r#"{"prod_unsafe_total":1,"test_unsafe_total":9,
+            "prod_unsafe_sites":[{"package":"x","count":1,"why":"synthetic","review_by":"2099-01-01"}],
+            "test_unsafe_sites":[{"package":"y","count":9,"why":"synthetic","review_by":"2099-01-01"}]}"#,
+    )
+    .expect("write synthetic prod=1 baseline");
+    assert_eq!(run(0, 9, "decrease", &prod_one_baseline), 1, "prod 降到 0 必须 FAIL 并要求收紧基线");
 
     // ⑤ 逐条清单之和 != 总数：基线在骗人，必须 exit 2 而不是照常判定。
     let bad_baseline = tmp.join("bad-baseline.json");
     fs::write(
         &bad_baseline,
-        r#"{"prod_unsafe_total":2,"test_unsafe_total":8,
+        r#"{"prod_unsafe_total":1,"test_unsafe_total":9,
             "prod_unsafe_sites":[{"package":"x","count":1,"why":"synthetic","review_by":"2099-01-01"}],
             "test_unsafe_sites":[{"package":"y","count":8,"why":"synthetic","review_by":"2099-01-01"}]}"#,
     )
     .expect("write synthetic baseline");
-    assert_eq!(run(2, 8, "sum-mismatch", &bad_baseline), 2, "逐条清单之和与总数不一致必须 exit 2");
+    assert_eq!(run(1, 9, "sum-mismatch", &bad_baseline), 2, "逐条清单之和与总数不一致必须 exit 2");
 
     let _ = fs::remove_dir_all(&tmp);
 }
@@ -956,7 +971,7 @@ fn performance_smoke_step_declares_required_features() {
 
 /// 每个"测试期会向 janitor 注册 schema"的 crate，都必须由**自己的测试构建**注册退出排空钩子。
 ///
-/// 背景（B' 设计，见 `docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md` §14.14.8.1）：
+/// 背景（B' 设计，见 `docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md` §14.14.8.1）：
 /// `libc::atexit(drain_schemas_at_exit)` 是 `unsafe`，把它留在
 /// `synapse_common::test_schema_guard` 里会让 cargo-geiger 的**生产**扫描把它算成
 /// production unsafe。它被移到各个测试构建：生产库零 `unsafe`，而 `--include-tests`
@@ -1267,6 +1282,7 @@ fn ci_backend_validation_runs_the_ci_batches_verbatim() {
     let root = repo_root();
     let script = fs::read_to_string(root.join("scripts/ci_backend_validation.sh"))
         .expect("read scripts/ci_backend_validation.sh");
+    let ci = fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("read ci.yml");
 
     // 先合并 `\` 续行，再取含 `cargo nextest run` 的逻辑行（否则跨行的
     // `-E 'not test(...)'` 会被截断，比较永远不相等）。
@@ -1293,18 +1309,32 @@ fn ci_backend_validation_runs_the_ci_batches_verbatim() {
         "本地 CI 入口应当恰好执行 3 个 nextest 批次（lib / unit / integration）；实际：{logical:?}"
     );
 
-    let ci_commands: Vec<String> =
-        nextest_invocations().iter().map(|(_, cmd)| cmd.split_whitespace().collect::<Vec<_>>().join(" ")).collect();
+    // ci.yml 侧同样要先摊平：那条 `--workspace --lib` 步骤用的是 YAML 折叠标量
+    // （`run: >-`），命令被折成两行；按行取会只拿到前半句，比较永远不相等。
+    // 做法：两边都去掉注释行、合并 `\` 续行，再把所有空白折叠成单空格，
+    // 于是"脚本里的命令"变成 ci.yml 文本的子串判定。
+    let flatten = |text: &str| -> String {
+        let mut out = String::new();
+        for line in text.lines() {
+            if line.trim_start().starts_with('#') {
+                continue;
+            }
+            out.push_str(line.trim_end_matches('\\'));
+            out.push(' ');
+        }
+        out.split_whitespace().collect::<Vec<_>>().join(" ")
+    };
+    let ci_flat = flatten(&ci);
     let mut missing = Vec::new();
     for cmd in &logical {
-        if !ci_commands.iter().any(|ci| ci == cmd) {
+        if !ci_flat.contains(cmd.as_str()) {
             missing.push(cmd.clone());
         }
     }
     assert!(
         missing.is_empty(),
         "`scripts/ci_backend_validation.sh` 的 nextest 批次必须与 `ci.yml` 逐字一致（改一处必须同步另一处，\
-         否则本地复刻与 CI 结论不同 ⇒ 就是 sweep A13 的老问题）。以下命令在 ci.yml 里找不到完全相同的行：\n{}",
+         否则本地复刻与 CI 结论不同 ⇒ 就是 sweep A13 的老问题）。以下命令在 ci.yml 里找不到（摊平空白后按子串比对）：\n{}",
         missing.join("\n")
     );
 }

@@ -25,8 +25,9 @@
 > `coturn_requests_total` **都不存在**（实测：真实名是 `pool_utilization`、
 > `federation_signature_verifications`（**无 `_total`**）、`turn_total_allocations`）。
 >
-> **现在的权威口径**：`docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md` §14.19
-> （逐条核实 + 面板/provisioning 修复 + 计量对照表 + 新门禁
+> **现在的权威口径**：现存问题与待办见 `docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md`；
+> 本轮（2026-09-22）的逐条核实细节见 `docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md` §14.19
+> （面板/provisioning 修复 + 计量对照表 + 新门禁
 > `scripts/ci/check_dashboard_metrics.py`）。本文件**保留为历史记录**，请勿据此改配置。
 
 ## 问题诊断
