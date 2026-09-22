@@ -112,8 +112,8 @@ cargo audit --no-fetch
 # 集成测试（需要 postgres）
 cargo test --features test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications --test integration
 
-# 完整 CI 套件
-bash scripts/run_ci_tests.sh
+# 完整 CI 套件（逐字执行 ci.yml 的 lib/unit/integration 三个 nextest 批次）
+bash scripts/ci_backend_validation.sh
 ```
 
 ### 环境变量

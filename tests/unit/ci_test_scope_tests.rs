@@ -1164,3 +1164,147 @@ fn performance_smoke_step_excludes_manual_load_tests() {
         );
     }
 }
+
+/// 本地 `cargo nextest run --profile ci` 的口径必须与 `ci.yml` 一致（sweep A13 的第 ② 项）。
+///
+/// `ci.yml` 的每个 nextest 步骤都在**默认** profile 上用命令行旗标表达口径
+/// （`--test-threads 4`、`--no-fail-fast`），而 AGENTS.md / TESTING.md 推荐本地用
+/// `cargo nextest run --profile ci …` 复刻 CI —— 同一口径两处各写一份就必然漂移，事实上已经漂了：
+/// `.config/nextest.toml` 曾写 `test-threads = 12` / `retries = 2`，于是本地复刻会
+/// 重现 CI 已修掉的 `53200 out of shared memory`（§14.13：共享锁表在 6 线程即爆，集成车道因此定 4），
+/// 并用 CI 明确收回的重试掩盖 flake。
+///
+/// 本守卫把 `[profile.ci]` 钉在 `ci.yml` 集成车道实际使用的值上：线程数必须相同、
+/// `retries` 必须为 0、`fail-fast` 必须为 false（= CI 的 `--no-fail-fast`），
+/// 且 `ci.yml` 里不得再出现生效的重试配置（注释里提到 `NEXTEST_RETRIES` 不算）。
+///
+/// **红证明**：把 `[profile.ci]` 的 `test-threads` 改回 12 → FAILED；把 `retries` 改回 2 → FAILED。
+#[test]
+fn local_ci_nextest_profile_matches_the_ci_command_line() {
+    let root = repo_root();
+    let profile = fs::read_to_string(root.join(".config/nextest.toml")).expect("read .config/nextest.toml");
+    let ci = fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("read ci.yml");
+
+    // `[profile.ci]` 段：从段头到下一个 `[` 段头之前。只认非注释行的 `key = value`，
+    // 否则段头注释里的说明会被当成配置值。
+    let block = profile
+        .split("[profile.ci]")
+        .nth(1)
+        .expect("`.config/nextest.toml` 必须有 `[profile.ci]`（本地 CI 口径的唯一来源）");
+    let block = block.split("\n[").next().unwrap_or(block);
+    let value = |key: &str| -> Option<String> {
+        block
+            .lines()
+            .map(str::trim)
+            .find(|l| !l.starts_with('#') && l.starts_with(&format!("{key} ")))
+            .and_then(|l| l.split('=').nth(1))
+            .map(|v| v.trim().trim_matches('"').to_string())
+    };
+
+    // ci.yml 的集成车道：带 `--no-fail-fast` 的那条 `--test integration` 全量步骤。
+    // （同 job 里还有一条只跑单个用例的 `--test-threads 1` 步骤，那是刻意的串行复现，
+    //   不是"车道口径"，所以用 `--no-fail-fast` 而不是"第一条"来定位。）
+    // 复用 `nextest_invocations`：它按行剥掉 `run: ` 前缀，并且跳过 YAML 注释。
+    let invocations = nextest_invocations();
+    let integration = invocations
+        .iter()
+        .map(|(_, cmd)| cmd.as_str())
+        .find(|cmd| {
+            cmd.contains("--test integration") && cmd.contains("--test-threads") && cmd.contains("--no-fail-fast")
+        })
+        .expect(
+            "ci.yml 必须有一条带 `--test-threads` 与 `--no-fail-fast` 的 `--test integration` 全量步骤\
+             （守卫前提；同 job 里那条只跑单个用例的 `--test-threads 1` 步骤是刻意的串行复现，不是车道口径）",
+        );
+    let ci_threads = integration
+        .split("--test-threads")
+        .nth(1)
+        .and_then(|rest| rest.split_whitespace().next())
+        .expect("集成车道的 `--test-threads` 必须有值")
+        .to_string();
+
+    assert_eq!(
+        value("test-threads").as_deref(),
+        Some(ci_threads.as_str()),
+        "`[profile.ci] test-threads` 必须等于 ci.yml 集成车道的 `--test-threads {ci_threads}`：\
+         本地 `--profile ci` 复刻的就是 CI，线程数不同会重现 CI 已经修掉的锁表耗尽（§14.13）"
+    );
+    assert_eq!(
+        value("retries").as_deref(),
+        Some("0"),
+        "`[profile.ci] retries` 必须为 0：CI 已明确收回重试（它曾把 main 上 11 个真实克隆失败重跑成绿），\
+         本地复刻不得把重试加回来"
+    );
+    assert_eq!(
+        value("fail-fast").as_deref(),
+        Some("false"),
+        "`[profile.ci]` 必须 `fail-fast = false`（= CI 集成车道的 `--no-fail-fast`，否则只报第一个失败）"
+    );
+
+    // 生效的重试配置只可能以 YAML 键的形式出现；`# ⚠️ … 不设 NEXTEST_RETRIES` 这类注释不算。
+    let active_retries: Vec<&str> = ci
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.starts_with('#') && (l.contains("NEXTEST_RETRIES") || l.starts_with("retries:")))
+        .collect();
+    assert!(
+        active_retries.is_empty(),
+        "ci.yml 不得再引入 nextest 重试（口径已收回到「flake 显形后修根因或给它专用车道」）：{active_retries:?}"
+    );
+}
+
+/// `scripts/ci_backend_validation.sh` 里的 nextest 批次必须与 `ci.yml` **逐字一致**。
+///
+/// 这个本地入口的前身是 `scripts/run_ci_tests.sh`（283 行的第二份实现），它就是因为没人
+/// 盯着才漂移出真实危害（仍用 `--ignored` 跑 4 条 CI 上会假失败的手工冒烟、带 CI 已收回的
+/// 重试、线程数也不同，见 sweep A13）。删除重复实现后，本地入口只保留三条命令，本守卫
+/// 负责让它们**不能**再悄悄偏离 CI：把脚本里的 `cargo nextest run …` 逻辑行（含 `\` 续行）
+/// 归一化空白后，必须逐条出现在 `ci.yml` 里。
+///
+/// **红证明**：把脚本里的 `--test-threads 4` 改成 `8` → FAILED。
+#[test]
+fn ci_backend_validation_runs_the_ci_batches_verbatim() {
+    let root = repo_root();
+    let script = fs::read_to_string(root.join("scripts/ci_backend_validation.sh"))
+        .expect("read scripts/ci_backend_validation.sh");
+
+    // 先合并 `\` 续行，再取含 `cargo nextest run` 的逻辑行（否则跨行的
+    // `-E 'not test(...)'` 会被截断，比较永远不相等）。
+    let mut logical: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for line in script.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') {
+            continue;
+        }
+        let continued = trimmed.ends_with('\\');
+        current.push_str(trimmed.trim_end_matches('\\').trim_end());
+        current.push(' ');
+        if !continued {
+            if current.contains("cargo nextest run") {
+                logical.push(current.split_whitespace().collect::<Vec<_>>().join(" "));
+            }
+            current.clear();
+        }
+    }
+    assert_eq!(
+        logical.len(),
+        3,
+        "本地 CI 入口应当恰好执行 3 个 nextest 批次（lib / unit / integration）；实际：{logical:?}"
+    );
+
+    let ci_commands: Vec<String> =
+        nextest_invocations().iter().map(|(_, cmd)| cmd.split_whitespace().collect::<Vec<_>>().join(" ")).collect();
+    let mut missing = Vec::new();
+    for cmd in &logical {
+        if !ci_commands.iter().any(|ci| ci == cmd) {
+            missing.push(cmd.clone());
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "`scripts/ci_backend_validation.sh` 的 nextest 批次必须与 `ci.yml` 逐字一致（改一处必须同步另一处，\
+         否则本地复刻与 CI 结论不同 ⇒ 就是 sweep A13 的老问题）。以下命令在 ci.yml 里找不到完全相同的行：\n{}",
+        missing.join("\n")
+    );
+}

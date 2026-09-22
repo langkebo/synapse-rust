@@ -12,8 +12,8 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 - Clippy (CI runs both matrix entries — `features-args` empty and `--all-features`): `SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils [--all-features] --locked -- -D warnings`. `--all-targets` covers test code workspace-wide; the old gap (CI checked only `-p synapse-services --tests`) was closed in `ci.yml:301`.
 - Doc tests: `cargo test --doc --locked` — ⚠️ **this is currently an empty gate** (root crate has 0 doc tests; workspace-wide there are only 4 and all are `#[ignore]`d). A real rustdoc-only compile error (E0106) once shipped green through this gate. Prefer `cargo test --doc --locked --workspace` when touching doc examples, and note rustdoc catches lifetime elision errors that `cargo check`/`clippy` miss entirely.
 - Full test suite: `cargo test --all-features --locked -- --test-threads=4`
-- Local CI replica (⚠️ **not** the CI entrypoint): `TEST_THREADS=4 TEST_RETRIES=2 bash scripts/run_ci_tests.sh`. No workflow calls it — `ci.yml` re-implements the same test batches inline, so the two must be kept in sync or they drift (sweep A13). For what CI actually runs, read `ci.yml` / `TESTING.md`.
-- If `cargo-nextest` is installed, `scripts/run_ci_tests.sh` uses it automatically; otherwise it falls back to `cargo test` with retries.
+- Local CI run (⚠️ **not** the CI entrypoint): `bash scripts/ci_backend_validation.sh` — it runs `ci.yml`'s three nextest batches **verbatim** (lib / unit / integration at `--test-threads 4`), so it cannot drift from CI. The former second implementation `scripts/run_ci_tests.sh` was deleted (sweep A13; it still ran the 4 CI-unstable manual perf smokes via `--ignored`). For what CI actually runs, read `ci.yml` / `TESTING.md`.
+- Local test tooling needs `cargo-nextest` (CI runs every batch with it): `cargo install cargo-nextest --locked`.
 - `cargo nt` is a repo alias (`.cargo/config.toml`) for `cargo nextest run --profile test --features test-utils`. It works for `--lib`/`--test unit` but **not for `--test integration`** (nextest 0.9.140 silently ignores `features` in profiles + the integration target has `required-features`); use the explicit `--all-features` command below for integration.
 
 ### Running specific tests
@@ -234,6 +234,7 @@ This project follows Red-Green-Refactor TDD. Before implementing any new behavio
 - Snapshots live under `tests/integration/snapshots/`.
 - Dynamic fields (access_token, refresh_token, expires_in, origin_server_ts, user_id suffixes) MUST be redacted via `.redact()` — see SKILL.md §5.
 - New snapshots: run `cargo insta test --review` to accept; never commit snapshots you did not review.
+- CI asserts snapshots with `INSTA_UPDATE=no` plus a committed/leftover `.snap.new` check, and does **not** use cargo-insta at all (its CLI semantics changed twice) — see the `Snapshot gate` step in `ci.yml`.
 
 ### Pre-positioned Mocks
 - `synapse-storage::test_mocks::FakeUserStore` / `SharedFakeUserStore` / `seed_locked_users()`

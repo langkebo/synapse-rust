@@ -3437,16 +3437,88 @@ rate(auth_success_total[5m]) / rate(auth_attempts_total[5m])     -- 返回 EMPTY
 | `.trae/` / `.claude/settings.local.json` / `.superpowers/` 里对 `run_ci_tests.sh`、tarpaulin 的旧叙述 | 历史记录 | **不动**（不在 Docs Quality 门禁范围；属历史留痕） |
 | `scripts/ci_backend_validation.sh` / `.config/nextest.toml` / `tests/unit/ci_test_scope_tests.rs` | 已在途修复 | 保留（§14.18.3 / §14.18.4） |
 
-#### 14.19.6 遗留与建议
+#### 14.19.6 遗留与建议（2026-09-22 10:30 刷新）
 
-1. **§14.18 全部改动仍未提交**（`git status` 显示 20+ 个文件处于 `M`/`D`/`??`）。
-   §14.19.1 的 #6/#10/#12 判定为"已在工作区完成（未提交）"**不等于**已经落地 ——
-   本节不预设它们会被合入。
-2. **`ci.yml` 处于"两方在途"状态**：工作区里同时有本轮的
-   `Check dashboard metric reachability` 步骤与另一会话的 k6-action + `--scenarios` 两处改动。
-   后者**必须与 `scripts/test/perf/guardrail.py` 的 `--scenarios` 同时落地**，否则参数不匹配会红
-   ⇒ 本轮**不单独提交 ci.yml**。
-3. **`update_pool_metrics` 仍是死埋点**（`pool_utilization` / `db_connections_active|idle` /
-   `pool_health_status` 恒 0），需要周期任务宿主 ⇒ 独立排期。
-4. **`docs/observability-metric-fix-plan.md` 的完整重写**（而非只订正处方）建议与本轮修复合并评审。
-5. **面板排版统一**（把两个单行 JSON 恢复成 `indent=2`）作为独立小提交。
+##### 一、当前工作树状态（2026-09-22 10:30）
+
+```
+已提交（本轮）：3f3178ee（13 文件：7 dashboards + 3 gate 文件 + GATE 文档 §14.19 + observability-metric-fix-plan.md + .aspell.ignore.txt）
+未提交（§14.18 系列）：~20+ 文件（含 ci.yml、synapse-test-utils、docs/、脚本等）
+未跟踪（冗余候选）：scripts/load-test/（4 文件）、docs/K6_DEPRECATION_ANALYSIS.md 等
+```
+
+**关键依赖关系**：
+- `ci.yml` 同时包含本轮的 `check_dashboard_metrics.py` 接线与另一会话的 k6-action + `guardrail.py --scenarios` 改动
+- 后者必须与 `scripts/test/perf/guardrail.py` 的 `--scenarios` 参数**同时落地**，否则参数不匹配会红
+- **结论**：本轮不单独提交 `ci.yml`，等待 k6-action 会话完成后统一提交
+
+##### 二、项目现存问题清单（按优先级排序）
+
+| 优先级 | 问题 | 影响范围 | 根因 | 建议处置 | 预计工时 |
+|--------|------|----------|------|----------|----------|
+| **P0-1** | §14.18 系列未提交（SCHEMA_POOL 回收线程、perf smoke 守卫对齐、SQLx 基线调整等） | CI 门禁假绿、测试稳定性 | 并发会话隔离策略（故意暂存） | 优先提交（不含 `ci.yml`），解除门禁盲区 | 1h |
+| **P0-2** | `update_pool_metrics` 死埋点（`pool_utilization`/`db_connections_active`/`pool_health_status` 恒 0） | 数据库池监控完全失明 | 缺少周期任务宿主 | 新增 `src/services/metrics_scheduler.rs`（TTL-based reclaimer 同类模式） | 4h |
+| **P1-1** | `scripts/load-test/` 与 `scripts/test/perf/` 双重 k6 实现 | 维护成本高、场景不一致、CI 无接线 | 缺乏性能测试收口决策 | **裁定 B**：保留 `scripts/test/perf/`（已接线 CI + guardrail），删除 `scripts/load-test/` | 0.5h |
+| **P1-2** | `docs/observability-metric-fix-plan.md` 前提失效但未完整重写 | 误导后续观测面改造 | 写于 `43aa8f66` 之前 | 重写为"观测面建设指南"（含 provisioning 陷阱、PromQL 向量匹配、比率 vs percent 等） | 2h |
+| **P1-3** | Grafana 面板排版不统一（2 个单行 JSON + 5 个格式化） | PR 审查噪音 | 上一轮压成单行 | 独立小提交恢复 `network-connections.json` + `storage-performance.json` 为 `indent=2` | 0.5h |
+| **P2-1** | `scripts/ci_backend_validation.sh` 仍引用已删除的 `run_ci_tests.sh` | CI 脚本断裂 | 未同步更新 | 改为直接执行 CI 的三个 nextest 批次（参照 §14.18.4） | 0.5h |
+| **P2-2** | `docs/` 口径仍有遗漏（仅本轮修正 3 处） | 文档不一致 | 未全量复核 | 用 `check_missing_docs_ratchet.py` 扫描后逐条订正 | 1h |
+| **P2-3** | k6 无 CI 自动跑（需手动 dispatch） | 性能回归可能漏检 | 刻意权衡（缺真实环境） | 增加 schedule 车道（每周日凌晨 3 点），指向 staging 环境 | 1h |
+
+##### 三、冗余清理方案（本次审查裁定）
+
+| 冗余项 | 性质 | 裁定 | 处置步骤 | 风险 |
+|--------|------|------|----------|------|
+| `scripts/load-test/`（4 文件） | 重复 k6 实现（无 CI 接线） | **删除** | 1. 备份至 `archive/load-test-2026-09-22/`<br>2. 删除原目录<br>3. 更新 `scripts/test/perf/README.md` 移除反向引用 | 低（无调用方） |
+| `docs/K6_DEPRECATION_ANALYSIS.md` | 未决决策文档 | **归档** | 移至 `docs/archive/` 或合并入 `observability-metric-fix-plan.md` | 低 |
+| `tarpaulin.toml`（已删除） | 过时覆盖率工具 | **确认删除** | 已在 git 索引中标记删除，待提交 | 无（已被 coverage-ratchet 替代） |
+| `scripts/run_ci_tests.sh`（已删除） | 与 `ci.yml` 双实现 | **确认删除** | 已在 git 索引中标记删除，待提交 | 无（§14.18.4 已裁定） |
+| `scripts/ci/geiger_baseline.json` 中的 `synapse-common` 理由 | 工具归因误读 | **已修正** | 工作区已更新为"宏展开归因（292 format_args/127 await-tokio/25 TrivialClone/0 手写）" | 无 |
+
+##### 四、下一步工作计划（2026-09-22 排序）
+
+**阶段一：紧急修复（今天）**
+1. **提交 §14.18 系列**（不含 `ci.yml`）：
+   - `SCHEMA_POOL_IDLE_RECLAIMER` + 3 条测试
+   - `perf smoke` 守卫 + `nextest profile` 对齐
+   - SQLx 动态查询基线调整（1501→1504）
+   - `docs/` 口径修正（3 处）
+   - 提交消息模板：`fix(test-infra): §14.18 系列（SCHEMA_POOL 回收 + perf 守卫 + SQLx 基线 + docs 口径）`
+
+2. **冗余清理**：
+   - 备份并删除 `scripts/load-test/`
+   - 提交消息：`refactor(test-infra): 删除重复 k6 实现（scripts/load-test/）`
+
+3. **面板排版统一**：
+   - 恢复 `network-connections.json` + `storage-performance.json` 为 `indent=2`
+   - 提交消息：`style(grafana): 统一面板 JSON 排版（indent=2）`
+
+**阶段二：核心缺陷修复（本周）**
+4. **`update_pool_metrics` 死埋点**：
+   - 新增 `src/services/metrics_scheduler.rs`（周期任务宿主）
+   - 注册 `update_pool_metrics` 为定时任务（间隔 30s）
+   - 提交消息：`feat(metrics): 补数据库池监控周期任务宿主`
+
+5. **`observability-metric-fix-plan.md` 重写**：
+   - 标题改为"观测面建设指南"
+   - 新增章节：Provisioning 陷阱、PromQL 向量匹配、比率 vs percent、`__name__` 陈旧序列
+   - 删除失效处方（`rate(_sum)/rate(_count)`）
+   - 提交消息：`docs(observability): 重写为观测面建设指南（含常见陷阱）`
+
+**阶段三：长期改进（下周）**
+6. **k6 自动化**：
+   - 增加 schedule 车道（每周日凌晨 3 点）
+   - 指向 staging 环境（需先部署 staging）
+   - 提交消息：`ci(perf): 增加 k6 周常自动跑（staging 环境）`
+
+7. **`docs/` 全量复核**：
+   - 用 `check_missing_docs_ratchet.py` 扫描
+   - 逐条订正口径不一致
+   - 提交消息：`docs(review): 全量复核并订正口径（第 1 轮）`
+
+##### 五、风险提示
+
+1. **并发会话污染**：提交前必须 `git status --short` 逐条核对，**只 `git add` 自己的文件**，禁用 `git add -A`
+2. **`ci.yml` 依赖**：等待 k6-action 会话完成后统一提交，避免参数不匹配导致 CI 红
+3. **`update_pool_metrics`**：需确保周期任务与现有 `SCHEMA_POOL_IDLE_RECLAIMER` 模式一致（TTL + cancellation token）
+4. **面板排版**：恢复 `indent=2` 时保持语义不变，避免引入 diff 噪音

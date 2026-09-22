@@ -1,3 +1,30 @@
+# 2026-09-22: dynamic 由 1501 上调到 1504（+3）。两笔来源，逐条核对如下
+# （方法：`git grep -cE 'sqlx::query(_as|_scalar)?\(' <rev> -- <扫描目录>` 逐文件求和）。
+#
+#   (+1) `a283328f`（指标埋点接线）新增的 `synapse-common/src/db_query_metrics.rs`
+#        —— 但这一处**不是真的动态查询**：它是该文件 doc 注释里的一句
+#        `//! this crate's storage layer has ~1700 direct sqlx::query(..) call sites`。
+#        计数正则不看注释，因此把散文里的 "sqlx::query(" 也算成了调用。
+#        证据：`git grep -c` 在 `6c6216cc` 与 `a283328f`/HEAD 之间**只有这一个文件**
+#        有差异（1501 → 1502），且该文件里唯一的命中就在 `//!` 行上。
+#        ⇒ 按现口径，写文档提到这个 API 就会抬高棘轮。修法见下方"已知计数缺陷"：
+#        应先让计数器剥掉注释/字符串，再一次性重测基线（届时本 +1 自然消失）。
+#
+#   (+2) 本轮的 `synapse-test-utils/src/lib.rs`：`schema_pool_idle_reclaimer_tests::
+#        expired_parked_schema_is_dropped_from_the_database` 用两次
+#        `SELECT to_regnamespace($1)::text` 做**双向**断言（清扫前必须存在、清扫后必须
+#        不存在）。只断言"不存在"会让查询写错时空转通过——这正是本仓反复踩到的
+#        "门禁不会变红"形态，因此前置的存在性断言是刻意的，不能为省 1 处计数而删。
+#        这两处无法静态化：`to_regnamespace` 是 test-only 夹具的探针，且本文件的
+#        测试模块必须内联在 crate 里（要访问私有的 `SCHEMA_POOL` / `take_expired`），
+#        而 `tests/` 独立目录不在本棘轮的扫描范围内。
+#        收紧方向：若将来 `SCHEMA_POOL` 的私有访问面被一个 `#[cfg(test)] pub` helper
+#        暴露出来，这个用例可以搬到 `tests/`（不计数），届时回收 2 处。
+#
+# 已知计数缺陷（本轮新增登记，未在本轮修）：① 正则**不看注释**（上面那 +1 即此类）；
+# ② 不匹配 turbofish 写法 `sqlx::query_as::<_, T>(...)`（文件末尾早有登记）。
+# 两者方向相反、都无法靠调基线长期抵消；正确修法是先剥注释/字符串、补 turbofish 分支，
+# 再一次性重测并重设基线（含历史各条记录的口径说明），作为独立条目处理。
 # 2026-09-21: dynamic 由 1499 上调到 1501（+2），来源是 `6c6216cc`（MSC4155 账号级邀请
 # 策略）对 `synapse-storage/src/invite_blocklist.rs` 的改动。逐行核对（把两个 commit 的
 # 该文件分别导出后按 `#[cfg(test)]` 边界统计）：
@@ -62,7 +89,7 @@
 # 历史对照：2026-06-03 审计记录动态占比 99.6%（含测试代码口径）；
 # 本基线口径（仅 workspace 生产目录，含内联测试模块）为 95.90%。
 
-BASELINE_DYNAMIC=1501
+BASELINE_DYNAMIC=1504
 BASELINE_STATIC=61
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────

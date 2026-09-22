@@ -53,8 +53,8 @@ REFACTOR→ 全绿后才能动；每步重构后立即重跑同一测试
 | GREEN 验证 | 同上 | 验证最小实现通过 |
 | 集成回归 | `cargo test --features test-utils --test integration <module> -- --nocapture` | 防止破坏既有契约 |
 | 快照验收 | `cargo insta review` （首次写）/ `cargo test --features test-utils --test unit <snap_test>` （验收） | API 输出格式锁定 |
-| 全量门禁 | `TEST_THREADS=4 TEST_RETRIES=2 bash scripts/run_ci_tests.sh` | 提交前最终校验 |
-| 覆盖率 | `cargo tarpaulin --output-dir coverage/ --html --skip-clean` | 周期性覆盖率回归 |
+| 全量门禁 | `bash scripts/ci_backend_validation.sh` | 提交前最终校验（逐字执行 `ci.yml` 的 lib/unit/integration 批次） |
+| 覆盖率 | `bash scripts/run_local_coverage.sh` | 周期性覆盖率回归（cargo llvm-cov；tarpaulin 已弃用） |
 | 编译检查 | `cargo clippy --all-features --locked -- -D warnings` | 类型/lint 不破 |
 
 **首选 nextest**：若装了 `cargo-nextest`，RED/GREEN 用 `cargo nextest run -p <crate> <test_name>`，比 cargo test 快 2-3 倍。
@@ -67,7 +67,7 @@ cargo clippy --all-features --locked -- -D warnings
 cargo test --features test-utils --test unit -- --test-threads=4
 ```
 
-仅这 3 项全绿方可进入 `scripts/run_ci_tests.sh`（带集成测试的完整 CI 等价）。
+仅这 3 项全绿方可进入 `bash scripts/ci_backend_validation.sh`（带集成测试的完整 CI 等价）。
 
 ## 4. Mock 适配器使用规则
 
@@ -176,7 +176,12 @@ insta::with_settings!({
 
 - 路由 handler 必须有 ≥1 个 snapshot 测试，覆盖 `Matrix spec` 定义的 `errcode` + 关键字段。
 - 快照更新必须 `cargo insta review` 人工确认，禁止 `INSTA_UPDATE=always` 直接入仓。
-- CI 用 `cargo insta test --no-review`（非交互），本地用 `cargo insta test --review`。
+- CI 的 Snapshot gate **不再依赖 cargo-insta**（它的 CLI 语义两次变动：1.48 删了 `--no-review`；
+  改用 `--check --test-runner nextest` 又会把 nextest 旗标当测试二进制参数传下去）。现在直接
+  `INSTA_UPDATE=no cargo nextest run --test unit --all-features --locked --test-threads 4
+  -E 'test(security_endpoint_snapshots_tests)'`：assert 模式下漂移即测试失败，再兜底检查仓库里
+  没有已提交/遗留的 `.snap.new`（`ci.yml` 的 `Snapshot gate` 步骤）。
+- 本地接受新快照用 `cargo insta review`（需自备 cargo-insta CLI，仓库不再把它作为依赖）。
 - 含动态字段必须按 §5.2 redaction 表过滤。
 - snapshot 命名必须显式（`assert_json_snapshot!("name", ...)`），禁止隐式自动命名。
 

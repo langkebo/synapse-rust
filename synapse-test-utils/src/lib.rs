@@ -73,7 +73,7 @@ static SHARED_CLONE_SEMAPHORE: LazyLock<Semaphore> =
 // - Schemas corrupted by destructive tests (DROP TABLE, ALTER) are detected
 //   by a table-count safety check and DROPped instead of pooled.
 
-static SCHEMA_POOL: TokioMutex<Vec<String>> = TokioMutex::const_new(Vec::new());
+static SCHEMA_POOL: TokioMutex<Vec<ParkedSchema>> = TokioMutex::const_new(Vec::new());
 
 // ============================================================================
 // Schema lifecycle — delegated to the shared janitor
@@ -100,9 +100,47 @@ static SCHEMA_POOL: TokioMutex<Vec<String>> = TokioMutex::const_new(Vec::new());
 // The `on_exit` path is always a plain DROP — returning a name to a pool that
 // is about to die is pointless.
 //
-// Schemas parked in `SCHEMA_POOL` as *names* (no live pool) are drained by a
-// one-time `register_exit_callback` installed when the pool is first used.
+// Schemas parked in `SCHEMA_POOL` as *names* (no live pool) are reclaimed in two
+// independent ways, because they cover different situations:
+//   1. **Idle TTL reclaimer** (2026-09-22): a one-time background thread drops
+//      names parked longer than [`SCHEMA_POOL_IDLE_TTL`]. A long-lived process
+//      (`cargo test` with many tests) therefore cannot accumulate parked names
+//      without bound — this is the part that used to be missing.
+//   2. **Process-exit drain**: the janitor's exit callback drops whatever is
+//      still parked when the process ends. The TTL thread cannot help there (it
+//      only runs while the process lives), so the exit drain stays; under
+//      nextest the pool is never refilled anyway.
 static SCHEMA_POOL_EXIT_DRAIN_ONCE: Once = Once::new();
+static SCHEMA_POOL_IDLE_RECLAIMER_ONCE: Once = Once::new();
+
+/// How long a parked reusable schema name may sit idle before the reclaimer
+/// drops it. Longer than any plausible gap between two tests in one process
+/// (the pool exists to bridge exactly that gap), short enough that a long
+/// `cargo test` run cannot accumulate names.
+const SCHEMA_POOL_IDLE_TTL: Duration = Duration::from_secs(60);
+/// How often the idle reclaimer sweeps the pool.
+const SCHEMA_POOL_SWEEP_INTERVAL: Duration = Duration::from_secs(15);
+
+/// One parked reusable schema name plus when it was parked.
+struct ParkedSchema {
+    name: String,
+    parked_at: std::time::Instant,
+}
+
+/// Removes and returns the names parked for at least `ttl` (pure, testable).
+fn take_expired(pool: &mut Vec<ParkedSchema>, now: std::time::Instant, ttl: Duration) -> Vec<String> {
+    let mut kept = Vec::with_capacity(pool.len());
+    let mut expired = Vec::new();
+    for parked in pool.drain(..) {
+        if now.saturating_duration_since(parked.parked_at) >= ttl {
+            expired.push(parked.name);
+        } else {
+            kept.push(parked);
+        }
+    }
+    *pool = kept;
+    expired
+}
 
 // Serialize background schema cleanup (TRUNCATE + re-seed) to a single concurrent
 // task. Each TRUNCATE acquires ACCESS EXCLUSIVE locks on ~111 tables; running
@@ -490,7 +528,8 @@ pub async fn prepare_shared_test_pool() -> Result<Arc<PgPool>, String> {
 
     if test_schema_pool_reuse_enabled() {
         ensure_schema_pool_exit_drain(&database_url);
-        if let Some(schema_name) = SCHEMA_POOL.lock().await.pop() {
+        ensure_schema_pool_idle_reclaimer(&database_url);
+        if let Some(schema_name) = SCHEMA_POOL.lock().await.pop().map(|parked| parked.name) {
             let pool = create_pool_for_schema(&database_url, &schema_name).await?;
             register_pending_schema_return(&pool, &schema_name, template.clone(), &database_url);
             return Ok(pool);
@@ -1390,7 +1429,10 @@ async fn cleanup_schema(
         match truncate_and_reseed_schema(&admin_pool, &database_url, &schema_name, &template_name).await {
             Ok(()) => {
                 // Safety check passed — return schema name to pool for reuse
-                SCHEMA_POOL.lock().await.push(schema_name.clone());
+                SCHEMA_POOL
+                    .lock()
+                    .await
+                    .push(ParkedSchema { name: schema_name.clone(), parked_at: std::time::Instant::now() });
                 CleanupOutcome::Done
             }
             Err(error) => {
@@ -1419,6 +1461,7 @@ async fn cleanup_schema(
 /// the schema is free, because services can keep only an inner `PgPool` clone.
 fn register_pending_schema_return(pool: &Arc<PgPool>, schema_name: &str, template_name: String, database_url: &str) {
     ensure_schema_pool_exit_drain(database_url);
+    ensure_schema_pool_idle_reclaimer(database_url);
     let db = database_url.to_string();
     let sn = schema_name.to_string();
     // `template_name` is only needed by the post-`register_schema_cleanup` call
@@ -1454,7 +1497,7 @@ fn ensure_schema_pool_exit_drain(database_url: &str) {
         let database_url = database_url.to_string();
         register_exit_callback(Box::new(move || {
             let names: Vec<String> = match SCHEMA_POOL.try_lock() {
-                Ok(mut guard) => std::mem::take(&mut *guard),
+                Ok(mut guard) => std::mem::take(&mut *guard).into_iter().map(|parked| parked.name).collect(),
                 // Another thread is mid-TRUNCATE; the schema will be returned
                 // and dropped by that path, or by the next run's cleanup.
                 Err(_) => Vec::new(),
@@ -1469,6 +1512,65 @@ fn ensure_schema_pool_exit_drain(database_url: &str) {
             CleanupOutcome::Done
         }));
     });
+}
+
+/// Install the one-time idle-TTL sweeper for `SCHEMA_POOL`.
+///
+/// The pool exists to bridge the gap between two tests in the *same* process.
+/// A `cargo test` run that parks a schema and then spends minutes elsewhere
+/// would otherwise hold that schema (≈255 tables) until the process ends, and
+/// the exit drain cannot help — it only runs when the process is already
+/// leaving. So a single background thread drops names parked for at least
+/// [`SCHEMA_POOL_IDLE_TTL`] every [`SCHEMA_POOL_SWEEP_INTERVAL`].
+///
+/// A plain OS thread, not a `tokio` task: the sweeper must outlive the
+/// short-lived per-test runtimes, must not keep any of them alive, and must
+/// work even when no runtime is entered. It is detached and dies with the
+/// process. Under nextest nothing is ever parked (`on_release` is a plain DROP,
+/// see [`SchemaCleanup::release_or_exit_drop`]), so the thread is not started.
+fn ensure_schema_pool_idle_reclaimer(database_url: &str) {
+    if running_under_nextest() {
+        return;
+    }
+    SCHEMA_POOL_IDLE_RECLAIMER_ONCE.call_once(|| {
+        let database_url = database_url.to_string();
+        let spawned = std::thread::Builder::new().name("schema-pool-idle-reclaimer".to_string()).spawn(move || loop {
+            std::thread::sleep(SCHEMA_POOL_SWEEP_INTERVAL);
+            sweep_idle_parked_schemas(&database_url, std::time::Instant::now(), SCHEMA_POOL_IDLE_TTL);
+        });
+        if let Err(error) = spawned {
+            // Not fatal: the exit drain still cleans up, so the cost of a
+            // failed spawn is schema retention until the process exits.
+            eprintln!(
+                "schema pool: could not start the idle reclaimer thread ({error}); \
+                 parked names will now only be dropped at process exit"
+            );
+        }
+    });
+}
+
+/// One sweep of `SCHEMA_POOL`: DROP every name parked for at least `ttl`, and
+/// report how many were dropped.
+///
+/// Split out from the reclaimer thread so the sweep and its test run the *same*
+/// code — a test of [`take_expired`] alone would only prove the predicate, not
+/// that expired names actually leave the database. `try_lock` is deliberate: a
+/// test mid-park/mid-pop is not a reason to block the sweeper, and the name it
+/// is holding is either already out of the pool (so this sweep cannot see it)
+/// or still in it (so the next sweep catches it).
+fn sweep_idle_parked_schemas(database_url: &str, now: std::time::Instant, ttl: Duration) -> usize {
+    let expired = match SCHEMA_POOL.try_lock() {
+        Ok(mut guard) => take_expired(&mut guard, now, ttl),
+        Err(_) => return 0,
+    };
+    if expired.is_empty() {
+        return 0;
+    }
+    eprintln!("schema pool: idle reclaimer dropping {} schema(s) parked for at least {ttl:?}", expired.len());
+    for name in &expired {
+        drop_schema_blocking(database_url, name);
+    }
+    expired.len()
 }
 
 /// Acquire a schema from the pool. Fast path: pop a pre-TRUNCATEd schema name
@@ -1490,7 +1592,9 @@ pub async fn acquire_pooled_schema() -> Result<LeasedSchema, String> {
     // — under parallel test load, pg_catalog queries take 1.6-8s due to lock
     // contention, and this check was the #1 source of slow-statement warnings.
     #[allow(clippy::never_loop)]
-    while let Some(schema_name) = SCHEMA_POOL.lock().await.pop() {
+    // `ParkedSchema` is a name plus its park timestamp; only the name travels
+    // from here on, so the reclaimer can tell how long it has been idle.
+    while let Some(schema_name) = SCHEMA_POOL.lock().await.pop().map(|parked| parked.name) {
         let pool = create_pool_for_schema(&database_url, &schema_name).await?;
         let poisoned = Arc::new(AtomicBool::new(false));
         // The closure holds its own clone of the flag so the janitor can read
@@ -1910,6 +2014,119 @@ mod pooled_schema_reseed_tests {
         assert!(new_id > 1, "the re-seeded row already owns id = 1, so the insert must land above it");
 
         admin.close().await;
+    }
+}
+
+/// Tests for the `SCHEMA_POOL` idle-TTL reclaimer (sweep A10).
+#[cfg(test)]
+mod schema_pool_idle_reclaimer_tests {
+    use super::{sweep_idle_parked_schemas, take_expired, ParkedSchema, SCHEMA_POOL, SCHEMA_POOL_IDLE_TTL};
+    use std::time::{Duration, Instant};
+
+    fn parked(name: &str, parked_at: Instant) -> ParkedSchema {
+        ParkedSchema { name: name.to_string(), parked_at }
+    }
+
+    /// The predicate: a name is expired exactly at the TTL boundary, not before.
+    /// Parked names must survive a sweep while they are still fresh, otherwise
+    /// the reuse fast path (the whole point of the pool) would never pay off.
+    #[test]
+    fn takes_only_names_parked_for_at_least_the_ttl() {
+        let now = Instant::now();
+        let ttl = Duration::from_secs(60);
+        let mut pool = vec![
+            parked("test_fresh", now),
+            parked("test_at_boundary", now - ttl),
+            parked("test_stale", now - Duration::from_secs(61)),
+        ];
+
+        let expired = take_expired(&mut pool, now, ttl);
+
+        assert_eq!(
+            expired,
+            vec!["test_at_boundary".to_string(), "test_stale".to_string()],
+            "only names at or past the TTL may be taken"
+        );
+        assert_eq!(pool.len(), 1, "the fresh name must stay parked");
+        assert_eq!(pool[0].name, "test_fresh");
+    }
+
+    /// A sweep that finds nothing must be a no-op, and an empty pool must not
+    /// panic — the thread runs this every 15s for the whole process lifetime.
+    #[test]
+    fn sweeping_a_fresh_or_empty_pool_takes_nothing() {
+        let now = Instant::now();
+        let ttl = Duration::from_secs(60);
+        let mut fresh = vec![parked("test_fresh", now)];
+        assert!(take_expired(&mut fresh, now, ttl).is_empty());
+        assert_eq!(fresh.len(), 1);
+
+        let mut empty: Vec<ParkedSchema> = Vec::new();
+        assert!(take_expired(&mut empty, now, ttl).is_empty());
+        assert!(empty.is_empty());
+    }
+
+    /// The real thing: a parked name that has outlived the TTL must be gone from
+    /// the database after one sweep, driven through the same
+    /// `sweep_idle_parked_schemas` the reclaimer thread calls.
+    ///
+    /// The schema is asserted **present** before the sweep and **absent** after
+    /// it. Without the first half a wrong query (`to_regnamespace` typo, wrong
+    /// bind) would return `None` either way and the test would pass while
+    /// proving nothing — the same "gate that cannot go red" shape the repo has
+    /// been bitten by before.
+    #[tokio::test]
+    async fn expired_parked_schema_is_dropped_from_the_database() {
+        if std::env::var("TEST_DATABASE_URL").is_err() {
+            eprintln!(
+                "SKIPPING expired_parked_schema_is_dropped_from_the_database: TEST_DATABASE_URL is unset, so \
+                 this proves nothing."
+            );
+            return;
+        }
+        let database_url = crate::resolve_test_database_url().await.expect("database url");
+        let template_name = crate::get_template_schema_name(&database_url).await.expect("template");
+        let (pool, schema_name) =
+            crate::clone_schema_from_template(&database_url, &template_name).await.expect("clone a schema");
+        // The janitor owns the schema from here on: if this test fails before the
+        // sweep, the name is dropped when the pool's last `Arc` goes away rather
+        // than leaking until the process ends.
+        synapse_common::test_schema_guard::register_schema_cleanup(
+            &pool,
+            &schema_name,
+            synapse_common::test_schema_guard::SchemaCleanup::drop_only(&database_url, &schema_name),
+        );
+        // Close before parking: the cloned pool holds a shared connection lease,
+        // and the sweep (like the exit drain) is a plain DROP that does not wait
+        // for leases — holding the pool open would leave it pointed at a schema
+        // that no longer exists.
+        pool.close().await;
+        drop(pool);
+
+        // Back-date by a full TTL: the production TTL is used rather than zero
+        // so the sweep cannot take a name another test parked concurrently.
+        SCHEMA_POOL.lock().await.push(parked(&schema_name, Instant::now() - SCHEMA_POOL_IDLE_TTL));
+        let admin = sqlx::PgPool::connect(&database_url).await.expect("admin pool");
+        let before: Option<String> = sqlx::query_scalar("SELECT to_regnamespace($1)::text")
+            .bind(&schema_name)
+            .fetch_one(&admin)
+            .await
+            .expect("query pg_namespace — a failure here would make the absence assertion below vacuous");
+        assert_eq!(before.as_deref(), Some(schema_name.as_str()), "precondition: the clone must exist");
+
+        let dropped = sweep_idle_parked_schemas(&database_url, Instant::now(), SCHEMA_POOL_IDLE_TTL);
+
+        assert!(dropped >= 1, "the schema parked beyond the TTL must have been taken");
+        let after: Option<String> = sqlx::query_scalar("SELECT to_regnamespace($1)::text")
+            .bind(&schema_name)
+            .fetch_one(&admin)
+            .await
+            .expect("query pg_namespace — a failure here would make the absence assertion below vacuous");
+        admin.close().await;
+        assert!(
+            after.is_none(),
+            "sweep_idle_parked_schemas reported dropping {schema_name} but it still exists: {after:?}"
+        );
     }
 }
 
