@@ -11,7 +11,6 @@
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
-use std::collections::VecDeque;
 use std::fs;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::LazyLock;
@@ -27,7 +26,6 @@ use synapse_services::database_initializer::{DatabaseInitMode, DatabaseInitServi
 use tokio::sync::OnceCell;
 use tokio::sync::{Mutex as TokioMutex, RwLock as TokioRwLock, Semaphore};
 
-static PREPARED_TEST_POOLS: LazyLock<Mutex<VecDeque<Arc<PgPool>>>> = LazyLock::new(|| Mutex::new(VecDeque::new()));
 /// Process-wide cache of the resolved test database URL.
 ///
 /// Mirrors `synapse_services::test_utils::RESOLVED_TEST_DB_URL`. Each isolated
@@ -235,16 +233,6 @@ pub fn env_lock() -> EnvLockGuard {
 /// See [`env_lock_async`].
 pub async fn env_lock_async() -> EnvLockGuard {
     EnvLockGuard { _guard: TEST_ENV_LOCK.lock().await }
-}
-
-/// See [`enqueue_prepared_test_pool`].
-pub fn enqueue_prepared_test_pool(pool: Arc<PgPool>) {
-    PREPARED_TEST_POOLS.lock().unwrap_or_else(|e| e.into_inner()).push_back(pool);
-}
-
-/// See [`take_prepared_test_pool`].
-pub fn take_prepared_test_pool() -> Option<Arc<PgPool>> {
-    PREPARED_TEST_POOLS.lock().unwrap_or_else(|e| e.into_inner()).pop_front()
 }
 
 fn env_u32(key: &str) -> Option<u32> {
