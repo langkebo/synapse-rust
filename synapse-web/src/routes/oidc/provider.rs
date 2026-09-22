@@ -303,7 +303,7 @@ pub(crate) async fn oidc_authorize(
 
     // Generate authorization URL (with PKCE)
     let authorization_url: String = oidc_service
-        .get_authorization_url(&state_value, &redirect_uri, Some(&code_challenge), Some("S256"))
+        .get_authorization_url(&state_value, &redirect_uri, Some(&code_challenge), Some("S256"), Some(&nonce_value))
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to generate authorization URL", e))?;
 

@@ -121,7 +121,7 @@ pub(crate) async fn sso_redirect(
             .await?;
 
         let authorization_url: String = oidc_service
-            .get_authorization_url(&state_value, &redirect_uri, Some(&code_challenge), Some("S256"))
+            .get_authorization_url(&state_value, &redirect_uri, Some(&code_challenge), Some("S256"), Some(&nonce_value))
             .await?;
 
         return Ok(Redirect::temporary(&authorization_url));
