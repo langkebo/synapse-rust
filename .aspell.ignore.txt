@@ -5,6 +5,7 @@
 # 说明见 docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md §14.7。
 # 追加（2026-09-20，§14.11 独立复核）：ghcr、io（来自 ghcr.io）。
 # 追加（2026-09-20，§14.13）：args、cmd（正文里 "CMD/args" 这类写法）。
+# 追加（2026-09-22，对比报告 v1.2 复核）：aliyun、cancellable、clamav、dags、livekit、redactions、sharding、twilio、webhooks、websocket、bugfix、elementsec、ghsa、noop、glibc。
 abi
 accessexclusivelock
 accessor
@@ -35,6 +36,7 @@ agpl
 ai
 aiconnection
 alertmanager
+aliyun
 all
 amd
 ansible
@@ -95,12 +97,14 @@ booleans
 br
 bre
 btree
+bugfix
 buildable
 buildkit
 buildx
 burnafterreadservice
 cacheregistry
 camelcase
+cancellable
 cancellationtoken
 cancelled
 canonicalevent
@@ -115,6 +119,7 @@ changelog
 chmod
 cidr
 ciphertext
+clamav
 clapcy
 claude
 cli
@@ -159,6 +164,7 @@ cte
 ctx
 cve
 cwd
+dags
 dalek
 dashmap
 dbacp
@@ -210,6 +216,7 @@ ecr
 edu
 eeroom
 eeroomcontext
+elementsec
 enablement
 eng
 entrypoint
@@ -263,9 +270,11 @@ getter
 gh
 gha
 ghcr
+ghsa
 gitignore
 gitignored
 gitleaks
+glibc
 glm
 gstack
 guc
@@ -365,6 +374,7 @@ lifecycleserviceconfig
 limitexceeded
 linter
 linux
+livekit
 ljf
 loc
 localcache
@@ -430,6 +440,7 @@ nn
 nom
 nonces
 noncetracker
+noop
 notauthorized
 notfound
 nothing
@@ -523,6 +534,7 @@ readme
 readreceipts
 readreceiptsmanager
 rebase
+redactions
 redirecturl
 redis
 rediscli
@@ -617,6 +629,7 @@ sessioncontext
 sfu
 sgr
 sha
+sharding
 sharedcontext
 shippable
 shm
@@ -721,6 +734,7 @@ tst
 ttf
 ttl
 turbofish
+twilio
 tx
 txn
 txpostgres
@@ -775,8 +789,10 @@ vuln
 vus
 walkthroughs
 webhook
+webhooks
 webpush
 webrtc
+websocket
 webview
 whitespace
 whoami
