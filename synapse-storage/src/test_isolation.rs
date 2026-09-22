@@ -48,6 +48,8 @@ fn isolated_baseline_sql() -> &'static str {
 /// Every DB test in this crate should start here: the schema is dropped on
 /// `Drop`, so tests cannot leak state into each other or into `public`.
 pub async fn isolated_test_pool() -> Result<IsolatedTestPool, sqlx::Error> {
+    #[cfg(test)]
+    crate::test_exit_hook::ensure();
     IsolatedTestPool::new(isolated_baseline_sql()).await
 }
 

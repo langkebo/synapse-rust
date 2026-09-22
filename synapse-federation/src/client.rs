@@ -708,7 +708,37 @@ impl FederationClient {
         }
     }
 
+    /// Signed federation request + metrics.
+    ///
+    /// This is the single choke point for outbound signed federation traffic
+    /// (every `make_join` / `send_join` / `send_transaction` / `get_state` … call
+    /// funnels through it), so it is where `federation_requests_total` and
+    /// `federation_request_duration_ms` are observed.
+    ///
+    /// `success` means "the remote answered with a 2xx". A remote 4xx/5xx and a
+    /// transport failure both count as a failed exchange and land on
+    /// `federation_request_errors_total` — deliberately *not* on
+    /// `federation_signature_errors`, which is reserved for signature
+    /// verification (see `ServerMetrics::record_federation_request`).
     async fn send_signed_request(
+        &self,
+        method: &str,
+        path: &str,
+        destination: &str,
+        body: Option<&str>,
+    ) -> Result<reqwest::Response, FederationClientError> {
+        let started = std::time::Instant::now();
+        let result = self.send_signed_request_inner(method, path, destination, body).await;
+
+        if let Some(metrics) = synapse_common::server_metrics::global_server_metrics() {
+            let ok = result.as_ref().is_ok_and(|response| response.status().is_success());
+            metrics.record_federation_request(started.elapsed().as_secs_f64() * 1000.0, ok);
+        }
+
+        result
+    }
+
+    async fn send_signed_request_inner(
         &self,
         method: &str,
         path: &str,

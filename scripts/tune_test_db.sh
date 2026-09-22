@@ -51,6 +51,6 @@ if [ -n "$CONTAINER" ] && command -v docker >/dev/null 2>&1 && docker ps --forma
     done
     echo "==> 重启后 max_locks_per_transaction=$("${PSQL[@]}" -tAc "SHOW max_locks_per_transaction;")"
 else
-    echo "==> 未检测到容器 $CONTAINER（或已设 TEST_DB_CONTAINER=\"\"），请手动重启 Postgres："
+    echo "==> 未检测到容器 ${CONTAINER}（或已设 TEST_DB_CONTAINER=\"\"），请手动重启 Postgres："
     echo "    docker restart $CONTAINER   # 或  pg_ctl restart"
 fi

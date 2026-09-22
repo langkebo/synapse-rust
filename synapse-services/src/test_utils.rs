@@ -1,7 +1,6 @@
 use crate::infra::{DatabaseInitMode, DatabaseInitService};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
-use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
@@ -9,8 +8,6 @@ use std::time::Duration;
 use synapse_common::test_schema_guard::{register_schema_cleanup, schema_lease_key, SchemaCleanup};
 use tokio::sync::OnceCell;
 use tokio::sync::{Mutex as TokioMutex, Semaphore};
-
-static PREPARED_TEST_POOLS: LazyLock<Mutex<VecDeque<Arc<PgPool>>>> = LazyLock::new(|| Mutex::new(VecDeque::new()));
 
 /// Process-wide cache of the resolved test database URL.
 ///
@@ -153,16 +150,6 @@ pub async fn env_lock_async() -> EnvLockGuard {
     EnvLockGuard { _guard: TEST_ENV_LOCK.lock().await }
 }
 
-/// See [`enqueue_prepared_test_pool`].
-pub fn enqueue_prepared_test_pool(pool: Arc<PgPool>) {
-    PREPARED_TEST_POOLS.lock().unwrap_or_else(|e| e.into_inner()).push_back(pool);
-}
-
-/// See [`take_prepared_test_pool`].
-pub fn take_prepared_test_pool() -> Option<Arc<PgPool>> {
-    PREPARED_TEST_POOLS.lock().unwrap_or_else(|e| e.into_inner()).pop_front()
-}
-
 fn env_u32(key: &str) -> Option<u32> {
     std::env::var(key).ok().and_then(|value| value.trim().parse::<u32>().ok())
 }
@@ -249,6 +236,8 @@ fn isolated_baseline_sql() -> &'static str {
 /// unqualified queries silently fell back to the shared `public` schema through
 /// `search_path = <schema>, public` and produced order-dependent failures.
 pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
+    #[cfg(test)]
+    crate::test_exit_hook::ensure();
     let database_url = resolve_test_database_url().await?;
     let schema_name = next_test_schema_name();
     let template =
@@ -324,6 +313,8 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
 /// Cloning tables from the template is ~100x faster than re-running all migrations.
 /// Set TEST_ISOLATED_SCHEMAS=1 to force the old per-test migration behavior.
 pub async fn prepare_shared_test_pool() -> Result<Arc<PgPool>, String> {
+    #[cfg(test)]
+    crate::test_exit_hook::ensure();
     let database_url = resolve_test_database_url().await?;
 
     // Step 1: Ensure the template schema exists (one-time init)
@@ -354,6 +345,8 @@ pub async fn prepare_shared_test_pool() -> Result<Arc<PgPool>, String> {
 /// Returns an `Arc<PgPool>`; callers that need a bare `PgPool` (cheap internal
 /// `Arc` alias) can `(*pool).clone()`.
 pub async fn connect_shared_test_pool() -> Result<Arc<PgPool>, String> {
+    #[cfg(test)]
+    crate::test_exit_hook::ensure();
     let database_url = resolve_test_database_url().await?;
     let pool = PgPoolOptions::new()
         .max_connections(2)
@@ -576,6 +569,8 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
 
 /// See [`prepare_empty_isolated_test_pool`].
 pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
+    #[cfg(test)]
+    crate::test_exit_hook::ensure();
     let database_url = resolve_test_database_url().await?;
     let schema_name = next_test_schema_name();
 

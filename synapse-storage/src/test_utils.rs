@@ -31,19 +31,6 @@ static TEST_SCHEMA_COUNTER: AtomicU64 = AtomicU64::new(1);
 // `Arc<PgPool>` is released, with an atexit join as the deterministic
 // backstop. The guard returned below is the caller-visible ownership handle.
 
-/// Queue of pre-prepared test pools that can be reused by tests.
-static PREPARED_TEST_POOLS: LazyLock<Mutex<Vec<Arc<PgPool>>>> = LazyLock::new(|| Mutex::new(Vec::new()));
-
-/// Enqueue a pre-prepared test pool for later use.
-pub fn enqueue_prepared_test_pool(pool: Arc<PgPool>) {
-    PREPARED_TEST_POOLS.lock().unwrap_or_else(|e| e.into_inner()).push(pool);
-}
-
-/// Take a pre-prepared test pool if one is available.
-pub fn take_prepared_test_pool() -> Option<Arc<PgPool>> {
-    PREPARED_TEST_POOLS.lock().unwrap_or_else(|e| e.into_inner()).pop()
-}
-
 /// Process-wide cache of the resolved test database URL.
 /// Each isolated test pool previously re-probed every candidate URL (building
 /// and dropping a probe `PgPool` each time); under `--lib --test-threads=N`
@@ -216,6 +203,8 @@ fn next_test_schema_name() -> String {
 /// their unique-suffix + manual-cleanup row isolation; tests that need a
 /// dedicated schema must use [`prepare_empty_isolated_test_pool`] instead.
 pub async fn connect_shared_test_pool() -> Result<Arc<PgPool>, String> {
+    #[cfg(test)]
+    crate::test_exit_hook::ensure();
     let database_url = resolve_test_database_url().await?;
     let pool = PgPoolOptions::new()
         .max_connections(2)

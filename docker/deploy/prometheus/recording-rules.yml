@@ -1,0 +1,133 @@
+# =============================================================================
+# 记录规则 — 预计算常用聚合查询
+# =============================================================================
+# 目的：减少 Grafana 查询复杂度，加速仪表板渲染
+# 原则：避免过高基数维度，使用聚合标签
+# =============================================================================
+
+groups:
+  # =========================================================================
+  # RED Metrics - API 健康度
+  # =========================================================================
+  - name: http-red
+    interval: 15s
+    rules:
+      # Rate: 请求速率
+      - record: job:http_requests:rate5m
+        expr: sum(rate(http_requests_total[5m])) by (job)
+
+      # Errors: 错误速率
+      - record: job:http_errors:rate5m
+        expr: sum(rate(http_request_errors_total[5m])) by (job)
+
+      # Error Rate: 错误率
+      - record: job:http_error_rate:ratio5m
+        expr: |
+          sum(rate(http_request_errors_total[5m])) by (job) /
+          sum(rate(http_requests_total[5m])) by (job)
+
+      # Duration: 中位延迟 (P50)
+      # 后端自 43aa8f66 起输出 Prometheus 原生 `_bucket`，故恢复真分位数。
+      # 此前三条规则被降级成同一个 `rate(_sum)/rate(_count)` 均值表达式，
+      # 三个名字取到完全相同的值（名字与内容不符，且均值丢掉尾部
+      # —— 而尾部正是延迟告警要抓的对象）。
+      - record: job:http_request_duration:p50_5m
+        expr: histogram_quantile(0.5, sum(rate(http_request_duration_ms_bucket[5m])) by (le, job))
+
+      # Duration P95
+      - record: job:http_request_duration:p95_5m
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_ms_bucket[5m])) by (le, job))
+
+      # Duration P99
+      - record: job:http_request_duration:p99_5m
+        expr: histogram_quantile(0.99, sum(rate(http_request_duration_ms_bucket[5m])) by (le, job))
+
+  # =========================================================================
+  # Cache Metrics
+  # =========================================================================
+  - name: cache-metrics
+    interval: 15s
+    rules:
+      - record: instance:cache_hit_ratio:ratio5m
+        expr: |
+          sum(rate(cache_hits_total[5m])) by (instance) /
+          (sum(rate(cache_hits_total[5m])) by (instance) +
+           sum(rate(cache_misses_total[5m])) by (instance))
+
+      - record: instance:cache_eviction_rate:rate5m
+        expr: sum(rate(cache_evictions_total[5m])) by (instance)
+
+  # =========================================================================
+  # Database Metrics
+  # =========================================================================
+  - name: database-metrics
+    interval: 15s
+    rules:
+      # 恢复真 P95（原为被降级的均值，理由「后端不输出 _bucket」已不成立）
+      - record: instance:db_query_duration:p95_5m
+        expr: histogram_quantile(0.95, sum(rate(db_query_duration_ms_bucket[5m])) by (le, instance))
+
+      - record: instance:db_pool_utilization:ratio
+        expr: |
+          sum(db_connections_active) by (instance) /
+          (sum(db_connections_active) by (instance) + sum(db_connections_idle) by (instance))
+
+  # =========================================================================
+  # Rate Limiting Metrics
+  # =========================================================================
+  - name: ratelimit-metrics
+    interval: 15s
+    rules:
+      - record: instance:rate_limit_rejection_rate:ratio5m
+        expr: |
+          sum(rate(rate_limit_requests_rejected_total[5m])) by (instance) /
+          sum(rate(rate_limit_requests_total[5m])) by (instance)
+
+      - record: instance:rate_limit_fail_open_rate:rate5m
+        expr: sum(rate(rate_limit_fail_open_total[5m])) by (instance)
+
+      - record: instance:rate_limit_fail_closed_rate:rate5m
+        expr: sum(rate(rate_limit_fail_closed_total[5m])) by (instance)
+
+  # =========================================================================
+  # E2EE Metrics
+  # =========================================================================
+  - name: e2ee-metrics
+    interval: 15s
+    rules:
+      # 恢复真 P95（原为被降级的均值）
+      # 注意：本 histogram 带 `result` 标签（命中/回源/解密失败…），
+      # `sum by (le)` 会把各 result 合并成整体分布，正是告警想要的语义。
+      - record: instance:megolm_share_duration:p95_5m
+        expr: histogram_quantile(0.95, sum(rate(megolm_share_db_duration_ms_bucket[5m])) by (le, instance))
+
+      - record: instance:megolm_persist_errors:rate5m
+        expr: sum(rate(megolm_vodozemac_pickle_persist_errors_total[5m])) by (instance)
+
+  # =========================================================================
+  # Infrastructure Metrics
+  # =========================================================================
+  - name: infrastructure-metrics
+    interval: 15s
+    rules:
+      - record: instance:cpu_usage:percent
+        expr: |
+          100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+
+      - record: instance:memory_usage:percent
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100
+
+      # 取「利用率最高的那个文件系统」作为该实例的磁盘使用率。
+      # 必须是 `max by(instance)`，**不能**用 `sum by(instance)` ——
+      # 后者把同一台机器上多个分区的百分比相加（3 个盘各 60% → 180%），
+      # 而 system-overview.json:68 直接引用本规则，会显示荒谬的数值。
+      # （初版还有一处缺陷：expr 里没有 `mountpoint="/"` 选择器，却用
+      #  `labels:` 覆盖成 mountpoint="/"，导致 N 个分区产出 N 条同名序列。）
+      - record: instance:disk_usage:percent
+        expr: |
+          max by(instance) (
+            100 * (
+              1 - node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"}
+            )
+          )

@@ -254,6 +254,10 @@ pub mod test_config;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
+/// Test-build-only schema-cleanup exit hook (B'). See the module docs.
+#[cfg(test)]
+mod test_exit_hook;
+
 // Pre-positioned Mock adapters (TDD workflow — see .claude/skills/tdd-rust/SKILL.md)
 /// One-way error-conversion golden tests (B3-5 / A9).
 #[cfg(any(test, feature = "test-utils"))]

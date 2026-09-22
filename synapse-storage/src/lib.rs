@@ -226,6 +226,10 @@ pub use user_store_fake::FakeUserStore;
 #[cfg(test)]
 pub mod test_utils;
 
+/// Test-build-only schema-cleanup exit hook (B'). See the module docs.
+#[cfg(test)]
+mod test_exit_hook;
+
 // All storage modules are now grouped into a domain. The domain globs below
 // flat-re-export every grouped module's public types at the crate root for
 // backward compatibility. Domains: account, admin, application, auth, e2ee,

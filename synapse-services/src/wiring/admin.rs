@@ -179,6 +179,7 @@ impl AdminServices {
         config: &Config,
         task_queue: &Option<Arc<RedisTaskQueue>>,
         metrics: &Arc<MetricsCollector>,
+        server_metrics: &Arc<synapse_common::server_metrics::ServerMetrics>,
         token_auth: &Arc<dyn TokenAuth>,
         credential_auth: &Arc<dyn CredentialAuth>,
         _room_auth: &Arc<dyn RoomAuth>,
@@ -287,7 +288,35 @@ impl AdminServices {
         let account_data_storage_for_push = Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool));
         let push_notification_service =
             crate::push_notification_service::PushNotificationService::new(push_notification_storage.clone())
-                .with_account_data_storage(account_data_storage_for_push);
+                .with_account_data_storage(account_data_storage_for_push)
+                .with_server_metrics(server_metrics.clone());
+        // A-10: consume `push.push_gateway_url` — it was parsed and validated but
+        // never used to build a gateway, so `PushNotificationService::push_gateway`
+        // stayed `None` for the process lifetime and every `upstream`-type push
+        // failed with "upstream push provider is not initialized". Wiring it here
+        // is the only place the config and the service meet.
+        //
+        // `validate_push_gateway_url` is re-run deliberately: the config loader
+        // does not validate it, and a bad URL must degrade to "gateway disabled"
+        // (pushes then fail closed with that same clear error) rather than panic
+        // or be handed to the SSRF-checked sender as if it were trusted.
+        let push_notification_service = match config.push.push_gateway_url.as_deref() {
+            Some(url) => match crate::push::gateway::validate_push_gateway_url(url) {
+                Ok(()) => {
+                    let gateway_config = crate::push::gateway::PushGatewayConfig::default();
+                    let gateway = Arc::new(crate::push::gateway::PushGateway::new(&gateway_config));
+                    push_notification_service.with_push_gateway(gateway)
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        %error,
+                        "push.push_gateway_url is set but invalid; upstream push delivery stays disabled"
+                    );
+                    push_notification_service
+                }
+            },
+            None => push_notification_service,
+        };
         // Providers are configured by rows in the `push_config` table. Without this
         // call every provider stays `None`, so `send_to_provider` can never reach
         // `send_with_retry` and no push is actually delivered.

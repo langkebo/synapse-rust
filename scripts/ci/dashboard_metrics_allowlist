@@ -1,0 +1,25 @@
+# 面板引用的「非本仓注册」指标 —— 外部 exporter / Prometheus 自监控。
+#
+# 为什么需要显式白名单而不是按前缀放行：`turn_*` 这类前缀看着像 coturn exporter，
+# 但 `turn_active_connections` / `turn_allocations_total` 并不存在（真实名是
+# `turn_total_allocations`）。按前缀放行会让这类「看着像但不是」的名字蒙混过关，
+# 所以每一条都逐字登记并写明来源；新增外部指标必须在此加一行。
+#
+# 格式：<指标名>  来源说明（同一行的余下内容都是注释）
+
+up                              Prometheus 抓取目标健康度（内置指标）
+ALERTS                          Prometheus 告警状态（内置指标）
+process_resident_memory_bytes   prometheus 自监控进程 RSS
+prometheus_tsdb_blocks_loaded   prometheus 自监控 TSDB 已加载块数
+alertmanager_cluster_members    Alertmanager 集群成员数
+alertmanager_notifications_total Alertmanager 通知发送计数器
+
+# ── coturn / turn exporter（job `coturn`，抓 coturn:9641）────────────────────
+# 注意：这批名字是**逐字核对过**的（`turn_total_allocations` 不是
+# `turn_allocations_total`；不存在 `turn_active_connections` / `turn_stun_requests_total`，
+# 2026-09-22 实测）。
+turn_total_allocations          coturn exporter：TURN 分配总数
+turn_packet_processed           coturn exporter：已处理报文数
+turn_ratelimit_occupied_buckets coturn exporter：已占用限流桶
+turn_ratelimit_total_buckets    coturn exporter：限流桶总数
+turn_total_traffic_rcvb         coturn exporter：接收字节数（累计）

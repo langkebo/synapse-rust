@@ -45,7 +45,7 @@ MIN_TABLES="${MIN_TABLES:-100}"
 
 export PGPASSWORD="$DB_PASSWORD"
 # A full URL wins when provided (that is how `scripts/ci/prepare_test_db.sh` and
-# `run_local_coverage.sh` pass the target); otherwise assemble from TEST_DB_*.
+# `scripts/ci/run_coverage.sh` pass the target); otherwise assemble from TEST_DB_*.
 if [[ -n "${TEST_DATABASE_URL:-}" ]]; then
     PSQL=(psql "$TEST_DATABASE_URL")
 else
@@ -75,6 +75,6 @@ echo "==> 验证 \"$TARGET_SCHEMA\""
 count="$("${PSQL[@]}" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='$TARGET_SCHEMA'")"
 echo "    $TARGET_SCHEMA 表数: $count"
 if ((count < MIN_TABLES)); then
-    echo "::error::$TARGET_SCHEMA 只有 $count 张表（预期 ≥$MIN_TABLES）—— 迁移没有真正落进该 schema" >&2
+    echo "::error::$TARGET_SCHEMA 只有 $count 张表（预期 ≥${MIN_TABLES}）—— 迁移没有真正落进该 schema" >&2
     exit 1
 fi

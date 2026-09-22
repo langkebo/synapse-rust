@@ -1,0 +1,354 @@
+# =============================================================================
+# 告警规则集 — HuLa/Tjg 监控栈
+# =============================================================================
+# 基于项目现有指标和 S-6/S-9 告警规则文档
+#
+# 类别：
+#   - infrastructure：基础设施层（数据库、缓存、系统资源）
+#   - application：应用层（API 错误、限流、同步）
+#   - security：安全层（认证失败、限流失效）
+#   - e2ee：加密层（Megolm、密钥管理）
+#   - voip：RTC 层（TURN/STUN）
+# =============================================================================
+
+groups:
+  # =========================================================================
+  # Group 1: EventNotifier (S-6)
+  # =========================================================================
+  - name: event-notifier
+    rules:
+      - alert: EventNotifierRedisSubscriberDown
+        expr: increase(event_notifier_subscriber_failures_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          category: infrastructure
+          service: synapse-rust
+        annotations:
+          summary: "EventNotifier Redis 订阅者断开"
+          description: |
+            实例 {{ $labels.instance }} 在 5 分钟内报告了 {{ $value }} 次订阅失败。
+            这表示 Redis Pub/Sub 连接断开，跨实例事件广播可能失效。
+            检查 Redis 实例健康状态和 synapse-rust 网络连接。
+          runbook_url: "https://wiki.internal/runbooks/event-notifier-disconnect"
+
+      - alert: EventNotifierSubscriberFailuresSpike
+        expr: rate(event_notifier_subscriber_failures_total[1m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          category: infrastructure
+          service: synapse-rust
+        annotations:
+          summary: "EventNotifier 订阅者失败率升高"
+          description: |
+            持续 2 分钟每秒超过 0.1 次失败（{{ $value | humanize }} req/s）。
+            Redis 可能不稳定，正在尝试重连。
+
+  # =========================================================================
+  # Group 2: Rate Limiting (S-9)
+  # =========================================================================
+  - name: rate-limiting
+    rules:
+      - alert: RateLimitFailOpen
+        expr: rate(rate_limit_fail_open_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          category: security
+          service: synapse-rust
+          impact: "限流失效，所有请求将被放行"
+        annotations:
+          summary: "限流 Fail-Open 触发"
+          description: |
+            限流系统故障，后端不可用但仍放行请求。
+            可能导致服务雪崩。立即检查限流组件健康状态。
+          action_items: "检查 Redis 连接；检查内存使用率；查看限流中间件日志"
+
+      - alert: RateLimitFailClosed
+        expr: rate(rate_limit_fail_closed_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          category: security
+          service: synapse-rust
+          impact: "全站 429，所有请求被拒绝"
+        annotations:
+          summary: "限流 Fail-Closed 触发"
+          description: |
+            限流系统故障，所有请求被拒绝。
+            用户将看到大量 429 响应。
+          action_items: "临时放宽限流规则；检查 Redis 连接"
+
+      - alert: RateLimitRejectedHigh
+        expr: |
+          rate(rate_limit_requests_rejected_total[5m]) /
+          rate(rate_limit_requests_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          category: security
+          service: synapse-rust
+          impact: "5% 以上请求被限流"
+        annotations:
+          summary: "限流拒绝率过高"
+          description: |
+            过去 5 分钟内 {{ $value | humanizePercentage }} 的请求被限流。
+            可能原因：DDoS 攻击或限流配置过严。
+            检查 `/_synapse/admin/v1/rate-limit-status` 端点。
+
+      - alert: RateLimitRejectedHighInfo
+        expr: |
+          rate(rate_limit_requests_rejected_total[5m]) /
+          rate(rate_limit_requests_total[5m]) > 0.01
+        for: 10m
+        labels:
+          severity: info
+          category: security
+          service: synapse-rust
+        annotations:
+          summary: "限流拒绝率关注"
+          description: "拒绝率超过 1%，需关注但不紧急"
+
+  # =========================================================================
+  # Group 3: Database Health
+  # =========================================================================
+  - name: database-health
+    rules:
+      - alert: DatabasePoolUtilizationHigh
+        expr: pool_utilization >= 0.9
+        for: 2m
+        labels:
+          severity: warning
+          category: infrastructure
+          service: synapse-rust
+          tier: database
+        annotations:
+          summary: "数据库连接池利用率过高"
+          description: |
+            连接池利用率 {{ $value | humanizePercentage }}，超过 90% 阈值。
+            可能导致请求排队、延迟升高。
+            建议：增大 `SYNAPSE__DATABASE__POOL_SIZE` 或检查慢查询。
+
+      - alert: DatabasePoolExhausted
+        expr: db_connections_idle == 0 and db_connections_active > 40
+        for: 1m
+        labels:
+          severity: critical
+          category: infrastructure
+          service: synapse-rust
+          tier: database
+        annotations:
+          summary: "数据库连接池耗尽"
+          description: |
+            无空闲连接，所有连接被占用。
+            请求将阻塞等待。检查是否有长事务或锁竞争。
+
+      - alert: DatabaseQueryDurationHigh
+        # 阈值单位是**毫秒**（`db_query_duration_ms`）。被降级时写成 `> 0.5`，
+        # 等于 0.5ms —— 比原阈值严 1000 倍，会长期误报；同批另两条规则保留了
+        # 2000 / 100 的 ms 量级，自相矛盾，判为笔误。
+        expr: histogram_quantile(0.95, sum(rate(db_query_duration_ms_bucket[5m])) by (le)) > 500
+        for: 5m
+        labels:
+          severity: warning
+          category: database
+          service: synapse-rust
+        annotations:
+          summary: "数据库查询延迟高"
+          description: "P95 查询延迟超过 500ms（当前 {{ $value | humanize }}ms）"
+
+  # =========================================================================
+  # Group 4: HTTP API Health (RED Methodology)
+  # =========================================================================
+  - name: http-api-health
+    rules:
+      - alert: HighHTTPErrorRate
+        expr: |
+          sum(rate(http_request_errors_total[5m])) by (service) /
+          sum(rate(http_requests_total[5m])) by (service) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          category: application
+        annotations:
+          summary: "HTTP 错误率升高"
+          description: |
+            当前错误率 {{ $value | humanizePercentage }}，超过 1% 阈值。
+            检查最近代码变更或依赖服务故障。
+
+      - alert: HTTPRequestDurationHigh
+        # 恢复真 P99（描述一直写的是 P99，降级后表达式实际算的是均值，名不符实）。
+        # `sum by (le)` 是 histogram_quantile 的稳健写法：漏掉聚合时，
+        # 任一新增标签都会把分布切成多份而静默失效。
+        expr: |
+          histogram_quantile(0.99, sum(rate(http_request_duration_ms_bucket[5m])) by (le)) > 2000
+        for: 5m
+        labels:
+          severity: warning
+          category: application
+        annotations:
+          summary: "API 响应时间高"
+          description: "P99 延迟超过 2 秒（当前 {{ $value | humanize }}ms）"
+
+      - alert: HTTPActiveRequestsGrowing
+        expr: http_active_requests > 100
+        for: 3m
+        labels:
+          severity: warning
+          category: application
+        annotations:
+          summary: "活跃请求数异常增长"
+          description: "当前 {{ $value }} 个活跃请求，可能意味着请求积压"
+
+  # =========================================================================
+  # Group 5: Cache Performance
+  # =========================================================================
+  - name: cache-performance
+    rules:
+      - alert: CacheHitRateLow
+        expr: |
+          sum(rate(cache_hits_total[10m])) by (instance) /
+          (sum(rate(cache_hits_total[10m])) by (instance) +
+           sum(rate(cache_misses_total[10m])) by (instance)) < 0.7
+        for: 10m
+        labels:
+          severity: warning
+          category: performance
+          service: synapse-rust
+        annotations:
+          summary: "缓存命中率下降"
+          description: |
+            当前命中率 {{ $value | humanizePercentage }}，低于 70% 阈值。
+            可能原因：缓存驱逐过度或热数据变化。
+
+      - alert: CacheEvictionsHigh
+        expr: rate(cache_evictions_total[5m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+          category: performance
+          service: synapse-rust
+        annotations:
+          summary: "缓存驱逐率过高"
+          description: "每秒超过 100 次缓存驱逐，Redis 内存可能紧张"
+
+  # =========================================================================
+  # Group 6: E2EE Health (Phase 2 metrics)
+  # =========================================================================
+  - name: e2ee-health
+    rules:
+      - alert: MegolmPicklePersistErrors
+        expr: rate(megolm_vodozemac_pickle_persist_errors_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          category: e2ee
+          service: synapse-rust
+        annotations:
+          summary: "Megolm 密钥持久化失败"
+          description: |
+            会话密钥写入失败，可能导致 E2EE 消息无法解密。
+            检查存储和密钥文件权限。
+
+      - alert: E2EESessionKeyReadSlow
+        # 恢复真 P95（描述写的是 P95）。该 histogram 带 `result` 标签，
+        # 必须 `sum by (le)` 合并后再取分位数。
+        expr: |
+          histogram_quantile(0.95, sum(rate(megolm_session_key_read_duration_ms_bucket[5m])) by (le)) > 100
+        for: 5m
+        labels:
+          severity: warning
+          category: e2ee
+          service: synapse-rust
+        annotations:
+          summary: "E2EE 会话密钥读取延迟高"
+          description: "P95 读取延迟超过 100ms"
+
+      - alert: E2EECacheErrors
+        expr: rate(megolm_share_cache_errors_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+          category: e2ee
+          service: synapse-rust
+        annotations:
+          summary: "E2EE 缓存错误"
+          description: "Megolm 共享缓存出现错误，检查 Redis 连接"
+
+  # =========================================================================
+  # Group 7: Infrastructure (Node Exporter)
+  # =========================================================================
+  - name: infrastructure
+    rules:
+      - alert: HostHighCpuLoad
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 10m
+        labels:
+          severity: warning
+          category: infrastructure
+          tier: host
+        annotations:
+          summary: "主机 CPU 负载过高"
+          description: "CPU 使用率超过 80% 持续 10 分钟（当前 {{ $value | humanize }}%）"
+
+      - alert: HostMemoryPressure
+        expr: |
+          (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 < 10
+        for: 5m
+        labels:
+          severity: critical
+          category: infrastructure
+          tier: host
+        annotations:
+          summary: "主机内存压力过高"
+          description: "可用内存低于 10%（{{ $value | humanize }}%）"
+
+      - alert: HostDiskSpaceLow
+        expr: |
+          (node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100 < 15
+        for: 10m
+        labels:
+          severity: warning
+          category: infrastructure
+          tier: host
+        annotations:
+          summary: "磁盘空间不足"
+          description: "磁盘可用空间低于 15%"
+
+      - alert: HostDiskIOHigh
+        expr: |
+          rate(node_disk_io_time_seconds_total[5m]) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          category: infrastructure
+          tier: host
+        annotations:
+          summary: "磁盘 I/O 饱和"
+          description: "磁盘 I/O 利用率超过 90%"
+
+  # =========================================================================
+  # Group 8: Service Availability
+  # =========================================================================
+  - name: service-availability
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: availability
+        annotations:
+          summary: "服务 {{ $labels.job }} 不可用"
+          description: "Prometheus 无法抓取 {{ $labels.job }} 指标已超过 1 分钟"
+
+      - alert: PrometheusTargetMissing
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: warning
+          category: monitoring
+        annotations:
+          summary: "Prometheus 目标丢失"
+          description: "目标 {{ $labels.job }} 无法抓取，检查网络和服务状态"

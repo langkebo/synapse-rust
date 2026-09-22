@@ -1,0 +1,22 @@
+# 埋点可达性 ratchet 基线 —— 已知**尚未接通**的 ServerMetrics 埋点方法。
+# 由 scripts/ci/check_metric_instrumentation.py --update 生成/收紧。
+# 每一条都是待还的债，不是豁免：接通后请重跑 --update 让它从列表里消失。
+# 语法：每行一个方法名，`#` 起注释。
+
+record_auth_attempt
+record_cache_operation
+record_csrf_validation
+record_db_query
+record_megolm_dual_write_promotion
+record_megolm_lazy_migration_batch
+record_megolm_vodozemac_pickle_persist
+record_message_send
+record_presence_update
+record_replay_attack_blocked
+record_room_operation
+record_security_validation
+record_state_group_resolve
+record_sync_request
+record_token_validation
+
+# 因同名冲突而跳过检查（纯文本扫描无法区分接收者类型）的方法：

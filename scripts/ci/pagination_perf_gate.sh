@@ -8,7 +8,7 @@
 # (`benches/performance_api_benchmarks.rs`). Their margin is ~1500x, so no real
 # `synapse-storage` SQL regression can trip its 30% threshold — it is a
 # compute-path smoke check, not a pagination guard
-# (`docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md` §9, row E4).
+# (`docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md` §9, row E4).
 #
 # This gate measures the real thing:
 #

@@ -20,7 +20,7 @@
 
 | 类型 | 位置 | 目的 | 覆盖率要求 |
 |-----|------|------|-----------|
-| 单元测试 | `tests/unit/*.rs` | 验证独立组件逻辑 | 目标 ≥80%，当前自动门槛以 `tarpaulin.toml` 的 `70%` 为准 |
+| 单元测试 | `tests/unit/*.rs` | 验证独立组件逻辑 | 目标 ≥80%；自动门槛是 **per-file 棘轮**（`scripts/ci/coverage_baseline.json` + `scripts/check_file_coverage.py`）：已登记文件不得回退，新文件核心前缀 ≥70%、其余 30% 爬坡 |
 | 集成测试 | `tests/integration/*.rs` | 验证 API 完整流程与高风险契约 | 主链与高风险能力域必覆盖 |
 | 端到端测试 | `tests/e2e/*.rs` | ⚠️ **默认不验证端到端行为**（见下方注） | 真实 E2E 需 `E2E_RUN=1` + 运行中的服务 |
 
@@ -108,12 +108,12 @@
 
 | 测试入口 | 分类 | 说明 |
 |---------|------|------|
-| `bash scripts/run_ci_tests.sh` | 本地便利封装 | **不在 CI 中调用**：`ci.yml` 内联重实现了同一批测试。权威入口是 `ci.yml`；本脚本是本地复刻，改 CI 时必须同步，否则漂移（sweep A13） |
+| `bash scripts/ci_backend_validation.sh` | 本地便利封装 | **不在 CI 中调用**。它逐字执行 `ci.yml` 的三个 nextest 批次（lib/unit/integration，`--test-threads 4`）。权威入口是 `ci.yml`；旧的第二份实现 `scripts/run_ci_tests.sh` 已按 sweep A13 删除（铁律 2：同一职责只留一份实现） |
 | `cargo test --test unit --features test-utils placeholder_scan_tests` | 主门禁 | 阻断新增 shell route / 空成功响应回归 |
 | `bash scripts/contract/check_route_contract.sh` | 主门禁 | 阻断新增未接线的导出路由 handler / router factory |
 | `cargo test --test e2e -- --ignored --nocapture` | 扩展验证 | 真实流程需显式启用，默认不纳入自动主门禁 |
 | `cargo test --test unit --features test-utils e2ee_api_tests` | 扩展验证 | 串联 `/_matrix/client/*/keys/changes`、经典 `/sync` 与 `sliding-sync` 的 E2EE 观察面组合门 |
-| `cargo tarpaulin --output-dir coverage/ --html` | 扩展验证 | 提供覆盖率证据，不单独阻断发布 |
+| `bash scripts/ci/run_coverage.sh`（`cargo llvm-cov` 两步 + 合并 lcov；CI 同款唯一实现） | 扩展验证 | 提供覆盖率证据；per-file 棘轮由 `scripts/check_file_coverage.py` 执行 |
 | `cargo bench --bench performance_api_benchmarks --no-run` | 扩展验证 | 性能专项基准 |
 | `cargo bench --bench performance_federation_benchmarks --no-run` | 扩展验证 | 联邦性能专项基准 |
 | `cargo test --features performance-tests --test performance_manual -- --nocapture` | 手动分析 | 手动性能套件 |
@@ -170,15 +170,15 @@ PR 侧只要求常开门禁（`Repo Sanity`、`Test & Lint (...)`、`Security Au
 3. 确认 `Mutation Testing (nightly, REPORT ONLY — not a merge gate)`、`Secrets preflight`、
    `Logical Checksum Compare` **不在** required 列表里。
 
-> 依据：`docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md` §6.5（A7/A8）与 §6.6（check 名清单）。
+> 依据：`docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md` §6.5（A7/A8）与 §6.6（check 名清单）。
 
 ## 三、运行测试
 
 ### 3.1 所有测试
 
 ```bash
-# CI 等价默认回归入口
-bash scripts/run_ci_tests.sh
+# CI 等价的本地入口（逐字执行 ci.yml 的 lib/unit/integration 三个批次）
+bash scripts/ci_backend_validation.sh
 bash scripts/contract/check_route_contract.sh
 
 # 仅单元测试
@@ -247,21 +247,39 @@ TEST_DB_TEMPLATE_SCHEMA=public cargo test --locked --features test-utils --test 
 
 ### 2.2 代码覆盖率
 
+覆盖率用 **cargo llvm-cov**（tarpaulin 已弃用，见下方注）：
+
 ```bash
-# 安装 tarpaulin
-cargo install cargo-tarpaulin
+# 安装（llvm-tools 组件提供 llvm-profdata / llvm-cov）
+rustup component add llvm-tools-preview
+cargo install cargo-llvm-cov
 
-# 生成覆盖率报告
-cargo tarpaulin --locked --out Html --out Json --output-dir coverage --lib
+# 本地端到端（两步 + 合并 lcov，约 15 分钟；内部已处理 storage 直连 public 的冲突）
+bash scripts/ci/run_coverage.sh
 
-# 查看HTML报告
-open coverage/tarpaulin-report.html
+# 只跑棘轮（CI 口径：先产出 coverage/lcov.info）
+python3 scripts/check_file_coverage.py \
+  --report coverage/lcov.info \
+  --baseline scripts/ci/coverage_baseline.json \
+  --global-floor 40 --new-file-floor 30 \
+  --core-files scripts/ci/core_file_coverage_prefixes.txt
 ```
 
 **覆盖率口径**：
 - 团队质量目标：≥80%
-- 当前自动门槛：`tarpaulin.toml` 中 `fail-under = 70`
-- 2026-06-09 最新实测：`cargo tarpaulin --locked --out Json --output-dir coverage --lib` 为 `20.11%`（`10352/51472`）
+- 自动门槛：**per-file 棘轮**（`scripts/ci/coverage_baseline.json`）
+  —— 已登记文件不得回退；新文件核心前缀 ≥70%、其余 ≥30% 爬坡；
+  基线缺失/为空时 `check_file_coverage.py` **exit 2（fail-closed）**。
+- 最近一次全量实测：`~68%` 行覆盖（2026-08，`bash scripts/ci/run_coverage.sh`）。
+- ⚠️ **CI 的 Code Coverage job 从未真正跑完过**（它排在 integration 之后）：
+  在它第一次真跑并写出基线之前，上面的棘轮数字只是"协议"而非"已执行的门禁"，
+  见 `docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md` §14.16 A①。
+
+> **为什么不再是 tarpaulin**：tarpaulin 0.35.2 的 `--implicit-test-threads` 会把
+> `--test-threads=<CPU>` 注入测试 argv（本地多核 ⇒ 8+ 并发 DB 集成测试抢共享
+> `public` schema），且它的 LLVM 引擎在测试非零退出时**不返回任何覆盖数据**
+> （一个 flaky 就让 lcov 全空）。`tarpaulin.toml` 因此已删除；细节见
+> `scripts/ci/run_coverage.sh` 头部注释。
 
 ### 2.3 性能基准测试
 
@@ -461,7 +479,7 @@ ruby -e 'require "yaml"; YAML.load_file(".github/workflows/ci.yml"); YAML.load_f
 cargo fmt --all -- --check
 cargo clippy --all-features --locked -- -D warnings
 cargo test --doc --locked
-bash scripts/run_ci_tests.sh
+bash scripts/ci_backend_validation.sh
 cargo test --test unit --features test-utils placeholder_scan_tests
 ```
 
@@ -489,7 +507,7 @@ cargo test --test unit --features test-utils placeholder_scan_tests
 
 说明：
 - “默认自动触发”应以 `.github/workflows/ci.yml` 为准；本地想一次跑完同一批测试可用
-  `bash scripts/run_ci_tests.sh`，但它是**本地封装**（CI 不调用），改 CI 时需同步。
+  `bash scripts/ci_backend_validation.sh`（逐字执行 CI 的 lib/unit/integration 批次，因此不会与 CI 漂移）。
 - E2E、覆盖率、性能基准属于扩展验证或手动分析，不应在这里写成默认主门禁。
 
 ### 6.2 手动回归清单
@@ -566,7 +584,7 @@ cargo test --test unit --features test-utils placeholder_scan_tests
 - cargo fmt --all -- --check: <结果>
 - cargo clippy --all-features --locked -- -D warnings: <结果>
 - cargo test --doc --locked: <结果>
-- bash scripts/run_ci_tests.sh: <结果>
+- bash scripts/ci_backend_validation.sh: <结果>
 - cargo test --test unit --features test-utils placeholder_scan_tests: <结果>
 
 扩展验证:

@@ -653,7 +653,7 @@ impl BackgroundUpdateStorage {
     /// See [`get_stats`].
     pub async fn get_stats(&self, limit: i32) -> Result<Vec<BackgroundUpdateStats>, sqlx::Error> {
         let rows = sqlx::query_as::<_, BackgroundUpdateStats>(
-            "SELECT id, job_name, total_updates, completed_updates, failed_updates, last_run_ts, next_run_ts, average_duration_ms, created_ts, updated_ts FROM background_update_stats ORDER BY created_ts DESC LIMIT $1",
+            "SELECT id, job_name, total_updates, completed_updates, failed_updates, last_run_ts, next_run_ts, average_duration_ms, created_ts, updated_ts FROM background_update_stats ORDER BY created_ts DESC, id DESC LIMIT $1",
         )
         .bind(limit as i64)
         .fetch_all(&*self.pool)

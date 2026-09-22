@@ -251,7 +251,7 @@ impl CaptchaStorage {
             r"
             SELECT id, captcha_id, captcha_type, target, code, created_ts, expires_at, used_at, verified_at, ip_address, user_agent, attempt_count, max_attempts, status, metadata FROM registration_captcha
             WHERE target = $1 AND captcha_type = $2 AND status = 'pending' AND expires_at > $3
-            ORDER BY created_ts DESC
+            ORDER BY created_ts DESC, id DESC
             LIMIT 1
             ",
         )

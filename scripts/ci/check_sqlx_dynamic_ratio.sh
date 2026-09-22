@@ -85,23 +85,26 @@ MIN_STATIC="${SQLX_STATIC_MIN_BASELINE:-${BASELINE_STATIC}}"
 # ---------------------------------------------------------------------------
 # 2) 计数
 # ---------------------------------------------------------------------------
-# 动态调用：sqlx::query( / query_as( / query_scalar(（非宏）
+# 动态调用：sqlx::query( / query_as( / query_scalar( / query_as::< / query_scalar::< （非宏）
 # 静态调用：sqlx::query! / query_as! / query_scalar! / query_file!（编译期校验）
+# ⚠️ 排除：doc comments (!) 行（它们包含 `sqlx::query` 提及但非实际调用）
 count_matches() {
     local pattern="$1"
     local total=0
     local dir
     for dir in "${SCAN_DIRS[@]}"; do
         [[ -d "${dir}" ]] || continue
-        # grep -r 在无命中时退出码为 1；`|| true` 保证 set -e 下继续。
+        # 过滤 doc comments：grep -v 排除以 //! /// 开头的行
         local n
-        n=$(grep -rE --include='*.rs' "${EXCLUDES[@]}" -e "${pattern}" "${dir}" 2>/dev/null | wc -l | tr -d ' ') || true
+        n=$(grep -rE --exclude-dir=target --exclude-dir=.claude --exclude-dir=.git -e "${pattern}" "${dir}" 2>/dev/null |
+            grep -vE ':.*//!|:.*///' | wc -l | tr -d ' ') || true
         total=$((total + n))
     done
     echo "${total}"
 }
 
-dynamic=$(count_matches 'sqlx::query(_as|_scalar)?\(')
+# 融合 turbofish 形式：query_as::<(_) query_scalar::<(_)
+dynamic=$(count_matches 'sqlx::query(_as|_scalar)?([<(]|::<)')
 static=$(count_matches 'sqlx::query(_as|_scalar|_file)?!')
 
 total=$((dynamic + static))

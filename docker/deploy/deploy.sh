@@ -14,6 +14,7 @@
 #   ./deploy.sh --skip-build      # 跳过编译与镜像构建
 #   ./deploy.sh --install-deps    # 自动安装缺失依赖 (brew/apt/yum)
 #   ./deploy.sh --no-turn         # 跳过本地 coturn TURN 检查
+#   ./deploy.sh --no-monitoring   # 跳过监控栈启动（prometheus/grafana/...）
 #   ./deploy.sh --image REF       # 使用指定的远程镜像（跳过本地构建，自动 pull）
 #   ./deploy.sh --keep-images     # 保留历史项目镜像（默认全量删除旧镜像）
 #   ./deploy.sh --no-strict-warnings # 未知 WARNING 不阻断部署（默认阻断）
@@ -21,11 +22,12 @@
 #   ./deploy.sh --stop-timeout 30 # 容器优雅停止(SIGTERM)等待秒数，默认 30
 #
 # 完整流程: 环境检查 → 依赖安装(可选) → 配置检查 → 功能选择 → 目录准备 →
-#           SSL 证书自动生成 → /etc/hosts 检查 → 本地 coturn 检查/启动 →
+#           SSL 证书自动生成 → 应用数据密钥( megolm.key )准备 → /etc/hosts 检查 →
+#           本地 coturn 检查/启动 →
 #           部署前备份 → 缓存清理 → 项目编译 → 容器优雅停止 →
 #           移除旧部署 → 旧镜像清理 → 镜像构建 → 服务启动(含迁移) →
 #           数据库连接验证 → DB 版本一致性校验 → 健康/HTTPS 验证 →
-#           日志告警分析 → 状态与访问信息
+#           日志告警分析 → 监控栈启动 → 状态与访问信息
 #
 # 可靠性: 全部步骤经 run_step 包装，失败时打印失败的步骤/命令/行号/退出码，
 #         并按 ROLLBACK_ENABLED 自动回滚（恢复旧镜像标签 + 还原数据库备份
@@ -66,6 +68,9 @@ REMOTE_IMAGE=""
 USE_REMOTE_IMAGE=false
 INSTALL_DEPS=false
 CHECK_TURN=true
+# 监控栈（prometheus/alertmanager/grafana/node-exporter/alert-handler）随部署启动。
+# 它是**非致命**步骤：失败只告警，不触发核心栈回滚（监控不在对外服务关键路径上）。
+CHECK_MONITORING="${CHECK_MONITORING:-true}"
 # 旧项目镜像清理：默认全量删除（保留当前镜像与本次回滚标签）
 KEEP_IMAGES=false
 # 未知 WARNING 是否阻断部署：默认阻断（部署门禁要求"日志无未知告警"）
@@ -169,6 +174,9 @@ parse_args() {
             --no-turn)
                 CHECK_TURN=false
                 ;;
+            --no-monitoring)
+                CHECK_MONITORING=false
+                ;;
             --keep-images)
                 KEEP_IMAGES=true
                 ;;
@@ -217,6 +225,7 @@ show_usage() {
   --skip-build      跳过 cargo build 和 Docker 镜像构建
   --install-deps    自动安装缺失的依赖 (macOS: brew / Linux: apt/yum)
   --no-turn         跳过本地 coturn TURN 服务检查与启动
+  --no-monitoring   跳过监控栈启动（prometheus/alertmanager/grafana/node-exporter/alert-handler）
   --image REF       使用指定的远程镜像（自动 docker pull，跳过本地构建）
   --keep-images     保留历史项目镜像（默认删除所有旧项目镜像以释放空间）
   --no-strict-warnings 未知 WARNING 仅提示、不阻断部署（默认阻断）
@@ -416,7 +425,7 @@ on_error() {
     if [ "$ROLLBACK_ENABLED" = "true" ] && [ "$ROLLBACK_IN_PROGRESS" = "false" ]; then
         rollback_deployment || true
     else
-        log_warning "未执行自动回滚（ROLLBACK_ENABLED=$ROLLBACK_ENABLED）；排障指引:"
+        log_warning "未执行自动回滚（ROLLBACK_ENABLED=${ROLLBACK_ENABLED}）；排障指引:"
         log_warning "  1) 查看失败步骤日志: $LOG_FILE"
         log_warning "  2) 当前容器状态: docker compose ps"
         log_warning "  3) 重新部署: ./deploy.sh --all"
@@ -649,7 +658,7 @@ ensure_ssl_certs() {
     fi
 
     if [ -f "$cert_file" ] || [ -f "$key_file" ]; then
-        log_warning "SSL 证书缺失或不匹配域名 $server_name，重新生成..."
+        log_warning "SSL 证书缺失或不匹配域名 ${server_name}，重新生成..."
     fi
     mkdir -p ssl
 
@@ -680,6 +689,84 @@ ensure_ssl_certs() {
 }
 
 # =============================================================================
+# /app/data 密钥供给 (megolm.key)
+# =============================================================================
+# SYNAPSE__SERVER__MEGOLM_ENCRYPTION_KEY_PATH 指向 /app/data/megolm.key，
+# 它是服务端 megolm 会话的静态加密密钥。`resolve_at_rest_key` 是 fail-closed 的：
+# 路径被配置而文件缺失 / 非法 base64 / 解码后不是 32 字节，服务直接拒绝启动。
+#
+# 而 distroless 镜像里没有 shell，应用自己无从在空目录/空卷里落盘首把密钥 ——
+# 供给只能发生在部署脚本侧。2026-09-21 实测：干净命名卷首次部署时 synapse-app
+# 启动即 panic（`Failed to read key file /app/data/megolm.key`），崩溃循环 exit 133。
+#
+# 本步骤保证：
+#   1. 宿主机 $SYNAPSE_DATA_DIR/megolm.key 存在且可用（缺失则生成）；
+#   2. **绝不覆盖**已存在的合法密钥（覆盖等于让已入库的密文永久不可解）；
+#   3. 现存的密钥若不可用则 fail-closed 报错，而不是悄悄换一把新的。
+SYNAPSE_DATA_DIR="${SYNAPSE_DATA_DIR:-synapse-data}"
+
+ensure_app_data_keys() {
+    DEPLOYMENT_PHASE="app-data-keys"
+    log_info "检查 /app/data 密钥（megolm.key）..."
+
+    local data_dir="$SYNAPSE_DATA_DIR"
+    local key_file="${data_dir}/megolm.key"
+
+    # 遗留命名卷守卫：改绑宿主机目录后，旧命名卷里的 megolm.key 会被"看不见"。
+    # 静默生成新钥 → 旧密文永久不可解，所以这里 fail-closed，并给出搬运命令。
+    local legacy_volume="${COMPOSE_PROJECT_NAME:-synapse}_synapse_data"
+    if docker volume inspect "$legacy_volume" >/dev/null 2>&1; then
+        log_error "检测到遗留命名卷 $legacy_volume —— 它可能仍保存着现役 megolm.key。"
+        log_error "直接改绑宿主机目录会静默换钥，导致已入库的 megolm 密文无法解密。"
+        log_error "请先确认并搬运密钥（假定卷内有 megolm.key），然后删除该卷："
+        log_error "  docker run --rm -v $legacy_volume:/src -v \"\$PWD/${data_dir}:/dst\" alpine \\"
+        log_error "    sh -c 'cp -n /src/megolm.key /dst/megolm.key'"
+        log_error "  docker volume rm $legacy_volume"
+        return 1
+    fi
+
+    mkdir -p "$data_dir"
+
+    if [ -s "$key_file" ]; then
+        # 已在位：只做完整性校验，绝不重写。
+        local decoded_bytes
+        decoded_bytes="$(openssl base64 -d -in "$key_file" 2>/dev/null | wc -c | tr -d '[:space:]')"
+        if [ "$decoded_bytes" != "32" ]; then
+            log_error "现有密钥不可用: ${key_file}（base64 解码后 ${decoded_bytes:-0} 字节，需为 32）"
+            log_error "服务会因 fail-closed 拒绝启动。请从备份恢复正确密钥；"
+            log_error "若确认这把钥从未被使用过，可删除该文件后重跑本步骤以重新生成。"
+            return 1
+        fi
+        log_success "megolm.key 已存在且合法（解码 32 字节）"
+        # 顺手收紧权限：历史遗留的密钥是 0644（宿主机任何本地用户可读）。与
+        # ensure_ssl_certs 对 TLS 私钥的处理保持一致，统一 0600。
+        local current_mode
+        current_mode="$(stat -f '%Lp' "$key_file" 2>/dev/null || stat -c '%a' "$key_file" 2>/dev/null || echo '')"
+        if [ -n "$current_mode" ] && [ "$current_mode" != "600" ]; then
+            chmod 600 "$key_file"
+            log_warning "已将 megolm.key 权限由 ${current_mode} 收紧为 600"
+        fi
+        return
+    fi
+
+    if [ -e "$key_file" ]; then
+        log_warning "megolm.key 存在但为空，视为未供给，重新生成..."
+    fi
+    log_info "生成新的 megolm 静态加密密钥..."
+    # `openssl rand -base64 32` 恰好给出 base64(32 字节)。先写临时文件再原子改名，
+    # 避免中途失败留下半截文件 —— 半截文件同样会让服务 fail-closed。
+    local tmp_file="${key_file}.tmp.$$"
+    if ! (umask 077 && openssl rand -base64 32 >"$tmp_file" && [ -s "$tmp_file" ]); then
+        log_error "生成 megolm.key 失败"
+        rm -f "$tmp_file"
+        return 1
+    fi
+    mv -f "$tmp_file" "$key_file"
+    chmod 600 "$key_file"
+    log_success "已生成 megolm.key: ${key_file}（权限 0600）"
+}
+
+# =============================================================================
 # /etc/hosts 域名映射检查 (matrix.test -> 127.0.0.1)
 # =============================================================================
 ensure_hosts_entry() {
@@ -687,7 +774,21 @@ ensure_hosts_entry() {
     log_info "检查 /etc/hosts 域名映射..."
     local server_name="${SERVER_NAME:-matrix.test}"
 
-    if grep -Eq "(^|[[:space:]])127\.0\.0\.1([[:space:]]+.*)?${server_name}\b" /etc/hosts 2>/dev/null; then
+    # 逐字段判断：先去掉行内注释，再要求该行第一个字段是 127.0.0.1 且**任一后续
+    # 字段**等于域名。刻意不用
+    #   grep -Eq "(^|[[:space:]])127\.0\.0\.1([[:space:]]+.*)?${server_name}\b"
+    # 这种写法：BSD grep 走最左最长匹配，会把 `([[:space:]]+.*)?` 一路吃到行尾，
+    # 之后再要求匹配域名就永远失败 —— 于是对**正确**的 hosts（形如
+    # `127.0.0.1 matrix.test element.test`，域名不在首位）误报「缺少域名映射」，
+    # 还会诱导运维再追加一条重复记录（2026-09-21 在本机 /etc/hosts 上实测：
+    # 旧正则不匹配、新写法匹配）。字段比较同时天然避开注释行与 IPv6 行。
+    if awk -v host="$server_name" '
+        { sub(/#.*/, "") }
+        $1 == "127.0.0.1" {
+            for (i = 2; i <= NF; i++) if ($i == host) { found = 1 }
+        }
+        END { exit(found ? 0 : 1) }
+    ' /etc/hosts 2>/dev/null; then
         log_success "/etc/hosts 已包含: 127.0.0.1 $server_name"
         return
     fi
@@ -789,6 +890,63 @@ check_local_turn() {
 }
 
 # =============================================================================
+# 监控栈启动（prometheus / alertmanager / grafana / node-exporter / alert-handler）
+# =============================================================================
+# 监控栈通过独立的 `docker-compose.monitoring.yml` 编排（此前是裸 `docker run`
+# 手工起的，配置能改、栈无法重建）。它复用核心栈创建的网络，因此必须在核心栈
+# 起来之后再启动。
+#
+# **非致命**：监控不在对外服务关键路径上，任一环节失败只告警、返回 0，
+# 不触发核心栈回滚。用 `--no-monitoring` 可整体跳过。
+MONITORING_COMPOSE_FILE="docker-compose.monitoring.yml"
+MONITORING_PROJECT="synapse-monitoring"
+
+start_monitoring() {
+    DEPLOYMENT_PHASE="monitoring"
+    if [ "$CHECK_MONITORING" != "true" ]; then
+        log_info "跳过监控栈启动 (--no-monitoring)"
+        return 0
+    fi
+    if [ ! -f "$DEPLOY_ROOT/$MONITORING_COMPOSE_FILE" ]; then
+        log_warning "未找到 ${MONITORING_COMPOSE_FILE}，跳过监控栈"
+        return 0
+    fi
+
+    # 网络由核心栈创建；没有它监控栈抓不到 synapse-app:9090。
+    # 名字必须与两份 compose 里的 `name:` 一致 —— 那里刻意用 ${SYNAPSE_NETWORK_NAME}
+    # 而非 ${COMPOSE_PROJECT_NAME}，因为监控栈是以 `-p synapse-monitoring` 启动的，
+    # `-p` 会覆盖 COMPOSE_PROJECT_NAME，导致监控栈去引用一个不存在的网络。
+    local net="${SYNAPSE_NETWORK_NAME:-synapse_network}"
+    if ! docker network inspect "$net" >/dev/null 2>&1; then
+        log_warning "网络 $net 不存在（核心栈未启动？），跳过监控栈"
+        return 0
+    fi
+
+    # worker 抓取凭证：缺失时生成。必须先生成再 up —— 源文件不存在时 Docker 会
+    # 建一个**目录**再挂载，prometheus 会把它当文件读取失败。
+    local token_file="$DEPLOY_ROOT/prometheus/auth/worker-token"
+    if [ ! -s "$token_file" ]; then
+        mkdir -p "$(dirname "$token_file")"
+        if openssl rand -hex 32 >"$token_file" 2>/dev/null; then
+            chmod 600 "$token_file" 2>/dev/null || true
+            log_info "已生成 prometheus worker-token"
+        else
+            log_warning "无法生成 worker-token（openssl 不可用），prometheus worker 抓取将不可用"
+            rm -f "$token_file" 2>/dev/null || true
+        fi
+    fi
+
+    log_info "启动监控栈 (project=$MONITORING_PROJECT)..."
+    if compose -p "$MONITORING_PROJECT" -f "$MONITORING_COMPOSE_FILE" up -d --remove-orphans >/dev/null 2>&1; then
+        log_success "监控栈已启动: prometheus / alertmanager / grafana / node-exporter / alert-handler"
+    else
+        log_warning "监控栈启动失败（不影响核心服务）。手动排查:"
+        log_warning "  cd $DEPLOY_ROOT && docker compose -p $MONITORING_PROJECT -f $MONITORING_COMPOSE_FILE up -d"
+    fi
+    return 0
+}
+
+# =============================================================================
 # HTTPS 端点验证 (https://matrix.test)
 # =============================================================================
 verify_https_endpoints() {
@@ -879,6 +1037,10 @@ create_directories() {
     # 在 deploy 目录下创建空的 config/ 会形成"看似有副本"的假象，并让 compose
     # 挂载到空目录（镜像内 /app/config 本身为空，服务会因缺配置启动失败）。
     mkdir -p ssl media logs backups
+    # $SYNAPSE_DATA_DIR 是 /app/data 的宿主机落点（见 docker-compose.yml 的 volumes
+    # 注释）。必须在 `compose up` 之前存在，否则 Docker 会代为创建；那样在 Linux
+    # 上目录属主是 root，而容器以 uid 1000 运行，后续写 signing.key 可能失败。
+    mkdir -p "$SYNAPSE_DATA_DIR"
     # P3-fix: migrations are no longer a hand-synced copy under docker/deploy/.
     # The migrator mounts the canonical $PROJECT_ROOT/migrations directly, so that
     # is what must exist (and contain a baseline) before we start containers.
@@ -1067,7 +1229,7 @@ remove_existing_deployment() {
     # 项目标签导致 `compose down` 未回收），后续 `compose up` 会报
     # "network with name X already exists" 并连带引发容器重名冲突，使启动步骤
     # 失败。此处仅在网络已无容器占用时删除，避免误删其它项目在用的网络。
-    local net="${COMPOSE_PROJECT_NAME:-synapse}_network"
+    local net="${SYNAPSE_NETWORK_NAME:-synapse_network}"
     if docker network inspect "$net" >/dev/null 2>&1; then
         local attached
         attached="$(docker network inspect "$net" --format '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null || true)"
@@ -1513,6 +1675,7 @@ main() {
     run_step "功能摘要" show_feature_summary
     run_step "目录准备" create_directories
     run_step "SSL 证书准备" ensure_ssl_certs
+    run_step "应用数据密钥准备" ensure_app_data_keys
     run_step "hosts 检查" ensure_hosts_entry
     run_step "本地 TURN 检查" check_local_turn
 
@@ -1536,6 +1699,8 @@ main() {
     run_step "健康检查验证" verify_health_endpoints
     run_step "HTTPS 接口验证" verify_https_endpoints
     run_step "日志告警分析" verify_logs_clean
+    # 监控栈放在最后：它抓取的核心服务此时已就绪，且失败不影响核心服务。
+    run_step "启动监控栈" start_monitoring
 
     show_status
     show_access_info

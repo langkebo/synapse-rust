@@ -22,8 +22,12 @@ pub mod e2ee;
 pub mod server;
 /// The `storage` module.
 pub mod storage;
+
 /// The `tasks` module.
 pub mod tasks;
+/// Test-build-only schema-cleanup exit hook (B'). See the module docs.
+#[cfg(test)]
+mod test_exit_hook;
 /// The `worker` module.
 pub mod worker;
 

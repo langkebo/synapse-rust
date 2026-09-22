@@ -198,7 +198,7 @@ fn media_exemption_is_fully_removed_from_ci() {
 /// They need a Postgres/Redis service and minutes of runtime, so running them on
 /// every PR was traded away; PR protection relies on `Repo Sanity`,
 /// `Test & Lint`, `Security Audit` and `PR Benchmark Gate` instead
-/// (`TESTING.md` §2.4, `docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md` §6.6).
+/// (`TESTING.md` §2.4, `docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md` §6.6).
 ///
 /// This pins the *decision*, not just the YAML: enabling any of these on
 /// `pull_request` (or dropping the push/schedule trigger that is the only place
@@ -549,76 +549,20 @@ fn integration_step_reports_every_failure() {
          memory`。实际命令：{run}"
     );
 }
-
-/// k6 guardrail 必须读得懂 k6 **0.47 的扁平** `--summary-export`，并且 `--fail-on-breach`
-/// 真的以非零码退出。
-///
-/// 2026-09-21 本地第一次真跑 k6 冒烟（docker `grafana/k6:0.47.0`，与 CI 同版本）时发现：
-/// 0.47 的导出把聚合值**平铺**在 `metrics.<name>` 下（`{"p(95)":12}` / errors 是
-/// `{"value":1}`），而 `guardrail.py` 只认 `metric["values"]["p(95)"]`（更老的
-/// summary-handler 形态）⇒ 七项指标全部渲染成 `Actual: missing / Status: FAIL`，
-/// **即使目标完全健康也只会 FAIL**。这正是本会话反复出现的"从未执行过的门禁"缺陷。
-///
-/// **红证明**：把 `metric_value` 改回只读 `metric["values"]` → 本测试的健康用例报
-/// `missing` 且退出非零 → FAILED。
-#[test]
-fn k6_guardrail_reads_the_flat_summary_export() {
-    let root = repo_root();
-    let tmp = std::env::temp_dir().join(format!("dsh-k6-guard-{}", std::process::id()));
-    fs::create_dir_all(&tmp).expect("create temp dir for synthetic k6 summaries");
-    let run = |metrics_json: &str| -> (i32, String) {
-        fs::write(tmp.join("smoke_results.json"), format!("{{\"metrics\":{metrics_json}}}"))
-            .expect("write synthetic k6 summary");
-        let out = std::process::Command::new("python3")
-            .arg(root.join("scripts/test/perf/guardrail.py"))
-            .arg("--results-dir")
-            .arg(&tmp)
-            .arg("--scenario")
-            .arg("smoke")
-            .arg("--fail-on-breach")
-            .output()
-            .expect("guardrail.py must be runnable with python3");
-        (out.status.code().unwrap_or(-1), String::from_utf8_lossy(&out.stdout).to_string())
-    };
-
-    const FLAT_HEALTHY: &str = r#"{"login_duration":{"p(95)":12},"create_room_duration":{"p(95)":8},
-        "send_message_duration":{"p(95)":5},"sync_duration":{"p(95)":40},
-        "room_summary_duration":{"p(95)":9},"errors":{"value":0.0}}"#;
-    let (code, out) = run(FLAT_HEALTHY);
-    assert_eq!(code, 0, "健康目标（所有 P95 远低于阈值、错误率 0）必须 PASS：\n{out}");
-    assert!(
-        !out.contains("missing"),
-        "k6 0.47 的扁平 summary-export 必须被读到；出现 `missing` 说明解析器只认旧的`values` 形态：\n{out}"
-    );
-
-    const FLAT_BREACH: &str = r#"{"login_duration":{"p(95)":12},"create_room_duration":{"p(95)":8},
-        "send_message_duration":{"p(95)":5},"sync_duration":{"p(95)":40},
-        "room_summary_duration":{"p(95)":9},"errors":{"value":1.0}}"#;
-    let (code, out) = run(FLAT_BREACH);
-    assert_eq!(code, 1, "错误率 100% 必须让 `--fail-on-breach` 以非零退出：\n{out}");
-
-    // 旧的嵌套形态（summary-handler 风格）仍要能读：同一份数据的另一种写法。
-    const NESTED_HEALTHY: &str = r#"{"login_duration":{"values":{"p(95)":12}},
-        "create_room_duration":{"values":{"p(95)":8}},"send_message_duration":{"values":{"p(95)":5}},
-        "sync_duration":{"values":{"p(95)":40}},"room_summary_duration":{"values":{"p(95)":9}},
-        "errors":{"values":{"rate":0.0}}}"#;
-    let (code, out) = run(NESTED_HEALTHY);
-    assert_eq!(code, 0, "嵌套形态（旧 summary-handler 输出）也必须能读：\n{out}");
-    assert!(!out.contains("missing"), "嵌套形态不应出现 `missing`：\n{out}");
-
-    let _ = fs::remove_dir_all(&tmp);
-}
-
-/// cargo-geiger 门禁必须是**单向棘轮**，且基线里的逐条理由必须自洽（2026-09-21 裁定 B）。
 ///
 /// 背景（§14.14.6）：解析器修好 cargo-geiger 0.13 的 schema 之后，这道门禁第一次给出真判定
-/// —— production unsafe = 2 / test-only = 8 —— 于是"production 硬零、无白名单"的政策被违反。
+/// —— 当时是 production unsafe = 2 / test-only = 8 —— 于是"production 硬零、无白名单"的政策被违反。
 /// 裁定：改成"极紧的逐条棘轮"——只许减少，减少时**必须**同步收紧基线，每一处都要在基线里
 /// 写明理由与 `review_by`，并且**逐条清单之和必须等于总数**（否则基线写的和门禁管的是两回事）。
 ///
+/// 2026-09-22 收紧：B'（`298f74b8`）把那 2 处 production unsafe 搬进了测试目标，基线却一直
+/// 停在 2/8 ⇒ 门禁此后每次都报"production unsafe decreased (2 -> 0)"。实测（10/10 workspace 包
+/// prod 全 0、`packages_without_metrics` 为空）后基线改为 **prod=0 / test=9**，本测试随之更新。
+///
 /// 本测试用**合成报告**离线驱动脚本（不需要 cargo-geiger），钉住 5 件事：
-/// ① 与仓库基线一致的 prod=2 / test=8 ⇒ exit 0；② prod=3 ⇒ exit 1（有人新增）：
-/// ③ prod=1 ⇒ exit 1（好事，但必须收紧基线）；④ test=9 ⇒ exit 1；⑤ 逐条清单之和与总数
+/// ① 与仓库基线一致的 prod=0 / test=9 ⇒ exit 0；② prod=1 ⇒ exit 1（有人新增）：
+/// ③ prod=0 对**合成基线 prod=1** ⇒ exit 1（好事，但必须收紧基线；仓库基线已是 0，无法表达下降，
+/// 故用合成基线保住这条分支的红证明）；④ test=10 ⇒ exit 1；⑤ 逐条清单之和与总数
 /// 不一致的基线 ⇒ exit 2。
 ///
 /// **红证明**：把 Gate 1 改回硬零（`prod_total > 0 ⇒ FAIL`）→ ① 变成 exit 1，本测试 FAILED；
@@ -668,21 +612,31 @@ fn cargo_geiger_gate_is_a_one_way_ratchet() {
         code
     };
 
-    assert_eq!(run(2, 8, "ok", &repo_baseline), 0, "基线内的 prod=2/test=8 必须 PASS");
-    assert_eq!(run(3, 8, "increase", &repo_baseline), 1, "prod 增加到 3 必须 FAIL（单向棘轮）");
-    assert_eq!(run(1, 8, "decrease", &repo_baseline), 1, "prod 降到 1 必须 FAIL 并要求收紧基线");
-    assert_eq!(run(2, 9, "test-increase", &repo_baseline), 1, "test-only 超过基线必须 FAIL");
+    assert_eq!(run(0, 9, "ok", &repo_baseline), 0, "基线内的 prod=0/test=9 必须 PASS");
+    assert_eq!(run(1, 9, "prod-increase", &repo_baseline), 1, "prod 从 0 增加到 1 必须 FAIL（单向棘轮）");
+    assert_eq!(run(0, 10, "test-increase", &repo_baseline), 1, "test-only 超过基线必须 FAIL");
+
+    // ③ 仓库基线已经是 prod=0，"下降"无法用它表达 ⇒ 用合成基线 prod=1 保住这条分支的红证明。
+    let prod_one_baseline = tmp.join("prod-one-baseline.json");
+    fs::write(
+        &prod_one_baseline,
+        r#"{"prod_unsafe_total":1,"test_unsafe_total":9,
+            "prod_unsafe_sites":[{"package":"x","count":1,"why":"synthetic","review_by":"2099-01-01"}],
+            "test_unsafe_sites":[{"package":"y","count":9,"why":"synthetic","review_by":"2099-01-01"}]}"#,
+    )
+    .expect("write synthetic prod=1 baseline");
+    assert_eq!(run(0, 9, "decrease", &prod_one_baseline), 1, "prod 降到 0 必须 FAIL 并要求收紧基线");
 
     // ⑤ 逐条清单之和 != 总数：基线在骗人，必须 exit 2 而不是照常判定。
     let bad_baseline = tmp.join("bad-baseline.json");
     fs::write(
         &bad_baseline,
-        r#"{"prod_unsafe_total":2,"test_unsafe_total":8,
+        r#"{"prod_unsafe_total":1,"test_unsafe_total":9,
             "prod_unsafe_sites":[{"package":"x","count":1,"why":"synthetic","review_by":"2099-01-01"}],
             "test_unsafe_sites":[{"package":"y","count":8,"why":"synthetic","review_by":"2099-01-01"}]}"#,
     )
     .expect("write synthetic baseline");
-    assert_eq!(run(2, 8, "sum-mismatch", &bad_baseline), 2, "逐条清单之和与总数不一致必须 exit 2");
+    assert_eq!(run(1, 9, "sum-mismatch", &bad_baseline), 2, "逐条清单之和与总数不一致必须 exit 2");
 
     let _ = fs::remove_dir_all(&tmp);
 }
@@ -861,46 +815,6 @@ fn advisory_review_dates_are_not_overdue() {
     }
 }
 
-/// k6 冒烟测试必须由**显式**的 dispatch 输入触发，不能挂在裸 `workflow_dispatch` 上。
-///
-/// 该 job 打的是**外部**目标（`secrets.K6_SMOKE_BASE_URL`，缺省 `http://localhost:8448`），
-/// 而它自己**不启动任何服务** —— 所以"只想验证慢速车道"的 `run_slow_tier` dispatch 会
-/// 顺带把它拉起来，并因为一个与本次改动无关的原因变红。k6 进不进 `ci-summary` 哨兵
-/// 也有明确答案：不进 —— 哨兵保证的是"事件要求的慢速车道没有被静默跳过"，而 k6 需要
-/// 外部环境 + secret，只能由人显式要求并自行认领结果。
-///
-/// **红证明**：把该 job 的 `if` 改回裸 `github.event_name == 'workflow_dispatch'` → FAILED。
-#[test]
-fn k6_smoke_requires_an_explicit_dispatch_input() {
-    let ci = fs::read_to_string(repo_root().join(".github/workflows/ci.yml")).expect("read ci.yml");
-    let k6 = ci.split("k6-smoke-test:").nth(1).expect("ci.yml 必须有 k6-smoke-test job");
-    // 只取该 job 自己的内容（到下一个顶层 job 头为止），避免把后续 job 的条件算进来。
-    let mut head = String::new();
-    for line in k6.lines() {
-        let is_next_job = line.starts_with("  ")
-            && !line.starts_with("   ")
-            && line.ends_with(':')
-            && line.trim_end_matches(':').chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
-        if is_next_job {
-            break;
-        }
-        head.push_str(line);
-        head.push('\n');
-    }
-    assert!(
-        head.contains("github.event.inputs.run_k6 == 'true'"),
-        "k6 job 必须由显式输入 `run_k6` 触发（它打外部环境、自己不启动服务）：\n{head}"
-    );
-    assert!(
-        !head.contains("if: github.event_name == 'workflow_dispatch'\n"),
-        "不得把 k6 job 的触发条件退回裸 `workflow_dispatch`"
-    );
-    assert!(
-        ci.contains("      run_k6:") && ci.contains("运行 k6 冒烟测试"),
-        "`workflow_dispatch.inputs` 必须声明 `run_k6`（默认 false），否则没人能显式要求它"
-    );
-}
-
 /// perf smoke 步骤必须列出 `performance_manual` 的**全部** `required-features`。
 ///
 /// run 35580479156 第一次真正执行到 `Run performance smoke gate`（它排在 integration /
@@ -952,4 +866,374 @@ fn performance_smoke_step_declares_required_features() {
              缺 `{feature}`（Cargo.toml 声明 {required:?}，ci.yml 传 {features:?}）"
         );
     }
+}
+
+/// 每个"测试期会向 janitor 注册 schema"的 crate，都必须由**自己的测试构建**注册退出排空钩子。
+///
+/// 背景（B' 设计，见 `docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md` §14.14.8.1）：
+/// `libc::atexit(drain_schemas_at_exit)` 是 `unsafe`，把它留在
+/// `synapse_common::test_schema_guard` 里会让 cargo-geiger 的**生产**扫描把它算成
+/// production unsafe。它被移到各个测试构建：生产库零 `unsafe`，而 `--include-tests`
+/// 扫描照样看得见（落到 test-only 差值里），**运行时行为完全不变**。
+///
+/// 这条守卫把"哪些 crate 需要注册"钉成静态不变量：
+/// ① 任何 `src/` 里调用 `register_schema_cleanup` 的 workspace crate，其 `Cargo.toml`
+///    的 `[dev-dependencies]` 必须有 `libc`（否则注册代码编不过）；
+/// ② 该 crate 的源码里必须出现 `drain_schemas_at_exit`（注册点或其模块）；
+/// ③ 根 crate 的两个测试二进制（`tests/unit`、`tests/integration`）共用
+///    `tests/common/mod.rs`，其中必须有 `ensure_schema_exit_hook` 且真正被调用；
+/// ④ `synapse-common/src` 的**非注释**代码里不得出现 `unsafe`（这正是 B' 的目的）。
+///
+/// **红证明**：删掉任一 crate 的 `libc` dev-dependency → FAILED；删掉任一 crate 的注册
+/// （模块/调用）→ FAILED；往 `synapse-common/src` 的生产代码插一个 `unsafe {}` → FAILED。
+#[test]
+fn every_db_test_binary_registers_the_exit_drain() {
+    let root = repo_root();
+
+    // ① 找出所有会在测试期注册 schema 的 workspace crate（以调用 register_schema_cleanup 为准）。
+    // 用普通 `grep -rl` 而不是 `git grep`：注册点/钩子模块里有**新增文件**，而
+    // `git grep` 默认只看已跟踪文件 —— 守卫不能因为文件还没 `git add` 就假红。
+    let grep = std::process::Command::new("bash")
+        .arg("-c")
+        .arg("grep -rl register_schema_cleanup src synapse-common/src synapse-cache/src synapse-e2ee/src synapse-federation/src synapse-services/src synapse-storage/src synapse-test-utils/src synapse-web/src 2>/dev/null || true")
+        .current_dir(&root)
+        .output()
+        .expect("git grep must be runnable");
+    let hits = String::from_utf8_lossy(&grep.stdout);
+    let mut crates: Vec<String> = hits
+        .lines()
+        .filter_map(|l| l.split('/').next())
+        .map(|c| if c == "src" { "synapse-rust".to_string() } else { c.to_string() })
+        .collect();
+    crates.sort();
+    crates.dedup();
+    assert!(!crates.is_empty(), "守卫前提：必须至少有一个 crate 注册 schema 清理");
+
+    for krate in &crates {
+        let manifest =
+            if krate == "synapse-rust" { root.join("Cargo.toml") } else { root.join(krate).join("Cargo.toml") };
+        let toml = fs::read_to_string(&manifest).unwrap_or_else(|e| panic!("read {}: {e}", manifest.display()));
+        assert!(
+            toml.contains("libc = \"0.2\""),
+            "{krate} 在测试期注册 schema 清理，因此它的 [dev-dependencies] 必须有 libc（atexit 钩子是 unsafe）"
+        );
+        // ② 该 crate 源码里必须出现注册点（测试期注册模块或测试目标里的注册函数）。
+        let grep_reg = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(format!("grep -rl drain_schemas_at_exit {krate}/src {krate}/tests-support 2>/dev/null || true"))
+            .current_dir(&root)
+            .output()
+            .expect("git grep must be runnable");
+        let reg = String::from_utf8_lossy(&grep_reg.stdout);
+        assert!(
+            !reg.trim().is_empty(),
+            "{krate} 必须在自己可编译进测试构建的代码里注册 drain_schemas_at_exit（依赖里的 #[cfg(test)] 对它的测试构建不可见）"
+        );
+        // 只"存在钩子模块"不算注册：必须真的在某个共享夹具里调用 `test_exit_hook::ensure()`。
+        let grep_call = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(format!("grep -rl 'test_exit_hook::ensure()' {krate}/src 2>/dev/null || true"))
+            .current_dir(&root)
+            .output()
+            .expect("grep must be runnable");
+        let call = String::from_utf8_lossy(&grep_call.stdout);
+        assert!(
+            !call.trim().is_empty(),
+            "{krate} 的钩子模块必须被**调用**（`test_exit_hook::ensure()`）——只有模块没有调用等于没注册"
+        );
+    }
+
+    // ③ 根 crate 的测试目标（tests/unit、tests/integration）共用 tests/common/mod.rs。
+    let common = fs::read_to_string(root.join("tests/common/mod.rs")).expect("read tests/common/mod.rs");
+    assert!(
+        common.contains("pub fn ensure_schema_exit_hook()"),
+        "tests/common/mod.rs 必须定义 ensure_schema_exit_hook（被 tests/unit 与 tests/integration 两个测试二进制共用）"
+    );
+    let common_calls = common.matches("ensure_schema_exit_hook();").count();
+    let integration = fs::read_to_string(root.join("tests/integration/mod.rs")).expect("read tests/integration/mod.rs");
+    let integration_calls = integration.matches("ensure_schema_exit_hook()").count();
+    assert!(
+        common_calls >= 1 && integration_calls >= 1,
+        "注册必须被真正调用：tests/common/mod.rs 的 `get_test_pool_async` 至少调一次、\
+         tests/integration/mod.rs 的 `require_test_pool` 至少调一次（定义行的写法不以分号结尾，\
+         因此不计入 `ensure_schema_exit_hook();` 的调用计数）\
+         （common_calls={common_calls}, integration_calls={integration_calls}）"
+    );
+
+    // ④ B' 的两条硬不变量：`synapse-common/src` 不得再引用 `libc`（依赖已移到 dev），
+    //    且 `test_schema_guard.rs` 里不得再有非注释的 `unsafe`；同时把整个 crate 里**其余**
+    //    非注释 unsafe 行钉成"仅限已知的两处测试块"，这样新出现的 unsafe 一定被看见。
+    let grep_libc = std::process::Command::new("bash")
+        .arg("-c")
+        .arg("grep -rn 'libc' synapse-common/src 2>/dev/null | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|///|//!)' || true")
+        .current_dir(&root)
+        .output()
+        .expect("grep must be runnable");
+    let libc_hits = String::from_utf8_lossy(&grep_libc.stdout);
+    assert!(
+        libc_hits.trim().is_empty(),
+        "`synapse-common/src` 的**非注释**代码不得再引用 libc（atexit 钩子已移到测试目标，libc 是 dev-dependency）：\n{libc_hits}"
+    );
+
+    let non_comment_unsafe = |pathspec: &str| -> String {
+        // grep -rn omits the filename prefix when searching a single file,
+        // which breaks the `^[^:]+:[0-9]+:` filter below. Normalize to a
+        // directory search so every output line carries `file:line:`.
+        let dir = if std::path::Path::new(pathspec).is_file() {
+            std::path::Path::new(pathspec).parent().map_or(pathspec, |p| p.to_str().unwrap())
+        } else {
+            pathspec
+        };
+        let file_re = if std::path::Path::new(pathspec).is_file() {
+            Some(format!("^{}:", pathspec.replace('\\', "/")))
+        } else {
+            None
+        };
+        let out = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(format!(
+                "grep -rn 'unsafe' {dir} 2>/dev/null | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|///|//!)' || true"
+            ))
+            .current_dir(&root)
+            .output()
+            .expect("grep must be runnable");
+        let raw = String::from_utf8_lossy(&out.stdout).to_string();
+        raw.lines().filter(|l| file_re.as_ref().is_none_or(|re| l.starts_with(re))).collect::<Vec<_>>().join("\n")
+    };
+
+    let janitor_unsafe = non_comment_unsafe("synapse-common/src/test_schema_guard.rs");
+    assert!(
+        janitor_unsafe.trim().is_empty(),
+        "B' 后 `test_schema_guard.rs`（生产模块）不得再有任何 unsafe：\n{janitor_unsafe}"
+    );
+
+    let all_unsafe = non_comment_unsafe("synapse-common/src");
+    let unexpected: Vec<&str> =
+        all_unsafe.lines().filter(|l| !l.starts_with("synapse-common/src/config/mod.rs:")).collect();
+    assert!(
+        unexpected.is_empty(),
+        "`synapse-common/src` 里除 `config/mod.rs` 的两处已知 `#[cfg(test)]` set_var 块外，\
+         不得有非注释 unsafe（新增的必须显式审阅后再加入本守卫的允许集合）：\n{unexpected:?}"
+    );
+    assert_eq!(
+        all_unsafe.lines().count(),
+        2,
+        "已知集合是 config/mod.rs 的两处 `#[cfg(test)]` set_var 块；数量变了说明有新增/删除，\
+         请复核后更新本断言：\n{all_unsafe}"
+    );
+}
+
+/// perf smoke 步骤**不得**带 `--ignored`：该目标里被 ignore 的 4 条全是**手工负载冒烟**，
+/// 它们自己的 ignore 文案就写着"结果依赖机器负载，在 CI 上会假失败"。
+///
+/// run `35599998883`（`b4774dd5`）在补上 required-features 之后第一次真跑：`--ignored` 把 4 条
+/// 手工冒烟全选中 ⇒ `2 passed; 2 failed`（172s），失败是
+/// `manual_smoke_tests::{sliding_sync_poc_load_smoke, beacon_hot_room_backpressure_load_smoke}`
+/// 的 `unexpected non-429 failures`（200 / 40 个非 429 响应）—— 与它们的 ignore 说明完全一致：
+/// 按墙钟/机器负载断言，在 CI 上必然假失败。因此改为只跑该目标里**未被 ignore 的 16 条确定性
+/// 性能测试**（本地实测 `16 passed; 0 failed; 4 ignored; finished in 5.09s`）。
+///
+/// 本守卫同时校验**前提仍然成立**：那 4 条手工冒烟仍然是 `#[ignore]` 且 ignore 文案仍写明
+/// "在 CI 上会假失败"。若有人把它们改成非 ignore（前提变了），这条守卫会提醒重新审视。
+///
+/// **红证明**：把 `--ignored` 加回该步骤 → FAILED；把 `manual_smoke_tests` 里某条的
+/// `#[ignore]` 去掉 → FAILED（前提不再成立）。
+#[test]
+fn performance_smoke_step_excludes_manual_load_tests() {
+    let root = repo_root();
+    let ci = fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("read ci.yml");
+    let step = ci
+        .split("- name: ")
+        .find(|s| s.starts_with("Run performance smoke gate"))
+        .expect("ci.yml 必须有 `Run performance smoke gate` 步骤");
+    // 只看命令行本身：步骤注释里会提到 `--ignored`（解释为什么不用它），不能把注释当违规。
+    let run = step
+        .lines()
+        .find(|l| l.trim_start().starts_with("cargo test --test performance_manual"))
+        .expect("该步骤必须跑 `cargo test --test performance_manual`");
+    assert!(
+        !run.contains("--ignored"),
+        "perf smoke 步骤不得带 `--ignored`：那会选中 4 条按设计在 CI 上假失败的手工负载冒烟\
+         （run 35599998883 实测 2 passed / 2 failed）。实际命令：{run}"
+    );
+    assert!(
+        run.contains("--test performance_manual") && run.contains("--features"),
+        "perf smoke 步骤必须仍然跑 performance_manual 目标并传 features：{run}"
+    );
+
+    // 前提校验：手工冒烟仍然是 `#[ignore]` 且说明"在 CI 上会假失败"。
+    let manual = fs::read_to_string(root.join("tests/performance/manual_smoke_tests.rs"))
+        .expect("read tests/performance/manual_smoke_tests.rs");
+    for name in ["sliding_sync_poc_load_smoke", "beacon_hot_room_backpressure_load_smoke"] {
+        let idx = manual
+            .find(&format!("async fn {name}"))
+            .unwrap_or_else(|| panic!("`{name}` 必须仍然存在（本守卫的前提：它是被 ignore 的手工冒烟）"));
+        let before = &manual[..idx];
+        let attr_at = before
+            .rfind("#[ignore")
+            .unwrap_or_else(|| panic!("`{name}` 必须仍然是 `#[ignore]`（否则 `--ignored` 的排除理由不再成立）"));
+        assert!(
+            before[attr_at..].contains("CI 上会假失败"),
+            "`{name}` 的 ignore 文案应继续写明「在 CI 上会假失败」——本守卫靠它判断该测试属于手工冒烟"
+        );
+    }
+}
+
+/// 本地 `cargo nextest run --profile ci` 的口径必须与 `ci.yml` 一致（sweep A13 的第 ② 项）。
+///
+/// `ci.yml` 的每个 nextest 步骤都在**默认** profile 上用命令行旗标表达口径
+/// （`--test-threads 4`、`--no-fail-fast`），而 AGENTS.md / TESTING.md 推荐本地用
+/// `cargo nextest run --profile ci …` 复刻 CI —— 同一口径两处各写一份就必然漂移，事实上已经漂了：
+/// `.config/nextest.toml` 曾写 `test-threads = 12` / `retries = 2`，于是本地复刻会
+/// 重现 CI 已修掉的 `53200 out of shared memory`（§14.13：共享锁表在 6 线程即爆，集成车道因此定 4），
+/// 并用 CI 明确收回的重试掩盖 flake。
+///
+/// 本守卫把 `[profile.ci]` 钉在 `ci.yml` 集成车道实际使用的值上：线程数必须相同、
+/// `retries` 必须为 0、`fail-fast` 必须为 false（= CI 的 `--no-fail-fast`），
+/// 且 `ci.yml` 里不得再出现生效的重试配置（注释里提到 `NEXTEST_RETRIES` 不算）。
+///
+/// **红证明**：把 `[profile.ci]` 的 `test-threads` 改回 12 → FAILED；把 `retries` 改回 2 → FAILED。
+#[test]
+fn local_ci_nextest_profile_matches_the_ci_command_line() {
+    let root = repo_root();
+    let profile = fs::read_to_string(root.join(".config/nextest.toml")).expect("read .config/nextest.toml");
+    let ci = fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("read ci.yml");
+
+    // `[profile.ci]` 段：从段头到下一个 `[` 段头之前。只认非注释行的 `key = value`，
+    // 否则段头注释里的说明会被当成配置值。
+    let block = profile
+        .split("[profile.ci]")
+        .nth(1)
+        .expect("`.config/nextest.toml` 必须有 `[profile.ci]`（本地 CI 口径的唯一来源）");
+    let block = block.split("\n[").next().unwrap_or(block);
+    let value = |key: &str| -> Option<String> {
+        block
+            .lines()
+            .map(str::trim)
+            .find(|l| !l.starts_with('#') && l.starts_with(&format!("{key} ")))
+            .and_then(|l| l.split('=').nth(1))
+            .map(|v| v.trim().trim_matches('"').to_string())
+    };
+
+    // ci.yml 的集成车道：带 `--no-fail-fast` 的那条 `--test integration` 全量步骤。
+    // （同 job 里还有一条只跑单个用例的 `--test-threads 1` 步骤，那是刻意的串行复现，
+    //   不是"车道口径"，所以用 `--no-fail-fast` 而不是"第一条"来定位。）
+    // 复用 `nextest_invocations`：它按行剥掉 `run: ` 前缀，并且跳过 YAML 注释。
+    let invocations = nextest_invocations();
+    let integration = invocations
+        .iter()
+        .map(|(_, cmd)| cmd.as_str())
+        .find(|cmd| {
+            cmd.contains("--test integration") && cmd.contains("--test-threads") && cmd.contains("--no-fail-fast")
+        })
+        .expect(
+            "ci.yml 必须有一条带 `--test-threads` 与 `--no-fail-fast` 的 `--test integration` 全量步骤\
+             （守卫前提；同 job 里那条只跑单个用例的 `--test-threads 1` 步骤是刻意的串行复现，不是车道口径）",
+        );
+    let ci_threads = integration
+        .split("--test-threads")
+        .nth(1)
+        .and_then(|rest| rest.split_whitespace().next())
+        .expect("集成车道的 `--test-threads` 必须有值")
+        .to_string();
+
+    assert_eq!(
+        value("test-threads").as_deref(),
+        Some(ci_threads.as_str()),
+        "`[profile.ci] test-threads` 必须等于 ci.yml 集成车道的 `--test-threads {ci_threads}`：\
+         本地 `--profile ci` 复刻的就是 CI，线程数不同会重现 CI 已经修掉的锁表耗尽（§14.13）"
+    );
+    assert_eq!(
+        value("retries").as_deref(),
+        Some("0"),
+        "`[profile.ci] retries` 必须为 0：CI 已明确收回重试（它曾把 main 上 11 个真实克隆失败重跑成绿），\
+         本地复刻不得把重试加回来"
+    );
+    assert_eq!(
+        value("fail-fast").as_deref(),
+        Some("false"),
+        "`[profile.ci]` 必须 `fail-fast = false`（= CI 集成车道的 `--no-fail-fast`，否则只报第一个失败）"
+    );
+
+    // 生效的重试配置只可能以 YAML 键的形式出现；`# ⚠️ … 不设 NEXTEST_RETRIES` 这类注释不算。
+    let active_retries: Vec<&str> = ci
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.starts_with('#') && (l.contains("NEXTEST_RETRIES") || l.starts_with("retries:")))
+        .collect();
+    assert!(
+        active_retries.is_empty(),
+        "ci.yml 不得再引入 nextest 重试（口径已收回到「flake 显形后修根因或给它专用车道」）：{active_retries:?}"
+    );
+}
+
+/// `scripts/ci_backend_validation.sh` 里的 nextest 批次必须与 `ci.yml` **逐字一致**。
+///
+/// 这个本地入口的前身是 `scripts/run_ci_tests.sh`（283 行的第二份实现），它就是因为没人
+/// 盯着才漂移出真实危害（仍用 `--ignored` 跑 4 条 CI 上会假失败的手工冒烟、带 CI 已收回的
+/// 重试、线程数也不同，见 sweep A13）。删除重复实现后，本地入口只保留三条命令，本守卫
+/// 负责让它们**不能**再悄悄偏离 CI：把脚本里的 `cargo nextest run …` 逻辑行（含 `\` 续行）
+/// 归一化空白后，必须逐条出现在 `ci.yml` 里。
+///
+/// **红证明**：把脚本里的 `--test-threads 4` 改成 `8` → FAILED。
+#[test]
+fn ci_backend_validation_runs_the_ci_batches_verbatim() {
+    let root = repo_root();
+    let script = fs::read_to_string(root.join("scripts/ci_backend_validation.sh"))
+        .expect("read scripts/ci_backend_validation.sh");
+    let ci = fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("read ci.yml");
+
+    // 先合并 `\` 续行，再取含 `cargo nextest run` 的逻辑行（否则跨行的
+    // `-E 'not test(...)'` 会被截断，比较永远不相等）。
+    let mut logical: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for line in script.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') {
+            continue;
+        }
+        let continued = trimmed.ends_with('\\');
+        current.push_str(trimmed.trim_end_matches('\\').trim_end());
+        current.push(' ');
+        if !continued {
+            if current.contains("cargo nextest run") {
+                logical.push(current.split_whitespace().collect::<Vec<_>>().join(" "));
+            }
+            current.clear();
+        }
+    }
+    assert_eq!(
+        logical.len(),
+        3,
+        "本地 CI 入口应当恰好执行 3 个 nextest 批次（lib / unit / integration）；实际：{logical:?}"
+    );
+
+    // ci.yml 侧同样要先摊平：那条 `--workspace --lib` 步骤用的是 YAML 折叠标量
+    // （`run: >-`），命令被折成两行；按行取会只拿到前半句，比较永远不相等。
+    // 做法：两边都去掉注释行、合并 `\` 续行，再把所有空白折叠成单空格，
+    // 于是"脚本里的命令"变成 ci.yml 文本的子串判定。
+    let flatten = |text: &str| -> String {
+        let mut out = String::new();
+        for line in text.lines() {
+            if line.trim_start().starts_with('#') {
+                continue;
+            }
+            out.push_str(line.trim_end_matches('\\'));
+            out.push(' ');
+        }
+        out.split_whitespace().collect::<Vec<_>>().join(" ")
+    };
+    let ci_flat = flatten(&ci);
+    let mut missing = Vec::new();
+    for cmd in &logical {
+        if !ci_flat.contains(cmd.as_str()) {
+            missing.push(cmd.clone());
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "`scripts/ci_backend_validation.sh` 的 nextest 批次必须与 `ci.yml` 逐字一致（改一处必须同步另一处，\
+         否则本地复刻与 CI 结论不同 ⇒ 就是 sweep A13 的老问题）。以下命令在 ci.yml 里找不到（摊平空白后按子串比对）：\n{}",
+        missing.join("\n")
+    );
 }

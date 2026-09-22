@@ -1,0 +1,183 @@
+# =============================================================================
+# synapse-rust 监控栈 — Prometheus / Alertmanager / Grafana / Node Exporter /
+# Alert Handler
+# =============================================================================
+# 为什么单独一个文件：
+#   `docker-compose.yml`（核心栈：postgres/redis/migrator/synapse/nginx）不包含
+#   监控服务，而监控容器此前是用裸 `docker run` 手工起的（无 compose 标签），
+#   配置能改、栈却无法重建。本文件把监控栈变成可重建、可提交的一等公民。
+#
+# 与核心栈的关系：
+#   - 复用核心栈创建的网络 `synapse_network`（external），因此必须**在核心栈
+#     之后**启动，否则网络不存在。
+#   - 抓取目标 `synapse-app:9090`、`coturn:9641` 等都在该网络上。
+#
+# 启动：
+#   docker compose -p synapse-monitoring \
+#     -f docker-compose.monitoring.yml up -d
+#   正常路径由 `deploy.sh` 的“启动监控栈”步骤调用。
+#
+# 服务名即 DNS 名，**不要随意改名**：以下名字被配置文件硬编码引用——
+#   - prometheus.yml  -> synapse-app / coturn / synapse-node-exporter /
+#                        synapse-prometheus / synapse-alertmanager
+#   - alertmanager.yml -> alert-handler
+#   - datasources.yml  -> synapse-prometheus
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------- Prometheus
+  synapse-prometheus:
+    image: prom/prometheus:v2.48.1
+    container_name: synapse-prometheus
+    restart: unless-stopped
+    mem_limit: ${PROMETHEUS_MEMORY_LIMIT:-1024m}
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --web.enable-lifecycle
+      - --web.enable-admin-api
+    volumes:
+      - prometheus_data:/prometheus
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerting-rules.yml:/etc/prometheus/alerting-rules.yml:ro
+      - ./prometheus/recording-rules.yml:/etc/prometheus/recording-rules.yml:ro
+      # 抓取 worker 指标用的 bearer token。由 deploy.sh 在缺失时生成；
+      # 若源文件不存在，Docker 会**建目录**再挂载，prometheus 会读到目录，
+      # 所以部署流程必须保证它先存在。
+      - ./prometheus/auth/worker-token:/etc/prometheus/worker-token:ro
+    ports:
+      # 变量必须叫 PROMETHEUS_UI_PORT，**不能**复用 PROMETHEUS_PORT：
+      # 后者在核心栈里是「**应用自身**的 /metrics 端口」
+      # （docker-compose.yml 的 `127.0.0.1:${PROMETHEUS_PORT:-9090}:9090`，
+      #  且 homeserver.yaml 的 prometheus.port 也是 9090）。
+      # 复用会让本服务去抢宿主 9090 —— 而它已被 synapse-app 占用，实测报错：
+      #   Bind for 127.0.0.1:9090 failed: port is already allocated
+      # 9092 与 grafana 数据源注释（datasources.yml）以及本站文档保持一致。
+      - "127.0.0.1:${PROMETHEUS_UI_PORT:-9092}:9090"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9090/-/healthy || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - synapse-network
+
+  # -------------------------------------------------------------- Alertmanager
+  synapse-alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: synapse-alertmanager
+    restart: unless-stopped
+    mem_limit: ${ALERTMANAGER_MEMORY_LIMIT:-256m}
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - alertmanager_data:/alertmanager
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "127.0.0.1:${ALERTMANAGER_PORT:-9093}:9093"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9093/-/healthy || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - synapse-network
+
+  # ------------------------------------------------------------------ Grafana
+  synapse-grafana:
+    image: grafana/grafana:10.4.2
+    container_name: synapse-grafana
+    restart: unless-stopped
+    mem_limit: ${GRAFANA_MEMORY_LIMIT:-512m}
+    volumes:
+      # 持久化 SQLite（面板改动、告警状态）。此前该项缺失，重建即丢状态。
+      - grafana_data:/var/lib/grafana
+      - ./grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - synapse-network
+
+  # ------------------------------------------------------------- Node Exporter
+  synapse-node-exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: synapse-node-exporter
+    restart: unless-stopped
+    mem_limit: ${NODE_EXPORTER_MEMORY_LIMIT:-128m}
+    command:
+      - --path.rootfs=/rootfs
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc|run/[^/]*)(/.*)?$$
+      - --collector.netclass.ignored-devices=^(lo|sit0|veth.*|docker0|br-.*|wg.*)$
+    volumes:
+      - /:/rootfs:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+    ports:
+      - "127.0.0.1:${NODE_EXPORTER_PORT:-9100}:9100"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9100/metrics || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - synapse-network
+
+  # ------------------------------------------------------------ Alert Handler
+  # alertmanager.yml 把通知投递到 http://alert-handler:8080/api/v1/alerts*，
+  # 因此本服务的 DNS 名必须是 `alert-handler`，且 app.py 必须提供这些路由。
+  # 历史 bug：容器从未真正启动（用 alpine:3.19 裸建且命令是 /bin/sh），
+  # 且 app.py 只提供 /webhook -> 投递必然 404 + 丢弃。
+  alert-handler:
+    build:
+      context: ./alert-handler
+      dockerfile: Dockerfile
+    container_name: synapse-alert-handler
+    restart: unless-stopped
+    mem_limit: ${ALERT_HANDLER_MEMORY_LIMIT:-128m}
+    ports:
+      - "127.0.0.1:${ALERT_HANDLER_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - synapse-network
+
+networks:
+  synapse-network:
+    # 由核心栈 `docker-compose.yml` 创建（name: ${SYNAPSE_NETWORK_NAME:-synapse_network}）。
+    # 这里只引用，不拥有 —— 两个 compose 声明同名非 external 网络会让 Docker 报
+    # “network ... was found but has incorrect label”。
+    #
+    # 变量必须是 SYNAPSE_NETWORK_NAME，不能是 COMPOSE_PROJECT_NAME：本文件由
+    # deploy.sh 以 `compose -p synapse-monitoring -f …` 启动，`-p` 会把
+    # COMPOSE_PROJECT_NAME 覆盖成 `synapse-monitoring`，用后者会解析出一个
+    # 不存在的 `synapse-monitoring_network` 而启动失败（2026-09-22 实测）。
+    external: true
+    name: ${SYNAPSE_NETWORK_NAME:-synapse_network}
+
+volumes:
+  prometheus_data:
+    name: synapse-prometheus-data
+    driver: local
+  alertmanager_data:
+    name: synapse-alertmanager-data
+    driver: local
+  grafana_data:
+    name: synapse-grafana-data
+    driver: local

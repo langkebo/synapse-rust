@@ -87,12 +87,13 @@ ammonia = "4.1"
 hex = "0.4.3"
 dns-lookup = "3.0.1"
 ipnet = "2.12.0"
-# atexit hook for the test-schema janitor (test_schema_guard module): the only
-# deterministic way to finish schema cleanup before process exit under
-# nextest's one-process-per-test model.
-libc = "0.2"
-
 [dev-dependencies]
+# atexit hook for the test-schema janitor (test_schema_guard): the only
+# deterministic way to finish schema cleanup before process exit under nextest's
+# one-process-per-test model. It is a **dev**-dependency on purpose — the
+# registration lives in test builds only, so the `unsafe` is not part of the
+# production build (see test_schema_guard's module docs).
+libc = "0.2"
 criterion = { version = "0.5", features = ["async_tokio"] }
 fake = "2.9"
 quickcheck = "1.0"

@@ -514,3 +514,136 @@ fn every_workflow_docker_build_names_its_dockerfile() {
         offenders.join("\n  ")
     );
 }
+
+/// 基础镜像的 digest **只能写一处**：`docker/Dockerfile` 的 ARG。
+///
+/// 2026-09-22 之前，`docker-security-scan.yml` 的 `Digest Pin Integrity` job 把三个
+/// digest 抄了一份写死在 workflow 里。后果与"门禁不会红"同型：Dockerfile 升级 pin
+/// 之后，那个 job 仍在验证**旧** digest，于是它既不能说"当前 pin 有效"，也不会因为
+/// pin 被换掉而失败。修法是唯一真相源 + `scripts/ci/read_base_image_pins.sh`（两个 job
+/// 共用同一份读取逻辑）。
+///
+/// **红证明**：往 workflow 里粘回一行 `@sha256:…` → FAILED；把 Dockerfile 的某个 ARG
+/// 改成 `:latest`（去掉 digest）→ FAILED。
+#[test]
+fn base_image_digests_are_read_from_the_dockerfile_not_copied_into_workflows() {
+    let root = repo_root();
+    let workflow = fs::read_to_string(root.join(".github/workflows/docker-security-scan.yml"))
+        .expect("read docker-security-scan.yml");
+    let dockerfile = fs::read_to_string(root.join("docker/Dockerfile")).expect("read docker/Dockerfile");
+    let helper = fs::read_to_string(root.join("scripts/ci/read_base_image_pins.sh"))
+        .expect("read scripts/ci/read_base_image_pins.sh");
+
+    // ① workflow 里不得再出现 digest 字面量（注释里也不行：注释同样会腐烂）。
+    let digests: Vec<&str> = workflow.lines().filter(|l| l.contains("sha256:")).collect();
+    assert!(
+        digests.is_empty(),
+        "docker-security-scan.yml 不得内联 digest（唯一真相源是 docker/Dockerfile 的 ARG）：\n{}",
+        digests.join("\n")
+    );
+
+    // ② 两个 job 都必须通过同一个脚本读取（禁止各写一份 sed）。
+    let helper_calls = workflow.matches("scripts/ci/read_base_image_pins.sh").count();
+    assert!(
+        helper_calls >= 2,
+        "`base-image-scan` 与 `digest-pin-check` 都必须调用 read_base_image_pins.sh（实际 {helper_calls} 处）"
+    );
+
+    // ③ Dockerfile 必须真的定义这三个 ARG 且带 digest —— 否则上面的断言全是空转。
+    for arg in ["RUNTIME_BASE_IMAGE", "DEBIAN_BASE_IMAGE", "RUST_BUILDER_IMAGE"] {
+        let line = dockerfile
+            .lines()
+            .find(|l| l.trim_start().starts_with(&format!("ARG {arg}=")))
+            .unwrap_or_else(|| panic!("docker/Dockerfile must define ARG {arg}"));
+        assert!(line.contains("@sha256:"), "ARG {arg} must stay digest-pinned: {line}");
+    }
+
+    // ④ 读取逻辑本身必须能在失败时响亮退出（否则空值会被当成"没有基础镜像"）。
+    assert!(
+        helper.contains("not digest-pinned") && helper.contains("exit 2"),
+        "read_base_image_pins.sh 必须在 ARG 缺失/未 pin 时 exit 2（响亮失败），而不是打印空值"
+    );
+    assert!(
+        helper.contains("|| exit 2"),
+        "多处读取时命令替换的失败必须显式传播（`ref=\"$(read_pin …)\" || exit 2`），\
+         否则脚本会打印空值并以 0 退出 —— 正是\"门禁不会红\"的形态"
+    );
+}
+
+/// 三个 pinned 基础镜像都必须被 Trivy 扫到，且"报告不阻断"只能有一个（builder）。
+///
+/// 缺口（P0-4）：`trivy-scan` 只扫 `--target tools` 的出货镜像，三个基础镜像本身从未扫过。
+/// 其中 distroless 是 `runtime-distroless` 的根、debian 的库经 `runtime-libs` 复制进出货
+/// 镜像 ⇒ 两者必须阻断；builder 只在构建期存在 ⇒ 允许 report-only，但必须**显式**且是唯一
+/// 一个（否则"scan 步骤存在"会掩盖"其实不阻断"）。
+///
+/// **红证明**：把 distroless 扫描的 `exit-code` 改成 0 → FAILED；删掉 builder 扫描步骤 →
+/// FAILED；把三个 `image-ref` 都换成同一个 ARG → FAILED。
+#[test]
+fn every_pinned_base_image_is_scanned_and_report_only_is_an_explicit_exception() {
+    let root = repo_root();
+    let workflow = fs::read_to_string(root.join(".github/workflows/docker-security-scan.yml"))
+        .expect("read docker-security-scan.yml");
+
+    // 只看 `base-image-scan` 这个 job 的正文（到下一个顶层 job 定义为止）。
+    let job_start = workflow.find("\n  base-image-scan:").expect("the workflow must define a `base-image-scan` job");
+    let job = &workflow[job_start..];
+    let job_body = match job[1..].find("\n  # ──").map(|offset| offset + 1) {
+        Some(next_job) => &job[..next_job],
+        None => job,
+    };
+
+    let mut scanned: Vec<(String, String, String)> = Vec::new(); // (step, image-ref, exit-code)
+    for step in job_body.split("- name: ").skip(1) {
+        let name = step.lines().next().unwrap_or_default().trim().to_string();
+        if !step.contains("aquasecurity/trivy-action") {
+            continue;
+        }
+        let pick = |key: &str| -> String {
+            step.lines()
+                .map(str::trim)
+                .find(|l| l.starts_with(key) && !l.starts_with('#'))
+                .map(|l| l[key.len()..].trim().trim_matches('\'').to_string())
+                .unwrap_or_default()
+        };
+        scanned.push((name, pick("image-ref:"), pick("exit-code:")));
+    }
+
+    assert_eq!(
+        scanned.len(),
+        3,
+        "base-image-scan 必须恰好扫三个 pinned 基础镜像（distroless / debian / builder）；实际扫描：{scanned:?}"
+    );
+
+    for arg in ["RUNTIME_BASE_IMAGE", "DEBIAN_BASE_IMAGE", "RUST_BUILDER_IMAGE"] {
+        let hits = scanned.iter().filter(|(_, image_ref, _)| image_ref.contains(arg)).count();
+        assert_eq!(
+            hits, 1,
+            "ARG {arg} 必须被扫且只扫一次（用 `steps.pins.outputs.{arg}` 引用）；实际扫描：{scanned:?}"
+        );
+    }
+
+    let report_only: Vec<&(String, String, String)> =
+        scanned.iter().filter(|(_, _, exit_code)| exit_code == "0").collect();
+    assert_eq!(
+        report_only.len(),
+        1,
+        "只允许**一个** report-only 扫描（builder，构建期镜像）；实际：{report_only:?} / 全部 {scanned:?}"
+    );
+    let (builder_step, builder_ref, _) = report_only[0];
+    assert!(
+        builder_ref.contains("RUST_BUILDER_IMAGE"),
+        "report-only 的必须是 builder（构建期镜像，产物才是运行镜像），而不是 {builder_ref}"
+    );
+    assert!(
+        builder_step.contains("report-only") && job_body.contains("build-time only"),
+        "builder 那条 report-only 扫描必须在步骤名/注释里显式写明理由，否则下一个人会以为它阻断：{builder_step}"
+    );
+
+    for (step, image_ref, exit_code) in &scanned {
+        if image_ref.contains("RUST_BUILDER_IMAGE") {
+            continue;
+        }
+        assert_eq!(exit_code, "1", "`{step}` 扫的是出货路径上的基础镜像（{image_ref}），必须阻断（exit-code 1）");
+    }
+}

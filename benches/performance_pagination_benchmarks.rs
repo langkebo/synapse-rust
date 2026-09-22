@@ -10,7 +10,7 @@
 //! `synapse-storage` SQL regression can ever move the ratio below the 30%
 //! threshold** — that check is a smoke test for the compute path, not a
 //! pagination guard (see
-//! `docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md` §9, row E4).
+//! `docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md` §9, row E4).
 //!
 //! This benchmark measures the real thing instead:
 //!

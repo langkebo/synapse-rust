@@ -52,4 +52,7 @@ base64 = { workspace = true }
 rand = { workspace = true }
 
 [dev-dependencies]
+# atexit hook for the schema janitor: registered by this crate's **test** build only
+# (B' — keeps the `unsafe` out of the production build).
+libc = "0.2"
 serial_test = "3"

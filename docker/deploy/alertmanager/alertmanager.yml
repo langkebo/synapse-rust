@@ -1,0 +1,105 @@
+# =============================================================================
+# Alertmanager 配置 — HuLa/Tjg
+# =============================================================================
+# 路由策略：
+#   1. Critical 告警 → 立即通知（10s 等待）
+#   2. Warning 告警 → 5min 聚合后通知
+#   3. Info 告警 → 静默记录，不发送通知
+#
+# 接收器：
+#   - webhook: 内部告警系统
+#   - dingtalk: 钉钉群机器人（可选）
+#   - wecom: 企业微信机器人（可选）
+# =============================================================================
+
+global:
+  resolve_timeout: 5m
+  smtp_smarthost: ''
+  smtp_from: 'alertmanager@synapse-rust.internal'
+
+# 路由配置
+route:
+  receiver: 'default-receiver'
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  group_by: ['alertname', 'severity', 'category']
+
+  routes:
+    # === Critical 告警：立即通知 ===
+    - match:
+        severity: critical
+      receiver: 'critical-webhook'
+      group_wait: 10s
+      repeat_interval: 1h
+      continue: false
+
+    # === Warning 告警：5min 聚合 ===
+    - match:
+        severity: warning
+      receiver: 'warning-webhook'
+      group_wait: 1m
+      repeat_interval: 2h
+      continue: false
+
+    # === Security 类告警：最高优先级 ===
+    - match:
+        category: security
+      receiver: 'critical-webhook'
+      group_wait: 5s
+      repeat_interval: 30m
+      continue: false
+
+    # === Info 告警：静默记录 ===
+    - match:
+        severity: info
+      receiver: 'null'
+      continue: false
+
+# 接收器配置
+receivers:
+  - name: 'default-receiver'
+    webhook_configs:
+      - url: 'http://alert-handler:8080/api/v1/alerts'
+        send_resolved: true
+
+  - name: 'critical-webhook'
+    webhook_configs:
+      - url: 'http://alert-handler:8080/api/v1/alerts/critical'
+        send_resolved: true
+
+  - name: 'warning-webhook'
+    webhook_configs:
+      - url: 'http://alert-handler:8080/api/v1/alerts/warning'
+        send_resolved: true
+
+  - name: 'dingtalk'
+    # 需要配置钉钉 webhook URL
+    # url: 'https://oapi.dingtalk.com/robot/send?access_token=...'
+    webhook_configs: []
+
+  - name: 'wecom'
+    # 需要配置企业微信群机器人 webhook URL
+    webhook_configs: []
+
+  - name: 'null'
+    # 空接收器，用于 info 级别静默
+    webhook_configs: []
+
+# 抑制规则：告警去重
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['category']
+
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'info'
+    equal: ['alertname']
+
+# 模板（可选）
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'

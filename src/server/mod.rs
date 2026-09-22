@@ -320,6 +320,7 @@ impl SynapseServer {
         let scheduled_tasks = Arc::new(ScheduledTasks::from_config(
             Arc::new(Database::from_pool((*pool).clone(), redis_pool_option)),
             &config.server,
+            Some(app_state.services.core.server_metrics.clone()),
         ));
 
         let address = format!("{}:{}", config.server.host, config.server.port).parse::<SocketAddr>()?;
@@ -369,6 +370,52 @@ impl SynapseServer {
                 .await;
             ::tracing::info!("Starting scheduled database monitoring and maintenance tasks...");
             self.scheduled_tasks.start_all(self.app_state.services.shutdown_token.clone());
+            // P0-2: Spawn pool metrics periodic task (30s interval) to wire
+            // update_pool_metrics → ServerMetrics. This restores visibility
+            // into db_connections_active/idle, pool_utilization, and
+            // pool_health_status for Prometheus/Grafana alerting.
+            let shutdown = self.app_state.services.shutdown_token.clone();
+            let server_metrics = self.app_state.services.core.server_metrics.clone();
+            let database = self.scheduled_tasks.database.clone();
+            tokio::spawn(async move {
+                use std::time::Duration;
+                let mut timer = tokio::time::interval(Duration::from_secs(30));
+                timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    tokio::select! {
+                        biased;
+                        _ = shutdown.cancelled() => {
+                            tracing::info!("pool metrics task exiting on shutdown");
+                            break;
+                        }
+                        _ = timer.tick() => {
+                            let pool_ref = database.pool();
+                            let pool_size = pool_ref.size();
+                            let idle = pool_ref.num_idle() as u32;
+                            let active = pool_size.saturating_sub(idle);
+                            let max_size = pool_ref.options().get_max_connections();
+                            let utilization = if max_size > 0 {
+                                (pool_size as f64) / (max_size as f64)
+                            } else {
+                                0.0
+                            };
+                            // Health status: assume healthy if we can read pool stats.
+                            // Real health is checked by the health_check task.
+                            let is_healthy = true;
+                            server_metrics.update_pool_metrics(
+                                active as f64,
+                                idle as f64,
+                                utilization,
+                                is_healthy,
+                            );
+                            tracing::debug!(
+                                "pool metrics updated: size={}, idle={}, active={}, max={}, util={:.3}",
+                                pool_size, idle, active, max_size, utilization
+                            );
+                        }
+                    }
+                }
+            });
         } else {
             ::tracing::info!(
                 worker_type = current_worker_type.as_str(),
@@ -816,8 +863,8 @@ impl SynapseServer {
             let prometheus_router = Router::new()
                 .route(&prometheus_path, get(render_prometheus_metrics))
                 .with_state(metrics_state)
-                .layer(Extension(prometheus_auth_token))
-                .layer(middleware::from_fn(prometheus_auth_middleware));
+                .layer(middleware::from_fn(prometheus_auth_middleware))
+                .layer(Extension(prometheus_auth_token));
 
             tokio::spawn(async move {
                 axum::serve(prometheus_listener, prometheus_router.into_make_service())
@@ -1307,6 +1354,8 @@ mod tests {
     #[cfg(feature = "test-utils")]
     #[tokio::test]
     async fn render_appservice_scheduler_prometheus_metrics_reflects_recovery_summary() {
+        #[cfg(test)]
+        crate::test_exit_hook::ensure();
         let pool = prepare_shared_test_pool().await.expect("shared test pool should be available");
         let container = synapse_services::ServiceContainer::new_test_with_pool(pool.clone()).await;
         let manager = container.admin.modules.app_service_manager.clone();

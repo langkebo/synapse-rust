@@ -23,13 +23,23 @@
 //! 2. The janitor polls the registry; when the last `Arc<PgPool>` clone is
 //!    released (test function returned), the weak reference dies and the
 //!    cleanup runs — mid-process, seconds before exit.
-//! 3. A `libc::atexit` handler flips an `EXITING` flag and waits (bounded —
-//!    see `JANITOR_EXIT_JOIN_TIMEOUT`) for the janitor, so the process cannot
-//!    exit before every remaining schema (including pools still held by
-//!    `static`s, which never drop) has been dropped with the cheap exit variant
-//!    of its cleanup. A release batch that was already mid-flight when the flag
-//!    flipped hands its remainder to the **parallel** exit drain instead of
-//!    finishing serially — see `run_release_cleanups`.
+//! 3. **Process-exit drain** ([`drain_schemas_at_exit`]): flips an `EXITING` flag
+//!    and waits (bounded — see `JANITOR_EXIT_JOIN_TIMEOUT`) for the janitor, so
+//!    the process cannot exit before every remaining schema (including pools
+//!    still held by `static`s, which never drop) has been dropped with the cheap
+//!    exit variant of its cleanup. A release batch that was already mid-flight
+//!    when the flag flipped hands its remainder to the **parallel** exit drain
+//!    instead of finishing serially — see `run_release_cleanups`.
+//!
+//!    **This module does not install that drain**: `libc::atexit` is `unsafe`, and
+//!    keeping it here made it the only `unsafe` in the crate's *production* build
+//!    (cargo-geiger counted it as a production unsafe unit). The registration is
+//!    therefore the **test target's** job — see [`drain_schemas_at_exit`]'s docs
+//!    for the "who must register" rule. Each test binary that can register
+//!    schemas calls `libc::atexit(drain_schemas_at_exit)` once, from its own
+//!    `#[cfg(test)]` code, so the `unsafe` block is compiled only into test
+//!    binaries (cargo-geiger's `--include-tests` scan sees it, the production
+//!    scan does not). Runtime behaviour is otherwise unchanged.
 //! 4. Releasing the outer `Arc<PgPool>` is **not** proof that the schema is
 //!    free. Services commonly store an *inner* `PgPool` clone
 //!    (`(**pool).clone()`), which is a different `Arc` and keeps the pool — and
@@ -437,6 +447,10 @@ fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 /// workspace; fixtures must NOT keep their own pending-drop registries
 /// (that fragmentation is what made the old mechanism unfixable).
 pub fn register_schema_cleanup(pool: &Arc<PgPool>, schema_name: &str, cleanup: SchemaCleanup) {
+    // Test builds install the process-exit drain here (once per process). The
+    // `unsafe` itself lives outside `src/` — see `test_exit_hook` below.
+    #[cfg(test)]
+    test_exit_hook::ensure();
     if EXITING.load(Ordering::SeqCst) {
         // The process is already tearing down; run the exit cleanup inline.
         let SchemaCleanup { on_exit, .. } = cleanup;
@@ -470,11 +484,11 @@ fn ensure_janitor_started() {
         let spawned = std::thread::Builder::new().name("test-schema-janitor".to_string()).spawn(janitor_loop);
         match spawned {
             Ok(handle) => {
+                // The handle is stored so [`drain_schemas_at_exit`] can join the
+                // thread; installing the hook itself is the test target's job
+                // (see this module's docs — the `unsafe` must not be compiled
+                // into the production build).
                 *lock_mutex(&JANITOR_HANDLE) = Some(handle);
-                // Safety: `janitor_exit_handler` is a plain `extern "C" fn`
-                // with no captured state; it only flips an atomic and joins
-                // the janitor thread, both sound at process-exit time.
-                unsafe { libc::atexit(janitor_exit_handler) };
             }
             Err(error) => {
                 eprintln!(
@@ -485,7 +499,33 @@ fn ensure_janitor_started() {
     });
 }
 
-extern "C" fn janitor_exit_handler() {
+/// Process-exit drain for the schema janitor: flips `EXITING` so the janitor runs
+/// its final drain, then joins the janitor thread with a bounded wait.
+///
+/// # Who must register this
+///
+/// Every **test binary** that can register schemas with the janitor (directly, or
+/// through a sibling crate's fixtures) must install this once via
+/// `libc::atexit(drain_schemas_at_exit)`, from its own `#[cfg(test)]` code. The
+/// registration deliberately does not live here: `libc::atexit` is `unsafe`, and
+/// compiling it into this crate — which is part of every production build —
+/// made it the crate's only production `unsafe` (cargo-geiger's hard-zero era,
+/// see `docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md` §14.14.8/§14.14.9).
+/// Registering from test targets keeps the *runtime* behaviour identical (the
+/// drain still runs at process exit) while moving the `unsafe` into the
+/// `--include-tests` half of cargo-geiger's two-scan difference.
+///
+/// A test binary is the crate under test, so a `#[cfg(test)]` item in a
+/// dependency is invisible to it: each crate needs its own copy of the
+/// registration (see `tests/unit/ci_test_scope_tests.rs::every_db_test_binary_registers_the_exit_drain`
+/// for the guard that keeps them in sync).
+///
+/// # Safety
+///
+/// Safe to pass to `atexit`: it is a plain `extern "C" fn` with no captured
+/// state, runs no allocation or I/O of its own, and is sound during process
+/// exit (it flips an atomic and joins a thread with a bounded wait).
+pub extern "C" fn drain_schemas_at_exit() {
     EXITING.store(true, Ordering::SeqCst);
     let handle = lock_mutex(&JANITOR_HANDLE).take();
     if let Some(handle) = handle {
@@ -715,6 +755,17 @@ impl Deref for TestSchemaGuard {
         &self.pool
     }
 }
+
+/// Test-build-only registration of the process-exit drain for **this crate's own
+/// test binary** (B'): the `unsafe { libc::atexit(..) }` call must not be compiled
+/// into the production build, which is what cargo-geiger's production scan sees.
+///
+/// The implementation is `include!`d from `tests-support/` rather than written
+/// here so that `git grep -n unsafe synapse-common/src` stays empty — the crate
+/// ships no `unsafe` at all; only its test builds do.
+#[cfg(test)]
+#[path = "../tests-support/exit_hook_impl.rs"]
+mod test_exit_hook;
 
 #[cfg(test)]
 mod tests {

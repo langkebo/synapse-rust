@@ -25,7 +25,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Integration tests (requires PostgreSQL):**
   `cargo nt --features privacy-ext,voice-extended,voip-tracking,beacons,server-notifications --test integration`
 - **Single named integration test:** `cargo nt --test integration <test_name>`
-- **Local CI replica (⚠️ not the CI entrypoint — no workflow calls it):** `bash scripts/run_ci_tests.sh`
+- **Local CI run (⚠️ not the CI entrypoint — no workflow calls it):** `bash scripts/ci_backend_validation.sh` (runs `ci.yml`'s lib/unit/integration nextest batches verbatim; the old `scripts/run_ci_tests.sh` replica was deleted under sweep A13)
 - **Clippy (CI runs both matrix entries):** `SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils [--all-features] --locked -- -D warnings`
 - **E2E tests:** `cargo nextest run --test e2e`
 - **Performance manual tests:** `cargo nextest run --features performance-tests --test performance_manual -- --nocapture`
@@ -44,7 +44,7 @@ an alias for `cargo nextest run --profile test --features test-utils`.
 ### Benchmarks and coverage
 - API benchmark compile/run path: `cargo bench --bench performance_api_benchmarks --no-run`
 - Federation benchmark compile/run path: `cargo bench --bench performance_federation_benchmarks --no-run`
-- Coverage: CI uses `cargo llvm-cov --workspace` (tarpaulin was replaced). Local end-to-end run: `bash scripts/run_local_coverage.sh` (~15 min, ~68% line coverage as of 2026-08).
+- Coverage: CI uses `cargo llvm-cov --workspace` (tarpaulin was replaced). Local end-to-end run: `bash scripts/ci/run_coverage.sh`（CI 调用的**同一条命令**；本机 ~35–50 min）。
 
 ### Database and migrations
 - Migration source of truth: `docker/db_migrate.sh`
@@ -222,6 +222,7 @@ This project follows Red-Green-Refactor TDD. Before implementing any new behavio
 - Snapshots live under `tests/integration/snapshots/`.
 - Dynamic fields (access_token, refresh_token, expires_in, origin_server_ts, user_id suffixes) MUST be redacted via `.redact()` — see SKILL.md §5.
 - New snapshots: run `cargo insta test --review` to accept; never commit snapshots you did not review.
+- CI asserts snapshots with `INSTA_UPDATE=no` plus a committed/leftover `.snap.new` check, and does **not** use cargo-insta at all (its CLI semantics changed twice) — see the `Snapshot gate` step in `ci.yml`.
 
 ### Pre-positioned Mocks
 - `synapse-storage::test_mocks`: `FakeUserStore` / `SharedFakeUserStore` / `seed_locked_users()`, `InMemoryEventStore`, `InMemoryRoomStore`, `InMemoryMemberStore`
@@ -372,8 +373,8 @@ refresh_token.is_active().await.map_err(|_| ServiceError::DatabaseError)?
 | 集成测试 | `cargo nextest run --profile ci --all-features --test integration --test-threads 1` |
 | 同步测试 | `cargo nextest run -p <crate> <test_name> -P tdd` |
 | DB 迁移 | `DATABASE_URL=... bash docker/db_migrate.sh migrate` |
-| 覆盖率 | `bash scripts/run_local_coverage.sh` |
-| 完整 CI 本地复刻（**非** CI 入口，CI 内联重实现） | `bash scripts/run_ci_tests.sh` |
+| 覆盖率 | `bash scripts/ci/run_coverage.sh`（唯一实现，CI 同款） |
+| 完整 CI 本地入口（**非** CI 触发；逐字执行 ci.yml 的 lib/unit/integration 批次） | `bash scripts/ci_backend_validation.sh` |
 
 ### 记住：每次提交前必检
 ```bash

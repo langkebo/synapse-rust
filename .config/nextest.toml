@@ -1,9 +1,19 @@
+# CI 口径的 profile。⚠️ `ci.yml` 自己**不用**它：每个 nextest 步骤都在默认
+# profile 上用命令行旗标表达同一批设置（`--test-threads 4`、`--no-fail-fast`）。
+# 本 profile 服务的是本地 `--profile ci`（AGENTS.md / TESTING.md 推荐的集成测试
+# 命令），所以这里的值必须等于 `ci.yml` 的值，否则本地复刻与 CI 结论不同 ——
+# 曾经写 `test-threads = 12` / `retries = 2`，正是两处漂移（sweep A13）：
+#   - 12 线程会重现 CI 已经修掉的 `53200 out of shared memory`（§14.13：共享锁表
+#     在 6 线程即爆，集成车道因此定为 4）；
+#   - 重试被 `ci.yml` 的 `Run library unit tests (--workspace --lib)` 步骤注释明确收回
+#     （它曾把 main 上 11 个真实克隆失败重跑成绿），
+#     且 `flaky-result = "fail"` 下重试**改变不了判定**，只白花时间。
+# 改 CI 的线程数/重试口径时必须同步这里（反之亦然）。
 [profile.ci]
 fail-fast = false
-retries = 2
-# P1: raised from 8 → 12. PostgreSQL max_connections=100 supports 12 tests
-# * ~5 conns each = 60. SHARED_CLONE_SEMAPHORE raised to match in test_utils.rs.
-test-threads = 12
+retries = 0
+test-threads = 4
+# 保险：万一将来有人加回 retries，flaky 仍判失败，不会被重试掩盖。
 flaky-result = "fail"
 # P1: slow-timeout — mark tests exceeding 60s as slow, terminate after 120s.
 # After P0 schema pooling, most tests finish in 2-3s; 60s is a generous threshold.

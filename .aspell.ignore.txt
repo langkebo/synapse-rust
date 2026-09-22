@@ -1,10 +1,10 @@
+# 说明见 docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md §14.7。
+# 不在此列，仍会被 scripts/check_doc_spelling.sh 检出。
+# 追加（2026-09-20，§14.11 独立复核）：ghcr、io（来自 ghcr.io）。
+# 追加（2026-09-20，§14.13）：args、cmd（正文里 "CMD/args" 这类写法）。
 # 项目技术词典：aspell 通用英文词典（en_US）不含本仓技术语料的词汇。
 # 由本轮实测生成：CI run 35494141985 的 577 词 ∪ 本地 aspell 0.60.8.2 的 757 词 ∪ 原有 17 词。
 # 内容为「合法技术词」，不是「忽略拼写错误」：通用英文词的错拼（recieve/seperate/occured…）
-# 不在此列，仍会被 scripts/check_doc_spelling.sh 检出。
-# 说明见 docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md §14.7。
-# 追加（2026-09-20，§14.11 独立复核）：ghcr、io（来自 ghcr.io）。
-# 追加（2026-09-20，§14.13）：args、cmd（正文里 "CMD/args" 这类写法）。
 abi
 accessexclusivelock
 accessor
@@ -124,6 +124,7 @@ clokep
 cloner
 cmd
 codebase
+codecov
 codegen
 codemod
 codereviewexpert
@@ -138,6 +139,7 @@ coreservices
 coreutils
 cors
 coturn
+cov
 coverable
 cpython
 cqrs
@@ -184,6 +186,7 @@ devicecontext
 devicekeystorage
 devicerepository
 devicestorage
+devops
 dir
 directoryservice
 dirs
@@ -199,6 +202,7 @@ dockerfile
 dockerignore
 docstring
 doctest
+dod
 dos
 dsl
 dto
@@ -229,6 +233,7 @@ eventstorage
 eventstore
 eventstoreapi
 eventwriter
+expr
 externalservices
 fakeauth
 fakecredentialauth
@@ -266,11 +271,14 @@ ghcr
 gitignore
 gitignored
 gitleaks
+glibc
 glm
+grafana
 gstack
 guc
 gzip
 hadolint
+handlesummary
 handoff
 hardcoded
 hashbrown
@@ -343,6 +351,7 @@ js
 jsdoc
 json
 jsonb
+junit
 jwks
 jwt
 keyatrest
@@ -356,6 +365,7 @@ lcov
 libc
 libcrypto
 libolm
+libpcre
 libpq
 libssl
 libtest
@@ -366,6 +376,7 @@ limitexceeded
 linter
 linux
 ljf
+llvm
 loc
 localcache
 localhost
@@ -400,6 +411,7 @@ memswap
 mergeable
 messagingservice
 messagingserviceconfig
+metricscollector
 middleware
 migrator
 missingtoken
@@ -422,6 +434,7 @@ mypy
 mysqlcheck
 namespace
 namespaced
+nan
 newtype
 nextest
 nginx
@@ -439,6 +452,7 @@ nt
 nullable
 oauth
 oauthclientstoreapi
+observability
 oid
 oidc
 oidcsessionstoreapi
@@ -448,6 +462,7 @@ olm
 oncecell
 oncelock
 oneshot
+oom
 openapi
 openclaw
 openid
@@ -461,6 +476,7 @@ parameterised
 params
 pastey
 pbkdf
+pcre
 pdu
 pem
 perf
@@ -475,6 +491,7 @@ plaintext
 pluggable
 pooltimedout
 pos
+posix
 postgres
 postgresql
 powerset
@@ -487,6 +504,7 @@ presencestorage
 prev
 probabilistically
 proc
+prometheus
 promql
 prost
 prs
@@ -621,6 +639,7 @@ sharedcontext
 shippable
 shm
 sigkill
+sigterm
 simd
 sincefilter
 slidingsync
@@ -700,10 +719,12 @@ toctou
 todevicemanager
 todo
 tokenauth
+tokenless
 tokio
 toml
 toolchain
 totp
+toybox
 traceback
 tracecontext
 tracemalloc
@@ -714,9 +735,11 @@ treq
 trgm
 trigram
 trigramranking
+trivialclone
 trivy
 trufflehog
 truncated
+tsdb
 tst
 ttf
 ttl
@@ -730,6 +753,7 @@ ubuntu
 ui
 uia
 uiaservice
+uid
 uk
 ula
 unban
@@ -761,6 +785,7 @@ ux
 validator
 validators
 varchar
+vcpu
 vec
 vendored
 vitest
@@ -785,6 +810,7 @@ wip
 wiremock
 withretry
 wkwebview
+workbuddy
 workerbus
 workermanager
 worktree

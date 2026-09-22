@@ -53,7 +53,7 @@
 #
 # 新增 shell 建的 live 模板时的正确做法：**写标记文件**（见 prepare_test_db.sh），
 # 而不是往 STATIC_KEEP 里加名字 —— 标记是自动的，名单需要人记得维护
-#（sweep §15.8.4 / GATE_INTEGRITY_FOLLOWUP §2.5）。
+#（sweep §15.8.4 / GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md §2.5）。
 
 set -uo pipefail
 

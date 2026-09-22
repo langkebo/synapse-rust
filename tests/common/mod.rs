@@ -52,7 +52,32 @@ fn candidate_database_urls() -> Vec<String> {
     urls
 }
 
+/// Installs the schema janitor's process-exit drain for this test binary (B').
+///
+/// `libc::atexit` is `unsafe`, so the registration lives in the *test target*
+/// rather than in `synapse-common`'s production code: cargo-geiger's production
+/// scan then sees no `unsafe` there, while its `--include-tests` scan does (the
+/// unit lands in the test-only delta). Runtime behaviour is unchanged — the drain
+/// still runs at process exit, so no schema is left behind.
+///
+/// Every test binary that can register schemas needs its own copy of this call:
+/// a `#[cfg(test)]` item in a dependency is invisible to the dependent's test
+/// build. Guard: `tests/unit/ci_test_scope_tests.rs` →
+/// `every_db_test_binary_registers_the_exit_drain`.
+pub fn ensure_schema_exit_hook() {
+    use std::sync::Once;
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        // SAFETY: `drain_schemas_at_exit` is a plain `extern "C" fn` with no
+        // arguments, no captured state and no return value; its body only flips
+        // an atomic and joins the janitor thread with a bounded wait, all of
+        // which is sound during process exit.
+        unsafe { libc::atexit(synapse_common::test_schema_guard::drain_schemas_at_exit) };
+    });
+}
+
 pub async fn get_test_pool_async() -> Result<Arc<Pool<Postgres>>, String> {
+    ensure_schema_exit_hook();
     let mut errors = Vec::new();
     let connect_timeout = synapse_test_utils::configured_test_pool_connect_timeout();
 

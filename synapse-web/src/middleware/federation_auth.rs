@@ -399,6 +399,13 @@ pub(crate) async fn verify_federation_signature_with_cache(
     if let Some(entry) = ctx.federation_signature_cache.get_signature(&cache_key) {
         if !entry.is_expired() {
             tracing::debug!("Signature cache hit for {}:{}", origin, key_id);
+            // Metric: this is the only production caller of
+            // `record_federation_signature_verification`. Without it
+            // `federation_signature_errors` stays at 0 even while inbound
+            // federation signatures are being rejected.
+            if let Some(metrics) = synapse_common::server_metrics::global_server_metrics() {
+                metrics.record_federation_signature_verification(entry.verified);
+            }
             if entry.verified {
                 return Ok(());
             }
@@ -407,6 +414,10 @@ pub(crate) async fn verify_federation_signature_with_cache(
     }
 
     let result = verify_federation_signature(ctx, origin, key_id, signature, signed_bytes, key_fetch_priority).await;
+
+    if let Some(metrics) = synapse_common::server_metrics::global_server_metrics() {
+        metrics.record_federation_signature_verification(result.is_ok());
+    }
 
     // S5 修复：只缓存验证通过的结果，不缓存失败。此前失败结果也被缓存，
     // 攻击者先发坏签名请求可使后续合法请求在 TTL 内被负缓存拒绝（DoS）。

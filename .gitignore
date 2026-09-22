@@ -79,6 +79,19 @@ docker/deploy/test-results/
 docker/deploy/test-results-matrix/
 docker/deploy/logs/
 
+# Prometheus 抓取/web 认证凭证（含明文 bearer token 与 apr1 口令哈希）。
+# 由部署流程生成，绝不可入仓；目录内只保留可提交的 README 说明。
+docker/deploy/prometheus/auth/*
+!docker/deploy/prometheus/auth/README.md
+
+# /app/data 的宿主机落点（compose 把 `./synapse-data` 挂到容器的 /app/data）。
+# 内含服务端 megolm 静态密钥 megolm.key、联邦签名私钥 signing.key（二者已由上面的
+# `*.key` / `signing.key` 覆盖），以及 jemalloc 的 profile 产物 jeprof.out.*.heap
+# ——后者的 prof_prefix 就指向 /app/data，会随运行不断增长，必须忽略。
+# 同样只保留可提交的 README。
+docker/deploy/synapse-data/*
+!docker/deploy/synapse-data/README.md
+
 # 临时令牌和测试凭证（不应入库）
 *_token.txt
 test_tokens.json
@@ -123,3 +136,9 @@ target_amd64/
 target_arm64/
 .scratch/
 api_test/response_schemas.json
+
+# 编辑器/打补丁留下的备份产物：既不是源码，也会让 format / pre-commit 门禁变红
+# （2026-09-22 实测：未跟踪的 *.sh.orig 让 `format_check.sh` 的 shfmt 段直接红，
+#  且 `git add -A` 会把它们卷进提交）。禁止 `git add -f` 绕过。
+*.orig
+*.rej

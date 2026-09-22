@@ -8,6 +8,8 @@ pub mod csrf;
 pub mod federation_auth;
 /// The `federation_rate_limit` module.
 pub mod federation_rate_limit;
+/// The `http_metrics` module.
+pub mod http_metrics;
 /// The `rate_limit` module.
 pub mod rate_limit;
 /// The `security` module.
@@ -18,6 +20,7 @@ pub use cors::*;
 pub use csrf::*;
 pub use federation_auth::*;
 pub use federation_rate_limit::*;
+pub use http_metrics::*;
 pub use rate_limit::*;
 pub use security::*;
 

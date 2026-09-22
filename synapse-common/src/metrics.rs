@@ -127,12 +127,49 @@ impl Gauge {
     }
 }
 
+/// Prometheus 原生直方图的默认分桶上界（单位：毫秒）。
+///
+/// 覆盖 `*_ms` 类时长指标：从亚毫秒的缓存命中断点到数秒的 DB / 联邦请求。
+/// 必须**严格升序**——`Histogram::cumulative_counts` 用 `partition_point`
+/// 二分定位，乱序会静默算错每个桶。
+const HISTOGRAM_BUCKETS_MS: &[f64] =
+    &[1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0];
+
+/// Prometheus 原生直方图的默认分桶上界（单位：秒）。
+///
+/// 覆盖 `*_seconds` 类时长指标（如 `auth_login_duration_seconds`）。
+/// 同样必须**严格升序**。
+const HISTOGRAM_BUCKETS_SECONDS: &[f64] = &[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0];
+
+/// 按指标名后缀挑选分桶表。
+///
+/// 本仓所有时长直方图的**单位写在名字里**（`_ms` / `_seconds`），而 `Histogram`
+/// 的观测值本身不携带单位元数据，因此只能按名字推断。非 `_seconds` 结尾者
+/// （含测试用的无单位名称）一律走毫秒表。
+fn histogram_buckets_for(name: &str) -> &'static [f64] {
+    if name.ends_with("_seconds") {
+        HISTOGRAM_BUCKETS_SECONDS
+    } else {
+        HISTOGRAM_BUCKETS_MS
+    }
+}
+
 #[derive(Debug, Clone)]
 /// Represents Histogram.
 pub struct Histogram {
     name: String,
     values: Arc<parking_lot::Mutex<Vec<f64>>>,
     labels: HashMap<String, String>,
+}
+
+/// 直方图的单次加锁快照：`count` / `sum` / 各桶累积计数取自**同一时刻**。
+struct HistogramSnapshot {
+    /// 观测总数；同时用于 `_count` 与 `le="+Inf"` 桶。
+    count: u64,
+    /// 观测值之和；已归一负零，用于 `_sum`。
+    sum: f64,
+    /// 各分桶上界上的累积计数，与请求的 `bounds` 一一对应。
+    cumulative: Vec<u64>,
 }
 
 impl Histogram {
@@ -191,6 +228,49 @@ impl Histogram {
         Ok(values[index.min(values.len() - 1)])
     }
 
+    /// 一次加锁取出渲染直方图所需的全部数据。
+    ///
+    /// 必须**单次加锁**取全：`_count` / `_sum` / 各 `_bucket` 若分多次加锁读取，
+    /// 并发 `observe()` 会在两次加锁之间追加观测值，产出「`_count` 比 `+Inf` 桶还大」
+    /// 这类自相矛盾的抓取输出。Prometheus 不会因此报错，但分位数与 rate 计算会失真，
+    /// 且这类偏差只在高并发下偶发，极难排查。
+    ///
+    /// `bounds` 必须**严格升序**（`partition_point` 的二分前提）。非有限观测值按
+    /// Prometheus 语义落位：`NaN` 与 `+Inf` 不计入任何有限桶（只体现在 `+Inf` 桶），
+    /// `-Inf` 计入所有桶。
+    ///
+    /// 单趟 O(n log b)：每个观测值先挂到「第一个 >= 它的桶」，再前缀和还原累积计数。
+    /// 既避免 O(n*b) 的全量扫桶，也避免在抓取路径上对观测值排序。
+    fn snapshot(&self, bounds: &[f64]) -> HistogramSnapshot {
+        let values = self.values.lock();
+        let largest = bounds.last().copied();
+        let mut deltas = vec![0u64; bounds.len()];
+        let mut sum = 0.0f64;
+
+        for &value in values.iter() {
+            sum += value;
+            // `NaN` 比较恒为 false，`+Inf > largest`，二者都自然落在 `+Inf` 桶里。
+            if let Some(largest) = largest {
+                if value <= largest {
+                    deltas[bounds.partition_point(|bound| *bound < value)] += 1;
+                }
+            }
+        }
+
+        let mut running = 0u64;
+        for delta in &mut deltas {
+            running += *delta;
+            *delta = running;
+        }
+
+        HistogramSnapshot {
+            count: values.len() as u64,
+            sum: normalize_negative_zero(sum),
+            // 空直方图的求和落在 `-0.0`（`Sum` 的加法单位元），必须归一。
+            cumulative: deltas,
+        }
+    }
+
     /// Resets to its initial state.
     pub fn reset(&self) {
         let mut values = self.values.lock();
@@ -214,6 +294,66 @@ pub struct MetricInventory {
     pub total_gauges: usize,
     /// `total_histograms` field.
     pub total_histograms: usize,
+}
+
+/// 归一 IEEE 754 负零：`-0.0 + 0.0 == +0.0`，其它取值（含 NaN、正负无穷）不变。
+///
+/// 必要性：`f64` 的 `Sum` 实现以 `-0.0` 为加法单位元，因此**空**直方图的
+/// `get_sum()` 返回 `-0.0`，直接渲染就是 `..._sum -0`——语法上 Prometheus 能解析，
+/// 但毫无意义，而且看起来像渲染 bug，会误导排障。
+fn normalize_negative_zero(value: f64) -> f64 {
+    value + 0.0
+}
+
+/// 按 Prometheus 文本格式转义标签值：`\` → `\\`、`"` → `\"`、换行 → `\n`。
+///
+/// 未转义的 `"` 会把整条样本写坏，而 Prometheus 遇到无法解析的样本会丢弃
+/// **整个** scrape（不只是这一条），所以这是必须堵的口子，不是美观问题。
+fn push_label_value(output: &mut String, value: &str) {
+    for character in value.chars() {
+        match character {
+            '\\' => output.push_str("\\\\"),
+            '"' => output.push_str("\\\""),
+            '\n' => output.push_str("\\n"),
+            _ => output.push(character),
+        }
+    }
+}
+
+/// 把一组标签渲染成 `{k="v",...}`；无标签且无 `bound` 时返回空字符串（调用方据此省略花括号）。
+///
+/// - 标签按 key 排序：`HashMap` 的迭代序每个进程都不同，排序后输出才稳定可比。
+/// - `le` 由 `bound` 传入并**固定排在最后**；若标签集合里本就带 `le`，会被剔除，
+///   避免出现重复标签名——重复标签同样会让该条样本被 Prometheus 拒收。
+fn render_labels(labels: &HashMap<String, String>, bound: Option<&str>) -> String {
+    let mut keys: Vec<&str> = labels.keys().map(String::as_str).filter(|key| *key != "le").collect();
+    keys.sort_unstable();
+
+    if keys.is_empty() && bound.is_none() {
+        return String::new();
+    }
+
+    let mut output = String::with_capacity(2 + keys.len() * 16 + bound.map_or(0, str::len));
+    output.push('{');
+    for (index, key) in keys.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str(key);
+        output.push_str("=\"");
+        push_label_value(&mut output, labels.get(*key).map_or("", String::as_str));
+        output.push('"');
+    }
+    if let Some(bound) = bound {
+        if !keys.is_empty() {
+            output.push(',');
+        }
+        output.push_str("le=\"");
+        push_label_value(&mut output, bound);
+        output.push('"');
+    }
+    output.push('}');
+    output
 }
 
 impl MetricsCollector {
@@ -351,53 +491,72 @@ impl MetricsCollector {
     }
 
     /// Renders the metrics in Prometheus exposition format.
+    ///
+    /// 直方图按 **Prometheus 原生 histogram** 输出：先 `# TYPE <name> histogram`，
+    /// 随后是升序的 `<name>_bucket{le="<上界>"}` 累积计数、`<name>_bucket{le="+Inf"}`、
+    /// `<name>_sum`、`<name>_count`。缺少 `_bucket` 系列时 `histogram_quantile()`
+    /// 无数据可算——规则里的 `rate(*_bucket[5m])` 会永远是空的。
+    ///
+    /// 各指标族按名字排序输出，使同一次运行内多次抓取的文本稳定可比。
     pub fn to_prometheus_format(&self) -> String {
         let mut output = String::with_capacity(4096);
 
-        let counters = self.counters.lock();
-        for counter in counters.values() {
-            output.push_str(&format!("# HELP {} {}\n", counter.name, counter.name));
-            output.push_str(&format!("# TYPE {} counter\n", counter.name));
-            if counter.labels.is_empty() {
-                output.push_str(&format!("{} {}\n", counter.name, counter.get()));
-            } else {
-                let labels: Vec<String> = counter.labels.iter().map(|(k, v)| format!("{k}=\"{v}\"")).collect();
-                output.push_str(&format!("{}{{{}}} {}\n", counter.name, labels.join(","), counter.get()));
+        {
+            let counters = self.counters.lock();
+            let mut sorted: Vec<&Counter> = counters.values().collect();
+            sorted.sort_unstable_by(|left, right| left.name.cmp(&right.name));
+            for counter in sorted {
+                output.push_str(&format!("# HELP {} {}\n", counter.name, counter.name));
+                output.push_str(&format!("# TYPE {} counter\n", counter.name));
+                output.push_str(&format!(
+                    "{}{} {}\n",
+                    counter.name,
+                    render_labels(&counter.labels, None),
+                    counter.get()
+                ));
             }
         }
 
-        let gauges = self.gauges.lock();
-        for gauge in gauges.values() {
-            output.push_str(&format!("# HELP {} {}\n", gauge.name, gauge.name));
-            output.push_str(&format!("# TYPE {} gauge\n", gauge.name));
-            if gauge.labels.is_empty() {
-                output.push_str(&format!("{} {}\n", gauge.name, gauge.get()));
-            } else {
-                let labels: Vec<String> = gauge.labels.iter().map(|(k, v)| format!("{k}=\"{v}\"")).collect();
-                output.push_str(&format!("{}{{{}}} {}\n", gauge.name, labels.join(","), gauge.get()));
+        {
+            let gauges = self.gauges.lock();
+            let mut sorted: Vec<&Gauge> = gauges.values().collect();
+            sorted.sort_unstable_by(|left, right| left.name.cmp(&right.name));
+            for gauge in sorted {
+                output.push_str(&format!("# HELP {} {}\n", gauge.name, gauge.name));
+                output.push_str(&format!("# TYPE {} gauge\n", gauge.name));
+                output.push_str(&format!(
+                    "{}{} {}\n",
+                    gauge.name,
+                    render_labels(&gauge.labels, None),
+                    normalize_negative_zero(gauge.get())
+                ));
             }
         }
 
-        let histograms = self.histograms.lock();
-        for histogram in histograms.values() {
-            let count_name = format!("{}_count", histogram.name);
-            output.push_str(&format!("# HELP {count_name} {count_name}\n"));
-            output.push_str(&format!("# TYPE {count_name} counter\n"));
-            if histogram.labels.is_empty() {
-                output.push_str(&format!("{} {}\n", count_name, histogram.get_count()));
-            } else {
-                let labels: Vec<String> = histogram.labels.iter().map(|(k, v)| format!("{k}=\"{v}\"")).collect();
-                output.push_str(&format!("{}{{{}}} {}\n", count_name, labels.join(","), histogram.get_count()));
-            }
+        {
+            let histograms = self.histograms.lock();
+            let mut sorted: Vec<&Histogram> = histograms.values().collect();
+            sorted.sort_unstable_by(|left, right| left.name.cmp(&right.name));
+            for histogram in sorted {
+                let base = &histogram.name;
+                let bounds = histogram_buckets_for(base);
+                // 单次加锁取全：count / sum / 各桶必须来自同一时刻。
+                let snapshot = histogram.snapshot(bounds);
 
-            let sum_name = format!("{}_sum", histogram.name);
-            output.push_str(&format!("# HELP {sum_name} {sum_name}\n"));
-            output.push_str(&format!("# TYPE {sum_name} counter\n"));
-            if histogram.labels.is_empty() {
-                output.push_str(&format!("{} {}\n", sum_name, histogram.get_sum()));
-            } else {
-                let labels: Vec<String> = histogram.labels.iter().map(|(k, v)| format!("{k}=\"{v}\"")).collect();
-                output.push_str(&format!("{}{{{}}} {}\n", sum_name, labels.join(","), histogram.get_sum()));
+                output.push_str(&format!("# HELP {base} {base}\n"));
+                output.push_str(&format!("# TYPE {base} histogram\n"));
+
+                let bound_labels: Vec<String> = bounds.iter().map(f64::to_string).collect();
+                for (bound_label, bucket_count) in bound_labels.iter().zip(snapshot.cumulative.iter()) {
+                    let labels = render_labels(&histogram.labels, Some(bound_label.as_str()));
+                    output.push_str(&format!("{base}_bucket{labels} {bucket_count}\n"));
+                }
+                let inf_labels = render_labels(&histogram.labels, Some("+Inf"));
+                output.push_str(&format!("{base}_bucket{inf_labels} {}\n", snapshot.count));
+
+                let labels = render_labels(&histogram.labels, None);
+                output.push_str(&format!("{base}_sum{labels} {}\n", snapshot.sum));
+                output.push_str(&format!("{base}_count{labels} {}\n", snapshot.count));
             }
         }
 
@@ -695,8 +854,12 @@ mod tests {
         let output = collector.to_prometheus_format();
         assert!(output.contains("latency_count 2"));
         assert!(output.contains("latency_sum 30"));
-        assert!(output.contains("# TYPE latency_count counter"));
-        assert!(output.contains("# TYPE latency_sum counter"));
+        // 直方图是**一个**指标族：TYPE 声明挂在族名上（histogram），
+        // 而不是把 _count / _sum 拆成两个独立的 counter。
+        assert!(output.contains("# TYPE latency histogram"), "{output}");
+        assert!(!output.contains("# TYPE latency_count counter"));
+        assert!(!output.contains("# TYPE latency_sum counter"));
+        assert!(output.contains("latency_bucket{le=\"+Inf\"} 2"), "{output}");
     }
 
     #[test]
@@ -799,5 +962,195 @@ mod tests {
         assert!(debug.contains("1"));
         assert!(debug.contains("2"));
         assert!(debug.contains("3"));
+    }
+
+    #[test]
+    fn test_histogram_bucket_bounds_are_strictly_ascending() {
+        // `cumulative_counts` 用 partition_point 二分定位，升序是硬前提；
+        // 乱序不会 panic，只会静默算错每个桶——所以这里钉死。
+        for bounds in [HISTOGRAM_BUCKETS_MS, HISTOGRAM_BUCKETS_SECONDS] {
+            assert!(bounds.windows(2).all(|pair| pair[0] < pair[1]), "分桶上界必须严格升序: {bounds:?}");
+        }
+    }
+
+    #[test]
+    fn test_histogram_buckets_selected_by_name_suffix() {
+        assert_eq!(histogram_buckets_for("db_query_duration_ms"), HISTOGRAM_BUCKETS_MS);
+        assert_eq!(histogram_buckets_for("auth_login_duration_seconds"), HISTOGRAM_BUCKETS_SECONDS);
+        // 无单位后缀者（含测试用名）退回毫秒表。
+        assert_eq!(histogram_buckets_for("latency"), HISTOGRAM_BUCKETS_MS);
+    }
+
+    #[test]
+    fn test_to_prometheus_format_histogram_buckets_are_cumulative() {
+        let collector = MetricsCollector::new();
+        let histogram = collector.register_histogram("latency_ms".to_string());
+        for value in [0.5, 3.0, 30.0, 300.0, 3000.0] {
+            histogram.observe(value);
+        }
+
+        let output = collector.to_prometheus_format();
+
+        assert!(output.contains("# TYPE latency_ms histogram"), "{output}");
+        // 累积语义：每个桶是「v <= le」的累计数，不是区间计数。
+        assert!(output.contains("latency_ms_bucket{le=\"1\"} 1"), "{output}");
+        assert!(output.contains("latency_ms_bucket{le=\"2.5\"} 1"), "{output}");
+        assert!(output.contains("latency_ms_bucket{le=\"5\"} 2"), "{output}");
+        assert!(output.contains("latency_ms_bucket{le=\"50\"} 3"), "{output}");
+        assert!(output.contains("latency_ms_bucket{le=\"500\"} 4"), "{output}");
+        assert!(output.contains("latency_ms_bucket{le=\"5000\"} 5"), "{output}");
+        assert!(output.contains("latency_ms_bucket{le=\"+Inf\"} 5"), "{output}");
+        assert!(output.contains("latency_ms_count 5"), "{output}");
+        assert!(output.contains("latency_ms_sum 3333.5"), "{output}");
+    }
+
+    #[test]
+    fn test_to_prometheus_format_histogram_buckets_never_decrease() {
+        // 累积不变量：按输出顺序解析 le 计数，必须单调不减，且 +Inf == 观测总数。
+        let collector = MetricsCollector::new();
+        let histogram = collector.register_histogram("mono_ms".to_string());
+        for value in [0.1, 1.0, 7.0, 42.0, 999.0] {
+            histogram.observe(value);
+        }
+
+        let output = collector.to_prometheus_format();
+        let counts: Vec<u64> = output
+            .lines()
+            .filter_map(|line| line.strip_prefix("mono_ms_bucket{"))
+            .filter_map(|rest| rest.rsplit_once('}'))
+            .filter_map(|(_, value)| value.trim().parse::<u64>().ok())
+            .collect();
+
+        assert_eq!(counts.len(), HISTOGRAM_BUCKETS_MS.len() + 1, "应含全部有限桶 + +Inf 桶");
+        assert!(counts.windows(2).all(|pair| pair[0] <= pair[1]), "桶计数必须单调不减: {counts:?}");
+        assert_eq!(counts.last().copied(), Some(5), "+Inf 桶应等于观测总数");
+    }
+
+    #[test]
+    fn test_to_prometheus_format_seconds_histogram_uses_seconds_buckets() {
+        let collector = MetricsCollector::new();
+        let histogram = collector.register_histogram("auth_login_duration_seconds".to_string());
+        histogram.observe(0.05);
+
+        let output = collector.to_prometheus_format();
+        assert!(output.contains("auth_login_duration_seconds_bucket{le=\"0.005\"} 0"), "{output}");
+        assert!(output.contains("auth_login_duration_seconds_bucket{le=\"0.025\"} 0"), "{output}");
+        assert!(output.contains("auth_login_duration_seconds_bucket{le=\"0.05\"} 1"), "{output}");
+    }
+
+    #[test]
+    fn test_to_prometheus_format_empty_histogram_still_exposes_buckets() {
+        // 未被观测过的直方图也必须铺满 le 系列，否则 histogram_quantile 连序列都取不到。
+        let collector = MetricsCollector::new();
+        collector.register_histogram("idle_ms".to_string());
+
+        let output = collector.to_prometheus_format();
+        assert!(output.contains("# TYPE idle_ms histogram"), "{output}");
+        for bound in HISTOGRAM_BUCKETS_MS {
+            let expected = format!("idle_ms_bucket{{le=\"{bound}\"}} 0");
+            assert!(output.contains(&expected), "缺少零值桶: {expected}\n{output}");
+        }
+        assert!(output.contains("idle_ms_bucket{le=\"+Inf\"} 0"), "{output}");
+        assert!(output.contains("idle_ms_count 0"), "{output}");
+        assert!(output.contains("idle_ms_sum 0"), "{output}");
+        // 空直方图的 sum 在 f64 上是 `-0.0`，必须归一，否则渲染出 `-0`。
+        assert!(!output.contains("idle_ms_sum -0"), "负零必须归一:\n{output}");
+    }
+
+    #[test]
+    fn test_to_prometheus_format_histogram_bucket_merges_metric_labels() {
+        let collector = MetricsCollector::new();
+        let mut labels = HashMap::new();
+        labels.insert("unit".to_string(), "ms".to_string());
+        let histogram = collector.register_histogram_with_labels("db_query_duration_ms".to_string(), labels);
+        histogram.observe(50.0);
+
+        let output = collector.to_prometheus_format();
+        assert!(output.contains("db_query_duration_ms_bucket{unit=\"ms\",le=\"1\"} 0"), "{output}");
+        assert!(output.contains("db_query_duration_ms_bucket{unit=\"ms\",le=\"50\"} 1"), "{output}");
+        assert!(output.contains("db_query_duration_ms_bucket{unit=\"ms\",le=\"+Inf\"} 1"), "{output}");
+        assert!(output.contains("db_query_duration_ms_sum{unit=\"ms\"} 50"), "{output}");
+        assert!(output.contains("db_query_duration_ms_count{unit=\"ms\"} 1"), "{output}");
+    }
+
+    #[test]
+    fn test_to_prometheus_format_drops_user_supplied_le_label() {
+        // 重复标签名会让该条样本被 Prometheus 拒收，必须由渲染层剔除用户传入的 le。
+        let collector = MetricsCollector::new();
+        let mut labels = HashMap::new();
+        labels.insert("le".to_string(), "999".to_string());
+        let histogram = collector.register_histogram_with_labels("weird_ms".to_string(), labels);
+        histogram.observe(5.0);
+
+        let output = collector.to_prometheus_format();
+        assert!(!output.contains("le=\"999\""), "用户传入的 le 必须被剔除:\n{output}");
+        assert!(output.contains("weird_ms_bucket{le=\"5\"} 1"), "{output}");
+    }
+
+    #[test]
+    fn test_to_prometheus_format_escapes_label_values() {
+        // 未转义的 `"` 会把整条样本写坏，而 Prometheus 会因此丢弃整个 scrape。
+        let collector = MetricsCollector::new();
+        let mut labels = HashMap::new();
+        labels.insert("route".to_string(), "/a\"b\\c".to_string());
+        collector.register_counter_with_labels("escaped_total".to_string(), labels).inc();
+
+        let output = collector.to_prometheus_format();
+        assert!(output.contains("escaped_total{route=\"/a\\\"b\\\\c\"} 1"), "{output}");
+    }
+
+    #[test]
+    fn test_to_prometheus_format_orders_metric_families_by_name() {
+        // HashMap 迭代序每个进程都不同 → 输出必须排序才稳定可比。
+        // 排序范围是「同一族内部」；族与族之间保持 counter → gauge → histogram 的固定分块。
+        let collector = MetricsCollector::new();
+        collector.register_counter("zeta_total".to_string()).inc();
+        collector.register_counter("alpha_total".to_string()).inc();
+        collector.register_gauge("beta".to_string()).set(1.0);
+
+        let output = collector.to_prometheus_format();
+        let alpha = output.find("# TYPE alpha_total counter").expect("alpha 应存在");
+        let zeta = output.find("# TYPE zeta_total counter").expect("zeta 应存在");
+        let beta = output.find("# TYPE beta gauge").expect("beta 应存在");
+
+        assert!(alpha < zeta, "同族内应按名字升序:\n{output}");
+        assert!(zeta < beta, "counter 块应整体排在 gauge 块之前:\n{output}");
+    }
+
+    #[test]
+    fn test_snapshot_ignores_non_finite_observations() {
+        // NaN / +Inf 只落 +Inf 桶，不污染有限桶（Prometheus 官方语义）。
+        let histogram = Histogram::new("edge_ms".to_string());
+        histogram.observe(1.0);
+        histogram.observe(f64::NAN);
+        histogram.observe(f64::INFINITY);
+
+        let snapshot = histogram.snapshot(&[1.0, 10.0]);
+        assert_eq!(snapshot.cumulative, vec![1, 1]);
+        assert_eq!(snapshot.count, 3, "count 含 NaN/+Inf，+Inf 桶才能与它相等");
+    }
+
+    #[test]
+    fn test_snapshot_returns_empty_buckets_for_empty_bounds() {
+        let histogram = Histogram::new("edge_ms".to_string());
+        histogram.observe(1.0);
+        let snapshot = histogram.snapshot(&[]);
+        assert!(snapshot.cumulative.is_empty());
+        assert_eq!(snapshot.count, 1);
+        assert_eq!(snapshot.sum, 1.0);
+    }
+
+    #[test]
+    fn test_snapshot_sum_and_count_are_consistent_with_last_bucket() {
+        // 不变量：_count == +Inf 桶；单次加锁保证三者同刻。
+        let histogram = Histogram::new("consistent_ms".to_string());
+        for value in [3.0, 700.0, 9000.0] {
+            histogram.observe(value);
+        }
+        let bounds = histogram_buckets_for("consistent_ms");
+        let snapshot = histogram.snapshot(bounds);
+        assert_eq!(snapshot.count, 3);
+        assert_eq!(snapshot.sum, 9703.0);
+        assert_eq!(snapshot.cumulative.last().copied(), Some(3), "+Inf 桶必须等于 count");
     }
 }

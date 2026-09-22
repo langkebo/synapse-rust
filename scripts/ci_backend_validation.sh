@@ -190,7 +190,20 @@ run_rust_checks() {
     python3 scripts/ci/check_root_canonical_ledger.py
     cargo fmt --all -- --check
     cargo check --locked
-    TEST_THREADS="${TEST_THREADS:-4}" TEST_RETRIES="${TEST_RETRIES:-2}" bash scripts/run_ci_tests.sh
+    # CI 的三个测试批次，命令与 `ci.yml` **逐字一致**（sweep A13）。
+    #
+    # 这里过去调用 `scripts/run_ci_tests.sh`：那是同一批测试的第二份实现，且已经漂移
+    # （它仍用 `--ignored` 跑 4 条"在 CI 上会假失败"的手工负载冒烟、还带 CI 已收回的
+    # 重试、线程数也不同）。按铁律 2「同一职责只允许一份实现」，那份重复实现已删除，
+    # 本地入口直接跑 CI 的命令。改 `ci.yml` 的批次时改这里，只有这一处。
+    if ! command -v cargo-nextest >/dev/null 2>&1; then
+        log "cargo-nextest is required (CI runs these batches with nextest): cargo install cargo-nextest --locked"
+        exit 1
+    fi
+    cargo nextest run --workspace --lib --all-features --locked --test-threads 4 \
+        -E 'not test(/friend_room_service::tests::bench_friend_list_/)'
+    cargo nextest run --test unit --features test-utils --locked --test-threads 4
+    cargo nextest run --test integration --all-features --locked --test-threads 4 --no-fail-fast
     # NOTE: the skipped-test classification report used to run here via
     # `emit_skip_report || true`. Its analyzer
     # (scripts/quality/analyze_skipped_tests.py) no longer exists, so the helper

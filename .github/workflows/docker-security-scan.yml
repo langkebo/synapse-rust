@@ -111,8 +111,14 @@ jobs:
             .
 
       # [P1-4] Trivy CVE 扫描：HIGH/CRITICAL 阻断
+      #
+      # `@v0.36.0` 而不是 `@master`（2026-09-22 改）：与 hadolint（`@v3.5.0`）、
+      # ruff（`ruff==0.16.8`）同一判据 —— 门禁结论不应随运行日期变化。`master`
+      # 是浮动 ref，同一条命令在不同日期可以得出不同结论，且失败时无法判断是代码变了
+      # 还是 action 变了。取值来自 `gh api repos/aquasecurity/trivy-action/releases`
+      # 的最新 release。
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: 'synapse-rust:scan'
           format: 'sarif'
@@ -143,7 +149,110 @@ jobs:
           path: trivy-results.sarif
           retention-days: 14
 
-  # ── 3) 扫描基础镜像 digest pin 是否被篡改 ──────────────────────────
+  # ── 2b) 基础镜像扫描（P0-4，2026-09-22 新增）────────────────────────
+  #
+  # 缺口：上面的 trivy-scan 只扫 `synapse-rust:scan`（= `--target tools`，出货的
+  # 生产镜像），三个**基础镜像本身**从未被扫过。其中两个在出货路径上：
+  #   * `RUNTIME_BASE_IMAGE`（distroless）= `runtime-distroless` 的根；
+  #   * `DEBIAN_BASE_IMAGE` = `runtime-libs` 的来源，其库被 `COPY --from=runtime-libs`
+  #     塞进 distroless 镜像。
+  # `RUST_BUILDER_IMAGE` 只在构建期存在（产物是上面两个运行镜像），因此**报告不阻断**：
+  # 实测它有大量 fixable HIGH/CRITICAL，阻断等于永久红；收紧方向是 pin 一个已清理的
+  # builder digest（登记在 docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md §1 P0-4）。
+  #
+  # pin 的唯一真相源是 `docker/Dockerfile` 的 ARG，由
+  # `scripts/ci/read_base_image_pins.sh` 读出（禁止在 workflow 里再抄一份 digest）。
+  # 守卫：`tests/unit/ci_test_scope_tests.rs::
+  # docker_security_scan_base_images_are_read_from_the_dockerfile`。
+  base-image-scan:
+    name: Base Image Scan
+    needs: hadolint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Read the pinned base images from docker/Dockerfile
+        id: pins
+        run: |
+          set -euo pipefail
+          # 脚本在 ARG 缺失或未 digest-pin 时 exit 2（响亮失败），不会静默输出空值。
+          while IFS='=' read -r key ref; do
+            [ -n "${key}" ] || continue
+            echo "${key}=${ref}" >> "$GITHUB_OUTPUT"
+            echo "${key} = ${ref}"
+          done < <(bash scripts/ci/read_base_image_pins.sh)
+
+      # 实测（2026-09-22，trivy + `--ignore-unfixed`，宿主 arm64）：distroless 与
+      # debian 的当前 pin 都是 **0** HIGH/CRITICAL ⇒ 阻断是"现在能红、将来会红"的
+      # 真棘轮，而不是一条永久绿的装饰。
+      - name: Scan distroless runtime base — blocking
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ steps.pins.outputs.RUNTIME_BASE_IMAGE }}
+          format: 'sarif'
+          output: 'trivy-base-runtime.sarif'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '1'
+          ignore-unfixed: true
+
+      - name: Scan debian base (feeds runtime-libs) — blocking
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ steps.pins.outputs.DEBIAN_BASE_IMAGE }}
+          format: 'sarif'
+          output: 'trivy-base-debian.sarif'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '1'
+          ignore-unfixed: true
+
+      # ⚠️ 全 job 里**唯一** report-only 的扫描。它必须显式带注释，并被守卫钉住：
+      # builder 是构建期镜像，产物是两个运行镜像；它的 CVE 不出货。
+      - name: Scan rust builder base — report-only (build-time only)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ steps.pins.outputs.RUST_BUILDER_IMAGE }}
+          format: 'sarif'
+          output: 'trivy-base-builder.sarif'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '0'
+          ignore-unfixed: true
+
+      - name: Upload SARIF (distroless runtime base)
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-base-runtime.sarif'
+          category: 'base-image-runtime-distroless'
+
+      - name: Upload SARIF (debian base)
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-base-debian.sarif'
+          category: 'base-image-debian'
+
+      - name: Upload SARIF (rust builder base)
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-base-builder.sarif'
+          category: 'base-image-rust-builder'
+
+      - name: Upload base image SARIF reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-base-sarif
+          path: trivy-base-*.sarif
+          retention-days: 14
+
+  # ── 3) 验证基础镜像 digest pin 在公共 registry 上仍有效 ─────────────
   digest-pin-check:
     name: Digest Pin Integrity
     runs-on: ubuntu-latest
@@ -152,15 +261,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 验证 Dockerfile 中的 digest pin 在公共 registry 上仍然有效
       # (P0-2 相关：确认 digest 没有被过期/替换)
+      #
+      # ⚠️ 2026-09-22：这里以前把三个 digest **抄了一份**写死。于是 Dockerfile 升级
+      # pin 之后，本 job 会继续验证**旧** digest —— 它自证不了"当前使用的 pin 有效"。
+      # 现在从 `docker/Dockerfile` 唯一真相源读（同一个脚本，与 base-image-scan 共用）。
       - name: Verify pinned base images
         run: |
-          for img in \
-            "rust:1.93.0-slim-bookworm@sha256:776861219cd851131c1cec3bbd7cbeb16b99a794048097eb69ad9682a8ed0d57" \
-            "debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251" \
-            "gcr.io/distroless/cc-debian12@sha256:e8e7ee4b8b106d4c5fde9e422a321b2b8a2d5cca546c97adcce927f3e1d36e36"; do
-            echo "Verifying $img ..."
-            docker pull "$img" || { echo "FAILED: pin broken for $img"; exit 1; }
-          done
+          set -euo pipefail
+          while IFS='=' read -r arg ref; do
+            echo "Verifying ${arg} -> ${ref} ..."
+            docker pull "${ref}" || { echo "::error::FAILED: pin broken for ${arg} (${ref})"; exit 1; }
+          done < <(bash scripts/ci/read_base_image_pins.sh)
           echo "All pinned base images verified successfully."

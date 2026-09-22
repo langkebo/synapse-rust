@@ -1,0 +1,147 @@
+{
+  "id": null,
+  "uid": "network-connections",
+  "title": "网络与连接",
+  "tags": [
+    "coturn",
+    "network",
+    "connections"
+  ],
+  "timezone": "utc",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "15s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "TURN 累计分配数",
+      "type": "stat",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "turn_total_allocations",
+          "refId": "A",
+          "legendFormat": "累计分配"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1000
+              },
+              {
+                "color": "red",
+                "value": 5000
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "TURN 分配速率",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 6,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "rate(turn_total_allocations[5m])",
+          "refId": "A",
+          "legendFormat": "分配/秒"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "TURN 报文处理速率",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "rate(turn_packet_processed[5m])",
+          "refId": "A",
+          "legendFormat": "报文/秒"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "TURN 限流桶占用率",
+      "type": "stat",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "100 * turn_ratelimit_occupied_buckets / turn_ratelimit_total_buckets",
+          "refId": "A",
+          "legendFormat": "限流桶占用率"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "TURN 接收字节速率",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 6,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "rate(turn_total_traffic_rcvb[5m])",
+          "refId": "A",
+          "legendFormat": "接收字节/秒"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps"
+        }
+      }
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  }
+}

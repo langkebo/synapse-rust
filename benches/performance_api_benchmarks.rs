@@ -413,7 +413,7 @@ fn benchmark_concurrent_throughput(c: &mut Criterion) {
 //
 // ⚠️ 但它们是**内存仿真**（250k 合成行上的 Vec 扫描 vs 二分），不是真实
 // `synapse-storage` SQL。仿真差值约 1500×，30% 阈值由构造满足，**真实 SQL 退化
-// 不可能触发它**（E4，docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md §9）。
+// 不可能触发它**（E4，docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md §9）。
 // 因此 `check_pagination_benchmark.py` 是**计算路径的 smoke check**，不是分页门禁。
 //
 // 真实分页保护（DB 支撑、可被真实退化打红）在：

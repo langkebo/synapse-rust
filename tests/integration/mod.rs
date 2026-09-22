@@ -297,6 +297,7 @@ fn should_fallback_to_isolated_pool(error: &str) -> bool {
 /// Now each call returns a fresh schema cloned from the template (fast —
 /// ~100x faster than re-running migrations), providing per-test isolation.
 pub async fn require_test_pool() -> Arc<sqlx::PgPool> {
+    crate::common::ensure_schema_exit_hook();
     init_tracing();
     // 行为对齐 get_test_pool()：先试 shared template schema，失败时按
     // should_fallback_to_isolated_pool 自动回退到 isolated schema

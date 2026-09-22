@@ -1,0 +1,15 @@
+# =============================================================================
+# Grafana 仪表板自动发现配置
+# =============================================================================
+apiVersion: 1
+
+providers:
+  - name: 'synapse-dashboards'
+    orgId: 1
+    folder: 'synapse-rust'
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

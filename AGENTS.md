@@ -12,8 +12,8 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 - Clippy (CI runs both matrix entries — `features-args` empty and `--all-features`): `SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils [--all-features] --locked -- -D warnings`. `--all-targets` covers test code workspace-wide; the old gap (CI checked only `-p synapse-services --tests`) was closed in `ci.yml:301`.
 - Doc tests: `cargo test --doc --locked` — ⚠️ **this is currently an empty gate** (root crate has 0 doc tests; workspace-wide there are only 4 and all are `#[ignore]`d). A real rustdoc-only compile error (E0106) once shipped green through this gate. Prefer `cargo test --doc --locked --workspace` when touching doc examples, and note rustdoc catches lifetime elision errors that `cargo check`/`clippy` miss entirely.
 - Full test suite: `cargo test --all-features --locked -- --test-threads=4`
-- Local CI replica (⚠️ **not** the CI entrypoint): `TEST_THREADS=4 TEST_RETRIES=2 bash scripts/run_ci_tests.sh`. No workflow calls it — `ci.yml` re-implements the same test batches inline, so the two must be kept in sync or they drift (sweep A13). For what CI actually runs, read `ci.yml` / `TESTING.md`.
-- If `cargo-nextest` is installed, `scripts/run_ci_tests.sh` uses it automatically; otherwise it falls back to `cargo test` with retries.
+- Local CI run (⚠️ **not** the CI entrypoint): `bash scripts/ci_backend_validation.sh` — it runs `ci.yml`'s three nextest batches **verbatim** (lib / unit / integration at `--test-threads 4`), so it cannot drift from CI. The former second implementation `scripts/run_ci_tests.sh` was deleted (sweep A13; it still ran the 4 CI-unstable manual perf smokes via `--ignored`). For what CI actually runs, read `ci.yml` / `TESTING.md`.
+- Local test tooling needs `cargo-nextest` (CI runs every batch with it): `cargo install cargo-nextest --locked`.
 - `cargo nt` is a repo alias (`.cargo/config.toml`) for `cargo nextest run --profile test --features test-utils`. It works for `--lib`/`--test unit` but **not for `--test integration`** (nextest 0.9.140 silently ignores `features` in profiles + the integration target has `required-features`); use the explicit `--all-features` command below for integration.
 
 ### Running specific tests
@@ -30,7 +30,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 ### Benchmarks and coverage
 - API benchmark compile/run path: `cargo bench --bench performance_api_benchmarks --no-run`
 - Federation benchmark compile/run path: `cargo bench --bench performance_federation_benchmarks --no-run`
-- Coverage: CI uses `cargo llvm-cov --workspace` (tarpaulin was replaced). Local end-to-end run: `bash scripts/run_local_coverage.sh` (~15 min, ~68% line coverage as of 2026-08).
+- Coverage: CI uses `cargo llvm-cov --workspace` (tarpaulin was replaced). Local end-to-end run: `bash scripts/ci/run_coverage.sh`（CI 调用的**同一条命令**；本机 ~35–50 min）。
 - Note: Coverage scripts may timeout when DB has accumulated many test schemas (1363 x 255 tables observed). Run `scripts/cleanup_test_schemas.sh` before coverage if needed.
 
 ### Database and migrations
@@ -102,6 +102,15 @@ start the stack **by these service names**) and `docker/deploy/docker-compose.ym
    未格式化探针文件即可让它变红。
    **推论**：看到"长期 0 违规 / 长期全绿"的门禁，优先怀疑它没在工作，而不是
    相信代码很干净。
+
+9. **同一工作树同一时刻只允许一个写者（含"另一个 AI 会话"）。** 本仓实际发生过三次
+   危害（2026-09-22）：① 一端 `git add -A` 把另一端尚未完成的改动卷进自己的提交
+   （提交信息与内容不符）；② 一端 `git commit` 把另一端 **已 staged** 的删除一起提交
+   （`git commit` 提交的是整个索引，不只是你 `git add` 的路径）；③ HEAD 一度自相矛盾
+   （守卫还在读一个刚被删掉的脚本）。
+   **规则**：`git add` **逐路径**（禁止 `git add -A` / `git add .`）；提交前
+   `git diff --cached --stat` 复核；提交后 `git status --short` 确认没有把别人的在途
+   改动带走；需要并行时用 `git worktree` 开独立目录。
 
 ## High-level architecture
 
@@ -234,6 +243,7 @@ This project follows Red-Green-Refactor TDD. Before implementing any new behavio
 - Snapshots live under `tests/integration/snapshots/`.
 - Dynamic fields (access_token, refresh_token, expires_in, origin_server_ts, user_id suffixes) MUST be redacted via `.redact()` — see SKILL.md §5.
 - New snapshots: run `cargo insta test --review` to accept; never commit snapshots you did not review.
+- CI asserts snapshots with `INSTA_UPDATE=no` plus a committed/leftover `.snap.new` check, and does **not** use cargo-insta at all (its CLI semantics changed twice) — see the `Snapshot gate` step in `ci.yml`.
 
 ### Pre-positioned Mocks
 - `synapse-storage::test_mocks::FakeUserStore` / `SharedFakeUserStore` / `seed_locked_users()`

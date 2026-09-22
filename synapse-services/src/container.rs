@@ -187,6 +187,10 @@ impl ServiceContainer {
         let metrics = Arc::new(MetricsCollector::new());
         synapse_common::error::init_error_metrics(metrics.clone());
         let server_metrics = Arc::new(ServerMetrics::new(metrics.clone()));
+        // Publish the handle for the two code paths that cannot take a container
+        // dependency: the `sqlx::query` tracing layer (db_query_duration_ms) and
+        // `From<sqlx::Error> for ApiError` (db_query_errors).
+        synapse_common::server_metrics::install_global_server_metrics(server_metrics.clone());
 
         let infra =
             SharedInfra { pool: pool.clone(), cache: cache.clone(), config: config.clone(), task_queue, metrics };
@@ -337,6 +341,7 @@ impl ServiceContainer {
             config,
             &infra.infra.task_queue,
             &infra.infra.metrics,
+            &infra.server_metrics,
             &storage.token_auth,
             &storage.credential_auth,
             &storage.room_auth,
@@ -630,7 +635,11 @@ impl ServiceContainer {
         let _ = synapse_common::argon2_config::Argon2Config::initialize_global_owasp(
             synapse_common::argon2_config::Argon2Config::default(),
         );
-        let pool = crate::test_utils::take_prepared_test_pool().unwrap_or_else(|| {
+        // 这里曾有一个"预制备池队列"（`take_prepared_test_pool().unwrap_or_else(…)`），
+        // 但那个队列**从来没有被填过**：`enqueue_prepared_test_pool` 在全仓没有调用者，
+        // 因此它恒返回 `None`、只是把创建逻辑包了一层（2026-09-21 审计确认后删除，
+        // 同一份死代码在 synapse-services / synapse-storage / synapse-test-utils 三处）。
+        let pool = {
             let db_url = std::env::var("TEST_DATABASE_URL")
                 .or_else(|_| std::env::var("DATABASE_URL"))
                 .unwrap_or_else(|_| crate::test_config::test_database_url());
@@ -645,7 +654,7 @@ impl ServiceContainer {
                     .connect_lazy(&db_url)
                     .expect("Failed to create test database pool"),
             )
-        });
+        };
         Self::new_test_with_pool(pool).await
     }
 
