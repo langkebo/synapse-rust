@@ -2230,3 +2230,49 @@ async fn test_p2_14_find_events_referencing_missing_state() {
     // Cleanup
     let _ = storage.delete_room_events(&room_id).await;
 }
+
+/// B8：`create_event_with_graph` 的 `tx=None` 分支必须原子。
+///
+/// 注入手段：`fk_event_edges_prev` 外键拒绝不存在的 `prev_event_id`
+/// （migrations/00000000_unified_schema_v12.sql:5161-5168）。修复前 events 行先以
+/// autocommit 落库、随后 edges 插入失败 ⇒ 留下孤立事件行；修复后整笔回滚。
+#[tokio::test]
+async fn create_event_with_graph_rolls_back_event_when_edges_insert_fails() {
+    let (_guard, pool) = test_pool().await;
+    let room_id = "!dag_rollback:example.com";
+    ensure_test_room(&pool, room_id).await;
+    let storage = EventStorage::new(&pool, test_server_name());
+
+    // 对照组：无 prev_events 时该路径必须成功。否则"失败后没有残留"可能只是第一个
+    // INSERT 就失败了，测试会假绿。
+    let control = CreateEventParams {
+        event_id: "$dag_control:example.com".to_string(),
+        room_id: room_id.to_string(),
+        user_id: "@test:example.com".to_string(),
+        event_type: "m.room.message".to_string(),
+        content: serde_json::json!({ "body": "control" }),
+        state_key: None,
+        origin_server_ts: current_timestamp_millis(),
+        redacts: None,
+    };
+    storage.create_event_with_graph(control, &[], &[], 0, None).await.expect("control insert must succeed");
+
+    let params = CreateEventParams {
+        event_id: "$dag_rollback:example.com".to_string(),
+        room_id: room_id.to_string(),
+        user_id: "@test:example.com".to_string(),
+        event_type: "m.room.message".to_string(),
+        content: serde_json::json!({ "body": "hello" }),
+        state_key: None,
+        origin_server_ts: current_timestamp_millis(),
+        redacts: None,
+    };
+    let result =
+        storage.create_event_with_graph(params, &["$missing_prev:example.com".to_string()], &[], 1, None).await;
+    assert!(result.is_err(), "event_edges 外键失败必须让整笔写入失败");
+
+    // 用既有 reader 断言行不存在：不新增动态 SQL 调用点（SQLx 棘轮会把
+    // `#[cfg(test)]` 内联模块里的 `sqlx::query_scalar` 计入 dynamic）。
+    let persisted = storage.get_event("$dag_rollback:example.com").await.expect("get_event");
+    assert!(persisted.is_none(), "events 行不得在 event_edges 失败后残留（半写窗口）");
+}

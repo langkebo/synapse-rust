@@ -138,6 +138,16 @@ pub fn extract_redacts(event: &Value) -> Option<&str> {
     event.get("content").and_then(|c| c.get("redacts")).and_then(|v| v.as_str())
 }
 
+/// Returns `true` when a redaction event must carry its target in
+/// `content.redacts` instead of the top-level `redacts` PDU field.
+///
+/// Room versions 11+ use the MSC2174/MSC3820 format; v1-v10 use the top-level
+/// field.  Unparsable version strings fall back to the v1-v10 shape so that
+/// unknown or experimental versions keep the historical behaviour.
+pub fn redacts_in_content(room_version: &str) -> bool {
+    room_version.parse::<u32>().map(|version| version >= 11).unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -309,5 +319,25 @@ mod tests {
             "content": {"redacts": "$content:example.com"}
         });
         assert_eq!(extract_redacts(&event), Some("$top:example.com"));
+    }
+
+    #[test]
+    fn test_redacts_in_content_v11_and_above() {
+        assert!(redacts_in_content("11"));
+        assert!(redacts_in_content("12"));
+        assert!(redacts_in_content("13"));
+    }
+
+    #[test]
+    fn test_redacts_in_content_v10_and_below() {
+        assert!(!redacts_in_content("10"));
+        assert!(!redacts_in_content("1"));
+    }
+
+    #[test]
+    fn test_redacts_in_content_unparsable_falls_back_to_top_level() {
+        // Non-numeric versions (unknown/experimental) keep the v1-v10 shape.
+        assert!(!redacts_in_content("org.example.unknown"));
+        assert!(!redacts_in_content(""));
     }
 }
