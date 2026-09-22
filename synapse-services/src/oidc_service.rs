@@ -331,6 +331,7 @@ impl OidcService {
         redirect_uri: &str,
         code_challenge: Option<&str>,
         code_challenge_method: Option<&str>,
+        nonce: Option<&str>,
     ) -> Result<String, ApiError> {
         let scope = self.config.scopes.join(" ");
 
@@ -360,6 +361,13 @@ impl OidcService {
             if let Some(challenge) = code_challenge {
                 query.append_pair("code_challenge", challenge);
                 query.append_pair("code_challenge_method", code_challenge_method.unwrap_or("S256"));
+            }
+
+            // OIDC nonce: the callback validates that the id_token carries this
+            // value, so it MUST be sent to the IdP (omitting it makes compliant
+            // IdPs return no `nonce` and the check fail).
+            if let Some(nonce) = nonce {
+                query.append_pair("nonce", nonce);
             }
         }
 
@@ -460,6 +468,10 @@ impl OidcService {
                     nonce_provided = nonce.is_some(),
                     "OIDC ID token validation failed"
                 );
+                // Fail closed: an id_token whose signature/claims did not verify must
+                // not complete the login. Detail stays in the log; the caller gets a
+                // generic 401 so validation internals are not leaked.
+                return Err(ApiError::unauthorized("OIDC ID token validation failed".to_string()));
             }
         }
 
@@ -664,73 +676,6 @@ impl OidcService {
         Ok(())
     }
 
-    /// Claim-only validation of an id_token (iss/aud/exp), WITHOUT signature verification.
-    ///
-    /// NOTE: As of OPT-001 (audit 07 #1) this is intentionally NOT used as a fallback in
-    /// `validate_id_token`: accepting a token whose signature could not be verified is an
-    /// authentication bypass. Retained (not deleted) because it is security-relevant and may
-    /// be reused for contexts where the signature has already been verified separately.
-    #[allow(dead_code)]
-    fn validate_id_token_claims(&self, id_token: &str) -> Result<(), ServiceError> {
-        let oidc_err = |message: String| ServiceError::OidcVerificationFailed { message };
-
-        let parts: Vec<&str> = id_token.split('.').collect();
-        if parts.len() != 3 {
-            return Err(oidc_err("Invalid ID token format: expected 3 parts".to_string()));
-        }
-
-        let payload_bytes =
-            URL_SAFE_NO_PAD.decode(parts[1]).map_err(|e| oidc_err(format!("Invalid ID token payload base64: {e}")))?;
-
-        let payload: serde_json::Value = serde_json::from_slice(&payload_bytes)
-            .map_err(|e| oidc_err(format!("Invalid ID token payload JSON: {e}")))?;
-
-        let token_issuer = payload
-            .get("iss")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| oidc_err("Missing 'iss' claim in ID token".to_string()))?;
-
-        if token_issuer != self.config.issuer {
-            return Err(oidc_err(format!(
-                "ID token issuer mismatch: expected {}, got {}",
-                self.config.issuer, token_issuer
-            )));
-        }
-
-        let audiences = payload.get("aud").ok_or_else(|| oidc_err("Missing 'aud' claim in ID token".to_string()))?;
-
-        let audience_matches = if let Some(aud_str) = audiences.as_str() {
-            aud_str == self.config.client_id
-        } else if let Some(aud_arr) = audiences.as_array() {
-            aud_arr.iter().any(|v| v.as_str() == Some(&self.config.client_id))
-        } else {
-            false
-        };
-
-        if !audience_matches {
-            return Err(oidc_err(format!("ID token audience mismatch: expected {}", self.config.client_id)));
-        }
-
-        let now = chrono::Utc::now().timestamp();
-        let expires_at = payload.get("exp").and_then(|v| v.as_i64()).unwrap_or(0);
-
-        if expires_at < now {
-            return Err(oidc_err(format!("ID token expired: exp={expires_at} now={now}")));
-        }
-
-        let azp = payload.get("azp").and_then(|v| v.as_str());
-        if let Some(azp_val) = azp {
-            if azp_val != self.config.client_id {
-                return Err(oidc_err(format!(
-                    "ID token authorized party mismatch: expected {}, got {}",
-                    self.config.client_id, azp_val
-                )));
-            }
-        }
-
-        Ok(())
-    }
-
     /// See [`refresh_token`].
     pub async fn refresh_token(&self, refresh_token: &str) -> Result<OidcTokenResponse, ApiError> {
         let default_token = format!("{}/token", self.config.issuer);
@@ -900,7 +845,13 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let service = create_test_service();
         let url = rt
-            .block_on(service.get_authorization_url("test-state", "https://matrix.example.com/callback", None, None))
+            .block_on(service.get_authorization_url(
+                "test-state",
+                "https://matrix.example.com/callback",
+                None,
+                None,
+                None,
+            ))
             .unwrap();
 
         assert!(url.contains("client_id=test-client-id"));
@@ -1129,5 +1080,64 @@ mod tests {
         let err = result.unwrap_err();
         let err_str = err.to_string();
         assert!(err_str.contains("nonce mismatch"), "error should mention nonce mismatch, got: {err_str}");
+    }
+
+    /// C9：授权 URL 必须携带 nonce。调用方（sso.rs / provider.rs）已生成并存储 nonce，
+    /// 但此前从不发给 IdP，导致合规 IdP 不回传 nonce，live nonce 校验永远失败（仅告警）。
+    #[test]
+    fn test_get_authorization_url_includes_nonce() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let service = create_test_service();
+        let url = rt
+            .block_on(service.get_authorization_url(
+                "test-state",
+                "https://matrix.example.com/callback",
+                None,
+                None,
+                Some("nonce-abc123"),
+            ))
+            .unwrap();
+
+        assert!(url.contains("nonce=nonce-abc123"), "授权 URL 必须携带 nonce: {url}");
+
+        // 未提供 nonce 时不得凭空写入该参数。
+        let url_without = rt
+            .block_on(service.get_authorization_url(
+                "test-state",
+                "https://matrix.example.com/callback",
+                None,
+                None,
+                None,
+            ))
+            .unwrap();
+        assert!(!url_without.contains("nonce="), "未提供 nonce 时不应写入: {url_without}");
+    }
+
+    /// C9：`exchange_code` 对 id_token 校验失败必须 **fail-closed**。
+    /// 修复前仅 `tracing::warn!` 后照常返回 Ok —— 令牌端点的 id_token 实际上不受校验。
+    #[tokio::test]
+    async fn test_exchange_code_fails_closed_when_id_token_invalid() {
+        let server = MockServer::start().await;
+        // alg=none + 伪造 iss：签名无法通过 JWKS 校验。
+        let forged_id_token = "eyJhbGciOiJub25lIn0.             eyJpc3MiOiJodHRwczovL2V2aWwuZXhhbXBsZSIsImF1ZCI6InRlc3QtY2xpZW50LWlkIiwiZXhwIjo0MTAyNDQ0ODAwfQ.\
+             ";
+        Mock::given(method("POST"))
+            .and(path("/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "access_token": "access-token",
+                "token_type": "Bearer",
+                "expires_in": 3600,
+                "id_token": forged_id_token,
+            })))
+            .mount(&server)
+            .await;
+
+        let mut config = create_test_config();
+        config.issuer = server.uri();
+        config.token_endpoint = Some(format!("{}/token", server.uri()));
+        let service = OidcService::new(Arc::new(config));
+
+        let result = service.exchange_code("auth-code", "https://matrix.example.com/callback", None, None).await;
+        assert!(result.is_err(), "id_token 校验失败时必须返回错误（fail-closed），不得仅告警后放行: {result:?}");
     }
 }
