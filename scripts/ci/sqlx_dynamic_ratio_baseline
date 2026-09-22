@@ -107,7 +107,7 @@
 # 历史对照：2026-06-03 审计记录动态占比 99.6%（含测试代码口径）；
 # 本基线口径（仅 workspace 生产目录，含内联测试模块）为 95.90%。
 
-BASELINE_DYNAMIC=2147
+BASELINE_DYNAMIC=2150
 BASELINE_STATIC=61
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
@@ -264,3 +264,21 @@ BASELINE_STATIC=61
 #   git checkout 回滚实测过 RED（2/2 失败）。
 #
 #   收紧方向同前：把三/四份副本收敛成一份，这些动态调用自然消失。
+
+# ── 2026-09-22 基线调整（+3，2147 → 2150）────────────────────────────────
+#
+# 来源：B9 修复的 DB 测试 `synapse-services/src/room/messaging/messages.rs`
+# `txn_dedup_compensation_tests::dedup_marker_failure_soft_fails_the_created_event`。
+# 三处全部在 `#[cfg(test)]` 内联测试模块，**生产路径未新增动态 SQL**：
+#   1. 房间/用户/成员三个夹具 INSERT 合并成**一条** data-modifying CTE（若拆开写将是 +5）；
+#   2. 故障注入 `ALTER TABLE room_event_txn_dedup ADD CONSTRAINT … CHECK (false) NOT VALID`
+#      —— 必须只让**标记写入**失败而保留查重读取可用；若整表 DROP，`get_event_id_by_txn`
+#      会在 lookup 阶段就返回，测试根本走不到"事件已提交、标记未写"的目标路径（已实测）。
+#      该 DDL 无法用 `query!` 宏静态化（DDL 无元数据，且 `#[cfg(test)]` 内的宏不进
+#      `cargo sqlx prepare` 缓存，见本文件既有登记）；
+#   3. 一条 `SELECT COUNT(*) … AND soft_failed = FALSE` 断言：生产读路径的 soft_failed
+#      过滤行为正是被测对象，直接用计数断言避免依赖读路径的额外过滤层。
+#
+# 收紧方向：若 ServiceContainer 暴露"建房间/加成员"的生产 API 或可注入的 EventWriter
+# 测试替身（B10c 也需要后者），夹具可改为调用生产 API，本文件可回收 1-2 处；
+# 故障注入那处在其存在期间无法回收。
