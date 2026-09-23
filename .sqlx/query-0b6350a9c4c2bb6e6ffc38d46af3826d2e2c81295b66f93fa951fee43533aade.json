@@ -1,0 +1,112 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT w.id AS \"id!\",\n                   w.worker_id AS \"worker_id!\",\n                   w.worker_name AS \"worker_name!\",\n                   w.worker_type AS \"worker_type!\",\n                   w.status AS \"status!\",\n                   w.host AS \"host!\",\n                   w.port AS \"port!\",\n                   w.last_heartbeat_ts,\n                   w.started_ts AS \"started_ts!\",\n                   s.total_messages_sent AS \"total_messages_sent?\",\n                   s.total_messages_received AS \"total_messages_received?\",\n                   s.total_errors AS \"total_errors?\",\n                   s.last_message_ts AS \"last_message_ts?\",\n                   s.last_error_ts AS \"last_error_ts?\",\n                   s.avg_processing_time_ms AS \"avg_processing_time_ms?\",\n                   s.uptime_seconds AS \"uptime_seconds?\"\n            FROM workers w\n            LEFT JOIN worker_statistics s ON s.worker_id = w.worker_id\n            ORDER BY w.id DESC\n            LIMIT $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "worker_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "worker_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "worker_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "status!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "host!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "port!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "last_heartbeat_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "started_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "total_messages_sent?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "total_messages_received?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "total_errors?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "last_message_ts?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "last_error_ts?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 14,
+        "name": "avg_processing_time_ms?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 15,
+        "name": "uptime_seconds?",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "0b6350a9c4c2bb6e6ffc38d46af3826d2e2c81295b66f93fa951fee43533aade"
+}

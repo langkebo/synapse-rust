@@ -1011,3 +1011,61 @@ async fn test_update_connection_stats_returns_ok() {
         .messages_received(10);
     storage.update_connection_stats(&request).expect("update_connection_stats should succeed");
 }
+
+/// `get_statistics` 契约修复回归（2026-09-23）。
+///
+/// 旧实现对 `worker_statistics` 选择了 15 个**两张表都没有**的列
+/// （psql 42703 `column "worker_name" does not exist`），端点从未返回过任何行。
+/// 现在身份/状态取自 `workers`，计数 LEFT JOIN `worker_statistics`：
+/// 有计数行的 worker 必须带上计数；没有计数行的 worker 计数必须为 null（而不是解码错误）；
+/// 无任何存储支撑的 8 个负载指标（`cpu_usage` 等）不得再出现在载荷里。
+#[tokio::test]
+async fn test_get_statistics_reads_real_columns_and_tolerates_missing_counters() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = WorkerStorage::new(&pool);
+
+    let with_stats = format!("w-stats-{}", uuid::Uuid::new_v4());
+    let without_stats = format!("w-nostats-{}", uuid::Uuid::new_v4());
+    cleanup_worker(&pool, &with_stats).await;
+    cleanup_worker(&pool, &without_stats).await;
+
+    storage
+        .register_worker(make_register_request(&with_stats, WorkerType::Frontend))
+        .await
+        .expect("register worker with stats");
+    storage
+        .register_worker(make_register_request(&without_stats, WorkerType::Frontend))
+        .await
+        .expect("register worker without stats");
+
+    let now = synapse_common::current_timestamp_millis();
+    let _ = sqlx::query("DELETE FROM worker_statistics WHERE worker_id = $1").bind(&with_stats).execute(&*pool).await;
+    sqlx::query(
+        "INSERT INTO worker_statistics (worker_id, total_messages_sent, total_errors, uptime_seconds, created_ts, updated_ts) \
+         VALUES ($1, 42, 3, 900, $2, $2)",
+    )
+    .bind(&with_stats)
+    .bind(now)
+    .execute(&*pool)
+    .await
+    .expect("insert worker_statistics row");
+
+    let rows = storage.get_statistics(50).await.expect("get_statistics must succeed against the real schema");
+
+    let with_row =
+        rows.iter().find(|row| row["worker_id"] == serde_json::json!(with_stats)).expect("worker with stats present");
+    assert_eq!(with_row["total_messages_sent"], serde_json::json!(42));
+    assert_eq!(with_row["total_errors"], serde_json::json!(3));
+    assert_eq!(with_row["uptime_seconds"], serde_json::json!(900));
+    assert_eq!(with_row["status"], serde_json::json!("starting"));
+    assert!(with_row.get("cpu_usage").is_none(), "unbacked load metric must not be emitted");
+
+    let without_row = rows
+        .iter()
+        .find(|row| row["worker_id"] == serde_json::json!(without_stats))
+        .expect("worker without stats present");
+    assert!(
+        without_row["total_messages_sent"].is_null(),
+        "missing counters must decode as null rather than raising a decode error"
+    );
+}

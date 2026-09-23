@@ -137,6 +137,36 @@
 # 实测：production 1455 → **1451**，dynamic 总数 2151 → **2147**，static 不变。
 # （`get_room_message_counts_batch` 唯一的使用者是本轮新增的 soft_failed 回归用例，
 #  已同步移除该断言——删除死 API 优先于为它保留测试。）
+# ── 2026-09-23 修复 worker/get_statistics 契约并静态化（生产 -1，静态 +1，测试 +2）──
+#
+# 来源：C9 挖出的既有真实缺陷。`synapse-storage/src/worker/repository.rs::get_statistics`
+# 对 `worker_statistics` 选择了 15 个**两张表都不存在**的列（psql 实测 42703
+# `column "worker_name" does not exist`；其 doc 引用的迁移
+# `20260812120000_worker_statistics_load_metrics` 不在 `migrations/`），
+# 因此该端点从未成功返回过任何行。
+#
+# 判定（是否补列）：**不补**。那 15 列里 7 列属于 `workers`
+# （worker_name/worker_type/status/host/port/last_heartbeat_ts/started_ts），
+# 通过 JOIN 即可获得；其余 8 列（cpu_usage/memory_usage/active_connections/
+# requests_per_second/average_latency_ms/queue_depth/pending_commands/active_tasks）
+# 在**任何迁移中都不存在**，且 `worker_statistics` 全仓**没有任何写入方**
+# （`INSERT INTO worker_statistics` = 0 命中）——补列只会得到永久 NULL 的宽度。
+# 实现改为 `workers w LEFT JOIN worker_statistics s ON s.worker_id = w.worker_id`，
+# 只暴露有存储支撑的列，并用 `query!` 静态化。
+#
+# 计数变化：
+#   dynamic_production 964 → 963（该函数唯一一处动态被静态化）
+#   static             549 → 550
+#   dynamic_test       696 → 698（+2，见下）
+#
+# 测试新增（`synapse-storage/src/worker/db_tests.rs`）：
+# `test_get_statistics_reads_real_columns_and_tolerates_missing_counters`
+# —— 有计数行的 worker 必须带计数，无计数行的 worker 计数必须为 null（而非解码错误），
+# 且 8 个无存储指标不得出现在载荷里。+2 是两处**测试夹具**写入：
+# `worker_statistics` 表没有任何写入 API，构造"有计数/无计数"两种前置状态只能直接 SQL；
+# 它们是"证明 LEFT JOIN + `Option` 计数不炸"的必要前置，属基线文件既有的
+# "测试基础设施"类别，不可静态化（`#[cfg(test)]` 宏不进 `cargo sqlx prepare`）。
+
 # ── 2026-09-23 C1 静态化（生产动态 -43，静态 +43）────────────────────────────
 #
 # 批次：C1（docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md）。
@@ -827,11 +857,11 @@
 # 收紧方向：C11（synapse-common/src/test_isolation.rs）与 E2EE 其余存储模块
 # （device_trust 17 / key_rotation 18 / backup 18 处动态）继续分批静态化，
 # 直至 dynamic_production = 0。
-BASELINE_DYNAMIC_PRODUCTION=964
-BASELINE_DYNAMIC_TEST_INFRA=696
-BASELINE_STATIC=549
+BASELINE_DYNAMIC_PRODUCTION=963
+BASELINE_DYNAMIC_TEST_INFRA=698
+BASELINE_STATIC=550
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1660
+BASELINE_DYNAMIC=1661
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

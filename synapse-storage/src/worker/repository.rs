@@ -682,64 +682,72 @@ impl WorkerStorage {
         Ok(())
     }
 
-    /// Returns worker statistics ordered newest-first.
+    /// Returns worker identity/status plus per-worker counters, newest first.
     ///
-    /// Reads from `worker_statistics`, whose schema was completed by the
-    /// `20260812120000_worker_statistics_load_metrics` migration to include the
-    /// worker identity/lifecycle columns plus realtime load metric columns.
-    /// Realtime load metrics (cpu/memory/connections/...) have no collector
-    /// yet, so those columns remain NULL and are emitted as JSON `null` for
-    /// payload compatibility.
+    /// **Contract fixed 2026-09-23.** The previous version selected 15 columns that
+    /// exist in **neither** `workers` nor `worker_statistics`: its doc comment cited
+    /// migration `20260812120000_worker_statistics_load_metrics`, which is not in
+    /// `migrations/`, and the query failed with SQLSTATE 42703 (`column "worker_name"
+    /// does not exist`) on every call — this endpoint never returned a single row.
+    ///
+    /// Identity/lifecycle fields live in `workers`; the counters live in
+    /// `worker_statistics`, which today has **no writer at all** (no
+    /// `INSERT INTO worker_statistics` anywhere in the tree), hence the LEFT JOIN and
+    /// `Option` counters. The eight load metrics that have no storage in any migration
+    /// (`cpu_usage`, `memory_usage`, `active_connections`, `requests_per_second`,
+    /// `average_latency_ms`, `queue_depth`, `pending_commands`, `active_tasks`) are
+    /// deliberately **not** reintroduced: nothing would ever write them, so adding
+    /// columns would only create permanently-NULL breadth. Adding a real collector
+    /// (and a writer for `worker_statistics`) is a separate feature.
     pub async fn get_statistics(&self, limit: i64) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        // NOTE(C9): intentionally left dynamic — this SQL is **already broken** against the real
-        // schema, and `query!` rejects it at compile time. `worker_statistics`
-        // (migrations/00000000_unified_schema_v12.sql:2040) has ONLY: id, worker_id,
-        // total_messages_sent, total_messages_received, total_errors, last_message_ts,
-        // last_error_ts, avg_processing_time_ms, uptime_seconds, created_ts, updated_ts.
-        // The worker_name / worker_type / status / host / port / last_heartbeat_ts / started_ts /
-        // cpu_usage / memory_usage / active_connections / requests_per_second /
-        // average_latency_ms / queue_depth / pending_commands / active_tasks columns referenced
-        // below DO NOT EXIST (psql: ERROR 42703 column "worker_name" does not exist). The doc
-        // comment above cites migration `20260812120000_worker_statistics_load_metrics`, which is
-        // absent from `migrations/`. Fixing this means choosing a new payload contract (drop the
-        // missing keys, or join `workers` / add the columns) — a behaviour change outside C9's
-        // staticization scope, so it is reported rather than silently repaired. No in-tree callers.
-        let rows = sqlx::query(
-            r"SELECT id, worker_id, worker_name, worker_type, status,
-                      host, port, last_heartbeat_ts, started_ts,
-                      cpu_usage, memory_usage, active_connections,
-                      requests_per_second, average_latency_ms,
-                      queue_depth, pending_commands, active_tasks
-               FROM worker_statistics
-               ORDER BY id DESC
-               LIMIT $1",
+        let rows = sqlx::query!(
+            r#"
+            SELECT w.id AS "id!",
+                   w.worker_id AS "worker_id!",
+                   w.worker_name AS "worker_name!",
+                   w.worker_type AS "worker_type!",
+                   w.status AS "status!",
+                   w.host AS "host!",
+                   w.port AS "port!",
+                   w.last_heartbeat_ts,
+                   w.started_ts AS "started_ts!",
+                   s.total_messages_sent AS "total_messages_sent?",
+                   s.total_messages_received AS "total_messages_received?",
+                   s.total_errors AS "total_errors?",
+                   s.last_message_ts AS "last_message_ts?",
+                   s.last_error_ts AS "last_error_ts?",
+                   s.avg_processing_time_ms AS "avg_processing_time_ms?",
+                   s.uptime_seconds AS "uptime_seconds?"
+            FROM workers w
+            LEFT JOIN worker_statistics s ON s.worker_id = w.worker_id
+            ORDER BY w.id DESC
+            LIMIT $1
+            "#,
+            limit
         )
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await?;
 
         Ok(rows
             .into_iter()
             .map(|row| {
-                use sqlx::Row;
                 serde_json::json!({
-                    "id": row.get::<i64, _>("id"),
-                    "worker_id": row.get::<String, _>("worker_id"),
-                    "worker_name": row.get::<Option<String>, _>("worker_name"),
-                    "worker_type": row.get::<Option<String>, _>("worker_type"),
-                    "status": row.get::<Option<String>, _>("status"),
-                    "host": row.get::<Option<String>, _>("host"),
-                    "port": row.get::<Option<i32>, _>("port"),
-                    "last_heartbeat_ts": row.get::<Option<i64>, _>("last_heartbeat_ts"),
-                    "started_ts": row.get::<Option<i64>, _>("started_ts"),
-                    "cpu_usage": row.get::<Option<f64>, _>("cpu_usage"),
-                    "memory_usage": row.get::<Option<f64>, _>("memory_usage"),
-                    "active_connections": row.get::<Option<i32>, _>("active_connections"),
-                    "requests_per_second": row.get::<Option<f64>, _>("requests_per_second"),
-                    "average_latency_ms": row.get::<Option<f64>, _>("average_latency_ms"),
-                    "queue_depth": row.get::<Option<i32>, _>("queue_depth"),
-                    "pending_commands": row.get::<Option<i32>, _>("pending_commands"),
-                    "active_tasks": row.get::<Option<i32>, _>("active_tasks"),
+                    "id": row.id,
+                    "worker_id": row.worker_id,
+                    "worker_name": row.worker_name,
+                    "worker_type": row.worker_type,
+                    "status": row.status,
+                    "host": row.host,
+                    "port": row.port,
+                    "last_heartbeat_ts": row.last_heartbeat_ts,
+                    "started_ts": row.started_ts,
+                    "total_messages_sent": row.total_messages_sent,
+                    "total_messages_received": row.total_messages_received,
+                    "total_errors": row.total_errors,
+                    "last_message_ts": row.last_message_ts,
+                    "last_error_ts": row.last_error_ts,
+                    "avg_processing_time_ms": row.avg_processing_time_ms,
+                    "uptime_seconds": row.uptime_seconds,
                 })
             })
             .collect())
