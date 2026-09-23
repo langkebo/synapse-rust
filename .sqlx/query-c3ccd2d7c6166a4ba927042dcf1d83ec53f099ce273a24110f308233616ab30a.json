@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT DISTINCT ON (e.state_key) e.state_key AS \"state_key!\", e.content\n            FROM events e\n            WHERE e.room_id = $1\n            AND e.event_type = 'm.friends.list'\n            ORDER BY e.state_key, e.origin_server_ts DESC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "state_key!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "content",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "c3ccd2d7c6166a4ba927042dcf1d83ec53f099ce273a24110f308233616ab30a"
+}

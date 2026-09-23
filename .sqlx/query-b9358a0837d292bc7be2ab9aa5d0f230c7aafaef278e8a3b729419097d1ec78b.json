@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE friend_requests\n            SET status = $3, updated_ts = $4\n            WHERE sender_id = $1 AND receiver_id = $2 AND status = 'pending'\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b9358a0837d292bc7be2ab9aa5d0f230c7aafaef278e8a3b729419097d1ec78b"
+}

@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT e.content\n            FROM events e\n            WHERE e.room_id = $1\n            AND e.event_type = 'm.friends.groups'\n            AND e.state_key = ''\n            ORDER BY e.origin_server_ts DESC\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "content",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f308edc69e90e0ca7549dd46208a2f95060a122b25461eabbff64ee9f3955ce8"
+}

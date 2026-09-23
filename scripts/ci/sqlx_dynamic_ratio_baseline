@@ -902,11 +902,114 @@
 #   ⚠️ 生产动态 963 含并发写者未提交的 `synapse-storage/src/search_index.rs` 在途
 #   改动（C3/C6 段登记的同型 +1，本轮未复核其是否仍在）；本批自身生产变化为 0，
 #   故基线按门禁实测值保持 963。
-BASELINE_DYNAMIC_PRODUCTION=963
+# ── 2026-09-23 C11 静态化（生产动态 -26，静态 +26）────────────────────────────
+#
+# 批次：C11。目标文件：synapse-storage/src/friend_room/repository.rs。
+# （注：方案文档 SQLX_STATICIZATION_PLAN_2026-09-23.md 的 C11 行写的是
+#  `synapse-common/src/test_isolation.rs`，而同一文档的分布表把 friend_room
+#  列为 26/26 —— 文档自身不一致；本批按实际指派取 friend_room/repository.rs，
+#  test_isolation.rs 仍在待办。）
+#
+# 该文件 26 处生产动态调用**全部**静态化（生产区剩余动态 = 0）：
+#   query_scalar! ×12（单列投影 SELECT e.room_id / e.content、
+#                      INSERT … RETURNING id、回退 SELECT id、
+#                      `SELECT 1` 存在性探测 ×3、SELECT DISTINCT r1.room_id）
+#   query_as!     × 7（FriendDmLink / DirectRoomFallbackLink / DmPartnerRecord /
+#                      FriendRequestRecord ×4）
+#   query!        × 7（events.content 多列投影 ×2、建议查询 ×2、
+#                      save_friend_groups INSERT、UPDATE/DELETE friend_requests ×2）
+#
+# ⚠️ 本模块由 `#[cfg(feature = "friends")]` 门控（synapse-storage/src/lib.rs:164-165），
+# 且 synapse-storage 自身 `default = []`。因此**验证命令必须显式带 `friends`**；
+# 否则该文件根本不参与编译、门禁假绿：
+#   cargo check -p synapse-storage --features test-utils,server-notifications,saml-sso,friends
+# 首轮实测踩到该陷阱：不带 friends 时 offline check exit 0，但
+# `cargo nextest list` 里整个 friend_room 模块缺席、`-E 'test(friend_room)'`
+# 匹配 0 个用例（nextest exit 4 "no tests to run"）。
+# 之所以 `cargo sqlx prepare --workspace` 仍能收到这 26 条：`--workspace` 会编译
+# root crate，其 default features 含 `core-private-chat → friends`，feature
+# unification 把 `synapse-storage/friends` 打开。
+#
+# 静态化时补的 nullability / 类型覆盖：
+#   * events.state_key 在 catalog 中可空，旧代码却用 `Row::get::<String,_>` 读
+#     ⇒ `AS "state_key!"`（保持"NULL 即解码失败"的旧语义）。
+#   * find_friend_lists_by_dm_room_id 走 CTE：`COALESCE(sender,user_id)` / room_id /
+#     content 三列显式加 `!`。events.sender、room_id、content 均 NOT NULL，
+#     COALESCE(sender,·) 因 sender NOT NULL 恒非空 ⇒ 与 FriendDmLink 的非 Option
+#     字段一致。
+#   * DmPartnerRecord 的 `COALESCE(display_name…)` / `COALESCE(avatar_url…)` 是
+#     表达式列（无 relation origin，sqlx 一律推断可空）⇒ `AS "display_name!"` /
+#     `AS "avatar_url!"`；两者均带 `''` 兜底，恒非空。
+#   * DirectRoomFallbackLink 两列（room_memberships.user_id / .room_id 均 NOT NULL）
+#     显式加 `!`。
+#   * 两个 friends 建议查询：`COUNT(DISTINCT …)` ⇒ `AS "mutual_count!"` /
+#     `AS "shared_rooms_count!"`；`jsonb_array_elements(…)->>'user_id'` ⇒
+#     `AS "user_id!"`（旧代码同样按 String 读、NULL 即失败，语义不变）；
+#     LEFT JOIN users 外侧的 displayname / avatar_url 列本身可空、旧代码按
+#     Option<String> 读 ⇒ `AS "displayname?"` / `AS "avatar_url?"`（显式标注，
+#     防 C6 型 LEFT JOIN 陷阱）。
+#
+# 结构变化（对外签名全部不变）：
+#   * get_friend_list_all_shards / …_batch 与两个建议查询改用 `query!` 匿名记录 +
+#     手工映射（`query_as!` 不支持元组）；两个建议查询的 `.iter()` 改
+#     `.into_iter()`（按值取字段）。
+#   * get_shared_rooms 原 `rows.iter().filter_map(|r| r.try_get("room_id").ok())`
+#     改为直接返回 `query_scalar!` 的 `Vec<String>`：room_id NOT NULL，故旧代码
+#     "静默丢弃解码失败行"的分支在合法数据上不可达，语义不变。
+#     get_friend_requests 原读 `Option<Value>` 再 and_then，content NOT NULL ⇒
+#     直接用 `query_scalar!` 的 `Value`。
+#   * ensure_user_exists / has_pending_request / has_any_pending_request 的
+#     `SELECT 1 … fetch_optional + is_some()` 形态保留（未改写成 EXISTS）。
+#   * 全文件不再使用 `Row`，`use sqlx::{Pool, Postgres, Row}` 去掉 `Row`。
+#
+# `.sqlx`：`SQLX_OFFLINE=false DATABASE_URL=… cargo sqlx prepare --workspace --
+#   --features server-notifications,saml-sso`（isolated worktree target/c11-wt @
+#   HEAD 502424004）。实测 before=528 after=554，**deleted=0 / added=26**
+#   （文件名集合 comm 逐条核对）。26 个宏站点各产生 1 条新条目，无哈希合并。
+#   ⚠️ 该 destination 就是 `.sqlx/` 本身：若改用 `-p synapse-storage` 的默认
+#   feature 集（不含 friends）重刷，这 26 条会被先清后写地删掉。
+#
+# 验证（isolated worktree target/c11-wt @ HEAD 502424004，**无越界修补**——
+# HEAD 已能编译 workspace，C3/C6/C7/C10 登记的 app_service/test_config 缺陷已由
+# 祖先提交修复）：
+#   SQLX_OFFLINE=false DATABASE_URL=… cargo check -p synapse-storage
+#     --features test-utils,server-notifications,saml-sso,friends → Finished
+#     （真实 DB describe 校验全部 26 个宏）
+#   SQLX_OFFLINE=true … cargo check -p synapse-storage
+#     --features test-utils,server-notifications,saml-sso,friends（touch 源文件强制
+#     宏重展开）→ Finished（提交的 .sqlx 离线可复现）
+#   TEST_DATABASE_URL=… TEST_DB_TEMPLATE_SCHEMA=test_template_ci cargo nextest run
+#     -p synapse-storage --lib --features test-utils,server-notifications,saml-sso,friends
+#     -E 'test(friend_room)' --no-fail-fast
+#     → **24 passed, 0 failed**（1 leaky schema，既有夹具行为）
+#
+# 运行期回退：**无**。
+#
+# 未被本批 db 用例覆盖的转化站点（编译期已按真实 schema 校验）：
+#   get_friend_list_all_shards_batch / get_incoming_friend_requests /
+#   get_outgoing_friend_requests / update_friend_request_status /
+#   delete_friend_request / has_pending_request / has_any_pending_request /
+#   ensure_user_exists / get_shared_rooms —— 这 9 处由
+#   tests/integration/friend_room_storage_tests_migrated.rs 覆盖（不在本批
+#   `-p synapse-storage --lib` 口径内）；
+#   get_friend_suggestions_from_mutual_friends / _from_shared_rooms —— **全仓无任何
+#   测试调用**（唯一调用方 synapse-services/src/friend_room_service/groups.rs:215,227），
+#   收紧方向：为这两个建议查询补 DB 用例。
+#
+# 未发现需要单独登记的既有 SQL 缺陷；上面几处"旧代码按 `Row::get` 硬读可空列"的
+# 假设均原样保留（`!` 覆盖），未借静态化改动行为。
+#
+# 实测（main 树，门禁同源；本轮无并发写者新增生产动态）：
+#   dynamic_production 963 → 937   （C11 自身 -26）
+#   static             551 → 577   （+26）
+#   dynamic            1667 → 1641
+#   dynamic_test       704 → 704   （未动）
+# 收紧方向：C4/C5/C9 等剩余批次继续分批静态化，直至 dynamic_production = 0。
+BASELINE_DYNAMIC_PRODUCTION=937
 BASELINE_DYNAMIC_TEST_INFRA=704
-BASELINE_STATIC=551
+BASELINE_STATIC=577
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1667
+BASELINE_DYNAMIC=1641
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

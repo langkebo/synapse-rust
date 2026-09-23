@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM friend_requests\n            WHERE sender_id = $1 AND receiver_id = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "83d4dca0bfea0784b4c4d907047859f18a40390e092ce1a350c162664666393d"
+}

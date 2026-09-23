@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO events (event_id, room_id, sender, event_type, state_key, content, origin_server_ts, depth)\n            VALUES ($1, $2, $3, 'm.friends.groups', '', $4, $5, 1)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ed1876426bc47f14f7cbe45667c1315a8ccd9f21aa07953bb4affbee9daeca63"
+}
