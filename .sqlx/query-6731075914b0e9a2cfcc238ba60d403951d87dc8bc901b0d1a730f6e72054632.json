@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                user_id,\n                expiration_at,\n                last_check_at,\n                renewal_token,\n                is_valid AS \"is_valid!\",\n                created_ts,\n                COALESCE(updated_ts, created_ts) AS \"updated_ts!\",\n                NULL::BIGINT AS \"renewal_token_ts\"\n            FROM account_validity\n            WHERE user_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "expiration_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "last_check_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "renewal_token",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "is_valid!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "renewal_token_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "6731075914b0e9a2cfcc238ba60d403951d87dc8bc901b0d1a730f6e72054632"
+}

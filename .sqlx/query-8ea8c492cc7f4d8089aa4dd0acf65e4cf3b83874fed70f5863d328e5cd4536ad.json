@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, module_name, module_type, version, description,\n                is_enabled AS \"is_enabled!\", priority AS \"priority!\", config,\n                created_ts, updated_ts, last_executed_ts, execution_count, error_count, last_error\n            FROM modules WHERE module_name = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "module_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "module_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "is_enabled!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "priority!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "config",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "last_executed_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "execution_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 12,
+        "name": "error_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 13,
+        "name": "last_error",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "8ea8c492cc7f4d8089aa4dd0acf65e4cf3b83874fed70f5863d328e5cd4536ad"
+}

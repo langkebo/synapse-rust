@@ -1,0 +1,67 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO account_validity (user_id, expiration_at, is_valid, created_ts, updated_ts)\n            VALUES ($1, $2, $3, $4, $4)\n            ON CONFLICT (user_id) DO UPDATE SET\n                expiration_at = EXCLUDED.expiration_at,\n                is_valid = EXCLUDED.is_valid,\n                updated_ts = EXCLUDED.updated_ts\n            RETURNING\n                user_id,\n                expiration_at,\n                last_check_at,\n                renewal_token,\n                is_valid AS \"is_valid!\",\n                created_ts,\n                COALESCE(updated_ts, created_ts) AS \"updated_ts!\",\n                NULL::BIGINT AS \"renewal_token_ts\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "expiration_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "last_check_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "renewal_token",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "is_valid!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "renewal_token_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "b1c304664188a1be3a036ead9237978c3d7887e72f522f4a44218e161eedc509"
+}

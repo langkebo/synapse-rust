@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, callback_name, is_enabled AS \"is_enabled!\", data_types, config, created_ts\n            FROM account_data_callbacks WHERE is_enabled = true ORDER BY created_ts DESC, id DESC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "callback_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "is_enabled!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "data_types",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 4,
+        "name": "config",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "a9b5e188949f429e74d6147d64bb17a1ba280fb9e6a96104010963d5cc8a95f2"
+}

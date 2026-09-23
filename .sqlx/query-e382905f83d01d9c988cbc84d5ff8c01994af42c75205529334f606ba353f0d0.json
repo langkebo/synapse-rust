@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO account_data_callbacks (\n                callback_name, config, is_enabled, data_types, created_ts\n            )\n            VALUES ($1, $2, $3, $4, $5)\n            RETURNING id, callback_name, is_enabled AS \"is_enabled!\", data_types, config, created_ts\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "callback_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "is_enabled!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "data_types",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 4,
+        "name": "config",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Jsonb",
+        "Bool",
+        "TextArray",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "e382905f83d01d9c988cbc84d5ff8c01994af42c75205529334f606ba353f0d0"
+}

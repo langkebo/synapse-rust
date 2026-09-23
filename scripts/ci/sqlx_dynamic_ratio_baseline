@@ -1005,11 +1005,112 @@
 #   dynamic            1667 → 1641
 #   dynamic_test       704 → 704   （未动）
 # 收紧方向：C4/C5/C9 等剩余批次继续分批静态化，直至 dynamic_production = 0。
-BASELINE_DYNAMIC_PRODUCTION=937
+# ── 2026-09-23 C12 静态化（生产动态 -25，静态 +25）────────────────────────────
+#
+# 批次：C12。目标文件：synapse-storage/src/module.rs（25 处生产动态）。
+# 提交：5d42b590c（源码）/ 本提交（.sqlx + 基线）。
+#
+# ✅ STEP 0（feature gate）实测：`module` **没有** `#[cfg(feature = …)]` 门控。
+#   `synapse-storage/src/lib.rs:84-85` 是普通 `pub mod module;`（上一行只有文档
+#   注释），且本文件内 `grep -c 'cfg(feature'` = 0。因此本批**不需要**额外 feature，
+#   验证口径沿用已转模块所需的 `test-utils,server-notifications,saml-sso` 即可。
+#   `cargo sqlx prepare --workspace -- --features server-notifications,saml-sso`
+#   （与 C6–C11 同口径；`--workspace` 编译 root crate，其 default features 含
+#   `core-private-chat → friends`，feature unification 顺带打开 synapse-storage/friends）。
+#   测试过滤器实测**非零**：`-E 'test(module)'` → 10 tests run（9 个既有纯用例
+#   + 1 个本轮加的运行期冒烟用例），**未出现 C6/C9/C11 那种 "0 tests" 假绿**。
+#
+# 该文件 25 处生产动态调用**全部**静态化（生产区剩余动态 = 0）：
+#   query_as! ×19（Module / SpamCheckResult / ThirdPartyRuleResult /
+#                   ModuleExecutionLog / AccountValidity / MediaCallback /
+#                   AccountDataCallback 的行映射与 INSERT/UPDATE … RETURNING）
+#   query!    × 6（DELETE modules / UPDATE modules 计数 / UPDATE account_validity）
+#
+# 静态化时补的 nullability / 类型覆盖：
+#   * modules.is_enabled / priority 在 catalog 中**可空**（`BOOLEAN DEFAULT TRUE` /
+#     `INTEGER DEFAULT 0`，无 NOT NULL）而 Module 字段分别是非 Option 的 bool/i32
+#     ⇒ `AS "is_enabled!"` / `AS "priority!"`。旧 FromRow 动态形式在 NULL 时同样
+#     解码失败，语义不变（且本方法的 INSERT 总是显式绑定这两列）。
+#   * 四处 `RETURNING *`（modules / module_execution_logs / media_callbacks）展开为
+#     显式列清单：`query_as!` **不**用 FromRow，而是按 describe 的列名直接构造
+#     结构体字面量（sqlx-macros-core/src/query/output.rs 的 quote_query_as：
+#     `T { <col>: <var>, … }`）⇒ 多一列 E0560、少一列 E0063。
+#   * third_party_rule_results.event_id / room_id 列可空（无 NOT NULL）而结构体字段
+#     String ⇒ `AS "col!"`；is_allowed 列可空 + bool 字段 ⇒ `AS "is_allowed!"`。
+#   * account_validity：is_valid 列可空 ⇒ `AS "is_valid!"`；
+#     `COALESCE(updated_ts, created_ts)` 是表达式列（无 relation origin，sqlx 一律
+#     推断可空）而字段 i64 ⇒ `AS "updated_ts!"`。
+#   * media_callbacks.is_enabled / account_data_callbacks.is_enabled 列可空 + bool
+#     字段 ⇒ `AS "is_enabled!"`。
+#   * 绑定风格（宏 ty_match 比 `.bind()` 严格）：`&Option<String>` → `.as_deref()`，
+#     `Option<Value>` → `.as_ref()`，`&String` → `.as_str()`，
+#     `Option<Vec<String>>` → `.as_deref()`；不再使用 `request` 的按值字段直接传入。
+#
+# ⚠️ **本批独有发现（重要的 query_as! 语义）**：`AccountValidity.renewal_token_ts`
+#   带 `#[sqlx(skip)]`，但 `query_as!` 既不认 `#[sqlx(skip)]` 也不认 `#[sqlx(rename)]`
+#   （同上 quote_query_as：它逐列构造结构体字面量，不调用 FromRow）⇒ **每个结构体字段
+#   都必须有同名输出列**。故四条 account_validity 查询各补
+#   `NULL::BIGINT AS "renewal_token_ts"`，保持旧的"DB 读取恒为 None"语义（该字段
+#   全仓除定义与结构体构造外无任何读取点）。C9 段登记的"`#[sqlx(rename)]` 无效"
+#   同源；本批把 `#[sqlx(skip)]` 也一并登记，后续批次遇到 skip 字段需同样处理。
+#
+# ⚠️ 既有 SQL 缺陷（**非**本批引入，未修，按规则仅登记）：
+#   `create_media_callback` 的 INSERT 从不写 `user_id`，该列 `NOT NULL DEFAULT ''`，
+#   而 v12 baseline 的 `ck_%I_user_id_format` 循环
+#   （migrations/00000000_unified_schema_v12.sql:4794-4815）会为**每张含 text user_id
+#   列的表**自动加 `CHECK (user_id IS NULL OR user_id ~ '^@…:…$')` ⇒ 插入必然违反
+#   `ck_media_callbacks_user_id_format`（SQLSTATE 23514），该函数**永远失败**。
+#   证据：`git show HEAD~1:synapse-storage/src/module.rs` 的旧动态版本列清单与绑定
+#   完全一致（同样没有 user_id），只有 `RETURNING *` → 显式列清单之差，与约束无关。
+#   该路径可达：`POST /_synapse/admin/v1/media_callbacks`
+#   （synapse-web/src/routes/module.rs:851 → module_service.rs:683）。
+#   收紧方向：把 `user_id` 纳入 `CreateMediaCallbackRequest` 并绑定（属**行为修复**，
+#   非静态化），或改成 `NULL`（约束允许 NULL）。
+#
+# 运行期回退：**无**（没有任何一处因 `ColumnDecode … UnexpectedNullError` 回退）。
+#
+# ⚠️ 覆盖率提示：`synapse-storage/src/module.rs` 原有 9 个用例**全部**只构造结构体，
+#   且全仓（含 tests/、synapse-services）**没有任何** ModuleStorage 的 DB 往返用例
+#   ⇒ 本批 25 处静态化在既有测试口径下的运行期覆盖为 **0**。为不把"编译期通过"
+#   当成"运行期正确"，本轮在**隔离 worktree 内临时**补了一个
+#   `#[cfg(test)] mod c12_module_runtime_smoke`（真实 DB、per-test schema），
+#   逐站点往返全部 25 处（含 keyset 游标两分支、RETURNING 展开列、
+#   `AS "col!"` 覆盖、`NULL::BIGINT` 合成列、`renewal_token_ts` 恒 None、
+#   `record_execution` 的 CASE 分支计数、`create_account_data_callback`
+#   的 `data_types` Some/None）——**10 passed, 0 failed**。
+#   该用例随 worktree 一起丢弃、**未提交**（否则会新增测试夹具动态 SQL 并改动
+#   门禁计数）。收紧方向：把该冒烟用例整理后提交到 module.rs 的 db_tests，
+#   让这 25 处长期有运行期覆盖。
+#
+# ⚠️ `.sqlx`：destination 就是 `.sqlx/` 本身，`cargo sqlx prepare` 先清后写。
+#   isolated worktree target/c12-wt @ HEAD 5d42b590c（源码提交已在 HEAD，
+#   故 procedure 的 `git apply c12.patch` 无内容可应用，直接在该 worktree 内重刷）：
+#     SQLX_OFFLINE=false DATABASE_URL=… \
+#       cargo sqlx prepare --workspace -- --features server-notifications,saml-sso
+#   实测 before=554 after=579，**deleted=0 / added=25**（文件名集合 comm 逐条核对），
+#   25 个宏站点各 1 条、无哈希合并。
+#
+# 验证（isolated worktree target/c12-wt，**无需任何越界修补**——HEAD 已能编译）：
+#   SQLX_OFFLINE=false … cargo sqlx prepare --workspace -- --features … → Finished
+#     （25 个宏按真实 DB describe 全部通过，首轮零回退）
+#   SQLX_OFFLINE=true … cargo check -p synapse-storage
+#     --features test-utils,server-notifications,saml-sso（touch module.rs 强制宏重展开）
+#     → Finished（提交的 .sqlx 离线可复现）
+#   TEST_DATABASE_URL=… TEST_DB_TEMPLATE_SCHEMA=test_template_ci cargo nextest run
+#     -p synapse-storage --lib --features test-utils,server-notifications,saml-sso
+#     -E 'test(module)' --no-fail-fast → **10 passed, 0 failed**（1613 skipped）
+#
+# 实测（main 树，门禁同源；本轮无并发写者新增生产动态）：
+#   dynamic_production 937 → 912   （C12 自身 -25）
+#   static             577 → 602   （+25）
+#   dynamic            1641 → 1616
+#   dynamic_test       704 → 704   （未动）
+# 收紧方向：C4/C5/C9 等剩余批次继续分批静态化，直至 dynamic_production = 0。
+BASELINE_DYNAMIC_PRODUCTION=912
 BASELINE_DYNAMIC_TEST_INFRA=704
-BASELINE_STATIC=577
+BASELINE_STATIC=602
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1641
+BASELINE_DYNAMIC=1616
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #
