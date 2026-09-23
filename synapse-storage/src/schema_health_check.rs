@@ -598,4 +598,88 @@ mod tests {
             "REQUIRED_INDEXES lists indexes no deployment will have (spurious startup warnings): {unsatisfied:?}"
         );
     }
+
+    #[test]
+    fn test_health_check_result_all_issues() {
+        let result = HealthCheckResult {
+            passed: false,
+            missing_tables: vec!["users".to_string(), "rooms".to_string()],
+            missing_columns: vec!["events.room_id".to_string(), "users.user_id".to_string()],
+            missing_indexes: vec!["idx_events_room".to_string(), "uq_users_username".to_string()],
+            repaired_indexes: vec![],
+            warnings: vec!["test warning 1".to_string(), "test warning 2".to_string()],
+            baseline_drift: 5,
+            applied_migration_count: 10,
+            missing_migrations: vec![20240101000001, 20240102000001],
+        };
+
+        assert!(!result.passed);
+        assert_eq!(result.missing_tables.len(), 2);
+        assert_eq!(result.missing_columns.len(), 2);
+        assert_eq!(result.missing_indexes.len(), 2);
+        assert_eq!(result.warnings.len(), 2);
+        assert_eq!(result.baseline_drift, 5);
+        assert_eq!(result.applied_migration_count, 10);
+        assert_eq!(result.missing_migrations.len(), 2);
+    }
+
+    #[test]
+    fn test_auto_repair_disabled_message() {
+        assert!(!AUTO_REPAIR_DISABLED_MESSAGE.is_empty());
+        assert!(AUTO_REPAIR_DISABLED_MESSAGE.contains("missing indexes"));
+        assert!(AUTO_REPAIR_DISABLED_MESSAGE.contains("docker/db_migrate.sh"));
+    }
+
+    #[test]
+    fn test_core_columns_table_counts() {
+        // Verify that each core table has expected columns
+        let users_columns: Vec<&str> = CORE_COLUMNS.iter().filter(|(t, _)| *t == "users").map(|(_, c)| *c).collect();
+        assert!(users_columns.contains(&"user_id"));
+        assert!(users_columns.contains(&"username"));
+        assert!(users_columns.contains(&"password_hash"));
+
+        let events_columns: Vec<&str> = CORE_COLUMNS.iter().filter(|(t, _)| *t == "events").map(|(_, c)| *c).collect();
+        assert!(events_columns.contains(&"event_id"));
+        assert!(events_columns.contains(&"room_id"));
+        assert!(events_columns.contains(&"sender"));
+    }
+
+    #[test]
+    fn test_required_indexes_structure() {
+        // Verify REQUIRED_INDEXES has entries
+        assert!(!REQUIRED_INDEXES.is_empty());
+
+        // Verify each index has at least one acceptable name
+        for idx in REQUIRED_INDEXES {
+            assert!(!idx.acceptable_names.is_empty(), "Index {} has no acceptable names", idx.display_name);
+            assert!(!idx.display_name.is_empty(), "Index has empty display_name");
+        }
+    }
+
+    #[test]
+    fn test_required_indexes_no_duplicates() {
+        // Ensure no two REQUIRED_INDEXES entries have identical acceptable_names sets
+        let names: Vec<&[&str]> = REQUIRED_INDEXES.iter().map(|idx| idx.acceptable_names).collect();
+        for (i, a) in names.iter().enumerate() {
+            for (j, b) in names.iter().enumerate() {
+                if i != j {
+                    assert_ne!(a, b, "Duplicate acceptable_names set at indices {} and {}", i, j);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_baseline_table_count_matches_parse() {
+        let tables = baseline_tables();
+        let count = crate::baseline_tables::baseline_table_count();
+        assert_eq!(tables.len(), count as usize, "baseline_tables length must match baseline_table_count");
+    }
+
+    #[test]
+    fn test_baseline_table_count_is_positive() {
+        let count = crate::baseline_tables::baseline_table_count();
+        assert!(count > 0, "baseline_table_count must be positive");
+        assert!(count >= 200, "baseline should have at least 200 tables, got {}", count);
+    }
 }

@@ -819,4 +819,194 @@ mod tests {
         assert_ne!(key1, key2);
         assert!(key1.len() > 30);
     }
+
+    #[test]
+    fn test_create_params_with_all_fields() {
+        let params = CreateRendezvousSessionParams {
+            intent: RendezvousIntent::LoginStart,
+            transport: RendezvousTransport::HttpV2,
+            transport_data: Some(serde_json::json!({
+                "url": "https://example.com/rendezvous",
+                "token": "abc123"
+            })),
+            expires_in_ms: Some(600000),
+        };
+
+        assert_eq!(params.intent.as_str(), "login.start");
+        assert_eq!(params.transport.as_str(), "http.v2");
+        assert!(params.transport_data.is_some());
+        assert_eq!(params.expires_in_ms, Some(600000));
+    }
+
+    #[test]
+    fn test_create_params_with_minimal_fields() {
+        let params = CreateRendezvousSessionParams {
+            intent: RendezvousIntent::LoginReciprocate,
+            transport: RendezvousTransport::HttpV1,
+            transport_data: None,
+            expires_in_ms: None,
+        };
+
+        assert_eq!(params.intent.as_str(), "login.reciprocate");
+        assert!(params.transport_data.is_none());
+        assert!(params.expires_in_ms.is_none());
+    }
+
+    #[test]
+    fn test_rendezvous_code_structure() {
+        let code = RendezvousCode {
+            url: "https://example.com/rendezvous/xyz789".to_string(),
+            session_id: "xyz789".to_string(),
+            key: "base64encodedkey".to_string(),
+        };
+
+        assert!(code.url.contains(code.session_id.as_str()));
+        assert!(!code.key.is_empty());
+    }
+
+    #[test]
+    fn test_rendezvous_message_with_complex_content() {
+        let message = RendezvousMessage {
+            message_type: "m.login.finish".to_string(),
+            content: serde_json::json!({
+                "credentials": {
+                    "username": "alice",
+                    "password_hash": "hashed_value"
+                },
+                "device_id": "DEVICE123"
+            }),
+        };
+
+        assert_eq!(message.message_type, "m.login.finish");
+        assert!(message.content.get("credentials").is_some());
+    }
+
+    #[test]
+    fn test_rendezvous_login_user_with_display_name() {
+        let user = RendezvousLoginUser {
+            user_id: "@alice:example.com".to_string(),
+            display_name: Some("Alice Wonderland".to_string()),
+            device_id: "DEVICE789".to_string(),
+        };
+
+        assert!(user.display_name.is_some());
+        assert_eq!(user.display_name.unwrap(), "Alice Wonderland");
+    }
+
+    #[test]
+    fn test_rendezvous_login_user_without_display_name() {
+        let user = RendezvousLoginUser {
+            user_id: "@bob:example.com".to_string(),
+            display_name: None,
+            device_id: "DEVICE456".to_string(),
+        };
+
+        assert!(user.display_name.is_none());
+        assert_eq!(user.user_id, "@bob:example.com");
+    }
+
+    #[test]
+    fn test_msc4108_update_outcome_not_found() {
+        let outcome = Msc4108UpdateOutcome::NotFound;
+
+        match outcome {
+            Msc4108UpdateOutcome::NotFound => {}
+            _ => panic!("Expected NotFound variant"),
+        }
+    }
+
+    #[test]
+    fn test_msc4108_update_outcome_precondition_failed() {
+        let outcome = Msc4108UpdateOutcome::PreconditionFailed {
+            current_etag: "\"1234567890\"".to_string(),
+            updated_ts: 1234567890,
+            expires_at: 1234567890 + 300000,
+        };
+
+        match outcome {
+            Msc4108UpdateOutcome::PreconditionFailed { current_etag, updated_ts, expires_at } => {
+                assert_eq!(current_etag, "\"1234567890\"");
+                assert_eq!(updated_ts, 1234567890);
+                assert_eq!(expires_at, 1234567890 + 300000);
+            }
+            _ => panic!("Expected PreconditionFailed variant"),
+        }
+    }
+
+    #[test]
+    fn test_msc4108_update_outcome_updated() {
+        let outcome = Msc4108UpdateOutcome::Updated {
+            new_etag: "\"9876543210\"".to_string(),
+            updated_ts: 9876543210,
+            expires_at: 9876543210 + 600000,
+        };
+
+        match outcome {
+            Msc4108UpdateOutcome::Updated { new_etag, updated_ts, expires_at } => {
+                assert_eq!(new_etag, "\"9876543210\"");
+                assert_eq!(updated_ts, 9876543210);
+                assert_eq!(expires_at, 9876543210 + 600000);
+            }
+            _ => panic!("Expected Updated variant"),
+        }
+    }
+
+    #[test]
+    fn test_stored_rendezvous_message_structure() {
+        let message = StoredRendezvousMessage {
+            id: 1,
+            session_id: "session123".to_string(),
+            direction: "incoming".to_string(),
+            message_type: "m.login.start".to_string(),
+            content: serde_json::json!({"homeserver": "https://matrix.example.com"}),
+            created_ts: 1234567890,
+        };
+
+        assert_eq!(message.id, 1);
+        assert_eq!(message.direction, "incoming");
+        assert!(message.created_ts > 0);
+    }
+
+    #[test]
+    fn test_rendezvous_session_optional_fields() {
+        let session = RendezvousSession {
+            id: 1,
+            session_id: "test-session".to_string(),
+            user_id: Some("@user:example.com".to_string()),
+            device_id: Some("DEVICE123".to_string()),
+            intent: Some("login.start".to_string()),
+            transport: Some("http.v1".to_string()),
+            transport_data: Some(serde_json::json!({"url": "https://example.com"})),
+            key: Some("base64key".to_string()),
+            created_ts: 1234567890,
+            expires_at: 1234567890 + 300000,
+            status: Some("pending".to_string()),
+        };
+
+        assert!(session.user_id.is_some());
+        assert!(session.device_id.is_some());
+        assert_eq!(session.status, Some("pending".to_string()));
+    }
+
+    #[test]
+    fn test_rendezvous_session_minimal_fields() {
+        let session = RendezvousSession {
+            id: 1,
+            session_id: "minimal-session".to_string(),
+            user_id: None,
+            device_id: None,
+            intent: None,
+            transport: None,
+            transport_data: None,
+            key: None,
+            created_ts: 1234567890,
+            expires_at: 1234567890 + 300000,
+            status: None,
+        };
+
+        assert!(session.user_id.is_none());
+        assert!(session.device_id.is_none());
+        assert!(session.intent.is_none());
+        assert_eq!(session.status, None);
+    }
 }

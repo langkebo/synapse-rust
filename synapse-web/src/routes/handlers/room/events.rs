@@ -1004,3 +1004,267 @@ pub(crate) async fn redact_event(
         "event_id": new_event_id
     })))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_event_id_validation_starts_with_dollar() {
+        let valid_event_id = "$abc123xyz";
+        let invalid_event_id = "abc123xyz";
+
+        assert!(valid_event_id.starts_with('$'));
+        assert!(!invalid_event_id.starts_with('$'));
+    }
+
+    #[test]
+    fn test_room_id_validation_starts_with_exclamation() {
+        let valid_room_id = "!room123:example.com";
+        let invalid_room_id = "room123:example.com";
+
+        assert!(valid_room_id.starts_with('!'));
+        assert!(!invalid_room_id.starts_with('!'));
+    }
+
+    #[test]
+    fn test_event_url_encoding_patterns() {
+        let encoded_room_id = "%21room123%3Aexample.com";
+        let decoded_room_id = encoded_room_id.replace("%21", "!").replace("%3A", ":");
+
+        assert_eq!(decoded_room_id, "!room123:example.com");
+    }
+
+    #[test]
+    fn test_event_keys_response_structure() {
+        let event = json!({
+            "event_id": "$event123",
+            "room_id": "!room123:example.com",
+            "sender": "@user:example.com",
+            "type": "m.room.message"
+        });
+
+        let keys_response = json!({
+            "event_id": event.get("event_id"),
+            "room_id": event.get("room_id"),
+            "keys": []
+        });
+
+        assert!(keys_response.get("event_id").is_some());
+        assert!(keys_response.get("room_id").is_some());
+        assert!(keys_response.get("keys").unwrap().is_array());
+        assert_eq!(keys_response.get("keys").unwrap().as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_redaction_event_content_structure() {
+        let reason = Some("spam".to_string());
+        let content = json!({
+            "reason": reason
+        });
+
+        assert!(content.get("reason").is_some());
+        assert_eq!(content.get("reason").unwrap(), "spam");
+    }
+
+    #[test]
+    fn test_redaction_event_id_generation() {
+        let new_event_id = synapse_common::crypto::generate_event_id("example.com");
+
+        assert!(new_event_id.starts_with('$'));
+        assert!(new_event_id.contains("example.com"));
+    }
+
+    #[test]
+    fn test_message_type_classification() {
+        let message_types = vec!["m.room.message", "m.room.redaction", "m.room.member", "m.reaction", "m.sticker"];
+
+        assert_eq!(message_types.len(), 5);
+        assert!(message_types.iter().all(|t| t.starts_with("m.")));
+    }
+
+    #[test]
+    fn test_event_relation_types() {
+        let relation_types = vec!["m.reference", "m.replace", "m.thread", "m.annotation"];
+
+        assert_eq!(relation_types.len(), 4);
+        assert!(relation_types.iter().all(|t| t.starts_with("m.")));
+    }
+
+    #[test]
+    fn test_room_message_payload_structure() {
+        let payload = json!({
+            "msgtype": "m.text",
+            "body": "Hello, World!",
+            "format": "org.matrix.custom.html",
+            "formatted_body": "<p>Hello, <strong>World</strong>!</p>"
+        });
+
+        assert_eq!(payload.get("msgtype").unwrap(), "m.text");
+        assert_eq!(payload.get("body").unwrap(), "Hello, World!");
+        assert!(payload.get("format").is_some());
+    }
+
+    #[test]
+    fn test_room_message_msgtype_variants() {
+        let msgtypes = vec!["m.text", "m.image", "m.audio", "m.video", "m.file"];
+
+        assert_eq!(msgtypes.len(), 5);
+        assert!(msgtypes.iter().all(|t| t.starts_with("m.")));
+    }
+
+    #[test]
+    fn test_event_timestamp_validation() {
+        let now = current_timestamp_millis();
+        let past = now - 86400000; // 1 day ago
+        let future = now + 86400000; // 1 day from now
+
+        assert!(now > 0);
+        assert!(past > 0);
+        assert!(future > now);
+    }
+
+    #[test]
+    fn test_event_content_structure() {
+        let content = json!({
+            "body": "Hello, World!",
+            "msgtype": "m.text"
+        });
+
+        assert_eq!(content.get("body").unwrap(), "Hello, World!");
+        assert_eq!(content.get("msgtype").unwrap(), "m.text");
+    }
+
+    #[test]
+    fn test_create_event_params_structure() {
+        let params = CreateEventParams {
+            event_id: "$event123".to_string(),
+            room_id: "!room123:example.com".to_string(),
+            user_id: "@user:example.com".to_string(),
+            event_type: "m.room.message".to_string(),
+            content: json!({"body": "test"}),
+            state_key: None,
+            origin_server_ts: current_timestamp_millis(),
+            redacts: None,
+        };
+
+        assert_eq!(params.event_type, "m.room.message");
+        assert!(params.state_key.is_none());
+        assert!(params.redacts.is_none());
+    }
+
+    #[test]
+    fn test_create_event_params_with_state_key() {
+        let params = CreateEventParams {
+            event_id: "$state123".to_string(),
+            room_id: "!room123:example.com".to_string(),
+            user_id: "@user:example.com".to_string(),
+            event_type: "m.room.name".to_string(),
+            content: json!({"name": "Test Room"}),
+            state_key: Some("".to_string()),
+            origin_server_ts: current_timestamp_millis(),
+            redacts: None,
+        };
+
+        assert!(params.state_key.is_some());
+        assert_eq!(params.event_type, "m.room.name");
+    }
+
+    #[test]
+    fn test_create_event_params_with_redacts() {
+        let params = CreateEventParams {
+            event_id: "$redact123".to_string(),
+            room_id: "!room123:example.com".to_string(),
+            user_id: "@user:example.com".to_string(),
+            event_type: "m.room.redaction".to_string(),
+            content: json!({"reason": "spam"}),
+            state_key: None,
+            origin_server_ts: current_timestamp_millis(),
+            redacts: Some("$target123".to_string()),
+        };
+
+        assert!(params.redacts.is_some());
+        assert_eq!(params.redacts.unwrap(), "$target123");
+    }
+
+    #[test]
+    fn test_event_relationship_chain() {
+        let thread_root = json!({
+            "event_id": "$root123",
+            "room_id": "!room123:example.com",
+            "type": "m.room.message"
+        });
+
+        let reply = json!({
+            "event_id": "$reply456",
+            "room_id": "!room123:example.com",
+            "type": "m.room.message",
+            "m.relates_to": {
+                "event_id": "$root123",
+                "rel_type": "m.reply"
+            }
+        });
+
+        assert!(thread_root.get("event_id").is_some());
+        assert!(reply.get("m.relates_to").is_some());
+    }
+
+    #[test]
+    fn test_reaction_event_structure() {
+        let reaction = json!({
+            "type": "m.reaction",
+            "content": {
+                "m.relates_to": {
+                    "event_id": "$target123",
+                    "rel_type": "m.annotation",
+                    "key": "👍"
+                }
+            }
+        });
+
+        assert_eq!(reaction.get("type").unwrap(), "m.reaction");
+        let relates_to = reaction.get("content").unwrap().get("m.relates_to").unwrap();
+        assert_eq!(relates_to.get("key").unwrap(), "👍");
+    }
+
+    #[test]
+    fn test_sticker_event_structure() {
+        let sticker = json!({
+            "type": "m.sticker",
+            "content": {
+                "msgtype": "m.image",
+                "body": "smile.png",
+                "info": {
+                    "mimetype": "image/png",
+                    "size": 12345,
+                    "w": 200,
+                    "h": 200
+                }
+            }
+        });
+
+        assert_eq!(sticker.get("type").unwrap(), "m.sticker");
+        let info = sticker.get("content").unwrap().get("info").unwrap();
+        assert_eq!(info.get("w").unwrap(), 200);
+        assert_eq!(info.get("h").unwrap(), 200);
+    }
+
+    #[test]
+    fn test_thread_event_structure() {
+        let thread_event = json!({
+            "type": "m.room.message",
+            "content": {
+                "body": "Thread reply",
+                "m.relates_to": {
+                    "event_id": "$thread_root",
+                    "rel_type": "m.thread",
+                    "is_falling_back": true
+                }
+            }
+        });
+
+        let relates_to = thread_event.get("content").unwrap().get("m.relates_to").unwrap();
+        assert_eq!(relates_to.get("rel_type").unwrap(), "m.thread");
+        assert_eq!(relates_to.get("is_falling_back").unwrap(), true);
+    }
+}
