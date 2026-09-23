@@ -460,6 +460,67 @@ async fn test_msc4133_extended_profile_fields_support_crud_and_visibility() {
     assert_eq!(get_after_delete_response.status(), StatusCode::NOT_FOUND);
 }
 
+/// B9(c): a non-object `uk.tcpip.msc4133.profile` document must never turn into
+/// a server error.
+///
+/// The per-field accessors parse the document as a JSON object.  Two things are
+/// asserted here: the generic account-data write rejects a non-object outright
+/// (400, write-time guard), and a non-object that reached the table out of band
+/// (legacy row, direct SQL, a future writer that forgets the guard) makes the
+/// read return 400 rather than 500 `M_UNKNOWN`.
+#[tokio::test]
+async fn test_msc4133_non_object_document_is_bad_request_not_server_error() {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
+        return;
+    };
+
+    let (token, user_id) = register_user(&app, &format!("msc4133_bad_{}", rand::random::<u32>())).await;
+
+    // 1. Write-time guard: the raw account-data route must reject a scalar.
+    let raw_put = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/user/{user_id}/account_data/uk.tcpip.msc4133.profile"))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!("blue").to_string()))
+        .unwrap();
+    let raw_put_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), raw_put).await.unwrap();
+    assert_eq!(
+        raw_put_response.status(),
+        StatusCode::BAD_REQUEST,
+        "a non-object extended-profile document must be rejected at write time"
+    );
+
+    // 2. Read-time mapping: plant a non-object row directly, then read a field.
+    let now = current_timestamp_millis();
+    sqlx::query(
+        r"
+        INSERT INTO account_data (user_id, data_type, content, created_ts, updated_ts)
+        VALUES ($1, 'uk.tcpip.msc4133.profile', $2, $3, $3)
+        ON CONFLICT (user_id, data_type) DO UPDATE SET content = EXCLUDED.content, updated_ts = EXCLUDED.updated_ts
+        ",
+    )
+    .bind(&user_id)
+    .bind(json!("blue"))
+    .bind(now)
+    .execute(pool.as_ref())
+    .await
+    .expect("plant non-object extended profile row");
+
+    let get_field = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/favorite_color"))
+        .header("Authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    let get_field_response = ServiceExt::<Request<Body>>::oneshot(app, get_field).await.unwrap();
+    assert_eq!(
+        get_field_response.status(),
+        StatusCode::BAD_REQUEST,
+        "a stored non-object document must surface as 400, not 500"
+    );
+}
+
 #[tokio::test]
 async fn test_admin_cannot_update_another_users_profile_via_client_api() {
     let Some((app, pool, cache)) = setup_test_app_with_pool().await else {

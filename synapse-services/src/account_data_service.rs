@@ -13,6 +13,13 @@ use tracing::instrument;
 
 type AccountDataWithTimestamp = (Value, Option<i64>);
 
+/// MSC4133 extended-profile account-data type.
+///
+/// Defined here (and consumed by the HTTP handlers) so the write-time shape
+/// guard below and the read path can never disagree about which data type they
+/// are talking about.
+pub const EXTENDED_PROFILE_DATA_TYPE: &str = "uk.tcpip.msc4133.profile";
+
 /// The `AccountDataService` struct.
 pub struct AccountDataService {
     cache: Arc<CacheManager>,
@@ -256,6 +263,14 @@ fn validate_account_data_payload(data_type: &str, body: &Value) -> Result<(), Ap
     // gate reads `default_action` and the two exception arrays, so a payload
     // that cannot be read that way must be rejected at write time rather than
     // silently degrading to "no policy" on every later invite.
+    // Validate the shape of the MSC4133 extended-profile document: the
+    // per-field accessors read it as an object, so a scalar/array written here
+    // would make every later read fail.  Reject it at write time with a 400
+    // instead of letting a bad row turn reads into 500s.
+    if data_type == EXTENDED_PROFILE_DATA_TYPE && !body.is_object() {
+        return Err(ApiError::bad_request("uk.tcpip.msc4133.profile content must be a JSON object".to_string()));
+    }
+
     if data_type == crate::invite_blocklist_service::INVITE_PERMISSION_CONFIG_TYPE {
         let Some(obj) = body.as_object() else {
             return Err(ApiError::bad_request("m.invite_permission_config content must be a JSON object".to_string()));
@@ -394,6 +409,34 @@ mod tests {
         let result = validate_account_data_payload("m.invite_permission_config", &json!(["nope"]));
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("must be a JSON object"));
+    }
+
+    // ── MSC4133 extended-profile document shape (B9) ──
+    //
+    // The read path parses this document as an object; a scalar/array written
+    // through the generic account-data route used to turn every later read into
+    // a 500.  The write must be rejected with a 400 instead.
+
+    #[test]
+    fn test_validate_extended_profile_accepts_object() {
+        let body = json!({"com.example.field": {"value": "x"}});
+        assert!(validate_account_data_payload(EXTENDED_PROFILE_DATA_TYPE, &body).is_ok());
+    }
+
+    #[test]
+    fn test_validate_extended_profile_accepts_empty_object() {
+        assert!(validate_account_data_payload(EXTENDED_PROFILE_DATA_TYPE, &json!({})).is_ok());
+    }
+
+    #[test]
+    fn test_validate_extended_profile_rejects_non_object() {
+        for body in [json!("blue"), json!(["nope"]), json!(7), json!(null)] {
+            let result = validate_account_data_payload(EXTENDED_PROFILE_DATA_TYPE, &body);
+            assert!(result.is_err(), "non-object {body} must be rejected");
+            let err = result.unwrap_err();
+            assert_eq!(err.kind, synapse_common::ApiErrorKind::BadRequest);
+            assert!(err.message.contains("must be a JSON object"), "unexpected message: {}", err.message);
+        }
     }
 
     #[test]

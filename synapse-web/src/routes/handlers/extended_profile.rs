@@ -10,6 +10,8 @@ use crate::routes::extractors::UserId;
 use crate::routes::validators;
 use crate::routes::ApiError;
 use crate::routes::AuthenticatedUser;
+use synapse_services::account_data_service::EXTENDED_PROFILE_DATA_TYPE;
+
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
@@ -22,7 +24,6 @@ use serde_json::json;
 /// We persist a user-scoped JSON object in `account_data` and expose per-field
 /// accessors on top of it. This keeps the implementation small while providing
 /// real interoperability for clients probing the unstable MSC4133 endpoints.
-const EXTENDED_PROFILE_DATA_TYPE: &str = "uk.tcpip.msc4133.profile";
 const EXTENDED_PROFILE_MAX_FIELD_NAME_LEN: usize = 128;
 const EXTENDED_PROFILE_MAX_JSON_LEN: usize = 65536;
 
@@ -46,7 +47,11 @@ async fn load_extended_profile_document(
 
     match content {
         serde_json::Value::Object(map) => Ok(map),
-        _ => Err(ApiError::internal("Stored extended profile content is not a JSON object".to_string())),
+        // A non-object here means the account-data row was written out of band
+        // (the write-time guard rejects this shape).  It is a bad request for
+        // *this* read, not a server fault: MSC4133 expects 400, and a 500 would
+        // falsely signal an internal error for client-supplied data.
+        _ => Err(ApiError::bad_request("Stored extended profile content is not a JSON object".to_string())),
     }
 }
 
