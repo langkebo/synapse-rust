@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE application_service_events SET is_processed = TRUE, processed_ts = $2 WHERE event_id = $1 AND is_processed = FALSE",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f735059a20dae450cb168b357df5c6b9c9eb1d6a4adb14ab1e3622b97637ed91"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE application_services SET updated_ts = $2 WHERE as_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "44c58b2fda41d82e9407e182f88330803ced5c49d420fe8650b52caf042e4cb9"
+}

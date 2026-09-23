@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO application_service_statistics (\n                as_id,\n                name,\n                is_enabled,\n                is_rate_limited,\n                virtual_user_count,\n                pending_event_count,\n                pending_transaction_count,\n                last_seen_ts,\n                created_ts\n            )\n            SELECT\n                svc.as_id,\n                svc.description,\n                svc.is_enabled,\n                svc.is_rate_limited,\n                0,\n                0,\n                0,\n                $2,\n                svc.created_ts\n            FROM application_services svc\n            WHERE svc.as_id = $1\n            ON CONFLICT (as_id) DO UPDATE\n            SET last_seen_ts = EXCLUDED.last_seen_ts,\n                is_enabled = EXCLUDED.is_enabled,\n                is_rate_limited = EXCLUDED.is_rate_limited,\n                name = COALESCE(application_service_statistics.name, EXCLUDED.name)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8b860360d2ee822ed3e948fb0e5892ff6e1f7bf05ca0b58ff871b0d30d10665a"
+}

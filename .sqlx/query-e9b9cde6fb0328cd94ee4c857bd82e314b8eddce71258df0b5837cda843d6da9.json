@@ -1,0 +1,74 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH user_counts AS (\n                SELECT as_id, COUNT(*) AS virtual_user_count\n                FROM application_service_users\n                GROUP BY as_id\n            ),\n            pending_event_counts AS (\n                SELECT as_id, COUNT(*) AS pending_event_count\n                FROM application_service_events\n                WHERE is_processed = FALSE\n                GROUP BY as_id\n            ),\n            pending_transaction_counts AS (\n                SELECT as_id, COUNT(*) AS pending_transaction_count\n                FROM application_service_transactions\n                WHERE completed_ts IS NULL\n                GROUP BY as_id\n            )\n            SELECT\n                svc.id,\n                svc.as_id,\n                COALESCE(stats.name, svc.description) AS name,\n                svc.is_enabled AS \"is_enabled!\",\n                svc.is_rate_limited AS \"is_rate_limited!\",\n                COALESCE(users.virtual_user_count, 0) AS \"virtual_user_count!\",\n                COALESCE(events.pending_event_count, 0) AS \"pending_event_count!\",\n                COALESCE(txns.pending_transaction_count, 0) AS \"pending_transaction_count!\",\n                stats.last_seen_ts,\n                svc.created_ts\n            FROM application_services svc\n            LEFT JOIN application_service_statistics stats\n              ON stats.as_id = svc.as_id\n            LEFT JOIN user_counts users\n              ON users.as_id = svc.as_id\n            LEFT JOIN pending_event_counts events\n              ON events.as_id = svc.as_id\n            LEFT JOIN pending_transaction_counts txns\n              ON txns.as_id = svc.as_id\n            ORDER BY svc.created_ts DESC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "as_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_enabled!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "is_rate_limited!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "virtual_user_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "pending_event_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "pending_transaction_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "last_seen_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      true,
+      true,
+      null,
+      null,
+      null,
+      true,
+      false
+    ]
+  },
+  "hash": "e9b9cde6fb0328cd94ee4c857bd82e314b8eddce71258df0b5837cda843d6da9"
+}

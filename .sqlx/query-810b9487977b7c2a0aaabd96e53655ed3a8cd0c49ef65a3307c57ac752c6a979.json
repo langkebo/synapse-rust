@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE application_service_transactions SET completed_ts = $3, is_processed = TRUE, processed_ts = $3 WHERE as_id = $1 AND (txn_id = $2 OR transaction_id = $2) AND is_processed = FALSE",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "810b9487977b7c2a0aaabd96e53655ed3a8cd0c49ef65a3307c57ac752c6a979"
+}

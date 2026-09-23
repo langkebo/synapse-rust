@@ -1,0 +1,66 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT event_id, space_id, event_type, sender, content, state_key, origin_server_ts, processed_ts FROM space_events WHERE space_id = $1 AND event_type = $2 ORDER BY origin_server_ts DESC LIMIT $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "space_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "event_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "sender",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "content",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "state_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "origin_server_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "processed_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "7e3e8c69f0e2fec0219c31f6cbffe68360623d813785547f4ddf97ef49409da5"
+}

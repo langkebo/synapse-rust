@@ -1,0 +1,85 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT\n                    id,\n                    space_id,\n                    room_id,\n                    sender,\n                    is_suggested AS \"is_suggested!\",\n                    COALESCE(ARRAY(SELECT jsonb_array_elements_text(via_servers)), '{}') AS \"via_servers!\",\n                    added_ts,\n                    NULL::TEXT AS \"order\",\n                    NULL::BOOLEAN AS suggested,\n                    NULL::TEXT AS added_by,\n                    NULL::BIGINT AS removed_ts\n                FROM space_children\n                WHERE space_id = $1 AND (added_ts > $2 OR (added_ts = $2 AND id > $3))\n                ORDER BY added_ts ASC, id ASC\n                LIMIT $4\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "space_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "sender",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "is_suggested!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "via_servers!",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 6,
+        "name": "added_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "order",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "suggested",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "added_by",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "removed_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      null,
+      false,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "ac768f538a556f97dbdb178a407434c3d6f5d06eb47385ad2a705bc2cc30067f"
+}

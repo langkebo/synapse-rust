@@ -1,0 +1,106 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, as_id, url, as_token, hs_token, sender_localpart,\n                is_enabled AS \"is_enabled!\", is_rate_limited AS \"is_rate_limited!\",\n                protocols AS \"protocols!\", namespaces AS \"namespaces!\",\n                created_ts, updated_ts, description, api_key, config FROM application_services WHERE as_token = $1 AND is_enabled = TRUE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "as_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "as_token",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "hs_token",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "sender_localpart",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_enabled!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "is_rate_limited!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "protocols!",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 9,
+        "name": "namespaces!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 10,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "api_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "config",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "2bbd23caa552246b08b85042cb675e9590e12b8ae51a026f9ed0aa849c22756d"
+}

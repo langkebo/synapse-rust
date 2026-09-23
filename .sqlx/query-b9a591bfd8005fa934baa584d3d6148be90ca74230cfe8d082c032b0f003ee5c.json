@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT as_id\n            FROM application_service_room_namespaces\n            WHERE namespace = $1\n              AND is_exclusive = TRUE\n              AND as_id <> $2\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "as_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b9a591bfd8005fa934baa584d3d6148be90ca74230cfe8d082c032b0f003ee5c"
+}

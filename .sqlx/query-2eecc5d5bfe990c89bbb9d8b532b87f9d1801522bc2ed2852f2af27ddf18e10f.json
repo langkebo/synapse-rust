@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM application_service_room_alias_namespaces WHERE as_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2eecc5d5bfe990c89bbb9d8b532b87f9d1801522bc2ed2852f2af27ddf18e10f"
+}

@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT space_id FROM spaces WHERE space_id = $1 OR room_id = $1 ORDER BY CASE WHEN space_id = $1 THEN 0 ELSE 1 END LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "space_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "614e9e93f1f1a104278776b4efdc7041d5105dd7b94978e6de2044bb5b49e0ab"
+}

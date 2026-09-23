@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT\n                    id,\n                    space_id,\n                    room_id,\n                    sender,\n                    is_suggested AS \"is_suggested!\",\n                    via_servers AS \"via_servers!: Vec<String>\",\n                    added_ts,\n                    NULL::TEXT as \"order\",\n                    NULL::BOOLEAN as suggested,\n                    NULL::TEXT as added_by,\n                    NULL::BIGINT as removed_ts\n                FROM space_children\n                WHERE space_id = $1 AND is_suggested = TRUE\n                ORDER BY added_ts\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "space_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "sender",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "is_suggested!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "via_servers!: Vec<String>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "added_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "order",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "suggested",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "added_by",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "removed_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "6a39fe428b039f7c11ae21ddde11860ac6bad9c3717ed2e0e94ce25ed8e206c5"
+}

@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT space_id, user_id, membership, joined_ts, updated_ts, left_ts, inviter\n                FROM space_members\n                WHERE space_id = $1 AND membership = 'join'\n                ORDER BY joined_ts ASC, user_id ASC\n                LIMIT $2\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "space_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "membership",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "joined_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "left_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "inviter",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "4474e82fc2feddb1a317fe51c653699d61ef85e2f2b23a3faef9083d8e72334d"
+}

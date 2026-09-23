@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                id,\n                as_id,\n                namespace AS namespace_pattern,\n                is_exclusive AS \"is_exclusive!\",\n                namespace AS regex,\n                created_ts\n            FROM application_service_room_namespaces\n            WHERE as_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "as_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "namespace_pattern",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_exclusive!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "regex",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "4416eb72bd0a9d7a0be55efeb4f35cc525e7a1426d5a223a13a228bec226fb3d"
+}

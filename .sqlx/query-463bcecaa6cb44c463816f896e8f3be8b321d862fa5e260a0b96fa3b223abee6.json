@@ -1,0 +1,80 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO application_service_events (\n                event_id, as_id, room_id, event_type, is_processed, processed_ts, created_ts\n            )\n            VALUES ($1, $2, $3, $4, FALSE, NULL, $5)\n            ON CONFLICT (event_id) DO UPDATE SET\n                as_id = EXCLUDED.as_id,\n                room_id = EXCLUDED.room_id,\n                event_type = EXCLUDED.event_type\n            RETURNING\n                event_id,\n                as_id,\n                room_id AS \"room_id!\",\n                event_type AS \"event_type!\",\n                ''::text AS \"sender!\",\n                '{}'::jsonb AS \"content!\",\n                NULL::text AS state_key,\n                created_ts AS origin_server_ts,\n                processed_ts,\n                NULL::text AS transaction_id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "as_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "room_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "event_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "sender!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "content!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "state_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "origin_server_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "processed_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "transaction_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      null,
+      null,
+      null,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "463bcecaa6cb44c463816f896e8f3be8b321d862fa5e260a0b96fa3b223abee6"
+}

@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO space_members (space_id, user_id, membership, joined_ts, inviter)\n            VALUES ($1, $2, $3, $4, $5)\n            ON CONFLICT (space_id, user_id) DO UPDATE SET\n                membership = EXCLUDED.membership,\n                joined_ts = EXCLUDED.joined_ts,\n                inviter = EXCLUDED.inviter,\n                left_ts = NULL,\n                updated_ts = $4\n            RETURNING space_id, user_id, membership, joined_ts, updated_ts, left_ts, inviter\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "space_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "membership",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "joined_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "left_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "inviter",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "38835a448cd71db8501e6ee450c2ba38f0e1f790c3fb7c93d6cbcf17c72f6e63"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM spaces WHERE space_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0064d06fcdf936a144f4b2f5df15f53c91c1efe8137b9bfb9a6268e34536c546"
+}

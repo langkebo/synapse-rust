@@ -1,0 +1,70 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO space_events (event_id, space_id, event_type, sender, content, state_key, origin_server_ts)\n            VALUES ($1, $2, $3, $4, $5, $6, $7)\n            RETURNING event_id, space_id, event_type, sender, content, state_key, origin_server_ts, processed_ts\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "space_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "event_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "sender",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "content",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "state_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "origin_server_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "processed_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "ee18bbdbb8c1b28faeddee3ba3f136952515561dd4f052ab1cf38f178d7283af"
+}

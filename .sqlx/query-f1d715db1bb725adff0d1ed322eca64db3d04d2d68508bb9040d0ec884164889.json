@@ -1,0 +1,75 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO application_service_transactions (as_id, txn_id, transaction_id, events, sent_ts, created_ts)\n            VALUES ($1, $2, $3, $4, $5, $6)\n            RETURNING\n                id,\n                as_id,\n                txn_id,\n                transaction_id,\n                events AS \"events!\",\n                sent_ts,\n                completed_ts,\n                retry_count,\n                last_error\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "as_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "txn_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "transaction_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "events!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "sent_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "completed_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "retry_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "last_error",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "f1d715db1bb725adff0d1ed322eca64db3d04d2d68508bb9040d0ec884164889"
+}

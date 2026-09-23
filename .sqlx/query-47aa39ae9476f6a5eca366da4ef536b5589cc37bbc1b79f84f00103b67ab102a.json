@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                        INSERT INTO application_service_room_namespaces (as_id, namespace, is_exclusive, created_ts)\n                        VALUES ($1, $2, $3, $4)\n                        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "47aa39ae9476f6a5eca366da4ef536b5589cc37bbc1b79f84f00103b67ab102a"
+}
