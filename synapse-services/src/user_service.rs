@@ -5,7 +5,6 @@ use crate::event_notifier::EventNotifier;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use synapse_federation::event_broadcaster::EventBroadcaster;
-use synapse_storage::event::EventReader;
 use synapse_storage::membership::MemberStoreApi;
 pub use synapse_storage::user::{User, UserDirectorySearchResult};
 use synapse_storage::user::{UserSearchResult, UserStore};
@@ -21,10 +20,6 @@ pub struct UserService {
     /// MSC4204: Member storage for querying shared room users during profile updates.
     /// Initialized via `set_member_storage` after construction.
     member_storage: RwLock<Option<Arc<dyn MemberStoreApi>>>,
-    /// MSC4204: Event reader for getting current stream position.
-    /// Initialized via `set_event_reader` after construction (unused in production).
-    #[allow(dead_code)]
-    event_reader: RwLock<Option<Arc<dyn EventReader>>>,
     /// MSC4204: Event notifier for waking shared room users' sliding sync connections.
     event_notifier: RwLock<EventNotifier>,
     /// MSC4262: Federation broadcaster for sending `m.profile_update` EDUs to
@@ -44,12 +39,8 @@ impl UserService {
             user_storage,
             #[cfg(any(test, feature = "test-utils"))]
             member_storage: RwLock::new(Some(Arc::new(synapse_storage::test_mocks::InMemoryMemberStore::new()))),
-            #[cfg(any(test, feature = "test-utils"))]
-            event_reader: RwLock::new(Some(Arc::new(synapse_storage::test_mocks::InMemoryEventStore::new()))),
             #[cfg(not(any(test, feature = "test-utils")))]
             member_storage: RwLock::new(None),
-            #[cfg(not(any(test, feature = "test-utils")))]
-            event_reader: RwLock::new(None),
             event_notifier: RwLock::new(EventNotifier::new()),
             federation_broadcaster: RwLock::new(None),
             server_name: RwLock::new(String::new()),
@@ -69,13 +60,6 @@ impl UserService {
     #[allow(clippy::unwrap_used)] // initialization pattern; RwLock poison is acceptable
     pub fn set_member_storage(&self, member_storage: Arc<dyn MemberStoreApi>) {
         *self.member_storage.write().unwrap() = Some(member_storage);
-    }
-
-    /// MSC4204: Inject `event_reader` (the real Postgres implementation).
-    #[allow(dead_code)]
-    #[allow(clippy::unwrap_used)] // initialization pattern; RwLock poison is acceptable
-    pub fn set_event_reader(&self, event_reader: Arc<dyn EventReader>) {
-        *self.event_reader.write().unwrap() = Some(event_reader);
     }
 
     /// MSC4204: Inject `event_notifier` (the real one with Redis slots).
