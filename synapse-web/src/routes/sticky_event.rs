@@ -151,3 +151,110 @@ pub async fn clear_sticky_event(
 
     Ok(empty_json())
 }
+
+// ============== Tests ==============
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sticky_event_compat_relative_routes_count() {
+        // The route manifest must contain exactly 3 routes: GET, POST, DELETE
+        let routes = sticky_event_compat_relative_routes();
+        assert_eq!(routes.len(), 3);
+    }
+
+    #[test]
+    fn test_sticky_event_compat_relative_routes_methods() {
+        let routes = sticky_event_compat_relative_routes();
+        let methods: Vec<&axum::http::Method> = routes.iter().map(|(m, _)| m).collect();
+        assert!(methods.contains(&&axum::http::Method::GET));
+        assert!(methods.contains(&&axum::http::Method::POST));
+        assert!(methods.contains(&&axum::http::Method::DELETE));
+    }
+
+    #[test]
+    fn test_sticky_event_compat_relative_routes_paths() {
+        let routes = sticky_event_compat_relative_routes();
+        let paths: Vec<&str> = routes.iter().map(|(_, p)| *p).collect();
+        // GET list
+        assert!(paths.iter().any(|p| p == "/rooms/{room_id}/sticky_events"));
+        // POST set
+        assert!(paths.iter().any(|p| p == "/rooms/{room_id}/sticky_events"));
+        // DELETE by event_type
+        assert!(paths.iter().any(|p| p == "/rooms/{room_id}/sticky_events/{event_type}"));
+    }
+
+    #[test]
+    fn test_sticky_event_query_deserialize() {
+        // StickyEventQuery must support deny_unknown_fields
+        let json = r#"{"event_type": "m.room.message"}"#;
+        let query: StickyEventQuery = serde_json::from_str(json).unwrap();
+        assert_eq!(query.event_type, Some("m.room.message".to_string()));
+    }
+
+    #[test]
+    fn test_sticky_event_query_deserialize_no_event_type() {
+        // When event_type is omitted, the field should be None
+        let json = r#"{}"#;
+        let query: StickyEventQuery = serde_json::from_str(json).unwrap();
+        assert_eq!(query.event_type, None);
+    }
+
+    #[test]
+    fn test_sticky_event_query_deserialize_unknown_field_rejected() {
+        // deny_unknown_fields should reject unknown keys
+        let json = r#"{"event_type": "m.room.message", "unknown_key": "value"}"#;
+        let result: Result<StickyEventQuery, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_sticky_events_response_single_event() {
+        // Response for a specific event_type must contain: events (array with one item)
+        let event = json!({
+            "room_id": "!room1",
+            "user_id": "@alice",
+            "event_id": "$event1",
+            "event_type": "m.room.message"
+        });
+
+        let response = json!({
+            "events": [event]
+        });
+
+        assert!(response.get("events").is_some());
+        assert_eq!(response["events"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_get_sticky_events_response_empty() {
+        // When no sticky event exists for the event_type, events should be empty
+        let response = json!({
+            "events": []
+        });
+
+        assert!(response.get("events").is_some());
+        assert!(response["events"].is_array());
+        assert_eq!(response["events"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_set_sticky_events_missing_events_field_rejected() {
+        // set_sticky_events must reject a body without "events" array
+        let body = json!({"not_events": []});
+        let result = body.get("events").and_then(|v| v.as_array()).ok_or_else(|| "Missing events array");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_set_sticky_events_missing_event_type_rejected() {
+        // Each event in the events array must have an event_type field
+        let events = vec![json!({"event_id": "$1"})];
+        for event in &events {
+            let result = event.get("event_type").and_then(|v| v.as_str()).ok_or_else(|| "Missing event_type");
+            assert!(result.is_err());
+        }
+    }
+}

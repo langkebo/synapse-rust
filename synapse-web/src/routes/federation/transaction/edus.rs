@@ -163,3 +163,55 @@ pub(crate) fn log_edu_summary(
         "Inbound federation EDU processing summary"
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_edu_processing_stats_default() {
+        // Default::default() should initialize all counters to 0
+        let stats = EduProcessingStats::default();
+        assert_eq!(stats.edus_processed, 0);
+        assert_eq!(stats.total_processed, 0);
+        assert_eq!(stats.total_dropped, 0);
+        assert_eq!(stats.total_errored, 0);
+    }
+
+    #[test]
+    fn test_edu_processing_stats_clone() {
+        // Stats should be clonable for aggregation across tasks
+        let stats1 = EduProcessingStats { edus_processed: 10, total_processed: 20, total_dropped: 5, total_errored: 2 };
+        let stats2 = stats1.clone();
+        assert_eq!(stats1.edus_processed, stats2.edus_processed);
+        assert_eq!(stats1.total_processed, stats2.total_processed);
+        assert_eq!(stats1.total_dropped, stats2.total_dropped);
+        assert_eq!(stats1.total_errored, stats2.total_errored);
+    }
+
+    #[test]
+    fn test_edu_processing_stats_debug_format() {
+        // Debug impl should produce a readable representation
+        let stats = EduProcessingStats { edus_processed: 5, total_processed: 10, total_dropped: 1, total_errored: 0 };
+        let debug_str = format!("{stats:?}");
+        assert!(debug_str.contains("EduProcessingStats"));
+        assert!(debug_str.contains("edus_processed"));
+        assert!(debug_str.contains("total_processed"));
+    }
+
+    #[test]
+    fn test_edu_processing_stats_field_names() {
+        // Verify the struct has the expected field names (will fail at compile time
+        // if the struct definition changes)
+        let mut stats = EduProcessingStats::default();
+        stats.edus_processed = 1;
+        stats.total_processed = 2;
+        stats.total_dropped = 3;
+        stats.total_errored = 4;
+
+        assert_eq!(stats.edus_processed, 1);
+        assert_eq!(stats.total_processed, 2);
+        assert_eq!(stats.total_dropped, 3);
+        assert_eq!(stats.total_errored, 4);
+    }
+}

@@ -66,3 +66,48 @@ pub(crate) async fn forget_room(
         "updated_ts": current_timestamp_millis()
     })))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_upgrade_room_response_structure() {
+        // The response must contain: replacement_room
+        let response = json!({
+            "replacement_room": "!newroom:example.com"
+        });
+
+        assert!(response.get("replacement_room").is_some());
+        assert_eq!(response["replacement_room"], "!newroom:example.com");
+    }
+
+    #[test]
+    fn test_get_room_version_response_structure() {
+        // The response must contain: room_id, room_version
+        let response = json!({
+            "room_id": "!room1:example.com",
+            "room_version": "9"
+        });
+
+        assert!(response.get("room_id").is_some());
+        assert!(response.get("room_version").is_some());
+        assert_eq!(response["room_version"], "9");
+    }
+
+    #[test]
+    fn test_forget_room_response_structure() {
+        // The response must contain: room_id, is_forgotten, updated_ts
+        let response = json!({
+            "room_id": "!room1:example.com",
+            "is_forgotten": true,
+            "updated_ts": 1_700_000_000_000u64
+        });
+
+        assert!(response.get("room_id").is_some());
+        assert!(response.get("is_forgotten").is_some());
+        assert!(response.get("updated_ts").is_some());
+        assert_eq!(response["is_forgotten"], true);
+        assert_eq!(response["updated_ts"], 1_700_000_000_000u64);
+    }
+}

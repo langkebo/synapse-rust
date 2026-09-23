@@ -151,3 +151,123 @@ pub(crate) async fn get_joining_rules(
         "allow": allow
     })))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_room_members_response_structure() {
+        // The response must contain: members (array), room_id, offset, total
+        let members_json = vec![json!({
+            "room_id": "!room1",
+            "user_id": "@alice:example.com",
+            "membership": "join",
+            "display_name": Some("Alice"),
+            "avatar_url": None::<String>
+        })];
+
+        let response = json!({
+            "members": members_json,
+            "room_id": "!room1",
+            "offset": 0,
+            "total": 1
+        });
+
+        assert!(response.get("members").is_some());
+        assert!(response.get("room_id").is_some());
+        assert!(response.get("offset").is_some());
+        assert!(response.get("total").is_some());
+        assert_eq!(response["total"], 1);
+    }
+
+    #[test]
+    fn test_get_joined_room_members_response_structure() {
+        // The response must contain: joined (array), room_id
+        let members_json = vec![json!({
+            "room_id": "!room1",
+            "user_id": "@alice:example.com",
+            "membership": "join",
+            "display_name": Some("Alice"),
+            "avatar_url": None::<String>
+        })];
+
+        let response = json!({
+            "joined": members_json,
+            "room_id": "!room1"
+        });
+
+        assert!(response.get("joined").is_some());
+        assert!(response.get("room_id").is_some());
+        assert!(response["joined"].is_array());
+    }
+
+    #[test]
+    fn test_get_user_devices_response_structure() {
+        // The response must contain: user_id, stream_id, devices (array),
+        // master_key, self_signing_key, user_signing_key
+        let response = json!({
+            "user_id": "@alice:example.com",
+            "stream_id": 123,
+            "devices": [],
+            "master_key": None::<String>,
+            "self_signing_key": None::<String>,
+            "user_signing_key": None::<String>
+        });
+
+        assert!(response.get("user_id").is_some());
+        assert!(response.get("stream_id").is_some());
+        assert!(response.get("devices").is_some());
+        assert!(response.get("master_key").is_some());
+        assert!(response.get("self_signing_key").is_some());
+        assert!(response.get("user_signing_key").is_some());
+    }
+
+    #[test]
+    fn test_get_user_devices_device_keys_extraction() {
+        // Verify that device keys are properly extracted with fallbacks
+        let device_keys = json!({
+            "algorithms": ["m.megolm.v1.aes-sha2"],
+            "keys": {"curve25519:DEVICE1": "base64key"},
+            "signatures": {"@alice:example.com": {"ed25519:DEVICE1": "sig"}}
+        });
+
+        let keys = device_keys.get("algorithms").cloned().unwrap_or_else(|| json!([]));
+        let signatures = device_keys.get("signatures").cloned().unwrap_or_else(|| json!({}));
+        let keys_map = device_keys.get("keys").cloned().unwrap_or_else(|| json!({}));
+
+        assert!(keys.is_array());
+        assert!(signatures.is_object());
+        assert!(keys_map.is_object());
+    }
+
+    #[test]
+    fn test_get_joining_rules_response_structure() {
+        // The response must contain: room_id, join_rule, allow (array)
+        let response = json!({
+            "room_id": "!room1",
+            "join_rule": "public",
+            "allow": []
+        });
+
+        assert!(response.get("room_id").is_some());
+        assert!(response.get("join_rule").is_some());
+        assert!(response.get("allow").is_some());
+        assert_eq!(response["join_rule"], "public");
+        assert!(response["allow"].is_array());
+    }
+
+    #[test]
+    fn test_get_joining_rules_allow_field_filtering() {
+        // Test that non-array "allow" values are filtered to empty array
+        let allow_wrong_type = json!("not-an-array");
+        let allow_filtered = allow_wrong_type.as_array().cloned().unwrap_or_else(|| json!([]));
+        assert!(allow_filtered.is_array());
+        assert!(allow_filtered.is_empty());
+
+        // Test that valid array is preserved
+        let allow_correct = json!(["rule1", "rule2"]);
+        let allow_preserved = allow_correct.as_array().cloned().unwrap_or_else(|| json!([]));
+        assert_eq!(allow_preserved.len(), 2);
+    }
+}

@@ -107,3 +107,105 @@ fn federation_guess_content_type(filename: &str, data: &[u8]) -> &'static str {
         "application/octet-stream"
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_parse_federation_query_i64_with_integer_value() {
+        let params = json!({ "width": 200 });
+        assert_eq!(parse_federation_query_i64(&params, "width", 100).unwrap(), 200);
+    }
+
+    #[test]
+    fn test_parse_federation_query_i64_with_string_value() {
+        let params = json!({ "width": "300" });
+        assert_eq!(parse_federation_query_i64(&params, "width", 100).unwrap(), 300);
+    }
+
+    #[test]
+    fn test_parse_federation_query_i64_with_default_when_missing() {
+        let params = json!({});
+        assert_eq!(parse_federation_query_i64(&params, "width", 100).unwrap(), 100);
+    }
+
+    #[test]
+    fn test_parse_federation_query_i64_rejects_non_number() {
+        let params = json!({ "width": [1, 2] });
+        let result = parse_federation_query_i64(&params, "width", 100);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().http_status(), http::StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn test_parse_federation_query_i64_rejects_invalid_string() {
+        let params = json!({ "width": "abc" });
+        let result = parse_federation_query_i64(&params, "width", 100);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().http_status(), http::StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn test_federation_media_response_headers_structure() {
+        let headers = federation_media_response_headers("image/png".to_string(), 1024);
+        assert_eq!(headers.len(), 2);
+        assert_eq!(headers[0].0, "Content-Type");
+        assert_eq!(headers[0].1, "image/png");
+        assert_eq!(headers[1].0, "Content-Length");
+        assert_eq!(headers[1].1, "1024");
+    }
+
+    #[test]
+    fn test_federation_guess_content_type_from_infer() {
+        // PNG magic bytes: 89 50 4E 47
+        let data = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        assert_eq!(federation_guess_content_type("anything.bin", &data), "image/png");
+    }
+
+    #[test]
+    fn test_federation_guess_content_type_from_extension_jpeg() {
+        // infer library might not detect JPEG from partial bytes, so the
+        // extension fallback should handle it.
+        let data = [0xFF, 0xD8, 0xFF]; // partial JPEG
+        assert_eq!(federation_guess_content_type("photo.jpg", &data), "image/jpeg");
+    }
+
+    #[test]
+    fn test_federation_guess_content_type_from_extension_png() {
+        let data = [0x00; 1]; // no infer match
+        assert_eq!(federation_guess_content_type("icon.png", &data), "image/png");
+    }
+
+    #[test]
+    fn test_federation_guess_content_type_from_extension_svg() {
+        let data = [0x00; 1];
+        assert_eq!(federation_guess_content_type("drawing.svg", &data), "image/svg+xml");
+    }
+
+    #[test]
+    fn test_federation_guess_content_type_from_extension_webm() {
+        let data = [0x00; 1];
+        assert_eq!(federation_guess_content_type("video.webm", &data), "video/webm");
+    }
+
+    #[test]
+    fn test_federation_guess_content_type_unknown_extension() {
+        let data = [0x00; 1];
+        assert_eq!(federation_guess_content_type("file.xyz", &data), "application/octet-stream");
+    }
+
+    #[test]
+    fn test_federation_guess_content_type_no_extension() {
+        let data = [0x00; 1];
+        assert_eq!(federation_guess_content_type("file", &data), "application/octet-stream");
+    }
+
+    #[test]
+    fn test_federation_guess_content_type_uppercase_extension() {
+        let data = [0x00; 1];
+        assert_eq!(federation_guess_content_type("ICON.PNG", &data), "image/png");
+        assert_eq!(federation_guess_content_type("VIDEO.MP4", &data), "video/mp4");
+    }
+}
