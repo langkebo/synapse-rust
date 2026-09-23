@@ -1,9 +1,18 @@
 # Synapse-Rust 与 Synapse (Python) 地址：https://github.com/element-hq/synapse 对比分析报告
 
-> **文档版本**: v1.3
+> **文档版本**: v1.4
 > **更新日期**: 2026-09-22
 > **更新说明**:
-> - **v1.3 复核（2026-09-22）**：逐条实测 v1.2 的 ✅ 声明与全部计数，修正 10+ 处计数/版本错误、
+> - **v1.4 代码取证复核（2026-09-22）**：不再以既有文档为基线，改为**逐条回到源码取证**
+>   （证据形式仅 `路径:行号` + 可复现命令）。本轮**推翻了本文档此前的多处结论**，最重要的一条是
+>   **§7.2/§11.1 对 E2EE SAS 的判定仍不充分**：此前记录的"SAS 派生非 HKDF"只是表象，实测 SAS
+>   **全链路 4 处独立偏离规范**——info 串仍缺双方公钥且顺序错误（`verification/service.rs:41-50`）、
+>   emoji/decimal 生成非规范且 decimal 被丢弃（`:284-298`）、MAC 仍为裸 HMAC 而非
+>   `hkdf-hmac-sha256.v2`（`:116-129`，`:303-307` 注释自述）、commitment 用 HMAC 而非 SHA-256（`:206-210`）。
+>   另新增 3 条 P0：**OIDC 回调提权**、**`soft_failed` 读路径无过滤**、**联邦成员握手端点缺必需字段**。
+>   同时**更正**两处旧判定：QR 已由"桩"改为显式 fail-closed 不支持；`leak_detection` 死模块已删除。
+>   详见 §14。
+> - v1.3 复核（2026-09-22）：逐条实测 v1.2 的 ✅ 声明与全部计数，修正 10+ 处计数/版本错误、
 >   1 处**伪造引用**（`docs/synapse-rust/api-reference.md` 不存在）、特性片段中已删除的 `server` 特性、
 >   "编译时 SQL 验证""静态链接 + musl"等高估；§11 增补实测判定（E2EE SAS/QR/泄漏检测、MSC4140、
 >   MSC3912 归因、v1.161 八项）；§12.5 重写为指向权威清单的方案。
@@ -31,6 +40,7 @@
 11. [业务对齐度对比](#11-业务对齐度对比)
 12. [总结结论](#12-总结结论)
 13. [v1.3 复核修正记录](#13-v13-复核修正记录2026-09-22)
+14. [v1.4 代码取证复核](#14-v14-代码取证复核2026-09-22)
 
 ---
 
@@ -94,7 +104,7 @@ synapse-rust 采用 Cargo Workspace：`[workspace] members` 声明 8 个 crate�
 | | 优势 | 劣势 |
 |---|------|------|
 | **Synapse** | - 成熟的多进程 Worker 架构，生产验证<br>- 灵活的 Python 模块系统，快速迭代<br>- 丰富的模块化扩展点（spam checker, third-party rules 等） | - Worker 进程间通信复杂，部署门槛高<br>- Python 包边界模糊，容易产生循环依赖<br>- 单进程内 GIL 限制并行度 |
-| **synapse-rust** | - Cargo Workspace 编译时依赖检查，杜绝循环依赖<br- 单进程即可利用多核，部署简单<br>- Tower 中间件链类型安全，编译时验证 | - Worker 拓扑验证仍在建设中（`topology_validator.rs`）<br>- 模块化扩展点不如 Python 灵活<br>- 编译时间长（464K 行 Rust 代码全量编译） |
+| **synapse-rust** | - Cargo Workspace 编译时依赖检查，杜绝循环依赖<br>- 单进程即可利用多核，部署简单<br>- Tower 中间件链类型安全，编译时验证 | - Worker 拓扑验证仍在建设中（`topology_validator.rs`）<br>- 模块化扩展点不如 Python 灵活<br>- 编译时间长（439K 行 Rust 代码全量编译） |
 
 ---
 
@@ -273,7 +283,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | | 优势 | 劣势 |
 |---|------|------|
 | **Synapse** | - 官方文档站完善<br>- 社区 Wiki 和 FAQ 丰富<br>- 多年积累的最佳实践 | - mypy 非强制，类型安全不完整<br>- 测试以 mock 为主，集成测试不足<br>- 代码风格统一但运行时错误仍多 |
-| **synapse-rust** | - 编译时类型安全 + Clippy 强制 Lint<br>- 4 层测试体系 + 属性测试 + 快照测试<br>- 统一数据库字段标准<br>- 文件化 API 参考覆盖全部端点 | - 文档规模大但质量参差不齐<br>- 测试覆盖虽广但真实联调测试不足<br>- 编译时间长影响开发迭代 |
+| **synapse-rust** | - 编译时类型安全 + Clippy 强制 Lint<br>- 4 层测试体系 + 属性测试 + 快照测试<br>- 统一数据库字段标准<br>- 路由契约机器化（`ROUTE_CONTRACT.md` 1,151 条，由代码抽取而非人工维护） | - 文档规模大但质量参差不齐<br>- 测试覆盖虽广但真实联调测试不足<br>- 编译时间长影响开发迭代 |
 
 ---
 
@@ -286,7 +296,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | **密码哈希** | bcrypt | Argon2（可配置成本参数） |
 | **Token 管理** | Access/Refresh Token | Access/Refresh Token + JWT (HS256) |
 | **管理员注册** | 共享密钥 | HMAC-SHA256 签名验证 |
-| **SSO** | SAML + OIDC + CAS | SAML + OIDC + CAS (Feature Flag 控制) |
+| **SSO** | SAML + OIDC + CAS | SAML + OIDC + CAS (Feature Flag 控制)；⚠️ **OIDC 回调提权（v1.4 新 P0）**：`routes/oidc/sso.rs:215-232` 仅按 `localpart` 命中本地用户即签发令牌，**未校验 OIDC subject 与本地用户的绑定**；同仓 `routes/oidc/provider.rs:187-201` 已有该检查，属单点遗漏 |
 | **速率限制** | 有（per-endpoint） | RateLimit 中间件 + Federation RateLimit |
 
 ### 7.2 加密安全
@@ -295,10 +305,10 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 |------|-------------------|--------------|
 | **E2EE 引擎** | libolm (C 库 binding) | vodozemac `>=0.10.0`（Cargo.lock 实锁 **0.11.0**，纯 Rust；Megolm/Olm 走 `GroupSession`/`InboundGroupSession`/`Account`/`Session` + 加密 pickle） |
 | **密钥轮转** | 有 | `synapse-e2ee/src/key_rotation/`（1017 行）+ `synapse-federation/src/key_rotation.rs`（1157 行） |
-| **跨设备验证** | 有（成熟） | ⚠️ **PARTIAL**：交叉签名（`e2ee/cross_signing/`，信任链真实验证）与设备信任（`e2ee/device_trust/`）**真实**；但 **SAS 派生不合规范**（`verification/service.rs:82-93` 用 `SHA256(secret‖info)` 而非 HKDF-SHA256，且 `confirm_sas:296-351` 接受任意非空 MAC）；**QR 为桩**（`:384-390` 复用同一公钥、`signature` 空串） |
-| **密钥备份** | 有 | `synapse-e2ee/src/backup/` + `synapse-web/src/routes/e2ee/backup.rs`（`synapse-common/src/secure_backup` 摘要派生另有实现，`ssss/service.rs:251` 的 curve25519 路径从密文自身派生 AES 密钥，非 ECDH） |
-| **SSSS** | 有 | `e2ee/ssss/`（AES-256-GCM） |
-| **泄漏检测** | 有 | ❌ **未实现/死代码**：`synapse-e2ee/src/leak_detection/` **未在 `lib.rs` 声明**（从未编译）；若启用则因未导入 `Utc::now()`（`service.rs:129`）编译失败，且 `get_session_device_count` 恒返回 `Ok(1)`（`:267-269`） |
+| **跨设备验证** | 有（成熟） | ⚠️ **PARTIAL（v1.4 重判）**：交叉签名（`e2ee/cross_signing/`）与设备信任（`e2ee/device_trust/`）**真实**；`derive_sas` 已改为 HKDF-SHA256（`verification/service.rs:105-113`）、`confirm_sas` 已真正校验 MAC（`:316-375`，`secure_compare` + 拒绝空 MAC）。**但 SAS 仍 4 处偏离规范**：① info 串**缺双方公钥且字段顺序错误**（`:41-50`，规范为 `MATRIX_KEY_VERIFICATION_SAS\|发起方 user\|发起方 device\|发起方公钥\|响应方 user\|响应方 device\|响应方公钥\|txn`）；② emoji 由 6 字节各自 `%64` 生成（实产 **6 个**，非规范 42-bit 分组的 7 个）且 decimal 算出后**被丢弃**（`:284-292`，`_decimal` 未使用，返回值只含 `Emoji`）；③ MAC 为裸 `HMAC-SHA256(shared, key_id‖0x00‖value…)` 而非 `hkdf-hmac-sha256.v2`（`:116-129`，`:303-307` 注释自述）；④ commitment 用 HMAC 而非 `SHA-256(公钥‖请求规范 JSON)`（`:206-210`）。**QR 为显式 fail-closed** 返回 `M_UNSUPPORTED`（`:403-424`，非桩） |
+| **密钥备份** | 有 | `synapse-e2ee/src/backup/` + `synapse-web/src/routes/e2ee/backup.rs`（`synapse-common/src/secure_backup` 摘要派生另有实现，`ssss/service.rs:250` 的 curve25519 路径从密文自身派生 AES 密钥，非 ECDH） |
+| **SSSS** | 有 | ⚠️ **PARTIAL**：`e2ee/ssss/` 已引入 HKDF-SHA256（`service.rs:383-391`）并拒绝短密钥（`:275-280`），但密文算法用 **AES-256-GCM**，规范 `m.secret_storage.v1.aes-hmac-sha2` 要求 **AES-256-CTR + HMAC-SHA-256（encrypt-then-MAC）**；HKDF info 用自定义串 `matrix:ssss:curve25519-aes-sha2`（`:24`）；curve25519 路径从**密文自身**派生 AES 密钥（`:250`）而非 ECDH 共享密钥 ⇒ 合规客户端无法解密 |
+| **泄漏检测** | 有 | ❌ **能力不存在**：`synapse-e2ee/src/leak_detection/` 目录**已删除**（`glob 'synapse-e2ee/src/leak_detection/**'` 无结果），仓库内无替代实现 |
 | **内存安全** | Python 管理但 binding 可能有漏洞 | Rust 所有权模型 + `zeroize`（当前仅 `synapse-e2ee` 依赖） |
 
 ### 7.3 网络安全
@@ -325,7 +335,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | | 优势 | 劣势 |
 |---|------|------|
 | **Synapse** | - 安全审计历史长，CVE 记录完善<br>- libolm 经过专业密码学审计<br>- 生产环境安全事件响应经验丰富 | - C binding 可能引入内存安全漏洞<br>- bcrypt 不如 Argon2 抗 GPU/ASIC 破解<br>- Python 运行时类型安全问题 |
-| **synapse-rust** | - Rust 编译时内存安全保证<br>- Argon2 密码哈希（抗 GPU/ASIC）<br>- 主动跟踪 RUSTSEC 并替换不安全依赖<br>- `zeroize` 清理敏感数据<br>- E2EE 跨设备验证完整（SAS/QR + 交叉签名 + 设备信任） | - vodozemac 审计历史短于 libolm（但已升级至 >=0.10.0，Soatok 2026-02 DH 贡献性问题已修复） |
+| **synapse-rust** | - Rust 编译时内存安全保证<br>- Argon2 密码哈希（抗 GPU/ASIC）<br>- 主动跟踪 RUSTSEC 并替换不安全依赖<br>- `zeroize` 清理敏感数据<br>- 交叉签名与设备信任链路真实可用（SAS/QR 仍偏离规范，见 §7.2） | - vodozemac 审计历史短于 libolm（但已升级至 >=0.10.0，Soatok 2026-02 DH 贡献性问题已修复） |
 
 ---
 
@@ -462,8 +472,8 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | MSC / 功能 | Synapse (Python) v1.161 | synapse-rust v6.2.0 | 对齐状态 |
 |------------|--------------------------|----------------------|----------|
 | **核心 CS API** | ✅ 完整 | 路由面完整（`ROUTE_CONTRACT.md` 1,151 条注册路由）；按类别人工统计覆盖率 **80–97%**（`API_COVERAGE_REPORT.md`，2026-05-28 口径，非逐端点实测） | ⚠️ 未逐端点验证 |
-| **联邦协议** | ✅ 完整 | ✅ 完整（`synapse-federation/` 模块） | ✅ 已对齐 |
-| **E2EE** | ✅ 完整（libolm） | ⚠️ **PARTIAL**：Megolm/Olm、交叉签名、设备信任、密钥备份**真实**；**SAS 派生非规范**（`verification/service.rs:82-93` 用 SHA256 而非 HKDF，`confirm_sas:296-351` 接受任意非空 MAC）；**QR 为桩**（`:384-390` 复用公钥、空签名）；**泄漏检测为未编译死代码**（`lib.rs` 未声明） | ⚠️ 部分对齐 |
+| **联邦协议** | ✅ 完整 | ⚠️ **PARTIAL（v1.4 降级）**：`synapse-federation/` 模块存在，`send_*` 已按 `expected_membership` 校验（`membership/mod.rs:128-137`）；**但 `/send_join` 响应缺规范必需的 `state` 与 `auth_chain`**（`membership/join.rs:183-185` 与 v2 `:297-300` 仅回 `event_id`/`room_id`）⇒ 合规远端拿不到房间状态、无法完成入房；`make_join` 模板缺 `origin`/`origin_server_ts`/`room_id`（`:22-31`）；入房/离房路径**未调用房间 ACL 检查**（`:34-91, 94-198` 无 `check_server_acl`） | ⚠️ 部分对齐 |
+| **E2EE** | ✅ 完整（libolm） | ⚠️ **PARTIAL（v1.4 重判）**：Megolm/Olm、交叉签名、设备信任、密钥备份**真实**；SAS 的 `derive_sas` 已 HKDF（`verification/service.rs:105-113`）、`confirm_sas` 已校验 MAC（`:316-375`），但仍 **4 处偏离规范**（info 串缺公钥+顺序错 / emoji+decimal 非规范 / MAC 非 `hkdf-hmac-sha256.v2` / commitment 非 SHA-256，详见 §7.2）；**QR 为显式 fail-closed 不支持**（`:403-424`）；`leak_detection` 模块**已删除**（能力缺失）；SSSS 用 GCM 且从密文派生密钥（见 §7.2） | ⚠️ 部分对齐 |
 | **Sliding Sync** | ✅ 完整 | ✅ 完整（独立 `sliding_sync_service/` 模块 + benchmark；另有 `msc4186` 简化滑动同步引用） | ✅ 已对齐 |
 | **MSC3030** (Timestamp to event) | ✅ | ✅ | ✅ 已对齐 |
 | **MSC2776** (Presence list) | ✅ | ✅（代码中无 `MSC2776` 标识，按路由 `presence.rs` 判定） | ✅ 已对齐 |
@@ -513,9 +523,9 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | **VoIP Tracking** | 无 | ✅ Feature Flag 控制（`rtc/` 模块 + `voip/` 路由） | ✅ 已实现 |
 | **服务器通知** | 有 | ✅ `server_notification_service.rs` 完整实现 | ✅ 完整实现 |
 | **隐私扩展** | 无标准 | ✅ Feature Flag `privacy-ext`（存储层 `synapse-storage/src/privacy.rs` 985 行 + `user_privacy_settings` 表；服务逻辑在 `synapse-services/src/account_identity_service.rs:8-52` 与 `wiring/extensions.rs:51`，**不存在** `synapse-services/src/privacy.rs`） | ✅ 已实现 |
-| **应用服务** | 完整（Pluggable Modules） | ⚠️ **部分实现**：AS 注册/命名空间正则/虚拟用户/事务投递（含 `hs_token`）/调度**真实**（`application_service/`）；**缺** pushers、设备管理、AS 登录（无 `m.login.application_service`）、AS 以虚拟用户身份调用 C-S（客户端提取器只做 token 校验）、MSC4512 代理；`external_service.rs` 属私有桥接扩展（`/_synapse/external/*`），**不是** Matrix AS API | ⚠️ 实现不完整 |
+| **应用服务** | 完整（Pluggable Modules） | ⚠️ **部分实现**：AS 注册/命名空间正则/虚拟用户/事务投递（含 `hs_token`）/调度**真实**（`application_service/`）；**AS 登录（`m.login.application_service`）已于 Phase 2 实现**（见 §11.3）；**仍缺** pushers、设备管理、AS 以虚拟用户身份调用 C-S（客户端提取器只做 token 校验）、MSC4512 代理；`external_service.rs` 属私有桥接扩展（`/_synapse/external/*`），**不是** Matrix AS API | ⚠️ 实现不完整 |
 | **延迟事件** | 有 | ⚠️ **PARTIAL**：单机链路完整（见 §11.1 MSC4140）；**无联邦/EDU**，`state_key` 硬编码 `None` | ⚠️ 单机可用 |
-| **关系性撤回** | 有（v1.161+） | ❌ **未实现按房间版本的 `content.redacts`**，且无 `rel_type` 级联；详见 §11.1 MSC3912 行 | ❌ 存在互操作缺陷 |
+| **关系性撤回** | 有（v1.161+） | ⚠️ **按房间版本的 `content.redacts` 已于 Phase 1 实现**（服务层按房间版本注入）；**仍缺** `rel_type` 级联撤回；详见 §11.1 MSC3912 行 | ⚠️ 部分对齐 |
 | **房间升级** | 有 | ✅ `handlers/room/management/upgrade.rs` 完整实现（`upgrade_room` + `get_room_version`） | ✅ 完整实现 |
 | **Space** | 有 | ✅ `synapse-web/src/routes/space/` 完整实现（children_hierarchy/lifecycle_query/membership_state/summary/types） | ✅ 完整实现 |
 | **Thread** | 有 | ✅ `thread_service.rs` + `synapse-storage/src/thread/` + `handlers/thread.rs` | ✅ 已实现（相对精简） |
@@ -534,11 +544,11 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | **前端集成** | Element Web/Desktop/iOS/Android | TJG 前端（Vue 3 + Tauri 跨平台） | ✅ 已对齐 |
 | **Admin API** | 完整且文档化 | ⚠️ 覆盖较广（`synapse-web/src/routes/admin/` 含 audit/cleanup/federation/media/notification/policy/register/report/retention/room/management/security/server/token/user），但 `API_COVERAGE_REPORT.md`（2026-05-28 口径）按类别为 **89–94%**，非"完整对齐"；举报端点**已实现**（旧"缺失"清单过时） | ⚠️ 接近对齐 |
 | **扩展端点** | 无标准 | ✅ `/_matrix/vendor/v1/` 私有扩展（`external_service.rs`，属私有桥接而非 Matrix AS API） | ✅ 已实现 |
-| **OIDC/Builtin OIDC** | 有 | ⚠️ 路由完整（`routes/oidc/`），但 `synapse-services/src/oidc_service.rs:673` 的 `validate_id_token_claims` **从未被调用**（`#[allow(dead_code)]`，安全相关） | ⚠️ 存在未接线校验 |
+| **OIDC/Builtin OIDC** | 有 | ⚠️ 路由完整（`routes/oidc/`）；`validate_id_token_claims` 实际**已被调用**（旧"死代码"判定已更正），但 **`routes/oidc/sso.rs:215-232` 的回调未校验 OIDC subject 绑定即签发令牌（提权风险）** | ⚠️ 存在安全缺陷 |
 | **SAML/CAS SSO** | 有 | ✅ Feature Flag 控制（`saml.rs` + `cas.rs`） | ✅ 已对齐 |
 | **Key Backup** | 有 | ✅ `synapse-web/src/routes/e2ee/backup.rs` 完整实现 | ✅ 已对齐 |
 | **Push Notifications** | 有 | ✅ `push/` + `push_notification.rs` + `client_push_service.rs` 完整实现 | ✅ 已对齐 |
-| **Relations** | 有 | ✅ `relations_service.rs` + `synapse-storage/src/relations/`（不含 `content.redacts` 与级联撤回，见 §11.1） | ⚠️ 部分对齐 |
+| **Relations** | 有 | ✅ `relations_service.rs` + `synapse-storage/src/relations/`（`content.redacts` 已按房间版本实现；仅 `rel_type` 级联撤回缺失，见 §11.1） | ⚠️ 部分对齐 |
 | **Search** | 有 | ⚠️ **默认搜索面已修（Phase 2）**：未传 `filter.types` 时改为 `IN (m.room.message, m.room.name, m.room.topic)`（`event/search.rs:84`，内容按 `content::text` LIKE 匹配，无需回填）；**仍存**：`search_index.rs` 为死代码、其 partial GIN 索引谓词未同步（FTS 路径不可达），列为独立清理项 | ⚠️ 部分对齐 |
 | **Webhooks/App Services** | 完整 | ⚠️ `app_service.rs` 提供 AS 管理/事务/命名空间；**AS 登录（`m.login.application_service`）已于 Phase 2 实现**；`external_service.rs` 是私有桥接扩展，**不能**算作 Matrix AS API；仍缺 pushers/设备管理/虚拟用户调用 C-S/MSC4512 | ⚠️ 部分对齐 |
 
@@ -547,7 +557,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | | 优势 | 劣势 |
 |---|------|------|
 | **Synapse** | - 协议覆盖最完整，所有 MSC 均已实现<br>- 官方 SDK 生态完善<br>- 与 Element 客户端深度集成<br>- 社区贡献和 Bug 修复活跃<br>- v1.161 新增 MSC4512（实验性）、MSC4242 联邦客户端（实验性）与 MSC4140 单事件查询端点 | - 不支持业务定制扩展<br>- 好友/阅后即焚等需要外部桥接<br>- 缺乏内置短信推送 |
-| **synapse-rust** | - 好友系统/阅后即焚/信标等独有扩展实现完整（本轮实测为真）<br>- 通用 `HttpSmsProvider` + trait 接缝，便于接第三方短信<br>- Feature Flag 控制功能裁剪<br>- Room Summary 单实现架构清晰<br>- Space/Thread/Rendezvous/Key Rotation/事件报告/背景更新完整 | - **撤回格式与默认房间版本不匹配（v11 默认却用 v10 顶层 `redacts`）**——协议互操作缺陷<br>- **E2EE SAS 派生非规范、QR 为桩、泄漏检测为未编译死代码**<br>- **MSC4140 无联邦/EDU**<br>- **`MSC3912`（关系性撤回）未实现**<br>- Content Scanner 模块未装配（孤儿）、LiveKit `ws_url` 死配置<br>- 无 appservice 登录、无 `rc_reports` 专项限流、Dehydrated `/events` 端点方法落后上游<br>- 生产路径仍有半写窗口、事务去重标记在事件事务外、4 处吞 DB 错误<br>- State DAGs (MSC4242) / App Service 代理 (MSC4512) 缺失（上游均为**实验性**） |
+| **synapse-rust** | - 好友系统/阅后即焚/信标等独有扩展实现完整（本轮实测为真）<br>- 通用 `HttpSmsProvider` + trait 接缝，便于接第三方短信<br>- Feature Flag 控制功能裁剪<br>- Room Summary 单实现架构清晰<br>- Space/Thread/Rendezvous/Key Rotation/事件报告/背景更新完整 | - ~~撤回格式 × 房间版本~~ → **Phase 1 已修**；~~Dehydrated `/events` POST 语义~~、~~`rc_reports` 专项限流~~、~~appservice 登录~~ → **Phase 2 已修**<br>- **E2EE SAS 仍 4 处偏离规范、SSSS 用 GCM、QR 显式不支持、`leak_detection` 已删除（能力缺失）**<br>- **联邦 `/send_join` 响应缺 `state`/`auth_chain`（合规远端无法入房）**<br>- **OIDC 回调提权；`soft_failed` 标记在读路径无过滤（去重失败方事件仍可见）**<br>- **MSC4140 无联邦/EDU**<br>- **`MSC3912`（关系性撤回）未实现**<br>- Content Scanner 模块未装配（孤儿）、LiveKit `ws_url` 死配置<br>- 生产路径仍有 4 处吞 DB 错误<br>- State DAGs (MSC4242) / App Service 代理 (MSC4512) 缺失（上游均为**实验性**） |
 
 ---
 
@@ -580,15 +590,20 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 
 5. **开发效率是 synapse-rust 的主要代价**：Rust 学习曲线陡峭、编译时间长、社区贡献门槛高。Python 的快速迭代能力在原型开发和社区贡献方面仍有优势。
 
-6. **（v1.3 新增）协议正确性缺陷比"功能缺失"更值得优先处理**：本仓默认创建房间版本 11，
-   但撤回事件仍按 v1–v10 的顶层 `redacts` 格式生成（`handlers/room/events.rs:959-982`），
-   而 v11 消费方从 `content.redacts` 读取 → 本服务端发出的撤回可能在合规实现上不生效。
-   同类还有：E2EE SAS 派生未用 HKDF、QR 验证为桩、`leak_detection` 为未编译死代码。
-   这些是"已经声称支持、实际不符合规范"的项，风险高于"尚未实现"的 MSC4242/MSC4512（上游均实验性）。
+6. **（v1.3 新增，v1.4 更新）协议正确性缺陷比"功能缺失"更值得优先处理**：本仓默认创建房间版本 11，
+   而撤回事件曾按 v1–v10 的顶层 `redacts` 格式生成 → 本服务端发出的撤回可能在合规实现上不生效。
+   **该项已于 Phase 1 修复**（服务层按房间版本注入 `content.redacts`）。
+   v1.4 代码取证后，同类的"声称支持、实际不合规"项仍有三条 P0：**联邦 `/send_join` 响应缺
+   `state`/`auth_chain`**（远端无法入房）、**OIDC 回调未校验 subject 绑定即签发令牌**（可提权接管账号）、
+   **`soft_failed` 标记无任何读路径过滤**（去重"失败方"事件对客户端完全可见）。
+   另有 E2EE SAS 4 处偏离规范、SSSS 用 GCM 而非 CTR+HMAC、`leak_detection` 模块已删除。
+   这些风险高于"尚未实现"的 MSC4242/MSC4512（上游均实验性）。
 
-7. **（v1.3 新增）数据一致性存在已知窗口**：`create_event_with_graph` 在无事务时先写 `events`
-   再于事务外写 `event_edges`（`synapse-storage/src/event/create.rs:112-142`），联邦入库/补洞/backfill 走该路径；
-   消息发送的 txn 去重标记在事件提交之后写入（`messages.rs:288-305`），标记失败时客户端重试可能产生重复事件。
+7. **（v1.3 新增，v1.4 修正）数据一致性**：`create_event_with_graph` 的"事件与 `event_edges` 分两次写入"
+   半写窗口**已于 Phase 1 修复**——无调用方事务时改用本地事务包裹两者（`synapse-storage/src/event/create.rs:111-148`）。
+   仍存的问题是**补偿无效**：txn 去重标记写失败或并发落败时，代码调用 `mark_event_soft_failed`
+   （`room/messaging/messages.rs:294-352`，含 `:307`、`:342-345`），但**全仓没有生产读路径过滤 `soft_failed`**
+   → 被"软删"的事件仍会出现在 `/sync`、`/messages`、分页结果中，客户端仍可能看到重复事件。
 
 8. **（v1.3 新增）"文档声称"与"代码实现"之间的漂移需要机制约束**：本次更新出现
    `api-reference.md`（不存在的文件）被当作来源、MSC4140 被标为 v1.161 新增、
@@ -620,19 +635,21 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
   —— 上一版本写作"CVE-2026-XXXX 系列"属占位符，不应出现在正式报告。
 - SDK 封装层存在已知 Bug（URL 重复前缀、batch 接口不存在等）。
 - Worker 拓扑验证仍在建设中，水平扩展方案成熟度待验证。
-- **协议正确性风险（本轮实测，优先级最高）**：
-  - ~~**撤回格式 × 房间版本**：默认 v11 却生成 v10 顶层 `redacts`~~ → **已于 Phase 1 修复**（2026-09-22：服务层按房间版本注入 `content.redacts`，PDU 不再重复写顶层）；关系性级联撤回仍未实现（见 §11.1 MSC3912 行）。
-  - **E2EE**：SAS 派生非 HKDF、`confirm_sas` 接受任意非空 MAC、QR 为桩、泄漏检测未编译（见 §7.2）。
+- **协议正确性风险（v1.4 代码取证重排，优先级最高）**：
+  - **【新 P0】联邦 `/send_join` 响应缺必需字段**：`federation/membership/join.rs:183-185`（v1）与 `:297-300`（v2）仅返回 `event_id`/`room_id`，**缺 `state` 与 `auth_chain`** → 合规远端拿不到房间状态，无法完成入房。
+  - **【新 P0】OIDC 回调提权**：`routes/oidc/sso.rs:215-232` 仅按 `localpart` 命中本地用户即签发令牌，未校验 OIDC subject 绑定；可接管任意同名账号（含 admin）。同仓 `routes/oidc/provider.rs:187-201` 已有正确检查。
+  - **【新 P0】`soft_failed` 读路径无过滤**：`event/txn_dedup.rs:64-71` 的注释声称事件被"过滤 `soft_failed = FALSE` 的读路径"隐藏，但全仓**没有任何生产读路径**使用该谓词（`event/pagination.rs:91-97`、`/sync`、`/messages` 均无过滤；唯一使用处是 `messages.rs:689` 的测试断言）→ 去重"失败方"事件对客户端完全可见。
+  - **E2EE**：SAS 仍 4 处偏离规范、SSSS 用 AES-256-GCM（规范要求 CTR + HMAC）、QR 为显式 fail-closed 不支持、`leak_detection` 模块已删除（见 §7.2）。
   - **MSC4140**：无 EDU/联邦。
-  - **Dehydrated device `/events`**：仅 POST + body 游标，落后上游 v1.157（#19896）的 GET 语义。
-- **数据一致性风险（本轮实测）**：
-  - `create_event_with_graph` 事件与 `event_edges` 分两次写入（`event/create.rs:112-142`），联邦入库/补洞/backfill 存在半写窗口。
-  - txn 去重标记在事件提交之后（`messages.rs:288-305`），标记写失败 → 重试可能重复发事件。
+  - ~~撤回格式 × 房间版本~~ → **Phase 1 已修**（服务层按房间版本注入 `content.redacts`）；关系性级联撤回仍未实现（见 §11.1 MSC3912 行）。
+  - ~~Dehydrated device `/events` 仅 POST~~ → **Phase 2 已修**（GET + query 参数，`next_batch` 空页返回 `null`）。
+- **数据一致性风险（v1.4 复核后修正）**：
+  - ~~`create_event_with_graph` 半写窗口~~ → **Phase 1 已修**：无调用方事务时改用本地事务包裹 `events` + `event_edges`（`event/create.rs:111-148`，代码注释标 B8）。
+  - txn 去重标记仍在事件提交之后（`room/messaging/messages.rs:294-352`）；Phase 2 的补偿（标记失败即 soft-fail 已提交事件）**因上一条 P0 而实际无效**。
   - 生产路径吞 DB 错误：`room/messaging/messages.rs:32`（对 DB 查询 `unwrap_or(0)`）、`federation/transaction.rs:358-362`（`.ok().flatten()`）、`membership/federation.rs:191-216` 与 `:251-268`（持久化失败仅 `warn!` 后丢弃）。
 - **未实现/未装配风险**：
   - **Content Scanner 整模块孤儿**（无存储、无 config、无构造点），非"仅缺存储层"。
-  - **App Service 登录整体缺失**（无 `m.login.application_service` / `M_APPSERVICE_LOGIN_UNSUPPORTED`），
-    以及 pushers、设备管理、虚拟用户调用 C-S、MSC4512 代理缺失。
+  - ~~**App Service 登录整体缺失**~~ → **Phase 2 已实现**（`m.login.application_service`：as_token + 排他命名空间 + 设备物化 + 令牌签发）；仍缺 pushers、设备管理、虚拟用户调用 C-S、MSC4512 代理。
   - ~~**`rc_reports` 专项限流缺失**~~ → **Phase 2 已修**（handler 内 per-user 桶 + 可配规则 + 守卫测试）；**LiveKit `ws_url` 仍为死配置**；稳定 `/_matrix/client/v3/profile/{userId}/{keyName}` 未注册。
 - **未验证/待决策**：v12/v13 房间能否从"可 join/联邦"推进到"可创建"；`MSC4186/4262/4502/2409` 等代码中已出现的编号
   其语义是否与官方一致（须查 `MSC_SEMANTICS.md`，当前未登记）。
@@ -669,10 +686,13 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 
 | 项 | 原定级 | 新定级 | 理由 |
 |----|--------|--------|------|
-| E2EE SAS 对齐 HKDF + 真实 MAC 校验 | 未列（误判 ✅ 完整） | **高** | 影响客户端验证互操作；接受任意 MAC 是安全弱化 |
-| E2EE QR 实现或声明未实现 | 未列 | **高** | 当前为桩（复用公钥 + 空签名），文档称"完整"属误报 |
-| `leak_detection` 接入或删除 | 误判"已实现" | **高** | 未编译 + 启用即编译失败 + 桩计数 + schema 列缺失（铁律 1） |
-| OIDC `validate_id_token_claims` 接线 | 未列 | **高（安全）** | 死代码，声明校验未生效 |
+| E2EE SAS 对齐规范 | 未列（误判 ✅ 完整） | **高** | `derive_sas` 已改 HKDF、`confirm_sas` 已校验 MAC；**仍缺**：info 串双方公钥与字段顺序、emoji/decimal 规范分组（42-bit→7 组）、`hkdf-hmac-sha256.v2` MAC、commitment = `SHA-256(公钥‖请求规范 JSON)` |
+| E2EE QR：实现或维持显式不支持 | 未列 | **低（已收敛）** | 已由"桩"改为 fail-closed `M_UNSUPPORTED`（`:403-424`），本文档已更正；真实现需客户端侧 rendezvous + 设备签名 |
+| `leak_detection` 模块 | 误判"已实现" | **低（已收敛）** | 死模块**已删除**，当前无该能力；若业务需要须重新实现 |
+| SSSS 对齐 CTR + HMAC | 未列 | **高** | 现用 **AES-256-GCM**，规范 `m.secret_storage.v1.aes-hmac-sha2` 要求 AES-256-CTR + HMAC-SHA-256；且 curve25519 路径从**密文自身**派生 AES 密钥（`ssss/service.rs:250`）⇒ 合规客户端无法解密 |
+| 联邦 `/send_join` 补 `state`/`auth_chain` | 未列 | **高** | `membership/join.rs:183-185, 297-300` 缺规范必需字段 ⇒ 远端无法入房（互操作阻断） |
+| `soft_failed` 读路径过滤或改为硬删 | 未列 | **高** | 补偿当前无效：无生产读路径过滤 `soft_failed`，去重"失败方"事件仍可见 |
+| OIDC 回调 subject 绑定校验 | 未列 | **高（安全）** | `routes/oidc/sso.rs:215-232` 未校验 OIDC subject 与本地用户绑定即签发令牌，可提权接管账号（`validate_id_token_claims` 实际**已接线**，旧"死代码"判定有误） |
 | Content Scanner 装配或删除 | P0"缺存储层" | **中（决策项）** | 现状是孤儿模块；先决定是否上线该功能 |
 | MSC4140 联邦（EDU） | ✅ 已对齐 | **中** | 单机真实，联邦缺失，需按草案确认是否必须 |
 | 死字段清理（3 处 "Reserved/constructor parity"） | 未列 | **中** | 违反铁律 1 |
@@ -713,10 +733,64 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | §12.5 | 重写为 A/B/C/D 分层，删除人日估算，改为指向权威清单并按验收判据验收 |
 | **代码修复（Phase 1）** | **B1** v11+ 撤回目标写入 `content.redacts`（服务层唯一写入口）+ PDU 不再重复写顶层 `redacts`；**B8** `create_event_with_graph` 无事务分支改单事务；**B10a** `send_message` 传播 `origin_server_ts` 读取错误；**B5** 修正过期房间版本注释。计划见 `docs/superpowers/plans/2026-09-22-protocol-correctness-phase1.md`（gitignored），验证证据见 `docs/audit/COMPARISON_REPORT_REVIEW_2026-09-22.md` §10 |
 | **代码修复（Phase 2）** | **B10b** 联邦 gap-fill 查重吞错；**B11** 默认搜索面纳入 `m.room.name`/`m.room.topic`；**B3** 举报端点 per-user `rc_reports` 限流（可配 + 守卫）；**B9** 事务去重标记失败时 soft-fail 已提交事件。计划见 `docs/superpowers/plans/2026-09-22-phase2-protocol-fixes.md`（gitignored），证据见复核报告 §11。**Phase 2 全部完成**：B3/B4/B9/B10b/B10c/B11/B13；证据与门禁见复核报告 §12。遗留缺陷另记：`scripts/api_test/scan_handler_schemas.py` 的 `ROOT` 为硬编码绝对路径（会写错工作树）、ledger `query_params` 字段无消费方 |
+| **v1.4 代码取证复核（2026-09-22）** | **推翻本文档 5 处旧结论**（详见 §14.1）：① SAS 由"SHA256 派生 + 接受任意非空 MAC"→ 实为 `derive_sas` 已 HKDF（`verification/service.rs:105-113`）、`confirm_sas` 已校验 MAC（`:316-375`），但**仍 4 处偏离规范**；② QR 由"桩"→ 实为**显式 fail-closed** `M_UNSUPPORTED`（`:403-424`）；③ `leak_detection` 由"未编译死代码"→ 实为**目录已删除**；④ `create_event_with_graph` 半写窗口由"仍存在"→ 实为 **Phase 1 已修**（本地事务，`event/create.rs:111-148`）；⑤ `validate_id_token_claims` 由"从未被调用"→ 实为**已接线**，真实缺陷在 `routes/oidc/sso.rs:215-232`。**新增 3 条 P0**（§14.2）；§11.1 联邦协议由 ✅ 降为 PARTIAL；§7.2 SSSS 新增非合规判定 |
 
 ---
 
-> **声明**: 本报告基于 synapse-rust v6.2.0 工作树（`HEAD 32fb4a30` + 未提交改动）与 Synapse v1.161.0
+## 14. v1.4 代码取证复核（2026-09-22）
+
+> **方法变更**：本轮**不再以既有文档（含本文档旧版与 `docs/audit/*`）为基线**，改为**逐条回到源码取证**——
+> 每条结论必须给出 `路径:行号` 或可复现命令。凡本轮无法亲自取证的项一律标 `[未验证]`，不沿用旧文档结论。
+> 审查范围：E2EE、联邦、认证/OIDC、数据一致性、端点覆盖。
+
+### 14.1 对本文档旧结论的更正（5 处）
+
+| 旧结论（v1.3 及更早） | 实测结论 | 证据 |
+|----------------------|----------|------|
+| SAS 用 `SHA256(secret‖info)` 派生，非 HKDF | **已更正**：`derive_sas` 现为 HKDF-SHA256（无 salt、info 为上下文串、取前 6 字节） | `synapse-e2ee/src/verification/service.rs:105-113` |
+| `confirm_sas` 接受任意非空 MAC | **已更正**：现校验 MAC 非空、要求 `keys` 与 `peer_pubkey`、以 `secure_compare` 比对期望 MAC，不符返回 403 | 同上 `:316-375` |
+| QR 验证为桩（复用同一公钥 + 空 `signature`） | **已更正**：现为**显式 fail-closed**，`generate_qr_code`/`scan_qr_code` 直接返回 `M_UNSUPPORTED` | 同上 `:403-424` |
+| `leak_detection` 是"未在 `lib.rs` 声明"的死代码 | **已更正**：整个目录**已删除**，即**该能力不存在**，而非"代码在但没接线" | `glob 'synapse-e2ee/src/leak_detection/**'` 无结果 |
+| `create_event_with_graph` 半写窗口仍存在 | **已更正**：无调用方事务时改用本地事务包裹 `events` + `event_edges`（代码注释标 B8） | `synapse-storage/src/event/create.rs:111-148` |
+| OIDC `validate_id_token_claims` 从未被调用（死代码） | **已更正**：该函数**已被调用**；真实缺陷在回调侧未校验 subject 绑定 | `synapse-web/src/routes/oidc/sso.rs:215-232`（对照 `routes/oidc/provider.rs:187-201`） |
+
+### 14.2 新增 P0（本轮实测，优先级最高）
+
+| # | 问题 | 证据 | 影响 |
+|---|------|------|------|
+| P0-1 | **联邦 `/send_join` 响应缺 `state` 与 `auth_chain`** | `synapse-web/src/routes/federation/membership/join.rs:183-185`（v1）、`:297-300`（v2）仅返回 `event_id`/`room_id` | 规范要求 v2 响应含 `state`（房间状态）+ `auth_chain`；缺失 ⇒ 合规远端无法构建房间、入房失败（互操作阻断） |
+| P0-2 | **OIDC 回调提权** | `synapse-web/src/routes/oidc/sso.rs:215-232`：以 `localpart` 查本地用户后直接 `generate_access_token(user_id, …, existing.is_admin)`，**无 subject 绑定校验** | 攻击者自选 `preferred_username` 即可接管同名本地账号（含 admin） |
+| P0-3 | **`soft_failed` 标记无任何读路径过滤** | 写入：`synapse-storage/src/event/txn_dedup.rs:77-89`；注释声称被过滤：`:64-71`。读取：`synapse-storage/src/event/pagination.rs:91-97` 等**均无 `soft_failed` 谓词**（全仓仅 `messages.rs:689` 测试使用） | 去重"失败方"事件对客户端**完全可见**（`/sync`、`/messages`、分页）⇒ 客户端仍见重复事件；Phase 2 的 soft-fail 补偿实际无效 |
+
+### 14.3 可复现证据命令
+
+```bash
+# P0-3：确认没有任何生产读路径过滤 soft_failed
+grep -rn "soft_failed" --include='*.rs' . | grep -v -e test -e benches
+
+# P0-1：确认 send_join / send_join_v2 的响应体
+sed -n '180,190p;295,302p' synapse-web/src/routes/federation/membership/join.rs
+
+# P0-2：确认 OIDC 回调直接按 localpart 签发令牌
+sed -n '214,233p' synapse-web/src/routes/oidc/sso.rs
+
+# 旧结论更正：leak_detection 目录已不存在
+ls synapse-e2ee/src/leak_detection 2>&1
+```
+
+### 14.4 待确认（`[未验证]`）
+
+以下为审查中出现但**本轮未亲自逐条取证**的候选问题，列出以便后续单独验证，**不作为结论**：
+
+- **联邦**：`make_join` 模板缺 `origin`/`origin_server_ts`/`room_id`（`join.rs:22-31`）；入房路径未调用房间 ACL（`:34-91, 94-198`）；`get_event_auth` 返回不完整；联邦入房多段提交（`membership/federation.rs:228-282`）；`exchange_third_party_invite` 未验签。
+- **E2EE**：`device_keys` 接受 `unsigned` 设备密钥（`device_keys/service.rs:219-236`）。
+- **认证**：`m.login.token` 硬编码 `is_admin=false`（`auth_compat.rs:432-436`）；登录失败返回 401 而非规范建议的 403（`error.rs:217-228`）；AS 命名空间正则未锚定（`application_service/models.rs:317`）。
+- **一致性**：presence 查询失败降级为 offline（`presence_service.rs:209-212`）；联邦队列 `.ok()` 吞错（`event_broadcaster.rs:774-791`）；summary 批量失败仅 `warn!`（`summary/state.rs:211-214`）。
+- **端点覆盖**：`MSC4133` 的 `keyName` 未稳定化（仅 `uk.tcpip.msc4133`）；relations v1 GET 缺失；`mutual_rooms` 路径多 `/user` 段；admin whois/suspend/lock 缺失；`/_matrix/client/v3/` 下仍有约 235 条非标准路径待迁 `/_matrix/vendor/v1/`。
+
+---
+
+> **声明**: 本报告基于 synapse-rust v6.2.0 工作树（`HEAD e77a5b80` + 未提交改动）与 Synapse v1.161.0
 > （2026-09-15，`release-v1.161` CHANGES.md）编写。**性能与资源数据凡标"预期/未实测"者均未经过生产验证**，
 > 不得作为容量规划依据。所有结论遵循"代码优先"原则；凡未实测项显式标注，不以"需确认"充当结论。
 > **审查方法**：以可复现命令与 `路径:行号` 为唯一证据形式——

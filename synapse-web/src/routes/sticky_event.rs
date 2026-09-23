@@ -157,6 +157,7 @@ pub async fn clear_sticky_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn test_sticky_event_compat_relative_routes_count() {
