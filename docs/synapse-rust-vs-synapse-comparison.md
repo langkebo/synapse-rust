@@ -297,7 +297,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | **密钥轮转** | 有 | `synapse-e2ee/src/key_rotation/`（1017 行）+ `synapse-federation/src/key_rotation.rs`（1157 行） |
 | **跨设备验证** | 有（成熟） | ⚠️ **PARTIAL（v1.4 重判）**：交叉签名（`e2ee/cross_signing/`）与设备信任（`e2ee/device_trust/`）**真实**；`derive_sas` 已改为 HKDF-SHA256（`verification/service.rs:105-113`）、`confirm_sas` 已真正校验 MAC（`:316-375`，`secure_compare` + 拒绝空 MAC）。**但 SAS 仍 4 处偏离规范**：① info 串**缺双方公钥且字段顺序错误**（`:41-50`，规范为 `MATRIX_KEY_VERIFICATION_SAS\|发起方 user\|发起方 device\|发起方公钥\|响应方 user\|响应方 device\|响应方公钥\|txn`）；② emoji 由 6 字节各自 `%64` 生成（实产 **6 个**，非规范 42-bit 分组的 7 个）且 decimal 算出后**被丢弃**（`:284-292`，`_decimal` 未使用，返回值只含 `Emoji`）；③ MAC 为裸 `HMAC-SHA256(shared, key_id‖0x00‖value…)` 而非 `hkdf-hmac-sha256.v2`（`:116-129`，`:303-307` 注释自述）；④ commitment 用 HMAC 而非 `SHA-256(公钥‖请求规范 JSON)`（`:206-210`）。**QR 为显式 fail-closed** 返回 `M_UNSUPPORTED`（`:403-424`，非桩） |
 | **密钥备份** | 有 | `synapse-e2ee/src/backup/` + `synapse-web/src/routes/e2ee/backup.rs`（`synapse-common/src/secure_backup` 摘要派生另有实现，`ssss/service.rs:250` 的 curve25519 路径从密文自身派生 AES 密钥，非 ECDH） |
-| **SSSS** | 有 | ⚠️ **PARTIAL**：`e2ee/ssss/` 已引入 HKDF-SHA256（`service.rs:383-391`）并拒绝短密钥（`:275-280`），但密文算法用 **AES-256-GCM**，规范 `m.secret_storage.v1.aes-hmac-sha2` 要求 **AES-256-CTR + HMAC-SHA-256（encrypt-then-MAC）**；HKDF info 用自定义串 `matrix:ssss:curve25519-aes-sha2`（`:24`）；curve25519 路径从**密文自身**派生 AES 密钥（`:250`）而非 ECDH 共享密钥 ⇒ 合规客户端无法解密 |
+| **SSSS** | 有 | ✅ **已对齐规范（2026-09-23 修复，commit `a2375743`）**：`e2ee/ssss/service.rs` 现按 matrix-spec v1.19 `m.secret_storage.v1.aes-hmac-sha2` 实现——HKDF-SHA256（salt = 32 个 0 字节，输出 64 字节拆 AES key/MAC key；密钥校验 info 为空串、加密 info 为 secret name）、**AES-256-CTR**（128 位大端计数器）+ **encrypt-then-MAC**（HMAC-SHA-256 over 密文）、16 字节 IV 且 **bit 63 清零**、`iv/ciphertext/mac` 一律无填充 base64；新增 `decrypt_secret` 先验 MAC 再解密。MSC2697 `curve25519-aes-sha2`（从密文自身派生 AES 密钥、公钥取密文前 32 字节）**已删除**，`create_key`/`encrypt_secret` 对其 fail-closed 400。测试 27 项含 **NIST SP 800-38A F.5.5 CTR-AES256 已知向量**、篡改密文 → 403、错误 secret name → 403、非 32 字节密钥拒绝 |
 | **泄漏检测** | 有 | ❌ **能力不存在**：`synapse-e2ee/src/leak_detection/` 目录**已删除**（`glob 'synapse-e2ee/src/leak_detection/**'` 无结果），仓库内无替代实现 |
 | **内存安全** | Python 管理但 binding 可能有漏洞 | Rust 所有权模型 + `zeroize`（当前仅 `synapse-e2ee` 依赖） |
 
@@ -623,7 +623,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 - **协议正确性风险（v1.4 代码取证重排，优先级最高）**：
   - **【新 P0】联邦 `/send_join` 响应缺必需字段**：`federation/membership/join.rs:183-185`（v1）与 `:297-300`（v2）仅返回 `event_id`/`room_id`，**缺 `state` 与 `auth_chain`** → 合规远端拿不到房间状态，无法完成入房。（2026-09-23 独立复核：属实 —— 两处响应体确仅此二字段。）
   - **【新 P0】OIDC 回调提权**：`routes/oidc/sso.rs:215-232` 仅按 `localpart` 命中本地用户即签发令牌，未校验 OIDC subject 绑定；可接管任意同名账号（含 admin）。同仓 `routes/oidc/provider.rs:187-201` 已有正确检查。（2026-09-23 独立复核：属实，两条路径语义不一致。）
-  - **【新 P0】`soft_failed` 读路径无过滤**：`event/txn_dedup.rs:64-71` 的注释声称事件被"过滤 `soft_failed = FALSE` 的读路径"隐藏，但全仓**没有任何生产读路径**使用该谓词（`event/pagination.rs`、`/sync`、`/messages` 均无过滤；唯一使用处是测试断言）→ 去重"失败方"事件对客户端完全可见。（2026-09-23 独立复核：`soft_failed` 在非测试代码中只出现在 writer/txn_dedup 的写入侧，读路径 0 命中 —— 属实。）
+  - ~~**【新 P0】`soft_failed` 读路径无过滤**~~ → **已修（2026-09-23，commit `53c43a48` + `7d968f6d`）**。`53c43a48` 只补了 `/messages` 的**无游标**分支；`7d968f6d` 补齐全部面向客户端的读取面：`get_room_events_paginated_cursor` 的**两个带游标分支**（`/messages` 真实生产路径，回归用例证明修复前会返回 loser）、`get_room_events_after_stream_ordering`（sliding sync）、`find_event_by_timestamp`/`find_event_id_by_timestamp`（MSC3030）、`get_room_events_batch_inner`（`/sync`，谓词置于 ROW_NUMBER 之前）、`has_room_events_since`、`get_room_message_counts_batch`、四个 `search_*`、`get_unread_counts(_batch)`、sliding sync bump_stamp、`count_sent_messages`。**行为回归**用例 `test_soft_failed_events_hidden_from_all_consumer_read_paths`（`synapse-storage/src/event/db_tests.rs`）：写入 winner(loser) 后逐个读取方法断言 loser 不出现、winner 仍在；先红后绿。**未覆盖（有意）**：DAG/prev_events/auth/state-resolution/联邦/redaction 目标查找等**内部**读取面——它们必须看到该行；`friend_room` 与 relations 读的是 state/`event_relations`，不属于 soft-fail 事件类型（仅 `send_message_with_txn` 调用 `mark_event_soft_failed`）。**顺带修掉** `search_postgres_messages` 的 `ts_rank`(real) → `f64` 解码缺陷（生产 postgres provider 会 `ColumnDecode` 失败）。
   - **E2EE**：SAS 仍 4 处偏离规范（info 串缺公钥+顺序错 / emoji 仅 6 个且 decimal 被丢弃 / MAC 非 `hkdf-hmac-sha256.v2` / commitment 非 SHA-256）、SSSS 用 AES-256-GCM（规范要求 CTR + HMAC）、QR 为显式 fail-closed 不支持、`leak_detection` 模块已删除（详见 §7.2）。
   - **MSC4140**：无 EDU/联邦。
   - ~~撤回格式 × 房间版本~~ → **Phase 1 已修**（服务层按房间版本注入 `content.redacts`，PDU 不再重复写顶层）；关系性级联撤回仍未实现（见 §11.1 MSC3912 行）。
@@ -723,7 +723,86 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 
 ---
 
-> **声明**: 本报告基于 synapse-rust v6.2.0 工作树（`HEAD 32fb4a30` + 未提交改动）与 Synapse v1.161.0
+## 14. v1.4 复核保留摘要 + v1.5 修复进度（2026-09-23 续）
+
+### 14.1 v1.4 复核的 5 处旧结论更正（保留摘要）
+
+| 旧结论（v1.3 及更早） | 实测结论 | 证据 |
+|----------------------|----------|------|
+| SAS 用 `SHA256(secret‖info)` 派生，非 HKDF | **已更正**：`derive_sas` 实为 HKDF-SHA256（无 salt、info 为上下文串、取 6 字节） | `synapse-e2ee/src/verification/service.rs` |
+| `confirm_sas` 接受任意非空 MAC | **已更正**：校验 MAC 非空、要求 `keys`/`peer_pubkey`、`secure_compare` 比对，不符 403 | 同上 |
+| QR 验证为桩（复用同一公钥 + 空 `signature`） | **已更正**：显式 fail-closed，返回 `M_UNSUPPORTED` | 同上 |
+| `leak_detection` 是"未在 `lib.rs` 声明"的死代码 | **已更正**：整个目录**已删除**，即该能力不存在 | `glob 'synapse-e2ee/src/leak_detection/**'` 无结果 |
+| OIDC `validate_id_token_claims` 从未被调用（死代码） | **已更正**：该函数已被调用；真实缺陷在回调侧未校验 subject 绑定。**2026-09-23 再更正**：Phase 3 C9 已删除该函数，`exchange_code` 改为 fail-closed | `synapse-web/src/routes/oidc/sso.rs` |
+
+### 14.2 v1.4 新增 3 条 P0 的当前状态
+
+| # | 问题 | 状态（2026-09-23） |
+|---|------|--------------------|
+| P0-1 | 联邦 `/send_join` 响应缺 `state`/`auth_chain` | ❌ **未修（本轮取证后确认工作量为整条写入管线，见 §14.4）** |
+| P0-2 | OIDC 回调提权（按 localpart 签发令牌，无 subject 绑定） | ✅ **已修**：回调路径写入并复用 OIDC 绑定（`fe35fb0a`），账号接管判定抽成纯函数并补判定表用例（`0a633b89`） |
+| P0-3 | `soft_failed` 无任何读路径过滤 | ✅ **已修**：`53c43a48`（时间线无游标分支）+ `7d968f6d`（其余全部消费者读取面 + 行为回归用例），详见 §12.4 |
+
+### 14.3 本轮（2026-09-23 续）已完成并验证
+
+| 项 | 内容 | 提交 | 验证 |
+|----|------|------|------|
+| 1 | `soft_failed` 其余消费者读取面（pagination 带游标分支 / batch(`/sync`) / search 四条路径 / unread / sliding sync / 消息计数）+ 行为回归用例；顺带修 `ts_rank` 的 `real`→`f64` 解码缺陷 | `53c43a48`、`7d968f6d` | `cargo nextest run -p synapse-storage --lib -E 'test(soft_failed_events_hidden)'` 先红（cursor 分支返回 loser）后绿 |
+| 3（一半） | **SSSS 对齐 `m.secret_storage.v1.aes-hmac-sha2`**：HKDF（salt=32×0，info=空串/secret name）、AES-256-CTR（128 位大端计数器）、encrypt-then-MAC、16 字节 IV 且 bit 63 清零、无填充 base64、`decrypt_secret` 先验 MAC；删除不可解的 MSC2697 curve25519 路径（改为 fail-closed 400）；`create_key`/`encrypt_secret`/`decrypt_secret` 改关联函数 | `a2375743` | `synapse-e2ee --lib` SSSS 27 项全绿，含 **NIST SP 800-38A F.5.5 CTR-AES256 已知向量**、篡改密文→403、错误 secret name→403、非 32 字节密钥拒绝 |
+| 5（B2） | **签名前校验 `make_join`/`make_leave` 模板**（上游 #20189 / 规范 PR #2284）：新增纯函数 + join/leave 接线，失败 400 且不取签名密钥、不调 `send_*` | `cd7b97bb`（被并发写入者合并） | 8 项表驱动单测 + 端到端：mock 返回 `membership:"ban"` ⇒ 400 且 `send_join_call_count()==0` |
+| 5（B9c） | MSC4133 非对象文档：写入口加形状守卫（400）、读取面 `internal`→`bad_request`；data type 常量收敛到一处 | `7fc49e06` | 3 项单测 + 集成 `test_msc4133_non_object_document_is_bad_request_not_server_error` 实跑通过（21.7s） |
+
+### 14.4 遗留阻塞与后续计划
+
+**item 2（P0-1 `/send_join` 的 `state`/`auth_chain`）—— 根因与最小正确实现**
+
+本轮取证发现该缺陷比"补两个响应字段"深：本仓**本地创建的事件从来不落 PDU 图元数据**。
+
+- 房间创建（`synapse-services/src/room/lifecycle/create.rs` 的 `m.room.create`/`power_levels`/`join_rules`/`member` 等）走**普通 `create_event`**：`depth`/`prev_events`/`auth_events` 为 `NULL`，且**完全没有签名/哈希**（该文件不调用 `sign_and_broadcast_event`）。
+- `sign_and_broadcast_event`（`room/messaging/service.rs`）虽然把 `prev_events` 放进被签名的 PDU，但只回写 `signatures`/`hashes`，**不回写** `depth`/`prev_events`/`auth_events`。
+- 因此 `state` 数组里的多数事件既无 `auth_events` 也无 `depth`，而 `hashes.sha256` 覆盖这些字段——**事后补造会作废哈希与远端签名**，不能只在响应侧修。
+- 存储里也没有 auth 边表：`event_edges` 的 `is_state` 区分的是"房间 DAG vs MSC4242 状态 DAG"，**不是 auth vs prev**；auth 边只存在于 `events.auth_events` JSONB。
+
+最小正确实现（建议单独分支/里程碑）：① 为本地事件补齐创建期 PDU 管线——选 `auth_events`（按房间版本的 auth 事件选择规则）+ 算 `depth` + 签名/哈希 + 用 `create_event_with_graph` 落库，覆盖房间生命周期、状态、消息、成员等**全部**本地写入口；② 新增 storage 全 PDU 读取（`depth/prev_events/auth_events/hashes/signatures/unsigned`）与 auth 链闭包查询；③ 统一 `serialize_full_pdu`；④ `/send_join` v1 返回 `[200, {...}]`（v1 **必须**是二元素数组）、v2 返回裸对象，二者均含 `state`/`auth_chain`/`event`/`members_omitted:false`；⑤ 顺带修 `make_join` 模板（补 `origin`/`origin_server_ts`）与 `SendJoinResponse.origin` 改为 `Option`（v1.14 起规范已删除响应中的 `origin`，当前客户端结构体把它当必填，解析真实 Synapse 响应会失败）。
+
+**item 3（SAS 4 处偏离）—— 规范修法被私有 API 形状阻塞**
+
+`/keys/device_signing/verify_*` 是本仓私有的非规范 REST 面（`synapse-web/src/routes/verification_routes.rs`），其 `mac` 是单个字符串、`keys` 是 `key_id → 公钥值` 的映射，且**没有算法字段**；规范 `hkdf-hmac-sha256.v2` 的 key-list MAC 需要对"排序后逗号分隔的 `{algorithm}:{keyId}` 列表"做 MAC。因此偏离③（MAC）与④（commitment = `SHA-256(公钥‖start content 规范 JSON)`，且当前**从不校验** commitment）无法在现有 API 形状下正确实现，需先重构该私有面为规范形状（或明确声明不支持 SAS）。偏离①（info 串缺双方公钥且 txn 位置错）与②（emoji 6 个且分组错、decimal 被丢弃、**emoji 表本身与规范表不一致**）可在现有形状内修，但需与 API 重构一起验收。
+
+**item 5 其余子项**
+
+- **B8（搜索死代码）**：`synapse-storage/src/search_index.rs`（`SearchIndexStorage` 等）**无任何生产调用者**，`search_index` 表永远为空；`search_postgres_messages`/`search_room_postgres_messages` 仅经 `search_messages` 可达，而 `search_messages` 只有测试调用者。建议按铁律 1 删除模块 + 新增前向迁移 drop 表。**未做**（涉及 schema 变更，需单独决策/迁移）。
+- **B9(a)/(b)**：停用用户在 MSC4133 上返回 404 而标准 `/v3/profile` 返回 200（两面对"存在 vs 停用"判定不一致）；稳定 `/_matrix/client/v3/profile/{userId}/{keyName}` 未注册而 capability 已声明 `m.profile_fields`。**未做**（(b) 需重生成 ledger/快照/契约 fixture，或改为不再声明该 capability）。
+- **B10**：见 §14.5 对照表。
+- **C 类死字段**：实测为 **7 处**（不是 3 处）——`room/lifecycle/service.rs`、`room/state/service.rs`、`room/membership/service.rs`、`room/service.rs`（`event_writer`，仅 `burn-after-read` 特性下有 1 个读取点）、`friend_room_service/models.rs`、`admin_registration_service.rs`、`admin_security_service.rs` 的 `user_service`/`event_writer`，均为 `#[allow(dead_code)]` + "Reserved/constructor parity"。另见 `user_service.rs` 的 `event_reader` + `set_event_reader`（0 调用者）。**未做**（需删除字段 + 构造参数 + wiring + 测试构造点，并新增可红的守卫测试）。
+
+### 14.5 B10：Synapse v1.157.2 ELEMENTSEC 公告对照（2026-07-28，共 **11** 条而非 12）
+
+> 计数三处交叉验证一致（GitHub Releases API 正文、tag `v1.157.2` 的 `CHANGES.md`、仓库 advisory 列表 `patched_versions: ["1.157.2"]`）。
+> 均无 CVE 编号。"12"的来源疑为 ELEMENTSEC-2026-1740 描述中交叉引用的旧公告 `GHSA-rfq8-j7rh-8hf2` 被一并计数。
+
+| # | 公告 | 组件 | 本仓判定 | 主要证据 |
+|---|------|------|----------|----------|
+| 1 | ELEMENTSEC-2026-1071 / GHSA-fp53-rw9v-hcf9 | push rules 数量/体积无上界 → 磁盘/内存耗尽 | ⚠️ **可能受影响/待深查** | push rule 走独立表（`client_push_service.rs` → `synapse-storage/src/push/mod.rs`），未发现 per-user 条数上限；唯一的 64KB 限制在 account-data 路径，pushrules 路由不经过 |
+| 2 | ELEMENTSEC-2024-1520 / GHSA-rgv2-84w7-5j9p | to-device EDU 发送方伪造 | ✅ 不受影响 | `synapse-web/src/federation/edu.rs` 要求 `user_matches_origin(sender, origin)`，否则丢弃 EDU |
+| 3 | ELEMENTSEC-2026-1717 / GHSA-27p5-4f45-gx76 | `/get_missing_events` 跨房泄露 | ✅ 不受影响（有纵深防御备注） | 路由先 `validate_federation_origin_can_observe_room`；storage 最终查询 `WHERE room_id = $1 AND event_id = ANY($2)`（CTE 本身未按房间限定，建议补注释） |
+| 4 | ELEMENTSEC-2026-1721 / GHSA-95fh-hv8c-chvq | 联邦错误回传导致客户端销毁加密状态 | ✅ 不受影响 | `From<FederationClientError> for ApiError` 一律映射为 500 `M_UNKNOWN`，远端状态码被丢弃 |
+| 5 | ELEMENTSEC-2026-1729 / GHSA-cjh7-rcpx-xpf8 | 房间别名重定向 | ⚠️ **本地可劫持（确认）** | `synapse-storage/src/room/mod.rs` 的 `ON CONFLICT (room_alias) DO UPDATE SET room_id = EXCLUDED.room_id` 会静默改指；路由无"别名已被占用"预检。联邦向量待深查 |
+| 6 | ELEMENTSEC-2026-1740 / GHSA-6wjm-9p2x-gvpm | `multipart/form-data` Content-Type 大小写绕过 DoS 缓解 | ⚠️ **待深查** | 本仓无手写 Content-Type 检查（multipart 仅经 axum `Multipart`，`routes/voice.rs`）；有全局 body 上限，但解析器内部行为属上游 |
+| 7 | ELEMENTSEC-2026-1714 / GHSA-qcjr-46gf-7f4r | `/get_event_auth` 缺已入房校验 | ✅ 不受影响 | 先 `validate_federation_origin_can_observe_room`，再按 `room_id` 限定取事件 |
+| 8 | ELEMENTSEC-2026-1718 / GHSA-r66v-qhwx-8rg4 | `/timestamp_to_event` 缺成员校验 | ✅ 不受影响 | 格式校验后调 `validate_federation_origin_can_observe_room` |
+| 9 | ELEMENTSEC-2026-1751 / GHSA-jhcg-5392-5mjw | Sliding Sync 畸形响应（非法房间名/头像/资料） | ✅ 不受影响（结构上不可能） | 相关字段均为 `Option<String>`，类型系统保证不会输出错误 JSON 类型 |
+| 10 | ELEMENTSEC-2026-1703 / GHSA-vh4c-pqh4-w3wq | 多余路径段被忽略 → 限流绕过 | ✅ 应用层不受影响 / ⚠️ 代理层待查 | axum 0.8 精确 `{param}` 匹配、无通配路由，fallback 404 `M_UNRECOGNIZED` |
+| 11 | ELEMENTSEC-2026-1760 / GHSA-hgcg-p9gx-fq5f | 尾随后缀被接受 → nginx 规范化代理绕过 | ⚠️ **待深查（代理配置）** | `docker/deploy/nginx/` 使用前缀 `location`，无 `merge_slashes`；需运维侧复核，Rust 代码内不可证 |
+
+**结论**：需要动作或明确决策的是 #1（push rule 上限）与 #5（别名劫持）；需要代理/基础设施复核的是 #6 与 #11；其余 7 条本仓已有对应守卫。
+
+### 14.6 并发写入者事故记录（流程）
+
+本轮作业期间，另一个 agent 会话（`.workbuddy`，Phase 3 closeout / SIGTERM 内存门禁 / E2EE v2 优化）在**同一工作树、同一分支**上持续 `git add` 提交，把本轮在途改动至少 3 次扫进其提交：`bc1501f9`（"format db_tests.rs"，含本轮的 soft_failed 回归用例）、`d6c55ed8`（"T2EE-001 cross-signing keys"，含本轮 SSSS 的 `models.rs`/`Cargo.toml`/`Cargo.lock`）、`cd7b97bb`（"Sync: 处理并发会话遗留的 federation 相关变更"，含本轮 B2 校验）。内容未丢，但**提交信息与内容不符**，违反 AGENTS.md 铁律 9（同一工作树同一时刻只允许一个写者）。本轮已通过"每完成一项立即逐路径 `git add` + 提交"把暴露窗口压到最小；后续并行作业必须改用独立 `git worktree`。
+
+---
+> **声明**: 本报告基于 synapse-rust v6.2.0 工作树（`HEAD cd7b97bb` + 未提交改动）与 Synapse v1.161.0
 > （2026-09-15，`release-v1.161` CHANGES.md）编写。**性能与资源数据凡标"预期/未实测"者均未经过生产验证**，
 > 不得作为容量规划依据。所有结论遵循"代码优先"原则；凡未实测项显式标注，不以"需确认"充当结论。
 > **审查方法**：以可复现命令与 `路径:行号` 为唯一证据形式——
