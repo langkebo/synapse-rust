@@ -42,4 +42,28 @@ impl EventRedactionService {
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to batch redact events", e))
     }
+
+    /// MSC3912: Cascade redact an event and all related events.
+    ///
+    /// Finds all events that reference the target event via relationship fields
+    /// (m.in_reply_to, m.relates_to, m.replace) and redacts them recursively.
+    ///
+    /// # Arguments
+    /// * `event_id` - The event to cascade redact from
+    /// * `redacted_by` - Optional user ID performing the redaction
+    /// * `max_depth` - Maximum recursion depth (default 5)
+    ///
+    /// # Returns
+    /// Number of events successfully redacted
+    pub async fn cascade_redact_event(
+        &self,
+        event_id: &str,
+        redacted_by: Option<&str>,
+        max_depth: u32,
+    ) -> Result<u64, ApiError> {
+        self.storage
+            .cascade_redact_event(event_id, redacted_by, max_depth)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to cascade redact event", e))
+    }
 }

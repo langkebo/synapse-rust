@@ -2,6 +2,8 @@
 pub(crate) mod basic;
 /// The `batch` module.
 pub mod batch;
+/// The `cascade` module for MSC3912 cascade redaction.
+pub(crate) mod cascade;
 /// The `create` module.
 pub(crate) mod create;
 /// The `dag` module.
