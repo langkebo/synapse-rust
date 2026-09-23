@@ -137,10 +137,10 @@ mod tests {
             "next_batch": "cursor_123",
             "limit": 50
         });
-        
+
         let next_batch = query_with_both.get("next_batch").and_then(|v| v.as_str());
         let limit = query_with_both.get("limit").and_then(|v| v.as_i64()).unwrap_or(100);
-        
+
         assert_eq!(next_batch, Some("cursor_123"));
         assert_eq!(limit, 50);
     }
@@ -150,9 +150,9 @@ mod tests {
         let query_without_limit = serde_json::json!({
             "next_batch": "cursor_456"
         });
-        
+
         let limit = query_without_limit.get("limit").and_then(|v| v.as_i64()).unwrap_or(100);
-        
+
         assert_eq!(limit, 100); // default
     }
 
@@ -162,10 +162,10 @@ mod tests {
             "next_batch": null,
             "limit": 200
         });
-        
+
         let next_batch = query_with_null.get("next_batch").and_then(|v| v.as_str());
         let limit = query_with_null.get("limit").and_then(|v| v.as_i64()).unwrap_or(100);
-        
+
         assert_eq!(next_batch, None);
         assert_eq!(limit, 200);
     }
@@ -174,21 +174,25 @@ mod tests {
     #[test]
     fn test_secret_storage_key_patterns() {
         let mut keys = std::collections::HashMap::new();
-        
+
         // Test m.secret_storage.default_key detection
         keys.insert("m.secret_storage.default_key".to_string(), serde_json::json!({}));
-        assert!(keys.keys().any(|k| k.starts_with("m.secret_storage.key.")) || 
-                keys.contains_key("m.secret_storage.default_key"));
-        
+        assert!(
+            keys.keys().any(|k| k.starts_with("m.secret_storage.key."))
+                || keys.contains_key("m.secret_storage.default_key")
+        );
+
         // Test m.secret_storage.key.<id> detection
         keys.clear();
         keys.insert("m.secret_storage.key.abc123".to_string(), serde_json::json!({}));
         assert!(keys.keys().any(|k| k.starts_with("m.secret_storage.key.")));
-        
+
         // Test non-SSSS key rejection
         keys.clear();
         keys.insert("m.room.encryption".to_string(), serde_json::json!({}));
-        assert!(!keys.keys().any(|k| k.starts_with("m.secret_storage.key.")) &&
-                !keys.contains_key("m.secret_storage.default_key"));
+        assert!(
+            !keys.keys().any(|k| k.starts_with("m.secret_storage.key."))
+                && !keys.contains_key("m.secret_storage.default_key")
+        );
     }
 }

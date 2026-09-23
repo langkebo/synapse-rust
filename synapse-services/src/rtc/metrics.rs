@@ -73,12 +73,12 @@ mod tests {
     fn test_turn_credentials_issued() {
         // Reset to known state
         TURN_CREDENTIALS_ISSUED.store(0, Ordering::Relaxed);
-        
+
         assert_eq!(RtcMetrics::turn_credentials_issued(), 0);
-        
+
         RtcMetrics::increment_turn_credentials_issued();
         assert_eq!(RtcMetrics::turn_credentials_issued(), 1);
-        
+
         RtcMetrics::increment_turn_credentials_issued();
         RtcMetrics::increment_turn_credentials_issued();
         assert_eq!(RtcMetrics::turn_credentials_issued(), 3);
@@ -88,16 +88,16 @@ mod tests {
     fn test_call_started_ended() {
         CALL_STARTED.store(0, Ordering::Relaxed);
         CALL_ENDED.store(0, Ordering::Relaxed);
-        
+
         assert_eq!(RtcMetrics::call_started(), 0);
         assert_eq!(RtcMetrics::call_ended(), 0);
-        
+
         RtcMetrics::increment_call_started();
         assert_eq!(RtcMetrics::call_started(), 1);
-        
+
         RtcMetrics::increment_call_ended();
         assert_eq!(RtcMetrics::call_ended(), 1);
-        
+
         RtcMetrics::increment_call_started();
         RtcMetrics::increment_call_started();
         assert_eq!(RtcMetrics::call_started(), 3);
@@ -106,9 +106,9 @@ mod tests {
     #[test]
     fn test_session_created() {
         SESSION_CREATED.store(0, Ordering::Relaxed);
-        
+
         assert_eq!(RtcMetrics::session_created(), 0);
-        
+
         RtcMetrics::increment_session_created("app1");
         RtcMetrics::increment_session_created("app2");
         assert_eq!(RtcMetrics::session_created(), 2);
@@ -117,9 +117,9 @@ mod tests {
     #[test]
     fn test_membership_created() {
         MEMBERSHIP_CREATED.store(0, Ordering::Relaxed);
-        
+
         assert_eq!(RtcMetrics::membership_created(), 0);
-        
+
         RtcMetrics::increment_membership_created();
         assert_eq!(RtcMetrics::membership_created(), 1);
     }
@@ -128,7 +128,7 @@ mod tests {
     fn test_concurrent_increments() {
         // Test thread safety with concurrent increments
         TURN_CREDENTIALS_ISSUED.store(0, Ordering::Relaxed);
-        
+
         let handles: Vec<_> = (0..100)
             .map(|_| {
                 std::thread::spawn(|| {
@@ -138,11 +138,11 @@ mod tests {
                 })
             })
             .collect();
-        
+
         for handle in handles {
             handle.join().unwrap();
         }
-        
+
         assert_eq!(RtcMetrics::turn_credentials_issued(), 1000);
     }
 }

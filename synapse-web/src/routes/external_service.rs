@@ -525,10 +525,7 @@ mod tests {
 
     #[test]
     fn test_webhook_payload_serialization() {
-        let payload = WebhookPayload {
-            signature: Some("sig123".into()),
-            data: serde_json::json!({"event": "test"}),
-        };
+        let payload = WebhookPayload { signature: Some("sig123".into()), data: serde_json::json!({"event": "test"}) };
 
         let json = serde_json::to_json(&payload).unwrap();
         assert!(json.contains("signature"));

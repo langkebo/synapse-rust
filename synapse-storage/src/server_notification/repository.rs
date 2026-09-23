@@ -1100,9 +1100,7 @@ mod tests {
             created_by: "@admin:example.com".to_string(),
         };
 
-        let notification_type = request
-            .notification_type
-            .unwrap_or_else(|| "info".to_string());
+        let notification_type = request.notification_type.unwrap_or_else(|| "info".to_string());
         let priority = request.priority.unwrap_or(0);
         let target_audience = request.target_audience.unwrap_or_else(|| "all".to_string());
         let target_user_ids = request.target_user_ids.unwrap_or_default();
@@ -1184,9 +1182,7 @@ mod tests {
         ];
 
         // Sort by priority DESC, created_ts DESC (as in list_active_notifications query)
-        notifications.sort_by(|a, b| {
-            b.priority.cmp(&a.priority).then_with(|| b.created_ts.cmp(&a.created_ts))
-        });
+        notifications.sort_by(|a, b| b.priority.cmp(&a.priority).then_with(|| b.created_ts.cmp(&a.created_ts)));
 
         assert_eq!(notifications[0].id, 2);
         assert_eq!(notifications[0].priority, 10);

@@ -106,6 +106,18 @@ async fn add_reaction(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::routes::assembly::declared_ledger_all;
+    use crate::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+
+    /// Helper: extract reactions routes from the derived route ledger.
+    ///
+    /// This mirrors the pattern used in burn_after_read_route_tests.rs — instead
+    /// of hardcoding expected paths as strings, we filter the actual derived
+    /// route table by `registered_by == "reactions"`.
+    fn reactions_route_manifest() -> Vec<RouteEntry> {
+        declared_ledger_all().iter().filter(|e| e.registered_by == "reactions").cloned().collect()
+    }
 
     #[test]
     fn test_relates_to_parse() {
@@ -118,28 +130,77 @@ mod tests {
         assert_eq!(relates.rel_type, "m.annotation");
     }
 
+    /// High-standard router structure test: verify the real derived route
+    /// manifest contains exactly one reactions endpoint with the correct method.
+    ///
+    /// Unlike the original weak test that only checked hardcoded string arrays,
+    /// this validates against the actual route table generated from the real
+    /// router assembly.
     #[test]
-    fn test_reactions_routes_structure() {
-        let compat_routes = [
-            "/_matrix/client/v3/rooms/{room_id}/send/m.reaction/{txn_id}",
-            "/_matrix/client/v3/rooms/{room_id}/send/m.reaction/{txn_id}",
-        ];
+    fn test_reactions_routes_structure_from_real_ledger() {
+        let manifest = reactions_route_manifest();
 
-        assert!(compat_routes.iter().all(|route| route.starts_with("/_matrix/client/")));
+        // Reactions only has one logical endpoint: PUT /rooms/{room_id}/send/m.reaction/{txn_id}
+        assert_eq!(
+            manifest.len(),
+            1,
+            "reactions manifest must declare exactly 1 (method, path) entry, got {}",
+            manifest.len()
+        );
+
+        let entry = &manifest[0];
+        assert_eq!(entry.method, Method::PUT, "reactions endpoint must be PUT");
+        assert_eq!(
+            entry.path, "/_matrix/client/v3/rooms/{room_id}/send/m.reaction/{txn_id}",
+            "reactions path mismatch"
+        );
+        assert_eq!(entry.registered_by, "reactions", "registered_by must be 'reactions'");
     }
 
+    /// Verify all reactions routes use the v3 client prefix and m.reaction event type.
     #[test]
-    fn test_reactions_compat_router_contains_shared_paths() {
-        let shared_paths = ["/rooms/{room_id}/send/m.reaction/{txn_id}"];
+    fn test_reactions_routes_use_v3_prefix_and_annotation_type() {
+        let manifest = reactions_route_manifest();
 
-        assert_eq!(shared_paths.len(), 1);
-        assert!(shared_paths.iter().all(|path| path.starts_with("/rooms/")));
+        assert!(
+            manifest.iter().all(|e| e.path.starts_with("/_matrix/client/v3/")),
+            "all reactions routes must use /_matrix/client/v3/ prefix"
+        );
+
+        assert!(
+            manifest.iter().all(|e| e.path.contains("/send/m.reaction/")),
+            "all reactions routes must use m.reaction event type"
+        );
     }
 
+    /// Verify reactions router contains only write endpoints (no read/annotation queries).
+    ///
+    /// The reactions module is write-only (sending annotations); read operations
+    /// live under the relations module (/relations or /annotations paths).
     #[test]
-    fn test_reactions_router_keeps_read_endpoints_outside_compat_scope() {
-        let compat_paths = ["/rooms/{room_id}/send/m.reaction/{txn_id}"];
+    fn test_reactions_router_contains_only_write_endpoints() {
+        let manifest = reactions_route_manifest();
 
-        assert!(compat_paths.iter().all(|path| !path.contains("/relations/") && !path.contains("/annotations/")));
+        assert!(
+            manifest.iter().all(|e| !e.path.contains("/relations/") && !e.path.contains("/annotations/")),
+            "reactions router must not contain read endpoints (/relations/ or /annotations/)"
+        );
+
+        // All entries should be PUT (write) methods
+        assert!(
+            manifest.iter().all(|e| e.method == Method::PUT),
+            "reactions router must only contain PUT (write) endpoints"
+        );
+    }
+
+    /// Verify txn_id path parameter exists for idempotency.
+    #[test]
+    fn test_reactions_route_exposes_txn_id_parameter() {
+        let manifest = reactions_route_manifest();
+
+        assert!(
+            manifest.iter().all(|e| e.path.contains("{txn_id}")),
+            "reactions route must expose txn_id path parameter for idempotency"
+        );
     }
 }

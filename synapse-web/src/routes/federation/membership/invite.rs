@@ -394,11 +394,8 @@ mod tests {
             }
         });
 
-        let result = validate_federation_exchange_third_party_invite_event(
-            "example.com",
-            "!room123:example.com",
-            &event
-        );
+        let result =
+            validate_federation_exchange_third_party_invite_event("example.com", "!room123:example.com", &event);
 
         assert!(result.is_ok());
         let (sender, state_key) = result.unwrap();
@@ -418,11 +415,8 @@ mod tests {
             }
         });
 
-        let result = validate_federation_exchange_third_party_invite_event(
-            "example.com",
-            "!room123:example.com",
-            &event
-        );
+        let result =
+            validate_federation_exchange_third_party_invite_event("example.com", "!room123:example.com", &event);
 
         assert!(result.is_err());
     }
@@ -440,11 +434,8 @@ mod tests {
             }
         });
 
-        let result = validate_federation_exchange_third_party_invite_event(
-            "example.com",
-            "!room123:example.com",
-            &event
-        );
+        let result =
+            validate_federation_exchange_third_party_invite_event("example.com", "!room123:example.com", &event);
 
         assert!(result.is_err());
     }
@@ -462,11 +453,8 @@ mod tests {
             }
         });
 
-        let result = validate_federation_exchange_third_party_invite_event(
-            "example.com",
-            "!room123:example.com",
-            &event
-        );
+        let result =
+            validate_federation_exchange_third_party_invite_event("example.com", "!room123:example.com", &event);
 
         assert!(result.is_err());
     }
@@ -484,11 +472,8 @@ mod tests {
             }
         });
 
-        let result = validate_federation_exchange_third_party_invite_event(
-            "example.com",
-            "!room123:example.com",
-            &event
-        );
+        let result =
+            validate_federation_exchange_third_party_invite_event("example.com", "!room123:example.com", &event);
 
         assert!(result.is_err());
     }
@@ -506,11 +491,8 @@ mod tests {
             }
         });
 
-        let result = validate_federation_exchange_third_party_invite_event(
-            "example.com",
-            "!room123:example.com",
-            &event
-        );
+        let result =
+            validate_federation_exchange_third_party_invite_event("example.com", "!room123:example.com", &event);
 
         assert!(result.is_err());
     }

@@ -541,11 +541,11 @@ mod tests {
         // Create a lazy database pool (doesn't perform I/O until first query)
         let pool = sqlx::PgPool::connect_lazy(&synapse_common::test_isolation::test_database_url())
             .expect("connect_lazy should not perform I/O");
-        
+
         let cache = create_test_cache();
         let storage = OlmStorage::new(&Arc::new(pool));
         let _service = OlmService::new(cache, storage);
-        
+
         // Verify the service can be created without panicking
         // The internal state (account, session_manager, user_id, device_id) should all be None
         // This is verified by the fact that no panics occurred during construction
