@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT COALESCE(COUNT(*), 0) as \"count!\"\n                FROM users\n                WHERE username LIKE '%' || $1 || '%'\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "973905b34efe3e5c5dac3143a81bfa272f6eb7f4698815713649a05adbaf6543"
+}

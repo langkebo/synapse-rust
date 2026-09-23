@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, user_id, reason, locked_by, created_ts, unlocked_ts, is_active\n            FROM user_locks\n            WHERE user_id = $1 AND is_active = TRUE\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "locked_by",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "unlocked_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_active",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "7fb3eca5767b55bcd44595c75b87f56488cf0129704cf091d46f91572f7cf3f2"
+}

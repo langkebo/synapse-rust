@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, created_ts, updated_ts\n            FROM users\n            WHERE user_id = ANY($1) AND COALESCE(is_deactivated, FALSE) = FALSE\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "displayname",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "avatar_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "6688fa94ef81a046752bce5554fdbea7bfc223a840d035a2424957a6e7307824"
+}

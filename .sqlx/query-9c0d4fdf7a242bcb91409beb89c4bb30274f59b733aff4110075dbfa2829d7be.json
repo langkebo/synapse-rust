@@ -1,0 +1,166 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT user_id, username, password_hash, displayname, avatar_url,\n                   is_admin AS \"is_admin!\", is_deactivated AS \"is_deactivated!\",\n                   is_guest AS \"is_guest!\", is_shadow_banned AS \"is_shadow_banned!\",\n                   created_ts, updated_ts, generation, consent_version,\n                   appservice_id, user_type, invalid_update_at, migration_state,\n                   email, phone, password_changed_ts,\n                   is_password_change_required AS \"is_password_change_required!\",\n                   password_expires_at, failed_login_attempts AS \"failed_login_attempts!\",\n                   locked_until, must_change_password AS \"must_change_password!\"\n            FROM users\n            ORDER BY created_ts DESC, user_id DESC\n            LIMIT $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "password_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "displayname",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "avatar_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "is_admin!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_deactivated!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "is_guest!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_shadow_banned!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "generation",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "consent_version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "appservice_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "user_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "invalid_update_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 16,
+        "name": "migration_state",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 17,
+        "name": "email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 18,
+        "name": "phone",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 19,
+        "name": "password_changed_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 20,
+        "name": "is_password_change_required!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 21,
+        "name": "password_expires_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 22,
+        "name": "failed_login_attempts!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 23,
+        "name": "locked_until",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 24,
+        "name": "must_change_password!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "9c0d4fdf7a242bcb91409beb89c4bb30274f59b733aff4110075dbfa2829d7be"
+}

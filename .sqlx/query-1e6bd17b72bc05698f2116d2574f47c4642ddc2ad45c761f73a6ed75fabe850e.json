@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE users\n            SET username = $1,\n                is_guest = FALSE,\n                password_hash = $2,\n                password_changed_ts = $3,\n                is_password_change_required = FALSE,\n                must_change_password = FALSE\n            WHERE user_id = $4\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1e6bd17b72bc05698f2116d2574f47c4642ddc2ad45c761f73a6ed75fabe850e"
+}

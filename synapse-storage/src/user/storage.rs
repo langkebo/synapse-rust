@@ -1,7 +1,7 @@
 //! User storage: [`UserStore`] trait and [`UserStorage`] implementation.
 
 use async_trait::async_trait;
-use sqlx::{Pool, Postgres, Row};
+use sqlx::{Pool, Postgres};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use synapse_cache::CacheManager;
@@ -279,22 +279,27 @@ impl UserStorage {
         tracing::info!(user_id = %user_id, username = %username, is_admin = is_admin, "Creating user");
         let now = current_timestamp_millis();
         let generation = now;
-        sqlx::query_as::<_, User>(
-            r"
+        sqlx::query_as!(
+            User,
+            r#"
             INSERT INTO users (user_id, username, password_hash, is_admin, created_ts, generation)
             VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING user_id, username, password_hash, is_admin, is_guest, is_shadow_banned, is_deactivated,
+            RETURNING user_id, username, password_hash, is_admin AS "is_admin!",
+                      is_guest AS "is_guest!", is_shadow_banned AS "is_shadow_banned!",
+                      is_deactivated AS "is_deactivated!",
                       created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
                       appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
-                      is_password_change_required, password_expires_at, failed_login_attempts, locked_until, must_change_password
-            ",
+                      is_password_change_required AS "is_password_change_required!",
+                      password_expires_at, failed_login_attempts AS "failed_login_attempts!",
+                      locked_until, must_change_password AS "must_change_password!"
+            "#,
+            user_id,
+            username,
+            password_hash,
+            is_admin,
+            now,
+            generation
         )
-        .bind(user_id)
-        .bind(username)
-        .bind(password_hash)
-        .bind(is_admin)
-        .bind(now)
-        .bind(generation)
         .fetch_one(&*self.pool)
         .await
     }
@@ -311,22 +316,27 @@ impl UserStorage {
         tracing::info!(user_id = %user_id, username = %username, is_admin = is_admin, "Creating user in transaction");
         let now = current_timestamp_millis();
         let generation = now;
-        sqlx::query_as::<_, User>(
-            r"
+        sqlx::query_as!(
+            User,
+            r#"
             INSERT INTO users (user_id, username, password_hash, is_admin, created_ts, generation)
             VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING user_id, username, password_hash, is_admin, is_guest, is_shadow_banned, is_deactivated,
+            RETURNING user_id, username, password_hash, is_admin AS "is_admin!",
+                      is_guest AS "is_guest!", is_shadow_banned AS "is_shadow_banned!",
+                      is_deactivated AS "is_deactivated!",
                       created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
                       appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
-                      is_password_change_required, password_expires_at, failed_login_attempts, locked_until, must_change_password
-            ",
+                      is_password_change_required AS "is_password_change_required!",
+                      password_expires_at, failed_login_attempts AS "failed_login_attempts!",
+                      locked_until, must_change_password AS "must_change_password!"
+            "#,
+            user_id,
+            username,
+            password_hash,
+            is_admin,
+            now,
+            generation
         )
-        .bind(user_id)
-        .bind(username)
-        .bind(password_hash)
-        .bind(is_admin)
-        .bind(now)
-        .bind(generation)
         .fetch_one(&mut **tx)
         .await
     }
@@ -334,51 +344,66 @@ impl UserStorage {
     /// See [`get_user_by_id`].
     pub async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, sqlx::Error> {
         tracing::debug!(user_id = %user_id, "Querying user by id");
-        sqlx::query_as::<_, User>(
-            r"
-            SELECT user_id, username, password_hash, is_admin, is_guest, is_shadow_banned, is_deactivated,
+        sqlx::query_as!(
+            User,
+            r#"
+            SELECT user_id, username, password_hash, is_admin AS "is_admin!",
+                   is_guest AS "is_guest!", is_shadow_banned AS "is_shadow_banned!",
+                   is_deactivated AS "is_deactivated!",
                    created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
                    appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
-                   is_password_change_required, password_expires_at, failed_login_attempts, locked_until, must_change_password
+                   is_password_change_required AS "is_password_change_required!",
+                   password_expires_at, failed_login_attempts AS "failed_login_attempts!",
+                   locked_until, must_change_password AS "must_change_password!"
             FROM users
             WHERE user_id = $1
-            ",
+            "#,
+            user_id
         )
-        .bind(user_id)
         .fetch_optional(&*self.pool)
         .await
     }
 
     /// See [`get_user_by_username`].
     pub async fn get_user_by_username(&self, username: &str) -> Result<Option<User>, sqlx::Error> {
-        sqlx::query_as::<_, User>(
-            r"
-            SELECT user_id, username, password_hash, is_admin, is_guest, is_shadow_banned, is_deactivated,
+        sqlx::query_as!(
+            User,
+            r#"
+            SELECT user_id, username, password_hash, is_admin AS "is_admin!",
+                   is_guest AS "is_guest!", is_shadow_banned AS "is_shadow_banned!",
+                   is_deactivated AS "is_deactivated!",
                    created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
                    appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
-                   is_password_change_required, password_expires_at, failed_login_attempts, locked_until, must_change_password
+                   is_password_change_required AS "is_password_change_required!",
+                   password_expires_at, failed_login_attempts AS "failed_login_attempts!",
+                   locked_until, must_change_password AS "must_change_password!"
             FROM users
             WHERE username = $1
-            ",
+            "#,
+            username
         )
-        .bind(username)
         .fetch_optional(&*self.pool)
         .await
     }
 
     /// See [`get_user_by_email`].
     pub async fn get_user_by_email(&self, email: &str) -> Result<Option<User>, sqlx::Error> {
-        sqlx::query_as::<_, User>(
-            r"
-            SELECT user_id, username, password_hash, is_admin, is_guest, is_shadow_banned, is_deactivated,
+        sqlx::query_as!(
+            User,
+            r#"
+            SELECT user_id, username, password_hash, is_admin AS "is_admin!",
+                   is_guest AS "is_guest!", is_shadow_banned AS "is_shadow_banned!",
+                   is_deactivated AS "is_deactivated!",
                    created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
                    appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
-                   is_password_change_required, password_expires_at, failed_login_attempts, locked_until, must_change_password
+                   is_password_change_required AS "is_password_change_required!",
+                   password_expires_at, failed_login_attempts AS "failed_login_attempts!",
+                   locked_until, must_change_password AS "must_change_password!"
             FROM users
             WHERE email = $1 AND COALESCE(is_deactivated, FALSE) = FALSE
-            ",
+            "#,
+            email
         )
-        .bind(email)
         .fetch_optional(&*self.pool)
         .await
     }
@@ -394,19 +419,24 @@ impl UserStorage {
 
     /// See [`get_all_users`].
     pub async fn get_all_users(&self, limit: i64) -> Result<Vec<User>, sqlx::Error> {
-        sqlx::query_as::<_, User>(
-            r"
-            SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
-                   is_guest, is_shadow_banned, created_ts, updated_ts, generation, consent_version,
+        sqlx::query_as!(
+            User,
+            r#"
+            SELECT user_id, username, password_hash, displayname, avatar_url,
+                   is_admin AS "is_admin!", is_deactivated AS "is_deactivated!",
+                   is_guest AS "is_guest!", is_shadow_banned AS "is_shadow_banned!",
+                   created_ts, updated_ts, generation, consent_version,
                    appservice_id, user_type, invalid_update_at, migration_state,
-                   email, phone, password_changed_ts, is_password_change_required,
-                   password_expires_at, failed_login_attempts, locked_until, must_change_password
+                   email, phone, password_changed_ts,
+                   is_password_change_required AS "is_password_change_required!",
+                   password_expires_at, failed_login_attempts AS "failed_login_attempts!",
+                   locked_until, must_change_password AS "must_change_password!"
             FROM users
             ORDER BY created_ts DESC, user_id DESC
             LIMIT $1
-            ",
+            "#,
+            limit
         )
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await
     }
@@ -419,38 +449,48 @@ impl UserStorage {
         since_user_id: Option<&str>,
     ) -> Result<Vec<User>, sqlx::Error> {
         if let (Some(ts), Some(user_id)) = (since_ts, since_user_id) {
-            sqlx::query_as::<_, User>(
-                r"
-                SELECT user_id, username, password_hash, displayname, avatar_url, is_admin,
-                       is_deactivated, is_guest, is_shadow_banned, created_ts, updated_ts,
-                       generation, consent_version, appservice_id, user_type, invalid_update_at,
-                       migration_state, email, phone, password_changed_ts, is_password_change_required,
-                       password_expires_at, failed_login_attempts, locked_until, must_change_password
+            sqlx::query_as!(
+                User,
+                r#"
+                SELECT user_id, username, password_hash, displayname, avatar_url,
+                       is_admin AS "is_admin!", is_deactivated AS "is_deactivated!",
+                       is_guest AS "is_guest!", is_shadow_banned AS "is_shadow_banned!",
+                       created_ts, updated_ts, generation, consent_version,
+                       appservice_id, user_type, invalid_update_at, migration_state,
+                       email, phone, password_changed_ts,
+                       is_password_change_required AS "is_password_change_required!",
+                       password_expires_at, failed_login_attempts AS "failed_login_attempts!",
+                       locked_until, must_change_password AS "must_change_password!"
                 FROM users
                 WHERE (created_ts < $2 OR (created_ts = $2 AND user_id < $3))
                 ORDER BY created_ts DESC, user_id DESC
                 LIMIT $1
-                ",
+                "#,
+                limit,
+                ts,
+                user_id
             )
-            .bind(limit)
-            .bind(ts)
-            .bind(user_id)
             .fetch_all(&*self.pool)
             .await
         } else {
-            sqlx::query_as::<_, User>(
-                r"
-                SELECT user_id, username, password_hash, displayname, avatar_url, is_admin,
-                       is_deactivated, is_guest, is_shadow_banned, created_ts, updated_ts,
-                       generation, consent_version, appservice_id, user_type, invalid_update_at,
-                       migration_state, email, phone, password_changed_ts, is_password_change_required,
-                       password_expires_at, failed_login_attempts, locked_until, must_change_password
+            sqlx::query_as!(
+                User,
+                r#"
+                SELECT user_id, username, password_hash, displayname, avatar_url,
+                       is_admin AS "is_admin!", is_deactivated AS "is_deactivated!",
+                       is_guest AS "is_guest!", is_shadow_banned AS "is_shadow_banned!",
+                       created_ts, updated_ts, generation, consent_version,
+                       appservice_id, user_type, invalid_update_at, migration_state,
+                       email, phone, password_changed_ts,
+                       is_password_change_required AS "is_password_change_required!",
+                       password_expires_at, failed_login_attempts AS "failed_login_attempts!",
+                       locked_until, must_change_password AS "must_change_password!"
                 FROM users
                 ORDER BY created_ts DESC, user_id DESC
                 LIMIT $1
-                ",
+                "#,
+                limit
             )
-            .bind(limit)
             .fetch_all(&*self.pool)
             .await
         }
@@ -497,14 +537,7 @@ impl UserStorage {
 
     /// See [`get_user_count`].
     pub async fn get_user_count(&self) -> Result<i64, sqlx::Error> {
-        let row = sqlx::query(
-            r"
-            SELECT COALESCE(COUNT(*), 0) as count FROM users
-            ",
-        )
-        .fetch_one(&*self.pool)
-        .await?;
-        row.try_get::<i64, _>("count")
+        sqlx::query_scalar!(r#"SELECT COALESCE(COUNT(*), 0) as "count!" FROM users"#).fetch_one(&*self.pool).await
     }
 
     /// B-6: Count users optionally filtered by a `username` substring match.
@@ -522,17 +555,16 @@ impl UserStorage {
     /// GIN index for fuzzy username searches.
     pub async fn count_users_matching(&self, name_filter: Option<&str>) -> Result<i64, sqlx::Error> {
         if let Some(pat) = name_filter {
-            let row = sqlx::query(
-                r"
-                SELECT COALESCE(COUNT(*), 0) as count
+            sqlx::query_scalar!(
+                r#"
+                SELECT COALESCE(COUNT(*), 0) as "count!"
                 FROM users
                 WHERE username LIKE '%' || $1 || '%'
-                ",
+                "#,
+                pat
             )
-            .bind(pat)
             .fetch_one(&*self.pool)
-            .await?;
-            row.try_get::<i64, _>("count")
+            .await
         } else {
             self.get_user_count().await
         }
@@ -541,10 +573,10 @@ impl UserStorage {
     /// Count users that are NOT deactivated.
     /// Mirrors Synapse's `non_deactivated_user_count` admin statistic.
     pub async fn count_non_deactivated_users(&self) -> Result<i64, sqlx::Error> {
-        sqlx::query_scalar::<_, i64>(
-            r"
-            SELECT COALESCE(COUNT(*), 0) FROM users WHERE COALESCE(is_deactivated, FALSE) = FALSE
-            ",
+        sqlx::query_scalar!(
+            r#"
+            SELECT COALESCE(COUNT(*), 0) as "count!" FROM users WHERE COALESCE(is_deactivated, FALSE) = FALSE
+            "#
         )
         .fetch_one(&*self.pool)
         .await
@@ -556,22 +588,20 @@ impl UserStorage {
     /// string key `""`. Only groups with at least one non-deactivated
     /// user are returned (SQL GROUP BY naturally omits empty groups).
     pub async fn count_non_deactivated_users_by_app_service(&self) -> Result<HashMap<String, i64>, sqlx::Error> {
-        let rows = sqlx::query(
-            r"
-            SELECT COALESCE(appservice_id, '') AS appservice_id, COUNT(*) AS count
+        let rows = sqlx::query!(
+            r#"
+            SELECT COALESCE(appservice_id, '') AS "appservice_id!", COUNT(*) AS "count!"
             FROM users
             WHERE COALESCE(is_deactivated, FALSE) = FALSE
             GROUP BY appservice_id
-            ",
+            "#
         )
         .fetch_all(&*self.pool)
         .await?;
 
         let mut map = HashMap::with_capacity(rows.len());
         for row in rows {
-            let appservice_id: String = row.try_get("appservice_id")?;
-            let count: i64 = row.try_get("count")?;
-            map.insert(appservice_id, count);
+            map.insert(row.appservice_id, row.count);
         }
         Ok(map)
     }
@@ -579,13 +609,13 @@ impl UserStorage {
     /// Count daily active users (users with a device seen in the last 24h).
     pub async fn get_daily_active_users(&self) -> Result<i64, sqlx::Error> {
         let cutoff = current_timestamp_millis() - 24 * 60 * 60 * 1000;
-        sqlx::query_scalar::<_, i64>(
-            r"
-            SELECT COUNT(DISTINCT user_id) FROM devices
+        sqlx::query_scalar!(
+            r#"
+            SELECT COUNT(DISTINCT user_id) as "count!" FROM devices
             WHERE last_seen_ts IS NOT NULL AND last_seen_ts >= $1
-            ",
+            "#,
+            cutoff
         )
-        .bind(cutoff)
         .fetch_one(&*self.pool)
         .await
     }
@@ -593,13 +623,13 @@ impl UserStorage {
     /// Count monthly active users (users with a device seen in the last 30d).
     pub async fn get_monthly_active_users(&self) -> Result<i64, sqlx::Error> {
         let cutoff = current_timestamp_millis() - 30 * 24 * 60 * 60 * 1000;
-        sqlx::query_scalar::<_, i64>(
-            r"
-            SELECT COUNT(DISTINCT user_id) FROM devices
+        sqlx::query_scalar!(
+            r#"
+            SELECT COUNT(DISTINCT user_id) as "count!" FROM devices
             WHERE last_seen_ts IS NOT NULL AND last_seen_ts >= $1
-            ",
+            "#,
+            cutoff
         )
-        .bind(cutoff)
         .fetch_one(&*self.pool)
         .await
     }
@@ -610,9 +640,9 @@ impl UserStorage {
         let now = current_timestamp_millis();
         let thirty_days_ago = now - 30 * 24 * 60 * 60 * 1000;
         let thirty_one_days_ago = now - 31 * 24 * 60 * 60 * 1000;
-        sqlx::query_scalar::<_, i64>(
-            r"
-            SELECT COUNT(DISTINCT user_id) FROM devices
+        sqlx::query_scalar!(
+            r#"
+            SELECT COUNT(DISTINCT user_id) as "count!" FROM devices
             WHERE last_seen_ts IS NOT NULL
               AND last_seen_ts >= $1
               AND user_id IN (
@@ -620,26 +650,27 @@ impl UserStorage {
                   WHERE last_seen_ts IS NOT NULL
                     AND last_seen_ts >= $2 AND last_seen_ts < $1
               )
-            ",
+            "#,
+            thirty_days_ago,
+            thirty_one_days_ago
         )
-        .bind(thirty_days_ago)
-        .bind(thirty_one_days_ago)
         .fetch_one(&*self.pool)
         .await
     }
 
     /// See [`get_user_stats_summary`].
     pub async fn get_user_stats_summary(&self) -> Result<UserStatsSummary, sqlx::Error> {
-        sqlx::query_as::<_, UserStatsSummary>(
-            r"
+        sqlx::query_as!(
+            UserStatsSummary,
+            r#"
             SELECT
-                COUNT(*) AS total_users,
-                COUNT(*) FILTER (WHERE COALESCE(is_deactivated, FALSE) = FALSE) AS active_users,
-                COUNT(*) FILTER (WHERE COALESCE(is_admin, FALSE) = TRUE) AS admin_users,
-                COUNT(*) FILTER (WHERE COALESCE(is_deactivated, FALSE) = TRUE) AS deactivated_users,
-                COUNT(*) FILTER (WHERE COALESCE(is_guest, FALSE) = TRUE) AS guest_users
+                COUNT(*) AS "total_users!",
+                COUNT(*) FILTER (WHERE COALESCE(is_deactivated, FALSE) = FALSE) AS "active_users!",
+                COUNT(*) FILTER (WHERE COALESCE(is_admin, FALSE) = TRUE) AS "admin_users!",
+                COUNT(*) FILTER (WHERE COALESCE(is_deactivated, FALSE) = TRUE) AS "deactivated_users!",
+                COUNT(*) FILTER (WHERE COALESCE(is_guest, FALSE) = TRUE) AS "guest_users!"
             FROM users
-            ",
+            "#
         )
         .fetch_one(&*self.pool)
         .await
@@ -647,30 +678,30 @@ impl UserStorage {
 
     /// See [`count_sent_messages`].
     pub async fn count_sent_messages(&self, user_id: &str) -> Result<i64, sqlx::Error> {
-        sqlx::query_scalar::<_, i64>(
-            r"
-            SELECT COUNT(*)
+        sqlx::query_scalar!(
+            r#"
+            SELECT COUNT(*) as "count!"
             FROM events
             WHERE sender = $1 AND event_type = 'm.room.message' AND is_redacted = false
               AND soft_failed = FALSE
-            ",
+            "#,
+            user_id
         )
-        .bind(user_id)
         .fetch_one(&*self.pool)
         .await
     }
 
     /// See [`user_exists`].
     pub async fn user_exists(&self, user_id: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query(
-            r"
-            SELECT 1 FROM users WHERE user_id = $1 AND is_deactivated = FALSE LIMIT 1
-            ",
+        let exists = sqlx::query_scalar!(
+            r#"
+            SELECT 1 AS "exists!" FROM users WHERE user_id = $1 AND is_deactivated = FALSE LIMIT 1
+            "#,
+            user_id
         )
-        .bind(user_id)
         .fetch_optional(&*self.pool)
         .await?;
-        Ok(result.is_some())
+        Ok(exists.is_some())
     }
 
     /// See [`filter_existing_users`].
@@ -678,10 +709,10 @@ impl UserStorage {
         if user_ids.is_empty() {
             return Ok(Vec::new());
         }
-        let rows = sqlx::query_scalar::<_, String>(
-            "SELECT user_id FROM users WHERE user_id = ANY($1) AND COALESCE(is_deactivated, FALSE) = FALSE",
+        let rows = sqlx::query_scalar!(
+            r#"SELECT user_id FROM users WHERE user_id = ANY($1) AND COALESCE(is_deactivated, FALSE) = FALSE"#,
+            user_ids
         )
-        .bind(user_ids)
         .fetch_all(&*self.pool)
         .await?;
         Ok(rows)
@@ -691,12 +722,12 @@ impl UserStorage {
     pub async fn update_password(&self, user_id: &str, password_hash: &str) -> Result<(), sqlx::Error> {
         tracing::info!(user_id = %user_id, "Updating user password");
         let now = current_timestamp_millis();
-        sqlx::query(
-            r"UPDATE users SET password_hash = $1, password_changed_ts = $2, is_password_change_required = FALSE, must_change_password = FALSE WHERE user_id = $3"
+        sqlx::query!(
+            r#"UPDATE users SET password_hash = $1, password_changed_ts = $2, is_password_change_required = FALSE, must_change_password = FALSE WHERE user_id = $3"#,
+            password_hash,
+            now,
+            user_id
         )
-        .bind(password_hash)
-        .bind(now)
-        .bind(user_id)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -707,12 +738,14 @@ impl UserStorage {
     pub async fn update_displayname(&self, user_id: &str, displayname: Option<&str>) -> Result<(), sqlx::Error> {
         tracing::info!(user_id = %user_id, "Updating user displayname");
         let now = synapse_common::current_timestamp_millis();
-        sqlx::query(r"UPDATE users SET displayname = $1, updated_ts = $2 WHERE user_id = $3")
-            .bind(displayname)
-            .bind(now)
-            .bind(user_id)
-            .execute(&*self.pool)
-            .await?;
+        sqlx::query!(
+            r#"UPDATE users SET displayname = $1, updated_ts = $2 WHERE user_id = $3"#,
+            displayname,
+            now,
+            user_id
+        )
+        .execute(&*self.pool)
+        .await?;
 
         if let Ok(Some(profile)) = self.get_user_profile(user_id).await {
             let key = format!("user:profile:{user_id}");
@@ -728,12 +761,14 @@ impl UserStorage {
     /// B-4204: Updates `updated_ts` to enable profile_update EDU push via sliding sync.
     pub async fn update_avatar_url(&self, user_id: &str, avatar_url: Option<&str>) -> Result<(), sqlx::Error> {
         let now = synapse_common::current_timestamp_millis();
-        sqlx::query(r"UPDATE users SET avatar_url = $1, updated_ts = $2 WHERE user_id = $3")
-            .bind(avatar_url)
-            .bind(now)
-            .bind(user_id)
-            .execute(&*self.pool)
-            .await?;
+        sqlx::query!(
+            r#"UPDATE users SET avatar_url = $1, updated_ts = $2 WHERE user_id = $3"#,
+            avatar_url,
+            now,
+            user_id
+        )
+        .execute(&*self.pool)
+        .await?;
 
         if let Ok(Some(profile)) = self.get_user_profile(user_id).await {
             let key = format!("user:profile:{user_id}");
@@ -768,19 +803,19 @@ impl UserStorage {
         avatar_url: Option<&str>,
     ) -> Result<bool, sqlx::Error> {
         let now = synapse_common::current_timestamp_millis();
-        let result = sqlx::query(
-            r"
+        let result = sqlx::query!(
+            r#"
             UPDATE users
                SET displayname = COALESCE($1, displayname),
                    avatar_url = COALESCE($2, avatar_url),
                    updated_ts = $3
              WHERE user_id = $4
-            ",
+            "#,
+            displayname,
+            avatar_url,
+            now,
+            user_id
         )
-        .bind(displayname)
-        .bind(avatar_url)
-        .bind(now)
-        .bind(user_id)
         .execute(&*self.pool)
         .await?;
 
@@ -803,11 +838,10 @@ impl UserStorage {
     /// See [`set_deactivation_status`].
     pub async fn set_deactivation_status(&self, user_id: &str, is_deactivated: bool) -> Result<bool, sqlx::Error> {
         tracing::info!(user_id = %user_id, is_deactivated, "Updating user deactivation status");
-        let result = sqlx::query(r"UPDATE users SET is_deactivated = $1 WHERE user_id = $2")
-            .bind(is_deactivated)
-            .bind(user_id)
-            .execute(&*self.pool)
-            .await?;
+        let result =
+            sqlx::query!(r#"UPDATE users SET is_deactivated = $1 WHERE user_id = $2"#, is_deactivated, user_id)
+                .execute(&*self.pool)
+                .await?;
         Ok(result.rows_affected() > 0)
     }
 
@@ -828,13 +862,14 @@ impl UserStorage {
             return Ok(HashSet::new());
         }
         tracing::info!(count = user_ids.len(), is_deactivated, "Batch updating user deactivation status");
-        let rows: Vec<(String,)> =
-            sqlx::query_as(r"UPDATE users SET is_deactivated = $1 WHERE user_id = ANY($2) RETURNING user_id")
-                .bind(is_deactivated)
-                .bind(user_ids)
-                .fetch_all(&*self.pool)
-                .await?;
-        Ok(rows.into_iter().map(|(uid,)| uid).collect())
+        let rows = sqlx::query_scalar!(
+            r#"UPDATE users SET is_deactivated = $1 WHERE user_id = ANY($2) RETURNING user_id"#,
+            is_deactivated,
+            user_ids
+        )
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(rows.into_iter().collect())
     }
 
     /// See [`deactivate_user`].
@@ -845,9 +880,7 @@ impl UserStorage {
 
     /// See [`set_admin_status`].
     pub async fn set_admin_status(&self, user_id: &str, is_admin: bool) -> Result<(), sqlx::Error> {
-        sqlx::query(r"UPDATE users SET is_admin = $1 WHERE user_id = $2")
-            .bind(is_admin)
-            .bind(user_id)
+        sqlx::query!(r#"UPDATE users SET is_admin = $1 WHERE user_id = $2"#, is_admin, user_id)
             .execute(&*self.pool)
             .await?;
         Ok(())
@@ -855,11 +888,10 @@ impl UserStorage {
 
     /// See [`set_shadow_ban`].
     pub async fn set_shadow_ban(&self, user_id: &str, is_shadow_banned: bool) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query(r"UPDATE users SET is_shadow_banned = $1 WHERE user_id = $2")
-            .bind(is_shadow_banned)
-            .bind(user_id)
-            .execute(&*self.pool)
-            .await?;
+        let result =
+            sqlx::query!(r#"UPDATE users SET is_shadow_banned = $1 WHERE user_id = $2"#, is_shadow_banned, user_id)
+                .execute(&*self.pool)
+                .await?;
         Ok(result.rows_affected() > 0)
     }
 
@@ -869,20 +901,15 @@ impl UserStorage {
         user_id: &str,
         data_type: &str,
     ) -> Result<Option<serde_json::Value>, sqlx::Error> {
-        let row = sqlx::query("SELECT content FROM account_data WHERE user_id = $1 AND data_type = $2")
-            .bind(user_id)
-            .bind(data_type)
-            .fetch_optional(&*self.pool)
-            .await?;
+        let content = sqlx::query_scalar!(
+            r"SELECT content FROM account_data WHERE user_id = $1 AND data_type = $2",
+            user_id,
+            data_type
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
 
-        match row {
-            Some(row) => {
-                use sqlx::Row;
-                let content: Option<serde_json::Value> = row.get("content");
-                Ok(content)
-            }
-            None => Ok(None),
-        }
+        Ok(content)
     }
 
     /// See [`upsert_account_data_content`].
@@ -893,17 +920,17 @@ impl UserStorage {
         content: &serde_json::Value,
     ) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             INSERT INTO account_data (user_id, data_type, content, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $4)
             ON CONFLICT (user_id, data_type) DO UPDATE SET content = EXCLUDED.content, updated_ts = EXCLUDED.updated_ts
-            ",
+            "#,
+            user_id,
+            data_type,
+            content,
+            now
         )
-        .bind(user_id)
-        .bind(data_type)
-        .bind(content)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -979,14 +1006,15 @@ impl UserStorage {
             return Ok(Some(profile));
         }
 
-        let result = sqlx::query_as::<_, UserProfile>(
-            r"
+        let result = sqlx::query_as!(
+            UserProfile,
+            r#"
             SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, created_ts, updated_ts
             FROM users
             WHERE user_id = $1 AND COALESCE(is_deactivated, FALSE) = FALSE
-            ",
+            "#,
+            user_id
         )
-        .bind(user_id)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -1021,14 +1049,15 @@ impl UserStorage {
             return Ok(cached_profiles);
         }
 
-        let fetched = sqlx::query_as::<_, UserProfile>(
-            r"
+        let fetched = sqlx::query_as!(
+            UserProfile,
+            r#"
             SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, created_ts, updated_ts
             FROM users
             WHERE user_id = ANY($1) AND COALESCE(is_deactivated, FALSE) = FALSE
-            ",
+            "#,
+            &missing_ids
         )
-        .bind(&missing_ids)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -1068,17 +1097,18 @@ impl UserStorage {
             return Ok(std::collections::HashMap::new());
         }
 
-        let profiles = sqlx::query_as::<_, UserProfile>(
-            r"
+        let profiles = sqlx::query_as!(
+            UserProfile,
+            r#"
             SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, created_ts, updated_ts
             FROM users
             WHERE user_id = ANY($1)
               AND COALESCE(is_deactivated, FALSE) = FALSE
               AND updated_ts > $2
-            ",
+            "#,
+            user_ids,
+            since_ts
         )
-        .bind(user_ids)
-        .bind(since_ts)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -1091,18 +1121,23 @@ impl UserStorage {
             return Ok(vec![]);
         }
 
-        sqlx::query_as::<_, User>(
-            r"
-            SELECT user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated,
-                   is_guest, is_shadow_banned, created_ts, updated_ts, generation, consent_version,
+        sqlx::query_as!(
+            User,
+            r#"
+            SELECT user_id, username, password_hash, displayname, avatar_url,
+                   is_admin AS "is_admin!", is_deactivated AS "is_deactivated!",
+                   is_guest AS "is_guest!", is_shadow_banned AS "is_shadow_banned!",
+                   created_ts, updated_ts, generation, consent_version,
                    appservice_id, user_type, invalid_update_at, migration_state,
-                   email, phone, password_changed_ts, is_password_change_required,
-                   password_expires_at, failed_login_attempts, locked_until, must_change_password
+                   email, phone, password_changed_ts,
+                   is_password_change_required AS "is_password_change_required!",
+                   password_expires_at, failed_login_attempts AS "failed_login_attempts!",
+                   locked_until, must_change_password AS "must_change_password!"
             FROM users
             WHERE user_id = ANY($1)
-            ",
+            "#,
+            user_ids
         )
-        .bind(user_ids)
         .fetch_all(&*self.pool)
         .await
     }
@@ -1129,9 +1164,7 @@ impl UserStorage {
 
         let mut count = 0u64;
         for (user_id, displayname) in updates {
-            sqlx::query(r"UPDATE users SET displayname = $1 WHERE user_id = $2")
-                .bind(displayname)
-                .bind(user_id)
+            sqlx::query!(r#"UPDATE users SET displayname = $1 WHERE user_id = $2"#, displayname.as_deref(), user_id)
                 .execute(&*self.pool)
                 .await?;
             count += 1;
@@ -1232,7 +1265,7 @@ impl UserStorage {
         }
 
         let rows = sqlx::query_as::<_, UserDirectorySearchResult>(
-            r"
+            r#"
             WITH candidate_matches AS (
                 SELECT
                     user_id,
@@ -1372,13 +1405,13 @@ impl UserStorage {
                         WHEN COALESCE(p.presence, 'offline') = 'unavailable' THEN 20
                         ELSE 0
                     END
-                )::INTEGER AS match_score,
+                )::INTEGER AS "match_score",
                 CASE cm.match_category
                     WHEN 0 THEN 'exact'
                     WHEN 1 THEN 'prefix'
                     WHEN 2 THEN 'contains'
                     ELSE 'fuzzy'
-                END AS match_type
+                END AS "match_type"
             FROM candidate_matches cm
             JOIN users u ON u.user_id = cm.user_id
             LEFT JOIN presence p ON p.user_id = u.user_id
@@ -1388,7 +1421,7 @@ impl UserStorage {
                 u.created_ts DESC,
                 u.username ASC
             LIMIT $6
-            ",
+            "#,
         )
         .bind(&exact_pattern)
         .bind(&prefix_pattern)
@@ -1409,7 +1442,7 @@ impl UserStorage {
     /// See [`delete_user`].
     pub async fn delete_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
         tracing::info!(user_id = %user_id, "Deleting user");
-        sqlx::query(r"DELETE FROM users WHERE user_id = $1").bind(user_id).execute(&*self.pool).await?;
+        sqlx::query!(r#"DELETE FROM users WHERE user_id = $1"#, user_id).execute(&*self.pool).await?;
         Ok(())
     }
 
@@ -1428,8 +1461,9 @@ impl UserStorage {
         now_ts: i64,
     ) -> Result<LockedUser, sqlx::Error> {
         tracing::info!(user_id = %user_id, locked_by = %locked_by, "Locking user");
-        sqlx::query_as::<_, LockedUser>(
-            r"
+        sqlx::query_as!(
+            LockedUser,
+            r#"
             INSERT INTO user_locks (user_id, reason, locked_by, created_ts, is_active)
             VALUES ($1, $2, $3, $4, TRUE)
             ON CONFLICT (user_id, is_active) WHERE is_active = TRUE DO UPDATE SET
@@ -1437,12 +1471,12 @@ impl UserStorage {
                 locked_by = EXCLUDED.locked_by,
                 created_ts = EXCLUDED.created_ts
             RETURNING id, user_id, reason, locked_by, created_ts, unlocked_ts, is_active
-            ",
+            "#,
+            user_id,
+            reason,
+            locked_by,
+            now_ts
         )
-        .bind(user_id)
-        .bind(reason)
-        .bind(locked_by)
-        .bind(now_ts)
         .fetch_one(&*self.pool)
         .await
     }
@@ -1450,15 +1484,15 @@ impl UserStorage {
     /// Unlock a user, allowing them to authenticate again.
     pub async fn unlock_user(&self, user_id: &str, now_ts: i64) -> Result<(), sqlx::Error> {
         tracing::info!(user_id = %user_id, "Unlocking user");
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             UPDATE user_locks
             SET is_active = FALSE, unlocked_ts = $2
             WHERE user_id = $1 AND is_active = TRUE
-            ",
+            "#,
+            user_id,
+            now_ts
         )
-        .bind(user_id)
-        .bind(now_ts)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -1466,13 +1500,13 @@ impl UserStorage {
 
     /// Check whether a user is currently locked.
     pub async fn is_user_locked(&self, user_id: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query_scalar::<_, i64>(
-            r"
-            SELECT COUNT(*) FROM user_locks
+        let result = sqlx::query_scalar!(
+            r#"
+            SELECT COUNT(*) as "count!" FROM user_locks
             WHERE user_id = $1 AND is_active = TRUE
-            ",
+            "#,
+            user_id
         )
-        .bind(user_id)
         .fetch_one(&*self.pool)
         .await?;
         Ok(result > 0)
@@ -1480,40 +1514,40 @@ impl UserStorage {
 
     /// Get the active lock record for a user (if any).
     pub async fn get_active_user_lock(&self, user_id: &str) -> Result<Option<LockedUser>, sqlx::Error> {
-        sqlx::query_as::<_, LockedUser>(
-            r"
+        sqlx::query_as!(
+            LockedUser,
+            r#"
             SELECT id, user_id, reason, locked_by, created_ts, unlocked_ts, is_active
             FROM user_locks
             WHERE user_id = $1 AND is_active = TRUE
-            ",
+            "#,
+            user_id
         )
-        .bind(user_id)
         .fetch_optional(&*self.pool)
         .await
     }
 
     /// Get a paginated list of currently locked users.
     pub async fn get_locked_users(&self, limit: i64, offset: i64) -> Result<Vec<LockedUser>, sqlx::Error> {
-        sqlx::query_as::<_, LockedUser>(
-            r"
+        sqlx::query_as!(
+            LockedUser,
+            r#"
             SELECT id, user_id, reason, locked_by, created_ts, unlocked_ts, is_active
             FROM user_locks
             WHERE is_active = TRUE
             ORDER BY created_ts DESC, id DESC
             LIMIT $1 OFFSET $2
-            ",
+            "#,
+            limit,
+            offset
         )
-        .bind(limit)
-        .bind(offset)
         .fetch_all(&*self.pool)
         .await
     }
 
     /// See [`set_guest_status`].
     pub async fn set_guest_status(&self, user_id: &str, is_guest: bool) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE users SET is_guest = $1 WHERE user_id = $2")
-            .bind(is_guest)
-            .bind(user_id)
+        sqlx::query!(r#"UPDATE users SET is_guest = $1 WHERE user_id = $2"#, is_guest, user_id)
             .execute(&*self.pool)
             .await?;
 
@@ -1538,8 +1572,8 @@ impl UserStorage {
         password_hash: &str,
     ) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             UPDATE users
             SET username = $1,
                 is_guest = FALSE,
@@ -1548,12 +1582,12 @@ impl UserStorage {
                 is_password_change_required = FALSE,
                 must_change_password = FALSE
             WHERE user_id = $4
-            ",
+            "#,
+            username,
+            password_hash,
+            now,
+            user_id
         )
-        .bind(username)
-        .bind(password_hash)
-        .bind(now)
-        .bind(user_id)
         .execute(&*self.pool)
         .await?;
 

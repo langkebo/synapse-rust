@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE users\n               SET displayname = COALESCE($1, displayname),\n                   avatar_url = COALESCE($2, avatar_url),\n                   updated_ts = $3\n             WHERE user_id = $4\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "24e7cace205365d18a1ce26dd7e41eb247bb845bf609a5b656e26697a44642e5"
+}

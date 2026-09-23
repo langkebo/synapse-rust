@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT COUNT(DISTINCT user_id) as \"count!\" FROM devices\n            WHERE last_seen_ts IS NOT NULL AND last_seen_ts >= $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "85cb777419b8425d76cd1f5c029e54aa865bc3ebed34a54de2b96056a3eebdf0"
+}

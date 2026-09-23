@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE user_locks\n            SET is_active = FALSE, unlocked_ts = $2\n            WHERE user_id = $1 AND is_active = TRUE\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bea1e78d99369895e8a3e619b423cd051a15948f77d9b2c7928927052caf6b6d"
+}
