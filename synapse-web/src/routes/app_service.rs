@@ -380,10 +380,10 @@ pub async fn get_app_service_states(
 /// will be validated against the MSC4512 spec before production rollout.
 pub async fn proxy_to_as(
     State(ctx): State<AdminContext>,
-    Path((as_id, path)): Path<(String, String)>,
+    Path((as_id, _path)): Path<(String, String)>,
     _headers: HeaderMap,
-    _body: Bytes,
     _method: axum::http::Method,
+    _body: Bytes,
 ) -> Result<impl axum::response::IntoResponse, ApiError> {
     use axum::body::Body;
 

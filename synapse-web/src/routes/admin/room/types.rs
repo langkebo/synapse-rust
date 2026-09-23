@@ -81,3 +81,11 @@ pub struct SearchAllRoomsRequest {
     /// The `is_encrypted` field.
     pub is_encrypted: Option<bool>,
 }
+
+/// MSC3912: Request body for cascade redaction.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CascadeRedactRequest {
+    /// Maximum recursion depth for cascade redaction (default 5).
+    pub max_depth: Option<u32>,
+}

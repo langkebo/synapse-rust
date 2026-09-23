@@ -109,11 +109,7 @@ impl EventStorage {
 
             // P2-1: Batch edge inserts in same transaction
             if !prev_events.is_empty() {
-                sqlx::query(insert_edges_query)
-                    .bind(&params.event_id)
-                    .bind(prev_events)
-                    .execute(&mut **tx)
-                    .await?;
+                sqlx::query(insert_edges_query).bind(&params.event_id).bind(prev_events).execute(&mut **tx).await?;
             }
             event
         } else {

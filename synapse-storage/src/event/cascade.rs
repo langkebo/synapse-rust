@@ -16,20 +16,16 @@ impl EventStorage {
     /// Looks for:
     /// - `m.in_reply_to` → `event_id` field
     /// - `m.relates_to` → `event_id` field (for reactions, threads)
-    /// - `m.replace` → `event_id` field
     ///
     /// Returns event IDs ordered by origin_server_ts (oldest first).
     pub async fn find_related_events(&self, event_id: &str, limit: i64) -> Result<Vec<String>, sqlx::Error> {
         let rows: Vec<(String,)> = sqlx::query_as(
             r#"
             SELECT event_id FROM events
-            WHERE content->>'m.in_reply_to' IS NOT NULL
-               OR content->'m.relates_to'->>'event_id' IS NOT NULL
-               OR content->>'m.rel_type' = 'm.replacement'
-            AND (
-                content->'m.in_reply_to'->>'event_id' = $1
-                OR content->'m.relates_to'->>'event_id' = $1
-            )
+            WHERE (content->>'m.in_reply_to' IS NOT NULL
+                   AND content->'m.in_reply_to'->>'event_id' = $1)
+               OR (content->'m.relates_to' IS NOT NULL
+                   AND content->'m.relates_to'->>'event_id' = $1)
             ORDER BY origin_server_ts ASC
             LIMIT $2
             "#,

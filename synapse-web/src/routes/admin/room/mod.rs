@@ -15,7 +15,7 @@ use axum::{
     Json, Router,
 };
 use serde_json::{json, Value};
-use synapse_common::ApiError;
+use synapse_common::{current_timestamp_millis, ApiError};
 use synapse_common::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use synapse_services::room::{decode_room_search_cursor, RoomSearchCursor, RoomSearchOrder};
 use synapse_services::sliding_sync_service::{
@@ -239,6 +239,10 @@ pub fn create_room_router(_state: AppState) -> Router<AppState> {
         .route(
             "/_synapse/admin/v1/rooms/search",
             post(search_all_rooms).get(search_all_rooms_query),
+        )
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/cascade_redact",
+            post(cascade_redact_event),
         )
         .route(
             "/_synapse/admin/v1/rooms/{room_id}/forward_extremities",
@@ -768,5 +772,64 @@ async fn search_all_rooms_impl(ctx: &AdminContext, body: SearchAllRoomsRequest) 
         "total": total,
         "limit": limit,
         "next_batch": next_batch
+    })))
+}
+
+/// MSC3912: Cascade redact an event and all related events.
+///
+/// Finds all events that reference the target event via relationship fields
+/// (m.in_reply_to, m.relates_to, m.replace) and redacts them recursively.
+///
+/// Request body:
+/// - `event_id` (string, required): The event ID to cascade redact from
+/// - `max_depth` (u32, optional, default 5): Maximum recursion depth for cascade
+/// - `reason` (string, optional): Reason for the redaction
+#[axum::debug_handler]
+pub async fn cascade_redact_event(
+    admin: AdminUser,
+    State(ctx): State<AdminContext>,
+    Path(room_id): Path<RoomId>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let event_id = body
+        .get("event_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("Missing 'event_id' field".to_string()))?;
+    let max_depth = body.get("max_depth").and_then(|v| v.as_u64()).map(|n| n.min(10) as u32).unwrap_or(5);
+    let reason = body.get("reason").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+    // Verify room exists
+    if !ctx.room_service.state().room_exists(&room_id).await.map_err(ApiError::from)? {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
+    tracing::warn!(
+        action = "admin.cascade_redact",
+        admin_user_id = %admin.user_id,
+        target_room_id = %room_id,
+        event_id = %event_id,
+        max_depth = max_depth,
+        reason = ?reason,
+        timestamp_ms = current_timestamp_millis(),
+        "Admin cascade redact operation started"
+    );
+
+    let redacted_count =
+        ctx.event_redaction_service.cascade_redact_event(event_id, Some(&admin.user_id), max_depth).await?;
+
+    tracing::warn!(
+        action = "admin.cascade_redact.complete",
+        admin_user_id = %admin.user_id,
+        target_room_id = %room_id,
+        event_id = %event_id,
+        redacted_count = redacted_count,
+        timestamp_ms = current_timestamp_millis(),
+        "Admin cascade redact operation completed"
+    );
+
+    Ok(Json(json!({
+        "event_id": event_id,
+        "redacted_count": redacted_count,
+        "max_depth": max_depth
     })))
 }

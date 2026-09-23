@@ -225,5 +225,6 @@ pub fn build_test_config() -> Config {
         identity: synapse_common::config::IdentityConfig::default(),
         translate: synapse_common::config::TranslateConfig::default(),
         sso_redirect_allowlist: vec![],
+        content_scanner: synapse_common::content_scanner::ContentScannerConfig::default(),
     }
 }

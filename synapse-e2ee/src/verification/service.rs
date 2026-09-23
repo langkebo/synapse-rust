@@ -3,7 +3,7 @@ use crate::verification::storage::VerificationStorage;
 use base64::Engine;
 use hmac::{Hmac, Mac};
 use rand::RngCore;
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
@@ -137,6 +137,20 @@ impl VerificationService {
         Ok(base64::engine::general_purpose::STANDARD.encode(result.into_bytes()))
     }
 
+    /// Compute the commitment hash per MSC3410 §3.4.
+    ///
+    /// `commitment = base64(sha256(public_key || "verification.commitment"))`
+    ///
+    /// The commitment binds the verifier to a specific public key before the
+    /// peer reveals theirs, preventing man-in-the-middle attacks.
+    pub fn compute_commitment(public_key: &str) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(public_key.as_bytes());
+        hasher.update(b"verification.commitment");
+        let result = hasher.finalize();
+        base64::engine::general_purpose::STANDARD.encode(result)
+    }
+
     /// See [`start_sas_verification`].
     pub async fn start_sas_verification(
         &self,
@@ -212,9 +226,8 @@ impl VerificationService {
         // E2EE-02: generate a real Curve25519 key pair and preserve the private key.
         let (secret_key, public_key) = self.generate_key_pair();
 
-        // TODO: Per MSC3410 §3.4: commitment = base64(sha256(public_key || "verification.commitment"))
-        // For now, use a placeholder until digest version conflicts are resolved
-        let commitment = base64::engine::general_purpose::STANDARD.encode(format!("{}|commitment", public_key));
+        // Per MSC3410 §3.4: commitment = base64(sha256(public_key || "verification.commitment"))
+        let commitment = Self::compute_commitment(&public_key);
 
         // Persist the key pair so generate_sas can compute the ECDH shared secret later.
         let mut sas_state = self.storage.get_sas_state(transaction_id).await?;
@@ -733,6 +746,46 @@ mod tests {
 
         let result = svc.generate_sas("tx-nokey", "").await;
         assert!(result.is_err(), "无密钥材料时必须报错，不得返回随机 SAS: {result:?}");
+    }
+
+    // ════════════════════════════════════════
+    // C1c：commitment 必须符合 MSC3410 §3.4
+    // ════════════════════════════════════════
+
+    /// commitment 必须是 `base64(sha256(public_key || "verification.commitment"))`，
+    /// 其中 public_key 是 curve25519 公钥的 base64 字符串（MSC3172/MSC3410 形式）。
+    #[test]
+    fn commitment_matches_msc3410_section_3_4() {
+        use sha2::{Digest, Sha256};
+        let test_pubkey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+        // Compute expected commitment manually
+        let mut hasher = Sha256::new();
+        hasher.update(test_pubkey.as_bytes());
+        hasher.update(b"verification.commitment");
+        let expected_commitment = base64::engine::general_purpose::STANDARD.encode(hasher.finalize());
+
+        // Compute using the actual implementation
+        let actual_commitment = VerificationService::compute_commitment(test_pubkey);
+
+        assert_eq!(actual_commitment, expected_commitment, "commitment must match MSC3410 §3.4 formula");
+    }
+
+    /// commitment 对于相同的 public_key 必须是确定性的。
+    #[test]
+    fn commitment_is_deterministic() {
+        let pubkey = "test-public-key";
+        let c1 = VerificationService::compute_commitment(pubkey);
+        let c2 = VerificationService::compute_commitment(pubkey);
+        assert_eq!(c1, c2, "commitment must be deterministic for the same public key");
+    }
+
+    /// commitment 对于不同的 public_key 必须不同。
+    #[test]
+    fn commitment_differs_for_different_pubkeys() {
+        let c1 = VerificationService::compute_commitment("public-key-1");
+        let c2 = VerificationService::compute_commitment("public-key-2");
+        assert_ne!(c1, c2, "different public keys must produce different commitments");
     }
 
     // ════════════════════════════════════════
