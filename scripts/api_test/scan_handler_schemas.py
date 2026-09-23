@@ -6,11 +6,21 @@ Week 2 Task 4 — 补 OpenAPI request body schema (主脚本)
   Stage A: 扫描路由注册 — 提取 path → handler 函数名
   Stage B: 扫描 handler 函数签名 — 提取 handler → Json<TypeName>
   Stage C: join A+B = path → TypeName 精确映射
+           ⚠️ 候选全路径必须真实存在于**权威路由面**（三张派生表，见
+           `load_registered_surface`）。原先只按「不以 `/_matrix` 开头就当相对路径」
+           拼前缀，会给 `/_synapse/...` 绝对路径和只有 v3 版本的相对路径造出
+           不存在的前缀变体（占档案 3/4 的幻影键）。
   Stage D: 用映射更新 docs/openapi/client.yaml 中的 requestBody
+
+⚠️ Stage D 的目标文件 `docs/openapi/client.yaml` 现在由 `gen_client_yaml.py`
+（ledger → `generate_openapi.py`）生成，文件头写明「禁止手改」，且 CI
+`.github/workflows/ci.yml` 有 `gen_client_yaml.py --skip-export --check` 门禁。
+因此只刷新档案请用 `--archive-only`，否则 `yaml.dump` 会覆盖该文件并弄坏门禁。
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 from pathlib import Path
@@ -26,6 +36,51 @@ OUTPUT_JSON = ROOT / "scripts/api_test/handler_schemas.json"
 
 _ROUTE_RE = re.compile(r'\.route\s*\(\s*"([^"]+)"\s*,\s*([^)]+?)\)', re.DOTALL)
 _METHOD_FN_RE = re.compile(r"\b(get|post|put|patch|delete)\s*\(\s*([\w:]+)")
+
+
+# ============ 权威路由面（派生表）============
+
+#: `(profile, 文件名)`。与 `scripts/contract/gen_contract_doc.py` 读同一组表 ——
+#: 它们是 `gen_derived_routes.py` 从真实 `.route()` 注册面生成的，且被
+#: `scripts/contract/check_route_contract.sh` 门禁守住新鲜度。这里复用同一权威源，
+#: 而不是按前缀或模块名猜（改造前那套前缀判据正是幻影键的来源）。
+DERIVED_TABLES: tuple[tuple[str, str], ...] = (
+    ("always", "derived_route_table_always.inc.rs"),
+    ("worker", "derived_route_table_worker.inc.rs"),
+    ("oidc", "derived_route_table_oidc.inc.rs"),
+)
+
+_DERIVED_ROW_RE = re.compile(
+    r'RouteEntry::new\(\s*axum::http::Method::([A-Z]+),\s*"([^"]*)"'
+)
+
+
+def load_registered_surface() -> tuple[set[tuple[str, str]], dict[str, int]]:
+    """返回 `({(METHOD, full_path)}, {profile: 行数})`，即权威路由面。
+
+    fail-closed：任一张派生表缺失、或未能解析出任何一行，直接 `SystemExit`。
+    宁可不出产物，也不产出一份"把正确的映射也一起过滤掉"的错误档案 ——
+    过滤判据本身失效时必须响，不能静默变绿。
+    """
+    surface: set[tuple[str, str]] = set()
+    counts: dict[str, int] = {}
+    for profile, name in DERIVED_TABLES:
+        path = ROUTES_DIR / name
+        if not path.exists():
+            raise SystemExit(
+                f"scan_handler_schemas: 缺派生表 {name}；权威路由面不可用，拒绝产出。"
+                " 先跑 scripts/contract/gen_derived_routes.py。"
+            )
+        rows = _DERIVED_ROW_RE.findall(path.read_text())
+        if not rows:
+            raise SystemExit(
+                f"scan_handler_schemas: {name} 未解析出任何 RouteEntry::new 行 ——"
+                " 派生表布局可能已变，拒绝产出。"
+            )
+        counts[profile] = len(rows)
+        for method, full_path in rows:
+            surface.add((method, full_path))
+    return surface, counts
 
 
 def scan_route_registrations() -> dict[str, list[tuple[str, str]]]:
@@ -260,17 +315,28 @@ def build_struct_index(routes_dir: Path) -> dict[str, Path]:
 def build_path_type_mapping(
     route_map: dict[str, list[tuple[str, str]]],
     handler_map: dict[str, str],
-) -> dict[tuple[str, str], tuple[str, str, str]]:
-    """返回 {(method, full_path): (rel_path, method, type_name)}."""
+    surface: set[tuple[str, str]],
+) -> tuple[dict[tuple[str, str], tuple[str, str, str]], list[tuple[str, str, str]]]:
+    """返回 `({(method, full_path): (rel_path, method, type_name)}, dropped)`。
+
+    `surface` 是权威路由面；候选全路径只有**真实存在**才会保留，`dropped` 记录被丢弃的
+    候选（`(method, full_path, 原始注册路径)`）。
+
+    为什么必须过滤：路由注册里既有相对路径（如 `/pushers`，最终挂在
+    `/_matrix/client/{r0,v3,v1}` 下），也有绝对路径（`/_matrix/...`、`/_synapse/...`），
+    还有相对但挂在别处的 legacy 别名（如 `cas.rs` 的 `/admin/services` ↔
+    `/_synapse/admin/v1/cas/services`）。仅凭「不以 `/_matrix` 开头」判断，会把
+    `/_synapse/...` 拼成 `/_matrix/client/v3/_synapse/...`，也会给只有 v3 版本的路由
+    补出不存在的 r0/v1 变体 —— 改造前共 232/308 条键是不存在的端点。
+    """
     out: dict[tuple[str, str], tuple[str, str, str]] = {}
+    dropped: list[tuple[str, str, str]] = []
     for handler, type_name in handler_map.items():
         routes = route_map.get(handler, [])
         for path, method in routes:
             if method not in ("post", "put", "patch"):
                 continue
-            # path 可能是相对路径(如 /pushers) 或完整路径
-            # 在 OpenAPI spec 中可能有 r0/v3/v1 多个版本
-            # 尝试拼成所有可能版本
+            # 相对路径在 OpenAPI spec 中可能有 r0/v3/v1 多个版本；绝对路径原样保留。
             full_paths = [path]
             if not path.startswith("/_matrix"):
                 full_paths = [
@@ -279,8 +345,11 @@ def build_path_type_mapping(
                     "/_matrix/client/v1" + path,
                 ]
             for full in full_paths:
+                if (method.upper(), full) not in surface:
+                    dropped.append((method, full, path))
+                    continue
                 out[(method, full)] = (path, method, type_name)
-    return out
+    return out, dropped
 
 
 # ============ Stage D: patch openapi ============
@@ -348,9 +417,30 @@ def patch_openapi(joined_map: dict, type_schemas: dict) -> tuple[dict, int, int,
     return spec, patched, unmatched, unmatched_samples
 
 
-def main() -> int:
+def main(argv: Optional[list[str]] = None) -> int:
+    parser = argparse.ArgumentParser(description="补 OpenAPI requestBody schema 扫描")
+    parser.add_argument(
+        "--archive-only",
+        action="store_true",
+        help=(
+            "只重写 scripts/api_test/handler_schemas.json，跳过 Stage D。"
+            " docs/openapi/client.yaml 现由 gen_client_yaml.py 从 ledger 生成"
+            "（文件头写明「禁止手改」，且 CI 有 --check 门禁），Stage D 的 yaml.dump"
+            " 会覆盖它并弄坏该门禁，故刷新档案一律用本开关。"
+        ),
+    )
+    args = parser.parse_args(argv)
+
     print(f"[scan] ROUTES_DIR = {ROUTES_DIR}")
     print(f"[scan] OPENAPI_PATH = {OPENAPI_PATH}")
+
+    # 权威路由面 —— Stage C 的过滤判据
+    surface, table_counts = load_registered_surface()
+    print(
+        f"[S] registered surface: {len(surface)} rows ("
+        + " / ".join(f"{p} {n}" for p, n in table_counts.items())
+        + ")"
+    )
 
     # Stage A
     route_map = scan_route_registrations()
@@ -387,9 +477,11 @@ def main() -> int:
 
     print(f"[B] {len(type_schemas)} type schemas, {len(skipped)} skipped")
 
-    # Stage C: join
-    joined = build_path_type_mapping(route_map, handler_map)
-    print(f"[C] {len(joined)} path→type mappings")
+    # Stage C: join（候选全路径必须命中权威路由面）
+    joined, dropped = build_path_type_mapping(route_map, handler_map, surface)
+    print(f"[C] {len(joined)} path→type mappings ({len(dropped)} candidates dropped)")
+    for dm, dp, dorigin in sorted(set(dropped))[:5]:
+        print(f"   dropped: {dm.upper():6s} {dp}  (from {dorigin})")
 
     # 保存扫描结果
     output = {
@@ -405,7 +497,14 @@ def main() -> int:
     OUTPUT_JSON.write_text(json.dumps(output, indent=2, ensure_ascii=False) + "\n")
     print(f"[scan] wrote: {OUTPUT_JSON}")
 
-    # Stage D: patch
+    # Stage D: patch（目标文件归 gen_client_yaml.py 所有，默认不写）
+    if args.archive_only:
+        print(
+            "[D] skipped (--archive-only): docs/openapi/client.yaml 由"
+            " gen_client_yaml.py 从 ledger 生成，另有 CI --check 门禁。"
+        )
+        return 0
+
     spec, patched, unmatched, unmatched_samples = patch_openapi(joined, type_schemas)
     print(f"[D] patched {patched} requestBody schemas; unmatched {unmatched}")
     if unmatched_samples:

@@ -1745,12 +1745,6 @@
         "/_synapse/worker/v1/replication/{worker_id}/{stream_name}",
         "put"
       ]
-    ],
-    "handlers::dehydrated_device::get_dehydrated_device_events": [
-      [
-        "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events",
-        "get"
-      ]
     ]
   },
   "handler_signatures": {
@@ -4741,6 +4735,14 @@
           },
           "mac": {
             "type": "string"
+          },
+          "keys": {
+            "type": "object",
+            "description": "rust: std::collections::BTreeMap<String, String>",
+            "x-unknown-rust-type": "std::collections::BTreeMap<String, String>"
+          },
+          "peer_pubkey": {
+            "type": "string"
           }
         },
         "required": [
@@ -4749,7 +4751,7 @@
         ]
       },
       "file": "synapse-web/src/routes/verification_routes.rs",
-      "field_count": 2
+      "field_count": 4
     },
     "VerificationCancelBody": {
       "schema": {
@@ -5282,11 +5284,6 @@
     }
   },
   "joined_mapping": {
-    "post /_matrix/client/r0/account/3pid/delete": [
-      "/account/3pid/delete",
-      "post",
-      "DeleteThreepidRequest"
-    ],
     "post /_matrix/client/v3/account/3pid/delete": [
       "/account/3pid/delete",
       "post",
@@ -5294,11 +5291,6 @@
     ],
     "post /_matrix/client/v1/account/3pid/delete": [
       "/account/3pid/delete",
-      "post",
-      "DeleteThreepidRequest"
-    ],
-    "post /_matrix/client/r0/account/3pid/unbind": [
-      "/account/3pid/unbind",
       "post",
       "DeleteThreepidRequest"
     ],
@@ -5312,218 +5304,8 @@
       "post",
       "DeleteThreepidRequest"
     ],
-    "post /_matrix/client/r0/_synapse/admin/v1/audit/events": [
-      "/_synapse/admin/v1/audit/events",
-      "post",
-      "CreateAuditEventBody"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/audit/events": [
-      "/_synapse/admin/v1/audit/events",
-      "post",
-      "CreateAuditEventBody"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/audit/events": [
-      "/_synapse/admin/v1/audit/events",
-      "post",
-      "CreateAuditEventBody"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/federation/rewrite": [
-      "/_synapse/admin/v1/federation/rewrite",
-      "post",
-      "RewriteRequest"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/federation/rewrite": [
-      "/_synapse/admin/v1/federation/rewrite",
-      "post",
-      "RewriteRequest"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/federation/rewrite": [
-      "/_synapse/admin/v1/federation/rewrite",
-      "post",
-      "RewriteRequest"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/federation/resolve": [
-      "/_synapse/admin/v1/federation/resolve",
-      "post",
-      "ResolveRequest"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/federation/resolve": [
-      "/_synapse/admin/v1/federation/resolve",
-      "post",
-      "ResolveRequest"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/federation/resolve": [
-      "/_synapse/admin/v1/federation/resolve",
-      "post",
-      "ResolveRequest"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/federation/confirm": [
-      "/_synapse/admin/v1/federation/confirm",
-      "post",
-      "ConfirmRequest"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/federation/confirm": [
-      "/_synapse/admin/v1/federation/confirm",
-      "post",
-      "ConfirmRequest"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/federation/confirm": [
-      "/_synapse/admin/v1/federation/confirm",
-      "post",
-      "ConfirmRequest"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/notifications": [
-      "/_synapse/admin/v1/notifications",
-      "post",
-      "CreateNotificationRequest"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/notifications": [
-      "/_synapse/admin/v1/notifications",
-      "post",
-      "CreateNotificationRequest"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/notifications": [
-      "/_synapse/admin/v1/notifications",
-      "post",
-      "CreateNotificationRequest"
-    ],
-    "put /_matrix/client/r0/_synapse/admin/v1/notifications/{notification_id}": [
-      "/_synapse/admin/v1/notifications/{notification_id}",
-      "put",
-      "UpdateNotificationRequest"
-    ],
-    "put /_matrix/client/v3/_synapse/admin/v1/notifications/{notification_id}": [
-      "/_synapse/admin/v1/notifications/{notification_id}",
-      "put",
-      "UpdateNotificationRequest"
-    ],
-    "put /_matrix/client/v1/_synapse/admin/v1/notifications/{notification_id}": [
-      "/_synapse/admin/v1/notifications/{notification_id}",
-      "put",
-      "UpdateNotificationRequest"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/send_server_notice": [
-      "/_synapse/admin/v1/send_server_notice",
-      "post",
-      "ServerNoticeRequest"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/send_server_notice": [
-      "/_synapse/admin/v1/send_server_notice",
-      "post",
-      "ServerNoticeRequest"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/send_server_notice": [
-      "/_synapse/admin/v1/send_server_notice",
-      "post",
-      "ServerNoticeRequest"
-    ],
-    "put /_matrix/client/r0/_synapse/admin/v1/users/{user_id}/notification": [
-      "/_synapse/admin/v1/users/{user_id}/notification",
-      "put",
-      "UserNotificationRequest"
-    ],
-    "put /_matrix/client/v3/_synapse/admin/v1/users/{user_id}/notification": [
-      "/_synapse/admin/v1/users/{user_id}/notification",
-      "put",
-      "UserNotificationRequest"
-    ],
-    "put /_matrix/client/v1/_synapse/admin/v1/users/{user_id}/notification": [
-      "/_synapse/admin/v1/users/{user_id}/notification",
-      "put",
-      "UserNotificationRequest"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/policy/check": [
-      "/_synapse/admin/v1/policy/check",
-      "post",
-      "PolicyCheckRequest"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/policy/check": [
-      "/_synapse/admin/v1/policy/check",
-      "post",
-      "PolicyCheckRequest"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/policy/check": [
-      "/_synapse/admin/v1/policy/check",
-      "post",
-      "PolicyCheckRequest"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/register": [
-      "/_synapse/admin/v1/register",
-      "post",
-      "RegisterRequest"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/register": [
-      "/_synapse/admin/v1/register",
-      "post",
-      "RegisterRequest"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/register": [
-      "/_synapse/admin/v1/register",
-      "post",
-      "RegisterRequest"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/retention/policy": [
-      "/_synapse/admin/v1/retention/policy",
-      "post",
-      "RetentionPolicyRequest"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/retention/policy": [
-      "/_synapse/admin/v1/retention/policy",
-      "post",
-      "RetentionPolicyRequest"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/retention/policy": [
-      "/_synapse/admin/v1/retention/policy",
-      "post",
-      "RetentionPolicyRequest"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/retention/policy/{room_id}": [
-      "/_synapse/admin/v1/retention/policy/{room_id}",
-      "post",
-      "RetentionPolicyRequest"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/retention/policy/{room_id}": [
-      "/_synapse/admin/v1/retention/policy/{room_id}",
-      "post",
-      "RetentionPolicyRequest"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/retention/policy/{room_id}": [
-      "/_synapse/admin/v1/retention/policy/{room_id}",
-      "post",
-      "RetentionPolicyRequest"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/retention/run": [
-      "/_synapse/admin/v1/retention/run",
-      "post",
-      "RunRetentionRequest"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/retention/run": [
-      "/_synapse/admin/v1/retention/run",
-      "post",
-      "RunRetentionRequest"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/retention/run": [
-      "/_synapse/admin/v1/retention/run",
-      "post",
-      "RunRetentionRequest"
-    ],
-    "post /_matrix/client/r0/rooms/{room_id}/ban": [
-      "/rooms/{room_id}/ban",
-      "post",
-      "BanRequest"
-    ],
     "post /_matrix/client/v3/rooms/{room_id}/ban": [
       "/rooms/{room_id}/ban",
-      "post",
-      "BanRequest"
-    ],
-    "post /_matrix/client/v1/rooms/{room_id}/ban": [
-      "/rooms/{room_id}/ban",
-      "post",
-      "BanRequest"
-    ],
-    "post /_matrix/client/r0/rooms/{room_id}/kick": [
-      "/rooms/{room_id}/kick",
       "post",
       "BanRequest"
     ],
@@ -5531,251 +5313,6 @@
       "/rooms/{room_id}/kick",
       "post",
       "BanRequest"
-    ],
-    "post /_matrix/client/v1/rooms/{room_id}/kick": [
-      "/rooms/{room_id}/kick",
-      "post",
-      "BanRequest"
-    ],
-    "put /_matrix/client/r0/_synapse/admin/v1/users/{user_id}/rate_limit": [
-      "/_synapse/admin/v1/users/{user_id}/rate_limit",
-      "put",
-      "RateLimitRequest"
-    ],
-    "put /_matrix/client/v3/_synapse/admin/v1/users/{user_id}/rate_limit": [
-      "/_synapse/admin/v1/users/{user_id}/rate_limit",
-      "put",
-      "RateLimitRequest"
-    ],
-    "put /_matrix/client/v1/_synapse/admin/v1/users/{user_id}/rate_limit": [
-      "/_synapse/admin/v1/users/{user_id}/rate_limit",
-      "put",
-      "RateLimitRequest"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/registration_tokens": [
-      "/_synapse/admin/v1/registration_tokens",
-      "post",
-      "CreateTokenRequest"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/registration_tokens": [
-      "/_synapse/admin/v1/registration_tokens",
-      "post",
-      "CreateTokenRequest"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/registration_tokens": [
-      "/_synapse/admin/v1/registration_tokens",
-      "post",
-      "CreateTokenRequest"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/registration_tokens/{token}": [
-      "/_synapse/admin/v1/registration_tokens/{token}",
-      "post",
-      "UpdateTokenRequest"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/registration_tokens/{token}": [
-      "/_synapse/admin/v1/registration_tokens/{token}",
-      "post",
-      "UpdateTokenRequest"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/registration_tokens/{token}": [
-      "/_synapse/admin/v1/registration_tokens/{token}",
-      "post",
-      "UpdateTokenRequest"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/users/{user_id}/password": [
-      "/_synapse/admin/v1/users/{user_id}/password",
-      "post",
-      "ResetPasswordBody"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/users/{user_id}/password": [
-      "/_synapse/admin/v1/users/{user_id}/password",
-      "post",
-      "ResetPasswordBody"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/users/{user_id}/password": [
-      "/_synapse/admin/v1/users/{user_id}/password",
-      "post",
-      "ResetPasswordBody"
-    ],
-    "put /_matrix/client/r0/_synapse/admin/v2/users/{user_id}": [
-      "/_synapse/admin/v2/users/{user_id}",
-      "put",
-      "CreateUpdateUserRequest"
-    ],
-    "put /_matrix/client/v3/_synapse/admin/v2/users/{user_id}": [
-      "/_synapse/admin/v2/users/{user_id}",
-      "put",
-      "CreateUpdateUserRequest"
-    ],
-    "put /_matrix/client/v1/_synapse/admin/v2/users/{user_id}": [
-      "/_synapse/admin/v2/users/{user_id}",
-      "put",
-      "CreateUpdateUserRequest"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/users/batch": [
-      "/_synapse/admin/v1/users/batch",
-      "post",
-      "BatchCreateUsersRequest"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/users/batch": [
-      "/_synapse/admin/v1/users/batch",
-      "post",
-      "BatchCreateUsersRequest"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/users/batch": [
-      "/_synapse/admin/v1/users/batch",
-      "post",
-      "BatchCreateUsersRequest"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/users/batch_deactivate": [
-      "/_synapse/admin/v1/users/batch_deactivate",
-      "post",
-      "BatchDeactivateRequest"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/users/batch_deactivate": [
-      "/_synapse/admin/v1/users/batch_deactivate",
-      "post",
-      "BatchDeactivateRequest"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/users/batch_deactivate": [
-      "/_synapse/admin/v1/users/batch_deactivate",
-      "post",
-      "BatchDeactivateRequest"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/account/{user_id}": [
-      "/_synapse/admin/v1/account/{user_id}",
-      "post",
-      "UpdateAccountRequest"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/account/{user_id}": [
-      "/_synapse/admin/v1/account/{user_id}",
-      "post",
-      "UpdateAccountRequest"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/account/{user_id}": [
-      "/_synapse/admin/v1/account/{user_id}",
-      "post",
-      "UpdateAccountRequest"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/appservices": [
-      "/_synapse/admin/v1/appservices",
-      "post",
-      "RegisterAppServiceBody"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/appservices": [
-      "/_synapse/admin/v1/appservices",
-      "post",
-      "RegisterAppServiceBody"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/appservices": [
-      "/_synapse/admin/v1/appservices",
-      "post",
-      "RegisterAppServiceBody"
-    ],
-    "put /_matrix/client/r0/_synapse/admin/v1/appservices/{as_id}": [
-      "/_synapse/admin/v1/appservices/{as_id}",
-      "put",
-      "UpdateAppServiceBody"
-    ],
-    "put /_matrix/client/v3/_synapse/admin/v1/appservices/{as_id}": [
-      "/_synapse/admin/v1/appservices/{as_id}",
-      "put",
-      "UpdateAppServiceBody"
-    ],
-    "put /_matrix/client/v1/_synapse/admin/v1/appservices/{as_id}": [
-      "/_synapse/admin/v1/appservices/{as_id}",
-      "put",
-      "UpdateAppServiceBody"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/appservices/{as_id}/state": [
-      "/_synapse/admin/v1/appservices/{as_id}/state",
-      "post",
-      "SetStateBody"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/appservices/{as_id}/state": [
-      "/_synapse/admin/v1/appservices/{as_id}/state",
-      "post",
-      "SetStateBody"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/appservices/{as_id}/state": [
-      "/_synapse/admin/v1/appservices/{as_id}/state",
-      "post",
-      "SetStateBody"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/appservices/{as_id}/users": [
-      "/_synapse/admin/v1/appservices/{as_id}/users",
-      "post",
-      "RegisterVirtualUserBody"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/appservices/{as_id}/users": [
-      "/_synapse/admin/v1/appservices/{as_id}/users",
-      "post",
-      "RegisterVirtualUserBody"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/appservices/{as_id}/users": [
-      "/_synapse/admin/v1/appservices/{as_id}/users",
-      "post",
-      "RegisterVirtualUserBody"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/appservices/{as_id}/events": [
-      "/_synapse/admin/v1/appservices/{as_id}/events",
-      "post",
-      "PushEventBody"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/appservices/{as_id}/events": [
-      "/_synapse/admin/v1/appservices/{as_id}/events",
-      "post",
-      "PushEventBody"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/appservices/{as_id}/events": [
-      "/_synapse/admin/v1/appservices/{as_id}/events",
-      "post",
-      "PushEventBody"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/background_updates": [
-      "/_synapse/admin/v1/background_updates",
-      "post",
-      "CreateUpdateBody"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/background_updates": [
-      "/_synapse/admin/v1/background_updates",
-      "post",
-      "CreateUpdateBody"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/background_updates": [
-      "/_synapse/admin/v1/background_updates",
-      "post",
-      "CreateUpdateBody"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/background_updates/{job_name}/progress": [
-      "/_synapse/admin/v1/background_updates/{job_name}/progress",
-      "post",
-      "UpdateProgressBody"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/background_updates/{job_name}/progress": [
-      "/_synapse/admin/v1/background_updates/{job_name}/progress",
-      "post",
-      "UpdateProgressBody"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/background_updates/{job_name}/progress": [
-      "/_synapse/admin/v1/background_updates/{job_name}/progress",
-      "post",
-      "UpdateProgressBody"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/background_updates/{job_name}/fail": [
-      "/_synapse/admin/v1/background_updates/{job_name}/fail",
-      "post",
-      "FailUpdateBody"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/background_updates/{job_name}/fail": [
-      "/_synapse/admin/v1/background_updates/{job_name}/fail",
-      "post",
-      "FailUpdateBody"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/background_updates/{job_name}/fail": [
-      "/_synapse/admin/v1/background_updates/{job_name}/fail",
-      "post",
-      "FailUpdateBody"
     ],
     "post /_matrix/client/v3/register/captcha/send": [
       "/_matrix/client/v3/register/captcha/send",
@@ -5787,225 +5324,25 @@
       "post",
       "VerifyCaptchaBody"
     ],
-    "post /_matrix/client/r0/_synapse/admin/v1/cas/services": [
-      "/_synapse/admin/v1/cas/services",
-      "post",
-      "RegisterServiceBody"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/cas/services": [
-      "/_synapse/admin/v1/cas/services",
-      "post",
-      "RegisterServiceBody"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/cas/services": [
-      "/_synapse/admin/v1/cas/services",
-      "post",
-      "RegisterServiceBody"
-    ],
-    "post /_matrix/client/r0/admin/services": [
-      "/admin/services",
-      "post",
-      "RegisterServiceBody"
-    ],
-    "post /_matrix/client/v3/admin/services": [
-      "/admin/services",
-      "post",
-      "RegisterServiceBody"
-    ],
-    "post /_matrix/client/v1/admin/services": [
-      "/admin/services",
-      "post",
-      "RegisterServiceBody"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/cas/users/{user_id}/attributes": [
-      "/_synapse/admin/v1/cas/users/{user_id}/attributes",
-      "post",
-      "SetAttributeBody"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/cas/users/{user_id}/attributes": [
-      "/_synapse/admin/v1/cas/users/{user_id}/attributes",
-      "post",
-      "SetAttributeBody"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/cas/users/{user_id}/attributes": [
-      "/_synapse/admin/v1/cas/users/{user_id}/attributes",
-      "post",
-      "SetAttributeBody"
-    ],
-    "post /_matrix/client/r0/admin/users/{user_id}/attributes": [
-      "/admin/users/{user_id}/attributes",
-      "post",
-      "SetAttributeBody"
-    ],
-    "post /_matrix/client/v3/admin/users/{user_id}/attributes": [
-      "/admin/users/{user_id}/attributes",
-      "post",
-      "SetAttributeBody"
-    ],
-    "post /_matrix/client/v1/admin/users/{user_id}/attributes": [
-      "/admin/users/{user_id}/attributes",
-      "post",
-      "SetAttributeBody"
-    ],
     "post /_matrix/client/v3/create_dm": [
       "/_matrix/client/v3/create_dm",
       "post",
       "CreateDmRequest"
-    ],
-    "put /_matrix/client/r0/direct/{room_id}": [
-      "/direct/{room_id}",
-      "put",
-      "UpdateDmRequest"
     ],
     "put /_matrix/client/v3/direct/{room_id}": [
       "/direct/{room_id}",
       "put",
       "UpdateDmRequest"
     ],
-    "put /_matrix/client/v1/direct/{room_id}": [
-      "/direct/{room_id}",
-      "put",
-      "UpdateDmRequest"
-    ],
-    "post /_matrix/client/r0/keys/backup/secure/{backup_id}/restore": [
-      "/keys/backup/secure/{backup_id}/restore",
-      "post",
-      "RestoreSecureBackupRequest"
-    ],
     "post /_matrix/client/v3/keys/backup/secure/{backup_id}/restore": [
       "/keys/backup/secure/{backup_id}/restore",
       "post",
       "RestoreSecureBackupRequest"
     ],
-    "post /_matrix/client/v1/keys/backup/secure/{backup_id}/restore": [
-      "/keys/backup/secure/{backup_id}/restore",
-      "post",
-      "RestoreSecureBackupRequest"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/event_reports": [
-      "/_synapse/admin/v1/event_reports",
-      "post",
-      "CreateReportBody"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/event_reports": [
-      "/_synapse/admin/v1/event_reports",
-      "post",
-      "CreateReportBody"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/event_reports": [
-      "/_synapse/admin/v1/event_reports",
-      "post",
-      "CreateReportBody"
-    ],
-    "put /_matrix/client/r0/_synapse/admin/v1/event_reports/{id}": [
-      "/_synapse/admin/v1/event_reports/{id}",
-      "put",
-      "UpdateReportBody"
-    ],
-    "put /_matrix/client/v3/_synapse/admin/v1/event_reports/{id}": [
-      "/_synapse/admin/v1/event_reports/{id}",
-      "put",
-      "UpdateReportBody"
-    ],
-    "put /_matrix/client/v1/_synapse/admin/v1/event_reports/{id}": [
-      "/_synapse/admin/v1/event_reports/{id}",
-      "put",
-      "UpdateReportBody"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/event_reports/{id}/resolve": [
-      "/_synapse/admin/v1/event_reports/{id}/resolve",
-      "post",
-      "ResolveReportBody"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/event_reports/{id}/resolve": [
-      "/_synapse/admin/v1/event_reports/{id}/resolve",
-      "post",
-      "ResolveReportBody"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/event_reports/{id}/resolve": [
-      "/_synapse/admin/v1/event_reports/{id}/resolve",
-      "post",
-      "ResolveReportBody"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/event_reports/{id}/dismiss": [
-      "/_synapse/admin/v1/event_reports/{id}/dismiss",
-      "post",
-      "DismissReportBody"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/event_reports/{id}/dismiss": [
-      "/_synapse/admin/v1/event_reports/{id}/dismiss",
-      "post",
-      "DismissReportBody"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/event_reports/{id}/dismiss": [
-      "/_synapse/admin/v1/event_reports/{id}/dismiss",
-      "post",
-      "DismissReportBody"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/event_reports/rate_limit/{user_id}/block": [
-      "/_synapse/admin/v1/event_reports/rate_limit/{user_id}/block",
-      "post",
-      "BlockUserBody"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/event_reports/rate_limit/{user_id}/block": [
-      "/_synapse/admin/v1/event_reports/rate_limit/{user_id}/block",
-      "post",
-      "BlockUserBody"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/event_reports/rate_limit/{user_id}/block": [
-      "/_synapse/admin/v1/event_reports/rate_limit/{user_id}/block",
-      "post",
-      "BlockUserBody"
-    ],
-    "put /_matrix/client/r0/_synapse/admin/v1/external_services/{as_id}": [
-      "/_synapse/admin/v1/external_services/{as_id}",
-      "put",
-      "UpdateExternalServiceBody"
-    ],
-    "put /_matrix/client/v3/_synapse/admin/v1/external_services/{as_id}": [
-      "/_synapse/admin/v1/external_services/{as_id}",
-      "put",
-      "UpdateExternalServiceBody"
-    ],
-    "put /_matrix/client/v1/_synapse/admin/v1/external_services/{as_id}": [
-      "/_synapse/admin/v1/external_services/{as_id}",
-      "put",
-      "UpdateExternalServiceBody"
-    ],
     "put /_matrix/admin/v1/external_services/{as_id}": [
       "/_matrix/admin/v1/external_services/{as_id}",
       "put",
       "UpdateExternalServiceBody"
-    ],
-    "post /_matrix/client/r0/_synapse/external/trendradar/{service_id}/webhook": [
-      "/_synapse/external/trendradar/{service_id}/webhook",
-      "post",
-      "TrendRadarPayload"
-    ],
-    "post /_matrix/client/v3/_synapse/external/trendradar/{service_id}/webhook": [
-      "/_synapse/external/trendradar/{service_id}/webhook",
-      "post",
-      "TrendRadarPayload"
-    ],
-    "post /_matrix/client/v1/_synapse/external/trendradar/{service_id}/webhook": [
-      "/_synapse/external/trendradar/{service_id}/webhook",
-      "post",
-      "TrendRadarPayload"
-    ],
-    "post /_matrix/client/r0/_synapse/external/webhook/{service_id}": [
-      "/_synapse/external/webhook/{service_id}",
-      "post",
-      "WebhookPayload"
-    ],
-    "post /_matrix/client/v3/_synapse/external/webhook/{service_id}": [
-      "/_synapse/external/webhook/{service_id}",
-      "post",
-      "WebhookPayload"
-    ],
-    "post /_matrix/client/v1/_synapse/external/webhook/{service_id}": [
-      "/_synapse/external/webhook/{service_id}",
-      "post",
-      "WebhookPayload"
     ],
     "put /_matrix/client/v1/external_services/{service_id}": [
       "/_matrix/client/v1/external_services/{service_id}",
@@ -6016,21 +5353,6 @@
       "/_matrix/vendor/v1/external_services/{service_id}",
       "put",
       "UpdateExternalServiceBody"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/feature-flags": [
-      "/_synapse/admin/v1/feature-flags",
-      "post",
-      "CreateFeatureFlagRequest"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/feature-flags": [
-      "/_synapse/admin/v1/feature-flags",
-      "post",
-      "CreateFeatureFlagRequest"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/feature-flags": [
-      "/_synapse/admin/v1/feature-flags",
-      "post",
-      "CreateFeatureFlagRequest"
     ],
     "post /_matrix/client/v3/friends": [
       "/_matrix/client/v3/friends",
@@ -6122,11 +5444,6 @@
       "post",
       "CreateThreadBody"
     ],
-    "post /_matrix/client/r0/room_keys/recover": [
-      "/room_keys/recover",
-      "post",
-      "RecoverKeysBody"
-    ],
     "post /_matrix/client/v3/room_keys/recover": [
       "/room_keys/recover",
       "post",
@@ -6136,11 +5453,6 @@
       "/room_keys/recover",
       "post",
       "RecoverKeysBody"
-    ],
-    "post /_matrix/client/r0/room_keys/batch_recover": [
-      "/room_keys/batch_recover",
-      "post",
-      "BatchRecoverBody"
     ],
     "post /_matrix/client/v3/room_keys/batch_recover": [
       "/room_keys/batch_recover",
@@ -6152,156 +5464,6 @@
       "post",
       "BatchRecoverBody"
     ],
-    "post /_matrix/client/r0/_synapse/admin/v1/modules": [
-      "/_synapse/admin/v1/modules",
-      "post",
-      "CreateModuleBody"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/modules": [
-      "/_synapse/admin/v1/modules",
-      "post",
-      "CreateModuleBody"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/modules": [
-      "/_synapse/admin/v1/modules",
-      "post",
-      "CreateModuleBody"
-    ],
-    "put /_matrix/client/r0/_synapse/admin/v1/modules/{module_name}/config": [
-      "/_synapse/admin/v1/modules/{module_name}/config",
-      "put",
-      "UpdateModuleConfigBody"
-    ],
-    "put /_matrix/client/v3/_synapse/admin/v1/modules/{module_name}/config": [
-      "/_synapse/admin/v1/modules/{module_name}/config",
-      "put",
-      "UpdateModuleConfigBody"
-    ],
-    "put /_matrix/client/v1/_synapse/admin/v1/modules/{module_name}/config": [
-      "/_synapse/admin/v1/modules/{module_name}/config",
-      "put",
-      "UpdateModuleConfigBody"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/modules/{module_name}/enable": [
-      "/_synapse/admin/v1/modules/{module_name}/enable",
-      "post",
-      "EnableModuleBody"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/modules/{module_name}/enable": [
-      "/_synapse/admin/v1/modules/{module_name}/enable",
-      "post",
-      "EnableModuleBody"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/modules/{module_name}/enable": [
-      "/_synapse/admin/v1/modules/{module_name}/enable",
-      "post",
-      "EnableModuleBody"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/modules/check_spam": [
-      "/_synapse/admin/v1/modules/check_spam",
-      "post",
-      "CheckSpamBody"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/modules/check_spam": [
-      "/_synapse/admin/v1/modules/check_spam",
-      "post",
-      "CheckSpamBody"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/modules/check_spam": [
-      "/_synapse/admin/v1/modules/check_spam",
-      "post",
-      "CheckSpamBody"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/modules/check_third_party_rule": [
-      "/_synapse/admin/v1/modules/check_third_party_rule",
-      "post",
-      "CheckThirdPartyRuleBody"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/modules/check_third_party_rule": [
-      "/_synapse/admin/v1/modules/check_third_party_rule",
-      "post",
-      "CheckThirdPartyRuleBody"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/modules/check_third_party_rule": [
-      "/_synapse/admin/v1/modules/check_third_party_rule",
-      "post",
-      "CheckThirdPartyRuleBody"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/account_validity": [
-      "/_synapse/admin/v1/account_validity",
-      "post",
-      "CreateAccountValidityBody"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/account_validity": [
-      "/_synapse/admin/v1/account_validity",
-      "post",
-      "CreateAccountValidityBody"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/account_validity": [
-      "/_synapse/admin/v1/account_validity",
-      "post",
-      "CreateAccountValidityBody"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/account_validity/{user_id}/renew": [
-      "/_synapse/admin/v1/account_validity/{user_id}/renew",
-      "post",
-      "RenewAccountBody"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/account_validity/{user_id}/renew": [
-      "/_synapse/admin/v1/account_validity/{user_id}/renew",
-      "post",
-      "RenewAccountBody"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/account_validity/{user_id}/renew": [
-      "/_synapse/admin/v1/account_validity/{user_id}/renew",
-      "post",
-      "RenewAccountBody"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/password_auth_providers": [
-      "/_synapse/admin/v1/password_auth_providers",
-      "post",
-      "CreatePasswordAuthProviderBody"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/password_auth_providers": [
-      "/_synapse/admin/v1/password_auth_providers",
-      "post",
-      "CreatePasswordAuthProviderBody"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/password_auth_providers": [
-      "/_synapse/admin/v1/password_auth_providers",
-      "post",
-      "CreatePasswordAuthProviderBody"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/media_callbacks": [
-      "/_synapse/admin/v1/media_callbacks",
-      "post",
-      "CreateMediaCallbackBody"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/media_callbacks": [
-      "/_synapse/admin/v1/media_callbacks",
-      "post",
-      "CreateMediaCallbackBody"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/media_callbacks": [
-      "/_synapse/admin/v1/media_callbacks",
-      "post",
-      "CreateMediaCallbackBody"
-    ],
-    "post /_matrix/client/r0/_synapse/admin/v1/account_data_callbacks": [
-      "/_synapse/admin/v1/account_data_callbacks",
-      "post",
-      "CreateAccountDataCallbackBody"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/account_data_callbacks": [
-      "/_synapse/admin/v1/account_data_callbacks",
-      "post",
-      "CreateAccountDataCallbackBody"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/account_data_callbacks": [
-      "/_synapse/admin/v1/account_data_callbacks",
-      "post",
-      "CreateAccountDataCallbackBody"
-    ],
     "post /_matrix/client/v3/push/devices": [
       "/_matrix/client/v3/push/devices",
       "post",
@@ -6312,125 +5474,30 @@
       "post",
       "SendNotificationBody"
     ],
-    "put /_matrix/client/r0/_synapse/admin/v1/push/config": [
-      "/_synapse/admin/v1/push/config",
-      "put",
-      "SetPushConfigBody"
-    ],
-    "put /_matrix/client/v3/_synapse/admin/v1/push/config": [
-      "/_synapse/admin/v1/push/config",
-      "put",
-      "SetPushConfigBody"
-    ],
-    "put /_matrix/client/v1/_synapse/admin/v1/push/config": [
-      "/_synapse/admin/v1/push/config",
-      "put",
-      "SetPushConfigBody"
-    ],
-    "post /_matrix/client/r0/rooms/{room_id}/summary": [
-      "/rooms/{room_id}/summary",
-      "post",
-      "CreateRoomSummaryRequest"
-    ],
     "post /_matrix/client/v3/rooms/{room_id}/summary": [
       "/rooms/{room_id}/summary",
       "post",
       "CreateRoomSummaryRequest"
-    ],
-    "post /_matrix/client/v1/rooms/{room_id}/summary": [
-      "/rooms/{room_id}/summary",
-      "post",
-      "CreateRoomSummaryRequest"
-    ],
-    "post /_matrix/client/r0/_synapse/room_summary/v1/summaries": [
-      "/_synapse/room_summary/v1/summaries",
-      "post",
-      "CreateRoomSummaryRequest"
-    ],
-    "post /_matrix/client/v3/_synapse/room_summary/v1/summaries": [
-      "/_synapse/room_summary/v1/summaries",
-      "post",
-      "CreateRoomSummaryRequest"
-    ],
-    "post /_matrix/client/v1/_synapse/room_summary/v1/summaries": [
-      "/_synapse/room_summary/v1/summaries",
-      "post",
-      "CreateRoomSummaryRequest"
-    ],
-    "put /_matrix/client/r0/rooms/{room_id}/summary": [
-      "/rooms/{room_id}/summary",
-      "put",
-      "UpdateSummaryBody"
     ],
     "put /_matrix/client/v3/rooms/{room_id}/summary": [
       "/rooms/{room_id}/summary",
       "put",
       "UpdateSummaryBody"
     ],
-    "put /_matrix/client/v1/rooms/{room_id}/summary": [
-      "/rooms/{room_id}/summary",
-      "put",
-      "UpdateSummaryBody"
-    ],
-    "post /_matrix/client/r0/rooms/{room_id}/summary/members": [
-      "/rooms/{room_id}/summary/members",
-      "post",
-      "CreateSummaryMemberRequest"
-    ],
     "post /_matrix/client/v3/rooms/{room_id}/summary/members": [
       "/rooms/{room_id}/summary/members",
       "post",
       "CreateSummaryMemberRequest"
-    ],
-    "post /_matrix/client/v1/rooms/{room_id}/summary/members": [
-      "/rooms/{room_id}/summary/members",
-      "post",
-      "CreateSummaryMemberRequest"
-    ],
-    "put /_matrix/client/r0/rooms/{room_id}/summary/members/{user_id}": [
-      "/rooms/{room_id}/summary/members/{user_id}",
-      "put",
-      "UpdateMemberBody"
     ],
     "put /_matrix/client/v3/rooms/{room_id}/summary/members/{user_id}": [
       "/rooms/{room_id}/summary/members/{user_id}",
       "put",
       "UpdateMemberBody"
     ],
-    "put /_matrix/client/v1/rooms/{room_id}/summary/members/{user_id}": [
-      "/rooms/{room_id}/summary/members/{user_id}",
-      "put",
-      "UpdateMemberBody"
-    ],
-    "put /_matrix/client/r0/rooms/{room_id}/summary/state/{event_type}/{state_key}": [
-      "/rooms/{room_id}/summary/state/{event_type}/{state_key}",
-      "put",
-      "UpdateStateBody"
-    ],
     "put /_matrix/client/v3/rooms/{room_id}/summary/state/{event_type}/{state_key}": [
       "/rooms/{room_id}/summary/state/{event_type}/{state_key}",
       "put",
       "UpdateStateBody"
-    ],
-    "put /_matrix/client/v1/rooms/{room_id}/summary/state/{event_type}/{state_key}": [
-      "/rooms/{room_id}/summary/state/{event_type}/{state_key}",
-      "put",
-      "UpdateStateBody"
-    ],
-    "post /_matrix/client/r0/_synapse/room_summary/v1/summaries/batch": [
-      "/_synapse/room_summary/v1/summaries/batch",
-      "post",
-      "RoomSummaryBatchRequest"
-    ],
-    "post /_matrix/client/v3/_synapse/room_summary/v1/summaries/batch": [
-      "/_synapse/room_summary/v1/summaries/batch",
-      "post",
-      "RoomSummaryBatchRequest"
-    ],
-    "post /_matrix/client/v1/_synapse/room_summary/v1/summaries/batch": [
-      "/_synapse/room_summary/v1/summaries/batch",
-      "post",
-      "RoomSummaryBatchRequest"
     ],
     "post /_matrix/client/v3/login/sso/redirect/saml": [
       "/_matrix/client/v3/login/sso/redirect/saml",
@@ -6442,26 +5509,6 @@
       "post",
       "SamlCallbackBody"
     ],
-    "post /_matrix/client/r0/_synapse/admin/v1/saml/logout": [
-      "/_synapse/admin/v1/saml/logout",
-      "post",
-      "SamlLogoutAdminBody"
-    ],
-    "post /_matrix/client/v3/_synapse/admin/v1/saml/logout": [
-      "/_synapse/admin/v1/saml/logout",
-      "post",
-      "SamlLogoutAdminBody"
-    ],
-    "post /_matrix/client/v1/_synapse/admin/v1/saml/logout": [
-      "/_synapse/admin/v1/saml/logout",
-      "post",
-      "SamlLogoutAdminBody"
-    ],
-    "post /_matrix/client/r0/spaces/{space_id}/children": [
-      "/spaces/{space_id}/children",
-      "post",
-      "AddChildBody"
-    ],
     "post /_matrix/client/v3/spaces/{space_id}/children": [
       "/spaces/{space_id}/children",
       "post",
@@ -6471,11 +5518,6 @@
       "/spaces/{space_id}/children",
       "post",
       "AddChildBody"
-    ],
-    "post /_matrix/client/r0/spaces": [
-      "/spaces",
-      "post",
-      "CreateSpaceBody"
     ],
     "post /_matrix/client/v3/spaces": [
       "/spaces",
@@ -6487,11 +5529,6 @@
       "post",
       "CreateSpaceBody"
     ],
-    "put /_matrix/client/r0/spaces/{space_id}": [
-      "/spaces/{space_id}",
-      "put",
-      "UpdateSpaceBody"
-    ],
     "put /_matrix/client/v3/spaces/{space_id}": [
       "/spaces/{space_id}",
       "put",
@@ -6502,23 +5539,8 @@
       "put",
       "UpdateSpaceBody"
     ],
-    "post /_matrix/client/r0/rooms/{room_id}/invite": [
-      "/rooms/{room_id}/invite",
-      "post",
-      "InviteUserBody"
-    ],
     "post /_matrix/client/v3/rooms/{room_id}/invite": [
       "/rooms/{room_id}/invite",
-      "post",
-      "InviteUserBody"
-    ],
-    "post /_matrix/client/v1/rooms/{room_id}/invite": [
-      "/rooms/{room_id}/invite",
-      "post",
-      "InviteUserBody"
-    ],
-    "post /_matrix/client/r0/spaces/{space_id}/invite": [
-      "/spaces/{space_id}/invite",
       "post",
       "InviteUserBody"
     ],
@@ -6532,25 +5554,10 @@
       "post",
       "InviteUserBody"
     ],
-    "put /_matrix/client/r0/user/{user_id}/rooms/{room_id}/tags/{tag}": [
-      "/user/{user_id}/rooms/{room_id}/tags/{tag}",
-      "put",
-      "TagContent"
-    ],
     "put /_matrix/client/v3/user/{user_id}/rooms/{room_id}/tags/{tag}": [
       "/user/{user_id}/rooms/{room_id}/tags/{tag}",
       "put",
       "TagContent"
-    ],
-    "put /_matrix/client/v1/user/{user_id}/rooms/{room_id}/tags/{tag}": [
-      "/user/{user_id}/rooms/{room_id}/tags/{tag}",
-      "put",
-      "TagContent"
-    ],
-    "post /_matrix/client/r0/keys/device_signing/verify_start": [
-      "/keys/device_signing/verify_start",
-      "post",
-      "VerificationStartBody"
     ],
     "post /_matrix/client/v3/keys/device_signing/verify_start": [
       "/keys/device_signing/verify_start",
@@ -6562,11 +5569,6 @@
       "post",
       "VerificationStartBody"
     ],
-    "put /_matrix/client/r0/keys/device_signing/verify_accept": [
-      "/keys/device_signing/verify_accept",
-      "put",
-      "VerificationAcceptBody"
-    ],
     "put /_matrix/client/v3/keys/device_signing/verify_accept": [
       "/keys/device_signing/verify_accept",
       "put",
@@ -6576,11 +5578,6 @@
       "/keys/device_signing/verify_accept",
       "put",
       "VerificationAcceptBody"
-    ],
-    "post /_matrix/client/r0/keys/device_signing/verify_key_agreement": [
-      "/keys/device_signing/verify_key_agreement",
-      "post",
-      "KeyAgreementBody"
     ],
     "post /_matrix/client/v3/keys/device_signing/verify_key_agreement": [
       "/keys/device_signing/verify_key_agreement",
@@ -6592,11 +5589,6 @@
       "post",
       "KeyAgreementBody"
     ],
-    "post /_matrix/client/r0/keys/device_signing/verify_mac": [
-      "/keys/device_signing/verify_mac",
-      "post",
-      "VerificationMacBody"
-    ],
     "post /_matrix/client/v3/keys/device_signing/verify_mac": [
       "/keys/device_signing/verify_mac",
       "post",
@@ -6606,11 +5598,6 @@
       "/keys/device_signing/verify_mac",
       "post",
       "VerificationMacBody"
-    ],
-    "post /_matrix/client/r0/keys/device_signing/verify_cancel": [
-      "/keys/device_signing/verify_cancel",
-      "post",
-      "VerificationCancelBody"
     ],
     "post /_matrix/client/v3/keys/device_signing/verify_cancel": [
       "/keys/device_signing/verify_cancel",
@@ -6622,11 +5609,6 @@
       "post",
       "VerificationCancelBody"
     ],
-    "post /_matrix/client/r0/keys/qr_code/scan": [
-      "/keys/qr_code/scan",
-      "post",
-      "ScanQrBody"
-    ],
     "post /_matrix/client/v3/keys/qr_code/scan": [
       "/keys/qr_code/scan",
       "post",
@@ -6636,11 +5618,6 @@
       "/keys/qr_code/scan",
       "post",
       "ScanQrBody"
-    ],
-    "post /_matrix/client/r0/keys/verification/request": [
-      "/keys/verification/request",
-      "post",
-      "CompatVerificationRequestBody"
     ],
     "post /_matrix/client/v3/keys/verification/request": [
       "/keys/verification/request",
@@ -6686,141 +5663,6 @@
       "/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/send",
       "post",
       "SendWidgetMessageBody"
-    ],
-    "post /_matrix/client/r0/_synapse/worker/v1/register": [
-      "/_synapse/worker/v1/register",
-      "post",
-      "RegisterWorkerBody"
-    ],
-    "post /_matrix/client/v3/_synapse/worker/v1/register": [
-      "/_synapse/worker/v1/register",
-      "post",
-      "RegisterWorkerBody"
-    ],
-    "post /_matrix/client/v1/_synapse/worker/v1/register": [
-      "/_synapse/worker/v1/register",
-      "post",
-      "RegisterWorkerBody"
-    ],
-    "post /_matrix/client/r0/_synapse/worker/v1/workers/{worker_id}/heartbeat": [
-      "/_synapse/worker/v1/workers/{worker_id}/heartbeat",
-      "post",
-      "HeartbeatBody"
-    ],
-    "post /_matrix/client/v3/_synapse/worker/v1/workers/{worker_id}/heartbeat": [
-      "/_synapse/worker/v1/workers/{worker_id}/heartbeat",
-      "post",
-      "HeartbeatBody"
-    ],
-    "post /_matrix/client/v1/_synapse/worker/v1/workers/{worker_id}/heartbeat": [
-      "/_synapse/worker/v1/workers/{worker_id}/heartbeat",
-      "post",
-      "HeartbeatBody"
-    ],
-    "post /_matrix/client/r0/_synapse/worker/v1/workers/{worker_id}/commands": [
-      "/_synapse/worker/v1/workers/{worker_id}/commands",
-      "post",
-      "SendCommandBody"
-    ],
-    "post /_matrix/client/v3/_synapse/worker/v1/workers/{worker_id}/commands": [
-      "/_synapse/worker/v1/workers/{worker_id}/commands",
-      "post",
-      "SendCommandBody"
-    ],
-    "post /_matrix/client/v1/_synapse/worker/v1/workers/{worker_id}/commands": [
-      "/_synapse/worker/v1/workers/{worker_id}/commands",
-      "post",
-      "SendCommandBody"
-    ],
-    "post /_matrix/client/r0/_synapse/worker/v1/commands/{command_id}/fail": [
-      "/_synapse/worker/v1/commands/{command_id}/fail",
-      "post",
-      "FailTaskBody"
-    ],
-    "post /_matrix/client/v3/_synapse/worker/v1/commands/{command_id}/fail": [
-      "/_synapse/worker/v1/commands/{command_id}/fail",
-      "post",
-      "FailTaskBody"
-    ],
-    "post /_matrix/client/v1/_synapse/worker/v1/commands/{command_id}/fail": [
-      "/_synapse/worker/v1/commands/{command_id}/fail",
-      "post",
-      "FailTaskBody"
-    ],
-    "post /_matrix/client/r0/_synapse/worker/v1/tasks": [
-      "/_synapse/worker/v1/tasks",
-      "post",
-      "AssignTaskBody"
-    ],
-    "post /_matrix/client/v3/_synapse/worker/v1/tasks": [
-      "/_synapse/worker/v1/tasks",
-      "post",
-      "AssignTaskBody"
-    ],
-    "post /_matrix/client/v1/_synapse/worker/v1/tasks": [
-      "/_synapse/worker/v1/tasks",
-      "post",
-      "AssignTaskBody"
-    ],
-    "post /_matrix/client/r0/_synapse/worker/v1/tasks/{task_id}/complete": [
-      "/_synapse/worker/v1/tasks/{task_id}/complete",
-      "post",
-      "CompleteTaskBody"
-    ],
-    "post /_matrix/client/v3/_synapse/worker/v1/tasks/{task_id}/complete": [
-      "/_synapse/worker/v1/tasks/{task_id}/complete",
-      "post",
-      "CompleteTaskBody"
-    ],
-    "post /_matrix/client/v1/_synapse/worker/v1/tasks/{task_id}/complete": [
-      "/_synapse/worker/v1/tasks/{task_id}/complete",
-      "post",
-      "CompleteTaskBody"
-    ],
-    "post /_matrix/client/r0/_synapse/worker/v1/tasks/{task_id}/fail": [
-      "/_synapse/worker/v1/tasks/{task_id}/fail",
-      "post",
-      "FailTaskBody"
-    ],
-    "post /_matrix/client/v3/_synapse/worker/v1/tasks/{task_id}/fail": [
-      "/_synapse/worker/v1/tasks/{task_id}/fail",
-      "post",
-      "FailTaskBody"
-    ],
-    "post /_matrix/client/v1/_synapse/worker/v1/tasks/{task_id}/fail": [
-      "/_synapse/worker/v1/tasks/{task_id}/fail",
-      "post",
-      "FailTaskBody"
-    ],
-    "post /_matrix/client/r0/_synapse/worker/v1/workers/{worker_id}/connect": [
-      "/_synapse/worker/v1/workers/{worker_id}/connect",
-      "post",
-      "ConnectWorkerBody"
-    ],
-    "post /_matrix/client/v3/_synapse/worker/v1/workers/{worker_id}/connect": [
-      "/_synapse/worker/v1/workers/{worker_id}/connect",
-      "post",
-      "ConnectWorkerBody"
-    ],
-    "post /_matrix/client/v1/_synapse/worker/v1/workers/{worker_id}/connect": [
-      "/_synapse/worker/v1/workers/{worker_id}/connect",
-      "post",
-      "ConnectWorkerBody"
-    ],
-    "put /_matrix/client/r0/_synapse/worker/v1/replication/{worker_id}/{stream_name}": [
-      "/_synapse/worker/v1/replication/{worker_id}/{stream_name}",
-      "put",
-      "StreamPosition"
-    ],
-    "put /_matrix/client/v3/_synapse/worker/v1/replication/{worker_id}/{stream_name}": [
-      "/_synapse/worker/v1/replication/{worker_id}/{stream_name}",
-      "put",
-      "StreamPosition"
-    ],
-    "put /_matrix/client/v1/_synapse/worker/v1/replication/{worker_id}/{stream_name}": [
-      "/_synapse/worker/v1/replication/{worker_id}/{stream_name}",
-      "put",
-      "StreamPosition"
     ]
   },
   "skipped": [

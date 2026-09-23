@@ -114,18 +114,32 @@ python3 run_api_tests.py --report-dir /tmp/api-reports
 **目标**: 将 Rust handler 函数的 `Json<TypeName>` 签名映射到 OpenAPI `requestBody` schema。
 
 ```bash
-# 一次性扫描 + 补全 (会修改 docs/openapi/client.yaml)
-python3 scripts/api_test/scan_handler_schemas.py
+# 只刷新档案（推荐；不碰 docs/openapi/client.yaml）
+python3 scripts/api_test/scan_handler_schemas.py --archive-only
 ```
+
+> ⚠️ **Stage D 的目标文件已易主**：`docs/openapi/client.yaml` 现在由
+> `gen_client_yaml.py`（ledger → `generate_openapi.py`）生成，文件头写明「禁止手改」，
+> 且 CI `.github/workflows/ci.yml` 跑 `gen_client_yaml.py --skip-export --check` 守新鲜度。
+> Stage D 会用 `yaml.dump` 覆盖该文件（丢掉头部注释与既有序列化风格）并因此弄坏那个门禁，
+> 所以刷新档案**一律加 `--archive-only`**。
 
 **原理 (4 阶段)**:
 1. **Stage A** — 解析 `synapse-web/src/routes/*.rs` 中所有 `.route("/path", METHOD(handler))` 注册 → 648 个路由,328 个 write routes
 2. **Stage B** — 解析 handler 函数签名,提取 `Json<TypeName>`  extractor → 139 个 handler 用强类型
-3. **Stage C** — 从 handler 所在文件找 `#[derive(Deserialize)] struct TypeName` → 98 个 struct 提取成功
+3. **Stage C** — 从 handler 所在文件找 `#[derive(Deserialize)] struct TypeName` → 98 个 struct 提取成功；
+   候选全路径还须命中**权威路由面**（三张 `derived_route_table_*.inc.rs` 的并集，与
+   `scripts/contract/gen_contract_doc.py` 同源），否则丢弃。原先只按「不以 `/_matrix` 开头就当
+   相对路径」拼前缀，会把 `/_synapse/...` 绝对路径拼成 `/_matrix/client/v3/_synapse/...`、
+   并给只有 v3 版本的路由补出不存在的 r0/v1 变体（曾占档案 232/308 条）。
+   任一张派生表缺失或解析不出行即 `SystemExit`（fail-closed）。
 4. **Stage D** — join 路由注册 × handler × struct → 精确 path → schema 映射,补入 `client.yaml`
+   （见上方 ⚠️，默认仍会写，请用 `--archive-only` 跳过）
 
 **当前成果**:
-- 82/409 个 write operations 已补上 `requestBody` schema (`required: true`)
+- Stage D 曾把 82/409 个 write operations 补上 `requestBody` schema (`required: true`)；
+  该批次**不在**当前 `client.yaml` 里（它由 ledger 生成，无 `x-handler-scan`），
+  故下列 schema 只在 `handler_schemas.json` 档案中留存
 - 每个 schema 包含精确字段名(serde rename)、类型(Option/Vec/primitive)、required 列表
 - `scripts/api_test/handler_schemas.json` 存档全部扫描结果,供后续复用
 
