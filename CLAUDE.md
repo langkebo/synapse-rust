@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Clippy (CI runs both matrix entries): `SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils [--all-features] --locked -- -D warnings`
 - Doc tests: `cargo test --doc --locked`
 
-- Enable local git hooks: `git config core.hooksPath .githooks` (pre-commit: cargo audit advisory, pre-push: cargo deny advisories blocking)
+- Enable local git hooks: `git config core.hooksPath .githooks` — **未启用时 `.githooks/` 里的 hook 不会执行**（默认活动目录是 `.git/hooks`，只有 `*.sample`）。pre-commit 现在**阻断** `./scripts/check_fmt_ratchet.sh` 失败（即 CI 同一门禁，整树检查），clippy 阶段需 `SYNAPSE_PRECOMMIT_CLIPPY=1` 才启用，cargo-audit 仍为 advisory；pre-push 为 cargo deny advisories blocking
 
 ### Running tests
 

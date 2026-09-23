@@ -221,11 +221,31 @@ fail-fast 只在遇到失败时提前停止，不可能把"通过"变成"失败"
 **判据**：新提交**没有触碰**本分支修复的 6 个文件（`git diff --name-only 048a0fc6 ff4a23d2 -- <6 files>` 为空），
 因此那些缺陷在当前 `main` 上**依然存在**；同时新加的 3 个测试文件又带来新的 fmt 债务。
 
-**推论**：本分支合并进当前 `main` 后，fmt 门禁**仍会红**（因为 `invite.rs` 等 3 个文件不在本分支范围内）。
+**推论**：本分支合并进当前 `main` 后，fmt 门禁**仍会红**（`invite.rs` 等 3 个文件不在本分支范围内），
+且这 3 个文件的新测试同样**未经 `--all-features` 验证**（是否带同类 `E0063`/`E0308`/断言缺陷，不编译看不出来）。
 根因不是"漏了一批文件"，而是**提交时没有跑 `cargo fmt --all` 与 `--all-features` 自检** ——
-本仓 AGENTS.md 已明文要求两者，属执行缺口而非规则缺口。
-结构性建议：把 `./scripts/check_fmt_ratchet.sh` 加进 `.githooks/pre-commit`（该 hook 目录已存在且需
-`git config core.hooksPath .githooks` 启用），让"未格式化即提交"在本地就被拦住，而不是靠事后清扫。
+本仓 AGENTS.md 已明文要求两者，属执行缺口而非规则缺口。故本次不止修文件，还补上了执行点（下段）。
+
+**结构性处置（已实施）**：把 `./scripts/check_fmt_ratchet.sh` 接进 `.githooks/pre-commit`，并把
+`core.hooksPath` 指向 `.githooks`。复核时发现一个更根本的事实：**该 hook 早已存在却从未执行** ——
+`core.hooksPath` 指向默认的 `.git/hooks`，其中只有 `*.sample` 文件，而 hook 的 Stage 1 本来就是 fmt 检查。
+所以"规则明文要求 `cargo fmt --all` 却连续两次未格式化入库"不是规则缺失，而是**执行点从未接上**。
+
+自证（铁律 8：门禁必须自证能变红）：
+
+| 场景 | 结果 |
+|---|---|
+| 净树直接运行 hook | exit 0，耗时 **7.0s** |
+| 插入未格式化探针后直接运行 | exit 1，并列出 `Diff in …/zz_fmt_probe.rs:1` |
+| 探针 `git add` 后执行**真实 `git commit`** | **exit 1 且 HEAD 未变**（提交确实被拦下） |
+| 清理探针后再运行 | exit 0 |
+
+顺带修正两处实现问题：
+
+1. hook 的 fmt 阶段改为调用棘轮脚本（单一实现 = CI 门禁），从而也能拦住"债务下降却未收紧 baseline"这一方向；
+2. 原 clippy 阶段作用域不足（`cargo clippy --all-features` 不带 `--workspace`/`--all-targets`，与 §5 那个
+   `cargo test` 口径缺陷同型），已改成 CI 同款 `--workspace --all-targets --features test-utils --all-features`；
+   但全工作区 clippy 需数分钟，故改为 `SYNAPSE_PRECOMMIT_CLIPPY=1` 按需启用 —— **格式阶段保持无条件阻断**。
 
 ### 7.5 非阻塞观察（本次未改动）
 

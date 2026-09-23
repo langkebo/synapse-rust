@@ -1,35 +1,55 @@
 #!/bin/bash
-# pre-commit guard: format + clippy + advisory cargo-audit
-# TDD workflow — see .claude/skills/tdd-rust/SKILL.md
-# Bypass with `git commit --no-verify` only for emergency hotfixes.
+# pre-commit guard: format ratchet (blocking) + clippy (opt-in) + advisory cargo-audit
+#
+# 启用（每个 clone 一次）：  git config core.hooksPath .githooks
+# 紧急绕过：                git commit --no-verify
+#
+# ── Stage 1 为什么调用 scripts/check_fmt_ratchet.sh，而不是 `cargo fmt --all -- --check` ──
+#   1. 棘轮脚本**就是 CI 门禁本身**（format-governance 工作流跑同一个脚本），
+#      本地判绿与 CI 判绿含义完全一致 —— 单一实现，不会漂移（AGENTS.md 铁律 2）。
+#   2. 它同时约束棘轮的**方向**：`current < baseline` 也失败，所以一次格式化清理
+#      不可能把 baseline 留在旧值上（这是 `cargo fmt --check` 表达不了的）。
+#
+# ── 这个 hook 要防的事故（判据见 docs/audit/FULL_SUITE_ISOLATION_VERIFY_2026-09-22.md §7）──
+#   2026-09-22 曾连续两次提交在**没有跑过格式化**的情况下入库：fmt 债务 0 → 49 → 106，
+#   违规文件 4 → 7 个，CI 因此变红。当时 `.githooks/pre-commit` 里其实已经有 fmt 检查，
+#   但 `core.hooksPath` 指向默认的 .git/hooks（只有 *.sample），hook 从未被执行。
+#
+# ⚠️ 检查的是**整棵树**而不是"仅暂存内容"：这正是 CI 语义（baseline=0 意味着每个被扫描的
+#    文件都必须已格式化）。因此工作树里任何未格式化的 .rs 文件都会拦下提交，修法就是
+#    `cargo fmt --all`。这看似严格，但它是让本地判断与 CI 判断永远一致的前提。
+set -uo pipefail
 
-set -e
-
-# Stage 1: cargo fmt — must pass on touched files only (whole repo is allowed
-# to drift; we only require the developer's own changes to be formatted).
-# We run --check over the whole workspace; if it fails, print actionable hint.
-if command -v cargo >/dev/null 2>&1; then
-  if ! cargo fmt --all -- --check >/dev/null 2>&1; then
-    echo "❌ cargo fmt --check failed. Run: cargo fmt --all"
-    echo "   (bypass with 'git commit --no-verify' only for emergency hotfixes)"
-    exit 1
-  fi
-  echo "✅ cargo fmt --check passed"
+# ── Stage 1（阻断）：格式棘轮 ────────────────────────────────────────────────
+if [ ! -x ./scripts/check_fmt_ratchet.sh ]; then
+  echo "❌ 找不到可执行的 ./scripts/check_fmt_ratchet.sh —— 拒绝在无法执行格式门禁时提交。"
+  echo "   （门禁绝不允许因'工具缺失'而静默通过；紧急情况用 git commit --no-verify）"
+  exit 1
+fi
+if ! ./scripts/check_fmt_ratchet.sh; then
+  echo ""
+  echo "❌ 提交被拦下：fmt 棘轮未通过（见上面的 current / baseline）。"
+  echo "   修复：cargo fmt --all   然后把被格式化的文件重新 git add"
+  echo "   紧急绕过：git commit --no-verify"
+  exit 1
 fi
 
-# Stage 2: clippy — deny warnings on touched files. SQLX_OFFLINE=true so we
-# don't need a live DB for static analysis.
-if command -v cargo >/dev/null 2>&1; then
-  if ! SQLX_OFFLINE=true cargo clippy --all-features --locked -- -D warnings >/dev/null 2>&1; then
-    echo "❌ cargo clippy --all-features --locked -- -D warnings failed."
-    echo "   Run: SQLX_OFFLINE=true cargo clippy --all-features --locked -- -D warnings"
-    echo "   (bypass with 'git commit --no-verify' only for emergency hotfixes)"
+# ── Stage 2（按需）：clippy ──────────────────────────────────────────────────
+# 全工作区 clippy 要数分钟，不适合每次提交都跑；CI 在每次 push 上跑两档矩阵。
+# 需要本地复现 CI 判定时：SYNAPSE_PRECOMMIT_CLIPPY=1 git commit ...
+if [ "${SYNAPSE_PRECOMMIT_CLIPPY:-0}" = "1" ]; then
+  # 作用域与 CI 对齐：--workspace + --all-targets（缺任一都会漏掉 member crate 或测试代码）。
+  if ! SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils \
+      --all-features --locked -- -D warnings; then
+    echo "❌ clippy 未通过（SYNAPSE_PRECOMMIT_CLIPPY=1）"
     exit 1
   fi
-  echo "✅ cargo clippy -- -D warnings passed"
+  echo "✅ clippy --workspace --all-targets --all-features 通过"
+else
+  echo "ℹ️  已跳过 clippy（设 SYNAPSE_PRECOMMIT_CLIPPY=1 启用；CI 每次 push 跑两档矩阵）"
 fi
 
-# Stage 3: advisory-only cargo-audit (does not block)
+# ── Stage 3（仅提示，不阻断）：cargo-audit ───────────────────────────────────
 if command -v cargo-audit >/dev/null 2>&1; then
   cargo audit --quiet 2>/dev/null || true
 else
