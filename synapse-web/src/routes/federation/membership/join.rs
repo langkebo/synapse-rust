@@ -406,16 +406,19 @@ async fn validate_federation_join_access(ctx: &FederationContext, room_id: &str,
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::routes::derived_routes::{declared_ledger_all, DeclaredRoute};
+    use crate::routes::assembly::declared_ledger_all;
+    use crate::routes::route_ledger::RouteEntry;
 
     /// Verify that the federation join routes exist in the derived route ledger.
-    fn federation_join_routes_manifest() -> Vec<DeclaredRoute> {
+    fn federation_join_routes_manifest() -> Vec<RouteEntry> {
         declared_ledger_all()
-            .into_iter()
+            .iter()
             .filter(|r| {
-                r.path.starts_with("/federation/v1/send_join") || r.path.starts_with("/federation/v1/make_join")
+                r.path.starts_with("/_matrix/federation/v1/send_join")
+                    || r.path.starts_with("/_matrix/federation/v2/send_join")
+                    || r.path.starts_with("/_matrix/federation/v1/make_join")
             })
+            .cloned()
             .collect()
     }
 
@@ -425,13 +428,19 @@ mod tests {
         assert!(!manifest.is_empty(), "federation join routes must exist in derived route ledger");
 
         // Verify send_join routes exist
-        let send_join_paths: Vec<&str> = manifest
+        let send_join_v1_paths: Vec<&str> = manifest
             .iter()
-            .filter(|r| r.path.starts_with("/federation/v1/send_join"))
-            .map(|r| r.path.as_str())
+            .filter(|r| r.path.starts_with("/_matrix/federation/v1/send_join"))
+            .map(|r| r.path)
             .collect();
 
-        assert!(send_join_paths.iter().any(|p| p.contains("/v1")), "send_join v1 route missing");
-        assert!(send_join_paths.iter().any(|p| p.contains("/v2")), "send_join v2 route missing");
+        let send_join_v2_paths: Vec<&str> = manifest
+            .iter()
+            .filter(|r| r.path.starts_with("/_matrix/federation/v2/send_join"))
+            .map(|r| r.path)
+            .collect();
+
+        assert!(!send_join_v1_paths.is_empty(), "send_join v1 route missing");
+        assert!(!send_join_v2_paths.is_empty(), "send_join v2 route missing");
     }
 }

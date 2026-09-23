@@ -32,6 +32,9 @@ pub enum EduType {
     /// propagated between federated servers so remote servers can invalidate
     /// their cached profile data for the user.
     ProfileUpdate,
+    /// MSC4140: `m.delayed_event` — pending delayed events synchronized via federation
+    /// so remote servers can track and cancel/override them.
+    DelayedEvent,
 }
 
 #[derive(Debug, Clone)]
@@ -61,6 +64,7 @@ impl FromStr for EduType {
             "m.receipt" => Ok(Self::Receipt),
             "m.signing_key_update" => Ok(Self::SigningKeyUpdate),
             "m.profile_update" => Ok(Self::ProfileUpdate),
+            "m.delayed_event" => Ok(Self::DelayedEvent),
             other => Err(UnknownEduType(other.to_string())),
         }
     }
@@ -76,6 +80,7 @@ impl std::fmt::Display for EduType {
             EduType::Receipt => "m.receipt",
             EduType::SigningKeyUpdate => "m.signing_key_update",
             EduType::ProfileUpdate => "m.profile_update",
+            EduType::DelayedEvent => "m.delayed_event",
         };
         write!(f, "{s}")
     }

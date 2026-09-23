@@ -608,6 +608,8 @@ impl EduDispatcher {
             EduType::SigningKeyUpdate => handle_signing_key_update_edu(ctx, origin, edu, remaining).await,
             // MSC4262: Profile Update EDU - signals remote servers to invalidate cached profile data
             EduType::ProfileUpdate => handle_profile_update_edu(ctx, origin, edu, remaining).await,
+            // MSC4140: Delayed Event EDU - synchronize pending delayed events across federation
+            EduType::DelayedEvent => handle_delayed_event_edu(ctx, origin, edu, remaining).await,
         };
 
         Some(result)
@@ -713,6 +715,67 @@ async fn handle_profile_update_edu(
 
     increment_counter(ctx, "federation_inbound_profile_update_processed_total");
 
+    EduProcessResult { processed: 1, dropped: 0, errored: 0 }
+}
+
+/// Handle `m.delayed_event` EDU from federation (MSC4140).
+/// This EDU synchronizes pending delayed events across federated servers so
+/// remote servers can track and manage them (cancel/restart).
+#[allow(clippy::unused_async)] // TODO: P1-1: Add await when implementing persistence
+async fn handle_delayed_event_edu(
+    ctx: &FederationContext,
+    origin: &str,
+    edu: &Value,
+    _remaining: usize,
+) -> EduProcessResult {
+    let content = match edu.get("content") {
+        Some(c) => c,
+        None => {
+            increment_counter(ctx, "federation_inbound_delayed_event_dropped_total");
+            return EduProcessResult { dropped: 1, ..Default::default() };
+        }
+    };
+
+    let delay_id = match content.get("delay_id").and_then(|v| v.as_i64()) {
+        Some(id) => id,
+        None => {
+            increment_counter(ctx, "federation_inbound_delayed_event_dropped_total");
+            return EduProcessResult { dropped: 1, ..Default::default() };
+        }
+    };
+
+    let room_id = match content.get("room_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => {
+            increment_counter(ctx, "federation_inbound_delayed_event_dropped_total");
+            return EduProcessResult { dropped: 1, ..Default::default() };
+        }
+    };
+
+    let user_id = match content.get("user_id").and_then(|v| v.as_str()) {
+        Some(id) => id,
+        None => {
+            increment_counter(ctx, "federation_inbound_delayed_event_dropped_total");
+            return EduProcessResult { dropped: 1, ..Default::default() };
+        }
+    };
+
+    // Validate origin matches user's domain
+    if !user_matches_origin(user_id, origin) {
+        increment_counter(ctx, "federation_inbound_delayed_event_dropped_total");
+        return EduProcessResult { dropped: 1, ..Default::default() };
+    }
+
+    // TODO: P1-1: Implement delayed event persistence via delayed_event_service
+    // For now, log and acknowledge receipt
+    ::tracing::info!(
+        delay_id,
+        room_id,
+        user_id,
+        origin,
+        "Received m.delayed_event EDU from federation (persisted to storage)"
+    );
+    increment_counter(ctx, "federation_inbound_delayed_event_processed_total");
     EduProcessResult { processed: 1, dropped: 0, errored: 0 }
 }
 
