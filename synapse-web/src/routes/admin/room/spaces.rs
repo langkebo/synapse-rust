@@ -238,11 +238,11 @@ mod tests {
 
         let has_delete_space =
             manifest.iter().any(|e| e.method == Method::DELETE && e.path.starts_with("/_synapse/admin/v1/spaces/"));
-        assert!(has_delete_space, "must have DELETE /_synapse/admin/v1/spaces/{{space_id}}");
+        assert!(has_delete_space, "must have DELETE /_synapse/admin/v1/spaces/<space_id>");
 
         let has_get_space =
             manifest.iter().any(|e| e.method == Method::GET && e.path.starts_with("/_synapse/admin/v1/spaces/"));
-        assert!(has_get_space, "must have GET /_synapse/admin/v1/spaces/{space_id}");
+        assert!(has_get_space, "must have GET /_synapse/admin/v1/spaces/<space_id>");
     }
 
     #[test]

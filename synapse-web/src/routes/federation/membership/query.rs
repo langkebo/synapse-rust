@@ -188,7 +188,7 @@ mod tests {
 
         // Verify we have the expected endpoint types
         let has_room_members = manifest.iter().any(|e| e.method == Method::GET && e.path.contains("/membership"));
-        assert!(has_room_members, "must have GET /_matrix/federation/v1/room/{room_id}/membership/{user_id}");
+        assert!(has_room_members, "must have GET /_matrix/federation/v1/room/<room_id>/membership/<user_id>");
 
         let has_keys_query = manifest.iter().any(|e| e.method == Method::POST && e.path.contains("/keys/query"));
         assert!(has_keys_query, "must have POST /_matrix/federation/v1/keys/query");
