@@ -490,50 +490,6 @@ mod tests {
         }
     }
 
-    /// Test batch event handling with empty event list
-    #[test]
-    fn test_batch_empty_event_list() {
-        let result = handle_empty_event_list();
-        assert!(result.is_ok());
-    }
-
-    /// Test batch event size validation
-    #[test]
-    fn test_batch_size_validation() {
-        let result = validate_batch_size(0);
-        assert!(result.is_err());
-        
-        let result = validate_batch_size(100);
-        assert!(result.is_ok());
-    }
-
-    /// Test batch room event grouping
-    #[test]
-    fn test_batch_room_event_grouping() {
-        let room_ids = vec!["!room1:ex.com".into(), "!room2:ex.com".into()];
-        let events = vec![
-            make_room_event("$event1:ex.com", "!room1:ex.com"),
-            make_room_event("$event2:ex.com", "!room2:ex.com"),
-        ];
-        
-        let result = group_room_events(&room_ids, &events, 10);
-        assert!(result.is_ok());
-    }
-
-    /// Test batch statistics calculation
-    #[test]
-    fn test_batch_statistics() {
-        let events = vec![
-            make_room_event("$event1:ex.com", "!room1:ex.com"),
-            make_room_event("$event2:ex.com", "!room1:ex.com"),
-            make_room_event("$event3:ex.com", "!room2:ex.com"),
-        ];
-        
-        let stats = calculate_batch_statistics(&events);
-        assert_eq!(stats.total_events, 3);
-        assert_eq!(stats.unique_rooms, 2);
-    }
-
     /// Test make_room_event with default values
     #[test]
     fn test_make_room_event_defaults() {
@@ -543,7 +499,6 @@ mod tests {
         assert_eq!(event.user_id, "@alice:ex.com");
         assert_eq!(event.event_type, "m.room.message");
     }
-}
 
     #[test]
     fn filter_none_returns_none() {

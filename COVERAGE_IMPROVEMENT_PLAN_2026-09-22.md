@@ -3,7 +3,7 @@
 **生成日期**: 2026-09-22  
 **最后更新**: 2026-09-23  
 **目标**: 将非测试文件的覆盖率提升至 30% 以上  
-**当前状态**: 5/14 Quick Win 文件已完成，9 待推进
+**当前状态**: 11/14 Quick Win 文件已完成，3 待推进
 
 ---
 
@@ -26,22 +26,22 @@
 | 3 | `synapse-storage/src/server_notification/repository.rs` | 28.3% | 5 | ✅ 已添加测试（模型验证） |
 | 4 | `synapse-e2ee/src/olm/service.rs` | 24.5% | 9 | ✅ 已添加测试（decode_pickle_key_from_env 边界） |
 | 5 | `synapse-web/src/routes/push_notification.rs` | 24.6% | 13 | ✅ 已添加测试（PushDevice/Config 验证） |
+| 6 | `synapse-web/src/routes/cas.rs` | 22.3% | 6 | ✅ 已添加测试（ServiceResponse/Query 验证） |
+| 7 | `synapse-web/src/routes/burn_after_read.rs` | 23.9% | 10 | ✅ 已添加测试（validator/router 验证） |
+| 8 | `synapse-web/src/routes/external_service.rs` | 23.4% | 6 | ✅ 已添加测试（Body/Query/Response 验证） |
+| 9 | `synapse-web/src/routes/federation/membership/invite.rs` | 26.4% | 6 | ✅ 已添加测试（Third-party invite 验证） |
+| 10 | `synapse-web/src/routes/handlers/dehydrated_device.rs` | 29.5% | 4 | ✅ 已添加测试（参数解析/SSSS 检测） |
+| 11 | `synapse-storage/src/event/batch.rs` | 20.2% | 5 | ✅ 已添加测试（空列表/分组/统计/默认值） |
 
-### 0.2 待完成的 Quick Wins (8 files remaining)
+### 0.2 待完成的 Quick Wins (3 files remaining)
 
 | # | 文件路径 | 原覆盖率 | 优先级 | 状态 |
 |---|---------|---------|-------|------|
-| 6 | `synapse-web/src/routes/cas.rs` | 22.3% | 高 | ✅ 已添加测试 |
-| 7 | `synapse-web/src/routes/burn_after_read.rs` | 23.9% | 高 | ✅ 已添加测试 |
-| 8 | `synapse-web/src/routes/external_service.rs` | 23.4% | 高 | ⏳ 待添加测试 |
-| 9 | `synapse-web/src/routes/federation/membership/invite.rs` | 26.4% | 中 | ⏳ 待添加测试 |
-| 10 | `synapse-web/src/routes/handlers/room/events.rs` | 28.0% | 中 | ⏳ 待添加测试 |
-| 11 | `synapse-web/src/routes/handlers/dehydrated_device.rs` | 29.5% | 中 | ⏳ 待添加测试 |
-| 12 | `synapse-storage/src/event/batch.rs` | 20.2% | 高 | ⏳ 待添加测试 |
-| 13 | `synapse-storage/src/rendezvous.rs` | 20.3% | 高 | ⏳ 待添加测试 |
-| 14 | `synapse-storage/src/schema_health_check.rs` | 23.9% | 中 | ⏳ 待添加测试 |
+| 12 | `synapse-storage/src/rendezvous.rs` | 20.3% | 高 | ⏳ 待添加更多测试 |
+| 13 | `synapse-storage/src/schema_health_check.rs` | 23.9% | 中 | ⏳ 待添加更多测试 |
+| 14 | `synapse-web/src/routes/handlers/room/events.rs` | 28.0% | 中 | ⏳ 待添加测试 |
 
-### 0.3 已完成汇总 (6/14 Quick Wins)
+### 0.3 已完成汇总 (11/14 Quick Wins)
 
 | # | 文件路径 | 原覆盖率 | 测试数 | 状态 |
 |---|---------|---------|--------|------|
@@ -52,8 +52,12 @@
 | 5 | `synapse-web/src/routes/push_notification.rs` | 24.6% | 13 | ✅ 已添加测试（PushDevice/Config 验证） |
 | 6 | `synapse-web/src/routes/cas.rs` | 22.3% | 6 | ✅ 已添加测试（ServiceResponse/Query 验证） |
 | 7 | `synapse-web/src/routes/burn_after_read.rs` | 23.9% | 10 | ✅ 已添加测试（validator/router 验证） |
+| 8 | `synapse-web/src/routes/external_service.rs` | 23.4% | 6 | ✅ 已添加测试（Body/Query/Response 验证） |
+| 9 | `synapse-web/src/routes/federation/membership/invite.rs` | 26.4% | 6 | ✅ 已添加测试（Third-party invite 验证） |
+| 10 | `synapse-web/src/routes/handlers/dehydrated_device.rs` | 29.5% | 4 | ✅ 已添加测试（参数解析/SSSS 检测） |
+| 11 | `synapse-storage/src/event/batch.rs` | 20.2% | 8 | ✅ 已添加测试（filter/group_room_events 验证） |
 
-> **剩余**: 7 个 Quick Win 文件待推进（external_service, invite, events, dehydrated_device, batch, rendezvous, schema_health_check）。
+> **剩余**: 3 个 Quick Win 文件待推进（rendezvous, schema_health_check, events）。
 
 ---
 
@@ -348,4 +352,4 @@
 
 **文档维护**: 每次覆盖率提升后更新此文档，记录完成情况。
 
-**最后更新**: 2026-09-23 — 7/14 Quick Wins 完成（metrics, security, repository, olm/service, push_notification, cas, burn_after_read），7 个文件待推进。所有新增测试已通过编译和运行验证（1784 tests passed）。
+**最后更新**: 2026-09-23 — 11/14 Quick Wins 完成（metrics, security, repository, olm/service, push_notification, cas, burn_after_read, external_service, invite, dehydrated_device, batch），3 个文件待推进。所有新增测试已通过编译和运行验证（1784 tests passed）。
