@@ -15,12 +15,12 @@ impl RoomStorage {
             return Ok(std::collections::HashSet::new());
         }
 
-        let rows: Vec<String> = sqlx::query_scalar(
+        let rows: Vec<String> = sqlx::query_scalar!(
             r"
             SELECT room_id FROM rooms WHERE room_id = ANY($1)
             ",
+            room_ids
         )
-        .bind(room_ids)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -44,7 +44,7 @@ impl RoomStorage {
         //    We must NOT delete rooms directly here — doing so before deleting their events
         //    triggers "violates foreign key constraint fk_events_room_no_action".
         //    Instead, collect their IDs, delete events first, then delete rooms.
-        let empty_room_ids: Vec<String> = sqlx::query_scalar(
+        let empty_room_ids: Vec<String> = sqlx::query_scalar!(
             r"
             SELECT r.room_id FROM rooms r
             WHERE r.created_ts < $1
@@ -53,15 +53,14 @@ impl RoomStorage {
                 WHERE rm.room_id = r.room_id AND rm.membership = 'join'
             )
             ",
+            cutoff
         )
-        .bind(cutoff)
         .fetch_all(&*self.pool)
         .await?;
 
         // 1a. Delete events belonging to those rooms (children must be removed before parent)
         let deleted_events_in_empty_rooms = if !empty_room_ids.is_empty() {
-            sqlx::query(r"DELETE FROM events WHERE room_id = ANY($1)")
-                .bind(&empty_room_ids)
+            sqlx::query!(r"DELETE FROM events WHERE room_id = ANY($1)", &empty_room_ids[..])
                 .execute(&*self.pool)
                 .await?
                 .rows_affected()
@@ -72,8 +71,7 @@ impl RoomStorage {
 
         // 1b. Now safe to delete the empty rooms
         let deleted_empty_rooms = if !empty_room_ids.is_empty() {
-            sqlx::query(r"DELETE FROM rooms WHERE room_id = ANY($1)")
-                .bind(&empty_room_ids)
+            sqlx::query!(r"DELETE FROM rooms WHERE room_id = ANY($1)", &empty_room_ids[..])
                 .execute(&*self.pool)
                 .await?
                 .rows_affected()
@@ -84,7 +82,7 @@ impl RoomStorage {
 
         // 2. Clean up orphan events (events pointing to non-existent rooms)
         //    These rooms were already deleted above or were pre-existing orphans.
-        let deleted_orphan_events = sqlx::query(
+        let deleted_orphan_events = sqlx::query!(
             r"
             DELETE FROM events
             WHERE NOT EXISTS (SELECT 1 FROM rooms WHERE rooms.room_id = events.room_id)
@@ -96,7 +94,7 @@ impl RoomStorage {
         results.insert("deleted_orphan_events".to_string(), json!(deleted_orphan_events));
 
         // 3. Clean up orphan memberships
-        let deleted_orphan_memberships = sqlx::query(
+        let deleted_orphan_memberships = sqlx::query!(
             r"
             DELETE FROM room_memberships
             WHERE NOT EXISTS (SELECT 1 FROM rooms WHERE rooms.room_id = room_memberships.room_id)
@@ -108,7 +106,7 @@ impl RoomStorage {
         results.insert("deleted_orphan_memberships".to_string(), json!(deleted_orphan_memberships));
 
         // 4. Clean up orphan state
-        let deleted_orphan_state = sqlx::query(
+        let deleted_orphan_state = sqlx::query!(
             r"
             DELETE FROM room_state_events
             WHERE NOT EXISTS (SELECT 1 FROM rooms WHERE rooms.room_id = room_state_events.room_id)
@@ -130,36 +128,38 @@ impl RoomStorage {
         since_room_id: Option<&str>,
     ) -> Result<Vec<(Room, Vec<String>)>, sqlx::Error> {
         let rows: Vec<RoomRecord> = if let (Some(ts), Some(room_id)) = (since_ts, since_room_id) {
-            sqlx::query_as(
-                r"
-                SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules, r.creator, r.room_version,
-                      r.is_public, rs.member_count as member_count, rs.is_encrypted as is_encrypted, r.history_visibility, r.created_ts
+            sqlx::query_as!(
+                RoomRecord,
+                r#"
+                SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules AS join_rule, r.creator AS creator_user_id, r.room_version,
+                      r.is_public, rs.member_count as member_count, rs.is_encrypted AS "is_encrypted?", r.history_visibility, r.created_ts
                 FROM rooms r
                 LEFT JOIN room_summaries rs ON rs.room_id = r.room_id
                 WHERE r.is_public = TRUE
                   AND (r.created_ts < $2 OR (r.created_ts = $2 AND r.room_id < $3))
                 ORDER BY r.created_ts DESC, r.room_id DESC
                 LIMIT $1
-                ",
+                "#,
+                limit,
+                ts,
+                room_id
             )
-            .bind(limit)
-            .bind(ts)
-            .bind(room_id)
             .fetch_all(&*self.pool)
             .await?
         } else {
-            sqlx::query_as(
-                r"
-                SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules, r.creator, r.room_version,
-                      r.is_public, rs.member_count as member_count, rs.is_encrypted as is_encrypted, r.history_visibility, r.created_ts
+            sqlx::query_as!(
+                RoomRecord,
+                r#"
+                SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules AS join_rule, r.creator AS creator_user_id, r.room_version,
+                      r.is_public, rs.member_count as member_count, rs.is_encrypted AS "is_encrypted?", r.history_visibility, r.created_ts
                 FROM rooms r
                 LEFT JOIN room_summaries rs ON rs.room_id = r.room_id
                 WHERE r.is_public = TRUE
                 ORDER BY r.created_ts DESC, r.room_id DESC
                 LIMIT $1
-                ",
+                "#,
+                limit
             )
-            .bind(limit)
             .fetch_all(&*self.pool)
             .await?
         };
@@ -206,14 +206,17 @@ impl RoomStorage {
             return Ok(std::collections::HashMap::new());
         }
 
-        let rows: Vec<(String, String)> = sqlx::query_as(
+        let rows: Vec<(String, String)> = sqlx::query!(
             r"
             SELECT room_id, room_alias FROM room_aliases WHERE room_id = ANY($1)
             ",
+            room_ids
         )
-        .bind(room_ids)
         .fetch_all(&*self.pool)
-        .await?;
+        .await?
+        .into_iter()
+        .map(|r| (r.room_id, r.room_alias))
+        .collect();
 
         let mut result: std::collections::HashMap<String, Vec<String>> =
             room_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
@@ -236,16 +239,16 @@ impl RoomStorage {
             return Ok(std::collections::HashMap::new());
         }
 
-        let rows: Vec<(String, String)> = sqlx::query_as(
+        let rows = sqlx::query!(
             r"
             SELECT room_alias, room_id FROM room_aliases WHERE room_alias = ANY($1)
             ",
+            aliases
         )
-        .bind(aliases)
         .fetch_all(&*self.pool)
         .await?;
 
-        Ok(rows.into_iter().collect())
+        Ok(rows.into_iter().map(|r| (r.room_alias, r.room_id)).collect())
     }
 
     /// See [`increment_member_counts_batch`].
@@ -256,15 +259,15 @@ impl RoomStorage {
 
         // v11: see `RoomStorage::increment_member_count` for the trigger-based design.
         // The DB trigger on `room_memberships` now maintains joined/invited/member counts.
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             UPDATE room_summaries
             SET updated_ts = $2
             WHERE room_id = ANY($1)
             ",
+            room_ids,
+            current_timestamp_millis()
         )
-        .bind(room_ids)
-        .bind(current_timestamp_millis())
         .execute(&*self.pool)
         .await?;
 
@@ -278,15 +281,15 @@ impl RoomStorage {
         }
 
         // v11: see `RoomStorage::decrement_member_count` for the trigger-based design.
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             UPDATE room_summaries
             SET updated_ts = $2
             WHERE room_id = ANY($1)
             ",
+            room_ids,
+            current_timestamp_millis()
         )
-        .bind(room_ids)
-        .bind(current_timestamp_millis())
         .execute(&*self.pool)
         .await?;
 
@@ -301,17 +304,17 @@ impl RoomStorage {
         blocked_by: &str,
         reason: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO blocked_rooms (room_id, blocked_at, blocked_by, reason)
             VALUES ($1, $2, $3, $4)
             ON CONFLICT (room_id) DO UPDATE SET blocked_at = $2, reason = $4
             ",
+            room_id,
+            blocked_at,
+            blocked_by,
+            reason
         )
-        .bind(room_id)
-        .bind(blocked_at)
-        .bind(blocked_by)
-        .bind(reason)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -319,44 +322,47 @@ impl RoomStorage {
 
     /// See [`get_room_block_status`].
     pub async fn get_room_block_status(&self, room_id: &str) -> Result<Option<i64>, sqlx::Error> {
-        let result: Option<(i64,)> = sqlx::query_as(r"SELECT blocked_at FROM blocked_rooms WHERE room_id = $1")
-            .bind(room_id)
+        let result = sqlx::query_scalar!(r"SELECT blocked_at FROM blocked_rooms WHERE room_id = $1", room_id)
             .fetch_optional(&*self.pool)
             .await?;
-        Ok(result.map(|r| r.0))
+        Ok(result)
     }
 
     /// See [`unblock_room`].
     pub async fn unblock_room(&self, room_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(r"DELETE FROM blocked_rooms WHERE room_id = $1").bind(room_id).execute(&*self.pool).await?;
+        sqlx::query!(r"DELETE FROM blocked_rooms WHERE room_id = $1", room_id).execute(&*self.pool).await?;
         Ok(())
     }
 
     /// See [`get_room_stats_overview`].
     pub async fn get_room_stats_overview(&self) -> Result<serde_json::Value, sqlx::Error> {
-        let total_rooms: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM rooms").fetch_one(&*self.pool).await?;
+        let total_rooms: i64 =
+            sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!" FROM rooms"#).fetch_one(&*self.pool).await?;
 
-        let encrypted_rooms: i64 = sqlx::query_scalar(
-            r"SELECT COUNT(DISTINCT room_id) FROM events WHERE event_type = 'm.room.encryption' AND state_key IS NOT NULL AND room_id IN (SELECT room_id FROM rooms)",
+        let encrypted_rooms: i64 = sqlx::query_scalar!(
+            r#"SELECT COUNT(DISTINCT room_id) AS "count!" FROM events WHERE event_type = 'm.room.encryption' AND state_key IS NOT NULL AND room_id IN (SELECT room_id FROM rooms)"#
         )
         .fetch_one(&*self.pool)
         .await?;
 
-        let public_rooms: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM rooms WHERE is_public = true").fetch_one(&*self.pool).await?;
-
-        let total_messages: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE event_type = 'm.room.message'")
+        let public_rooms: i64 = sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!" FROM rooms WHERE is_public = true"#)
             .fetch_one(&*self.pool)
             .await?;
 
-        let total_members: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM room_memberships").fetch_one(&*self.pool).await?;
-
-        let active_rooms: i64 =
-            sqlx::query_scalar("SELECT COUNT(DISTINCT room_id) FROM events WHERE origin_server_ts > $1")
-                .bind(current_timestamp_millis() - 7 * 24 * 60 * 60 * 1000)
+        let total_messages: i64 =
+            sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!" FROM events WHERE event_type = 'm.room.message'"#)
                 .fetch_one(&*self.pool)
                 .await?;
+
+        let total_members: i64 =
+            sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!" FROM room_memberships"#).fetch_one(&*self.pool).await?;
+
+        let active_rooms: i64 = sqlx::query_scalar!(
+            r#"SELECT COUNT(DISTINCT room_id) AS "count!" FROM events WHERE origin_server_ts > $1"#,
+            current_timestamp_millis() - 7 * 24 * 60 * 60 * 1000
+        )
+        .fetch_one(&*self.pool)
+        .await?;
 
         Ok(json!({
             "total_rooms": total_rooms,
@@ -371,8 +377,7 @@ impl RoomStorage {
 
     /// See [`get_single_room_stats`].
     pub async fn get_single_room_stats(&self, room_id: &str) -> Result<Option<serde_json::Value>, sqlx::Error> {
-        let room_exists: Option<(String,)> = sqlx::query_as(r"SELECT room_id FROM rooms WHERE room_id = $1")
-            .bind(room_id)
+        let room_exists: Option<String> = sqlx::query_scalar!(r"SELECT room_id FROM rooms WHERE room_id = $1", room_id)
             .fetch_optional(&*self.pool)
             .await?;
 
@@ -380,36 +385,37 @@ impl RoomStorage {
             return Ok(None);
         }
 
-        let member_count: i64 =
-            sqlx::query_scalar(r"SELECT COUNT(*) FROM room_memberships WHERE room_id = $1 AND membership = 'join'")
-                .bind(room_id)
-                .fetch_one(&*self.pool)
-                .await?;
+        let member_count: i64 = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) AS "count!" FROM room_memberships WHERE room_id = $1 AND membership = 'join'"#,
+            room_id
+        )
+        .fetch_one(&*self.pool)
+        .await?;
 
-        let message_count: i64 =
-            sqlx::query_scalar(r"SELECT COUNT(*) FROM events WHERE room_id = $1 AND event_type = 'm.room.message'")
-                .bind(room_id)
-                .fetch_one(&*self.pool)
-                .await?;
+        let message_count: i64 = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) AS "count!" FROM events WHERE room_id = $1 AND event_type = 'm.room.message'"#,
+            room_id
+        )
+        .fetch_one(&*self.pool)
+        .await?;
 
         let last_message_ts: Option<i64> =
-            sqlx::query_scalar("SELECT MAX(origin_server_ts) FROM events WHERE room_id = $1")
-                .bind(room_id)
+            sqlx::query_scalar!("SELECT MAX(origin_server_ts) FROM events WHERE room_id = $1", room_id)
                 .fetch_optional(&*self.pool)
                 .await?
                 .flatten();
 
-        let is_encrypted: bool = sqlx::query_scalar(
-            r"SELECT EXISTS(SELECT 1 FROM events WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL)",
+        let is_encrypted: bool = sqlx::query_scalar!(
+            r#"SELECT EXISTS(SELECT 1 FROM events WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL) AS "exists!""#,
+            room_id
         )
-        .bind(room_id)
         .fetch_one(&*self.pool)
         .await?;
 
-        let admin_count: i64 = sqlx::query_scalar(
-            r"SELECT COUNT(*) FROM room_memberships WHERE room_id = $1 AND membership = 'join' AND user_id IN (SELECT user_id FROM users WHERE is_admin = true)",
+        let admin_count: i64 = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) AS "count!" FROM room_memberships WHERE room_id = $1 AND membership = 'join' AND user_id IN (SELECT user_id FROM users WHERE is_admin = true)"#,
+            room_id
         )
-        .bind(room_id)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -425,40 +431,40 @@ impl RoomStorage {
 
     /// See [`get_room_listings_status`].
     pub async fn get_room_listings_status(&self, room_id: &str) -> Result<Option<(bool, bool)>, sqlx::Error> {
-        let is_public: Option<bool> = sqlx::query_scalar("SELECT is_public FROM rooms WHERE room_id = $1")
-            .bind(room_id)
-            .fetch_optional(&*self.pool)
-            .await?;
+        let is_public: Option<bool> =
+            sqlx::query_scalar!(r#"SELECT is_public AS "is_public!" FROM rooms WHERE room_id = $1"#, room_id)
+                .fetch_optional(&*self.pool)
+                .await?;
 
         let Some(is_public) = is_public else {
             return Ok(None);
         };
 
-        let in_directory: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM room_directory WHERE room_id = $1)")
-            .bind(room_id)
-            .fetch_one(&*self.pool)
-            .await?;
+        let in_directory: bool = sqlx::query_scalar!(
+            r#"SELECT EXISTS(SELECT 1 FROM room_directory WHERE room_id = $1) AS "exists!""#,
+            room_id
+        )
+        .fetch_one(&*self.pool)
+        .await?;
 
         Ok(Some((is_public, in_directory)))
     }
 
     /// See [`set_room_public_with_directory`].
     pub async fn set_room_public_with_directory(&self, room_id: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query("UPDATE rooms SET is_public = true WHERE room_id = $1")
-            .bind(room_id)
-            .execute(&*self.pool)
-            .await?;
+        let result =
+            sqlx::query!("UPDATE rooms SET is_public = true WHERE room_id = $1", room_id).execute(&*self.pool).await?;
 
         if result.rows_affected() == 0 {
             return Ok(false);
         }
 
         let now = current_timestamp_millis();
-        sqlx::query(
+        sqlx::query!(
             r"INSERT INTO room_directory (room_id, is_public, added_ts) VALUES ($1, true, $2) ON CONFLICT (room_id) DO UPDATE SET is_public = true",
+            room_id,
+            now
         )
-        .bind(room_id)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -467,27 +473,25 @@ impl RoomStorage {
 
     /// See [`set_room_private_with_directory`].
     pub async fn set_room_private_with_directory(&self, room_id: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query("UPDATE rooms SET is_public = false WHERE room_id = $1")
-            .bind(room_id)
-            .execute(&*self.pool)
-            .await?;
+        let result =
+            sqlx::query!("UPDATE rooms SET is_public = false WHERE room_id = $1", room_id).execute(&*self.pool).await?;
 
         if result.rows_affected() == 0 {
             return Ok(false);
         }
 
-        sqlx::query("DELETE FROM room_directory WHERE room_id = $1").bind(room_id).execute(&*self.pool).await?;
+        sqlx::query!("DELETE FROM room_directory WHERE room_id = $1", room_id).execute(&*self.pool).await?;
 
         Ok(true)
     }
 
     /// See [`get_room_version_only`].
     pub async fn get_room_version_only(&self, room_id: &str) -> Result<Option<String>, sqlx::Error> {
-        let result: Option<(String,)> = sqlx::query_as(r"SELECT room_version FROM rooms WHERE room_id = $1")
-            .bind(room_id)
-            .fetch_optional(&*self.pool)
-            .await?;
-        Ok(result.map(|r| r.0))
+        let version: Option<String> =
+            sqlx::query_scalar!(r#"SELECT room_version AS "room_version!" FROM rooms WHERE room_id = $1"#, room_id)
+                .fetch_optional(&*self.pool)
+                .await?;
+        Ok(version)
     }
 
     /// See [`search_all_rooms_admin`].
