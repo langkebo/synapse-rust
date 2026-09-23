@@ -212,34 +212,38 @@ pub(crate) async fn oidc_callback(
         auth_session.nonce.len()
     );
 
-    // 账号接管防护（fail-closed）—— 对齐 `provider.rs:187-201` 的判定，但用的是
-    // issuer+subject 绑定查询（同一个 `oidc_user_mapping_service`）：
-    // 若该 OIDC subject **未绑定**任何 Matrix 用户，而 `localpart` 已被本地账号占用，
-    // 就拒绝签发令牌。否则任何能让 IdP 断言某个已存在 localpart（含 admin）的人，
-    // 都能直接拿到该账号的令牌 —— 即 v1.4 复核指出的 P0（`sso.rs:215-232`）。
-    //
-    // 注意（已知取舍，登记为后续项）：本回调创建新用户时**尚未写入绑定记录**，
-    // 因此由本路径创建的历史账号在下次登录会命中"未绑定 + 同名已被占用"而被拒绝。
-    // 完整修法是像 provider 路径一样在首次登录后 `insert_mapping`；这里先取
-    // 安全的失败方向（拒绝 > 静默接管）。
-    let bound_user_id: Option<String> =
-        ctx.oidc_user_mapping_service.get_bound_user_id(&oidc_service.get_config().issuer, &oidc_user.subject).await?;
+    // 账号接管防护（fail-closed）—— 对齐 `provider.rs:187-201` 的判定，用 issuer+subject 绑定查询
+    // （同一个 `oidc_user_mapping_service`）：若该 OIDC subject **未绑定**任何 Matrix 用户，
+    // 而 `localpart` 已被本地账号占用，就拒绝签发令牌。否则任何能让 IdP 断言某个已存在
+    // localpart（含 admin）的人都能直接拿到该账号的令牌 —— 即 v1.4 复核指出的 P0。
+    let issuer: String = oidc_service.get_config().issuer.clone();
+    let subject: String = oidc_user.subject.clone();
+    let now_ts: i64 = synapse_common::current_timestamp_millis() / 1000;
+
+    let bound_user_id: Option<String> = ctx.oidc_user_mapping_service.get_bound_user_id(&issuer, &subject).await?;
     if bound_user_id.is_none()
         && ctx.account_identity_service.get_user_by_username(&oidc_user.localpart).await?.is_some()
     {
         ::tracing::warn!(
             target: "security_audit",
             event = "oidc_localpart_collision_refused",
-            issuer = %oidc_service.get_config().issuer,
-            subject = %oidc_user.subject,
+            issuer = %issuer,
+            subject = %subject,
             localpart = %oidc_user.localpart,
             "Refusing OIDC callback: localpart already taken by a non-OIDC-bound account",
         );
         return Err(ApiError::unauthorized("OIDC subject is not authorized for this Matrix user".to_string()));
     }
 
-    // Create or log in the Matrix user
-    let user_id: String = format!("@{}:{}", oidc_user.localpart, ctx.server_name);
+    // 已绑定 → 一律沿用**绑定记录**里的 user_id（忽略 IdP 当前下发的 localpart），并刷新最近登录时间；
+    // 未绑定（首次登录，且上面已确认同名未被占用）→ 用 IdP 的 localpart 建号，随后写入绑定。
+    let user_id: String = match bound_user_id {
+        Some(bound) => {
+            ctx.oidc_user_mapping_service.update_last_authenticated(&issuer, &subject, now_ts).await?;
+            bound
+        }
+        None => format!("@{}:{}", oidc_user.localpart, ctx.server_name),
+    };
 
     let existing_user = ctx.account_identity_service.get_user_by_username(&oidc_user.localpart).await?;
 
@@ -263,7 +267,12 @@ pub(crate) async fn oidc_callback(
         let displayname: Option<&str> = oidc_user.displayname.as_deref();
 
         match ctx.credential_auth.register(&oidc_user.localpart, &random_password, false, displayname).await {
-            Ok(result) => result,
+            Ok(result) => {
+                // 首次登录：写入 `(issuer, subject) → user_id` 绑定，使后续登录由**绑定**授权，
+                // 而不是由 IdP 每次下发的 localpart 决定（与 `provider.rs:210` 同一顺序）。
+                ctx.oidc_user_mapping_service.insert_mapping(&issuer, &subject, &user_id, now_ts).await?;
+                result
+            }
             Err(e) => {
                 // Check if user was created by another request (race condition)
                 let error_msg: String = e.to_string();
