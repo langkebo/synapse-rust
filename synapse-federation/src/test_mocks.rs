@@ -41,6 +41,8 @@ pub struct MockFederationClient {
     send_leave_responses: Arc<RwLock<HashMap<String, SendLeaveResponse>>>,
     invite_responses: Arc<RwLock<HashMap<String, InviteResponse>>>,
     backfill_responses: Arc<RwLock<HashMap<String, BackfillResponse>>>,
+    send_join_calls: Arc<std::sync::atomic::AtomicUsize>,
+    send_leave_calls: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 /// Implementation of [`MockFederationClient`] methods.
@@ -57,6 +59,8 @@ impl MockFederationClient {
             send_leave_responses: Arc::new(RwLock::new(HashMap::new())),
             invite_responses: Arc::new(RwLock::new(HashMap::new())),
             backfill_responses: Arc::new(RwLock::new(HashMap::new())),
+            send_join_calls: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            send_leave_calls: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }
     }
 
@@ -106,6 +110,19 @@ impl MockFederationClient {
     /// Snapshot of all outbound transactions recorded so far.
     pub async fn sent_transactions(&self) -> Vec<FederationTransaction> {
         self.sent_transactions.read().await.clone()
+    }
+
+    /// How many times `send_join` has been called.
+    ///
+    /// Used to prove that a rejected `make_join` template aborts the flow
+    /// **before** anything is signed or submitted.
+    pub fn send_join_call_count(&self) -> usize {
+        self.send_join_calls.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// How many times `send_leave` has been called.
+    pub fn send_leave_call_count(&self) -> usize {
+        self.send_leave_calls.load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 
@@ -176,6 +193,7 @@ impl crate::client_api::FederationClientApi for MockFederationClient {
         _event_id: &str,
         _event: &serde_json::Value,
     ) -> Result<SendJoinResponse, FederationClientError> {
+        self.send_join_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.send_join_responses
             .read()
             .await
@@ -205,6 +223,7 @@ impl crate::client_api::FederationClientApi for MockFederationClient {
         _event_id: &str,
         _event: &serde_json::Value,
     ) -> Result<SendLeaveResponse, FederationClientError> {
+        self.send_leave_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.send_leave_responses
             .read()
             .await

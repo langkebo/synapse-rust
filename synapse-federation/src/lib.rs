@@ -37,6 +37,8 @@ pub mod friend;
 pub mod key_rotation;
 /// The `memory_tracker` module.
 pub mod memory_tracker;
+
+pub mod make_response_validation;
 /// The `server_acl` module.
 pub mod server_acl;
 /// The `signing` module.

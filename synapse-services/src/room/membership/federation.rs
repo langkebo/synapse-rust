@@ -60,6 +60,20 @@ impl MembershipService {
         let room_version = make_join_response.room_version.unwrap_or_else(|| "10".to_string());
         let mut event_template = make_join_response.event;
 
+        // Spec PR #2284 / Synapse #20189: never sign an unvalidated template.
+        // A malicious resident server could otherwise have us sign a
+        // `membership: ban` (or a different sender/state_key).
+        synapse_federation::make_response_validation::validate_make_membership_template(
+            &event_template,
+            room_id,
+            user_id,
+            "join",
+        )
+        .map_err(|e| {
+            ::tracing::warn!(error = %e, room_id = %room_id, destination = %destination, "make_join template rejected");
+            ApiError::bad_request(format!("Remote make_join response is malformed: {e}"))
+        })?;
+
         // 2. Sign the template event locally.
         let signing_key = self.require_signing_key().await?;
         sign_and_hash_event(&self.server_name, &signing_key.key_id, &signing_key.secret_key, &mut event_template)
@@ -314,6 +328,18 @@ impl MembershipService {
         })?;
 
         let mut event_template = make_leave_response.event;
+
+        // Spec PR #2284 / Synapse #20189: never sign an unvalidated template.
+        synapse_federation::make_response_validation::validate_make_membership_template(
+            &event_template,
+            room_id,
+            user_id,
+            "leave",
+        )
+        .map_err(|e| {
+            ::tracing::warn!(error = %e, room_id = %room_id, destination = %destination, "make_leave template rejected");
+            ApiError::bad_request(format!("Remote make_leave response is malformed: {e}"))
+        })?;
 
         // 2. Sign the template event locally.
         let signing_key = self.require_signing_key().await?;
@@ -718,5 +744,92 @@ mod join_persistence_failure_tests {
         assert!(result.is_err(), "事件持久化失败必须 fail-closed，不得静默返回 Ok(())");
         let is_member = member_storage.is_member(room_id, user_id).await.expect("membership lookup");
         assert!(!is_member, "事件未持久化时不得宣称用户已加入，否则本地成员表与事件图分叉");
+    }
+
+    /// B2（§12.5 旧清单口径）：`make_join` 返回的模板在**签名之前**必须校验。
+    ///
+    /// 恶意常驻服务器返回 `content.membership = "ban"` 时，加入方不得签名、
+    /// 更不得调用 `send_join`——否则本服务器的签名会落在攻击者选定的成员事件上
+    /// （上游 synapse #20189 / 规范 PR #2284）。
+    #[tokio::test]
+    async fn join_rejects_make_join_template_with_wrong_membership_before_signing() {
+        let pool = match crate::test_utils::prepare_isolated_test_pool().await {
+            Ok(pool) => pool,
+            Err(error) => {
+                eprintln!("Skipping make_join validation test, test database unavailable: {error}");
+                return;
+            }
+        };
+
+        let server = "test.example.com";
+        let destination = "remote.example.com";
+        let room_id = "!fedjoinbad:remote.example.com";
+        let user_id = "@joiner:test.example.com";
+
+        let event_storage = StdArc::new(EventStorage::new(&pool, server.to_string()));
+        let event_reader: StdArc<dyn EventReader> = event_storage.clone();
+        let event_writer: StdArc<dyn EventWriter> = event_storage;
+        let member_storage: StdArc<dyn MemberStoreApi> = StdArc::new(InMemoryMemberStore::new());
+        let room_storage: StdArc<dyn RoomStoreApi> = StdArc::new(RoomStorage::new(&pool));
+
+        let federation_client = StdArc::new(MockFederationClient::new(server));
+        federation_client
+            .seed_make_join(
+                room_id,
+                MakeJoinResponse {
+                    room_id: room_id.to_string(),
+                    room_version: Some("10".to_string()),
+                    // The attack: a template that would have us sign a ban.
+                    event: serde_json::json!({
+                        "room_id": room_id,
+                        "sender": user_id,
+                        "type": "m.room.member",
+                        "state_key": user_id,
+                        "content": {"membership": "ban"},
+                    }),
+                },
+            )
+            .await;
+
+        let user_storage: StdArc<dyn UserStore> = StdArc::new(FakeUserStore::new());
+        let user_service = StdArc::new(UserService::new(user_storage.clone()));
+        let room_summary_service = StdArc::new(RoomSummaryService::new(
+            StdArc::new(InMemoryRoomSummaryStore::new()),
+            event_reader.clone(),
+            Some(member_storage.clone()),
+        ));
+
+        let svc = MembershipService::new(MembershipServiceConfig {
+            member_storage: member_storage.clone(),
+            room_storage,
+            event_reader,
+            event_writer,
+            user_storage,
+            user_service,
+            room_auth: StdArc::new(FakeRoomAuth::new()),
+            server_name: server.to_string(),
+            federation_client: Some(federation_client.clone()),
+            // The check must run *before* the signing key is fetched.  Deliberately
+            // providing no key manager means a regression that signs first fails
+            // here with "no signing key" instead of silently signing a ban.
+            key_rotation_manager: None,
+            event_broadcaster: None,
+            room_summary_service,
+            cache: StdArc::new(CacheManager::new(&CacheConfig::default())),
+            key_rotation_storage: None,
+            app_service_manager: None,
+            db_pool: None,
+            policy_service: None,
+            invite_policy_gate: StdArc::new(FakeInvitePolicyGate::new()),
+        });
+
+        let result = svc.join_room_via_federation(destination, room_id, user_id).await;
+        let err = result.expect_err("a make_join template with membership=ban must be rejected");
+        assert!(err.to_string().contains("malformed"), "unexpected error: {err}");
+        assert_eq!(
+            federation_client.send_join_call_count(),
+            0,
+            "a rejected template must never reach send_join (that is where our signature would leak)"
+        );
     }
 }
