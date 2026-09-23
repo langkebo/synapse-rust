@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT room_id, event_id, user_id, receipt_type, ts, data AS \"data!\"\n            FROM event_receipts\n            WHERE room_id = ANY($1::text[])\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "receipt_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "data!",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "14841c9548592c88d05253ae11cdcef68c2dee7f3df0a44e71fc503449fe7ab7"
+}

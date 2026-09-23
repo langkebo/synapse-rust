@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM sliding_sync_rooms\n            WHERE user_id = $1 AND device_id = $2\n              AND room_id = ANY($3::text[])\n              AND (conn_id = $4 OR ($4 IS NULL AND conn_id IS NULL))\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "94ee9e8baa91539aa091029aa105fbd2472fcc8ba79a93ec8ed407a6103c2be5"
+}

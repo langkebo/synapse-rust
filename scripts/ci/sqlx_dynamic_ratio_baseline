@@ -1106,11 +1106,126 @@
 #   dynamic            1641 → 1616
 #   dynamic_test       704 → 704   （未动）
 # 收紧方向：C4/C5/C9 等剩余批次继续分批静态化，直至 dynamic_production = 0。
-BASELINE_DYNAMIC_PRODUCTION=912
+# ── 2026-09-23 C13 静态化（生产动态 -22，静态 +22）────────────────────────────
+#
+# 批次：C13。目标文件：synapse-storage/src/sliding_sync/repository.rs（22 处生产动态）。
+# 提交：3d1464fd5（源码）/ 本提交（.sqlx + 基线）。
+#
+# ✅ STEP 0（feature gate）实测：`sliding_sync` **没有** `#[cfg(feature = …)]` 门控。
+#   `synapse-storage/src/lib.rs:128-129` 是普通文档注释 + `pub mod sliding_sync;`
+#   （上一行不是属性），`grep -c 'cfg(feature' synapse-storage/src/sliding_sync/*.rs` = 0。
+#   因此本批**不需要**额外 feature，验证口径沿用已转模块所需的
+#   `test-utils,server-notifications,saml-sso`。
+#   测试过滤器实测**非零**：`-E 'test(sliding_sync)'` → **67 tests run: 67 passed,
+#   0 failed（11 slow，1555 skipped）**，未出现 C6/C9/C11 那种 "0 tests" 假绿
+#   （该过滤器同时命中 `sliding_sync::db_tests`（31 个真实 DB 往返）、
+#   `sliding_sync::tests`/`repository::tests`（纯单元）与
+#   `test_mocks::tests::sliding_sync_*`（7 个内存替身））。
+#
+# 该文件 22 处生产动态调用**全部**静态化（生产区剩余动态 = 0）：
+#   query_as!     × 9（SlidingSyncToken / SlidingSyncList / SlidingSyncRoom /
+#                     AdminRoomTokenSyncEntry 的行映射与 INSERT/UPDATE … RETURNING）
+#   query_scalar! × 4（EXISTS 成员探测、MAX(origin_server_ts)、COUNT(*)、
+#                     validate_pos 的 `pos = $4`）
+#   query!        × 9（DELETE/UPDATE 可执行语句；get_global_account_data /
+#                     get_room_account_data / get_receipts_for_rooms 原
+#                     `query` + `Row::get` 改为匿名记录按字段取值；room_meta 原
+#                     `query_as::<_, (Option<String>, Option<String>)>` 元组改为匿名记录）
+#
+# 静态化时补的 nullability / 类型覆盖（schema 取自 `\d` 实测，非猜测）：
+#   * `sliding_sync_rooms` 的 highlight_count / notification_count / is_dm /
+#     is_encrypted / is_tombstoned / is_invited 六列在 catalog 中**可空**
+#     （`INTEGER/BOOLEAN DEFAULT …`，无 NOT NULL），而 `SlidingSyncRoom` 字段分别是
+#     非 Option 的 i32/i32/bool×4 ⇒ `AS "col!"`（旧 FromRow 动态形式在 NULL 时同样
+#     解码失败；且 upsert_room 总是显式绑定这六列，语义不变）。
+#   * `sliding_sync_lists.sort` 列可空（`jsonb DEFAULT '[]'`）而字段是
+#     `serde_json::Value`（非 Option）⇒ `AS "sort!"`（save_list 的 INSERT 恒绑定）。
+#   * 五处 `RETURNING *` / 显式 SELECT 展开为列清单：`query_as!` 不用 FromRow，而是
+#     按 describe 的列名直接构造结构体字面量（sqlx-macros-core/src/query/output.rs
+#     的 quote_query_as：`T { <col>: <var>, … }`，且用
+#     `try_get_unchecked::<ExactType>(…).into()`）⇒ 多一列 E0560、少一列 E0063，
+#     且字段类型必须与宏推断的 `Option` 包裹**精确**一致。
+#   * **LEFT JOIN 外侧列**（C9 登记的 sqlx 同型陷阱）：`list_room_token_sync` 的
+#     `tokens.pos` / `tokens.created_ts` / `tokens.expires_at` 来自
+#     `LEFT JOIN sliding_sync_tokens`，而 `AdminRoomTokenSyncEntry` 的
+#     pos / token_created_ts / token_expires_at 是 `Option<i64>`。PG 把
+#     resorigtbl/resorigcol 透传到底层列（pos 在 catalog 中 NOT NULL）⇒ 宏会推断
+#     非空，故显式 `AS "pos?"` / `AS "token_created_ts?"` / `AS "token_expires_at?"`。
+#     ⚠️ 这三处**已在运行期验证**：两个 `list_room_token_sync` DB 用例只
+#     `upsert_room` 而**从不**写 `sliding_sync_tokens`，LEFT JOIN 必然未命中、
+#     三列全为 NULL（`test_list_room_token_sync_without_cursor` 断言
+#     `name == Some("Room")` 且 `is_expired == false`，即走的正是该分支）。
+#   * 表达式列无 relation origin ⇒ 一律被推断为可空：
+#     `COALESCE(tokens.expires_at IS NOT NULL AND … , FALSE) AS "is_expired!"`
+#     （字段非 Option bool）、`SELECT (pos = $4) AS "matches!"`、
+#     `SELECT EXISTS(…) AS "is_member!"`。
+#   * 绑定风格（宏 ty_match 比 `.bind()` 严格）：`&cursor.user_id` / `&cursor.device_id`
+#     （`&String`）→ `.as_str()`；`bump_types.as_slice()` / `room_ids`（已是 `&[String]`）
+#     保持精确 `&[String]`。
+#   * `validate_pos` 原为 `query_as::<_, (bool,)>`（元组，`query_as!` 不收）⇒ 改
+#     `query_scalar!`，并把 `result.is_some_and(|r| r.0)` 改为 `matches.unwrap_or(false)`。
+#   * `event_receipts.data` **列可空**而旧代码用 `sqlx::Row::get(&row, "data")` 硬读
+#     非空 ⇒ `AS "data!"`（`!` 是原样发给 PG 的标识符后缀，只影响宏的空值检查）。
+#     注意此处**不是**等义无变化：旧 `Row::get` 在遇 NULL 时是 **panic**，新形式是
+#     返回 `Err`；两者都失败，但新形式不再 panic（方向更安全，未改变成功路径）。
+#   * `account_data.content` / `room_account_data.data` 实测 **NOT NULL** ⇒ 无需覆盖。
+#
+# 保留动态（**非**漏做）：
+#   1–2. `get_rooms_for_list`（~L276）与 `count_rooms_for_list`（~L306）用
+#        `QueryBuilder::<Postgres>` + `push_bind` / `push_room_filters` **运行期拼装**
+#        （filters 决定 WHERE 子句形态），SQL 文本非编译期常量，按规则保留动态。
+#        这两处**不计入**棘轮任一侧（census 单列 `query_builder`，全仓 18 处未变）。
+#
+# 未发现需要单独登记的既有 SQL 缺陷；本轮所有 `!` / `?` 覆盖都严格复刻旧
+# FromRow / `Row::get` 的非空假设（或把 LEFT JOIN 已存在的可空性显式化），
+# 未借静态化改动任何行为。
+#
+# ⚠️ 运行期覆盖提示：22 处中，`list_room_token_sync` 的**游标分支**（~L659）在既有
+#   测试口径下**无直接用例**（两个 db 用例都传 `from = None`）；其投影列与本轮已被
+#   运行期验证的非游标分支**逐列相同**（只差 WHERE 与参数个数），编译期已按真实
+#   schema 校验参数类型。收紧方向：补一个传 `Some(&RoomTokenSyncCursor{…})` 的 DB 用例。
+#
+# ⚠️ `.sqlx`：destination 就是 `.sqlx/` 本身，`cargo sqlx prepare` 先清后写。
+#   isolated worktree target/c13-wt @ HEAD 7eb0ff203 + target/c13.patch：
+#     SQLX_OFFLINE=false DATABASE_URL=… \
+#       cargo sqlx prepare --workspace -- --features server-notifications,saml-sso
+#   实测 before=579 after=601，**deleted=0 / added=22**（文件名集合 comm 逐条核对；
+#   22 个宏站点各 1 条，无哈希合并），0 个既有条目被修改（`git status .sqlx` 全为 `??`）。
+#   prepared 首次编译即 Finished，零回退。
+#
+# 验证（isolated worktree target/c13-wt，**无需任何越界修补**——HEAD 已能编译）：
+#   SQLX_OFFLINE=true cargo check -p synapse-storage
+#     --features test-utils,server-notifications,saml-sso（touch repository.rs 强制
+#     宏重展开）→ Finished（22.6s；证明提交的 .sqlx 离线可复现）
+#     ⚠️ 反向自证（AGENTS.md 铁律 8）：临时移走 22 条新条目中的 1 条后重跑同命令
+#     → `error: SQLX_OFFLINE=true but there is no cached data for this query`
+#     + `could not compile synapse-storage`，随即还原（601 条）——证明该缓存真的被读取，
+#     而非"命令跑绿但没生效"。
+#   TEST_DATABASE_URL=… TEST_DB_TEMPLATE_SCHEMA=test_template_ci cargo nextest run
+#     -p synapse-storage --lib --features test-utils,server-notifications,saml-sso
+#     -E 'test(sliding_sync)' --no-fail-fast
+#     → **67 tests run: 67 passed, 0 failed**（11 slow，1555 skipped，283.8s）
+#     含 test_materialize_default_bump_types_include_beacon_info_not_topic /
+#     test_materialize_honors_explicit_bump_event_types（覆盖 is_member EXISTS、
+#     MAX(origin_server_ts)、rooms 的 name/avatar_url 匿名记录）、
+#     test_upsert_room_insert_and_update / test_sliding_sync_room_is_invited_column /
+#     test_update_notification_counts（覆盖 6 个 `AS "col!"`）、
+#     test_list_room_token_sync_*（覆盖 LEFT JOIN 的 `?` 覆盖与 is_expired 的 `!`）、
+#     test_get_receipts_for_rooms_with_rows（覆盖 `data!`）。
+#
+# 运行期回退：**无**（没有任何一处因 `ColumnDecode … UnexpectedNullError` 回退）。
+#
+# 实测（main 树，门禁同源；本轮无并发写者新增生产动态）：
+#   dynamic_production 912 → 890   （C13 自身 -22）
+#   static             602 → 624   （+22）
+#   dynamic            1616 → 1594
+#   dynamic_test       704 → 704   （未动）
+# 收紧方向：C4/C5 等剩余批次继续分批静态化，直至 dynamic_production = 0。
+BASELINE_DYNAMIC_PRODUCTION=890
 BASELINE_DYNAMIC_TEST_INFRA=704
-BASELINE_STATIC=602
+BASELINE_STATIC=624
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1616
+BASELINE_DYNAMIC=1594
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

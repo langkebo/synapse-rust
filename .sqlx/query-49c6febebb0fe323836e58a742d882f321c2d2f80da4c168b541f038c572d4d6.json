@@ -1,0 +1,72 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, user_id, device_id, conn_id, token, pos, created_ts, expires_at, event_stream_pos FROM sliding_sync_tokens\n            WHERE user_id = $1 AND device_id = $2 AND (conn_id = $3 OR ($3 IS NULL AND conn_id IS NULL))\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "device_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "conn_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "token",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "pos",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "expires_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "event_stream_pos",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "49c6febebb0fe323836e58a742d882f321c2d2f80da4c168b541f038c572d4d6"
+}

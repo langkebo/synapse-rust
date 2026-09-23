@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT EXISTS(\n                SELECT 1\n                FROM room_memberships\n                WHERE room_id = $1 AND user_id = $2 AND membership = 'join'\n            ) AS \"is_member!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "is_member!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "3b5124a562d10ca2f3806adc5310198eb16c32cd87bf42040441a7db526f2368"
+}

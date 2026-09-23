@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT MAX(origin_server_ts)\n            FROM events\n            WHERE room_id = $1 AND event_type = ANY($2) AND soft_failed = FALSE\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "max",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "69bcee230ecf2ab831be0ea86fd0762cfb90e800be4df1cbee0f79acd99eac04"
+}

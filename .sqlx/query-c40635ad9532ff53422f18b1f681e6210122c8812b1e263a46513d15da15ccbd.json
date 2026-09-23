@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO sliding_sync_tokens (user_id, device_id, token, conn_id, pos, created_ts, expires_at, event_stream_pos)\n            VALUES ($1, $2, $3, $4, nextval('sliding_sync_pos_seq'), $5, $6, $7)\n            ON CONFLICT (user_id, device_id, COALESCE(conn_id, ''::text)) DO UPDATE SET\n                pos = nextval('sliding_sync_pos_seq'),\n                expires_at = EXCLUDED.expires_at,\n                event_stream_pos = EXCLUDED.event_stream_pos\n            RETURNING id, user_id, device_id, conn_id, token, pos, created_ts, expires_at, event_stream_pos\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "device_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "conn_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "token",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "pos",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "expires_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "event_stream_pos",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "c40635ad9532ff53422f18b1f681e6210122c8812b1e263a46513d15da15ccbd"
+}

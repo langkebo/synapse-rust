@@ -1,0 +1,84 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, user_id, device_id, conn_id, list_key, sort AS \"sort!\", filters, room_subscription, ranges, created_ts, updated_ts FROM sliding_sync_lists\n            WHERE user_id = $1 AND device_id = $2 AND (conn_id = $3 OR ($3 IS NULL AND conn_id IS NULL))\n            ORDER BY created_ts ASC, id ASC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "device_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "conn_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "list_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "sort!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "filters",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "room_subscription",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "ranges",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "354106c82405f2417ad4d8e373e7634bd88d067e80d858802f1222daa52c6700"
+}

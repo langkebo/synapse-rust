@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE sliding_sync_rooms\n            SET bump_stamp = GREATEST(bump_stamp, $5), updated_ts = $6\n            WHERE user_id = $1 AND device_id = $2 AND room_id = $3 AND (conn_id = $4 OR ($4 IS NULL AND conn_id IS NULL))\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "28059758f65fcede93d84bea8639d68bcea25f8047473466ac213005dab0bb8d"
+}
