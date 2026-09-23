@@ -1,0 +1,85 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH fb AS (\n                SELECT id FROM device_keys\n                WHERE user_id = $1 AND device_id = $2 AND algorithm = $3 AND is_fallback = TRUE\n                LIMIT 1\n            )\n            UPDATE device_keys\n            SET fallback_used = TRUE, ts_updated_ms = $4\n            WHERE id IN (SELECT id FROM fb)\n            RETURNING\n                user_id,\n                device_id,\n                algorithm,\n                key_id,\n                public_key,\n                signatures,\n                display_name,\n                added_ts,\n                ts_updated_ms,\n                key_data,\n                is_fallback\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "device_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "algorithm",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "key_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "public_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "signatures",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "display_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "added_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "ts_updated_ms",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "key_data",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "is_fallback",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "eba85b8fea60ea2e75732a08c2f024cbb4ea570f79d451b056951f7b37eadc38"
+}

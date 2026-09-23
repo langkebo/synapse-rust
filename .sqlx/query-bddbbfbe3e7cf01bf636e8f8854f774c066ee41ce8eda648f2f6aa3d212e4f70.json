@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT DISTINCT algorithm\n            FROM device_keys\n            WHERE user_id = $1 AND device_id = $2 AND is_fallback = TRUE AND fallback_used = FALSE\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "algorithm",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "bddbbfbe3e7cf01bf636e8f8854f774c066ee41ce8eda648f2f6aa3d212e4f70"
+}

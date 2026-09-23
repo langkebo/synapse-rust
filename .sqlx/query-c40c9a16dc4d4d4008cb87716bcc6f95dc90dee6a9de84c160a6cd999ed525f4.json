@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT user_id, COUNT(DISTINCT device_id) AS \"device_count!\"\n            FROM device_keys\n            WHERE user_id = ANY($1) AND (is_fallback = FALSE OR is_fallback IS NULL)\n            GROUP BY user_id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "device_count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "c40c9a16dc4d4d4008cb87716bcc6f95dc90dee6a9de84c160a6cd999ed525f4"
+}

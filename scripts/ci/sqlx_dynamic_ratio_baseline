@@ -725,11 +725,113 @@
 # 收紧方向：C4/C5/C10/C11 继续分批静态化；上述 3 处保留项各自按登记的收紧方向处理
 # （jsonb_to_recordset 单参形态 / 决定 get_statistics 的载荷契约或直接删除该方法），
 # 直至 dynamic_production = 0。
-BASELINE_DYNAMIC_PRODUCTION=990
+# ── 2026-09-23 C10 静态化（生产动态 -26，静态 +26）────────────────────────────
+#
+# 批次：C10（docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md）。
+# 文件：synapse-e2ee/src/device_keys/storage.rs。
+#
+# 该文件 26 处生产动态调用**全部**静态化（生产区剩余动态 = 0）：
+#   query_as!     × 6（DeviceKeyRow 行映射 ×4、claim_one_time_key 的
+#                     CTE DELETE/UPDATE … RETURNING ×2）
+#   query_scalar! × 6（INSERT … RETURNING stream_id、SELECT DISTINCT algorithm、
+#                     SELECT DISTINCT user_id ×2、COUNT() ×2）
+#   query!        ×14（CREATE TABLE + CREATE INDEX ×3、INSERT/UPDATE/DELETE
+#                     可执行语句 ×6、两处多列分组投影、device_lists_changes 写入）
+#
+# ⚠️ 本轮**首次静态化 DDL**（4 处 CREATE TABLE / CREATE INDEX）——本文件旧文中
+# “DDL 无法用 query! 静态化”的结论需要收窄到 `#[cfg(test)]`：
+#   * Postgres 的 SQL 层 `PREPARE` 只接受 SELECT/INSERT/UPDATE/DELETE/MERGE/VALUES，
+#     但 sqlx 走的是**扩展查询协议**的 Parse/Describe：utility statement 被接受、
+#     Describe 返回 NoData；
+#   * sqlx-macros-core 的 `query!` 在“输出列全为 void”时（src/query/mod.rs
+#     `all(|it| it.type_info().is_void())` 分支）退化为普通 Query，故
+#     `query!(...).execute(...)` 正常工作；
+#   * 实测：`SQLX_OFFLINE=false cargo check -p synapse-e2ee --all-features` 通过
+#     （真实 DB describe），且 worktree 内运行期 `create_tables()` 实跑通过。
+#   生产 DDL 因此可回收；但 `#[cfg(test)]` 内的 DDL 仍不可，因为那些宏不进
+#   `cargo sqlx prepare`（默认 target 集），本文件旧登记仍然成立。
+#
+# 静态化时补的 nullability / 类型覆盖（表达式/聚合列无 relation origin，sqlx 一律推断可空）：
+#   * get_device_count `COUNT(DISTINCT device_id)` → `AS "count!"`；
+#     get_one_time_keys_count `COUNT(*)` → `AS "count!"`；
+#     get_device_counts_batch `COUNT(DISTINCT device_id)` → `AS "device_count!"`；
+#     get_one_time_keys_count_by_algorithm `COUNT(*)` → `AS "count!"`。
+#     四者均为标量/分组聚合、恒非空，`!` 覆盖无运行期风险（已由 DB 用例实跑确认）。
+#   * `SELECT DISTINCT algorithm` / `SELECT DISTINCT user_id`（device_keys ×1、
+#     device_lists_stream ×2）改用 `query_scalar!`，删除原先的 `Row::get` 手工投影；
+#     `get_key_changes_with_left` 的 LEFT JOIN 只取**左侧** dl.user_id（NOT NULL），
+#     不涉及 C6 的“LEFT JOIN 外侧列需 `?`”陷阱。
+#   * `AS "count!"` / `AS "device_count!"` 是**带 `!` 的 SQL 标识符**、原样发给 PG：
+#     两处分组查询把原别名 `AS count` / `AS device_count` 直接替换；本文件没有
+#     `ORDER BY <别名>`，故不涉及 C2/C7 的“按别名排序失配”陷阱。
+#   * `&Option<String>` 绑定（display_name）改为 `.as_deref()`：宏的 ty_match 不接受
+#     `&Option<String>`（旧 `.bind()` 接受）。
+#   * DeviceKeyRow.is_fallback: Option<bool> ← NOT NULL 的 is_fallback 列：
+#     `query_as!` 生成 `try_get_unchecked::<bool,_>(..)?.into()`，由
+#     `impl From<T> for Option<T>` 完成，无需 `AS "is_fallback?"`。
+#   * 全文件不再使用 `Row`，`use sqlx::{PgPool, Row}` 去掉 `Row`。
+#
+# 测试模块（`#[cfg(test)] mod tests`）内无任何 sqlx 调用，dynamic_test 保持 696。
+#
+# `.sqlx`：`SQLX_OFFLINE=false cargo sqlx prepare --workspace -- --features
+# server-notifications,saml-sso`（同一 worktree）。实测 before=504 after=526，
+# **deleted=0 / added=22 / modified=0**（文件名集合 comm 逐条核对）。26 个宏站点
+# 只新增 22 条：device_lists_stream / device_lists_changes 两条 INSERT（以及另外
+# 2 条查询）与既有条目同哈希而合并（C2 在 synapse-storage/src/device/mod.rs 有
+# 同文本查询）。4 条 DDL 条目均为 `"columns": []` / `"parameters": {"Left": []}`，
+# 离线可用。
+#
+# 验证（isolated worktree target/c10-wt @ HEAD 1157099d4）：
+#   SQLX_OFFLINE=true cargo check -p synapse-e2ee --all-features → Finished
+#     （touch 本文件强制宏重新展开，证明提交的 .sqlx 离线可复现）
+#   SQLX_OFFLINE=false cargo check -p synapse-e2ee --all-features → Finished
+#     （真实 DB describe 全部 26 个宏）
+#   **漂移红证明**：把 get_device_key 的投影 `key_id` 改成 `key_id_x` 后
+#     SQLX_OFFLINE=false cargo check → `error: column "key_id_x" does not exist`
+#     + E0282（exit 101）；改回后 Finished。
+#   cargo nextest run -p synapse-e2ee --lib --features test-utils
+#     -E 'test(device_keys)' → **44 passed, 0 failed**。
+#   ⚠️ 上面 44 例里 43 例只走 `InMemoryDeviceKeyStore` 假实现（models.rs /
+#     service.rs 的既有测试**一条真实 SQL 都不执行**），因此 worktree 内另补了一个
+#     **临时** DB 往返用例（`c10_runtime_verify`，仅存在于 worktree、不提交），
+#     逐站点实跑全部 26 处静态化查询：create_tables DDL ×4、create_device_key /
+#     create_fallback_key、get_device_key(s)、get_all_device_keys(_batch)、
+#     get_device_count(s)_batch、get_unused_fallback_key_types、
+#     get_one_time_keys_count(_by_algorithm)、claim_one_time_key 的 OTK/fallback
+#     两条 CTE、store_signature、record_device_list_change_best_effort、
+#     get_key_changes(_with_left)、delete_fallback_keys / delete_device_key /
+#     delete_device_keys → **PASS**（26.2s，isolated schema 克隆自
+#     migrations/00000000_unified_schema_v12.sql）。
+#
+# 运行期回退：**无**。首轮临时用例唯一一次失败是断言写错——我误以为
+# `get_one_time_keys_count_by_algorithm` 会统计 fallback 行，实际该查询按设计
+# 带 `is_fallback = FALSE` 过滤；修正断言后 PASS，与转换无关。
+#
+# ⚠️ worktree 另需 1 处**仅验证用、未提交**的越界修补才能让 workspace 编译
+# （并发写者 3d20035ec「MSC4512 AS Proxy」在 HEAD 上遗留的缺陷，与本批无关，
+# main 树未动）：
+#   synapse-web/src/routes/app_service.rs 的 proxy_to_as：
+#     ① `use http_body_util::BodyExt;` —— http-body-util 不在 synapse-web 的依赖
+#        图中（且未使用）⇒ 删除；
+#     ② `ctx.http_client` —— AdminContext 上无此字段（E0609）⇒ 改
+#        `reqwest::Client::new()`；
+#     ③ `ApiError::internal_with_cause(format!(…), e)` 需要 `&str` ⇒ 加 `&`。
+#   （与 C9 段登记的三点一致；`synapse-services/src/test_config.rs` 的
+#     `content_scanner` 字段已在祖先提交 e087f5c05 补齐，本轮无需再补。）
+#
+# 实测（同一工作树，门禁同源）：
+#   dynamic_production 990 → 964   （C10 自身 -26）
+#   static              523 → 549   （+26）
+#   dynamic            1686 → 1660
+#   本轮门禁实测值与上表一致（并发写者未新增生产动态 SQL）。
+# 收紧方向：C11（synapse-common/src/test_isolation.rs）与 E2EE 其余存储模块
+# （device_trust 17 / key_rotation 18 / backup 18 处动态）继续分批静态化，
+# 直至 dynamic_production = 0。
+BASELINE_DYNAMIC_PRODUCTION=964
 BASELINE_DYNAMIC_TEST_INFRA=696
-BASELINE_STATIC=523
+BASELINE_STATIC=549
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1686
+BASELINE_DYNAMIC=1660
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

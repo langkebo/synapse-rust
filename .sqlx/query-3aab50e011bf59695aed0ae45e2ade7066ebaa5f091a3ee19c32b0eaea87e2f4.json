@@ -1,0 +1,84 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH target AS (\n                SELECT id FROM device_keys\n                WHERE user_id = $1 AND device_id = $2 AND algorithm = $3 AND (is_fallback = FALSE OR is_fallback IS NULL)\n                LIMIT 1\n            )\n            DELETE FROM device_keys\n            WHERE id IN (SELECT id FROM target)\n            RETURNING\n                user_id,\n                device_id,\n                algorithm,\n                key_id,\n                public_key,\n                signatures,\n                display_name,\n                added_ts,\n                ts_updated_ms,\n                key_data,\n                is_fallback\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "device_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "algorithm",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "key_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "public_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "signatures",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "display_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "added_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "ts_updated_ms",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "key_data",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "is_fallback",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "3aab50e011bf59695aed0ae45e2ade7066ebaa5f091a3ee19c32b0eaea87e2f4"
+}
