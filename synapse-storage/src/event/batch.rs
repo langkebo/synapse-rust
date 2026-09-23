@@ -252,65 +252,6 @@ impl EventStorage {
         Ok(row.is_some())
     }
 
-    /// See [`get_latest_events_for_rooms`].
-    pub async fn get_latest_events_for_rooms(
-        &self,
-        room_ids: &[String],
-        _limit_per_room: i64,
-    ) -> Result<std::collections::HashMap<String, RoomEvent>, sqlx::Error> {
-        if room_ids.is_empty() {
-            return Ok(std::collections::HashMap::new());
-        }
-
-        let events: Vec<RoomEvent> = sqlx::query_as(
-            r"
-            SELECT DISTINCT ON (room_id)
-                   event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts,
-                   COALESCE(origin_server_ts, 0) as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, COALESCE(origin, 'self') as origin, stream_ordering, redacts
-            FROM events
-            WHERE room_id = ANY($1)
-            ORDER BY room_id, origin_server_ts DESC
-            ",
-        )
-        .bind(room_ids)
-        .fetch_all(&*self.pool)
-        .await?;
-
-        Ok(events.into_iter().map(|e| (e.room_id.clone(), e)).collect())
-    }
-
-    /// See [`get_room_message_counts_batch`].
-    pub async fn get_room_message_counts_batch(
-        &self,
-        room_ids: &[String],
-    ) -> Result<std::collections::HashMap<String, i64>, sqlx::Error> {
-        if room_ids.is_empty() {
-            return Ok(std::collections::HashMap::new());
-        }
-
-        let rows: Vec<(String, i64)> = sqlx::query_as(
-            r"
-            SELECT room_id, COUNT(*) as count
-            FROM events
-            WHERE room_id = ANY($1) AND event_type = 'm.room.message' AND soft_failed = FALSE
-            GROUP BY room_id
-            ",
-        )
-        .bind(room_ids)
-        .fetch_all(&*self.pool)
-        .await?;
-
-        let mut result: std::collections::HashMap<String, i64> = room_ids.iter().map(|id| (id.clone(), 0)).collect();
-
-        for (room_id, count) in rows {
-            result.insert(room_id, count);
-        }
-
-        Ok(result)
-    }
-
     /// See [`get_max_stream_ordering`].
     pub async fn get_max_stream_ordering(&self) -> Result<i64, sqlx::Error> {
         let result: Option<(i64,)> =
@@ -326,68 +267,6 @@ impl EventStorage {
                 .fetch_optional(&*self.pool)
                 .await?;
         Ok(result.map_or(0, |r| r.0))
-    }
-
-    /// See [`get_events_since_stream_ordering`].
-    pub async fn get_events_since_stream_ordering(
-        &self,
-        room_id: &str,
-        since_stream_ordering: i64,
-        limit: i64,
-    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
-        sqlx::query_as::<_, RoomEvent>(
-            r"
-            SELECT event_id, room_id, sender as user_id, event_type, content, state_key,
-                   COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
-                   COALESCE(not_before, 0) as not_before, status,
-                   COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering, redacts
-            FROM events
-            WHERE room_id = $1
-              AND stream_ordering > $2
-              AND is_redacted = false
-            ORDER BY stream_ordering ASC
-            LIMIT $3
-            ",
-        )
-        .bind(room_id)
-        .bind(since_stream_ordering)
-        .bind(limit)
-        .fetch_all(&*self.pool)
-        .await
-    }
-
-    /// See [`get_room_events_by_stream_range`].
-    pub async fn get_room_events_by_stream_range(
-        &self,
-        room_id: &str,
-        from_stream: i64,
-        to_stream: i64,
-        limit: i64,
-        direction: &str,
-    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
-        let (op, order) = if direction == "b" { ("<", "DESC") } else { (">", "ASC") };
-        let query = format!(
-            r"
-            SELECT event_id, room_id, sender as user_id, event_type, content, state_key,
-                   COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
-                   COALESCE(not_before, 0) as not_before, status,
-                   COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering, redacts
-            FROM events
-            WHERE room_id = $1
-              AND stream_ordering {op} $2
-              AND stream_ordering <= $4
-              AND is_redacted = false
-            ORDER BY stream_ordering {order}
-            LIMIT $3
-            "
-        );
-        sqlx::query_as::<_, RoomEvent>(&query)
-            .bind(room_id)
-            .bind(from_stream)
-            .bind(limit)
-            .bind(to_stream)
-            .fetch_all(&*self.pool)
-            .await
     }
 
     // -----------------------------------------------------------------------

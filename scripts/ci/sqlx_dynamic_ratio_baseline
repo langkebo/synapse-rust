@@ -107,8 +107,41 @@
 # 历史对照：2026-06-03 审计记录动态占比 99.6%（含测试代码口径）；
 # 本基线口径（仅 workspace 生产目录，含内联测试模块）为 95.90%。
 
-BASELINE_DYNAMIC=2151
+# ── 2026-09-23 基线调整（口径变更：生产 / #[cfg(test)] 分区）──────────────────
+#
+# 计数器重写为 `scripts/ci/sqlx_query_census.py`（`check_sqlx_dynamic_ratio.sh`
+# 仍为唯一入口）。修掉三个已登记缺陷：① 不看注释（散文里的 `sqlx::query(` 被
+# 算作调用，历史 +1 即此类）；② 按行计数（同一行两处只算一处）；③ 不分区。
+#
+# 实测（同一工作树，新计数器）：dynamic 总数仍 **2151**（与旧 grep 口径逐位一致，
+# 证明新计数器未漂移），其中：
+#   dynamic_production = 1455
+#   dynamic_test       = 696   （`#[cfg(test)]` 内联夹具 + `#[cfg(test)] mod x;`
+#                               声明的整份测试文件，如 event/db_tests.rs）
+#   static             = 61    （全部落在生产侧：refresh_token 27 / token 16 /
+#                               key_rotation 9 / federation_blacklist 5 /
+#                               sliding_sync 3 / user/storage 1）
+#
+# 语义变更：棘轮从"动态总数"改为"**生产**动态不得增加"，测试基础设施单列一条
+# 基线。这样 2,151 里哪些是真实生产债务第一次可见。
+#
+# 收紧方向：dynamic_production 单向降到 0（分批见
+# docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md 的 C1–C11）；dynamic_test
+# 仅允许在写明理由时增加；无调用者的死查询应直接删除而不是计入基线。
+# ── 2026-09-23 收紧（-4 生产动态）：删除 4 个 0 调用者死查询 ──────────────────
+#
+# 来源：Phase B3。`synapse-storage/src/event/batch.rs` 的
+# `get_latest_events_for_rooms`、`get_room_message_counts_batch`、
+# `get_events_since_stream_ordering`、`get_room_events_by_stream_range`
+# 全仓（含 tests/、benches/）无任何调用者，按铁律 1/6 直接删除而非计入基线。
+# 实测：production 1455 → **1451**，dynamic 总数 2151 → **2147**，static 不变。
+# （`get_room_message_counts_batch` 唯一的使用者是本轮新增的 soft_failed 回归用例，
+#  已同步移除该断言——删除死 API 优先于为它保留测试。）
+BASELINE_DYNAMIC_PRODUCTION=1451
+BASELINE_DYNAMIC_TEST_INFRA=696
 BASELINE_STATIC=61
+# 兼容旧接口：总数 = 生产 + 测试基础设施
+BASELINE_DYNAMIC=2147
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

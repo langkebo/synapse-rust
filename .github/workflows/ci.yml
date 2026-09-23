@@ -148,6 +148,13 @@ jobs:
       - name: SQLx dynamic/static ratio ratchet
         run: bash scripts/ci/check_sqlx_dynamic_ratio.sh
 
+      # `.sqlx/` 离线缓存是**版本控制产物**（不是构建缓存）：CI 的 SQLX_OFFLINE=true
+      # job 完全依赖它。本步零成本守住"存在/非空/被 git 跟踪"；缓存**完整性**由
+      # SQLX_OFFLINE 构建证明（SQL 文本变化 → 哈希变化 → 缺条目 → 编译失败，
+      # 见脚本 --compile 模式），**过期性**需在有已迁移数据库的环境用 --full 核对。
+      - name: SQLx offline cache present and tracked
+        run: bash scripts/ci/check_sqlx_cache_fresh.sh
+
       # A2 / B4-4: the HTTP layer must reach persistence only through
       # `synapse-services`. The allowlist may only shrink; the gate fails on a new
       # offender AND on a stale entry, so it cannot be silenced by editing a number.

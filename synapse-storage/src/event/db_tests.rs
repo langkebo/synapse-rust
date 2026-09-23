@@ -2379,7 +2379,7 @@ async fn test_search_joined_room_events_default_types_include_name_and_topic() {
 // Red→Green：修复前 `get_room_events_paginated_cursor` 的带游标分支、
 // `get_room_events_after_stream_ordering`、`get_room_events_batch_inner`
 //（即 `/sync`）、`has_room_events_since`、`find_event_*_by_timestamp`、
-// 四个 `search_*`、`get_unread_counts*`、`get_room_message_counts_batch`
+// 四个 `search_*`、`get_unread_counts*`
 // 都会把 loser 返回给调用方。
 
 /// 直接插入一行 `events`（绕过 `create_event` 的 DAG/签名校验），
@@ -2642,15 +2642,5 @@ async fn test_soft_failed_events_hidden_from_all_consumer_read_paths() {
     assert_eq!(
         batch_row.notification_count, 1,
         "get_unread_counts_batch: the soft-failed loser must not inflate the notification count"
-    );
-
-    let counts = storage
-        .get_room_message_counts_batch(std::slice::from_ref(&room_id))
-        .await
-        .expect("get_room_message_counts_batch");
-    assert_eq!(
-        counts.get(&room_id).copied().unwrap_or_default(),
-        1,
-        "get_room_message_counts_batch: the soft-failed loser must not be counted"
     );
 }

@@ -193,6 +193,156 @@ fn sqlx_ratio_gate_reports_static_count() {
 }
 
 // =============================================================================
+// 2026-09-23：分区口径与词法剥离的红证明
+//
+// 旧计数器用 `grep … | wc -l`：注释/字符串里的 `sqlx::query(` 会被算作调用，且
+// 生产与 `#[cfg(test)]` 混在一个数字里。以下用**临时源码树**直接驱动
+// `scripts/ci/sqlx_query_census.py`，把新口径逐条钉住。
+// =============================================================================
+
+/// 在临时目录里构造一棵最小源码树并运行普查，返回输出。
+fn run_census_on_tree(files: &[(&str, &str)]) -> String {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static SEQ: AtomicU32 = AtomicU32::new(0);
+
+    let root = std::env::temp_dir().join(format!(
+        "sqlx_census_{}_{}",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::SeqCst)
+    ));
+    if root.exists() {
+        fs::remove_dir_all(&root).expect("clean temp root");
+    }
+    for (rel, content) in files {
+        let path = root.join(rel);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("create temp dirs");
+        }
+        fs::write(&path, content).expect("write temp source");
+    }
+
+    let out = Command::new("python3")
+        .arg(repo_root().join("scripts/ci/sqlx_query_census.py"))
+        .arg("--root")
+        .arg(&root)
+        .output()
+        .expect("census script must be runnable with python3");
+    // 指标行先于任何错误路径输出，因此**不能**要求 exit 0：
+    // 只含注释/字符串的树合法地计到 0 处调用，而脚本把 total==0 当作
+    // "扫描范围失效"的报警（exit 1）。这里以"指标行存在"为准。
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(
+        stdout.contains("dynamic_production="),
+        "census 未输出指标行（status={:?}）\nstdout:\n{stdout}\nstderr:\n{}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let _ = fs::remove_dir_all(&root);
+    stdout
+}
+
+/// 修复缺陷①：注释与字符串里提到 `sqlx::query(` **不得**计入。
+#[test]
+fn sqlx_census_ignores_calls_in_comments_and_strings() {
+    let output = run_census_on_tree(&[(
+        "src/lib.rs",
+        r#"
+//! prose mentioning sqlx::query( must not count
+/// doc mentioning sqlx::query_as( must not count
+/* block mentioning sqlx::query_scalar( must not count */
+const TEMPLATE: &str = "sqlx::query( SELECT 1";
+const RAW: &str = r#"sqlx::query_as( SELECT 1"#;
+fn f() -> &'static str { "sqlx::query(" }
+"#,
+    )]);
+    assert_eq!(
+        parse_metric(&output, "dynamic_production="),
+        Some(0),
+        "注释/字符串里的 `sqlx::query(` 被算成了调用（缺陷①回归）\n输出:\n{output}"
+    );
+}
+
+/// 真实调用必须被计入，且同一行的两处调用按**出现次数**计（修复缺陷②）。
+#[test]
+fn sqlx_census_counts_occurrences_not_lines() {
+    let output = run_census_on_tree(&[(
+        "src/lib.rs",
+        r#"
+fn f() {
+    let _ = sqlx::query("SELECT 1");
+    let _ = sqlx::query_as::<_, (i64,)>("SELECT 2");
+    let _ = sqlx::query_scalar::<_, i64>("SELECT 3");
+}
+"#,
+    )]);
+    assert_eq!(
+        parse_metric(&output, "dynamic_production="),
+        Some(3),
+        "turbofish 形式或同行多次调用被漏计（缺陷②回归）\n输出:\n{output}"
+    );
+
+    let same_line = run_census_on_tree(&[(
+        "src/lib.rs",
+        r#"fn f() { let _ = sqlx::query("SELECT 1"); let _ = sqlx::query("SELECT 2"); }"#,
+    )]);
+    assert_eq!(
+        parse_metric(&same_line, "dynamic_production="),
+        Some(2),
+        "同一行的两处调用应计 2 处\n输出:\n{same_line}"
+    );
+}
+
+/// 修复缺陷③：`#[cfg(test)]` 块内的调用归入 test 区，不计入生产。
+#[test]
+fn sqlx_census_splits_production_from_cfg_test_blocks() {
+    let output = run_census_on_tree(&[(
+        "src/lib.rs",
+        r#"
+fn production() { let _ = sqlx::query("SELECT prod"); }
+
+#[cfg(test)]
+mod tests {
+    fn helper() { let _ = sqlx::query("SELECT test"); }
+}
+"#,
+    )]);
+    assert_eq!(parse_metric(&output, "dynamic_production="), Some(1), "生产侧应只计 1 处\n输出:\n{output}");
+    assert_eq!(parse_metric(&output, "dynamic_test="), Some(1), "test 侧应计 1 处\n输出:\n{output}");
+}
+
+/// 由 `#[cfg(test)] mod x;` 引入的**整份测试文件**也必须归入 test 区。
+#[test]
+fn sqlx_census_treats_cfg_test_module_files_as_test() {
+    let output = run_census_on_tree(&[
+        ("src/lib.rs", "#[cfg(test)]\nmod db_tests;\n\nfn production() { let _ = sqlx::query(\"SELECT prod\"); }\n"),
+        ("src/db_tests.rs", "fn helper() { let _ = sqlx::query(\"SELECT test\"); }\n"),
+    ]);
+    assert_eq!(parse_metric(&output, "dynamic_production="), Some(1), "生产侧应只计 1 处\n输出:\n{output}");
+    assert_eq!(
+        parse_metric(&output, "dynamic_test="),
+        Some(1),
+        "`#[cfg(test)] mod x;` 引入的整份文件应计入 test 区\n输出:\n{output}"
+    );
+}
+
+/// 分区后棘轮必须有**独立的生产上限**：把它压到 1 必须失败。
+#[test]
+fn sqlx_ratio_gate_fails_when_production_dynamic_exceeds_baseline() {
+    let (code, output) = run_gate(&[("SQLX_DYNAMIC_PRODUCTION_MAX", "1")]);
+    assert_ne!(code, 0, "生产动态上限压到 1 后门禁仍通过 → 生产棘轮不生效\n输出:\n{output}");
+    assert!(output.contains("FAIL"), "失败时必须给出明确输出\n输出:\n{output}");
+}
+
+/// 门禁必须同时报告生产与测试两个分区，否则分区口径没有落地。
+#[test]
+fn sqlx_ratio_gate_reports_production_and_test_split() {
+    let (code, output) = run_gate(&[]);
+    assert_eq!(code, 0, "当前工作树应通过\n输出:\n{output}");
+    assert!(output.contains("production="), "输出必须包含 production=<n>\n输出:\n{output}");
+    assert!(output.contains("test="), "输出必须包含 test=<n>\n输出:\n{output}");
+}
+
+// =============================================================================
 // helpers
 // =============================================================================
 
