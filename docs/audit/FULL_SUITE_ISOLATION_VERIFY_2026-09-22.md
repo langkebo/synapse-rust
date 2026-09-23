@@ -338,3 +338,73 @@ fail-fast 只在遇到失败时提前停止，不可能把"通过"变成"失败"
 随后按 §6.1 的方法清理该库（569 个 schema；`test_template_ci` 229 表与 `public` 227 表完好）后重跑，
 才得到上表结果。教训与 §6.1 同源：**per-test schema 残留首先是"慢到不可用"的前兆，其次才是空间问题** ——
 `--apply` 的清理窗口不只是为了不被别人打断，也是为了让自己的验证跑得动。
+
+### 7.8 第三次清扫（追上 `4db39228`）：44 处编译 / lint 缺陷
+
+`main` 在 `ff4a23d2` 之后又推进 5 个提交；其中 `0751d25f` 是 **`cargo fmt all Rust files`** ——
+这正是 §7.4 那两道闸中 pre-commit 生效的直接结果：**fmt 债务 106 → 0**（实测 `current=0 baseline=0`）。
+
+但同一批新增测试**第三次**"从未在 `--all-features` 下编译过"，且规模更大：
+
+| 文件 | 缺陷 | 数 |
+|---|---|---|
+| `synapse-web/src/routes/extractors/mod.rs` | `Type::new(..)`：`matrix_id!` 生成的 11 个 newtype 只提供 `From<&str>` / `From<String>` / `FromStr` 与公开字段，**没有 `new`** | 21 |
+| `synapse-web/src/routes/sticky_event.rs` | 缺 `serde_json::json` 导入 ×5；`&&str` 与 `&str` 比较 ×3；`ok_or_else` 处缺类型标注 ×3 | 11 |
+| `.../federation/membership/query.rs` | `as_array().cloned()` 与 `json!([])`（`Value`）类型不匹配 ×2；对 `Vec<Value>` 调 `is_array()` ×1 | 3 |
+| `synapse-web/src/routes/admin/room/spaces.rs` | `SpaceInfoMock` 声明在**文件作用域** → 非测试（lib）构建里是死代码 | 1 |
+| 修好编译后才暴露的 clippy lint | `manual_contains` ×3、`useless_vec` ×4、`field_reassign_with_default` ×1 | 8 |
+| **合计** | | **44** |
+
+两条值得记下的修法教训：
+
+1. **`never constructed` ≠ `never used`**：`SpaceInfoMock` 被判死代码，是因为它**声明在测试模块之外**
+   （lib 构建看不到 `#[cfg(test)] mod tests` 里的构造）。第一版按"删死代码"直接删除，编译器立刻以
+   `E0422` 指出 `spaces.rs:213` 的引用 —— 正确修法是**移入 `#[cfg(test)]` 模块**，而不是删除。
+2. 其余按编译器 / clippy 给出的建议改成等价写法：`Type::from(..)`、`paths.contains(&..)`、
+   `.is_none()` 断言替代 `ok_or_else(..).is_err()`、`unwrap_or_default()`、数组替代 `vec!`、
+   单次初始化替代 `field_reassign_with_default`。**没有**为了通过而放宽任何全局 lint 配置。
+
+### 7.9 本轮门禁结果，与新增的第二道闸
+
+| 门禁 | 结果 |
+|---|---|
+| clippy `--all-features … -D warnings` | **0 error**（修复前：`synapse-web` lib 1 + lib test 35 = 36 处） |
+| clippy 默认档 `-D warnings` | **0 error** |
+| fmt 棘轮 | `current=0 baseline=0` → OK |
+| lib 批次（`--workspace --lib --all-features`） | **6330 passed / 0 failed**（1706s） |
+| unit 批次 | **1807 passed / 0 failed / 2 skipped** |
+| integration 批次 | 本轮在外部重负载下被拖慢，未作为本节判据 —— 理由见下 |
+
+**新增第二道闸（`pre-push`）**：阻断 CI 同款 clippy
+（`SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils --all-features --locked -- -D warnings`），
+随后保留原有的 `cargo deny check advisories`。理由是 pre-commit 只能拦格式，而**这三轮缺陷全部是"没编译过"**。
+自证：失败传播用假 `cargo`（exit 1）验证 → hook exit 1 并打印拦截信息；真实红为 `main` `4db39228` 上
+同一命令 exit 101；真实绿为修复后 exit 0。
+
+> 附注（环境，不是仓库缺陷）：`pre-push` 的 `cargo deny` 阶段**在我的沙箱里**报
+> `failed to acquire advisory database lock … read-only path`。实测 `~/.cargo/advisory-db` 属主为
+> `ljf staff`、权限 `drwxr-xr-x`，而本会话对工作区外写入被拒（`touch` 返回 `Operation not permitted`），
+> 故这是沙箱限制。正常 shell 中该阶段可正常工作。
+
+**为什么 integration 批次不作为本节判据**：本轮新增的 44 处修复**全部位于 `src` 内的 lib 测试模块**，
+integration 目标根本不编译它们；而唯一影响 integration 的非测试改动
+（`test_config::test_database_url()` 委托单一实现）已在 §7.7 那次 **integration 1426 passed** 中一并验证过。
+本轮它的运行还被两件事拖慢：外部会话造成的 load average ≈ 15.8，以及**我的专用库再次累积到 ~420 个残留 schema**
+（清理后重跑仍会随运行增长）—— 后者又一次印证 §6.1：残留首先是"慢到不可用"的前兆。
+
+### 7.10 结论：追赶式清扫没有终点
+
+本轮进行期间 `main` 又前进了 3 次（`4db39228` → `e77a5b80`），其中
+`e77a5b80`（*"fix(clippy): remove ..Default::default() and add type annotations in tests"*）
+**修的正是本轮刚修的同几处** —— 说明对方开始自查（大概率它自己跑了 clippy），
+这也意味着继续追赶只会产生重复劳动与合并冲突。
+
+**可持续的处置只有两件，本报告都已落地**：
+
+1. **两道闸门**：`pre-commit`（格式，CI 同一实现）+ `pre-push`（编译/lint，CI 同一实现）——
+   把"本地过 = CI 过"变成结构性事实，而不是靠事后清扫；
+2. **把缺陷清单交回作者**：测试批次是作者的意图（尤其 `SpaceInfoMock` 这类"声明位置"问题、
+   以及各种夹具取值），代修到能编译/能过，容易变成"能过但没真在测"的用例。
+
+因此本分支的定位应明确为：**已验证的修复 + 两道闸门 + 单一解析源**，
+而不是"替对方把每一批新测试都修完"。
