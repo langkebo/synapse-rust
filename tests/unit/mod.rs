@@ -96,6 +96,7 @@ mod room_domain_refactor_tests;
 mod schema_lifecycle_guard_tests;
 mod services_remaining_domains_refactor_tests;
 mod services_sync_domain_refactor_tests;
+mod sqlx_dynamic_literal_guard_tests;
 mod sqlx_ratio_gate_tests;
 mod storage_admin_domain_refactor_tests;
 mod storage_remaining_domains_refactor_tests;
