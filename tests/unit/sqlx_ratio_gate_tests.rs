@@ -244,16 +244,17 @@ fn run_census_on_tree(files: &[(&str, &str)]) -> String {
 /// 修复缺陷①：注释与字符串里提到 `sqlx::query(` **不得**计入。
 #[test]
 fn sqlx_census_ignores_calls_in_comments_and_strings() {
+    // 外层必须用 r##"…"##：夹具里自身含一个 r#"…"#，用 r#"…"# 会被其中的 `"#` 提前闭合。
     let output = run_census_on_tree(&[(
         "src/lib.rs",
-        r#"
+        r##"
 //! prose mentioning sqlx::query( must not count
 /// doc mentioning sqlx::query_as( must not count
 /* block mentioning sqlx::query_scalar( must not count */
 const TEMPLATE: &str = "sqlx::query( SELECT 1";
 const RAW: &str = r#"sqlx::query_as( SELECT 1"#;
 fn f() -> &'static str { "sqlx::query(" }
-"#,
+"##,
     )]);
     assert_eq!(
         parse_metric(&output, "dynamic_production="),
