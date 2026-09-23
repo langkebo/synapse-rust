@@ -1,0 +1,91 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT id, room_id, thread_id, event_id, root_event_id, sender,\n                       in_reply_to_event_id, content, origin_server_ts, is_edited, is_redacted, created_ts\n                FROM thread_replies\n                WHERE room_id = $1 AND thread_id = $2 AND event_id > $3\n                ORDER BY origin_server_ts ASC\n                LIMIT $4\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "thread_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "root_event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "sender",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "in_reply_to_event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "content",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "origin_server_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "is_edited",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "is_redacted",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 11,
+        "name": "created_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "50ad8ca9ffa27c48c1c55f065c6c4ae93bc8032cdb6f4508989f4c2538b6d85b"
+}

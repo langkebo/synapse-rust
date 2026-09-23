@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM saml_auth_events WHERE created_ts < (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000) - $1::BIGINT * 86400000",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "02ff999d3e5123b94fb991a022ecec466f71601aa104ff83eaadf0d4ce9bfc7c"
+}

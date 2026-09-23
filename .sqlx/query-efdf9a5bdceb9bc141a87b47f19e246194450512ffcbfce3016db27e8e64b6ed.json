@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO saml_pending_requests (relay_state, request_id, created_ts, expires_at)\n            VALUES ($1, $2, $3, $4)\n            ON CONFLICT (relay_state) DO UPDATE SET\n                request_id = EXCLUDED.request_id,\n                created_ts = EXCLUDED.created_ts,\n                expires_at = EXCLUDED.expires_at\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "efdf9a5bdceb9bc141a87b47f19e246194450512ffcbfce3016db27e8e64b6ed"
+}

@@ -1,0 +1,72 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT id, room_id, thread_id, user_id, notification_level AS \"notification_level!\",\n                       is_muted AS \"is_muted!\", is_pinned AS \"is_pinned!\", subscribed_ts, updated_ts\n                FROM thread_subscriptions\n                WHERE user_id = $1 AND thread_id > $2\n                ORDER BY thread_id ASC\n                LIMIT $3\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "thread_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "notification_level!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "is_muted!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_pinned!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "subscribed_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "286a0689e67352b95398a99a7c2fe829c42b36b6d6d608677d1916232e1b25a8"
+}

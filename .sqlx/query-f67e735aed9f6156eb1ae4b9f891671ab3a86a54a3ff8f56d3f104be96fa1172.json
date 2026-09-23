@@ -1,0 +1,70 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO room_summary_stats (room_id, total_events, total_state_events, total_messages, total_media, storage_size, last_updated_ts)\n            VALUES ($1, $2, $3, $4, $5, $6, $7)\n            ON CONFLICT (room_id) DO UPDATE SET\n                total_events = EXCLUDED.total_events,\n                total_state_events = EXCLUDED.total_state_events,\n                total_messages = EXCLUDED.total_messages,\n                total_media = EXCLUDED.total_media,\n                storage_size = EXCLUDED.storage_size,\n                last_updated_ts = EXCLUDED.last_updated_ts\n            RETURNING id::BIGINT AS id, room_id, total_events::BIGINT AS total_events, total_state_events::BIGINT AS total_state_events, total_messages::BIGINT AS total_messages, total_media::BIGINT AS total_media, storage_size::BIGINT AS storage_size, last_updated_ts::BIGINT AS last_updated_ts\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "total_events",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "total_state_events",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "total_messages",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "total_media",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "storage_size",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "last_updated_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f67e735aed9f6156eb1ae4b9f891671ab3a86a54a3ff8f56d3f104be96fa1172"
+}

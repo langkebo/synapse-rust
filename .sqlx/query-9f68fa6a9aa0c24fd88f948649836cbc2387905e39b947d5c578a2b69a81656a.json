@@ -1,0 +1,114 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                q.id,\n                q.room_id,\n                q.thread_id AS \"thread_id!\",\n                q.root_event_id,\n                q.root_sender,\n                q.root_content AS \"root_content!\",\n                q.root_origin_server_ts AS \"root_origin_server_ts!\",\n                q.latest_event_id AS \"latest_event_id?\",\n                q.latest_sender AS \"latest_sender?\",\n                q.latest_content AS \"latest_content?\",\n                q.latest_origin_server_ts AS \"latest_origin_server_ts?\",\n                q.reply_count AS \"reply_count!\",\n                q.participants AS \"participants!\",\n                q.is_frozen AS \"is_frozen!\",\n                q.created_ts,\n                q.updated_ts AS \"updated_ts!\"\n            FROM (\n                SELECT\n                    tr.id,\n                    tr.room_id,\n                    COALESCE(tr.thread_id, '') AS thread_id,\n                    tr.root_event_id,\n                    tr.sender AS root_sender,\n                    COALESCE(e.content, '{}'::jsonb) AS root_content,\n                    COALESCE(e.origin_server_ts, tr.created_ts) AS root_origin_server_ts,\n                    latest_reply.latest_event_id,\n                    latest_reply.latest_sender,\n                    latest_reply.latest_content,\n                    latest_reply.latest_origin_server_ts,\n                    COALESCE(reply_stats.reply_count, 0) AS reply_count,\n                    COALESCE(participants.participants, jsonb_build_array(tr.sender)) AS participants,\n                    tr.is_fetched AS is_frozen,\n                    tr.created_ts,\n                    GREATEST(\n                        COALESCE(tr.updated_ts, tr.created_ts),\n                        COALESCE(latest_reply.latest_origin_server_ts, COALESCE(tr.updated_ts, tr.created_ts))\n                    ) AS updated_ts,\n                    -- Calculate relevance for ordering\n                    GREATEST(\n                        COALESCE(ts_rank_cd(to_tsvector('english', COALESCE(e.content->>'body', '')), plainto_tsquery('english', $2)), 0.0),\n                        COALESCE(similarity(COALESCE(e.content->>'body', ''), $2), 0.0),\n                        COALESCE(ts_rank_cd(to_tsvector('english', COALESCE(latest_reply.latest_content->>'body', '')), plainto_tsquery('english', $2)), 0.0),\n                        COALESCE(similarity(COALESCE(latest_reply.latest_content->>'body', ''), $2), 0.0)\n                    ) AS search_relevance,\n                    COALESCE(latest_reply.latest_origin_server_ts, e.origin_server_ts, tr.created_ts) AS sort_ts\n                FROM thread_roots tr\n                LEFT JOIN events e\n                    ON e.event_id = tr.root_event_id\n                   AND e.room_id = tr.room_id\n                LEFT JOIN LATERAL (\n                    SELECT\n                        rr.event_id AS latest_event_id,\n                        rr.sender AS latest_sender,\n                        rr.content AS latest_content,\n                        rr.origin_server_ts AS latest_origin_server_ts\n                    FROM thread_replies rr\n                    WHERE rr.room_id = tr.room_id\n                      AND rr.thread_id = tr.thread_id\n                    ORDER BY rr.origin_server_ts DESC, rr.id DESC\n                    LIMIT 1\n                ) AS latest_reply ON TRUE\n                LEFT JOIN LATERAL (\n                    SELECT COUNT(*)::INTEGER AS reply_count\n                    FROM thread_replies rr\n                    WHERE rr.room_id = tr.room_id\n                      AND rr.thread_id = tr.thread_id\n                ) AS reply_stats ON TRUE\n                LEFT JOIN LATERAL (\n                    SELECT COALESCE(jsonb_agg(sender ORDER BY sender), '[]'::jsonb) AS participants\n                    FROM (\n                        SELECT tr.sender AS sender -- Corrected: direct reference to tr from outer query\n                        UNION\n                        SELECT DISTINCT rr.sender\n                        FROM thread_replies rr\n                        WHERE rr.room_id = tr.room_id\n                          AND rr.thread_id = tr.thread_id\n                    ) AS participant_set\n                ) AS participants ON TRUE\n                WHERE tr.room_id = $1\n                  AND (\n                      COALESCE(e.content->>'body', '') ILIKE '%' || $2 || '%'\n                      OR COALESCE(latest_reply.latest_content->>'body', '') ILIKE '%' || $2 || '%'\n                      OR COALESCE(e.content->>'body', '') % $2\n                      OR COALESCE(latest_reply.latest_content->>'body', '') % $2\n                  )\n            ) AS q\n            ORDER BY q.search_relevance DESC, q.sort_ts DESC NULLS LAST\n            LIMIT $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "thread_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "root_event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "root_sender",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "root_content!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "root_origin_server_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "latest_event_id?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "latest_sender?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "latest_content?",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 10,
+        "name": "latest_origin_server_ts?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "reply_count!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 12,
+        "name": "participants!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 13,
+        "name": "is_frozen!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 14,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 15,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      false,
+      false,
+      null,
+      null,
+      false,
+      false,
+      false,
+      false,
+      null,
+      null,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "9f68fa6a9aa0c24fd88f948649836cbc2387905e39b947d5c578a2b69a81656a"
+}

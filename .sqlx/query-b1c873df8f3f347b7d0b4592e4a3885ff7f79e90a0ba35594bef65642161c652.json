@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT id, name_id, user_id, issuer, first_seen_ts, last_authenticated_ts, authentication_count AS \"authentication_count!\", attributes AS \"attributes!\" FROM saml_user_mapping\n                ORDER BY name_id ASC, issuer ASC\n                LIMIT $1\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "name_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "issuer",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "first_seen_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "last_authenticated_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "authentication_count!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "attributes!",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "b1c873df8f3f347b7d0b4592e4a3885ff7f79e90a0ba35594bef65642161c652"
+}

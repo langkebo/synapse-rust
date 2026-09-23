@@ -1,0 +1,75 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO worker_events (\n                event_id, event_type, room_id, sender, event_data, created_ts\n            )\n            VALUES ($1, $2, $3, $4, $5, $6)\n            RETURNING id, event_id, stream_id, event_type, room_id,\n                      sender, event_data AS \"event_data!\", created_ts,\n                      processed_by AS \"processed_by: sqlx::types::Json<Vec<String>>\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "stream_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "event_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "sender",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "event_data!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "processed_by: sqlx::types::Json<Vec<String>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "3a42d8a7e19aab7d26ed193982c955174be1329f573cb54ca4538f2a03029895"
+}

@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, room_id, event_id, event_type, state_key, priority, status, created_ts, processed_ts, error_message, retry_count\n            FROM room_summary_update_queue\n            WHERE status = 'pending'\n            ORDER BY priority DESC, created_ts ASC, id ASC\n            LIMIT $1\n            FOR UPDATE SKIP LOCKED\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "event_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "state_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "priority",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "processed_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "error_message",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "retry_count",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "1afa6a28c7f6c893b75d6e36bd4d11d6a7f92ebc49f3affdb26e739214ad81fe"
+}

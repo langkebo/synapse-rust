@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM saml_pending_requests\n            WHERE relay_state = $1\n            RETURNING id, relay_state, request_id, created_ts, expires_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "relay_state",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "request_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "expires_at",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "aa5950e65a082fb4e1e8affda090c7977bfb624b12837bcc5bdbef370aa7176f"
+}

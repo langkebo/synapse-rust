@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE worker_events\n            SET processed_by = COALESCE(processed_by, '[]'::jsonb) || jsonb_build_array($2::text)\n            WHERE event_id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b1b883a6a7acca9a2dc19d52efd8f88bb417fdac1a27a02fef721b5365e5af49"
+}

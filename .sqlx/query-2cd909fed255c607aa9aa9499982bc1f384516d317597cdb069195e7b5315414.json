@@ -1,0 +1,66 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, room_id, thread_id, user_id, last_read_event_id, last_read_ts, unread_count, updated_ts\n            FROM thread_read_receipts\n            WHERE room_id = $1 AND thread_id = $2 AND user_id = $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "thread_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "last_read_event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "last_read_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "unread_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "2cd909fed255c607aa9aa9499982bc1f384516d317597cdb069195e7b5315414"
+}

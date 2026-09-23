@@ -1,0 +1,96 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT id, room_id, root_event_id, sender, thread_id, reply_count,\n                       last_reply_event_id, last_reply_sender, last_reply_ts,\n                       participants, is_fetched AS \"is_fetched!\", created_ts, updated_ts\n                FROM thread_roots\n                WHERE room_id = $1 AND thread_id > $2\n                ORDER BY thread_id ASC\n                LIMIT $3\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "root_event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "sender",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "thread_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "reply_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "last_reply_event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "last_reply_sender",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "last_reply_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "participants",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 10,
+        "name": "is_fetched!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 11,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "e537f34e3dc182b35ba755e258decbed5ad36ea1b300a40c164f90bdb7b08488"
+}

@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, event_id, stream_id, event_type, room_id,\n                      sender, event_data AS \"event_data!\", created_ts,\n                      processed_by AS \"processed_by: sqlx::types::Json<Vec<String>>\"\n               FROM worker_events WHERE stream_id > $1 ORDER BY stream_id ASC LIMIT $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "stream_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "event_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "sender",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "event_data!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "processed_by: sqlx::types::Json<Vec<String>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "6f883bbd4ccec3363532dd1b4e2cda5098ad917387f40ea4a75e73608fcd1209"
+}

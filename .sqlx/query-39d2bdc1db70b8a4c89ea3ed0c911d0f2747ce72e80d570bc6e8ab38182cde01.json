@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO thread_read_receipts (\n                room_id, thread_id, user_id, last_read_ts, unread_count, updated_ts\n            )\n            VALUES ($1, $2, $3, 0, 1, $4)\n            ON CONFLICT (room_id, thread_id, user_id) DO UPDATE SET\n                unread_count = thread_read_receipts.unread_count + 1,\n                updated_ts = EXCLUDED.updated_ts\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "39d2bdc1db70b8a4c89ea3ed0c911d0f2747ce72e80d570bc6e8ab38182cde01"
+}

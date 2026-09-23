@@ -1,0 +1,90 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE worker_task_assignments\n            SET assigned_worker_id = $1, assigned_ts = $2, status = 'running'\n            WHERE id = (\n                SELECT id\n                FROM worker_task_assignments\n                WHERE status = 'pending'\n                  AND assigned_worker_id IS NULL\n                  AND task_type = ANY($3)\n                ORDER BY priority DESC, created_ts ASC\n                LIMIT 1\n                FOR UPDATE SKIP LOCKED\n            )\n            RETURNING id, task_id, task_type,\n                      COALESCE(task_data, '{}'::jsonb) AS \"task_data!\",\n                      assigned_worker_id,\n                      status, priority,\n                      created_ts, assigned_ts,\n                      completed_ts, result,\n                      error_message\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "task_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "task_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "task_data!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "assigned_worker_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "priority",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "assigned_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "completed_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "result",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 11,
+        "name": "error_message",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "db9a2bd503cdbc8499016b3d4608357f4b3e60b8655e951f90431ffcf153ff0b"
+}

@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, task_id, task_type,\n                      COALESCE(task_data, '{}'::jsonb) AS \"task_data!\",\n                      assigned_worker_id,\n                      status, priority,\n                      created_ts, assigned_ts,\n                      completed_ts, result,\n                      error_message\n            FROM worker_task_assignments\n            WHERE status = 'pending'\n            ORDER BY priority DESC, created_ts ASC\n            LIMIT $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "task_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "task_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "task_data!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "assigned_worker_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "priority",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "assigned_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "completed_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "result",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 11,
+        "name": "error_message",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "b1272ff652eb3c7f47a765f32597c2348ebecdee2ea2fb7ab9f32bb7e5fb49e5"
+}

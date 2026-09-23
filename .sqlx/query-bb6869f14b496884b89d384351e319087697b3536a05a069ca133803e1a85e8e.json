@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, session_id, user_id, name_id, issuer, session_index, attributes AS \"attributes!\", created_ts, expires_at, last_used_ts, status AS \"status!\" FROM saml_sessions WHERE session_id = $1 AND status = 'active'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "session_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "name_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "issuer",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "session_index",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "attributes!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "expires_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "last_used_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "status!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "bb6869f14b496884b89d384351e319087697b3536a05a069ca133803e1a85e8e"
+}

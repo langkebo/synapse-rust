@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO saml_logout_requests (\n                request_id, session_id, user_id, name_id, issuer, reason, status, created_ts\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)\n            RETURNING id, request_id, session_id, user_id, name_id, issuer, reason,\n                      status AS \"status!\", created_ts, processed_at AS processed_ts\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "request_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "session_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "name_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "issuer",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "status!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "processed_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "357d2d6fbc4f66a72e03234f0690d7f5370a5bb71020f3a8fe6b330a8c56b3ed"
+}

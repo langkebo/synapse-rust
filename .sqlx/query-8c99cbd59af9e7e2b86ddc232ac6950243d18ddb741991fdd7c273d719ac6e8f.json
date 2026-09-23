@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE thread_replies\n            SET is_edited = TRUE\n            WHERE room_id = $1 AND event_id = $2 AND is_edited = FALSE\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8c99cbd59af9e7e2b86ddc232ac6950243d18ddb741991fdd7c273d719ac6e8f"
+}

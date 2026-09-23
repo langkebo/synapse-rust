@@ -1,0 +1,106 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO worker_commands (\n                command_id, target_worker_id, command_type, command_data, priority, status, created_ts, max_retries\n            )\n            VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7)\n            RETURNING id, command_id, target_worker_id,\n                      source_worker_id, command_type,\n                      COALESCE(command_data, '{}'::jsonb) AS \"command_data!\",\n                      priority AS \"priority!\", status, created_ts,\n                      sent_ts, completed_ts,\n                      error_message, retry_count AS \"retry_count!\", max_retries AS \"max_retries!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "command_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "target_worker_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "source_worker_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "command_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "command_data!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "priority!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "sent_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "completed_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "error_message",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "retry_count!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 13,
+        "name": "max_retries!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Int4",
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      null,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "e50ead475d2c5bea741e5c5e3f98d89f13537c7325383cf9464d19e20b63b4f9"
+}

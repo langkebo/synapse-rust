@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, request_id, session_id, user_id, name_id, issuer, reason, status AS \"status!\", created_ts, processed_at AS processed_ts FROM saml_logout_requests WHERE request_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "request_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "session_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "name_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "issuer",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "status!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "processed_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "1fa38d07da28a58eeb4acd14224cf9527352cf0774f345c33dad5370f8dc18bd"
+}

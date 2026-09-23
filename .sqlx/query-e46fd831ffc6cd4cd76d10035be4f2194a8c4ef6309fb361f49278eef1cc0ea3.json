@@ -1,0 +1,94 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, worker_id, worker_name,\n                      worker_type, host, port,\n                      status, last_heartbeat_ts,\n                      started_ts, stopped_ts,\n                      COALESCE(config, '{}'::jsonb) AS \"config!\",\n                      COALESCE(metadata, '{}'::jsonb) AS \"metadata!\",\n                      version\n               FROM workers WHERE worker_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "worker_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "worker_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "worker_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "host",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "port",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "last_heartbeat_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "started_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "stopped_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "config!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 11,
+        "name": "metadata!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 12,
+        "name": "version",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      null,
+      null,
+      true
+    ]
+  },
+  "hash": "e46fd831ffc6cd4cd76d10035be4f2194a8c4ef6309fb361f49278eef1cc0ea3"
+}

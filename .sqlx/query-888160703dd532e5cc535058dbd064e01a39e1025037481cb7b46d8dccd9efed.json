@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id::BIGINT AS id, room_id, total_events::BIGINT AS total_events, total_state_events::BIGINT AS total_state_events, total_messages::BIGINT AS total_messages, total_media::BIGINT AS total_media, storage_size::BIGINT AS storage_size, last_updated_ts::BIGINT AS last_updated_ts FROM room_summary_stats WHERE room_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "total_events",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "total_state_events",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "total_messages",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "total_media",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "storage_size",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "last_updated_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "888160703dd532e5cc535058dbd064e01a39e1025037481cb7b46d8dccd9efed"
+}

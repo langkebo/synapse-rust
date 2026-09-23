@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE room_summary_members\n            SET is_hero = user_id = ANY($2::text[])\n            WHERE room_id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8f9865bf1f7cad434cfcd05a1f023b5e67d9cd338c002860555b61b27bbc753e"
+}

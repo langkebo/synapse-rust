@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE saml_identity_providers\n            SET metadata_xml = $1,\n                last_metadata_refresh_at = $4,\n                metadata_valid_until_at = $2,\n                updated_ts = $4\n            WHERE entity_id = $3\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7c84e8db5cf9bc918a549d7d263186d1141168c4d8a70c53cc1401782002dffd"
+}

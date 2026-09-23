@@ -580,12 +580,156 @@
 #     dynamic            1896 → 1813
 #   本轮门禁实测值与上表一致（并发写者当前的 cascade.rs / create.rs / test_config.rs
 #   在途改动未新增生产动态 SQL）。若其在途改动被撤销/改写，应再次按实测收紧。
-# 收紧方向：C4/C5/C9–C11 继续分批静态化，直至 dynamic_production = 0。
-BASELINE_DYNAMIC_PRODUCTION=1117
+# ── 2026-09-23 C9 静态化（生产动态 -127，静态 +127）──────────────────────────
+#
+# 批次：C9（docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md），迄今为止最大的一批。
+# 文件（4 个，均在 synapse-storage；3 个无 cfg 门控 + saml 由 saml-sso 门控）：
+#   synapse-storage/src/saml/repository.rs          32 处生产动态 → **32 静态**（剩余 0）
+#   synapse-storage/src/room_summary/repository.rs  32 处生产动态 → **30 静态**（2 保留）
+#   synapse-storage/src/thread/storage.rs           37 处生产动态 → **37 静态**（剩余 0）
+#   synapse-storage/src/worker/repository.rs        29 处生产动态 → **28 静态**（1 保留）
+# 合计 130 处生产动态调用中静态化 127 处。
+# 提交：cbe718ff6（saml）/ 3cee36c30（room_summary）/ b9c2f52a7（thread）/
+#       30d9a7f91（worker）/ 0d57b807d（thread 可空性补丁，见下）
+#
+# 静态化中反复出现的三类共性处理（均为此前各批已登记、本批继续适用）：
+#   ① `#[sqlx(rename)]` 对 query_as! **无效**（宏按 describe 的列名直接构造结构体
+#      字面量，见 sqlx-macros-core query/output.rs 的 quote_query_as）⇒ 列名必须在
+#      SQL 内改别名以匹配 Rust 字段名。本批涉及：`join_rules`→`join_rule`
+#      （room_summaries）；`last_metadata_refresh_at`→`last_metadata_refresh_ts`、
+#      `metadata_valid_until_at`→`metadata_valid_until`、`processed_at`→`processed_ts`
+#      （saml_logout_requests / saml_identity_providers）。
+#   ② `RETURNING *` 一律展开为显式列清单（宏按列名构造结构体）。
+#   ③ 聚合 / COALESCE / 无 relation origin 的表达式列一律被推断为可空 ⇒ 对非 Option
+#      字段加 `AS "col!"`；列可空而字段非 Option 的也加 `!`（复刻旧 FromRow /
+#      Row::get 的非空假设，运行期行为不变）。
+#
+# 仍留动态 3 处（本批范围内**无法**静态化，非"漏做"）：
+#   1–2. room_summary/repository.rs 的 add_members_batch（~L331）与 set_states_batch
+#        （~L574）：参数含**可空元素数组** `Vec<Option<String>>` / `Vec<Option<i64>>`，
+#        而 `sqlx-postgres/src/type_checking.rs` 的 `impl_type_checking!` 只登记了
+#        **非空元素**数组（`Vec<String> | &[String]`、`Vec<i64> | &[i64]` …），没有
+#        `Vec<Option<T>>` 项 ⇒ `param_type_for_id(TEXT_ARRAY)` 返回 `&[String]`，实参
+#        `&[Option<String>]` 过不了 ty_match。实测：
+#          error[E0308]: mismatched types
+#            expected `&[String]`, found `&[Option<String>]`
+#        这是**纯 Rust 侧**限制（SQL 里已是 `::TEXT[]`），加 SQL 转换无效；也无法用
+#        `as _` 强转（非 primitive 无法 as 转换）。收紧方向：把多个并行数组换成单个
+#        `jsonb_to_recordset($n)` 参数（语义等价：JSON null ↔ SQL NULL），属独立改造，
+#        本轮未夹带。代码内已留 NOTE(C9)。**这两处不是运行期拼装 SQL**，SQL 文本是
+#        编译期常量。
+#   3. worker/repository.rs 的 get_statistics（~L697）：**该 SQL 本身就是坏的**。
+#        `worker_statistics`（migrations/00000000_unified_schema_v12.sql:2040）只有
+#        id / worker_id / total_messages_sent / total_messages_received / total_errors /
+#        last_message_ts / last_error_ts / avg_processing_time_ms / uptime_seconds /
+#        created_ts / updated_ts；而该查询 SELECT 的 worker_name / worker_type /
+#        status / host / port / last_heartbeat_ts / started_ts / cpu_usage /
+#        memory_usage / active_connections / requests_per_second / average_latency_ms /
+#        queue_depth / pending_commands / active_tasks **全部不存在**。psql 实测：
+#          ERROR:  column "worker_name" does not exist
+#        其 doc comment 引用的迁移 `20260812120000_worker_statistics_load_metrics`
+#        **不在 migrations/ 中**。`query!` 会在编译期以 42703 拒绝它；要静态化必须先
+#        决定新的载荷契约（删键 / join `workers` / 补迁移）——属**行为变更**，超出
+#        静态化范围，故保留动态并另行报告（不静默修复）。该方法**全仓无调用者**，
+#        建议后续按铁律 1 直接删除。代码内已留 NOTE(C9)。
+#
+# ⚠️ 为通过编译期校验而做的**等义 SQL 调整**（均无运行期语义变化）：
+#   * **顺手修复的既有缺陷（唯一一处）**：saml/process_logout_request 原为
+#     `SET status='processed', processed_ts = $2`，但 `saml_logout_requests` **没有**
+#     processed_ts 列（真名 `processed_at`），该语句在任何数据下都以 42703 失败
+#     （psql 实测），而调用方 synapse-services/src/saml_service.rs:482 真实存在。
+#     宏按真实 schema 校验、无法绕过 ⇒ 按列名改回 `processed_at`。同族读取路径
+#     get_logout_request 一直用 `processed_at`，佐证是笔误。
+#   * thread/create_thread_root：`jsonb_build_array($3)` 是 polymorphic("any")，PG 报
+#     `could not determine data type of parameter $3` ⇒ 改 `$3::TEXT`。
+#   * saml/cleanup_old_auth_events：`$1 * 86400000` 被 PG 推断为 integer，与 i64
+#     实参不符（E0308）⇒ 改 `$1::BIGINT`。
+#   * worker/update_worker_status：`$3` 同时用于 bigint 列与 `CASE … ELSE NULL END`
+#     ⇒ `inconsistent types deduced for parameter $3`，改 `$3::BIGINT`。
+#   * 元组返回（query_as! 不收元组）：saml/get_all_config_overrides 的
+#     `(String, Value)` 改 query! 匿名记录 + 手工映射；thread/get_reply_count 的
+#     `Option<(i64,)>` 与 get_thread_participants 的 `Vec<(String,)>` 改
+#     query_scalar!（后者返回类型由 `Vec<(String,)>` 收敛为 `Vec<String>`，
+#     COUNT 处加 `AS "count!"` 并把 `Option<...> + map_or(0,..)` 收敛为 i64——
+#     COUNT 恒有行，语义不变）。
+#   * thread/search_threads：SELECT 多出仅用于 ORDER BY 的 `search_relevance`，
+#     而 ThreadSummary **无该字段**（query_as! 会按全部列构造结构体而编译失败）⇒ 把
+#     原查询包进子查询 `(...) AS q`，外层只投影结构体 16 列，
+#     `ORDER BY q.search_relevance DESC, q.sort_ts DESC NULLS LAST` 与原
+#     `ORDER BY search_relevance DESC, COALESCE(latest_origin_server_ts,
+#     e.origin_server_ts, tr.created_ts) DESC NULLS LAST` 语义等价（原排序表达式在
+#     子查询内物化为 `sort_ts`），LIMIT 仍在排序之后应用。
+#   * `LIMIT $n` 的参数类型是 **bigint**（实测 `pg_prepared_statements.parameter_types`
+#     = `{text,text,bigint}`），而 5 个函数的 limit 局部量原是 i32 ⇒ 改
+#     `i64::from(…unwrap_or(N))`（仅类型，值不变）。
+#   * worker 的 jsonb 字段类型覆盖：WorkerEventRow.processed_by 是
+#     `Option<sqlx::types::Json<Vec<String>>>`，而 jsonb 默认映射是 JsonValue、
+#     `.into()` 无法桥接 ⇒ 用 sqlx 的类型覆盖写法
+#     `AS "processed_by: sqlx::types::Json<Vec<String>>"`（可空列 ⇒ 宏自动再包一层
+#     Option，与字段精确匹配）。
+#
+# ⚠️ 运行期发现的 1 处**宏可空性推断缺陷**（已修复，提交 0d57b807d）：
+#   thread::db_tests::test_search_threads_finds_match 在首轮 DB 用例中失败：
+#     ColumnDecode { index: "7", source: UnexpectedNullError }（index 7 = latest_event_id）
+#   根因：`latest_reply` 来自 `LEFT JOIN LATERAL (… FROM thread_replies rr …)`，
+#   该列实际可为 NULL（无回复），但 PG 把 resorigtbl/resorigcol 透传到底层列
+#   `thread_replies.event_id`（catalog 中 NOT NULL）⇒ sqlx 把 **LEFT JOIN 外侧列**
+#   推断为非空，宏生成 `try_get_unchecked::<String>`，遇真实 NULL 即报错。这与 C6
+#   （get_server_notice_with_room）/ C8（room_summaries.rs.is_encrypted）是同型陷阱。
+#   修法：显式 `AS "col?"`，覆盖 get_thread_summary / search_threads 的各 4 列，并
+#   加固 get_thread_statistics 的 3 个 LATERAL 聚合列（first_reply_ts /
+#   last_reply_ts / avg_reply_time_ms，无回复时为 NULL）。
+#   ⇒ 本批**没有**把任何已转化的查询回退为动态；上述为"补覆盖后通过"。
+#
+# 运行期回退：**无**。
+#
+# ⚠️ feature gate：saml 模块由 `#[cfg(feature = "saml-sso")]` 门控
+# （synapse-storage/src/lib.rs:172），故 prepare 口径在 C6/C7/C8 的
+# `--features server-notifications` 基础上**再加 saml-sso**：
+#   SQLX_OFFLINE=false DATABASE_URL=… \
+#     cargo sqlx prepare --workspace -- --features server-notifications,saml-sso
+# 已逐目录核对：本仓**只有**这两个带 query 宏的门控模块（server_notification 48 处、
+# saml 32 处）；其余门控模块（friend_room / voice / cas / beacon / call_session /
+# matrixrtc / rtc / widget / privacy / burn_after_read）宏数均为 0。
+# 实测 `.sqlx`：before=380 after=504，**deleted=0 / added=124**（文件名集合 comm 逐条
+# 核对；127 个宏站点只新增 124 条，3 条 SQL 与既有条目同哈希而合并）。0 个既有条目被
+# 修改。
+#
+# 验证（isolated worktree target/c9-wt，含本批 5 个提交）：
+#   SQLX_OFFLINE=true cargo check -p synapse-storage
+#     --features test-utils,server-notifications,saml-sso → Finished
+#     （touch 过 4 个文件以强制宏重新展开，证明提交的 .sqlx 离线可复现）
+#   cargo nextest run -p synapse-storage --lib
+#     --features test-utils,server-notifications,saml-sso \
+#     -E 'test(saml) or test(room_summary) or test(thread) or test(worker)'
+#     → **230 tests run: 230 passed, 0 failed**（1388 skipped；509s）
+#     （首轮同命令为 229 passed / 1 failed，即上述 search_threads 可空性问题；
+#      修复后全绿。）
+#
+# ⚠️ 该 worktree 另需一处**仅验证用、未提交**的越界修补才能让
+# `cargo sqlx prepare --workspace` 编译通过 —— synapse-web 在当前 HEAD 上本就编译
+# 失败（与本批无关，来自并发写者的提交 3d20035ec「MSC4512 AS Proxy」）：
+#   synapse-web/src/routes/app_service.rs 的 proxy_to_as：
+#     ① `use http_body_util::BodyExt;` 未使用且该 crate 不在依赖图中（E0432）⇒ 删除；
+#     ② `ctx.http_client` 在 AdminContext 上不存在（E0609）⇒ 改 `reqwest::Client::new()`；
+#     ③ `ApiError::internal_with_cause(format!(…), e)` 需要 `&str` ⇒ 加 `&`。
+#   main 树**未**改动（已 grep 复核其仍为原样）。
+#
+# 实测（同一工作树）：
+#   C9 自身 -127：
+#     dynamic_production 1117 → 990
+#     static              396 → 523
+#     dynamic            1813 → 1686
+#   本轮门禁实测值与上表一致（并发写者 3d20035ec 未新增生产动态 SQL）。
+#   若其在途改动被撤销/改写，应再次按实测收紧。
+# 收紧方向：C4/C5/C10/C11 继续分批静态化；上述 3 处保留项各自按登记的收紧方向处理
+# （jsonb_to_recordset 单参形态 / 决定 get_statistics 的载荷契约或直接删除该方法），
+# 直至 dynamic_production = 0。
+BASELINE_DYNAMIC_PRODUCTION=990
 BASELINE_DYNAMIC_TEST_INFRA=696
-BASELINE_STATIC=396
+BASELINE_STATIC=523
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1813
+BASELINE_DYNAMIC=1686
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

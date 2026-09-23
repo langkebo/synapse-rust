@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, room_id, user_id, display_name, avatar_url, membership, is_hero, last_active_ts, updated_ts, created_ts FROM room_summary_members WHERE room_id = $1 ORDER BY is_hero DESC, user_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "display_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "avatar_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "membership",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_hero",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "last_active_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "2b307671555e24db76574014437b0ea51f147c7906b48fcefa67b4b3b418a823"
+}
