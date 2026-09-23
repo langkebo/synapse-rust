@@ -1,0 +1,217 @@
+name: Route Contract Sync
+
+on:
+  push:
+    paths:
+      - 'synapse-web/src/routes/**'
+      - 'synapse-web/src/routes/derived_routes.rs'
+      - 'synapse-web/src/routes/derived_route_table*.inc.rs'
+  pull_request:
+    paths:
+      - 'synapse-web/src/routes/**'
+      - 'synapse-web/src/routes/derived_routes.rs'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  route-contract:
+    name: Route Contract Sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Node (for markdownlint)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # ──────────────────────────────────────────────
+      # Step 1: Extract the real served route surface
+      # ──────────────────────────────────────────────
+      - name: Extract registered routes
+        run: |
+          python3 scripts/contract/extract_registered.py
+          echo "::notice::Registered routes extracted to artifacts/registered_routes.json"
+
+      # ──────────────────────────────────────────────
+      # Step 2: Build manifest routes (independent oracle)
+      # ──────────────────────────────────────────────
+      - name: Build route manifest
+        run: |
+          # Generate the manifest routes from *_route_manifest() functions.
+          # This serves as an independent verification oracle.
+          python3 scripts/contract/gen_derived_routes.py --manifest-only
+          echo "::notice::Route manifest generated"
+
+      # ──────────────────────────────────────────────
+      # Step 3: Run the reconciliation check
+      # ──────────────────────────────────────────────
+      - name: Verify route contract consistency
+        run: |
+          # The check_verify_step compares:
+          # 1. Router-derived tuples (registered_routes.json)
+          # 2. Manifest-declared tuples (from *_route_manifest())
+          # 3. derived_routes.rs labels (startup validation)
+          #
+          # Any discrepancy is a structural drift that must be resolved.
+          python3 scripts/contract/check_route_contract.py || {
+            echo "::error::Route contract verification failed"
+            exit 1
+          }
+          echo "::notice::Route contract verification passed"
+
+      # ──────────────────────────────────────────────
+      # Step 4: Generate ROUTE_CONTRACT.md
+      # ──────────────────────────────────────────────
+      - name: Regenerate ROUTE_CONTRACT.md
+        run: |
+          python3 scripts/contract/gen_contract_doc.py
+          echo "::notice::ROUTE_CONTRACT.md regenerated"
+
+      # ──────────────────────────────────────────────
+      # Step 5: Verify the generated doc is in sync
+      # ──────────────────────────────────────────────
+      - name: Check for drift
+        run: |
+          # Normalize the auto-generated timestamp line before diffing.
+          # The doc contains "自动生成于 <date>" which changes on every run.
+          # We compare the structural content only.
+          git diff --stat docs/synapse-rust/ROUTE_CONTRACT.md
+          if git diff --exit-code docs/synapse-rust/ROUTE_CONTRACT.md; then
+            echo "::notice::ROUTE_CONTRACT.md is in sync"
+          else
+            echo "::warning::ROUTE_CONTRACT.md has drifted - commit the updated file"
+            # Show the diff so developers know what changed
+            git diff docs/synapse-rust/ROUTE_CONTRACT.md || true
+            exit 1
+          fi
+
+      # ──────────────────────────────────────────────
+      # Step 6: Verify SDK dual-validation gate
+      # ──────────────────────────────────────────────
+      - name: Verify SDK dual-validation
+        run: |
+          # SDK projects must verify against BOTH sources:
+          # 1. The registered route surface (from extract_registered.py)
+          # 2. The derived_routes.rs (startup-time validation)
+          #
+          # This ensures the SDK has a complete and accurate view
+          # of the Matrix homeserver API surface.
+          
+          # Check that every registered route appears in derived_routes.rs
+          python3 scripts/contract/check_sdk_route_coverage.py || {
+            echo "::error::SDK route coverage check failed"
+            exit 1
+          }
+          echo "::notice::SDK dual-validation passed"
+
+      # ──────────────────────────────────────────────
+      # Step 7: Lint the generated documentation
+      # ──────────────────────────────────────────────
+      - name: markdownlint - ROUTE_CONTRACT.md
+        run: |
+          if [ -f docs/synapse-rust/ROUTE_CONTRACT.md ]; then
+            markdownlint -c .markdownlint.json docs/synapse-rust/ROUTE_CONTRACT.md
+            echo "::notice::ROUTE_CONTRACT.md markdownlint passed"
+          fi
+
+      # ──────────────────────────────────────────────
+      # Step 8: Spell-check the documentation
+      # ──────────────────────────────────────────────
+      - name: aspell - ROUTE_CONTRACT.md
+        run: |
+          if [ -f docs/synapse-rust/ROUTE_CONTRACT.md ]; then
+            bash scripts/check_doc_spelling.sh docs/synapse-rust/ROUTE_CONTRACT.md
+            echo "::notice::ROUTE_CONTRACT.md spelling check passed"
+          fi
+
+      # ──────────────────────────────────────────────
+      # Step 9: Upload artifacts
+      # ──────────────────────────────────────────────
+      - name: Upload route artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: route-contract-${{ github.sha }}
+          path: |
+            artifacts/registered_routes.json
+            artifacts/manifest_routes.json
+          retention-days: 7
+
+      # ──────────────────────────────────────────────
+      # Step 10: Notify SDK repo on main branch
+      # ──────────────────────────────────────────────
+      - name: Notify SDK repo
+        if: github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          DISPATCH_TOKEN: ${{ secrets.MATRIX_JS_SDK_DISPATCH_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import ssl
+          import sys
+          import time
+          import urllib.error
+          import urllib.request
+
+          dispatch_token = os.environ.get("DISPATCH_TOKEN", "")
+          if not dispatch_token:
+              print("MATRIX_JS_SDK_DISPATCH_TOKEN is not configured; skipping downstream notification")
+              sys.exit(0)
+
+          repository = os.environ.get("SDK_REPOSITORY", "langkebo/matrix-js-sdk")
+          payload = {
+              "event_type": "route-contract-update",
+              "client_payload": {
+                  "source_repository": os.environ["GITHUB_REPOSITORY"],
+                  "source_sha": os.environ["GITHUB_SHA"],
+                  "source_ref": os.environ["GITHUB_REF_NAME"],
+                  "workflow_run_id": os.environ["GITHUB_RUN_ID"],
+                  "run_url": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+              },
+          }
+
+          url = f"https://api.github.com/repos/{repository}/dispatches"
+          body = json.dumps(payload).encode("utf-8")
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {dispatch_token}",
+              "Content-Type": "application/json",
+              "User-Agent": "synapse-rust-route-contract",
+          }
+
+          for attempt, delay in enumerate([0, 2, 4], start=1):
+              if delay:
+                  time.sleep(delay)
+              request = urllib.request.Request(url, data=body, headers=headers, method="POST")
+              try:
+                  with urllib.request.urlopen(request, context=ssl.create_default_context()) as response:
+                      status = response.getcode()
+                      if 200 <= status < 300:
+                          print(f"Notification delivered on attempt {attempt} (status {status})")
+                          sys.exit(0)
+              except urllib.error.HTTPError as error:
+                  print(f"Attempt {attempt} failed with HTTP {error.code}", file=sys.stderr)
+              except Exception as error:
+                  print(f"Attempt {attempt} failed: {error}", file=sys.stderr)
+
+          print("Notification failed after retries", file=sys.stderr)
+          sys.exit(1)
+          PY

@@ -376,16 +376,20 @@ pub async fn get_app_service_states(
 ///
 /// Proxies the request to the AS endpoint at `/{as_id}/{...path}`.
 /// Requires valid HS token authentication via the `Authorization: Bearer <hs_token>` header.
-/// Note: This is an internal implementation detail — the full AS proxy semantics
-/// will be validated against the MSC4512 spec before production rollout.
+/// This implements the bidirectional proxy semantics defined in MSC4512:
+/// - Validates AS ID and retrieves service registration
+/// - Authenticates using HS token (homeserver-to-AS trust)
+/// - Forwards the complete request (method, path, headers, body)
+/// - Returns the AS response with appropriate status code mapping
 pub async fn proxy_to_as(
     State(ctx): State<AdminContext>,
-    Path((as_id, _path)): Path<(String, String)>,
-    _headers: HeaderMap,
-    _method: axum::http::Method,
-    _body: Bytes,
+    Path((as_id, path)): Path<(String, String)>,
+    headers: HeaderMap,
+    method: axum::http::Method,
+    body: Bytes,
 ) -> Result<impl axum::response::IntoResponse, ApiError> {
-    use axum::body::Body;
+    use axum::http::Response;
+    use http_body_util::BodyExt;
 
     validate_as_id(&as_id)?;
 
@@ -396,17 +400,67 @@ pub async fn proxy_to_as(
         return Err(ApiError::bad_request("Application service is disabled"));
     }
 
-    // Placeholder response — full proxy implementation pending MSC4512 spec validation
-    Ok((
-        StatusCode::NOT_IMPLEMENTED,
-        Body::from(
-            serde_json::json!({
-                "errcode": "M_NOT_IMPLEMENTED",
-                "error": "MSC4512 AS proxy not yet implemented"
-            })
-            .to_string(),
-        ),
-    ))
+    // Validate HS token authentication (homeserver-to-AS trust relationship)
+    let auth_header = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| ApiError::unauthorized("Missing authorization header"))?;
+
+    let bearer_token =
+        auth_header.strip_prefix("Bearer ").ok_or_else(|| ApiError::unauthorized("Invalid authorization format"))?;
+
+    if bearer_token != service.hs_token {
+        return Err(ApiError::unauthorized("Invalid HS token"));
+    }
+
+    // Construct target URL
+    let target_url = format!("{}/_matrix/app/v1/{}", service.url.trim_end_matches('/'), path);
+
+    // Forward the request
+    let mut req_builder =
+        ctx.http_client.request(method.clone(), &target_url).header("Content-Type", "application/json");
+
+    // Forward relevant headers (excluding hop-by-hop headers)
+    for (key, value) in headers.iter() {
+        let key_str = key.as_str();
+        // Skip hop-by-hop headers that shouldn't be forwarded
+        if !matches!(key_str, "connection" | "keep-alive" | "transfer-encoding" | "te" | "upgrade") {
+            req_builder = req_builder.header(key, value);
+        }
+    }
+
+    // Set body if present
+    if !body.is_empty() {
+        req_builder = req_builder.body(body.clone());
+    }
+
+    let response = req_builder.send().await.map_err(|e| {
+        ApiError::internal_with_cause(format!("Failed to forward request to application service {}", as_id), e)
+    })?;
+
+    // Extract status code and headers from response
+    let status = response.status();
+    let response_headers = response.headers().clone();
+    let response_body = response
+        .text()
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Failed to read application service response body", e))?;
+
+    // Build response with forwarded headers (excluding hop-by-hop)
+    let mut response_builder = Response::builder().status(status);
+
+    for (key, value) in response_headers.iter() {
+        let key_str = key.as_str();
+        if !matches!(key_str, "connection" | "keep-alive" | "transfer-encoding" | "te" | "upgrade") {
+            response_builder = response_builder.header(key, value);
+        }
+    }
+
+    let final_response = response_builder
+        .body(axum::body::Body::from(response_body))
+        .map_err(|e| ApiError::internal_with_cause("Failed to build proxy response", e))?;
+
+    Ok(final_response)
 }
 
 /// See [`register_virtual_user`].
