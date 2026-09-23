@@ -181,3 +181,41 @@ CI 的 blocking lib 批次是 `cargo nextest run --workspace --lib --all-feature
 才能重新认定 `main` 为绿；§1 对 `3ca9cb46` 的验证不受影响。另注意这批测试是在
 **未跑 `--all-features`** 的情况下提交的 —— 与 AGENTS.md/`TESTING.md` 反复强调的
 "`--all-features` 是 CI 口径、窄 feature 集会产生假绿"是同一类问题。
+
+### 7.3 修复与闭环
+
+修复提交 `bc1bad41`（7 个文件）。修编译之后又暴露出**断言/夹具**层面的缺陷 —— 这类缺陷
+不会再让编译失败，而是让用例"因错误的理由红或绿"，正是本仓最在意的一类。
+
+| 类别 | 具体修复 |
+|---|---|
+| fmt 棘轮 | `cargo fmt --all`（4 个文件、15 处） |
+| 编译 `E0063` | `cas.rs` 的 `CasRegisteredService` 测试补齐 7 个字段（`From` 实现只读其余 5 个，故补齐不影响该用例的证明力） |
+| 编译 `E0308` ×5 | `repository.rs` 的 `created_by` 是 `Option<String>`，5 处包 `Some(..)` |
+| clippy | 删未使用导入 `serde_json::json`；`vec!` 仅用于 `sort_by` → 改数组 |
+| 断言/夹具 | ① `test_e06_too_long_returns_error` 原用 65 位（奇数）输入，**先撞 hex 奇偶校验、根本没走到长度分支** → 改 66 位（33 字节）；② `test_e06_empty_string_returns_error` 断言 `"32 bytes"`，真实消息是 `is 0 bytes, must be exactly 32` → 改为 `"must be exactly 32"`；③ `test_olm_service_new_has_empty_state` 是普通 `#[test]` 却调用 `connect_lazy`（sqlx 0.8 会建内部后台任务，需要 Tokio 上下文）→ 改 `#[tokio::test]`，并把注释里"没 panic 即证明状态为空"换成对四个字段的直接断言；④ `push_notification` 的 `valid_config_accepted` 用了不存在的键 `apns.token`（允许列表的真相源只有 `apns.topic`）→ 改 `apns.topic` |
+| 既有 flake（**非**本提交引入） | `synapse-common` 的 `released_pool_triggers_cleanup_without_any_sweep`：它用 `try_recv` 断言，而"本条目的 `on_release` 由本线程还是后台 janitor 执行"是竞态（`cleanup.take()` 只保证恰好一个执行者）—— janitor 先取走条目时，其回调可能尚未 `send`，`try_recv` 必然拿到 `Empty`。**实证**：同一二进制、同一旗标、同一位置（928/6217）在两次批次运行中一次通过一次失败 → 改为带上限的 `recv_timeout`（不变量是"`on_release` 会被执行"，而不是"它在本线程执行"），修复后连跑 10 次全稳 |
+
+**红 → 绿对照（同一命令、同一工作树）**：
+
+| 门禁 | 修复前 | 修复后 |
+|---|---|---|
+| `./scripts/check_fmt_ratchet.sh` | `current=49 baseline=0` → RED | `current=0 baseline=0` → OK |
+| `cargo nextest run --workspace --lib --all-features --locked --test-threads 4` | exit 101（编译失败）；修编译后 6215/6217 | **exit 0 · 6217 passed / 0 failed**（`--no-fail-fast`，2122s） |
+| clippy `--all-features … -D warnings` | 1 error | 0 error |
+| clippy 默认档 `-D warnings` | 0 error | 0 error |
+
+**方法说明**：最终批次加了 `--no-fail-fast`。若该模式下 6217 个用例全过，则**不加该旗标的 CI 命令必然也过** ——
+fail-fast 只在遇到失败时提前停止，不可能把"通过"变成"失败"。故一条 `--no-fail-fast` 全绿足以裁定该批次为绿。
+
+### 7.4 非阻塞观察（本次未改动）
+
+1. `synapse-web/src/routes/burn_after_read.rs` 的 `test_create_burn_after_read_router_creates_routes`
+   函数体内只有 `let _router_fn = create_burn_after_read_router;`，运行时**不断言任何东西**
+   （注释自述"验证函数存在且能编译"—— 而编译通过由编译器保证）。
+   它与本仓既有的"router 结构"测试（如 `test_reactions_routes_structure` 只对硬编码字符串数组断言）
+   同属弱测试，不是本提交新引入的标准问题，故未单方面抬高他人测试批次的标准。
+2. 严判据扫描本批 1313 行新测试（63 个测试函数，排除辅助函数）：仅上述 1 个用例完全没有断言，
+   其余均有 `assert`/`panic!`/`unwrap_err` 等真实断言。**注意**：这类扫描必须从 `fn` 行本身起算
+   大括号配平 —— 否则会在结构体字面量的收尾 `};` 处误判为函数结束，从而把"先构造结构体、后断言"
+   的用例全部错标为"无断言"（本报告作者第一次扫描即踩此坑，得到 23 个假阳性后修正）。
