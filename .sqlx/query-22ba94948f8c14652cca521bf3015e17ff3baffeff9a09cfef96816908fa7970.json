@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO worker_statistics (worker_id, cpu_usage, memory_usage, active_connections,\n                                           requests_per_second, average_latency_ms, queue_depth,\n                                           last_heartbeat_ts, created_ts, updated_ts)\n            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)\n            ON CONFLICT (worker_id) DO UPDATE SET\n              cpu_usage          = COALESCE(EXCLUDED.cpu_usage,          worker_statistics.cpu_usage),\n              memory_usage       = COALESCE(EXCLUDED.memory_usage,       worker_statistics.memory_usage),\n              active_connections = COALESCE(EXCLUDED.active_connections, worker_statistics.active_connections),\n              requests_per_second= COALESCE(EXCLUDED.requests_per_second,worker_statistics.requests_per_second),\n              average_latency_ms = COALESCE(EXCLUDED.average_latency_ms, worker_statistics.average_latency_ms),\n              queue_depth        = COALESCE(EXCLUDED.queue_depth,        worker_statistics.queue_depth),\n              last_heartbeat_ts  = EXCLUDED.last_heartbeat_ts,\n              updated_ts         = EXCLUDED.updated_ts\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Float4",
+        "Int8",
+        "Int4",
+        "Float4",
+        "Float4",
+        "Int4",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "22ba94948f8c14652cca521bf3015e17ff3baffeff9a09cfef96816908fa7970"
+}

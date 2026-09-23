@@ -857,11 +857,56 @@
 # 收紧方向：C11（synapse-common/src/test_isolation.rs）与 E2EE 其余存储模块
 # （device_trust 17 / key_rotation 18 / backup 18 处动态）继续分批静态化，
 # 直至 dynamic_production = 0。
+# ── 2026-09-23 S1–S3 worker statistics producer（生产 0，静态 +1，测试 +6）────
+#
+# 批次：worker statistics producer（S1 schema / S2 storage UPSERT / S3 wiring+reader）。
+# 把**已存在**的心跳载荷 `load_stats` 落库，使 `get_statistics` 返回真实值而非永久 NULL。
+#
+# 生产侧：
+#   static +1 —— `synapse-storage/src/worker/repository.rs::upsert_statistics`
+#     新增 1 个 `sqlx::query!` 站点（INSERT … ON CONFLICT (worker_id) DO UPDATE）。
+#     全字段用 `COALESCE(EXCLUDED.<col>, worker_statistics.<col>)`：后续只上报部分
+#     指标的心跳不得把此前已上报值清空。`WorkerLoadStatsUpdate` 六个字段实际
+#     全为 `Option`，逐个按原类型绑定（REAL/BIGINT/INTEGER/REAL/REAL/INTEGER）。
+#   dynamic_production **0 变化**（963 → 963）：`get_statistics` 只在其既有
+#     `query!` 里增列（+6 个 `AS "col?"`，因 LEFT JOIN 外侧需显式可空覆盖），
+#     不新增动态调用点。
+#
+# 测试侧 +6（全部在 `synapse-storage/src/worker/db_tests.rs`，均为真实 DB 往返夹具）：
+#   1. upsert 后 `SELECT COUNT(*)` 断言恰好一行（1）；
+#   2. 第二次 upsert 后 `SELECT COUNT(*)`（1）+ 读 created_ts/updated_ts/last_heartbeat_ts
+#      断言"原地更新而非追加"且 created_ts 保留（1）+ 读 cpu_usage/queue_depth
+#      断言后值覆盖前值（1）；
+#   3. 只上报 queue_depth 的第二次 upsert 后读六列断言 COALESCE 保留语义（1）
+#      + `SELECT COUNT(*)` 断言仍为一行（1）。
+#   另有 1 处既有夹具断言改写（原断言 cpu_usage 键不存在 → 现在六指标键恒在、
+#   未上报时为 null），不新增动态调用。
+#   这些夹具**无法静态化**：`#[cfg(test)]` 内的宏不进 `cargo sqlx prepare`
+#   （默认 target 集），`-- --all-targets` 又会因测试目标缺 feature 而 E0432。
+#   收紧方向：若 `WorkerStorage` 暴露"读原始统计行"的 API（当前仅 `get_statistics`
+#   返回 join 后的 json），其中 3 处 `SELECT COUNT(*)` / 时间戳 / 六列读可直接
+#   改调生产 API 回收；COALESCE 专用断言仍建议保留至少 1 处直读以证明列语义。
+#
+# 同时修复一处**会让新功能静默失效**的迁移陷阱：baseline 的 v11-10 清理 DO 块会
+# 删除所有非 constraint 支撑的显式 `uq_*` UNIQUE INDEX（首次实测 NOTICE:
+# "Dropped redundant UNIQUE INDEX: …uq_worker_statistics_worker_id"），
+# 因此唯一键改为 `ADD CONSTRAINT uq_worker_statistics_worker_id UNIQUE (worker_id)`
+# （包在 `pg_constraint` 判空 DO 块里，约束背书索引不在清理范围内），
+# 否则 `ON CONFLICT (worker_id)` 会在运行期报 "no unique constraint matching"。
+#
+# 实测（main 树，门禁同源；未能隔离并发写者的未提交改动，见下）：
+#   dynamic_production 963 → 963   （0）
+#   static             550 → 551   （+1）
+#   dynamic_test       698 → 704   （+6）
+#   dynamic            1661 → 1667
+#   ⚠️ 生产动态 963 含并发写者未提交的 `synapse-storage/src/search_index.rs` 在途
+#   改动（C3/C6 段登记的同型 +1，本轮未复核其是否仍在）；本批自身生产变化为 0，
+#   故基线按门禁实测值保持 963。
 BASELINE_DYNAMIC_PRODUCTION=963
-BASELINE_DYNAMIC_TEST_INFRA=698
-BASELINE_STATIC=550
+BASELINE_DYNAMIC_TEST_INFRA=704
+BASELINE_STATIC=551
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1661
+BASELINE_DYNAMIC=1667
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #
