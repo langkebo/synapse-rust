@@ -44,6 +44,7 @@ mod api_sync_isolation_rate_limit_tests;
 mod api_telemetry_alerts_tests;
 mod api_typing_routes_tests;
 mod api_widget_tests;
+mod api_worker_heartbeat_stats_tests;
 mod api_worker_replication_auth_tests;
 mod cache_tests;
 mod cleanup_tests;
