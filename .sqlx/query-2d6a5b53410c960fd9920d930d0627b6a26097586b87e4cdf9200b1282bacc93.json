@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT stream_ordering, origin_server_ts FROM events WHERE event_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "stream_ordering",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "origin_server_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "2d6a5b53410c960fd9920d930d0627b6a26097586b87e4cdf9200b1282bacc93"
+}

@@ -509,11 +509,83 @@
 #   "实际 C6 值"）。C6 段自身的该提示（"若该在途改动被撤销/改写，应再下调 1"）至此落实。
 # 收紧方向：C4/C5/C8–C11 继续分批静态化（space/repository.rs 的 2 处运行期拼装 SQL
 # 见上），直至 dynamic_production = 0。
-BASELINE_DYNAMIC_PRODUCTION=1200
+# ── 2026-09-23 C8 静态化（生产动态 -83，静态 +83）────────────────────────────
+#
+# 批次：C8（docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md）。
+# 文件：synapse-storage/src/room/mod.rs                 （48 处生产动态）
+#       synapse-storage/src/room/admin.rs               （35 处生产动态）
+#
+# 两文件生产区 **83 处动态调用全部静态化**（各自生产区剩余动态 = 0）：
+#   query_as!     ×（RoomRecord / RoomWithMembersRecord 行映射、keyset 分页）
+#   query_scalar! ×（COUNT(*) / COUNT(DISTINCT) / COALESCE(COUNT(*),0) 聚合、
+#                    EXISTS 探测、单列 SELECT）
+#   query!        ×（INSERT / UPDATE / DELETE；另有 6 处原元组返回改为
+#                    query! 匿名记录 + 手工映射，因 query_as! 不支持元组）
+#
+# 静态化时补的 nullability / 类型覆盖：
+#   * `RoomRecord` / `RoomWithMembersRecord` 的 `join_rule` / `creator_user_id`
+#     字段无法用 `#[sqlx(rename)]` 映射（query_as! 按 describe 的列名构造结构体）
+#     ⇒ SQL 别名改为 `r.join_rules AS join_rule` / `r.creator AS creator_user_id`。
+#   * `rs.is_encrypted` 来自 LEFT JOIN room_summaries：列 NOT NULL 但左连接未命中
+#     时为 NULL，sqlx 不识别 LEFT JOIN 外侧 ⇒ `AS "is_encrypted?"`（C6 同型陷阱）。
+#   * 无 relation origin 的表达式列一律 `AS "count!"` / `AS "exists!"` /
+#     `AS "name!"` / `AS "avatar_url!"`（与旧 (String,) 元组解码一致）。
+#   * 可空列 + 旧非 Option 元组解码 ⇒ `AS "creator!"` / `AS "room_version!"` /
+#     `AS "is_public!"`（room_directory）/ `AS "data!"`（event_receipts.data）。
+#   * `SELECT MAX(origin_server_ts)` 保持可空（Option<i64> + fetch_optional().flatten()）。
+#   * `ANY($1)` 实参：`&Vec<String>` → 宏要求精确 `&[String]`，改 `&empty_room_ids[..]`。
+#   * `&current_id`（&String）→ `current_id.as_str()`（宏 ty_match 比 .bind() 严格）。
+#
+# ⚠️ SQL 修复（静态化必需）：`get_rooms_with_member_counts` 的 SQL 原为
+#   `… WHERE r.room_id = ANY($1) LEFT JOIN room_summaries rs ON …` —— LEFT JOIN 置于
+#   WHERE 之后，在 PG 下是**语法错误、从未执行过**（psql 实测 42601）。为让
+#   `query_as!` 在 prepare 阶段能解析，把该 LEFT JOIN 移到 WHERE 之前（与
+#   get_rooms_batch / admin 同族查询的既有顺序一致）。该方法全仓**仍无调用者**
+#   （grep 仅命中定义处），按铁律 1 应另立条目删除；本轮为守住"逐站静态化"范围
+#   未删，建议收尾批次清理。
+#
+# 测试模块（mod.rs 17 处 / admin.rs 3 处）保持动态：`#[cfg(test)]` 内联夹具的建表
+# DDL 与夹具 INSERT 无法静态化，且 `#[cfg(test)]` 内的宏不进 `cargo sqlx prepare`
+# （默认 target 集）。dynamic_test 不变（696）。
+#
+# 验证（isolated worktree target/c8-wt @ 0e171664 + 两处仅验证用的越界修补）：
+#   SQLX_OFFLINE=false DATABASE_URL=… cargo check -p synapse-storage
+#     --features test-utils,server-notifications → Finished（83 个宏按真实 schema
+#     校验通过；首轮仅 1 处 E0308：可空 creator + fetch_optional 推断为
+#     Option<Option<String>>，已按旧非 Option 解码语义加 `AS "creator!"`）
+#   cargo nextest run -p synapse-storage --lib --features test-utils,server-notifications
+#     -E 'test(room)' → **276 passed, 0 failed**（含 room::db_tests 与
+#     room::admin::db_tests 共 57 个直接覆盖本轮转化站点的用例；1075s）
+#   运行期回退：**无**。
+#
+# ⚠️ feature gate：room 模块在 synapse-storage/src/lib.rs 中**无 cfg 门控**，但
+#   `.sqlx` 的 destination 就是 `.sqlx/` 本身，`cargo sqlx prepare` 会先清空再重写；
+#   本仓唯一带 query 宏的门控模块是 server_notification。沿用 C6/C7 口径：
+#     SQLX_OFFLINE=false DATABASE_URL=… \
+#       cargo sqlx prepare --workspace -- --features server-notifications
+#   实测：before=302 after=380，**deleted=0 / added=78**（文件名集合 comm 逐条核对；
+#   83 个宏站点只新增 78 条，5 条 SQL 与既有条目同哈希而合并）。
+#
+# ⚠️ 该 worktree 另需两处**仅验证用、未提交**的越界修补才能编译（均为并发写者
+# 已入库、与本批无关的缺陷，均只改 worktree，main 树未动）：
+#   1. synapse-web/src/routes/app_service.rs 的 `proxy_to_as` 把 `_body: Bytes`
+#      （body-consuming extractor，axum 要求排在最后）放在 `_method` 之前（同 C3/C6/C7）；
+#   2. synapse-services/src/test_config.rs 的 `Config { … }` 初始化缺
+#      `content_scanner` 字段（E0063）（同 C6/C7）。
+#
+# 实测（同一工作树）：
+#   C8 自身 -83：
+#     dynamic_production 1200 → 1117
+#     static              313 →  396
+#     dynamic            1896 → 1813
+#   本轮门禁实测值与上表一致（并发写者当前的 cascade.rs / create.rs / test_config.rs
+#   在途改动未新增生产动态 SQL）。若其在途改动被撤销/改写，应再次按实测收紧。
+# 收紧方向：C4/C5/C9–C11 继续分批静态化，直至 dynamic_production = 0。
+BASELINE_DYNAMIC_PRODUCTION=1117
 BASELINE_DYNAMIC_TEST_INFRA=696
-BASELINE_STATIC=313
+BASELINE_STATIC=396
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1896
+BASELINE_DYNAMIC=1813
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

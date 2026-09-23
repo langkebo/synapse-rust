@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) AS \"count!\" FROM room_memberships WHERE room_id = $1 AND membership = 'join' AND user_id IN (SELECT user_id FROM users WHERE is_admin = true)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "3453235a4fb8175cd472fdbb8b0b489eed0be070f59f300c6d03c2d9e5e5ed80"
+}

@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT rm.room_id, rm.membership,\n                   COALESCE(r.name, '') AS \"name!\",\n                   COALESCE(r.avatar_url, '') AS \"avatar_url!\"\n            FROM room_memberships rm\n            LEFT JOIN rooms r ON rm.room_id = r.room_id\n            WHERE rm.user_id = $1\n            ORDER BY rm.updated_ts DESC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "membership",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "avatar_url!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "c7e11add0cdf4f0fd840c827eb1a2b2c1b096e2145d18de74f9a83b4a2c96187"
+}

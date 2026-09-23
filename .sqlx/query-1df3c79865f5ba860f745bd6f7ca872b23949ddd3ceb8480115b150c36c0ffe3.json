@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO blocked_rooms (room_id, blocked_at, blocked_by, reason)\n            VALUES ($1, $2, $3, $4)\n            ON CONFLICT (room_id) DO UPDATE SET blocked_at = $2, reason = $4\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1df3c79865f5ba860f745bd6f7ca872b23949ddd3ceb8480115b150c36c0ffe3"
+}

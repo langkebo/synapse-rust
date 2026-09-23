@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE room_summaries\n            SET updated_ts = $2\n            WHERE room_id = ANY($1)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2477e9ea60c8f09729182b4af423ba79ef0cb1934c11a1955156ec86e6237e86"
+}

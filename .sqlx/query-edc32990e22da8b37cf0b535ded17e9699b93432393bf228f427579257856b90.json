@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE rooms SET visibility = $1, is_public = $2 WHERE room_id = $3\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "edc32990e22da8b37cf0b535ded17e9699b93432393bf228f427579257856b90"
+}

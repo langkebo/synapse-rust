@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                DELETE FROM events\n                WHERE event_id IN (\n                    SELECT event_id FROM events\n                    WHERE room_id = $1\n                    LIMIT $2\n                )\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "385a69e8d7b5a5d9720e41162f1872e430bf2bcf6972c3fe41c0d097b02b6e9a"
+}
