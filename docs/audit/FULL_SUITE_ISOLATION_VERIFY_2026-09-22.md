@@ -207,8 +207,27 @@ CI 的 blocking lib 批次是 `cargo nextest run --workspace --lib --all-feature
 
 **方法说明**：最终批次加了 `--no-fail-fast`。若该模式下 6217 个用例全过，则**不加该旗标的 CI 命令必然也过** ——
 fail-fast 只在遇到失败时提前停止，不可能把"通过"变成"失败"。故一条 `--no-fail-fast` 全绿足以裁定该批次为绿。
+为免疑义，随后又**实跑了不带任何额外旗标的 CI 原样命令**：`exit 0`，`6217 passed / 0 failed`（1966s）。
 
-### 7.4 非阻塞观察（本次未改动）
+### 7.4 尖端漂移：本分支只覆盖基线 `048a0fc6` 的那一批
+
+修复完成后 `main` 继续推进（`048a0fc6` → `ff4a23d2`，3 个提交，均为"继续补测试"）。实测当前尖端：
+
+| 项 | `048a0fc6`（本分支基线） | `ff4a23d2`（当前 `main`） |
+|---|---|---|
+| fmt 棘轮 | `current=49 baseline=0` | **`current=106 baseline=0`** |
+| 违规文件 | 4 个 | **7 个**：原 4 个 + `invite.rs`、`handlers/dehydrated_device.rs`、`external_service.rs` |
+
+**判据**：新提交**没有触碰**本分支修复的 6 个文件（`git diff --name-only 048a0fc6 ff4a23d2 -- <6 files>` 为空），
+因此那些缺陷在当前 `main` 上**依然存在**；同时新加的 3 个测试文件又带来新的 fmt 债务。
+
+**推论**：本分支合并进当前 `main` 后，fmt 门禁**仍会红**（因为 `invite.rs` 等 3 个文件不在本分支范围内）。
+根因不是"漏了一批文件"，而是**提交时没有跑 `cargo fmt --all` 与 `--all-features` 自检** ——
+本仓 AGENTS.md 已明文要求两者，属执行缺口而非规则缺口。
+结构性建议：把 `./scripts/check_fmt_ratchet.sh` 加进 `.githooks/pre-commit`（该 hook 目录已存在且需
+`git config core.hooksPath .githooks` 启用），让"未格式化即提交"在本地就被拦住，而不是靠事后清扫。
+
+### 7.5 非阻塞观察（本次未改动）
 
 1. `synapse-web/src/routes/burn_after_read.rs` 的 `test_create_burn_after_read_router_creates_routes`
    函数体内只有 `let _router_fn = create_burn_after_read_router;`，运行时**不断言任何东西**
