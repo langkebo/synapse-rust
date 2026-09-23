@@ -909,10 +909,7 @@ mod tests {
     fn test_msc4108_update_outcome_not_found() {
         let outcome = Msc4108UpdateOutcome::NotFound;
 
-        match outcome {
-            Msc4108UpdateOutcome::NotFound => {}
-            _ => panic!("Expected NotFound variant"),
-        }
+        assert!(matches!(outcome, Msc4108UpdateOutcome::NotFound));
     }
 
     #[test]
@@ -923,14 +920,19 @@ mod tests {
             expires_at: 1234567890 + 300000,
         };
 
-        match outcome {
-            Msc4108UpdateOutcome::PreconditionFailed { current_etag, updated_ts, expires_at } => {
-                assert_eq!(current_etag, "\"1234567890\"");
-                assert_eq!(updated_ts, 1234567890);
-                assert_eq!(expires_at, 1234567890 + 300000);
-            }
-            _ => panic!("Expected PreconditionFailed variant"),
-        }
+        // `matches!` with a guard keeps the assertions without a `panic!` arm —
+        // `clippy::panic` is denied crate-wide, and "unreachable" arms are how that
+        // lint gets tripped in test code.
+        assert!(
+            matches!(
+                outcome,
+                Msc4108UpdateOutcome::PreconditionFailed { ref current_etag, updated_ts, expires_at }
+                    if current_etag == "\"1234567890\""
+                        && updated_ts == 1234567890
+                        && expires_at == 1234567890 + 300000
+            ),
+            "expected PreconditionFailed carrying the constructed fields"
+        );
     }
 
     #[test]
@@ -941,14 +943,16 @@ mod tests {
             expires_at: 9876543210 + 600000,
         };
 
-        match outcome {
-            Msc4108UpdateOutcome::Updated { new_etag, updated_ts, expires_at } => {
-                assert_eq!(new_etag, "\"9876543210\"");
-                assert_eq!(updated_ts, 9876543210);
-                assert_eq!(expires_at, 9876543210 + 600000);
-            }
-            _ => panic!("Expected Updated variant"),
-        }
+        assert!(
+            matches!(
+                outcome,
+                Msc4108UpdateOutcome::Updated { ref new_etag, updated_ts, expires_at }
+                    if new_etag == "\"9876543210\""
+                        && updated_ts == 9876543210
+                        && expires_at == 9876543210 + 600000
+            ),
+            "expected Updated carrying the constructed fields"
+        );
     }
 
     #[test]
