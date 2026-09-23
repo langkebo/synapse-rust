@@ -44,7 +44,7 @@
 | **主要语言** | Python 3.10+ | Rust (Edition 2021, MSRV 1.93) |
 | **当前版本** | v1.161.0 | v6.2.0 |
 | **许可证** | AGPL-3.0 | AGPL-3.0-only |
-| **代码规模** | 未独立测量（本报告未复核上游行数） | **439,130 行 Rust（1,020 个 .rs 文件）**（实测：`git ls-files '*.rs' \| xargs wc -l`，2026-09-22） |
+| **代码规模** | 未独立测量（本报告未复核上游行数） | **442,451 行 Rust（1,019 个 .rs 文件）**（实测：`git ls-files '*.rs' \| xargs wc -l` 与 `git ls-files '*.rs' \| wc -l`，2026-09-23） |
 | **数据库** | PostgreSQL / SQLite | PostgreSQL (sqlx 0.8，Cargo.lock 实锁 0.8.6) |
 | **缓存** | Redis (tx-redis) | Redis (deadpool-redis 0.20，Cargo.lock 实锁 0.20.0) |
 | **异步运行时** | Twisted reactor | Tokio（Cargo.toml 要求 1.49，Cargo.lock 实锁 **1.53.1**） |
@@ -295,10 +295,10 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 |------|-------------------|--------------|
 | **E2EE 引擎** | libolm (C 库 binding) | vodozemac `>=0.10.0`（Cargo.lock 实锁 **0.11.0**，纯 Rust；Megolm/Olm 走 `GroupSession`/`InboundGroupSession`/`Account`/`Session` + 加密 pickle） |
 | **密钥轮转** | 有 | `synapse-e2ee/src/key_rotation/`（1017 行）+ `synapse-federation/src/key_rotation.rs`（1157 行） |
-| **跨设备验证** | 有（成熟） | ⚠️ **PARTIAL**：交叉签名（`e2ee/cross_signing/`，信任链真实验证）与设备信任（`e2ee/device_trust/`）**真实**；但 **SAS 派生不合规范**（`verification/service.rs:82-93` 用 `SHA256(secret‖info)` 而非 HKDF-SHA256，且 `confirm_sas:296-351` 接受任意非空 MAC）；**QR 为桩**（`:384-390` 复用同一公钥、`signature` 空串） |
+| **跨设备验证** | 有（成熟） | ⚠️ **PARTIAL**：交叉签名（`e2ee/cross_signing/`，信任链真实验证）与设备信任（`e2ee/device_trust/`）**真实**；**SAS 已按规范对齐**（Phase 3：`verification/service.rs:106` 用 HKDF-SHA256 派生，`:367` 用 `synapse_common::crypto::secure_compare` 校验 HMAC，且无随机兜底）；**QR 未实现但不再伪造**（`:409,423` 返回明确的 unsupported 错误，此前是"复用公钥 + 空签名"的桩） |
 | **密钥备份** | 有 | `synapse-e2ee/src/backup/` + `synapse-web/src/routes/e2ee/backup.rs`（`synapse-common/src/secure_backup` 摘要派生另有实现，`ssss/service.rs:251` 的 curve25519 路径从密文自身派生 AES 密钥，非 ECDH） |
 | **SSSS** | 有 | `e2ee/ssss/`（AES-256-GCM） |
-| **泄漏检测** | 有 | ❌ **未实现/死代码**：`synapse-e2ee/src/leak_detection/` **未在 `lib.rs` 声明**（从未编译）；若启用则因未导入 `Utc::now()`（`service.rs:129`）编译失败，且 `get_session_device_count` 恒返回 `Ok(1)`（`:267-269`） |
+| **泄漏检测** | 有 | ❌ **未实现（死模块已删除）**：`synapse-e2ee/src/leak_detection/` 从未在 `lib.rs` 声明（即从未编译），Phase 3 按 AGENTS.md 铁律 1 整体删除（提交 `db570918`）。本仓**不提供**该能力，也不再有"看起来已实现"的死代码 |
 | **内存安全** | Python 管理但 binding 可能有漏洞 | Rust 所有权模型 + `zeroize`（当前仅 `synapse-e2ee` 依赖） |
 
 ### 7.3 网络安全
@@ -463,7 +463,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 |------------|--------------------------|----------------------|----------|
 | **核心 CS API** | ✅ 完整 | 路由面完整（`ROUTE_CONTRACT.md` 1,151 条注册路由）；按类别人工统计覆盖率 **80–97%**（`API_COVERAGE_REPORT.md`，2026-05-28 口径，非逐端点实测） | ⚠️ 未逐端点验证 |
 | **联邦协议** | ✅ 完整 | ✅ 完整（`synapse-federation/` 模块） | ✅ 已对齐 |
-| **E2EE** | ✅ 完整（libolm） | ⚠️ **PARTIAL**：Megolm/Olm、交叉签名、设备信任、密钥备份**真实**；**SAS 派生非规范**（`verification/service.rs:82-93` 用 SHA256 而非 HKDF，`confirm_sas:296-351` 接受任意非空 MAC）；**QR 为桩**（`:384-390` 复用公钥、空签名）；**泄漏检测为未编译死代码**（`lib.rs` 未声明） | ⚠️ 部分对齐 |
+| **E2EE** | ✅ 完整（libolm） | ⚠️ **PARTIAL**：Megolm/Olm、交叉签名、设备信任、密钥备份**真实**；**SAS 已按规范对齐**（Phase 3：`verification/service.rs:106` HKDF-SHA256 派生、`:367` 用 `secure_compare` 校验 HMAC）；**QR 明确声明不支持**（`:409,423` 返回 unsupported 错误，此前是复用公钥 + 空签名的桩）；泄漏检测死模块已删除 | ⚠️ 部分对齐（QR 未实现） |
 | **Sliding Sync** | ✅ 完整 | ✅ 完整（独立 `sliding_sync_service/` 模块 + benchmark；另有 `msc4186` 简化滑动同步引用） | ✅ 已对齐 |
 | **MSC3030** (Timestamp to event) | ✅ | ✅ | ✅ 已对齐 |
 | **MSC2776** (Presence list) | ✅ | ✅（代码中无 `MSC2776` 标识，按路由 `presence.rs` 判定） | ✅ 已对齐 |
@@ -492,7 +492,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | #20173 Profile PUT/DELETE 400→403 | ✅ 修复 | ✅ 已正确返回 403 + `M_FORBIDDEN`（`account_compat.rs:195-197,224-226`）；上游触发配置（`enable_set_displayname` 等）本仓不存在 | ✅ 已对齐 |
 | #20036 房间举报端点 `rc_reports` 限流 | ✅ 修复 | ✅ **已实现（Phase 2）**：路径中间件无法表达 `/rooms/{room_id}/report`（只有精确/前缀匹配），故在 `report_room`/`report_user` 内按用户取桶（`ratelimit:rc_reports:{user_id}`），规则可配（`rate_limit.rc_reports`，默认 1/s、burst 10），并有"配置键被删即变红"的守卫测试 | ✅ 已对齐 |
 | #20180 `M_APPSERVICE_LOGIN_UNSUPPORTED` | ✅ 稳定化 | ⚠️ **部分**：`m.login.application_service` 已实现（Phase 2：as_token + 排他命名空间校验 + 设备物化 + 令牌签发，测试覆盖 200/403/401）。但该**错误码本身经复核属 `POST /register`**（MSC4190：appservice 未传 `inhibit_login=true`），不属 `/login`；上游 diff 本地无法取证，故未臆造该码 | ⚠️ 登录已实现，错误码待定 |
-| #20146 LiveKit SFU WebSocket URL | ✅ 弃用 `livekit_service_url` 并新增 SFU URL | ⚠️ `livekit_service_url` 本仓不存在（无可弃用）；`LivekitConfig.ws_url`（`config/voip.rs:92`）**从未被读取**（死配置）；`rtc/transports` 只返回 ICE | ⚠️ PARTIAL |
+| #20146 LiveKit SFU WebSocket URL | ✅ 弃用 `livekit_service_url` 并新增 SFU URL | ⚠️ `livekit_service_url` 本仓不存在（无可弃用）；曾经的 `LivekitConfig.ws_url` 是**从未被读取**的死配置，**本轮已删除**（`config/voip.rs` 现仅 `api_key`/`api_secret`/`host`）；`rtc/transports` 仍只返回 ICE。**差异未消除**：SFU 传输本身未实现 —— 现在至少不再有一个"看起来可配"的旋钮 | ⚠️ PARTIAL |
 
 **v1.2 遗漏的上游条目（同基准期，v1.3 补记）**：
 
@@ -622,13 +622,14 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 - Worker 拓扑验证仍在建设中，水平扩展方案成熟度待验证。
 - **协议正确性风险（本轮实测，优先级最高）**：
   - ~~**撤回格式 × 房间版本**：默认 v11 却生成 v10 顶层 `redacts`~~ → **已于 Phase 1 修复**（2026-09-22：服务层按房间版本注入 `content.redacts`，PDU 不再重复写顶层）；关系性级联撤回仍未实现（见 §11.1 MSC3912 行）。
-  - **E2EE**：SAS 派生非 HKDF、`confirm_sas` 接受任意非空 MAC、QR 为桩、泄漏检测未编译（见 §7.2）。
+  - ~~**E2EE**：SAS 派生非 HKDF、`confirm_sas` 接受任意非空 MAC、QR 为桩、泄漏检测未编译~~ → **Phase 3 已修**（HKDF-SHA256 派生 + `secure_compare` 校验 HMAC + QR 改为明确的 unsupported + 删除 `leak_detection` 死模块；见 §7.2/§13）。**遗留**：QR 仍未实现 —— 区别在于现在如实声明，而不是伪造载荷。
   - **MSC4140**：无 EDU/联邦。
   - **Dehydrated device `/events`**：仅 POST + body 游标，落后上游 v1.157（#19896）的 GET 语义。
-- **数据一致性风险（本轮实测）**：
-  - `create_event_with_graph` 事件与 `event_edges` 分两次写入（`event/create.rs:112-142`），联邦入库/补洞/backfill 存在半写窗口。
-  - txn 去重标记在事件提交之后（`messages.rs:288-305`），标记写失败 → 重试可能重复发事件。
-  - 生产路径吞 DB 错误：`room/messaging/messages.rs:32`（对 DB 查询 `unwrap_or(0)`）、`federation/transaction.rs:358-362`（`.ok().flatten()`）、`membership/federation.rs:191-216` 与 `:251-268`（持久化失败仅 `warn!` 后丢弃）。
+- **数据一致性（Phase 1/2 + 本轮已收敛）**：
+  - ~~`create_event_with_graph` 事件与 `event_edges` 分两次写入（`event/create.rs:112-142`）~~ → **Phase 1 B8 已修**（无调用方事务的分支改用本地事务；红证明 `create_event_with_graph_rolls_back_event_when_edges_insert_fails`）。
+  - **同一半写窗口的"另一半"**：`create_state_event_with_dag` 在无调用方事务时同样先落 `events`、再于事务外插 `event_edges`（B8 因两处插入逻辑重复而漏掉）→ **本轮已修**，红证明 `create_state_event_with_dag_rolls_back_event_when_edges_insert_fails`（先证明修复前确有孤立行，再证明修复后整笔回滚）。⚠️ 两处插入逻辑仍是重复实现，建议后续抽成单一 helper（铁律 2）。
+  - ~~txn 去重标记在事件提交之后（`messages.rs:288-305`），标记写失败 → 重试可能重复发事件~~ → **Phase 2 B9 已改为 soft-fail**（`messages.rs:303-317`，测试 `dedup_marker_failure_soft_fails_the_created_event`）。
+  - ~~生产路径吞 DB 错误（3 处）~~ → **已修**：`room/messaging/messages.rs` 改用 `?` 传播（Phase 1 B10a）、联邦 gap-fill 查重不再 `.ok().flatten()`（Phase 2 B10b）、`membership/federation.rs` 改为 `return Err` + 事务回滚（Phase 2 B10c）。
 - **未实现/未装配风险**：
   - **Content Scanner 整模块孤儿**（无存储、无 config、无构造点），非"仅缺存储层"。
   - **App Service 登录整体缺失**（无 `m.login.application_service` / `M_APPSERVICE_LOGIN_UNSUPPORTED`），
@@ -711,8 +712,10 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | §11.1 v1.161 表 | 8 项"待核查"全部实测判定；其中 #20169 的旧 ✅ 属误判（机制不同）；#20036、#20180 确认缺失 |
 | §12.4 | 风险改为只保留实测/明确未验证项；CVE 占位符替换为真实 GHSA/CVE 编号 |
 | §12.5 | 重写为 A/B/C/D 分层，删除人日估算，改为指向权威清单并按验收判据验收 |
-| **代码修复（Phase 1）** | **B1** v11+ 撤回目标写入 `content.redacts`（服务层唯一写入口）+ PDU 不再重复写顶层 `redacts`；**B8** `create_event_with_graph` 无事务分支改单事务；**B10a** `send_message` 传播 `origin_server_ts` 读取错误；**B5** 修正过期房间版本注释。计划见 `docs/superpowers/plans/2026-09-22-protocol-correctness-phase1.md`（gitignored），验证证据见 `docs/audit/COMPARISON_REPORT_REVIEW_2026-09-22.md` §10 |
-| **代码修复（Phase 2）** | **B10b** 联邦 gap-fill 查重吞错；**B11** 默认搜索面纳入 `m.room.name`/`m.room.topic`；**B3** 举报端点 per-user `rc_reports` 限流（可配 + 守卫）；**B9** 事务去重标记失败时 soft-fail 已提交事件。计划见 `docs/superpowers/plans/2026-09-22-phase2-protocol-fixes.md`（gitignored），证据见复核报告 §11。**Phase 2 全部完成**：B3/B4/B9/B10b/B10c/B11/B13；证据与门禁见复核报告 §12。遗留缺陷另记：`scripts/api_test/scan_handler_schemas.py` 的 `ROOT` 为硬编码绝对路径（会写错工作树）、ledger `query_params` 字段无消费方 |
+| **代码修复（Phase 1）** | **B1** v11+ 撤回目标写入 `content.redacts`（服务层唯一写入口）+ PDU 不再重复写顶层 `redacts`；**B8** `create_event_with_graph` 无事务分支改单事务；**B10a** `send_message` 传播 `origin_server_ts` 读取错误；**B5** 修正过期房间版本注释。验证证据见 `docs/audit/COMPARISON_REPORT_REVIEW_2026-09-22.md` §10（原计划文件位于 gitignored 的 `docs/superpowers/plans/`，不作为持久引用） |
+| **代码修复（Phase 2）** | **B10b** 联邦 gap-fill 查重吞错；**B11** 默认搜索面纳入 `m.room.name`/`m.room.topic`；**B3** 举报端点 per-user `rc_reports` 限流（可配 + 守卫）；**B9** 事务去重标记失败时 soft-fail 已提交事件。证据见 `docs/audit/COMPARISON_REPORT_REVIEW_2026-09-22.md` §11–§12（原计划文件位于 gitignored 目录，不作为持久引用）。**Phase 2 全部完成**：B3/B4/B9/B10b/B10c/B11/B13；遗留缺陷另记：`scripts/api_test/scan_handler_schemas.py` 的 `ROOT` 为硬编码绝对路径（会写错工作树）、ledger `query_params` 字段无消费方 |
+| **代码修复（Phase 3，安全）** | **C1** SAS 规范对齐：`derive_sas` 改用 HKDF-SHA256（`synapse-e2ee/src/verification/service.rs:106`，带已知答案测试 `derive_sas_matches_hkdf_sha256_known_answer`）、`confirm_sas` 以 `synapse_common::crypto::secure_compare` 校验 HMAC（`:367`）、删掉随机 SAS 兜底（fail-closed）；**C2** QR 不再伪造载荷，改为 `ApiError::unsupported`（`:409,423`）；**C3** 删除从未编译的 `synapse-e2ee/src/leak_detection/` 死模块；**C9** OIDC `id_token` 校验失败改 fail-closed（`ApiError::unauthorized`）+ 授权 URL 携带 `nonce` + 删除绕过校验的死函数（`validate_id_token_claims` 全仓 0 命中）。提交 `a6f797f3` / `fda1317f` / `db570918` / `c010135c`；复核记录见 `docs/audit/COMPARISON_REPORT_REVIEW_2026-09-22.md` §13 |
+| **本轮（2026-09-23）** | **文档可信度变成门禁**：新增 `tests/unit/doc_credibility_guard_tests.rs` —— 本文档（1）引用的仓库相对路径必须存在、不得引用 gitignored 的 `docs/superpowers/plans/`；（2）声明的 route 条目数与模块数必须等于 `docs/synapse-rust/ROUTE_CONTRACT.md`；两个纯谓词各有红证明（把 v1.2 的"伪造引用/过期计数"原文喂进去必须被判违规）。据此前置修正：§13 两处 gitignored 计划引用改为指向复核报告；`docs/*.md` 这类 glob 与"文档有意记录某文件不存在"的否定陈述分别按过滤/白名单处理。**代码优化**：删除 LiveKit `ws_url` 死配置（`synapse-common/src/config/voip.rs`，从未被读取）；关闭 `create_state_event_with_dag` 的半写窗口（B8 因两处插入逻辑重复而漏掉的并行路径，改为本地事务，红→绿证明见 `create_state_event_with_dag_rolls_back_event_when_edges_insert_fails`）；修 `synapse-storage/src/server_notification/repository.rs` 5 处 `created_by` 缺 `Some(..)`（**main 上 CI lib 批次仍因此红**）。**计数重测（口径改为可复现的 `git ls-files`）**：`.rs` **1,019 个 / 442,451 行**；`docs` **188**（其中 `*.md` 155）；`docker` **58**；`tests` **292**（unit 132 / integration 128 / e2e 5 / performance 5 / 其余 22）；`benches` 5；`migrations` 3；per-crate 未变（common 72 / federation 20 / web 162、routes 144 / 根 `src/` 38）。⚠️ 旧版对 `docs`/`docker`/`tests` 用 `find` 统计，会随 gitignore 与本地产物漂移（同一提交在不同 worktree 得出 221/212/230 与 188/58/292 两套数）—— 故统一改为 `git ls-files` |
 
 ---
 

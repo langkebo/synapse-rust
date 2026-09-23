@@ -19,6 +19,7 @@ mod ci_test_scope_tests;
 mod cleanup_schema_script_tests;
 mod config_mount_tests;
 mod db_readiness_probe_tests;
+mod doc_credibility_guard_tests;
 
 #[cfg(feature = "beacons")]
 mod beacon_info_parse_tests;
