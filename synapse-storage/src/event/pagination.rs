@@ -18,7 +18,7 @@ impl EventStorage {
                 sqlx::query_as(&format!(
                     "SELECT {ROOM_EVENT_COLS}
                     FROM events
-                    WHERE room_id = $1 AND origin_server_ts > $2
+                    WHERE room_id = $1 AND origin_server_ts > $2 AND soft_failed = FALSE
                     ORDER BY events.origin_server_ts ASC
                     LIMIT $3
                     "
@@ -33,7 +33,7 @@ impl EventStorage {
                 sqlx::query_as(&format!(
                     "SELECT {ROOM_EVENT_COLS}
                     FROM events
-                    WHERE room_id = $1
+                    WHERE room_id = $1 AND soft_failed = FALSE
                     ORDER BY events.origin_server_ts ASC
                     LIMIT $2
                     "
@@ -47,7 +47,7 @@ impl EventStorage {
                 sqlx::query_as(&format!(
                     "SELECT {ROOM_EVENT_COLS}
                     FROM events
-                    WHERE room_id = $1 AND origin_server_ts < $2
+                    WHERE room_id = $1 AND origin_server_ts < $2 AND soft_failed = FALSE
                     ORDER BY events.origin_server_ts DESC
                     LIMIT $3
                     "
@@ -62,7 +62,7 @@ impl EventStorage {
                 sqlx::query_as(&format!(
                     "SELECT {ROOM_EVENT_COLS}
                     FROM events
-                    WHERE room_id = $1
+                    WHERE room_id = $1 AND soft_failed = FALSE
                     ORDER BY events.origin_server_ts DESC
                     LIMIT $2
                     "
@@ -212,7 +212,7 @@ impl EventStorage {
             r"
             SELECT event_id, event_type AS type, COALESCE(user_id, sender) AS sender, content, origin_server_ts
             FROM events
-            WHERE room_id = $1 AND origin_server_ts < $2
+            WHERE room_id = $1 AND origin_server_ts < $2 AND soft_failed = FALSE
             ORDER BY events.origin_server_ts DESC
             LIMIT $3
             ",
@@ -249,7 +249,7 @@ impl EventStorage {
             r"
             SELECT event_id, event_type AS type, COALESCE(user_id, sender) AS sender, content, origin_server_ts
             FROM events
-            WHERE room_id = $1 AND origin_server_ts > $2
+            WHERE room_id = $1 AND origin_server_ts > $2 AND soft_failed = FALSE
             ORDER BY events.origin_server_ts ASC
             LIMIT $3
             ",
@@ -325,7 +325,7 @@ impl EventStorage {
                 sqlx::query_as(&format!(
                     "SELECT {ROOM_EVENT_COLS}
                     FROM events
-                    WHERE room_id = $1
+                    WHERE room_id = $1 AND soft_failed = FALSE
                     ORDER BY events.origin_server_ts ASC, events.stream_ordering ASC
                     LIMIT $2
                     "
@@ -357,7 +357,7 @@ impl EventStorage {
                 sqlx::query_as(&format!(
                     "SELECT {ROOM_EVENT_COLS}
                     FROM events
-                    WHERE room_id = $1
+                    WHERE room_id = $1 AND soft_failed = FALSE
                     ORDER BY events.origin_server_ts DESC, events.stream_ordering DESC
                     LIMIT $2
                     "
