@@ -237,7 +237,7 @@ mod tests {
 
     #[test]
     fn collect_load_stats_reports_unknown_when_queue_length_overflows_i32() {
-        let stats = collect_load_stats(Some(u64::from(i32::MAX) + 1));
+        let stats = collect_load_stats(Some(i32::MAX as u64 + 1));
 
         assert_eq!(stats.queue_depth, None);
     }
