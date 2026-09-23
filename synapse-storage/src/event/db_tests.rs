@@ -2363,3 +2363,287 @@ async fn test_search_joined_room_events_default_types_include_name_and_topic() {
 
     let _ = storage.delete_room_events(&room_id).await;
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// soft_failed 消费者读路径回归（v1.4 P0-3）
+// ─────────────────────────────────────────────────────────────────────────
+//
+// `mark_event_soft_failed` 只负责"写"标记（`UPDATE events SET soft_failed = TRUE`），
+// 败方事件行**仍然留在 events 表里**；因此每一条面向客户端的读取路径都必须
+// 主动带上 `soft_failed = FALSE`。任何漏网的读取方法都会让客户端看到重复事件，
+// 并使 Phase 2 B9 的"标记失败即 soft-fail 已提交事件"补偿形同虚设。
+//
+// 本用例是**行为回归**（不是 SQL 文本断言）：写入一条 winner（FALSE）与一条
+// loser（TRUE），逐一调用客户端可见的读取方法，断言 loser 的 event_id 从不出现。
+//
+// Red→Green：修复前 `get_room_events_paginated_cursor` 的带游标分支、
+// `get_room_events_after_stream_ordering`、`get_room_events_batch_inner`
+//（即 `/sync`）、`has_room_events_since`、`find_event_*_by_timestamp`、
+// 四个 `search_*`、`get_unread_counts*`、`get_room_message_counts_batch`
+// 都会把 loser 返回给调用方。
+
+/// 直接插入一行 `events`（绕过 `create_event` 的 DAG/签名校验），
+/// 便于构造"同一 (user, room, txn) 去重竞争"的 winner/loser 两个事件行。
+#[allow(clippy::too_many_arguments)]
+async fn insert_soft_fail_event_row(
+    pool: &Pool<Postgres>,
+    room_id: &str,
+    event_id: &str,
+    sender: &str,
+    content: serde_json::Value,
+    origin_server_ts: i64,
+    stream_ordering: i64,
+    soft_failed: bool,
+) {
+    sqlx::query(
+        r"
+        INSERT INTO events (event_id, room_id, sender, user_id, event_type, content,
+                            origin_server_ts, stream_ordering, is_redacted, soft_failed)
+        VALUES ($1, $2, $3, $3, 'm.room.message', $4, $5, $6, false, $7)
+        ",
+    )
+    .bind(event_id)
+    .bind(room_id)
+    .bind(sender)
+    .bind(content)
+    .bind(origin_server_ts)
+    .bind(stream_ordering)
+    .bind(soft_failed)
+    .execute(pool)
+    .await
+    .expect("insert soft-fail fixture event row");
+}
+
+#[tokio::test]
+async fn test_soft_failed_events_hidden_from_all_consumer_read_paths() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let room_id = format!("!softfail_{suffix}:example.com");
+    let sender_id = format!("@softfail_sender_{suffix}:example.com");
+    let reader_id = format!("@softfail_reader_{suffix}:example.com");
+    let winner_id = format!("$softfail_win_{suffix}:example.com");
+    let loser_id = format!("$softfail_lose_{suffix}:example.com");
+    let needle = format!("softfailneedle{}", suffix.to_lowercase());
+    let base_ts = current_timestamp_millis();
+    // winner 在 (ts, stream) 上都早于 loser，两个游标分支都能命中 loser。
+    let winner_stream = 900_001_i64;
+    let loser_stream = 900_002_i64;
+
+    ensure_test_room(&pool, &room_id).await;
+    ensure_test_user(&pool, &sender_id).await;
+    ensure_test_user(&pool, &reader_id).await;
+
+    // `get_unread_counts*` 需要 `read_markers` 的 LEFT JOIN 有一行可连接，
+    // 否则 last_read CTE 为空、计数恒为 0，断言将失去区分度。
+    sqlx::query(
+        r"
+        INSERT INTO read_markers (room_id, user_id, event_id, marker_type, created_ts, updated_ts, origin_server_ts)
+        VALUES ($1, $2, $3, 'm.read', $4, $4, 0)
+        ON CONFLICT (room_id, user_id, marker_type) DO NOTHING
+        ",
+    )
+    .bind(&room_id)
+    .bind(&reader_id)
+    .bind(&winner_id)
+    .bind(base_ts)
+    .execute(&*pool)
+    .await
+    .expect("insert read marker");
+
+    // `search_postgres_messages` 通过 room_memberships 过滤"已加入的房间"。
+    sqlx::query(
+        r"
+        INSERT INTO room_memberships (room_id, user_id, membership, updated_ts)
+        VALUES ($1, $2, 'join', $3)
+        ON CONFLICT (room_id, user_id) DO NOTHING
+        ",
+    )
+    .bind(&room_id)
+    .bind(&reader_id)
+    .bind(base_ts)
+    .execute(&*pool)
+    .await
+    .expect("insert reader membership");
+
+    insert_soft_fail_event_row(
+        &pool,
+        &room_id,
+        &winner_id,
+        &sender_id,
+        serde_json::json!({ "body": format!("{needle} winner"), "msgtype": "m.text" }),
+        base_ts,
+        winner_stream,
+        false,
+    )
+    .await;
+    insert_soft_fail_event_row(
+        &pool,
+        &room_id,
+        &loser_id,
+        &sender_id,
+        serde_json::json!({ "body": format!("{needle} loser"), "msgtype": "m.text" }),
+        base_ts + 1,
+        loser_stream,
+        true,
+    )
+    .await;
+
+    // 前置断言：loser 确实存在于表中（soft-fail 不是物理删除），
+    // 否则后面的"读不到"可能是删除而不是过滤造成的假绿。
+    let loser_row: (bool,) = sqlx::query_as("SELECT soft_failed FROM events WHERE event_id = $1")
+        .bind(&loser_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("loser row must still exist");
+    assert!(loser_row.0, "precondition: loser row must exist with soft_failed = TRUE");
+
+    let assert_hidden = |label: &str, ids: Vec<String>| {
+        assert!(
+            !ids.iter().any(|id| id == &loser_id),
+            "{label}: soft-failed loser must not be returned to clients (got {ids:?})"
+        );
+        assert!(
+            ids.iter().any(|id| id == &winner_id),
+            "{label}: the non-soft-failed winner must still be returned (got {ids:?})"
+        );
+    };
+
+    // 1) /messages 时间线：无游标 + 两个复合游标分支。
+    let page_back =
+        storage.get_room_events_paginated(&room_id, None, 10, "b").await.expect("get_room_events_paginated");
+    assert_hidden("get_room_events_paginated(b, none)", page_back.iter().map(|e| e.event_id.clone()).collect());
+
+    let cursor_back = storage
+        .get_room_events_paginated_cursor(&room_id, Some((base_ts + 5, Some(loser_stream + 1))), 10, "b")
+        .await
+        .expect("get_room_events_paginated_cursor(b, cursor)");
+    assert_hidden(
+        "get_room_events_paginated_cursor(b, cursor)",
+        cursor_back.iter().map(|e| e.event_id.clone()).collect(),
+    );
+
+    let cursor_fwd = storage
+        .get_room_events_paginated_cursor(&room_id, Some((base_ts - 5, Some(winner_stream - 1))), 10, "f")
+        .await
+        .expect("get_room_events_paginated_cursor(f, cursor)");
+    assert_hidden(
+        "get_room_events_paginated_cursor(f, cursor)",
+        cursor_fwd.iter().map(|e| e.event_id.clone()).collect(),
+    );
+
+    // 2) /context 前后窗口。
+    let ctx_before =
+        storage.get_events_before_context(&room_id, base_ts + 5, 10).await.expect("get_events_before_context");
+    let ids: Vec<String> = ctx_before.iter().filter_map(|v| v.get("event_id")?.as_str().map(str::to_string)).collect();
+    assert_hidden("get_events_before_context", ids);
+
+    let ctx_after =
+        storage.get_events_after_context(&room_id, base_ts - 5, 10).await.expect("get_events_after_context");
+    let ids: Vec<String> = ctx_after.iter().filter_map(|v| v.get("event_id")?.as_str().map(str::to_string)).collect();
+    assert_hidden("get_events_after_context", ids);
+
+    // 3) sliding sync 增量时间线。
+    let after = storage
+        .get_room_events_after_stream_ordering(&room_id, winner_stream, 10)
+        .await
+        .expect("get_room_events_after_stream_ordering");
+    let ids: Vec<String> = after.iter().map(|e| e.event_id.clone()).collect();
+    assert!(
+        !ids.iter().any(|id| id == &loser_id),
+        "get_room_events_after_stream_ordering: loser must be hidden (got {ids:?})"
+    );
+
+    // 4) /sync 房间时间线（两种 since 维度）与"是否有新事件"判定。
+    for (label, since) in [
+        ("batch_since(stream)", SinceFilter::StreamOrdering(winner_stream - 1)),
+        ("batch_since(ts)", SinceFilter::OriginServerTs(base_ts - 1)),
+    ] {
+        let batch = storage
+            .get_room_events_batch_since(std::slice::from_ref(&room_id), since, 10)
+            .await
+            .expect("get_room_events_batch_since");
+        let ids: Vec<String> =
+            batch.get(&room_id).map(|events| events.iter().map(|e| e.event_id.clone()).collect()).unwrap_or_default();
+        assert_hidden(label, ids);
+    }
+
+    // winner 之后的唯一事件是 loser ⇒ 过滤后必须报告"没有新事件"。
+    let has_after_winner = storage
+        .has_room_events_since(std::slice::from_ref(&room_id), winner_stream)
+        .await
+        .expect("has_room_events_since");
+    assert!(!has_after_winner, "has_room_events_since: a soft-failed-only tail must not mark the room as updated");
+
+    // 5) MSC3030 timestamp_to_event。
+    let (ts_event_id, _) = storage
+        .find_event_id_by_timestamp(&room_id, base_ts + 1, false)
+        .await
+        .expect("find_event_id_by_timestamp")
+        .expect("an event must be found");
+    assert_eq!(
+        ts_event_id, winner_id,
+        "find_event_id_by_timestamp: must skip the soft-failed newer event and return the winner"
+    );
+    let ts_event = storage
+        .find_event_by_timestamp(&room_id, base_ts + 1)
+        .await
+        .expect("find_event_by_timestamp")
+        .expect("an event must be found");
+    let body = ts_event.get("body").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+    assert!(
+        body.contains("winner"),
+        "find_event_by_timestamp: must resolve to the winner, not the soft-failed loser (body={body:?})"
+    );
+
+    // 6) 搜索：四种生产搜索路径。
+    let like_pattern = format!("%{needle}%");
+    let joined = storage
+        .search_joined_room_events(std::slice::from_ref(&room_id), &like_pattern, None, None, None, None, None, 10)
+        .await
+        .expect("search_joined_room_events");
+    assert_hidden("search_joined_room_events", joined.iter().map(|row| row.0.clone()).collect());
+
+    let admin =
+        storage.search_room_messages_admin(&room_id, &like_pattern, 10).await.expect("search_room_messages_admin");
+    let ids: Vec<String> = admin.iter().filter_map(|v| v.get("event_id")?.as_str().map(str::to_string)).collect();
+    assert_hidden("search_room_messages_admin", ids);
+
+    let room_fts =
+        storage.search_room_postgres_messages(&room_id, &needle, 10).await.expect("search_room_postgres_messages");
+    assert_hidden("search_room_postgres_messages", room_fts.iter().map(|e| e.event_id.clone()).collect());
+
+    let user_fts = storage
+        .search_postgres_messages(&reader_id, &needle, None, None, None, 10)
+        .await
+        .expect("search_postgres_messages");
+    assert_hidden("search_postgres_messages", user_fts.iter().map(|row| row.0.clone()).collect());
+
+    // 7) 未读计数与消息计数。
+    let unread = storage.get_unread_counts(&room_id, &reader_id).await.expect("get_unread_counts");
+    assert_eq!(
+        unread.notification_count, 1,
+        "get_unread_counts: the soft-failed loser must not inflate the notification count"
+    );
+
+    let unread_batch = storage
+        .get_unread_counts_batch(std::slice::from_ref(&room_id), &reader_id)
+        .await
+        .expect("get_unread_counts_batch");
+    let batch_row = unread_batch.first().expect("one unread row per requested room");
+    assert_eq!(
+        batch_row.notification_count, 1,
+        "get_unread_counts_batch: the soft-failed loser must not inflate the notification count"
+    );
+
+    let counts = storage
+        .get_room_message_counts_batch(std::slice::from_ref(&room_id))
+        .await
+        .expect("get_room_message_counts_batch");
+    assert_eq!(
+        counts.get(&room_id).copied().unwrap_or_default(),
+        1,
+        "get_room_message_counts_batch: the soft-failed loser must not be counted"
+    );
+}
