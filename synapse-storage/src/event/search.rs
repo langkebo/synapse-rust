@@ -17,7 +17,8 @@ impl EventStorage {
             r"
             SELECT event_id, event_type, sender, content, origin_server_ts
             FROM events
-            WHERE room_id = $1 AND event_type = 'm.room.message' AND LOWER(content::text) LIKE $2 AND is_redacted = false
+            WHERE room_id = $1 AND event_type = 'm.room.message' AND LOWER(content::text) LIKE $2
+              AND is_redacted = false AND soft_failed = FALSE
             ORDER BY origin_server_ts DESC
             LIMIT $3
             ",
@@ -61,7 +62,8 @@ impl EventStorage {
         }
 
         let mut query_builder = QueryBuilder::<Postgres>::new(
-            "SELECT event_id, room_id, sender, event_type, content, origin_server_ts FROM events WHERE ",
+            "SELECT event_id, room_id, sender, event_type, content, origin_server_ts FROM events \
+             WHERE soft_failed = FALSE AND ",
         );
 
         query_builder.push("(LOWER(content::text) LIKE ");
@@ -169,11 +171,12 @@ impl EventStorage {
                     e.event_type,
                     e.content,
                     e.origin_server_ts,
-                    ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) as rank
+                    ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2))::float8 as rank
                 FROM events e
                 INNER JOIN room_memberships rm ON e.room_id = rm.room_id AND rm.user_id = $1 AND rm.membership = 'join'
                 WHERE e.event_type = 'm.room.message'
                     AND e.stream_ordering > 0
+                    AND e.soft_failed = FALSE
                     AND to_tsvector('english', e.content) @@ plainto_tsquery('english', $2)
                     AND (
                         ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) < $3
@@ -209,11 +212,12 @@ impl EventStorage {
                     e.event_type,
                     e.content,
                     e.origin_server_ts,
-                    ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) as rank
+                    ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2))::float8 as rank
                 FROM events e
                 INNER JOIN room_memberships rm ON e.room_id = rm.room_id AND rm.user_id = $1 AND rm.membership = 'join'
                 WHERE e.event_type = 'm.room.message'
                     AND e.stream_ordering > 0
+                    AND e.soft_failed = FALSE
                     AND to_tsvector('english', e.content) @@ plainto_tsquery('english', $2)
                 ORDER BY rank DESC, e.origin_server_ts DESC, e.event_id DESC
                 LIMIT $3
@@ -314,6 +318,7 @@ impl EventStorage {
             FROM events
             WHERE room_id = $1
               AND event_type = 'm.room.message'
+              AND soft_failed = FALSE
               AND to_tsvector('english', content) @@ plainto_tsquery('english', $2)
             ORDER BY origin_server_ts DESC
             LIMIT $3

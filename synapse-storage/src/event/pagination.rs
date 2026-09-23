@@ -91,7 +91,7 @@ impl EventStorage {
         let mut events = sqlx::query_as(&format!(
             "SELECT {ROOM_EVENT_COLS}
             FROM events
-            WHERE room_id = $1 AND stream_ordering > $2
+            WHERE room_id = $1 AND stream_ordering > $2 AND soft_failed = FALSE
             ORDER BY events.stream_ordering DESC
             LIMIT $3
             "
@@ -118,6 +118,7 @@ impl EventStorage {
             SELECT event_id, origin_server_ts
             FROM events
             WHERE room_id = $1
+              AND soft_failed = FALSE
               AND origin_server_ts IS NOT NULL
               AND origin_server_ts <= $2
             ORDER BY events.origin_server_ts DESC
@@ -172,6 +173,7 @@ impl EventStorage {
                 SELECT event_id, origin_server_ts
                 FROM events
                 WHERE room_id = $1
+                  AND soft_failed = FALSE
                   AND origin_server_ts IS NOT NULL
                   AND origin_server_ts >= $2
                 ORDER BY events.origin_server_ts ASC
@@ -188,6 +190,7 @@ impl EventStorage {
                 SELECT event_id, origin_server_ts
                 FROM events
                 WHERE room_id = $1
+                  AND soft_failed = FALSE
                   AND origin_server_ts IS NOT NULL
                   AND origin_server_ts <= $2
                 ORDER BY events.origin_server_ts DESC
@@ -309,6 +312,7 @@ impl EventStorage {
                     "SELECT {ROOM_EVENT_COLS}
                     FROM events
                     WHERE room_id = $1
+                      AND soft_failed = FALSE
                       AND (origin_server_ts, stream_ordering) > ($2, $3)
                     ORDER BY events.origin_server_ts ASC, events.stream_ordering ASC
                     LIMIT $4
@@ -340,6 +344,7 @@ impl EventStorage {
                     "SELECT {ROOM_EVENT_COLS}
                     FROM events
                     WHERE room_id = $1
+                      AND soft_failed = FALSE
                       AND (origin_server_ts, stream_ordering) < ($2, $3)
                     ORDER BY events.origin_server_ts DESC, events.stream_ordering DESC
                     LIMIT $4

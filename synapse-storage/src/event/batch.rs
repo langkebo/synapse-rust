@@ -137,6 +137,10 @@ impl EventStorage {
         );
         query.push_bind(room_ids);
         query.push(")");
+        // v1.4 P0-3: the soft-failed loser of a txn-dedup race must never be
+        // handed to `/sync`, so the predicate belongs in the base scan (before
+        // the ROW_NUMBER window) rather than after ranking.
+        query.push(" AND soft_failed = FALSE");
 
         if let Some(since_stream) = since_stream {
             query.push(" AND stream_ordering > ");
@@ -236,6 +240,7 @@ impl EventStorage {
             FROM events
             WHERE room_id = ANY($1)
               AND stream_ordering > $2
+              AND soft_failed = FALSE
             LIMIT 1
             ",
         )
@@ -289,7 +294,7 @@ impl EventStorage {
             r"
             SELECT room_id, COUNT(*) as count
             FROM events
-            WHERE room_id = ANY($1) AND event_type = 'm.room.message'
+            WHERE room_id = ANY($1) AND event_type = 'm.room.message' AND soft_failed = FALSE
             GROUP BY room_id
             ",
         )

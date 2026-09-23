@@ -75,6 +75,7 @@ impl EventStorage {
               ON ev.room_id = $1
              AND COALESCE(ev.user_id, ev.sender) != $2
              AND ev.state_key IS NULL
+             AND ev.soft_failed = FALSE
              AND ev.origin_server_ts > lr.last_read_ts
             GROUP BY lr.last_read_ts
             ",
@@ -139,6 +140,7 @@ impl EventStorage {
               ON ev.room_id = tr.room_id
              AND COALESCE(ev.user_id, ev.sender) != $1
              AND ev.state_key IS NULL
+             AND ev.soft_failed = FALSE
              AND ev.origin_server_ts > lr.last_read_ts
             GROUP BY tr.room_id, lr.last_read_ts
             ",

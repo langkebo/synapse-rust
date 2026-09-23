@@ -652,6 +652,7 @@ impl UserStorage {
             SELECT COUNT(*)
             FROM events
             WHERE sender = $1 AND event_type = 'm.room.message' AND is_redacted = false
+              AND soft_failed = FALSE
             ",
         )
         .bind(user_id)

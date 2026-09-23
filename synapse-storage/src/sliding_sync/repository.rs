@@ -402,7 +402,7 @@ impl SlidingSyncStorage {
             r"
             SELECT MAX(origin_server_ts)
             FROM events
-            WHERE room_id = $1 AND event_type = ANY($2)
+            WHERE room_id = $1 AND event_type = ANY($2) AND soft_failed = FALSE
             ",
         )
         .bind(room_id)

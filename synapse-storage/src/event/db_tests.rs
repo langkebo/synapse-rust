@@ -2437,6 +2437,13 @@ async fn test_soft_failed_events_hidden_from_all_consumer_read_paths() {
 
     // `get_unread_counts*` 需要 `read_markers` 的 LEFT JOIN 有一行可连接，
     // 否则 last_read CTE 为空、计数恒为 0，断言将失去区分度。
+    //
+    // `event_id` 故意指向一个不存在的 id：`last_read_ts` 取
+    // `COALESCE(MAX(e.origin_server_ts), MAX(rm.origin_server_ts), 0)`，
+    // 若指向 winner 就会把水位线抬到 winner 的 ts，窗口里只剩 loser，
+    // 计数在过滤前后都可能是 0（断言失去区分度）。指向不存在的 id 才能让
+    // 水位线落到 `rm` 的 0，两个事件都在窗口内。
+    let marker_event_id = format!("$softfail_marker_absent_{suffix}:example.com");
     sqlx::query(
         r"
         INSERT INTO read_markers (room_id, user_id, event_id, marker_type, created_ts, updated_ts, origin_server_ts)
@@ -2446,7 +2453,7 @@ async fn test_soft_failed_events_hidden_from_all_consumer_read_paths() {
     )
     .bind(&room_id)
     .bind(&reader_id)
-    .bind(&winner_id)
+    .bind(&marker_event_id)
     .bind(base_ts)
     .execute(&*pool)
     .await
