@@ -514,7 +514,6 @@ mod tests {
             as_id: "trendradar_news-bot".into(),
             is_enabled: true,
             created_ts: 1234567890,
-            ..Default::default()
         };
 
         let response: ExternalServiceResponse = app_service.into();

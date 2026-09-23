@@ -253,7 +253,10 @@ mod tests {
         // Each event in the events array must have an event_type field
         let events = vec![json!({"event_id": "$1"})];
         for event in &events {
-            let result = event.get("event_type").and_then(|v| v.as_str()).ok_or_else(|| "Missing event_type");
+            let result: Result<&str, &str> = event
+                .get("event_type")
+                .and_then(|v: &serde_json::Value| v.as_str())
+                .ok_or_else(|| "Missing event_type");
             assert!(result.is_err());
         }
     }
