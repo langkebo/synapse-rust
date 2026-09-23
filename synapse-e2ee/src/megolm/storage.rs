@@ -38,9 +38,18 @@ pub struct MegolmSessionRow {
 /// Implementation of [`From`] methods.
 impl From<MegolmSessionRow> for MegolmSession {
     fn from(row: MegolmSessionRow) -> Self {
-        let created_ts_dt = chrono::DateTime::from_timestamp_millis(row.created_ts).unwrap_or_else(Utc::now);
-        let last_used_ts_dt =
-            row.last_used_ts.and_then(chrono::DateTime::from_timestamp_millis).unwrap_or(created_ts_dt);
+        let created_ts_dt = chrono::DateTime::from_timestamp_millis(row.created_ts).unwrap_or_else(|| {
+            tracing::warn!("Invalid created_ts {} for session {}, using current time", row.created_ts, row.session_id);
+            Utc::now()
+        });
+        let last_used_ts_dt = row.last_used_ts.and_then(chrono::DateTime::from_timestamp_millis).unwrap_or_else(|| {
+            tracing::warn!(
+                "Invalid last_used_ts {} for session {}, using created_ts",
+                row.last_used_ts.unwrap_or(0),
+                row.session_id
+            );
+            created_ts_dt
+        });
         let expires_at_dt = row.expires_at.and_then(chrono::DateTime::from_timestamp_millis);
 
         MegolmSession {

@@ -179,7 +179,10 @@ impl CrossSigningService {
             if let Some((k, v)) = k_map.iter().next() {
                 let parts: Vec<&str> = k.splitn(2, ':').collect();
                 let algorithm = if parts.len() == 2 { parts[0].to_string() } else { "ed25519".to_string() };
-                let public_key = v.as_str().unwrap_or("").to_string();
+                let public_key = v
+                    .as_str()
+                    .ok_or_else(|| ApiError::bad_request(format!("Key value for '{}' must be a string", k)))?
+                    .to_string();
                 (algorithm, public_key)
             } else {
                 return Err(ApiError::bad_request("No keys provided".to_string()));
