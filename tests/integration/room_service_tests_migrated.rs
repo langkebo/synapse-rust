@@ -330,7 +330,7 @@ fn build_room_service(
         event_reader: Some(event_storage.clone()),
         event_writer: Some(event_storage),
         room_tag_storage: Arc::new(synapse_storage::room_tag::RoomTagStorage::new(pool.clone())),
-        user_storage: user_storage.clone(),
+        user_storage,
         room_auth: Arc::new(synapse_services::auth::AuthService::new(
             pool,
             canonical_cache,
