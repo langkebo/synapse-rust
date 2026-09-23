@@ -206,38 +206,43 @@ pub async fn set_room_private(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::routes::assembly::declared_ledger_all;
+    use crate::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
     use synapse_common::ApiErrorKind;
 
-    #[test]
-    fn test_space_list_json_structure() {
-        let mock_spaces = vec![SpaceInfoMock {
-            space_id: "!space1:example.com".to_string(),
-            room_id: "!room1:example.com".to_string(),
-            name: Some("Test Space".to_string()),
-            topic: None,
-            creator: "@user1:example.com".to_string(),
-            created_ts: 1234567890,
-        }];
-
-        let space_list: Vec<Value> = mock_spaces
+    /// Helper: extract admin::room spaces routes from the derived route ledger.
+    ///
+    /// Filters the actual derived route table by `registered_by == "admin::room"`
+    /// and path containing "/spaces" to get the real route manifest.
+    fn admin_room_spaces_route_manifest() -> Vec<RouteEntry> {
+        declared_ledger_all()
             .iter()
-            .map(|s| {
-                json!({
-                    "space_id": s.space_id,
-                    "room_id": s.room_id,
-                    "name": s.name,
-                    "topic": s.topic,
-                    "creator": s.creator,
-                    "created_ts": s.created_ts
-                })
-            })
-            .collect();
+            .filter(|e| e.registered_by == "admin::room" && e.path.contains("/spaces"))
+            .cloned()
+            .collect()
+    }
 
-        let response = json!({ "spaces": space_list, "total": space_list.len() });
+    /// High-standard router structure test: verify the real derived route
+    /// manifest contains the admin::room spaces endpoints.
+    #[test]
+    fn test_admin_room_spaces_routes_from_real_ledger() {
+        let manifest = admin_room_spaces_route_manifest();
 
-        assert!(response.get("spaces").unwrap().is_array());
-        assert_eq!(response.get("total").unwrap(), 1);
-        assert_eq!(response["spaces"][0]["space_id"], "!space1:example.com");
+        // Admin spaces endpoints: GET /spaces, GET/DELETE /spaces/{space_id}, etc.
+        assert!(!manifest.is_empty(), "admin::room spaces manifest must declare at least one (method, path) entry");
+
+        // Verify we have the core endpoints
+        let has_get_spaces = manifest.iter().any(|e| e.method == Method::GET && e.path == "/_synapse/admin/v1/spaces");
+        assert!(has_get_spaces, "must have GET /_synapse/admin/v1/spaces");
+
+        let has_delete_space =
+            manifest.iter().any(|e| e.method == Method::DELETE && e.path.starts_with("/_synapse/admin/v1/spaces/"));
+        assert!(has_delete_space, "must have DELETE /_synapse/admin/v1/spaces/{{space_id}}");
+
+        let has_get_space =
+            manifest.iter().any(|e| e.method == Method::GET && e.path.starts_with("/_synapse/admin/v1/spaces/"));
+        assert!(has_get_space, "must have GET /_synapse/admin/v1/spaces/{space_id}");
     }
 
     #[test]
@@ -252,27 +257,6 @@ mod tests {
         let response = json!({ "deleted": true });
 
         assert_eq!(response.get("deleted").unwrap(), true);
-    }
-
-    #[test]
-    fn test_space_users_response_structure() {
-        let user_list = vec!["@user1:example.com".to_string(), "@user2:example.com".to_string()];
-
-        let response = json!({ "users": user_list, "total": user_list.len() });
-
-        assert!(response.get("users").unwrap().is_array());
-        assert_eq!(response.get("total").unwrap(), 2);
-        assert_eq!(response["users"].as_array().unwrap().len(), 2);
-    }
-
-    #[test]
-    fn test_space_rooms_response_structure() {
-        let room_list = vec!["!room1:example.com".to_string(), "!room2:example.com".to_string()];
-
-        let response = json!({ "rooms": room_list, "total": room_list.len() });
-
-        assert!(response.get("rooms").unwrap().is_array());
-        assert_eq!(response.get("total").unwrap(), 2);
     }
 
     #[test]
@@ -293,62 +277,10 @@ mod tests {
     }
 
     #[test]
-    fn test_room_listing_response_structure() {
-        let is_public = true;
-        let in_directory = false;
-        let room_id = "!room1:example.com";
-
-        let response = json!({
-            "room_id": room_id,
-            "public": is_public,
-            "in_directory": in_directory
-        });
-
-        assert_eq!(response["room_id"], "!room1:example.com");
-        assert_eq!(response["public"], true);
-        assert_eq!(response["in_directory"], false);
-    }
-
-    #[test]
     fn test_room_not_found_error_kind() {
         let error = ApiError::not_found("Room not found".to_string());
         assert!(matches!(error.kind, ApiErrorKind::NotFound));
     }
-
-    #[test]
-    fn test_set_room_public_response_structure() {
-        let room_id = "!room1:example.com";
-
-        let response = json!({
-            "room_id": room_id,
-            "public": true
-        });
-
-        assert_eq!(response["room_id"], "!room1:example.com");
-        assert_eq!(response["public"], true);
-    }
-
-    #[test]
-    fn test_set_room_private_response_structure() {
-        let room_id = "!room1:example.com";
-
-        let response = json!({
-            "room_id": room_id,
-            "public": false
-        });
-
-        assert_eq!(response["room_id"], "!room1:example.com");
-        assert_eq!(response["public"], false);
-    }
 }
 
-// Mock types for tests (compile-time structure validation only)
-#[derive(Debug)]
-struct SpaceInfoMock {
-    space_id: String,
-    room_id: String,
-    name: Option<String>,
-    topic: Option<String>,
-    creator: String,
-    created_ts: u64,
-}
+// ============== Tests ==============

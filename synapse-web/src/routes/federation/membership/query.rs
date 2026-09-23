@@ -153,8 +153,46 @@ pub(crate) async fn get_joining_rules(
 }
 
 #[cfg(test)]
+#[cfg(test)]
 mod tests {
     use super::*;
+    use crate::routes::assembly::declared_ledger_all;
+    use crate::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+
+    /// Helper: extract federation membership query routes from the derived route ledger.
+    ///
+    /// Filters the actual derived route table by `registered_by == "federation"`
+    /// and path containing "/membership" or "/keys/query" to get the real route manifest.
+    fn federation_membership_query_route_manifest() -> Vec<RouteEntry> {
+        declared_ledger_all()
+            .iter()
+            .filter(|e| {
+                e.registered_by == "federation" && (e.path.contains("/membership") || e.path.contains("/keys/query"))
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// High-standard router structure test: verify the real derived route
+    /// manifest contains the federation membership query endpoints.
+    #[test]
+    fn test_federation_membership_query_routes_from_real_ledger() {
+        let manifest = federation_membership_query_route_manifest();
+
+        // Federation membership query routes include room membership events and keys query
+        assert!(
+            !manifest.is_empty(),
+            "federation membership query manifest must declare at least one (method, path) entry"
+        );
+
+        // Verify we have the expected endpoint types
+        let has_room_members = manifest.iter().any(|e| e.method == Method::GET && e.path.contains("/membership"));
+        assert!(has_room_members, "must have GET /_matrix/federation/v1/room/{room_id}/membership/{user_id}");
+
+        let has_keys_query = manifest.iter().any(|e| e.method == Method::POST && e.path.contains("/keys/query"));
+        assert!(has_keys_query, "must have POST /_matrix/federation/v1/keys/query");
+    }
 
     #[test]
     fn test_get_room_members_response_structure() {

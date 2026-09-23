@@ -217,7 +217,7 @@ SQLX_OFFLINE=true cargo check -p synapse-storage --lib
 ### 5.1 相关文件清单
 
 - `docs/audit/ENGINEERING_DEBT_VERIFICATION_2026-09-22.md` - 工程债核查报告
-- `docs/audit/COVERAGE_IMPROVEMENT_PLAN_2026-09-22.md` - 覆盖率提升详细计划
+- `COVERAGE_IMPROVEMENT_PLAN_2026-09-22.md` - 覆盖率提升详细计划（位于项目根目录）
 - `src/tasks/mod.rs` - ScheduledTasks 实现
 - `synapse-common/src/config/server.rs` - 配置定义
 - `synapse-storage/src/lib.rs` - Database 接口
@@ -235,7 +235,7 @@ M  src/tasks/mod.rs
 M  synapse-common/src/config/server.rs
 M  synapse-storage/src/lib.rs
 M  synapse-storage/src/monitoring.rs
-?? docs/audit/COVERAGE_IMPROVEMENT_PLAN_2026-09-22.md
+?? COVERAGE_IMPROVEMENT_PLAN_2026-09-22.md
 ?? .sqlx/query-1c5650d87d2af43e7ca7dd0c906d4beb7f7f25d23a3e0b40367143e67fa41a6e.json
 ?? .sqlx/query-b5359044b9b8b369c4f7dac8cb674da9cbd89a1bd3111861c9728d95ec764972.json
 ```
