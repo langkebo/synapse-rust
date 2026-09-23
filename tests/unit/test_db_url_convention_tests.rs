@@ -57,6 +57,16 @@ const SCRIPT_PORT_DEFAULTS: [(&str, &str); 6] = [
     ("scripts/ci/run_coverage.sh", "localhost:5432/synapse_test"),
 ];
 
+/// Resolvers that must **delegate** to the single implementation instead of
+/// carrying a chain of their own.
+///
+/// `synapse-services/src/test_config.rs` used to hard-code
+/// `postgres://synapse:synapse@localhost:5432/synapse_test` inside its own
+/// `unwrap_or_else`: a second implementation of a job that already has one
+/// (AGENTS.md 铁律 2) which also bypassed the CI gate this file enforces for the
+/// five canonical copies. Measured 2026-09-22; the file now delegates.
+const DELEGATING_RESOLVERS: [&str; 1] = ["synapse-services/src/test_config.rs"];
+
 fn read(relative: &str) -> String {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative);
     fs::read_to_string(&path).unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()))
@@ -122,6 +132,16 @@ fn violations(label: &str, source: &str) -> Vec<String> {
         }
     }
     found
+}
+
+/// True when `source` resolves the test DB through the shared implementation and
+/// carries **no** hard-coded `…:5432/synapse_test` of its own.
+///
+/// Deliberately pure and total so `the_delegation_checker_rejects_a_second_chain`
+/// can feed it a reintroduced chain and prove the predicate actually bites.
+fn delegates_to_the_shared_resolver(source: &str) -> bool {
+    source.contains("synapse_common::test_isolation::test_database_url()")
+        && !source.lines().any(|line| is_code_line(line) && line.contains(":5432/synapse_test"))
 }
 
 #[test]
@@ -243,4 +263,30 @@ fn every_resolver_copy_disables_the_fallback_under_ci() {
         gated += 1;
     }
     assert_eq!(gated, resolvers.len(), "every resolver copy must gate the fallback");
+}
+
+#[test]
+fn delegating_resolvers_have_no_chain_of_their_own() {
+    for file in DELEGATING_RESOLVERS {
+        assert!(
+            delegates_to_the_shared_resolver(&read(file)),
+            "{file} must resolve the test DB through \
+             synapse_common::test_isolation::test_database_url() and must not carry a hard-coded \
+             fallback of its own — a second chain is exactly how the CI gate got bypassed"
+        );
+    }
+}
+
+#[test]
+fn the_delegation_checker_rejects_a_second_chain() {
+    // The shape `synapse-services/src/test_config.rs` had before the fix.
+    let second_chain = concat!(
+        "pub fn test_database_url() -> String {\n",
+        "    std::env::var(\"TEST_DATABASE_URL\")\n",
+        "        .unwrap_or_else(|_| \"postgres://synapse:synapse@localhost:5432/synapse_test\".to_string())\n",
+        "}\n",
+    );
+    assert!(!delegates_to_the_shared_resolver(second_chain), "a reintroduced second chain must be flagged");
+    let delegating = "pub fn test_database_url() -> String { synapse_common::test_isolation::test_database_url() }";
+    assert!(delegates_to_the_shared_resolver(delegating), "the delegating form must be accepted");
 }
