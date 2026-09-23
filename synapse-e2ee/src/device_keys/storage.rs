@@ -1,5 +1,5 @@
 use super::models::*;
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
@@ -7,7 +7,7 @@ use synapse_common::map_database;
 use synapse_common::ApiError;
 
 /// Internal query struct that mirrors the `device_keys` table column types
-/// (BIGINT timestamps) for direct sqlx::query_as mapping. The public
+/// (BIGINT timestamps) for direct `sqlx::query_as!` mapping. The public
 /// `DeviceKey` struct uses `DateTime<Utc>`, so we convert after the row lands.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct DeviceKeyRow {
@@ -231,7 +231,7 @@ impl DeviceKeyStorage {
 
     /// See [`create_tables`].
     pub async fn create_tables(&self) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r"
             CREATE TABLE IF NOT EXISTS device_keys (
                 id BIGSERIAL,
@@ -258,7 +258,7 @@ impl DeviceKeyStorage {
         .execute(&*self.pool)
         .await?;
 
-        sqlx::query(
+        sqlx::query!(
             r"
             CREATE INDEX IF NOT EXISTS idx_device_keys_user_id ON device_keys(user_id)
             ",
@@ -266,7 +266,7 @@ impl DeviceKeyStorage {
         .execute(&*self.pool)
         .await?;
 
-        sqlx::query(
+        sqlx::query!(
             r"
             CREATE INDEX IF NOT EXISTS idx_device_keys_device_id ON device_keys(device_id)
             ",
@@ -274,7 +274,7 @@ impl DeviceKeyStorage {
         .execute(&*self.pool)
         .await?;
 
-        sqlx::query(
+        sqlx::query!(
             r"
             CREATE INDEX IF NOT EXISTS idx_device_keys_algorithm ON device_keys(algorithm)
             ",
@@ -291,36 +291,34 @@ impl DeviceKeyStorage {
 impl DeviceKeyStoreApi for DeviceKeyStorage {
     async fn record_device_list_change_best_effort(&self, user_id: &str, device_id: Option<&str>, change_type: &str) {
         let now = current_timestamp_millis();
-        let row = sqlx::query(
+        let row = sqlx::query_scalar!(
             r"
             INSERT INTO device_lists_stream (user_id, device_id, created_ts)
             VALUES ($1, $2, $3)
             RETURNING stream_id
             ",
+            user_id,
+            device_id,
+            now
         )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await;
 
-        let Ok(row) = row else {
+        let Ok(stream_id) = row else {
             return;
         };
 
-        let stream_id: i64 = row.get("stream_id");
-
-        let _ = sqlx::query(
+        let _ = sqlx::query!(
             r"
             INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts)
             VALUES ($1, $2, $3, $4, $5)
             ",
+            user_id,
+            device_id,
+            change_type,
+            stream_id,
+            now
         )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(change_type)
-        .bind(stream_id)
-        .bind(now)
         .execute(&*self.pool)
         .await;
     }
@@ -336,7 +334,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         })
         .to_string();
 
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO device_keys (user_id, device_id, algorithm, key_id, public_key, signatures, display_name, key_data, added_ts, created_ts, updated_ts, ts_updated_ms)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $9, $9)
@@ -348,16 +346,16 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
                 ts_updated_ms = EXCLUDED.ts_updated_ms,
                 key_data = EXCLUDED.key_data
             ",
+            &key.user_id,
+            &key.device_id,
+            &key.algorithm,
+            &key.key_id,
+            &key.public_key,
+            &key.signatures,
+            key.display_name.as_deref(),
+            &key_data,
+            now_ms
         )
-        .bind(&key.user_id)
-        .bind(&key.device_id)
-        .bind(&key.algorithm)
-        .bind(&key.key_id)
-        .bind(&key.public_key)
-        .bind(&key.signatures)
-        .bind(&key.display_name)
-        .bind(&key_data)
-        .bind(now_ms)
         .execute(&*self.pool)
         .await
         .map_err(map_database!("Failed to create/update device key"))?;
@@ -376,7 +374,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         })
         .to_string();
 
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO device_keys (user_id, device_id, algorithm, key_id, public_key, signatures, display_name, key_data, added_ts, created_ts, updated_ts, ts_updated_ms, is_fallback, fallback_used)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $9, $9, TRUE, FALSE)
@@ -390,16 +388,16 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
                 is_fallback = TRUE,
                 fallback_used = FALSE
             ",
+            &key.user_id,
+            &key.device_id,
+            &key.algorithm,
+            &key.key_id,
+            &key.public_key,
+            &key.signatures,
+            key.display_name.as_deref(),
+            &key_data,
+            now_ms
         )
-        .bind(&key.user_id)
-        .bind(&key.device_id)
-        .bind(&key.algorithm)
-        .bind(&key.key_id)
-        .bind(&key.public_key)
-        .bind(&key.signatures)
-        .bind(&key.display_name)
-        .bind(&key_data)
-        .bind(now_ms)
         .execute(&*self.pool)
         .await
         .map_err(map_database!("Failed to create/update fallback key"))?;
@@ -408,14 +406,14 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
     }
 
     async fn delete_fallback_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
-        sqlx::query(
+        sqlx::query!(
             r"
             DELETE FROM device_keys
             WHERE user_id = $1 AND device_id = $2 AND is_fallback = TRUE
             ",
+            user_id,
+            device_id
         )
-        .bind(user_id)
-        .bind(device_id)
         .execute(&*self.pool)
         .await
         .map_err(map_database!("Failed to delete fallback keys"))?;
@@ -424,29 +422,30 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
     }
 
     async fn get_unused_fallback_key_types(&self, user_id: &str, device_id: &str) -> Result<Vec<String>, ApiError> {
-        let rows = sqlx::query(
+        let rows = sqlx::query_scalar!(
             r"
             SELECT DISTINCT algorithm
             FROM device_keys
             WHERE user_id = $1 AND device_id = $2 AND is_fallback = TRUE AND fallback_used = FALSE
             ",
+            user_id,
+            device_id
         )
-        .bind(user_id)
-        .bind(device_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(map_database!("get_unused_fallback_key_types"))?;
 
         Ok(rows
             .into_iter()
-            .map(|row| {
-                let algorithm: String = row.get("algorithm");
-                if algorithm.starts_with("signed_curve25519") {
-                    "signed_curve25519".to_string()
-                } else {
-                    algorithm
-                }
-            })
+            .map(
+                |algorithm| {
+                    if algorithm.starts_with("signed_curve25519") {
+                        "signed_curve25519".to_string()
+                    } else {
+                        algorithm
+                    }
+                },
+            )
             .collect())
     }
 
@@ -456,7 +455,8 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         device_id: &str,
         algorithm: &str,
     ) -> Result<Option<DeviceKey>, ApiError> {
-        let row: Option<DeviceKeyRow> = sqlx::query_as::<_, DeviceKeyRow>(
+        let row = sqlx::query_as!(
+            DeviceKeyRow,
             r"
             SELECT
                 user_id,
@@ -474,10 +474,10 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
             WHERE user_id = $1 AND device_id = $2 AND algorithm = $3
             LIMIT 1
             ",
+            user_id,
+            device_id,
+            algorithm
         )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(algorithm)
         .fetch_optional(&*self.pool)
         .await
         .map_err(map_database!("get_device_key"))?;
@@ -486,7 +486,8 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
     }
 
     async fn get_device_keys(&self, user_id: &str, device_ids: &[String]) -> Result<Vec<DeviceKey>, ApiError> {
-        let rows: Vec<DeviceKeyRow> = sqlx::query_as::<_, DeviceKeyRow>(
+        let rows = sqlx::query_as!(
+            DeviceKeyRow,
             r"
             SELECT
                 user_id,
@@ -503,9 +504,9 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
             FROM device_keys
             WHERE user_id = $1 AND device_id = ANY($2)
             ",
+            user_id,
+            device_ids
         )
-        .bind(user_id)
-        .bind(device_ids)
         .fetch_all(&*self.pool)
         .await
         .map_err(map_database!("get_device_keys"))?;
@@ -514,7 +515,8 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
     }
 
     async fn get_all_device_keys(&self, user_id: &str) -> Result<Vec<DeviceKey>, ApiError> {
-        let rows: Vec<DeviceKeyRow> = sqlx::query_as::<_, DeviceKeyRow>(
+        let rows = sqlx::query_as!(
+            DeviceKeyRow,
             r"
             SELECT
                 user_id,
@@ -532,8 +534,8 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
             WHERE user_id = $1 AND (is_fallback = FALSE OR is_fallback IS NULL)
               AND algorithm IN ('ed25519', 'curve25519')
             ",
+            user_id
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(map_database!("get_all_device_keys"))?;
@@ -549,7 +551,8 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
             return Ok(HashMap::new());
         }
 
-        let rows: Vec<DeviceKeyRow> = sqlx::query_as::<_, DeviceKeyRow>(
+        let rows = sqlx::query_as!(
+            DeviceKeyRow,
             r"
             SELECT
                 user_id,
@@ -567,8 +570,8 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
             WHERE user_id = ANY($1) AND (is_fallback = FALSE OR is_fallback IS NULL)
               AND algorithm IN ('ed25519', 'curve25519')
             ",
+            user_ids
         )
-        .bind(user_ids)
         .fetch_all(&*self.pool)
         .await
         .map_err(map_database!("get_all_device_keys_batch"))?;
@@ -583,15 +586,15 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
     }
 
     async fn delete_device_key(&self, user_id: &str, device_id: &str, algorithm: &str) -> Result<(), ApiError> {
-        sqlx::query(
+        sqlx::query!(
             r"
             DELETE FROM device_keys
             WHERE user_id = $1 AND device_id = $2 AND algorithm = $3
             ",
+            user_id,
+            device_id,
+            algorithm
         )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(algorithm)
         .execute(&*self.pool)
         .await
         .map_err(map_database!("delete_device_key"))?;
@@ -600,14 +603,14 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
     }
 
     async fn get_device_count(&self, user_id: &str) -> Result<i64, ApiError> {
-        let count: i64 = sqlx::query_scalar::<_, i64>(
-            r"
-            SELECT COUNT(DISTINCT device_id)
+        let count = sqlx::query_scalar!(
+            r#"
+            SELECT COUNT(DISTINCT device_id) AS "count!"
             FROM device_keys
             WHERE user_id = $1 AND (is_fallback = FALSE OR is_fallback IS NULL)
-            ",
+            "#,
+            user_id
         )
-        .bind(user_id)
         .fetch_one(&*self.pool)
         .await
         .map_err(map_database!("get_device_count"))?;
@@ -620,36 +623,34 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
             return Ok(HashMap::new());
         }
 
-        let rows = sqlx::query(
-            r"
-            SELECT user_id, COUNT(DISTINCT device_id) AS device_count
+        let rows = sqlx::query!(
+            r#"
+            SELECT user_id, COUNT(DISTINCT device_id) AS "device_count!"
             FROM device_keys
             WHERE user_id = ANY($1) AND (is_fallback = FALSE OR is_fallback IS NULL)
             GROUP BY user_id
-            ",
+            "#,
+            user_ids
         )
-        .bind(user_ids)
         .fetch_all(&*self.pool)
         .await?;
 
         let mut counts: HashMap<String, i64> = HashMap::new();
         for row in rows {
-            let user_id: String = row.try_get("user_id")?;
-            let device_count: i64 = row.try_get("device_count")?;
-            counts.insert(user_id, device_count);
+            counts.insert(row.user_id, row.device_count);
         }
         Ok(counts)
     }
 
     async fn delete_device_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
-        sqlx::query(
+        sqlx::query!(
             r"
             DELETE FROM device_keys
             WHERE user_id = $1 AND device_id = $2
             ",
+            user_id,
+            device_id
         )
-        .bind(user_id)
-        .bind(device_id)
         .execute(&*self.pool)
         .await
         .map_err(map_database!("delete_device_keys"))?;
@@ -658,17 +659,17 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
     }
 
     async fn get_one_time_keys_count(&self, user_id: &str, device_id: &str) -> Result<i64, ApiError> {
-        let count: i64 = sqlx::query_scalar::<_, i64>(
-            r"
-            SELECT COUNT(*)
+        let count = sqlx::query_scalar!(
+            r#"
+            SELECT COUNT(*) AS "count!"
             FROM device_keys
             WHERE user_id = $1 AND device_id = $2
               AND algorithm LIKE 'signed_curve25519%'
               AND (is_fallback = FALSE OR is_fallback IS NULL)
-            ",
+            "#,
+            user_id,
+            device_id
         )
-        .bind(user_id)
-        .bind(device_id)
         .fetch_one(&*self.pool)
         .await
         .map_err(map_database!("get_one_time_keys_count"))?;
@@ -681,26 +682,26 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         user_id: &str,
         device_id: &str,
     ) -> Result<std::collections::HashMap<String, i64>, ApiError> {
-        let rows = sqlx::query(
-            r"
-            SELECT algorithm, COUNT(*) as count
+        let rows = sqlx::query!(
+            r#"
+            SELECT algorithm, COUNT(*) AS "count!"
             FROM device_keys
             WHERE user_id = $1 AND device_id = $2
               AND (is_fallback = FALSE OR is_fallback IS NULL)
               AND algorithm NOT IN ('ed25519', 'curve25519')
             GROUP BY algorithm
-            ",
+            "#,
+            user_id,
+            device_id
         )
-        .bind(user_id)
-        .bind(device_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(map_database!("get_one_time_keys_count_by_algorithm"))?;
 
         let mut counts = std::collections::HashMap::new();
         for row in rows {
-            let algorithm: String = row.get("algorithm");
-            let count: i64 = row.get("count");
+            let algorithm = row.algorithm;
+            let count = row.count;
             let algo_name = if algorithm.starts_with("signed_curve25519") {
                 "signed_curve25519".to_string()
             } else if algorithm.starts_with("curve25519") {
@@ -722,7 +723,8 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
     ) -> Result<Option<DeviceKey>, ApiError> {
         let mut tx = self.pool.begin().await.map_err(map_database!("Failed to begin transaction"))?;
 
-        let row: Option<DeviceKeyRow> = sqlx::query_as::<_, DeviceKeyRow>(
+        let row = sqlx::query_as!(
+            DeviceKeyRow,
             r"
             WITH target AS (
                 SELECT id FROM device_keys
@@ -744,10 +746,10 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
                 key_data,
                 is_fallback
             ",
+            user_id,
+            device_id,
+            algorithm
         )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(algorithm)
         .fetch_optional(&mut *tx)
         .await
         .map_err(map_database!("Failed to claim one-time key"))?;
@@ -764,7 +766,8 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
             return Ok(Some(r.into_device_key()));
         }
 
-        let fallback_row: Option<DeviceKeyRow> = sqlx::query_as::<_, DeviceKeyRow>(
+        let fallback_row = sqlx::query_as!(
+            DeviceKeyRow,
             r"
             WITH fb AS (
                 SELECT id FROM device_keys
@@ -787,11 +790,11 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
                 key_data,
                 is_fallback
             ",
+            user_id,
+            device_id,
+            algorithm,
+            chrono::Utc::now().timestamp_millis()
         )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(algorithm)
-        .bind(chrono::Utc::now().timestamp_millis())
         .fetch_optional(&mut *tx)
         .await
         .map_err(map_database!("Failed to query fallback key"))?;
@@ -806,20 +809,20 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
     }
 
     async fn get_key_changes(&self, from_ts: i64, to_ts: i64) -> Result<Vec<String>, ApiError> {
-        let rows = sqlx::query(
+        let rows = sqlx::query_scalar!(
             r"
             SELECT DISTINCT user_id
             FROM device_keys
             WHERE ts_updated_ms > $1 AND ts_updated_ms <= $2
             ",
+            from_ts,
+            to_ts
         )
-        .bind(from_ts)
-        .bind(to_ts)
         .fetch_all(&*self.pool)
         .await
         .map_err(map_database!("get_key_changes"))?;
 
-        Ok(rows.into_iter().map(|row| row.get::<String, _>("user_id")).collect())
+        Ok(rows)
     }
 
     async fn get_key_changes_with_left(
@@ -828,7 +831,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         to_ts: i64,
         current_user_id: &str,
     ) -> Result<(Vec<String>, Vec<String>), ApiError> {
-        let changed_rows = sqlx::query(
+        let changed_rows = sqlx::query_scalar!(
             r"
             SELECT DISTINCT user_id
             FROM device_lists_stream
@@ -838,17 +841,17 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
             ORDER BY user_id
             LIMIT 100
             ",
+            from_ts,
+            to_ts,
+            current_user_id
         )
-        .bind(from_ts)
-        .bind(to_ts)
-        .bind(current_user_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(map_database!("Failed to get key changes"))?;
 
-        let changed: Vec<String> = changed_rows.into_iter().map(|row| row.get::<String, _>("user_id")).collect();
+        let changed: Vec<String> = changed_rows;
 
-        let left_rows = sqlx::query(
+        let left_rows = sqlx::query_scalar!(
             r"
             SELECT DISTINCT dl.user_id
             FROM device_lists_stream dl
@@ -860,15 +863,15 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
             ORDER BY dl.user_id
             LIMIT 100
             ",
+            from_ts,
+            to_ts,
+            current_user_id
         )
-        .bind(from_ts)
-        .bind(to_ts)
-        .bind(current_user_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(map_database!("Failed to get key changes left"))?;
 
-        let left: Vec<String> = left_rows.into_iter().map(|row| row.get::<String, _>("user_id")).collect();
+        let left: Vec<String> = left_rows;
 
         Ok((changed, left))
     }
@@ -883,7 +886,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
     ) -> Result<(), ApiError> {
         let now_ms = current_timestamp_millis();
 
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO key_signatures (
                 target_user_id, target_key_id, signing_user_id, signing_key_id, signature, added_ts
@@ -892,13 +895,13 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
             ON CONFLICT (target_user_id, target_key_id, signing_user_id, signing_key_id)
             DO UPDATE SET signature = EXCLUDED.signature, added_ts = EXCLUDED.added_ts
             ",
+            target_user_id,
+            target_key_id,
+            signing_user_id,
+            signing_key_id,
+            signature,
+            now_ms
         )
-        .bind(target_user_id)
-        .bind(target_key_id)
-        .bind(signing_user_id)
-        .bind(signing_key_id)
-        .bind(signature)
-        .bind(now_ms)
         .execute(&*self.pool)
         .await
         .map_err(map_database!("Failed to store signature"))?;
