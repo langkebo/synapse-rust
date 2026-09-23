@@ -830,7 +830,16 @@ mod tests {
         // pass claims the entry first runs the callback exactly once
         // (`cleanup.take()`).
         run_release_cleanups(collect_released_entries(false));
-        rx.try_recv().expect("on_release must run once the pool is released");
+        // Either THIS pass or the shared janitor thread claims the entry first
+        // (`cleanup.take()` guarantees exactly one runner), so `try_recv()` here is a
+        // race: when the janitor wins the claim its `on_release` may not have sent yet —
+        // under a loaded suite its real DROP SCHEMA work can occupy it for seconds.
+        // Measured 2026-09-22: this test sat at position 928 of a 6217-test
+        // `--workspace --lib --all-features` batch and passed in one run, then failed in
+        // the next with the same binary and flags. Wait for the callback instead: the
+        // invariant under test is "`on_release` runs once the pool is released", not
+        // "it runs on this thread".
+        rx.recv_timeout(std::time::Duration::from_secs(30)).expect("on_release must run once the pool is released");
     }
 
     /// A lease-guarded cleanup that cannot take the lease must be **re-queued**,

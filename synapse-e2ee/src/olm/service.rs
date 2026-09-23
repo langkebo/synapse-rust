@@ -510,13 +510,17 @@ mod tests {
         assert_eq!(key.len(), 32);
     }
 
-    /// Test that 65-char hex string is rejected (too long).
+    /// Test that a too-long hex string is rejected by the byte-length check.
+    ///
+    /// NB: the fixture must be an **even** number of hex characters (66 = 33 bytes).
+    /// A 65-character input is rejected earlier, by `decode_hex`'s odd-digit check,
+    /// and therefore never reaches the length branch this test targets.
     #[test]
     fn test_e06_too_long_returns_error() {
-        let result = decode_pickle_key_from_env(Some(&"a".repeat(65)));
-        assert!(result.is_err(), "65-char key must be rejected");
+        let result = decode_pickle_key_from_env(Some(&"a".repeat(66)));
+        assert!(result.is_err(), "66-char key must be rejected");
         let err = result.unwrap_err();
-        assert!(err.contains("32 bytes") || err.contains("64"), "E-06: error should mention length constraint: {err}");
+        assert!(err.contains("must be exactly 32"), "E-06: error should mention length constraint: {err}");
     }
 
     /// Test that empty string is rejected.
@@ -525,7 +529,7 @@ mod tests {
         let result = decode_pickle_key_from_env(Some(""));
         assert!(result.is_err(), "empty string must be rejected");
         let err = result.unwrap_err();
-        assert!(err.contains("32 bytes"), "E-06: error should mention correct length: {err}");
+        assert!(err.contains("must be exactly 32"), "E-06: error should mention correct length: {err}");
     }
 
     /// Test that non-hex characters (whitespace) are rejected.
@@ -536,19 +540,25 @@ mod tests {
     }
 
     /// Test OlmService::new creates a valid instance with empty state.
-    #[test]
-    fn test_olm_service_new_has_empty_state() {
-        // Create a lazy database pool (doesn't perform I/O until first query)
+    #[tokio::test]
+    async fn test_olm_service_new_has_empty_state() {
+        // `connect_lazy` is not I/O-free under sqlx 0.8: the pool spawns an internal
+        // housekeeper task, so this test needs a Tokio runtime. As a plain `#[test]`
+        // it panics with "this functionality requires a Tokio context" before it can
+        // assert anything.
         let pool = sqlx::PgPool::connect_lazy(&synapse_common::test_isolation::test_database_url())
             .expect("connect_lazy should not perform I/O");
 
         let cache = create_test_cache();
         let storage = OlmStorage::new(&Arc::new(pool));
-        let _service = OlmService::new(cache, storage);
+        let service = OlmService::new(cache, storage);
 
-        // Verify the service can be created without panicking
-        // The internal state (account, session_manager, user_id, device_id) should all be None
-        // This is verified by the fact that no panics occurred during construction
+        // The constructor must leave every piece of internal state empty. Asserting
+        // this directly — "no panic occurred" is not evidence that the state is None.
+        assert!(service.account.read().await.is_none());
+        assert!(service.session_manager.read().await.is_none());
+        assert!(service.user_id.read().await.is_none());
+        assert!(service.device_id.read().await.is_none());
     }
 
     /// Test that decode_pickle_key_from_env handles Unicode characters in input.

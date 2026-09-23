@@ -208,7 +208,6 @@ pub async fn delete_user_override_rate_limit(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
     fn test_rate_limit_request_defaults() {

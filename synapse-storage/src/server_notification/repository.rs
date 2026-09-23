@@ -1076,7 +1076,7 @@ mod tests {
             is_dismissable: Some(true),
             action_url: Some("https://example.com".to_string()),
             action_text: Some("Click here".to_string()),
-            created_by: "@admin:example.com".to_string(),
+            created_by: Some("@admin:example.com".to_string()),
         };
 
         let target_user_ids = serde_json::to_value(request.target_user_ids.unwrap_or_default()).unwrap();
@@ -1097,7 +1097,7 @@ mod tests {
             is_dismissable: None,
             action_url: None,
             action_text: None,
-            created_by: "@admin:example.com".to_string(),
+            created_by: Some("@admin:example.com".to_string()),
         };
 
         let notification_type = request.notification_type.unwrap_or_else(|| "info".to_string());
@@ -1129,7 +1129,7 @@ mod tests {
             is_dismissable: true,
             action_url: None,
             action_text: None,
-            created_by: "@admin:example.com".to_string(),
+            created_by: Some("@admin:example.com".to_string()),
             created_ts: 1000,
             updated_ts: 1000,
         };
@@ -1142,7 +1142,7 @@ mod tests {
     #[test]
     fn test_notification_priority_ordering() {
         // Test that higher priority notifications should be listed first
-        let mut notifications = vec![
+        let mut notifications = [
             ServerNotification {
                 id: 1,
                 title: "Low Priority".to_string(),
@@ -1157,7 +1157,7 @@ mod tests {
                 is_dismissable: true,
                 action_url: None,
                 action_text: None,
-                created_by: "@admin:example.com".to_string(),
+                created_by: Some("@admin:example.com".to_string()),
                 created_ts: 1000,
                 updated_ts: 1000,
             },
@@ -1175,7 +1175,7 @@ mod tests {
                 is_dismissable: true,
                 action_url: None,
                 action_text: None,
-                created_by: "@admin:example.com".to_string(),
+                created_by: Some("@admin:example.com".to_string()),
                 created_ts: 2000,
                 updated_ts: 2000,
             },
