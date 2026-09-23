@@ -1,4 +1,3 @@
-use crate::account::UserService;
 use crate::auth::{CredentialAuth, TokenAuth};
 use crate::*;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -68,14 +67,12 @@ pub fn admin_registration_signature_hex(
 
 /// The `AdminRegistrationService` struct.
 #[derive(Clone)]
-#[allow(dead_code)] // Reserved fields for future use; see field-level comments.
 pub struct AdminRegistrationService {
     token_auth: Arc<dyn TokenAuth>,
     credential_auth: Arc<dyn CredentialAuth>,
     server_name: String,
     config: AdminRegistrationConfig,
     user_storage: Arc<dyn UserStore>,
-    user_service: Arc<UserService>, // Reserved; constructor parity
     cache: Arc<CacheManager>,
     metrics: Arc<MetricsCollector>,
 }
@@ -132,11 +129,10 @@ impl AdminRegistrationService {
         server_name: String,
         config: AdminRegistrationConfig,
         user_storage: Arc<dyn UserStore>,
-        user_service: Arc<UserService>,
         cache: Arc<CacheManager>,
         metrics: Arc<MetricsCollector>,
     ) -> Self {
-        Self { token_auth, credential_auth, server_name, config, user_storage, user_service, cache, metrics }
+        Self { token_auth, credential_auth, server_name, config, user_storage, cache, metrics }
     }
 
     /// See [`generate_nonce`].

@@ -335,12 +335,10 @@ pub(crate) fn get_room_direct_users(direct_map: &Map<String, Value>, room_id: &s
 pub(crate) use synapse_common::friend_shard::sort_letter_for;
 
 /// The `FriendRoomService` struct.
-#[allow(dead_code)] // Reserved fields for future use; see field-level comments.
 pub struct FriendRoomService {
     pub(crate) friend_storage: Arc<synapse_storage::friend_room::FriendRoomStorage>,
     pub(crate) room_service: Arc<dyn RoomServiceApi>,
     pub(crate) user_storage: Arc<dyn UserStore>,
-    pub(crate) user_service: Arc<crate::account::UserService>, // Reserved; constructor parity
     pub(crate) presence_storage: std::sync::Arc<dyn synapse_storage::presence::PresenceStoreApi>,
     pub(crate) account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
     pub(crate) cache: Arc<CacheManager>,

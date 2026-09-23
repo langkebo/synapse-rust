@@ -312,7 +312,6 @@ impl RoomStateService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::account::UserService;
     use crate::room::state::service::{RoomStateService, RoomStateServiceConfig};
     use std::sync::Arc;
     use synapse_storage::test_mocks::{
@@ -331,7 +330,6 @@ mod tests {
             event_writer: Arc::new(InMemoryEventStore::new()),
             room_tag_storage: Arc::new(InMemoryRoomTagStore::new()),
             user_storage: user_store.clone(),
-            user_service: Arc::new(UserService::new(user_store)),
             server_name: "test.example.com".to_string(),
         })
     }

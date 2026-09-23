@@ -471,7 +471,6 @@ mod tests {
 
     use crate::room::summary::RoomSummaryService;
     use crate::test_mocks::FakeRoomAuth;
-    use crate::user_service::UserService;
 
     use super::super::service::{MembershipService, MembershipServiceConfig};
 
@@ -492,8 +491,6 @@ mod tests {
         let member_storage: Arc<dyn MemberStoreApi> = Arc::new(member_store);
         let room_storage: Arc<dyn RoomStoreApi> = Arc::new(room_store);
         let user_storage: Arc<dyn UserStore> = Arc::new(FakeUserStore::new());
-        let user_service = Arc::new(UserService::new(user_storage.clone()));
-
         let room_summary_service = Arc::new(RoomSummaryService::new(
             Arc::new(InMemoryRoomSummaryStore::new()),
             event_reader.clone(),
@@ -506,7 +503,6 @@ mod tests {
             event_reader,
             event_writer,
             user_storage,
-            user_service,
             room_auth: Arc::new(FakeRoomAuth::new()),
             server_name: "localhost".to_string(),
             federation_client: None,
@@ -629,8 +625,6 @@ mod tests {
             })
             .await;
         let user_storage: Arc<dyn UserStore> = Arc::new(fake_user_store);
-        let user_service = Arc::new(UserService::new(user_storage.clone()));
-
         let room_summary_service = Arc::new(RoomSummaryService::new(
             Arc::new(InMemoryRoomSummaryStore::new()),
             event_reader.clone(),
@@ -643,7 +637,6 @@ mod tests {
             event_reader,
             event_writer,
             user_storage,
-            user_service,
             room_auth: Arc::new(FakeRoomAuth::new()),
             server_name: "localhost".to_string(),
             federation_client: None,

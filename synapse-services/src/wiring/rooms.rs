@@ -11,7 +11,6 @@ use std::sync::Arc;
 
 use synapse_storage::*;
 
-use crate::account::UserService;
 use crate::auth::RoomAuth;
 use crate::container::SharedInfra;
 
@@ -61,7 +60,6 @@ impl RoomSyncServices {
         key_rotation_manager: Arc<synapse_federation::KeyRotationManager>,
         federation_client: Arc<dyn synapse_federation::client_api::FederationClientApi>,
         sticky_event_storage: Arc<synapse_storage::sticky_event::StickyEventStorage>,
-        user_service: Arc<UserService>,
         event_notifier: crate::event_notifier::EventNotifier,
         // MSC4284: policy server service, injected into room service so that
         // create/join/invite consult the policy server on the business path.
@@ -114,7 +112,6 @@ impl RoomSyncServices {
             event_writer: Some(event_writer.clone()),
             room_tag_storage: room_tag_storage.clone(),
             user_storage: Arc::new(UserStorage::new(&infra.pool, infra.cache.clone())),
-            user_service: user_service.clone(),
             room_auth: room_auth.clone(),
             room_summary_service: room_summary_service.clone(),
             validator: validator.clone(),

@@ -3,7 +3,6 @@
 //!
 //! Extracted from RoomService as part of the domain split plan (Task 3).
 
-use crate::account::UserService;
 use std::sync::Arc;
 use synapse_storage::room_tag::RoomTagStoreApi;
 use synapse_storage::{MemberStoreApi, RoomStoreApi, UserStore};
@@ -18,9 +17,6 @@ pub struct RoomStateService {
     pub(crate) event_writer: Arc<dyn synapse_storage::event::EventWriter>,
     pub(crate) room_tag_storage: Arc<dyn RoomTagStoreApi>,
     pub(crate) user_storage: Arc<dyn UserStore>,
-    // Reserved for future use by room state hooks; stored for constructor parity.
-    #[allow(dead_code)]
-    pub(crate) user_service: Arc<UserService>,
     pub(crate) server_name: String,
 }
 
@@ -38,8 +34,6 @@ pub struct RoomStateServiceConfig {
     pub room_tag_storage: Arc<dyn RoomTagStoreApi>,
     /// The `user_storage` field.
     pub user_storage: Arc<dyn UserStore>,
-    /// The `user_service` field.
-    pub user_service: Arc<UserService>,
     /// The `server_name` field.
     pub server_name: String,
 }
@@ -54,7 +48,6 @@ impl RoomStateService {
             event_writer: config.event_writer,
             room_tag_storage: config.room_tag_storage,
             user_storage: config.user_storage,
-            user_service: config.user_service,
             server_name: config.server_name,
         }
     }

@@ -404,7 +404,6 @@ mod coverage_tests {
     use crate::room::membership::service::MembershipServiceConfig;
     use crate::room::summary::RoomSummaryService;
     use crate::test_mocks::FakeRoomAuth;
-    use crate::user_service::UserService;
 
     const SERVER: &str = "localhost";
     const ROOM: &str = "!cov:localhost";
@@ -430,7 +429,6 @@ mod coverage_tests {
         let member_storage: StdArc<dyn MemberStoreApi> = StdArc::new(member_store.clone());
         let room_storage: StdArc<dyn RoomStoreApi> = StdArc::new(room_store.clone());
         let user_storage: StdArc<dyn UserStore> = StdArc::new(FakeUserStore::new());
-        let user_service = StdArc::new(UserService::new(user_storage.clone()));
 
         let room_summary_service = StdArc::new(RoomSummaryService::new(
             StdArc::new(summary_store.clone()),
@@ -444,7 +442,6 @@ mod coverage_tests {
             event_reader,
             event_writer,
             user_storage,
-            user_service,
             room_auth: StdArc::new(FakeRoomAuth::new()),
             server_name: SERVER.to_string(),
             federation_client: None,

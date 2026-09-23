@@ -1,5 +1,4 @@
 use super::RoomSummaryService;
-use crate::account::UserService;
 use crate::auth::RoomAuth;
 use crate::common::error::{ApiError, ApiResult};
 use crate::policy_service::PolicyService;
@@ -84,8 +83,6 @@ pub struct RoomServiceConfig {
     pub room_tag_storage: Arc<dyn RoomTagStoreApi>,
     /// The `user_storage` field.
     pub user_storage: Arc<dyn UserStore>,
-    /// The `user_service` field.
-    pub user_service: Arc<UserService>,
     /// The `room_auth` field.
     pub room_auth: Arc<dyn RoomAuth>,
     /// The `room_summary_service` field.
@@ -161,10 +158,6 @@ pub struct RoomService {
     pub(crate) infra: RoomInfrastructure,
     pub(crate) sticky_event_storage: Arc<synapse_storage::sticky_event::StickyEventStorage>,
     pub(crate) event_reader: Arc<dyn synapse_storage::event::EventReader>,
-    // Reserved: stored for potential direct use by RoomService methods;
-    // currently sub-services receive their own clones via RoomInfrastructure.
-    #[allow(dead_code)]
-    pub(crate) event_writer: Arc<dyn synapse_storage::event::EventWriter>,
 }
 
 impl RoomService {
@@ -187,7 +180,6 @@ impl RoomService {
             event_reader: config.event_reader.clone().expect("event_reader required"),
             event_writer: config.event_writer.clone().expect("event_writer required"),
             user_storage: config.user_storage.clone(),
-            user_service: config.user_service.clone(),
             room_auth: config.room_auth.clone(),
             server_name: config.server_name.clone(),
             federation_client: infra.federation_client.clone(),
@@ -230,7 +222,6 @@ impl RoomService {
             event_writer: config.event_writer.clone().expect("event_writer required"),
             room_tag_storage: config.room_tag_storage.clone(),
             user_storage: config.user_storage.clone(),
-            user_service: config.user_service.clone(),
             server_name: config.server_name.clone(),
         };
         let state = RoomStateService::new(state_cfg);
@@ -241,7 +232,6 @@ impl RoomService {
             event_reader: config.event_reader.clone().expect("event_reader required"),
             event_writer: config.event_writer.clone().expect("event_writer required"),
             user_storage: config.user_storage.clone(),
-            user_service: config.user_service.clone(),
             validator: config.validator.clone(),
             server_name: config.server_name.clone(),
             room_summary_service: Some(config.room_summary_service.clone()),
@@ -269,7 +259,6 @@ impl RoomService {
             infra,
             sticky_event_storage: config.sticky_event_storage,
             event_reader: config.event_reader.clone().expect("event_reader required"),
-            event_writer: config.event_writer.clone().expect("event_writer required"),
         }
     }
 

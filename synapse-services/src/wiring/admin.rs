@@ -193,7 +193,6 @@ impl AdminServices {
             config.server.name.clone(),
             config.admin_registration.clone(),
             user_storage.clone(),
-            user_service.clone(),
             cache.clone(),
             metrics.clone(),
         );
@@ -395,7 +394,6 @@ impl AdminServices {
         let rate_limit_storage = Arc::new(RateLimitStorage::new(pool));
         let admin_security_service = Arc::new(crate::admin_security_service::AdminSecurityService::new(
             user_storage.clone(),
-            user_service.clone(),
             rate_limit_storage,
             cache.clone(),
         ));

@@ -3,7 +3,6 @@
 //!
 //! Extracted from RoomService as part of the domain split plan (Task 4).
 
-use crate::account::UserService;
 use crate::common::error::{ApiError, ApiResult};
 use crate::policy_service::PolicyService;
 use std::sync::Arc;
@@ -20,9 +19,6 @@ pub struct LifecycleService {
     pub(crate) event_reader: Arc<dyn synapse_storage::event::EventReader>,
     pub(crate) event_writer: Arc<dyn synapse_storage::event::EventWriter>,
     pub(crate) user_storage: Arc<dyn UserStore>,
-    // Reserved for future use by room lifecycle hooks; stored for constructor parity.
-    #[allow(dead_code)]
-    pub(crate) user_service: Arc<UserService>,
     pub(crate) validator: Arc<Validator>,
     pub(crate) server_name: String,
     /// Direct reference to RoomSummaryService, injected during construction
@@ -51,8 +47,6 @@ pub struct LifecycleServiceConfig {
     pub event_writer: Arc<dyn synapse_storage::event::EventWriter>,
     /// The `user_storage` field.
     pub user_storage: Arc<dyn UserStore>,
-    /// The `user_service` field.
-    pub user_service: Arc<UserService>,
     /// The `validator` field.
     pub validator: Arc<Validator>,
     /// The `server_name` field.
@@ -77,7 +71,6 @@ impl LifecycleService {
             event_reader: config.event_reader,
             event_writer: config.event_writer,
             user_storage: config.user_storage,
-            user_service: config.user_service,
             validator: config.validator,
             server_name: config.server_name,
             room_summary_service: config.room_summary_service,

@@ -3,7 +3,6 @@
 //!
 //! Extracted from RoomService as part of the domain split plan (Task 1).
 
-use crate::account::UserService;
 use crate::common::error::{ApiError, ApiResult};
 use crate::policy_service::PolicyService;
 use crate::room::membership::error::MembershipError;
@@ -33,15 +32,12 @@ pub(crate) use crate::room::join_rules::extract_allowed_join_rooms;
 /// Domain service for room membership operations — join, leave, invite,
 /// kick, ban, unban, knock, forget, and federation membership.
 #[derive(Clone)]
-#[allow(dead_code)] // Reserved fields for future use; see field-level comments.
 pub struct MembershipService {
     pub(crate) member_storage: Arc<dyn MemberStoreApi>,
     pub(crate) room_storage: Arc<dyn RoomStoreApi>,
     pub(crate) event_reader: Arc<dyn synapse_storage::event::EventReader>,
     pub(crate) event_writer: Arc<dyn synapse_storage::event::EventWriter>,
     pub(crate) user_storage: Arc<dyn UserStore>,
-    // Reserved for future use by membership hooks; stored for constructor parity.
-    pub(crate) user_service: Arc<UserService>,
     pub(crate) room_auth: Arc<dyn crate::auth::RoomAuth>,
     pub(crate) server_name: String,
     pub(crate) federation_client: Option<Arc<dyn FederationClientApi>>,
@@ -83,8 +79,6 @@ pub struct MembershipServiceConfig {
     pub event_writer: Arc<dyn synapse_storage::event::EventWriter>,
     /// The `user_storage` field.
     pub user_storage: Arc<dyn UserStore>,
-    /// The `user_service` field.
-    pub user_service: Arc<UserService>,
     /// The `room_auth` field.
     pub room_auth: Arc<dyn crate::auth::RoomAuth>,
     /// The `server_name` field.
@@ -123,7 +117,6 @@ impl MembershipService {
             event_reader: config.event_reader,
             event_writer: config.event_writer,
             user_storage: config.user_storage,
-            user_service: config.user_service,
             room_auth: config.room_auth,
             server_name: config.server_name,
             federation_client: config.federation_client,
@@ -887,7 +880,6 @@ mod tests {
 
     use crate::room::summary::RoomSummaryService;
     use crate::test_mocks::FakeRoomAuth;
-    use crate::user_service::UserService;
 
     const ROOM: &str = "!fed:localhost";
 
@@ -908,7 +900,6 @@ mod tests {
         let member_storage: StdArc<dyn MemberStoreApi> = StdArc::new(member_store);
         let room_storage: StdArc<dyn RoomStoreApi> = StdArc::new(room_store);
         let user_storage: StdArc<dyn UserStore> = StdArc::new(FakeUserStore::new());
-        let user_service = StdArc::new(UserService::new(user_storage.clone()));
 
         let room_summary_service = StdArc::new(RoomSummaryService::new(
             StdArc::new(InMemoryRoomSummaryStore::new()),
@@ -922,7 +913,6 @@ mod tests {
             event_reader,
             event_writer,
             user_storage,
-            user_service,
             room_auth: StdArc::new(FakeRoomAuth::new()),
             server_name: "localhost".to_string(),
             federation_client: None,
@@ -1016,7 +1006,6 @@ mod tests {
         let member_storage: StdArc<dyn MemberStoreApi> = StdArc::new(member_store);
         let room_storage: StdArc<dyn RoomStoreApi> = StdArc::new(room_store);
         let user_storage: StdArc<dyn UserStore> = StdArc::new(FakeUserStore::new());
-        let user_service = StdArc::new(UserService::new(user_storage.clone()));
         let room_summary_service = StdArc::new(RoomSummaryService::new(
             StdArc::new(InMemoryRoomSummaryStore::new()),
             event_reader.clone(),
@@ -1029,7 +1018,6 @@ mod tests {
             event_reader,
             event_writer,
             user_storage,
-            user_service,
             room_auth: StdArc::new(FakeRoomAuth::new()),
             server_name: "localhost".to_string(),
             federation_client: None,

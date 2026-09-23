@@ -8,7 +8,6 @@ use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 use synapse_federation::event_broadcaster::EventBroadcaster;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::Validator;
-use synapse_services::account::UserService;
 use synapse_services::application_service::{ApplicationServiceManager, ApplicationServiceScheduler};
 use synapse_services::room::service::{CreateRoomConfig, RoomService};
 use synapse_services::room::summary::RoomSummaryService;
@@ -332,7 +331,6 @@ fn build_room_service(
         event_writer: Some(event_storage),
         room_tag_storage: Arc::new(synapse_storage::room_tag::RoomTagStorage::new(pool.clone())),
         user_storage: user_storage.clone(),
-        user_service: Arc::new(UserService::new(user_storage)),
         room_auth: Arc::new(synapse_services::auth::AuthService::new(
             pool,
             canonical_cache,

@@ -119,7 +119,6 @@ impl ExtensionServices {
             friend_storage.clone(),
             rooms.room_service.clone(),
             user_storage.clone(),
-            user_service.clone(),
             presence_storage.clone(),
             account_data_storage,
             infra.cache.clone(),

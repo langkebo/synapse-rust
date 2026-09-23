@@ -18,7 +18,6 @@ pub use models::{
 };
 use synapse_common::{current_timestamp_millis, generate_event_id, ApiError};
 
-use crate::account::UserService;
 use futures::future::try_join_all;
 use serde_json::{json, Map, Value};
 use std::cmp::Ordering;
@@ -61,7 +60,6 @@ impl FriendRoomService {
         friend_storage: Arc<synapse_storage::friend_room::FriendRoomStorage>,
         room_service: Arc<dyn crate::room::RoomServiceApi>,
         user_storage: Arc<dyn UserStore>,
-        user_service: Arc<UserService>,
         presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
         account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
         cache: Arc<CacheManager>,
@@ -73,7 +71,6 @@ impl FriendRoomService {
             friend_storage,
             room_service,
             user_storage,
-            user_service,
             presence_storage,
             account_data_storage,
             cache,
@@ -88,7 +85,6 @@ impl FriendRoomService {
         friend_storage: Arc<synapse_storage::friend_room::FriendRoomStorage>,
         room_service: Arc<dyn crate::room::RoomServiceApi>,
         user_storage: Arc<dyn UserStore>,
-        user_service: Arc<UserService>,
         presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
         account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
         cache: Arc<CacheManager>,
@@ -99,7 +95,6 @@ impl FriendRoomService {
             friend_storage,
             room_service,
             user_storage,
-            user_service,
             presence_storage,
             account_data_storage,
             cache,

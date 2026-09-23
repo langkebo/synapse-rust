@@ -448,7 +448,6 @@ impl ServiceContainer {
             Arc::new(federation.key_rotation_manager.clone()),
             federation.federation_client.clone(),
             storage.sticky_event_storage.clone(),
-            storage.user_service.clone(),
             event_notifier.clone(),
             // MSC4284: inject policy service for room create/join/invite enforcement.
             Some(admin.modules.policy_service.clone()),

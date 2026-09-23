@@ -616,7 +616,6 @@ mod join_persistence_failure_tests {
     use crate::room::membership::service::MembershipServiceConfig;
     use crate::room::summary::RoomSummaryService;
     use crate::test_mocks::{FakeInvitePolicyGate, FakeRoomAuth};
-    use crate::user_service::UserService;
     use std::sync::Arc as StdArc;
     use synapse_cache::{CacheConfig, CacheManager};
     use synapse_federation::client::{MakeJoinResponse, SendJoinResponse};
@@ -705,7 +704,6 @@ mod join_persistence_failure_tests {
             .await;
 
         let user_storage: StdArc<dyn UserStore> = StdArc::new(FakeUserStore::new());
-        let user_service = StdArc::new(UserService::new(user_storage.clone()));
         let room_summary_service = StdArc::new(RoomSummaryService::new(
             StdArc::new(InMemoryRoomSummaryStore::new()),
             event_reader.clone(),
@@ -718,7 +716,6 @@ mod join_persistence_failure_tests {
             event_reader,
             event_writer,
             user_storage,
-            user_service,
             room_auth: StdArc::new(FakeRoomAuth::new()),
             server_name: server.to_string(),
             federation_client: Some(federation_client),
@@ -792,7 +789,6 @@ mod join_persistence_failure_tests {
             .await;
 
         let user_storage: StdArc<dyn UserStore> = StdArc::new(FakeUserStore::new());
-        let user_service = StdArc::new(UserService::new(user_storage.clone()));
         let room_summary_service = StdArc::new(RoomSummaryService::new(
             StdArc::new(InMemoryRoomSummaryStore::new()),
             event_reader.clone(),
@@ -805,7 +801,6 @@ mod join_persistence_failure_tests {
             event_reader,
             event_writer,
             user_storage,
-            user_service,
             room_auth: StdArc::new(FakeRoomAuth::new()),
             server_name: server.to_string(),
             federation_client: Some(federation_client.clone()),

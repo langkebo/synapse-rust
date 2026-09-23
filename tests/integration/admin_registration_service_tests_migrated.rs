@@ -6,7 +6,6 @@ use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::config::{AdminRegistrationConfig, SecurityConfig};
 use synapse_rust::common::metrics::MetricsCollector;
-use synapse_services::account::UserService;
 use synapse_services::admin_registration_service::{AdminRegisterRequest, AdminRegistrationService};
 use synapse_services::auth::{AuthService, CredentialAuth, TokenAuth};
 use synapse_storage::user::UserStorage;
@@ -87,7 +86,6 @@ fn create_service(pool: &Arc<sqlx::PgPool>, shared_secret: &str, enabled: bool) 
     let auth_service = AuthService::new(pool, cache.clone(), metrics.clone(), &make_security_config(), "localhost");
     let config = make_admin_config(shared_secret, enabled);
     let user_store: Arc<dyn UserStore> = Arc::new(UserStorage::new(pool, cache.clone()));
-    let user_service = Arc::new(UserService::new(user_store.clone()));
     let auth_arc = Arc::new(auth_service);
     let token_auth: Arc<dyn TokenAuth> = auth_arc.clone();
     let credential_auth: Arc<dyn CredentialAuth> = auth_arc;
@@ -97,7 +95,6 @@ fn create_service(pool: &Arc<sqlx::PgPool>, shared_secret: &str, enabled: bool) 
         "localhost".to_string(),
         config,
         user_store,
-        user_service,
         cache,
         metrics,
     )
