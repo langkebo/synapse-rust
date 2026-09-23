@@ -10,7 +10,7 @@
 #     grow: stale entries keep "covering" positions that no longer exist and
 #     make the next regression easier to absorb.
 #
-# Why the 16 entries below are safe to allow is not a matter of taste: the
+# Why the 12 entries below are safe to allow is not a matter of taste: the
 # strict gate independently proves the *outcome* is correct —
 #   * every route declared by a `*_route_manifest()` is derived  (0 missing), and
 #   * every route present in the authoritative `ledger_export` fixtures is
@@ -34,12 +34,14 @@ ambiguous fn from_ref (11 defs)                  # axum `FromRef` impls — requ
 # --- opaque chain methods ----------------------------------------------------
 # Called on an accumulator that already holds the routes, so the correct action
 # is to keep the accumulator unchanged.
-chain method .any() in admin/server.rs                        # iterator adapter on a config list
-chain method .any() in federation/mod.rs                      # iterator adapter on a feature list
+#
+# Two former `route_ledger.rs` entries (`.collect()` / `.filter()`) were dropped
+# once `strip_test_mods` was fixed to excise the canonical
+# `#[cfg(test)]` + newline + `mod tests { .. }` layout: both chains live in that
+# file's *test* module, never in the ledger's production code, so the exemption
+# had been covering test-only code.
 chain method .collect() in assembly.rs                        # iterator adapter on a route list
-chain method .collect() in route_ledger.rs                    # iterator adapter inside the ledger
 chain method .filter() in assembly.rs                         # iterator adapter on the rate-limit exempt list
-chain method .filter() in route_ledger.rs                     # iterator adapter inside the ledger
 chain method .merge_into() in assembly.rs                     # RouteModule dynamic dispatch — covered by the `merge_into` roots
 chain method .with_rate_limit_exempt_paths() in assembly.rs   # AppState mutation, not a router
 chain method .rank() in derived_routes.rs                     # Generated derived_route_manifest helper, not a route definition

@@ -1,5 +1,5 @@
 fn all_derived_always_rows() -> Vec<DerivedRoute> {
-    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1132);
+    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1147);
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/", "assembly::create_router");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
@@ -61,6 +61,34 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/app/v1/ping", "app_service");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(axum::http::Method::DELETE, "/_matrix/app/v1/proxy/{as_id}/{*path}", "app_service");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/app/v1/proxy/{as_id}/{*path}", "app_service");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(axum::http::Method::HEAD, "/_matrix/app/v1/proxy/{as_id}/{*path}", "app_service");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(axum::http::Method::OPTIONS, "/_matrix/app/v1/proxy/{as_id}/{*path}", "app_service");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(axum::http::Method::PATCH, "/_matrix/app/v1/proxy/{as_id}/{*path}", "app_service");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/app/v1/proxy/{as_id}/{*path}", "app_service");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(axum::http::Method::PUT, "/_matrix/app/v1/proxy/{as_id}/{*path}", "app_service");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -811,6 +839,34 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             "/_matrix/client/v1/profile/{user_id}/displayname",
             "assembly::account_compat",
         );
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(axum::http::Method::DELETE, "/_matrix/client/v1/proxy/{as_id}/{*path}", "app_service");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/proxy/{as_id}/{*path}", "app_service");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(axum::http::Method::HEAD, "/_matrix/client/v1/proxy/{as_id}/{*path}", "app_service");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(axum::http::Method::OPTIONS, "/_matrix/client/v1/proxy/{as_id}/{*path}", "app_service");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(axum::http::Method::PATCH, "/_matrix/client/v1/proxy/{as_id}/{*path}", "app_service");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v1/proxy/{as_id}/{*path}", "app_service");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(axum::http::Method::PUT, "/_matrix/client/v1/proxy/{as_id}/{*path}", "app_service");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -5506,6 +5562,14 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::POST, "/_synapse/admin/v1/rooms/{room_id}/block", "admin::room");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(
+            axum::http::Method::POST,
+            "/_synapse/admin/v1/rooms/{room_id}/cascade_redact",
+            "admin::room",
+        );
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {

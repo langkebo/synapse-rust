@@ -372,15 +372,36 @@ pub async fn get_app_service_states(
 // MSC4512: Application Services Proxy
 // =============================================================================
 
+/// Headers a proxy must not relay: the hop-by-hop set from RFC 9110 §7.6.1,
+/// plus `host` and `content-length`, which [`reqwest`] derives from the target
+/// URL and the forwarded body. Relaying the caller's `Host`/`Content-Length`
+/// would describe a different request than the one the AS actually receives.
+fn is_hop_by_hop_header(name: &str) -> bool {
+    matches!(
+        name,
+        "connection"
+            | "keep-alive"
+            | "proxy-authenticate"
+            | "proxy-authorization"
+            | "te"
+            | "trailer"
+            | "transfer-encoding"
+            | "upgrade"
+            | "host"
+            | "content-length"
+    )
+}
+
 /// MSC4512: Proxy a request to the Application Service.
 ///
-/// Proxies the request to the AS endpoint at `/{as_id}/{...path}`.
-/// Requires valid HS token authentication via the `Authorization: Bearer <hs_token>` header.
-/// This implements the bidirectional proxy semantics defined in MSC4512:
-/// - Validates AS ID and retrieves service registration
-/// - Authenticates using HS token (homeserver-to-AS trust)
-/// - Forwards the complete request (method, path, headers, body)
-/// - Returns the AS response with appropriate status code mapping
+/// Validates the AS registration, authenticates with the AS `hs_token` (supplied
+/// as `Authorization: Bearer <hs_token>`), forwards the request to the AS, and
+/// relays the AS response back to the caller.
+///
+/// The upstream URL is `{service.url}/_matrix/app/v1/{path}`: `/_matrix/app/v1`
+/// is the AS API namespace, so the inbound `.../proxy/{as_id}` prefix is not part
+/// of the upstream path. Both registered proxy routes share this handler and
+/// therefore forward into the AS `/_matrix/app/v1` namespace.
 pub async fn proxy_to_as(
     State(ctx): State<AdminContext>,
     Path((as_id, path)): Path<(String, String)>,
@@ -389,7 +410,6 @@ pub async fn proxy_to_as(
     body: Bytes,
 ) -> Result<impl axum::response::IntoResponse, ApiError> {
     use axum::http::Response;
-    use http_body_util::BodyExt;
 
     validate_as_id(&as_id)?;
 
@@ -416,26 +436,27 @@ pub async fn proxy_to_as(
     // Construct target URL
     let target_url = format!("{}/_matrix/app/v1/{}", service.url.trim_end_matches('/'), path);
 
-    // Forward the request
-    let mut req_builder =
-        ctx.http_client.request(method.clone(), &target_url).header("Content-Type", "application/json");
+    // Forward the request through the process-wide pooled client (audit F-1):
+    // a fresh `reqwest::Client` per request would drop connection reuse and the
+    // configured connect/total timeouts.
+    let mut req_builder = synapse_common::http_client::default_client().request(method, &target_url);
 
-    // Forward relevant headers (excluding hop-by-hop headers)
+    // Relay the caller's headers, minus the hop-by-hop set. `Content-Type` is
+    // forwarded verbatim rather than forced to JSON: the AS API namespace also
+    // carries non-JSON bodies, and forcing it duplicated the header.
     for (key, value) in headers.iter() {
-        let key_str = key.as_str();
-        // Skip hop-by-hop headers that shouldn't be forwarded
-        if !matches!(key_str, "connection" | "keep-alive" | "transfer-encoding" | "te" | "upgrade") {
+        if !is_hop_by_hop_header(key.as_str()) {
             req_builder = req_builder.header(key, value);
         }
     }
 
     // Set body if present
     if !body.is_empty() {
-        req_builder = req_builder.body(body.clone());
+        req_builder = req_builder.body(body);
     }
 
     let response = req_builder.send().await.map_err(|e| {
-        ApiError::internal_with_cause(format!("Failed to forward request to application service {}", as_id), e)
+        ApiError::internal_with_cause(&format!("Failed to forward request to application service {as_id}"), e)
     })?;
 
     // Extract status code and headers from response
@@ -450,8 +471,9 @@ pub async fn proxy_to_as(
     let mut response_builder = Response::builder().status(status);
 
     for (key, value) in response_headers.iter() {
-        let key_str = key.as_str();
-        if !matches!(key_str, "connection" | "keep-alive" | "transfer-encoding" | "te" | "upgrade") {
+        // `content-length` is recomputed by axum from the relayed body, so the
+        // upstream value could contradict the body length actually sent.
+        if !is_hop_by_hop_header(key.as_str()) {
             response_builder = response_builder.header(key, value);
         }
     }
@@ -697,8 +719,8 @@ pub fn create_app_service_router(state: &AppState) -> Router<AppState> {
         .route("/_matrix/app/v1/users/{user_id}", get(app_service_user_query))
         .route("/_matrix/app/v1/rooms/{alias}", get(app_service_room_alias_query))
         .route("/_matrix/app/v1/{as_id}", get(app_service_query))
-        .route("/_matrix/app/v1/proxy/{as_id}/*path", any(proxy_to_as))
-        .route("/_matrix/client/v1/proxy/{as_id}/*path", any(proxy_to_as))
+        .route("/_matrix/app/v1/proxy/{as_id}/{*path}", any(proxy_to_as))
+        .route("/_matrix/client/v1/proxy/{as_id}/{*path}", any(proxy_to_as))
         .route("/_matrix/client/v3/appservice/user", get(query_user))
         .route("/_matrix/client/v3/appservice/alias", get(query_room_alias));
 

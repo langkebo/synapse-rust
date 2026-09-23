@@ -230,6 +230,8 @@ _METHOD = {
     "PUT": "PUT",
     "DELETE": "DELETE",
     "PATCH": "PATCH",
+    "HEAD": "HEAD",
+    "OPTIONS": "OPTIONS",
 }
 _RANK = {0: "RouteProfile::Always", 1: "RouteProfile::Worker", 2: "RouteProfile::Oidc"}
 

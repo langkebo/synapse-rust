@@ -386,7 +386,7 @@ def strip_test_mods(src: str) -> str:
                 break
             j += mm.end()
         mm = re.match(
-            r"(?:pub(?:\([^)]*\))?\s+)?mod\s+[A-Za-z_][A-Za-z0-9_]*\s*\{", out[j:]
+            r"\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+[A-Za-z_][A-Za-z0-9_]*\s*\{", out[j:]
         )
         if not mm:
             # not a test module — drop just the attribute
@@ -1454,8 +1454,9 @@ class Resolver:
         ):
             return acc
 
-        if name in ("get", "post", "put", "delete", "patch", "head", "options", "on"):
+        if name in ("get", "post", "put", "delete", "patch", "head", "options", "on", "any"):
             # a `MethodRouter` chain sitting where a route set was expected
+            # `any` is a special Axum method accepting all HTTP methods
             return acc
 
         self.unresolved.add(f"chain method .{name}() in {owner}")
@@ -1464,6 +1465,10 @@ class Resolver:
     @staticmethod
     def _methods_of(text: str) -> list[str]:
         """Extract every HTTP method in a `get(a).put(b)` handler expression."""
+        # Handle axum::routing::any() which accepts all HTTP methods
+        if re.match(r"(?:^|\.\s*)(?:axum::routing::)?any\s*\(", text.strip()):
+            return [m.upper() for m in HTTP_METHODS]
+        
         found = []
         for m in re.finditer(r"(?:^|[.:\s(])([a-z]+)\s*\(", text):
             name = m.group(1)

@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": false
   },
-  "entry_count": 1067,
+  "entry_count": 1082,
   "entries": [
     {
       "method": "GET",
@@ -103,6 +103,76 @@
       "path": "/_matrix/app/v1/ping",
       "registered_by": "app_service",
       "path_params": [],
+      "query_params": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/_matrix/app/v1/proxy/{as_id}/{*path}",
+      "registered_by": "app_service",
+      "path_params": [
+        "as_id",
+        "*path"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/app/v1/proxy/{as_id}/{*path}",
+      "registered_by": "app_service",
+      "path_params": [
+        "as_id",
+        "*path"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "HEAD",
+      "path": "/_matrix/app/v1/proxy/{as_id}/{*path}",
+      "registered_by": "app_service",
+      "path_params": [
+        "as_id",
+        "*path"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/_matrix/app/v1/proxy/{as_id}/{*path}",
+      "registered_by": "app_service",
+      "path_params": [
+        "as_id",
+        "*path"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "PATCH",
+      "path": "/_matrix/app/v1/proxy/{as_id}/{*path}",
+      "registered_by": "app_service",
+      "path_params": [
+        "as_id",
+        "*path"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/app/v1/proxy/{as_id}/{*path}",
+      "registered_by": "app_service",
+      "path_params": [
+        "as_id",
+        "*path"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/app/v1/proxy/{as_id}/{*path}",
+      "registered_by": "app_service",
+      "path_params": [
+        "as_id",
+        "*path"
+      ],
       "query_params": []
     },
     {
@@ -1030,6 +1100,76 @@
       "registered_by": "assembly::account_compat",
       "path_params": [
         "user_id"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/_matrix/client/v1/proxy/{as_id}/{*path}",
+      "registered_by": "app_service",
+      "path_params": [
+        "as_id",
+        "*path"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v1/proxy/{as_id}/{*path}",
+      "registered_by": "app_service",
+      "path_params": [
+        "as_id",
+        "*path"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "HEAD",
+      "path": "/_matrix/client/v1/proxy/{as_id}/{*path}",
+      "registered_by": "app_service",
+      "path_params": [
+        "as_id",
+        "*path"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/_matrix/client/v1/proxy/{as_id}/{*path}",
+      "registered_by": "app_service",
+      "path_params": [
+        "as_id",
+        "*path"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "PATCH",
+      "path": "/_matrix/client/v1/proxy/{as_id}/{*path}",
+      "registered_by": "app_service",
+      "path_params": [
+        "as_id",
+        "*path"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v1/proxy/{as_id}/{*path}",
+      "registered_by": "app_service",
+      "path_params": [
+        "as_id",
+        "*path"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/client/v1/proxy/{as_id}/{*path}",
+      "registered_by": "app_service",
+      "path_params": [
+        "as_id",
+        "*path"
       ],
       "query_params": []
     },
@@ -7952,6 +8092,15 @@
     {
       "method": "POST",
       "path": "/_synapse/admin/v1/rooms/{room_id}/block",
+      "registered_by": "admin::room",
+      "path_params": [
+        "room_id"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/rooms/{room_id}/cascade_redact",
       "registered_by": "admin::room",
       "path_params": [
         "room_id"

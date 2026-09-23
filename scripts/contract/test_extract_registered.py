@@ -18,6 +18,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -202,6 +203,45 @@ def check_test_module_excision(per: dict) -> None:
     check(
         "lifecycle_query.rs still yields its 18 routes",
         len(per.get("space/lifecycle_query.rs", set())) == 18,
+    )
+
+    # The excision must remove the module *body*, not merely its attribute. The
+    # canonical rustfmt layout is
+    #     #[cfg(test)]
+    #     mod tests {
+    # and the `mod ...` matcher once lacked a leading `\s*`, so it could not match
+    # across that newline: it fell through to the "drop just the attribute" branch
+    # and left the whole module body in place — for 84 of the repo's 94 test
+    # modules. Test-only code then reached the resolver, which is where the
+    # spurious `.cloned()/.collect()/.filter()` unresolved constructs came from:
+    # the unresolved ratchet was red for a defect in *this* function, not in the
+    # route files.
+    #
+    # The assertion is on the surviving *body*, not on a surviving `#[cfg(test)]`
+    # attribute. That distinction is load-bearing: the buggy branch did remove the
+    # attribute, so an attribute-presence check passes against the broken parser —
+    # verified by mutation before this check was written.
+    mod_decl = re.compile(
+        r"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{"
+    )
+    raw = ex.raw_sources()
+    survived = []
+    for rel, stripped in ex.load_sources().items():
+        gated: set[str] = set()
+        source = raw.get(rel, "")
+        for m in re.finditer(r"#\[cfg\(test\)\]", source):
+            mm = re.match(
+                r"\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{",
+                source[m.end() :],
+            )
+            if mm:
+                gated.add(mm.group(1))
+        if gated & set(mod_decl.findall(stripped)):
+            survived.append(rel)
+    check(
+        "strip_test_mods removes the module body, not just its #[cfg(test)] attribute",
+        not survived,
+        f"{len(survived)} test module(s) survived excision, e.g. {survived[:3]}",
     )
 
 

@@ -1,6 +1,6 @@
 # synapse-rust 路由契约（Route Contract）
 
-> 自动生成于 2026-09-23，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含 `derived_route_table.inc.rs`）派生覆盖。
+> 自动生成于 2026-09-24，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含 `derived_route_table.inc.rs`）派生覆盖。
 >
 > 本文件是后端 HTTP 契约的**事实来源之一**（机器侧权威为 `derived_routes.rs` 生成的 `RouteLedger`，启动时校验、集成测试 PATCH 探测）。人工文档（INDEX.md / API_COVERAGE_REPORT.md）须与之保持一致。
 >
@@ -8,7 +8,7 @@
 
 ## 总览
 
-- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1151**
+- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1166**
 - 含路由注册的模块文件：**66**
 - `derived_routes.rs` 中的 `registered_by` 标签：**74**
 - 已被派生表覆盖的模块：**66**
@@ -573,14 +573,18 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_matrix/client/v1/widgets/{widget_id}`
 - `PUT` `/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/capabilities`
 
-### 应用服务 (AppService) （25 条）
+### 应用服务 (AppService) （39 条）
 
-#### `app_service.rs` — 25 条 ✅派生表
+#### `app_service.rs` — 39 条 ✅派生表
 
+- `DELETE` `/_matrix/app/v1/proxy/{as_id}/{*path}`
+- `DELETE` `/_matrix/client/v1/proxy/{as_id}/{*path}`
 - `DELETE` `/_synapse/admin/v1/appservices/{as_id}`
+- `GET` `/_matrix/app/v1/proxy/{as_id}/{*path}`
 - `GET` `/_matrix/app/v1/rooms/{alias}`
 - `GET` `/_matrix/app/v1/users/{user_id}`
 - `GET` `/_matrix/app/v1/{as_id}`
+- `GET` `/_matrix/client/v1/proxy/{as_id}/{*path}`
 - `GET` `/_matrix/client/v1/user/{user_id}/appservice`
 - `GET` `/_matrix/client/v3/appservice/alias`
 - `GET` `/_matrix/client/v3/appservice/user`
@@ -594,13 +598,23 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_synapse/admin/v1/appservices/{as_id}/state`
 - `GET` `/_synapse/admin/v1/appservices/{as_id}/state/{state_key}`
 - `GET` `/_synapse/admin/v1/appservices/{as_id}/users`
+- `HEAD` `/_matrix/app/v1/proxy/{as_id}/{*path}`
+- `HEAD` `/_matrix/client/v1/proxy/{as_id}/{*path}`
+- `OPTIONS` `/_matrix/app/v1/proxy/{as_id}/{*path}`
+- `OPTIONS` `/_matrix/client/v1/proxy/{as_id}/{*path}`
+- `PATCH` `/_matrix/app/v1/proxy/{as_id}/{*path}`
+- `PATCH` `/_matrix/client/v1/proxy/{as_id}/{*path}`
 - `POST` `/_matrix/app/v1/ping`
+- `POST` `/_matrix/app/v1/proxy/{as_id}/{*path}`
+- `POST` `/_matrix/client/v1/proxy/{as_id}/{*path}`
 - `POST` `/_synapse/admin/v1/appservices`
 - `POST` `/_synapse/admin/v1/appservices/{as_id}/events`
 - `POST` `/_synapse/admin/v1/appservices/{as_id}/ping`
 - `POST` `/_synapse/admin/v1/appservices/{as_id}/state`
 - `POST` `/_synapse/admin/v1/appservices/{as_id}/users`
+- `PUT` `/_matrix/app/v1/proxy/{as_id}/{*path}`
 - `PUT` `/_matrix/app/v1/transactions/{as_id}/{txn_id}`
+- `PUT` `/_matrix/client/v1/proxy/{as_id}/{*path}`
 - `PUT` `/_synapse/admin/v1/appservices/{as_id}`
 
 ### 延迟事件 （1 条）
@@ -969,9 +983,9 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/client/v3/thirdparty/user`
 - `GET` `/_matrix/client/v3/thirdparty/user/{protocol}`
 
-### 管理 (Admin) （142 条）
+### 管理 (Admin) （143 条）
 
-#### `admin/room/mod.rs` — 45 条 ✅派生表
+#### `admin/room/mod.rs` — 46 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/rooms/{room_id}`
 - `DELETE` `/_synapse/admin/v1/rooms/{room_id}/listings/public`
@@ -1006,6 +1020,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_synapse/admin/v1/rooms/{room_id}/ban`
 - `POST` `/_synapse/admin/v1/rooms/{room_id}/ban/{user_id}`
 - `POST` `/_synapse/admin/v1/rooms/{room_id}/block`
+- `POST` `/_synapse/admin/v1/rooms/{room_id}/cascade_redact`
 - `POST` `/_synapse/admin/v1/rooms/{room_id}/delete`
 - `POST` `/_synapse/admin/v1/rooms/{room_id}/kick`
 - `POST` `/_synapse/admin/v1/rooms/{room_id}/kick/{user_id}`
