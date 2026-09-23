@@ -221,18 +221,20 @@ pub(crate) async fn oidc_callback(
     let now_ts: i64 = synapse_common::current_timestamp_millis() / 1000;
 
     let bound_user_id: Option<String> = ctx.oidc_user_mapping_service.get_bound_user_id(&issuer, &subject).await?;
-    if bound_user_id.is_none()
-        && ctx.account_identity_service.get_user_by_username(&oidc_user.localpart).await?.is_some()
-    {
-        ::tracing::warn!(
-            target: "security_audit",
-            event = "oidc_localpart_collision_refused",
-            issuer = %issuer,
-            subject = %subject,
-            localpart = %oidc_user.localpart,
-            "Refusing OIDC callback: localpart already taken by a non-OIDC-bound account",
-        );
-        return Err(ApiError::unauthorized("OIDC subject is not authorized for this Matrix user".to_string()));
+    if bound_user_id.is_none() {
+        // 只有"未绑定"时才需要付出这次 DB 查询；判定本身由纯函数给出（可单测）。
+        let localpart_taken = ctx.account_identity_service.get_user_by_username(&oidc_user.localpart).await?.is_some();
+        if let Err(rejection) = oidc_login_binding_decision(bound_user_id.as_deref(), localpart_taken) {
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "oidc_localpart_collision_refused",
+                issuer = %issuer,
+                subject = %subject,
+                localpart = %oidc_user.localpart,
+                "Refusing OIDC callback: localpart already taken by a non-OIDC-bound account",
+            );
+            return Err(rejection);
+        }
     }
 
     // 已绑定 → 一律沿用**绑定记录**里的 user_id（忽略 IdP 当前下发的 localpart），并刷新最近登录时间；
@@ -317,6 +319,18 @@ pub(crate) async fn oidc_callback(
     )))
 }
 
+/// 账号接管防护的**纯判定**：该 OIDC subject 未绑定任何 Matrix 用户（`bound_user_id == None`）
+/// 而目标 localpart 已被本地账号占用时，必须拒绝签发令牌。
+///
+/// 抽成纯函数是为了让这条安全规则**可被单测直接证明**（handler 侧只负责提供两个事实：
+/// issuer+subject 的绑定查询结果、以及同名本地账号是否存在），见 `mod tests` 的判定表用例。
+fn oidc_login_binding_decision(bound_user_id: Option<&str>, localpart_taken: bool) -> Result<(), ApiError> {
+    if bound_user_id.is_none() && localpart_taken {
+        return Err(ApiError::unauthorized("OIDC subject is not authorized for this Matrix user".to_string()));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -325,6 +339,20 @@ mod tests {
     fn test_is_safe_redirect_url_accepts_relative_paths() {
         assert!(is_safe_redirect_url("/_matrix/client/v3/oidc/callback", &[]));
         assert!(is_safe_redirect_url("/home", &[]));
+    }
+
+    /// 账号接管防护的判定表（v1.4 复核 P0）。
+    ///
+    /// 只有"该 OIDC subject 未绑定 + 目标 localpart 已被占用"才拒绝；其余三种都放行
+    /// （未绑定且同名可用 = 首次登录，随后写入绑定；已绑定 = 沿用绑定 user_id）。
+    #[test]
+    fn oidc_callback_binding_decision_table() {
+        let denied = oidc_login_binding_decision(None, true);
+        assert!(denied.is_err(), "未绑定 + 同名已占用 必须拒绝");
+        assert!(denied.unwrap_err().to_string().contains("not authorized"), "拒绝原因必须是该 OIDC subject 未获授权");
+        assert!(oidc_login_binding_decision(None, false).is_ok(), "未绑定 + 同名可用 必须放行（首次登录）");
+        assert!(oidc_login_binding_decision(Some("@bound:example.com"), true).is_ok(), "已绑定必须放行");
+        assert!(oidc_login_binding_decision(Some("@bound:example.com"), false).is_ok(), "已绑定必须放行");
     }
 
     #[test]
