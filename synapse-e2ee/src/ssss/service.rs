@@ -89,7 +89,7 @@ impl SecretStorageService {
     /// The MSC2697 `curve25519-aes-sha2` algorithm binds the key to a client
     /// key pair via ECDH, so the server has no input from which to derive it —
     /// requesting it is a `400`, and clients must upload such a key instead.
-    pub fn create_key(&self, _user_id: &str, algorithm: &str) -> Result<SecretStorageKeyCreationTerm, ApiError> {
+    pub fn create_key(_user_id: &str, algorithm: &str) -> Result<SecretStorageKeyCreationTerm, ApiError> {
         let key_id = format!("{}", uuid::Uuid::new_v4());
 
         if is_aes_hmac_sha2(algorithm) {
@@ -119,7 +119,7 @@ impl SecretStorageService {
         let key_base64 = BASE64_NO_PAD.encode(*key_bytes);
 
         let iv = generate_iv();
-        let (iv_base64, mac_base64) = key_validation_mac(&key_bytes, &iv)?;
+        let (iv_base64, mac_base64) = key_validation_mac(&*key_bytes, &iv)?;
 
         Ok(SecretStorageKeyCreationTerm {
             key_id: key_id.to_string(),
@@ -211,7 +211,6 @@ impl SecretStorageService {
     /// under; it is the HKDF `info` parameter, so the same key encrypts
     /// different secrets under independent AES/MAC keys.
     pub fn encrypt_secret(
-        &self,
         secret: &str,
         secret_name: &str,
         key_data: &SecretStorageKey,
@@ -231,10 +230,10 @@ impl SecretStorageService {
     ) -> Result<AesHmacSha2EncryptedData, ApiError> {
         let key_bytes = parse_raw_key(key_data)?;
         let iv = generate_iv();
-        let (aes_key, mac_key) = derive_keys(&key_bytes, secret_name)?;
+        let (aes_key, mac_key) = derive_keys(&*key_bytes, secret_name)?;
 
         let ciphertext = aes_ctr_apply(&aes_key, &iv, secret.as_bytes());
-        let mac = synapse_common::crypto::hmac_sha256(&*mac_key, &ciphertext);
+        let mac = synapse_common::crypto::hmac_sha256(*mac_key, &ciphertext);
 
         Ok(AesHmacSha2EncryptedData {
             iv: BASE64_NO_PAD.encode(iv),
@@ -248,7 +247,6 @@ impl SecretStorageService {
     ///
     /// A MAC mismatch is a `403`: the ciphertext must not be used.
     pub fn decrypt_secret(
-        &self,
         encrypted: &AesHmacSha2EncryptedData,
         secret_name: &str,
         key_data: &SecretStorageKey,
@@ -266,8 +264,8 @@ impl SecretStorageService {
             .decode(&encrypted.mac)
             .map_err(|e| ApiError::bad_request(format!("Invalid mac base64: {e}")))?;
 
-        let (aes_key, mac_key) = derive_keys(&key_bytes, secret_name)?;
-        let expected = synapse_common::crypto::hmac_sha256(&*mac_key, &ciphertext);
+        let (aes_key, mac_key) = derive_keys(&*key_bytes, secret_name)?;
+        let expected = synapse_common::crypto::hmac_sha256(*mac_key, &ciphertext);
         if !synapse_common::crypto::secure_compare_bytes(&expected, &mac) {
             return Err(ApiError::forbidden("Secret storage MAC verification failed".to_string()));
         }
@@ -385,9 +383,12 @@ fn generate_iv() -> [u8; SSSS_IV_LENGTH] {
     iv
 }
 
+/// The `(AES key, MAC key)` pair produced by one HKDF expansion.
+type DerivedKeys = (Zeroizing<[u8; 32]>, Zeroizing<[u8; 32]>);
+
 /// HKDF-SHA256 with a 32-byte zero salt, expanded to 64 bytes and split into
 /// the AES key (first 32) and the MAC key (last 32).
-fn derive_keys(key: &[u8], info: &str) -> Result<(Zeroizing<[u8; 32]>, Zeroizing<[u8; 32]>), ApiError> {
+fn derive_keys(key: &[u8], info: &str) -> Result<DerivedKeys, ApiError> {
     let hk = hkdf::Hkdf::<sha2::Sha256>::new(Some(&[0u8; 32]), key);
     let mut okm = Zeroizing::new([0u8; 64]);
     hk.expand(info.as_bytes(), &mut *okm).map_err(|e| {
@@ -415,7 +416,7 @@ fn aes_ctr_apply(key: &[u8; 32], iv: &[u8; SSSS_IV_LENGTH], data: &[u8]) -> Vec<
 fn key_validation_mac(key: &[u8], iv: &[u8; SSSS_IV_LENGTH]) -> Result<(String, String), ApiError> {
     let (aes_key, mac_key) = derive_keys(key, "")?;
     let ciphertext = aes_ctr_apply(&aes_key, iv, &[0u8; 32]);
-    let mac = synapse_common::crypto::hmac_sha256(&*mac_key, &ciphertext);
+    let mac = synapse_common::crypto::hmac_sha256(*mac_key, &ciphertext);
     Ok((BASE64_NO_PAD.encode(iv), BASE64_NO_PAD.encode(mac)))
 }
 
@@ -424,13 +425,8 @@ mod tests {
     use super::*;
     use synapse_common::crypto::hmac_sha256;
 
-    fn lazy_service() -> SecretStorageService {
-        let database_url = std::env::var("TEST_DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
-        let pool = sqlx::PgPool::connect_lazy(&database_url).expect("connect_lazy should not perform I/O");
-        SecretStorageService::new(SecretStorage::new(&pool))
-    }
-
+    /// The SSSS crypto is storage-free, so tests exercise the associated
+    /// functions directly (no pool, no Tokio runtime, no database).
     fn key_description(raw_key: &[u8; 32]) -> SecretStorageKey {
         SecretStorageKey {
             key_id: "test-key".to_string(),
@@ -482,9 +478,7 @@ mod tests {
 
     #[test]
     fn create_key_rejects_curve25519_algorithm() {
-        let service = lazy_service();
-        let err = service
-            .create_key("@test:example.com", "org.matrix.msc2697.v1.curve25519-aes-sha2")
+        let err = SecretStorageService::create_key("@test:example.com", "org.matrix.msc2697.v1.curve25519-aes-sha2")
             .expect_err("curve25519 key generation must fail closed");
         assert_eq!(err.kind, ApiErrorKind::BadRequest);
         assert!(err.message.contains("curve25519"), "unexpected message: {}", err.message);
@@ -492,17 +486,15 @@ mod tests {
 
     #[test]
     fn create_key_rejects_unknown_algorithm() {
-        let service = lazy_service();
-        let err =
-            service.create_key("@test:example.com", "unknown-algorithm").expect_err("unknown algorithm must fail");
+        let err = SecretStorageService::create_key("@test:example.com", "unknown-algorithm")
+            .expect_err("unknown algorithm must fail");
         assert_eq!(err.kind, ApiErrorKind::BadRequest);
     }
 
     #[test]
     fn create_key_accepts_both_aes_hmac_sha2_spellings() {
-        let service = lazy_service();
         for algorithm in [AES_HMAC_SHA2_SHORT, AES_HMAC_SHA2_SPEC] {
-            let key = service.create_key("@test:example.com", algorithm).expect("must generate");
+            let key = SecretStorageService::create_key("@test:example.com", algorithm).expect("must generate");
             assert_eq!(key.algorithm, AES_HMAC_SHA2_SHORT);
         }
     }
@@ -546,28 +538,28 @@ mod tests {
 
     #[test]
     fn encrypt_decrypt_roundtrip_verifies_mac() {
-        let service = lazy_service();
         let raw = [0x11u8; 32];
         let key_data = key_description(&raw);
 
-        let encrypted =
-            service.encrypt_secret("top secret value", "m.cross_signing.master", &key_data).expect("encrypt");
+        let encrypted = SecretStorageService::encrypt_secret("top secret value", "m.cross_signing.master", &key_data)
+            .expect("encrypt");
         assert!(!encrypted.iv.contains('='));
         assert!(!encrypted.ciphertext.contains('='));
         assert!(!encrypted.mac.contains('='));
 
-        let plaintext = service.decrypt_secret(&encrypted, "m.cross_signing.master", &key_data).expect("decrypt");
+        let plaintext =
+            SecretStorageService::decrypt_secret(&encrypted, "m.cross_signing.master", &key_data).expect("decrypt");
         assert_eq!(plaintext, "top secret value");
     }
 
     #[test]
     fn decrypt_rejects_tampered_ciphertext() {
-        let service = lazy_service();
         let raw = [0x22u8; 32];
         let key_data = key_description(&raw);
 
         let mut encrypted =
-            service.encrypt_secret("top secret value", "m.cross_signing.master", &key_data).expect("encrypt");
+            SecretStorageService::encrypt_secret("top secret value", "m.cross_signing.master", &key_data)
+                .expect("encrypt");
 
         // Flip one ciphertext byte: the MAC must no longer verify, and the
         // failure must be fail-closed (403) rather than returning garbage.
@@ -575,38 +567,35 @@ mod tests {
         bytes[0] ^= 0x01;
         encrypted.ciphertext = BASE64_NO_PAD.encode(&bytes);
 
-        let err = service
-            .decrypt_secret(&encrypted, "m.cross_signing.master", &key_data)
+        let err = SecretStorageService::decrypt_secret(&encrypted, "m.cross_signing.master", &key_data)
             .expect_err("tampered ciphertext must be rejected");
         assert_eq!(err.kind, ApiErrorKind::Forbidden);
     }
 
     #[test]
     fn decrypt_rejects_wrong_secret_name() {
-        let service = lazy_service();
         let raw = [0x33u8; 32];
         let key_data = key_description(&raw);
 
-        let encrypted = service.encrypt_secret("v", "m.cross_signing.master", &key_data).expect("encrypt");
+        let encrypted =
+            SecretStorageService::encrypt_secret("v", "m.cross_signing.master", &key_data).expect("encrypt");
         // The secret name is the HKDF info, so a wrong name derives a wrong MAC
         // key and must be rejected.
-        let err = service
-            .decrypt_secret(&encrypted, "m.cross_signing.self_signing", &key_data)
+        let err = SecretStorageService::decrypt_secret(&encrypted, "m.cross_signing.self_signing", &key_data)
             .expect_err("wrong secret name must fail MAC verification");
         assert_eq!(err.kind, ApiErrorKind::Forbidden);
     }
 
     #[test]
     fn mac_is_keyed_by_derived_mac_key_not_raw_key() {
-        let service = lazy_service();
         let raw = [0x44u8; 32];
         let key_data = key_description(&raw);
-        let encrypted = service.encrypt_secret("v", "name", &key_data).expect("encrypt");
+        let encrypted = SecretStorageService::encrypt_secret("v", "name", &key_data).expect("encrypt");
 
         let ciphertext = BASE64_NO_PAD.decode(&encrypted.ciphertext).expect("decode");
         let (_, mac_key) = derive_keys(&raw, "name").expect("derive");
-        let derived = hmac_sha256(&*mac_key, &ciphertext);
-        let raw_keyed = hmac_sha256(&raw, &ciphertext);
+        let derived = hmac_sha256(*mac_key, &ciphertext);
+        let raw_keyed = hmac_sha256(raw, &ciphertext);
 
         assert_eq!(BASE64_NO_PAD.encode(&derived), encrypted.mac);
         assert_ne!(BASE64_NO_PAD.encode(&raw_keyed), encrypted.mac, "MAC must not be keyed by the raw secret");
@@ -614,23 +603,21 @@ mod tests {
 
     #[test]
     fn encrypt_rejects_non_aes_hmac_algorithm() {
-        let service = lazy_service();
         let mut key_data = key_description(&[0x55u8; 32]);
         key_data.algorithm = "org.matrix.msc2697.v1.curve25519-aes-sha2".to_string();
-        let err = service.encrypt_secret("v", "name", &key_data).expect_err("curve25519 encryption must fail closed");
+        let err = SecretStorageService::encrypt_secret("v", "name", &key_data)
+            .expect_err("curve25519 encryption must fail closed");
         assert_eq!(err.kind, ApiErrorKind::BadRequest);
     }
 
     #[test]
     fn encrypt_rejects_short_and_long_keys() {
-        let service = lazy_service();
         for length in [16usize, 31, 33, 64] {
             let mut raw = vec![0u8; length];
             raw.fill(0x66);
             let mut key_data = key_description(&[0u8; 32]);
             key_data.encrypted_key = BASE64_NO_PAD.encode(&raw);
-            let err = service
-                .encrypt_secret("v", "name", &key_data)
+            let err = SecretStorageService::encrypt_secret("v", "name", &key_data)
                 .expect_err("non-32-byte key must be rejected, never padded");
             assert_eq!(err.kind, ApiErrorKind::BadRequest);
         }
@@ -638,11 +625,11 @@ mod tests {
 
     #[test]
     fn encrypt_accepts_padded_key_input() {
-        let service = lazy_service();
         let mut key_data = key_description(&[0x77u8; 32]);
         key_data.encrypted_key = BASE64.encode([0x77u8; 32]);
-        let encrypted = service.encrypt_secret("v", "name", &key_data).expect("padded base64 must be accepted");
-        let plaintext = service.decrypt_secret(&encrypted, "name", &key_data).expect("decrypt");
+        let encrypted =
+            SecretStorageService::encrypt_secret("v", "name", &key_data).expect("padded base64 must be accepted");
+        let plaintext = SecretStorageService::decrypt_secret(&encrypted, "name", &key_data).expect("decrypt");
         assert_eq!(plaintext, "v");
     }
 
