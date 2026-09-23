@@ -1077,7 +1077,7 @@ mod tests {
 
     #[test]
     fn test_message_type_classification() {
-        let message_types = vec!["m.room.message", "m.room.redaction", "m.room.member", "m.reaction", "m.sticker"];
+        let message_types = ["m.room.message", "m.room.redaction", "m.room.member", "m.reaction", "m.sticker"];
 
         assert_eq!(message_types.len(), 5);
         assert!(message_types.iter().all(|t| t.starts_with("m.")));
@@ -1085,7 +1085,7 @@ mod tests {
 
     #[test]
     fn test_event_relation_types() {
-        let relation_types = vec!["m.reference", "m.replace", "m.thread", "m.annotation"];
+        let relation_types = ["m.reference", "m.replace", "m.thread", "m.annotation"];
 
         assert_eq!(relation_types.len(), 4);
         assert!(relation_types.iter().all(|t| t.starts_with("m.")));
@@ -1107,7 +1107,7 @@ mod tests {
 
     #[test]
     fn test_room_message_msgtype_variants() {
-        let msgtypes = vec!["m.text", "m.image", "m.audio", "m.video", "m.file"];
+        let msgtypes = ["m.text", "m.image", "m.audio", "m.video", "m.file"];
 
         assert_eq!(msgtypes.len(), 5);
         assert!(msgtypes.iter().all(|t| t.starts_with("m.")));

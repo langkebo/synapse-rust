@@ -12,13 +12,16 @@ use synapse_common::config::{
     WorkerConfig,
 };
 
-/// Returns the test database URL from environment or default
+/// Returns the test database URL from the **single** resolver.
 ///
-/// Reads from TEST_DATABASE_URL environment variable.
-/// Default: postgres://synapse:synapse@localhost:5432/synapse_test
+/// This used to be an independent chain (`TEST_DATABASE_URL` or a hard-coded
+/// `postgres://…localhost:5432/synapse_test`). That made it a second implementation
+/// of a job that already has one (AGENTS.md 铁律 2) *and* let it fall back to
+/// localhost under CI — the exact silent misconfiguration that
+/// `every_resolver_copy_disables_the_fallback_under_ci` blocks for the five
+/// canonical copies. It now delegates, so that gate covers this call site too.
 pub fn test_database_url() -> String {
-    std::env::var("TEST_DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string())
+    synapse_common::test_isolation::test_database_url()
 }
 
 /// Returns the test Redis URL from environment or default
@@ -222,23 +225,5 @@ pub fn build_test_config() -> Config {
         identity: synapse_common::config::IdentityConfig::default(),
         translate: synapse_common::config::TranslateConfig::default(),
         sso_redirect_allowlist: vec![],
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_database_url_default() {
-        std::env::remove_var("TEST_DATABASE_URL");
-        assert_eq!(test_database_url(), "postgres://synapse:synapse@localhost:5432/synapse_test");
-    }
-
-    #[test]
-    fn test_database_url_from_env() {
-        std::env::set_var("TEST_DATABASE_URL", "postgres://custom:custom@localhost:5432/custom");
-        assert_eq!(test_database_url(), "postgres://custom:custom@localhost:5432/custom");
-        std::env::remove_var("TEST_DATABASE_URL");
     }
 }

@@ -128,7 +128,6 @@ pub async fn get_dehydrated_device_events(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     /// Test Query parameter parsing for get_dehydrated_device_events
     #[test]

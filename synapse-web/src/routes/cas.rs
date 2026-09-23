@@ -387,11 +387,18 @@ mod tests {
     #[test]
     fn test_service_response_from_cas_registered_service() {
         let service = CasRegisteredService {
+            id: 1,
             service_id: "test-service".to_string(),
             name: "Test Service".to_string(),
             description: Some("A test service".to_string()),
             service_url_pattern: "https://example.com/*".to_string(),
+            allowed_attributes: serde_json::json!({}),
+            allowed_proxy_callbacks: serde_json::json!({}),
             is_enabled: true,
+            is_require_secure: false,
+            is_single_logout: false,
+            created_ts: 0,
+            updated_ts: 0,
         };
         let response = ServiceResponse::from(service);
         assert_eq!(response.service_id, "test-service");

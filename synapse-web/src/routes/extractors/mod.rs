@@ -93,17 +93,19 @@ mod tests {
         // Verify that all re-exported ID types from synapse-common are
         // reachable through this module — this guards against accidental
         // drift between the declared re-export list and synapse-common::types.
-        let _: &synapse_common::types::BackupId = &synapse_common::types::BackupId::new("test-backup-id");
-        let _: &synapse_common::types::DeviceId = &synapse_common::types::DeviceId::new("DEVICE1");
-        let _: &synapse_common::types::EventId = &synapse_common::types::EventId::new("$event1");
-        let _: &synapse_common::types::MediaId = &synapse_common::types::MediaId::new("mxc1");
-        let _: &synapse_common::types::MxcUri = &synapse_common::types::MxcUri::new("mxc://example.com/abc");
-        let _: &synapse_common::types::RoomAlias = &synapse_common::types::RoomAlias::new("#room1");
-        let _: &synapse_common::types::RoomId = &synapse_common::types::RoomId::new("!room1");
-        let _: &synapse_common::types::ServerName = &synapse_common::types::ServerName::new("example.com");
-        let _: &synapse_common::types::SessionId = &synapse_common::types::SessionId::new("session1");
-        let _: &synapse_common::types::TransactionId = &synapse_common::types::TransactionId::new("tx1");
-        let _: &synapse_common::types::UserId = &synapse_common::types::UserId::new("@user1");
+        // NOTE: `matrix_id!` newtypes expose `From<&str>` / `From<String>` / `FromStr`
+        // (and a public field) — there is deliberately no `new()`.
+        let _: &synapse_common::types::BackupId = &synapse_common::types::BackupId::from("test-backup-id");
+        let _: &synapse_common::types::DeviceId = &synapse_common::types::DeviceId::from("DEVICE1");
+        let _: &synapse_common::types::EventId = &synapse_common::types::EventId::from("$event1");
+        let _: &synapse_common::types::MediaId = &synapse_common::types::MediaId::from("mxc1");
+        let _: &synapse_common::types::MxcUri = &synapse_common::types::MxcUri::from("mxc://example.com/abc");
+        let _: &synapse_common::types::RoomAlias = &synapse_common::types::RoomAlias::from("#room1");
+        let _: &synapse_common::types::RoomId = &synapse_common::types::RoomId::from("!room1");
+        let _: &synapse_common::types::ServerName = &synapse_common::types::ServerName::from("example.com");
+        let _: &synapse_common::types::SessionId = &synapse_common::types::SessionId::from("session1");
+        let _: &synapse_common::types::TransactionId = &synapse_common::types::TransactionId::from("tx1");
+        let _: &synapse_common::types::UserId = &synapse_common::types::UserId::from("@user1");
     }
 
     #[test]
@@ -114,16 +116,16 @@ mod tests {
             BackupId, DeviceId, EventId, MediaId, MxcUri, RoomAlias, RoomId, ServerName, SessionId, TransactionId,
         };
         // Construct each type to confirm the re-exports are live.
-        let _ = BackupId::new("backup");
-        let _ = DeviceId::new("DEV1");
-        let _ = EventId::new("$1");
-        let _ = MediaId::new("mxc1");
-        let _ = MxcUri::new("mxc://e.c/1");
-        let _ = RoomAlias::new("#r1");
-        let _ = RoomId::new("!r1");
-        let _ = ServerName::new("srv");
-        let _ = SessionId::new("s1");
-        let _ = TransactionId::new("t1");
+        let _ = BackupId::from("backup");
+        let _ = DeviceId::from("DEV1");
+        let _ = EventId::from("$1");
+        let _ = MediaId::from("mxc1");
+        let _ = MxcUri::from("mxc://e.c/1");
+        let _ = RoomAlias::from("#r1");
+        let _ = RoomId::from("!r1");
+        let _ = ServerName::from("srv");
+        let _ = SessionId::from("s1");
+        let _ = TransactionId::from("t1");
     }
 
     #[test]

@@ -1,6 +1,41 @@
 #!/bin/bash
-set -euo pipefail
+# pre-push guard: CI 同款 clippy（含测试代码编译） + cargo-deny advisories
+#
+# 启用（每个 clone 一次）：  git config core.hooksPath .githooks
+# 绕过：                    git push --no-verify
+#
+# ── 为什么"编译关卡"放在 pre-push，而不是 pre-commit ──────────────────────────
+#   全工作区 clippy 需要数分钟，塞进 pre-commit 必然被所有人用 `--no-verify` 绕过；
+#   push 的频率低得多，几分钟可以接受。
+#   而 2026-09-22 反复出现的缺陷**不是**格式问题（那个 pre-commit 已经能拦住），
+#   而是"新增测试从未在 `--all-features` 下编译过"：两轮清理、相隔数小时、不同文件、
+#   同一模式，每次都让 CI 的 blocking lib 批次直接 exit 101，而本地毫无察觉。
+#   pre-commit 管不了编译，所以必须在这里设一道能编译的关卡。
+#
+# 判据（红 → 绿，同一命令）：
+#   * 红：`main` 4db39228 实跑本命令 exit 101（`synapse-storage` lib test 5 处 E0308）；
+#   * 绿：修复后同一命令 exit 0。
+#   详见 docs/audit/FULL_SUITE_ISOLATION_VERIFY_2026-09-22.md §7.6 / §7.7。
+set -uo pipefail
 
+BYPASS_HINT="  绕过：git push --no-verify（仅紧急情况）"
+
+# ── Stage 1（阻断）：clippy，作用域与 ci.yml 的 blocking 矩阵一致 ──────────────
+# `--workspace` + `--all-targets` 二者缺一都会漏掉 member crate 或测试代码（历史上都漏过）。
+# 只跑 `--all-features` 这一档：feature 只增不减，它是默认档的超集；默认档独有的
+# `not(feature = "…")` 分支仍由 CI 每次 push 覆盖。
+if command -v cargo >/dev/null 2>&1; then
+  if ! SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils \
+      --all-features --locked -- -D warnings; then
+    echo ""
+    echo "❌ push 被拦下：clippy / 编译未通过（CI 的 blocking lib 批次会同样失败）。"
+    echo "$BYPASS_HINT"
+    exit 1
+  fi
+  echo "✅ clippy --workspace --all-targets --all-features 通过"
+fi
+
+# ── Stage 2（阻断）：cargo-deny advisories（原有行为，保持不变）───────────────
 if command -v cargo-deny >/dev/null 2>&1; then
   cargo deny check advisories
 else

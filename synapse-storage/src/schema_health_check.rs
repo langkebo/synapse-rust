@@ -673,7 +673,7 @@ mod tests {
     fn test_baseline_table_count_matches_parse() {
         let tables = baseline_tables();
         let count = crate::baseline_tables::baseline_table_count();
-        assert_eq!(tables.len(), count as usize, "baseline_tables length must match baseline_table_count");
+        assert_eq!(tables.len(), count, "baseline_tables length must match baseline_table_count");
     }
 
     #[test]

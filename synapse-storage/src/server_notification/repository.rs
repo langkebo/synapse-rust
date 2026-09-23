@@ -1142,7 +1142,7 @@ mod tests {
     #[test]
     fn test_notification_priority_ordering() {
         // Test that higher priority notifications should be listed first
-        let mut notifications = vec![
+        let mut notifications = [
             ServerNotification {
                 id: 1,
                 title: "Low Priority".to_string(),

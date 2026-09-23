@@ -420,7 +420,7 @@ mod tests {
     fn test_validate_push_config_patch_valid_config_accepted() {
         let mut config = std::collections::BTreeMap::new();
         config.insert("apns.enabled".to_string(), Some("true".to_string()));
-        config.insert("apns.token".to_string(), Some("test-token".to_string()));
+        config.insert("apns.topic".to_string(), Some("com.example.app".to_string()));
         let result = validate_push_config_patch(&config);
         assert!(result.is_ok());
     }

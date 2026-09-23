@@ -20,7 +20,14 @@ jobs:
           node-version: 20
 
       - name: Install markdownlint
-        run: npm i -g markdownlint-cli
+        run: |
+          # Pin the version. Rule behaviour is version-dependent, so an unpinned
+          # `latest` silently redefines what "passing" means for every local re-run
+          # of this gate. Measured 2026-09-22: `markdownlint-cli@0.37.0` reports
+          # `MD012` for the trailing blank line in CLAUDE.md that 0.49.1 accepts — a
+          # false red for anyone verifying locally with an older pin (and a false
+          # sense of safety for anyone on a newer one).
+          npm i -g markdownlint-cli@0.49.1
 
       - name: Discover active markdown files
         id: docs
