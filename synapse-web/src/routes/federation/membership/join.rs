@@ -180,8 +180,36 @@ pub(crate) async fn send_join(
             "Processed join"
         );
 
+        let state_events = ctx.room_service.messaging().get_state_events(&room_id).await?;
+
+        let auth_event_records =
+            ctx.room_service.messaging().get_state_event_records(&room_id).await.map_err(ApiError::from)?;
+
+        let auth_chain: Vec<Value> = auth_event_records
+            .into_iter()
+            .filter(|e| {
+                e.event_type.as_deref() == Some("m.room.create")
+                    || e.event_type.as_deref() == Some("m.room.member")
+                    || e.event_type.as_deref() == Some("m.room.power_levels")
+                    || e.event_type.as_deref() == Some("m.room.join_rules")
+                    || e.event_type.as_deref() == Some("m.room.history_visibility")
+            })
+            .map(|e| {
+                json!({
+                    "event_id": e.event_id,
+                    "type": e.event_type.clone().unwrap_or_default(),
+                    "sender": e.user_id,
+                    "content": e.content,
+                    "state_key": e.state_key,
+                    "origin_server_ts": e.origin_server_ts
+                })
+            })
+            .collect();
+
         Ok(Json(json!({
-            "event_id": event_id
+            "event_id": event_id,
+            "state": state_events,
+            "auth_chain": auth_chain
         })))
     }
     .await;
@@ -294,9 +322,43 @@ pub(crate) async fn send_join_v2(
             "Federation send_join_v2 processed"
         );
 
+        let state_events = ctx.room_service
+            .messaging()
+            .get_state_events(&room_id)
+            .await?;
+
+        let auth_event_records = ctx.room_service
+            .messaging()
+            .get_state_event_records(&room_id)
+            .await
+            .map_err(ApiError::from)?;
+
+        let auth_chain: Vec<Value> = auth_event_records
+            .into_iter()
+            .filter(|e| {
+                e.event_type.as_deref() == Some("m.room.create")
+                    || e.event_type.as_deref() == Some("m.room.member")
+                    || e.event_type.as_deref() == Some("m.room.power_levels")
+                    || e.event_type.as_deref() == Some("m.room.join_rules")
+                    || e.event_type.as_deref() == Some("m.room.history_visibility")
+            })
+            .map(|e| {
+                json!({
+                    "event_id": e.event_id,
+                    "type": e.event_type.clone().unwrap_or_default(),
+                    "sender": e.user_id,
+                    "content": e.content,
+                    "state_key": e.state_key,
+                    "origin_server_ts": e.origin_server_ts
+                })
+            })
+            .collect();
+
         Ok(Json(json!({
             "room_id": room_id,
-            "event_id": event_id
+            "event_id": event_id,
+            "state": state_events,
+            "auth_chain": auth_chain
         })))
     }
     .await;
@@ -340,4 +402,36 @@ async fn validate_federation_join_access(ctx: &FederationContext, room_id: &str,
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::routes::derived_routes::{declared_ledger_all, DeclaredRoute};
+
+    /// Verify that the federation join routes exist in the derived route ledger.
+    fn federation_join_routes_manifest() -> Vec<DeclaredRoute> {
+        declared_ledger_all()
+            .into_iter()
+            .filter(|r| {
+                r.path.starts_with("/federation/v1/send_join") || r.path.starts_with("/federation/v1/make_join")
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_federation_join_routes_exist_in_derived_ledger() {
+        let manifest = federation_join_routes_manifest();
+        assert!(!manifest.is_empty(), "federation join routes must exist in derived route ledger");
+
+        // Verify send_join routes exist
+        let send_join_paths: Vec<&str> = manifest
+            .iter()
+            .filter(|r| r.path.starts_with("/federation/v1/send_join"))
+            .map(|r| r.path.as_str())
+            .collect();
+
+        assert!(send_join_paths.iter().any(|p| p.contains("/v1")), "send_join v1 route missing");
+        assert!(send_join_paths.iter().any(|p| p.contains("/v2")), "send_join v2 route missing");
+    }
 }
