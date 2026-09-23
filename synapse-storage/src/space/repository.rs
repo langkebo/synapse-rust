@@ -1,6 +1,6 @@
 use super::models::*;
 use crate::trigram_ranking::TrigramRanking;
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
@@ -30,27 +30,28 @@ impl SpaceStorage {
             request.room_id.split(':').next_back().unwrap_or("localhost")
         );
 
-        let space = sqlx::query_as::<_, Space>(
-            r"
+        let space = sqlx::query_as!(
+            Space,
+            r#"
             INSERT INTO spaces (
                 space_id, room_id, name, topic, avatar_url, creator,
                 join_rule, visibility, is_public, created_ts, parent_space_id
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            RETURNING space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type
-            ",
+            RETURNING space_id, room_id AS "room_id!", name, topic, avatar_url, creator, join_rule AS "join_rule!", visibility, created_ts, updated_ts, is_public AS "is_public!", parent_space_id, room_type
+            "#,
+            &space_id,
+            &request.room_id,
+            request.name.as_deref(),
+            request.topic.as_deref(),
+            request.avatar_url.as_deref(),
+            &request.creator,
+            request.join_rule.unwrap_or_else(|| "invite".to_string()),
+            request.visibility.unwrap_or_else(|| "private".to_string()),
+            request.is_public.unwrap_or(false),
+            now,
+            request.parent_space_id.as_deref(),
         )
-        .bind(&space_id)
-        .bind(&request.room_id)
-        .bind(&request.name)
-        .bind(&request.topic)
-        .bind(&request.avatar_url)
-        .bind(&request.creator)
-        .bind(request.join_rule.unwrap_or_else(|| "invite".to_string()))
-        .bind(request.visibility.unwrap_or_else(|| "private".to_string()))
-        .bind(request.is_public.unwrap_or(false))
-        .bind(now)
-        .bind(&request.parent_space_id)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -61,18 +62,24 @@ impl SpaceStorage {
 
     /// See [`get_space`].
     pub async fn get_space(&self, space_id: &str) -> Result<Option<Space>, sqlx::Error> {
-        sqlx::query_as::<_, Space>(r"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type FROM spaces WHERE space_id = $1")
-            .bind(space_id)
-            .fetch_optional(&*self.pool)
-            .await
+        sqlx::query_as!(
+            Space,
+            r#"SELECT space_id, room_id AS "room_id!", name, topic, avatar_url, creator, join_rule AS "join_rule!", visibility, created_ts, updated_ts, is_public AS "is_public!", parent_space_id, room_type FROM spaces WHERE space_id = $1"#,
+            space_id,
+        )
+        .fetch_optional(&*self.pool)
+        .await
     }
 
     /// See [`get_space_by_room`].
     pub async fn get_space_by_room(&self, room_id: &str) -> Result<Option<Space>, sqlx::Error> {
-        sqlx::query_as::<_, Space>(r"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type FROM spaces WHERE room_id = $1")
-            .bind(room_id)
-            .fetch_optional(&*self.pool)
-            .await
+        sqlx::query_as!(
+            Space,
+            r#"SELECT space_id, room_id AS "room_id!", name, topic, avatar_url, creator, join_rule AS "join_rule!", visibility, created_ts, updated_ts, is_public AS "is_public!", parent_space_id, room_type FROM spaces WHERE room_id = $1"#,
+            room_id,
+        )
+        .fetch_optional(&*self.pool)
+        .await
     }
 
     /// See [`get_spaces_by_rooms_batch`].
@@ -80,10 +87,11 @@ impl SpaceStorage {
         if room_ids.is_empty() {
             return Ok(HashMap::new());
         }
-        let spaces = sqlx::query_as::<_, Space>(
-            r"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type FROM spaces WHERE room_id = ANY($1)",
+        let spaces = sqlx::query_as!(
+            Space,
+            r#"SELECT space_id, room_id AS "room_id!", name, topic, avatar_url, creator, join_rule AS "join_rule!", visibility, created_ts, updated_ts, is_public AS "is_public!", parent_space_id, room_type FROM spaces WHERE room_id = ANY($1)"#,
+            room_ids,
         )
-        .bind(room_ids)
         .fetch_all(&*self.pool)
         .await?;
         let mut map = HashMap::with_capacity(spaces.len());
@@ -97,8 +105,9 @@ impl SpaceStorage {
     pub async fn update_space(&self, space_id: &str, request: &UpdateSpaceRequest) -> Result<Space, sqlx::Error> {
         let now = current_timestamp_millis();
 
-        sqlx::query_as::<_, Space>(
-            r"
+        sqlx::query_as!(
+            Space,
+            r#"
             UPDATE spaces SET
                 name = COALESCE($2, name),
                 topic = COALESCE($3, topic),
@@ -108,24 +117,24 @@ impl SpaceStorage {
                 is_public = COALESCE($7, is_public),
                 updated_ts = $8
             WHERE space_id = $1
-            RETURNING space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type
-            ",
+            RETURNING space_id, room_id AS "room_id!", name, topic, avatar_url, creator, join_rule AS "join_rule!", visibility, created_ts, updated_ts, is_public AS "is_public!", parent_space_id, room_type
+            "#,
+            space_id,
+            request.name.as_deref(),
+            request.topic.as_deref(),
+            request.avatar_url.as_deref(),
+            request.join_rule.as_deref(),
+            request.visibility.as_deref(),
+            request.is_public,
+            now,
         )
-        .bind(space_id)
-        .bind(&request.name)
-        .bind(&request.topic)
-        .bind(&request.avatar_url)
-        .bind(&request.join_rule)
-        .bind(&request.visibility)
-        .bind(request.is_public)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await
     }
 
     /// See [`delete_space`].
     pub async fn delete_space(&self, space_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(r"DELETE FROM spaces WHERE space_id = $1").bind(space_id).execute(&*self.pool).await?;
+        sqlx::query!(r"DELETE FROM spaces WHERE space_id = $1", space_id).execute(&*self.pool).await?;
         Ok(())
     }
 
@@ -135,7 +144,8 @@ impl SpaceStorage {
         let via_servers =
             serde_json::Value::Array(request.via_servers.iter().cloned().map(serde_json::Value::String).collect());
 
-        sqlx::query_as::<_, SpaceChild>(
+        sqlx::query_as!(
+            SpaceChild,
             r#"
             INSERT INTO space_children (
                 space_id, room_id, sender, is_suggested, via_servers, added_ts
@@ -151,30 +161,28 @@ impl SpaceStorage {
                 space_id,
                 room_id,
                 sender,
-                is_suggested,
-                ARRAY(SELECT jsonb_array_elements_text(via_servers)) as via_servers,
+                is_suggested AS "is_suggested!",
+                ARRAY(SELECT jsonb_array_elements_text(via_servers)) as "via_servers!",
                 added_ts,
                 NULL::TEXT as "order",
                 NULL::BOOLEAN as suggested,
                 NULL::TEXT as added_by,
                 NULL::BIGINT as removed_ts
             "#,
+            &request.space_id,
+            &request.room_id,
+            &request.sender,
+            request.is_suggested,
+            &via_servers,
+            now,
         )
-        .bind(&request.space_id)
-        .bind(&request.room_id)
-        .bind(&request.sender)
-        .bind(request.is_suggested)
-        .bind(&via_servers)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await
     }
 
     /// See [`remove_child`].
     pub async fn remove_child(&self, space_id: &str, room_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(r"DELETE FROM space_children WHERE space_id = $1 AND room_id = $2")
-            .bind(space_id)
-            .bind(room_id)
+        sqlx::query!(r"DELETE FROM space_children WHERE space_id = $1 AND room_id = $2", space_id, room_id)
             .execute(&*self.pool)
             .await?;
 
@@ -183,15 +191,16 @@ impl SpaceStorage {
 
     /// See [`get_space_children`].
     pub async fn get_space_children(&self, space_id: &str) -> Result<Vec<SpaceChild>, sqlx::Error> {
-        sqlx::query_as::<_, SpaceChild>(
+        sqlx::query_as!(
+            SpaceChild,
             r#"
             SELECT
                 id,
                 space_id,
                 room_id,
                 sender,
-                is_suggested,
-                ARRAY(SELECT jsonb_array_elements_text(via_servers)) as via_servers,
+                is_suggested AS "is_suggested!",
+                ARRAY(SELECT jsonb_array_elements_text(via_servers)) as "via_servers!",
                 added_ts,
                 NULL::TEXT as "order",
                 NULL::BOOLEAN as suggested,
@@ -201,23 +210,24 @@ impl SpaceStorage {
             WHERE space_id = $1
             ORDER BY added_ts
             "#,
+            space_id,
         )
-        .bind(space_id)
         .fetch_all(&*self.pool)
         .await
     }
 
     /// See [`get_child_spaces`].
     pub async fn get_child_spaces(&self, room_id: &str) -> Result<Vec<SpaceChild>, sqlx::Error> {
-        sqlx::query_as::<_, SpaceChild>(
+        sqlx::query_as!(
+            SpaceChild,
             r#"
             SELECT
                 id,
                 space_id,
                 room_id,
                 sender,
-                is_suggested,
-                ARRAY(SELECT jsonb_array_elements_text(via_servers)) as via_servers,
+                is_suggested AS "is_suggested!",
+                ARRAY(SELECT jsonb_array_elements_text(via_servers)) as "via_servers!",
                 added_ts,
                 NULL::TEXT as "order",
                 NULL::BOOLEAN as suggested,
@@ -226,8 +236,8 @@ impl SpaceStorage {
             FROM space_children
             WHERE room_id = $1
             "#,
+            room_id,
         )
-        .bind(room_id)
         .fetch_all(&*self.pool)
         .await
     }
@@ -242,7 +252,8 @@ impl SpaceStorage {
     ) -> Result<SpaceMember, sqlx::Error> {
         let now = current_timestamp_millis();
 
-        sqlx::query_as::<_, SpaceMember>(
+        sqlx::query_as!(
+            SpaceMember,
             r"
             INSERT INTO space_members (space_id, user_id, membership, joined_ts, inviter)
             VALUES ($1, $2, $3, $4, $5)
@@ -254,12 +265,12 @@ impl SpaceStorage {
                 updated_ts = $4
             RETURNING space_id, user_id, membership, joined_ts, updated_ts, left_ts, inviter
             ",
+            space_id,
+            user_id,
+            membership,
+            now,
+            inviter,
         )
-        .bind(space_id)
-        .bind(user_id)
-        .bind(membership)
-        .bind(now)
-        .bind(inviter)
         .fetch_one(&*self.pool)
         .await
     }
@@ -268,12 +279,12 @@ impl SpaceStorage {
     pub async fn remove_space_member(&self, space_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
 
-        sqlx::query(
-            r"UPDATE space_members SET membership = 'leave', left_ts = $3, updated_ts = $3 WHERE space_id = $1 AND user_id = $2"
+        sqlx::query!(
+            r"UPDATE space_members SET membership = 'leave', left_ts = $3, updated_ts = $3 WHERE space_id = $1 AND user_id = $2",
+            space_id,
+            user_id,
+            now
         )
-        .bind(space_id)
-        .bind(user_id)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -282,32 +293,39 @@ impl SpaceStorage {
 
     /// See [`get_space_members`].
     pub async fn get_space_members(&self, space_id: &str) -> Result<Vec<SpaceMember>, sqlx::Error> {
-        sqlx::query_as::<_, SpaceMember>(r"SELECT space_id, user_id, membership, joined_ts, updated_ts, left_ts, inviter FROM space_members WHERE space_id = $1 AND membership = 'join'")
-            .bind(space_id)
-            .fetch_all(&*self.pool)
-            .await
+        sqlx::query_as!(
+            SpaceMember,
+            r"SELECT space_id, user_id, membership, joined_ts, updated_ts, left_ts, inviter FROM space_members WHERE space_id = $1 AND membership = 'join'",
+            space_id,
+        )
+        .fetch_all(&*self.pool)
+        .await
     }
 
     /// See [`get_space_member`].
     pub async fn get_space_member(&self, space_id: &str, user_id: &str) -> Result<Option<SpaceMember>, sqlx::Error> {
-        sqlx::query_as::<_, SpaceMember>(r"SELECT space_id, user_id, membership, joined_ts, updated_ts, left_ts, inviter FROM space_members WHERE space_id = $1 AND user_id = $2")
-            .bind(space_id)
-            .bind(user_id)
-            .fetch_optional(&*self.pool)
-            .await
+        sqlx::query_as!(
+            SpaceMember,
+            r"SELECT space_id, user_id, membership, joined_ts, updated_ts, left_ts, inviter FROM space_members WHERE space_id = $1 AND user_id = $2",
+            space_id,
+            user_id,
+        )
+        .fetch_optional(&*self.pool)
+        .await
     }
 
     /// See [`get_user_spaces`].
     pub async fn get_user_spaces(&self, user_id: &str) -> Result<Vec<Space>, sqlx::Error> {
-        sqlx::query_as::<_, Space>(
-            r"
-            SELECT s.space_id, s.room_id, s.name, s.topic, s.avatar_url, s.creator, s.join_rule, s.visibility, s.created_ts, s.updated_ts, s.is_public, s.parent_space_id, s.room_type FROM spaces s
+        sqlx::query_as!(
+            Space,
+            r#"
+            SELECT s.space_id, s.room_id AS "room_id!", s.name, s.topic, s.avatar_url, s.creator, s.join_rule AS "join_rule!", s.visibility, s.created_ts, s.updated_ts, s.is_public AS "is_public!", s.parent_space_id, s.room_type FROM spaces s
             JOIN space_members sm ON s.space_id = sm.space_id
             WHERE sm.user_id = $1 AND sm.membership = 'join'
             ORDER BY s.created_ts DESC
-            ",
+            "#,
+            user_id,
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
     }
@@ -319,17 +337,20 @@ impl SpaceStorage {
         cursor_created_ts: Option<i64>,
         cursor_space_id: Option<&str>,
     ) -> Result<Vec<Space>, sqlx::Error> {
-        sqlx::query_as::<_, Space>(r"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type
+        sqlx::query_as!(
+            Space,
+            r#"SELECT space_id, room_id AS "room_id!", name, topic, avatar_url, creator, join_rule AS "join_rule!", visibility, created_ts, updated_ts, is_public AS "is_public!", parent_space_id, room_type
             FROM spaces
             WHERE is_public = TRUE
               AND (($2::BIGINT IS NULL AND $3::TEXT IS NULL)
                 OR created_ts < $2
                 OR (created_ts = $2 AND space_id < $3))
             ORDER BY created_ts DESC, space_id DESC
-            LIMIT $1")
-        .bind(limit)
-        .bind(cursor_created_ts)
-        .bind(cursor_space_id)
+            LIMIT $1"#,
+            limit,
+            cursor_created_ts,
+            cursor_space_id,
+        )
         .fetch_all(&*self.pool)
         .await
     }
@@ -346,33 +367,37 @@ impl SpaceStorage {
 
     /// See [`get_space_summary`].
     pub async fn get_space_summary(&self, space_id: &str) -> Result<Option<SpaceSummary>, sqlx::Error> {
-        sqlx::query_as::<_, SpaceSummary>(r"SELECT id, space_id, summary, children_count, member_count, updated_ts FROM space_summaries WHERE space_id = $1")
-            .bind(space_id)
-            .fetch_optional(&*self.pool)
-            .await
+        sqlx::query_as!(
+            SpaceSummary,
+            r#"SELECT id, space_id, summary AS "summary!", children_count, member_count, updated_ts FROM space_summaries WHERE space_id = $1"#,
+            space_id,
+        )
+        .fetch_optional(&*self.pool)
+        .await
     }
 
     /// See [`update_space_summary`].
     pub async fn update_space_summary(&self, space_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
 
-        let children_count: i64 = sqlx::query_scalar(r"SELECT COUNT(*) FROM space_children WHERE space_id = $1")
-            .bind(space_id)
-            .fetch_one(&*self.pool)
-            .await?;
-
-        let member_count: i64 =
-            sqlx::query_scalar(r"SELECT COUNT(*) FROM space_members WHERE space_id = $1 AND membership = 'join'")
-                .bind(space_id)
+        let children_count: i64 =
+            sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!" FROM space_children WHERE space_id = $1"#, space_id,)
                 .fetch_one(&*self.pool)
                 .await?;
+
+        let member_count: i64 = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) AS "count!" FROM space_members WHERE space_id = $1 AND membership = 'join'"#,
+            space_id,
+        )
+        .fetch_one(&*self.pool)
+        .await?;
 
         let summary = serde_json::json!({
             "children_count": children_count,
             "member_count": member_count,
         });
 
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO space_summaries (space_id, summary, children_count, member_count, updated_ts)
             VALUES ($1, $2, $3, $4, $5)
@@ -382,12 +407,12 @@ impl SpaceStorage {
                 member_count = EXCLUDED.member_count,
                 updated_ts = EXCLUDED.updated_ts
             ",
+            space_id,
+            &summary,
+            children_count,
+            member_count,
+            now,
         )
-        .bind(space_id)
-        .bind(&summary)
-        .bind(children_count)
-        .bind(member_count)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -406,20 +431,21 @@ impl SpaceStorage {
     ) -> Result<SpaceEvent, sqlx::Error> {
         let now = current_timestamp_millis();
 
-        sqlx::query_as::<_, SpaceEvent>(
+        sqlx::query_as!(
+            SpaceEvent,
             r"
             INSERT INTO space_events (event_id, space_id, event_type, sender, content, state_key, origin_server_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING event_id, space_id, event_type, sender, content, state_key, origin_server_ts, processed_ts
             ",
+            event_id,
+            space_id,
+            event_type,
+            sender,
+            &content,
+            state_key,
+            now,
         )
-        .bind(event_id)
-        .bind(space_id)
-        .bind(event_type)
-        .bind(sender)
-        .bind(&content)
-        .bind(state_key)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await
     }
@@ -433,21 +459,23 @@ impl SpaceStorage {
     ) -> Result<Vec<SpaceEvent>, sqlx::Error> {
         match event_type {
             Some(et) => {
-                sqlx::query_as::<_, SpaceEvent>(
-                    r"SELECT event_id, space_id, event_type, sender, content, state_key, origin_server_ts, processed_ts FROM space_events WHERE space_id = $1 AND event_type = $2 ORDER BY origin_server_ts DESC LIMIT $3"
+                sqlx::query_as!(
+                    SpaceEvent,
+                    r"SELECT event_id, space_id, event_type, sender, content, state_key, origin_server_ts, processed_ts FROM space_events WHERE space_id = $1 AND event_type = $2 ORDER BY origin_server_ts DESC LIMIT $3",
+                    space_id,
+                    et,
+                    limit,
                 )
-                .bind(space_id)
-                .bind(et)
-                .bind(limit)
                 .fetch_all(&*self.pool)
                 .await
             }
             None => {
-                sqlx::query_as::<_, SpaceEvent>(
-                    r"SELECT event_id, space_id, event_type, sender, content, state_key, origin_server_ts, processed_ts FROM space_events WHERE space_id = $1 ORDER BY origin_server_ts DESC LIMIT $2"
+                sqlx::query_as!(
+                    SpaceEvent,
+                    r"SELECT event_id, space_id, event_type, sender, content, state_key, origin_server_ts, processed_ts FROM space_events WHERE space_id = $1 ORDER BY origin_server_ts DESC LIMIT $2",
+                    space_id,
+                    limit,
                 )
-                .bind(space_id)
-                .bind(limit)
                 .fetch_all(&*self.pool)
                 .await
             }
@@ -609,11 +637,11 @@ impl SpaceStorage {
 
     /// See [`is_space_member`].
     pub async fn is_space_member(&self, space_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
-        let count: i64 = sqlx::query_scalar(
-            r"SELECT COUNT(*) FROM space_members WHERE space_id = $1 AND user_id = $2 AND membership = 'join'",
+        let count: i64 = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) AS "count!" FROM space_members WHERE space_id = $1 AND user_id = $2 AND membership = 'join'"#,
+            space_id,
+            user_id,
         )
-        .bind(space_id)
-        .bind(user_id)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -622,27 +650,29 @@ impl SpaceStorage {
 
     /// See [`get_space_statistics`].
     pub async fn get_space_statistics(&self, limit: i64) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        sqlx::query(r"SELECT space_id, name, is_public, child_room_count, member_count, created_ts, updated_ts FROM space_statistics ORDER BY member_count DESC LIMIT $1")
-            .bind(limit)
-            .fetch_all(&*self.pool)
-            .await
-            .map(
-                |rows| {
-                    rows.into_iter()
-                        .map(|row| {
-                            serde_json::json!({
-                                "space_id": row.get::<String, _>("space_id"),
-                                "name": row.get::<Option<String>, _>("name"),
-                                "is_public": row.get::<bool, _>("is_public"),
-                                "child_room_count": row.get::<i64, _>("child_room_count"),
-                                "member_count": row.get::<i64, _>("member_count"),
-                                "created_ts": row.get::<i64, _>("created_ts"),
-                                "updated_ts": row.get::<Option<i64>, _>("updated_ts"),
-                            })
+        sqlx::query!(
+            r#"SELECT space_id, name, is_public, child_room_count AS "child_room_count!", member_count AS "member_count!", created_ts, updated_ts FROM space_statistics ORDER BY space_statistics.member_count DESC LIMIT $1"#,
+            limit,
+        )
+        .fetch_all(&*self.pool)
+        .await
+        .map(
+            |rows| {
+                rows.into_iter()
+                    .map(|row| {
+                        serde_json::json!({
+                            "space_id": row.space_id,
+                            "name": row.name,
+                            "is_public": row.is_public,
+                            "child_room_count": row.child_room_count,
+                            "member_count": row.member_count,
+                            "created_ts": row.created_ts,
+                            "updated_ts": row.updated_ts,
                         })
-                        .collect()
-                },
-            )
+                    })
+                    .collect()
+            },
+        )
     }
 
     /// See [`get_recursive_hierarchy`].
@@ -674,15 +704,16 @@ impl SpaceStorage {
         visited.insert(space_id.to_string());
 
         let children = if suggested_only {
-            sqlx::query_as::<_, SpaceChild>(
+            sqlx::query_as!(
+                SpaceChild,
                 r#"
                 SELECT
                     id,
                     space_id,
                     room_id,
                     sender,
-                    is_suggested,
-                    via_servers,
+                    is_suggested AS "is_suggested!",
+                    via_servers AS "via_servers: Vec<String>",
                     added_ts,
                     NULL::TEXT as "order",
                     NULL::BOOLEAN as suggested,
@@ -692,8 +723,8 @@ impl SpaceStorage {
                 WHERE space_id = $1 AND is_suggested = TRUE
                 ORDER BY added_ts
                 "#,
+                space_id,
             )
-            .bind(space_id)
             .fetch_all(&*self.pool)
             .await?
         } else {
@@ -834,11 +865,12 @@ impl SpaceStorage {
     }
 
     async fn get_space_member_count(&self, space_id: &str) -> Result<i64, sqlx::Error> {
-        let count: i64 =
-            sqlx::query_scalar(r"SELECT COUNT(*) FROM space_members WHERE space_id = $1 AND membership = 'join'")
-                .bind(space_id)
-                .fetch_one(&*self.pool)
-                .await?;
+        let count: i64 = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) AS "count!" FROM space_members WHERE space_id = $1 AND membership = 'join'"#,
+            space_id,
+        )
+        .fetch_one(&*self.pool)
+        .await?;
 
         Ok(count)
     }
@@ -891,19 +923,20 @@ impl SpaceStorage {
 
     /// See [`resolve_space_id`].
     pub async fn resolve_space_id(&self, identifier: &str) -> Result<Option<String>, sqlx::Error> {
-        let result: Option<(String,)> = sqlx::query_as(
+        let result: Option<String> = sqlx::query_scalar!(
             r"SELECT space_id FROM spaces WHERE space_id = $1 OR room_id = $1 ORDER BY CASE WHEN space_id = $1 THEN 0 ELSE 1 END LIMIT 1",
+            identifier,
         )
-        .bind(identifier)
         .fetch_optional(&*self.pool)
         .await?;
-        Ok(result.map(|r| r.0))
+        Ok(result)
     }
 
     /// See [`get_all_spaces_for_admin`].
     pub async fn get_all_spaces_for_admin(&self) -> Result<Vec<Space>, sqlx::Error> {
-        sqlx::query_as::<_, Space>(
-            r"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type FROM spaces ORDER BY created_ts DESC, space_id DESC",
+        sqlx::query_as!(
+            Space,
+            r#"SELECT space_id, room_id AS "room_id!", name, topic, avatar_url, creator, join_rule AS "join_rule!", visibility, created_ts, updated_ts, is_public AS "is_public!", parent_space_id, room_type FROM spaces ORDER BY created_ts DESC, space_id DESC"#,
         )
         .fetch_all(&*self.pool)
         .await
@@ -911,52 +944,55 @@ impl SpaceStorage {
 
     /// See [`get_space_by_identifier`].
     pub async fn get_space_by_identifier(&self, identifier: &str) -> Result<Option<Space>, sqlx::Error> {
-        sqlx::query_as::<_, Space>(
-            r"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type FROM spaces WHERE space_id = $1 OR room_id = $1 ORDER BY CASE WHEN space_id = $1 THEN 0 ELSE 1 END LIMIT 1",
+        sqlx::query_as!(
+            Space,
+            r#"SELECT space_id, room_id AS "room_id!", name, topic, avatar_url, creator, join_rule AS "join_rule!", visibility, created_ts, updated_ts, is_public AS "is_public!", parent_space_id, room_type FROM spaces WHERE space_id = $1 OR room_id = $1 ORDER BY CASE WHEN space_id = $1 THEN 0 ELSE 1 END LIMIT 1"#,
+            identifier,
         )
-        .bind(identifier)
         .fetch_optional(&*self.pool)
         .await
     }
 
     /// See [`get_space_user_ids`].
     pub async fn get_space_user_ids(&self, space_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        let rows: Vec<(String,)> =
-            sqlx::query_as(r"SELECT user_id FROM space_members WHERE space_id = $1 AND membership = 'join'")
-                .bind(space_id)
-                .fetch_all(&*self.pool)
-                .await?;
-        Ok(rows.into_iter().map(|r| r.0).collect())
+        let rows: Vec<String> = sqlx::query_scalar!(
+            r"SELECT user_id FROM space_members WHERE space_id = $1 AND membership = 'join'",
+            space_id,
+        )
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(rows)
     }
 
     /// See [`get_space_room_ids`].
     pub async fn get_space_room_ids(&self, space_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        let rows: Vec<(String,)> = sqlx::query_as(r"SELECT room_id FROM space_children WHERE space_id = $1")
-            .bind(space_id)
-            .fetch_all(&*self.pool)
-            .await?;
-        Ok(rows.into_iter().map(|r| r.0).collect())
+        let rows: Vec<String> =
+            sqlx::query_scalar!(r"SELECT room_id FROM space_children WHERE space_id = $1", space_id,)
+                .fetch_all(&*self.pool)
+                .await?;
+        Ok(rows)
     }
 
     /// See [`get_space_member_and_child_count`].
     pub async fn get_space_member_and_child_count(&self, space_id: &str) -> Result<(i64, i64), sqlx::Error> {
-        let member_count: i64 =
-            sqlx::query_scalar(r"SELECT COUNT(*) FROM space_members WHERE space_id = $1 AND membership = 'join'")
-                .bind(space_id)
+        let member_count: i64 = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) AS "count!" FROM space_members WHERE space_id = $1 AND membership = 'join'"#,
+            space_id,
+        )
+        .fetch_one(&*self.pool)
+        .await?;
+
+        let child_count: i64 =
+            sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!" FROM space_children WHERE space_id = $1"#, space_id,)
                 .fetch_one(&*self.pool)
                 .await?;
-
-        let child_count: i64 = sqlx::query_scalar(r"SELECT COUNT(*) FROM space_children WHERE space_id = $1")
-            .bind(space_id)
-            .fetch_one(&*self.pool)
-            .await?;
 
         Ok((member_count, child_count))
     }
 
     /// See [`delete_space_returning_count`].
     pub async fn delete_space_returning_count(&self, space_id: &str) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query(r"DELETE FROM spaces WHERE space_id = $1").bind(space_id).execute(&*self.pool).await?;
+        let result = sqlx::query!(r"DELETE FROM spaces WHERE space_id = $1", space_id).execute(&*self.pool).await?;
         Ok(result.rows_affected())
     }
 
@@ -969,15 +1005,16 @@ impl SpaceStorage {
         from_id: Option<i64>,
     ) -> Result<Vec<SpaceChild>, sqlx::Error> {
         if let (Some(ts), Some(id)) = (from_added_ts, from_id) {
-            sqlx::query_as::<_, SpaceChild>(
+            sqlx::query_as!(
+                SpaceChild,
                 r#"
                 SELECT
                     id,
                     space_id,
                     room_id,
                     sender,
-                    is_suggested,
-                    COALESCE(ARRAY(SELECT jsonb_array_elements_text(via_servers)), '{}') AS via_servers,
+                    is_suggested AS "is_suggested!",
+                    COALESCE(ARRAY(SELECT jsonb_array_elements_text(via_servers)), '{}') AS "via_servers!",
                     added_ts,
                     NULL::TEXT AS "order",
                     NULL::BOOLEAN AS suggested,
@@ -988,23 +1025,24 @@ impl SpaceStorage {
                 ORDER BY added_ts ASC, id ASC
                 LIMIT $4
                 "#,
+                space_id,
+                ts,
+                id,
+                limit,
             )
-            .bind(space_id)
-            .bind(ts)
-            .bind(id)
-            .bind(limit)
             .fetch_all(&*self.pool)
             .await
         } else {
-            sqlx::query_as::<_, SpaceChild>(
+            sqlx::query_as!(
+                SpaceChild,
                 r#"
                 SELECT
                     id,
                     space_id,
                     room_id,
                     sender,
-                    is_suggested,
-                    COALESCE(ARRAY(SELECT jsonb_array_elements_text(via_servers)), '{}') AS via_servers,
+                    is_suggested AS "is_suggested!",
+                    COALESCE(ARRAY(SELECT jsonb_array_elements_text(via_servers)), '{}') AS "via_servers!",
                     added_ts,
                     NULL::TEXT AS "order",
                     NULL::BOOLEAN AS suggested,
@@ -1015,9 +1053,9 @@ impl SpaceStorage {
                 ORDER BY added_ts ASC, id ASC
                 LIMIT $2
                 "#,
+                space_id,
+                limit,
             )
-            .bind(space_id)
-            .bind(limit)
             .fetch_all(&*self.pool)
             .await
         }
@@ -1032,7 +1070,8 @@ impl SpaceStorage {
         from_user_id: Option<&str>,
     ) -> Result<Vec<SpaceMember>, sqlx::Error> {
         if let (Some(ts), Some(user_id)) = (from_joined_ts, from_user_id) {
-            sqlx::query_as::<_, SpaceMember>(
+            sqlx::query_as!(
+                SpaceMember,
                 r#"
                 SELECT space_id, user_id, membership, joined_ts, updated_ts, left_ts, inviter
                 FROM space_members
@@ -1040,15 +1079,16 @@ impl SpaceStorage {
                 ORDER BY joined_ts ASC, user_id ASC
                 LIMIT $4
                 "#,
+                space_id,
+                ts,
+                user_id,
+                limit,
             )
-            .bind(space_id)
-            .bind(ts)
-            .bind(user_id)
-            .bind(limit)
             .fetch_all(&*self.pool)
             .await
         } else {
-            sqlx::query_as::<_, SpaceMember>(
+            sqlx::query_as!(
+                SpaceMember,
                 r#"
                 SELECT space_id, user_id, membership, joined_ts, updated_ts, left_ts, inviter
                 FROM space_members
@@ -1056,9 +1096,9 @@ impl SpaceStorage {
                 ORDER BY joined_ts ASC, user_id ASC
                 LIMIT $2
                 "#,
+                space_id,
+                limit,
             )
-            .bind(space_id)
-            .bind(limit)
             .fetch_all(&*self.pool)
             .await
         }
