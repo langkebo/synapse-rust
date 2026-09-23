@@ -111,7 +111,41 @@ fn federation_guess_content_type(filename: &str, data: &[u8]) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::routes::assembly::declared_ledger_all;
+    use crate::routes::route_ledger::RouteEntry;
     use serde_json::json;
+
+    /// Helper: extract media routes from the real derived route ledger
+    fn media_route_manifest() -> Vec<RouteEntry> {
+        declared_ledger_all()
+            .iter()
+            .filter(|e| {
+                e.registered_by == "federation" && (e.path.contains("/download") || e.path.contains("/thumbnail"))
+            })
+            .cloned()
+            .collect()
+    }
+
+    #[test]
+    fn test_federation_media_routes_from_real_ledger() {
+        // Validate that federation media routes are properly registered
+        let routes = media_route_manifest();
+        assert!(!routes.is_empty(), "Expected at least one federation media route");
+
+        // Check for expected endpoints
+        let paths: Vec<&str> = routes.iter().map(|e| e.path.as_str()).collect();
+        assert!(paths.iter().any(|p| p.contains("/download")), "Missing /download endpoint");
+        assert!(paths.iter().any(|p| p.contains("/thumbnail")), "Missing /thumbnail endpoint");
+    }
+
+    #[test]
+    fn test_federation_media_routes_have_correct_methods() {
+        let routes = media_route_manifest();
+        let methods: Vec<_> = routes.iter().map(|e| e.method.as_str()).collect();
+
+        // Both download and thumbnail should be GET
+        assert!(methods.iter().any(|m| *m == "GET"), "Expected GET method for media routes");
+    }
 
     #[test]
     fn test_parse_federation_query_i64_with_integer_value() {
