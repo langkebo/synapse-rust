@@ -177,6 +177,7 @@ fn create_test_config() -> Config {
         sso_redirect_allowlist: vec![],
         policy_server: synapse_rust::common::config::PolicyServerConfig::default(),
         mas: synapse_rust::common::config::MasConfig::default(),
+        content_scanner: synapse_rust::common::content_scanner::ContentScannerConfig::default(),
     }
 }
 
