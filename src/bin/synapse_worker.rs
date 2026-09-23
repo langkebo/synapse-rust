@@ -15,6 +15,10 @@ use synapse_rust::common::config::{Config, SmtpConfig};
 use synapse_rust::common::BackgroundJob;
 use synapse_rust::common::RedisTaskQueue;
 use synapse_rust::storage::event::EventStorage;
+use synapse_rust::worker::heartbeat::{
+    collect_load_stats, heartbeat_interval, resolve_base_url, resolve_secret, HeartbeatSender,
+};
+use synapse_rust::worker::{WorkerLoadStatsUpdate, WorkerRuntimeConfig};
 use tokio::signal;
 use tokio_util::sync::CancellationToken;
 
@@ -67,7 +71,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             None
         };
 
-    let worker_id = uuid::Uuid::new_v4().to_string();
+    // Stable identity across restarts is required for heartbeats to land on the
+    // registered worker row; operators set `SYNAPSE_WORKER_ID` (a random id is
+    // generated otherwise, matching the previous behaviour).
+    let worker_id = std::env::var("SYNAPSE_WORKER_ID")
+        .ok()
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let consumer_name = format!("worker-{worker_id}");
     let group_name = "synapse_workers";
 
@@ -220,6 +230,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    // S4: send heartbeats to the homeserver's worker surface so it persists
+    // `load_stats` into `worker_statistics`. The interval is the existing
+    // `WorkerRuntimeConfig::heartbeat_interval_ms` (no new interval setting), the
+    // target is `SYNAPSE_WORKER_BASE_URL` or the local main listener, and the
+    // credential is the same shared secret `replication_http_auth_middleware`
+    // checks on the server. A missing/blank secret disables sending with a
+    // startup warning — it must never crash the worker.
+    let runtime_config = WorkerRuntimeConfig { worker_id: worker_id.clone(), ..Default::default() };
+    let heartbeat_interval = heartbeat_interval(runtime_config.heartbeat_interval_ms);
+    let heartbeat_secret =
+        resolve_secret(config.worker.replication.http.secret.clone().or_else(|| {
+            config.worker.replication.http.secret_path.as_ref().and_then(|p| std::fs::read_to_string(p).ok())
+        }));
+    let heartbeat_shutdown = CancellationToken::new();
+    let heartbeat_handle = match heartbeat_secret {
+        Some(secret) => {
+            let base_url = resolve_base_url(std::env::var("SYNAPSE_WORKER_BASE_URL").ok(), config.server.port);
+            let sender = HeartbeatSender::new(base_url, worker_id.clone(), secret, heartbeat_interval);
+            tracing::info!(
+                worker_id = %worker_id,
+                interval_ms = heartbeat_interval.as_millis() as u64,
+                "Worker heartbeat sender enabled"
+            );
+            let queue_for_heartbeat = queue.clone();
+            let heartbeat_shutdown_signal = heartbeat_shutdown.clone();
+            Some(tokio::spawn(sender.run(heartbeat_shutdown_signal, move || {
+                let queue = queue_for_heartbeat.clone();
+                async move { heartbeat_load_stats(&queue).await }
+            })))
+        }
+        None => {
+            tracing::warn!(
+                "Worker heartbeat disabled: no usable worker.replication.http secret \
+                 (set worker.replication.http.secret / secret_path, or SYNAPSE_WORKER__REPLICATION__HTTP__SECRET)"
+            );
+            None
+        }
+    };
+
     match signal::ctrl_c().await {
         Ok(()) => {
             tracing::info!("Shutdown signal received");
@@ -266,6 +315,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let drain_timeout = std::time::Duration::from_secs(30);
     consume_shutdown.cancel();
     monitor_shutdown.cancel();
+    // Cancelling before the drain await gives the heartbeat loop time to send its
+    // final `stopping` beat (bounded internally) without delaying shutdown.
+    heartbeat_shutdown.cancel();
     match tokio::time::timeout(drain_timeout, handle).await {
         Ok(Ok(())) => {
             tracing::info!("consume loop exited cleanly within drain window");
@@ -287,9 +339,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         h.abort();
     }
     monitor_handle.abort();
+    if let Some(h) = heartbeat_handle {
+        h.abort();
+    }
     tracing::info!("Synapse Worker shut down gracefully");
 
     Ok(())
+}
+
+/// Build the heartbeat `load_stats` payload from the worker's own task queue.
+///
+/// `queue_depth` is the queue's pending-work count — the one load metric with a
+/// real source in this process. On a metrics error the heartbeat still goes out
+/// (liveness/status matter) with no queue depth; [`collect_load_stats`] leaves
+/// CPU/memory and the untracked metrics as `None`.
+async fn heartbeat_load_stats(queue: &RedisTaskQueue) -> Option<WorkerLoadStatsUpdate> {
+    match queue.get_metrics("synapse_workers").await {
+        Ok(metrics) => Some(collect_load_stats(Some(metrics.queue_length))),
+        Err(error) => {
+            tracing::debug!(%error, "heartbeat: queue metrics unavailable; reporting no queue depth");
+            Some(collect_load_stats(None))
+        }
+    }
 }
 
 fn build_smtp_mailer(config: &SmtpConfig) -> Result<SmtpMailer, Box<dyn std::error::Error>> {
