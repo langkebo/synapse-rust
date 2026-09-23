@@ -2277,6 +2277,53 @@ async fn create_event_with_graph_rolls_back_event_when_edges_insert_fails() {
     assert!(persisted.is_none(), "events 行不得在 event_edges 失败后残留（半写窗口）");
 }
 
+/// 同一类半写窗口的另一半：`create_state_event_with_dag` 在**没有调用方事务**时，
+/// 此前同样是"先 autocommit 落 `events`、再于事务外插 `event_edges`"
+/// （`create.rs` 原文注释即 `Populate event_edges outside a transaction`）。
+/// B8 只修了 `create_event_with_graph`，这条并行路径被漏掉 —— 两处实现漂移，
+/// 正是 AGENTS.md 铁律 2（同一职责只允许一份实现）要防的情形。
+/// 注入手段与断言与上面那条用例完全对齐：不存在的 `prev_event_id` 触发
+/// `fk_event_edges_prev`，修复后整笔回滚。
+#[tokio::test]
+async fn create_state_event_with_dag_rolls_back_event_when_edges_insert_fails() {
+    let (_guard, pool) = test_pool().await;
+    let room_id = "!dag_state_rollback:example.com";
+    ensure_test_room(&pool, room_id).await;
+    let storage = EventStorage::new(&pool, test_server_name());
+
+    // 对照组：没有 prev_* 时该路径必须成功；否则"失败后无残留"可能只是第一个
+    // INSERT 就失败了，测试会假绿。
+    let control = CreateEventParams {
+        event_id: "$dag_state_control:example.com".to_string(),
+        room_id: room_id.to_string(),
+        user_id: "@test:example.com".to_string(),
+        event_type: "m.room.member".to_string(),
+        content: serde_json::json!({ "membership": "join" }),
+        state_key: Some("@test:example.com".to_string()),
+        origin_server_ts: current_timestamp_millis(),
+        redacts: None,
+    };
+    storage.create_state_event_with_dag(control, &[], &[], &[], 0, None).await.expect("control insert must succeed");
+
+    let params = CreateEventParams {
+        event_id: "$dag_state_rollback:example.com".to_string(),
+        room_id: room_id.to_string(),
+        user_id: "@test:example.com".to_string(),
+        event_type: "m.room.member".to_string(),
+        content: serde_json::json!({ "membership": "join" }),
+        state_key: Some("@test:example.com".to_string()),
+        origin_server_ts: current_timestamp_millis(),
+        redacts: None,
+    };
+    let result = storage
+        .create_state_event_with_dag(params, &["$missing_prev:example.com".to_string()], &[], &[], 1, None)
+        .await;
+    assert!(result.is_err(), "event_edges 外键失败必须让整笔写入失败");
+
+    let persisted = storage.get_event("$dag_state_rollback:example.com").await.expect("get_event");
+    assert!(persisted.is_none(), "events 行不得在 event_edges 失败后残留（半写窗口）");
+}
+
 /// B11：`/search` 在客户端未显式传 `filter.types` 时，默认必须覆盖房间名与主题，
 /// 而不是硬编码只搜 `m.room.message`（上游 v1.161 #20119 的同类修复）。
 #[tokio::test]

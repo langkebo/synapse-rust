@@ -236,6 +236,13 @@ impl EventStorage {
             }
             event
         } else {
+            // 无调用方事务：事件行与两组 DAG 边必须在**同一本地事务**里落库，
+            // 否则 `event_edges` 插入失败会留下孤立 `events` 行（`/get_missing_events`
+            // 永远走不到它）。这与 B8 给 `create_event_with_graph` 关掉的是同一个半写窗口，
+            // 此前因为两处插入逻辑重复而漏掉了这一条路径（2026-09-23 实测；
+            // 红证明 `create_state_event_with_dag_rolls_back_event_when_edges_insert_fails`）。
+            let mut local_tx = self.pool.begin().await?;
+
             let event = sqlx::query_as(query)
                 .bind(&params.event_id)
                 .bind(&params.room_id)
@@ -250,10 +257,10 @@ impl EventStorage {
                 .bind(&prev_events_json)
                 .bind(&auth_events_json)
                 .bind(&prev_state_events_json)
-                .fetch_one(&*self.pool)
+                .fetch_one(&mut *local_tx)
                 .await?;
 
-            // Populate event_edges outside a transaction.
+            // Populate event_edges for room DAG (is_state=false).
             if !prev_events.is_empty() {
                 sqlx::query(
                     r"
@@ -264,9 +271,10 @@ impl EventStorage {
                 )
                 .bind(&params.event_id)
                 .bind(prev_events)
-                .execute(&*self.pool)
+                .execute(&mut *local_tx)
                 .await?;
             }
+            // Populate event_edges for state DAG (is_state=true).
             if !prev_state_events.is_empty() {
                 sqlx::query(
                     r"
@@ -277,9 +285,11 @@ impl EventStorage {
                 )
                 .bind(&params.event_id)
                 .bind(prev_state_events)
-                .execute(&*self.pool)
+                .execute(&mut *local_tx)
                 .await?;
             }
+
+            local_tx.commit().await?;
             event
         };
 
