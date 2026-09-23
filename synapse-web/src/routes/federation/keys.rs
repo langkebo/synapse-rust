@@ -762,7 +762,6 @@ fn verify_ed25519_signature(public_key_b64: &str, signature_b64: &str, server_na
 
 #[cfg(test)]
 mod keys_query_tests {
-    use super::*;
     use crate::routes::assembly::declared_ledger_all;
     use crate::routes::route_ledger::RouteEntry;
     use axum::http::Method;
