@@ -57,6 +57,90 @@ if not derived_labels:
         "Refusing to emit a contract doc where every module reads '派生表缺'."
     )
 
+# ---- per-profile registration gate -------------------------------------------
+# The derived table is split by the LOWEST `RouteProfile` at which a row goes
+# live (`_always` rank 0 < `_worker` 1 < `_oidc` 2), and `derived_route_manifest`
+# keeps a row only while `rank <= profile_rank(flags)`. A route that appears ONLY
+# in a non-`always` file is therefore *not registered at all* in a default build:
+# it is absent from `RouteLedger` and the integration PATCH probe never sees it,
+# so a caller that builds the URL from the module list further down gets a 404,
+# not a 405. The flattened module list cannot express that — hence this scan.
+#
+# It reads the same generated `.inc.rs` artifacts as the coverage check above, so
+# the annotation cannot drift from the real registration gate: adding or removing
+# a profile guard changes these files. The row-count reconciliation below turns a
+# layout change into a hard failure instead of silently un-annotating every row.
+_ROW_RE = re.compile(
+    r'RouteEntry::new\(\s*axum::http::Method::([A-Z]+),\s*"([^"]*)"', re.S
+)
+profile_rows = {}  # profile name -> [(method, path)]
+for _profile in ("always", "worker", "oidc"):
+    _p_file = f"{ROOT}/synapse-web/src/routes/derived_route_table_{_profile}.inc.rs"
+    if not os.path.exists(_p_file):
+        continue
+    with open(_p_file) as _f:
+        _p_txt = _f.read()
+    _rows = _ROW_RE.findall(_p_txt)
+    # Every emitted row is exactly one `RouteEntry::new(`; a mismatch means the
+    # emission layout moved and this scan is now under-reporting.
+    _ctors = _p_txt.count("RouteEntry::new(")
+    if len(_rows) != _ctors:
+        raise SystemExit(
+            f"gen_contract_doc: parsed {len(_rows)} of {_ctors} `RouteEntry::new(` rows in "
+            f"{os.path.basename(_p_file)} — the row emission layout changed; refusing to "
+            "emit a doc whose per-route profile annotation would be silently stale."
+        )
+    profile_rows[_profile] = _rows
+
+if len(profile_rows) < 3:
+    raise SystemExit(
+        "gen_contract_doc: found only "
+        f"{sorted(profile_rows)} of the per-profile route tables "
+        "(expected derived_route_table_{always,worker,oidc}.inc.rs); refusing to emit a "
+        "doc that annotates nothing as profile-gated."
+    )
+
+# (method, path) -> profiles registering it. A missing key means the route is not
+# in the derived table at all (the self-check below pins that count at 0).
+profiles_of = {}
+for _profile, _rows in profile_rows.items():
+    for _m, _p in _rows:
+        profiles_of.setdefault((_m, _p), set()).add(_profile)
+
+
+def gated_profiles(meth, path):
+    """Profiles whose registration is the ONLY one this route ever gets.
+
+    Empty when the route is live in a `default` build — which includes a row a
+    higher profile re-registers under a different `registered_by` (the two
+    `/.well-known` OIDC twins): an override at a higher rank is not a gate; see
+    `twin_profiles` for that case.
+    """
+    profs = profiles_of.get((meth, path), set())
+    return [] if "always" in profs else sorted(profs)
+
+
+def twin_profiles(meth, path):
+    """Higher profiles re-registering a route that `always` already serves."""
+    profs = profiles_of.get((meth, path), set())
+    return sorted(profs - {"always"}) if "always" in profs else []
+
+
+# Rows that no `default` build registers, grouped by the profile that adds them.
+GATED_BY_PROFILE = {
+    _profile: [
+        (meth, path)
+        for meth, path in profile_rows[_profile]
+        if "always" not in profiles_of[(meth, path)]
+    ]
+    for _profile in ("worker", "oidc")
+}
+gated_only = sorted(
+    (meth, path, gated_profiles(meth, path))
+    for (meth, path), profs in profiles_of.items()
+    if profs and "always" not in profs
+)
+
 
 def derived_candidates(mod):
     """Plausible `registered_by` labels for an extractor module path."""
@@ -196,6 +280,14 @@ lines.append(f"- 含路由注册的模块文件：**{sum(1 for v in reg.values()
 lines.append(
     f"- `derived_routes.rs` 中的 `registered_by` 标签：**{len(derived_labels)}**"
 )
+# Deliberately NOT worded as "<n> 条注册路由": `doc_credibility_guard_tests.rs`
+# scans this file for that phrase to learn the authoritative total, and this line
+# is a different quantity (the profile-gated subset, already counted above).
+lines.append(
+    f"- 非默认 profile 门控的路由（`default` 构建不注册）：**{len(gated_only)}**"
+    f"（worker **{len(GATED_BY_PROFILE['worker'])}** · oidc **{len(GATED_BY_PROFILE['oidc'])}**，"
+    "明细见「运行时 Profile 门控」）"
+)
 lines.append(
     f"- 已被派生表覆盖的模块：**{sum(1 for m, v in reg.items() if v and derived_covered(m))}**"
 )
@@ -231,6 +323,65 @@ lines.append(
     "（SAML / CAS / Voice / ExternalServices 等 gated 模块）以及 manifest 的漏声明。"
 )
 lines.append("")
+lines.append("## 运行时 Profile 门控（默认构建不注册的路由）")
+lines.append("")
+lines.append(
+    "派生表按 `RouteProfile` **单调**分档：`always`（rank 0）⊂ `worker`（rank 1）⊂ `oidc`（rank 2）；"
+    "`derived_route_manifest()` 仅在 `rank <= profile_rank(flags)` 时保留该行，`flags` 由运行时配置"
+    "（`worker.enabled` / `oidc.enabled`）给出。"
+)
+lines.append("")
+lines.append(
+    "**下表的路由只有在对应 profile 打开时才注册**：默认构建里它们不在 `RouteLedger` 中，"
+    "集成测试的 405 探测也不覆盖，照本文档拼接 URL 只会拿到 404 而不是 405；"
+    "下游客户端的端点生成器若照单全收，会生成一批默认部署必然打不通的调用。"
+    "名单由 `derived_route_table_{worker,oidc}.inc.rs` **机器反解**（不是手抄），随生成器一起更新；"
+    "若提取布局变化导致反解失效，生成器直接报错而不产出缺标注的文档。"
+)
+lines.append("")
+for _prof, _need in (
+    ("worker", "`worker.enabled = true`"),
+    ("oidc", "`oidc.enabled = true`"),
+):
+    _gated_rows = GATED_BY_PROFILE[_prof]
+    lines.append(f"### 仅 `{_prof}` profile（{len(_gated_rows)} 条，需 {_need}）")
+    lines.append("")
+    if _gated_rows:
+        lines.append("| Method | Path |")
+        lines.append("|---|---|")
+        for _m, _p in _gated_rows:
+            lines.append(f"| `{_m}` | `{_p}` |")
+    else:
+        lines.append("_（无）_")
+    lines.append("")
+_twins = sorted(
+    (meth, path, twin_profiles(meth, path))
+    for (meth, path), profs in profiles_of.items()
+    if "always" in profs and len(profs) > 1
+)
+lines.append("**逐模块清单里的两种标注**（都从派生表反解，不是人工维护）：")
+lines.append("")
+lines.append(
+    "- 〔仅 `X` profile〕 —— 该路由**只**在 profile `X` 下注册，默认构建里不存在（即上表成员）；"
+)
+lines.append(
+    "- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，"
+    "但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，"
+    "**不**计入上表；这类孪生行正是派生表 1168 行去重为 1166 条的来源。"
+)
+lines.append("")
+if _twins:
+    lines.append(f"当前共 **{len(_twins)}** 条双档注册：")
+    lines.append("")
+    lines.append("| Method | Path | 额外档位 |")
+    lines.append("|---|---|---|")
+    for _m, _p, _tw in _twins:
+        _names = " / ".join("`" + _t + "`" for _t in _tw)
+        lines.append(f"| `{_m}` | `{_p}` | {_names} |")
+    lines.append("")
+else:
+    lines.append("当前没有双档注册的孪生行。")
+    lines.append("")
 lines.append("## 前缀之外 / 未装配的注册")
 lines.append("")
 lines.append(
@@ -278,10 +429,33 @@ for c in sorted(bycat):
     lines.append("")
     for mod, routes in mods:
         has = "✅派生表" if derived_covered(mod) else "⚠️派生表缺"
+        # Per-route profile gate, so the badge and the bullets cannot disagree:
+        # the badge counts the bullets that carry the 〔仅 … profile〕 marker.
+        _marked = [
+            (meth, path, gated_profiles(meth, path), twin_profiles(meth, path))
+            for meth, path in routes
+        ]
+        _n_gated = sum(1 for _, _, _gp, _tw in _marked if _gp)
+        if _n_gated:
+            _gated_names = " / ".join(
+                sorted({p for _, _, _gp, _tw in _marked for p in _gp})
+            )
+            has += f"（{_n_gated} 条仅 `{_gated_names}` profile）"
         lines.append(f"#### `{mod}` — {len(routes)} 条 {has}")
         lines.append("")
-        for meth, path in routes:
-            lines.append(f"- `{meth}` `{path}`")
+        for meth, path, _gp, _tw in _marked:
+            _mark = ""
+            if _gp:
+                _mark = (
+                    " 〔仅 " + " / ".join("`" + _p + "`" for _p in _gp) + " profile〕"
+                )
+            elif _tw:
+                _mark = (
+                    " 〔`always` / "
+                    + " / ".join("`" + _p + "`" for _p in _tw)
+                    + " 双档注册〕"
+                )
+            lines.append(f"- `{meth}` `{path}`{_mark}")
         lines.append("")
 lines.append("---")
 lines.append(

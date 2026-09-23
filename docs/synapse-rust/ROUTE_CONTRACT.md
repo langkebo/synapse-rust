@@ -11,6 +11,7 @@
 - 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1166**
 - 含路由注册的模块文件：**66**
 - `derived_routes.rs` 中的 `registered_by` 标签：**74**
+- 非默认 profile 门控的路由（`default` 构建不注册）：**19**（worker **11** · oidc **8**，明细见「运行时 Profile 门控」）
 - 已被派生表覆盖的模块：**66**
 
 > **路径为何是绝对的**：本清单由 `extract_registered.py` 从真实 router 构造解析得到，
@@ -29,6 +30,53 @@
 第二条尤其关键：它保证本清单**不会漏掉任何一个真实对外服务的路由**。
 反向差额（本清单多于 ledger）来自源码扫描会看到、而默认 feature 构建不注册的路由
 （SAML / CAS / Voice / ExternalServices 等 gated 模块）以及 manifest 的漏声明。
+
+## 运行时 Profile 门控（默认构建不注册的路由）
+
+派生表按 `RouteProfile` **单调**分档：`always`（rank 0）⊂ `worker`（rank 1）⊂ `oidc`（rank 2）；`derived_route_manifest()` 仅在 `rank <= profile_rank(flags)` 时保留该行，`flags` 由运行时配置（`worker.enabled` / `oidc.enabled`）给出。
+
+**下表的路由只有在对应 profile 打开时才注册**：默认构建里它们不在 `RouteLedger` 中，集成测试的 405 探测也不覆盖，照本文档拼接 URL 只会拿到 404 而不是 405；下游客户端的端点生成器若照单全收，会生成一批默认部署必然打不通的调用。名单由 `derived_route_table_{worker,oidc}.inc.rs` **机器反解**（不是手抄），随生成器一起更新；若提取布局变化导致反解失效，生成器直接报错而不产出缺标注的文档。
+
+### 仅 `worker` profile（11 条，需 `worker.enabled = true`）
+
+| Method | Path |
+|---|---|
+| `POST` | `/_synapse/worker/v1/commands/{command_id}/complete` |
+| `POST` | `/_synapse/worker/v1/commands/{command_id}/fail` |
+| `GET` | `/_synapse/worker/v1/events` |
+| `GET` | `/_synapse/worker/v1/replication/{worker_id}/position` |
+| `PUT` | `/_synapse/worker/v1/replication/{worker_id}/{stream_name}` |
+| `POST` | `/_synapse/worker/v1/tasks/{task_id}/complete` |
+| `POST` | `/_synapse/worker/v1/tasks/{task_id}/fail` |
+| `GET` | `/_synapse/worker/v1/workers/{worker_id}/commands` |
+| `POST` | `/_synapse/worker/v1/workers/{worker_id}/connect` |
+| `POST` | `/_synapse/worker/v1/workers/{worker_id}/disconnect` |
+| `POST` | `/_synapse/worker/v1/workers/{worker_id}/heartbeat` |
+
+### 仅 `oidc` profile（8 条，需 `oidc.enabled = true`）
+
+| Method | Path |
+|---|---|
+| `GET` | `/_matrix/client/v3/login/sso/redirect` |
+| `GET` | `/_matrix/client/v3/login/sso/userinfo` |
+| `GET` | `/_matrix/client/v3/oidc/authorize` |
+| `GET` | `/_matrix/client/v3/oidc/callback` |
+| `POST` | `/_matrix/client/v3/oidc/login` |
+| `POST` | `/_matrix/client/v3/oidc/logout` |
+| `POST` | `/_matrix/client/v3/oidc/token` |
+| `GET` | `/_matrix/client/v3/oidc/userinfo` |
+
+**逐模块清单里的两种标注**（都从派生表反解，不是人工维护）：
+
+- 〔仅 `X` profile〕 —— 该路由**只**在 profile `X` 下注册，默认构建里不存在（即上表成员）；
+- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1168 行去重为 1166 条的来源。
+
+当前共 **2** 条双档注册：
+
+| Method | Path | 额外档位 |
+|---|---|---|
+| `GET` | `/.well-known/jwks.json` | `oidc` |
+| `GET` | `/.well-known/openid-configuration` | `oidc` |
 
 ## 前缀之外 / 未装配的注册
 
@@ -96,18 +144,18 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 
 ### OIDC （10 条）
 
-#### `oidc/mod.rs` — 10 条 ✅派生表
+#### `oidc/mod.rs` — 10 条 ✅派生表（8 条仅 `oidc` profile）
 
-- `GET` `/.well-known/jwks.json`
-- `GET` `/.well-known/openid-configuration`
-- `GET` `/_matrix/client/v3/login/sso/redirect`
-- `GET` `/_matrix/client/v3/login/sso/userinfo`
-- `GET` `/_matrix/client/v3/oidc/authorize`
-- `GET` `/_matrix/client/v3/oidc/callback`
-- `GET` `/_matrix/client/v3/oidc/userinfo`
-- `POST` `/_matrix/client/v3/oidc/login`
-- `POST` `/_matrix/client/v3/oidc/logout`
-- `POST` `/_matrix/client/v3/oidc/token`
+- `GET` `/.well-known/jwks.json` 〔`always` / `oidc` 双档注册〕
+- `GET` `/.well-known/openid-configuration` 〔`always` / `oidc` 双档注册〕
+- `GET` `/_matrix/client/v3/login/sso/redirect` 〔仅 `oidc` profile〕
+- `GET` `/_matrix/client/v3/login/sso/userinfo` 〔仅 `oidc` profile〕
+- `GET` `/_matrix/client/v3/oidc/authorize` 〔仅 `oidc` profile〕
+- `GET` `/_matrix/client/v3/oidc/callback` 〔仅 `oidc` profile〕
+- `GET` `/_matrix/client/v3/oidc/userinfo` 〔仅 `oidc` profile〕
+- `POST` `/_matrix/client/v3/oidc/login` 〔仅 `oidc` profile〕
+- `POST` `/_matrix/client/v3/oidc/logout` 〔仅 `oidc` profile〕
+- `POST` `/_matrix/client/v3/oidc/token` 〔仅 `oidc` profile〕
 
 ### Rendezvous （6 条）
 
@@ -143,11 +191,11 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 
 ### Worker （26 条）
 
-#### `worker.rs` — 26 条 ✅派生表
+#### `worker.rs` — 26 条 ✅派生表（11 条仅 `worker` profile）
 
 - `DELETE` `/_synapse/worker/v1/workers/{worker_id}`
-- `GET` `/_synapse/worker/v1/events`
-- `GET` `/_synapse/worker/v1/replication/{worker_id}/position`
+- `GET` `/_synapse/worker/v1/events` 〔仅 `worker` profile〕
+- `GET` `/_synapse/worker/v1/replication/{worker_id}/position` 〔仅 `worker` profile〕
 - `GET` `/_synapse/worker/v1/select/{task_type}`
 - `GET` `/_synapse/worker/v1/statistics`
 - `GET` `/_synapse/worker/v1/statistics/types`
@@ -157,20 +205,20 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_synapse/worker/v1/workers`
 - `GET` `/_synapse/worker/v1/workers/type/{worker_type}`
 - `GET` `/_synapse/worker/v1/workers/{worker_id}`
-- `GET` `/_synapse/worker/v1/workers/{worker_id}/commands`
-- `POST` `/_synapse/worker/v1/commands/{command_id}/complete`
-- `POST` `/_synapse/worker/v1/commands/{command_id}/fail`
+- `GET` `/_synapse/worker/v1/workers/{worker_id}/commands` 〔仅 `worker` profile〕
+- `POST` `/_synapse/worker/v1/commands/{command_id}/complete` 〔仅 `worker` profile〕
+- `POST` `/_synapse/worker/v1/commands/{command_id}/fail` 〔仅 `worker` profile〕
 - `POST` `/_synapse/worker/v1/register`
 - `POST` `/_synapse/worker/v1/tasks`
 - `POST` `/_synapse/worker/v1/tasks/claim/{worker_id}`
 - `POST` `/_synapse/worker/v1/tasks/{task_id}/claim/{worker_id}`
-- `POST` `/_synapse/worker/v1/tasks/{task_id}/complete`
-- `POST` `/_synapse/worker/v1/tasks/{task_id}/fail`
+- `POST` `/_synapse/worker/v1/tasks/{task_id}/complete` 〔仅 `worker` profile〕
+- `POST` `/_synapse/worker/v1/tasks/{task_id}/fail` 〔仅 `worker` profile〕
 - `POST` `/_synapse/worker/v1/workers/{worker_id}/commands`
-- `POST` `/_synapse/worker/v1/workers/{worker_id}/connect`
-- `POST` `/_synapse/worker/v1/workers/{worker_id}/disconnect`
-- `POST` `/_synapse/worker/v1/workers/{worker_id}/heartbeat`
-- `PUT` `/_synapse/worker/v1/replication/{worker_id}/{stream_name}`
+- `POST` `/_synapse/worker/v1/workers/{worker_id}/connect` 〔仅 `worker` profile〕
+- `POST` `/_synapse/worker/v1/workers/{worker_id}/disconnect` 〔仅 `worker` profile〕
+- `POST` `/_synapse/worker/v1/workers/{worker_id}/heartbeat` 〔仅 `worker` profile〕
+- `PUT` `/_synapse/worker/v1/replication/{worker_id}/{stream_name}` 〔仅 `worker` profile〕
 
 ### 临时事件 （1 条）
 
