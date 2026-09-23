@@ -153,7 +153,6 @@ pub(crate) async fn get_joining_rules(
 }
 
 #[cfg(test)]
-#[cfg(test)]
 mod tests {
     use super::*;
     use crate::routes::assembly::declared_ledger_all;

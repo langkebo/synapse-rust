@@ -133,7 +133,7 @@ mod tests {
         assert!(!routes.is_empty(), "Expected at least one federation media route");
 
         // Check for expected endpoints
-        let paths: Vec<&str> = routes.iter().map(|e| e.path.as_str()).collect();
+        let paths: Vec<&str> = routes.iter().map(|e| e.path).collect();
         assert!(paths.iter().any(|p| p.contains("/download")), "Missing /download endpoint");
         assert!(paths.iter().any(|p| p.contains("/thumbnail")), "Missing /thumbnail endpoint");
     }
@@ -144,7 +144,7 @@ mod tests {
         let methods: Vec<_> = routes.iter().map(|e| e.method.as_str()).collect();
 
         // Both download and thumbnail should be GET
-        assert!(methods.iter().any(|m| *m == "GET"), "Expected GET method for media routes");
+        assert!(methods.contains(&"GET"), "Expected GET method for media routes");
     }
 
     #[test]

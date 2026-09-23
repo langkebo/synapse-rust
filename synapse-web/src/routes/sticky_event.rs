@@ -180,11 +180,11 @@ mod tests {
         let routes = sticky_event_compat_relative_routes();
         let paths: Vec<&str> = routes.iter().map(|(_, p)| *p).collect();
         // GET list
-        assert!(paths.iter().any(|p| p == "/rooms/{room_id}/sticky_events"));
+        assert!(paths.contains(&"/rooms/{room_id}/sticky_events"));
         // POST set
-        assert!(paths.iter().any(|p| p == "/rooms/{room_id}/sticky_events"));
+        assert!(paths.contains(&"/rooms/{room_id}/sticky_events"));
         // DELETE by event_type
-        assert!(paths.iter().any(|p| p == "/rooms/{room_id}/sticky_events/{event_type}"));
+        assert!(paths.contains(&"/rooms/{room_id}/sticky_events/{event_type}"));
     }
 
     #[test]
@@ -245,7 +245,7 @@ mod tests {
     fn test_set_sticky_events_missing_events_field_rejected() {
         // set_sticky_events must reject a body without "events" array
         let body = json!({"not_events": []});
-        let result = body.get("events").and_then(|v| v.as_array()).ok_or_else(|| "Missing events array");
+        let result = body.get("events").and_then(|v| v.as_array()).ok_or("Missing events array");
         assert!(result.is_err());
     }
 
@@ -254,10 +254,8 @@ mod tests {
         // Each event in the events array must have an event_type field
         let events = vec![json!({"event_id": "$1"})];
         for event in &events {
-            let result: Result<&str, &str> = event
-                .get("event_type")
-                .and_then(|v: &serde_json::Value| v.as_str())
-                .ok_or_else(|| "Missing event_type");
+            let result: Result<&str, &str> =
+                event.get("event_type").and_then(|v: &serde_json::Value| v.as_str()).ok_or("Missing event_type");
             assert!(result.is_err());
         }
     }
