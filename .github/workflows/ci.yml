@@ -386,6 +386,18 @@ jobs:
           python3 scripts/ci/check_dashboard_metrics.py
           echo "Observability: dashboard metric reachability audit passed"
 
+      # 内存预算不变式门禁：防止新增测试/PgPool 导致 OOM/SIGTERM
+      # 检测：
+      #   - 新增测试文件（每个 ~200MB）
+      #   - 新增 PgPool 创建（每个 ~50MB）
+      #   - 大型静态数据结构（>1MB）
+      # 分级风险评估：low/medium/high/critical
+      - name: Check memory budget
+        if: matrix.features-args == ''
+        run: |
+          python3 scripts/ci/check_memory_budget.py
+          echo "Resource management: memory budget audit passed"
+
       - name: Install cargo-nextest
         if: matrix.features-args == '--all-features'
         uses: taiki-e/install-action@v2
