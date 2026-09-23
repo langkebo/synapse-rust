@@ -10,6 +10,7 @@ pub struct InMemoryWorkerStore {
     events: Arc<RwLock<Vec<crate::worker::WorkerEvent>>>,
     replication_positions: Arc<RwLock<HashMap<(String, String), crate::worker::ReplicationPosition>>>,
     tasks: Arc<RwLock<Vec<crate::worker::WorkerTaskAssignment>>>,
+    load_stats: Arc<RwLock<HashMap<String, crate::worker::WorkerLoadStatsUpdate>>>,
     next_id: Arc<std::sync::atomic::AtomicI64>,
 }
 
@@ -22,8 +23,14 @@ impl InMemoryWorkerStore {
             events: Arc::new(RwLock::new(Vec::new())),
             replication_positions: Arc::new(RwLock::new(HashMap::new())),
             tasks: Arc::new(RwLock::new(Vec::new())),
+            load_stats: Arc::new(RwLock::new(HashMap::new())),
             next_id: Arc::new(std::sync::atomic::AtomicI64::new(1)),
         }
+    }
+
+    /// Latest load stats recorded through [`upsert_statistics`](Self::upsert_statistics).
+    pub async fn load_stats(&self, worker_id: &str) -> Option<crate::worker::WorkerLoadStatsUpdate> {
+        self.load_stats.read().await.get(worker_id).cloned()
     }
 }
 
@@ -262,6 +269,32 @@ impl crate::worker::WorkerStoreApi for InMemoryWorkerStore {
         _worker_id: &str,
         _stats: &crate::worker::WorkerLoadStatsUpdate,
     ) -> Result<(), sqlx::Error> {
+        Ok(())
+    }
+
+    async fn upsert_statistics(
+        &self,
+        worker_id: &str,
+        stats: &crate::worker::WorkerLoadStatsUpdate,
+        _now: i64,
+    ) -> Result<(), sqlx::Error> {
+        // Mirrors the storage UPSERT's COALESCE semantics: a heartbeat reporting
+        // only a subset of metrics must not clear previously recorded ones.
+        let mut all = self.load_stats.write().await;
+        let entry = all.entry(worker_id.to_string()).or_insert_with(|| crate::worker::WorkerLoadStatsUpdate {
+            cpu_usage: None,
+            memory_usage: None,
+            active_connections: None,
+            requests_per_second: None,
+            average_latency_ms: None,
+            queue_depth: None,
+        });
+        entry.cpu_usage = stats.cpu_usage.or(entry.cpu_usage);
+        entry.memory_usage = stats.memory_usage.or(entry.memory_usage);
+        entry.active_connections = stats.active_connections.or(entry.active_connections);
+        entry.requests_per_second = stats.requests_per_second.or(entry.requests_per_second);
+        entry.average_latency_ms = stats.average_latency_ms.or(entry.average_latency_ms);
+        entry.queue_depth = stats.queue_depth.or(entry.queue_depth);
         Ok(())
     }
 

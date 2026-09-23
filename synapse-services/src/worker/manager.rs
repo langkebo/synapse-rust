@@ -7,7 +7,7 @@ use crate::worker::types::*;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
-use synapse_common::ApiError;
+use synapse_common::{current_timestamp_millis, ApiError};
 use tokio::sync::RwLock;
 use tracing::{debug, info, instrument, warn};
 
@@ -271,6 +271,15 @@ impl WorkerManager {
                 .storage
                 .record_load_stats(worker_id, &stats)
                 .map_err(|e| warn!(error = %e, worker_id = %worker_id, "Failed to record load stats"));
+
+            // S1–S3: persist the reported load metrics so `get_statistics` returns
+            // real values instead of permanent NULL. A persistence failure must
+            // FAIL the heartbeat (propagated → 500) so the worker retries, rather
+            // than being silently dropped.
+            self.storage
+                .upsert_statistics(worker_id, &stats, current_timestamp_millis())
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Failed to persist worker load stats", e))?;
         }
 
         debug!("Heartbeat received from worker: {}", worker_id);

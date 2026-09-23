@@ -2052,6 +2052,40 @@ CREATE TABLE IF NOT EXISTS worker_statistics (
     CONSTRAINT pk_worker_statistics PRIMARY KEY (id)
 );
 
+-- Worker load metrics reported through the heartbeat payload (`load_stats`).
+-- Written by `WorkerStorage::upsert_statistics`; all six are nullable because a
+-- heartbeat may report only a subset. Added via idempotent ALTER so the single
+-- consolidated baseline can be re-applied over an existing schema.
+-- No FK to `workers(worker_id)` on purpose: a heartbeat may arrive before (or
+-- without) registration, and a FK would turn that into a 500. The semantics are
+-- "reported ⇒ recorded".
+ALTER TABLE worker_statistics ADD COLUMN IF NOT EXISTS cpu_usage REAL;
+ALTER TABLE worker_statistics ADD COLUMN IF NOT EXISTS memory_usage BIGINT;
+ALTER TABLE worker_statistics ADD COLUMN IF NOT EXISTS active_connections INTEGER;
+ALTER TABLE worker_statistics ADD COLUMN IF NOT EXISTS requests_per_second REAL;
+ALTER TABLE worker_statistics ADD COLUMN IF NOT EXISTS average_latency_ms REAL;
+ALTER TABLE worker_statistics ADD COLUMN IF NOT EXISTS queue_depth INTEGER;
+ALTER TABLE worker_statistics ADD COLUMN IF NOT EXISTS last_heartbeat_ts BIGINT;
+-- Required by `INSERT … ON CONFLICT (worker_id) DO UPDATE` (the heartbeat
+-- upsert): without a unique constraint every heartbeat would append a duplicate
+-- counter row. Declared as a CONSTRAINT, not a `CREATE UNIQUE INDEX uq_…`:
+-- the v11-10 cleanup DO block below deliberately drops every explicit `uq_*`
+-- index that is not constraint-backed, and it *did* drop this one on the first
+-- run (NOTICE: "Dropped redundant UNIQUE INDEX: …uq_worker_statistics_worker_id"),
+-- which would have broken ON CONFLICT at runtime. The `pg_constraint` guard is
+-- the file's established idempotency pattern (constraints have no
+-- `IF NOT EXISTS`); cf. `pk_typing` below.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'worker_statistics'::regclass
+          AND conname = 'uq_worker_statistics_worker_id'
+    ) THEN
+        ALTER TABLE worker_statistics ADD CONSTRAINT uq_worker_statistics_worker_id UNIQUE (worker_id);
+    END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS worker_task_assignments (
     id BIGSERIAL PRIMARY KEY,
     task_id TEXT NOT NULL UNIQUE,

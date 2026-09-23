@@ -54,6 +54,13 @@ pub trait WorkerStoreApi: Send + Sync {
     async fn get_replication_position(&self, worker_id: &str, stream_name: &str) -> Result<Option<i64>, sqlx::Error>;
     /// See [`record_load_stats`].
     fn record_load_stats(&self, worker_id: &str, stats: &WorkerLoadStatsUpdate) -> Result<(), sqlx::Error>;
+    /// See [`upsert_statistics`].
+    async fn upsert_statistics(
+        &self,
+        worker_id: &str,
+        stats: &WorkerLoadStatsUpdate,
+        now: i64,
+    ) -> Result<(), sqlx::Error>;
     /// See [`assign_task`].
     async fn assign_task(&self, request: AssignTaskRequest) -> Result<WorkerTaskAssignment, sqlx::Error>;
     /// See [`get_pending_tasks`].
@@ -173,6 +180,15 @@ impl WorkerStoreApi for WorkerStorage {
 
     fn record_load_stats(&self, worker_id: &str, stats: &WorkerLoadStatsUpdate) -> Result<(), sqlx::Error> {
         self.record_load_stats(worker_id, stats)
+    }
+
+    async fn upsert_statistics(
+        &self,
+        worker_id: &str,
+        stats: &WorkerLoadStatsUpdate,
+        now: i64,
+    ) -> Result<(), sqlx::Error> {
+        self.upsert_statistics(worker_id, stats, now).await
     }
 
     async fn assign_task(&self, request: AssignTaskRequest) -> Result<WorkerTaskAssignment, sqlx::Error> {

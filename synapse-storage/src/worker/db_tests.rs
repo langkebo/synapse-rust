@@ -1016,9 +1016,9 @@ async fn test_update_connection_stats_returns_ok() {
 ///
 /// 旧实现对 `worker_statistics` 选择了 15 个**两张表都没有**的列
 /// （psql 42703 `column "worker_name" does not exist`），端点从未返回过任何行。
-/// 现在身份/状态取自 `workers`，计数 LEFT JOIN `worker_statistics`：
+/// 现在身份/状态取自 `workers`，计数与负载指标 LEFT JOIN `worker_statistics`：
 /// 有计数行的 worker 必须带上计数；没有计数行的 worker 计数必须为 null（而不是解码错误）；
-/// 无任何存储支撑的 8 个负载指标（`cpu_usage` 等）不得再出现在载荷里。
+/// 六个负载指标键已由心跳写入（`upsert_statistics`）支撑，因此**始终存在**，未上报时为 null。
 #[tokio::test]
 async fn test_get_statistics_reads_real_columns_and_tolerates_missing_counters() {
     let (_isolated, pool) = test_pool().await;
@@ -1058,7 +1058,17 @@ async fn test_get_statistics_reads_real_columns_and_tolerates_missing_counters()
     assert_eq!(with_row["total_errors"], serde_json::json!(3));
     assert_eq!(with_row["uptime_seconds"], serde_json::json!(900));
     assert_eq!(with_row["status"], serde_json::json!("starting"));
-    assert!(with_row.get("cpu_usage").is_none(), "unbacked load metric must not be emitted");
+    // The load-metric keys are now backed by columns written from the heartbeat
+    // payload (`upsert_statistics`), so they are always emitted; a worker whose
+    // row predates any load report must still decode them as null.
+    for metric in
+        ["cpu_usage", "memory_usage", "active_connections", "requests_per_second", "average_latency_ms", "queue_depth"]
+    {
+        assert!(
+            with_row.get(metric).is_some_and(serde_json::Value::is_null),
+            "load metric `{metric}` must be emitted as null when never reported"
+        );
+    }
 
     let without_row = rows
         .iter()
@@ -1068,4 +1078,165 @@ async fn test_get_statistics_reads_real_columns_and_tolerates_missing_counters()
         without_row["total_messages_sent"].is_null(),
         "missing counters must decode as null rather than raising a decode error"
     );
+}
+
+/// `upsert_statistics` 写入一行后，`get_statistics` 必须返回**非 NULL** 的负载指标。
+#[tokio::test]
+async fn test_upsert_statistics_inserts_row_and_get_statistics_returns_metrics() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = WorkerStorage::new(&pool);
+
+    let worker_id = format!("w-upsert-{}", uuid::Uuid::new_v4());
+    cleanup_worker(&pool, &worker_id).await;
+    storage.register_worker(make_register_request(&worker_id, WorkerType::Frontend)).await.expect("register worker");
+
+    let now = synapse_common::current_timestamp_millis();
+    let stats = WorkerLoadStatsUpdate {
+        cpu_usage: Some(12.5),
+        memory_usage: Some(2048),
+        active_connections: Some(7),
+        requests_per_second: Some(33.25),
+        average_latency_ms: Some(4.5),
+        queue_depth: Some(3),
+    };
+    storage.upsert_statistics(&worker_id, &stats, now).await.expect("upsert_statistics");
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM worker_statistics WHERE worker_id = $1")
+        .bind(&worker_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("count statistics rows");
+    assert_eq!(count, 1, "first upsert must create exactly one row");
+
+    let rows = storage.get_statistics(50).await.expect("get_statistics must succeed");
+    let row = rows.iter().find(|row| row["worker_id"] == serde_json::json!(worker_id)).expect("worker present");
+    assert_eq!(row["cpu_usage"], serde_json::json!(12.5));
+    assert_eq!(row["memory_usage"], serde_json::json!(2048));
+    assert_eq!(row["active_connections"], serde_json::json!(7));
+    assert_eq!(row["requests_per_second"], serde_json::json!(33.25));
+    assert_eq!(row["average_latency_ms"], serde_json::json!(4.5));
+    assert_eq!(row["queue_depth"], serde_json::json!(3));
+}
+
+/// 重复 upsert 同一 worker 必须**更新同一行**（不是追加），且新值生效；
+/// `created_ts` 保持首次写入值。
+#[tokio::test]
+async fn test_upsert_statistics_updates_in_place_and_later_values_win() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = WorkerStorage::new(&pool);
+
+    let worker_id = format!("w-upsert-twice-{}", uuid::Uuid::new_v4());
+    cleanup_worker(&pool, &worker_id).await;
+
+    let first = synapse_common::current_timestamp_millis();
+    let second = first + 5_000;
+
+    let stats_v1 = WorkerLoadStatsUpdate {
+        cpu_usage: Some(10.0),
+        memory_usage: Some(100),
+        active_connections: Some(1),
+        requests_per_second: Some(2.0),
+        average_latency_ms: Some(3.0),
+        queue_depth: Some(4),
+    };
+    storage.upsert_statistics(&worker_id, &stats_v1, first).await.expect("first upsert");
+
+    let stats_v2 = WorkerLoadStatsUpdate {
+        cpu_usage: Some(20.0),
+        memory_usage: Some(200),
+        active_connections: Some(2),
+        requests_per_second: Some(4.0),
+        average_latency_ms: Some(6.0),
+        queue_depth: Some(8),
+    };
+    storage.upsert_statistics(&worker_id, &stats_v2, second).await.expect("second upsert");
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM worker_statistics WHERE worker_id = $1")
+        .bind(&worker_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("count statistics rows");
+    assert_eq!(count, 1, "second upsert must not append a duplicate row");
+
+    let (created_ts, updated_ts, last_heartbeat_ts): (i64, i64, i64) =
+        sqlx::query_as("SELECT created_ts, updated_ts, last_heartbeat_ts FROM worker_statistics WHERE worker_id = $1")
+            .bind(&worker_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("read timestamps");
+    assert_eq!(created_ts, first, "created_ts must survive the update");
+    assert_eq!(updated_ts, second, "updated_ts must be the later timestamp");
+    assert_eq!(last_heartbeat_ts, second, "last_heartbeat_ts must be the later timestamp");
+
+    // No `workers` row is needed for the read: assert via the raw row so this
+    // test is independent of `get_statistics`' join.
+    let (cpu, queue): (f32, i32) =
+        sqlx::query_as("SELECT cpu_usage, queue_depth FROM worker_statistics WHERE worker_id = $1")
+            .bind(&worker_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("read upserted metrics");
+    assert_eq!(cpu, 20.0, "the second call's values must win");
+    assert_eq!(queue, 8, "the second call's values must win");
+}
+
+/// 只上报 `queue_depth` 的后续心跳必须**保留**此前已上报的其余指标（COALESCE 语义）。
+#[tokio::test]
+async fn test_upsert_statistics_preserves_unreported_metrics() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = WorkerStorage::new(&pool);
+
+    let worker_id = format!("w-upsert-partial-{}", uuid::Uuid::new_v4());
+    cleanup_worker(&pool, &worker_id).await;
+
+    let now = synapse_common::current_timestamp_millis();
+    let full = WorkerLoadStatsUpdate {
+        cpu_usage: Some(55.5),
+        memory_usage: Some(4096),
+        active_connections: Some(11),
+        requests_per_second: Some(7.75),
+        average_latency_ms: Some(8.25),
+        queue_depth: Some(1),
+    };
+    storage.upsert_statistics(&worker_id, &full, now).await.expect("full upsert");
+
+    let partial = WorkerLoadStatsUpdate {
+        cpu_usage: None,
+        memory_usage: None,
+        active_connections: None,
+        requests_per_second: None,
+        average_latency_ms: None,
+        queue_depth: Some(9),
+    };
+    storage.upsert_statistics(&worker_id, &partial, now + 1).await.expect("partial upsert");
+
+    let (cpu, memory, connections, rps, latency, queue): (
+        Option<f32>,
+        Option<i64>,
+        Option<i32>,
+        Option<f32>,
+        Option<f32>,
+        Option<i32>,
+    ) = sqlx::query_as(
+        "SELECT cpu_usage, memory_usage, active_connections, requests_per_second, \
+             average_latency_ms, queue_depth FROM worker_statistics WHERE worker_id = $1",
+    )
+    .bind(&worker_id)
+    .fetch_one(&*pool)
+    .await
+    .expect("read preserved metrics");
+
+    assert_eq!(cpu, Some(55.5), "unreported cpu_usage must be preserved");
+    assert_eq!(memory, Some(4096), "unreported memory_usage must be preserved");
+    assert_eq!(connections, Some(11), "unreported active_connections must be preserved");
+    assert_eq!(rps, Some(7.75), "unreported requests_per_second must be preserved");
+    assert_eq!(latency, Some(8.25), "unreported average_latency_ms must be preserved");
+    assert_eq!(queue, Some(9), "reported queue_depth must be updated");
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM worker_statistics WHERE worker_id = $1")
+        .bind(&worker_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("count statistics rows");
+    assert_eq!(count, 1, "partial upsert must update in place");
 }

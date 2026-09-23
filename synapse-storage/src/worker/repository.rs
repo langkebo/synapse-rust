@@ -447,6 +447,59 @@ impl WorkerStorage {
         Ok(())
     }
 
+    /// Persist the load metrics reported in a heartbeat (`load_stats`).
+    ///
+    /// Upserts on `worker_id` (the unique index added to the consolidated
+    /// baseline) so repeated heartbeats keep exactly **one** row per worker
+    /// instead of appending counter duplicates.
+    ///
+    /// Every metric column is `COALESCE(EXCLUDED.<col>, worker_statistics.<col>)`:
+    /// a later heartbeat that reports only a subset of metrics must not NULL out
+    /// values reported earlier. `last_heartbeat_ts`/`updated_ts` are always
+    /// overwritten. `created_ts` is only used on insert (`$9` twice), so the
+    /// original creation time survives updates.
+    ///
+    /// There is deliberately **no** FK to `workers(worker_id)`: a heartbeat can
+    /// arrive before or independently of registration, and a FK would turn that
+    /// into a 500. Semantics are "reported ⇒ recorded".
+    pub async fn upsert_statistics(
+        &self,
+        worker_id: &str,
+        stats: &WorkerLoadStatsUpdate,
+        now: i64,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"
+            INSERT INTO worker_statistics (worker_id, cpu_usage, memory_usage, active_connections,
+                                           requests_per_second, average_latency_ms, queue_depth,
+                                           last_heartbeat_ts, created_ts, updated_ts)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)
+            ON CONFLICT (worker_id) DO UPDATE SET
+              cpu_usage          = COALESCE(EXCLUDED.cpu_usage,          worker_statistics.cpu_usage),
+              memory_usage       = COALESCE(EXCLUDED.memory_usage,       worker_statistics.memory_usage),
+              active_connections = COALESCE(EXCLUDED.active_connections, worker_statistics.active_connections),
+              requests_per_second= COALESCE(EXCLUDED.requests_per_second,worker_statistics.requests_per_second),
+              average_latency_ms = COALESCE(EXCLUDED.average_latency_ms, worker_statistics.average_latency_ms),
+              queue_depth        = COALESCE(EXCLUDED.queue_depth,        worker_statistics.queue_depth),
+              last_heartbeat_ts  = EXCLUDED.last_heartbeat_ts,
+              updated_ts         = EXCLUDED.updated_ts
+            "#,
+            worker_id,
+            stats.cpu_usage,
+            stats.memory_usage,
+            stats.active_connections,
+            stats.requests_per_second,
+            stats.average_latency_ms,
+            stats.queue_depth,
+            now,
+            now
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(())
+    }
+
     /// See [`assign_task`].
     pub async fn assign_task(&self, request: AssignTaskRequest) -> Result<WorkerTaskAssignment, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -690,15 +743,17 @@ impl WorkerStorage {
     /// `migrations/`, and the query failed with SQLSTATE 42703 (`column "worker_name"
     /// does not exist`) on every call — this endpoint never returned a single row.
     ///
-    /// Identity/lifecycle fields live in `workers`; the counters live in
-    /// `worker_statistics`, which today has **no writer at all** (no
-    /// `INSERT INTO worker_statistics` anywhere in the tree), hence the LEFT JOIN and
-    /// `Option` counters. The eight load metrics that have no storage in any migration
-    /// (`cpu_usage`, `memory_usage`, `active_connections`, `requests_per_second`,
-    /// `average_latency_ms`, `queue_depth`, `pending_commands`, `active_tasks`) are
-    /// deliberately **not** reintroduced: nothing would ever write them, so adding
-    /// columns would only create permanently-NULL breadth. Adding a real collector
-    /// (and a writer for `worker_statistics`) is a separate feature.
+    /// Identity/lifecycle fields live in `workers`; the counters and load metrics
+    /// live in `worker_statistics`, which is now written by
+    /// [`upsert_statistics`](Self::upsert_statistics) from the heartbeat payload.
+    /// The LEFT JOIN + `AS "col?"` overrides are load-bearing: sqlx does not infer
+    /// LEFT-JOIN nullability, so without `?` every worker lacking a statistics row
+    /// would fail to decode (`UnexpectedNullError`) instead of yielding `null`.
+    ///
+    /// `worker_statistics.last_heartbeat_ts` is **not** emitted: the payload
+    /// already carries `workers.last_heartbeat_ts` under that key, and the
+    /// statistics copy is written with the same `now` from the same heartbeat, so
+    /// a second key would be a duplicate. The identity field is left as-is.
     pub async fn get_statistics(&self, limit: i64) -> Result<Vec<serde_json::Value>, sqlx::Error> {
         let rows = sqlx::query!(
             r#"
@@ -717,7 +772,13 @@ impl WorkerStorage {
                    s.last_message_ts AS "last_message_ts?",
                    s.last_error_ts AS "last_error_ts?",
                    s.avg_processing_time_ms AS "avg_processing_time_ms?",
-                   s.uptime_seconds AS "uptime_seconds?"
+                   s.uptime_seconds AS "uptime_seconds?",
+                   s.cpu_usage AS "cpu_usage?",
+                   s.memory_usage AS "memory_usage?",
+                   s.active_connections AS "active_connections?",
+                   s.requests_per_second AS "requests_per_second?",
+                   s.average_latency_ms AS "average_latency_ms?",
+                   s.queue_depth AS "queue_depth?"
             FROM workers w
             LEFT JOIN worker_statistics s ON s.worker_id = w.worker_id
             ORDER BY w.id DESC
@@ -748,6 +809,12 @@ impl WorkerStorage {
                     "last_error_ts": row.last_error_ts,
                     "avg_processing_time_ms": row.avg_processing_time_ms,
                     "uptime_seconds": row.uptime_seconds,
+                    "cpu_usage": row.cpu_usage,
+                    "memory_usage": row.memory_usage,
+                    "active_connections": row.active_connections,
+                    "requests_per_second": row.requests_per_second,
+                    "average_latency_ms": row.average_latency_ms,
+                    "queue_depth": row.queue_depth,
                 })
             })
             .collect())
