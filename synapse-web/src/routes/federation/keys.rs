@@ -242,8 +242,14 @@ pub(super) async fn keys_query(
 
     let response = ctx.device_keys_service.query_keys_for_federation(request, &ctx.server_name).await?;
 
+    // T2EE-001: Include cross-signing keys in federation keys query response.
+    // Per MSC3814, the response must include master_keys, self_signing_keys,
+    // and user_signing_keys in addition to device_keys and failures.
     Ok(Json(json!({
         "device_keys": response.device_keys,
+        "master_keys": response.master_keys,
+        "self_signing_keys": response.self_signing_keys,
+        "user_signing_keys": response.user_signing_keys,
         "failures": response.failures
     })))
 }
@@ -721,9 +727,9 @@ fn verify_ed25519_signature(public_key_b64: &str, signature_b64: &str, server_na
         Ok(s) => s,
         Err(e) => {
             ::tracing::debug!(
-                server_name = %server_name,
-                error = %e,
-                "Failed to canonicalize server key response for signature verification"
+              server_name = %server_name,
+              error = %e,
+              "Failed to canonicalize server key response for signature verification"
             );
             return false;
         }
@@ -752,6 +758,37 @@ fn verify_ed25519_signature(public_key_b64: &str, signature_b64: &str, server_na
     };
 
     verifying_key.verify_strict(canonical.as_bytes(), &signature).is_ok()
+}
+
+#[cfg(test)]
+mod keys_query_tests {
+    use super::*;
+    use crate::routes::assembly::declared_ledger_all;
+    use crate::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+
+    /// T2 合规测试：从真实路由账本验证 keys_query 路由
+    fn federation_keys_query_route_manifest() -> Vec<RouteEntry> {
+        declared_ledger_all()
+            .iter()
+            .filter(|e| e.registered_by == "federation" && e.path.contains("/user/keys/query"))
+            .cloned()
+            .collect()
+    }
+
+    #[test]
+    fn test_federation_keys_query_routes_from_real_ledger() {
+        let manifest = federation_keys_query_route_manifest();
+        assert!(!manifest.is_empty(), "federation keys query manifest must declare at least one (method, path) entry");
+
+        // 验证 POST /_matrix/federation/v1/user/keys/query
+        let has_v1_query = manifest.iter().any(|e| e.method == Method::POST && e.path.contains("/v1/user/keys/query"));
+        assert!(has_v1_query, "must have POST /_matrix/federation/v1/user/keys/query");
+
+        // 验证 POST /_matrix/federation/v2/user/keys/query
+        let has_v2_query = manifest.iter().any(|e| e.method == Method::POST && e.path.contains("/v2/user/keys/query"));
+        assert!(has_v2_query, "must have POST /_matrix/federation/v2/user/keys/query");
+    }
 }
 
 fn extract_remote_verify_key(body: &Value, server_name: &str, key_id: &str) -> Option<String> {

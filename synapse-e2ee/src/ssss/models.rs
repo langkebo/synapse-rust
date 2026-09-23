@@ -68,20 +68,16 @@ pub struct SecretStorageKeyCreationTerm {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "algorithm")]
 /// The `SecretStorageKeyCreationKey` enum.
+///
+/// Only `m.secret_storage.v1.aes-hmac-sha2` is representable: the former
+/// MSC2697 `curve25519-aes-sha2` variant was removed together with its broken
+/// server-side crypto (it derived the AES key from the ciphertext itself, so no
+/// conforming client could ever decrypt a secret). A curve25519-bound key must
+/// be generated client-side; the server only stores its public description.
 pub enum SecretStorageKeyCreationKey {
-    /// Curve25519-AES-SHA2 (MSC2697 v1) secret storage key.
-    #[serde(rename = "org.matrix.msc2697.v1.curve25519-aes-sha2")]
-    Curve25519AesSha2(Curve25519Key),
     /// AES-HMAC-SHA2 secret storage key.
     #[serde(rename = "aes-hmac-sha2")]
     AesHmacSha2(AesHmacSha2Key),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-/// The `Curve25519Key` type.
-pub struct Curve25519Key {
-    /// The `key` field.
-    pub key: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,6 +91,19 @@ pub struct AesHmacSha2Key {
     /// The `mac` field.
     pub iv: String,
     /// The `mac` field.
+    pub mac: String,
+}
+
+/// One encrypted secret, in the shape the spec requires for the
+/// `m.secret_storage.v1.aes-hmac-sha2` algorithm (`iv` / `ciphertext` / `mac`,
+/// all unpadded base64).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AesHmacSha2EncryptedData {
+    /// The 16-byte AES-CTR initialization vector, unpadded base64.
+    pub iv: String,
+    /// The AES-256-CTR ciphertext, unpadded base64.
+    pub ciphertext: String,
+    /// HMAC-SHA-256 over the raw ciphertext, unpadded base64.
     pub mac: String,
 }
 
@@ -343,10 +352,6 @@ mod tests {
 
     #[test]
     fn creation_key_enum_tagged_variants() {
-        let curve25519 = SecretStorageKeyCreationKey::Curve25519AesSha2(Curve25519Key { key: "ck".to_string() });
-        let json = serde_json::to_string(&curve25519).unwrap();
-        assert!(json.contains("org.matrix.msc2697.v1.curve25519-aes-sha2"));
-
         let aes = SecretStorageKeyCreationKey::AesHmacSha2(AesHmacSha2Key {
             key: "ak".to_string(),
             iv: "iv".to_string(),
@@ -355,11 +360,21 @@ mod tests {
         let json_aes = serde_json::to_string(&aes).unwrap();
         assert!(json_aes.contains("aes-hmac-sha2"));
 
-        let rt: SecretStorageKeyCreationKey = serde_json::from_str(&json).unwrap();
+        let rt: SecretStorageKeyCreationKey = serde_json::from_str(&json_aes).unwrap();
         match rt {
-            SecretStorageKeyCreationKey::Curve25519AesSha2(k) => assert_eq!(k.key, "ck"),
-            _ => panic!("expected curve25519 variant"),
+            SecretStorageKeyCreationKey::AesHmacSha2(k) => assert_eq!(k.key, "ak"),
         }
+    }
+
+    #[test]
+    fn encrypted_data_roundtrips_spec_fields() {
+        let data =
+            AesHmacSha2EncryptedData { iv: "aXY".to_string(), ciphertext: "Y3Q".to_string(), mac: "bWFj".to_string() };
+        let json = serde_json::to_string(&data).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v.get("iv").and_then(|x| x.as_str()), Some("aXY"));
+        assert_eq!(v.get("ciphertext").and_then(|x| x.as_str()), Some("Y3Q"));
+        assert_eq!(v.get("mac").and_then(|x| x.as_str()), Some("bWFj"));
     }
 
     #[test]
