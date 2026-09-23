@@ -397,12 +397,4 @@ mod tests {
         let default_burn_ms = value.get("default_burn_ms").and_then(|v| v.as_i64()).unwrap_or(60_000);
         assert_eq!(default_burn_ms, 60_000);
     }
-
-    /// Test that `create_burn_after_read_router` creates router with expected routes.
-    #[test]
-    fn test_create_burn_after_read_router_creates_routes() {
-        // This test verifies the router function exists and compiles
-        // Full integration testing requires a full app state
-        let _router_fn = create_burn_after_read_router;
-    }
 }

@@ -510,11 +510,26 @@ mod tests {
 
     #[test]
     fn test_external_service_response_conversion() {
+        // `ApplicationService` deliberately has no `Default` impl (it is a
+        // `FromRow` model), so every field is spelled out. Only `as_id`,
+        // `is_enabled` and `created_ts` are read by the conversion under test;
+        // the rest are inert fixtures.
         let app_service = synapse_services::application_service::ApplicationService {
+            id: 1,
             as_id: "trendradar_news-bot".into(),
+            url: "https://trendradar.example.com".into(),
+            as_token: "as-secret".into(),
+            hs_token: "hs-secret".into(),
+            sender_localpart: "trendradar".into(),
             is_enabled: true,
+            is_rate_limited: false,
+            protocols: Vec::new(),
+            namespaces: serde_json::json!({}),
             created_ts: 1234567890,
-            ..Default::default()
+            updated_ts: None,
+            description: Some("TrendRadar news bot".into()),
+            api_key: Some("api-key".into()),
+            config: serde_json::json!({}),
         };
 
         let response: ExternalServiceResponse = app_service.into();
@@ -525,10 +540,20 @@ mod tests {
 
     #[test]
     fn test_webhook_payload_serialization() {
-        let payload = WebhookPayload { signature: Some("sig123".into()), data: serde_json::json!({"event": "test"}) };
+        let payload = WebhookPayload {
+            event_type: "test.event".into(),
+            timestamp: 1_234_567_890,
+            data: serde_json::json!({"event": "test"}),
+            signature: Some("sig123".into()),
+        };
 
-        let json = serde_json::to_json(&payload).unwrap();
-        assert!(json.contains("signature"));
-        assert!(json.contains("data"));
+        // `serde_json` has no `to_json`; `to_string` is the intended call. Asserting
+        // on the parsed value proves the field *values* survive serialization, not
+        // merely that the field names appear somewhere in the output.
+        let json = serde_json::to_string(&payload).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["event_type"], "test.event");
+        assert_eq!(value["signature"], "sig123");
+        assert_eq!(value["data"]["event"], "test");
     }
 }
