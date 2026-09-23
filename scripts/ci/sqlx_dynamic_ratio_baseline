@@ -386,11 +386,134 @@
 #   +1 处生产动态（与 C3 段同一在途改动）：实际 C6 后应为 1280；按先例以门禁
 #   实测值 1281 设定，若该在途改动被撤销/改写，应再下调 1。
 # 收紧方向：C4/C5/C7–C11 继续分批静态化，直至 dynamic_production = 0。
-BASELINE_DYNAMIC_PRODUCTION=1281
+# ── 2026-09-23 C7 静态化（生产动态 -80，静态 +80）────────────────────────────
+#
+# 批次：C7（docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md）。
+# 文件：synapse-storage/src/space/repository.rs                 （41 处生产动态）
+#       synapse-storage/src/application_service/repository.rs   （41 处生产动态）
+#
+# space/repository.rs 转化 39/41：
+#   query_as!     ×22（Space / SpaceChild / SpaceMember / SpaceSummary / SpaceEvent 行映射）
+#   query_scalar! ×11（COUNT(*) 聚合、单列 SELECT、resolve_space_id 等）
+#   query!        × 6（DELETE/UPDATE/INSERT 可执行语句；get_space_statistics 原为
+#                      query + Row::get，改为 query! 匿名记录后按字段映射 json!）
+#   ⚠️ 剩余 2 处**保留动态**：search_spaces 的 user_id Some/None 两个分支，SQL 文本由
+#      format! + TrigramRanking 在**运行期**拼装（`sqlx::query_as::<_, Space>(&sql)`），
+#      宏在编译期看不到 SQL。收紧方向：把 TrigramRanking 的 CASE/相似度表达式固化为
+#      两条静态 SQL，即可回收这 2 处。
+#
+# application_service/repository.rs 转化 41/41（生产区剩余动态 = 0）：
+#   query_as!     ×19（ApplicationService / State / Event / Transaction / Namespace /
+#                      User 行映射，INSERT/UPDATE … RETURNING）
+#   query_scalar! × 9（COUNT(*) 聚合、单列 as_id 探测、SELECT 1 探测）
+#   query!        ×13（INSERT/UPDATE/DELETE 可执行语句；get_statistics 原为
+#                      query + Row::get，改为 query! 匿名记录后按字段映射 json!）
+#
+# 静态化时补的 nullability / 类型覆盖（列可空、Rust 字段非 Option）：
+#   * spaces.room_id / join_rule / is_public —— 三列在 catalog 中可空，而 Space
+#     模型是 String/String/bool ⇒ 显式 `AS "col!"`（旧 FromRow 动态形式在 NULL 时
+#     同样解码失败，语义不变）。
+#   * space_children.is_suggested、ARRAY(...) 投影的 via_servers、
+#     COALESCE(ARRAY(...),'{}') 的 via_servers —— 表达式列无 relation origin，
+#     sqlx 一律推断可空 ⇒ `AS "...!"`。
+#   * space_summaries.summary（可空 jsonb + Value 字段）、space_statistics 的
+#     child_room_count / member_count（可空列 + i64 读取）⇒ `AS "...!"`。
+#   * application_services 的 is_enabled / is_rate_limited / protocols / namespaces
+#     四列可空，而模型分别为 bool/bool/Vec<String>/Value ⇒ `AS "...!"`；
+#     `RETURNING *` 一并改为显式列清单（宏按 describe 的列名构造结构体，显式清单
+#     让字段与列一一对应、可审查）。
+#   * application_service_events 的 room_id / event_type（列可空）与
+#     `''::text AS sender` / `'{}'::jsonb AS content`（字面量表达式）⇒ `AS "...!"`。
+#   * application_service_transactions.events（可空 jsonb + Value 字段）⇒ `AS "events!"`。
+#   * application_service_state 的 `COALESCE(state_value, value #>> '{}')`
+#     ⇒ `AS "state_value!"`（旧代码按 String 读取，语义不变）。
+#   * application_service_{user,room_alias,room}_namespaces.is_exclusive 可空 +
+#     bool 字段 ⇒ `AS "is_exclusive!"`（首轮编译报 `bool: From<Option<bool>>`
+#     未实现，4 处 E0277 之一）。
+#   * get_statistics 的 svc.is_enabled / is_rate_limited 与三个 COALESCE 计数
+#     ⇒ `AS "...!"`。
+#   * COUNT(*) 一律 `AS "count!"`；space_statistics 的 ORDER BY 由
+#     `member_count` 改为限定列名 `space_statistics.member_count`：`AS "member_count!"`
+#     是**带 `!` 的 SQL 标识符**、原样发给 PG，按输出别名排序会失配（C2 同型陷阱；
+#     此处限定输入列名即可，无需重复表达式）。
+#   * `&Option<String>` / `&Option<Vec<String>>` / `&Option<Value>` 绑定分别改为
+#     `.as_deref()` / `.as_deref()` / `.as_ref()`：宏的 ty_match 不接受 `&Option<T>`
+#     （旧 `.bind()` 接受）。数组实参改为 `&protocols[..]`（宏要求精确 `&[String]`）。
+#   * 元组返回：resolve_space_id / get_space_user_ids / get_space_room_ids 原用
+#     `query_as::<_, (String,)>`，宏不支持元组 ⇒ 改用 `query_scalar!` 直接取单列。
+#
+# ⚠️ 一处**刻意保持旧语义**的类型覆盖：collect_hierarchy_recursive 的
+# suggested_only 分支 SELECT 原始 jsonb `via_servers` 进 `Vec<String>` 字段。该列
+# 可空，故写成 `AS "via_servers!: Vec<String>"`（sqlx 支持"可空性 + 类型"组合覆盖，
+# 见 sqlx-macros-core/query/output.rs 的 ColumnOverride 解析）。注意：jsonb 在运行期
+# 并不兼容 `Vec<String>` 的 `TEXT[]` 解码，即 suggested_only=true 且**真的命中
+# suggested 行**时该分支会 `UnexpectedType` 失败——这是既有缺陷，静态形式与动态
+# 形式完全等价，未在本轮修复（现有 db 用例的 suggested_only=true 分支因
+# `WHERE is_suggested = TRUE` 过滤掉夹具行而空结果，故从未暴露）。
+# 收紧方向：把该分支的投影与同文件 4 个兄弟查询对齐为
+# `ARRAY(SELECT jsonb_array_elements_text(via_servers)) AS "via_servers!"`，
+# 这是一个独立的**行为修复**（非静态化），应单列条目处理。
+#
+# ⚠️ feature gate：两个目标模块在 synapse-storage/src/lib.rs 中**均无 cfg 门控**，
+# 但 `.sqlx` 的 destination 就是 `.sqlx/` 本身，`cargo sqlx prepare` 会**先清空再重写**。
+# 本仓唯一带 query 宏的门控模块是 `server_notification`
+# （`--features server-notifications`，C6 段），因此默认 feature 集 prepare 会**删掉
+# C6 的 47 条条目**。本轮沿用 C6 口径：
+#   SQLX_OFFLINE=false DATABASE_URL=… \
+#     cargo sqlx prepare --workspace -- --features server-notifications
+# 实测：before=226 after=302，**deleted=0 / added=76**（已用文件名集合 comm 逐条核对）。
+# 80 个宏站点只新增 76 条：`DELETE FROM spaces WHERE space_id = $1`（2 站点同哈希）、
+# `COUNT(*) … space_children WHERE space_id = $1`（2 站点）、
+# `COUNT(*) … space_members … membership='join'`（3 站点）等重复 SQL 合并。
+#
+# 验证（isolated worktree target/c7-wt @ HEAD c8871fe7 + 0af599d4 + 本补丁）：
+#   SQLX_OFFLINE=false DATABASE_URL=… cargo check -p synapse-storage
+#     --features test-utils → Finished（编译期按真实 schema 校验全部宏；
+#     首轮报 4 处 E0277 可空性缺失，已补 `is_exclusive!` ×3 与 `via_servers!` ×1）
+#   SQLX_OFFLINE=true … cargo check -p synapse-storage
+#     --features test-utils,server-notifications → Finished（提交的 .sqlx 可离线复现）
+#   cargo nextest run -p synapse-storage --lib --features test-utils,server-notifications
+#     -E 'test(space) or test(application_service)' → **99 passed, 0 failed**
+#     （468.5s；含 test_get_space_statistics_returns_rows / test_event_lifecycle /
+#       test_create_and_complete_transaction / test_fail_transaction_increments_retry /
+#       test_get_pending_events_respects_limit / test_get_recursive_hierarchy_*
+#       —— 覆盖 LEFT JOIN 聚合、nullable jsonb、多事务 RETURNING 等高风险路径）
+#
+# 运行期回退：**无**。
+# 未被 db 用例直接调用的转化站点（编译期已校验、运行期风险低，供后续补测参考）：
+#   get_statistics / update_last_seen / get_user_namespaces / get_room_alias_namespaces /
+#   get_room_namespaces / find_{user,room_alias,room}_namespace_conflict /
+#   is_{user,room_alias,room_id}_in_namespace / has_exclusive_user_namespace_match。
+#   这些站点的 `!` 覆盖都严格复刻旧 `Row::get::<T>` 的非空假设（列可空但数据恒非空），
+#   或把 COALESCE 计数标为非空（恒真），无运行期语义变化。
+#
+# ⚠️ 该 worktree 另需两处**仅验证用、未提交**的越界修补才能编译（均为并发写者
+# 已入库、与本批无关的缺陷，均只改 worktree，main 树未动）：
+#   1. synapse-web/src/routes/app_service.rs 的 `proxy_to_as` 把 `_body: Bytes`
+#      （body-consuming extractor，axum 要求排在最后）放在 `_method` 之前（与 C3/C6 同）；
+#   2. synapse-services/src/test_config.rs 的 `Config { … }` 初始化缺
+#      `content_scanner` 字段（E0063）（与 C6 同）。
+#
+# ⚠️ 提交被 pre-commit 的 fmt 棘轮拦下：HEAD 上 `synapse-storage/src/event/create.rs:109`
+# 有 3 个 `Diff in`（来自并发写者的提交 8489b407，非本批文件），本次提交按
+# AGENTS.md 的紧急绕过用 `git commit --no-verify`。本批两个文件本身 `rustfmt --edition 2021`
+# 干净（**未**运行 `cargo fmt --all`，未触碰他人在途文件）。
+#
+# 实测（同一工作树）：
+#   C7 自身 -80：
+#     dynamic_production 1280 → 1200
+#     static              233 →  313
+#     dynamic             1976 → 1896
+#   注：C6 段以门禁实测值把它设为 1281（含并发写者 search_index.rs 的 +1 在途改动）；
+#   本轮实测该在途改动已消失，故一并按实测收紧 **-81**（80 为 C7 自身，1 为回收到
+#   "实际 C6 值"）。C6 段自身的该提示（"若该在途改动被撤销/改写，应再下调 1"）至此落实。
+# 收紧方向：C4/C5/C8–C11 继续分批静态化（space/repository.rs 的 2 处运行期拼装 SQL
+# 见上），直至 dynamic_production = 0。
+BASELINE_DYNAMIC_PRODUCTION=1200
 BASELINE_DYNAMIC_TEST_INFRA=696
-BASELINE_STATIC=233
+BASELINE_STATIC=313
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1977
+BASELINE_DYNAMIC=1896
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #
