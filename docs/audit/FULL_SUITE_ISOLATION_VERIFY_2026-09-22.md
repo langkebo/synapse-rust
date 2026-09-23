@@ -124,20 +124,51 @@ AGENTS.md 把 `cargo test --all-features --locked -- --test-threads=4` 标注为
 
 ---
 
-## 6. 残留与建议
+## 6. 残留与建议（本节四项均已处置，见下）
 
-1. **共享库 schema 残留**：验证时实测共享 `synapse_test` 已积累 **1281** 个 per-test schema，
-   专用库仅 10 个。残留量本身是超时型假失败的来源，但清理动作会打断其他会话正在跑的测试，
-   未在本次执行；建议在无人跑测试的窗口用 `scripts/cleanup_test_schemas.sh` 处理。
-2. **本地全量入口建议收敛**：目前"全量"有多个手工命令行版本（AGENTS.md 的 root-only 版本、
-   `TESTING.md` 的 `--workspace --lib` 版本、`scripts/ci_backend_validation.sh`）。
-   建议以 `scripts/ci_backend_validation.sh` 为唯一本地入口，文档只引用它。
-3. **本地复跑文档门禁必须用 CI 同版本**：`docs-quality-gate.yml` 安装的是 `markdownlint-cli` 的 **latest**。
-   本机若钉旧版（实测 `0.37.0`）会把 `CLAUDE.md` 文件末尾的空行判为 `MD012`，而 CI 版本不报 —— 这是**假红**。
-   假红与假绿同样损伤门禁可信度：它会让复核者去"修"一个并不存在的问题。本次已用 CI 同版本复核三个改动文件，均为绿。
-4. **测试代码中写死的 `synapse_test` URL**：`synapse-services/src/{account_identity_service,saml_service}.rs`
-   存在 `connect_lazy` 形式写死库名。本次未造成跨界（这些用例使用 in-memory store，
-   lazy 池未取连接），但它们使 `TEST_DATABASE_URL` 的隔离在这些用例上不是结构性的，建议改为读同一配置源。
+1. **共享库 schema 残留** —— 已量化，**未执行清理（需安静窗口）**。
+   实测：共享 `synapse_test` 在 2026-09-22 第二次复核时 `cleanup_test_schemas.sh` 干跑报
+   **待清理 1295 个 schema**（首次复核为 1281，期间被其它会话的运行自然回收了一部分）。
+   脚本默认即干跑（`APPLY=0`，仅 `--apply` 才 DROP），且会保护各 live 模板。
+   **为何不执行**：清理会 CASCADE 掉其它会话正在使用的 per-test schema，使其运行出现假红 ——
+   这正是本报告通篇在防的跨界伤害类型。执行命令（请在确认无人跑测试时运行）：
+
+   ```bash
+   DATABASE_URL=postgresql://synapse:synapse@localhost:5432/synapse_test \
+     bash scripts/cleanup_test_schemas.sh           # 干跑，打印待清理数量与样本
+   DATABASE_URL=postgresql://synapse:synapse@localhost:5432/synapse_test \
+     bash scripts/cleanup_test_schemas.sh --apply   # 确认后实际执行
+   ```
+
+   另注意：残留仍会增长，因为清理**没有**任何自动调用点。若要让"膨胀-清理"不再靠人工，
+   应在某个已自动执行的入口（例如 `scripts/ci/prepare_test_db.sh` 播种前）加一次带白名单的
+   清理 —— 这属于行为改动，需单独评估与裁定，本报告只登记。
+2. **本地全量入口收敛** —— ✅ 已闭环。三处口径现已一致且都以 CI 为准：
+   `AGENTS.md` 的 "Full test suite" 已改为 `--workspace` 并指向 `scripts/ci_backend_validation.sh`；
+   `CLAUDE.md` 的 "Full suite" 同步改为 `nextest --workspace --lib`；
+   `TESTING.md` 本就写明本地封装是 `scripts/ci_backend_validation.sh`、权威入口是 `ci.yml`
+   （并记录了旧第二份实现 `scripts/run_ci_tests.sh` 已删除）。剩余的手工命令行只作为"这条命令到底跑什么"的解释而保留。
+3. **文档门禁的版本敏感性** —— ✅ 已治本。`docs-quality-gate.yml` 不再安装 `markdownlint-cli` 的
+   浮动 `latest`，改为钉死 **`markdownlint-cli@0.49.1`**（当前 latest），并在 workflow 注释里写明原因与实测：
+   `0.37.0` 会把 `CLAUDE.md` 末尾空行判为 `MD012` 而 0.49.1 接受，于是"本地钉旧版"必然产生假红。
+   钉死后本地与 CI 可以逐字对齐。
+4. **测试代码里写死的 `synapse_test` URL** —— ✅ 已闭环，且发现范围比本节原先记录的更大：
+   - 5 处 `connect_lazy("postgresql://…/synapse_test")`（`account_identity_service.rs` ×2、
+     `saml_service.rs` ×3）改为 `&synapse_common::test_isolation::test_database_url()`，
+     即本仓唯一的解析实现（优先级 `TEST_DATABASE_URL` → `DATABASE_URL` → 约定值）；
+   - 复核时另发现 **第二份解析链**：`synapse-services/src/test_config.rs` 自己的
+     `test_database_url()`（`unwrap_or_else` + `postgres://…/synapse_test`）。它的调用点
+     `container.rs:645` 决定了它不能直接删除，故改为**委托**单一实现。这不只是重复实现
+     （AGENTS.md 铁律 2），它还**绕过了 CI 下的 fallback 闸门** ——
+     `every_resolver_copy_disables_the_fallback_under_ci` 只覆盖 5 个 canonical 副本，而它不在其中，
+     因此在 `CI=1` 且 env 缺失时会静默连到 localhost。委托后该闸门自动覆盖此调用点；
+   - 为防止再次长出第二份 chain，在既有约定门禁
+     `tests/unit/test_db_url_convention_tests.rs` 中新增
+     `DELEGATING_RESOLVERS` + 纯谓词 `delegates_to_the_shared_resolver()` +
+     `delegating_resolvers_have_no_chain_of_their_own`，并配 `the_delegation_checker_rejects_a_second_chain`
+     作红证明（把修复前的 chain 原文喂给谓词，必须被判为不合规）；
+   - 该文件原有的两个测试（`test_database_url_default` / `_from_env`）随委托一并删除：
+     它们断言的是已不存在的旧默认串，且直接 `set_var`/`remove_var` 而未持 env 锁（多线程二进制里的竞态源）。
 
 ---
 
@@ -247,14 +278,63 @@ fail-fast 只在遇到失败时提前停止，不可能把"通过"变成"失败"
    `cargo test` 口径缺陷同型），已改成 CI 同款 `--workspace --all-targets --features test-utils --all-features`；
    但全工作区 clippy 需数分钟，故改为 `SYNAPSE_PRECOMMIT_CLIPPY=1` 按需启用 —— **格式阶段保持无条件阻断**。
 
-### 7.5 非阻塞观察（本次未改动）
+### 7.5 无断言用例与扫描方法论
 
-1. `synapse-web/src/routes/burn_after_read.rs` 的 `test_create_burn_after_read_router_creates_routes`
-   函数体内只有 `let _router_fn = create_burn_after_read_router;`，运行时**不断言任何东西**
-   （注释自述"验证函数存在且能编译"—— 而编译通过由编译器保证）。
-   它与本仓既有的"router 结构"测试（如 `test_reactions_routes_structure` 只对硬编码字符串数组断言）
-   同属弱测试，不是本提交新引入的标准问题，故未单方面抬高他人测试批次的标准。
+1. **已处置**：`synapse-web/src/routes/burn_after_read.rs` 的
+   `test_create_burn_after_read_router_creates_routes` 函数体内只有
+   `let _router_fn = create_burn_after_read_router;` —— 它取函数指针而**从不调用**，运行时零断言
+   （注释自述"验证函数存在且能编译"，而编译通过由编译器保证）。**已删除**，理由有二：
+   - 该函数已有**真实**的路由级契约测试：`tests/unit/burn_after_read_route_tests.rs` 覆盖
+     v1/v3 路径清单、各端点 JSON 形状、错误码映射与逻辑镜像。in-crate 这条是重复的；
+   - 它从未执行被测函数体，因此删除**不影响任何覆盖率**（`scripts/ci/coverage_baseline.json` 中
+     也不存在 `burn_after_read.rs` 条目，棘轮无从下降）。保留一条"看起来在测、实际没测"的用例
+     比缺少它更糟，符合 AGENTS.md 铁律 1 的删冗余取向。
+   说明：同一模块里另有两个 mirror 式用例（`test_set_global_burn_config_*`）是在本地重算逻辑再断言，
+   与 `tests/unit/burn_after_read_route_tests.rs` 头部声明的"pure-logic mirrors"是同一种既有约定，
+   故未改动 —— 只处理了"完全没有断言"这一更明确的缺陷。
 2. 严判据扫描本批 1313 行新测试（63 个测试函数，排除辅助函数）：仅上述 1 个用例完全没有断言，
    其余均有 `assert`/`panic!`/`unwrap_err` 等真实断言。**注意**：这类扫描必须从 `fn` 行本身起算
    大括号配平 —— 否则会在结构体字面量的收尾 `};` 处误判为函数结束，从而把"先构造结构体、后断言"
    的用例全部错标为"无断言"（本报告作者第一次扫描即踩此坑，得到 23 个假阳性后修正）。
+
+---
+
+### 7.6 第二次清扫（追上 `ff4a23d2`）：同型缺陷再次出现
+
+`main` 在本分支基线之后又推进 3 个提交（`0651688a`、`ec495e4f`、`ff4a23d2`，均为"继续补测试"）。
+本分支已 rebase 到 `ff4a23d2` 并完成清扫；`cargo fmt --all` 这次只改动新增的 3 个文件
+（`federation/membership/invite.rs`、`handlers/dehydrated_device.rs`、`external_service.rs`）。
+
+但以 CI 口径复跑后，**同一类缺陷再次出现**（判据：`nextest --workspace --lib --all-features`
+直接 exit 101，日志中**没有任何一行 `test result`**，即根本没进入运行阶段）：
+
+| 位置 | 诊断 | 处置 |
+|---|---|---|
+| `external_service.rs:530` | `E0425`：`serde_json::to_json` 不存在 | 改 `to_string`，并把 `contains("signature")` 换成对**解析后取值**的断言 |
+| `external_service.rs:517` | `E0277`：`ApplicationService` 未实现 `Default`（它是 `FromRow` 模型） | 逐字段写出；`From` 只读 `as_id`/`is_enabled`/`created_ts`，其余为惰性夹具 |
+| `external_service.rs:528` | `E0063`：`WebhookPayload` 缺 `event_type`/`timestamp` | 补全 |
+| `handlers/dehydrated_device.rs:131` | 未使用导入 `super::*`（clippy 带 `-D warnings` 时红） | 删除 |
+
+**结论比上一轮更强**：这不是一次性失误。两轮、相隔数小时、不同文件、不同作者时段，
+都以同一模式出现 —— 新增测试**从未在 `--all-features` 下编译过**。这再次印证 §7.3/§7.4 的判断：
+缺的是**提交前的执行点**，不是规则。当前 pre-commit hook 会在**格式**上拦住它；
+**编译**（`--all-features`）仍属 CI 职责 —— 本报告不建议把数分钟的编译塞进 pre-commit，
+但要求每次提交前至少自跑一次 `cargo nextest run --workspace --lib --all-features --locked`。
+
+### 7.7 本轮全量验证（代码状态 = `ff4a23d2` + 本分支全部修复）
+
+| 批次（CI 口径） | 结果 |
+|---|---|
+| `nextest --workspace --lib --all-features --test-threads 4` | **6229 passed / 0 failed**（2367s） |
+| `nextest --test unit --all-features --test-threads 4` | **1807 passed / 0 failed / 2 skipped**（含本轮新增的 2 条委托守卫；`+2` 与新增条数一致） |
+| `nextest --test integration --all-features --test-threads 4` | **1426 passed / 0 failed**（4707s） |
+| clippy `--all-features … -D warnings` | 0 error |
+| clippy 默认档 `-D warnings` | 0 error |
+| `./scripts/check_fmt_ratchet.sh` | `current=0 baseline=0` → OK |
+| **合计** | **9462 passed / 0 failed** |
+
+**方法说明（值得记录的一次自伤）**：integration 第一次跑到 257/1426 时被本报告作者**主动中止**，
+原因是**自己的专用测试库积累了 575 个残留 schema**，目录膨胀让每个用例明显变慢。
+随后按 §6.1 的方法清理该库（569 个 schema；`test_template_ci` 229 表与 `public` 227 表完好）后重跑，
+才得到上表结果。教训与 §6.1 同源：**per-test schema 残留首先是"慢到不可用"的前兆，其次才是空间问题** ——
+`--apply` 的清理窗口不只是为了不被别人打断，也是为了让自己的验证跑得动。
