@@ -808,7 +808,7 @@ impl ApplicationServiceStorage {
                 id,
                 as_id,
                 namespace AS namespace_pattern,
-                is_exclusive,
+                is_exclusive AS "is_exclusive!",
                 namespace AS regex,
                 created_ts
             FROM application_service_user_namespaces
@@ -832,7 +832,7 @@ impl ApplicationServiceStorage {
                 id,
                 as_id,
                 namespace AS namespace_pattern,
-                is_exclusive,
+                is_exclusive AS "is_exclusive!",
                 namespace AS regex,
                 created_ts
             FROM application_service_room_alias_namespaces
@@ -853,7 +853,7 @@ impl ApplicationServiceStorage {
                 id,
                 as_id,
                 namespace AS namespace_pattern,
-                is_exclusive,
+                is_exclusive AS "is_exclusive!",
                 namespace AS regex,
                 created_ts
             FROM application_service_room_namespaces

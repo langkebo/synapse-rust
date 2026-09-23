@@ -713,7 +713,7 @@ impl SpaceStorage {
                     room_id,
                     sender,
                     is_suggested AS "is_suggested!",
-                    via_servers AS "via_servers: Vec<String>",
+                    via_servers AS "via_servers!: Vec<String>",
                     added_ts,
                     NULL::TEXT as "order",
                     NULL::BOOLEAN as suggested,
