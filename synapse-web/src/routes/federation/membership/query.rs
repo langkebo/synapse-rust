@@ -261,13 +261,14 @@ mod tests {
     fn test_get_joining_rules_allow_field_filtering() {
         // Test that non-array "allow" values are filtered to empty array
         let allow_wrong_type = json!("not-an-array");
-        let allow_filtered = allow_wrong_type.as_array().cloned().unwrap_or_else(|| json!([]));
-        assert!(allow_filtered.is_array());
+        // A non-array `allow` filters down to an empty **Vec**, not to a `Value` —
+        // `unwrap_or_default()` keeps the element type (`Vec<Value>`) intact.
+        let allow_filtered = allow_wrong_type.as_array().cloned().unwrap_or_default();
         assert!(allow_filtered.is_empty());
 
         // Test that valid array is preserved
         let allow_correct = json!(["rule1", "rule2"]);
-        let allow_preserved = allow_correct.as_array().cloned().unwrap_or_else(|| json!([]));
+        let allow_preserved = allow_correct.as_array().cloned().unwrap_or_default();
         assert_eq!(allow_preserved.len(), 2);
     }
 }

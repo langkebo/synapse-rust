@@ -203,11 +203,7 @@ mod tests {
     fn test_edu_processing_stats_field_names() {
         // Verify the struct has the expected field names (will fail at compile time
         // if the struct definition changes)
-        let mut stats = EduProcessingStats::default();
-        stats.edus_processed = 1;
-        stats.total_processed = 2;
-        stats.total_dropped = 3;
-        stats.total_errored = 4;
+        let stats = EduProcessingStats { edus_processed: 1, total_processed: 2, total_dropped: 3, total_errored: 4 };
 
         assert_eq!(stats.edus_processed, 1);
         assert_eq!(stats.total_processed, 2);

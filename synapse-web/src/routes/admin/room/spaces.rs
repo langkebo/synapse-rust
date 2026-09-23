@@ -208,9 +208,22 @@ mod tests {
     use super::*;
     use synapse_common::ApiErrorKind;
 
+    // Mock type for compile-time structure validation only. It must live *inside*
+    // the test module: declared at file scope it is dead code in the non-test
+    // (`lib`) build, which `clippy -D warnings` turns into an error.
+    #[derive(Debug)]
+    struct SpaceInfoMock {
+        space_id: String,
+        room_id: String,
+        name: Option<String>,
+        topic: Option<String>,
+        creator: String,
+        created_ts: u64,
+    }
+
     #[test]
     fn test_space_list_json_structure() {
-        let mock_spaces = vec![SpaceInfoMock {
+        let mock_spaces = [SpaceInfoMock {
             space_id: "!space1:example.com".to_string(),
             room_id: "!room1:example.com".to_string(),
             name: Some("Test Space".to_string()),
@@ -340,15 +353,4 @@ mod tests {
         assert_eq!(response["room_id"], "!room1:example.com");
         assert_eq!(response["public"], false);
     }
-}
-
-// Mock types for tests (compile-time structure validation only)
-#[derive(Debug)]
-struct SpaceInfoMock {
-    space_id: String,
-    room_id: String,
-    name: Option<String>,
-    topic: Option<String>,
-    creator: String,
-    created_ts: u64,
 }
