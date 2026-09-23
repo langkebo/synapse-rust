@@ -738,7 +738,7 @@ impl ServerNotificationStorage {
     ) -> Result<Option<(Option<String>, Option<String>)>, ApiError> {
         let row = sqlx::query!(
             r#"
-            SELECT sn.event_id, e.room_id
+            SELECT sn.event_id AS "event_id?", e.room_id AS "room_id?"
             FROM server_notices sn
             LEFT JOIN events e ON e.event_id = sn.event_id
             WHERE sn.id = $1
