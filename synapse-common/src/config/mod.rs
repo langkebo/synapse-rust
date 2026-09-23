@@ -236,6 +236,10 @@ pub struct Config {
     #[serde(default)]
     /// `sso_redirect_allowlist` field.
     pub sso_redirect_allowlist: Vec<String>,
+    /// Content Scanner configuration (MSC3806)
+    #[serde(default)]
+    /// `content_scanner` field.
+    pub content_scanner: super::content_scanner::ContentScannerConfig,
 }
 
 impl Config {

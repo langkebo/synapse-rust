@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT COALESCE(MAX(stream_id), 0) AS \"max_id!\" FROM device_lists_stream\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "max_id!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9a91568966ac46006d0f6440a917963351039f514803eec963671ebce157993a"
+}

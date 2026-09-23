@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO device_lists_stream (user_id, device_id, created_ts)\n                VALUES ($1, $2, $3)\n                RETURNING stream_id\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "stream_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "cdef0169ee4747107e2390fcc8de08a204718cffd7daa92b569854c87fac8134"
+}

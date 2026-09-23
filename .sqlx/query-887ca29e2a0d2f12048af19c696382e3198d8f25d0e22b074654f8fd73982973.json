@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO lazy_loaded_members (\n                user_id,\n                device_id,\n                room_id,\n                member_user_id,\n                created_ts,\n                updated_ts\n            )\n            SELECT $1, $2, $3, member_user_id, $4, $4\n            FROM UNNEST($5::TEXT[]) AS member_user_id\n            ON CONFLICT (user_id, device_id, room_id, member_user_id)\n            DO UPDATE SET updated_ts = EXCLUDED.updated_ts\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "887ca29e2a0d2f12048af19c696382e3198d8f25d0e22b074654f8fd73982973"
+}

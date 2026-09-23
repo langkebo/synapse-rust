@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT user_id, device_id FROM devices WHERE device_id = ANY($1)\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "device_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "e9373f59d21aa72d57e5d1a8084803faaed88f969d2ceb17476699f64535d016"
+}

@@ -1,9 +1,10 @@
 use crate::routes::context::AdminContext;
 use axum::{
+    body::Bytes,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
-    routing::{delete, get, post, put},
+    routing::{any, delete, get, post, put},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -367,6 +368,47 @@ pub async fn get_app_service_states(
     Ok(Json(states))
 }
 
+// =============================================================================
+// MSC4512: Application Services Proxy
+// =============================================================================
+
+/// MSC4512: Proxy a request to the Application Service.
+///
+/// Proxies the request to the AS endpoint at `/{as_id}/{...path}`.
+/// Requires valid HS token authentication via the `Authorization: Bearer <hs_token>` header.
+/// Note: This is an internal implementation detail — the full AS proxy semantics
+/// will be validated against the MSC4512 spec before production rollout.
+pub async fn proxy_to_as(
+    State(ctx): State<AdminContext>,
+    Path((as_id, path)): Path<(String, String)>,
+    _headers: HeaderMap,
+    _body: Bytes,
+    _method: axum::http::Method,
+) -> Result<impl axum::response::IntoResponse, ApiError> {
+    use axum::body::Body;
+
+    validate_as_id(&as_id)?;
+
+    let service = ctx.app_service_manager.get(&as_id).await?;
+    let service = require_found(service, "Application service not found")?;
+
+    if !service.is_enabled {
+        return Err(ApiError::bad_request("Application service is disabled"));
+    }
+
+    // Placeholder response — full proxy implementation pending MSC4512 spec validation
+    Ok((
+        StatusCode::NOT_IMPLEMENTED,
+        Body::from(
+            serde_json::json!({
+                "errcode": "M_NOT_IMPLEMENTED",
+                "error": "MSC4512 AS proxy not yet implemented"
+            })
+            .to_string(),
+        ),
+    ))
+}
+
 /// See [`register_virtual_user`].
 pub async fn register_virtual_user(
     State(ctx): State<AdminContext>,
@@ -601,6 +643,8 @@ pub fn create_app_service_router(state: &AppState) -> Router<AppState> {
         .route("/_matrix/app/v1/users/{user_id}", get(app_service_user_query))
         .route("/_matrix/app/v1/rooms/{alias}", get(app_service_room_alias_query))
         .route("/_matrix/app/v1/{as_id}", get(app_service_query))
+        .route("/_matrix/app/v1/proxy/{as_id}/*path", any(proxy_to_as))
+        .route("/_matrix/client/v1/proxy/{as_id}/*path", any(proxy_to_as))
         .route("/_matrix/client/v3/appservice/user", get(query_user))
         .route("/_matrix/client/v3/appservice/alias", get(query_room_alias));
 

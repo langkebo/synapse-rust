@@ -120,9 +120,10 @@ impl EventStorage {
     /// This reconstructs the complete PDU including all fields needed for
     /// hash computation and signature verification.
     pub async fn get_full_event_json(&self, event_id: &str) -> Result<Option<Value>, sqlx::Error> {
-        let row: Option<Value> = sqlx::query_as(
+        let row: Option<(Value, String, Option<String>, i64, i64, Option<String>)> = sqlx::query_as(
             r#"
-                SELECT json_build_object(
+                SELECT 
+                    json_build_object(
                         'event_id', event_id,
                         'type', event_type,
                         'room_id', room_id,
@@ -134,7 +135,12 @@ impl EventStorage {
                         'origin', COALESCE(origin, 'self'),
                         'prev_events', COALESCE(prev_events, '[]'::json),
                         'auth_events', COALESCE(auth_events, '[]'::json)
-                    ) as event_json
+                    ) as event_json,
+                    event_id,
+                    state_key,
+                    COALESCE(depth, 0),
+                    COALESCE(origin_server_ts, 0),
+                    origin
                 FROM events
                 WHERE event_id = $1
                 "#,
@@ -143,7 +149,7 @@ impl EventStorage {
         .fetch_optional(self.pool.as_ref())
         .await?;
 
-        Ok(row)
+        Ok(row.map(|r| r.0))
     }
 }
 

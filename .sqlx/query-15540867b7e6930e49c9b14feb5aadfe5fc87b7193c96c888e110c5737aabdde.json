@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT member_user_id\n            FROM lazy_loaded_members\n            WHERE user_id = $1 AND device_id = $2 AND room_id = $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "member_user_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "15540867b7e6930e49c9b14feb5aadfe5fc87b7193c96c888e110c5737aabdde"
+}

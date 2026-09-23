@@ -182,11 +182,59 @@
 # 7ab49abf 新增的 `synapse-storage/src/event/cascade.rs`（2 处运行期拼装 SQL，
 # 该提交未同步调整基线）。此处按**实测值**收紧到 1410；cascade.rs 整改或删除后
 # 应再次下调。收紧方向：C2–C11 继续分批静态化，直至 dynamic_production = 0。
-BASELINE_DYNAMIC_PRODUCTION=1411
+#
+# ── 2026-09-23 C2 静态化（生产动态 -44，静态 +44）────────────────────────────
+#
+# 批次：C2（docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md）。
+# 文件：synapse-storage/src/device/mod.rs。
+#
+# 该文件 **44 处生产动态调用全部静态化**（生产区剩余动态 = 0）：
+#   query_as!     × 7（Device 行映射 / INSERT … RETURNING）
+#   query_scalar! ×10（RETURNING stream_id、COUNT / COALESCE(MAX) 聚合、
+#                      EXISTS 探测、单列 SELECT DISTINCT）
+#   query!        ×27（INSERT / UPDATE / DELETE 可执行语句，以及需要多列投影的
+#                      delete_devices_batch / get_device_list_changes /
+#                      get_devices_by_user_device_pairs /
+#                      get_device_list_changed_users_since）
+#
+# 静态化时补的 nullability 覆盖（表达式/聚合列无 relation_id，sqlx 一律推断可空）：
+#   * device_exists                            `SELECT 1 AS "exists!"`
+#   * get_device_count                         `COUNT(*) AS "count!"`
+#   * get_max_device_list_stream_id(_for_user) `COALESCE(MAX(stream_id),0) AS "max_id!"`
+#   * get_device_list_changed_users_since      `MAX(stream_id) AS "max_id!"`
+# 这些值恒为非空（常量 1 / 非空分组聚合），`!` 覆盖无运行期风险。
+# ⚠️ 同查询的 `ORDER BY max_id` 同步改成 `ORDER BY MAX(stream_id)`：`AS "max_id!"`
+# 是**带 `!` 的 SQL 标识符**、原样发给 PG，继续按别名排序会报 42703。
+#
+# 结构变化（对外签名全部不变）：
+#   * `query_as!` 宏按 `T { field: .. }` 构造、**不支持元组**；原先用
+#     `query_as::<_, (..)>` 的 4 个站点改用 `query!` 匿名记录后映射回元组
+#     （delete_devices_batch / get_device_list_changes /
+#      get_devices_by_user_device_pairs / get_device_list_changed_users_since）。
+#   * record_device_list_change 的 `Row::get("stream_id")` → `query_scalar!`；
+#     全文件不再使用 `Row`，`use sqlx::{Pool, Postgres, Row}` 去掉 `Row`。
+#   * 宏的 ty_match 要求数组实参类型**精确**为 `&[String]`（动态 `.bind()` 接受
+#     `&[&str]` / `&Vec<&str>`）：
+#       - upsert_lazy_loaded_members 的 `Vec<&str>` → `Vec<String>`，传 `&x[..]`；
+#       - get_devices_by_user_device_pairs 的 `&[&str]` 参数先转 owned `Vec<String>`。
+#
+# 测试模块（`#[cfg(test)] mod tests` / `db_tests`）内 12 处动态调用**未动**：
+# `#[cfg(test)]` 内的宏不进 `cargo sqlx prepare`（默认 target 集），且建表 DDL
+# 夹具无法静态化；dynamic_test 保持 696。
+#
+# `.sqlx/`：本轮 `cargo sqlx prepare --workspace` 重刷，新增 42 条，并顺带剪除
+# C1 回退 `search_directory_users` 留下的 1 条孤儿条目（见上段"待下次 prepare 剪除"）。
+#
+# 实测（同一工作树）：
+#   dynamic_production 1411 → 1367
+#   static              103 →  147
+#   dynamic             2107 → 2063
+# 收紧方向：C3–C11 继续分批静态化，直至 dynamic_production = 0。
+BASELINE_DYNAMIC_PRODUCTION=1367
 BASELINE_DYNAMIC_TEST_INFRA=696
-BASELINE_STATIC=103
+BASELINE_STATIC=147
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=2107
+BASELINE_DYNAMIC=2063
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

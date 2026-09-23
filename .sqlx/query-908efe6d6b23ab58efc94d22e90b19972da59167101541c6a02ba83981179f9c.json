@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts)\n                VALUES ($1, $2, 'deleted', $3, $4)\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "908efe6d6b23ab58efc94d22e90b19972da59167101541c6a02ba83981179f9c"
+}

@@ -30,6 +30,8 @@ pub mod concurrency;
 pub mod config;
 /// Module `constants`.
 pub mod constants;
+/// Module `content_scanner` — MSC3806 content scanning types.
+pub mod content_scanner;
 /// Module `crypto`.
 pub mod crypto;
 pub mod db_query_metrics;

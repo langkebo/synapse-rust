@@ -205,11 +205,8 @@ fn run_census_on_tree(files: &[(&str, &str)]) -> String {
     use std::sync::atomic::{AtomicU32, Ordering};
     static SEQ: AtomicU32 = AtomicU32::new(0);
 
-    let root = std::env::temp_dir().join(format!(
-        "sqlx_census_{}_{}",
-        std::process::id(),
-        SEQ.fetch_add(1, Ordering::SeqCst)
-    ));
+    let root =
+        std::env::temp_dir().join(format!("sqlx_census_{}_{}", std::process::id(), SEQ.fetch_add(1, Ordering::SeqCst)));
     if root.exists() {
         fs::remove_dir_all(&root).expect("clean temp root");
     }

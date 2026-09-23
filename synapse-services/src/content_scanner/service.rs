@@ -5,13 +5,13 @@ use tokio::time::{timeout, Duration};
 
 /// The `ContentScanner` struct.
 pub struct ContentScanner {
-    config: ContentScannerConfig,
+    config: synapse_common::content_scanner::ContentScannerConfig,
     http_client: reqwest::Client,
 }
 
 impl ContentScanner {
     /// See [`new`].
-    pub fn new(config: ContentScannerConfig) -> Self {
+    pub fn new(config: synapse_common::content_scanner::ContentScannerConfig) -> Self {
         // F-1: 复用共享 HTTP client（带超时与连接池），不再裸用 Client::new()
         Self { config, http_client: synapse_common::http_client::default_client() }
     }
@@ -217,7 +217,7 @@ mod tests {
     use super::ContentScanner;
 
     fn make_disabled_scanner() -> ContentScanner {
-        ContentScanner::new(ContentScannerConfig {
+        ContentScanner::new(synapse_common::content_scanner::ContentScannerConfig {
             enabled: false,
             scanner_type: ScannerType::Disabled,
             block_on_scan_failure: false,
@@ -226,7 +226,7 @@ mod tests {
     }
 
     fn make_enabled_disabled_type_scanner() -> ContentScanner {
-        ContentScanner::new(ContentScannerConfig {
+        ContentScanner::new(synapse_common::content_scanner::ContentScannerConfig {
             enabled: true,
             scanner_type: ScannerType::Disabled,
             block_on_scan_failure: true,
@@ -235,7 +235,7 @@ mod tests {
     }
 
     fn make_clamav_scanner() -> ContentScanner {
-        ContentScanner::new(ContentScannerConfig {
+        ContentScanner::new(synapse_common::content_scanner::ContentScannerConfig {
             enabled: true,
             scanner_type: ScannerType::ClamAv,
             clamav_socket_path: Some("/nonexistent/clamd.sock".to_string()),
@@ -246,7 +246,7 @@ mod tests {
     }
 
     fn make_webhook_scanner(block_on_failure: bool, url: Option<String>) -> ContentScanner {
-        ContentScanner::new(ContentScannerConfig {
+        ContentScanner::new(synapse_common::content_scanner::ContentScannerConfig {
             enabled: true,
             scanner_type: ScannerType::Webhook,
             webhook_url: url,

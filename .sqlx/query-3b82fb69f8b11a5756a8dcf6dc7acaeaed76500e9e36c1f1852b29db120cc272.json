@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH inserted AS (\n                INSERT INTO device_lists_stream (user_id, device_id, created_ts)\n                SELECT $1, device_id, $2 FROM UNNEST($3::TEXT[]) AS device_id\n                RETURNING stream_id, device_id\n            )\n            INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts)\n            SELECT $1, device_id, $4, stream_id, $2 FROM inserted\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Int8",
+        "TextArray",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3b82fb69f8b11a5756a8dcf6dc7acaeaed76500e9e36c1f1852b29db120cc272"
+}

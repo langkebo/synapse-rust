@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE devices SET last_seen_ts = $1 WHERE device_id = ANY($2)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fc667e54082d5e2216b890eed48c518e70dd7c37f4099380e098cb7e7655f99e"
+}

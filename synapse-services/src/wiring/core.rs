@@ -62,6 +62,8 @@ pub struct CoreServices {
     pub client_push_service: Arc<crate::client_push_service::ClientPushService>,
     /// The `user_service` field.
     pub user_service: Arc<UserService>,
+    /// The `content_scanner` field — MSC3806 Content Scanner assembly.
+    pub content_scanner: Arc<crate::content_scanner::ContentScanner>,
 }
 
 impl CoreServices {
@@ -174,6 +176,9 @@ impl CoreServices {
             account_data_service,
             client_push_service,
             user_service,
+            content_scanner: Arc::new(crate::content_scanner::ContentScanner::new(
+                infra.config.content_scanner.clone(),
+            )),
         }
     }
 }

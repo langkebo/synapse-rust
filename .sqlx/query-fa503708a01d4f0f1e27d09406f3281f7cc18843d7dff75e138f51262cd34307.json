@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM lazy_loaded_members\n            WHERE user_id = $1 AND device_id = ANY($2)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fa503708a01d4f0f1e27d09406f3281f7cc18843d7dff75e138f51262cd34307"
+}
