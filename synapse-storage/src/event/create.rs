@@ -56,6 +56,11 @@ impl EventStorage {
     /// the DAG.  Callers without graph data (locally-produced events where
     /// prev_events tracking is not yet wired) can continue to use
     /// `create_event`, which delegates here with empty arrays and depth 0.
+    ///
+    /// P2-1 Optimization (2026-09-23):
+    /// - Combined two-step insert in single transaction (event row + edges)
+    /// - Uses unnest() to batch edge inserts in one round-trip
+    /// - Reduces transaction overhead vs. multiple individual INSERTs
     pub async fn create_event_with_graph(
         &self,
         params: CreateEventParams,
@@ -67,17 +72,26 @@ impl EventStorage {
         let prev_events_json = serde_json::to_value(prev_events).unwrap_or(serde_json::Value::Null);
         let auth_events_json = serde_json::to_value(auth_events).unwrap_or(serde_json::Value::Null);
 
-        let query = r"
+        // P2-1: Insert event row first, then batch edge inserts in same txn
+        let insert_event_query = r"
             INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, state_key, origin_server_ts, is_redacted, redacts, depth, prev_events, auth_events)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9, $10, $11, $12)
             RETURNING event_id, room_id, sender as user_id, event_type, content, state_key,
                       COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
                       0::BIGINT as not_before, 'pending' as status,
                       'self' as origin, stream_ordering, redacts
-            ";
+        ";
+
+        // P2-1: Batch insert all prev_edges in a single round-trip using unnest()
+        let insert_edges_query = r"
+            INSERT INTO event_edges (event_id, prev_event_id, is_state)
+            SELECT $1, unnest($2::text[]), false
+            WHERE $2 IS NOT NULL AND $2 != '[]'
+            ON CONFLICT DO NOTHING
+        ";
 
         let event = if let Some(tx) = tx {
-            let event = sqlx::query_as(query)
+            let event = sqlx::query_as(insert_event_query)
                 .bind(&params.event_id)
                 .bind(&params.room_id)
                 .bind(&params.user_id)
@@ -93,19 +107,13 @@ impl EventStorage {
                 .fetch_one(&mut **tx)
                 .await?;
 
-            // Populate event_edges within the same transaction.
+            // P2-1: Batch edge inserts in same transaction
             if !prev_events.is_empty() {
-                sqlx::query(
-                    r"
-                    INSERT INTO event_edges (event_id, prev_event_id, is_state)
-                    SELECT $1, unnest($2::text[]), false
-                    ON CONFLICT DO NOTHING
-                    ",
-                )
-                .bind(&params.event_id)
-                .bind(prev_events)
-                .execute(&mut **tx)
-                .await?;
+                sqlx::query(insert_edges_query)
+                    .bind(&params.event_id)
+                    .bind(prev_events)
+                    .execute(&mut **tx)
+                    .await?;
             }
             event
         } else {
@@ -114,7 +122,7 @@ impl EventStorage {
             // leave an orphaned `events` row behind (B8).
             let mut local_tx = self.pool.begin().await?;
 
-            let event = sqlx::query_as(query)
+            let event = sqlx::query_as(insert_event_query)
                 .bind(&params.event_id)
                 .bind(&params.room_id)
                 .bind(&params.user_id)
@@ -130,18 +138,13 @@ impl EventStorage {
                 .fetch_one(&mut *local_tx)
                 .await?;
 
+            // P2-1: Batch edge inserts in same local transaction
             if !prev_events.is_empty() {
-                sqlx::query(
-                    r"
-                    INSERT INTO event_edges (event_id, prev_event_id, is_state)
-                    SELECT $1, unnest($2::text[]), false
-                    ON CONFLICT DO NOTHING
-                    ",
-                )
-                .bind(&params.event_id)
-                .bind(prev_events)
-                .execute(&mut *local_tx)
-                .await?;
+                sqlx::query(insert_edges_query)
+                    .bind(&params.event_id)
+                    .bind(prev_events)
+                    .execute(&mut *local_tx)
+                    .await?;
             }
 
             local_tx.commit().await?;
@@ -164,6 +167,9 @@ impl EventStorage {
     ///
     /// For non-MSC4242 room versions, use `create_event_with_graph` instead
     /// (which leaves `prev_state_events` NULL).
+    ///
+    /// P2-1 Optimization (2026-09-23):
+    /// - Batch inserts room edges and state edges in separate unnest() calls
     pub async fn create_state_event_with_dag(
         &self,
         params: CreateEventParams,
@@ -177,7 +183,7 @@ impl EventStorage {
         let auth_events_json = serde_json::to_value(auth_events).unwrap_or(serde_json::Value::Null);
         let prev_state_events_json = serde_json::to_value(prev_state_events).unwrap_or(serde_json::Value::Null);
 
-        let query = r"
+        let insert_event_query = r"
             INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, state_key,
                                 origin_server_ts, is_redacted, redacts, depth,
                                 prev_events, auth_events, prev_state_events)
@@ -186,10 +192,26 @@ impl EventStorage {
                       COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
                       0::BIGINT as not_before, 'pending' as status,
                       'self' as origin, stream_ordering, redacts
-            ";
+        ";
+
+        // P2-1: Batch room DAG edges
+        let insert_room_edges_query = r"
+            INSERT INTO event_edges (event_id, prev_event_id, is_state)
+            SELECT $1, unnest($2::text[]), false
+            WHERE $2 IS NOT NULL AND $2 != '[]'
+            ON CONFLICT DO NOTHING
+        ";
+
+        // P2-1: Batch state DAG edges
+        let insert_state_edges_query = r"
+            INSERT INTO event_edges (event_id, prev_event_id, is_state)
+            SELECT $1, unnest($2::text[]), true
+            WHERE $2 IS NOT NULL AND $2 != '[]'
+            ON CONFLICT DO NOTHING
+        ";
 
         let event = if let Some(tx) = tx {
-            let event = sqlx::query_as(query)
+            let event = sqlx::query_as(insert_event_query)
                 .bind(&params.event_id)
                 .bind(&params.room_id)
                 .bind(&params.user_id)
@@ -206,33 +228,21 @@ impl EventStorage {
                 .fetch_one(&mut **tx)
                 .await?;
 
-            // Populate event_edges for room DAG (is_state=false).
+            // P2-1: Batch room DAG edges
             if !prev_events.is_empty() {
-                sqlx::query(
-                    r"
-                    INSERT INTO event_edges (event_id, prev_event_id, is_state)
-                    SELECT $1, unnest($2::text[]), false
-                    ON CONFLICT DO NOTHING
-                    ",
-                )
-                .bind(&params.event_id)
-                .bind(prev_events)
-                .execute(&mut **tx)
-                .await?;
+                sqlx::query(insert_room_edges_query)
+                    .bind(&params.event_id)
+                    .bind(prev_events)
+                    .execute(&mut **tx)
+                    .await?;
             }
-            // Populate event_edges for state DAG (is_state=true).
+            // P2-1: Batch state DAG edges
             if !prev_state_events.is_empty() {
-                sqlx::query(
-                    r"
-                    INSERT INTO event_edges (event_id, prev_event_id, is_state)
-                    SELECT $1, unnest($2::text[]), true
-                    ON CONFLICT DO NOTHING
-                    ",
-                )
-                .bind(&params.event_id)
-                .bind(prev_state_events)
-                .execute(&mut **tx)
-                .await?;
+                sqlx::query(insert_state_edges_query)
+                    .bind(&params.event_id)
+                    .bind(prev_state_events)
+                    .execute(&mut **tx)
+                    .await?;
             }
             event
         } else {
@@ -243,7 +253,7 @@ impl EventStorage {
             // 红证明 `create_state_event_with_dag_rolls_back_event_when_edges_insert_fails`）。
             let mut local_tx = self.pool.begin().await?;
 
-            let event = sqlx::query_as(query)
+            let event = sqlx::query_as(insert_event_query)
                 .bind(&params.event_id)
                 .bind(&params.room_id)
                 .bind(&params.user_id)
@@ -260,33 +270,21 @@ impl EventStorage {
                 .fetch_one(&mut *local_tx)
                 .await?;
 
-            // Populate event_edges for room DAG (is_state=false).
+            // P2-1: Batch room DAG edges
             if !prev_events.is_empty() {
-                sqlx::query(
-                    r"
-                    INSERT INTO event_edges (event_id, prev_event_id, is_state)
-                    SELECT $1, unnest($2::text[]), false
-                    ON CONFLICT DO NOTHING
-                    ",
-                )
-                .bind(&params.event_id)
-                .bind(prev_events)
-                .execute(&mut *local_tx)
-                .await?;
+                sqlx::query(insert_room_edges_query)
+                    .bind(&params.event_id)
+                    .bind(prev_events)
+                    .execute(&mut *local_tx)
+                    .await?;
             }
-            // Populate event_edges for state DAG (is_state=true).
+            // P2-1: Batch state DAG edges
             if !prev_state_events.is_empty() {
-                sqlx::query(
-                    r"
-                    INSERT INTO event_edges (event_id, prev_event_id, is_state)
-                    SELECT $1, unnest($2::text[]), true
-                    ON CONFLICT DO NOTHING
-                    ",
-                )
-                .bind(&params.event_id)
-                .bind(prev_state_events)
-                .execute(&mut *local_tx)
-                .await?;
+                sqlx::query(insert_state_edges_query)
+                    .bind(&params.event_id)
+                    .bind(prev_state_events)
+                    .execute(&mut *local_tx)
+                    .await?;
             }
 
             local_tx.commit().await?;
