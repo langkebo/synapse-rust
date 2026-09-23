@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE server_notifications SET is_enabled = FALSE WHERE id = $1 AND is_enabled = TRUE",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0670a530b8b5815d2df43fa3830154d5231e0590ce5daf73f0d39767cc9403a3"
+}

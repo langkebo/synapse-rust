@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO events (event_id, room_id, user_id, event_type, content, origin_server_ts, sender, state_key)\n            VALUES ($1, $2, $3, 'm.room.member', $4, $5, $6, $7)\n            ON CONFLICT (event_id) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a87b4fd32da501546016fdf58fe085e0519468a03241740ace390204f186e7e1"
+}

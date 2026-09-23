@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO user_notification_status (user_id, notification_id)\n            SELECT $1, notification_id FROM UNNEST($2::BIGINT[]) AS notification_id\n            ON CONFLICT (user_id, notification_id) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fa4eca3e57ff73c3cd16abbb320df7f9b2fb7743a88263d0bd6fb84612345387"
+}

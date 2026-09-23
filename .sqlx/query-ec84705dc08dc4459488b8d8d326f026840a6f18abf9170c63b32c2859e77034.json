@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE notification_templates SET is_enabled = FALSE WHERE name = $1 AND is_enabled = TRUE",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ec84705dc08dc4459488b8d8d326f026840a6f18abf9170c63b32c2859e77034"
+}

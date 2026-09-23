@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, user_id, notification_id, is_read, is_dismissed, read_ts, dismissed_ts, created_ts\n            FROM user_notification_status\n            WHERE user_id = $1 AND notification_id = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "notification_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_read",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "is_dismissed",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "read_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "dismissed_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "b3b90bb320ce0d07fb50ce77e05ad2aba40c7834f5fa7385bcf8a9aafdca84e0"
+}
