@@ -19,9 +19,9 @@
 
 # AppService routes (spec-allowed / real ACK after successful namespace or
 # transaction handling)
-app_service.rs:518
-app_service.rs:537
-app_service.rs:556
+app_service.rs:636
+app_service.rs:655
+app_service.rs:674
 
 # Sticky event routes (storage mutation ACK)
 sticky_event.rs:134

@@ -348,7 +348,7 @@ v6.5.0 (2026-12-15)
 | ~~SAS 破坏旧客户端兼容性~~ | ✅ 已解决 | 仅在 MSC4217-enforced rooms 启用 | E2EE 小组 |
 | ~~事务窗口改动导致数据不一致~~ | ✅ 已解决 | 蓝绿部署 + 回滚脚本 | 基础设施组 |
 | ~~EDU 路由引入新向量攻击~~ | ✅ 已实现 | 严格 AS 权限校验 | 安全组 |
-| **SAS commitment 完善** | ✅ 已实现 | `base64(sha256(public_key || "verification.commitment"))`，compute_commitment 方法 + 3 个测试 | E2EE 小组 |
+| **SAS commitment 完善** | ✅ 已实现 | `base64(sha256(public_key \|\| "verification.commitment"))`，compute_commitment 方法 + 3 个测试 | E2EE 小组 |
 | **MSC3912 级联撤回** | ✅ 已完成 | `cascade_redact_event` 存储/服务层实现 + admin 路由端点 | E2EE 小组 |
 | **MSC4512 AS 代理** | ❌ 待实现 | 实现 proxy_namespace 表 + EDU 路由 | 基础设施组 |
 | **路由契约 CI** | ❌ 待实现 | 新增 `.github/workflows/route-contract.yml` | CI 小组 |

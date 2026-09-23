@@ -134,7 +134,7 @@
 | **删除 `GET /_matrix/client/unstable/org.matrix.msc2965/auth_issuer`** | 1.161 | **反向：本仓仍注册（多余端点）** | `/_matrix/client/unstable/org.matrix.msc2965/auth_issuer` 仍在册（`/tmp/paths.txt` 可复现）；上游 1.161 #20163 已删除 |
 | **MSC4140 新增"获取单个延迟事件"端点** | 1.161 | **PARTIAL** | 本仓有 `/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}`；缺联邦 EDU（`synapse-federation/src/edu.rs:15-35` 无 delayed-event 变体，`m.delayed_event` 全仓 0 命中） |
 | **MSC4502 定向房间成员查询** | 1.160 | **PARTIAL** | `msc4502` 命中 8 个 `.rs` 文件（`room/membership/{mod,service}.rs`、`handlers/room/members.rs`、`sync_service/*`、`membership/api.rs`） |
-| **MSC4262 / MSC4429 Profile 更新进 sync** | 1.159/1.160 | **PARTIAL** | `msc4262|msc4429` 命中 8 个 `.rs` 文件（`user_service.rs`、`user/storage.rs`、`sliding_sync_service/extensions.rs`、`federation/edu.rs` 等） |
+| **MSC4262 / MSC4429 Profile 更新进 sync** | 1.159/1.160 | **PARTIAL** | `msc4262\|msc4429` 命中 8 个 `.rs` 文件（`user_service.rs`、`user/storage.rs`、`sliding_sync_service/extensions.rs`、`federation/edu.rs` 等） |
 | **MSC4512 App Service 命名空间代理 / 联邦请求** | 1.161 | **MISSING** | `msc4512` 在 `*.rs` 中 **0 命中** |
 | MSC3861 实验性 auth delegation 移除 | 1.157 | **N/A** | 本仓以 MAS 稳定集成为准（`synapse-services/src/auth/mas_validator.rs`） |
 
@@ -310,32 +310,57 @@ grep -n 'msc2965' /tmp/paths.txt                              # auth_issuer 仍�
 ```python
 #!/usr/bin/env python3
 """用法: python3 classify_routes.py <唯一路径文件>"""
+
 import re, sys
 from collections import Counter
 
 CLIENT = [
-    ("认证", r"/(login|logout|register|refresh|oidc|saml|cas|rendezvous)"
-             r"|/account/(password|deactivate|3pid)|msc2965|msc4108|msc3882|/organizations"),
-    ("同步", r"/sync|/notifications|msc3575|/to_device|/pushrules|/pushers|/push$|/push/"),
-    ("设备", r"/devices|/keys|/room_keys|/device_verification|/device_trust"
-             r"|/cross_signing|/dehydrated_device|msc3814"),
+    (
+        "认证",
+        r"/(login|logout|register|refresh|oidc|saml|cas|rendezvous)"
+        r"|/account/(password|deactivate|3pid)|msc2965|msc4108|msc3882|/organizations",
+    ),
+    (
+        "同步",
+        r"/sync|/notifications|msc3575|/to_device|/pushrules|/pushers|/push$|/push/",
+    ),
+    (
+        "设备",
+        r"/devices|/keys|/room_keys|/device_verification|/device_trust"
+        r"|/cross_signing|/dehydrated_device|msc3814",
+    ),
     ("搜索", r"/search"),
     ("媒体", r"/media|/upload|/thumbnail|/preview_url"),
-    ("用户", r"/profile|/presence|/user_directory|/thirdparty|/users|/capabilities|/account_data"),
-    ("消息", r"/rooms/[^/]+/(send|messages|receipt|typing|redact|report|read_markers)"
-             r"|/sendToDevice|msc4140|/rooms/[^/]+/event/"),
+    (
+        "用户",
+        r"/profile|/presence|/user_directory|/thirdparty|/users|/capabilities|/account_data",
+    ),
+    (
+        "消息",
+        r"/rooms/[^/]+/(send|messages|receipt|typing|redact|report|read_markers)"
+        r"|/sendToDevice|msc4140|/rooms/[^/]+/event/",
+    ),
     ("房间", r"."),
 ]
 ADMIN = [
-    ("用户管理", r"/users|/user_sessions|/registration_tokens|/register|/account_validity"
-                 r"|/whois|/whoami|/account|/password_auth_providers|/user_stats|/invite"),
+    (
+        "用户管理",
+        r"/users|/user_sessions|/registration_tokens|/register|/account_validity"
+        r"|/whois|/whoami|/account|/password_auth_providers|/user_stats|/invite",
+    ),
     ("媒体", r"/media|/quarantine_media|/purge_media_cache|/media_callbacks"),
     ("联邦", r"/federation|/destinations|/server|/version|/rate-limit-status"),
-    ("安全", r"/event_reports|/reports|/policy|/audit|/feature-flags|/experimental_features"
-             r"|/background_updates"),
-    ("房间管理", r"/rooms|/retention|/purge_room|/purge_history|/shutdown_room|/spaces"
-                 r"|/room_stats|/stats|/statistics|/server_notices|/send_server_notice"
-                 r"|/jitsi|/cleanup|/config|/captcha"),
+    (
+        "安全",
+        r"/event_reports|/reports|/policy|/audit|/feature-flags|/experimental_features"
+        r"|/background_updates",
+    ),
+    (
+        "房间管理",
+        r"/rooms|/retention|/purge_room|/purge_history|/shutdown_room|/spaces"
+        r"|/room_stats|/stats|/statistics|/server_notices|/send_server_notice"
+        r"|/jitsi|/cleanup|/config|/captcha",
+    ),
     ("服务器", r"."),
 ]
 

@@ -27,7 +27,13 @@ cd "$(dirname "$0")/.." || exit 1
 
 PY="${PYTHON:-python3}"
 if ! command -v "$PY" >/dev/null 2>&1; then
-    PY="/Users/ljf/.workbuddy/binaries/python/versions/3.13.12/bin/python3"
+    # 这里曾经回退到一个**开发者本机的绝对路径**
+    # （/Users/ljf/.workbuddy/binaries/python/versions/3.13.12/bin/python3）。
+    # 那是个无法在 CI 上成立的字面量：一旦 python3 缺失，脚本会去执行别的机器
+    # 上的解释器（或者直接 command not found 而报出与真实原因无关的错误）。
+    # 缺解释器是环境问题，必须显式报出来。
+    echo "::error::python3 not found on PATH; set PYTHON=<interpreter> to override" >&2
+    exit 2
 fi
 
 if [[ ! -f "scripts/check_missing_docs_ratchet.py" ]]; then

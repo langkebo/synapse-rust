@@ -1039,7 +1039,11 @@ async fn test_get_statistics_reads_real_columns_and_tolerates_missing_counters()
         .expect("register worker without stats");
 
     let now = synapse_common::current_timestamp_millis();
-    let _ = sqlx::query("DELETE FROM worker_statistics WHERE worker_id = $1").bind(&with_stats).execute(&*pool).await;
+    sqlx::query("DELETE FROM worker_statistics WHERE worker_id = $1")
+        .bind(&with_stats)
+        .execute(&*pool)
+        .await
+        .expect("clear any pre-existing worker_statistics row before seeding this test's row");
     sqlx::query(
         "INSERT INTO worker_statistics (worker_id, total_messages_sent, total_errors, uptime_seconds, created_ts, updated_ts) \
          VALUES ($1, 42, 3, 900, $2, $2)",
@@ -1180,6 +1184,11 @@ async fn test_upsert_statistics_updates_in_place_and_later_values_win() {
     assert_eq!(queue, 8, "the second call's values must win");
 }
 
+/// `worker_statistics` 的六个负载指标列，按查询顺序：
+/// `cpu_usage, memory_usage, active_connections, requests_per_second,`
+/// `average_latency_ms, queue_depth`。
+type WorkerStatsRow = (Option<f32>, Option<i64>, Option<i32>, Option<f32>, Option<f32>, Option<i32>);
+
 /// 只上报 `queue_depth` 的后续心跳必须**保留**此前已上报的其余指标（COALESCE 语义）。
 #[tokio::test]
 async fn test_upsert_statistics_preserves_unreported_metrics() {
@@ -1210,14 +1219,7 @@ async fn test_upsert_statistics_preserves_unreported_metrics() {
     };
     storage.upsert_statistics(&worker_id, &partial, now + 1).await.expect("partial upsert");
 
-    let (cpu, memory, connections, rps, latency, queue): (
-        Option<f32>,
-        Option<i64>,
-        Option<i32>,
-        Option<f32>,
-        Option<f32>,
-        Option<i32>,
-    ) = sqlx::query_as(
+    let (cpu, memory, connections, rps, latency, queue): WorkerStatsRow = sqlx::query_as(
         "SELECT cpu_usage, memory_usage, active_connections, requests_per_second, \
              average_latency_ms, queue_depth FROM worker_statistics WHERE worker_id = $1",
     )

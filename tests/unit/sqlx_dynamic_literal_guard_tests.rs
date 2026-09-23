@@ -313,6 +313,10 @@ async fn f(pool: &sqlx::PgPool, sql: String) -> Result<(), sqlx::Error> {
 }
 
 /// 字符串字面量（含 raw string、跨行、turbofish、`AS "col!"` 覆盖）必须判为 literal。
+///
+/// 夹具里的表名刻意用 `events`（真实表）而不是 `t`：本文件整体会被
+/// `scripts/check_schema_table_coverage.py` 逐字扫一遍，任何 `FROM <标识符>`
+/// 都会被当成"引用了未在迁移中定义的表"，一个占位表名会直接让那条门禁变红。
 #[test]
 fn string_literal_sql_is_classified_as_literal() {
     let sites = scan_temp_tree(&[(
@@ -328,7 +332,7 @@ async fn f(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
     sqlx::query_as::<_, (i64, String)>("SELECT 3, 'x'").fetch_one(pool).await?;
     sqlx::query_scalar::<_, i64>("SELECT 4").fetch_one(pool).await?;
     sqlx::query(r"SELECT 5").execute(pool).await?;
-    sqlx::query(r#"SELECT "col!" FROM t"#).execute(pool).await?;
+    sqlx::query(r#"SELECT "col!" FROM events"#).execute(pool).await?;
     Ok(())
 }
 "##,
@@ -346,8 +350,8 @@ fn comments_and_non_sql_strings_do_not_count() {
     let sites = scan_temp_tree(&[(
         "src/lib.rs",
         r##"
-//! prose mentioning sqlx::query( 
-/// doc mentioning sqlx::query_as( 
+//! prose mentioning sqlx::query(
+/// doc mentioning sqlx::query_as(
 /* block mentioning sqlx::query_scalar( */
 const TEMPLATE: &str = "sqlx::query( SELECT 1";
 fn f() -> &'static str { "sqlx::query(" }

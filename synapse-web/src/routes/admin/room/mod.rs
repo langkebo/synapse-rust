@@ -795,7 +795,7 @@ pub async fn cascade_redact_event(
         .get("event_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Missing 'event_id' field".to_string()))?;
-    let max_depth = body.get("max_depth").and_then(|v| v.as_u64()).map(|n| n.min(10) as u32).unwrap_or(5);
+    let max_depth = body.get("max_depth").and_then(|v| v.as_u64()).map_or(5, |n| n.min(10) as u32);
     let reason = body.get("reason").and_then(|v| v.as_str()).map(|s| s.to_string());
 
     // Verify room exists

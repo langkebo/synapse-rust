@@ -43,7 +43,7 @@ for arg in "$@"; do
         --static) MODE="static" ;;
         --full) MODE="full" ;;
         --compile) MODE="compile" ;;
-        -h|--help)
+        -h | --help)
             sed -n '2,32p' "${BASH_SOURCE[0]}"
             exit 0
             ;;

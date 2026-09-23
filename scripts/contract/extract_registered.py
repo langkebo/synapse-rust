@@ -1454,7 +1454,17 @@ class Resolver:
         ):
             return acc
 
-        if name in ("get", "post", "put", "delete", "patch", "head", "options", "on", "any"):
+        if name in (
+            "get",
+            "post",
+            "put",
+            "delete",
+            "patch",
+            "head",
+            "options",
+            "on",
+            "any",
+        ):
             # a `MethodRouter` chain sitting where a route set was expected
             # `any` is a special Axum method accepting all HTTP methods
             return acc
@@ -1468,7 +1478,7 @@ class Resolver:
         # Handle axum::routing::any() which accepts all HTTP methods
         if re.match(r"(?:^|\.\s*)(?:axum::routing::)?any\s*\(", text.strip()):
             return [m.upper() for m in HTTP_METHODS]
-        
+
         found = []
         for m in re.finditer(r"(?:^|[.:\s(])([a-z]+)\s*\(", text):
             name = m.group(1)

@@ -212,7 +212,10 @@ def collect_test_gated_files(sources: list[Path]) -> set[Path]:
             continue
         code = "\n".join(strip_code(text))
         for name in TEST_MOD_DECL_RE.findall(code):
-            for candidate in (path.parent / f"{name}.rs", path.parent / name / "mod.rs"):
+            for candidate in (
+                path.parent / f"{name}.rs",
+                path.parent / name / "mod.rs",
+            ):
                 if candidate.is_file():
                     gated.add(candidate.resolve())
     return gated
@@ -230,7 +233,9 @@ def iter_region_lines(code: list[str], force_test: bool = False):
     pending_cfg_test = False
 
     for line in code:
-        in_test = force_test or (test_parent_depth is not None and depth > test_parent_depth)
+        in_test = force_test or (
+            test_parent_depth is not None and depth > test_parent_depth
+        )
 
         if CFG_TEST_RE.search(line):
             pending_cfg_test = True
@@ -342,7 +347,9 @@ def _starts_string_literal(text: str, i: int) -> bool:
     return j < len(text) and text[j] == '"'
 
 
-def iter_dynamic_sites(path: Path, force_test: bool = False) -> list[tuple[int, str, str]]:
+def iter_dynamic_sites(
+    path: Path, force_test: bool = False
+) -> list[tuple[int, str, str]]:
     """列出单文件全部动态 sqlx 调用点：`(行号, 区域, 实参形态)`。
 
     * 区域：`"production"` / `"test"`，口径与 `census_file` 同源；
@@ -409,7 +416,9 @@ def list_production_dynamic(root: Path) -> int:
     sources = collect_sources(root)
     test_gated = collect_test_gated_files(sources)
     for path in sources:
-        for line_no, region, kind in iter_dynamic_sites(path, force_test=path.resolve() in test_gated):
+        for line_no, region, kind in iter_dynamic_sites(
+            path, force_test=path.resolve() in test_gated
+        ):
             if region != "production":
                 continue
             print(f"{path.relative_to(root).as_posix()}:{line_no}:{kind}")
@@ -417,9 +426,13 @@ def list_production_dynamic(root: Path) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="SQLx query census (production vs #[cfg(test)])")
+    parser = argparse.ArgumentParser(
+        description="SQLx query census (production vs #[cfg(test)])"
+    )
     parser.add_argument("--root", default=".", help="仓库根目录（默认当前目录）")
-    parser.add_argument("--verbose", action="store_true", help="附 Top-N 文件与分区明细")
+    parser.add_argument(
+        "--verbose", action="store_true", help="附 Top-N 文件与分区明细"
+    )
     parser.add_argument("--json", action="store_true", help="输出 JSON")
     parser.add_argument("--top", type=int, default=20, help="--verbose 时列出的文件数")
     parser.add_argument(
@@ -433,7 +446,9 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.list_production_dynamic is not None:
-        return list_production_dynamic(Path(args.list_production_dynamic or args.root).resolve())
+        return list_production_dynamic(
+            Path(args.list_production_dynamic or args.root).resolve()
+        )
 
     root = Path(args.root).resolve()
     totals = {
@@ -450,13 +465,17 @@ def main() -> int:
     test_gated = collect_test_gated_files(sources)
 
     for path in sources:
-            got = census_file(path, force_test=path.resolve() in test_gated)
-            for key in totals:
-                totals[key] += got[key]
-            if got["dynamic_production"] or got["dynamic_test"]:
-                per_file.append(
-                    (got["dynamic_production"], got["dynamic_test"], str(path.relative_to(root)))
+        got = census_file(path, force_test=path.resolve() in test_gated)
+        for key in totals:
+            totals[key] += got[key]
+        if got["dynamic_production"] or got["dynamic_test"]:
+            per_file.append(
+                (
+                    got["dynamic_production"],
+                    got["dynamic_test"],
+                    str(path.relative_to(root)),
                 )
+            )
 
     dynamic = totals["dynamic_production"] + totals["dynamic_test"]
     static = totals["static_production"] + totals["static_test"]

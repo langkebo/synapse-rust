@@ -7,6 +7,7 @@
 # 内容为「合法技术词」，不是「忽略拼写错误」：通用英文词的错拼（recieve/seperate/occured…）
 # 追加（2026-09-22，对比报告 v1.2 复核）：aliyun、cancellable、clamav、dags、livekit、redactions、sharding、twilio、webhooks、websocket、bugfix、elementsec、ghsa、noop、glibc。
 # 追加（2026-09-22，Phase 3 安全复核）：alg、aud、iss。
+# 追加（2026-09-24，CI 全门禁修复）：逐文件复核 164 份活跃文档，补入本轮新增文档引入的技术词——监控栈（mimir、victoriametrics、wal）、告警规则名（highcpuusage、megolmshareslow 等 S 大写驼峰被脚本小写化）、GHSA 公告号被 aspell 按连字符切出的片段（chvq、gvpm、hgcg、qcjr、rcpx、xpf…）、以及 SpaceInfoMock／KeyRotationConfig／HMACSHA256／ScheduledTasks 这类标识符。
 abi
 accessexclusivelock
 accessor
@@ -48,6 +49,7 @@ apiresult
 apis
 apns
 appservice
+appservices
 appstate
 arg
 argparse
@@ -105,6 +107,7 @@ buildable
 buildkit
 buildx
 burnafterreadservice
+cachehitratelow
 cacheregistry
 camelcase
 cancellable
@@ -120,8 +123,10 @@ cfg
 chacha
 changelog
 chmod
+chvq
 cidr
 ciphertext
+cjh
 clamav
 clapcy
 claude
@@ -142,6 +147,7 @@ concat
 config
 configs
 conns
+const
 corecontext
 coreservices
 coreutils
@@ -187,6 +193,7 @@ deferrable
 dehydrateddevice
 dehydrateddeviceservice
 dehydrateddevicestoreapi
+delayedevent
 delayedevents
 deps
 desc
@@ -199,6 +206,7 @@ devops
 dir
 directoryservice
 dirs
+diskalmostfull
 displayname
 distroless
 dla
@@ -221,6 +229,7 @@ ecdh
 echarts
 ecr
 edu
+edus
 eeroom
 eeroomcontext
 elementsec
@@ -254,7 +263,9 @@ fcm
 federationauth
 federationcontext
 federationqueuestoreapi
+federationslow
 ffi
+fh
 filterstorage
 fixme
 fks
@@ -263,6 +274,8 @@ fn
 fnv
 formatter
 formatters
+fp
+fq
 friendroomerror
 fromref
 fromrequestparts
@@ -275,6 +288,7 @@ gcm
 geiger
 getrandom
 getter
+gf
 gh
 gha
 ghcr
@@ -287,6 +301,8 @@ glm
 grafana
 gstack
 guc
+gvpm
+gx
 gzip
 hadolint
 handlesummary
@@ -297,14 +313,21 @@ hashlib
 hashlink
 hashmap
 hashset
+hcf
 headermap
 healthcheck
 healthchecker
 heapsort
 heredoc
+hgcg
+highcpuusage
+higherrorrate
+highmemoryusage
+highpoolutilization
 hir
 hkdf
 hmac
+hmacsha
 homebrew
 homeserver
 hotfix
@@ -314,6 +337,7 @@ https
 hu
 hula
 hulaclient
+hv
 iat
 idempotency
 identityservermanager
@@ -354,7 +378,9 @@ jaeger
 jemalloc
 jemallocator
 jeprof
+jhcg
 jit
+jitsi
 johennes
 joinhandle
 joinhandles
@@ -368,6 +394,7 @@ jwks
 jwt
 keyatrest
 keychain
+keyrotationconfig
 keyrotationstorage
 keyset
 keyverificationmanager
@@ -416,6 +443,7 @@ mcp
 md
 mediacontext
 megolm
+megolmshareslow
 membershipservice
 membershipserviceconfig
 membershiptransition
@@ -427,9 +455,12 @@ messagingserviceconfig
 metricscollector
 middleware
 migrator
+mimir
 missingtoken
 mitm
+mjw
 mkdir
+mmap
 mockall
 mockfederationclient
 moderationlog
@@ -463,6 +494,7 @@ nothing
 npm
 ns
 nt
+nullability
 nullable
 oauth
 oauthclientstoreapi
@@ -509,6 +541,7 @@ posix
 postgres
 postgresql
 powerset
+pqh
 pre
 preconditionfailed
 preflight
@@ -524,6 +557,7 @@ prost
 prs
 psycopg
 purgetimer
+pushdevice
 pushnotificationservice
 pushrules
 pushstoreapi
@@ -535,6 +569,8 @@ pynacl
 pypi
 pytest
 qa
+qcjr
+qhwx
 qps
 quarantinedmediachange
 quarantinedmediachangestorage
@@ -545,11 +581,14 @@ raii
 rankers
 ratelimit
 ratelimitconfig
+ratelimitfailopen
+ratelimitrequest
 ratelimitstorage
 rav
 ravif
 rbac
 rc
+rcpx
 reachability
 readme
 readreceipts
@@ -578,6 +617,8 @@ req
 reqwest
 resolved
 reviewable
+rg
+rgv
 rhs
 rng
 roadmap
@@ -620,11 +661,13 @@ rustfmt
 rustls
 rustsec
 rustup
+rw
 rwlock
 saml
 sanitization
 sarif
 sas
+scheduledtasks
 schema
 schemas
 schemathesis
@@ -645,6 +688,7 @@ servermetrics
 servernotificationservice
 servicecontainer
 serviceerror
+serviceresponse
 servlet
 sessioncontext
 sfu
@@ -665,6 +709,7 @@ slidingsyncstorage
 slidingsyncstoreapi
 sms
 soatok
+spaceinfomock
 spaceservice
 spacestorage
 splitter
@@ -745,6 +790,7 @@ traceback
 tracecontext
 tracemalloc
 tradeoffs
+trae
 transitionctx
 transitionerror
 treq
@@ -805,6 +851,8 @@ varchar
 vcpu
 vec
 vendored
+vh
+victoriametrics
 vitest
 vm
 vodozemac
@@ -815,6 +863,7 @@ vtable
 vue
 vuln
 vus
+wal
 walkthroughs
 webhook
 webhooks
@@ -828,14 +877,17 @@ whois
 wip
 wiremock
 withretry
+wjm
 wkwebview
 workbuddy
 workerbus
 workermanager
 worktree
 worktrees
+wq
 ws
 xff
+xpf
 xss
 xxxx
 yagni

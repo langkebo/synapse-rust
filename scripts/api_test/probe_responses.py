@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import quote
 
-ROOT = Path("/Users/ljf/Desktop/hu_ts/synapse-rust")
+ROOT = Path(__file__).resolve().parents[2]
 SPEC_PATH = ROOT / "docs/openapi/client.yaml"
 CONFIG_PATH = ROOT / "scripts/api_test/config.yaml"
 OUTPUT_JSON = ROOT / "scripts/api_test/response_schemas.json"

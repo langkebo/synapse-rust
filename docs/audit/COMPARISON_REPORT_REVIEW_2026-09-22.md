@@ -398,7 +398,6 @@ B2（#20189 完整作用面）、B3（`rc_reports` 限流）、B4（Dehydrated `
 B7（v1.157.2 公告同类性）、B9（txn 去重补偿）、B10b/c（`transaction.rs` 与 `membership/federation.rs`）、
 B11（搜索索引死存储）、B12（Profile 语义）、B13（App Service 登录）、B14（LiveKit `ws_url`）、C1–C10。
 
-
 ---
 
 ## 11. Phase 2 门禁与验证证据（2026-09-22）
@@ -428,7 +427,6 @@ B11（搜索索引死存储）、B12（Profile 语义）、B13（App Service 登
 
 - **`synapse_test` 的 public schema 未迁移**导致 `media::tests::media_fixture_keeps_its_isolated_schema_for_the_whole_test` 报错；执行仓库自带的 `scripts/ci/prepare_test_db.sh`（`RESET_PUBLIC=0`，非破坏性）后 `public`/`test_template_ci` 各 227 表，该用例转绿。
 - **`coverage_ratchet_exemption_tests` 3 个用例在 main 上即为红**：`tests/unit/coverage_ratchet_exemption_tests.rs:82` 仍向 `scripts/check_file_coverage.py` 传 `--format lcov`，而该参数已在 `6ad96b03`"删掉覆盖率棘轮的 --format 兼容残留"中被移除（`scripts/ci/run_coverage.sh:101` 同样残留）。**不在本分支范围**（本分支 0 个提交触及 coverage），但 main 当前该门禁不可通过，建议单独修复。
-
 
 ---
 

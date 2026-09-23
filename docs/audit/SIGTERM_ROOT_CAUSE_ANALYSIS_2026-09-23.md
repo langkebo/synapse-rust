@@ -324,35 +324,39 @@ fn is_low_memory_environment() -> bool {
 import subprocess
 import sys
 
+
 def get_changed_test_files() -> list[str]:
     """获取本次变更新增的测试文件"""
     result = subprocess.run(
-        ["git", "diff", "--name-only", "HEAD~1"],
-        capture_output=True, text=True
+        ["git", "diff", "--name-only", "HEAD~1"], capture_output=True, text=True
     )
-    return [f for f in result.stdout.splitlines() if "/tests/" in f and f.endswith(".rs")]
+    return [
+        f for f in result.stdout.splitlines() if "/tests/" in f and f.endswith(".rs")
+    ]
+
 
 def estimate_memory_impact(changed_files: list[str]) -> int:
     """估算内存影响（MB）"""
     memory_mb = 0
-    
+
     for file in changed_files:
         # 每个新增测试文件 ~200MB
         if "tests/" in file:
             memory_mb += 200
-        
+
         # 检测 PgPool 创建
         with open(file) as f:
             content = f.read()
             memory_mb += content.count("PgPoolOptions") * 50
             memory_mb += content.count("PgPool::connect") * 50
-    
+
     return memory_mb
+
 
 def main():
     changed_files = get_changed_test_files()
     memory_impact = estimate_memory_impact(changed_files)
-    
+
     # 低内存环境阈值：500MB
     if memory_impact > 500:
         print(f"⚠️  内存影响估计：{memory_impact}MB")
@@ -361,9 +365,10 @@ def main():
         print("  - 分 crate 测试")
         print("  - 设置 MALLOC_CONF 优化内存回收")
         sys.exit(1)
-    
+
     print(f"✓ 内存影响估计：{memory_impact}MB (在预算内)")
     sys.exit(0)
+
 
 if __name__ == "__main__":
     main()

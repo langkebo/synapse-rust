@@ -105,7 +105,9 @@ def count_pgpool_creates(files: list[pathlib.Path]) -> int:
     return count
 
 
-def detect_large_structures(files: list[pathlib.Path]) -> list[tuple[pathlib.Path, int]]:
+def detect_large_structures(
+    files: list[pathlib.Path],
+) -> list[tuple[pathlib.Path, int]]:
     """检测新增的大型静态数据结构（>1MB）。"""
     large_ones = []
     for f in files:
@@ -171,7 +173,9 @@ def assess_memory_impact(files: list[pathlib.Path]) -> MemoryImpact:
     )
 
 
-def print_report(impact: MemoryImpact, large_structs: list[tuple[pathlib.Path, int]]) -> None:
+def print_report(
+    impact: MemoryImpact, large_structs: list[tuple[pathlib.Path, int]]
+) -> None:
     """打印评估报告。"""
     print("=" * 60)
     print("📊 内存预算评估报告")
@@ -195,7 +199,9 @@ def print_report(impact: MemoryImpact, large_structs: list[tuple[pathlib.Path, i
         print("  1. 使用 --test-threads 1 串行运行测试")
         print("  2. 分 crate 测试：cargo nextest run -p <crate> ...")
         print("  3. 设置 MALLOC_CONF 优化内存回收:")
-        print("     export MALLOC_CONF=retain:true,dirty_decay_ms:1000,narenas:2,background_thread:false")
+        print(
+            "     export MALLOC_CONF=retain:true,dirty_decay_ms:1000,narenas:2,background_thread:false"
+        )
         print("  4. 使用 test-lowmem profile:")
         print("     cargo nextest run --profile test-lowmem ...")
         print("  5. 检查是否有不必要的大型数据结��")

@@ -39,7 +39,7 @@ fn test_admin_room_spaces_routes_from_real_ledger() {
 }
 ```
 
-**结论**: 
+**结论**:
 - `spaces.rs` 已包含 `test_admin_room_spaces_routes_from_real_ledger()`，正确从 `route_ledger.rs` 读取真实定义
 - `federation/membership/query.rs` 已包含 `test_federation_membership_query_routes_from_real_ledger()`，同样使用真实 ledger
 - 其他响应结构测试（如 `test_deleted_response_structure`）是合理的单元测试，验证 JSON 序列化逻辑，不属于 T2 范畴
@@ -52,7 +52,7 @@ fn test_admin_room_spaces_routes_from_real_ledger() {
 
 #### P0-2: C1 违反：业务代码 unwrap/expect
 
-**原报告位置**: 
+**原报告位置**:
 - `external_service.rs:478,494,503,507,530` 等 7+ 处
 - `media/mod.rs:268,305`
 - `push_notification.rs:471,498,510,520`
@@ -90,7 +90,7 @@ rg '\.unwrap\(\)|\.expect\(' synapse-web/src/routes/external_service.rs -- -A -B
 # 无输出 → 业务代码无 unwrap/expect
 ```
 
-**结论**: 
+**结论**:
 - 所有 `unwrap()`/`expect()` 均在测试代码中，符合 C1 规则豁免条件
 - 业务代码（handler 函数）全部使用 `?` 或 `match` 错误处理
 - 原审计报告误将测试代码识别为业务代码
@@ -121,7 +121,7 @@ git status --short
 
 **核查状态**: ⏸️ **待进一步调查**
 
-**说明**: 
+**说明**:
 - 该问题已在 `docs/audit/E2EE_*` 系列文档中有详细分析
 - 属于独立的 E2EE v2.0 优化任务，不在本次 Phase 3 复核范围内
 - 建议单独创建任务跟踪
@@ -170,7 +170,7 @@ python3 scripts/ci/check_metric_instrumentation.py
 # 通过（未接通集合与基线一致，无新增缺陷）
 ```
 
-**结论**: 
+**结论**:
 - Baseline 保持最新
 - 新添加的 `federation_*` 指标已被纳入监控
 - 门禁正常工作

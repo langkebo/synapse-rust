@@ -344,12 +344,31 @@ fn test_fallback_handler_is_set_in_create_router() {
     // create_router sets a fallback that returns 404 M_UNRECOGNIZED for
     // unmatched paths. This is documented in the source but not exposed
     // in the manifest — manifest entries are explicit (method, path) tuples.
-    // We assert the contract by checking that the manifest does NOT contain
-    // a wildcard entry (every entry is a concrete path).
+    //
+    // 2026-09-24：原先这里断言「manifest 里任何条目都不含 `*`」。该断言在引入
+    // MSC4512 App Service 命名空间代理后不再成立：`/_matrix/app/v1/proxy/{as_id}/{*path}`
+    // 是本仓**第一个合法的通配路由**。`{*path}` 挂在固定前缀之下，只吃掉该前缀
+    // 之后的剩余段，**不会**像整树 catch-all 那样抢走 fallback 的匹配面；而
+    // 「不含通配符」只是当初表述「没有整树 catch-all」的近似写法。
+    //
+    // 于是把断言收紧成两条真正的契约（比原断言更强：既禁根级 catch-all，又把
+    // 通配限制在 axum 0.8 的 `{*name}` 形式且必须带固定前缀）：
+    //   1. 不存在根级 catch-all（`/*` / `/{*...}`）—— 那才会吞掉 fallback；
+    //   2. 出现的通配只能写作 `{*name}`，且前面必须有非空前缀。
     let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     for entry in ledger.iter() {
-        assert!(!entry.path.contains('*'), "manifest entries must not use wildcards: {}", entry.path);
         assert!(!entry.path.is_empty(), "manifest entries must not be empty");
+        assert_ne!(entry.path, "/*", "root catch-all would shadow the fallback: {}", entry.path);
+        assert_ne!(entry.path, "/{*path}", "root catch-all would shadow the fallback: {}", entry.path);
+
+        if entry.path.contains('*') {
+            match entry.path.find("/{*") {
+                Some(idx) => {
+                    assert!(idx > 0, "a wildcard route must sit under a non-empty fixed prefix: {}", entry.path)
+                }
+                None => panic!("wildcard must use the axum 0.8 `{{*name}}` form: {}", entry.path),
+            }
+        }
     }
 }
 

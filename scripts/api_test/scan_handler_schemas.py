@@ -16,7 +16,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
-ROOT = Path("/Users/ljf/Desktop/hu_ts/synapse-rust")
+ROOT = Path(__file__).resolve().parents[2]
 ROUTES_DIR = ROOT / "synapse-web/src/routes"
 OPENAPI_PATH = ROOT / "docs/openapi/client.yaml"
 OUTPUT_JSON = ROOT / "scripts/api_test/handler_schemas.json"
@@ -399,7 +399,10 @@ def main() -> int:
         "joined_mapping": {f"{k[0]} {k[1]}": list(v) for k, v in joined.items()},
         "skipped": skipped,
     }
-    OUTPUT_JSON.write_text(json.dumps(output, indent=2, ensure_ascii=False))
+    # Trailing newline: `scripts/quality/format_audit.py` counts a missing final
+    # newline as a `.json` drift signal, and `format_check.sh` fails on drift.
+    # Regenerating this artifact used to reintroduce the drift it had just cleared.
+    OUTPUT_JSON.write_text(json.dumps(output, indent=2, ensure_ascii=False) + "\n")
     print(f"[scan] wrote: {OUTPUT_JSON}")
 
     # Stage D: patch
