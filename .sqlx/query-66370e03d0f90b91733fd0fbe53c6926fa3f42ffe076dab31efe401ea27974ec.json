@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT room_id\n              FROM room_memberships\n             WHERE user_id = $1\n               AND membership = 'join'\n               AND room_id > $2\n          ORDER BY room_id\n             LIMIT $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "room_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "66370e03d0f90b91733fd0fbe53c6926fa3f42ffe076dab31efe401ea27974ec"
+}

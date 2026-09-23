@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT room_id, membership\n                FROM room_memberships\n                WHERE user_id = $1 AND membership = 'join'\n                ORDER BY updated_ts DESC NULLS LAST, room_id ASC\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "membership",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "8ac71d7ac59667343a4716ddac79f214bb95ea9802f1e07b76d7298b884a80f7"
+}

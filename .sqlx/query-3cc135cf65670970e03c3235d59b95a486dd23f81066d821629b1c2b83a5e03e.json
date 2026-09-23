@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE room_memberships\n            SET membership = 'leave',\n                left_ts = $3,\n                updated_ts = $3\n            WHERE room_id = $1 AND user_id = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3cc135cf65670970e03c3235d59b95a486dd23f81066d821629b1c2b83a5e03e"
+}

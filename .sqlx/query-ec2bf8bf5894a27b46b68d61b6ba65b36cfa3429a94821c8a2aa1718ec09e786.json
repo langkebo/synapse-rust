@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT a.room_id\n              FROM room_memberships AS a\n              JOIN room_memberships AS b ON a.room_id = b.room_id\n             WHERE a.user_id = $1\n               AND a.membership = 'join'\n               AND b.user_id = $2\n               AND b.membership = 'join'\n               AND ($3::text IS NULL OR a.room_id > $3::text)\n          ORDER BY a.room_id\n             LIMIT $4\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "room_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ec2bf8bf5894a27b46b68d61b6ba65b36cfa3429a94821c8a2aa1718ec09e786"
+}

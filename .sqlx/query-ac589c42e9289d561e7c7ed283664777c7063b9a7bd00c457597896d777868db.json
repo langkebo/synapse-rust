@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT EXISTS(\n                SELECT 1 FROM room_memberships\n                WHERE room_id = $1\n                  AND user_id LIKE $2\n                  AND membership IN ('join', 'invite', 'leave')\n            ) AS \"exists!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ac589c42e9289d561e7c7ed283664777c7063b9a7bd00c457597896d777868db"
+}

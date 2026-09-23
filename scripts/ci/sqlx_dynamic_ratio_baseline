@@ -230,11 +230,77 @@
 #   static              103 →  147
 #   dynamic             2107 → 2063
 # 收紧方向：C3–C11 继续分批静态化，直至 dynamic_production = 0。
-BASELINE_DYNAMIC_PRODUCTION=1367
+# ── 2026-09-23 C3 静态化（生产动态 -39，静态 +38）────────────────────────────
+#
+# 批次：C3（docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md）。
+# 文件：synapse-storage/src/membership/mod.rs。
+#
+# 该文件 43 处生产动态调用静态化 39 处：
+#   query_as!     ×13（RoomMember 行映射 / UserRoomMembership / INSERT … RETURNING）
+#   query_scalar! ×16（EXISTS 探测、COUNT/COALESCE 聚合、ANY($n) 去重投影、
+#                      SUBSTRING 表达式列）
+#   query!        × 9（INSERT/UPDATE/DELETE 可执行语句，以及两处需要多列投影、
+#                      而 query_as! 不收元组的站点，改为 query! + 手工映射）
+#
+# ⚠️ 静态站点只增加 38（而非 39）：add_member 的 tx / pool 两个执行分支原先各
+# 构造一条动态 Query，静态化后共用一个 `sqlx::query_as!` 构造的 Query 值
+# （`query.fetch_one(...)`），避免 15 行 SQL 字面量重复两份
+# ⇒ 39 个动态调用点对应 38 个宏站点。
+#
+# 静态化时补的 nullability / 类型覆盖（表达式列无 relation origin，sqlx 一律推断可空）：
+#   * has_any_non_banned_member_from_server / user_shares_room_with_server 的
+#     EXISTS 加 `AS "exists!"`；返回值恒非空，故把 `Option<bool>` +
+#     `unwrap_or(false)` 收敛为 `bool`。
+#   * get_room_member_count / get_joined_room_count 的 COUNT(*) 加 `AS "count!"`；
+#     get_joined_servers_in_room 的 SUBSTRING(…) 加 `AS "server_name!"`。
+#   * get_joined_rooms_with_details：`rooms.name` 可空但函数签名要求 String，
+#     加 `AS "name!"` 保持旧行为（旧 FromRow 动态形式同样在 NULL 时解码失败，
+#     语义不变）。
+#   * get_mutual_rooms_between：`($3 IS NULL OR a.room_id > $3)` 在扩展协议
+#     Describe 下 PG 无法推断 `$3` 类型，编译期宏报
+#     "could not determine data type of parameter $3"，改为 `$3::text`
+#     （绑定参数类型本就是 text，无运行期语义变化）。
+#
+# 仍留动态 4 处 —— get_room_members_paginated_with_profiles（~L752–L798）的
+# SQL 文本由 `format!` 在**运行时**拼装 WHERE / ORDER BY（`&format!(...)`），
+# 宏在编译期看不到 SQL 文本：
+#   * not_membership + from_user_id 两条（not_membership ± from_user_id）
+#   * from_user_id 一条
+#   * 无游标一条
+# 收紧方向：把 cursor / 方向转成 SQL 内可静态表达的条件
+# （`$n::text IS NULL OR …` + CASE 排序），即可整体静态化并回收 4 处。
+#
+# 运行期回退：**无**。本轮无任何转静态的查询在 DB 测试中失败。
+#
+# 验证（isolated worktree target/c3-wt @ HEAD 8489b407 + 本补丁）：
+#   SQLX_OFFLINE=false DATABASE_URL=… cargo check -p synapse-storage --features test-utils
+#   → Finished dev profile（无 error）；`cargo sqlx prepare --workspace` 重刷缓存，
+#   新增 37 条 query-*.json（179 = 原 142 + 37；38 个宏站点中有 1 条 SQL 与既有
+#   缓存条目同哈希，故只 +37）。
+#
+# ⚠️ 该 worktree 另需一处**仅验证用、未提交**的越界修补才能让
+# `cargo sqlx prepare --workspace` 编译通过 —— synapse-web 在 HEAD 上本就编译
+# 失败（与 C3 无关）：`synapse-web/src/routes/app_service.rs` 的 `proxy_to_as`
+# 把 `_body: Bytes`（body-consuming extractor，axum 要求必须排在最后）与
+# `_method: axum::http::Method`（FromRequestParts）交换位置。
+#
+# 实测：
+#   C3 提交本身（HEAD 8489b407 → C3，工作树无其他写者改动）：
+#     dynamic_production 1367 → 1328   （C3 自身 -39）
+#     static              147 →  185   （+38，见上文"39 调用点 / 38 宏站点"）
+#     dynamic             2063 → 2024
+#   ⚠️ 门禁实测值另含并发写者**未提交**的
+#   `synapse-storage/src/search_index.rs` 的 +1 处生产动态
+#   （逐文件实测：该文件在 HEAD=8 处 / 其工作树=9 处）：
+#     dynamic_production = 1329，dynamic = 2025
+#   按 C1 先例以**门禁实测值**设定基线（1329 / 2025）——棘轮只禁增不禁减，
+#   若该在途改动被撤销或被改写，应再次下调到 1328 / 2024。
+# 收紧方向：C4–C11 继续分批静态化，直至 dynamic_production = 0。
+BASELINE_DYNAMIC_PRODUCTION=1329
 BASELINE_DYNAMIC_TEST_INFRA=696
-BASELINE_STATIC=147
+BASELINE_STATIC=185
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=2063
+BASELINE_DYNAMIC=2025
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #
