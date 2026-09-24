@@ -455,7 +455,7 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-12 | 产品缺陷 | `synapse-storage/src/event_report/repository.rs:324`,`:359`,`:533` | `add_history` 只 `tracing::info!` 返回内存 `id:0`，`get_report_history`/`get_stats` 恒空；两张表不存在 | **已修**（2026-09-24，方案 A′：删 `/history`，`/stats` 改实时聚合） | 有（`event_report.rs:499/506`；审计写入 `event_report_service.rs:55/194/378`） | 已修：删 `/history` 全链（路由/handler/模型/测试）+ 删 `add_history` 的 3 处调用与三个空壳方法；`/stats` 保留并改为**静态** `query!` 实时聚合，响应字段对齐 SDK `StatsResponse`。见 `D-12_EVENT_REPORT_HISTORY_STATS_FIX_PLAN.md` |
 | D-13 | 结构性限制 | `synapse-storage/src/room_summary/repository.rs:326`,`:575`；`synapse-storage/src/presence/mod.rs:232` | `Vec<Option<T>>` 数组参数无 sqlx 映射，3 处无法宏化 | **结构性保留（有意）** | 已计入 `dynamic_production`（3 处 `literal`） | 改单个 `jsonb_to_recordset($n)` |
 | D-14 | 结构性限制 | 见 §7.2 D-14 | 运行期拼装 SQL 无法静态化 + D1 守卫 14 处已知假阴性 | **结构性保留（有意）** | 见明细 | 见明细（逐文件回收方向） |
-| D-15 | 覆盖缺口 | 见 §7.2 D-15 | 5 组已静态化代码无 DB 往返 / 无游标分支用例 | **覆盖缺口** | — | 见明细（逐项补测） |
+| D-15 | 覆盖缺口 | 见 §7.2 D-15（W5 批次已补 D-15.1/15.2/15.4/15.5/15.6） | 5 组已静态化代码无 DB 往返 / 无游标分支用例 | **部分已修**（W5 `ab5949c70` + `5a2674c38`；仅 D-15.3 待补） | — | 已补 5 项：D-15.1 `module::d15_db_tests` 6 条、D-15.2 游标双分支 1 条、D-15.4 建议查询 2 条、D-15.5 namespace/统计 12 方法 1 条、D-15.6 push_notification 6 条（+W1 的 2 条）；D-15.2 原判定「集成侧已覆盖」仍成立，本次把覆盖收进 storage 自己的 lib 口径。**D-15.3**（`event_report::get_reports_by_room` 游标）因该文件正被 D-12 批次改动而未做 |
 | D-16 | 文档一致性 | 本文件 §5 批次表 / §1 分布表 | C11 目标写 `test_isolation.rs`，与 `friend_room` 的"从未迁移"记录矛盾 | **已修正**（本次 C11 行 + 本表） | — | 已在本节固化 |
 | D-17 | 结构性限制 | 根 `.sqlx/`（777）与 `synapse-storage/.sqlx/`（53，已删） | 同一职责两份离线缓存元数据 | **已修**（W4 `d230c8902`，整目录收敛到根） | 并发会话曾误清空；棘轮/CI 口径不受影响 | 已修：先证明不需要（`--workspace --all-features --all-targets` / `-p synapse-storage --all-features` / `-p synapse-storage` 三种离线构建均只用根缓存通过），再删 53 条。核对发现 19 条"仅存子目录"里至少 7 条的 SQL 文本在当前源码中已不存在 ⇒ 不只是冗余，还是 C 批次重写语句后的**陈旧元数据** |
 | D-18 | 结构性限制 | `synapse-storage/src/thread/storage.rs:864` | `search_relevance` 是仅排序用列，`ThreadSummary` 无字段，`query_as!` 按全列构造结构体 | **结构性保留（有意）** | `NOTE(C9)`；已用子查询包裹 | 保持；后续同类列沿用子查询写法 |
@@ -465,7 +465,7 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-22 | 结构性限制 | C12/C14/C15 等多处 | `query_as!` 不走 `FromRow`，`RETURNING *` 必须展开为显式列清单（多列 E0560 / 少列 E0063） | **结构性保留（有意）** | 迁移时机械展开 | 写入批次 checklist |
 | D-23 | 文档一致性 | `synapse-storage/src/registration_token/repository.rs`（C14） | 普通字符串续行 `\` 改 raw string 后变成字面反斜杠，SQL 语法错 | **已绕过**（改真实换行） | 无遗留 | 作为陷阱登记 |
 | D-24 | 产品缺陷 | `migrations/00000000_unified_schema_v12.sql:4984` | v11-10 清理 DO 块删除显式 `uq_*` UNIQUE INDEX，`ON CONFLICT (worker_id)` 曾会运行期失败 | **已修**（S1–S3 `483dfc045` 改 `ADD CONSTRAINT`） | worker 统计写路径 | — |
-| D-25 | 覆盖缺口 | C6/C9/C11/C15 门控模块 | feature 未打开时模块不参与编译，`test(...)` 过滤器 0 命中 ⇒ "0 tests" 假绿 | **覆盖缺口** | 曾 4 次踩到 | 门禁/census 记录所需 feature 集 |
+| D-25 | 覆盖缺口 / 门禁 | `scripts/ci/gated_module_test_matrix`、`scripts/ci/check_gated_module_tests.sh`、`tests/unit/gated_module_test_gate_tests.rs`、`.github/workflows/ci.yml` | feature 未打开时模块不参与编译，`test(...)` 过滤器 0 命中 ⇒ 「0 tests」假绿（曾 4 次踩到） | **已修**（W5 `ab5949c70`） | 不体现在棘轮数字里 | 已修：登记表（`过滤器|feature|lib.rs 锚点`）+ 运行时层脚本（**复用**既有唯一实现 `require_tests_ran.sh`；`--all-features` 与 lib 批次同口径 ⇒ 不额外构建）+ 6 条静态/红证明守卫 + CI 一步。实跑 `friend_room` → 113 tests passed |
 | D-26 | 文档一致性 | 本文件 §4 与旧 baseline | "DDL 不可用 `query!` 静态化"结论过宽；生产 DDL 可静态化，仅 `#[cfg(test)]` 内不行 | **已收窄**（§执行结果 2） | — | 已在 §执行结果 2 更正 |
 | D-27 | 结构性限制 | `synapse-storage/src/search_index.rs`（已删） | 整模块无生产调用者，仍带 8 处生产动态 | **已修**（W4 `ee443c9f6`，按铁律 1 整模块删除） | 全仓唯一引用是 `sync/mod.rs:10` 再导出，无消费者 | 已修：删模块（1239 行）+ `lib.rs` 的 `pub mod` + `sync/mod.rs` 再导出；回收 8 处生产动态（6 literal + 2 runtime）与 8 处 test 区动态。**保留 `search_index` 表**（删表见 D-39） |
 | D-28 | 产品缺陷 | `synapse-storage/src/event/batch.rs` 等 | 4 个 0 调用者死查询 | **已修**（B3 `2e9c3d11d`，直接删除） | 无 | — |
@@ -482,21 +482,21 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-38 | 测试/门禁漂移 | `synapse-web/src/routes/federation/membership/query.rs:166`（过滤条件，已修）、`:190`（原断言） | `test_federation_membership_query_routes_from_real_ledger` 断言真实 ledger 里有 `GET /_matrix/federation/v1/room/<room_id>/membership/<user_id>`，但全仓**从未注册**该路由（ruma `api::federation::membership` 亦只含 invite/send_join/send_knock/send_leave/make_join/make_knock/make_leave；`/rooms/{roomId}/membership/{userId}` 是 client API、`registered_by == "room"`） ⇒ `cargo nextest run --workspace --lib` 在 HEAD 即为红 | **已修**（`8a6b36ca7`） | 曾被该红灯阻断 workspace lib 批次 | 已修：过滤条件 `/membership` → `/members/`，断言改为真实端点 `GET /members/{room_id}`、`GET /members/{room_id}/joined`（精确相等）与 `POST …/keys/query`，并在注释里记录该路由不是 spec 端点 |
 | D-39 | 遗留 schema（**新登记**） | `migrations/00000000_unified_schema_v12.sql` 的 `search_index` 表；唯二引用是 `tests/integration/schema_contract_p0_tests_migrated.rs:1232` 与 `tests/integration/schema_contract_p0_tests_migrated.rs:1257` | D-27 删除 `search_index.rs` 模块后，`search_index` **表**已无任何生产读写方（原本也只被那个死模块读写，注释里就写着"表永远为空"），仅剩 schema-contract 用例断言其形状 | **未修**（2026-09-24 W4 顺带登记） | 无（表无人读写） | 二选一：① 新增前向迁移 `DROP TABLE search_index`（连带删两条 schema-contract 用例与 SDK/ledger fixture、更新迁移一致性脚本的期望表集合）；② 保留表并明确记录"为将来接回 FTS 路径预留"—— 若选②需在 schema 注释里写清，否则它只是下一轮的死对象 |
 
+| D-40 | **产品缺陷（空壳端点）**（**新登记**） | `synapse-storage/src/module.rs:930`（原两处 stub，已实现）+ `migrations/00000000_unified_schema_v12.sql`（已加表） | `create_password_auth_provider` 是硬编码 `Err(sqlx::Error::RowNotFound)`、`get_password_auth_providers` 是硬编码 `Ok(vec![])`，而 `POST/GET /_synapse/admin/v1/password_auth_providers` **两个管理路由已注册**并写进 `ROUTE_CONTRACT.md`，model/request/service 俱全 —— 但 `password_auth_providers` 表在 baseline 与 live schema 里**都不存在** ⇒ POST 永败、GET 恒空 | **已修**（W5 `ab5949c70`，取「补齐实现」） | 有（两个 admin 路由） | 已修：v12 baseline 加表（`provider_name` UNIQUE ⇒ POST 幂等 create-or-update —— 该表无 PUT/DELETE 路由，POST 是唯一写路径）+ 两条真实语句（INSERT…ON CONFLICT…RETURNING / SELECT `ORDER BY priority, provider_name`）。同批扫过全仓 `Ok(vec![])`/`Err(RowNotFound)`/`unimplemented!()`：其余均属合法（空输入早返、友房业务错误、测试替身、no-op store） |
+| D-41 | **数据一致性**（**新登记**） | `synapse-storage/src/module.rs:783`（`get_execution_logs`） | `ORDER BY executed_ts DESC` 单键排序：`executed_ts` 是**毫秒**，同一毫秒的多次执行并列时 `LIMIT n` 的读法可能重复/漏行（与 D-08 同族） | **已修**（W5 `ab5949c70`；由既有棘轮 `ts_order_tiebreak_tests` 抓出） | 有（module 执行日志读路径） | 已修：加决胜键 `, id DESC`，并按该棘轮 `--update` 收紧 `scripts/ci/ts_order_single_key_baseline`（删 `synapse-storage/src/module.rs 1`）。顺带清掉新用例注释里含同形文本的措辞 —— 该棘轮是词法计数，散文里的同形文本也会被计入 |
 | D-42 | **运行时硬故障**（**新登记**） | `synapse-storage/src/event/create.rs` 三处（`:89` `create_event_with_graph` 的 `insert_edges_query`、`:197`/`:205` `create_state_event_with_dag` 的两条边插入） | 守卫写成 `WHERE $2 IS NOT NULL AND $2 != '[]'`：`$2` 已被 `unnest($2::text[])` 定为 `text[]`，PG 会把 `'[]'` 当**数组字面量**解析 ⇒ 在**prepare 阶段**即报 `22P02 malformed array literal: "[]"`（`"[" must introduce explicitly-specified array dimensions`）。**语句根本执行不了**，故 `prev_events`/`prev_state_events` 非空时整个 DAG 写入路径必败（`8489b4079` P2-1 引入） | **已修**（2026-09-25，全量门禁复跑发现） | 有（`test_create_event_with_graph_with_prev_events` 直接抓出；两条 `*_rolls_back_*` 用例此前是"因错误的原因"通过） | 守卫改 `WHERE cardinality($2) > 0`（NULL ⇒ NULL ⇒ 不入选，语义等价；调用方本就已 `if !is_empty()` 守卫）。**禁**再写 `!= '[]'`；已在两处 P2-1 文档注释里注明不可回退 |
 
-**状态计数（2026-09-24 W4 后 + D-12 收口 + 2026-09-25 清红）**：已修 **26**（D-02/D-03/D-24/D-28/D-35 + W1 的
-D-10/D-11/D-31/D-33/D-34 + D-36 守卫 + W2 的 D-05/D-07/D-08/D-09 + W3 的 D-29/D-32 +
-D-38 + W4 的 D-01/D-04/D-06/D-17/D-27/D-30 + **D-12** + **D-42**）；**部分已修 1**（D-37：吞错与死包装已修，
-两份实现的收敛未做）；未修 **1**（**D-39**）；结构性保留（有意）**7**（D-13/D-14/D-18–D-22）；
-另有文档级已处置 **3**（D-16/D-23/D-26）与 W5 覆盖缺口 **2**（D-15/D-25，未并入上述计数）
-—— 26 + 1 + 1 + 7 + 3 + 2 = **40**（D-01…D-39 + **D-42**；另 **D-40/D-41** 由 W5 批次
-`ab5949c70` 在提交信息里登记、未并入本表，故本表条目数与 `D-xx` 最大编号不相等）。
-（D-13/D-14/D-18…D-22）；覆盖缺口 **2**（D-15 含 D-15.6、D-25；D-36 虽同属覆盖缺口/门禁，
-已计入上面的"未修 19"，此处不重复计数）；文档一致性 **3**
-（D-16/D-23/D-26；D-35 已计入上面的"已修 5"，此处**不重复计数**——原文把 D-35 同时计入
-两类，五类相加为 36 与"合计 35"矛盾，本次标注修正）。合计 **36** 条
-（D-01…D-36；其中 **D-36 为本次重排新登记的系统性根因**，故由 35 增至 36）。
-校验：5 + 19 + 7 + 2 + 3 = **36**。
+**状态计数（2026-09-25，W5 收口后）**：已修 **29**
+（D-02/D-03/D-24/D-28/D-35 + W1 的 D-10/D-11/D-31/D-33/D-34 + D-36 守卫 +
+W2 的 D-05/D-07/D-08/D-09 + W3 的 D-29/D-32 + D-38 + W4 的 D-01/D-04/D-06/D-17/D-27/D-30 +
+D-12 + D-42 + W5 的 **D-25**/**D-40**/**D-41**）；**部分已修 2**（D-37：吞错与死包装已修、
+跨 crate 两份实现的收敛未做；**D-15**：D-15.1/15.2/15.4/15.5/15.6 已补，**D-15.3 待补**）；
+未修 **1**（**D-39**：`search_index` 表删否）；结构性保留（有意）**7**（D-13/D-14/D-18–D-22）；
+文档级已处置 **3**（D-16/D-23/D-26）。
+合计 **42** 条（D-01…D-42），校验：29 + 2 + 1 + 7 + 3 = **42**。
+
+> 注：本行以下曾残留一段**过期计数**（「合计 36 条（D-01…D-36）」），与当时的实际条数矛盾
+> 且已被后续重写覆盖 —— 本次一并删除，避免出现第三份计数口径（D-35 型漂移）。
 
 ### 7.2 逐条明细
 
@@ -803,6 +803,11 @@ D-38 + W4 的 D-01/D-04/D-06/D-17/D-27/D-30 + **D-12** + **D-42**）；**部分�
 
 #### D-15 覆盖缺口清单（汇总）
 
+> **W5 批次已补（2026-09-25，`ab5949c70` + `5a2674c38`）**：D-15.1 / D-15.2 / D-15.4 /
+> D-15.5 / D-15.6 全部补齐并跑绿（明细见下表各项与 §8.11）；**仅 D-15.3** 因
+> `event_report/repository.rs` 正被 D-12 批次改动而未做。下表"现状（实测）"列保留为
+> 修复前记录。
+
 | 缺口 | 路径 | 现状（实测） | 建议补什么测试 |
 |---|---|---|---|
 | D-15.1 `module.rs` 25 处静态化转换无任何 DB 往返 | `synapse-storage/src/module.rs`（9 个 `test_` 全为纯构造/纯单元，文件内无 `require_test_pool`）；转换批次 C12 `5d42b590c` | 全仓（含 `tests/`、`synapse-services`）没有任何 `ModuleStorage` DB 往返用例；基线记录里的一次性 smoke（`c12_module_runtime_smoke`，逐站点跑 25 处，**10 passed**）只存在于隔离 worktree，**未提交**（提交会新增夹具动态 SQL） | 把该 smoke 整理后提交到 `module.rs` 的 db_tests（真实 DB、per-test schema），覆盖 keyset 游标两分支、`RETURNING` 展开列、`AS "col!"`、`NULL::BIGINT` 合成列 |
@@ -953,6 +958,11 @@ D-38 + W4 的 D-01/D-04/D-06/D-17/D-27/D-30 + **D-12** + **D-42**）；**部分�
   `CREATE UNIQUE INDEX uq_*`。
 
 #### D-25 覆盖缺口 / 门禁陷阱：门控模块的 "0 tests" 假绿
+
+> **已修（W5 `ab5949c70`）**：登记表 `scripts/ci/gated_module_test_matrix` +
+> 运行时层 `scripts/ci/check_gated_module_tests.sh`（**复用**既有唯一实现
+> `scripts/ci/require_tests_ran.sh`）+ 守卫 `tests/unit/gated_module_test_gate_tests.rs`
+> + CI 一步。红证明与实跑结果见 §8.11。
 
 - 位置：C6 `server_notification`（`#[cfg(feature = "server-notifications")]`）、
   C9 `saml`（`saml-sso`）、C11 `friend_room`（`friends`）、C15 `cas`（`cas-sso`）。
@@ -1404,6 +1414,44 @@ D-38 + W4 的 D-01/D-04/D-06/D-17/D-27/D-30 + **D-12** + **D-42**）；**部分�
 - 状态：**已修**（2026-09-25）。回归证据：该用例由 FAIL 转 PASS，
   且两条回滚用例仍在**真正的外键失败**上通过。
 
+#### D-40 `password_auth_providers` 是空壳：两个已注册管理路由永败/恒空（2026-09-25 W5 覆盖作业发现）
+
+- 类别：**产品缺陷（空壳端点）**——契约（路由 + 文档 + model）与实现完全脱节。
+- 位置：`synapse-storage/src/module.rs:930`（`create_password_auth_provider`）与 `:940`
+  （`get_password_auth_providers`）；路由 `synapse-web/src/routes/module.rs:852-853`。
+- 证据（修复前实测）：两条方法分别是硬编码 `Err(sqlx::Error::RowNotFound)` 与
+  `Ok(vec![])`；`grep -n "password_auth_providers" migrations/00000000_unified_schema_v12.sql`
+  **0 命中**，live schema 的 `information_schema.tables` 里也没有该表（只有
+  `saml_identity_providers`）。即 `POST` 永远失败、`GET` 永远返回 `[]`。
+- 发现方式：写 D-15.1（`module.rs` 25 处静态化、此前零 DB 往返）的用例时，
+  "建一个 provider 再读回来"这条最基本的往返就红了 —— 这正是 W5 覆盖作业的目标。
+- 同族排查（避免只修一处）：全仓 `Ok(vec![])` / `Err(sqlx::Error::RowNotFound)` /
+  `unimplemented!()` 逐条看过，其余均属合法：空输入早返（`user/storage.rs`）、
+  业务错误信号（`friend_room` 的重名/缺用户）、测试替身（`user_store_fake.rs`、
+  `widget_service.rs` 夹具）、按设计 no-op 的 store（`server_notification_service.rs`
+  的 no-op 实现）。**只有本处是真 stub。**
+- 状态：**已修**（`ab5949c70`）。修法为「补齐实现」（经确认）：v12 baseline 加
+  `password_auth_providers` 表；`create_*` 用 `INSERT … ON CONFLICT (provider_name)
+  DO UPDATE … RETURNING`（该表没有 PUT/DELETE 路由 ⇒ POST 是唯一写路径，做成幂等
+  create-or-update 才有更新途径）；`get_*` 用真实 SELECT（`ORDER BY priority,
+  provider_name` 保证读序稳定）。RED/GREEN 见 §8.11。
+- 遗留：**无**（路由本就存在，未改动契约链；新增表使基线指纹变化，已同步
+  `EXPECTED_BASELINE_FINGERPRINT`）。
+
+#### D-41 `get_execution_logs` 的 `ORDER BY executed_ts DESC` 缺决胜键（2026-09-25 既有棘轮抓出）
+
+- 类别：**数据一致性**（与 D-08 同族：毫秒时间戳不是唯一键）。
+- 位置：`synapse-storage/src/module.rs:783`（`get_execution_logs` 的 `LIMIT $2` 查询）。
+- 证据：`executed_ts` 是 BIGINT 毫秒；同一毫秒的多次执行并列时，`ORDER BY executed_ts
+  DESC LIMIT n` 在并列边界上可能重复或漏行（"最近的 N 条"这条契约不确定）。
+- 发现方式：W5 为 D-15.1 补 `test_record_execution_and_execution_logs` 时，既有棘轮
+  `tests/unit/ts_order_tiebreak_tests.rs` 立刻报 `module.rs: 1 -> 2`
+  —— 其中 1 处是我的用例注释里含同形文本（该棘轮是**词法计数**，散文也算），
+  另 1 处即这条真实站点。
+- 状态：**已修**（`ab5949c70`）：加 `, id DESC`；并按该棘轮自身的规矩跑
+  `--update` 收紧 `scripts/ci/ts_order_single_key_baseline`（删掉 `module.rs 1` 条目，
+  全仓 74 处 → 保持单调变短）；同时改掉我新用例注释里含同形文本的措辞。
+
 ## 8. 问题优先处理计划（2026-09-23 重排：先修问题，再继续静态化）
 
 > **定位**：本节是**当前唯一执行排期**。§5 的阶段表与「执行结果」的批次表降级为**历史记录**。
@@ -1500,6 +1548,12 @@ D-38 + W4 的 D-01/D-04/D-06/D-17/D-27/D-30 + **D-12** + **D-42**）；**部分�
 > 棘轮 `dynamic_production` 706→694、`static` 808→803，且顺带把 D1 的字面量基线由
 > 876 重测收紧到 611（此前已无约束力）。证据见 **§8.10**。新登记 **D-39**（`search_index`
 > 表在模块删除后成为孤儿）。
+
+> **状态（2026-09-25）**：W5 已收口（`ab5949c70` + `5a2674c38`）—— D-15 的 5 个子项
+> 已补齐并跑绿（**D-15.3** 因 `event_report/` 正被 D-12 批次改动而未做），D-25 门控已落地
+> 并实跑验证。写用例的过程挖出并修掉两例真缺陷：**D-40**（`password_auth_providers`
+> 两个已注册管理路由永败/恒空，表都不存在）与 **D-41**（`get_execution_logs` 缺决胜键，
+> 被既有排序棘轮抓出）。证据见 **§8.11**。
 
 **W5 —— 覆盖缺口**
 
@@ -1904,3 +1958,68 @@ dynamic_test       704 → 704   （有意不动：本批删的 8 处 test 区�
   另两个未登记也未删。判据（`git grep -n 'create_tables'` 无任何调用点）与 D-04 完全同型，
   建议与 D-04 合并处理。
 - **D-39**：`search_index` 表删否。
+
+### 8.11 W5 执行结果（2026-09-25，`ab5949c70` + `5a2674c38`）
+
+W5 是「覆盖缺口」波次。它的直接产出是**用例**，但真正的价值在于：写用例的过程本身
+挖出两例真缺陷（**D-40**、**D-41**），且这两例都不是靠读代码发现的 —— 一条被"最基本的
+建-读往返"抓出，另一条被**既有**的排序棘轮抓出。
+
+#### D-15 各子项
+
+| 子项 | 补了什么 | 结果 |
+|---|---|---|
+| D-15.1 `module.rs` | `module::d15_db_tests` **6** 条：模块 CRUD、`get_all_modules` 的**两条**游标分支（逐页断言不重不漏）、`record_execution` 的 `CASE WHEN` 计数语义 + 执行日志读序/limit、`account_validity` 的 upsert + 两个合成列（`COALESCE(updated_ts, created_ts) AS "updated_ts!"`、`NULL::BIGINT AS "renewal_token_ts"`）+ `get_expired_accounts` 的 `is_valid = true` 过滤（含负例）、`account_data_callbacks` 的 `TEXT[]` 往返与可空 `config`、`password_auth_providers` 往返（→ D-40） | 6/6 ✅ |
+| D-15.2 `sliding_sync` 游标 | 1 条：四键 keyset `(updated_ts DESC, user_id ASC, device_id ASC, conn_id ASC)`，夹具让前两行 `updated_ts` **相同**，逐页（limit=1）依次走到**并列键分支**与**跨时间戳分支**，末页断言为空。原判定"集成侧已覆盖"仍成立，本次把覆盖收进 storage 自己的 lib 口径（`upsert_room` 自写 `updated_ts = now`，故夹具用显式 INSERT） | 1/1 ✅ |
+| D-15.4 `friend_room` 建议查询 | 2 条：互关建议的 `COUNT(DISTINCT …) AS "mutual_count!"`、共享房间的 `shared_rooms_count!`、`LEFT JOIN users` 的 `displayname?`/`avatar_url?`（有/无 profile 两种）、按计数 DESC、真 LIMIT、"已是好友者不得出现"。需 `--features friends`（见 D-25） | 2/2 ✅ |
+| D-15.5 12 个 namespace/统计方法 | 1 条：用**真实写入路径** `register`（其 `insert_namespaces` 按 JSON 落三张表）造数据，覆盖三类 `get_*_namespaces` 的别名投影、`is_*_in_namespace` 命中/未命中、`has_exclusive_user_namespace_match` 只认 exclusive、`find_*_namespace_conflict` 的"同 as_id 不算冲突"语义，以及 `get_statistics` 聚合 + `update_last_seen` 幂等 upsert | 1/1 ✅ |
+| D-15.6 `push_notification` | 6 条（+ W1 的 2 条）：`register_device` upsert、`last_used_at AS "last_used_ts"` 别名、`unregister` 后两个读端都看不到、`update_device_last_used`/`record_device_error` 计数、`queue_notification` → `get_pending_notifications`（priority DESC、`FOR UPDATE SKIP LOCKED`、limit 是真 LIMIT）→ `mark_notification_sent`、`mark_notification_failed` 两分支、`push_config` CRUD + 类型化读 | 8/8 ✅ |
+| D-15.3 `event_report` by_room 游标 | **未做**：`event_report/repository.rs` 正被 D-12 批次改动（同一文件、同一批方法），按铁律 9 避免同文件并行编辑 | 待补 |
+
+#### D-25 门控「0 tests 假绿」
+
+- 交付：`scripts/ci/gated_module_test_matrix`（登记 `过滤器|feature|声明它的 lib.rs`，
+  含第三列锚点）+ `scripts/ci/check_gated_module_tests.sh`（**复用**既有唯一实现
+  `scripts/ci/require_tests_ran.sh`；用 `--all-features` 与 CI 的 lib 批次同口径 ⇒
+  逐行检查不产生额外编译）+ `tests/unit/gated_module_test_gate_tests.rs` **6** 条
+  + CI 一步（`Gated modules actually run tests (D-25)`）。
+- 六条守卫：登记表非空/无重复/覆盖 D-25 点名的 4 个模块；feature 名必须真的在该 crate 的
+  `[features]` 里；每个 `pub mod` 的上一行必须是对应 `#[cfg(feature = "…")]`；
+  **门禁必须被 ci.yml 调用**（没人调用的门禁等于不存在）；脚本必须**真的被执行过**
+  （`--list` 端到端）；"0 个用例 ⇒ 失败"的 RED + 正控。
+- 运行时层实跑：`check_gated_module_tests.sh friend_room` → **113 tests passed** +
+  `OK: 1 个门控模块的过滤器都命中了用例`。
+
+#### 两个自证教训（都写进了脚本/用例注释）
+
+1. **"静态全绿"骗过了我自己。** 门禁脚本第一次实跑就报 `anchor: unbound variable`
+   —— `echo "...$anchor）"` 里变量名后紧跟多字节字符，bash 把 `）` 并进了变量名。
+   而当时所有静态断言（文件存在、被 CI 调用、feature 名对、锚点对）**全是绿的** ——
+   这正是 D-25 描述的失败形态。故新增 `--list` 模式与
+   `the_gate_script_parses_the_matrix_end_to_end` 用例，让守卫真的执行脚本。
+2. **RED 证明别嵌套 cargo。** 最初用 `cargo nextest run` 做 RED/正控，在共享 target
+   目录上与其它构建抢锁，单个用例被拖到 **440s**。改成用 `true` 与
+   `printf 'Starting 3 tests…'` 两条替身命令直接检验 `require_tests_ran.sh` 的判定逻辑，
+   降到 **0.3s** 且确定性更好；端到端那条路由 CI 步骤覆盖。
+
+#### 验证与门禁
+
+`--test unit` 全批次 **1764/1764**；`application_service` + `sliding_sync` 101/101；
+`module::d15_db_tests` 6/6、`push_notification::db_tests` 8/8、
+`friend_room` 建议查询 2/2（`--features friends`）、D-25 守卫 6/6（0.3s）、
+`ts_order_tiebreak_tests` 2/2；SQLx 棘轮 `806 ≥ 803`（W5 新增 2 处静态、0 处动态）；
+`.sqlx` 780 条（+3/−1，由 `cargo sqlx prepare --workspace -- --features
+server-notifications,saml-sso,cas-sso,beacons` 刷新）；`check_sqlx_cache_fresh.sh` 绿；
+fmt 债务 0。
+
+**基线指纹**：D-40 加表后 `EXPECTED_BASELINE_FINGERPRINT` 更新为 `0297744eb28ae814`。
+本次**不再靠"跑守卫看报错"取值** —— 独立复算了 FNV-1a 64，并先用两个已知值自检
+（`2192a6d99` 基线 → `7ba7be4ff51c6d50`、`cef006dd2` 时基线 → `7212ca6632ca4075`，
+两者都逐字节吻合）后才用同一实现算出新值。
+
+#### W5 遗留
+
+- **D-15.3**（`event_report::get_reports_by_room` 游标）：等 D-12 批次稳定后补
+  （该文件的 `by_reporter`/`by_status`/`all_reports` 都有专测，唯独 `by_room` 缺）。
+- **D-37 的另一半**、**D-04 的同族第二个 `create_tables`**、**D-39**：
+  见 §8.10 遗留，均为独立决策项。
