@@ -221,9 +221,9 @@ impl PresenceStorage {
         tracing::info!(count = entries.len(), "Batch setting presence");
 
         let now = current_timestamp_millis();
-        let user_ids: Vec<&str> = entries.iter().map(|(uid, _, _)| uid.as_str()).collect();
-        let presences: Vec<&str> = entries.iter().map(|(_, p, _)| p.as_str()).collect();
-        let status_msgs: Vec<Option<&str>> = entries.iter().map(|(_, _, s)| s.as_deref()).collect();
+        let user_ids: Vec<String> = entries.iter().map(|(uid, _, _)| uid.clone()).collect();
+        let presences: Vec<String> = entries.iter().map(|(_, p, _)| p.clone()).collect();
+        let status_msgs: Vec<Option<String>> = entries.iter().map(|(_, _, s)| s.clone()).collect();
         let nows: Vec<i64> = vec![now; entries.len()];
 
         sqlx::query!(
@@ -238,10 +238,10 @@ impl PresenceStorage {
                 last_active_ts = EXCLUDED.last_active_ts,
                 updated_ts = EXCLUDED.updated_ts
             ",
-            &user_ids,
-            &presences,
-            &status_msgs,
-            &nows,
+            &user_ids[..],
+            &presences[..],
+            &status_msgs[..],
+            &nows[..],
         )
         .execute(&*self.pool)
         .await?;
@@ -629,8 +629,7 @@ impl PresenceStorage {
             tracing::warn!(target: "cache", "Failed to batch cache {} presence entries: {}", cache_entries.len(), e);
         }
 
-        results
-            .extend(rows.into_iter().map(|row| (row.user_id, row.presence, row.status_msg, Some(row.last_active_ts))));
+        results.extend(rows.into_iter().map(|row| (row.user_id, row.presence, row.status_msg)));
         Ok(results)
     }
 
