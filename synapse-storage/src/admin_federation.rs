@@ -1,4 +1,4 @@
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use std::sync::Arc;
 #[cfg(test)]
 use synapse_common::current_timestamp_millis;
@@ -60,7 +60,7 @@ impl AdminFederationStorage {
 
     /// See [`count_destinations`].
     pub async fn count_destinations(&self) -> Result<i64, sqlx::Error> {
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM federation_servers").fetch_one(&*self.pool).await
+        sqlx::query_scalar!("SELECT COUNT(*) AS \"count!\" FROM federation_servers").fetch_one(&*self.pool).await
     }
 
     /// See [`list_destinations`].
@@ -70,29 +70,31 @@ impl AdminFederationStorage {
         limit: i64,
     ) -> Result<Vec<FederationDestinationRecord>, sqlx::Error> {
         if let Some(after_server_name) = after_server_name {
-            sqlx::query_as::<_, FederationDestinationRecord>(
-                r"
+            sqlx::query_as!(
+                FederationDestinationRecord,
+                r#"
                 SELECT server_name, last_failed_connect_at, last_successful_connect_at, failure_count, status, updated_ts
                 FROM federation_servers
                 WHERE server_name > $1
                 ORDER BY server_name ASC
                 LIMIT $2
-                ",
+                "#,
+                after_server_name,
+                limit,
             )
-            .bind(after_server_name)
-            .bind(limit)
             .fetch_all(&*self.pool)
             .await
         } else {
-            sqlx::query_as::<_, FederationDestinationRecord>(
-                r"
+            sqlx::query_as!(
+                FederationDestinationRecord,
+                r#"
                 SELECT server_name, last_failed_connect_at, last_successful_connect_at, failure_count, status, updated_ts
                 FROM federation_servers
                 ORDER BY server_name ASC
                 LIMIT $1
-                ",
+                "#,
+                limit,
             )
-            .bind(limit)
             .fetch_all(&*self.pool)
             .await
         }
@@ -100,24 +102,25 @@ impl AdminFederationStorage {
 
     /// See [`get_destination`].
     pub async fn get_destination(&self, server_name: &str) -> Result<Option<FederationDestinationRecord>, sqlx::Error> {
-        sqlx::query_as::<_, FederationDestinationRecord>(
-            r"
+        sqlx::query_as!(
+            FederationDestinationRecord,
+            r#"
             SELECT server_name, last_failed_connect_at, last_successful_connect_at, failure_count, status, updated_ts
             FROM federation_servers
             WHERE server_name = $1
-            ",
+            "#,
+            server_name,
         )
-        .bind(server_name)
         .fetch_optional(&*self.pool)
         .await
     }
 
     /// See [`reset_connection`].
     pub async fn reset_connection(&self, server_name: &str) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             "UPDATE federation_servers SET last_failed_connect_at = NULL, failure_count = 0 WHERE server_name = $1",
+            server_name,
         )
-        .bind(server_name)
         .execute(&*self.pool)
         .await?;
         Ok(result.rows_affected())
@@ -125,8 +128,7 @@ impl AdminFederationStorage {
 
     /// See [`delete_destination`].
     pub async fn delete_destination(&self, server_name: &str) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query("DELETE FROM federation_servers WHERE server_name = $1")
-            .bind(server_name)
+        let result = sqlx::query!("DELETE FROM federation_servers WHERE server_name = $1", server_name)
             .execute(&*self.pool)
             .await?;
         Ok(result.rows_affected())
@@ -134,18 +136,20 @@ impl AdminFederationStorage {
 
     /// See [`destination_exists`].
     pub async fn destination_exists(&self, server_name: &str) -> Result<bool, sqlx::Error> {
-        sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM federation_servers WHERE server_name = $1)")
-            .bind(server_name)
-            .fetch_one(&*self.pool)
-            .await
+        sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM federation_servers WHERE server_name = $1) AS \"exists!\"",
+            server_name,
+        )
+        .fetch_one(&*self.pool)
+        .await
     }
 
     /// See [`get_destination_rooms`].
     pub async fn get_destination_rooms(&self, server_name: &str) -> Result<Vec<String>, sqlx::Error> {
-        let rows: Vec<Option<String>> = sqlx::query_scalar(
-            "SELECT DISTINCT room_id FROM federation_queue WHERE destination = $1 AND room_id IS NOT NULL ORDER BY room_id",
+        let rows: Vec<Option<String>> = sqlx::query_scalar!(
+            "SELECT DISTINCT room_id AS \"room_id?\" FROM federation_queue WHERE destination = $1 AND room_id IS NOT NULL ORDER BY room_id",
+            server_name,
         )
-        .bind(server_name)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -155,20 +159,20 @@ impl AdminFederationStorage {
     /// See [`count_distinct_rooms_by_sender_server`].
     pub async fn count_distinct_rooms_by_sender_server(&self, server_name: &str) -> Result<i64, sqlx::Error> {
         let suffix = format!("%:{server_name}");
-        sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(DISTINCT room_id) FROM events WHERE sender LIKE $1 AND state_key IS NOT NULL",
+        sqlx::query_scalar!(
+            "SELECT COUNT(DISTINCT room_id) AS \"count!\" FROM events WHERE sender LIKE $1 AND state_key IS NOT NULL",
+            suffix,
         )
-        .bind(suffix)
         .fetch_one(&*self.pool)
         .await
     }
 
     /// See [`get_destination_status`].
     pub async fn get_destination_status(&self, server_name: &str) -> Result<Option<String>, sqlx::Error> {
-        sqlx::query_scalar::<_, String>(
-            "SELECT COALESCE(status, 'active') FROM federation_servers WHERE server_name = $1",
+        sqlx::query_scalar!(
+            "SELECT COALESCE(status, 'active') AS \"status!\" FROM federation_servers WHERE server_name = $1",
+            server_name,
         )
-        .bind(server_name)
         .fetch_optional(&*self.pool)
         .await
     }
@@ -180,8 +184,7 @@ impl AdminFederationStorage {
     /// Used by the federation admission middleware to distinguish "unknown
     /// server" from "known server with explicit status".
     pub async fn get_server_admission_status(&self, server_name: &str) -> Result<Option<Option<String>>, sqlx::Error> {
-        sqlx::query_scalar::<_, Option<String>>("SELECT status FROM federation_servers WHERE server_name = $1")
-            .bind(server_name)
+        sqlx::query_scalar!("SELECT status AS \"status?\" FROM federation_servers WHERE server_name = $1", server_name,)
             .fetch_optional(&*self.pool)
             .await
     }
@@ -192,13 +195,15 @@ impl AdminFederationStorage {
     /// same server do not clobber an existing row. Returns the number of
     /// rows actually inserted (0 if the server already existed).
     pub async fn insert_pending_server(&self, server_name: &str, now_ts: i64) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query(
-            "INSERT INTO federation_servers (server_name, status, updated_ts) \
-             VALUES ($1, 'pending', $2) \
-             ON CONFLICT (server_name) DO NOTHING",
+        let result = sqlx::query!(
+            r#"
+            INSERT INTO federation_servers (server_name, status, updated_ts)
+            VALUES ($1, 'pending', $2)
+            ON CONFLICT (server_name) DO NOTHING
+            "#,
+            server_name,
+            now_ts,
         )
-        .bind(server_name)
-        .bind(now_ts)
         .execute(&*self.pool)
         .await?;
         Ok(result.rows_affected())
@@ -211,12 +216,14 @@ impl AdminFederationStorage {
         status: &str,
         updated_ts: i64,
     ) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query("UPDATE federation_servers SET status = $1, updated_ts = $2 WHERE server_name = $3")
-            .bind(status)
-            .bind(updated_ts)
-            .bind(server_name)
-            .execute(&*self.pool)
-            .await?;
+        let result = sqlx::query!(
+            "UPDATE federation_servers SET status = $1, updated_ts = $2 WHERE server_name = $3",
+            status,
+            updated_ts,
+            server_name,
+        )
+        .execute(&*self.pool)
+        .await?;
         Ok(result.rows_affected())
     }
 
@@ -227,54 +234,53 @@ impl AdminFederationStorage {
         server_name: Option<&str>,
         limit: i64,
     ) -> Result<Vec<PendingFederationRecord>, sqlx::Error> {
-        sqlx::query_as::<_, PendingFederationRecord>(
-            "SELECT server_name, failure_count, last_failed_connect_at, last_successful_connect_at, updated_ts \
-             FROM federation_servers WHERE status = 'pending' \
-               AND (($1::BIGINT IS NULL AND $2::TEXT IS NULL)
-               OR COALESCE(updated_ts, 0) < $1
-               OR (COALESCE(updated_ts, 0) = $1 AND server_name < $2)) \
-             ORDER BY COALESCE(updated_ts, 0) DESC, server_name DESC \
-             LIMIT $3",
+        sqlx::query_as!(
+            PendingFederationRecord,
+            r#"
+            SELECT server_name, failure_count, last_failed_connect_at, last_successful_connect_at, updated_ts
+            FROM federation_servers WHERE status = 'pending'
+              AND (($1::BIGINT IS NULL AND $2::TEXT IS NULL)
+              OR COALESCE(updated_ts, 0) < $1
+              OR (COALESCE(updated_ts, 0) = $1 AND server_name < $2))
+            ORDER BY COALESCE(updated_ts, 0) DESC, server_name DESC
+            LIMIT $3
+            "#,
+            updated_ts,
+            server_name,
+            limit,
         )
-        .bind(updated_ts)
-        .bind(server_name)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await
     }
 
     /// See [`count_pending_federation`].
     pub async fn count_pending_federation(&self) -> Result<i64, sqlx::Error> {
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM federation_servers WHERE status = 'pending'")
+        sqlx::query_scalar!("SELECT COUNT(*) AS \"count!\" FROM federation_servers WHERE status = 'pending'")
             .fetch_one(&*self.pool)
             .await
     }
 
     /// See [`get_federation_cache`].
     pub async fn get_federation_cache(&self) -> Result<Vec<FederationCacheRecord>, sqlx::Error> {
-        let rows = sqlx::query("SELECT key, value, expiry_ts FROM federation_cache ORDER BY key")
+        let rows = sqlx::query!("SELECT key, value, expiry_ts FROM federation_cache ORDER BY key")
             .fetch_all(&*self.pool)
             .await?;
 
         Ok(rows
             .into_iter()
-            .map(|row| FederationCacheRecord {
-                key: row.get("key"),
-                value: row.try_get::<Option<String>, _>("value").ok().flatten(),
-                expiry_ts: row.try_get::<Option<i64>, _>("expiry_ts").ok().flatten(),
-            })
+            .map(|row| FederationCacheRecord { key: row.key, value: row.value, expiry_ts: row.expiry_ts })
             .collect())
     }
 
     /// See [`delete_federation_cache_entry`].
     pub async fn delete_federation_cache_entry(&self, key: &str) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query("DELETE FROM federation_cache WHERE key = $1").bind(key).execute(&*self.pool).await?;
+        let result = sqlx::query!("DELETE FROM federation_cache WHERE key = $1", key).execute(&*self.pool).await?;
         Ok(result.rows_affected())
     }
 
     /// See [`clear_federation_cache`].
     pub async fn clear_federation_cache(&self) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query("DELETE FROM federation_cache").execute(&*self.pool).await?;
+        let result = sqlx::query!("DELETE FROM federation_cache").execute(&*self.pool).await?;
         Ok(result.rows_affected())
     }
 }
