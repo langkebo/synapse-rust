@@ -216,16 +216,6 @@ impl DeviceStorage {
         Ok(stream_id)
     }
 
-    /// See [`record_device_list_change_best_effort`].
-    pub async fn record_device_list_change_best_effort(
-        &self,
-        user_id: &str,
-        device_id: Option<&str>,
-        change_type: &str,
-    ) {
-        let _ = self.record_device_list_change(user_id, device_id, change_type).await;
-    }
-
     async fn record_device_list_changes_batch(
         &self,
         user_id: &str,
@@ -254,16 +244,6 @@ impl DeviceStorage {
         .execute(&*self.pool)
         .await?;
         Ok(())
-    }
-
-    /// See [`record_device_list_changes_batch_best_effort`].
-    pub async fn record_device_list_changes_batch_best_effort(
-        &self,
-        user_id: &str,
-        device_ids: &[String],
-        change_type: &str,
-    ) {
-        let _ = self.record_device_list_changes_batch(user_id, device_ids, change_type).await;
     }
 
     /// See [`insert_device_list_change`].
@@ -527,7 +507,10 @@ impl DeviceStorage {
         .await?;
 
         if let Some(device) = self.get_device(device_id).await? {
-            let _ = self.record_device_list_change(&device.user_id, Some(device_id), "changed").await;
+            // D-37: was `let _ = …`. A dropped device-list change hides the rename from every
+            // peer that tracks this device; `?` is safe because a retry re-runs the UPDATE and
+            // this notification together, so the retry repairs the stream.
+            self.record_device_list_change(&device.user_id, Some(device_id), "changed").await?;
         }
         Ok(())
     }
@@ -554,7 +537,8 @@ impl DeviceStorage {
         .map(|result| result.rows_affected())?;
 
         if rows_affected > 0 {
-            let _ = self.record_device_list_change(user_id, Some(device_id), "changed").await;
+            // D-37: same reasoning as `update_device_display_name` — retry re-runs both.
+            self.record_device_list_change(user_id, Some(device_id), "changed").await?;
         }
 
         Ok(rows_affected)
@@ -592,7 +576,19 @@ impl DeviceStorage {
                 if res.rows_affected() > 0 {
                     if let Some(device) = existing {
                         let _ = self.delete_lazy_loaded_members_for_device(&device.user_id, device_id).await;
-                        let _ = self.record_device_list_change(&device.user_id, Some(device_id), "deleted").await;
+                        // D-37: logged rather than propagated — the row is already deleted, so a
+                        // retry would find `existing == None` and could never re-record the
+                        // change; failing the request would just strand the client.
+                        if let Err(error) =
+                            self.record_device_list_change(&device.user_id, Some(device_id), "deleted").await
+                        {
+                            tracing::warn!(
+                                %error,
+                                user_id = %device.user_id,
+                                device_id,
+                                "device deleted but the device-list change was not recorded"
+                            );
+                        }
                     }
                 }
                 Ok(())
@@ -676,7 +672,11 @@ impl DeviceStorage {
             Ok(res) => {
                 if res.rows_affected() > 0 {
                     let _ = self.delete_lazy_loaded_members_for_user(user_id).await;
-                    self.record_device_list_changes_batch_best_effort(user_id, &device_ids, "deleted").await;
+                    // D-37: same "rows already gone, retry cannot re-record" reasoning as
+                    // `delete_device`, so the failure is logged instead of propagated.
+                    if let Err(error) = self.record_device_list_changes_batch(user_id, &device_ids, "deleted").await {
+                        tracing::warn!(%error, %user_id, "devices deleted but their device-list changes were not recorded");
+                    }
                 }
                 Ok(())
             }
@@ -712,7 +712,10 @@ impl DeviceStorage {
             }
             for (user_id, user_device_ids) in &by_user {
                 let _ = self.delete_lazy_loaded_members_for_devices_batch(user_id, user_device_ids).await;
-                self.record_device_list_changes_batch_best_effort(user_id, user_device_ids, "deleted").await;
+                // D-37: logged, not propagated (rows already deleted).
+                if let Err(error) = self.record_device_list_changes_batch(user_id, user_device_ids, "deleted").await {
+                    tracing::warn!(%error, %user_id, "devices deleted but their device-list changes were not recorded");
+                }
             }
         }
 
@@ -733,7 +736,10 @@ impl DeviceStorage {
 
         if rows_affected > 0 {
             let _ = self.delete_lazy_loaded_members_for_devices_batch(user_id, device_ids).await;
-            self.record_device_list_changes_batch_best_effort(user_id, device_ids, "deleted").await;
+            // D-37: logged, not propagated (rows already deleted).
+            if let Err(error) = self.record_device_list_changes_batch(user_id, device_ids, "deleted").await {
+                tracing::warn!(%error, %user_id, "devices deleted but their device-list changes were not recorded");
+            }
         }
 
         Ok(rows_affected)

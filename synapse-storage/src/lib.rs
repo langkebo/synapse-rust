@@ -123,8 +123,6 @@ pub mod room_tag;
 pub mod schema_health_check;
 /// The `schema_validator` module.
 pub mod schema_validator;
-/// The `search_index` module.
-pub mod search_index;
 /// The `sliding_sync` module.
 pub mod sliding_sync;
 /// The `space` module.

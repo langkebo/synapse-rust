@@ -40,11 +40,14 @@ const EXTENSIONS: [&str; 10] = [".md", ".rs", ".toml", ".yaml", ".yml", ".json",
 /// 它们出现在"该文件不存在 / 已删除"这类**否定陈述**里，用于记录历史误引用本身；
 /// 若把它们也当违规，§13 的修正记录就会自相矛盾。新增条目必须写清用途 ——
 /// 这个清单是"允许文档提到不存在的路径"的**唯一**入口。
-const HISTORICAL_NEGATIVE_MENTIONS: [&str; 2] = [
+const HISTORICAL_NEGATIVE_MENTIONS: [&str; 3] = [
     // §13：记录"已删除的伪造引用"（v1.2 曾把它当证据）。
     "docs/synapse-rust/api-reference.md",
     // §11.2：记录"服务层不存在该文件"，用于纠正旧表述。
     "synapse-services/src/privacy.rs",
+    // B8/#20119：记录"该模块已于 2026-09-24 W4/D-27 按铁律 1 整模块删除"，
+    // 文档引用它是为了说明"死代码已清 + search_index 表成为遗留表（D-39）"。
+    "synapse-storage/src/search_index.rs",
 ];
 
 fn repo_root() -> PathBuf {

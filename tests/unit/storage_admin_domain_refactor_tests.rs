@@ -168,7 +168,7 @@ fn test_qr_login_storage_path_identity() {
     }
 }
 
-// --- sync domain grouping (sliding_sync, search_index) ---
+// --- sync domain grouping (sliding_sync) ---
 
 #[test]
 fn test_sliding_sync_storage_path_identity() {

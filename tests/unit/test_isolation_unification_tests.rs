@@ -98,10 +98,13 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // 加心跳列 —— 基线内容再次变化、该提交同样没同步本常量，于是 `main` 上的
 // `--test unit` 又是红的（复现：left=7ba7be4ff51c6d50 / right=7d0fa95f2729793e）。
 // 这里按本守卫自身的说明更新为新报告的 `left:` 值 `7ba7be4ff51c6d50`。
-// 纪律（已经踩过四次：`d77d1fcf`、`98a90a58`、`2fba9c2d9`、本次）：
+// 2026-09-24（W1 `c128cdeab`，D-11 删除 `room_invites` 的 6 个死列族）：基线内容
+// 再次变化、该提交同样没同步本常量（复现：left=7212ca6632ca4075 /
+// right=7ba7be4ff51c6d50），直到 W4 跑完整 `--test unit` 才暴露。
+// 纪律（已经踩过五次：`d77d1fcf`、`98a90a58`、`2fba9c2d9`、`483dfc045`、本次）：
 // **改 `migrations/` 后必须跑一次本守卫**，哪怕只改注释 —— 模板指纹按文件字节哈希，
 // 内容一变常量就必须同步，否则每个新库都会铸出第二份模板。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "7ba7be4ff51c6d50";
+const EXPECTED_BASELINE_FINGERPRINT: &str = "7212ca6632ca4075";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))
@@ -847,7 +850,7 @@ fn prepare_isolated_test_pool_does_not_use_the_runtime_initializer() {
 ///
 /// The template schema name is `test_isolation_template_<FNV-1a 64 of the
 /// baseline string>`. The v12-only input hashes to the constant below
-/// (`7ba7be4ff51c6d50`). Extra text — a leading or trailing separator, an
+/// (`7212ca6632ca4075`). Extra text — a leading or trailing separator, an
 /// additional `include_str!`, a pointer at a different migration — changes the
 /// hash and silently builds a *second* full template, so the suite pays the whole
 /// baseline rebuild again while believing it is sharing a template. Historical

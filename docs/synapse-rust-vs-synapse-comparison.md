@@ -486,7 +486,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | 上游条目 | Synapse v1.161 | synapse-rust 实测 | 状态 |
 |----------|----------------|-------------------|------|
 | #20148 DB 宕机时新事件无法持久化 | ✅ 修复（根因：每实例 state-group persisted 标记过期） | **该机制在本仓不存在 ⇒ 上游具体 bug N/A**；但同类风险存在：`create_event_with_graph` 先 INSERT `events` 再于**事务外** INSERT `event_edges`（`synapse-storage/src/event/create.rs:112-142`），联邦入库/补洞/backfill 使用 | ⚠️ PARTIAL |
-| #20119 `event_search` 跳过 `m.room.topic` | ✅ 修复 | 重建索引帮手含 `m.room.topic`（`search_index.rs:238`）但该存储**无调用者**（死代码）；在线查询与 GIN 索引硬限定 `m.room.message`（`event/search.rs:170,210,311,249-255`）⇒ 主题默认搜不到 | ⚠️ PARTIAL |
+| #20119 `event_search` 跳过 `m.room.topic` | ✅ 修复 | 在线默认搜索面已修（见 §Search 行）：未传 `filter.types` 时含 `m.room.name`/`m.room.topic`（`event/search.rs:84`）。原 `synapse-storage/src/search_index.rs` 的**重建索引帮手含 `m.room.topic` 但整模块无调用者**（死代码），已于 2026-09-24 W4/D-27 按铁律 1 删除；`search_index` 表本身成为无人读写的遗留表（见 B8） | ⚠️ PARTIAL（死代码已清） |
 | #20169 `/sync` 左房成员泄漏（MSC4222 `state_after`） | ✅ 修复 | **❌ 旧版 ✅ 系误判**：全仓 `state_after`/`MSC4222` = 0；旧版引用的 `include_redundant_members` 是另一功能（`sync_service/filter.rs:110`）。左房成员态取自**当前** state（`data_fetch.rs:156-184`） | ⚠️ 机制不同/未对齐 |
 | #20149/#20172 Profile 500 | ✅ 修复 | 不存在用户 → 404 已对；account_data 非 JSON 对象仍 500（`extended_profile.rs:47-50`）；**已停用但存在用户写自定义字段返回 404**（`user/storage.rs:663-673`），与上游"应成功"相反；稳定 `GET /_matrix/client/v3/profile/{userId}/{keyName}` 未注册（仅 `uk.tcpip.msc4133`） | ⚠️ PARTIAL |
 | #20173 Profile PUT/DELETE 400→403 | ✅ 修复 | ✅ 已正确返回 403 + `M_FORBIDDEN`（`account_compat.rs:195-197,224-226`）；上游触发配置（`enable_set_displayname` 等）本仓不存在 | ✅ 已对齐 |
@@ -539,7 +539,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | **Key Backup** | 有 | ✅ `synapse-web/src/routes/e2ee/backup.rs` 完整实现 | ✅ 已对齐 |
 | **Push Notifications** | 有 | ✅ `push/` + `push_notification.rs` + `client_push_service.rs` 完整实现 | ✅ 已对齐 |
 | **Relations** | 有 | ✅ `relations_service.rs` + `synapse-storage/src/relations/`（不含 `content.redacts` 与级联撤回，见 §11.1） | ⚠️ 部分对齐 |
-| **Search** | 有 | ⚠️ **默认搜索面已修（Phase 2）**：未传 `filter.types` 时改为 `IN (m.room.message, m.room.name, m.room.topic)`（`event/search.rs:84`，内容按 `content::text` LIKE 匹配，无需回填）；**仍存**：`search_index.rs` 为死代码、其 partial GIN 索引谓词未同步（FTS 路径不可达），列为独立清理项 | ⚠️ 部分对齐 |
+| **Search** | 有 | ⚠️ **默认搜索面已修（Phase 2）**：未传 `filter.types` 时改为 `IN (m.room.message, m.room.name, m.room.topic)`（`event/search.rs:84`，内容按 `content::text` LIKE 匹配，无需回填）；**已清（2026-09-24，W4/D-27）**：`synapse-storage/src/search_index.rs` 整模块（`SearchIndexStorage` 等，1239 行 / 8 处动态 SQL）无任何生产调用者，已按铁律 1 删除；**仍存**：`search_index` 表的 partial GIN 索引谓词未同步、表已无人读写（删表需独立迁移决策，见 B8） | ⚠️ 部分对齐 |
 | **Webhooks/App Services** | 完整 | ⚠️ `app_service.rs` 提供 AS 管理/事务/命名空间；**AS 登录（`m.login.application_service`）已于 Phase 2 实现**；`external_service.rs` 是私有桥接扩展，**不能**算作 Matrix AS API；仍缺 pushers/设备管理/虚拟用户调用 C-S/MSC4512 | ⚠️ 部分对齐 |
 
 **优势与劣势**:
@@ -665,7 +665,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | B5 | `create_event_with_graph` 半写窗口（`event/create.rs:112-142`） | 并入同一事务或给出补偿 | 注入 `event_edges` 失败后无孤立 `events` 行 | 新增 |
 | B6 | txn 去重标记在事件事务外（`messages.rs:288-305`） | 标记与事件同事务，或"标记先行 + 幂等回填" | 注入标记失败后重试，房内仅 1 条事件 | 新增 |
 | B7 | 4 处吞 DB 错误 | 改错误传播/fail-closed | 每点有失败用例证明返回错误 | CLAUDE.md 已知坑 |
-| B8 | 搜索索引死代码 + 在线仅 `m.room.message`（`search_index.rs` 无调用者；`event/search.rs:170,210,311`） | 接线或删除；统一索引事件类型集合 | 主题可默认搜到，或明确声明不支持 | v1.161 #20119 |
+| B8 | ~~搜索索引死代码~~（**已删**，2026-09-24 W4/D-27：`search_index.rs` 整模块无调用者，按铁律 1 删除）+ 在线仅 `m.room.message`（`event/search.rs:170,210,311`） | 接线或删除 ✅ 已删；统一索引事件类型集合；`search_index` 遗留表删否待决 | 主题可默认搜到（已做），或明确声明不支持 | v1.161 #20119 |
 | B9 | Profile：停用用户自定义字段 404、稳定路由缺失、非对象 500 | 分开"存在/停用"判定；注册稳定路由或声明不支持；非对象→400 | 三条各自断言状态码 | v1.161 #20149/#20172 |
 | B10 | v1.157.2 的 12 条 ELEMENTSEC 公告未做同类性判定 | 逐条产出"受影响/不受影响 + 证据" | 对照表 + 结论 | v1.157.2 |
 
@@ -771,7 +771,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 
 **item 5 其余子项**
 
-- **B8（搜索死代码）**：`synapse-storage/src/search_index.rs`（`SearchIndexStorage` 等）**无任何生产调用者**，`search_index` 表永远为空；`search_postgres_messages`/`search_room_postgres_messages` 仅经 `search_messages` 可达，而 `search_messages` 只有测试调用者。建议按铁律 1 删除模块 + 新增前向迁移 drop 表。**未做**（涉及 schema 变更，需单独决策/迁移）。
+- **B8（搜索死代码）**：`synapse-storage/src/search_index.rs`（`SearchIndexStorage` 等，1239 行）**无任何生产调用者**，已于 2026-09-24 W4/D-27 按铁律 1 **整模块删除**（连带回收 8 处生产动态 SQL，棘轮 `dynamic_production` 706 → 694），故本文不再引用该路径。**遗留**：`search_index` **表**在模块删除后已无任何生产读写方（仅 `tests/integration/schema_contract_p0_tests_migrated.rs` 断言其形状），删表需新增前向迁移并同步 schema-contract 用例与 SDK fixture —— 已登记为 §7 D-39，属独立 schema 决策。
 - **B9(a)/(b)**：停用用户在 MSC4133 上返回 404 而标准 `/v3/profile` 返回 200（两面对"存在 vs 停用"判定不一致）；稳定 `/_matrix/client/v3/profile/{userId}/{keyName}` 未注册而 capability 已声明 `m.profile_fields`。**未做**（(b) 需重生成 ledger/快照/契约 fixture，或改为不再声明该 capability）。
 - **B10**：见 §14.5 对照表。
 - **C 类死字段**：实测为 **7 处**（不是 3 处）——`room/lifecycle/service.rs`、`room/state/service.rs`、`room/membership/service.rs`、`room/service.rs`（`event_writer`，仅 `burn-after-read` 特性下有 1 个读取点）、`friend_room_service/models.rs`、`admin_registration_service.rs`、`admin_security_service.rs` 的 `user_service`/`event_writer`，均为 `#[allow(dead_code)]` + "Reserved/constructor parity"。另见 `user_service.rs` 的 `event_reader` + `set_event_reader`（0 调用者）。**未做**（需删除字段 + 构造参数 + wiring + 测试构造点，并新增可红的守卫测试）。

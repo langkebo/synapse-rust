@@ -10,13 +10,6 @@ use synapse_cache::{CacheKeyBuilder, CacheManager, CacheTtl};
 use synapse_common::current_timestamp_millis;
 use tracing;
 
-/// S20: Check if a sqlx::Error is a PostgreSQL "undefined column" error
-/// (SQLSTATE 42703) rather than matching error message strings, which are
-/// fragile across PostgreSQL versions and locales.
-fn is_undefined_column_error(e: &sqlx::Error) -> bool {
-    e.as_database_error().is_some_and(|db_err| db_err.code().is_some_and(|c| c == "42703"))
-}
-
 /// SELECT for a single user's presence row.
 ///
 /// C17: the production read paths now inline this SQL into `sqlx::query!`
@@ -433,7 +426,10 @@ impl PresenceStorage {
     /// See [`add_subscription`].
     pub async fn add_subscription(&self, subscriber_id: &str, target_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
-        let result = sqlx::query!(
+        // D-30: this used to fall back to `(user_id, friend_id)` when the statement failed
+        // with 42703. Those columns never existed in any merged schema, so the fallback was
+        // unreachable *and* itself broken; it only blocked macro conversion. Plain `?`.
+        sqlx::query!(
             r"
             INSERT INTO presence_subscriptions (subscriber_id, target_id, created_ts)
             VALUES ($1, $2, $3)
@@ -444,34 +440,14 @@ impl PresenceStorage {
             now,
         )
         .execute(&*self.pool)
-        .await;
+        .await?;
 
-        match result {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                if is_undefined_column_error(&e) {
-                    return sqlx::query(
-                        r"
-                        INSERT INTO presence_subscriptions (user_id, friend_id, created_ts)
-                        VALUES ($1, $2, $3)
-                        ON CONFLICT (user_id, friend_id) DO NOTHING
-                        ",
-                    )
-                    .bind(subscriber_id)
-                    .bind(target_id)
-                    .bind(now)
-                    .execute(&*self.pool)
-                    .await
-                    .map(|_| ());
-                }
-                Err(e)
-            }
-        }
+        Ok(())
     }
 
     /// See [`remove_subscription`].
     pub async fn remove_subscription(&self, subscriber_id: &str, target_id: &str) -> Result<(), sqlx::Error> {
-        let result = sqlx::query!(
+        sqlx::query!(
             r"
             DELETE FROM presence_subscriptions
             WHERE subscriber_id = $1 AND target_id = $2
@@ -480,32 +456,14 @@ impl PresenceStorage {
             target_id,
         )
         .execute(&*self.pool)
-        .await;
+        .await?;
 
-        match result {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                if is_undefined_column_error(&e) {
-                    return sqlx::query(
-                        r"
-                        DELETE FROM presence_subscriptions
-                        WHERE user_id = $1 AND friend_id = $2
-                        ",
-                    )
-                    .bind(subscriber_id)
-                    .bind(target_id)
-                    .execute(&*self.pool)
-                    .await
-                    .map(|_| ());
-                }
-                Err(e)
-            }
-        }
+        Ok(())
     }
 
     /// See [`get_subscriptions`].
     pub async fn get_subscriptions(&self, subscriber_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        let result = sqlx::query_scalar!(
+        let rows = sqlx::query_scalar!(
             r"
             SELECT target_id FROM presence_subscriptions
             WHERE subscriber_id = $1
@@ -514,34 +472,14 @@ impl PresenceStorage {
             subscriber_id
         )
         .fetch_all(&*self.pool)
-        .await;
+        .await?;
 
-        match result {
-            Ok(rows) => Ok(rows),
-            Err(e) => {
-                if is_undefined_column_error(&e) {
-                    let fallback_result = sqlx::query_as::<_, (String,)>(
-                        r"
-                        SELECT friend_id FROM presence_subscriptions
-                        WHERE user_id = $1
-                        ",
-                    )
-                    .bind(subscriber_id)
-                    .fetch_all(&*self.pool)
-                    .await;
-                    return match fallback_result {
-                        Ok(rows) => Ok(rows.into_iter().map(|row| row.0).collect()),
-                        Err(e2) => Err(e2),
-                    };
-                }
-                Err(e)
-            }
-        }
+        Ok(rows)
     }
 
     /// See [`get_subscribers`].
     pub async fn get_subscribers(&self, target_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        let result = sqlx::query_scalar!(
+        let rows = sqlx::query_scalar!(
             r"
             SELECT subscriber_id FROM presence_subscriptions
             WHERE target_id = $1
@@ -549,29 +487,9 @@ impl PresenceStorage {
             target_id
         )
         .fetch_all(&*self.pool)
-        .await;
+        .await?;
 
-        match result {
-            Ok(rows) => Ok(rows),
-            Err(e) => {
-                if is_undefined_column_error(&e) {
-                    let fallback_result = sqlx::query_as::<_, (String,)>(
-                        r"
-                        SELECT user_id FROM presence_subscriptions
-                        WHERE friend_id = $1
-                        ",
-                    )
-                    .bind(target_id)
-                    .fetch_all(&*self.pool)
-                    .await;
-                    return match fallback_result {
-                        Ok(rows) => Ok(rows.into_iter().map(|row| row.0).collect()),
-                        Err(e2) => Err(e2),
-                    };
-                }
-                Err(e)
-            }
-        }
+        Ok(rows)
     }
 
     /// See [`get_presence_batch`].

@@ -28,7 +28,7 @@
 #   python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
 #     | grep ':literal$' | cut -d: -f1 | sort | uniq -c | awk '{print $2"\t"$1}' | sort
 #
-# ── 2026-09-23 D1 首次登记：literal 876 处 / 98 文件，runtime 88 处 / 18 文件 ──
+# ── 2026-09-24 W4 重新收紧：literal 实测 611 处 / 84 文件，runtime 83 处 / 15 文件 ──
 src/server/database.rs	1
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
@@ -54,15 +54,11 @@ synapse-federation/src/event_broadcaster.rs	8
 synapse-federation/src/key_rotation.rs	8
 synapse-services/src/database_initializer/mod.rs	15
 synapse-storage/src/account_data/mod.rs	4
-synapse-storage/src/admin_federation.rs	18
 synapse-storage/src/admin_media.rs	8
 synapse-storage/src/audit.rs	4
-synapse-storage/src/background_update.rs	18
-synapse-storage/src/beacon.rs	19
 synapse-storage/src/burn_after_read.rs	15
 synapse-storage/src/call_session.rs	7
 synapse-storage/src/captcha.rs	15
-synapse-storage/src/cas/repository.rs	20
 synapse-storage/src/dehydrated_device.rs	10
 synapse-storage/src/delayed_events.rs	7
 synapse-storage/src/e2ee_audit.rs	7
@@ -79,34 +75,28 @@ synapse-storage/src/event/search.rs	6
 synapse-storage/src/event/signature.rs	3
 synapse-storage/src/event/txn_dedup.rs	3
 synapse-storage/src/event/unread.rs	3
-synapse-storage/src/event_report/repository.rs	19
 synapse-storage/src/feature_flags.rs	5
 synapse-storage/src/federation_blacklist.rs	7
 synapse-storage/src/federation_queue.rs	8
 synapse-storage/src/filter.rs	5
-synapse-storage/src/friend_room/repository.rs	26
 synapse-storage/src/invite_blocklist.rs	9
 synapse-storage/src/login_token.rs	3
 synapse-storage/src/maintenance.rs	3
 synapse-storage/src/matrixrtc.rs	11
 synapse-storage/src/media/chunked_upload.rs	11
 synapse-storage/src/media/quarantine_stream.rs	6
-synapse-storage/src/media_quota/repository.rs	20
 synapse-storage/src/migration_checks.rs	2
-synapse-storage/src/module.rs	25
 synapse-storage/src/monitoring.rs	6
 synapse-storage/src/oauth_client_storage.rs	2
 synapse-storage/src/oidc_session_storage.rs	13
 synapse-storage/src/oidc_user_mapping.rs	3
 synapse-storage/src/openid_token.rs	7
-synapse-storage/src/presence/mod.rs	16
+synapse-storage/src/presence/mod.rs	1
 synapse-storage/src/privacy.rs	6
 synapse-storage/src/pruning.rs	9
 synapse-storage/src/push/mod.rs	11
-synapse-storage/src/push_notification.rs	18
 synapse-storage/src/qr_login.rs	5
 synapse-storage/src/rate_limit.rs	3
-synapse-storage/src/registration_token/repository.rs	20
 synapse-storage/src/relations/mod.rs	11
 synapse-storage/src/rendezvous.rs	16
 synapse-storage/src/retention.rs	12
@@ -116,36 +106,29 @@ synapse-storage/src/room_summary/repository.rs	2
 synapse-storage/src/room_tag/mod.rs	4
 synapse-storage/src/schema_health_check.rs	4
 synapse-storage/src/schema_validator.rs	3
-synapse-storage/src/search_index.rs	6
-synapse-storage/src/sliding_sync/repository.rs	22
 synapse-storage/src/state_groups.rs	15
 synapse-storage/src/sticky_event.rs	5
-synapse-storage/src/threepid.rs	18
 synapse-storage/src/url_preview_storage.rs	3
 synapse-storage/src/user/storage.rs	1
 synapse-storage/src/voice.rs	10
 synapse-storage/src/widget.rs	16
-synapse-storage/src/worker/repository.rs	1
 synapse-test-utils/src/lib.rs	14
 
 # ── 当前「运行期拼装」残差清单（**允许**，不入棘轮；仅作可读性摘要）────────────
-#     3  src/server/database.rs
 #    16  synapse-common/src/test_isolation.rs
-#     2  synapse-common/src/test_schema_guard.rs
-#     1  synapse-common/src/transaction.rs
-#     3  synapse-storage/src/event/basic.rs
-#     2  synapse-storage/src/event/batch.rs
+#    14  synapse-test-utils/src/lib.rs
 #    12  synapse-storage/src/event/create.rs
 #     9  synapse-storage/src/event/pagination.rs
 #     9  synapse-storage/src/event/state.rs
-#     1  synapse-storage/src/event_report/repository.rs
-#     2  synapse-storage/src/maintenance.rs
 #     4  synapse-storage/src/membership/mod.rs
-#     2  synapse-storage/src/presence/mod.rs
-#     2  synapse-storage/src/search_index.rs
+#     3  src/server/database.rs
+#     3  synapse-storage/src/event/basic.rs
+#     2  synapse-common/src/test_schema_guard.rs
+#     2  synapse-storage/src/event/batch.rs
+#     2  synapse-storage/src/maintenance.rs
 #     2  synapse-storage/src/space/repository.rs
 #     2  synapse-storage/src/state_groups.rs
 #     2  synapse-storage/src/user/storage.rs
-#    14  synapse-test-utils/src/lib.rs
+#     1  synapse-common/src/transaction.rs
 # 全量明细（含行号）由守卫脚本按需打印：
 #   python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . | grep ':runtime$'

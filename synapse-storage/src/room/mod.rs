@@ -1388,61 +1388,6 @@ impl RoomStorage {
 
         Ok(rooms.into_iter().map(|r| (r.room_id.clone(), r)).collect())
     }
-
-    /// See [`get_rooms_with_member_counts`].
-    pub async fn get_rooms_with_member_counts(
-        &self,
-        room_ids: &[String],
-    ) -> Result<std::collections::HashMap<String, (Room, i64)>, sqlx::Error> {
-        if room_ids.is_empty() {
-            return Ok(std::collections::HashMap::new());
-        }
-
-        let rows: Vec<RoomWithMembersRecord> = sqlx::query_as!(
-            RoomWithMembersRecord,
-            r#"
-            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules AS join_rule, r.creator AS creator_user_id,
-                   r.room_version, r.is_public, rs.member_count as member_count, rs.is_encrypted AS "is_encrypted?", r.history_visibility,
-                   r.created_ts, COUNT(rm.user_id) as joined_members
-            FROM rooms r
-            LEFT JOIN room_memberships rm ON r.room_id = rm.room_id AND rm.membership = 'join'
-            LEFT JOIN room_summaries rs ON rs.room_id = r.room_id
-            WHERE r.room_id = ANY($1)
-            GROUP BY r.room_id, rs.member_count, rs.is_encrypted
-            "#,
-            room_ids
-        )
-        .fetch_all(&*self.pool)
-        .await?;
-
-        Ok(rows
-            .iter()
-            .map(|row| {
-                let room = Room {
-                    room_id: row.room_id.clone(),
-                    name: row.name.clone(),
-                    topic: row.topic.clone(),
-                    avatar_url: row.avatar_url.clone(),
-                    canonical_alias: row.canonical_alias.clone(),
-                    join_rule: row.join_rule.clone().unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
-                    creator_user_id: row.creator_user_id.clone(),
-                    room_version: row.room_version.clone().unwrap_or_else(|| DEFAULT_ROOM_VERSION.to_string()),
-                    encryption: Self::encryption_from_is_encrypted(row.is_encrypted),
-                    is_public: row.is_public.unwrap_or(false),
-                    member_count: row.member_count.unwrap_or(0),
-                    history_visibility: row
-                        .history_visibility
-                        .clone()
-                        .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
-                    created_ts: row.created_ts,
-                    is_federatable: true,
-                    is_spotlight: false,
-                    is_flagged: false,
-                };
-                (row.room_id.clone(), (room, row.joined_members.unwrap_or(0)))
-            })
-            .collect())
-    }
 }
 
 #[cfg(test)]

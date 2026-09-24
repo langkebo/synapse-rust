@@ -1948,11 +1948,27 @@
 #   dynamic            1446 → 1410
 #   dynamic_test       704 → 704   （未动；两文件的 `#[cfg(test)]` 夹具未新增动态 SQL）
 # 收紧方向：C4/C5 等剩余批次继续分批静态化，直至 dynamic_production = 0。
-BASELINE_DYNAMIC_PRODUCTION=706
+#
+# ── 2026-09-24 W4 收紧（生产动态 -12、静态 -5）───────────────────────────
+# 暂停 C 批次、转修 §7 既有缺陷期间（§8）的第一批"删死代码"回收，全部是
+# **删除**而非新增，故三个键同向下调（§8.5 不变式 1 要求同批下调）：
+#   dynamic_production 706 → 694   （D-27 删 `search_index.rs` 整模块 -8；
+#                                    D-30 删 presence 4 个不可达 42703 回退分支 -4）
+#   static             808 → 803   （D-01 删 `get_rooms_with_member_counts` -1；
+#                                    D-04 删 `DeviceKeyStorage::create_tables` -4）
+#   dynamic_test       704 → 704   （**有意不动**：本批同时删掉了 `search_index.rs`
+#                                    的 8 处 test 区动态站点，但"测试夹具必须动态 SQL"
+#                                    是 §7 D-13/D-14 明确允许的残差类别，故保留既有余量）
+#   dynamic            1410 → 1387 （= 694 + 693，兼容旧接口的总数）
+# 同批把 `scripts/ci/sqlx_literal_production_baseline` 的**逐文件表**由 D1 登记时的
+# 876 处重测收紧到 611 处（84 文件）/ runtime 83 处（15 文件）—— 该表此前已严重滞后
+# （例如 `presence/mod.rs` 记 16、实测 1），棘轮按"只禁增"语义仍绿，但已失去约束力，
+# 正属铁律 8 推论里"长期全绿要怀疑它没在工作"的那类门禁。
+BASELINE_DYNAMIC_PRODUCTION=694
 BASELINE_DYNAMIC_TEST_INFRA=704
-BASELINE_STATIC=808
+BASELINE_STATIC=803
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1410
+BASELINE_DYNAMIC=1387
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

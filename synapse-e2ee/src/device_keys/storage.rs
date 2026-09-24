@@ -12,79 +12,24 @@ use synapse_common::ApiError;
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct DeviceKeyRow {
     /// The `user_id` field.
-    /// The `device_id` field.
-    /// The `algorithm` field.
-    /// The `key_id` field.
-    /// The `public_key` field.
-    /// The `signatures` field.
-    /// The `display_name` field.
-    /// The `added_ts` field.
-    /// The `ts_updated_ms` field.
-    /// The `key_data` field.
-    /// The `is_fallback` field.
     pub user_id: String,
     /// The `device_id` field.
-    /// The `algorithm` field.
-    /// The `key_id` field.
-    /// The `public_key` field.
-    /// The `signatures` field.
-    /// The `display_name` field.
-    /// The `added_ts` field.
-    /// The `ts_updated_ms` field.
-    /// The `key_data` field.
-    /// The `is_fallback` field.
     pub device_id: String,
     /// The `algorithm` field.
-    /// The `key_id` field.
-    /// The `public_key` field.
-    /// The `signatures` field.
-    /// The `display_name` field.
-    /// The `added_ts` field.
-    /// The `ts_updated_ms` field.
-    /// The `key_data` field.
-    /// The `is_fallback` field.
     pub algorithm: String,
     /// The `key_id` field.
-    /// The `public_key` field.
-    /// The `signatures` field.
-    /// The `display_name` field.
-    /// The `added_ts` field.
-    /// The `ts_updated_ms` field.
-    /// The `key_data` field.
-    /// The `is_fallback` field.
     pub key_id: String,
     /// The `public_key` field.
-    /// The `signatures` field.
-    /// The `display_name` field.
-    /// The `added_ts` field.
-    /// The `ts_updated_ms` field.
-    /// The `key_data` field.
-    /// The `is_fallback` field.
     pub public_key: String,
     /// The `signatures` field.
-    /// The `display_name` field.
-    /// The `added_ts` field.
-    /// The `ts_updated_ms` field.
-    /// The `key_data` field.
-    /// The `is_fallback` field.
     pub signatures: Option<serde_json::Value>,
     /// The `display_name` field.
-    /// The `added_ts` field.
-    /// The `ts_updated_ms` field.
-    /// The `key_data` field.
-    /// The `is_fallback` field.
     pub display_name: Option<String>,
     /// The `added_ts` field.
-    /// The `ts_updated_ms` field.
-    /// The `key_data` field.
-    /// The `is_fallback` field.
     pub added_ts: i64,
     /// The `ts_updated_ms` field.
-    /// The `key_data` field.
-    /// The `is_fallback` field.
     pub ts_updated_ms: Option<i64>,
     /// The `key_data` field.
-    /// The `is_fallback` field.
     pub key_data: Option<String>,
     /// The `is_fallback` field.
     pub is_fallback: Option<bool>,
@@ -145,8 +90,9 @@ pub struct DeviceKeyStorage {
 
 /// Trait abstraction over [`DeviceKeyStorage`] for testability.
 ///
-/// Excludes `new` (constructor) and `create_tables` (DDL) — mock
-/// implementations do not need database lifecycle management.
+/// Excludes `new` (constructor) — mock implementations do not need database lifecycle
+/// management. DDL deliberately has no method here either: `migrations/` owns the schema
+/// (the former `create_tables` was a second, already-stale copy — see D-04).
 #[async_trait::async_trait]
 pub trait DeviceKeyStoreApi: Send + Sync {
     /// Append a device-list change: one `device_lists_stream` row plus the matching
@@ -236,62 +182,6 @@ impl DeviceKeyStorage {
     /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
-    }
-
-    /// See [`create_tables`].
-    pub async fn create_tables(&self) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            r"
-            CREATE TABLE IF NOT EXISTS device_keys (
-                id BIGSERIAL,
-                user_id TEXT NOT NULL,
-                device_id TEXT NOT NULL,
-                algorithm TEXT NOT NULL,
-                key_id TEXT NOT NULL,
-                public_key TEXT NOT NULL,
-                key_data TEXT,
-                signatures JSONB,
-                added_ts BIGINT NOT NULL,
-                created_ts BIGINT NOT NULL,
-                updated_ts BIGINT,
-                ts_updated_ms BIGINT,
-                is_verified BOOLEAN DEFAULT FALSE,
-                is_blocked BOOLEAN DEFAULT FALSE,
-                is_fallback BOOLEAN NOT NULL DEFAULT FALSE,
-                display_name TEXT,
-                CONSTRAINT pk_device_keys PRIMARY KEY (id),
-                CONSTRAINT uq_device_keys_user_device_key UNIQUE (user_id, device_id, key_id)
-            )
-            ",
-        )
-        .execute(&*self.pool)
-        .await?;
-
-        sqlx::query!(
-            r"
-            CREATE INDEX IF NOT EXISTS idx_device_keys_user_id ON device_keys(user_id)
-            ",
-        )
-        .execute(&*self.pool)
-        .await?;
-
-        sqlx::query!(
-            r"
-            CREATE INDEX IF NOT EXISTS idx_device_keys_device_id ON device_keys(device_id)
-            ",
-        )
-        .execute(&*self.pool)
-        .await?;
-
-        sqlx::query!(
-            r"
-            CREATE INDEX IF NOT EXISTS idx_device_keys_algorithm ON device_keys(algorithm)
-            ",
-        )
-        .execute(&*self.pool)
-        .await?;
-
-        Ok(())
     }
 }
 

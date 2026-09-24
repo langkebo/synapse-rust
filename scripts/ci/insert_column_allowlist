@@ -14,8 +14,5 @@
 # 列清单为运行期拼装（`format!` / `QueryBuilder`）的 INSERT 记为「未覆盖」并在此登记，
 # 不判通过（那些站点由 §7 D-14 跟踪）。
 
-# D-30：`presence_subscriptions` 的 `is_undefined_column_error` 回退分支（不可达）。
-# 该分支写 `(user_id, friend_id, created_ts)`，两个真列名其实是
-# `subscriber_id`/`target_id`，且它只在主分支报 42703 时才走 —— 主分支正常，
-# 所以这段代码既不可达又必然失败。按 §8.2 W4 删除 4 个回退分支后，必须删除本行。
-synapse-storage/src/presence/mod.rs::presence_subscriptions
+# （空：2026-09-24 W4 删除 D-30 的 4 个不可达回退分支后，本名单已无条目。
+#  守卫 B 的"名单条目必须仍命中"辅证会强制删掉失效行 —— 名单空了就等于没有豁免。）
