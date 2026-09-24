@@ -221,12 +221,15 @@ impl PresenceStorage {
         tracing::info!(count = entries.len(), "Batch setting presence");
 
         let now = current_timestamp_millis();
-        let user_ids: Vec<String> = entries.iter().map(|(uid, _, _)| uid.clone()).collect();
-        let presences: Vec<String> = entries.iter().map(|(_, p, _)| p.clone()).collect();
-        let status_msgs: Vec<Option<String>> = entries.iter().map(|(_, _, s)| s.clone()).collect();
+        let user_ids: Vec<&str> = entries.iter().map(|(uid, _, _)| uid.as_str()).collect();
+        let presences: Vec<&str> = entries.iter().map(|(_, p, _)| p.as_str()).collect();
+        let status_msgs: Vec<Option<&str>> = entries.iter().map(|(_, _, s)| s.as_deref()).collect();
         let nows: Vec<i64> = vec![now; entries.len()];
 
-        sqlx::query!(
+        // C17: 保持动态 —— `$3::TEXT[]` 的 Rust 侧类型是 `&[Option<&str>]`（status_msg 允许
+        // 为 NULL），而宏只接受精确的 `&[String]`（元素非 Option）⇒ 该语句无法用
+        // `sqlx::query!` 绑定（结构性限制，见 docs/audit/…§7 D-13）。旧 `.bind()` 两种都收。
+        sqlx::query(
             r"
             INSERT INTO presence (user_id, presence, status_msg, last_active_ts, created_ts, updated_ts)
             SELECT u, p, s, n, n, n
@@ -238,11 +241,11 @@ impl PresenceStorage {
                 last_active_ts = EXCLUDED.last_active_ts,
                 updated_ts = EXCLUDED.updated_ts
             ",
-            &user_ids[..],
-            &presences[..],
-            &status_msgs[..],
-            &nows[..],
         )
+        .bind(&user_ids)
+        .bind(&presences)
+        .bind(&status_msgs)
+        .bind(&nows)
         .execute(&*self.pool)
         .await?;
 
