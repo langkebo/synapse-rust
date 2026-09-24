@@ -797,6 +797,22 @@ A 的失败信息同时构成"HEAD 本来就红"的直接证据：`left` 即由�
 > `DATABASE_URL=… TEST_DB_TEMPLATE_SCHEMA=test_template_ci bash scripts/cleanup_test_schemas.sh --apply`
 > 实测清 1580 个仅 1m42s；详见 `.workbuddy/memory/deploy-and-local-env-notes.md §2`。
 
+#### 5.6 落库与提交后复验（2026-09-25）
+
+- **提交**：`f33073e05`（分支 `opt/consolidated`），`27 files changed, 2099 insertions(+), 435 deletions(-)`。
+  按本仓并发会话纪律仅以**显式 pathspec** `git add` 本批文件（未用 `git add -A` / `commit -a`），
+  提交信息完整记录 D-12 方案 A′、派生产物同步、6 类既有红（含 D-42）与门禁实测。
+- **提交后复跑路由契约门禁** `bash scripts/contract/check_route_contract.sh` ⇒ **EXIT=0**，
+  末行 `✅ ROUTE_CONTRACT.md: only the generation timestamp changed (acceptable drift)`；
+  派生物一致性同时被验证：`ledger_export` 1081 条 / `ledger_export_sdk` 1165 条均 `== fixture`、
+  `gen_derived_routes --check` 复现 1167 行、SDK 116 站点全部落在 ledger 内。
+  （提交前该门禁为红是**预期**——判据是 on-disk vs `HEAD`，改动未落库时必然 drift；落库即转绿。）
+- **提交后工作区**：`git status --porcelain` 输出 **0 行**（无未提交改动、无未跟踪残留）。
+- **`workspace lib` 全量**：`cargo nextest run --workspace --lib --all-features --locked` ⇒
+  `Summary [1643.071s] 6338 tests run: 6338 passed, 3 skipped`，FAIL 0。
+- **慢速车道**（`integration-test` / `build` / `coverage`）在 PR 上按设计跳过，只在 push→main /
+  schedule / `run_slow_tier` 触发，本次本地未跑；`security-audit` 的 cargo-geiger 步骤另行单独补跑（见 §5.3）。
+
 ---
 
 ## 参考资料

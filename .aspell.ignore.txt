@@ -530,6 +530,7 @@ param
 parameterised
 params
 pastey
+pathspec
 pbkdf
 pcre
 pdu
