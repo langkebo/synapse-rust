@@ -441,12 +441,12 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 
 | ID | 类别 | 位置 | 症状（一句话） | 状态 | 影响/可达性 | 建议处理 |
 |---|---|---|---|---|---|---|
-| D-01 | 产品缺陷 | `synapse-storage/src/room/mod.rs:1393` | `get_rooms_with_member_counts` 原 `WHERE … LEFT JOIN …` 语法非法（42601），查询完全无法执行；且零调用者 | 已修语法（`0e1716643`）；**未修**死函数 | 无（0 调用者，非 trait 方法） | 按铁律 1 删除整个函数 |
+| D-01 | 产品缺陷 | `synapse-storage/src/room/mod.rs`（函数已删） | `get_rooms_with_member_counts` 原 `WHERE … LEFT JOIN …` 语法非法（42601），查询完全无法执行；且零调用者 | **已修**（W4 `ee443c9f6`，按铁律 1 删函数） | 无（0 调用者，非 trait 方法） | 已修：删除整个函数（回收 1 处静态 SQL）；`RoomWithMembersRecord` 因 `:414` 的 QueryBuilder 路径仍在用而保留 |
 | D-02 | 产品缺陷 | `synapse-storage/src/saml/repository.rs:574` | 登出写 `processed_ts`，真列名 `processed_at`（42703），登出路径必然失败 | **已修**（`cbe718ff6`） | 有（`saml_service.rs:482`，saml-sso） | — |
 | D-03 | 产品缺陷 | `synapse-storage/src/worker/repository.rs:757` | `get_statistics` 选了 15 个两张表都不存在的列（42703），端点从未返回过任何行 | **已修**（`0f6a76c13` + S1–S3 `483dfc045` / S4 `14eab2283`,`0e0af49d0`） | 有（`/_synapse/worker/v1/statistics`，`worker.rs:695`） | — |
-| D-04 | 产品缺陷 | `synapse-e2ee/src/device_keys/storage.rs:233` | `create_tables()` DDL 缺 `fallback_used`，fallback 三分支都读写它（42703） | **未修**（潜伏） | 无（0 调用者；schema 由迁移拥有） | 按铁律 1 删除该方法 |
+| D-04 | 产品缺陷 | `synapse-e2ee/src/device_keys/storage.rs`（`create_tables` 已删） | `create_tables()` DDL 缺 `fallback_used`，fallback 三分支都读写它（42703）；且与迁移 baseline 构成第二份 schema 真源 | **已修**（W4 `ee443c9f6`，按铁律 1 删方法） | 无（0 调用者；schema 由迁移拥有） | 已修：删除该方法（回收 4 处静态 SQL）并更新 trait doc；`migrations/` 仍是唯一 schema 真源。**遗留**：`privacy.rs` 与 `olm/storage.rs` 各有一个同样零调用者的 `create_tables`（同族第二条），见 §8.10 遗留 |
 | D-05 | 数据一致性 | `synapse-e2ee/src/device_keys/models.rs:14`（结构体，字段已删） | `DeviceKey.id` 恒为 0（无任何查询投影 `id`，`into_device_key` 硬编码 `0`） | **已修**（W2 `cef006dd2`，按铁律 1 删字段） | 生产不读；全仓消费方只有同 crate 的 `test_mocks.rs` | 已修：删除 `DeviceKey.id`，7 处构造点的伪造 `0`/`1` 与 2 处断言一并删除；键由 `(user_id, device_id, algorithm, key_id)` 标识 |
-| D-06 | 文档一致性 | `synapse-e2ee/src/device_keys/storage.rs:14-93` | `DeviceKeyRow` 每个字段前重复 "The `x` field." 行，注释错乱 | **未修**（cosmetic） | 无 | 一次性清理注释 |
+| D-06 | 文档一致性 | `synapse-e2ee/src/device_keys/storage.rs:12-33` | `DeviceKeyRow` 每个字段前堆叠重复的 "The `x` field." 行（66 行注释 / 11 个字段） | **已修**（W4 `ee443c9f6`） | 无（cosmetic） | 已修：66 行 → 11 行，每字段一行；D-05 删除 `id` 时顺带清了 `DeviceKey` 的同类堆叠 |
 | D-07 | 数据一致性 | `synapse-e2ee/src/device_keys/storage.rs:301`（impl）、`:151`（trait） | `record_device_list_change_best_effort` 完全吞错（`let Ok(..) else { return }` / `let _ =`），`stream_id` 插入失败对调用方不可见 | **已修**（W2 `cef006dd2`，取「错误向上传播」侧） | 有（设备密钥上传、设备删除、cross-signing 变更写路径） | 已修：改名 `record_device_list_change` 并返回 `Result<(), ApiError>`，两条语句都 `map_err(…)?`；上传/删除路径 `?`（fail-closed），`record_cross_signing_change` 同样改为可失败并让 3 个调用点 `?` |
 | D-08 | 数据一致性 | `synapse-e2ee/src/device_keys/storage.rs:729`（`target`）、`:793`（`fb`） | `claim_one_time_key` 的 `target`/`fb` CTE 有 `LIMIT 1` 但无 `ORDER BY`，选取非确定 | **已修**（W2 `cef006dd2`） | 有（OTK claim 路径） | 已修：两条 CTE 各加 `ORDER BY added_ts, id`（先发最旧的）；集成用例以「最旧的最后插入」制造 heap 顺序与 added_ts 顺序相反 |
 | D-09 | 产品缺陷 | `synapse-storage/src/space/repository.rs:719` | `suggested_only` 分支把 jsonb `via_servers` 解成 `Vec<String>`，真返回行时必然 `ColumnDecode` | **已修**（W2 `cef006dd2`） | 有（`/_matrix/federation/v1/hierarchy/{room_id}`，`suggested_only=true`） | 已修：改 `ARRAY(SELECT jsonb_array_elements_text(via_servers))`（与本文件其余 5 处一致）；`space::db_tests` 新增 `is_suggested = TRUE` 的用例 |
@@ -457,7 +457,7 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-14 | 结构性限制 | 见 §7.2 D-14 | 运行期拼装 SQL 无法静态化 + D1 守卫 14 处已知假阴性 | **结构性保留（有意）** | 见明细 | 见明细（逐文件回收方向） |
 | D-15 | 覆盖缺口 | 见 §7.2 D-15 | 5 组已静态化代码无 DB 往返 / 无游标分支用例 | **覆盖缺口** | — | 见明细（逐项补测） |
 | D-16 | 文档一致性 | 本文件 §5 批次表 / §1 分布表 | C11 目标写 `test_isolation.rs`，与 `friend_room` 的"从未迁移"记录矛盾 | **已修正**（本次 C11 行 + 本表） | — | 已在本节固化 |
-| D-17 | 结构性限制 | 根 `.sqlx/`（680）与 `synapse-storage/.sqlx/`（53） | 同一职责两份离线缓存元数据 | **未修** | 并发会话曾误清空；棘轮/CI 口径不受影响 | 按铁律 2 收敛到一处 |
+| D-17 | 结构性限制 | 根 `.sqlx/`（777）与 `synapse-storage/.sqlx/`（53，已删） | 同一职责两份离线缓存元数据 | **已修**（W4 `d230c8902`，整目录收敛到根） | 并发会话曾误清空；棘轮/CI 口径不受影响 | 已修：先证明不需要（`--workspace --all-features --all-targets` / `-p synapse-storage --all-features` / `-p synapse-storage` 三种离线构建均只用根缓存通过），再删 53 条。核对发现 19 条"仅存子目录"里至少 7 条的 SQL 文本在当前源码中已不存在 ⇒ 不只是冗余，还是 C 批次重写语句后的**陈旧元数据** |
 | D-18 | 结构性限制 | `synapse-storage/src/thread/storage.rs:864` | `search_relevance` 是仅排序用列，`ThreadSummary` 无字段，`query_as!` 按全列构造结构体 | **结构性保留（有意）** | `NOTE(C9)`；已用子查询包裹 | 保持；后续同类列沿用子查询写法 |
 | D-19 | 结构性限制 | `synapse-storage/src/event_report/models.rs:29`、`synapse-storage/src/module.rs:255` | `query_as!` **不认** `#[sqlx(rename)]` / `#[sqlx(skip)]` | **结构性保留（有意）** | 迁移时须手写别名 / 合成 `NULL` 列 | 写入批次 checklist |
 | D-20 | 结构性限制 | C6/C8/C9/C13 多处 | LEFT JOIN 外侧列被 PG 透传为 NOT NULL，sqlx 误推非空 → 运行期 `UnexpectedNullError` | **结构性保留（有意）** | 已用 `AS "col?"` 覆盖 | 写入批次 checklist |
@@ -467,10 +467,10 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-24 | 产品缺陷 | `migrations/00000000_unified_schema_v12.sql:4984` | v11-10 清理 DO 块删除显式 `uq_*` UNIQUE INDEX，`ON CONFLICT (worker_id)` 曾会运行期失败 | **已修**（S1–S3 `483dfc045` 改 `ADD CONSTRAINT`） | worker 统计写路径 | — |
 | D-25 | 覆盖缺口 | C6/C9/C11/C15 门控模块 | feature 未打开时模块不参与编译，`test(...)` 过滤器 0 命中 ⇒ "0 tests" 假绿 | **覆盖缺口** | 曾 4 次踩到 | 门禁/census 记录所需 feature 集 |
 | D-26 | 文档一致性 | 本文件 §4 与旧 baseline | "DDL 不可用 `query!` 静态化"结论过宽；生产 DDL 可静态化，仅 `#[cfg(test)]` 内不行 | **已收窄**（§执行结果 2） | — | 已在 §执行结果 2 更正 |
-| D-27 | 结构性限制 | `synapse-storage/src/search_index.rs` | 整模块无生产调用者（B3 已登记按铁律 1 删除），仍带 8 处生产动态 | **未修** | 全仓唯一引用是 `sync/mod.rs:10` 再导出，无消费者 | 删除整模块，一次回收 8 处 |
+| D-27 | 结构性限制 | `synapse-storage/src/search_index.rs`（已删） | 整模块无生产调用者，仍带 8 处生产动态 | **已修**（W4 `ee443c9f6`，按铁律 1 整模块删除） | 全仓唯一引用是 `sync/mod.rs:10` 再导出，无消费者 | 已修：删模块（1239 行）+ `lib.rs` 的 `pub mod` + `sync/mod.rs` 再导出；回收 8 处生产动态（6 literal + 2 runtime）与 8 处 test 区动态。**保留 `search_index` 表**（删表见 D-39） |
 | D-28 | 产品缺陷 | `synapse-storage/src/event/batch.rs` 等 | 4 个 0 调用者死查询 | **已修**（B3 `2e9c3d11d`，直接删除） | 无 | — |
 | D-29 | 结构性限制 | `synapse-storage/src/admin_federation.rs:186`（已收窄）、`synapse-services/src/admin_federation_service.rs:473`（已删死分支） | `get_server_admission_status` 声明 `Option<Option<String>>`、doc 称可返回 `Some(None)`，但 `status` 列 `NOT NULL DEFAULT 'active'` ⇒ 内层 None 与消费端 `Some(None)` 分支不可达 | **已修**（W3 `088a56bd5`） | 有（`federation_auth.rs:214`，`admission_mode` 开时每个联邦请求） | 已修：storage 返回类型收窄为 `Option<String>`（SQL 改 `status AS "status!"`），删 service 的 `Some(None)` 分支与 doc 谎言；`db_tests` 已知例断言随之收窄。分支消失由**编译期**证明 |
-| D-30 | 结构性限制 | `synapse-storage/src/presence/mod.rs:452`,`:488`,`:522`,`:557` | `presence_subscriptions` 的 4 处 `is_undefined_column_error` 回退分支查 `user_id`/`friend_id`，合并后 schema 中从无此二列（42703）⇒ 分支既不可达又无法宏化 | **未修**（C17 保留动态） | 回退分支不可达；主分支正常 | 按铁律 1 删除 4 个回退分支与 `is_undefined_column_error` |
+| D-30 | 结构性限制 | `synapse-storage/src/presence/mod.rs`（4 个回退分支与辅助函数已删） | `presence_subscriptions` 的 4 处 `is_undefined_column_error` 回退分支查 `user_id`/`friend_id`，合并后 schema 中从无此二列（42703）⇒ 既不可达又自身必错 | **已修**（W4 `ee443c9f6`，按铁律 1 删除） | 回退分支本就不可达；主分支正常 | 已修：4 个方法改直接 `?`，删辅助函数，回收 4 处生产动态（全 literal）；`insert_column_allowlist` 随之清空（无豁免） |
 | D-31 | 产品缺陷 | `synapse-storage/src/background_update.rs:282`（INSERT；列清单 `:283`）；测试池 `:1037` | `create_update` 的 INSERT 从不写 `update_name`（NOT NULL UNIQUE 无默认）⇒ 真 schema 下必然 23502；模块 `db_tests` 自建简化表（`update_name` 可空、无 UNIQUE）掩盖了它 | **已修**（W1 `c128cdeab`） | 有（`POST /_synapse/admin/v1/background_updates`） | 已修：INSERT 写 `update_name = job_name`（同一 `$1`）；`get_bu_test_pool()` 切到 `isolated_test_pool()`、删自建表与手工补列补丁；新增 `test_create_update_roundtrip`（往返 + 重复名 23505） |
 | D-32 | 产品缺陷 | `synapse-web/src/federation/edu.rs:215`（接线点）；`synapse-services/src/presence_service.rs:153`、`synapse-storage/src/presence/mod.rs:208`（原零调用者） | C-3 批量 presence 写路径 `set_presence_batch`（storage + service + 内存替身 + db_tests 俱全）全仓**无任何调用者**；`handle_presence_edu` 却对 EDU 的 `push` 数组逐条调 `set_presence`（N 次 upsert + N 次广播） | **已修**（W3 `088a56bd5`，取「接线」侧） | 有（联邦 `PUT /_matrix/federation/v1/send` 的 `m.presence` EDU；`process_inbound_presence_edus` 默认 false） | 已修：`handle_presence_edu` 改两阶段（先逐条校验/查存在性，再一次性 `set_presence_batch`）；语义变更仅一条 —— 批量全有全无，写失败时 `processed` 计 0 而非已写条数。两条端到端用例覆盖（见 §8.9） |
 | D-33 | 产品缺陷 | `synapse-storage/src/push_notification.rs:620`（INSERT）、`:731`（DELETE） | `push_notification_log.sent_at` **从未被任何语句写入**（全仓唯一生产 INSERT 的 11 列清单无此列；全仓 0 条 `UPDATE push_notification_log`），而保留期清理是 `DELETE … WHERE sent_at < $1` ⇒ 三值逻辑下 `NULL < $1` 恒为 NULL，**永远删 0 行**，该 append-only 表无界增长 | **已修**（W1 `c128cdeab`） | 有（`POST …/push_notification/cleanup`，`synapse-web/src/routes/push_notification.rs:206`；恒返回 `{"cleaned":0}`） | 已修（(a)+(b) 同时做）：INSERT 写 `sent_at = created_ts` 的同一 `now`；清理谓词改 `COALESCE(sent_at, created_ts) < $1`（对存量 NULL 行同样止血）；新建文件内 `db_tests`（此前 0）三条用例 |
@@ -478,15 +478,16 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 
 | D-35 | 文档一致性 | 本文件 §7 导言（"计数口径"行） | 该行写 `dynamic_production=741` / `static=773` 并标注"C17 后实测"，但 741/773 是 **C16 后**的值：C17 为 773→742、741→772，与本仓 baseline（`BASELINE_DYNAMIC_PRODUCTION=742` / `BASELINE_STATIC=772`）矛盾，两处各偏 1 | **已修**（C18 提交一并更正为 706/808 并注明偏差来源） | — | 已在本节导言更正；计数一律以 `scripts/ci/sqlx_query_census.py` + `scripts/ci/sqlx_dynamic_ratio_baseline` 为唯一来源 |
 | D-36 | 覆盖缺口 / 门禁 | `scripts/ci/test_ddl_allowlist`、`scripts/ci/insert_column_allowlist`、`tests/unit/test_ddl_guard_tests.rs`、`tests/integration/insert_column_coverage_tests.rs` | **系统性根因**：D-10/D-11/D-31/D-33/D-34 五条"写入端漏列"缺陷同源 —— DB 测试不跑迁移 schema，而用空 schema + 自建简化表，掩盖了 NOT NULL/CHECK/UNIQUE 约束与写入端漏列 | **已修**（守卫 A/B 落地 `7cd40a418`；W1 `c128cdeab` 已把 5 个夹具切到迁移模板） | — | §8.4 两条守卫均已实现并自证变红，见 §8.7 |
-| D-37 | 冗余实现 + 吞错（**新登记**） | `synapse-storage/src/device/mod.rs:182`（实现）、`:220`（零调用者包装）、`:530`/`:557`/`:595`（三处 `let _ = …`） | `DeviceStorage::record_device_list_change` 是 `synapse-e2ee` 同名职责的**第二份实现**（铁律 2），三个调用点又都是 `let _ = …` 吞错（与 D-07 同型）；其 best-effort 包装 `:220` 全仓**零调用者**（铁律 1） | **未修**（2026-09-24 W2 顺带发现并登记） | 有（storage 层设备增删路径 `:530`/`:557`/`:595`） | 二选一：storage 层统一改为可失败并让三个调用点显式处理（与 D-07 的解法对齐），删掉零调用者的 best-effort 包装；同时评估与 `synapse-e2ee` 那份实现能否收敛成一份（铁律 2） |
+| D-37 | 冗余实现 + 吞错 | `synapse-storage/src/device/mod.rs`（2 个 best-effort 包装已删、6 个调用点已定策） | `DeviceStorage::record_device_list_change` 是 `synapse-e2ee` 同职责的**第二份实现**（铁律 2）；3 处调用点 `let _ = …` 吞错（与 D-07 同型）；`:220` 的 best-effort 包装全仓零调用者（铁律 1） | **部分已修**（W4 `ee443c9f6`） | 有（storage 层设备增删路径） | 已修：删两个 `*_best_effort` 包装；3 处吞错按"重试能否自愈"定策（display-name 两处改 `?`、删除类四处改 `tracing::warn!`）。**未修**：两份实现（storage 与 e2ee 侧 SQL 逐字相同）尚未收敛成一份 —— 跨 crate 的不同类型，需要一个共享位置，属独立设计事项 |
 | D-38 | 测试/门禁漂移 | `synapse-web/src/routes/federation/membership/query.rs:166`（过滤条件，已修）、`:190`（原断言） | `test_federation_membership_query_routes_from_real_ledger` 断言真实 ledger 里有 `GET /_matrix/federation/v1/room/<room_id>/membership/<user_id>`，但全仓**从未注册**该路由（ruma `api::federation::membership` 亦只含 invite/send_join/send_knock/send_leave/make_join/make_knock/make_leave；`/rooms/{roomId}/membership/{userId}` 是 client API、`registered_by == "room"`） ⇒ `cargo nextest run --workspace --lib` 在 HEAD 即为红 | **已修**（`8a6b36ca7`） | 曾被该红灯阻断 workspace lib 批次 | 已修：过滤条件 `/membership` → `/members/`，断言改为真实端点 `GET /members/{room_id}`、`GET /members/{room_id}/joined`（精确相等）与 `POST …/keys/query`，并在注释里记录该路由不是 spec 端点 |
+| D-39 | 遗留 schema（**新登记**） | `migrations/00000000_unified_schema_v12.sql` 的 `search_index` 表；唯二引用是 `tests/integration/schema_contract_p0_tests_migrated.rs:1232` 与 `tests/integration/schema_contract_p0_tests_migrated.rs:1257` | D-27 删除 `search_index.rs` 模块后，`search_index` **表**已无任何生产读写方（原本也只被那个死模块读写，注释里就写着"表永远为空"），仅剩 schema-contract 用例断言其形状 | **未修**（2026-09-24 W4 顺带登记） | 无（表无人读写） | 二选一：① 新增前向迁移 `DROP TABLE search_index`（连带删两条 schema-contract 用例与 SDK/ledger fixture、更新迁移一致性脚本的期望表集合）；② 保留表并明确记录"为将来接回 FTS 路径预留"—— 若选②需在 schema 注释里写清，否则它只是下一轮的死对象 |
 
-**状态计数（2026-09-24 W3 + D-38 后）**：已修 **18**（D-02/D-03/D-24/D-28/D-35 + W1 的
+**状态计数（2026-09-24 W4 后）**：已修 **24**（D-02/D-03/D-24/D-28/D-35 + W1 的
 D-10/D-11/D-31/D-33/D-34 + D-36 守卫 + W2 的 D-05/D-07/D-08/D-09 + W3 的 D-29/D-32 +
-D-38）；未修 **8**（D-01 语法已修但死函数待删、D-04、D-06、D-12、D-17、D-27、D-30、
-**D-37**）；结构性保留（有意）**7**（D-13/D-14/D-18–D-22）；
+D-38 + W4 的 D-01/D-04/D-06/D-17/D-27/D-30）；**部分已修 1**（D-37：吞错与死包装已修，
+两份实现的收敛未做）；未修 **2**（D-12、**D-39** 新登记）；结构性保留（有意）**7**（D-13/D-14/D-18–D-22）；
 另有文档级已处置 **3**（D-16/D-23/D-26）与 W5 覆盖缺口 **2**（D-15/D-25，未并入上述计数）
-—— 18 + 8 + 7 + 3 + 2 = **38**，与 D-01…D-38 的条数一致。
+—— 24 + 1 + 2 + 7 + 3 + 2 = **39**（D-01…D-39）（含 W4 新登记的 D-39）。
 （D-13/D-14/D-18…D-22）；覆盖缺口 **2**（D-15 含 D-15.6、D-25；D-36 虽同属覆盖缺口/门禁，
 已计入上面的"未修 19"，此处不重复计数）；文档一致性 **3**
 （D-16/D-23/D-26；D-35 已计入上面的"已修 5"，此处**不重复计数**——原文把 D-35 同时计入
@@ -1348,6 +1349,26 @@ D-38）；未修 **8**（D-01 语法已修但死函数待删、D-04、D-06、D-1
   （需先核对 Matrix spec 是否定义该端点、以及与 `room_ledger`/SDK fixture 的同步），
   属独立评审的协议面工作。
 
+#### D-39 删除 `search_index` 模块后遗留的 `search_index` 表（2026-09-24 W4 顺带登记）
+
+- 类别：**遗留 schema 对象**（模块已删，表成为无人读写的孤儿）。
+- 位置：`migrations/00000000_unified_schema_v12.sql` 的 `CREATE TABLE search_index`；
+  当前全仓引用只有 `tests/integration/schema_contract_p0_tests_migrated.rs` 的
+  `test_schema_contract_search_index_shape`（`:1232`，逐列断言形状）与
+  `test_schema_contract_search_index_query_and_write_read_closure`（`:1257`，直接用裸 SQL
+  往表里插/ 查，证明表本身可用）。
+- 证据：D-27 删除 `synapse-storage/src/search_index.rs` 之前，该模块本身就是表**唯一**的
+  读写方，且当时的登记（对比报告 B8）已写明"`search_index` 表永远为空"；模块删除后，
+  生产侧对它零引用。
+- 为什么不在 W4 一起删：删表是 **schema 变更**，要连带处理
+  `schema_contract_p0_tests_migrated.rs` 的两条用例、`scripts/check_schema_table_coverage.py`
+  与 `scripts/check_schema_contract_coverage.py` 的期望集合、以及可能的 ledger/SDK fixture；
+  且"接回 Postgres FTS 路径"是产品可选项 —— 属独立决策，不塞进死代码清理批次。
+- 状态：**未修**。
+- 建议处理：① 若确认不接 FTS：新增前向迁移 drop 表 + 同步上述四处检查；② 若保留：在
+  迁移里给该表加 `COMMENT ON TABLE` 说明"为将来 FTS 路径预留、当前无读写方"，否则下一轮
+  又会以"死对象"身份被重新登记。
+
 ## 8. 问题优先处理计划（2026-09-23 重排：先修问题，再继续静态化）
 
 > **定位**：本节是**当前唯一执行排期**。§5 的阶段表与「执行结果」的批次表降级为**历史记录**。
@@ -1438,6 +1459,12 @@ D-38）；未修 **8**（D-01 语法已修但死函数待删、D-04、D-06、D-1
 | W4 | D-30 | 死代码（不可达分支） | 中低：4 处回退分支不可达，且阻塞宏化 | 回退分支不可达（主分支正常） | 小：删 4 个回退分支 + `is_undefined_column_error`（`:16`） | 删后 presence 生产动态 4→0；棘轮 -4 | 分支删除属行为变更，需独立评审 |
 | W4 | D-06 | 卫生 | 无（cosmetic） | 无 | 小：清理 `DeviceKeyRow` 每字段重复的 doc 注释 | 每字段一行；无 `.sqlx`/棘轮影响 | 无 |
 | W4 | D-17 | 卫生 / 冗余 | 低：同一职责两份离线缓存（根 **782** / 子 **53**；34 相同、0 冲突、19 仅存子目录） | 影响 `SQLX_OFFLINE` 编译与新鲜度门禁 | 小：`git rm -r --cached synapse-storage/.sqlx` 后清理，统一根缓存 | 先 `SQLX_OFFLINE=true cargo check --workspace --all-features` 证明不需要子目录；`check_sqlx_cache_fresh.sh` 绿 | 需先确认那 19 条非陈旧（§7 D-17 标 `[未验证]`） |
+
+> **状态（2026-09-24）**：W4 已收口（`ee443c9f6` + `d230c8902`）—— D-01/D-04/D-06/D-17/
+> D-27/D-30 已删，D-37 部分已修（吞错与死包装；跨 crate 的两份实现收敛留作设计事项）。
+> 棘轮 `dynamic_production` 706→694、`static` 808→803，且顺带把 D1 的字面量基线由
+> 876 重测收紧到 611（此前已无约束力）。证据见 **§8.10**。新登记 **D-39**（`search_index`
+> 表在模块删除后成为孤儿）。
 
 **W5 —— 覆盖缺口**
 
@@ -1784,3 +1811,61 @@ integration 侧 `require_test_pool()` 使用的共享模板名（内容指纹
   失败信息附实际清单 —— 避免同类"contains 到了别的路由"的假绿再次发生。
 
 至此 W3 全部收口（D-29 / D-32 / D-38），**仅 D-12 按 §8.2 原判断单列**。
+
+### 8.10 W4 执行结果（2026-09-24，`ee443c9f6` + `d230c8902`）
+
+W4 是「纯删除」波次：**没有任何新增**，所以三个棘轮键同向下调（§8.5 不变式 1）。
+D-37 只完成"吞错 + 死包装"两半，两份实现的跨 crate 收敛未做，故记为**部分已修**。
+
+| 条目 | 删除内容 | 回收 | 备注 |
+|---|---|---|---|
+| D-27 | `synapse-storage/src/search_index.rs` 整模块 1239 行 + `lib.rs` 的 `pub mod` + `sync/mod.rs` 再导出 | 生产动态 **−8**（6 literal + 2 runtime）、test 区动态 −8 | **保留 `search_index` 表** → 新登记 D-39 |
+| D-30 | `presence` 的 4 个 `is_undefined_column_error` 回退分支 + 该辅助函数 | 生产动态 **−4**（全 literal） | `insert_column_allowlist` 随之清空（名单为空 = 无豁免） |
+| D-01 | `get_rooms_with_member_counts`（0 调用者） | 静态 **−1** | `RoomWithMembersRecord` 因 `:414` 仍在用而保留 |
+| D-04 | `DeviceKeyStorage::create_tables()`（0 调用者、缺 `fallback_used`） | 静态 **−4** | 同族另有 `privacy.rs` / `olm/storage.rs` 两个零调用者 `create_tables`，见下"遗留" |
+| D-06 | `DeviceKeyRow` 每字段堆叠的重复 doc（66 行 → 11 行） | — | D-05 删除 `id` 时已顺带清 `DeviceKey` 的同类堆叠 |
+| D-17 | `synapse-storage/.sqlx/` 整目录 53 条 | — | 先证明不需要（三种离线构建只用根缓存通过），再删；其中 ≥7 条是 C 批次重写语句后的**陈旧**元数据 |
+| D-37（部分） | 两个 `*_best_effort` 吞错包装 + 6 个调用点定策 | — | display-name 两处 `?`（重试可自愈）；删除类四处 `tracing::warn!`（行已删，重试补不回通知） |
+
+**棘轮（同批下调，`scripts/ci/sqlx_dynamic_ratio_baseline`）**
+
+```
+dynamic_production 706 → 694   （D-27 −8、D-30 −4）
+static             808 → 803   （D-01 −1、D-04 −4）
+dynamic            1410 → 1387
+dynamic_test       704 → 704   （有意不动：本批删的 8 处 test 区动态属 D-13/D-14
+                                允许的"测试夹具必须动态"类别，保留既有余量）
+```
+
+**同批把 D1 的字面量基线从"长期假绿"救回来**：
+`scripts/ci/sqlx_literal_production_baseline` 的逐文件表此前停留在 D1 登记时的
+876 处，而实测只有 611 处（例如 `presence/mod.rs` 记 16、实测 1）。按该文件自身的
+"只禁增"语义它一直是绿的，但已经**没有约束力** —— 正是铁律 8 推论说的那种
+"长期全绿要怀疑它没在工作"。本次重测收紧到 611 处 / 84 文件（runtime 83 / 15），
+并保留同样按实测重排的 runtime 摘要。
+
+**顺带修掉两处回归**（都不是 W4 引入的，是"没跑完整批次"留下的）：
+
+1. `EXPECTED_BASELINE_FINGERPRINT` 未随 W1 的 baseline 改动同步（`7ba7be4f…` →
+   `7212ca66…`）⇒ **W1 之后 `--test unit` 就是红的**。已更新常量 + 注释，并把
+   "改 `migrations/` 后必须跑本守卫"的纪律记为第五次踩坑。
+2. `doc_credibility_guard_tests::referenced_paths_all_exist` 因对比报告仍引用已删除的
+   `search_index.rs` 而红 ⇒ 更新对比报告 4 处表述 + 按该守卫既有的
+   `HISTORICAL_NEGATIVE_MENTIONS` 机制登记这条历史引用。
+
+**验证**：`--test unit` **1758/1758**；`room`/`presence`/`device` 142/142；
+`synapse-e2ee --lib` device_keys 43/43；守卫 A 5/5、守卫 B 4/4；
+棘轮 694/704/803 绿；`.sqlx` 777 条（−5 来自被删语句，无新增）；
+`check_sqlx_cache_fresh.sh --static` 绿；两档 clippy `-D warnings` 通过；fmt 债务 0。
+
+**W4 遗留（明确不做，属独立决策）**
+
+- **D-37 的另一半**：`synapse-storage` 与 `synapse-e2ee` 各有一份 SQL 逐字相同的
+  `record_device_list_change` 实现（铁律 2）。收敛需要一个共享位置（`synapse-common`
+  或让一侧成为唯一实现），涉及跨 crate 类型边界，属设计事项。
+- **D-04 的同族第二条**：`synapse-storage/src/privacy.rs:85` 与
+  `synapse-e2ee/src/olm/storage.rs:111` 也各有一个**零调用者**的 `create_tables()`
+  自建 DDL（同样与迁移 baseline 构成第二份 schema 真源）。本次只删了 D-04 登记的那一个；
+  另两个未登记也未删。判据（`git grep -n 'create_tables'` 无任何调用点）与 D-04 完全同型，
+  建议与 D-04 合并处理。
+- **D-39**：`search_index` 表删否。
