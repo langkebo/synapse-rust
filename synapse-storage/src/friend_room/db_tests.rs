@@ -1062,3 +1062,141 @@ async fn test_get_pending_friend_request() {
 
     cleanup_all(&pool, &suffix).await;
 }
+
+// ——————————————————————————————————————————————
+// D-15.4: the two suggestion queries had **no** test at all
+// (`git grep get_friend_suggestions_from` matched only the definitions and the
+// services caller). They run on the `friends`-gated `friend_room` module, so they only
+// exist when the feature is on — see D-25.
+// ——————————————————————————————————————————————
+
+/// Mutual-friend suggestions: `COUNT(DISTINCT …) AS "mutual_count!"` plus the
+/// `LEFT JOIN users` `displayname?`/`avatar_url?` columns (both the present and absent case).
+#[tokio::test]
+async fn test_get_friend_suggestions_from_mutual_friends() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = FriendRoomStorage::new(pool.clone());
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let user_a = format!("@frm_a_{suffix}:localhost");
+    let user_b = format!("@frm_b_{suffix}:localhost");
+    let user_c = format!("@frm_c_{suffix}:localhost");
+    let suggested_d = format!("@frm_d_{suffix}:localhost");
+    let suggested_e = format!("@frm_e_{suffix}:localhost");
+    let room_id = format!("!frm_room_{suffix}:localhost");
+
+    for user in [&user_a, &user_b, &user_c, &suggested_d, &suggested_e] {
+        ensure_test_user(&pool, user).await;
+    }
+    ensure_test_room(&pool, &room_id).await;
+
+    // D has a profile (LEFT JOIN hits), E has none (columns come back NULL).
+    sqlx::query("UPDATE users SET displayname = 'Dee', avatar_url = 'mxc://test/dee' WHERE user_id = $1")
+        .bind(&suggested_d)
+        .execute(&*pool)
+        .await
+        .expect("fixture: profile update must succeed");
+
+    let friends = |ids: &[&str]| json!({ "friends": ids.iter().map(|id| json!({"user_id": id})).collect::<Vec<_>>() });
+    insert_event(&pool, &room_id, &user_a, "m.friends.list", "", &friends(&[&user_b, &user_c])).await;
+    insert_event(&pool, &room_id, &user_b, "m.friends.list", "", &friends(&[&suggested_d, &suggested_e])).await;
+    insert_event(&pool, &room_id, &user_c, "m.friends.list", "", &friends(&[&suggested_d])).await;
+
+    let suggestions = storage
+        .get_friend_suggestions_from_mutual_friends(&user_a, 10)
+        .await
+        .expect("get_friend_suggestions_from_mutual_friends must succeed");
+
+    assert_eq!(suggestions.len(), 2, "B and C's friends (minus A's own) are D and E, got {suggestions:?}");
+    assert_eq!(suggestions[0]["user_id"], json!(suggested_d), "ordered by mutual count DESC");
+    assert_eq!(suggestions[0]["mutual_friends_count"], json!(2), "D is friends with both B and C");
+    assert_eq!(suggestions[0]["reason"], json!("mutual_friends"));
+    assert_eq!(suggestions[0]["displayname"], json!("Dee"), "displayname comes from the LEFT JOIN");
+    assert_eq!(suggestions[0]["avatar_url"], json!("mxc://test/dee"));
+    assert_eq!(suggestions[1]["user_id"], json!(suggested_e));
+    assert_eq!(suggestions[1]["mutual_friends_count"], json!(1));
+    assert_eq!(suggestions[1]["displayname"], json!(null), "a user with no profile row yields NULL");
+
+    // LIMIT is a real limit, and existing friends never appear as suggestions.
+    let limited = storage.get_friend_suggestions_from_mutual_friends(&user_a, 1).await.expect("limit 1 must succeed");
+    assert_eq!(limited.len(), 1);
+    assert_eq!(limited[0]["user_id"], json!(suggested_d));
+
+    cleanup_all(&pool, &suffix).await;
+}
+
+/// Shared-room suggestions: `COUNT(DISTINCT rm.room_id) AS "shared_rooms_count!"` with
+/// existing friends excluded and the same `LEFT JOIN users` projection.
+#[tokio::test]
+async fn test_get_friend_suggestions_from_shared_rooms() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = FriendRoomStorage::new(pool.clone());
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let user_a = format!("@frs_a_{suffix}:localhost");
+    let two_rooms = format!("@frs_two_{suffix}:localhost");
+    let one_room = format!("@frs_one_{suffix}:localhost");
+    let already_friend = format!("@frs_friend_{suffix}:localhost");
+    let room_1 = format!("!frs_r1_{suffix}:localhost");
+    let room_2 = format!("!frs_r2_{suffix}:localhost");
+
+    for user in [&user_a, &two_rooms, &one_room, &already_friend] {
+        ensure_test_user(&pool, user).await;
+    }
+    for room in [&room_1, &room_2] {
+        ensure_test_room(&pool, room).await;
+    }
+    for (room, user) in [
+        (&room_1, &user_a),
+        (&room_2, &user_a),
+        (&room_1, &two_rooms),
+        (&room_2, &two_rooms),
+        (&room_1, &one_room),
+        (&room_1, &already_friend),
+        (&room_2, &already_friend),
+    ] {
+        sqlx::query("INSERT INTO room_memberships (room_id, user_id, membership) VALUES ($1, $2, 'join') ON CONFLICT (room_id, user_id) DO NOTHING")
+            .bind(room)
+            .bind(user)
+            .execute(&*pool)
+            .await
+            .expect("fixture: membership insert must succeed");
+    }
+    sqlx::query("UPDATE users SET displayname = 'Two Rooms' WHERE user_id = $1")
+        .bind(&two_rooms)
+        .execute(&*pool)
+        .await
+        .expect("fixture: profile update must succeed");
+
+    // `already_friend` shares both rooms too, but is on A's friend list ⇒ must be excluded.
+    insert_event(
+        &pool,
+        &room_1,
+        &user_a,
+        "m.friends.list",
+        "",
+        &json!({ "friends": [ { "user_id": already_friend } ] }),
+    )
+    .await;
+
+    let suggestions = storage
+        .get_friend_suggestions_from_shared_rooms(&user_a, 10)
+        .await
+        .expect("get_friend_suggestions_from_shared_rooms must succeed");
+
+    assert_eq!(suggestions.len(), 2, "the existing friend must be excluded, got {suggestions:?}");
+    assert_eq!(suggestions[0]["user_id"], json!(two_rooms), "ordered by shared room count DESC");
+    assert_eq!(suggestions[0]["shared_rooms_count"], json!(2));
+    assert_eq!(suggestions[0]["reason"], json!("shared_rooms"));
+    assert_eq!(suggestions[0]["displayname"], json!("Two Rooms"));
+    assert_eq!(suggestions[1]["user_id"], json!(one_room));
+    assert_eq!(suggestions[1]["shared_rooms_count"], json!(1));
+    assert!(
+        suggestions.iter().all(|s| s["user_id"] != json!(already_friend)),
+        "a user already on the friend list is never a suggestion"
+    );
+
+    let limited = storage.get_friend_suggestions_from_shared_rooms(&user_a, 1).await.expect("limit 1 must succeed");
+    assert_eq!(limited.len(), 1);
+    assert_eq!(limited[0]["user_id"], json!(two_rooms));
+
+    cleanup_all(&pool, &suffix).await;
+}

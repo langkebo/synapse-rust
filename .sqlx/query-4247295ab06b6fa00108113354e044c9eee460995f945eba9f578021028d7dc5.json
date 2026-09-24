@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, provider_name, provider_type, config,\n                is_enabled AS \"is_enabled!\", priority AS \"priority!\",\n                created_ts, updated_ts\n            FROM password_auth_providers\n            ORDER BY priority ASC, provider_name ASC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "provider_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "provider_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "config",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "is_enabled!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "priority!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "4247295ab06b6fa00108113354e044c9eee460995f945eba9f578021028d7dc5"
+}

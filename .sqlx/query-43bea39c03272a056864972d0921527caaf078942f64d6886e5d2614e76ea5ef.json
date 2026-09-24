@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                COUNT(*) AS \"total!: i64\",\n                COUNT(*) FILTER (WHERE status = 'open') AS \"open!: i64\",\n                COUNT(*) FILTER (WHERE status = 'resolved') AS \"resolved!: i64\",\n                COUNT(*) FILTER (WHERE status = 'dismissed') AS \"dismissed!: i64\",\n                COUNT(*) FILTER (WHERE status = 'investigating') AS \"escalated!: i64\"\n            FROM event_reports\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "open!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "resolved!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "dismissed!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "escalated!: i64",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "43bea39c03272a056864972d0921527caaf078942f64d6886e5d2614e76ea5ef"
+}

@@ -1166,6 +1166,49 @@ mod db_tests {
         }
     }
 
+    /// `push_device.user_id` carries `fk_push_device_user`, and `push_notification_queue`
+    /// has the same FK, so the fixtures need a real `users` row.
+    async fn ensure_user(pool: &PgPool, user_id: &str) {
+        let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("pushuser");
+        sqlx::query(
+            "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+        )
+        .bind(user_id)
+        .bind(username)
+        .bind(current_timestamp_millis())
+        .execute(pool)
+        .await
+        .expect("failed to seed the fixture user");
+    }
+
+    fn register_request(user_id: &str, device_id: &str, token: &str) -> RegisterDeviceRequest {
+        RegisterDeviceRequest {
+            user_id: user_id.to_string(),
+            device_id: device_id.to_string(),
+            push_token: token.to_string(),
+            push_type: "apns".to_string(),
+            app_id: Some("com.example.app".to_string()),
+            platform: Some("ios".to_string()),
+            platform_version: Some("17.0".to_string()),
+            app_version: Some("1.0.0".to_string()),
+            locale: Some("en-US".to_string()),
+            timezone: Some("UTC".to_string()),
+            metadata: Some(serde_json::json!({"k": "v"})),
+        }
+    }
+
+    fn queue_request(user_id: &str, device_id: &str, priority: i32) -> QueueNotificationRequest {
+        QueueNotificationRequest {
+            user_id: user_id.to_string(),
+            device_id: device_id.to_string(),
+            event_id: Some("$event:test.local".to_string()),
+            room_id: Some("!room:test.local".to_string()),
+            notification_type: Some("m.room.message".to_string()),
+            content: serde_json::json!({"body": "hi"}),
+            priority,
+        }
+    }
+
     fn log_request(user_id: &str, device_id: &str) -> CreateNotificationLogRequest {
         CreateNotificationLogRequest {
             user_id: user_id.to_string(),
@@ -1179,6 +1222,230 @@ mod db_tests {
             provider_response: Some("{}".to_string()),
             response_time_ms: Some(12),
         }
+    }
+
+    // ---------------------------------------------------------------------
+    // D-15.6: the remaining C18-staticized write/read paths, on the migrated
+    // per-test schema. Each of these was compile-time-checked only until now.
+    // ---------------------------------------------------------------------
+
+    /// `register_device` is an `ON CONFLICT (user_id, device_id) DO UPDATE` upsert whose
+    /// `RETURNING` projects `last_used_at AS "last_used_ts"` (the struct field cannot carry
+    /// the rename through `query_as!`) and `metadata`.
+    #[tokio::test]
+    async fn test_register_device_upsert_and_read_back() {
+        let Some((_isolated, pool)) = test_pool().await else {
+            return;
+        };
+        let storage = PushNotificationStorage::new(&pool);
+        let user_id = format!("@pd_{}:test.local", uuid::Uuid::new_v4().as_simple());
+        let device_id = "DEVICE_PUSH_1";
+        ensure_user(&pool, &user_id).await;
+
+        let first = storage
+            .register_device(register_request(&user_id, device_id, "token_one"))
+            .await
+            .expect("register_device must succeed on the migrated schema");
+        assert_eq!(first.push_token, "token_one");
+        assert!(first.is_enabled, "a freshly registered device is enabled");
+        assert_eq!(first.error_count, 0);
+        assert_eq!(first.metadata, serde_json::json!({"k": "v"}));
+        assert!(first.last_used_ts.is_none(), "last_used_at starts NULL (aliased to last_used_ts)");
+
+        // Same (user_id, device_id) with a rotated token must UPDATE, not insert.
+        let second = storage
+            .register_device(register_request(&user_id, device_id, "token_two"))
+            .await
+            .expect("re-registering the same device must upsert");
+        assert_eq!(second.id, first.id, "upsert must keep the same row");
+        assert_eq!(second.push_token, "token_two");
+        assert_eq!(second.created_ts, first.created_ts, "created_ts must not be rewritten");
+
+        let fetched = storage
+            .get_device(&user_id, device_id)
+            .await
+            .expect("get_device must succeed")
+            .expect("the device must be readable");
+        assert_eq!(fetched.push_token, "token_two");
+        assert_eq!(storage.get_user_devices(&user_id).await.expect("get_user_devices").len(), 1);
+
+        // `unregister_device` only clears `is_enabled`, so both readers stop seeing it.
+        storage.unregister_device(&user_id, device_id).await.expect("unregister_device must succeed");
+        assert!(
+            storage.get_device(&user_id, device_id).await.expect("get_device after unregister").is_none(),
+            "an unregistered device must no longer be returned"
+        );
+        assert!(storage.get_user_devices(&user_id).await.expect("get_user_devices after unregister").is_empty());
+    }
+
+    /// `update_device_last_used` / `record_device_error` are the two small writers feeding
+    /// `last_used_ts` and `last_error`/`error_count`.
+    #[tokio::test]
+    async fn test_device_last_used_and_error_counters() {
+        let Some((_isolated, pool)) = test_pool().await else {
+            return;
+        };
+        let storage = PushNotificationStorage::new(&pool);
+        let user_id = format!("@pe_{}:test.local", uuid::Uuid::new_v4().as_simple());
+        let device_id = "DEVICE_PUSH_2";
+        ensure_user(&pool, &user_id).await;
+        storage.register_device(register_request(&user_id, device_id, "tok")).await.expect("register");
+
+        storage.update_device_last_used(&user_id, device_id).await.expect("update_device_last_used");
+        let after = storage.get_device(&user_id, device_id).await.expect("get_device").expect("present");
+        assert!(after.last_used_ts.is_some(), "update_device_last_used must stamp last_used_at");
+
+        storage.record_device_error(&user_id, device_id, "boom").await.expect("record_device_error #1");
+        storage.record_device_error(&user_id, device_id, "boom again").await.expect("record_device_error #2");
+        let errored = storage.get_device(&user_id, device_id).await.expect("get_device").expect("present");
+        assert_eq!(errored.last_error.as_deref(), Some("boom again"));
+        assert_eq!(errored.error_count, 2, "error_count must increment per failure");
+    }
+
+    /// `queue_notification` → `get_pending_notifications` (`status = 'pending' AND
+    /// next_attempt_at <= now`, ordered by priority) → `mark_notification_sent`.
+    #[tokio::test]
+    async fn test_queue_pending_and_mark_sent() {
+        let Some((_isolated, pool)) = test_pool().await else {
+            return;
+        };
+        let storage = PushNotificationStorage::new(&pool);
+        let user_id = format!("@pq_{}:test.local", uuid::Uuid::new_v4().as_simple());
+        ensure_user(&pool, &user_id).await;
+
+        let low = storage.queue_notification(queue_request(&user_id, "D1", 1)).await.expect("queue low");
+        let high = storage.queue_notification(queue_request(&user_id, "D1", 9)).await.expect("queue high");
+        assert_eq!(low.status, "pending");
+        assert_eq!(low.attempts, 0);
+        assert!(low.sent_at.is_none());
+        assert_eq!(
+            low.content,
+            serde_json::json!({"body": "hi"}),
+            "nullable jsonb content decodes via AS \"content!\""
+        );
+
+        let pending = storage.get_pending_notifications(10).await.expect("get_pending_notifications");
+        assert_eq!(pending.len(), 2, "both queued notifications are immediately due");
+        assert_eq!(pending[0].id, high.id, "higher priority is claimed first");
+        assert_eq!(pending[1].id, low.id);
+
+        storage.mark_notification_sent(high.id).await.expect("mark_notification_sent");
+        let remaining = storage.get_pending_notifications(10).await.expect("get_pending_notifications #2");
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, low.id, "a sent notification must leave the pending set");
+
+        let sent: (String, Option<i64>) =
+            sqlx::query_as("SELECT status, sent_at FROM push_notification_queue WHERE id = $1")
+                .bind(high.id)
+                .fetch_one(&*pool)
+                .await
+                .expect("read back the sent row");
+        assert_eq!(sent.0, "sent");
+        assert!(sent.1.is_some(), "mark_notification_sent must stamp sent_at");
+
+        // `limit` is a real LIMIT, not just a filter.
+        assert_eq!(storage.get_pending_notifications(0).await.expect("limit 0").len(), 0);
+    }
+
+    /// `mark_notification_failed` has two branches: `retry = true` re-arms the row for a
+    /// later attempt (`attempts + 1`, `next_attempt_at` in the future), `retry = false`
+    /// parks it as `failed`.
+    ///
+    /// Note the storage-side guard is `attempts < max_attempts` while the only caller
+    /// (`push/service.rs`) dispatches on `attempts < max_attempts - 1`, so the retry branch
+    /// is a **no-op** if it is ever called with `retry = true` at exhaustion — the row stays
+    /// `pending` and would be re-claimed forever. Pinned here so a future caller cannot
+    /// adopt that shape unnoticed.
+    #[tokio::test]
+    async fn test_mark_notification_failed_retry_and_terminal() {
+        let Some((_isolated, pool)) = test_pool().await else {
+            return;
+        };
+        let storage = PushNotificationStorage::new(&pool);
+        let user_id = format!("@pf_{}:test.local", uuid::Uuid::new_v4().as_simple());
+        ensure_user(&pool, &user_id).await;
+
+        let retried = storage.queue_notification(queue_request(&user_id, "D1", 0)).await.expect("queue");
+        storage
+            .mark_notification_failed(retried.id, "provider said no", true)
+            .await
+            .expect("mark_notification_failed(retry = true)");
+
+        let (status, attempts, error_message, next_attempt_at): (String, i32, Option<String>, Option<i64>) =
+            sqlx::query_as(
+                "SELECT status, attempts, error_message, next_attempt_at FROM push_notification_queue WHERE id = $1",
+            )
+            .bind(retried.id)
+            .fetch_one(&*pool)
+            .await
+            .expect("read back the retried row");
+        assert_eq!(status, "pending", "a retryable failure stays pending");
+        assert_eq!(attempts, 1);
+        assert_eq!(error_message.as_deref(), Some("provider said no"));
+        assert!(
+            next_attempt_at.is_some_and(|ts| ts > current_timestamp_millis()),
+            "the retry must be pushed into the future, not immediately due again"
+        );
+        assert!(
+            storage
+                .get_pending_notifications(10)
+                .await
+                .expect("pending after retry")
+                .iter()
+                .all(|n| n.id != retried.id),
+            "a backed-off retry must not be claimable yet"
+        );
+
+        let terminal = storage.queue_notification(queue_request(&user_id, "D1", 0)).await.expect("queue #2");
+        storage
+            .mark_notification_failed(terminal.id, "permanent", false)
+            .await
+            .expect("mark_notification_failed(retry = false)");
+        let (status, attempts): (String, i32) =
+            sqlx::query_as("SELECT status, attempts FROM push_notification_queue WHERE id = $1")
+                .bind(terminal.id)
+                .fetch_one(&*pool)
+                .await
+                .expect("read back the failed row");
+        assert_eq!(status, "failed");
+        assert_eq!(attempts, 0, "the terminal branch does not count an attempt");
+    }
+
+    /// `push_config` is a single-row-per-key upsert plus read/list/delete. It is also the
+    /// table the `user_id`-free design was explicitly chosen for (see the baseline comment),
+    /// so `get_config_as_bool` / `get_config_as_int` parsing is part of the contract.
+    #[tokio::test]
+    async fn test_push_config_crud_and_typed_readers() {
+        let Some((_isolated, pool)) = test_pool().await else {
+            return;
+        };
+        let storage = PushNotificationStorage::new(&pool);
+        let key = format!("probe_{}", uuid::Uuid::new_v4().as_simple());
+
+        assert!(storage.get_config(&key).await.expect("get_config on a missing key").is_none());
+        assert!(storage.get_config_as_bool(&key, true).await.expect("bool default"), "missing key returns the default");
+        assert_eq!(storage.get_config_as_int(&key, 7).await.expect("int default"), 7);
+
+        let created = storage.set_config(&key, "true").await.expect("set_config insert");
+        assert_eq!(created.config_key, key);
+        assert!(storage.get_config_as_bool(&key, false).await.expect("bool parse"));
+
+        let updated = storage.set_config(&key, "false").await.expect("set_config upsert");
+        assert_eq!(updated.config_key, key, "upsert keeps one row per key");
+        assert!(
+            !storage.get_config_as_bool(&key, true).await.expect("bool parse #2"),
+            "the upsert must replace the value, not append"
+        );
+        assert_eq!(storage.list_config().await.expect("list_config").len(), 1);
+
+        storage.set_config(&key, "42").await.expect("set_config #3");
+        assert_eq!(storage.get_config_as_int(&key, 0).await.expect("int parse"), 42);
+        assert_eq!(storage.get_config(&key).await.expect("get_config").as_deref(), Some("42"));
+
+        assert!(storage.delete_config(&key).await.expect("delete_config"), "delete_config reports rows_affected > 0");
+        assert!(!storage.delete_config(&key).await.expect("delete_config again"), "a second delete removes nothing");
+        assert!(storage.get_config(&key).await.expect("get_config after delete").is_none());
+        assert!(storage.list_config().await.expect("list_config after delete").is_empty());
     }
 
     /// D-15.6 / D-33: `create_notification_log` must persist the row *and* stamp

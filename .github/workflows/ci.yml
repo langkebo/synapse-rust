@@ -524,6 +524,25 @@ jobs:
           RUST_LOG: info
         run: cargo nextest run --test unit --features test-utils --locked --test-threads 4
 
+      # ── W5 / D-25：门控模块的"0 tests 假绿" ──
+      # `#[cfg(feature = "X")] pub mod m;` 在 X 未打开时不参与编译，`-E 'test(m)'`
+      # 匹配 0 个用例，而 libtest 打印 `running 0 tests` 并 exit 0、nextest exit 4 ——
+      # 都会被当成通过（本仓已踩 4 次：C6 server_notification / C9 saml /
+      # C11 friend_room / C15 cas，且这个缺口不体现在棘轮数字里）。
+      # 逐行读 scripts/ci/gated_module_test_matrix，用既有唯一实现
+      # scripts/ci/require_tests_ran.sh（0 个用例即失败）包装。
+      # feature 口径与上面的 lib 批次一致（`--all-features`）⇒ 不额外构建。
+      - name: Gated modules actually run tests (D-25)
+        if: matrix.features-args == '--all-features'
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
+          REDIS_URL: redis://localhost:6379
+          RUST_BACKTRACE: 1
+          RUST_LOG: info
+        run: bash scripts/ci/check_gated_module_tests.sh
+
       # ── B16: 让 `cfg(not(any(...)))` 门控的 golden 真正编译 ──
       # `synapse-web/src/routes/derived_routes.rs` 里 default/worker/all 三个
       # ledger golden 用 `#[cfg(not(any(all-extensions, voice-extended, saml-sso,

@@ -25,7 +25,6 @@ synapse-storage/src/friend_room/repository.rs 5
 synapse-storage/src/media/chunked_upload.rs 1
 synapse-storage/src/media_quota/repository.rs 2
 synapse-storage/src/membership/mod.rs 2
-synapse-storage/src/module.rs 1
 synapse-storage/src/registration_token/repository.rs 1
 synapse-storage/src/relations/mod.rs 3
 synapse-storage/src/room/mod.rs 1

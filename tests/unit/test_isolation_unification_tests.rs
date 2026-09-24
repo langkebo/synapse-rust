@@ -101,10 +101,15 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // 2026-09-24（W1 `c128cdeab`，D-11 删除 `room_invites` 的 6 个死列族）：基线内容
 // 再次变化、该提交同样没同步本常量（复现：left=7212ca6632ca4075 /
 // right=7ba7be4ff51c6d50），直到 W4 跑完整 `--test unit` 才暴露。
-// 纪律（已经踩过五次：`d77d1fcf`、`98a90a58`、`2fba9c2d9`、`483dfc045`、本次）：
+// 2026-09-24（W5 `password_auth_providers` 建表，D-40）：基线再次变化，常量同步为
+// `0297744eb28ae814`。本次**不再靠"跑一次看报错"**取值，而是独立复算了 FNV-1a 64
+// 并先用两个已知值自检：`2192a6d99` 的基线 → `7ba7be4ff51c6d50`（= 旧常量）、
+// `cd3ec6221` 的基线 → `7212ca6632ca4075`（= W1 后实测值），两者都逐字节吻合后才用
+// 同一实现算出新值 —— 避免"跑守卫取 left 值"这条路径在门禁本身失效时也照样能过。
+// 纪律（已经踩过六次：`d77d1fcf`、`98a90a58`、`2fba9c2d9`、`483dfc045`、`c128cdeab`、本次）：
 // **改 `migrations/` 后必须跑一次本守卫**，哪怕只改注释 —— 模板指纹按文件字节哈希，
 // 内容一变常量就必须同步，否则每个新库都会铸出第二份模板。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "7212ca6632ca4075";
+const EXPECTED_BASELINE_FINGERPRINT: &str = "0297744eb28ae814";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))
@@ -850,7 +855,7 @@ fn prepare_isolated_test_pool_does_not_use_the_runtime_initializer() {
 ///
 /// The template schema name is `test_isolation_template_<FNV-1a 64 of the
 /// baseline string>`. The v12-only input hashes to the constant below
-/// (`7212ca6632ca4075`). Extra text — a leading or trailing separator, an
+/// (`0297744eb28ae814`). Extra text — a leading or trailing separator, an
 /// additional `include_str!`, a pointer at a different migration — changes the
 /// hash and silently builds a *second* full template, so the suite pays the whole
 /// baseline rebuild again while believing it is sharing a template. Historical

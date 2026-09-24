@@ -1,0 +1,27 @@
+# 门控模块的「测试过滤器 ↔ 所需 feature」登记表（W5 / D-25）
+#
+# 为什么需要它：`#[cfg(feature = "X")] pub mod m;` 在 X 未打开时**根本不参与编译**，
+# 于是 `cargo nextest run -E 'test(m)'` 匹配 0 个用例。libtest 打印
+# `running 0 tests` 并 exit 0，nextest 则 exit 4 —— 两者都会被 CI 当成"通过"，
+# 形成"改了一个宏却一个都没校验"的假绿。本仓已踩到 4 次（C6 server_notification、
+# C9 saml、C11 friend_room、C15 cas），且这个缺口**不体现在棘轮数字里**。
+#
+# 用法（CI 步骤与本地批次都读同一份表，铁律 2）：
+#   bash scripts/ci/check_gated_module_tests.sh            # 全部行
+#   bash scripts/ci/check_gated_module_tests.sh friend_room  # 只查一行
+# 每条都经 `scripts/ci/require_tests_ran.sh` 包装 ⇒ 匹配 0 个用例即 exit 1。
+#
+# 格式：`<nextest 过滤器>  <所需 feature>  <声明它的 lib.rs 行>`
+# 第三列是**校验用锚点**（`tests/unit/gated_module_test_gate_tests.rs` 会静态断言
+# 该行的上一行确实是 `#[cfg(feature = "<所需 feature>")]`），因此 feature 名写错
+# 或门控被删都会让守卫变红，而不是让这张表悄悄失效。
+friend_room|friends|synapse-storage/src/lib.rs
+friend_room_service|friends|synapse-services/src/lib.rs
+server_notification|server-notifications|synapse-storage/src/lib.rs
+server_notification_service|server-notifications|synapse-services/src/lib.rs
+saml|saml-sso|synapse-storage/src/lib.rs
+saml_service|saml-sso|synapse-services/src/lib.rs
+cas|cas-sso|synapse-storage/src/lib.rs
+cas_service|cas-sso|synapse-services/src/lib.rs
+beacon|beacons|synapse-storage/src/lib.rs
+beacon_service|beacons|synapse-services/src/lib.rs

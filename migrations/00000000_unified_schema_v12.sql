@@ -2141,6 +2141,25 @@ CREATE TABLE IF NOT EXISTS modules (
     CONSTRAINT uq_modules_name UNIQUE (module_name)
 );
 
+-- Password auth providers registered through the admin API
+-- (`/_synapse/admin/v1/password_auth_providers`). The table was missing while the routes,
+-- the `PasswordAuthProvider` model and the storage methods already existed — the storage
+-- methods were stubs (`Err(RowNotFound)` / `Ok(vec![])`), so POST always failed and GET was
+-- always empty (D-40). `provider_name` is unique so POST is an idempotent create-or-update:
+-- it is the only write path for this table (no PUT/DELETE route is registered).
+CREATE TABLE IF NOT EXISTS password_auth_providers (
+    id BIGSERIAL,
+    provider_name TEXT NOT NULL,
+    provider_type TEXT NOT NULL,
+    config JSONB DEFAULT '{}',
+    is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    priority INTEGER NOT NULL DEFAULT 0,
+    created_ts BIGINT NOT NULL,
+    updated_ts BIGINT NOT NULL,
+    CONSTRAINT pk_password_auth_providers PRIMARY KEY (id),
+    CONSTRAINT uq_password_auth_providers_name UNIQUE (provider_name)
+);
+
 CREATE TABLE IF NOT EXISTS module_execution_logs (
     id BIGSERIAL,
     module_id BIGINT,

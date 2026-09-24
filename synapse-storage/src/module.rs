@@ -780,7 +780,7 @@ impl ModuleStorage {
             r#"
             SELECT id, module_name, module_type, event_id, room_id, execution_time_ms,
                 is_success, error_message, metadata, executed_ts
-            FROM module_execution_logs WHERE module_name = $1 ORDER BY executed_ts DESC LIMIT $2
+            FROM module_execution_logs WHERE module_name = $1 ORDER BY executed_ts DESC, id DESC LIMIT $2
             "#,
             module_name,
             limit
@@ -928,18 +928,73 @@ impl ModuleStorage {
     }
 
     /// See [`create_password_auth_provider`].
+    ///
+    /// D-40: this used to be a hardcoded `Err(sqlx::Error::RowNotFound)` stub (the backing
+    /// table did not exist either), so the registered
+    /// `POST /_synapse/admin/v1/password_auth_providers` route could never succeed.
+    ///
+    /// `provider_name` is UNIQUE and this is the only write path for the table (no PUT/DELETE
+    /// route is registered), so POST is an idempotent create-or-update.
     #[instrument(skip(self))]
     pub async fn create_password_auth_provider(
         &self,
-        _request: CreatePasswordAuthProviderRequest,
+        request: CreatePasswordAuthProviderRequest,
     ) -> Result<PasswordAuthProvider, sqlx::Error> {
-        Err(sqlx::Error::RowNotFound)
+        let now = current_timestamp_millis();
+
+        let row = sqlx::query_as!(
+            PasswordAuthProvider,
+            r#"
+            INSERT INTO password_auth_providers (
+                provider_name, provider_type, config, is_enabled, priority, created_ts, updated_ts
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $6)
+            ON CONFLICT (provider_name) DO UPDATE SET
+                provider_type = EXCLUDED.provider_type,
+                config = EXCLUDED.config,
+                is_enabled = EXCLUDED.is_enabled,
+                priority = EXCLUDED.priority,
+                updated_ts = EXCLUDED.updated_ts
+            RETURNING
+                id, provider_name, provider_type, config,
+                is_enabled AS "is_enabled!", priority AS "priority!",
+                created_ts, updated_ts
+            "#,
+            request.provider_name.as_str(),
+            request.provider_type.as_str(),
+            request.config,
+            request.is_enabled.unwrap_or(true),
+            request.priority.unwrap_or(0),
+            now,
+        )
+        .fetch_one(&*self.pool)
+        .await?;
+
+        Ok(row)
     }
 
     /// See [`get_password_auth_providers`].
+    ///
+    /// D-40: this used to return a hardcoded `Ok(vec![])`, so the registered
+    /// `GET /_synapse/admin/v1/password_auth_providers` route always answered `[]` no matter
+    /// what had been stored. Ordered by `priority` then `provider_name` so repeated reads are
+    /// stable (the admin list is a configuration surface, not a cursor-paginated feed).
     #[instrument(skip(self))]
     pub async fn get_password_auth_providers(&self) -> Result<Vec<PasswordAuthProvider>, sqlx::Error> {
-        Ok(vec![])
+        let rows = sqlx::query_as!(
+            PasswordAuthProvider,
+            r#"
+            SELECT id, provider_name, provider_type, config,
+                is_enabled AS "is_enabled!", priority AS "priority!",
+                created_ts, updated_ts
+            FROM password_auth_providers
+            ORDER BY priority ASC, provider_name ASC
+            "#,
+        )
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows)
     }
 
     /// See [`create_media_callback`].
@@ -1266,5 +1321,382 @@ mod db_tests {
             _ => None,
         };
         assert_eq!(error_code.as_deref(), Some("23514"), "expected a check-constraint violation, got {error}");
+    }
+}
+
+#[cfg(test)]
+mod d15_db_tests {
+    //! D-15.1: `module.rs` had 25 staticized queries and **no** DB round-trip at all
+    //! (the only `test_` fns were pure constructors). These cases exercise the risky
+    //! projections the conversion introduced: keyset cursors, expanded `RETURNING` lists,
+    //! `AS "col!"` nullability overrides and synthetic `NULL::BIGINT` columns.
+
+    use super::*;
+
+    async fn test_pool() -> Option<(crate::test_isolation::IsolatedTestPool, Arc<PgPool>)> {
+        match crate::test_isolation::isolated_test_pool().await {
+            Ok(isolated) => {
+                let pool = isolated.pool();
+                Some((isolated, pool))
+            }
+            Err(error) => {
+                tracing::warn!("Skipping module DB test because test database is unavailable: {error}");
+                None
+            }
+        }
+    }
+
+    fn module_request(name: &str, module_type: &str, priority: i32) -> CreateModuleRequest {
+        CreateModuleRequest {
+            module_name: name.to_string(),
+            module_type: module_type.to_string(),
+            version: "1.0.0".to_string(),
+            description: Some("test module".to_string()),
+            is_enabled: None,
+            priority: Some(priority),
+            config: Some(serde_json::json!({"k": "v"})),
+        }
+    }
+
+    fn unique(prefix: &str) -> String {
+        format!("{prefix}_{}", uuid::Uuid::new_v4().as_simple())
+    }
+
+    /// D-40 RED/GREEN: the admin `password_auth_providers` surface had a registered POST route,
+    /// a model and a storage method that was a hardcoded `Err(RowNotFound)` stub — and no table.
+    #[tokio::test]
+    async fn test_password_auth_provider_create_or_update_and_list() {
+        let Some((_isolated, pool)) = test_pool().await else {
+            return;
+        };
+        let storage = ModuleStorage::new(&pool);
+
+        let created = storage
+            .create_password_auth_provider(CreatePasswordAuthProviderRequest {
+                provider_name: "ldap".to_string(),
+                provider_type: "ldap".to_string(),
+                config: serde_json::json!({"host": "ldap.test"}),
+                is_enabled: None,
+                priority: None,
+            })
+            .await
+            .expect("D-40: creating a password auth provider must succeed, not return RowNotFound");
+        assert_eq!(created.provider_name, "ldap");
+        assert!(created.is_enabled, "is_enabled defaults to true");
+        assert_eq!(created.priority, 0, "priority defaults to 0");
+        assert_eq!(created.config, Some(serde_json::json!({"host": "ldap.test"})));
+
+        // POST is the only write path for this table, so the same name must update in place.
+        let updated = storage
+            .create_password_auth_provider(CreatePasswordAuthProviderRequest {
+                provider_name: "ldap".to_string(),
+                provider_type: "ldap_v2".to_string(),
+                config: serde_json::json!({"host": "ldap2.test"}),
+                is_enabled: Some(false),
+                priority: Some(5),
+            })
+            .await
+            .expect("re-registering the same provider must upsert");
+        assert_eq!(updated.id, created.id, "upsert keeps one row per provider_name");
+        assert_eq!(updated.created_ts, created.created_ts, "created_ts must not be rewritten");
+        assert_eq!(updated.provider_type, "ldap_v2");
+        assert!(!updated.is_enabled);
+        assert_eq!(updated.priority, 5);
+
+        // A second provider with a lower priority must come first.
+        storage
+            .create_password_auth_provider(CreatePasswordAuthProviderRequest {
+                provider_name: "oauth".to_string(),
+                provider_type: "oidc".to_string(),
+                config: serde_json::json!({}),
+                is_enabled: Some(true),
+                priority: Some(1),
+            })
+            .await
+            .expect("second provider");
+
+        let providers = storage
+            .get_password_auth_providers()
+            .await
+            .expect("D-40: the admin GET must read the table, not return a hardcoded empty vec");
+        assert_eq!(providers.len(), 2, "both providers must be listed, got {providers:?}");
+        assert_eq!(providers[0].provider_name, "oauth", "ordered by priority ASC");
+        assert_eq!(providers[1].provider_name, "ldap");
+    }
+
+    /// `register_module` / `get_module` / `get_modules_by_type` / `update_module_config` /
+    /// `enable_module` / `delete_module` — the CRUD core, with the `AS "is_enabled!"` /
+    /// `AS "priority!"` overrides and the expanded `RETURNING` list.
+    #[tokio::test]
+    async fn test_module_crud_roundtrip() {
+        let Some((_isolated, pool)) = test_pool().await else {
+            return;
+        };
+        let storage = ModuleStorage::new(&pool);
+        let name = unique("mod_crud");
+        let module_type = unique("spam_checker");
+
+        let created = storage
+            .register_module(module_request(&name, &module_type, 10))
+            .await
+            .expect("register_module must succeed");
+        assert_eq!(created.module_name, name);
+        assert!(created.is_enabled, "is_enabled defaults to true");
+        assert_eq!(created.priority, 10);
+        assert_eq!(created.execution_count, 0);
+        assert_eq!(created.error_count, 0);
+        assert!(created.last_executed_ts.is_none());
+
+        let fetched = storage
+            .get_module(&name)
+            .await
+            .expect("get_module must succeed")
+            .expect("the module just registered must be readable");
+        assert_eq!(fetched.id, created.id);
+        assert_eq!(fetched.config, Some(serde_json::json!({"k": "v"})));
+
+        let by_type = storage.get_modules_by_type(&module_type).await.expect("get_modules_by_type");
+        assert_eq!(by_type.len(), 1);
+        assert_eq!(by_type[0].module_name, name);
+
+        let updated = storage
+            .update_module_config(&name, serde_json::json!({"k": "v2"}))
+            .await
+            .expect("update_module_config must succeed");
+        assert_eq!(updated.config, Some(serde_json::json!({"k": "v2"})));
+
+        let disabled = storage.enable_module(&name, false).await.expect("enable_module(false)");
+        assert!(!disabled.is_enabled);
+        assert!(
+            storage.get_modules_by_type(&module_type).await.expect("by type after disable").is_empty(),
+            "get_modules_by_type only returns enabled modules"
+        );
+
+        storage.delete_module(&name).await.expect("delete_module must succeed");
+        assert!(storage.get_module(&name).await.expect("get_module after delete").is_none());
+    }
+
+    /// `get_all_modules` keyset pagination: the `from = None` branch (`$2/$3/$4` all NULL) and
+    /// the three-way `(module_type, priority, module_name)` cursor branch must agree and never
+    /// repeat or skip a row.
+    #[tokio::test]
+    async fn test_get_all_modules_keyset_cursor_pages_through_without_gaps() {
+        let Some((_isolated, pool)) = test_pool().await else {
+            return;
+        };
+        let storage = ModuleStorage::new(&pool);
+        let type_a = unique("type_a");
+        let type_b = unique("type_b");
+
+        // Deliberately mixed types/priorities so the cursor has to tie-break on all three keys.
+        let rows = [
+            (&type_a, 1, unique("m1")),
+            (&type_a, 1, unique("m2")),
+            (&type_a, 5, unique("m3")),
+            (&type_b, 1, unique("m4")),
+            (&type_b, 2, unique("m5")),
+        ];
+        let mut expected: Vec<(String, i32, String)> = Vec::new();
+        for (module_type, priority, name) in &rows {
+            storage
+                .register_module(module_request(name, module_type, *priority))
+                .await
+                .expect("register_module for pagination fixture");
+            expected.push(((*module_type).clone(), *priority, name.clone()));
+        }
+        expected.sort();
+
+        // Page size 2 → three pages, the first two must hand back a cursor.
+        let mut seen: Vec<(String, i32, String)> = Vec::new();
+        let mut cursor: Option<String> = None;
+        for page in 0..3 {
+            let (page_rows, next) = storage
+                .get_all_modules(2, cursor.clone())
+                .await
+                .expect("get_all_modules must succeed on both cursor branches");
+            for row in &page_rows {
+                seen.push((row.module_type.clone(), row.priority, row.module_name.clone()));
+            }
+            if page < 2 {
+                assert!(next.is_some(), "a full page must produce a next cursor (page {page})");
+            } else {
+                assert!(next.is_none(), "the last page must not produce a cursor");
+            }
+            cursor = next;
+        }
+
+        assert_eq!(seen, expected, "paging must return every row exactly once, in order");
+    }
+
+    /// `record_execution` (the `CASE WHEN $3` counter update) plus `create_execution_log` /
+    /// `get_execution_logs` (ordering + LIMIT).
+    #[tokio::test]
+    async fn test_record_execution_and_execution_logs() {
+        let Some((_isolated, pool)) = test_pool().await else {
+            return;
+        };
+        let storage = ModuleStorage::new(&pool);
+        let name = unique("mod_exec");
+        let module_type = unique("spam_checker");
+        storage.register_module(module_request(&name, &module_type, 1)).await.expect("register");
+
+        storage.record_execution(&name, true, None).await.expect("record_execution(success)");
+        storage.record_execution(&name, false, Some("boom")).await.expect("record_execution(failure)");
+
+        let after = storage.get_module(&name).await.expect("get_module").expect("present");
+        assert_eq!(after.execution_count, 2, "every call increments execution_count");
+        assert_eq!(after.error_count, 1, "only the failing call increments error_count");
+        assert_eq!(after.last_error.as_deref(), Some("boom"));
+        assert!(after.last_executed_ts.is_some(), "record_execution must stamp last_executed_ts");
+
+        for (ok, error) in [(true, None), (false, Some("later failure"))] {
+            storage
+                .create_execution_log(CreateExecutionLogRequest {
+                    module_name: name.clone(),
+                    module_type: module_type.clone(),
+                    event_id: Some("$event:test.local".to_string()),
+                    room_id: Some("!room:test.local".to_string()),
+                    execution_time_ms: 12,
+                    is_success: ok,
+                    error_message: error.map(str::to_string),
+                    metadata: Some(serde_json::json!({"detail": "x"})),
+                })
+                .await
+                .expect("create_execution_log must succeed");
+        }
+
+        let logs = storage.get_execution_logs(&name, 10).await.expect("get_execution_logs");
+        assert_eq!(logs.len(), 2);
+        assert!(!logs[0].is_success, "newest first");
+        assert_eq!(logs[0].error_message.as_deref(), Some("later failure"));
+        assert_eq!(logs[0].metadata, Some(serde_json::json!({"detail": "x"})));
+        assert_eq!(storage.get_execution_logs(&name, 1).await.expect("limit 1").len(), 1);
+    }
+
+    /// `create_account_validity` is an upsert whose `RETURNING` carries two conversions the
+    /// conversion had to synthesize: `COALESCE(updated_ts, created_ts) AS "updated_ts!"` and
+    /// `NULL::BIGINT AS "renewal_token_ts"`.
+    #[tokio::test]
+    async fn test_account_validity_upsert_and_expired_scan() {
+        let Some((_isolated, pool)) = test_pool().await else {
+            return;
+        };
+        let storage = ModuleStorage::new(&pool);
+        let now = current_timestamp_millis();
+        let user_id = format!("@val_{}:test.local", uuid::Uuid::new_v4().as_simple());
+
+        let created = storage
+            .create_account_validity(CreateAccountValidityRequest {
+                user_id: user_id.clone(),
+                expiration_at: now + 86_400_000,
+                is_valid: None,
+            })
+            .await
+            .expect("create_account_validity must succeed");
+        assert!(created.is_valid, "is_valid defaults to true");
+        assert_eq!(created.created_ts, created.updated_ts, "updated_ts falls back to created_ts");
+        assert!(created.renewal_token_ts.is_none(), "the synthetic NULL::BIGINT column decodes as None");
+        assert!(created.renewal_token.is_none());
+
+        // An already-expired *valid* row is what the expiry scan looks for.
+        assert!(
+            storage.get_expired_accounts(now - 1_000).await.expect("cutoff before expiry").is_empty(),
+            "a validity expiring in the future is not expired yet"
+        );
+        // Strictly *after* the expiration: the predicate is `expiration_at < $1`.
+        let after_expiry = now + 2 * 86_400_000;
+        let expired = storage.get_expired_accounts(after_expiry).await.expect("get_expired_accounts");
+        assert!(
+            expired.iter().any(|row| row.user_id == user_id),
+            "a validity that expires before `before_ts` must be reported"
+        );
+
+        // Upsert the same user: one row, new expiration, still `is_valid` unless told otherwise.
+        let expired_at = now - 1_000;
+        let upserted = storage
+            .create_account_validity(CreateAccountValidityRequest {
+                user_id: user_id.clone(),
+                expiration_at: expired_at,
+                is_valid: Some(false),
+            })
+            .await
+            .expect("re-creating validity for the same user must upsert");
+        assert_eq!(upserted.user_id, user_id);
+        assert!(!upserted.is_valid);
+        assert_eq!(upserted.created_ts, created.created_ts, "created_ts must not be rewritten");
+
+        let fetched = storage
+            .get_account_validity(&user_id)
+            .await
+            .expect("get_account_validity must succeed")
+            .expect("the row must be readable");
+        assert_eq!(fetched.expiration_at, Some(expired_at));
+
+        // The expiry scan is `expiration_at < $1 AND is_valid = true`, so revoking validity
+        // also removes the row from it.
+        assert!(
+            storage
+                .get_expired_accounts(after_expiry)
+                .await
+                .expect("expired scan after revoke")
+                .iter()
+                .all(|row| row.user_id != user_id),
+            "an expired but no-longer-valid row must not be reported"
+        );
+
+        storage.set_renewal_token(&user_id, "renew-token").await.expect("set_renewal_token");
+        let with_token = storage.get_account_validity(&user_id).await.expect("get").expect("present");
+        assert_eq!(with_token.renewal_token.as_deref(), Some("renew-token"));
+    }
+
+    /// `create_account_data_callback` / `get_account_data_callbacks`: the `data_types TEXT[]`
+    /// array round-trips (both present and NULL), and `config` is nullable — the two shapes
+    /// that D-19's "`query_as!` ignores `#[sqlx(skip)]`/`rename`" note is about.
+    #[tokio::test]
+    async fn test_account_data_callback_roundtrip_with_array_and_null_config() {
+        let Some((_isolated, pool)) = test_pool().await else {
+            return;
+        };
+        let storage = ModuleStorage::new(&pool);
+
+        let with_types = storage
+            .create_account_data_callback(CreateAccountDataCallbackRequest {
+                callback_name: unique("cb_types"),
+                config: serde_json::json!({"url": "https://cb.test"}),
+                is_enabled: None,
+                data_types: Some(vec!["m.direct".to_string(), "m.push_rules".to_string()]),
+            })
+            .await
+            .expect("create_account_data_callback must succeed");
+        assert!(with_types.is_enabled, "is_enabled defaults to true");
+        assert_eq!(
+            with_types.data_types,
+            Some(vec!["m.direct".to_string(), "m.push_rules".to_string()]),
+            "the TEXT[] column must round-trip element-wise and in order"
+        );
+        assert_eq!(with_types.config, Some(serde_json::json!({"url": "https://cb.test"})));
+
+        let without_types = storage
+            .create_account_data_callback(CreateAccountDataCallbackRequest {
+                callback_name: unique("cb_plain"),
+                config: serde_json::json!({}),
+                is_enabled: Some(false),
+                data_types: None,
+            })
+            .await
+            .expect("create_account_data_callback without data_types");
+        assert!(without_types.data_types.is_none(), "an omitted array stays NULL");
+        assert!(!without_types.is_enabled);
+
+        // The reader is `WHERE is_enabled = true`, so the disabled callback is absent —
+        // which also proves the flag round-tripped through the upsert.
+        let all = storage.get_account_data_callbacks().await.expect("get_account_data_callbacks");
+        assert_eq!(all.len(), 1, "only enabled callbacks are listed, got {all:?}");
+        assert_eq!(all[0].callback_name, with_types.callback_name);
+        assert_eq!(
+            all[0].data_types,
+            Some(vec!["m.direct".to_string(), "m.push_rules".to_string()]),
+            "the reader must expose the stored TEXT[] array"
+        );
     }
 }

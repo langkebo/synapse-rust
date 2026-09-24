@@ -117,6 +117,7 @@ mod context_route_tests;
 mod e2e_honesty_tests;
 mod ephemeral_route_tests;
 mod formatting_route_tests;
+mod gated_module_test_gate_tests;
 mod guest_route_tests;
 mod mock_fidelity_tests;
 mod pagination_db_gate_tests;
