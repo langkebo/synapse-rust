@@ -209,8 +209,9 @@ impl PresenceStorage {
     ///
     /// Each entry is `(user_id, presence, status_msg)`. Uses `UNNEST` to
     /// batch the INSERT ... ON CONFLICT DO UPDATE, eliminating N+1 SQL
-    /// round-trips when updating presence for many users at once (e.g.
-    /// federation presence sync, bulk presence import).
+    /// round-trips when updating presence for many users at once. The caller is the inbound
+    /// federation `m.presence` EDU handler, where one EDU can carry many updates
+    /// (D-32); the "bulk presence import" case named here previously did not exist.
     ///
     /// Cache entries are also written in a single `set_batch` pipeline.
     pub async fn set_presence_batch(&self, entries: &[(String, String, Option<String>)]) -> Result<(), sqlx::Error> {

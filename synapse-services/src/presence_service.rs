@@ -147,8 +147,12 @@ impl PresenceService {
             .map_err(|e| ApiError::internal_with_cause("Failed to persist typing EDU", e))
     }
 
-    /// C-3: Batch set presence for multiple users in a single SQL statement.
-    /// Each entry is `(user_id, presence, status_msg)`.
+    /// C-3: Batch set presence for multiple users in a single SQL statement, then broadcast
+    /// each update to remote subscribers.
+    ///
+    /// Each entry is `(user_id, presence, status_msg)`. Wired to the inbound federation
+    /// `m.presence` EDU handler (`synapse-web/src/federation/edu.rs::handle_presence_edu`),
+    /// which can carry many updates in one EDU (D-32).
     #[tracing::instrument(skip(self, entries))]
     pub async fn set_presence_batch(&self, entries: &[(String, String, Option<String>)]) -> ApiResult<()> {
         if entries.is_empty() {

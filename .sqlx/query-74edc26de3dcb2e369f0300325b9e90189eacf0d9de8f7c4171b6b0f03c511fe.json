@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT status AS \"status?\" FROM federation_servers WHERE server_name = $1",
+  "query": "SELECT status AS \"status!\" FROM federation_servers WHERE server_name = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "status?",
+        "name": "status!",
         "type_info": "Text"
       }
     ],
@@ -18,5 +18,5 @@
       false
     ]
   },
-  "hash": "8ecf63b50a0361dbe233160fc2fbd34afed5c69efc1123cb67d4b6f3dd43f057"
+  "hash": "74edc26de3dcb2e369f0300325b9e90189eacf0d9de8f7c4171b6b0f03c511fe"
 }

@@ -29,6 +29,10 @@ async fn setup_federation_txn_test_app(
     super::config_mut(&mut container).federation.server_name = "localhost".to_string();
     super::config_mut(&mut container).federation.key_id = Some(key_id.to_string());
     super::config_mut(&mut container).federation.signing_key = Some(signing_key_b64.to_string());
+    // EDU ingress is off by default (`process_inbound_edus` / `process_inbound_presence_edus`
+    // both default to `false`), so the presence-EDU test below would silently assert nothing.
+    super::config_mut(&mut container).federation.process_inbound_edus = true;
+    super::config_mut(&mut container).federation.process_inbound_presence_edus = true;
     let cache =
         std::sync::Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default()));
     let state = synapse_web::routes::state::AppState::new(container, cache);
@@ -285,4 +289,154 @@ async fn test_send_transaction_with_signed_pdu_accepted() {
         first.get("success").is_some() || first.get("error").is_some(),
         "Expected success or error in PDU result, got: {first}"
     );
+}
+
+// ============================================================================
+// Test 6: one `m.presence` EDU carrying several updates persists all of them (D-32)
+// ============================================================================
+//
+// The handler used to call `PresenceService::set_presence` once per entry — N upserts plus
+// N federation broadcasts for a single EDU. It now collects the updates that pass
+// validation and writes them with the batched `set_presence_batch` (one `UNNEST` statement).
+// This test drives the real HTTP route (signed `PUT /send`) so the wiring itself is covered,
+// not just the storage-level batch method.
+#[tokio::test]
+async fn test_send_transaction_persists_every_presence_update_in_one_edu() {
+    let key_id = "ed25519:presence_batch";
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&[77u8; 32]);
+    let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key.to_bytes());
+    let Some((app, pool)) = setup_federation_txn_test_app(key_id, &signing_key_b64).await else {
+        return;
+    };
+
+    let uuid = uuid::Uuid::new_v4();
+    let suffix = uuid.as_simple();
+    let user_a = format!("@pres_a_{suffix}:localhost");
+    let user_b = format!("@pres_b_{suffix}:localhost");
+    // `validate_presence_update` only accepts user_ids belonging to the sending origin, and
+    // the handler drops updates for users this server does not know.
+    for user in [&user_a, &user_b] {
+        super::ensure_test_user(&pool, user).await;
+    }
+
+    let body = json!({
+        "origin": "localhost",
+        "pdus": [],
+        "edus": [{
+            "edu_type": "m.presence",
+            "content": {
+                "push": [
+                    { "user_id": user_a, "presence": "online", "status_msg": "at work" },
+                    { "user_id": user_b, "presence": "away" }
+                ]
+            }
+        }]
+    });
+
+    let request = signed_federation_request(
+        "PUT",
+        "/_matrix/federation/v1/send/presence_batch_1",
+        "localhost",
+        key_id,
+        &signing_key,
+        Some(&body),
+    );
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let rows: Vec<(String, String, Option<String>)> =
+        sqlx::query_as("SELECT user_id, presence, status_msg FROM presence WHERE user_id = ANY($1) ORDER BY user_id")
+            .bind(vec![user_a.clone(), user_b.clone()])
+            .fetch_all(&*pool)
+            .await
+            .expect("querying the presence table must succeed");
+
+    assert_eq!(rows.len(), 2, "both updates of the single m.presence EDU must be persisted, got: {rows:?}");
+    assert_eq!(rows[0], (user_a.clone(), "online".to_string(), Some("at work".to_string())));
+    // `PresenceState` normalises the wire value: the EDU's "away" is stored as
+    // "unavailable" (the canonical local spelling).
+    assert_eq!(rows[1], (user_b.clone(), "unavailable".to_string(), None));
+
+    for user in [&user_a, &user_b] {
+        let _ = sqlx::query("DELETE FROM presence WHERE user_id = $1").bind(user).execute(&*pool).await;
+    }
+}
+
+// ============================================================================
+// Test 7: the EDU's updates are written as ONE statement (all-or-nothing) — D-32
+// ============================================================================
+//
+// This is what makes the wiring observable rather than merely "the rows appear either way":
+// with the old per-entry loop, a rejected update left the *earlier* users of the same EDU
+// committed; with the batched `UNNEST` statement the whole EDU is one write, so a rejection
+// rolls back every update in it. Reverting `handle_presence_edu` to the per-entry loop makes
+// this test fail with `user_a` present (RED evidence for D-32).
+#[tokio::test]
+async fn test_presence_edu_updates_are_written_as_a_single_batch() {
+    let key_id = "ed25519:presence_batch_atomic";
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&[78u8; 32]);
+    let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key.to_bytes());
+    let Some((app, pool)) = setup_federation_txn_test_app(key_id, &signing_key_b64).await else {
+        return;
+    };
+
+    let uuid = uuid::Uuid::new_v4();
+    let suffix = uuid.as_simple();
+    let user_a = format!("@pres_atomic_a_{suffix}:localhost");
+    let user_b = format!("@pres_atomic_b_{suffix}:localhost");
+    for user in [&user_a, &user_b] {
+        super::ensure_test_user(&pool, user).await;
+    }
+
+    // Failure injection: reject exactly one of the two rows, so the batch write fails.
+    // A CHECK constraint (rather than dropping the table) is required because the clone's
+    // `search_path` falls back to `public` for unqualified names.
+    sqlx::query(&format!("ALTER TABLE presence ADD CONSTRAINT probe_reject_presence_b CHECK (user_id <> '{user_b}')"))
+        .execute(&*pool)
+        .await
+        .expect("failure injection: the probe constraint must be added to the per-test table");
+
+    let body = json!({
+        "origin": "localhost",
+        "pdus": [],
+        "edus": [{
+            "edu_type": "m.presence",
+            "content": {
+                "push": [
+                    { "user_id": user_a, "presence": "online" },
+                    { "user_id": user_b, "presence": "online" }
+                ]
+            }
+        }]
+    });
+
+    let request = signed_federation_request(
+        "PUT",
+        "/_matrix/federation/v1/send/presence_batch_atomic_1",
+        "localhost",
+        key_id,
+        &signing_key,
+        Some(&body),
+    );
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM presence WHERE user_id = ANY($1)")
+        .bind(vec![user_a.clone(), user_b.clone()])
+        .fetch_one(&*pool)
+        .await
+        .expect("count must succeed");
+
+    assert_eq!(
+        rows, 0,
+        "the EDU's updates are one batched statement, so the rejected entry must roll back the \
+         whole EDU; seeing {rows} row(s) means the per-entry loop is back (user_a committed \
+         before user_b was rejected)"
+    );
+
+    for user in [&user_a, &user_b] {
+        let _ = sqlx::query("DELETE FROM presence WHERE user_id = $1").bind(user).execute(&*pool).await;
+    }
 }

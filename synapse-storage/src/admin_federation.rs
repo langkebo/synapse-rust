@@ -177,14 +177,15 @@ impl AdminFederationStorage {
         .await
     }
 
-    /// Returns the raw `status` column for a federation server (no COALESCE).
+    /// Returns the `status` column for a federation server (no COALESCE).
     ///
-    /// Returns `None` when the server is not present in `federation_servers`.
-    /// Returns `Some(None)` when the row exists but `status` is NULL.
-    /// Used by the federation admission middleware to distinguish "unknown
-    /// server" from "known server with explicit status".
-    pub async fn get_server_admission_status(&self, server_name: &str) -> Result<Option<Option<String>>, sqlx::Error> {
-        sqlx::query_scalar!("SELECT status AS \"status?\" FROM federation_servers WHERE server_name = $1", server_name,)
+    /// `None` means the server is not present in `federation_servers` — the only thing the
+    /// admission middleware can distinguish. The type used to be `Option<Option<String>>`
+    /// with a doc claiming `Some(None)` meant "row exists, status is NULL"; that inner
+    /// `None` was unreachable compat residue, because the column is
+    /// `status TEXT NOT NULL DEFAULT 'active'` (D-29), and no test could construct it.
+    pub async fn get_server_admission_status(&self, server_name: &str) -> Result<Option<String>, sqlx::Error> {
+        sqlx::query_scalar!("SELECT status AS \"status!\" FROM federation_servers WHERE server_name = $1", server_name,)
             .fetch_optional(&*self.pool)
             .await
     }
@@ -692,7 +693,7 @@ mod db_tests {
         assert!(status.is_none(), "unknown server should return None");
     }
 
-    // 16. get_server_admission_status: known server with explicit status returns Some(Some(...)).
+    // 16. get_server_admission_status: known server returns its explicit status.
     #[tokio::test]
     async fn test_get_server_admission_status_known() {
         let (_isolated, pool) = test_pool().await;
@@ -710,7 +711,7 @@ mod db_tests {
             .get_server_admission_status(&server_name)
             .await
             .expect("get_server_admission_status should succeed");
-        assert_eq!(status, Some(Some("pending".to_string())));
+        assert_eq!(status, Some("pending".to_string()));
 
         cleanup_server_prefix(&pool, &prefix).await;
     }

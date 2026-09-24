@@ -220,6 +220,12 @@ async fn handle_presence_edu(ctx: &FederationContext, origin: &str, edu: &Value,
     };
 
     let mut result = EduProcessResult::default();
+    // Phase 1 — validate and filter without touching the database. One `m.presence` EDU can
+    // carry many updates, and this used to call `PresenceService::set_presence` once per
+    // update: N upserts + N federation broadcasts for a single EDU (D-32 — exactly the
+    // "federation presence sync" scenario `set_presence_batch` documents). The survivors are
+    // collected here and written in one statement by phase 2.
+    let mut batch: Vec<(String, String, Option<String>)> = Vec::new();
     for update in push.iter().take(remaining) {
         let Some((user_id, presence_str, status_msg)) = validate_presence_update(update, origin) else {
             result.dropped += 1;
@@ -244,14 +250,27 @@ async fn handle_presence_edu(ctx: &FederationContext, origin: &str, edu: &Value,
             continue;
         }
 
-        if let Err(error) = ctx.presence_service.set_presence(user_id, presence.as_str(), status_msg).await {
-            ::tracing::warn!("Failed to persist presence update for {} from {}: {}", user_id, origin, error);
-            result.errored += 1;
-            set_presence_backoff(ctx, origin).await;
-            break;
-        }
+        batch.push((user_id.to_string(), presence.as_str().to_string(), status_msg.map(str::to_string)));
+    }
 
-        result.processed += 1;
+    // Phase 2 — one batched upsert (plus the per-user federation broadcasts inside the
+    // service). The statement is all-or-nothing, so a failure leaves `processed` at 0 rather
+    // than counting the updates that an unbatched loop would have written before the failure;
+    // `errored` keeps its "one error event, then stop" shape.
+    if !batch.is_empty() {
+        match ctx.presence_service.set_presence_batch(&batch).await {
+            Ok(()) => result.processed += batch.len(),
+            Err(error) => {
+                ::tracing::warn!(
+                    "Failed to persist batched presence update ({} entries) from {}: {}",
+                    batch.len(),
+                    origin,
+                    error
+                );
+                result.errored += 1;
+                set_presence_backoff(ctx, origin).await;
+            }
+        }
     }
 
     if result.processed > 0 {

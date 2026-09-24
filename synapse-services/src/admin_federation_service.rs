@@ -461,11 +461,11 @@ impl AdminFederationService {
 
     /// Federation admission probe used by the federation auth middleware.
     ///
-    /// Returns `Ok(Some(status))` when the server is already known with a
-    /// non-empty status (caller decides whether to allow or reject based on
-    /// the status value), or `Ok(None)` when the server was previously
-    /// unknown and has just been registered as `pending` (caller should
-    /// reject with a "pending approval" message).
+    /// Returns `Ok(Some(status))` when the server is already known — the caller decides
+    /// whether to allow or reject based on the status value (`status` is
+    /// `NOT NULL DEFAULT 'active'`, so it is never NULL; D-29) — or `Ok(None)` when the
+    /// server was previously unknown and has just been registered as `pending` (the caller
+    /// should reject with a "pending approval" message).
     ///
     /// Errors are mapped to `ApiError::internal_with_context` so the middleware
     /// can propagate them without leaking sqlx error details.
@@ -478,12 +478,8 @@ impl AdminFederationService {
             .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         match existing {
-            // Row exists with a non-NULL status.
-            Some(Some(status)) => Ok(Some(status)),
-            // Row exists but status is NULL — treat as active to preserve
-            // the middleware's historical behaviour where a NULL status did
-            // not trigger the "pending" branch.
-            Some(None) => Ok(Some("active".to_string())),
+            // Row exists with its explicit status.
+            Some(status) => Ok(Some(status)),
             // Server is unknown: register as pending and signal the caller.
             None => {
                 let now = current_timestamp_millis();
