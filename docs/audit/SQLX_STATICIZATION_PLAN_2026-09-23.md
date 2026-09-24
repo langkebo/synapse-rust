@@ -469,21 +469,22 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-26 | 文档一致性 | 本文件 §4 与旧 baseline | "DDL 不可用 `query!` 静态化"结论过宽；生产 DDL 可静态化，仅 `#[cfg(test)]` 内不行 | **已收窄**（§执行结果 2） | — | 已在 §执行结果 2 更正 |
 | D-27 | 结构性限制 | `synapse-storage/src/search_index.rs` | 整模块无生产调用者（B3 已登记按铁律 1 删除），仍带 8 处生产动态 | **未修** | 全仓唯一引用是 `sync/mod.rs:10` 再导出，无消费者 | 删除整模块，一次回收 8 处 |
 | D-28 | 产品缺陷 | `synapse-storage/src/event/batch.rs` 等 | 4 个 0 调用者死查询 | **已修**（B3 `2e9c3d11d`，直接删除） | 无 | — |
-| D-29 | 结构性限制 | `synapse-storage/src/admin_federation.rs:186` | `get_server_admission_status` 声明 `Option<Option<String>>`、doc 称可返回 `Some(None)`，但 `status` 列 NOT NULL ⇒ 内层 None 与消费端 `Some(None)` 分支不可达 | **未修** | 有（`federation_auth.rs:214`，`admission_mode` 开时每个联邦请求） | 按铁律 1 收窄storage 返回类型并删消费端死分支 |
+| D-29 | 结构性限制 | `synapse-storage/src/admin_federation.rs:186`（已收窄）、`synapse-services/src/admin_federation_service.rs:473`（已删死分支） | `get_server_admission_status` 声明 `Option<Option<String>>`、doc 称可返回 `Some(None)`，但 `status` 列 `NOT NULL DEFAULT 'active'` ⇒ 内层 None 与消费端 `Some(None)` 分支不可达 | **已修**（W3 `088a56bd5`） | 有（`federation_auth.rs:214`，`admission_mode` 开时每个联邦请求） | 已修：storage 返回类型收窄为 `Option<String>`（SQL 改 `status AS "status!"`），删 service 的 `Some(None)` 分支与 doc 谎言；`db_tests` 已知例断言随之收窄。分支消失由**编译期**证明 |
 | D-30 | 结构性限制 | `synapse-storage/src/presence/mod.rs:452`,`:488`,`:522`,`:557` | `presence_subscriptions` 的 4 处 `is_undefined_column_error` 回退分支查 `user_id`/`friend_id`，合并后 schema 中从无此二列（42703）⇒ 分支既不可达又无法宏化 | **未修**（C17 保留动态） | 回退分支不可达；主分支正常 | 按铁律 1 删除 4 个回退分支与 `is_undefined_column_error` |
 | D-31 | 产品缺陷 | `synapse-storage/src/background_update.rs:282`（INSERT；列清单 `:283`）；测试池 `:1037` | `create_update` 的 INSERT 从不写 `update_name`（NOT NULL UNIQUE 无默认）⇒ 真 schema 下必然 23502；模块 `db_tests` 自建简化表（`update_name` 可空、无 UNIQUE）掩盖了它 | **已修**（W1 `c128cdeab`） | 有（`POST /_synapse/admin/v1/background_updates`） | 已修：INSERT 写 `update_name = job_name`（同一 `$1`）；`get_bu_test_pool()` 切到 `isolated_test_pool()`、删自建表与手工补列补丁；新增 `test_create_update_roundtrip`（往返 + 重复名 23505） |
-| D-32 | 产品缺陷 | `synapse-services/src/presence_service.rs:153` | C-3 批量 presence 写路径 `set_presence_batch`（storage + service + 内存替身 + db_tests 俱全）全仓**无任何调用者**，其 doc 宣称的"联邦 presence 同步 / 批量导入"从未接线 ⇒ 批量 upsert 与其内逐用户联邦广播是死代码 | **未修** | 无生产路径（仅 db_tests 覆盖） | 接线到联邦 EDU 批处理/批量导入，或按铁律 1 删除 batch API（连带回收 D-13 的该实例） |
+| D-32 | 产品缺陷 | `synapse-web/src/federation/edu.rs:215`（接线点）；`synapse-services/src/presence_service.rs:153`、`synapse-storage/src/presence/mod.rs:208`（原零调用者） | C-3 批量 presence 写路径 `set_presence_batch`（storage + service + 内存替身 + db_tests 俱全）全仓**无任何调用者**；`handle_presence_edu` 却对 EDU 的 `push` 数组逐条调 `set_presence`（N 次 upsert + N 次广播） | **已修**（W3 `088a56bd5`，取「接线」侧） | 有（联邦 `PUT /_matrix/federation/v1/send` 的 `m.presence` EDU；`process_inbound_presence_edus` 默认 false） | 已修：`handle_presence_edu` 改两阶段（先逐条校验/查存在性，再一次性 `set_presence_batch`）；语义变更仅一条 —— 批量全有全无，写失败时 `processed` 计 0 而非已写条数。两条端到端用例覆盖（见 §8.9） |
 | D-33 | 产品缺陷 | `synapse-storage/src/push_notification.rs:620`（INSERT）、`:731`（DELETE） | `push_notification_log.sent_at` **从未被任何语句写入**（全仓唯一生产 INSERT 的 11 列清单无此列；全仓 0 条 `UPDATE push_notification_log`），而保留期清理是 `DELETE … WHERE sent_at < $1` ⇒ 三值逻辑下 `NULL < $1` 恒为 NULL，**永远删 0 行**，该 append-only 表无界增长 | **已修**（W1 `c128cdeab`） | 有（`POST …/push_notification/cleanup`，`synapse-web/src/routes/push_notification.rs:206`；恒返回 `{"cleaned":0}`） | 已修（(a)+(b) 同时做）：INSERT 写 `sent_at = created_ts` 的同一 `now`；清理谓词改 `COALESCE(sent_at, created_ts) < $1`（对存量 NULL 行同样止血）；新建文件内 `db_tests`（此前 0）三条用例 |
 | D-34 | 产品缺陷 | `synapse-storage/src/threepid.rs:253`（SELECT `get_pending_threepids`；谓词 `:268`）对 `:157`（INSERT `add_threepid`） | 谓词 `WHERE validated_at < added_ts` 与写入路径互相矛盾：`add_threepid` 的 INSERT **不写 `validated_at`**（列清单无此列）⇒ 真正的"待验证"行 `validated_at IS NULL`，`NULL < added_ts` 为 NULL ⇒ **永远不返回**；db 用例 `test_get_pending_threepids` 只能改用 `add_verified_threepid(…, validated_at=1, added_ts=1000)` 人为造行，并把"query 不过滤 is_verified"写进注释当成规格 | **已修**（W1 `c128cdeab`） | 无（唯一包装 `IdentityStorage::get_pending_three_pid_validations`，`synapse-services/src/identity/storage.rs:65`，全仓无调用者） | 已修：谓词改 `validated_at IS NULL OR validated_at < added_ts`；用例改回走 `add_threepid`，新增 `test_get_pending_threepids_excludes_validated_rows` 负例，删除"把缺陷当规格"的注释。**遗留**：包装方仍零调用者 —— 接线或按铁律 1 删除，属独立条目 |
 
 | D-35 | 文档一致性 | 本文件 §7 导言（"计数口径"行） | 该行写 `dynamic_production=741` / `static=773` 并标注"C17 后实测"，但 741/773 是 **C16 后**的值：C17 为 773→742、741→772，与本仓 baseline（`BASELINE_DYNAMIC_PRODUCTION=742` / `BASELINE_STATIC=772`）矛盾，两处各偏 1 | **已修**（C18 提交一并更正为 706/808 并注明偏差来源） | — | 已在本节导言更正；计数一律以 `scripts/ci/sqlx_query_census.py` + `scripts/ci/sqlx_dynamic_ratio_baseline` 为唯一来源 |
 | D-36 | 覆盖缺口 / 门禁 | `scripts/ci/test_ddl_allowlist`、`scripts/ci/insert_column_allowlist`、`tests/unit/test_ddl_guard_tests.rs`、`tests/integration/insert_column_coverage_tests.rs` | **系统性根因**：D-10/D-11/D-31/D-33/D-34 五条"写入端漏列"缺陷同源 —— DB 测试不跑迁移 schema，而用空 schema + 自建简化表，掩盖了 NOT NULL/CHECK/UNIQUE 约束与写入端漏列 | **已修**（守卫 A/B 落地 `7cd40a418`；W1 `c128cdeab` 已把 5 个夹具切到迁移模板） | — | §8.4 两条守卫均已实现并自证变红，见 §8.7 |
 | D-37 | 冗余实现 + 吞错（**新登记**） | `synapse-storage/src/device/mod.rs:182`（实现）、`:220`（零调用者包装）、`:530`/`:557`/`:595`（三处 `let _ = …`） | `DeviceStorage::record_device_list_change` 是 `synapse-e2ee` 同名职责的**第二份实现**（铁律 2），三个调用点又都是 `let _ = …` 吞错（与 D-07 同型）；其 best-effort 包装 `:220` 全仓**零调用者**（铁律 1） | **未修**（2026-09-24 W2 顺带发现并登记） | 有（storage 层设备增删路径 `:530`/`:557`/`:595`） | 二选一：storage 层统一改为可失败并让三个调用点显式处理（与 D-07 的解法对齐），删掉零调用者的 best-effort 包装；同时评估与 `synapse-e2ee` 那份实现能否收敛成一份（铁律 2） |
+| D-38 | 测试/门禁漂移（**新登记**） | `synapse-web/src/routes/federation/membership/query.rs:190` | `test_federation_membership_query_routes_from_real_ledger` 断言真实 ledger 里有 `GET /_matrix/federation/v1/room/<room_id>/membership/<user_id>`，但全仓**从未注册**该路由（`membership/mod.rs` 只有 `/members/{room_id}` 与 `/members/{room_id}/joined`；`derived_route_table_always.inc.rs` 亦 0 命中） ⇒ `cargo nextest run --workspace --lib` 在 HEAD 即为红 | **未修**（2026-09-24 W3 顺带发现，与 W3 改动无关：`git status` 下 `routes/` 无改动，HEAD 亦无该路由） | 阻断 workspace lib 批次（CI 的 `--workspace --lib` 会命中） | 二选一：删掉这条断言（路由本就不存在），或实现该联邦端点（协议面决策，需独立评审） |
 
-**状态计数（2026-09-24 W2 + D-36 后）**：已修 **15**（D-02/D-03/D-24/D-28/D-35 + W1 的
-D-10/D-11/D-31/D-33/D-34 + D-36 守卫 + W2 的 D-05/D-07/D-08/D-09）；未修 **10**
-（D-01 语法已修但死函数待删、D-04、D-06、D-12、D-17、D-27、D-29、D-30、D-32、
-**D-37** 新登记）；结构性保留（有意）**7**
+**状态计数（2026-09-24 W3 后）**：已修 **17**（D-02/D-03/D-24/D-28/D-35 + W1 的
+D-10/D-11/D-31/D-33/D-34 + D-36 守卫 + W2 的 D-05/D-07/D-08/D-09 + W3 的 D-29/D-32）；
+未修 **9**（D-01 语法已修但死函数待删、D-04、D-06、D-12、D-17、D-27、D-30、
+**D-37**、**D-38** 新登记）；结构性保留（有意）**7**
 （D-13/D-14/D-18…D-22）；覆盖缺口 **2**（D-15 含 D-15.6、D-25；D-36 虽同属覆盖缺口/门禁，
 已计入上面的"未修 19"，此处不重复计数）；文档一致性 **3**
 （D-16/D-23/D-26；D-35 已计入上面的"已修 5"，此处**不重复计数**——原文把 D-35 同时计入
@@ -993,6 +994,10 @@ D-10/D-11/D-31/D-33/D-34 + D-36 守卫 + W2 的 D-05/D-07/D-08/D-09）；未修 
 
 #### D-29 结构性限制：`get_server_admission_status` 的内层 `None` 分支不可达（C16）
 
+> **已修（W3 `088a56bd5`）**：storage 返回类型收窄为 `Option<String>`（SQL 改
+> `status AS "status!"`），service 删 `Some(None)` 分支，doc 删 `Some(None)` 表述。
+> 其下位置为修复前行号。
+>
 - 位置：`synapse-storage/src/admin_federation.rs:186`（`get_server_admission_status`，
   返回 `Result<Option<Option<String>>, sqlx::Error>`）；其 doc 注释
   `:176-181` 明确写 "Returns `Some(None)` when the row exists but `status` is NULL"。
@@ -1099,6 +1104,10 @@ D-10/D-11/D-31/D-33/D-34 + D-36 守卫 + W2 的 D-05/D-07/D-08/D-09）；未修 
 
 #### D-32 产品缺陷：C-3 批量 presence 写路径 `set_presence_batch` 从未接线（C17）
 
+> **已修（W3 `088a56bd5`）**，取「接线」侧：`handle_presence_edu` 改两阶段并在第二阶段
+> 调用 `set_presence_batch`。原始证据（零调用者）保留在下方作为修复前记录；
+> 红/绿证据与语义变更见 §8.9。其下位置为修复前行号。
+>
 - 位置：`synapse-services/src/presence_service.rs:153`（`PresenceService::set_presence_batch`，
   固有方法，非 trait 方法）；它转发到 storage 的
   `synapse-storage/src/presence/mod.rs:215`（`PresenceStorage::set_presence_batch`），
@@ -1307,6 +1316,32 @@ D-10/D-11/D-31/D-33/D-34 + D-36 守卫 + W2 的 D-05/D-07/D-08/D-09）；未修 
   两份分属不同 crate 的不同类型，收敛需要一个共享位置（`synapse-common` 或让 storage 侧成为
   唯一实现），属独立设计事项。
 
+#### D-38 `test_federation_membership_query_routes_from_real_ledger` 断言一条不存在的路由（2026-09-24 W3 顺带发现）
+
+- 类别：**测试 / 门禁漂移**（测试把"期望的实现"当成了"已有的实现"）。
+- 位置：`synapse-web/src/routes/federation/membership/query.rs:190`
+  （`assert!(has_room_members, "must have GET /_matrix/federation/v1/room/<room_id>/membership/<user_id>")`）；
+  数据来源 `:166` 的 `federation_membership_query_route_manifest()` —— 它从
+  `declared_ledger_all()` 里筛 `registered_by == "federation"` 且 path 含
+  `/membership` 或 `/keys/query` 的条目。
+- 证据（路由不存在）：
+  - `synapse-web/src/routes/federation/membership/mod.rs` 注册的是
+    `/_matrix/federation/v1/members/{room_id}`、`.../members/{room_id}/joined`、
+    `.../knock/{room_id}/{user_id}`、`.../make_join/...` 等，**没有** `/membership` 路径；
+  - 全仓唯一含 `membership/{user_id}` 的路由是 **client** 侧的
+    `/_matrix/client/v3/rooms/{room_id}/membership/{user_id}`（`registered_by == "room"`），
+    被 `registered_by == "federation"` 过滤掉；
+  - `git show HEAD:synapse-web/src/routes/derived_route_table_always.inc.rs | grep -c
+    'federation/v1/room/{room_id}/membership'` → **0**。
+- 影响：`cargo nextest run --workspace --lib --all-features` 在 **HEAD 即为红**
+  （不是本波改动引起：`routes/` 在 W3 工作树里零改动）。AGENTS.md 记录的 lib 批次入口是
+  `--workspace --lib`，所以这会阻断 CI 的 lib 批次，属**需要立即处置**的既有红灯。
+- 状态：**未修**（本次只登记与报告；修法涉及协议面决策）。
+- 建议处理：二选一 —— ① 删掉这条断言（该路由本就不存在，"membership query" 的联邦对应物
+  是 `/members/{room_id}` 家族）；② 实现 `GET /_matrix/federation/v1/room/{room_id}/membership/{user_id}`
+  （需先核对 Matrix spec 是否定义该端点、以及与 `room_ledger`/SDK fixture 的同步），
+  属独立评审的协议面工作。
+
 ## 8. 问题优先处理计划（2026-09-23 重排：先修问题，再继续静态化）
 
 > **定位**：本节是**当前唯一执行排期**。§5 的阶段表与「执行结果」的批次表降级为**历史记录**。
@@ -1380,6 +1415,12 @@ D-10/D-11/D-31/D-33/D-34 + D-36 守卫 + W2 的 D-05/D-07/D-08/D-09）；未修 
 | W3 | D-29 | 契约说谎 | 中：doc 承诺的 `Some(None)` 不可达，消费端死分支仍在 | 有：`admission_mode` 下每个联邦请求经过；分支本身不可达 | 小：storage 返回类型收窄 `Option<String>` + 删 service `:486` 分支 + 改 doc | 编译期证明 `Some(None)` 分支消失；`db_tests` 未知/已存在两例仍绿 | 行为契约变更，需独立评审 |
 | W3 | D-32 | 契约说谎 + 死代码 | 中低：批量 presence upsert 与其批量联邦广播从未接线 | 无（仅 db_tests） | 中：接线到联邦 presence EDU 批处理 / 批量导入，**或**按铁律 1 删除 batch API | 删除路径：全仓无 `set_presence_batch` 引用且棘轮 -1；接线路径：批量入口有集成用例 | 产品确认是否真有批量场景 |
 | W3 | D-12 | 产品缺陷（**大**） | 高：审核历史静默丢弃，两个 admin 端点恒空 | 有：`GET …/{id}/history`、`GET …/stats` 路由已注册 | **大**：需建 `event_report_history`/`event_report_stats` 表 + 落地 `add_history`/`get_report_history` + `get_stats` 改聚合 SQL；**先决定两个端点是否临时下线**（当前返回空会被误读为"没有历史"） | 建表迁移 + `add_history` 落库；history/stats 端点在 DB 用例下返回非空且可断言 | 独立功能批次；表结构设计 —— **建议在本轮最后单独排期，不塞进 W1–W4 的快速修复** |
+
+> **状态（2026-09-24）**：W3 的 D-29 与 D-32 已修复入库（`088a56bd5`）。
+> D-29 取「按铁律 1 收窄契约 + 删死分支」，D-32 取「接线到 `handle_presence_edu`」
+> （先确认了真实批量场景存在：该 EDU 处理器对 `push` 数组逐条 `set_presence`）。
+> 证据与语义变更见 **§8.9**。**D-12 按本节原判断仍单列**（需建表 + 落地，且要先决定
+> 两个 admin 端点是否临时下线），不并入本波。
 
 **W4 —— 死代码与卫生**
 
@@ -1683,3 +1724,39 @@ fmt 债务 0；migration 一致性检查 0 issue。
 及其 `record_device_list_change_best_effort` 包装），且 `:530`/`:557`/`:595` 三处调用点同样是
 `let _ = …` 吞错；其中 `record_device_list_change_best_effort` 全仓**零调用者**（铁律 1）。
 本次未动该文件（超出 D-07 登记范围），作为新条目登记为 **D-37**。
+
+### 8.9 W3 执行结果（2026-09-24，`088a56bd5`）
+
+W3 中可快速收口的两条已修复；**D-12 按 §8.2 的原判断继续单列**（需建
+`event_report_history` / `event_report_stats` 两张表 + 落地写读路径 + 改 `get_stats` 聚合，
+且要先决定两个已注册 admin 端点是否临时下线 —— 塞进本波只会让"快速修复"变成半成品）。
+
+| 条目 | 修复 | RED 实证 | GREEN 实证 |
+|---|---|---|---|
+| D-29 | storage 返回类型收窄为 `Option<String>`（SQL 改 `status AS "status!"`）、service 删 `Some(None)` 分支、doc 删 `Some(None)` 谎言 | 该分支**不可达**故无运行时 RED：旧类型是"能表示一个 schema 不允许的状态"，新类型下死分支**编译不过**（类型收窄即证明） | `admin_federation` 28/28；`test_get_server_admission_status_known` 断言收窄为 `Some("pending")`，unknown 例仍 `None` |
+| D-32 | `handle_presence_edu` 两阶段：先逐条校验/查存在性（计数语义不变），再一次性 `set_presence_batch` | 临时改回逐条循环 ⇒ `test_presence_edu_updates_are_written_as_a_single_batch` 变红：`left: 1, right: 0`（user_a 已提交、user_b 被拒） | 两条端到端用例（真实签名 `PUT /send`）：① 一个 EDU 带 2 条更新 ⇒ 两行都落库；② 注入只拒绝其中一个 user 的 CHECK ⇒ 整批回滚 0 行。`api_federation_transaction_tests` 7/7 |
+
+**唯一的行为语义变更（已评审并接受）**：批量语句是**全有全无**，所以一个 `m.presence` EDU
+里的某条更新被拒时，同 EDU 内其余更新不再提交（旧逐条循环会把失败前已写的几条留下），
+`processed` 相应从"已写成功的 k 条"变为 0，`errored` 仍 +1（"一次错误事件后停止"的形状不变）。
+
+**接线夹具的两个坑（都写进了用例注释）**：
+1. `process_inbound_edus` 与 `process_inbound_presence_edus` **默认都是 `false`** ——
+   不打开的话用例会"静默断言不到任何东西"（假绿）。
+2. 故障注入仍不能用 `DROP TABLE`（隔离池 `search_path` 会回退到 `public`，理由同 §8.8），
+   改用"给本测试 schema 的 `presence` 加一条只拒绝目标 user 的 CHECK 约束"。
+3. `PresenceState` 会归一化 wire 值：EDU 里的 `away` 落库为 `unavailable`。
+
+**顺带发现并登记**：**D-38** —— `synapse-web` 的
+`test_federation_membership_query_routes_from_real_ledger` 断言真实 ledger 里有
+`GET /_matrix/federation/v1/room/<room_id>/membership/<user_id>`，但该路由全仓从未注册
+（`membership/mod.rs` 只有 `/members/{room_id}` 家族；HEAD 的 derived route table 0 命中）。
+即 **`--workspace --lib` 批次在 HEAD 就是红的**，与本波改动无关（`routes/` 零改动），
+但会阻断 CI 的 lib 批次，建议优先处置（删断言 or 实现端点，见 §7.2 D-38）。
+
+**环境修复（非本次改动引起，但影响所有走共享模板的集成用例）**：W1 修改 v12 baseline 后，
+integration 侧 `require_test_pool()` 使用的共享模板名（内容指纹
+`test_template_v2_<hash>`）随之变化且未重建，导致这些用例统一报
+`schema "test_template_v2_…" does not exist`。已用 `bash scripts/ci/prepare_test_db.sh`
+重建 `public` + `test_template_ci`（227 张表），并以
+`TEST_DB_TEMPLATE_SCHEMA=test_template_ci` 运行集成批次。
