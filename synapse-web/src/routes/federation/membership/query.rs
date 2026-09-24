@@ -161,13 +161,20 @@ mod tests {
 
     /// Helper: extract federation membership query routes from the derived route ledger.
     ///
-    /// Filters the actual derived route table by `registered_by == "federation"`
-    /// and path containing "/membership" or "/keys/query" to get the real route manifest.
+    /// Filters the actual derived route table by `registered_by == "federation"` and path
+    /// containing `/members/` or `/keys/query`.
+    ///
+    /// D-38: this used to filter on `/membership`, a path **no federation route ever had**.
+    /// The federation membership module (ruma's `api::federation::membership`) contains only
+    /// invite / send_join / send_knock / send_leave / make_join / make_knock / make_leave;
+    /// `…/rooms/{roomId}/membership/{userId}` is the **client** API and is registered by
+    /// `"room"`. The old filter therefore matched only the keys-query entry, and the test
+    /// asserted a route that does not exist — `--workspace --lib` was red at HEAD.
     fn federation_membership_query_route_manifest() -> Vec<RouteEntry> {
         declared_ledger_all()
             .iter()
             .filter(|e| {
-                e.registered_by == "federation" && (e.path.contains("/membership") || e.path.contains("/keys/query"))
+                e.registered_by == "federation" && (e.path.contains("/members/") || e.path.contains("/keys/query"))
             })
             .cloned()
             .collect()
@@ -179,18 +186,30 @@ mod tests {
     fn test_federation_membership_query_routes_from_real_ledger() {
         let manifest = federation_membership_query_route_manifest();
 
-        // Federation membership query routes include room membership events and keys query
+        // Federation membership query routes include the members listing and the keys query.
         assert!(
             !manifest.is_empty(),
             "federation membership query manifest must declare at least one (method, path) entry"
         );
 
-        // Verify we have the expected endpoint types
-        let has_room_members = manifest.iter().any(|e| e.method == Method::GET && e.path.contains("/membership"));
-        assert!(has_room_members, "must have GET /_matrix/federation/v1/room/<room_id>/membership/<user_id>");
+        // GET /_matrix/federation/v1/members/{room_id} — the federation counterpart of the
+        // client's …/rooms/{room_id}/membership/{user_id}.
+        assert!(
+            manifest.iter().any(|e| e.method == Method::GET && e.path == "/_matrix/federation/v1/members/{room_id}"),
+            "must have GET /_matrix/federation/v1/members/<room_id>, got: {:?}",
+            manifest.iter().map(|e| (e.method.clone(), e.path)).collect::<Vec<_>>()
+        );
+
+        // GET /_matrix/federation/v1/members/{room_id}/joined — joined-only members.
+        assert!(
+            manifest
+                .iter()
+                .any(|e| e.method == Method::GET && e.path == "/_matrix/federation/v1/members/{room_id}/joined"),
+            "must have GET /_matrix/federation/v1/members/<room_id>/joined"
+        );
 
         let has_keys_query = manifest.iter().any(|e| e.method == Method::POST && e.path.contains("/keys/query"));
-        assert!(has_keys_query, "must have POST /_matrix/federation/v1/keys/query");
+        assert!(has_keys_query, "must have POST /_matrix/federation/v1/user/keys/query");
     }
 
     #[test]
