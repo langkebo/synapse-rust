@@ -1,0 +1,107 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, user_id, device_id, event_id, room_id, notification_type,\n                content AS \"content!\", priority, status, attempts, max_attempts,\n                next_attempt_at, created_ts, sent_at, error_message\n            FROM push_notification_queue\n            WHERE status = 'pending' AND next_attempt_at <= $1\n            ORDER BY priority DESC, created_ts ASC\n            LIMIT $2\n            FOR UPDATE SKIP LOCKED\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "device_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "notification_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "content!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "priority",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "attempts",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
+        "name": "max_attempts",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 11,
+        "name": "next_attempt_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "sent_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 14,
+        "name": "error_message",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "7e0c5c1ca199219fc39e8eadbda804edad414346479b63fe00d942363723e1d9"
+}

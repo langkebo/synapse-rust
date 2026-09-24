@@ -1,0 +1,70 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                id,\n                user_id,\n                medium,\n                address,\n                validated_at,\n                added_ts,\n                is_verified AS \"is_verified!\",\n                verification_token,\n                verification_expires_at\n            FROM user_threepids\n            WHERE user_id = $1\n            ORDER BY added_ts DESC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "medium",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "address",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "validated_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "added_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_verified!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "verification_token",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "verification_expires_at",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "d7f96f92bc2f9f047522c9258ac086e85ab5b7578e80f0b1ed8c05a5a7b6ad32"
+}

@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO push_config (config_key, config_value, created_ts, updated_ts)\n            VALUES ($1, $2, $3, $3)\n            ON CONFLICT (config_key) DO UPDATE\n                SET config_value = EXCLUDED.config_value, updated_ts = EXCLUDED.updated_ts\n            RETURNING config_key, config_value, updated_ts\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "config_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "config_value",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "36c419f5f9388ec35634fd6e90d4a74a6c1227355878dc9054390b268d268b07"
+}

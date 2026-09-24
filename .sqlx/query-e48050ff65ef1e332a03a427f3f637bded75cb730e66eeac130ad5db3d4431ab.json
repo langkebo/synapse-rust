@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE user_threepids\n            SET is_verified = TRUE, validated_at = $2, verification_token = NULL, verification_expires_at = NULL\n            WHERE verification_token = $1 AND verification_expires_at > $2\n            RETURNING\n                id,\n                user_id,\n                medium,\n                address,\n                validated_at,\n                added_ts,\n                is_verified AS \"is_verified!\",\n                verification_token,\n                verification_expires_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "medium",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "address",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "validated_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "added_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_verified!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "verification_token",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "verification_expires_at",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "e48050ff65ef1e332a03a427f3f637bded75cb730e66eeac130ad5db3d4431ab"
+}

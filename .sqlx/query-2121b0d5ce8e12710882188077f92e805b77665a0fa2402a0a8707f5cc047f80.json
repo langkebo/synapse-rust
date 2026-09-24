@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE threepid_validation_session\n            SET is_validated = TRUE, validated_at = $2\n            WHERE id = $1 AND is_validated = FALSE\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2121b0d5ce8e12710882188077f92e805b77665a0fa2402a0a8707f5cc047f80"
+}

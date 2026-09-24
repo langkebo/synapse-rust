@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, session_id, medium, address, client_secret, token,\n                send_attempt, next_link, is_validated, validated_at, created_ts, expires_at\n            FROM threepid_validation_session WHERE token = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "session_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "medium",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "address",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "client_secret",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "token",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "send_attempt",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "next_link",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_validated",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "validated_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "expires_at",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "b7cdf3dd33cc200fe0d9f732078d4fc3e08b36ef02d763c2d8c302659266bed9"
+}

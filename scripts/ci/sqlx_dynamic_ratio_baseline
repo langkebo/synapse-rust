@@ -1769,12 +1769,185 @@
 #   static             741 → 772   （+31）
 #   dynamic            1477 → 1446
 #   dynamic_test       704 → 704   （未动；两文件的 `#[cfg(test)]` 夹具未新增动态 SQL）
+# ── 2026-09-24 C18 静态化（生产动态 -36，静态 +36）────────────────────────────
+#
+# 批次：C18。目标文件（均在 synapse-storage，按 census `--top 40` 生产动态排序取前二，
+# 跳过测试基础设施 `synapse-test-utils/src/lib.rs` 与 `synapse-common/src/test_isolation.rs`）：
+#   synapse-storage/src/threepid.rs           18 处生产动态 → 18 静态（生产区剩余动态 = 0）
+#   synapse-storage/src/push_notification.rs  18 处生产动态 → 18 静态（生产区剩余动态 = 0）
+# 提交：f1eb338d6（源码）/ 本提交（.sqlx + 基线）。
+#
+# ✅ STEP 0（feature gate）实测：
+#   * `threepid` —— **无** `#[cfg(feature = …)]` 门控：`synapse-storage/src/lib.rs:147-148`
+#     是文档注释 + `pub mod threepid;`（上一行不是属性），
+#     `grep -c 'cfg(feature' synapse-storage/src/threepid.rs` = 0。
+#   * `push_notification` —— **无** 门控：`lib.rs:98-99` 同样是文档注释 +
+#     `pub mod push_notification;`，本文件内 `cfg(feature` = 0。
+#   ⇒ 本批**不需要**额外 feature，验证口径沿用基线集
+#     `server-notifications,saml-sso,cas-sso,beacons`。
+#   ⚠️ 这四个 feature **一个都不能省**：`cargo sqlx prepare` 的 destination 就是
+#     `.sqlx/` 且**先清后写**，缺任何一个都会把 C6/C9/C11/C15/C16/C17 的条目
+#     当作 stale 删除（C15 起已增至 4 个：server-notifications(C6)、saml-sso(C9)、
+#     cas-sso(C15)、beacons(C16)）。实测带全量基线集时 deleted=0（见下）。
+#     另有 C11 的 friend_room 由 `friends` 门控 —— 该 feature 由 root crate 的
+#     default features（`core-private-chat → friends`）在 `--workspace` prepare 时
+#     经 feature unification 打开，故无需显式传递（C11 起即如此，本轮 comm 复核未丢）。
+#   测试过滤器实测**非零**：`-E 'test(threepid) or test(push_notification)'`
+#     → **31 tests run: 31 passed, 0 failed**（1638 skipped，65.4s）：
+#     `threepid::db_tests` 14（真实 DB、per-test 隔离 schema）+ `threepid::tests` 2
+#     （纯构造）+ `push_notification::tests` 15（纯构造/序列化）。
+#     未出现 C6/C9/C11/C15 那种 "0 tests" 假绿。
+#     ⚠️ **push_notification 无 `db_tests`**：15 个用例全是纯构造/序列化断言，
+#     18 处新宏站点**零 DB 往返覆盖**（已登记为 §7 D-15.6）。
+#
+# 静态化构成（36 处，两文件生产区剩余动态均为 0）：
+#   threepid.rs 18 处 = query_as! × 9 + query! × 8 + query_scalar! × 1
+#     `query_as!`     ×  9：UserThreepid 的行映射（add_threepid 的
+#        INSERT…RETURNING、get_threepid / get_threepids_by_user /
+#        get_pending_threepids / get_threepid_by_address /
+#        get_verified_threepid_by_address 五条 SELECT、verify_threepid_by_token 的
+#        UPDATE…RETURNING）与 ThreepidValidationSession 的 get_validation_session /
+#        get_validation_session_by_token
+#     `query!`        ×  8：verify_threepid、remove_threepid、add_verified_threepid、
+#        remove_threepids_by_user、cleanup_expired_verifications、
+#        mark_validation_validated、increment_validation_send_attempt、
+#        cleanup_expired_validation_sessions
+#     `query_scalar!` ×  1：create_validation_session 的 `RETURNING id`
+#   push_notification.rs 18 处 = query_as! × 9 + query! × 8 + query_scalar! × 1
+#     `query_as!`     ×  9：PushDevice 的 register_device（INSERT…RETURNING）/
+#        get_user_devices / get_device、PushNotificationQueue 的 queue_notification
+#        （INSERT…RETURNING）/ get_pending_notifications、PushNotificationLog 的
+#        create_notification_log（INSERT…RETURNING）、PushConfigEntry 的 list_config /
+#        set_config、RoomNotification 的 get_room_notifications
+#     `query!`        ×  8：unregister_device、update_device_last_used、
+#        record_device_error、mark_notification_sent、mark_notification_failed ×2 分支、
+#        delete_config、cleanup_old_logs
+#     `query_scalar!` ×  1：get_config 的 `SELECT config_value`
+#
+# 静态化时补的 nullability / 类型覆盖（schema 取自 psql `\d` 实测，非猜测）：
+#   * `user_threepids.is_verified` 实测**可空**（`BOOLEAN DEFAULT false`，无 NOT NULL）
+#     而 `UserThreepid.is_verified` 是非 Option 的 `bool` ⇒ 7 处投影全部
+#     `is_verified AS "is_verified!"`（5 条 SELECT + add_threepid / verify_threepid_by_token
+#     两条 RETURNING）。旧 `FromRow` 遇 NULL 同样解码失败，语义不变。
+#   * `push_notification_queue.content`（`JSONB DEFAULT '{}'`，无 NOT NULL）可空而
+#     `PushNotificationQueue.content` 是非 Option `serde_json::Value` ⇒
+#     queue_notification 与 get_pending_notifications 两处 `AS "content!"`。
+#   * `push_notification_log.push_type` / `is_success` 实测可空（无 NOT NULL）而
+#     `PushNotificationLog` 两字段分别是非 Option 的 String / bool ⇒
+#     `AS "push_type!"` / `AS "is_success!"`。
+#   * `push_device` / `push_notification_queue` / `push_config` / `notifications` /
+#     `threepid_validation_session` / `user_threepids` 其余列的可空性与结构体字段
+#     **逐列相符**，无需额外覆盖（尤其 `metadata` 是 `JSONB NOT NULL DEFAULT '{}'`
+#     ⇒ 非 Option 的 `serde_json::Value` 直接匹配）。
+#
+# ⚠️ 两处**非机械**改写（都属"旧 `.bind()` 比宏宽松"的既有类型债，非行为变更）：
+#   1. `PushDevice.last_used_ts` 靠 `#[sqlx(rename = "last_used_at")]` 与动态 FromRow
+#      对齐；`query_as!` **不认 rename**（§7 D-19），故三处投影改写
+#      `last_used_at AS "last_used_ts"`（register_device / get_user_devices / get_device）。
+#   2. `get_pending_notifications(limit: i32)` 的 `LIMIT $2` 被 PG 描述为 **BIGINT**，
+#      而形参是 `i32`；旧 `.bind(limit)` 发 INT4 靠 PG 的隐式加宽通过，宏的 ty_match
+#      则报 `expected i64, found i32`（E0308）⇒ 改 `limit as i64`。cast 同时被
+#      `quote_args` 识别为**类型覆盖**（`get_type_override`），跳过 ty_match 检查；
+#      绑定类型由 INT4 变 INT8，取值域不变，PG 侧语义等价。
+#   * `get_config` 原 `query_as("…")` + `Option<(String,)>` 元组解构 → `query_scalar!`
+#     （`push_config.config_value` 是 NOT NULL TEXT ⇒ `String`，`fetch_optional` 给
+#     `Option<String>`），删掉 `.map(|r| r.0)`。
+#   * `create_validation_session` 原 `query_as::<_, (i64,)>`（元组，`query_as!` 不收）
+#     → `query_scalar!`，删掉 `.map(|r: (i64,)| r.0)`。
+#   * `hash_token()` 返回 `String`，宏 ty_match 要求精确 `&str`（§7 D-21）⇒
+#     `.as_str()`；`&Option<String>` 绑定一律 `.as_deref()`。
+#   * **4 处 `RETURNING *` 全部展开为结构体精确列清单**（§7 D-22）：
+#     `push_device`（18 列，含 `last_used_at`→`last_used_ts` 别名）、
+#     `push_notification_queue`（15 列）、`push_notification_log`（13 列 —— 该表实际
+#     有 18 列，`pushkey`/`status`/`retry_count`/`last_attempt_at`/`created_ts` 五个
+#     结构体没有的列若保留 `*` 会 E0560）、`user_threepids`（9 列）。
+#
+# 保留动态（**非**漏做）：
+#   1. `push_notification.rs::queue_notifications_batch` 用
+#      `sqlx::QueryBuilder` + `build_query_as::<PushNotificationQueue>()` **运行期**
+#      按 `requests.len()` 拼 `$n` 占位符（多行 INSERT），SQL 文本非编译期常量，
+#      按规则保留动态。该处**不计入**棘轮任一侧（census 单列 `query_builder`，
+#      全仓 18 处未变），其 `RETURNING *` 也保持原样（走 FromRow，多列被忽略）。
+#   ⇒ 两文件的生产区"字面量动态"均已清零。
+#
+# ⚠️ **本轮新登记 2 条既有缺陷 + 1 条覆盖缺口**（详见
+#   docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md §7）：
+#   * **D-33（产品缺陷）**：`push_notification_log.sent_at` **从来没有被写入过**——
+#     全仓唯一的生产 INSERT（`create_notification_log`，push_notification.rs:614）
+#     的 11 列清单里没有 `sent_at`，且全仓 0 条 `UPDATE push_notification_log`；
+#     而保留期清理 `cleanup_old_logs`（:720）条件是 `WHERE sent_at < $1`。SQL 三值
+#     逻辑下 `NULL < $1` 恒为 NULL ⇒ **DELETE 永远匹配 0 行**，管理端点
+#     `POST …/push_notification/cleanup`（synapse-web/src/routes/push_notification.rs:206）
+#     恒返回 `{"cleaned":0}`，日志表无界增长。**未修**（属行为修复）。
+#   * **D-34（产品缺陷）**：`get_pending_threepids` 的谓词是
+#     `WHERE validated_at < added_ts`，而它要捞的"待验证"行由 `add_threepid` 写入 ——
+#     那条 INSERT **不写 `validated_at`**（列清单无此列）⇒ 这些行 `validated_at IS NULL`，
+#     `NULL < added_ts` 为 NULL ⇒ **永远不被返回**。现有 db 用例
+#     （threepid.rs `test_get_pending_threepids`）正是为了绕开这一点而用
+#     `add_verified_threepid(…, validated_at = 1, added_ts = 1000)` **人为造出**
+#     `validated_at < added_ts` 的行，并在注释里写明"query 不过滤 is_verified"——
+#     即测试把缺陷当成了规格。唯一包装方
+#     `IdentityStorage::get_pending_three_pid_validations`
+#     （synapse-services/src/identity/storage.rs:65）本身也**无任何调用者**。**未修**。
+#   * **D-15.6（覆盖缺口）**：`push_notification.rs` 的 18 处新宏站点**零 DB 往返
+#     覆盖**（文件内只有 `mod tests` 的 15 个纯构造/序列化用例，无 `db_tests`）；
+#     D-33 之所以能长期潜伏，正是因为没有一条用例真正调用过 `cleanup_old_logs`。
+#   以上三条均属"行为 / 测试口径"范畴，按 §7.x 处置约定**不得夹带进本批次**。
+#
+# ⚠️ `.sqlx`：destination 就是 `.sqlx/` 本身，`cargo sqlx prepare` 先清后写。
+#   isolated worktree target/c18-wt @ HEAD f1eb338d6（源码提交已在 HEAD，无需
+#   `git apply c18.patch`）：
+#     SQLX_OFFLINE=false DATABASE_URL=… CARGO_TARGET_DIR=… \
+#       cargo sqlx prepare --workspace -- --features server-notifications,saml-sso,cas-sso,beacons
+#   实测 before=746 after=782，**deleted=0 / added=36 / modified=0**（文件名集合 comm
+#   双向逐条核对 + `git status .sqlx` 只有 36 个 `??`、0 个 ` M` / ` D`）。
+#   36 = 36 个宏站点，**无哈希合并**。36 条新增条目逐条按 SQL 文本归属核对，
+#   18 条落 threepid 两表、18 条落 push_* 三表 + push_config + notifications，
+#   **没有**任何一条落在其它模块（即打开这 4 个 feature 没有顺带引入未缓存的宏）。
+#
+# 验证（isolated worktree target/c18-wt，**无需任何越界修补**——HEAD 已能编译 workspace）：
+#   SQLX_OFFLINE=false DATABASE_URL=… cargo check -p synapse-storage
+#     --features test-utils,server-notifications,saml-sso,cas-sso,beacons → Finished（5.7s；
+#     36 个宏按真实 DB describe **首轮一次通过**，零类型/可空性回退）
+#   cargo check -p synapse-storage **--all-targets** --features … → Finished（31.1s；
+#     连 `#[cfg(test)]` 代码一起编译，无新增 warning）
+#   SQLX_OFFLINE=true CARGO_TARGET_DIR=… cargo check -p synapse-storage
+#     --features test-utils,server-notifications,saml-sso,cas-sso,beacons（touch 两个源文件
+#     强制宏重展开）→ Finished（24.2s；证明提交的 .sqlx 离线可复现）
+#     ⚠️ 反向自证（AGENTS.md 铁律 8）：移走 36 条新增条目中的 1 条
+#     （query-05171e3e81d4e1a8c6f790d3d6bd4a78310d519bbd4e3ed3c291eadc2dd109ed.json，
+#     即 mark_notification_failed 的 retry 分支 UPDATE；已 `cmp` 确认 worktree 与 main
+#     树逐字节相同）后 touch push_notification.rs 重跑同命令 →
+#       error: `SQLX_OFFLINE=true` but there is no cached data for this query
+#       （指向 synapse-storage/src/push_notification.rs:572 的 `query!`）
+#       + error[E0282] + could not compile synapse-storage (lib)，EXIT=101；
+#     还原该文件（782 条）后同命令重新 Finished（3.9s）。证明该缓存真的被读取，
+#     而非"命令跑绿但没生效"（首次未 touch 时 cargo 直接复用旧的编译产物 0.41s 通过，
+#     属假绿，必须 touch 才能自证）。
+#   TEST_DATABASE_URL=… TEST_DB_TEMPLATE_SCHEMA=test_template_ci cargo nextest run
+#     -p synapse-storage --lib --features test-utils,server-notifications,saml-sso,cas-sso,beacons
+#     -E 'test(threepid) or test(push_notification)' --no-fail-fast
+#     → **31 tests run: 31 passed, 0 failed**（1638 skipped，65.4s）
+#     覆盖：threepid 的 add_threepid / get_threepid(found|not_found) /
+#     get_threepids_by_user / get_pending_threepids / get_threepid_by_address /
+#     get_verified_threepid_by_address / add_verified_threepid / remove_threepid /
+#     verify_threepid / verify_threepid_by_token / cleanup_expired_verifications /
+#     create_validation_session / test_threepid_round_trip（真实 DB 往返）。
+#     push_notification 的 15 个用例**不触 DB**（见 D-15.6）。
+#
+# 运行期回退：**无**（没有任何一处因 `ColumnDecode … UnexpectedNullError` 回退）。
+#
+# 实测（main 树，门禁同源；本轮无并发写者新增生产动态）：
+#   dynamic_production 742 → 706   （C18 自身 -36）
+#   static             772 → 808   （+36）
+#   dynamic            1446 → 1410
+#   dynamic_test       704 → 704   （未动；两文件的 `#[cfg(test)]` 夹具未新增动态 SQL）
 # 收紧方向：C4/C5 等剩余批次继续分批静态化，直至 dynamic_production = 0。
-BASELINE_DYNAMIC_PRODUCTION=742
+BASELINE_DYNAMIC_PRODUCTION=706
 BASELINE_DYNAMIC_TEST_INFRA=704
-BASELINE_STATIC=772
+BASELINE_STATIC=808
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1446
+BASELINE_DYNAMIC=1410
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

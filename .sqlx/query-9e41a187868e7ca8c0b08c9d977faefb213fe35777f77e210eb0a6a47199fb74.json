@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE push_device SET is_enabled = false WHERE user_id = $1 AND device_id = $2 AND is_enabled = TRUE",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9e41a187868e7ca8c0b08c9d977faefb213fe35777f77e210eb0a6a47199fb74"
+}

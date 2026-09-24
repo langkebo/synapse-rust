@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM user_threepids\n            WHERE user_id = $1 AND medium = $2 AND address = $3\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ad9a4ed07b9704e6c870dc2b17c1b9df1d211277c94dc232d88753eeb355db9f"
+}

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO user_threepids (user_id, medium, address, validated_at, added_ts, is_verified)\n            VALUES ($1, $2, $3, $4, $5, TRUE)\n            ON CONFLICT (medium, address) DO UPDATE\n            SET validated_at = EXCLUDED.validated_at,\n                is_verified = TRUE\n            WHERE user_threepids.user_id = EXCLUDED.user_id\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3395461e6fdf5966c5218b5cae0d5aa131d57414b7e3d34707f3bc51755cd614"
+}
