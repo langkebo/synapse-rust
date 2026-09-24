@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM push_notification_log WHERE COALESCE(sent_at, created_ts) < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "13e8b8a17da3a4226da3f82a314e5d11802ad369bff6992e452cd1b8428cd06a"
+}

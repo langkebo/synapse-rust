@@ -752,7 +752,7 @@ pub async fn get_password_auth_providers(
 /// See [`create_media_callback`].
 pub async fn create_media_callback(
     State(ctx): State<AdminContext>,
-    _auth_user: AdminUser,
+    auth_user: AdminUser,
     Json(body): Json<CreateMediaCallbackBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = CreateMediaCallbackRequest {
@@ -764,6 +764,9 @@ pub async fn create_media_callback(
         is_enabled: body.is_enabled,
         timeout_ms: body.timeout_ms,
         retry_count: body.retry_count,
+        // `media_callbacks.user_id` must satisfy `ck_media_callbacks_user_id_format`;
+        // the acting admin owns the callback it registers (D-10).
+        user_id: auth_user.user_id,
     };
 
     let callback = ctx.module_service.create_media_callback(request).await?;

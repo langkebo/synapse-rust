@@ -806,7 +806,7 @@ async fn test_create_token_auto_generates_token() {
 }
 
 // ——————————————————————————————————————————
-// 20. get_room_invite (found + not_found)
+// 20. create_room_invite → get_room_invite round trip
 // ——————————————————————————————————————————
 
 #[tokio::test]
@@ -818,36 +818,37 @@ async fn test_get_room_invite_found_and_not_found() {
     let storage = RegistrationTokenStorage::new(&pool);
     let room_id = format!("!room2_{}:test.local", suffix);
     let inviter = format!("@inviter2_{}:test.local", suffix);
-    let invite_code = format!("invitecode_{}", suffix);
-    let now = current_timestamp_millis();
+    let invitee_email = format!("invitee2_{suffix}@test.local");
 
     // Not found before creation
     let missing = storage.get_room_invite("nonexistent_code").await.expect("get_room_invite should not error");
     assert!(missing.is_none());
 
-    // Insert a room invite via raw SQL (create_room_invite is broken due to
-    // required inviter/invitee columns that it does not supply — pre-existing bug).
-    sqlx::query(
-        "INSERT INTO room_invites (invite_code, room_id, inviter_user_id, inviter, invitee, created_ts, is_used, is_revoked) \
-         VALUES ($1, $2, $3, $4, $5, $6, FALSE, FALSE)",
-    )
-    .bind(&invite_code)
-    .bind(&room_id)
-    .bind(&inviter)
-    .bind(&inviter)
-    .bind(&inviter)
-    .bind(now)
-    .execute(&*pool)
-    .await
-    .expect("failed to insert test room invite");
+    // D-11: go through the real write path. The raw-SQL bypass that used to stand here
+    // existed only because `create_room_invite` did not supply the two dead NOT NULL
+    // legacy columns (`inviter`/`invitee`), so every insert failed with 23502.
+    let created = storage
+        .create_room_invite(CreateRoomInviteRequest {
+            room_id: room_id.clone(),
+            inviter_user_id: inviter.clone(),
+            invitee_email: Some(invitee_email.clone()),
+            expires_at: None,
+        })
+        .await
+        .expect("create_room_invite must succeed on the migrated schema");
+    assert_eq!(created.room_id, room_id);
+    assert_eq!(created.inviter_user_id, inviter);
+    assert_eq!(created.invitee_email.as_deref(), Some(invitee_email.as_str()));
+    assert!(!created.invite_code.is_empty(), "create_room_invite must mint an invite_code");
 
     // Find by invite_code
-    let found = storage.get_room_invite(&invite_code).await.expect("get_room_invite should not error");
-    assert!(found.is_some());
-    let found = found.unwrap();
-    assert_eq!(found.invite_code, invite_code);
+    let found = storage.get_room_invite(&created.invite_code).await.expect("get_room_invite should not error");
+    let found = found.expect("get_room_invite must find the row create_room_invite just wrote");
+    assert_eq!(found.invite_code, created.invite_code);
     assert_eq!(found.room_id, room_id);
     assert_eq!(found.inviter_user_id, inviter);
+    assert!(!found.is_used);
+    assert!(!found.is_revoked);
 
     cleanup_test_data(&pool, &suffix).await;
 }

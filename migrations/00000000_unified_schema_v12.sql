@@ -563,10 +563,6 @@ CREATE TABLE IF NOT EXISTS room_events (
 CREATE TABLE IF NOT EXISTS room_invites (
     id BIGSERIAL,
     room_id TEXT NOT NULL,
-    inviter TEXT NOT NULL,
-    invitee TEXT NOT NULL,
-    is_accepted BOOLEAN DEFAULT FALSE,
-    accepted_at BIGINT,
     created_ts BIGINT NOT NULL,
     expires_at BIGINT,
     invite_code TEXT,
@@ -578,8 +574,6 @@ CREATE TABLE IF NOT EXISTS room_invites (
     used_ts BIGINT,
     revoked_at BIGINT,
     revoked_reason TEXT,
-    signature TEXT,
-    signed_version SMALLINT NOT NULL DEFAULT 0,
     CONSTRAINT pk_room_invites PRIMARY KEY (id)
 );
 
@@ -3429,7 +3423,6 @@ CREATE INDEX IF NOT EXISTS idx_room_aliases_room_id ON room_aliases(room_id);
 
 -- Room invites
 CREATE INDEX IF NOT EXISTS idx_room_invites_room ON room_invites(room_id);
-CREATE INDEX IF NOT EXISTS idx_room_invites_invitee ON room_invites(invitee);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_room_invites_invite_code ON room_invites(invite_code) WHERE invite_code IS NOT NULL;
 
 -- Room invite blocklist/allowlist
@@ -4286,10 +4279,6 @@ COMMENT ON COLUMN event_relations.relation_type IS 'Relation type: m.annotation 
 -- Federation servers
 COMMENT ON COLUMN federation_servers.status IS 'Federation admission status: pending, active, rejected';
 COMMENT ON COLUMN federation_servers.updated_ts IS 'Timestamp of last status update in milliseconds';
-
--- Room invites (Sprint 4 signature binding)
-COMMENT ON COLUMN room_invites.signature IS 'HMAC-SHA256(secret, "v1|" || invite_code || "|" || room_id || "|" || inviter_user_id || "|" || expires_at || "|" || created_ts), hex-encoded. NULL = legacy token issued before Sprint 4.';
-COMMENT ON COLUMN room_invites.signed_version IS '0 = legacy (no signature), 1 = HMAC-SHA256 binding to (room, inviter, exp, created_ts).';
 
 -- Cross signing keys (Sprint 5 HMAC binding)
 COMMENT ON COLUMN cross_signing_keys.binding_token IS 'HMAC-SHA256(secret, "v1|" || user_id || "|" || device_id || "|" || key_type || "|" || added_ts), hex-encoded. NULL for pre-Sprint 5 rows.';

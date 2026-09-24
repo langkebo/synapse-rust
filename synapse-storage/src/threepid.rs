@@ -244,6 +244,12 @@ impl ThreepidStorage {
     }
 
     /// See [`get_pending_threepids`].
+    ///
+    /// "Pending" means the 3PID has never been validated: `add_threepid` (the only
+    /// production write path, `:157`) inserts `validated_at IS NULL`. The predicate used
+    /// to be the bare `validated_at < added_ts`, which is NULL for every row that path
+    /// produces, so the method returned nothing for exactly the rows it exists to list
+    /// (D-34). Rows that *were* validated after being added are excluded.
     pub async fn get_pending_threepids(&self, limit: i64) -> Result<Vec<UserThreepid>, ApiError> {
         let threepids = sqlx::query_as!(
             UserThreepid,
@@ -259,7 +265,7 @@ impl ThreepidStorage {
                 verification_token,
                 verification_expires_at
             FROM user_threepids
-            WHERE validated_at < added_ts
+            WHERE validated_at IS NULL OR validated_at < added_ts
             ORDER BY added_ts DESC
             LIMIT $1
             "#,
@@ -1090,6 +1096,10 @@ mod db_tests {
         let _ = sqlx::query("DELETE FROM threepid_validation_session WHERE id = $1").bind(id).execute(&pool).await;
     }
 
+    /// D-34: the pending list must contain the rows the production write path creates.
+    ///
+    /// `add_threepid` inserts `validated_at IS NULL`; the old predicate
+    /// (`validated_at < added_ts`) is NULL for such rows, so the method returned nothing.
     #[tokio::test]
     async fn test_get_pending_threepids() {
         let (_isolated, pool) = test_pool().await;
@@ -1101,17 +1111,50 @@ mod db_tests {
         let _ = storage.remove_threepid(&user_id, "email", &address).await;
         ensure_test_user(&pool, &user_id).await;
 
-        // Use add_verified_threepid with validated_at < added_ts to create a row
-        // that matches the get_pending_threepids WHERE validated_at < added_ts filter.
-        // Note: the query does not filter on is_verified, so a "verified" threepid
-        // with validated_at < added_ts will appear in pending results.
-        storage.add_verified_threepid(&user_id, "email", &address, 1, 1000).await.expect("add should succeed");
+        // The real write path — no synthetic `validated_at`, no `is_verified` juggling.
+        storage
+            .add_threepid(CreateThreepidRequest {
+                user_id: user_id.clone(),
+                medium: "email".to_string(),
+                address: address.clone(),
+                verification_token: Some("pending_token".to_string()),
+                verification_expires_at: None,
+            })
+            .await
+            .expect("add_threepid should succeed");
 
         let pending = storage.get_pending_threepids(10).await.expect("get_pending_threepids should succeed");
 
         // Exact: `get_pending_threepids()` scans the whole table and `test_pool()` is now
         // per-test isolated (see above), so this is the only row it can return.
         assert_eq!(pending.len(), 1, "expected exactly 1 pending threepid, got {}", pending.len());
+        assert_eq!(pending[0].address, address);
+        assert!(pending[0].validated_at.is_none(), "a never-validated 3PID must be pending");
+        assert!(!pending[0].is_verified, "add_threepid writes is_verified = FALSE");
+
+        let _ = storage.remove_threepid(&user_id, "email", &address).await;
+    }
+
+    /// Negative case for D-34: a 3PID validated *after* it was added is not pending.
+    ///
+    /// This is what the `validated_at IS NULL OR validated_at < added_ts` predicate has to
+    /// keep excluding — widening it to "any unverified row" would reintroduce them.
+    #[tokio::test]
+    async fn test_get_pending_threepids_excludes_validated_rows() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = ThreepidStorage::new(&pool);
+        let uuid = uuid::Uuid::new_v4();
+        let user_id = format!("@done_{uuid}:test.com");
+        let address = format!("done_{uuid}@test.com");
+
+        let _ = storage.remove_threepid(&user_id, "email", &address).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        // added_ts = 1000, validated_at = 2000 ⇒ validated after being added.
+        storage.add_verified_threepid(&user_id, "email", &address, 2_000, 1_000).await.expect("add should succeed");
+
+        let pending = storage.get_pending_threepids(10).await.expect("get_pending_threepids should succeed");
+        assert!(pending.is_empty(), "a validated 3PID must not be listed as pending, got {pending:?}");
 
         let _ = storage.remove_threepid(&user_id, "email", &address).await;
     }

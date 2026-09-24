@@ -352,6 +352,13 @@ pub struct CreateMediaCallbackRequest {
     pub timeout_ms: Option<i32>,
     /// The `retry_count` field.
     pub retry_count: Option<i32>,
+    /// The user the callback is registered by (the acting admin).
+    ///
+    /// `media_callbacks.user_id` is `TEXT NOT NULL DEFAULT ''` and the baseline's
+    /// generated `ck_media_callbacks_user_id_format` only accepts a Matrix id, so the
+    /// default `''` made every insert fail with 23514. The owner has to be supplied
+    /// explicitly; the admin route passes the authenticated admin's id.
+    pub user_id: String,
 }
 
 /// The `AccountDataCallback` struct.
@@ -947,9 +954,10 @@ impl ModuleStorage {
             MediaCallback,
             r#"
             INSERT INTO media_callbacks (
-                callback_name, callback_type, url, method, headers, is_enabled, timeout_ms, retry_count, created_ts, updated_ts
+                callback_name, callback_type, url, method, headers, is_enabled, timeout_ms, retry_count,
+                user_id, created_ts, updated_ts
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
             RETURNING id, callback_type, media_id, user_id, status, result, created_ts, completed_ts,
                 is_enabled AS "is_enabled!"
             "#,
@@ -961,6 +969,7 @@ impl ModuleStorage {
             request.is_enabled.unwrap_or(true),
             request.timeout_ms.unwrap_or(5000),
             request.retry_count.unwrap_or(3),
+            request.user_id.as_str(),
             now
         )
         .fetch_one(&*self.pool)
@@ -1167,5 +1176,95 @@ mod tests {
             metadata: None,
         };
         assert!(request.is_success);
+    }
+}
+
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+
+    /// Regression test for D-10: `create_media_callback` never wrote
+    /// `media_callbacks.user_id`, so the column fell back to its `DEFAULT ''`, which
+    /// violates the baseline's generated `ck_media_callbacks_user_id_format`
+    /// (`user_id ~ '^@…:…$'`) and made every insert fail with 23514.
+    ///
+    /// This module previously had no DB test at all, which is why the defect shipped
+    /// (D-15.1). The pool is cloned from the migrated v12 template, not a toy schema.
+    #[tokio::test]
+    async fn test_create_media_callback_roundtrip_writes_user_id() {
+        let isolated = match crate::test_isolation::isolated_test_pool().await {
+            Ok(pool) => pool,
+            Err(error) => {
+                tracing::warn!("Skipping module DB test because test database is unavailable: {error}");
+                return;
+            }
+        };
+        let pool = isolated.pool();
+
+        let storage = ModuleStorage::new(&pool);
+        let uuid = uuid::Uuid::new_v4();
+        let callback_type = format!("quarantine_{}", uuid.as_simple());
+        let admin_user_id = format!("@admin_{}:test.local", uuid.as_simple());
+
+        let created = storage
+            .create_media_callback(CreateMediaCallbackRequest {
+                callback_name: format!("callback_{uuid}"),
+                callback_type: callback_type.clone(),
+                url: "https://example.test/callback".to_string(),
+                method: None,
+                headers: None,
+                is_enabled: Some(true),
+                timeout_ms: None,
+                retry_count: None,
+                user_id: admin_user_id.clone(),
+            })
+            .await
+            .expect("create_media_callback must satisfy ck_media_callbacks_user_id_format");
+
+        assert_eq!(created.user_id, admin_user_id, "the owning user must round-trip");
+        assert_eq!(created.callback_type, callback_type);
+        assert!(created.is_enabled);
+
+        let listed = storage
+            .get_media_callbacks(Some(&callback_type))
+            .await
+            .expect("get_media_callbacks must succeed")
+            .into_iter()
+            .find(|row| row.id == created.id)
+            .expect("the callback just created must be listed");
+        assert_eq!(listed.user_id, admin_user_id);
+    }
+
+    /// The check the fix relies on must actually exist, otherwise the regression test
+    /// above could pass on a schema that silently returns the `''` default.
+    #[tokio::test]
+    async fn test_media_callbacks_user_id_format_constraint_is_enforced() {
+        let isolated = match crate::test_isolation::isolated_test_pool().await {
+            Ok(pool) => pool,
+            Err(error) => {
+                tracing::warn!("Skipping module DB test because test database is unavailable: {error}");
+                return;
+            }
+        };
+        let pool = isolated.pool();
+
+        let uuid = uuid::Uuid::new_v4();
+        let error = sqlx::query(
+            "INSERT INTO media_callbacks (callback_name, callback_type, url, user_id, created_ts, updated_ts) \
+             VALUES ($1, $2, $3, '', $4, $4)",
+        )
+        .bind(format!("bad_callback_{uuid}"))
+        .bind("quarantine")
+        .bind("https://example.test/callback")
+        .bind(current_timestamp_millis())
+        .execute(&*pool)
+        .await
+        .expect_err("the baseline's ck_media_callbacks_user_id_format must reject an empty user_id");
+
+        let error_code = match &error {
+            sqlx::Error::Database(db) => db.code().map(|code| code.to_string()),
+            _ => None,
+        };
+        assert_eq!(error_code.as_deref(), Some("23514"), "expected a check-constraint violation, got {error}");
     }
 }

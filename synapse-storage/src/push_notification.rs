@@ -608,14 +608,20 @@ impl PushNotificationStorage {
         // (`pushkey`, `status`, `retry_count`, `last_attempt_at`, `created_ts`, …), so
         // `RETURNING *` has to be replaced by the struct's exact column set; `push_type`
         // and `is_success` are nullable in the catalog while the fields are not ⇒ `!`.
+        //
+        // D-33: this method is only called *after* the push attempt has been made, so
+        // "sent" and "logged" are the same instant; `sent_at` used to stay NULL for every
+        // row, which made `cleanup_old_logs`'s `WHERE sent_at < $1` a no-op and left the
+        // append-only table unbounded. It is now written alongside `created_ts`.
+        let now = current_timestamp_millis();
         let row = sqlx::query_as!(
             PushNotificationLog,
             r#"
             INSERT INTO push_notification_log (
                 user_id, device_id, event_id, room_id, notification_type, push_type,
-                is_success, error_message, provider_response, response_time_ms, created_ts
+                is_success, error_message, provider_response, response_time_ms, created_ts, sent_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
             RETURNING
                 id, user_id, device_id, event_id, room_id, notification_type,
                 push_type AS "push_type!", sent_at, is_success AS "is_success!",
@@ -631,7 +637,7 @@ impl PushNotificationStorage {
             request.error_message.as_deref(),
             request.provider_response.as_deref(),
             request.response_time_ms,
-            current_timestamp_millis(),
+            now,
         )
         .fetch_one(&*self.pool)
         .await
@@ -717,10 +723,15 @@ impl PushNotificationStorage {
     pub async fn cleanup_old_logs(&self, days: i32) -> Result<u64, ApiError> {
         let cutoff_ms = current_timestamp_millis() - (days as i64 * 86_400_000);
 
-        let result = sqlx::query!("DELETE FROM push_notification_log WHERE sent_at < $1", cutoff_ms)
-            .execute(&*self.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to cleanup logs", e))?;
+        // D-33: rows written before `sent_at` was populated carry NULL there, and
+        // `NULL < $1` is NULL — so a bare `sent_at < $1` silently matched nothing and the
+        // retention endpoint always reported `{"cleaned":0}`. `created_ts` is NOT NULL and
+        // is the same instant for every row this crate writes, so it is the fallback.
+        let result =
+            sqlx::query!("DELETE FROM push_notification_log WHERE COALESCE(sent_at, created_ts) < $1", cutoff_ms)
+                .execute(&*self.pool)
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Failed to cleanup logs", e))?;
 
         info!("Cleaned up {} old notification logs", result.rows_affected());
         Ok(result.rows_affected())
@@ -1133,5 +1144,115 @@ mod tests {
         assert!(request.content.get("counts").is_some());
         assert_eq!(request.content["counts"]["unread"], 5);
         assert_eq!(request.content["room_name"], "Test Room");
+    }
+}
+
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+
+    const DAY_MS: i64 = 86_400_000;
+
+    async fn test_pool() -> Option<(crate::test_isolation::IsolatedTestPool, Arc<PgPool>)> {
+        match crate::test_isolation::isolated_test_pool().await {
+            Ok(isolated) => {
+                let pool = isolated.pool();
+                Some((isolated, pool))
+            }
+            Err(error) => {
+                tracing::warn!("Skipping push_notification DB test because test database is unavailable: {error}");
+                None
+            }
+        }
+    }
+
+    fn log_request(user_id: &str, device_id: &str) -> CreateNotificationLogRequest {
+        CreateNotificationLogRequest {
+            user_id: user_id.to_string(),
+            device_id: device_id.to_string(),
+            event_id: Some("$event:test.local".to_string()),
+            room_id: Some("!room:test.local".to_string()),
+            notification_type: Some("m.room.message".to_string()),
+            push_type: "apns".to_string(),
+            is_success: true,
+            error_message: None,
+            provider_response: Some("{}".to_string()),
+            response_time_ms: Some(12),
+        }
+    }
+
+    /// D-15.6 / D-33: `create_notification_log` must persist the row *and* stamp
+    /// `sent_at`, which retention keys on.
+    #[tokio::test]
+    async fn test_create_notification_log_roundtrip() {
+        let Some((_isolated, pool)) = test_pool().await else {
+            return;
+        };
+        let storage = PushNotificationStorage::new(&pool);
+        let uuid = uuid::Uuid::new_v4();
+        let user_id = format!("@push_{}:test.local", uuid.as_simple());
+
+        let logged = storage
+            .create_notification_log(&log_request(&user_id, "DEVICE1"))
+            .await
+            .expect("create_notification_log must succeed on the migrated schema");
+
+        assert_eq!(logged.user_id, user_id);
+        assert!(logged.sent_at.is_some(), "D-33: create_notification_log must stamp sent_at, got {:?}", logged.sent_at);
+        let sent_at = logged.sent_at.unwrap_or(0);
+        assert!(sent_at > 0, "sent_at must be a real timestamp, got {sent_at}");
+    }
+
+    /// D-33 RED/GREEN: a row whose only timestamp is `created_ts` (the shape every row
+    /// written before this fix has — `sent_at IS NULL`) must be reclaimed by retention.
+    /// With the old `WHERE sent_at < $1` predicate this deleted 0 rows, which is exactly
+    /// the endpoint's permanent `{"cleaned":0}`.
+    #[tokio::test]
+    async fn test_cleanup_old_logs_deletes_expired_null_sent_at_row() {
+        let Some((_isolated, pool)) = test_pool().await else {
+            return;
+        };
+        let storage = PushNotificationStorage::new(&pool);
+        let uuid = uuid::Uuid::new_v4();
+        let old_ts = current_timestamp_millis() - 30 * DAY_MS;
+
+        sqlx::query(
+            "INSERT INTO push_notification_log (user_id, device_id, push_type, created_ts, is_success) \
+             VALUES ($1, $2, 'apns', $3, true)",
+        )
+        .bind(format!("@old_{}:test.local", uuid.as_simple()))
+        .bind("DEVICE_OLD")
+        .bind(old_ts)
+        .execute(&*pool)
+        .await
+        .expect("failed to insert an expired log row with NULL sent_at");
+
+        let deleted = storage.cleanup_old_logs(7).await.expect("cleanup_old_logs must succeed");
+        assert_eq!(deleted, 1, "retention must reclaim the expired row instead of reporting 0");
+    }
+
+    /// Negative case: retention must not touch rows inside the window. This is what
+    /// breaks if the `COALESCE` fallback is replaced by an unconditional delete.
+    #[tokio::test]
+    async fn test_cleanup_old_logs_keeps_recent_rows() {
+        let Some((_isolated, pool)) = test_pool().await else {
+            return;
+        };
+        let storage = PushNotificationStorage::new(&pool);
+        let uuid = uuid::Uuid::new_v4();
+
+        storage
+            .create_notification_log(&log_request(&format!("@recent_{}:test.local", uuid.as_simple()), "DEVICE_NEW"))
+            .await
+            .expect("create_notification_log must succeed");
+
+        let deleted = storage.cleanup_old_logs(7).await.expect("cleanup_old_logs must succeed");
+        assert_eq!(deleted, 0, "a log row written just now must survive a 7-day retention window");
+
+        let remaining: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM push_notification_log")
+            .fetch_one(&*pool)
+            .await
+            .expect("count must succeed");
+        assert_eq!(remaining, 1);
     }
 }

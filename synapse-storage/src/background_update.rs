@@ -260,6 +260,13 @@ impl BackgroundUpdateStorage {
     pub async fn create_update(&self, request: CreateBackgroundUpdateRequest) -> Result<BackgroundUpdate, sqlx::Error> {
         let now = current_timestamp_millis();
 
+        // `background_updates.update_name` is `TEXT NOT NULL` with no default and is the
+        // column every other statement in this module addresses rows by
+        // (`get_update` / `update_status` / `update_progress` / `set_error` /
+        // `delete_update` / `retry_failed`). Omitting it made every create fail with
+        // 23502 (not-null violation) on the migrated schema. `job_name` is the nullable
+        // duplicate of the same value, so both are written from the same parameter ($1).
+        //
         // Schema column `depends_on` is JSONB (default '[]'), but
         // CreateBackgroundUpdateRequest.depends_on is Vec<String>. Encode the
         // Vec as a JSON array so sqlx sends it as a JSONB parameter instead of
@@ -273,10 +280,10 @@ impl BackgroundUpdateStorage {
             BackgroundUpdate,
             r#"
             INSERT INTO background_updates (
-                job_name, job_type, description, table_name, column_name, total_items,
+                update_name, job_name, job_type, description, table_name, column_name, total_items,
                 batch_size, sleep_ms, depends_on, metadata, created_ts, status, max_retries
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending', 3)
+            VALUES ($1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending', 3)
             RETURNING
                 job_name AS "job_name!",
                 job_type AS "job_type!",
@@ -986,93 +993,6 @@ mod tests {
         BU_TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
     }
 
-    async fn setup_background_update_db(pool: &Arc<PgPool>) {
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS background_updates (
-                id BIGSERIAL PRIMARY KEY,
-                update_name TEXT,
-                job_name TEXT,
-                job_type TEXT,
-                description TEXT,
-                table_name TEXT,
-                column_name TEXT,
-                is_running BOOLEAN DEFAULT FALSE,
-                status TEXT DEFAULT 'pending',
-                progress JSONB DEFAULT '{}',
-                total_items INTEGER DEFAULT 0,
-                processed_items INTEGER DEFAULT 0,
-                created_ts BIGINT NOT NULL,
-                started_ts BIGINT,
-                completed_ts BIGINT,
-                updated_ts BIGINT,
-                error_message TEXT,
-                retry_count INTEGER DEFAULT 0,
-                max_retries INTEGER DEFAULT 3,
-                batch_size INTEGER DEFAULT 100,
-                sleep_ms INTEGER DEFAULT 100,
-                depends_on JSONB DEFAULT '[]',
-                metadata JSONB DEFAULT '{}'
-            )
-            "#,
-        )
-        .execute(&**pool)
-        .await
-        .expect("Failed to create background_updates table");
-
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS background_update_locks (
-                lock_name TEXT PRIMARY KEY,
-                owner TEXT,
-                acquired_ts BIGINT NOT NULL,
-                expires_at BIGINT NOT NULL
-            )
-            "#,
-        )
-        .execute(&**pool)
-        .await
-        .expect("Failed to create background_update_locks table");
-
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS background_update_history (
-                id BIGSERIAL PRIMARY KEY,
-                job_name TEXT NOT NULL,
-                execution_start_ts BIGINT NOT NULL,
-                execution_end_ts BIGINT,
-                status TEXT NOT NULL,
-                items_processed INTEGER NOT NULL DEFAULT 0,
-                error_message TEXT,
-                metadata JSONB
-            )
-            "#,
-        )
-        .execute(&**pool)
-        .await
-        .expect("Failed to create background_update_history table");
-
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS background_update_stats (
-                id BIGSERIAL PRIMARY KEY,
-                job_name TEXT NOT NULL,
-                total_updates INTEGER NOT NULL DEFAULT 0,
-                completed_updates INTEGER NOT NULL DEFAULT 0,
-                failed_updates INTEGER NOT NULL DEFAULT 0,
-                last_run_ts BIGINT,
-                next_run_ts BIGINT,
-                average_duration_ms BIGINT NOT NULL DEFAULT 0,
-                created_ts BIGINT NOT NULL,
-                updated_ts BIGINT NOT NULL
-            )
-            "#,
-        )
-        .execute(&**pool)
-        .await
-        .expect("Failed to create background_update_stats table");
-    }
-
     #[allow(clippy::too_many_arguments)]
     async fn insert_update_row(
         pool: &PgPool,
@@ -1106,8 +1026,15 @@ mod tests {
         .expect("Failed to insert test update row");
     }
 
+    /// Per-test pool cloned from the migrated v12 template.
+    ///
+    /// This used to be `prepare_empty_isolated_test_pool()` plus a hand-rolled
+    /// `CREATE TABLE background_updates (…)` whose `update_name` was nullable and
+    /// which carried no UNIQUE constraint — the toy schema hid both D-31
+    /// (`create_update` never wrote the NOT NULL `update_name`) and the duplicate-name
+    /// conflict. DB tests must run against the real migrated schema (D-36).
     async fn get_bu_test_pool() -> Option<Arc<PgPool>> {
-        match crate::test_utils::prepare_empty_isolated_test_pool().await {
+        match crate::test_isolation::isolated_test_pool().await {
             Ok(guard) => Some(guard.pool()),
             Err(error) => {
                 tracing::warn!("Skipping background_update DB test because test database is unavailable: {error}");
@@ -1122,8 +1049,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
         let suffix = bu_unique_suffix();
         let request = CreateBackgroundUpdateRequest {
@@ -1158,8 +1083,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
         let suffix = bu_unique_suffix();
         let request = CreateBackgroundUpdateRequest {
@@ -1189,8 +1112,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
         let now = current_timestamp_millis();
         insert_update_row(&pool, "test_job_1", "pending", now, 100, 0, 0, 3).await;
@@ -1211,8 +1132,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
         let (rows, next) = storage.get_all_updates(10, None).await.expect("Failed to get all updates");
 
@@ -1226,8 +1145,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
         let base_ts = 2_000_000_000_000i64;
 
@@ -1257,8 +1174,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
         let now = current_timestamp_millis();
 
@@ -1282,8 +1197,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
         let now = current_timestamp_millis();
 
@@ -1305,8 +1218,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
         let now = current_timestamp_millis();
         insert_update_row(&pool, "status_job", "pending", now, 100, 0, 0, 3).await;
@@ -1328,8 +1239,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
         let now = current_timestamp_millis();
         insert_update_row(&pool, "complete_job", "running", now, 100, 100, 0, 3).await;
@@ -1350,8 +1259,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
         let now = current_timestamp_millis();
         insert_update_row(&pool, "progress_job", "running", now, 100, 0, 0, 3).await;
@@ -1381,8 +1288,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
         let now = current_timestamp_millis();
         insert_update_row(&pool, "error_job", "running", now, 100, 50, 0, 3).await;
@@ -1404,8 +1309,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
         let now = current_timestamp_millis();
         insert_update_row(&pool, "delete_job", "completed", now, 100, 100, 0, 3).await;
@@ -1422,8 +1325,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
 
         let acquired = storage.acquire_lock("lock_1", "worker_1", 60_000).await.expect("Failed to acquire lock");
@@ -1439,8 +1340,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
 
         // First worker acquires the lock
@@ -1458,8 +1357,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
 
         // Acquire with very short duration
@@ -1480,8 +1377,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
 
         // No existing lock → should succeed on first attempt
@@ -1498,8 +1393,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
 
         // Pre-acquire the lock with a long duration
@@ -1519,8 +1412,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
 
         storage.acquire_lock("lock_4", "worker_1", 60_000).await.expect("Failed to acquire lock");
@@ -1539,8 +1430,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
 
         // Acquire with very short duration
@@ -1560,8 +1449,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
 
         // Acquire an expired lock (duration 1ms)
@@ -1586,8 +1473,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
 
         let h1 = storage.add_history("hist_job", "completed", 100, None, None).await.expect("Failed to add history 1");
@@ -1623,8 +1508,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
         let now = current_timestamp_millis();
 
@@ -1654,8 +1537,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
         let now = current_timestamp_millis();
 
@@ -1682,8 +1563,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
         let stats = storage.get_stats(10).await.expect("Failed to get stats");
         assert!(stats.is_empty());
@@ -1695,8 +1574,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
         let now = current_timestamp_millis();
 
@@ -1727,8 +1604,6 @@ mod tests {
             Some(p) => p,
             None => return,
         };
-        setup_background_update_db(&pool).await;
-
         let storage = BackgroundUpdateStorage::new(&pool);
         let suffix = bu_unique_suffix();
 
@@ -1753,12 +1628,8 @@ mod tests {
         let total = BackgroundUpdateStoreApi::count_all(&storage).await.expect("trait count_all failed");
         assert!(total >= 1);
 
-        // Test trait method delete_update — note: create_update doesn't set update_name,
-        // so we need to manually set it for delete to work
-        sqlx::query("UPDATE background_updates SET update_name = job_name WHERE update_name IS NULL")
-            .execute(pool.as_ref())
-            .await
-            .expect("Failed to set update_name");
+        // Test trait method delete_update — `create_update` writes `update_name` itself,
+        // so delete locates the row without any test-side repair (D-31).
         BackgroundUpdateStoreApi::delete_update(&storage, &format!("trait_job_{suffix}"))
             .await
             .expect("trait delete_update failed");
@@ -1767,5 +1638,59 @@ mod tests {
             .await
             .expect("trait get_update failed");
         assert!(after.is_none());
+    }
+
+    /// Regression test for D-31: `create_update` omitted the NOT NULL `update_name`
+    /// column, so every insert failed with 23502 on the migrated schema while the
+    /// hand-rolled toy table made the same call succeed in tests.
+    #[tokio::test]
+    async fn test_create_update_roundtrip() {
+        let pool = match get_bu_test_pool().await {
+            Some(p) => p,
+            None => return,
+        };
+
+        let storage = BackgroundUpdateStorage::new(&pool);
+        let suffix = bu_unique_suffix();
+        let job_name = format!("roundtrip_{suffix}");
+        let request = CreateBackgroundUpdateRequest {
+            job_name: job_name.clone(),
+            job_type: "migration".to_string(),
+            description: None,
+            table_name: None,
+            column_name: None,
+            total_items: None,
+            batch_size: None,
+            sleep_ms: None,
+            depends_on: None,
+            metadata: None,
+        };
+
+        let created = storage.create_update(request.clone()).await.expect("create_update must succeed");
+        assert_eq!(created.job_name, job_name, "create_update must return the row it just wrote");
+
+        // The row must be addressable by `update_name`, which is the column every
+        // other statement in this module filters on.
+        let fetched = storage.get_update(&job_name).await.expect("get_update must succeed");
+        let fetched = fetched.expect("get_update must find the row created by create_update");
+        assert_eq!(fetched.job_name, job_name);
+
+        // Repeated create must hit `uq_background_updates_name` (23505), not silently
+        // write a second row — the toy schema had no UNIQUE constraint, so this was
+        // unobservable before.
+        let duplicate_error = storage.create_update(request).await.expect_err("duplicate update_name must be rejected");
+        let duplicate_code = match &duplicate_error {
+            sqlx::Error::Database(db) => db.code().map(|code| code.to_string()),
+            _ => None,
+        };
+        assert_eq!(
+            duplicate_code.as_deref(),
+            Some("23505"),
+            "expected a unique-constraint violation, got {duplicate_error}"
+        );
+
+        storage.delete_update(&job_name).await.expect("delete_update must succeed");
+        let after_delete = storage.get_update(&job_name).await.expect("get_update after delete must succeed");
+        assert!(after_delete.is_none(), "delete_update must remove the row addressed by update_name");
     }
 }
