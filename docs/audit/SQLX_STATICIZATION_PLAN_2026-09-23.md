@@ -419,8 +419,8 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 > **不阻塞**这些条目的处理，反之亦然：处理它们时不要求同时改棘轮数字，除非确实回收了
 > 动态站点。
 >
-> 计数口径：`dynamic_production=810`（其中 `literal` 723 / `runtime` 87）、
-> `static=704`、`dynamic_test=704`、`query_builder=18`（本文档撰写时
+> 计数口径：`dynamic_production=773`（其中 `literal` 686 / `runtime` 87）、
+> `static=741`、`dynamic_test=704`、`query_builder=18`（C16 后
 > `python3 scripts/ci/sqlx_query_census.py` 实测）。
 
 ### 7.1 汇总表
@@ -455,11 +455,12 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-26 | 文档一致性 | 本文件 §4 与旧 baseline | "DDL 不可用 `query!` 静态化"结论过宽；生产 DDL 可静态化，仅 `#[cfg(test)]` 内不行 | **已收窄**（§执行结果 2） | — | 已在 §执行结果 2 更正 |
 | D-27 | 结构性限制 | `synapse-storage/src/search_index.rs` | 整模块无生产调用者（B3 已登记按铁律 1 删除），仍带 8 处生产动态 | **未修** | 全仓唯一引用是 `sync/mod.rs:10` 再导出，无消费者 | 删除整模块，一次回收 8 处 |
 | D-28 | 产品缺陷 | `synapse-storage/src/event/batch.rs` 等 | 4 个 0 调用者死查询 | **已修**（B3 `2e9c3d11d`，直接删除） | 无 | — |
+| D-29 | 结构性限制 | `synapse-storage/src/admin_federation.rs:186` | `get_server_admission_status` 声明 `Option<Option<String>>`、doc 称可返回 `Some(None)`，但 `status` 列 NOT NULL ⇒ 内层 None 与消费端 `Some(None)` 分支不可达 | **未修** | 有（`federation_auth.rs:214`，`admission_mode` 开时每个联邦请求） | 按铁律 1 收窄storage 返回类型并删消费端死分支 |
 
-**状态计数**：已修 **4**（D-02/D-03/D-24/D-28）；未修 **12**
-（D-01 语法已修但死函数待删、D-04…D-12、D-17、D-27）；结构性保留（有意）**7**
+**状态计数**：已修 **4**（D-02/D-03/D-24/D-28）；未修 **13**
+（D-01 语法已修但死函数待删、D-04…D-12、D-17、D-27、D-29）；结构性保留（有意）**7**
 （D-13/D-14/D-18…D-22）；覆盖缺口 **2**（D-15/D-25）；文档一致性 **3**
-（D-16/D-23/D-26）。合计 **28** 条。
+（D-16/D-23/D-26）。合计 **29** 条。
 
 ### 7.2 逐条明细
 
@@ -929,6 +930,36 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 - 状态：**已修**（B3，`2e9c3d11d`）。
 - 备注：`get_room_message_counts_batch` 唯一的使用者是当时新增的 soft_failed 回归
   断言，已同步移除（删除死 API 优先于为它保留测试）。
+
+#### D-29 结构性限制：`get_server_admission_status` 的内层 `None` 分支不可达（C16）
+
+- 位置：`synapse-storage/src/admin_federation.rs:186`（`get_server_admission_status`，
+  返回 `Result<Option<Option<String>>, sqlx::Error>`）；其 doc 注释
+  `:176-181` 明确写 "Returns `Some(None)` when the row exists but `status` is NULL"。
+  消费端死分支：`synapse-services/src/admin_federation_service.rs:486`
+  （`Some(None) => Ok(Some("active".to_string()))`，注释自述"treat as active to
+  preserve the middleware's historical behaviour"）。
+- 证据（schema）：psql `\d federation_servers` 实测
+  `status | text | | not null | 'active'::text`（`information_schema.columns`
+  的 `is_nullable = NO`）⇒ 任何存在的行都不可能有 NULL status，
+  **内层 `None` 不可达**。因此 storage 的 `Option<Option<String>>` 里第二层 Option
+  是纯粹的兼容残留：它的唯一存在理由是"历史上该列可空"。
+- 证据（消费端）：`synapse-web/src/middleware/federation_auth.rs:214` 只区分
+  `Ok(Some(status)) if status != "active"`（拒绝）、`Ok(None)`（pending 拒绝）与
+  `Ok(_)`（放行）；`Some(None)` 经 service 映射成 `Some("active")` 后落入 `Ok(_)`
+  放行分支，与 `Some(Some("active"))` 完全同路。
+  可达性：**有**——`federation.admission_mode` 打开时，每个联邦请求都会走到这里；
+  但**该分支本身**无论如何都不会被触发。
+- 证据（测试）：`admin_federation::db_tests` 只有
+  `test_get_server_admission_status_unknown`（无行 ⇒ `None`）与
+  `..._known`（有行、显式 status ⇒ `Some(Some(...))`）两例，**没有**也无法构造
+  `Some(None)` 的用例。
+- 状态：**未修**（本次静态化按行为保持原则只用 `SELECT status AS "status?"`
+  把宏推断钉回声明类型，未改动 schema/签名/分支）。
+- 建议处理：按铁律 1 把 `get_server_admission_status` 的返回类型收窄为
+  `Option<String>`（无行 ⇒ `None`），删除 `admin_federation_service.rs:486` 的
+  `Some(None)` 分支与 storage 的 `:176-181` doc 中"status 可为 NULL"的表述；
+  属**行为契约变更**（虽无可达路径），需独立评审 + 独立提交，不夹带进静态化批次。
 
 ### 7.x 处置约定
 
