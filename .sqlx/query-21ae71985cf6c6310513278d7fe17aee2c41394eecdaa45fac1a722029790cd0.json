@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT rm.user_id\n            FROM room_memberships rm\n            INNER JOIN events e ON rm.room_id = e.room_id\n            WHERE rm.room_id = $1\n              AND rm.membership = 'join'\n              AND e.event_type = 'm.room.encryption'\n              AND e.state_key IS NOT NULL\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "21ae71985cf6c6310513278d7fe17aee2c41394eecdaa45fac1a722029790cd0"
+}

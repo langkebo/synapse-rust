@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT rotated_at\n            FROM key_rotation_log\n            WHERE user_id = $1 AND (new_key_id = $2 OR old_key_id = $2)\n            ORDER BY rotated_at DESC LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rotated_at",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a77d37c59e9d8cecd7e5ae8b09fc1b1ee13522c89165cbbf9a8675a555eb48fe"
+}

@@ -1964,11 +1964,15 @@
 # 876 处重测收紧到 611 处（84 文件）/ runtime 83 处（15 文件）—— 该表此前已严重滞后
 # （例如 `presence/mod.rs` 记 16、实测 1），棘轮按"只禁增"语义仍绿，但已失去约束力，
 # 正属铁律 8 推论里"长期全绿要怀疑它没在工作"的那类门禁。
-BASELINE_DYNAMIC_PRODUCTION=694
+# ── 2026-09-25 C19a 收紧（`key_rotation/service.rs` 18 处全部宏化）──────────────
+# 恢复 C 批次后的第一批：dynamic_production −18、static +21（含 `check_needs_rotation`
+# 那处顺带修复的站点与 `EXISTS(...)` 改写），三个键同向下调/上调。同批修掉 D-43/D-44/D-45
+# 三条"真 schema 下必然失败"的既有缺陷（详见 §7），因此**不是**纯等价改写。
+BASELINE_DYNAMIC_PRODUCTION=676
 BASELINE_DYNAMIC_TEST_INFRA=704
-BASELINE_STATIC=803
+BASELINE_STATIC=824
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1387
+BASELINE_DYNAMIC=1378
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #
