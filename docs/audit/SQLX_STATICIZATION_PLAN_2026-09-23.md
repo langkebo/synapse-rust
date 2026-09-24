@@ -419,9 +419,12 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 > **不阻塞**这些条目的处理，反之亦然：处理它们时不要求同时改棘轮数字，除非确实回收了
 > 动态站点。
 >
-> 计数口径：`dynamic_production=741`（其中 `literal` 656 / `runtime` 85）、
-> `static=773`、`dynamic_test=704`、`query_builder=18`（C17 后
-> `python3 scripts/ci/sqlx_query_census.py` 实测）。
+> 计数口径：`dynamic_production=706`（C18 后）、`static=808`、`dynamic_test=704`、
+> `query_builder=18`（`python3 scripts/ci/sqlx_query_census.py` 实测）。
+> ⚠️ 本行此前写作 `dynamic_production=741` / `static=773` 并标注"C17 后实测"——
+> 741/773 实为 **C16 后**的数值（C17 为 773→742 / 741→772，与 baseline 的
+> `BASELINE_DYNAMIC_PRODUCTION=742` / `BASELINE_STATIC=772` 一致），两处各偏 1。
+> C18 一并更正并登记为 D-35。
 
 ### 7.1 汇总表
 
@@ -459,11 +462,16 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-30 | 结构性限制 | `synapse-storage/src/presence/mod.rs:452`,`:488`,`:522`,`:557` | `presence_subscriptions` 的 4 处 `is_undefined_column_error` 回退分支查 `user_id`/`friend_id`，合并后 schema 中从无此二列（42703）⇒ 分支既不可达又无法宏化 | **未修**（C17 保留动态） | 回退分支不可达；主分支正常 | 按铁律 1 删除 4 个回退分支与 `is_undefined_column_error` |
 | D-31 | 产品缺陷 | `synapse-storage/src/background_update.rs:272` | `create_update` 的 INSERT 从不写 `update_name`（NOT NULL UNIQUE 无默认）⇒ 真 schema 下必然 23502；模块 `db_tests` 自建简化表（`update_name` 可空、无 UNIQUE）掩盖了它 | **未修** | 有（`POST /_synapse/admin/v1/background_updates`） | INSERT 补 `update_name = job_name`（或统一为单列），并让 db_tests 改用迁移 schema |
 | D-32 | 产品缺陷 | `synapse-services/src/presence_service.rs:153` | C-3 批量 presence 写路径 `set_presence_batch`（storage + service + 内存替身 + db_tests 俱全）全仓**无任何调用者**，其 doc 宣称的"联邦 presence 同步 / 批量导入"从未接线 ⇒ 批量 upsert 与其内逐用户联邦广播是死代码 | **未修** | 无生产路径（仅 db_tests 覆盖） | 接线到联邦 EDU 批处理/批量导入，或按铁律 1 删除 batch API（连带回收 D-13 的该实例） |
+| D-33 | 产品缺陷 | `synapse-storage/src/push_notification.rs:614`（INSERT）、`:720`（DELETE） | `push_notification_log.sent_at` **从未被任何语句写入**（全仓唯一生产 INSERT 的 11 列清单无此列；全仓 0 条 `UPDATE push_notification_log`），而保留期清理是 `DELETE … WHERE sent_at < $1` ⇒ 三值逻辑下 `NULL < $1` 恒为 NULL，**永远删 0 行**，该 append-only 表无界增长 | **未修** | 有（`POST …/push_notification/cleanup`，`synapse-web/src/routes/push_notification.rs:206`；恒返回 `{"cleaned":0}`） | INSERT 补写 `sent_at`，或清理条件改 `COALESCE(sent_at, created_ts) < $1` |
+| D-34 | 产品缺陷 | `synapse-storage/src/threepid.rs:247`（SELECT `get_pending_threepids`）对 `:152`（INSERT `add_threepid`） | 谓词 `WHERE validated_at < added_ts` 与写入路径互相矛盾：`add_threepid` 的 INSERT **不写 `validated_at`**（列清单无此列）⇒ 真正的"待验证"行 `validated_at IS NULL`，`NULL < added_ts` 为 NULL ⇒ **永远不返回**；db 用例 `test_get_pending_threepids` 只能改用 `add_verified_threepid(…, validated_at=1, added_ts=1000)` 人为造行，并把"query 不过滤 is_verified"写进注释当成规格 | **未修** | 无（唯一包装 `IdentityStorage::get_pending_three_pid_validations`，`synapse-services/src/identity/storage.rs:65`，全仓无调用者） | 谓词改 `validated_at IS NULL OR validated_at < added_ts`（或按 `is_verified = FALSE`）；用例改回走 `add_threepid`；包装方接线或按铁律 1 删除 |
 
-**状态计数**：已修 **4**（D-02/D-03/D-24/D-28）；未修 **16**
-（D-01 语法已修但死函数待删、D-04…D-12、D-17、D-27、D-29、D-30、D-31、D-32）；结构性保留（有意）**7**
-（D-13/D-14/D-18…D-22）；覆盖缺口 **2**（D-15/D-25）；文档一致性 **3**
-（D-16/D-23/D-26）。合计 **32** 条。
+| D-35 | 文档一致性 | 本文件 §7 导言（"计数口径"行） | 该行写 `dynamic_production=741` / `static=773` 并标注"C17 后实测"，但 741/773 是 **C16 后**的值：C17 为 773→742、741→772，与本仓 baseline（`BASELINE_DYNAMIC_PRODUCTION=742` / `BASELINE_STATIC=772`）矛盾，两处各偏 1 | **已修**（C18 提交一并更正为 706/808 并注明偏差来源） | — | 已在本节导言更正；计数一律以 `scripts/ci/sqlx_query_census.py` + `scripts/ci/sqlx_dynamic_ratio_baseline` 为唯一来源 |
+
+**状态计数**：已修 **5**（D-02/D-03/D-24/D-28/D-35）；未修 **18**
+（D-01 语法已修但死函数待删、D-04…D-12、D-17、D-27、D-29、D-30、D-31、D-32、
+D-33、D-34）；结构性保留（有意）**7**
+（D-13/D-14/D-18…D-22）；覆盖缺口 **2**（D-15 含 D-15.6/D-25）；文档一致性 **4**
+（D-16/D-23/D-26/D-35）。合计 **35** 条。
 
 ### 7.2 逐条明细
 
@@ -751,6 +759,7 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-15.3 `event_report::get_reports_by_room` 游标分支 | `synapse-storage/src/event_report/repository.rs:89`（游标分支 `:99` 起） | `db_tests.rs` 只有 `test_get_reports_by_room_basic`（`:196`）与 `..._limit`（`:239`），均 `since_ts/since_id=None`；同型游标在 by_reporter（`:304`）/by_status（`:396`）/all_reports（`:470`）都有专测，唯独 by_room 缺（C15 已登记） | 补 `test_get_reports_by_room_cursor_pagination`，夹具照 `test_get_reports_by_reporter_cursor_pagination` |
 | D-15.4 `friend_room` 两个建议查询无任何测试 | `synapse-storage/src/friend_room/repository.rs:927`（`get_friend_suggestions_from_mutual_friends`）、`:986`（`..._from_shared_rooms`） | `grep -rn 'get_friend_suggestions_from' tests/ synapse-storage/src/friend_room/db_tests.rs` **无命中**；唯一调用方是 `synapse-services/src/friend_room_service/groups.rs:215,227`（C11 基线已登记） | 为这两个查询各补 DB 用例（含 `COUNT(DISTINCT …) AS "mutual_count!"` / `shared_rooms_count!` 与 LEFT JOIN `displayname?`/`avatar_url?` 覆盖） |
 | D-15.5 C7 的 namespace 转换方法无直接 db_tests 调用方 | `synapse-storage/src/application_service/repository.rs` + `space/repository.rs`（C7 `c8871fe76`） | C7 基线列出的方法是 `get_statistics / update_last_seen / get_user_namespaces / get_room_alias_namespaces / get_room_namespaces / find_{user,room_alias,room}_namespace_conflict / is_{user,room_alias,room_id}_in_namespace / has_exclusive_user_namespace_match` = **12** 个（任务书写 13；实测清单只有 12 个名字）。抽查 `get_statistics` / `update_last_seen` / `get_user_namespaces` / `has_exclusive_user_namespace_match` 在 `space/db_tests.rs` 与 `application_service/db_tests.rs` 的调用数均为 0 | 为这 12 个方法补 namespace 冲突/命中与 `!` 覆盖的 DB 往返用例（编译期已校验，运行期风险低，优先级低于 D-15.1/D-15.4） |
+| D-15.6 `push_notification` 18 处静态化转换**零** DB 往返 | `synapse-storage/src/push_notification.rs`（文件内只有 `mod tests` 的 15 个纯构造/序列化断言，**没有** `db_tests`）；转换批次 C18 `f1eb338d6` | `cargo nextest run -p synapse-storage --lib -E 'test(push_notification)'` 命中的 15 个用例全部不触 DB（C18 实测 31 tests = 15 个 push_notification 纯单测 + 14 个 threepid db_tests + 2 个 threepid 纯单测）。`cleanup_old_logs`（→ D-33）、`get_pending_notifications` 的 `FOR UPDATE SKIP LOCKED`、`register_device` 的 `ON CONFLICT … DO UPDATE` upsert、`create_notification_log` 的展开列 `RETURNING`、`mark_notification_failed` 两分支均**无运行期覆盖**（只有编译期按真实 schema 的 describe 校验）。D-33 能长期潜伏正是因为没有任何用例调用过 `cleanup_old_logs` | 在文件内补 `db_tests`（迁移模板 schema、per-test 隔离）：`register_device` upsert（含 `metadata` / `last_used_at`→`last_used_ts` 别名）/ `get_device` / `queue_notification` + `get_pending_notifications` / `mark_notification_sent` + `mark_notification_failed` 两分支 / `set_config` + `get_config` + `list_config` + `delete_config` / `create_notification_log` / `cleanup_old_logs`（该用例会立刻暴露 D-33） |
 
 - 状态：**覆盖缺口**。
 - 备注：任务书列的 5 条里有 1 条（D-15.2）经核实**不成立**（集成用例已覆盖），
@@ -1075,6 +1084,101 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
   trait 方法 + service 方法 + 内存替身 + 双方 db_tests），连带回收该动态站点并让
   D-13 回到 2 处。两者都属行为/API 变更，需独立评审 + 独立提交。
 
+#### D-33 产品缺陷：`cleanup_old_logs` 永远删 0 行，推送日志表无界增长（C18）
+
+- 位置：写入 `synapse-storage/src/push_notification.rs:614`（
+  `PushNotificationStorage::create_notification_log` 的
+  `INSERT INTO push_notification_log (…)`）；清理
+  `synapse-storage/src/push_notification.rs:720`（`cleanup_old_logs` 的
+  `DELETE FROM push_notification_log WHERE sent_at < $1`）。
+- 证据（`sent_at` 无写入者）：
+  1. 该 INSERT 的列清单共 11 列 ——
+     `user_id, device_id, event_id, room_id, notification_type, push_type,
+      is_success, error_message, provider_response, response_time_ms, created_ts` ——
+     **没有 `sent_at`**；表定义（`migrations/00000000_unified_schema_v12.sql:1559`）
+     里 `sent_at BIGINT` 既无 `NOT NULL` 也无 `DEFAULT`，也没有任何触发器。
+  2. `grep -rn "UPDATE push_notification_log\|push_notification_log SET" --include=*.rs .`
+     （排除 `target/`）命中 **0** 条；全仓对 `push_notification_log` 的语句只有
+     这条 INSERT、这条 DELETE，以及 `synapse-services/src/push/service.rs:656`
+     的一条 `SELECT provider_response …`。
+  ⇒ 该表所有行的 `sent_at` 恒为 `NULL`。
+- 证据（清理因此是 no-op）：SQL 三值逻辑下 `NULL < $1` 求值为 `NULL`，`WHERE` 不成立
+  ⇒ DELETE 匹配 0 行。即无论 `days` 取何值（路由 clamp 到 1..200）、表里有多少历史，
+  `cleanup_old_logs` 恒返回 `rows_affected() == 0`。
+- 可达性：有真实调用链 ——
+  `POST /_synapse/admin/v1/push_notification/cleanup`
+  （`synapse-web/src/routes/push_notification.rs:206` 的 `cleanup_logs` handler）→
+  `PushNotificationService::cleanup_old_logs`（`synapse-services/src/push/service.rs:568`）
+  → storage 层。所以这不是死代码，而是一个**恒静默成功但什么也不做**的保留期端点：
+  管理员看到 `{"cleaned":0}` 会以为"没有过期数据"，实际是谓词永不成立。该表因此是
+  append-only 无界增长（与 D-31 同属"唯一写入方漏写列"家族）。
+- 状态：**未修**——C18 只把 `RETURNING *` 展开为结构体的精确列清单（`query_as!`
+  不走 `FromRow`），INSERT 的**列集合与绑定原样保留**，未借静态化改行为。
+- 建议处理（产品决策，二选一）：
+  （a）INSERT 补写 `sent_at`（沿用同一次调用里的 `created_ts` 时间戳，
+  即 `sent_at` 表示"日志落库时刻"）——需先确认 `sent_at` 的语义是"推送发送时刻"
+  还是"日志写入时刻"，若为前者则应在新列语义下重新设计；
+  （b）把清理条件改为 `COALESCE(sent_at, created_ts) < $1`（对存量 NULL 行也能生效）。
+  无论哪种，都应先补 D-15.6 的 `cleanup_old_logs` DB 用例（RED）再改实现。
+  属行为修复，需独立评审 + 独立提交。
+
+#### D-34 产品缺陷：`get_pending_threepids` 的谓词与自身写入路径互相矛盾（C18）
+
+- 位置：查询 `synapse-storage/src/threepid.rs:247`
+  （`ThreepidStorage::get_pending_threepids`，谓词
+  `WHERE validated_at < added_ts`）；对照写入 `synapse-storage/src/threepid.rs:152`
+  （`ThreepidStorage::add_threepid` 的 `INSERT INTO user_threepids
+  (user_id, medium, address, added_ts, is_verified, verification_token,
+  verification_expires_at)`）。
+- 证据（写入路径不产生可被该谓词匹配的行）：`add_threepid` 的列清单**没有
+  `validated_at`**，而 `user_threepids.validated_at` 可空无默认 ⇒ 这些行
+  `validated_at IS NULL`。`NULL < added_ts` 求值为 `NULL`，`WHERE` 不成立 ⇒
+  **永远不返回**。也就是说：由正常"新增待验证 3PID"路径写入的行，在
+  "列出待验证 3PID"接口里一个都看不到；能进结果的只有 `validated_at` 有值且**早于**
+  `added_ts` 的行，而 `add_verified_threepid`（`synapse-storage/src/threepid.rs:415`
+  起）与 `verify_threepid`（`:339` 起）都是把 `validated_at` 设为"当前时刻"，
+  正常调用下 `validated_at >= added_ts` ⇒ 也不匹配。
+- 证据（测试把缺陷当规格）：`synapse-storage/src/threepid.rs:1094` 的
+  `test_get_pending_threepids` 无法通过 `add_threepid` 造出目标行，只能改用
+  `add_verified_threepid(&user_id, "email", &address, 1, 1000)`——把 `validated_at`
+  手工设成 `1`、`added_ts` 设成 `1000` 来人为满足 `validated_at < added_ts`，
+  并在注释里写明"Note: the query does not filter on is_verified, so a 'verified'
+  threepid with validated_at < added_ts will appear in pending results"。
+  即该用例证明的是"谓词按字面执行"，而不是"待验证 3PID 能被列出"——它锁定了错误语义。
+- 可达性（限制影响面）：唯一包装方是
+  `IdentityStorage::get_pending_three_pid_validations`
+  （`synapse-services/src/identity/storage.rs:65`，调用
+  `get_pending_threepids(100)`），而
+  `grep -rn 'get_pending_three_pid_validations' --include=*.rs .`（排除 `target/`）
+  只命中该方法自身的定义与 doc 注释，**没有任何调用者**，`synapse-web` 侧也无对应路由
+  ⇒ 目前无生产路径受影响（与 D-32 同型：缺陷 + 未接线）。
+- 与静态化的关系：C18 把该 SELECT 转为 `query_as!`，**只补了
+  `is_verified AS "is_verified!"` 的可空性覆盖**，`WHERE` 谓词逐字保留，未改行为。
+- 状态：**未修**。
+- 建议处理：谓词改为 `validated_at IS NULL OR validated_at < added_ts`
+  （"尚未验证 或 验证时刻早于写入时刻"；若 `is_verified = FALSE` 才是真正的语义，
+  则应显式用它），并把 `test_get_pending_threepids` 改回走 `add_threepid`（RED）；
+  同时决定 `get_pending_three_pid_validations` 是接线（identity server 的
+  `requestToken`/待验证查询路径）还是按铁律 1 删除。属行为/API 变更，需独立评审 +
+  独立提交。
+
+#### D-35 文档一致性：§7 导言"计数口径"行落后一个批次（C18 发现并修正）
+
+- 位置：本文件 §7 导言的第 422 行附近（C18 修正前的"计数口径"行）。
+- 证据：该行原文为
+  `dynamic_production=741（其中 literal 656 / runtime 85）、static=773、
+  dynamic_test=704、query_builder=18（C17 后 python3 scripts/ci/sqlx_query_census.py 实测）`。
+  但 `741 / 773` 是 **C16 完成时**的数值：C17 的批次史明确记录
+  `dynamic_production 773 → 742`、`static 741 → 772`，且同批把
+  `BASELINE_DYNAMIC_PRODUCTION` / `BASELINE_STATIC` 分别设为 `742` / `772`。
+  即导言行与 baseline 在同一提交里互相矛盾，两处各偏 1（`dynamic_production` 少 1、
+  `static` 多 1）。同型的"批次间计数器漂移"即 D-16 所述的漂移家族。
+- 状态：**已修**——C18 把该行更正为 C18 后的实测值（`dynamic_production=706`、
+  `static=808`、`dynamic_test=704`、`query_builder=18`），并就地注明
+  "741/773 实为 C16 后数值"以免后人再按旧行反推。
+- 备注：D-16 已确立"计数一律以脚本 + baseline 为唯一来源"的口径；本次更正与该口径
+  一致，未引入第二份计数记录。
+
 ### 7.x 处置约定
 
 1. **不在静态化范围内。** 静态化是**行为保持**的机械重构；本节所有条目都涉及行为、
@@ -1091,7 +1195,8 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 4. **状态纪律。** 每条必须能给出 `路径:行号` 或可复现命令；已修的必须给 commit
    （`git log -S` / `git log --oneline -- <path>`）；无法核验的标 `[未验证]`；
    行号漂移时以当前树为准更正（本节的 `路径:行号` 均为 2026-09-23 撰写时实测）。
-5. **建议的处理顺序**（依据影响/可达性）：D-10 / D-12 / D-31（已注册路由、100% 失败或静默
-   丢数据）→ D-02 类回归防护（已修，补测试）→ D-11 / D-04 / D-27 / D-30 / D-32（潜伏或死代码清理）
+5. **建议的处理顺序**（依据影响/可达性）：D-10 / D-12 / D-31 / D-33（已注册路由、100% 失败
+   或静默丢数据/静默不清理）→ D-02 类回归防护（已修，补测试）→
+   D-11 / D-04 / D-27 / D-30 / D-32 / D-34（潜伏或死代码清理）
    → D-05 / D-07 / D-08 / D-09（一致性/确定性）→ D-13 / D-14（结构性回收）→
-   D-15 / D-25（补测与门禁）→ D-17（缓存收敛）→ D-06 / D-16 / D-23 / D-26（文档/注释）。
+   D-15（含 D-15.6）/ D-25（补测与门禁）→ D-17（缓存收敛）→ D-06 / D-16 / D-23 / D-26（文档/注释）。

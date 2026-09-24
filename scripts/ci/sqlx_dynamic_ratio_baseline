@@ -1870,7 +1870,7 @@
 #      全仓 18 处未变），其 `RETURNING *` 也保持原样（走 FromRow，多列被忽略）。
 #   ⇒ 两文件的生产区"字面量动态"均已清零。
 #
-# ⚠️ **本轮新登记 2 条既有缺陷 + 1 条覆盖缺口**（详见
+# ⚠️ **本轮新登记 2 条既有缺陷 + 1 条覆盖缺口 + 1 条文档一致性（已修）**（详见
 #   docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md §7）：
 #   * **D-33（产品缺陷）**：`push_notification_log.sent_at` **从来没有被写入过**——
 #     全仓唯一的生产 INSERT（`create_notification_log`，push_notification.rs:614）
@@ -1892,7 +1892,12 @@
 #   * **D-15.6（覆盖缺口）**：`push_notification.rs` 的 18 处新宏站点**零 DB 往返
 #     覆盖**（文件内只有 `mod tests` 的 15 个纯构造/序列化用例，无 `db_tests`）；
 #     D-33 之所以能长期潜伏，正是因为没有一条用例真正调用过 `cleanup_old_logs`。
-#   以上三条均属"行为 / 测试口径"范畴，按 §7.x 处置约定**不得夹带进本批次**。
+#   * **D-35（文档一致性，已修）**：§7 导言"计数口径"行原写
+#     `dynamic_production=741` / `static=773` 并标注"C17 后实测"，但那是 C16 后的值
+#     （C17 为 773→742 / 741→772，与 baseline 的 742/772 矛盾），本轮已改为 706/808
+#     并注明偏差来源。不涉及棘轮口径（棘轮数字以本文件为准）。
+#   前三条均属"行为 / 测试口径"范畴，按 §7.x 处置约定**不得夹带进本批次**；
+#   D-35 是纯文档更正，已随本轮一并落地。
 #
 # ⚠️ `.sqlx`：destination 就是 `.sqlx/` 本身，`cargo sqlx prepare` 先清后写。
 #   isolated worktree target/c18-wt @ HEAD f1eb338d6（源码提交已在 HEAD，无需
