@@ -455,7 +455,7 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-12 | 产品缺陷 | `synapse-storage/src/event_report/repository.rs:324`,`:359`,`:533` | `add_history` 只 `tracing::info!` 返回内存 `id:0`，`get_report_history`/`get_stats` 恒空；两张表不存在 | **已修**（2026-09-24，方案 A′：删 `/history`，`/stats` 改实时聚合） | 有（`event_report.rs:499/506`；审计写入 `event_report_service.rs:55/194/378`） | 已修：删 `/history` 全链（路由/handler/模型/测试）+ 删 `add_history` 的 3 处调用与三个空壳方法；`/stats` 保留并改为**静态** `query!` 实时聚合，响应字段对齐 SDK `StatsResponse`。见 `D-12_EVENT_REPORT_HISTORY_STATS_FIX_PLAN.md` |
 | D-13 | 结构性限制 | `synapse-storage/src/room_summary/repository.rs:326`,`:575`；`synapse-storage/src/presence/mod.rs:232` | `Vec<Option<T>>` 数组参数无 sqlx 映射，3 处无法宏化 | **结构性保留（有意）** | 已计入 `dynamic_production`（3 处 `literal`） | 改单个 `jsonb_to_recordset($n)` |
 | D-14 | 结构性限制 | 见 §7.2 D-14 | 运行期拼装 SQL 无法静态化 + D1 守卫 14 处已知假阴性 | **结构性保留（有意）** | 见明细 | 见明细（逐文件回收方向） |
-| D-15 | 覆盖缺口 | 见 §7.2 D-15（W5 批次已补 D-15.1/15.2/15.4/15.5/15.6） | 5 组已静态化代码无 DB 往返 / 无游标分支用例 | **部分已修**（W5 `ab5949c70` + `5a2674c38`；仅 D-15.3 待补） | — | 已补 5 项：D-15.1 `module::d15_db_tests` 6 条、D-15.2 游标双分支 1 条、D-15.4 建议查询 2 条、D-15.5 namespace/统计 12 方法 1 条、D-15.6 push_notification 6 条（+W1 的 2 条）；D-15.2 原判定「集成侧已覆盖」仍成立，本次把覆盖收进 storage 自己的 lib 口径。**D-15.3**（`event_report::get_reports_by_room` 游标）因该文件正被 D-12 批次改动而未做 |
+| D-15 | 覆盖缺口 | 见 §7.2 D-15（W5 批次六个子项全部补齐） | 5 组已静态化代码无 DB 往返 / 无游标分支用例 | **已修**（W5 `ab5949c70` + `5a2674c38` + `908ee4b35`） | — | D-15.1 `module::d15_db_tests` 6 条、D-15.2 游标双分支 1 条、D-15.3 `by_room` 游标 1 条（含 RED 证明）、D-15.4 建议查询 2 条、D-15.5 namespace/统计 12 方法 1 条、D-15.6 push_notification 6 条（+W1 的 2 条） |
 | D-16 | 文档一致性 | 本文件 §5 批次表 / §1 分布表 | C11 目标写 `test_isolation.rs`，与 `friend_room` 的"从未迁移"记录矛盾 | **已修正**（本次 C11 行 + 本表） | — | 已在本节固化 |
 | D-17 | 结构性限制 | 根 `.sqlx/`（777）与 `synapse-storage/.sqlx/`（53，已删） | 同一职责两份离线缓存元数据 | **已修**（W4 `d230c8902`，整目录收敛到根） | 并发会话曾误清空；棘轮/CI 口径不受影响 | 已修：先证明不需要（`--workspace --all-features --all-targets` / `-p synapse-storage --all-features` / `-p synapse-storage` 三种离线构建均只用根缓存通过），再删 53 条。核对发现 19 条"仅存子目录"里至少 7 条的 SQL 文本在当前源码中已不存在 ⇒ 不只是冗余，还是 C 批次重写语句后的**陈旧元数据** |
 | D-18 | 结构性限制 | `synapse-storage/src/thread/storage.rs:864` | `search_relevance` 是仅排序用列，`ThreadSummary` 无字段，`query_as!` 按全列构造结构体 | **结构性保留（有意）** | `NOTE(C9)`；已用子查询包裹 | 保持；后续同类列沿用子查询写法 |
@@ -486,14 +486,14 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-41 | **数据一致性**（**新登记**） | `synapse-storage/src/module.rs:783`（`get_execution_logs`） | `ORDER BY executed_ts DESC` 单键排序：`executed_ts` 是**毫秒**，同一毫秒的多次执行并列时 `LIMIT n` 的读法可能重复/漏行（与 D-08 同族） | **已修**（W5 `ab5949c70`；由既有棘轮 `ts_order_tiebreak_tests` 抓出） | 有（module 执行日志读路径） | 已修：加决胜键 `, id DESC`，并按该棘轮 `--update` 收紧 `scripts/ci/ts_order_single_key_baseline`（删 `synapse-storage/src/module.rs 1`）。顺带清掉新用例注释里含同形文本的措辞 —— 该棘轮是词法计数，散文里的同形文本也会被计入 |
 | D-42 | **运行时硬故障**（**新登记**） | `synapse-storage/src/event/create.rs` 三处（`:89` `create_event_with_graph` 的 `insert_edges_query`、`:197`/`:205` `create_state_event_with_dag` 的两条边插入） | 守卫写成 `WHERE $2 IS NOT NULL AND $2 != '[]'`：`$2` 已被 `unnest($2::text[])` 定为 `text[]`，PG 会把 `'[]'` 当**数组字面量**解析 ⇒ 在**prepare 阶段**即报 `22P02 malformed array literal: "[]"`（`"[" must introduce explicitly-specified array dimensions`）。**语句根本执行不了**，故 `prev_events`/`prev_state_events` 非空时整个 DAG 写入路径必败（`8489b4079` P2-1 引入） | **已修**（2026-09-25，全量门禁复跑发现） | 有（`test_create_event_with_graph_with_prev_events` 直接抓出；两条 `*_rolls_back_*` 用例此前是"因错误的原因"通过） | 守卫改 `WHERE cardinality($2) > 0`（NULL ⇒ NULL ⇒ 不入选，语义等价；调用方本就已 `if !is_empty()` 守卫）。**禁**再写 `!= '[]'`；已在两处 P2-1 文档注释里注明不可回退 |
 
-**状态计数（2026-09-25，W5 收口后）**：已修 **29**
+**状态计数（2026-09-25，W5 全部收口后）**：已修 **30**
 （D-02/D-03/D-24/D-28/D-35 + W1 的 D-10/D-11/D-31/D-33/D-34 + D-36 守卫 +
 W2 的 D-05/D-07/D-08/D-09 + W3 的 D-29/D-32 + D-38 + W4 的 D-01/D-04/D-06/D-17/D-27/D-30 +
-D-12 + D-42 + W5 的 **D-25**/**D-40**/**D-41**）；**部分已修 2**（D-37：吞错与死包装已修、
-跨 crate 两份实现的收敛未做；**D-15**：D-15.1/15.2/15.4/15.5/15.6 已补，**D-15.3 待补**）；
+D-12 + D-42 + W5 的 **D-15**（含六个子项）/**D-25**/**D-40**/**D-41**）；
+**部分已修 1**（D-37：吞错与死包装已修、跨 crate 两份实现的收敛未做）；
 未修 **1**（**D-39**：`search_index` 表删否）；结构性保留（有意）**7**（D-13/D-14/D-18–D-22）；
 文档级已处置 **3**（D-16/D-23/D-26）。
-合计 **42** 条（D-01…D-42），校验：29 + 2 + 1 + 7 + 3 = **42**。
+合计 **42** 条（D-01…D-42），校验：30 + 1 + 1 + 7 + 3 = **42**。
 
 > 注：本行以下曾残留一段**过期计数**（「合计 36 条（D-01…D-36）」），与当时的实际条数矛盾
 > 且已被后续重写覆盖 —— 本次一并删除，避免出现第三份计数口径（D-35 型漂移）。
@@ -1974,7 +1974,7 @@ W5 是「覆盖缺口」波次。它的直接产出是**用例**，但真正的�
 | D-15.4 `friend_room` 建议查询 | 2 条：互关建议的 `COUNT(DISTINCT …) AS "mutual_count!"`、共享房间的 `shared_rooms_count!`、`LEFT JOIN users` 的 `displayname?`/`avatar_url?`（有/无 profile 两种）、按计数 DESC、真 LIMIT、"已是好友者不得出现"。需 `--features friends`（见 D-25） | 2/2 ✅ |
 | D-15.5 12 个 namespace/统计方法 | 1 条：用**真实写入路径** `register`（其 `insert_namespaces` 按 JSON 落三张表）造数据，覆盖三类 `get_*_namespaces` 的别名投影、`is_*_in_namespace` 命中/未命中、`has_exclusive_user_namespace_match` 只认 exclusive、`find_*_namespace_conflict` 的"同 as_id 不算冲突"语义，以及 `get_statistics` 聚合 + `update_last_seen` 幂等 upsert | 1/1 ✅ |
 | D-15.6 `push_notification` | 6 条（+ W1 的 2 条）：`register_device` upsert、`last_used_at AS "last_used_ts"` 别名、`unregister` 后两个读端都看不到、`update_device_last_used`/`record_device_error` 计数、`queue_notification` → `get_pending_notifications`（priority DESC、`FOR UPDATE SKIP LOCKED`、limit 是真 LIMIT）→ `mark_notification_sent`、`mark_notification_failed` 两分支、`push_config` CRUD + 类型化读 | 8/8 ✅ |
-| D-15.3 `event_report` by_room 游标 | **未做**：`event_report/repository.rs` 正被 D-12 批次改动（同一文件、同一批方法），按铁律 9 避免同文件并行编辑 | 待补 |
+| D-15.3 `event_report` by_room 游标 | 1 条（`908ee4b35`）：limit=1 逐页翻 5 条（`create_report` 常在同一毫秒写入 ⇒ 并列分支与跨时间戳分支都走到），断言不重不漏/末页为空 + 两条边界（**只给一半游标必须落回非游标分支**、未知房间返回空）。先确认 D-12 稳定（路径干净、`f33073e05`、模块 38/38 绿）再动手 | 1/1 ✅ |
 
 #### D-25 门控「0 tests 假绿」
 
@@ -1997,7 +1997,10 @@ W5 是「覆盖缺口」波次。它的直接产出是**用例**，但真正的�
    而当时所有静态断言（文件存在、被 CI 调用、feature 名对、锚点对）**全是绿的** ——
    这正是 D-25 描述的失败形态。故新增 `--list` 模式与
    `the_gate_script_parses_the_matrix_end_to_end` 用例，让守卫真的执行脚本。
-2. **RED 证明别嵌套 cargo。** 最初用 `cargo nextest run` 做 RED/正控，在共享 target
+2. **覆盖必须有 RED 证明。** D-15.3 补完后，把 `by_room` 的游标谓词临时改成
+   `AND (TRUE OR …)`（游标失效、每页都返回第一行）⇒ 用例立刻在"不重不漏"断言处失败；
+   恢复后转绿 —— 证明这条覆盖不是"跑过就算"。
+3. **RED 证明别嵌套 cargo。** 最初用 `cargo nextest run` 做 RED/正控，在共享 target
    目录上与其它构建抢锁，单个用例被拖到 **440s**。改成用 `true` 与
    `printf 'Starting 3 tests…'` 两条替身命令直接检验 `require_tests_ran.sh` 的判定逻辑，
    降到 **0.3s** 且确定性更好；端到端那条路由 CI 步骤覆盖。
@@ -2019,7 +2022,6 @@ fmt 债务 0。
 
 #### W5 遗留
 
-- **D-15.3**（`event_report::get_reports_by_room` 游标）：等 D-12 批次稳定后补
-  （该文件的 `by_reporter`/`by_status`/`all_reports` 都有专测，唯独 `by_room` 缺）。
+- **D-15 已全部收口**（六个子项），W5 无遗留覆盖项。
 - **D-37 的另一半**、**D-04 的同族第二个 `create_tables`**、**D-39**：
   见 §8.10 遗留，均为独立决策项。
