@@ -6,6 +6,10 @@
 > **编译器不再校验 SQL 文本、列名、列类型与可空性**。
 >
 > 本文是 backlog，不是已完成的结论；引用路径取自当前工作树。
+>
+> **执行优先级（2026-09-23 重排）**：C 批次（逐文件静态化）**暂停**，当前执行顺序以
+> **§8 问题优先处理计划**为准——先修完 §7 登记的既有缺陷，再恢复静态化。§5 的阶段/顺序表
+> 与「执行结果」的批次表保留为**历史记录**，不再是当前排期。
 
 ---
 
@@ -201,6 +205,10 @@ bash scripts/ci/check_sqlx_dynamic_ratio.sh
 
 ## 5. 工作量与顺序
 
+> **历史记录（2026-09-23 重排）**：本节的阶段拆分与建议顺序是 A/B/C/D 规划期的依据；C 批次
+> 现已暂停，**当前执行优先级见 §8**（先修 §7 的既有缺陷，再恢复静态化）。下表与其后的批次表
+> 仅作历史记录保留 —— 不复用为当前排期。
+
 | 阶段 | 量级 | 风险 | 前置 |
 |------|------|------|------|
 | A（刻度可信） | 小 | 无行为变更 | 无 |
@@ -226,6 +234,9 @@ bash scripts/ci/check_sqlx_dynamic_ratio.sh
 > `query_scalar!`/`query_file!` 宏站点（当前全部落在生产侧，`static_test = 0`）。
 
 ### 1. 批次表
+
+> **历史记录**：本表记录 A–C18 的已执行批次，作为可复现的批次史保留；C19+ 在 §8 的
+> 问题修复波次完成前不再新增（恢复条件见 §8.5）。
 
 | 阶段 / 批次 | 目标 | `dynamic_production` | `static` | 提交（短哈希，可 `git log -1 --format=%H <subject>` 核验） |
 |---|---|---|---|---|
@@ -439,8 +450,8 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-07 | 数据一致性 | `synapse-e2ee/src/device_keys/storage.rs:292` | `record_device_list_change_best_effort` 完全吞错，`stream_id` 插入失败不可见 | **未修**（语义待决策） | 有（设备列表变更写路径） | 评审后改 `?` 或补指标 |
 | D-08 | 数据一致性 | `synapse-e2ee/src/device_keys/storage.rs:726`,`:769` | `claim_one_time_key` 的 `target`/`fb` CTE 有 `LIMIT 1` 但无 `ORDER BY`，选取非确定 | **未修** | 有（OTK claim 路径） | 加 `ORDER BY added_ts, id` |
 | D-09 | 产品缺陷 | `synapse-storage/src/space/repository.rs:716` | `suggested_only` 分支把 jsonb `via_servers` 解成 `Vec<String>`，真返回行时必然解码失败 | **未修** | 有（`/_matrix/federation/v1/hierarchy/{room_id}`，`suggested_only=true`） | 改 `ARRAY(SELECT jsonb_array_elements_text(via_servers))` |
-| D-10 | 产品缺陷 | `synapse-storage/src/module.rs:940` | `create_media_callback` 从不写 `user_id`（NOT NULL DEFAULT `''`）⇒ 必然 23514 | **未修** | 有（`POST /_synapse/admin/v1/media_callbacks`，`module.rs:851`） | 把 `user_id` 纳入请求并绑定（行为修复） |
-| D-11 | 产品缺陷 | `synapse-storage/src/registration_token/repository.rs:362` | `create_room_invite` 漏写 NOT NULL 无默认的 `inviter`/`invitee` ⇒ 必然 23502 | **未修** | 无 HTTP 路由调用方（service 层唯一，`registration_token_service.rs:243`） | 产品决策：映射或删列 |
+| D-10 | 产品缺陷 | `synapse-storage/src/module.rs:949`（INSERT；列清单 `:950`） | `create_media_callback` 从不写 `user_id`（NOT NULL DEFAULT `''`）⇒ 必然 23514 | **未修** | 有（`POST /_synapse/admin/v1/media_callbacks`，`module.rs:851`） | 把 `user_id` 纳入请求并绑定（行为修复） |
+| D-11 | 产品缺陷 | `synapse-storage/src/registration_token/repository.rs:369`（INSERT；列清单 `:370`） | `create_room_invite` 漏写 NOT NULL 无默认的 `inviter`/`invitee` ⇒ 必然 23502 | **未修** | 无 HTTP 路由调用方（service 层唯一，`registration_token_service.rs:243`） | 产品决策：映射或删列 |
 | D-12 | 产品缺陷 | `synapse-storage/src/event_report/repository.rs:324`,`:359`,`:533` | `add_history` 只 `tracing::info!` 返回内存 `id:0`，`get_report_history`/`get_stats` 恒空；两张表不存在 | **未修** | 有（`event_report.rs:499/506`；审计写入 `event_report_service.rs:55/194/378`） | 建表 + 实现（独立功能批次） |
 | D-13 | 结构性限制 | `synapse-storage/src/room_summary/repository.rs:326`,`:575`；`synapse-storage/src/presence/mod.rs:232` | `Vec<Option<T>>` 数组参数无 sqlx 映射，3 处无法宏化 | **结构性保留（有意）** | 已计入 `dynamic_production`（3 处 `literal`） | 改单个 `jsonb_to_recordset($n)` |
 | D-14 | 结构性限制 | 见 §7.2 D-14 | 运行期拼装 SQL 无法静态化 + D1 守卫 14 处已知假阴性 | **结构性保留（有意）** | 见明细 | 见明细（逐文件回收方向） |
@@ -460,18 +471,23 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-28 | 产品缺陷 | `synapse-storage/src/event/batch.rs` 等 | 4 个 0 调用者死查询 | **已修**（B3 `2e9c3d11d`，直接删除） | 无 | — |
 | D-29 | 结构性限制 | `synapse-storage/src/admin_federation.rs:186` | `get_server_admission_status` 声明 `Option<Option<String>>`、doc 称可返回 `Some(None)`，但 `status` 列 NOT NULL ⇒ 内层 None 与消费端 `Some(None)` 分支不可达 | **未修** | 有（`federation_auth.rs:214`，`admission_mode` 开时每个联邦请求） | 按铁律 1 收窄storage 返回类型并删消费端死分支 |
 | D-30 | 结构性限制 | `synapse-storage/src/presence/mod.rs:452`,`:488`,`:522`,`:557` | `presence_subscriptions` 的 4 处 `is_undefined_column_error` 回退分支查 `user_id`/`friend_id`，合并后 schema 中从无此二列（42703）⇒ 分支既不可达又无法宏化 | **未修**（C17 保留动态） | 回退分支不可达；主分支正常 | 按铁律 1 删除 4 个回退分支与 `is_undefined_column_error` |
-| D-31 | 产品缺陷 | `synapse-storage/src/background_update.rs:272` | `create_update` 的 INSERT 从不写 `update_name`（NOT NULL UNIQUE 无默认）⇒ 真 schema 下必然 23502；模块 `db_tests` 自建简化表（`update_name` 可空、无 UNIQUE）掩盖了它 | **未修** | 有（`POST /_synapse/admin/v1/background_updates`） | INSERT 补 `update_name = job_name`（或统一为单列），并让 db_tests 改用迁移 schema |
+| D-31 | 产品缺陷 | `synapse-storage/src/background_update.rs:275`（INSERT；列清单 `:276-277`） | `create_update` 的 INSERT 从不写 `update_name`（NOT NULL UNIQUE 无默认）⇒ 真 schema 下必然 23502；模块 `db_tests` 自建简化表（`update_name` 可空、无 UNIQUE）掩盖了它 | **未修** | 有（`POST /_synapse/admin/v1/background_updates`） | INSERT 补 `update_name = job_name`（或统一为单列），并让 db_tests 改用迁移 schema |
 | D-32 | 产品缺陷 | `synapse-services/src/presence_service.rs:153` | C-3 批量 presence 写路径 `set_presence_batch`（storage + service + 内存替身 + db_tests 俱全）全仓**无任何调用者**，其 doc 宣称的"联邦 presence 同步 / 批量导入"从未接线 ⇒ 批量 upsert 与其内逐用户联邦广播是死代码 | **未修** | 无生产路径（仅 db_tests 覆盖） | 接线到联邦 EDU 批处理/批量导入，或按铁律 1 删除 batch API（连带回收 D-13 的该实例） |
 | D-33 | 产品缺陷 | `synapse-storage/src/push_notification.rs:614`（INSERT）、`:720`（DELETE） | `push_notification_log.sent_at` **从未被任何语句写入**（全仓唯一生产 INSERT 的 11 列清单无此列；全仓 0 条 `UPDATE push_notification_log`），而保留期清理是 `DELETE … WHERE sent_at < $1` ⇒ 三值逻辑下 `NULL < $1` 恒为 NULL，**永远删 0 行**，该 append-only 表无界增长 | **未修** | 有（`POST …/push_notification/cleanup`，`synapse-web/src/routes/push_notification.rs:206`；恒返回 `{"cleaned":0}`） | INSERT 补写 `sent_at`，或清理条件改 `COALESCE(sent_at, created_ts) < $1` |
-| D-34 | 产品缺陷 | `synapse-storage/src/threepid.rs:247`（SELECT `get_pending_threepids`）对 `:152`（INSERT `add_threepid`） | 谓词 `WHERE validated_at < added_ts` 与写入路径互相矛盾：`add_threepid` 的 INSERT **不写 `validated_at`**（列清单无此列）⇒ 真正的"待验证"行 `validated_at IS NULL`，`NULL < added_ts` 为 NULL ⇒ **永远不返回**；db 用例 `test_get_pending_threepids` 只能改用 `add_verified_threepid(…, validated_at=1, added_ts=1000)` 人为造行，并把"query 不过滤 is_verified"写进注释当成规格 | **未修** | 无（唯一包装 `IdentityStorage::get_pending_three_pid_validations`，`synapse-services/src/identity/storage.rs:65`，全仓无调用者） | 谓词改 `validated_at IS NULL OR validated_at < added_ts`（或按 `is_verified = FALSE`）；用例改回走 `add_threepid`；包装方接线或按铁律 1 删除 |
+| D-34 | 产品缺陷 | `synapse-storage/src/threepid.rs:247`（SELECT `get_pending_threepids`；谓词 `:262`）对 `:157`（INSERT `add_threepid`） | 谓词 `WHERE validated_at < added_ts` 与写入路径互相矛盾：`add_threepid` 的 INSERT **不写 `validated_at`**（列清单无此列）⇒ 真正的"待验证"行 `validated_at IS NULL`，`NULL < added_ts` 为 NULL ⇒ **永远不返回**；db 用例 `test_get_pending_threepids` 只能改用 `add_verified_threepid(…, validated_at=1, added_ts=1000)` 人为造行，并把"query 不过滤 is_verified"写进注释当成规格 | **未修** | 无（唯一包装 `IdentityStorage::get_pending_three_pid_validations`，`synapse-services/src/identity/storage.rs:65`，全仓无调用者） | 谓词改 `validated_at IS NULL OR validated_at < added_ts`（或按 `is_verified = FALSE`）；用例改回走 `add_threepid`；包装方接线或按铁律 1 删除 |
 
 | D-35 | 文档一致性 | 本文件 §7 导言（"计数口径"行） | 该行写 `dynamic_production=741` / `static=773` 并标注"C17 后实测"，但 741/773 是 **C16 后**的值：C17 为 773→742、741→772，与本仓 baseline（`BASELINE_DYNAMIC_PRODUCTION=742` / `BASELINE_STATIC=772`）矛盾，两处各偏 1 | **已修**（C18 提交一并更正为 706/808 并注明偏差来源） | — | 已在本节导言更正；计数一律以 `scripts/ci/sqlx_query_census.py` + `scripts/ci/sqlx_dynamic_ratio_baseline` 为唯一来源 |
+| D-36 | 覆盖缺口 / 门禁（**新登记**） | 见 §7.2 D-36（`background_update.rs:989` 等测试夹具；守卫见 §8.4） | **系统性根因**：D-10/D-11/D-31/D-33/D-34 五条"写入端漏列"缺陷同源 —— DB 测试不跑迁移 schema，而用空 schema + 自建简化表，掩盖了 NOT NULL/CHECK/UNIQUE 约束与写入端漏列 | **未修**（2026-09-23 重排新登记） | — | §8.4：模板 schema 断言 + INSERT 列覆盖 CATALOG 检查（各配红证明） |
 
-**状态计数**：已修 **5**（D-02/D-03/D-24/D-28/D-35）；未修 **18**
+**状态计数（2026-09-23 重排后）**：已修 **5**（D-02/D-03/D-24/D-28/D-35）；未修 **19**
 （D-01 语法已修但死函数待删、D-04…D-12、D-17、D-27、D-29、D-30、D-31、D-32、
-D-33、D-34）；结构性保留（有意）**7**
-（D-13/D-14/D-18…D-22）；覆盖缺口 **2**（D-15 含 D-15.6/D-25）；文档一致性 **4**
-（D-16/D-23/D-26/D-35）。合计 **35** 条。
+D-33、D-34、**D-36**）；结构性保留（有意）**7**
+（D-13/D-14/D-18…D-22）；覆盖缺口 **2**（D-15 含 D-15.6、D-25；D-36 虽同属覆盖缺口/门禁，
+已计入上面的"未修 19"，此处不重复计数）；文档一致性 **3**
+（D-16/D-23/D-26；D-35 已计入上面的"已修 5"，此处**不重复计数**——原文把 D-35 同时计入
+两类，五类相加为 36 与"合计 35"矛盾，本次标注修正）。合计 **36** 条
+（D-01…D-36；其中 **D-36 为本次重排新登记的系统性根因**，故由 35 增至 36）。
+校验：5 + 19 + 7 + 2 + 3 = **36**。
 
 ### 7.2 逐条明细
 
@@ -557,7 +573,8 @@ D-33、D-34）；结构性保留（有意）**7**
 
 #### D-05 `DeviceKey.id` 恒为 0（C10）
 
-- 位置：`synapse-e2ee/src/device_keys/storage.rs:121`（`DeviceKey { id: 0, … }`）。
+- 位置：`synapse-e2ee/src/device_keys/storage.rs:121-122`（`DeviceKey {` 在 `:121`，
+  `id: 0,` 在 `:122`）。
 - 证据：本文件内**没有任何** SQL 投影 `id`——`RETURNING`/`SELECT` 列清单为
   `user_id, device_id, algorithm, key_id, public_key, signatures, display_name,
   added_ts, ts_updated_ms, key_data, is_fallback`（`claim_one_time_key` 的两条 CTE
@@ -631,8 +648,8 @@ D-33、D-34）；结构性保留（有意）**7**
 
 #### D-10 `create_media_callback` 从不写 `user_id`（C12）
 
-- 位置：`synapse-storage/src/module.rs:940-970`（INSERT 列清单
-  `:950-952` 不含 `user_id`）。
+- 位置：`synapse-storage/src/module.rs:949-952`（`sqlx::query_as!` 起于 `:946`，INSERT 在
+  `:949`，列清单 `:950`，**不含 `user_id`**）。
 - 证据：`media_callbacks.user_id` 是 `TEXT NOT NULL DEFAULT ''`
   （`migrations/00000000_unified_schema_v12.sql:2212`），而 v12 基线的 DO 循环会为**每张
   含 `text user_id` 列的表**自动加 `ck_%I_user_id_format`
@@ -789,13 +806,14 @@ D-33、D-34）；结构性保留（有意）**7**
 #### D-17 `.sqlx` 双份离线缓存（结构性冗余）
 
 - 位置：根 `.sqlx/` 与 `synapse-storage/.sqlx/`。
-- 证据（本文档撰写时实测）：
-  - 根 `.sqlx/` **680** 个 `query-*.json`，`synapse-storage/.sqlx/` **53** 个；
-  - **两者都被 git 跟踪**：`git ls-files .sqlx | wc -l` = 680，
+- 证据（**2026-09-23 重排时重测**；本条目撰写时的 680 已过时，见行内标注）：
+  - 根 `.sqlx/` **782** 个 `query-*.json`（撰写时 **680**，C11–C18 期间增长），
+    `synapse-storage/.sqlx/` **53** 个（未变）；
+  - **两者都被 git 跟踪**：`git ls-files .sqlx | wc -l` = **782**（撰写时 680），
     `git ls-files synapse-storage/.sqlx | wc -l` = 53；
   - 逐文件 `cmp`：53 个里有 **34 个与根缓存逐字节相同**、**0 个内容冲突**、
     **19 个只存在于 `synapse-storage/.sqlx/`**（根缓存里没有同名文件）⇒ 根缓存
-    **并未完全覆盖**子目录（"内容被根缓存覆盖"不成立）。
+    **并未完全覆盖**子目录（"内容被根缓存覆盖"不成立）。34/0/19 的比例在重测中未变。
   - 解析规则（sqlx 按 `SQLX_OFFLINE_DIR` → `manifest_dir/.sqlx` → 根 `.sqlx` 逐文件
     回退）意味着编译 `synapse-storage` 时子目录会先被命中；`cargo sqlx prepare
     --workspace` 的 destination 是**根 `.sqlx/` 且先清后写**（C11–C15 段均记录该
@@ -1018,10 +1036,11 @@ D-33、D-34）；结构性保留（有意）**7**
 
 #### D-31 产品缺陷：`create_update` 漏写 NOT NULL 的 `update_name`，测试自建简化表掩盖（C17）
 
-- 位置：`synapse-storage/src/background_update.rs:272-296`（`create_update` 的
-  `INSERT INTO background_updates (…)` 列清单为 `job_name, job_type, description,
-  table_name, column_name, total_items, batch_size, sleep_ms, depends_on, metadata,
-  created_ts, status, max_retries`——**没有 `update_name`**）。
+- 位置：`synapse-storage/src/background_update.rs:275-278`
+  （`sqlx::query_as!` 起于 `:272`，INSERT 在 `:275`，列清单 `:276-277`，VALUES `:278`；
+  列清单为 `job_name, job_type, description, table_name, column_name, total_items,
+  batch_size, sleep_ms, depends_on, metadata, created_ts, status, max_retries`——
+  **没有 `update_name`**）。
 - 证据（schema）：权威迁移 `migrations/00000000_unified_schema_v12.sql:1927-1953`
   定义 `update_name TEXT NOT NULL` + `CONSTRAINT uq_background_updates_name UNIQUE
   (update_name)`，且**无 DEFAULT**（`\d background_updates` 的 Default 列实测为空）。
@@ -1124,12 +1143,12 @@ D-33、D-34）；结构性保留（有意）**7**
 
 #### D-34 产品缺陷：`get_pending_threepids` 的谓词与自身写入路径互相矛盾（C18）
 
-- 位置：查询 `synapse-storage/src/threepid.rs:247`
-  （`ThreepidStorage::get_pending_threepids`，谓词
-  `WHERE validated_at < added_ts`）；对照写入 `synapse-storage/src/threepid.rs:152`
+- 位置：`synapse-storage/src/threepid.rs:247`
+  （`ThreepidStorage::get_pending_threepids`，谓词实际在 `:262`
+  `WHERE validated_at < added_ts`）；对照写入 `synapse-storage/src/threepid.rs:157`
   （`ThreepidStorage::add_threepid` 的 `INSERT INTO user_threepids
   (user_id, medium, address, added_ts, is_verified, verification_token,
-  verification_expires_at)`）。
+  verification_expires_at)`；方法定义起于 `:149`）。
 - 证据（写入路径不产生可被该谓词匹配的行）：`add_threepid` 的列清单**没有
   `validated_at`**，而 `user_threepids.validated_at` 可空无默认 ⇒ 这些行
   `validated_at IS NULL`。`NULL < added_ts` 求值为 `NULL`，`WHERE` 不成立 ⇒
@@ -1179,6 +1198,41 @@ D-33、D-34）；结构性保留（有意）**7**
 - 备注：D-16 已确立"计数一律以脚本 + baseline 为唯一来源"的口径；本次更正与该口径
   一致，未引入第二份计数记录。
 
+#### D-36 覆盖缺口 / 门禁：测试自建简化 schema 掩盖写入端约束（2026-09-23 重排**新登记**）
+
+- 类别：覆盖缺口兼**系统性根因**。本条不是既有条目的重复，而是把 D-10 / D-11 / D-31 /
+  D-33 / D-34 五条"写入端漏列 ⇒ 必然失败 / 永远无效"缺陷的**同一根因**显式立项，
+  以便用一个守卫覆盖整个家族（守卫方案见 §8.4）。
+- 症状：这些模块的 DB 测试**不跑迁移 schema**，而是从
+  `crate::test_utils::prepare_empty_isolated_test_pool()`
+  （`synapse-storage/src/test_utils.rs:126`：建**空 schema、不套任何迁移**）拿一个空库，
+  再由测试自己 `CREATE TABLE` 一张同名简化表。简化表丢掉了 NOT NULL / CHECK / UNIQUE
+  约束，于是"真 schema 下 100% 失败"的写入路径在这些测试里是绿的。
+- 证据（逐条，均为当前工作树实测）：
+  - **D-31**：`background_update::db_tests` 的 `get_bu_test_pool()`（`synapse-storage/src/background_update.rs:1109`）
+    调 `prepare_empty_isolated_test_pool()`，随后 `setup_background_update_db()`
+    （`:989`）自建同名表，其中 `update_name TEXT,`（`:994`）**可空且无 UNIQUE**；
+    测试还用 `UPDATE background_updates SET update_name = job_name WHERE update_name IS NULL`
+    （注释在 `:1756`）手工补列——测试自己把生产缺陷写成了补丁。
+  - **D-11**：`synapse-storage/src/registration_token/db_tests.rs:828-829` 用裸 SQL 绕过
+    `create_room_invite`，注释自述 "create_room_invite is broken due to required
+    inviter/invitee columns that it does not supply — pre-existing bug"。
+  - **D-33**：`synapse-storage/src/push_notification.rs` 文件内 `mod db_tests` 数 = **0**
+    （`grep -c 'mod db_tests'` = 0），`cleanup_old_logs` 从未被任何用例调用（D-15.6）
+    ⇒ 该 no-op 保留期端点能长期潜伏。
+  - **D-34**：`test_get_pending_threepids`（`synapse-storage/src/threepid.rs:1094`）无法用
+    `add_threepid` 造出目标行，改用 `add_verified_threepid(…, validated_at=1, added_ts=1000)`
+    人为满足旧谓词，并把"query 不过滤 is_verified"写进注释当成规格——用例锁定的是错误语义。
+  - 对照：`synapse-storage/src/test_isolation.rs:50` 的 `isolated_test_pool()`
+    才是"从共享 v12 模板克隆 schema"的正确入口（"Every DB test in this crate should start
+    here"），迁移模板由 `synapse-common/src/test_isolation.rs:375` 的
+    `ensure_template_schema` 构建。
+- 影响：这五条缺陷全部是**人工对照真 schema / 迁移**才发现的（C12/C14/C17/C18），
+  没有任何一条由测试暴露；同类"写入端漏列"还会继续以同样方式潜伏。
+- 状态：**未修**（本次重排新登记；作为独立条目跟踪，其守卫即 §8.4 的 8.4 项）。
+- 建议处理：见 §8.4（模板 schema 断言 + INSERT 列覆盖 CATALOG 检查，两者都必须先用
+  故意制造的违规证明会变红）。
+
 ### 7.x 处置约定
 
 1. **不在静态化范围内。** 静态化是**行为保持**的机械重构；本节所有条目都涉及行为、
@@ -1200,3 +1254,281 @@ D-33、D-34）；结构性保留（有意）**7**
    D-11 / D-04 / D-27 / D-30 / D-32 / D-34（潜伏或死代码清理）
    → D-05 / D-07 / D-08 / D-09（一致性/确定性）→ D-13 / D-14（结构性回收）→
    D-15（含 D-15.6）/ D-25（补测与门禁）→ D-17（缓存收敛）→ D-06 / D-16 / D-23 / D-26（文档/注释）。
+
+---
+
+## 8. 问题优先处理计划（2026-09-23 重排：先修问题，再继续静态化）
+
+> **定位**：本节是**当前唯一执行排期**。§5 的阶段表与「执行结果」的批次表降级为**历史记录**。
+> §7 仍是所有既有问题的**唯一登记处**；本节只做"排序 + 每条的修复/验收定义"，不重复登记证据。
+> §7.x 处置约定第 5 条（"建议的处理顺序"）自本节起由 §8.2 的分波表取代，其余 4 条约定继续有效。
+
+### 8.1 决策与理由
+
+**决定**：**暂停 C 批次（逐文件静态化）**，先把 §7 登记的问题按"价值 × 改动量"分波修完，
+再恢复静态化。这不是放弃静态化，而是把已投入的静态化**变现**。
+
+为什么现在停：
+
+1. **剩下的动态预算边际收益递减。** 当前计数（`python3 scripts/ci/sqlx_query_census.py`）
+   为 `dynamic_production=706` / `static=808` / `dynamic_test=704`。总动态 ≈ 1410，其中
+   **约一半（704 处）是 §4 / §7 D-13 / D-14 已证明原理上无法宏化的测试基建**（动态
+   schema 名、`CREATE/DROP SCHEMA`、故障注入、`VACUUM/REINDEX` 标识符、`Vec<Option<T>>`
+   参数等）；余下 706 处生产动态绝大多数是**尚未被任何 C 批次覆盖的生产模块**里的字面量站点
+   （`--list-production-dynamic` 的 `literal` 类）。继续按文件扫，是在已证明"必须动态"
+   的残差里找零头，**降计数不再等于降风险**。
+2. **campaign 正在"发现"而不是"修复"。** D-31 / D-33 / D-34 全部是 C17 / C18 期间挖出的——
+   即每继续一个批次，就再多登记几条"真 schema 下必然失败"的缺陷，而 §7.x 第 1 条明令
+   禁止把这些修复夹带进静态化批次（夹带会让"编译期红证明"失效）。结果是缺陷越积越多、
+   一条都没修。**先修完再继续，才能把 W1–W5 的 20 条可执行项真正变成已消除的风险**
+   （另有 D-36 守卫作为防复发项，不计入这 20 条）。
+3. **最高价值的动作现在是修复。** §8.2 的 W1–W4 共 18 条里有 8 条是"已注册路由 / 必然失败 /
+   静默丢数据 / 静默不清理"，改动量多为单列 + 单绑定或整段删除；这是当前投入产出比最高的工作。
+
+**不变的前提**（继续生效，不因暂停而放松）：
+
+- **棘轮继续生效**：`bash scripts/ci/check_sqlx_dynamic_ratio.sh` 仍要求
+  **生产动态不得增、静态不得减**。修复过程中即使只是改 SQL 文本（如 W1 的补列），也必须
+  重跑 `cargo sqlx prepare --workspace` 并让 `check_sqlx_cache_fresh.sh` 保持绿。
+- **D-13 / D-14 有意保持动态**（`Vec<Option<T>>` 数组参数；真正运行期拼装 SQL + D1 守卫的
+  14 处已知假阴性）；D-18…D-22 的结构性限制同样继续按既有解法沿用，**本计划不为它们排期**。
+- **C 批次是可恢复的暂停**，不是终止：恢复条件与不变式见 §8.5。
+
+### 8.2 分波处置表
+
+分波依据 **价值 × 改动量**：W1 是"写入端漏列 ⇒ 功能必然失败"（小改、高影响），W4 是
+纯死代码/卫生（小改、低影响），W5 是补测。每条的内容都按 §7 的实际 `D-NN` 与 `路径:行号`
+映射（提示名不作为编号依据）。**已处置的 8 条（D-02/D-03/D-16/D-23/D-24/D-26/D-28/D-35）
+不进入任何波次，排除理由见本节末。**
+
+**W1 —— 写入端漏列 ⇒ 功能必然失败（小改、高影响）**
+
+| 波次 | 条目 | 类别 | 严重度/影响 | 可达性 | 改动量 | 验收判据 | 依赖 |
+|---|---|---|---|---|---|---|---|
+| W1 | D-31 | 产品缺陷（写入端漏列） | 高：INSERT 必然 23502，admin 端点 100% 失败 | 有：`POST /_synapse/admin/v1/background_updates` | 小：INSERT 补 1 列（值取 `job_name`，可复用 `$1`）；可选收敛 `job_name`/`update_name` 双列（迁移） | 迁移模板下 `create_update`→`get_update`→`delete_update` 往返通过；重复创建按 UNIQUE 报 23505；删掉测试里的手工补列 | 无 |
+| W1 | D-10 | 产品缺陷（写入端漏列） | 高：必然 23514（CHECK `ck_media_callbacks_user_id_format`） | 有：`POST /_synapse/admin/v1/media_callbacks` | 小：请求结构体 + INSERT 补 `user_id` 绑定（或显式 `NULL`） | 迁移模板下 `create_media_callback` 成功、`get_media_callbacks` 读回同一行 | 产品确认 `user_id` 语义 |
+| W1 | D-11 | 产品缺陷（写入端漏列） | 高（潜伏）：接线路由即 100% 23502 | 无 HTTP 路由（service 唯一包装，未接线） | 小：INSERT 补 `inviter`/`invitee` 绑定（或产品决定删冗余列 + 迁移） | `registration_token/db_tests` 删除裸 SQL 绕过（`:828-829`），改走 `create_room_invite` 并读回两列 | 产品决策：映射 vs 删列 |
+| W1 | D-33 | 产品缺陷（写入端漏列） | 高：保留期端点恒 `{"cleaned":0}`，append-only 表无界增长 | 有：`POST /_synapse/admin/v1/push_notification/cleanup` | 小：INSERT 补 `sent_at`（同 `created_ts`）**或** DELETE 改 `COALESCE(sent_at, created_ts) < $1` | 先补 D-15.6 的 `cleanup_old_logs` DB 用例（RED：删 0 行 → GREEN：删 1 行） | 语义决策：`sent_at` = 发送时刻 or 落库时刻 |
+| W1 | D-34 | 产品缺陷（谓词与写入矛盾） | 中（潜伏）：正常写入的待验证 3PID 永远列不出 | 无（唯一包装 `get_pending_three_pid_validations` 零调用者） | 小：谓词改 `validated_at IS NULL OR validated_at < added_ts` + 用例改走 `add_threepid` | 用 `add_threepid` 造行后 `get_pending_threepids` 必须返回该行（RED→GREEN）；并删除把缺陷当规格的注释 | 产品决策：包装方接线 or 删 |
+
+**W2 —— 正确性 / 数据一致性**
+
+| 波次 | 条目 | 类别 | 严重度/影响 | 可达性 | 改动量 | 验收判据 | 依赖 |
+|---|---|---|---|---|---|---|---|
+| W2 | D-09 | 产品缺陷（解码类型） | 中高：`suggested_only` 分支一旦真返回行即 `ColumnDecode` 失败 | 有：federation hierarchy（`suggested_only=true`） | 小：`:716` 改 `ARRAY(SELECT jsonb_array_elements_text(via_servers))`（同族 5 处已是此写法） | 新增 `is_suggested=true` 的 DB 用例（现有 `db_tests.rs:747` 夹具 0 行，未触发解码） | 无 |
+| W2 | D-08 | 数据一致性 / 安全相邻 | 中：`LIMIT 1` 无 `ORDER BY`，OTK 选取非确定 | 有：OTK claim 路径 | 小：`target`（`:732`）与 `fb`（`:775`）两条 CTE 各加 `ORDER BY added_ts, id` | 同一 `(user, device, algorithm)` 多把未用密钥时，连续 claim 严格按 `added_ts, id` 顺序发放 | 无 |
+| W2 | D-07 | 数据一致性 | 中：`stream_id` 插入失败被完全吞掉，不可观测 | 有：设备列表变更写路径 | 小：至少 `tracing::warn!` + 指标；或改 `?` 让调用方可失败 | 故障注入（令插入失败）下断言 warn/指标出现或错误向上传播，而非静默 `Ok` | 语义决策：best-effort 是否允许静默 |
+| W2 | D-05 | 数据一致性 | 中低：`DeviceKey.id` 恒 0，而 `device_keys.id` 是 BIGSERIAL 主键（暴露给客户端） | 生产不读；仅 2 处纯单测断言 id | 小：投影 `id` 返回真主键，或按铁律 1 删字段 | 若保留：DB 往返断言 `id` 等于真实主键；若删除：编译期证明无消费方 | API 是否需要 `id` |
+
+**W3 —— 契约说谎 / 静默丢弃**
+
+| 波次 | 条目 | 类别 | 严重度/影响 | 可达性 | 改动量 | 验收判据 | 依赖 |
+|---|---|---|---|---|---|---|---|
+| W3 | D-29 | 契约说谎 | 中：doc 承诺的 `Some(None)` 不可达，消费端死分支仍在 | 有：`admission_mode` 下每个联邦请求经过；分支本身不可达 | 小：storage 返回类型收窄 `Option<String>` + 删 service `:486` 分支 + 改 doc | 编译期证明 `Some(None)` 分支消失；`db_tests` 未知/已存在两例仍绿 | 行为契约变更，需独立评审 |
+| W3 | D-32 | 契约说谎 + 死代码 | 中低：批量 presence upsert 与其批量联邦广播从未接线 | 无（仅 db_tests） | 中：接线到联邦 presence EDU 批处理 / 批量导入，**或**按铁律 1 删除 batch API | 删除路径：全仓无 `set_presence_batch` 引用且棘轮 -1；接线路径：批量入口有集成用例 | 产品确认是否真有批量场景 |
+| W3 | D-12 | 产品缺陷（**大**） | 高：审核历史静默丢弃，两个 admin 端点恒空 | 有：`GET …/{id}/history`、`GET …/stats` 路由已注册 | **大**：需建 `event_report_history`/`event_report_stats` 表 + 落地 `add_history`/`get_report_history` + `get_stats` 改聚合 SQL；**先决定两个端点是否临时下线**（当前返回空会被误读为"没有历史"） | 建表迁移 + `add_history` 落库；history/stats 端点在 DB 用例下返回非空且可断言 | 独立功能批次；表结构设计 —— **建议在本轮最后单独排期，不塞进 W1–W4 的快速修复** |
+
+**W4 —— 死代码与卫生**
+
+| 波次 | 条目 | 类别 | 严重度/影响 | 可达性 | 改动量 | 验收判据 | 依赖 |
+|---|---|---|---|---|---|---|---|
+| W4 | D-01 | 死代码 | 低：SQL 语法已修（`0e1716643`）但 0 调用者函数仍在 | 无 | 小：删整个函数 | 全仓无引用；棘轮 -1（同步下调基线） | 无 |
+| W4 | D-04 | 死代码（潜伏） | 低：自建 DDL 缺 `fallback_used` 且 0 调用者 | 无 | 小：删 `create_tables()`（**不要**补列——那会造第二份 schema 真源，违反铁律 2/4） | 全仓无 `.create_tables(`；`migrations/` 仍是唯一 schema 真源 | 无 |
+| W4 | D-27 | 死代码 | 低：整模块无消费者，却带 8 处生产动态 | 无（`sync/mod.rs:10` 再导出无人消费） | 小：删模块 + 再导出 | 全仓无 `SearchIndexStorage` 外部引用；棘轮 -8 | 无 |
+| W4 | D-30 | 死代码（不可达分支） | 中低：4 处回退分支不可达，且阻塞宏化 | 回退分支不可达（主分支正常） | 小：删 4 个回退分支 + `is_undefined_column_error`（`:16`） | 删后 presence 生产动态 4→0；棘轮 -4 | 分支删除属行为变更，需独立评审 |
+| W4 | D-06 | 卫生 | 无（cosmetic） | 无 | 小：清理 `DeviceKeyRow` 每字段重复的 doc 注释 | 每字段一行；无 `.sqlx`/棘轮影响 | 无 |
+| W4 | D-17 | 卫生 / 冗余 | 低：同一职责两份离线缓存（根 **782** / 子 **53**；34 相同、0 冲突、19 仅存子目录） | 影响 `SQLX_OFFLINE` 编译与新鲜度门禁 | 小：`git rm -r --cached synapse-storage/.sqlx` 后清理，统一根缓存 | 先 `SQLX_OFFLINE=true cargo check --workspace --all-features` 证明不需要子目录；`check_sqlx_cache_fresh.sh` 绿 | 需先确认那 19 条非陈旧（§7 D-17 标 `[未验证]`） |
+
+**W5 —— 覆盖缺口**
+
+| 波次 | 条目 | 类别 | 严重度/影响 | 可达性 | 改动量 | 验收判据 | 依赖 |
+|---|---|---|---|---|---|---|---|
+| W5 | D-15（含 D-15.1–D-15.6） | 覆盖缺口 | 中：已静态化代码无 DB 往返/游标分支；D-15.6 正是 D-33 长期潜伏之因 | — | 中：逐子项补迁移模板下的 DB 用例 | 每子项先写 RED 用例再收口；D-15.2 经核实集成侧已覆盖（降级为可选）；D-15.5 方法数为 12 而非 13 | D-15.6 依赖 W1 的 D-33 语义决策 |
+| W5 | D-25 | 覆盖缺口 / 门禁 | 中：门控模块 "0 tests" 假绿（曾 4 次踩到） | 不体现在棘轮数字里 | 小：批次 procedure / CI 记录每个门控模块所需 feature 集，过滤器 0 命中即失败 | 故意去掉某门控模块的 feature 跑守卫 → 必须变红（铁律 8） | 无 |
+
+**守卫（8.4，本次新登记为 D-36）**
+
+| 波次 | 条目 | 类别 | 严重度/影响 | 可达性 | 改动量 | 验收判据 | 依赖 |
+|---|---|---|---|---|---|---|---|
+| 守卫 | D-36 | 覆盖缺口 / 门禁（系统性根因） | 高：D-10/D-11/D-31/D-33/D-34 的共同根因 | — | 小–中：静态守卫 + 一个 CATALOG 检查 | 见 §8.4；两条守卫都必须先用违规探针证明会变红 | 以 W1 五条为 RED 样本 |
+
+**不做（结构性，有意保留）**
+
+| 条目 | 类别 | 为什么不做 |
+|---|---|---|
+| D-13 | 结构性限制 | `Vec<Option<T>>` 数组参数无 sqlx 映射（3 处 `literal` 已计入棘轮）；回收方向 `jsonb_to_recordset` 属独立改造，本计划不排期 |
+| D-14 | 结构性限制 | 真正运行期拼装 SQL（41 处 / 12 文件 + `QueryBuilder`）+ D1 守卫 14 处已知假阴性；**有意保留**，逐文件回收方向见 §7 D-14 |
+| D-18 / D-19 / D-20 / D-21 / D-22 | 结构性限制 | 仅排序列 / `query_as!` 不认 rename-skip / LEFT JOIN 外侧列空值 / `&Option<T>` 绑定 / `RETURNING *` 展开——解法均已落地并写成批次 checklist，沿用即可，本计划不新增工作 |
+
+**已处置、不进入波次的 8 条（排除理由）**：D-02（已修 `cbe718ff6`）、D-03（已修
+`0f6a76c13` + S1–S4）、D-24（已修 `483dfc045`）、D-28（B3 已删 4 个死查询 `2e9c3d11d`）、
+D-35（C18 已更正计数）、D-16（已修正 C11 行）、D-23（已绕过，无遗留）、D-26（已收窄结论）。
+其中 D-02/D-03/D-24/D-28/D-35 的"补测试/回归防护"若要做，归入 W5 的同型补测，不再单列条目。
+
+### 8.3 第一波详情
+
+W1 五条都是"写入端漏列（或谓词与写入矛盾）⇒ 操作必然失败 / 永远无效"。**统一原则**：
+先让测试跑在**真迁移 schema** 上（RED），再改写入端或谓词（GREEN）；**不要**用"手工补列 /
+裸 SQL 绕过 / 自建简化表"把 RED 抹平——那正是 D-36 的根因。
+
+#### 8.3.1 D-31 `create_update` 漏写 `update_name`
+
+- **修复**：在 INSERT 列清单加入 `update_name`，并绑定到已有的 `job_name` 参数（`$1`），
+  即 `update_name = job_name`；这是与其它所有读写（`get_update` / `update_status` /
+  `update_progress` / `set_error` / `delete_update` / `retry_failed` 全按 `update_name`
+  定位）一致的唯一选择。是否把冗余的 `job_name` 列按铁律 1 收敛掉（需迁移）是并行的产品决策，
+  不阻塞本修复。
+- **精确位置**：`synapse-storage/src/background_update.rs:275`（`INSERT INTO background_updates (`）、
+  `:276-277`（列清单）、`:278`（VALUES）；改后 VALUES 需多加一个占位（可复用 `$1`，无需新增绑定）。
+- **验收测试**：新增 `background_update::db_tests::test_create_update_roundtrip`：
+  1. 把 `get_bu_test_pool()`（`:1109`）由 `prepare_empty_isolated_test_pool()` 改为
+     `crate::test_isolation::isolated_test_pool()`（v12 模板克隆，
+     `synapse-storage/src/test_isolation.rs:50`），并**删除** `setup_background_update_db`
+     （`:989`）里的自建 `CREATE TABLE`；
+  2. 断言 `create_update` 返回行、`get_update(job_name)` 命中、`delete_update` 生效；
+  3. 断言重复 `create_update(同名)` 命中 UNIQUE 约束（23505，或映射后的领域错误）。
+- **红/绿证明**：**RED** = 只做第 1 步（测试切到迁移模板）、不动实现 ⇒ `create_update`
+  立刻 `23502`；**GREEN** = 补 `update_name` 列与绑定后，以上三条断言全绿；同时删除
+  `:1756` 附近"手工 `UPDATE … SET update_name = job_name`"的测试补丁（它存在的唯一理由就是本缺陷）。
+
+#### 8.3.2 D-10 `create_media_callback` 不写 `user_id`
+
+- **修复**：INSERT 列清单补 `user_id`，绑定 `request.user_id`；若产品确认回调不归属任何用户，
+  则显式绑定 `NULL`（`media_callbacks.user_id` 可空，约束允许 NULL）。**不能**继续依赖
+  `DEFAULT ''`——`''` 违反 v12 的 `ck_media_callbacks_user_id_format`，这正是 23514 的来源。
+- **精确位置**：`synapse-storage/src/module.rs:949`（INSERT）、`:950`（列清单）、
+  `:952`（VALUES）；请求结构体 `CreateMediaCallbackRequest` 在 `synapse-storage/src/module.rs:338`。
+- **验收测试**：在 `module.rs` 新建 `db_tests`（当前文件内 `test_` 全为纯单元，无
+  `require_test_pool`，即 D-15.1 的"无任何 DB 往返"），用 `isolated_test_pool()`：
+  1. `create_media_callback` 成功返回；
+  2. `get_media_callbacks(Some(callback_type))` 读回同一行，且 `user_id` 等于所选语义的值。
+- **红/绿证明**：**RED** = 迁移 schema 下当前实现 ⇒ `23514`
+  （`ck_media_callbacks_user_id_format`）；**GREEN** = 补列绑定后两条断言通过。
+  该用例同时关闭 D-15.1 的 module 覆盖缺口。
+
+#### 8.3.3 D-11 `create_room_invite` 漏写 `inviter`/`invitee`
+
+- **修复**：INSERT 列清单补 `inviter`、`invitee` 两列（都是 `TEXT NOT NULL` 且**无默认值**，
+  `migrations/00000000_unified_schema_v12.sql:566-567`），按 §7 建议映射
+  `inviter = request.inviter_user_id`、`invitee = request.invitee_email`；替代方案是产品
+  决定删除这两个冗余列（需迁移）。**未决前不要接线到路由**（否则等于把潜伏缺陷变成在线故障）。
+- **精确位置**：`synapse-storage/src/registration_token/repository.rs:369`（INSERT）、
+  `:370`（列清单）、`:372`（VALUES）。
+- **验收测试**：改写 `synapse-storage/src/registration_token/db_tests.rs:828-829` 的裸 SQL
+  绕过，改为调用 `create_room_invite` 并用 `get_room_invite(invite_code)` 读回，断言
+  `inviter`/`invitee` 等于请求值。
+- **红/绿证明**：**RED** = 删掉裸 SQL 绕过、在迁移 schema 上直接调用现实现 ⇒ `23502`
+  （null value in column "inviter"）；**GREEN** = 补两列绑定后往返通过。
+
+#### 8.3.4 D-33 `push_notification_log.sent_at` 从未写入 ⇒ 清理永远删 0 行
+
+- **修复**（二选一，先定语义）：
+  - **(a)** 在 INSERT 列清单补 `sent_at`，绑定与同一调用中 `created_ts` 相同的 `now`
+    时间戳 —— 语义 = "日志落库时刻"；需确认这不与 `sent_at` 的原始设计语义
+    （"推送发送时刻"）冲突；若确为后者，应另设列并重新设计，而不是复用。
+  - **(b)** 保留写入不变，把清理谓词改为 `WHERE COALESCE(sent_at, created_ts) < $1`
+    —— 对**存量** `sent_at IS NULL` 行也立即生效，是能马上止血的选项。
+  §7 倾向先做 (b)（无需回填历史数据），(a) 作为后续语义收敛。
+- **精确位置**：写入 `synapse-storage/src/push_notification.rs:614`（INSERT）、
+  `:615-616`（列清单）、`:617`（VALUES）；清理 `:720`（`DELETE … WHERE sent_at < $1`）。
+- **验收测试**：先补 D-15.6 的 `db_tests`（该文件当前 `mod db_tests` 数 = **0**）：
+  1. `test_create_notification_log_roundtrip` —— 断言落库成功；若选 (a) 另断言 `sent_at` 非空；
+  2. `test_cleanup_old_logs_deletes_expired` —— 在迁移模板下写入一条 `created_ts` 远早于
+     阈值（且 `sent_at` 为 NULL）的行，`cleanup_old_logs(days)` 必须删除 ≥1 行；
+  3. 负例：`created_ts` 在阈值内的行**不得**被删（防止 (b) 误伤）。
+- **红/绿证明**：**RED** = 迁移 schema + 当前实现，用例 2 断言 `rows_affected() == 1`
+  但实际恒为 `0`（对应路由恒返回 `{"cleaned":0}`）；**GREEN** = 选 (a) 或 (b) 后
+  用例 2 与负例同时通过。
+
+#### 8.3.5 D-34 `get_pending_threepids` 谓词与 `add_threepid` 写入矛盾
+
+- **修复（选谓词侧）**：把 `WHERE validated_at < added_ts` 改为
+  `WHERE validated_at IS NULL OR validated_at < added_ts`。理由：文档意图是"列出**待验证**
+  3PID"，而正常写入路径 `add_threepid` 产出的正是 `validated_at IS NULL` 的行；改写入端
+  （硬塞一个 `validated_at`）会破坏"验证前为空"的语义，是错的一侧。若真正的语义是
+  "未验证"，则应显式写 `COALESCE(is_verified, FALSE) = FALSE` 而不是依赖 `validated_at`
+  的时间比较（`is_verified` 在 catalog 中可空、默认 false，需配 COALESCE）。
+- **精确位置**：`synapse-storage/src/threepid.rs:247`（方法）、`:262`（谓词
+  `WHERE validated_at < added_ts`）；写入对照 `:157`（`add_threepid` 的 INSERT，无
+  `validated_at`）；用例 `:1094`。
+- **验收测试**：把 `test_get_pending_threepids`（`:1094`）改回用 `add_threepid` 造行，
+  断言返回该行；新增负例"`add_verified_threepid` 写入且 `validated_at >= added_ts` 的行
+  不返回"；删除注释里"query 不过滤 is_verified，所以已验证的行也会出现在 pending 里"
+  这类把缺陷当规格的表述。
+- **红/绿证明**：**RED** = 把用例改走 `add_threepid` 后，当前谓词返回 **0** 行；
+  **GREEN** = 改谓词后返回 1 行，且负例仍返回 0 行。
+- **遗留决策**（不阻塞本修复）：唯一包装 `IdentityStorage::get_pending_three_pid_validations`
+  （`synapse-services/src/identity/storage.rs:65`）全仓零调用者 —— 接线到 identity server 的
+  requestToken / 待验证查询路径，或按铁律 1 删除；属独立条目。
+
+### 8.4 系统性根因与守卫（D-36）
+
+§7 的五条"写入端漏列"缺陷（D-10 / D-11 / D-31 / D-33 / D-34）有**同一根因**：这些模块的
+DB 测试跑在**自建简化表**上（`prepare_empty_isolated_test_pool()` 给空 schema，测试自己
+`CREATE TABLE`），于是 NOT NULL / CHECK / UNIQUE 约束被抹掉、"写入端漏列"在测试里永远绿。
+D-36 已把该根因单独登记为条目；下面是**可落地且便宜**的守卫提案（两条，各自必须证明能变红）。
+
+**守卫 A —— 模板 schema 断言（静态、无需 DB、可进 `tests/unit`）**
+- 扩展已有词法扫描器 `scripts/ci/sqlx_query_census.py`（它已做注释/字符串剥离），新增
+  `--list-test-ddl` 模式：对每个 `#[cfg(test)]` 模块 / `mod db_tests`，报告其中出现的
+  `CREATE TABLE` / `ALTER TABLE` / `CREATE SCHEMA` 调用。
+- 新增 `tests/unit/` 守卫测试：调用该模式，任何命中都必须出现在显式 allowlist
+  `scripts/ci/test_ddl_allowlist` 中；allowlist 的键是 **`path::mod`（函数/模块级）**，
+  **不是行号**（行号型 allowlist 会随 `cargo fmt` 漂移 —— 见铁律 8 与
+  `scripts/shell_routes_allowlist.txt` 前车之鉴）。
+- 语义：一个 db_test 若自建表，就不可能发现"写入端 vs 迁移 schema"的漂移（D-31 正是如此）。
+  正统入口是 `crate::test_isolation::isolated_test_pool()`
+  （`synapse-storage/src/test_isolation.rs:50`，从共享 v12 模板克隆；模板由
+  `synapse-common/src/test_isolation.rs:375` 的 `ensure_template_schema` 构建）。
+- **第一步（可独立提交，不需要守卫本体）**：把 `background_update::db_tests` 的
+  `get_bu_test_pool()`（`synapse-storage/src/background_update.rs:1109`）从
+  `prepare_empty_isolated_test_pool()` 切到 `isolated_test_pool()`，删掉
+  `setup_background_update_db` 的自建表 —— 这一步单独就会让 D-31 变红（见 §8.3.1）。
+
+**守卫 B —— INSERT 列覆盖 CATALOG 检查（一个 DB 连接，迁移 schema）**
+- 用同一个扫描器静态抽出生产源码里所有**列清单为字面量**的 `INSERT INTO <table> (<cols>)`
+  （当前生产 INSERT 已大面积宏化，抽取代价低）。
+- 新增单个集成测试 `insert_column_coverage_tests`：对每个 `(table, cols)`，在**已迁移到最新
+  schema 的测试库**上查 catalog，断言：
+  1. `information_schema.columns` 中 `is_nullable = 'NO' AND column_default IS NULL`
+     的每一列都在 `cols` 中；否则失败（或该 `table.column` 出现在
+     `scripts/ci/insert_column_allowlist`，键同样用 `path::table`，不用行号）；
+  2. 迁移生成的 `ck_<table>_user_id_format` 家族（v12 的 DO 循环，
+     `migrations/00000000_unified_schema_v12.sql:4786-4816`）要求 `cols` 覆盖 `user_id`
+     —— 这一条专抓 D-10（其 `user_id` 有 `DEFAULT ''`，只查 NOT NULL 会漏掉）。
+- 为什么便宜：不读业务代码、不连多个库，只需一次 `information_schema` / `pg_constraint` 查询；
+  也没有"评估任意 CHECK 谓词"的难题 —— 机器生成的约束族按**约束名**判定所需列。
+- **已知边界**：列清单动态拼装的 INSERT（`format!`/`QueryBuilder`）抽不到，会被记为
+  "未覆盖"而不是"通过"；这类站点数量少且已由 §7 D-14 登记，作为 allowlist 的显式条目处理。
+
+**红证明（铁律 8：门禁必须自证能变红）**
+- 守卫 A：临时加一个自建 `CREATE TABLE` 的探针 db_test（或临时把 allowlist 清空）⇒ 守卫必须
+  失败；随后删除探针。
+- 守卫 B：在 W1 修复**之前**先跑该检查 ⇒ 必须报出 `background_updates.update_name`（D-31）与
+  `media_callbacks.user_id`（D-10）缺失（D-11 的 `room_invites.inviter/invitee` 亦然）；
+  W1 修完后必须转绿。这两次红/绿就是守卫的验收证据，随守卫实现同批提交。
+
+### 8.5 暂停期不变式（C 批次恢复的条件）
+
+暂停期间以下不变式持续成立，用以保证 C 批次恢复时循环仍然可复现：
+
+1. **棘轮继续生效，且只许单向收紧。** 生产静态化暂停，但
+   `bash scripts/ci/check_sqlx_dynamic_ratio.sh` 仍必须绿：`dynamic_production` 不得**增**、
+   `static` 不得**减**。修复波次中**确实回收**动态站点的条目（D-01 删 1、D-27 删 8、
+   D-30 删 4、D-32 删 1、D-14.B 若做则 14）必须在**同一提交**里下调
+   `BASELINE_DYNAMIC_PRODUCTION` 与相应 literal/runtime 基线；纯行为修复
+   （D-05/D-07/D-08/D-09/D-10/D-11/D-12/D-31/D-33/D-34）不动棘轮数字。
+2. **`.sqlx` 永不缩小，且随 SQL 变更刷新。** 任何**改动 SQL 文本**的修复
+   （W1 的 D-10/D-11/D-31/D-33/D-34、W2 的 D-08/D-09）必须重跑
+   `cargo sqlx prepare --workspace`，并让
+   `bash scripts/ci/check_sqlx_cache_fresh.sh`（`git diff --exit-code -- .sqlx`）保持绿。
+   D-17 的缓存收敛只做"合并到根 `.sqlx/`"，**不得**删除任何仍在使用的条目，收敛后
+   `SQLX_OFFLINE=true cargo check --workspace --all-features` 必须通过。
+3. **feature 集只增不减。** W1/W5 的用例必须带齐模块编译所需的 feature（D-25：曾 4 次
+   "0 tests" 假绿）；恢复 C 批次时，批次 procedure 里记录的 feature 集是**只增**的集合，
+   且"过滤器命中 0"必须判失败而不是通过。
+4. **§7 是唯一登记处。** 修复过程中发现的新问题一律追加到 §7（D-36 已按此登记）；守卫与本
+   计划的进展不另开清单。已完成条目的状态就地更新（`已修（<commit>）`），不删除条目。
+5. **恢复 C 批次的前置条件。** 至少 W1–W4 完成（W5 可与 C 批次并行），且 §8.3 的五条各自的
+   红/绿证据、§8.4 守卫 A/B 的红证明都已入库；恢复时从 C19 起，按"一个文件/模块一批、
+   独立提交、独立降基线"的既有节奏继续，不改动 §7 条目。
