@@ -23,18 +23,20 @@ impl CasStorage {
         let now = current_timestamp_millis();
         let expires_at = current_timestamp_millis() + request.expires_in_seconds * 1000;
 
-        let ticket = sqlx::query_as::<_, CasTicketRow>(
-            r"
+        let ticket = sqlx::query_as!(
+            CasTicketRow,
+            r#"
             INSERT INTO cas_tickets (ticket_id, user_id, service_url, created_ts, expires_at)
             VALUES ($1, $2, $3, $4, $5)
-            RETURNING id, ticket_id, user_id, service_url, created_ts, expires_at, consumed_at, consumed_by, is_valid
-            ",
+            RETURNING id, ticket_id, user_id, service_url, created_ts, expires_at, consumed_at, consumed_by,
+                      is_valid AS "is_valid!"
+            "#,
+            request.ticket_id.as_str(),
+            request.user_id.as_str(),
+            request.service_url.as_str(),
+            now,
+            expires_at,
         )
-        .bind(&request.ticket_id)
-        .bind(&request.user_id)
-        .bind(&request.service_url)
-        .bind(now)
-        .bind(expires_at)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to create CAS ticket", e))?;
@@ -46,17 +48,19 @@ impl CasStorage {
     pub async fn validate_ticket(&self, ticket_id: &str, service_url: &str) -> Result<Option<CasTicket>, ApiError> {
         let now = current_timestamp_millis();
 
-        let ticket = sqlx::query_as::<_, CasTicketRow>(
-            r"
+        let ticket = sqlx::query_as!(
+            CasTicketRow,
+            r#"
             UPDATE cas_tickets
             SET consumed_at = $1, is_valid = FALSE
             WHERE ticket_id = $2 AND service_url = $3 AND is_valid = TRUE AND expires_at > $1
-            RETURNING id, ticket_id, user_id, service_url, created_ts, expires_at, consumed_at, consumed_by, is_valid
-            ",
+            RETURNING id, ticket_id, user_id, service_url, created_ts, expires_at, consumed_at, consumed_by,
+                      is_valid AS "is_valid!"
+            "#,
+            now,
+            ticket_id,
+            service_url,
         )
-        .bind(now)
-        .bind(ticket_id)
-        .bind(service_url)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to validate CAS ticket", e))?;
@@ -66,14 +70,16 @@ impl CasStorage {
 
     /// See [`get_ticket`].
     pub async fn get_ticket(&self, ticket_id: &str) -> Result<Option<CasTicket>, ApiError> {
-        let ticket = sqlx::query_as::<_, CasTicketRow>(
-            r"
-            SELECT id, ticket_id, user_id, service_url, created_ts, expires_at, consumed_at, consumed_by, is_valid
+        let ticket = sqlx::query_as!(
+            CasTicketRow,
+            r#"
+            SELECT id, ticket_id, user_id, service_url, created_ts, expires_at, consumed_at, consumed_by,
+                   is_valid AS "is_valid!"
             FROM cas_tickets
             WHERE ticket_id = $1
-            ",
+            "#,
+            ticket_id,
         )
-        .bind(ticket_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get CAS ticket", e))?;
@@ -83,13 +89,13 @@ impl CasStorage {
 
     /// See [`delete_ticket`].
     pub async fn delete_ticket(&self, ticket_id: &str) -> Result<bool, ApiError> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             DELETE FROM cas_tickets
             WHERE ticket_id = $1
             ",
+            ticket_id,
         )
-        .bind(ticket_id)
         .execute(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to delete CAS ticket", e))?;
@@ -100,13 +106,13 @@ impl CasStorage {
     /// See [`cleanup_expired_tickets`].
     pub async fn cleanup_expired_tickets(&self) -> Result<u64, ApiError> {
         let now = current_timestamp_millis();
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             DELETE FROM cas_tickets
             WHERE expires_at < $1
             ",
+            now,
         )
-        .bind(now)
         .execute(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to cleanup expired tickets", e))?;
@@ -119,19 +125,21 @@ impl CasStorage {
         let now = current_timestamp_millis();
         let expires_at = current_timestamp_millis() + request.expires_in_seconds * 1000;
 
-        let ticket = sqlx::query_as::<_, CasProxyTicketRow>(
-            r"
+        let ticket = sqlx::query_as!(
+            CasProxyTicketRow,
+            r#"
             INSERT INTO cas_proxy_tickets (proxy_ticket_id, user_id, service_url, pgt_url, created_ts, expires_at)
             VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING id, proxy_ticket_id, user_id, service_url, pgt_url, created_ts, expires_at, consumed_at, is_valid
-            ",
+            RETURNING id, proxy_ticket_id, user_id, service_url, pgt_url, created_ts, expires_at, consumed_at,
+                      is_valid AS "is_valid!"
+            "#,
+            request.proxy_ticket_id.as_str(),
+            request.user_id.as_str(),
+            request.service_url.as_str(),
+            request.pgt_url.as_deref(),
+            now,
+            expires_at,
         )
-        .bind(&request.proxy_ticket_id)
-        .bind(&request.user_id)
-        .bind(&request.service_url)
-        .bind(&request.pgt_url)
-        .bind(now)
-        .bind(expires_at)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to create CAS proxy ticket", e))?;
@@ -147,17 +155,19 @@ impl CasStorage {
     ) -> Result<Option<CasProxyTicket>, ApiError> {
         let now = current_timestamp_millis();
 
-        let ticket = sqlx::query_as::<_, CasProxyTicketRow>(
-            r"
+        let ticket = sqlx::query_as!(
+            CasProxyTicketRow,
+            r#"
             UPDATE cas_proxy_tickets
             SET consumed_at = $1, is_valid = FALSE
             WHERE proxy_ticket_id = $2 AND service_url = $3 AND is_valid = TRUE AND expires_at > $1
-            RETURNING id, proxy_ticket_id, user_id, service_url, pgt_url, created_ts, expires_at, consumed_at, is_valid
-            ",
+            RETURNING id, proxy_ticket_id, user_id, service_url, pgt_url, created_ts, expires_at, consumed_at,
+                      is_valid AS "is_valid!"
+            "#,
+            now,
+            proxy_ticket_id,
+            service_url,
         )
-        .bind(now)
-        .bind(proxy_ticket_id)
-        .bind(service_url)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to validate CAS proxy ticket", e))?;
@@ -170,19 +180,20 @@ impl CasStorage {
         let now = current_timestamp_millis();
         let expires_at = current_timestamp_millis() + request.expires_in_seconds * 1000;
 
-        let pgt = sqlx::query_as::<_, CasProxyGrantingTicket>(
-            r"
+        let pgt = sqlx::query_as!(
+            CasProxyGrantingTicket,
+            r#"
             INSERT INTO cas_proxy_granting_tickets (pgt_id, user_id, service_url, iou, created_ts, expires_at)
             VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING id, pgt_id, user_id, service_url, iou, created_ts, expires_at, is_valid
-            ",
+            RETURNING id, pgt_id, user_id, service_url, iou, created_ts, expires_at, is_valid AS "is_valid!"
+            "#,
+            request.pgt_id.as_str(),
+            request.user_id.as_str(),
+            request.service_url.as_str(),
+            request.iou.as_deref(),
+            now,
+            expires_at,
         )
-        .bind(&request.pgt_id)
-        .bind(&request.user_id)
-        .bind(&request.service_url)
-        .bind(&request.iou)
-        .bind(now)
-        .bind(expires_at)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to create CAS PGT", e))?;
@@ -192,14 +203,15 @@ impl CasStorage {
 
     /// See [`get_pgt`].
     pub async fn get_pgt(&self, pgt_id: &str) -> Result<Option<CasProxyGrantingTicket>, ApiError> {
-        let pgt = sqlx::query_as::<_, CasProxyGrantingTicket>(
-            r"
-            SELECT id, pgt_id, user_id, service_url, iou, created_ts, expires_at, is_valid
+        let pgt = sqlx::query_as!(
+            CasProxyGrantingTicket,
+            r#"
+            SELECT id, pgt_id, user_id, service_url, iou, created_ts, expires_at, is_valid AS "is_valid!"
             FROM cas_proxy_granting_tickets
             WHERE pgt_id = $1 AND is_valid = TRUE
-            ",
+            "#,
+            pgt_id,
         )
-        .bind(pgt_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get CAS PGT", e))?;
@@ -209,14 +221,15 @@ impl CasStorage {
 
     /// See [`get_pgt_by_iou`].
     pub async fn get_pgt_by_iou(&self, iou: &str) -> Result<Option<CasProxyGrantingTicket>, ApiError> {
-        let pgt = sqlx::query_as::<_, CasProxyGrantingTicket>(
-            r"
-            SELECT id, pgt_id, user_id, service_url, iou, created_ts, expires_at, is_valid
+        let pgt = sqlx::query_as!(
+            CasProxyGrantingTicket,
+            r#"
+            SELECT id, pgt_id, user_id, service_url, iou, created_ts, expires_at, is_valid AS "is_valid!"
             FROM cas_proxy_granting_tickets
             WHERE iou = $1 AND is_valid = TRUE
-            ",
+            "#,
+            iou,
         )
-        .bind(iou)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get CAS PGT by IOU", e))?;
@@ -232,8 +245,9 @@ impl CasStorage {
             serde_json::to_value(request.allowed_proxy_callbacks.unwrap_or_default()).unwrap_or(serde_json::json!([]));
         let now = current_timestamp_millis();
 
-        let service = sqlx::query_as::<_, CasRegisteredServiceRow>(
-            r"
+        let service = sqlx::query_as!(
+            CasRegisteredServiceRow,
+            r#"
             INSERT INTO cas_services (
                 service_id, name, description, service_url_pattern,
                 allowed_attributes, allowed_proxy_callbacks,
@@ -241,19 +255,23 @@ impl CasStorage {
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
             RETURNING id, service_id, name, description, service_url_pattern,
-                      allowed_attributes, allowed_proxy_callbacks,
-                      is_enabled, is_require_secure, is_single_logout, created_ts, updated_ts
-            ",
+                      allowed_attributes AS "allowed_attributes!",
+                      allowed_proxy_callbacks AS "allowed_proxy_callbacks!",
+                      is_enabled AS "is_enabled!",
+                      is_require_secure AS "is_require_secure!",
+                      is_single_logout AS "is_single_logout!",
+                      created_ts, updated_ts
+            "#,
+            request.service_id.as_str(),
+            request.name.as_str(),
+            request.description.as_deref(),
+            request.service_url_pattern.as_str(),
+            allowed_attributes,
+            allowed_proxy_callbacks,
+            request.is_require_secure.unwrap_or(true),
+            request.is_single_logout.unwrap_or(false),
+            now,
         )
-        .bind(&request.service_id)
-        .bind(&request.name)
-        .bind(&request.description)
-        .bind(&request.service_url_pattern)
-        .bind(&allowed_attributes)
-        .bind(&allowed_proxy_callbacks)
-        .bind(request.is_require_secure.unwrap_or(true))
-        .bind(request.is_single_logout.unwrap_or(false))
-        .bind(now)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to register CAS service", e))?;
@@ -263,16 +281,21 @@ impl CasStorage {
 
     /// See [`get_service`].
     pub async fn get_service(&self, service_id: &str) -> Result<Option<CasRegisteredService>, ApiError> {
-        let service = sqlx::query_as::<_, CasRegisteredServiceRow>(
-            r"
+        let service = sqlx::query_as!(
+            CasRegisteredServiceRow,
+            r#"
             SELECT id, service_id, name, description, service_url_pattern,
-                   allowed_attributes, allowed_proxy_callbacks,
-                   is_enabled, is_require_secure, is_single_logout, created_ts, updated_ts
+                   allowed_attributes AS "allowed_attributes!",
+                   allowed_proxy_callbacks AS "allowed_proxy_callbacks!",
+                   is_enabled AS "is_enabled!",
+                   is_require_secure AS "is_require_secure!",
+                   is_single_logout AS "is_single_logout!",
+                   created_ts, updated_ts
             FROM cas_services
             WHERE service_id = $1
-            ",
+            "#,
+            service_id,
         )
-        .bind(service_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get CAS service", e))?;
@@ -282,16 +305,21 @@ impl CasStorage {
 
     /// See [`get_service_by_url`].
     pub async fn get_service_by_url(&self, service_url: &str) -> Result<Option<CasRegisteredService>, ApiError> {
-        let service = sqlx::query_as::<_, CasRegisteredServiceRow>(
-            r"
+        let service = sqlx::query_as!(
+            CasRegisteredServiceRow,
+            r#"
             SELECT id, service_id, name, description, service_url_pattern,
-                   allowed_attributes, allowed_proxy_callbacks,
-                   is_enabled, is_require_secure, is_single_logout, created_ts, updated_ts
+                   allowed_attributes AS "allowed_attributes!",
+                   allowed_proxy_callbacks AS "allowed_proxy_callbacks!",
+                   is_enabled AS "is_enabled!",
+                   is_require_secure AS "is_require_secure!",
+                   is_single_logout AS "is_single_logout!",
+                   created_ts, updated_ts
             FROM cas_services
             WHERE $1 ~ service_url_pattern AND is_enabled = TRUE
-            ",
+            "#,
+            service_url,
         )
-        .bind(service_url)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get CAS service by URL", e))?;
@@ -301,14 +329,19 @@ impl CasStorage {
 
     /// See [`list_services`].
     pub async fn list_services(&self) -> Result<Vec<CasRegisteredService>, ApiError> {
-        let services = sqlx::query_as::<_, CasRegisteredServiceRow>(
-            r"
+        let services = sqlx::query_as!(
+            CasRegisteredServiceRow,
+            r#"
             SELECT id, service_id, name, description, service_url_pattern,
-                   allowed_attributes, allowed_proxy_callbacks,
-                   is_enabled, is_require_secure, is_single_logout, created_ts, updated_ts
+                   allowed_attributes AS "allowed_attributes!",
+                   allowed_proxy_callbacks AS "allowed_proxy_callbacks!",
+                   is_enabled AS "is_enabled!",
+                   is_require_secure AS "is_require_secure!",
+                   is_single_logout AS "is_single_logout!",
+                   created_ts, updated_ts
             FROM cas_services
             ORDER BY created_ts DESC, id DESC
-            ",
+            "#,
         )
         .fetch_all(&self.pool)
         .await
@@ -319,13 +352,13 @@ impl CasStorage {
 
     /// See [`delete_service`].
     pub async fn delete_service(&self, service_id: &str) -> Result<bool, ApiError> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             DELETE FROM cas_services
             WHERE service_id = $1
             ",
+            service_id,
         )
-        .bind(service_id)
         .execute(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to delete CAS service", e))?;
@@ -342,7 +375,8 @@ impl CasStorage {
     ) -> Result<CasUserAttribute, ApiError> {
         let now = current_timestamp_millis();
 
-        let attr = sqlx::query_as::<_, CasUserAttributeRow>(
+        let attr = sqlx::query_as!(
+            CasUserAttributeRow,
             r"
             INSERT INTO cas_user_attributes (user_id, attribute_name, attribute_value, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $4)
@@ -350,11 +384,11 @@ impl CasStorage {
             DO UPDATE SET attribute_value = $3, updated_ts = $4
             RETURNING id, user_id, attribute_name, attribute_value, created_ts, updated_ts
             ",
+            user_id,
+            attribute_name,
+            attribute_value,
+            now,
         )
-        .bind(user_id)
-        .bind(attribute_name)
-        .bind(attribute_value)
-        .bind(now)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to set CAS user attribute", e))?;
@@ -364,14 +398,15 @@ impl CasStorage {
 
     /// See [`get_user_attributes`].
     pub async fn get_user_attributes(&self, user_id: &str) -> Result<Vec<CasUserAttribute>, ApiError> {
-        let attrs = sqlx::query_as::<_, CasUserAttributeRow>(
+        let attrs = sqlx::query_as!(
+            CasUserAttributeRow,
             r"
             SELECT id, user_id, attribute_name, attribute_value, created_ts, updated_ts
             FROM cas_user_attributes
             WHERE user_id = $1
             ",
+            user_id,
         )
-        .bind(user_id)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get CAS user attributes", e))?;
@@ -388,18 +423,19 @@ impl CasStorage {
         ticket_id: Option<&str>,
     ) -> Result<CasSloSession, ApiError> {
         let now = current_timestamp_millis();
-        let session = sqlx::query_as::<_, CasSloSessionRow>(
+        let session = sqlx::query_as!(
+            CasSloSessionRow,
             r"
             INSERT INTO cas_slo_sessions (session_id, user_id, service_url, ticket_id, created_ts)
             VALUES ($1, $2, $3, $4, $5)
             RETURNING id, session_id, user_id, service_url, ticket_id, created_ts, logout_sent_at
             ",
+            session_id,
+            user_id,
+            service_url,
+            ticket_id,
+            now,
         )
-        .bind(session_id)
-        .bind(user_id)
-        .bind(service_url)
-        .bind(ticket_id)
-        .bind(now)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to create CAS SLO session", e))?;
@@ -410,15 +446,15 @@ impl CasStorage {
     /// See [`mark_slo_sent`].
     pub async fn mark_slo_sent(&self, session_id: &str) -> Result<bool, ApiError> {
         let now = current_timestamp_millis();
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             UPDATE cas_slo_sessions
             SET logout_sent_at = $1
             WHERE session_id = $2 AND logout_sent_at IS NULL
             ",
+            now,
+            session_id,
         )
-        .bind(now)
-        .bind(session_id)
         .execute(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to mark SLO sent", e))?;
@@ -428,14 +464,15 @@ impl CasStorage {
 
     /// See [`get_active_slo_sessions`].
     pub async fn get_active_slo_sessions(&self, user_id: &str) -> Result<Vec<CasSloSession>, ApiError> {
-        let sessions = sqlx::query_as::<_, CasSloSessionRow>(
+        let sessions = sqlx::query_as!(
+            CasSloSessionRow,
             r"
             SELECT id, session_id, user_id, service_url, ticket_id, created_ts, logout_sent_at
             FROM cas_slo_sessions
             WHERE user_id = $1 AND logout_sent_at IS NULL
             ",
+            user_id,
         )
-        .bind(user_id)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get active SLO sessions", e))?;
