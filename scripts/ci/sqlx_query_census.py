@@ -425,6 +425,239 @@ def list_production_dynamic(root: Path) -> int:
     return 0
 
 
+# =============================================================================
+# D-36 守卫的扫描后端
+#
+# 两条守卫（`tests/unit/test_ddl_guard_tests.rs` 的 A、
+# `tests/integration/insert_column_coverage_tests.rs` 的 B）都需要"源码里的 SQL
+# 语句文本 + 它落在生产区还是 test 区 + 它属于哪个模块/函数"。本段是**唯一**
+# 实现，守卫只消费它的输出，不自己重写一遍词法扫描。
+# =============================================================================
+
+# 建表/改表类 DDL：出现在 test 区就意味着该用例自建 schema，从而看不见迁移
+# baseline 的 NOT NULL / CHECK / UNIQUE 约束（D-31 正是这样潜伏的）。
+TEST_DDL_RE = re.compile(
+    r"\b(CREATE\s+TABLE|CREATE\s+SCHEMA|CREATE\s+INDEX|ALTER\s+TABLE|DROP\s+TABLE|DROP\s+SCHEMA)\b",
+    re.IGNORECASE,
+)
+
+# 列清单只有在这种形态下才可静态判定（全是裸标识符）。
+INSERT_COLUMNS_RE = re.compile(
+    r"\bINSERT\s+INTO\s+(?:\"?(?:[A-Za-z_][A-Za-z0-9_]*)\"?\.)?\"?([A-Za-z_][A-Za-z0-9_]*)\"?\s*\(([^()]*)\)",
+    re.IGNORECASE | re.DOTALL,
+)
+IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+_DECL_RE = re.compile(
+    r"\b(?:pub(?:\s*\([^)]*\))?\s+)?"
+    r"(?:default\s+)?(?:const\s+)?(?:async\s+)?(?:unsafe\s+)?"
+    r"(?:extern\s+\"[^\"]*\"\s+)?"
+    r"fn\s+([A-Za-z_][A-Za-z0-9_]*)"
+)
+_MOD_RE = re.compile(r"\bmod\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{")
+
+
+def read_string_literal(text: str, i: int) -> tuple[str, int]:
+    """读取 `text[i]` 处的字符串字面量，返回 `(内容, 结束下标)`。
+
+    支持 `"…"`（含转义）、`b"…"`、`r"…"`、`r#"…"#`、`r##"…"##`、`br"…"`。
+    与 `_starts_string_literal` 的识别范围保持一致。
+    """
+    j = i
+    raw = False
+    if text.startswith("br", j) or text.startswith("rb", j):
+        j += 2
+        raw = True
+    elif j < len(text) and text[j] == "b":
+        j += 1
+    if j < len(text) and text[j] == "r":
+        j += 1
+        raw = True
+    hashes = 0
+    while j < len(text) and text[j] == "#":
+        hashes += 1
+        j += 1
+    if j >= len(text) or text[j] != '"':
+        return "", j
+    j += 1
+    if raw:
+        terminator = '"' + "#" * hashes
+        end = text.find(terminator, j)
+        if end < 0:
+            return text[j:], len(text)
+        return text[j:end], end + len(terminator)
+
+    out: list[str] = []
+    escapes = {"n": "\n", "t": "\t", "r": "\r", "0": "\0", "\\": "\\", '"': '"', "'": "'"}
+    while j < len(text):
+        ch = text[j]
+        if ch == "\\" and j + 1 < len(text):
+            nxt = text[j + 1]
+            out.append(escapes.get(nxt, nxt))
+            j += 2
+            continue
+        if ch == '"':
+            return "".join(out), j + 1
+        out.append(ch)
+        j += 1
+    return "".join(out), j
+
+
+def iter_string_literals(text: str):
+    """产出全部字符串字面量 `(起始行号, 内容, 起始下标, 结束下标)`。
+
+    注释内的引号不计：`//` 行注释与 `/* */`（含嵌套）块注释被整体跳过。
+    """
+    i = 0
+    n = len(text)
+    line = 1
+    while i < n:
+        if text.startswith("//", i):
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+        if text.startswith("/*", i):
+            depth = 1
+            i += 2
+            while i < n and depth:
+                if text.startswith("/*", i):
+                    depth += 1
+                    i += 2
+                elif text.startswith("*/", i):
+                    depth -= 1
+                    i += 2
+                else:
+                    if text[i] == "\n":
+                        line += 1
+                    i += 1
+            continue
+        if _starts_string_literal(text, i):
+            start_line = line
+            content, end = read_string_literal(text, i)
+            line += text.count("\n", i, end)
+            yield start_line, content, i, end
+            i = end
+            continue
+        if text[i] == "\n":
+            line += 1
+        i += 1
+
+
+def enclosing_item_names(code: list[str]) -> list[str]:
+    """逐行给出该行所处的 `mod`/`fn` 名称路径（`a::b`），无则 `"<file>"`。
+
+    只用花括号深度做栈，不解析 `impl`/`trait` 块（它们没有名字，不参与键）。
+    这份近似足以稳定地给出 **`path::item`** 级键，从而避免行号型 allowlist 随
+    `cargo fmt` 漂移（`scripts/shell_routes_allowlist.txt` 的前车之鉴）。
+    """
+    depth = 0
+    stack: list[tuple[int, str]] = []
+    names: list[str] = []
+    for line in code:
+        opens = line.count("{")
+        closes = line.count("}")
+        match = _DECL_RE.search(line) or _MOD_RE.search(line)
+        name = match.group(1) if match else None
+        if name is not None and opens > closes:
+            depth += 1
+            stack.append((depth, name))
+            depth += opens - 1 - closes
+        else:
+            depth += opens - closes
+        while stack and stack[-1][0] > depth:
+            stack.pop()
+        names.append("::".join(item for _, item in stack) if stack else "<file>")
+    return names
+
+
+def iter_sql_regions(path: Path, force_test: bool = False):
+    """产出 `(行号, 区域, item, 字符串内容)`——**唯一**的"源码 SQL 语句"入口。
+
+    区域判定与计数共用 `iter_region_lines`（先做等长剥离，再按花括号深度分区），
+    因此守卫看到的"生产 / test"口径与棘轮完全一致。
+    """
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    code = strip_code(text, pad_comments=True)
+    regions = list(iter_region_lines(code, force_test))
+    items = enclosing_item_names(code)
+    for line_no, region, item, content, _start, _end in _iter_literals_with_item(
+        text, items, regions
+    ):
+        yield line_no, region, item, content
+
+
+def _iter_literals_with_item(text: str, items: list[str], regions: list[tuple[str, bool]]):
+    for start_line, content, start, end in iter_string_literals(text):
+        index = start_line - 1
+        in_test = regions[index][1] if 0 <= index < len(regions) else False
+        item = items[index] if 0 <= index < len(items) else "<file>"
+        yield start_line, "test" if in_test else "production", item, content, start, end
+
+
+def collect_test_ddl(root: Path) -> list[str]:
+    """列出 test 区里自建 schema 的 DDL 语句：`path::item:line:VERB`。"""
+    sources = collect_sources(root)
+    test_gated = collect_test_gated_files(sources)
+    hits: list[str] = []
+    for path in sources:
+        rel = path.relative_to(root).as_posix()
+        for line_no, region, item, content in iter_sql_regions(
+            path, force_test=path.resolve() in test_gated
+        ):
+            if region != "test":
+                continue
+            for match in TEST_DDL_RE.finditer(content):
+                hits.append(f"{rel}::{item}:{line_no}:{match.group(1).upper()}")
+    return hits
+
+
+def collect_inserts(root: Path) -> list[dict]:
+    """抽出生产区所有 `INSERT INTO <table> (<cols>)` 的字面量列清单。
+
+    列清单含非裸标识符（`format!` 拼装、`$1`、函数调用等）时记为
+    `"dynamic": true`，由守卫按"未覆盖"处理而不是判通过——这类站点已由 §7 D-14
+    登记，作为 allowlist 的显式条目。
+    """
+    sources = collect_sources(root)
+    test_gated = collect_test_gated_files(sources)
+    inserts: list[dict] = []
+    for path in sources:
+        rel = path.relative_to(root).as_posix()
+        for line_no, region, item, content in iter_sql_regions(
+            path, force_test=path.resolve() in test_gated
+        ):
+            if region != "production":
+                continue
+            for match in INSERT_COLUMNS_RE.finditer(content):
+                table = match.group(1).lower()
+                raw_columns = match.group(2)
+                if raw_columns.strip() == "":
+                    inserts.append(
+                        {
+                            "path": rel,
+                            "item": item,
+                            "line": line_no,
+                            "table": table,
+                            "columns": [],
+                            "dynamic": True,
+                        }
+                    )
+                    continue
+                columns = [c.strip().strip('"').lower() for c in raw_columns.split(",")]
+                dynamic = any(not IDENT_RE.match(c) for c in columns)
+                inserts.append(
+                    {
+                        "path": rel,
+                        "item": item,
+                        "line": line_no,
+                        "table": table,
+                        "columns": [] if dynamic else columns,
+                        "dynamic": dynamic,
+                    }
+                )
+    return inserts
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="SQLx query census (production vs #[cfg(test)])"
@@ -443,12 +676,43 @@ def main() -> int:
         metavar="ROOT",
         help="列出生产区每个动态调用点 path:line:literal|runtime（ROOT 缺省取 --root）",
     )
+    parser.add_argument(
+        "--list-test-ddl",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="ROOT",
+        help="列出 test 区自建 schema 的 DDL：path::item:line:VERB（D-36 守卫 A）",
+    )
+    parser.add_argument(
+        "--emit-inserts",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="ROOT",
+        help="输出生产区全部 INSERT 列清单 JSON（D-36 守卫 B）",
+    )
     args = parser.parse_args()
 
     if args.list_production_dynamic is not None:
         return list_production_dynamic(
             Path(args.list_production_dynamic or args.root).resolve()
         )
+
+    if args.list_test_ddl is not None:
+        for hit in collect_test_ddl(Path(args.list_test_ddl or args.root).resolve()):
+            print(hit)
+        return 0
+
+    if args.emit_inserts is not None:
+        print(
+            json.dumps(
+                collect_inserts(Path(args.emit_inserts or args.root).resolve()),
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
 
     root = Path(args.root).resolve()
     totals = {

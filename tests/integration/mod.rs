@@ -113,6 +113,9 @@ mod sync_service_tests_migrated;
 mod to_device_sync_tests_migrated;
 mod uia_service_tests_migrated;
 
+// D-36 守卫 B：生产 INSERT 列覆盖 CATALOG 检查（迁移模板 schema）。
+mod insert_column_coverage_tests;
+
 // Schema contract tests migrated from tests/unit/
 mod db_schema_smoke_tests_migrated;
 mod e2ee_audit_service_tests;

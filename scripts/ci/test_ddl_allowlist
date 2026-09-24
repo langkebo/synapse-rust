@@ -1,0 +1,90 @@
+# D-36 守卫 A 的豁免名单（test 区内自建 schema 的 DDL）
+#
+# 键格式：`<repo-relative-path>::<mod>::<fn>`（`::` 连接的最内层 mod/fn 名称路径），
+# **不含行号** —— 行号型 allowlist 会随 `cargo fmt` 漂移，把豁免悄悄变成漏网
+# （`scripts/shell_routes_allowlist.txt` 的前车之鉴，见 AGENTS.md 铁律 8）。
+#
+# 语义：DB 测试若在 test 区自建表（`CREATE TABLE` / `ALTER TABLE` / `CREATE SCHEMA`
+# / `DROP SCHEMA` …），就不可能发现"写入端 vs 迁移 baseline"的漂移 —— D-31 正是
+# 这样潜伏的（自建表的 `update_name` 可空、无 UNIQUE，于是漏列永远绿）。
+# 正统入口是 `test_isolation::isolated_test_pool()`（克隆 v12 模板）。
+#
+# 因此：任何**新增**的自建 DDL 都必须让守卫变红；只有本名单收录的既有站点豁免。
+# 名单按理由分组，清理对应实现后必须同时删掉条目（按铁律 1/2 收敛，不得只删代码留条目）。
+
+# —— 隔离机制自身的测试：这些用例测的就是"建 schema / 克隆 schema / 删 schema"，
+#    自建 DDL 是它们的被测对象，不是绕过迁移 schema 的夹具。
+synapse-common/src/test_isolation.rs::tests::allowlist_clone_can_insert_into_a_table_it_emptied
+synapse-common/src/test_isolation.rs::tests::allowlist_clone_copies_only_the_allowlisted_rows
+synapse-common/src/test_isolation.rs::tests::clone_copies_seeded_rows
+synapse-common/src/test_isolation.rs::tests::clone_creates_dependent_views_in_dependency_order
+synapse-common/src/test_isolation.rs::tests::clone_from_missing_schema_or_template_is_an_error
+synapse-common/src/test_isolation.rs::tests::clone_matches_template_inventory
+synapse-common/src/test_isolation.rs::tests::clone_owns_its_sequences_and_can_insert_without_id
+synapse-common/src/test_isolation.rs::tests::clone_preserves_index_and_unique_constraint_names
+synapse-common/src/test_isolation.rs::tests::clone_preserves_the_caller_search_path_tail
+synapse-common/src/test_isolation.rs::tests::clone_retargets_trigger_functions_to_the_clone
+synapse-common/src/test_isolation.rs::tests::concurrent_pruning_does_not_drop_a_mid_build_template
+synapse-common/src/test_isolation.rs::tests::fingerprint_is_stable_and_content_sensitive
+synapse-common/src/test_isolation.rs::tests::incomplete_template_is_rebuilt
+synapse-common/src/test_isolation.rs::tests::make_validated_clone
+synapse-common/src/test_isolation.rs::tests::prune_backfills_legacy_zero_row_marker_and_spares_it
+synapse-common/src/test_isolation.rs::tests::reusing_a_schema_reseeds_its_sequences
+synapse-common/src/test_isolation.rs::tests::seed_where_clause_selects_the_requested_tables
+synapse-common/src/test_isolation.rs::tests::template_is_built_complete_and_reused
+synapse-common/src/test_isolation.rs::tests::template_lock_wait_is_bounded_and_reports_the_key
+synapse-common/src/test_isolation.rs::tests::template_name_embeds_the_fingerprint
+synapse-common/src/test_isolation.rs::tests::validate_clone_rejects_an_incomplete_clone
+synapse-common/src/test_schema_guard.rs::tests::janitor_does_not_drop_a_schema_held_through_an_inner_pool_clone
+synapse-common/src/test_schema_guard.rs::tests::the_lease_allows_several_connections_and_still_blocks_the_janitor
+synapse-services/src/test_utils.rs::clone_schema_from_template
+synapse-services/src/test_utils.rs::drop_stale_sibling_templates
+synapse-services/src/test_utils.rs::init_template_schema
+synapse-services/src/test_utils.rs::prepare_isolated_test_pool
+synapse-services/src/test_utils.rs::prepare_empty_isolated_test_pool
+synapse-storage/src/test_utils.rs::prepare_empty_isolated_test_pool
+
+# —— 纯 SQL 词法解析测试：DDL 文本是**字符串夹具**，从不执行。
+#    （`split_sql_statements` / `strip_copy_blocks` / baseline 索引解析器。）
+synapse-common/src/test_isolation.rs::tests::split_handles_functions_do_blocks_and_comments
+synapse-common/src/test_isolation.rs::tests::split_handles_quoted_identifiers_and_escapes
+synapse-common/src/test_isolation.rs::tests::strip_copy_blocks_removes_seed_data
+synapse-services/src/database_initializer/mod.rs::tests::test_calculate_checksum_is_deterministic
+synapse-services/src/database_initializer/mod.rs::tests::test_split_sql_statements_simple
+synapse-storage/src/baseline_tables.rs::tests::extracts_indexes_declared_by_create_index
+synapse-storage/src/baseline_tables.rs::tests::parser_handles_if_not_exists_form
+synapse-storage/src/baseline_tables.rs::tests::parser_handles_plain_form
+synapse-storage/src/baseline_tables.rs::tests::parser_ignores_comments
+synapse-storage/src/baseline_tables.rs::tests::parser_ignores_unrelated_statements
+synapse-storage/src/baseline_tables.rs::tests::removal_parser_handles_both_spellings_and_ignores_dynamic_drops
+synapse-storage/src/test_isolation.rs::search_path_tests::split_handles_functions_do_blocks_and_comments
+synapse-storage/src/test_isolation.rs::search_path_tests::split_handles_quoted_identifiers_and_escapes
+synapse-storage/src/test_isolation.rs::search_path_tests::strip_copy_blocks_removes_seed_data
+
+# —— D-36 类：模块自建的简化 schema（`CREATE TABLE IF NOT EXISTS` 补表）。这些是
+#    真正该被迁移到 `isolated_test_pool()` 的站点；登记在此只为让守卫对**新增**站点
+#    变红，不代表它们合格。逐条迁移后必须删除对应行。
+#    另注：`services/test_utils.rs::ensure_test_schema_contract` 是 `DatabaseInitMode::Strict`
+#    下 `prepare_isolated_test_pool()` 走的自建 schema 实现（31 处 DDL）——它构成
+#    迁移 baseline 之外的第二份 schema 真源，属铁律 2 的独立问题，已在 §7 之外单列
+#    于本节注释，收敛时同批处理。
+synapse-services/src/test_utils.rs::ensure_test_schema_contract
+synapse-services/src/room/membership/federation.rs::join_persistence_failure_tests::join_fails_closed_without_claiming_membership_when_event_persistence_fails
+synapse-services/src/room/messaging/messages.rs::txn_dedup_compensation_tests::dedup_marker_failure_soft_fails_the_created_event
+synapse-storage/src/device/mod.rs::tests::test_lazy_loaded_members_are_cleaned_up_with_device_lifecycle
+synapse-storage/src/email_verification.rs::tests::test_delete_token_by_id_removes_verification_session
+synapse-storage/src/event/db_tests.rs::test_create_postgres_fts_index_reports_invalid_leftover
+synapse-storage/src/feature_flags.rs::tests::ensure_feature_flag_tables
+synapse-storage/src/oauth_client_storage.rs::tests::setup_oauth_client_db
+synapse-storage/src/oidc_session_storage.rs::tests::setup_oidc_session_db
+synapse-storage/src/privacy.rs::db_tests::test_batch_can_view_profile_basic
+synapse-storage/src/pruning.rs::db_tests::prune_device_lists_stream_deletes_only_old
+synapse-storage/src/pruning.rs::db_tests::prune_federation_queue_terminal_only
+synapse-storage/src/pruning.rs::db_tests::prune_one_time_keys_used_or_old
+synapse-storage/src/pruning.rs::db_tests::prune_outbound_pokes_preserves_unsent
+synapse-storage/src/pruning.rs::db_tests::prune_presence_removes_stale
+synapse-storage/src/pruning.rs::db_tests::prune_quarantined_media_changes_respects_retention_window
+synapse-storage/src/pruning.rs::db_tests::prune_to_device_transactions_old_only
+synapse-storage/src/pruning.rs::db_tests::prune_token_blacklist_keeps_permanent
+synapse-storage/src/pruning.rs::db_tests::seed_changes
+synapse-storage/src/refresh_token/mod.rs::tests::setup_refresh_token_db
