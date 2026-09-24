@@ -1497,11 +1497,151 @@
 #   dynamic            1554 → 1514
 #   dynamic_test       704 → 704   （未动；两模块的 `#[cfg(test)]` 夹具未新增动态 SQL）
 # 收紧方向：C4/C5 等剩余批次继续分批静态化，直至 dynamic_production = 0。
-BASELINE_DYNAMIC_PRODUCTION=810
+# ── 2026-09-24 C16 静态化（生产动态 -37，静态 +37）────────────────────────────
+#
+# 批次：C16。目标文件：synapse-storage/src/beacon.rs（19 处生产动态）
+#                   + synapse-storage/src/admin_federation.rs（18 处）。
+# 提交：c224c75e7（源码）/ 本提交（.sqlx + 基线）。
+#
+# 选片依据（`python3 scripts/ci/sqlx_query_census.py --verbose --top 40`）：
+#   生产动态降序前两名是 `synapse-test-utils/src/lib.rs`（28）与
+#   `synapse-common/src/test_isolation.rs`（25），二者都是**测试基础设施**
+#   （非生产债务，C 系列历批均不取）；其后即本批两文件（19 / 18），
+#   与任务书"beacon ~19，同量级单文件亦可"一致。
+#
+# ✅ STEP 0（feature gate）实测：**两模块门控不同**。
+#   * `beacon` **有**门控：synapse-storage/src/lib.rs:179-181
+#       `#[cfg(feature = "beacons")] pub mod beacon;`
+#   * `admin_federation` **无**门控：lib.rs:27-29 是普通文档注释 + `pub mod admin_federation;`
+#   因此**每条 prepare / check / nextest 命令都必须显式带 `beacons`**（C6/C9/C11/C15 型假绿）。
+#   本批 feature 集：`server-notifications,saml-sso,cas-sso,beacons`。
+#   ⚠️ **`cas-sso` 不可省**（与 C15 不同的一点）：`cargo sqlx prepare` 的 destination 就是
+#   `.sqlx/` 本身且**先清后写**，C15 的 39 条 cas/event_report 条目只由 `cas-sso` 门控的代码
+#   产生；本轮若按"基线集 + beacons"重刷，这 39 条会被当作 stale 删除。实测带 `cas-sso`
+#   时 added=37 / deleted=0（见下）。
+#   测试过滤器实测**非零**：`-E 'test(beacon) or test(admin_federation)'` →
+#   **50 tests run: 50 passed, 0 failed（1619 skipped，234.9s）**，其中
+#   beacon::db_tests 17 例 + beacon::tests 4 例 + admin_federation::db_tests 28 例
+#   （+1 例同名前缀的 sliding_sync::db_tests）全部为真实 DB 往返；未出现 "0 tests" 假绿。
+#
+# beacon.rs 19 处生产动态**全部**静态化（生产区剩余动态 = 0）：
+#   query_as!     ×12（BeaconInfo / BeaconLocation 的行映射与
+#                      INSERT … RETURNING、UPDATE … RETURNING）
+#   query!        × 4（deactivate_beacons_by_state_key、delete_beacon_info、
+#                      update_beacon_expiry 的 UPDATE、cleanup_expired_beacons）
+#   query_scalar! × 3（两个 COUNT(*) 与 COALESCE(COUNT(*),0)）
+#
+# admin_federation.rs 18 处生产动态**全部**静态化（生产区剩余动态 = 0）：
+#   query_as!     × 4（FederationDestinationRecord ×3、PendingFederationRecord ×1）
+#   query_scalar! × 7（两个 COUNT(*)、COUNT(DISTINCT …)、EXISTS、DISTINCT room_id、
+#                      COALESCE(status,'active')、裸 status）
+#   query!        × 7（reset_connection / delete_destination / insert_pending_server /
+#                      update_destination_status / get_federation_cache /
+#                      delete_federation_cache_entry / clear_federation_cache）
+#
+# 静态化时补的 nullability / 类型覆盖（schema 取自 psql `\d` 实测，非猜测）：
+#   * 无 relation origin 的表达式列一律被 sqlx 推断为可空：
+#     `COUNT(*)` / `COUNT(DISTINCT …)` / `COALESCE(COUNT(*),0)` ⇒ `AS "count!"`
+#     （beacon 3 处、admin_federation 3 处；默认会变 `Option<i64>`，与旧 `i64` 不符）；
+#     `SELECT EXISTS(…) AS "exists!"`（旧返回 `bool`）；
+#     `SELECT COALESCE(status,'active') AS "status!"`（旧 `query_scalar::<_, String>`
+#     + `fetch_optional` ⇒ `Option<String>`，加 `!` 后类型不变）。
+#   * `get_server_admission_status` 的 `SELECT status AS "status?"`：catalog 实测
+#     `federation_servers.status` 是 **NOT NULL DEFAULT 'active'**（无 NOT NULL 缺失），
+#     而该函数声明返回 `Option<Option<String>>`（外层"无行"、内层"status 为 NULL"）。
+#     为保持**对外签名**不变而显式写 `?`（否则宏推 `String`，`fetch_optional` 变成
+#     `Option<String>`，与声明不符）。**内层 None 分支实际不可达** → 已登记 D-29。
+#   * `get_destination_rooms` 的 `SELECT DISTINCT room_id AS "room_id?"`：
+#     `federation_queue.room_id` 实测可空，旧代码显式标注 `Vec<Option<String>>`
+#     并 `.flatten()`；`AS "room_id?"` 把该推断钉死（`WHERE room_id IS NOT NULL`
+#     与 `.flatten()` 语义原样保留）。
+#   * `RETURNING *` ×2（beacon_info / beacon_locations 的 INSERT）展开为显式列清单
+#     （D-22：`query_as!` 不走 FromRow，多列 E0560 / 少列 E0063）。
+#   * BeaconInfo.updated_ts 字段是 `Option<i64>` 而 `beacon_info.updated_ts` 列 NOT NULL：
+#     宏推断 `i64` 后由 `quote_query_as` 的 `.into()` 转成 `Option<i64>`，可编译；
+#     旧 `FromRow` 行为与之一致，**未改语义**。
+#   * 绑定风格（宏 ty_match 比 `.bind()` 严格，D-21）：宏形参自动按引用绑定，故按值传入
+#     `params.room_id` / `params.description`（`Option<String>`）等；`&[String]` 数组参数
+#     精确传 `beacon_info_ids`；`Option<&str>` / `Option<i64>` 直接传。
+#
+# ⚠️ D-23 型陷阱（raw string vs `\` 续行）本批复现于 admin_federation：
+#   `insert_pending_server` 与 `list_pending_federation` 的 SQL 原用普通字符串 `\` 续行，
+#   改为 raw string 后 `\` 会变成字面反斜杠 ⇒ `syntax error at or near "\"`；
+#   两处均改用真实换行（缩进对 SQL 无影响）。
+#
+# 结构变化（对外签名全部不变）：
+#   * `get_federation_cache` 原 `sqlx::query(…)` + `row.get("key")` /
+#     `row.try_get::<Option<String>,_>(…).ok().flatten()` 改为 `query!` 匿名记录按字段取值。
+#     旧代码用 `.ok().flatten()` **静默吞掉解码失败**；宏化后列类型由 describe 确定，
+#     合法数据上的可观测结果不变（key 列 NOT NULL、value/expiry_ts 可空）。
+#   * 该改动使 `use sqlx::{PgPool, Row}` 的 `Row` 失去使用者 ⇒ 收窄为 `use sqlx::PgPool`。
+#
+# `.sqlx`：destination 就是 `.sqlx/` 本身，`cargo sqlx prepare` 先清后写。
+#   isolated worktree target/c16-wt @ HEAD c224c75e7（源码提交已在 HEAD，故 procedure 的
+#   `git apply c16.patch` 无内容可应用，直接在该 worktree 内重刷）：
+#     SQLX_OFFLINE=false DATABASE_URL=… CARGO_TARGET_DIR=… \
+#       cargo sqlx prepare --workspace -- --features server-notifications,saml-sso,cas-sso,beacons
+#   实测 before=680 after=717，**deleted=0 / added=37 / modified=0**（文件名集合 comm 双向
+#   逐条核对 + 对 680 条既有条目逐字节 cmp）。37 = beacon 19 + admin_federation 18，
+#   两个模块内无哈希合并（admin_federation 两条 DELETE federation_cache 文本不同，未合并）。
+#   ✅ 37 条新增条目逐条人工核对，全部落在本批两张表的站点上 —— 打开 `beacons` 没有顺带
+#   引入任何**其它**模块的宏条目。
+#
+# 验证（isolated worktree target/c16-wt，**无需任何越界修补**——HEAD 已能编译 workspace）：
+#   SQLX_OFFLINE=false DATABASE_URL=… cargo sqlx prepare --workspace --
+#     --features server-notifications,saml-sso,cas-sso,beacons → Finished（1m45s；
+#     首轮零回退，37 个宏按真实 DB describe 一次通过）
+#   SQLX_OFFLINE=true CARGO_TARGET_DIR=… cargo check -p synapse-storage
+#     --features test-utils,server-notifications,saml-sso,cas-sso,beacons（touch 两个源文件
+#     强制宏重展开）→ Finished（27.3s；证明提交的 .sqlx 离线可复现）
+#     ⚠️ 反向自证（AGENTS.md 铁律 8）：移走 37 条新增条目中的 1 条
+#     （query-042d0af15e76aacce5883270aa32f5dc4b490cd3dc9941594045dc53944c6168.json，
+#     即 beacon_info 的 INSERT）后重跑同命令 →
+#       error: SQLX_OFFLINE=true but there is no cached data for this query…（指向
+#       beacon.rs:131:19 的 query_as!）+ could not compile synapse-storage (lib)，exit 101；
+#     还原该文件（717 条）后同命令重新 Finished。证明该缓存真的被读取。
+#   TEST_DATABASE_URL=… TEST_DB_TEMPLATE_SCHEMA=test_template_ci cargo nextest run
+#     -p synapse-storage --lib --features test-utils,server-notifications,saml-sso,cas-sso,beacons
+#     -E 'test(beacon) or test(admin_federation)' --no-fail-fast
+#     → **50 tests run: 50 passed, 0 failed**（1619 skipped，234.9s）
+#     运行期覆盖：beacon 的 create/get（found+not_found）/ by_state_key 排序 / active 过滤 /
+#     deactivate / update COALESCE / update 不存在返回 None / delete / location CRUD /
+#     latest / count（两种）/ batch（窗口函数 + ANY 数组参数）/ with_locations /
+#     cleanup_expired / room_beacons（含/不含过期）/ 零 timeout 无过期；
+#     admin_federation 的 count / list（游标两分支）/ get（found+not_found）/
+#     reset（命中+未命中）/ delete（命中+未命中）/ exists（真/假）/ rooms（有/空）/
+#     status（found+not_found）/ admission（unknown+known）/ insert pending（新+重复）/
+#     update status（命中+未命中）/ list_pending（翻页+空）/ count_pending /
+#     get_cache（有+空）/ delete_cache（命中+未命中）/ clear_cache。
+#
+# 运行期回退：**无**（没有任何一处因 `ColumnDecode … UnexpectedNullError` 回退）。
+#
+# 未被本批 db 用例覆盖的转化站点（编译期已按真实 schema 校验）：
+#   * `beacon::get_joined_member_count`（1 处）——`-p synapse-storage --lib` 口径内无用例，
+#     由 tests/integration/beacon_storage_tests_migrated.rs:744/790 的
+#     `test_get_joined_member_count(_empty)` 覆盖（不在本批过滤器内）。
+#   * `admin_federation::count_distinct_rooms_by_sender_server`（1 处）——本模块 db_tests
+#     无直接用例，由 tests/integration/api_admin_federation_tests.rs:136-144 经
+#     `POST /_synapse/admin/v1/federation/rewrite` 真实往返覆盖（断言 HTTP 200，
+#     **未断言返回的 room_count 值**）。收紧方向：为该计数补一条直测或断言 room_count。
+#
+# 🆕 本批登记的既有缺陷：**D-29** —— `admin_federation::get_server_admission_status`
+#   声明 `Option<Option<String>>` 且 doc 写"行存在但 status 为 NULL 时返回 Some(None)"，
+#   但 `federation_servers.status` 是 NOT NULL DEFAULT 'active' ⇒ 内层 None 分支
+#   （synapse-services/src/admin_federation_service.rs:486 的 `Some(None) => Ok(Some("active"))`）
+#   不可达。详见 docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md §7（D-29）。
+#
+# 实测（main 树，门禁同源；本轮无并发写者新增生产动态）：
+#   dynamic_production 810 → 773   （C16 自身 -37）
+#   static             704 → 741   （+37）
+#   dynamic            1514 → 1477
+#   dynamic_test       704 → 704   （未动；两文件的 `#[cfg(test)]` 夹具未新增动态 SQL）
+# 收紧方向：C4/C5 等剩余批次继续分批静态化，直至 dynamic_production = 0。
+BASELINE_DYNAMIC_PRODUCTION=773
 BASELINE_DYNAMIC_TEST_INFRA=704
-BASELINE_STATIC=704
+BASELINE_STATIC=741
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1514
+BASELINE_DYNAMIC=1477
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

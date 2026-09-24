@@ -1,0 +1,84 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO beacon_locations (\n                room_id, event_id, beacon_info_id, sender, uri,\n                description, timestamp, accuracy, created_ts\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)\n            RETURNING id, room_id, event_id, beacon_info_id, sender, uri,\n                      description, timestamp, accuracy, created_ts\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "beacon_info_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "sender",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "uri",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "timestamp",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "accuracy",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "8a6300838f1cf3eddc2b9fc572655dd1187fbbe5dba8911cc18439253417a556"
+}

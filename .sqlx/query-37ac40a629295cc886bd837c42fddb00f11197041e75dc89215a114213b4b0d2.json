@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO federation_servers (server_name, status, updated_ts)\n            VALUES ($1, 'pending', $2)\n            ON CONFLICT (server_name) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "37ac40a629295cc886bd837c42fddb00f11197041e75dc89215a114213b4b0d2"
+}

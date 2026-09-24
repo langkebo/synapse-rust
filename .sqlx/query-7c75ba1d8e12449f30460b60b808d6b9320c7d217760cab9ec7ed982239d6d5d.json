@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT server_name, failure_count, last_failed_connect_at, last_successful_connect_at, updated_ts\n            FROM federation_servers WHERE status = 'pending'\n              AND (($1::BIGINT IS NULL AND $2::TEXT IS NULL)\n              OR COALESCE(updated_ts, 0) < $1\n              OR (COALESCE(updated_ts, 0) = $1 AND server_name < $2))\n            ORDER BY COALESCE(updated_ts, 0) DESC, server_name DESC\n            LIMIT $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "server_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "failure_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "last_failed_connect_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "last_successful_connect_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "7c75ba1d8e12449f30460b60b808d6b9320c7d217760cab9ec7ed982239d6d5d"
+}

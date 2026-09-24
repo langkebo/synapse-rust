@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(DISTINCT room_id) AS \"count!\" FROM events WHERE sender LIKE $1 AND state_key IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "5ffbc2fc35ed7e159eb6dadee92db3012ef76a8d8e5f722b49f5adc8ccb9debe"
+}
