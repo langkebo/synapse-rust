@@ -119,7 +119,6 @@ impl DeviceKeyRow {
             });
 
         DeviceKey {
-            id: 0,
             user_id: self.user_id,
             device_id: self.device_id,
             display_name: self
@@ -150,8 +149,18 @@ pub struct DeviceKeyStorage {
 /// implementations do not need database lifecycle management.
 #[async_trait::async_trait]
 pub trait DeviceKeyStoreApi: Send + Sync {
-    /// Best-effort recording of device list changes for debugging.
-    async fn record_device_list_change_best_effort(&self, user_id: &str, device_id: Option<&str>, change_type: &str);
+    /// Append a device-list change: one `device_lists_stream` row plus the matching
+    /// `device_lists_changes` row that `/keys/changes` reads.
+    ///
+    /// Fallible on purpose (D-07): it used to return `()` and swallow both failures, so a
+    /// dropped device-list change was invisible — peers would never learn about a new or
+    /// removed device. Each caller now decides explicitly whether it can tolerate that.
+    async fn record_device_list_change(
+        &self,
+        user_id: &str,
+        device_id: Option<&str>,
+        change_type: &str,
+    ) -> Result<(), ApiError>;
     /// Persist a device key to the database.
     async fn create_device_key(&self, key: &DeviceKey) -> Result<(), ApiError>;
     /// Persist a fallback key to the database.
@@ -289,9 +298,17 @@ impl DeviceKeyStorage {
 #[async_trait::async_trait]
 /// Implementation of [`DeviceKeyStoreApi`] methods.
 impl DeviceKeyStoreApi for DeviceKeyStorage {
-    async fn record_device_list_change_best_effort(&self, user_id: &str, device_id: Option<&str>, change_type: &str) {
+    async fn record_device_list_change(
+        &self,
+        user_id: &str,
+        device_id: Option<&str>,
+        change_type: &str,
+    ) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
-        let row = sqlx::query_scalar!(
+        // D-07: both statements used to swallow their error (`let Ok(..) else { return }` /
+        // `let _ =`), so a failed device-list change was indistinguishable from success and
+        // peers silently kept a stale device list.
+        let stream_id = sqlx::query_scalar!(
             r"
             INSERT INTO device_lists_stream (user_id, device_id, created_ts)
             VALUES ($1, $2, $3)
@@ -302,13 +319,10 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
             now
         )
         .fetch_one(&*self.pool)
-        .await;
+        .await
+        .map_err(map_database!("Failed to record device list stream change"))?;
 
-        let Ok(stream_id) = row else {
-            return;
-        };
-
-        let _ = sqlx::query!(
+        sqlx::query!(
             r"
             INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts)
             VALUES ($1, $2, $3, $4, $5)
@@ -320,7 +334,10 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
             now
         )
         .execute(&*self.pool)
-        .await;
+        .await
+        .map_err(map_database!("Failed to record device list change"))?;
+
+        Ok(())
     }
 
     async fn create_device_key(&self, key: &DeviceKey) -> Result<(), ApiError> {
@@ -729,6 +746,11 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
             WITH target AS (
                 SELECT id FROM device_keys
                 WHERE user_id = $1 AND device_id = $2 AND algorithm = $3 AND (is_fallback = FALSE OR is_fallback IS NULL)
+                -- D-08: `LIMIT 1` without `ORDER BY` hands out whichever row the planner
+                -- happens to return first, so successive claims of the same
+                -- (user, device, algorithm) were non-deterministic. `added_ts, id` is the
+                -- insertion order: hand out the oldest unused key first.
+                ORDER BY added_ts, id
                 LIMIT 1
             )
             DELETE FROM device_keys
@@ -772,6 +794,9 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
             WITH fb AS (
                 SELECT id FROM device_keys
                 WHERE user_id = $1 AND device_id = $2 AND algorithm = $3 AND is_fallback = TRUE
+                -- D-08: same non-determinism as `target` above — a device may hold several
+                -- fallback keys (re-uploads), so which one is picked has to be stable.
+                ORDER BY added_ts, id
                 LIMIT 1
             )
             UPDATE device_keys
@@ -918,7 +943,6 @@ mod tests {
 
     fn create_test_device_key() -> DeviceKey {
         DeviceKey {
-            id: 1,
             user_id: "@alice:example.com".to_string(),
             device_id: "DEVICE_ABC".to_string(),
             display_name: Some("Alice's Phone".to_string()),
@@ -939,7 +963,6 @@ mod tests {
     fn test_device_key_creation_with_valid_data() {
         let key = create_test_device_key();
 
-        assert_eq!(key.id, 1);
         assert_eq!(key.user_id, "@alice:example.com");
         assert_eq!(key.device_id, "DEVICE_ABC");
         assert_eq!(key.display_name, Some("Alice's Phone".to_string()));
@@ -951,7 +974,6 @@ mod tests {
     #[test]
     fn test_device_key_with_empty_display_name() {
         let key = DeviceKey {
-            id: 2,
             user_id: "@bob:example.com".to_string(),
             device_id: "DEVICE_XYZ".to_string(),
             display_name: None,
@@ -982,7 +1004,6 @@ mod tests {
     #[test]
     fn test_device_key_signatures_empty() {
         let key = DeviceKey {
-            id: 3,
             user_id: "@charlie:example.com".to_string(),
             device_id: "DEVICE_EMPTY".to_string(),
             display_name: None,
@@ -1029,7 +1050,6 @@ mod tests {
 
         let key: DeviceKey = serde_json::from_value(json_data).unwrap();
 
-        assert_eq!(key.id, 10);
         assert_eq!(key.user_id, "@david:example.com");
         assert_eq!(key.device_id, "DEVICE_D");
         assert_eq!(key.display_name, Some("David's Laptop".to_string()));
@@ -1057,7 +1077,6 @@ mod tests {
     #[test]
     fn test_signature_with_multiple_signers() {
         let multi_sig_key = DeviceKey {
-            id: 5,
             user_id: "@eve:example.com".to_string(),
             device_id: "DEVICE_EVE".to_string(),
             display_name: Some("Eve's Device".to_string()),
@@ -1088,7 +1107,6 @@ mod tests {
         let earlier = now - chrono::Duration::hours(1);
 
         let key = DeviceKey {
-            id: 6,
             user_id: "@frank:example.com".to_string(),
             device_id: "DEVICE_FRANK".to_string(),
             display_name: None,
@@ -1107,7 +1125,6 @@ mod tests {
     #[test]
     fn test_device_key_with_special_characters() {
         let key = DeviceKey {
-            id: 7,
             user_id: "@user-with-dash:server.example.com".to_string(),
             device_id: "DEVICE_特殊字符_123".to_string(),
             display_name: Some("设备名称 with 中文".to_string()),
@@ -1135,7 +1152,6 @@ mod tests {
 
         for (idx, algo) in algorithms.iter().enumerate() {
             let key = DeviceKey {
-                id: idx as i64 + 100,
                 user_id: "@test:example.com".to_string(),
                 device_id: format!("DEVICE_{idx}"),
                 display_name: None,

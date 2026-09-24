@@ -157,7 +157,12 @@ impl InMemoryDeviceKeyStore {
 #[async_trait::async_trait]
 /// Implementation of [`DeviceKeyStoreApi`] methods.
 impl DeviceKeyStoreApi for InMemoryDeviceKeyStore {
-    async fn record_device_list_change_best_effort(&self, user_id: &str, device_id: Option<&str>, change_type: &str) {
+    async fn record_device_list_change(
+        &self,
+        user_id: &str,
+        device_id: Option<&str>,
+        change_type: &str,
+    ) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
         let mut stream = self.device_list_stream.write().await;
         let stream_id = (stream.len() + 1) as i64;
@@ -168,6 +173,7 @@ impl DeviceKeyStoreApi for InMemoryDeviceKeyStore {
             created_ts: now,
         });
         let _ = change_type;
+        Ok(())
     }
 
     async fn create_device_key(&self, key: &DeviceKey) -> Result<(), ApiError> {

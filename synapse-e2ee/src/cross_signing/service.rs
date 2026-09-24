@@ -33,14 +33,19 @@ pub struct CrossSigningService {
 
 /// Implementation of [`CrossSigningService`] methods.
 impl CrossSigningService {
-    async fn record_cross_signing_change(&self, user_id: &str) {
+    /// Record a user-level device-list change for `/keys/changes` (D-07).
+    ///
+    /// Fallible: a swallowed failure here means peers never learn that this user's
+    /// cross-signing keys changed, which is exactly the silent-staleness defect.
+    async fn record_cross_signing_change(&self, user_id: &str) -> Result<(), ApiError> {
         if let Some(device_keys_storage) = &self.device_keys_storage {
             // Cross-signing keys are user-scoped rather than device-scoped, so
             // we record them as a user-level device-list change with
             // `device_id = NULL`. This is enough for `/keys/changes` to expose
             // the user as changed without inventing a fake device.
-            device_keys_storage.record_device_list_change_best_effort(user_id, None, "changed").await;
+            device_keys_storage.record_device_list_change(user_id, None, "changed").await?;
         }
+        Ok(())
     }
 
     pub(crate) fn extract_ed25519_key(
@@ -74,7 +79,7 @@ impl CrossSigningService {
     /// are notified that this user's cross-signing keys have changed.
     pub async fn upsert_federation_cross_signing_key(&self, key: &CrossSigningKey) -> Result<(), ApiError> {
         self.storage.upsert_cross_signing_key(key).await?;
-        self.record_cross_signing_change(&key.user_id).await;
+        self.record_cross_signing_change(&key.user_id).await?;
         Ok(())
     }
 
@@ -255,7 +260,7 @@ impl CrossSigningService {
         };
 
         self.storage.create_cross_signing_key(&cross_signing_key).await?;
-        self.record_cross_signing_change(user_id).await;
+        self.record_cross_signing_change(user_id).await?;
         Ok(())
     }
 
@@ -397,7 +402,7 @@ impl CrossSigningService {
     /// See [`delete_cross_signing_keys`].
     pub async fn delete_cross_signing_keys(&self, user_id: &str) -> Result<(), ApiError> {
         self.storage.delete_cross_signing_keys(user_id).await?;
-        self.record_cross_signing_change(user_id).await;
+        self.record_cross_signing_change(user_id).await?;
         if let Some(dehydrated_device_service) = &self.dehydrated_device_service {
             dehydrated_device_service.delete_dehydrated_device(user_id, "").await?;
         }

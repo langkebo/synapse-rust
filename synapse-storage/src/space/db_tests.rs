@@ -755,6 +755,70 @@ async fn test_get_recursive_hierarchy_with_children() {
     cleanup(&pool, &space.space_id).await;
 }
 
+// === Test 22b: get_recursive_hierarchy(suggested_only = true) decodes the JSONB column ===
+//
+// D-09: the `suggested_only` branch selected `via_servers` straight into `Vec<String>`, but
+// the column is JSONB, so any row it actually returned failed with `ColumnDecode`. The old
+// fixture set `is_suggested = FALSE` on every child, so `WHERE is_suggested = TRUE` matched
+// nothing and the decode path was never exercised.
+#[tokio::test]
+async fn test_recursive_hierarchy_suggested_only_decodes_jsonb_via_servers() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = SpaceStorage::new(&pool);
+    let room_id = format!("!sp_sugg_{}:example.com", uuid::Uuid::new_v4());
+    let suggested_room = format!("!sugg_yes_{}:example.com", uuid::Uuid::new_v4());
+    let plain_room = format!("!sugg_no_{}:example.com", uuid::Uuid::new_v4());
+
+    let request = CreateSpaceRequest {
+        room_id: room_id.clone(),
+        name: Some("Suggested Space".to_string()),
+        topic: None,
+        avatar_url: None,
+        creator: "@sugg:example.com".to_string(),
+        join_rule: None,
+        visibility: None,
+        is_public: None,
+        parent_space_id: None,
+    };
+    let space = storage.create_space(request).await.unwrap();
+
+    storage
+        .add_child(AddChildRequest {
+            space_id: space.space_id.clone(),
+            room_id: suggested_room.clone(),
+            sender: "@sugg:example.com".to_string(),
+            is_suggested: true,
+            via_servers: vec!["a.example".to_string(), "b.example".to_string()],
+        })
+        .await
+        .unwrap();
+    storage
+        .add_child(AddChildRequest {
+            space_id: space.space_id.clone(),
+            room_id: plain_room.clone(),
+            sender: "@sugg:example.com".to_string(),
+            is_suggested: false,
+            via_servers: vec!["c.example".to_string()],
+        })
+        .await
+        .unwrap();
+
+    let suggested = storage
+        .get_recursive_hierarchy(&space.space_id, 3, true)
+        .await
+        .expect("suggested_only hierarchy must decode the JSONB via_servers column");
+
+    assert_eq!(suggested.len(), 1, "only the suggested child belongs in this view");
+    assert_eq!(suggested[0].room_id, suggested_room);
+    assert_eq!(
+        suggested[0].via_servers,
+        vec!["a.example".to_string(), "b.example".to_string()],
+        "the JSONB array must round-trip element-wise and in order"
+    );
+
+    cleanup(&pool, &space.space_id).await;
+}
+
 // === Test 23: get_space_hierarchy_paginated (no children) ===
 #[tokio::test]
 async fn test_get_space_hierarchy_paginated_no_children() {

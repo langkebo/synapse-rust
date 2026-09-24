@@ -115,6 +115,8 @@ mod uia_service_tests_migrated;
 
 // D-36 守卫 B：生产 INSERT 列覆盖 CATALOG 检查（迁移模板 schema）。
 mod insert_column_coverage_tests;
+// D-07 / D-08：device_keys 存储的变更记录与 OTK 发放顺序（迁移模板 schema）。
+mod e2ee_device_keys_storage_tests;
 
 // Schema contract tests migrated from tests/unit/
 mod db_schema_smoke_tests_migrated;

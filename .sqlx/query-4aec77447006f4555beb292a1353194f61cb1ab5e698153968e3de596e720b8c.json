@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            WITH target AS (\n                SELECT id FROM device_keys\n                WHERE user_id = $1 AND device_id = $2 AND algorithm = $3 AND (is_fallback = FALSE OR is_fallback IS NULL)\n                LIMIT 1\n            )\n            DELETE FROM device_keys\n            WHERE id IN (SELECT id FROM target)\n            RETURNING\n                user_id,\n                device_id,\n                algorithm,\n                key_id,\n                public_key,\n                signatures,\n                display_name,\n                added_ts,\n                ts_updated_ms,\n                key_data,\n                is_fallback\n            ",
+  "query": "\n            WITH target AS (\n                SELECT id FROM device_keys\n                WHERE user_id = $1 AND device_id = $2 AND algorithm = $3 AND (is_fallback = FALSE OR is_fallback IS NULL)\n                -- D-08: `LIMIT 1` without `ORDER BY` hands out whichever row the planner\n                -- happens to return first, so successive claims of the same\n                -- (user, device, algorithm) were non-deterministic. `added_ts, id` is the\n                -- insertion order: hand out the oldest unused key first.\n                ORDER BY added_ts, id\n                LIMIT 1\n            )\n            DELETE FROM device_keys\n            WHERE id IN (SELECT id FROM target)\n            RETURNING\n                user_id,\n                device_id,\n                algorithm,\n                key_id,\n                public_key,\n                signatures,\n                display_name,\n                added_ts,\n                ts_updated_ms,\n                key_data,\n                is_fallback\n            ",
   "describe": {
     "columns": [
       {
@@ -80,5 +80,5 @@
       false
     ]
   },
-  "hash": "3aab50e011bf59695aed0ae45e2ade7066ebaa5f091a3ee19c32b0eaea87e2f4"
+  "hash": "4aec77447006f4555beb292a1353194f61cb1ab5e698153968e3de596e720b8c"
 }

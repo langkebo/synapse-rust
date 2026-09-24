@@ -704,6 +704,11 @@ impl SpaceStorage {
         visited.insert(space_id.to_string());
 
         let children = if suggested_only {
+            // D-09: `via_servers` is JSONB, so decoding it straight into `Vec<String>` fails
+            // with `ColumnDecode` as soon as a row actually comes back (the old fixture had
+            // `is_suggested = TRUE` on zero rows, which is why it never fired). Every other
+            // projection in this file already expands the array with
+            // `ARRAY(SELECT jsonb_array_elements_text(via_servers))`.
             sqlx::query_as!(
                 SpaceChild,
                 r#"
@@ -713,7 +718,7 @@ impl SpaceStorage {
                     room_id,
                     sender,
                     is_suggested AS "is_suggested!",
-                    via_servers AS "via_servers!: Vec<String>",
+                    ARRAY(SELECT jsonb_array_elements_text(via_servers)) AS "via_servers!: Vec<String>",
                     added_ts,
                     NULL::TEXT as "order",
                     NULL::BOOLEAN as suggested,

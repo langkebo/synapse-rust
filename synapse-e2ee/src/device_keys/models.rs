@@ -7,27 +7,12 @@ fn default_json_object() -> serde_json::Value {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 /// The `DeviceKey` type.
+///
+/// Deliberately has no `id`: `device_keys.id` is a `BIGSERIAL` primary key that no query
+/// ever projected, so the field could only ever hold the fabricated literal `0` (D-05).
+/// A key is identified by `(user_id, device_id, algorithm, key_id)`.
 pub struct DeviceKey {
-    /// The `id` field.
     /// The `user_id` field.
-    /// The `device_id` field.
-    /// The `display_name` field.
-    /// The `algorithm` field.
-    /// The `key_id` field.
-    /// The `public_key` field.
-    /// The `signatures` field.
-    /// The `created_ts` field.
-    /// The `updated_ts` field.
-    pub id: i64,
-    /// The `user_id` field.
-    /// The `device_id` field.
-    /// The `display_name` field.
-    /// The `algorithm` field.
-    /// The `key_id` field.
-    /// The `public_key` field.
-    /// The `signatures` field.
-    /// The `created_ts` field.
-    /// The `updated_ts` field.
     pub user_id: String,
     /// The `device_id` field.
     /// The `display_name` field.
@@ -191,7 +176,6 @@ mod tests {
     #[test]
     fn test_device_key_creation() {
         let key = DeviceKey {
-            id: 0, // 数据库自动生成
             user_id: "@test:example.com".to_string(),
             device_id: "DEVICE123".to_string(),
             display_name: Some("My Device".to_string()),
@@ -364,7 +348,6 @@ mod tests {
 
     fn make_test_key(user_id: &str, device_id: &str, algorithm: &str, key_id: &str) -> DeviceKey {
         DeviceKey {
-            id: 0,
             user_id: user_id.to_string(),
             device_id: device_id.to_string(),
             display_name: None,

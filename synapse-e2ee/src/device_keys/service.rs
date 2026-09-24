@@ -238,7 +238,6 @@ impl DeviceKeyService {
             if let Some(keys) = device_keys.keys.as_object() {
                 for (key_id, public_key) in keys {
                     let key = DeviceKey {
-                        id: 0,
                         user_id: user_id.clone(),
                         device_id: device_id.clone(),
                         display_name: None,
@@ -346,7 +345,6 @@ impl DeviceKeyService {
                     }
 
                     let key = DeviceKey {
-                        id: 0,
                         user_id: user_id.clone(),
                         device_id: device_id.clone(),
                         display_name: None,
@@ -446,7 +444,6 @@ impl DeviceKeyService {
                         }
 
                         let key = DeviceKey {
-                            id: 0,
                             user_id: user_id.clone(),
                             device_id: device_id.clone(),
                             display_name: None,
@@ -475,7 +472,9 @@ impl DeviceKeyService {
             let single_cache_key = format!("device_keys:{user_id}:{device_id}");
             self.cache.delete(&single_cache_key).await;
 
-            self.storage.record_device_list_change_best_effort(&user_id, Some(&device_id), "changed").await;
+            // A dropped device-list change means peers never learn about this device (D-07),
+            // so fail the upload and let the client retry rather than reporting success.
+            self.storage.record_device_list_change(&user_id, Some(&device_id), "changed").await?;
         }
 
         if one_time_key_counts.is_empty() {
@@ -584,7 +583,9 @@ impl DeviceKeyService {
         let cache_key = format!("device_keys:{user_id}:{device_id}");
         self.cache.delete(&cache_key).await;
 
-        self.storage.record_device_list_change_best_effort(user_id, Some(device_id), "deleted").await;
+        // Same reasoning as the upload path: a missing "deleted" change leaves peers with a
+        // device they can still see (D-07). The delete itself is idempotent, so a retry is safe.
+        self.storage.record_device_list_change(user_id, Some(device_id), "deleted").await?;
 
         Ok(())
     }
@@ -756,7 +757,6 @@ mod tests {
     fn make_device_key(user_id: &str, device_id: &str, algorithm: &str) -> DeviceKey {
         let now = Utc::now();
         DeviceKey {
-            id: 1,
             user_id: user_id.to_string(),
             device_id: device_id.to_string(),
             display_name: None,
