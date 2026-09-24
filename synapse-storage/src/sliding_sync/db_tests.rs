@@ -1138,3 +1138,71 @@ async fn test_materialize_honors_explicit_bump_event_types() {
 
     cleanup_bump_test(&pool, &storage, &room_id, &user_id, &device_id).await;
 }
+
+/// D-15.2：`list_room_token_sync` 的**游标分支**此前在 `-p synapse-storage --lib` 口径内没有
+/// 覆盖（两条既有用例都传 `from = None`；集成侧 `sliding_sync_storage_tests_migrated.rs` 有
+/// 一条，但那在另一个口径里）。这里把覆盖收进 storage crate 自己的 lib 口径。
+///
+/// 游标是四键 keyset：`(updated_ts DESC, user_id ASC, device_id ASC, conn_id ASC)`，
+/// 因此夹具特意让**前两行的 `updated_ts` 相同**，逐页（limit = 1）翻过去时才会依次走到
+/// `updated_ts = $3 AND user_id > $4`（并列键分支）与 `updated_ts < $3`（跨时间戳分支）。
+/// `upsert_room` 自己写 `updated_ts = now`，无法用它构造并列，故夹具用显式 INSERT。
+#[tokio::test]
+async fn test_list_room_token_sync_with_cursor_pages_through_both_branches() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = SlidingSyncStorage::new(pool.clone());
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let room_id = format!("!cursor_room_{suffix}:localhost");
+    // 名字有序（a < b < c），所以并列时按 user_id ASC 的期望顺序是确定的。
+    let user_a = format!("@cursor_a_{suffix}:localhost");
+    let user_b = format!("@cursor_b_{suffix}:localhost");
+    let user_c = format!("@cursor_c_{suffix}:localhost");
+
+    for (user_id, updated_ts) in [(&user_a, 2_000i64), (&user_b, 2_000), (&user_c, 1_000)] {
+        sqlx::query(
+            "INSERT INTO sliding_sync_rooms (user_id, device_id, room_id, created_ts, updated_ts) \
+             VALUES ($1, 'DEV_CURSOR', $2, $3, $3)",
+        )
+        .bind(user_id)
+        .bind(&room_id)
+        .bind(updated_ts)
+        .execute(&*pool)
+        .await
+        .expect("fixture: inserting a sliding_sync_rooms row must succeed");
+    }
+
+    let mut seen: Vec<String> = Vec::new();
+    let mut cursor: Option<crate::sliding_sync::RoomTokenSyncCursor> = None;
+    // 3 行 + 一个"已翻到底"的确认页。
+    for page in 0..4 {
+        let rows = storage
+            .list_room_token_sync(&room_id, 1, cursor.as_ref())
+            .await
+            .expect("list_room_token_sync must succeed on both cursor branches");
+        if page < 3 {
+            assert_eq!(rows.len(), 1, "page {page} must return exactly one row");
+            let row = &rows[0];
+            seen.push(row.user_id.clone());
+            cursor = Some(crate::sliding_sync::RoomTokenSyncCursor {
+                room_updated_ts: row.room_updated_ts,
+                user_id: row.user_id.clone(),
+                device_id: row.device_id.clone(),
+                conn_id: row.conn_id.clone(),
+            });
+        } else {
+            assert!(rows.is_empty(), "the page after the last row must be empty, got {rows:?}");
+        }
+    }
+
+    assert_eq!(
+        seen,
+        vec![user_a.clone(), user_b.clone(), user_c.clone()],
+        "四键 keyset 必须按 (updated_ts DESC, user_id ASC, …) 逐行取完，不重不漏"
+    );
+
+    sqlx::query("DELETE FROM sliding_sync_rooms WHERE room_id = $1")
+        .bind(&room_id)
+        .execute(&*pool)
+        .await
+        .expect("cleanup");
+}

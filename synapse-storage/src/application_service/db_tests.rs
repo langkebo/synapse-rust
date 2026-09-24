@@ -863,3 +863,155 @@ async fn test_get_virtual_users_empty_for_unknown_as_id() {
 
     cleanup_with_suffix(&pool, &suffix).await;
 }
+
+/// D-15.5：C7 静态化过的 **12 个 namespace / 统计方法**此前在
+/// `application_service/db_tests.rs` 里的调用数**全为 0**（`get_statistics`、
+/// `update_last_seen`、`get_{user,room_alias,room}_namespaces`、
+/// `find_{user,room_alias,room}_namespace_conflict`、
+/// `is_{user,room_alias,room_id}_in_namespace`、`has_exclusive_user_namespace_match`）。
+/// 本用例用**真实写入路径** `register`（其 `insert_namespaces` 按 `namespaces` JSON 落表）
+/// 造数据，再逐条读回，顺带覆盖 `is_exclusive AS "is_exclusive!"` 与
+/// `namespace AS regex` 这两个别名投影。
+#[tokio::test]
+async fn test_namespace_methods_and_statistics_roundtrip() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = ApplicationServiceStorage::new(&pool);
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    cleanup_with_suffix(&pool, &suffix).await;
+
+    let as_a = format!("as_ns_a_{suffix}");
+    let as_b = format!("as_ns_b_{suffix}");
+    let user_ns = format!("@nsw_a_{suffix}.*:localhost");
+    let alias_ns = format!("#nsw_a_{suffix}.*:localhost");
+    let room_ns = format!("!nsw_a_{suffix}.*:localhost");
+
+    // as_a：三类 namespace 都声明为 exclusive。
+    storage
+        .register(RegisterApplicationServiceRequest {
+            as_id: as_a.clone(),
+            url: "http://as-a.test".to_string(),
+            as_token: format!("as_token_a_{suffix}"),
+            hs_token: format!("hs_token_a_{suffix}"),
+            sender: format!("_nsw_a_{suffix}"),
+            description: Some("namespace roundtrip".to_string()),
+            is_rate_limited: Some(false),
+            protocols: Some(vec!["test".to_string()]),
+            namespaces: Some(serde_json::json!({
+                "users": [{"exclusive": true, "regex": user_ns}],
+                "aliases": [{"exclusive": true, "regex": alias_ns}],
+                "rooms": [{"exclusive": true, "regex": room_ns}]
+            })),
+            api_key: None,
+            config: None,
+        })
+        .await
+        .expect("register(as_a) must succeed");
+
+    // as_b：只有一条**非** exclusive 的 user namespace（用于 exclusive 语义的负例）。
+    storage
+        .register(RegisterApplicationServiceRequest {
+            as_id: as_b.clone(),
+            url: "http://as-b.test".to_string(),
+            as_token: format!("as_token_b_{suffix}"),
+            hs_token: format!("hs_token_b_{suffix}"),
+            sender: format!("_nsw_b_{suffix}"),
+            description: None,
+            is_rate_limited: Some(false),
+            protocols: Some(vec![]),
+            namespaces: Some(serde_json::json!({
+                "users": [{"exclusive": false, "regex": format!("@nsw_b_{suffix}.*:localhost")}],
+                "aliases": [],
+                "rooms": []
+            })),
+            api_key: None,
+            config: None,
+        })
+        .await
+        .expect("register(as_b) must succeed");
+
+    // —— get_*_namespaces：别名投影（`is_exclusive!` 与 `namespace AS regex`）——
+    let users = storage.get_user_namespaces(&as_a).await.expect("get_user_namespaces");
+    assert_eq!(users.len(), 1);
+    assert!(users[0].is_exclusive, "is_exclusive AS \"is_exclusive!\" must decode as true");
+    assert_eq!(users[0].namespace_pattern, user_ns);
+    assert_eq!(storage.get_room_alias_namespaces(&as_a).await.expect("aliases").len(), 1);
+    assert_eq!(storage.get_room_namespaces(&as_a).await.expect("rooms").len(), 1);
+    assert!(storage.get_user_namespaces(&as_b).await.expect("as_b users").len() == 1);
+
+    // —— is_*_in_namespace：命中返回 as_id，未命中返回 None ——
+    let matched_user = format!("@nsw_a_{suffix}_x:localhost");
+    assert_eq!(storage.is_user_in_namespace(&matched_user).await.expect("is_user_in_namespace"), Some(as_a.clone()));
+    assert!(
+        storage.is_user_in_namespace("@nobody_else:localhost").await.expect("miss").is_none(),
+        "a user outside every namespace must not match"
+    );
+    assert_eq!(
+        storage
+            .is_room_alias_in_namespace(&format!("#nsw_a_{suffix}_x:localhost"))
+            .await
+            .expect("is_room_alias_in_namespace"),
+        Some(as_a.clone())
+    );
+    assert_eq!(
+        storage
+            .is_room_id_in_namespace(&format!("!nsw_a_{suffix}_x:localhost"))
+            .await
+            .expect("is_room_id_in_namespace"),
+        Some(as_a.clone())
+    );
+
+    // —— has_exclusive_user_namespace_match：只看 exclusive 行 ——
+    assert!(
+        storage.has_exclusive_user_namespace_match(&as_a, &matched_user).await.expect("exclusive match"),
+        "as_a's matching user namespace is exclusive"
+    );
+    assert!(
+        !storage
+            .has_exclusive_user_namespace_match(&as_b, &format!("@nsw_b_{suffix}_x:localhost"))
+            .await
+            .expect("non-exclusive match"),
+        "a non-exclusive namespace must not count as an exclusive match"
+    );
+
+    // —— find_*_namespace_conflict：同 as_id 不算冲突，别人的 exclusive 同模式才算 ——
+    assert_eq!(
+        storage.find_user_namespace_conflict(&as_b, &user_ns).await.expect("user conflict"),
+        Some(as_a.clone()),
+        "as_b 想注册 as_a 已 exclusive 占用的 user namespace ⇒ 冲突并报出占用者"
+    );
+    assert!(
+        storage.find_user_namespace_conflict(&as_a, &user_ns).await.expect("self conflict").is_none(),
+        "同一 as_id 重复注册自己的 namespace 不是冲突"
+    );
+    assert_eq!(
+        storage.find_room_alias_namespace_conflict(&as_b, &alias_ns).await.expect("alias conflict"),
+        Some(as_a.clone())
+    );
+    assert_eq!(storage.find_room_namespace_conflict(&as_b, &room_ns).await.expect("room conflict"), Some(as_a.clone()));
+
+    // —— get_statistics / update_last_seen：统计行按 as_id 聚合，且 last_seen 可被打点 ——
+    let before = storage.get_statistics().await.expect("get_statistics");
+    let row_before = before
+        .iter()
+        .find(|row| row["as_id"] == serde_json::json!(as_a))
+        .expect("as_a must appear in the statistics listing");
+    assert!(row_before["last_seen_ts"].is_null(), "a never-seen AS has no last_seen_ts");
+
+    storage.update_last_seen(&as_a).await.expect("update_last_seen #1");
+    storage.update_last_seen(&as_a).await.expect("update_last_seen must be idempotent (upsert)");
+
+    let after = storage.get_statistics().await.expect("get_statistics after update");
+    let row_after =
+        after.iter().find(|row| row["as_id"] == serde_json::json!(as_a)).expect("as_a must still appear exactly once");
+    assert!(
+        row_after["last_seen_ts"].as_i64().is_some_and(|ts| ts > 0),
+        "update_last_seen must stamp last_seen_ts, got {row_after:?}"
+    );
+    assert_eq!(
+        after.iter().filter(|row| row["as_id"] == serde_json::json!(as_a)).count(),
+        1,
+        "the statistics upsert must keep one row per as_id"
+    );
+
+    cleanup_with_suffix(&pool, &suffix).await;
+}
