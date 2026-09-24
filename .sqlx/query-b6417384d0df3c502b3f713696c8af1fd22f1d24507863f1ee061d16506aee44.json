@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO user_media_quota (\n                user_id, current_storage_bytes, current_files_count, created_ts, updated_ts\n            )\n            VALUES ($1, $2, 1, $4, $4)\n            ON CONFLICT (user_id)\n            DO UPDATE SET\n                current_storage_bytes = GREATEST(0, user_media_quota.current_storage_bytes + $2),\n                current_files_count = CASE\n                    WHEN $3 = 'upload' THEN user_media_quota.current_files_count + 1\n                    WHEN $3 = 'delete' THEN GREATEST(0, user_media_quota.current_files_count - 1)\n                    ELSE user_media_quota.current_files_count\n                END,\n                updated_ts = $4\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b6417384d0df3c502b3f713696c8af1fd22f1d24507863f1ee061d16506aee44"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE registration_tokens\n            SET uses_count = uses_count + 1,\n                is_used = CASE WHEN token_type = 'single_use' THEN TRUE ELSE is_used END,\n                last_used_ts = $2\n            WHERE id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "48f650d0516ec864ff4bf971d06123492bc2e00e790380e74479022482b743c1"
+}

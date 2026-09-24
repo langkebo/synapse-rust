@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    UPDATE room_invites SET\n                        is_used = TRUE,\n                        invitee_user_id = $2,\n                        used_ts = $3\n                    WHERE invite_code = $1\n                    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "60d5f7efee89ed39fe6370ec367caa39b241177f66788e7298b614485f7f930e"
+}

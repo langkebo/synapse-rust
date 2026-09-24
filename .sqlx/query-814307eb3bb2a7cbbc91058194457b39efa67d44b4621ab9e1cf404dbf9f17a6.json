@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, max_storage_bytes, max_file_size_bytes, max_files_count, current_storage_bytes, current_files_count, alert_threshold_percent, updated_ts FROM server_media_quota WHERE id = 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "max_storage_bytes",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "max_file_size_bytes",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "max_files_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "current_storage_bytes",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "current_files_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "alert_threshold_percent",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "814307eb3bb2a7cbbc91058194457b39efa67d44b4621ab9e1cf404dbf9f17a6"
+}

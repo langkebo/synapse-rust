@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, token_id, token AS \"token!\", user_id, username, email, ip_address, user_agent, used_ts, is_success, error_message FROM registration_token_usage WHERE token_id = $1 ORDER BY used_ts DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "token_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "token!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "ip_address",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "user_agent",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "used_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "is_success",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "error_message",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "1cee0d79ba1dc9fcfc822bab89fdfbf287908f1cb39752a5c5c9e5cfede1bfed"
+}

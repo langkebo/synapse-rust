@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE media_quota_config SET is_default = FALSE WHERE is_default = TRUE",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "9c5f630415beca108e8c838f1bbd99532003274956d73143cd6e1717e22f4d80"
+}

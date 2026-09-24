@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE room_invites SET\n                is_revoked = TRUE,\n                revoked_at = $2,\n                revoked_reason = $3\n            WHERE invite_code = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e505e1df71260cbf5dcce5114a40a5bdafc61ba8e47730442513ba607abf3fe2"
+}

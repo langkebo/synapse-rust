@@ -1,0 +1,94 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, invite_code AS \"invite_code!\", room_id, inviter_user_id AS \"inviter_user_id!\", invitee_email, invitee_user_id, is_used, is_revoked, expires_at, created_ts, used_ts, revoked_at, revoked_reason FROM room_invites WHERE invite_code = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "invite_code!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "inviter_user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "invitee_email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "invitee_user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_used",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "is_revoked",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "expires_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "used_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "revoked_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "revoked_reason",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "536c862b47b652ec2e630e450aed78e1f6fd2a5d04472a38788b38e524c20fce"
+}

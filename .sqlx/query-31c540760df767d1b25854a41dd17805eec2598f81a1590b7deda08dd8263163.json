@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE registration_tokens SET is_enabled = FALSE WHERE id = $1 AND is_enabled = TRUE",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "31c540760df767d1b25854a41dd17805eec2598f81a1590b7deda08dd8263163"
+}

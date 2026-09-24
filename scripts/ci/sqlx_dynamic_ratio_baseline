@@ -1221,11 +1221,146 @@
 #   dynamic            1616 → 1594
 #   dynamic_test       704 → 704   （未动）
 # 收紧方向：C4/C5 等剩余批次继续分批静态化，直至 dynamic_production = 0。
-BASELINE_DYNAMIC_PRODUCTION=890
+# ── 2026-09-24 C14 静态化（生产动态 -40，静态 +40）────────────────────────────
+#
+# 批次：C14。目标文件（均在 synapse-storage，**两个模块生产区剩余动态均为 0**）：
+#   synapse-storage/src/registration_token/repository.rs  20 处生产动态 → 20 静态
+#   synapse-storage/src/media_quota/repository.rs         20 处生产动态 → 20 静态
+# 提交：2f26e7106（源码）/ 本提交（.sqlx + 基线）。
+#
+# ✅ STEP 0（feature gate）实测：
+#   * `registration_token` —— **无** `#[cfg(feature = …)]` 门控
+#     （`synapse-storage/src/lib.rs:106-107` 只有文档注释 + `pub mod registration_token;`，
+#      上一行不是属性；模块内 `grep -c 'cfg(feature'` = 0）。
+#   * `media_quota` —— **无** 门控（`lib.rs:78-79` 同样是文档注释 + `pub mod media_quota;`；
+#      仅 `mod.rs` 的 `db_tests`/`tests` 是 `#[cfg(test)]`）。
+#   ⇒ 两个目标模块在 default features 下即参与编译，本批**不需要**额外 feature，
+#     验证口径沿用已转模块所需的 `test-utils,server-notifications,saml-sso`。
+#   ⚠️ 与 C6(server_notification)/C9(saml)/C11(friend_room) 的假绿陷阱无关：那三个模块
+#     分别由 server-notifications / saml-sso / friends 门控，本批两模块均不受门控。
+#   prepare 口径沿用 C9–C13：`--workspace` 编译 root crate，其 default features 含
+#     `core-private-chat → friends`，feature unification 顺带打开 synapse-storage/friends
+#     （C11 转的 friend_room 的 26 条因此仍留在缓存里，逐条 comm 核对未丢）。
+#   测试过滤器实测**非零**：`-E 'test(registration_token) or test(media_quota)'`
+#     → **82 tests run: 82 passed, 0 failed**（1 slow，1540 skipped，238.6s），
+#     未出现 C6/C9/C11 那种 "0 tests" 假绿（其中 media_quota 36 例、
+#     registration_token 46 例；db_tests 走 per-test 隔离 schema 的真实 DB 往返）。
+#
+# 静态化构成：
+#   registration_token/repository.rs
+#     query_as! × 12（RegistrationToken / RoomInvite / RegistrationTokenBatch /
+#                     RegistrationTokenUsage 的行映射与 INSERT/UPDATE … RETURNING；
+#                     get_all_tokens 的游标分支与首页分支各一条）
+#     query!    ×  8（delete_token、use_token ×2、deactivate_token、
+#                     cleanup_expired_tokens、use_room_invite、revoke_room_invite、
+#                     create_batch 的 token 批量 INSERT）
+#   media_quota/repository.rs
+#     query_as!     × 14（MediaQuotaConfig / UserMediaQuota / ServerMediaQuota /
+#                         MediaQuotaAlert 的行映射与 INSERT/UPDATE … RETURNING）
+#     query_scalar! ×  1（get_usage_stats 的 COALESCE(SUM(file_size_bytes),0)::BIGINT）
+#     query!        ×  5（create_config 清默认位、delete_config、update_usage ×2、
+#                         mark_alert_read）
+#
+# 静态化时补的 nullability / 类型覆盖（schema 取自 `\d` 实测，非猜测）：
+#   * `RETURNING *` **全部**展开为显式列清单。两个模块的 6 条 `RETURNING *`
+#     （registration_tokens / room_invites / registration_token_batches /
+#      media_quota_config / user_media_quota ×2 / media_quota_alerts）中，有 4 处
+#     旧 `FromRow` 会**静默忽略表里多出来的列**（例如 room_invites 的
+#     inviter/invitee/is_accepted/accepted_at/signature/signed_version、
+#     media_quota_config 的 config_name/max_file_size/max_upload_rate/
+#     allowed_content_types/retention_days、user_media_quota 的
+#     max_bytes/used_bytes/file_count）——`query_as!` 不走 `FromRow`，而是按 describe
+#     的列名直接构造结构体字面量（sqlx-macros-core/src/query/output.rs 的
+#     quote_query_as）⇒ 多一列 E0560。这是本批与"照抄 SELECT 列表"最容易踩的差异。
+#   * 可空列 + 非 Option 字段 ⇒ `AS "col!"`（复刻旧 FromRow 遇 NULL 即解码失败的假设）：
+#     registration_tokens.token_type / max_uses / uses_count / is_used / is_enabled
+#     （五列均 `DEFAULT` 无 `NOT NULL`）、registration_token_usage.token、
+#     room_invites.invite_code / inviter_user_id、media_quota_config.is_enabled。
+#   * 聚合表达式无 relation origin ⇒ 被推断可空：get_usage_stats 的
+#     `COALESCE(SUM(file_size_bytes), 0)::BIGINT AS "recent_uploads!"`（COALESCE 带 0
+#     兜底恒非空），保持 `let recent_uploads: i64`。
+#   * `&String` → `.as_str()`、`&Option<String>` → `.as_deref()`（宏 ty_match 比
+#     `.bind()` 严格）；TEXT[] 参数改精确 `&[String]`——create_batch 原本先构造
+#     `Vec<&str>` 再绑定，现直接复用形参 `tokens: &[String]`，删掉中间 Vec。
+#
+# ⚠️ 本轮踩到并记录的**宏字符串陷阱**：`sqlx::query_as!` 的第二参是普通字符串字面量时，
+#   `\` + 换行是 Rust 的续行转义（会吞掉换行与缩进）；一旦因为要写 `AS "col!"` 而把
+#   该字面量改成 **raw string**（`r#"…"#`），`\` 就变成**字面反斜杠**、原样发给 PG ⇒
+#   `error: error returned from database: syntax error at or near "\"`。
+#   get_all_tokens 的两条 SQL 原用 `\` 续行，本轮改用真实换行（raw string 内换行与
+#   缩进对 SQL 无害），必须两处同时改，否则宏报错且 E0282 连锁。
+#
+# 尚未由运行期用例直接覆盖的转化站点（编译期已按真实 schema 校验参数与列类型）：
+#   registration_token：create_batch 的批量 INSERT 分支、use_room_invite、
+#     revoke_room_invite、deactivate_token、cleanup_expired_tokens、create_room_invite
+#     （后者见下"既有缺陷"，任何数据下都失败，测试**有意**绕过）；
+#   media_quota：update_usage 的三条语句在 db_tests 中被真实调用
+#     （test_update_usage_*），get_server_quota 的自动补种分支与 update_server_quota
+#     由 test_server_media_quota / test_update_server_quota 覆盖。
+#
+# ⚠️ **既有 SQL 缺陷（非本轮引入，未修复）**：`create_room_invite` 的 INSERT 只写
+#   `(invite_code, room_id, inviter_user_id, invitee_email, expires_at, created_ts)`，
+#   而 `room_invites` 的 `inviter` / `invitee` 两列是 **NOT NULL 且无 DEFAULT**、表上
+#   **无任何触发器**。psql 实测：
+#     ERROR:  null value in column "inviter" of relation "room_invites"
+#             violates not-null constraint
+#   即该方法在任何输入下都以 23502 失败。此缺陷**在 C14 之前就已被测试代码登记**——
+#   registration_token/db_tests.rs:828-829 的注释
+#   "create_room_invite is broken due to required inviter/invitee columns that it does
+#    not supply — pre-existing bug" 并改用 raw SQL 造夹具。静态化只是把它的列清单
+#   （`RETURNING *` → 显式列）写清楚，**未改 INSERT 的列集合**，故行为不变。
+#   收紧方向：由业务侧决定 `inviter`/`invitee` 与 `inviter_user_id` 的映射（或删列），
+#   属行为变更，超出"逐站静态化"范围，本轮只报告不修。
+#   另：`registration_token/repository.rs::get_token_usage` 的 `token` 列可空而旧
+#   FromRow 按 String 硬读，本轮以 `AS "token!"` 原样保留该假设，未借机改行为。
+#
+# ⚠️ `.sqlx`：destination 就是 `.sqlx/` 本身，`cargo sqlx prepare` 先清后写。
+#   isolated worktree target/c14-wt @ HEAD 2f26e7106（源码提交已在 HEAD，无需 git apply）：
+#     SQLX_OFFLINE=false DATABASE_URL=… \
+#       cargo sqlx prepare --workspace -- --features server-notifications,saml-sso
+#   实测 before=601 after=641，**deleted=0 / added=40 / modified=0**（文件名集合 comm
+#   逐条核对 + `git status .sqlx` 全为 `??`）。40 个宏站点各 1 条，无哈希合并。
+#
+# 验证（isolated worktree target/c14-wt，**无需任何越界修补**——HEAD 已能编译 workspace）：
+#   SQLX_OFFLINE=false cargo check -p synapse-storage
+#     --features test-utils,server-notifications,saml-sso → Finished（9.1s；40 个宏按
+#     真实 DB describe 全部通过，首轮零回退——仅前一轮因 raw string 的 `\` 报语法错，
+#     已修正，与类型/可空性无关）
+#   SQLX_OFFLINE=true cargo check -p synapse-storage
+#     --features test-utils,server-notifications,saml-sso（touch 两个 repository.rs 强制
+#     宏重展开）→ Finished（44.4s；证明提交的 .sqlx 离线可复现）
+#     ⚠️ 反向自证（AGENTS.md 铁律 8）：移走 40 条新条目中的 1 条
+#     （query-0d2e75f8…，即 registration_tokens 的显式列 SELECT；已 `cmp` 确认 worktree
+#     与 main 树逐字节相同）后重跑同命令 →
+#       `error: SQLX_OFFLINE=true but there is no cached data for this query`
+#       + `could not compile synapse-storage (lib) due to 1 previous error`，exit 101；
+#     还原该文件（641 条）后同命令重新 Finished。证明该缓存真的被读取，而非"跑绿但没生效"。
+#   TEST_DATABASE_URL=… TEST_DB_TEMPLATE_SCHEMA=test_template_ci cargo nextest run
+#     -p synapse-storage --lib --features test-utils,server-notifications,saml-sso
+#     -E 'test(registration_token) or test(media_quota)' --no-fail-fast
+#     → **82 tests run: 82 passed, 0 failed**（1 slow，1540 skipped，238.6s）
+#     覆盖：registration_token 的 create_token / get_token(_by_id) / update_token /
+#     use_token（计数 + 用尽）/ validate_token（valid/expired/exhausted/disabled/not_found）
+#     / get_all_tokens / get_active_tokens / delete_token，以及 media_quota 的
+#     get_default_config / get_config / create_config（含 is_default 抢占）/ list_configs /
+#     delete_config / get_user_quota / get_or_create_user_quota / set_user_quota /
+#     update_usage（累加/删除/多次）/ check_quota / get_server_quota（含自动补种）/
+#     update_server_quota / create_alert + get_user_alerts / mark_alert_read /
+#     get_usage_stats。
+#
+# 运行期回退：**无**（没有任何一处因 `ColumnDecode … UnexpectedNullError` 回退）。
+#
+# 实测（main 树，门禁同源；本轮无并发写者新增生产动态）：
+#   dynamic_production 890 → 850   （C14 自身 -40）
+#   static             624 → 664   （+40）
+#   dynamic            1594 → 1554
+#   dynamic_test       704 → 704   （未动；两模块的 `#[cfg(test)]` 夹具未新增动态 SQL）
+# 收紧方向：C4/C5 等剩余批次继续分批静态化，直至 dynamic_production = 0。
+BASELINE_DYNAMIC_PRODUCTION=850
 BASELINE_DYNAMIC_TEST_INFRA=704
-BASELINE_STATIC=624
+BASELINE_STATIC=664
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1594
+BASELINE_DYNAMIC=1554
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, batch_id, description, token_count, tokens_used, created_by, created_ts, expires_at, is_enabled, allowed_email_domains, auto_join_rooms FROM registration_token_batches WHERE batch_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "batch_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "token_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "tokens_used",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_by",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "expires_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_enabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "allowed_email_domains",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 10,
+        "name": "auto_join_rooms",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "8037d1a39af08a4e1de1c7267695fc711c138b38013fc6fdae72a20617dd664b"
+}

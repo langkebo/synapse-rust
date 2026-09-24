@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO registration_tokens (\n                    token, token_type, description, max_uses, expires_at, created_by,\n                    created_ts, updated_ts\n                )\n                SELECT unnest($1::text[]), 'single_use', $2, 1, $3, $4, $5, $5\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Text",
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "489138eaaa2e8e7b5580eead8ed000938d42edb3e994513fb87042e500320dbd"
+}
