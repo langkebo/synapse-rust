@@ -149,8 +149,11 @@ impl ThreepidStorage {
     pub async fn add_threepid(&self, request: CreateThreepidRequest) -> Result<UserThreepid, ApiError> {
         let now = current_timestamp_millis();
 
-        let threepid = sqlx::query_as::<_, UserThreepid>(
-            r"
+        // C18: `is_verified` is nullable in the catalog (`BOOLEAN DEFAULT false`, no
+        // NOT NULL) while the struct field is a plain `bool` ⇒ `AS "is_verified!"`.
+        let threepid = sqlx::query_as!(
+            UserThreepid,
+            r#"
             INSERT INTO user_threepids (user_id, medium, address, added_ts, is_verified, verification_token, verification_expires_at)
             VALUES ($1, $2, $3, $4, FALSE, $5, $6)
             RETURNING
@@ -160,17 +163,17 @@ impl ThreepidStorage {
                 address,
                 validated_at,
                 added_ts,
-                is_verified,
+                is_verified AS "is_verified!",
                 verification_token,
                 verification_expires_at
-            ",
+            "#,
+            request.user_id.as_str(),
+            request.medium.as_str(),
+            request.address.as_str(),
+            now,
+            request.verification_token.as_deref(),
+            request.verification_expires_at,
         )
-        .bind(&request.user_id)
-        .bind(&request.medium)
-        .bind(&request.address)
-        .bind(now)
-        .bind(&request.verification_token)
-        .bind(request.verification_expires_at)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to add threepid", e))?;
@@ -185,8 +188,9 @@ impl ThreepidStorage {
         medium: &str,
         address: &str,
     ) -> Result<Option<UserThreepid>, ApiError> {
-        let threepid = sqlx::query_as::<_, UserThreepid>(
-            r"
+        let threepid = sqlx::query_as!(
+            UserThreepid,
+            r#"
             SELECT
                 id,
                 user_id,
@@ -194,16 +198,16 @@ impl ThreepidStorage {
                 address,
                 validated_at,
                 added_ts,
-                is_verified,
+                is_verified AS "is_verified!",
                 verification_token,
                 verification_expires_at
             FROM user_threepids
             WHERE user_id = $1 AND medium = $2 AND address = $3
-            ",
+            "#,
+            user_id,
+            medium,
+            address,
         )
-        .bind(user_id)
-        .bind(medium)
-        .bind(address)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get threepid", e))?;
@@ -213,8 +217,9 @@ impl ThreepidStorage {
 
     /// See [`get_threepids_by_user`].
     pub async fn get_threepids_by_user(&self, user_id: &str) -> Result<Vec<UserThreepid>, ApiError> {
-        let threepids = sqlx::query_as::<_, UserThreepid>(
-            r"
+        let threepids = sqlx::query_as!(
+            UserThreepid,
+            r#"
             SELECT
                 id,
                 user_id,
@@ -222,15 +227,15 @@ impl ThreepidStorage {
                 address,
                 validated_at,
                 added_ts,
-                is_verified,
+                is_verified AS "is_verified!",
                 verification_token,
                 verification_expires_at
             FROM user_threepids
             WHERE user_id = $1
             ORDER BY added_ts DESC
-            ",
+            "#,
+            user_id,
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get threepids", e))?;
@@ -240,8 +245,9 @@ impl ThreepidStorage {
 
     /// See [`get_pending_threepids`].
     pub async fn get_pending_threepids(&self, limit: i64) -> Result<Vec<UserThreepid>, ApiError> {
-        let threepids = sqlx::query_as::<_, UserThreepid>(
-            r"
+        let threepids = sqlx::query_as!(
+            UserThreepid,
+            r#"
             SELECT
                 id,
                 user_id,
@@ -249,16 +255,16 @@ impl ThreepidStorage {
                 address,
                 validated_at,
                 added_ts,
-                is_verified,
+                is_verified AS "is_verified!",
                 verification_token,
                 verification_expires_at
             FROM user_threepids
             WHERE validated_at < added_ts
             ORDER BY added_ts DESC
             LIMIT $1
-            ",
+            "#,
+            limit,
         )
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get pending threepids", e))?;
@@ -268,8 +274,9 @@ impl ThreepidStorage {
 
     /// See [`get_threepid_by_address`].
     pub async fn get_threepid_by_address(&self, medium: &str, address: &str) -> Result<Option<UserThreepid>, ApiError> {
-        let threepid = sqlx::query_as::<_, UserThreepid>(
-            r"
+        let threepid = sqlx::query_as!(
+            UserThreepid,
+            r#"
             SELECT
                 id,
                 user_id,
@@ -277,15 +284,15 @@ impl ThreepidStorage {
                 address,
                 validated_at,
                 added_ts,
-                is_verified,
+                is_verified AS "is_verified!",
                 verification_token,
                 verification_expires_at
             FROM user_threepids
             WHERE medium = $1 AND address = $2
-            ",
+            "#,
+            medium,
+            address,
         )
-        .bind(medium)
-        .bind(address)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get threepid by address", e))?;
@@ -299,8 +306,9 @@ impl ThreepidStorage {
         medium: &str,
         address: &str,
     ) -> Result<Option<UserThreepid>, ApiError> {
-        let threepid = sqlx::query_as::<_, UserThreepid>(
-            r"
+        let threepid = sqlx::query_as!(
+            UserThreepid,
+            r#"
             SELECT
                 id,
                 user_id,
@@ -308,15 +316,15 @@ impl ThreepidStorage {
                 address,
                 validated_at,
                 added_ts,
-                is_verified,
+                is_verified AS "is_verified!",
                 verification_token,
                 verification_expires_at
             FROM user_threepids
             WHERE medium = $1 AND address = $2 AND is_verified = TRUE
-            ",
+            "#,
+            medium,
+            address,
         )
-        .bind(medium)
-        .bind(address)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get verified threepid by address", e))?;
@@ -328,17 +336,17 @@ impl ThreepidStorage {
     pub async fn verify_threepid(&self, user_id: &str, medium: &str, address: &str) -> Result<bool, ApiError> {
         let now = current_timestamp_millis();
 
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             UPDATE user_threepids
             SET is_verified = TRUE, validated_at = $4, verification_token = NULL, verification_expires_at = NULL
             WHERE user_id = $1 AND medium = $2 AND address = $3
             ",
+            user_id,
+            medium,
+            address,
+            now,
         )
-        .bind(user_id)
-        .bind(medium)
-        .bind(address)
-        .bind(now)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to verify threepid", e))?;
@@ -350,8 +358,9 @@ impl ThreepidStorage {
     pub async fn verify_threepid_by_token(&self, token: &str) -> Result<Option<UserThreepid>, ApiError> {
         let now = current_timestamp_millis();
 
-        let threepid = sqlx::query_as::<_, UserThreepid>(
-            r"
+        let threepid = sqlx::query_as!(
+            UserThreepid,
+            r#"
             UPDATE user_threepids
             SET is_verified = TRUE, validated_at = $2, verification_token = NULL, verification_expires_at = NULL
             WHERE verification_token = $1 AND verification_expires_at > $2
@@ -362,13 +371,13 @@ impl ThreepidStorage {
                 address,
                 validated_at,
                 added_ts,
-                is_verified,
+                is_verified AS "is_verified!",
                 verification_token,
                 verification_expires_at
-            ",
+            "#,
+            token,
+            now,
         )
-        .bind(token)
-        .bind(now)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to verify threepid by token", e))?;
@@ -378,15 +387,15 @@ impl ThreepidStorage {
 
     /// See [`remove_threepid`].
     pub async fn remove_threepid(&self, user_id: &str, medium: &str, address: &str) -> Result<bool, ApiError> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             DELETE FROM user_threepids
             WHERE user_id = $1 AND medium = $2 AND address = $3
             ",
+            user_id,
+            medium,
+            address,
         )
-        .bind(user_id)
-        .bind(medium)
-        .bind(address)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to remove threepid", e))?;
@@ -403,7 +412,7 @@ impl ThreepidStorage {
         validated_at: i64,
         added_ts: i64,
     ) -> Result<u64, ApiError> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             INSERT INTO user_threepids (user_id, medium, address, validated_at, added_ts, is_verified)
             VALUES ($1, $2, $3, $4, $5, TRUE)
@@ -412,12 +421,12 @@ impl ThreepidStorage {
                 is_verified = TRUE
             WHERE user_threepids.user_id = EXCLUDED.user_id
             ",
+            user_id,
+            medium,
+            address,
+            validated_at,
+            added_ts,
         )
-        .bind(user_id)
-        .bind(medium)
-        .bind(address)
-        .bind(validated_at)
-        .bind(added_ts)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to add verified threepid", e))?;
@@ -427,13 +436,13 @@ impl ThreepidStorage {
 
     /// See [`remove_threepids_by_user`].
     pub async fn remove_threepids_by_user(&self, user_id: &str) -> Result<u64, ApiError> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             DELETE FROM user_threepids
             WHERE user_id = $1
             ",
+            user_id,
         )
-        .bind(user_id)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to remove threepids", e))?;
@@ -445,13 +454,13 @@ impl ThreepidStorage {
     pub async fn cleanup_expired_verifications(&self) -> Result<u64, ApiError> {
         let now = current_timestamp_millis();
 
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             DELETE FROM user_threepids
             WHERE is_verified = FALSE AND verification_expires_at IS NOT NULL AND verification_expires_at < $1
             ",
+            now,
         )
-        .bind(now)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to cleanup expired verifications", e))?;
@@ -477,25 +486,24 @@ impl ThreepidStorage {
         // Store only the HMAC token hash, never the raw token, so a DB leak
         // cannot be replayed against `submitToken` (审查 #30).
         let token_hash = hash_token(token);
-        sqlx::query_as::<_, (i64,)>(
+        sqlx::query_scalar!(
             r"
             INSERT INTO threepid_validation_session
             (session_id, medium, address, client_secret, token, next_link, created_ts, expires_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING id
             ",
+            session_id,
+            medium,
+            address,
+            client_secret,
+            token_hash.as_str(),
+            next_link,
+            created_ts,
+            expires_at,
         )
-        .bind(session_id)
-        .bind(medium)
-        .bind(address)
-        .bind(client_secret)
-        .bind(&token_hash)
-        .bind(next_link)
-        .bind(created_ts)
-        .bind(expires_at)
         .fetch_one(&*self.pool)
         .await
-        .map(|r: (i64,)| r.0)
         .map_err(|e| ApiError::internal_with_cause("Failed to create validation session", e))
     }
 
@@ -507,7 +515,8 @@ impl ThreepidStorage {
         token: &str,
     ) -> Result<Option<ThreepidValidationSession>, ApiError> {
         let token_hash = hash_token(token);
-        sqlx::query_as::<_, ThreepidValidationSession>(
+        sqlx::query_as!(
+            ThreepidValidationSession,
             r"
             SELECT id, session_id, medium, address, client_secret, token,
                 send_attempt, next_link, is_validated, validated_at, created_ts, expires_at
@@ -515,11 +524,11 @@ impl ThreepidStorage {
             WHERE session_id = $1 AND client_secret = $2 AND token = $3
             AND is_validated = FALSE AND expires_at > $4
             ",
+            session_id,
+            client_secret,
+            token_hash.as_str(),
+            current_timestamp_millis(),
         )
-        .bind(session_id)
-        .bind(client_secret)
-        .bind(&token_hash)
-        .bind(current_timestamp_millis())
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get validation session", e))
@@ -531,14 +540,15 @@ impl ThreepidStorage {
         token: &str,
     ) -> Result<Option<ThreepidValidationSession>, ApiError> {
         let token_hash = hash_token(token);
-        sqlx::query_as::<_, ThreepidValidationSession>(
+        sqlx::query_as!(
+            ThreepidValidationSession,
             r"
             SELECT id, session_id, medium, address, client_secret, token,
                 send_attempt, next_link, is_validated, validated_at, created_ts, expires_at
             FROM threepid_validation_session WHERE token = $1
             ",
+            token_hash.as_str(),
         )
-        .bind(&token_hash)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get validation session by token", e))
@@ -546,15 +556,15 @@ impl ThreepidStorage {
 
     /// See [`mark_validation_validated`].
     pub async fn mark_validation_validated(&self, id: i64) -> Result<(), ApiError> {
-        sqlx::query(
+        sqlx::query!(
             r"
             UPDATE threepid_validation_session
             SET is_validated = TRUE, validated_at = $2
             WHERE id = $1 AND is_validated = FALSE
             ",
+            id,
+            current_timestamp_millis(),
         )
-        .bind(id)
-        .bind(current_timestamp_millis())
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to mark session validated", e))?;
@@ -564,8 +574,7 @@ impl ThreepidStorage {
 
     /// See [`increment_validation_send_attempt`].
     pub async fn increment_validation_send_attempt(&self, id: i64) -> Result<(), ApiError> {
-        sqlx::query("UPDATE threepid_validation_session SET send_attempt = send_attempt + 1 WHERE id = $1")
-            .bind(id)
+        sqlx::query!("UPDATE threepid_validation_session SET send_attempt = send_attempt + 1 WHERE id = $1", id,)
             .execute(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to increment send attempt", e))?;
@@ -575,8 +584,7 @@ impl ThreepidStorage {
 
     /// See [`cleanup_expired_validation_sessions`].
     pub async fn cleanup_expired_validation_sessions(&self) -> Result<u64, ApiError> {
-        sqlx::query("DELETE FROM threepid_validation_session WHERE expires_at < $1")
-            .bind(current_timestamp_millis())
+        sqlx::query!("DELETE FROM threepid_validation_session WHERE expires_at < $1", current_timestamp_millis())
             .execute(&*self.pool)
             .await
             .map(|r| r.rows_affected())

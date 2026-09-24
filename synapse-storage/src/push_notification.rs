@@ -266,8 +266,14 @@ impl PushNotificationStorage {
         let now = current_timestamp_millis();
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
 
-        let row = sqlx::query_as::<_, PushDevice>(
-            r"
+        // C18: the struct field is `last_used_ts` with `#[sqlx(rename = "last_used_at")]`,
+        // but `query_as!` honours neither `#[sqlx(rename)]` nor `#[sqlx(skip)]` — it
+        // builds the struct literal from the *described column names*, so the projection
+        // has to carry the alias itself. `RETURNING *` likewise has to be expanded to the
+        // struct's exact column set (extra column ⇒ E0560).
+        let row = sqlx::query_as!(
+            PushDevice,
+            r#"
             INSERT INTO push_device (
                 user_id, device_id, push_token, push_type, app_id, platform,
                 platform_version, app_version, locale, timezone, created_ts, updated_ts, metadata
@@ -285,21 +291,25 @@ impl PushNotificationStorage {
                 updated_ts = $11,
                 is_enabled = true,
                 metadata = $12
-            RETURNING *
-            ",
+            RETURNING
+                id, user_id, device_id, push_token, push_type, app_id, platform,
+                platform_version, app_version, locale, timezone, is_enabled,
+                created_ts, updated_ts, last_used_at AS "last_used_ts", last_error,
+                error_count, metadata
+            "#,
+            request.user_id.as_str(),
+            request.device_id.as_str(),
+            request.push_token.as_str(),
+            request.push_type.as_str(),
+            request.app_id.as_deref(),
+            request.platform.as_deref(),
+            request.platform_version.as_deref(),
+            request.app_version.as_deref(),
+            request.locale.as_deref(),
+            request.timezone.as_deref(),
+            now,
+            &metadata,
         )
-        .bind(&request.user_id)
-        .bind(&request.device_id)
-        .bind(&request.push_token)
-        .bind(&request.push_type)
-        .bind(&request.app_id)
-        .bind(&request.platform)
-        .bind(&request.platform_version)
-        .bind(&request.app_version)
-        .bind(&request.locale)
-        .bind(&request.timezone)
-        .bind(now)
-        .bind(&metadata)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to register device", e))?;
@@ -310,11 +320,11 @@ impl PushNotificationStorage {
 
     /// See [`unregister_device`].
     pub async fn unregister_device(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
-        sqlx::query(
+        sqlx::query!(
             "UPDATE push_device SET is_enabled = false WHERE user_id = $1 AND device_id = $2 AND is_enabled = TRUE",
+            user_id,
+            device_id,
         )
-        .bind(user_id)
-        .bind(device_id)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to unregister device", e))?;
@@ -325,15 +335,17 @@ impl PushNotificationStorage {
 
     /// See [`get_user_devices`].
     pub async fn get_user_devices(&self, user_id: &str) -> Result<Vec<PushDevice>, ApiError> {
-        let rows = sqlx::query_as::<_, PushDevice>(
-            r"
+        let rows = sqlx::query_as!(
+            PushDevice,
+            r#"
                 SELECT id, user_id, device_id, push_token, push_type, app_id, platform,
                     platform_version, app_version, locale, timezone, is_enabled,
-                    created_ts, updated_ts, last_used_at, last_error, error_count, metadata
+                    created_ts, updated_ts, last_used_at AS "last_used_ts", last_error,
+                    error_count, metadata
                 FROM push_device WHERE user_id = $1 AND is_enabled = true
-                ",
+                "#,
+            user_id,
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get user devices", e))?;
@@ -343,11 +355,18 @@ impl PushNotificationStorage {
 
     /// See [`get_device`].
     pub async fn get_device(&self, user_id: &str, device_id: &str) -> Result<Option<PushDevice>, ApiError> {
-        let row = sqlx::query_as::<_, PushDevice>(
-            "SELECT id, user_id, device_id, push_token, push_type, app_id, platform, platform_version, app_version, locale, timezone, is_enabled, created_ts, updated_ts, last_used_at, last_error, error_count, metadata FROM push_device WHERE user_id = $1 AND device_id = $2 AND is_enabled = true",
+        let row = sqlx::query_as!(
+            PushDevice,
+            r#"
+            SELECT id, user_id, device_id, push_token, push_type, app_id, platform,
+                platform_version, app_version, locale, timezone, is_enabled,
+                created_ts, updated_ts, last_used_at AS "last_used_ts", last_error,
+                error_count, metadata
+            FROM push_device WHERE user_id = $1 AND device_id = $2 AND is_enabled = true
+            "#,
+            user_id,
+            device_id,
         )
-        .bind(user_id)
-        .bind(device_id)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get device", e))?;
@@ -359,13 +378,15 @@ impl PushNotificationStorage {
     pub async fn update_device_last_used(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
 
-        sqlx::query("UPDATE push_device SET last_used_at = $1, updated_ts = $1 WHERE user_id = $2 AND device_id = $3")
-            .bind(now)
-            .bind(user_id)
-            .bind(device_id)
-            .execute(&*self.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to update device last used", e))?;
+        sqlx::query!(
+            "UPDATE push_device SET last_used_at = $1, updated_ts = $1 WHERE user_id = $2 AND device_id = $3",
+            now,
+            user_id,
+            device_id,
+        )
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Failed to update device last used", e))?;
 
         Ok(())
     }
@@ -373,17 +394,17 @@ impl PushNotificationStorage {
     /// See [`record_device_error`].
     pub async fn record_device_error(&self, user_id: &str, device_id: &str, error: &str) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
-        sqlx::query(
+        sqlx::query!(
             r"
             UPDATE push_device
             SET last_error = $1, error_count = error_count + 1, updated_ts = $4
             WHERE user_id = $2 AND device_id = $3
             ",
+            error,
+            user_id,
+            device_id,
+            now,
         )
-        .bind(error)
-        .bind(user_id)
-        .bind(device_id)
-        .bind(now)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to record device error", e))?;
@@ -398,24 +419,30 @@ impl PushNotificationStorage {
     ) -> Result<PushNotificationQueue, ApiError> {
         let now_ms = current_timestamp_millis();
 
-        let row = sqlx::query_as::<_, PushNotificationQueue>(
-            r"
+        // `content` is nullable in the catalog (`jsonb DEFAULT '{}'`, no NOT NULL) while
+        // the struct field is a plain `serde_json::Value` ⇒ `AS "content!"`.
+        let row = sqlx::query_as!(
+            PushNotificationQueue,
+            r#"
             INSERT INTO push_notification_queue (
                 user_id, device_id, event_id, room_id, notification_type, content, priority, status, next_attempt_at, created_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $9)
-            RETURNING *
-            ",
+            RETURNING
+                id, user_id, device_id, event_id, room_id, notification_type,
+                content AS "content!", priority, status, attempts, max_attempts,
+                next_attempt_at, created_ts, sent_at, error_message
+            "#,
+            request.user_id.as_str(),
+            request.device_id.as_str(),
+            request.event_id.as_deref(),
+            request.room_id.as_deref(),
+            request.notification_type.as_deref(),
+            &request.content,
+            request.priority,
+            now_ms,
+            now_ms,
         )
-        .bind(&request.user_id)
-        .bind(&request.device_id)
-        .bind(&request.event_id)
-        .bind(&request.room_id)
-        .bind(&request.notification_type)
-        .bind(&request.content)
-        .bind(request.priority)
-        .bind(now_ms)
-        .bind(now_ms)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to queue notification", e))?;
@@ -499,20 +526,24 @@ impl PushNotificationStorage {
     pub async fn get_pending_notifications(&self, limit: i32) -> Result<Vec<PushNotificationQueue>, ApiError> {
         let now_ms = current_timestamp_millis();
 
-        let rows = sqlx::query_as::<_, PushNotificationQueue>(
-            r"
+        let rows = sqlx::query_as!(
+            PushNotificationQueue,
+            r#"
             SELECT id, user_id, device_id, event_id, room_id, notification_type,
-                content, priority, status, attempts, max_attempts, next_attempt_at,
-                created_ts, sent_at, error_message
+                content AS "content!", priority, status, attempts, max_attempts,
+                next_attempt_at, created_ts, sent_at, error_message
             FROM push_notification_queue
             WHERE status = 'pending' AND next_attempt_at <= $1
             ORDER BY priority DESC, created_ts ASC
             LIMIT $2
             FOR UPDATE SKIP LOCKED
-            ",
+            "#,
+            now_ms,
+            // PG types `LIMIT $2` as BIGINT while the signature takes `i32`; the old
+            // `.bind()` sent INT4 and relied on PG's implicit widening cast. The `as i64`
+            // cast also acts as the macro's type override, so no ty_match check runs.
+            limit as i64,
         )
-        .bind(now_ms)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get pending notifications", e))?;
@@ -524,9 +555,7 @@ impl PushNotificationStorage {
     pub async fn mark_notification_sent(&self, id: i64) -> Result<(), ApiError> {
         let now_ms = current_timestamp_millis();
 
-        sqlx::query("UPDATE push_notification_queue SET status = 'sent', sent_at = $1 WHERE id = $2")
-            .bind(now_ms)
-            .bind(id)
+        sqlx::query!("UPDATE push_notification_queue SET status = 'sent', sent_at = $1 WHERE id = $2", now_ms, id,)
             .execute(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to mark notification sent", e))?;
@@ -540,26 +569,28 @@ impl PushNotificationStorage {
 
         if retry {
             let retry_at = now_ms + 60_000; // 60 seconds from now
-            sqlx::query(
+            sqlx::query!(
                 r"
                 UPDATE push_notification_queue
                 SET status = 'pending', attempts = attempts + 1, error_message = $1, next_attempt_at = $2
                 WHERE id = $3 AND attempts < max_attempts
                 ",
+                error,
+                retry_at,
+                id,
             )
-            .bind(error)
-            .bind(retry_at)
-            .bind(id)
             .execute(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to mark notification for retry", e))?;
         } else {
-            sqlx::query("UPDATE push_notification_queue SET status = 'failed', error_message = $1 WHERE id = $2")
-                .bind(error)
-                .bind(id)
-                .execute(&*self.pool)
-                .await
-                .map_err(|e| ApiError::internal_with_cause("Failed to mark notification failed", e))?;
+            sqlx::query!(
+                "UPDATE push_notification_queue SET status = 'failed', error_message = $1 WHERE id = $2",
+                error,
+                id,
+            )
+            .execute(&*self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to mark notification failed", e))?;
         }
 
         Ok(())
@@ -573,27 +604,35 @@ impl PushNotificationStorage {
         // `push_notification_log.created_ts` is `BIGINT NOT NULL` with no default, so
         // omitting it made every delivery log write fail with 23502 — which then
         // flipped already-delivered pushes into the retry path.
-        let row = sqlx::query_as::<_, PushNotificationLog>(
-            r"
+        // `push_notification_log` carries eight more columns than the struct maps
+        // (`pushkey`, `status`, `retry_count`, `last_attempt_at`, `created_ts`, …), so
+        // `RETURNING *` has to be replaced by the struct's exact column set; `push_type`
+        // and `is_success` are nullable in the catalog while the fields are not ⇒ `!`.
+        let row = sqlx::query_as!(
+            PushNotificationLog,
+            r#"
             INSERT INTO push_notification_log (
                 user_id, device_id, event_id, room_id, notification_type, push_type,
                 is_success, error_message, provider_response, response_time_ms, created_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            RETURNING *
-            ",
+            RETURNING
+                id, user_id, device_id, event_id, room_id, notification_type,
+                push_type AS "push_type!", sent_at, is_success AS "is_success!",
+                error_message, provider_response, response_time_ms, metadata
+            "#,
+            request.user_id.as_str(),
+            request.device_id.as_str(),
+            request.event_id.as_deref(),
+            request.room_id.as_deref(),
+            request.notification_type.as_deref(),
+            request.push_type.as_str(),
+            request.is_success,
+            request.error_message.as_deref(),
+            request.provider_response.as_deref(),
+            request.response_time_ms,
+            current_timestamp_millis(),
         )
-        .bind(&request.user_id)
-        .bind(&request.device_id)
-        .bind(&request.event_id)
-        .bind(&request.room_id)
-        .bind(&request.notification_type)
-        .bind(&request.push_type)
-        .bind(request.is_success)
-        .bind(&request.error_message)
-        .bind(&request.provider_response)
-        .bind(request.response_time_ms)
-        .bind(current_timestamp_millis())
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to create notification log", e))?;
@@ -603,13 +642,12 @@ impl PushNotificationStorage {
 
     /// See [`get_config`].
     pub async fn get_config(&self, config_key: &str) -> Result<Option<String>, ApiError> {
-        let row: Option<(String,)> = sqlx::query_as("SELECT config_value FROM push_config WHERE config_key = $1")
-            .bind(config_key)
+        let row = sqlx::query_scalar!("SELECT config_value FROM push_config WHERE config_key = $1", config_key)
             .fetch_optional(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get config", e))?;
 
-        Ok(row.map(|r| r.0))
+        Ok(row)
     }
 
     /// See [`get_config_as_bool`].
@@ -634,7 +672,8 @@ impl PushNotificationStorage {
 
     /// See [`list_config`].
     pub async fn list_config(&self) -> Result<Vec<PushConfigEntry>, ApiError> {
-        sqlx::query_as::<_, PushConfigEntry>(
+        sqlx::query_as!(
+            PushConfigEntry,
             "SELECT config_key, config_value, updated_ts FROM push_config ORDER BY config_key",
         )
         .fetch_all(&*self.pool)
@@ -646,7 +685,8 @@ impl PushNotificationStorage {
     pub async fn set_config(&self, config_key: &str, config_value: &str) -> Result<PushConfigEntry, ApiError> {
         let now = current_timestamp_millis();
 
-        sqlx::query_as::<_, PushConfigEntry>(
+        sqlx::query_as!(
+            PushConfigEntry,
             r"
             INSERT INTO push_config (config_key, config_value, created_ts, updated_ts)
             VALUES ($1, $2, $3, $3)
@@ -654,10 +694,10 @@ impl PushNotificationStorage {
                 SET config_value = EXCLUDED.config_value, updated_ts = EXCLUDED.updated_ts
             RETURNING config_key, config_value, updated_ts
             ",
+            config_key,
+            config_value,
+            now,
         )
-        .bind(config_key)
-        .bind(config_value)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to set push config", e))
@@ -665,8 +705,7 @@ impl PushNotificationStorage {
 
     /// See [`delete_config`].
     pub async fn delete_config(&self, config_key: &str) -> Result<bool, ApiError> {
-        let result = sqlx::query("DELETE FROM push_config WHERE config_key = $1")
-            .bind(config_key)
+        let result = sqlx::query!("DELETE FROM push_config WHERE config_key = $1", config_key)
             .execute(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to delete push config", e))?;
@@ -678,8 +717,7 @@ impl PushNotificationStorage {
     pub async fn cleanup_old_logs(&self, days: i32) -> Result<u64, ApiError> {
         let cutoff_ms = current_timestamp_millis() - (days as i64 * 86_400_000);
 
-        let result = sqlx::query("DELETE FROM push_notification_log WHERE sent_at < $1")
-            .bind(cutoff_ms)
+        let result = sqlx::query!("DELETE FROM push_notification_log WHERE sent_at < $1", cutoff_ms)
             .execute(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to cleanup logs", e))?;
@@ -695,7 +733,8 @@ impl PushNotificationStorage {
         room_id: &str,
         limit: i64,
     ) -> Result<Vec<RoomNotification>, sqlx::Error> {
-        sqlx::query_as::<_, RoomNotification>(
+        sqlx::query_as!(
+            RoomNotification,
             r"
             SELECT event_id, room_id, ts, notification_type, is_read
             FROM notifications
@@ -703,10 +742,10 @@ impl PushNotificationStorage {
             ORDER BY ts DESC
             LIMIT $3
             ",
+            user_id,
+            room_id,
+            limit,
         )
-        .bind(user_id)
-        .bind(room_id)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await
     }
