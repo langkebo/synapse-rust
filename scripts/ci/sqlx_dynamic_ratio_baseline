@@ -1637,11 +1637,141 @@
 #   dynamic            1514 → 1477
 #   dynamic_test       704 → 704   （未动；两文件的 `#[cfg(test)]` 夹具未新增动态 SQL）
 # 收紧方向：C4/C5 等剩余批次继续分批静态化，直至 dynamic_production = 0。
-BASELINE_DYNAMIC_PRODUCTION=773
+# ── 2026-09-24 C17 静态化（生产动态 -31，静态 +31）────────────────────────────
+#
+# 批次：C17。目标文件（均在 synapse-storage，按 census `--top 40` 生产动态排序取前二，
+# 跳过测试基础设施 `synapse-test-utils/src/lib.rs` 与 `synapse-common/src/test_isolation.rs`）：
+#   synapse-storage/src/presence/mod.rs        18 处生产动态 → 13 静态 + 5 保留动态
+#   synapse-storage/src/background_update.rs   18 处生产动态 → 18 静态（生产区剩余动态 = 0）
+# 提交：e8774a7f4（主转换）/ 7e5d10f3e + b16351e34（编译修正与 D-13 回退）
+#       / dc9b086eb（.sqlx）/ 本提交（基线）。
+#
+# ✅ STEP 0（feature gate）实测：
+#   * `presence` —— **无** `#[cfg(feature = …)]` 门控：`synapse-storage/src/lib.rs:92-93`
+#     是文档注释 + `pub mod presence;`（上一行不是属性），
+#     `grep -c 'cfg(feature' synapse-storage/src/presence/mod.rs` = 0。
+#   * `background_update` —— **无** 门控：`lib.rs:40-41` 同样是文档注释 +
+#     `pub mod background_update;`，本文件内 `cfg(feature` = 0。
+#   ⇒ 本批**不需要**额外 feature，验证口径沿用基线集
+#     `server-notifications,saml-sso,cas-sso,beacons`。
+#   ⚠️ **`cas-sso` 与 `beacons` 都不可省**：`cargo sqlx prepare` 的 destination 就是
+#      `.sqlx/` 且**先清后写**，缺 `cas-sso`/`beacons` 会把 C15/C16 的 39/37 条当作
+#      stale 删除。实测带全量基线集时 deleted=0（见下）。
+#   测试过滤器实测**非零**：`-E 'test(presence) or test(background_update)'`
+#     → **74 tests run: 74 passed, 0 failed**（1595 skipped，145.7s）：
+#     `presence::db_tests` 28 + `presence::tests` 7 + `background_update::tests` 32
+#     （含 25 个真实 DB 往返）+ `background_update::cursor_tests` 2，另 5 个同名前缀
+#     （`user::db_tests::test_search_users_with_presence_*` 等）。未出现 C6/C9/C11/C15
+#     那种 "0 tests" 假绿。
+#
+# 静态化构成（31 处）：
+#   presence/mod.rs 13 处
+#     `query!` × 10：set_presence upsert、set_typing 的 INSERT/DELETE、
+#       add_subscription / remove_subscription 主分支、get_presences、
+#       get_presence_batch、get_presence_batch_with_meta，
+#       以及 get_presence / get_presence_with_meta（原元组
+#       `query_as::<_, (String, Option<String>, Option<i64>)>` → `query!` 匿名记录 +
+#       手工映射，因 `query_as!` 不收元组）
+#     `query_scalar!` × 2：get_subscriptions / get_subscribers 主分支
+#     `query_as!` × 1：get_presence_snapshots → `PresenceSnapshot`
+#   background_update.rs 18 处
+#     `query_as!` × 10：BackgroundUpdate 的 INSERT…RETURNING / SELECT ×3 /
+#       UPDATE…RETURNING ×2、BackgroundUpdateHistory 的 INSERT…RETURNING 与 SELECT、
+#       BackgroundUpdateStats 的 SELECT（含 get_update / get_updates_by_status /
+#       get_all_updates 三条显式 SELECT）
+#     `query!` × 5：delete_update、acquire_lock、release_lock、
+#       cleanup_expired_locks、retry_failed
+#     `query_scalar!` × 3：is_locked、count_by_status、count_all
+#
+# 静态化时补的 nullability / 类型覆盖（schema 取自 psql `\d` 实测，非猜测）：
+#   * **`RETURNING *` 全部展开为显式列清单**（D-22）：`background_updates` 的
+#     `RETURNING *` 会返回 22 列（含 `id` / `update_name` / `is_running` 三个
+#     `BackgroundUpdate` 结构体**没有**的字段），`query_as!` 不走 `FromRow` 而是按
+#     describe 的列名构造结构体字面量 ⇒ 多列 E0560。4 条 `RETURNING *`
+#     （create_update / update_status / update_progress / set_error）+ add_history 的
+#     `RETURNING *` 全部改为与结构体字段一一对应的列清单。
+#   * `background_updates` 的 10 列在 catalog 中**可空**（`job_name` / `job_type` /
+#     `status` / `progress` / `total_items` / `processed_items` / `retry_count` /
+#     `max_retries` / `batch_size` / `sleep_ms` 均 `DEFAULT …` 无 `NOT NULL`）而
+#     `BackgroundUpdate` 对应字段分别是非 Option 的 String / Value / i32 ⇒ 逐列
+#     `AS "col!"`（旧 `FromRow` 在 NULL 时同样解码失败，语义不变）。注意
+#     `update_name` 是 NOT NULL UNIQUE 且**不在**结构体里，故不出现在任何列清单。
+#   * `COUNT(*)` 无 relation origin ⇒ sqlx 一律推断可空，而调用方声明 `i64` ⇒
+#     `AS "count!"`（is_locked / count_by_status / count_all 三处）。
+#   * `presence.get_presence_snapshots` 的 `COALESCE(presence, 'offline')` 是表达式列
+#     ⇒ 推断可空而 `PresenceSnapshot.presence` 是非 Option `String` ⇒
+#     `as "presence!"`（该分支要求 `r#"…"#` raw string，因普通 `r"…"` 不能含 `"`）。
+#   * presence 的 `last_active_ts` 列 NOT NULL 而字段是 `Option<i64>`：宏推断 `i64`
+#     后由 `quote_query_as` / 手工映射的 `Some(...)` 转换，旧行为一致（未改语义）。
+#   * 绑定风格（宏 ty_match 比 `.bind()` 严格，D-21）：`&request.description` /
+#     `&request.metadata` → `.as_deref()` / `.as_ref()`；`decoded.map(…)` 的
+#     `Option<&str>` 直接传。
+#
+# ⚠️ **本批唯一的静态化障碍（D-13 第 3 个实例）**：`presence::set_presence_batch` 的
+#   `UNNEST($1::TEXT[], $2::TEXT[], $3::TEXT[], $4::BIGINT[])` 中 `$3` 绑定的是
+#   `Vec<Option<&str>>`（status_msg 允许 NULL），而宏只接受**元素非 Option** 的
+#   `&[String]`：实测把 `$1/$2/$4` 改成精确 `&[String]`/`&[i64]` 后，`$3` 仍报
+#   `expected &[String], found &[Option<String>]`（E0308）⇒ **整条语句**保留动态
+#   （`sqlx::query(…).bind(…)`），并在源码就地留了 `C17:` 注释指向 §7 D-13。
+#   该限制已在 §7 D-13 登记，本轮只把实例数 2 → 3。
+#   **其余 4 处保留动态**（presence/mod.rs:452/488/522/557）：`presence_subscriptions`
+#   的 `is_undefined_column_error` 回退分支查 `user_id`/`friend_id`，而合并后 schema
+#   只有 `subscriber_id`/`target_id`（`migrations/00000000_unified_schema_v12.sql:2912-2919`）
+#   ⇒ 既不可达、又因 42703 无法被 `query!` describe。属既有缺陷，已登记为 §7 **D-30**，
+#   未借静态化删分支（行为保持）。
+#
+# ⚠️ `.sqlx`：destination 就是 `.sqlx/` 本身，`cargo sqlx prepare` 先清后写。
+#   isolated worktree target/c17-wt @ HEAD（源码提交已在 HEAD，无需 `git apply c17.patch`）：
+#     SQLX_OFFLINE=false DATABASE_URL=… CARGO_TARGET_DIR=… \
+#       cargo sqlx prepare --workspace -- --features server-notifications,saml-sso,cas-sso,beacons
+#   实测 before=717 after=746，**deleted=0 / added=29 / modified=0**（文件名集合 comm
+#   双向逐条核对 + 对 717 条既有条目逐字节 cmp）。29 = 31 个宏站点 − 2 处哈希合并：
+#     (a) get_presence ≡ get_presence_with_meta（两条 SQL 文本逐字相同）
+#     (b) get_presence_batch ≡ get_presence_batch_with_meta（同上）
+#   即 presence 13 站点 → 11 条，background_update 18 站点 → 18 条，合计 29。
+#
+# 验证（isolated worktree target/c17-wt，**无需任何越界修补**——HEAD 已能编译 workspace）：
+#   SQLX_OFFLINE=false DATABASE_URL=… cargo sqlx prepare --workspace --
+#     --features server-notifications,saml-sso,cas-sso,beacons → Finished（1m45s；
+#     首轮因上述 D-13 数组绑定报 E0308，回退该条后第二轮 Finished）
+#   SQLX_OFFLINE=true CARGO_TARGET_DIR=… cargo check -p synapse-storage
+#     --features test-utils,server-notifications,saml-sso,cas-sso,beacons（touch 两个源文件
+#     强制宏重展开）→ Finished（38.99s；证明提交的 .sqlx 离线可复现）
+#     ⚠️ 反向自证（AGENTS.md 铁律 8）：移走 29 条新增条目中的 1 条
+#     （query-0ef698fd609d31510feb4204b629fa46687a0ead31d56c919ec6f6f9017f5d72.json，
+#     即 `set_error` 的 UPDATE…RETURNING）后重跑同命令 →
+#       error: `SQLX_OFFLINE=true` but there is no cached data for this query
+#       （指向 synapse-storage/src/background_update.rs:525:19 的 `query_as!`）
+#       + could not compile synapse-storage (lib)，EXIT=101；
+#     还原该文件（746 条）后同命令重新 Finished。证明该缓存真的被读取。
+#   TEST_DATABASE_URL=… TEST_DB_TEMPLATE_SCHEMA=test_template_ci cargo nextest run
+#     -p synapse-storage --lib --features test-utils,server-notifications,saml-sso,cas-sso,beacons
+#     -E 'test(presence) or test(background_update)' --no-fail-fast
+#     → **74 tests run: 74 passed, 0 failed**（1595 skipped，145.7s）
+#
+# 运行期回退：**无**（没有任何一处因 `ColumnDecode … UnexpectedNullError` 回退）。
+#
+# ⚠️ 注意 background_update 的 DB 用例**用的是自建简化表而非迁移 schema**
+#   （`prepare_empty_isolated_test_pool` 给空 schema，再由
+#   `setup_background_update_db` 自建），其 DDL 与真 schema 有一处实质漂移
+#   （`update_name` 在测试里可空、无 UNIQUE）——这掩盖了 `create_update` 漏写
+#   `update_name` 的既有缺陷（真 schema 下必然 23502）。已登记为 §7 **D-31**；
+#   另一条同批发现（本文档 §7 D-30）则是 presence 的死回退分支。
+#   本批 31 处静态化本身在真 schema 与测试 schema 上都被编译期 describe 或运行期覆盖：
+#   presence 28 个 DB 用例走**迁移模板 schema**（`test_isolation::isolated_test_pool`），
+#   background_update 25 个 DB 用例走自建表（见 D-31 的覆盖缺口说明）。
+#
+# 实测（main 树，门禁同源；本轮无并发写者新增生产动态）：
+#   dynamic_production 773 → 742   （C17 自身 -31）
+#   static             741 → 772   （+31）
+#   dynamic            1477 → 1446
+#   dynamic_test       704 → 704   （未动；两文件的 `#[cfg(test)]` 夹具未新增动态 SQL）
+# 收紧方向：C4/C5 等剩余批次继续分批静态化，直至 dynamic_production = 0。
+BASELINE_DYNAMIC_PRODUCTION=742
 BASELINE_DYNAMIC_TEST_INFRA=704
-BASELINE_STATIC=741
+BASELINE_STATIC=772
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1477
+BASELINE_DYNAMIC=1446
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #
