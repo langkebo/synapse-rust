@@ -811,7 +811,12 @@ A 的失败信息同时构成"HEAD 本来就红"的直接证据：`left` 即由�
 - **`workspace lib` 全量**：`cargo nextest run --workspace --lib --all-features --locked` ⇒
   `Summary [1643.071s] 6338 tests run: 6338 passed, 3 skipped`，FAIL 0。
 - **慢速车道**（`integration-test` / `build` / `coverage`）在 PR 上按设计跳过，只在 push→main /
-  schedule / `run_slow_tier` 触发，本次本地未跑；`security-audit` 的 cargo-geiger 步骤另行单独补跑（见 §5.3）。
+  schedule / `run_slow_tier` 触发，本次本地未跑。
+- **`cargo-geiger`（`security-audit` 的 PR 阻塞步骤）已补跑并 PASS**：按 CI 原样
+  `python3 scripts/ci/run_cargo_geiger.py`（双扫描 `--all-features` ± `--include-tests`，耗时约 58 分钟，
+  10 个 workspace 包）⇒ **Production unsafe 0**（baseline 0，硬阻塞满足）·
+  **Test-only unsafe 8**（baseline 9，棘轮只降不升 ⇒ 通过），明细 `synapse-common 2 / synapse-rust 4 /
+  synapse-services 2`；`scripts/ci/geiger_baseline.json` 无需调整。本批改动不含任何 `unsafe`。
 
 ---
 
