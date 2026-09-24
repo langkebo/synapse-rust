@@ -479,14 +479,14 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-35 | 文档一致性 | 本文件 §7 导言（"计数口径"行） | 该行写 `dynamic_production=741` / `static=773` 并标注"C17 后实测"，但 741/773 是 **C16 后**的值：C17 为 773→742、741→772，与本仓 baseline（`BASELINE_DYNAMIC_PRODUCTION=742` / `BASELINE_STATIC=772`）矛盾，两处各偏 1 | **已修**（C18 提交一并更正为 706/808 并注明偏差来源） | — | 已在本节导言更正；计数一律以 `scripts/ci/sqlx_query_census.py` + `scripts/ci/sqlx_dynamic_ratio_baseline` 为唯一来源 |
 | D-36 | 覆盖缺口 / 门禁 | `scripts/ci/test_ddl_allowlist`、`scripts/ci/insert_column_allowlist`、`tests/unit/test_ddl_guard_tests.rs`、`tests/integration/insert_column_coverage_tests.rs` | **系统性根因**：D-10/D-11/D-31/D-33/D-34 五条"写入端漏列"缺陷同源 —— DB 测试不跑迁移 schema，而用空 schema + 自建简化表，掩盖了 NOT NULL/CHECK/UNIQUE 约束与写入端漏列 | **已修**（守卫 A/B 落地 `7cd40a418`；W1 `c128cdeab` 已把 5 个夹具切到迁移模板） | — | §8.4 两条守卫均已实现并自证变红，见 §8.7 |
 | D-37 | 冗余实现 + 吞错（**新登记**） | `synapse-storage/src/device/mod.rs:182`（实现）、`:220`（零调用者包装）、`:530`/`:557`/`:595`（三处 `let _ = …`） | `DeviceStorage::record_device_list_change` 是 `synapse-e2ee` 同名职责的**第二份实现**（铁律 2），三个调用点又都是 `let _ = …` 吞错（与 D-07 同型）；其 best-effort 包装 `:220` 全仓**零调用者**（铁律 1） | **未修**（2026-09-24 W2 顺带发现并登记） | 有（storage 层设备增删路径 `:530`/`:557`/`:595`） | 二选一：storage 层统一改为可失败并让三个调用点显式处理（与 D-07 的解法对齐），删掉零调用者的 best-effort 包装；同时评估与 `synapse-e2ee` 那份实现能否收敛成一份（铁律 2） |
-| D-38 | 测试/门禁漂移（**新登记**） | `synapse-web/src/routes/federation/membership/query.rs:190` | `test_federation_membership_query_routes_from_real_ledger` 断言真实 ledger 里有 `GET /_matrix/federation/v1/room/<room_id>/membership/<user_id>`，但全仓**从未注册**该路由（`membership/mod.rs` 只有 `/members/{room_id}` 与 `/members/{room_id}/joined`；`derived_route_table_always.inc.rs` 亦 0 命中） ⇒ `cargo nextest run --workspace --lib` 在 HEAD 即为红 | **未修**（2026-09-24 W3 顺带发现，与 W3 改动无关：`git status` 下 `routes/` 无改动，HEAD 亦无该路由） | 阻断 workspace lib 批次（CI 的 `--workspace --lib` 会命中） | 二选一：删掉这条断言（路由本就不存在），或实现该联邦端点（协议面决策，需独立评审） |
+| D-38 | 测试/门禁漂移 | `synapse-web/src/routes/federation/membership/query.rs:166`（过滤条件，已修）、`:190`（原断言） | `test_federation_membership_query_routes_from_real_ledger` 断言真实 ledger 里有 `GET /_matrix/federation/v1/room/<room_id>/membership/<user_id>`，但全仓**从未注册**该路由（ruma `api::federation::membership` 亦只含 invite/send_join/send_knock/send_leave/make_join/make_knock/make_leave；`/rooms/{roomId}/membership/{userId}` 是 client API、`registered_by == "room"`） ⇒ `cargo nextest run --workspace --lib` 在 HEAD 即为红 | **已修**（`8a6b36ca7`） | 曾被该红灯阻断 workspace lib 批次 | 已修：过滤条件 `/membership` → `/members/`，断言改为真实端点 `GET /members/{room_id}`、`GET /members/{room_id}/joined`（精确相等）与 `POST …/keys/query`，并在注释里记录该路由不是 spec 端点 |
 
-**状态计数（2026-09-24 W3 后）**：已修 **17**（D-02/D-03/D-24/D-28/D-35 + W1 的
-D-10/D-11/D-31/D-33/D-34 + D-36 守卫 + W2 的 D-05/D-07/D-08/D-09 + W3 的 D-29/D-32）；
-未修 **9**（D-01 语法已修但死函数待删、D-04、D-06、D-12、D-17、D-27、D-30、
-**D-37**、**D-38** 新登记）；结构性保留（有意）**7**（D-13/D-14/D-18–D-22）；
+**状态计数（2026-09-24 W3 + D-38 后）**：已修 **18**（D-02/D-03/D-24/D-28/D-35 + W1 的
+D-10/D-11/D-31/D-33/D-34 + D-36 守卫 + W2 的 D-05/D-07/D-08/D-09 + W3 的 D-29/D-32 +
+D-38）；未修 **8**（D-01 语法已修但死函数待删、D-04、D-06、D-12、D-17、D-27、D-30、
+**D-37**）；结构性保留（有意）**7**（D-13/D-14/D-18–D-22）；
 另有文档级已处置 **3**（D-16/D-23/D-26）与 W5 覆盖缺口 **2**（D-15/D-25，未并入上述计数）
-—— 17 + 9 + 7 + 3 + 2 = **38**，与 D-01…D-38 的条数一致。
+—— 18 + 8 + 7 + 3 + 2 = **38**，与 D-01…D-38 的条数一致。
 （D-13/D-14/D-18…D-22）；覆盖缺口 **2**（D-15 含 D-15.6、D-25；D-36 虽同属覆盖缺口/门禁，
 已计入上面的"未修 19"，此处不重复计数）；文档一致性 **3**
 （D-16/D-23/D-26；D-35 已计入上面的"已修 5"，此处**不重复计数**——原文把 D-35 同时计入
@@ -1320,6 +1320,10 @@ D-10/D-11/D-31/D-33/D-34 + D-36 守卫 + W2 的 D-05/D-07/D-08/D-09 + W3 的 D-2
 
 #### D-38 `test_federation_membership_query_routes_from_real_ledger` 断言一条不存在的路由（2026-09-24 W3 顺带发现）
 
+> **已修（`8a6b36ca7`）**：过滤条件改 `/members/`，断言改真实端点，并在注释里记录
+> "该路由不是 spec 端点"。修后 `synapse-web --lib --all-features` **776/776** 全绿。
+> 其下为修复前的现场记录。
+
 - 类别：**测试 / 门禁漂移**（测试把"期望的实现"当成了"已有的实现"）。
 - 位置：`synapse-web/src/routes/federation/membership/query.rs:190`
   （`assert!(has_room_members, "must have GET /_matrix/federation/v1/room/<room_id>/membership/<user_id>")`）；
@@ -1762,3 +1766,21 @@ integration 侧 `require_test_pool()` 使用的共享模板名（内容指纹
 `schema "test_template_v2_…" does not exist`。已用 `bash scripts/ci/prepare_test_db.sh`
 重建 `public` + `test_template_ci`（227 张表），并以
 `TEST_DB_TEMPLATE_SCHEMA=test_template_ci` 运行集成批次。
+
+**D-38 收口记录（2026-09-24，`8a6b36ca7`）**：登记后立即修复 —— 这是**既有红灯**，
+会阻断 CI 的 `--workspace --lib` 批次，且修法在协议面已有定论。核对结论：
+
+- 该断言期望的 `GET /_matrix/federation/v1/room/{roomId}/membership/{userId}` **不是**
+  Matrix 联邦端点：ruma 的 `api::federation::membership` 只含
+  `PUT …/invite/…`、`PUT …/send_join/…`、`PUT …/send_knock/…`、`PUT …/send_leave/…`、
+  `GET …/make_join/…`、`GET …/make_knock/…`、`GET …/make_leave/…`
+  （<https://docs.rs/ruma/latest/ruma/api/federation/membership/index.html>）。
+  本仓把联邦侧的房间成员查询放在 `GET /_matrix/federation/v1/members/{room_id}`
+  与 `…/joined`，客户端侧的 `…/rooms/{roomId}/membership/{userId}` 另有实现
+  （`registered_by == "room"`）。
+- 因此选择"删掉错误断言 + 改为断言真实端点"，而不是"补实现一个不存在的端点"。
+- 修法细节：原过滤条件 `path.contains("/membership")` 恒不命中（唯一命中来自
+  `/keys/query`），现改 `"/members/"`；两条 members 断言用**精确相等**而不是 `contains`，
+  失败信息附实际清单 —— 避免同类"contains 到了别的路由"的假绿再次发生。
+
+至此 W3 全部收口（D-29 / D-32 / D-38），**仅 D-12 按 §8.2 原判断单列**。
