@@ -1660,7 +1660,7 @@
 #   测试过滤器实测**非零**：`-E 'test(presence) or test(background_update)'`
 #     → **74 tests run: 74 passed, 0 failed**（1595 skipped，145.7s）：
 #     `presence::db_tests` 28 + `presence::tests` 7 + `background_update::tests` 32
-#     （含 25 个真实 DB 往返）+ `background_update::cursor_tests` 2，另 5 个同名前缀
+#     （含 26 个真实 DB 往返，另 6 个纯构造单测）+ `background_update::cursor_tests` 2，另 5 个同名前缀
 #     （`user::db_tests::test_search_users_with_presence_*` 等）。未出现 C6/C9/C11/C15
 #     那种 "0 tests" 假绿。
 #
@@ -1756,10 +1756,13 @@
 #   `setup_background_update_db` 自建），其 DDL 与真 schema 有一处实质漂移
 #   （`update_name` 在测试里可空、无 UNIQUE）——这掩盖了 `create_update` 漏写
 #   `update_name` 的既有缺陷（真 schema 下必然 23502）。已登记为 §7 **D-31**；
-#   另一条同批发现（本文档 §7 D-30）则是 presence 的死回退分支。
+#   另两条同批发现是 §7 **D-30**（presence 的 4 处 `is_undefined_column_error`
+#   死回退分支，正因它不可宏化而保留动态）与 **D-32**
+#   （`PresenceService::set_presence_batch` 全仓无调用者 ⇒ C-3 批量写优化从未接线，
+#   也解释了 D-13 在本轮多出的那 1 个实例只被测试覆盖）。
 #   本批 31 处静态化本身在真 schema 与测试 schema 上都被编译期 describe 或运行期覆盖：
 #   presence 28 个 DB 用例走**迁移模板 schema**（`test_isolation::isolated_test_pool`），
-#   background_update 25 个 DB 用例走自建表（见 D-31 的覆盖缺口说明）。
+#   background_update 26 个 DB 用例走自建表（见 D-31 的覆盖缺口说明）。
 #
 # 实测（main 树，门禁同源；本轮无并发写者新增生产动态）：
 #   dynamic_production 773 → 742   （C17 自身 -31）

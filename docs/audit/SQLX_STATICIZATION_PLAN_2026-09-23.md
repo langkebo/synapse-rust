@@ -458,11 +458,12 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-29 | 结构性限制 | `synapse-storage/src/admin_federation.rs:186` | `get_server_admission_status` 声明 `Option<Option<String>>`、doc 称可返回 `Some(None)`，但 `status` 列 NOT NULL ⇒ 内层 None 与消费端 `Some(None)` 分支不可达 | **未修** | 有（`federation_auth.rs:214`，`admission_mode` 开时每个联邦请求） | 按铁律 1 收窄storage 返回类型并删消费端死分支 |
 | D-30 | 结构性限制 | `synapse-storage/src/presence/mod.rs:452`,`:488`,`:522`,`:557` | `presence_subscriptions` 的 4 处 `is_undefined_column_error` 回退分支查 `user_id`/`friend_id`，合并后 schema 中从无此二列（42703）⇒ 分支既不可达又无法宏化 | **未修**（C17 保留动态） | 回退分支不可达；主分支正常 | 按铁律 1 删除 4 个回退分支与 `is_undefined_column_error` |
 | D-31 | 产品缺陷 | `synapse-storage/src/background_update.rs:272` | `create_update` 的 INSERT 从不写 `update_name`（NOT NULL UNIQUE 无默认）⇒ 真 schema 下必然 23502；模块 `db_tests` 自建简化表（`update_name` 可空、无 UNIQUE）掩盖了它 | **未修** | 有（`POST /_synapse/admin/v1/background_updates`） | INSERT 补 `update_name = job_name`（或统一为单列），并让 db_tests 改用迁移 schema |
+| D-32 | 产品缺陷 | `synapse-services/src/presence_service.rs:153` | C-3 批量 presence 写路径 `set_presence_batch`（storage + service + 内存替身 + db_tests 俱全）全仓**无任何调用者**，其 doc 宣称的"联邦 presence 同步 / 批量导入"从未接线 ⇒ 批量 upsert 与其内逐用户联邦广播是死代码 | **未修** | 无生产路径（仅 db_tests 覆盖） | 接线到联邦 EDU 批处理/批量导入，或按铁律 1 删除 batch API（连带回收 D-13 的该实例） |
 
-**状态计数**：已修 **4**（D-02/D-03/D-24/D-28）；未修 **15**
-（D-01 语法已修但死函数待删、D-04…D-12、D-17、D-27、D-29、D-30、D-31）；结构性保留（有意）**7**
+**状态计数**：已修 **4**（D-02/D-03/D-24/D-28）；未修 **16**
+（D-01 语法已修但死函数待删、D-04…D-12、D-17、D-27、D-29、D-30、D-31、D-32）；结构性保留（有意）**7**
 （D-13/D-14/D-18…D-22）；覆盖缺口 **2**（D-15/D-25）；文档一致性 **3**
-（D-16/D-23/D-26）。合计 **31** 条。
+（D-16/D-23/D-26）。合计 **32** 条。
 
 ### 7.2 逐条明细
 
@@ -702,8 +703,11 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
   按 `literal` 登记），动态的只是绑定参数类型；SQL 里已是 `::TEXT[]`，加 SQL 转换无效。
   C17 已实测：把 `$1`/`$2`/`$4` 改成精确 `&[String]`/`&[i64]` 后，唯独 `$3` 仍被拒，
   故**整条语句**（不是单个参数）必须保持动态——这正是本条从 2 处扩到 3 处的原因。
-- 可达性：有（room summary 批量写入路径；`presence::set_presence_batch` 由联邦
-  presence 同步 / 批量导入调用）。
+- 可达性：room_summary 两处**有**（批量成员/状态写入路径）；C17 新增的
+  `presence::set_presence_batch` 目前**无生产调用者**（见 §7 D-32），全仓引用只有
+  storage trait/实现（`presence/api.rs:16`,`:70-71`）、service 包装
+  （`synapse-services/src/presence_service.rs:153`）、内存替身
+  （`test_mocks/presence.rs:43`）与两侧 db_tests；该语句当前只由测试往返覆盖。
 - 状态：**结构性保留（有意）**，3 处已计入 `dynamic_production`
   （`python3 scripts/ci/sqlx_query_census.py --list-production`）。
 - 建议处理：回收方向——把并行数组换成单个 `jsonb_to_recordset($n)`
@@ -1041,6 +1045,36 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
   模板 schema（`prepare_isolated_test_pool`），否则同类 schema 漂移会持续被掩盖。
   属行为修复，需独立评审 + 独立提交。
 
+#### D-32 产品缺陷：C-3 批量 presence 写路径 `set_presence_batch` 从未接线（C17）
+
+- 位置：`synapse-services/src/presence_service.rs:153`（`PresenceService::set_presence_batch`，
+  固有方法，非 trait 方法）；它转发到 storage 的
+  `synapse-storage/src/presence/mod.rs:215`（`PresenceStorage::set_presence_batch`），
+  并对每条 entry 调用 `:165` 的 `broadcast_presence_to_subscribers`。
+- 证据（无调用者）：全仓 `grep -rn 'set_presence_batch' --include=*.rs .`（排除
+  `target/`）只命中 4 个文件，全部是定义/转发/替身/测试，**没有任何调用点**：
+  `synapse-storage/src/presence/api.rs`（trait 声明 + 转发，3 处）、
+  `synapse-storage/src/presence/mod.rs`（实现 + db_tests，10 处）、
+  `synapse-storage/src/test_mocks/presence.rs`（内存替身，1 处）、
+  `synapse-services/src/presence_service.rs`（service 包装 + 3 个自身 db_tests，8 处）。
+  没有任何 route / federation EDU handler / 后台任务调用它；以 `set_presence_batch(`
+  为模式搜索调用点，命中同样只在这 4 个文件内。
+- 证据（文档与实现不符）：storage 侧 doc（`presence/mod.rs:203-210`）自述
+  "Uses `UNNEST` to batch the INSERT … eliminating N+1 SQL round-trips when updating
+  presence for many users at once (e.g. federation presence sync, bulk presence
+  import)"，service 侧 `:150-152` 亦标注 "C-3: Batch set presence…"——这两个 "e.g."
+  调用方在树里都不存在 ⇒ **C-3 的批量优化与其中的批量联邦广播从未生效**。
+  （单用户路径 `presence_service.rs:134` 仍在调用
+  `broadcast_presence_to_subscribers`，故联邦广播功能本身不是死路，死的是批量入口。）
+- 与静态化的关系：该语句 `UNNEST($1::TEXT[], $2::TEXT[], $3::TEXT[], $4::BIGINT[])`
+  因可空元素数组参数无法宏化（§7 D-13，C17 保留为动态）。也就是说 C17 的 5 处保留动态
+  中，有 1 处属于"新增的 D-13 实例"，且其整体可达性为"仅测试"。
+- 状态：**未修**（静态化按行为保持原则原样保留，包括 `Vec<&str>` 绑定形态）。
+- 建议处理：二选一——（a）把批量入口接到联邦 presence EDU 的批量处理 / 批量导入路径
+  （需先确认真实批量场景存在），或（b）按铁律 1 删除 `set_presence_batch`（storage
+  trait 方法 + service 方法 + 内存替身 + 双方 db_tests），连带回收该动态站点并让
+  D-13 回到 2 处。两者都属行为/API 变更，需独立评审 + 独立提交。
+
 ### 7.x 处置约定
 
 1. **不在静态化范围内。** 静态化是**行为保持**的机械重构；本节所有条目都涉及行为、
@@ -1058,6 +1092,6 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
    （`git log -S` / `git log --oneline -- <path>`）；无法核验的标 `[未验证]`；
    行号漂移时以当前树为准更正（本节的 `路径:行号` 均为 2026-09-23 撰写时实测）。
 5. **建议的处理顺序**（依据影响/可达性）：D-10 / D-12 / D-31（已注册路由、100% 失败或静默
-   丢数据）→ D-02 类回归防护（已修，补测试）→ D-11 / D-04 / D-27 / D-30（潜伏或死代码清理）
+   丢数据）→ D-02 类回归防护（已修，补测试）→ D-11 / D-04 / D-27 / D-30 / D-32（潜伏或死代码清理）
    → D-05 / D-07 / D-08 / D-09（一致性/确定性）→ D-13 / D-14（结构性回收）→
    D-15 / D-25（补测与门禁）→ D-17（缓存收敛）→ D-06 / D-16 / D-23 / D-26（文档/注释）。
