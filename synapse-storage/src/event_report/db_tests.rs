@@ -956,3 +956,67 @@ async fn test_get_aggregate_stats_buckets_every_status() {
 
     cleanup_all(&pool, &prefix).await;
 }
+
+// --- D-15.3: get_reports_by_room cursor branch ---
+
+/// D-15.3：`get_reports_by_room` 的**游标分支**此前无覆盖（两条既有用例都传
+/// `since_ts/since_id = None`；同型游标在 `by_reporter`/`by_status`/`all_reports`
+/// 都有专测，唯独 `by_room` 缺）。
+///
+/// 游标要求 `since_ts` 与 `since_id` **同时**给出，谓词是
+/// `received_ts < $3 OR (received_ts = $3 AND id < $4)`，排序 `received_ts DESC, id DESC`。
+/// 这里用 limit = 1 逐页翻，既走到"并列时间戳"分支（`create_report` 在同一毫秒内写入时
+/// 全部并列，靠 `id DESC` 决胜）也走到"跨时间戳"分支，并断言不重不漏、末页为空。
+#[tokio::test]
+async fn test_get_reports_by_room_cursor_pagination() {
+    let (_isolated, pool) = test_pool().await;
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let prefix = format!("gbr_cur_{suffix}");
+    cleanup_all(&pool, &prefix).await;
+
+    let storage = EventReportStorage::new(&pool);
+    let room_id = format!("{prefix}_room");
+
+    let mut created: Vec<(i64, i64)> = Vec::new();
+    for i in 0..5 {
+        let report = storage
+            .create_report(make_request(&prefix, &format!("cur_{i}")))
+            .await
+            .expect("create_report should succeed");
+        created.push((report.received_ts, report.id));
+    }
+    created.sort_by(|a, b| b.cmp(a)); // (received_ts DESC, id DESC)
+
+    let mut seen: Vec<(i64, i64)> = Vec::new();
+    let mut cursor: Option<(i64, i64)> = None;
+    for page in 0..6 {
+        let rows = storage
+            .get_reports_by_room(&room_id, 1, cursor.map(|c| c.0), cursor.map(|c| c.1))
+            .await
+            .expect("get_reports_by_room should succeed on both cursor branches");
+        if page < 5 {
+            assert_eq!(rows.len(), 1, "page {page} must return exactly one row");
+            assert_eq!(rows[0].room_id, room_id);
+            seen.push((rows[0].received_ts, rows[0].id));
+            cursor = Some((rows[0].received_ts, rows[0].id));
+        } else {
+            assert!(rows.is_empty(), "the page after the last row must be empty, got {rows:?}");
+        }
+    }
+    assert_eq!(seen, created, "游标必须按 (received_ts DESC, id DESC) 逐行取完，不重不漏");
+
+    // 只给一半游标时必须落回**非游标分支**（首页），而不是把 `None` 当成 0 去过滤。
+    let half =
+        storage.get_reports_by_room(&room_id, 1, Some(created[0].0), None).await.expect("half cursor must not error");
+    assert_eq!(half.len(), 1);
+    assert_eq!((half[0].received_ts, half[0].id), created[0], "不完整游标应返回第一页");
+
+    // 未知房间：非游标分支返回空而不是报错。
+    let missing = storage
+        .get_reports_by_room(&format!("{prefix}_no_such_room"), 10, None, None)
+        .await
+        .expect("unknown room must not error");
+    assert!(missing.is_empty());
+
+    cleanup_all(&pool, &prefix).await;
+}
