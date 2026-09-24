@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM presence_subscriptions\n            WHERE subscriber_id = $1 AND target_id = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9d9462e12ee8030ef6d7ccc17631b27dcab5ea03beaa988da8c8bd707ba06a90"
+}

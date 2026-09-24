@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT user_id, presence, status_msg, last_active_ts\n            FROM presence\n            WHERE user_id = ANY($1)\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "presence",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "status_msg",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "last_active_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "692d1d83ec34e72dcdc766a32ff8d05eb04804b79d12ffaef906d83b3d01c774"
+}

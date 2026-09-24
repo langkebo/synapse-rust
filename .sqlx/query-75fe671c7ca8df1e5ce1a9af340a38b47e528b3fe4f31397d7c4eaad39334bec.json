@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM background_updates WHERE update_name = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "75fe671c7ca8df1e5ce1a9af340a38b47e528b3fe4f31397d7c4eaad39334bec"
+}

@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT presence, status_msg, last_active_ts FROM presence WHERE user_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "presence",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "status_msg",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "last_active_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "59c81d3e3023204ae6e09f471f363fda5507899fe96cf9d6f07d192d2f7ef157"
+}

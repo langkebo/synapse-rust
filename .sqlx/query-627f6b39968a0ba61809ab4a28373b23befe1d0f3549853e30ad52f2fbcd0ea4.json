@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, job_name, total_updates, completed_updates, failed_updates, last_run_ts, next_run_ts,\n                   average_duration_ms, created_ts, updated_ts\n            FROM background_update_stats ORDER BY created_ts DESC, id DESC LIMIT $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "job_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "total_updates",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "completed_updates",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "failed_updates",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "last_run_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "next_run_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "average_duration_ms",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "627f6b39968a0ba61809ab4a28373b23befe1d0f3549853e30ad52f2fbcd0ea4"
+}

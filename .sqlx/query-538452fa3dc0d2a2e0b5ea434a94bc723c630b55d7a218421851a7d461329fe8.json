@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT target_id FROM presence_subscriptions\n            WHERE subscriber_id = $1\n            LIMIT 5000\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "target_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "538452fa3dc0d2a2e0b5ea434a94bc723c630b55d7a218421851a7d461329fe8"
+}
