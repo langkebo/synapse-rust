@@ -419,8 +419,8 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 > **不阻塞**这些条目的处理，反之亦然：处理它们时不要求同时改棘轮数字，除非确实回收了
 > 动态站点。
 >
-> 计数口径：`dynamic_production=773`（其中 `literal` 686 / `runtime` 87）、
-> `static=741`、`dynamic_test=704`、`query_builder=18`（C16 后
+> 计数口径：`dynamic_production=741`（其中 `literal` 656 / `runtime` 85）、
+> `static=773`、`dynamic_test=704`、`query_builder=18`（C17 后
 > `python3 scripts/ci/sqlx_query_census.py` 实测）。
 
 ### 7.1 汇总表
@@ -439,7 +439,7 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-10 | 产品缺陷 | `synapse-storage/src/module.rs:940` | `create_media_callback` 从不写 `user_id`（NOT NULL DEFAULT `''`）⇒ 必然 23514 | **未修** | 有（`POST /_synapse/admin/v1/media_callbacks`，`module.rs:851`） | 把 `user_id` 纳入请求并绑定（行为修复） |
 | D-11 | 产品缺陷 | `synapse-storage/src/registration_token/repository.rs:362` | `create_room_invite` 漏写 NOT NULL 无默认的 `inviter`/`invitee` ⇒ 必然 23502 | **未修** | 无 HTTP 路由调用方（service 层唯一，`registration_token_service.rs:243`） | 产品决策：映射或删列 |
 | D-12 | 产品缺陷 | `synapse-storage/src/event_report/repository.rs:324`,`:359`,`:533` | `add_history` 只 `tracing::info!` 返回内存 `id:0`，`get_report_history`/`get_stats` 恒空；两张表不存在 | **未修** | 有（`event_report.rs:499/506`；审计写入 `event_report_service.rs:55/194/378`） | 建表 + 实现（独立功能批次） |
-| D-13 | 结构性限制 | `synapse-storage/src/room_summary/repository.rs:326`,`:575` | `Vec<Option<T>>` 数组参数无 sqlx 映射，2 处无法宏化 | **结构性保留（有意）** | 已计入 `dynamic_production`（2 处 `literal`） | 改单个 `jsonb_to_recordset($n)` |
+| D-13 | 结构性限制 | `synapse-storage/src/room_summary/repository.rs:326`,`:575`；`synapse-storage/src/presence/mod.rs:232` | `Vec<Option<T>>` 数组参数无 sqlx 映射，3 处无法宏化 | **结构性保留（有意）** | 已计入 `dynamic_production`（3 处 `literal`） | 改单个 `jsonb_to_recordset($n)` |
 | D-14 | 结构性限制 | 见 §7.2 D-14 | 运行期拼装 SQL 无法静态化 + D1 守卫 14 处已知假阴性 | **结构性保留（有意）** | 见明细 | 见明细（逐文件回收方向） |
 | D-15 | 覆盖缺口 | 见 §7.2 D-15 | 5 组已静态化代码无 DB 往返 / 无游标分支用例 | **覆盖缺口** | — | 见明细（逐项补测） |
 | D-16 | 文档一致性 | 本文件 §5 批次表 / §1 分布表 | C11 目标写 `test_isolation.rs`，与 `friend_room` 的"从未迁移"记录矛盾 | **已修正**（本次 C11 行 + 本表） | — | 已在本节固化 |
@@ -456,11 +456,13 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-27 | 结构性限制 | `synapse-storage/src/search_index.rs` | 整模块无生产调用者（B3 已登记按铁律 1 删除），仍带 8 处生产动态 | **未修** | 全仓唯一引用是 `sync/mod.rs:10` 再导出，无消费者 | 删除整模块，一次回收 8 处 |
 | D-28 | 产品缺陷 | `synapse-storage/src/event/batch.rs` 等 | 4 个 0 调用者死查询 | **已修**（B3 `2e9c3d11d`，直接删除） | 无 | — |
 | D-29 | 结构性限制 | `synapse-storage/src/admin_federation.rs:186` | `get_server_admission_status` 声明 `Option<Option<String>>`、doc 称可返回 `Some(None)`，但 `status` 列 NOT NULL ⇒ 内层 None 与消费端 `Some(None)` 分支不可达 | **未修** | 有（`federation_auth.rs:214`，`admission_mode` 开时每个联邦请求） | 按铁律 1 收窄storage 返回类型并删消费端死分支 |
+| D-30 | 结构性限制 | `synapse-storage/src/presence/mod.rs:452`,`:488`,`:522`,`:557` | `presence_subscriptions` 的 4 处 `is_undefined_column_error` 回退分支查 `user_id`/`friend_id`，合并后 schema 中从无此二列（42703）⇒ 分支既不可达又无法宏化 | **未修**（C17 保留动态） | 回退分支不可达；主分支正常 | 按铁律 1 删除 4 个回退分支与 `is_undefined_column_error` |
+| D-31 | 产品缺陷 | `synapse-storage/src/background_update.rs:272` | `create_update` 的 INSERT 从不写 `update_name`（NOT NULL UNIQUE 无默认）⇒ 真 schema 下必然 23502；模块 `db_tests` 自建简化表（`update_name` 可空、无 UNIQUE）掩盖了它 | **未修** | 有（`POST /_synapse/admin/v1/background_updates`） | INSERT 补 `update_name = job_name`（或统一为单列），并让 db_tests 改用迁移 schema |
 
-**状态计数**：已修 **4**（D-02/D-03/D-24/D-28）；未修 **13**
-（D-01 语法已修但死函数待删、D-04…D-12、D-17、D-27、D-29）；结构性保留（有意）**7**
+**状态计数**：已修 **4**（D-02/D-03/D-24/D-28）；未修 **15**
+（D-01 语法已修但死函数待删、D-04…D-12、D-17、D-27、D-29、D-30、D-31）；结构性保留（有意）**7**
 （D-13/D-14/D-18…D-22）；覆盖缺口 **2**（D-15/D-25）；文档一致性 **3**
-（D-16/D-23/D-26）。合计 **29** 条。
+（D-16/D-23/D-26）。合计 **31** 条。
 
 ### 7.2 逐条明细
 
@@ -685,21 +687,26 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
   落地 `add_history`/`get_report_history`，`get_stats` 改按天聚合 SQL；在此之前需决定
   两个端点是否临时下线（当前返回空会被误读为"没有历史"）。
 
-#### D-13 结构性限制：`Vec<Option<T>>` 数组参数无法静态化（C9）
+#### D-13 结构性限制：`Vec<Option<T>>` 数组参数无法静态化（C9，C17 新增第 3 处）
 
 - 位置：`synapse-storage/src/room_summary/repository.rs:326`（`add_members_batch` 的
   `NOTE(C9)`，动态站点 `:332`）、`:575`（`set_states_batch` 的 `NOTE(C9)`，动态站点
-  `:579`）。
-- 证据：两处绑定**逐元素可空数组** `Vec<Option<String>>` / `Vec<Option<i64>>`；
-  sqlx-postgres 只登记了非空元素数组（`Vec<String> | &[String]` 等），无
-  `Vec<Option<T>>` 映射 ⇒ `query!` 以 E0308 拒绝（`expected &[String], found
-  &[Option<String>]`）。**这两处的 SQL 文本是字面量**（故在 D1 基线里按 `literal`
-  登记，`room_summary/repository.rs = 2`），动态的只是绑定参数类型；SQL 里已是 `::TEXT[]`，
-  加 SQL 转换无效。
-- 可达性：有（room summary 批量写入路径）。
-- 状态：**结构性保留（有意）**，2 处已计入 `dynamic_production`
-  （`python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . | grep room_summary`）。
-- 建议处理：回收方向——把七个并行数组换成单个 `jsonb_to_recordset($n)`
+  `:579`）；**C17 新增** `synapse-storage/src/presence/mod.rs:232`
+  （`set_presence_batch` 的 `UNNEST($1::TEXT[], $2::TEXT[], $3::TEXT[], $4::BIGINT[])`，
+  `$3` 为 `Vec<Option<&str>>`）。
+- 证据：三处绑定**逐元素可空数组** `Vec<Option<String>>` / `Vec<Option<i64>>` /
+  `Vec<Option<&str>>`；sqlx-postgres 只登记了非空元素数组（`Vec<String> | &[String]`
+  等），无 `Vec<Option<T>>` 映射 ⇒ `query!` 以 E0308 拒绝
+  （C17 实测原文：`expected &[String], found &[Option<String>]`，指向 `$3` 实参）。
+  **这三处的 SQL 文本都是字面量**（故在 D1 基线里
+  按 `literal` 登记），动态的只是绑定参数类型；SQL 里已是 `::TEXT[]`，加 SQL 转换无效。
+  C17 已实测：把 `$1`/`$2`/`$4` 改成精确 `&[String]`/`&[i64]` 后，唯独 `$3` 仍被拒，
+  故**整条语句**（不是单个参数）必须保持动态——这正是本条从 2 处扩到 3 处的原因。
+- 可达性：有（room summary 批量写入路径；`presence::set_presence_batch` 由联邦
+  presence 同步 / 批量导入调用）。
+- 状态：**结构性保留（有意）**，3 处已计入 `dynamic_production`
+  （`python3 scripts/ci/sqlx_query_census.py --list-production`）。
+- 建议处理：回收方向——把并行数组换成单个 `jsonb_to_recordset($n)`
   （JSON null ↔ SQL NULL 语义等价），属独立改造。
 
 #### D-14 结构性限制：运行期拼装 SQL + D1 守卫的已知假阴性
@@ -961,6 +968,79 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
   `Some(None)` 分支与 storage 的 `:176-181` doc 中"status 可为 NULL"的表述；
   属**行为契约变更**（虽无可达路径），需独立评审 + 独立提交，不夹带进静态化批次。
 
+#### D-30 结构性限制：`presence_subscriptions` 的 `user_id`/`friend_id` 回退分支不可达且不可宏化（C17）
+
+- 位置：`synapse-storage/src/presence/mod.rs` 的 4 处 `is_undefined_column_error`
+  回退分支——`add_subscription`（`:452`，`INSERT INTO presence_subscriptions
+  (user_id, friend_id, created_ts) … ON CONFLICT (user_id, friend_id)`）、
+  `remove_subscription`（`:488`，`DELETE … WHERE user_id = $1 AND friend_id = $2`）、
+  `get_subscriptions`（`:522`，`SELECT friend_id … WHERE user_id = $1`）、
+  `get_subscribers`（`:557`，`SELECT user_id … WHERE friend_id = $1`）；判定函数
+  `is_undefined_column_error` 在 `:16-18`（只认 SQLSTATE 42703）。
+- 证据（schema）：权威迁移 `migrations/00000000_unified_schema_v12.sql:2912-2919`
+  只定义 `subscriber_id` / `target_id` / `created_ts` 三列，主键
+  `pk_presence_subscriptions (subscriber_id, target_id)`；`\d presence_subscriptions`
+  实测无 `user_id` / `friend_id`。`migrations/` 是单一真相源，合并后不存在"另一种
+  列名"的 schema；`friend_id` 全仓只作为 `friends` 表列（同文件 `:2952`）与 HTTP 层
+  变量名出现（`synapse-web/src/routes/friend_room.rs` 等）。
+- 证据（psql，`VERBOSITY=verbose`）：
+  `PREPARE fb1 AS SELECT friend_id FROM presence_subscriptions WHERE user_id = $1;`
+  ⇒ `ERROR: 42703: column "friend_id" does not exist`；
+  `PREPARE fb2 AS SELECT user_id FROM presence_subscriptions WHERE friend_id = $1;`
+  ⇒ `ERROR: 42703: column "user_id" does not exist`。
+  同文件主分支（`SELECT target_id … WHERE subscriber_id = $1 LIMIT 5000`、
+  `INSERT … ON CONFLICT (subscriber_id, target_id) DO NOTHING`、`DELETE … WHERE
+  subscriber_id = $1 AND target_id = $2`）`PREPARE` 全部成功。
+- 结论：回退的触发前提是主分支报 42703，而主分支使用的列全部存在于 catalog ⇒
+  **分支不可达**；即便被触发，回退语句自身也是 42703 ⇒ **永远不可能成功**。它同时是
+  （a）兼容残留死代码（其唯一存在理由是"曾经有过 user_id/friend_id 版 schema"，
+  按铁律 1 应删）、（b）静态化的**结构性障碍**：`query!`/`query_scalar!` 必须按真实
+  schema describe，这 4 条 SQL 会让 `cargo sqlx prepare` 直接失败（42703）。
+- 状态：**未修**——按批次纪律"只修编译所必需、其余只登记不改行为"，C17 保留这 4 处
+  动态调用（`sqlx::query` / `query_as::<_, (String,)>`），presence 生产区其余
+  **14 处全部宏化**（`dynamic_production` 该文件 18 → 4）。
+- 建议处理：按铁律 1 删除 4 个回退分支与 `is_undefined_column_error`
+  （`:16-18`，删后该函数无使用者）——这会再回收 4 处动态站点（需同步下调
+  `BASELINE_DYNAMIC_PRODUCTION`），但属**分支删除**（行为变更），需独立评审 + 独立提交。
+
+#### D-31 产品缺陷：`create_update` 漏写 NOT NULL 的 `update_name`，测试自建简化表掩盖（C17）
+
+- 位置：`synapse-storage/src/background_update.rs:272-296`（`create_update` 的
+  `INSERT INTO background_updates (…)` 列清单为 `job_name, job_type, description,
+  table_name, column_name, total_items, batch_size, sleep_ms, depends_on, metadata,
+  created_ts, status, max_retries`——**没有 `update_name`**）。
+- 证据（schema）：权威迁移 `migrations/00000000_unified_schema_v12.sql:1927-1953`
+  定义 `update_name TEXT NOT NULL` + `CONSTRAINT uq_background_updates_name UNIQUE
+  (update_name)`，且**无 DEFAULT**（`\d background_updates` 的 Default 列实测为空）。
+  psql 直接执行该 INSERT（`VERBOSITY=verbose`）⇒
+  `ERROR: 23502: null value in column "update_name" of relation "background_updates"
+  violates not-null constraint`。
+- 证据（可达性）：**有**。`POST /_synapse/admin/v1/background_updates`
+  （`synapse-web/src/routes/derived_route_table_always.inc.rs:4751`）→
+  `synapse-services/src/background_update_service.rs:46`（先
+  `get_update(&request.job_name)`，即 `WHERE update_name = $1`，必然查不到）
+  → `:61` `create_update` ⇒ 每次请求都走到这条必然 23502 的 INSERT。
+- 证据（覆盖缺口 / 为什么测试是绿的）：本模块 `db_tests` 全部走
+  `crate::test_utils::prepare_empty_isolated_test_pool()`（`test_utils.rs:126`，
+  创建**空 schema、不套迁移**），再由 `setup_background_update_db`
+  （`background_update.rs:989` 起）自建同名简化表——其中
+  `update_name TEXT,`（`:994`）**可空且无 UNIQUE**。于是测试里的 `create_update`
+  成功、真 schema 下必然失败。测试代码自己把这个缺口写成了注释与补丁：
+  `:1756-1758` 的 "create_update doesn't set update_name, so we need to manually set
+  it for delete to work" 及其后的
+  `UPDATE background_updates SET update_name = job_name WHERE update_name IS NULL`。
+- 影响链（模型不一致）：`create_update` 之外的所有读写都按 `update_name` 定位
+  （`get_update` / `update_status` / `update_progress` / `set_error` / `delete_update` /
+  `retry_failed`），而生产创建路径只写 `job_name` ⇒ 即使 INSERT 被修好，该行也永远
+  不会被这些方法命中（`BackgroundUpdate.job_name` 字段 ↔ 表里 `job_name` 可空 +
+  `update_name` NOT NULL 的双列并存）。
+- 状态：**未修**——C17 只把 `RETURNING *` 展开为显式列清单（`query_as!` 不走
+  `FromRow`，多列 E0560），INSERT 的**列集合与绑定原样保留**，未借静态化改行为。
+- 建议处理：产品决策——INSERT 补 `update_name = job_name`（并把冗余的 `job_name` 列
+  收敛掉）或统一为单列；同时把 `background_update::db_tests` 从"自建简化表"改为迁移
+  模板 schema（`prepare_isolated_test_pool`），否则同类 schema 漂移会持续被掩盖。
+  属行为修复，需独立评审 + 独立提交。
+
 ### 7.x 处置约定
 
 1. **不在静态化范围内。** 静态化是**行为保持**的机械重构；本节所有条目都涉及行为、
@@ -977,7 +1057,7 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 4. **状态纪律。** 每条必须能给出 `路径:行号` 或可复现命令；已修的必须给 commit
    （`git log -S` / `git log --oneline -- <path>`）；无法核验的标 `[未验证]`；
    行号漂移时以当前树为准更正（本节的 `路径:行号` 均为 2026-09-23 撰写时实测）。
-5. **建议的处理顺序**（依据影响/可达性）：D-10 / D-12（已注册路由、100% 失败或静默
-   丢数据）→ D-02 类回归防护（已修，补测试）→ D-11 / D-04 / D-27（潜伏或死代码清理）
+5. **建议的处理顺序**（依据影响/可达性）：D-10 / D-12 / D-31（已注册路由、100% 失败或静默
+   丢数据）→ D-02 类回归防护（已修，补测试）→ D-11 / D-04 / D-27 / D-30（潜伏或死代码清理）
    → D-05 / D-07 / D-08 / D-09（一致性/确定性）→ D-13 / D-14（结构性回收）→
    D-15 / D-25（补测与门禁）→ D-17（缓存收敛）→ D-06 / D-16 / D-23 / D-26（文档/注释）。
