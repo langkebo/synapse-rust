@@ -45,24 +45,6 @@ fn test_event_report_with_reason() {
 }
 
 #[test]
-fn test_event_report_history_creation() {
-    let history = EventReportHistory {
-        id: 1,
-        report_id: 1,
-        action: "status_change".to_string(),
-        actor_user_id: Some("@admin:example.com".to_string()),
-        actor_role: Some("moderator".to_string()),
-        old_status: Some("pending".to_string()),
-        new_status: Some("resolved".to_string()),
-        reason: Some("Reviewed and resolved".to_string()),
-        created_ts: 1234567890,
-        metadata: None,
-    };
-    assert_eq!(history.report_id, 1);
-    assert!(history.actor_user_id.is_some());
-}
-
-#[test]
 fn test_report_rate_limit_creation() {
     let rate_limit = ReportRateLimit {
         id: 1,

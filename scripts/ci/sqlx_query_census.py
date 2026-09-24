@@ -488,7 +488,15 @@ def read_string_literal(text: str, i: int) -> tuple[str, int]:
         return text[j:end], end + len(terminator)
 
     out: list[str] = []
-    escapes = {"n": "\n", "t": "\t", "r": "\r", "0": "\0", "\\": "\\", '"': '"', "'": "'"}
+    escapes = {
+        "n": "\n",
+        "t": "\t",
+        "r": "\r",
+        "0": "\0",
+        "\\": "\\",
+        '"': '"',
+        "'": "'",
+    }
     while j < len(text):
         ch = text[j]
         if ch == "\\" and j + 1 < len(text):
@@ -586,7 +594,9 @@ def iter_sql_regions(path: Path, force_test: bool = False):
         yield line_no, region, item, content
 
 
-def _iter_literals_with_item(text: str, items: list[str], regions: list[tuple[str, bool]]):
+def _iter_literals_with_item(
+    text: str, items: list[str], regions: list[tuple[str, bool]]
+):
     for start_line, content, start, end in iter_string_literals(text):
         index = start_line - 1
         in_test = regions[index][1] if 0 <= index < len(regions) else False

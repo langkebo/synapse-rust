@@ -61,7 +61,7 @@ fi
 checked=0
 failed=0
 while IFS='|' read -r filter feature anchor; do
-    case "$filter" in ''|'#'*) continue ;; esac
+    case "$filter" in '' | '#'*) continue ;; esac
     if [ -n "$only" ] && [ "$filter" != "$only" ]; then
         continue
     fi

@@ -452,7 +452,7 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-09 | 产品缺陷 | `synapse-storage/src/space/repository.rs:719` | `suggested_only` 分支把 jsonb `via_servers` 解成 `Vec<String>`，真返回行时必然 `ColumnDecode` | **已修**（W2 `cef006dd2`） | 有（`/_matrix/federation/v1/hierarchy/{room_id}`，`suggested_only=true`） | 已修：改 `ARRAY(SELECT jsonb_array_elements_text(via_servers))`（与本文件其余 5 处一致）；`space::db_tests` 新增 `is_suggested = TRUE` 的用例 |
 | D-10 | 产品缺陷 | `synapse-storage/src/module.rs:956`（INSERT；列清单 `:958`；请求结构体字段 `:361`；路由 `synapse-web/src/routes/module.rs:769`） | `create_media_callback` 从不写 `user_id`（NOT NULL DEFAULT `''`）⇒ 必然 23514 | **已修**（W1 `c128cdeab`） | 有（`POST /_synapse/admin/v1/media_callbacks`，`module.rs:851`） | 已修：请求结构体新增 `user_id`，INSERT 绑定，管理路由传认证管理员的 user_id（语义 = 注册者）；`module::db_tests` 新建（此前 0 DB 往返，D-15.1 同批关闭） |
 | D-11 | 产品缺陷 | `migrations/00000000_unified_schema_v12.sql:563`（旧列族已删）；`synapse-storage/src/registration_token/repository.rs:362` | `create_room_invite` 漏写 NOT NULL 无默认的 `inviter`/`invitee` ⇒ 必然 23502 | **已修**（W1 `c128cdeab`，按铁律 1 删列） | 无 HTTP 路由调用方（service 层唯一，`registration_token_service.rs:243`） | 已修：删除 `room_invites` 的 6 个死列（`inviter`/`invitee`/`is_accepted`/`accepted_at`/`signature`/`signed_version`）+ 索引 `idx_room_invites_invitee` + 两条 legacy 注释（全仓零读写）；db 用例改走 `create_room_invite` 往返 |
-| D-12 | 产品缺陷 | `synapse-storage/src/event_report/repository.rs:324`,`:359`,`:533` | `add_history` 只 `tracing::info!` 返回内存 `id:0`，`get_report_history`/`get_stats` 恒空；两张表不存在 | **未修** | 有（`event_report.rs:499/506`；审计写入 `event_report_service.rs:55/194/378`） | 建表 + 实现（独立功能批次） |
+| D-12 | 产品缺陷 | `synapse-storage/src/event_report/repository.rs:324`,`:359`,`:533` | `add_history` 只 `tracing::info!` 返回内存 `id:0`，`get_report_history`/`get_stats` 恒空；两张表不存在 | **已修**（2026-09-24，方案 A′：删 `/history`，`/stats` 改实时聚合） | 有（`event_report.rs:499/506`；审计写入 `event_report_service.rs:55/194/378`） | 已修：删 `/history` 全链（路由/handler/模型/测试）+ 删 `add_history` 的 3 处调用与三个空壳方法；`/stats` 保留并改为**静态** `query!` 实时聚合，响应字段对齐 SDK `StatsResponse`。见 `D-12_EVENT_REPORT_HISTORY_STATS_FIX_PLAN.md` |
 | D-13 | 结构性限制 | `synapse-storage/src/room_summary/repository.rs:326`,`:575`；`synapse-storage/src/presence/mod.rs:232` | `Vec<Option<T>>` 数组参数无 sqlx 映射，3 处无法宏化 | **结构性保留（有意）** | 已计入 `dynamic_production`（3 处 `literal`） | 改单个 `jsonb_to_recordset($n)` |
 | D-14 | 结构性限制 | 见 §7.2 D-14 | 运行期拼装 SQL 无法静态化 + D1 守卫 14 处已知假阴性 | **结构性保留（有意）** | 见明细 | 见明细（逐文件回收方向） |
 | D-15 | 覆盖缺口 | 见 §7.2 D-15 | 5 组已静态化代码无 DB 往返 / 无游标分支用例 | **覆盖缺口** | — | 见明细（逐项补测） |
@@ -482,12 +482,15 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-38 | 测试/门禁漂移 | `synapse-web/src/routes/federation/membership/query.rs:166`（过滤条件，已修）、`:190`（原断言） | `test_federation_membership_query_routes_from_real_ledger` 断言真实 ledger 里有 `GET /_matrix/federation/v1/room/<room_id>/membership/<user_id>`，但全仓**从未注册**该路由（ruma `api::federation::membership` 亦只含 invite/send_join/send_knock/send_leave/make_join/make_knock/make_leave；`/rooms/{roomId}/membership/{userId}` 是 client API、`registered_by == "room"`） ⇒ `cargo nextest run --workspace --lib` 在 HEAD 即为红 | **已修**（`8a6b36ca7`） | 曾被该红灯阻断 workspace lib 批次 | 已修：过滤条件 `/membership` → `/members/`，断言改为真实端点 `GET /members/{room_id}`、`GET /members/{room_id}/joined`（精确相等）与 `POST …/keys/query`，并在注释里记录该路由不是 spec 端点 |
 | D-39 | 遗留 schema（**新登记**） | `migrations/00000000_unified_schema_v12.sql` 的 `search_index` 表；唯二引用是 `tests/integration/schema_contract_p0_tests_migrated.rs:1232` 与 `tests/integration/schema_contract_p0_tests_migrated.rs:1257` | D-27 删除 `search_index.rs` 模块后，`search_index` **表**已无任何生产读写方（原本也只被那个死模块读写，注释里就写着"表永远为空"），仅剩 schema-contract 用例断言其形状 | **未修**（2026-09-24 W4 顺带登记） | 无（表无人读写） | 二选一：① 新增前向迁移 `DROP TABLE search_index`（连带删两条 schema-contract 用例与 SDK/ledger fixture、更新迁移一致性脚本的期望表集合）；② 保留表并明确记录"为将来接回 FTS 路径预留"—— 若选②需在 schema 注释里写清，否则它只是下一轮的死对象 |
 
-**状态计数（2026-09-24 W4 后）**：已修 **24**（D-02/D-03/D-24/D-28/D-35 + W1 的
+| D-42 | **运行时硬故障**（**新登记**） | `synapse-storage/src/event/create.rs` 三处（`:89` `create_event_with_graph` 的 `insert_edges_query`、`:197`/`:205` `create_state_event_with_dag` 的两条边插入） | 守卫写成 `WHERE $2 IS NOT NULL AND $2 != '[]'`：`$2` 已被 `unnest($2::text[])` 定为 `text[]`，PG 会把 `'[]'` 当**数组字面量**解析 ⇒ 在**prepare 阶段**即报 `22P02 malformed array literal: "[]"`（`"[" must introduce explicitly-specified array dimensions`）。**语句根本执行不了**，故 `prev_events`/`prev_state_events` 非空时整个 DAG 写入路径必败（`8489b4079` P2-1 引入） | **已修**（2026-09-25，全量门禁复跑发现） | 有（`test_create_event_with_graph_with_prev_events` 直接抓出；两条 `*_rolls_back_*` 用例此前是"因错误的原因"通过） | 守卫改 `WHERE cardinality($2) > 0`（NULL ⇒ NULL ⇒ 不入选，语义等价；调用方本就已 `if !is_empty()` 守卫）。**禁**再写 `!= '[]'`；已在两处 P2-1 文档注释里注明不可回退 |
+
+**状态计数（2026-09-24 W4 后 + D-12 收口 + 2026-09-25 清红）**：已修 **26**（D-02/D-03/D-24/D-28/D-35 + W1 的
 D-10/D-11/D-31/D-33/D-34 + D-36 守卫 + W2 的 D-05/D-07/D-08/D-09 + W3 的 D-29/D-32 +
-D-38 + W4 的 D-01/D-04/D-06/D-17/D-27/D-30）；**部分已修 1**（D-37：吞错与死包装已修，
-两份实现的收敛未做）；未修 **2**（D-12、**D-39** 新登记）；结构性保留（有意）**7**（D-13/D-14/D-18–D-22）；
+D-38 + W4 的 D-01/D-04/D-06/D-17/D-27/D-30 + **D-12** + **D-42**）；**部分已修 1**（D-37：吞错与死包装已修，
+两份实现的收敛未做）；未修 **1**（**D-39**）；结构性保留（有意）**7**（D-13/D-14/D-18–D-22）；
 另有文档级已处置 **3**（D-16/D-23/D-26）与 W5 覆盖缺口 **2**（D-15/D-25，未并入上述计数）
-—— 24 + 1 + 2 + 7 + 3 + 2 = **39**（D-01…D-39）（含 W4 新登记的 D-39）。
+—— 26 + 1 + 1 + 7 + 3 + 2 = **40**（D-01…D-39 + **D-42**；另 **D-40/D-41** 由 W5 批次
+`ab5949c70` 在提交信息里登记、未并入本表，故本表条目数与 `D-xx` 最大编号不相等）。
 （D-13/D-14/D-18…D-22）；覆盖缺口 **2**（D-15 含 D-15.6、D-25；D-36 虽同属覆盖缺口/门禁，
 已计入上面的"未修 19"，此处不重复计数）；文档一致性 **3**
 （D-16/D-23/D-26；D-35 已计入上面的"已修 5"，此处**不重复计数**——原文把 D-35 同时计入
@@ -734,10 +737,15 @@ D-38 + W4 的 D-01/D-04/D-06/D-17/D-27/D-30）；**部分已修 1**（D-37：吞
   合并）；写入侧 `synapse-services/src/event_report_service.rs:55/194/378`
   在 report/update/delete 时都调 `add_history` ⇒ **审核历史被静默丢弃**，
   两个 admin 端点**永远返回空**。
-- 状态：**未修**（这三处是纯内存函数、不含 SQL，故不在 C15 的 40 个动态站点内）。
-- 建议处理：独立功能批次——建 `event_report_history` / `event_report_stats` 表 +
-  落地 `add_history`/`get_report_history`，`get_stats` 改按天聚合 SQL；在此之前需决定
-  两个端点是否临时下线（当前返回空会被误读为"没有历史"）。
+- 状态：**已修**（2026-09-24，方案 A′）。
+- 实际处理（与上面"建议处理"不同，**未建表**）：删 `/history` 全链（路由 + handler +
+  `ReportHistoryResponse` + service/storage 两个方法 + 测试）与 `add_history` 的 3 处调用；
+  `/stats` **保留**并改为对 `event_reports` 的**静态** `query!` 实时聚合
+  （响应字段对齐 SDK `StatsResponse`）。理由：`event_report_history` 从未存在、
+  Element Synapse 亦无 history 端点；`event_report_stats` 与本表数据重复，
+  仓库既有 `REDUNDANT_TABLE_DELETION_PLAN.md` 已把该表列为冗余删除对象。
+  完整方案、门禁收口与跨仓 follow-up 见
+  [`D-12_EVENT_REPORT_HISTORY_STATS_FIX_PLAN.md`](./D-12_EVENT_REPORT_HISTORY_STATS_FIX_PLAN.md)。
 
 #### D-13 结构性限制：`Vec<Option<T>>` 数组参数无法静态化（C9，C17 新增第 3 处）
 
@@ -1368,6 +1376,33 @@ D-38 + W4 的 D-01/D-04/D-06/D-17/D-27/D-30）；**部分已修 1**（D-37：吞
 - 建议处理：① 若确认不接 FTS：新增前向迁移 drop 表 + 同步上述四处检查；② 若保留：在
   迁移里给该表加 `COMMENT ON TABLE` 说明"为将来 FTS 路径预留、当前无读写方"，否则下一轮
   又会以"死对象"身份被重新登记。
+
+#### D-42 `event_edges` 批量插入的守卫 `$2 != '[]'` 让语句在 prepare 阶段必然失败（2026-09-25 全量门禁复跑发现）
+
+- 类别：**运行时硬故障**（SQL 守卫写法错误，整条语句不可用）。
+- 位置：`synapse-storage/src/event/create.rs` 三处 —— `:89` `create_event_with_graph` 的
+  `insert_edges_query`、`:197`/`:205` `create_state_event_with_dag` 的
+  `insert_room_edges_query` / `insert_state_edges_query`。
+- 缺陷：守卫写成 `WHERE $2 IS NOT NULL AND $2 != '[]'`。`$2` 已被同一语句里的
+  `unnest($2::text[])` 定为 `text[]`，于是 `'[]'` 被 Postgres 当作**数组字面量**解析：
+  ```text
+  ERROR:  malformed array literal: "[]"        (SQLSTATE 22P02)
+  DETAIL:  "[" must introduce explicitly-specified array dimensions.
+  ```
+  这是**解析/计划期**错误，与参数取值无关 ⇒ 该语句**从来没能执行过**，
+  `prev_events`（或 `prev_state_events`）非空时整个 DAG 写入路径必然失败。
+  实测（`psql`）：`PREPARE probe1(text[]) AS SELECT unnest($1::text[]) WHERE $1 IS NOT NULL AND $1 != '[]'`
+  直接 `ERROR`；换成 `cardinality($1) > 0` 则 `PREPARE` 成功并可返回行。
+- 引入点：`8489b4079`（P2-1 批量边插入优化）。
+- 为什么此前没暴露：`INSERT` 前的 `if !prev_events.is_empty()` 守卫让**空数组**路径绕过该语句，
+  而两条 `*_rolls_back_event_when_edges_insert_fails` 用例注入的是"不存在的 `prev_event_id`"，
+  它们**期望**报错，因此被这条 `22P02` 一起"满足"了 —— 属"因错误的原因通过"。
+  直接抓出它的是 `test_create_event_with_graph_with_prev_events`（`--workspace --lib`，
+  CI 阻塞批次）。
+- 修法：`WHERE cardinality($2) > 0`（`cardinality(NULL)` 返回 NULL ⇒ 不入选，与原意等价；
+  且调用方本就已有 `if !is_empty()` 守卫）。**禁**再写 `!= '[]'`；两处 P2-1 文档注释已注明。
+- 状态：**已修**（2026-09-25）。回归证据：该用例由 FAIL 转 PASS，
+  且两条回滚用例仍在**真正的外键失败**上通过。
 
 ## 8. 问题优先处理计划（2026-09-23 重排：先修问题，再继续静态化）
 

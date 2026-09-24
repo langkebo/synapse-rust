@@ -8,6 +8,12 @@
 # 追加（2026-09-22，对比报告 v1.2 复核）：aliyun、cancellable、clamav、dags、livekit、redactions、sharding、twilio、webhooks、websocket、bugfix、elementsec、ghsa、noop、glibc。
 # 追加（2026-09-22，Phase 3 安全复核）：alg、aud、iss。
 # 追加（2026-09-24，CI 全门禁修复）：逐文件复核 164 份活跃文档，补入本轮新增文档引入的技术词——监控栈（mimir、victoriametrics、wal）、告警规则名（highcpuusage、megolmshareslow 等 S 大写驼峰被脚本小写化）、GHSA 公告号被 aspell 按连字符切出的片段（chvq、gvpm、hgcg、qcjr、rcpx、xpf…）、以及 SpaceInfoMock／KeyRotationConfig／HMACSHA256／ScheduledTasks 这类标识符。
+# 追加（2026-09-24，D-12 收口 + 关联既有红清理）：
+#   * eventreport —— EventReport 家族标识符（EventReportHistory／EventReportStats／EventReportAggregateStats）被脚本小写化后切出；
+#   * inviter、requesttoken、ty —— SQLX_STATICIZATION_PLAN_2026-09-23.md 的**既有**拼写红（HEAD 版用同一脚本同样失败，非本轮引入），
+#     且都是真实技术记号：inviter 是 room_invites 的列名、requestToken 是 3pid 端点路径段、ty_match 是 sqlx 宏名（下划线后被切出 ty）。
+#     仅登记词条、未改动该文档正文。
+#   * influxdb —— docs/audit/WORKER_STATS_METRICS_DECISION_2026-09-23.md 的既有拼写红（该文档本轮未被改动）。
 abi
 accessexclusivelock
 accessor
@@ -247,6 +253,7 @@ etag
 eventbroadcaster
 eventnotifier
 eventreader
+eventreport
 eventrepository
 eventstorage
 eventstore
@@ -349,6 +356,7 @@ impls
 index
 indexmap
 indirections
+influxdb
 init
 initcontainer
 initdb
@@ -366,6 +374,7 @@ insta
 interop
 intra
 invalidinput
+inviter
 io
 ios
 ipv
@@ -614,6 +623,7 @@ removeroom
 repo
 reportroom
 req
+requesttoken
 reqwest
 resolved
 reviewable
@@ -696,6 +706,7 @@ sgr
 sha
 sharding
 sharedcontext
+shfmt
 shippable
 shm
 sigkill
@@ -810,6 +821,7 @@ twilio
 tx
 txn
 txpostgres
+ty
 typescript
 ua
 ubuntu

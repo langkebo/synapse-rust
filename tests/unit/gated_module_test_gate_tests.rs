@@ -23,7 +23,7 @@
 
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 fn repo_root() -> PathBuf {
@@ -194,6 +194,7 @@ fn the_gate_script_parses_the_matrix_end_to_end() {
 ///   * 一个退出 0 但**什么都不打印**的命令 → 脚本必须报 "ran ZERO tests" 并 exit 1（RED）；
 ///   * 一个打印 nextest 复数行 `Starting 3 tests …` 的命令 → 脚本必须 exit 0（正控，
 ///     否则上面的红可能只是"脚本恒失败"）。
+///
 /// 端到端（真 cargo + 真 feature）那条路由 CI 步骤
 /// `bash scripts/ci/check_gated_module_tests.sh` 覆盖，本文件另有静态断言保证它被 CI 调用。
 #[test]

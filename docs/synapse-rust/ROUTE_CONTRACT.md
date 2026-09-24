@@ -8,7 +8,7 @@
 
 ## 总览
 
-- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1166**
+- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1165**
 - 含路由注册的模块文件：**66**
 - `derived_routes.rs` 中的 `registered_by` 标签：**74**
 - 非默认 profile 门控的路由（`default` 构建不注册）：**19**（worker **11** · oidc **8**，明细见「运行时 Profile 门控」）
@@ -226,9 +226,9 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 
 - `GET` `/_matrix/client/v3/rooms/{room_id}/ephemeral`
 
-### 事件举报 （19 条）
+### 事件举报 （18 条）
 
-#### `event_report.rs` — 19 条 ✅派生表
+#### `event_report.rs` — 18 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/event_reports/{id}`
 - `GET` `/_synapse/admin/v1/event_reports`
@@ -241,7 +241,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_synapse/admin/v1/event_reports/status/{status}`
 - `GET` `/_synapse/admin/v1/event_reports/status/{status}/count`
 - `GET` `/_synapse/admin/v1/event_reports/{id}`
-- `GET` `/_synapse/admin/v1/event_reports/{id}/history`
 - `POST` `/_synapse/admin/v1/event_reports`
 - `POST` `/_synapse/admin/v1/event_reports/rate_limit/{user_id}/block`
 - `POST` `/_synapse/admin/v1/event_reports/rate_limit/{user_id}/unblock`

@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": true
   },
-  "entry_count": 1166,
+  "entry_count": 1165,
   "entries": [
     {
       "method": "GET",
@@ -7722,15 +7722,6 @@
     {
       "method": "POST",
       "path": "/_synapse/admin/v1/event_reports/{id}/escalate",
-      "registered_by": "event_report",
-      "path_params": [
-        "id"
-      ],
-      "query_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/event_reports/{id}/history",
       "registered_by": "event_report",
       "path_params": [
         "id"

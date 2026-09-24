@@ -2,7 +2,7 @@ use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::event_report::*;
 pub use synapse_storage::event_report::{
-    CreateEventReportRequest, EventReport, EventReportHistory, EventReportStats, UpdateEventReportRequest,
+    CreateEventReportRequest, EventReport, EventReportAggregateStats, UpdateEventReportRequest,
 };
 use tracing::{info, instrument};
 
@@ -50,19 +50,6 @@ impl EventReportService {
             .record_report(&request.reporter_user_id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to record report", e))?;
-
-        self.storage
-            .add_history(
-                report.id,
-                "created",
-                Some(&request.reporter_user_id),
-                Some("reporter"),
-                None,
-                Some("open"),
-                None,
-                None,
-            )
-            .ok();
 
         info!(
             report_id = report.id,
@@ -177,8 +164,7 @@ impl EventReportService {
         request: UpdateEventReportRequest,
         actor_user_id: &str,
     ) -> Result<EventReport, ApiError> {
-        let old_report = self
-            .storage
+        self.storage
             .get_report(id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get report", e))?
@@ -189,19 +175,6 @@ impl EventReportService {
             .update_report(id, request.clone())
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to update report", e))?;
-
-        self.storage
-            .add_history(
-                id,
-                "status_change",
-                Some(actor_user_id),
-                Some("admin"),
-                Some(&old_report.status),
-                request.status.as_deref(),
-                request.resolution_reason.as_deref(),
-                None,
-            )
-            .ok();
 
         info!(report_id = id, actor_user_id = %actor_user_id, status = ?request.status, "Updated event report");
 
@@ -258,17 +231,6 @@ impl EventReportService {
         Ok(())
     }
 
-    /// See [`get_report_history`].
-    #[instrument(skip(self))]
-    pub async fn get_report_history(&self, report_id: i64) -> Result<Vec<EventReportHistory>, ApiError> {
-        let history = self
-            .storage
-            .get_report_history(report_id)
-            .map_err(|e| ApiError::internal_with_cause("Failed to get history", e))?;
-
-        Ok(history)
-    }
-
     /// See [`check_rate_limit`].
     #[instrument(skip(self))]
     pub async fn check_rate_limit(&self, user_id: &str) -> Result<ReportRateLimitCheck, ApiError> {
@@ -307,15 +269,6 @@ impl EventReportService {
         Ok(())
     }
 
-    /// See [`get_stats`].
-    #[instrument(skip(self))]
-    pub async fn get_stats(&self, days: i32) -> Result<Vec<EventReportStats>, ApiError> {
-        let stats =
-            self.storage.get_stats(days).map_err(|e| ApiError::internal_with_cause("Failed to get stats", e))?;
-
-        Ok(stats)
-    }
-
     /// See [`count_reports_by_status`].
     #[instrument(skip(self))]
     pub async fn count_reports_by_status(&self, status: &str) -> Result<i64, ApiError> {
@@ -338,6 +291,18 @@ impl EventReportService {
             .map_err(|e| ApiError::internal_with_cause("Failed to count reports", e))?;
 
         Ok(count)
+    }
+
+    /// See [`get_aggregate_stats`].
+    #[instrument(skip(self))]
+    pub async fn get_aggregate_stats(&self) -> Result<EventReportAggregateStats, ApiError> {
+        let stats = self
+            .storage
+            .get_aggregate_stats()
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to get aggregate stats", e))?;
+
+        Ok(stats)
     }
 
     /// See [`get_open_reports`].
@@ -373,19 +338,6 @@ impl EventReportService {
             .update_report(id, request.clone())
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to escalate report", e))?;
-
-        self.storage
-            .add_history(
-                id,
-                "escalated",
-                Some(actor_user_id),
-                Some("admin"),
-                Some(&old_report.status),
-                Some("investigating"),
-                None,
-                None,
-            )
-            .ok();
 
         info!(report_id = id, actor_user_id = %actor_user_id, status = %"investigating", "Escalated event report");
 
@@ -492,24 +444,6 @@ mod tests {
     }
 
     #[test]
-    fn test_event_report_history() {
-        let history = synapse_storage::event_report::EventReportHistory {
-            id: 1,
-            report_id: 1,
-            action: "status_change".to_string(),
-            actor_user_id: Some("@admin:example.com".to_string()),
-            actor_role: Some("admin".to_string()),
-            old_status: Some("open".to_string()),
-            new_status: Some("investigating".to_string()),
-            reason: None,
-            created_ts: 1234567890,
-            metadata: None,
-        };
-        assert_eq!(history.action, "status_change");
-        assert!(history.actor_user_id.is_some());
-    }
-
-    #[test]
     fn test_report_rate_limit_structure() {
         let rate_limit = synapse_storage::event_report::ReportRateLimit {
             id: 1,
@@ -524,24 +458,6 @@ mod tests {
         };
         assert_eq!(rate_limit.report_count, 3);
         assert!(!rate_limit.is_blocked);
-    }
-
-    #[test]
-    fn test_event_report_stats() {
-        let stats = synapse_storage::event_report::EventReportStats {
-            id: 1,
-            stat_date: chrono::NaiveDate::from_ymd_opt(2026, 3, 13).expect("test date should be valid"),
-            total_reports: 100,
-            open_reports: 20,
-            resolved_reports: 70,
-            dismissed_reports: 10,
-            avg_resolution_time_ms: Some(86_400_000),
-            created_ts: 1234567890,
-            updated_ts: 1234567890,
-        };
-        assert_eq!(stats.total_reports, 100);
-        assert_eq!(stats.open_reports, 20);
-        assert_eq!(stats.resolved_reports, 70);
     }
 
     #[test]

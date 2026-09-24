@@ -909,3 +909,50 @@ async fn test_count_all_reports_is_global() {
 
     cleanup_all(&pool, &prefix).await;
 }
+
+// --- get_aggregate_stats ---
+
+/// D-12：`get_aggregate_stats` 取代了原先恒返回 `vec![]` 的 `get_stats` 空壳。
+///
+/// 断言刻意**精确到桶**（相对基线），这样任何一种 SQL 退化成"空转"都能被抓到：
+/// 少一个 `FILTER`、`status` 字面量写错、或把某两桶的条件互换，都会让对应断言失败。
+#[tokio::test]
+async fn test_get_aggregate_stats_buckets_every_status() {
+    let (_isolated, pool) = test_pool().await;
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let prefix = format!("agg_{suffix}");
+    cleanup_all(&pool, &prefix).await;
+
+    let storage = EventReportStorage::new(&pool);
+
+    // 夹具 schema 由迁移 baseline 克隆而来，先取基线而不假设表为空。
+    let before = storage.get_aggregate_stats().await.expect("baseline stats should succeed");
+
+    // 5 条报告，覆盖四个状态桶（最后一条保持 create_report 的默认 open）。
+    let final_statuses = [None, Some("resolved"), Some("dismissed"), Some("investigating"), Some("resolved")];
+    for (i, status) in final_statuses.iter().enumerate() {
+        let mut req = make_request(&prefix, &format!("agg_{i}"));
+        req.event_id = format!("{prefix}_ev_agg_{i}");
+        let created = storage.create_report(req).await.expect("create_report should succeed");
+        assert_eq!(created.status, "open", "create_report must default to open");
+        if let Some(status) = status {
+            storage
+                .update_report(
+                    created.id,
+                    UpdateEventReportRequest { status: Some((*status).to_string()), ..Default::default() },
+                )
+                .await
+                .expect("update_report should succeed");
+        }
+    }
+
+    let after = storage.get_aggregate_stats().await.expect("aggregate stats should succeed");
+
+    assert_eq!(after.total, before.total + 5, "total 必须计入全部 5 条（不受 status 影响）");
+    assert_eq!(after.open, before.open + 1, "只有第 5 条留在 open");
+    assert_eq!(after.resolved, before.resolved + 2, "2 条 resolved");
+    assert_eq!(after.dismissed, before.dismissed + 1, "1 条 dismissed");
+    assert_eq!(after.escalated, before.escalated + 1, "status='investigating' 必须计入 escalated");
+
+    cleanup_all(&pool, &prefix).await;
+}

@@ -69,13 +69,27 @@
 
 | 类别 | 逻辑端点 | 唯一路径 | 注册条目 | 说明 |
 |------|---------:|--------:|--------:|------|
-| **房间管理** | 50 | 50 | 59 | rooms/retention/purge_room/purge_history/shutdown_room/spaces/room_stats/statistics/server_notices/jitsi/cleanup |
+| **房间管理** | 51 | 51 | 60 | rooms/retention/purge_room/purge_history/shutdown_room/spaces/room_stats/statistics/server_notices/jitsi/cleanup |
 | **用户管理** | 48 | 50 | 68 | users/user_sessions/registration_tokens/register/account_validity/whois/whoami/account/invite |
-| **安全** | 46 | 46 | 58 | event_reports(16)/reports/policy/audit/feature-flags/experimental_features/background_updates(17) |
+| **安全** | 45 | 45 | 57 | event_reports(15)/reports/policy/audit/feature-flags/experimental_features/background_updates(17) |
 | **服务器** | 45 | 45 | 60 | 未被前四类命中的 server/version/rate-limit-status/modules/appservices/telemetry/saml/cas/external_services 等 |
 | **联邦** | 20 | 20 | 23 | `/federation`、`destinations` |
 | **媒体** | 7 | 7 | 9 | `/media*`、`quarantine_media`、`purge_media_cache`、`media_callbacks` |
 | **合计** | **216** | **218** | **277** | — |
+
+> **增量复核注（2026-09-24，仅 §三 本表）**：用 §8 的配方在本树实测重算本表，两处相对 2026-09-21 快照发生变化 ——
+> **安全 −1**（46/46/58 → 45/45/57）：D-12 删除了 `GET /_synapse/admin/v1/event_reports/{id}/history`
+> （`/stats` **保留**，改为对 `event_reports` 的实时聚合）；说明列的 `event_reports(16)` → `(15)`。
+> **房间管理 +1**（50/50/59 → 51/51/60）：来自**已提交**的 `a421e7641`（MSC3912 cascade redaction
+> 的 `POST /_synapse/admin/v1/rooms/{room_id}/cascade_redact`），非本次 D-12 变更。
+> 两者相抵，合计仍为 216/218/277。
+>
+> ⚠️ 本表之外（§1.1 三口径总表、§二 Client 分类表）**仍为 2026-09-21/22 快照，未随本节重算**，
+> 已落后于当前 HEAD：同一配方实测为 注册条目 **1163** / 唯一路径 **933** / 逻辑端点 **813**
+> （其中 admin 218/277/216，Client 合计 402/520/664）。差额来自 2026-09-22 之后**已提交**的路由增删
+> （`a421e7641` 的 MSC4512 AS 代理路由 + MSC3912 cascade_redact、
+> `ab5949c70` 的 `module` 域新增等）——
+> 本轮刻意不并入，以免把他批已完成的计数混进本次 D-12 的改动面。全表重算属独立文档任务。
 
 > 「逻辑端点」低于「唯一路径」是因为 `/v1/*` 与 `/v2/*` 折回同一 `vX` 路径时的合并（Admin 侧表现在 `users` 族与 `rooms` 族）。
 
@@ -174,7 +188,7 @@
 | `GET /_synapse/admin/v1/quarantine_media/{media_id}/changes` | §三"缺失（待实现）" | **已实现**（在册） |
 | `GET/DELETE /_synapse/admin/v1/reports[/{report_id}]` | 未提及 | **已实现**（在册，与 `event_reports` 并存） |
 | `POST /_matrix/client/v3/keys/upload` 拒绝 `device_keys: null` | §三"缺失（待实现）" | 需下一轮按代码复核（本版未实测，标 `[未验证]`） |
-| 事件举报 API（`event_reports` 全家族 16 条，含 `rate_limit/{user_id}/block`） | v1.3 完全未列 | **已实现且超出上游文档面** |
+| 事件举报 API（`event_reports` 全家族 15 条，含 `rate_limit/{user_id}/block`） | v1.3 完全未列 | **已实现且超出上游文档面**（2026-09-24：`/{id}/history` 已按 D-12 删除，16 → 15） |
 
 > ⚠️ **§三 的"缺失清单"在 v1.3 中停更于 2026-05-28**，其"待实现"标记已不可作为缺失证据。
 > 本版起：该清单每条必须附 `路径:行号` 或"在册证据"，否则不写入。

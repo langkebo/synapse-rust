@@ -35,31 +35,6 @@ pub struct EventReport {
     pub resolution_reason: Option<String>,
 }
 
-/// The `EventReportHistory` struct.
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct EventReportHistory {
-    /// The `id` field.
-    pub id: i64,
-    /// The `report_id` field.
-    pub report_id: i64,
-    /// The `action` field.
-    pub action: String,
-    /// The `actor_user_id` field.
-    pub actor_user_id: Option<String>,
-    /// The `actor_role` field.
-    pub actor_role: Option<String>,
-    /// The `old_status` field.
-    pub old_status: Option<String>,
-    /// The `new_status` field.
-    pub new_status: Option<String>,
-    /// The `reason` field.
-    pub reason: Option<String>,
-    /// The `created_ts` field.
-    pub created_ts: i64,
-    /// The `metadata` field.
-    pub metadata: Option<serde_json::Value>,
-}
-
 /// The `ReportRateLimit` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct ReportRateLimit {
@@ -77,29 +52,6 @@ pub struct ReportRateLimit {
     pub is_blocked: bool,
     /// The `block_reason` field.
     pub block_reason: Option<String>,
-    /// The `created_ts` field.
-    pub created_ts: i64,
-    /// The `updated_ts` field.
-    pub updated_ts: i64,
-}
-
-/// The `EventReportStats` struct.
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct EventReportStats {
-    /// The `id` field.
-    pub id: i64,
-    /// The `stat_date` field.
-    pub stat_date: chrono::NaiveDate,
-    /// The `total_reports` field.
-    pub total_reports: i32,
-    /// The `open_reports` field.
-    pub open_reports: i32,
-    /// The `resolved_reports` field.
-    pub resolved_reports: i32,
-    /// The `dismissed_reports` field.
-    pub dismissed_reports: i32,
-    /// The `avg_resolution_time_ms` field.
-    pub avg_resolution_time_ms: Option<i64>,
     /// The `created_ts` field.
     pub created_ts: i64,
     /// The `updated_ts` field.
@@ -149,4 +101,27 @@ pub struct ReportRateLimitCheck {
     pub remaining_reports: i32,
     /// The `block_reason` field.
     pub block_reason: Option<String>,
+}
+
+/// 事件报告实时聚合统计（取代不存在的 `event_report_stats` 预计算表）。
+///
+/// 字段名与 SDK 侧既有契约逐字段一致 —— `matrix-js-sdk`
+/// `src/event-report/index.ts` 的 `StatsResponse`
+/// （`{ total, open, resolved, dismissed, escalated }`），
+/// 因此既有 `EventReportManager.getStats()` 无需改类型即可直接消费本端点。
+///
+/// `escalated` 对应后端 `escalate_report` 写入的 `status = 'investigating'`
+/// （见 `synapse-services/src/event_report_service.rs`）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventReportAggregateStats {
+    /// 报告总数（含全部状态；`status` 可空，空值只计入 `total`）
+    pub total: i64,
+    /// 状态为 `open` 的报告数
+    pub open: i64,
+    /// 状态为 `resolved` 的报告数
+    pub resolved: i64,
+    /// 状态为 `dismissed` 的报告数
+    pub dismissed: i64,
+    /// 状态为 `investigating`（已升级）的报告数
+    pub escalated: i64,
 }

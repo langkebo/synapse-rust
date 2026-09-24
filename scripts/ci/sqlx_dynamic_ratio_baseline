@@ -2158,3 +2158,51 @@ BASELINE_DYNAMIC=1387
 #
 # 收紧方向：若后续提供"注入存储层失败"的测试替身（EventWriter fault injection），
 # 可去掉该 DDL，届时回收 1 处。
+
+# ── 2026-09-24 D-12 收口（登记为主；static +1，棘轮数字**未**调整）────────────
+#
+# 背景：C15 段落登记过一条"既有 SQL 缺陷 / 功能缺口"——`EventReportStorage` 的
+#   `add_history`（只 tracing::info! 后返回内存 `id:0`）、`get_report_history`（恒
+#   Ok(vec![])）、`get_stats`（恒 Ok(vec![])）三个空壳，且已被两个 HTTP 路由暴露；
+#   当时结论是"纯内存函数、不含 SQL，故不在 C15 的 40 个动态站点内"，属**功能补齐**，
+#   按规则仅登记未修。本条即该登记的收口。
+#
+# 处理（方案 A′，完整记录见 docs/audit/D-12_EVENT_REPORT_HISTORY_STATS_FIX_PLAN.md）：
+#   * 删 `GET /_synapse/admin/v1/event_reports/{id}/history` 全链（路由 / handler /
+#     `ReportHistoryResponse` / service·storage 两个方法 / 测试），并删 `add_history`
+#     的 3 处调用（上报 / 更新 / 升级）—— 审计写入本就是静默丢弃，删后不再假装有历史；
+#   * `GET /_synapse/admin/v1/event_reports/stats` **保留**，由空壳改为对 `event_reports`
+#     的**静态** `query!` 实时聚合（`COUNT(*) FILTER (WHERE status = …)` 五个桶），
+#     响应字段对齐 SDK 既有 `StatsResponse`（`total/open/resolved/dismissed/escalated`）。
+#
+# 棘轮口径：三个被删方法**本就不含 SQL**（C15 已实测登记），故 dynamic 分区**不动**；
+#   新增 1 处 `query!` ⇒ static **+1**。
+#   实测（本树，`bash scripts/ci/check_sqlx_dynamic_ratio.sh`）：
+#     dynamic_production=694（=基线 694）/ dynamic_test=700（≤基线 704）/ static=806（≥基线 803）
+#     ⇒ 三项全绿，**本批无需改数字**，仅登记。
+#   static 806 相对 W4 基线 803 的 +3 已逐项归因，**全部来自已提交历史**（非未提交改动）：
+#     * `ab5949c70`（W5，"补 3 组 DB 往返、修 D-40 空壳端点"）：`synapse-storage/src/module.rs`
+#       新增 2 处 `query_as!` ⇒ +2（实测 `git diff ee443c9f6..HEAD -- '*.rs'` 新增静态宏站点 = 2）；
+#     * 本批 D-12：`get_aggregate_stats` 的 1 处 `query!` ⇒ +1。
+#     ⇒ 803 + 2 + 1 = 806，与实测一致。
+#   ⇒ 事实上 `BASELINE_STATIC=806` / `BASELINE_DYNAMIC_TEST_INFRA=700` 也可安全上调（两者都是
+#     已提交成果）；本批**不调**，理由是本条只负责 D-12 收口，W5 的 +2 应由 W5 批次自行固化，
+#     跨批次替他批改棘轮会让"哪批完成了多少"不可追溯（§8.5 不变式 1 的同批同向下调纪律）。
+#     ⚠️ 由此留下的已知余量：static 有 3 点、dynamic_test 有 4 点。若后续有人把 W5 的静态
+#     查询改回动态（806 → 804），门禁仍会因 804 ≥ 803 而放行 —— 属 W5 批次的收尾事项。
+#
+# ⚠️ `.sqlx` 口径（必读，本批踩到过）：`cargo sqlx prepare` 的 destination 就是 `.sqlx/`
+#   本身且**先清后写**。用**默认特性集**跑实测 780 → 683（一次删掉 96 条），因为
+#   `cas-sso`/`saml-sso`/`server-notifications` 等门控代码产生的条目在该口径下不参与编译。
+#   正确命令（与 C15/C16 同口径）：
+#     SQLX_OFFLINE=false DATABASE_URL=… cargo sqlx prepare --workspace -- \
+#       --features all-extensions
+#   实测 deleted=1 / added=1（唯一删掉的是本次被改写的旧聚合条目），其余零损失；
+#   新条目 `query-43bea39c…json`：`parameters {Left: []}`、5 列全 `Int8`、无 `f64`/`Numeric`。
+#
+# DB 往返用例（变异可自证）：`synapse-storage/src/event_report/db_tests.rs::
+#   test_get_aggregate_stats_buckets_every_status`（per-test 隔离 schema，
+#   新造 1×open + 2×resolved + 1×dismissed + 1×investigating，相对 before 基线**精确到桶**）。
+#   变异自证：去掉任一 `FILTER` / 把 `'investigating'` 写成 `'escalated'` / 互换两个状态
+#   字面量 / 把 `total` 也加上 `FILTER` —— 四种变异各自让对应断言失败。
+

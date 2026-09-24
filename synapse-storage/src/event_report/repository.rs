@@ -2,6 +2,7 @@ use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
 use sqlx::PgPool;
+use tracing::instrument;
 
 use super::models::*;
 
@@ -319,47 +320,6 @@ impl EventReportStorage {
         Ok(())
     }
 
-    /// See [`add_history`].
-    #[allow(clippy::too_many_arguments)]
-    pub fn add_history(
-        &self,
-        report_id: i64,
-        action: &str,
-        actor_user_id: Option<&str>,
-        actor_role: Option<&str>,
-        old_status: Option<&str>,
-        new_status: Option<&str>,
-        reason: Option<&str>,
-        metadata: Option<serde_json::Value>,
-    ) -> Result<EventReportHistory, sqlx::Error> {
-        let now = current_timestamp_millis();
-        tracing::info!(
-            report_id = report_id,
-            action = action,
-            actor = ?actor_user_id,
-            old_status = ?old_status,
-            new_status = ?new_status,
-            "event report history"
-        );
-        Ok(EventReportHistory {
-            id: 0,
-            report_id,
-            action: action.to_string(),
-            actor_user_id: actor_user_id.map(|s| s.to_string()),
-            actor_role: actor_role.map(|s| s.to_string()),
-            old_status: old_status.map(|s| s.to_string()),
-            new_status: new_status.map(|s| s.to_string()),
-            reason: reason.map(|s| s.to_string()),
-            created_ts: now,
-            metadata,
-        })
-    }
-
-    /// See [`get_report_history`].
-    pub fn get_report_history(&self, _report_id: i64) -> Result<Vec<EventReportHistory>, sqlx::Error> {
-        Ok(vec![])
-    }
-
     /// See [`check_rate_limit`].
     ///
     /// STO-05: 行锁查询 —— 在事务内按 user_id 选中报告限流行并 `FOR UPDATE`，
@@ -529,11 +489,6 @@ impl EventReportStorage {
         Ok(())
     }
 
-    /// See [`get_stats`].
-    pub fn get_stats(&self, _days: i32) -> Result<Vec<EventReportStats>, sqlx::Error> {
-        Ok(vec![])
-    }
-
     /// See [`count_reports_by_status`].
     pub async fn count_reports_by_status(&self, status: &str) -> Result<i64, sqlx::Error> {
         let count: i64 =
@@ -550,5 +505,36 @@ impl EventReportStorage {
             sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!" FROM event_reports"#).fetch_one(&*self.pool).await?;
 
         Ok(count)
+    }
+
+    /// 实时聚合 `event_reports`（取代从未落库的 `event_report_stats` 预计算表）。
+    ///
+    /// 静态 SQL：一条 `query!`，无绑定参数、无动态拼接。`COUNT(*) FILTER` 直接按
+    /// `status` 分桶，`total` 与四个状态桶各算一次 —— 二者**不保证相加相等**，
+    /// 因为 `status` 列可空且 `UpdateReportBody.status` 不校验取值（登记为既有缺陷，
+    /// 非本方法引入）。
+    #[instrument(skip(self))]
+    pub async fn get_aggregate_stats(&self) -> Result<EventReportAggregateStats, sqlx::Error> {
+        let row = sqlx::query!(
+            r#"
+            SELECT
+                COUNT(*) AS "total!: i64",
+                COUNT(*) FILTER (WHERE status = 'open') AS "open!: i64",
+                COUNT(*) FILTER (WHERE status = 'resolved') AS "resolved!: i64",
+                COUNT(*) FILTER (WHERE status = 'dismissed') AS "dismissed!: i64",
+                COUNT(*) FILTER (WHERE status = 'investigating') AS "escalated!: i64"
+            FROM event_reports
+            "#,
+        )
+        .fetch_one(&*self.pool)
+        .await?;
+
+        Ok(EventReportAggregateStats {
+            total: row.total,
+            open: row.open,
+            resolved: row.resolved,
+            dismissed: row.dismissed,
+            escalated: row.escalated,
+        })
     }
 }

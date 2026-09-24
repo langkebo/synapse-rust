@@ -60,6 +60,12 @@ impl EventStorage {
     /// P2-1 Optimization (2026-09-23):
     /// - Combined two-step insert in single transaction (event row + edges)
     /// - Uses unnest() to batch edge inserts in one round-trip
+    ///
+    /// ⚠️ 守卫必须写 `cardinality($2) > 0`，**不能**写 `$2 != '[]'`：`$2` 已被
+    /// `unnest($2::text[])` 定为 `text[]`，PG 会把 `'[]'` 当**数组字面量**解析并在
+    /// **prepare 阶段**就报 `22P02 malformed array literal: "[]"` —— 语句永远执行不了
+    /// （`8489b4079` 引入，2026-09-25 由 `test_create_event_with_graph_with_prev_events`
+    /// 抓出；`cardinality` 对 NULL 同样返回 NULL ⇒ 语义与原意一致）。
     /// - Reduces transaction overhead vs. multiple individual INSERTs
     pub async fn create_event_with_graph(
         &self,
@@ -86,7 +92,7 @@ impl EventStorage {
         let insert_edges_query = r"
             INSERT INTO event_edges (event_id, prev_event_id, is_state)
             SELECT $1, unnest($2::text[]), false
-            WHERE $2 IS NOT NULL AND $2 != '[]'
+            WHERE cardinality($2) > 0
             ON CONFLICT DO NOTHING
         ";
 
@@ -166,6 +172,9 @@ impl EventStorage {
     ///
     /// P2-1 Optimization (2026-09-23):
     /// - Batch inserts room edges and state edges in separate unnest() calls
+    ///
+    /// ⚠️ 同上：两组边的守卫必须是 `cardinality($2) > 0`，`$2 != '[]'` 会让语句在
+    /// prepare 阶段报 `22P02`（详见 `create_event_with_graph` 的注释）。
     pub async fn create_state_event_with_dag(
         &self,
         params: CreateEventParams,
@@ -194,7 +203,7 @@ impl EventStorage {
         let insert_room_edges_query = r"
             INSERT INTO event_edges (event_id, prev_event_id, is_state)
             SELECT $1, unnest($2::text[]), false
-            WHERE $2 IS NOT NULL AND $2 != '[]'
+            WHERE cardinality($2) > 0
             ON CONFLICT DO NOTHING
         ";
 
@@ -202,7 +211,7 @@ impl EventStorage {
         let insert_state_edges_query = r"
             INSERT INTO event_edges (event_id, prev_event_id, is_state)
             SELECT $1, unnest($2::text[]), true
-            WHERE $2 IS NOT NULL AND $2 != '[]'
+            WHERE cardinality($2) > 0
             ON CONFLICT DO NOTHING
         ";
 

@@ -11,8 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::routes::extractors::{EventId, RoomId, UserId};
 use crate::routes::{AdminUser, AppState, AuthenticatedUser};
 use synapse_common::ApiError;
-use synapse_services::event_report_service::{CreateEventReportRequest, EventReport};
-use synapse_services::event_report_service::{EventReportHistory, EventReportStats, UpdateEventReportRequest};
+use synapse_services::event_report_service::{CreateEventReportRequest, EventReport, UpdateEventReportRequest};
 
 /// The `QueryParams` struct.
 #[derive(Debug, Deserialize)]
@@ -131,86 +130,6 @@ impl From<EventReport> for ReportResponse {
             resolved_ts: r.resolved_ts,
             resolved_by: r.resolved_by,
             resolution_reason: r.resolution_reason,
-        }
-    }
-}
-
-/// The `ReportHistoryResponse` struct.
-#[derive(Debug, Serialize)]
-pub struct ReportHistoryResponse {
-    /// The `id` field.
-    pub id: i64,
-    /// The `report_id` field.
-    pub report_id: i64,
-    /// The `action` field.
-    pub action: String,
-    /// The `actor_user_id` field.
-    pub actor_user_id: Option<String>,
-    /// The `old_status` field.
-    pub old_status: Option<String>,
-    /// The `new_status` field.
-    pub new_status: Option<String>,
-    /// The `reason` field.
-    pub reason: Option<String>,
-    /// The `created_ts` field.
-    pub created_ts: i64,
-}
-
-impl From<EventReportHistory> for ReportHistoryResponse {
-    fn from(h: EventReportHistory) -> Self {
-        Self {
-            id: h.id,
-            report_id: h.report_id,
-            action: h.action,
-            actor_user_id: h.actor_user_id,
-            old_status: h.old_status,
-            new_status: h.new_status,
-            reason: h.reason,
-            created_ts: h.created_ts,
-        }
-    }
-}
-
-/// The `StatsResponse` struct.
-#[derive(Debug, Serialize)]
-pub struct StatsResponse {
-    /// The `id` field.
-    pub id: i64,
-    /// The `date` field.
-    pub date: chrono::NaiveDate,
-    /// The `total_reports` field.
-    pub total_reports: i32,
-    /// The `open_reports` field.
-    pub open_reports: i32,
-    /// The `resolved_reports` field.
-    pub resolved_reports: i32,
-    /// The `dismissed_reports` field.
-    pub dismissed_reports: i32,
-    /// The `avg_resolution_time_hours` field.
-    pub avg_resolution_time_hours: Option<i32>,
-    /// The `avg_resolution_time_ms` field.
-    pub avg_resolution_time_ms: Option<i64>,
-    /// The `created_ts` field.
-    pub created_ts: i64,
-    /// The `updated_ts` field.
-    pub updated_ts: i64,
-}
-
-impl From<EventReportStats> for StatsResponse {
-    fn from(s: EventReportStats) -> Self {
-        Self {
-            id: s.id,
-            date: s.stat_date,
-            total_reports: s.total_reports,
-            open_reports: s.open_reports,
-            resolved_reports: s.resolved_reports,
-            dismissed_reports: s.dismissed_reports,
-            avg_resolution_time_hours: s
-                .avg_resolution_time_ms
-                .and_then(|avg_resolution_time_ms| i32::try_from(avg_resolution_time_ms / 3_600_000).ok()),
-            avg_resolution_time_ms: s.avg_resolution_time_ms,
-            created_ts: s.created_ts,
-            updated_ts: s.updated_ts,
         }
     }
 }
@@ -393,19 +312,6 @@ pub async fn delete_report(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// See [`get_report_history`].
-pub async fn get_report_history(
-    State(ctx): State<AdminContext>,
-    _auth_user: AdminUser,
-    Path(id): Path<i64>,
-) -> Result<impl IntoResponse, ApiError> {
-    let history = ctx.event_report_service.get_report_history(id).await?;
-
-    let response: Vec<ReportHistoryResponse> = history.into_iter().map(ReportHistoryResponse::from).collect();
-
-    Ok(Json(response))
-}
-
 /// See [`check_rate_limit`].
 pub async fn check_rate_limit(
     State(ctx): State<AdminContext>,
@@ -444,21 +350,6 @@ pub async fn unblock_user(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// See [`get_stats`].
-pub async fn get_stats(
-    State(ctx): State<AdminContext>,
-    _auth_user: AdminUser,
-    Query(query): Query<QueryParams>,
-) -> Result<impl IntoResponse, ApiError> {
-    let days = query.limit.unwrap_or(30) as i32;
-
-    let stats = ctx.event_report_service.get_stats(days).await?;
-
-    let response: Vec<StatsResponse> = stats.into_iter().map(StatsResponse::from).collect();
-
-    Ok(Json(response))
-}
-
 /// See [`count_by_status`].
 pub async fn count_by_status(
     State(ctx): State<AdminContext>,
@@ -482,6 +373,27 @@ pub async fn count_all(State(ctx): State<AdminContext>, _auth_user: AdminUser) -
     })))
 }
 
+/// See [`get_aggregate_stats`].
+///
+/// 实时聚合 `event_reports`（取代原先恒返回 `[]` 的空壳实现）。响应字段与 SDK 侧
+/// 契约 `matrix-js-sdk` `src/event-report/index.ts::StatsResponse`
+/// （`{ total, open, resolved, dismissed, escalated }`）逐字段一致 ——
+/// 该端点不再需要 `?limit=` 之类的查询参数，因此不挂 `Query` 提取器。
+pub async fn get_aggregate_stats(
+    State(ctx): State<AdminContext>,
+    _auth_user: AdminUser,
+) -> Result<impl IntoResponse, ApiError> {
+    let stats = ctx.event_report_service.get_aggregate_stats().await?;
+
+    Ok(Json(serde_json::json!({
+        "total": stats.total,
+        "open": stats.open,
+        "resolved": stats.resolved,
+        "dismissed": stats.dismissed,
+        "escalated": stats.escalated,
+    })))
+}
+
 /// See [`create_event_report_router`].
 pub fn create_event_report_router(state: AppState) -> Router<AppState> {
     Router::new()
@@ -496,14 +408,13 @@ pub fn create_event_report_router(state: AppState) -> Router<AppState> {
         .route("/_synapse/admin/v1/event_reports/{id}/resolve", post(resolve_report))
         .route("/_synapse/admin/v1/event_reports/{id}/dismiss", post(dismiss_report))
         .route("/_synapse/admin/v1/event_reports/{id}/escalate", post(escalate_report))
-        .route("/_synapse/admin/v1/event_reports/{id}/history", get(get_report_history))
         .route("/_synapse/admin/v1/event_reports/event/{event_id}", get(get_reports_by_event))
         .route("/_synapse/admin/v1/event_reports/room/{room_id}", get(get_reports_by_room))
         .route("/_synapse/admin/v1/event_reports/reporter/{reporter_user_id}", get(get_reports_by_reporter))
         .route("/_synapse/admin/v1/event_reports/rate_limit/{user_id}", get(check_rate_limit))
         .route("/_synapse/admin/v1/event_reports/rate_limit/{user_id}/block", post(block_user))
         .route("/_synapse/admin/v1/event_reports/rate_limit/{user_id}/unblock", post(unblock_user))
-        .route("/_synapse/admin/v1/event_reports/stats", get(get_stats))
+        .route("/_synapse/admin/v1/event_reports/stats", get(get_aggregate_stats))
         .route_layer(axum::middleware::from_fn_with_state(
             <crate::routes::context::AdminContext as axum::extract::FromRef<crate::routes::AppState>>::from_ref(&state),
             crate::middleware::admin_auth_middleware,
