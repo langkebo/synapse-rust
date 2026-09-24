@@ -269,27 +269,48 @@ impl BackgroundUpdateStorage {
             None => serde_json::Value::Array(vec![]),
         };
 
-        let row = sqlx::query_as::<_, BackgroundUpdate>(
-            r"
+        let row = sqlx::query_as!(
+            BackgroundUpdate,
+            r#"
             INSERT INTO background_updates (
                 job_name, job_type, description, table_name, column_name, total_items,
                 batch_size, sleep_ms, depends_on, metadata, created_ts, status, max_retries
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending', 3)
-            RETURNING *
-            ",
+            RETURNING
+                job_name AS "job_name!",
+                job_type AS "job_type!",
+                description,
+                table_name,
+                column_name,
+                status AS "status!",
+                progress AS "progress!",
+                total_items AS "total_items!",
+                processed_items AS "processed_items!",
+                created_ts,
+                started_ts,
+                completed_ts,
+                updated_ts,
+                error_message,
+                retry_count AS "retry_count!",
+                max_retries AS "max_retries!",
+                batch_size AS "batch_size!",
+                sleep_ms AS "sleep_ms!",
+                depends_on,
+                metadata
+            "#,
+            &request.job_name,
+            &request.job_type,
+            request.description.as_deref(),
+            request.table_name.as_deref(),
+            request.column_name.as_deref(),
+            request.total_items.unwrap_or(0),
+            request.batch_size.unwrap_or(100),
+            request.sleep_ms.unwrap_or(1000),
+            &depends_on_json,
+            request.metadata.as_ref(),
+            now,
         )
-        .bind(&request.job_name)
-        .bind(&request.job_type)
-        .bind(&request.description)
-        .bind(&request.table_name)
-        .bind(&request.column_name)
-        .bind(request.total_items.unwrap_or(0))
-        .bind(request.batch_size.unwrap_or(100))
-        .bind(request.sleep_ms.unwrap_or(1000))
-        .bind(&depends_on_json)
-        .bind(&request.metadata)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -298,10 +319,20 @@ impl BackgroundUpdateStorage {
 
     /// See [`get_update`].
     pub async fn get_update(&self, job_name: &str) -> Result<Option<BackgroundUpdate>, sqlx::Error> {
-        let row = sqlx::query_as::<_, BackgroundUpdate>("SELECT job_name, job_type, description, table_name, column_name, status, progress, total_items, processed_items, created_ts, started_ts, completed_ts, updated_ts, error_message, retry_count, max_retries, batch_size, sleep_ms, depends_on, metadata FROM background_updates WHERE update_name = $1")
-            .bind(job_name)
-            .fetch_optional(&*self.pool)
-            .await?;
+        let row = sqlx::query_as!(
+            BackgroundUpdate,
+            r#"
+            SELECT job_name AS "job_name!", job_type AS "job_type!", description, table_name, column_name,
+                   status AS "status!", progress AS "progress!", total_items AS "total_items!",
+                   processed_items AS "processed_items!", created_ts, started_ts, completed_ts, updated_ts,
+                   error_message, retry_count AS "retry_count!", max_retries AS "max_retries!",
+                   batch_size AS "batch_size!", sleep_ms AS "sleep_ms!", depends_on, metadata
+            FROM background_updates WHERE update_name = $1
+            "#,
+            job_name
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
 
         Ok(row)
     }
@@ -313,17 +344,25 @@ impl BackgroundUpdateStorage {
         from: Option<String>,
     ) -> Result<(Vec<BackgroundUpdate>, Option<String>), sqlx::Error> {
         let decoded = from.as_deref().and_then(decode_background_update_cursor);
-        let rows = sqlx::query_as::<_, BackgroundUpdate>(
-            "SELECT job_name, job_type, description, table_name, column_name, status, progress, total_items, processed_items, created_ts, started_ts, completed_ts, updated_ts, error_message, retry_count, max_retries, batch_size, sleep_ms, depends_on, metadata FROM background_updates
-             WHERE ($2::BIGINT IS NULL AND $3::TEXT IS NULL)
-                OR created_ts < $2
-                OR (created_ts = $2 AND job_name < $3)
-             ORDER BY created_ts DESC, job_name DESC
-             LIMIT $1",
+        let rows = sqlx::query_as!(
+            BackgroundUpdate,
+            r#"
+            SELECT job_name AS "job_name!", job_type AS "job_type!", description, table_name, column_name,
+                   status AS "status!", progress AS "progress!", total_items AS "total_items!",
+                   processed_items AS "processed_items!", created_ts, started_ts, completed_ts, updated_ts,
+                   error_message, retry_count AS "retry_count!", max_retries AS "max_retries!",
+                   batch_size AS "batch_size!", sleep_ms AS "sleep_ms!", depends_on, metadata
+            FROM background_updates
+            WHERE ($2::BIGINT IS NULL AND $3::TEXT IS NULL)
+               OR created_ts < $2
+               OR (created_ts = $2 AND job_name < $3)
+            ORDER BY created_ts DESC, job_name DESC
+            LIMIT $1
+            "#,
+            limit,
+            decoded.map(|(created_ts, _)| created_ts),
+            decoded.map(|(_, job_name)| job_name),
         )
-        .bind(limit)
-        .bind(decoded.map(|(created_ts, _)| created_ts))
-        .bind(decoded.map(|(_, job_name)| job_name))
         .fetch_all(&*self.pool)
         .await?;
 
@@ -338,10 +377,18 @@ impl BackgroundUpdateStorage {
 
     /// See [`get_updates_by_status`].
     pub async fn get_updates_by_status(&self, status: &str) -> Result<Vec<BackgroundUpdate>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, BackgroundUpdate>(
-            "SELECT job_name, job_type, description, table_name, column_name, status, progress, total_items, processed_items, created_ts, started_ts, completed_ts, updated_ts, error_message, retry_count, max_retries, batch_size, sleep_ms, depends_on, metadata FROM background_updates WHERE status = $1 ORDER BY created_ts ASC, id ASC",
+        let rows = sqlx::query_as!(
+            BackgroundUpdate,
+            r#"
+            SELECT job_name AS "job_name!", job_type AS "job_type!", description, table_name, column_name,
+                   status AS "status!", progress AS "progress!", total_items AS "total_items!",
+                   processed_items AS "processed_items!", created_ts, started_ts, completed_ts, updated_ts,
+                   error_message, retry_count AS "retry_count!", max_retries AS "max_retries!",
+                   batch_size AS "batch_size!", sleep_ms AS "sleep_ms!", depends_on, metadata
+            FROM background_updates WHERE status = $1 ORDER BY created_ts ASC, id ASC
+            "#,
+            status
         )
-        .bind(status)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -366,22 +413,43 @@ impl BackgroundUpdateStorage {
 
         let completed_ts = if status == "completed" { Some(now) } else { None };
 
-        let row = sqlx::query_as::<_, BackgroundUpdate>(
-            r"
+        let row = sqlx::query_as!(
+            BackgroundUpdate,
+            r#"
             UPDATE background_updates SET
                 status = $2,
                 started_ts = COALESCE($3, started_ts),
                 completed_ts = COALESCE($4, completed_ts),
                 updated_ts = $5
             WHERE update_name = $1
-            RETURNING *
-            ",
+            RETURNING
+                job_name AS "job_name!",
+                job_type AS "job_type!",
+                description,
+                table_name,
+                column_name,
+                status AS "status!",
+                progress AS "progress!",
+                total_items AS "total_items!",
+                processed_items AS "processed_items!",
+                created_ts,
+                started_ts,
+                completed_ts,
+                updated_ts,
+                error_message,
+                retry_count AS "retry_count!",
+                max_retries AS "max_retries!",
+                batch_size AS "batch_size!",
+                sleep_ms AS "sleep_ms!",
+                depends_on,
+                metadata
+            "#,
+            job_name,
+            status,
+            started_ts,
+            completed_ts,
+            now,
         )
-        .bind(job_name)
-        .bind(status)
-        .bind(started_ts)
-        .bind(completed_ts)
-        .bind(now)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -400,8 +468,9 @@ impl BackgroundUpdateStorage {
         // Schema column `progress` is JSONB (default '{}'), so wrap the
         // computed percentage as a JSONB value to keep CASE branch types
         // consistent.
-        let row = sqlx::query_as::<_, BackgroundUpdate>(
-            r"
+        let row = sqlx::query_as!(
+            BackgroundUpdate,
+            r#"
             UPDATE background_updates SET
                 processed_items = processed_items + $2,
                 total_items = COALESCE($3, total_items),
@@ -412,13 +481,33 @@ impl BackgroundUpdateStorage {
                     ELSE progress
                 END
             WHERE update_name = $1
-            RETURNING *
-            ",
+            RETURNING
+                job_name AS "job_name!",
+                job_type AS "job_type!",
+                description,
+                table_name,
+                column_name,
+                status AS "status!",
+                progress AS "progress!",
+                total_items AS "total_items!",
+                processed_items AS "processed_items!",
+                created_ts,
+                started_ts,
+                completed_ts,
+                updated_ts,
+                error_message,
+                retry_count AS "retry_count!",
+                max_retries AS "max_retries!",
+                batch_size AS "batch_size!",
+                sleep_ms AS "sleep_ms!",
+                depends_on,
+                metadata
+            "#,
+            job_name,
+            items_processed,
+            total_items,
+            now,
         )
-        .bind(job_name)
-        .bind(items_processed)
-        .bind(total_items)
-        .bind(now)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -433,20 +522,41 @@ impl BackgroundUpdateStorage {
     ) -> Result<Option<BackgroundUpdate>, sqlx::Error> {
         let now = current_timestamp_millis();
 
-        let row = sqlx::query_as::<_, BackgroundUpdate>(
-            r"
+        let row = sqlx::query_as!(
+            BackgroundUpdate,
+            r#"
             UPDATE background_updates SET
                 status = 'failed',
                 error_message = $2,
                 updated_ts = $3,
                 retry_count = retry_count + 1
             WHERE update_name = $1
-            RETURNING *
-            ",
+            RETURNING
+                job_name AS "job_name!",
+                job_type AS "job_type!",
+                description,
+                table_name,
+                column_name,
+                status AS "status!",
+                progress AS "progress!",
+                total_items AS "total_items!",
+                processed_items AS "processed_items!",
+                created_ts,
+                started_ts,
+                completed_ts,
+                updated_ts,
+                error_message,
+                retry_count AS "retry_count!",
+                max_retries AS "max_retries!",
+                batch_size AS "batch_size!",
+                sleep_ms AS "sleep_ms!",
+                depends_on,
+                metadata
+            "#,
+            job_name,
+            error_message,
+            now,
         )
-        .bind(job_name)
-        .bind(error_message)
-        .bind(now)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -455,10 +565,7 @@ impl BackgroundUpdateStorage {
 
     /// See [`delete_update`].
     pub async fn delete_update(&self, job_name: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM background_updates WHERE update_name = $1")
-            .bind(job_name)
-            .execute(&*self.pool)
-            .await?;
+        sqlx::query!("DELETE FROM background_updates WHERE update_name = $1", job_name).execute(&*self.pool).await?;
 
         Ok(())
     }
@@ -473,7 +580,7 @@ impl BackgroundUpdateStorage {
         let now = current_timestamp_millis();
         let expires = now + lock_duration_ms;
 
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             INSERT INTO background_update_locks (lock_name, owner, acquired_ts, expires_at)
             VALUES ($1, $2, $3, $4)
@@ -483,11 +590,11 @@ impl BackgroundUpdateStorage {
                 expires_at = $4
             WHERE background_update_locks.expires_at < $3
             ",
+            job_name,
+            locked_by,
+            now,
+            expires,
         )
-        .bind(job_name)
-        .bind(locked_by)
-        .bind(now)
-        .bind(expires)
         .execute(&*self.pool)
         .await?;
 
@@ -536,10 +643,7 @@ impl BackgroundUpdateStorage {
 
     /// See [`release_lock`].
     pub async fn release_lock(&self, job_name: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM background_update_locks WHERE lock_name = $1")
-            .bind(job_name)
-            .execute(&*self.pool)
-            .await?;
+        sqlx::query!("DELETE FROM background_update_locks WHERE lock_name = $1", job_name).execute(&*self.pool).await?;
 
         Ok(())
     }
@@ -548,12 +652,13 @@ impl BackgroundUpdateStorage {
     pub async fn is_locked(&self, job_name: &str) -> Result<bool, sqlx::Error> {
         let now = current_timestamp_millis();
 
-        let count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM background_update_locks WHERE lock_name = $1 AND expires_at > $2")
-                .bind(job_name)
-                .bind(now)
-                .fetch_one(&*self.pool)
-                .await?;
+        let count: i64 = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) AS "count!" FROM background_update_locks WHERE lock_name = $1 AND expires_at > $2"#,
+            job_name,
+            now,
+        )
+        .fetch_one(&*self.pool)
+        .await?;
 
         Ok(count > 0)
     }
@@ -562,10 +667,8 @@ impl BackgroundUpdateStorage {
     pub async fn cleanup_expired_locks(&self) -> Result<i64, sqlx::Error> {
         let now = current_timestamp_millis();
 
-        let result = sqlx::query("DELETE FROM background_update_locks WHERE expires_at < $1")
-            .bind(now)
-            .execute(&*self.pool)
-            .await?;
+        let result =
+            sqlx::query!("DELETE FROM background_update_locks WHERE expires_at < $1", now).execute(&*self.pool).await?;
 
         Ok(result.rows_affected() as i64)
     }
@@ -581,22 +684,23 @@ impl BackgroundUpdateStorage {
     ) -> Result<BackgroundUpdateHistory, sqlx::Error> {
         let now = current_timestamp_millis();
 
-        let row = sqlx::query_as::<_, BackgroundUpdateHistory>(
-            r"
+        let row = sqlx::query_as!(
+            BackgroundUpdateHistory,
+            r#"
             INSERT INTO background_update_history (
                 job_name, execution_start_ts, execution_end_ts, status, items_processed, error_message, metadata
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7)
-            RETURNING *
-            ",
+            RETURNING id, job_name, execution_start_ts, execution_end_ts, status, items_processed, error_message, metadata
+            "#,
+            job_name,
+            now,
+            now,
+            status,
+            items_processed,
+            error_message,
+            metadata.as_ref(),
         )
-        .bind(job_name)
-        .bind(now)
-        .bind(now)
-        .bind(status)
-        .bind(items_processed)
-        .bind(error_message)
-        .bind(metadata)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -605,11 +709,15 @@ impl BackgroundUpdateStorage {
 
     /// See [`get_history`].
     pub async fn get_history(&self, job_name: &str, limit: i64) -> Result<Vec<BackgroundUpdateHistory>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, BackgroundUpdateHistory>(
-            "SELECT id, job_name, execution_start_ts, execution_end_ts, status, items_processed, error_message, metadata FROM background_update_history WHERE job_name = $1 ORDER BY execution_start_ts DESC, id DESC LIMIT $2",
+        let rows = sqlx::query_as!(
+            BackgroundUpdateHistory,
+            r#"
+            SELECT id, job_name, execution_start_ts, execution_end_ts, status, items_processed, error_message, metadata
+            FROM background_update_history WHERE job_name = $1 ORDER BY execution_start_ts DESC, id DESC LIMIT $2
+            "#,
+            job_name,
+            limit,
         )
-        .bind(job_name)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -618,7 +726,7 @@ impl BackgroundUpdateStorage {
 
     /// See [`retry_failed`].
     pub async fn retry_failed(&self) -> Result<i64, sqlx::Error> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             UPDATE background_updates SET
                 status = 'pending',
@@ -635,27 +743,34 @@ impl BackgroundUpdateStorage {
 
     /// See [`count_by_status`].
     pub async fn count_by_status(&self, status: &str) -> Result<i64, sqlx::Error> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM background_updates WHERE status = $1")
-            .bind(status)
-            .fetch_one(&*self.pool)
-            .await?;
+        let count: i64 =
+            sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!" FROM background_updates WHERE status = $1"#, status)
+                .fetch_one(&*self.pool)
+                .await?;
 
         Ok(count)
     }
 
     /// See [`count_all`].
     pub async fn count_all(&self) -> Result<i64, sqlx::Error> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM background_updates").fetch_one(&*self.pool).await?;
+        let count: i64 = sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!" FROM background_updates"#)
+            .fetch_one(&*self.pool)
+            .await?;
 
         Ok(count)
     }
 
     /// See [`get_stats`].
     pub async fn get_stats(&self, limit: i32) -> Result<Vec<BackgroundUpdateStats>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, BackgroundUpdateStats>(
-            "SELECT id, job_name, total_updates, completed_updates, failed_updates, last_run_ts, next_run_ts, average_duration_ms, created_ts, updated_ts FROM background_update_stats ORDER BY created_ts DESC, id DESC LIMIT $1",
+        let rows = sqlx::query_as!(
+            BackgroundUpdateStats,
+            r#"
+            SELECT id, job_name, total_updates, completed_updates, failed_updates, last_run_ts, next_run_ts,
+                   average_duration_ms, created_ts, updated_ts
+            FROM background_update_stats ORDER BY created_ts DESC, id DESC LIMIT $1
+            "#,
+            limit as i64,
         )
-        .bind(limit as i64)
         .fetch_all(&*self.pool)
         .await?;
 
