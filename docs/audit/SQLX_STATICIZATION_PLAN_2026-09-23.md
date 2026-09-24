@@ -445,11 +445,11 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-02 | 产品缺陷 | `synapse-storage/src/saml/repository.rs:574` | 登出写 `processed_ts`，真列名 `processed_at`（42703），登出路径必然失败 | **已修**（`cbe718ff6`） | 有（`saml_service.rs:482`，saml-sso） | — |
 | D-03 | 产品缺陷 | `synapse-storage/src/worker/repository.rs:757` | `get_statistics` 选了 15 个两张表都不存在的列（42703），端点从未返回过任何行 | **已修**（`0f6a76c13` + S1–S3 `483dfc045` / S4 `14eab2283`,`0e0af49d0`） | 有（`/_synapse/worker/v1/statistics`，`worker.rs:695`） | — |
 | D-04 | 产品缺陷 | `synapse-e2ee/src/device_keys/storage.rs:233` | `create_tables()` DDL 缺 `fallback_used`，fallback 三分支都读写它（42703） | **未修**（潜伏） | 无（0 调用者；schema 由迁移拥有） | 按铁律 1 删除该方法 |
-| D-05 | 数据一致性 | `synapse-e2ee/src/device_keys/storage.rs:121` | `DeviceKey.id` 恒为 0（无任何查询投影 `id`，`into_device_key` 硬编码） | **未修** | 生产不读；仅 2 处手工构造的单测断言 `id` | 投影 `id` 或删字段（铁律 1） |
+| D-05 | 数据一致性 | `synapse-e2ee/src/device_keys/models.rs:14`（结构体，字段已删） | `DeviceKey.id` 恒为 0（无任何查询投影 `id`，`into_device_key` 硬编码 `0`） | **已修**（W2 `cef006dd2`，按铁律 1 删字段） | 生产不读；全仓消费方只有同 crate 的 `test_mocks.rs` | 已修：删除 `DeviceKey.id`，7 处构造点的伪造 `0`/`1` 与 2 处断言一并删除；键由 `(user_id, device_id, algorithm, key_id)` 标识 |
 | D-06 | 文档一致性 | `synapse-e2ee/src/device_keys/storage.rs:14-93` | `DeviceKeyRow` 每个字段前重复 "The `x` field." 行，注释错乱 | **未修**（cosmetic） | 无 | 一次性清理注释 |
-| D-07 | 数据一致性 | `synapse-e2ee/src/device_keys/storage.rs:292` | `record_device_list_change_best_effort` 完全吞错，`stream_id` 插入失败不可见 | **未修**（语义待决策） | 有（设备列表变更写路径） | 评审后改 `?` 或补指标 |
-| D-08 | 数据一致性 | `synapse-e2ee/src/device_keys/storage.rs:726`,`:769` | `claim_one_time_key` 的 `target`/`fb` CTE 有 `LIMIT 1` 但无 `ORDER BY`，选取非确定 | **未修** | 有（OTK claim 路径） | 加 `ORDER BY added_ts, id` |
-| D-09 | 产品缺陷 | `synapse-storage/src/space/repository.rs:716` | `suggested_only` 分支把 jsonb `via_servers` 解成 `Vec<String>`，真返回行时必然解码失败 | **未修** | 有（`/_matrix/federation/v1/hierarchy/{room_id}`，`suggested_only=true`） | 改 `ARRAY(SELECT jsonb_array_elements_text(via_servers))` |
+| D-07 | 数据一致性 | `synapse-e2ee/src/device_keys/storage.rs:301`（impl）、`:151`（trait） | `record_device_list_change_best_effort` 完全吞错（`let Ok(..) else { return }` / `let _ =`），`stream_id` 插入失败对调用方不可见 | **已修**（W2 `cef006dd2`，取「错误向上传播」侧） | 有（设备密钥上传、设备删除、cross-signing 变更写路径） | 已修：改名 `record_device_list_change` 并返回 `Result<(), ApiError>`，两条语句都 `map_err(…)?`；上传/删除路径 `?`（fail-closed），`record_cross_signing_change` 同样改为可失败并让 3 个调用点 `?` |
+| D-08 | 数据一致性 | `synapse-e2ee/src/device_keys/storage.rs:729`（`target`）、`:793`（`fb`） | `claim_one_time_key` 的 `target`/`fb` CTE 有 `LIMIT 1` 但无 `ORDER BY`，选取非确定 | **已修**（W2 `cef006dd2`） | 有（OTK claim 路径） | 已修：两条 CTE 各加 `ORDER BY added_ts, id`（先发最旧的）；集成用例以「最旧的最后插入」制造 heap 顺序与 added_ts 顺序相反 |
+| D-09 | 产品缺陷 | `synapse-storage/src/space/repository.rs:719` | `suggested_only` 分支把 jsonb `via_servers` 解成 `Vec<String>`，真返回行时必然 `ColumnDecode` | **已修**（W2 `cef006dd2`） | 有（`/_matrix/federation/v1/hierarchy/{room_id}`，`suggested_only=true`） | 已修：改 `ARRAY(SELECT jsonb_array_elements_text(via_servers))`（与本文件其余 5 处一致）；`space::db_tests` 新增 `is_suggested = TRUE` 的用例 |
 | D-10 | 产品缺陷 | `synapse-storage/src/module.rs:956`（INSERT；列清单 `:958`；请求结构体字段 `:361`；路由 `synapse-web/src/routes/module.rs:769`） | `create_media_callback` 从不写 `user_id`（NOT NULL DEFAULT `''`）⇒ 必然 23514 | **已修**（W1 `c128cdeab`） | 有（`POST /_synapse/admin/v1/media_callbacks`，`module.rs:851`） | 已修：请求结构体新增 `user_id`，INSERT 绑定，管理路由传认证管理员的 user_id（语义 = 注册者）；`module::db_tests` 新建（此前 0 DB 往返，D-15.1 同批关闭） |
 | D-11 | 产品缺陷 | `migrations/00000000_unified_schema_v12.sql:563`（旧列族已删）；`synapse-storage/src/registration_token/repository.rs:362` | `create_room_invite` 漏写 NOT NULL 无默认的 `inviter`/`invitee` ⇒ 必然 23502 | **已修**（W1 `c128cdeab`，按铁律 1 删列） | 无 HTTP 路由调用方（service 层唯一，`registration_token_service.rs:243`） | 已修：删除 `room_invites` 的 6 个死列（`inviter`/`invitee`/`is_accepted`/`accepted_at`/`signature`/`signed_version`）+ 索引 `idx_room_invites_invitee` + 两条 legacy 注释（全仓零读写）；db 用例改走 `create_room_invite` 往返 |
 | D-12 | 产品缺陷 | `synapse-storage/src/event_report/repository.rs:324`,`:359`,`:533` | `add_history` 只 `tracing::info!` 返回内存 `id:0`，`get_report_history`/`get_stats` 恒空；两张表不存在 | **未修** | 有（`event_report.rs:499/506`；审计写入 `event_report_service.rs:55/194/378`） | 建表 + 实现（独立功能批次） |
@@ -477,12 +477,13 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-34 | 产品缺陷 | `synapse-storage/src/threepid.rs:253`（SELECT `get_pending_threepids`；谓词 `:268`）对 `:157`（INSERT `add_threepid`） | 谓词 `WHERE validated_at < added_ts` 与写入路径互相矛盾：`add_threepid` 的 INSERT **不写 `validated_at`**（列清单无此列）⇒ 真正的"待验证"行 `validated_at IS NULL`，`NULL < added_ts` 为 NULL ⇒ **永远不返回**；db 用例 `test_get_pending_threepids` 只能改用 `add_verified_threepid(…, validated_at=1, added_ts=1000)` 人为造行，并把"query 不过滤 is_verified"写进注释当成规格 | **已修**（W1 `c128cdeab`） | 无（唯一包装 `IdentityStorage::get_pending_three_pid_validations`，`synapse-services/src/identity/storage.rs:65`，全仓无调用者） | 已修：谓词改 `validated_at IS NULL OR validated_at < added_ts`；用例改回走 `add_threepid`，新增 `test_get_pending_threepids_excludes_validated_rows` 负例，删除"把缺陷当规格"的注释。**遗留**：包装方仍零调用者 —— 接线或按铁律 1 删除，属独立条目 |
 
 | D-35 | 文档一致性 | 本文件 §7 导言（"计数口径"行） | 该行写 `dynamic_production=741` / `static=773` 并标注"C17 后实测"，但 741/773 是 **C16 后**的值：C17 为 773→742、741→772，与本仓 baseline（`BASELINE_DYNAMIC_PRODUCTION=742` / `BASELINE_STATIC=772`）矛盾，两处各偏 1 | **已修**（C18 提交一并更正为 706/808 并注明偏差来源） | — | 已在本节导言更正；计数一律以 `scripts/ci/sqlx_query_census.py` + `scripts/ci/sqlx_dynamic_ratio_baseline` 为唯一来源 |
-| D-36 | 覆盖缺口 / 门禁（**新登记**） | 见 §7.2 D-36（`background_update.rs:989` 等测试夹具；守卫见 §8.4） | **系统性根因**：D-10/D-11/D-31/D-33/D-34 五条"写入端漏列"缺陷同源 —— DB 测试不跑迁移 schema，而用空 schema + 自建简化表，掩盖了 NOT NULL/CHECK/UNIQUE 约束与写入端漏列 | **未修**（2026-09-23 重排新登记；W1 `c128cdeab` 已把 5 个夹具切到迁移模板，但守卫 A/B 本体未做） | — | §8.4：模板 schema 断言 + INSERT 列覆盖 CATALOG 检查（各配红证明） |
+| D-36 | 覆盖缺口 / 门禁 | `scripts/ci/test_ddl_allowlist`、`scripts/ci/insert_column_allowlist`、`tests/unit/test_ddl_guard_tests.rs`、`tests/integration/insert_column_coverage_tests.rs` | **系统性根因**：D-10/D-11/D-31/D-33/D-34 五条"写入端漏列"缺陷同源 —— DB 测试不跑迁移 schema，而用空 schema + 自建简化表，掩盖了 NOT NULL/CHECK/UNIQUE 约束与写入端漏列 | **已修**（守卫 A/B 落地 `7cd40a418`；W1 `c128cdeab` 已把 5 个夹具切到迁移模板） | — | §8.4 两条守卫均已实现并自证变红，见 §8.7 |
+| D-37 | 冗余实现 + 吞错（**新登记**） | `synapse-storage/src/device/mod.rs:182`（实现）、`:220`（零调用者包装）、`:530`/`:557`/`:595`（三处 `let _ = …`） | `DeviceStorage::record_device_list_change` 是 `synapse-e2ee` 同名职责的**第二份实现**（铁律 2），三个调用点又都是 `let _ = …` 吞错（与 D-07 同型）；其 best-effort 包装 `:220` 全仓**零调用者**（铁律 1） | **未修**（2026-09-24 W2 顺带发现并登记） | 有（storage 层设备增删路径 `:530`/`:557`/`:595`） | 二选一：storage 层统一改为可失败并让三个调用点显式处理（与 D-07 的解法对齐），删掉零调用者的 best-effort 包装；同时评估与 `synapse-e2ee` 那份实现能否收敛成一份（铁律 2） |
 
-**状态计数（2026-09-24 W1 后）**：已修 **10**（D-02/D-03/D-24/D-28/D-35 + W1 的
-D-10/D-11/D-31/D-33/D-34）；未修 **14**
-（D-01 语法已修但死函数待删、D-04…D-09、D-12、D-17、D-27、D-29、D-30、D-32、**D-36**）；
-结构性保留（有意）**7**
+**状态计数（2026-09-24 W2 + D-36 后）**：已修 **15**（D-02/D-03/D-24/D-28/D-35 + W1 的
+D-10/D-11/D-31/D-33/D-34 + D-36 守卫 + W2 的 D-05/D-07/D-08/D-09）；未修 **10**
+（D-01 语法已修但死函数待删、D-04、D-06、D-12、D-17、D-27、D-29、D-30、D-32、
+**D-37** 新登记）；结构性保留（有意）**7**
 （D-13/D-14/D-18…D-22）；覆盖缺口 **2**（D-15 含 D-15.6、D-25；D-36 虽同属覆盖缺口/门禁，
 已计入上面的"未修 19"，此处不重复计数）；文档一致性 **3**
 （D-16/D-23/D-26；D-35 已计入上面的"已修 5"，此处**不重复计数**——原文把 D-35 同时计入
@@ -574,6 +575,9 @@ D-10/D-11/D-31/D-33/D-34）；未修 **14**
 
 #### D-05 `DeviceKey.id` 恒为 0（C10）
 
+> **已修（W2 `cef006dd2`）**：按铁律 1 **删除**了 `DeviceKey.id`，而不是投影真主键 ——
+> 全仓唯一消费方是同 crate 的 `test_mocks.rs`（仅测试）。其下位置为修复前行号。
+>
 - 位置：`synapse-e2ee/src/device_keys/storage.rs:121-122`（`DeviceKey {` 在 `:121`，
   `id: 0,` 在 `:122`）。
 - 证据：本文件内**没有任何** SQL 投影 `id`——`RETURNING`/`SELECT` 列清单为
@@ -603,6 +607,10 @@ D-10/D-11/D-31/D-33/D-34）；未修 **14**
 
 #### D-07 `record_device_list_change_best_effort` 完全吞错（C10）
 
+> **已修（W2 `cef006dd2`）**，取「错误向上传播」侧：方法改名 `record_device_list_change`
+> 并返回 `Result<(), ApiError>`，三处调用方各自显式决定（两处 `?` fail-closed，
+> cross-signing 侧同样改为可失败）。其下位置为修复前行号。
+>
 - 位置：`synapse-e2ee/src/device_keys/storage.rs:292-328`。
 - 证据：第一处插入 `:307-309` 是 `let Ok(stream_id) = row else { return; };`
   （失败即静默返回）；第二处 `:311-326` 是 `let _ = sqlx::query!(…).execute(…).await;`
@@ -614,6 +622,9 @@ D-10/D-11/D-31/D-33/D-34）；未修 **14**
 
 #### D-08 `claim_one_time_key` 的 `target` CTE 无 `ORDER BY`（C10）
 
+> **已修（W2 `cef006dd2`）**：`target` 与 `fb` 两条 CTE 各加 `ORDER BY added_ts, id`。
+> 其下位置为修复前行号。
+>
 - 位置：`synapse-e2ee/src/device_keys/storage.rs:726-734`（OTK 的 `target` CTE）、
   `:769-777`（fallback 的 `fb` CTE）。
 - 证据：两处都是 `SELECT id FROM device_keys WHERE … LIMIT 1`，**无 `ORDER BY`** ⇒
@@ -626,6 +637,11 @@ D-10/D-11/D-31/D-33/D-34）；未修 **14**
 
 #### D-09 `collect_hierarchy_recursive` 的 `suggested_only` 分支解码类型不符（C7）
 
+> **已修（W2 `cef006dd2`）**：改用 `ARRAY(SELECT jsonb_array_elements_text(via_servers))`，
+> 与本文件其余 5 处一致；`space::db_tests` 补了 `is_suggested = TRUE` 的用例
+> （旧夹具全部 `is_suggested = FALSE`，`WHERE is_suggested = TRUE` 恒 0 行）。
+> 其下位置为修复前行号。
+>
 - 位置：`synapse-storage/src/space/repository.rs:706-733`（分支），关键行 `:716`
   （`via_servers AS "via_servers!: Vec<String>"`）。
 - 证据：`space_children.via_servers` 是 **jsonb**（psql
@@ -1269,6 +1285,28 @@ D-10/D-11/D-31/D-33/D-34）；未修 **14**
 
 ---
 
+#### D-37 `synapse-storage::device` 里的第二份 device-list-change 实现与三处吞错（2026-09-24 W2 顺带发现）
+
+- 类别：**冗余实现（铁律 2）+ 吞错（与 D-07 同型）+ 零调用者包装（铁律 1）**。
+- 位置：`synapse-storage/src/device/mod.rs`
+  - `:182` `DeviceStorage::record_device_list_change`（两条语句都 `?`，本身是**正确**的那一份）；
+  - `:220` `record_device_list_change_best_effort` —— 只是 `let _ = self.record_device_list_change(…)`
+    的包装，全仓 `git grep` **零调用者**；
+  - `:530` / `:557` / `:595`（设备注册 / 更新 / 删除路径）三处调用点都是
+    `let _ = self.record_device_list_change(…).await;` —— 与 D-07 完全同型的静默吞错，
+    只是发生在 storage 层而不是 `synapse-e2ee` 层。
+- 证据：`git grep -n "record_device_list_change" -- '*.rs'` 的命中集合；
+  `synapse-e2ee/src/device_keys/storage.rs` 里另有一份同职责实现（D-07 已修的那份），
+  两份实现的 SQL 语句逐字相同（`device_lists_stream` + `device_lists_changes`）。
+- 影响：storage 层设备增删若写不成 device-list change，调用方同样不可见 —— 与 D-07 相同的
+  「对端设备列表静默过期」后果。
+- 可达性：**有**（`register_device` / `update_device` / `delete_device` 三条 storage 路径）。
+- 状态：**未修**（本次只登记；W2 的 D-07 只覆盖 `synapse-e2ee` 侧，未越界改 storage 侧）。
+- 建议处理：① 三个调用点与 D-07 对齐给出显式决定（要么 `?`，要么就地 `tracing::warn!`）；
+  ② 删除零调用者的 `:220` 包装（铁律 1）；③ 评估两份实现能否收敛成一份（铁律 2）——
+  两份分属不同 crate 的不同类型，收敛需要一个共享位置（`synapse-common` 或让 storage 侧成为
+  唯一实现），属独立设计事项。
+
 ## 8. 问题优先处理计划（2026-09-23 重排：先修问题，再继续静态化）
 
 > **定位**：本节是**当前唯一执行排期**。§5 的阶段表与「执行结果」的批次表降级为**历史记录**。
@@ -1331,6 +1369,9 @@ D-10/D-11/D-31/D-33/D-34）；未修 **14**
 | W2 | D-08 | 数据一致性 / 安全相邻 | 中：`LIMIT 1` 无 `ORDER BY`，OTK 选取非确定 | 有：OTK claim 路径 | 小：`target`（`:732`）与 `fb`（`:775`）两条 CTE 各加 `ORDER BY added_ts, id` | 同一 `(user, device, algorithm)` 多把未用密钥时，连续 claim 严格按 `added_ts, id` 顺序发放 | 无 |
 | W2 | D-07 | 数据一致性 | 中：`stream_id` 插入失败被完全吞掉，不可观测 | 有：设备列表变更写路径 | 小：至少 `tracing::warn!` + 指标；或改 `?` 让调用方可失败 | 故障注入（令插入失败）下断言 warn/指标出现或错误向上传播，而非静默 `Ok` | 语义决策：best-effort 是否允许静默 |
 | W2 | D-05 | 数据一致性 | 中低：`DeviceKey.id` 恒 0，而 `device_keys.id` 是 BIGSERIAL 主键（暴露给客户端） | 生产不读；仅 2 处纯单测断言 id | 小：投影 `id` 返回真主键，或按铁律 1 删字段 | 若保留：DB 往返断言 `id` 等于真实主键；若删除：编译期证明无消费方 | API 是否需要 `id` |
+
+> **状态（2026-09-24）**：W2 四条已全部修复入库（`cef006dd2`）。证据与回归面见 **§8.8**；
+> D-05 取「按铁律 1 删字段」、D-07 取「错误向上传播」，理由见 §8.8 与 §7 就地状态。
 
 **W3 —— 契约说谎 / 静默丢弃**
 
@@ -1587,3 +1628,58 @@ schema 表/合同覆盖（211/211、100%）全绿；两档 clippy 矩阵（`--fe
 **W1 未包含**：§8.4 的守卫 A/B（D-36）本体未做，两者都仍待实现并用违规探针自证变红；
 W1 的 5 条 RED 样本（`23502 update_name` / `23514 media_callbacks.user_id` /
 `23502 inviter`）可直接作为**守卫 B** 的验收样本。
+
+### 8.7 D-36 守卫落地结果（2026-09-24，`7cd40a418`）
+
+§8.4 的两条守卫都已实现，并各自用**违规探针**证明会变红（铁律 8）。扫描后端复用
+`scripts/ci/sqlx_query_census.py`（新增 `--list-test-ddl` / `--emit-inserts` 两个模式），
+没有第二份词法实现。
+
+| 守卫 | 实现 | 覆盖口径 | 红证明 | 当前状态 |
+|---|---|---|---|---|
+| A | `tests/unit/test_ddl_guard_tests.rs` + `scripts/ci/test_ddl_allowlist` | test 区出现 `CREATE TABLE`/`ALTER TABLE`/`CREATE SCHEMA`/`DROP SCHEMA` 即需登记；键 `path::mod::fn`（无行号） | 违规探针先红后绿；另有三条辅证：扫描器必须命中已知站点、名单条目必须仍命中、注释散文不计而字符串夹具计 | 189 处命中 / 63 个键；5 条用例全绿 |
+| B | `tests/integration/insert_column_coverage_tests.rs` + `scripts/ci/insert_column_allowlist` | R1 `NOT NULL` 无默认（且非 identity/generated）列必须出现在 INSERT 字面量列清单；R2 `ck_<table>_user_id_format` 且 `user_id NOT NULL` 的表必须含 `user_id`（专抓 `NOT NULL DEFAULT ''`，D-10 形态） | 探针表复刻 R1/R2 两种形态 → 两条规则都报违规，补全列清单与登记名单键后转绿；`dynamic` 列清单报「未覆盖」而非通过 | 生产 269 条 INSERT；当前仅 1 处命中（D-30 的不可达分支，已登记） |
+
+**历史重放 RED 证据（守卫 B 的验收样本）**：`SYNAPSE_SQL_GUARD_ROOT=<2192a6d99 checkout>`
+运行守卫 B，报出
+
+```
+synapse-storage/src/background_update.rs:274 INSERT INTO `background_updates` omits required column(s) update_name
+synapse-storage/src/module.rs:948 INSERT INTO `media_callbacks` omits required column(s) user_id
+```
+
+即 W1 的 D-31 与 D-10；对当前树运行则转绿。这正是 §8.4 要求的"守卫 B 红证明"。
+
+**守卫 A 里已登记的系统性根因（本波未修，属独立条目）**：
+`synapse-services/src/test_utils.rs::ensure_test_schema_contract` 在 `DatabaseInitMode::Strict`
+下自建 schema（31 处 DDL），是迁移 baseline 之外的第二份 schema 真源 —— 铁律 2 的问题，
+已在 `test_ddl_allowlist` 就地注明，收敛时同批处理。名单里其余 D-36 类条目
+（`refresh_token` / `device` / `oidc_session_storage` / `feature_flags` / `pruning` 等）
+逐条迁移到 `isolated_test_pool()` 后必须同时删行（守卫 A 有"名单条目必须仍命中"的辅证钉住）。
+
+### 8.8 W2 执行结果（2026-09-24，`cef006dd2`）
+
+W2 四条全部修复。每条都是**先写出会红的用例、再改实现**。
+
+| 条目 | 修复 | RED 实证（未改实现时） | GREEN 实证 |
+|---|---|---|---|
+| D-09 | `suggested_only` 分支改用 `ARRAY(SELECT jsonb_array_elements_text(via_servers))` | `ColumnDecode { index: "5", source: "encountered an array of 22749793 dimensions; only one-dimensional arrays are supported" }` | `space::db_tests::test_recursive_hierarchy_suggested_only_decodes_jsonb_via_servers`：只有 suggested child 返回，两个 via_server 按序往返 |
+| D-08 | `target`/`fb` 两条 CTE 各加 `ORDER BY added_ts, id` | `left: ["NEWEST","MIDDLE","OLDEST"]`（heap 顺序）vs `right: ["OLDEST","MIDDLE","NEWEST"]` | 连续 3 次 claim 严格按 `added_ts` 升序发放 |
+| D-07 | `record_device_list_change` 改为 `Result<(), ApiError>` + 两条语句 `map_err(…)?`；上传/删除路径 `?`，cross-signing 侧同样可失败 | 保留可失败签名、把 body 换回吞错版本：两条故障注入用例在 `expect_err` 处失败（实得 `Ok(())`） | 注入 `device_lists_stream`/`device_lists_changes` 的 CHECK 约束后分别返回 `Err`；并断言部分失败的数据形态（stream 行在、change 行不在） |
+| D-05 | 删除 `DeviceKey.id`（铁律 1） | 字段恒为伪造常量 `0`；无 RED 可写之处在于**旧代码根本不可观测**（`id` 无投影来源） | 编译期证明：7 处构造点的 `id: 0/1` 与 2 处断言消失；`synapse-e2ee --lib` 456/456 |
+
+**故障注入的一个陷阱（已写进用例注释）**：隔离池的 `search_path` 是 `"<schema>", public`，
+所以"`DROP TABLE` 掉本测试的表"**不是**有效的失败注入 —— 未限定的 INSERT 会落到
+`public` 里的同名表并成功（实测第一次就踩到）。改用"给本测试表加一条只拒绝本用例取值的
+`CHECK` 约束"。
+
+**回归面**：`space` 模块 61/61、`synapse-e2ee --lib` 456/456、services 相关 18/18、
+新增 integration 4/4；棘轮 `706 / 808` 不变（新用例全在 `tests/` 或 test 区，且未新增动态
+SQL）；`.sqlx` 刷新 −3/+3（D-09 投影 1 条 + 两条 CTE）；两档 clippy `-D warnings` 通过；
+fmt 债务 0；migration 一致性检查 0 issue。
+
+**W2 顺带发现（登记待办）**：
+`synapse-storage/src/device/mod.rs` 里有**同一职责的第二份实现**（`DeviceStorage::record_device_list_change`
+及其 `record_device_list_change_best_effort` 包装），且 `:530`/`:557`/`:595` 三处调用点同样是
+`let _ = …` 吞错；其中 `record_device_list_change_best_effort` 全仓**零调用者**（铁律 1）。
+本次未动该文件（超出 D-07 登记范围），作为新条目登记为 **D-37**。
