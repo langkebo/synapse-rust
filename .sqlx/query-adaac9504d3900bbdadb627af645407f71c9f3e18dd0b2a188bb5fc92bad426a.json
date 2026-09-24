@@ -1,0 +1,69 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO cas_proxy_granting_tickets (pgt_id, user_id, service_url, iou, created_ts, expires_at)\n            VALUES ($1, $2, $3, $4, $5, $6)\n            RETURNING id, pgt_id, user_id, service_url, iou, created_ts, expires_at, is_valid AS \"is_valid!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "pgt_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "service_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "iou",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "expires_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "is_valid!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "adaac9504d3900bbdadb627af645407f71c9f3e18dd0b2a188bb5fc92bad426a"
+}

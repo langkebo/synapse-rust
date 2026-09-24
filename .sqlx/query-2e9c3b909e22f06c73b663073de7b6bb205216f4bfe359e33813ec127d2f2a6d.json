@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO report_rate_limits (user_id, is_blocked, blocked_until_at, block_reason, created_ts, updated_ts)\n            VALUES ($1, TRUE, $2, $3, $4, $4)\n            ON CONFLICT (user_id) DO UPDATE SET\n                is_blocked = TRUE,\n                blocked_until_at = $2,\n                block_reason = $3,\n                updated_ts = $4\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2e9c3b909e22f06c73b663073de7b6bb205216f4bfe359e33813ec127d2f2a6d"
+}

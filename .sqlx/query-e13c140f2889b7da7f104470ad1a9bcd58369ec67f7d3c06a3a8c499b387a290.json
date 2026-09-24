@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM cas_tickets\n            WHERE expires_at < $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e13c140f2889b7da7f104470ad1a9bcd58369ec67f7d3c06a3a8c499b387a290"
+}

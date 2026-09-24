@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO cas_slo_sessions (session_id, user_id, service_url, ticket_id, created_ts)\n            VALUES ($1, $2, $3, $4, $5)\n            RETURNING id, session_id, user_id, service_url, ticket_id, created_ts, logout_sent_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "session_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "service_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "ticket_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "logout_sent_at",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "66007b85a716967289902f8f09271e7251440d9797427a57650fe70683032f9e"
+}

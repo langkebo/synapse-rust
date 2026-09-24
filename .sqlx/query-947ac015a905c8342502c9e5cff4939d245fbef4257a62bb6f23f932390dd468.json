@@ -1,0 +1,86 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, service_id, name, description, service_url_pattern,\n                   allowed_attributes AS \"allowed_attributes!\",\n                   allowed_proxy_callbacks AS \"allowed_proxy_callbacks!\",\n                   is_enabled AS \"is_enabled!\",\n                   is_require_secure AS \"is_require_secure!\",\n                   is_single_logout AS \"is_single_logout!\",\n                   created_ts, updated_ts\n            FROM cas_services\n            ORDER BY created_ts DESC, id DESC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "service_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "service_url_pattern",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "allowed_attributes!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "allowed_proxy_callbacks!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "is_enabled!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_require_secure!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "is_single_logout!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "947ac015a905c8342502c9e5cff4939d245fbef4257a62bb6f23f932390dd468"
+}

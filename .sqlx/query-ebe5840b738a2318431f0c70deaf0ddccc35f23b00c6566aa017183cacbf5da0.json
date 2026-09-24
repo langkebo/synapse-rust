@@ -1,0 +1,74 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO cas_tickets (ticket_id, user_id, service_url, created_ts, expires_at)\n            VALUES ($1, $2, $3, $4, $5)\n            RETURNING id, ticket_id, user_id, service_url, created_ts, expires_at, consumed_at, consumed_by,\n                      is_valid AS \"is_valid!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "ticket_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "service_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "expires_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "consumed_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "consumed_by",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_valid!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "ebe5840b738a2318431f0c70deaf0ddccc35f23b00c6566aa017183cacbf5da0"
+}

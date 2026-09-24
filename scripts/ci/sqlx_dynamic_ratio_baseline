@@ -1356,11 +1356,152 @@
 #   dynamic            1594 → 1554
 #   dynamic_test       704 → 704   （未动；两模块的 `#[cfg(test)]` 夹具未新增动态 SQL）
 # 收紧方向：C4/C5 等剩余批次继续分批静态化，直至 dynamic_production = 0。
-BASELINE_DYNAMIC_PRODUCTION=850
+# ── 2026-09-24 C15 静态化（生产动态 -40，静态 +40）────────────────────────────
+#
+# 批次：C15。目标文件：synapse-storage/src/cas/repository.rs（20 处生产动态）
+#                   + synapse-storage/src/event_report/repository.rs（20 处）。
+# 提交：4fde96137（源码）/ 本提交（.sqlx + 基线）。
+#
+# ✅ STEP 0（feature gate）实测：**两模块门控不同**，是本批的关键陷阱。
+#   * `cas` **有**门控：synapse-storage/src/lib.rs:176-177
+#       `#[cfg(feature = "cas-sso")] pub mod cas;`
+#   * `event_report` **无**门控：lib.rs:58-59 是普通文档注释 + `pub mod event_report;`
+#   因此**每条 prepare / check / nextest 命令都必须显式带 `cas-sso`**，否则
+#   cas/repository.rs 根本不参与编译 —— 门禁会以 850→830 的"部分绿"通过，
+#   而 cas 的 20 处宏一个都没被校验（C6/C9/C11 型假绿）。
+#   全量 feature 集：`server-notifications,saml-sso,cas-sso`（后二者为本批必需）。
+#   feature 传播链已核对：root `cas-sso` → synapse-services/cas-sso →
+#   synapse-storage/cas-sso（synapse-services/Cargo.toml:22）。root 的 `cas-sso`
+#   本身**不**直接依赖 synapse-storage/cas-sso，是经 services 传递打开的。
+#   测试过滤器实测**非零**：`-E 'test(cas) or test(event_report)'` →
+#   **68 tests run: 68 passed, 0 failed（1580 skipped，324.3s）**，其中
+#   cas::db_tests 24 例、event_report::db_tests 28 例全部为真实 DB 往返。
+#
+# cas/repository.rs 20 处生产动态**全部**静态化（生产区剩余动态 = 0）：
+#   query_as! × 16（CasTicketRow / CasProxyTicketRow / CasProxyGrantingTicket /
+#                   CasRegisteredServiceRow / CasUserAttributeRow / CasSloSessionRow
+#                   的行映射与 INSERT/UPDATE … RETURNING，含 4 组同列清单的
+#                   get / get_by_url / list 查询）
+#   query!    ×  4（DELETE cas_tickets、cleanup_expired_tickets、
+#                   DELETE cas_services、mark_slo_sent）
+#
+# event_report/repository.rs 20 处生产动态**全部**静态化（生产区剩余动态 = 0）：
+#   query_as!     × 13（EventReport 的行映射与 INSERT/UPDATE … RETURNING；
+#                       by_room / by_reporter / by_status / all_reports 的 keyset 游标
+#                       两分支；ReportRateLimit 的 `FOR UPDATE` 行锁查询）
+#   query!        ×  5（delete_report、check_rate_limit 内的解锁 UPDATE、
+#                       record_report / block_user_reports 的 UPSERT、
+#                       unblock_user_reports）
+#   query_scalar! ×  2（count_reports_by_status / count_all_reports 的 COUNT(*)）
+#
+# 静态化时补的 nullability 覆盖（schema 取自 information_schema 实测，非猜测）：
+#   * cas_tickets.is_valid / cas_proxy_tickets.is_valid /
+#     cas_proxy_granting_tickets.is_valid：catalog 中**可空**（`BOOLEAN`，无 NOT NULL）
+#     而三个 Row/模型字段是非 Option 的 bool ⇒ `is_valid AS "is_valid!"`。
+#   * cas_services 的 allowed_attributes / allowed_proxy_callbacks（jsonb 可空，
+#     字段为 `serde_json::Value` 非 Option）与 is_enabled / is_require_secure /
+#     is_single_logout（boolean 可空，字段 bool）⇒ 五列各加 `AS "col!"`；
+#     该 SELECT 清单在 4 个方法里重复，四处同改。
+#   * event_reports.status / score 可空（有 DEFAULT 'open' / DEFAULT 0 但无 NOT NULL）
+#     而 `EventReport` 字段为非 Option 的 String/i32 ⇒ `AS "status!"` / `AS "score!"`。
+#   * report_rate_limits.report_count / is_blocked 可空（DEFAULT 0 / false）+ 字段非
+#     Option ⇒ `AS "col!"`；`COALESCE(updated_ts, created_ts)` 是无 relation origin 的
+#     表达式列（sqlx 一律推断可空）而字段 i64 ⇒ `AS "updated_ts!"`。
+#   * 上述 `!` 一律**保持旧动态形式的行为**：旧 `query_as::<_, T>` 走 FromRow 的
+#     `try_get::<非Option>`，遇 NULL 同样解码失败。未借静态化改动任何语义。
+#   * `query_scalar!` 的 COUNT(*) 是无 origin 的表达式列 ⇒ 默认推断 `Option<i64>`，
+#     按本仓既有写法加 `AS "count!"` 才能保持原 `i64` 返回类型。
+#
+# ⚠️ 本批再次确认 `query_as!` 的字段映射语义（C9/C12 已登记，此处独立复现）：
+#   `query_as!` **不**调用 FromRow，而是按 describe 的列名逐列构造结构体字面量
+#   （sqlx-macros-core-0.8.6/src/query/output.rs:127-196 的 quote_query_as）⇒
+#     (a) `EventReport::resolved_ts` 上的 `#[sqlx(rename = "resolved_at")]` **无效**，
+#         故全部 13 个 query_as! 投影都写 `resolved_at AS "resolved_ts"`；
+#     (b) `RETURNING *`（create_report / update_report）必须展开为显式列清单，
+#         多一列 E0560、少一列 E0063。
+#
+# 另一处结构变化：check_rate_limit 原先把行锁 SELECT 放在模块级
+#   `const REPORT_RATE_LIMIT_SELECT_FOR_UPDATE: &str` 里传参；宏只接受**字符串字面量**，
+#   故把该 SQL 内联进宏并删除该常量（其说明性注释移到函数 doc 上）。对外签名不变。
+#
+# `.sqlx`：destination 就是 `.sqlx/` 本身，`cargo sqlx prepare` 先清后写。
+#   isolated worktree target/c15-wt @ HEAD 4fde96137（源码提交已在 HEAD，故 procedure 的
+#   `git apply c15.patch` 无内容可应用，直接在该 worktree 内重刷）：
+#     SQLX_OFFLINE=false DATABASE_URL=… CARGO_TARGET_DIR=… \
+#       cargo sqlx prepare --workspace -- --features server-notifications,saml-sso,cas-sso
+#   实测 before=641 after=680，**deleted=0 / added=39 / modified=0**（文件名集合 comm
+#   逐条核对 + 对 641 条既有条目逐字节 cmp）。40 个宏站点只新增 39 条：check_rate_limit
+#   的解锁 UPDATE 与 unblock_user_reports 的 UPDATE 文本完全相同，哈希合并为 1 条。
+#   ✅ 39 条新增条目逐条人工核对，全部落在本批两张表的 40 处站点上 —— 打开 `cas-sso`
+#   没有顺带引入任何**其它**模块的宏条目（即 cas-gated 代码里此前不存在未缓存的宏）。
+#
+# 验证（isolated worktree target/c15-wt，**无需任何越界修补**——HEAD 已能编译 workspace）：
+#   SQLX_OFFLINE=false DATABASE_URL=… cargo check -p synapse-storage
+#     --features test-utils,server-notifications,saml-sso,cas-sso → Finished（27.9s；
+#     首轮零回退，40 个宏按真实 DB describe 一次通过）
+#   SQLX_OFFLINE=true CARGO_TARGET_DIR=… cargo check -p synapse-storage
+#     --features test-utils,server-notifications,saml-sso,cas-sso（touch 两个 repository.rs
+#     强制宏重展开）→ Finished（24.7s；证明提交的 .sqlx 离线可复现）
+#     ⚠️ 反向自证（AGENTS.md 铁律 8）：移走 39 条新增条目中的 1 条
+#     （query-ebe5840b…，即 cas_tickets 的 INSERT；已 cmp 确认 worktree 与 main 树
+#     逐字节相同）后重跑同命令 →
+#       error: SQLX_OFFLINE=true but there is no cached data for this query, run
+#       `cargo sqlx prepare` to update the query cache or unset `SQLX_OFFLINE`
+#       + E0282 + could not compile synapse-storage (lib) due to 2 previous errors，exit 101；
+#     还原该文件（680 条）后同命令重新 Finished。证明该缓存真的被读取，而非"跑绿但没生效"。
+#   TEST_DATABASE_URL=… TEST_DB_TEMPLATE_SCHEMA=test_template_ci cargo nextest run
+#     -p synapse-storage --lib --features test-utils,server-notifications,saml-sso,cas-sso
+#     -E 'test(cas) or test(event_report)' --no-fail-fast
+#     → **68 tests run: 68 passed, 0 failed**（1580 skipped，324.3s）
+#     运行期覆盖：cas 的 create_ticket（含重复票）+ validate_ticket（valid/expired/wrong_url）
+#     / get_ticket / delete_ticket / cleanup_expired_tickets / create+validate_proxy_ticket /
+#     create_pgt / get_pgt / get_pgt_by_iou / register_service / get_service / get_service_by_url /
+#     list_services / delete_service / set_user_attribute + get_user_attributes /
+#     create_slo_session + mark_slo_sent + get_active_slo_sessions；event_report 的
+#     create_report（默认/显式 score）/ get_report（found/not_found）/ by_event（排序/空）/
+#     by_room（basic/limit）/ by_reporter（basic/游标）/ by_status（过滤/三重游标）/
+#     all_reports（返回/三重游标）/ update_report（COALESCE 保留字段）/ delete_report /
+#     check_rate_limit（新用户/已封锁/封锁过期自动解锁/日限额超限/未超限）/
+#     record_report（新建/递增）/ block_user_reports / unblock_user_reports（含 noop）/
+#     count_reports_by_status / count_all_reports。
+#
+# 运行期回退：**无**（没有任何一处因 `ColumnDecode … UnexpectedNullError` 回退）。
+#
+# 未被本批 db 用例覆盖的转化站点（编译期已按真实 schema 校验）：
+#   `get_reports_by_room` 的 **keyset 游标分支**（since_ts / since_id 均为 Some）——
+#   既有 test_get_reports_by_room_limit 只走 else 分支；同型游标分支在
+#   by_reporter / by_status / all_reports 都有专测，唯独 by_room 缺。
+#   收紧方向：补一个 test_get_reports_by_room_cursor_pagination（夹具照
+#   test_get_reports_by_reporter_cursor_pagination 写）。
+#
+# ⚠️ 既有 SQL 缺陷 / 功能缺口（**非**本批引入，未修，按规则仅登记）：
+#   `EventReportStorage` 的三个方法是**空壳**，且已被 HTTP 路由暴露：
+#     * `add_history`（repository.rs）只 tracing::info! 后返回内存构造的
+#       `EventReportHistory { id: 0, .. }`，从不落库；
+#     * `get_report_history` 恒 Ok(vec![])；
+#     * `get_stats` 恒 Ok(vec![])。
+#   实测 public 里**不存在** event_report_history / event_report_stats 表
+#   （pg_tables WHERE tablename LIKE 'event_report%' 只返回 event_reports）。
+#   而 synapse-web/src/routes/event_report.rs:499/506 注册了
+#   `GET /_synapse/admin/v1/event_reports/{id}/history` 与
+#   `GET /_synapse/admin/v1/event_reports/stats` ⇒ 两个管理员端点恒返回空，
+#   且 synapse-services/src/event_report_service.rs:55/194/378 的三处 add_history
+#   调用（上报/更新/删除）实际是**审计信息静默丢弃**。
+#   这三处均为纯内存函数，不含 SQL，故不在 20 处动态站点内，与 C15 无关。
+#   收紧方向：为 event_report_history 建表 + 落地 add_history / get_report_history，
+#   get_stats 改为按天聚合 SQL（属**功能补齐**，应独立开批次）。
+#
+# 实测（main 树，门禁同源；本轮无并发写者新增生产动态）：
+#   dynamic_production 850 → 810   （C15 自身 -40）
+#   static             664 → 704   （+40）
+#   dynamic            1554 → 1514
+#   dynamic_test       704 → 704   （未动；两模块的 `#[cfg(test)]` 夹具未新增动态 SQL）
+# 收紧方向：C4/C5 等剩余批次继续分批静态化，直至 dynamic_production = 0。
+BASELINE_DYNAMIC_PRODUCTION=810
 BASELINE_DYNAMIC_TEST_INFRA=704
-BASELINE_STATIC=664
+BASELINE_STATIC=704
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1554
+BASELINE_DYNAMIC=1514
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

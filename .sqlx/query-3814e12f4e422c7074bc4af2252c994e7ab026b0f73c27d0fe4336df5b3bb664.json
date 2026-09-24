@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, session_id, user_id, service_url, ticket_id, created_ts, logout_sent_at\n            FROM cas_slo_sessions\n            WHERE user_id = $1 AND logout_sent_at IS NULL\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "session_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "service_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "ticket_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "logout_sent_at",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "3814e12f4e422c7074bc4af2252c994e7ab026b0f73c27d0fe4336df5b3bb664"
+}
