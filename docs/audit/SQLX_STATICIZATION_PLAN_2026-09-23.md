@@ -485,15 +485,18 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-40 | **产品缺陷（空壳端点）**（**新登记**） | `synapse-storage/src/module.rs:930`（原两处 stub，已实现）+ `migrations/00000000_unified_schema_v12.sql`（已加表） | `create_password_auth_provider` 是硬编码 `Err(sqlx::Error::RowNotFound)`、`get_password_auth_providers` 是硬编码 `Ok(vec![])`，而 `POST/GET /_synapse/admin/v1/password_auth_providers` **两个管理路由已注册**并写进 `ROUTE_CONTRACT.md`，model/request/service 俱全 —— 但 `password_auth_providers` 表在 baseline 与 live schema 里**都不存在** ⇒ POST 永败、GET 恒空 | **已修**（W5 `ab5949c70`，取「补齐实现」） | 有（两个 admin 路由） | 已修：v12 baseline 加表（`provider_name` UNIQUE ⇒ POST 幂等 create-or-update —— 该表无 PUT/DELETE 路由，POST 是唯一写路径）+ 两条真实语句（INSERT…ON CONFLICT…RETURNING / SELECT `ORDER BY priority, provider_name`）。同批扫过全仓 `Ok(vec![])`/`Err(RowNotFound)`/`unimplemented!()`：其余均属合法（空输入早返、友房业务错误、测试替身、no-op store） |
 | D-41 | **数据一致性**（**新登记**） | `synapse-storage/src/module.rs:783`（`get_execution_logs`） | `ORDER BY executed_ts DESC` 单键排序：`executed_ts` 是**毫秒**，同一毫秒的多次执行并列时 `LIMIT n` 的读法可能重复/漏行（与 D-08 同族） | **已修**（W5 `ab5949c70`；由既有棘轮 `ts_order_tiebreak_tests` 抓出） | 有（module 执行日志读路径） | 已修：加决胜键 `, id DESC`，并按该棘轮 `--update` 收紧 `scripts/ci/ts_order_single_key_baseline`（删 `synapse-storage/src/module.rs 1`）。顺带清掉新用例注释里含同形文本的措辞 —— 该棘轮是词法计数，散文里的同形文本也会被计入 |
 | D-42 | **运行时硬故障**（**新登记**） | `synapse-storage/src/event/create.rs` 三处（`:89` `create_event_with_graph` 的 `insert_edges_query`、`:197`/`:205` `create_state_event_with_dag` 的两条边插入） | 守卫写成 `WHERE $2 IS NOT NULL AND $2 != '[]'`：`$2` 已被 `unnest($2::text[])` 定为 `text[]`，PG 会把 `'[]'` 当**数组字面量**解析 ⇒ 在**prepare 阶段**即报 `22P02 malformed array literal: "[]"`（`"[" must introduce explicitly-specified array dimensions`）。**语句根本执行不了**，故 `prev_events`/`prev_state_events` 非空时整个 DAG 写入路径必败（`8489b4079` P2-1 引入） | **已修**（2026-09-25，全量门禁复跑发现） | 有（`test_create_event_with_graph_with_prev_events` 直接抓出；两条 `*_rolls_back_*` 用例此前是"因错误的原因"通过） | 守卫改 `WHERE cardinality($2) > 0`（NULL ⇒ NULL ⇒ 不入选，语义等价；调用方本就已 `if !is_empty()` 守卫）。**禁**再写 `!= '[]'`；已在两处 P2-1 文档注释里注明不可回退 |
+| D-43 | **产品缺陷（schema 不符）**（**新登记**） | `synapse-e2ee/src/key_rotation/service.rs`（原 `mark_rotated` / `check_needs_rotation`；已修） | 两处引用 `key_rotation_state.rotation_count` / `last_rotation_ts`，而该表实际只有 `(user_id, room_id, is_rotated BOOLEAN NOT NULL, rotated_at BIGINT)` + `PRIMARY KEY (user_id, room_id)` ⇒ 真 schema 下必然 42703（C19a 静态化时被编译器证伪）；`rotation_count` 全仓**零读取方**，属写-only 死数据 | **已修**（C19a `cbeb0c75e`） | 有（`mark_rotated` 由轮换流程调用；`check_needs_rotation` 决定是否轮换） | 已修：按既有列重写（`is_rotated = TRUE, rotated_at`），**不加列** —— 与 D-02 同型（代码错、schema 对，铁律 1 视角下那个计数列本就没有消费者）；`check_needs_rotation` 的 `COALESCE(rotation_count,0) > 0`（对 bool 做该运算本身无意义）改为 `SELECT is_rotated`，判定不变 |
+| D-44 | **产品缺陷（schema 不符 + 类型不符）**（**新登记**） | `synapse-e2ee/src/key_rotation/service.rs` 的 `get_rotation_status`（已修） | 同一表的三处 `last_rotation_ts` 不存在（必然 42703）；且该列是 **BIGINT 毫秒** 而 `RotationStatus.last_rotation` 是 `DateTime<Utc>`（动态 `Row::get` 把这个类型不符也一起吞掉了） | **已修**（C19a `cbeb0c75e`） | 有（`get_rotation_status` 走 `/_matrix/client/*/key_rotation/status`） | 已修：列名改 `rotated_at`，并在 SQL 内 `to_timestamp(MAX(rotated_at)::double precision / 1000.0)` 显式转 timestamptz；行结构改 `RotationStatusRow`（`sqlx::FromRow`）。响应形状由既有快照 `snapshot_key_rotation_status_shape` / `..._no_prior_rotation_shape` 守住，转换后仍绿 |
+| D-45 | **产品缺陷（绑定类型不符）**（**新登记**） | `synapse-e2ee/src/key_rotation/service.rs` 的 `log_rotation`（已修） | 把 `Utc::now()`（`DateTime<Utc>`）绑进 `key_rotation_log.rotated_at`（BIGINT 毫秒）⇒ 写路径必然类型错误，而动态 `.bind()` 让它一直潜伏 | **已修**（C19a `cbeb0c75e`） | 有（每次轮换都写审计日志） | 已修：改为 `current_timestamp_millis()` |
 
-**状态计数（2026-09-25，W5 全部收口后）**：已修 **30**
+**状态计数（2026-09-25，C19a 后）**：已修 **33**
 （D-02/D-03/D-24/D-28/D-35 + W1 的 D-10/D-11/D-31/D-33/D-34 + D-36 守卫 +
 W2 的 D-05/D-07/D-08/D-09 + W3 的 D-29/D-32 + D-38 + W4 的 D-01/D-04/D-06/D-17/D-27/D-30 +
-D-12 + D-42 + W5 的 **D-15**（含六个子项）/**D-25**/**D-40**/**D-41**）；
+D-12 + D-42 + W5 的 **D-15**（含六个子项）/**D-25**/**D-40**/**D-41** + C19a 的 **D-43**/**D-44**/**D-45**）；
 **部分已修 1**（D-37：吞错与死包装已修、跨 crate 两份实现的收敛未做）；
 未修 **1**（**D-39**：`search_index` 表删否）；结构性保留（有意）**7**（D-13/D-14/D-18–D-22）；
 文档级已处置 **3**（D-16/D-23/D-26）。
-合计 **42** 条（D-01…D-42），校验：30 + 1 + 1 + 7 + 3 = **42**。
+合计 **45** 条（D-01…D-45），校验：33 + 1 + 1 + 7 + 3 = **45**。
 
 > 注：本行以下曾残留一段**过期计数**（「合计 36 条（D-01…D-36）」），与当时的实际条数矛盾
 > 且已被后续重写覆盖 —— 本次一并删除，避免出现第三份计数口径（D-35 型漂移）。
@@ -1452,6 +1455,25 @@ D-12 + D-42 + W5 的 **D-15**（含六个子项）/**D-25**/**D-40**/**D-41**）
   `--update` 收紧 `scripts/ci/ts_order_single_key_baseline`（删掉 `module.rs 1` 条目，
   全仓 74 处 → 保持单调变短）；同时改掉我新用例注释里含同形文本的措辞。
 
+#### D-43 / D-44 / D-45 `key_rotation/service.rs` 的三条"真 schema 下必败"缺陷（2026-09-25 C19a 静态化时暴露）
+
+- 类别：**产品缺陷**（schema 不符 / 绑定类型不符），与 D-02/D-03/D-40 同族。
+- 发现方式：C19a 把该文件 18 处字面量动态 SQL 转成 `query!`/`query_as!`/`query_scalar!`
+  后，`cargo check` **直接证伪**其中 4 处站点 —— 这正是静态化的价值：动态 `.bind()` 与
+  `Row::get()` 会把列名/类型错误一路吞到运行期。
+- 位置与证据（修复前）：
+  - `mark_rotated`：`INSERT INTO key_rotation_state (user_id, room_id, rotation_count, last_rotation_ts)`
+    → `column "rotation_count" of relation "key_rotation_state" does not exist`；
+  - `check_needs_rotation`：`SELECT COALESCE(rotation_count, 0) > 0 FROM key_rotation_state`
+    → 同一列缺失（**同族第 2 处**）；
+  - `get_rotation_status`：`last_rotation_ts` 三处 → `column "last_rotation_ts" does not exist`；
+  - `log_rotation`：`expected i64, found DateTime<Utc>`（`Utc::now()` 绑进 BIGINT 列）。
+  - 反证：`grep -n "rotation_count\|last_rotation_ts" migrations/00000000_unified_schema_v12.sql`
+    **0 命中**；真表只有 `is_rotated`/`rotated_at`。
+- 状态：**已修**（`cbeb0c75e`）。修法一律"改代码不改 schema"（与 D-02 同型）：`rotation_count`
+  虽有"计数"语义但**全仓零读取方**，属写-only 死数据，按铁律 1 不值得为它加列。
+- 遗留：无（响应形状由既有快照守门，转换后仍绿）。
+
 ## 8. 问题优先处理计划（2026-09-23 重排：先修问题，再继续静态化）
 
 > **定位**：本节是**当前唯一执行排期**。§5 的阶段表与「执行结果」的批次表降级为**历史记录**。
@@ -2025,3 +2047,38 @@ fmt 债务 0。
 - **D-15 已全部收口**（六个子项），W5 无遗留覆盖项。
 - **D-37 的另一半**、**D-04 的同族第二个 `create_tables`**、**D-39**：
   见 §8.10 遗留，均为独立决策项。
+
+
+### 8.12 C19a 执行结果（2026-09-25，`cbeb0c75e`）
+
+恢复 C 批次后的第一批（§8.5 前置条件已满足）。文件
+`synapse-e2ee/src/key_rotation/service.rs`：**18 处生产字面量动态 SQL → 0**。
+
+**这一批不是纯等价改写。** 转换后编译器立刻证伪 4 处站点（见 §7.2 D-43/D-44/D-45），
+按 §7.x 第 1 条"禁止把行为修复夹带进静态化批次"**先修后转**：
+
+| 站点 | 编译器证据 | 处置 |
+|---|---|---|
+| `mark_rotated` | `column "rotation_count" ... does not exist` | 按既有列 `is_rotated`/`rotated_at` 重写（D-43） |
+| `check_needs_rotation` | 同上（同族第 2 处） | 改 `SELECT is_rotated`（D-43） |
+| `get_rotation_status` | `column "last_rotation_ts" does not exist`（3 处） | 改 `rotated_at` + SQL 内 `to_timestamp(...)`（D-44） |
+| `log_rotation` | `expected i64, found DateTime<Utc>` | 改 `current_timestamp_millis()`（D-45） |
+
+**转换踩到的三个坑（后续批次沿用）**：
+1. `sqlx::query_as::<_, (T,)>(...)` → `query_scalar!(...)`：单列不需要别名；而且
+   **`query_scalar!` 不接受 `AS "col!"` / `AS "col?"` 这类 nullability 覆盖语法**
+   （那是 `query!`/`query_as!` 的约定），它按表达式推断 —— 踩到 4 次
+   `no rules expected !`。
+2. `query!` 需要**有名字的列**：`SELECT 1` 报 `column name "?column?" is invalid`
+   ⇒ 单列计数/存在性查询改用 `query_scalar!`（单列不需要列名）。
+3. `query!` 返回**字段式** Record，`row.get("x")` 不再可用 ⇒ 改 `row.x`；且宏的
+   nullability 推断可能与原 `Row::get` 的假设不同（本例三处需按编译器实际类型收口，
+   其中 `COALESCE(MAX(...), 0)` 仍被判可空 ⇒ 用 `unwrap_or(0)`，本 crate 禁 `unwrap()`）。
+
+**门禁**：`dynamic_production` 694 → **676**（−18）、`static` 803 → **824**、
+`dynamic` 1387 → **1378**；棘轮绿；`.sqlx` **+17**（18 处里有 2 处 SQL 文本相同）；
+`cargo check -p synapse-e2ee --all-targets` 干净；`synapse-e2ee --lib` key_rotation
+14/14、`--test unit` key_rotation 相关 64/64（含两条 `snapshot_key_rotation_status_*`）；
+fmt 债务 0。
+
+**C19b（`synapse-e2ee/src/backup/storage.rs`，18 处）未做。**
