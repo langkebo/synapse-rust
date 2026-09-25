@@ -117,6 +117,24 @@ git worktree list             # 另有 .worktrees/c19b（同 HEAD）、/Users/lj
 
 ---
 
+### 0.4 本轮目标（§6.7 顺序）逐项证据总览（2026-09-26，`opt/consolidated` @ `7cbf6594c`）
+
+> 本节由**执行者**维护，只登记**本轮实测过**的证据；每条都给了可复核的判据，
+> 便于下一轮直接接着做，而不是重新推导。
+
+| 目标项 | 状态 | 提交 | 测试 / 变异自证 | 门禁实测 | 残留与归属 |
+|---|---|---|---|---|---|
+| ① M-1（B1 合并 + 合并结果门禁） | ✅ | `7c88cae1a` | 合并后 lib **6316/6316**、unit **1777/1777**、集成子集 15/15 | fmt `OK(0)`、clippy exit 0 | 合并暴露的 4 项既有红（指纹常量、DDL allowlist 陈旧项、3 份 ledger 金样本、`assembly_route` 的 `auth_issuer`）均已修 |
+| ② U-7 媒体配额错误码 | ✅ | `d70b4fc20` → `cf02fafa5` | 类型化 `QuotaRejection` + 4 个生产构造点；用户配额 403 `M_RESOURCE_LIMIT_EXCEEDED`、单文件上限 413 `M_TOO_LARGE`（从不使用 `M_USER_LIMIT_EXCEEDED`） | 随批 fmt/clippy/targeted nextest | 无 |
+| ② U-4 profile 校验与错误码 | ✅ | `5e739ef8a` → `cf02fafa5` | `M_KEY_TOO_LARGE`（255 字节 key）+ `M_PROFILE_TOO_LARGE`（64 KiB value） | 同上 | **不升 `/versions`**（§6.3 决策：能力与稳定路由已在） |
+| ② U-1 MSC3912 单层级联 | ✅（并发会话实现） | 见其提交 | —— | —— | 语义缺口：不产生真 `m.room.redaction`、`redacted_by` 丢失、无逐事件 `can_redact_event`（§5 **U-1b**） |
+| ② U-3 扫描拒绝 + 隔离裁定 + **hash 级自动隔离** + 指标 + 显式配置 | ✅ | `338395f98` + `4f7299e82` + `cbe6517c5` | 验收①②③④全覆盖：集成 `hash_level_quarantine_auto_quarantines_identical_reupload` 1/1（**断言扫描器关闭**，证明与扫描无关；含命中计数==1 与不同内容负例）、storage `admin_media` 17/17、crypto 3/3；**变异 7 个**（扫描半批 4 + hash 半批 3）全部转红后还原 | fmt `OK(0)`、clippy exit 0 | SQLx 棘轮：**本批生产动态增量 0**（反查用静态宏）；残留红=既有 +3 生产 / +1 测试基础设施，本批另 +1 测试夹具（D-13/14 必须动态），两基线**故意不动**（见 §6.2） |
+| ② U-10 ledger `query_params` 真填值 + 反向守卫 | ✅ | `fd178425b` | 123 条注解；5 层守卫（夹具双向 + handler `Query<Struct>` 双向）；**我独立变异**（删注解里的 `limit`）⇒ 抽取器 exit 1 并同时报出三类失败；unit 44/44 | `check_route_contract.sh` exit 0（修绿了 U-10 之前**既有**的红门禁）；`gen_client_yaml.py --check` 与 `gen_route_table.py --check --ledger <fresh>` 双双 exit 0 | `scripts/api_test/ledger.json` 仍是旧导出（1096 条、字段空），**故意不刷**：它是 `client.yaml` 的字节级输入，刷新会弄红那条门禁 |
+| ② U-13 reference hash | 🟡 **第 1 步 ✅ / 前置 P0 ✅ / 第 2–3 步 ⬜** | `64ffc13a6`（第 1 步）、`0880f6a5f`（content hash P0） | 第 1 步：上游 Synapse **v10/v3 已知答案向量**逐字节通过 + 上游 `redact()` 全量单测期望转 v1–v12 矩阵（24/24）；content hash：上游 `test_sign_minimal`/`test_sign_message` 向量通过；**变异 6 个**全部转红后还原 | fmt `OK(0)`、clippy exit 0、federation lib 198/198 | **第 2 步阻塞**（连续 4 轮取证）：并发会话未提交地新增 `EventWriter::create_event_with_pdu`（6 文件 169 行，覆盖第 2 步要改的全部 writer 文件）。算法（5 步链）、30 个调用点清单、7 个签名站点、6 条验收测试均已冻结于 §6.6 |
+| ① 合并结果上的 fmt / clippy / lib / unit / 集成 | 🟡 | — | fmt `current=0`、clippy exit 0（多轮、多 tip）；**lib+unit 全量在最终 tip 运行中**（U-3 合并后、清理 309 个残留 schema 之后） | 集成：已按受影响面跑子集（media 4/4、federation 子集、profile/quota、ledger 相关 unit 44/44）；**全量集成批次（`--test-threads 1`，约 1446 例）未跑**，属时间预算限制，非绿非红 | 全量集成的缺失必须在此如实标注，不得当作通过 |
+
+---
+
 ## 1. 逐条核验
 
 ### 1.1 ⚪ E2EE SAS 三处偏离 → **对象消失，整条作废**
