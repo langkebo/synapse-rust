@@ -20,26 +20,9 @@ pub(super) async fn get_room_auth(
 
     let auth_events = ctx.room_service.messaging().get_state_event_records(&room_id).await.map_err(ApiError::from)?;
 
-    let auth_chain: Vec<Value> = auth_events
-        .into_iter()
-        .filter(|e| {
-            e.event_type.as_deref() == Some("m.room.create")
-                || e.event_type.as_deref() == Some("m.room.member")
-                || e.event_type.as_deref() == Some("m.room.power_levels")
-                || e.event_type.as_deref() == Some("m.room.join_rules")
-                || e.event_type.as_deref() == Some("m.room.history_visibility")
-        })
-        .map(|e| {
-            json!({
-                "event_id": e.event_id,
-                "type": e.event_type.clone().unwrap_or_default(),
-                "sender": e.user_id,
-                "content": e.content,
-                "state_key": e.state_key,
-                "origin_server_ts": e.origin_server_ts
-            })
-        })
-        .collect();
+    let auth_chain_records: Vec<&synapse_services::event::StateEvent> =
+        auth_events.iter().filter(|record| super::pdu::is_auth_chain_member(record)).collect();
+    let auth_chain = super::pdu::build_pdus(&ctx, &auth_chain_records).await;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -104,19 +87,10 @@ pub(super) async fn get_event_auth(
         .await
         .map_err(ApiError::from)?;
 
-    let auth_chain: Vec<Value> = auth_events
-        .into_iter()
-        .map(|e| {
-            json!({
-                "event_id": e.event_id,
-                "type": e.event_type,
-                "sender": e.user_id,
-                "content": e.content,
-                "state_key": e.state_key,
-                "origin_server_ts": e.origin_server_ts
-            })
-        })
-        .collect();
+    // Selection rule unchanged (every state event at or before the target);
+    // only the serialisation moved to the shared PDU projection.
+    let auth_chain_records: Vec<&synapse_services::event::StateEvent> = auth_events.iter().collect();
+    let auth_chain = super::pdu::build_pdus(&ctx, &auth_chain_records).await;
 
     Ok(Json(json!({
         "auth_chain": auth_chain
@@ -171,7 +145,7 @@ pub(super) async fn get_state(
     super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
 
     let mut events = load_federation_state_events(&ctx, &room_id, query.event_id.as_deref()).await?;
-    let (pdus, auth_chain) = build_federation_state_payload(&ctx.server_name, &mut events);
+    let (pdus, auth_chain) = build_federation_state_payload(&ctx, &mut events).await;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -594,7 +568,7 @@ pub(super) async fn backfill(
         .get_state_events_at_or_before(&room_id, backfill_before_ts)
         .await
         .map_err(ApiError::from)?;
-    let (_, auth_chain) = build_federation_state_payload(&ctx.server_name, &mut auth_events);
+    let (_, auth_chain) = build_federation_state_payload(&ctx, &mut auth_events).await;
 
     let mut pdus: Vec<Value> =
         events.into_iter().map(|event| serialize_room_event_minimal(&ctx.server_name, &event)).collect();
@@ -640,19 +614,6 @@ fn normalized_event_origin(server_name: &str, origin: Option<&str>) -> String {
     }
 }
 
-fn serialize_state_event_minimal(server_name: &str, event: &synapse_services::event::StateEvent) -> Value {
-    json!({
-        "event_id": event.event_id,
-        "type": event.event_type,
-        "sender": event.user_id.as_deref().unwrap_or(&event.sender),
-        "content": event.content,
-        "state_key": event.state_key,
-        "origin_server_ts": event.origin_server_ts,
-        "room_id": event.room_id,
-        "origin": normalized_event_origin(server_name, event.origin.as_deref())
-    })
-}
-
 fn serialize_room_event_minimal(server_name: &str, event: &synapse_services::event::RoomEvent) -> Value {
     json!({
         "event_id": event.event_id,
@@ -664,6 +625,15 @@ fn serialize_room_event_minimal(server_name: &str, event: &synapse_services::eve
         "room_id": event.room_id,
         "origin": normalized_event_origin(server_name, Some(&event.origin))
     })
+}
+
+/// Which state events belong in the `/state` auth chain.
+///
+/// Extracted so the selection rule stays unit-testable now that the
+/// serialisation itself lives in [`super::pdu`] and needs a `FederationContext`
+/// to sign.
+fn is_state_auth_chain_member(event: &synapse_services::event::StateEvent) -> bool {
+    event.event_type.as_deref().is_some_and(crate::federation::event_auth::EventAuthChain::is_auth_event)
 }
 
 fn sort_state_events_stably(events: &mut [synapse_services::event::StateEvent]) {
@@ -682,20 +652,18 @@ fn sort_room_events_stably(events: &mut [synapse_services::event::RoomEvent]) {
     });
 }
 
-fn build_federation_state_payload(
-    server_name: &str,
+async fn build_federation_state_payload(
+    ctx: &FederationContext,
     events: &mut [synapse_services::event::StateEvent],
 ) -> (Vec<Value>, Vec<Value>) {
     sort_state_events_stably(events);
 
-    let pdus = events.iter().map(|event| serialize_state_event_minimal(server_name, event)).collect();
-    let auth_chain = events
-        .iter()
-        .filter(|event| {
-            event.event_type.as_deref().is_some_and(crate::federation::event_auth::EventAuthChain::is_auth_event)
-        })
-        .map(|event| serialize_state_event_minimal(server_name, event))
-        .collect();
+    let all: Vec<&synapse_services::event::StateEvent> = events.iter().collect();
+    let auth_members: Vec<&synapse_services::event::StateEvent> =
+        events.iter().filter(|event| is_state_auth_chain_member(event)).collect();
+
+    let pdus = super::pdu::build_pdus(ctx, &all).await;
+    let auth_chain = super::pdu::build_pdus(ctx, &auth_members).await;
 
     (pdus, auth_chain)
 }
@@ -942,6 +910,10 @@ mod tests {
             origin: origin.map(str::to_string),
             user_id: None,
             stream_ordering: None,
+            prev_events: None,
+            auth_events: None,
+            signatures: None,
+            hashes: None,
         }
     }
 
@@ -974,16 +946,16 @@ mod tests {
     }
 
     #[test]
-    fn serialize_state_event_minimal_normalizes_origin() {
-        let event = make_state_event("e1", "m.room.create", 123, None);
-        let json = serialize_state_event_minimal("server.example", &event);
-        assert_eq!(json["event_id"], "e1");
-        assert_eq!(json["origin"], "server.example");
-        assert_eq!(json["origin_server_ts"], 123);
-
-        let remote = make_state_event("e2", "m.room.create", 123, Some("remote.example"));
-        let json = serialize_state_event_minimal("server.example", &remote);
-        assert_eq!(json["origin"], "remote.example");
+    fn state_auth_chain_membership_follows_is_auth_event() {
+        // 序列化搬到 `super::pdu` 后，这里只锁住**选择规则**（授权链成员的判定），
+        // 它仍然留在本模块内、且必须保持与原实现一致。
+        assert!(is_state_auth_chain_member(&make_state_event("create", "m.room.create", 100, None)));
+        assert!(is_state_auth_chain_member(&make_state_event("member", "m.room.member", 100, None)));
+        assert!(!is_state_auth_chain_member(&make_state_event("message", "m.room.message", 100, None)));
+        // 类型缺失（NULL event_type）必须判为“不属于授权链”，而不是 panic。
+        let mut untyped = make_state_event("x", "m.room.create", 100, None);
+        untyped.event_type = None;
+        assert!(!is_state_auth_chain_member(&untyped));
     }
 
     #[test]
@@ -1015,18 +987,16 @@ mod tests {
     }
 
     #[test]
-    fn build_federation_state_payload_splits_auth_chain() {
-        // m.room.create 是 auth event；m.room.message 不是。
+    fn sort_state_events_stably_orders_before_pdu_projection() {
+        // `build_federation_state_payload` 现在是 async 且需要 `FederationContext`
+        // （要签名），所以这里只覆盖它仍然自有的那一半：排序。PDU 形状与
+        // 签名规则由 `super::pdu` 的自测覆盖。
         let mut events = vec![
             make_state_event("create", "m.room.create", 100, None),
             make_state_event("message", "m.room.message", 200, None),
         ];
-        let (pdus, auth_chain) = build_federation_state_payload("server.example", &mut events);
-        assert_eq!(pdus.len(), 2);
-        // 排序后 ts 200 的 message 在前。
-        assert_eq!(pdus[0]["event_id"], "message");
-        // auth_chain 只包含 is_auth_event 判定为 true 的事件（m.room.create）。
-        let auth_ids: Vec<&str> = auth_chain.iter().map(|e| e["event_id"].as_str().unwrap()).collect();
-        assert_eq!(auth_ids, vec!["create"]);
+        sort_state_events_stably(&mut events);
+        let order: Vec<&str> = events.iter().map(|event| event.event_id.as_str()).collect();
+        assert_eq!(order, vec!["message", "create"]);
     }
 }

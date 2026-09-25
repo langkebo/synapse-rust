@@ -98,6 +98,33 @@ pub struct StateEvent {
     pub user_id: Option<String>,
     /// The `stream_ordering` field.
     pub stream_ordering: Option<i64>,
+    /// Room-DAG parents (`events.prev_events`) exactly as persisted.
+    ///
+    /// `None` (or SQL `NULL`) means the row was written by
+    /// [`EventStorage::create_event`](super::EventStorage::create_event), which
+    /// does **not** persist the graph columns; only the inbound federation
+    /// paths (`create_event_with_graph` / `create_state_event_with_dag`) do.
+    /// Consumers that rebuild a federation PDU must surface this absence
+    /// instead of substituting an empty array — see
+    /// `synapse_web::routes::federation::pdu`.
+    #[serde(default)]
+    pub prev_events: Option<serde_json::Value>,
+    /// Authorization events (`events.auth_events`) exactly as persisted.
+    ///
+    /// Same `NULL` semantics as [`Self::prev_events`].
+    #[serde(default)]
+    pub auth_events: Option<serde_json::Value>,
+    /// Server signatures (`events.signatures`) exactly as persisted.
+    ///
+    /// Populated for inbound PDUs and for locally-produced events once
+    /// `sign_and_hash_event` has run; `None` otherwise.
+    #[serde(default)]
+    pub signatures: Option<serde_json::Value>,
+    /// Content hashes (`events.hashes`) exactly as persisted.
+    ///
+    /// Same provenance as [`Self::signatures`].
+    #[serde(default)]
+    pub hashes: Option<serde_json::Value>,
 }
 
 /// The `RoomEphemeralEvent` struct.

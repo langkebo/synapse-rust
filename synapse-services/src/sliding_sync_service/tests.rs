@@ -535,6 +535,10 @@ fn make_state_event(event_type: Option<&str>, state_key: Option<&str>) -> synaps
         origin: Some("ex.com".to_string()),
         user_id: Some("@sender:ex.com".to_string()),
         stream_ordering: Some(1),
+        prev_events: None,
+        auth_events: None,
+        signatures: None,
+        hashes: None,
     }
 }
 

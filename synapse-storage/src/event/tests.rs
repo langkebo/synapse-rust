@@ -80,6 +80,10 @@ fn test_state_event_struct() {
         origin: Some("self".to_string()),
         user_id: Some("@alice:example.com".to_string()),
         stream_ordering: Some(1),
+        prev_events: None,
+        auth_events: None,
+        signatures: None,
+        hashes: None,
     };
 
     assert_eq!(event.event_type, Some("m.room.member".to_string()));
@@ -209,6 +213,10 @@ fn test_state_event_with_is_redacted() {
         origin: None,
         user_id: None,
         stream_ordering: None,
+        prev_events: None,
+        auth_events: None,
+        signatures: None,
+        hashes: None,
     };
 
     assert!(event.is_redacted.unwrap_or(false));

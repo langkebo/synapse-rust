@@ -743,6 +743,10 @@ mod tests {
             origin: Some("ex.com".into()),
             user_id: None,
             stream_ordering: None,
+            prev_events: None,
+            auth_events: None,
+            signatures: None,
+            hashes: None,
         }
     }
 

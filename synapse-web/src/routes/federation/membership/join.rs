@@ -180,37 +180,35 @@ pub(crate) async fn send_join(
             "Processed join"
         );
 
-        let state_events = ctx.room_service.messaging().get_state_events(&room_id).await?;
-
-        let auth_event_records =
+        // One read serves both `state` and `auth_chain`: they are two views of
+        // the same room-state rows. Previously these were two separate queries
+        // whose results were emitted as hand-assembled 5–6 key objects rather
+        // than PDUs (no `origin_server_ts`, `room_id`, `origin`, `depth`,
+        // `prev_events`, `auth_events`, `hashes`, `signatures`).
+        let state_records =
             ctx.room_service.messaging().get_state_event_records(&room_id).await.map_err(ApiError::from)?;
 
-        let auth_chain: Vec<Value> = auth_event_records
-            .into_iter()
-            .filter(|e| {
-                e.event_type.as_deref() == Some("m.room.create")
-                    || e.event_type.as_deref() == Some("m.room.member")
-                    || e.event_type.as_deref() == Some("m.room.power_levels")
-                    || e.event_type.as_deref() == Some("m.room.join_rules")
-                    || e.event_type.as_deref() == Some("m.room.history_visibility")
-            })
-            .map(|e| {
-                json!({
-                    "event_id": e.event_id,
-                    "type": e.event_type.clone().unwrap_or_default(),
-                    "sender": e.user_id,
-                    "content": e.content,
-                    "state_key": e.state_key,
-                    "origin_server_ts": e.origin_server_ts
-                })
-            })
+        // 先收集出具体的引用切片再交给 `build_pdus`：把带 `.filter(闭包)` 的泛型迭代器
+        // 直接传进去会让 axum handler 的 future 不再 `Send`、也不再对生命周期泛化
+        // （表现为路由处一堆 `FnOnce is not general enough`）。
+        let all_records: Vec<&synapse_services::event::StateEvent> = state_records.iter().collect();
+        let auth_chain_records: Vec<&synapse_services::event::StateEvent> = state_records
+            .iter()
+            .filter(|record| crate::routes::federation::pdu::is_auth_chain_member(record))
             .collect();
 
-        Ok(Json(json!({
+        let state = crate::routes::federation::pdu::build_pdus(&ctx, &all_records).await;
+        let auth_chain = crate::routes::federation::pdu::build_pdus(&ctx, &auth_chain_records).await;
+
+        // v1 keeps the historical `[200, {...}]` tuple required by the
+        // `/send_join` v1 response format (v2 returns the bare object).
+        Ok(Json(json!([200, {
+            "origin": ctx.server_name,
+            "room_id": room_id,
             "event_id": event_id,
-            "state": state_events,
+            "state": state,
             "auth_chain": auth_chain
-        })))
+        }])))
     }
     .await;
 
@@ -322,42 +320,29 @@ pub(crate) async fn send_join_v2(
             "Federation send_join_v2 processed"
         );
 
-        let state_events = ctx.room_service
-            .messaging()
-            .get_state_events(&room_id)
-            .await?;
-
-        let auth_event_records = ctx.room_service
+        let state_records = ctx.room_service
             .messaging()
             .get_state_event_records(&room_id)
             .await
             .map_err(ApiError::from)?;
 
-        let auth_chain: Vec<Value> = auth_event_records
-            .into_iter()
-            .filter(|e| {
-                e.event_type.as_deref() == Some("m.room.create")
-                    || e.event_type.as_deref() == Some("m.room.member")
-                    || e.event_type.as_deref() == Some("m.room.power_levels")
-                    || e.event_type.as_deref() == Some("m.room.join_rules")
-                    || e.event_type.as_deref() == Some("m.room.history_visibility")
-            })
-            .map(|e| {
-                json!({
-                    "event_id": e.event_id,
-                    "type": e.event_type.clone().unwrap_or_default(),
-                    "sender": e.user_id,
-                    "content": e.content,
-                    "state_key": e.state_key,
-                    "origin_server_ts": e.origin_server_ts
-                })
-            })
+        // 先收集出具体的引用切片再交给 `build_pdus`：把带 `.filter(闭包)` 的泛型迭代器
+        // 直接传进去会让 axum handler 的 future 不再 `Send`、也不再对生命周期泛化
+        // （表现为路由处一堆 `FnOnce is not general enough`）。
+        let all_records: Vec<&synapse_services::event::StateEvent> = state_records.iter().collect();
+        let auth_chain_records: Vec<&synapse_services::event::StateEvent> = state_records
+            .iter()
+            .filter(|record| crate::routes::federation::pdu::is_auth_chain_member(record))
             .collect();
 
+        let state = crate::routes::federation::pdu::build_pdus(&ctx, &all_records).await;
+        let auth_chain = crate::routes::federation::pdu::build_pdus(&ctx, &auth_chain_records).await;
+
         Ok(Json(json!({
+            "origin": ctx.server_name,
             "room_id": room_id,
             "event_id": event_id,
-            "state": state_events,
+            "state": state,
             "auth_chain": auth_chain
         })))
     }

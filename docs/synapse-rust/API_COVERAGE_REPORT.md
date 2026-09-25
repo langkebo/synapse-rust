@@ -1,11 +1,16 @@
-# synapse-rust API 覆盖率分析 (v1.4)
+# synapse-rust API 覆盖率分析 (v1.5)
 
 > **对齐基准**：element-hq/synapse **v1.161.0**（发布于 2026-09-15，当前最新稳定版）；上游 `CHANGES.md` 已核对 1.157→1.161 全部条目。
 > Matrix Specification 基线：**v1.19**（上游 v1.161 release notes 引用 `spec.matrix.org/v1.19`）。
-> **本次复核日期**：2026-09-22；复核时仓库 HEAD 为 `008d610d`（`git log -1`）。
+> **本次复核日期**：2026-09-25；本表全部取证的仓库 HEAD 为 `9e26ee31a`（分支 `opt/consolidated`，`git log -1`）。
+> 收尾期间并发会话将 HEAD 推进到 `57cb5e81a`（storage 游标测试 + D-15.3 登记），**不触及路由注册面**，故三口径计数不变。
+> **v1.5 与 v1.4 的差别**：v1.4 的「三种口径」表是 **2026-09-21 快照**（1151 / 931 / 811），
+> 本轮按 §8 配方在 `9e26ee31a` 上重算全部三张分类表（§1.1 / §二 / §三），并把 §五/§六 的
+> 判定推进到当前 HEAD（MSC4512、MSC3912 级联、MSC4140 联邦 EDU、Content Scanner 装配、
+> `rc_reports` 限流、AS 登录均已落地；两处上游条目判据见 §5.1/§5.2）。
 >
 > **权威来源声明（三条，冲突时按此优先级）**：
-> 1. **机器权威（路由）**：[`ROUTE_CONTRACT.md`](./ROUTE_CONTRACT.md) —— 由 `scripts/contract/extract_registered.py` 从真实 `.route()` 注册面抽取，生成于 2026-09-21，
+> 1. **机器权威（路由）**：[`ROUTE_CONTRACT.md`](./ROUTE_CONTRACT.md) —— 由 `scripts/contract/extract_registered.py` 从真实 `.route()` 注册面抽取，生成于 2026-09-25，
 >    并与 `derived_routes.rs` 派生表 + `tests/unit/fixtures/ledger_export/*.json` 双向对账（两份独立事实来源，差额必须为 0）。
 > 2. **语义权威（MSC 编号）**：[`MSC_SEMANTICS.md`](./MSC_SEMANTICS.md) —— 本仓存在**借用 MSC 编号**承载非官方语义的情况（MSC4155 / MSC4204 / MSC3967），
 >    按编号推断语义前必须先查表。
@@ -27,17 +32,25 @@
 
 | 口径 | 含义 | 全部 | `/_matrix/client` | `/_synapse/admin` | 其他命名空间 |
 |---|---|---|---|---|---|
-| **注册条目** | 唯一 `(method, absolute_path)` 对 | **1151** | 658 | 277 | 216 |
-| **唯一路径** | 去掉方法后的唯一 `absolute_path` | **931** | 519 | 218 | 194 |
-| **逻辑端点** | 在上者基础上折叠版本前缀（`v3`/`r0`/`v1`/`unstable/*` → `vX`）后的唯一路径 | **811** | 401 | 216 | 194 |
+| **注册条目** | 唯一 `(method, absolute_path)` 对 | **1165** | 665 | 277 | 223 |
+| **唯一路径** | 去掉方法后的唯一 `absolute_path` | **933** | 520 | 218 | 195 |
+| **逻辑端点** | 在上者基础上折叠版本前缀（`v3`/`r0`/`v1`/`unstable/*` → `vX`）后的唯一路径 | **813** | 402 | 216 | 195 |
 
-- `ROUTE_CONTRACT.md` 总览的 **1151** 与上表「注册条目」一致（该清单本身无 `(method,path)` 重复），
-  66 个含路由注册的模块文件 / 74 个 `registered_by` 标签同为其总览数字。
-- 1151 → 931 的差额**不是漂移**，而是"同路径多方法"（如 `summary` 4 个方法）；
-  931 → 811 的差额是"同路径多版本前缀"。
-- 「其他命名空间」194（唯一路径）= `/_matrix/`（非 client，如 federation/key）142 + `/_synapse/`（非 admin）35 + `/.well-known/` 5 + 根级非命名空间 12。
-  其中根级端点按 `ROUTE_CONTRACT.md` §前缀之外 为 **14 条有意注册**（3 条探活 + 11 条 CAS 根协议），该桶由
+- `ROUTE_CONTRACT.md` 总览的 **1165** 与上表「注册条目」一致（该清单本身无 `(method,path)` 重复），
+  66 个含路由注册的模块文件 / 74 个 `registered_by` 标签 / 46 个分类同为该文件的总览数字。
+- 1165 → 933 的差额**不是漂移**，而是"同路径多方法"（如 `summary` 4 个方法）；
+  933 → 813 的差额是"同路径多版本前缀"。
+- 「其他命名空间」195（唯一路径）= `/_matrix/`（非 client，如 federation/app/key）143 + `/_synapse/`（非 admin）35 + `/.well-known/` 5 + 根级非命名空间 12。
+  其中根级端点按 `(method,path)` 为 **14 条有意注册**（3 条探活 + 11 条 CAS 根协议），该桶由
   `test_extract_registered.py::check_non_namespace_bucket` 守卫钉死（出现新成员即转红）。
+- **相对 2026-09-21 快照（1151 / 931 / 811）的 +14 / +2 / +2**：全部来自此后**已提交**的路由增删 ——
+  主要是 MSC4512 AS 代理的两条 `any()` 路由（`/_matrix/app/v1/proxy/{as_id}/{*path}` 落在「其他命名空间」；
+  `/_matrix/client/v1/proxy/{as_id}/{*path}` 落在 Client 侧 catch-all「房间」类，一条 `any()` 即贡献 7 个注册条目）、
+  MSC3912 的 `POST /_synapse/admin/v1/rooms/{room_id}/cascade_redact`，并**减去** D-12 删除的
+  `GET /_synapse/admin/v1/event_reports/{id}/history`。逐项归因（`git log -S <path>`）属独立文档任务，本表只保证口径可复现。
+
+> 📌 **口径注意**：`/_matrix/client/v1/proxy/{as_id}/{*path}` 被归入「房间」是 §8.1 分类脚本
+> **兜底规则**（`("房间", r".")`）的结果，不代表它是房间 API。引用分类数字时须知这一点。
 
 > 🚨 **对历史版本的纠正**：v1.3 及更早版本声称"HEAD 真实注册路由条目约 **883**"、"Client ~237 / Admin ~174 / 总计 ~411"。
 > 883 与 237/174 均**无机器来源**，且与 2026-09-21 的 `ROUTE_CONTRACT.md` 不符。本版一律改为上表实测值。
@@ -55,7 +68,7 @@
 
 | 类别 | 逻辑端点 | 唯一路径 | 注册条目 | 说明 |
 |------|---------:|--------:|--------:|------|
-| **房间** | 206 | 250 | 302 | 含 join/knock/leave/invite/state/tags/relations/threads/summary/spaces |
+| **房间** | 207 | 251 | 309 | 含 join/knock/leave/invite/state/tags/relations/threads/summary/spaces；⚠️ 含 MSC4512 的 `/_matrix/client/v1/proxy/{as_id}/{*path}`（`any()` ⇒ 7 条注册条目，属兜底归类，见 §1.1 口径注意） |
 | **设备与密钥** | 71 | 113 | 154 | `/devices`、`/keys/*`、`/room_keys/*`、`cross_signing`、`device_verification`、`dehydrated_device`(MSC3814) |
 | **认证** | 44 | 60 | 71 | login/logout/register/refresh/oidc/saml/cas/rendezvous(MSC4108)/account(password·3pid·deactivate)/MSC2965 |
 | **用户** | 24 | 28 | 47 | profile/presence/user_directory/thirdparty/capabilities/account_data |
@@ -63,13 +76,13 @@
 | **消息** | 20 | 24 | 31 | `sendToDevice`、MSC4140 delayed_events、`/rooms/{id}/event/…` |
 | **搜索** | 8 | 10 | 12 | `/search` |
 | **媒体** | 8 | 10 | 10 | `/media/*`、`/upload`、`thumbnail`、`preview_url` |
-| **合计** | **401** | **519** | **658** | — |
+| **合计** | **402** | **520** | **665** | — |
 
 ## 三、Admin API 分类统计（机器口径，synapse-rust 实测）
 
 | 类别 | 逻辑端点 | 唯一路径 | 注册条目 | 说明 |
 |------|---------:|--------:|--------:|------|
-| **房间管理** | 51 | 51 | 60 | rooms/retention/purge_room/purge_history/shutdown_room/spaces/room_stats/statistics/server_notices/jitsi/cleanup |
+| **房间管理** | 51 | 51 | 60 | rooms/retention/purge_room/purge_history/shutdown_room/spaces/room_stats/statistics/server_notices/jitsi/cleanup/cascade_redact(MSC3912) |
 | **用户管理** | 48 | 50 | 68 | users/user_sessions/registration_tokens/register/account_validity/whois/whoami/account/invite |
 | **安全** | 45 | 45 | 57 | event_reports(15)/reports/policy/audit/feature-flags/experimental_features/background_updates(17) |
 | **服务器** | 45 | 45 | 60 | 未被前四类命中的 server/version/rate-limit-status/modules/appservices/telemetry/saml/cas/external_services 等 |
@@ -77,19 +90,18 @@
 | **媒体** | 7 | 7 | 9 | `/media*`、`quarantine_media`、`purge_media_cache`、`media_callbacks` |
 | **合计** | **216** | **218** | **277** | — |
 
-> **增量复核注（2026-09-24，仅 §三 本表）**：用 §8 的配方在本树实测重算本表，两处相对 2026-09-21 快照发生变化 ——
+> **增量复核注（2026-09-25，v1.5）**：本节三张表（§1.1 三口径总表、§二 Client、§三 Admin）已**全部**
+> 按 §8 配方在 `9e26ee31a` 上重算，不再保留任何 2026-09-21 快照。
+>
+> 相对 2026-09-21 快照，本表（Admin）内部**无净变化**（216 / 218 / 277），但两个类别互相抵消：
 > **安全 −1**（46/46/58 → 45/45/57）：D-12 删除了 `GET /_synapse/admin/v1/event_reports/{id}/history`
 > （`/stats` **保留**，改为对 `event_reports` 的实时聚合）；说明列的 `event_reports(16)` → `(15)`。
 > **房间管理 +1**（50/50/59 → 51/51/60）：来自**已提交**的 `a421e7641`（MSC3912 cascade redaction
-> 的 `POST /_synapse/admin/v1/rooms/{room_id}/cascade_redact`），非本次 D-12 变更。
-> 两者相抵，合计仍为 216/218/277。
+> 的 `POST /_synapse/admin/v1/rooms/{room_id}/cascade_redact`），非 D-12 变更。
 >
-> ⚠️ 本表之外（§1.1 三口径总表、§二 Client 分类表）**仍为 2026-09-21/22 快照，未随本节重算**，
-> 已落后于当前 HEAD：同一配方实测为 注册条目 **1163** / 唯一路径 **933** / 逻辑端点 **813**
-> （其中 admin 218/277/216，Client 合计 402/520/664）。差额来自 2026-09-22 之后**已提交**的路由增删
-> （`a421e7641` 的 MSC4512 AS 代理路由 + MSC3912 cascade_redact、
-> `ab5949c70` 的 `module` 域新增等）——
-> 本轮刻意不并入，以免把他批已完成的计数混进本次 D-12 的改动面。全表重算属独立文档任务。
+> Client 侧的唯一变化是**房间 +1/+1/+7**（206/250/302 → 207/251/309），来源是 MSC4512 的
+> `/_matrix/client/v1/proxy/{as_id}/{*path}`（`any()` 注册 7 个方法，落在兜底「房间」类）——
+> 见 §1.1 的口径注意。其余七个类别三个口径全部未变。
 
 > 「逻辑端点」低于「唯一路径」是因为 `/v1/*` 与 `/v2/*` 折回同一 `vX` 路径时的合并（Admin 侧表现在 `users` 族与 `rooms` 族）。
 
@@ -107,7 +119,7 @@
 | 类别 | synapse-rust（逻辑端点） | 上游 Synapse `[人工口径]` | 参考覆盖率 |
 |------|------------------------:|-------------------------:|-----------:|
 | 认证 | 44 | 35 | >100%（本仓含 CAS/SAML/OIDC/MSC2965 等非 C-S 标准项） |
-| 房间 | 206 | 50 | 口径不可比 |
+| 房间 | 207 | 50 | 口径不可比 |
 | 消息 | 20 | 40 | 口径不可比 |
 | 媒体 | 8 | 20 | 口径不可比 |
 | 用户 | 24 | 25 | ≈96% |
@@ -120,11 +132,11 @@
 | 类别 | synapse-rust（逻辑端点） | 上游 Synapse `[人工口径]` | 参考覆盖率 |
 |------|------------------------:|-------------------------:|-----------:|
 | 用户管理 | 48 | 27 | 口径不可比 |
-| 房间管理 | 50 | 33 | 口径不可比 |
+| 房间管理 | 51 | 33 | 口径不可比 |
 | 服务器 | 45 | 17 | 口径不可比 |
 | 媒体 | 7 | 18 | 39% ← **真实差距**（本仓 admin 媒体端点偏少，见 §6.3） |
 | 联邦 | 20 | 14 | 口径不可比 |
-| 安全 | 46 | 10 | 口径不可比 |
+| 安全 | 45 | 10 | 口径不可比 |
 
 **结论**：v1.3 表格中"认证 34/35（97%）""房间 46/50（92%）"等百分比，源于两个**互相不可比的口径**相除，
 且本仓侧数字（34/46/38/18/23/17/13/8）已无机器来源。本版不再给出统一覆盖率百分比。
@@ -144,28 +156,28 @@
 | v12/v13 房间可创建 | 1.158 | **MISSING** | 同上 `:114-115` 标为 `stable_parse_only`（可 parse/join/federate，**不可创建**）；联邦中存在 v12 房间 |
 | 缩略图动画支持（`animated` 查询参数） | 1.158 | **MISSING** | `animated` 在 `synapse-web/src/routes/` 与 `synapse-services/` 中均 **0 命中** |
 | MSC4335 媒体上传超限返回 `M_USER_LIMIT_EXCEEDED` | 1.158 | **PARTIAL** | 错误码已定义（`synapse-common/src/error/code.rs:83,131,225,292`），但**未见**媒体上传限额路径使用它（`synapse-services/` 0 命中） |
-| **MSC3814 脱水设备 `/events` 端点由 POST 改为 GET + query** | 1.157 | **PARTIAL（方法漂移）** | 本仓仅注册 `POST /_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events`，`next_batch` 从 **body** 读取 |
+| **MSC3814 脱水设备 `/events` 端点由 POST 改为 GET + query** | 1.157 | **TRUE（已对齐，2026-09-25 复测）** | `ROUTE_CONTRACT.md` 在册为 `GET /_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events`；契约产物（派生表 / fixture / 快照 / route-table / client.yaml）已同批再生成 |
 | **删除 `GET /_matrix/client/unstable/org.matrix.msc2965/auth_issuer`** | 1.161 | **反向：本仓仍注册（多余端点）** | `/_matrix/client/unstable/org.matrix.msc2965/auth_issuer` 仍在册（`/tmp/paths.txt` 可复现）；上游 1.161 #20163 已删除 |
-| **MSC4140 新增"获取单个延迟事件"端点** | 1.161 | **PARTIAL** | 本仓有 `/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}`；缺联邦 EDU（`synapse-federation/src/edu.rs:15-35` 无 delayed-event 变体，`m.delayed_event` 全仓 0 命中） |
+| **MSC4140 新增"获取单个延迟事件"端点** | 1.161 | **PARTIAL（联邦 EDU 已补齐，2026-09-25 复核）** | 单事件端点 `/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}` 在册；**联邦 EDU 已实现** —— `synapse-federation/src/edu.rs:37,67,83` 的 `EduType::DelayedEvent` ⇄ `"m.delayed_event"`，消费点 `synapse-web/src/federation/edu.rs:631`。**仍缺**：schedule 的 `state_key` 硬编码 `None`（`synapse-services/src/delayed_event_service.rs:94`） |
 | **MSC4502 定向房间成员查询** | 1.160 | **PARTIAL** | `msc4502` 命中 8 个 `.rs` 文件（`room/membership/{mod,service}.rs`、`handlers/room/members.rs`、`sync_service/*`、`membership/api.rs`） |
 | **MSC4262 / MSC4429 Profile 更新进 sync** | 1.159/1.160 | **PARTIAL** | `msc4262\|msc4429` 命中 8 个 `.rs` 文件（`user_service.rs`、`user/storage.rs`、`sliding_sync_service/extensions.rs`、`federation/edu.rs` 等） |
-| **MSC4512 App Service 命名空间代理 / 联邦请求** | 1.161 | **MISSING** | `msc4512` 在 `*.rs` 中 **0 命中** |
+| **MSC4512 App Service 命名空间代理 / 联邦请求** | 1.161 | **TRUE（代理已实现，2026-09-25 复核；旧版判 MISSING 已作废）** | `synapse-web/src/routes/app_service.rs:722-723` 注册两条 `any()` 代理路由（`/_matrix/app/v1/proxy/{as_id}/{*path}`、`/_matrix/client/v1/proxy/{as_id}/{*path}`），handler `proxy_to_as` 做 AS 注册校验 + `hs_token` 鉴权 + hop-by-hop 头过滤 + 响应回传；`msc4512` 命中 2 个文件。**未做**：上游 #19977 的另一半（联邦侧代理请求） |
 | MSC3861 实验性 auth delegation 移除 | 1.157 | **N/A** | 本仓以 MAS 稳定集成为准（`synapse-services/src/auth/mas_validator.rs`） |
 
 ### 5.2 安全 / 限流 / 错误码
 
 | 上游条目 | 版本 | 本仓实测 | 证据 |
 |---|---|---|---|
-| **`rc_reports` 限流应用于房间举报端点** | 1.161 | **MISSING** | 全仓 `grep -rn 'rc_reports'` = 0；`directory_reporting.rs` 举报 handler 只吃通用默认桶 |
-| `M_APPSERVICE_LOGIN_UNSUPPORTED`（Matrix 1.17 稳定码） | 1.161 | **MISSING（根因：AS 登录整体缺失）** | 无 `m.login.application_service`、无 `MSC4190`；登录类型仅 password/token/sso/cas/oidc/dummy |
+| **`rc_reports` 限流应用于房间举报端点** | 1.161 | **TRUE（已实现，2026-09-25 复核）** | `synapse-web/src/routes/directory_reporting.rs:235,293` 在 `report_room`/`report_user` 内按用户取桶（`take_rc_reports_token`，`:638-645`）；规则可配（`rate_limit.rc_reports`） |
+| `M_APPSERVICE_LOGIN_UNSUPPORTED`（Matrix 1.17 稳定码） | 1.161 | **PARTIAL（根因已消除一半）** | **AS 登录已实现**：`synapse-web/src/routes/auth_compat.rs:455-468` 处理 `m.login.application_service`（as_token + 命名空间校验 + 设备物化 + 令牌签发）；但该**错误码本身** `M_APPSERVICE_LOGIN_UNSUPPORTED` 全仓 **0 命中**（上游把它用在 `POST /register` 的 `inhibit_login` 语义上，窗口不在 `/login`） |
 | MSC4178 3PID `requestToken` 非法邮箱/国家码返回 `M_INVALID_PARAM` | 1.161 | **未核对** | — |
 | MSC3866：`GET /_synapse/admin/v2/users` 在未启用时省略 approval 标记 | 1.161 | **未核对** | — |
 | Profile 自定义字段：PUT/DELETE 返回 403 + `M_FORBIDDEN` | 1.161 | **已实现（另一触发路径）** | `account_compat.rs:195-197,224-226`、`extended_profile.rs:121-123,153-155` |
 | Profile 不存在用户写自定义字段返回 404 而非 500 | 1.161 | **PARTIAL（与上游相反）** | `user/storage.rs:663-673` 的 `user_exists` 过滤 `is_deactivated = FALSE` → 对**已停用但存在**用户返回 404，上游要求成功 |
 | MSC4222 `/sync` 左房 `state_after` 成员泄漏修复 | 1.161 | **N/A** | 全仓 `state_after` / `MSC4222` = 0，本仓无该实现，故该 bug 不适用 |
-| MSC3912 关系性撤回（room version > 10 时 `redacts` 置入 `content`） | 1.161 | **MISSING** | 撤回事件 `content` 只有 `{"reason":…}`，目标 id 仍写**顶层** `redacts`；而本仓**默认创建 v11 房间** → 与合规 v11 消费方互操作风险 |
+| MSC3912 关系性撤回（room version > 10 时 `redacts` 置入 `content`） | 1.161 | **PARTIAL（格式已修 + 级联已实现，客户端路径不级联）** | ① **格式**：Phase 1 起由服务层按房间版本注入 `content.redacts`（v11+），出站 PDU 不再重复写顶层 `redacts`，有回归用例锁定；② **级联**：`synapse-storage/src/event/cascade.rs` + `synapse-services/src/event_redaction_service.rs:58` + 端点 `POST /_synapse/admin/v1/rooms/{room_id}/cascade_redact`（深度默认 5、上限 10）；③ **缺口**：客户端撤回路径 `synapse-web/src/routes/handlers/room/events.rs:990` 仍只调 `redact_event_content`（**不级联**）—— 级联仅管理端可达 |
 | MSC4242 State DAG（联邦客户端 + 存储） | 1.161 | **PARTIAL（仅存储层）** | `dag.rs` 注释声称被 `/send_join`、`/get_missing_events` 使用，实际 **0 调用点**；上游本身亦为 experimental |
-| **v1.157.2 安全版本**（6 High / 4 Moderate / 2 Low，ELEMENTSEC/GHSA） | 1.157.2 | **未判定** | 本报告不应对上游安全版本沉默；需逐条产出"受影响/不受影响 + 证据"对照表 |
+| **v1.157.2 安全版本**（ELEMENTSEC / GHSA） | 1.157.2 | **已判定（2026-09-23，11 条）** | 逐条"受影响/不受影响 + 证据"对照表见 [`../synapse-rust-vs-synapse-comparison.md`](../synapse-rust-vs-synapse-comparison.md) §14.5：3 条需动作/决策（push rule 上限、别名劫持、multipart Content-Type）、2 条需代理侧复核、其余 6 条本仓已有守卫。⚠️ 公告计数是 **11** 而非 12（三处交叉验证：Releases 正文 / tag `CHANGES.md` / advisory 列表） |
 
 ### 5.3 外部依赖类（非路由，但影响能力声明）
 
@@ -187,23 +199,32 @@
 | `GET/DELETE /_synapse/admin/v1/rooms/{room_id}/reports[/{report_id}]` | §三"缺失（待实现）" | **已实现**（`_synapse/admin/v1/rooms/{room_id}/reports`、`.../reports/{report_id}` 均在册；`synapse-web/src/routes/admin/report.rs`） |
 | `GET /_synapse/admin/v1/quarantine_media/{media_id}/changes` | §三"缺失（待实现）" | **已实现**（在册） |
 | `GET/DELETE /_synapse/admin/v1/reports[/{report_id}]` | 未提及 | **已实现**（在册，与 `event_reports` 并存） |
-| `POST /_matrix/client/v3/keys/upload` 拒绝 `device_keys: null` | §三"缺失（待实现）" | 需下一轮按代码复核（本版未实测，标 `[未验证]`） |
+| `POST /_matrix/client/v3/keys/upload` 拒绝 `device_keys: null` | §三"缺失（待实现）" | `[未验证]`（本次未按代码复核，留待下一轮） |
 | 事件举报 API（`event_reports` 全家族 15 条，含 `rate_limit/{user_id}/block`） | v1.3 完全未列 | **已实现且超出上游文档面**（2026-09-24：`/{id}/history` 已按 D-12 删除，16 → 15） |
+| **`rc_reports` 专项限流** | §5.2 判 `MISSING` | **已实现**（`synapse-web/src/routes/directory_reporting.rs:235,293`，桶函数 `:638-645`） |
+| **MSC4512 AS 命名空间代理** | §5.1 / §6.2 判 `MISSING` | **已实现**（`synapse-web/src/routes/app_service.rs:722-723` + handler `proxy_to_as`） |
+| **AS 登录 `m.login.application_service`** | §5.2 / §6.2 判 `MISSING` | **已实现**（`synapse-web/src/routes/auth_compat.rs:455-468`） |
+| **MSC4140 联邦 EDU** | §5.1 判缺失 | **已实现**（`synapse-federation/src/edu.rs:37,67,83`；消费点 `synapse-web/src/federation/edu.rs:631`） |
+| **MSC3912 关系性级联撤回** | §5.2 / §6.2 判 `MISSING` | **部分实现**（`synapse-storage/src/event/cascade.rs` + `synapse-services/src/event_redaction_service.rs:58` + 管理端点；客户端撤回路径不级联） |
+| **Content Scanner** | §11.2（对比报告）判"未装配、从未被构造、未接入 config" | **已装配**（`synapse-services/src/wiring/core.rs:66,179` 构造 + `synapse-common/src/config/mod.rs:242` 配置项）——**但仍零调用点、零持久化** |
 
 > ⚠️ **§三 的"缺失清单"在 v1.3 中停更于 2026-05-28**，其"待实现"标记已不可作为缺失证据。
 > 本版起：该清单每条必须附 `路径:行号` 或"在册证据"，否则不写入。
+> 另注：上表后 6 行是 v1.5 新增 —— **同一批"缺失"判定在同一份报告的 §5.2/§6.2 与对比报告里出现过三种不同状态**，
+> 说明"人工清单"本身是漂移源；判断能力是否存在应直接跑 §8 的命令。
 
 ### 6.2 结构性缺失（本仓无对应实现，需决策）
 
-| 项 | 状态 | 影响 |
+| 项 | 状态（2026-09-25 复核） | 影响 |
 |---|---|---|
-| **App Service 登录**（`m.login.application_service`） | 整体缺失 | 无法支持 AS 伪装的客户端登录；上游已稳定 `M_APPSERVICE_LOGIN_UNSUPPORTED` |
-| **MSC4512** App Service 命名空间代理 / 联邦请求 | 缺失 | 上游为 experimental + opt-in |
-| **MSC3912 / v11 撤回格式** | 缺失（且与默认房间版本 11 冲突） | 协议互操作缺陷：本仓发出的撤回在合规 v11 实现上可能不生效 |
-| **v12/v13 房间创建** | 不可创建 | 联邦中存在 v12 房间；v12 认证规则未实现 |
-| **`rc_reports` 限流桶** | 缺失 | 举报端点未按规范限流 |
-| **MSC4140 联邦 EDU** | 缺失 | 延迟事件仅单机可用 |
-| **MSC3814 `/events` 方法** | 漂移（POST vs 上游 GET） | 与上游/客户端契约不一致 |
+| **App Service 登录**（`m.login.application_service`） | ✅ **已实现**（`auth_compat.rs:455-468`）；~~整体缺失~~ | 仍缺 pushers、设备管理、虚拟用户以 C-S 身份调用、以及稳定错误码 `M_APPSERVICE_LOGIN_UNSUPPORTED`（全仓 0 命中） |
+| **MSC4512** App Service 命名空间代理 | ✅ **代理已实现**（`app_service.rs:722-723`）；~~缺失~~ | 联邦侧代理请求（上游 #19977 的另一半）未做；上游整体仍 experimental + opt-in |
+| **MSC3912 / v11 撤回格式** | 🟡 **格式已修**（v11+ 写 `content.redacts`）；级联**仅管理端可达** | "撤回一条消息不连带撤回其回复/表情"仍与上游行为不同（`handlers/room/events.rs:990` 不级联） |
+| **v12/v13 房间创建** | ⚪ 不可创建（未变；`room_versions.rs:114-115` `stable_parse_only`） | 联邦中存在 v12 房间；v12 认证规则未实现 |
+| **`rc_reports` 限流桶** | ✅ **已实现**（`directory_reporting.rs:235,293`）；~~缺失~~ | — |
+| **MSC4140 联邦 EDU** | ✅ **已实现**（`edu.rs:37,67,83`）；~~缺失~~ | 仍缺：schedule 的 `state_key` 硬编码 `None`（`delayed_event_service.rs:94`） |
+| **MSC3814 `/events` 方法** | ✅ **已对齐（GET）**；~~漂移（POST）~~ | — |
+| **Content Scanner** | 🔴 **已装配但无消费者**：`wiring/core.rs:66,179` 已构造、`config/mod.rs:242` 已接入配置，但 `scan`/`scan_text`/`scan_media` 在生产路径 **0 调用点**，且无存储模块与表 | 配置打开也不产生任何扫描行为 —— "看起来已上线"的功能比缺功能更危险 |
 
 ### 6.3 Admin 媒体端点（对照表中唯一可辩护的真实差距）
 
@@ -223,7 +244,7 @@
 
 | 编号 | 动作 | 验收判据 |
 |---|---|---|
-| A1 | ✅ 本版已修正：路由总数改为 `ROUTE_CONTRACT.md` 实测（931 条目 / 811 逻辑端点），删除无源的 883 / 411 | §1 的每个数字都能由 §8 命令复现 |
+| A1 | ✅ **v1.5 已完成**：路由总数改为 `ROUTE_CONTRACT.md` 实测（1165 注册条目 / 933 唯一路径 / 813 逻辑端点），删除无源的 883 / 411，并把 2026-09-21 快照全部重算 | §1 的每个数字都能由 §8 命令复现 |
 | A2 | ✅ 本版已修正：删除"34/35（97%）"等不可比口径相除得到的覆盖率百分比，改为显式口径警告 | §四 表格不含未标注口径的百分比 |
 | A3 | ✅ 本版已修正：章节编号重复（v1.3 出现两个"三、"）| 章节编号唯一 |
 | A4 | 把"缺失清单"改为**带证据的清单**：每条必须有 `路径:行号` 或在册证据 | 评审清单项：无证据条目不得出现 |
@@ -231,26 +252,28 @@
 
 ### B. 协议正确性（优先于实验性 MSC）
 
-| 编号 | 动作 | 验收判据 | 关联 |
-|---|---|---|---|
-| B1 | **v11 撤回格式**：`room_version > 10` 时把目标 id 写入 `content.redacts` | 新增测试：v11 房间撤回的 `content.redacts` == 目标 id；v10 仍在顶层 | 本报告 §5.2 首次指出 |
-| B2 | **`rc_reports` 限流桶** | 命中限流返回 429 + `retry-after`；配置有测试覆盖 | 上游 1.161 #20036 |
-| B3 | **MSC3814 `/events` 改为 GET + query**，`next_batch` 末页返回 null | 契约测试断言方法为 GET、末页 `next_batch` 为 null | 上游 1.157 #19896 |
-| B4 | **移除上游已删除的 `msc2965/auth_issuer`**（或明确记录为有意兼容） | 决策记录；若保留需在本文档标注为"上游已删除的本仓扩展" | 上游 1.161 #20163 |
-| B5 | **v12/v13 支持边界决策**：实现 v12 认证规则并放开创建，或明确记录"仅 join/federate" | 决策记录 + `capabilities` 输出与之一致 | 上游 1.158 |
-| B6 | **v1.157.2 安全公告同类性逐条判定** | 每条给出"受影响/不受影响 + 证据" | 上游 1.157.2 |
-| B7 | **Profile 语义对齐**（停用但存在的用户写自定义字段应成功；account_data 非对象 ⇒ 400 而非 500） | 各状态码有测试断言 | 上游 1.161 #20172/#20149 |
+| 编号 | 动作 | 状态（2026-09-25） | 验收判据 | 关联 |
+|---|---|---|---|---|
+| B1 | **v11 撤回格式**：`room_version > 10` 时把目标 id 写入 `content.redacts` | ✅ **已修**（服务层按房间版本注入，出站 PDU 不再重复写顶层） | 新增测试：v11 房间撤回的 `content.redacts` == 目标 id；v10 仍在顶层 | 本报告 §5.2 首次指出 |
+| B2 | **`rc_reports` 限流桶** | ✅ **已修**（per-user 桶 + 可配规则 + 守卫测试） | 命中限流返回 429 + `retry-after` | 上游 1.161 #20036 |
+| B3 | **MSC3814 `/events` 改为 GET + query**，`next_batch` 末页返回 null | ✅ **已修**（契约产物同批再生成） | 契约测试断言方法为 GET、末页 `next_batch` 为 null | 上游 1.157 #19896 |
+| B4 | **移除上游已删除的 `msc2965/auth_issuer`**（或明确记录为有意兼容） | 🔴 **仍存在**（仍在册） | 决策记录；若保留需标注为"上游已删除的本仓扩展" | 上游 1.161 #20163 |
+| B5 | **v12/v13 支持边界决策**：实现 v12 认证规则并放开创建，或明确记录"仅 join/federate" | 🟡 **未决策**（`room_versions.rs:114-115` 仍 `stable_parse_only`） | 决策记录 + `capabilities` 输出与之一致 | 上游 1.158 |
+| B6 | **v1.157.2 安全公告同类性逐条判定** | ✅ **已做**（对比报告 §14.5，共 11 条：3 条需动作、2 条需代理侧复核、6 条已有守卫） | 对照表 + 结论 | 上游 1.157.2 |
+| B7 | **Profile 语义对齐**（停用但存在的用户写自定义字段应成功；account_data 非对象 ⇒ 400 而非 500） | 🟡 **部分**（MSC4133 非对象已改 400；停用用户仍 404、稳定 `/{keyName}` 仍未注册） | 各状态码有测试断言 | 上游 1.161 #20172/#20149 |
+| B8 | **客户端撤回走级联**（或显式声明不支持）：当前 `handlers/room/events.rs:990` 只撤回单条 | 🔴 **新增缺口** | 撤回有回复的消息后相关事件均被撤回；或文档显式声明不支持 | 本报告 §5.2 / MSC3912 |
+| B9 | **Content Scanner 决策**：接线（存储 + 表 + 媒体上传调用点）或下线该装配 | 🔴 **新增缺口** | 配置打开后上传媒体确实被扫描（有测试）；或模块下线 | 本报告 §6.2 |
 
 ### C. 功能补齐（保留原方向，重新定级）
 
 | 编号 | 项 | 原定级 | 建议定级 | 理由 |
 |---|---|---|---|---|
-| C1 | App Service 登录（含稳定错误码） | 未列 | **高（决策项）** | 功能整体缺失，非"未稳定化"；若不实现应显式声明不支持 |
-| C2 | MSC4502 / MSC4262 从 PARTIAL 收敛到完整或显式声明边界 | 未列 | **中** | 代码已有实现痕迹但未验证语义完整性 |
-| C3 | MSC4140 联邦 EDU | "已对齐" | **中** | 客户端链路真实，缺联邦；需按草案确认是否必须 |
-| C4 | Admin 媒体端点族补齐 | 未列 | **中（决策项）** | 唯一可辩护的覆盖率差距（§6.3） |
+| C1 | App Service 登录（含稳定错误码） | 未列 | **低（已实现，仅欠错误码）** | `m.login.application_service` 已落地；剩稳定错误码 `M_APPSERVICE_LOGIN_UNSUPPORTED` 与 pushers/设备管理 |
+| C2 | MSC4502 / MSC4262 从 PARTIAL 收敛到完整或显式声明边界 | 未列 | **中** | 代码已有实现痕迹但未验证语义完整性（各 8 个 `.rs` 命中） |
+| C3 | MSC4140 联邦 EDU | "已对齐" | **低（已实现，仅欠 `state_key`）** | EDU 已通；剩 `delayed_event_service.rs:94` 的 `state_key: None` |
+| C4 | Admin 媒体端点族补齐 | 未列 | **中（决策项）** | 唯一可辩护的覆盖率差距（§6.3，7 vs 上游 18） |
 | C5 | Admin `stats` 接口接运维仪表盘 | 短期 | **中（保留）** | 保留 v1.3 方向 |
-| C6 | MSC4242 / MSC4512 | P0 阻断性 | **低（观察项）** | 上游本身 experimental + opt-in；应修正 `dag.rs` 不实注释 |
+| C6 | MSC4242（State DAG） | P0 阻断性 | **低（观察项）** | 上游本身 experimental + opt-in；应修正 `dag.rs` 不实注释。**MSC4512 已实现，从本行移出** |
 | C7 | OIDC 完善 / Push 优化 / Worker 架构激活 | 中期 | **中（保留）** | 保留 v1.3 方向 |
 
 ### D. 把"可辩护的覆盖率"变成机器产物（建议新增）
@@ -258,7 +281,7 @@
 | 编号 | 动作 | 验收判据 |
 |---|---|---|
 | D1 | 在 SDK/脚本侧增加**上游端点机器抽取**（从 `element-hq/synapse` 的 `synapse/rest/**` 或官方 OpenAPI 导出），产出与 `ROUTE_CONTRACT.md` 同构的清单 | 生成上游清单的脚本可复现；两侧口径一致后**才**允许输出覆盖率百分比 |
-| D2 | 本文档的每个数字必须来自 §8 命令或 `ROUTE_CONTRACT.md` | 脚本对故意写错的数字能变红 |
+| D2 | 本文档的每个数字必须来自 §8 命令或 `ROUTE_CONTRACT.md` | 脚本对故意写错的数字能变红。**对比报告已落地对应门禁**（`tests/unit/doc_credibility_guard_tests.rs` 钉死 route 计数与路径存在性）；**本文档仍无**，是 §1.1 三次漂移（1151→1163→1165）无人拦截的直接原因 |
 | D3 | 文档中出现的 MSC 编号必须已登记在 `MSC_SEMANTICS.md` | 未登记编号报错 |
 
 ---
@@ -268,17 +291,22 @@
 ```bash
 cd /Users/ljf/Desktop/hu_ts/synapse-rust
 
-# ① 路由权威口径（机器生成于 2026-09-21）
+# ① 路由权威口径（机器生成于 2026-09-25）
 grep -n '注册路由条目\|含路由注册的模块文件\|registered_by' docs/synapse-rust/ROUTE_CONTRACT.md | head
 
 # ② 从 ROUTE_CONTRACT.md 抽取路由，复现 §1.1 的三种口径
-grep -oE '^- `(GET|PUT|POST|DELETE|OPTIONS|PATCH)` `[^`]+`' docs/synapse-rust/ROUTE_CONTRACT.md \
+#    ⚠️ 方法名写成 `[A-Z]+`、且**不要**锚定行尾：部分行带〔always / X 双档注册〕注解，
+#       锚定 `$` 会静默少 21 条（实测 1144 ≠ 1165，是本表上一版漂移的一个来源）。
+grep -oE '^- `[A-Z]+` `[^`]+`' docs/synapse-rust/ROUTE_CONTRACT.md \
   | sed -E 's/^- `([A-Z]+)` `([^`]+)`$/\1 \2/' > /tmp/mp.txt
-wc -l < /tmp/mp.txt                                          # 1151 注册条目 (method,path)
+wc -l < /tmp/mp.txt                                          # 1165 注册条目 (method,path)
 awk '{print $2}' /tmp/mp.txt | sort -u > /tmp/paths.txt
-wc -l < /tmp/paths.txt                                       #  931 唯一路径
-grep -c '^/_matrix/client' /tmp/paths.txt                    #  519 唯一路径 client
+wc -l < /tmp/paths.txt                                       #  933 唯一路径
+grep -c '^/_matrix/client' /tmp/paths.txt                    #  520 唯一路径 client
 grep -c '^/_synapse/admin' /tmp/paths.txt                    #  218 唯一路径 admin
+# 其他命名空间 195 = /_matrix(非 client) 143 + /_synapse(非 admin) 35 + /.well-known 5 + 根级 12
+grep -cE '^/(?!/_matrix/|/_synapse/|/\.well-known/)' -P /tmp/paths.txt 2>/dev/null \
+  || awk '!/^\/_matrix\/|^\/_synapse\/|^\/\.well-known\//' /tmp/paths.txt | wc -l   # 12
 
 # ③ 逻辑端点口径（折叠版本前缀）
 python3 - <<'PY'
@@ -291,8 +319,8 @@ def norm(p):
     p=re.sub(r'^/_synapse/admin/v[0-9]+/','/_synapse/admin/vX/',p)
     return p
 L=sorted({norm(p) for p in paths})
-print('逻辑端点(全部) =', len(L))                                                   # 811
-print('逻辑端点(client) =', sum(1 for p in L if p.startswith('/_matrix/client')))   # 401
+print('逻辑端点(全部) =', len(L))                                                   # 813
+print('逻辑端点(client) =', sum(1 for p in L if p.startswith('/_matrix/client')))   # 402
 print('逻辑端点(admin)  =', sum(1 for p in L if p.startswith('/_synapse/admin')))   # 216
 open('/tmp/logical_routes.txt','w').write('\n'.join(L)+'\n')
 PY
@@ -307,13 +335,19 @@ gh release list --repo element-hq/synapse --limit 8
 gh api "repos/element-hq/synapse/contents/CHANGES.md?ref=v1.161.0" -H "Accept: application/vnd.github.raw" > /tmp/synapse_changes.md
 awk '/^# Synapse 1\.158\.0 \(/{f=1} f' /tmp/synapse_changes.md | awk '/^# Synapse 1\.157\.0 \(/{exit} {print}'
 
-# ⑥ 关键事实核对
+# ⑥ 关键事实核对（注释为本版 2026-09-25 实测值）
 grep -n 'DEFAULT_ROOM_VERSION: &str\|stable_parse_only' synapse-common/src/room_versions.rs   # 默认 v11；v12/v13 只读
-grep -rn 'rc_reports' --include='*.rs' . || echo 'rc_reports = 0（限流缺失）'
-grep -rli 'msc4512' --include='*.rs' . || echo 'msc4512 = 0（未实现）'
-grep -rli 'msc4502' --include='*.rs' . | wc -l                # 8 个文件（PARTIAL）
-grep -rli 'msc4262\|msc4429' --include='*.rs' . | wc -l       # 8 个文件（PARTIAL）
-grep -n 'msc2965' /tmp/paths.txt                              # auth_issuer 仍在本仓注册（上游 1.161 已删除）
+grep -rn 'rc_reports' --include='*.rs' . | grep -v '^./target'   # 已实现：directory_reporting.rs:235,293
+grep -rli 'msc4512' --include='*.rs' . | grep -v '^./target'     # 2 个文件（AS 代理已实现）
+grep -rli 'msc4502' --include='*.rs' . | grep -v '^./target' | wc -l   # 8 个文件（PARTIAL）
+grep -rliE 'msc4262|msc4429' --include='*.rs' . | grep -v '^./target' | wc -l  # 8 个文件（PARTIAL）
+grep -n 'msc2965' /tmp/paths.txt                                 # auth_issuer 仍在本仓注册（上游 1.161 已删除）
+
+# ⑦ 能力"是否真的接线"—— 只看模块/配置存在会得出错误结论
+grep -rn 'EduType::DelayedEvent' --include='*.rs' synapse-federation/src/edu.rs     # MSC4140 联邦 EDU 已通
+grep -rn 'content_scanner\.' --include='*.rs' synapse-services/src synapse-web/src  # 仅 wiring/core.rs（0 生产消费者）
+grep -rn 'cascade_redact' --include='*.rs' synapse-web/src/routes/admin/room/mod.rs # MSC3912 仅管理端可达
+grep -rn 'redact_event_content' --include='*.rs' synapse-web/src/routes/handlers/room/events.rs  # 客户端撤回不级联
 ```
 
 ### 8.1 分类归属脚本（`classify_routes.py`）
@@ -400,14 +434,19 @@ for key, rules in (("Client", CLIENT), ("Admin", ADMIN)):
 
 | 文档 | 用途 | 时效性 |
 |---|---|---|
-| [`ROUTE_CONTRACT.md`](./ROUTE_CONTRACT.md) | **路由机器权威**（逐模块 `(method, path)`） | 2026-09-21 生成 |
+| [`ROUTE_CONTRACT.md`](./ROUTE_CONTRACT.md) | **路由机器权威**（逐模块 `(method, path)`） | 2026-09-25 生成（1165 条） |
 | [`MSC_SEMANTICS.md`](./MSC_SEMANTICS.md) | **MSC 编号语义唯一真相源**（含"借用编号"登记） | 2026-09-14 |
 | [`ELEMENT_SYNAPSE_GAP_ANALYSIS_2026-07-28.md`](./ELEMENT_SYNAPSE_GAP_ANALYSIS_2026-07-28.md) | 对标 v1.156.0 的功能级差距分析 | 2026-07-28（基准已落后 5 个版本） |
 | [`../audit/COMPARISON_REPORT_REVIEW_2026-09-22.md`](../audit/COMPARISON_REPORT_REVIEW_2026-09-22.md) | 对 `synapse-rust-vs-synapse-comparison.md` 的复核（含 v1.157–1.161 逐条实测） | 2026-09-22 |
+| [`../audit/2026-09-23-msc3912-cascade-redaction.md`](../audit/2026-09-23-msc3912-cascade-redaction.md) | MSC3912 关系性级联撤回的实现说明（§5.2 / §6.2 引用） | 2026-09-23 |
+| [`../audit/D-12_EVENT_REPORT_HISTORY_STATS_FIX_PLAN.md`](../audit/D-12_EVENT_REPORT_HISTORY_STATS_FIX_PLAN.md) | D-12（`event_reports` `/history` 删除 + `/stats` 静态聚合）的收口记录 —— **§三「安全 −1」的来源** | 2026-09-25 |
+| [`../audit/PROJECT_REMAINING_ISSUES_2026-09-14.md`](../audit/PROJECT_REMAINING_ISSUES_2026-09-14.md) | 仓库级「现存问题清单」（本文档 §七 的建议归口于此，不新开 backlog） | 2026-09-14（主线基线；`opt/consolidated` 差异见其 §20 之后追加的轮次） |
 | [`LEDGER_EXPORT_SCHEMA.md`](./LEDGER_EXPORT_SCHEMA.md) | ledger 导出格式与 SDK 契约同步口径 | — |
 
 ---
 
 *创建日期: 2026-03-19*
-*最后更新: 2026-09-22（v1.4：对齐上游 v1.161.0；路由口径改为 `ROUTE_CONTRACT.md` 机器实测并区分「注册条目 / 唯一路径 / 逻辑端点」三种口径；
-剔除无源的 883 / 411 计数与不可比口径相除得到的覆盖率百分比；新增 v1.157–v1.161 增量逐条判定；修正章节编号重复与已实现项误判；内嵌可复现的分类脚本）*
+*最后更新: 2026-09-25（v1.5：全表按 §8 配方在 HEAD `9e26ee31a` 重算 —— 三口径 1165 / 933 / 813 与 §二/§三
+分类表全部替换 2026-09-21 快照；§五/§六 判定推进到当前 HEAD，MSC4512 / MSC3912 级联 / MSC4140 联邦 EDU /
+Content Scanner 装配 / `rc_reports` / AS 登录六项从「缺失」改为实测状态，其中 Content Scanner 是"已装配但零消费者"；
+修正 §8 抽取配方中会静默少 21 条的锚定错误，并补 §⑦「是否真的接线」核对命令）*

@@ -172,6 +172,10 @@ impl InMemoryEventStore {
             origin: Some(e.origin),
             user_id: Some(e.user_id),
             stream_ordering: e.stream_ordering,
+            prev_events: None,
+            auth_events: None,
+            signatures: None,
+            hashes: None,
         }))
     }
 
@@ -216,6 +220,10 @@ impl InMemoryEventStore {
                 origin: Some(e.origin.clone()),
                 user_id: Some(e.user_id.clone()),
                 stream_ordering: e.stream_ordering,
+                prev_events: None,
+                auth_events: None,
+                signatures: None,
+                hashes: None,
             })
             .collect();
         results.sort_by_key(|e| std::cmp::Reverse(e.origin_server_ts));
@@ -263,6 +271,10 @@ impl InMemoryEventStore {
                 origin: Some(e.origin.clone()),
                 user_id: Some(e.user_id.clone()),
                 stream_ordering: e.stream_ordering,
+                prev_events: None,
+                auth_events: None,
+                signatures: None,
+                hashes: None,
             })
             .collect();
         results.sort_by_key(|e| std::cmp::Reverse(e.origin_server_ts));
@@ -442,6 +454,10 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
             origin: Some(e.origin),
             user_id: Some(e.user_id),
             stream_ordering: e.stream_ordering,
+            prev_events: None,
+            auth_events: None,
+            signatures: None,
+            hashes: None,
         }))
     }
 
@@ -467,6 +483,10 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
                 origin: Some(e.origin.clone()),
                 user_id: Some(e.user_id.clone()),
                 stream_ordering: e.stream_ordering,
+                prev_events: None,
+                auth_events: None,
+                signatures: None,
+                hashes: None,
             })
             .collect();
         Ok(matched)
@@ -512,6 +532,10 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
                 origin: Some(e.origin.clone()),
                 user_id: Some(e.user_id.clone()),
                 stream_ordering: e.stream_ordering,
+                prev_events: None,
+                auth_events: None,
+                signatures: None,
+                hashes: None,
             })
             .collect();
         results.sort_by_key(|e| std::cmp::Reverse(e.origin_server_ts));
@@ -558,6 +582,10 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
                 origin: Some(e.origin.clone()),
                 user_id: Some(e.user_id.clone()),
                 stream_ordering: e.stream_ordering,
+                prev_events: None,
+                auth_events: None,
+                signatures: None,
+                hashes: None,
             })
             .collect();
         results.sort_by_key(|e| std::cmp::Reverse(e.origin_server_ts));
@@ -635,6 +663,10 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
                         origin: Some(event.origin.clone()),
                         user_id: Some(event.user_id.clone()),
                         stream_ordering: event.stream_ordering,
+                        prev_events: None,
+                        auth_events: None,
+                        signatures: None,
+                        hashes: None,
                     });
                 }
             }
@@ -670,6 +702,10 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
                         origin: Some(event.origin.clone()),
                         user_id: Some(event.user_id.clone()),
                         stream_ordering: event.stream_ordering,
+                        prev_events: None,
+                        auth_events: None,
+                        signatures: None,
+                        hashes: None,
                     });
                 }
             }
@@ -713,6 +749,10 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
                     origin: Some(event.origin.clone()),
                     user_id: Some(event.user_id.clone()),
                     stream_ordering: event.stream_ordering,
+                    prev_events: None,
+                    auth_events: None,
+                    signatures: None,
+                    hashes: None,
                 });
             }
         }

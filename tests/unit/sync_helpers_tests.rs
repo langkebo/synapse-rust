@@ -56,6 +56,10 @@ fn sample_state_event() -> StateEvent {
         origin: None,
         user_id: None,
         stream_ordering: None,
+        prev_events: None,
+        auth_events: None,
+        signatures: None,
+        hashes: None,
     }
 }
 

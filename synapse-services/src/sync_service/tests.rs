@@ -949,6 +949,10 @@ fn sample_state_event() -> StateEvent {
         origin: Some("example.com".to_string()),
         user_id: Some("@sender:example.com".to_string()),
         stream_ordering: Some(10),
+        prev_events: None,
+        auth_events: None,
+        signatures: None,
+        hashes: None,
     }
 }
 

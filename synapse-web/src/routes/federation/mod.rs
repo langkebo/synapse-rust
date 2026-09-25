@@ -23,6 +23,8 @@ pub mod keys;
 pub mod media;
 /// The `membership` module.
 pub mod membership;
+/// The `pdu` module.
+pub mod pdu;
 /// The `transaction` module.
 pub mod transaction;
 

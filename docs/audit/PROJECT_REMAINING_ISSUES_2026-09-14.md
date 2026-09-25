@@ -1119,3 +1119,113 @@ grep -c 'ensure_template_schema(&url, baseline)' synapse-common/src/test_isolati
 grep -n 'header::' src/web/routes/msc4108_rendezvous.rs
 grep -n 'StatusCode::' src/web/routes/msc4108_rendezvous.rs
 ```
+
+---
+
+## 21. 第三轮复核（2026-09-25，`opt/consolidated` @ `9e26ee31a`）
+
+> **基线说明**：§1–§20 的基线是 `main`。本节在**分支 `opt/consolidated`** 上复测，方法一律**回到源码
+> 取证**（`路径:行号` 或可复现命令），不采信任何文档既有标记。与 §18 冲突时以本节为准。
+> 本节全部取证完成于 `9e26ee31a`；收尾期间并发会话将 HEAD 推进到 `57cb5e81a`（storage 游标测试 +
+> D-15.3 登记），两个提交均不触及本节任何审计面，结论不变。
+> 完整判定表见 [`../synapse-rust-vs-synapse-comparison.md`](../synapse-rust-vs-synapse-comparison.md) §15，
+> 路由/覆盖口径见 [`../synapse-rust/API_COVERAGE_REPORT.md`](../synapse-rust/API_COVERAGE_REPORT.md) §六。
+> **本节不新开 backlog**，只做状态归并。
+
+### 21.1 当前仍存在的问题（按严重度）
+
+| 级别 | 问题 | 判据（可复现） |
+|---|---|---|
+| **P0（已收窄）** | 联邦 `/send_join` **响应面与 PDU 字段面已修**：v1 补 `[200, {…}]` 包装、补 `origin`；`state`/`auth_chain` 统一经 `routes/federation/pdu.rs::build_pdus` 投影（含此前完全缺失的 `origin_server_ts`，并复用库中 `hashes`/`signatures`，否则现场签名）。**残余三条**（详见 §21.5）：① 本地 `create_event` 不落 `depth`/`prev_events`/`auth_events` ⇒ 本地起源事件投影为 `MissingGraphMetadata` 并**故意不发签名**（不伪造）；② 入站事件不落原服务端 `signatures` ⇒ 转发远端 PDU 只有本机签名；③ `event_id` 非 reference hash（见下一行） | `synapse-web/src/routes/federation/pdu.rs`（新）；`membership/join.rs`；`federation/events.rs` |
+| **P0** | **PDU 语义未对齐（独立于字段完备性）**：`event_id` 形如 `$<ms>_<rand>:<server>`，而非 v4+ 的 reference hash ⇒ 即便字段齐全，v11 对等端也无法把本仓 PDU 当规范事件接受 | `synapse-common/src/crypto.rs:149`（`generate_event_id`） |
+| **高** | E2EE SAS 4 处偏离规范（info 串缺公钥且顺序错 / emoji 仅 6 个且 decimal 被丢弃 / MAC 非 `hkdf-hmac-sha256.v2` / commitment 非 SHA-256）；`/keys/device_signing/verify_*` 私有 API 形状**阻塞**规范修法 | `synapse-e2ee/src/verification/service.rs` |
+| **高** | 客户端撤回不级联（MSC3912 级联**仅管理端可达**） | `synapse-web/src/routes/handlers/room/events.rs:990` |
+| **高** | Content Scanner **已装配但零调用点、零持久化** —— 配置可开却不扫描 | `synapse-services/src/wiring/core.rs:66,179` + `synapse-common/src/config/mod.rs:242` |
+| **中** | MSC4242 仅存储层；`dag.rs` 注释声称被 `/send_join`、`/get_missing_events` 使用（实测无调用点） | `synapse-storage/src/event/dag.rs` |
+| **中** | 上游 1.161 已删的 `msc2965/auth_issuer` 本仓仍在册 | `docs/synapse-rust/ROUTE_CONTRACT.md` |
+| **中** | Profile 三处偏差：稳定 `/{keyName}` 未注册、停用用户写自定义字段 404、account_data 非对象语义 | 路由在册清单（`docs/synapse-rust/ROUTE_CONTRACT.md`） |
+| **中** | MSC4502 / MSC4262 仍未收敛（PARTIAL） | 各 8 个 `.rs` 命中 |
+| **中** | Admin 媒体端点族缺失（本仓 7 vs 上游文档面 18） | `../synapse-rust/API_COVERAGE_REPORT.md` §6.3 |
+| **中** | 缩略图 `animated` 参数未支持；`M_USER_LIMIT_EXCEEDED` 未用于媒体限额 | 业务层 0 命中 |
+| **低** | v12/v13 房间不可创建（待决策） | `synapse-common/src/room_versions.rs:114-115` |
+| **低** | `search_index` 遗留表（D-39） | baseline 仍有该表 |
+| **低** | ledger `query_params` 字段无消费方 | `synapse-web/src/routes/route_ledger.rs` |
+
+### 21.2 本轮证伪（不要重复排查）
+
+| 曾记录的问题 | 实测结论 |
+|---|---|
+| `scripts/api_test/scan_handler_schemas.py` 硬编码绝对路径、会写错工作树 | **证伪**：`ROOT = Path(__file__).resolve().parents[2]`，是正确的相对推导 |
+| `update_pool_metrics` 是死调用点 ⇒ 连接池指标恒 0 | **证伪**：现有周期宿主 `src/tasks/mod.rs:206`、`src/server/mod.rs:405` |
+| `scripts/load-test/` 与 `scripts/test/perf/` 两份 k6 重叠、待二选一 | **证伪**：两个目录**都不存在** |
+
+### 21.3 本轮新修复（已完成，勿再立项）
+
+- **D-42**：`synapse-storage/src/event/create.rs` 三处边插入守卫 `WHERE $2 != '[]'` —— `$2` 已被
+  `unnest($2::text[])` 定为 `text[]`，PG 把 `'[]'` 当数组字面量 ⇒ 语句在 **prepare 阶段**必报
+  `22P02`（**与参数取值无关**）。改为 `cardinality($2) > 0`（`cardinality(NULL)` ⇒ NULL ⇒ 语义等价）。
+  此前被两条"期望报错"的回滚用例掩盖（因错误的原因通过）。
+- **D-12**：删 `GET /_synapse/admin/v1/event_reports/{id}/history`（对齐 Element），`/stats` 改为对
+  `event_reports` 的静态实时聚合；连带重生成全部路由派生产物。
+- **D-15.2 / D-15.5**：sliding_sync 游标与 12 个 namespace/统计方法的 DB 往返用例。
+- **能力落地**（本轮复核确认）：MSC4140 联邦 EDU、MSC4512 AS 命名空间代理、MSC3912 级联撤回
+  （存储/服务/管理端点）、`rc_reports` 专项限流、AS 登录 `m.login.application_service`、
+  Content Scanner 装配、MSC3814 `/events` 改 GET。
+
+### 21.4 本轮口径教训（会重复踩）
+
+- **"模块存在 / 配置接上"≠"功能在工作"**：Content Scanner 同时满足前两者却零调用点。
+  判据必须落到**调用点**（`grep -rn '<service>\.' <生产目录>`），而不是模块或配置项是否存在。
+- **"响应里有字段"≠"字段可用"**：`/send_join` 补了 `state`/`auth_chain`，但条目不是可验签 PDU。
+  判据要落到**内容形状**（`hashes`/`signatures` 是否存在），而不是键名是否存在。
+- **同一份文档内同一事实出现三种状态**（"缺失"在 §5.2/§6.2 与对比报告各写一次）——人工清单本身
+  是漂移源。计数与存在性一律用可复现命令，且每个数字只能有一个来源。
+- **变异自证脚本自己也会假红/假绿**：本批的 `mutation_self_proof.sh` 初版用
+  `grep -E 'Summary:'` 解析 nextest 结果，而 nextest 打印的是 `Summary [`（**"Summary" 后面没有
+  冒号**）⇒ 解析永远为空 ⇒ 连"基线全绿"都被读成"没拿到 Summary 行"，退出码恒为非 0。
+  虽然三个变异其实**都按预期转红**（人工读日志可见），但脚本自身的结论不可用。
+  修法是先用**已知绿**与**已知红**两份日志离线验解析器，再跑真实变异。
+  教训：`-D warnings` 那样"门禁存在但永远绿"是既有教训，这里多了个对称面——
+  **自证脚本存在但永远红**同样是失效的守卫。
+
+### 21.5 P0/`/send_join` 收口批次（2026-09-25）
+
+**做了什么**：把联邦四条状态发射路径（`/send_join` v1+v2、`/state`、`/get_room_auth`、
+`/get_event_auth`）里各自内联的 5–6 键手工 JSON，统一到一个共享投影器
+`synapse-web/src/routes/federation/pdu.rs`。
+
+- **新增 `federation/pdu.rs`**：`state_pdu()` 产出 `event_id`/`room_id`/`sender`/`type`/`content`/
+  `origin_server_ts`/`origin`（+`state_key`/`unsigned`）；`depth`/`prev_events`/`auth_events`
+  **三者齐备才插入**，否则**省略**并返回 `PduCompleteness::MissingGraphMetadata`——
+  填 `[]`/`0` 会让对端把事件当成 DAG 根、污染其房间图，属主动作恶。
+  `signature_action()` 的判定表：不完整 **优先** 拒签（`RefuseIncomplete`），完整且库中
+  `hashes.sha256` + 非空 `signatures` 齐备 ⇒ `KeepStored`（逐字节原样附着），否则 `SignLocally`。
+- **v1 响应补 `[200, {…}]` 二元组包装**，v1/v2 均补 `origin`。
+- **`StateEvent` +4 字段**（`prev_events`/`auth_events`/`signatures`/`hashes`，均
+  `Option<serde_json::Value>` + `#[serde(default)]`），`STATE_EVENT_{OUTER,INNER}_COLS` 同步；
+  连带同步 22 处字面量构造点（纯机械补 `None`）。
+- 签名**仅内存**，不落库——同一条投影器同时服务 GET 读路径（`/state`、`/get_event_auth`），
+  GET 不应长出写副作用。
+
+**为什么不是"全修"**：本批**只补字段完备性与现场签名**，不碰写入路径。本地事件走
+`EventStorage::create_event`（`synapse-storage/src/event/create.rs:14` 的 INSERT 列清单**无**
+`depth`/`prev_events`/`auth_events`/`origin`），因此**本地起源**事件的 PDU 仍会被判为
+`MissingGraphMetadata` 并**故意以无签名形态发出**（附 `federation_pdu_incomplete_total` 计数与一条
+`tracing::warn`）。要真正闭合需把 PDU 图元数据补进创建期写入路径——那是另一项工程，
+且涉及 76 个 `create_event` 调用点，不在本批范围。
+
+**验证**（全部在本机实测；`<file>` 路径为工作树）：
+
+| 门禁 | 命令 | 结果 |
+|---|---|---|
+| 编译 | `cargo check -p synapse-web --features test-utils` | EXIT 0 |
+| 权威 clippy | `cargo clippy --workspace --all-targets --features test-utils --locked -- -D warnings` | EXIT 0 |
+| 本批守卫 | `cargo nextest run --test unit --features test-utils -E 'test(federation_state_pdu)'` | 9/9 PASS |
+| **变异自证** | `/tmp/gate/mutation_self_proof.sh` | 基线 9/9 绿 → **M1**（用常量伪造 `depth:0`/`prev_events:[]`/`auth_events:[]`）打红 2 例 → **M2**（删掉「不完整则拒签」分支）打红 1 例 → **M3**（删掉 `origin_server_ts` 插入）打红 2 例 → 每次从备份还原后 `sha256` 一致、无残留 → 收尾 9/9 绿。脚本按 `Summary [` 行**断言**每个变异确实转红，退出码 0 |
+| fmt 棘轮 | `./scripts/check_fmt_ratchet.sh` | `OK (0)` |
+
+**新守卫**：`tests/unit/federation_state_pdu_tests.rs`（9 例）钉住
+（a）完整记录必含全部必填键、（b）缺图元数据**必须省略而非伪造**、（c）非数组图元数据算缺失、
+（d）`origin` 归一化、（e）签名判定表四种边界、（f）stored 对逐字节附着、
+（g）投影结果可被 `sign_and_hash_event` 签名且 `verify_event_content_hash` 通过、
+（h）auth chain 的 5-type 规则。

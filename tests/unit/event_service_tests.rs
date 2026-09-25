@@ -191,6 +191,10 @@ fn state_event_reexport_is_constructible_with_all_fields() {
         origin: None,
         user_id: None,
         stream_ordering: None,
+        prev_events: None,
+        auth_events: None,
+        signatures: None,
+        hashes: None,
     };
 
     assert_eq!(event.event_id, "$state:example.com");
@@ -217,6 +221,10 @@ fn state_event_reexport_serializes_to_json() {
         origin: None,
         user_id: None,
         stream_ordering: None,
+        prev_events: None,
+        auth_events: None,
+        signatures: None,
+        hashes: None,
     };
 
     let json_str = serde_json::to_string(&event).expect("StateEvent must serialize");
