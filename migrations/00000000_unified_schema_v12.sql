@@ -834,7 +834,7 @@ CREATE TABLE IF NOT EXISTS key_backups (
     auth_data JSONB,
     auth_key TEXT,
     mgmt_key TEXT,
-    version BIGINT DEFAULT 1,
+    version BIGINT NOT NULL DEFAULT 1,
     etag TEXT,
     created_ts BIGINT NOT NULL,
     updated_ts BIGINT,

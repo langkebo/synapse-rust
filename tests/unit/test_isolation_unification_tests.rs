@@ -109,7 +109,10 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // 纪律（已经踩过六次：`d77d1fcf`、`98a90a58`、`2fba9c2d9`、`483dfc045`、`c128cdeab`、本次）：
 // **改 `migrations/` 后必须跑一次本守卫**，哪怕只改注释 —— 模板指纹按文件字节哈希，
 // 内容一变常量就必须同步，否则每个新库都会铸出第二份模板。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "0297744eb28ae814";
+// 2026-09-25（C19b，D-46）：`key_backups.version` 收紧为 `NOT NULL`（唯一写者
+// `create_backup` 恒写该列，Rust 类型非 `Option`），常量同步为 `a58420543eb97db2`；
+// 同样独立复算 FNV-1a 64，并先自检旧值 `0297744eb28ae814` 逐字节吻合后取值。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "a58420543eb97db2";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))
