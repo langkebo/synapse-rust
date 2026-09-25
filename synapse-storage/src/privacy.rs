@@ -83,12 +83,13 @@ impl PrivacyStorage {
 
     /// See [`get_settings`].
     pub async fn get_settings(&self, user_id: &str) -> Result<Option<UserPrivacySettings>, sqlx::Error> {
-        let row = sqlx::query_as::<_, UserPrivacySettings>(
+        let row = sqlx::query_as!(
+            UserPrivacySettings,
             r#"
             SELECT id, user_id, profile_visibility, avatar_visibility, displayname_visibility, presence_visibility, room_membership_visibility, created_ts, updated_ts FROM user_privacy_settings WHERE user_id = $1
             "#,
+            user_id,
         )
-        .bind(user_id)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -104,7 +105,8 @@ impl PrivacyStorage {
         let now = current_timestamp_millis();
         let default_settings = UserPrivacySettings::default();
 
-        let row = sqlx::query_as::<_, UserPrivacySettings>(
+        let row = sqlx::query_as!(
+            UserPrivacySettings,
             r#"
             INSERT INTO user_privacy_settings (
                 user_id, profile_visibility, avatar_visibility, displayname_visibility,
@@ -112,17 +114,18 @@ impl PrivacyStorage {
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (user_id) DO UPDATE SET updated_ts = $8
-            RETURNING *
+            RETURNING id, user_id, profile_visibility, avatar_visibility, displayname_visibility,
+                      presence_visibility, room_membership_visibility, created_ts, updated_ts
             "#,
+            user_id,
+            &default_settings.profile_visibility,
+            &default_settings.avatar_visibility,
+            &default_settings.displayname_visibility,
+            &default_settings.presence_visibility,
+            &default_settings.room_membership_visibility,
+            now,
+            now,
         )
-        .bind(user_id)
-        .bind(&default_settings.profile_visibility)
-        .bind(&default_settings.avatar_visibility)
-        .bind(&default_settings.displayname_visibility)
-        .bind(&default_settings.presence_visibility)
-        .bind(&default_settings.room_membership_visibility)
-        .bind(now)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -139,7 +142,8 @@ impl PrivacyStorage {
 
         let current = self.get_or_create_settings(user_id).await?;
 
-        let row = sqlx::query_as::<_, UserPrivacySettings>(
+        let row = sqlx::query_as!(
+            UserPrivacySettings,
             r#"
             UPDATE user_privacy_settings
             SET profile_visibility = $2,
@@ -149,16 +153,17 @@ impl PrivacyStorage {
                 room_membership_visibility = $6,
                 updated_ts = $7
             WHERE user_id = $1
-            RETURNING *
+            RETURNING id, user_id, profile_visibility, avatar_visibility, displayname_visibility,
+                      presence_visibility, room_membership_visibility, created_ts, updated_ts
             "#,
+            user_id,
+            update.profile_visibility.unwrap_or(current.profile_visibility),
+            update.avatar_visibility.unwrap_or(current.avatar_visibility),
+            update.displayname_visibility.unwrap_or(current.displayname_visibility),
+            update.presence_visibility.unwrap_or(current.presence_visibility),
+            update.room_membership_visibility.unwrap_or(current.room_membership_visibility),
+            now,
         )
-        .bind(user_id)
-        .bind(update.profile_visibility.unwrap_or(current.profile_visibility))
-        .bind(update.avatar_visibility.unwrap_or(current.avatar_visibility))
-        .bind(update.displayname_visibility.unwrap_or(current.displayname_visibility))
-        .bind(update.presence_visibility.unwrap_or(current.presence_visibility))
-        .bind(update.room_membership_visibility.unwrap_or(current.room_membership_visibility))
-        .bind(now)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -206,7 +211,7 @@ impl PrivacyStorage {
     }
 
     async fn are_contacts(&self, user1: &str, user2: &str) -> Result<bool, sqlx::Error> {
-        let in_same_room: bool = sqlx::query_scalar(
+        let in_same_room = sqlx::query_scalar!(
             r#"
             SELECT EXISTS (
                 SELECT 1 FROM room_memberships rm1
@@ -217,11 +222,16 @@ impl PrivacyStorage {
                   AND rm2.membership = 'join'
             )
             "#,
+            user1,
+            user2,
         )
-        .bind(user1)
-        .bind(user2)
         .fetch_one(&*self.pool)
-        .await?;
+        .await?
+        // `EXISTS (...)` has no relation origin, so sqlx infers a nullable column even
+        // though it can never be NULL (C19a's `COUNT(*)` is the same shape).
+        // `query_scalar!` rejects the `AS "col!"` override, so fold it instead; the
+        // `false` arm is unreachable, which keeps the original `bool` contract.
+        .unwrap_or(false);
 
         Ok(in_same_room)
     }
@@ -241,30 +251,31 @@ impl PrivacyStorage {
             result.insert(uid.clone(), true);
         }
 
-        let rows = sqlx::query(
-            "SELECT user_id, profile_visibility, allow_profile_lookup FROM user_privacy_settings WHERE user_id = ANY($1)"
+        let rows = sqlx::query!(
+            r#"
+            SELECT user_id, profile_visibility
+            FROM user_privacy_settings
+            WHERE user_id = ANY($1)
+            "#,
+            user_ids,
         )
-        .bind(user_ids)
         .fetch_all(&*self.pool)
         .await?;
 
         for row in rows {
-            use sqlx::Row;
-            let uid: String = row.try_get("user_id").unwrap_or_default();
-            let is_self = requester_id == Some(uid.as_str());
+            let is_self = requester_id == Some(row.user_id.as_str());
 
-            let visible = if let Ok(visibility) = row.try_get::<String, _>("profile_visibility") {
-                match visibility.as_str() {
-                    "private" | "contacts" => is_self,
-                    _ => true,
-                }
-            } else if let Ok(allow_lookup) = row.try_get::<bool, _>("allow_profile_lookup") {
-                allow_lookup || is_self
-            } else {
-                true
+            // `profile_visibility` is `TEXT NOT NULL`, and `query!` proves it by typing
+            // the field as a non-`Option` `String` — so the `allow_profile_lookup`
+            // fallback the dynamic `row.try_get` chain used to carry was
+            // **unreachable**, and `row.try_get("user_id").unwrap_or_default()` was
+            // swallowing DB errors for a `PRIMARY KEY` column (D-54).
+            let visible = match row.profile_visibility.as_str() {
+                "private" | "contacts" => is_self,
+                _ => true,
             };
 
-            result.insert(uid, visible);
+            result.insert(row.user_id, visible);
         }
 
         Ok(result)
