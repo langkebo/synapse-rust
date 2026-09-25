@@ -77,13 +77,25 @@ pub fn sign_json_with_canonical(
     Ok(())
 }
 
-/// See [`compute_event_content_hash`.
+/// Computes the Matrix event **content hash** (`hashes.sha256`).
+///
+/// This is the hash of the *unredacted* event, matching upstream Synapse
+/// `synapse/crypto/event_signing.py::compute_content_hash` (release-v1.161):
+/// remove `age_ts`, `unsigned`, `signatures`, `hashes`, `outlier` and
+/// `destinations`, encode the rest as Matrix canonical JSON, SHA-256 it, and
+/// encode the digest as unpadded standard Base64.
+///
+/// Redaction is **not** part of this computation — upstream applies it to the
+/// signature material instead (`compute_event_signature`).  The previous
+/// implementation redacted first, which produced a `hashes.sha256` that no
+/// remote server could reproduce; it was replaced as part of the U-13 fix.
 pub fn compute_event_content_hash(event: &Value) -> Option<String> {
-    let mut redacted = redact_event_for_hash(event);
-    redacted.as_object_mut()?.remove("hashes");
-    redacted.as_object_mut()?.remove("signatures");
-    redacted.as_object_mut()?.remove("unsigned");
-    let canonical = canonical_json(&redacted).ok()?;
+    let mut stripped = event.clone();
+    let obj = stripped.as_object_mut()?;
+    for key in ["age_ts", "unsigned", "signatures", "hashes", "outlier", "destinations"] {
+        obj.remove(key);
+    }
+    let canonical = canonical_json(&stripped).ok()?;
     use sha2::Digest;
     let hash = sha2::Sha256::digest(canonical.as_bytes());
     Some(base64::engine::general_purpose::STANDARD_NO_PAD.encode(hash))
@@ -162,15 +174,6 @@ fn check_string_depth(value: &Value, depth: usize) -> Result<(), String> {
     }
 
     Ok(())
-}
-
-fn redact_event_for_hash(event: &Value) -> Value {
-    // P0-07: delegate to the shared redaction module so that the field
-    // retention table is consistent between hash computation and runtime
-    // redaction.  The previous inline implementation included illegal
-    // top-level fields (`prev_state`, `membership`) and was missing
-    // `notifications` from `m.room.power_levels`.
-    synapse_common::redaction::redact_event_for_hash(event)
 }
 
 /// See [`check_event_federate`.
@@ -571,6 +574,73 @@ mod tests {
         });
 
         assert!(verify_event_content_hash(&event).is_err());
+    }
+
+    /// Upstream known-answer vector #1: `tests/crypto/test_event_signing.py::test_sign_minimal`
+    /// (`element-hq/synapse` release-v1.161).  The expected value is the
+    /// `hashes.sha256` Synapse computes for this exact event dict, so it pins
+    /// the whole content-hash pipeline (field removal + canonical JSON +
+    /// SHA-256 + unpadded standard Base64) against an independent
+    /// implementation.
+    #[test]
+    fn content_hash_matches_synapse_known_answer_minimal() {
+        let event = serde_json::json!({
+            "event_id": "$0:domain",
+            "origin_server_ts": 1000000,
+            "signatures": {},
+            "type": "X",
+            "content": {},
+            "unsigned": {"age_ts": 1000000},
+        });
+        assert_eq!(compute_event_content_hash(&event).as_deref(), Some("mq4QfPPpC+QsBd6eqfVsmJIEz8uvMSVK0+AU67PLESk"));
+    }
+
+    /// Upstream known-answer vector #2: `test_sign_message` (same file).
+    #[test]
+    fn content_hash_matches_synapse_known_answer_message() {
+        let event = serde_json::json!({
+            "content": {"body": "Here is the message content"},
+            "event_id": "$0:domain",
+            "origin_server_ts": 1000000,
+            "type": "m.room.message",
+            "room_id": "!r:domain",
+            "sender": "@u:domain",
+            "signatures": {},
+            "unsigned": {"age_ts": 1000000},
+        });
+        assert_eq!(compute_event_content_hash(&event).as_deref(), Some("rDCeYBepPlI891h/RkI2/Lkf9bt7u0TxFku4tMs7WKk"));
+    }
+
+    /// The content hash is taken over the **unredacted** event: unlike the
+    /// signature material, an `m.room.message` body is part of it, while
+    /// `hashes`/`signatures`/`unsigned`/`age_ts` are not.
+    #[test]
+    fn content_hash_covers_unredacted_content_but_not_hash_fields() {
+        let base = serde_json::json!({
+            "event_id": "$e",
+            "type": "m.room.message",
+            "room_id": "!r:domain",
+            "sender": "@u:domain",
+            "content": {"body": "hello", "msgtype": "m.text"},
+        });
+        let baseline = compute_event_content_hash(&base).unwrap();
+
+        let mut other_body = base.clone();
+        other_body["content"] = serde_json::json!({"body": "goodbye", "msgtype": "m.text"});
+        assert_ne!(compute_event_content_hash(&other_body).unwrap(), baseline, "content is hashed unredacted");
+
+        let mut with_noise = base.clone();
+        with_noise["unsigned"] = serde_json::json!({"age_ts": 1, "transaction_id": "t"});
+        with_noise["signatures"] = serde_json::json!({"domain": {"ed25519:1": "sig"}});
+        with_noise["hashes"] = serde_json::json!({"sha256": "placeholder"});
+        with_noise["age_ts"] = serde_json::json!(999);
+        with_noise["outlier"] = serde_json::json!(true);
+        with_noise["destinations"] = serde_json::json!(["other.example"]);
+        assert_eq!(
+            compute_event_content_hash(&with_noise).unwrap(),
+            baseline,
+            "hashes/signatures/unsigned/age_ts/outlier/destinations are excluded"
+        );
     }
 
     #[test]

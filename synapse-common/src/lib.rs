@@ -215,9 +215,7 @@ pub use rate_limit_config::{
     RateLimitMatchType, RateLimitRule, SyncRateLimitConfigFile,
 };
 /// Re-exported item.
-pub use redaction::{
-    allowed_content_keys, extract_redacts, redact_content, redact_event_for_hash, CANONICAL_JSON_TOP_LEVEL_FIELDS,
-};
+pub use redaction::{extract_redacts, redact_content};
 /// Re-exported item.
 pub use regex_cache::RegexCache;
 /// Re-exported item.

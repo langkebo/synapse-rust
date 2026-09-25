@@ -1,8 +1,11 @@
 //! Matrix event redaction utilities (P0-05/06/07).
 //!
 //! This module is the single source of truth for:
-//! - The content field retention table used when redacting events (v1-v10).
-//! - The top-level field whitelist used when computing event content hashes.
+//! - The room-version-aware redaction algorithm (`redact_event`), used to
+//!   derive event identity (`synapse_common::event_id`) and — in step 2 of
+//!   U-13 — the signature material.
+//! - The runtime content retention table used when redacting stored events
+//!   (`allowed_content_keys` / `redact_content`).
 //! - Extracting the `redacts` target from a redaction event across room
 //!   versions.
 //!
@@ -13,28 +16,6 @@
 //!   see `room_versions::SUPPORTED_ROOM_VERSIONS`).
 
 use serde_json::{Map, Value};
-
-/// Top-level event fields that survive redaction (v1-v10).
-///
-/// Used by `redact_event_for_hash` and the runtime redaction path.  Note that
-/// `prev_state` and `membership` are intentionally absent — they are not valid
-/// top-level PDU fields and were incorrectly included in the previous
-/// implementation (P0-07).
-pub const CANONICAL_JSON_TOP_LEVEL_FIELDS: &[&str] = &[
-    "event_id",
-    "type",
-    "room_id",
-    "sender",
-    "state_key",
-    "content",
-    "hashes",
-    "signatures",
-    "depth",
-    "prev_events",
-    "auth_events",
-    "origin",
-    "origin_server_ts",
-];
 
 /// Returns the set of content keys to retain after redaction for the given
 /// event type (v1-v10 redaction rules).
@@ -93,35 +74,6 @@ pub fn redact_content(event_type: &str, content: &Value) -> Value {
     Value::Object(retained)
 }
 
-/// Produces a redacted copy of an event for content-hash computation.
-///
-/// This strips both the top-level fields (keeping only
-/// `CANONICAL_JSON_TOP_LEVEL_FIELDS`) and the content fields (keeping only
-/// `allowed_content_keys` for the event type).  The input is not mutated.
-///
-/// Used by `synapse_federation::signing::compute_event_content_hash`
-/// (P0-07).  The previous implementation included illegal top-level fields
-/// (`prev_state`, `membership`) and was missing `notifications` from
-/// `m.room.power_levels`; both are fixed here.
-pub fn redact_event_for_hash(event: &Value) -> Value {
-    let mut redacted = event.clone();
-
-    // Strip top-level fields not in the canonical whitelist.
-    if let Some(obj) = redacted.as_object_mut() {
-        obj.retain(|k, _| CANONICAL_JSON_TOP_LEVEL_FIELDS.contains(&k.as_str()));
-    }
-
-    // Strip content fields per event type.
-    let event_type = redacted.get("type").and_then(|t| t.as_str()).unwrap_or("");
-
-    let allowed = allowed_content_keys(event_type);
-    if let Some(content) = redacted.get_mut("content").and_then(|c| c.as_object_mut()) {
-        content.retain(|k, _| allowed.contains(&k.as_str()));
-    }
-
-    redacted
-}
-
 /// Extracts the `redacts` target event ID from a redaction event.
 ///
 /// For room versions 1-10, `redacts` is a top-level field of the PDU.  For
@@ -152,14 +104,20 @@ pub fn redacts_in_content(room_version: &str) -> bool {
 // Room-version-aware redaction (U-13 §6.6 step 1)
 // ---------------------------------------------------------------------------
 //
-// The tables above (`allowed_content_keys` / `redact_event_for_hash`) are the
-// *unversioned* path still used by the federation signature and runtime
-// redaction call sites.  They model a single retention table and are therefore
-// only correct for a subset of room versions;  see the U-13 finding recorded in
+// `allowed_content_keys` / `redact_content` above are the *runtime* redaction
+// path (stored event content).  They still model a single pre-v6/pre-v9
+// retention table and are therefore only correct for a subset of room
+// versions;  see the U-13 finding in
 // `docs/audit/REMAINING_ISSUES_VERIFICATION_AND_OPTIMIZATION_PLAN_2026-09-25.md`
 // §6.6.  `redact_event` below is the room-version-aware implementation (the
-// single source of truth for the reference-hash/event-ID algorithm);  the
-// legacy call sites are migrated onto it in step 2 of the same item.
+// single source of truth for event identity);  the runtime path is migrated
+// onto it in step 2 of the same item.
+//
+// NOTE: the former unversioned `redact_event_for_hash` +
+// `CANONICAL_JSON_TOP_LEVEL_FIELDS` pair was deleted here — it had exactly one
+// caller (`compute_event_content_hash`), and its use there was the bug fixed
+// in the same change (the content hash must be taken over the **unredacted**
+// event).
 
 /// Redaction-relevant per-room-version flags.
 ///
@@ -476,58 +434,6 @@ mod tests {
         let redacted = redact_content("m.room.member", &json!("string"));
         assert!(redacted.is_object());
         assert!(redacted.as_object().unwrap().is_empty());
-    }
-
-    #[test]
-    fn test_redact_event_for_hash_strips_top_level_fields() {
-        let event = json!({
-            "event_id": "$abc",
-            "type": "m.room.message",
-            "room_id": "!room:example.com",
-            "sender": "@user:example.com",
-            "content": {"body": "hello"},
-            "origin_server_ts": 1234,
-            "unsigned": {"age": 10},
-            "redacts": "$target",
-            "prev_state": [],
-            "membership": "join"
-        });
-        let redacted = redact_event_for_hash(&event);
-        assert!(redacted.get("unsigned").is_none(), "unsigned should be stripped");
-        assert!(redacted.get("redacts").is_none(), "redacts should be stripped at top level for hash");
-        assert!(redacted.get("prev_state").is_none(), "prev_state is not a valid top-level field");
-        assert!(redacted.get("membership").is_none(), "membership is not a valid top-level field");
-        assert_eq!(redacted["event_id"], "$abc");
-        assert_eq!(redacted["type"], "m.room.message");
-        assert_eq!(redacted["room_id"], "!room:example.com");
-    }
-
-    #[test]
-    fn test_redact_event_for_hash_strips_content_for_message() {
-        let event = json!({
-            "type": "m.room.message",
-            "content": {"body": "hello", "msgtype": "m.text"}
-        });
-        let redacted = redact_event_for_hash(&event);
-        assert!(redacted["content"].as_object().unwrap().is_empty());
-    }
-
-    #[test]
-    fn test_redact_event_for_hash_keeps_power_levels_fields() {
-        let event = json!({
-            "type": "m.room.power_levels",
-            "content": {
-                "users": {"@a:example.com": 100},
-                "notifications": {"room": 50},
-                "ban": 50,
-                "extra": "stripped"
-            }
-        });
-        let redacted = redact_event_for_hash(&event);
-        assert_eq!(redacted["content"]["users"]["@a:example.com"], 100);
-        assert_eq!(redacted["content"]["notifications"]["room"], 50);
-        assert_eq!(redacted["content"]["ban"], 50);
-        assert!(redacted["content"].get("extra").is_none());
     }
 
     #[test]
