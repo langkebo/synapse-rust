@@ -84,26 +84,26 @@ impl MegolmSessionStorage {
 
     /// See [`create_session`].
     pub async fn create_session(&self, session: &MegolmSession) -> Result<(), ApiError> {
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             INSERT INTO megolm_sessions (
                 id, session_id, room_id, sender_key, session_key, algorithm,
                 message_index, created_ts, last_used_ts, expires_at, pickle_format
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            ",
+            "#,
+            session.id,
+            &session.session_id,
+            &session.room_id,
+            &session.sender_key,
+            &session.session_key,
+            &session.algorithm,
+            session.message_index,
+            session.created_ts.timestamp_millis(),
+            session.last_used_ts.timestamp_millis(),
+            session.expires_at.map(|t| t.timestamp_millis()),
+            session.pickle_format.as_str(),
         )
-        .bind(session.id)
-        .bind(&session.session_id)
-        .bind(&session.room_id)
-        .bind(&session.sender_key)
-        .bind(&session.session_key)
-        .bind(&session.algorithm)
-        .bind(session.message_index)
-        .bind(session.created_ts.timestamp_millis())
-        .bind(session.last_used_ts.timestamp_millis())
-        .bind(session.expires_at.map(|t| t.timestamp_millis()))
-        .bind(session.pickle_format.as_str())
         .execute(&*self.pool)
         .await
         .map_err(map_database!("Failed to create megolm session"))?;
@@ -113,8 +113,9 @@ impl MegolmSessionStorage {
 
     /// See [`get_session`].
     pub async fn get_session(&self, session_id: &str) -> Result<Option<MegolmSession>, ApiError> {
-        let row: Option<MegolmSessionRow> = sqlx::query_as::<_, MegolmSessionRow>(
-            r"
+        let row = sqlx::query_as!(
+            MegolmSessionRow,
+            r#"
             SELECT
                 id,
                 session_id,
@@ -129,9 +130,9 @@ impl MegolmSessionStorage {
                 pickle_format
             FROM megolm_sessions
             WHERE session_id = $1
-            ",
+            "#,
+            session_id,
         )
-        .bind(session_id)
         .fetch_optional(&*self.pool)
         .await
         .map_err(map_database!("Failed to load megolm session"))?;
@@ -141,8 +142,9 @@ impl MegolmSessionStorage {
 
     /// See [`get_room_sessions`].
     pub async fn get_room_sessions(&self, room_id: &str) -> Result<Vec<MegolmSession>, ApiError> {
-        let rows: Vec<MegolmSessionRow> = sqlx::query_as::<_, MegolmSessionRow>(
-            r"
+        let rows = sqlx::query_as!(
+            MegolmSessionRow,
+            r#"
             SELECT
                 id,
                 session_id,
@@ -157,9 +159,9 @@ impl MegolmSessionStorage {
                 pickle_format
             FROM megolm_sessions
             WHERE room_id = $1
-            ",
+            "#,
+            room_id,
         )
-        .bind(room_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(map_database!("Failed to load megolm sessions"))?;
@@ -169,8 +171,8 @@ impl MegolmSessionStorage {
 
     /// See [`update_session`].
     pub async fn update_session(&self, session: &MegolmSession) -> Result<(), ApiError> {
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             UPDATE megolm_sessions
             SET session_key = $2,
                 message_index = $3,
@@ -178,14 +180,14 @@ impl MegolmSessionStorage {
                 expires_at = $5,
                 pickle_format = $6
             WHERE session_id = $1
-            ",
+            "#,
+            &session.session_id,
+            &session.session_key,
+            session.message_index,
+            session.last_used_ts.timestamp_millis(),
+            session.expires_at.map(|t| t.timestamp_millis()),
+            session.pickle_format.as_str(),
         )
-        .bind(&session.session_id)
-        .bind(&session.session_key)
-        .bind(session.message_index)
-        .bind(session.last_used_ts.timestamp_millis())
-        .bind(session.expires_at.map(|t| t.timestamp_millis()))
-        .bind(session.pickle_format.as_str())
         .execute(&*self.pool)
         .await
         .map_err(map_database!("Failed to update megolm session"))?;
@@ -194,13 +196,13 @@ impl MegolmSessionStorage {
 
     /// See [`delete_session`].
     pub async fn delete_session(&self, session_id: &str) -> Result<(), ApiError> {
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             DELETE FROM megolm_sessions
             WHERE session_id = $1
-            ",
+            "#,
+            session_id,
         )
-        .bind(session_id)
         .execute(&*self.pool)
         .await
         .map_err(map_database!("Failed to delete megolm session"))?;
@@ -220,18 +222,19 @@ impl MegolmSessionStorage {
         delta: i64,
         now_ms: i64,
     ) -> Result<Option<i64>, ApiError> {
-        let row: Option<MegolmIncrementRow> = sqlx::query_as::<_, MegolmIncrementRow>(
-            r"
+        let row = sqlx::query_as!(
+            MegolmIncrementRow,
+            r#"
             UPDATE megolm_sessions
             SET message_index = message_index + $2,
                 last_used_ts = $3
             WHERE session_id = $1
             RETURNING message_index
-            ",
+            "#,
+            session_id,
+            delta,
+            now_ms,
         )
-        .bind(session_id)
-        .bind(delta)
-        .bind(now_ms)
         .fetch_optional(&*self.pool)
         .await
         .map_err(map_database!("Failed to increment megolm message index"))?;
@@ -252,21 +255,21 @@ impl MegolmSessionStorage {
             return Ok(0);
         }
 
-        let result = sqlx::query(
-            r"
+        let result = sqlx::query!(
+            r#"
             INSERT INTO megolm_session_keys (user_id, session_id, encrypted_key, created_ts, expires_at)
             SELECT unnest($1::text[]), $2, $3, $4, $5
             ON CONFLICT (user_id, session_id) DO UPDATE
             SET encrypted_key = EXCLUDED.encrypted_key,
                 created_ts = EXCLUDED.created_ts,
                 expires_at = EXCLUDED.expires_at
-            ",
+            "#,
+            user_ids,
+            session_id,
+            encrypted_key,
+            created_ts,
+            expires_at,
         )
-        .bind(user_ids)
-        .bind(session_id)
-        .bind(encrypted_key)
-        .bind(created_ts)
-        .bind(expires_at)
         .execute(&*self.pool)
         .await
         .map_err(map_database!("Failed to batch upsert megolm session keys"))?;
@@ -276,15 +279,16 @@ impl MegolmSessionStorage {
 
     /// 单用户查询共享的 session key（vodozemac import_session 后使用）
     pub async fn get_session_key(&self, user_id: &str, session_id: &str) -> Result<Option<String>, ApiError> {
-        let row: Option<MegolmSessionKeyRow> = sqlx::query_as::<_, MegolmSessionKeyRow>(
-            r"
+        let row = sqlx::query_as!(
+            MegolmSessionKeyRow,
+            r#"
             SELECT encrypted_key
             FROM megolm_session_keys
             WHERE user_id = $1 AND session_id = $2
-            ",
+            "#,
+            user_id,
+            session_id,
         )
-        .bind(user_id)
-        .bind(session_id)
         .fetch_optional(&*self.pool)
         .await
         .map_err(map_database!("Failed to load megolm session key"))?;
@@ -294,12 +298,13 @@ impl MegolmSessionStorage {
 
     /// 统计各 pickle_format 的 session 数量（监控/迁移进度）
     pub async fn count_by_pickle_format(&self) -> Result<Vec<(String, i64)>, ApiError> {
-        let rows: Vec<PickleFormatCountRow> = sqlx::query_as::<_, PickleFormatCountRow>(
-            r"
-            SELECT pickle_format, COUNT(*) AS cnt
+        let rows = sqlx::query_as!(
+            PickleFormatCountRow,
+            r#"
+            SELECT pickle_format, COUNT(*) AS "cnt!"
             FROM megolm_sessions
             GROUP BY pickle_format
-            ",
+            "#,
         )
         .fetch_all(&*self.pool)
         .await
@@ -317,14 +322,14 @@ impl MegolmSessionStorage {
     pub async fn cleanup_expired_sessions(&self) -> Result<u64, ApiError> {
         let now_ms = current_timestamp_millis();
 
-        let result = sqlx::query(
-            r"
+        let result = sqlx::query!(
+            r#"
             DELETE FROM megolm_sessions
             WHERE expires_at IS NOT NULL
               AND expires_at < $1
-            ",
+            "#,
+            now_ms,
         )
-        .bind(now_ms)
         .execute(&*self.pool)
         .await
         .map_err(map_database!("Failed to cleanup expired megolm sessions"))?;
@@ -554,5 +559,223 @@ mod tests {
         assert_eq!(session.room_id, cloned.room_id);
         assert_eq!(session.algorithm, cloned.algorithm);
         assert_eq!(session.message_index, cloned.message_index);
+    }
+}
+
+/// DB round trip for the 10 statements converted in C26, run against the real v12
+/// baseline.
+///
+/// Before C26 this module had **no DB coverage at all**: every case in the module
+/// above is a pure constructor/serialization check. That is the blind spot which
+/// hid D-46/D-49 behind simplified fixtures (D-36/D-47 family), and this file is
+/// where D-49's second site lives (`megolm_sessions.message_index`, tightened to
+/// `NOT NULL DEFAULT 0` in the C26 "fix first" commit — which is why the
+/// `MegolmSessionRow.message_index: i64` projection needs no `AS "col!"`).
+///
+/// `megolm_sessions` / `megolm_session_keys` carry no foreign keys in the baseline,
+/// so no seed rows are needed (contrast `backup::storage::db_tests`, which must
+/// create the `rooms` row `fk_backup_keys_room` demands).
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use synapse_common::test_isolation::IsolatedTestPool;
+
+    /// The workspace baseline migration. The bytes are load-bearing (the shared
+    /// template name is a content fingerprint of this string), so it must stay
+    /// byte-identical to the copies in `synapse-storage/src/test_isolation.rs`,
+    /// `synapse-e2ee/src/olm/storage.rs` and `synapse-services/src/test_utils.rs`.
+    const BASELINE_SQL: &str = include_str!("../../../migrations/00000000_unified_schema_v12.sql");
+
+    fn make_session(session_id: &str, room_id: &str, index: i64) -> MegolmSession {
+        let created = Utc::now();
+        MegolmSession {
+            id: uuid::Uuid::new_v4(),
+            session_id: session_id.to_string(),
+            room_id: room_id.to_string(),
+            sender_key: format!("sender-{session_id}"),
+            session_key: format!("pickle-{session_id}"),
+            algorithm: "m.megolm.v1.aes-sha2".to_string(),
+            message_index: index,
+            created_ts: created,
+            last_used_ts: created,
+            expires_at: None,
+            pickle_format: PickleFormat::Vodozemac,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_megolm_round_trip_on_migration_template() {
+        let isolated = IsolatedTestPool::new(BASELINE_SQL).await.expect("isolated test pool");
+        let pool = isolated.pool();
+        let storage = MegolmSessionStorage::new(&pool);
+
+        let room_a = "!c26a:localhost";
+        let room_b = "!c26b:localhost";
+
+        // --- create_session -> get_session ---
+        let s1 = make_session("sess-a1", room_a, 0);
+        storage.create_session(&s1).await.unwrap();
+        storage.create_session(&make_session("sess-a2", room_a, 7)).await.unwrap();
+        storage.create_session(&make_session("sess-b1", room_b, 0)).await.unwrap();
+
+        let loaded = storage.get_session("sess-a1").await.unwrap().expect("sess-a1");
+        assert_eq!(loaded.id, s1.id);
+        assert_eq!(loaded.session_id, "sess-a1");
+        assert_eq!(loaded.room_id, room_a);
+        assert_eq!(loaded.sender_key, "sender-sess-a1");
+        assert_eq!(loaded.session_key, "pickle-sess-a1");
+        assert_eq!(loaded.algorithm, "m.megolm.v1.aes-sha2");
+        assert_eq!(loaded.message_index, 0);
+        assert_eq!(loaded.created_ts.timestamp_millis(), s1.created_ts.timestamp_millis());
+        assert_eq!(loaded.last_used_ts.timestamp_millis(), s1.last_used_ts.timestamp_millis());
+        assert_eq!(loaded.expires_at, None);
+        assert_eq!(loaded.pickle_format, PickleFormat::Vodozemac);
+        assert!(storage.get_session("missing").await.unwrap().is_none());
+
+        // `session_id` is UNIQUE and `create_session` has no `ON CONFLICT`: the second
+        // insert must surface a mapped DB error, not silently become an update.
+        let duplicate = storage.create_session(&make_session("sess-a1", room_a, 0)).await;
+        let err = duplicate.expect_err("a duplicate session_id must hit the UNIQUE constraint");
+        assert_eq!(err.message, "Database error: Failed to create megolm session");
+
+        // --- get_room_sessions ---
+        // `message_index = 7` must survive as `i64` (D-49's second site) and the
+        // projection must not need an `AS "message_index!"` assertion.
+        let mut in_a = storage.get_room_sessions(room_a).await.unwrap();
+        in_a.sort_by_key(|s| s.message_index);
+        assert_eq!(in_a.iter().map(|s| s.session_id.as_str()).collect::<Vec<_>>(), vec!["sess-a1", "sess-a2"]);
+        assert_eq!(in_a[1].message_index, 7);
+        assert_eq!(storage.get_room_sessions(room_b).await.unwrap().len(), 1);
+        assert!(storage.get_room_sessions("!empty:localhost").await.unwrap().is_empty());
+
+        // --- update_session ---
+        // Only the five SET columns may change; `created_ts`/`room_id` must survive.
+        let mut updated = s1.clone();
+        updated.session_key = "pickle-rotated".to_string();
+        updated.message_index = 42;
+        updated.last_used_ts = s1.last_used_ts + chrono::Duration::seconds(60);
+        updated.expires_at = Some(s1.created_ts + chrono::Duration::hours(1));
+        storage.update_session(&updated).await.unwrap();
+
+        let reloaded = storage.get_session("sess-a1").await.unwrap().expect("sess-a1 after update");
+        assert_eq!(reloaded.session_key, "pickle-rotated");
+        assert_eq!(reloaded.message_index, 42);
+        assert_eq!(reloaded.last_used_ts.timestamp_millis(), updated.last_used_ts.timestamp_millis());
+        assert_eq!(reloaded.expires_at.map(|t| t.timestamp_millis()), updated.expires_at.map(|t| t.timestamp_millis()));
+        assert_eq!(reloaded.pickle_format, PickleFormat::Vodozemac);
+        assert_eq!(reloaded.room_id, room_a, "update_session must not touch room_id");
+        assert_eq!(
+            reloaded.created_ts.timestamp_millis(),
+            s1.created_ts.timestamp_millis(),
+            "update_session must not touch created_ts"
+        );
+
+        // --- increment_message_index (atomic UPDATE ... RETURNING) ---
+        assert_eq!(storage.increment_message_index("sess-a1", 3, 1_000).await.unwrap(), Some(45));
+        assert_eq!(storage.increment_message_index("sess-a1", 0, 2_000).await.unwrap(), Some(45));
+        assert_eq!(
+            storage.increment_message_index("missing", 1, 0).await.unwrap(),
+            None,
+            "an unknown session must yield None, not a fabricated index"
+        );
+        let after_increment = storage.get_session("sess-a1").await.unwrap().unwrap();
+        assert_eq!(after_increment.message_index, 45);
+        // The same statement also writes `last_used_ts`.
+        assert_eq!(after_increment.last_used_ts.timestamp_millis(), 2_000);
+
+        // --- cleanup_expired_sessions: only `expires_at IS NOT NULL AND < now` ---
+        let mut past = make_session("sess-past", room_a, 0);
+        past.expires_at = Some(Utc::now() - chrono::Duration::hours(1));
+        storage.create_session(&past).await.unwrap();
+        let mut future = make_session("sess-future", room_a, 0);
+        future.expires_at = Some(Utc::now() + chrono::Duration::hours(1));
+        storage.create_session(&future).await.unwrap();
+
+        assert_eq!(storage.cleanup_expired_sessions().await.unwrap(), 1, "only the past-expiry row is due");
+        assert!(storage.get_session("sess-past").await.unwrap().is_none());
+        // A `NULL` expiry (sess-a2, sess-b1) and a non-NULL but not-yet-due expiry
+        // (sess-future) must both survive.
+        assert!(storage.get_session("sess-future").await.unwrap().is_some());
+        assert!(storage.get_session("sess-a2").await.unwrap().is_some());
+        assert!(storage.get_session("sess-b1").await.unwrap().is_some());
+
+        // --- upsert_session_keys_batch / get_session_key ---
+        assert_eq!(
+            storage.upsert_session_keys_batch(&[], "sess-a1", "k", 1, None).await.unwrap(),
+            0,
+            "an empty user list must short-circuit to 0 without touching the table"
+        );
+
+        let users = vec!["@c26a:localhost".to_string(), "@c26b:localhost".to_string()];
+        assert_eq!(storage.upsert_session_keys_batch(&users, "sess-a1", "enc-1", 100, None).await.unwrap(), 2);
+        assert_eq!(storage.get_session_key("@c26a:localhost", "sess-a1").await.unwrap().as_deref(), Some("enc-1"));
+        assert!(storage.get_session_key("@c26a:localhost", "sess-missing").await.unwrap().is_none());
+
+        // Re-upserting the same (user_id, session_id) pairs must update in place, not
+        // duplicate: `rows_affected` stays 2 and the key is rewritten.
+        assert_eq!(
+            storage.upsert_session_keys_batch(&users, "sess-a1", "enc-2", 200, Some(9_000_000_000_000)).await.unwrap(),
+            2
+        );
+        assert_eq!(storage.get_session_key("@c26b:localhost", "sess-a1").await.unwrap().as_deref(), Some("enc-2"));
+        let key_rows: i64 =
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM megolm_session_keys").fetch_one(&*pool).await.unwrap();
+        assert_eq!(key_rows, 2, "the ON CONFLICT upsert must not duplicate rows");
+        // A second session for the same users must add exactly two more rows.
+        assert_eq!(storage.upsert_session_keys_batch(&users, "sess-b1", "enc-3", 300, None).await.unwrap(), 2);
+        let key_rows: i64 =
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM megolm_session_keys").fetch_one(&*pool).await.unwrap();
+        assert_eq!(key_rows, 4, "(user_id, session_id) is the conflict target, not user_id alone");
+
+        // --- count_by_pickle_format: `COUNT(*)` has no relation origin ---------
+        // `AS "cnt!"` keeps the non-`Option` `i64` contract. `pickle_format` is the
+        // GROUP BY key, and the schema's CHECK still admits the post-E-12 vocabulary
+        // {'legacy','vodozemac','dual'}, so a raw insert can create a second group.
+        let mut counts = storage.count_by_pickle_format().await.unwrap();
+        counts.sort();
+        assert_eq!(counts, vec![("vodozemac".to_string(), 4)], "sess-a1/a2/b1 + sess-future remain after the cleanup");
+
+        let legacy = make_session("sess-legacy", room_a, 0);
+        storage.create_session(&legacy).await.unwrap();
+        sqlx::query("UPDATE megolm_sessions SET pickle_format = 'legacy' WHERE session_id = $1")
+            .bind("sess-legacy")
+            .execute(&*pool)
+            .await
+            .unwrap();
+
+        let mut counts = storage.count_by_pickle_format().await.unwrap();
+        counts.sort();
+        assert_eq!(counts, vec![("legacy".to_string(), 1), ("vodozemac".to_string(), 4)]);
+        // D-53 pin: the schema says 'legacy' but the read path reports `Vodozemac`
+        // (`PickleFormat` has a single variant and `from_str` falls back silently).
+        // Nothing branches on this field today, so there is no behaviour impact —
+        // but if the vocabulary is ever narrowed, this assertion is the one that
+        // must flip.
+        let legacy_row = storage.get_session("sess-legacy").await.unwrap().unwrap();
+        assert_eq!(legacy_row.pickle_format, PickleFormat::Vodozemac);
+
+        // The CHECK constraint is real: a value outside the documented vocabulary is
+        // rejected by Postgres (23514) rather than stored.
+        let bogus = sqlx::query("UPDATE megolm_sessions SET pickle_format = 'bogus' WHERE session_id = $1")
+            .bind("sess-legacy")
+            .execute(&*pool)
+            .await;
+        let error = bogus.expect_err("pickle_format must be constrained to the documented vocabulary");
+        let code = error.as_database_error().and_then(|db| db.code()).map(|c| c.into_owned());
+        assert_eq!(code.as_deref(), Some("23514"), "CHECK violation expected, got {error:?}");
+
+        // --- delete_session ---
+        storage.delete_session("sess-a1").await.unwrap();
+        assert!(storage.get_session("sess-a1").await.unwrap().is_none());
+        // Deleting an already-absent row is a no-op, not an error.
+        storage.delete_session("sess-a1").await.unwrap();
+        // Deleting a session does not cascade to `megolm_session_keys` (no FK):
+        // the keys are cleaned up by their own path. Pin that so an added FK is noticed.
+        let key_rows: i64 =
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM megolm_session_keys WHERE session_id = 'sess-a1'")
+                .fetch_one(&*pool)
+                .await
+                .unwrap();
+        assert_eq!(key_rows, 2, "megolm_session_keys has no FK to megolm_sessions in the baseline");
     }
 }
