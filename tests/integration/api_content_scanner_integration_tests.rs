@@ -1,7 +1,11 @@
 // Integration tests for content scanner in media upload and message send paths.
 // Tests verify that:
-// 1. Disabled scanner returns M_CONTENT_SCAN_DISABLED (501)
-// 2. Failed scanner returns M_CONTENT_SCAN_FAILED (502) - fail-closed
+// 1. Disabled scanner is a **pass-through** (`content_scan_skipped_total`): scanning
+//    is an operator opt-in, so a disabled scanner must block neither uploads nor
+//    message sends. (`M_CONTENT_SCAN_DISABLED`/501 is only what
+//    `ContentScanner::scan` returns to *direct* callers; both production paths go
+//    through `scan_when_enabled`/`scan_text_when_enabled` — see U-20.)
+// 2. Failed scanner (enabled) is fail-closed: 502 `M_CONTENT_SCAN_FAILED`
 // 3. Successful scan allows content through
 //
 // Uses mock webhook server to control scanner responses.
