@@ -49,8 +49,9 @@
 > 门禁复跑另抓出并修掉六条既有缺陷：**D-50**（`--all-features` clippy 红）、
 > **D-51**（并发写者遗留的 `.sqlx` 缺口）、**D-52**（守卫 5 夹具路径悬空）、
 > **D-48**/**D-49**（schema 可空而读模型非 `Option`，已收紧）、**D-54**（吞错 + 不可达回退）、
-> **D-55**（`cross_signing` 里 `device_keys` 的第二份死写入实现）。
-> §7 登记 55 条（已修 42 / 部分已修 1 / 未修 2 / 结构性保留 7 / 文档级 3）。
+> **D-55**（`cross_signing` 里 `device_keys` 的第二份死写入实现）、**D-56**（D-39 删表后仍在
+> 断言它的契约用例 ⇒ CI 集成批次必红）。并发写者的 **D-39** 本批确认落地（`00271cf91`）。
+> §7 登记 57 条（已修 44 / 部分已修 1 / 未修 2 / 结构性保留 7 / 文档级 3）。
 > **下一步见 §8.24 末尾的「剩余头部」。**
 
 ---
@@ -507,7 +508,7 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-36 | 覆盖缺口 / 门禁 | `scripts/ci/test_ddl_allowlist`、`scripts/ci/insert_column_allowlist`、`tests/unit/test_ddl_guard_tests.rs`、`tests/integration/insert_column_coverage_tests.rs` | **系统性根因**：D-10/D-11/D-31/D-33/D-34 五条"写入端漏列"缺陷同源 —— DB 测试不跑迁移 schema，而用空 schema + 自建简化表，掩盖了 NOT NULL/CHECK/UNIQUE 约束与写入端漏列 | **已修**（守卫 A/B 落地 `7cd40a418`；W1 `c128cdeab` 已把 5 个夹具切到迁移模板） | — | §8.4 两条守卫均已实现并自证变红，见 §8.7 |
 | D-37 | 冗余实现 + 吞错 | `synapse-storage/src/device/mod.rs`（2 个 best-effort 包装已删、6 个调用点已定策） | `DeviceStorage::record_device_list_change` 是 `synapse-e2ee` 同职责的**第二份实现**（铁律 2）；3 处调用点 `let _ = …` 吞错（与 D-07 同型）；`:220` 的 best-effort 包装全仓零调用者（铁律 1） | **部分已修**（W4 `ee443c9f6`） | 有（storage 层设备增删路径） | 已修：删两个 `*_best_effort` 包装；3 处吞错按"重试能否自愈"定策（display-name 两处改 `?`、删除类四处改 `tracing::warn!`）。**未修**：两份实现（storage 与 e2ee 侧 SQL 逐字相同）尚未收敛成一份 —— 跨 crate 的不同类型，需要一个共享位置，属独立设计事项 |
 | D-38 | 测试/门禁漂移 | `synapse-web/src/routes/federation/membership/query.rs:166`（过滤条件，已修）、`:190`（原断言） | `test_federation_membership_query_routes_from_real_ledger` 断言真实 ledger 里有 `GET /_matrix/federation/v1/room/<room_id>/membership/<user_id>`，但全仓**从未注册**该路由（ruma `api::federation::membership` 亦只含 invite/send_join/send_knock/send_leave/make_join/make_knock/make_leave；`/rooms/{roomId}/membership/{userId}` 是 client API、`registered_by == "room"`） ⇒ `cargo nextest run --workspace --lib` 在 HEAD 即为红 | **已修**（`8a6b36ca7`） | 曾被该红灯阻断 workspace lib 批次 | 已修：过滤条件 `/membership` → `/members/`，断言改为真实端点 `GET /members/{room_id}`、`GET /members/{room_id}/joined`（精确相等）与 `POST …/keys/query`，并在注释里记录该路由不是 spec 端点 |
-| D-39 | 遗留 schema（**新登记**） | `migrations/00000000_unified_schema_v12.sql` 的 `search_index` 表；唯二引用是 `tests/integration/schema_contract_p0_tests_migrated.rs:1232` 与 `tests/integration/schema_contract_p0_tests_migrated.rs:1257` | D-27 删除 `search_index.rs` 模块后，`search_index` **表**已无任何生产读写方（原本也只被那个死模块读写，注释里就写着"表永远为空"），仅剩 schema-contract 用例断言其形状 | **未修**（2026-09-24 W4 顺带登记） | 无（表无人读写） | 二选一：① 新增前向迁移 `DROP TABLE search_index`（连带删两条 schema-contract 用例与 SDK/ledger fixture、更新迁移一致性脚本的期望表集合）；② 保留表并明确记录"为将来接回 FTS 路径预留"—— 若选②需在 schema 注释里写清，否则它只是下一轮的死对象 |
+| D-39 | 遗留 schema（**新登记**） | `migrations/00000000_unified_schema_v12.sql` 的 `search_index` 表；唯二引用是 `tests/integration/schema_contract_p0_tests_migrated.rs:1232` 与 `tests/integration/schema_contract_p0_tests_migrated.rs:1257` | D-27 删除 `search_index.rs` 模块后，`search_index` **表**已无任何生产读写方（原本也只被那个死模块读写，注释里就写着"表永远为空"），仅剩 schema-contract 用例断言其形状 | **已修**（2026-09-25，并发写者 `00271cf91`；本批补完其遗漏，见 D-56） | 无（表无人读写） | 已修：取选项① —— baseline 删除 `search_index` 表 + 4 条索引，指纹 `a20182b71fb77e7e` → `793304d36eee7917`。**但该提交只删了表、没动断言它的契约用例 ⇒ 集成批次必红**：本批据此登记 **D-56** 并把三条用例改完（`00271cf91` 的提交信息写 "Refs: D-40" 是**笔误** —— D-40 是 `password_auth_providers`，本条才是 D-39） |
 
 | D-40 | **产品缺陷（空壳端点）**（**新登记**） | `synapse-storage/src/module.rs:930`（原两处 stub，已实现）+ `migrations/00000000_unified_schema_v12.sql`（已加表） | `create_password_auth_provider` 是硬编码 `Err(sqlx::Error::RowNotFound)`、`get_password_auth_providers` 是硬编码 `Ok(vec![])`，而 `POST/GET /_synapse/admin/v1/password_auth_providers` **两个管理路由已注册**并写进 `ROUTE_CONTRACT.md`，model/request/service 俱全 —— 但 `password_auth_providers` 表在 baseline 与 live schema 里**都不存在** ⇒ POST 永败、GET 恒空 | **已修**（W5 `ab5949c70`，取「补齐实现」） | 有（两个 admin 路由） | 已修：v12 baseline 加表（`provider_name` UNIQUE ⇒ POST 幂等 create-or-update —— 该表无 PUT/DELETE 路由，POST 是唯一写路径）+ 两条真实语句（INSERT…ON CONFLICT…RETURNING / SELECT `ORDER BY priority, provider_name`）。同批扫过全仓 `Ok(vec![])`/`Err(RowNotFound)`/`unimplemented!()`：其余均属合法（空输入早返、友房业务错误、测试替身、no-op store） |
 | D-41 | **数据一致性**（**新登记**） | `synapse-storage/src/module.rs:783`（`get_execution_logs`） | `ORDER BY executed_ts DESC` 单键排序：`executed_ts` 是**毫秒**，同一毫秒的多次执行并列时 `LIMIT n` 的读法可能重复/漏行（与 D-08 同族） | **已修**（W5 `ab5949c70`；由既有棘轮 `ts_order_tiebreak_tests` 抓出） | 有（module 执行日志读路径） | 已修：加决胜键 `, id DESC`，并按该棘轮 `--update` 收紧 `scripts/ci/ts_order_single_key_baseline`（删 `synapse-storage/src/module.rs 1`）。顺带清掉新用例注释里含同形文本的措辞 —— 该棘轮是词法计数，散文里的同形文本也会被计入 |
@@ -525,19 +526,22 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-53 | **兼容残留 / 死词汇**（**新登记**） | `migrations/00000000_unified_schema_v12.sql:708-731`（`megolm_sessions.pickle_format` 的 `CHECK IN ('legacy','vodozemac','dual')` + `DEFAULT 'legacy'` + `vodozemac_pickle` 列）对 `synapse-e2ee/src/megolm/models.rs:10-34`（`PickleFormat` 只剩 `Vodozemac` 一个变体，`from_str` 把未知值**静默落回** `Vodozemac`） | E-12 迁移已完成，schema 仍保留迁移期的三值词汇表、`DEFAULT 'legacy'` 与无生产写入者的 `vodozemac_pickle` 列；而代码侧只有一个变体 ⇒ 直接写入 `'legacy'` 的行读回后被报成 `Vodozemac`（静默标签漂移）。`models.rs:59` 自述 "kept for schema compatibility but always Vodozemac after E-12" —— 而本项目**未发布、无兼容义务**（铁律 1） | **未修**（登记，**待裁定**；2026-09-25 C26 静态化时发现） | **无行为影响**（实证）：全仓**无任何分支读取** `pickle_format`（`grep` 无 `==`/`match`，仅构造与断言）；唯一的 `INSERT INTO megolm_sessions` 恒绑 `as_str()` = `'vodozemac'` ⇒ legacy/dual 行不可由应用产生 | 二选一：① 按铁律 1 收窄词汇表（`CHECK (pickle_format = 'vodozemac')`、去掉 `DEFAULT 'legacy'` 与 `vodozemac_pickle` 列/dual 语义）；② 保留并在注释里写明"仅为历史行兼容"。**两条路都要改 baseline 迁移 ⇒ 属独立 schema 清理批**（会再动一次指纹），不在 C26。新用例已把当前落回行为钉住（收窄时该断言必须翻转） |
 | D-54 | **死代码 / 吞错**（**新登记**） | `synapse-storage/src/privacy.rs` 的 `batch_can_view_profile`（原 `sqlx::query(...)` + `row.try_get(...)` 手工解码） | 两处缺陷：① `row.try_get("user_id").unwrap_or_default()` 在 **PRIMARY KEY** 列上吞掉 DB 错误（本仓"禁止 `unwrap_or_default` 吞错"的已知坑）；② `else if let Ok(allow_lookup) = row.try_get::<bool,_>("allow_profile_lookup")` **不可达** —— `profile_visibility` 是 `TEXT NOT NULL`，第一个 `try_get::<String,_>` 恒成功 ⇒ 该"回退"从未生效。同批发现 `allow_presence_lookup` / `allow_room_invites` **全仓零引用**，且三列都无写入者 | **已修**（2026-09-25 C26 静态化时被编译器证伪） | 无生产影响（两处均**行为等价**：① 的错误路径不可达；② 的回退分支不可达） | 已修：转 `query!` 后 `row.user_id` / `row.profile_visibility` 被定型为**非 `Option`**，等价于编译器**证明**了回退不可达 ⇒ 删除该分支，可见性只由 `profile_visibility` 决定（既有 24 条用例全绿）。三个 `allow_*` 死列**未删**（属独立 schema 清理，会再动指纹），已在 §7.2 D-54 记明 |
 | D-55 | **死代码 + 第二份写入实现**（**新登记**） | `synapse-e2ee/src/cross_signing/storage.rs` 的 `CrossSigningStorage::save_device_key`（及只服务它的 `DeviceKeyInfo`，`cross_signing/models.rs`） | 该方法是 `device_keys` 的**第二份写入实现**（铁律 2）：主实现是 `synapse-e2ee/src/device_keys/storage.rs:246`/`:286`（写 12–14 列），它只写 9 列，**漏 `signatures` / `display_name` / `ts_updated_ms` / `is_fallback` / `fallback_used`**。这些列在 baseline 里可空或 `NOT NULL DEFAULT`（`v12:650-670`）⇒ INSERT 不会失败，但 **`ts_updated_ms` 是设备列表变更追踪列**：一旦该实现被复活调用，就会静默造成"写了 `device_keys` 却不推进变更时间戳"的漏唤醒。同时它**全仓零调用者**且 `CrossSigningStorage` 无 trait impl（铁律 1） | **已修**（2026-09-25 C27 静态化前"先修"时发现） | **无**（零调用者；`grep -rn '\.save_device_key('` 仅命中自身定义与自引用注释，无 trait 分发路径） | 已修：删除该方法与只服务它的 `DeviceKeyInfo`（7 字段，删除后全仓零引用），并回收 1 处生产字面量动态 SQL；见 §8.24 |
+| D-56 | **门禁失败（契约用例未随 schema 变更更新）**（**新登记**） | `tests/integration/schema_contract_p0_tests_migrated.rs` 的三条用例：`test_schema_contract_p0_tables_exist`（表清单含 `"search_index"`）、`test_schema_contract_search_index_shape`、`test_schema_contract_search_index_query_and_write_read_closure`（后者直接 `INSERT INTO search_index` / `SELECT … FROM search_index`） | 并发写者的 `00271cf91`（D-39 落地）从 baseline 删除 `search_index` 表与 4 条索引，却**没有**同步这三条断言它存在的用例 ⇒ **集成批次必红**。CI 口径实测（本批新建一次性库 `synapse_c27_ci` + `scripts/ci/prepare_test_db.sh`，等价全新库）：`0 passed / 3 failed` | **已修**（2026-09-25 C27 变基后复跑门禁时发现） | 无生产影响（纯契约用例），但 CI 集成批次 blocking；且**本地只暴露 1/3**（另 2 条被 D-57 的假绿机制掩盖） | 已修：删两条用例 + 从表清单移除该项，并**一并删除只被 `_shape` 使用的 `has_index_on_column` 辅助函数**（不删则 clippy `dead_code` 在 `-D warnings` 下红 —— 实测的连带项）。修后同库 `test(/schema_contract_p0/)` → **20/20**，两档 clippy EXIT=0 |
+| D-57 | **测试基建假绿（search_path 回退到陈旧的 `public`）**（**新登记**） | `tests/integration/mod.rs` 的 `require_test_pool()`（search_path = `<clone>, public`）× `scripts/ci/prepare_test_db.sh:79`（对 `public` 用 `RESET_PUBLIC=0` 增量套 baseline）× `assert_table_exists`（`to_regclass($1)` 走 search_path 解析） | baseline 是 `CREATE TABLE IF NOT EXISTS` 风格的合并脚本、**不含任何 `DROP`** ⇒ 一旦某表被从 baseline 删除，长期存在的本地 `public` **仍留着它**；而 `require_test_pool()` 的 search_path 回退到 `public`，于是 `to_regclass` 解析到陈旧表、`INSERT`/`SELECT` 甚至**写进 `public`** ⇒ 断言"某表存在/可用"的用例**假绿**。CI 全新库无此问题（所以 CI 红、本地不红 —— 实测 `search_index`：本地 3 条只红 1 条） | **未修**（登记；2026-09-25 C27 验证 D-56 时定位） | 无生产影响；但**本地验证结论可能与 CI 不一致**，且用例会污染共享的 `public` 而不自知 —— 与 D-51（`--static` 假绿）、D-47（夹具漂移）同族，机制不同 | 建议二选一或并用：① 让 `assert_table_exists` 类断言**锚定当前 schema**（`i.schemaname = current_schema()`，同文件 `_shape` 用例已是这种写法 —— 它正是唯一如实报红的那条）；② 让 CI seed 对 `public` 也做收敛（`RESET_PUBLIC=1`，或对"已从 baseline 删除的对象"补 `DROP … IF EXISTS`）。**注**：脚本注释说明了 `RESET_PUBLIC=0` 的动机（避免 `DROP SCHEMA public CASCADE` 连带删掉依赖 public 扩展的其它 schema 对象），故②需谨慎设计；①是低风险的第一步。须用"删掉一条 baseline 表定义"的故意违规证明修好后仍能变红 |
 
-**状态计数（2026-09-25，C27 完成后）**：已修 **42**
+**状态计数（2026-09-25，C27 完成后）**：已修 **44**
 （D-02/D-03/D-24/D-28/D-35 + W1 的 D-10/D-11/D-31/D-33/D-34 + D-36 守卫 +
 W2 的 D-05/D-07/D-08/D-09 + W3 的 D-29/D-32 + D-38 + W4 的 D-01/D-04/D-06/D-17/D-27/D-30 +
 D-12 + D-42 + W5 的 **D-15**（含六个子项）/**D-25**/**D-40**/**D-41** + C19a 的 **D-43**/**D-44**/**D-45** +
 C19b 的 **D-46**/**D-47** + C25 的 **D-50**/**D-51** + C26 的 **D-48**/**D-49**/**D-52**/**D-54** +
-C27 的 **D-55**）；
+C27 的 **D-55**/**D-56** + 并发写者的 **D-39**（`00271cf91`））；
 **部分已修 1**（D-37：吞错与死包装已修、跨 crate 两份实现的收敛未做）；
-未修 **2**（**D-39**：`search_index` 表删否；**D-53**：`megolm_sessions.pickle_format` 的三值词汇表 /
-`DEFAULT 'legacy'` / `vodozemac_pickle` 列在 E-12 迁移后已无生产者与消费者 —— **待裁定**）；
+未修 **2**（**D-53**：`megolm_sessions.pickle_format` 的三值词汇表 / `DEFAULT 'legacy'` /
+`vodozemac_pickle` 列在 E-12 迁移后已无生产者与消费者 —— **待裁定**；
+**D-57**：`require_test_pool()` 的 search_path 回退到陈旧的 `public`，使"表存在/可用"类断言假绿）；
 结构性保留（有意）**7**（D-13/D-14/D-18–D-22）；
 文档级已处置 **3**（D-16/D-23/D-26）。
-合计 **55** 条（D-01…D-55），校验：42 + 1 + 2 + 7 + 3 = **55**。
+合计 **57** 条（D-01…D-57），校验：44 + 1 + 2 + 7 + 3 = **57**。
 
 > 注：本行以下曾残留一段**过期计数**（「合计 36 条（D-01…D-36）」），与当时的实际条数矛盾
 > 且已被后续重写覆盖 —— 本次一并删除，避免出现第三份计数口径（D-35 型漂移）。
@@ -1881,6 +1885,59 @@ C27 的 **D-55**）；
 - 遗留（未做，属独立小批）：本批只删了"第二份写入实现"。`device_keys` 的**列级**保护
   仍只有守卫 B（生产 INSERT 列覆盖）看得到主实现 —— C27 之后 `device_keys` 只剩一处
   生产写入者，故该守卫的语义重新变成"单实现"，无需额外改动。
+
+#### D-56 D-39 删表后仍在断言 `search_index` 的三条契约用例（2026-09-25 C27 变基后复跑门禁时发现）
+
+- 类别：**门禁失败**（契约用例未随 schema 变更更新；无生产影响）。
+- 背景：并发写者的 `00271cf91`（"remove legacy search_index table and update fingerprint"）
+  落地了 §7 **D-39**：baseline 删除 `search_index` 表 + 4 条索引，指纹
+  `a20182b71fb77e7e` → `793304d36eee7917`。**其提交信息写 "Refs: D-40" 是笔误**
+  （D-40 是 `password_auth_providers`；本条才是 D-39）。
+- 位置与证据（三条用例都在
+  `tests/integration/schema_contract_p0_tests_migrated.rs`）：
+  1. `test_schema_contract_p0_tables_exist` —— 必查表清单里含 `"search_index"`；
+  2. `test_schema_contract_search_index_shape` —— 断言该表的列、`UNIQUE(event_id)`、三条索引；
+  3. `test_schema_contract_search_index_query_and_write_read_closure` —— 直接
+     `INSERT INTO search_index (…)` 与 `SELECT … FROM search_index`。
+- **CI 口径实测**（本批为此建了一次性库 `synapse_c27_ci` 并跑
+  `scripts/ci/prepare_test_db.sh`，等价于 CI 的全新库）：修复前
+  `nextest --profile ci --all-features --test integration
+  -E 'test(/schema_contract_p0_tables_exist|schema_contract_search_index/)'`
+  ⇒ **0 passed / 3 failed**。
+- 状态：**已修**（2026-09-25 C27）。
+- 修法：删掉后两条用例、从表清单移除 `"search_index"`，并**一并删除只被 `_shape` 用例
+  使用的 `has_index_on_column` 辅助函数** —— 不删它，clippy 会在 `-D warnings`
+  （`dead_code`）下红，这是本轮实测出来的连带项。`has_unique_constraint_on` /
+  `assert_column` / `assert_table_exists` 被其它用例广泛使用，保留。
+- 修后实测：同库 `-E 'test(/schema_contract_p0/)'` → **20/20**；两档 clippy EXIT=0。
+- **本地为何只红 1/3**：见 D-57 —— 另两条被 search_path 回退到陈旧 `public` 的机制假绿了。
+
+#### D-57 `require_test_pool()` 的 search_path 回退让"表存在/可用"类断言假绿（2026-09-25 C27 定位 D-56 时发现）
+
+- 类别：**测试基建假绿**（本地验证结论可能与 CI 不一致；无生产影响）。
+- 三个环节叠加出该机制（每一环单独看都合理）：
+  1. `tests/integration/mod.rs` 的 `require_test_pool()` 克隆 seed 模板，并把 search_path
+     设为 `<clone>, public`；
+  2. `scripts/ci/prepare_test_db.sh:79` 对 `public` 用的是 **`RESET_PUBLIC=0`**（增量套用 baseline）；
+  3. baseline 是 `CREATE TABLE IF NOT EXISTS` 风格的**合并**脚本，**不含任何 `DROP`**。
+  ⇒ 一旦某表被从 baseline **删除**，长期存在的本地 `public` **仍留着它**；于是
+  `assert_table_exists` 的 `to_regclass($1)`（注释明说"走 search_path 解析"）解析到**陈旧表**，
+  `INSERT`/`SELECT` 也落到 `public` 上 —— 用例**假绿**，并且**污染共享的 `public` 而不自知**。
+- 实测证据（`search_index` 正好是当下唯一的反例）：同一轮本地 `synapse_test` 上，D-56 的
+  三条用例**只红 1 条**（`_shape`），另两条假绿；而 CI 口径的 `synapse_c27_ci` 上
+  **3 条全红**。差别就在 `_shape` 用的是 `i.schemaname = current_schema()` 的
+  **schema 锚定**查询（`has_index_on_column`），是唯一如实报红的那条。
+- 状态：**未修**（登记）。
+- 建议（① 低风险先做，② 需谨慎设计）：
+  ① 让"表存在/可用"类断言**锚定当前 schema**（`to_regclass(format!('{}.{}', current_schema(), $1))`，
+     或直接查 `information_schema.tables WHERE table_schema = current_schema()`）——
+     与 `_shape` 的既有写法一致；
+  ② 让 seed 对 `public` 也做**收敛**（`RESET_PUBLIC=1`，或对"已从 baseline 删除的对象"
+     补 `DROP … IF EXISTS`）。注意脚本注释已说明 `RESET_PUBLIC=0` 的动机：
+     `DROP SCHEMA public CASCADE` 会连带删掉**依赖 public 扩展**的其它 schema 对象，
+     所以②不能简单改成 1。
+- 防复发要求：修好后必须用**故意违规**证明仍能变红（例如临时注释掉 baseline 里某张表的
+  `CREATE TABLE`，断言对应用例 FAIL），否则只是把假绿换成另一种假绿。
 
 ## 8. 问题优先处理计划（2026-09-23 重排：先修问题，再继续静态化）
 
@@ -3351,9 +3408,43 @@ feature 教训同样适用于它**）、`synapse-services/src/database_initializ
 runtime 83/15 不变）。收紧后 literal 表与实测**逐行 diff 相同**（430 / 71）。
 `.sqlx` 916 → **928**（+12，deleted=0 / modified=0），沿用 C26 的 `--all-features` 口径。
 
-#### 8.24.6 提交清单
+#### 8.24.6 变基后复验：并发写者的 D-39 落地，由此发现 D-56 / D-57
 
-本批 6 个提交（5 个代码/棘轮 + 1 个文档；**按主题引用，不引用哈希** —— 理由见 §8.23.7：
+本批完成后（合并前）main 前进到 `00271cf91`（"remove legacy search_index table and update
+fingerprint"），即 §7 **D-39** 的落地：baseline 删 `search_index` 表 + 4 条索引，指纹
+`a20182b71fb77e7e` → `793304d36eee7917`。它**改了本批依赖的两处文件**
+（`migrations/00000000_unified_schema_v12.sql` 与
+`tests/unit/test_isolation_unification_tests.rs` 的指纹常量），但由于它是本批基线的**子提交**，
+rebase **零冲突**；复测 census 也**不变**（513 / 711 / 956 / 1224 —— 该提交不含任何查询宏）。
+
+复验时发现它**没删干净**，这就是本批的 **D-56**：三条 `schema-contract` 用例仍在断言
+`search_index` 存在（其中一条直接 `INSERT`），而**集成批次是 CI blocking**。
+
+**本批为此建立了一条可复用的验证方法**（值得后续沿用）：
+CI 用的是**全新库**，而本机 `synapse_test` 是长期库 —— 两者的 schema 可能不同。故对
+"schema 变了吗"这类结论，**不要在长期库上验证**，而应：
+
+```bash
+createdb synapse_<tag>_ci                                   # 一次性库
+TEST_DATABASE_URL=…/synapse_<tag>_ci \
+  TEST_DB_TEMPLATE_SCHEMA=test_template_ci bash scripts/ci/prepare_test_db.sh
+# 再以该库为 TEST_DATABASE_URL 跑相关用例
+```
+
+实测对比（同一份代码）：
+
+| 库 | D-56 的三条用例 | 说明 |
+|---|---|---|
+| 本机长期库 `synapse_test` | **2 passed / 1 failed** | 另两条被 **D-57** 的 search_path 回退假绿 |
+| 一次性库 `synapse_c27_ci`（= CI 口径） | **0 passed / 3 failed** | 真实结论 |
+
+修完 D-56 后，在同一次性库上 `-E 'test(/schema_contract_p0/)'` → **20/20**；
+两档 clippy EXIT=0（证明连带删除的辅助函数没留下 `dead_code`）。
+D-57（陈旧 `public` 造成的假绿）**只登记未修** —— 它属测试基建设计，建议见 §7.2 D-57。
+
+#### 8.24.7 提交清单
+
+本批 7 个提交（6 个代码/棘轮/测试 + 1 个文档；**按主题引用，不引用哈希** —— 理由见 §8.23.7：
 本批提交在合并前可能因并发写者推进而 rebase，自引用哈希必然漂移；需要哈希时以
 `git log --oneline` 按主题检索）：
 
@@ -3362,7 +3453,8 @@ runtime 83/15 不变）。收紧后 literal 表与实测**逐行 diff 相同**�
 3. `chore(sqlx): C27 刷新 .sqlx —— cross_signing/storage.rs 12 处宏化新增 12 条`
 4. `fix(tests): C27 新用例的 clippy::unnecessary_get_then_check`
 5. `chore(sqlx): C27 同批收紧棘轮 —— dynamic_production 526→513、static 944→956`
-6. 本文档（§8.24 + §7 D-55 + §0）
+6. `fix(integration): D-56 —— 补上 D-39 删表后仍在断言 search_index 的契约用例`（变基后复验发现）
+7. 本文档（§8.24 + §7 D-39/D-55/D-56/D-57 + §0）
 
 **累计进展（C 系列 `dynamic_production`）**：706（C18）→ 694（W4）→ 676（C19a）→
 658（C19b）→ 642（C20）→ 626（C21）→ 601（workbuddy 删 device_trust/verification）→
