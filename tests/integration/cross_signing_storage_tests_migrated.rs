@@ -2,59 +2,29 @@
 use chrono::Utc;
 use serde_json::json;
 use std::sync::Arc;
+use synapse_common::test_isolation::IsolatedTestPool;
 use synapse_e2ee::cross_signing::models::{CrossSigningKey, DeviceSignature};
 use synapse_e2ee::cross_signing::storage::CrossSigningStorage;
-async fn setup_test_database() -> Arc<sqlx::PgPool> {
-    let pool = synapse_test_utils::prepare_empty_isolated_test_pool().await.expect("Failed to prepare test pool");
 
-    sqlx::query(
-        r#"
-            CREATE TABLE IF NOT EXISTS cross_signing_keys (
-                id BIGSERIAL PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                key_type TEXT NOT NULL,
-                key_data TEXT NOT NULL,
-                signatures JSONB,
-                added_ts BIGINT NOT NULL,
-                CONSTRAINT uq_cross_signing_keys_user_type UNIQUE (user_id, key_type)
-            )
-            "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create cross_signing_keys table");
+/// 工作区迁移 baseline；模板名是其内容指纹，必须与其它 crate 传同一份字节。
+const BASELINE_SQL: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql");
 
-    sqlx::query(
-        r#"
-            CREATE TABLE IF NOT EXISTS device_signatures (
-                id BIGSERIAL PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                device_id TEXT NOT NULL,
-                target_user_id TEXT NOT NULL,
-                target_device_id TEXT NOT NULL,
-                algorithm TEXT NOT NULL,
-                signature TEXT NOT NULL,
-                created_ts BIGINT NOT NULL,
-                CONSTRAINT uq_device_signatures_unique UNIQUE (
-                    user_id,
-                    device_id,
-                    target_user_id,
-                    target_device_id,
-                    algorithm
-                )
-            )
-            "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create device_signatures table");
-
-    pool
+/// 每个用例一个从 v12 模板克隆的 schema（D-36/D-47 口径）。
+///
+/// 该文件原先用 `prepare_empty_isolated_test_pool()` + 自建两张表 —— 自建 schema
+/// **没有** baseline 里的 `cross_signing_keys.user_id → users(user_id)` 外键，
+/// 于是"未 seed 用户也能写交叉签名密钥"这一假象一直存在。迁到模板后该 FK 生效，
+/// 故先 seed 用户（`ensure_test_user`）。
+async fn setup_test_database() -> (IsolatedTestPool, Arc<sqlx::PgPool>) {
+    let isolated = IsolatedTestPool::new(BASELINE_SQL).await.expect("isolated test pool");
+    let pool = isolated.pool();
+    crate::ensure_test_user(&pool, "@alice:localhost").await;
+    (isolated, pool)
 }
 
 #[tokio::test]
 async fn test_cross_signing_storage_round_trip_preserves_millis_timestamps() {
-    let pool = setup_test_database().await;
+    let (_isolated, pool) = setup_test_database().await;
     let storage = CrossSigningStorage::new(&pool);
 
     let key = CrossSigningKey {
@@ -117,7 +87,7 @@ async fn test_cross_signing_storage_round_trip_preserves_millis_timestamps() {
 
 #[tokio::test]
 async fn test_cross_signing_storage_accepts_dynamic_ed25519_key_ids() {
-    let pool = setup_test_database().await;
+    let (_isolated, pool) = setup_test_database().await;
     let storage = CrossSigningStorage::new(&pool);
 
     // Key IDs carry dynamic suffixes (e.g. `ed25519:alice-master-key`) rather

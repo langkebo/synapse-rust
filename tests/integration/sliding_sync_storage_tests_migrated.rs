@@ -1,6 +1,5 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_storage::sliding_sync::{
     decode_room_token_sync_cursor, encode_room_token_sync_cursor, RoomTokenSyncCursor, SlidingSyncFilters,

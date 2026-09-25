@@ -1,5 +1,4 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-use std::sync::Arc;
 use std::sync::{Mutex, OnceLock};
 use synapse_common::current_timestamp_millis;
 use synapse_storage::event::{CreateEventParams, EventStorage, SinceFilter};

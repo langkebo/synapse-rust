@@ -13,28 +13,6 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-async fn setup_test_database(pool: &Pool<Postgres>) {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS federation_signing_keys (
-            server_name VARCHAR(255) NOT NULL,
-            key_id VARCHAR(255) NOT NULL,
-            secret_key TEXT NOT NULL,
-            public_key TEXT NOT NULL,
-            created_ts BIGINT NOT NULL,
-            expires_at BIGINT NOT NULL,
-            key_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-            ts_added_ms BIGINT NOT NULL,
-            ts_valid_until_ms BIGINT NOT NULL,
-            PRIMARY KEY (server_name, key_id)
-        )
-    "#,
-    )
-    .execute(pool)
-    .await
-    .expect("create the federation signing-keys table in the isolated schema");
-}
-
 async fn cleanup_test_database(pool: &Pool<Postgres>) {
     sqlx::query("DELETE FROM federation_signing_keys WHERE server_name LIKE 'test%'")
         .execute(pool)
@@ -53,7 +31,6 @@ fn generate_valid_test_key() -> String {
 #[tokio::test]
 async fn test_key_rotation_initialization() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     cleanup_test_database(&pool).await;
 
@@ -77,7 +54,6 @@ async fn test_key_rotation_initialization() {
 #[tokio::test]
 async fn test_should_rotate_keys() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     cleanup_test_database(&pool).await;
 
@@ -105,7 +81,6 @@ async fn test_should_rotate_keys() {
 #[tokio::test]
 async fn test_load_or_create_key_recovers_missing_signing_key_table() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let id = unique_id();
     let server_name = format!("test{id}.example.com");
@@ -127,24 +102,6 @@ async fn test_device_sync_cache() {
     let pool = crate::require_test_pool().await;
     let manager = DeviceSyncManager::new(&pool, None, None);
 
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS devices (
-            device_id VARCHAR(255) NOT NULL,
-            user_id VARCHAR(255) NOT NULL,
-            display_name VARCHAR(255),
-            last_seen_ts BIGINT,
-            last_seen_ip VARCHAR(255),
-            created_ts BIGINT,
-            hidden BOOLEAN DEFAULT FALSE,
-            PRIMARY KEY (device_id, user_id)
-        )
-    "#,
-    )
-    .execute(&*pool)
-    .await
-    .expect("create the devices table in the isolated schema");
-
     let devices = manager.get_local_devices("@test:example.com").await.unwrap();
     assert!(devices.is_empty());
 }
@@ -153,24 +110,6 @@ async fn test_device_sync_cache() {
 async fn test_device_revocation() {
     let pool = crate::require_test_pool().await;
     let manager = DeviceSyncManager::new(&pool, None, None);
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS devices (
-            device_id VARCHAR(255) NOT NULL,
-            user_id VARCHAR(255) NOT NULL,
-            display_name VARCHAR(255),
-            last_seen_ts BIGINT,
-            last_seen_ip VARCHAR(255),
-            created_ts BIGINT,
-            hidden BOOLEAN DEFAULT FALSE,
-            PRIMARY KEY (device_id, user_id)
-        )
-    "#,
-    )
-    .execute(&*pool)
-    .await
-    .expect("create the devices table in the isolated schema");
 
     let result = manager.revoke_device("DEVICE123", "@test:example.com").await;
     assert!(result.is_ok());

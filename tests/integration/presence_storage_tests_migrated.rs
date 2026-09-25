@@ -12,90 +12,6 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-async fn setup_test_database() -> Option<(Arc<sqlx::PgPool>, PresenceStorage)> {
-    let pool = match synapse_test_utils::prepare_empty_isolated_test_pool().await {
-        Ok(pool) => pool,
-        Err(error) => {
-            eprintln!("Skipping presence storage tests because test database is unavailable: {error}");
-            return None;
-        }
-    };
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS users (
-            user_id TEXT NOT NULL PRIMARY KEY,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT,
-            is_admin BOOLEAN DEFAULT FALSE,
-            is_guest BOOLEAN DEFAULT FALSE,
-            created_ts BIGINT NOT NULL,
-            updated_ts BIGINT,
-            displayname TEXT,
-            avatar_url TEXT
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create users table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS presence (
-            user_id TEXT NOT NULL,
-            status_msg TEXT,
-            presence TEXT NOT NULL DEFAULT 'offline',
-            last_active_ts BIGINT NOT NULL DEFAULT 0,
-            status_from TEXT,
-            created_ts BIGINT NOT NULL,
-            updated_ts BIGINT NOT NULL,
-            CONSTRAINT pk_presence PRIMARY KEY (user_id),
-            CONSTRAINT fk_presence_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create presence table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS presence_subscriptions (
-            subscriber_id TEXT NOT NULL,
-            target_id TEXT NOT NULL,
-            created_ts BIGINT NOT NULL,
-            CONSTRAINT pk_presence_subscriptions PRIMARY KEY (subscriber_id, target_id),
-            CONSTRAINT fk_presence_subscriptions_subscriber FOREIGN KEY (subscriber_id) REFERENCES users(user_id) ON DELETE CASCADE,
-            CONSTRAINT fk_presence_subscriptions_target FOREIGN KEY (target_id) REFERENCES users(user_id) ON DELETE CASCADE
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create presence_subscriptions table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS typing (
-            user_id TEXT NOT NULL,
-            room_id TEXT NOT NULL,
-            is_typing BOOLEAN DEFAULT FALSE,
-            last_active_ts BIGINT NOT NULL,
-            CONSTRAINT pk_typing PRIMARY KEY (user_id, room_id)
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create typing table");
-
-    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let storage = PresenceStorage::new(pool.clone(), cache);
-
-    Some((pool, storage))
-}
-
 async fn insert_test_user(pool: &sqlx::PgPool, user_id: &str) {
     let now = current_timestamp_millis();
     sqlx::query(
@@ -113,9 +29,33 @@ async fn insert_test_user(pool: &sqlx::PgPool, user_id: &str) {
     .expect("Failed to insert test user");
 }
 
+use synapse_common::test_isolation::IsolatedTestPool;
+
+/// 工作区迁移 baseline；模板名是其内容指纹，必须与其它 crate 传同一份字节。
+const BASELINE_SQL: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql");
+
+/// 每个用例一个从 v12 模板克隆的 schema（D-36/D-47 口径）。
+///
+/// 原实现用 `prepare_empty_isolated_test_pool()` + 自建 users/presence/
+/// presence_subscriptions/typing 四张表。迁到模板后这四张表（连同
+/// `presence.user_id → users` 等真实外键）由 baseline 提供，自建 DDL 全部删除。
+async fn setup_test_database() -> Option<(IsolatedTestPool, Arc<sqlx::PgPool>, PresenceStorage)> {
+    let isolated = match IsolatedTestPool::new(BASELINE_SQL).await {
+        Ok(isolated) => isolated,
+        Err(error) => {
+            eprintln!("Skipping presence storage tests because test database is unavailable: {error}");
+            return None;
+        }
+    };
+    let pool = isolated.pool();
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let storage = PresenceStorage::new(pool.clone(), cache);
+    Some((isolated, pool, storage))
+}
+
 #[tokio::test]
 async fn test_set_and_get_presence() {
-    let (pool, storage) = match setup_test_database().await {
+    let (_isolated, pool, storage) = match setup_test_database().await {
         Some(tuple) => tuple,
         None => return,
     };
@@ -135,7 +75,7 @@ async fn test_set_and_get_presence() {
 
 #[tokio::test]
 async fn test_get_presence_nonexistent() {
-    let (_pool, storage) = match setup_test_database().await {
+    let (_isolated, _pool, storage) = match setup_test_database().await {
         Some(tuple) => tuple,
         None => return,
     };
@@ -146,7 +86,7 @@ async fn test_get_presence_nonexistent() {
 
 #[tokio::test]
 async fn test_set_presence_without_status_msg() {
-    let (pool, storage) = match setup_test_database().await {
+    let (_isolated, pool, storage) = match setup_test_database().await {
         Some(tuple) => tuple,
         None => return,
     };
@@ -166,7 +106,7 @@ async fn test_set_presence_without_status_msg() {
 
 #[tokio::test]
 async fn test_presence_upsert_updates_existing() {
-    let (pool, storage) = match setup_test_database().await {
+    let (_isolated, pool, storage) = match setup_test_database().await {
         Some(tuple) => tuple,
         None => return,
     };
@@ -188,7 +128,7 @@ async fn test_presence_upsert_updates_existing() {
 
 #[tokio::test]
 async fn test_get_presence_with_meta() {
-    let (pool, storage) = match setup_test_database().await {
+    let (_isolated, pool, storage) = match setup_test_database().await {
         Some(tuple) => tuple,
         None => return,
     };
@@ -210,7 +150,7 @@ async fn test_get_presence_with_meta() {
 
 #[tokio::test]
 async fn test_get_presence_with_meta_nonexistent() {
-    let (_pool, storage) = match setup_test_database().await {
+    let (_isolated, _pool, storage) = match setup_test_database().await {
         Some(tuple) => tuple,
         None => return,
     };
@@ -221,7 +161,7 @@ async fn test_get_presence_with_meta_nonexistent() {
 
 #[tokio::test]
 async fn test_get_presences_batch() {
-    let (pool, storage) = match setup_test_database().await {
+    let (_isolated, pool, storage) = match setup_test_database().await {
         Some(tuple) => tuple,
         None => return,
     };
@@ -253,7 +193,7 @@ async fn test_get_presences_batch() {
 
 #[tokio::test]
 async fn test_get_presences_empty_input() {
-    let (_pool, storage) = match setup_test_database().await {
+    let (_isolated, _pool, storage) = match setup_test_database().await {
         Some(tuple) => tuple,
         None => return,
     };
@@ -264,7 +204,7 @@ async fn test_get_presences_empty_input() {
 
 #[tokio::test]
 async fn test_add_and_get_subscriptions() {
-    let (pool, storage) = match setup_test_database().await {
+    let (_isolated, pool, storage) = match setup_test_database().await {
         Some(tuple) => tuple,
         None => return,
     };
@@ -289,7 +229,7 @@ async fn test_add_and_get_subscriptions() {
 
 #[tokio::test]
 async fn test_add_subscription_idempotent() {
-    let (pool, storage) = match setup_test_database().await {
+    let (_isolated, pool, storage) = match setup_test_database().await {
         Some(tuple) => tuple,
         None => return,
     };
@@ -310,7 +250,7 @@ async fn test_add_subscription_idempotent() {
 
 #[tokio::test]
 async fn test_remove_subscription() {
-    let (pool, storage) = match setup_test_database().await {
+    let (_isolated, pool, storage) = match setup_test_database().await {
         Some(tuple) => tuple,
         None => return,
     };
@@ -337,7 +277,7 @@ async fn test_remove_subscription() {
 
 #[tokio::test]
 async fn test_get_subscribers() {
-    let (pool, storage) = match setup_test_database().await {
+    let (_isolated, pool, storage) = match setup_test_database().await {
         Some(tuple) => tuple,
         None => return,
     };
@@ -362,7 +302,7 @@ async fn test_get_subscribers() {
 
 #[tokio::test]
 async fn test_get_subscriptions_empty() {
-    let (_pool, storage) = match setup_test_database().await {
+    let (_isolated, _pool, storage) = match setup_test_database().await {
         Some(tuple) => tuple,
         None => return,
     };
@@ -373,7 +313,7 @@ async fn test_get_subscriptions_empty() {
 
 #[tokio::test]
 async fn test_get_subscribers_empty() {
-    let (_pool, storage) = match setup_test_database().await {
+    let (_isolated, _pool, storage) = match setup_test_database().await {
         Some(tuple) => tuple,
         None => return,
     };
@@ -384,7 +324,7 @@ async fn test_get_subscribers_empty() {
 
 #[tokio::test]
 async fn test_set_typing_start_and_stop() {
-    let (pool, storage) = match setup_test_database().await {
+    let (_isolated, pool, storage) = match setup_test_database().await {
         Some(tuple) => tuple,
         None => return,
     };
@@ -419,7 +359,7 @@ async fn test_set_typing_start_and_stop() {
 
 #[tokio::test]
 async fn test_set_typing_upsert() {
-    let (pool, storage) = match setup_test_database().await {
+    let (_isolated, pool, storage) = match setup_test_database().await {
         Some(tuple) => tuple,
         None => return,
     };
@@ -445,7 +385,7 @@ async fn test_set_typing_upsert() {
 
 #[tokio::test]
 async fn test_get_presence_batch() {
-    let (pool, storage) = match setup_test_database().await {
+    let (_isolated, pool, storage) = match setup_test_database().await {
         Some(tuple) => tuple,
         None => return,
     };
@@ -475,7 +415,7 @@ async fn test_get_presence_batch() {
 
 #[tokio::test]
 async fn test_get_presence_batch_empty_input() {
-    let (_pool, storage) = match setup_test_database().await {
+    let (_isolated, _pool, storage) = match setup_test_database().await {
         Some(tuple) => tuple,
         None => return,
     };
@@ -486,7 +426,7 @@ async fn test_get_presence_batch_empty_input() {
 
 #[tokio::test]
 async fn test_get_presence_snapshots() {
-    let (pool, storage) = match setup_test_database().await {
+    let (_isolated, pool, storage) = match setup_test_database().await {
         Some(tuple) => tuple,
         None => return,
     };
@@ -519,7 +459,7 @@ async fn test_get_presence_snapshots() {
 
 #[tokio::test]
 async fn test_get_presence_snapshots_empty_input() {
-    let (_pool, storage) = match setup_test_database().await {
+    let (_isolated, _pool, storage) = match setup_test_database().await {
         Some(tuple) => tuple,
         None => return,
     };

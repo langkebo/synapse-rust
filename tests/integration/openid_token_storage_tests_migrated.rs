@@ -1,6 +1,5 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_storage::{CreateOpenIdTokenRequest, OpenIdToken, OpenIdTokenStorage};
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);

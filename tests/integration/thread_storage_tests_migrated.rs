@@ -1,7 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use sqlx::Row;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
 use synapse_storage::thread::{CreateThreadReplyParams, CreateThreadRootParams, ThreadStorage};
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);

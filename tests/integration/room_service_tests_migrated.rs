@@ -27,254 +27,6 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS users (
-            user_id VARCHAR(255) PRIMARY KEY,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT,
-            is_admin BOOLEAN DEFAULT FALSE,
-            is_guest BOOLEAN DEFAULT FALSE,
-            is_shadow_banned BOOLEAN DEFAULT FALSE,
-            is_deactivated BOOLEAN DEFAULT FALSE,
-            created_ts BIGINT NOT NULL,
-            updated_ts BIGINT,
-            displayname TEXT,
-            avatar_url TEXT,
-            email TEXT,
-            phone TEXT,
-            generation BIGINT DEFAULT 0,
-            consent_version TEXT,
-            appservice_id TEXT,
-            user_type TEXT,
-            invalid_update_at BIGINT,
-            migration_state TEXT,
-            password_changed_ts BIGINT,
-            is_password_change_required BOOLEAN DEFAULT FALSE,
-            password_expires_at BIGINT,
-            failed_login_attempts INT DEFAULT 0,
-            locked_until BIGINT,
-            must_change_password BOOLEAN DEFAULT FALSE
-        )
-    "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create users table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS rooms (
-            room_id VARCHAR(255) PRIMARY KEY,
-            is_public BOOLEAN DEFAULT FALSE,
-            room_version TEXT DEFAULT '6',
-            created_ts BIGINT NOT NULL,
-            last_activity_ts BIGINT,
-            join_rules TEXT DEFAULT 'invite',
-            history_visibility TEXT DEFAULT 'shared',
-            name TEXT,
-            topic TEXT,
-            avatar_url TEXT,
-            canonical_alias TEXT,
-            visibility TEXT DEFAULT 'private',
-            creator TEXT,
-            encryption TEXT,
-            member_count BIGINT DEFAULT 0
-        )
-    "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create rooms table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS room_memberships (
-            room_id VARCHAR(255) NOT NULL,
-            user_id VARCHAR(255) NOT NULL,
-            sender TEXT,
-            membership TEXT NOT NULL,
-            event_id TEXT,
-            event_type TEXT,
-            display_name TEXT,
-            avatar_url TEXT,
-            is_banned BOOLEAN DEFAULT FALSE,
-            invite_token TEXT,
-            updated_ts BIGINT,
-            joined_ts BIGINT,
-            left_ts BIGINT,
-            reason TEXT,
-            banned_by TEXT,
-            ban_reason TEXT,
-            banned_ts BIGINT,
-            join_reason TEXT,
-            PRIMARY KEY (room_id, user_id)
-        )
-    "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create room_memberships table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS events (
-            event_id VARCHAR(255) PRIMARY KEY,
-            room_id VARCHAR(255) NOT NULL,
-            user_id VARCHAR(255) NOT NULL,
-            sender VARCHAR(255) NOT NULL,
-            event_type TEXT NOT NULL,
-            content JSONB NOT NULL,
-            state_key TEXT,
-            depth BIGINT,
-            stream_ordering BIGSERIAL,
-            origin_server_ts BIGINT NOT NULL,
-            processed_ts BIGINT,
-            not_before BIGINT,
-            is_redacted BOOLEAN DEFAULT FALSE,
-            status TEXT,
-            reference_image TEXT,
-            origin TEXT,
-            unsigned JSONB
-        )
-    "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create events table");
-}
-
-async fn setup_appservice_test_database(pool: &Arc<sqlx::PgPool>) {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS application_services (
-            id BIGSERIAL PRIMARY KEY,
-            as_id TEXT NOT NULL UNIQUE,
-            url TEXT NOT NULL,
-            as_token TEXT NOT NULL,
-            hs_token TEXT NOT NULL,
-            sender_localpart TEXT NOT NULL,
-            is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-            is_rate_limited BOOLEAN NOT NULL DEFAULT FALSE,
-            protocols TEXT[] NOT NULL DEFAULT '{}',
-            namespaces JSONB NOT NULL DEFAULT '{"users":[],"aliases":[],"rooms":[]}',
-            created_ts BIGINT NOT NULL,
-            updated_ts BIGINT,
-            description TEXT,
-            api_key TEXT,
-            config JSONB NOT NULL DEFAULT '{}'
-        )
-    "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create application_services table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS application_service_user_namespaces (
-            id BIGSERIAL PRIMARY KEY,
-            as_id TEXT NOT NULL,
-            namespace TEXT NOT NULL,
-            is_exclusive BOOLEAN NOT NULL DEFAULT FALSE,
-            created_ts BIGINT NOT NULL
-        )
-    "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create application_service_user_namespaces table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS application_service_room_alias_namespaces (
-            id BIGSERIAL PRIMARY KEY,
-            as_id TEXT NOT NULL,
-            namespace TEXT NOT NULL,
-            is_exclusive BOOLEAN NOT NULL DEFAULT FALSE,
-            created_ts BIGINT NOT NULL
-        )
-    "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create application_service_room_alias_namespaces table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS application_service_room_namespaces (
-            id BIGSERIAL PRIMARY KEY,
-            as_id TEXT NOT NULL,
-            namespace TEXT NOT NULL,
-            is_exclusive BOOLEAN NOT NULL DEFAULT FALSE,
-            created_ts BIGINT NOT NULL
-        )
-    "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create application_service_room_namespaces table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS application_service_events (
-            id BIGSERIAL PRIMARY KEY,
-            event_id TEXT NOT NULL UNIQUE,
-            as_id TEXT NOT NULL,
-            room_id TEXT,
-            event_type TEXT,
-            is_processed BOOLEAN NOT NULL DEFAULT FALSE,
-            processed_ts BIGINT,
-            created_ts BIGINT NOT NULL
-        )
-    "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create application_service_events table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS application_service_transactions (
-            id BIGSERIAL PRIMARY KEY,
-            as_id TEXT NOT NULL,
-            txn_id TEXT NOT NULL UNIQUE,
-            transaction_id TEXT,
-            data JSONB NOT NULL DEFAULT '{}',
-            events JSONB,
-            sent_ts BIGINT NOT NULL,
-            is_processed BOOLEAN NOT NULL DEFAULT FALSE,
-            processed_ts BIGINT,
-            completed_ts BIGINT,
-            retry_count INTEGER NOT NULL DEFAULT 0,
-            last_error TEXT,
-            created_ts BIGINT NOT NULL
-        )
-    "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create application_service_transactions table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS application_service_state (
-            id BIGSERIAL PRIMARY KEY,
-            as_id TEXT NOT NULL,
-            state_key TEXT NOT NULL,
-            value JSONB NOT NULL,
-            state_value TEXT,
-            updated_ts BIGINT NOT NULL,
-            CONSTRAINT uq_application_service_state_as_key UNIQUE (as_id, state_key)
-        )
-    "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create application_service_state table");
-}
-
 async fn create_test_user(pool: &sqlx::PgPool, user_id: &str, username: &str) {
     sqlx::query(
         r#"
@@ -401,7 +153,6 @@ fn create_test_appservice_manager(pool: &Arc<sqlx::PgPool>) -> Arc<ApplicationSe
 #[tokio::test]
 async fn test_room_service_creation() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let room_service = create_room_service(&pool, cache);
@@ -412,7 +163,6 @@ async fn test_room_service_creation() {
 #[tokio::test]
 async fn test_create_room_success() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let id = unique_id();
     let alice_id = format!("@alice_{id}:localhost");
@@ -445,8 +195,6 @@ async fn test_create_room_success() {
 #[tokio::test]
 async fn test_create_room_enqueues_appservice_events_after_commit() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
-    setup_appservice_test_database(&pool).await;
 
     let id = unique_id();
     let alice_id = format!("@alice_{id}:localhost");
@@ -491,7 +239,6 @@ async fn test_create_room_enqueues_appservice_events_after_commit() {
 #[tokio::test]
 async fn test_create_room_ignores_protected_creation_content_fields() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let id = unique_id();
     let alice_id = format!("@alice_{id}:localhost");
@@ -528,7 +275,6 @@ async fn test_create_room_ignores_protected_creation_content_fields() {
 #[tokio::test]
 async fn test_join_room_success() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let id = unique_id();
     let alice_id = format!("@alice_{id}:localhost");
@@ -556,8 +302,6 @@ async fn test_join_room_success() {
 #[tokio::test]
 async fn test_join_room_enqueues_appservice_membership_event() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
-    setup_appservice_test_database(&pool).await;
 
     let id = unique_id();
     let alice_id = format!("@alice_{id}:localhost");
@@ -604,7 +348,6 @@ async fn test_join_room_enqueues_appservice_membership_event() {
 #[tokio::test]
 async fn test_send_message_success() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let id = unique_id();
     let alice_id = format!("@alice_{id}:localhost");
@@ -637,7 +380,6 @@ async fn test_send_message_success() {
 #[tokio::test]
 async fn test_get_room_messages_supports_sync_prev_batch_token() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let id = unique_id();
     let alice_id = format!("@alice_{id}:localhost");
@@ -700,7 +442,6 @@ async fn test_get_room_messages_supports_sync_prev_batch_token() {
 #[tokio::test]
 async fn test_send_message_with_txn_dedups_retries() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let id = unique_id();
     let alice_id = format!("@alice_{id}:localhost");
@@ -745,7 +486,6 @@ async fn test_send_message_with_txn_dedups_retries() {
 #[tokio::test]
 async fn test_get_room_messages_supports_forward_pagination_from_stream_token() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let id = unique_id();
     let alice_id = format!("@alice_{id}:localhost");
@@ -806,7 +546,6 @@ async fn test_get_room_messages_supports_forward_pagination_from_stream_token() 
 #[tokio::test]
 async fn test_invite_user_success() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let id = unique_id();
     let alice_id = format!("@alice_{id}:localhost");
@@ -834,8 +573,6 @@ async fn test_invite_user_success() {
 #[tokio::test]
 async fn test_invite_user_enqueues_appservice_membership_event() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
-    setup_appservice_test_database(&pool).await;
 
     let id = unique_id();
     let alice_id = format!("@alice_{id}:localhost");
@@ -882,7 +619,6 @@ async fn test_invite_user_enqueues_appservice_membership_event() {
 #[tokio::test]
 async fn test_ban_user_success() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let id = unique_id();
     let alice_id = format!("@alice_{id}:localhost");
@@ -913,7 +649,6 @@ async fn test_ban_user_success() {
 #[tokio::test]
 async fn test_invite_banned_user_is_rejected() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let id = unique_id();
     let alice_id = format!("@alice_{id}:localhost");
@@ -937,7 +672,6 @@ async fn test_invite_banned_user_is_rejected() {
 #[tokio::test]
 async fn test_kick_non_member_is_rejected() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let id = unique_id();
     let alice_id = format!("@alice_{id}:localhost");
@@ -959,7 +693,6 @@ async fn test_kick_non_member_is_rejected() {
 #[tokio::test]
 async fn test_unban_non_banned_user_is_rejected() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let id = unique_id();
     let alice_id = format!("@alice_{id}:localhost");
@@ -979,7 +712,6 @@ async fn test_unban_non_banned_user_is_rejected() {
 #[tokio::test]
 async fn test_upgrade_room_success() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let id = unique_id();
     let alice_id = format!("@alice_{id}:localhost");
@@ -1037,7 +769,6 @@ async fn test_upgrade_room_success() {
 #[tokio::test]
 async fn test_upgrade_room_invites_all_former_local_members() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let id = unique_id();
     let alice_id = format!("@alice_{id}:localhost");
@@ -1099,8 +830,6 @@ async fn test_upgrade_room_invites_all_former_local_members() {
 #[tokio::test]
 async fn test_upgrade_room_enqueues_tombstone_and_replacement_create_events() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
-    setup_appservice_test_database(&pool).await;
 
     let id = unique_id();
     let alice_id = format!("@alice_{id}:localhost");
@@ -1140,8 +869,6 @@ async fn test_upgrade_room_enqueues_tombstone_and_replacement_create_events() {
 #[tokio::test]
 async fn test_appservice_successful_delivery_completes_transaction_and_marks_event_processed() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
-    setup_appservice_test_database(&pool).await;
 
     let mock_server = MockServer::start().await;
     Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&mock_server).await;
@@ -1224,8 +951,6 @@ async fn test_appservice_successful_delivery_completes_transaction_and_marks_eve
 #[tokio::test]
 async fn test_bridge_e2e_send_message_delivers_real_room_event_payload() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
-    setup_appservice_test_database(&pool).await;
 
     let id = unique_id();
     let alice_id = format!("@alice_{id}:localhost");
@@ -1342,8 +1067,6 @@ async fn test_bridge_e2e_send_message_delivers_real_room_event_payload() {
 #[tokio::test]
 async fn test_bridge_e2e_membership_events_deliver_real_room_member_payloads() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
-    setup_appservice_test_database(&pool).await;
 
     let id = unique_id();
     let alice_id = format!("@alice_{id}:localhost");
@@ -1435,8 +1158,6 @@ async fn test_bridge_e2e_membership_events_deliver_real_room_member_payloads() {
 #[tokio::test]
 async fn test_appservice_background_sender_flushes_pending_queue() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
-    setup_appservice_test_database(&pool).await;
 
     let mock_server = MockServer::start().await;
     Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&mock_server).await;
@@ -1528,8 +1249,6 @@ async fn test_appservice_background_sender_flushes_pending_queue() {
 #[tokio::test]
 async fn test_appservice_fatal_delivery_failures_disable_service_and_persist_state() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
-    setup_appservice_test_database(&pool).await;
 
     let failing_server = MockServer::start().await;
     Mock::given(method("PUT")).respond_with(ResponseTemplate::new(401)).mount(&failing_server).await;
@@ -1643,7 +1362,6 @@ async fn test_appservice_fatal_delivery_failures_disable_service_and_persist_sta
 #[tokio::test]
 async fn test_appservice_scheduler_does_not_block_healthy_service_during_retry_backoff() {
     let pool = crate::require_test_pool().await;
-    setup_appservice_test_database(&pool).await;
 
     let failing_server = MockServer::start().await;
     Mock::given(method("PUT")).respond_with(ResponseTemplate::new(503)).mount(&failing_server).await;
@@ -1787,7 +1505,6 @@ async fn test_appservice_scheduler_does_not_block_healthy_service_during_retry_b
 #[tokio::test]
 async fn test_appservice_scheduler_keeps_single_pending_transaction_per_service() {
     let pool = crate::require_test_pool().await;
-    setup_appservice_test_database(&pool).await;
 
     let failing_server = MockServer::start().await;
     Mock::given(method("PUT")).respond_with(ResponseTemplate::new(503)).mount(&failing_server).await;
@@ -1881,7 +1598,6 @@ async fn test_appservice_scheduler_keeps_single_pending_transaction_per_service(
 #[tokio::test]
 async fn test_appservice_scheduler_prioritizes_pending_transactions_over_pending_events() {
     let pool = crate::require_test_pool().await;
-    setup_appservice_test_database(&pool).await;
 
     let transaction_server = MockServer::start().await;
     Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&transaction_server).await;
@@ -2015,7 +1731,6 @@ async fn test_appservice_scheduler_prioritizes_pending_transactions_over_pending
 #[tokio::test]
 async fn test_appservice_scheduler_keeps_pending_transactions_ahead_of_event_bucket_across_rotation() {
     let pool = crate::require_test_pool().await;
-    setup_appservice_test_database(&pool).await;
 
     let txn_a_server = MockServer::start().await;
     Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&txn_a_server).await;
@@ -2221,7 +1936,6 @@ async fn test_appservice_scheduler_keeps_pending_transactions_ahead_of_event_buc
 #[tokio::test]
 async fn test_appservice_scheduler_capacity_limit_persists_state() {
     let pool = crate::require_test_pool().await;
-    setup_appservice_test_database(&pool).await;
 
     let first_server = MockServer::start().await;
     Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&first_server).await;
@@ -2378,7 +2092,6 @@ async fn test_appservice_scheduler_capacity_limit_persists_state() {
 #[tokio::test]
 async fn test_appservice_scheduler_rotates_capacity_limited_service_under_sustained_backlog() {
     let pool = crate::require_test_pool().await;
-    setup_appservice_test_database(&pool).await;
 
     let first_server = MockServer::start().await;
     Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&first_server).await;
@@ -2567,7 +2280,6 @@ async fn test_appservice_scheduler_rotates_capacity_limited_service_under_sustai
 #[tokio::test]
 async fn test_appservice_scheduler_rotates_capacity_limited_service_under_sustained_transaction_backlog() {
     let pool = crate::require_test_pool().await;
-    setup_appservice_test_database(&pool).await;
 
     let first_server = MockServer::start().await;
     Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&first_server).await;
@@ -2765,7 +2477,6 @@ async fn test_appservice_scheduler_rotates_capacity_limited_service_under_sustai
 #[tokio::test]
 async fn test_appservice_scheduler_handles_mixed_event_and_transaction_backlog_under_capacity_limit() {
     let pool = crate::require_test_pool().await;
-    setup_appservice_test_database(&pool).await;
 
     let transaction_heavy_server = MockServer::start().await;
     Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&transaction_heavy_server).await;
@@ -2960,7 +2671,6 @@ async fn test_appservice_scheduler_handles_mixed_event_and_transaction_backlog_u
 #[tokio::test]
 async fn test_appservice_scheduler_mixed_backlog_does_not_block_healthy_services_during_retry_backoff() {
     let pool = crate::require_test_pool().await;
-    setup_appservice_test_database(&pool).await;
 
     let failing_server = MockServer::start().await;
     Mock::given(method("PUT")).respond_with(ResponseTemplate::new(503)).mount(&failing_server).await;
@@ -3156,7 +2866,6 @@ async fn test_appservice_scheduler_mixed_backlog_does_not_block_healthy_services
 #[tokio::test]
 async fn test_appservice_scheduler_long_window_mixed_backlog_preserves_fairness_and_prevents_event_starvation() {
     let pool = crate::require_test_pool().await;
-    setup_appservice_test_database(&pool).await;
 
     let failing_server = MockServer::start().await;
     Mock::given(method("PUT")).respond_with(ResponseTemplate::new(503)).mount(&failing_server).await;
@@ -3430,7 +3139,6 @@ async fn test_appservice_scheduler_long_window_mixed_backlog_preserves_fairness_
 async fn test_appservice_scheduler_continuous_event_ingress_does_not_starve_event_bucket_after_transaction_backlog_drains(
 ) {
     let pool = crate::require_test_pool().await;
-    setup_appservice_test_database(&pool).await;
 
     let healthy_txn_a_server = MockServer::start().await;
     Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&healthy_txn_a_server).await;
@@ -3703,7 +3411,6 @@ async fn test_appservice_scheduler_continuous_event_ingress_does_not_starve_even
 async fn test_appservice_scheduler_super_event_heavy_service_begins_dispatch_within_two_ticks_under_light_transaction_bursts(
 ) {
     let pool = crate::require_test_pool().await;
-    setup_appservice_test_database(&pool).await;
 
     let transaction_light_a_server = MockServer::start().await;
     Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&transaction_light_a_server).await;
@@ -3961,7 +3668,6 @@ async fn test_appservice_scheduler_super_event_heavy_service_begins_dispatch_wit
 #[tokio::test]
 async fn test_appservice_scheduler_recovers_after_transient_failure_without_restarving_event_bucket() {
     let pool = crate::require_test_pool().await;
-    setup_appservice_test_database(&pool).await;
 
     let failing_server = MockServer::start().await;
     Mock::given(method("PUT"))
@@ -4291,7 +3997,6 @@ async fn test_appservice_scheduler_recovers_after_transient_failure_without_rest
 #[tokio::test]
 async fn test_appservice_scheduler_recovers_multiple_retry_backoff_services_without_restarving_event_bucket() {
     let pool = crate::require_test_pool().await;
-    setup_appservice_test_database(&pool).await;
 
     let failing_a_server = MockServer::start().await;
     Mock::given(method("PUT"))
@@ -4611,7 +4316,6 @@ async fn test_appservice_scheduler_recovers_multiple_retry_backoff_services_with
 #[tokio::test]
 async fn test_appservice_scheduler_uses_custom_backlog_thresholds_for_limited_service() {
     let pool = crate::require_test_pool().await;
-    setup_appservice_test_database(&pool).await;
 
     let first_server = MockServer::start().await;
     Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&first_server).await;
@@ -4731,7 +4435,6 @@ async fn test_appservice_scheduler_uses_custom_backlog_thresholds_for_limited_se
 #[tokio::test]
 async fn test_appservice_scheduler_default_capacity_limit_handles_ninth_service() {
     let pool = crate::require_test_pool().await;
-    setup_appservice_test_database(&pool).await;
 
     let manager = create_test_appservice_manager(&pool);
     let scheduler = ApplicationServiceScheduler::new(manager.clone());
@@ -4852,7 +4555,6 @@ async fn test_appservice_scheduler_default_capacity_limit_handles_ninth_service(
 async fn test_appservice_scheduler_persists_different_backlog_state_for_default_vs_aggressive_event_thresholds() {
     async fn run_backlog_state_scenario(high_pending_event_threshold: i64) -> String {
         let pool = crate::require_test_pool().await;
-        setup_appservice_test_database(&pool).await;
 
         let first_server = MockServer::start().await;
         Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&first_server).await;
@@ -4974,7 +4676,6 @@ async fn test_appservice_scheduler_persists_different_backlog_state_for_default_
 async fn test_appservice_scheduler_persists_different_backlog_state_for_default_vs_aggressive_transaction_thresholds() {
     async fn run_backlog_state_scenario(high_pending_transaction_threshold: i64) -> String {
         let pool = crate::require_test_pool().await;
-        setup_appservice_test_database(&pool).await;
 
         let first_server = MockServer::start().await;
         Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&first_server).await;
@@ -5094,7 +4795,6 @@ async fn test_appservice_scheduler_persists_different_backlog_state_for_default_
 #[tokio::test]
 async fn test_upgrade_room_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let id = unique_id();
     let alice_id = format!("@alice_{id}:localhost");
