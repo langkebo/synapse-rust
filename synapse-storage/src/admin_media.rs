@@ -132,7 +132,18 @@ impl AdminMediaStorage {
         Self { pool: pool.clone() }
     }
 
-    /// See [`upsert_media_metadata`].
+    /// Insert (or refresh) the metadata row for one media item.
+    ///
+    /// `content_hash` is the upstream/Synapse media content hash produced by
+    /// [`synapse_common::content_hash`]; it is nullable only because rows that
+    /// predate the column exist (see `get_is_hash_quarantined`).
+    ///
+    /// `quarantine_status` is `None` for a normal upload and
+    /// `Some("quarantined")` when the upload matched an already-quarantined
+    /// content hash. The conflict branch deliberately COALESCEs both new
+    /// columns instead of overwriting with the incoming `NULL`: re-upserting a
+    /// row must not erase a hash or silently lift a quarantine ruling that was
+    /// recorded elsewhere.
     #[allow(clippy::too_many_arguments)]
     pub async fn upsert_media_metadata(
         &self,
@@ -143,15 +154,21 @@ impl AdminMediaStorage {
         size: i64,
         uploader_user_id: &str,
         created_ts: i64,
+        content_hash: Option<&str>,
+        quarantine_status: Option<&str>,
     ) -> Result<(), ApiError> {
         sqlx::query(
             r#"
-            INSERT INTO media_metadata (media_id, server_name, content_type, file_name, size, uploader_user_id, created_ts)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO media_metadata
+                (media_id, server_name, content_type, file_name, size, uploader_user_id, created_ts,
+                 content_hash, quarantine_status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (media_id) DO UPDATE
             SET content_type = EXCLUDED.content_type,
                 file_name = EXCLUDED.file_name,
-                size = EXCLUDED.size
+                size = EXCLUDED.size,
+                content_hash = COALESCE(EXCLUDED.content_hash, media_metadata.content_hash),
+                quarantine_status = COALESCE(EXCLUDED.quarantine_status, media_metadata.quarantine_status)
             "#,
         )
         .bind(media_id)
@@ -161,11 +178,48 @@ impl AdminMediaStorage {
         .bind(size)
         .bind(uploader_user_id)
         .bind(created_ts)
+        .bind(content_hash)
+        .bind(quarantine_status)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(())
+    }
+
+    /// `TRUE` iff any `media_metadata` row carries `content_hash` **and** is
+    /// currently quarantined.
+    ///
+    /// This backs hash-level automatic quarantine (upstream
+    /// `store.get_is_hash_quarantined`, release-v1.161): once one upload of a
+    /// given content is quarantined, every later upload of byte-identical
+    /// content is quarantined on write without re-scanning.
+    ///
+    /// The status predicate is the SQL mirror of [`quarantine_status_to_bool`]
+    /// — `'quarantined' | 'true' | '1' | 'yes'` — so `NULL`, `''` and `'no'`
+    /// (and any other value, including a manual unquarantine writing `''`) are
+    /// **not** quarantined. `IN` never matches `NULL`, which is what makes a
+    /// pre-column row with no status non-quarantined.
+    ///
+    /// `content_hash` itself is never `NULL`-for-unset here: callers only reach
+    /// this with a real hash, and rows with `content_hash IS NULL` simply do not
+    /// match.
+    pub async fn get_is_hash_quarantined(&self, content_hash: &str) -> Result<bool, ApiError> {
+        let quarantined = sqlx::query_scalar::<_, bool>(
+            r#"
+            SELECT EXISTS (
+                SELECT 1 FROM media_metadata
+                WHERE content_hash = $1
+                  AND quarantine_status IN ('quarantined', 'true', '1', 'yes')
+            )
+            "#,
+        )
+        .bind(content_hash)
+        .fetch_one(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
+
+        Ok(quarantined)
     }
 
     /// See [`get_all_media`].
@@ -395,5 +449,146 @@ mod cursor_tests {
         assert_eq!(info.file_name, None);
         assert_eq!(info.uploader_user_id, None);
         assert_eq!(info.last_accessed_at, None);
+    }
+}
+
+/// DB-backed tests for the hash-level quarantine query. These run against the
+/// **real migrated schema** (per-test isolated schema), never a hand-built
+/// `CREATE TABLE`, so a column rename in the baseline fails them immediately.
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use synapse_common::current_timestamp_millis;
+
+    use sqlx::postgres::PgPool;
+
+    /// Each test gets its own isolated schema; the guard is returned alongside
+    /// the pool so the schema outlives the whole test (dropping it early spawns
+    /// a background `DROP SCHEMA` that races with in-flight queries).
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
+    }
+
+    async fn insert_row(
+        storage: &AdminMediaStorage,
+        media_id: &str,
+        content_hash: Option<&str>,
+        quarantine_status: Option<&str>,
+    ) {
+        storage
+            .upsert_media_metadata(
+                media_id,
+                "test.server",
+                "image/png",
+                "photo.png",
+                4,
+                "@alice:test.server",
+                current_timestamp_millis(),
+                content_hash,
+                quarantine_status,
+            )
+            .await
+            .expect("upsert must succeed against the migrated schema");
+    }
+
+    async fn stored_hash(pool: &PgPool, media_id: &str) -> Option<String> {
+        sqlx::query_scalar::<_, Option<String>>("SELECT content_hash FROM media_metadata WHERE media_id = $1")
+            .bind(media_id)
+            .fetch_one(pool)
+            .await
+            .expect("hash read must succeed")
+    }
+
+    #[tokio::test]
+    async fn upsert_persists_content_hash() {
+        let (_iso, pool) = test_pool().await;
+        let storage = AdminMediaStorage::new(&pool);
+        let media_id = format!("m_hash_{}", uuid::Uuid::new_v4().simple());
+
+        insert_row(&storage, &media_id, Some("AAAA+BBB/CCC"), None).await;
+        assert_eq!(stored_hash(&pool, &media_id).await.as_deref(), Some("AAAA+BBB/CCC"));
+    }
+
+    #[tokio::test]
+    async fn hash_is_quarantined_when_any_matching_row_is_quarantined() {
+        let (_iso, pool) = test_pool().await;
+        let storage = AdminMediaStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let hash = format!("QUARANTINED+{suffix}/HASH");
+
+        // One quarantined row and one clean row carry the same hash. The
+        // upstream semantics are "the content is quarantined", so a single hit
+        // must flip the answer for the whole hash.
+        insert_row(&storage, &format!("m_q_{suffix}"), Some(&hash), Some("quarantined")).await;
+        insert_row(&storage, &format!("m_clean_{suffix}"), Some(&hash), None).await;
+
+        assert!(storage.get_is_hash_quarantined(&hash).await.expect("lookup must succeed"));
+    }
+
+    #[tokio::test]
+    async fn hash_is_not_quarantined_for_unquarantined_rows_with_same_hash() {
+        let (_iso, pool) = test_pool().await;
+        let storage = AdminMediaStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let hash = format!("CLEAN+{suffix}/HASH");
+
+        insert_row(&storage, &format!("m_a_{suffix}"), Some(&hash), None).await;
+        insert_row(&storage, &format!("m_b_{suffix}"), Some(&hash), Some("")).await;
+        insert_row(&storage, &format!("m_c_{suffix}"), Some(&hash), Some("no")).await;
+
+        assert!(
+            !storage.get_is_hash_quarantined(&hash).await.expect("lookup must succeed"),
+            "NULL / '' / 'no' must not count as quarantined (same predicate as quarantine_status_to_bool)"
+        );
+    }
+
+    #[tokio::test]
+    async fn unknown_hash_is_not_quarantined() {
+        let (_iso, pool) = test_pool().await;
+        let storage = AdminMediaStorage::new(&pool);
+
+        assert!(!storage
+            .get_is_hash_quarantined(&format!("UNKNOWN+{}", uuid::Uuid::new_v4().simple()))
+            .await
+            .expect("lookup must succeed"));
+    }
+
+    #[tokio::test]
+    async fn rows_without_a_hash_never_match() {
+        let (_iso, pool) = test_pool().await;
+        let storage = AdminMediaStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+
+        // A pre-column row: no hash, quarantined status. It cannot and must not
+        // be reachable by hash lookup (documented limitation).
+        insert_row(&storage, &format!("m_legacy_{suffix}"), None, Some("quarantined")).await;
+
+        assert!(!storage.get_is_hash_quarantined(&suffix).await.expect("lookup must succeed"));
+    }
+
+    #[tokio::test]
+    async fn hash_quarantine_survives_a_manual_unquarantine() {
+        let (_iso, pool) = test_pool().await;
+        let storage = AdminMediaStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let hash = format!("UNQUARANTINE+{suffix}/HASH");
+        let media_id = format!("m_unq_{suffix}");
+
+        insert_row(&storage, &media_id, Some(&hash), Some("quarantined")).await;
+        assert!(storage.get_is_hash_quarantined(&hash).await.expect("lookup must succeed"));
+
+        // The admin unquarantine path writes '' (see `unquarantine_media`).
+        let quarantine_storage = crate::media::QuarantinedMediaChangeStorage::new(&pool);
+        quarantine_storage
+            .set_media_quarantine_status(&media_id, "test.server", "")
+            .await
+            .expect("status update must succeed");
+
+        assert!(
+            !storage.get_is_hash_quarantined(&hash).await.expect("lookup must succeed"),
+            "an unquarantined row must stop matching, otherwise the hash stays poisoned forever"
+        );
     }
 }

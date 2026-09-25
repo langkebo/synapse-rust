@@ -120,12 +120,16 @@ impl CoreServices {
         }
 
         let media_path = infra.config.server.media_path.clone();
-        let media_service = crate::media_service::MediaService::with_pool(
+        let mut media_service = crate::media_service::MediaService::with_pool(
             media_path.as_str(),
             infra.task_queue.clone(),
             &infra.config.server.name,
             Some(infra.pool.clone()),
         );
+        // Observability for hash-level automatic quarantine (U-3 §6.2): the
+        // upload path already has the metrics sink; without this wiring the
+        // hit counter would be dead code.
+        media_service.set_metrics(infra.metrics.clone());
 
         // S23: user_service is now injected from the container singleton
         let registration_service = Arc::new(crate::registration_service::RegistrationService::new(

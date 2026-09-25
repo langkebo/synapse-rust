@@ -13,13 +13,18 @@
 >   原 `20260904*_schema_p*.sql` 审计迁移已删除，其对象已**全部**折入 baseline 尾部
 >   的"完整性约束与性能索引折入块"）
 
-> **覆盖率说明**：v12 baseline 中共 **358** 条
-> `CREATE (UNIQUE) INDEX [CONCURRENTLY] IF NOT EXISTS` 语句，**358** 个不同索引名，
+> **覆盖率说明**：v12 baseline 中共 **350** 条
+> `CREATE (UNIQUE) INDEX [CONCURRENTLY] IF NOT EXISTS` 语句，**350** 个不同索引名，
 > **0** 个重复名。守卫见
 > `tests/unit/migration_consistency_tests.rs::baseline_declares_each_object_exactly_once`。
-> 本文档（两张表去重后）共记录 **139** 个索引名，覆盖核心查询路径。
+> 本文档（两张表去重后）共记录 **140** 个索引名，覆盖核心查询路径。
 > 完整索引清单请直接查看 `00000000_unified_schema_v12.sql` 中的 `CREATE INDEX`
 > 语句，或在数据库中执行 `SELECT indexname FROM pg_indexes WHERE schemaname = 'public'`。
+>
+> **2026-09-25（U-3）复核**：本行的计数在 2026-09-18 记为 358，但此后 baseline 删除了
+> `search_index` 的 4 条索引与 E2EE 设备验证模块的 6 条索引（`793304d36eee7917` 前后两批），
+> 该值**未同步**。本轮 U-3 新增 `idx_media_metadata_content_hash` 时按上面的命令重算：
+> HEAD 为 **349/349**，加一条后 **350/350**，故更正为 350（此前 358 属过期读数）。
 >
 > **2026-09-18 事实核对（Task 5）**：本文档原先的"369 条 / 369 个不同名"与"97 个"
 > 均为**过期读数**，已按实测更正为上列数字。核对方法（可复现）：
@@ -30,16 +35,16 @@
 > `pg_indexes` 里存在；被 baseline 主动删除的（如 v11-10 块删掉的 `uq_*`）
 > 必须标注为"已删除"，不得继续以"在建索引"出现。
 >
-> 复现"358/358"的命令（先剥掉 `--` 注释行，再匹配
+> 复现"350/350"的命令（先剥掉 `--` 注释行，再匹配
 > `CREATE\s+(UNIQUE\s+)?INDEX\s+(CONCURRENTLY\s+)?IF\s+NOT\s+EXISTS\s+<name>`）：
 > ```bash
 > python3 -c "
 > import re
 > L=[l for l in open('migrations/00000000_unified_schema_v12.sql') if not l.strip().startswith('--')]
 > n=re.findall(r'CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?IF\s+NOT\s+EXISTS\s+([A-Za-z0-9_]+)','\n'.join(L),re.I)
-> print(len(n), len(set(n)))"   # → 358 358
+> print(len(n), len(set(n)))"   # → 350 350
 > ```
-> （裸用 `grep -c` 会多算 1 行**注释续行**得 359，勿用。）
+> （裸用 `grep -c` 会多算 1 行**注释续行**得 351，勿用。）
 
 ---
 
@@ -180,6 +185,7 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | spam_check_results | idx_spam_results_sender_checked | sender, checked_ts DESC | 否 | 按发送者和检查时间查询 |
 | third_party_rule_results | idx_third_party_results_event_checked | event_id, checked_ts DESC | 否 | 按事件和检查时间查询 |
 | media_callbacks | idx_media_callbacks_type_enabled | callback_type, is_enabled | 否 | 按回调和启用状态查询 |
+| media_metadata | idx_media_metadata_content_hash | content_hash | 否 | 按内容 SHA-256 反查已隔离媒体（hash 级自动隔离，U-3） |
 | audit_events | idx_audit_events_actor_created | actor_id, created_ts DESC | 否 | 按操作者和时间查询审计 |
 | audit_events | idx_audit_events_resource_created | resource_type, resource_id, created_ts DESC | 否 | 按资源和时间查询审计 |
 | audit_events | idx_audit_events_request_created | request_id, created_ts DESC | 否 | 按请求 ID 和时间查询审计 |

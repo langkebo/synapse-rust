@@ -134,7 +134,11 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // 2026-09-25（D-40）：删除 `search_index` 遗留表及 4 条索引（代码已无消费方），
 // 常量同步为 `793304d36eee7917`；同样独立复算 FNV-1a 64，并先自检旧值
 // `a20182b71fb77e7e` 逐字节吻合后取值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "24e2c50ee8543673";
+// 2026-09-25（U-3 §6.2）：`media_metadata` 增可空 `content_hash TEXT` 列及
+// `idx_media_metadata_content_hash` 索引（hash 级自动隔离），常量同步为
+// `38dcd5e818c7bfc0`；同样独立复算 FNV-1a 64，并先自检旧值
+// `24e2c50ee8543673` 逐字节吻合后取值。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "38dcd5e818c7bfc0";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

@@ -5,7 +5,10 @@ use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use base64::{
+    engine::general_purpose::{STANDARD_NO_PAD, URL_SAFE_NO_PAD},
+    Engine as _,
+};
 use hmac::{Hmac, Mac};
 use rand::Rng;
 use rand::RngCore;
@@ -172,6 +175,26 @@ pub fn compute_hash(data: impl AsRef<[u8]>) -> String {
     let mut hasher = Sha256::new();
     hasher.update(data.as_ref());
     URL_SAFE_NO_PAD.encode(&hasher.finalize()[..])
+}
+
+/// SHA-256 of `data`, encoded with the **standard** Base64 alphabet and no
+/// padding — the media content-hash format upstream Synapse persists.
+///
+/// Upstream reference (release-v1.161, `synapse/media/media_repository.py`):
+/// `unpaddedbase64.encode_base64(sha256(content).digest())`, looked up with
+/// `store.get_is_hash_quarantined(content_hash)`. The value stored in
+/// `media_metadata.content_hash` must therefore be byte-compatible with that
+/// helper, which uses the standard alphabet (`+`/`/`) and strips `=`.
+///
+/// Deliberately **not** [`compute_hash`]: that helper uses the URL-safe
+/// alphabet (`-`/`_`). The two encodings disagree on most digests (e.g. the
+/// digest of the empty input contains `/` in standard Base64), so reusing
+/// `compute_hash` here would silently miss every hash written by upstream or a
+/// peer server.
+pub fn content_hash(data: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    STANDARD_NO_PAD.encode(hasher.finalize())
 }
 
 /// The known dev/test fallback secret. In production, this value must NEVER be used.
@@ -509,6 +532,49 @@ mod tests {
         let hash = compute_hash(data);
         assert_eq!(hash.len(), 43);
         assert_ne!(hash, compute_hash(b"different data"));
+    }
+
+    /// Known-answer vectors for the upstream Synapse media content hash:
+    /// standard Base64 (`+`/`/`) of the SHA-256 digest, padding stripped.
+    ///
+    /// Independently reproducible with:
+    /// `printf '' | openssl dgst -sha256 -binary | openssl base64 -A`
+    /// → `47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=`
+    #[test]
+    fn test_content_hash_known_answers() {
+        // sha256("") = e3b0c442…b855. Do NOT "fix" this to
+        // `2jmj7l5rSw0yVb/vlWAYkK/YBwk`: that value is SHA-1(""), a different
+        // algorithm. `test_content_hash_differs_from_compute_hash` below pins
+        // the standard-vs-URL-safe alphabet distinction separately.
+        assert_eq!(content_hash(b""), "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU");
+        assert_eq!(content_hash(b"abc"), "ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa0");
+        assert_eq!(
+            content_hash(b"The quick brown fox jumps over the lazy dog"),
+            "16j7swfXgJRpypq8sAguT41WUeRtPNt2LQLQvzfJ5ZI"
+        );
+    }
+
+    #[test]
+    fn test_content_hash_never_emits_padding() {
+        // Every digest whose byte length is not a multiple of 3 would be padded
+        // in padded Base64; the media hash must never carry `=`.
+        for data in [&b""[..], b"a", b"ab", b"abc", b"abcd"] {
+            let hash = content_hash(data);
+            assert!(!hash.contains('='), "content_hash must be unpadded, got: {hash}");
+        }
+    }
+
+    /// The whole reason this helper exists next to `compute_hash`: the two
+    /// alphabets differ, and only the standard one matches upstream Synapse.
+    #[test]
+    fn test_content_hash_differs_from_compute_hash() {
+        let standard = content_hash(b"");
+        let url_safe = compute_hash(b"");
+        // sha256("")'s Base64 contains `/` in the standard alphabet and `_` in
+        // the URL-safe one — the exact character the two engines disagree on.
+        assert!(standard.contains('/'), "standard alphabet must contain '/': {standard}");
+        assert!(url_safe.contains('_'), "URL-safe alphabet must contain '_': {url_safe}");
+        assert_ne!(standard, url_safe);
     }
 
     #[test]

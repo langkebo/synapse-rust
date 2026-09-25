@@ -959,6 +959,7 @@ CREATE TABLE IF NOT EXISTS media_metadata (
     created_ts BIGINT NOT NULL,
     last_accessed_at BIGINT,
     quarantine_status TEXT,
+    content_hash TEXT,
     CONSTRAINT pk_media_metadata PRIMARY KEY (media_id)
 );
 
@@ -3433,6 +3434,7 @@ CREATE INDEX IF NOT EXISTS idx_leak_alerts_acknowledged ON leak_alerts(is_acknow
 -- Media
 CREATE INDEX IF NOT EXISTS idx_media_uploader ON media_metadata(uploader_user_id);
 CREATE INDEX IF NOT EXISTS idx_media_server ON media_metadata(server_name);
+CREATE INDEX IF NOT EXISTS idx_media_metadata_content_hash ON media_metadata(content_hash);
 CREATE INDEX IF NOT EXISTS idx_thumbnails_media ON thumbnails(media_id);
 CREATE INDEX IF NOT EXISTS idx_user_media_quota_used ON user_media_quota(used_bytes DESC) WHERE used_bytes > 0;
 CREATE INDEX IF NOT EXISTS idx_media_quota_config_enabled ON media_quota_config(is_enabled) WHERE is_enabled = TRUE;

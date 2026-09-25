@@ -168,11 +168,11 @@ pub use constants::{
 pub use crypto::generate_signing_key;
 /// Re-exported item.
 pub use crypto::{
-    compute_hash, decode_base64, decode_base64_32, decode_hex, encode_base64, encode_hex, generate_device_id,
-    generate_event_id, generate_room_id, generate_salt, generate_token, hash_password, hash_password_with_config,
-    hash_password_with_params, hash_token, hash_token_legacy, hmac_sha256, is_legacy_hash, migrate_password_hash,
-    migrate_password_hash_with_config, random_string, secure_compare, secure_compare_bytes, validate_token_hash_secret,
-    verify_password, verify_password_legacy, verify_token_hash, ServerSigningKey,
+    compute_hash, content_hash, decode_base64, decode_base64_32, decode_hex, encode_base64, encode_hex,
+    generate_device_id, generate_event_id, generate_room_id, generate_salt, generate_token, hash_password,
+    hash_password_with_config, hash_password_with_params, hash_token, hash_token_legacy, hmac_sha256, is_legacy_hash,
+    migrate_password_hash, migrate_password_hash_with_config, random_string, secure_compare, secure_compare_bytes,
+    validate_token_hash_secret, verify_password, verify_password_legacy, verify_token_hash, ServerSigningKey,
 };
 /// Re-exported item.
 pub use error::{init_error_metrics, ApiError, ApiErrorCause, ApiErrorKind, ApiResponse, ApiResult, MatrixErrorCode};

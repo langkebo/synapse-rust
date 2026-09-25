@@ -60,6 +60,9 @@ pub struct MediaService {
     server_name: String,
     admin_media_storage: Option<AdminMediaStorage>,
     link_signer: Option<Arc<MediaLinkSigner>>,
+    /// Optional metrics sink for the hash-level quarantine hit counter.
+    /// `None` in unit tests and any construction path that does not wire it.
+    metrics: Option<Arc<MetricsCollector>>,
 }
 
 impl MediaService {
@@ -128,7 +131,13 @@ impl MediaService {
             server_name: server_name.to_string(),
             admin_media_storage: pool.as_ref().map(AdminMediaStorage::new),
             link_signer: None,
+            metrics: None,
         }
+    }
+
+    /// Attach the metrics sink used by the hash-level quarantine hit counter.
+    pub fn set_metrics(&mut self, metrics: Arc<MetricsCollector>) {
+        self.metrics = Some(metrics);
     }
 
     /// Set the media link signer for signing download URLs.
@@ -243,9 +252,37 @@ impl MediaService {
             return Err(ApiError::conflict(format!("Media ID already exists: {media_id}")));
         }
 
+        // Hash-level automatic quarantine (U-3 §6.2 item 2). Upstream Synapse
+        // (`media_repository.py`, release-v1.161) computes this hash on the
+        // write path and asks `store.get_is_hash_quarantined`; a hit means this
+        // upload is written straight into the quarantined state, so byte-
+        // identical content never needs a second scanner round-trip.
+        let content_hash = synapse_common::content_hash(content);
+        let hash_quarantined = match &self.admin_media_storage {
+            Some(storage) => storage.get_is_hash_quarantined(&content_hash).await.map_err(|e| {
+                // Fail-closed: if the quarantine ruling cannot be read, store
+                // nothing. Treating a DB error as "not quarantined" would turn
+                // an outage into a quarantine bypass.
+                ::tracing::error!(
+                    media_id = %media_id,
+                    user_id = %user_id,
+                    content_hash = %content_hash,
+                    error = %e,
+                    "Hash-quarantine lookup failed; refusing upload (fail-closed)"
+                );
+                ApiError::internal("An internal error occurred".to_string())
+            })?,
+            // Metadata storage disabled ⇒ quarantine bookkeeping is disabled,
+            // exactly as before this change.
+            None => false,
+        };
+
         let content_vec = content.to_vec();
+        // Clone the path into the blocking task so the original stays available
+        // for the fail-closed cleanup below.
+        let file_path_for_write = file_path.clone();
         let write_result: Result<(), std::io::Error> =
-            tokio::task::spawn_blocking(move || std::fs::write(&file_path, content_vec))
+            tokio::task::spawn_blocking(move || std::fs::write(&file_path_for_write, content_vec))
                 .await
                 .map_err(|e| ApiError::internal_with_cause("Write task panicked", e))?;
 
@@ -287,7 +324,11 @@ impl MediaService {
 
         if let Some(storage) = &self.admin_media_storage {
             let now = current_timestamp_millis();
-            if let Err(e) = storage
+            // Known-quarantined content is still stored (upstream semantics),
+            // but the row is written directly in the quarantined state so the
+            // download path blocks it.
+            let quarantine_status = hash_quarantined.then_some("quarantined");
+            let upsert_result = storage
                 .upsert_media_metadata(
                     media_id,
                     &self.server_name,
@@ -296,9 +337,35 @@ impl MediaService {
                     content.len() as i64,
                     user_id,
                     now,
+                    Some(&content_hash),
+                    quarantine_status,
                 )
-                .await
-            {
+                .await;
+
+            if let Err(e) = upsert_result {
+                if hash_quarantined {
+                    // `download_media` reads the file straight off disk and the
+                    // quarantine check returns `false` for a missing row, so an
+                    // orphaned file here would be served to non-admin users.
+                    // Remove it and refuse the upload instead of failing open.
+                    if let Err(cleanup_error) = tokio::fs::remove_file(&file_path).await {
+                        ::tracing::error!(
+                            media_id = %media_id,
+                            file_path = %file_path.display(),
+                            error = %cleanup_error,
+                            "Failed to remove quarantined media file after metadata write failure"
+                        );
+                    }
+                    ::tracing::error!(
+                        media_id = %media_id,
+                        user_id = %user_id,
+                        content_hash = %content_hash,
+                        error = %e,
+                        "Hash is quarantined but its metadata row could not be written; refusing upload"
+                    );
+                    return Err(ApiError::internal("An internal error occurred".to_string()));
+                }
+
                 ::tracing::warn!(
                     media_id = %media_id,
                     user_id = %user_id,
@@ -307,6 +374,18 @@ impl MediaService {
                     error = %e,
                     "Failed to store media metadata in DB"
                 );
+            }
+        }
+
+        if hash_quarantined {
+            ::tracing::warn!(
+                media_id = %media_id,
+                user_id = %user_id,
+                content_hash = %content_hash,
+                "Upload matched an already-quarantined content hash; stored in quarantined state without scanning"
+            );
+            if let Some(metrics) = &self.metrics {
+                metrics.inc_counter("media_hash_quarantine_uploads_total");
             }
         }
 

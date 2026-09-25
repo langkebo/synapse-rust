@@ -900,3 +900,96 @@ async fn unsafe_scan_verdict_blocks_upload_and_stores_nothing() {
     let download_response = ServiceExt::<Request<Body>>::oneshot(app, download_request).await.unwrap();
     assert_eq!(download_response.status(), StatusCode::NOT_FOUND, "a rejected upload must not be retrievable");
 }
+
+/// Upload `content` through the public media route and return
+/// `(server_name, media_id)`.
+async fn upload_bytes(app: &axum::Router, token: &str, content: &[u8], filename: &str) -> (String, String) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/media/v3/upload?filename={filename}"))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/octet-stream")
+        .body(Body::from(content.to_vec()))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "upload of {filename} must succeed");
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    parse_mxc_uri(json["content_uri"].as_str().unwrap())
+}
+
+/// Read `media_metadata.quarantine_status` for a media id straight from the
+/// per-test schema; `None` means no row.
+async fn quarantine_status_in_db(state: &synapse_web::routes::state::AppState, media_id: &str) -> Option<String> {
+    sqlx::query_scalar::<_, Option<String>>("SELECT quarantine_status FROM media_metadata WHERE media_id = $1")
+        .bind(media_id)
+        .fetch_optional(&*state.services.database_pool())
+        .await
+        .expect("quarantine status read must succeed")
+        .flatten()
+}
+
+/// U-3 §6.2 acceptance ②: hash-level automatic quarantine.
+///
+/// Upload content A, quarantine that media through the existing admin path
+/// (`MediaDomainService::quarantine_media`), then upload byte-identical content
+/// again under a new media id. The second row must already be `quarantined`
+/// **without any scanner being configured** — the default test config has the
+/// content scanner disabled, so nothing here can be attributed to scanning.
+/// Different content must be unaffected.
+#[tokio::test]
+async fn hash_level_quarantine_auto_quarantines_identical_reupload() {
+    let Some((app, state)) = super::setup_fresh_test_app_with_state().await else {
+        return;
+    };
+    assert!(
+        !state.services.core.content_scanner.is_enabled(),
+        "this test must prove hash-level quarantine without scanner involvement"
+    );
+
+    let token = register_user(&app, &format!("media_hash_q_{}", rand::random::<u32>())).await;
+
+    let identical = b"identical-content-for-hash-quarantine-acceptance".to_vec();
+    let (server_name, first_id) = upload_bytes(&app, &token, &identical, "first.bin").await;
+    assert_eq!(
+        quarantine_status_in_db(&state, &first_id).await.as_deref(),
+        None,
+        "a fresh upload must not be quarantined"
+    );
+
+    // Manual quarantine through the existing admin service path.
+    state
+        .services
+        .extensions
+        .media_domain_service
+        .quarantine_media(&server_name, &first_id, "@admin:localhost")
+        .await
+        .expect("admin quarantine must succeed");
+
+    // Byte-identical content, new media id: must be written quarantined.
+    let (_, second_id) = upload_bytes(&app, &token, &identical, "second.bin").await;
+    assert_ne!(second_id, first_id, "the re-upload must get its own media id");
+    assert_eq!(
+        quarantine_status_in_db(&state, &second_id).await.as_deref(),
+        Some("quarantined"),
+        "byte-identical content must be auto-quarantined without scanning"
+    );
+
+    // The hit is observable as a counter, not just a log line.
+    let hits = state
+        .services
+        .core
+        .metrics
+        .get_counter("media_hash_quarantine_uploads_total")
+        .map(|counter| counter.get())
+        .unwrap_or_default();
+    assert_eq!(hits, 1, "the hash-quarantine hit must be counted");
+
+    // Different content is unaffected.
+    let (_, third_id) = upload_bytes(&app, &token, b"completely different bytes", "third.bin").await;
+    assert_eq!(
+        quarantine_status_in_db(&state, &third_id).await.as_deref(),
+        None,
+        "different content must not inherit the quarantine ruling"
+    );
+}
