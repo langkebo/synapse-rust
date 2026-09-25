@@ -996,3 +996,176 @@ mod tests {
         assert_eq!(max.parse::<i64>().unwrap(), i64::MAX);
     }
 }
+
+/// DB round-trip on the **migration template** schema (D-36 / W5 口径).
+///
+/// Before C19b the `backup` module had **zero** DB coverage: every `test_` here
+/// was a pure constructor, and the only DB exercise was
+/// `tests/integration/key_backup_storage_tests_migrated.rs`, which builds its
+/// own simplified `key_backups` / `backup_keys` (`version BIGINT DEFAULT 1`
+/// without `NOT NULL`, nullable `first_message_index`). That is exactly the
+/// D-36 anti-pattern that let **D-46** hide: the dynamic
+/// `query_as::<_, KeyBackupRow>` + `FromRow` path never compared the row type
+/// against the real catalog, so the nullable `version` and the
+/// `COALESCE(backup_id_text, version::text)` projection looked fine.
+///
+/// This case runs the same storage APIs against the real v12 baseline, so any
+/// schema/type/nullability mismatch surfaces on the first round trip.
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use synapse_common::test_isolation::IsolatedTestPool;
+
+    /// The workspace baseline migration, compiled in so the isolated schema is
+    /// the real one. The bytes are load-bearing (the shared template name is a
+    /// content fingerprint of this string), so it must stay byte-identical to
+    /// the copies in `synapse-storage/src/test_isolation.rs`,
+    /// `synapse-e2ee/src/verification/service.rs` and
+    /// `synapse-services/src/test_utils.rs`.
+    const BASELINE_SQL: &str = include_str!("../../../migrations/00000000_unified_schema_v12.sql");
+
+    fn make_backup(user_id: &str, version: i64, etag: Option<&str>) -> KeyBackup {
+        KeyBackup {
+            user_id: user_id.to_string(),
+            backup_id: version.to_string(),
+            version,
+            algorithm: "m.megolm_backup.v1.curve25519-aes-sha2".to_string(),
+            auth_key: "auth_key".to_string(),
+            mgmt_key: "mgmt_key".to_string(),
+            backup_data: serde_json::json!({"public_key": "pubkey"}),
+            etag: etag.map(str::to_string),
+        }
+    }
+
+    fn key_params(user_id: &str, version: i64, room_id: &str, session_id: &str) -> BackupKeyInsertParams {
+        BackupKeyInsertParams {
+            user_id: user_id.to_string(),
+            backup_id: version.to_string(),
+            room_id: room_id.to_string(),
+            session_id: session_id.to_string(),
+            first_message_index: 3,
+            forwarded_count: 1,
+            is_verified: true,
+            backup_data: serde_json::json!({"ciphertext": "ct", "mac": "mac"}),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_backup_round_trip_on_migration_template() {
+        let isolated = IsolatedTestPool::new(BASELINE_SQL).await.expect("isolated test pool");
+        let pool = isolated.pool();
+        let storage = KeyBackupStorage::new(&pool);
+        let key_storage = BackupKeyStorage::new(&pool);
+
+        let user = "@c19b:localhost";
+        let room = "!c19b:localhost";
+
+        // The real template carries `fk_backup_keys_room`
+        // (`backup_keys.room_id → rooms.room_id ON DELETE CASCADE`, P3-3), so the
+        // room must exist before any key round trip. The hand-built schema in
+        // `tests/integration/key_backup_storage_tests_migrated.rs` omits this FK
+        // (D-36 family: a simplified fixture hides a real constraint).
+        sqlx::query("INSERT INTO rooms (room_id, created_ts) VALUES ($1, $2)")
+            .bind(room)
+            .bind(0_i64)
+            .execute(&*pool)
+            .await
+            .unwrap();
+
+        // create_backup → get_backup / get_all_backup_versions. Version 7 carries
+        // a NULL `etag`, which is genuinely nullable (the writer binds
+        // `etag.as_deref()`), so it must survive the `Option<String>` field.
+        storage.create_backup(&make_backup(user, 7, None)).await.unwrap();
+        storage.create_backup(&make_backup(user, 9, Some("etag9"))).await.unwrap();
+
+        let latest = storage.get_backup(user).await.unwrap().expect("latest backup");
+        assert_eq!(latest.version, 9);
+        assert_eq!(latest.backup_id, "9");
+        assert_eq!(latest.etag.as_deref(), Some("etag9"));
+        assert_eq!(latest.backup_data, serde_json::json!({"public_key": "pubkey"}));
+
+        let all = storage.get_all_backup_versions(user).await.unwrap();
+        assert_eq!(all.iter().map(|b| b.version).collect::<Vec<_>>(), vec![9, 7]);
+        // The `COALESCE(backup_id_text, version::text) AS "backup_id!"` projection
+        // must yield a version string even for the `etag = NULL` row (D-46).
+        let v7 = all.iter().find(|b| b.version == 7).expect("version 7 row");
+        assert_eq!(v7.backup_id, "7");
+        assert_eq!(v7.etag, None);
+
+        // get_backup_version: the numeric branch keys on `version`; a non-numeric
+        // version must not be coerced to a numeric lookup (E-05).
+        let by_num = storage.get_backup_version(user, "9").await.unwrap().expect("numeric version");
+        assert_eq!(by_num.version, 9);
+        assert!(storage.get_backup_version(user, "not-a-number").await.unwrap().is_none());
+
+        // create_backup is an upsert on `(user_id, version)` — it must rewrite,
+        // not fail, and must not grow the row count.
+        storage.create_backup(&make_backup(user, 9, Some("etag9b"))).await.unwrap();
+        assert_eq!(storage.get_all_backup_versions(user).await.unwrap().len(), 2);
+        assert_eq!(storage.get_backup_version(user, "9").await.unwrap().unwrap().etag.as_deref(), Some("etag9b"));
+
+        // upload_backup_key → every read projection the conversion touched.
+        key_storage.upload_backup_key(key_params(user, 9, room, "sess-a")).await.unwrap();
+        key_storage.upload_backup_key(key_params(user, 9, room, "sess-b")).await.unwrap();
+
+        let by_room = key_storage.get_room_backup_keys(user, room).await.unwrap();
+        assert_eq!(by_room.len(), 2);
+        assert!(by_room.iter().all(|k| k.backup_id == "9"));
+        assert_eq!(by_room[0].session_data, serde_json::json!({"ciphertext": "ct", "mac": "mac"}));
+
+        let by_id = key_storage.get_room_backup_keys_by_backup_id(user, "9", room).await.unwrap();
+        assert_eq!(by_id.len(), 2);
+
+        let grouped = key_storage.get_backup_keys_by_rooms(user, "9", &[room.to_string()]).await.unwrap();
+        assert_eq!(grouped.get(room).map(Vec::len), Some(2));
+        // A room with no keys must come back as an empty vec, not a missing entry.
+        let empty = key_storage.get_backup_keys_by_rooms(user, "9", &["!empty:localhost".to_string()]).await.unwrap();
+        assert_eq!(empty.get("!empty:localhost").map(Vec::len), Some(0));
+
+        let one = key_storage.get_backup_key(user, room, "sess-a").await.unwrap().expect("session a");
+        assert_eq!(one.first_message_index, 3);
+        assert!(one.is_verified);
+        assert!(key_storage.get_backup_key(user, room, "missing").await.unwrap().is_none());
+
+        let one_by_id =
+            key_storage.get_backup_key_by_backup_id(user, "9", room, "sess-b").await.unwrap().expect("session b");
+        assert_eq!(one_by_id.session_id, "sess-b");
+
+        // Delete paths — each converted to `query!`; assert exact rows_affected so
+        // a too-broad predicate cannot pass by "deleting something".
+        assert_eq!(key_storage.delete_session_for_version(user, "9", room, "sess-a").await.unwrap(), 1);
+        assert_eq!(key_storage.delete_session_for_version(user, "9", room, "sess-a").await.unwrap(), 0);
+        assert_eq!(key_storage.delete_room_for_version(user, "9", room).await.unwrap(), 1);
+
+        key_storage.upload_backup_key(key_params(user, 9, room, "sess-c")).await.unwrap();
+        key_storage.delete_backup_key(user, room, "sess-c").await.unwrap();
+        assert!(key_storage.get_backup_key(user, room, "sess-c").await.unwrap().is_none());
+
+        key_storage.upload_backup_key(key_params(user, 9, room, "sess-d")).await.unwrap();
+        assert_eq!(key_storage.delete_all_for_version(user, "9").await.unwrap(), 1);
+
+        // D-46 regression: the schema must reject a NULL `version` outright
+        // (23502), instead of accepting a row the non-Option row type cannot
+        // decode. Omitting the column would hit `DEFAULT 1`, so insert NULL
+        // explicitly.
+        let null_version = sqlx::query(
+            "INSERT INTO key_backups (user_id, backup_id_text, version, algorithm, created_ts) \
+             VALUES ($1, $2, NULL, $3, $4)",
+        )
+        .bind(user)
+        .bind("nullv")
+        .bind("m.megolm_backup.v1")
+        .bind(0_i64)
+        .execute(&*pool)
+        .await;
+        let error = null_version.expect_err("a NULL version must be rejected by the D-46 NOT NULL column");
+        let code = error.as_database_error().and_then(|db| db.code()).map(|c| c.into_owned());
+        assert_eq!(code.as_deref(), Some("23502"), "NOT NULL violation expected, got {error:?}");
+
+        // delete_backup both branches, then confirm the user is empty.
+        storage.delete_backup(user, "9").await.unwrap();
+        assert!(storage.get_backup_version(user, "9").await.unwrap().is_none());
+        storage.delete_backup(user, "7").await.unwrap();
+        assert!(storage.get_all_backup_versions(user).await.unwrap().is_empty());
+    }
+}
