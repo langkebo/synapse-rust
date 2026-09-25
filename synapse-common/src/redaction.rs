@@ -201,11 +201,12 @@ pub fn redaction_rules(room_version: &str) -> Option<RedactionRules> {
         }),
         // v11: MSC2174/MSC3820.
         "11" => Some(RedactionRules::updated()),
-        // v12: Synapse release-v1.161 groups V12 with MSC4291 rooms
-        // (`test_redact_m_room_create`), i.e. v11 rules plus the room_id drop
-        // for `m.room.create`.  Reconciling this with this repository's own
-        // MSC4239-based v12 description is a step-2 prerequisite; that is
-        // recorded as an open item in the U-13 section of the plan doc.
+        // v12: v11 rules plus the room_id drop for `m.room.create`.  This is
+        // anchored on MSC4304 (which defines room version 12 as v11 +
+        // MSC4289/MSC4291/MSC4297/MSC4307); MSC4291 derives the room ID from
+        // the create event, so `room_id` must not take part in its reference
+        // hash.  Upstream Synapse release-v1.161 agrees (its
+        // `test_redact_m_room_create` groups V12 with the MSC4291 rooms).
         "12" => Some(RedactionRules { room_ids_as_hashes: true, ..RedactionRules::updated() }),
         _ => None,
     }

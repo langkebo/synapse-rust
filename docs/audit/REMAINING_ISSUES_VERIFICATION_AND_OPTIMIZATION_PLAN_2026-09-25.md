@@ -798,7 +798,7 @@ git diff --cached --stat && git commit -m "fix(federation): persist local event 
 >   + `redaction::{redaction_rules, redact_event}`；上游 Synapse release-v1.161 的 v10/v3 两个已知答案
 >   向量逐字节通过，24/24 绿，3 个变异自证均转红，fmt/clippy exit 0。
 > - [ ] **第 2 步（接线 v4+）** — ⬜ 未开始；**前置**：既有非版本化 redaction 表迁移（铁律 2）、
->   `compute_event_content_hash` 先 redact 后哈希的语义修正、v12（MSC4239 vs 上游 MSC4291）对齐——三项见 §6.6。
+>   `compute_event_content_hash` 先 redact 后哈希的语义修正（✅ 已完成 `0880f6a5f`）、v12 语义裁定（✅ MSC4304/MSC4291，见 §6.6）——原三项前置现只剩签名半边。
 >   **接线破坏面（实测 2026-09-26）**：`generate_event_id` 生产调用点 **30** 处（另 2 处在 `#[cfg(test)]`），
 >   分布 16 个文件：`room/membership/{actions,federation,moderation}.rs`（11）、
 >   `routes/handlers/room/{state,events}.rs`（5）、`room/{service,lifecycle/create_events,messaging/*,state/info}.rs`（7）、
@@ -1347,9 +1347,17 @@ Task3 (reference hash) —— 仅做可行性验证，不接线
        故与"单一写入口定 event_id"同批做，避免为同一职责造第二份解析。
      ⇒ 在签名半边修好前，本仓产出的 `signatures` **不可能被对等端校验通过**；`hashes` 半边已不再
      是阻塞项。这也是第 3 步互操作门槛不可省的原因。
-  3. **v12 语义待对齐**：本仓 v12 依据 MSC4239；Synapse release-v1.161 把 `V12` 与 MSC4291 房间
-     并列（`create` redaction 丢 `room_id`），本实现按上游取值。接线前必须确认本仓 v12 是否
-     MSC4291；否则 v12 事件 ID 与对等端不一致。v13 现为 **fail-closed**（不猜）。
+  3. ✅ **v12 语义已裁定（2026-09-26，权威来源）**：**MSC4304 = Room Version 12**，
+     以 v11 为基座并纳入 MSC4289（creator 特权）、**MSC4291（room ID = create 事件的哈希）**、
+     MSC4297（state res v2.1）、MSC4307（`auth_events` 同房间校验）；
+     而 **MSC4239 是 Room Version 11（把 v11 设为默认）**——此前本仓注释与本文档把两者混为一谈
+     （已在本轮修正 `room_versions.rs` / `redaction.rs` 注释）。因此本仓实现里
+     `room_ids_as_hashes = true`（v12 的 `m.room.create` 计算 reference hash 时丢 `room_id`）
+     **与规范及上游 Synapse 一致，不是猜测**。
+     仍待第 2 步确认的是：本仓 v12 的**实现**（O-1 只描述了"完整 PDU 字段 + ED25519-only"）
+     是否真的落地了 MSC4304 的四项（尤其 MSC4291 的 room_id 派生与 MSC4289 的 creator 特权），
+     这属于 O-1/并发会话的实现面。
+     v13 现仍 **fail-closed**（不猜）。
 
 ### 6.7 决策后的执行顺序（更新 §4.1）
 
@@ -1416,7 +1424,7 @@ sed -n '148,154p' synapse-common/src/crypto.rs
 | MSC4133 已进 spec v1.16（`/profile/{userId}/{keyName}`、`m.tz`、两个 errcode、`field=`） | matrix-spec `data/api/client-server/profile.yaml:19,22,104-106,312-316` |
 | 缩略图 `animated` 语义 | matrix-spec `data/api/client-server/content-repo.yaml:436-453,497-502` |
 | 上游已删 `auth_issuer`、profile 停用用户修复 | `element-hq/synapse@release-v1.161/CHANGES.md:48`（#20163）、`:36`（#20172） |
-| **v12 房间版本实现** | `element-hq/synapse@release-v1.162`：`CHANGES.md` "Raise default room version to '12'"；MSC4239、MSC4311、MSC3912 |
+| **v12 房间版本实现** | `element-hq/synapse@release-v1.162`：`CHANGES.md` "Raise default room version to '12'"；**MSC4304（= v12 定义；基座 v11 + MSC4289/4291/4297/4307）**、MSC4311、MSC3912。⚠️ MSC4239 是 **v11** 的定义，勿再误引 |
 | **动画缩略图实现** | `element-hq/synapse@release-v1.161`：`synapse/media/thumbnailer.py`、`synapse/rest/media/thumbnail_resource.py` |
 | Synapse `/versions` 只到 v1.12；稳定 profile `{keyName}` 无条件提供；`m.profile_fields` capability | `element-hq/synapse@release-v1.161`：`rust/src/handlers/versions.rs:146-157`、`synapse/rest/client/profile.py:104-106,113-117`、`synapse/rest/client/capabilities.py:95-101` |
 | Synapse 媒体只有 `max_upload_size`（无总量配额）；隔离按 sha256 复用（`get_is_hash_quarantined`） | 同上：`synapse/media/media_repository.py:106,353-359,429,439,507,782,921,1043` |
@@ -1435,7 +1443,7 @@ sed -n '148,154p' synapse-common/src/crypto.rs
 
 **上游现状** (Synapse v1.162.0rc1, 2026-09-22):
 - ✅ **默认版本已提升至 v12** (`CHANGES.md`: "Raise default room version to '12'")
-- ✅ **核心 MSC**: MSC4239 (v12 定义)、MSC4311 (邀请/敲击状态)、MSC3912 (基于关系的撤回)
+- ✅ **核心 MSC**: **MSC4304 (v12 定义，含 MSC4291 room ID = create 事件哈希)**、MSC4311 (邀请/敲击状态)、MSC3912 (基于关系的撤回)；MSC4239 属 v11
 - ⚠️ **MSC4311 宽限期**: 2027-06-01 前仅对邀请/敲门应用宽松验证 ([#19723](https://github.com/element-hq/synapse/issues/19723))
 - 🔑 **关键变更**:
   - ED25519-only 签名验证 (更严格的算法白名单)

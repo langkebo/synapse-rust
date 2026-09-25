@@ -75,8 +75,12 @@ impl RoomVersionCapability {
 /// Constant `DEFAULT_ROOM_VERSION`.
 ///
 /// Changed to "12" in O-1 Phase 2 after enabling v12 room creation in Phase 1.
-/// This matches upstream Synapse v1.162.0rc1 which raised the default to "12"
-/// (MSC4239). See CHANGES.md: "Raise default room version to '12'".
+/// This matches upstream Synapse v1.162.0rc1 which raised the default to "12".
+/// Room version 12 is defined by **MSC4304** (base v11 + MSC4289 creator
+/// privilege + MSC4291 room IDs as hashes of the create event + MSC4297 state
+/// resolution v2.1 + MSC4307 `auth_events` room check).  Do NOT cite MSC4239
+/// here: that MSC is the *room version 11* release, which made **v11** the
+/// default; the two were conflated in this comment until 2026-09-26.
 ///
 /// Consequences to keep in mind when reviewing federation behaviour:
 /// version 12 requires ED25519-only signatures and complete PDU fields
