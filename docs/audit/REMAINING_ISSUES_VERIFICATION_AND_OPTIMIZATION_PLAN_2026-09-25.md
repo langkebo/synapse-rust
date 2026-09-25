@@ -1057,25 +1057,192 @@ Task3 (reference hash) —— 仅做可行性验证，不接线
 
 | 编号 | 级别 | 任务 | 判据（实测） | 前置 / 决策 |
 |---|---|---|---|---|
-| **U-1** | 高 | Task 4 MSC3912 客户端级联 | `grep -rn "with_rel_types\|msc3912" synapse-web/src synapse-services/src` → **0 命中** | 按规范单层语义实现（`org.matrix.msc3912` unstable 标志 + 逐事件鉴权 + 真 redaction 事件），还是只保留管理端 `cascade_redact` 并改注释 |
+| **U-1** ✅**已决策：按规范单层实现（§6.1）** | 高 | Task 4 MSC3912 客户端级联 | `grep -rn "with_rel_types\|msc3912" synapse-web/src synapse-services/src` → **0 命中** | 按规范单层语义实现（`org.matrix.msc3912` unstable 标志 + 逐事件鉴权 + 真 redaction 事件），还是只保留管理端 `cascade_redact` 并改注释 |
 | **U-2** | 高 | **R-1** `user_exists` 去掉 `is_deactivated` 过滤后的扩散复核 | `user/storage.rs:698` 已改；生产调用点 **19** 处：`admin/room/management.rs` 5、`membership/moderation.rs` 3、`account_identity_service.rs` 3、`user_service.rs` 2、`handlers/room/members.rs` 1、`handlers/extended_profile.rs` 1、`federation/mod.rs` 1、`auth_compat.rs` 1、`federation/edu.rs` 1、`membership/actions.rs` 1 | 上游 #20172 只针对 profile 字段端点；建议拆两个谓词（`user_exists` 含停用 / `active_user_exists`）并逐点选定，尤其是 auth、federation、moderation 三处 |
-| **U-3** | 中 | Task 5 残留：扫描结果持久化 + 指标 + 显式配置 | 接线已在（`media/upload.rs:87,128`、`handlers/room/events.rs:306`）；但无 `scan_result`/`content_scans_total` 命中，`docker/config/homeserver.yaml` 无 `content_scanner` 键，默认 `enabled: false` | 决策：结果是否落库（新表 vs 仅审计日志 + 指标） |
-| **U-4** | 中 | Task 6 残留：v1.16 profile 面 | `grep -rn "M_PROFILE_TOO_LARGE\|M_KEY_TOO_LARGE" --include=*.rs` → **0 命中**；无 64 KiB 总大小校验、无 `m.tz` | 决策：`/versions` 是否升到 v1.16（连带 v1.15/v1.16 全部变更 + 派生产物） |
+| **U-3** ✅**已决策：不新增表，落隔离裁定 + hash 级自动隔离（§6.2）** | 中 | Task 5 残留：扫描结果持久化 + 指标 + 显式配置 | 接线已在（`media/upload.rs:87,128`、`handlers/room/events.rs:306`）；但无 `scan_result`/`content_scans_total` 命中，`docker/config/homeserver.yaml` 无 `content_scanner` 键，默认 `enabled: false` | 决策：结果是否落库（新表 vs 仅审计日志 + 指标） |
+| **U-4** ✅**已决策：不升 v1.16，只补两个 errcode（§6.3）** | 中 | Task 6 残留：v1.16 profile 面 | `grep -rn "M_PROFILE_TOO_LARGE\|M_KEY_TOO_LARGE" --include=*.rs` → **0 命中**；无 64 KiB 总大小校验、无 `m.tz` | 决策：`/versions` 是否升到 v1.16（连带 v1.15/v1.16 全部变更 + 派生产物） |
 | **U-5** | 中 | Task 7 Admin 媒体族 | `admin/media.rs` 内 `media/quarantine`/`unquarantine`/房间级媒体路由 **0 命中**（仅 `quarantine_media/{media_id}/changes`） | 先按 §1.7 把上游 15 条落成可核验清单文件 |
 | **U-6** | 中 | Task 8 缩略图 `animated` | 全仓 `.rs` **0 命中** | 无 |
-| **U-7** | 中 | Task 9 媒体配额错误码 | `media/mod.rs:250` 仍 `ApiError::bad_request`（400 `M_BAD_JSON`） | 决策：`M_TOO_LARGE`(413) / `M_RESOURCE_LIMIT_EXCEEDED`(403)；**不要**用 `M_USER_LIMIT_EXCEEDED`（MSC4335 账户数语义，`code.rs:83`） |
+| **U-7** ✅**已决策：`M_TOO_LARGE`(413) + `M_RESOURCE_LIMIT_EXCEEDED`(403)（§6.4）** | 中 | Task 9 媒体配额错误码 | `media/mod.rs:250` 仍 `ApiError::bad_request`（400 `M_BAD_JSON`） | 决策：`M_TOO_LARGE`(413) / `M_RESOURCE_LIMIT_EXCEEDED`(403)；**不要**用 `M_USER_LIMIT_EXCEEDED`（MSC4335 账户数语义，`code.rs:83`） |
 | **U-8** | 中 | **R-2** HTTP 层端到端签名断言 | 现有 `api_federation_transaction_tests::test_send_transaction_with_signed_pdu_accepted` 未预建房间、且容忍 success/error 两种结果 | 需先建房再断言 `events.signatures`/`hashes` 非空 |
 | **U-9** | 低 | Task 10 残留死码 | `handlers/auth_discovery.rs:66 get_auth_issuer` 已无路由引用；`dag.rs` 的 `get_state_dag_edges` / `get_prev_state_events` / `find_events_referencing_missing_state` 生产调用点 0 | 铁律 1：直接删（含 MSC4242 的 `create_state_event_with_dag` 若无计划） |
-| **U-10** | 低 | T12 ledger `query_params` | `route_ledger.rs:84,107` 定义仍在；`with_query_params(` 调用点 **0** | 二选一：删字段（`SCHEMA_VERSION` 4→5 + SDK pin + fixture）或真填值（与 Task 8 合并天然产生消费者） |
+| **U-10** ✅**已决策：真填值 + 反向守卫（§6.5）** | 低 | T12 ledger `query_params` | `route_ledger.rs:84,107` 定义仍在；`with_query_params(` 调用点 **0** | 二选一：删字段（`SCHEMA_VERSION` 4→5 + SDK pin + fixture）或真填值（与 Task 8 合并天然产生消费者） |
 | **U-11** | 低 | T13 v12/v13 文档迁移 | `room_versions.rs:114-115` 仍 `stable_parse_only("12"/"13")`（设计使然） | 只需把条目移入"已知取舍" + 补 `can_create == false` 守卫 |
 | **U-12** | 低 | 1c storage 单写入口收敛 | `create.rs` 仍有 **4** 条 `INSERT INTO events`（`:14`/`:83`/`:192`/`:314`） | 反冗余铁律 2；抽私有 helper，公开签名不变 |
-| **U-13** | 低 | Task 3 `event_id` reference hash | `crypto.rs:153` 仍 `format!("${}${}:{}", …)` | 决策项（§2.1 残余③）；只做已知答案测试、不接线 |
+| **U-13** ✅**已决策：立项，分三步（§6.6）** | 低 | Task 3 `event_id` reference hash | `crypto.rs:153` 仍 `format!("${}${}:{}", …)` | 决策项（§2.1 残余③）；只做已知答案测试、不接线 |
 | **U-14** | 中 | **R-3** 跨仓客户端接线 | `CryptoDeviceAdapter.ts` **不在本仓**（`find` 为空） | matrix-sdk-fork 侧改用 `m.key.verification.*` to-device；本仓无法闭合 |
 | **U-15** | 低 | 审计文档同步残余 | `PROJECT_REMAINING_ISSUES_2026-09-14.md` 的 §21.1/§22.3 仍把 `auth_issuer`、`dag.rs`、`search_index`、Content Scanner 列为"未修" | 逐条标注（这些已由 main 或本次复核推翻），避免同一事实第三次漂移 |
 
 ### 5.3 不建议现在做
 
 见 §4.4（`event_id` 全量改造、MSC3912"后到事件补撤"、v12/v13 放开创建、scanner 全格式深扫、admin 面 100% 追平）。
+
+---
+
+## 6. 决策记录（2026-09-25；每条以上游 Synapse 主源为依据）
+
+> 用户要求对 §5 的六个决策项"参考 element-hq/synapse 给出合理建议"。以下每条都给出
+> **上游主源**（release-v1.161 实测文件与行号 / Matrix 规范原文）、**结论**、**执行规格**与
+> **验收**。全部结论都不依赖"猜上游怎么想"：能引到文件行号的一律引出。
+>
+> 共同前置：**先合并 M-1**（§5.1）。U-1/U-3/U-7/U-10 都要改 `synapse-services`/`synapse-web`，
+> 与本分支未合并的 B1 改动同处一个文件面；不先合并会制造第二份分叉。
+
+### 6.1 U-1 MSC3912 客户端级联 —— **按规范实现（单层）** ✅ 决策
+
+**上游证据**
+- `synapse/rest/client/room.py:1374-1377`：从请求体（即 redaction 事件的 content）读
+  `org.matrix.msc3912.with_relations`，**读后立即 `del`**（不得落进事件 content）。
+- `:1407-1415`：`if with_relations:` → `run_as_background_process("redact_related_events", …)`。
+- `synapse/handlers/relations.py:191-263`：`redact_events_related_to` —— **单层**
+  （`get_all_relations_for_event[_with_types]`，不递归）、`"*"` = 全类型、
+  对每个相关事件**新建一条真 `m.room.redaction` 事件**（`ratelimit=False`）、
+  权限不足只 `logger.warning` 后继续。
+- `synapse/config/experimental.py:160`：`msc3912_enabled` 默认 **False**。
+- 上游 issue [#15687](https://github.com/element-hq/synapse/issues/15687)（仍 open）：
+  稳定名 `with_rel_types`、`*` catch-all、以及"请求结束后新到事件补撤"**上游均未实现**。
+
+**结论**：实现客户端面，形状照抄上游 + MSC 原文；**不**递归（本仓现有管理端 BFS depth 5 与规范冲突）。
+
+**执行规格**
+1. `handlers/room/events.rs::redact_event`：解析 `with_rel_types`（稳定，MSC 原文）**与**
+   `org.matrix.msc3912.with_relations`（上游用的未稳定名），校验为字符串数组，随后从 content 移除；
+   非法 → 400 `M_INVALID_PARAM`。
+2. storage：新增按 `rel_type` 过滤的**单层**关联查询（`content->'m.relates_to'->>'rel_type' = ANY($2)`，
+   `*` 走无谓词变体），排除自身与已 redacted；**必须**同时加 GIN 索引
+   （本仓当前对 `content->'m.relates_to'` 无索引，参照 §1.2 实测）。
+3. 服务：`cascade_redact_related(room_id, event_id, redactor, rel_types)` → 逐事件
+   `can_redact_event`（失败跳过并计数）→ 复用现有 redaction 创建路径（真事件、会联邦）。
+4. `capability_governance.rs`：`/versions` 的 `unstable_features` 增 `org.matrix.msc3912 = true`。
+5. 管理端 `admin/room/mod.rs::cascade_redact` 保留，但**改为复用同一服务方法**；其
+   `max_depth` 递归语义标注为"本仓扩展，非 MSC3912"，并在
+   `docs/audit/2026-09-23-msc3912-cascade-redaction.md` 顶部加差异说明。
+6. **不做**（与上游一致）：请求结束后新到事件的补撤。在文档与代码注释中显式登记该差异。
+
+**验收**：① `with_rel_types: ["m.replace"]` 撤 `$a` ⇒ `$a`/`$b` 被撤、`$c`（`$b` 的 edit）**未**被撤
+（MSC 原文例子）；② `*` 撤全类型；③ 落库 content 不含上述两个键；④ 权限不足者被忽略且响应 200；
+⑤ `/versions` 含 `org.matrix.msc3912`；⑥ 变异自证：改递归 ⇒ ①红；删 `can_redact_event` ⇒ ④红。
+
+### 6.2 U-3 扫描结果落库 —— **不新增 scan-results 表；落"隔离裁定"** ✅ 决策
+
+**上游证据**
+- Synapse **核心无内容扫描器**（`synapse/media/` 目录只有 `_base/filepath/media_repository/media_storage/oembed/preview_html/storage_provider/thumbnailer/url_previewer`），
+  扫描属 out-of-tree 模块/前置代理；因此"扫描结果表"在上游没有对应物。
+- 上游真正持久化的是**隔离裁定**：`synapse/media/media_repository.py:353-359`
+  `should_quarantine = await self.store.get_is_hash_quarantined(sha256)`，
+  命中即把该次上传写成 `quarantined_by="system"`（`:429`/`:439`）；
+  下载时拦截（`:507`、`:782`）。
+- 且上游按 **sha256 复用裁定**：同一份内容再上传会**自动**被隔离，不需要重扫。
+
+**结论**：`safe=false` ⇒ 拒绝 + 用既有隔离能力落裁定（`quarantined_by`），并**补 hash 级自动隔离**；
+不新增表、不加迁移、不动派生产物。这同时满足"可审计"与"零新表"。
+
+**执行规格**
+1. `media/upload.rs` 的 `scan_media` 返回 `safe=false` ⇒ `403 M_FORBIDDEN`（含 threat 摘要）且**不落库**。
+2. 新增"内容哈希 → 已隔离"查询（本仓已有 `quarantine_stream`/`media` 表；按 sha256 反查），
+   命中即在写入时直接 `quarantined_by = "scanner_hash"`（对齐上游 `get_is_hash_quarantined` 语义）。
+3. 管理端手动隔离时记录 sha256，使后续同内容上传自动命中。
+4. 指标：`content_scans_total{result}`、`content_scan_failures_total`；审计日志保留 PII 最小化。
+5. `docker/config/homeserver.yaml` 增**显式** `content_scanner: { enabled: false, … }`
+   （AGENTS.md：可选组件必须显式禁用，不得缺省静默）。
+
+**验收**：① 扫描判 `unsafe` ⇒ 403 且 `media` 无新行；② 同一 sha256 二次上传 ⇒ 自动隔离（无需重扫）；
+③ 指标存在且随判定变化；④ 默认配置下扫描关闭时上传路径行为与今天一致（无回归）。
+
+### 6.3 U-4 `/versions` 是否升 v1.16 —— **不升** ✅ 决策
+
+**上游证据（决定性）**
+- Synapse 1.161 的 `/versions` 只声明到 **`v1.12`**
+  （`rust/src/handlers/versions.rs:146-157` 逐个列出 `v1.1`…`v1.12`，其后即 `unstable_features`）。
+- 但它**无条件**提供稳定路由 `/_matrix/client/v3/profile/{userId}/{keyName}`
+  （`synapse/rest/client/profile.py:104-106`，与 displayname/avatar_url 同一 servlet），
+  未稳定前缀 `uk.tcpip.msc4133` 才受 `experimental.msc4133_enabled` 门控（`:113-117`）。
+- `m.profile_fields` capability 也照样声明（`rest/client/capabilities.py:95-101`，含
+  displayname/avatar_url 被策略禁止时的 `disallowed` 处理）。
+
+**结论**：**"声明 capability + 注册稳定路由"与"声明某个 spec 版本"在上游是两件事**。
+本仓已具备前者（`assembly.rs:231` + `capability_governance.rs:507`），因此**无需**升 v1.16
+——升版本要连带实现 v1.13–v1.16 的全部变更与派生产物，收益仅是"版本号好看"。
+
+**执行规格**
+1. 补两个 errcode 与校验（对齐上游 `MAX_CUSTOM_FIELD_LEN` 与 spec 64 KiB）：
+   字段名超长 ⇒ `M_KEY_TOO_LARGE`；写入后总 profile 超 64 KiB ⇒ `M_PROFILE_TOO_LARGE`。
+2. `m.tz`、`/profile/{user_id}?field=` **不做**（前者只在声明 v1.16 时才有意义；
+   后者实测**未进 spec**，§1.6 已纠正）。
+3. `/versions` 维持现状（已到 v1.14，超过上游 1.161 的 v1.12）。
+
+**验收**：`PUT /v3/profile/{u}/<256 字节 key>` ⇒ 400 `M_KEY_TOO_LARGE`；
+总大小越限 ⇒ 400 `M_PROFILE_TOO_LARGE`；正常自定义字段写读删仍通过。
+
+### 6.4 U-7 媒体配额错误码 —— **`M_TOO_LARGE`(413) + `M_RESOURCE_LIMIT_EXCEEDED`(403)** ✅ 决策
+
+**上游证据**
+- Synapse 唯一的媒体大小控制是 `max_upload_size`（`synapse/media/media_repository.py:106`
+  读取，`:921`/`:1043` 作为 `max_size` 传给存储提供者）——**没有**每用户/全服总量配额。
+  该单文件上限的语义就是"M_TOO_LARGE"（spec：请求体或文件过大）。
+- 本仓的 `max_storage_bytes`（用户/全服总量）是**本仓扩展**，上游无对应物 ⇒ 由 spec 语义定：
+  `M_RESOURCE_LIMIT_EXCEEDED`（"request denied due to resource limits"）。
+- `M_USER_LIMIT_EXCEEDED` 在本仓自注为 MSC4335「用户账户数上限」（`code.rs:83`）⇒ **不适用**。
+
+**执行规格**
+1. `QuotaCheckResult` 增类型化 `rejection: QuotaRejection::{FileTooLarge, StorageExceeded}`，
+   不再用字符串 reason 当类型。
+2. `media/mod.rs::ensure_upload_allowed`：`FileTooLarge` ⇒ `ApiError::too_large`（413 `M_TOO_LARGE`）；
+   `StorageExceeded` ⇒ `ApiError::resource_limit_exceeded`（403 `M_RESOURCE_LIMIT_EXCEEDED`）。
+3. 若 `M_USER_LIMIT_EXCEEDED` 最终全仓仍无使用点，按铁律 1 评估删除该变体。
+
+**验收**：现有断言 400 的两处（`media/mod.rs:893,950`）改为断言目标码与状态码；
+单文件超限 ⇒ 413 `M_TOO_LARGE`；总量超限 ⇒ 403 `M_RESOURCE_LIMIT_EXCEEDED`。
+
+### 6.5 U-10 ledger `query_params` —— **真填值（选 b）+ 反向守卫** ✅ 决策
+
+**依据**：此项**无上游对应物**（Synapse 不导出等价 ledger），故按本仓规则判：
+`docs/openapi/route-table.json` 与 `scripts/api_test/gen_route_table.py:64` **已在下游消费**该字段，
+6 份 fixture 也逐字节钉住它（§1.11 实测）；删字段要改 `SCHEMA_VERSION`（4→5）+ SDK lane pin +
+全部 fixture，属破坏下游契约却**零收益**。而"字段永远为空"正是"声明与现实不符"。
+
+**执行规格**
+1. 给确实解析 query 参数的路由填 `with_query_params`（起步：`messages?dir/limit/from`、
+   `thumbnail?width/height/method`、`/keys/query`、`/sync?since/timeout/filter` 等）。
+2. 新增守卫：**凡声明了 query 参数的路由，其 handler 必须解析同名参数**；反向验证：
+   删掉任一 handler 的解析 ⇒ 守卫转红。
+3. Task 8（`animated`）落地时把 `animated` 一并声明，天然产生消费者。
+
+### 6.6 U-13 `event_id` reference hash —— **立项（排期在 M-1、U-1 之后）** ✅ 决策
+
+**上游证据（配方可直接照抄）**
+- `synapse/crypto/event_signing.py:114-137 compute_event_reference_hash`：
+  `prune_event(event)`（套用 redaction 规则）→ `get_pdu_json()` → 去掉
+  `signatures`/`age_ts`/`unsigned` → **canonical JSON** → `sha256` → 事件 ID 为
+  `$` + **unpadded** URL-safe base64（spec room v4 "Event IDs" 明确 v4 起改为 reference hash）。
+- 对照本仓 `synapse-common/src/crypto.rs:153`：对**所有**房间版本都用
+  `$<ts>$<b64>:<server>` 随机 ID ⇒ v4–v11 房间的事件 ID 永远不是规范 ID。
+
+**结论**：**必须立项**（否则 v11 PDU 即便字段齐全也无法被对等端当规范事件接受，§2.1 残余③），
+但**不能**与 B1 同批做：它改的是事件身份本身。
+
+**执行规格（分三步，每步可独立验收）**
+1. 纯函数 + 已知答案测试：`compute_reference_hash(room_version, pdu_without_id)`，
+   用 spec/Synapse 的 v4 与 v11 向量钉住（先不接线）。
+2. 接线到 v4+ 的本地创建路径（`generate_event_id` 按 room_version 分流），
+   破坏面清单必须逐项过：本地可见 `event_id`、`txn_id→event_id` 去重表、redaction 目标、
+   缓存键、E2EE 引用、全部测试夹具与快照。
+3. 互操作门槛：与真实对等端（docker dev stack + 对端 Synapse）跑 `/send_join` + `/send`，
+   通过后方可切换；否则回滚（保留 `room_version < 4` 的随机 ID 分支）。
+
+**风险**：这是本清单里**唯一**会改变既有数据语义的项；必须先做第 1 步并冻结测试向量。
+
+### 6.7 决策后的执行顺序（更新 §4.1）
+
+```
+M-1 合并 B1（前置，阻塞以下全部）
+ ├─ U-7（配额错误码，最小改动，先做以打通 media 测试面）
+ ├─ U-4（profile 两个 errcode + 校验）
+ ├─ U-1（MSC3912 客户端级联：storage 查询+索引 → 服务 → 路由 → /versions 标志）
+ ├─ U-3（扫描：拒绝 + 隔离裁定 + hash 级自动隔离 + 指标 + 显式配置）
+ ├─ U-10（query_params 填值 + 守卫；与 Task 8 `animated` 合并做）
+ └─ U-13（reference hash：①纯函数+向量 → ②接线 → ③互操作门槛）
+```
 
 ---
 
@@ -1130,5 +1297,9 @@ sed -n '148,154p' synapse-common/src/crypto.rs
 | MSC4133 已进 spec v1.16（`/profile/{userId}/{keyName}`、`m.tz`、两个 errcode、`field=`） | matrix-spec `data/api/client-server/profile.yaml:19,22,104-106,312-316` |
 | 缩略图 `animated` 语义 | matrix-spec `data/api/client-server/content-repo.yaml:436-453,497-502` |
 | 上游已删 `auth_issuer`、profile 停用用户修复 | `element-hq/synapse@release-v1.161/CHANGES.md:48`（#20163）、`:36`（#20172） |
+| Synapse `/versions` 只到 v1.12；稳定 profile `{keyName}` 无条件提供；`m.profile_fields` capability | `element-hq/synapse@release-v1.161`：`rust/src/handlers/versions.rs:146-157`、`synapse/rest/client/profile.py:104-106,113-117`、`synapse/rest/client/capabilities.py:95-101` |
+| Synapse 媒体只有 `max_upload_size`（无总量配额）；隔离按 sha256 复用（`get_is_hash_quarantined`） | 同上：`synapse/media/media_repository.py:106,353-359,429,439,507,782,921,1043` |
+| reference hash 的精确配方（prune → canonical JSON → sha256 → unpadded base64） | 同上：`synapse/crypto/event_signing.py:114-137`；Matrix spec `content/rooms/v4.md`「Event IDs」 |
+| Synapse 无内置内容扫描器（扫描属 out-of-tree 模块/代理） | 同上：`synapse/media/` 目录清单（无 scanner 模块） |
 | 上游 admin 媒体端点面（15 条） | `element-hq/synapse@release-v1.161/docs/admin_api/media_admin_api.md`、`user_admin_api.md:756,883` |
 | 上游 MSC3912 未稳定名（稳定名待更新） | [element-hq/synapse#15687](https://github.com/element-hq/synapse/issues/15687)（open） |
