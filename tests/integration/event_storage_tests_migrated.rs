@@ -9,41 +9,6 @@ fn event_storage_test_guard() -> &'static Mutex<()> {
     GUARD.get_or_init(|| Mutex::new(()))
 }
 
-async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-    // Clean data without dropping table to avoid blocking concurrent shared-schema tests
-    sqlx::query("DELETE FROM events")
-        .execute(pool.as_ref())
-        .await
-        .expect("reset events before the test (isolated schema)");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS events (
-            event_id VARCHAR(255) PRIMARY KEY,
-            room_id VARCHAR(255) NOT NULL,
-            user_id VARCHAR(255) NOT NULL,
-            sender VARCHAR(255) NOT NULL,
-            event_type TEXT NOT NULL,
-            content JSONB NOT NULL,
-            state_key TEXT,
-            depth BIGINT,
-            stream_ordering BIGSERIAL,
-            origin_server_ts BIGINT NOT NULL,
-            processed_at BIGINT,
-            not_before BIGINT,
-            is_redacted BOOLEAN DEFAULT FALSE,
-            status TEXT,
-            reference_image TEXT,
-            origin TEXT,
-            unsigned JSONB
-        )
-    "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create events table");
-}
-
 async fn teardown_test_database(pool: &sqlx::PgPool) {
     sqlx::query("DELETE FROM events").execute(pool).await.expect("clean up events after the test");
 }
@@ -53,7 +18,6 @@ async fn teardown_test_database(pool: &sqlx::PgPool) {
 async fn test_create_event_success() {
     let _guard = event_storage_test_guard().lock().unwrap_or_else(|e| e.into_inner());
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = EventStorage::new(&pool, "localhost".to_string());
 
     crate::ensure_test_room(&pool, "!room1:localhost").await;
@@ -82,7 +46,6 @@ async fn test_create_event_success() {
 async fn test_get_room_events_batch_empty() {
     let _guard = event_storage_test_guard().lock().unwrap_or_else(|e| e.into_inner());
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = EventStorage::new(&pool, "localhost".to_string());
 
     let room_ids: Vec<String> = vec![];
@@ -97,7 +60,6 @@ async fn test_get_room_events_batch_empty() {
 async fn test_get_room_events_batch_multiple_rooms() {
     let _guard = event_storage_test_guard().lock().unwrap_or_else(|e| e.into_inner());
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = EventStorage::new(&pool, "localhost".to_string());
 
     let ts = current_timestamp_millis();
@@ -140,7 +102,6 @@ async fn test_get_room_events_batch_multiple_rooms() {
 async fn test_get_room_events_since_batch() {
     let _guard = event_storage_test_guard().lock().unwrap_or_else(|e| e.into_inner());
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = EventStorage::new(&pool, "localhost".to_string());
 
     let base_ts = current_timestamp_millis();
@@ -178,7 +139,6 @@ async fn test_get_room_events_since_batch() {
 async fn test_get_room_events_batch_limit_per_room() {
     let _guard = event_storage_test_guard().lock().unwrap_or_else(|e| e.into_inner());
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = EventStorage::new(&pool, "localhost".to_string());
 
     let base_ts = current_timestamp_millis();
@@ -215,7 +175,6 @@ async fn test_get_room_events_batch_limit_per_room() {
 async fn test_encrypted_event_origin_decode_handles_null_boundary_and_malformed_values() {
     let _guard = event_storage_test_guard().lock().unwrap_or_else(|e| e.into_inner());
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = EventStorage::new(&pool, "localhost".to_string());
     let room_id = "!origin-room:localhost";
     crate::ensure_test_room(&pool, "!origin-room:localhost").await;

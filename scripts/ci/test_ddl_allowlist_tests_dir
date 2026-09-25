@@ -43,20 +43,15 @@ tests/unit/test_schema_housekeeping_tests.rs::drop_schema_quietly
 tests/unit/test_schema_housekeeping_tests.rs::prune_drops_superseded_templates_and_keeps_the_current_one
 
 # ── (b) 自建简化 schema 的 `*_migrated.rs`（D-36 真目标，31 键；逐文件迁模板后删除）──
-tests/integration/beacon_storage_tests_migrated.rs::setup_test_database
 tests/integration/cross_signing_storage_tests_migrated.rs::setup_test_database
-tests/integration/device_storage_tests_migrated.rs::setup_test_database
-tests/integration/event_storage_tests_migrated.rs::setup_test_database
 tests/integration/feature_flag_service_tests_migrated.rs::setup_test_database
 tests/integration/feature_flags_storage_tests_migrated.rs::setup_test_database
 tests/integration/federation_blacklist_storage_tests_migrated.rs::setup_test_database
 tests/integration/federation_service_tests_migrated.rs::setup_test_database
 tests/integration/federation_service_tests_migrated.rs::test_device_revocation
 tests/integration/federation_service_tests_migrated.rs::test_device_sync_cache
-tests/integration/filter_storage_tests_migrated.rs::setup_test_database
 tests/integration/friend_room_storage_tests_migrated.rs::setup_test_database
 tests/integration/membership_storage_tests_migrated.rs::setup_test_database
-tests/integration/openid_token_storage_tests_migrated.rs::setup_test_database
 tests/integration/presence_storage_tests_migrated.rs::setup_test_database
 tests/integration/refresh_token_storage_tests_migrated.rs::setup_test_database
 tests/integration/registration_service_tests_migrated.rs::setup_test_database
@@ -73,7 +68,6 @@ tests/integration/thread_storage_tests_migrated.rs::setup_test_database
 tests/integration/threepid_storage_tests_migrated.rs::setup_test_database
 tests/integration/to_device_sync_tests_migrated.rs::setup_test_database
 tests/integration/token_storage_tests_migrated.rs::setup_test_database
-tests/integration/user_storage_tests_migrated.rs::setup_test_database
 
 # ── (c) 性能夹具（1 键）────────────────────────────────────────────────────
 tests/performance/appservice_scheduler_perf_tests.rs::tests::setup_appservice_perf_tables

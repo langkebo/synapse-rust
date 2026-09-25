@@ -11,81 +11,6 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS beacon_info (
-            id BIGSERIAL PRIMARY KEY,
-            room_id TEXT NOT NULL,
-            event_id TEXT NOT NULL UNIQUE,
-            state_key TEXT NOT NULL,
-            sender TEXT NOT NULL,
-            description TEXT,
-            timeout BIGINT NOT NULL,
-            is_live BOOLEAN NOT NULL DEFAULT TRUE,
-            asset_type TEXT NOT NULL,
-            created_ts BIGINT NOT NULL,
-            updated_ts BIGINT NOT NULL,
-            expires_at BIGINT
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create beacon_info table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS beacon_locations (
-            id BIGSERIAL PRIMARY KEY,
-            room_id TEXT NOT NULL,
-            event_id TEXT NOT NULL,
-            beacon_info_id TEXT NOT NULL,
-            sender TEXT NOT NULL,
-            uri TEXT NOT NULL,
-            description TEXT,
-            timestamp BIGINT NOT NULL,
-            accuracy BIGINT,
-            created_ts BIGINT NOT NULL
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create beacon_locations table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS room_memberships (
-            id BIGSERIAL PRIMARY KEY,
-            room_id TEXT NOT NULL,
-            user_id TEXT NOT NULL,
-            membership TEXT NOT NULL,
-            joined_ts BIGINT,
-            invited_ts BIGINT,
-            left_ts BIGINT,
-            banned_ts BIGINT,
-            sender TEXT,
-            reason TEXT,
-            event_id TEXT,
-            event_type TEXT,
-            display_name TEXT,
-            avatar_url TEXT,
-            is_banned BOOLEAN DEFAULT FALSE,
-            invite_token TEXT,
-            updated_ts BIGINT,
-            join_reason TEXT,
-            banned_by TEXT,
-            ban_reason TEXT,
-            UNIQUE (room_id, user_id)
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create room_memberships table");
-}
-
 fn create_storage(pool: &Arc<Pool<Postgres>>) -> BeaconStorage {
     BeaconStorage::new(pool.clone())
 }
@@ -123,7 +48,6 @@ fn make_beacon_location_params(suffix: u64, beacon_info_id: &str) -> CreateBeaco
 #[tokio::test]
 async fn test_create_beacon_info() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
     let suffix = unique_id();
@@ -145,7 +69,6 @@ async fn test_create_beacon_info() {
 #[tokio::test]
 async fn test_create_beacon_info_zero_timeout() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
     let suffix = unique_id();
@@ -171,7 +94,6 @@ async fn test_create_beacon_info_zero_timeout() {
 #[tokio::test]
 async fn test_create_beacon_info_not_live() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
     let suffix = unique_id();
@@ -196,7 +118,6 @@ async fn test_create_beacon_info_not_live() {
 #[tokio::test]
 async fn test_get_beacon_info_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
     let suffix = unique_id();
@@ -216,7 +137,6 @@ async fn test_get_beacon_info_found() {
 #[tokio::test]
 async fn test_get_beacon_info_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
 
@@ -227,7 +147,6 @@ async fn test_get_beacon_info_not_found() {
 #[tokio::test]
 async fn test_get_beacon_info_by_state_key() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
     let suffix = unique_id();
@@ -270,7 +189,6 @@ async fn test_get_beacon_info_by_state_key() {
 #[tokio::test]
 async fn test_get_beacon_info_by_state_key_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
 
@@ -281,7 +199,6 @@ async fn test_get_beacon_info_by_state_key_empty() {
 #[tokio::test]
 async fn test_get_active_beacons() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
     let suffix = unique_id();
@@ -323,7 +240,6 @@ async fn test_get_active_beacons() {
 #[tokio::test]
 async fn test_get_active_beacons_empty_room() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
 
@@ -334,7 +250,6 @@ async fn test_get_active_beacons_empty_room() {
 #[tokio::test]
 async fn test_deactivate_beacons_by_state_key() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
     let suffix = unique_id();
@@ -379,7 +294,6 @@ async fn test_deactivate_beacons_by_state_key() {
 #[tokio::test]
 async fn test_deactivate_beacons_no_match() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
 
@@ -390,7 +304,6 @@ async fn test_deactivate_beacons_no_match() {
 #[tokio::test]
 async fn test_update_beacon_info_set_not_live() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
     let suffix = unique_id();
@@ -408,7 +321,6 @@ async fn test_update_beacon_info_set_not_live() {
 #[tokio::test]
 async fn test_update_beacon_info_with_timeout() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
     let suffix = unique_id();
@@ -428,7 +340,6 @@ async fn test_update_beacon_info_with_timeout() {
 #[tokio::test]
 async fn test_update_beacon_info_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
 
@@ -439,7 +350,6 @@ async fn test_update_beacon_info_not_found() {
 #[tokio::test]
 async fn test_delete_beacon_info() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
     let suffix = unique_id();
@@ -459,7 +369,6 @@ async fn test_delete_beacon_info() {
 #[tokio::test]
 async fn test_delete_beacon_info_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
 
@@ -470,7 +379,6 @@ async fn test_delete_beacon_info_not_found() {
 #[tokio::test]
 async fn test_create_beacon_location() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
     let suffix = unique_id();
@@ -490,7 +398,6 @@ async fn test_create_beacon_location() {
 #[tokio::test]
 async fn test_create_beacon_location_zero_timestamp() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
     let suffix = unique_id();
@@ -519,7 +426,6 @@ async fn test_create_beacon_location_zero_timestamp() {
 #[tokio::test]
 async fn test_get_beacon_locations() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
     let suffix = unique_id();
@@ -551,7 +457,6 @@ async fn test_get_beacon_locations() {
 #[tokio::test]
 async fn test_get_beacon_locations_with_limit() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
     let suffix = unique_id();
@@ -582,7 +487,6 @@ async fn test_get_beacon_locations_with_limit() {
 #[tokio::test]
 async fn test_get_beacon_locations_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
 
@@ -593,7 +497,6 @@ async fn test_get_beacon_locations_empty() {
 #[tokio::test]
 async fn test_get_latest_location() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
     let suffix = unique_id();
@@ -625,7 +528,6 @@ async fn test_get_latest_location() {
 #[tokio::test]
 async fn test_get_latest_location_none() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
 
@@ -636,7 +538,6 @@ async fn test_get_latest_location_none() {
 #[tokio::test]
 async fn test_count_locations_in_room_since() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
     let suffix = unique_id();
@@ -682,7 +583,6 @@ async fn test_count_locations_in_room_since() {
 #[tokio::test]
 async fn test_count_locations_in_room_by_sender_since() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
     let suffix = unique_id();
@@ -743,7 +643,6 @@ async fn test_count_locations_in_room_by_sender_since() {
 #[tokio::test]
 async fn test_get_joined_member_count() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
     let suffix = unique_id();
@@ -789,7 +688,6 @@ async fn test_get_joined_member_count() {
 #[tokio::test]
 async fn test_get_joined_member_count_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
 
@@ -800,7 +698,6 @@ async fn test_get_joined_member_count_empty() {
 #[tokio::test]
 async fn test_get_beacon_with_locations() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
     let suffix = unique_id();
@@ -836,7 +733,6 @@ async fn test_get_beacon_with_locations() {
 #[tokio::test]
 async fn test_get_beacon_with_locations_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
 
@@ -847,7 +743,6 @@ async fn test_get_beacon_with_locations_not_found() {
 #[tokio::test]
 async fn test_cleanup_expired_beacons() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
     let suffix = unique_id();
@@ -898,7 +793,6 @@ async fn test_cleanup_expired_beacons() {
 #[tokio::test]
 async fn test_cleanup_expired_beacons_none() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
 
@@ -909,7 +803,6 @@ async fn test_cleanup_expired_beacons_none() {
 #[tokio::test]
 async fn test_get_room_beacons_include_expired() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
     let suffix = unique_id();
@@ -950,7 +843,6 @@ async fn test_get_room_beacons_include_expired() {
 #[tokio::test]
 async fn test_get_room_beacons_exclude_expired() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
     let suffix = unique_id();
@@ -979,7 +871,6 @@ async fn test_get_room_beacons_exclude_expired() {
 #[tokio::test]
 async fn test_get_room_beacons_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
 
@@ -1113,7 +1004,6 @@ fn test_beacon_info_with_locations_structure() {
 #[tokio::test]
 async fn test_beacon_storage_new() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
     let result = storage.get_beacon_info("!test:localhost", "$test").await.unwrap();
@@ -1123,7 +1013,6 @@ async fn test_beacon_storage_new() {
 #[tokio::test]
 async fn test_full_beacon_lifecycle() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = create_storage(&pool);
     let suffix = unique_id();

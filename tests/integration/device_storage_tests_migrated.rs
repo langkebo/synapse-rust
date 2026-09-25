@@ -9,32 +9,9 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS devices (
-            device_id VARCHAR(255) PRIMARY KEY,
-            user_id VARCHAR(255) NOT NULL,
-            display_name TEXT,
-            device_key JSONB,
-            last_seen_ts BIGINT,
-            last_seen_ip TEXT,
-            first_seen_ts BIGINT NOT NULL,
-            created_ts BIGINT NOT NULL,
-            appservice_id TEXT,
-            ignored_user_list TEXT
-        )
-    "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create devices table");
-}
-
 #[tokio::test]
 async fn test_create_device_success() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = DeviceStorage::new(&pool);
     let id = unique_id();
     let device_id = format!("DEVICE_{}", id);
@@ -51,7 +28,6 @@ async fn test_create_device_success() {
 #[tokio::test]
 async fn test_get_device() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = DeviceStorage::new(&pool);
     let id = unique_id();
     let device_id = format!("DEVICE_{}", id);
@@ -72,7 +48,6 @@ async fn test_get_device() {
 #[tokio::test]
 async fn test_get_user_devices() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = DeviceStorage::new(&pool);
     let id = unique_id();
     let user_id = format!("@alice_{}:localhost", id);
@@ -92,7 +67,6 @@ async fn test_get_user_devices() {
 #[tokio::test]
 async fn test_update_device_display_name() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = DeviceStorage::new(&pool);
     let id = unique_id();
     let device_id = format!("D_{}", id);
@@ -110,7 +84,6 @@ async fn test_update_device_display_name() {
 #[tokio::test]
 async fn test_delete_device() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = DeviceStorage::new(&pool);
     let id = unique_id();
     let device_id = format!("D_{}", id);

@@ -9,44 +9,6 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS users (
-            user_id TEXT NOT NULL PRIMARY KEY,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT,
-            is_admin BOOLEAN DEFAULT FALSE,
-            is_guest BOOLEAN DEFAULT FALSE,
-            created_ts BIGINT NOT NULL,
-            deactivated BOOLEAN DEFAULT FALSE,
-            displayname TEXT,
-            avatar_url TEXT
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create users table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS openid_tokens (
-            id BIGSERIAL PRIMARY KEY,
-            token TEXT NOT NULL UNIQUE,
-            user_id TEXT NOT NULL,
-            device_id TEXT,
-            created_ts BIGINT NOT NULL,
-            expires_at BIGINT NOT NULL,
-            is_valid BOOLEAN DEFAULT TRUE
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create openid_tokens table");
-}
-
 fn make_request(suffix: u64, user_id: &str, expires_at: i64) -> CreateOpenIdTokenRequest {
     CreateOpenIdTokenRequest {
         token: format!("openid_token_{suffix}"),
@@ -111,7 +73,6 @@ async fn test_openid_token_serialization_roundtrip() {
 #[tokio::test]
 async fn test_create_and_get_token() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = OpenIdTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -148,7 +109,6 @@ async fn test_create_and_get_token() {
 #[tokio::test]
 async fn test_create_token_with_optional_device_id() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = OpenIdTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -176,7 +136,6 @@ async fn test_create_token_with_optional_device_id() {
 #[tokio::test]
 async fn test_get_token_returns_none_for_missing() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = OpenIdTokenStorage::new(&pool);
     let result = storage.get_token("nonexistent_token").await.unwrap();
@@ -186,7 +145,6 @@ async fn test_get_token_returns_none_for_missing() {
 #[tokio::test]
 async fn test_get_token_excludes_invalid() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = OpenIdTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -213,7 +171,6 @@ async fn test_get_token_excludes_invalid() {
 #[tokio::test]
 async fn test_validate_token_success() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = OpenIdTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -242,7 +199,6 @@ async fn test_validate_token_success() {
 #[tokio::test]
 async fn test_validate_token_returns_none_for_expired() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = OpenIdTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -267,7 +223,6 @@ async fn test_validate_token_returns_none_for_expired() {
 #[tokio::test]
 async fn test_validate_token_returns_none_for_revoked() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = OpenIdTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -294,7 +249,6 @@ async fn test_validate_token_returns_none_for_revoked() {
 #[tokio::test]
 async fn test_revoke_token_success() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = OpenIdTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -324,7 +278,6 @@ async fn test_revoke_token_success() {
 #[tokio::test]
 async fn test_revoke_token_returns_false_for_missing() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = OpenIdTokenStorage::new(&pool);
     let result = storage.revoke_token("nonexistent_token").await.unwrap();
@@ -334,7 +287,6 @@ async fn test_revoke_token_returns_false_for_missing() {
 #[tokio::test]
 async fn test_revoke_user_tokens() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = OpenIdTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -370,7 +322,6 @@ async fn test_revoke_user_tokens() {
 #[tokio::test]
 async fn test_revoke_user_tokens_skips_already_revoked() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = OpenIdTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -410,7 +361,6 @@ async fn test_revoke_user_tokens_skips_already_revoked() {
 #[tokio::test]
 async fn test_cleanup_expired_tokens() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = OpenIdTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -454,7 +404,6 @@ async fn test_cleanup_expired_tokens() {
 #[tokio::test]
 async fn test_cleanup_also_removes_revoked_tokens() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = OpenIdTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -490,7 +439,6 @@ async fn test_cleanup_also_removes_revoked_tokens() {
 #[tokio::test]
 async fn test_get_tokens_by_user() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = OpenIdTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -524,7 +472,6 @@ async fn test_get_tokens_by_user() {
 #[tokio::test]
 async fn test_get_tokens_by_user_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = OpenIdTokenStorage::new(&pool);
     let tokens = storage.get_tokens_by_user("@nonexistent:localhost").await.unwrap();

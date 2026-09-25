@@ -13,24 +13,6 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS filters (
-            id BIGSERIAL PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            filter_id TEXT NOT NULL,
-            content JSONB NOT NULL DEFAULT '{}',
-            created_ts BIGINT NOT NULL,
-            CONSTRAINT uq_filters_user_filter UNIQUE (user_id, filter_id)
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create filters table");
-}
-
 fn create_storage(pool: &Arc<PgPool>) -> Arc<dyn FilterStoreApi> {
     Arc::new(FilterStorage::new(pool))
 }
@@ -150,7 +132,6 @@ async fn test_filter_serialization() {
 #[tokio::test]
 async fn test_create_filter_success() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@filter_create_{suffix}:localhost");
@@ -172,7 +153,6 @@ async fn test_create_filter_success() {
 #[tokio::test]
 async fn test_create_filter_sets_created_ts() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@filter_ts_{suffix}:localhost");
@@ -192,7 +172,6 @@ async fn test_create_filter_sets_created_ts() {
 #[tokio::test]
 async fn test_create_filter_duplicate_returns_error() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@filter_dup_{suffix}:localhost");
@@ -216,7 +195,6 @@ async fn test_create_filter_duplicate_returns_error() {
 #[tokio::test]
 async fn test_get_filter_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@filter_get_{suffix}:localhost");
@@ -240,7 +218,6 @@ async fn test_get_filter_found() {
 #[tokio::test]
 async fn test_get_filter_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -251,7 +228,6 @@ async fn test_get_filter_not_found() {
 #[tokio::test]
 async fn test_get_filter_wrong_user() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@filter_owner_{suffix}:localhost");
@@ -267,7 +243,6 @@ async fn test_get_filter_wrong_user() {
 #[tokio::test]
 async fn test_get_filters_by_user_multiple() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@filter_multi_{suffix}:localhost");
@@ -292,7 +267,6 @@ async fn test_get_filters_by_user_multiple() {
 #[tokio::test]
 async fn test_get_filters_by_user_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -303,7 +277,6 @@ async fn test_get_filters_by_user_empty() {
 #[tokio::test]
 async fn test_get_filters_by_user_isolation() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_a = format!("@iso_a_{suffix}:localhost");
@@ -335,7 +308,6 @@ async fn test_get_filters_by_user_isolation() {
 #[tokio::test]
 async fn test_delete_filter_success() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@filter_del_{suffix}:localhost");
@@ -354,7 +326,6 @@ async fn test_delete_filter_success() {
 #[tokio::test]
 async fn test_delete_filter_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -365,7 +336,6 @@ async fn test_delete_filter_not_found() {
 #[tokio::test]
 async fn test_delete_filter_wrong_user() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@filter_owner_del_{suffix}:localhost");
@@ -384,7 +354,6 @@ async fn test_delete_filter_wrong_user() {
 #[tokio::test]
 async fn test_delete_filters_by_user() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@filter_delall_{suffix}:localhost");
@@ -408,7 +377,6 @@ async fn test_delete_filters_by_user() {
 #[tokio::test]
 async fn test_delete_filters_by_user_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -419,7 +387,6 @@ async fn test_delete_filters_by_user_empty() {
 #[tokio::test]
 async fn test_delete_filters_by_user_isolation() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_a = format!("@iso_del_a_{suffix}:localhost");
@@ -450,7 +417,6 @@ async fn test_delete_filters_by_user_isolation() {
 #[tokio::test]
 async fn test_get_filter_after_delete_returns_none() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@filter_reget_{suffix}:localhost");
@@ -474,7 +440,6 @@ async fn test_get_filter_after_delete_returns_none() {
 #[tokio::test]
 async fn test_create_filter_with_various_content_types() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@filter_content_{suffix}:localhost");

@@ -11,60 +11,6 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS users (
-            user_id VARCHAR(255) PRIMARY KEY,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT,
-            is_admin BOOLEAN DEFAULT FALSE,
-            is_guest BOOLEAN DEFAULT FALSE,
-            is_shadow_banned BOOLEAN DEFAULT FALSE,
-            is_deactivated BOOLEAN DEFAULT FALSE,
-            created_ts BIGINT NOT NULL,
-            updated_ts BIGINT,
-            displayname TEXT,
-            avatar_url TEXT,
-            email TEXT,
-            phone TEXT,
-            generation BIGINT DEFAULT 0,
-            consent_version TEXT,
-            appservice_id TEXT,
-            user_type TEXT,
-            invalid_update_at BIGINT,
-            migration_state TEXT,
-            password_changed_ts BIGINT,
-            is_password_change_required BOOLEAN DEFAULT FALSE,
-            password_expires_at BIGINT,
-            failed_login_attempts INT DEFAULT 0,
-            locked_until BIGINT,
-            must_change_password BOOLEAN DEFAULT FALSE
-        )
-    "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create users table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS user_directory (
-            user_id TEXT NOT NULL,
-            room_id TEXT NOT NULL,
-            visibility TEXT NOT NULL DEFAULT 'private',
-            added_by TEXT,
-            created_ts BIGINT NOT NULL,
-            updated_ts BIGINT,
-            CONSTRAINT pk_user_directory PRIMARY KEY (user_id, room_id)
-        )
-    "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create user_directory table");
-}
-
 fn create_user_storage(pool: &Arc<sqlx::PgPool>) -> UserStorage {
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     UserStorage::new(pool, cache)
@@ -73,7 +19,6 @@ fn create_user_storage(pool: &Arc<sqlx::PgPool>) -> UserStorage {
 #[tokio::test]
 async fn test_create_user_and_get_by_id() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
     let id = unique_id();
     let user_id = format!("@testuser_{id}:localhost");
@@ -97,7 +42,6 @@ async fn test_create_user_and_get_by_id() {
 #[tokio::test]
 async fn test_get_user_by_id_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
 
     let result = storage.get_user_by_id("@nonexistent:localhost").await.unwrap();
@@ -107,7 +51,6 @@ async fn test_get_user_by_id_not_found() {
 #[tokio::test]
 async fn test_get_user_by_username() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
     let id = unique_id();
     let user_id = format!("@username_user_{id}:localhost");
@@ -123,7 +66,6 @@ async fn test_get_user_by_username() {
 #[tokio::test]
 async fn test_get_user_by_username_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
 
     let result = storage.get_user_by_username("nonexistent_user").await.unwrap();
@@ -133,7 +75,6 @@ async fn test_get_user_by_username_not_found() {
 #[tokio::test]
 async fn test_get_user_by_email() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let id = unique_id();
     let user_id = format!("@email_user_{id}:localhost");
     let username = format!("email_user_{id}");
@@ -163,7 +104,6 @@ async fn test_get_user_by_email() {
 #[tokio::test]
 async fn test_get_user_by_email_deactivated_excluded() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let id = unique_id();
     let user_id = format!("@deactivated_email_{id}:localhost");
     let username = format!("deactivated_email_{id}");
@@ -192,7 +132,6 @@ async fn test_get_user_by_email_deactivated_excluded() {
 #[tokio::test]
 async fn test_get_user_by_identifier_user_id() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
     let id = unique_id();
     let user_id = format!("@ident_user_{id}:localhost");
@@ -207,7 +146,6 @@ async fn test_get_user_by_identifier_user_id() {
 #[tokio::test]
 async fn test_get_user_by_identifier_username() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
     let id = unique_id();
     let user_id = format!("@ident_name_{id}:localhost");
@@ -222,7 +160,6 @@ async fn test_get_user_by_identifier_username() {
 #[tokio::test]
 async fn test_get_all_users() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
 
     for i in 0..3 {
@@ -240,7 +177,6 @@ async fn test_get_all_users() {
 #[tokio::test]
 async fn test_get_all_users_limit() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
 
     for _ in 0..5 {
@@ -257,7 +193,6 @@ async fn test_get_all_users_limit() {
 #[tokio::test]
 async fn test_get_user_count() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
 
     let count_before = storage.get_user_count().await.unwrap();
@@ -274,7 +209,6 @@ async fn test_get_user_count() {
 #[tokio::test]
 async fn test_user_exists() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
     let id = unique_id();
     let user_id = format!("@exists_user_{id}:localhost");
@@ -289,7 +223,6 @@ async fn test_user_exists() {
 #[tokio::test]
 async fn test_user_exists_deactivated_returns_false() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
     let id = unique_id();
     let user_id = format!("@deactivated_exists_{id}:localhost");
@@ -304,7 +237,6 @@ async fn test_user_exists_deactivated_returns_false() {
 #[tokio::test]
 async fn test_update_password() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
     let id = unique_id();
     let user_id = format!("@pwd_user_{id}:localhost");
@@ -324,7 +256,6 @@ async fn test_update_password() {
 #[tokio::test]
 async fn test_update_displayname() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
     let id = unique_id();
     let user_id = format!("@display_user_{id}:localhost");
@@ -346,7 +277,6 @@ async fn test_update_displayname() {
 #[tokio::test]
 async fn test_update_avatar_url() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
     let id = unique_id();
     let user_id = format!("@avatar_user_{id}:localhost");
@@ -368,7 +298,6 @@ async fn test_update_avatar_url() {
 #[tokio::test]
 async fn test_deactivate_user() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
     let id = unique_id();
     let user_id = format!("@deact_user_{id}:localhost");
@@ -388,7 +317,6 @@ async fn test_deactivate_user() {
 #[tokio::test]
 async fn test_set_admin_status() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
     let id = unique_id();
     let user_id = format!("@admin_user_{id}:localhost");
@@ -413,7 +341,6 @@ async fn test_set_admin_status() {
 #[tokio::test]
 async fn test_delete_user() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
     let id = unique_id();
     let user_id = format!("@delete_user_{id}:localhost");
@@ -431,7 +358,6 @@ async fn test_delete_user() {
 #[tokio::test]
 async fn test_search_users_by_username() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     if sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm").execute(pool.as_ref()).await.is_err() {
         eprintln!("Skipping test_search_users_by_username: pg_trgm not available");
         return;
@@ -456,7 +382,6 @@ async fn test_search_users_by_username() {
 #[tokio::test]
 async fn test_search_users_empty_query() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
 
     let results = storage.search_users("", 10).await.unwrap();
@@ -469,7 +394,6 @@ async fn test_search_users_empty_query() {
 #[tokio::test]
 async fn test_search_users_excludes_deactivated() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     if sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm").execute(pool.as_ref()).await.is_err() {
         eprintln!("Skipping test_search_users_excludes_deactivated: pg_trgm not available");
         return;
@@ -496,7 +420,6 @@ async fn test_search_users_excludes_deactivated() {
 #[tokio::test]
 async fn test_filter_existing_users() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
     let id = unique_id();
     let user_id1 = format!("@filter_user_a_{id}:localhost");
@@ -517,7 +440,6 @@ async fn test_filter_existing_users() {
 #[tokio::test]
 async fn test_filter_existing_users_empty_input() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
 
     let existing = storage.filter_existing_users(&[]).await.unwrap();
@@ -527,7 +449,6 @@ async fn test_filter_existing_users_empty_input() {
 #[tokio::test]
 async fn test_filter_existing_users_excludes_deactivated() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
     let id = unique_id();
     let user_id = format!("@filter_deact_{id}:localhost");
@@ -543,7 +464,6 @@ async fn test_filter_existing_users_excludes_deactivated() {
 #[tokio::test]
 async fn test_get_user_profile() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
     let id = unique_id();
     let user_id = format!("@profile_user_{id}:localhost");
@@ -562,7 +482,6 @@ async fn test_get_user_profile() {
 #[tokio::test]
 async fn test_get_user_profile_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
 
     let result = storage.get_user_profile("@noprofile:localhost").await.unwrap();
@@ -572,7 +491,6 @@ async fn test_get_user_profile_not_found() {
 #[tokio::test]
 async fn test_get_user_profile_deactivated_returns_none() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
     let id = unique_id();
     let user_id = format!("@deact_profile_{id}:localhost");
@@ -588,7 +506,6 @@ async fn test_get_user_profile_deactivated_returns_none() {
 #[tokio::test]
 async fn test_create_user_as_admin() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
     let id = unique_id();
     let user_id = format!("@admin_create_{id}:localhost");
@@ -603,7 +520,6 @@ async fn test_create_user_as_admin() {
 #[tokio::test]
 async fn test_create_user_no_password() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_user_storage(&pool);
     let id = unique_id();
     let user_id = format!("@nopwd_user_{id}:localhost");
