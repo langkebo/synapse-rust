@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, room_id, event_id, state_hash, created_ts\n                 FROM state_groups WHERE room_id = $1 ORDER BY id DESC LIMIT $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "state_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "5bf1f5a49d87ebeedd8d0bd000aaa379c466a50708009c5e8e2097116bdf8659"
+}

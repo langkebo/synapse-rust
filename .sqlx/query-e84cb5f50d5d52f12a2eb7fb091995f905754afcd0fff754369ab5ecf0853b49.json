@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO state_groups (room_id, event_id, state_hash, created_ts)\n            VALUES ($1, $2, $3, $4)\n            ON CONFLICT (state_hash) DO UPDATE SET event_id = $2\n            RETURNING id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e84cb5f50d5d52f12a2eb7fb091995f905754afcd0fff754369ab5ecf0853b49"
+}
