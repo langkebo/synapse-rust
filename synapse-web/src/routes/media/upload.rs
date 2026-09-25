@@ -8,6 +8,7 @@ use axum::{
     response::IntoResponse,
 };
 use serde_json::{json, Value};
+use synapse_common::content_scanner::ContentType;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
@@ -74,6 +75,17 @@ pub(crate) async fn upload_media_common(
         return Err(ApiError::bad_request("No file content provided".to_string()));
     }
 
+    // MSC3806: scan the media before storing — fail-closed: any scanner
+    // error blocks the upload with M_CONTENT_SCAN_FAILED (502).
+    let ct = infer::get(&content_bytes).map_or(content_type, |m| m.mime_type());
+    let content_type_enum = match ct {
+        "image/jpeg" | "image/png" | "image/gif" | "image/webp" | "image/svg+xml" => ContentType::MediaImage,
+        "video/mp4" | "video/webm" => ContentType::MediaVideo,
+        "audio/mpeg" | "audio/wav" | "audio/ogg" | "audio/flac" => ContentType::MediaAudio,
+        _ => ContentType::MediaFile,
+    };
+    ctx.content_scanner.scan_media(user_id, content_bytes.clone(), content_type_enum).await?;
+
     Ok(Json(ctx.media_domain_service.upload_media(user_id, &content_bytes, content_type, filename.as_deref()).await?))
 }
 
@@ -104,6 +116,16 @@ pub(crate) async fn upload_media_with_id_common(
     if content_bytes.is_empty() {
         return Err(ApiError::bad_request("No file content provided".to_string()));
     }
+
+    // MSC3806: scan the media before storing — fail-closed.
+    let ct = infer::get(&content_bytes).map_or(content_type, |m| m.mime_type());
+    let content_type_enum = match ct {
+        "image/jpeg" | "image/png" | "image/gif" | "image/webp" | "image/svg+xml" => ContentType::MediaImage,
+        "video/mp4" | "video/webm" => ContentType::MediaVideo,
+        "audio/mpeg" | "audio/wav" | "audio/ogg" | "audio/flac" => ContentType::MediaAudio,
+        _ => ContentType::MediaFile,
+    };
+    ctx.content_scanner.scan_media(media_id, content_bytes.clone(), content_type_enum).await?;
 
     Ok(Json(
         ctx.media_domain_service

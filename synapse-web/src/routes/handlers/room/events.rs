@@ -301,6 +301,9 @@ pub(crate) async fn send_message(
                 body["formatted_body"] = serde_json::Value::String(cleaned);
             }
         }
+        // MSC3806: scan text content of room messages — fail-closed.
+        let text = body.get("body").and_then(|v| v.as_str()).unwrap_or("");
+        ctx.content_scanner.scan_text(&format!("msg:{}:{}", room_id, auth_user.user_id), text).await?;
     }
 
     // MSC4140: If the body contains `org.matrix.msc4140.delay`, schedule the

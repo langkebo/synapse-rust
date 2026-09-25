@@ -142,6 +142,8 @@ pub struct RoomContext {
     pub delayed_event_service: Arc<synapse_services::delayed_event_service::DelayedEventService>,
     /// The `app_service_manager` field.
     pub app_service_manager: Arc<synapse_services::application_service::ApplicationServiceManager>,
+    /// MSC3806 — Content scanner (gate writes with malicious content).
+    pub content_scanner: Arc<synapse_services::content_scanner::ContentScanner>,
 }
 
 impl FromRef<AppState> for RoomContext {
@@ -188,6 +190,7 @@ impl FromRef<AppState> for RoomContext {
             burn_after_read: state.services.extensions.burn_after_read.clone(),
             delayed_event_service: state.services.admin.modules.delayed_event_service.clone(),
             app_service_manager: state.services.admin.modules.app_service_manager.clone(),
+            content_scanner: state.services.core.content_scanner.clone(),
         }
     }
 }
@@ -824,6 +827,8 @@ pub struct MediaContext {
     pub account_identity_service: Arc<synapse_services::account_identity_service::AccountIdentityService>,
     /// The `admin_audit_service` field.
     pub admin_audit_service: Option<Arc<synapse_services::admin::AdminAuditService>>,
+    /// MSC3806 — Content scanner (gates media uploads).
+    pub content_scanner: Arc<synapse_services::content_scanner::ContentScanner>,
 }
 
 impl FromRef<AppState> for MediaContext {
@@ -843,6 +848,7 @@ impl FromRef<AppState> for MediaContext {
             federation_client: state.services.federation.federation_client.clone(),
             account_identity_service: state.services.account.account_identity_service.clone(),
             admin_audit_service: state.services.admin.security.admin_audit_service.clone().into(),
+            content_scanner: state.services.core.content_scanner.clone(),
         }
     }
 }
