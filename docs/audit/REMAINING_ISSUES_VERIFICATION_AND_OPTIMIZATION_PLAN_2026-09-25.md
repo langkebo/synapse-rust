@@ -134,6 +134,60 @@ git worktree list             # 另有 .worktrees/c19b（同 HEAD）、/Users/lj
 | ① 合并结果上的 fmt / clippy / lib / unit / 集成 | ✅（集成按受影响面） | `b83cbcaac` + `94fc91442`（本轮修掉 lib 的 2 个真红与扫描面 3 个真红） | fmt `current=0`、clippy exit 0（多轮、多 tip）。**lib 全量（最终 tip）：6358 例 6358 passed / 0 skipped** ✅。**unit 全量（最终 tip）：1777 例 1773 passed / 4 failed**，4 个失败**全部**是已归因的 SQLx 棘轮守卫（`sqlx_ratio_gate_*` ×3 + `no_new_production_literal_dynamic_sql` ×1，逐项归因见 §6.2） | 集成：按受影响面跑子集（media/quota、profile/route/ledger、federation_transaction/create_room） | 「lib 曾红」的两段根因都已定位并处置：①5 个 `schema_validator::db_tests` 是本机 `public` 未按 baseline 播种（见 **U-17**，已用 `RESET_PUBLIC=0` 播种为 222 表）；②2 个 `room::auth` 用例是真缺陷（见 **U-16**，已修 `b83cbcaac`）。**全量集成批次（约 1446 例）未跑**，属时间预算限制，不得当作通过 |
 | 集成实测（受影响面，`--test-threads 1`） | — | — | media+quota **34/34 绿**（修复前 32/34）；federation_transaction+create_room **15/15 绿**；profile/route/ledger 子集 139 例中 **132 passed / 7 failed**，7 例**全部为既有红**：其中 5 例（`declared_route_manifest_*` ×3、`snapshot_capabilities_v3`、`snapshot_versions_endpoint`）与 `test_global_thread_routes_return_real_data` 已在 `338395f98`（U-10 之前）逐条复现；第 7 例 `api_auth_routes_tests::test_auth_issuer_returns_unrecognized_when_oidc_is_disabled` 单独在最终 tip 复现为 `left: 404, right: 400` | 既有红的成因：① 路由 manifest 里 app_service 的通配符代理路由（`/_matrix/{app,client}/v1/proxy/{as_id}/{*path}`）与 live router 不一致；② `/versions`、`/capabilities`、线程路由快照落后；③ **`auth_issuer` 路由被 `76e5f9136` 摘除，但 `api_auth_routes_tests` 仍断言旧行为（期待 400，实得 404）⇒ 摘路由时漏改用例**。本轮**未**擅自 `cargo insta accept`，也未改这些既有红（属并发会话/其它批次范围） |
 
+
+### 0.5 收尾状态与交接（2026-09-26，`opt/consolidated`）
+
+**逐项结论**：§0.4 的表就是权威结论。7 个目标项中 6 项已完成并落地
+（M-1、U-7、U-4、U-1、U-3、U-10），**仅 U-13 的第 2–3 步未完成**，且其未完成
+**不是**难度或时间问题，而是被外部写者阻塞（见下）。
+
+**唯一阻塞项：U-13 第 2 步（接线 v4+）+ 第 3 步（互操作门槛）**
+
+- 阻塞事实（连续 5 轮取证，2026-09-26 05:42 复核仍成立）：并发会话在 `synapse-rust/`
+  主工作树里**未提交**地修改 6 个文件，其中三个正是第 2 步必须改的写入缝：
+  `synapse-storage/src/event/writer.rs`（新增 `EventWriter::create_event_with_pdu`）、
+  `synapse-services/src/notifying_event_writer.rs`、`synapse-services/src/graph_metadata.rs`
+  （另有 `synapse-storage/src/event/reader.rs`、`synapse-services/src/room/messaging/events.rs`、
+  `synapse-storage/src/test_mocks/event.rs`）。
+  `git show HEAD:synapse-storage/src/event/writer.rs | grep -c create_event_with_pdu` = **0**
+  ⇒ 该 trait 变更只在工作树里；任何改动这些文件的提交都会让 `git merge` 因"本地修改会被覆盖"被拒。
+- **解锁条件（任一即可）**：① 对方提交或 stash 那 6 个文件；② 明确授权接管
+  （此时需先由对方把在途改动落盘，再按 §6.6 的 5 步链实施）。
+- **实施依据已全部冻结**（无需重新推导）：§6.6 的 5 步算法、30 个生产调用点清单（16 文件）、
+  7 个签名站点的房间版本可用性表、"三份房间版本解析先收敛为一份"的结论、
+  6 条验收测试清单、以及第 1 步已落地的 `event_id::compute_event_id`。
+- **不要**只做签名半边：已论证——若 `hashes`/`signatures` 变正确而 `event_id` 仍是随机值，
+  对等端会按 reference hash 派生出与本仓不同的 ID，`prev_events`/`auth_events` 指向的 ID
+  在对端不存在，事件仍被拒（只是错误类型变了），反而掩盖真实失败。必须整链一起落地。
+
+**已知红门禁（均有逐项归因，非本会话新增）**
+
+| 门禁 | 现状 | 归属 |
+|---|---|---|
+| `sqlx_ratio_gate`（unit） | 生产 516 > 基线 513；测试基础设施 713 > 基线 711 | 生产 +3 全为并发会话 v12 的既有提交；测试 +2 = 既有 +1 + U-3 新增 db_tests 夹具 +1（`#[cfg(test)]` 宏不进 `.sqlx`，按 D-13/14 必须动态）。**两基线故意未动**（不替他批改棘轮） |
+| `sqlx_dynamic_literal_guard`（unit） | `synapse-storage/src/event/depth.rs:41` 1 > 基线 0 | 既有（本会话未触碰该文件） |
+| 集成 7 例 | 见 §0.4 集成行 | 路由 manifest 通配符代理路由、`/versions`+`/capabilities` 快照、线程路由、`auth_issuer` 摘路由漏改用例（`76e5f9136`） |
+
+**复验命令（本会话实际用过，逐字可跑）**
+
+```bash
+# 本地前置：播种 public（否则 schema_validator::db_tests 假红，见 U-17）
+TARGET_SCHEMA=public RESET_PUBLIC=0 TEST_DATABASE_URL=postgresql://synapse:synapse@localhost:5432/synapse_test \
+  bash scripts/init_test_public_schema.sh
+
+SQLX_OFFLINE=true cargo nextest run --workspace --lib --all-features --locked --test-threads 4
+SQLX_OFFLINE=true cargo nextest run --test unit --features test-utils --locked --test-threads 4
+SQLX_OFFLINE=true TEST_DATABASE_URL=postgresql://synapse:synapse@localhost:5432/synapse_test \
+  TEST_DB_TEMPLATE_SCHEMA=test_template_ci \
+  cargo nextest run --profile ci --all-features --test integration --test-threads 1 -E 'test(/media/) | test(/quota/)'
+./scripts/check_fmt_ratchet.sh
+SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils --all-features --locked -- -D warnings
+```
+
+> ⚠️ 跑失败的 insta 快照用例（`api_route_snapshots_tests::snapshot_*`）会在
+> `tests/integration/snapshots/` 留下 `*.snap.new`；CI 的快照门禁会因遗留文件变红，
+> 调查后必须删掉（本会话已清理两个 worktree 的遗留）。
+
 ---
 
 ## 1. 逐条核验
