@@ -59,15 +59,29 @@ unset SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE          # 绝不设置
 
 **当前仍须处理的项**（按严重度，明细见 §22.3）：
 
+> ⚠️ **本清单已过期，当前口径以
+> [`REMAINING_ISSUES_VERIFICATION_AND_OPTIMIZATION_PLAN_2026-09-25.md`](./REMAINING_ISSUES_VERIFICATION_AND_OPTIMIZATION_PLAN_2026-09-25.md)
+> §0.3 + §5 为唯一来源**（该文档逐条实测 main，并给出 §6 决策记录）。
+> 相对本清单已失效的条目：第 2 项 Content Scanner **已接线**（`routes/media/upload.rs:87,128`、
+> `handlers/room/events.rs:306`）；第 5 项 `auth_issuer` 路由**已摘除**；第 6 项稳定
+> `/{keyName}` **已注册**（`assembly.rs:231`）、停用用户语义**已改**；第 9 项 `search_index`
+> **已删表**（`00271cf91`）。保留本清单仅为追溯。
+
 1. 高｜客户端撤回不级联（MSC3912 级联仅管理端可达）；
-2. 高｜Content Scanner 零生产调用点（装配了但永不扫描）；
-3. 高｜E2EE SAS **三处**仍偏离（emoji 映射、decimal 算法、MAC 派生）——另两处已修；
+2. 高｜Content Scanner 零生产调用点（装配了但永不扫描）；→ **已修，见上方指针**
+3. ~~高｜E2EE SAS **三处**仍偏离（emoji 映射、decimal 算法、MAC 派生）——另两处已修；~~
+   **作废：服务端 SAS 实现已随 §23 删除（对象消失，非"已修复"）；且原描述本身有误
+   （N-1/N-2 实测：emoji 数量已对、算法仍错；decimal 系从 emoji 反推）**；
 4. 中｜`dag.rs` 注释声称的被 `/send_join`、`/get_missing_events` 使用，实测无生产调用点；
-5. 中｜`msc2965/auth_issuer` 仍在册（上游 1.161 已删该端点）；
+   → 注释**已改**；死查询仍未清（见新文档 §5 U-9）
+5. 中｜`msc2965/auth_issuer` 仍在册（上游 1.161 已删该端点）；→ **路由已摘除**（handler 成死码）
 6. 中｜Profile：停用用户写自定义字段 404、稳定 `/{keyName}` 未注册（account_data 非对象已修为 400）；
+   → 两条**均已改**；但 `user_exists` 去过滤的扩散需复核（新文档 §5 R-1/U-2）
 7. 中｜Admin 媒体端点族真缺口（`media/quarantine|unquarantine` POST、房间级媒体列举/删除）；
 8. 中｜缩略图 `animated` 参数未支持；媒体配额拒绝未使用 `M_USER_LIMIT_EXCEEDED`（归因待议）；
+   → 错误码已决策为 `M_TOO_LARGE`(413) / `M_RESOURCE_LIMIT_EXCEEDED`(403)（新文档 §6.4）
 9. 低｜v12/v13 不可创建（**fail-safe 设计使然**）、`search_index` 遗留表、ledger `query_params` 无消费方。
+   → `search_index` **已删表**；`query_params` 已决策为"真填值 + 反向守卫"（新文档 §6.5）
 
 ---
 
@@ -1448,7 +1462,10 @@ used. (#20163)`。
 
 ### 22.5 建议的执行顺序
 
-1. **SAS 三处修正**（高，本仓自有代码、无外部依赖）：`emoji` 改 42-bits 切分、`decimal` 改
+> **⚠️ 第 1 项作废（2026-09-25）**：其前提"服务端存在 SAS 实现"已不成立
+> （`synapse-e2ee/src/verification/` 整目录删除，见 §23）。**不要执行第 1 项**。
+
+1. ~~**SAS 三处修正**（高，本仓自有代码、无外部依赖）：`emoji` 改 42-bits 切分、`decimal` 改
    5 字节 / 13 bits（并用 `SasRepresentation::Decimal` 返回，别从 emoji 反推）、
    `commitment` 改 `sha256(pubkey ‖ canonical_json(start_event))` + **unpadded** base64。
    三者可一轮改完，且都能写**已知答案测试**（规范给了逐位公式与 emoji 表）。
