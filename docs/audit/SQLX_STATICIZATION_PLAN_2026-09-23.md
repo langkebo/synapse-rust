@@ -30,6 +30,23 @@
 即 `BASELINE_DYNAMIC_PRODUCTION` 单向降到 0；测试基础设施与 DDL 类动态 SQL 走
 书面白名单，不再掩盖生产债务。每批同时下调 dynamic、上调 static。
 
+> **当前进展（2026-09-25，C19b 后实测）** —— 上表是 2026-09-23 的**计划时基线**，
+> 保留作对照；当前 census 实测：
+>
+> | 指标 | 计划时 | C19b 后实测 |
+> |---|---|---|
+> | `dynamic_production` | 1532（近似） | **658** |
+> | `static` | 61 | **842** |
+> | `dynamic`（总） | 2151 | **1362** |
+> | 静态占比 | 2.76% | **38.2%（842 / 2204）** |
+> | `.sqlx` 离线缓存 | 60 条 | **815 条** |
+>
+> 已执行：Phase A/B/D + C1–C18（逐批数字与理由在
+> `scripts/ci/sqlx_dynamic_ratio_baseline` 各段）+ W1–W5（§8.6–§8.11）+
+> **C19a**（§8.12）+ **C19b**（§8.13）。§7 登记 47 条
+> （已修 34 / 部分已修 1 / 未修 2 / 结构性保留 7 / 文档级 3）。
+> **下一步见 §8.14。**
+
 ---
 
 ## 1. 实测分布（可复现）
@@ -235,8 +252,10 @@ bash scripts/ci/check_sqlx_dynamic_ratio.sh
 
 ### 1. 批次表
 
-> **历史记录**：本表记录 A–C18 的已执行批次，作为可复现的批次史保留；C19+ 在 §8 的
-> 问题修复波次完成前不再新增（恢复条件见 §8.5）。
+> **历史记录**：本表记录 A–C10 与 D1 的已执行批次（C11+ 的逐批数字与理由记录在
+> `scripts/ci/sqlx_dynamic_ratio_baseline` 各段，不在本表重复）。§8.5 的恢复条件满足后
+> C 批次已重启：**C19a**（`key_rotation/service.rs`）见 §8.12，**C19b**
+> （`backup/storage.rs`）见 §8.13。
 
 | 阶段 / 批次 | 目标 | `dynamic_production` | `static` | 提交（短哈希，可 `git log -1 --format=%H <subject>` 核验） |
 |---|---|---|---|---|
@@ -1598,6 +1617,10 @@ C19b 的 **D-46**）；
 映射（提示名不作为编号依据）。**已处置的 8 条（D-02/D-03/D-16/D-23/D-24/D-26/D-28/D-35）
 不进入任何波次，排除理由见本节末。**
 
+> **状态（2026-09-25）**：**W1–W5 全部完成**（分别见 §8.6/§8.8/§8.9/§8.10/§8.11，
+> D-36 守卫见 §8.7）；§8.5 的恢复条件满足后 C 批次已重启并完成 **C19a/C19b**
+> （§8.12/§8.13）。以下分波表保留为**当时的排期记录**，各波的就地状态注记不再改动。
+
 **W1 —— 写入端漏列 ⇒ 功能必然失败（小改、高影响）**
 
 | 波次 | 条目 | 类别 | 严重度/影响 | 可达性 | 改动量 | 验收判据 | 依赖 |
@@ -2212,3 +2235,82 @@ C 批次第二批（§8.5 前置条件已满足）。文件
 `baseline_fingerprint_is_the_single_v12_source` PASS（指纹 `a58420543eb97db2`）；
 两档 clippy（`--features test-utils`、`+ --all-features`，均 `-D warnings`）EXIT=0；
 fmt 债务 0。
+
+### 8.14 下一步建议（2026-09-25，C19b 后）
+
+#### A. 先决决策项（阻塞型，需产品/架构拍板）
+
+1. **D-47（覆盖缺口）** —— 二选一：
+   ① 把 `tests/integration/key_backup_storage_tests_migrated.rs` 切到 `IsolatedTestPool`
+   （小改，立即消除该模块的夹具漂移）；
+   ② 扩守卫 A（`tests/unit/test_ddl_guard_tests.rs`）扫描面到 `tests/**/*.rs`，
+   把既有自建 schema 站点补进 `scripts/ci/test_ddl_allowlist`（系统性，但会一次性暴露
+   其它模块的同类站点，需逐条定策）。
+   **建议先 ① 后 ②**：①可独立验收；②宜作为单独一批（先跑一次扫描看清单有多大再定）。
+   ⚠️ `tests/integration/*` 是并发写者（workbuddy）的在途区域，动手前先确认其空闲。
+2. **`fk_backup_keys_room` 的级联语义** —— 真 schema 让
+   `backup_keys.room_id → rooms(room_id) ON DELETE CASCADE`（P3-3），于是管理端清理空房间
+   （`synapse-storage/src/room/admin.rs:74` 的 `DELETE FROM rooms WHERE room_id = ANY($1)`）
+   会**级联删掉用户的房间密钥备份**；且 `upload_backup_key` 对不在 `rooms` 的 room_id
+   硬失败（23503 → `ApiError::Internal`）。而 Matrix 的房间密钥备份语义要求密钥可**独立于
+   房间生命周期**保留（客户端可备份已离开 / 已被清理房间的密钥，服务端不应要求房间仍在）。
+   **建议二选一**：
+   - 认定"备份必须脱离房间存在" ⇒ 删该 FK（前向迁移 + 指纹同步 + 重建模板，流程同 D-46）；
+   - 认定"房间没了就该清备份" ⇒ 保留，但把 23503 映射成 4xx 并加一条说明性 DB 用例。
+   无论哪条，都应以**一条迁移模板下的用例**把决定钉住。
+3. **既有未修 / 部分已修项**：D-39（`search_index` 表删否 —— 表已无读写方）、
+   D-37 的另一半（跨 crate 两份 `record_device_list_change` 收敛）、D-04 同族第二个
+   `create_tables`（`privacy.rs` / `olm/storage.rs`）。前两条是设计决策；第三条按铁律 1
+   直接删（与 W4 删 `device_keys` 那处同型）。
+
+#### B. 继续 C 批次：下一批目标（census 实测，已排除测试基础设施）
+
+剩余生产**字面量**动态站点 **575 处 / 82 文件**。按"同 crate 成组、单文件 ≤ 20 处、
+独立提交 + 独立降基线"的既有节奏，建议下一批（C20）候选：
+
+| 候选 | 文件 | 实测 | 备注 |
+|---|---|---|---|
+| C20-a | `synapse-e2ee/src/device_trust/storage.rs` | 17 | 与 C19a/C19b 同 crate，procedure 可直接复用 |
+| C20-b | `synapse-storage/src/rendezvous.rs` | 16 | |
+| C20-c | `synapse-storage/src/widget.rs` | 16 | |
+| C20-d | `synapse-storage/src/burn_after_read.rs` | 15 | |
+| **C19c（收尾）** | `synapse-e2ee/src/backup/service.rs` | 5 | 与 C19b 同域，可把 backup 模块一次清零；`models.rs` 已无动态站点 |
+
+⚠️ 不可取：`synapse-test-utils/src/lib.rs`（14）与 `synapse-common/src/test_isolation.rs`（9）
+按 §3.2 属测试基础设施；`synapse-storage/src/state_groups.rs`（15）与
+`synapse-services/src/database_initializer/mod.rs`（15）若做，需先确认其动态 SQL 不是
+DDL / 动态标识符（后者可能整片属 §3.1 运行期拼装）。
+`synapse-e2ee/src/olm/storage.rs`（16）与 `cross_signing/storage.rs`（13）同属 e2ee，
+但 olm 那处含 D-04 同族死方法，**先按铁律 1 删除再转换**。
+
+#### C. 批次 procedure（沿用 C19a/C19b，已踩实的坑）
+
+1. **STEP 0 feature 门控**：查 `synapse-storage/src/lib.rs` 的 `#[cfg(feature = …)]`；
+   feature 集**只增不减**（缺 `cas-sso`/`beacons` 会把 C15/C16 条目当 stale 删）。
+2. `SQLX_OFFLINE=false` + 活库编译；被并发写者重置测试库时先
+   `bash scripts/ci/prepare_test_db.sh`（几分钟）。
+3. **nullability 收口**：`AS "col!"` 只对 `query!`/`query_as!` 有效（`query_scalar!` 不接受，
+   C19a 坑 1）；SQL 一旦含双引号别名，raw string 必须 `r#"…"#`（C19b 坑 1，症状是宏报
+   `no rules expected !`）；sqlx 对**表达式列**（`COALESCE`/`COUNT`/`EXISTS`）恒判可空，
+   需显式 `!`，而 LEFT JOIN 外侧列反向需 `?`（D-20）；`RETURNING *` 必须展开（D-22）；
+   `&Option<T>` 绑定用 `.as_deref()`（D-21）。
+4. **测试夹具必须动态**：`#[cfg(test)]` 内的宏不进 `cargo sqlx prepare`（D-13/D-14）；
+   每批补 1 条 `IsolatedTestPool` 往返用例（W5 口径），这通常是**又一批缺陷的来源**
+   （C19b 就此挖出 D-47）。
+5. **每批收口顺序**：`cargo fmt --all` → `cargo check -p <crate> --all-targets` →
+   `cargo sqlx prepare --workspace -- --features server-notifications,saml-sso,cas-sso,beacons`
+   → `check_sqlx_cache_fresh.sh` → 收紧 `dynamic_ratio_baseline` 三键 +
+   `sqlx_literal_production_baseline` 逐文件表（**用文件头部生成命令，勿手编**）→
+   `check_sqlx_dynamic_ratio.sh` → 两档 clippy（`-D warnings`）→ `check_fmt_ratchet.sh`。
+6. **先修再转**：转换暴露的"真 schema 下必败"缺陷（C19a 的 D-43/44/45、C19b 的 D-46）
+   必须**独立提交**，不得夹带进静态化提交，否则"编译期红证明等价性"失效（§7.x 第 1 条）。
+
+#### D. 门禁健康度提醒
+
+- **`BASELINE_DYNAMIC_TEST_INFRA` 余量已用尽（704 = 704）**：C19b 的 DB 用例新增 2 处
+  测试夹具动态 SQL，正好吃掉 W4 以来保留的 2 点余量。后续批次若再补测试夹具，必须在
+  同批上调该基线并写明理由 —— 门禁变红属**预期行为**，不是脚本坏了。
+- `static_test = 0` 且 §4 已确认 `#[cfg(test)]` 内不可宏化，该分区不会自然增长。
+- 按当前节奏（每批 15–18 处）把 `dynamic_production` 压到 0 约需 **35–40 个 C 批次**；
+  若希望更快，唯一的结构性杠杆是 §3.1/§3.2 已登记的运行期拼装与测试基建（不可宏化），
+  即"降计数不再等于降风险"（§8.1 结论仍然成立）。
