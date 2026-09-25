@@ -1995,11 +1995,20 @@
 # 该文件另有 2 处 `format!` 运行期拼装（`STATE_GROUP_STATE_COLS` /
 # `STATE_GROUP_STATE_INNER_COLS`）**保留** —— 属 §7 D-14 允许残差，不入 literal 棘轮。
 # `BASELINE_DYNAMIC_TEST_INFRA` 保持 704（本批复用既有 `db_tests`，未新增夹具动态 SQL）。
-BASELINE_DYNAMIC_PRODUCTION=586
+# ── 2026-09-25 C23 收紧（`synapse-storage/src/captcha.rs` 15 处宏化）────────────
+# dynamic_production 586 → **571**（−15）、static 889 → **904**（+15）、
+# dynamic 1290 → **1275**（= 571 + 704）。census 实测 571 / 704 / 904。
+# nullability 收口（本批最多的一类）：registration_captcha 的 attempt_count /
+# max_attempts / status / metadata 与 captcha_template 的 variables / is_default /
+# is_enabled 共 7 列「可空而结构体非 Option」⇒ 逐列 `AS "col!"`；另按 D-19 为
+# `used_at`/`verified_at` 显式取别名到结构体字段 `used_ts`/`verified_ts`
+# （`query_as!` 不认 `#[sqlx(rename)]`）。
+# `BASELINE_DYNAMIC_TEST_INFRA` 保持 704（复用既有 `db_tests`，未新增夹具动态 SQL）。
+BASELINE_DYNAMIC_PRODUCTION=571
 BASELINE_DYNAMIC_TEST_INFRA=704
-BASELINE_STATIC=889
+BASELINE_STATIC=904
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1290
+BASELINE_DYNAMIC=1275
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

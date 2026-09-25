@@ -60,6 +60,10 @@
 #   本批唯一变化是删掉 `synapse-storage/src/state_groups.rs  15`；表头生成命令重跑后
 #   逐行复核，除该行外与 518/78 表逐行相同（runtime 侧不变，仍 83 处 / 15 文件 ——
 #   该文件另有 2 处 `format!` 拼装，属 D-14 允许残差，见本文件末尾摘要）。
+#
+# ── 2026-09-25 C23 收紧（`captcha.rs` 15 处宏化，本批）：literal 503 → **488** / 77 → **76** ──
+#   本批唯一变化是删掉 `synapse-storage/src/captcha.rs  15`；表头生成命令重跑后逐行复核，
+#   除该行外与 503/77 表逐行相同（runtime 侧不变，仍 83 处 / 15 文件 —— captcha.rs 无运行期拼装）。
 src/server/database.rs	1
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
@@ -85,7 +89,6 @@ synapse-storage/src/admin_media.rs	8
 synapse-storage/src/audit.rs	4
 synapse-storage/src/burn_after_read.rs	15
 synapse-storage/src/call_session.rs	7
-synapse-storage/src/captcha.rs	15
 synapse-storage/src/dehydrated_device.rs	10
 synapse-storage/src/delayed_events.rs	7
 synapse-storage/src/e2ee_audit.rs	7
