@@ -1,0 +1,79 @@
+# D-47 守卫 A′ 的豁免名单（独立 `tests/**/*.rs` 目标里自建 schema 的 DDL）
+# ─────────────────────────────────────────────────────────────────────────────
+# 口径：`python3 scripts/ci/sqlx_query_census.py --list-tests-dir-ddl .`
+# 键格式：`<repo-relative-path>::<mod::fn>`（**不含行号**，理由同
+# `scripts/ci/test_ddl_allowlist`：行号会随 `cargo fmt` 漂移）。
+#
+# 背景（D-47）：守卫 A（`tests/unit/test_ddl_guard_tests.rs` 上段）只扫各 crate 的
+# `src/`，守卫 B 只查生产区 INSERT —— `tests/` 里的自建简化 schema 因此**不受任何
+# 守卫约束**。D-46（`key_backups.version` 可空 vs 非 `Option` 行类型）与
+# `key_backup_storage_tests_migrated.rs` 缺 `fk_backup_keys_room` 都是这样潜伏的。
+#
+# 语义：**只禁增不禁减**（与其它棘轮一致）。新增自建 DDL 必须让守卫变红；只有本名单
+# 收录的既有站点豁免。清理对应实现（迁 `IsolatedTestPool`）后必须同时删掉条目。
+#
+# 初始种子（2026-09-25，census 实测 177 处 / 42 文件 / **53 个键**）按三组登记：
+#   (a) 机制自身与被测对象 / 故障注入 —— 自建 DDL 就是被测对象（含守卫自己的探针）；
+#   (b) 自建简化 schema 的 `*_migrated.rs` —— **D-36 家族真目标**，逐文件迁
+#       `IsolatedTestPool`（每文件一提交），迁完即从本名单删除；
+#   (c) 性能夹具（`tests/performance/`）。
+# 收紧方向：把 (b) 清空（约 30 个文件），此后本守卫对 `tests/` 与对 `src/` 同等严格。
+
+# ── (a) 机制自身 / 故障注入（21 键）──────────────────────────────────────────
+tests/integration/api_federation_transaction_tests.rs::test_presence_edu_updates_are_written_as_a_single_batch
+tests/integration/database_integrity_tests.rs::tests::ensure_public_schema_contract_repairs
+tests/integration/e2ee_device_keys_storage_tests.rs::record_device_list_change_propagates_a_changes_insert_failure
+tests/integration/e2ee_device_keys_storage_tests.rs::record_device_list_change_propagates_a_stream_insert_failure
+tests/integration/insert_column_coverage_tests.rs::guard_reports_a_probe_table_missing_required_columns
+tests/unit/cleanup_schema_script_tests.rs::cleanup_script_preserves_drop_failure_reasons
+tests/unit/migration_consistency_tests.rs::baseline_consolidation_gate_fails_closed_on_an_emptied_scan_surface
+tests/unit/migration_consistency_tests.rs::baseline_declares_each_object_exactly_once
+tests/unit/migration_replayability_guard_tests.rs::baseline_columns
+tests/unit/migration_replayability_guard_tests.rs::ident
+tests/unit/migration_search_path_tests.rs::baseline_table_names
+tests/unit/migration_search_path_tests.rs::heal_repoints_cross_schema_foreign_key_at_same_named_parent
+tests/unit/schema_lifecycle_guard_tests.rs::every_create_schema_site_has_a_cleanup_path
+tests/unit/template_fingerprint_inputs_tests.rs::schema_input_fingerprint_ignores_markdown_but_tracks_sql
+tests/unit/template_fingerprint_inputs_tests.rs::unreadable_schema_input_fails_loudly_instead_of_being_skipped
+tests/unit/test_ddl_guard_tests.rs::guard_flags_a_new_self_built_table_and_passes_once_allowlisted
+tests/unit/test_ddl_guard_tests.rs::guard_reads_ddl_out_of_string_literals_not_comments
+tests/unit/test_ddl_guard_tests.rs::tests_dir_guard_flags_a_new_self_built_table_and_passes_once_allowlisted
+tests/unit/test_isolation_unification_tests.rs::every_fixture_delegates_clone_to_the_shared_module
+tests/unit/test_schema_housekeeping_tests.rs::drop_schema_quietly
+tests/unit/test_schema_housekeeping_tests.rs::prune_drops_superseded_templates_and_keeps_the_current_one
+
+# ── (b) 自建简化 schema 的 `*_migrated.rs`（D-36 真目标，31 键；逐文件迁模板后删除）──
+tests/integration/beacon_storage_tests_migrated.rs::setup_test_database
+tests/integration/cross_signing_storage_tests_migrated.rs::setup_test_database
+tests/integration/device_storage_tests_migrated.rs::setup_test_database
+tests/integration/event_storage_tests_migrated.rs::setup_test_database
+tests/integration/feature_flag_service_tests_migrated.rs::setup_test_database
+tests/integration/feature_flags_storage_tests_migrated.rs::setup_test_database
+tests/integration/federation_blacklist_storage_tests_migrated.rs::setup_test_database
+tests/integration/federation_service_tests_migrated.rs::setup_test_database
+tests/integration/federation_service_tests_migrated.rs::test_device_revocation
+tests/integration/federation_service_tests_migrated.rs::test_device_sync_cache
+tests/integration/filter_storage_tests_migrated.rs::setup_test_database
+tests/integration/friend_room_storage_tests_migrated.rs::setup_test_database
+tests/integration/membership_storage_tests_migrated.rs::setup_test_database
+tests/integration/openid_token_storage_tests_migrated.rs::setup_test_database
+tests/integration/presence_storage_tests_migrated.rs::setup_test_database
+tests/integration/refresh_token_storage_tests_migrated.rs::setup_test_database
+tests/integration/registration_service_tests_migrated.rs::setup_test_database
+tests/integration/relations_service_tests_migrated.rs::setup_test_database
+tests/integration/retention_storage_tests_migrated.rs::setup_test_database
+tests/integration/room_service_tests_migrated.rs::setup_appservice_test_database
+tests/integration/room_service_tests_migrated.rs::setup_test_database
+tests/integration/room_summary_storage_tests_migrated.rs::setup_test_database
+tests/integration/sliding_sync_service_tests_migrated.rs::setup_test_database
+tests/integration/sliding_sync_storage_tests_migrated.rs::setup_test_database
+tests/integration/state_groups_storage_tests_migrated.rs::setup_test_database
+tests/integration/sync_service_tests_migrated.rs::setup_test_database
+tests/integration/thread_storage_tests_migrated.rs::setup_test_database
+tests/integration/threepid_storage_tests_migrated.rs::setup_test_database
+tests/integration/to_device_sync_tests_migrated.rs::setup_test_database
+tests/integration/token_storage_tests_migrated.rs::setup_test_database
+tests/integration/user_storage_tests_migrated.rs::setup_test_database
+
+# ── (c) 性能夹具（1 键）────────────────────────────────────────────────────
+tests/performance/appservice_scheduler_perf_tests.rs::tests::setup_appservice_perf_tables

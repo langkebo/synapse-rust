@@ -411,6 +411,19 @@ def collect_sources(root: Path) -> list[Path]:
     return sources
 
 
+def collect_tests_dir_sources(root: Path) -> list[Path]:
+    """收集独立的 `tests/**/*.rs`（D-47：独立测试目标的自建 schema）。
+
+    与 `collect_sources` 的 `SCAN_DIRS`（各 crate 的 `src/`）分开：这里的文件整份
+    都是测试代码，`collect_test_ddl` 依赖的 `#[cfg(test)]` 区域判定不适用，故调用方
+    一律以 `force_test=True` 分类。键仍是 `path::item`（`cargo fmt` 无关）。
+    """
+    tests_dir = root / "tests"
+    if not tests_dir.is_dir():
+        return []
+    return [path for path in sorted(tests_dir.rglob("*.rs")) if not _is_excluded(root, path)]
+
+
 def list_production_dynamic(root: Path) -> int:
     """打印生产区每个动态调用点 `path:line:literal|runtime`（供守卫测试消费）。"""
     sources = collect_sources(root)
@@ -621,6 +634,21 @@ def collect_test_ddl(root: Path) -> list[str]:
     return hits
 
 
+def collect_tests_dir_ddl(root: Path) -> list[str]:
+    """列出 `tests/**/*.rs` 里自建 schema 的 DDL：`path::item:line:VERB`（D-47 守卫 A′）。
+
+    与 `collect_test_ddl` 同一套词法/正则实现（`iter_sql_regions` + `TEST_DDL_RE`），
+    只是扫描面换成独立测试目录、并整份按 test 区处理。守卫只消费输出，不重写扫描器。
+    """
+    hits: list[str] = []
+    for path in collect_tests_dir_sources(root):
+        rel = path.relative_to(root).as_posix()
+        for line_no, _region, item, content in iter_sql_regions(path, force_test=True):
+            for match in TEST_DDL_RE.finditer(content):
+                hits.append(f"{rel}::{item}:{line_no}:{match.group(1).upper()}")
+    return hits
+
+
 def collect_inserts(root: Path) -> list[dict]:
     """抽出生产区所有 `INSERT INTO <table> (<cols>)` 的字面量列清单。
 
@@ -695,6 +723,14 @@ def main() -> int:
         help="列出 test 区自建 schema 的 DDL：path::item:line:VERB（D-36 守卫 A）",
     )
     parser.add_argument(
+        "--list-tests-dir-ddl",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="ROOT",
+        help="列出 tests/**/*.rs 自建 schema 的 DDL：path::item:line:VERB（D-47 守卫 A′）",
+    )
+    parser.add_argument(
         "--emit-inserts",
         nargs="?",
         const="",
@@ -711,6 +747,11 @@ def main() -> int:
 
     if args.list_test_ddl is not None:
         for hit in collect_test_ddl(Path(args.list_test_ddl or args.root).resolve()):
+            print(hit)
+        return 0
+
+    if args.list_tests_dir_ddl is not None:
+        for hit in collect_tests_dir_ddl(Path(args.list_tests_dir_ddl or args.root).resolve()):
             print(hit)
         return 0
 

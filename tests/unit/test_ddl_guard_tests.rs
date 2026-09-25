@@ -21,16 +21,24 @@
 //!
 //! ## 扫描边界
 //!
-//! 扫描面与 `sqlx_query_census.py` 的 `SCAN_DIRS` 完全一致（根 crate + 8 个
-//! workspace member 的 `src/`）。独立的 `tests/` 目标（`tests/unit`、
-//! `tests/integration`）**不在**扫描面内：它们是测试二进制本身，其夹具不受本守卫
-//! 约束；本守卫管的是"生产 crate 里的 `#[cfg(test)]` 模块自建 schema"。
+//! 守卫 A 的扫描面与 `sqlx_query_census.py` 的 `SCAN_DIRS` 完全一致（根 crate + 8 个
+//! workspace member 的 `src/`），管的是"生产 crate 里的 `#[cfg(test)]` 模块自建 schema"。
+//!
+//! **D-47 起**：独立的 `tests/` 目标（`tests/unit`、`tests/integration`、
+//! `tests/performance`）由**守卫 A′**（本文件下段，census 模式 `--list-tests-dir-ddl`）
+//! 覆盖 —— 它们原先"既不进 A、也不进 B（守卫 B 只查生产 INSERT）"，是无人约束的盲区，
+//! D-46（`key_backups.version` 可空 vs 非 `Option` 行类型）与 D-47 正是在那里潜伏。
+//! A′ 复用同一套判定与名单读取，只是换扫描面 + 独立名单
+//! `scripts/ci/test_ddl_allowlist_tests_dir`。
 //!
 //! ## 自证能变红（铁律 8）
 //!
 //! `guard_flags_a_new_self_built_table_and_passes_once_allowlisted` 在临时目录里
 //! 造一个自建表的 `#[cfg(test)] mod tests`，断言同一套判定逻辑先报违规、把键加进
 //! 名单后转绿。没有这条用例，"名单非空 + 全绿"与"扫描器坏了"无法区分。
+//! 守卫 A′ 对应地有 `tests_dir_guard_flags_a_new_self_built_table_and_passes_once_allowlisted`；
+//! 此外 D-47 落地时还做过一次**真树**红证明（临时在 `tests/` 内加一处自建 DDL ⇒
+//! `no_unallowlisted_self_built_schema_in_tests_dir` 报出该键；移除后转绿）。
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -247,4 +255,140 @@ mod tests {
     )]);
     assert_eq!(hits.len(), 1, "comment prose must not be counted, the string fixture must be: {hits:?}");
     assert!(hits[0].contains("CREATE TABLE"), "got {hits:?}");
+}
+
+// =============================================================================
+// D-47 守卫 A′：独立 `tests/**/*.rs` 目标的自建 schema
+//
+// 上面的守卫 A 只扫各 crate 的 `src/`（扫描面见本文件顶部说明），于是 `tests/` 里的
+// `*_migrated.rs` 自建简化 schema 一直**不受任何守卫约束** —— 它们既不进 A、也不进
+// 守卫 B（后者只查生产区 INSERT）。D-46 / D-47 正是在这个盲区里潜伏的。
+//
+// 本段把**同一套判定**（`--list-tests-dir-ddl` + `path::item` 名单）扩到 `tests/`。
+// 名单 `scripts/ci/test_ddl_allowlist_tests_dir` 按三组种子化：
+//   (a) DDL/迁移/隔离机制自身与被测对象（含故障注入）—— 自建 DDL 就是被测对象；
+//   (b) 自建简化 schema 的 `*_migrated.rs` —— **D-36 家族真目标**，逐文件迁
+//       `IsolatedTestPool`（每文件一提交）后从名单删除；
+//   (c) 性能夹具（`tests/performance/`）。
+// =============================================================================
+
+fn tests_dir_allowlist_path() -> PathBuf {
+    repo_root().join("scripts/ci/test_ddl_allowlist_tests_dir")
+}
+
+/// 运行 `--list-tests-dir-ddl`，返回 `path::item:line:VERB` 行（已排序去重）。
+fn list_tests_dir_ddl(root: &Path) -> Vec<String> {
+    let out = Command::new("python3")
+        .arg(repo_root().join("scripts/ci/sqlx_query_census.py"))
+        .arg("--root")
+        .arg(root)
+        .arg("--list-tests-dir-ddl")
+        .output()
+        .expect("census script must be spawnable");
+    assert!(out.status.success(), "--list-tests-dir-ddl must succeed: {}", String::from_utf8_lossy(&out.stderr));
+    let mut hits: Vec<String> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(String::from)
+        .collect();
+    hits.sort();
+    hits.dedup();
+    hits
+}
+
+fn run_tests_dir_census_on_tree(files: &[(&str, &str)]) -> Vec<String> {
+    static SEQ: AtomicU32 = AtomicU32::new(0);
+    let root = std::env::temp_dir().join(format!(
+        "ddl_guard_td_{}_{}",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::SeqCst)
+    ));
+    if root.exists() {
+        fs::remove_dir_all(&root).expect("clean temp root");
+    }
+    for (rel, content) in files {
+        let path = root.join(rel);
+        fs::create_dir_all(path.parent().expect("parent")).expect("create temp dirs");
+        fs::write(&path, content).expect("write temp source");
+    }
+    let hits = list_tests_dir_ddl(&root);
+    let _ = fs::remove_dir_all(&root);
+    hits
+}
+
+#[test]
+fn no_unallowlisted_self_built_schema_in_tests_dir() {
+    let hits = list_tests_dir_ddl(&scan_root());
+    assert!(!hits.is_empty(), "扫描器没有看到任何 tests/ 自建 DDL —— 扫描面或分区判定可能已失效");
+
+    let violations = unallowlisted_hits(&hits, &read_allowlist(&tests_dir_allowlist_path()));
+    assert!(
+        violations.is_empty(),
+        "tests/ 里出现了未登记的自建 schema DDL：{} —— D-47：独立测试目标的夹具也必须跑在迁移模板上\
+         （`IsolatedTestPool`），否则 NOT NULL/CHECK/UNIQUE 约束被抹掉，D-36 家族缺陷会永远绿。\
+         确属机制自身 / 故障注入 / 性能夹具的站点才能加进 {}（键：path::item）。",
+        violations.join(", "),
+        tests_dir_allowlist_path().display()
+    );
+}
+
+/// 名单不能是"万能豁免"：每条都必须仍然命中，否则说明用例已迁模板/删/改名而条目滞留。
+#[test]
+fn tests_dir_allowlist_entries_all_still_match_something() {
+    let hits = list_tests_dir_ddl(&scan_root());
+    let live: BTreeSet<String> = hits.iter().map(|hit| hit_key(hit)).collect();
+    let stale: Vec<String> =
+        read_allowlist(&tests_dir_allowlist_path()).into_iter().filter(|key| !live.contains(key)).collect();
+    assert!(
+        stale.is_empty(),
+        "scripts/ci/test_ddl_allowlist_tests_dir 有 {} 条已失效的条目（对应实现已迁模板/删/改名）：{} —— \
+         请删除这些行，否则名单会长期漂移成\"什么都放行\"。",
+        stale.len(),
+        stale.join(", ")
+    );
+}
+
+/// 扫描器必须真的在看这一批站点：抽一个必然存在的键做存在性断言。
+#[test]
+fn tests_dir_scanner_actually_sees_a_known_site() {
+    let hits = list_tests_dir_ddl(&scan_root());
+    let known = "tests/integration/sync_service_tests_migrated.rs::setup_test_database";
+    assert!(
+        hits.iter().any(|hit| hit_key(hit) == known),
+        "扫描器必须能定位 {known}（一个自建 15 张表的既有夹具）；实得 {hits:?}"
+    );
+}
+
+/// 红证明（铁律 8）：`tests/` 探针里的自建表必须先变红、加进名单后转绿。
+#[test]
+fn tests_dir_guard_flags_a_new_self_built_table_and_passes_once_allowlisted() {
+    let hits = run_tests_dir_census_on_tree(&[(
+        "tests/probe_tests.rs",
+        r##"
+fn setup_probe_db() {
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS probe_table (id INT)
+        "#,
+    );
+}
+
+#[test]
+fn t() {
+    let _ = setup_probe_db;
+}
+"##,
+    )]);
+    assert_eq!(hits.len(), 1, "probe tree must yield exactly one DDL hit, got {hits:?}");
+    let key = hit_key(&hits[0]);
+    assert_eq!(key, "tests/probe_tests.rs::setup_probe_db");
+
+    // RED：不在名单里 ⇒ 必须报违规。
+    let violations = unallowlisted_hits(&hits, &BTreeSet::new());
+    assert_eq!(violations, hits, "an unallowlisted tests/ self-built table must be reported");
+
+    // GREEN：加进名单 ⇒ 转绿。
+    let allowlisted: BTreeSet<String> = [key].into_iter().collect();
+    assert!(unallowlisted_hits(&hits, &allowlisted).is_empty(), "an allowlisted key must pass");
 }
