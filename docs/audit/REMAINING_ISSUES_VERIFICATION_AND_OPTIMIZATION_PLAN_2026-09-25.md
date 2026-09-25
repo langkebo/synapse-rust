@@ -1267,6 +1267,51 @@ Task3 (reference hash) —— 仅做可行性验证，不接线
 
 **风险**：这是本清单里**唯一**会改变既有数据语义的项；必须先做第 1 步并冻结测试向量。
 
+**第 1 步执行结果（2026-09-25，分支 `feat/u13-reference-hash`）——✅ 完成，尚未接线**
+
+- 实现（`synapse-common`，纯函数，无调用点）：
+  - `redaction::redact_event(room_version, event)` + `redaction::redaction_rules(room_version)`：
+    **按房间版本**的 redaction（单一实现位置，与 `redaction.rs` 原有的非版本化表同文件不同函数）。
+    版本旗标直接对齐上游 `synapse/api/room_versions.py`（release-v1.161）命名：
+    `updated_redaction_rules`(v11+)、`restricted_join_rule`(v8+)、`restricted_join_rule_fix`(v9+)、
+    `implicit_room_creator`(v11+)、`special_case_aliases_auth`(v1–v5)、`room_ids_as_hashes`(v12)。
+    未知/不支持版本**fail-closed**（v13 暂缺，见下）。
+  - `event_id::{compute_reference_hash, encode_reference_hash_event_id, compute_event_id, uses_reference_hash_event_id}`：
+    redact → 去掉 `signatures`/`unsigned`/`age_ts` → canonical JSON → sha256 → unpadded Base64，
+    前缀 `$`；**v3 用标准 Base64，v4+ 用 URL-safe**（与上游一致）。
+- **上游已知答案向量（外部 oracle，非本仓自算）**：Synapse `release-v1.161`
+  `rust/src/events/utils.rs::test_calculate_event_id` 的事件与其两个期望值已固化为测试——
+  v10 → `$zRz9jjiT9wZc3Hl9ij_74aCmTjqV3YMlj9sj3Uqxg6o`，
+  v3 → `$zRz9jjiT9wZc3Hl9ij/74aCmTjqV3YMlj9sj3Uqxg6o`，**两者均通过**（证明 canonical JSON、
+  redaction、sha256、两种 Base64 字母表四段全部与上游逐字节一致）。
+  另外把上游 `redact()` 的全部单测期望（member/create/join_rules/power_levels/aliases/redaction/
+  history_visibility/`prev_state`+`membership`+`origin` 的 v10↔v11 差异）逐一转成 v1–v12 版本矩阵断言。
+- 门禁：`cargo nextest -p synapse-common --lib -E 'test(/event_id|room_version_redaction/)'` **24/24 绿**；
+  `./scripts/check_fmt_ratchet.sh` = 0；workspace clippy `-D warnings` exit 0。
+  **变异自证**（3 个，均转红后还原）：① 令 `restricted_join_rule_fix` 恒 false → 1 red；
+  ② reference hash 不去 `signatures` → 4 red；③ v3/v4+ Base64 字母表互换 → 4 red。
+
+- **新发现（第 2 步必须先处理，否则接线即错）**：
+  1. **既有非版本化表与上游不符**：`redaction::allowed_content_keys` / `redact_event_for_hash`
+     （`synapse-federation/src/signing.rs:82` 签名路径、`synapse-storage/src/event/redaction.rs:103`
+     运行期 redaction 路径都在用）把 v1–v10 当成**一张表**，而规范/上游是分级的
+     （v6 去掉 `m.room.aliases` 特例；v8 加 `join_rules.allow`；v9 加
+     `member.join_authorised_via_users_server`；v11 才加 `power_levels.invite`、
+     `redaction.content.redacts`、`create` 全内容、去 `origin`/`membership`/`prev_state`）。
+     该表里的 `m.room.encrypted`/`m.room.third_party_invite`/`member.displayname` 等键
+     **任何稳定房间版本都不保留**（上游 `redact()` 无对应分支）。
+     ⇒ 第 2 步应把这两条路径迁移到 `redact_event(room_version, …)` 并删除旧表
+     （铁律 2：同一职责只允许一份实现），届时签名材料与运行期 redaction 的行为会**改变**，
+     必须在同批复核所有断言/夹具。
+  2. **`compute_event_content_hash` 的语义与上游相反**：`synapse-federation/src/signing.rs:81-90`
+     先 redact 再算 `hashes.sha256`，而上游 `compute_content_hash` 是**对未 redact 的事件**
+     （仅去 `age_ts`/`unsigned`/`signatures`/`hashes`/`outlier`/`destinations`）取 canonical JSON 哈希；
+     redaction 只用于**签名材料**（`compute_event_signature`）。这是独立的 P0 级问题，
+     与 U-13 同批修（第 2 步），修完须用 PDU 互验。
+  3. **v12 语义待对齐**：本仓 v12 依据 MSC4239；Synapse release-v1.161 把 `V12` 与 MSC4291 房间
+     并列（`create` redaction 丢 `room_id`），本实现按上游取值。接线前必须确认本仓 v12 是否
+     MSC4291；否则 v12 事件 ID 与对等端不一致。v13 现为 **fail-closed**（不猜）。
+
 ### 6.7 决策后的执行顺序（更新 §4.1）
 
 ```

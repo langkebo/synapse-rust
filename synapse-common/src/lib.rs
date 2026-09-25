@@ -37,6 +37,8 @@ pub mod crypto;
 pub mod db_query_metrics;
 /// Module `error`.
 pub mod error;
+/// Module `event_id`.
+pub mod event_id;
 /// Module `event_models`.
 pub mod event_models;
 /// Module `event_utils`.
