@@ -1,6 +1,6 @@
 //! Event creation methods for [`EventStorage`].
 
-use super::models::{CreateEventParams, RoomEvent};
+use super::models::{CreateEventParams, PduGraphFields, RoomEvent};
 use super::EventStorage;
 
 impl EventStorage {
@@ -43,6 +43,68 @@ impl EventStorage {
                 .bind(params.state_key.as_deref())
                 .bind(params.origin_server_ts)
                 .bind(params.redacts.as_deref())
+                .fetch_one(&*self.pool)
+                .await
+        }
+    }
+
+    /// v12+ event creation with complete PDU graph fields.
+    ///
+    /// Unlike [`create_event`] which writes SQL `NULL` for graph columns,
+    /// this method persists `depth`, `prev_events`, and `auth_events` from
+    /// `pdu_graph`.  Callers must ensure the graph fields are compliant with
+    /// the target room version (v12 requires ED25519-only auth rules, etc.).
+    ///
+    /// ⚠️ 本方法**不**计算 `depth`/`prev_events`/`auth_events` — it is the
+    /// caller's responsibility to populate `PduGraphFields` before calling.
+    pub async fn create_event_with_pdu(
+        &self,
+        params: CreateEventParams,
+        pdu_graph: PduGraphFields,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<RoomEvent, sqlx::Error> {
+        let prev_events_json = serde_json::to_value(&pdu_graph.prev_events).unwrap_or(serde_json::Value::Null);
+        let auth_events_json = serde_json::to_value(&pdu_graph.auth_events).unwrap_or(serde_json::Value::Null);
+
+        let query = r"
+            INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, state_key, origin_server_ts, is_redacted, redacts, depth, prev_events, auth_events)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9, $10, $11, $12)
+            RETURNING event_id, room_id, sender as user_id, event_type, content, state_key,
+                      COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
+                      0::BIGINT as not_before, 'pending' as status,
+                      'self' as origin, stream_ordering, redacts
+        ";
+
+        if let Some(tx) = tx {
+            sqlx::query_as(query)
+                .bind(&params.event_id)
+                .bind(&params.room_id)
+                .bind(&params.user_id)
+                .bind(&params.user_id)
+                .bind(&params.event_type)
+                .bind(&params.content)
+                .bind(params.state_key.as_deref())
+                .bind(params.origin_server_ts)
+                .bind(params.redacts.as_deref())
+                .bind(pdu_graph.depth)
+                .bind(&prev_events_json)
+                .bind(&auth_events_json)
+                .fetch_one(&mut **tx)
+                .await
+        } else {
+            sqlx::query_as(query)
+                .bind(&params.event_id)
+                .bind(&params.room_id)
+                .bind(&params.user_id)
+                .bind(&params.user_id)
+                .bind(&params.event_type)
+                .bind(&params.content)
+                .bind(params.state_key.as_deref())
+                .bind(params.origin_server_ts)
+                .bind(params.redacts.as_deref())
+                .bind(pdu_graph.depth)
+                .bind(&prev_events_json)
+                .bind(&auth_events_json)
                 .fetch_one(&*self.pool)
                 .await
         }

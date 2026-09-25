@@ -191,6 +191,28 @@ pub struct CreateEventParams {
     pub redacts: Option<String>,
 }
 
+// NEW: Optional PDU graph fields for v12+ event creation.
+// Callers that produce compliant v12 PDUs populate these alongside
+// CreateEventParams; the write path selects the extended INSERT when
+// any field is non-default.  Existing call sites keep passing
+// CreateEventParams without these fields — backward compatible.
+/// PDU graph fields for v12+ event creation.
+///
+/// These fields are required for v12+ event creation to properly populate
+/// the `depth`, `prev_events`, and `auth_events` columns in the `events` table.
+/// Callers must populate all three fields before calling `create_event_with_pdu`.
+#[derive(Debug, Clone, Default)]
+pub struct PduGraphFields {
+    /// Event depth (max(prev_event_depths) + 1), v12+ requirement.
+    pub depth: Option<i64>,
+    /// Event prev_events (event IDs), v12+ requirement.
+    pub prev_events: Option<Vec<String>>,
+    /// Event auth_events (event IDs), v12+ requirement.
+    /// v12 requires: m.room.create, m.room.power_levels, m.room.member(creator),
+    /// m.room.history_visibility.
+    pub auth_events: Option<Vec<String>>,
+}
+
 /// The `EventQueryFilter` struct.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct EventQueryFilter {
