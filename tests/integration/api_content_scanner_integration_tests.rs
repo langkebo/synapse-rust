@@ -77,7 +77,10 @@ async fn setup_app_with_mock_scanner(block_on_failure: bool) -> Option<(axum::Ro
     std::sync::Arc::make_mut(&mut container.core.config).content_scanner.scan_timeout_ms = 5000;
 
     let state = AppState::new(container, cache);
-    let app = synapse_web::create_router(state.clone());
+    // `state` is not used again in this function, so cloning it here is redundant
+    // (`clippy::redundant_clone` is deny, and this target only compiles under
+    // `--all-features` — the feature set the second CI clippy entry uses).
+    let app = synapse_web::create_router(state);
 
     Some((app, addr))
 }
