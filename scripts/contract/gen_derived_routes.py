@@ -126,6 +126,11 @@ def build_rows():
     def ann_for(t):
         return annotations.get((t[0], t[1]), {})
 
+    def query_params_of(t):
+        """The declared wire names, as a tuple (empty when unannotated)."""
+        raw = ann_for(t).get("query_params")
+        return tuple(raw.split(",")) if raw else ()
+
     rows = set()
     for t in PROFS_SDK["all"]:
         rp = row_profile(t)
@@ -146,6 +151,7 @@ def build_rows():
                 PROFILE_RANK[rp],
                 ann.get("auth"),
                 ann.get("rate_limit_exempt", False),
+                query_params_of(t),
             )
         )
 
@@ -171,6 +177,7 @@ def build_rows():
                     PROFILE_RANK[rp],
                     ann.get("auth"),
                     ann.get("rate_limit_exempt", False),
+                    query_params_of(t),
                 )
             )
 
@@ -187,7 +194,7 @@ def build_rows():
 def reconstruct(rows, cfgset, prof):
     max_rank = PROFILE_MAX_RANK[prof]
     best = {}  # (m,p) -> (rank, label)
-    for m, p, lbl, cfg, rank, _auth, _exempt in rows:
+    for m, p, lbl, cfg, rank, _auth, _exempt, _query in rows:
         if cfg and not ex.cfg_all_allow(list(cfg), cfgset):
             continue
         if rank > max_rank:
@@ -242,10 +249,17 @@ def _s(s):
 
 def _row_rust(row):
     """One push statement, wrapped in `#[cfg]` when the row is feature-gated."""
-    method, path, lbl, cfg, rank, auth, exempt = row
+    method, path, lbl, cfg, rank, auth, exempt, query = row
     meth = f"axum::http::Method::{_METHOD[method]}"
     auth_s = f"            .with_auth({_s(auth)})\n" if auth else ""
     rate_s = "            .with_rate_limit_exempt(true)\n" if exempt else ""
+    query_s = (
+        "            .with_query_params(&["
+        + ", ".join(_s(name) for name in query)
+        + "])\n"
+        if query
+        else ""
+    )
     push = (
         "    {\n"
         "        let e = RouteEntry::new(\n"
@@ -253,7 +267,7 @@ def _row_rust(row):
         f"            {_s(path)},\n"
         f"            {_s(lbl)},\n"
         "        )\n"
-        f"{auth_s}{rate_s}"
+        f"{auth_s}{rate_s}{query_s}"
         "        ;\n"
         f"        rows.push(DerivedRoute {{ entry: e, rank: {_RANK[rank]} }});\n"
         "    }\n"

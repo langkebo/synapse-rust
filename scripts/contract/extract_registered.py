@@ -397,8 +397,13 @@ def strip_test_mods(src: str) -> str:
         out = out[: m.start()] + ("" if end == -1 else out[end + 1 :])
 
 
-def iter_fns(src: str):
-    """Yield `(name, body, cfg_predicates)` for every `fn name(...) { body }`.
+def iter_fn_defs(src: str):
+    """Yield `(name, params, body, cfg_predicates)` for every `fn name(...) { body }`.
+
+    `params` is the parameter list text *including* the enclosing parentheses.
+    The reverse `query_params` guard needs it because an axum
+    `Query<Struct>` extractor lives in the signature — `iter_fns` strips the
+    signature, so the query struct a handler deserializes is invisible there.
 
     The predicates are the `cfg(...)` gates on the item itself. They matter:
     `#[cfg(feature = "saml-sso")] impl RouteModule for SamlModule` is a whole
@@ -411,6 +416,7 @@ def iter_fns(src: str):
         close = match_delim(src, p)
         if close == -1:
             continue
+        params = src[p : close + 1]
         j = close + 1
         # skip `-> Type` / `where ...` up to the body brace, at depth 0
         depth = 0
@@ -441,7 +447,19 @@ def iter_fns(src: str):
         end = match_delim(src, brace)
         if end == -1:
             continue
-        yield m.group(1), src[brace + 1 : end], predicates_before(src, m.start())
+        yield (
+            m.group(1),
+            params,
+            src[brace + 1 : end],
+            predicates_before(src, m.start()),
+        )
+
+
+def iter_fns(src: str):
+    """Yield `(name, body, cfg_predicates)` — the signature-free view of
+    [`iter_fn_defs`] kept for the router-builder scan."""
+    for name, _params, body, preds in iter_fn_defs(src):
+        yield name, body, preds
 
 
 def iter_consts(src: str):
@@ -454,6 +472,249 @@ def iter_consts(src: str):
         if semi == -1:
             continue
         yield m.group(1), src[eq + 1 : semi]
+
+
+# --------------------------------------------------------------------------
+# Query-parameter reverse guard: struct fields + handler extractors
+# --------------------------------------------------------------------------
+#
+# `ledger_annotations.txt` declares, per route, the query parameter names the
+# endpoint accepts. Nothing in the `.route()` surface proves that claim, so the
+# guard below derives the *truth* from the handler source instead:
+#
+#   handler signature  --Query<Struct>-->  struct definition  --fields-->
+#   accepted wire names
+#
+# Two directions are enforced (see `check_annotation_fidelity`):
+#   * declared but not parsed  -> RED (stale/false annotation)
+#   * parsed but not declared  -> RED (the route silently gained params)
+#
+# Structs are keyed by `(defining_file, name)` because several modules define a
+# same-named `QueryParams`/`QueryLimit`; resolution mirrors `lookup_fn`
+# (same-file first, then a globally unique definition).
+
+_STRUCT_HEAD = re.compile(r"\bstruct\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:<[^>{}]*>)?\s*\{")
+_SERDE_RENAME_ASSIGN = re.compile(r'rename\s*=\s*"([^"]+)"')
+_SERDE_RENAME_FN = re.compile(r'rename\s*\(\s*(?:deserialize\s*=\s*)?"([^"]+)"')
+_SERDE_ALIAS = re.compile(r'alias\s*=\s*"([^"]+)"')
+_SERDE_RENAME_ALL = re.compile(r'rename_all(?:_deserialize)?\s*=\s*"([^"]+)"')
+_FIELD_NAME = re.compile(r"^(?:pub(?:\s*\([^)]*\))?\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*:")
+_SERDE_SKIP = re.compile(r"(?:^|[(,\s])(skip|skip_deserializing)(?=[,)\s])")
+_QUERY_HEAD = re.compile(r"\bQuery\s*<")
+
+
+def _apply_rename_all(name: str, rule: str) -> str:
+    """Apply a serde `rename_all = "..."` rule to a snake_case field name."""
+    parts = [p for p in name.split("_") if p]
+    if rule == "lowercase":
+        return name.lower()
+    if rule == "UPPERCASE":
+        return name.upper()
+    if rule == "camelCase":
+        return parts[0] + "".join(p[:1].upper() + p[1:] for p in parts[1:]) if parts else name
+    if rule == "PascalCase":
+        return "".join(p[:1].upper() + p[1:] for p in parts) if parts else name
+    if rule == "kebab-case":
+        return name.replace("_", "-")
+    return name
+
+
+def _attrs_before(src: str, pos: int) -> list:
+    """Outer attributes (`#[...]`) immediately preceding `pos`, in order.
+
+    Needed for the container-level `#[serde(rename_all = ...)]`, which sits
+    before `struct`, not inside its body.
+    """
+    attrs: list = []
+    i = pos
+    while True:
+        j = i
+        while j > 0 and src[j - 1] in " \t\r\n":
+            j -= 1
+        if j == 0 or src[j - 1] != "]":
+            return attrs
+        depth, k = 0, j - 1
+        while k >= 0:
+            if src[k] == "]":
+                depth += 1
+            elif src[k] == "[":
+                depth -= 1
+                if depth == 0:
+                    break
+            k -= 1
+        if k < 1 or src[k - 1] != "#":
+            return attrs
+        attrs.insert(0, src[k + 1 : j - 1])
+        i = k - 1
+
+
+def _split_attrs(chunk: str) -> tuple:
+    """Split leading `#[...]` attributes off a struct field/body fragment."""
+    attrs: list = []
+    rest = chunk.lstrip()
+    while rest.startswith("#["):
+        end = match_delim(rest, 1)
+        if end == -1:
+            break
+        attrs.append(rest[2:end])
+        rest = rest[end + 1 :].lstrip()
+    return attrs, rest
+
+
+def parse_struct_fields(src: str) -> dict:
+    """`{struct_name: [accepted-wire-name, ...]}` for every braced struct.
+
+    A field's accepted wire names are its `#[serde(rename = "...")]` value (or
+    the field name, after a container `rename_all`), plus every
+    `#[serde(alias = "...")]`. `#[serde(skip)]` fields are dropped: serde never
+    reads them from the query string.
+    """
+    out: dict = {}
+    for m in _STRUCT_HEAD.finditer(src):
+        name = m.group(1)
+        brace = m.end() - 1
+        end = match_delim(src, brace)
+        if end == -1:
+            continue
+        struct_rename_all = None
+        for a in _attrs_before(src, m.start()):
+            rm = _SERDE_RENAME_ALL.search(a)
+            if rm:
+                struct_rename_all = rm.group(1)
+        names: list = []
+        for chunk in split_top_level(src[brace + 1 : end], ","):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            fattrs, rest = _split_attrs(chunk)
+            serde_attrs = [a for a in fattrs if a.strip().startswith("serde")]
+            if any(_SERDE_SKIP.search(a) for a in serde_attrs):
+                continue
+            fm = _FIELD_NAME.match(rest)
+            if not fm:
+                continue
+            field = fm.group(1)
+            rename = None
+            aliases: list = []
+            for a in serde_attrs:
+                rm = _SERDE_RENAME_ASSIGN.search(a)
+                if rm is None:
+                    rm = _SERDE_RENAME_FN.search(a)
+                if rm:
+                    rename = rm.group(1)
+                aliases.extend(_SERDE_ALIAS.findall(a))
+            wire = rename or (
+                _apply_rename_all(field, struct_rename_all)
+                if struct_rename_all
+                else field
+            )
+            for n in [wire] + aliases:
+                if n and n not in names:
+                    names.append(n)
+        # a same-file duplicate definition would make resolution ambiguous;
+        # keep both so the resolver can refuse rather than silently pick one.
+        if name in out and out[name] != names:
+            out[name] = None
+        else:
+            out[name] = names
+    return out
+
+
+def _match_angle(text: str, start: int) -> int:
+    """Index of the `>` matching the `<` at `start`, or -1."""
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == "<":
+            depth += 1
+        elif text[i] == ">":
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
+
+
+def query_extractor_types(params: str) -> list:
+    """Every `Query<T>` type argument in a function signature, in order.
+
+    Handles nested generics (`Query<HashMap<String, String>>`) by matching
+    angle brackets, which a `[^>]*` regex cannot.
+    """
+    out: list = []
+    for m in _QUERY_HEAD.finditer(params):
+        lt = params.index("<", m.start())
+        gt = _match_angle(params, lt)
+        if gt != -1:
+            out.append(params[lt + 1 : gt].strip())
+    return out
+
+
+def bare_type_name(text: str) -> str:
+    """`crate::a::Foo<T>` -> `Foo`; a non-path type yields the text verbatim."""
+    t = text.strip()
+    if not re.fullmatch(r"(?:[A-Za-z_][A-Za-z0-9_]*::)*[A-Za-z_][A-Za-z0-9_]*", t):
+        return t
+    return t.split("::")[-1]
+
+
+# Manual / dynamically-typed extractors carry no field list to compare against.
+_NON_STRUCT_QUERY_TYPES = frozenset(
+    {
+        "Value",
+        "serde_json::Value",
+        "String",
+        "HashMap",
+        "BTreeMap",
+        "Vec",
+        "Json",
+        "RawQuery",
+    }
+)
+
+
+def _is_dynamic_query_type(text: str) -> bool:
+    if text in _NON_STRUCT_QUERY_TYPES:
+        return True
+    base = bare_type_name(text)
+    return base in _NON_STRUCT_QUERY_TYPES
+
+
+_USE_RE = re.compile(r"(?:pub(?:\s*\([^)]*\))?\s+)?use\s+([^;]+);")
+
+
+def parse_use_tree(text: str, prefix=None) -> list:
+    """Expand a `use` tree into `[(module_parts, name, alias), ...]`.
+
+    `use a::b::{c, d::e as f};` -> `[(["a","b"], "c", "c"), (["a","b","d"], "e", "f")]`.
+    A glob yields `name == "*"`. `module_parts` includes the path *above* the
+    imported leaf, so the leaf can be resolved in that module.
+    """
+    prefix = list(prefix or [])
+    text = text.strip()
+    if not text:
+        return []
+    if "{" in text:
+        head = text[: text.index("{")]
+        close = match_delim(text, text.index("{"))
+        if close == -1:
+            return []
+        inner = text[text.index("{") + 1 : close]
+        sub_prefix = prefix + [p for p in head.split("::") if p]
+        out: list = []
+        for part in split_top_level(inner, ","):
+            out.extend(parse_use_tree(part, sub_prefix))
+        return out
+    alias = None
+    m = re.fullmatch(r"(.*?)\s+as\s+([A-Za-z_][A-Za-z0-9_]*)", text)
+    if m:
+        text, alias = m.group(1).strip(), m.group(2)
+    parts = [p for p in text.split("::") if p]
+    if not parts:
+        return []
+    name = parts[-1]
+    if name == "*":
+        return [(prefix + parts[:-1], "*", None)]
+    return [(prefix + parts[:-1], name, alias or name)]
+
 
 
 # --------------------------------------------------------------------------
@@ -688,6 +949,38 @@ def load_ledger_origins() -> list:
     return table
 
 
+_QUERY_PARAM_NAME = re.compile(r"[A-Za-z0-9_.-]+")
+
+
+def parse_query_param_list(value: str, where: str) -> list:
+    """Validate one `query_params=a,b,c` value and return its sorted names.
+
+    Hard `SystemExit` on every malformed shape (empty value, empty name,
+    leading/trailing comma, a character outside `[A-Za-z0-9_.-]`, a duplicate, or
+    an unsorted list). A silent no-op here would let the reverse guard compare
+    against a garbage baseline, which is the exact failure 铁律 8 is about.
+    """
+    if not value:
+        raise SystemExit(f"{where}: query_params must not be empty")
+    if value.startswith(",") or value.endswith(","):
+        raise SystemExit(f"{where}: query_params has a leading/trailing comma: {value!r}")
+    names = value.split(",")
+    for name in names:
+        if not name or not _QUERY_PARAM_NAME.fullmatch(name):
+            raise SystemExit(
+                f"{where}: query_params name {name!r} is not a non-empty "
+                f"[A-Za-z0-9_.-]+ token (value {value!r})"
+            )
+    if len(set(names)) != len(names):
+        raise SystemExit(f"{where}: query_params has duplicate names: {value!r}")
+    if names != sorted(names):
+        raise SystemExit(
+            f"{where}: query_params must be sorted and comma-joined with no spaces: "
+            f"{value!r} should be {','.join(sorted(names))!r}"
+        )
+    return names
+
+
 def load_ledger_annotations() -> dict:
     """`{(METHOD, path): {key: value}}` from `ledger_annotations.txt`.
 
@@ -703,8 +996,10 @@ def load_ledger_annotations() -> dict:
     * `auth` — serialized into `LedgerEntryJson::auth` and read by the SDK
       contract-sync, so both fixture lanes are an independent oracle (see
       `check_annotation_fidelity`).
-    * `query_params` — 0 routes today; supported so reintroducing one is a
-      new line here rather than a forgotten builder call.
+    * `query_params` — the axum `Query<Struct>` wire names the handler parses.
+      Validated as a sorted, comma-joined, duplicate-free list and cross-checked
+      against the handler source and the fixtures (see
+      `check_annotation_fidelity`).
 
     Format: `METHOD PATH<TAB>key=value [key=value ...]`, exactly one tab.
     Unknown keys / bad booleans / tab-in-path / conflicting duplicates all
@@ -748,6 +1043,11 @@ def load_ledger_annotations() -> dict:
                             f"{LEDGER_ANNOTATIONS}:{lineno}: rate_limit_exempt must be true|false, got {value!r}"
                         )
                     row[key] = value == "true"
+                elif key == "query_params":
+                    names = parse_query_param_list(
+                        value, f"{LEDGER_ANNOTATIONS}:{lineno}"
+                    )
+                    row[key] = ",".join(names)
                 else:
                     row[key] = value
             addr = (method, path)
@@ -768,25 +1068,138 @@ def load_ledger_annotations() -> dict:
 # the generated table's own test; the behavioural cross-check is the Rust
 # golden test `route_ledger::tests::rate_limit_exempt_surface_matches_ledger`.
 EXPECTED_ANNOTATIONS = {
+    ("DELETE", "/_matrix/client/v1/room_keys/keys"): {"query_params": "version"},
+    ("DELETE", "/_matrix/client/v1/room_keys/keys/{room_id}"): {"query_params": "version"},
+    ("DELETE", "/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}"): {"query_params": "version"},
+    ("DELETE", "/_matrix/client/v3/room_keys/keys"): {"query_params": "version"},
+    ("DELETE", "/_matrix/client/v3/room_keys/keys/{room_id}"): {"query_params": "version"},
+    ("DELETE", "/_matrix/client/v3/room_keys/keys/{room_id}/{session_id}"): {"query_params": "version"},
+    ("GET", "/_matrix/admin/v1/external_services"): {"query_params": "service_type"},
+    ("GET", "/_matrix/client/unstable/org.matrix.msc4155/rooms/{room_id}/threads"): {"query_params": "from,include_all,limit"},
+    ("GET", "/_matrix/client/unstable/org.matrix.msc4156/threads/subscribed"): {"query_params": "from,include_all,limit"},
+    ("GET", "/_matrix/client/v1/friends"): {"query_params": "from,limit,offset,sort_by"},
+    ("GET", "/_matrix/client/v1/friends/search"): {"query_params": "limit,mode,q,query"},
+    ("GET", "/_matrix/client/v1/friends/suggestions"): {"query_params": "limit"},
+    ("GET", "/_matrix/client/v1/room_keys/keys"): {"query_params": "version"},
+    ("GET", "/_matrix/client/v1/room_keys/keys/{room_id}"): {"query_params": "version"},
+    ("GET", "/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}"): {"query_params": "version"},
+    ("GET", "/_matrix/client/v1/room_keys/request"): {"query_params": "from,limit,room_id,session_id,status"},
+    ("GET", "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}"): {"query_params": "dir,from,limit,to"},
+    ("GET", "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}"): {"query_params": "dir,from,limit,to"},
+    ("GET", "/_matrix/client/v1/rooms/{room_id}/threads"): {"query_params": "from,include_all,limit"},
+    ("GET", "/_matrix/client/v1/rooms/{room_id}/threads/search"): {"query_params": "limit,q"},
+    ("GET", "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}"): {"query_params": "include_replies,reply_limit"},
+    ("GET", "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies"): {"query_params": "from,include_all,limit"},
+    ("GET", "/_matrix/client/v1/spaces/public"): {"query_params": "from,limit"},
+    ("GET", "/_matrix/client/v1/spaces/search"): {"query_params": "limit,query,search_term"},
+    ("GET", "/_matrix/client/v1/spaces/statistics"): {"query_params": "limit"},
+    ("GET", "/_matrix/client/v1/spaces/{space_id}/hierarchy"): {"query_params": "max_depth"},
+    ("GET", "/_matrix/client/v1/spaces/{space_id}/hierarchy/v1"): {"query_params": "from,limit,max_depth,suggested_only"},
+    ("GET", "/_matrix/client/v1/spaces/{space_id}/members"): {"query_params": "from,limit"},
+    ("GET", "/_matrix/client/v1/spaces/{space_id}/rooms"): {"query_params": "from,limit"},
+    ("GET", "/_matrix/client/v1/threads"): {"query_params": "from,include_all,limit"},
+    ("GET", "/_matrix/client/v1/threads/subscribed"): {"query_params": "from,include_all,limit"},
+    ("GET", "/_matrix/client/v3/appservice/alias"): {"query_params": "alias"},
+    ("GET", "/_matrix/client/v3/appservice/user"): {"query_params": "user_id"},
+    ("GET", "/_matrix/client/v3/friends"): {"query_params": "from,limit,offset,sort_by"},
+    ("GET", "/_matrix/client/v3/friends/search"): {"query_params": "limit,mode,q,query"},
+    ("GET", "/_matrix/client/v3/keys/history"): {"query_params": "from,limit"},
+    ("GET", "/_matrix/client/v3/login/saml/callback"): {"query_params": "RelayState,SAMLRequest,SAMLResponse,relay_state,saml_request,saml_response"},
+    ("GET", "/_matrix/client/v3/login/sso/redirect"): {"query_params": "redirectUrl,redirect_url"},
+    ("GET", "/_matrix/client/v3/login/sso/redirect/cas"): {"query_params": "redirect_after"},
+    ("GET", "/_matrix/client/v3/login/sso/redirect/saml"): {"query_params": "redirectUrl,redirect_url"},
+    ("GET", "/_matrix/client/v3/logout/saml/callback"): {"query_params": "RelayState,SAMLRequest,SAMLResponse,relay_state,saml_request,saml_response"},
+    ("GET", "/_matrix/client/v3/oidc/authorize"): {"query_params": "client_id,nonce,redirect_uri,response_type,scope,state"},
+    ("GET", "/_matrix/client/v3/oidc/callback"): {"query_params": "code,error,error_description,state"},
+    ("GET", "/_matrix/client/v3/register/captcha/status"): {"query_params": "captcha_id"},
+    ("GET", "/_matrix/client/v3/room_keys/keys"): {"query_params": "version"},
+    ("GET", "/_matrix/client/v3/room_keys/keys/{room_id}"): {"query_params": "version"},
+    ("GET", "/_matrix/client/v3/room_keys/keys/{room_id}/{session_id}"): {"query_params": "version"},
+    ("GET", "/_matrix/client/v3/room_keys/request"): {"query_params": "from,limit,room_id,session_id,status"},
+    ("GET", "/_matrix/client/v3/rooms/{room_id}/ephemeral"): {"query_params": "limit"},
+    ("GET", "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}"): {"query_params": "dir,from,limit,to"},
+    ("GET", "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}"): {"query_params": "dir,from,limit,to"},
+    ("GET", "/_matrix/client/v3/rooms/{room_id}/sync"): {"query_params": "full_state,since,timeout"},
+    ("GET", "/_matrix/client/v3/spaces/public"): {"query_params": "from,limit"},
+    ("GET", "/_matrix/client/v3/spaces/search"): {"query_params": "limit,query,search_term"},
+    ("GET", "/_matrix/client/v3/spaces/statistics"): {"query_params": "limit"},
+    ("GET", "/_matrix/client/v3/spaces/{space_id}/hierarchy"): {"query_params": "max_depth"},
+    ("GET", "/_matrix/client/v3/spaces/{space_id}/hierarchy/v1"): {"query_params": "from,limit,max_depth,suggested_only"},
+    ("GET", "/_matrix/client/v3/spaces/{space_id}/members"): {"query_params": "from,limit"},
+    ("GET", "/_matrix/client/v3/spaces/{space_id}/rooms"): {"query_params": "from,limit"},
     ("GET", "/_matrix/client/v3/sync"): {"rate_limit_exempt": True},
-    ("POST", "/_matrix/client/v1/sync"): {"rate_limit_exempt": True},
-    ("POST", "/_matrix/client/v4/sync"): {"rate_limit_exempt": True},
-    ("POST", "/_matrix/client/unstable/org.matrix.msc3575/sync"): {
-        "rate_limit_exempt": True
-    },
-    ("POST", "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"): {
-        "rate_limit_exempt": True
-    },
-    ("POST", "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}"): {
-        "auth": "user"
-    },
+    ("GET", "/_matrix/client/v3/thirdparty/location"): {"query_params": "alias,channel,search,server"},
+    ("GET", "/_matrix/client/v3/thirdparty/location/{protocol}"): {"query_params": "alias,channel,search,server"},
+    ("GET", "/_matrix/client/v3/thirdparty/user"): {"query_params": "nickname,search,server,userid"},
+    ("GET", "/_matrix/client/v3/thirdparty/user/{protocol}"): {"query_params": "nickname,search,server,userid"},
+    ("GET", "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads"): {"query_params": "from,include_all,limit"},
+    ("GET", "/_matrix/client/v3/voice/room/{room_id}"): {"query_params": "from,limit"},
+    ("GET", "/_matrix/client/v3/voice/user/{user_id}"): {"query_params": "from,limit"},
+    ("GET", "/_matrix/federation/v1/hierarchy/{room_id}"): {"query_params": "from,limit,max_depth,suggested_only"},
+    ("GET", "/_matrix/federation/v1/query/profile"): {"query_params": "field,user_id"},
+    ("GET", "/_matrix/federation/v1/query/profile/{user_id}"): {"query_params": "field"},
+    ("GET", "/_matrix/federation/v1/state/{room_id}"): {"query_params": "event_id"},
+    ("GET", "/_matrix/federation/v1/state_ids/{room_id}"): {"query_params": "event_id"},
+    ("GET", "/_matrix/vendor/v1/friends"): {"query_params": "from,limit,offset,sort_by"},
+    ("GET", "/_matrix/vendor/v1/friends/search"): {"query_params": "limit,mode,q,query"},
+    ("GET", "/_matrix/vendor/v1/friends/suggestions"): {"query_params": "limit"},
+    ("GET", "/_matrix/vendor/v1/voice/room/{room_id}"): {"query_params": "from,limit"},
+    ("GET", "/_matrix/vendor/v1/voice/user/{user_id}"): {"query_params": "from,limit"},
+    ("GET", "/_synapse/admin/v1/appservices/query/alias"): {"query_params": "alias"},
+    ("GET", "/_synapse/admin/v1/appservices/query/user"): {"query_params": "user_id"},
+    ("GET", "/_synapse/admin/v1/appservices/{as_id}/events"): {"query_params": "limit"},
+    ("GET", "/_synapse/admin/v1/audit/events"): {"query_params": "action,actor_id,from,limit,resource_id,resource_type,result"},
+    ("GET", "/_synapse/admin/v1/background_updates"): {"query_params": "from,limit"},
+    ("GET", "/_synapse/admin/v1/background_updates/stats"): {"query_params": "from,limit"},
+    ("GET", "/_synapse/admin/v1/background_updates/{job_name}/history"): {"query_params": "from,limit"},
+    ("GET", "/_synapse/admin/v1/event_reports"): {"query_params": "limit,since_id,since_score,since_ts"},
+    ("GET", "/_synapse/admin/v1/event_reports/reporter/{reporter_user_id}"): {"query_params": "limit,since_id,since_score,since_ts"},
+    ("GET", "/_synapse/admin/v1/event_reports/room/{room_id}"): {"query_params": "limit,since_id,since_score,since_ts"},
+    ("GET", "/_synapse/admin/v1/event_reports/status/{status}"): {"query_params": "limit,since_id,since_score,since_ts"},
+    ("GET", "/_synapse/admin/v1/external_services"): {"query_params": "service_type"},
+    ("GET", "/_synapse/admin/v1/feature-flags"): {"query_params": "from,limit,status,target_scope"},
+    ("GET", "/_synapse/admin/v1/federation/blacklist"): {"query_params": "from,limit"},
+    ("GET", "/_synapse/admin/v1/federation/destinations"): {"query_params": "from,limit,offset"},
+    ("GET", "/_synapse/admin/v1/federation/pending"): {"query_params": "from,limit"},
+    ("GET", "/_synapse/admin/v1/modules"): {"query_params": "from,limit"},
+    ("GET", "/_synapse/admin/v1/modules/logs/{module_name}"): {"query_params": "limit"},
+    ("GET", "/_synapse/admin/v1/modules/spam_check/sender/{sender}"): {"query_params": "limit"},
+    ("GET", "/_synapse/admin/v1/notifications"): {"query_params": "audience,from,limit"},
+    ("GET", "/_synapse/admin/v1/registration_tokens"): {"query_params": "from,limit"},
+    ("GET", "/_synapse/admin/v1/rooms/search"): {"query_params": "from,is_encrypted,is_public,limit,offset,order_by,search_term"},
+    ("GET", "/_synapse/admin/v1/rooms/{room_id}/token_sync"): {"query_params": "from,limit,offset"},
+    ("GET", "/_synapse/admin/v1/saml/mappings"): {"query_params": "from,limit"},
+    ("GET", "/_synapse/admin/v1/server_notices"): {"query_params": "from,limit"},
+    ("GET", "/_synapse/admin/v1/telemetry/alerts"): {"query_params": "refresh,severity,status"},
+    ("GET", "/_synapse/worker/v1/events"): {"query_params": "stream_id"},
+    ("GET", "/_synapse/worker/v1/replication/{worker_id}/position"): {"query_params": "stream_name"},
+    ("GET", "/_synapse/worker/v1/statistics"): {"query_params": "limit"},
+    ("GET", "/_synapse/worker/v1/tasks"): {"query_params": "limit"},
+    ("GET", "/_synapse/worker/v1/workers/{worker_id}/commands"): {"query_params": "limit"},
+    ("POST", "/_matrix/client/unstable/org.matrix.msc3575/sync"): {"rate_limit_exempt": True, "query_params": "pos,timeout,txn_id"},
+    ("POST", "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}"): {"auth": "user"},
+    ("POST", "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"): {"rate_limit_exempt": True, "query_params": "pos,timeout,txn_id"},
+    ("POST", "/_matrix/client/v1/friends/search"): {"query_params": "limit,mode,q,query"},
+    ("POST", "/_matrix/client/v1/sync"): {"rate_limit_exempt": True, "query_params": "pos,timeout,txn_id"},
+    ("POST", "/_matrix/client/v3/friends/search"): {"query_params": "limit,mode,q,query"},
+    ("POST", "/_matrix/client/v4/sync"): {"rate_limit_exempt": True, "query_params": "pos,timeout,txn_id"},
+    ("POST", "/_matrix/vendor/v1/friends/search"): {"query_params": "limit,mode,q,query"},
+    ("POST", "/_synapse/admin/v1/push/cleanup"): {"query_params": "days"},
+    ("POST", "/_synapse/admin/v1/push/process"): {"query_params": "batch_size"},
+    ("POST", "/_synapse/room_summary/v1/updates/process"): {"query_params": "limit"},
+    ("PUT", "/_matrix/client/v1/room_keys/keys"): {"query_params": "version"},
+    ("PUT", "/_matrix/client/v1/room_keys/keys/{room_id}"): {"query_params": "version"},
+    ("PUT", "/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}"): {"query_params": "version"},
+    ("PUT", "/_matrix/client/v3/room_keys/keys"): {"query_params": "version"},
+    ("PUT", "/_matrix/client/v3/room_keys/keys/{room_id}"): {"query_params": "version"},
+    ("PUT", "/_matrix/client/v3/room_keys/keys/{room_id}/{session_id}"): {"query_params": "version"},
 }
 
 
-def check_annotation_fidelity() -> list:
+def check_annotation_fidelity(res=None) -> list:
     """Return a list of failure strings (empty == green).
 
-    Three layers, each with an independent source of truth:
+    Five layers, each with an independent source of truth:
 
     * shape vs `EXPECTED_ANNOTATIONS` — the table must equal the pinned rows
       exactly (a dropped or extra line fails here, not silently).
@@ -798,6 +1211,14 @@ def check_annotation_fidelity() -> list:
       catches a table row that outlived its `with_rate_limit_exempt(true)`
       site; the reverse drift — a new exempt route missing from the table — is
       caught by the Rust golden test, which reads the computed ledger.
+    * `query_params` <-> the committed ledger fixtures — the same independent
+      oracle as `auth`, for the field the generator now emits.
+    * `query_params` <-> the handler source (the reverse guard). For every route
+      the declared set must equal the wire names of the `Query<Struct>` the
+      resolved handler deserializes: declared-but-unparsed and
+      parsed-but-undeclared both fail. `res` is the already-evaluated resolver;
+      when omitted a fresh union resolver is built (the handler map is only
+      populated by an evaluation pass).
     """
     failures: list = []
     annotations = load_ledger_annotations()
@@ -864,6 +1285,95 @@ def check_annotation_fidelity() -> list:
                 f"rate_limit_exempt path {p!r} is not present in any manifest source — stale row?"
             )
 
+    # layer 4: query_params <-> fixtures, both directions. The fixtures are the
+    # serialized output of the *real* Rust assembly, so this is what proves the
+    # generator actually emitted `.with_query_params(&[...])` rather than the
+    # annotation table merely claiming it.
+    annotated_query = {
+        (m, p): row["query_params"].split(",")
+        for (m, p), row in annotations.items()
+        if row.get("query_params")
+    }
+    fixture_query: dict = {}
+    fixture_conflicts: list = []
+    query_fixtures_seen = 0
+    for lane in ("ledger_export", "ledger_export_sdk"):
+        for prof in ("default", "worker", "all"):
+            fp = os.path.join(ROOT, "tests", "unit", "fixtures", lane, f"{prof}.json")
+            if not os.path.exists(fp):
+                continue
+            query_fixtures_seen += 1
+            with open(fp) as fh:
+                for entry in json.load(fh)["entries"]:
+                    key = (entry["method"], entry["path"])
+                    names = sorted(entry.get("query_params") or [])
+                    prev = fixture_query.get(key)
+                    if prev is not None and prev != names and (prev or names):
+                        fixture_conflicts.append(
+                            f"{lane}/{prof}: {key[0]} {key[1]} query_params {prev} != {names}"
+                        )
+                    if names:
+                        fixture_query[key] = names
+    if fixture_conflicts:
+        failures.append(
+            "fixtures disagree on `query_params` for the same route: "
+            + "; ".join(sorted(set(fixture_conflicts))[:10])
+        )
+    if query_fixtures_seen:
+        missing = sorted(set(fixture_query) - set(annotated_query))
+        extra = sorted(set(annotated_query) - set(fixture_query))
+        changed = sorted(
+            k
+            for k in set(annotated_query) & set(fixture_query)
+            if annotated_query[k] != fixture_query[k]
+        )
+        if missing:
+            failures.append(
+                f"ledger_annotations.txt is missing `query_params` the fixtures carry: {missing[:10]}"
+            )
+        if extra:
+            failures.append(
+                f"ledger_annotations.txt declares `query_params` no fixture carries: {extra[:10]}"
+            )
+        if changed:
+            failures.append(
+                "ledger_annotations.txt `query_params` disagree with the fixtures: "
+                + "; ".join(
+                    f"{m} {p}: table {annotated_query[(m, p)]} != fixture {fixture_query[(m, p)]}"
+                    for m, p in changed[:10]
+                )
+            )
+
+    # layer 5: query_params <-> the handler source — the reverse guard. This is
+    # the only layer that catches a *new* `Query<Struct>` on a route nobody
+    # annotated, and the only one that catches an annotation whose handler no
+    # longer parses a declared name.
+    guard_res = res
+    if guard_res is None:
+        guard_res = Resolver(load_sources())
+    routes = guard_res.all_routes()
+    parsed: dict = {}
+    for key in sorted(routes):
+        status, fields = guard_res.handler_query_fields(key[0], key[1])
+        if status == "ok" and fields:
+            parsed[key] = fields
+    for key in sorted(annotated_query):
+        if key not in parsed:
+            failures.append(
+                f"query_params declared for {key[0]} {key[1]} but its handler has no "
+                f"unambiguous `Query<Struct>` (manual/Value parse, or unresolvable handler)"
+            )
+        elif parsed[key] != sorted(annotated_query[key]):
+            failures.append(
+                f"query_params mismatch for {key[0]} {key[1]}: annotation declares "
+                f"{sorted(annotated_query[key])}, handler parses {parsed[key]}"
+            )
+    for key in sorted(set(parsed) - set(annotated_query)):
+        failures.append(
+            f"{key[0]} {key[1]} parses query params {parsed[key]} but "
+            f"ledger_annotations.txt declares none"
+        )
+
     return failures
 
 
@@ -876,6 +1386,25 @@ def check_annotation_fidelity() -> list:
 
 _RE_TUPLE = re.compile(r"\(\s*(?:axum::http::)?Method::([A-Za-z]+)\s*,\s*\"([^\"]*)\"")
 _RE_STR = re.compile(r'"([^"]*)"')
+
+
+class Route(tuple):
+    """A `(method, path, owner_file)` triple plus the handler fn it names.
+
+    Every existing consumer unpacks three values, so this stays a plain
+    three-element `tuple` subclass; the handler is extra metadata carried in
+    `.handler` for the query-param reverse guard. It has to ride on the route
+    itself (not a `(method, path) -> handler` side table): `nest` /
+    `expand_under_prefixes` rebuild the absolute path from a *relative* one, and
+    two routers can register the same relative path with different handlers, so
+    a path-keyed map conflates them. A tuple subclass keeps every existing
+    unpack site working unchanged.
+    """
+
+    def __new__(cls, method, path, owner, handler=None):
+        self = super().__new__(cls, (method, path, owner))
+        self.handler = handler
+        return self
 
 
 def parse_chain(expr: str):
@@ -977,27 +1506,45 @@ class Resolver:
         # one place (`resolve_label`), so the label stays policy and the fact stays
         # derived.
         self.registrars: dict[tuple[str, str], set] = defaultdict(set)
+        # `(method, path) -> {(owner_file, handler_fn_name)}`: the handler
+        # expression each `.route(p, get(h))` names. Like `registrars` this is
+        # recorded at creation on the *relative* path and propagated across
+        # `nest` / `expand_under_prefixes` by `_inherit_registrars`. It is the
+        # input to the query-param reverse guard (see `handler_query_fields`).
+        self.handlers: dict[tuple[str, str], set] = defaultdict(set)
         self._current_fn = ""
         self._current_owner = ""
         # `self.fn_all` keeps every definition distinct. Keying by
         # `(file, name)` would collide: `route_module.rs` defines 11 separate
         # `merge_into` methods, and collapsing them loses 10 modules' routes.
         self.fn_all: list[tuple[str, str, str]] = []  # (file, name, body)
+        # `(file, name) -> [parameter-list, ...]`, parallel to `fn_all`. Only the
+        # signature is retained (not the body), so a handler's `Query<Struct>`
+        # extractor can be read without a second source scan.
+        self.fn_sigs: dict[tuple[str, str], list[str]] = defaultdict(list)
+        # `(file, struct_name) -> [accepted wire names]`; the value is `None`
+        # when a file defines the same struct name twice with different fields.
+        self.query_structs: dict[tuple[str, str], list] = {}
         self.consts: dict[str, list[tuple[str, str]]] = defaultdict(list)
         for rel, src in files.items():
-            for name, body, preds in iter_fns(src):
+            for name, params, body, preds in iter_fn_defs(src):
                 # A definition that cannot compile in this lane is not callable
                 # here; keeping it would let a `#[cfg(feature = "saml-sso")] impl`
                 # leak its routes into the default-feature lane.
                 if not cfg_all_allow(preds, features):
                     continue
                 self.fn_all.append((rel, name, body))
+                self.fn_sigs[(rel, name)].append(params)
+            for sname, names in parse_struct_fields(src).items():
+                self.query_structs[(rel, sname)] = names
             for name, val in iter_consts(src):
                 self.consts[name].append((rel, val))
         self.fn_defs: dict[str, list[tuple[str, str]]] = defaultdict(list)
         for rel, name, body in self.fn_all:
             self.fn_defs[name].append((rel, name, body))
         self.unresolved: set[str] = set()
+        # Whole-tree `{file: {name: {defining_file}}}` visibility map memo.
+        self._visible_all: dict | None = None
         # Memo key is the *content* of the definition, not `id(body)`.
         # `id()` is reused once a temporary string is collected, so an
         # id-keyed cache can hand a fresh block body a stale `[]` result —
@@ -1120,7 +1667,10 @@ class Resolver:
         return ("routes", acc)
 
     def _tuples(self, t: str, owner: str) -> list:
-        out = [(m.group(1).upper(), m.group(2), owner) for m in _RE_TUPLE.finditer(t)]
+        out = [
+            Route(m.group(1).upper(), m.group(2), owner)
+            for m in _RE_TUPLE.finditer(t)
+        ]
         self._record_guards(out)
         return out
 
@@ -1137,8 +1687,9 @@ class Resolver:
         routes = sub[1] if sub[0] == "routes" else []
         out = []
         for pfx in prefixes:
-            for meth, path, own in routes:
-                out.append((meth, pfx + path, own))
+            for r in routes:
+                meth, path, own = r
+                out.append(Route(meth, pfx + path, own, getattr(r, "handler", None)))
         self._record_guards(out, tag_registrar=False)
         self._inherit_registrars(out, routes)
         return out
@@ -1402,10 +1953,12 @@ class Resolver:
                 self.unresolved.add(f"non-literal route path in {owner}")
                 return acc
             path = pm.group(1)
-            methods = self._methods_of(parts[1] if len(parts) > 1 else "")
+            handler_expr = parts[1] if len(parts) > 1 else ""
+            methods = self._methods_of(handler_expr)
             if not methods:
                 self.unresolved.add(f"no method for route {path!r} in {owner}")
-            added = [(m, path, owner) for m in methods]
+            handlers = self._handler_calls(handler_expr)
+            added = [Route(m, path, owner, handlers.get(m)) for m in methods]
             self._record_guards(added)
             return acc + added
 
@@ -1424,7 +1977,10 @@ class Resolver:
                 self.unresolved.add(
                     f"nest {prefix} -> unresolved {parts[1].strip()[:60]} in {owner}"
                 )
-            added = [(meth, prefix + path, own) for (meth, path, own) in subs]
+            added = []
+            for r in subs:
+                meth, path, own = r
+                added.append(Route(meth, prefix + path, own, getattr(r, "handler", None)))
             self._record_guards(added, tag_registrar=False)
             self._inherit_registrars(added, subs)
             return acc + added
@@ -1490,6 +2046,32 @@ class Resolver:
                 found.append(m.group(1))
         return [f.upper() for f in found]
 
+    @staticmethod
+    def _handler_calls(text: str) -> dict:
+        """`{METHOD: handler_path}` for a `get(a).put(b)` handler expression.
+
+        `handler_path` keeps any module qualifier (`events::get_state`), because
+        dropping it cannot distinguish two same-named handlers in one file. The
+        argument must be a bare (possibly qualified) function path for the
+        *reverse query guard* to resolve it; a closure, `any()`, or a method
+        call yields `None` and the route is left unverifiable rather than
+        guessed at.
+        """
+        out: dict = {}
+        for m in re.finditer(r"(?:^|[.:\s(])([a-z]+)\s*\(", text):
+            meth = m.group(1)
+            if meth not in HTTP_METHODS_SET or meth.upper() in out:
+                continue
+            open_idx = text.index("(", m.end() - 1)
+            close = match_delim(text, open_idx)
+            arg = text[open_idx + 1 : close].strip() if close != -1 else ""
+            arg = split_top_level(arg)[0].strip() if arg else ""
+            if re.fullmatch(r"(?:[A-Za-z_][A-Za-z0-9_]*::)*[A-Za-z_][A-Za-z0-9_]*", arg):
+                out[meth.upper()] = arg
+            elif arg:
+                out[meth.upper()] = None
+        return out
+
     # -- roots -------------------------------------------------------------
 
     def resolve_def(self, name: str, owner: str):
@@ -1506,6 +2088,228 @@ class Resolver:
             return same[0]
         if len(ids) == 1:
             return ids[0]
+        return None
+
+    # -- handler resolution across `use` re-exports -------------------------
+
+    @staticmethod
+    def _module_path_of(file: str) -> list[str]:
+        """`handlers/room/events.rs` -> `["handlers","room","events"]`."""
+        rel = file[:-3] if file.endswith(".rs") else file
+        parts = [p for p in rel.split("/") if p]
+        if parts and parts[-1] == "mod":
+            parts.pop()
+        return parts
+
+    def _module_file(self, parts: list, owner_file: str):
+        """Resolve a Rust module path to a route-dir source file, or `None`."""
+        parts = list(parts)
+        if not parts:
+            return None
+        if parts[0] == "crate":
+            parts = parts[1:]
+            if parts and parts[0] == "routes":
+                parts = parts[1:]
+            else:
+                return None  # outside the route tree; no handler there
+        elif parts[0] in ("self", "super"):
+            base = self._module_path_of(owner_file)
+            while parts and parts[0] in ("self", "super"):
+                if parts[0] == "super":
+                    base = base[:-1]
+                parts = parts[1:]
+            parts = base + parts
+        else:
+            # A bare `use handlers::room::…` is a 2018 uniform path: the first
+            # segment resolves to a child module of the current one (or an
+            # extern crate, whose file simply is not in `self.files`, so the
+            # lookup below returns None for `serde::…` and friends).
+            parts = self._module_path_of(owner_file) + parts
+        rel = "/".join(parts)
+        for cand in ([rel + ".rs"] if rel else []) + [rel + "/mod.rs" if rel else "mod.rs"]:
+            if cand in self.files:
+                return cand
+        return None
+
+    def _visible_names(self, file: str) -> dict:
+        """`{name: {defining_file}}` visible at `file`, following `use` re-exports.
+
+        Covers both `fn` names (handler resolution) and `struct` names (query
+        struct resolution), because a `pub(crate) use events::*` re-exports both
+        and a handler can import its `Query<Struct>` from a sibling module
+        (`space/types.rs`). Handles the two indirections names actually travel
+        through: a glob re-export in a `mod.rs` and a same-file `use`.
+        External-crate paths are ignored, since only route-dir files define
+        anything here.
+        """
+        return self._visible_names_all().get(file, {})
+
+    def _visible_names_all(self) -> dict:
+        """Whole-tree visibility map, computed as a monotone fixpoint.
+
+        A naive recursive walk cannot answer this: `use a::*` / `use b::*`
+        cycles make the result depend on where the recursion is cut, and caching
+        a truncated result freezes a wrong view (that is how
+        `space/types.rs::SearchQuery` went missing for `space/lifecycle_query.rs`
+        depending on which route was queried first). Propagating name sets along
+        the import edges to a fixpoint is order-independent and cycle-safe.
+        """
+        if self._visible_all is not None:
+            return self._visible_all
+        vis: dict = {f: {} for f in self.files}
+        for rel, name, _body in self.fn_all:
+            vis.setdefault(rel, {}).setdefault(name, set()).add(rel)
+        for (rel, name), _fields in self.query_structs.items():
+            vis.setdefault(rel, {}).setdefault(name, set()).add(rel)
+        edges: list = []
+        for f in self.files:
+            for m in _USE_RE.finditer(self.files.get(f, "")):
+                for module_parts, name, alias in parse_use_tree(m.group(1)):
+                    target = self._module_file(module_parts, f)
+                    if target is not None:
+                        edges.append((f, target, name, alias))
+        changed = True
+        while changed:
+            changed = False
+            for src, target, name, alias in edges:
+                tgt = vis.get(target, {})
+                if name == "*":
+                    for n, files in tgt.items():
+                        if not files <= vis[src].setdefault(n, set()):
+                            vis[src][n] |= files
+                            changed = True
+                elif name in tgt:
+                    if not tgt[name] <= vis[src].setdefault(alias, set()):
+                        vis[src][alias] |= tgt[name]
+                        changed = True
+        self._visible_all = vis
+        return vis
+
+    def resolve_handler_def(self, name: str, owner: str):
+        """Like [`resolve_def`], but follows `use` imports and `mod::fn` paths.
+
+        Kept separate from `resolve_def`: the router-root analysis must not
+        change shape just because a handler import became resolvable, so only
+        the query guard uses the import-aware form.
+        """
+        if "::" in name:
+            module, _, leaf = name.rpartition("::")
+            target = self._module_file(module.split("::"), owner)
+            if target is None:
+                return None
+            ids = [
+                i
+                for i, (f, n, _b) in enumerate(self.fn_all)
+                if n == leaf and f == target
+            ]
+            if len(ids) == 1:
+                return ids[0]
+            # the qualified path may name a `mod.rs` that re-exports the fn
+            files = self._visible_names(target).get(leaf, set())
+            ids = [
+                i
+                for i, (f, n, _b) in enumerate(self.fn_all)
+                if n == leaf and f in files
+            ]
+            return ids[0] if len(ids) == 1 else None
+        ids = [i for i, (f, n, _b) in enumerate(self.fn_all) if n == name]
+        same = [i for i in ids if self.fn_all[i][0] == owner]
+        if len(same) == 1:
+            return same[0]
+        imported_files = self._visible_names(owner).get(name, set())
+        imported = [i for i in ids if self.fn_all[i][0] in imported_files]
+        if len(imported) == 1:
+            return imported[0]
+        if len(same) > 1 or len(imported) > 1:
+            return None
+        if len(ids) == 1:
+            return ids[0]
+        return None
+
+    def all_routes(self) -> set:
+        """Every `(method, path)` the router surface serves, in one union pass.
+
+        Also the pass that populates `handlers`, because the handler fn rides on
+        each [`Route`] and is only known once the roots have been evaluated.
+        The guard must therefore call this before reading `handlers`.
+        """
+        out: set = set()
+        for owner, name, body in self.roots():
+            for r in self.eval_fn_body(name, body, owner, memo_key=(owner, name, body)):
+                meth, path, own = r
+                if not meth or not path:
+                    continue
+                out.add((meth, path))
+                handler = getattr(r, "handler", None)
+                if handler:
+                    self.handlers[(meth, path)].add((own, handler))
+        return out
+
+    def handler_query_fields(self, method: str, path: str):
+        """`(status, fields)` for the query struct a route's handler deserializes.
+
+        status is one of:
+          * `"ok"`       — exactly one handler resolved to a struct `Query<T>`;
+                           `fields` is its sorted accepted-wire-name list
+                           (possibly empty for a fieldless struct).
+          * `"none"`     — the handler resolves and has no `Query<..>` extractor
+                           at all (the route genuinely takes no query params).
+          * `"manual"`   — the handler's only `Query<..>` is dynamically typed
+                           (`Value` / `HashMap<..>`); no field list exists, so
+                           the guard deliberately leaves the route alone.
+          * `"ambiguous"`— two handlers, an unresolved handler name, more than
+                           one `Query<..>` extractor, or a `Query<T>` whose `T`
+                           does not resolve to one struct definition. The guard
+                           fails for annotated routes and skips unannotated ones.
+        """
+        entries = self.handlers.get((method, path), set())
+        if len(entries) != 1:
+            return ("ambiguous", None)
+        owner, handler = next(iter(entries))
+        idx = self.resolve_handler_def(handler, owner)
+        if idx is None:
+            return ("ambiguous", None)
+        file, fname, _body = self.fn_all[idx]
+        sigs = self.fn_sigs.get((file, fname), [])
+        if len(sigs) != 1:
+            return ("ambiguous", None)
+        types = query_extractor_types(sigs[0])
+        if not types:
+            return ("none", None)
+        if len(types) > 1:
+            return ("ambiguous", None)
+        qtype = types[0]
+        if _is_dynamic_query_type(qtype):
+            return ("manual", None)
+        tname = bare_type_name(qtype)
+        fields = self.lookup_struct_fields(tname, file)
+        if fields is None:
+            return ("ambiguous", None)
+        return ("ok", sorted(fields))
+
+    def lookup_struct_fields(self, name: str, owner: str):
+        """Same-file struct, then a `use`-imported one, then a globally unique
+        definition; else `None`.
+
+        Mirrors `resolve_handler_def`. A same-file duplicate definition is stored
+        as `None` by `parse_struct_fields`, which also yields `None` here.
+        """
+        same = self.query_structs.get((owner, name), "__missing__")
+        if same != "__missing__":
+            return same
+        imported_files = self._visible_names(owner).get(name, set())
+        imported = [
+            v
+            for (f, n), v in self.query_structs.items()
+            if n == name and f in imported_files
+        ]
+        if len(imported) == 1:
+            return imported[0]
+        if len(imported) > 1:
+            return None
+        hits = [v for (f, n), v in self.query_structs.items() if n == name]
+        if len(hits) == 1:
+            return hits[0]
         return None
 
     def candidates(self) -> list[int]:
@@ -2073,7 +2877,7 @@ def main() -> int:
         )
     # B2-1 §3.5: the hand-authored annotation table must be complete &
     # self-consistent before any manifest can be deleted on its authority.
-    annotation_failures = check_annotation_fidelity()
+    annotation_failures = check_annotation_fidelity(res)
     if annotation_failures:
         strict_failures.append(
             f"ledger annotations table is not faithful ({len(annotation_failures)} issues): "

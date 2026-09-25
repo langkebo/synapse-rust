@@ -35,7 +35,7 @@
 | `path` | string | 1 | 路由路径（含 `{param}` 占位） |
 | `path_params` | array | 1 | 路径参数名 |
 | `registered_by` | string | 1 | 注册该路由的模块名。**SDK 目前按此字段聚合功能域** |
-| `query_params` | array | **2** | 该路由识别的查询参数 |
+| `query_params` | array | **2** | 该路由 handler 的 axum `Query<Struct>` 抽取器实际解析的线上参数名（排序、去重；含 `#[serde(rename)]`/`alias`）。由 `scripts/contract/ledger_annotations.txt` 声明，`check_annotation_fidelity` 双向守卫（声明≠解析即红） |
 | `auth` | string | 1（可选） | 认证要求：`user` / `admin` / `optional` / `federation` / `none` |
 
 > `module` 字段在**版本 3 已删除**、`status` 字段在**版本 4 已删除** —— 见下节。

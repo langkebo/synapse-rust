@@ -51,8 +51,11 @@
 //! silently stay invisible to the ledger.
 //!
 //! Annotations the `.route()` source cannot express (`rate_limit_exempt`,
-//! `auth`) live in `scripts/contract/ledger_annotations.txt`; `registered_by`
-//! labels live in `scripts/contract/ledger_origins.txt`.
+//! `auth`, `query_params`) live in `scripts/contract/ledger_annotations.txt`;
+//! `registered_by` labels live in `scripts/contract/ledger_origins.txt`.
+//! `query_params` is guarded in both directions against the handler source —
+//! a declared name the handler does not parse fails the route contract gate,
+//! and so does a handler `Query<Struct>` with no annotation.
 //!
 //! Do not merge a new runtime/compile-time gated route that is only wired in
 //! Axum assembly code. If the route surface changes, the ledger, startup log,
