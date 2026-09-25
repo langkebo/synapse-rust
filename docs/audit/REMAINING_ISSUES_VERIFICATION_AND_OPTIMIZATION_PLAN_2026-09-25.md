@@ -1370,6 +1370,27 @@ Task3 (reference hash) —— 仅做可行性验证，不接线
      `"room_version"` 当作**顶层 PDU 字段**写进了被签名的事件 JSON。规范 PDU 无此字段；
      上游签名是"先 redact"，redaction 会把这个未知顶层字段丢掉，因此签名半边改成
      redact 后该字段不再进入签名字节（但也不应再发出去，第 2 步一并清理）。
+
+     **第 2 步目标算法（本轮据 spec 与上游定稿，作为实施与验收依据）**：
+
+     1. 组装 PDU：字段齐全（含 depth/prev_events/auth_events），**不含 `event_id`**
+        （v3+ 的联邦 PDU 无此字段）。依据：spec room v3「Event format」——
+        "When events are sent over federation, the `event_id` field is no longer included.
+        A server receiving an event should compute the relevant event ID for itself."
+        这一步是本仓当前最大的结构性偏差：30 个调用点都是**先**拿到 `event_id` **再**组装。
+     2. `hashes.sha256` = sha256(canonical(第 1 步的 PDU))（✅ 语义已修，见前置②）。
+     3. 签名材料 = `redact_event(room_version, PDU+hashes)` 去掉 `age_ts`/`unsigned`
+        （此时已无 `event_id` 可签）；`signatures` 亦是**签完才写入**。
+     4. `event_id` = `"$"` + unpadded Base64(sha256(canonical(第 3 步材料去掉 `signatures`)))
+        ——即 `event_id::compute_event_id(room_version, PDU_with_hashes)`（第 1 步已实现并冻结向量）。
+     5. 落库时写入第 4 步的 `event_id`；对外发送的 PDU 仍不含该字段。
+
+     ⇒ **推论（必须写进验收）**：前置②只修了第 2 步的语义；只要第 1 步仍带 `event_id`，
+     本仓 v3+ 的 `hashes`/`signatures` **依旧不可能**被对等端复现（因为对等端手里没有该字段）。
+     即"content hash 已对齐"**不等于**"联邦可校验"。唯一正确的落点是 B1 的单写入口
+     `GraphMetadataWriter::create_event`：它已经能拿到房间版本与全量图字段，把 1–4 步连成一条链，
+     并把第 4 步的 id 返回给调用方（30 个调用点改为消费写入口返回的 id，而非自己生成）。
+     同时删掉 `crypto::generate_event_id` 的 v3+ 使用面（v1/v2 保留随机 ID 分支）。
   3. ✅ **v12 语义已裁定（2026-09-26，权威来源）**：**MSC4304 = Room Version 12**，
      以 v11 为基座并纳入 MSC4289（creator 特权）、**MSC4291（room ID = create 事件的哈希）**、
      MSC4297（state res v2.1）、MSC4307（`auth_events` 同房间校验）；
