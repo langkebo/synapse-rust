@@ -1629,7 +1629,7 @@ C19b 的 **D-46**/**D-47** + C25 的 **D-50**/**D-51** + C26 的 **D-48**/**D-49
 - 可达性：**无显式写 NULL 的路径** —— `create_msc4108_session` 与
   `update_msc4108_data` 都显式写 `content`；`create_session` 不写该列、命中
   `DEFAULT '{}'`。故当前无运行期影响，属**潜伏项**。
-- 状态：**已修**（2026-09-25 C26，`feb9fd646`）。取当时登记的选项① —— schema 侧改为
+- 状态：**已修**（2026-09-25 C26，`7189e8cbd`）。取当时登记的选项① —— schema 侧改为
   `content JSONB NOT NULL DEFAULT '{}'`（`migrations/00000000_unified_schema_v12.sql:2980`），
   并删掉 `get_msc4108_data` 里不再需要的 `AS "content!"`（转宏后 sqlx 直接推出
   `serde_json::Value` 非空）。**行为等价**：无写者可产生 NULL（上文可达性实证），
@@ -1672,7 +1672,7 @@ C19b 的 **D-46**/**D-47** + C25 的 **D-50**/**D-51** + C26 的 **D-48**/**D-49
   显式 NULL 的 `message_index`，断言读路径 **fail-closed** —— 返回
   `ApiError.message == "Database error: Failed to load olm session"`，既不会 panic，
   也不会被静默折算成 0。
-- 状态：**已修**（2026-09-25 C26，`feb9fd646`）。两表改为
+- 状态：**已修**（2026-09-25 C26，`7189e8cbd`）。两表改为
   `message_index INTEGER / BIGINT NOT NULL DEFAULT 0`，与
   `key_backup_sessions.first_message_index BIGINT NOT NULL DEFAULT 0`（`:780`，同族列已用
   该口径）一致；同批删掉 `olm/storage.rs` 三处 `AS "message_index!"`。
@@ -1753,7 +1753,7 @@ C19b 的 **D-46**/**D-47** + C25 的 **D-50**/**D-51** + C26 的 **D-48**/**D-49
   根本不会进缓存，`SQLX_OFFLINE=true … --all-features` 直接 6 个 error。
   这与 D-51 同根：**缓存与"实际编译口径"不一致**。已修：prepare 改
   `--all-features`（§8.23），并把 `check_sqlx_cache_fresh.sh --full` 的对账口径
-  一并从"不带 feature"改为 `--all-features`（`a1805e175`）—— 否则 `--full` 会把
+  一并从"不带 feature"改为 `--all-features`（`291128e03`）—— 否则 `--full` 会把
   门控模块的条目报成 "potentially unused"，而**去掉 `--check` 的同一条命令会真的
   prune 它们**，静默打断离线构建。
 
@@ -1774,7 +1774,7 @@ C19b 的 **D-46**/**D-47** + C25 的 **D-50**/**D-51** + C26 的 **D-48**/**D-49
   的 baseline 字节必须一致，否则会铸出第二份完整模板"**。它 panic 在读取路径上，
   因此"所有夹具同源"这条性质自 `88001b4a9` 起**完全无人检查** —— 又一个
   "红着的守卫等于没有守卫"（rule 8 的反面），且 unit 批次是 CI blocking。
-- 状态：**已修**（2026-09-25 C26，`15331a8ea`）。
+- 状态：**已修**（2026-09-25 C26，`49935c602`）。
 - 修法：把单个常量改为**清单**，覆盖 `synapse-e2ee` 现存的两个载体
   （`backup/storage.rs`（C19b）与 `olm/storage.rs`（C25）），并保留"路径所属模块被删时
   必须改指"的注释 —— 只改指一个会重演本缺陷。
@@ -1841,7 +1841,7 @@ C19b 的 **D-46**/**D-47** + C25 的 **D-50**/**D-51** + C26 的 **D-48**/**D-49
 - 为什么静态化能证伪它：转 `query!` 后 sqlx 按 catalog 把 `row.user_id` /
   `row.profile_visibility` 定型为**非 `Option`** —— 等价于编译器**证明**了第 2 点，
   不再需要靠"读 schema 推断可达性"。
-- 状态：**已修**（2026-09-25 C26，`7751a1b1b`）：转 `query!` 后删掉两处不可达分支，
+- 状态：**已修**（2026-09-25 C26，`973bccd7e`）：转 `query!` 后删掉两处不可达分支，
   可见性只由 `profile_visibility` 决定；既有 **24/24** 用例（含
   `batch_can_view_profile` 的 basic / empty_input 路径）全绿 ⇒ 行为等价有实测支撑。
 - 连带发现（**未修**，属独立 schema 清理）：`user_privacy_settings` 的
@@ -3060,9 +3060,9 @@ literal 逐文件 593（C19a 后）→ **458** 处 / 74 文件。
 
 | 缺陷 | 内容 | 提交 |
 |---|---|---|
-| **D-48** | `rendezvous_session.content` 可空而元组按非空解码 | `feb9fd646`（与 D-49 同提交） |
+| **D-48** | `rendezvous_session.content` 可空而元组按非空解码 | `7189e8cbd`（与 D-49 同提交） |
 | **D-49** | `olm_sessions` / `megolm_sessions.message_index` 可空而行结构体非 `Option` | 同上 |
-| **D-52** | 守卫 5 的 `E2EE` 夹具路径在模块删除后悬空 ⇒ unit 批次必红 | `15331a8ea` |
+| **D-52** | 守卫 5 的 `E2EE` 夹具路径在模块删除后悬空 ⇒ unit 批次必红 | `49935c602` |
 
 **D-48 + D-49 合并成一次 schema 收紧**（三列 `NOT NULL DEFAULT …`）的理由：两条同根
 （schema 可空 vs 读模型非 `Option`），合并只付**一次**指纹变更与**一次**模板重建；
@@ -3146,7 +3146,7 @@ prepare 期间根本不编译它。后果立即可复现：
 口径不一致，实测两个症状：① 报 `warning: potentially unused queries found in .sqlx`
 却仍 `OK`（门控模块的条目"看起来没人用"）；② **去掉 `--check` 的同一条命令会真的
 prune 它们** ⇒ 静默打断离线构建（D-51 的反方向）。已改为
-`prepare --check --workspace -- --all-features`（`a1805e175`），头注释同步。
+`prepare --check --workspace -- --all-features`（`291128e03`），头注释同步。
 
 **注意 `--static`（CI 默认模式）不可能发现本类缺口**：它按设计只校验
 "存在 / 非空 / 被 git 跟踪"，并在注释里明示完整性由 `--compile` 证明 ——
@@ -3187,6 +3187,35 @@ prune 它们** ⇒ 静默打断离线构建（D-51 的反方向）。已改为
 **D-54 的连带发现**（`user_privacy_settings` 三个 `allow_*` 死列）。两者都要改 baseline
 迁移（再动指纹），建议合并成**下一次 schema 清理批**一次做完 —— 与 D-39
 （`search_index` 表删否）同属"删列/删表"类，可一并裁定。
+
+#### 8.23.7 提交清单（最终入库哈希）与 rebase 说明
+
+本批 8 个提交**在合并前经过两次 rebase**（并发写者先后推进到 `eeb99cef8`、`2976a79ad`），
+因此**提交信息与本文档初版里引用的哈希是 rebase 前的**，已从 HEAD 不可达。
+下表是最终入库哈希（均为 `opt/consolidated` 的祖先，可直接 `git show` 复核）：
+
+| 顺序 | 最终哈希 | 提交主题 |
+|---|---|---|
+| 1 | `7189e8cbd` | `fix(schema): 收紧 D-48 / D-49 的三处可空列（读模型按非空解码）` |
+| 2 | `49935c602` | `fix(tests): 守卫 5 的 E2EE 夹具路径在模块删除后悬空（D-52，unit 批次必红）` |
+| 3 | `2fdcee6b2` | `perf(e2ee): C26 静态化 megolm/storage.rs 全部 10 处生产字面量动态 SQL` |
+| 4 | `973bccd7e` | `perf(storage): C26 静态化 privacy.rs 全部 5 处生产字面量动态 SQL` |
+| 5 | `669862911` | `chore(sqlx): C26 刷新 .sqlx —— 新增 15 条，prepare 改 --all-features` |
+| 6 | `291128e03` | `fix(ci): check_sqlx_cache_fresh.sh --full 改用 --all-features（与缓存口径一致）` |
+| 7 | `c625ac69a` | `chore(sqlx): C26 同批收紧棘轮 —— dynamic_production 541→526、static 929→944` |
+| 8 | `c6f40a28f` | `docs(audit): 新增 §8.23「C26 执行结果」+ 转 D-48/D-49 已修、登记 D-52/D-53/D-54、更新 §0` |
+
+rebase 前 → 后的对应（用于解读**提交信息**里的旧哈希 —— 提交信息不可改写，
+因为改写哈希会再次让本节失效）：
+`feb9fd646` → `7189e8cbd`、`15331a8ea` → `49935c602`、`1dd768a9b` → `2fdcee6b2`、
+`7751a1b1b` → `973bccd7e`、`d097e01d0` → `669862911`、`a1805e175` → `291128e03`、
+`1bef2f978` → `c625ac69a`、`c3dc44657` → `c6f40a28f`。
+本文档内引用的哈希已按上表更正；本小节本身由 `c6f40a28f` **之后**的一次小提交补入 ——
+该提交只改本文档的哈希引用与本小节，不动代码、棘轮或缓存。
+
+> **教训（流程级）**：doc 提交在批次末尾，而 rebase 发生在其后 ⇒ 文档里"自引用本批哈希"
+> 必然漂移。真正稳的做法是**只引用已入库的哈希**（如本批的前序基线 `ce60dc028`），
+> 或引用**提交主题**；本节的映射表是对已发生漂移的补救，不是常规做法。
 
 **累计进展（C 系列 `dynamic_production`）**：706（C18）→ 694（W4）→ 676（C19a）→
 658（C19b）→ 642（C20）→ 626（C21）→ 601（workbuddy 删 device_trust/verification）→
