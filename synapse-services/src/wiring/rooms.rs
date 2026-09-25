@@ -79,11 +79,22 @@ impl RoomSyncServices {
         // federation backfill — persists through this trait object. Decorating
         // it here is what releases long-polling sliding-sync clients, and it is
         // the only place that has to remember to do so.
-        let event_writer: Arc<dyn synapse_storage::event::EventWriter> =
+        //
+        // The outermost layer resolves `depth` / `prev_events` / `auth_events`
+        // for locally-produced events: without them the federation PDU
+        // projector refuses to sign the event (see `graph_metadata`). The
+        // notifying writer stays inside it so that every write — resolved or
+        // supplied — still wakes parked sync clients.
+        let notifying_writer: Arc<dyn synapse_storage::event::EventWriter> =
             Arc::new(crate::notifying_event_writer::NotifyingEventWriter::new(
                 event_storage_concrete.clone(),
                 event_notifier.clone(),
             ));
+        let graph_metadata_resolver = Arc::new(crate::graph_metadata::GraphMetadataResolver::new(Arc::new(
+            crate::graph_metadata::StorageGraphMetadataSource::new(event_reader.clone(), room_storage.clone()),
+        )));
+        let event_writer: Arc<dyn synapse_storage::event::EventWriter> =
+            Arc::new(crate::graph_metadata::GraphMetadataWriter::new(notifying_writer, graph_metadata_resolver));
         let device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi> =
             Arc::new(DeviceStorage::new(&infra.pool));
         let relations_storage: Arc<dyn synapse_storage::relations::RelationsStoreApi> =

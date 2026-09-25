@@ -540,20 +540,34 @@ MSC3912 客户端级联与 Content Scanner 接线（高），最后清理中低�
 >   `auth_types_for_event` / `select_auth_events` + `AuthStateSnapshot`。
 >   算法与上游 Synapse `synapse/event_auth.py::auth_types_for_event`（release-v1.161）逐条对齐，
 >   含 v9 无 restricted join rule、v10/v11 有。9 个已知答案单测（无需 DB）+ 3 个变异自证。
-> - **1b（待做）** 写入侧单一拦截点：`NotifyingEventWriter` 的模块文档已自证
+> - **1b（已完成，提交见分支）** 写入侧单一拦截点：`NotifyingEventWriter` 的模块文档已自证
 >   "**Every service (messaging, membership, lifecycle, moderation, federation backfill) persists
 >   through `Arc<dyn EventWriter>`**"（`synapse-services/src/notifying_event_writer.rs:11-13`）。
->   因此不改 160 处调用点，而是在该 seam 上加一层 `GraphMetadataWriter` 装饰器：
->   其 `create_event` 先经 resolver 算出 `(prev_events, auth_events, depth)`，再转调
->   `inner.create_event_with_graph(...)`；`create_event_with_graph` 原样透传（入站路径已有图数据）。
->   resolver 依赖已存在的能力：`EventReader::get_state_events`、`get_latest_event_ids_in_room`、
->   `RoomStoreApi::get_room_version_only`；**还缺一个"按 event_id 取 depth"的读方法**（需新增或复用）。
->   装配点唯一：`synapse-services/src/container.rs` 构造 `Arc<dyn EventWriter>` 处。
+>   因此不改 160 处调用点，而是在该 seam 上加一层 `GraphMetadataWriter` 装饰器
+>   （`synapse-services/src/graph_metadata.rs`）：
+>   `create_event` → resolver 算 `(prev_events, auth_events, depth)` → 转调
+>   `inner.create_event_with_graph(...)`；`create_event_with_graph` **原样透传**
+>   （入站/backfill/建房已有图数据，不得被重算覆盖）。
+>   依赖用**窄接口** `GraphMetadataSource`（4 个方法：forward_extremities / event_depths /
+>   state_events / room_version）+ `StorageGraphMetadataSource` 适配真实
+>   `Arc<dyn EventReader>` + `Arc<dyn RoomStoreApi>`；`depth` 走 `get_events_map`，**无需新增查询**。
+>   装配点唯一（`wiring/rooms.rs`，Graph 在外、Notifying 在内，两条路径都仍会唤醒 sync）。
+>   **失败策略 fail-closed**：房版本读不到 / 前驱事件读不到 / 无前驱 ⇒ 拒绝写入并返回错误，
+>   绝不伪造 `[]`/`0`（与 `pdu.rs` 的立场一致）。
+>   **事务边界（重要）**：装饰器**只在 `tx.is_none()` 时解析** —— 事务内的读看不到未提交行，
+>   强行解析会产出错误的 `auth_events`/`prev_events`。事务调用方（建房批量写初始状态）
+>   走原行为，由 1e 显式提供图数据。
+>   8 个单测（无需 DB）+ 3 个变异自证（深度算术 / 自环过滤 / 装饰器改走 plain write ⇒ 各自转红）。
+> - **1e（待做，**建房路径**）** `synapse-services/src/room/lifecycle/create.rs`（9 处
+>   `event_writer.create_event(..., Some(tx))`）显式传图数据：create 事件 = `( [], [], 1 )`；
+>   随后的 member/power_levels/join_rules 是**线性序列**，`prev_events` = 上一个事件 id、
+>   `auth_events` = 序列中已建的相关状态事件、`depth` 递增。**这是 `/send_join` 对新房间可签名的
+>   关键一步**（装饰器在事务内不解析）。
 > - **1c（待做）** storage 单写入口收敛：`create_event` 与 `create_event_with_graph` 目前是
 >   **两条独立 INSERT**；抽成一个私有 helper，`create_event` 传 `None`（写 SQL `NULL`），
 >   `create_event_with_graph` 传值，**公开签名不变**（避免 1a 之外的第二波 churn）。
 > - **1d（待做）** `sign_and_broadcast_event` 收敛为一份并补 `depth`/`auth_events`
->   （见 N-1/N-2），改为复用已落库的图字段而不是重新查 extremities。
+>   （见 N-1/N-2），改为复用已落库图字段而不是重新查 extremities。
 
 **原设计（保留作对照，勿照抄）**：
 
