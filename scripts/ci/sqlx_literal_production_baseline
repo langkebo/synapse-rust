@@ -29,6 +29,11 @@
 #     | grep ':literal$' | cut -d: -f1 | sort | uniq -c | awk '{print $2"\t"$1}' | sort
 #
 # ── 2026-09-25 C19a 后重新收紧：literal 实测 593 处 / 83 文件，runtime 83 处 / 15 文件 ──
+# ── 2026-09-25 C19b 收紧（`backup/storage.rs` 18 处全部宏化）────────────────────
+#   literal 593 → **575** 处（83 → **82** 文件）；runtime 83 处 / 15 文件**不变**
+#   （本批未新增运行期拼装）。唯一变化是删掉
+#   `synapse-e2ee/src/backup/storage.rs  18`；其余行用文件头部的生成命令重跑后逐行复核，
+#   无其它漂移（对照 `/tmp` 生成表；macro 侧见 sqlx_dynamic_ratio_baseline 的 C19b 段）。
 src/server/database.rs	1
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
@@ -36,7 +41,6 @@ synapse-common/src/test_isolation.rs	9
 synapse-common/src/test_schema_guard.rs	2
 synapse-common/src/transaction.rs	3
 synapse-e2ee/src/backup/service.rs	5
-synapse-e2ee/src/backup/storage.rs	18
 synapse-e2ee/src/cross_signing/storage.rs	13
 synapse-e2ee/src/device_trust/storage.rs	17
 synapse-e2ee/src/key_request/storage.rs	9

@@ -1968,11 +1968,20 @@
 # 恢复 C 批次后的第一批：dynamic_production −18、static +21（含 `check_needs_rotation`
 # 那处顺带修复的站点与 `EXISTS(...)` 改写），三个键同向下调/上调。同批修掉 D-43/D-44/D-45
 # 三条"真 schema 下必然失败"的既有缺陷（详见 §7），因此**不是**纯等价改写。
-BASELINE_DYNAMIC_PRODUCTION=676
+# ── 2026-09-25 C19b 收紧（`synapse-e2ee/src/backup/storage.rs` 18 处全部宏化）────
+# dynamic_production 676 → 658（−18）、static 824 → 842（+18）；本批同时修掉
+# **D-46**（`key_backups.version` 收紧为 NOT NULL + 读投影 `AS "backup_id!"`）并登记
+# **D-47**（`tests/` 自建 schema 漂移无守卫），因此**不是**纯等价改写。
+# `dynamic_test` 702 → **704**（+2）：C19b 新增的 `backup::storage::db_tests`
+# 含 2 处测试夹具动态 SQL（建 `rooms` 行、D-46 负例的显式 `NULL` INSERT）——
+# `#[cfg(test)]` 内的宏不进 `cargo sqlx prepare`，按 D-13/D-14 必须保持动态。
+# `BASELINE_DYNAMIC_TEST_INFRA` 保持 704（= 实测，本批用掉了原有 2 点余量）。
+# `BASELINE_DYNAMIC` = 实测总数 = 658 + 704 = **1362**（旧值 1378 = 676 + 702）。
+BASELINE_DYNAMIC_PRODUCTION=658
 BASELINE_DYNAMIC_TEST_INFRA=704
-BASELINE_STATIC=824
+BASELINE_STATIC=842
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1378
+BASELINE_DYNAMIC=1362
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #
