@@ -74,6 +74,11 @@
 #   `create_tables` 整段删除，文件归零退表）、`synapse-storage/src/privacy.rs  6 → **5**`
 #   （同族 `create_tables` 删除；该文件余 5 处是 C26 的范围）。
 #   runtime 侧不变，仍 83 处 / 15 文件。
+# ── 2026-09-25 C26 收紧（`megolm/storage.rs` 10 处 + `privacy.rs` 5 处宏化，本批）：
+#   literal 458 → **443** / 74 → **72** ──
+#   变化仅两行，均已按文件头生成命令重跑后逐行复核：删
+#   `synapse-e2ee/src/megolm/storage.rs  10` 与 `synapse-storage/src/privacy.rs  5`
+#   （两文件均归零退表）。runtime 侧不变，仍 83 处 / 15 文件。
 src/server/database.rs	1
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
@@ -83,7 +88,6 @@ synapse-common/src/transaction.rs	3
 synapse-e2ee/src/backup/service.rs	5
 synapse-e2ee/src/cross_signing/storage.rs	13
 synapse-e2ee/src/key_request/storage.rs	9
-synapse-e2ee/src/megolm/storage.rs	10
 synapse-e2ee/src/secure_backup/service.rs	10
 synapse-e2ee/src/signature/storage.rs	3
 synapse-e2ee/src/ssss/storage.rs	10
@@ -130,7 +134,6 @@ synapse-storage/src/oauth_client_storage.rs	2
 synapse-storage/src/oidc_user_mapping.rs	3
 synapse-storage/src/openid_token.rs	7
 synapse-storage/src/presence/mod.rs	1
-synapse-storage/src/privacy.rs	5
 synapse-storage/src/pruning.rs	9
 synapse-storage/src/push/mod.rs	11
 synapse-storage/src/qr_login.rs	5
