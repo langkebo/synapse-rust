@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    SELECT id, session_id, direction, message_type, content, created_ts FROM rendezvous_messages\n                    WHERE session_id = $1\n                    ORDER BY id ASC\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "session_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "direction",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "message_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "content",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "eb7ad1dc0900073ee8ada45c9cec9adedbfb44f8a9f7a65a771a46a1d2744859"
+}

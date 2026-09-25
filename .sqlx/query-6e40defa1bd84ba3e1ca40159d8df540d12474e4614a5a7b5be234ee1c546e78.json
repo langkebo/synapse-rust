@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE rendezvous_session\n            SET content = $2, updated_ts = $3\n            WHERE session_id = $1 AND intent = 'msc4108' AND expires_at > $3\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Jsonb",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6e40defa1bd84ba3e1ca40159d8df540d12474e4614a5a7b5be234ee1c546e78"
+}

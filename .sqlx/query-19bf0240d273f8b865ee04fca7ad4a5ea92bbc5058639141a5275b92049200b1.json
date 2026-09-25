@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM rendezvous_session WHERE session_id = $1 AND intent = 'msc4108'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "19bf0240d273f8b865ee04fca7ad4a5ea92bbc5058639141a5275b92049200b1"
+}

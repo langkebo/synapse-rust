@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO rendezvous_session\n                (session_id, intent, transport, content, key, created_ts, updated_ts, expires_at, status)\n            VALUES ($1, 'msc4108', 'http', $2, $3, $4, $4, $5, 'active')\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Jsonb",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "310c142b3d30bd4981e233d43a832255f19c2017c0d168ba24a48d2bba0694c3"
+}
