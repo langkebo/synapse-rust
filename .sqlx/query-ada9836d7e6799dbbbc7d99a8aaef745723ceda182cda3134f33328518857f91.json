@@ -1,0 +1,106 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM oidc_auth_sessions\n            WHERE session_key = $1\n            RETURNING id, session_key, session_type, client_id, redirect_uri,\n                      scope, state, nonce, code_verifier, code_challenge,\n                      code_challenge_method, user_id, consent_given, created_ts, expires_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "session_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "session_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "client_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "redirect_uri",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "scope",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "state",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "nonce",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "code_verifier",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "code_challenge",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "code_challenge_method",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "consent_given",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 13,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 14,
+        "name": "expires_at",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ada9836d7e6799dbbbc7d99a8aaef745723ceda182cda3134f33328518857f91"
+}

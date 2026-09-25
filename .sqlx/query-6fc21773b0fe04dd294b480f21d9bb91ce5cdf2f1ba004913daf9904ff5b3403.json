@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO oidc_refresh_tokens\n                (token_hash, user_id, client_id, scope, created_ts, expires_at, is_revoked, revoked_at)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n            ON CONFLICT (token_hash) DO UPDATE SET\n                user_id = EXCLUDED.user_id,\n                client_id = EXCLUDED.client_id,\n                scope = EXCLUDED.scope,\n                created_ts = EXCLUDED.created_ts,\n                expires_at = EXCLUDED.expires_at,\n                is_revoked = EXCLUDED.is_revoked,\n                revoked_at = EXCLUDED.revoked_at\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6fc21773b0fe04dd294b480f21d9bb91ce5cdf2f1ba004913daf9904ff5b3403"
+}

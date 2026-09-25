@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM oidc_consent_sessions\n            WHERE session_id = $1\n            RETURNING id, session_id, client_id, client_name, redirect_uri,\n                      scope, state, nonce, code_challenge, user_id, created_ts, expires_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "session_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "client_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "client_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "redirect_uri",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "scope",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "state",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "nonce",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "code_challenge",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "expires_at",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "92d9405610a06a98678b9feb557b03416f988c23d0eeb14e20b14cfd7d7abfd5"
+}

@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO oidc_consent_sessions\n                (session_id, client_id, client_name, redirect_uri, scope, state,\n                 nonce, code_challenge, user_id, created_ts, expires_at)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)\n            ON CONFLICT (session_id) DO UPDATE SET\n                client_id = EXCLUDED.client_id,\n                client_name = EXCLUDED.client_name,\n                redirect_uri = EXCLUDED.redirect_uri,\n                scope = EXCLUDED.scope,\n                state = EXCLUDED.state,\n                nonce = EXCLUDED.nonce,\n                code_challenge = EXCLUDED.code_challenge,\n                user_id = EXCLUDED.user_id,\n                created_ts = EXCLUDED.created_ts,\n                expires_at = EXCLUDED.expires_at\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b53a6264124eedbb095464018a3499efb86c6b23755167a6258075e3034c880c"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE oidc_refresh_tokens\n            SET is_revoked = TRUE, revoked_at = $2\n            WHERE user_id = $1 AND is_revoked = FALSE\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "52b217824eee9c103f19c11509af0e9284acadff77d3bbda52f0e7029824b193"
+}
