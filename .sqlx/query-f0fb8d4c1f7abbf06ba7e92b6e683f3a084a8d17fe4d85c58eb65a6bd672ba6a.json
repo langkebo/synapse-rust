@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE widget_sessions SET is_active = FALSE\n            WHERE expires_at IS NOT NULL AND expires_at < $1 AND is_active = TRUE\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f0fb8d4c1f7abbf06ba7e92b6e683f3a084a8d17fe4d85c58eb65a6bd672ba6a"
+}
