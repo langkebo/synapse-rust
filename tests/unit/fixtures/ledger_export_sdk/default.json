@@ -294,16 +294,8 @@
       "path": "/_matrix/client/v3/profile/{user_id}/{key_name}",
       "registered_by": "assembly::create_router",
       "path_params": [
-        {
-          "name": "user_id",
-          "required": true,
-          "type": "string"
-        },
-        {
-          "name": "key_name",
-          "required": true,
-          "type": "string"
-        }
+        "user_id",
+        "key_name"
       ],
       "query_params": []
     },
@@ -2207,16 +2199,8 @@
       "path": "/_matrix/client/v3/profile/{user_id}/{key_name}",
       "registered_by": "assembly::create_router",
       "path_params": [
-        {
-          "name": "user_id",
-          "required": true,
-          "type": "string"
-        },
-        {
-          "name": "key_name",
-          "required": true,
-          "type": "string"
-        }
+        "user_id",
+        "key_name"
       ],
       "query_params": []
     },
@@ -8754,16 +8738,8 @@
       "path": "/_matrix/client/v3/profile/{user_id}/{key_name}",
       "registered_by": "assembly::create_router",
       "path_params": [
-        {
-          "name": "user_id",
-          "required": true,
-          "type": "string"
-        },
-        {
-          "name": "key_name",
-          "required": true,
-          "type": "string"
-        }
+        "user_id",
+        "key_name"
       ],
       "query_params": []
     },
