@@ -136,6 +136,11 @@ const BASE_UNSTABLE_FEATURES: &[(&str, bool)] = &[
     // enables backward movement of `m.fully_read` (read receipts still
     // enforce monotonicity).
     ("org.matrix.msc4446", true),
+    // MSC3912: Cascade redaction of related events. Client-side single-layer
+    // cascade via `PUT /rooms/{roomId}/redact/{eventId}/{txnId}` with
+    // `with_rel_types` body parameter. Note: This is content erasure only
+    // (not creating real redaction events); see docs/audit/2026-09-23-msc3912-cascade-redaction.md.
+    ("org.matrix.msc3912", true),
 ];
 
 // ---------------------------------------------------------------------------

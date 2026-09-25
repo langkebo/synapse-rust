@@ -777,8 +777,16 @@ async fn search_all_rooms_impl(ctx: &AdminContext, body: SearchAllRoomsRequest) 
 
 /// MSC3912: Cascade redact an event and all related events.
 ///
+/// Admin cascade redact (synapse-rust extension, NOT part of MSC3912).
+///
+/// This admin endpoint uses **recursive BFS** (depth-based) to cascade
+/// redactions, which is a **synapse-rust extension** and does NOT conform
+/// to the MSC3912 spec. The client-side MSC3912 implementation uses
+/// `PUT /_matrix/client/v3/rooms/{roomId}/redact/{eventId}/{txnId}`
+/// with `with_rel_types` body parameter for single-layer cascade.
+///
 /// Finds all events that reference the target event via relationship fields
-/// (m.in_reply_to, m.relates_to, m.replace) and redacts them recursively.
+/// (m.in_reply_to, m.relates_to, m.replace) and redacts them **recursively**.
 ///
 /// Request body:
 /// - `event_id` (string, required): The event ID to cascade redact from

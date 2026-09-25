@@ -925,7 +925,7 @@ pub(crate) async fn redact_event(
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id, _txn_id)): Path<(RoomId, EventId, String)>,
-    Json(body): Json<Value>,
+    Json(mut body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
@@ -953,6 +953,30 @@ pub(crate) async fn redact_event(
     }
 
     ctx.room_auth.can_redact_event(&room_id, &auth_user.user_id, &original_event.user_id).await?;
+
+    // MSC3912: Parse with_rel_types (stable) and org.matrix.msc3912.with_relations (unstable)
+    let with_rel_types: Option<Vec<String>> = if let Some(arr) = body.get("with_rel_types").and_then(|v| v.as_array()) {
+        Some(arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+    } else if let Some(arr) = body.get("org.matrix.msc3912.with_relations").and_then(|v| v.as_array()) {
+        Some(arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+    } else {
+        None
+    };
+
+    // Validate with_rel_types: must be non-empty array of strings
+    if let Some(ref rel_types) = with_rel_types {
+        if rel_types.is_empty() {
+            return Err(ApiError::bad_request("with_rel_types must be a non-empty array".to_string()));
+        }
+    }
+
+    // Strip with_rel_types from body (per spec: must not be stored in event content)
+    if with_rel_types.is_some() {
+        if let Some(obj) = body.as_object_mut() {
+            obj.remove("with_rel_types");
+            obj.remove("org.matrix.msc3912.with_relations");
+        }
+    }
 
     let reason = body.get("reason").and_then(|v| v.as_str());
 
@@ -1003,53 +1027,15 @@ pub(crate) async fn redact_event(
         ApiError::internal_with_cause("Failed to redact event content", e)
     })?;
 
-    // MSC3912: Cascade redact — find and redact all related events (replies, reactions, edits)
-    match ctx.content_scanner.is_enabled() {
-        true => {
-            // Scanner enabled: fail-closed — any cascade error blocks the redaction
-            match ctx.event_redaction_service.cascade_redact_event(&event_id, Some(&redactor_user_id), 5).await {
-                Ok(cascaded_count) => {
-                    if cascaded_count > 0 {
-                        ::tracing::info!(
-                            target: "security_audit",
-                            request_id = %request_id,
-                            room_id = %room_id,
-                            event_id = %event_id,
-                            cascaded_count = cascaded_count,
-                            "MSC3912 cascade redact completed"
-                        );
-                    }
-                }
-                Err(e) => {
-                    ::tracing::warn!(
-                        target: "security_audit",
-                        request_id = %request_id,
-                        event = "cascade_redact_failed",
-                        room_id = %room_id,
-                        event_id = %event_id,
-                        error = %e,
-                        "Failed to cascade redact related events"
-                    );
-                    return Err(ApiError::internal_with_cause("Failed to cascade redact event", e));
-                }
-            }
-        }
-        false => {
-            // Scanner disabled: best-effort — log failure but don't block
-            if let Err(e) =
-                ctx.event_redaction_service.cascade_redact_event(&event_id, Some(&redactor_user_id), 5).await
-            {
-                ::tracing::warn!(
-                    target: "security_audit",
-                    request_id = %request_id,
-                    event = "cascade_redact_failed",
-                    room_id = %room_id,
-                    event_id = %event_id,
-                    error = %e,
-                    "Failed to cascade redact related events (best-effort)"
-                );
-            }
-        }
+    // MSC3912: Single-layer cascade redaction for related events
+    // (only when with_rel_types is present; otherwise just redact the target)
+    if let Some(rel_types) = with_rel_types {
+        // MSC3912: Run cascade in background (best-effort). Like upstream
+        // (`run_as_background_process`), this does not block the redaction
+        // response — the client already has the redaction event_id.
+        tokio::spawn(async move {
+            let _ = ctx.event_redaction_service.cascade_redact_related_events(&room_id, &event_id, &rel_types).await;
+        });
     }
 
     Ok(Json(json!({

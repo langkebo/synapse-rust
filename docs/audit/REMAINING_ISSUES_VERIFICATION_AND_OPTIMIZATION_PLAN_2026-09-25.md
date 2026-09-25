@@ -32,8 +32,22 @@ git worktree list             # 另有 .worktrees/c19b（同 HEAD）、/Users/lj
 ### 0.2 一句话结论
 
 **13 项报项中，8 项确认存在、2 项部分成立、2 项应降级/证伪、1 项因对象被删除而作废。**
-另在核验过程中**新发现 6 项**（其中 2 项比报项本身更严重：出站 PDU 缺 `depth`/`auth_events`、
+另在核验过程中**新发现 8 项**（其中 2 项比报项本身更严重：出站 PDU 缺 `depth`/`auth_events`、
 `sign_and_broadcast_event` 存在两份策略相反的实现）。
+
+**最紧迫项：O-4**（统一 `sign_and_broadcast_event`，1 周，无依赖）—— 两份实现策略相反
+（fail-closed vs fail-open）且都缺 `depth`/`auth_events`，直接导致联邦 PDU 无效。
+
+**新增优化项（4 项）**：
+
+| 编号 | 级别 | 问题 | 建议行动 | 优先级 |
+|------|------|------|----------|--------|
+| **O-4** | **🔴 最紧迫** | 两份 `sign_and_broadcast_event` 策略冲突 + 出站 PDU 缺 `depth`/`auth_events` | 统一为 fail-closed，补全 PDU 字段，合并实现 | **P0（本周）** |
+| **O-1** | **P0** | v12 房间版本默认仍为 v11 | 阶段 1: 实现 v12 验证；阶段 2: 升级默认版本 | **高（本月）** |
+| **O-2** | 中 | 动画缩略图缺失 | 阶段 1: 参数支持；阶段 2: 动画检测；阶段 3: WebP 编码 | 中 |
+| **O-3** | 低 | MSC4133 不完整 | 记录为已知差距，待上游稳定 | 低 |
+
+**推荐执行顺序**: O-4（本周） → O-1（本月） → O-2 → O-3
 
 | 报项 | 文档标记 | 本轮判定 | 关键判据 |
 |---|---|---|---|
@@ -47,7 +61,7 @@ git worktree list             # 另有 .worktrees/c19b（同 HEAD）、/Users/lj
 | 中 MSC4502 / MSC4262 未收敛 | 🔴 | **❌ 证伪（维持 §22.4）**，本轮抽查未推翻 | MSC4502：`room.rs:53 → members.rs:387-424 → membership/service.rs:610-706 → membership/mod.rs:716-796`；MSC4262：`federation/edu.rs:31,628-702` + `user/storage.rs:783` + `sliding_sync_service/extensions.rs:254` |
 | 中 Admin 媒体族缺口 | 🔴 部分 | **🔴 存在**；文档"上游 18"**无法复现**，本轮给出可核验的 15 条 | `synapse-web/src/routes/admin/media.rs:16-22` |
 | 中 `animated` + 配额错误码 | 🔴 部分 | **🔴 两项均存在** | `animated` 全仓 0 命中；`synapse-services/src/media/mod.rs:250-252` 返回 400 |
-| 低 v12/v13 不可创建 | 🔴 | **⚪ 设计取舍（非缺陷）** | `synapse-common/src/room_versions.rs:108-115` |
+| 低 v12/v13 不可创建 | 🔴 | **⚪ 设计取舍（非缺陷），但需升级** | `synapse-common/src/room_versions.rs:108-115`；**上游 v1.162 已将默认版本提升至 v12** |
 | 低 `search_index` 遗留表 | 🔴 | **🔴 存在**（+ 派生物 `INDEXES.md` 漂移） | baseline `:2750-2761` + 4 索引 `:3735-3738`；生产消费者 0 |
 | 低 ledger `query_params` 无消费方 | 🔴 | **🟡 部分证伪**（字段死，但序列化被 fixture 钉住并被 `gen_route_table.py` 消费） | `route_ledger.rs:83-84,106-110` 调用点 0；`ledger_export.rs:156` + 6 份 fixture |
 
@@ -59,10 +73,10 @@ git worktree list             # 另有 .worktrees/c19b（同 HEAD）、/Users/lj
 | **N-2** | 高 | `sign_and_broadcast_event` **两份实现、策略相反**（违反反冗余铁律 2）：messaging 版 fail-closed、membership 版 fail-open 且**无 room-version 感知的 `redacts` 放置** | `messaging/service.rs:131-151` vs `membership/service.rs:486-520` |
 | **N-3** | 中 | `create_event` 的文档注释**自述"delegates here"是假的**：它有自己的 INSERT，从不调用 `create_event_with_graph` | `synapse-storage/src/event/create.rs:8-20` vs 注释 `:51-58` |
 | **N-4** | 中 | `block_on_scan_failure=false`（fail-open）**只对 webhook 生效**；ClamAV 路径 4 条失败路径全部直接 `Err` | `content_scanner/service.rs:62-100`（对照 `on_webhook_failure` `:159-172`） |
-| **N-5** | 中 | Spec v1.16 已稳定 MSC4133：缺稳定 `/{keyName}` 路由、`m.tz`、`M_PROFILE_TOO_LARGE`/`M_KEY_TOO_LARGE`；且 `/versions` 只声明到 **v1.14** | spec `profile.yaml:19,22,27,104-106,305-320`；仓库 0 命中 |
+| **N-5** | 中 | Spec v1.16 已稳定 MSC4133：缺稳定 `/{keyName}` 路由、`m.tz`、`M_PROFILE_TOO_LARGE`/`M_KEY_TOO_LARGE`；且 `/versions` 只声明到 **v1.14** | spec `profile.yaml:19,22,27,104-106,305-320`；仓库 0 命中 | **⚠️ 修正**：上游 Synapse v1.162 **仍未完全实现 MSC4133**。`ProfileFieldRestServlet` 仅在 `msc4133_enabled` 实验开关下支持不稳定前缀 `uk.tcpip.msc4133`，**非稳定端点**。错误码 `KEY_TOO_LARGE` 存在但 `M_PROFILE_TOO_LARGE` 未使用。`m.tz` 字段**未实现**。 |
 | **N-6** | 低 | `pdu.rs` 模块注释里的 event_id 格式仍是**错的**（`$<ts>_<rand>:<server>`，实际分隔符是 `$`）——正是 §22.1 N-5 已修正而此处未同步 | `synapse-web/src/routes/federation/pdu.rs:37` vs `synapse-common/src/crypto.rs:153` |
 | **N-7** | 低 | `migrations/INDEXES.md` 与 baseline 漂移：baseline 为 `search_index` 建 **4** 条索引，文档列 **0** 条 | `grep -c search_index migrations/INDEXES.md` → 0；baseline `:3735-3738` |
-| **N-8** | 低 | CI 契约 `TABLE_CONTRACTS["search_index"]` 漏列 GIN 索引 `idx_search_index_content_trgm`，且校验是**单向**的（只查"契约写的索引是否存在"）⇒ 该方向永远绿（铁律 8 同类） | `scripts/check_schema_contract_coverage.py:177-194` vs `:302-305` |
+| **N-8** | 低 | CI 契约 `TABLE_CONTRACTS["search_index"]` 漏列 GIN 索引 `idx_search_index_content_trgm`，且校验是**单向**的（只查"契约写的索引是否存在"）⇒ 该方向永远绿（铁律 8 同类） | `scripts/check_schema_contract_coverage.py:177-194` vs `:302-305` | **已随 search_index 表删除而失效** |
 
 ---
 
@@ -1053,11 +1067,27 @@ Task3 (reference hash) —— 仅做可行性验证，不接线
 |---|---|---|---|
 | **M-1** | **P0** | 把 `fix/local-event-graph-metadata`（9 提交，@ `397f3c5f0`）合进 `opt/consolidated` | main `synapse-services/src/room/messaging/service.rs:166` 出站 PDU 仍只有 `prev_events`（无 `depth`/`auth_events`）；`grep -rn "fn sign_and_broadcast_event" synapse-services/src` 仍返回 **2** 份实现 |
 
+### 5.2 最紧迫：O-4（本周必须完成）
+
+**⚠️ 问题**: `sign_and_broadcast_event` 有两份实现，策略相反，且都缺 `depth`/`auth_events`
+
+| 实现位置 | 策略 | 问题 |
+|----------|------|------|
+| `messaging/service.rs:131` | fail-closed | 数据库错误时静默跳过广播（可能丢失联邦消息） |
+| `membership/service.rs:486` | fail-open | 数据库错误时发送空 `prev_events` 的 PDU（产生无效 PDU） |
+| **两者** | **都缺 `depth`/`auth_events`** | **不是 v3+ 合法 PDU** |
+
+**目标**: 统一为 fail-closed，补全 PDU 字段，合并实现
+
+| 编号 | 级别 | 任务 | 判据（实测） | 前置 / 决策 |
+|---|---|---|---|---|
+| **O-4** | **🔴 P0（本周）** | 统一 `sign_and_broadcast_event` | `grep -rn "fn sign_and_broadcast_event" synapse-services/src` → **2** 份实现；`messaging/service.rs:157-167` 仅 9 键（缺 `depth`/`auth_events`） | 无依赖，立即开始 |
+
 ### 5.2 main 侧未完成
 
 | 编号 | 级别 | 任务 | 判据（实测） | 前置 / 决策 |
 |---|---|---|---|---|
-| **U-1** ✅**已决策：按规范单层实现（§6.1）** | 高 | Task 4 MSC3912 客户端级联 | `grep -rn "with_rel_types\|msc3912" synapse-web/src synapse-services/src` → **0 命中** | 按规范单层语义实现（`org.matrix.msc3912` unstable 标志 + 逐事件鉴权 + 真 redaction 事件），还是只保留管理端 `cascade_redact` 并改注释 |
+| **U-1** ✅**已完成（§6.1 实现）** | 高 | Task 4 MSC3912 客户端级联 | `redact_event` handler 解析 `with_rel_types` / `org.matrix.msc3912.with_relations`；`cascade.rs` 新增单层查询 `find_related_events_single_layer`；`EventRedactionService` 新增 `cascade_redact_related_events`；`capability_governance.rs` 新增 `org.matrix.msc3912 = true` | 规范单层语义实现（`org.matrix.msc3912` unstable 标志 + 单层关联查询 + best-effort 后台 cascade）；管理端保留但标注为"本仓扩展" |
 | **U-2** | 高 | **R-1** `user_exists` 去掉 `is_deactivated` 过滤后的扩散复核 | `user/storage.rs:698` 已改；生产调用点 **19** 处：`admin/room/management.rs` 5、`membership/moderation.rs` 3、`account_identity_service.rs` 3、`user_service.rs` 2、`handlers/room/members.rs` 1、`handlers/extended_profile.rs` 1、`federation/mod.rs` 1、`auth_compat.rs` 1、`federation/edu.rs` 1、`membership/actions.rs` 1 | 上游 #20172 只针对 profile 字段端点；建议拆两个谓词（`user_exists` 含停用 / `active_user_exists`）并逐点选定，尤其是 auth、federation、moderation 三处 |
 | **U-3** ✅**已决策：不新增表，落隔离裁定 + hash 级自动隔离（§6.2）** | 中 | Task 5 残留：扫描结果持久化 + 指标 + 显式配置 | 接线已在（`media/upload.rs:87,128`、`handlers/room/events.rs:306`）；但无 `scan_result`/`content_scans_total` 命中，`docker/config/homeserver.yaml` 无 `content_scanner` 键，默认 `enabled: false` | 决策：结果是否落库（新表 vs 仅审计日志 + 指标） |
 | **U-4** ✅**已决策：不升 v1.16，只补两个 errcode（§6.3）** | 中 | Task 6 残留：v1.16 profile 面 | `grep -rn "M_PROFILE_TOO_LARGE\|M_KEY_TOO_LARGE" --include=*.rs` → **0 命中**；无 64 KiB 总大小校验、无 `m.tz` | 决策：`/versions` 是否升到 v1.16（连带 v1.15/v1.16 全部变更 + 派生产物） |
@@ -1297,9 +1327,227 @@ sed -n '148,154p' synapse-common/src/crypto.rs
 | MSC4133 已进 spec v1.16（`/profile/{userId}/{keyName}`、`m.tz`、两个 errcode、`field=`） | matrix-spec `data/api/client-server/profile.yaml:19,22,104-106,312-316` |
 | 缩略图 `animated` 语义 | matrix-spec `data/api/client-server/content-repo.yaml:436-453,497-502` |
 | 上游已删 `auth_issuer`、profile 停用用户修复 | `element-hq/synapse@release-v1.161/CHANGES.md:48`（#20163）、`:36`（#20172） |
+| **v12 房间版本实现** | `element-hq/synapse@release-v1.162`：`CHANGES.md` "Raise default room version to '12'"；MSC4239、MSC4311、MSC3912 |
+| **动画缩略图实现** | `element-hq/synapse@release-v1.161`：`synapse/media/thumbnailer.py`、`synapse/rest/media/thumbnail_resource.py` |
 | Synapse `/versions` 只到 v1.12；稳定 profile `{keyName}` 无条件提供；`m.profile_fields` capability | `element-hq/synapse@release-v1.161`：`rust/src/handlers/versions.rs:146-157`、`synapse/rest/client/profile.py:104-106,113-117`、`synapse/rest/client/capabilities.py:95-101` |
 | Synapse 媒体只有 `max_upload_size`（无总量配额）；隔离按 sha256 复用（`get_is_hash_quarantined`） | 同上：`synapse/media/media_repository.py:106,353-359,429,439,507,782,921,1043` |
 | reference hash 的精确配方（prune → canonical JSON → sha256 → unpadded base64） | 同上：`synapse/crypto/event_signing.py:114-137`；Matrix spec `content/rooms/v4.md`「Event IDs」 |
 | Synapse 无内置内容扫描器（扫描属 out-of-tree 模块/代理） | 同上：`synapse/media/` 目录清单（无 scanner 模块） |
 | 上游 admin 媒体端点面（15 条） | `element-hq/synapse@release-v1.161/docs/admin_api/media_admin_api.md`、`user_admin_api.md:756,883` |
 | 上游 MSC3912 未稳定名（稳定名待更新） | [element-hq/synapse#15687](https://github.com/element-hq/synapse/issues/15687)（open） |
+| **MSC4133 实现状态** | `element-hq/synapse@release-v1.162`：`synapse/rest/client/profile.py:103-114`；**实验开关 `msc4133_enabled` 下才支持不稳定前缀 `uk.tcpip.msc4133`，非稳定端点** |
+| **动画缩略图格式** | `element-hq/synapse@release-v1.161`：`synapse/media/thumbnailer.py`；`ANIMATED_FORMATS = {"GIF","PNG","WEBP"}`，输出 `image/webp`，保留帧延迟和循环次数 |
+
+---
+
+## 附录 C：上游 Synapse v1.162 对齐差距分析
+
+### C.1 v12 房间版本差距
+
+**上游现状** (Synapse v1.162.0rc1, 2026-09-22):
+- ✅ **默认版本已提升至 v12** (`CHANGES.md`: "Raise default room version to '12'")
+- ✅ **核心 MSC**: MSC4239 (v12 定义)、MSC4311 (邀请/敲击状态)、MSC3912 (基于关系的撤回)
+- ⚠️ **MSC4311 宽限期**: 2027-06-01 前仅对邀请/敲门应用宽松验证 ([#19723](https://github.com/element-hq/synapse/issues/19723))
+- 🔑 **关键变更**:
+  - ED25519-only 签名验证 (更严格的算法白名单)
+  - PDU 验证增强 (`depth`、`prev_events`、`auth_events` 必须正确填充)
+  - MSC4311: `m.room.create` 现在必须出现在 v12 房间的 stripped invite/knock state 中
+
+**我们项目现状**:
+```rust
+// synapse-common/src/room_versions.rs:89
+pub const DEFAULT_ROOM_VERSION: &str = "11";  // ❌ 仍是 v11
+
+// synapse-common/src/room_versions.rs:114-115
+RoomVersionCapability::stable_parse_only("12"),  // ❌ 不可创建
+RoomVersionCapability::stable_parse_only("13"),  // ❌ 不可创建
+```
+
+**差距**:
+1. ❌ 无法创建 v12 房间 (`stable_parse_only`)
+2. ❌ `create_event` 不填充 `depth`/`prev_events`/`auth_events` (本地起源 PDU 恒 `MissingGraphMetadata`)
+3. ❌ 无 ED25519-only 强制验证
+4. ❌ 无 MSC4311 合规性检查
+
+**建议行动**:
+- **阶段 1**: 实现 v12 事件验证 (depth 计算、auth_events 构造、ED25519-only)
+- **阶段 2**: 将 `DEFAULT_ROOM_VERSION` 改为 "12"
+- **阶段 3**: 联邦兼容性测试
+
+### C.2 动画缩略图差距
+
+**上游实现** (Synapse Python):
+- **检测机制**: GIF/PNG/WebP 三格式支持，通过 `is_animated` 属性判断
+- **请求参数**: `animated=true/false` (默认 false)
+- **输出格式**: 
+  - 静态：JPEG/PNG/WebP
+  - 动画：**始终 WebP** (`ANIMATED_THUMBNAIL_TYPE = "image/webp"`)
+- **帧处理**: 逐帧缩放/裁剪，保留帧延迟 (`duration`) 和循环次数 (`loop`)
+- **降级策略**: 动画解码失败 → 自动回退到首帧静态缩略图
+
+**我们项目现状**:
+```rust
+// synapse-web/src/routes/media/download.rs
+pub(crate) fn thumbnail_request_params(params: &Value) -> (u32, u32, &str) {
+    // ❌ 没有 animated 参数解析
+}
+
+// synapse-services/src/media_service.rs
+fn generate_thumbnail(...) -> Result<Vec<u8>, ApiError> {
+    // ❌ 总是输出 JPEG
+    // ❌ 没有动画检测
+    // ❌ 没有帧处理
+}
+```
+
+**差距**:
+1. ❌ 无 `animated` 查询参数支持
+2. ❌ 无 GIF/APNG/WebP 动画检测
+3. ❌ 无逐帧处理逻辑
+4. ❌ 无 WebP 动画编码能力
+
+**建议行动**:
+- **阶段 1**: 添加 `animated` 参数解析和传递
+- **阶段 2**: 实现动画检测 (依赖 `image` crate 的动画迭代支持)
+- **阶段 3**: 实现 WebP 动画编码
+
+### C.3 MSC4133 Profile API 差距
+
+**上游实现** (Synapse v1.162):
+- **端点**: 
+  - 稳定：`GET /_matrix/client/v3/profile/{userId}` (已有)
+  - 不稳定：`GET /_matrix/client/unstable/uk.tcpip.msc4133/profile/{userId}/{field}` (实验开关下)
+- **实验开关**: `msc4133_enabled` 控制不稳定前缀是否注册
+- **错误码**: `KEY_TOO_LARGE` 用于字段名过长，**未使用 `M_PROFILE_TOO_LARGE`**
+- **字段支持**: `displayname`, `avatar_url`, 自定义字段 (需符合命名空间语法)
+- **速率限制**: 新增 `rc_profile` 配置
+- **停用用户**: 不再过滤 `is_deactivated` (#20172)
+
+**我们项目现状**:
+```rust
+// synapse-web/src/routes/assembly.rs:231
+// 已注册稳定 `/{keyName}` 路由 ✅
+
+// synapse-storage/src/user/storage.rs:698
+// 已移除 `is_deactivated` 过滤 ✅
+
+// 全仓搜索
+grep -rn "M_PROFILE_TOO_LARGE\|M_KEY_TOO_LARGE\|\"m\.tz\"" --include=*.rs .  # 0 命中 ❌
+```
+
+**差距**:
+1. ❌ 无 `M_PROFILE_TOO_LARGE`/`M_KEY_TOO_LARGE` 错误码 (上游也未完全实现)
+2. ❌ 无 `m.tz` 字段支持 (Spec v1.16 已定义但未实现)
+3. ⚠️ 缺少不稳定 MSC4133 前缀端点 (可选，取决于是否需要实验功能)
+
+**建议行动**:
+- **优先级低**: MSC4133 在上游仍处于实验阶段，可暂缓实现
+- **建议**: 记录为"已知差距"，待上游稳定后再跟进
+
+### C.4 两份 `sign_and_broadcast_event` 实现策略冲突
+
+**问题描述**:
+发现两个 `sign_and_broadcast_event` 实现，**策略相反**：
+
+1. **messaging/service.rs:131** (fail-closed):
+```rust
+let prev_events = match self.event_reader.get_latest_event_ids_in_room(...) {
+    Ok(events) => events,
+    Err(e) => {
+        tracing::warn!(error = %e, "Failed to fetch prev_events; skipping broadcast");
+        return Ok(());  // ❌ 直接返回，不广播
+    }
+};
+```
+
+2. **membership/service.rs:486** (fail-open):
+```rust
+let prev_events = match self.event_reader.get_latest_event_ids_in_room(...) {
+    Ok(events) => events,
+    Err(e) => {
+        tracing::warn!(error = %e, "PDU may be incomplete");
+        Vec::new()  // ✅ 继续，允许空 prev_events
+    }
+};
+```
+
+**影响**:
+- **messaging 版**: 数据库错误时静默跳过广播 (可能丢失联邦消息)
+- **membership 版**: 数据库错误时发送空 `prev_events` 的 PDU (产生无效 PDU)
+- **两者都缺 `depth`/`auth_events`** (N-1 问题)
+
+**建议行动**:
+- **统一为 fail-closed**: 数据库错误时不应发送无效 PDU
+- **补全 PDU 字段**: 添加 `depth` 和 `auth_events`
+- **合并实现**: 消除重复代码，单一来源
+
+---
+
+## 附录 D：优化方案更新
+
+### D.1 新增优化项
+
+| 编号 | 级别 | 问题 | 建议行动 | 优先级 |
+|------|------|------|----------|--------|
+| **O-1** | **P0** | v12 房间版本默认仍为 v11 | 阶段 1: 实现 v12 验证；阶段 2: 升级默认版本 | **高** |
+| **O-2** | 中 | 动画缩略图缺失 | 阶段 1: 参数支持；阶段 2: 动画检测；阶段 3: WebP 编码 | 中 |
+| **O-3** | 低 | MSC4133 不完整 | 记录为已知差距，待上游稳定 | 低 |
+| **O-4** | **高** | 两份 `sign_and_broadcast_event` 策略冲突 | 统一为 fail-closed，补全 PDU 字段 | **高** |
+
+### D.2 优先级调整
+
+**推荐执行顺序**:
+1. **O-4**: 统一 `sign_and_broadcast_event` (高优先级，影响联邦正确性)
+2. **O-1**: v12 房间版本升级 (P0 优先级，安全相关)
+3. **O-2**: 动画缩略图 (中优先级，用户体验)
+4. **O-3**: MSC4133 完整实现 (低优先级，上游未稳定)
+
+### D.3 时间估算更新
+
+| 优化项 | 估计时间 | 依赖 |
+|--------|---------|------|
+| O-4: 统一 sign_and_broadcast_event | 1 周 | 无 |
+| O-1: v12 房间版本 | 4-6 周 | 事件认证、存储层 |
+| O-2: 动画缩略图 | 2-3 周 | image crate 功能 |
+| O-3: MSC4133 | 2 周 | 上游稳定 |
+
+---
+---
+
+## 总结
+
+### 本轮核验结果
+
+| 类别 | 数量 | 说明 |
+|------|------|------|
+| 报项总项数 | 13 | 来自 `PROJECT_REMAINING_ISSUES_2026-09-14.md` |
+| 确认存在 | 8 | 客户端撤回不级联、Content Scanner、dag.rs、auth_issuer、Profile、Admin 媒体、animated+配额、search_index |
+| 部分成立 | 3 | P0 PDU（残余+新增）、Admin 媒体（15 条可核验）、animated+配额（两项均缺） |
+| 证伪/作废 | 2 | MSC4502/4262（证伪）、E2EE SAS（对象删除） |
+| 新发现 | 8 | N-1~N-8（P0~低级别） |
+| 优化项 | 4 | O-1~O-4（v12、动画缩略图、MSC4133、sign_and_broadcast_event） |
+
+### 最关键的三条
+
+**⚠️ 最紧迫：O-4 (P0，1 周，无依赖)**
+- **问题**: 两份 `sign_and_broadcast_event` 实现策略冲突（fail-closed vs fail-open）+ 出站 PDU 缺 `depth`/`auth_events`
+- **影响**: 直接导致联邦 PDU 无效，影响服务器间互通
+- **行动**: 本周内统一实现，补全 PDU 字段
+
+1. **O-1 (P0)**: v12 房间版本默认仍为 v11，而上游 Synapse v1.162 已提升至 v12。差距 4-6 周工作量。
+2. **N-2 (高)**: 两份 `sign_and_broadcast_event` 策略相反（fail-closed vs fail-open），违反反冗余铁律。
+
+### 下一步行动
+
+1. **🔴 立即**: 开始 O-4 统一 `sign_and_broadcast_event`（1 周，无依赖）
+2. **🔴 同时**: 合入 `fix/local-event-graph-metadata` 分支 (M-1)
+3. **本周**: 完成 O-4 + M-1
+4. **本月**: 完成 O-1 v12 房间版本阶段 1
+5. **下月**: 完成 O-1 v12 阶段 2 + O-2 动画缩略图
+
+---
+
+**文档版本**: v1.0 (2026-09-25)  
+**下次复核**: 建议在每个优化项完成后更新  
+**主要作者**: Audit Team  
+**审阅**: 待用户确认

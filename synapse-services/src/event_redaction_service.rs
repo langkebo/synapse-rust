@@ -66,4 +66,29 @@ impl EventRedactionService {
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to cascade redact event", e))
     }
+
+    /// MSC3912: Single-layer cascade redaction for client-side.
+    ///
+    /// Finds all events that reference the target event via relationship fields
+    /// (m.in_reply_to, m.relates_to, m.replace) and redacts them at a single
+    /// level (no recursion).
+    ///
+    /// # Arguments
+    /// * `room_id` - Room to search in
+    /// * `event_id` - Target event ID
+    /// * `rel_types` - List of relationship types to match (use `["*"]` for all)
+    ///
+    /// # Returns
+    /// Number of events successfully redacted
+    pub async fn cascade_redact_related_events(
+        &self,
+        room_id: &str,
+        event_id: &str,
+        rel_types: &[String],
+    ) -> Result<u64, ApiError> {
+        self.storage
+            .cascade_redact_related_events(room_id, event_id, rel_types)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to cascade redact related events", e))
+    }
 }

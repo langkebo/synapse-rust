@@ -188,14 +188,17 @@ Manual testing performed with:
 
 ## Status
 
-✅ **Implementation Complete**
-- Storage layer methods implemented
-- Service layer wrapper added
-- Module structure integrated
-- Documentation provided
+✅ **Client-Side MSC3912 Cascade Implemented** (single-layer, content erasure)
+- Parses `with_rel_types` and `org.matrix.msc3912.with_relations` from request body
+- Strips these fields from redaction event content (per spec)
+- Single-layer relationship find (no recursion)
+- Best-effort background cascade (non-blocking response)
+- `/versions` declares `org.matrix.msc3912 = true`
 
-⏳ **Pending Work**
+⏳ **Pending Enhancements**
+- Create proper redaction events (not just content erasure) for federation
+- Per-event authorization checks in cascade
 - Integration tests
-- Admin API endpoint
 - Performance benchmarks
-- Index recommendations
+- GIN index on content->'m.relates_to' (per §6.1)
+- Admin endpoint clarification (marked as synapse-rust extension)

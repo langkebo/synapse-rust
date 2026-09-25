@@ -45,6 +45,74 @@ impl EventStorage {
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 
+    /// MSC3912: Find related events at a single level (no recursion).
+    ///
+    /// This is the storage layer for the MSC3912 client-side cascade redaction.
+    /// Unlike [`find_related_events`], this method:
+    /// - Filters by `rel_type` (e.g., "m.replace", "m.thread", "m.annotation")
+    /// - Excludes the target event itself
+    /// - Excludes already-redacted events
+    /// - Supports wildcard (`*`) to match all rel_types
+    ///
+    /// # Arguments
+    /// * `room_id` - Room to search in
+    /// * `event_id` - Target event ID
+    /// * `rel_types` - List of relationship types to match (use `["*"]` for all)
+    ///
+    /// # Returns
+    /// Event IDs of related events (single layer only)
+    pub async fn find_related_events_single_layer(
+        &self,
+        room_id: &str,
+        event_id: &str,
+        rel_types: &[String],
+    ) -> Result<Vec<String>, sqlx::Error> {
+        // Wildcard: match all rel_types
+        if rel_types.len() == 1 && rel_types[0] == "*" {
+            let rows: Vec<(String,)> = sqlx::query_as(
+                r#"
+                SELECT event_id FROM events
+                WHERE room_id = $1
+                  AND event_id != $2
+                  AND is_redacted = false
+                  AND (
+                      (content->'m.relates_to' IS NOT NULL
+                       AND content->'m.relates_to'->>'event_id' = $2)
+                      OR (content->>'m.in_reply_to' IS NOT NULL
+                          AND content->'m.in_reply_to'->>'event_id' = $2)
+                  )
+                ORDER BY origin_server_ts ASC, stream_ordering ASC
+                "#,
+            )
+            .bind(room_id)
+            .bind(event_id)
+            .fetch_all(self.pool.as_ref())
+            .await?;
+            return Ok(rows.into_iter().map(|(id,)| id).collect());
+        }
+
+        // Specific rel_types: filter by rel_type field
+        let rows: Vec<(String,)> = sqlx::query_as(
+            r#"
+            SELECT event_id FROM events
+            WHERE room_id = $1
+              AND event_id != $2
+              AND is_redacted = false
+              AND content->'m.relates_to' IS NOT NULL
+              AND content->'m.relates_to'->>'event_id' = $2
+              AND content->'m.relates_to'->>'rel_type' = ANY($3)
+            ORDER BY origin_server_ts ASC, stream_ordering ASC
+            "#,
+        )
+        .bind(room_id)
+        .bind(event_id)
+        .bind(rel_types)
+        .fetch_all(self.pool.as_ref())
+        .await?;
+
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
     /// Recursively find all descendant events that should be redacted when
     /// the given event is redacted.
     ///
@@ -123,6 +191,39 @@ impl EventStorage {
         }
 
         Ok(redacted_count)
+    }
+
+    /// MSC3912: Single-layer cascade redaction – no recursion.
+    ///
+    /// Finds all events that reference the target event via relationship fields
+    /// (m.in_reply_to, m.relates_to, m.replace) and redacts them.
+    ///
+    /// # Arguments
+    /// * `room_id` - Room to search in
+    /// * `event_id` - Target event ID
+    /// * `rel_types` - List of relationship types to match (use `["*"]` for all)
+    ///
+    /// # Returns
+    /// Number of events successfully redacted
+    pub async fn cascade_redact_related_events(
+        &self,
+        room_id: &str,
+        event_id: &str,
+        rel_types: &[String],
+    ) -> Result<u64, sqlx::Error> {
+        let related: Vec<String> = self.find_related_events_single_layer(room_id, event_id, rel_types).await?;
+
+        if related.is_empty() {
+            return Ok(0);
+        }
+
+        let mut count = 0u64;
+        for target_id in related {
+            self.redact_event_content(&target_id, None).await?;
+            count += 1;
+        }
+
+        Ok(count)
     }
 
     /// Get the full JSON representation of an event for federation redaction.
