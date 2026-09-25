@@ -541,6 +541,11 @@ MSC3912 客户端级联与 Content Scanner 接线（高），最后清理中低�
 
 **Tech Stack:** Rust（axum / sqlx / tokio）、PostgreSQL 18（JSONB + GIN）、nextest、insta。
 
+> **勾选口径（2026-09-25 起）**：`- [x]` = **已完成**，行内跟*证据锚点*（提交号或 `路径:行号`/实测命令）；
+> `- [x] ~~原文~~ → 说明` = 该步骤被**替代或作废**（原文保留供追溯，不再是待办）；
+> `- [ ]` = 未完成；行尾 `（待核）` = 尚无实测证据。勾选状态一律由 §0.3 / §6 的实测结论派生，
+> **不得**凭计划文本自行打勾；回勾与实测证据在同一次提交里。
+>
 ### Global Constraints
 
 - 项目状态：**未发布、无外部用户、无生产数据 ⇒ 无兼容义务**（AGENTS.md 铁律 1）。
@@ -646,7 +651,7 @@ MSC3912 客户端级联与 Content Scanner 接线（高），最后清理中低�
 - Produces: `EventStorage::create_event` 落库图列（NULL 仅当调用方显式不传）
 - Produces（合并后唯一实现）：`RoomMessagingService::sign_and_broadcast_event(&self, event: &RoomEvent) -> ApiResult<()>`
 
-- [ ] **Step 1: 写失败测试（RED 1 —— 落库）**
+- [x] ~~**Step 1: 写失败测试（RED 1 —— 落库）**~~ — **作废**：原设计要求改 `CreateEventParams`（全仓 160 处字面量），已否决；等价覆盖见 1b 装饰器与 1e 建房追踪的 DB/单测
 
 `synapse-storage/src/event/db_tests.rs` 新增：
 
@@ -678,12 +683,12 @@ async fn test_create_event_persists_graph_metadata() {
 }
 ```
 
-- [ ] **Step 2: 运行并确认失败**
+- [x] ~~**Step 2: 运行并确认失败**~~ — **作废**（随原设计一并替代）
 
 Run: `SQLX_OFFLINE=false cargo nextest run -p synapse-storage --lib -E 'test(test_create_event_persists_graph_metadata)'`
 Expected: 编译失败（`CreateEventParams` 无 `depth` 字段）。
 
-- [ ] **Step 3: 实现（GREEN 1）**
+- [x] ~~**Step 3: 实现（GREEN 1）**~~ — **作废**：实现改为「图数据走 `create_event_with_graph` + 自动提交路径用 `GraphMetadataWriter` 装饰」（`bf90f430f` / `900938510`）
 
 `CreateEventParams` 加三个字段；`create_event` 的 INSERT 改为与 `create_event_with_graph`
 **同一条语句**（删掉 `create_event_with_graph` 的重复 INSERT，只保留一个写入口）：
@@ -697,12 +702,12 @@ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,false,$9,$10,$11,$12,$13)
 并在 `create_event_with_graph` 内改为构造带图字段的 `CreateEventParams` 后调用 `create_event`
 （**消除第二份 INSERT**，满足铁律 2）。
 
-- [ ] **Step 4: 运行确认通过**
+- [x] ~~**Step 4: 运行确认通过**~~ — **作废**；等价门禁：1b 8 单测+3 变异、1e 6 单测+3 变异、storage 极值 DB 测试+变异
 
 Run: `SQLX_OFFLINE=true cargo nextest run -p synapse-storage --lib -E 'test(graph_metadata)'`
 Expected: PASS。
 
-- [ ] **Step 5: 写失败测试（RED 2 —— 出站 PDU 字段完备）**
+- [x] **Step 5: 写失败测试（RED 2 —— 出站 PDU 字段完备）** — 已完成（1d，`864d0f6b2`）：`room/federation_broadcast.rs::build_broadcast_pdu` 的 12 键单测
 
 `tests/unit/federation_state_pdu_tests.rs` 同级新增 `tests/unit/federation_outbound_pdu_tests.rs`：
 
@@ -723,25 +728,25 @@ fn outbound_pdu_includes_depth_and_auth_events() {
 （实现时把 `service.rs` 里的 PDU 拼装抽成 `pub(crate) fn build_outbound_pdu(server_name, &RoomEvent) -> Value`，
 便于单测；这是本次重构的关键 seam。）
 
-- [ ] **Step 6: 实现（GREEN 2）** —— 抽 `build_outbound_pdu`，字段取自 `RoomEvent` 的
+- [x] **Step 6: 实现（GREEN 2）** — 已完成（1d）：字段取自**已落库**图元数据而非重查 extremities；缺失即拒签拒播（fail-closed）
   `depth`/`prev_events`/`auth_events`（Task 1 Step 3 已保证有值），**取不到时按 `pdu.rs` 的同一立场处理**：
   不伪造，记 `federation_pdu_incomplete_total` 计数并跳过广播（与 messaging 版现有 fail-closed 一致）。
 
-- [ ] **Step 7: 合并两份 `sign_and_broadcast_event`**
+- [x] **Step 7: 合并两份 `sign_and_broadcast_event`** — 已完成（1d）：`grep -rn "fn sign_and_broadcast_event"` = 3 处（1 实现 + 2 薄适配器）
 
 删除 `synapse-services/src/room/membership/service.rs:486-560` 的整份实现，让
 `membership/actions.rs`、`membership/moderation.rs` 的 8 个调用点改调 messaging 版
 （若字段不可达，用 `RoomMessagingService` 的引用注入，不要复制代码）。
 验收：`grep -rn "fn sign_and_broadcast_event" --include=*.rs .` → **恰好 1 处**。
 
-- [ ] **Step 8: 变异自证（铁律 8）**
+- [x] **Step 8: 变异自证（铁律 8）** — 已完成：1d 三个变异（PDU 省 `depth` / 缺 `depth` 静默写 0 / 缺数组静默写 `[]`）各自转红，还原 sha256 一致
 
 分别制造 3 个变异并确认对应测试转红、还原后 sha256 一致：
 ① 把 `create_event` 的 `depth` bind 改成常量 `0`；② 从 `build_outbound_pdu` 删掉 `auth_events`；
 ③ 把 `RefuseIncomplete` 分支改成 `SignLocally`。
 每次：`cargo nextest run --test unit -E 'test(federation_)'` 读到 nextest 的 `Summary [` 行并断言有 failed。
 
-- [ ] **Step 9: 全量回归与提交**
+- [x] **Step 9: 全量回归与提交** — 已完成：B1 冻结提交上 lib 6308/6308、unit 1773/1773、集成子集 15/15、clippy exit 0、fmt `OK (0)`
 
 ```bash
 cargo fmt --all && ./scripts/check_fmt_ratchet.sh
@@ -780,12 +785,12 @@ git diff --cached --stat && git commit -m "fix(federation): persist local event 
 
 - **Files:** `synapse-web/src/routes/federation/transaction.rs:440-510`、
   `synapse-services/src/room/messaging/events.rs:507`、`synapse-storage/src/event/create.rs`
-- [ ] Step 1: RED —— 在 `tests/integration` 加用例：投递一个 `/send` 事务（带远端 `signatures`），
+- [ ] Step 1: RED —— 在 `tests/integration` 加用例（**未按原文做**：改用 storage 层回环测试 `inbound_pdu_signature_material_round_trips` + 谓词单测；**HTTP 端到端断言仍缺** → §5 U-8）
   断言 `events.signatures` 落库且 `/send_join` 再投影时 `signature_action == KeepStored`。
-- [ ] Step 2: GREEN —— 把 PDU 的 `hashes`/`signatures` 作为参数传入 `create_event_with_graph`
+- [x] ~~Step 2: GREEN —— 把 PDU 的 `hashes`/`signatures` 作为参数传入 `create_event_with_graph`~~ → **改为复用既有 `update_event_signatures_and_hashes`**（不新增第二种写法；`efbe4af73`）
   并在 INSERT 中落库（与图元数据同一批字段），不再依赖事后 `update_event_signatures_and_hashes`。
-- [ ] Step 3: 断言不再需要 `membership/mod.rs:238` 的专用回填（若无其他调用方则删除该方法，铁律 2）。
-- [ ] Step 4: 变异自证 + 门禁同 Task 1 Step 8/9。
+- [x] ~~Step 3: 断言不再需要 `membership/mod.rs:238` 的专用回填~~ → **不适用**：该处回填写的是**本机**签名（F-03 本地签名），与源服务器材料是两码事，保留
+- [x] Step 4: 变异自证 + 门禁同 Task 1 Step 8/9 — 已完成：`signature_material` 2 变异（删 `sha256` 校验 / 删空签名校验）各自转红；fmt/clippy 通过
 
 #### Task 3（决策项，**不建议本轮动手**）：`event_id` 改 v4+ reference hash —— ⬜ **未做**（main 仍为 `$<ts>$<b64>:<server>`）
 
@@ -823,10 +828,10 @@ canonical JSON + redaction 规则 + room version 判定齐备。
 - Modify: `migrations/00000000_unified_schema_v12.sql`（GIN 索引）+ 指纹常量 + 派生产物
 - Test: `synapse-storage/src/event/db_tests.rs`、`tests/integration/`
 
-- [ ] **Step 1: RED（storage）** —— 用例：三个事件 `$a`（原消息）、`$b`（edit，`rel_type=m.replace`）、
+- [ ] **Step 1: RED（storage）** — **未见测试**：全仓 `single_layer|with_rel_types|msc3912` 在 `tests/` 与 storage `db_tests` 中 **0 命中**
   `$c`（reaction，`rel_type=m.annotation`）；`find_related_events_with_types("$a", ["m.replace"])`
   只返回 `$b`；传 `["*"]` 返回 `$b` 与 `$c`。
-- [ ] **Step 2: GREEN（storage）** —— 新增：
+- [x] **Step 2: GREEN（storage）** — 已完成（`4e7525e80`）：`cascade.rs:64-103 find_related_events_single_layer`（**单层** + `*` 通配 + `rel_type` 过滤）
 
 ```sql
 SELECT event_id FROM events
@@ -844,7 +849,7 @@ LIMIT $3
 ```
 
   `"*"` 由调用方转成"去掉 rel_type 谓词"的变体（两个查询而非 `ANY` 里塞通配），避免 SQL 里做字符串特判。
-- [ ] **Step 3: 索引（必须，否则每次撤回全表扫 `events`）** —— 在 baseline 追加：
+- [ ] **Step 3: 索引（必须）** — **未做**：实测 baseline 中 `content->'m.relates_to'` 索引 **0 条** ⇒ 每次级联对 `events` 全表扫描
 
 ```sql
 CREATE INDEX IF NOT EXISTS idx_events_relates_to_gin ON events USING gin ((content->'m.relates_to'));
@@ -853,13 +858,13 @@ CREATE INDEX IF NOT EXISTS idx_events_in_reply_to_gin ON events USING gin ((cont
 
   同步：`EXPECTED_BASELINE_FINGERPRINT`（先复算再替换，禁止照抄）、`migrations/INDEXES.md`、
   `scripts/check_schema_contract_coverage.py` 的 `TABLE_CONTRACTS`（若含 events 索引清单）。
-- [ ] **Step 4: RED（路由）** —— 集成测试（`tests/integration/api_redaction_cascade_tests.rs`）：
+- [ ] **Step 4: RED（路由）** — **未见测试**（无 `tests/integration/api_redaction_cascade_tests.rs`）
   ① `with_rel_types: ["m.replace"]` 撤 `$a` ⇒ `$a`、`$b` 被撤且 `$c` **未**被撤；
   ② 同一请求断言**不为 `$c` 生成 redaction 事件**（对照 MSC 的 `$c` 例子）；
   ③ 权限不足者对他人事件的关系被忽略，响应仍 200；
   ④ 落库的 redaction content **不含** `with_rel_types`/`org.matrix.msc3912.with_relations` 键；
   ⑤ `GET /_matrix/client/versions` 的 `unstable_features["org.matrix.msc3912"] == true`。
-- [ ] **Step 5: GREEN（路由）** —— 在 `redact_event` 中：
+- [x] ~~**Step 5: GREEN（路由）**~~ — 已接线（`events.rs:957-1037`）但**语义偏离规范**：级联只调 `redact_event_content`，**不产生真 `m.room.redaction` 事件**、`redacted_by=None`、**无逐事件 `can_redact_event`**（上游 `relations.py:252` 逐事件建 redaction 事件并忽略无权者）⇒ 建议立 **U-1b**
 
 ```rust
 let relation_types = extract_relation_types(&mut body)?;   // 读两个 key，校验为字符串数组，随后从 body 移除
@@ -873,13 +878,13 @@ if let Some(types) = relation_types.filter(|t| !t.is_empty()) {
 Ok(Json(json!({ "event_id": new_event_id })))
 ```
 
-- [ ] **Step 6: 管理端对齐** —— `admin/room/mod.rs:788` 的 `cascade_redact` 保留（管理员语义），
+- [x] **Step 6: 管理端对齐** — 部分完成：`admin/room/mod.rs:780` 已标注「本仓扩展，NOT part of MSC3912」；未改为复用同一服务方法
   但其实现改为**复用** Step 5 的服务方法，`max_depth` 字段标注为**本仓扩展**（MSC3912 无此概念），
   并在 `docs/audit/2026-09-23-msc3912-cascade-redaction.md` 头部加"与规范差异"小节，
   修正其"Implementation Complete / Unit Tests (Disabled)"表述。
-- [ ] **Step 7: 变异自证** —— ① 把单层改成递归 ⇒ 测试②转红；② 删掉 `can_redact_event` 调用 ⇒ 测试③转红；
+- [ ] **Step 7: 变异自证** — 未做
   ③ 保留 `with_rel_types` 在 content 里 ⇒ 测试④转红。
-- [ ] **Step 8: 派生产物** —— `./scripts/api_test/export_ledger.sh` 与
+- [ ] **Step 8: 派生产物** — 部分：`/versions` 已声明 `org.matrix.msc3912`（`capability_governance.rs:143`）；ledger/route-table/client.yaml 是否随之重生成未复核（待核）
   `gen_route_table.py --check` / `gen_client_yaml.py --check`（本任务不改路由，仅版本列表变化，
   但仍需跑一遍确认无漂移）。
 
@@ -893,30 +898,30 @@ Ok(Json(json!({ "event_id": new_event_id })))
 - Create: `migrations/20260925xxxxxx_media_scan_results.sql`（或用 baseline——见 Step 5 决策）
 - Test: `synapse-services/src/media/tests*`、`tests/integration/`
 
-- [ ] **Step 1: RED（策略一致性，N-4）** —— 用例：`scanner_type=ClamAv` + `block_on_scan_failure=false`
+- [ ] **Step 1: RED（策略一致性，N-4）** — **未见针对性测试**
   + 不可达 socket ⇒ `scan_media` 返回 `Ok(safe: true)` 而非 `Err`。
   Expected: FAIL（当前 `:62-70` 直接 `Err`）。
-- [ ] **Step 2: GREEN** —— 把 ClamAV 的 4 条失败路径统一路由到 `on_scan_failure`
+- [x] **Step 2: GREEN** — 已完成：`content_scanner/service.rs:47,48,124-137` 的 ClamAV/webhook 失败路径全部走 `on_scan_failure`
   （把 `on_webhook_failure` 重命名为 `on_scan_failure`，铁律 2：一份失败策略）。
-- [ ] **Step 3: RED（上传接线）** —— 用 `wiremock` 起一个 webhook 扫描器返回 `{"safe": false, "threat_type":"virus"}`，
+- [ ] **Step 3: RED（上传接线）** — **未见测试**；且实测接线**丢弃裁定**（见 Step 4）
   调 `PUT /_matrix/media/v3/upload`，断言 **403 `M_FORBIDDEN`** 且媒体**未落库**
   （`SELECT count(*) FROM media` 不变）。
-- [ ] **Step 4: GREEN（上传接线）** —— 在 `upload_media_common`（`upload.rs:127` 之后、
+- [x] ~~**Step 4: GREEN（上传接线）**~~ — 已接线但**不安全**：`routes/media/upload.rs:87,128` 仅用 `?` 传播 scanner **错误**，`Ok(safe=false)`（真检出威胁）**不拦截**，文件照存 ⇒ 修法见 §6.2 与 §5 U-3
   持久化之前）调用 `scan_media(content_id, bytes, ContentType::Media)`；
   `safe=false` ⇒ `ApiError::forbidden`；`Err` ⇒ 由 `block_on_scan_failure` 决定放行或拒绝（沿用配置，不新增开关）。
-- [ ] **Step 5: 决策 —— 扫描结果是否持久化**（**需 owner 决策**）：
+- [x] **Step 5: 决策** — 已定（§6.2：不新增表、落隔离裁定 + 按内容哈希复用）；**实现待做**
   - 方案 a（推荐）：新增 `media_scan_results(media_id, safe, threat_type, scanned_at, scanner)` + 唯一约束，
     便于事后审计与"隔离已存在素材"。
   - 方案 b：不持久化，只在指标 + 审计日志留痕（最小改动）。
   两者都必须产出指标：`content_scans_total{result}`、`content_scan_failures_total`。
-- [ ] **Step 6: 发消息扫描** —— `RoomMessagingService::create_event` 对 `m.room.message` 等
+- [x] **Step 6: 发消息扫描** — 已完成：`handlers/room/events.rs:306 scan_text(...)`
   文本事件调用 `scan_text`（文本提取复用 `extensible_events::extract_text_from_event_content`，
   不新增第二份提取实现）；`safe=false` ⇒ 403 + 不入库。
   **注意**：这会改变所有消息发送路径的行为，必须先跑全量集成回归确认无既有用例依赖
   "扫描器未接线"（`grep -rn "scan" tests/integration | grep -i message` 预检）。
-- [ ] **Step 7: 配置与文档** —— `docker/config/homeserver.yaml` 增加**显式** `content_scanner: { enabled: false, ... }`
+- [ ] **Step 7: 配置与文档** — **未做**：实测 `docker/config/homeserver.yaml` 无 `content_scanner` 键
   （AGENTS.md：Search 类可选组件必须显式禁用而非缺省）；`docs/` 记录启用前置条件（ClamAV socket / webhook 可达）。
-- [ ] **Step 8: 变异自证** —— ① 把上传钩子的判定反过来（safe=false 放行）⇒ Step 3 转红；
+- [ ] **Step 8: 变异自证** — 未做
   ② 删掉 ClamAV 的策略路由 ⇒ Step 1 转红。
 
 ### 3.3 批次 B3（中）
@@ -931,17 +936,17 @@ Ok(Json(json!({ "event_id": new_event_id })))
 
 无论哪条，**子项 A（停用用户）都必须修**：
 
-- [ ] Step 1: RED —— 集成用例：停用（`is_deactivated=true`）但存在的用户，管理员/本人 token 写自定义字段 ⇒ **成功**；
+- [ ] Step 1: RED —— 集成用例（停用但存在的用户写自定义字段应成功）（待核：未见针对性用例）
   不存在的用户 ⇒ 404。（对照上游 #20172。）
-- [ ] Step 2: GREEN —— 在 `synapse-storage/src/user/storage.rs` **新增**
+- [x] ~~Step 2: GREEN —— 新增"含停用"谓词~~ — **改法不同**：**全局**去掉了 `user_exists` 的 `is_deactivated` 过滤（`user/storage.rs:698`），未新增独立谓词 ⇒ 19 个生产调用点语义一并放宽（§5 R-1/U-2，**需复核**）
   `user_exists_including_deactivated(&self, user_id)`（`SELECT 1 FROM users WHERE user_id=$1`，**不带** deactivation 过滤）
   + trait 方法 + fake 实现；`extended_profile.rs:31` 改用它；**不动** `user_exists` 的 14 个调用点。
-- [ ] Step 3: 一致化 —— 稳定 `update_displayname`/`update_avatar`（`account_compat.rs:229,225`）
+- [ ] Step 3: 一致化（displayname/avatar 与 GET 行为对齐）（待核）
   同样改走"存在性含停用"（与 GET 对停用用户 200 的行为对齐）；补用例钉住前后一致。
-- [ ] Step 4: 路线 A 追加 —— 稳定路由 + `m.tz` + 两个 errcode + 总大小 64 KiB 校验；
+- [x] **Step 4: 路线 A 追加** — 部分完成：稳定 `/{keyName}` 路由（`assembly.rs:231`）+ 两个 errcode 与校验（**本批 U-4**，`5e739ef8a`）；`m.tz` 按 §6.3 **明确不做**
   `/versions` 增补到 v1.16（**先核对 v1.15/v1.16 全部变更**，`VERSION_GAP_ANALYSIS` 口径）；
   重生成全部派生产物。
-- [ ] Step 5: 路线 B/C 追加 —— `capability_governance.rs:507` 的 key 按决策改/删；
+- [x] ~~Step 5: 路线 B/C 追加~~ — 路线已在 §6.3 定为「不升 `/versions`、保留 `m.profile_fields`、只补 errcode」
   同步 `tests/unit/` 里 capability 快照与 `docs/synapse-rust-vs-synapse-comparison.md:557,845`。
 
 #### Task 7：Admin 媒体族补齐（按 §1.7 的 15 条清单）—— ⬜ **未开始**（`admin/media.rs` 内 quarantine/unquarantine/房间级媒体路由 0 命中）
@@ -976,21 +981,21 @@ Ok(Json(json!({ "event_id": new_event_id })))
 
 #### Task 9：媒体配额错误码（**需 owner 决策**）—— ⬜ **未开始**（`media/mod.rs:250` 仍 `ApiError::bad_request` → 400 `M_BAD_JSON`）
 
-- [ ] Step 1: 决策 —— 单文件超限 ⇒ `M_TOO_LARGE`（413，`code.rs:71`，语义最贴）；
+- [x] **Step 1: 决策** — 已定（§6.4：`M_TOO_LARGE`(413) / `M_RESOURCE_LIMIT_EXCEEDED`(403)）
   总存储配额超限 ⇒ `M_RESOURCE_LIMIT_EXCEEDED`（403，`:75`）或 `M_LIMIT_EXCEEDED`（429，`:27`，可带 `retry_after_ms`）。
   **不采用** `M_USER_LIMIT_EXCEEDED`（`code.rs:83` 自述为 MSC4335 账户数上限，归因不符）。
-- [ ] Step 2: RED —— 现有 `media/mod.rs:893,950` 断言 400，改为断言目标码 + 状态码。
-- [ ] Step 3: GREEN —— `ensure_upload_allowed` 按超限类型返回对应 `ApiError`；`QuotaCheckResult` 增枚举
+- [x] **Step 2: RED** — 已完成（U-7）：用户配额用例改断 403 `M_RESOURCE_LIMIT_EXCEEDED`，并新增 server 单文件上限 ⇒ 413 `M_TOO_LARGE`
+- [x] **Step 3: GREEN** — 已完成（U-7，`d70b4fc20`）：`QuotaRejection` 类型化 + `quota_error` 纯映射；4 个生产构造点各自标注原因
   `rejection: QuotaRejection::{FileTooLarge, StorageExceeded}`（不要把 string reason 当类型）。
-- [ ] Step 4: 若 `M_USER_LIMIT_EXCEEDED` 最终**全仓仍无使用点**，按铁律 1 评估删除该变体
+- [ ] Step 4: `M_USER_LIMIT_EXCEEDED` 全仓仍**无**生产使用点 ⇒ 按铁律 1 待决（删除变体 vs 补账户上限消费者）
   （含 `code.rs:83,131,176,225` + `error.rs` 测试清单），避免"注册了但永不产生"的死码。
 
 #### Task 10：`auth_issuer` 摘除 + `dag.rs` 幻觉清理 —— 🟡 **main 已完成主体**（路由摘除 + 注释修正）；**残留**：`get_auth_issuer` handler 变死码、`get_state_dag_edges`/`get_prev_state_events`/`find_events_referencing_missing_state` 仍 0 生产调用点
 
-- [ ] **auth_issuer**：删 `assembly.rs:196-199` 的路由、`auth_discovery.rs:62` 的 handler、
+- [x] **auth_issuer**：路由**已摘除**；残留 `auth_discovery.rs:66 get_auth_issuer` **死码未删**（§5 U-9）
   `tests/integration/api_auth_routes_tests.rs:247-254`、`tests/unit/assembly_route_tests.rs:403-405` 的断言；
   **保留** `auth_metadata`（unstable + v1 两条）；重生成派生表/ledger/快照/契约；净值 −1 路由。
-- [ ] **dag.rs**：把 `:203-205` 注释改为"供 MSC4242 state-DAG 查询使用；当前**无生产调用点**"，
+- [x] **dag.rs**：注释**已改**（原 "Used by `/send_join`…" 已不存在）；三个 0 调用点查询仍未清理（§5 U-9）
   并给 `get_state_dag_edges`/`get_prev_state_events`/`find_events_referencing_missing_state`
   和 `create_state_event_with_dag` 加 `#[allow(dead_code)]` + 同风格说明，
   **或**（更符合铁律 1）删除这三个查询与 MSC4242 写路径，若确定不打算做 MSC4242。

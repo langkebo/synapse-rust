@@ -955,16 +955,15 @@ pub(crate) async fn redact_event(
     ctx.room_auth.can_redact_event(&room_id, &auth_user.user_id, &original_event.user_id).await?;
 
     // MSC3912: Parse with_rel_types (stable) and org.matrix.msc3912.with_relations (unstable)
-    let with_rel_types: Option<Vec<String>> = if let Some(arr) = body.get("with_rel_types").and_then(|v| v.as_array()) {
-        Some(arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-    } else {
-        // Unstable name kept for upstream compatibility (Synapse reads
-        // `org.matrix.msc3912.with_relations`; the stable `with_rel_types`
-        // rename is not in upstream yet).
-        body.get("org.matrix.msc3912.with_relations")
-            .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-    };
+    let with_rel_types: Option<Vec<String>> = body
+        .get("with_rel_types")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .or_else(|| {
+            body.get("org.matrix.msc3912.with_relations")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        });
 
     // Validate with_rel_types: must be non-empty array of strings
     if let Some(ref rel_types) = with_rel_types {

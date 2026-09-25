@@ -8,6 +8,8 @@ pub(crate) mod cascade;
 pub(crate) mod create;
 /// The `dag` module.
 pub(crate) mod dag;
+/// The `depth` module for v12+ depth calculation.
+pub(crate) mod depth;
 /// The `ephemeral` module.
 pub(crate) mod ephemeral;
 /// The `models` module.
