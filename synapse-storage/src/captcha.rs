@@ -201,26 +201,31 @@ impl CaptchaStorage {
         let expires_at = now + (request.expires_in_seconds * 1000);
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
 
-        let row = sqlx::query_as::<_, RegistrationCaptcha>(
-            r"
+        let row = sqlx::query_as!(
+            RegistrationCaptcha,
+            r#"
             INSERT INTO registration_captcha (
                 captcha_id, captcha_type, target, code, created_ts, expires_at,
                 ip_address, user_agent, max_attempts, metadata
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            RETURNING *
-            ",
+            RETURNING id, captcha_id, captcha_type, target, code, created_ts, expires_at,
+                used_at AS "used_ts", verified_at AS "verified_ts",
+                ip_address, user_agent,
+                attempt_count AS "attempt_count!", max_attempts AS "max_attempts!",
+                status AS "status!", metadata AS "metadata!"
+            "#,
+            &captcha_id,
+            &request.captcha_type,
+            &request.target,
+            &request.code,
+            now,
+            expires_at,
+            request.ip_address.as_deref(),
+            request.user_agent.as_deref(),
+            request.max_attempts,
+            &metadata,
         )
-        .bind(&captcha_id)
-        .bind(&request.captcha_type)
-        .bind(&request.target)
-        .bind(&request.code)
-        .bind(now)
-        .bind(expires_at)
-        .bind(&request.ip_address)
-        .bind(&request.user_agent)
-        .bind(request.max_attempts)
-        .bind(&metadata)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to create captcha", e))?;
@@ -231,9 +236,12 @@ impl CaptchaStorage {
 
     /// See [`get_captcha`].
     pub async fn get_captcha(&self, captcha_id: &str) -> Result<Option<RegistrationCaptcha>, ApiError> {
-        let row = sqlx::query_as::<_, RegistrationCaptcha>("SELECT id, captcha_id, captcha_type, target, code, created_ts, expires_at, used_at, verified_at, ip_address, user_agent, attempt_count, max_attempts, status, metadata FROM registration_captcha WHERE captcha_id = $1")
-            .bind(captcha_id)
-            .fetch_optional(&*self.pool)
+        let row = sqlx::query_as!(
+            RegistrationCaptcha,
+            r#"SELECT id, captcha_id, captcha_type, target, code, created_ts, expires_at, used_at AS "used_ts", verified_at AS "verified_ts", ip_address, user_agent, attempt_count AS "attempt_count!", max_attempts AS "max_attempts!", status AS "status!", metadata AS "metadata!" FROM registration_captcha WHERE captcha_id = $1"#,
+            captcha_id,
+        )
+        .fetch_optional(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get captcha", e))?;
 
@@ -247,17 +255,18 @@ impl CaptchaStorage {
         captcha_type: &str,
     ) -> Result<Option<RegistrationCaptcha>, ApiError> {
         let now = current_timestamp_millis();
-        let row = sqlx::query_as::<_, RegistrationCaptcha>(
-            r"
-            SELECT id, captcha_id, captcha_type, target, code, created_ts, expires_at, used_at, verified_at, ip_address, user_agent, attempt_count, max_attempts, status, metadata FROM registration_captcha
+        let row = sqlx::query_as!(
+            RegistrationCaptcha,
+            r#"
+            SELECT id, captcha_id, captcha_type, target, code, created_ts, expires_at, used_at AS "used_ts", verified_at AS "verified_ts", ip_address, user_agent, attempt_count AS "attempt_count!", max_attempts AS "max_attempts!", status AS "status!", metadata AS "metadata!" FROM registration_captcha
             WHERE target = $1 AND captcha_type = $2 AND status = 'pending' AND expires_at > $3
             ORDER BY created_ts DESC, id DESC
             LIMIT 1
-            ",
+            "#,
+            target,
+            captcha_type,
+            now,
         )
-        .bind(target)
-        .bind(captcha_type)
-        .bind(now)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get latest captcha", e))?;
@@ -276,8 +285,7 @@ impl CaptchaStorage {
         }
 
         if captcha.expires_at < now {
-            sqlx::query("UPDATE registration_captcha SET status = 'expired' WHERE captcha_id = $1")
-                .bind(captcha_id)
+            sqlx::query!("UPDATE registration_captcha SET status = 'expired' WHERE captcha_id = $1", captcha_id)
                 .execute(&*self.pool)
                 .await
                 .map_err(|e| ApiError::internal_with_cause("Failed to update captcha", e))?;
@@ -286,8 +294,7 @@ impl CaptchaStorage {
         }
 
         if captcha.attempt_count >= captcha.max_attempts {
-            sqlx::query("UPDATE registration_captcha SET status = 'exhausted' WHERE captcha_id = $1")
-                .bind(captcha_id)
+            sqlx::query!("UPDATE registration_captcha SET status = 'exhausted' WHERE captcha_id = $1", captcha_id)
                 .execute(&*self.pool)
                 .await
                 .map_err(|e| ApiError::internal_with_cause("Failed to update captcha", e))?;
@@ -295,22 +302,24 @@ impl CaptchaStorage {
             return Ok(false);
         }
 
-        sqlx::query("UPDATE registration_captcha SET attempt_count = attempt_count + 1 WHERE captcha_id = $1")
-            .bind(captcha_id)
-            .execute(&*self.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to increment attempt count", e))?;
+        sqlx::query!(
+            "UPDATE registration_captcha SET attempt_count = attempt_count + 1 WHERE captcha_id = $1",
+            captcha_id
+        )
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Failed to increment attempt count", e))?;
 
         if captcha.code == code {
-            sqlx::query(
+            sqlx::query!(
                 r"
                 UPDATE registration_captcha
                 SET status = 'verified', verified_at = $1, used_at = $1
                 WHERE captcha_id = $2
                 ",
+                now,
+                captcha_id,
             )
-            .bind(now)
-            .bind(captcha_id)
             .execute(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to verify captcha", e))?;
@@ -326,12 +335,14 @@ impl CaptchaStorage {
     pub async fn invalidate_captcha(&self, captcha_id: &str) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
 
-        sqlx::query("UPDATE registration_captcha SET status = 'used', used_at = $1 WHERE captcha_id = $2")
-            .bind(now)
-            .bind(captcha_id)
-            .execute(&*self.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to invalidate captcha", e))?;
+        sqlx::query!(
+            "UPDATE registration_captcha SET status = 'used', used_at = $1 WHERE captcha_id = $2",
+            now,
+            captcha_id
+        )
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Failed to invalidate captcha", e))?;
 
         info!("Captcha invalidated: {}", captcha_id);
         Ok(())
@@ -340,26 +351,28 @@ impl CaptchaStorage {
     /// See [`create_send_log`].
     pub async fn create_send_log(&self, request: CreateSendLogRequest) -> Result<CaptchaSendLog, ApiError> {
         let sent_ts = current_timestamp_millis();
-        let row = sqlx::query_as::<_, CaptchaSendLog>(
+        let row = sqlx::query_as!(
+            CaptchaSendLog,
             r"
             INSERT INTO captcha_send_log (
                 captcha_id, captcha_type, target, sent_ts, ip_address, user_agent,
                 is_success, error_message, provider, provider_response
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            RETURNING *
+            RETURNING id, captcha_id, captcha_type, target, sent_ts, ip_address,
+                user_agent, is_success, error_message, provider, provider_response
             ",
+            request.captcha_id.as_deref(),
+            &request.captcha_type,
+            &request.target,
+            sent_ts,
+            request.ip_address.as_deref(),
+            request.user_agent.as_deref(),
+            request.is_success,
+            request.error_message.as_deref(),
+            request.provider.as_deref(),
+            request.provider_response.as_deref(),
         )
-        .bind(&request.captcha_id)
-        .bind(&request.captcha_type)
-        .bind(&request.target)
-        .bind(sent_ts)
-        .bind(&request.ip_address)
-        .bind(&request.user_agent)
-        .bind(request.is_success)
-        .bind(&request.error_message)
-        .bind(&request.provider)
-        .bind(&request.provider_response)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to create send log", e))?;
@@ -376,47 +389,51 @@ impl CaptchaStorage {
     ) -> Result<bool, ApiError> {
         let one_hour_ago_ts = current_timestamp_millis() - chrono::Duration::hours(1).num_milliseconds();
 
-        let count: (i64,) = sqlx::query_as(
+        let count = sqlx::query_scalar!(
             r"
             SELECT COUNT(*) FROM captcha_send_log
             WHERE target = $1 AND captcha_type = $2 AND sent_ts > $3
             ",
+            target,
+            captcha_type,
+            one_hour_ago_ts,
         )
-        .bind(target)
-        .bind(captcha_type)
-        .bind(one_hour_ago_ts)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to check rate limit", e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to check rate limit", e))?
+        // `COUNT(*)` 无 relation origin ⇒ 宏判可空（C19a 同型）；计数语义上恒非空。
+        .unwrap_or(0);
 
-        Ok(count.0 < max_per_hour as i64)
+        Ok(count < max_per_hour as i64)
     }
 
     /// See [`check_ip_rate_limit`].
     pub async fn check_ip_rate_limit(&self, ip_address: &str, max_per_hour: i32) -> Result<bool, ApiError> {
         let one_hour_ago_ts = current_timestamp_millis() - chrono::Duration::hours(1).num_milliseconds();
 
-        let count: (i64,) = sqlx::query_as(
+        let count = sqlx::query_scalar!(
             r"
             SELECT COUNT(*) FROM captcha_send_log
             WHERE ip_address = $1 AND sent_ts > $2
             ",
+            ip_address,
+            one_hour_ago_ts,
         )
-        .bind(ip_address)
-        .bind(one_hour_ago_ts)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to check IP rate limit", e))?;
+        .map_err(|e| ApiError::internal_with_cause("Failed to check IP rate limit", e))?
+        .unwrap_or(0);
 
-        Ok(count.0 < max_per_hour as i64)
+        Ok(count < max_per_hour as i64)
     }
 
     /// See [`get_template`].
     pub async fn get_template(&self, template_name: &str) -> Result<Option<CaptchaTemplate>, ApiError> {
-        let row = sqlx::query_as::<_, CaptchaTemplate>(
-            "SELECT id, template_name, captcha_type, subject, content, variables, is_default, is_enabled, created_ts, updated_ts FROM captcha_template WHERE template_name = $1 AND is_enabled = true",
+        let row = sqlx::query_as!(
+            CaptchaTemplate,
+            r#"SELECT id, template_name, captcha_type, subject, content, variables AS "variables!", is_default AS "is_default!", is_enabled AS "is_enabled!", created_ts, updated_ts FROM captcha_template WHERE template_name = $1 AND is_enabled = true"#,
+            template_name,
         )
-        .bind(template_name)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get template", e))?;
@@ -426,10 +443,11 @@ impl CaptchaStorage {
 
     /// See [`get_default_template`].
     pub async fn get_default_template(&self, captcha_type: &str) -> Result<Option<CaptchaTemplate>, ApiError> {
-        let row = sqlx::query_as::<_, CaptchaTemplate>(
-            "SELECT id, template_name, captcha_type, subject, content, variables, is_default, is_enabled, created_ts, updated_ts FROM captcha_template WHERE captcha_type = $1 AND is_default = true AND is_enabled = true",
+        let row = sqlx::query_as!(
+            CaptchaTemplate,
+            r#"SELECT id, template_name, captcha_type, subject, content, variables AS "variables!", is_default AS "is_default!", is_enabled AS "is_enabled!", created_ts, updated_ts FROM captcha_template WHERE captcha_type = $1 AND is_default = true AND is_enabled = true"#,
+            captcha_type,
         )
-        .bind(captcha_type)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get default template", e))?;
@@ -439,13 +457,10 @@ impl CaptchaStorage {
 
     /// See [`get_config`].
     pub async fn get_config(&self, config_key: &str) -> Result<Option<String>, ApiError> {
-        let row: Option<(String,)> = sqlx::query_as("SELECT config_value FROM captcha_config WHERE config_key = $1")
-            .bind(config_key)
+        sqlx::query_scalar!("SELECT config_value FROM captcha_config WHERE config_key = $1", config_key)
             .fetch_optional(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to get config", e))?;
-
-        Ok(row.map(|r| r.0))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get config", e))
     }
 
     /// See [`get_config_as_int`].
@@ -461,8 +476,7 @@ impl CaptchaStorage {
     /// See [`cleanup_expired_captchas`].
     pub async fn cleanup_expired_captchas(&self) -> Result<u64, ApiError> {
         let now = current_timestamp_millis();
-        let result = sqlx::query("DELETE FROM registration_captcha WHERE expires_at < $1 AND status = 'pending'")
-            .bind(now)
+        let result = sqlx::query!("DELETE FROM registration_captcha WHERE expires_at < $1 AND status = 'pending'", now)
             .execute(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to cleanup captchas", e))?;
