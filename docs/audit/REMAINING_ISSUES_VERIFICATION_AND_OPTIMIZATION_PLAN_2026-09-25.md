@@ -799,6 +799,25 @@ git diff --cached --stat && git commit -m "fix(federation): persist local event 
 >   向量逐字节通过，24/24 绿，3 个变异自证均转红，fmt/clippy exit 0。
 > - [ ] **第 2 步（接线 v4+）** — ⬜ 未开始；**前置**：既有非版本化 redaction 表迁移（铁律 2）、
 >   `compute_event_content_hash` 先 redact 后哈希的语义修正、v12（MSC4239 vs 上游 MSC4291）对齐——三项见 §6.6。
+>   **接线破坏面（实测 2026-09-26）**：`generate_event_id` 生产调用点 **30** 处（另 2 处在 `#[cfg(test)]`），
+>   分布 16 个文件：`room/membership/{actions,federation,moderation}.rs`（11）、
+>   `routes/handlers/room/{state,events}.rs`（5）、`room/{service,lifecycle/create_events,messaging/*,state/info}.rs`（7）、
+>   `relations_service.rs`（3）、`burn_after_read_service.rs`（2）、`friend_room_service/mod.rs`、
+>   `routes/federation/{membership/invite,membership/knock,transaction}.rs`（3）。
+>   复现命令：对每个命中取最内层 `fn`（脚本见本文件附录 A 的同类扫描式）。
+>   **另有两个硬顺序约束（本轮新发现，决定第 2 步做法）**：
+>   ① reference hash **包含 `hashes`**（redaction 保护 `hashes`，只去 `signatures`/`unsigned`/`age_ts`），
+>      而本仓的 `hashes`/`signatures` 是在**落库之后**由 `update_event_signatures_and_hashes`
+>      （见 `services/room/federation_broadcast.rs` 的 `sign_and_broadcast_event`）补写的；
+>      因此"先生成 event_id 再补 hashes"必然得到与对等端重算不一致的 ID ⇒ 接线必须把
+>      **event_id 赋值移到 `hashes` 之后**，即 B1 已建立的单写入口
+>      `GraphMetadataWriter::create_event`（它已通过 `GraphMetadataSource::room_version` 拿到房间版本，
+>      无需新增查询）需要同时负责"算 hashes → 算 reference hash → 定 event_id"，
+>      或让 30 个调用点改为消费写入口返回的 ID。
+>   ② 签名材料是否包含 `event_id` 必须对着上游 `EventBase.get_pdu_json()` 核实后再定
+>      （v3+ 的联邦 PDU **不含** `event_id`，而本仓签名路径仍可能带上），否则第 3 步互操作门槛必失败。
+>   **结论**：第 2 步不能按"逐调用点替换生成函数"做，必须按"单一写入口定 ID"做；
+>   在该重构落地前，保持 v4+ 使用随机 ID 是**已知取舍**，不得对外声称 v12 事件可通过联邦校验。
 > - [ ] **第 3 步（互操作门槛）** — ⬜ 未开始（docker dev stack + 对端 Synapse）。
 
 **为什么单列**：这是**语义级**改动，影响事件 ID 生成、事件去重、`stream_ordering` 下游、
