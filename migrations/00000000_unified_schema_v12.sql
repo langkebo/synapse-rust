@@ -2747,19 +2747,6 @@ CREATE TABLE IF NOT EXISTS typing (
     CONSTRAINT pk_typing PRIMARY KEY (user_id, room_id)
 );
 
-CREATE TABLE IF NOT EXISTS search_index (
-    id BIGSERIAL PRIMARY KEY,
-    event_id VARCHAR(255) NOT NULL,
-    room_id VARCHAR(255) NOT NULL,
-    user_id VARCHAR(255) NOT NULL,
-    event_type VARCHAR(255) NOT NULL,
-    type VARCHAR(255) NOT NULL,
-    content TEXT NOT NULL,
-    created_ts BIGINT NOT NULL,
-    updated_ts BIGINT,
-    CONSTRAINT uq_search_index_event UNIQUE (event_id)
-);
-
 CREATE TABLE IF NOT EXISTS to_device_messages (
     id BIGSERIAL PRIMARY KEY,
     sender_user_id VARCHAR(255) NOT NULL,
@@ -3730,12 +3717,6 @@ CREATE INDEX IF NOT EXISTS idx_presence_last_active_ts ON presence(last_active_t
 -- (v10 baseline had orphan WHERE clauses without CREATE INDEX; removed in v11)
 CREATE INDEX IF NOT EXISTS idx_friend_requests_receiver_status ON friend_requests(receiver_id, status, created_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_friend_requests_sender_status ON friend_requests(sender_id, status, created_ts DESC);
-
--- pg_trgm search indexes
-CREATE INDEX IF NOT EXISTS idx_search_index_content_trgm ON search_index USING GIN (content gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS idx_search_index_room ON search_index(room_id);
-CREATE INDEX IF NOT EXISTS idx_search_index_user ON search_index(user_id);
-CREATE INDEX IF NOT EXISTS idx_search_index_type ON search_index(event_type);
 
 -- Auth token schema
 CREATE UNIQUE INDEX IF NOT EXISTS uq_access_tokens_token_hash ON access_tokens(token_hash);
