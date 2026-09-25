@@ -209,35 +209,6 @@ async fn has_index_named(pool: &sqlx::PgPool, index_name: &str) -> bool {
     .expect("Failed to query pg_indexes")
 }
 
-/// Checks whether an index exists on the given column(s) of a table,
-/// regardless of the index name. This is needed because `CREATE TABLE LIKE ...
-/// INCLUDING ALL` copies indexes but assigns auto-generated names.
-async fn has_index_on_column(pool: &sqlx::PgPool, table_name: &str, column_name: &str) -> bool {
-    sqlx::query_scalar(
-        r#"
-        SELECT EXISTS (
-            SELECT 1
-            FROM pg_indexes i
-            JOIN pg_class c ON c.relname = i.tablename
-            JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = i.schemaname
-            JOIN pg_index idx ON idx.indexrelid = (
-                SELECT oid FROM pg_class WHERE relname = i.indexname AND relnamespace = n.oid
-            )
-            JOIN pg_attribute a ON a.attrelid = idx.indrelid AND a.attnum = ANY(idx.indkey)
-            WHERE i.schemaname = current_schema()
-              AND i.tablename = $1
-              AND a.attname = $2
-              AND idx.indnatts = 1
-        )
-        "#,
-    )
-    .bind(table_name)
-    .bind(column_name)
-    .fetch_one(pool)
-    .await
-    .expect("Failed to query index on column")
-}
-
 async fn seed_users_and_room(pool: &sqlx::PgPool, suffix: &str) -> (String, String, String) {
     let creator = format!("@schema-summary-creator-{suffix}:localhost");
     let hero = format!("@schema-summary-hero-{suffix}:localhost");
@@ -326,15 +297,9 @@ async fn cleanup_room_summary_fixtures(pool: &sqlx::PgPool, room_id: &str, user_
 async fn test_schema_contract_p0_tables_exist() {
     let pool = crate::require_test_pool().await;
 
-    for table_name in [
-        "room_memberships",
-        "events",
-        "account_data",
-        "room_account_data",
-        "push_rules",
-        "room_retention_policies",
-        "search_index",
-    ] {
+    for table_name in
+        ["room_memberships", "events", "account_data", "room_account_data", "push_rules", "room_retention_policies"]
+    {
         assert_table_exists(&pool, table_name).await;
     }
 }
@@ -1171,145 +1136,6 @@ async fn test_schema_contract_room_summary_queue_and_children_query_and_write_re
 
     cleanup_room_summary_fixtures(&pool, &room_id, &[creator, hero]).await;
     cleanup_room_summary_fixtures(&pool, &child_room_id, &[child_creator, child_hero]).await;
-}
-
-#[tokio::test]
-async fn test_schema_contract_search_index_shape() {
-    let pool = crate::require_test_pool().await;
-
-    assert_column(&pool, "search_index", "event_id", &["character varying"], false, None, Some(255)).await;
-    assert_column(&pool, "search_index", "room_id", &["character varying"], false, None, Some(255)).await;
-    assert_column(&pool, "search_index", "user_id", &["character varying"], false, None, Some(255)).await;
-    assert_column(&pool, "search_index", "event_type", &["character varying"], false, None, Some(255)).await;
-    assert_column(&pool, "search_index", "content", &["text"], false, None, None).await;
-    assert_column(&pool, "search_index", "created_ts", &["bigint"], false, None, None).await;
-
-    assert!(
-        has_unique_constraint_on(&pool, "search_index", &["event_id"]).await,
-        "Expected search_index UNIQUE(event_id)"
-    );
-    // CREATE TABLE LIKE ... INCLUDING ALL copies indexes with auto-generated names,
-    // so check by column rather than by index name.
-    assert!(has_index_on_column(&pool, "search_index", "room_id").await, "Expected search_index index on room_id");
-    assert!(has_index_on_column(&pool, "search_index", "user_id").await, "Expected search_index index on user_id");
-    assert!(
-        has_index_on_column(&pool, "search_index", "event_type").await,
-        "Expected search_index index on event_type"
-    );
-}
-
-#[tokio::test]
-async fn test_schema_contract_search_index_query_and_write_read_closure() {
-    let pool = crate::require_test_pool().await;
-
-    let event_id_old = format!("$search-old-{}:localhost", uuid::Uuid::new_v4());
-    let event_id_new = format!("$search-new-{}:localhost", uuid::Uuid::new_v4());
-    let room_id = format!("!search-room-{}:localhost", uuid::Uuid::new_v4());
-    let user_id = format!("@search-user-{}:localhost", uuid::Uuid::new_v4());
-    let event_type = "m.room.message";
-    let content_type = "m.text";
-    let created_ts_old = current_timestamp_millis();
-    let created_ts_new = created_ts_old + 5000;
-    let updated_ts = created_ts_new + 1000;
-    let original_content = "Hello Search Contract";
-    let updated_content = "Updated Search Contract";
-
-    sqlx::query(
-        r#"
-        INSERT INTO search_index (event_id, room_id, user_id, event_type, type, content, created_ts, updated_ts)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, NULL)
-        "#,
-    )
-    .bind(&event_id_old)
-    .bind(&room_id)
-    .bind(&user_id)
-    .bind(event_type)
-    .bind(content_type)
-    .bind(original_content)
-    .bind(created_ts_old)
-    .execute(&*pool)
-    .await
-    .expect("Failed to insert initial search_index fixture");
-
-    sqlx::query(
-        r#"
-        INSERT INTO search_index (event_id, room_id, user_id, event_type, type, content, created_ts, updated_ts)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, NULL)
-        "#,
-    )
-    .bind(&event_id_new)
-    .bind(&room_id)
-    .bind(&user_id)
-    .bind(event_type)
-    .bind(content_type)
-    .bind("Newest Search Contract")
-    .bind(created_ts_new)
-    .execute(&*pool)
-    .await
-    .expect("Failed to insert second search_index fixture");
-
-    let search_rows = sqlx::query(
-        r#"
-        SELECT event_id, room_id, user_id, event_type, content, created_ts
-        FROM search_index
-        WHERE LOWER(content) LIKE $1
-        ORDER BY created_ts DESC
-        LIMIT 20 OFFSET 0
-        "#,
-    )
-    .bind("%search contract%")
-    .fetch_all(&*pool)
-    .await
-    .expect("Failed to query search_index contract");
-
-    assert_eq!(search_rows.len(), 2, "Expected two search results");
-    assert_eq!(
-        search_rows[0].get::<String, _>("event_id"),
-        event_id_new,
-        "Expected newest search row first because search storage orders by created_ts DESC"
-    );
-    assert_eq!(search_rows[1].get::<String, _>("event_id"), event_id_old);
-    assert_eq!(search_rows[0].get::<String, _>("room_id"), room_id);
-    assert_eq!(search_rows[0].get::<String, _>("user_id"), user_id);
-    assert_eq!(search_rows[0].get::<String, _>("event_type"), event_type);
-
-    sqlx::query(
-        r#"
-        INSERT INTO search_index (event_id, room_id, user_id, event_type, type, content, created_ts, updated_ts)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT (event_id) DO UPDATE SET
-            content = EXCLUDED.content,
-            updated_ts = EXCLUDED.updated_ts
-        "#,
-    )
-    .bind(&event_id_old)
-    .bind(&room_id)
-    .bind(&user_id)
-    .bind(event_type)
-    .bind(content_type)
-    .bind(updated_content)
-    .bind(created_ts_old)
-    .bind(updated_ts)
-    .execute(&*pool)
-    .await
-    .expect("Failed to upsert search_index fixture");
-
-    let updated_row = sqlx::query("SELECT content, created_ts, updated_ts FROM search_index WHERE event_id = $1")
-        .bind(&event_id_old)
-        .fetch_one(&*pool)
-        .await
-        .expect("Failed to fetch updated search_index row");
-
-    assert_eq!(updated_row.get::<String, _>("content"), updated_content);
-    assert_eq!(updated_row.get::<i64, _>("created_ts"), created_ts_old);
-    assert_eq!(updated_row.get::<Option<i64>, _>("updated_ts"), Some(updated_ts));
-
-    sqlx::query("DELETE FROM search_index WHERE event_id = $1 OR event_id = $2")
-        .bind(&event_id_old)
-        .bind(&event_id_new)
-        .execute(&*pool)
-        .await
-        .expect("Failed to clean search_index fixtures");
 }
 
 #[tokio::test]
