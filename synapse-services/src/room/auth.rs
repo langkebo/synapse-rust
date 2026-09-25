@@ -88,9 +88,16 @@ impl AuthEventBuilder {
             auth_events.push(pl_event.event_id.clone());
         }
 
-        // 3. m.room.member for creator (always required)
-        let creator_key = format!("@{creator_user_id}");
-        if let Some(member_event) = self.state_index.get(&("m.room.member".to_string(), creator_key)) {
+        // 3. m.room.member for creator (always required).
+        //
+        // `creator_user_id` is a *full* user ID (`@user:server`) — see the
+        // module-level usage example and this module's tests — and the state key
+        // of an `m.room.member` event **is** that user ID.  The previous
+        // `format!("@{creator_user_id}")` therefore looked up
+        // `@@user:server`, matched nothing, and silently dropped the creator's
+        // membership auth event (observed as 4→3 and 2→1 events in the tests
+        // below).
+        if let Some(member_event) = self.state_index.get(&("m.room.member".to_string(), creator_user_id.to_string())) {
             auth_events.push(member_event.event_id.clone());
         }
 
