@@ -58,15 +58,27 @@ unset SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE          # 绝不设置
 
 **当前仍须处理的项**（按严重度，明细见 §22.3）：
 
+> **2026-09-25 口径修正（见 `REMAINING_ISSUES_VERIFICATION_AND_OPTIMIZATION_PLAN_2026-09-25.md`）**：
+> 下表第 3 条（E2EE SAS）**已作废** —— 服务端 SAS 面整体删除（§23，提交 `88001b4a9`），
+> 不是"已修复"而是"对象消失"；第 9 条的 ledger `query_params` 经复核为**部分证伪**
+> （字段与 builder 确为死码，但其序列化被 6 份 fixture 钉住并被 `gen_route_table.py` 消费）。
+> 第 6 条 Profile 的真实缺口比本条描述更大（spec v1.16 已稳定 MSC4133，缺整个稳定面）。
+
 1. 高｜客户端撤回不级联（MSC3912 级联仅管理端可达）；
 2. 高｜Content Scanner 零生产调用点（装配了但永不扫描）；
-3. 高｜E2EE SAS **三处**仍偏离（emoji 映射、decimal 算法、MAC 派生）——另两处已修；
+3. ~~高｜E2EE SAS **三处**仍偏离（emoji 映射、decimal 算法、MAC 派生）——另两处已修；~~
+   **作废：服务端 SAS 实现已删除（§23）**；
 4. 中｜`dag.rs` 注释声称的被 `/send_join`、`/get_missing_events` 使用，实测无生产调用点；
 5. 中｜`msc2965/auth_issuer` 仍在册（上游 1.161 已删该端点）；
 6. 中｜Profile：停用用户写自定义字段 404、稳定 `/{keyName}` 未注册（account_data 非对象已修为 400）；
 7. 中｜Admin 媒体端点族真缺口（`media/quarantine|unquarantine` POST、房间级媒体列举/删除）；
 8. 中｜缩略图 `animated` 参数未支持；媒体配额拒绝未使用 `M_USER_LIMIT_EXCEEDED`（归因待议）；
 9. 低｜v12/v13 不可创建（**fail-safe 设计使然**）、`search_index` 遗留表、ledger `query_params` 无消费方。
+
+**另需处理（§22.2 的 P0 残余，本轮复核确认仍成立）**：本地 `create_event` 不落
+`depth`/`prev_events`/`auth_events` ⇒ 本地创建房间的 `/send_join` state PDU 被投影为
+`MissingGraphMetadata` 并**故意不发签名**；入站非成员事件不落远端 `signatures`；
+`event_id` 非 v4+ reference hash。详见上述复核文档 §2。
 
 ---
 
@@ -1352,6 +1364,12 @@ curl -sS -o syn161.md https://raw.githubusercontent.com/element-hq/synapse/relea
 
 **高｜E2EE SAS —— 5 个子项中 1 修 4 存**（`synapse-e2ee/src/verification/service.rs`，HEAD 版）：
 
+> **⚠️ 整表作废（2026-09-25 复核）**：该模块**已整体删除**（`synapse-e2ee/src/verification/`、
+> `synapse-web/src/routes/verification_routes.rs`、`device_trust/`，提交 `88001b4a9`）。
+> 此表描述的是**历史对象**，不是"已修复"，而是"对象消失"（§23.4）。下表仅作追溯保留；
+> 任何"当前状态"引用都不得采信本表。复核见
+> `REMAINING_ISSUES_VERIFICATION_AND_OPTIMIZATION_PLAN_2026-09-25.md` §1.1。
+
 | 子项 | 判定 | 判据 |
 |---|---|---|
 | `info` 串 | ✅ **已修** | `sas_info()` 组装 `MATRIX_KEY_VERIFICATION_SAS\|from_user\|from_device\|from_key\|to_user\|to_device\|to_key\|txn_id`，与规范逐字一致（`:44-47`） |
@@ -1446,10 +1464,15 @@ used. (#20163)`。
 
 ### 22.5 建议的执行顺序
 
-1. **SAS 三处修正**（高，本仓自有代码、无外部依赖）：`emoji` 改 42-bits 切分、`decimal` 改
+> **⚠️ 2026-09-25 复核后本条作废**：下方第 1 项以"服务端存在 SAS 实现"为前提，该前提已不成立
+> （整模块删除，提交 `88001b4a9`，见 §23）。**不要执行第 1 项**。其余各项仍有效，
+> 且第 7 项的"低三项"中 ledger `query_params` 应改为"删死码或补消费者"的二选一
+> （其序列化已被 fixture 钉住，"无消费方"不准确）。
+
+1. ~~**SAS 三处修正**（高，本仓自有代码、无外部依赖）：`emoji` 改 42-bits 切分、`decimal` 改
    5 字节 / 13 bits（并用 `SasRepresentation::Decimal` 返回，别从 emoji 反推）、
    `commitment` 改 `sha256(pubkey ‖ canonical_json(start_event))` + **unpadded** base64。
-   三者可一轮改完，且都能写**已知答案测试**（规范给了逐位公式与 emoji 表）。
+   三者可一轮改完，且都能写**已知答案测试**（规范给了逐位公式与 emoji 表）。~~
 2. **客户端撤回接级联**（高）：`handlers/room/events.rs:990` 之后按
    `redacts` 关系调 `event_redaction_service.cascade_redact_event`（服务/存储层已具备）。
 3. **Content Scanner 接线**（高）：在媒体/消息落库前调 `scan_media`/`scan_text`，

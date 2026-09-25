@@ -53,9 +53,14 @@ impl EventStorage {
     /// in `event_edges`).  Callers that have the PDU's graph fields (notably
     /// the inbound federation transaction handler) should prefer this method
     /// so that `event_edges` is populated and `/get_missing_events` can walk
-    /// the DAG.  Callers without graph data (locally-produced events where
-    /// prev_events tracking is not yet wired) can continue to use
-    /// `create_event`, which delegates here with empty arrays and depth 0.
+    /// the DAG.
+    ///
+    /// ⚠️ 本方法**不**是 `create_event` 的后端：`create_event` 有自己的 INSERT
+    /// （见文件顶部），两者对图列的处理**不同** —— `create_event` 写 SQL `NULL`，
+    /// 本方法写 `[]` / `0`。该差异可被下游观测到：`synapse-web/.../federation/pdu.rs`
+    /// 的 `event_id_array` 把 `NULL` 判为"图元数据缺失"，而 `[]` 会被判为 Complete
+    /// 并据此签名。**不要把 `create_event` 改成委托到本方法并传空数组** ——
+    /// 那等于给本地事件伪造 DAG 根。
     ///
     /// P2-1 Optimization (2026-09-23):
     /// - Combined two-step insert in single transaction (event row + edges)

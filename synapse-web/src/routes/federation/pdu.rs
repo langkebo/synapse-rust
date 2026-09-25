@@ -34,8 +34,8 @@
 //!   2. inbound events do not persist the **origin server's** `signatures` /
 //!      `hashes`, so a re-emitted remote PDU still lacks the sender signature a
 //!      peer requires — signing here adds the local server's signature only;
-//!   3. `event_id` is `$<ts>_<rand>:<server>` (`synapse_common::crypto`), not the
-//!      v4+ reference hash, so a v11 peer cannot accept these PDUs as canonical
+//!   3. `event_id` is `$<ts>$<base64>:<server>` (`synapse_common::crypto::generate_event_id`),
+//!      not the v4+ reference hash, so a v11 peer cannot accept these PDUs as canonical
 //!      however complete their field set is.
 
 use crate::routes::context::FederationContext;
