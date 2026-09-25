@@ -43,8 +43,8 @@
 >
 > 已执行：Phase A/B/D + C1–C18（逐批数字与理由在
 > `scripts/ci/sqlx_dynamic_ratio_baseline` 各段）+ W1–W5（§8.6–§8.11）+
-> **C19a**（§8.12）+ **C19b**（§8.13）。§7 登记 47 条
-> （已修 34 / 部分已修 2 / 未修 1 / 结构性保留 7 / 文档级 3）。
+> **C19a**（§8.12）+ **C19b**（§8.13）+ **C20**（§8.15）。§7 登记 48 条
+> （已修 34 / 部分已修 2 / 未修 2 / 结构性保留 7 / 文档级 3）。
 > **下一步见 §8.14。**
 
 ---
@@ -511,6 +511,7 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-45 | **产品缺陷（绑定类型不符）**（**新登记**） | `synapse-e2ee/src/key_rotation/service.rs` 的 `log_rotation`（已修） | 把 `Utc::now()`（`DateTime<Utc>`）绑进 `key_rotation_log.rotated_at`（BIGINT 毫秒）⇒ 写路径必然类型错误，而动态 `.bind()` 让它一直潜伏 | **已修**（C19a `cbeb0c75e`） | 有（每次轮换都写审计日志） | 已修：改为 `current_timestamp_millis()` |
 | D-46 | **产品缺陷（schema 与读模型类型不符）**（**新登记**） | `synapse-e2ee/src/backup/models.rs`（`KeyBackupRow` @ `:55`、`BackupKeyInfo` @ `:181`）对 `migrations/00000000_unified_schema_v12.sql:837`（`key_backups.version`）与读投影 `COALESCE(backup_id_text, version::text) AS backup_id` | `key_backups.version` 与上述 COALESCE 投影在真 schema 下可空，而行结构体字段是 `i64`/`String` ⇒ 动态 `query_as::<_, T>` + `FromRow` 把可空性一路吞到运行期（这两列为 NULL 即 `UnexpectedNullError`）；C19b 转 `query_as!` 后被编译器一次证伪 **12 处 E0277** | **已修**（C19b，见 §8.13） | 有（`get_backup`/`get_all_backup_versions`/`get_backup_version`/`get_room_backup_keys` 等，均挂在 `/_matrix/client/*/room_keys/*`） | 已修：`version BIGINT NOT NULL`（唯一写者恒写该列，Rust 类型非 `Option`）+ 读投影 `AS "backup_id!"`（sqlx 对表达式推不出非空，同 §8.11 的 `AS "updated_ts!"`）；指纹同步 `a58420543eb97db2`、重建模板 |
 | D-47 | **覆盖缺口 / 门禁**（**新登记**） | `tests/integration/key_backup_storage_tests_migrated.rs:8-56`（自建 schema）；守卫 A `tests/unit/test_ddl_guard_tests.rs:22-27` 扫描面仅 `src/` | 该用例自建 `key_backups`/`backup_keys`，与真 baseline 至少两处漂移：缺 `fk_backup_keys_room`（真 schema `→ rooms(room_id) ON DELETE CASCADE`，P3-3）、`first_message_index` 可空（真 schema `NOT NULL DEFAULT 0`）。守卫 A 明示"`tests/` 不在扫描面内"、守卫 B 只查生产 INSERT ⇒ **无门禁能看见该漂移** | **部分已修**（C19b 补覆盖时发现；① 已修 `4104037b0`，② 未做） | 无生产影响（纯夹具漂移）；但它使该用例对 D-46 与 room FK 前提结构性不可见 | ① **已做**：该用例切到 `IsolatedTestPool`（v12 模板，RED/GREEN 已入库）。② **未做**：扩守卫 A 扫描面到 `tests/**/*.rs` —— 预扫实测 **180 处自建 DDL / 43 文件**，需分批（详见 §7.2） |
+| D-48 | **产品缺陷（schema 与读模型类型不符）**（**新登记**） | `synapse-storage/src/rendezvous.rs` 的 `get_msc4108_data`（原 `query_as::<_, (serde_json::Value, Option<i64>, i64)>`）对 `migrations/00000000_unified_schema_v12.sql:3069`（`rendezvous_session.content JSONB DEFAULT '{}'`，无 NOT NULL） | 元组把**可空**的 `content` 声明成非 `Option`（`serde_json::Value`）⇒ 命中 NULL 行即 `UnexpectedNullError`（与 D-46 同族）；C20 转 `query!` 时被编译器暴露（须显式 `AS "content!"` 或改 `Option` 收口） | **未修**（2026-09-25 C20 静态化时发现） | 无（所有写者要么显式写 `content`，要么命中 `DEFAULT '{}'`；全仓无显式写 NULL 的路径） | 二选一：① schema 侧 `content JSONB NOT NULL DEFAULT '{}'`（语义最正，但迁移文件当前是并发写者 workbuddy 的在途文件，须等其落地）；② 代码侧改 `Option<Value>` 并按空 payload 处理（行为变更，须独立提交）。C20 转换用 `AS "content!"` 保持原契约，未夹带行为变更 |
 
 **状态计数（2026-09-25，C19b 后）**：已修 **34**
 （D-02/D-03/D-24/D-28/D-35 + W1 的 D-10/D-11/D-31/D-33/D-34 + D-36 守卫 +
@@ -518,9 +519,9 @@ W2 的 D-05/D-07/D-08/D-09 + W3 的 D-29/D-32 + D-38 + W4 的 D-01/D-04/D-06/D-1
 D-12 + D-42 + W5 的 **D-15**（含六个子项）/**D-25**/**D-40**/**D-41** + C19a 的 **D-43**/**D-44**/**D-45** +
 C19b 的 **D-46**）；
 **部分已修 2**（D-37：吞错与死包装已修、跨 crate 两份实现的收敛未做；D-47：① key_backup 用例上迁移模板已修 `4104037b0`、② 扩守卫 A 扫描面未做）；
-未修 **1**（**D-39**：`search_index` 表删否）；结构性保留（有意）**7**（D-13/D-14/D-18–D-22）；
+未修 **2**（**D-39**：`search_index` 表删否；**D-48**：`rendezvous_session.content` 可空而读路径按非空解码）；结构性保留（有意）**7**（D-13/D-14/D-18–D-22）；
 文档级已处置 **3**（D-16/D-23/D-26）。
-合计 **47** 条（D-01…D-47），校验：34 + 2 + 1 + 7 + 3 = **47**。
+合计 **48** 条（D-01…D-48），校验：34 + 2 + 2 + 7 + 3 = **48**。
 
 > 注：本行以下曾残留一段**过期计数**（「合计 36 条（D-01…D-36）」），与当时的实际条数矛盾
 > 且已被后续重写覆盖 —— 本次一并删除，避免出现第三份计数口径（D-35 型漂移）。
@@ -1598,6 +1599,34 @@ C19b 的 **D-46**）；
   `rooms` 中不存在的 room_id 会硬失败（23503 → ApiError::Internal）。
   是否算缺陷取决于产品口径（Matrix 备份语义 vs 完整性约束），属独立决策项。
 
+#### D-48 `rendezvous_session.content` 可空而读路径按非空解码（2026-09-25 C20 静态化时暴露）
+
+- 类别：**产品缺陷**（schema 与读模型类型不符，与 D-46 同族）。
+- 位置与证据：
+  - 读：`synapse-storage/src/rendezvous.rs` 的 `get_msc4108_data`，原
+    `query_as::<_, (serde_json::Value, Option<i64>, i64)>` —— 第一列 `content` 按
+    非 `Option` 解码（同一条元组里 `updated_ts` 却正确地是 `Option<i64>`）；
+  - 写/DDL：`content` 在 baseline 里是 `JSONB DEFAULT '{}'`（无 `NOT NULL`，
+    `migrations/00000000_unified_schema_v12.sql:3069`），`information_schema` 实测
+    `is_nullable=YES`；
+  - C20 把该语句转成 `query!` 后，宏按 catalog 推断 `content: Option<Value>`，与原
+    元组的非空契约不符 ⇒ 显式写 `content AS "content!"` **保持原行为**（NULL 仍是
+    契约违反，而不是被静默当成空 payload）。
+- 可达性：**无显式写 NULL 的路径** —— `create_msc4108_session` 与
+  `update_msc4108_data` 都显式写 `content`；`create_session` 不写该列、命中
+  `DEFAULT '{}'`。故当前无运行期影响，属**潜伏项**。
+- 状态：**未修**（登记）。修法二选一：
+  ① schema 侧 `content JSONB NOT NULL DEFAULT '{}'` —— 列语义本就非空，且 `DEFAULT`
+     已保证省略即非空；但 `migrations/00000000_unified_schema_v12.sql` 当前是并发写者
+     workbuddy 的**在途文件**，改它会挡住 fast-forward，须等其落地，且要同步
+     `EXPECTED_BASELINE_FINGERPRINT` 并重建模板（流程同 D-46）；
+  ② 代码侧把 `get_msc4108_data` 改成 `Option<Value>` 并按空 payload 处理 ——
+     行为变更（NULL 由 `Err` 变 `Ok("")`），须独立提交。
+- 与 D-46 的差别（为什么本批只登记不修）：D-46 的列（`version`）**必须是** NOT NULL
+  才能承担 UNIQUE / 寻址语义，schema 收紧是唯一正解；`content` 有 `DEFAULT '{}'`，
+  其"非空"是 de-facto 而非结构必需，改 schema 或改代码属产品选择，且两条路都受
+  "迁移文件/行为变更须独立提交"约束。
+
 ## 8. 问题优先处理计划（2026-09-23 重排：先修问题，再继续静态化）
 
 > **定位**：本节是**当前唯一执行排期**。§5 的阶段表与「执行结果」的批次表降级为**历史记录**。
@@ -2344,3 +2373,57 @@ DDL / 动态标识符（后者可能整片属 §3.1 运行期拼装）。
 - 按当前节奏（每批 15–18 处）把 `dynamic_production` 压到 0 约需 **35–40 个 C 批次**；
   若希望更快，唯一的结构性杠杆是 §3.1/§3.2 已登记的运行期拼装与测试基建（不可宏化），
   即"降计数不再等于降风险"（§8.1 结论仍然成立）。
+
+### 8.15 C20 执行结果（2026-09-25）
+
+与并发写者 workbuddy **不相交**的 C 批次（其正在删 `synapse-e2ee` 的
+`device_trust/*` 与 `verification/*`，故按 §8.14 建议改取
+`synapse-storage/src/rendezvous.rs`）。文件 census 残差 → **0**（16 处 → 0）。
+
+提交：`cbf976a47`（转换 + DB 用例）/ `e63342860`（.sqlx）。
+
+**转换构成**：
+- `query_as!` ×4：`RendezvousSession` 的 `INSERT … RETURNING`（`RETURNING *` 展开为显式
+  列清单，D-22）与 SELECT；`StoredRendezvousMessage` 的两条 SELECT（游标 / 非游标分支）。
+- `query!` ×12：三条 UPDATE、四条 DELETE、两条 INSERT，以及两条原本用元组
+  `query_as::<_, (T, …)>` 的 SELECT（`query_as!` 不收元组，改匿名记录按字段取值 —— C17 同型；
+  其中 `updated_ts` 可空按 `Option` 收口）。
+
+**nullability 收口**（schema 取自 psql 实测）：
+- `rendezvous_session` 的 `user_id`/`device_id`/`intent`/`transport`/`transport_data`/`key`/
+  `status` 可空，与结构体的 `Option` 字段一一对应，**无需覆盖**；
+- `get_msc4108_data` 的 `content` 可空而原元组声明非空 ⇒ 加 `AS "content!"` **保持原契约**
+  （不把 NULL 改判为「空 payload」），该潜在不符登记为 **§7 D-48（未修）**；
+  因 SQL 含双引号别名，该处 raw string 用 `r#"…"#`（C19b 坑 1）。
+
+**覆盖（W5 口径）**：该模块此前**零 DB 覆盖**（`test_` 全是纯构造）。新增
+`rendezvous::db_tests::test_rendezvous_round_trip_on_migration_template`
+（`IsolatedTestPool` + v12 baseline）：建/读/三态迁移（ready→connected→completed）/
+过期不可见/清理、消息双分支、MSC4108 的建/读/`update` 三结果
+（Updated / PreconditionFailed / NotFound）/删，并断言 `RETURNING *` 展开后的每个字段。
+
+**门禁（实测）**：`cargo check -p synapse-storage --all-targets` EXIT=0；
+`nextest -p synapse-storage --lib --features test-utils -E 'test(/rendezvous/)'`
+**23/23**（此前 22）；`dynamic_production` 658 → **642**（−16）、`static` 842 → **858**（+16）、
+`dynamic` 1362 → **1346**；`check_sqlx_dynamic_ratio.sh` EXIT=0；
+`sqlx_dynamic_literal_guard_tests` **16/16**（基线未收紧仍绿）；
+`check_sqlx_cache_fresh.sh` EXIT=0（`.sqlx` **+16，deleted=0 / modified=0** → 831 条）；
+两档 clippy（`--features test-utils`、`+ --all-features`，`-D warnings`）EXIT=0；
+fmt 债务 0。
+
+⚠️ **本批棘轮未同批收紧（有意，非遗漏）**：`scripts/ci/sqlx_dynamic_ratio_baseline` 与
+`scripts/ci/sqlx_literal_production_baseline` 当时都是并发写者 workbuddy 的**在途文件**
+（未提交修改）；任何改动这两个文件的提交都无法 fast-forward 进 `opt/consolidated`
+（会被其工作区修改挡住）。单向棘轮允许"动态降 / 静态升"，故**不收紧也能过门禁**
+（实测 `642 ≤ 658` / `858 ≥ 842` / literal 实测 < 基线）。待其重构落地后补做：
+`BASELINE_DYNAMIC_PRODUCTION` 658 → 642、`BASELINE_STATIC` 842 → 858、
+`BASELINE_DYNAMIC` 1362 → 1346；`sqlx_literal_production_baseline` 删
+`synapse-storage/src/rendezvous.rs	16` 行（生成命令实测 literal 593 → **559** 处 /
+83 → **81** 文件；runtime 83 / 15 不变）。
+
+⚠️ **环境事故（已恢复，非本批代码问题）**：`cargo sqlx prepare` 第一次执行时
+`public` 被并发写者再次清空（0 表；`test_template_ci` 仍在），prepare 在**先清后写**
+的语义下把 `.sqlx/` 清空并以 1094 个 E0282 失败。处置：`git checkout -- .sqlx`
+恢复 815 条 tracked 条目 → `bash scripts/ci/prepare_test_db.sh` 重建 public + 模板
+（228 + 228）→ 重跑 prepare 成功（+16）。**教训**：测试库被并发重置时，
+不要在恢复 public 之前跑 `cargo sqlx prepare`（它清空目标目录）。
