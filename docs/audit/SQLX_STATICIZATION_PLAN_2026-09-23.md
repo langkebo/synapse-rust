@@ -46,8 +46,9 @@
 > **C19a**（§8.12）+ **C19b**（§8.13）+ **C20**（§8.15）+ **C21**（§8.16）+ **C22**（§8.19）+
 > **C23**（§8.20）+ **C24**（§8.21）+ **C25**（§8.22）；另完成 **D-47 ②**（守卫 A′ + (b) 组
 > 31 键逐文件迁模板，§8.17/§8.18）——**D-47 已修**；C25 门禁复跑还抓出并修掉既有的
-> `--all-features` clippy 红（**D-50**）。
-> §7 登记 50 条（已修 36 / 部分已修 1 / 未修 3 / 结构性保留 7 / 文档级 3）。
+> `--all-features` clippy 红（**D-50**），变基后复跑又抓出并发写者 `9e5ca99b5` 遗留的
+> `.sqlx` 缺口（**D-51**）。
+> §7 登记 51 条（已修 37 / 部分已修 1 / 未修 3 / 结构性保留 7 / 文档级 3）。
 > **下一步见 §8.22 末尾的「剩余头部」。**
 
 ---
@@ -517,17 +518,18 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-48 | **产品缺陷（schema 与读模型类型不符）**（**新登记**） | `synapse-storage/src/rendezvous.rs` 的 `get_msc4108_data`（原 `query_as::<_, (serde_json::Value, Option<i64>, i64)>`）对 `migrations/00000000_unified_schema_v12.sql:3069`（`rendezvous_session.content JSONB DEFAULT '{}'`，无 NOT NULL） | 元组把**可空**的 `content` 声明成非 `Option`（`serde_json::Value`）⇒ 命中 NULL 行即 `UnexpectedNullError`（与 D-46 同族）；C20 转 `query!` 时被编译器暴露（须显式 `AS "content!"` 或改 `Option` 收口） | **未修**（2026-09-25 C20 静态化时发现） | 无（所有写者要么显式写 `content`，要么命中 `DEFAULT '{}'`；全仓无显式写 NULL 的路径） | 二选一：① schema 侧 `content JSONB NOT NULL DEFAULT '{}'`（语义最正，但迁移文件当前是并发写者 workbuddy 的在途文件，须等其落地）；② 代码侧改 `Option<Value>` 并按空 payload 处理（行为变更，须独立提交）。C20 转换用 `AS "content!"` 保持原契约，未夹带行为变更 |
 | D-49 | **产品缺陷（schema 与读模型类型不符）**（**新登记**） | `synapse-e2ee/src/olm/storage.rs` 的三处读投影（`load_sessions`/`load_session`/`load_session_by_sender_key`，行结构体 `OlmSessionRow.message_index: i32` @ `:67`）对 `migrations/00000000_unified_schema_v12.sql:809`（`olm_sessions.message_index INTEGER DEFAULT 0`，无 NOT NULL）；同族第二处是 `synapse-e2ee/src/megolm/storage.rs:27`（`MegolmSessionRow.message_index: i64`）对 `:715`（`megolm_sessions.message_index BIGINT DEFAULT 0`，无 NOT NULL） | 该列可空而行结构体字段非 `Option` ⇒ 命中 NULL 行即 `UnexpectedNullError`（与 D-46/D-48 同族）；C25 转 `query_as!` 时被编译器暴露（三处须显式 `AS "message_index!"`）。同列还有第二个类型面：模型 `u32` ↔ 行 `i32`，写 `as i32`（`:216`）、读 `as u32`（`:89`）双向 lossy，超 `i32::MAX` 静默回绕 | **未修**（2026-09-25 C25 静态化时发现） | 无（唯一写者 `save_session` 恒绑非 `Option` 值，`DEFAULT 0` 覆盖省略场景；全仓无显式写 NULL 的路径） | 修法：两表 `message_index … NOT NULL DEFAULT 0`，与 `key_backup_sessions.first_message_index BIGINT NOT NULL DEFAULT 0`（`:780`）口径一致。受"baseline 迁移是并发写者在途文件"约束与 D-48 同批延后。C25 用 `AS "message_index!"` 保持原契约，未夹带行为变更；负例见 §7.2 D-49 |
 | D-50 | **门禁失败（既有 `--all-features` clippy 红）**（**新登记**） | `tests/integration/api_content_scanner_integration_tests.rs:80`（`let app = synapse_web::create_router(state.clone());`，`state` 其后不再使用） | `SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils --all-features --locked -- -D warnings` ⇒ `error: redundant clone … -D clippy::redundant-clone`，exit **101**。该文件由 `76e5f9136` 引入，本批 `git status --short` 对其为空（与 HEAD 逐字节相同）、diff 内无 `pub`/`create_router`/`AppState` 改动 ⇒ lint 与 C25 无关；`--all-features` 是该 target 唯一可编译的 feature 集，故第一个 clippy 入口（不带 `--all-features`）看不到它 | **已修**（2026-09-25 C25 门禁复跑时发现） | 无生产影响（纯测试夹具），但**第二个 clippy 入口是 CI blocking**，故 1.93.0 下 CI 必红；且 clippy 在首个 error 处停止，"两档 clippy EXIT=0"这条证据链在修复前拿不到 | 已修：删冗余 `state.clone()`（独立提交）；修后第二个入口 EXIT=0 |
+| D-51 | **构建失败 / 派生缓存与源码不一致**（**新登记**） | `synapse-storage/src/user/storage.rs:700`（`user_exists`）对 `.sqlx/` | 并发写者的 `9e5ca99b5` 把该查询文本从 `SELECT 1 AS "exists!" … AND is_deactivated = FALSE LIMIT 1` 改为 `SELECT 1 FROM users WHERE user_id = $1 LIMIT 1`，**只提交了 .rs**：新条目留在主工作树的未跟踪状态、旧条目 `query-a5258484e5…` 仍被跟踪 | `SQLX_OFFLINE=true cargo check -p synapse-storage` ⇒ ``error: `SQLX_OFFLINE=true` but there is no cached data for this query`` + 级联 `error[E0282]: type annotations needed`，exit 101 ⇒ **该提交的树在离线模式下编译失败**（CI 两档 clippy 都用 `SQLX_OFFLINE=true`）。`check_sqlx_cache_fresh.sh` **静默放行**（static 模式只校验条数与 git 跟踪，不做逐条对账） | **已修**（2026-09-25 C25 变基后复跑门禁时发现） | 无生产语义影响（查询本身自洽），但使 `opt/consolidated` 在离线/CI 口径下不可编译；且暴露新鲜度门禁存在**假绿**面 | 已修：本批变基后重跑 `cargo sqlx prepare` 对账（−1 stale / +1 新，总数仍 **901**，独立提交）。**未**改查询语义（`nullable: [null]` ⇒ `Option<i32>` 与 `.is_some()` 本就自洽）。门禁假绿面见 §7.2 D-51 |
 
-**状态计数（2026-09-25，C25 完成后）**：已修 **36**
+**状态计数（2026-09-25，C25 完成后）**：已修 **37**
 （D-02/D-03/D-24/D-28/D-35 + W1 的 D-10/D-11/D-31/D-33/D-34 + D-36 守卫 +
 W2 的 D-05/D-07/D-08/D-09 + W3 的 D-29/D-32 + D-38 + W4 的 D-01/D-04/D-06/D-17/D-27/D-30 +
 D-12 + D-42 + W5 的 **D-15**（含六个子项）/**D-25**/**D-40**/**D-41** + C19a 的 **D-43**/**D-44**/**D-45** +
-C19b 的 **D-46** + C19b 的 **D-47** + C25 的 **D-50**）；
+C19b 的 **D-46**/**D-47** + C25 的 **D-50**/**D-51**）；
 **部分已修 1**（D-37：吞错与死包装已修、跨 crate 两份实现的收敛未做）；
 未修 **3**（**D-39**：`search_index` 表删否；**D-48**：`rendezvous_session.content` 可空而读路径按非空解码；
 **D-49**：`olm_sessions` / `megolm_sessions.message_index` 可空而读模型非 `Option`）；结构性保留（有意）**7**（D-13/D-14/D-18–D-22）；
 文档级已处置 **3**（D-16/D-23/D-26）。
-合计 **50** 条（D-01…D-50），校验：36 + 1 + 3 + 7 + 3 = **50**。
+合计 **51** 条（D-01…D-51），校验：37 + 1 + 3 + 7 + 3 = **51**。
 
 > 注：本行以下曾残留一段**过期计数**（「合计 36 条（D-01…D-36）」），与当时的实际条数矛盾
 > 且已被后续重写覆盖 —— 本次一并删除，避免出现第三份计数口径（D-35 型漂移）。
@@ -1692,6 +1694,38 @@ C19b 的 **D-46** + C19b 的 **D-47** + C25 的 **D-50**）；
 - 修法：删掉冗余 `state.clone()`，直接 `create_router(state)`（`state` 在函数内其后无使用）。
   修后第二个入口 EXIT=0（§8.22）。**未**改用 `#[allow]`：`redundant_clone` 在本仓是
   deny 级约定（见 `docs/audit/DB_REVIEW_2026-09-17.md:1440`），放宽 lint 属绕过而非消除。
+
+#### D-51 并发写者改了查询文本却只提交 `.rs`，`.sqlx` 新条目未入库（2026-09-25 C25 变基后复跑门禁时发现）
+
+- 类别：**构建失败**（派生缓存与源码不一致；无生产语义影响）。
+- 位置与证据：
+  - 源码：`synapse-storage/src/user/storage.rs:700`（`user_exists`）。`9e5ca99b5` 把
+    `SELECT 1 AS "exists!" FROM users WHERE user_id = $1 AND is_deactivated = FALSE LIMIT 1`
+    改成 `SELECT 1 FROM users WHERE user_id = $1 LIMIT 1`（上游 1.161 #20172 语义），
+    `git diff --stat 2ca8c73f4..9e5ca99b5` 显示**只动了 `.rs` 一个文件**。
+  - 缓存：新查询的元数据只存在于主工作树的**未跟踪**文件
+    `.sqlx/query-a767902bfc…json`；被跟踪的旧条目
+    `.sqlx/query-a5258484e5…json`（`is_deactivated = FALSE` 版本）成为 stale。
+  - 复现：`SQLX_OFFLINE=true cargo check -p synapse-storage` ⇒
+    ``error: `SQLX_OFFLINE=true` but there is no cached data for this query``
+    （`user/storage.rs:700`）+ 级联 `error[E0282]: type annotations needed`
+    （`let exists = …` 推不出类型），exit **101** ⇒ 该提交的树在 `SQLX_OFFLINE=true`
+    下不可编译，而 **CI 的两档 clippy 都用 `SQLX_OFFLINE=true`**，故 CI 必红。
+- 门禁假绿（本条更值得记的部分）：`bash scripts/ci/check_sqlx_cache_fresh.sh` 在
+  **static 模式**下**放行**了这棵树 —— 它只校验"`.sqlx/` 有 N 条元数据"与"目录已被
+  git 跟踪"，**不做逐条对账**（缺 1 条 / 多 1 条都不影响它的判据）。所以：
+  - 该门禁的正确定位是"**防止 `.sqlx` 整体缺失/未跟踪**"，**不是**"保证缓存与源码一一对应"；
+  - 真正的对账证据必须来自**编译**（`SQLX_OFFLINE=true cargo check`），本批据此发现；
+  - 这与 rule 8 的教训同型（"长期全绿的门禁未必在工作"），故**未**把它算作 C25 的通过项。
+- 状态：**已修**（C25 变基后，独立提交）。
+- 修法：在本批变基到 `9e5ca99b5` 后重跑
+  `cargo sqlx prepare --workspace -- --features server-notifications,saml-sso,cas-sso,beacons,widgets`
+  ⇒ **−1 stale / +1 新**，总数仍 **901**。**未**改任何查询语义：该条目的
+  `describe.nullable = [null]` ⇒ `query_scalar!` 产出 `Option<i32>`，与既有
+  `.is_some()` 本就自洽（不需要补 `AS "exists!"`）。
+- 遗留建议（未做，超出本批范围）：给 `check_sqlx_cache_fresh.sh` 加一条**逐条对账**
+  判据（`cargo sqlx prepare --check` 或"prepare 到临时目录后 diff"），并用
+  "删掉一条元数据"的故意违规证明它能变红；否则同类缺口只能靠离线编译偶然撞见。
 
 ## 8. 问题优先处理计划（2026-09-23 重排：先修问题，再继续静态化）
 
@@ -2860,8 +2894,23 @@ fmt 债务 0。D-49 的「门禁能变红」自证：psql 下同一 NULL INSERT 
 > （子串），从而把 10 处已登记站点误读成本批残留；核对必须用路径锚定
 > `grep -E '(^|/)olm/storage\.rs:'`。
 
+**变基到并发写者 HEAD 后的复验（`2ca8c73f4` → `9e5ca99b5`）**：对方只改了
+`synapse-storage/src/user/storage.rs`（1 文件、7+/8−，把一处 `query_scalar!` 的**文本**从
+`…AND is_deactivated = FALSE LIMIT 1` 改为 `…LIMIT 1`；静态计数 ±0）⇒ 与本批零路径交集，
+6 个提交 rebase 无冲突。复验发现两件事：
+1. **D-51**（新登记）：新查询的 `.sqlx` 条目**没入库**（留在主工作树未跟踪），旧条目成
+   stale ⇒ `SQLX_OFFLINE=true cargo check -p synapse-storage` **exit 101**
+   （``no cached data for this query`` + 级联 E0282）。本批重跑 `cargo sqlx prepare` 对账
+   （−1 stale / +1 新，总数仍 **901**）后转绿。`check_sqlx_cache_fresh.sh` 对此**假绿**
+   （只校验条数与 git 跟踪，不逐条对账）—— 该缺口已写入 §7.2 D-51，并建议补一条能变红的
+   逐条对账判据。
+2. census 复测**不变**（541 / 706 / 929 / 1247）⇒ 本批收紧的棘轮数字在变基后依然成立；
+   变基后的树上**重跑**了两档 clippy（`-D warnings`）→ 均 **EXIT=0**、
+   `SQLX_OFFLINE=true cargo check -p synapse-storage` → **EXIT=0**、
+   `check_sqlx_dynamic_ratio.sh` → **EXIT=0**、fmt 债务 0。
+
 **遗留**：**D-49**（未修，登记；与 D-48 同批受 baseline 迁移在途约束）。
-D-50 已修（独立提交，见 §7.2）。
+D-50 / D-51 均已修（各一个独立提交，见 §7.2）。
 
 **累计进展（C 系列 `dynamic_production`）**：706（C18）→ 694（W4）→ 676（C19a）→
 658（C19b）→ 642（C20）→ 626（C21）→ 601（workbuddy 删 device_trust/verification）→
