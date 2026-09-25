@@ -215,7 +215,7 @@ async fn test_cross_signing_storage_list_batch_update_delete_paths() {
         .unwrap();
     assert_eq!(sig_batch["@alice:localhost"].len(), 2);
     // bob 只是 target、不是签名者 ⇒ 批量读**不得**凭空给他一个条目
-    assert!(sig_batch.get("@bob:localhost").is_none());
+    assert!(!sig_batch.contains_key("@bob:localhost"));
     assert!(storage.get_device_signatures_batch(&[]).await.unwrap().is_empty());
 
     // --- delete_cross_signing_keys（同一事务里的两条 DELETE）---
