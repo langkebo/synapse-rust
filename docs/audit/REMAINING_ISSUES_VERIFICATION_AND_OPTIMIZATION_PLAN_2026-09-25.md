@@ -133,7 +133,7 @@ git worktree list             # 另有 .worktrees/c19b（同 HEAD）、/Users/lj
 | ② U-13 reference hash | 🟡 **第 1 步 ✅ / 前置 P0 ✅ / 第 2–3 步 ⬜** | `64ffc13a6`（第 1 步）、`0880f6a5f`（content hash P0） | 第 1 步：上游 Synapse **v10/v3 已知答案向量**逐字节通过 + 上游 `redact()` 全量单测期望转 v1–v12 矩阵（24/24）；content hash：上游 `test_sign_minimal`/`test_sign_message` 向量通过；**变异 6 个**全部转红后还原 | fmt `OK(0)`、clippy exit 0、federation lib 198/198 | **第 2 步阻塞**（连续 4 轮取证）：并发会话未提交地新增 `EventWriter::create_event_with_pdu`（6 文件 169 行，覆盖第 2 步要改的全部 writer 文件）。算法（5 步链）、30 个调用点清单、7 个签名站点、6 条验收测试均已冻结于 §6.6 |
 | ① 合并结果上的 fmt / clippy / lib / unit / 集成 | ✅（集成按受影响面） | `b83cbcaac` + `94fc91442`（本轮修掉 lib 的 2 个真红与扫描面 3 个真红） | fmt `current=0`、clippy exit 0（多轮、多 tip）。**lib 全量（最终 tip，清理 634 个残留 schema 后在干净库上定格）：6358 例 6358 passed / 0 skipped** ✅（`bash-114`，2026-09-26 06:05→06:32）。**unit 全量（同一 tip）：1777 例 1773 passed / 4 failed / 2 skipped**，4 个失败**全部**是已归因的 SQLx 棘轮守卫（`sqlx_ratio_gate_*` ×3 + `no_new_production_literal_dynamic_sql` ×1，逐项归因见 §6.2） | 集成：按受影响面跑子集（media/quota、profile/route/ledger、federation_transaction/create_room） | 「lib 曾红」的两段根因都已定位并处置：①5 个 `schema_validator::db_tests` 是本机 `public` 未按 baseline 播种（见 **U-17**，已用 `RESET_PUBLIC=0` 播种为 222 表）；②2 个 `room::auth` 用例是真缺陷（见 **U-16**，已修 `b83cbcaac`）。**全量集成批次（约 1446 例）未跑**（时间预算；且实测每轮会新建数百个测试 schema，DDL 随残留超线性变慢——清理后复跑是必要前置），不得当作通过 |
 | 集成全量分块（`--threads 1`，逐块清 schema） | — | — | **partition 1/6：241 例 235 passed / 6 failed**，6 例**全部在 `338395f98` 复现为既有红**：`api_admin_room_lifecycle_tests::test_admin_room_history_purge`、`api_placeholder_contract_p1p2_tests::test_scanner_info_contract_is_not_empty_success`、`api_relations_authorization_tests::relation_is_allowed_for_members`、`api_route_snapshots_tests::snapshot_versions_endpoint`、`api_search_thread_tests::test_room_context_rejects_non_member_and_admin_override`、`api_sync_filter_tests::test_sync_filter_applies_room_timeline_matchers_before_limit` | 分块跑是为了避开"每轮新建数百 schema ⇒ DDL 超线性变慢"；剩余分块在后续轮次继续 |
-| 集成实测（受影响面，`--test-threads 1`） | — | — | media+quota **34/34 绿**（修复前 32/34）；federation_transaction+create_room **15/15 绿**；profile/route/ledger 子集 139 例中 **132 passed / 7 failed**，7 例**全部为既有红**：其中 5 例（`declared_route_manifest_*` ×3、`snapshot_capabilities_v3`、`snapshot_versions_endpoint`）与 `test_global_thread_routes_return_real_data` 已在 `338395f98`（U-10 之前）逐条复现；第 7 例 `api_auth_routes_tests::test_auth_issuer_returns_unrecognized_when_oidc_is_disabled` 单独在最终 tip 复现为 `left: 404, right: 400` | 既有红的成因：① 路由 manifest 里 app_service 的通配符代理路由（`/_matrix/{app,client}/v1/proxy/{as_id}/{*path}`）与 live router 不一致；② `/versions`、`/capabilities`、线程路由快照落后；③ **`auth_issuer` 路由被 `76e5f9136` 摘除，但 `api_auth_routes_tests` 仍断言旧行为（期待 400，实得 404）⇒ 摘路由时漏改用例**。本轮**未**擅自 `cargo insta accept`，也未改这些既有红（属并发会话/其它批次范围） |
+| 集成实测（受影响面，`--test-threads 1`） | — | — | media+quota **34/34 绿**（修复前 32/34）；federation_transaction+create_room **15/15 绿**；profile/route/ledger 子集 139 例中 **132 passed / 7 failed**（U-20 修复后再跑全套既有红清单：**18 例中 11 例转绿、7 例仍红**，仍红的 7 例为：`api_admin_room_lifecycle_tests::test_admin_room_lifecycle_management`、`api_auth_routes_tests::test_auth_issuer_returns_unrecognized_when_oidc_is_disabled`、`declared_route_manifest_entries_are_actually_wired`、`declared_route_manifest_full_snapshot_matches_{default,worker}_state`、`snapshot_capabilities_v3`、`snapshot_versions_endpoint`）；此前记的 7 例里含 U-20 的病根，其中 5 例（`declared_route_manifest_*` ×3、`snapshot_capabilities_v3`、`snapshot_versions_endpoint`）与 `test_global_thread_routes_return_real_data` 已在 `338395f98`（U-10 之前）逐条复现；第 7 例 `api_auth_routes_tests::test_auth_issuer_returns_unrecognized_when_oidc_is_disabled` 单独在最终 tip 复现为 `left: 404, right: 400` | 既有红的成因：① 路由 manifest 里 app_service 的通配符代理路由（`/_matrix/{app,client}/v1/proxy/{as_id}/{*path}`）与 live router 不一致；② `/versions`、`/capabilities`、线程路由快照落后；③ **`auth_issuer` 路由被 `76e5f9136` 摘除，但 `api_auth_routes_tests` 仍断言旧行为（期待 400，实得 404）⇒ 摘路由时漏改用例**。本轮**未**擅自 `cargo insta accept`，也未改这些既有红（属并发会话/其它批次范围） |
 
 
 ### 0.5 收尾状态与交接（2026-09-26，`opt/consolidated`）
@@ -1180,7 +1180,21 @@ Task3 (reference hash) —— 仅做可行性验证，不接线
 >   **正确终局是把该模块删掉、统一到 `select_auth_events`**（其 `_event_type`/`_state_key`
 >   根本未参与选择，而规范要求按事件类型选择）——因属并发会话在途 v12 工作，未擅自删除。
 >
-> - **U-19（新，未修）｜U-1 的 MSC3912 实现逐条对照规范后的缺口（本轮实测代码 + 规范原文）**
+> - **U-20（新，已修）｜出厂默认配置下「发消息」恒 501 的 P0（同一职责两份扫描策略）**
+>   `handlers/room/events.rs` 的 `m.room.message` 分支直接
+>   `ctx.content_scanner.scan_text(..).await?`，而 `ContentScanner::scan` 在 `!is_enabled()`
+>   时返回 `M_CONTENT_SCAN_DISABLED`（501）；`content_scanner.enabled: false` 是出厂默认
+>   （`docker/config/homeserver.yaml:124`）⇒ **默认部署根本发不出消息**。
+>   上传路径此前已改为"未启用 ⇒ 放行"，发送路径没跟上（违铁律 2）。
+>   已修 `a6a77ac03`：三态策略收敛到 `verdict::apply_scan_outcome`，新增与
+>   `scan_when_enabled` 对称的 `scan_text_when_enabled` 并接到发送路径。
+>   **实测影响面**：修复前 `relation_is_forbidden_for_non_members` 在发送处
+>   `left: 501, right: 200`；修复后**先前 18 条红里有 11 条转绿**（relations ×2、
+>   sync filter、search thread ×2、admin room history、scanner_info contract ×2、
+>   global thread routes 等），余 7 条与它无关（见下）。新增定点回归用例
+>   `message_send_succeeds_while_scanner_is_disabled`（显式断言扫描器关闭后发消息必须 200）；
+>   变异自证：改回裸 `scan_text(..)?` ⇒ 该用例与 relations 用例双双 501 转红。
+
 >   规范依据：`matrix-org/matrix-spec-proposals` MSC3912「Redaction of related events」
 >   （提交 `1b3176cf` 的 `proposals/3912-relation-based-redaction.md`）。逐条核对结果：
 >
