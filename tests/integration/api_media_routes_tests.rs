@@ -782,3 +782,111 @@ async fn test_p2_11_preview_url_returns_403_when_msc4452_disabled() {
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_FORBIDDEN", "P2-11: 403 response must use M_FORBIDDEN errcode");
 }
+
+// ============================================================================
+// Content scanner (U-3): a scanner that reports a threat must block the store
+// ============================================================================
+
+/// The scanner has two failure shapes: `Err` = "the scanner could not answer"
+/// (already fail-closed via `?`), and `Ok(safe: false)` = "it answered: threat".
+/// The upload paths used to discard the latter, so a configured scanner looked
+/// protective while every malicious upload was stored. This drives the real
+/// route with a webhook scanner that reports a threat.
+#[tokio::test]
+async fn unsafe_scan_verdict_blocks_upload_and_stores_nothing() {
+    use synapse_common::content_scanner::ScannerType;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    let mock = MockServer::start().await;
+    // The bootstrap upload below only exists to learn the local server name, so
+    // the scanner answers "safe" exactly once and "threat" afterwards.
+    Mock::given(method("POST"))
+        .and(path("/scan"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"safe": true})))
+        .up_to_n_times(1)
+        .mount(&mock)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/scan"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "safe": false,
+            "threat_type": "virus",
+            "threat_message": "Eicar-Test-Signature"
+        })))
+        .mount(&mock)
+        .await;
+
+    let Some((app, _state)) = super::setup_fresh_test_app_with_config(|container| {
+        {
+            let config = super::config_mut(container);
+            config.content_scanner.enabled = true;
+            config.content_scanner.scanner_type = ScannerType::Webhook;
+            config.content_scanner.webhook_url = Some(format!("{}/scan", mock.uri()));
+            config.content_scanner.block_on_scan_failure = true;
+        }
+        // `ContentScanner` captures its config at construction, and the test
+        // container is built *before* this closure runs — so rebuild it from the
+        // config we just set. (In production the scanner is built once at
+        // startup from the file config, which is why a config change needs a
+        // restart; that is normal for a homeserver.)
+        let scanner_config = super::config_mut(container).content_scanner.clone();
+        container.core.content_scanner =
+            std::sync::Arc::new(synapse_services::content_scanner::ContentScanner::new(scanner_config));
+    })
+    .await
+    else {
+        return;
+    };
+
+    let token = register_user(&app, &format!("scan_unsafe_{}", rand::random::<u32>())).await;
+
+    // The named-upload route validates the server name against the local one;
+    // ask the server for it instead of hard-coding (the test app is `localhost`).
+    let bootstrap_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/media/v3/upload?filename=bootstrap.txt")
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "text/plain")
+        .body(Body::from("bootstrap"))
+        .unwrap();
+    let bootstrap_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), bootstrap_request).await.unwrap();
+    assert_eq!(bootstrap_response.status(), StatusCode::OK, "the bootstrap upload must pass the scanner");
+    let body = axum::body::to_bytes(bootstrap_response.into_body(), 2048).await.unwrap();
+    let bootstrap_json: Value = serde_json::from_slice(&body).unwrap();
+    let (server_name, _) = parse_mxc_uri(bootstrap_json["content_uri"].as_str().unwrap());
+
+    let media_id = format!("unsafe_{}", rand::random::<u32>());
+
+    let upload_request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/media/v3/upload/{server_name}/{media_id}?filename=eicar.txt"))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "text/plain")
+        .body(Body::from("X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE"))
+        .unwrap();
+    let upload_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), upload_request).await.unwrap();
+    let status = upload_response.status();
+    let body = axum::body::to_bytes(upload_response.into_body(), 2048).await.unwrap();
+    let error_json: Value =
+        serde_json::from_slice(&body).unwrap_or_else(|_| json!({"raw": String::from_utf8_lossy(&body)}));
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "a scanner verdict of `safe: false` must block the upload; got {error_json}"
+    );
+    assert_eq!(error_json["errcode"], "M_FORBIDDEN", "got {error_json}");
+    assert!(
+        error_json["error"].as_str().unwrap_or_default().contains("virus"),
+        "the threat must reach the client: {error_json}"
+    );
+
+    // Nothing was stored: the media must not be retrievable.
+    let download_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/media/v3/download/{server_name}/{media_id}"))
+        .body(Body::empty())
+        .unwrap();
+    let download_response = ServiceExt::<Request<Body>>::oneshot(app, download_request).await.unwrap();
+    assert_eq!(download_response.status(), StatusCode::NOT_FOUND, "a rejected upload must not be retrievable");
+}

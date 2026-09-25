@@ -84,7 +84,15 @@ pub(crate) async fn upload_media_common(
         "audio/mpeg" | "audio/wav" | "audio/ogg" | "audio/flac" => ContentType::MediaAudio,
         _ => ContentType::MediaFile,
     };
-    ctx.content_scanner.scan_media(user_id, content_bytes.clone(), content_type_enum).await?;
+    // Disabled ⇒ pass-through; enabled ⇒ fail-closed on scanner errors and
+    // refuse a `safe: false` verdict (see `content_scanner::scan_when_enabled`).
+    synapse_services::content_scanner::scan_when_enabled(
+        ctx.content_scanner.as_ref(),
+        user_id,
+        content_bytes.clone(),
+        content_type_enum,
+    )
+    .await?;
 
     Ok(Json(ctx.media_domain_service.upload_media(user_id, &content_bytes, content_type, filename.as_deref()).await?))
 }
@@ -125,7 +133,13 @@ pub(crate) async fn upload_media_with_id_common(
         "audio/mpeg" | "audio/wav" | "audio/ogg" | "audio/flac" => ContentType::MediaAudio,
         _ => ContentType::MediaFile,
     };
-    ctx.content_scanner.scan_media(media_id, content_bytes.clone(), content_type_enum).await?;
+    synapse_services::content_scanner::scan_when_enabled(
+        ctx.content_scanner.as_ref(),
+        media_id,
+        content_bytes.clone(),
+        content_type_enum,
+    )
+    .await?;
 
     Ok(Json(
         ctx.media_domain_service
