@@ -430,12 +430,14 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 > **不阻塞**这些条目的处理，反之亦然：处理它们时不要求同时改棘轮数字，除非确实回收了
 > 动态站点。
 >
-> 计数口径：`dynamic_production=706`（C18 后）、`static=808`、`dynamic_test=704`、
+> 计数口径：`dynamic_production=658`（C19b 后）、`static=842`、`dynamic_test=704`、
 > `query_builder=18`（`python3 scripts/ci/sqlx_query_census.py` 实测）。
 > ⚠️ 本行此前写作 `dynamic_production=741` / `static=773` 并标注"C17 后实测"——
 > 741/773 实为 **C16 后**的数值（C17 为 773→742 / 741→772，与 baseline 的
 > `BASELINE_DYNAMIC_PRODUCTION=742` / `BASELINE_STATIC=772` 一致），两处各偏 1。
-> C18 一并更正并登记为 D-35。
+> C18 一并更正并登记为 D-35。此后各批（W1–W5、C19a）继续收紧，本行一直停在
+> C18 的 706/808；C19b 一并刷新为实测值（706 → **658**、808 → **842**、
+> `dynamic_test` 704 不变）。
 
 ### 7.1 汇总表
 
@@ -2159,4 +2161,54 @@ fmt 债务 0。
 14/14、`--test unit` key_rotation 相关 64/64（含两条 `snapshot_key_rotation_status_*`）；
 fmt 债务 0。
 
-**C19b（`synapse-e2ee/src/backup/storage.rs`，18 处）未做。**
+**C19b（`synapse-e2ee/src/backup/storage.rs`，18 处）见 §8.13（已完成）。**
+
+### 8.13 C19b 执行结果（2026-09-25）
+
+C 批次第二批（§8.5 前置条件已满足）。文件
+`synapse-e2ee/src/backup/storage.rs`：**18 处生产字面量动态 SQL → 0**
+（census 该文件 0 处残差；9 处 `query!` + 9 处 `query_as!`）。
+
+提交链（每步独立提交，逐路径 `git add`）：
+`d966a03b9`（登记 D-46）/ `b37b27b2a`（修 D-46）/ `4c862ec69`（转换 18 处）
+/ `b95163eb6`（.sqlx）/ `ed7bbcc39`（DB 往返用例）/ `6bd6139cb`（登记 D-47）
+/ `7ed4717ad`（棘轮）。
+
+**这一批不是纯等价改写。** 转换后编译器一次证伪 12 处站点
+（4× `i64: From<Option<i64>>`、8× `String: From<Option<String>>`），根因是 §7.2
+**D-46**；按 §7.x 第 1 条**先修后转**（修复单独一个提交，`storage.rs` 不混入）：
+
+| 站点 | 编译器证据 | 处置 |
+|---|---|---|
+| 4 处 `KeyBackupRow` | `i64: From<Option<i64>>`（`key_backups.version` 可空） | schema 收紧 `version BIGINT NOT NULL DEFAULT 1`（D-46） |
+| 8 处读投影 | `String: From<Option<String>>`（`COALESCE(backup_id_text, version::text) AS backup_id`） | 加 `AS "backup_id!"` 显式断言（D-46） |
+
+**转换踩到的两个坑（补 C19a 三条之外）**：
+1. `AS "col!"` 让 SQL 文本**含双引号** ⇒ `r"…"` raw string 被提前终止，9 处
+   `query_as!` 必须改 `r#"…"#`（仓库既有约定，见 `synapse-storage/src/module.rs:818`）。
+   症状不是字符串错误，而是宏报 `no rules expected !`（9 次）—— 与 C19a 的
+   `query_scalar!` 那 4 次同形但**根因不同**（那次是语法不支持 `AS "col!"`，
+   这次是 raw string 定界符被 SQL 内的 `"` 截断）。
+2. **单靠 schema 收紧不足以消掉 COALESCE 的 8 处**：sqlx 的 nullability 来自
+   `pg_attribute.attnotnull`（按输出列的 relation_id/attnum）+ EXPLAIN 只补外层 join；
+   表达式列没有 relation ⇒ `None` ⇒ 宏 `unwrap_or(true)` 判可空
+   （`sqlx-postgres-0.8.6/src/connection/describe.rs:449-508`、
+   `sqlx-macros-core-0.8.6/src/query/output.rs:97`）。
+
+**覆盖（W5 口径）**：`backup/` 此前**零 DB 覆盖**（唯一 DB 练习是
+`tests/integration/key_backup_storage_tests_migrated.rs` 的**自建简化 schema**）。
+新增 `backup::storage::db_tests::test_backup_round_trip_on_migration_template`
+（`IsolatedTestPool` + v12 baseline），覆盖 18 处站点的建/读/写/删路径、`etag=NULL`
+行、非数值版本分支，以及 **D-46 负例**（显式 `version=NULL` ⇒ 23502）。
+过程中发现 **D-47**（该自建 schema 的漂移不在任何守卫扫描面内，已登记）。
+
+**门禁（实测）**：`dynamic_production` 676 → **658**（−18）、`static` 824 → **842**（+18）、
+`dynamic` 1378 → **1362**；`dynamic_test` 702 → **704**（+2，新用例的两处夹具动态 SQL，
+`#[cfg(test)]` 内按 D-13/D-14 必须动态）；literal 逐文件 593 → **575** 处 / 83 → **82**
+文件（runtime 83 / 15 不变）；`.sqlx` **+18，deleted=0 / modified=0** → 815 条；
+`check_sqlx_cache_fresh.sh` EXIT=0；`check_sqlx_dynamic_ratio.sh` EXIT=0；
+`cargo check -p synapse-e2ee --all-targets` EXIT=0；`--lib -E 'test(/backup/)'`
+**61/61**（此前 60）；`sqlx_dynamic_literal_guard_tests` **16/16**；
+`baseline_fingerprint_is_the_single_v12_source` PASS（指纹 `a58420543eb97db2`）；
+两档 clippy（`--features test-utils`、`+ --all-features`，均 `-D warnings`）EXIT=0；
+fmt 债务 0。
