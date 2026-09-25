@@ -14,7 +14,8 @@ fn all_derived_worker_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Worker });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/worker/v1/events", "worker_body");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/worker/v1/events", "worker_body")
+            .with_query_params(&["stream_id"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Worker });
     }
     {
@@ -22,7 +23,8 @@ fn all_derived_worker_rows() -> Vec<DerivedRoute> {
             axum::http::Method::GET,
             "/_synapse/worker/v1/replication/{worker_id}/position",
             "worker_body",
-        );
+        )
+        .with_query_params(&["stream_name"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Worker });
     }
     {
@@ -44,7 +46,8 @@ fn all_derived_worker_rows() -> Vec<DerivedRoute> {
     }
     {
         let e =
-            RouteEntry::new(axum::http::Method::GET, "/_synapse/worker/v1/workers/{worker_id}/commands", "worker_body");
+            RouteEntry::new(axum::http::Method::GET, "/_synapse/worker/v1/workers/{worker_id}/commands", "worker_body")
+                .with_query_params(&["limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Worker });
     }
     {

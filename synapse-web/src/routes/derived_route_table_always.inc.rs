@@ -30,7 +30,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     #[cfg(feature = "external-services")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/admin/v1/external_services", "external_service");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/admin/v1/external_services", "external_service")
+            .with_query_params(&["service_type"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "external-services")]
@@ -122,7 +123,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             "/_matrix/client/unstable/org.matrix.msc3575/sync",
             "sliding_sync",
         )
-        .with_rate_limit_exempt(true);
+        .with_rate_limit_exempt(true)
+        .with_query_params(&["pos", "timeout", "txn_id"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -219,7 +221,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             axum::http::Method::GET,
             "/_matrix/client/unstable/org.matrix.msc4155/rooms/{room_id}/threads",
             "thread",
-        );
+        )
+        .with_query_params(&["from", "include_all", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -227,7 +230,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             axum::http::Method::GET,
             "/_matrix/client/unstable/org.matrix.msc4156/threads/subscribed",
             "thread",
-        );
+        )
+        .with_query_params(&["from", "include_all", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -236,7 +240,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync",
             "sliding_sync",
         )
-        .with_rate_limit_exempt(true);
+        .with_rate_limit_exempt(true)
+        .with_query_params(&["pos", "timeout", "txn_id"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -407,7 +412,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     #[cfg(feature = "friends")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/friends", "friend_room");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/friends", "friend_room")
+            .with_query_params(&["from", "limit", "offset", "sort_by"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "friends")]
@@ -531,17 +537,20 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     #[cfg(feature = "friends")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/friends/search", "friend_room");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/friends/search", "friend_room")
+            .with_query_params(&["limit", "mode", "q", "query"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "friends")]
     {
-        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v1/friends/search", "friend_room");
+        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v1/friends/search", "friend_room")
+            .with_query_params(&["limit", "mode", "q", "query"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "friends")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/friends/suggestions", "friend_room");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/friends/suggestions", "friend_room")
+            .with_query_params(&["limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "friends")]
@@ -826,28 +835,34 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::DELETE, "/_matrix/client/v1/room_keys/keys", "key_backup");
+        let e = RouteEntry::new(axum::http::Method::DELETE, "/_matrix/client/v1/room_keys/keys", "key_backup")
+            .with_query_params(&["version"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/room_keys/keys", "key_backup");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/room_keys/keys", "key_backup")
+            .with_query_params(&["version"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::PUT, "/_matrix/client/v1/room_keys/keys", "key_backup");
+        let e = RouteEntry::new(axum::http::Method::PUT, "/_matrix/client/v1/room_keys/keys", "key_backup")
+            .with_query_params(&["version"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
         let e =
-            RouteEntry::new(axum::http::Method::DELETE, "/_matrix/client/v1/room_keys/keys/{room_id}", "key_backup");
+            RouteEntry::new(axum::http::Method::DELETE, "/_matrix/client/v1/room_keys/keys/{room_id}", "key_backup")
+                .with_query_params(&["version"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/room_keys/keys/{room_id}", "key_backup");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/room_keys/keys/{room_id}", "key_backup")
+            .with_query_params(&["version"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::PUT, "/_matrix/client/v1/room_keys/keys/{room_id}", "key_backup");
+        let e = RouteEntry::new(axum::http::Method::PUT, "/_matrix/client/v1/room_keys/keys/{room_id}", "key_backup")
+            .with_query_params(&["version"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -855,7 +870,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             axum::http::Method::DELETE,
             "/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}",
             "key_backup",
-        );
+        )
+        .with_query_params(&["version"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -863,7 +879,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             axum::http::Method::GET,
             "/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}",
             "key_backup",
-        );
+        )
+        .with_query_params(&["version"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -871,7 +888,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             axum::http::Method::PUT,
             "/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}",
             "key_backup",
-        );
+        )
+        .with_query_params(&["version"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -903,7 +921,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/room_keys/request", "e2ee");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/room_keys/request", "e2ee")
+            .with_query_params(&["from", "limit", "room_id", "session_id", "status"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -1071,7 +1090,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             axum::http::Method::GET,
             "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}",
             "relations",
-        );
+        )
+        .with_query_params(&["dir", "from", "limit", "to"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -1079,7 +1099,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             axum::http::Method::GET,
             "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}",
             "relations",
-        );
+        )
+        .with_query_params(&["dir", "from", "limit", "to"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -1143,7 +1164,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/rooms/{room_id}/threads", "thread");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/rooms/{room_id}/threads", "thread")
+            .with_query_params(&["from", "include_all", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -1151,7 +1173,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/rooms/{room_id}/threads/search", "thread");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/rooms/{room_id}/threads/search", "thread")
+            .with_query_params(&["limit", "q"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -1171,7 +1194,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             axum::http::Method::GET,
             "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}",
             "thread",
-        );
+        )
+        .with_query_params(&["include_replies", "reply_limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -1203,7 +1227,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             axum::http::Method::GET,
             "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies",
             "thread",
-        );
+        )
+        .with_query_params(&["from", "include_all", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -1286,7 +1311,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/spaces/public", "space");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/spaces/public", "space")
+            .with_query_params(&["from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -1298,11 +1324,13 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/spaces/search", "space");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/spaces/search", "space")
+            .with_query_params(&["limit", "query", "search_term"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/spaces/statistics", "space");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/spaces/statistics", "space")
+            .with_query_params(&["limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -1338,11 +1366,13 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/spaces/{space_id}/hierarchy", "space");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/spaces/{space_id}/hierarchy", "space")
+            .with_query_params(&["max_depth"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/spaces/{space_id}/hierarchy/v1", "space");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/spaces/{space_id}/hierarchy/v1", "space")
+            .with_query_params(&["from", "limit", "max_depth", "suggested_only"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -1358,11 +1388,13 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/spaces/{space_id}/members", "space");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/spaces/{space_id}/members", "space")
+            .with_query_params(&["from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/spaces/{space_id}/rooms", "space");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/spaces/{space_id}/rooms", "space")
+            .with_query_params(&["from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -1387,11 +1419,16 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v1/sync", "sliding_sync")
-            .with_rate_limit_exempt(true);
+            .with_rate_limit_exempt(true)
+            .with_query_params(&["pos", "timeout", "txn_id"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/threads", "thread");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/threads", "thread").with_query_params(&[
+            "from",
+            "include_all",
+            "limit",
+        ]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -1399,7 +1436,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/threads/subscribed", "thread");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/threads/subscribed", "thread")
+            .with_query_params(&["from", "include_all", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -1629,11 +1667,13 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/appservice/alias", "app_service");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/appservice/alias", "app_service")
+            .with_query_params(&["alias"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/appservice/user", "app_service");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/appservice/user", "app_service")
+            .with_query_params(&["user_id"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -1754,7 +1794,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     #[cfg(feature = "friends")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/friends", "friend_room");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/friends", "friend_room")
+            .with_query_params(&["from", "limit", "offset", "sort_by"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "friends")]
@@ -1779,12 +1820,14 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     #[cfg(feature = "friends")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/friends/search", "friend_room");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/friends/search", "friend_room")
+            .with_query_params(&["limit", "mode", "q", "query"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "friends")]
     {
-        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v3/friends/search", "friend_room");
+        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v3/friends/search", "friend_room")
+            .with_query_params(&["limit", "mode", "q", "query"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -1858,7 +1901,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/keys/history", "e2ee");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/keys/history", "e2ee")
+            .with_query_params(&["from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -1895,7 +1939,15 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     #[cfg(feature = "saml-sso")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/login/saml/callback", "saml");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/login/saml/callback", "saml")
+            .with_query_params(&[
+                "RelayState",
+                "SAMLRequest",
+                "SAMLResponse",
+                "relay_state",
+                "saml_request",
+                "saml_response",
+            ]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "saml-sso")]
@@ -1905,12 +1957,14 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     #[cfg(feature = "cas-sso")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/login/sso/redirect/cas", "cas");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/login/sso/redirect/cas", "cas")
+            .with_query_params(&["redirect_after"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "saml-sso")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/login/sso/redirect/saml", "saml");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/login/sso/redirect/saml", "saml")
+            .with_query_params(&["redirectUrl", "redirect_url"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "saml-sso")]
@@ -1933,7 +1987,15 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     #[cfg(feature = "saml-sso")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/logout/saml/callback", "saml");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/logout/saml/callback", "saml")
+            .with_query_params(&[
+                "RelayState",
+                "SAMLRequest",
+                "SAMLResponse",
+                "relay_state",
+                "saml_request",
+                "saml_response",
+            ]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -2185,7 +2247,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/register/captcha/status", "captcha");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/register/captcha/status", "captcha")
+            .with_query_params(&["captcha_id"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -2234,28 +2297,34 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::DELETE, "/_matrix/client/v3/room_keys/keys", "key_backup");
+        let e = RouteEntry::new(axum::http::Method::DELETE, "/_matrix/client/v3/room_keys/keys", "key_backup")
+            .with_query_params(&["version"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/room_keys/keys", "key_backup");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/room_keys/keys", "key_backup")
+            .with_query_params(&["version"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::PUT, "/_matrix/client/v3/room_keys/keys", "key_backup");
+        let e = RouteEntry::new(axum::http::Method::PUT, "/_matrix/client/v3/room_keys/keys", "key_backup")
+            .with_query_params(&["version"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
         let e =
-            RouteEntry::new(axum::http::Method::DELETE, "/_matrix/client/v3/room_keys/keys/{room_id}", "key_backup");
+            RouteEntry::new(axum::http::Method::DELETE, "/_matrix/client/v3/room_keys/keys/{room_id}", "key_backup")
+                .with_query_params(&["version"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/room_keys/keys/{room_id}", "key_backup");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/room_keys/keys/{room_id}", "key_backup")
+            .with_query_params(&["version"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::PUT, "/_matrix/client/v3/room_keys/keys/{room_id}", "key_backup");
+        let e = RouteEntry::new(axum::http::Method::PUT, "/_matrix/client/v3/room_keys/keys/{room_id}", "key_backup")
+            .with_query_params(&["version"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -2263,7 +2332,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             axum::http::Method::DELETE,
             "/_matrix/client/v3/room_keys/keys/{room_id}/{session_id}",
             "key_backup",
-        );
+        )
+        .with_query_params(&["version"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -2271,7 +2341,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             axum::http::Method::GET,
             "/_matrix/client/v3/room_keys/keys/{room_id}/{session_id}",
             "key_backup",
-        );
+        )
+        .with_query_params(&["version"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -2279,7 +2350,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             axum::http::Method::PUT,
             "/_matrix/client/v3/room_keys/keys/{room_id}/{session_id}",
             "key_backup",
-        );
+        )
+        .with_query_params(&["version"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -2311,7 +2383,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/room_keys/request", "e2ee");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/room_keys/request", "e2ee")
+            .with_query_params(&["from", "limit", "room_id", "session_id", "status"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -2535,7 +2608,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/rooms/{room_id}/ephemeral", "ephemeral");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/rooms/{room_id}/ephemeral", "ephemeral")
+            .with_query_params(&["limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -2728,7 +2802,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             axum::http::Method::GET,
             "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}",
             "relations",
-        );
+        )
+        .with_query_params(&["dir", "from", "limit", "to"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -2736,7 +2811,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             axum::http::Method::GET,
             "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}",
             "relations",
-        );
+        )
+        .with_query_params(&["dir", "from", "limit", "to"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -3050,7 +3126,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/rooms/{room_id}/sync", "room");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/rooms/{room_id}/sync", "room")
+            .with_query_params(&["full_state", "since", "timeout"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -3205,7 +3282,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/spaces/public", "space");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/spaces/public", "space")
+            .with_query_params(&["from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -3217,11 +3295,13 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/spaces/search", "space");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/spaces/search", "space")
+            .with_query_params(&["limit", "query", "search_term"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/spaces/statistics", "space");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/spaces/statistics", "space")
+            .with_query_params(&["limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -3257,11 +3337,13 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/spaces/{space_id}/hierarchy", "space");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/spaces/{space_id}/hierarchy", "space")
+            .with_query_params(&["max_depth"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/spaces/{space_id}/hierarchy/v1", "space");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/spaces/{space_id}/hierarchy/v1", "space")
+            .with_query_params(&["from", "limit", "max_depth", "suggested_only"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -3277,11 +3359,13 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/spaces/{space_id}/members", "space");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/spaces/{space_id}/members", "space")
+            .with_query_params(&["from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/spaces/{space_id}/rooms", "space");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/spaces/{space_id}/rooms", "space")
+            .with_query_params(&["from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -3310,12 +3394,14 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/thirdparty/location", "thirdparty");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/thirdparty/location", "thirdparty")
+            .with_query_params(&["alias", "channel", "search", "server"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
         let e =
-            RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/thirdparty/location/{protocol}", "thirdparty");
+            RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/thirdparty/location/{protocol}", "thirdparty")
+                .with_query_params(&["alias", "channel", "search", "server"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -3328,11 +3414,13 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/thirdparty/user", "thirdparty");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/thirdparty/user", "thirdparty")
+            .with_query_params(&["nickname", "search", "server", "userid"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/thirdparty/user/{protocol}", "thirdparty");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/thirdparty/user/{protocol}", "thirdparty")
+            .with_query_params(&["nickname", "search", "server", "userid"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -3498,7 +3586,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             axum::http::Method::GET,
             "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads",
             "thread",
-        );
+        )
+        .with_query_params(&["from", "include_all", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -3549,7 +3638,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     #[cfg(feature = "voice-extended")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/voice/room/{room_id}", "voice");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/voice/room/{room_id}", "voice")
+            .with_query_params(&["from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "voice-extended")]
@@ -3569,7 +3659,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     #[cfg(feature = "voice-extended")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/voice/user/{user_id}", "voice");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/voice/user/{user_id}", "voice")
+            .with_query_params(&["from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "voice-extended")]
@@ -3625,7 +3716,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v4/sync", "sliding_sync")
-            .with_rate_limit_exempt(true);
+            .with_rate_limit_exempt(true)
+            .with_query_params(&["pos", "timeout", "txn_id"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -3669,7 +3761,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/federation/v1/hierarchy/{room_id}", "federation");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/federation/v1/hierarchy/{room_id}", "federation")
+            .with_query_params(&["from", "limit", "max_depth", "suggested_only"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -3755,12 +3848,14 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/federation/v1/query/profile", "federation");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/federation/v1/query/profile", "federation")
+            .with_query_params(&["field", "user_id"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
         let e =
-            RouteEntry::new(axum::http::Method::GET, "/_matrix/federation/v1/query/profile/{user_id}", "federation");
+            RouteEntry::new(axum::http::Method::GET, "/_matrix/federation/v1/query/profile/{user_id}", "federation")
+                .with_query_params(&["field"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -3789,11 +3884,13 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/federation/v1/state/{room_id}", "federation");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/federation/v1/state/{room_id}", "federation")
+            .with_query_params(&["event_id"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/federation/v1/state_ids/{room_id}", "federation");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/federation/v1/state_ids/{room_id}", "federation")
+            .with_query_params(&["event_id"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -4079,7 +4176,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     #[cfg(feature = "friends")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/vendor/v1/friends", "friend_room");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/vendor/v1/friends", "friend_room")
+            .with_query_params(&["from", "limit", "offset", "sort_by"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "friends")]
@@ -4203,17 +4301,20 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     #[cfg(feature = "friends")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/vendor/v1/friends/search", "friend_room");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/vendor/v1/friends/search", "friend_room")
+            .with_query_params(&["limit", "mode", "q", "query"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "friends")]
     {
-        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/vendor/v1/friends/search", "friend_room");
+        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/vendor/v1/friends/search", "friend_room")
+            .with_query_params(&["limit", "mode", "q", "query"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "friends")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/vendor/v1/friends/suggestions", "friend_room");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/vendor/v1/friends/suggestions", "friend_room")
+            .with_query_params(&["limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "friends")]
@@ -4383,7 +4484,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     #[cfg(feature = "voice-extended")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/vendor/v1/voice/room/{room_id}", "voice");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/vendor/v1/voice/room/{room_id}", "voice")
+            .with_query_params(&["from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "voice-extended")]
@@ -4403,7 +4505,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     #[cfg(feature = "voice-extended")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/vendor/v1/voice/user/{user_id}", "voice");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/vendor/v1/voice/user/{user_id}", "voice")
+            .with_query_params(&["from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "voice-extended")]
@@ -4473,11 +4576,13 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/appservices/query/alias", "app_service");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/appservices/query/alias", "app_service")
+            .with_query_params(&["alias"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/appservices/query/user", "app_service");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/appservices/query/user", "app_service")
+            .with_query_params(&["user_id"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -4498,7 +4603,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e =
-            RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/appservices/{as_id}/events", "app_service");
+            RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/appservices/{as_id}/events", "app_service")
+                .with_query_params(&["limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -4545,7 +4651,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/audit/events", "admin::audit");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/audit/events", "admin::audit")
+            .with_query_params(&["action", "actor_id", "from", "limit", "resource_id", "resource_type", "result"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -4557,7 +4664,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/background_updates", "background_update");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/background_updates", "background_update")
+            .with_query_params(&["from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -4614,7 +4722,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             axum::http::Method::GET,
             "/_synapse/admin/v1/background_updates/stats",
             "background_update",
-        );
+        )
+        .with_query_params(&["from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -4678,7 +4787,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             axum::http::Method::GET,
             "/_synapse/admin/v1/background_updates/{job_name}/history",
             "background_update",
-        );
+        )
+        .with_query_params(&["from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -4743,7 +4853,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/event_reports", "event_report");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/event_reports", "event_report")
+            .with_query_params(&["limit", "since_id", "since_score", "since_ts"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -4791,12 +4902,14 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             axum::http::Method::GET,
             "/_synapse/admin/v1/event_reports/reporter/{reporter_user_id}",
             "event_report",
-        );
+        )
+        .with_query_params(&["limit", "since_id", "since_score", "since_ts"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
         let e =
-            RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/event_reports/room/{room_id}", "event_report");
+            RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/event_reports/room/{room_id}", "event_report")
+                .with_query_params(&["limit", "since_id", "since_score", "since_ts"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -4808,7 +4921,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             axum::http::Method::GET,
             "/_synapse/admin/v1/event_reports/status/{status}",
             "event_report",
-        );
+        )
+        .with_query_params(&["limit", "since_id", "since_score", "since_ts"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -4852,7 +4966,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     #[cfg(feature = "external-services")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/external_services", "external_service");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/external_services", "external_service")
+            .with_query_params(&["service_type"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "external-services")]
@@ -4903,7 +5018,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/feature-flags", "feature_flags");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/feature-flags", "feature_flags")
+            .with_query_params(&["from", "limit", "status", "target_scope"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -4922,7 +5038,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e =
-            RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/federation/blacklist", "admin::federation");
+            RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/federation/blacklist", "admin::federation")
+                .with_query_params(&["from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -4964,7 +5081,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e =
-            RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/federation/destinations", "admin::federation");
+            RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/federation/destinations", "admin::federation")
+                .with_query_params(&["from", "limit", "offset"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -5008,7 +5126,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/federation/pending", "admin::federation");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/federation/pending", "admin::federation")
+            .with_query_params(&["from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -5065,7 +5184,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/modules", "module");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/modules", "module")
+            .with_query_params(&["from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -5082,12 +5202,14 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/modules/logs/{module_name}", "module");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/modules/logs/{module_name}", "module")
+            .with_query_params(&["limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
         let e =
-            RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/modules/spam_check/sender/{sender}", "module");
+            RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/modules/spam_check/sender/{sender}", "module")
+                .with_query_params(&["limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -5124,7 +5246,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     #[cfg(feature = "server-notifications")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/notifications", "admin::notification");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/notifications", "admin::notification")
+            .with_query_params(&["audience", "from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "server-notifications")]
@@ -5203,7 +5326,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::POST, "/_synapse/admin/v1/push/cleanup", "push_notification");
+        let e = RouteEntry::new(axum::http::Method::POST, "/_synapse/admin/v1/push/cleanup", "push_notification")
+            .with_query_params(&["days"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -5215,7 +5339,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::POST, "/_synapse/admin/v1/push/process", "push_notification");
+        let e = RouteEntry::new(axum::http::Method::POST, "/_synapse/admin/v1/push/process", "push_notification")
+            .with_query_params(&["batch_size"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -5239,7 +5364,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/registration_tokens", "admin::token");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/registration_tokens", "admin::token")
+            .with_query_params(&["from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -5329,7 +5455,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/rooms/search", "admin::room");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/rooms/search", "admin::room")
+            .with_query_params(&["from", "is_encrypted", "is_public", "limit", "offset", "order_by", "search_term"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -5504,7 +5631,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e =
-            RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/rooms/{room_id}/token_sync", "admin::room");
+            RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/rooms/{room_id}/token_sync", "admin::room")
+                .with_query_params(&["from", "limit", "offset"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -5555,7 +5683,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     #[cfg(feature = "saml-sso")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/saml/mappings", "saml");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/saml/mappings", "saml")
+            .with_query_params(&["from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "saml-sso")]
@@ -5575,7 +5704,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     #[cfg(feature = "server-notifications")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/server_notices", "admin::notification");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/server_notices", "admin::notification")
+            .with_query_params(&["from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "server-notifications")]
@@ -5637,7 +5767,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/telemetry/alerts", "telemetry");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/telemetry/alerts", "telemetry")
+            .with_query_params(&["refresh", "severity", "status"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -5986,7 +6117,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::POST, "/_synapse/room_summary/v1/updates/process", "room_summary");
+        let e = RouteEntry::new(axum::http::Method::POST, "/_synapse/room_summary/v1/updates/process", "room_summary")
+            .with_query_params(&["limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -5998,7 +6130,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/worker/v1/statistics", "worker");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/worker/v1/statistics", "worker")
+            .with_query_params(&["limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -6006,7 +6139,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/worker/v1/tasks", "worker");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/worker/v1/tasks", "worker")
+            .with_query_params(&["limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
