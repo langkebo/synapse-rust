@@ -1180,7 +1180,25 @@ Task3 (reference hash) —— 仅做可行性验证，不接线
 >   **正确终局是把该模块删掉、统一到 `select_auth_events`**（其 `_event_type`/`_state_key`
 >   根本未参与选择，而规范要求按事件类型选择）——因属并发会话在途 v12 工作，未擅自删除。
 >
-> - **U-20（新，已修）｜出厂默认配置下「发消息」恒 501 的 P0（同一职责两份扫描策略）**
+> - **U-21（新，未修；对象是并发会话的**在途**计划文档，本轮不得改其文件）**
+>   并发会话新写的未跟踪文档 `docs/audit/ed25519-signing-and-hash-implementation.md`
+>   （2026-09-26 07:29 实测存在）里：
+>   * §1.1 内容哈希 ✅ 与本仓已落地的 `0880f6a5f` 完全一致（去 age_ts/unsigned/signatures/hashes/outlier/destinations、
+>     canonical JSON、SHA-256、**标准** Base64 无填充、且明确"对未 redact 事件计算"），并引用了同两个上游向量；
+>   * §1.3 事件 ID ✅ 与第 1 步 `64ffc13a6` 一致（redact → 去 signatures/unsigned/age_ts → canonical JSON →
+>     v3 标准 Base64 / v4+ URL-safe → `$` 前缀）；
+>   * **§1.2 签名 ❌ 与上游相反**：它写"签名材料：从事件中删除 `signatures` 和 `unsigned`"并声称现有
+>     `sign_json`"已实现，符合规范"。上游 `compute_event_signature` 是
+>     `redact_event_dict(room_version, event_dict)` 之后再 pop `age_ts`/`unsigned`；
+>     本仓 `CanonicalEvent::from_event`（`canonical_json.rs:140-148`）**只去 signatures/unsigned、不 redact**。
+>     判别性例子：`m.room.message` 的 content 会被 redaction 清空 ⇒ 签"未 redact 的 body"与上游签的
+>     `content: {}` **不是同一串字节**；v3+ 的 PDU 还**不应带 `event_id`** 参与签名。
+>     **若照其 §1.2 实施，签名半边仍不可能被对等端校验**（这正是 §6.6 前置②的签名半边）。
+>   本会话**不修改**该文档（它是并发会话的在途产物，铁律 9）；此处登记以便接线时立即纠正。
+>   建议的验收：上游 `tests/crypto/test_event_signing.py` 的 `test_sign_minimal`/`test_sign_message`
+>   的 **signatures** 期望值（`18rGIkd4…`、`Ay4aj2b5…`）+ "#3 证明签名材料走了版本化 redaction"
+>   （v10 与 v11 对含 `origin` 的事件必须产出不同签名），见 §6.6 第 2 步验收清单 1–3。
+
 >   `handlers/room/events.rs` 的 `m.room.message` 分支直接
 >   `ctx.content_scanner.scan_text(..).await?`，而 `ContentScanner::scan` 在 `!is_enabled()`
 >   时返回 `M_CONTENT_SCAN_DISABLED`（501）；`content_scanner.enabled: false` 是出厂默认
