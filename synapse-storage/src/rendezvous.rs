@@ -260,21 +260,22 @@ impl RendezvousStorage {
         let key = Self::generate_key();
         let expires_at = now + params.expires_in_ms.unwrap_or(5 * 60 * 1000);
 
-        sqlx::query_as::<_, RendezvousSession>(
+        sqlx::query_as!(
+            RendezvousSession,
             r"
             INSERT INTO rendezvous_session
                 (session_id, intent, transport, transport_data, key, created_ts, expires_at, status)
             VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
-            RETURNING *
+            RETURNING id, session_id, user_id, device_id, intent, transport, transport_data, key, created_ts, expires_at, status
             ",
+            &session_id,
+            params.intent.as_str(),
+            params.transport.as_str(),
+            params.transport_data.as_ref(),
+            &key,
+            now,
+            expires_at,
         )
-        .bind(&session_id)
-        .bind(params.intent.as_str())
-        .bind(params.transport.as_str())
-        .bind(&params.transport_data)
-        .bind(&key)
-        .bind(now)
-        .bind(expires_at)
         .fetch_one(&*self.pool)
         .await
     }
@@ -283,29 +284,30 @@ impl RendezvousStorage {
     pub async fn get_session(&self, session_id: &str) -> Result<Option<RendezvousSession>, sqlx::Error> {
         let now = current_timestamp_millis();
 
-        sqlx::query_as::<_, RendezvousSession>(
+        sqlx::query_as!(
+            RendezvousSession,
             r"
             SELECT id, session_id, user_id, device_id, intent, transport, transport_data, key, created_ts, expires_at, status FROM rendezvous_session
             WHERE session_id = $1 AND expires_at > $2
             ",
+            session_id,
+            now,
         )
-        .bind(session_id)
-        .bind(now)
         .fetch_optional(&*self.pool)
         .await
     }
 
     /// See [`update_session_status`].
     pub async fn update_session_status(&self, session_id: &str, status: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r"
             UPDATE rendezvous_session
             SET status = $2
             WHERE session_id = $1
             ",
+            session_id,
+            status,
         )
-        .bind(session_id)
-        .bind(status)
         .execute(&*self.pool)
         .await?;
 
@@ -319,16 +321,16 @@ impl RendezvousStorage {
         user_id: &str,
         device_id: &str,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r"
             UPDATE rendezvous_session
             SET user_id = $2, device_id = $3, status = 'connected'
             WHERE session_id = $1
             ",
+            session_id,
+            user_id,
+            device_id,
         )
-        .bind(session_id)
-        .bind(user_id)
-        .bind(device_id)
         .execute(&*self.pool)
         .await?;
 
@@ -337,14 +339,14 @@ impl RendezvousStorage {
 
     /// See [`complete_session`].
     pub async fn complete_session(&self, session_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r"
             UPDATE rendezvous_session
             SET status = 'completed'
             WHERE session_id = $1
             ",
+            session_id,
         )
-        .bind(session_id)
         .execute(&*self.pool)
         .await?;
 
@@ -353,12 +355,12 @@ impl RendezvousStorage {
 
     /// See [`delete_session`].
     pub async fn delete_session(&self, session_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r"
             DELETE FROM rendezvous_session WHERE session_id = $1
             ",
+            session_id,
         )
-        .bind(session_id)
         .execute(&*self.pool)
         .await?;
 
@@ -369,12 +371,12 @@ impl RendezvousStorage {
     pub async fn cleanup_expired_sessions(&self) -> Result<u64, sqlx::Error> {
         let now = current_timestamp_millis();
 
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             DELETE FROM rendezvous_session WHERE expires_at < $1
             ",
+            now,
         )
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -425,18 +427,18 @@ impl RendezvousStorage {
         let expires_at = now + ttl_ms;
         let content = serde_json::json!({ "data": initial_data });
 
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO rendezvous_session
                 (session_id, intent, transport, content, key, created_ts, updated_ts, expires_at, status)
             VALUES ($1, 'msc4108', 'http', $2, $3, $4, $4, $5, 'active')
             ",
+            &session_id,
+            &content,
+            Self::generate_key(),
+            now,
+            expires_at,
         )
-        .bind(&session_id)
-        .bind(&content)
-        .bind(Self::generate_key())
-        .bind(now)
-        .bind(expires_at)
         .execute(&*self.pool)
         .await?;
 
@@ -449,23 +451,28 @@ impl RendezvousStorage {
     /// required `Last-Modified`/`Expires` response headers.
     pub async fn get_msc4108_data(&self, session_id: &str) -> Result<Option<(String, String, i64, i64)>, sqlx::Error> {
         let now = current_timestamp_millis();
-        let row: Option<(serde_json::Value, Option<i64>, i64)> = sqlx::query_as(
-            r"
-            SELECT content, updated_ts, expires_at FROM rendezvous_session
+        let row = sqlx::query!(
+            r#"
+            SELECT content AS "content!", updated_ts, expires_at FROM rendezvous_session
             WHERE session_id = $1 AND intent = 'msc4108' AND expires_at > $2
-            ",
+            "#,
+            session_id,
+            now,
         )
-        .bind(session_id)
-        .bind(now)
         .fetch_optional(&*self.pool)
         .await?;
 
         match row {
-            Some((content, updated_ts, expires_at)) => {
-                let data = content.get("data").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let updated = updated_ts.unwrap_or(0);
+            Some(row) => {
+                // `AS "content!"` preserves the project-contract of the tuple this
+                // replaced (`serde_json::Value`, non-`Option`): the column is
+                // nullable in the baseline, but every writer supplies it or takes
+                // the `DEFAULT '{}'`. Treating a NULL as "empty payload" would be a
+                // behavior change, so it is deferred to §7 D-48.
+                let data = row.content.get("data").and_then(|value| value.as_str()).unwrap_or("").to_string();
+                let updated = row.updated_ts.unwrap_or(0);
                 let etag = format!("\"{updated}\"");
-                Ok(Some((data, etag, updated, expires_at)))
+                Ok(Some((data, etag, updated, row.expires_at)))
             }
             None => Ok(None),
         }
@@ -486,19 +493,19 @@ impl RendezvousStorage {
         let mut tx = self.pool.begin().await?;
         let now = current_timestamp_millis();
 
-        let current: Option<(Option<i64>, i64)> = sqlx::query_as(
+        let current = sqlx::query!(
             r"
             SELECT updated_ts, expires_at FROM rendezvous_session
             WHERE session_id = $1 AND intent = 'msc4108'
             FOR UPDATE
             ",
+            session_id,
         )
-        .bind(session_id)
         .fetch_optional(&mut *tx)
         .await?;
 
         let (current_updated, expires_at) = match current {
-            Some((updated_ts, expires_at)) if expires_at > now => (updated_ts.unwrap_or(0), expires_at),
+            Some(row) if row.expires_at > now => (row.updated_ts.unwrap_or(0), row.expires_at),
             // Missing row or expired session — 404 M_NOT_FOUND per MSC4108.
             _ => {
                 tx.rollback().await?;
@@ -519,16 +526,16 @@ impl RendezvousStorage {
         }
 
         let content = serde_json::json!({ "data": data });
-        sqlx::query(
+        sqlx::query!(
             r"
             UPDATE rendezvous_session
             SET content = $2, updated_ts = $3
             WHERE session_id = $1 AND intent = 'msc4108' AND expires_at > $3
             ",
+            session_id,
+            &content,
+            now,
         )
-        .bind(session_id)
-        .bind(&content)
-        .bind(now)
         .execute(&mut *tx)
         .await?;
 
@@ -540,10 +547,10 @@ impl RendezvousStorage {
     /// MSC4108 requires 404 `M_NOT_FOUND` for unknown/expired session ids,
     /// which the route derives from `false` here.
     pub async fn delete_msc4108_session(&self, session_id: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query("DELETE FROM rendezvous_session WHERE session_id = $1 AND intent = 'msc4108'")
-            .bind(session_id)
-            .execute(&*self.pool)
-            .await?;
+        let result =
+            sqlx::query!("DELETE FROM rendezvous_session WHERE session_id = $1 AND intent = 'msc4108'", session_id,)
+                .execute(&*self.pool)
+                .await?;
         Ok(result.rows_affected() > 0)
     }
 }
@@ -647,18 +654,18 @@ impl RendezvousMessageStorage {
     ) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
 
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO rendezvous_messages
                 (session_id, direction, message_type, content, created_ts)
             VALUES ($1, $2, $3, $4, $5)
             ",
+            session_id,
+            direction,
+            &message.message_type,
+            &message.content,
+            now,
         )
-        .bind(session_id)
-        .bind(direction)
-        .bind(&message.message_type)
-        .bind(&message.content)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -673,27 +680,29 @@ impl RendezvousMessageStorage {
     ) -> Result<Vec<StoredRendezvousMessage>, sqlx::Error> {
         match after_id {
             Some(after) => {
-                sqlx::query_as::<_, StoredRendezvousMessage>(
+                sqlx::query_as!(
+                    StoredRendezvousMessage,
                     r"
                     SELECT id, session_id, direction, message_type, content, created_ts FROM rendezvous_messages
                     WHERE session_id = $1 AND id > $2
                     ORDER BY id ASC
                     ",
+                    session_id,
+                    after,
                 )
-                .bind(session_id)
-                .bind(after)
                 .fetch_all(&*self.pool)
                 .await
             }
             None => {
-                sqlx::query_as::<_, StoredRendezvousMessage>(
+                sqlx::query_as!(
+                    StoredRendezvousMessage,
                     r"
                     SELECT id, session_id, direction, message_type, content, created_ts FROM rendezvous_messages
                     WHERE session_id = $1
                     ORDER BY id ASC
                     ",
+                    session_id,
                 )
-                .bind(session_id)
                 .fetch_all(&*self.pool)
                 .await
             }
@@ -702,12 +711,12 @@ impl RendezvousMessageStorage {
 
     /// See [`delete_messages`].
     pub async fn delete_messages(&self, session_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r"
             DELETE FROM rendezvous_messages WHERE session_id = $1
             ",
+            session_id,
         )
-        .bind(session_id)
         .execute(&*self.pool)
         .await?;
 
@@ -1012,5 +1021,133 @@ mod tests {
         assert!(session.device_id.is_none());
         assert!(session.intent.is_none());
         assert_eq!(session.status, None);
+    }
+}
+
+/// DB round-trip on the **migration template** schema (W5 口径).
+///
+/// `rendezvous.rs` had no DB coverage before C20 — every `test_` above is a pure
+/// constructor, so the 16 staticized statements were only compile-checked. This
+/// case runs them against a per-test schema cloned from the v12 baseline, so the
+/// real NOT NULL / UNIQUE constraints and the JSONB nullability apply.
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<Pool<Postgres>>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
+    }
+
+    #[tokio::test]
+    async fn test_rendezvous_round_trip_on_migration_template() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = RendezvousStorage::new(pool.clone());
+        let message_storage = RendezvousMessageStorage::new(pool.clone());
+
+        // create_session → the `RETURNING *` projection (now an explicit column
+        // list, D-22) must land in every struct field.
+        let created = storage
+            .create_session(CreateRendezvousSessionParams {
+                intent: RendezvousIntent::LoginStart,
+                transport: RendezvousTransport::HttpV1,
+                transport_data: Some(serde_json::json!({"url": "https://example.com/rv"})),
+                expires_in_ms: Some(60_000),
+            })
+            .await
+            .expect("create_session");
+        assert!(created.id > 0);
+        assert_eq!(created.intent.as_deref(), Some("login.start"));
+        assert_eq!(created.transport.as_deref(), Some("http.v1"));
+        assert_eq!(created.status.as_deref(), Some("pending"));
+        assert_eq!(created.user_id, None);
+        assert_eq!(created.transport_data, Some(serde_json::json!({"url": "https://example.com/rv"})));
+
+        // get_session (found) + the three status transitions.
+        let fetched = storage.get_session(&created.session_id).await.expect("get_session").expect("row");
+        assert_eq!(fetched.session_id, created.session_id);
+
+        storage.update_session_status(&created.session_id, "ready").await.expect("update_status");
+        assert_eq!(storage.get_session(&created.session_id).await.unwrap().unwrap().status.as_deref(), Some("ready"));
+
+        storage.bind_user_to_session(&created.session_id, "@rv:test.local", "DEV1").await.expect("bind_user");
+        let bound = storage.get_session(&created.session_id).await.unwrap().unwrap();
+        assert_eq!(bound.user_id.as_deref(), Some("@rv:test.local"));
+        assert_eq!(bound.device_id.as_deref(), Some("DEV1"));
+        assert_eq!(bound.status.as_deref(), Some("connected"));
+
+        storage.complete_session(&created.session_id).await.expect("complete_session");
+        assert_eq!(
+            storage.get_session(&created.session_id).await.unwrap().unwrap().status.as_deref(),
+            Some("completed")
+        );
+
+        // An expired session is invisible to get_session and is swept by cleanup.
+        let expired = storage
+            .create_session(CreateRendezvousSessionParams {
+                intent: RendezvousIntent::LoginReciprocate,
+                transport: RendezvousTransport::HttpV2,
+                transport_data: None,
+                expires_in_ms: Some(-1),
+            })
+            .await
+            .expect("expired session");
+        assert!(storage.get_session(&expired.session_id).await.unwrap().is_none());
+        assert_eq!(storage.cleanup_expired_sessions().await.expect("cleanup"), 1);
+
+        // Messages: both `get_messages` branches (no cursor / with cursor).
+        let first =
+            RendezvousMessage { message_type: "m.login.start".to_string(), content: serde_json::json!({"step": 1}) };
+        let second =
+            RendezvousMessage { message_type: "m.login.finish".to_string(), content: serde_json::json!({"step": 2}) };
+        message_storage.store_message(&created.session_id, "incoming", &first).await.expect("store 1");
+        message_storage.store_message(&created.session_id, "outgoing", &second).await.expect("store 2");
+
+        let all = message_storage.get_messages(&created.session_id, None).await.expect("all messages");
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].message_type, "m.login.start");
+        assert_eq!(all[0].content, serde_json::json!({"step": 1}));
+        let after_first =
+            message_storage.get_messages(&created.session_id, Some(all[0].id)).await.expect("cursor messages");
+        assert_eq!(after_first.len(), 1);
+        assert_eq!(after_first[0].message_type, "m.login.finish");
+
+        message_storage.delete_messages(&created.session_id).await.expect("delete messages");
+        assert!(message_storage.get_messages(&created.session_id, None).await.unwrap().is_empty());
+
+        storage.delete_session(&created.session_id).await.expect("delete_session");
+        assert!(storage.get_session(&created.session_id).await.unwrap().is_none());
+
+        // ── MSC4108: create / get / update (3 outcomes) / delete ──
+        let (sid, etag, created_ts, expires_at) =
+            storage.create_msc4108_session("hello", 60_000).await.expect("msc4108 create");
+        assert!(created_ts > 0 && expires_at > created_ts);
+
+        let (data, got_etag, updated_ts, _) = storage.get_msc4108_data(&sid).await.unwrap().expect("msc4108 get");
+        assert_eq!(data, "hello");
+        assert_eq!(got_etag, etag);
+        assert_eq!(updated_ts, created_ts);
+
+        // Wrong If-Match → 412 carrying the *current* etag.
+        let outcome = storage.update_msc4108_data(&sid, "world", Some("\"0\"")).await.unwrap();
+        assert!(
+            matches!(outcome, Msc4108UpdateOutcome::PreconditionFailed { ref current_etag, .. } if current_etag == &etag),
+            "expected PreconditionFailed carrying {etag}, got {outcome:?}"
+        );
+        // Correct If-Match → update lands.
+        let outcome = storage.update_msc4108_data(&sid, "world", Some(&etag)).await.unwrap();
+        assert!(matches!(outcome, Msc4108UpdateOutcome::Updated { .. }), "expected Updated, got {outcome:?}");
+        assert_eq!(storage.get_msc4108_data(&sid).await.unwrap().expect("msc4108 get 2").0, "world");
+
+        // Unknown session → NotFound (not PreconditionFailed).
+        assert!(matches!(
+            storage.update_msc4108_data("missing-session", "x", None).await.unwrap(),
+            Msc4108UpdateOutcome::NotFound
+        ));
+
+        assert!(storage.delete_msc4108_session(&sid).await.expect("delete msc4108"));
+        assert!(!storage.delete_msc4108_session(&sid).await.expect("delete msc4108 again"));
+        assert!(storage.get_msc4108_data(&sid).await.unwrap().is_none());
     }
 }
