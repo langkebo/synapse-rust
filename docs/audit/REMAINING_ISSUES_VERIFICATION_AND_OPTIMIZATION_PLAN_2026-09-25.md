@@ -131,7 +131,8 @@ git worktree list             # 另有 .worktrees/c19b（同 HEAD）、/Users/lj
 | ② U-3 扫描拒绝 + 隔离裁定 + **hash 级自动隔离** + 指标 + 显式配置 | ✅ | `338395f98` + `4f7299e82` + `cbe6517c5` | 验收①②③④全覆盖：集成 `hash_level_quarantine_auto_quarantines_identical_reupload` 1/1（**断言扫描器关闭**，证明与扫描无关；含命中计数==1 与不同内容负例）、storage `admin_media` 17/17、crypto 3/3；**变异 7 个**（扫描半批 4 + hash 半批 3）全部转红后还原 | fmt `OK(0)`、clippy exit 0 | SQLx 棘轮：**本批生产动态增量 0**（反查用静态宏）；残留红=既有 +3 生产 / +1 测试基础设施，本批另 +1 测试夹具（D-13/14 必须动态），两基线**故意不动**（见 §6.2） |
 | ② U-10 ledger `query_params` 真填值 + 反向守卫 | ✅ | `fd178425b` | 123 条注解；5 层守卫（夹具双向 + handler `Query<Struct>` 双向）；**我独立变异**（删注解里的 `limit`）⇒ 抽取器 exit 1 并同时报出三类失败；unit 44/44 | `check_route_contract.sh` exit 0（修绿了 U-10 之前**既有**的红门禁）；`gen_client_yaml.py --check` 与 `gen_route_table.py --check --ledger <fresh>` 双双 exit 0 | `scripts/api_test/ledger.json` 仍是旧导出（1096 条、字段空），**故意不刷**：它是 `client.yaml` 的字节级输入，刷新会弄红那条门禁 |
 | ② U-13 reference hash | 🟡 **第 1 步 ✅ / 前置 P0 ✅ / 第 2–3 步 ⬜** | `64ffc13a6`（第 1 步）、`0880f6a5f`（content hash P0） | 第 1 步：上游 Synapse **v10/v3 已知答案向量**逐字节通过 + 上游 `redact()` 全量单测期望转 v1–v12 矩阵（24/24）；content hash：上游 `test_sign_minimal`/`test_sign_message` 向量通过；**变异 6 个**全部转红后还原 | fmt `OK(0)`、clippy exit 0、federation lib 198/198 | **第 2 步阻塞**（连续 4 轮取证）：并发会话未提交地新增 `EventWriter::create_event_with_pdu`（6 文件 169 行，覆盖第 2 步要改的全部 writer 文件）。算法（5 步链）、30 个调用点清单、7 个签名站点、6 条验收测试均已冻结于 §6.6 |
-| ① 合并结果上的 fmt / clippy / lib / unit / 集成 | ✅（集成按受影响面） | `b83cbcaac`（本轮修掉 lib 的 2 个真红） | fmt `current=0`、clippy exit 0（多轮、多 tip）。**lib 全量（最终 tip）：6358 例 6358 passed / 0 skipped** ✅。**unit 全量（最终 tip）：1777 例 1773 passed / 4 failed**，4 个失败**全部**是已归因的 SQLx 棘轮守卫（`sqlx_ratio_gate_*` ×3 + `no_new_production_literal_dynamic_sql` ×1，逐项归因见 §6.2） | 集成：按受影响面跑子集（media/quota、profile/route/ledger、federation_transaction/create_room） | 「lib 曾红」的两段根因都已定位并处置：①5 个 `schema_validator::db_tests` 是本机 `public` 未按 baseline 播种（见 **U-17**，已用 `RESET_PUBLIC=0` 播种为 222 表）；②2 个 `room::auth` 用例是真缺陷（见 **U-16**，已修 `b83cbcaac`）。**全量集成批次（约 1446 例）未跑**，属时间预算限制，不得当作通过 |
+| ① 合并结果上的 fmt / clippy / lib / unit / 集成 | ✅（集成按受影响面） | `b83cbcaac` + `94fc91442`（本轮修掉 lib 的 2 个真红与扫描面 3 个真红） | fmt `current=0`、clippy exit 0（多轮、多 tip）。**lib 全量（最终 tip）：6358 例 6358 passed / 0 skipped** ✅。**unit 全量（最终 tip）：1777 例 1773 passed / 4 failed**，4 个失败**全部**是已归因的 SQLx 棘轮守卫（`sqlx_ratio_gate_*` ×3 + `no_new_production_literal_dynamic_sql` ×1，逐项归因见 §6.2） | 集成：按受影响面跑子集（media/quota、profile/route/ledger、federation_transaction/create_room） | 「lib 曾红」的两段根因都已定位并处置：①5 个 `schema_validator::db_tests` 是本机 `public` 未按 baseline 播种（见 **U-17**，已用 `RESET_PUBLIC=0` 播种为 222 表）；②2 个 `room::auth` 用例是真缺陷（见 **U-16**，已修 `b83cbcaac`）。**全量集成批次（约 1446 例）未跑**，属时间预算限制，不得当作通过 |
+| 集成实测（受影响面，`--test-threads 1`） | — | — | media+quota **34/34 绿**（修复前 32/34）；federation_transaction+create_room **15/15 绿**；profile/route/ledger 子集 139 例中 **6 例红，已逐条在 `338395f98`（U-10 之前的 tip）复现为既有红**：`declared_route_manifest_entries_are_actually_wired`、`declared_route_manifest_full_snapshot_matches_{default,worker}_state`、`snapshot_capabilities_v3`、`snapshot_versions_endpoint`、`test_global_thread_routes_return_real_data` | 那 6 例是**既有红**，不属本轮范围（路由 manifest 的通配符 `{*path}` 代理路由与 live router 不一致、`/versions`/`capabilities` 快照、线程路由）；本轮**未**擅自 `cargo insta accept` |
 
 ---
 
@@ -1124,7 +1125,16 @@ Task3 (reference hash) —— 仅做可行性验证，不接线
 >   **正确终局是把该模块删掉、统一到 `select_auth_events`**（其 `_event_type`/`_state_key`
 >   根本未参与选择，而规范要求按事件类型选择）——因属并发会话在途 v12 工作，未擅自删除。
 >
-> - **U-17（新）｜本机 `public` schema 未按 baseline 播种会让 `schema_validator::db_tests` 假红**
+> - **U-18（新，已修）｜扫描失败的状态码与文档/用例矛盾；3 条扫描集成用例从未真正通过**
+>   ① `ApiErrorKind` **没有 502 变体**，而 `9ffe98fc8` 给 `content_scan_failed` 写的 doc 是
+>   "Returns 502 Bad Gateway"，实现却设 `ServiceUnavailable`（503），调用侧文档与 3 条用例都按 502 断言
+>   ⇒ 新增 `ApiErrorKind::BadGateway`（映射 502）并让 `content_scan_failed` 使用它（`94fc91442`，含变异自证）。
+>   ② `setup_app_with_mock_scanner` 在容器构造后才改 `content_scanner.enabled`，而 `ContentScanner`
+>   在构造时捕获配置 ⇒ 实际 `is_enabled() == false`，上传走"未配置扫描"放行分支（旧路径之所以"看着能测"
+>   是因为它**无条件**扫描）。③ 其中一条用例在探针上传**之前**就置失败标志，另一条用
+>   `content_uri.split('/').nth(1)` 取 server_name（`mxc://server/x` 的 `nth(1)` 是空串）⇒ 恒定 400。
+>   三条修好后 `api_content_scanner_integration_tests` **10/10 绿**。
+
 >   已在 §0.4 记录：该文件自己的 doc 即说明"CI 的 public 是新播种的；本地落后则此文件会红"。
 >   复跑 lib 前需 `TARGET_SCHEMA=public RESET_PUBLIC=0 scripts/init_test_public_schema.sh`
 >   （**不要**用 `RESET_PUBLIC=1`：脚本头部记载 `DROP SCHEMA public CASCADE` 会级联破坏模板索引）。
