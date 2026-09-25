@@ -81,34 +81,6 @@ impl PrivacyStorage {
         Self { pool }
     }
 
-    /// See [`create_tables`].
-    pub async fn create_tables(&self) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS user_privacy_settings (
-                id BIGSERIAL PRIMARY KEY,
-                user_id TEXT NOT NULL UNIQUE,
-                profile_visibility TEXT NOT NULL DEFAULT 'public',
-                avatar_visibility TEXT NOT NULL DEFAULT 'public',
-                displayname_visibility TEXT NOT NULL DEFAULT 'public',
-                presence_visibility TEXT NOT NULL DEFAULT 'contacts',
-                room_membership_visibility TEXT NOT NULL DEFAULT 'contacts',
-                created_ts BIGINT NOT NULL,
-                updated_ts BIGINT NOT NULL,
-
-                CONSTRAINT user_privacy_settings_user_id_fkey
-                    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_user_privacy_settings_user ON user_privacy_settings(user_id);
-            "#,
-        )
-        .execute(&*self.pool)
-        .await?;
-
-        Ok(())
-    }
-
     /// See [`get_settings`].
     pub async fn get_settings(&self, user_id: &str) -> Result<Option<UserPrivacySettings>, sqlx::Error> {
         let row = sqlx::query_as::<_, UserPrivacySettings>(
@@ -951,15 +923,9 @@ mod db_tests {
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
-        // Ensure the allow_profile_lookup column exists (may have been added
-        // in a migration that `create_tables` does not include).
-        sqlx::query(
-            "ALTER TABLE user_privacy_settings ADD COLUMN IF NOT EXISTS allow_profile_lookup BOOLEAN DEFAULT TRUE",
-        )
-        .execute(&*pool)
-        .await
-        .expect("test fixture: statement must succeed — a swallowed error here surfaces later as an unrelated failure");
-
+        // `allow_profile_lookup` 由迁移 baseline 提供（v12:215），而 `test_pool()` 克隆的
+        // 就是该模板 —— 这里原先那条 `ALTER TABLE … ADD COLUMN IF NOT EXISTS` 是自建
+        // schema 时代的残留补丁，恒为 no-op，随 D-04 同族 `create_tables` 一并删除。
         let storage = PrivacyStorage::new(pool.clone());
         let user_a = format!("@batch_a_{}:test.com", suffix);
         let user_b = format!("@batch_b_{}:test.com", suffix);

@@ -108,65 +108,6 @@ impl OlmStorage {
     }
 
     /// See [`create_tables`].
-    pub async fn create_tables(&self) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"
-            CREATE TABLE IF NOT EXISTS olm_accounts (
-                id BIGSERIAL PRIMARY KEY,
-                user_id VARCHAR(255) NOT NULL,
-                device_id VARCHAR(255) NOT NULL,
-                identity_key VARCHAR(255) NOT NULL,
-                serialized_account TEXT NOT NULL,
-                is_one_time_keys_published BOOLEAN DEFAULT FALSE,
-                is_fallback_key_published BOOLEAN DEFAULT FALSE,
-                created_ts BIGINT NOT NULL,
-                updated_ts BIGINT NOT NULL,
-                UNIQUE(user_id, device_id)
-            )
-            ",
-        )
-        .execute(&*self.pool)
-        .await?;
-
-        sqlx::query(
-            r"
-            CREATE TABLE IF NOT EXISTS olm_sessions (
-                id BIGSERIAL PRIMARY KEY,
-                user_id VARCHAR(255) NOT NULL,
-                device_id VARCHAR(255) NOT NULL,
-                session_id VARCHAR(255) NOT NULL UNIQUE,
-                sender_key VARCHAR(255) NOT NULL,
-                receiver_key VARCHAR(255) NOT NULL,
-                serialized_state TEXT NOT NULL,
-                message_index INTEGER DEFAULT 0,
-                created_ts BIGINT NOT NULL,
-                last_used_ts BIGINT NOT NULL,
-                expires_at BIGINT
-            )
-            ",
-        )
-        .execute(&*self.pool)
-        .await?;
-
-        sqlx::query(
-            r"
-            CREATE INDEX IF NOT EXISTS idx_olm_sessions_user_device ON olm_sessions(user_id, device_id)
-            ",
-        )
-        .execute(&*self.pool)
-        .await?;
-
-        sqlx::query(
-            r"
-            CREATE INDEX IF NOT EXISTS idx_olm_sessions_sender_key ON olm_sessions(sender_key)
-            ",
-        )
-        .execute(&*self.pool)
-        .await?;
-
-        Ok(())
-    }
-
     /// See [`save_account`].
     pub async fn save_account(&self, account: &OlmAccountData) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
