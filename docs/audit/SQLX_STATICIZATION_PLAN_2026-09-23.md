@@ -43,7 +43,7 @@
 >
 > 已执行：Phase A/B/D + C1–C18（逐批数字与理由在
 > `scripts/ci/sqlx_dynamic_ratio_baseline` 各段）+ W1–W5（§8.6–§8.11）+
-> **C19a**（§8.12）+ **C19b**（§8.13）+ **C20**（§8.15）+ **C21**（§8.16）；
+> **C19a**（§8.12）+ **C19b**（§8.13）+ **C20**（§8.15）+ **C21**（§8.16）+ **C22**（§8.19）；
 > 另完成 **D-47 ②**（守卫 A′ + (b) 组 31 键逐文件迁模板，§8.17/§8.18）——**D-47 已修**。
 > §7 登记 48 条（已修 35 / 部分已修 1 / 未修 2 / 结构性保留 7 / 文档级 3）。
 > **下一步见 §8.14。**
@@ -2596,3 +2596,47 @@ DROP public CASCADE，用独立 scratch 库"）的又一次应用。
 
 **遗留**：无（D-47 ② 完成）。(c) 性能夹具 1 键与 (a) 机制/注入 21 键为**有意保留**；
 新增自建 DDL 仍会立即变红。
+
+### 8.19 C22 执行结果（2026-09-25）
+
+与并发写者不相交（对方在 `synapse-web`）。文件 `synapse-storage/src/state_groups.rs`：
+**15 处生产字面量动态 SQL → 0**（仅剩 2 处 `format!` 运行期拼装，属 D-14 允许残差）。
+提交：`bdde70266`（转换）/ `a6b4db73c`（.sqlx）/ 本提交（棘轮 + 本文档）。
+
+**转换构成**：
+- `query_scalar!` ×6：`create_state_group` 的 `INSERT … RETURNING id`
+  （原 `query_as::<_, (i64,)>` + `row.0`）；`get_prev_state_groups` /
+  `get_next_state_groups` / `get_state_group_for_event` / `get_state_entry` /
+  `resolve_state_for_group` 内的单列读（原 `Vec<(i64,)>` / `Option<(i64,)>` /
+  `Option<(String,)>` + `.map(|r| r.0)`）。
+- `query_as!` ×3：`StateGroup` 的三条 SELECT（`get_state_group` / `by_event` / 房间列表）。
+- `query!` ×6：`add_state_group_edge(s)`、`bind_event_to_state_group`、
+  `batch_bind_events_to_state_group`、`set_state_entry`、`set_state_entries`。
+
+**nullability**：`state_groups` / `state_group_edges` / `event_to_state_groups` /
+`state_group_state` 四张表（psql 实测）**无任何可空列**，`StateGroup` 字段全非
+`Option` ⇒ **零 `AS "col!"` 覆盖**。
+
+**踩到的坑（D-21 家族的新触发条件）**：`set_state_entries` 的
+`unnest($2::text[])` 三个参数，原代码传 `Vec<&str>`，宏 `ty_match` 明确要求
+`&[String]`（报 `expected &[String], found &Vec<&str>`）⇒ 三个向量改为
+`Vec<String>`（`.clone()`）。此前 D-21 记的是"`&Option<T>` 绑定"，
+本条是"**数组元素类型**必须与 `text[]` 的推断一致"，属同族但不同触发条件。
+
+**门禁（实测）**：`cargo check -p synapse-storage --all-targets` EXIT=0；
+`nextest -p synapse-storage --lib --features test-utils -E 'test(/state_groups/)'`
+→ **12/12**；`dynamic_production` 601 → **586**（−15）、`static` 874 → **889**（+15）、
+`dynamic` 1305 → **1290**；literal 518 → **503** 处 / 78 → **77** 文件
+（runtime 83 / 15 不变）；`.sqlx` **+14，deleted=0 / modified=0** → 861 条
+（15 个站点里 `get_prev_state_groups` 与 `resolve_state_for_group` 的一条 SQL 逐字相同，
+哈希合并 ⇒ 14 条）；`check_sqlx_cache_fresh.sh` EXIT=0；
+`check_sqlx_dynamic_ratio.sh` EXIT=0（586 ≤ 586 / 704 ≤ 704 / 889 ≥ 889）；
+`sqlx_dynamic_literal_guard_tests` **16/16**；两档 clippy（`-D warnings`）EXIT=0；fmt 债务 0。
+
+**棘轮本批已同批收紧**（这次两个 baseline 文件不在并发写者手里）：
+`BASELINE_DYNAMIC_PRODUCTION` 601 → **586**、`BASELINE_STATIC` 874 → **889**、
+`BASELINE_DYNAMIC` 1305 → **1290**；literal 逐文件表删
+`synapse-storage/src/state_groups.rs	15` 行。
+
+**遗留**：无。运行期拼装那 2 处（`STATE_GROUP_STATE_COLS` /
+`STATE_GROUP_STATE_INNER_COLS`）为**有意保留**（D-14）。
