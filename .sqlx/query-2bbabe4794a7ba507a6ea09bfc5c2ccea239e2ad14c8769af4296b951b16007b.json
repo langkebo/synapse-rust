@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                DELETE FROM key_backups\n                WHERE user_id = $1 AND backup_id_text = $2\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2bbabe4794a7ba507a6ea09bfc5c2ccea239e2ad14c8769af4296b951b16007b"
+}

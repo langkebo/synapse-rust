@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM backup_keys bk\n            USING key_backups kb\n            WHERE kb.backup_id = bk.backup_id\n              AND kb.user_id = $1\n              AND (kb.backup_id_text = $2 OR kb.version::text = $2)\n              AND bk.room_id = $3\n              AND bk.session_id = $4\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1f7a90aba29aa6370a79e35a3280e388d43c7603a245d96042ab21144ac033ac"
+}
