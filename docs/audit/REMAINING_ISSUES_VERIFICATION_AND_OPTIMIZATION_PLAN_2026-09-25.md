@@ -1329,11 +1329,19 @@ Task3 (reference hash) —— 仅做可行性验证，不接线
      ⇒ 第 2 步应把这两条路径迁移到 `redact_event(room_version, …)` 并删除旧表
      （铁律 2：同一职责只允许一份实现），届时签名材料与运行期 redaction 的行为会**改变**，
      必须在同批复核所有断言/夹具。
-  2. **`compute_event_content_hash` 的语义与上游相反**：`synapse-federation/src/signing.rs:81-90`
-     先 redact 再算 `hashes.sha256`，而上游 `compute_content_hash` 是**对未 redact 的事件**
-     （仅去 `age_ts`/`unsigned`/`signatures`/`hashes`/`outlier`/`destinations`）取 canonical JSON 哈希；
-     redaction 只用于**签名材料**（`compute_event_signature`）。这是独立的 P0 级问题，
-     与 U-13 同批修（第 2 步），修完须用 PDU 互验。
+  2. **`hashes` 与 `signatures` 的语义与上游互为镜像地反了**（同一区域，第 2 步必须一并修）：
+     - `synapse-federation/src/signing.rs:81-90 compute_event_content_hash` **先 redact 再算**
+       `hashes.sha256`；上游 `compute_content_hash` 是**对未 redact 的事件**
+       （仅去 `age_ts`/`unsigned`/`signatures`/`hashes`/`outlier`/`destinations`）取 canonical JSON 哈希。
+     - `signing.rs:194-224 sign_and_hash_event` 第 3 步用
+       `CanonicalEvent::from_event`（`synapse-common/src/canonical_json.rs:140-148`）签名，
+       而它**只去 `signatures`/`unsigned`、不 redact、且保留 `event_id`**；
+       上游 `compute_event_signature` 用的是 `redact_event_dict(room_version, event_dict)`
+       （并对 v3+ 的联邦 PDU 而言根本没有 `event_id` 可签）。
+     ⇒ 现状下本仓产出的 `hashes.sha256` 与 `signatures` **都不可能被对等端校验通过**
+     （两者互为对方应有的形状）。这是独立于事件 ID 的 P0 级联邦正确性缺陷，
+     也解释了为什么第 3 步互操作门槛不可省；修法与第 2 步同批：把 `redact_event(room_version, …)`
+     作为 content hash（不 redact）与签名（redact）两条路径的单一形状来源。
   3. **v12 语义待对齐**：本仓 v12 依据 MSC4239；Synapse release-v1.161 把 `V12` 与 MSC4291 房间
      并列（`create` redaction 丢 `room_id`），本实现按上游取值。接线前必须确认本仓 v12 是否
      MSC4291；否则 v12 事件 ID 与对等端不一致。v13 现为 **fail-closed**（不猜）。
