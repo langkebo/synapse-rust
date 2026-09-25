@@ -69,7 +69,7 @@ impl EventStorage {
     ) -> Result<Vec<String>, sqlx::Error> {
         // Wildcard: match all rel_types
         if rel_types.len() == 1 && rel_types[0] == "*" {
-            let rows: Vec<(String,)> = sqlx::query_as(
+            let rows = sqlx::query_scalar!(
                 r#"
                 SELECT event_id FROM events
                 WHERE room_id = $1
@@ -83,16 +83,16 @@ impl EventStorage {
                   )
                 ORDER BY origin_server_ts ASC, stream_ordering ASC
                 "#,
+                room_id,
+                event_id
             )
-            .bind(room_id)
-            .bind(event_id)
             .fetch_all(self.pool.as_ref())
             .await?;
-            return Ok(rows.into_iter().map(|(id,)| id).collect());
+            return Ok(rows.into_iter().collect());
         }
 
         // Specific rel_types: filter by rel_type field
-        let rows: Vec<(String,)> = sqlx::query_as(
+        let rows = sqlx::query_scalar!(
             r#"
             SELECT event_id FROM events
             WHERE room_id = $1
@@ -103,14 +103,14 @@ impl EventStorage {
               AND content->'m.relates_to'->>'rel_type' = ANY($3)
             ORDER BY origin_server_ts ASC, stream_ordering ASC
             "#,
+            room_id,
+            event_id,
+            rel_types
         )
-        .bind(room_id)
-        .bind(event_id)
-        .bind(rel_types)
         .fetch_all(self.pool.as_ref())
         .await?;
 
-        Ok(rows.into_iter().map(|(id,)| id).collect())
+        Ok(rows.into_iter().collect())
     }
 
     /// Recursively find all descendant events that should be redacted when

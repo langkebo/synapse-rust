@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT event_id FROM events\n            WHERE room_id = $1\n              AND event_id != $2\n              AND is_redacted = false\n              AND content->'m.relates_to' IS NOT NULL\n              AND content->'m.relates_to'->>'event_id' = $2\n              AND content->'m.relates_to'->>'rel_type' = ANY($3)\n            ORDER BY origin_server_ts ASC, stream_ordering ASC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f5cc74dc1ffd55f9155ce6901e02be8edc34f766c5386ba02ba1340599b2bf9a"
+}
