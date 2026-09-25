@@ -20,7 +20,7 @@
 #       的**权威**证明：SQL 文本变化会产生新哈希，缺条目即编译失败。
 #
 #   --full（需要 `cargo sqlx` 与 `DATABASE_URL`）
-#       执行 `cargo sqlx prepare --check --workspace`：与数据库核对每条 `query!`
+#       执行 `cargo sqlx prepare --check --workspace -- --all-features`：与数据库核对每条 `query!`
 #       后判定缓存是否需要变化。**只在有已迁移数据库的环境跑**（本地、或
 #       backend-validation 这类带 postgres service 的 job）。
 #
@@ -113,8 +113,14 @@ if [[ "${MODE}" == "full" ]]; then
         echo "ERROR: --full 需要指向**已迁移**数据库的 DATABASE_URL" >&2
         exit 1
     fi
-    echo "==> cargo sqlx prepare --check --workspace（需要数据库）"
-    cargo sqlx prepare --check --workspace
+    # `--all-features` is **required** here, and must match the feature set the
+    # cache is generated with. With the default feature set, feature-gated modules
+    # (`synapse-storage`'s `privacy-ext`, and anything staticized behind a feature
+    # later) are not compiled, so their entries look "potentially unused" — and a
+    # non-`--check` `prepare` at that feature set would **prune them**, silently
+    # re-breaking every `SQLX_OFFLINE=true` build. See §7 D-51 / §8.23.
+    echo "==> cargo sqlx prepare --check --workspace -- --all-features（需要数据库）"
+    cargo sqlx prepare --check --workspace -- --all-features
     echo "OK: .sqlx 与数据库元数据一致"
 fi
 
