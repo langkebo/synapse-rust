@@ -401,7 +401,8 @@ fn test_top_level_inline_manifest_contributes_routes_to_default_profile() {
         "/.well-known/matrix/client",
         "/.well-known/matrix/support",
         "/_matrix/client/unstable/org.matrix.msc2965/auth_metadata",
-        "/_matrix/client/unstable/org.matrix.msc2965/auth_issuer",
+        // `auth_issuer` was dropped (upstream Synapse 1.161 #20163 removed the endpoint
+        // that "never ended up being used"); `auth_metadata` above MUST stay.
         "/_matrix/client/v1/auth_metadata",
         "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device",
         "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/status",
