@@ -64,6 +64,10 @@
 # ── 2026-09-25 C23 收紧（`captcha.rs` 15 处宏化，本批）：literal 503 → **488** / 77 → **76** ──
 #   本批唯一变化是删掉 `synapse-storage/src/captcha.rs  15`；表头生成命令重跑后逐行复核，
 #   除该行外与 503/77 表逐行相同（runtime 侧不变，仍 83 处 / 15 文件 —— captcha.rs 无运行期拼装）。
+#
+# ── 2026-09-25 C24 收紧（`oidc_session_storage.rs` 13 处宏化，本批）：literal 488 → **475** / 76 → **75** ──
+#   本批唯一变化是删掉 `synapse-storage/src/oidc_session_storage.rs  13`；表头生成命令重跑后
+#   逐行复核，除该行外与 488/76 表逐行相同（runtime 侧不变，仍 83 处 / 15 文件）。
 src/server/database.rs	1
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
@@ -118,7 +122,6 @@ synapse-storage/src/media/quarantine_stream.rs	6
 synapse-storage/src/migration_checks.rs	2
 synapse-storage/src/monitoring.rs	6
 synapse-storage/src/oauth_client_storage.rs	2
-synapse-storage/src/oidc_session_storage.rs	13
 synapse-storage/src/oidc_user_mapping.rs	3
 synapse-storage/src/openid_token.rs	7
 synapse-storage/src/presence/mod.rs	1

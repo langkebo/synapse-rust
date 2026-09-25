@@ -2004,11 +2004,17 @@
 # `used_at`/`verified_at` 显式取别名到结构体字段 `used_ts`/`verified_ts`
 # （`query_as!` 不认 `#[sqlx(rename)]`）。
 # `BASELINE_DYNAMIC_TEST_INFRA` 保持 704（复用既有 `db_tests`，未新增夹具动态 SQL）。
-BASELINE_DYNAMIC_PRODUCTION=571
+# ── 2026-09-25 C24 收紧（`synapse-storage/src/oidc_session_storage.rs` 13 处宏化）──
+# dynamic_production 571 → **558**（−13）、static 904 → **917**（+13）、
+# dynamic 1275 → **1262**（= 558 + 704）。census 实测 558 / 704 / 917。
+# 该文件三张表的可空列与结构体 Option 字段一一对应 ⇒ 零 `AS "col!"` 覆盖；
+# 8 处 `&Option<String>` 绑定按 D-21 改 `.as_deref()`。
+# `BASELINE_DYNAMIC_TEST_INFRA` 保持 704（复用既有 `db_tests`，未新增夹具动态 SQL）。
+BASELINE_DYNAMIC_PRODUCTION=558
 BASELINE_DYNAMIC_TEST_INFRA=704
-BASELINE_STATIC=904
+BASELINE_STATIC=917
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1275
+BASELINE_DYNAMIC=1262
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #
