@@ -1269,6 +1269,20 @@ Task3 (reference hash) —— 仅做可行性验证，不接线
    删掉任一 handler 的解析 ⇒ 守卫转红。
 3. Task 8（`animated`）落地时把 `animated` 一并声明，天然产生消费者。
 
+**执行结果（2026-09-26，分支 `feat/u10-ledger-query-params`）——✅ 完成**
+
+- 注解表新增 **123** 行 `query_params=`；`.inc` 由生成器发出 `.with_query_params(&[...])`；
+  6 份夹具重生成后 `entry_count` 不变（1035/1046/1053 + 1118/1129/1137）、
+  `(method,path)→registered_by` **集合逐条相同**（实测：无路由增删）、
+  非空 `query_params` 106–123 条且全部有序去重；来源字段（schema=4 / 固定 timestamp+commit）未漂移。
+- 反向守卫落在抽取器侧（5 层），第 4 层为"注解表 ↔ 真实 Rust 装配夹具"双向对账，
+  第 5 层为"注解 ↔ handler 的 `Query<Struct>` 字段"双向对账（
+  声明未解析 ⇒ 红；解析未声明 ⇒ 红；handler 无法唯一解析 ⇒ fail-closed）。
+- **附带修复了一处 main 上既有的红门禁**：`bash scripts/contract/check_route_contract.sh`
+  在 U-10 之前的树上 **exit 1**——`docs/synapse-rust/ROUTE_CONTRACT.md` 落后于真实路由面
+  （差 2 条 `assembly.rs` 条目，即 U-4 的 `GET/PUT /_matrix/client/v3/profile/{user_id}/{key_name}`；
+  计数 1135→1137）。U-10 的派生物重生成把该门禁修绿，属净收益而非"顺带刷新"。
+
 ### 6.6 U-13 `event_id` reference hash —— **立项（排期在 M-1、U-1 之后）** ✅ 决策
 
 **上游证据（配方可直接照抄）**
