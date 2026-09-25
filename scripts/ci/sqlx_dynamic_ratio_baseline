@@ -1977,11 +1977,23 @@
 # `#[cfg(test)]` 内的宏不进 `cargo sqlx prepare`，按 D-13/D-14 必须保持动态。
 # `BASELINE_DYNAMIC_TEST_INFRA` 保持 704（= 实测，本批用掉了原有 2 点余量）。
 # `BASELINE_DYNAMIC` = 实测总数 = 658 + 704 = **1362**（旧值 1378 = 676 + 702）。
-BASELINE_DYNAMIC_PRODUCTION=658
+# ── 2026-09-25 C20 + C21 + E2EE 去服务端私钥重构（`88001b4a9`）合并收紧 ──────────
+# 合并实测（census）：dynamic_production **601** / dynamic_test **704** / static **874**
+# （dynamic = 601 + 704 = **1305**）。三方逐条归因，闭合到个位：
+#   · **C20**（`synapse-storage/src/rendezvous.rs`，`cbf976a47`）：生产动态 −16、静态 +16
+#   · **C21**（`synapse-storage/src/widget.rs`，`507d5b26e`，门控 `widgets`）：生产动态 −16、静态 +16
+#   · **E2EE 去私钥重构**（`88001b4a9`，workbuddy）：删 `device_trust/storage.rs`（17 处动态）
+#     与 `verification/storage.rs`（8 处）整模块 ⇒ 生产动态 −25、静态 ±0（被删文件无宏站点）
+#   ⇒ 658 − 16 − 16 − 25 = **601**；842 + 16 + 16 = **874**。
+# C20/C21 提交时因这两个 baseline 文件是并发写者的**在途文件**（改它们会挡住 fast-forward）
+# 而**有意暂缓**收紧（见 §8.15/§8.16）；`88001b4a9` 落地后 baseline 恢复干净，本提交一并补齐。
+# `BASELINE_DYNAMIC_TEST_INFRA` 保持 704：C20/C21 的 DB 用例全在既有 `db_tests` 内
+# （rendezvous 新增、widget 复用），**未新增测试夹具动态 SQL**，故 dynamic_test 不变。
+BASELINE_DYNAMIC_PRODUCTION=601
 BASELINE_DYNAMIC_TEST_INFRA=704
-BASELINE_STATIC=842
+BASELINE_STATIC=874
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1362
+BASELINE_DYNAMIC=1305
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

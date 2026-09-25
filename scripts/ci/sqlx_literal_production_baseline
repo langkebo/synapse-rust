@@ -50,6 +50,11 @@
 #       顺带把 16 处幻影豁免从棘轮里去掉（清掉是**更严**，不是放宽）。
 #   ⚠️ 上两行是**真删除**、本行是**纠错**：若把三者混为一谈，下次有人重跑生成命令时会
 #   以为"基线又漂了 16"，从而怀疑抽取器。其余 79 行用表头生成命令重跑后逐行复核，无其它漂移。
+#
+# ── 2026-09-25 C21 收紧（`widget.rs` 16 处宏化，本批）：literal 534 → **518** / 79 → **78** ──
+#   C20 的 `rendezvous.rs` 行已由 88001b4a9 按"实测 < 基线 ⇒ 同批下调"清掉（其注记见上）。
+#   本批唯一变化是删掉 `synapse-storage/src/widget.rs  16`；表头生成命令重跑后逐行复核，
+#   除该行外与 534/79 表逐行相同（runtime 侧不变，仍 83 处 / 15 文件）。
 src/server/database.rs	1
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
@@ -127,7 +132,6 @@ synapse-storage/src/sticky_event.rs	5
 synapse-storage/src/url_preview_storage.rs	3
 synapse-storage/src/user/storage.rs	1
 synapse-storage/src/voice.rs	10
-synapse-storage/src/widget.rs	16
 synapse-test-utils/src/lib.rs	14
 # ── 当前「运行期拼装」残差清单（**允许**，不入棘轮；仅作可读性摘要）────────────
 #    16  synapse-common/src/test_isolation.rs
