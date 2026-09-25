@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                user_id,\n                key_type,\n                key_data,\n                signatures,\n                added_ts\n            FROM cross_signing_keys\n            WHERE user_id = $1 AND key_type = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "key_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "key_data",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "signatures",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "added_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "7cbf66188a4dabf4b4a7dfc61b7c5d7e33fe885d658975e3876531c061c3ecef"
+}

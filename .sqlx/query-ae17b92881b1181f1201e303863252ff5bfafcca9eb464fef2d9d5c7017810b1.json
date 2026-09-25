@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                user_id,\n                device_id,\n                target_user_id,\n                target_device_id,\n                algorithm,\n                signature,\n                created_ts\n            FROM device_signatures\n            WHERE user_id = $1 AND algorithm = $2 AND device_id = $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "device_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "target_user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "target_device_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "algorithm",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "signature",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ae17b92881b1181f1201e303863252ff5bfafcca9eb464fef2d9d5c7017810b1"
+}
