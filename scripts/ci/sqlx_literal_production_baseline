@@ -79,6 +79,11 @@
 #   变化仅两行，均已按文件头生成命令重跑后逐行复核：删
 #   `synapse-e2ee/src/megolm/storage.rs  10` 与 `synapse-storage/src/privacy.rs  5`
 #   （两文件均归零退表）。runtime 侧不变，仍 83 处 / 15 文件。
+# ── 2026-09-25 C27 收紧（`cross_signing/storage.rs` 12 处宏化 + 删 1 处死写入，本批）：
+#   literal 443 → **430** / 72 → **71** ──
+#   变化仅一行，已按文件头生成命令重跑后逐行复核：删
+#   `synapse-e2ee/src/cross_signing/storage.rs  13`（该文件归零退表；其中 1 处随
+#   `save_device_key` 死代码删除回收、12 处宏化）。runtime 侧不变，仍 83 处 / 15 文件。
 src/server/database.rs	1
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
@@ -86,7 +91,6 @@ synapse-common/src/test_isolation.rs	9
 synapse-common/src/test_schema_guard.rs	2
 synapse-common/src/transaction.rs	3
 synapse-e2ee/src/backup/service.rs	5
-synapse-e2ee/src/cross_signing/storage.rs	13
 synapse-e2ee/src/key_request/storage.rs	9
 synapse-e2ee/src/secure_backup/service.rs	10
 synapse-e2ee/src/signature/storage.rs	3

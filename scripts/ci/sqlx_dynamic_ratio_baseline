@@ -2042,11 +2042,22 @@
 # `db_tests` 的 5 处夹具动态 SQL（两条 `pickle_format` UPDATE 负例 + 三条
 # `megolm_session_keys` 计数）。`#[cfg(test)]` 内的宏不进 `cargo sqlx prepare`，
 # 按 D-13/D-14 必须保持动态。
-BASELINE_DYNAMIC_PRODUCTION=526
+# ── 2026-09-25 C27 收紧（`cross_signing/storage.rs` 12 处宏化 + 删 1 处死写入）──────
+# dynamic_production 526 → **513**（−13 = 转换 12 + 删死代码 1）、static 944 → **956**（+12）、
+# dynamic 1237 → **1224**（= 513 + 711）。census 实测 513 / 711 / 956。
+# 本批"先修"删掉了 `CrossSigningStorage::save_device_key`（零调用者，且是 `device_keys`
+# 的第二份写入实现：只写 9 列，漏 `ts_updated_ms` 等设备列表变更追踪列）以及只服务它的
+# `DeviceKeyInfo` —— D-04 同族（铁律 1 + 铁律 2），见 §8.24。
+# nullability 面：**零 `AS "col!"`** —— `cross_signing_keys.signatures` 可空而行为字段是
+# `Option<serde_json::Value>` 正好对齐，其余两表各列全 `NOT NULL`。
+# `BASELINE_DYNAMIC_TEST_INFRA` 保持 **711**：本批新增的覆盖写在
+# `tests/integration/cross_signing_storage_tests_migrated.rs`，而 census 的扫描面是
+# 根 `src/` + 各 crate 的 `src/`，**不含 `tests/`** ⇒ 不进本棘轮。
+BASELINE_DYNAMIC_PRODUCTION=513
 BASELINE_DYNAMIC_TEST_INFRA=711
-BASELINE_STATIC=944
+BASELINE_STATIC=956
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1237
+BASELINE_DYNAMIC=1224
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #
