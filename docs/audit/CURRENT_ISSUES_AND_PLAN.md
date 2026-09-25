@@ -34,6 +34,12 @@
 - **修法**: 移除 `user_exists` 查询中的 `AND is_deactivated = FALSE` 过滤
 - **提交**: `9e5ca99b5`
 
+### ✅ 5.2 Profile 稳定版 `/{keyName}` 未注册 —— 已修复
+- **位置**: `synapse-web/src/routes/assembly.rs`
+- **修法**: 添加稳定版路由 `/_matrix/client/v3/profile/{user_id}/{key_name}` (GET/PUT/DELETE)
+- **配套**: 重生成派生路由表 + 更新 ledger fixtures + 集成快照
+- **提交**: `eeb99cef8` + `9e6741511` + `ba7aa103e`
+
 ---
 
 ## 仍存在的问题
