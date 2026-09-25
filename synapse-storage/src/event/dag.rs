@@ -4,6 +4,7 @@ use std::collections::HashSet;
 
 use sqlx::Row;
 
+use super::models::PersistedGraphFields;
 use super::EventStorage;
 
 impl EventStorage {
@@ -143,6 +144,62 @@ impl EventStorage {
         .fetch_one(&*self.pool)
         .await?;
         Ok(count)
+    }
+
+    /// The room's **forward extremities**: events that no other event in the
+    /// room references as a parent.
+    ///
+    /// This is the set a newly-created event must list in `prev_events` to
+    /// extend every branch of the room DAG. It is derived from `event_edges`,
+    /// which the graph write paths populate (`create_event_with_graph` /
+    /// `create_state_event_with_dag`), so it is a real DAG query — unlike
+    /// [`Self::get_latest_event_ids_in_room`], which merely returns the newest
+    /// events by `origin_server_ts` for backfill seeding and would report an
+    /// ancestor as a tip.
+    ///
+    /// ⚠️ Rows written without graph metadata (the plain `create_event` path)
+    /// have no `event_edges` at all and therefore look like extremities. Rooms
+    /// created before graph metadata was persisted can over-report; rooms
+    /// created after (every local write now goes through a graph path) do not.
+    ///
+    /// Ordering is newest-first with a deterministic tie-break so callers get a
+    /// reproducible `prev_events` array.
+    pub async fn get_forward_extremities_in_room(&self, room_id: &str, limit: i64) -> Result<Vec<String>, sqlx::Error> {
+        let rows = sqlx::query_scalar!(
+            r"
+            SELECT e.event_id FROM events e
+            WHERE e.room_id = $1
+              AND NOT EXISTS (
+                  SELECT 1 FROM event_edges g
+                  WHERE g.prev_event_id = e.event_id
+              )
+            ORDER BY e.origin_server_ts DESC NULLS LAST, e.stream_ordering DESC NULLS LAST, e.event_id DESC
+            LIMIT $2
+            ",
+            room_id,
+            limit
+        )
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows.into_iter().collect())
+    }
+
+    /// The graph fields persisted for one event.
+    ///
+    /// `Ok(None)` means no such event row. The inner `Option`s are `None` when
+    /// the row was written without graph metadata (plain `create_event`), which
+    /// callers must treat as "cannot build a PDU" rather than papering over.
+    pub async fn get_event_graph_fields(&self, event_id: &str) -> Result<Option<PersistedGraphFields>, sqlx::Error> {
+        let row = sqlx::query!("SELECT depth, prev_events, auth_events FROM events WHERE event_id = $1", event_id)
+            .fetch_optional(&*self.pool)
+            .await?;
+
+        Ok(row.map(|row| PersistedGraphFields {
+            depth: row.depth,
+            prev_events: row.prev_events,
+            auth_events: row.auth_events,
+        }))
     }
 
     /// Returns the `event_id`s of the most recent events in a room, ordered

@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT depth, prev_events, auth_events FROM events WHERE event_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "depth",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "prev_events",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "auth_events",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "62ac2a88e798bf23014295786de46f3f8f0c44667973b253b2f2eb0a514df672"
+}

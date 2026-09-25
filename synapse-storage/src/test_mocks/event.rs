@@ -830,6 +830,22 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
         Ok(events.values().filter(|e| e.room_id == room_id).count() as i64)
     }
 
+    async fn get_event_graph_fields(
+        &self,
+        event_id: &str,
+    ) -> Result<Option<crate::event::PersistedGraphFields>, sqlx::Error> {
+        // The in-memory store models `depth` but not `prev_events` /
+        // `auth_events` (its `create_event_with_graph` drops them), so those stay
+        // `None` — consumers must see an incomplete row, exactly as they would
+        // for a real row written by the plain path.
+        let events = self.events.read().await;
+        Ok(events.get(event_id).map(|event| crate::event::PersistedGraphFields {
+            depth: Some(event.depth),
+            prev_events: None,
+            auth_events: None,
+        }))
+    }
+
     async fn find_event_id_by_timestamp(
         &self,
         room_id: &str,

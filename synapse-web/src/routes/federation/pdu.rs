@@ -34,12 +34,13 @@
 //!   2. inbound events do not persist the **origin server's** `signatures` /
 //!      `hashes`, so a re-emitted remote PDU still lacks the sender signature a
 //!      peer requires — signing here adds the local server's signature only;
-//!   3. `event_id` is `$<ts>_<rand>:<server>` (`synapse_common::crypto`), not the
-//!      v4+ reference hash, so a v11 peer cannot accept these PDUs as canonical
+//!   3. `event_id` is `$<ts>$<base64>:<server>` (`synapse_common::crypto::generate_event_id`),
+//!      not the v4+ reference hash, so a v11 peer cannot accept these PDUs as canonical
 //!      however complete their field set is.
 
 use crate::routes::context::FederationContext;
 use serde_json::{json, Map, Value};
+use synapse_common::event_utils::{event_id_array, signature_material};
 use synapse_services::event::StateEvent;
 
 /// Whether a projected PDU carried every field the federation format requires.
@@ -72,19 +73,6 @@ fn normalized_origin(server_name: &str, origin: Option<&str>) -> String {
         Some("") | Some("self") | Some("undefined") | None => server_name.to_string(),
         Some(value) => value.to_string(),
     }
-}
-
-/// Read a JSONB column that must be an array of event IDs.
-///
-/// Returns `None` for `NULL`, for a non-array, and for an array containing a
-/// non-string element — all three mean "not usable as PDU graph metadata".
-fn event_id_array(value: Option<&Value>) -> Option<Vec<String>> {
-    let array = value?.as_array()?;
-    let mut ids = Vec::with_capacity(array.len());
-    for element in array {
-        ids.push(element.as_str()?.to_string());
-    }
-    Some(ids)
 }
 
 /// Project a persisted state event into a federation PDU.
@@ -170,15 +158,7 @@ pub fn signature_action(record: &StateEvent, completeness: PduCompleteness) -> S
 /// Both halves must be present and non-empty: stored hashes paired with a fresh
 /// signature would describe two different byte sequences.
 fn stored_signature_material(record: &StateEvent) -> Option<(Value, Value)> {
-    let hashes = record.hashes.as_ref().filter(|value| value.is_object())?;
-    if hashes.get("sha256").and_then(Value::as_str).is_none_or(str::is_empty) {
-        return None;
-    }
-    let signatures = record.signatures.as_ref().filter(|value| value.is_object())?;
-    if signatures.as_object().is_none_or(Map::is_empty) {
-        return None;
-    }
-    Some((hashes.clone(), signatures.clone()))
+    signature_material(record.hashes.as_ref(), record.signatures.as_ref())
 }
 
 /// Attach the stored `hashes` / `signatures` pair, if there is one.

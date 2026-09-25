@@ -506,6 +506,32 @@ pub(super) async fn send_transaction(
                     .dispatch_appservice_event(&event_id, room_id, event_type, user_id, &content_for_as, state_key)
                     .await;
 
+                // Persist the **origin server's** signature/hash pair. Without it
+                // a re-emitted PDU would carry only our signature, and the peer
+                // that requires the sender's signature would reject it. The same
+                // post-insert mechanism the local signing path and the inbound
+                // membership path use — one mechanism, one predicate
+                // (`synapse_common::event_utils::signature_material`).
+                if let Some((hashes, signatures)) =
+                    synapse_common::event_utils::signature_material(pdu.get("hashes"), pdu.get("signatures"))
+                {
+                    if let Err(e) = ctx
+                        .room_service
+                        .messaging()
+                        .update_event_signatures_and_hashes(&event_id, &signatures, &hashes)
+                        .await
+                    {
+                        ::tracing::warn!(
+                            request_id = %request_id,
+                            txn_id = %txn_id,
+                            origin = origin,
+                            event_id = %event_id,
+                            error = %e,
+                            "failed to persist the origin server's signature material"
+                        );
+                    }
+                }
+
                 // P0-08: if this was a redaction PDU, apply the content
                 // stripping to the target event.  This is what makes
                 // redactions from remote servers actually take effect on

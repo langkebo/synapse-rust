@@ -2,6 +2,7 @@
 //!
 //! Contains private helper methods for creating room events during room creation.
 
+use super::creation_graph::CreationGraph;
 use super::service::LifecycleService;
 use serde_json::json;
 use std::collections::HashMap;
@@ -10,6 +11,50 @@ use synapse_common::{ApiError, ApiResult};
 use synapse_storage::CreateEventParams;
 
 impl LifecycleService {
+    /// Write one event of the room-creation sequence together with its DAG
+    /// metadata.
+    ///
+    /// The event ID is generated here and recorded in `graph` **before** the
+    /// write, so the tracker's view of the DAG tip and of the room state matches
+    /// the rows this transaction is about to persist. The write-path decorator
+    /// cannot do this: it reads committed state, which cannot see the rows the
+    /// caller's transaction has not committed yet (see `graph_metadata`).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn write_creation_event(
+        &self,
+        graph: &mut CreationGraph,
+        room_id: &str,
+        sender: &str,
+        event_type: &str,
+        state_key: Option<&str>,
+        content: serde_json::Value,
+        origin_server_ts: i64,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<(), sqlx::Error> {
+        let event_id = generate_event_id(&self.server_name);
+        let metadata = graph.next(&event_id, event_type, state_key, sender, &content);
+
+        self.event_writer
+            .create_event_with_graph(
+                CreateEventParams {
+                    event_id,
+                    room_id: room_id.to_string(),
+                    user_id: sender.to_string(),
+                    event_type: event_type.to_string(),
+                    content,
+                    state_key: state_key.map(str::to_string),
+                    origin_server_ts,
+                    redacts: None,
+                },
+                &metadata.prev_events,
+                &metadata.auth_events,
+                metadata.depth,
+                tx,
+            )
+            .await
+            .map(|_| ())
+    }
+
     /// See [`create_room_in_db`].
     pub(crate) async fn create_room_in_db(
         &self,
@@ -45,7 +90,7 @@ impl LifecycleService {
     }
 
     /// See [`set_room_metadata`].
-    #[allow(clippy::needless_option_as_deref)]
+    #[allow(clippy::needless_option_as_deref, clippy::too_many_arguments)]
     pub(crate) async fn set_room_metadata(
         &self,
         room_id: &str,
@@ -53,6 +98,7 @@ impl LifecycleService {
         name: Option<&str>,
         topic: Option<&str>,
         base_ts: i64,
+        graph: &mut CreationGraph,
         mut tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> ApiResult<()> {
         if let Some(room_name) = name {
@@ -67,22 +113,18 @@ impl LifecycleService {
                     .await
                     .map_err(|e| ApiError::internal_with_cause("Failed to update room name", e))?;
             }
-            self.event_writer
-                .create_event(
-                    CreateEventParams {
-                        event_id: generate_event_id(&self.server_name),
-                        room_id: room_id.to_string(),
-                        user_id: user_id.to_string(),
-                        event_type: "m.room.name".to_string(),
-                        content: json!({ "name": room_name }),
-                        state_key: Some("".to_string()),
-                        origin_server_ts: base_ts,
-                        redacts: None,
-                    },
-                    tx.as_deref_mut(),
-                )
-                .await
-                .map_err(|e| ApiError::internal_with_cause("Failed to create m.room.name event", e))?;
+            self.write_creation_event(
+                graph,
+                room_id,
+                user_id,
+                "m.room.name",
+                Some(""),
+                json!({ "name": room_name }),
+                base_ts,
+                tx.as_deref_mut(),
+            )
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to create m.room.name event", e))?;
         }
 
         if let Some(room_topic) = topic {
@@ -97,22 +139,18 @@ impl LifecycleService {
                     .await
                     .map_err(|e| ApiError::internal_with_cause("Failed to update room topic", e))?;
             }
-            self.event_writer
-                .create_event(
-                    CreateEventParams {
-                        event_id: generate_event_id(&self.server_name),
-                        room_id: room_id.to_string(),
-                        user_id: user_id.to_string(),
-                        event_type: "m.room.topic".to_string(),
-                        content: json!({ "topic": room_topic }),
-                        state_key: Some("".to_string()),
-                        origin_server_ts: base_ts + 1,
-                        redacts: None,
-                    },
-                    tx.as_deref_mut(),
-                )
-                .await
-                .map_err(|e| ApiError::internal_with_cause("Failed to create m.room.topic event", e))?;
+            self.write_creation_event(
+                graph,
+                room_id,
+                user_id,
+                "m.room.topic",
+                Some(""),
+                json!({ "topic": room_topic }),
+                base_ts + 1,
+                tx.as_deref_mut(),
+            )
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to create m.room.topic event", e))?;
         }
 
         Ok(())
@@ -126,6 +164,7 @@ impl LifecycleService {
     /// DB-03-b: the previous `Option<&mut tx>` signature was removed; callers
     /// that passed `None` triggered two independent auto-committed writes with
     /// no atomicity, and had zero test or production coverage.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn process_invites(
         &self,
         room_id: &str,
@@ -133,6 +172,7 @@ impl LifecycleService {
         invite_reasons: Option<&HashMap<String, String>>,
         sender_user_id: &str,
         base_ts: i64,
+        graph: &mut CreationGraph,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> ApiResult<()> {
         if let Some(invites) = invite_list {
@@ -158,22 +198,18 @@ impl LifecycleService {
                     .add_member(room_id, invitee, "invite", None, reason, Some(sender_user_id), Some(&mut *tx))
                     .await
                     .map_err(|e| ApiError::internal_with_cause("Failed to invite user", e))?;
-                self.event_writer
-                    .create_event(
-                        CreateEventParams {
-                            event_id: generate_event_id(&self.server_name),
-                            room_id: room_id.to_string(),
-                            user_id: sender_user_id.to_string(),
-                            event_type: "m.room.member".to_string(),
-                            content: build_invite_event_content(invitee, reason),
-                            state_key: Some(invitee.to_string()),
-                            origin_server_ts: base_ts + offset,
-                            redacts: None,
-                        },
-                        Some(&mut *tx),
-                    )
-                    .await
-                    .map_err(|e| ApiError::internal_with_cause("Failed to record m.room.member invite event", e))?;
+                self.write_creation_event(
+                    graph,
+                    room_id,
+                    sender_user_id,
+                    "m.room.member",
+                    Some(invitee),
+                    build_invite_event_content(invitee, reason),
+                    base_ts + offset,
+                    Some(&mut *tx),
+                )
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Failed to record m.room.member invite event", e))?;
                 offset += 1;
             }
         }

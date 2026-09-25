@@ -3,13 +3,11 @@
 //!
 //! Extracted from RoomService as part of the domain split plan (Task 2).
 
-use crate::common::error::{ApiError, ApiResult};
-use serde_json::json;
+use crate::common::error::ApiResult;
 use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_common::task_queue::RedisTaskQueue;
-use synapse_federation::signing::sign_and_hash_event;
 use synapse_storage::event::{EventReader, EventWriter, RoomEvent};
 use synapse_storage::membership::MemberStoreApi;
 use synapse_storage::relations::RelationsStoreApi;
@@ -126,130 +124,21 @@ impl MessagingService {
     /// Sign a locally-produced event and broadcast it to all remote servers
     /// that have joined members in the room.
     ///
+    /// Thin adapter over [`crate::room::federation_broadcast`], which owns the
+    /// single implementation shared with the membership service; the split used
+    /// to carry two copies that disagreed on the failure policy and on where
+    /// `redacts` belongs.
+    ///
     /// Best-effort: in test setups without federation config, this is a no-op.
     /// Broadcast failures are logged but not propagated.
     pub(crate) async fn sign_and_broadcast_event(&self, event: &RoomEvent) -> ApiResult<()> {
-        // 0. Check if federation signing is configured.
-        let Some(key_rotation_manager) = &self.key_rotation_manager else {
-            return Ok(());
+        let ctx = crate::room::federation_broadcast::BroadcastContext {
+            server_name: self.server_name.clone(),
+            event_reader: self.event_reader.clone(),
+            event_writer: self.event_writer.clone(),
+            key_rotation_manager: self.key_rotation_manager.clone(),
+            event_broadcaster: self.event_broadcaster.clone(),
         };
-
-        // 1. Fetch prev_events (forward extremities of the room).
-        // SECURITY: fail-closed on DB error to prevent malformed federation PDUs.
-        // Returning empty prev_events would produce invalid room hashes; better to log and skip broadcast.
-        let prev_events = match self.event_reader.get_latest_event_ids_in_room(&event.room_id, 10).await {
-            Ok(events) => events,
-            Err(e) => {
-                ::tracing::warn!(
-                    error = %e,
-                    room_id = %event.room_id,
-                    event_id = %event.event_id,
-                    "Failed to fetch prev_events for federation signing; skipping broadcast"
-                );
-                return Ok(());
-            }
-        };
-
-        // Exclude the event itself.
-        let prev_events: Vec<String> = prev_events.into_iter().filter(|id| id != &event.event_id).collect();
-
-        // 2. Build the PDU JSON.
-        let mut pdu = json!({
-            "event_id": event.event_id,
-            "room_id": event.room_id,
-            "sender": event.user_id,
-            "user_id": event.user_id,
-            "type": event.event_type,
-            "content": event.content,
-            "origin_server_ts": event.origin_server_ts,
-            "origin": self.server_name,
-            "prev_events": prev_events,
-        });
-
-        if let Some(ref state_key) = event.state_key {
-            pdu["state_key"] = serde_json::Value::String(state_key.clone());
-        }
-
-        if let Some(ref redacts) = event.redacts {
-            apply_redacts(&mut pdu, redacts);
-        }
-
-        // 3. Sign and hash the PDU.
-        let signing_key = key_rotation_manager
-            .get_current_key()
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to get signing key", e))?
-            .ok_or_else(|| ApiError::internal("No signing key available".to_string()))?;
-
-        sign_and_hash_event(&self.server_name, &signing_key.key_id, &signing_key.secret_key, &mut pdu)
-            .map_err(|e| ApiError::internal(format!("Failed to sign event: {e}")))?;
-
-        // 4. Persist signatures and hashes back to the events table.
-        let signatures = pdu.get("signatures").cloned().unwrap_or(serde_json::Value::Null);
-        let hashes = pdu.get("hashes").cloned().unwrap_or(serde_json::Value::Null);
-        if let Err(e) =
-            self.event_writer.update_event_signatures_and_hashes(&event.event_id, &signatures, &hashes).await
-        {
-            ::tracing::warn!(
-                event_id = %event.event_id,
-                room_id = %event.room_id,
-                error = %e,
-                "Failed to persist event signatures/hashes"
-            );
-        }
-
-        // 5. Broadcast to remote servers via event_broadcaster.
-        if let Some(broadcaster) = &self.event_broadcaster {
-            if let Err(e) = broadcaster.broadcast_event(&event.room_id, &pdu, &self.server_name).await {
-                ::tracing::warn!(
-                    event_id = %event.event_id,
-                    room_id = %event.room_id,
-                    error = %e,
-                    "Failed to broadcast event to federation peers"
-                );
-            }
-        }
-
-        Ok(())
-    }
-}
-
-/// Places a redaction target on the outbound PDU.
-///
-/// v11+ (MSC2174/MSC3820) already carries the target in `content.redacts`
-/// (injected in `RoomMessagingService::create_event`), so the top-level field
-/// must **not** be added.  v1-v10 keeps the top-level `redacts` field.
-fn apply_redacts(pdu: &mut serde_json::Value, redacts: &str) {
-    let content_has_redacts = pdu.get("content").and_then(|content| content.get("redacts")).is_some();
-    if !content_has_redacts {
-        if let Some(object) = pdu.as_object_mut() {
-            object.insert("redacts".to_string(), serde_json::Value::String(redacts.to_string()));
-        }
-    }
-}
-
-#[cfg(test)]
-mod redacts_placement_tests {
-    use super::apply_redacts;
-    use serde_json::json;
-
-    #[test]
-    fn v11_pdu_does_not_gain_top_level_redacts() {
-        let mut pdu = json!({
-            "type": "m.room.redaction",
-            "content": { "reason": "spam", "redacts": "$target:example.com" }
-        });
-        apply_redacts(&mut pdu, "$target:example.com");
-        assert!(pdu.get("redacts").is_none(), "v11+ 不得再写顶层 redacts: {pdu}");
-    }
-
-    #[test]
-    fn v10_pdu_gets_top_level_redacts() {
-        let mut pdu = json!({
-            "type": "m.room.redaction",
-            "content": { "reason": "spam" }
-        });
-        apply_redacts(&mut pdu, "$target:example.com");
-        assert_eq!(pdu.get("redacts").and_then(|v| v.as_str()), Some("$target:example.com"));
+        crate::room::federation_broadcast::sign_and_broadcast_event(&ctx, event).await
     }
 }

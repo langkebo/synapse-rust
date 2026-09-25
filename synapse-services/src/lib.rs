@@ -102,6 +102,10 @@ pub mod feature_flag_service;
 pub mod federation_blacklist_service;
 /// The `federation_key_rotation_service` module.
 pub mod federation_key_rotation_service;
+/// The `graph_metadata` module: DAG metadata (`depth`/`prev_events`/`auth_events`)
+/// resolution for locally-produced events, plus the `EventWriter` decoration that
+/// persists it.
+pub mod graph_metadata;
 /// Identity services domain group — re-exports identity service types under `identity::`.
 pub mod identity;
 /// Infrastructure services domain group — re-exports infra service types under `infra::`.

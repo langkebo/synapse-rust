@@ -62,6 +62,23 @@ pub struct RoomEvent {
     pub redacts: Option<String>,
 }
 
+/// The graph columns persisted for one event (`depth` / `prev_events` /
+/// `auth_events`).
+///
+/// Each field is optional because a row written by the plain `create_event`
+/// path carries SQL `NULL` there. Consumers that rebuild a federation PDU must
+/// treat a `None` as "incomplete" and refuse — substituting `[]` / `0` would
+/// fabricate a DAG position (see `synapse-web/src/routes/federation/pdu.rs`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PersistedGraphFields {
+    /// The event's `depth`, one greater than the deepest parent.
+    pub depth: Option<i64>,
+    /// The event's `prev_events` array, exactly as persisted.
+    pub prev_events: Option<serde_json::Value>,
+    /// The event's `auth_events` array, exactly as persisted.
+    pub auth_events: Option<serde_json::Value>,
+}
+
 /// The `StateEvent` struct.
 #[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
 pub struct StateEvent {
