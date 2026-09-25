@@ -656,6 +656,12 @@ def bare_type_name(text: str) -> str:
     return t.split("::")[-1]
 
 
+def generic_base_name(text: str) -> str:
+    """`std::collections::HashMap<String, String>` -> `HashMap`."""
+    head = re.split(r"[<(]", text.strip(), 1)[0].strip()
+    return head.split("::")[-1] if head else head
+
+
 # Manual / dynamically-typed extractors carry no field list to compare against.
 _NON_STRUCT_QUERY_TYPES = frozenset(
     {
@@ -672,10 +678,19 @@ _NON_STRUCT_QUERY_TYPES = frozenset(
 
 
 def _is_dynamic_query_type(text: str) -> bool:
+    """`true` for extractors with no addressable field list.
+
+    Covers both plain (`Value`, `String`) and generic (`HashMap<..>`,
+    `Vec<..>`) dynamically-typed queries — `bare_type_name` alone would miss
+    the generic forms and misreport those routes as `ambiguous` instead of
+    `manual`.
+    """
     if text in _NON_STRUCT_QUERY_TYPES:
         return True
-    base = bare_type_name(text)
-    return base in _NON_STRUCT_QUERY_TYPES
+    return (
+        bare_type_name(text) in _NON_STRUCT_QUERY_TYPES
+        or generic_base_name(text) in _NON_STRUCT_QUERY_TYPES
+    )
 
 
 _USE_RE = re.compile(r"(?:pub(?:\s*\([^)]*\))?\s+)?use\s+([^;]+);")
