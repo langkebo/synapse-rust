@@ -107,13 +107,12 @@ impl OlmStorage {
         Self { pool: pool.clone() }
     }
 
-    /// See [`create_tables`].
     /// See [`save_account`].
     pub async fn save_account(&self, account: &OlmAccountData) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
 
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             INSERT INTO olm_accounts (
                 user_id, device_id, identity_key, serialized_account,
                 is_one_time_keys_published, is_fallback_key_published, created_ts, updated_ts
@@ -125,16 +124,16 @@ impl OlmStorage {
                 is_one_time_keys_published = EXCLUDED.is_one_time_keys_published,
                 is_fallback_key_published = EXCLUDED.is_fallback_key_published,
                 updated_ts = EXCLUDED.updated_ts
-            ",
+            "#,
+            &account.user_id,
+            &account.device_id,
+            &account.identity_key,
+            &account.serialized_account,
+            account.has_published_one_time_keys,
+            account.has_published_fallback_key,
+            now,
+            now,
         )
-        .bind(&account.user_id)
-        .bind(&account.device_id)
-        .bind(&account.identity_key)
-        .bind(&account.serialized_account)
-        .bind(account.has_published_one_time_keys)
-        .bind(account.has_published_fallback_key)
-        .bind(now)
-        .bind(now)
         .execute(&*self.pool)
         .await
         .map_err(map_database!("Failed to save olm account"))?;
@@ -144,8 +143,9 @@ impl OlmStorage {
 
     /// See [`load_account`].
     pub async fn load_account(&self, user_id: &str, device_id: &str) -> Result<Option<OlmAccountData>, ApiError> {
-        let row: Option<OlmAccountRow> = sqlx::query_as::<_, OlmAccountRow>(
-            r"
+        let row = sqlx::query_as!(
+            OlmAccountRow,
+            r#"
             SELECT
                 user_id,
                 device_id,
@@ -155,10 +155,10 @@ impl OlmStorage {
                 is_fallback_key_published
             FROM olm_accounts
             WHERE user_id = $1 AND device_id = $2
-            ",
+            "#,
+            user_id,
+            device_id,
         )
-        .bind(user_id)
-        .bind(device_id)
         .fetch_optional(&*self.pool)
         .await
         .map_err(map_database!("Failed to load olm account"))?;
@@ -175,14 +175,14 @@ impl OlmStorage {
 
     /// See [`delete_account`].
     pub async fn delete_account(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             DELETE FROM olm_accounts
             WHERE user_id = $1 AND device_id = $2
-            ",
+            "#,
+            user_id,
+            device_id,
         )
-        .bind(user_id)
-        .bind(device_id)
         .execute(&*self.pool)
         .await
         .map_err(map_database!("Failed to delete olm account"))?;
@@ -194,8 +194,8 @@ impl OlmStorage {
 
     /// See [`save_session`].
     pub async fn save_session(&self, session: &OlmSessionData) -> Result<(), ApiError> {
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             INSERT INTO olm_sessions (
                 user_id, device_id, session_id, sender_key, receiver_key,
                 serialized_state, message_index, created_ts, last_used_ts, expires_at
@@ -206,18 +206,18 @@ impl OlmStorage {
                 message_index = EXCLUDED.message_index,
                 last_used_ts = EXCLUDED.last_used_ts,
                 expires_at = EXCLUDED.expires_at
-            ",
+            "#,
+            &session.user_id,
+            &session.device_id,
+            &session.session_id,
+            &session.sender_key,
+            &session.receiver_key,
+            &session.serialized_state,
+            session.message_index as i32,
+            session.created_ts,
+            session.last_used_ts,
+            session.expires_at,
         )
-        .bind(&session.user_id)
-        .bind(&session.device_id)
-        .bind(&session.session_id)
-        .bind(&session.sender_key)
-        .bind(&session.receiver_key)
-        .bind(&session.serialized_state)
-        .bind(session.message_index as i32)
-        .bind(session.created_ts)
-        .bind(session.last_used_ts)
-        .bind(session.expires_at)
         .execute(&*self.pool)
         .await
         .map_err(map_database!("Failed to save olm session"))?;
@@ -227,8 +227,9 @@ impl OlmStorage {
 
     /// See [`load_sessions`].
     pub async fn load_sessions(&self, user_id: &str, device_id: &str) -> Result<Vec<OlmSessionData>, ApiError> {
-        let rows: Vec<OlmSessionRow> = sqlx::query_as::<_, OlmSessionRow>(
-            r"
+        let rows = sqlx::query_as!(
+            OlmSessionRow,
+            r#"
             SELECT
                 session_id,
                 user_id,
@@ -236,17 +237,17 @@ impl OlmStorage {
                 sender_key,
                 receiver_key,
                 serialized_state,
-                message_index,
+                message_index AS "message_index!",
                 created_ts,
                 last_used_ts,
                 expires_at
             FROM olm_sessions
             WHERE user_id = $1 AND device_id = $2
             ORDER BY last_used_ts DESC
-            ",
+            "#,
+            user_id,
+            device_id,
         )
-        .bind(user_id)
-        .bind(device_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(map_database!("Failed to load olm sessions"))?;
@@ -256,8 +257,9 @@ impl OlmStorage {
 
     /// See [`load_session`].
     pub async fn load_session(&self, session_id: &str) -> Result<Option<OlmSessionData>, ApiError> {
-        let row: Option<OlmSessionRow> = sqlx::query_as::<_, OlmSessionRow>(
-            r"
+        let row = sqlx::query_as!(
+            OlmSessionRow,
+            r#"
             SELECT
                 session_id,
                 user_id,
@@ -265,15 +267,15 @@ impl OlmStorage {
                 sender_key,
                 receiver_key,
                 serialized_state,
-                message_index,
+                message_index AS "message_index!",
                 created_ts,
                 last_used_ts,
                 expires_at
             FROM olm_sessions
             WHERE session_id = $1
-            ",
+            "#,
+            session_id,
         )
-        .bind(session_id)
         .fetch_optional(&*self.pool)
         .await
         .map_err(map_database!("Failed to load olm session"))?;
@@ -288,8 +290,9 @@ impl OlmStorage {
         device_id: &str,
         sender_key: &str,
     ) -> Result<Option<OlmSessionData>, ApiError> {
-        let row: Option<OlmSessionRow> = sqlx::query_as::<_, OlmSessionRow>(
-            r"
+        let row = sqlx::query_as!(
+            OlmSessionRow,
+            r#"
             SELECT
                 session_id,
                 user_id,
@@ -297,7 +300,7 @@ impl OlmStorage {
                 sender_key,
                 receiver_key,
                 serialized_state,
-                message_index,
+                message_index AS "message_index!",
                 created_ts,
                 last_used_ts,
                 expires_at
@@ -305,11 +308,11 @@ impl OlmStorage {
             WHERE user_id = $1 AND device_id = $2 AND sender_key = $3
             ORDER BY last_used_ts DESC
             LIMIT 1
-            ",
+            "#,
+            user_id,
+            device_id,
+            sender_key,
         )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(sender_key)
         .fetch_optional(&*self.pool)
         .await
         .map_err(map_database!("Failed to load olm session by sender key"))?;
@@ -319,13 +322,13 @@ impl OlmStorage {
 
     /// See [`delete_session`].
     pub async fn delete_session(&self, session_id: &str) -> Result<(), ApiError> {
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             DELETE FROM olm_sessions
             WHERE session_id = $1
-            ",
+            "#,
+            session_id,
         )
-        .bind(session_id)
         .execute(&*self.pool)
         .await
         .map_err(map_database!("Failed to delete olm session"))?;
@@ -335,14 +338,14 @@ impl OlmStorage {
 
     /// See [`delete_sessions_for_device`].
     pub async fn delete_sessions_for_device(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             DELETE FROM olm_sessions
             WHERE user_id = $1 AND device_id = $2
-            ",
+            "#,
+            user_id,
+            device_id,
         )
-        .bind(user_id)
-        .bind(device_id)
         .execute(&*self.pool)
         .await
         .map_err(map_database!("Failed to delete olm sessions"))?;
@@ -354,13 +357,13 @@ impl OlmStorage {
     pub async fn delete_expired_sessions(&self) -> Result<u64, ApiError> {
         let now = current_timestamp_millis();
 
-        let result = sqlx::query(
-            r"
+        let result = sqlx::query!(
+            r#"
             DELETE FROM olm_sessions
             WHERE expires_at IS NOT NULL AND expires_at < $1
-            ",
+            "#,
+            now,
         )
-        .bind(now)
         .execute(&*self.pool)
         .await
         .map_err(map_database!("Failed to delete expired sessions"))?;
@@ -372,15 +375,15 @@ impl OlmStorage {
     pub async fn update_session_last_used(&self, session_id: &str) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
 
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             UPDATE olm_sessions
             SET last_used_ts = $1
             WHERE session_id = $2
-            ",
+            "#,
+            now,
+            session_id,
         )
-        .bind(now)
-        .bind(session_id)
         .execute(&*self.pool)
         .await
         .map_err(map_database!("Failed to update session last used"))?;
@@ -390,18 +393,20 @@ impl OlmStorage {
 
     /// See [`get_session_count`].
     pub async fn get_session_count(&self, user_id: &str, device_id: &str) -> Result<i64, ApiError> {
-        let count: i64 = sqlx::query_scalar::<_, i64>(
-            r"
+        let count = sqlx::query_scalar!(
+            r#"
             SELECT COUNT(*)
             FROM olm_sessions
             WHERE user_id = $1 AND device_id = $2
-            ",
+            "#,
+            user_id,
+            device_id,
         )
-        .bind(user_id)
-        .bind(device_id)
         .fetch_one(&*self.pool)
         .await
-        .map_err(map_database!("Failed to get session count"))?;
+        .map_err(map_database!("Failed to get session count"))?
+        // `COUNT(*)` 无 relation origin ⇒ 宏判可空（C19a 同型）；计数语义恒非空。
+        .unwrap_or(0);
 
         Ok(count)
     }
@@ -498,5 +503,235 @@ mod tests {
         let data: OlmSessionData = row.into();
         assert_eq!(data.message_index, 0u32);
         assert!(data.expires_at.is_none());
+    }
+}
+
+/// DB round trip for the 12 statements converted in C25, run against the real v12
+/// baseline.
+///
+/// Before C25 this module had **no DB coverage at all**: every case in the module
+/// above is a pure constructor/serialization check, so nothing ever compared
+/// `OlmAccountRow` / `OlmSessionRow` against the real catalog. That is the same
+/// blind spot that let D-46 hide behind a hand-built fixture (D-36/D-47 family).
+/// `IsolatedTestPool` compiles the workspace baseline in, so a
+/// schema/type/nullability mismatch surfaces on the first round trip.
+///
+/// `olm_accounts` / `olm_sessions` carry no foreign keys in the baseline, so no
+/// seed rows are needed (contrast `backup::storage::db_tests`, which must create
+/// the `rooms` row required by `fk_backup_keys_room`).
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use synapse_common::test_isolation::IsolatedTestPool;
+
+    /// The workspace baseline migration, compiled in so the isolated schema is
+    /// the real one. The bytes are load-bearing (the shared template name is a
+    /// content fingerprint of this string), so it must stay byte-identical to the
+    /// copies in `synapse-storage/src/test_isolation.rs`,
+    /// `synapse-e2ee/src/backup/storage.rs` and
+    /// `synapse-services/src/test_utils.rs`.
+    const BASELINE_SQL: &str = include_str!("../../../migrations/00000000_unified_schema_v12.sql");
+
+    fn account(user: &str, device: &str, identity_key: &str) -> OlmAccountData {
+        OlmAccountData {
+            user_id: user.to_string(),
+            device_id: device.to_string(),
+            identity_key: identity_key.to_string(),
+            serialized_account: format!("pickle-{identity_key}"),
+            has_published_one_time_keys: false,
+            has_published_fallback_key: false,
+        }
+    }
+
+    fn session(user: &str, device: &str, session_id: &str, sender_key: &str, index: u32) -> OlmSessionData {
+        OlmSessionData {
+            session_id: session_id.to_string(),
+            user_id: user.to_string(),
+            device_id: device.to_string(),
+            sender_key: sender_key.to_string(),
+            receiver_key: format!("rkey-{session_id}"),
+            serialized_state: format!("state-{session_id}"),
+            message_index: index,
+            created_ts: 1_000,
+            last_used_ts: 1_000 + i64::from(index),
+            expires_at: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_olm_round_trip_on_migration_template() {
+        let isolated = IsolatedTestPool::new(BASELINE_SQL).await.expect("isolated test pool");
+        let pool = isolated.pool();
+        let storage = OlmStorage::new(&pool);
+
+        let user = "@c25:localhost";
+        let device = "DEVICE25";
+
+        // --- olm_accounts: save_account upserts on (user_id, device_id) ---
+        storage.save_account(&account(user, device, "idkey-1")).await.unwrap();
+        let loaded = storage.load_account(user, device).await.unwrap().expect("account row");
+        assert_eq!(loaded.identity_key, "idkey-1");
+        assert_eq!(loaded.serialized_account, "pickle-idkey-1");
+        assert!(!loaded.has_published_one_time_keys);
+        assert!(!loaded.has_published_fallback_key);
+        assert!(storage.load_account(user, "OTHER-DEVICE").await.unwrap().is_none());
+
+        let mut published = account(user, device, "idkey-2");
+        published.has_published_one_time_keys = true;
+        published.has_published_fallback_key = true;
+        storage.save_account(&published).await.unwrap();
+
+        let loaded = storage.load_account(user, device).await.unwrap().unwrap();
+        assert_eq!(loaded.identity_key, "idkey-2", "save_account must update, not insert a second row");
+        assert!(loaded.has_published_one_time_keys);
+        assert!(loaded.has_published_fallback_key);
+        let rows: i64 = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM olm_accounts WHERE user_id = $1")
+            .bind(user)
+            .fetch_one(&*pool)
+            .await
+            .unwrap();
+        assert_eq!(rows, 1, "the UNIQUE (user_id, device_id) upsert must not duplicate");
+
+        // `is_one_time_keys_published` / `is_fallback_key_published` are
+        // `BOOLEAN DEFAULT FALSE` without NOT NULL, and `OlmAccountRow` takes them as
+        // `Option<bool>`; `load_account` folds NULL to `false`. An explicit NULL must
+        // reach that fold rather than fail the decode.
+        sqlx::query(
+            "INSERT INTO olm_accounts (user_id, device_id, identity_key, serialized_account, \
+             is_one_time_keys_published, is_fallback_key_published, created_ts, updated_ts) \
+             VALUES ($1, $2, $3, $4, NULL, NULL, $5, $5)",
+        )
+        .bind(user)
+        .bind("NULL-FLAGS")
+        .bind("idkey-null")
+        .bind("pickle-null")
+        .bind(0_i64)
+        .execute(&*pool)
+        .await
+        .unwrap();
+        let null_flags = storage.load_account(user, "NULL-FLAGS").await.unwrap().expect("NULL-flag account row");
+        assert!(!null_flags.has_published_one_time_keys);
+        assert!(!null_flags.has_published_fallback_key);
+
+        // --- olm_sessions: save_session upserts on the UNIQUE session_id ---
+        storage.save_session(&session(user, device, "sess-old", "sender-a", 5)).await.unwrap();
+        storage.save_session(&session(user, device, "sess-new", "sender-a", 700_000)).await.unwrap();
+        // Far-future expiry, so it exercises the `Some` round trip without being due
+        // for `delete_expired_sessions` below.
+        let mut optional_expiry = session(user, device, "sess-exp", "sender-b", 0);
+        optional_expiry.expires_at = Some(9_000_000_000_000);
+        storage.save_session(&optional_expiry).await.unwrap();
+
+        // `ORDER BY last_used_ts DESC`: `sess-new` carries the larger index and
+        // therefore the larger `last_used_ts`. `sess-exp`/`sess-old` tie at 1_000, so
+        // only the head is pinned (a tie has no defined order).
+        let sessions = storage.load_sessions(user, device).await.unwrap();
+        assert_eq!(sessions.len(), 3);
+        assert_eq!(sessions[0].session_id, "sess-new");
+        // `message_index` is `INTEGER` (i32) in the row struct and `u32` in the model:
+        // the 700_000 value must survive the widening.
+        assert_eq!(sessions[0].message_index, 700_000);
+
+        let old = storage.load_session("sess-old").await.unwrap().expect("sess-old");
+        assert_eq!(old.message_index, 5);
+        assert_eq!(old.serialized_state, "state-sess-old");
+        assert_eq!(old.expires_at, None);
+        assert!(storage.load_session("missing").await.unwrap().is_none());
+
+        let by_sender = storage.load_session_by_sender_key(user, device, "sender-b").await.unwrap().expect("sender-b");
+        assert_eq!(by_sender.session_id, "sess-exp");
+        assert_eq!(by_sender.expires_at, Some(9_000_000_000_000));
+        assert!(storage.load_session_by_sender_key(user, device, "sender-missing").await.unwrap().is_none());
+
+        // get_session_count: `COUNT(*)` has no relation origin, so sqlx infers a
+        // nullable column and the code folds it with `unwrap_or(0)` (C19a family).
+        assert_eq!(storage.get_session_count(user, device).await.unwrap(), 3);
+        assert_eq!(storage.get_session_count(user, "EMPTY-DEVICE").await.unwrap(), 0);
+
+        // The re-save must rewrite the existing row, not add a fourth.
+        let mut updated = session(user, device, "sess-old", "sender-a", 6);
+        updated.serialized_state = "state-sess-old-v2".to_string();
+        storage.save_session(&updated).await.unwrap();
+        assert_eq!(storage.get_session_count(user, device).await.unwrap(), 3);
+        let old = storage.load_session("sess-old").await.unwrap().unwrap();
+        assert_eq!(old.message_index, 6);
+        assert_eq!(old.serialized_state, "state-sess-old-v2");
+
+        // --- update_session_last_used ---
+        storage.update_session_last_used("sess-old").await.unwrap();
+        let touched = storage.load_session("sess-old").await.unwrap().unwrap();
+        assert!(touched.last_used_ts > 1_006, "last_used_ts must be refreshed, got {}", touched.last_used_ts);
+
+        // --- delete_expired_sessions: only `expires_at IS NOT NULL AND < now` ---
+        let mut expired = session(user, device, "sess-past", "sender-c", 0);
+        expired.expires_at = Some(1);
+        storage.save_session(&expired).await.unwrap();
+        let mut future = session(user, device, "sess-future", "sender-d", 0);
+        future.expires_at = Some(i64::MAX);
+        storage.save_session(&future).await.unwrap();
+        assert_eq!(storage.get_session_count(user, device).await.unwrap(), 5);
+
+        assert_eq!(storage.delete_expired_sessions().await.unwrap(), 1, "only the past-expiry row is due");
+        assert!(storage.load_session("sess-past").await.unwrap().is_none());
+        // The boundary rows must survive: `expires_at IS NULL` (sess-old), a non-NULL
+        // but not-yet-due expiry (sess-exp), and a far-future expiry (sess-future).
+        assert!(storage.load_session("sess-exp").await.unwrap().is_some());
+        assert!(storage.load_session("sess-future").await.unwrap().is_some());
+        assert!(storage.load_session("sess-old").await.unwrap().is_some());
+        assert_eq!(storage.get_session_count(user, device).await.unwrap(), 4);
+
+        // --- delete_session / delete_sessions_for_device / delete_account ---
+        storage.delete_session("sess-new").await.unwrap();
+        assert!(storage.load_session("sess-new").await.unwrap().is_none());
+        // Deleting an already-absent row is a no-op, not an error.
+        storage.delete_session("sess-new").await.unwrap();
+
+        // A session on another device must not be touched by the device-scoped delete.
+        storage.save_account(&account(user, "OTHER-DEVICE", "idkey-other")).await.unwrap();
+        storage.save_session(&session(user, "OTHER-DEVICE", "sess-other", "sender-e", 0)).await.unwrap();
+        storage.delete_sessions_for_device(user, device).await.unwrap();
+        assert_eq!(storage.get_session_count(user, device).await.unwrap(), 0);
+        assert_eq!(storage.get_session_count(user, "OTHER-DEVICE").await.unwrap(), 1);
+
+        // delete_account removes the account row and, through
+        // delete_sessions_for_device, every session of that device.
+        storage.delete_account(user, "OTHER-DEVICE").await.unwrap();
+        assert!(storage.load_account(user, "OTHER-DEVICE").await.unwrap().is_none());
+        assert_eq!(storage.get_session_count(user, "OTHER-DEVICE").await.unwrap(), 0);
+        // The first device's account row is untouched by the other device's delete.
+        assert!(storage.load_account(user, device).await.unwrap().is_some());
+        storage.delete_account(user, device).await.unwrap();
+        assert!(storage.load_account(user, device).await.unwrap().is_none());
+
+        // --- D-49 (characterization): `message_index` is nullable in the schema ---
+        // `olm_sessions.message_index` is `INTEGER DEFAULT 0` with no NOT NULL, while
+        // `OlmSessionRow.message_index` is `i32` and the read projections assert
+        // `AS "message_index!"`. No writer can currently produce NULL (the sole INSERT
+        // always binds a non-Option value and `DEFAULT 0` covers omission), so the
+        // mismatch is latent — but the schema still *accepts* an explicit NULL, and the
+        // read path must then fail closed (Err) rather than coerce to 0.
+        // When D-49 is fixed by `message_index INTEGER NOT NULL DEFAULT 0`, this INSERT
+        // starts failing with 23502 and this block must be updated in step.
+        sqlx::query(
+            "INSERT INTO olm_sessions (user_id, device_id, session_id, sender_key, receiver_key, \
+             serialized_state, message_index, created_ts, last_used_ts) \
+             VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $7)",
+        )
+        .bind(user)
+        .bind(device)
+        .bind("sess-null-index")
+        .bind("sender-null")
+        .bind("rkey-null")
+        .bind("state-null")
+        .bind(0_i64)
+        .execute(&*pool)
+        .await
+        .expect("D-49: the schema still accepts a NULL message_index");
+
+        let err = storage
+            .load_session("sess-null-index")
+            .await
+            .expect_err("D-49: a NULL message_index must fail closed, not decode as 0");
+        assert_eq!(err.message, "Database error: Failed to load olm session");
     }
 }
