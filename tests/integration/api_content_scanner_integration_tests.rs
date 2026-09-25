@@ -76,6 +76,18 @@ async fn setup_app_with_mock_scanner(block_on_failure: bool) -> Option<(axum::Ro
     std::sync::Arc::make_mut(&mut container.core.config).content_scanner.block_on_scan_failure = block_on_failure;
     std::sync::Arc::make_mut(&mut container.core.config).content_scanner.scan_timeout_ms = 5000;
 
+    // `ContentScanner` **captures its config at construction**, and the container
+    // was built (with the default `enabled: false`) before the mutations above.
+    // Without this rebuild the scanner would report `is_enabled() == false`, the
+    // upload paths would take their "scanning not configured" pass-through, and
+    // these tests would silently stop testing fail-closed behaviour at all
+    // (observed as 200 instead of 502 when the scanner fails). Production builds
+    // the scanner once at startup from the file config, so a config change there
+    // requires a restart; tests must install an enabled scanner explicitly.
+    let scanner_config = container.core.config.content_scanner.clone();
+    container.core.content_scanner =
+        std::sync::Arc::new(synapse_services::content_scanner::ContentScanner::new(scanner_config));
+
     let state = AppState::new(container, cache);
     // `state` is not used again in this function, so cloning it here is redundant
     // (`clippy::redundant_clone` is deny, and this target only compiles under
@@ -183,7 +195,11 @@ async fn test_media_upload_blocked_on_scanner_failure() {
 #[tokio::test]
 async fn test_media_upload_with_id_blocked_on_scanner_failure() {
     reset_scanner_state();
-    BLOCK_NEXT.store(true, Ordering::SeqCst);
+    // NOTE: the scanner is deliberately *not* told to fail yet — the probe
+    // upload below must succeed so the test can learn the local server name.
+    // (It used to set `BLOCK_NEXT` first, which only "worked" while the upload
+    // path skipped scanning entirely; with the scanner actually enabled the
+    // probe was refused and the test panicked on a missing `content_uri`.)
 
     let Some((app, _addr)) = setup_app_with_mock_scanner(true).await else {
         return;
@@ -201,9 +217,30 @@ async fn test_media_upload_with_id_blocked_on_scanner_failure() {
         .unwrap();
 
     let probe_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), probe_request).await.unwrap();
+    assert_eq!(
+        probe_response.status(),
+        StatusCode::OK,
+        "the probe upload must succeed while the scanner answers `safe`"
+    );
     let body = axum::body::to_bytes(probe_response.into_body(), 2048).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    let server_name = json["content_uri"].as_str().unwrap().split('/').nth(1).unwrap().to_string();
+    // `content_uri` is `mxc://<server_name>/<media_id>`; splitting the whole URI
+    // on `/` yields ["mxc:", "", "<server_name>", ...], so `nth(1)` is the empty
+    // string.  That made the id-based upload fail the route's
+    // `server_name == ctx.server_name` check with 400 before it ever reached the
+    // scanner — i.e. this test could never pass.  Strip the scheme instead.
+    let content_uri = json["content_uri"].as_str().unwrap();
+    let server_name = content_uri
+        .strip_prefix("mxc://")
+        .expect("content_uri must use the mxc:// scheme")
+        .split('/')
+        .next()
+        .unwrap()
+        .to_string();
+
+    // Now that the server name is known, make the scanner fail: the id-based
+    // upload must be refused fail-closed (502 M_CONTENT_SCAN_FAILED).
+    BLOCK_NEXT.store(true, Ordering::SeqCst);
 
     // Now try upload with ID (should be blocked)
     let media_id = format!("test{}", rand::random::<u64>());

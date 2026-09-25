@@ -50,6 +50,9 @@ pub enum ApiErrorKind {
     Internal,
     /// 501 — not implemented
     NotImplemented,
+    /// 502 — an upstream dependency failed (e.g. the content-scanner webhook or
+    /// ClamAV daemon could not produce a verdict)
+    BadGateway,
     /// 504 — request timed out
     Timeout,
     /// 503 — service temporarily unavailable (e.g. required dependency offline)
@@ -70,6 +73,7 @@ impl ApiErrorKind {
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
             Self::NotImplemented => StatusCode::NOT_IMPLEMENTED,
+            Self::BadGateway => StatusCode::BAD_GATEWAY,
             Self::Timeout => StatusCode::GATEWAY_TIMEOUT,
             Self::ServiceUnavailable => StatusCode::SERVICE_UNAVAILABLE,
         }
@@ -321,7 +325,7 @@ impl ApiError {
     /// Returns 502 Bad Gateway + `M_CONTENT_SCAN_FAILED`.
     pub fn content_scan_failed(message: impl Into<String>) -> Self {
         Self {
-            kind: ApiErrorKind::ServiceUnavailable,
+            kind: ApiErrorKind::BadGateway,
             code: MatrixErrorCode::ContentScanFailed,
             message: message.into(),
             cause: None,
