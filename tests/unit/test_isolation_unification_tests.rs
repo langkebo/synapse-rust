@@ -47,10 +47,19 @@ const SERVICES: &str = "synapse-services/src/test_utils.rs";
 const ROOT: &str = "synapse-test-utils/src/lib.rs";
 const COMMON: &str = "synapse-common/src/test_isolation.rs";
 const COMMON_LIB: &str = "synapse-common/src/lib.rs";
-/// `synapse-e2ee`'s DB-backed verification tests. They use the shared
-/// `IsolatedTestPool` and therefore must feed it the same baseline bytes as
-/// every other caller, or they mint a second template.
-const E2EE: &str = "synapse-e2ee/src/verification/service.rs";
+/// `synapse-e2ee`'s DB-backed tests that build their own `IsolatedTestPool` and
+/// therefore must feed it the same baseline bytes as every other caller, or they
+/// mint a second template.
+///
+/// This is a **list** for two reasons. First, `synapse-e2ee` has more than one
+/// carrier (`backup/storage.rs` since C19b, `olm/storage.rs` since C25), and the
+/// guard's property is about *every* fixture, not one representative. Second, the
+/// original single entry (`verification/service.rs`) was left dangling when
+/// `88001b4a9` deleted that module, so the guard panicked on a missing file and
+/// stopped checking the property at all (D-52). Re-point a path here whenever its
+/// module is removed; keeping all carriers listed makes that failure visible for
+/// each of them.
+const E2EE: &[&str] = &["synapse-e2ee/src/backup/storage.rs", "synapse-e2ee/src/olm/storage.rs"];
 
 /// The baseline migration, compiled in. Guard 5 hashes it to pin the template
 /// the database already holds.
@@ -892,7 +901,7 @@ fn baseline_fingerprint_is_the_single_v12_source() {
          or a SECOND template is minted"
     );
 
-    for path in [STORAGE, SERVICES, E2EE] {
+    for path in [STORAGE, SERVICES].into_iter().chain(E2EE.iter().copied()) {
         let baseline = fixture_baseline_sql(path);
         assert_eq!(
             fingerprint_hex(&baseline),
