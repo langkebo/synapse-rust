@@ -117,7 +117,12 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // `verification_requests`、`verification_sas`、`verification_qr`、
 // `device_verification_request`）及 6 条索引，常量同步为 `e151e5956fb64914`；
 // 同样独立复算 FNV-1a 64，并先自检旧值 `a58420543eb97db2` 逐字节吻合后取值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "e151e5956fb64914";
+// 2026-09-25（C26，D-48 + D-49）：三列可空性收紧 —— `olm_sessions.message_index`
+// （`INTEGER NOT NULL DEFAULT 0`）、`megolm_sessions.message_index`
+// （`BIGINT NOT NULL DEFAULT 0`）、`rendezvous_session.content`
+// （`JSONB NOT NULL DEFAULT '{}'`），常量同步为 `a20182b71fb77e7e`；
+// 同样独立复算 FNV-1a 64，并先自检旧值 `e151e5956fb64914` 逐字节吻合后取值。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "a20182b71fb77e7e";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

@@ -453,7 +453,7 @@ impl RendezvousStorage {
         let now = current_timestamp_millis();
         let row = sqlx::query!(
             r#"
-            SELECT content AS "content!", updated_ts, expires_at FROM rendezvous_session
+            SELECT content, updated_ts, expires_at FROM rendezvous_session
             WHERE session_id = $1 AND intent = 'msc4108' AND expires_at > $2
             "#,
             session_id,
@@ -464,11 +464,9 @@ impl RendezvousStorage {
 
         match row {
             Some(row) => {
-                // `AS "content!"` preserves the project-contract of the tuple this
-                // replaced (`serde_json::Value`, non-`Option`): the column is
-                // nullable in the baseline, but every writer supplies it or takes
-                // the `DEFAULT '{}'`. Treating a NULL as "empty payload" would be a
-                // behavior change, so it is deferred to §7 D-48.
+                // No `AS "content!"` needed: D-48 tightened the column to
+                // `content JSONB NOT NULL DEFAULT '{}'`, so sqlx infers the
+                // non-`Option` `serde_json::Value` the tuple contract requires.
                 let data = row.content.get("data").and_then(|value| value.as_str()).unwrap_or("").to_string();
                 let updated = row.updated_ts.unwrap_or(0);
                 let etag = format!("\"{updated}\"");

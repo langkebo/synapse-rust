@@ -237,7 +237,7 @@ impl OlmStorage {
                 sender_key,
                 receiver_key,
                 serialized_state,
-                message_index AS "message_index!",
+                message_index,
                 created_ts,
                 last_used_ts,
                 expires_at
@@ -267,7 +267,7 @@ impl OlmStorage {
                 sender_key,
                 receiver_key,
                 serialized_state,
-                message_index AS "message_index!",
+                message_index,
                 created_ts,
                 last_used_ts,
                 expires_at
@@ -300,7 +300,7 @@ impl OlmStorage {
                 sender_key,
                 receiver_key,
                 serialized_state,
-                message_index AS "message_index!",
+                message_index,
                 created_ts,
                 last_used_ts,
                 expires_at
@@ -703,16 +703,16 @@ mod db_tests {
         storage.delete_account(user, device).await.unwrap();
         assert!(storage.load_account(user, device).await.unwrap().is_none());
 
-        // --- D-49 (characterization): `message_index` is nullable in the schema ---
-        // `olm_sessions.message_index` is `INTEGER DEFAULT 0` with no NOT NULL, while
-        // `OlmSessionRow.message_index` is `i32` and the read projections assert
-        // `AS "message_index!"`. No writer can currently produce NULL (the sole INSERT
-        // always binds a non-Option value and `DEFAULT 0` covers omission), so the
-        // mismatch is latent — but the schema still *accepts* an explicit NULL, and the
-        // read path must then fail closed (Err) rather than coerce to 0.
-        // When D-49 is fixed by `message_index INTEGER NOT NULL DEFAULT 0`, this INSERT
-        // starts failing with 23502 and this block must be updated in step.
-        sqlx::query(
+        // --- D-49 (fixed): the schema now rejects a NULL `message_index` ---
+        // `olm_sessions.message_index` used to be `INTEGER DEFAULT 0` without NOT NULL
+        // while `OlmSessionRow.message_index` is a non-`Option` `i32`; every read
+        // projection had to assert `AS "message_index!"` to paper over the mismatch.
+        // D-49 tightened the column to `INTEGER NOT NULL DEFAULT 0` (matching the
+        // writer, which always binds a non-`Option` value), so the assertion is gone
+        // from the three projections above and the schema now refuses the row
+        // outright with 23502 instead of storing something the row type cannot decode.
+        // Omitting the column would hit `DEFAULT 0`, so insert NULL explicitly.
+        let null_index = sqlx::query(
             "INSERT INTO olm_sessions (user_id, device_id, session_id, sender_key, receiver_key, \
              serialized_state, message_index, created_ts, last_used_ts) \
              VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $7)",
@@ -725,13 +725,10 @@ mod db_tests {
         .bind("state-null")
         .bind(0_i64)
         .execute(&*pool)
-        .await
-        .expect("D-49: the schema still accepts a NULL message_index");
+        .await;
 
-        let err = storage
-            .load_session("sess-null-index")
-            .await
-            .expect_err("D-49: a NULL message_index must fail closed, not decode as 0");
-        assert_eq!(err.message, "Database error: Failed to load olm session");
+        let error = null_index.expect_err("D-49: a NULL message_index must be rejected by the NOT NULL column");
+        let code = error.as_database_error().and_then(|db| db.code()).map(|c| c.into_owned());
+        assert_eq!(code.as_deref(), Some("23502"), "NOT NULL violation expected, got {error:?}");
     }
 }

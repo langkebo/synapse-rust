@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                session_id,\n                user_id,\n                device_id,\n                sender_key,\n                receiver_key,\n                serialized_state,\n                message_index AS \"message_index!\",\n                created_ts,\n                last_used_ts,\n                expires_at\n            FROM olm_sessions\n            WHERE user_id = $1 AND device_id = $2 AND sender_key = $3\n            ORDER BY last_used_ts DESC\n            LIMIT 1\n            ",
+  "query": "\n            SELECT\n                session_id,\n                user_id,\n                device_id,\n                sender_key,\n                receiver_key,\n                serialized_state,\n                message_index,\n                created_ts,\n                last_used_ts,\n                expires_at\n            FROM olm_sessions\n            WHERE session_id = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -35,7 +35,7 @@
       },
       {
         "ordinal": 6,
-        "name": "message_index!",
+        "name": "message_index",
         "type_info": "Int4"
       },
       {
@@ -56,8 +56,6 @@
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Text",
         "Text"
       ]
     },
@@ -68,11 +66,11 @@
       false,
       false,
       false,
-      true,
+      false,
       false,
       false,
       true
     ]
   },
-  "hash": "d41c0c604fc12c2175ef519a9774cbcecf2d3cd1aecd5c143be61be8171af8ce"
+  "hash": "81e69f74ebb8dbb2ec3ed068fe6f13118f569eaa16d1395e2ea1b67c12dafbae"
 }

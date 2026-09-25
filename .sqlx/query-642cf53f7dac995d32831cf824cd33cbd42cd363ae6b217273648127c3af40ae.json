@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT content AS \"content!\", updated_ts, expires_at FROM rendezvous_session\n            WHERE session_id = $1 AND intent = 'msc4108' AND expires_at > $2\n            ",
+  "query": "\n            SELECT content, updated_ts, expires_at FROM rendezvous_session\n            WHERE session_id = $1 AND intent = 'msc4108' AND expires_at > $2\n            ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "content!",
+        "name": "content",
         "type_info": "Jsonb"
       },
       {
@@ -26,10 +26,10 @@
       ]
     },
     "nullable": [
-      true,
+      false,
       true,
       false
     ]
   },
-  "hash": "1f2a5a6226b5ee78038e003c04bd23659ed65ca7d63bfeafbbd137e5ac05585a"
+  "hash": "642cf53f7dac995d32831cf824cd33cbd42cd363ae6b217273648127c3af40ae"
 }
