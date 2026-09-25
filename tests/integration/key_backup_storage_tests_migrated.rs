@@ -1,64 +1,57 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use serde_json::json;
 use std::sync::Arc;
+
+use sqlx::PgPool;
+use synapse_common::test_isolation::IsolatedTestPool;
 use synapse_rust::e2ee::backup::models::KeyBackup;
 use synapse_rust::e2ee::backup::storage::{BackupKeyInsertParams, BackupKeyStorage, KeyBackupStorage};
 
-async fn setup_test_database() -> Arc<sqlx::PgPool> {
-    let pool = synapse_test_utils::prepare_empty_isolated_test_pool().await.expect("Failed to prepare test pool");
+/// The workspace baseline migration, compiled in so the per-test schema is a
+/// clone of the migrated v12 template.
+///
+/// The bytes are load-bearing: the shared template's name is a content
+/// fingerprint of this string, so it must stay byte-identical to the copies in
+/// `synapse-storage/src/test_isolation.rs`, `synapse-e2ee/src/verification/service.rs`
+/// and `synapse-services/src/test_utils.rs`.
+const BASELINE_SQL: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql");
 
-    sqlx::query(
-        r#"
-            CREATE TABLE IF NOT EXISTS key_backups (
-                backup_id BIGSERIAL PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                backup_id_text TEXT,
-                algorithm TEXT NOT NULL,
-                auth_data JSONB,
-                auth_key TEXT,
-                mgmt_key TEXT,
-                version BIGINT DEFAULT 1,
-                etag TEXT,
-                created_ts BIGINT NOT NULL,
-                updated_ts BIGINT,
-                CONSTRAINT uq_key_backups_user_version UNIQUE (user_id, version)
-            )
-            "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create key_backups table");
-
-    sqlx::query(
-        r#"
-            CREATE TABLE IF NOT EXISTS backup_keys (
-                id BIGSERIAL PRIMARY KEY,
-                backup_id BIGINT NOT NULL,
-                room_id TEXT NOT NULL,
-                session_id TEXT NOT NULL,
-                session_data JSONB NOT NULL,
-                first_message_index BIGINT,
-                forwarded_count BIGINT DEFAULT 0,
-                is_verified BOOLEAN DEFAULT FALSE,
-                created_ts BIGINT NOT NULL,
-                CONSTRAINT fk_backup_keys_backup FOREIGN KEY (backup_id) REFERENCES key_backups(backup_id) ON DELETE CASCADE
-            )
-            "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create backup_keys table");
-
-    pool
+/// Per-test schema cloned from the migrated v12 baseline (D-36 口径).
+///
+/// **D-47**: this file used to self-build `key_backups` / `backup_keys`, and
+/// that simplified schema diverged from the baseline in ways no gate could see
+/// (guard A scans only `src/`, guard B only production INSERTs):
+///   * it had no `fk_backup_keys_room` (the baseline's P3-3 adds
+///     `backup_keys.room_id → rooms(room_id) ON DELETE CASCADE`);
+///   * `first_message_index` was nullable, while the baseline is
+///     `BIGINT NOT NULL DEFAULT 0`.
+///
+/// That is exactly what let D-46 (`key_backups.version` nullable vs the
+/// non-`Option` row type) hide behind the dynamic `FromRow` path. Running on the
+/// template makes both the constraints and the nullability real.
+async fn setup_test_database() -> (IsolatedTestPool, Arc<PgPool>) {
+    let isolated = IsolatedTestPool::new(BASELINE_SQL).await.expect("isolated test pool");
+    let pool = isolated.pool();
+    (isolated, pool)
 }
 
 #[tokio::test]
 async fn test_key_backup_lifecycle() {
-    let pool = setup_test_database().await;
+    let (_isolated, pool) = setup_test_database().await;
     let storage = KeyBackupStorage::new(&pool);
     let key_storage = BackupKeyStorage::new(&pool);
 
     let user_id = "@alice:localhost";
+    let room_id = "!room:localhost";
+
+    // `backup_keys` carries `fk_backup_keys_room` (P3-3) in the real baseline,
+    // so the room must exist before any key can be uploaded.
+    sqlx::query("INSERT INTO rooms (room_id, created_ts) VALUES ($1, $2)")
+        .bind(room_id)
+        .bind(0_i64)
+        .execute(&*pool)
+        .await
+        .expect("create the room the backup keys reference");
+
     let backup = KeyBackup {
         user_id: user_id.to_string(),
         backup_id: "backup_1".to_string(),
@@ -82,7 +75,7 @@ async fn test_key_backup_lifecycle() {
     let key_params = BackupKeyInsertParams {
         user_id: user_id.to_string(),
         backup_id: "backup_1".to_string(),
-        room_id: "!room:localhost".to_string(),
+        room_id: room_id.to_string(),
         session_id: "session1".to_string(),
         first_message_index: 0,
         forwarded_count: 0,
@@ -92,7 +85,7 @@ async fn test_key_backup_lifecycle() {
     key_storage.upload_backup_key(key_params).await.unwrap();
 
     // Get room keys
-    let keys = key_storage.get_room_backup_keys(user_id, "!room:localhost").await.unwrap();
+    let keys = key_storage.get_room_backup_keys(user_id, room_id).await.unwrap();
     assert_eq!(keys.len(), 1);
     assert_eq!(keys[0].session_id, "session1");
     assert_eq!(keys[0].first_message_index, 0);
