@@ -1581,9 +1581,16 @@ C19b 的 **D-46**）；
       应逐文件迁到 `IsolatedTestPool`（每个文件一提交）。
     建议实施顺序：先给 census 加 `tests/` 扫描模式 + 守卫 A 的第二张 allowlist
     （按 (a)/(b) 分组种子化），让"**新增**自建 DDL 立即变红"先落地；再逐文件消 (b)。
-- 未做原因：② 是一次波及 43 个文件的结构性改动（且 (b) 类需要逐个用例确认是否真有
-  简化理由），`tests/integration/*` 又是并发写者（workbuddy）的在途区域；本轮只做
-  可独立验收的 ①。
+- **② 暂缓（2026-09-25 决定）**：② 是一次波及 43 个文件的结构性改动（(b) 类还需逐用例
+  确认是否真有简化理由），而当时并发写者 workbuddy 正在 `tests/integration/*` 与 e2ee
+  模块做**大重构**（在途 50+ 文件，含 `tests/integration/mod.rs`、
+  `database_integrity_tests.rs`、`db_schema_smoke_tests_migrated.rs`、
+  `schema_contract_p0_tests_migrated.rs`，并已删 105 行迁移与 `verification/*`、
+  `device_trust/*`）。现在实施会踩其**在途文件**，且 allowlist 种子（上述 180 处）
+  会随其重构立刻过期。**恢复条件**：等该重构落到 `opt/consolidated` 后，用同一预扫方式
+  **重新计数**，再按"先结构性落地（census `tests/` 模式 + 守卫 A 第二张 allowlist），
+  后逐文件迁 (b)"两步做。届时 ① 已完成的 `key_backup_storage_tests_migrated.rs`
+  应已不在命中列表内，可作为该扫描的实现正确性对照。
 - 附带观察（**未**单独登记）：`fk_backup_keys_room ... ON DELETE CASCADE` 使
   E2EE 房间密钥备份的生命周期跟随房间 —— 生产可达路径是管理端清理空房间
   （`synapse-storage/src/room/admin.rs:74` 的 `DELETE FROM rooms WHERE room_id = ANY($1)`），
@@ -2260,7 +2267,8 @@ fmt 债务 0。
 
 1. **D-47（覆盖缺口）** —— ① **已完成**（`4104037b0`）：
    `key_backup_storage_tests_migrated.rs` 切到 `IsolatedTestPool`，RED/GREEN 已入库。
-   ② **待办（已预扫，需分批）**：扩守卫 A 扫描面到 `tests/**/*.rs` —— 用 census 的同一套
+   ② **待办（已预扫；2026-09-25 决定暂缓至 workbuddy 的 tests/integration 大重构落地后重扫）**：
+   扩守卫 A 扫描面到 `tests/**/*.rs` —— 用 census 的同一套
    词法机制预扫实测 **180 处自建 DDL / 43 文件**（`tests/integration` 143、`tests/unit` 28、
    `tests/performance` 9）。**建议分两步**：
    - **先结构性落地**：给 `scripts/ci/sqlx_query_census.py` 加 `tests/` 扫描模式 +
