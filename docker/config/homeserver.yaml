@@ -115,6 +115,16 @@ search:
   enabled: false
   elasticsearch_url: "http://localhost:9200"
 
+# MSC3806 — content scanner for uploads. Optional components are **explicitly**
+# disabled rather than left absent, so "no filtering" is a visible decision.
+# To enable: set `enabled: true`, choose `scanner_type` (`clam_av` or `webhook`)
+# and configure its endpoint (ClamAV socket/host+port, or `webhook_url`).
+# When enabled, an unsafe verdict blocks the upload with 403 M_FORBIDDEN and a
+# scanner failure blocks it fail-closed (per `block_on_scan_failure`).
+content_scanner:
+  enabled: false
+  block_on_scan_failure: true
+
 federation:
   enabled: true
   allow_ingress: true

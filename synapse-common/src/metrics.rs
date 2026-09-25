@@ -414,6 +414,19 @@ impl MetricsCollector {
         histogram
     }
 
+    /// Increment `name`, registering the counter on first use.
+    ///
+    /// Single implementation of "register-or-get then inc" — the federation
+    /// glue and the media upload path both need it, and duplicating the
+    /// match is how the two drift apart.
+    pub fn inc_counter(&self, name: &str) {
+        if let Some(counter) = self.get_counter(name) {
+            counter.inc();
+        } else {
+            self.register_counter(name.to_string()).inc();
+        }
+    }
+
     /// Returns the counter with the given name.
     pub fn get_counter(&self, name: &str) -> Option<Counter> {
         let counters = self.counters.lock();

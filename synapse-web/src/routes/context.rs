@@ -832,6 +832,10 @@ pub struct MediaContext {
     pub admin_audit_service: Option<Arc<synapse_services::admin::AdminAuditService>>,
     /// MSC3806 — Content scanner (gates media uploads).
     pub content_scanner: Arc<synapse_services::content_scanner::ContentScanner>,
+    /// Metrics registry — the upload paths count scan outcomes
+    /// (`content_scan_skipped_total` / `content_scans_allowed_total` /
+    /// `content_scans_blocked_total` / `content_scan_failures_total`).
+    pub metrics: Arc<synapse_common::metrics::MetricsCollector>,
 }
 
 impl FromRef<AppState> for MediaContext {
@@ -852,6 +856,7 @@ impl FromRef<AppState> for MediaContext {
             account_identity_service: state.services.account.account_identity_service.clone(),
             admin_audit_service: state.services.admin.security.admin_audit_service.clone().into(),
             content_scanner: state.services.core.content_scanner.clone(),
+            metrics: state.services.core.metrics.clone(),
         }
     }
 }

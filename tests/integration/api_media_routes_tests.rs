@@ -817,7 +817,7 @@ async fn unsafe_scan_verdict_blocks_upload_and_stores_nothing() {
         .mount(&mock)
         .await;
 
-    let Some((app, _state)) = super::setup_fresh_test_app_with_config(|container| {
+    let Some((app, state)) = super::setup_fresh_test_app_with_config(|container| {
         {
             let config = super::config_mut(container);
             config.content_scanner.enabled = true;
@@ -880,6 +880,16 @@ async fn unsafe_scan_verdict_blocks_upload_and_stores_nothing() {
         error_json["error"].as_str().unwrap_or_default().contains("virus"),
         "the threat must reach the client: {error_json}"
     );
+
+    // The outcome is counted, so an operator can see blocks without reading logs.
+    let blocked = state
+        .services
+        .core
+        .metrics
+        .get_counter("content_scans_blocked_total")
+        .map(|counter| counter.get())
+        .unwrap_or_default();
+    assert_eq!(blocked, 1, "the blocked upload must be counted under content_scans_blocked_total");
 
     // Nothing was stored: the media must not be retrievable.
     let download_request = Request::builder()

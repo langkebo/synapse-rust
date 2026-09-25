@@ -197,11 +197,7 @@ pub(crate) async fn is_server_allowed_by_room_acl(ctx: &FederationContext, room_
 
 /// See [`increment_counter`].
 pub(super) fn increment_counter(ctx: &FederationContext, name: &str) {
-    if let Some(counter) = ctx.metrics.get_counter(name) {
-        counter.inc();
-    } else {
-        ctx.metrics.register_counter(name.to_string()).inc();
-    }
+    ctx.metrics.inc_counter(name);
 }
 
 /// See [`observe_histogram`].

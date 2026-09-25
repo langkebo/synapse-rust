@@ -22,6 +22,7 @@
 //! without a request context.
 
 use synapse_common::content_scanner::{ContentScanResult, ContentType};
+use synapse_common::metrics::MetricsCollector;
 use synapse_common::ApiError;
 
 use super::ContentScanner;
@@ -64,15 +65,36 @@ pub fn enforce_scan_verdict(verdict: &ContentScanResult) -> Result<(), ApiError>
 /// every upload path — the previous call sites each decided for themselves.
 pub async fn scan_when_enabled(
     scanner: &ContentScanner,
+    metrics: &MetricsCollector,
     content_id: &str,
     data: Vec<u8>,
     content_type: ContentType,
 ) -> Result<(), ApiError> {
     if !scanner.is_enabled() {
+        metrics.inc_counter("content_scan_skipped_total");
         return Ok(());
     }
-    let verdict = scanner.scan_media(content_id, data, content_type).await?;
-    enforce_scan_verdict(&verdict)
+
+    let verdict = match scanner.scan_media(content_id, data, content_type).await {
+        Ok(verdict) => verdict,
+        Err(error) => {
+            // A scanner that cannot answer is not "clean": count it separately
+            // so an outage is visible without reading logs.
+            metrics.inc_counter("content_scan_failures_total");
+            return Err(error);
+        }
+    };
+
+    match enforce_scan_verdict(&verdict) {
+        Ok(()) => {
+            metrics.inc_counter("content_scans_allowed_total");
+            Ok(())
+        }
+        Err(error) => {
+            metrics.inc_counter("content_scans_blocked_total");
+            Err(error)
+        }
+    }
 }
 
 #[cfg(test)]

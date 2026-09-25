@@ -79,7 +79,15 @@ impl std::str::FromStr for ContentType {
 }
 
 /// The `ContentScannerConfig` struct.
+///
+/// `#[serde(default)]` is on the **struct**, not on individual fields, so a
+/// partial `content_scanner:` block in `homeserver.yaml` inherits the manual
+/// `Default` impl below (`scan_timeout_ms: 30_000`,
+/// `block_on_scan_failure: true`, ClamAV on 127.0.0.1:3310). Field-level
+/// defaults would use the *type* default instead and silently set the timeout
+/// to 0 / fail-open.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ContentScannerConfig {
     /// The `enabled` field.
     pub enabled: bool,

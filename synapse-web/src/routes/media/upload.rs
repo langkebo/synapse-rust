@@ -88,6 +88,7 @@ pub(crate) async fn upload_media_common(
     // refuse a `safe: false` verdict (see `content_scanner::scan_when_enabled`).
     synapse_services::content_scanner::scan_when_enabled(
         ctx.content_scanner.as_ref(),
+        ctx.metrics.as_ref(),
         user_id,
         content_bytes.clone(),
         content_type_enum,
@@ -135,6 +136,7 @@ pub(crate) async fn upload_media_with_id_common(
     };
     synapse_services::content_scanner::scan_when_enabled(
         ctx.content_scanner.as_ref(),
+        ctx.metrics.as_ref(),
         media_id,
         content_bytes.clone(),
         content_type_enum,
