@@ -113,6 +113,140 @@ start the stack **by these service names**) and `docker/deploy/docker-compose.ym
    `git diff --cached --stat` 复核；提交后 `git status --short` 确认没有把别人的在途
    改动带走；需要并行时用 `git worktree` 开独立目录。
 
+## SQLx 静态化规则（改任何 SQL / 查询前必读）
+
+**为什么有这一节**：2026-09-23–25 的静态化战役把 `dynamic_production` 从 1532 降到 **513**、
+`static` 从 61 升到 **956**（`.sqlx` 60 → **928** 条），但**最大的收获不是数字**：动态
+`.bind()` + `FromRow` 会把列名、列类型、可空性一路吞到运行期，而 `query!` / `query_as!`
+连的是**真库 catalog** —— 一旦改成宏，这些错误在**编译期**就被证伪。该战役因此挖出
+**57 条**既有缺陷，其中十余条是"真 schema 下必然失败"（列名写错、INSERT 漏 NOT NULL 列、
+两个已注册管理路由背靠一张**不存在的表**、`sent_at` 从不写入导致清理**恒删 0 行**、
+`WHERE $2 != '[]'` 对 `text[]` 在 **prepare 阶段**就报 22P02 导致整条 DAG 写入必败）。
+
+> **唯一登记处**：`docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md` **§7**。
+> 新发现的问题追加到那里；状态计数也以 §7 表为准。不要在别处再开第二份清单。
+
+本节规则的目标：**别再制造新的同类缺陷，也别让已经修好的面退化。**
+
+### R1　新增/修改 SQL 一律静态化（正向强制）
+
+任何新增或改动的查询必须用 `query!` / `query_as!` / `query_scalar!` / `query_file!`。
+**禁止新增** `sqlx::query(...)` / `query_as::<_, T>(...)` / `query_scalar(...)` 的
+**字面量**形态。
+
+- **判据/门禁**：`bash scripts/ci/check_sqlx_dynamic_ratio.sh`（生产动态不得增、静态不得减）
+  ＋ `cargo nextest run --test unit --features test-utils -E 'test(/sqlx_dynamic_literal_guard/)'`
+  （逐文件 literal 棘轮；新文件里写一个字面量也会红）。
+
+### R2　改了查询文本 ⇒ 同一提交必须带 `.sqlx` 增量
+
+任何查询**文本**变化（列清单、别名、`AS "col!"`、谓词）都要重跑
+`cargo sqlx prepare --workspace -- --all-features`，并把 `.sqlx/` 增量**一起提交**。
+
+- **为什么**：`.cargo/config.toml` 的 `[env] SQLX_OFFLINE = "true"` 让**所有**构建都走离线缓存
+  ⇒ 缺一条不是"某个用例失败"，而是**整个 CI 编译失败**。历史上正是"只提交 `.rs`、不提交
+  `.sqlx`"造成的（D-51）。
+- **判据/门禁**：`bash scripts/ci/check_sqlx_cache_fresh.sh --compile`（**权威**）。
+  `--static`（CI 现在跑的那档）只查"存在/非空/被 git 跟踪"，**抓不到缺条目**。
+- **feature 集必须用 `--all-features`**：用枚举 feature 会漏掉门控模块。实测漏掉
+  `privacy-ext` 时，静态化的 5 条不进缓存，`--all-features` 构建直接 6 个 error（C26）。
+
+### R3　宏内禁止 `RETURNING *` / `SELECT *`
+
+`query_as!` 不走 `FromRow`，星号必须展开为**显式列清单**；多列 E0560、少列 E0063。（D-22）
+
+### R4　可空性：对齐 / 收紧 schema / 写清理由，三选一
+
+列可空 ⇔ 字段 `Option<T>`。若确实需要 `AS "col!"` **断言非空**，必须在同一提交里说明
+**"谁保证非空"**；凡是能从结构上保证的（唯一写者恒写该列、语义本就非空），应当**直接收紧
+schema**（`NOT NULL DEFAULT …`），而不是长期留一个断言别名。
+
+- 正例：`key_backups.version`、`olm_sessions.message_index`、`rendezvous_session.content`
+  都是靠收紧 schema 才真正关掉的（D-46 / D-48 / D-49）。
+- **两个方向都会错**：sqlx 推**可空**而结构体非 `Option` ⇒ 用 `!` 或收紧 schema；
+  sqlx 推**非空**而语义可空 ⇒ 用 `AS "col?"`（LEFT JOIN 外侧列会被 PG 透传成 NOT NULL，D-20）。
+
+### R5　绑定表达式
+
+- `&Option<T>` 会被宏的 `ty_match` 拒绝（旧 `.bind()` 接受）⇒ 用 `.as_deref()` / `.as_ref()`（D-21）；
+- 数组参数元素类型写 `Vec<String>`（不要 `Vec<&str>`）；
+- `Option<i64>` 按值直接传。
+
+### R6　别名：`query_as!` 不认 `#[sqlx(rename)]` / `#[sqlx(skip)]`
+
+需要改名或跳过字段时，在 SQL 里显式写 `AS "字段名"`（D-19）。
+⚠️ **用了双引号别名的 raw string 必须是 `r#"…"#`**：写成 `r"…"` 开头 + `"#` 收尾会让宏报
+`no rules expected #`（实测一次踩出 9 处）。
+
+### R7　例外白名单（只减不增）
+
+只允许两类保留动态 SQL：**动态标识符**（`format!` 拼列清单 / 表名 / 排序方向）与
+**`Vec<Option<T>>` 数组参数**（sqlx 无该映射）。
+例外必须：① 在 §7 **有登记条目**；② **不新增 literal 动态站点**（literal 棘轮）；
+③ 优先按 §7.2 的方向回收（`Vec<Option<T>>` → `jsonb_to_recordset`，D-13 / D-14）。
+
+### R8　每批必须跑的门禁（四道，缺一不可）
+
+```bash
+# 1) 棘轮：生产动态不得增、静态不得减
+bash scripts/ci/check_sqlx_dynamic_ratio.sh
+# 2) 离线缓存完整性（权威 —— 不要只跑 --static）
+bash scripts/ci/check_sqlx_cache_fresh.sh --compile
+# 3) 两档 clippy（第二个入口才编译 integration 等 target，两档不可互相替代）
+SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils --locked -- -D warnings
+SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils --all-features --locked -- -D warnings
+# 4) 该模块的「真 baseline」DB 往返（不是纯构造/序列化用例）
+cargo nextest run -p <crate> --lib --features test-utils -E 'test(/<module>/)'
+# 收尾
+./scripts/check_fmt_ratchet.sh
+```
+
+**"schema 到底变没变"不要只在长期库上验证**：本机库可能带陈旧 `public`（见 R11），
+需要时应建**一次性库**并跑 `scripts/ci/prepare_test_db.sh` 复现 CI 口径。
+
+### R9　测试侧
+
+- 新增 DB 覆盖一律 `IsolatedTestPool::new(<真 baseline>)`，**禁止自建 schema**
+  —— 自建 schema 会与真 baseline 漂移，曾**结构性地**掩盖 D-46/D-47；
+- 断言"表/列存在"**必须锚定当前 schema**（`current_schema()`），不要用会回退到 `public`
+  的 `to_regclass($1)`（D-57）；
+- `tests/` 与 `#[cfg(test)]` 内的夹具按 D-13/D-14 保持动态（宏不进 `cargo sqlx prepare`，
+  `--all-targets` 会 E0432）。
+
+### R10　schema 变更的连带清单
+
+改 `migrations/` 后，同一批必须：
+
+① 复算并同步 `EXPECTED_BASELINE_FINGERPRINT`（**先用旧值自检哈希实现**，再取新值）；
+② 跑守卫 5：`cargo nextest run --test unit --features test-utils -E 'test(/test_isolation_unification/)'`；
+③ 同步**所有断言该 schema 的契约用例** —— 并发会话删表后漏改 3 条，直接让 CI 集成批次必红（D-56）；
+④ 跑 R8 的第 2、3 条（表/列变化会影响宏的类型推断与整份缓存）。
+
+### R11　门禁自身必须可信
+
+- **红着的门禁等于没有门禁**。新增/修改任何守卫、棘轮、脚本，都要**用故意制造的违规证明它
+  会失败**，并把该实验写进提交信息或 §8.x —— 本战役一共撞到 **5 次门禁失效**
+  （3 次红：D-50 / D-52 / D-56；2 次假绿：D-51 / D-57），其中两次是**长期存在**的。
+- 遇到与本批无关的**既有红门禁**：按"先修再转"**独立提交**修掉，不得绕过、不得加
+  `#[allow]` 放宽 lint。
+- 看到长期全绿 / 长期 0 违规的门禁，先怀疑它没在工作，而不是相信代码很干净（铁律 8）。
+
+### R12　先修再转，禁止夹带
+
+静态化是**行为保持**的机械重构。转换过程中撞到的既有缺陷（列名错、可空性不符、死代码、
+吞错）必须**独立提交**，禁止夹进转换批次 —— 否则"编译期把改动证伪"这条证据链就失效
+（§7.x 处置约定 1）。
+
+**转换前先查有没有死代码**：零调用者的语句先按铁律 1 删掉，再转换剩下的 —— C25/C27 都这么做，
+直接省掉一处转换与一次 `.sqlx` 往返。
+
+### R13　登记与计数唯一
+
+新发现的问题**追加到** `docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md` **§7**，
+不要在 baseline 脚本或别的文档里再开第二份清单；状态计数一律以 §7 表为准
+（已修 / 部分已修 / 未修 / 结构性保留 / 文档级），不要在别处另算一套 ——
+双份计数已导致过 D-16 型漂移。
+
 ## High-level architecture
 
 ### Runtime shape
