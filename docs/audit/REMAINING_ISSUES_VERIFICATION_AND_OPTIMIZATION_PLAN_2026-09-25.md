@@ -1347,6 +1347,29 @@ Task3 (reference hash) —— 仅做可行性验证，不接线
        故与"单一写入口定 event_id"同批做，避免为同一职责造第二份解析。
      ⇒ 在签名半边修好前，本仓产出的 `signatures` **不可能被对等端校验通过**；`hashes` 半边已不再
      是阻塞项。这也是第 3 步互操作门槛不可省的原因。
+
+     **签名半边逐站点清单（本轮实测，决定 plumb 方式）**：
+
+     | # | 站点 | 房间版本是否已在作用域 |
+     |---|---|---|
+     | 1 | `services/room/federation_broadcast.rs:163`（`sign_and_broadcast_event`，B1 新代码） | ❌ 需从 `event.room_id` 解析 |
+     | 2 | `web/routes/federation/pdu.rs:243` | ❌ 需解析 |
+     | 3 | `web/routes/federation/membership/invite.rs:237` | ✅ 变量 `room_version` 已在作用域 |
+     | 4 | `web/routes/federation/membership/mod.rs:225` | ❌ 需解析 |
+     | 5 | `services/room/membership/federation.rs:79`（join 模板） | ✅ `make_join_response.room_version`（⚠️ 缺省值硬编码 `"10"`） |
+     | 6 | `services/room/membership/federation.rs:346`（leave 模板） | ❌（`make_leave_response` 侧应可取） |
+     | 7 | `services/room/membership/federation.rs:473`（federation invite） | ❌（模板还是 `prev_events: []`/`depth: 0`） |
+
+     设计结论：**先收敛房间版本解析**——本仓现有三份近重复实现
+     （`room/state/info.rs:269`、`auth/power_levels.rs:97`、B1 的
+     `graph_metadata.rs:76 GraphMetadataSource::room_version`），第 2 步应只保留**一份**
+     带缓存的解析器（铁律 2），签名与 event_id 两条路径共用它；否则会给同一职责造出
+     第二/第三份解析。
+
+     附带新发现（同批自愈）：`whitelist` 之外，`invite.rs:222-231` 把
+     `"room_version"` 当作**顶层 PDU 字段**写进了被签名的事件 JSON。规范 PDU 无此字段；
+     上游签名是"先 redact"，redaction 会把这个未知顶层字段丢掉，因此签名半边改成
+     redact 后该字段不再进入签名字节（但也不应再发出去，第 2 步一并清理）。
   3. ✅ **v12 语义已裁定（2026-09-26，权威来源）**：**MSC4304 = Room Version 12**，
      以 v11 为基座并纳入 MSC4289（creator 特权）、**MSC4291（room ID = create 事件的哈希）**、
      MSC4297（state res v2.1）、MSC4307（`auth_events` 同房间校验）；
