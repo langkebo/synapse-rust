@@ -44,7 +44,7 @@
 > 已执行：Phase A/B/D + C1–C18（逐批数字与理由在
 > `scripts/ci/sqlx_dynamic_ratio_baseline` 各段）+ W1–W5（§8.6–§8.11）+
 > **C19a**（§8.12）+ **C19b**（§8.13）。§7 登记 47 条
-> （已修 34 / 部分已修 1 / 未修 2 / 结构性保留 7 / 文档级 3）。
+> （已修 34 / 部分已修 2 / 未修 1 / 结构性保留 7 / 文档级 3）。
 > **下一步见 §8.14。**
 
 ---
@@ -510,17 +510,17 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-44 | **产品缺陷（schema 不符 + 类型不符）**（**新登记**） | `synapse-e2ee/src/key_rotation/service.rs` 的 `get_rotation_status`（已修） | 同一表的三处 `last_rotation_ts` 不存在（必然 42703）；且该列是 **BIGINT 毫秒** 而 `RotationStatus.last_rotation` 是 `DateTime<Utc>`（动态 `Row::get` 把这个类型不符也一起吞掉了） | **已修**（C19a `cbeb0c75e`） | 有（`get_rotation_status` 走 `/_matrix/client/*/key_rotation/status`） | 已修：列名改 `rotated_at`，并在 SQL 内 `to_timestamp(MAX(rotated_at)::double precision / 1000.0)` 显式转 timestamptz；行结构改 `RotationStatusRow`（`sqlx::FromRow`）。响应形状由既有快照 `snapshot_key_rotation_status_shape` / `..._no_prior_rotation_shape` 守住，转换后仍绿 |
 | D-45 | **产品缺陷（绑定类型不符）**（**新登记**） | `synapse-e2ee/src/key_rotation/service.rs` 的 `log_rotation`（已修） | 把 `Utc::now()`（`DateTime<Utc>`）绑进 `key_rotation_log.rotated_at`（BIGINT 毫秒）⇒ 写路径必然类型错误，而动态 `.bind()` 让它一直潜伏 | **已修**（C19a `cbeb0c75e`） | 有（每次轮换都写审计日志） | 已修：改为 `current_timestamp_millis()` |
 | D-46 | **产品缺陷（schema 与读模型类型不符）**（**新登记**） | `synapse-e2ee/src/backup/models.rs`（`KeyBackupRow` @ `:55`、`BackupKeyInfo` @ `:181`）对 `migrations/00000000_unified_schema_v12.sql:837`（`key_backups.version`）与读投影 `COALESCE(backup_id_text, version::text) AS backup_id` | `key_backups.version` 与上述 COALESCE 投影在真 schema 下可空，而行结构体字段是 `i64`/`String` ⇒ 动态 `query_as::<_, T>` + `FromRow` 把可空性一路吞到运行期（这两列为 NULL 即 `UnexpectedNullError`）；C19b 转 `query_as!` 后被编译器一次证伪 **12 处 E0277** | **已修**（C19b，见 §8.13） | 有（`get_backup`/`get_all_backup_versions`/`get_backup_version`/`get_room_backup_keys` 等，均挂在 `/_matrix/client/*/room_keys/*`） | 已修：`version BIGINT NOT NULL`（唯一写者恒写该列，Rust 类型非 `Option`）+ 读投影 `AS "backup_id!"`（sqlx 对表达式推不出非空，同 §8.11 的 `AS "updated_ts!"`）；指纹同步 `a58420543eb97db2`、重建模板 |
-| D-47 | **覆盖缺口 / 门禁**（**新登记**） | `tests/integration/key_backup_storage_tests_migrated.rs:8-56`（自建 schema）；守卫 A `tests/unit/test_ddl_guard_tests.rs:22-27` 扫描面仅 `src/` | 该用例自建 `key_backups`/`backup_keys`，与真 baseline 至少两处漂移：缺 `fk_backup_keys_room`（真 schema `→ rooms(room_id) ON DELETE CASCADE`，P3-3）、`first_message_index` 可空（真 schema `NOT NULL DEFAULT 0`）。守卫 A 明示"`tests/` 不在扫描面内"、守卫 B 只查生产 INSERT ⇒ **无门禁能看见该漂移** | **未修**（2026-09-25 C19b 补覆盖时发现） | 无生产影响（纯夹具漂移）；但它使该用例对 D-46 与 room FK 前提结构性不可见 | 二选一：① 该用例切到 `IsolatedTestPool`（v12 模板）；② 扩守卫 A 扫描面到 `tests/**/*.rs` 并把既有自建站点补进 allowlist。未修原因：属 test-infra 决策，且 `tests/integration/*` 是并发写者（workbuddy）的在途区域 |
+| D-47 | **覆盖缺口 / 门禁**（**新登记**） | `tests/integration/key_backup_storage_tests_migrated.rs:8-56`（自建 schema）；守卫 A `tests/unit/test_ddl_guard_tests.rs:22-27` 扫描面仅 `src/` | 该用例自建 `key_backups`/`backup_keys`，与真 baseline 至少两处漂移：缺 `fk_backup_keys_room`（真 schema `→ rooms(room_id) ON DELETE CASCADE`，P3-3）、`first_message_index` 可空（真 schema `NOT NULL DEFAULT 0`）。守卫 A 明示"`tests/` 不在扫描面内"、守卫 B 只查生产 INSERT ⇒ **无门禁能看见该漂移** | **部分已修**（C19b 补覆盖时发现；① 已修 `4104037b0`，② 未做） | 无生产影响（纯夹具漂移）；但它使该用例对 D-46 与 room FK 前提结构性不可见 | ① **已做**：该用例切到 `IsolatedTestPool`（v12 模板，RED/GREEN 已入库）。② **未做**：扩守卫 A 扫描面到 `tests/**/*.rs` —— 预扫实测 **180 处自建 DDL / 43 文件**，需分批（详见 §7.2） |
 
 **状态计数（2026-09-25，C19b 后）**：已修 **34**
 （D-02/D-03/D-24/D-28/D-35 + W1 的 D-10/D-11/D-31/D-33/D-34 + D-36 守卫 +
 W2 的 D-05/D-07/D-08/D-09 + W3 的 D-29/D-32 + D-38 + W4 的 D-01/D-04/D-06/D-17/D-27/D-30 +
 D-12 + D-42 + W5 的 **D-15**（含六个子项）/**D-25**/**D-40**/**D-41** + C19a 的 **D-43**/**D-44**/**D-45** +
 C19b 的 **D-46**）；
-**部分已修 1**（D-37：吞错与死包装已修、跨 crate 两份实现的收敛未做）；
-未修 **2**（**D-39**：`search_index` 表删否；**D-47**：`tests/` 自建 schema 漂移无守卫）；结构性保留（有意）**7**（D-13/D-14/D-18–D-22）；
+**部分已修 2**（D-37：吞错与死包装已修、跨 crate 两份实现的收敛未做；D-47：① key_backup 用例上迁移模板已修 `4104037b0`、② 扩守卫 A 扫描面未做）；
+未修 **1**（**D-39**：`search_index` 表删否）；结构性保留（有意）**7**（D-13/D-14/D-18–D-22）；
 文档级已处置 **3**（D-16/D-23/D-26）。
-合计 **47** 条（D-01…D-47），校验：34 + 1 + 2 + 7 + 3 = **47**。
+合计 **47** 条（D-01…D-47），校验：34 + 2 + 1 + 7 + 3 = **47**。
 
 > 注：本行以下曾残留一段**过期计数**（「合计 36 条（D-01…D-36）」），与当时的实际条数矛盾
 > 且已被后续重写覆盖 —— 本次一并删除，避免出现第三份计数口径（D-35 型漂移）。
@@ -1558,14 +1558,32 @@ C19b 的 **D-46**）；
   若 baseline 的 NOT NULL / FK / UNIQUE 将来回退，它仍会全绿 —— 与 D-31 的
   "自建简化表掩盖约束"同型。
 - 可达性：无生产代码影响（纯测试夹具漂移）。
-- 状态：**未修**（登记）。修法二选一：
-  ① 把该集成用例切到 `IsolatedTestPool`（v12 模板）——与 C19b 新增的
-     `backup::storage::db_tests` 同口径，一次性消除全部漂移；
-  ② 扩守卫 A 的扫描面到 `tests/**/*.rs`，把既有自建 schema 站点补进
-     `scripts/ci/test_ddl_allowlist`（键 `path::item`，不含行号）。
-- 未修原因：属测试基础设施决策（方案 ② 会一次性暴露其它模块的同类站点，需逐条定策）；
-  且 `tests/integration/*` 是并发写者（workbuddy）的在途区域（交接文档 §2 明令
-  "不要碰它的在途文件"），本轮不越界改。
+- 状态：**部分已修**。
+  - ① **已修**（`4104037b0`）：`key_backup_storage_tests_migrated.rs` 改用
+    `synapse_common::test_isolation::IsolatedTestPool` + v12 baseline，整段自建 DDL 归零
+    （该文件现在 0 处 `CREATE/ALTER/DROP` DDL）。RED 自证：临时去掉 `rooms` 行后，
+    同一用例在 `upload_backup_key` 处失败（底层 `23503 fk_backup_keys_room`）——
+    旧的自建 schema 根本没有这条 FK，本会通过；还原后 1/1 绿。
+  - ② **未做（需分批）**：把守卫 A 的扫描面扩到 `tests/**/*.rs`。用
+    `scripts/ci/sqlx_query_census.py` 的**同一套词法机制**对 `tests/` 预扫（`force_test`），
+    实测 **180 处自建 DDL / 43 文件**：`tests/integration` 143、`tests/unit` 28、
+    `tests/performance` 9；谓词分布 `CREATE TABLE` 155 / `ALTER TABLE` 9 /
+    `CREATE INDEX` 7 / `DROP SCHEMA` 7 / `CREATE SCHEMA` 2。必须分两类定策：
+    - **(a) DDL 机制自身的用例**（`migration_search_path_tests` 8、
+      `migration_consistency_tests` 4、`template_fingerprint_inputs_tests` 4、
+      `test_ddl_guard_tests` 4、`appservice_scheduler_perf_tests` 9 等）——自建 DDL 是
+      被测对象，应像 `scripts/ci/test_ddl_allowlist` 里隔离机制的条目那样**进 allowlist
+      并写明理由**；
+    - **(b) 自建简化 schema 的 `*_migrated.rs` 服务/存储用例**
+      （`sync_service_tests_migrated` 15、`sliding_sync_service_tests_migrated` 14、
+      `to_device_sync_tests_migrated` 13、`room_service_tests_migrated` 11、
+      `refresh_token`/`state_groups`/`thread_storage` 各 6 …）——**D-36 家族的真目标**，
+      应逐文件迁到 `IsolatedTestPool`（每个文件一提交）。
+    建议实施顺序：先给 census 加 `tests/` 扫描模式 + 守卫 A 的第二张 allowlist
+    （按 (a)/(b) 分组种子化），让"**新增**自建 DDL 立即变红"先落地；再逐文件消 (b)。
+- 未做原因：② 是一次波及 43 个文件的结构性改动（且 (b) 类需要逐个用例确认是否真有
+  简化理由），`tests/integration/*` 又是并发写者（workbuddy）的在途区域；本轮只做
+  可独立验收的 ①。
 - 附带观察（**未**单独登记）：`fk_backup_keys_room ... ON DELETE CASCADE` 使
   E2EE 房间密钥备份的生命周期跟随房间 —— 生产可达路径是管理端清理空房间
   （`synapse-storage/src/room/admin.rs:74` 的 `DELETE FROM rooms WHERE room_id = ANY($1)`），
@@ -2240,14 +2258,18 @@ fmt 债务 0。
 
 #### A. 先决决策项（阻塞型，需产品/架构拍板）
 
-1. **D-47（覆盖缺口）** —— 二选一：
-   ① 把 `tests/integration/key_backup_storage_tests_migrated.rs` 切到 `IsolatedTestPool`
-   （小改，立即消除该模块的夹具漂移）；
-   ② 扩守卫 A（`tests/unit/test_ddl_guard_tests.rs`）扫描面到 `tests/**/*.rs`，
-   把既有自建 schema 站点补进 `scripts/ci/test_ddl_allowlist`（系统性，但会一次性暴露
-   其它模块的同类站点，需逐条定策）。
-   **建议先 ① 后 ②**：①可独立验收；②宜作为单独一批（先跑一次扫描看清单有多大再定）。
-   ⚠️ `tests/integration/*` 是并发写者（workbuddy）的在途区域，动手前先确认其空闲。
+1. **D-47（覆盖缺口）** —— ① **已完成**（`4104037b0`）：
+   `key_backup_storage_tests_migrated.rs` 切到 `IsolatedTestPool`，RED/GREEN 已入库。
+   ② **待办（已预扫，需分批）**：扩守卫 A 扫描面到 `tests/**/*.rs` —— 用 census 的同一套
+   词法机制预扫实测 **180 处自建 DDL / 43 文件**（`tests/integration` 143、`tests/unit` 28、
+   `tests/performance` 9）。**建议分两步**：
+   - **先结构性落地**：给 `scripts/ci/sqlx_query_census.py` 加 `tests/` 扫描模式 +
+     守卫 A 第二张 allowlist（按 (a) DDL 机制自身的用例 / (b) 自建简化 schema 的
+     `*_migrated.rs` 分组种子化），让"**新增**自建 DDL 立即变红"先生效；
+   - **再逐文件消 (b)**：`sync_service_tests_migrated` 15、`sliding_sync_service_tests_migrated` 14、
+     `to_device_sync_tests_migrated` 13、`room_service_tests_migrated` 11 … 每文件一提交
+     迁到 `IsolatedTestPool`。
+   ⚠️ `tests/integration/*` 是并发写者（workbuddy）的在途区域，动手前确认其空闲。
 2. **`fk_backup_keys_room` 的级联语义** —— 真 schema 让
    `backup_keys.room_id → rooms(room_id) ON DELETE CASCADE`（P3-3），于是管理端清理空房间
    （`synapse-storage/src/room/admin.rs:74` 的 `DELETE FROM rooms WHERE room_id = ANY($1)`）
