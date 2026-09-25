@@ -1,6 +1,6 @@
 # synapse-rust 路由契约（Route Contract）
 
-> 自动生成于 2026-09-25，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含 `derived_route_table.inc.rs`）派生覆盖。
+> 自动生成于 2026-09-26，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含 `derived_route_table.inc.rs`）派生覆盖。
 >
 > 本文件是后端 HTTP 契约的**事实来源之一**（机器侧权威为 `derived_routes.rs` 生成的 `RouteLedger`，启动时校验、集成测试 PATCH 探测）。人工文档（INDEX.md / API_COVERAGE_REPORT.md）须与之保持一致。
 >
@@ -8,7 +8,7 @@
 
 ## 总览
 
-- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1135**
+- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1137**
 - 含路由注册的模块文件：**65**
 - `derived_routes.rs` 中的 `registered_by` 标签：**73**
 - 非默认 profile 门控的路由（`default` 构建不注册）：**19**（worker **11** · oidc **8**，明细见「运行时 Profile 门控」）
@@ -69,7 +69,7 @@
 **逐模块清单里的两种标注**（都从派生表反解，不是人工维护）：
 
 - 〔仅 `X` profile〕 —— 该路由**只**在 profile `X` 下注册，默认构建里不存在（即上表成员）；
-- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1137 行去重为 1135 条的来源。
+- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1139 行去重为 1137 条的来源。
 
 当前共 **2** 条双档注册：
 
@@ -1289,20 +1289,20 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_matrix/federation/v2/send_join/{room_id}/{event_id}`
 - `PUT` `/_matrix/federation/v2/send_leave/{room_id}/{event_id}`
 
-### 装配 (Assembly) （106 条）
+### 装配 (Assembly) （108 条）
 
-#### `assembly.rs` — 106 条 ✅派生表
+#### `assembly.rs` — 108 条 ✅派生表
 
 - `DELETE` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device`
 - `DELETE` `/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}`
 - `DELETE` `/_matrix/client/v3/directory/room/{room_alias}`
 - `DELETE` `/_matrix/client/v3/directory/room/{room_id}/alias/{room_alias}`
+- `DELETE` `/_matrix/client/v3/profile/{user_id}/{key_name}`
 - `GET` `/`
 - `GET` `/.well-known/matrix/client`
 - `GET` `/.well-known/matrix/server`
 - `GET` `/.well-known/matrix/support`
 - `GET` `/_health`
-- `GET` `/_matrix/client/unstable/org.matrix.msc2965/auth_issuer`
 - `GET` `/_matrix/client/unstable/org.matrix.msc2965/auth_metadata`
 - `GET` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device`
 - `GET` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/status`
@@ -1330,6 +1330,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/client/v3/profile/{user_id}`
 - `GET` `/_matrix/client/v3/profile/{user_id}/avatar_url`
 - `GET` `/_matrix/client/v3/profile/{user_id}/displayname`
+- `GET` `/_matrix/client/v3/profile/{user_id}/{key_name}`
 - `GET` `/_matrix/client/v3/publicRooms`
 - `GET` `/_matrix/client/v3/pushrules/`
 - `GET` `/_matrix/client/v3/pushrules/global/`
@@ -1395,6 +1396,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_matrix/client/v3/directory/room/{room_id}/alias/{room_alias}`
 - `PUT` `/_matrix/client/v3/profile/{user_id}/avatar_url`
 - `PUT` `/_matrix/client/v3/profile/{user_id}/displayname`
+- `PUT` `/_matrix/client/v3/profile/{user_id}/{key_name}`
 - `PUT` `/_matrix/client/v3/rooms/{room_id}/send/m.call.answer/{txn_id}`
 - `PUT` `/_matrix/client/v3/rooms/{room_id}/send/m.call.candidates/{txn_id}`
 - `PUT` `/_matrix/client/v3/rooms/{room_id}/send/m.call.hangup/{txn_id}`
