@@ -2010,11 +2010,26 @@
 # 该文件三张表的可空列与结构体 Option 字段一一对应 ⇒ 零 `AS "col!"` 覆盖；
 # 8 处 `&Option<String>` 绑定按 D-21 改 `.as_deref()`。
 # `BASELINE_DYNAMIC_TEST_INFRA` 保持 704（复用既有 `db_tests`，未新增夹具动态 SQL）。
-BASELINE_DYNAMIC_PRODUCTION=558
-BASELINE_DYNAMIC_TEST_INFRA=704
-BASELINE_STATIC=917
+# ── 2026-09-25 C25 收紧（`synapse-e2ee/src/olm/storage.rs` 12 处宏化 + 删 4 处死 DDL）─
+# dynamic_production 558 → **541**（−17 = olm 转换 12 + olm 删 4 处死 DDL + privacy 删 1 处），
+# static 917 → **929**（+12）、dynamic 1262 → **1247**（= 541 + 706）。census 实测
+# 541 / 706 / 929。同批还删掉 `synapse-storage/src/privacy.rs` 的 1 处死 DDL 与
+# `db_tests` 里 1 处恒 no-op 的 `ALTER TABLE … ADD COLUMN IF NOT EXISTS`。
+#   · nullability 面：`olm_sessions.message_index` 是 `INTEGER DEFAULT 0`（无 NOT NULL）
+#     而行结构体字段是 `i32` ⇒ 三处读投影写 `AS "message_index!"`；同列的另一面是
+#     `u32`（模型）↔ `i32`（行）双向 `as` 转换。**已登记 D-49**（潜伏项：无写者可产生
+#     NULL，schema 收紧待 baseline 迁移在途写者落地）。
+#   · `olm_accounts` 的两个 `BOOLEAN DEFAULT FALSE`（无 NOT NULL）与 `Option<bool>`
+#     字段已一致，无需覆盖。
+# `dynamic_test` 704 → **706**（+2 净）：本批为**此前零 DB 覆盖**的 `olm/storage.rs`
+# 新增 `db_tests` 三处夹具动态 SQL（`olm_accounts` 计数、NULL 标志位 INSERT、
+# D-49 负例显式 NULL INSERT），同时删掉 `privacy.rs` 那处恒 no-op 的 ALTER（−1）——
+# `#[cfg(test)]` 内的宏不进 `cargo sqlx prepare`，按 D-13/D-14 必须保持动态。
+BASELINE_DYNAMIC_PRODUCTION=541
+BASELINE_DYNAMIC_TEST_INFRA=706
+BASELINE_STATIC=929
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1262
+BASELINE_DYNAMIC=1247
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #
