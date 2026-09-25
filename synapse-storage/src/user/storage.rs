@@ -692,15 +692,14 @@ impl UserStorage {
     }
 
     /// See [`user_exists`].
+    ///
+    /// ⚠️ **Upstream 1.161 (#20172)**: "this now **succeeds for existing (e.g. deactivated) users**
+    /// and returns a 404 error if the user does not exist"
+    /// ⇒ Removed `AND is_deactivated = FALSE` filter so deactivated users are still found.
     pub async fn user_exists(&self, user_id: &str) -> Result<bool, sqlx::Error> {
-        let exists = sqlx::query_scalar!(
-            r#"
-            SELECT 1 AS "exists!" FROM users WHERE user_id = $1 AND is_deactivated = FALSE LIMIT 1
-            "#,
-            user_id
-        )
-        .fetch_optional(&*self.pool)
-        .await?;
+        let exists = sqlx::query_scalar!(r#"SELECT 1 FROM users WHERE user_id = $1 LIMIT 1"#, user_id)
+            .fetch_optional(&*self.pool)
+            .await?;
         Ok(exists.is_some())
     }
 
