@@ -94,46 +94,6 @@ pub struct CrossSigningKeys {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-/// The `DeviceKeyInfo` type.
-pub struct DeviceKeyInfo {
-    /// The `user_id` field.
-    /// The `device_id` field.
-    /// The `key_type` field.
-    /// The `algorithm` field.
-    /// The `public_key` field.
-    /// The `signatures` field.
-    /// The `created_ts` field.
-    pub user_id: String,
-    /// The `device_id` field.
-    /// The `key_type` field.
-    /// The `algorithm` field.
-    /// The `public_key` field.
-    /// The `signatures` field.
-    /// The `created_ts` field.
-    pub device_id: String,
-    /// The `key_type` field.
-    /// The `algorithm` field.
-    /// The `public_key` field.
-    /// The `signatures` field.
-    /// The `created_ts` field.
-    pub key_type: String,
-    /// The `algorithm` field.
-    /// The `public_key` field.
-    /// The `signatures` field.
-    /// The `created_ts` field.
-    pub algorithm: String,
-    /// The `public_key` field.
-    /// The `signatures` field.
-    /// The `created_ts` field.
-    pub public_key: String,
-    /// The `signatures` field.
-    /// The `created_ts` field.
-    pub signatures: serde_json::Value,
-    /// The `created_ts` field.
-    pub created_ts: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 /// The `SignatureUploadRequest` type.
 pub struct SignatureUploadRequest {
     /// The `user_id` field.
