@@ -792,7 +792,14 @@ git diff --cached --stat && git commit -m "fix(federation): persist local event 
 - [x] ~~Step 3: 断言不再需要 `membership/mod.rs:238` 的专用回填~~ → **不适用**：该处回填写的是**本机**签名（F-03 本地签名），与源服务器材料是两码事，保留
 - [x] Step 4: 变异自证 + 门禁同 Task 1 Step 8/9 — 已完成：`signature_material` 2 变异（删 `sha256` 校验 / 删空签名校验）各自转红；fmt/clippy 通过
 
-#### Task 3（决策项，**不建议本轮动手**）：`event_id` 改 v4+ reference hash —— ⬜ **未做**（main 仍为 `$<ts>$<b64>:<server>`）
+#### Task 3（决策项，原"不建议本轮动手"）：`event_id` 改 v4+ reference hash —— 🟡 **第 1 步已完成**（`64ffc13a6`，尚未接线；main 仍为 `$<ts>$<b64>:<server>`）
+
+> - [x] **第 1 步（纯函数 + 已知答案向量）** — ✅ 完成，见 §6.6"第 1 步执行结果"：`synapse-common/src/event_id.rs`
+>   + `redaction::{redaction_rules, redact_event}`；上游 Synapse release-v1.161 的 v10/v3 两个已知答案
+>   向量逐字节通过，24/24 绿，3 个变异自证均转红，fmt/clippy exit 0。
+> - [ ] **第 2 步（接线 v4+）** — ⬜ 未开始；**前置**：既有非版本化 redaction 表迁移（铁律 2）、
+>   `compute_event_content_hash` 先 redact 后哈希的语义修正、v12（MSC4239 vs 上游 MSC4291）对齐——三项见 §6.6。
+> - [ ] **第 3 步（互操作门槛）** — ⬜ 未开始（docker dev stack + 对端 Synapse）。
 
 **为什么单列**：这是**语义级**改动，影响事件 ID 生成、事件去重、`stream_ordering` 下游、
 以及所有以 `event_id` 为外键/缓存的路径（>40 处生成点 + 全库检索）。改动正确性依赖
@@ -1104,7 +1111,7 @@ Task3 (reference hash) —— 仅做可行性验证，不接线
 | **U-10** ✅**已决策：真填值 + 反向守卫（§6.5）** | 低 | T12 ledger `query_params` | `route_ledger.rs:84,107` 定义仍在；`with_query_params(` 调用点 **0** | 二选一：删字段（`SCHEMA_VERSION` 4→5 + SDK pin + fixture）或真填值（与 Task 8 合并天然产生消费者） |
 | **U-11** | 低 | T13 v12/v13 文档迁移 | `room_versions.rs:114-115` 仍 `stable_parse_only("12"/"13")`（设计使然） | 只需把条目移入"已知取舍" + 补 `can_create == false` 守卫 |
 | **U-12** | 低 | 1c storage 单写入口收敛 | `create.rs` 仍有 **4** 条 `INSERT INTO events`（`:14`/`:83`/`:192`/`:314`） | 反冗余铁律 2；抽私有 helper，公开签名不变 |
-| **U-13** ✅**已决策：立项，分三步（§6.6）** | 低 | Task 3 `event_id` reference hash | `crypto.rs:153` 仍 `format!("${}${}:{}", …)` | 决策项（§2.1 残余③）；只做已知答案测试、不接线 |
+| **U-13** ✅**已决策：立项，分三步（§6.6）**／🟡 **第 1 步已落地（`64ffc13a6`）** | 低 | Task 3 `event_id` reference hash | `crypto.rs:153` 仍 `format!("${}${}:{}", …)`（第 2 步才接线） | 第 1 步已完成：按版本 redaction + `compute_reference_hash`/`compute_event_id` 纯函数，上游 v10/v3 已知答案向量通过；第 2 步前置 3 项见 §6.6 |
 | **U-14** | 中 | **R-3** 跨仓客户端接线 | `CryptoDeviceAdapter.ts` **不在本仓**（`find` 为空） | matrix-sdk-fork 侧改用 `m.key.verification.*` to-device；本仓无法闭合 |
 | **U-15** | 低 | 审计文档同步残余 | `PROJECT_REMAINING_ISSUES_2026-09-14.md` 的 §21.1/§22.3 仍把 `auth_issuer`、`dag.rs`、`search_index`、Content Scanner 列为"未修" | 逐条标注（这些已由 main 或本次复核推翻），避免同一事实第三次漂移 |
 
