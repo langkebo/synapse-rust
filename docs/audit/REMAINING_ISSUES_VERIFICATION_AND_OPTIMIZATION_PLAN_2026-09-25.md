@@ -1111,6 +1111,24 @@ Task3 (reference hash) —— 仅做可行性验证，不接线
 
 ## 5. 未完成任务清单（2026-09-25 同步；main @ `3b1d28598`）
 
+> **本轮（2026-09-26，`opt/consolidated`）新增登记 U-16、U-17（均在 §0.4 有实测证据）**：
+>
+> - **U-16（新，已修逻辑）｜`AuthEventBuilder` 是"第二份实现 + 死代码"，且有一处必错查找**
+>   `synapse-services/src/room/auth.rs`（并发会话提交 `11e519958`）全仓**零生产调用点**
+>   （只有自身 doc/测试），而 B1 已按规范实现 `room::state::auth_events::select_auth_events`
+>   并被 `lifecycle/creation_graph.rs:69` 使用 ⇒ 违**铁律 1/2**。
+>   其实现在 `opt/consolidated` 上实测**红了两条自带用例**：`build_auth_events` 用
+>   `format!("@{creator_user_id}")` 查 `m.room.member`，而按模块文档示例与测试该参数是完整 MXID
+>   ⇒ 实际查 `@@user:server`，creator 的成员认证事件被静默丢弃（4→3、2→1）。
+>   本轮按 1 行逻辑修复并落地（`b83cbcaac`，含变异自证与 clippy/fmt），使 lib 门禁转绿；
+>   **正确终局是把该模块删掉、统一到 `select_auth_events`**（其 `_event_type`/`_state_key`
+>   根本未参与选择，而规范要求按事件类型选择）——因属并发会话在途 v12 工作，未擅自删除。
+>
+> - **U-17（新）｜本机 `public` schema 未按 baseline 播种会让 `schema_validator::db_tests` 假红**
+>   已在 §0.4 记录：该文件自己的 doc 即说明"CI 的 public 是新播种的；本地落后则此文件会红"。
+>   复跑 lib 前需 `TARGET_SCHEMA=public RESET_PUBLIC=0 scripts/init_test_public_schema.sh`
+>   （**不要**用 `RESET_PUBLIC=1`：脚本头部记载 `DROP SCHEMA public CASCADE` 会级联破坏模板索引）。
+
 > 判据列是本轮在 **main 工作树实测**的命令/结果，不是沿用旧结论。
 > **归属**：`待合并` = 已在 `fix/local-event-graph-metadata` 完成且验证过；`main` = 尚未动。
 > 原 13 项报项现状：**已修 2**（`search_index`、Client Scanner 接线）／**分支已修待合并 1**（P0 联邦 PDU）／
