@@ -29,6 +29,7 @@ impl MediaQuotaService {
                     current_usage: 0,
                     quota_limit: max_file_size,
                     usage_percent: 0.0,
+                    rejection: Some(QuotaRejection::FileTooLarge),
                 });
             }
         }
@@ -43,6 +44,7 @@ impl MediaQuotaService {
                         current_usage: server_quota.current_storage_bytes,
                         quota_limit: max_storage,
                         usage_percent: (server_quota.current_storage_bytes as f64 / max_storage as f64) * 100.0,
+                        rejection: Some(QuotaRejection::StorageExceeded),
                     });
                 }
             }

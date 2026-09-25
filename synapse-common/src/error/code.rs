@@ -92,6 +92,10 @@ pub enum MatrixErrorCode {
     ContentScanFailed,
     /// M_CONTENT_SCAN_DISABLED: The content scanner is disabled (MSC3806).
     ContentScanDisabled,
+    /// M_KEY_TOO_LARGE: A profile field name exceeds the maximum length (MSC4133).
+    KeyTooLarge,
+    /// M_PROFILE_TOO_LARGE: The stored profile would exceed its size limit (MSC4133).
+    ProfileTooLarge,
 }
 
 impl MatrixErrorCode {
@@ -138,6 +142,8 @@ impl MatrixErrorCode {
             Self::BadPagination => "M_BAD_PAGINATION",
             Self::ContentScanFailed => "M_CONTENT_SCAN_FAILED",
             Self::ContentScanDisabled => "M_CONTENT_SCAN_DISABLED",
+            Self::KeyTooLarge => "M_KEY_TOO_LARGE",
+            Self::ProfileTooLarge => "M_PROFILE_TOO_LARGE",
         }
     }
 
@@ -185,6 +191,10 @@ impl MatrixErrorCode {
             Self::BadPagination => StatusCode::BAD_REQUEST,
             Self::ContentScanFailed => StatusCode::BAD_GATEWAY,
             Self::ContentScanDisabled => StatusCode::NOT_IMPLEMENTED,
+            // Both are "the input was invalid" (spec: HTTP 400), but with a
+            // specific errcode so clients can tell them apart from M_BAD_JSON.
+            Self::KeyTooLarge => StatusCode::BAD_REQUEST,
+            Self::ProfileTooLarge => StatusCode::BAD_REQUEST,
         }
     }
 
@@ -236,6 +246,8 @@ impl MatrixErrorCode {
             "M_BAD_PAGINATION" => Some(Self::BadPagination),
             "M_CONTENT_SCAN_FAILED" => Some(Self::ContentScanFailed),
             "M_CONTENT_SCAN_DISABLED" => Some(Self::ContentScanDisabled),
+            "M_KEY_TOO_LARGE" => Some(Self::KeyTooLarge),
+            "M_PROFILE_TOO_LARGE" => Some(Self::ProfileTooLarge),
             _ => None,
         }
     }

@@ -123,9 +123,11 @@ fn test_quota_check_result() {
         current_usage: 524288000,
         quota_limit: 1073741824,
         usage_percent: 48.8,
+        rejection: None,
     };
     assert!(result.is_allowed);
     assert!(result.reason.is_none());
+    assert!(result.rejection.is_none(), "an allowed result must not name a rejection");
     assert!(result.usage_percent < 100.0);
 }
 
@@ -137,9 +139,15 @@ fn test_quota_check_result_exceeded() {
         current_usage: 1073741824,
         quota_limit: 1073741824,
         usage_percent: 100.0,
+        rejection: Some(QuotaRejection::StorageExceeded),
     };
     assert!(!result.is_allowed);
     assert!(result.reason.is_some());
+    assert_eq!(result.rejection, Some(QuotaRejection::StorageExceeded));
+    // The rejection is part of the wire shape (serde snake_case), so a consumer
+    // can branch on it instead of matching the human message.
+    let json = serde_json::to_value(&result).expect("serialise");
+    assert_eq!(json["rejection"], serde_json::json!("storage_exceeded"));
 }
 
 #[test]
