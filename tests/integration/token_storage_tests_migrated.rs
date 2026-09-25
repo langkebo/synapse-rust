@@ -9,66 +9,6 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS users (
-            user_id TEXT NOT NULL PRIMARY KEY,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT,
-            is_admin BOOLEAN DEFAULT FALSE,
-            is_guest BOOLEAN DEFAULT FALSE,
-            created_ts BIGINT NOT NULL,
-            deactivated BOOLEAN DEFAULT FALSE,
-            displayname TEXT,
-            avatar_url TEXT
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create users table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS access_tokens (
-            id BIGSERIAL PRIMARY KEY,
-            token_hash TEXT NOT NULL UNIQUE,
-            token TEXT,
-            user_id TEXT NOT NULL,
-            device_id TEXT,
-            created_ts BIGINT NOT NULL,
-            expires_at BIGINT,
-            last_used_ts BIGINT,
-            user_agent TEXT,
-            ip_address TEXT,
-            is_revoked BOOLEAN DEFAULT FALSE
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create access_tokens table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS token_blacklist (
-            id BIGSERIAL PRIMARY KEY,
-            token_hash TEXT NOT NULL UNIQUE,
-            token TEXT,
-            token_type TEXT DEFAULT 'access',
-            user_id TEXT,
-            is_revoked BOOLEAN DEFAULT TRUE,
-            reason TEXT,
-            expires_at BIGINT
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create token_blacklist table");
-}
-
 async fn insert_test_user(pool: &Arc<sqlx::PgPool>, user_id: &str, suffix: u64) {
     sqlx::query(
         "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
@@ -84,7 +24,6 @@ async fn insert_test_user(pool: &Arc<sqlx::PgPool>, user_id: &str, suffix: u64) 
 #[tokio::test]
 async fn test_create_token_with_device() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -109,7 +48,6 @@ async fn test_create_token_with_device() {
 #[tokio::test]
 async fn test_create_token_without_device() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -129,7 +67,6 @@ async fn test_create_token_without_device() {
 #[tokio::test]
 async fn test_get_token_after_create() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -154,7 +91,6 @@ async fn test_get_token_after_create() {
 #[tokio::test]
 async fn test_get_token_returns_none_for_missing() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let result = storage.get_token("nonexistent_token_value").await.unwrap();
@@ -164,7 +100,6 @@ async fn test_get_token_returns_none_for_missing() {
 #[tokio::test]
 async fn test_get_token_excludes_revoked() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -183,7 +118,6 @@ async fn test_get_token_excludes_revoked() {
 #[tokio::test]
 async fn test_get_user_tokens() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -206,7 +140,6 @@ async fn test_get_user_tokens() {
 #[tokio::test]
 async fn test_get_user_tokens_returns_empty_for_unknown_user() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let tokens = storage.get_user_tokens("@nonexistent:localhost").await.unwrap();
@@ -216,7 +149,6 @@ async fn test_get_user_tokens_returns_empty_for_unknown_user() {
 #[tokio::test]
 async fn test_delete_user_token_by_id() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -240,7 +172,6 @@ async fn test_delete_user_token_by_id() {
 #[tokio::test]
 async fn test_delete_token() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -262,7 +193,6 @@ async fn test_delete_token() {
 #[tokio::test]
 async fn test_delete_token_is_soft_delete() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -282,7 +212,6 @@ async fn test_delete_token_is_soft_delete() {
 #[tokio::test]
 async fn test_delete_user_tokens() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -303,7 +232,6 @@ async fn test_delete_user_tokens() {
 #[tokio::test]
 async fn test_delete_user_tokens_skips_already_revoked() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -327,7 +255,6 @@ async fn test_delete_user_tokens_skips_already_revoked() {
 #[tokio::test]
 async fn test_delete_device_tokens() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -357,7 +284,6 @@ async fn test_delete_device_tokens() {
 #[tokio::test]
 async fn test_delete_user_device_tokens() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -387,7 +313,6 @@ async fn test_delete_user_device_tokens() {
 #[tokio::test]
 async fn test_delete_user_tokens_except_device() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -418,7 +343,6 @@ async fn test_delete_user_tokens_except_device() {
 #[tokio::test]
 async fn test_token_exists_true() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -435,7 +359,6 @@ async fn test_token_exists_true() {
 #[tokio::test]
 async fn test_token_exists_false_for_missing() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let exists = storage.token_exists("nonexistent_token").await.unwrap();
@@ -445,7 +368,6 @@ async fn test_token_exists_false_for_missing() {
 #[tokio::test]
 async fn test_token_exists_false_for_revoked() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -464,7 +386,6 @@ async fn test_token_exists_false_for_revoked() {
 #[tokio::test]
 async fn test_is_token_revoked_true() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -483,7 +404,6 @@ async fn test_is_token_revoked_true() {
 #[tokio::test]
 async fn test_is_token_revoked_false_for_active() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -500,7 +420,6 @@ async fn test_is_token_revoked_false_for_active() {
 #[tokio::test]
 async fn test_is_token_revoked_false_for_missing() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let revoked = storage.is_token_revoked("missing_token").await.unwrap();
@@ -510,7 +429,6 @@ async fn test_is_token_revoked_false_for_missing() {
 #[tokio::test]
 async fn test_add_to_blacklist_and_is_in_blacklist() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -530,7 +448,6 @@ async fn test_add_to_blacklist_and_is_in_blacklist() {
 #[tokio::test]
 async fn test_add_to_blacklist_without_reason() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -547,7 +464,6 @@ async fn test_add_to_blacklist_without_reason() {
 #[tokio::test]
 async fn test_add_hash_to_blacklist() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -568,7 +484,6 @@ async fn test_add_hash_to_blacklist() {
 #[tokio::test]
 async fn test_add_to_blacklist_idempotent() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -587,7 +502,6 @@ async fn test_add_to_blacklist_idempotent() {
 #[tokio::test]
 async fn test_is_in_blacklist_false_for_missing() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let blacklisted = storage.is_in_blacklist("not_blacklisted_token").await.unwrap();
@@ -597,7 +511,6 @@ async fn test_is_in_blacklist_false_for_missing() {
 #[tokio::test]
 async fn test_cleanup_expired_blacklist_entries() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -625,7 +538,6 @@ async fn test_cleanup_expired_blacklist_entries() {
 #[tokio::test]
 async fn test_cleanup_expired_blacklist_keeps_valid_entries() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -653,7 +565,6 @@ async fn test_cleanup_expired_blacklist_keeps_valid_entries() {
 #[tokio::test]
 async fn test_cleanup_expired_tokens() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -679,7 +590,6 @@ async fn test_cleanup_expired_tokens() {
 #[tokio::test]
 async fn test_cleanup_expired_tokens_keeps_no_expiry() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -699,7 +609,6 @@ async fn test_cleanup_expired_tokens_keeps_no_expiry() {
 #[tokio::test]
 async fn test_delete_user_tokens_does_not_affect_other_users() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix_a = unique_id();
@@ -724,7 +633,6 @@ async fn test_delete_user_tokens_does_not_affect_other_users() {
 #[tokio::test]
 async fn test_delete_user_tokens_except_device_with_no_other_devices() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -746,7 +654,6 @@ async fn test_delete_user_tokens_except_device_with_no_other_devices() {
 #[tokio::test]
 async fn test_multiple_tokens_same_device() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();

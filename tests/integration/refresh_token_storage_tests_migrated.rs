@@ -9,125 +9,6 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS users (
-            user_id TEXT NOT NULL PRIMARY KEY,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT,
-            is_admin BOOLEAN DEFAULT FALSE,
-            is_guest BOOLEAN DEFAULT FALSE,
-            created_ts BIGINT NOT NULL,
-            deactivated BOOLEAN DEFAULT FALSE,
-            displayname TEXT,
-            avatar_url TEXT
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create users table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS refresh_tokens (
-            id BIGSERIAL PRIMARY KEY,
-            token_hash TEXT NOT NULL UNIQUE,
-            user_id TEXT NOT NULL,
-            device_id TEXT,
-            access_token_id TEXT,
-            scope TEXT,
-            created_ts BIGINT NOT NULL,
-            expires_at BIGINT,
-            last_used_ts BIGINT,
-            use_count INTEGER DEFAULT 0,
-            is_revoked BOOLEAN DEFAULT FALSE,
-            revoked_reason TEXT,
-            client_info JSONB,
-            ip_address TEXT,
-            user_agent TEXT
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create refresh_tokens table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS refresh_token_usage (
-            id BIGSERIAL PRIMARY KEY,
-            refresh_token_id BIGINT NOT NULL,
-            user_id TEXT NOT NULL,
-            old_access_token_id TEXT,
-            new_access_token_id TEXT,
-            used_ts BIGINT NOT NULL,
-            ip_address TEXT,
-            user_agent TEXT,
-            is_success BOOLEAN DEFAULT TRUE,
-            error_message TEXT
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create refresh_token_usage table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS refresh_token_families (
-            id BIGSERIAL PRIMARY KEY,
-            family_id TEXT NOT NULL UNIQUE,
-            user_id TEXT NOT NULL,
-            device_id TEXT,
-            created_ts BIGINT NOT NULL,
-            last_refresh_ts BIGINT,
-            refresh_count INTEGER DEFAULT 0,
-            is_compromised BOOLEAN DEFAULT FALSE,
-            compromised_at BIGINT
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create refresh_token_families table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS refresh_token_rotations (
-            id BIGSERIAL PRIMARY KEY,
-            family_id TEXT NOT NULL,
-            old_token_hash TEXT,
-            new_token_hash TEXT NOT NULL,
-            rotated_ts BIGINT NOT NULL,
-            rotation_reason TEXT
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create refresh_token_rotations table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS token_blacklist (
-            id BIGSERIAL PRIMARY KEY,
-            token_hash TEXT NOT NULL UNIQUE,
-            token TEXT,
-            token_type TEXT DEFAULT 'access',
-            user_id TEXT,
-            is_revoked BOOLEAN DEFAULT TRUE,
-            reason TEXT,
-            expires_at BIGINT
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create token_blacklist table");
-}
-
 fn make_request(suffix: u64, user_id: &str, expires_at: i64) -> CreateRefreshTokenRequest {
     CreateRefreshTokenRequest {
         token_hash: format!("hash_{suffix}"),
@@ -145,7 +26,6 @@ fn make_request(suffix: u64, user_id: &str, expires_at: i64) -> CreateRefreshTok
 #[tokio::test]
 async fn test_create_and_get_token() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -190,7 +70,6 @@ async fn test_create_and_get_token() {
 #[tokio::test]
 async fn test_get_token_by_id() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -225,7 +104,6 @@ async fn test_get_token_by_id() {
 #[tokio::test]
 async fn test_get_token_returns_none_for_missing() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = RefreshTokenStorage::new(&pool);
     let result = storage.get_token("nonexistent_hash").await.unwrap();
@@ -235,7 +113,6 @@ async fn test_get_token_returns_none_for_missing() {
 #[tokio::test]
 async fn test_get_user_tokens() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -282,7 +159,6 @@ async fn test_get_user_tokens() {
 #[tokio::test]
 async fn test_get_active_tokens_excludes_revoked_and_expired() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -356,7 +232,6 @@ async fn test_get_active_tokens_excludes_revoked_and_expired() {
 #[tokio::test]
 async fn test_revoke_token() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -391,7 +266,6 @@ async fn test_revoke_token() {
 #[tokio::test]
 async fn test_revoke_token_by_id() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -425,7 +299,6 @@ async fn test_revoke_token_by_id() {
 #[tokio::test]
 async fn test_revoke_all_user_tokens() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -475,7 +348,6 @@ async fn test_revoke_all_user_tokens() {
 #[tokio::test]
 async fn test_revoke_all_user_tokens_skips_already_revoked() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -531,7 +403,6 @@ async fn test_revoke_all_user_tokens_skips_already_revoked() {
 #[tokio::test]
 async fn test_update_token_usage() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -574,7 +445,6 @@ async fn test_update_token_usage() {
 #[tokio::test]
 async fn test_delete_token() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -610,7 +480,6 @@ async fn test_delete_token() {
 #[tokio::test]
 async fn test_delete_user_tokens() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -659,7 +528,6 @@ async fn test_delete_user_tokens() {
 #[tokio::test]
 async fn test_add_to_blacklist_and_is_blacklisted() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -680,7 +548,6 @@ async fn test_add_to_blacklist_and_is_blacklisted() {
 #[tokio::test]
 async fn test_is_blacklisted_returns_false_for_expired_entry() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -700,7 +567,6 @@ async fn test_is_blacklisted_returns_false_for_expired_entry() {
 #[tokio::test]
 async fn test_add_to_blacklist_idempotent() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -720,7 +586,6 @@ async fn test_add_to_blacklist_idempotent() {
 #[tokio::test]
 async fn test_cleanup_expired_tokens() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -782,7 +647,6 @@ async fn test_cleanup_expired_tokens() {
 #[tokio::test]
 async fn test_cleanup_blacklist() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -811,7 +675,6 @@ async fn test_cleanup_blacklist() {
 #[tokio::test]
 async fn test_revoke_token_cas() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -848,7 +711,6 @@ async fn test_revoke_token_cas() {
 #[tokio::test]
 async fn test_create_and_get_family() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -895,7 +757,6 @@ async fn test_create_and_get_family() {
 #[tokio::test]
 async fn test_mark_family_compromised() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -928,7 +789,6 @@ async fn test_mark_family_compromised() {
 #[tokio::test]
 async fn test_record_rotation_and_get_rotations() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -968,7 +828,6 @@ async fn test_record_rotation_and_get_rotations() {
 #[tokio::test]
 async fn test_record_usage() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
@@ -1009,7 +868,6 @@ async fn test_record_usage() {
 #[tokio::test]
 async fn test_revoke_device_tokens() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();

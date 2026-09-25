@@ -11,132 +11,6 @@ fn unique_suffix() -> u128 {
     base + TEST_COUNTER.fetch_add(1, Ordering::SeqCst) as u128
 }
 
-async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS users (
-            user_id TEXT NOT NULL PRIMARY KEY,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT,
-            is_admin BOOLEAN DEFAULT FALSE,
-            is_guest BOOLEAN DEFAULT FALSE,
-            creation_ts BIGINT NOT NULL,
-            deactivated BOOLEAN DEFAULT FALSE,
-            displayname TEXT,
-            avatar_url TEXT
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create users table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS rooms (
-            room_id TEXT NOT NULL PRIMARY KEY,
-            creator TEXT,
-            is_public BOOLEAN DEFAULT FALSE,
-            room_version TEXT DEFAULT '6',
-            created_ts BIGINT NOT NULL,
-            last_activity_ts BIGINT,
-            is_federated BOOLEAN DEFAULT TRUE,
-            has_guest_access BOOLEAN DEFAULT FALSE,
-            join_rules TEXT DEFAULT 'invite',
-            history_visibility TEXT DEFAULT 'shared',
-            name TEXT,
-            topic TEXT,
-            avatar_url TEXT,
-            canonical_alias TEXT,
-            visibility TEXT DEFAULT 'private'
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create rooms table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS thread_roots (
-            id BIGSERIAL PRIMARY KEY,
-            room_id TEXT NOT NULL,
-            root_event_id TEXT NOT NULL UNIQUE,
-            thread_id TEXT NOT NULL UNIQUE,
-            sender TEXT NOT NULL,
-            participants JSONB DEFAULT '[]',
-            reply_count BIGINT DEFAULT 0,
-            last_reply_event_id TEXT,
-            last_reply_sender TEXT,
-            last_reply_ts BIGINT,
-            created_ts BIGINT NOT NULL,
-            updated_ts BIGINT NOT NULL
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create thread_roots table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS thread_replies (
-            id BIGSERIAL PRIMARY KEY,
-            room_id TEXT NOT NULL,
-            thread_id TEXT NOT NULL,
-            event_id TEXT NOT NULL UNIQUE,
-            root_event_id TEXT NOT NULL,
-            sender TEXT NOT NULL,
-            in_reply_to_event_id TEXT,
-            content JSONB DEFAULT '{}',
-            origin_server_ts BIGINT,
-            created_ts BIGINT NOT NULL,
-            updated_ts BIGINT NOT NULL
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create thread_replies table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS thread_relations (
-            id BIGSERIAL PRIMARY KEY,
-            room_id TEXT NOT NULL,
-            event_id TEXT NOT NULL,
-            relates_to_event_id TEXT NOT NULL,
-            relation_type TEXT NOT NULL,
-            thread_id TEXT,
-            is_falling_back BOOLEAN DEFAULT FALSE,
-            created_ts BIGINT NOT NULL,
-            updated_ts BIGINT NOT NULL
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create thread_relations table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS thread_read_receipts (
-            id BIGSERIAL PRIMARY KEY,
-            room_id TEXT NOT NULL,
-            thread_id TEXT NOT NULL,
-            user_id TEXT NOT NULL,
-            last_read_event_id TEXT,
-            unread_count BIGINT DEFAULT 0,
-            last_read_ts BIGINT NOT NULL,
-            UNIQUE (room_id, thread_id, user_id)
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create thread_read_receipts table");
-}
-
 async fn seed_room(pool: &sqlx::PgPool, suffix: u128) -> (String, String, String, String, String) {
     let creator = format!("@threadcreator{suffix}:localhost");
     let replier = format!("@threadreplier{suffix}:localhost");
@@ -230,7 +104,6 @@ async fn cleanup(pool: &sqlx::PgPool, room_id: &str, users: &[String]) {
 #[tokio::test]
 async fn test_thread_root_and_reply_roundtrip() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = ThreadStorage::new(&pool);
     let suffix = unique_suffix();
@@ -365,7 +238,6 @@ async fn test_thread_root_and_reply_roundtrip() {
 #[tokio::test]
 async fn test_thread_read_receipt_roundtrip() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = ThreadStorage::new(&pool);
     let suffix = unique_suffix();

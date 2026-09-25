@@ -10,86 +10,6 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS users (
-            user_id TEXT NOT NULL PRIMARY KEY,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT,
-            is_admin BOOLEAN DEFAULT FALSE,
-            is_guest BOOLEAN DEFAULT FALSE,
-            is_shadow_banned BOOLEAN DEFAULT FALSE,
-            is_deactivated BOOLEAN DEFAULT FALSE,
-            created_ts BIGINT NOT NULL,
-            updated_ts BIGINT,
-            displayname TEXT,
-            avatar_url TEXT,
-            email TEXT,
-            phone TEXT,
-            generation BIGINT DEFAULT 0,
-            consent_version TEXT,
-            appservice_id TEXT,
-            user_type TEXT,
-            invalid_update_at BIGINT,
-            migration_state TEXT,
-            password_changed_ts BIGINT,
-            is_password_change_required BOOLEAN DEFAULT FALSE,
-            must_change_password BOOLEAN DEFAULT FALSE,
-            password_expires_at BIGINT,
-            failed_login_attempts INTEGER DEFAULT 0,
-            locked_until BIGINT
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create users table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS user_threepids (
-            id BIGSERIAL PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            medium TEXT NOT NULL,
-            address TEXT NOT NULL,
-            validated_at BIGINT,
-            added_ts BIGINT NOT NULL,
-            is_verified BOOLEAN DEFAULT FALSE,
-            verification_token TEXT,
-            verification_expires_at BIGINT,
-            CONSTRAINT uq_user_threepids_medium_address UNIQUE (medium, address),
-            CONSTRAINT fk_user_threepids_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create user_threepids table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS threepid_validation_session (
-            id BIGSERIAL PRIMARY KEY,
-            session_id TEXT NOT NULL UNIQUE,
-            medium TEXT NOT NULL,
-            address TEXT NOT NULL,
-            client_secret TEXT NOT NULL,
-            token TEXT NOT NULL,
-            send_attempt INT NOT NULL DEFAULT 0,
-            next_link TEXT,
-            is_validated BOOLEAN NOT NULL DEFAULT FALSE,
-            validated_at BIGINT,
-            created_ts BIGINT NOT NULL,
-            expires_at BIGINT NOT NULL
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create threepid_validation_session table");
-}
-
 fn create_storage(pool: &Arc<sqlx::PgPool>) -> ThreepidStorage {
     ThreepidStorage::new(pool.as_ref())
 }
@@ -210,7 +130,6 @@ async fn test_threepid_validation_session_struct() {
 #[tokio::test]
 async fn test_add_threepid() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@add_user_{suffix}:localhost");
@@ -239,7 +158,6 @@ async fn test_add_threepid() {
 #[tokio::test]
 async fn test_add_threepid_without_verification() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@no_verify_{suffix}:localhost");
@@ -262,7 +180,6 @@ async fn test_add_threepid_without_verification() {
 #[tokio::test]
 async fn test_add_threepid_duplicate_medium_address() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@dup_user_{suffix}:localhost");
@@ -294,7 +211,6 @@ async fn test_add_threepid_duplicate_medium_address() {
 #[tokio::test]
 async fn test_get_threepid_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@get_user_{suffix}:localhost");
@@ -323,7 +239,6 @@ async fn test_get_threepid_found() {
 #[tokio::test]
 async fn test_get_threepid_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -335,7 +250,6 @@ async fn test_get_threepid_not_found() {
 #[tokio::test]
 async fn test_get_threepids_by_user() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@multi_user_{suffix}:localhost");
@@ -369,7 +283,6 @@ async fn test_get_threepids_by_user() {
 #[tokio::test]
 async fn test_get_threepids_by_user_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -380,7 +293,6 @@ async fn test_get_threepids_by_user_empty() {
 #[tokio::test]
 async fn test_get_threepid_by_address_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@addr_user_{suffix}:localhost");
@@ -408,7 +320,6 @@ async fn test_get_threepid_by_address_found() {
 #[tokio::test]
 async fn test_get_threepid_by_address_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -419,7 +330,6 @@ async fn test_get_threepid_by_address_not_found() {
 #[tokio::test]
 async fn test_get_verified_threepid_by_address_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@verified_user_{suffix}:localhost");
@@ -448,7 +358,6 @@ async fn test_get_verified_threepid_by_address_found() {
 #[tokio::test]
 async fn test_get_verified_threepid_by_address_unverified() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@unverified_user_{suffix}:localhost");
@@ -473,7 +382,6 @@ async fn test_get_verified_threepid_by_address_unverified() {
 #[tokio::test]
 async fn test_verify_threepid_success() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@verify_user_{suffix}:localhost");
@@ -504,7 +412,6 @@ async fn test_verify_threepid_success() {
 #[tokio::test]
 async fn test_verify_threepid_nonexistent() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -518,7 +425,6 @@ async fn test_verify_threepid_nonexistent() {
 #[tokio::test]
 async fn test_verify_threepid_by_token_success() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@token_user_{suffix}:localhost");
@@ -549,7 +455,6 @@ async fn test_verify_threepid_by_token_success() {
 #[tokio::test]
 async fn test_verify_threepid_by_token_expired() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@expired_user_{suffix}:localhost");
@@ -575,7 +480,6 @@ async fn test_verify_threepid_by_token_expired() {
 #[tokio::test]
 async fn test_verify_threepid_by_token_invalid() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
 
     let result = storage.verify_threepid_by_token("nonexistent_token").await.unwrap();
@@ -585,7 +489,6 @@ async fn test_verify_threepid_by_token_invalid() {
 #[tokio::test]
 async fn test_remove_threepid_success() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@remove_user_{suffix}:localhost");
@@ -613,7 +516,6 @@ async fn test_remove_threepid_success() {
 #[tokio::test]
 async fn test_remove_threepid_nonexistent() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -627,7 +529,6 @@ async fn test_remove_threepid_nonexistent() {
 #[tokio::test]
 async fn test_remove_threepids_by_user() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@removeall_user_{suffix}:localhost");
@@ -662,7 +563,6 @@ async fn test_remove_threepids_by_user() {
 #[tokio::test]
 async fn test_remove_threepids_by_user_no_threepids() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -673,7 +573,6 @@ async fn test_remove_threepids_by_user_no_threepids() {
 #[tokio::test]
 async fn test_cleanup_expired_verifications() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@cleanup_user_{suffix}:localhost");
@@ -711,7 +610,6 @@ async fn test_cleanup_expired_verifications() {
 #[tokio::test]
 async fn test_cleanup_expired_verifications_none() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
 
     let cleaned = storage.cleanup_expired_verifications().await.unwrap();
@@ -721,7 +619,6 @@ async fn test_cleanup_expired_verifications_none() {
 #[tokio::test]
 async fn test_create_validation_session() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let now = current_timestamp_millis();
@@ -746,7 +643,6 @@ async fn test_create_validation_session() {
 #[tokio::test]
 async fn test_create_validation_session_without_next_link() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let now = current_timestamp_millis();
@@ -771,7 +667,6 @@ async fn test_create_validation_session_without_next_link() {
 #[tokio::test]
 async fn test_create_validation_session_duplicate_session_id() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let session_id = format!("dup_session_{suffix}");
@@ -809,7 +704,6 @@ async fn test_create_validation_session_duplicate_session_id() {
 #[tokio::test]
 async fn test_get_validation_session() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let now = current_timestamp_millis();
@@ -843,7 +737,6 @@ async fn test_get_validation_session() {
 #[tokio::test]
 async fn test_get_validation_session_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
 
     let result = storage.get_validation_session("nonexistent", "secret", "token").await.unwrap();
@@ -853,7 +746,6 @@ async fn test_get_validation_session_not_found() {
 #[tokio::test]
 async fn test_get_validation_session_already_validated() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let now = current_timestamp_millis();
@@ -884,7 +776,6 @@ async fn test_get_validation_session_already_validated() {
 #[tokio::test]
 async fn test_get_validation_session_expired() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let now = current_timestamp_millis();
@@ -913,7 +804,6 @@ async fn test_get_validation_session_expired() {
 #[tokio::test]
 async fn test_get_validation_session_by_token() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let now = current_timestamp_millis();
@@ -942,7 +832,6 @@ async fn test_get_validation_session_by_token() {
 #[tokio::test]
 async fn test_get_validation_session_by_token_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
 
     let result = storage.get_validation_session_by_token("nonexistent_token").await.unwrap();
@@ -952,7 +841,6 @@ async fn test_get_validation_session_by_token_not_found() {
 #[tokio::test]
 async fn test_mark_validation_validated() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let now = current_timestamp_millis();
@@ -982,7 +870,6 @@ async fn test_mark_validation_validated() {
 #[tokio::test]
 async fn test_increment_validation_send_attempt() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let now = current_timestamp_millis();
@@ -1019,7 +906,6 @@ async fn test_increment_validation_send_attempt() {
 #[tokio::test]
 async fn test_cleanup_expired_validation_sessions() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let now = current_timestamp_millis();
@@ -1065,7 +951,6 @@ async fn test_cleanup_expired_validation_sessions() {
 #[tokio::test]
 async fn test_full_threepid_lifecycle() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@lifecycle_user_{suffix}:localhost");
@@ -1104,7 +989,6 @@ async fn test_full_threepid_lifecycle() {
 #[tokio::test]
 async fn test_full_validation_session_lifecycle() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let now = current_timestamp_millis();

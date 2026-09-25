@@ -10,151 +10,6 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS users (
-            user_id TEXT NOT NULL PRIMARY KEY,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT,
-            is_admin BOOLEAN DEFAULT FALSE,
-            is_guest BOOLEAN DEFAULT FALSE,
-            is_shadow_banned BOOLEAN DEFAULT FALSE,
-            is_deactivated BOOLEAN DEFAULT FALSE,
-            created_ts BIGINT NOT NULL,
-            updated_ts BIGINT,
-            displayname TEXT,
-            avatar_url TEXT,
-            email TEXT,
-            phone TEXT,
-            generation BIGINT DEFAULT 0,
-            consent_version TEXT,
-            appservice_id TEXT,
-            user_type TEXT,
-            invalid_update_at BIGINT,
-            migration_state TEXT,
-            password_changed_ts BIGINT,
-            is_password_change_required BOOLEAN DEFAULT FALSE,
-            must_change_password BOOLEAN DEFAULT FALSE,
-            password_expires_at BIGINT,
-            failed_login_attempts INTEGER DEFAULT 0,
-            locked_until BIGINT
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create users table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS rooms (
-            room_id TEXT NOT NULL PRIMARY KEY,
-            creator TEXT,
-            is_public BOOLEAN DEFAULT FALSE,
-            room_version TEXT DEFAULT '6',
-            created_ts BIGINT NOT NULL,
-            last_activity_ts BIGINT,
-            is_federated BOOLEAN DEFAULT TRUE,
-            has_guest_access BOOLEAN DEFAULT FALSE,
-            join_rules TEXT DEFAULT 'invite',
-            history_visibility TEXT DEFAULT 'shared',
-            name TEXT,
-            topic TEXT,
-            avatar_url TEXT,
-            canonical_alias TEXT,
-            visibility TEXT DEFAULT 'private'
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create rooms table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS events (
-            event_id TEXT NOT NULL PRIMARY KEY,
-            room_id TEXT NOT NULL,
-            sender TEXT NOT NULL,
-            event_type TEXT NOT NULL,
-            content JSONB NOT NULL,
-            origin_server_ts BIGINT NOT NULL,
-            state_key TEXT,
-            is_redacted BOOLEAN DEFAULT FALSE,
-            redacted_at BIGINT,
-            redacted_by TEXT,
-            transaction_id TEXT,
-            depth BIGINT,
-            prev_events JSONB,
-            auth_events JSONB,
-            signatures JSONB,
-            hashes JSONB,
-            unsigned JSONB DEFAULT '{}',
-            processed_at BIGINT,
-            not_before BIGINT DEFAULT 0,
-            status TEXT,
-            reference_image TEXT,
-            origin TEXT,
-            user_id TEXT,
-            stream_ordering BIGSERIAL
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create events table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS room_memberships (
-            id BIGSERIAL PRIMARY KEY,
-            room_id TEXT NOT NULL,
-            user_id TEXT NOT NULL,
-            membership TEXT NOT NULL,
-            joined_ts BIGINT,
-            invited_ts BIGINT,
-            left_ts BIGINT,
-            banned_ts BIGINT,
-            sender TEXT,
-            reason TEXT,
-            event_id TEXT,
-            event_type TEXT,
-            display_name TEXT,
-            avatar_url TEXT,
-            is_banned BOOLEAN DEFAULT FALSE,
-            invite_token TEXT,
-            updated_ts BIGINT,
-            join_reason TEXT,
-            banned_by TEXT,
-            ban_reason TEXT,
-            UNIQUE (room_id, user_id)
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create room_memberships table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS friend_requests (
-            id BIGSERIAL PRIMARY KEY,
-            sender_id TEXT NOT NULL,
-            receiver_id TEXT NOT NULL,
-            message TEXT,
-            status TEXT NOT NULL DEFAULT 'pending',
-            created_ts BIGINT NOT NULL,
-            updated_ts BIGINT,
-            UNIQUE (sender_id, receiver_id)
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create friend_requests table");
-}
-
 fn create_storage(pool: &Arc<sqlx::PgPool>) -> FriendRoomStorage {
     FriendRoomStorage::new(pool.clone())
 }
@@ -211,7 +66,6 @@ async fn insert_event(
 #[tokio::test]
 async fn test_get_friend_list_room_id_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@friend_user_{suffix}:localhost");
@@ -237,7 +91,6 @@ async fn test_get_friend_list_room_id_found() {
 #[tokio::test]
 async fn test_get_friend_list_room_id_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@nonexistent_{suffix}:localhost");
@@ -249,7 +102,6 @@ async fn test_get_friend_list_room_id_not_found() {
 #[tokio::test]
 async fn test_get_friend_list_content() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@friend_content_{suffix}:localhost");
@@ -285,7 +137,6 @@ async fn test_get_friend_list_content() {
 #[tokio::test]
 async fn test_get_friend_list_content_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!empty_room_{suffix}:localhost");
@@ -297,7 +148,6 @@ async fn test_get_friend_list_content_empty() {
 #[tokio::test]
 async fn test_is_friend_true() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@is_friend_{suffix}:localhost");
@@ -330,7 +180,6 @@ async fn test_is_friend_true() {
 #[tokio::test]
 async fn test_is_friend_false() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@not_friend_{suffix}:localhost");
@@ -362,7 +211,6 @@ async fn test_is_friend_false() {
 #[tokio::test]
 async fn test_get_friend_info_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@friend_info_{suffix}:localhost");
@@ -397,7 +245,6 @@ async fn test_get_friend_info_found() {
 #[tokio::test]
 async fn test_get_friend_info_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@friend_info_nf_{suffix}:localhost");
@@ -425,7 +272,6 @@ async fn test_get_friend_info_not_found() {
 #[tokio::test]
 async fn test_create_friend_request() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let sender_id = format!("@sender_{suffix}:localhost");
@@ -447,7 +293,6 @@ async fn test_create_friend_request() {
 #[tokio::test]
 async fn test_create_friend_request_upsert() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let sender_id = format!("@upsert_sender_{suffix}:localhost");
@@ -470,7 +315,6 @@ async fn test_create_friend_request_upsert() {
 #[tokio::test]
 async fn test_get_pending_friend_request() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let sender_id = format!("@pending_sender_{suffix}:localhost");
@@ -493,7 +337,6 @@ async fn test_get_pending_friend_request() {
 #[tokio::test]
 async fn test_get_incoming_friend_requests() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let receiver_id = format!("@incoming_recv_{suffix}:localhost");
@@ -514,7 +357,6 @@ async fn test_get_incoming_friend_requests() {
 #[tokio::test]
 async fn test_get_outgoing_friend_requests() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let sender_id = format!("@outgoing_sender_{suffix}:localhost");
@@ -535,7 +377,6 @@ async fn test_get_outgoing_friend_requests() {
 #[tokio::test]
 async fn test_update_friend_request_status() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let sender_id = format!("@status_sender_{suffix}:localhost");
@@ -556,7 +397,6 @@ async fn test_update_friend_request_status() {
 #[tokio::test]
 async fn test_update_friend_request_status_already_accepted() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let sender_id = format!("@already_sender_{suffix}:localhost");
@@ -576,7 +416,6 @@ async fn test_update_friend_request_status_already_accepted() {
 #[tokio::test]
 async fn test_delete_friend_request() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let sender_id = format!("@del_sender_{suffix}:localhost");
@@ -597,7 +436,6 @@ async fn test_delete_friend_request() {
 #[tokio::test]
 async fn test_delete_friend_request_nonexistent() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -611,7 +449,6 @@ async fn test_delete_friend_request_nonexistent() {
 #[tokio::test]
 async fn test_has_pending_request() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let sender_id = format!("@has_sender_{suffix}:localhost");
@@ -630,7 +467,6 @@ async fn test_has_pending_request() {
 #[tokio::test]
 async fn test_has_any_pending_request_bidirectional() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_a = format!("@bidir_a_{suffix}:localhost");
@@ -650,7 +486,6 @@ async fn test_has_any_pending_request_bidirectional() {
 #[tokio::test]
 async fn test_ensure_user_exists_present() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@ensure_present_{suffix}:localhost");
@@ -664,7 +499,6 @@ async fn test_ensure_user_exists_present() {
 #[tokio::test]
 async fn test_ensure_user_exists_absent() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@ensure_absent_{suffix}:localhost");
@@ -676,7 +510,6 @@ async fn test_ensure_user_exists_absent() {
 #[tokio::test]
 async fn test_create_friend_request_with_user_ensure_success() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let sender_id = format!("@ensure_ok_sender_{suffix}:localhost");
@@ -692,7 +525,6 @@ async fn test_create_friend_request_with_user_ensure_success() {
 #[tokio::test]
 async fn test_create_friend_request_with_user_ensure_sender_missing() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let sender_id = format!("@missing_sender_{suffix}:localhost");
@@ -707,7 +539,6 @@ async fn test_create_friend_request_with_user_ensure_sender_missing() {
 #[tokio::test]
 async fn test_create_and_delete_friend_group() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@group_user_{suffix}:localhost");
@@ -734,7 +565,6 @@ async fn test_create_and_delete_friend_group() {
 #[tokio::test]
 async fn test_create_friend_group_duplicate() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@dup_group_user_{suffix}:localhost");
@@ -752,7 +582,6 @@ async fn test_create_friend_group_duplicate() {
 #[tokio::test]
 async fn test_delete_friend_group_nonexistent() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@del_nogroup_user_{suffix}:localhost");
@@ -768,7 +597,6 @@ async fn test_delete_friend_group_nonexistent() {
 #[tokio::test]
 async fn test_rename_friend_group() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@rename_user_{suffix}:localhost");
@@ -791,7 +619,6 @@ async fn test_rename_friend_group() {
 #[tokio::test]
 async fn test_rename_friend_group_nonexistent() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@rename_nf_user_{suffix}:localhost");
@@ -807,7 +634,6 @@ async fn test_rename_friend_group_nonexistent() {
 #[tokio::test]
 async fn test_add_and_remove_friend_from_group() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@addrem_user_{suffix}:localhost");
@@ -835,7 +661,6 @@ async fn test_add_and_remove_friend_from_group() {
 #[tokio::test]
 async fn test_add_friend_to_group_duplicate() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@dup_add_user_{suffix}:localhost");
@@ -856,7 +681,6 @@ async fn test_add_friend_to_group_duplicate() {
 #[tokio::test]
 async fn test_add_friend_to_group_nonexistent_group() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@nogroup_add_user_{suffix}:localhost");
@@ -873,7 +697,6 @@ async fn test_add_friend_to_group_nonexistent_group() {
 #[tokio::test]
 async fn test_remove_friend_from_group_not_member() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@rem_notmember_user_{suffix}:localhost");
@@ -892,7 +715,6 @@ async fn test_remove_friend_from_group_not_member() {
 #[tokio::test]
 async fn test_get_friend_groups_for_user_multiple_groups() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@multigroup_user_{suffix}:localhost");
@@ -920,7 +742,6 @@ async fn test_get_friend_groups_for_user_multiple_groups() {
 #[tokio::test]
 async fn test_get_friend_requests_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!freq_empty_room_{suffix}:localhost");
@@ -932,7 +753,6 @@ async fn test_get_friend_requests_empty() {
 #[tokio::test]
 async fn test_get_user_friend_ids() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@friendids_user_{suffix}:localhost");
@@ -975,7 +795,6 @@ async fn test_get_user_friend_ids() {
 #[tokio::test]
 async fn test_get_user_friend_ids_no_room() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@nofriends_user_{suffix}:localhost");
@@ -987,7 +806,6 @@ async fn test_get_user_friend_ids_no_room() {
 #[tokio::test]
 async fn test_get_mutual_friends() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_a = format!("@mutual_a_{suffix}:localhost");
@@ -1063,7 +881,6 @@ async fn test_get_mutual_friends() {
 #[tokio::test]
 async fn test_find_friend_lists_by_dm_room_id() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@dm_user_{suffix}:localhost");
@@ -1098,7 +915,6 @@ async fn test_find_friend_lists_by_dm_room_id() {
 #[tokio::test]
 async fn test_get_shared_rooms() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_a = format!("@shared_a_{suffix}:localhost");
@@ -1134,7 +950,6 @@ async fn test_get_shared_rooms() {
 #[tokio::test]
 async fn test_get_shared_rooms_none() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_a = format!("@noshared_a_{suffix}:localhost");
@@ -1159,7 +974,6 @@ async fn test_get_shared_rooms_none() {
 #[tokio::test]
 async fn test_get_friend_list_all_shards_batch_returns_5_room_index() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -1230,7 +1044,6 @@ async fn test_get_friend_list_all_shards_batch_returns_5_room_index() {
 #[tokio::test]
 async fn test_get_friend_list_all_shards_batch_dedupes_per_shard() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 

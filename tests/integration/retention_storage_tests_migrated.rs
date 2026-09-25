@@ -10,92 +10,6 @@ fn unique_suffix() -> u128 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
 }
 
-async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS users (
-            user_id TEXT NOT NULL PRIMARY KEY,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT,
-            is_admin BOOLEAN DEFAULT FALSE,
-            is_guest BOOLEAN DEFAULT FALSE,
-            creation_ts BIGINT NOT NULL,
-            deactivated BOOLEAN DEFAULT FALSE,
-            displayname TEXT,
-            avatar_url TEXT
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create users table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS rooms (
-            room_id TEXT NOT NULL PRIMARY KEY,
-            creator TEXT,
-            is_public BOOLEAN DEFAULT FALSE,
-            room_version TEXT DEFAULT '6',
-            created_ts BIGINT NOT NULL,
-            last_activity_ts BIGINT,
-            is_federated BOOLEAN DEFAULT TRUE,
-            has_guest_access BOOLEAN DEFAULT FALSE,
-            join_rules TEXT DEFAULT 'invite',
-            history_visibility TEXT DEFAULT 'shared',
-            name TEXT,
-            topic TEXT,
-            avatar_url TEXT,
-            canonical_alias TEXT,
-            visibility TEXT DEFAULT 'private'
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create rooms table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS room_retention_policies (
-            id BIGSERIAL PRIMARY KEY,
-            room_id TEXT NOT NULL UNIQUE,
-            max_lifetime BIGINT,
-            min_lifetime BIGINT NOT NULL DEFAULT 0,
-            is_expire_on_clients BOOLEAN NOT NULL DEFAULT FALSE,
-            created_ts BIGINT NOT NULL,
-            updated_ts BIGINT
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create room_retention_policies table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS server_retention_policy (
-            id BIGSERIAL PRIMARY KEY,
-            max_lifetime BIGINT,
-            min_lifetime BIGINT NOT NULL DEFAULT 0,
-            is_expire_on_clients BOOLEAN NOT NULL DEFAULT FALSE,
-            created_ts BIGINT NOT NULL,
-            updated_ts BIGINT
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create server_retention_policy table");
-
-    sqlx::query(
-        "INSERT INTO server_retention_policy (id, min_lifetime, is_expire_on_clients, created_ts, updated_ts) VALUES (1, 0, false, 0, 0) ON CONFLICT (id) DO NOTHING",
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to insert default server retention policy");
-}
-
 async fn seed_room(pool: &sqlx::PgPool, suffix: u128) -> (String, String) {
     let creator = format!("@retentioncreator{suffix}:localhost");
     let room_id = format!("!retentionroom{suffix}:localhost");
@@ -146,7 +60,6 @@ async fn cleanup(pool: &sqlx::PgPool, room_id: &str, creator: &str) {
 #[tokio::test]
 async fn test_retention_storage_roundtrip() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let storage = RetentionStorage::new(&pool);
     let suffix = unique_suffix();

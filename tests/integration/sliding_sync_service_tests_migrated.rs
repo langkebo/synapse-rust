@@ -23,297 +23,6 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-    sqlx::query("CREATE SEQUENCE IF NOT EXISTS sliding_sync_pos_seq")
-        .execute(pool.as_ref())
-        .await
-        .expect("Failed to create sliding_sync_pos_seq");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS sliding_sync_tokens (
-            id BIGSERIAL PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            device_id TEXT NOT NULL,
-            conn_id TEXT,
-            token TEXT NOT NULL,
-            pos BIGINT NOT NULL,
-            created_ts BIGINT NOT NULL,
-            expires_at BIGINT,
-            event_stream_pos BIGINT NOT NULL DEFAULT 0
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create sliding_sync_tokens table");
-
-    // S14: 兼容先于本列创建的测试库（CREATE TABLE IF NOT EXISTS 不会补列）
-    sqlx::query("ALTER TABLE sliding_sync_tokens ADD COLUMN IF NOT EXISTS event_stream_pos BIGINT NOT NULL DEFAULT 0")
-        .execute(pool.as_ref())
-        .await
-        .expect("Failed to ensure sliding_sync_tokens.event_stream_pos");
-
-    sqlx::query(
-        r#"
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_sliding_sync_tokens_unique ON sliding_sync_tokens(user_id, device_id, COALESCE(conn_id, ''))
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create sliding_sync_tokens unique index");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS sliding_sync_lists (
-            id BIGSERIAL PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            device_id TEXT NOT NULL,
-            conn_id TEXT,
-            list_key TEXT NOT NULL,
-            sort JSONB DEFAULT '[]',
-            filters JSONB DEFAULT '{}',
-            room_subscription JSONB DEFAULT '{}',
-            ranges JSONB DEFAULT '[]',
-            created_ts BIGINT NOT NULL,
-            updated_ts BIGINT NOT NULL
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create sliding_sync_lists table");
-
-    sqlx::query(
-        r#"
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_sliding_sync_lists_unique ON sliding_sync_lists(user_id, device_id, COALESCE(conn_id, ''), list_key)
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create sliding_sync_lists unique index");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS sliding_sync_rooms (
-            id BIGSERIAL PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            device_id TEXT NOT NULL,
-            room_id TEXT NOT NULL,
-            conn_id TEXT,
-            list_key TEXT,
-            bump_stamp BIGINT DEFAULT 0,
-            highlight_count INTEGER DEFAULT 0,
-            notification_count INTEGER DEFAULT 0,
-            is_dm BOOLEAN DEFAULT FALSE,
-            is_encrypted BOOLEAN DEFAULT FALSE,
-            is_tombstoned BOOLEAN DEFAULT FALSE,
-            is_invited BOOLEAN DEFAULT FALSE,
-            name TEXT,
-            avatar TEXT,
-            timestamp BIGINT DEFAULT 0,
-            created_ts BIGINT NOT NULL,
-            updated_ts BIGINT NOT NULL
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create sliding_sync_rooms table");
-
-    sqlx::query(
-        r#"
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_sliding_sync_rooms_unique ON sliding_sync_rooms(user_id, device_id, room_id, COALESCE(conn_id, ''))
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create sliding_sync_rooms unique index");
-
-    sqlx::query(
-        r#"
-        CREATE INDEX IF NOT EXISTS idx_sliding_sync_rooms_room_id ON sliding_sync_rooms(room_id, updated_ts DESC)
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create sliding_sync_rooms room_id index");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS presence (
-            user_id VARCHAR(255) PRIMARY KEY,
-            presence TEXT,
-            status_msg TEXT,
-            last_active_ts BIGINT,
-            created_ts BIGINT,
-            updated_ts BIGINT
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create presence table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS room_memberships (
-            room_id VARCHAR(255) NOT NULL,
-            user_id VARCHAR(255) NOT NULL,
-            sender TEXT,
-            membership TEXT NOT NULL,
-            event_id TEXT,
-            event_type TEXT,
-            display_name TEXT,
-            avatar_url TEXT,
-            is_banned BOOLEAN DEFAULT FALSE,
-            invite_token TEXT,
-            updated_ts BIGINT,
-            joined_ts BIGINT,
-            left_ts BIGINT,
-            reason TEXT,
-            banned_by TEXT,
-            ban_reason TEXT,
-            banned_ts BIGINT,
-            join_reason TEXT,
-            PRIMARY KEY (room_id, user_id)
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create room_memberships table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS events (
-            event_id VARCHAR(255) PRIMARY KEY,
-            room_id VARCHAR(255) NOT NULL,
-            user_id VARCHAR(255) NOT NULL,
-            sender VARCHAR(255) NOT NULL,
-            event_type TEXT NOT NULL,
-            content JSONB NOT NULL,
-            state_key TEXT,
-            depth BIGINT,
-            stream_ordering BIGSERIAL,
-            origin_server_ts BIGINT NOT NULL,
-            processed_ts BIGINT,
-            not_before BIGINT,
-            is_redacted BOOLEAN DEFAULT FALSE,
-            status TEXT,
-            reference_image TEXT,
-            origin TEXT,
-            unsigned JSONB
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create events table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS rooms (
-            room_id VARCHAR(255) PRIMARY KEY,
-            is_public BOOLEAN DEFAULT FALSE,
-            room_version TEXT DEFAULT '6',
-            created_ts BIGINT NOT NULL,
-            last_activity_ts BIGINT,
-            join_rules TEXT DEFAULT 'invite',
-            history_visibility TEXT DEFAULT 'shared',
-            name TEXT,
-            topic TEXT,
-            avatar_url TEXT,
-            canonical_alias TEXT,
-            visibility TEXT DEFAULT 'private',
-            creator TEXT,
-            encryption TEXT,
-            member_count BIGINT DEFAULT 0
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create rooms table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS device_lists_stream (
-            stream_id BIGSERIAL PRIMARY KEY,
-            user_id VARCHAR(255) NOT NULL,
-            device_id VARCHAR(255),
-            created_ts BIGINT NOT NULL
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create device_lists_stream table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS to_device_messages (
-            stream_id BIGSERIAL PRIMARY KEY,
-            sender_user_id VARCHAR(255) NOT NULL,
-            sender_device_id VARCHAR(255) NOT NULL,
-            recipient_user_id VARCHAR(255) NOT NULL,
-            recipient_device_id VARCHAR(255) NOT NULL,
-            event_type TEXT NOT NULL,
-            content JSONB NOT NULL,
-            message_id TEXT
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create to_device_messages table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS account_data (
-            user_id TEXT NOT NULL,
-            data_type TEXT NOT NULL,
-            content JSONB NOT NULL,
-            PRIMARY KEY (user_id, data_type)
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create account_data table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS room_account_data (
-            user_id TEXT NOT NULL,
-            room_id TEXT NOT NULL,
-            data_type TEXT NOT NULL,
-            data JSONB NOT NULL,
-            PRIMARY KEY (user_id, room_id, data_type)
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create room_account_data table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS event_receipts (
-            room_id TEXT NOT NULL,
-            event_id TEXT NOT NULL,
-            user_id TEXT NOT NULL,
-            receipt_type TEXT NOT NULL,
-            ts BIGINT NOT NULL,
-            data JSONB DEFAULT '{}'
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create event_receipts table");
-}
-
 fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {
     create_service_with_cache(pool, Arc::new(CacheManager::new(&CacheConfig::default())))
 }
@@ -427,7 +136,6 @@ async fn remove_room(
 #[tokio::test]
 async fn test_initial_sync_returns_pos_and_empty_rooms() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@init_{suffix}:localhost");
@@ -468,7 +176,6 @@ async fn test_initial_sync_returns_pos_and_empty_rooms() {
 #[tokio::test]
 async fn test_sync_with_conn_id() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@conn_{suffix}:localhost");
@@ -507,7 +214,6 @@ async fn test_sync_with_conn_id() {
 #[tokio::test]
 async fn test_incremental_sync_with_valid_pos() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@incr_{suffix}:localhost");
@@ -559,7 +265,6 @@ async fn test_incremental_sync_with_valid_pos() {
 #[tokio::test]
 async fn test_incremental_sync_with_invalid_pos_returns_error() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@badpos_{suffix}:localhost");
@@ -597,7 +302,6 @@ async fn test_incremental_sync_with_invalid_pos_returns_error() {
 #[tokio::test]
 async fn test_update_room_state() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let _ = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@update_{suffix}:localhost");
@@ -634,7 +338,6 @@ async fn test_update_room_state() {
 #[tokio::test]
 async fn test_bump_room() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let _ = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@bump_{suffix}:localhost");
@@ -657,7 +360,6 @@ async fn test_bump_room() {
 #[tokio::test]
 async fn test_update_notification_counts() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let _ = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@notif_{suffix}:localhost");
@@ -676,7 +378,6 @@ async fn test_update_notification_counts() {
 #[tokio::test]
 async fn test_remove_room() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let _ = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@remove_{suffix}:localhost");
@@ -694,7 +395,6 @@ async fn test_remove_room() {
 #[tokio::test]
 async fn test_cleanup_expired_tokens() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@cleanup_{suffix}:localhost");
@@ -717,7 +417,6 @@ async fn test_cleanup_expired_tokens() {
 #[tokio::test]
 async fn test_get_room_token_sync() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@token_sync_{suffix}:localhost");
@@ -739,7 +438,6 @@ async fn test_get_room_token_sync() {
 #[tokio::test]
 async fn test_sync_with_room_subscriptions() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@sub_{suffix}:localhost");
@@ -787,7 +485,6 @@ async fn test_sync_with_room_subscriptions() {
 #[tokio::test]
 async fn test_sync_with_unsubscribe_rooms() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@unsub_{suffix}:localhost");
@@ -832,7 +529,6 @@ async fn test_sync_with_unsubscribe_rooms() {
 #[tokio::test]
 async fn test_sync_with_filters() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@filter_{suffix}:localhost");
@@ -905,7 +601,6 @@ async fn test_sync_with_filters() {
 #[tokio::test]
 async fn test_sync_multiple_lists() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@multi_{suffix}:localhost");
@@ -974,7 +669,6 @@ async fn test_sync_multiple_lists() {
 #[tokio::test]
 async fn test_sync_with_empty_lists() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@empty_{suffix}:localhost");
@@ -998,7 +692,6 @@ async fn test_sync_with_empty_lists() {
 #[tokio::test]
 async fn test_update_room_state_with_conn_id_isolation() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let _ = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@conn_iso_{suffix}:localhost");
@@ -1036,7 +729,6 @@ async fn test_update_room_state_with_conn_id_isolation() {
 #[tokio::test]
 async fn test_remove_room_different_conn_id_no_cross_delete() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let _ = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@cross_del_{suffix}:localhost");
@@ -1060,7 +752,6 @@ async fn test_remove_room_different_conn_id_no_cross_delete() {
 #[tokio::test]
 async fn test_sync_pos_advances_on_each_request() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@advance_{suffix}:localhost");
@@ -1104,7 +795,6 @@ async fn test_sync_pos_advances_on_each_request() {
 #[tokio::test]
 async fn test_sync_with_account_data_extension() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@ext_ad_{suffix}:localhost");
@@ -1146,7 +836,6 @@ async fn test_sync_with_account_data_extension() {
 #[tokio::test]
 async fn test_sync_without_extensions_returns_none() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@no_ext_{suffix}:localhost");
@@ -1184,7 +873,6 @@ async fn test_sync_without_extensions_returns_none() {
 #[tokio::test]
 async fn test_update_room_state_preserves_higher_bump_stamp() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let _ = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@bump_preserve_{suffix}:localhost");
@@ -1202,7 +890,6 @@ async fn test_update_room_state_preserves_higher_bump_stamp() {
 #[tokio::test]
 async fn test_update_room_state_preserves_name_when_null() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let _ = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@name_preserve_{suffix}:localhost");
@@ -1294,7 +981,6 @@ fn make_p1_5_main_list() -> HashMap<String, SlidingSyncListData> {
 #[tokio::test]
 async fn test_p1_5_room_subscription_change_reflected_immediately() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@p15_sub_{suffix}:localhost");
@@ -1351,7 +1037,6 @@ async fn test_p1_5_room_subscription_change_reflected_immediately() {
 #[tokio::test]
 async fn test_p1_5_unsubscribe_rooms_takes_effect_immediately() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@p15_unsub_{suffix}:localhost");
@@ -1399,7 +1084,6 @@ async fn test_p1_5_unsubscribe_rooms_takes_effect_immediately() {
 #[tokio::test]
 async fn test_p1_5_required_state_change_reflected_immediately() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@p15_rs_{suffix}:localhost");
@@ -1487,7 +1171,6 @@ async fn test_p1_5_required_state_change_reflected_immediately() {
 #[tokio::test]
 async fn test_p1_5_timeline_limit_change_reflected_immediately() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@p15_tl_{suffix}:localhost");
@@ -1580,7 +1263,6 @@ async fn test_p1_5_timeline_limit_change_reflected_immediately() {
 #[tokio::test]
 async fn test_p1_6_successful_response_is_cached_under_txn_id() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@p16_ok_{suffix}:localhost");
@@ -1628,7 +1310,6 @@ async fn test_p1_6_successful_response_is_cached_under_txn_id() {
 #[tokio::test]
 async fn test_p1_6_failed_response_not_cached_under_txn_id() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@p16_err_{suffix}:localhost");
@@ -1735,7 +1416,6 @@ fn wm_timeline_event_ids(response: &synapse_storage::sliding_sync::SlidingSyncRe
 #[tokio::test]
 async fn test_s14_watermark_writeback_across_incremental_syncs() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@wm_{suffix}:localhost");
@@ -1792,7 +1472,6 @@ async fn test_s7_presence_dedup_survives_local_cache_loss() {
     use deadpool_redis::{Config as RedisPoolConfig, Runtime};
 
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let redis_pool =
         RedisPoolConfig::from_url("redis://127.0.0.1:6379").create_pool(Some(Runtime::Tokio1)).expect("redis pool");

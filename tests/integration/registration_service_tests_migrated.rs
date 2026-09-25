@@ -16,93 +16,9 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-async fn setup_test_database(pool: &sqlx::PgPool) {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS users (
-            user_id VARCHAR(255) PRIMARY KEY,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT,
-            displayname TEXT,
-            avatar_url TEXT,
-            is_admin BOOLEAN DEFAULT FALSE,
-            deactivated BOOLEAN DEFAULT FALSE,
-            is_guest BOOLEAN DEFAULT FALSE,
-            consent_version TEXT,
-            appservice_id TEXT,
-            user_type TEXT,
-            shadow_banned BOOLEAN DEFAULT FALSE,
-            generation BIGINT DEFAULT 0,
-            invalid_update_at BIGINT,
-            migration_state TEXT,
-            creation_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000),
-            updated_ts BIGINT
-        )
-    "#,
-    )
-    .execute(pool)
-    .await
-    .expect("Failed to create users table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS devices (
-            device_id VARCHAR(255) PRIMARY KEY,
-            user_id VARCHAR(255) NOT NULL,
-            display_name TEXT,
-            device_key JSONB,
-            last_seen_ts BIGINT,
-            last_seen_ip TEXT,
-            first_seen_ts BIGINT NOT NULL,
-            created_ts BIGINT NOT NULL,
-            appservice_id TEXT,
-            ignored_user_list TEXT
-        )
-    "#,
-    )
-    .execute(pool)
-    .await
-    .expect("Failed to create devices table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS access_tokens (
-            id BIGSERIAL PRIMARY KEY,
-            token VARCHAR(255) UNIQUE NOT NULL,
-            user_id VARCHAR(255) NOT NULL,
-            device_id VARCHAR(255),
-            created_ts BIGINT NOT NULL,
-            expires_ts BIGINT NOT NULL,
-            invalidated_ts BIGINT
-        )
-    "#,
-    )
-    .execute(pool)
-    .await
-    .expect("Failed to create access_tokens table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS refresh_tokens (
-            id BIGSERIAL PRIMARY KEY,
-            token VARCHAR(255) UNIQUE NOT NULL,
-            user_id VARCHAR(255) NOT NULL,
-            device_id VARCHAR(255) NOT NULL,
-            created_ts BIGINT NOT NULL,
-            expires_ts BIGINT NOT NULL,
-            invalidated_ts BIGINT
-        )
-    "#,
-    )
-    .execute(pool)
-    .await
-    .expect("Failed to create refresh_tokens table");
-}
-
 #[tokio::test]
 async fn test_register_user_success() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let security = SecurityConfig {
         secret: "test_secret".to_string(),
@@ -145,7 +61,6 @@ async fn test_register_user_success() {
 #[tokio::test]
 async fn test_login_success() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let security = SecurityConfig {
         secret: "test_secret".to_string(),
@@ -189,7 +104,6 @@ async fn test_login_success() {
 #[tokio::test]
 async fn test_get_profile_success() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let canonical_cache = cache.clone();

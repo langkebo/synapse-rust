@@ -13,58 +13,6 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS event_relations (
-            id BIGSERIAL PRIMARY KEY,
-            room_id TEXT NOT NULL,
-            event_id TEXT NOT NULL,
-            relates_to_event_id TEXT NOT NULL,
-            relation_type TEXT NOT NULL,
-            sender TEXT NOT NULL,
-            origin_server_ts BIGINT NOT NULL,
-            content JSONB NOT NULL DEFAULT '{}',
-            is_redacted BOOLEAN NOT NULL DEFAULT FALSE,
-            created_ts BIGINT NOT NULL
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create event_relations table");
-
-    sqlx::query(
-        r#"
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_event_relations_unique
-        ON event_relations(event_id, relation_type, sender)
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create event_relations unique index");
-
-    sqlx::query(
-        r#"
-        CREATE INDEX IF NOT EXISTS idx_event_relations_room_relates
-        ON event_relations(room_id, relates_to_event_id, relation_type)
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create event_relations room_relates index");
-
-    sqlx::query(
-        r#"
-        CREATE INDEX IF NOT EXISTS idx_event_relations_room_event
-        ON event_relations(room_id, event_id)
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create event_relations room_event index");
-}
-
 fn create_service(pool: &Arc<sqlx::PgPool>) -> RelationsService {
     let storage = Arc::new(RelationsStorage::new(pool));
     RelationsService::new(storage, "localhost".to_string())
@@ -73,7 +21,6 @@ fn create_service(pool: &Arc<sqlx::PgPool>) -> RelationsService {
 #[tokio::test]
 async fn test_send_annotation() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
@@ -101,7 +48,6 @@ async fn test_send_annotation() {
 #[tokio::test]
 async fn test_send_annotation_content_includes_relates_to() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
@@ -128,7 +74,6 @@ async fn test_send_annotation_content_includes_relates_to() {
 #[tokio::test]
 async fn test_send_reference() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
@@ -156,7 +101,6 @@ async fn test_send_reference() {
 #[tokio::test]
 async fn test_send_reference_with_custom_relation_type() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
@@ -183,7 +127,6 @@ async fn test_send_reference_with_custom_relation_type() {
 #[tokio::test]
 async fn test_send_reference_non_object_content_gets_replaced() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
@@ -208,7 +151,6 @@ async fn test_send_reference_non_object_content_gets_replaced() {
 #[tokio::test]
 async fn test_send_replacement() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
@@ -238,7 +180,6 @@ async fn test_send_replacement() {
 #[tokio::test]
 async fn test_send_replacement_updates_existing() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
@@ -271,7 +212,6 @@ async fn test_send_replacement_updates_existing() {
 #[tokio::test]
 async fn test_send_replacement_different_senders_independent() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
@@ -304,7 +244,6 @@ async fn test_send_replacement_different_senders_independent() {
 #[tokio::test]
 async fn test_get_relations_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
@@ -322,7 +261,6 @@ async fn test_get_relations_empty() {
 #[tokio::test]
 async fn test_get_relations_with_data() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
@@ -351,7 +289,6 @@ async fn test_get_relations_with_data() {
 #[tokio::test]
 async fn test_get_relations_filtered_by_type() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
@@ -387,7 +324,6 @@ async fn test_get_relations_filtered_by_type() {
 #[tokio::test]
 async fn test_get_relations_with_limit() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
@@ -415,7 +351,6 @@ async fn test_get_relations_with_limit() {
 #[tokio::test]
 async fn test_get_aggregations_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
@@ -430,7 +365,6 @@ async fn test_get_aggregations_empty() {
 #[tokio::test]
 async fn test_get_aggregations_with_annotations() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
@@ -473,7 +407,6 @@ async fn test_get_aggregations_with_annotations() {
 #[tokio::test]
 async fn test_redact_relation_own_sender() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
@@ -501,7 +434,6 @@ async fn test_redact_relation_own_sender() {
 #[tokio::test]
 async fn test_redact_relation_different_sender_forbidden() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
@@ -526,7 +458,6 @@ async fn test_redact_relation_different_sender_forbidden() {
 #[tokio::test]
 async fn test_redact_relation_nonexistent() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
@@ -540,7 +471,6 @@ async fn test_redact_relation_nonexistent() {
 #[tokio::test]
 async fn test_annotation_exists_true() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
@@ -564,7 +494,6 @@ async fn test_annotation_exists_true() {
 #[tokio::test]
 async fn test_annotation_exists_false_different_sender() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
@@ -589,7 +518,6 @@ async fn test_annotation_exists_false_different_sender() {
 #[tokio::test]
 async fn test_annotation_exists_false_no_annotation() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
@@ -604,7 +532,6 @@ async fn test_annotation_exists_false_no_annotation() {
 #[tokio::test]
 async fn test_redacted_relation_excluded_from_get_relations() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
@@ -632,7 +559,6 @@ async fn test_redacted_relation_excluded_from_get_relations() {
 #[tokio::test]
 async fn test_redacted_annotation_excluded_from_exists() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
@@ -669,7 +595,6 @@ async fn test_redacted_annotation_excluded_from_exists() {
 #[tokio::test]
 async fn test_get_aggregations_excludes_redacted() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
@@ -696,7 +621,6 @@ async fn test_get_aggregations_excludes_redacted() {
 #[tokio::test]
 async fn test_multiple_annotations_same_key_aggregated() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
@@ -725,7 +649,6 @@ async fn test_multiple_annotations_same_key_aggregated() {
 #[tokio::test]
 async fn test_get_relations_backward_direction() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");
@@ -752,7 +675,6 @@ async fn test_get_relations_backward_direction() {
 #[tokio::test]
 async fn test_send_replacement_content_structure() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:localhost");

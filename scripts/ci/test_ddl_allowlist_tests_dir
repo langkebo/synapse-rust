@@ -44,30 +44,12 @@ tests/unit/test_schema_housekeeping_tests.rs::prune_drops_superseded_templates_a
 
 # ── (b) 自建简化 schema 的 `*_migrated.rs`（D-36 真目标，31 键；逐文件迁模板后删除）──
 tests/integration/cross_signing_storage_tests_migrated.rs::setup_test_database
-tests/integration/feature_flag_service_tests_migrated.rs::setup_test_database
-tests/integration/feature_flags_storage_tests_migrated.rs::setup_test_database
-tests/integration/federation_blacklist_storage_tests_migrated.rs::setup_test_database
 tests/integration/federation_service_tests_migrated.rs::setup_test_database
 tests/integration/federation_service_tests_migrated.rs::test_device_revocation
 tests/integration/federation_service_tests_migrated.rs::test_device_sync_cache
-tests/integration/friend_room_storage_tests_migrated.rs::setup_test_database
-tests/integration/membership_storage_tests_migrated.rs::setup_test_database
 tests/integration/presence_storage_tests_migrated.rs::setup_test_database
-tests/integration/refresh_token_storage_tests_migrated.rs::setup_test_database
-tests/integration/registration_service_tests_migrated.rs::setup_test_database
-tests/integration/relations_service_tests_migrated.rs::setup_test_database
-tests/integration/retention_storage_tests_migrated.rs::setup_test_database
 tests/integration/room_service_tests_migrated.rs::setup_appservice_test_database
 tests/integration/room_service_tests_migrated.rs::setup_test_database
-tests/integration/room_summary_storage_tests_migrated.rs::setup_test_database
-tests/integration/sliding_sync_service_tests_migrated.rs::setup_test_database
-tests/integration/sliding_sync_storage_tests_migrated.rs::setup_test_database
-tests/integration/state_groups_storage_tests_migrated.rs::setup_test_database
-tests/integration/sync_service_tests_migrated.rs::setup_test_database
-tests/integration/thread_storage_tests_migrated.rs::setup_test_database
-tests/integration/threepid_storage_tests_migrated.rs::setup_test_database
-tests/integration/to_device_sync_tests_migrated.rs::setup_test_database
-tests/integration/token_storage_tests_migrated.rs::setup_test_database
 
 # ── (c) 性能夹具（1 键）────────────────────────────────────────────────────
 tests/performance/appservice_scheduler_perf_tests.rs::tests::setup_appservice_perf_tables

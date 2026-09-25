@@ -12,94 +12,6 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS federation_blacklist (
-            id BIGSERIAL PRIMARY KEY,
-            server_name TEXT NOT NULL UNIQUE,
-            block_type TEXT NOT NULL DEFAULT 'blacklist',
-            reason TEXT,
-            blocked_by TEXT,
-            added_by TEXT,
-            created_ts BIGINT,
-            added_ts BIGINT,
-            updated_ts BIGINT,
-            expires_at BIGINT,
-            is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-            metadata JSONB NOT NULL DEFAULT '{}'
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create federation_blacklist table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS federation_blacklist_log (
-            id BIGSERIAL PRIMARY KEY,
-            server_name TEXT NOT NULL,
-            action TEXT NOT NULL,
-            old_status TEXT,
-            new_status TEXT,
-            reason TEXT,
-            performed_by TEXT NOT NULL,
-            performed_ts BIGINT NOT NULL DEFAULT 0,
-            ip_address TEXT,
-            user_agent TEXT,
-            metadata JSONB NOT NULL DEFAULT '{}'
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create federation_blacklist_log table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS federation_access_stats (
-            id BIGSERIAL PRIMARY KEY,
-            server_name TEXT NOT NULL UNIQUE,
-            total_requests BIGINT NOT NULL DEFAULT 0,
-            successful_requests BIGINT NOT NULL DEFAULT 0,
-            failed_requests BIGINT NOT NULL DEFAULT 0,
-            last_request_ts BIGINT,
-            last_success_ts BIGINT,
-            last_failure_ts BIGINT,
-            average_response_time_ms DOUBLE PRECISION NOT NULL DEFAULT 0,
-            error_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
-            created_ts BIGINT NOT NULL,
-            updated_ts BIGINT NOT NULL
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create federation_access_stats table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS federation_blacklist_rule (
-            id BIGSERIAL PRIMARY KEY,
-            rule_name TEXT NOT NULL,
-            rule_type TEXT NOT NULL,
-            pattern TEXT NOT NULL,
-            action TEXT NOT NULL,
-            priority INTEGER NOT NULL DEFAULT 0,
-            is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-            description TEXT,
-            created_ts BIGINT NOT NULL,
-            updated_ts BIGINT NOT NULL,
-            created_by TEXT NOT NULL
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create federation_blacklist_rule table");
-}
-
 fn create_storage(pool: &Arc<sqlx::PgPool>) -> FederationBlacklistStorage {
     FederationBlacklistStorage::new(pool)
 }
@@ -186,7 +98,6 @@ async fn test_decode_cursor_valid_format() {
 #[tokio::test]
 async fn test_add_to_blacklist() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let server_name = format!("evil-{suffix}.example.com");
@@ -209,7 +120,6 @@ async fn test_add_to_blacklist() {
 #[tokio::test]
 async fn test_add_to_blacklist_with_metadata() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let server_name = format!("meta-{suffix}.example.com");
@@ -231,7 +141,6 @@ async fn test_add_to_blacklist_with_metadata() {
 #[tokio::test]
 async fn test_add_to_blacklist_upsert() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let server_name = format!("upsert-{suffix}.example.com");
@@ -265,7 +174,6 @@ async fn test_add_to_blacklist_upsert() {
 #[tokio::test]
 async fn test_remove_from_blacklist() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let server_name = format!("remove-{suffix}.example.com");
@@ -285,7 +193,6 @@ async fn test_remove_from_blacklist() {
 #[tokio::test]
 async fn test_remove_from_blacklist_creates_log() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let server_name = format!("removelog-{suffix}.example.com");
@@ -307,7 +214,6 @@ async fn test_remove_from_blacklist_creates_log() {
 #[tokio::test]
 async fn test_get_blacklist_entry_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let server_name = format!("getfound-{suffix}.example.com");
@@ -323,7 +229,6 @@ async fn test_get_blacklist_entry_found() {
 #[tokio::test]
 async fn test_get_blacklist_entry_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -334,7 +239,6 @@ async fn test_get_blacklist_entry_not_found() {
 #[tokio::test]
 async fn test_is_server_blocked_true() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let server_name = format!("blocked-{suffix}.example.com");
@@ -348,7 +252,6 @@ async fn test_is_server_blocked_true() {
 #[tokio::test]
 async fn test_is_server_blocked_false_not_in_list() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -359,7 +262,6 @@ async fn test_is_server_blocked_false_not_in_list() {
 #[tokio::test]
 async fn test_is_server_blocked_false_whitelist_type() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let server_name = format!("whitelisted-{suffix}.example.com");
@@ -373,7 +275,6 @@ async fn test_is_server_blocked_false_whitelist_type() {
 #[tokio::test]
 async fn test_is_server_blocked_expired() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let server_name = format!("expired-{suffix}.example.com");
@@ -398,7 +299,6 @@ async fn test_is_server_blocked_expired() {
 #[tokio::test]
 async fn test_is_server_whitelisted_true() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let server_name = format!("wl-true-{suffix}.example.com");
@@ -412,7 +312,6 @@ async fn test_is_server_whitelisted_true() {
 #[tokio::test]
 async fn test_is_server_whitelisted_false_not_in_list() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -423,7 +322,6 @@ async fn test_is_server_whitelisted_false_not_in_list() {
 #[tokio::test]
 async fn test_is_server_whitelisted_false_blacklist_type() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let server_name = format!("wl-bl-{suffix}.example.com");
@@ -437,7 +335,6 @@ async fn test_is_server_whitelisted_false_blacklist_type() {
 #[tokio::test]
 async fn test_is_server_whitelisted_false_disabled() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let server_name = format!("wl-disabled-{suffix}.example.com");
@@ -451,7 +348,6 @@ async fn test_is_server_whitelisted_false_disabled() {
 #[tokio::test]
 async fn test_get_all_blacklist_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
 
     let (entries, next_batch) = storage.get_all_blacklist(10, None).await.unwrap();
@@ -462,7 +358,6 @@ async fn test_get_all_blacklist_empty() {
 #[tokio::test]
 async fn test_get_all_blacklist_with_entries() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -479,7 +374,6 @@ async fn test_get_all_blacklist_with_entries() {
 #[tokio::test]
 async fn test_get_all_blacklist_pagination() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -506,7 +400,6 @@ async fn test_get_all_blacklist_pagination() {
 #[tokio::test]
 async fn test_create_log() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let server_name = format!("log-{suffix}.example.com");
@@ -536,7 +429,6 @@ async fn test_create_log() {
 #[tokio::test]
 async fn test_create_log_minimal() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let server_name = format!("logmin-{suffix}.example.com");
@@ -563,7 +455,6 @@ async fn test_create_log_minimal() {
 #[tokio::test]
 async fn test_update_access_stats_first_success() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let server_name = format!("stats-ok-{suffix}.example.com");
@@ -583,7 +474,6 @@ async fn test_update_access_stats_first_success() {
 #[tokio::test]
 async fn test_update_access_stats_first_failure() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let server_name = format!("stats-fail-{suffix}.example.com");
@@ -601,7 +491,6 @@ async fn test_update_access_stats_first_failure() {
 #[tokio::test]
 async fn test_update_access_stats_accumulates() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let server_name = format!("stats-acc-{suffix}.example.com");
@@ -644,7 +533,6 @@ async fn test_update_access_stats_accumulates() {
 #[tokio::test]
 async fn test_get_access_stats_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -655,7 +543,6 @@ async fn test_get_access_stats_not_found() {
 #[tokio::test]
 async fn test_create_rule() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -683,7 +570,6 @@ async fn test_create_rule() {
 #[tokio::test]
 async fn test_create_rule_minimal() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -705,7 +591,6 @@ async fn test_create_rule_minimal() {
 #[tokio::test]
 async fn test_get_all_rules_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
 
     let rules = storage.get_all_rules().await.unwrap();
@@ -715,7 +600,6 @@ async fn test_get_all_rules_empty() {
 #[tokio::test]
 async fn test_get_all_rules_returns_enabled_only() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -759,7 +643,6 @@ async fn test_get_all_rules_returns_enabled_only() {
 #[tokio::test]
 async fn test_get_all_rules_ordered_by_priority() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -798,7 +681,6 @@ async fn test_get_all_rules_ordered_by_priority() {
 #[tokio::test]
 async fn test_cleanup_expired_entries() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -840,7 +722,6 @@ async fn test_cleanup_expired_entries() {
 #[tokio::test]
 async fn test_cleanup_expired_entries_none_expired() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -864,7 +745,6 @@ async fn test_cleanup_expired_entries_none_expired() {
 #[tokio::test]
 async fn test_get_config_returns_none() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
 
     let result = storage.get_config("any_key").unwrap();
@@ -874,7 +754,6 @@ async fn test_get_config_returns_none() {
 #[tokio::test]
 async fn test_get_config_as_bool_default_true() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
 
     let result = storage.get_config_as_bool("any_key", true).unwrap();
@@ -884,7 +763,6 @@ async fn test_get_config_as_bool_default_true() {
 #[tokio::test]
 async fn test_get_config_as_bool_default_false() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
 
     let result = storage.get_config_as_bool("any_key", false).unwrap();
@@ -894,7 +772,6 @@ async fn test_get_config_as_bool_default_false() {
 #[tokio::test]
 async fn test_get_config_as_int_default() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
 
     let result = storage.get_config_as_int("any_key", 42).unwrap();
@@ -904,7 +781,6 @@ async fn test_get_config_as_int_default() {
 #[tokio::test]
 async fn test_get_config_as_int_default_zero() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
 
     let result = storage.get_config_as_int("any_key", 0).unwrap();

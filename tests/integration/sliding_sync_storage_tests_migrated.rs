@@ -12,120 +12,9 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-    sqlx::query("CREATE SEQUENCE IF NOT EXISTS sliding_sync_pos_seq")
-        .execute(pool.as_ref())
-        .await
-        .expect("Failed to create sliding_sync_pos_seq");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS sliding_sync_tokens (
-            id BIGSERIAL PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            device_id TEXT NOT NULL,
-            conn_id TEXT,
-            token TEXT NOT NULL,
-            pos BIGINT NOT NULL,
-            created_ts BIGINT NOT NULL,
-            expires_at BIGINT
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create sliding_sync_tokens table");
-
-    sqlx::query(
-        r#"
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_sliding_sync_tokens_unique ON sliding_sync_tokens(user_id, device_id, COALESCE(conn_id, ''))
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create sliding_sync_tokens unique index");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS sliding_sync_lists (
-            id BIGSERIAL PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            device_id TEXT NOT NULL,
-            conn_id TEXT,
-            list_key TEXT NOT NULL,
-            sort JSONB DEFAULT '[]',
-            filters JSONB DEFAULT '{}',
-            room_subscription JSONB DEFAULT '{}',
-            ranges JSONB DEFAULT '[]',
-            created_ts BIGINT NOT NULL,
-            updated_ts BIGINT NOT NULL
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create sliding_sync_lists table");
-
-    sqlx::query(
-        r#"
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_sliding_sync_lists_unique ON sliding_sync_lists(user_id, device_id, COALESCE(conn_id, ''), list_key)
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create sliding_sync_lists unique index");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS sliding_sync_rooms (
-            id BIGSERIAL PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            device_id TEXT NOT NULL,
-            room_id TEXT NOT NULL,
-            conn_id TEXT,
-            list_key TEXT,
-            bump_stamp BIGINT DEFAULT 0,
-            highlight_count INTEGER DEFAULT 0,
-            notification_count INTEGER DEFAULT 0,
-            is_dm BOOLEAN DEFAULT FALSE,
-            is_encrypted BOOLEAN DEFAULT FALSE,
-            is_tombstoned BOOLEAN DEFAULT FALSE,
-            is_invited BOOLEAN DEFAULT FALSE,
-            name TEXT,
-            avatar TEXT,
-            timestamp BIGINT DEFAULT 0,
-            created_ts BIGINT NOT NULL,
-            updated_ts BIGINT NOT NULL
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create sliding_sync_rooms table");
-
-    sqlx::query(
-        r#"
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_sliding_sync_rooms_unique ON sliding_sync_rooms(user_id, device_id, room_id, COALESCE(conn_id, ''))
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create sliding_sync_rooms unique index");
-
-    sqlx::query(
-        r#"
-        CREATE INDEX IF NOT EXISTS idx_sliding_sync_rooms_room_id ON sliding_sync_rooms(room_id, updated_ts DESC)
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create sliding_sync_rooms room_id index");
-}
-
 #[tokio::test]
 async fn test_create_or_update_token_creates_new() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
 
     let token = storage.create_or_update_token("@alice:localhost", "DEVICE1", None, 0).await.unwrap();
@@ -142,7 +31,6 @@ async fn test_create_or_update_token_creates_new() {
 #[tokio::test]
 async fn test_create_or_update_token_with_conn_id() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
 
     let token = storage.create_or_update_token("@bob:localhost", "DEVICE2", Some("conn1"), 0).await.unwrap();
@@ -153,7 +41,6 @@ async fn test_create_or_update_token_with_conn_id() {
 #[tokio::test]
 async fn test_create_or_update_token_upserts_existing() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@upsert_user_{suffix}:localhost");
@@ -169,7 +56,6 @@ async fn test_create_or_update_token_upserts_existing() {
 #[tokio::test]
 async fn test_get_token_returns_created() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@get_token_{suffix}:localhost");
@@ -188,7 +74,6 @@ async fn test_get_token_returns_created() {
 #[tokio::test]
 async fn test_get_token_returns_none_for_missing() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
 
     let fetched = storage.get_token("@nonexistent:localhost", "DEV1", None).await.unwrap();
@@ -199,7 +84,6 @@ async fn test_get_token_returns_none_for_missing() {
 #[tokio::test]
 async fn test_get_token_null_conn_id_distinction() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@null_conn_{suffix}:localhost");
@@ -218,7 +102,6 @@ async fn test_get_token_null_conn_id_distinction() {
 #[tokio::test]
 async fn test_validate_pos_valid() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@valid_pos_{suffix}:localhost");
@@ -233,7 +116,6 @@ async fn test_validate_pos_valid() {
 #[tokio::test]
 async fn test_validate_pos_invalid() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@invalid_pos_{suffix}:localhost");
@@ -248,7 +130,6 @@ async fn test_validate_pos_invalid() {
 #[tokio::test]
 async fn test_validate_pos_missing_user() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
 
     let is_valid = storage.validate_pos("@missing:localhost", "DEV1", None, "1").await.unwrap();
@@ -259,7 +140,6 @@ async fn test_validate_pos_missing_user() {
 #[tokio::test]
 async fn test_save_list_creates_new() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@save_list_{suffix}:localhost");
@@ -277,7 +157,6 @@ async fn test_save_list_creates_new() {
 #[tokio::test]
 async fn test_save_list_upserts_existing() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@upsert_list_{suffix}:localhost");
@@ -295,7 +174,6 @@ async fn test_save_list_upserts_existing() {
 #[tokio::test]
 async fn test_save_list_with_filters() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@filter_list_{suffix}:localhost");
@@ -313,7 +191,6 @@ async fn test_save_list_with_filters() {
 #[tokio::test]
 async fn test_get_lists_returns_all_for_user_device() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@get_lists_{suffix}:localhost");
@@ -330,7 +207,6 @@ async fn test_get_lists_returns_all_for_user_device() {
 #[tokio::test]
 async fn test_get_lists_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
 
     let lists = storage.get_lists("@nolists:localhost", "DEV1", None).await.unwrap();
@@ -341,7 +217,6 @@ async fn test_get_lists_empty() {
 #[tokio::test]
 async fn test_delete_list() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@del_list_{suffix}:localhost");
@@ -360,7 +235,6 @@ async fn test_delete_list() {
 #[tokio::test]
 async fn test_upsert_room_creates_new() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@upsert_room_{suffix}:localhost");
@@ -401,7 +275,6 @@ async fn test_upsert_room_creates_new() {
 #[tokio::test]
 async fn test_upsert_room_updates_existing() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@update_room_{suffix}:localhost");
@@ -460,7 +333,6 @@ async fn test_upsert_room_updates_existing() {
 #[tokio::test]
 async fn test_upsert_room_bump_stamp_uses_greatest() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@bump_greatest_{suffix}:localhost");
@@ -514,7 +386,6 @@ async fn test_upsert_room_bump_stamp_uses_greatest() {
 #[tokio::test]
 async fn test_upsert_room_null_name_keeps_existing() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@keep_name_{suffix}:localhost");
@@ -569,7 +440,6 @@ async fn test_upsert_room_null_name_keeps_existing() {
 #[tokio::test]
 async fn test_get_room_returns_existing() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@get_room_{suffix}:localhost");
@@ -605,7 +475,6 @@ async fn test_get_room_returns_existing() {
 #[tokio::test]
 async fn test_get_room_returns_none_for_missing() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
 
     let fetched = storage.get_room("@nobody:localhost", "DEV1", "!nonexistent:localhost", None).await.unwrap();
@@ -616,7 +485,6 @@ async fn test_get_room_returns_none_for_missing() {
 #[tokio::test]
 async fn test_delete_room() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@del_room_{suffix}:localhost");
@@ -652,7 +520,6 @@ async fn test_delete_room() {
 #[tokio::test]
 async fn test_update_notification_counts() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@notif_{suffix}:localhost");
@@ -690,7 +557,6 @@ async fn test_update_notification_counts() {
 #[tokio::test]
 async fn test_bump_room_increases_stamp() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@bump_{suffix}:localhost");
@@ -731,7 +597,6 @@ async fn test_bump_room_increases_stamp() {
 #[tokio::test]
 async fn test_get_rooms_for_list_ordered_by_bump_stamp() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@rooms_list_{suffix}:localhost");
@@ -818,7 +683,6 @@ async fn test_get_rooms_for_list_ordered_by_bump_stamp() {
 #[tokio::test]
 async fn test_get_rooms_for_list_with_filters() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@filter_rooms_{suffix}:localhost");
@@ -883,7 +747,6 @@ async fn test_get_rooms_for_list_with_filters() {
 #[tokio::test]
 async fn test_get_rooms_for_list_pagination() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@paginate_{suffix}:localhost");
@@ -928,7 +791,6 @@ async fn test_get_rooms_for_list_pagination() {
 #[tokio::test]
 async fn test_count_rooms_for_list() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@count_rooms_{suffix}:localhost");
@@ -964,7 +826,6 @@ async fn test_count_rooms_for_list() {
 #[tokio::test]
 async fn test_count_rooms_for_list_with_filters() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@count_filter_{suffix}:localhost");
@@ -1019,7 +880,6 @@ async fn test_count_rooms_for_list_with_filters() {
 #[tokio::test]
 async fn test_count_rooms_for_list_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
 
     let count = storage.count_rooms_for_list("@empty:localhost", "DEV1", None, "main", None).await.unwrap();
@@ -1030,7 +890,6 @@ async fn test_count_rooms_for_list_empty() {
 #[tokio::test]
 async fn test_cleanup_expired_tokens() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@cleanup_{suffix}:localhost");
@@ -1055,7 +914,6 @@ async fn test_cleanup_expired_tokens() {
 #[tokio::test]
 async fn test_cleanup_expired_tokens_preserves_valid() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@preserve_{suffix}:localhost");
@@ -1072,7 +930,6 @@ async fn test_cleanup_expired_tokens_preserves_valid() {
 #[tokio::test]
 async fn test_list_room_token_sync_basic() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@token_sync_{suffix}:localhost");
@@ -1114,7 +971,6 @@ async fn test_list_room_token_sync_basic() {
 #[tokio::test]
 async fn test_list_room_token_sync_with_cursor() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let room_id = format!("!cursor_room_{suffix}:localhost");
@@ -1181,7 +1037,6 @@ async fn test_list_room_token_sync_with_cursor() {
 #[tokio::test]
 async fn test_count_room_token_sync() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let room_id = format!("!count_sync_{suffix}:localhost");
@@ -1234,7 +1089,6 @@ async fn test_count_room_token_sync() {
 #[tokio::test]
 async fn test_list_room_token_sync_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
 
     let entries = storage.list_room_token_sync("!nonexistent:localhost", 10, None).await.unwrap();
@@ -1282,7 +1136,6 @@ async fn test_cursor_decode_invalid_input() {
 #[tokio::test]
 async fn test_conn_id_isolation_between_tokens() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@conn_iso_{suffix}:localhost");
@@ -1298,7 +1151,6 @@ async fn test_conn_id_isolation_between_tokens() {
 #[tokio::test]
 async fn test_conn_id_isolation_between_rooms() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@room_conn_iso_{suffix}:localhost");
@@ -1358,7 +1210,6 @@ async fn test_conn_id_isolation_between_rooms() {
 #[tokio::test]
 async fn test_delete_room_different_conn_id_no_cross_delete() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@cross_del_{suffix}:localhost");
@@ -1417,7 +1268,6 @@ async fn test_delete_room_different_conn_id_no_cross_delete() {
 #[tokio::test]
 async fn test_invited_room_filter() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@invite_filter_{suffix}:localhost");
@@ -1482,7 +1332,6 @@ async fn test_invited_room_filter() {
 #[tokio::test]
 async fn test_room_name_like_filter() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@name_like_{suffix}:localhost");
@@ -1547,7 +1396,6 @@ async fn test_room_name_like_filter() {
 #[tokio::test]
 async fn test_tombstoned_room_filter() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let suffix = unique_id();
     let user_id = format!("@tomb_filter_{suffix}:localhost");

@@ -28,288 +28,6 @@ use synapse_storage::user::UserStore;
 use synapse_storage::PresenceStorage;
 use synapse_storage::{AccountDataStorage, CreateFilterRequest, FilterStorage, FilterStoreApi, RoomAccountDataStorage};
 
-async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-    sqlx::query(
-        r#"
-            CREATE TABLE IF NOT EXISTS users (
-                user_id VARCHAR(255) PRIMARY KEY,
-                username TEXT NOT NULL UNIQUE,
-                password_hash TEXT,
-                displayname TEXT,
-                avatar_url TEXT,
-                is_admin BOOLEAN DEFAULT FALSE,
-                is_guest BOOLEAN DEFAULT FALSE,
-                is_shadow_banned BOOLEAN DEFAULT FALSE,
-                is_deactivated BOOLEAN DEFAULT FALSE,
-                created_ts BIGINT NOT NULL,
-                updated_ts BIGINT,
-                generation BIGINT DEFAULT 0
-            )
-            "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create users table");
-
-    sqlx::query(
-        r#"
-            CREATE TABLE IF NOT EXISTS presence (
-                user_id VARCHAR(255) PRIMARY KEY,
-                presence TEXT,
-                status_msg TEXT,
-                last_active_ts BIGINT,
-                created_ts BIGINT,
-                updated_ts BIGINT
-            )
-            "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create presence table");
-
-    sqlx::query(
-        r#"
-            CREATE TABLE IF NOT EXISTS rooms (
-                room_id VARCHAR(255) PRIMARY KEY,
-                is_public BOOLEAN DEFAULT FALSE,
-                room_version TEXT DEFAULT '6',
-                created_ts BIGINT NOT NULL,
-                last_activity_ts BIGINT,
-                join_rules TEXT DEFAULT 'invite',
-                history_visibility TEXT DEFAULT 'shared',
-                name TEXT,
-                topic TEXT,
-                avatar_url TEXT,
-                canonical_alias TEXT,
-                visibility TEXT DEFAULT 'private',
-                creator TEXT,
-                encryption TEXT,
-                member_count BIGINT DEFAULT 0
-            )
-            "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create rooms table");
-
-    sqlx::query(
-        r#"
-            CREATE TABLE IF NOT EXISTS room_memberships (
-                room_id VARCHAR(255) NOT NULL,
-                user_id VARCHAR(255) NOT NULL,
-                sender TEXT,
-                membership TEXT NOT NULL,
-                event_id TEXT,
-                event_type TEXT,
-                display_name TEXT,
-                avatar_url TEXT,
-                is_banned BOOLEAN DEFAULT FALSE,
-                invite_token TEXT,
-                updated_ts BIGINT,
-                joined_ts BIGINT,
-                left_ts BIGINT,
-                reason TEXT,
-                banned_by TEXT,
-                ban_reason TEXT,
-                banned_ts BIGINT,
-                join_reason TEXT,
-                PRIMARY KEY (room_id, user_id)
-            )
-            "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create room_memberships table");
-
-    sqlx::query(
-        r#"
-            CREATE TABLE IF NOT EXISTS events (
-                event_id VARCHAR(255) PRIMARY KEY,
-                room_id VARCHAR(255) NOT NULL,
-                user_id VARCHAR(255) NOT NULL,
-                sender VARCHAR(255) NOT NULL,
-                event_type TEXT NOT NULL,
-                content JSONB NOT NULL,
-                state_key TEXT,
-                depth BIGINT,
-                stream_ordering BIGSERIAL,
-                origin_server_ts BIGINT NOT NULL,
-                processed_ts BIGINT,
-                not_before BIGINT,
-                is_redacted BOOLEAN DEFAULT FALSE,
-                status TEXT,
-                reference_image TEXT,
-                origin TEXT,
-                unsigned JSONB
-            )
-            "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create events table");
-
-    sqlx::query(
-        r#"
-            CREATE TABLE IF NOT EXISTS devices (
-                device_id VARCHAR(255) PRIMARY KEY,
-                user_id VARCHAR(255) NOT NULL,
-                display_name TEXT,
-                device_key JSONB,
-                last_seen_ts BIGINT,
-                last_seen_ip TEXT,
-                created_ts BIGINT NOT NULL,
-                first_seen_ts BIGINT NOT NULL,
-                user_agent TEXT,
-                appservice_id TEXT,
-                ignored_user_list TEXT
-            )
-            "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create devices table");
-
-    sqlx::query(
-        r#"
-            CREATE TABLE IF NOT EXISTS device_lists_stream (
-                stream_id BIGSERIAL PRIMARY KEY,
-                user_id VARCHAR(255) NOT NULL,
-                device_id VARCHAR(255),
-                created_ts BIGINT NOT NULL
-            )
-            "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create device_lists_stream table");
-
-    sqlx::query(
-        r#"
-            CREATE TABLE IF NOT EXISTS device_lists_changes (
-                id BIGSERIAL PRIMARY KEY,
-                user_id VARCHAR(255) NOT NULL,
-                device_id VARCHAR(255),
-                change_type TEXT NOT NULL,
-                stream_id BIGINT NOT NULL,
-                created_ts BIGINT NOT NULL
-            )
-            "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create device_lists_changes table");
-
-    sqlx::query(
-        r#"
-            CREATE TABLE IF NOT EXISTS to_device_messages (
-                stream_id BIGSERIAL PRIMARY KEY,
-                sender_user_id VARCHAR(255) NOT NULL,
-                sender_device_id VARCHAR(255) NOT NULL,
-                recipient_user_id VARCHAR(255) NOT NULL,
-                recipient_device_id VARCHAR(255) NOT NULL,
-                event_type TEXT NOT NULL,
-                content JSONB NOT NULL,
-                message_id TEXT
-            )
-            "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create to_device_messages table");
-
-    sqlx::query(
-        r#"
-            CREATE TABLE IF NOT EXISTS lazy_loaded_members (
-                user_id TEXT NOT NULL,
-                device_id TEXT NOT NULL,
-                room_id TEXT NOT NULL,
-                member_user_id TEXT NOT NULL,
-                created_ts BIGINT NOT NULL,
-                updated_ts BIGINT NOT NULL,
-                PRIMARY KEY (user_id, device_id, room_id, member_user_id)
-            )
-            "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create lazy_loaded_members table");
-
-    sqlx::query(
-        r#"
-            CREATE TABLE IF NOT EXISTS filters (
-                id BIGSERIAL PRIMARY KEY,
-                user_id VARCHAR(255) NOT NULL,
-                filter_id VARCHAR(255) NOT NULL,
-                content JSONB NOT NULL,
-                created_ts BIGINT NOT NULL
-            )
-            "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create filters table");
-
-    sqlx::query(
-        r#"
-            CREATE TABLE IF NOT EXISTS key_rotation_pending (
-                room_id TEXT NOT NULL,
-                reason TEXT NOT NULL,
-                triggered_by_user_id TEXT NOT NULL,
-                created_ts BIGINT NOT NULL,
-                PRIMARY KEY (room_id, triggered_by_user_id)
-            )
-            "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create key_rotation_pending table");
-
-    sqlx::query(
-        r#"
-            CREATE TABLE IF NOT EXISTS key_rotation_state (
-                user_id TEXT NOT NULL,
-                room_id TEXT NOT NULL,
-                is_rotated BOOLEAN NOT NULL DEFAULT FALSE,
-                rotated_at TIMESTAMPTZ,
-                PRIMARY KEY (user_id, room_id)
-            )
-            "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create key_rotation_state table");
-
-    sqlx::query(
-        r#"
-            CREATE TABLE IF NOT EXISTS megolm_key_shares (
-                room_id TEXT NOT NULL,
-                session_id TEXT NOT NULL,
-                share_reason TEXT NOT NULL,
-                shared_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                PRIMARY KEY (room_id, session_id)
-            )
-            "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create megolm_key_shares table");
-
-    sqlx::query(
-        r#"
-            CREATE TABLE IF NOT EXISTS megolm_sessions (
-                session_id TEXT NOT NULL PRIMARY KEY,
-                room_id TEXT NOT NULL,
-                sender_key TEXT NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                expires_at TIMESTAMPTZ
-            )
-            "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create megolm_sessions table");
-}
-
 async fn create_test_user(pool: &Pool<Postgres>, user_id: &str, username: &str) {
     sqlx::query(
         r#"
@@ -378,7 +96,6 @@ fn create_room_service(
 #[tokio::test]
 async fn test_sync_success() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     create_test_user(&pool, "@alice:localhost", "alice").await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
@@ -436,7 +153,6 @@ async fn test_sync_success() {
 #[tokio::test]
 async fn test_incremental_sync_does_not_replay_old_timeline() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     create_test_user(&pool, "@alice:localhost", "alice").await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
@@ -492,7 +208,6 @@ async fn test_incremental_sync_does_not_replay_old_timeline() {
 #[tokio::test]
 async fn test_sync_offline_presence_overwrites_previous_presence_state() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     create_test_user(&pool, "@alice:localhost", "alice").await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
@@ -529,7 +244,6 @@ async fn test_sync_offline_presence_overwrites_previous_presence_state() {
 #[tokio::test]
 async fn test_sync_presence_events_reflect_persisted_presence_state() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     create_test_user(&pool, "@alice:localhost", "alice").await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
@@ -568,7 +282,6 @@ async fn test_sync_presence_events_reflect_persisted_presence_state() {
 #[tokio::test]
 async fn test_incremental_lazy_load_does_not_repeat_unchanged_non_member_state() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     create_test_user(&pool, "@alice:localhost", "alice").await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
@@ -673,7 +386,6 @@ async fn test_incremental_lazy_load_does_not_repeat_unchanged_non_member_state()
 #[tokio::test]
 async fn test_incremental_sync_includes_state_only_change_without_lazy_load() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     create_test_user(&pool, "@alice:localhost", "alice").await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
@@ -792,7 +504,6 @@ async fn test_incremental_sync_includes_state_only_change_without_lazy_load() {
 #[tokio::test]
 async fn test_incremental_lazy_load_includes_room_with_state_only_change_despite_timeline_filter() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     create_test_user(&pool, "@alice:localhost", "alice").await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
@@ -904,7 +615,6 @@ async fn test_incremental_lazy_load_includes_room_with_state_only_change_despite
 #[tokio::test]
 async fn test_sync_timeline_limit_preserves_chronological_order_without_false_limited_flag() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     create_test_user(&pool, "@alice:localhost", "alice").await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
@@ -990,7 +700,6 @@ async fn test_sync_timeline_limit_preserves_chronological_order_without_false_li
 #[tokio::test]
 async fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta_members() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     create_test_user(&pool, "@alice:localhost", "alice").await;
     create_test_user(&pool, "@bob:localhost", "bob").await;
 
@@ -1164,7 +873,6 @@ async fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta
 #[tokio::test]
 async fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     create_test_user(&pool, "@alice:localhost", "alice").await;
     create_test_user(&pool, "@bob:localhost", "bob").await;
 
@@ -1344,7 +1052,6 @@ async fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
 #[tokio::test]
 async fn test_include_redundant_members_survives_service_restart_with_persisted_cache() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     create_test_user(&pool, "@alice:localhost", "alice").await;
     create_test_user(&pool, "@bob:localhost", "bob").await;
 
@@ -1500,7 +1207,6 @@ async fn test_include_redundant_members_survives_service_restart_with_persisted_
 #[tokio::test]
 async fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     create_test_user(&pool, "@alice:localhost", "alice").await;
     create_test_user(&pool, "@bob:localhost", "bob").await;
 

@@ -10,99 +10,6 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS users (
-            user_id TEXT NOT NULL PRIMARY KEY,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT,
-            is_admin BOOLEAN DEFAULT FALSE,
-            is_guest BOOLEAN DEFAULT FALSE,
-            is_shadow_banned BOOLEAN DEFAULT FALSE,
-            is_deactivated BOOLEAN DEFAULT FALSE,
-            created_ts BIGINT NOT NULL,
-            updated_ts BIGINT,
-            displayname TEXT,
-            avatar_url TEXT,
-            email TEXT,
-            phone TEXT,
-            generation BIGINT DEFAULT 0,
-            consent_version TEXT,
-            appservice_id TEXT,
-            user_type TEXT,
-            invalid_update_at BIGINT,
-            migration_state TEXT,
-            password_changed_ts BIGINT,
-            is_password_change_required BOOLEAN DEFAULT FALSE,
-            must_change_password BOOLEAN DEFAULT FALSE,
-            password_expires_at BIGINT,
-            failed_login_attempts INTEGER DEFAULT 0,
-            locked_until BIGINT
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create users table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS rooms (
-            room_id TEXT NOT NULL PRIMARY KEY,
-            creator TEXT,
-            is_public BOOLEAN DEFAULT FALSE,
-            room_version TEXT DEFAULT '6',
-            created_ts BIGINT NOT NULL,
-            last_activity_ts BIGINT,
-            is_federated BOOLEAN DEFAULT TRUE,
-            has_guest_access BOOLEAN DEFAULT FALSE,
-            join_rules TEXT DEFAULT 'invite',
-            history_visibility TEXT DEFAULT 'shared',
-            name TEXT,
-            topic TEXT,
-            avatar_url TEXT,
-            canonical_alias TEXT,
-            visibility TEXT DEFAULT 'private'
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create rooms table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS room_memberships (
-            id BIGSERIAL PRIMARY KEY,
-            room_id TEXT NOT NULL,
-            user_id TEXT NOT NULL,
-            membership TEXT NOT NULL,
-            joined_ts BIGINT,
-            invited_ts BIGINT,
-            left_ts BIGINT,
-            banned_ts BIGINT,
-            sender TEXT,
-            reason TEXT,
-            event_id TEXT,
-            event_type TEXT,
-            display_name TEXT,
-            avatar_url TEXT,
-            is_banned BOOLEAN DEFAULT FALSE,
-            invite_token TEXT,
-            updated_ts BIGINT,
-            join_reason TEXT,
-            banned_by TEXT,
-            ban_reason TEXT,
-            UNIQUE (room_id, user_id)
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create room_memberships table");
-}
-
 fn create_storage(pool: &Arc<sqlx::PgPool>) -> RoomMemberStorage {
     RoomMemberStorage::new(pool, "localhost")
 }
@@ -363,7 +270,6 @@ async fn test_room_member_forgotten_state() {
 #[tokio::test]
 async fn test_add_member_join() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@addjoin_{suffix}:localhost");
@@ -384,7 +290,6 @@ async fn test_add_member_join() {
 #[tokio::test]
 async fn test_add_member_with_display_name() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@displayname_{suffix}:localhost");
@@ -401,7 +306,6 @@ async fn test_add_member_with_display_name() {
 #[tokio::test]
 async fn test_add_member_with_join_reason() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@joinreason_{suffix}:localhost");
@@ -419,7 +323,6 @@ async fn test_add_member_with_join_reason() {
 #[tokio::test]
 async fn test_add_member_upsert() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@upsert_{suffix}:localhost");
@@ -440,7 +343,6 @@ async fn test_add_member_upsert() {
 #[tokio::test]
 async fn test_get_member_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@getmember_{suffix}:localhost");
@@ -461,7 +363,6 @@ async fn test_get_member_found() {
 #[tokio::test]
 async fn test_get_member_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -475,7 +376,6 @@ async fn test_get_member_not_found() {
 #[tokio::test]
 async fn test_get_room_members() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!roommembers_room_{suffix}:localhost");
@@ -502,7 +402,6 @@ async fn test_get_room_members() {
 #[tokio::test]
 async fn test_get_room_members_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!emptymembers_room_{suffix}:localhost");
@@ -516,7 +415,6 @@ async fn test_get_room_members_empty() {
 #[tokio::test]
 async fn test_get_room_member_count() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!membercount_room_{suffix}:localhost");
@@ -540,7 +438,6 @@ async fn test_get_room_member_count() {
 #[tokio::test]
 async fn test_get_room_member_count_zero() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!nomembers_room_{suffix}:localhost");
@@ -554,7 +451,6 @@ async fn test_get_room_member_count_zero() {
 #[tokio::test]
 async fn test_remove_member_join() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@removejoin_{suffix}:localhost");
@@ -574,7 +470,6 @@ async fn test_remove_member_join() {
 #[tokio::test]
 async fn test_remove_member_banned() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@removeban_{suffix}:localhost");
@@ -595,7 +490,6 @@ async fn test_remove_member_banned() {
 #[tokio::test]
 async fn test_remove_member_already_left() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@removeleft_{suffix}:localhost");
@@ -615,7 +509,6 @@ async fn test_remove_member_already_left() {
 #[tokio::test]
 async fn test_forget_member_leave() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@forgetleave_{suffix}:localhost");
@@ -635,7 +528,6 @@ async fn test_forget_member_leave() {
 #[tokio::test]
 async fn test_forget_member_invite() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@forgetinvite_{suffix}:localhost");
@@ -655,7 +547,6 @@ async fn test_forget_member_invite() {
 #[tokio::test]
 async fn test_forget_member_joined_no_effect() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@forgetjoin_{suffix}:localhost");
@@ -675,7 +566,6 @@ async fn test_forget_member_joined_no_effect() {
 #[tokio::test]
 async fn test_is_forgotten_true() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@isforgotten_{suffix}:localhost");
@@ -693,7 +583,6 @@ async fn test_is_forgotten_true() {
 #[tokio::test]
 async fn test_is_forgotten_false() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@notforgotten_{suffix}:localhost");
@@ -710,7 +599,6 @@ async fn test_is_forgotten_false() {
 #[tokio::test]
 async fn test_is_forgotten_no_record() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -724,7 +612,6 @@ async fn test_is_forgotten_no_record() {
 #[tokio::test]
 async fn test_get_shared_room_users() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_a = format!("@shared_a_{suffix}:localhost");
@@ -750,7 +637,6 @@ async fn test_get_shared_room_users() {
 #[tokio::test]
 async fn test_get_shared_room_users_no_shared() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@noshared_{suffix}:localhost");
@@ -764,7 +650,6 @@ async fn test_get_shared_room_users_no_shared() {
 #[tokio::test]
 async fn test_remove_all_members() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!removeall_room_{suffix}:localhost");
@@ -787,7 +672,6 @@ async fn test_remove_all_members() {
 #[tokio::test]
 async fn test_ban_member() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@ban_{suffix}:localhost");
@@ -807,7 +691,6 @@ async fn test_ban_member() {
 #[tokio::test]
 async fn test_ban_member_upsert() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@banupsert_{suffix}:localhost");
@@ -832,7 +715,6 @@ async fn test_ban_member_upsert() {
 #[tokio::test]
 async fn test_unban_member() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@unban_{suffix}:localhost");
@@ -855,7 +737,6 @@ async fn test_unban_member() {
 #[tokio::test]
 async fn test_unban_member_not_banned() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@unbannot_{suffix}:localhost");
@@ -875,7 +756,6 @@ async fn test_unban_member_not_banned() {
 #[tokio::test]
 async fn test_get_joined_rooms() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@joinedrooms_{suffix}:localhost");
@@ -902,7 +782,6 @@ async fn test_get_joined_rooms() {
 #[tokio::test]
 async fn test_get_joined_rooms_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@nojoinedrooms_{suffix}:localhost");
@@ -916,7 +795,6 @@ async fn test_get_joined_rooms_empty() {
 #[tokio::test]
 async fn test_get_sync_rooms_join_only() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@syncjoin_{suffix}:localhost");
@@ -939,7 +817,6 @@ async fn test_get_sync_rooms_join_only() {
 #[tokio::test]
 async fn test_get_sync_rooms_include_leave() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@syncleave_{suffix}:localhost");
@@ -964,7 +841,6 @@ async fn test_get_sync_rooms_include_leave() {
 #[tokio::test]
 async fn test_get_membership_state_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@mstate_{suffix}:localhost");
@@ -981,7 +857,6 @@ async fn test_get_membership_state_found() {
 #[tokio::test]
 async fn test_get_membership_state_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -995,7 +870,6 @@ async fn test_get_membership_state_not_found() {
 #[tokio::test]
 async fn test_get_joined_room_count() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@jroomcount_{suffix}:localhost");
@@ -1019,7 +893,6 @@ async fn test_get_joined_room_count() {
 #[tokio::test]
 async fn test_get_joined_room_count_zero() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@nojroomcount_{suffix}:localhost");
@@ -1033,7 +906,6 @@ async fn test_get_joined_room_count_zero() {
 #[tokio::test]
 async fn test_is_member_true() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@ismember_{suffix}:localhost");
@@ -1050,7 +922,6 @@ async fn test_is_member_true() {
 #[tokio::test]
 async fn test_is_member_false_left() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@notmember_{suffix}:localhost");
@@ -1067,7 +938,6 @@ async fn test_is_member_false_left() {
 #[tokio::test]
 async fn test_is_member_false_no_record() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -1081,7 +951,6 @@ async fn test_is_member_false_no_record() {
 #[tokio::test]
 async fn test_get_room_member_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@grm_{suffix}:localhost");
@@ -1102,7 +971,6 @@ async fn test_get_room_member_found() {
 #[tokio::test]
 async fn test_get_room_member_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
@@ -1116,7 +984,6 @@ async fn test_get_room_member_not_found() {
 #[tokio::test]
 async fn test_get_joined_members() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!jmembers_room_{suffix}:localhost");
@@ -1144,7 +1011,6 @@ async fn test_get_joined_members() {
 #[tokio::test]
 async fn test_get_joined_members_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!emptyjmembers_room_{suffix}:localhost");
@@ -1158,7 +1024,6 @@ async fn test_get_joined_members_empty() {
 #[tokio::test]
 async fn test_get_joined_member_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@gjm_{suffix}:localhost");
@@ -1178,7 +1043,6 @@ async fn test_get_joined_member_found() {
 #[tokio::test]
 async fn test_get_joined_member_not_joined() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@gjmnj_{suffix}:localhost");
@@ -1195,7 +1059,6 @@ async fn test_get_joined_member_not_joined() {
 #[tokio::test]
 async fn test_share_common_room_true() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_a = format!("@share_a_{suffix}:localhost");
@@ -1216,7 +1079,6 @@ async fn test_share_common_room_true() {
 #[tokio::test]
 async fn test_share_common_room_false() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_a = format!("@noshare_a_{suffix}:localhost");
@@ -1232,7 +1094,6 @@ async fn test_share_common_room_false() {
 #[tokio::test]
 async fn test_share_common_room_one_left() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_a = format!("@shareleft_a_{suffix}:localhost");
@@ -1253,7 +1114,6 @@ async fn test_share_common_room_one_left() {
 #[tokio::test]
 async fn test_get_membership_history() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!mhistory_room_{suffix}:localhost");
@@ -1277,7 +1137,6 @@ async fn test_get_membership_history() {
 #[tokio::test]
 async fn test_get_membership_history_with_limit() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!mhistlimit_room_{suffix}:localhost");
@@ -1301,7 +1160,6 @@ async fn test_get_membership_history_with_limit() {
 #[tokio::test]
 async fn test_get_joined_rooms_with_details() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@jdetails_{suffix}:localhost");
@@ -1343,7 +1201,6 @@ async fn test_get_joined_rooms_with_details() {
 #[tokio::test]
 async fn test_get_joined_rooms_with_details_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@nojdetails_{suffix}:localhost");
@@ -1357,7 +1214,6 @@ async fn test_get_joined_rooms_with_details_empty() {
 #[tokio::test]
 async fn test_get_room_members_with_profiles() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!profiles_room_{suffix}:localhost");
@@ -1394,7 +1250,6 @@ async fn test_get_room_members_with_profiles() {
 #[tokio::test]
 async fn test_get_room_members_with_profiles_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!emptyprofiles_room_{suffix}:localhost");
@@ -1408,7 +1263,6 @@ async fn test_get_room_members_with_profiles_empty() {
 #[tokio::test]
 async fn test_get_members_batch() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room1 = format!("!batch1_{suffix}:localhost");
@@ -1436,7 +1290,6 @@ async fn test_get_members_batch() {
 #[tokio::test]
 async fn test_get_members_batch_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
 
     let result = storage.get_members_batch(&[], "join").await.unwrap();
@@ -1447,7 +1300,6 @@ async fn test_get_members_batch_empty() {
 #[tokio::test]
 async fn test_get_joined_members_batch() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room1 = format!("!jbatch1_{suffix}:localhost");
@@ -1474,7 +1326,6 @@ async fn test_get_joined_members_batch() {
 #[tokio::test]
 async fn test_check_membership_batch() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!checkbatch_room_{suffix}:localhost");
@@ -1503,7 +1354,6 @@ async fn test_check_membership_batch() {
 #[tokio::test]
 async fn test_check_membership_batch_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!checkempty_room_{suffix}:localhost");
@@ -1518,7 +1368,6 @@ async fn test_check_membership_batch_empty() {
 #[tokio::test]
 async fn test_check_membership_batch_no_matches() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!checknomatch_room_{suffix}:localhost");
@@ -1537,7 +1386,6 @@ async fn test_check_membership_batch_no_matches() {
 #[tokio::test]
 async fn test_full_membership_lifecycle() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let user_id = format!("@lifecycle_{suffix}:localhost");

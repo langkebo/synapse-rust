@@ -349,14 +349,18 @@ fn tests_dir_allowlist_entries_all_still_match_something() {
     );
 }
 
-/// 扫描器必须真的在看这一批站点：抽一个必然存在的键做存在性断言。
+/// 扫描器必须真的在看这一批站点：抽一个**永久在名单里**的键做存在性断言。
+///
+/// 用 (a) 组（机制自身）的键，而不是某个 `*_migrated.rs` 的键 —— 后者会随 D-47 第二步
+/// 逐文件迁模板而消失，把这条"扫描面非空"的自证变成假红。
 #[test]
 fn tests_dir_scanner_actually_sees_a_known_site() {
     let hits = list_tests_dir_ddl(&scan_root());
-    let known = "tests/integration/sync_service_tests_migrated.rs::setup_test_database";
+    let known =
+        "tests/unit/migration_search_path_tests.rs::heal_repoints_cross_schema_foreign_key_at_same_named_parent";
     assert!(
         hits.iter().any(|hit| hit_key(hit) == known),
-        "扫描器必须能定位 {known}（一个自建 15 张表的既有夹具）；实得 {hits:?}"
+        "扫描器必须能定位 {known}（一个创建/删除 schema 的迁移机制用例）；实得 {hits:?}"
     );
 }
 

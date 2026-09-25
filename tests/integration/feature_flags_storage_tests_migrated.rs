@@ -17,42 +17,6 @@ fn create_test_cache() -> Arc<CacheManager> {
     Arc::new(CacheManager::new(&CacheConfig::default()))
 }
 
-async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS feature_flags (
-            flag_key TEXT PRIMARY KEY,
-            target_scope TEXT NOT NULL,
-            rollout_percent INTEGER NOT NULL,
-            expires_at BIGINT NULL,
-            reason TEXT NOT NULL,
-            status TEXT NOT NULL,
-            created_by TEXT NOT NULL,
-            created_ts BIGINT NOT NULL,
-            updated_ts BIGINT NOT NULL
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create feature_flags table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS feature_flag_targets (
-            id BIGSERIAL PRIMARY KEY,
-            flag_key TEXT NOT NULL REFERENCES feature_flags(flag_key) ON DELETE CASCADE,
-            subject_type TEXT NOT NULL,
-            subject_id TEXT NOT NULL,
-            created_ts BIGINT NOT NULL
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create feature_flag_targets table");
-}
-
 fn create_storage(pool: &Arc<sqlx::PgPool>) -> FeatureFlagStorage {
     FeatureFlagStorage::new(pool, create_test_cache())
 }
@@ -153,7 +117,6 @@ async fn test_feature_flag_filters_with_all_fields() {
 #[tokio::test]
 async fn test_create_flag_basic() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let uid = unique_id();
     let flag_key = format!("test-create-basic-{uid}");
@@ -191,7 +154,6 @@ async fn test_create_flag_basic() {
 #[tokio::test]
 async fn test_create_flag_with_targets() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let uid = unique_id();
     let flag_key = format!("test-create-targets-{uid}");
@@ -228,7 +190,6 @@ async fn test_create_flag_with_targets() {
 #[tokio::test]
 async fn test_create_flag_default_status() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let uid = unique_id();
     let flag_key = format!("test-create-default-status-{uid}");
@@ -257,7 +218,6 @@ async fn test_create_flag_default_status() {
 #[tokio::test]
 async fn test_create_flag_duplicate_key_fails() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let uid = unique_id();
     let flag_key = format!("test-dup-key-{uid}");
@@ -282,7 +242,6 @@ async fn test_create_flag_duplicate_key_fails() {
 #[tokio::test]
 async fn test_get_flag_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let uid = unique_id();
     let flag_key = format!("test-get-found-{uid}");
@@ -319,7 +278,6 @@ async fn test_get_flag_found() {
 #[tokio::test]
 async fn test_get_flag_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
 
     let result = storage.get_flag("nonexistent.key").await.unwrap();
@@ -329,7 +287,6 @@ async fn test_get_flag_not_found() {
 #[tokio::test]
 async fn test_get_flag_cache_hit() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let cache = create_test_cache();
     let storage = FeatureFlagStorage::new(&pool, cache.clone());
     let uid = unique_id();
@@ -347,7 +304,6 @@ async fn test_get_flag_cache_hit() {
 #[tokio::test]
 async fn test_update_flag_status() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let uid = unique_id();
     let flag_key = format!("test-update-status-{uid}");
@@ -388,7 +344,6 @@ async fn test_update_flag_status() {
 #[tokio::test]
 async fn test_update_flag_rollout_percent() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let uid = unique_id();
     let flag_key = format!("test-update-rollout-{uid}");
@@ -413,7 +368,6 @@ async fn test_update_flag_rollout_percent() {
 #[tokio::test]
 async fn test_update_flag_expires_at() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let uid = unique_id();
     let flag_key = format!("test-update-expires-{uid}");
@@ -452,7 +406,6 @@ async fn test_update_flag_expires_at() {
 #[tokio::test]
 async fn test_update_flag_reason() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let uid = unique_id();
     let flag_key = format!("test-update-reason-{uid}");
@@ -476,7 +429,6 @@ async fn test_update_flag_reason() {
 #[tokio::test]
 async fn test_update_flag_replace_targets() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let uid = unique_id();
     let flag_key = format!("test-update-targets-{uid}");
@@ -528,7 +480,6 @@ async fn test_update_flag_replace_targets() {
 #[tokio::test]
 async fn test_update_flag_nonexistent_returns_none() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
 
     let result = storage
@@ -546,7 +497,6 @@ async fn test_update_flag_nonexistent_returns_none() {
 #[tokio::test]
 async fn test_update_flag_no_targets_preserves_existing() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let uid = unique_id();
     let flag_key = format!("test-update-no-targets-{uid}");
@@ -590,7 +540,6 @@ async fn test_update_flag_no_targets_preserves_existing() {
 #[tokio::test]
 async fn test_list_flags_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
 
     let filters = FeatureFlagFilters {
@@ -609,7 +558,6 @@ async fn test_list_flags_empty() {
 #[tokio::test]
 async fn test_list_flags_with_target_scope_filter() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let uid = unique_id();
     let scope = format!("scope-filter-{uid}");
@@ -683,7 +631,6 @@ async fn test_list_flags_with_target_scope_filter() {
 #[tokio::test]
 async fn test_list_flags_with_status_filter() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let uid = unique_id();
     let created_ts = 1_700_000_000_000_i64;
@@ -739,7 +686,6 @@ async fn test_list_flags_with_status_filter() {
 #[tokio::test]
 async fn test_list_flags_with_limit() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let uid = unique_id();
     let scope = format!("limit-scope-{uid}");
@@ -780,7 +726,6 @@ async fn test_list_flags_with_limit() {
 #[tokio::test]
 async fn test_list_flags_with_cursor_pagination() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let uid = unique_id();
     let scope = format!("cursor-scope-{uid}");
@@ -840,7 +785,6 @@ async fn test_list_flags_with_cursor_pagination() {
 #[tokio::test]
 async fn test_list_flags_includes_targets() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let uid = unique_id();
     let flag_key = format!("ff-list-targets-{uid}");
@@ -886,7 +830,6 @@ async fn test_list_flags_includes_targets() {
 #[tokio::test]
 async fn test_list_flags_cache_returns_same_result() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let cache = create_test_cache();
     let storage = FeatureFlagStorage::new(&pool, cache.clone());
     let uid = unique_id();
@@ -927,7 +870,6 @@ async fn test_list_flags_cache_returns_same_result() {
 #[tokio::test]
 async fn test_create_flag_invalidates_list_cache() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let cache = create_test_cache();
     let storage = FeatureFlagStorage::new(&pool, cache.clone());
     let uid = unique_id();
@@ -971,7 +913,6 @@ async fn test_create_flag_invalidates_list_cache() {
 #[tokio::test]
 async fn test_update_flag_invalidates_list_cache() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let cache = create_test_cache();
     let storage = FeatureFlagStorage::new(&pool, cache.clone());
     let uid = unique_id();
@@ -1025,7 +966,6 @@ async fn test_update_flag_invalidates_list_cache() {
 #[tokio::test]
 async fn test_update_flag_invalidates_flag_cache() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let cache = create_test_cache();
     let storage = FeatureFlagStorage::new(&pool, cache.clone());
     let uid = unique_id();
@@ -1069,7 +1009,6 @@ async fn test_update_flag_invalidates_flag_cache() {
 #[tokio::test]
 async fn test_update_flag_multiple_fields() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let uid = unique_id();
     let flag_key = format!("ff-multi-update-{uid}");
@@ -1119,7 +1058,6 @@ async fn test_update_flag_multiple_fields() {
 #[tokio::test]
 async fn test_update_flag_empty_targets_clears_all() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let uid = unique_id();
     let flag_key = format!("ff-clear-targets-{uid}");
@@ -1161,7 +1099,6 @@ async fn test_update_flag_empty_targets_clears_all() {
 #[tokio::test]
 async fn test_list_flags_order_by_updated_ts_desc() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let uid = unique_id();
     let scope = format!("order-scope-{uid}");

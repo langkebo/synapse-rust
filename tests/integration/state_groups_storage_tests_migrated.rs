@@ -8,131 +8,6 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS rooms (
-            room_id TEXT NOT NULL PRIMARY KEY,
-            creator TEXT,
-            is_public BOOLEAN DEFAULT FALSE,
-            room_version TEXT DEFAULT '6',
-            created_ts BIGINT NOT NULL,
-            last_activity_ts BIGINT,
-            is_federated BOOLEAN DEFAULT TRUE,
-            has_guest_access BOOLEAN DEFAULT FALSE,
-            join_rules TEXT DEFAULT 'invite',
-            history_visibility TEXT DEFAULT 'shared',
-            name TEXT,
-            topic TEXT,
-            avatar_url TEXT,
-            canonical_alias TEXT,
-            visibility TEXT DEFAULT 'private'
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create rooms table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS events (
-            event_id TEXT NOT NULL PRIMARY KEY,
-            room_id TEXT NOT NULL,
-            sender TEXT NOT NULL,
-            event_type TEXT NOT NULL,
-            content JSONB NOT NULL,
-            origin_server_ts BIGINT NOT NULL,
-            state_key TEXT,
-            is_redacted BOOLEAN DEFAULT FALSE,
-            redacted_at BIGINT,
-            redacted_by TEXT,
-            transaction_id TEXT,
-            depth BIGINT,
-            prev_events JSONB,
-            auth_events JSONB,
-            signatures JSONB,
-            hashes JSONB,
-            unsigned JSONB DEFAULT '{}',
-            processed_at BIGINT,
-            not_before BIGINT DEFAULT 0,
-            status TEXT,
-            reference_image TEXT,
-            origin TEXT,
-            user_id TEXT,
-            stream_ordering BIGSERIAL,
-            FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create events table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS state_groups (
-            id BIGSERIAL PRIMARY KEY,
-            room_id TEXT NOT NULL,
-            event_id TEXT NOT NULL,
-            state_hash TEXT NOT NULL UNIQUE,
-            created_ts BIGINT NOT NULL,
-            FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE,
-            FOREIGN KEY (event_id) REFERENCES events(event_id) ON DELETE CASCADE
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create state_groups table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS state_group_edges (
-            state_group_id BIGINT NOT NULL,
-            prev_state_group_id BIGINT NOT NULL,
-            PRIMARY KEY (state_group_id, prev_state_group_id),
-            FOREIGN KEY (state_group_id) REFERENCES state_groups(id) ON DELETE CASCADE,
-            FOREIGN KEY (prev_state_group_id) REFERENCES state_groups(id) ON DELETE CASCADE
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create state_group_edges table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS event_to_state_groups (
-            event_id TEXT NOT NULL PRIMARY KEY,
-            state_group_id BIGINT NOT NULL,
-            FOREIGN KEY (event_id) REFERENCES events(event_id) ON DELETE CASCADE,
-            FOREIGN KEY (state_group_id) REFERENCES state_groups(id) ON DELETE CASCADE
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create event_to_state_groups table");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS state_group_state (
-            state_group_id BIGINT NOT NULL,
-            event_type TEXT NOT NULL,
-            state_key TEXT NOT NULL,
-            event_id TEXT NOT NULL,
-            PRIMARY KEY (state_group_id, event_type, state_key),
-            FOREIGN KEY (state_group_id) REFERENCES state_groups(id) ON DELETE CASCADE,
-            FOREIGN KEY (event_id) REFERENCES events(event_id) ON DELETE CASCADE
-        )
-        "#,
-    )
-    .execute(pool.as_ref())
-    .await
-    .expect("Failed to create state_group_state table");
-}
-
 async fn insert_room(pool: &sqlx::PgPool, room_id: &str) {
     sqlx::query(r#"INSERT INTO rooms (room_id, creator, created_ts) VALUES ($1, $2, $3)"#)
         .bind(room_id)
@@ -162,7 +37,6 @@ async fn insert_event(pool: &sqlx::PgPool, event_id: &str, room_id: &str) {
 #[tokio::test]
 async fn test_create_and_get_state_group() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = StateGroupStorage::new(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:test");
@@ -185,7 +59,6 @@ async fn test_create_and_get_state_group() {
 #[tokio::test]
 async fn test_get_state_group_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = StateGroupStorage::new(&pool);
 
     let result = storage.get_state_group(99999).await.unwrap();
@@ -195,7 +68,6 @@ async fn test_get_state_group_not_found() {
 #[tokio::test]
 async fn test_create_state_group_upsert_on_conflict() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = StateGroupStorage::new(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:test");
@@ -220,7 +92,6 @@ async fn test_create_state_group_upsert_on_conflict() {
 #[tokio::test]
 async fn test_get_state_group_by_event() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = StateGroupStorage::new(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:test");
@@ -240,7 +111,6 @@ async fn test_get_state_group_by_event() {
 #[tokio::test]
 async fn test_get_state_group_by_event_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = StateGroupStorage::new(&pool);
 
     let result = storage.get_state_group_by_event("$nonexistent:test").await.unwrap();
@@ -250,7 +120,6 @@ async fn test_get_state_group_by_event_not_found() {
 #[tokio::test]
 async fn test_get_room_state_groups() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = StateGroupStorage::new(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:test");
@@ -274,7 +143,6 @@ async fn test_get_room_state_groups() {
 #[tokio::test]
 async fn test_add_and_get_state_group_edges() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = StateGroupStorage::new(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:test");
@@ -309,7 +177,6 @@ async fn test_add_and_get_state_group_edges() {
 #[tokio::test]
 async fn test_add_state_group_edges_batch() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = StateGroupStorage::new(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:test");
@@ -336,7 +203,6 @@ async fn test_add_state_group_edges_batch() {
 #[tokio::test]
 async fn test_add_state_group_edge_duplicate_no_error() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = StateGroupStorage::new(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:test");
@@ -362,7 +228,6 @@ async fn test_add_state_group_edge_duplicate_no_error() {
 #[tokio::test]
 async fn test_bind_and_get_event_to_state_group() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = StateGroupStorage::new(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:test");
@@ -386,7 +251,6 @@ async fn test_bind_and_get_event_to_state_group() {
 #[tokio::test]
 async fn test_get_state_group_for_event_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = StateGroupStorage::new(&pool);
 
     let result = storage.get_state_group_for_event("$nonexistent:test").await.unwrap();
@@ -396,7 +260,6 @@ async fn test_get_state_group_for_event_not_found() {
 #[tokio::test]
 async fn test_bind_event_to_state_group_upsert() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = StateGroupStorage::new(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:test");
@@ -425,7 +288,6 @@ async fn test_bind_event_to_state_group_upsert() {
 #[tokio::test]
 async fn test_batch_bind_events_to_state_group() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = StateGroupStorage::new(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:test");
@@ -459,7 +321,6 @@ async fn test_batch_bind_events_to_state_group() {
 #[tokio::test]
 async fn test_set_and_get_state_entry() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = StateGroupStorage::new(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:test");
@@ -483,7 +344,6 @@ async fn test_set_and_get_state_entry() {
 #[tokio::test]
 async fn test_get_state_entry_not_found() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = StateGroupStorage::new(&pool);
 
     let result = storage.get_state_entry(99999, "m.room.member", "@user:test").await.unwrap();
@@ -493,7 +353,6 @@ async fn test_get_state_entry_not_found() {
 #[tokio::test]
 async fn test_set_state_entry_upsert() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = StateGroupStorage::new(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:test");
@@ -520,7 +379,6 @@ async fn test_set_state_entry_upsert() {
 #[tokio::test]
 async fn test_set_state_entries_batch() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = StateGroupStorage::new(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:test");
@@ -563,7 +421,6 @@ async fn test_set_state_entries_batch() {
 #[tokio::test]
 async fn test_get_state_at_group_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = StateGroupStorage::new(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:test");
@@ -582,7 +439,6 @@ async fn test_get_state_at_group_empty() {
 #[tokio::test]
 async fn test_resolve_state_for_group_single() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = StateGroupStorage::new(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:test");
@@ -611,7 +467,6 @@ async fn test_resolve_state_for_group_single() {
 #[tokio::test]
 async fn test_resolve_state_for_group_with_edges() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = StateGroupStorage::new(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:test");
@@ -647,7 +502,6 @@ async fn test_resolve_state_for_group_with_edges() {
 #[tokio::test]
 async fn test_resolve_state_child_overrides_parent() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = StateGroupStorage::new(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:test");
@@ -682,7 +536,6 @@ async fn test_resolve_state_child_overrides_parent() {
 #[tokio::test]
 async fn test_get_prev_state_groups_empty() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
     let storage = StateGroupStorage::new(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_{suffix}:test");
