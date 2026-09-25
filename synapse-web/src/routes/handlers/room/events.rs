@@ -1003,6 +1003,55 @@ pub(crate) async fn redact_event(
         ApiError::internal_with_cause("Failed to redact event content", e)
     })?;
 
+    // MSC3912: Cascade redact — find and redact all related events (replies, reactions, edits)
+    match ctx.content_scanner.is_enabled() {
+        true => {
+            // Scanner enabled: fail-closed — any cascade error blocks the redaction
+            match ctx.event_redaction_service.cascade_redact_event(&event_id, Some(&redactor_user_id), 5).await {
+                Ok(cascaded_count) => {
+                    if cascaded_count > 0 {
+                        ::tracing::info!(
+                            target: "security_audit",
+                            request_id = %request_id,
+                            room_id = %room_id,
+                            event_id = %event_id,
+                            cascaded_count = cascaded_count,
+                            "MSC3912 cascade redact completed"
+                        );
+                    }
+                }
+                Err(e) => {
+                    ::tracing::warn!(
+                        target: "security_audit",
+                        request_id = %request_id,
+                        event = "cascade_redact_failed",
+                        room_id = %room_id,
+                        event_id = %event_id,
+                        error = %e,
+                        "Failed to cascade redact related events"
+                    );
+                    return Err(ApiError::internal_with_cause("Failed to cascade redact event", e));
+                }
+            }
+        }
+        false => {
+            // Scanner disabled: best-effort — log failure but don't block
+            if let Err(e) =
+                ctx.event_redaction_service.cascade_redact_event(&event_id, Some(&redactor_user_id), 5).await
+            {
+                ::tracing::warn!(
+                    target: "security_audit",
+                    request_id = %request_id,
+                    event = "cascade_redact_failed",
+                    room_id = %room_id,
+                    event_id = %event_id,
+                    error = %e,
+                    "Failed to cascade redact related events (best-effort)"
+                );
+            }
+        }
+    }
+
     Ok(Json(json!({
         "event_id": new_event_id
     })))

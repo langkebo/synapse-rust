@@ -200,9 +200,12 @@ impl EventStorage {
     /// Get the state DAG edges for a room — all `(event_id, prev_state_event_id)`
     /// pairs where `prev_state_events` is non-NULL.
     ///
-    /// Used by `/send_join` (federation) to provide the full state DAG to
-    /// joining servers, and by `/get_missing_events` to walk the state DAG
+    /// Used by `/get_missing_events` to walk the state DAG
     /// when backfilling missing state events (MSC4242).
+    ///
+    /// ⚠️ **Note**: The comment previously claimed this was used by `/send_join`,
+    /// but `/send_join` does not call this function. The only production caller
+    /// is `federation/events.rs` (via `get_missing_events_between`).
     ///
     /// Returns a flat list of `(event_id, prev_state_event_id)` edges.
     pub async fn get_state_dag_edges(&self, room_id: &str) -> Result<Vec<(String, String)>, sqlx::Error> {

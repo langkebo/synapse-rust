@@ -144,6 +144,8 @@ pub struct RoomContext {
     pub app_service_manager: Arc<synapse_services::application_service::ApplicationServiceManager>,
     /// MSC3806 — Content scanner (gate writes with malicious content).
     pub content_scanner: Arc<synapse_services::content_scanner::ContentScanner>,
+    /// MSC3912 — Cascade redact service for client-side redactions.
+    pub event_redaction_service: Arc<synapse_services::event_redaction_service::EventRedactionService>,
 }
 
 impl FromRef<AppState> for RoomContext {
@@ -191,6 +193,7 @@ impl FromRef<AppState> for RoomContext {
             delayed_event_service: state.services.admin.modules.delayed_event_service.clone(),
             app_service_manager: state.services.admin.modules.app_service_manager.clone(),
             content_scanner: state.services.core.content_scanner.clone(),
+            event_redaction_service: state.services.rooms.event_redaction_service.clone(),
         }
     }
 }

@@ -59,7 +59,11 @@ pub async fn get_auth_metadata(State(ctx): State<AuthContext>) -> Result<Json<se
 
 /// Legacy MSC2965 issuer discovery used by some Element code paths before
 /// fetching the full auth metadata document.
-pub async fn get_auth_issuer(State(ctx): State<AuthContext>) -> Result<Json<serde_json::Value>, ApiError> {
+#[deprecated(
+    since = "0.1.0",
+    note = "Removed upstream in Synapse 1.161; kept for backward compat until client migration complete"
+)]
+pub fn get_auth_issuer(State(ctx): State<AuthContext>) -> Result<Json<serde_json::Value>, ApiError> {
     if !oidc_available(&ctx.config) {
         return Err(ApiError {
             kind: ApiErrorKind::BadRequest,

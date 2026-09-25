@@ -193,10 +193,6 @@ pub fn create_router(state: AppState) -> Router {
             "/_matrix/client/unstable/org.matrix.msc2965/auth_metadata",
             get(handlers::auth_discovery::get_auth_metadata),
         )
-        .route(
-            "/_matrix/client/unstable/org.matrix.msc2965/auth_issuer",
-            get(handlers::auth_discovery::get_auth_issuer),
-        )
         // MSC2965 stable path: same handler as unstable path above.
         .route(
             "/_matrix/client/v1/auth_metadata",
