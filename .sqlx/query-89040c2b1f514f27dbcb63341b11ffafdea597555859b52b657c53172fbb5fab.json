@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO olm_sessions (\n                user_id, device_id, session_id, sender_key, receiver_key,\n                serialized_state, message_index, created_ts, last_used_ts, expires_at\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)\n            ON CONFLICT (session_id) DO UPDATE SET\n                serialized_state = EXCLUDED.serialized_state,\n                message_index = EXCLUDED.message_index,\n                last_used_ts = EXCLUDED.last_used_ts,\n                expires_at = EXCLUDED.expires_at\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int4",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "89040c2b1f514f27dbcb63341b11ffafdea597555859b52b657c53172fbb5fab"
+}
