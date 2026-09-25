@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT 1 AS \"exists!\" FROM users WHERE user_id = $1 AND is_deactivated = FALSE LIMIT 1\n            ",
+  "query": "SELECT 1 FROM users WHERE user_id = $1 LIMIT 1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "exists!",
+        "name": "?column?",
         "type_info": "Int4"
       }
     ],
@@ -18,5 +18,5 @@
       null
     ]
   },
-  "hash": "a5258484e5d3a83c36ec57698eead0f918defbcbb718e929e3913e2344586fab"
+  "hash": "a767902bfc136495c58aa1cc819652454e34c1d92b5a663b19382d217d863c0b"
 }
