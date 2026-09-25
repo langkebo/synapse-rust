@@ -38,4 +38,4 @@ voip.rs:301
 # E2EE routes (real ACK after persisted send-to-device, cross-signing, or
 # key-request cancellation)
 e2ee/backup.rs:179
-e2ee/devices.rs:373
+e2ee/devices.rs:372

@@ -7,10 +7,6 @@ use sqlx::Row;
 use super::models::PersistedGraphFields;
 use super::EventStorage;
 
-/// Raw `(depth, prev_events, auth_events)` row shape for
-/// [`EventStorage::get_event_graph_fields`].
-type GraphFieldsRow = (Option<i64>, Option<serde_json::Value>, Option<serde_json::Value>);
-
 impl EventStorage {
     /// Batch-check which event IDs exist locally.  Returns the subset of
     /// `event_ids` that are **missing** from the `events` table.  Used by
@@ -169,7 +165,7 @@ impl EventStorage {
     /// Ordering is newest-first with a deterministic tie-break so callers get a
     /// reproducible `prev_events` array.
     pub async fn get_forward_extremities_in_room(&self, room_id: &str, limit: i64) -> Result<Vec<String>, sqlx::Error> {
-        let rows: Vec<(String,)> = sqlx::query_as(
+        let rows = sqlx::query_scalar!(
             r"
             SELECT e.event_id FROM events e
             WHERE e.room_id = $1
@@ -180,12 +176,13 @@ impl EventStorage {
             ORDER BY e.origin_server_ts DESC NULLS LAST, e.stream_ordering DESC NULLS LAST, e.event_id DESC
             LIMIT $2
             ",
+            room_id,
+            limit
         )
-        .bind(room_id)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await?;
-        Ok(rows.into_iter().map(|(event_id,)| event_id).collect())
+
+        Ok(rows.into_iter().collect())
     }
 
     /// The graph fields persisted for one event.
@@ -194,13 +191,15 @@ impl EventStorage {
     /// the row was written without graph metadata (plain `create_event`), which
     /// callers must treat as "cannot build a PDU" rather than papering over.
     pub async fn get_event_graph_fields(&self, event_id: &str) -> Result<Option<PersistedGraphFields>, sqlx::Error> {
-        let row: Option<GraphFieldsRow> =
-            sqlx::query_as("SELECT depth, prev_events, auth_events FROM events WHERE event_id = $1")
-                .bind(event_id)
-                .fetch_optional(&*self.pool)
-                .await?;
+        let row = sqlx::query!("SELECT depth, prev_events, auth_events FROM events WHERE event_id = $1", event_id)
+            .fetch_optional(&*self.pool)
+            .await?;
 
-        Ok(row.map(|(depth, prev_events, auth_events)| PersistedGraphFields { depth, prev_events, auth_events }))
+        Ok(row.map(|row| PersistedGraphFields {
+            depth: row.depth,
+            prev_events: row.prev_events,
+            auth_events: row.auth_events,
+        }))
     }
 
     /// Returns the `event_id`s of the most recent events in a room, ordered

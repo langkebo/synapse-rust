@@ -47,10 +47,13 @@ const SERVICES: &str = "synapse-services/src/test_utils.rs";
 const ROOT: &str = "synapse-test-utils/src/lib.rs";
 const COMMON: &str = "synapse-common/src/test_isolation.rs";
 const COMMON_LIB: &str = "synapse-common/src/lib.rs";
-/// `synapse-e2ee`'s DB-backed verification tests. They use the shared
-/// `IsolatedTestPool` and therefore must feed it the same baseline bytes as
-/// every other caller, or they mint a second template.
-const E2EE: &str = "synapse-e2ee/src/verification/service.rs";
+// The former `E2EE` fixture (`synapse-e2ee/src/verification/service.rs`) was
+// deleted with the server-side SAS module (commit `88001b4a9`). No
+// `synapse-e2ee` source feeds a baseline to the shared template any more —
+// verified by `grep -rn "ensure_template_schema|isolated_test_pool" synapse-e2ee/src`
+// returning nothing — so the fingerprint guard covers the three surviving
+// callers (storage, services, root) and must not name a deleted file (a guard
+// that reads a removed path fails for the wrong reason).
 
 /// The baseline migration, compiled in. Guard 5 hashes it to pin the template
 /// the database already holds.
@@ -887,7 +890,7 @@ fn baseline_fingerprint_is_the_single_v12_source() {
          or a SECOND template is minted"
     );
 
-    for path in [STORAGE, SERVICES, E2EE] {
+    for path in [STORAGE, SERVICES] {
         let baseline = fixture_baseline_sql(path);
         assert_eq!(
             fingerprint_hex(&baseline),
