@@ -30,27 +30,28 @@
 即 `BASELINE_DYNAMIC_PRODUCTION` 单向降到 0；测试基础设施与 DDL 类动态 SQL 走
 书面白名单，不再掩盖生产债务。每批同时下调 dynamic、上调 static。
 
-> **当前进展（2026-09-25，C26 后实测）** —— 上表是 2026-09-23 的**计划时基线**，
+> **当前进展（2026-09-25，C27 后实测）** —— 上表是 2026-09-23 的**计划时基线**，
 > 保留作对照；当前 census 实测：
 >
-> | 指标 | 计划时 | C26 后实测 |
+> | 指标 | 计划时 | C27 后实测 |
 > |---|---|---|
-> | `dynamic_production` | 1532（近似） | **526** |
-> | `static` | 61 | **944** |
-> | `dynamic`（总） | 2151 | **1237** |
-> | 静态占比 | 2.76% | **43.3%（944 / 2181）** |
-> | `.sqlx` 离线缓存 | 60 条 | **916 条** |
+> | `dynamic_production` | 1532（近似） | **513** |
+> | `static` | 61 | **956** |
+> | `dynamic`（总） | 2151 | **1224** |
+> | 静态占比 | 2.76% | **43.9%（956 / 2180）** |
+> | `.sqlx` 离线缓存 | 60 条 | **928 条** |
 >
 > 已执行：Phase A/B/D + C1–C18（逐批数字与理由在
 > `scripts/ci/sqlx_dynamic_ratio_baseline` 各段）+ W1–W5（§8.6–§8.11）+
 > **C19a**（§8.12）+ **C19b**（§8.13）+ **C20**（§8.15）+ **C21**（§8.16）+ **C22**（§8.19）+
-> **C23**（§8.20）+ **C24**（§8.21）+ **C25**（§8.22）+ **C26**（§8.23）；另完成
-> **D-47 ②**（守卫 A′ + (b) 组 31 键逐文件迁模板，§8.17/§8.18）——**D-47 已修**。
-> 门禁复跑另抓出并修掉四条既有缺陷：**D-50**（`--all-features` clippy 红）、
+> **C23**（§8.20）+ **C24**（§8.21）+ **C25**（§8.22）+ **C26**（§8.23）+ **C27**（§8.24）；
+> 另完成 **D-47 ②**（守卫 A′ + (b) 组 31 键逐文件迁模板，§8.17/§8.18）——**D-47 已修**。
+> 门禁复跑另抓出并修掉六条既有缺陷：**D-50**（`--all-features` clippy 红）、
 > **D-51**（并发写者遗留的 `.sqlx` 缺口）、**D-52**（守卫 5 夹具路径悬空）、
-> **D-48**/**D-49**（schema 可空而读模型非 `Option`，已收紧）、**D-54**（吞错 + 不可达回退）。
-> §7 登记 54 条（已修 41 / 部分已修 1 / 未修 2 / 结构性保留 7 / 文档级 3）。
-> **下一步见 §8.23 末尾的「剩余头部」。**
+> **D-48**/**D-49**（schema 可空而读模型非 `Option`，已收紧）、**D-54**（吞错 + 不可达回退）、
+> **D-55**（`cross_signing` 里 `device_keys` 的第二份死写入实现）。
+> §7 登记 55 条（已修 42 / 部分已修 1 / 未修 2 / 结构性保留 7 / 文档级 3）。
+> **下一步见 §8.24 末尾的「剩余头部」。**
 
 ---
 
@@ -523,18 +524,20 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-52 | **门禁失败（守卫夹具路径悬空）**（**新登记**） | `tests/unit/test_isolation_unification_tests.rs` 的 Guard 5 `baseline_fingerprint_is_the_single_v12_source`：`const E2EE` 指向 `synapse-e2ee/src/verification/service.rs` | 该文件已被 `88001b4a9`（"设备验证去服务端私钥，回归规范 to-device 中继"）**整模块删除**，而守卫仍对它调 `read()` ⇒ 用例自那时起 panic 于 `... must be readable: No such file or directory`（unit 批次是 CI blocking）。危害不止少跑一条：Guard 5 保护的正是"每个夹具喂给 `ensure_template_schema` 的 baseline 字节必须一致，否则铸出第二份模板"，panic 在读取路径 ⇒ 该性质**完全无人检查** | **已修**（2026-09-25 C26 复跑门禁时发现） | 无生产影响（纯守卫），但门禁长期红 ⇒ 等于没有守卫；且"红着的门禁"会掩盖后续真正的违规 | 已修：把单常量改为**清单**，覆盖 `synapse-e2ee` 现存两个载体（`backup/storage.rs`（C19b）/ `olm/storage.rs`（C25）），并注明"模块删除时必须改指"。自证能变红：临时给 `olm/storage.rs` 的 `BASELINE_SQL` 套一层 `concat!("\n", …)` ⇒ 用例 FAIL 且**点名该路径**；还原后 10/10（§8.23） |
 | D-53 | **兼容残留 / 死词汇**（**新登记**） | `migrations/00000000_unified_schema_v12.sql:708-731`（`megolm_sessions.pickle_format` 的 `CHECK IN ('legacy','vodozemac','dual')` + `DEFAULT 'legacy'` + `vodozemac_pickle` 列）对 `synapse-e2ee/src/megolm/models.rs:10-34`（`PickleFormat` 只剩 `Vodozemac` 一个变体，`from_str` 把未知值**静默落回** `Vodozemac`） | E-12 迁移已完成，schema 仍保留迁移期的三值词汇表、`DEFAULT 'legacy'` 与无生产写入者的 `vodozemac_pickle` 列；而代码侧只有一个变体 ⇒ 直接写入 `'legacy'` 的行读回后被报成 `Vodozemac`（静默标签漂移）。`models.rs:59` 自述 "kept for schema compatibility but always Vodozemac after E-12" —— 而本项目**未发布、无兼容义务**（铁律 1） | **未修**（登记，**待裁定**；2026-09-25 C26 静态化时发现） | **无行为影响**（实证）：全仓**无任何分支读取** `pickle_format`（`grep` 无 `==`/`match`，仅构造与断言）；唯一的 `INSERT INTO megolm_sessions` 恒绑 `as_str()` = `'vodozemac'` ⇒ legacy/dual 行不可由应用产生 | 二选一：① 按铁律 1 收窄词汇表（`CHECK (pickle_format = 'vodozemac')`、去掉 `DEFAULT 'legacy'` 与 `vodozemac_pickle` 列/dual 语义）；② 保留并在注释里写明"仅为历史行兼容"。**两条路都要改 baseline 迁移 ⇒ 属独立 schema 清理批**（会再动一次指纹），不在 C26。新用例已把当前落回行为钉住（收窄时该断言必须翻转） |
 | D-54 | **死代码 / 吞错**（**新登记**） | `synapse-storage/src/privacy.rs` 的 `batch_can_view_profile`（原 `sqlx::query(...)` + `row.try_get(...)` 手工解码） | 两处缺陷：① `row.try_get("user_id").unwrap_or_default()` 在 **PRIMARY KEY** 列上吞掉 DB 错误（本仓"禁止 `unwrap_or_default` 吞错"的已知坑）；② `else if let Ok(allow_lookup) = row.try_get::<bool,_>("allow_profile_lookup")` **不可达** —— `profile_visibility` 是 `TEXT NOT NULL`，第一个 `try_get::<String,_>` 恒成功 ⇒ 该"回退"从未生效。同批发现 `allow_presence_lookup` / `allow_room_invites` **全仓零引用**，且三列都无写入者 | **已修**（2026-09-25 C26 静态化时被编译器证伪） | 无生产影响（两处均**行为等价**：① 的错误路径不可达；② 的回退分支不可达） | 已修：转 `query!` 后 `row.user_id` / `row.profile_visibility` 被定型为**非 `Option`**，等价于编译器**证明**了回退不可达 ⇒ 删除该分支，可见性只由 `profile_visibility` 决定（既有 24 条用例全绿）。三个 `allow_*` 死列**未删**（属独立 schema 清理，会再动指纹），已在 §7.2 D-54 记明 |
+| D-55 | **死代码 + 第二份写入实现**（**新登记**） | `synapse-e2ee/src/cross_signing/storage.rs` 的 `CrossSigningStorage::save_device_key`（及只服务它的 `DeviceKeyInfo`，`cross_signing/models.rs`） | 该方法是 `device_keys` 的**第二份写入实现**（铁律 2）：主实现是 `synapse-e2ee/src/device_keys/storage.rs:246`/`:286`（写 12–14 列），它只写 9 列，**漏 `signatures` / `display_name` / `ts_updated_ms` / `is_fallback` / `fallback_used`**。这些列在 baseline 里可空或 `NOT NULL DEFAULT`（`v12:650-670`）⇒ INSERT 不会失败，但 **`ts_updated_ms` 是设备列表变更追踪列**：一旦该实现被复活调用，就会静默造成"写了 `device_keys` 却不推进变更时间戳"的漏唤醒。同时它**全仓零调用者**且 `CrossSigningStorage` 无 trait impl（铁律 1） | **已修**（2026-09-25 C27 静态化前"先修"时发现） | **无**（零调用者；`grep -rn '\.save_device_key('` 仅命中自身定义与自引用注释，无 trait 分发路径） | 已修：删除该方法与只服务它的 `DeviceKeyInfo`（7 字段，删除后全仓零引用），并回收 1 处生产字面量动态 SQL；见 §8.24 |
 
-**状态计数（2026-09-25，C26 完成后）**：已修 **41**
+**状态计数（2026-09-25，C27 完成后）**：已修 **42**
 （D-02/D-03/D-24/D-28/D-35 + W1 的 D-10/D-11/D-31/D-33/D-34 + D-36 守卫 +
 W2 的 D-05/D-07/D-08/D-09 + W3 的 D-29/D-32 + D-38 + W4 的 D-01/D-04/D-06/D-17/D-27/D-30 +
 D-12 + D-42 + W5 的 **D-15**（含六个子项）/**D-25**/**D-40**/**D-41** + C19a 的 **D-43**/**D-44**/**D-45** +
-C19b 的 **D-46**/**D-47** + C25 的 **D-50**/**D-51** + C26 的 **D-48**/**D-49**/**D-52**/**D-54**）；
+C19b 的 **D-46**/**D-47** + C25 的 **D-50**/**D-51** + C26 的 **D-48**/**D-49**/**D-52**/**D-54** +
+C27 的 **D-55**）；
 **部分已修 1**（D-37：吞错与死包装已修、跨 crate 两份实现的收敛未做）；
 未修 **2**（**D-39**：`search_index` 表删否；**D-53**：`megolm_sessions.pickle_format` 的三值词汇表 /
 `DEFAULT 'legacy'` / `vodozemac_pickle` 列在 E-12 迁移后已无生产者与消费者 —— **待裁定**）；
 结构性保留（有意）**7**（D-13/D-14/D-18–D-22）；
 文档级已处置 **3**（D-16/D-23/D-26）。
-合计 **54** 条（D-01…D-54），校验：41 + 1 + 2 + 7 + 3 = **54**。
+合计 **55** 条（D-01…D-55），校验：42 + 1 + 2 + 7 + 3 = **55**。
 
 > 注：本行以下曾残留一段**过期计数**（「合计 36 条（D-01…D-36）」），与当时的实际条数矛盾
 > 且已被后续重写覆盖 —— 本次一并删除，避免出现第三份计数口径（D-35 型漂移）。
@@ -1850,6 +1853,34 @@ C19b 的 **D-46**/**D-47** + C25 的 **D-50**/**D-51** + C26 的 **D-48**/**D-49
   即 `get_or_create_settings` / `update_settings` 从不设置它们。
   按铁律 1 它们是死列（连带 `DEFAULT TRUE` 也是），但删列同样要改 baseline 指纹，
   故与 D-53 一并留待下一次 schema 清理批。
+
+#### D-55 `cross_signing` 里 `device_keys` 的第二份写入实现：零调用者 + 漏 `ts_updated_ms`（2026-09-25 C27 静态化前"先修"时发现）
+
+- 类别：**死代码 + 第二份写入实现**（铁律 1 + 铁律 2）。
+- 位置与证据：
+  - `synapse-e2ee/src/cross_signing/storage.rs` 的 `CrossSigningStorage::save_device_key`，
+    以及**只被它使用**的 `DeviceKeyInfo`（`synapse-e2ee/src/cross_signing/models.rs`，7 字段）。
+  - **零调用者**：`grep -rn '\.save_device_key(' --include=*.rs .`（排除 `/target`）
+    只命中它自己的定义与 `/// See [\`save_device_key\`]` 自引用；
+    `grep -rn 'for CrossSigningStorage'` **为空** ⇒ 没有 trait impl，不存在动态分发路径。
+  - **第二份写入实现**：`device_keys` 有且另有主实现
+    `synapse-e2ee/src/device_keys/storage.rs:246` / `:286`（写 12–14 列）。
+    本方法只写 9 列，**漏** `signatures` / `display_name` / `ts_updated_ms` /
+    `is_fallback` / `fallback_used`。
+- 为什么值得单独登记（不只是"死代码"）：它漏掉的 `ts_updated_ms` 是**设备列表变更追踪**列。
+  这些列在 baseline 里要么可空、要么 `NOT NULL DEFAULT FALSE`
+  （实测 `migrations/00000000_unified_schema_v12.sql:650-670`），所以该 INSERT
+  **不会报错** —— 一旦有人复活这个实现并调用它，就会得到"`device_keys` 写了、变更时间戳
+  没动"的静默漏唤醒：设备列表流不会唤醒对端，而日志里没有任何异常。这正是铁律 2
+  （同一职责只允许一份实现）要防的形态。
+- 状态：**已修**（2026-09-25 C27，`refactor(e2ee)` 独立提交）。
+- 修法：删除该方法与只服务它的 `DeviceKeyInfo`。后者未被
+  `synapse-e2ee/src/lib.rs` re-export（`pub use cross_signing::…` 列表内无它），
+  删除后全仓零引用（同一 grep 实证）。同批回收 **1 处**生产字面量动态 SQL ——
+  先删死代码再静态化，否则要为一个即将消失的语句做转换与 `.sqlx` 往返（C25 同型）。
+- 遗留（未做，属独立小批）：本批只删了"第二份写入实现"。`device_keys` 的**列级**保护
+  仍只有守卫 B（生产 INSERT 列覆盖）看得到主实现 —— C27 之后 `device_keys` 只剩一处
+  生产写入者，故该守卫的语义重新变成"单实现"，无需额外改动。
 
 ## 8. 问题优先处理计划（2026-09-23 重排：先修问题，再继续静态化）
 
@@ -3230,3 +3261,120 @@ feature 教训同样适用于它**）、`synapse-services/src/database_initializ
 > 注：`synapse-test-utils/src/lib.rs`（14）属**无条件编译**的测试基础设施，不在生产头部之内。
 > `burn_after_read.rs` 门控在 `burn-after-read` —— 它**在**旧的 prepare 枚举里，
 > 但下一个门控文件未必在；prepare 已改 `--all-features`，本类坑不应再出现。
+
+### 8.24 C27 执行结果（2026-09-25）
+
+基线：`opt/consolidated` = `b195e06e4`（C26 收口后，**该哈希已入库、不会被 rebase 改写**，
+故此处引用它是稳的）。动手前实测**并发写者无在途改动**（`git status --short` 为空），
+故本批从一开始就在干净基线上工作。目标文件：
+`synapse-e2ee/src/cross_signing/storage.rs`（13 → 0）。
+
+#### 8.24.1 先修：D-55（死代码 + `device_keys` 的第二份写入实现）
+
+按"先修再转"，先删掉会白做转换的语句：`CrossSigningStorage::save_device_key`
+**全仓零调用者**（`grep -rn '\.save_device_key('` 仅命中自身定义与自引用注释）、
+`CrossSigningStorage` **无 trait impl**（无动态分发路径），同时它是 `device_keys` 的
+**第二份写入实现**（主实现 `device_keys/storage.rs:246`/`:286` 写 12–14 列，它只写 9 列，
+漏 `ts_updated_ms` 等设备列表变更追踪列）。连带删除只服务它的 `DeviceKeyInfo`。
+详见 §7.2 D-55。
+
+**收益是具体的**：直接回收 1 处动态 SQL（13 → 12），且避免为即将删除的语句做
+转换 + `.sqlx` 往返（C25 同型）。提交主题：
+`refactor(e2ee): 删除 cross_signing 里零调用者的第二份 device_keys 写入实现`。
+
+#### 8.24.2 转换构成（12 = 5 + 7）
+
+- `query!` ×5：`create_cross_signing_key`（5 绑定 upsert）、`update_cross_signing_key`（5）、
+  `save_device_signature`（7 绑定 upsert）、`delete_cross_signing_keys` 的**两条** DELETE
+  （同一事务 `execute(&mut *tx)`）；
+- `query_as!` ×7：`CrossSigningKeyRow` 三条（`get_cross_signing_key` /
+  `get_cross_signing_keys` / `get_cross_signing_keys_batch`）+
+  `DeviceSignatureRow` 四条（`get_device_signatures_batch` / `get_user_signatures` /
+  `get_device_signatures` / `get_signature`）。
+
+**nullability 面：零 `AS "col!"` 覆盖。** `cross_signing_keys.signatures JSONB` 可空，
+而 `CrossSigningKeyRow.signatures` 正是 `Option<serde_json::Value>` ⇒ 天然对齐；
+`key_data` / `added_ts` 与 `device_signatures` 全 7 列都是 `NOT NULL`
+（实测 `v12:672-683` / `:745-756`），与两个行结构体的非 `Option` 字段一一对应。
+绑定侧 `&key.signatures` 是 `&serde_json::Value`（模型里非 `Option`），不触发 D-21。
+转宏后**编译期一次证伪 0 处**（对比 C19a 4、C19b 12、C25 0、C26 0）。
+
+#### 8.24.3 补覆盖：既有集成用例 5/12 → 12/12
+
+该文件的集成用例
+（`tests/integration/cross_signing_storage_tests_migrated.rs`）此前只走 **5 处**
+（`create_cross_signing_key` / `get_cross_signing_key` / `save_device_signature` /
+`get_user_signatures` / `get_signature`），余 **7 处无覆盖**。新增
+`test_cross_signing_storage_list_batch_update_delete_paths` 覆盖它们：两条列表读、
+两条 `ANY($1)` 批量读、`update_cross_signing_key`，以及 `delete_cross_signing_keys`
+的两条 DELETE。
+
+两处刻意设成**负例**（"写错了会假绿"的地方）：
+- `get_device_signatures_batch` 对"只是 target、不是签名者"的用户**不得**凭空给出条目；
+- `delete_cross_signing_keys` 若漏写 `WHERE user_id = $1` 会**静默清空全表** ⇒
+  断言另一个用户的两把钥匙仍在。
+空输入短路（`&[]` → 空 map）也各测一次。
+
+**为什么写在集成测试而不是文件内 `db_tests`**（与 C25/C26 不同）：这里**已有**一个
+覆盖该 storage 的集成文件，且它已按 D-47 ② 迁移到 `IsolatedTestPool` + `ensure_test_user`
+（`cross_signing_keys.user_id → users(user_id)` 是 baseline 里真实存在的 FK，由
+`v12:4032` 的 DO 块补齐，故必须 seed 用户）。在同一处扩展比再开一份覆盖率实现更符合
+铁律 2。**代价也已记录**：`tests/` 不在 census 的扫描面内，故这批覆盖**不动**
+`dynamic_test` 棘轮（见 §8.24.5）。
+
+#### 8.24.4 门禁（实测）
+
+| 门禁 | 结果 |
+|---|---|
+| `SQLX_OFFLINE=false cargo check -p synapse-e2ee --all-targets` | **EXIT=0**（先修后与转换后各一次） |
+| `cargo test --features test-utils --all-features --test integration cross_signing_storage --no-run` | **EXIT=0**（7m11s，集成 target 编译通过） |
+| `nextest --profile ci --all-features --test integration -E 'test(/cross_signing_storage/)' --test-threads 1` | **3/3** |
+| `check_sqlx_dynamic_ratio.sh` | **EXIT=0**（513 ≤ 513 / 711 ≤ 711 / 956 ≥ 956） |
+| `check_sqlx_cache_fresh.sh --compile` | **EXIT=0**（权威：离线 `--all-features` 构建通过） |
+| 两档 clippy（`-D warnings`） | 第一个入口 **EXIT=0**；第二个入口首轮 **exit 101** → 修掉本批新用例的 `clippy::unnecessary_get_then_check` 后 **EXIT=0** |
+| `nextest --test unit -E 'test(/sqlx_dynamic_literal_guard/)'` | **16/16** |
+| `check_fmt_ratchet.sh` | 债务 **0** |
+
+**一处值得记的细节**：第二档 clippy 的失败**不是**既有缺陷（对比 D-50），而是本批新用例
+自己引入的 lint（`HashMap::get(k).is_none()` → `!contains_key(k)`）。同文件第 125 行的
+`…["keys"].get(…).is_some()` **不触发**该 lint —— 那是 `serde_json::Value::get`，
+返回 `Option<&Value>`，与 `HashMap::get` 是不同方法。这也是"两档 clippy 不可互相替代"
+的又一实例：只有 `--all-features` 那一档会编译 integration target。
+
+#### 8.24.5 棘轮同批收紧
+
+`BASELINE_DYNAMIC_PRODUCTION` 526 → **513**（−13 = 转换 12 + 删死代码 1）、
+`BASELINE_STATIC` 944 → **956**（+12）、`BASELINE_DYNAMIC` 1237 → **1224**；
+`BASELINE_DYNAMIC_TEST_INFRA` **保持 711**（新增覆盖在 `tests/` 下，不在扫描面内 ——
+这是"范围"问题，不是"没覆盖"）。literal 443 → **430** 处 / 72 → **71** 文件
+（表里删 `synapse-e2ee/src/cross_signing/storage.rs 13` 一行，文件归零退表；
+runtime 83/15 不变）。收紧后 literal 表与实测**逐行 diff 相同**（430 / 71）。
+`.sqlx` 916 → **928**（+12，deleted=0 / modified=0），沿用 C26 的 `--all-features` 口径。
+
+#### 8.24.6 提交清单
+
+本批 6 个提交（5 个代码/棘轮 + 1 个文档；**按主题引用，不引用哈希** —— 理由见 §8.23.7：
+本批提交在合并前可能因并发写者推进而 rebase，自引用哈希必然漂移；需要哈希时以
+`git log --oneline` 按主题检索）：
+
+1. `refactor(e2ee): 删除 cross_signing 里零调用者的第二份 device_keys 写入实现`（D-55，先修）
+2. `perf(e2ee): C27 静态化 cross_signing/storage.rs 的 12 处生产字面量动态 SQL（13 → 0）`（含集成用例补覆盖）
+3. `chore(sqlx): C27 刷新 .sqlx —— cross_signing/storage.rs 12 处宏化新增 12 条`
+4. `fix(tests): C27 新用例的 clippy::unnecessary_get_then_check`
+5. `chore(sqlx): C27 同批收紧棘轮 —— dynamic_production 526→513、static 944→956`
+6. 本文档（§8.24 + §7 D-55 + §0）
+
+**累计进展（C 系列 `dynamic_production`）**：706（C18）→ 694（W4）→ 676（C19a）→
+658（C19b）→ 642（C20）→ 626（C21）→ 601（workbuddy 删 device_trust/verification）→
+586（C22）→ 571（C23）→ 558（C24）→ 541（C25）→ 526（C26）→ **513（C27）**；
+`static` 808 → **956**；literal 逐文件 593（C19a 后）→ **430** 处 / 71 文件。
+**剩余头部**：`burn_after_read.rs`（15，门控 `burn-after-read`）、
+`synapse-services/src/database_initializer/mod.rs`（15，需先判 D-14 归属）、
+`synapse-storage/src/retention.rs`（12）、`synapse-e2ee/src/to_device/storage.rs`（12）、
+`synapse-storage/src/relations/mod.rs`（11）、`synapse-storage/src/push/mod.rs`（11）、
+`synapse-storage/src/media/chunked_upload.rs`（11）、`synapse-storage/src/matrixrtc.rs`（11）。
+> 注：`synapse-test-utils/src/lib.rs`（14）属**无条件编译**的测试基础设施，不在生产头部之内。
+> **下一个门控文件必须先确认在 `--all-features` 下编译**（C26 的教训）；
+> `retention.rs` / `relations/mod.rs` / `push/mod.rs` / `media/chunked_upload.rs` /
+> `matrixrtc.rs` 都需先 `grep 'cfg(feature'` 看一眼，并在转换后跑
+> `check_sqlx_cache_fresh.sh --compile` 而不是只跑 `--static`。
