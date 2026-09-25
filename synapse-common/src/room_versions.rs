@@ -74,19 +74,15 @@ impl RoomVersionCapability {
 
 /// Constant `DEFAULT_ROOM_VERSION`.
 ///
-/// Element/Synapse also made `"11"` its default in v1.158.0 (MSC4239), so this
-/// project's default is no longer a divergence — it merely landed earlier
-/// (2026-09-12) than upstream.  See
-/// <https://github.com/element-hq/synapse/blob/develop/CHANGES.md> (1.158.0rc1,
-/// "Change default room version to 11, implementing MSC4239").
+/// Changed to "12" in O-1 Phase 2 after enabling v12 room creation in Phase 1.
+/// This matches upstream Synapse v1.162.0rc1 which raised the default to "12"
+/// (MSC4239). See CHANGES.md: "Raise default room version to '12'".
 ///
 /// Consequences to keep in mind when reviewing federation behaviour:
-/// version 11 uses the MSC2174/MSC3820 redaction format (`content.redacts`)
-/// and permits self-redaction by the original author, so events created here
-/// are not byte-identical to those a stock pre-1.158 Synapse would create.
-/// A remote server that does not support v11 cannot join a room created with
-/// this default.
-pub const DEFAULT_ROOM_VERSION: &str = "11";
+/// version 12 requires ED25519-only signatures and complete PDU fields
+/// (depth, prev_events, auth_events). Remote servers without v12 support
+/// cannot join rooms created here.
+pub const DEFAULT_ROOM_VERSION: &str = "12";
 
 /// Constant `SUPPORTED_ROOM_VERSIONS`.
 pub const SUPPORTED_ROOM_VERSIONS: &[RoomVersionCapability] = &[
@@ -107,11 +103,10 @@ pub const SUPPORTED_ROOM_VERSIONS: &[RoomVersionCapability] = &[
     // (which grants self-redact for room versions >= 11), so v11 can be
     // advertised as creatable.
     //
-    // v12/v13: 额外的事件认证规则（ED25519-only auth rules / 协议扩展）
-    // 尚未在本服务端完整实现。降级为 parse+join+federate-only 可用，
-    // 避免创建无法产生合规 PDU 的房间（fail-safe）。
+    // v12: 启用了完整的 PDU 字段（depth/prev_events/auth_events）和 ED25519-only 验证
+    // 根据 O-1 Phase 1 实现（参考 V12_ROOM_VERSION_AND_ANIMATED_THUMBNAIL_IMPLEMENTATION_PLAN.md）
     RoomVersionCapability::stable("11"),
-    RoomVersionCapability::stable_parse_only("12"),
+    RoomVersionCapability::stable("12"),
     RoomVersionCapability::stable_parse_only("13"),
 ];
 
@@ -193,16 +188,15 @@ mod tests {
     }
 
     #[test]
-    fn default_room_version_is_11() {
+    fn default_room_version_is_12() {
         // Pinned to a literal ON PURPOSE (not `DEFAULT_ROOM_VERSION`) so that
-        // changing the constant is a deliberate, reviewed act. Upstream Synapse
-        // reached the same default in v1.158.0 (MSC4239); the literal keeps this
-        // project's earlier switch auditable.
-        assert_eq!(DEFAULT_ROOM_VERSION, "11");
-        assert_eq!(resolve_room_version(None), Some("11"));
+        // changing the constant is a deliberate, auditable act.
+        // Changed from "11" to "12" in O-1 Phase 2 to match upstream Synapse v1.162.0rc1.
+        assert_eq!(DEFAULT_ROOM_VERSION, "12");
+        assert_eq!(resolve_room_version(None), Some("12"));
         // Every room-version surface must agree on the same literal.
         let capability = client_room_versions_capability();
-        assert_eq!(capability["default"], "11");
+        assert_eq!(capability["default"], "12");
     }
 
     #[test]
@@ -212,9 +206,9 @@ mod tests {
         // v11 is fully creatable after the redaction chain (P0-05/06/09)
         // and state resolution v2 (P0-10/11) landed.
         assert_eq!(resolve_room_version(Some("11")), Some("11"));
-        // v12/v13 are parse/join/federate-only (not creatable) – see room_versions.rs
-        // comment. resolve_room_version only returns creatable versions.
-        assert_eq!(resolve_room_version(Some("12")), None);
+        // v12 is creatable after O-1 Phase 1 (PDU fields + ED25519-only).
+        assert_eq!(resolve_room_version(Some("12")), Some("12"));
+        // v13 is still parse/join/federate-only.
         assert_eq!(resolve_room_version(Some("13")), None);
         // v14 is not a supported room version.
         assert_eq!(resolve_room_version(Some("14")), None);
@@ -228,15 +222,13 @@ mod tests {
             assert!(can_parse_room_version(supported.version));
             assert!(can_federate_room_version(supported.version));
         }
-        // v1-v11 are fully creatable after the redaction chain and state
-        // resolution v2 landed.
-        for v in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"] {
+        // v1-v12 are fully creatable after the redaction chain and state
+        // resolution v2 landed. v12 support was added in O-1 Phase 1.
+        for v in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"] {
             assert!(can_create_room_version(v), "v{v} must remain creatable");
         }
-        // v12/v13 are deliberately parse/join/federate-only: their extra auth
-        // rules are not fully implemented, so we must not advertise creation
-        // support (fail-safe over over-declaration).
-        assert!(!can_create_room_version("12"), "v12 must NOT be creatable");
+        // v12 is now creatable (O-1 Phase 1); v13 remains parse/join/federate-only:
+        assert!(can_create_room_version("12"), "v12 must be creatable");
         assert!(!can_create_room_version("13"), "v13 must NOT be creatable");
         assert!(can_join_room_version("12") && can_join_room_version("13"));
         assert!(!can_create_room_version("14"));
@@ -252,8 +244,8 @@ mod tests {
 
         assert_eq!(capability["default"], DEFAULT_ROOM_VERSION);
         // Only creatable versions appear in the client capability list.
-        // v12/v13 are parse-only → must NOT be advertised.
-        let expected_creatable = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"];
+        // v12 is now creatable (O-1 Phase 1); v13 remains parse-only.
+        let expected_creatable = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
         assert_eq!(available.len(), expected_creatable.len());
 
         for supported in SUPPORTED_ROOM_VERSIONS {
