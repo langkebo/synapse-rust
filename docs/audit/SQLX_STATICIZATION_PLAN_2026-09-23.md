@@ -30,26 +30,27 @@
 即 `BASELINE_DYNAMIC_PRODUCTION` 单向降到 0；测试基础设施与 DDL 类动态 SQL 走
 书面白名单，不再掩盖生产债务。每批同时下调 dynamic、上调 static。
 
-> **当前进展（2026-09-25，C25 后实测）** —— 上表是 2026-09-23 的**计划时基线**，
+> **当前进展（2026-09-25，C26 后实测）** —— 上表是 2026-09-23 的**计划时基线**，
 > 保留作对照；当前 census 实测：
 >
-> | 指标 | 计划时 | C25 后实测 |
+> | 指标 | 计划时 | C26 后实测 |
 > |---|---|---|
-> | `dynamic_production` | 1532（近似） | **541** |
-> | `static` | 61 | **929** |
-> | `dynamic`（总） | 2151 | **1247** |
-> | 静态占比 | 2.76% | **42.7%（929 / 2176）** |
-> | `.sqlx` 离线缓存 | 60 条 | **901 条** |
+> | `dynamic_production` | 1532（近似） | **526** |
+> | `static` | 61 | **944** |
+> | `dynamic`（总） | 2151 | **1237** |
+> | 静态占比 | 2.76% | **43.3%（944 / 2181）** |
+> | `.sqlx` 离线缓存 | 60 条 | **916 条** |
 >
 > 已执行：Phase A/B/D + C1–C18（逐批数字与理由在
 > `scripts/ci/sqlx_dynamic_ratio_baseline` 各段）+ W1–W5（§8.6–§8.11）+
 > **C19a**（§8.12）+ **C19b**（§8.13）+ **C20**（§8.15）+ **C21**（§8.16）+ **C22**（§8.19）+
-> **C23**（§8.20）+ **C24**（§8.21）+ **C25**（§8.22）；另完成 **D-47 ②**（守卫 A′ + (b) 组
-> 31 键逐文件迁模板，§8.17/§8.18）——**D-47 已修**；C25 门禁复跑还抓出并修掉既有的
-> `--all-features` clippy 红（**D-50**），变基后复跑又抓出并发写者 `9e5ca99b5` 遗留的
-> `.sqlx` 缺口（**D-51**）。
-> §7 登记 51 条（已修 37 / 部分已修 1 / 未修 3 / 结构性保留 7 / 文档级 3）。
-> **下一步见 §8.22 末尾的「剩余头部」。**
+> **C23**（§8.20）+ **C24**（§8.21）+ **C25**（§8.22）+ **C26**（§8.23）；另完成
+> **D-47 ②**（守卫 A′ + (b) 组 31 键逐文件迁模板，§8.17/§8.18）——**D-47 已修**。
+> 门禁复跑另抓出并修掉四条既有缺陷：**D-50**（`--all-features` clippy 红）、
+> **D-51**（并发写者遗留的 `.sqlx` 缺口）、**D-52**（守卫 5 夹具路径悬空）、
+> **D-48**/**D-49**（schema 可空而读模型非 `Option`，已收紧）、**D-54**（吞错 + 不可达回退）。
+> §7 登记 54 条（已修 41 / 部分已修 1 / 未修 2 / 结构性保留 7 / 文档级 3）。
+> **下一步见 §8.23 末尾的「剩余头部」。**
 
 ---
 
@@ -490,7 +491,7 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-22 | 结构性限制 | C12/C14/C15 等多处 | `query_as!` 不走 `FromRow`，`RETURNING *` 必须展开为显式列清单（多列 E0560 / 少列 E0063） | **结构性保留（有意）** | 迁移时机械展开 | 写入批次 checklist |
 | D-23 | 文档一致性 | `synapse-storage/src/registration_token/repository.rs`（C14） | 普通字符串续行 `\` 改 raw string 后变成字面反斜杠，SQL 语法错 | **已绕过**（改真实换行） | 无遗留 | 作为陷阱登记 |
 | D-24 | 产品缺陷 | `migrations/00000000_unified_schema_v12.sql:4984` | v11-10 清理 DO 块删除显式 `uq_*` UNIQUE INDEX，`ON CONFLICT (worker_id)` 曾会运行期失败 | **已修**（S1–S3 `483dfc045` 改 `ADD CONSTRAINT`） | worker 统计写路径 | — |
-| D-25 | 覆盖缺口 / 门禁 | `scripts/ci/gated_module_test_matrix`、`scripts/ci/check_gated_module_tests.sh`、`tests/unit/gated_module_test_gate_tests.rs`、`.github/workflows/ci.yml` | feature 未打开时模块不参与编译，`test(...)` 过滤器 0 命中 ⇒ 「0 tests」假绿（曾 4 次踩到） | **已修**（W5 `ab5949c70`） | 不体现在棘轮数字里 | 已修：登记表（`过滤器|feature|lib.rs 锚点`）+ 运行时层脚本（**复用**既有唯一实现 `require_tests_ran.sh`；`--all-features` 与 lib 批次同口径 ⇒ 不额外构建）+ 6 条静态/红证明守卫 + CI 一步。实跑 `friend_room` → 113 tests passed |
+| D-25 | 覆盖缺口 / 门禁 | `scripts/ci/gated_module_test_matrix`、`scripts/ci/check_gated_module_tests.sh`、`tests/unit/gated_module_test_gate_tests.rs`、`.github/workflows/ci.yml` | feature 未打开时模块不参与编译，`test(...)` 过滤器 0 命中 ⇒ 「0 tests」假绿（曾 4 次踩到） | **已修**（W5 `ab5949c70`） | 不体现在棘轮数字里 | 已修：登记表（`过滤器\|feature\|lib.rs 锚点`）+ 运行时层脚本（**复用**既有唯一实现 `require_tests_ran.sh`；`--all-features` 与 lib 批次同口径 ⇒ 不额外构建）+ 6 条静态/红证明守卫 + CI 一步。实跑 `friend_room` → 113 tests passed |
 | D-26 | 文档一致性 | 本文件 §4 与旧 baseline | "DDL 不可用 `query!` 静态化"结论过宽；生产 DDL 可静态化，仅 `#[cfg(test)]` 内不行 | **已收窄**（§执行结果 2） | — | 已在 §执行结果 2 更正 |
 | D-27 | 结构性限制 | `synapse-storage/src/search_index.rs`（已删） | 整模块无生产调用者，仍带 8 处生产动态 | **已修**（W4 `ee443c9f6`，按铁律 1 整模块删除） | 全仓唯一引用是 `sync/mod.rs:10` 再导出，无消费者 | 已修：删模块（1239 行）+ `lib.rs` 的 `pub mod` + `sync/mod.rs` 再导出；回收 8 处生产动态（6 literal + 2 runtime）与 8 处 test 区动态。**保留 `search_index` 表**（删表见 D-39） |
 | D-28 | 产品缺陷 | `synapse-storage/src/event/batch.rs` 等 | 4 个 0 调用者死查询 | **已修**（B3 `2e9c3d11d`，直接删除） | 无 | — |
@@ -515,21 +516,25 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-45 | **产品缺陷（绑定类型不符）**（**新登记**） | `synapse-e2ee/src/key_rotation/service.rs` 的 `log_rotation`（已修） | 把 `Utc::now()`（`DateTime<Utc>`）绑进 `key_rotation_log.rotated_at`（BIGINT 毫秒）⇒ 写路径必然类型错误，而动态 `.bind()` 让它一直潜伏 | **已修**（C19a `cbeb0c75e`） | 有（每次轮换都写审计日志） | 已修：改为 `current_timestamp_millis()` |
 | D-46 | **产品缺陷（schema 与读模型类型不符）**（**新登记**） | `synapse-e2ee/src/backup/models.rs`（`KeyBackupRow` @ `:55`、`BackupKeyInfo` @ `:181`）对 `migrations/00000000_unified_schema_v12.sql:837`（`key_backups.version`）与读投影 `COALESCE(backup_id_text, version::text) AS backup_id` | `key_backups.version` 与上述 COALESCE 投影在真 schema 下可空，而行结构体字段是 `i64`/`String` ⇒ 动态 `query_as::<_, T>` + `FromRow` 把可空性一路吞到运行期（这两列为 NULL 即 `UnexpectedNullError`）；C19b 转 `query_as!` 后被编译器一次证伪 **12 处 E0277** | **已修**（C19b，见 §8.13） | 有（`get_backup`/`get_all_backup_versions`/`get_backup_version`/`get_room_backup_keys` 等，均挂在 `/_matrix/client/*/room_keys/*`） | 已修：`version BIGINT NOT NULL`（唯一写者恒写该列，Rust 类型非 `Option`）+ 读投影 `AS "backup_id!"`（sqlx 对表达式推不出非空，同 §8.11 的 `AS "updated_ts!"`）；指纹同步 `a58420543eb97db2`、重建模板 |
 | D-47 | **覆盖缺口 / 门禁**（**新登记**） | `tests/integration/key_backup_storage_tests_migrated.rs:8-56`（自建 schema）；守卫 A `tests/unit/test_ddl_guard_tests.rs:22-27` 扫描面仅 `src/` | 该用例自建 `key_backups`/`backup_keys`，与真 baseline 至少两处漂移：缺 `fk_backup_keys_room`（真 schema `→ rooms(room_id) ON DELETE CASCADE`，P3-3）、`first_message_index` 可空（真 schema `NOT NULL DEFAULT 0`）。守卫 A 明示"`tests/` 不在扫描面内"、守卫 B 只查生产 INSERT ⇒ **无门禁能看见该漂移** | **已修**（C19b 补覆盖时发现；① `4104037b0`；② 结构性 `d53347dfc` + 逐文件 `b7a821fb2`/`5be104775`/本批） | 无生产影响（纯夹具漂移）；但它使该用例对 D-46 与 room FK 前提结构性不可见 | ① 该用例切到 `IsolatedTestPool`；② 守卫 A′ 把 `tests/**/*.rs` 纳入检查，并把 (b) 组 **31 键 / 28 文件**全部迁模板，名单只剩 (a) 21 键 + (c) 1 键（§8.17/§8.18） |
-| D-48 | **产品缺陷（schema 与读模型类型不符）**（**新登记**） | `synapse-storage/src/rendezvous.rs` 的 `get_msc4108_data`（原 `query_as::<_, (serde_json::Value, Option<i64>, i64)>`）对 `migrations/00000000_unified_schema_v12.sql:3069`（`rendezvous_session.content JSONB DEFAULT '{}'`，无 NOT NULL） | 元组把**可空**的 `content` 声明成非 `Option`（`serde_json::Value`）⇒ 命中 NULL 行即 `UnexpectedNullError`（与 D-46 同族）；C20 转 `query!` 时被编译器暴露（须显式 `AS "content!"` 或改 `Option` 收口） | **未修**（2026-09-25 C20 静态化时发现） | 无（所有写者要么显式写 `content`，要么命中 `DEFAULT '{}'`；全仓无显式写 NULL 的路径） | 二选一：① schema 侧 `content JSONB NOT NULL DEFAULT '{}'`（语义最正，但迁移文件当前是并发写者 workbuddy 的在途文件，须等其落地）；② 代码侧改 `Option<Value>` 并按空 payload 处理（行为变更，须独立提交）。C20 转换用 `AS "content!"` 保持原契约，未夹带行为变更 |
-| D-49 | **产品缺陷（schema 与读模型类型不符）**（**新登记**） | `synapse-e2ee/src/olm/storage.rs` 的三处读投影（`load_sessions`/`load_session`/`load_session_by_sender_key`，行结构体 `OlmSessionRow.message_index: i32` @ `:67`）对 `migrations/00000000_unified_schema_v12.sql:809`（`olm_sessions.message_index INTEGER DEFAULT 0`，无 NOT NULL）；同族第二处是 `synapse-e2ee/src/megolm/storage.rs:27`（`MegolmSessionRow.message_index: i64`）对 `:715`（`megolm_sessions.message_index BIGINT DEFAULT 0`，无 NOT NULL） | 该列可空而行结构体字段非 `Option` ⇒ 命中 NULL 行即 `UnexpectedNullError`（与 D-46/D-48 同族）；C25 转 `query_as!` 时被编译器暴露（三处须显式 `AS "message_index!"`）。同列还有第二个类型面：模型 `u32` ↔ 行 `i32`，写 `as i32`（`:216`）、读 `as u32`（`:89`）双向 lossy，超 `i32::MAX` 静默回绕 | **未修**（2026-09-25 C25 静态化时发现） | 无（唯一写者 `save_session` 恒绑非 `Option` 值，`DEFAULT 0` 覆盖省略场景；全仓无显式写 NULL 的路径） | 修法：两表 `message_index … NOT NULL DEFAULT 0`，与 `key_backup_sessions.first_message_index BIGINT NOT NULL DEFAULT 0`（`:780`）口径一致。受"baseline 迁移是并发写者在途文件"约束与 D-48 同批延后。C25 用 `AS "message_index!"` 保持原契约，未夹带行为变更；负例见 §7.2 D-49 |
+| D-48 | **产品缺陷（schema 与读模型类型不符）**（**新登记**） | `synapse-storage/src/rendezvous.rs` 的 `get_msc4108_data`（原 `query_as::<_, (serde_json::Value, Option<i64>, i64)>`）对 `migrations/00000000_unified_schema_v12.sql:3069`（`rendezvous_session.content JSONB DEFAULT '{}'`，无 NOT NULL） | 元组把**可空**的 `content` 声明成非 `Option`（`serde_json::Value`）⇒ 命中 NULL 行即 `UnexpectedNullError`（与 D-46 同族）；C20 转 `query!` 时被编译器暴露（须显式 `AS "content!"` 或改 `Option` 收口） | **已修**（2026-09-25 C26，见 §8.23） | 无（所有写者要么显式写 `content`，要么命中 `DEFAULT '{}'`；全仓无显式写 NULL 的路径） | 已修：取当时登记的选项① —— schema 侧 `content JSONB NOT NULL DEFAULT '{}'`（v12:2980），并删掉 `get_msc4108_data` 里不再需要的 `AS "content!"`；指纹同步 `a20182b71fb77e7e`。行为等价（无写者能产生 NULL） |
+| D-49 | **产品缺陷（schema 与读模型类型不符）**（**新登记**） | `synapse-e2ee/src/olm/storage.rs` 的三处读投影（`load_sessions`/`load_session`/`load_session_by_sender_key`，行结构体 `OlmSessionRow.message_index: i32` @ `:67`）对 `migrations/00000000_unified_schema_v12.sql:809`（`olm_sessions.message_index INTEGER DEFAULT 0`，无 NOT NULL）；同族第二处是 `synapse-e2ee/src/megolm/storage.rs:27`（`MegolmSessionRow.message_index: i64`）对 `:715`（`megolm_sessions.message_index BIGINT DEFAULT 0`，无 NOT NULL） | 该列可空而行结构体字段非 `Option` ⇒ 命中 NULL 行即 `UnexpectedNullError`（与 D-46/D-48 同族）；C25 转 `query_as!` 时被编译器暴露（三处须显式 `AS "message_index!"`）。同列还有第二个类型面：模型 `u32` ↔ 行 `i32`，写 `as i32`（`:216`）、读 `as u32`（`:89`）双向 lossy，超 `i32::MAX` 静默回绕 | **已修**（2026-09-25 C26，见 §8.23） | 无（唯一写者 `save_session` / `create_session` 恒绑非 `Option` 值，`DEFAULT 0` 覆盖省略场景；全仓无显式写 NULL 的路径） | 已修：两表改为 `message_index INTEGER / BIGINT NOT NULL DEFAULT 0`，与 `key_backup_sessions.first_message_index BIGINT NOT NULL DEFAULT 0`（`:780`）口径一致；同时删掉 `olm/storage.rs` 三处 `AS "message_index!"`（`megolm/storage.rs` 因先修而未产生该别名）。负例由 `olm::storage::db_tests` 断言 **23502**（翻面后）守住。`u32 ↔ i32` 双向 `as` 面**未动**（Olm 链索引远离 `i32::MAX`）。指纹同步 `a20182b71fb77e7e` |
 | D-50 | **门禁失败（既有 `--all-features` clippy 红）**（**新登记**） | `tests/integration/api_content_scanner_integration_tests.rs:80`（`let app = synapse_web::create_router(state.clone());`，`state` 其后不再使用） | `SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils --all-features --locked -- -D warnings` ⇒ `error: redundant clone … -D clippy::redundant-clone`，exit **101**。该文件由 `76e5f9136` 引入，本批 `git status --short` 对其为空（与 HEAD 逐字节相同）、diff 内无 `pub`/`create_router`/`AppState` 改动 ⇒ lint 与 C25 无关；`--all-features` 是该 target 唯一可编译的 feature 集，故第一个 clippy 入口（不带 `--all-features`）看不到它 | **已修**（2026-09-25 C25 门禁复跑时发现） | 无生产影响（纯测试夹具），但**第二个 clippy 入口是 CI blocking**，故 1.93.0 下 CI 必红；且 clippy 在首个 error 处停止，"两档 clippy EXIT=0"这条证据链在修复前拿不到 | 已修：删冗余 `state.clone()`（独立提交）；修后第二个入口 EXIT=0 |
-| D-51 | **构建失败 / 派生缓存与源码不一致**（**新登记**） | `synapse-storage/src/user/storage.rs:700`（`user_exists`）对 `.sqlx/` | 并发写者的 `9e5ca99b5` 把该查询文本从 `SELECT 1 AS "exists!" … AND is_deactivated = FALSE LIMIT 1` 改为 `SELECT 1 FROM users WHERE user_id = $1 LIMIT 1`，**只提交了 .rs**：新条目留在主工作树的未跟踪状态、旧条目 `query-a5258484e5…` 仍被跟踪 | `SQLX_OFFLINE=true cargo check -p synapse-storage` ⇒ ``error: `SQLX_OFFLINE=true` but there is no cached data for this query`` + 级联 `error[E0282]: type annotations needed`，exit 101 ⇒ **该提交的树在离线模式下编译失败**（CI 两档 clippy 都用 `SQLX_OFFLINE=true`）。`check_sqlx_cache_fresh.sh` **静默放行**（static 模式只校验条数与 git 跟踪，不做逐条对账） | **已修**（2026-09-25 C25 变基后复跑门禁时发现） | 无生产语义影响（查询本身自洽），但使 `opt/consolidated` 在离线/CI 口径下不可编译；且暴露新鲜度门禁存在**假绿**面 | 已修：本批变基后重跑 `cargo sqlx prepare` 对账（−1 stale / +1 新，总数仍 **901**，独立提交）。**未**改查询语义（`nullable: [null]` ⇒ `Option<i32>` 与 `.is_some()` 本就自洽）。门禁假绿面见 §7.2 D-51 |
+| D-51 | **构建失败 / 派生缓存与源码不一致**（**新登记**） | `synapse-storage/src/user/storage.rs:700`（`user_exists`）对 `.sqlx/` | 并发写者的 `9e5ca99b5` 把该查询文本从 `SELECT 1 AS "exists!" … AND is_deactivated = FALSE LIMIT 1` 改为 `SELECT 1 FROM users WHERE user_id = $1 LIMIT 1`，**只提交了 .rs**：新条目留在主工作树的未跟踪状态、旧条目 `query-a5258484e5…` 仍被跟踪。**证据**：`SQLX_OFFLINE=true cargo check -p synapse-storage` ⇒ ``error: `SQLX_OFFLINE=true` but there is no cached data for this query`` + 级联 `error[E0282]: type annotations needed`，exit 101 ⇒ **该提交的树在离线模式下编译失败**（CI 两档 clippy 都用 `SQLX_OFFLINE=true`）。`check_sqlx_cache_fresh.sh` **静默放行**（static 模式只校验条数与 git 跟踪，不做逐条对账） | **已修**（2026-09-25 C25 变基后复跑门禁时发现） | 无生产语义影响（查询本身自洽），但使 `opt/consolidated` 在离线/CI 口径下不可编译；且暴露新鲜度门禁存在**假绿**面 | 已修：本批变基后重跑 `cargo sqlx prepare` 对账（−1 stale / +1 新，总数仍 **901**，独立提交）。**未**改查询语义（`nullable: [null]` ⇒ `Option<i32>` 与 `.is_some()` 本就自洽）。门禁假绿面见 §7.2 D-51 |
+| D-52 | **门禁失败（守卫夹具路径悬空）**（**新登记**） | `tests/unit/test_isolation_unification_tests.rs` 的 Guard 5 `baseline_fingerprint_is_the_single_v12_source`：`const E2EE` 指向 `synapse-e2ee/src/verification/service.rs` | 该文件已被 `88001b4a9`（"设备验证去服务端私钥，回归规范 to-device 中继"）**整模块删除**，而守卫仍对它调 `read()` ⇒ 用例自那时起 panic 于 `... must be readable: No such file or directory`（unit 批次是 CI blocking）。危害不止少跑一条：Guard 5 保护的正是"每个夹具喂给 `ensure_template_schema` 的 baseline 字节必须一致，否则铸出第二份模板"，panic 在读取路径 ⇒ 该性质**完全无人检查** | **已修**（2026-09-25 C26 复跑门禁时发现） | 无生产影响（纯守卫），但门禁长期红 ⇒ 等于没有守卫；且"红着的门禁"会掩盖后续真正的违规 | 已修：把单常量改为**清单**，覆盖 `synapse-e2ee` 现存两个载体（`backup/storage.rs`（C19b）/ `olm/storage.rs`（C25）），并注明"模块删除时必须改指"。自证能变红：临时给 `olm/storage.rs` 的 `BASELINE_SQL` 套一层 `concat!("\n", …)` ⇒ 用例 FAIL 且**点名该路径**；还原后 10/10（§8.23） |
+| D-53 | **兼容残留 / 死词汇**（**新登记**） | `migrations/00000000_unified_schema_v12.sql:708-731`（`megolm_sessions.pickle_format` 的 `CHECK IN ('legacy','vodozemac','dual')` + `DEFAULT 'legacy'` + `vodozemac_pickle` 列）对 `synapse-e2ee/src/megolm/models.rs:10-34`（`PickleFormat` 只剩 `Vodozemac` 一个变体，`from_str` 把未知值**静默落回** `Vodozemac`） | E-12 迁移已完成，schema 仍保留迁移期的三值词汇表、`DEFAULT 'legacy'` 与无生产写入者的 `vodozemac_pickle` 列；而代码侧只有一个变体 ⇒ 直接写入 `'legacy'` 的行读回后被报成 `Vodozemac`（静默标签漂移）。`models.rs:59` 自述 "kept for schema compatibility but always Vodozemac after E-12" —— 而本项目**未发布、无兼容义务**（铁律 1） | **未修**（登记，**待裁定**；2026-09-25 C26 静态化时发现） | **无行为影响**（实证）：全仓**无任何分支读取** `pickle_format`（`grep` 无 `==`/`match`，仅构造与断言）；唯一的 `INSERT INTO megolm_sessions` 恒绑 `as_str()` = `'vodozemac'` ⇒ legacy/dual 行不可由应用产生 | 二选一：① 按铁律 1 收窄词汇表（`CHECK (pickle_format = 'vodozemac')`、去掉 `DEFAULT 'legacy'` 与 `vodozemac_pickle` 列/dual 语义）；② 保留并在注释里写明"仅为历史行兼容"。**两条路都要改 baseline 迁移 ⇒ 属独立 schema 清理批**（会再动一次指纹），不在 C26。新用例已把当前落回行为钉住（收窄时该断言必须翻转） |
+| D-54 | **死代码 / 吞错**（**新登记**） | `synapse-storage/src/privacy.rs` 的 `batch_can_view_profile`（原 `sqlx::query(...)` + `row.try_get(...)` 手工解码） | 两处缺陷：① `row.try_get("user_id").unwrap_or_default()` 在 **PRIMARY KEY** 列上吞掉 DB 错误（本仓"禁止 `unwrap_or_default` 吞错"的已知坑）；② `else if let Ok(allow_lookup) = row.try_get::<bool,_>("allow_profile_lookup")` **不可达** —— `profile_visibility` 是 `TEXT NOT NULL`，第一个 `try_get::<String,_>` 恒成功 ⇒ 该"回退"从未生效。同批发现 `allow_presence_lookup` / `allow_room_invites` **全仓零引用**，且三列都无写入者 | **已修**（2026-09-25 C26 静态化时被编译器证伪） | 无生产影响（两处均**行为等价**：① 的错误路径不可达；② 的回退分支不可达） | 已修：转 `query!` 后 `row.user_id` / `row.profile_visibility` 被定型为**非 `Option`**，等价于编译器**证明**了回退不可达 ⇒ 删除该分支，可见性只由 `profile_visibility` 决定（既有 24 条用例全绿）。三个 `allow_*` 死列**未删**（属独立 schema 清理，会再动指纹），已在 §7.2 D-54 记明 |
 
-**状态计数（2026-09-25，C25 完成后）**：已修 **37**
+**状态计数（2026-09-25，C26 完成后）**：已修 **41**
 （D-02/D-03/D-24/D-28/D-35 + W1 的 D-10/D-11/D-31/D-33/D-34 + D-36 守卫 +
 W2 的 D-05/D-07/D-08/D-09 + W3 的 D-29/D-32 + D-38 + W4 的 D-01/D-04/D-06/D-17/D-27/D-30 +
 D-12 + D-42 + W5 的 **D-15**（含六个子项）/**D-25**/**D-40**/**D-41** + C19a 的 **D-43**/**D-44**/**D-45** +
-C19b 的 **D-46**/**D-47** + C25 的 **D-50**/**D-51**）；
+C19b 的 **D-46**/**D-47** + C25 的 **D-50**/**D-51** + C26 的 **D-48**/**D-49**/**D-52**/**D-54**）；
 **部分已修 1**（D-37：吞错与死包装已修、跨 crate 两份实现的收敛未做）；
-未修 **3**（**D-39**：`search_index` 表删否；**D-48**：`rendezvous_session.content` 可空而读路径按非空解码；
-**D-49**：`olm_sessions` / `megolm_sessions.message_index` 可空而读模型非 `Option`）；结构性保留（有意）**7**（D-13/D-14/D-18–D-22）；
+未修 **2**（**D-39**：`search_index` 表删否；**D-53**：`megolm_sessions.pickle_format` 的三值词汇表 /
+`DEFAULT 'legacy'` / `vodozemac_pickle` 列在 E-12 迁移后已无生产者与消费者 —— **待裁定**）；
+结构性保留（有意）**7**（D-13/D-14/D-18–D-22）；
 文档级已处置 **3**（D-16/D-23/D-26）。
-合计 **51** 条（D-01…D-51），校验：37 + 1 + 3 + 7 + 3 = **51**。
+合计 **54** 条（D-01…D-54），校验：41 + 1 + 2 + 7 + 3 = **54**。
 
 > 注：本行以下曾残留一段**过期计数**（「合计 36 条（D-01…D-36）」），与当时的实际条数矛盾
 > 且已被后续重写覆盖 —— 本次一并删除，避免出现第三份计数口径（D-35 型漂移）。
@@ -1624,17 +1629,24 @@ C19b 的 **D-46**/**D-47** + C25 的 **D-50**/**D-51**）；
 - 可达性：**无显式写 NULL 的路径** —— `create_msc4108_session` 与
   `update_msc4108_data` 都显式写 `content`；`create_session` 不写该列、命中
   `DEFAULT '{}'`。故当前无运行期影响，属**潜伏项**。
-- 状态：**未修**（登记）。修法二选一：
-  ① schema 侧 `content JSONB NOT NULL DEFAULT '{}'` —— 列语义本就非空，且 `DEFAULT`
-     已保证省略即非空；但 `migrations/00000000_unified_schema_v12.sql` 当前是并发写者
-     workbuddy 的**在途文件**，改它会挡住 fast-forward，须等其落地，且要同步
-     `EXPECTED_BASELINE_FINGERPRINT` 并重建模板（流程同 D-46）；
-  ② 代码侧把 `get_msc4108_data` 改成 `Option<Value>` 并按空 payload 处理 ——
-     行为变更（NULL 由 `Err` 变 `Ok("")`），须独立提交。
-- 与 D-46 的差别（为什么本批只登记不修）：D-46 的列（`version`）**必须是** NOT NULL
+- 状态：**已修**（2026-09-25 C26，`feb9fd646`）。取当时登记的选项① —— schema 侧改为
+  `content JSONB NOT NULL DEFAULT '{}'`（`migrations/00000000_unified_schema_v12.sql:2980`），
+  并删掉 `get_msc4108_data` 里不再需要的 `AS "content!"`（转宏后 sqlx 直接推出
+  `serde_json::Value` 非空）。**行为等价**：无写者可产生 NULL（上文可达性实证），
+  故"NULL ⇒ Err"这条从未触发的路径消失，契约不变。
+- 为什么现在能修：改它的阻塞条件是"`migrations/00000000_unified_schema_v12.sql` 是并发写者
+  的在途文件"（会挡住 fast-forward）。C26 动手前实测该文件已无在途改动（对方在
+  `synapse-web/src/routes/assembly.rs`），故与其同族的 D-49 一并在**同一独立提交**里收紧 ——
+  两条缺陷同一根因（schema 可空 vs 读模型非 `Option`），合并成一次指纹变更与一次模板重建，
+  比拆成两次更省且更不易错。
+- 指纹：`e151e5956fb64914` → **`a20182b71fb77e7e`**（同批还改了 D-49 的两列，见下）。
+  按既有纪律先自检：同一 FNV-1a 64 实现对 `HEAD` 的未修改文件复算出旧值**逐字节吻合**后
+  才取新值；新模板由 `ensure_template_schema` 按新指纹自动铸造，旧模板被 prune。
+- 与 D-46 的差别（当时为什么只登记不修）：D-46 的列（`version`）**必须是** NOT NULL
   才能承担 UNIQUE / 寻址语义，schema 收紧是唯一正解；`content` 有 `DEFAULT '{}'`，
-  其"非空"是 de-facto 而非结构必需，改 schema 或改代码属产品选择，且两条路都受
-  "迁移文件/行为变更须独立提交"约束。
+  其"非空"是 de-facto 而非结构必需。**本轮判断**：既然未发布项目没有兼容义务（铁律 1），
+  且"把 NULL 当空 payload"会让"缺失"与"空"不可区分，schema 收紧仍是更正的语义 ——
+  故取①。
 
 #### D-49 `olm_sessions` / `megolm_sessions.message_index` 可空而行结构体按非空解码（2026-09-25 C25 静态化时暴露）
 
@@ -1648,7 +1660,8 @@ C19b 的 **D-46**/**D-47** + C25 的 **D-50**/**D-51**）；
     （`migrations/00000000_unified_schema_v12.sql:809`）与
     `megolm_sessions.message_index BIGINT DEFAULT 0`（`:715`）**均无 NOT NULL**，
     `information_schema` 实测 `is_nullable=YES`；`MegolmSessionRow.message_index: i64`
-    （`synapse-e2ee/src/megolm/storage.rs:27`）同样非 `Option`（C26 待处理）。
+    （`synapse-e2ee/src/megolm/storage.rs:27`）同样非 `Option`（该文件在 C26 静态化，
+    因本批先收紧该列而**无需** `AS "message_index!"`）。
   - 同列的第二个类型面：模型是 `u32`、行结构体是 `i32` —— 写 `session.message_index as i32`
     （`olm/storage.rs:216`）、读 `row.message_index as u32`（`:89`），**双向 lossy `as`**，
     超 `i32::MAX` 静默回绕。Olm 链索引在量级上远离该边界，故并入本条仅登记。
@@ -1659,13 +1672,20 @@ C19b 的 **D-46**/**D-47** + C25 的 **D-50**/**D-51**）；
   显式 NULL 的 `message_index`，断言读路径 **fail-closed** —— 返回
   `ApiError.message == "Database error: Failed to load olm session"`，既不会 panic，
   也不会被静默折算成 0。
-- 状态：**未修**（登记）。修法：两表 `message_index … NOT NULL DEFAULT 0`，与
+- 状态：**已修**（2026-09-25 C26，`feb9fd646`）。两表改为
+  `message_index INTEGER / BIGINT NOT NULL DEFAULT 0`，与
   `key_backup_sessions.first_message_index BIGINT NOT NULL DEFAULT 0`（`:780`，同族列已用
-  该口径）一致。受"baseline 迁移是并发写者在途文件"约束，与 D-48 同批延后。
-- 门禁自证（rule 8）：psql 实证同一 INSERT 在现状被接受、而
-  `ALTER COLUMN message_index SET NOT NULL` 后报 `ERROR: 23502: null value in column
-  "message_index" … violates not-null constraint` ⇒ D-49 修好后上面的负例会**变红**，
-  强制同步改写该断言。
+  该口径）一致；同批删掉 `olm/storage.rs` 三处 `AS "message_index!"`。
+  **`megolm/storage.rs` 因此受益**：它在同一批静态化，若先转宏就得写一处
+  `AS "message_index!"`、再在收紧时删掉 —— 这正是"先修再转"的兑现点。
+- 负例已翻面（rule 8）：`olm::storage::db_tests` 里原来断言"schema 仍接受显式 NULL、
+  读路径 fail-closed"，现在断言该 INSERT 被 **23502** 拒绝（省略列会命中 `DEFAULT 0`，
+  故显式写 NULL）。修前自证：psql 下同一 INSERT 在现状被接受，而
+  `ALTER COLUMN message_index SET NOT NULL` 后报
+  `ERROR: 23502: null value in column "message_index" … violates not-null constraint`。
+- **未动**的部分：`u32`（模型）↔ `i32`（行）双向 lossy `as`。Olm 链索引在量级上远离
+  `i32::MAX`，且改它属类型重构（触及 `OlmSessionData` 公开字段与 `sqlx` 映射），
+  不属"可空性"这条缺陷，本批不夹带。
 
 #### D-50 `--all-features` clippy 入口在 1.93.0 下必然 exit 101（2026-09-25 C25 门禁复跑时发现）
 
@@ -1726,6 +1746,110 @@ C19b 的 **D-46**/**D-47** + C25 的 **D-50**/**D-51**）；
 - 遗留建议（未做，超出本批范围）：给 `check_sqlx_cache_fresh.sh` 加一条**逐条对账**
   判据（`cargo sqlx prepare --check` 或"prepare 到临时目录后 diff"），并用
   "删掉一条元数据"的故意违规证明它能变红；否则同类缺口只能靠离线编译偶然撞见。
+- **C26 追加（本条的第二个实例，反方向）**：本批把 `.sqlx` 的生成口径改成
+  `--all-features` 时发现，旧的 prepare 命令是**枚举 feature**
+  （`server-notifications,saml-sso,cas-sso,beacons,widgets`），**漏掉了门控模块**
+  `privacy-ext`（`synapse-storage/src/lib.rs:201`）⇒ `privacy.rs` 静态化后的 5 条
+  根本不会进缓存，`SQLX_OFFLINE=true … --all-features` 直接 6 个 error。
+  这与 D-51 同根：**缓存与"实际编译口径"不一致**。已修：prepare 改
+  `--all-features`（§8.23），并把 `check_sqlx_cache_fresh.sh --full` 的对账口径
+  一并从"不带 feature"改为 `--all-features`（`a1805e175`）—— 否则 `--full` 会把
+  门控模块的条目报成 "potentially unused"，而**去掉 `--check` 的同一条命令会真的
+  prune 它们**，静默打断离线构建。
+
+#### D-52 守卫 5 的 E2EE 夹具路径在模块删除后悬空（2026-09-25 C26 复跑门禁时发现）
+
+- 类别：**门禁失败**（既有；纯守卫，无生产影响）。
+- 位置与证据：`tests/unit/test_isolation_unification_tests.rs` 的 Guard 5
+  `baseline_fingerprint_is_the_single_v12_source` 遍历 `[STORAGE, SERVICES, E2EE]`
+  并对每个路径调 `read()`，而 `const E2EE = "synapse-e2ee/src/verification/service.rs"`
+  指向的文件已被 `88001b4a9`（"设备验证去服务端私钥，回归规范 to-device 中继"）**整模块删除**
+  ⇒ 该用例自那时起 panic 于 `... must be readable: No such file or directory`。
+- 判定**既有**且与本批无关的三条证据：
+  1. `git ls-tree HEAD synapse-e2ee/src/verification/service.rs` 为空（不在 HEAD 树里）；
+  2. `git show HEAD:tests/unit/...` 里 `const E2EE` 与
+     `for path in [STORAGE, SERVICES, E2EE]` 与本批改动前逐字节相同；
+  3. 删除提交 `88001b4a9` 是 HEAD 的祖先（`git merge-base --is-ancestor` 通过）。
+- 危害不止"少跑一条用例"：Guard 5 保护的正是**"每个夹具喂给 `ensure_template_schema`
+  的 baseline 字节必须一致，否则会铸出第二份完整模板"**。它 panic 在读取路径上，
+  因此"所有夹具同源"这条性质自 `88001b4a9` 起**完全无人检查** —— 又一个
+  "红着的守卫等于没有守卫"（rule 8 的反面），且 unit 批次是 CI blocking。
+- 状态：**已修**（2026-09-25 C26，`15331a8ea`）。
+- 修法：把单个常量改为**清单**，覆盖 `synapse-e2ee` 现存的两个载体
+  （`backup/storage.rs`（C19b）与 `olm/storage.rs`（C25）），并保留"路径所属模块被删时
+  必须改指"的注释 —— 只改指一个会重演本缺陷。
+- 门禁自证能变红（rule 8）：临时把 `olm/storage.rs` 的 `BASELINE_SQL` 改成
+  `concat!("\n", include_str!(…))` ⇒ 用例 FAIL，且报错文本**点名
+  `synapse-e2ee/src/olm/storage.rs`**（"a separator hashes to a05fa4488475fe1d"），
+  证明**新增的清单项真的在检查范围内**；随后逐字节还原（`git status` 为空），
+  10/10 复绿。
+
+#### D-53 `megolm_sessions.pickle_format` 的迁移期词汇表在 E-12 之后无人生产也无人消费（2026-09-25 C26 静态化时发现）
+
+- 类别：**兼容残留 / 死词汇**（无行为影响；**待裁定**）。
+- 位置与证据：
+  - DDL：`migrations/00000000_unified_schema_v12.sql:708-731` ——
+    `pickle_format TEXT NOT NULL DEFAULT 'legacy'`，
+    `CHECK (pickle_format IN ('legacy','vodozemac','dual'))`，
+    另有 `vodozemac_pickle TEXT` 列（dual 语义的一半）。
+  - 代码：`synapse-e2ee/src/megolm/models.rs:10-34` —— `PickleFormat` 只剩
+    `Vodozemac` 一个变体，`as_str()` 恒返回 `"vodozemac"`，而 `from_str` 把**未知值
+    静默落回** `Vodozemac`（`_ => Self::Vodozemac`）。
+  - 后果：直接写入 `'legacy'` 的行读回后被报成 `Vodozemac`（静默标签漂移）。
+    `models.rs:59` 自述 "kept for schema compatibility but always Vodozemac after E-12"。
+- 可达性（为什么是**潜伏项**而非行为缺陷，两条实证）：
+  1. **无分支读取者**：全仓 `grep` 对 `pickle_format` 的 `==`/`!=`/`match` 分支为空，
+     只有构造与断言 —— 该字段目前是**写后不判**的元数据；
+  2. **无写者可产出 legacy/dual**：`INSERT INTO megolm_sessions` 全仓只有
+     `megolm/storage.rs::create_session` 一处，且恒绑 `pickle_format.as_str()` = `'vodozemac'`；
+     `vodozemac_pickle` 列无任何生产写入者（只有测试与一个 metrics 计数器名）。
+- 状态：**未修**（登记，**待裁定**）。二选一：
+  ① 按**铁律 1**（未发布项目无兼容义务）收窄词汇表 ——
+     `CHECK (pickle_format = 'vodozemac')`、去掉 `DEFAULT 'legacy'`，并删掉
+     `vodozemac_pickle` 列与 dual 语义；
+  ② 保留，但把"仅为历史行兼容"的理由写进 DDL 注释（当前只有 Rust 侧注释）。
+  **两条路都要改 baseline 迁移 ⇒ 会再动一次指纹、再铸一次模板**，属独立 schema
+  清理批，不在 C26（本批已因 D-48/D-49 动过一次指纹）。
+- 本批的钉子：`megolm::storage::db_tests` 里用一条原始 `UPDATE … SET pickle_format =
+  'legacy'` 造出第二组，断言 `count_by_pickle_format` 能如实数出 `("legacy", 1)`，
+  而 `get_session` 把它报成 `PickleFormat::Vodozemac` —— 把当前落回行为**变成可执行断言**；
+  若取①，该 INSERT/断言必须同步翻转。同批还断言 `pickle_format = 'bogus'` 被
+  CHECK 以 **23514** 拒绝（把"词汇表是受约束的"这件事也钉住）。
+
+#### D-54 `batch_can_view_profile` 的吞错与不可达回退分支（2026-09-25 C26 静态化时被编译器证伪）
+
+- 类别：**死代码 / 吞错**（两处均**行为等价**，无生产影响）。
+- 位置与证据：`synapse-storage/src/privacy.rs` 的 `batch_can_view_profile`，
+  原实现是动态 `sqlx::query(...)` + `row.try_get(...)` 手工解码：
+  ```rust
+  let uid: String = row.try_get("user_id").unwrap_or_default();
+  let visible = if let Ok(visibility) = row.try_get::<String, _>("profile_visibility") {
+      match visibility.as_str() { "private" | "contacts" => is_self, _ => true }
+  } else if let Ok(allow_lookup) = row.try_get::<bool, _>("allow_profile_lookup") {
+      allow_lookup || is_self
+  } else {
+      true
+  };
+  ```
+  1. `row.try_get("user_id").unwrap_or_default()` 在 **`PRIMARY KEY`** 列上吞掉 DB 错误 ——
+     命中本仓已知坑"**禁止 `unwrap_or_default` 吞错**"（会把 DB 故障静默变成空 user_id，
+     进而把可见性判给一个不存在的键）。
+  2. `else if let Ok(allow_lookup) = row.try_get::<bool, _>("allow_profile_lookup")`
+     **不可达**：`profile_visibility` 是 `TEXT NOT NULL`（`v12:216`），
+     第一个 `try_get::<String, _>` 恒成功 ⇒ 这个"回退到 `allow_profile_lookup`"的
+     分支**从未生效**，最后的 `else { true }` 同样不可达。
+- 为什么静态化能证伪它：转 `query!` 后 sqlx 按 catalog 把 `row.user_id` /
+  `row.profile_visibility` 定型为**非 `Option`** —— 等价于编译器**证明**了第 2 点，
+  不再需要靠"读 schema 推断可达性"。
+- 状态：**已修**（2026-09-25 C26，`7751a1b1b`）：转 `query!` 后删掉两处不可达分支，
+  可见性只由 `profile_visibility` 决定；既有 **24/24** 用例（含
+  `batch_can_view_profile` 的 basic / empty_input 路径）全绿 ⇒ 行为等价有实测支撑。
+- 连带发现（**未修**，属独立 schema 清理）：`user_privacy_settings` 的
+  `allow_presence_lookup` / `allow_room_invites` **全仓零引用**，
+  `allow_profile_lookup` 仅在被删掉的那个不可达分支里被读 —— 三列**都没有写入者**，
+  即 `get_or_create_settings` / `update_settings` 从不设置它们。
+  按铁律 1 它们是死列（连带 `DEFAULT TRUE` 也是），但删列同样要改 baseline 指纹，
+  故与 D-53 一并留待下一次 schema 清理批。
 
 ## 8. 问题优先处理计划（2026-09-23 重排：先修问题，再继续静态化）
 
@@ -2909,7 +3033,7 @@ fmt 债务 0。D-49 的「门禁能变红」自证：psql 下同一 NULL INSERT 
    `SQLX_OFFLINE=true cargo check -p synapse-storage` → **EXIT=0**、
    `check_sqlx_dynamic_ratio.sh` → **EXIT=0**、fmt 债务 0。
 
-**遗留**：**D-49**（未修，登记；与 D-48 同批受 baseline 迁移在途约束）。
+**遗留**：**D-49**（当时未修，理由见上）—— **已在 C26 与 D-48 同批收紧**（§8.23）。
 D-50 / D-51 均已修（各一个独立提交，见 §7.2）。
 
 **累计进展（C 系列 `dynamic_production`）**：706（C18）→ 694（W4）→ 676（C19a）→
@@ -2923,3 +3047,157 @@ literal 逐文件 593（C19a 后）→ **458** 处 / 74 文件。
 宜与邻近批次合并，`synapse-e2ee/src/megolm/storage.rs`（10）是 D-49 同族第二处、可一并处理。
 > 注：`synapse-test-utils/src/lib.rs`（14）属**无条件编译**的测试基础设施
 > （`synapse-common/src/lib.rs` 注明 "Compiled unconditionally"），不在生产头部之内。
+
+### 8.23 C26 执行结果（2026-09-25）
+
+与并发写者不相交（本批动手时对方在 `synapse-web/src/routes/assembly.rs` +
+一份 audit 文档）。本批两个文件：
+`synapse-e2ee/src/megolm/storage.rs`（10 → 0）、`synapse-storage/src/privacy.rs`（5 → 0）。
+
+#### 8.23.1 先修：三条既有缺陷，各自独立提交
+
+按"**先修再转**"，先把这一批会撞上的既有缺陷修掉，再动静态化：
+
+| 缺陷 | 内容 | 提交 |
+|---|---|---|
+| **D-48** | `rendezvous_session.content` 可空而元组按非空解码 | `feb9fd646`（与 D-49 同提交） |
+| **D-49** | `olm_sessions` / `megolm_sessions.message_index` 可空而行结构体非 `Option` | 同上 |
+| **D-52** | 守卫 5 的 `E2EE` 夹具路径在模块删除后悬空 ⇒ unit 批次必红 | `15331a8ea` |
+
+**D-48 + D-49 合并成一次 schema 收紧**（三列 `NOT NULL DEFAULT …`）的理由：两条同根
+（schema 可空 vs 读模型非 `Option`），合并只付**一次**指纹变更与**一次**模板重建；
+且当时 `migrations/00000000_unified_schema_v12.sql` 已无在途写者（动手前实测），
+原先"须等 workbuddy 落地"的阻塞条件消失。随批删掉此前为它们写的
+`AS "content!"`（1 处）与 `AS "message_index!"`（3 处）—— 转宏后 sqlx 直接推出非空类型。
+
+**"先修再转"的收益是可验证的，不只是原则**：`megolm/storage.rs` 的
+`MegolmSessionRow.message_index: i64` 在**同一批**静态化；若不先收紧该列，
+本批就要多写一处 `AS "message_index!"`、再在收紧时删掉（一次无谓的写-删）。
+先修之后本批该文件**只**剩 1 处 nullability 覆盖（`COUNT(*) AS "cnt!"`）。
+
+**D-52 的门禁自证**（rule 8，针对新增的清单项）：临时给 `olm/storage.rs` 的
+`BASELINE_SQL` 套一层 `concat!("\n", …)` ⇒ 用例 FAIL 且报错**点名该路径**；
+还原后 10/10。即"新加的清单项真的在检查范围内"，而不是只把红色变绿。
+
+#### 8.23.2 转换构成（15 = 10 + 5）
+
+`synapse-e2ee/src/megolm/storage.rs`（10 = 5 + 5）：
+- `query!` ×5：`create_session`（11 绑定）、`update_session`（6）、`delete_session`、
+  `upsert_session_keys_batch`（`unnest($1::text[])` 批量 upsert）、`cleanup_expired_sessions`；
+- `query_as!` ×5：`get_session` / `get_room_sessions`（`MegolmSessionRow` 11 列）、
+  `increment_message_index`（`UPDATE … RETURNING message_index`）、`get_session_key`、
+  `count_by_pickle_format`。
+
+`synapse-storage/src/privacy.rs`（5 = 4 + 1）：
+- `query_as!` ×4：`get_settings`、`get_or_create_settings` / `update_settings`
+  （两条 `RETURNING *` 按 **D-22** 展开为 9 个显式列）；
+- `query_scalar!` ×1：`are_contacts` 的 `SELECT EXISTS (…)`。
+
+**nullability 只两处收口**：
+- `COUNT(*) AS "cnt!"`（`count_by_pickle_format`，无 relation origin ⇒ 推不出非空，C19a/C23 同型）；
+- `EXISTS (…)`（`are_contacts`）—— 同样无 relation origin，但 `query_scalar!`
+  **不接受** `AS "col!"`，故按 C19a 的 `COUNT(*)` 口径用 `.unwrap_or(false)`
+  （`false` 分支不可达，`EXISTS` 恒非 NULL ⇒ `bool` 契约不变）。
+其余全部天然对齐（`UserPrivacySettings.updated_ts` / `MegolmSessionRow.last_used_ts` /
+`expires_at` 是 `Option` 且列可空；`id BIGSERIAL`、`user_id … PRIMARY KEY`、
+5 个 visibility、`pickle_format` 等列本就 `NOT NULL`）⇒ **零额外 `AS "col!"`**。
+转宏后**编译期一次证伪 0 处**（对比 C19a 4、C19b 12、C25 0）。
+
+#### 8.23.3 补覆盖：`megolm/storage.rs` 此前零 DB 覆盖
+
+`mod tests` 全是纯构造/序列化用例 ⇒ 新增
+`megolm::storage::db_tests::test_megolm_round_trip_on_migration_template`，把 10 处语句
+全部走一遍真 baseline 往返：`create_session`→`get_session`（全字段 + `DateTime`↔ms +
+重复 `session_id` 必须报错而**非**静默 upsert）、`get_room_sessions` 的房间隔离与空房间、
+`update_session` 只改 5 个 SET 列（`created_ts`/`room_id` 必须原样）、
+`increment_message_index` 的原子自增 / 零增量 / 未知 session→`None` 且顺带写 `last_used_ts`、
+`cleanup_expired_sessions` 的「NULL / 未到期 / 已到期」三边界、
+`upsert_session_keys_batch` 的空列表短路(0) + `ON CONFLICT (user_id, session_id)` 原地更新
+不重复 + **冲突目标不是 user_id 单列**、`get_session_key` 命中/未命中、
+`count_by_pickle_format` 的分组计数与 `AS "cnt!"`、`delete_session` 的幂等与
+"无 FK ⇒ 不级联删 keys"、`pickle_format` CHECK 拒绝词汇表外的值（**23514**），
+以及 **D-53 的落回行为钉子**（`'legacy'` 行读回报 `Vodozemac`）。
+`megolm_sessions` / `megolm_session_keys` 在 baseline 无任何外键 ⇒ 无需 seed 前置行
+（对比 `backup::storage::db_tests` 必须先建 `rooms` 行）。
+
+`privacy.rs` 的既有 24 条 DB 用例覆盖了本批 5 处语句，故未新增用例；但
+`batch_can_view_profile` 的重构由它们守住（见 D-54）。
+
+#### 8.23.4 本批最大的坑：`cargo sqlx prepare` 的 feature 集漏了门控模块
+
+沿用旧命令（枚举 feature：`server-notifications,saml-sso,cas-sso,beacons,widgets`）
+prepare 时只新增 **10** 条而不是 15 —— 因为 `synapse-storage/src/privacy.rs` 门控在
+`feature = "privacy-ext"`（`synapse-storage/src/lib.rs:201`）**不在该列表里**，
+prepare 期间根本不编译它。后果立即可复现：
+
+- `SQLX_OFFLINE=true cargo check -p synapse-storage --all-targets
+  --features test-utils,privacy-ext` ⇒ **exit 101**，6 个 error（首条
+  ``no cached data for this query``，其余是 `let in_same_room = …` 的级联 E0282）；
+- 而 **CI 的两档 clippy 都用 `SQLX_OFFLINE=true` + `--all-features`** ⇒ 该状态下 CI 必红。
+
+**规则（本批新确立，写入脚本注释）**：prepare 的 feature 集必须覆盖所有在
+`--all-features` 下编译、且含静态宏的门控模块。**故本批把 prepare 改成
+`--all-features`** —— 改后新增数正好 15（不多不少，反证此前没有别的门控模块缺条目）。
+此前无人踩到，是因为所有已静态化模块恰好都在那个枚举列表的可编译范围内，
+`privacy-ext` 是第一个反例。
+
+**连带把门禁口径对齐**：`check_sqlx_cache_fresh.sh --full` 原执行
+`cargo sqlx prepare --check --workspace`（**不带 feature**），与 `--all-features` 的缓存
+口径不一致，实测两个症状：① 报 `warning: potentially unused queries found in .sqlx`
+却仍 `OK`（门控模块的条目"看起来没人用"）；② **去掉 `--check` 的同一条命令会真的
+prune 它们** ⇒ 静默打断离线构建（D-51 的反方向）。已改为
+`prepare --check --workspace -- --all-features`（`a1805e175`），头注释同步。
+
+**注意 `--static`（CI 默认模式）不可能发现本类缺口**：它按设计只校验
+"存在 / 非空 / 被 git 跟踪"，并在注释里明示完整性由 `--compile` 证明 ——
+故本批用 `--compile` 出证据，而不是用 `--static` 的绿。
+
+#### 8.23.5 门禁（实测）
+
+| 门禁 | 结果 |
+|---|---|
+| `cargo check --all-targets`（`megolm`） | **EXIT=0**（线上模式，对 scratch 库） |
+| `cargo check --all-targets --features test-utils,privacy-ext`（`privacy`） | **EXIT=0**（首轮唯一失败是 `EXISTS` 可空性，按既有口径收口后转绿） |
+| `nextest -p synapse-e2ee --lib -E 'test(/megolm/)'` | **40/40**（含新 DB 往返） |
+| `nextest -p synapse-storage --lib --features test-utils,privacy-ext -E 'test(/privacy/)'` | **24/24** |
+| `nextest -p synapse-e2ee --lib -E 'test(/olm::/)'`（D-49 翻面后的 23502 断言） | **67/67** |
+| `nextest -p synapse-storage --lib -E 'test(/rendezvous/)'`（D-48 去别名后） | **23/23** |
+| `nextest --test unit -E 'test(/test_isolation_unification/)'`（D-52） | **10/10**（修前 9/1 fail） |
+| `nextest --test unit -E 'test(/sqlx_dynamic_literal_guard/)'` | **16/16** |
+| `scripts/init_test_public_schema.sh`（RESET_PUBLIC=1 重建 scratch `public`） | **exit 0**、223 表（同时证明三处 DDL 改动语法有效） |
+| `check_sqlx_dynamic_ratio.sh` | **EXIT=0**（526 ≤ 526 / 711 ≤ 711 / 944 ≥ 944） |
+| `check_sqlx_cache_fresh.sh --compile` | **EXIT=0**（权威：离线 `--all-features` 构建通过） |
+| `check_sqlx_cache_fresh.sh --full`（`DATABASE_URL`→scratch） | **EXIT=0**，且 "unused queries" 警告消失 |
+| 两档 clippy（`-D warnings`） | **EXIT=0**（3m39s / 2m56s） |
+| `check_fmt_ratchet.sh` | 债务 **0** |
+
+`information_schema` 实测三列 `is_nullable=NO`；`SQLX_OFFLINE=true cargo check`
+对 `synapse-e2ee` + `synapse-storage` **EXIT=0**（证明缓存完整）。
+
+#### 8.23.6 棘轮同批收紧
+
+`BASELINE_DYNAMIC_PRODUCTION` 541 → **526**（−15）、`BASELINE_STATIC` 929 → **944**（+15）、
+`BASELINE_DYNAMIC` 1247 → **1237**、`BASELINE_DYNAMIC_TEST_INFRA` 706 → **711**
+（+5 = 新增 `megolm` db_tests 夹具）；literal 458 → **443** 处 / 74 → **72** 文件
+（表里删 `megolm/storage.rs 10` 与 `privacy.rs 5` 两行，两文件归零退表；runtime 83/15 不变）。
+收紧后 literal 表与 `--list-production-dynamic` 实测**逐行 diff 相同**（443 / 72）。
+`.sqlx` 901 → **916**（+15，deleted=0 / modified=0）。
+
+**未修 / 待裁定**：**D-53**（`pickle_format` 迁移期死词汇表 + `vodozemac_pickle` 列）、
+**D-54 的连带发现**（`user_privacy_settings` 三个 `allow_*` 死列）。两者都要改 baseline
+迁移（再动指纹），建议合并成**下一次 schema 清理批**一次做完 —— 与 D-39
+（`search_index` 表删否）同属"删列/删表"类，可一并裁定。
+
+**累计进展（C 系列 `dynamic_production`）**：706（C18）→ 694（W4）→ 676（C19a）→
+658（C19b）→ 642（C20）→ 626（C21）→ 601（workbuddy 删 device_trust/verification）→
+586（C22）→ 571（C23）→ 558（C24）→ 541（C25）→ **526（C26）**；`static` 808 → **944**；
+literal 逐文件 593（C19a 后）→ **443** 处 / 72 文件。
+**剩余头部**：`burn_after_read.rs`（15，门控 `burn-after-read`，**注意 prepare 的
+feature 教训同样适用于它**）、`synapse-services/src/database_initializer/mod.rs`
+（15，需先判 D-14 归属）、`synapse-e2ee/src/cross_signing/storage.rs`（13）、
+`synapse-storage/src/retention.rs`（12）、`synapse-e2ee/src/to_device/storage.rs`（12）、
+`synapse-storage/src/relations/mod.rs`（11）、`synapse-storage/src/push/mod.rs`（11）、
+`synapse-storage/src/media/chunked_upload.rs`（11）、`synapse-storage/src/matrixrtc.rs`（11）。
+> 注：`synapse-test-utils/src/lib.rs`（14）属**无条件编译**的测试基础设施，不在生产头部之内。
+> `burn_after_read.rs` 门控在 `burn-after-read` —— 它**在**旧的 prepare 枚举里，
+> 但下一个门控文件未必在；prepare 已改 `--all-features`，本类坑不应再出现。
