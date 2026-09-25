@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM registration_captcha WHERE expires_at < $1 AND status = 'pending'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "757572f804f00ad00f4c0505591ac4ad9cfdc1f97f6bfe5b788f168c3dc08938"
+}

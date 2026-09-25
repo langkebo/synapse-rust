@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE registration_captcha SET attempt_count = attempt_count + 1 WHERE captcha_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5f52e7bc8a244e1c898641bf43dbd84290844b433463b13add8ac86b651dee97"
+}

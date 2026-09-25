@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT COUNT(*) FROM captcha_send_log\n            WHERE target = $1 AND captcha_type = $2 AND sent_ts > $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4485ffca27bc3d1a0b8269574c281eeee63a198a5def6ea24e23a6a6bbd1ad09"
+}
