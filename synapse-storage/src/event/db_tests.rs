@@ -688,6 +688,68 @@ async fn test_get_forward_extremities_in_room_tracks_the_dag_not_the_clock() {
     assert!(by_clock.contains(&b), "the timestamp read includes the stale branch tip `b`");
 }
 
+/// An inbound PDU's `(hashes, signatures)` must survive the exact sequence the
+/// `/send` and backfill paths now perform: extract with the shared predicate,
+/// persist, then read back for a later projection.
+#[tokio::test]
+async fn inbound_pdu_signature_material_round_trips() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+    let room_id = format!("!inbound_sig_{}:example.com", uuid::Uuid::new_v4());
+    let user_id = "@remote:example.com";
+    let event_id = format!("$inbound_{}:example.com", uuid::Uuid::new_v4());
+
+    ensure_test_room(&pool, &room_id).await;
+    ensure_test_user(&pool, user_id).await;
+
+    storage
+        .create_event_with_graph(
+            CreateEventParams {
+                event_id: event_id.clone(),
+                room_id: room_id.clone(),
+                user_id: user_id.to_string(),
+                event_type: "m.room.name".to_string(),
+                content: serde_json::json!({"name": "inbound"}),
+                state_key: Some(String::new()),
+                origin_server_ts: current_timestamp_millis(),
+                redacts: None,
+            },
+            &[],
+            &[],
+            1,
+            None,
+        )
+        .await
+        .expect("persist the inbound event");
+
+    // What the handler receives from the origin.
+    let signatures = serde_json::json!({"remote.example.com": {"ed25519:1": "c2ln"}});
+    let hashes = serde_json::json!({"sha256": "aGFzaA"});
+    let received_pdu = serde_json::json!({"hashes": hashes, "signatures": signatures});
+
+    let (extracted_hashes, extracted_signatures) =
+        synapse_common::event_utils::signature_material(received_pdu.get("hashes"), received_pdu.get("signatures"))
+            .expect("a properly signed PDU must yield usable material");
+
+    storage
+        .update_event_signatures_and_hashes(&event_id, &extracted_signatures, &extracted_hashes)
+        .await
+        .expect("persist the origin material");
+
+    // The projection path reads the pair back off the row.
+    let stored = storage
+        .get_state_event(&room_id, "m.room.name", "")
+        .await
+        .expect("read back")
+        .expect("the event row must exist");
+    assert_eq!(stored.hashes, Some(hashes), "the origin's hashes must round-trip");
+    assert_eq!(stored.signatures, Some(signatures), "the origin's signatures must round-trip");
+    assert!(
+        synapse_common::event_utils::signature_material(stored.hashes.as_ref(), stored.signatures.as_ref()).is_some(),
+        "the stored pair must be usable by the projector"
+    );
+}
+
 #[tokio::test]
 async fn test_get_forward_extremities_count() {
     let (_isolated, pool) = test_pool().await;

@@ -704,7 +704,26 @@ git add synapse-storage/src/event/create.rs synapse-storage/src/event/models.rs 
 git diff --cached --stat && git commit -m "fix(federation): persist local event DAG metadata and emit complete outbound PDUs"
 ```
 
-#### Task 2：入站非成员事件的 `signatures`/`hashes` 回填（§2.1 残余②）
+#### Task 2：入站非成员事件的 `signatures`/`hashes` 回填（§2.1 残余②）—— **已完成**
+
+> **实施记录（2026-09-25）**：采用**既有机制**而非新增第二种写法 —— 入站 PDU 落库后调用
+> 服务端已有的 `update_event_signatures_and_hashes`（本地签名路径与入站成员路径本就走它），
+> 因此"签名材料怎么落库"仍然只有一份实现。
+> 新增共享谓词 `synapse_common::event_utils::signature_material(hashes, signatures)`
+> （两侧都要求对象且非空、`sha256` 非空字符串；仅一半材料一律拒绝 —— 半份材料描述的是
+> 两个不同的字节序列），并让 `pdu.rs` 的 `stored_signature_material` 改为委托它
+> （此前 web 侧另有一份同语义实现）。
+> 接线两处非成员入站路径：`/_matrix/federation/v1/send`（`transaction.rs`）与
+> backfill（`services/room/backfill.rs`），各自在落库成功后从收到的 PDU 提取并持久化**源服务器**的
+> 签名/哈希 —— 此前只有本机签名，转发时对端会因缺少发送方签名而拒绝。
+> 证据：`signature_material` 单测（6 组不可用组合）、
+> `inbound_pdu_signature_material_round_trips` DB 测试（落库 → 提取 → 持久化 → 读回，
+> 从 `get_state_event` 拿到同一对，并再次通过谓词校验）、`federation_state_pdu` 9/9。
+> **仍待补**：HTTP 层的端到端断言（发一条真实 `/send` 事务后查库）—— 现有
+> `api_federation_transaction_tests::test_send_transaction_with_signed_pdu_accepted` 的
+> 房间未预建、结果容忍 success/error 两种，需先建房再断言；已登记为后续项。
+
+**原始计划（保留作对照）**：
 
 - **Files:** `synapse-web/src/routes/federation/transaction.rs:440-510`、
   `synapse-services/src/room/messaging/events.rs:507`、`synapse-storage/src/event/create.rs`

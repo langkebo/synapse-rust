@@ -40,7 +40,7 @@
 
 use crate::routes::context::FederationContext;
 use serde_json::{json, Map, Value};
-use synapse_common::event_utils::event_id_array;
+use synapse_common::event_utils::{event_id_array, signature_material};
 use synapse_services::event::StateEvent;
 
 /// Whether a projected PDU carried every field the federation format requires.
@@ -158,15 +158,7 @@ pub fn signature_action(record: &StateEvent, completeness: PduCompleteness) -> S
 /// Both halves must be present and non-empty: stored hashes paired with a fresh
 /// signature would describe two different byte sequences.
 fn stored_signature_material(record: &StateEvent) -> Option<(Value, Value)> {
-    let hashes = record.hashes.as_ref().filter(|value| value.is_object())?;
-    if hashes.get("sha256").and_then(Value::as_str).is_none_or(str::is_empty) {
-        return None;
-    }
-    let signatures = record.signatures.as_ref().filter(|value| value.is_object())?;
-    if signatures.as_object().is_none_or(Map::is_empty) {
-        return None;
-    }
-    Some((hashes.clone(), signatures.clone()))
+    signature_material(record.hashes.as_ref(), record.signatures.as_ref())
 }
 
 /// Attach the stored `hashes` / `signatures` pair, if there is one.

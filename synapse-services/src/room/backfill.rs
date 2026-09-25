@@ -305,6 +305,25 @@ impl RoomService {
                     );
                     continue;
                 }
+                // Persist the origin's signature/hash pair alongside the row, so
+                // re-emitting this PDU stays byte-identical to what the origin
+                // signed (`SignatureAction::KeepStored`); otherwise only our own
+                // signature would accompany it.
+                if let Some((hashes, signatures)) =
+                    synapse_common::event_utils::signature_material(pdu.get("hashes"), pdu.get("signatures"))
+                {
+                    if let Err(error) =
+                        self.messaging.update_event_signatures_and_hashes(event_id, &signatures, &hashes).await
+                    {
+                        ::tracing::warn!(
+                            room_id = %room_id,
+                            candidate = %candidate,
+                            event_id = %event_id,
+                            error = %error,
+                            "failed to persist the origin server's signature material for a backfilled event"
+                        );
+                    }
+                }
                 // 持久化成功：从缺失集合移除，批内重复 PDU 将静默跳过。
                 missing_ids.remove(event_id);
                 persisted += 1;
