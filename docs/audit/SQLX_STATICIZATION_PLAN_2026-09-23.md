@@ -44,7 +44,7 @@
 > 已执行：Phase A/B/D + C1–C18（逐批数字与理由在
 > `scripts/ci/sqlx_dynamic_ratio_baseline` 各段）+ W1–W5（§8.6–§8.11）+
 > **C19a**（§8.12）+ **C19b**（§8.13）+ **C20**（§8.15）+ **C21**（§8.16）+ **C22**（§8.19）+
-> **C23**（§8.20）；另完成 **D-47 ②**（守卫 A′ + (b) 组 31 键逐文件迁模板，§8.17/§8.18）——**D-47 已修**。
+> **C23**（§8.20）+ **C24**（§8.21）；另完成 **D-47 ②**（守卫 A′ + (b) 组 31 键逐文件迁模板，§8.17/§8.18）——**D-47 已修**。
 > §7 登记 48 条（已修 35 / 部分已修 1 / 未修 2 / 结构性保留 7 / 文档级 3）。
 > **下一步见 §8.14。**
 
@@ -2680,3 +2680,47 @@ DROP public CASCADE，用独立 scratch 库"）的又一次应用。
 `synapse-storage/src/captcha.rs	15` 行。
 
 **遗留**：无。captcha.rs 无运行期拼装站点。
+
+### 8.21 C24 执行结果（2026-09-25）
+
+与并发写者不相交（对方在 `synapse-web` + `synapse-storage/src/event/dag.rs`）。
+文件 `synapse-storage/src/oidc_session_storage.rs`：**13 处生产字面量动态 SQL → 0**。
+提交：`6fbc70fcb`（转换）/ `fe2b6f737`（.sqlx）/ 本提交（棘轮 + 本文档）。
+
+**转换构成（13 = 4 + 9）**：
+- `query_as!` ×4：`OidcAuthSession` 的 `get_and_delete_auth_session`
+  （`DELETE … RETURNING`）、`OidcRefreshToken` 的 `get_refresh_token`、
+  `OidcConsentSession` 的 `get_and_delete_consent_session` / `get_consent_session`。
+- `query!` ×9：三条 upsert（auth / refresh / consent）、两条 revoke UPDATE、
+  `delete_consent_session`、`cleanup_expired_sessions` 的三条 DELETE。
+
+**nullability**：三张表（psql 实测）的可空列与结构体 `Option` 字段**一一对应**
+（auth：`nonce`/`code_verifier`/`code_challenge`/`code_challenge_method`/`user_id`；
+refresh：`expires_at`/`revoked_at`；consent：`client_name`/`nonce`/`code_challenge`）
+⇒ **零 `AS "col!"` 覆盖**。绑定侧 8 处 `&Option<String>` 按 D-21 改 `.as_deref()`；
+`Option<i64>`（`expires_at`/`revoked_at`）按值直接传。
+
+**门禁（实测）**：`cargo check -p synapse-storage --all-targets` EXIT=0（首轮零回退）；
+`nextest -p synapse-storage --lib --features test-utils -E 'test(/oidc_session/)'`
+→ **14/14**（10 条真实 DB 往返：auth / refresh / consent 的存-读-删、原子消费、
+revoke 两分支、cleanup 三表合计）；`dynamic_production` 571 → **558**（−13）、
+`static` 904 → **917**（+13）、`dynamic` 1275 → **1262**；literal 488 → **475** 处 /
+76 → **75** 文件（runtime 83 / 15 不变）；`.sqlx` **+13，deleted=0 / modified=0** → 889 条；
+`check_sqlx_cache_fresh.sh` EXIT=0；`check_sqlx_dynamic_ratio.sh` EXIT=0
+（558 ≤ 558 / 704 ≤ 704 / 917 ≥ 917）；`sqlx_dynamic_literal_guard_tests` **16/16**；
+两档 clippy（`-D warnings`）EXIT=0；fmt 债务 0。
+
+**棘轮同批收紧**：`BASELINE_DYNAMIC_PRODUCTION` 571 → **558**、`BASELINE_STATIC`
+904 → **917**、`BASELINE_DYNAMIC` 1275 → **1262**；literal 表删
+`synapse-storage/src/oidc_session_storage.rs	13` 行。
+
+**遗留**：无。
+
+**累计进展（C 系列 `dynamic_production`）**：706（C18）→ 694（W4）→ 676（C19a）→
+658（C19b）→ 642（C20）→ 626（C21）→ 601（workbuddy 删 device_trust/verification）→
+586（C22）→ 571（C23）→ **558（C24）**；`static` 808 → **917**；
+literal 逐文件 593（C19a 后）→ **475** 处 / 75 文件。
+**剩余头部**：`synapse-e2ee/src/olm/storage.rs`（16，含 D-04 同族零调用者
+`create_tables`，须先删）、`burn_after_read.rs`（15，门控 `burn-after-read`）、
+`synapse-services/src/database_initializer/mod.rs`（15，需先判 D-14 归属）、
+`synapse-e2ee/src/cross_signing/storage.rs`（13）。
