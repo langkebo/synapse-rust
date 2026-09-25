@@ -488,15 +488,17 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-43 | **产品缺陷（schema 不符）**（**新登记**） | `synapse-e2ee/src/key_rotation/service.rs`（原 `mark_rotated` / `check_needs_rotation`；已修） | 两处引用 `key_rotation_state.rotation_count` / `last_rotation_ts`，而该表实际只有 `(user_id, room_id, is_rotated BOOLEAN NOT NULL, rotated_at BIGINT)` + `PRIMARY KEY (user_id, room_id)` ⇒ 真 schema 下必然 42703（C19a 静态化时被编译器证伪）；`rotation_count` 全仓**零读取方**，属写-only 死数据 | **已修**（C19a `cbeb0c75e`） | 有（`mark_rotated` 由轮换流程调用；`check_needs_rotation` 决定是否轮换） | 已修：按既有列重写（`is_rotated = TRUE, rotated_at`），**不加列** —— 与 D-02 同型（代码错、schema 对，铁律 1 视角下那个计数列本就没有消费者）；`check_needs_rotation` 的 `COALESCE(rotation_count,0) > 0`（对 bool 做该运算本身无意义）改为 `SELECT is_rotated`，判定不变 |
 | D-44 | **产品缺陷（schema 不符 + 类型不符）**（**新登记**） | `synapse-e2ee/src/key_rotation/service.rs` 的 `get_rotation_status`（已修） | 同一表的三处 `last_rotation_ts` 不存在（必然 42703）；且该列是 **BIGINT 毫秒** 而 `RotationStatus.last_rotation` 是 `DateTime<Utc>`（动态 `Row::get` 把这个类型不符也一起吞掉了） | **已修**（C19a `cbeb0c75e`） | 有（`get_rotation_status` 走 `/_matrix/client/*/key_rotation/status`） | 已修：列名改 `rotated_at`，并在 SQL 内 `to_timestamp(MAX(rotated_at)::double precision / 1000.0)` 显式转 timestamptz；行结构改 `RotationStatusRow`（`sqlx::FromRow`）。响应形状由既有快照 `snapshot_key_rotation_status_shape` / `..._no_prior_rotation_shape` 守住，转换后仍绿 |
 | D-45 | **产品缺陷（绑定类型不符）**（**新登记**） | `synapse-e2ee/src/key_rotation/service.rs` 的 `log_rotation`（已修） | 把 `Utc::now()`（`DateTime<Utc>`）绑进 `key_rotation_log.rotated_at`（BIGINT 毫秒）⇒ 写路径必然类型错误，而动态 `.bind()` 让它一直潜伏 | **已修**（C19a `cbeb0c75e`） | 有（每次轮换都写审计日志） | 已修：改为 `current_timestamp_millis()` |
+| D-46 | **产品缺陷（schema 与读模型类型不符）**（**新登记**） | `synapse-e2ee/src/backup/models.rs`（`KeyBackupRow` @ `:55`、`BackupKeyInfo` @ `:181`）对 `migrations/00000000_unified_schema_v12.sql:837`（`key_backups.version`）与读投影 `COALESCE(backup_id_text, version::text) AS backup_id` | `key_backups.version` 与上述 COALESCE 投影在真 schema 下可空，而行结构体字段是 `i64`/`String` ⇒ 动态 `query_as::<_, T>` + `FromRow` 把可空性一路吞到运行期（这两列为 NULL 即 `UnexpectedNullError`）；C19b 转 `query_as!` 后被编译器一次证伪 **12 处 E0277** | **已修**（C19b，见 §8.13） | 有（`get_backup`/`get_all_backup_versions`/`get_backup_version`/`get_room_backup_keys` 等，均挂在 `/_matrix/client/*/room_keys/*`） | 已修：`version BIGINT NOT NULL`（唯一写者恒写该列，Rust 类型非 `Option`）+ 读投影 `AS "backup_id!"`（sqlx 对表达式推不出非空，同 §8.11 的 `AS "updated_ts!"`）；指纹同步 `a58420543eb97db2`、重建模板 |
 
-**状态计数（2026-09-25，C19a 后）**：已修 **33**
+**状态计数（2026-09-25，C19b 后）**：已修 **34**
 （D-02/D-03/D-24/D-28/D-35 + W1 的 D-10/D-11/D-31/D-33/D-34 + D-36 守卫 +
 W2 的 D-05/D-07/D-08/D-09 + W3 的 D-29/D-32 + D-38 + W4 的 D-01/D-04/D-06/D-17/D-27/D-30 +
-D-12 + D-42 + W5 的 **D-15**（含六个子项）/**D-25**/**D-40**/**D-41** + C19a 的 **D-43**/**D-44**/**D-45**）；
+D-12 + D-42 + W5 的 **D-15**（含六个子项）/**D-25**/**D-40**/**D-41** + C19a 的 **D-43**/**D-44**/**D-45** +
+C19b 的 **D-46**）；
 **部分已修 1**（D-37：吞错与死包装已修、跨 crate 两份实现的收敛未做）；
 未修 **1**（**D-39**：`search_index` 表删否）；结构性保留（有意）**7**（D-13/D-14/D-18–D-22）；
 文档级已处置 **3**（D-16/D-23/D-26）。
-合计 **45** 条（D-01…D-45），校验：33 + 1 + 1 + 7 + 3 = **45**。
+合计 **46** 条（D-01…D-46），校验：34 + 1 + 1 + 7 + 3 = **46**。
 
 > 注：本行以下曾残留一段**过期计数**（「合计 36 条（D-01…D-36）」），与当时的实际条数矛盾
 > 且已被后续重写覆盖 —— 本次一并删除，避免出现第三份计数口径（D-35 型漂移）。
@@ -1473,6 +1475,42 @@ D-12 + D-42 + W5 的 **D-15**（含六个子项）/**D-25**/**D-40**/**D-41** + 
 - 状态：**已修**（`cbeb0c75e`）。修法一律"改代码不改 schema"（与 D-02 同型）：`rotation_count`
   虽有"计数"语义但**全仓零读取方**，属写-only 死数据，按铁律 1 不值得为它加列。
 - 遗留：无（响应形状由既有快照守门，转换后仍绿）。
+
+#### D-46 `key_backups` 的可空列与读模型类型不符（2026-09-25 C19b 静态化时暴露）
+
+- 类别：**产品缺陷**（schema 与读模型类型契约不符，与 D-43/D-44 同族）。
+- 发现方式：C19b 把 `synapse-e2ee/src/backup/storage.rs` 的 8 处
+  `query_as::<_, KeyBackupRow|BackupKeyInfo>` 转成 `query_as!` 后，`cargo check`
+  一次报出 **12 处 E0277**，精确对应两处：
+  - 4× `i64: From<Option<i64>>` —— `key_backups.version` 直列；
+  - 8× `String: From<Option<String>>` —— 读投影
+    `COALESCE(backup_id_text, version::text) AS backup_id`（两个入参都可空）。
+- 证据（`information_schema`，`public` 与 `test_template_ci` 实测一致）：
+  `version null=YES`、`backup_id_text null=YES`；其余 NOT NULL 为
+  `backup_id`/`user_id`/`algorithm`/`created_ts`。
+- 性质：动态 `query_as::<_, T>` + `FromRow` 按字段类型解码，把 schema 的可空性
+  一路吞到运行期 —— 任一行这两列为 NULL 即 `UnexpectedNullError`（与 D-09/D-20 同族）。
+- 唯一写者反证：全仓唯一 `INSERT INTO key_backups` 是
+  `KeyBackupStorage::create_backup`（`storage.rs:71`；另无任何 `UPDATE key_backups`），
+  恒绑 `&backup.backup_id: String` → `backup_id_text` 与 `backup.version: i64` → `version`，
+  **结构上写不出 NULL**；`etag` 绑 `backup.etag.as_deref()`（真可空），故
+  `KeyBackupRow.etag: Option<String>` 保持不动。
+- 状态：**已修**（C19b）。取「schema 收紧」而非「结构体改 Option」：
+  - `migrations/00000000_unified_schema_v12.sql:837`：`version BIGINT NOT NULL DEFAULT 1`；
+  - 读投影改 `AS "backup_id!"` —— sqlx 的 nullability 来自
+    `pg_attribute.attnotnull`（`sqlx-postgres-0.8.6/src/connection/describe.rs:449-508`）
+    加 EXPLAIN 外层 join 补丁，表达式无 relation ⇒ `None` ⇒ 宏
+    `unwrap_or(true)` 判可空（`sqlx-macros-core-0.8.6/src/query/output.rs:97`），
+    故 `version NOT NULL` 只能消 4 处 `i64` 报错，8 处 COALESCE 必须显式断言；
+    同型先例 `synapse-storage/src/module.rs:818`（§8.11 D-15.1 的 `AS "updated_ts!"`）。
+  - 不选 (a) 的理由：`KeyBackup.version` 被 `max_by_key`/`to_string` 当非空用
+    （`synapse-web/src/routes/key_backup.rs:149,152,174`、`handlers/room/e2ee.rs:13`），
+    改 `Option` 后 `From<KeyBackupRow>` 只能 `unwrap_or_default()`（版本 0），
+    正是 E-05 明令禁止的静默归零；`BackupKeyInfo` 是 `Serialize` 公开模型，
+    改 `Option` 会把响应 JSON 由 string 变 null（无行为理由的形状变更）。
+- 指纹：`EXPECTED_BASELINE_FINGERPRINT` `0297744eb28ae814` → `a58420543eb97db2`
+  （独立 FNV-1a 64 复算，先自检旧值逐字节吻合），并重建 `test_template_ci`。
+- 遗留：无。
 
 ## 8. 问题优先处理计划（2026-09-23 重排：先修问题，再继续静态化）
 
