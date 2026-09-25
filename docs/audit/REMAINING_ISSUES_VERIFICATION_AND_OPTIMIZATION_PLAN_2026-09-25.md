@@ -1425,6 +1425,25 @@ Task3 (reference hash) —— 仅做可行性验证，不接线
      `GraphMetadataWriter::create_event`：它已经能拿到房间版本与全量图字段，把 1–4 步连成一条链，
      并把第 4 步的 id 返回给调用方（30 个调用点改为消费写入口返回的 id，而非自己生成）。
      同时删掉 `crypto::generate_event_id` 的 v3+ 使用面（v1/v2 保留随机 ID 分支）。
+
+     **第 2 步当前阻塞条件（2026-09-26 实测，非推测）**：并发会话正在**未提交**地给同一条缝加方法——
+     `EventWriter::create_event_with_pdu(params, pdu_graph, tx)`（`synapse-storage/src/event/writer.rs`
+     的 trait 新增 + `EventStorage` 实现、`notifying_event_writer.rs` 透传+发布、`graph_metadata.rs`
+     透传），共 6 个文件 169 行在途，全部落在本项要改的那几个文件上。故第 2 步**必须等该 trait 变更落地后**
+     在同一缝上做（它正是"单写入口"的扩展点）；现在动手必然与其冲突、且会产出两份缝。
+     在它落地前，第 2 步的可做工作只有本文档已完成的冻结清单与算法（无代码改动）。
+
+     **第 2 步验收测试清单（先定后做，避免"改完再想怎么证"）**：
+     1. 上游 v1 签名已知答案向量（`tests/crypto/test_event_signing.py::test_sign_minimal` /
+        `test_sign_message` 的 `signatures[...]` 期望值）逐字节通过——v1 的签名字节**包含** `event_id`，
+        正好覆盖"v1/v2 保留 event_id"分支；
+     2. v3+ 签名字节**不含** `event_id`：对同一 PDU，去掉/加上 `event_id` 必须得到**相同**签名与相同 `hashes`；
+     3. v10 与 v11 对含 `origin` 的同一事件产出**不同**签名（证明签名材料走了版本化 redaction）；
+     4. 自洽环：`finalize(pdu)` 产出的 `event_id`，必须等于对**同一产出 PDU 去掉 `event_id`** 重算的
+        reference hash（用第 1 步已冻结的 `compute_event_id`）；
+     5. 出站投影可被本仓入站校验器接受：`verify_event_content_hash` 通过、`verify_pdu_signature_*` 通过；
+     6. 回归面：v1/v2 仍走随机 ID 分支且行为不变；30 个调用点改为消费写入口返回的 id 后，
+        全部既有事件相关测试（含夹具/快照）复核过。
   3. ✅ **v12 语义已裁定（2026-09-26，权威来源）**：**MSC4304 = Room Version 12**，
      以 v11 为基座并纳入 MSC4289（creator 特权）、**MSC4291（room ID = create 事件的哈希）**、
      MSC4297（state res v2.1）、MSC4307（`auth_events` 同房间校验）；
