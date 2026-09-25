@@ -40,6 +40,7 @@
 
 use crate::routes::context::FederationContext;
 use serde_json::{json, Map, Value};
+use synapse_common::event_utils::event_id_array;
 use synapse_services::event::StateEvent;
 
 /// Whether a projected PDU carried every field the federation format requires.
@@ -72,19 +73,6 @@ fn normalized_origin(server_name: &str, origin: Option<&str>) -> String {
         Some("") | Some("self") | Some("undefined") | None => server_name.to_string(),
         Some(value) => value.to_string(),
     }
-}
-
-/// Read a JSONB column that must be an array of event IDs.
-///
-/// Returns `None` for `NULL`, for a non-array, and for an array containing a
-/// non-string element — all three mean "not usable as PDU graph metadata".
-fn event_id_array(value: Option<&Value>) -> Option<Vec<String>> {
-    let array = value?.as_array()?;
-    let mut ids = Vec::with_capacity(array.len());
-    for element in array {
-        ids.push(element.as_str()?.to_string());
-    }
-    Some(ids)
 }
 
 /// Project a persisted state event into a federation PDU.

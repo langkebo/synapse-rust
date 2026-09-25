@@ -211,6 +211,9 @@ pub trait EventReader: Send + Sync {
     /// See [`get_forward_extremities_count`].
     async fn get_forward_extremities_count(&self, room_id: &str) -> Result<i64, sqlx::Error>;
 
+    /// See [`get_event_graph_fields`].
+    async fn get_event_graph_fields(&self, event_id: &str) -> Result<Option<PersistedGraphFields>, sqlx::Error>;
+
     // ── context / pagination ────────────────────────────────────────────
 
     /// See [`find_event_id_by_timestamp`].
@@ -488,6 +491,10 @@ impl crate::event::reader::EventReader for super::EventStorage {
 
     async fn get_forward_extremities_count(&self, room_id: &str) -> Result<i64, sqlx::Error> {
         self.get_forward_extremities_count(room_id).await
+    }
+
+    async fn get_event_graph_fields(&self, event_id: &str) -> Result<Option<PersistedGraphFields>, sqlx::Error> {
+        self.get_event_graph_fields(event_id).await
     }
 
     async fn find_event_id_by_timestamp(

@@ -13,7 +13,6 @@ use synapse_cache::CacheManager;
 use synapse_common::{is_legal, JoinRule, Membership, TransitionCtx};
 use synapse_federation::client_api::FederationClientApi;
 use synapse_federation::key_rotation::SigningKey;
-use synapse_federation::signing::sign_and_hash_event;
 use synapse_federation::KeyRotationManager;
 use synapse_storage::event::RoomEvent;
 use synapse_storage::{MemberStoreApi, RoomStoreApi, UserStore};
@@ -481,91 +480,22 @@ impl MembershipService {
     /// Sign a locally-produced event and broadcast it to all remote servers
     /// that have joined members in the room.
     ///
+    /// Thin adapter over [`crate::room::federation_broadcast`] (the single
+    /// implementation). This copy used to fail *open* — broadcasting with
+    /// `prev_events: []` when the room's extremities could not be read — which
+    /// the PDU projector documents as corrupting a peer's room graph.
+    ///
     /// Best-effort: in test setups without federation config, this is a no-op.
     /// Broadcast failures are logged but not propagated.
     pub async fn sign_and_broadcast_event(&self, event: &RoomEvent) -> ApiResult<()> {
-        // 0. Check if federation signing is configured.
-        let Some(key_rotation_manager) = &self.key_rotation_manager else {
-            return Ok(());
+        let ctx = crate::room::federation_broadcast::BroadcastContext {
+            server_name: self.server_name.clone(),
+            event_reader: self.event_reader.clone(),
+            event_writer: self.event_writer.clone(),
+            key_rotation_manager: self.key_rotation_manager.clone(),
+            event_broadcaster: self.event_broadcaster.clone(),
         };
-
-        // 1. Fetch prev_events (forward extremities of the room).
-        // BEST-EFFORT: If we cannot fetch prev_events, we log and proceed with empty.
-        // This preserves the "fail-open" design for federation broadcasting, but
-        // warns operators that the PDU may be missing proper prev_events.
-        let prev_events = match self.event_reader.get_latest_event_ids_in_room(&event.room_id, 10).await {
-            Ok(events) => events,
-            Err(e) => {
-                ::tracing::warn!(
-                    event_id = %event.event_id,
-                    error = %e,
-                    "Failed to fetch prev_events for federation broadcast; PDU may be incomplete"
-                );
-                Vec::new()
-            }
-        };
-
-        // Exclude the event itself.
-        let prev_events: Vec<String> = prev_events.into_iter().filter(|id| id != &event.event_id).collect();
-
-        // 2. Build the PDU JSON.
-        let mut pdu = json!({
-            "event_id": event.event_id,
-            "room_id": event.room_id,
-            "sender": event.user_id,
-            "user_id": event.user_id,
-            "type": event.event_type,
-            "content": event.content,
-            "origin_server_ts": event.origin_server_ts,
-            "origin": self.server_name,
-            "prev_events": prev_events,
-        });
-
-        if let Some(ref state_key) = event.state_key {
-            pdu["state_key"] = serde_json::Value::String(state_key.clone());
-        }
-
-        if let Some(ref redacts) = event.redacts {
-            pdu["redacts"] = serde_json::Value::String(redacts.clone());
-        }
-
-        // 3. Sign and hash the PDU.
-        let signing_key = key_rotation_manager
-            .get_current_key()
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to get signing key", e))?
-            .ok_or_else(|| ApiError::internal("No signing key available".to_string()))?;
-
-        sign_and_hash_event(&self.server_name, &signing_key.key_id, &signing_key.secret_key, &mut pdu)
-            .map_err(|e| ApiError::internal(format!("Failed to sign event: {e}")))?;
-
-        // 4. Persist signatures and hashes back to the events table.
-        let signatures = pdu.get("signatures").cloned().unwrap_or(serde_json::Value::Null);
-        let hashes = pdu.get("hashes").cloned().unwrap_or(serde_json::Value::Null);
-        if let Err(e) =
-            self.event_writer.update_event_signatures_and_hashes(&event.event_id, &signatures, &hashes).await
-        {
-            ::tracing::warn!(
-                event_id = %event.event_id,
-                room_id = %event.room_id,
-                error = %e,
-                "Failed to persist event signatures/hashes"
-            );
-        }
-
-        // 5. Broadcast to remote servers via event_broadcaster.
-        if let Some(broadcaster) = &self.event_broadcaster {
-            if let Err(e) = broadcaster.broadcast_event(&event.room_id, &pdu, &self.server_name).await {
-                ::tracing::warn!(
-                    event_id = %event.event_id,
-                    room_id = %event.room_id,
-                    error = %e,
-                    "Failed to broadcast event to federation peers"
-                );
-            }
-        }
-
-        Ok(())
+        crate::room::federation_broadcast::sign_and_broadcast_event(&ctx, event).await
     }
 
     // ── MSC2666: Mutual Rooms (Get rooms in common with another user) ─────

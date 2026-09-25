@@ -566,11 +566,19 @@ MSC3912 客户端级联与 Content Scanner 接线（高），最后清理中低�
 >   `process_invites` 1 处全部由 `create_event` 改为 `create_event_with_graph`。
 >   6 个纯单测 + 3 个变异自证（深度不递增 / 先记账再选 auth ⇒ 自授权 / prev 恒空 ⇒ 各自转红）。
 >   **这一步才让新房间的 state 具备可签名条件**（装饰器在事务内不解析）。
+> - **1d（已完成，提交见分支）** 出站 PDU 收敛为**一份**实现并补 `depth`/`auth_events`：
+>   新增 `synapse-services/src/room/federation_broadcast.rs`（`build_broadcast_pdu` 纯函数 +
+>   `sign_and_broadcast_event(ctx, event)`），`messaging/service.rs` 与 `membership/service.rs`
+>   各剩一个薄适配器（各自从字段拼 `BroadcastContext`）。后者原先是 **fail-open**（取不到
+>   extremities 就用 `prev_events: []` 广播）且 `redacts` 不看 room version —— 正是 `pdu.rs`
+>   文档判为"污染对端房间图"的写法，现已与 messaging 侧统一为 **fail-closed**。
+>   图字段**从刚落库的行读回**（`EventReader::get_event_graph_fields`），不再用"最新事件"查询
+>   冒充 extremities。`event_id_array` 提升到 `synapse-common/src/event_utils.rs` 单实现，
+>   `pdu.rs` 改用它（此前 web/services 两侧各有一份）。
+>   6 个纯单测 + 3 个变异自证（PDU 省 depth / 缺 depth 静默写 0 / 缺数组静默写 `[]`）。
 > - **1c（待做）** storage 单写入口收敛：`create_event` 与 `create_event_with_graph` 目前是
 >   **两条独立 INSERT**；抽成一个私有 helper，`create_event` 传 `None`（写 SQL `NULL`），
 >   `create_event_with_graph` 传值，**公开签名不变**（避免 1a 之外的第二波 churn）。
-> - **1d（待做）** `sign_and_broadcast_event` 收敛为一份并补 `depth`/`auth_events`
->   （见 N-1/N-2），改为复用已落库图字段而不是重新查 extremities。
 
 **原设计（保留作对照，勿照抄）**：
 

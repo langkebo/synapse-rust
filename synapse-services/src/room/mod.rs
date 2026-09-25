@@ -14,6 +14,8 @@
 pub mod api_trait;
 /// The `backfill` module.
 pub mod backfill;
+/// Outbound federation PDU construction/broadcast (single implementation).
+pub(crate) mod federation_broadcast;
 /// The `infrastructure` module.
 pub mod infrastructure;
 /// Canonical MSC3083 `allow`-array parsing shared by membership and summary.
