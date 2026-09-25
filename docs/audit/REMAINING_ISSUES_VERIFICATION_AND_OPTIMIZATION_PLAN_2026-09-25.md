@@ -1180,7 +1180,28 @@ Task3 (reference hash) —— 仅做可行性验证，不接线
 >   **正确终局是把该模块删掉、统一到 `select_auth_events`**（其 `_event_type`/`_state_key`
 >   根本未参与选择，而规范要求按事件类型选择）——因属并发会话在途 v12 工作，未擅自删除。
 >
-> - **U-18（新，已修）｜扫描失败的状态码与文档/用例矛盾；3 条扫描集成用例从未真正通过**
+> - **U-19（新，未修）｜U-1 的 MSC3912 实现逐条对照规范后的缺口（本轮实测代码 + 规范原文）**
+>   规范依据：`matrix-org/matrix-spec-proposals` MSC3912「Redaction of related events」
+>   （提交 `1b3176cf` 的 `proposals/3912-relation-based-redaction.md`）。逐条核对结果：
+>
+>   | MSC3912 要求 | 本仓实现 | 判定 |
+>   |---|---|---|
+>   | `with_rel_types`（稳定）+ `org.matrix.msc3912.with_relations`（unstable） | `handlers/room/events.rs:957-979` 两者都解析、并把它从 content 里剔除 | ✅ |
+>   | 只撤"**子**事件"，绝不撤父事件 | `cascade.rs:64-108` 以 `content.m.relates_to.event_id = 目标` 匹配（子） | ✅ |
+>   | `"*"` 通配任意 relation type | `cascade.rs:71-92` 通配分支 | ⚠️ 该分支**额外**匹配 `content.m.in_reply_to`——那是已废弃的 rich-reply 字段、**不是** relation type，属超范围匹配 |
+>   | 空列表 ≡ 不级联（**不是错误**） | `events.rs:969-971` 对空数组返回 **400** | ❌ 偏差 |
+>   | 只撤"满足该 relation type 有效性要求"的事件（如编辑的编辑 `$c` 不撤） | 仅按 `event_id` + `rel_type` 匹配，**无有效性校验** | ❌ 偏差 |
+>   | **无权限的事件必须被忽略** | 级联对每个命中事件直接 `redact_event_content(id, None)`，**没有任何逐事件授权检查**（目标本身走 `create_event` 有 auth，子事件没有） ⇒ 用户可借 `with_rel_types` 清掉**他人**的子事件（如他人对自己消息的 `m.annotation` 反应） | ❌ **授权缺口** |
+>   | 后到事件补撤（联邦晚到的命中事件必须补撤） | 未实现 | ❌ 缺失 |
+>   | 撤红必须"以请求者名义"（可审计） | `redact_event_content(target, None)` ⇒ `redacted_by` 为空 | ❌ 偏差 |
+>   | `/versions` 声明 `org.matrix.msc3912` | `capability_governance.rs:143` `("org.matrix.msc3912", true)` | ✅ |
+>
+>   另：级联只清**本地** content，**不产生真正的 `m.room.redaction` 事件** ⇒ 对等端不会得知子事件被撤
+>   （本地生效、跨服务器不可见，重新同步/回填可能把内容带回来）；错误被 `let _ = ...` 吞掉且无指标；
+>   `content->'m.relates_to'` 上没有 GIN 索引 ⇒ 两条查询都是整房间扫描。
+>   **本轮不修**：U-1 属并发会话的交付物，且修复需改 `handlers/room/events.rs`（其或将被再次触碰），
+>   授权检查还要引入 `can_redact_event` 的逐事件调用与测试；已按上表逐条登记，供专门批次收口。
+
 >   ① `ApiErrorKind` **没有 502 变体**，而 `9ffe98fc8` 给 `content_scan_failed` 写的 doc 是
 >   "Returns 502 Bad Gateway"，实现却设 `ServiceUnavailable`（503），调用侧文档与 3 条用例都按 502 断言
 >   ⇒ 新增 `ApiErrorKind::BadGateway`（映射 502）并让 `content_scan_failed` 使用它（`94fc91442`，含变异自证）。
