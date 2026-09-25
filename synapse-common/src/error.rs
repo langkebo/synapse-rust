@@ -294,6 +294,28 @@ impl ApiError {
         }
     }
 
+    /// MSC3806: Content scan failed — fail-closed.
+    /// Returns 502 Bad Gateway + `M_CONTENT_SCAN_FAILED`.
+    pub fn content_scan_failed(message: impl Into<String>) -> Self {
+        Self {
+            kind: ApiErrorKind::ServiceUnavailable,
+            code: MatrixErrorCode::ContentScanFailed,
+            message: message.into(),
+            cause: None,
+        }
+    }
+
+    /// MSC3806: Content scanner is disabled.
+    /// Returns 501 Not Implemented + `M_CONTENT_SCAN_DISABLED`.
+    pub fn content_scan_disabled(message: impl Into<String>) -> Self {
+        Self {
+            kind: ApiErrorKind::NotImplemented,
+            code: MatrixErrorCode::ContentScanDisabled,
+            message: message.into(),
+            cause: None,
+        }
+    }
+
     /// Log a database error and return an Internal error whose message carries the
     /// operation context only (the underlying DB error is logged, not exposed to the
     /// client). This is the canonical constructor for storage-layer failures where

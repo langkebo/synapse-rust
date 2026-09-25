@@ -88,6 +88,10 @@ pub enum MatrixErrorCode {
     UnknownPos,
     /// M_BAD_PAGINATION: Bad pagination query parameters (e.g. unparseable `since` token).
     BadPagination,
+    /// M_CONTENT_SCAN_FAILED: The content scanner failed (MSC3806 fail-closed).
+    ContentScanFailed,
+    /// M_CONTENT_SCAN_DISABLED: The content scanner is disabled (MSC3806).
+    ContentScanDisabled,
 }
 
 impl MatrixErrorCode {
@@ -132,6 +136,8 @@ impl MatrixErrorCode {
             Self::Unsupported => "M_UNSUPPORTED",
             Self::UnknownPos => "M_UNKNOWN_POS",
             Self::BadPagination => "M_BAD_PAGINATION",
+            Self::ContentScanFailed => "M_CONTENT_SCAN_FAILED",
+            Self::ContentScanDisabled => "M_CONTENT_SCAN_DISABLED",
         }
     }
 
@@ -177,6 +183,8 @@ impl MatrixErrorCode {
             Self::Unsupported => StatusCode::METHOD_NOT_ALLOWED,
             Self::UnknownPos => StatusCode::BAD_REQUEST,
             Self::BadPagination => StatusCode::BAD_REQUEST,
+            Self::ContentScanFailed => StatusCode::BAD_GATEWAY,
+            Self::ContentScanDisabled => StatusCode::NOT_IMPLEMENTED,
         }
     }
 
@@ -226,6 +234,8 @@ impl MatrixErrorCode {
             "M_UNSUPPORTED" => Some(Self::Unsupported),
             "M_UNKNOWN_POS" => Some(Self::UnknownPos),
             "M_BAD_PAGINATION" => Some(Self::BadPagination),
+            "M_CONTENT_SCAN_FAILED" => Some(Self::ContentScanFailed),
+            "M_CONTENT_SCAN_DISABLED" => Some(Self::ContentScanDisabled),
             _ => None,
         }
     }
@@ -293,6 +303,8 @@ impl<'de> Deserialize<'de> for MatrixErrorCode {
                     "M_UNSUPPORTED",
                     "M_UNKNOWN_POS",
                     "M_BAD_PAGINATION",
+                    "M_CONTENT_SCAN_FAILED",
+                    "M_CONTENT_SCAN_DISABLED",
                 ],
             )
         })

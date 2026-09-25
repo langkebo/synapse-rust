@@ -1,7 +1,7 @@
 # synapse-rust 现存问题清单（审查验证版）
 
-日期：2026-09-14（**第二轮复核**，见 §15 复核记录）
-基线：`main` @ `d56a1d82`（首版基线 `e6ecda02`）
+日期：2026-09-14（**第五轮复核**，见 §23 本轮收口）
+基线：`opt/consolidated` @ `af2df7913`（首版基线 `e6ecda02`，第四轮基线）
 验证方式：**每条都附实测命令与实测结果**。未实测的明确标注 `[未验证]`。
 
 ## 轮次指针（先读这张表，再决定信哪一节）
@@ -11,10 +11,11 @@
 | 首版 | 2026-09-14 | `main` @ `e6ecda02` | §1–§14 | 首版清单与排序 |
 | 第二轮 | 2026-09-14 | `main` @ `d56a1d82` | §15–§20 | 复核 + 汇总（§18） |
 | 第三轮 | 2026-09-25 | `opt/consolidated` @ `9e26ee31a` | §21 | 全量回源码重判 |
-| **第四轮** | **2026-09-25** | **`opt/consolidated` @ `af2df7913`** | **§22** | **本轮：逐条复核 13 项报项** |
+| 第四轮 | 2026-09-25 | `opt/consolidated` @ `af2df7913` | §22 | 逐条复核 13 项报项（SAS 三处仍偏离等） |
+| **第五轮** | **2026-09-25** | **`opt/consolidated` @ HEAD（E2EE 去服务端私钥重构）** | **§23** | **删设备验证私有面；连带清除纸面门禁、棘轮死条目、文档过时结论** |
 
-> **当前口径只有一个**：`§0.2 严重度分布` + `§22.3 仍然存在` 是唯一"当前状态"来源；
-> 其余章节（含 §18 / §21.1）均为**历史快照**，保留用于追溯，不得直接引用其状态标记。
+> **当前口径只有一个**：`§0.2 严重度分布` + `§22.3 仍然存在`（含 §23 的判定）是唯一"当前状态"来源；
+> 其余章节（含 §18 / §21.1 / §22）均为**历史快照**，保留用于追溯，不得直接引用其状态标记。
 > 判据一律可复现：`路径:行号` 或"命令 + 期望输出"。
 
 ---
@@ -1350,15 +1351,16 @@ curl -sS -o syn161.md https://raw.githubusercontent.com/element-hq/synapse/relea
 
 ### 22.3 仍然存在（合并清单，按严重度；含"部分"中的未修子项）
 
-**高｜E2EE SAS —— 5 个子项中 1 修 4 存**（`synapse-e2ee/src/verification/service.rs`，HEAD 版）：
+**高｜E2EE SAS**（§22.3 原表，对象已随 §23 删除）**→ 整体作废**：
 
-| 子项 | 判定 | 判据 |
-|---|---|---|
-| `info` 串 | ✅ **已修** | `sas_info()` 组装 `MATRIX_KEY_VERIFICATION_SAS\|from_user\|from_device\|from_key\|to_user\|to_device\|to_key\|txn_id`，与规范逐字一致（`:44-47`） |
-| SAS 派生 | ✅ **已修** | `derive_sas` 用 `hkdf::Hkdf::<Sha256>::new(None, shared_secret)` + `expand(info)`，取前 6 字节（`:110-118`） |
-| `commitment` | ❌ **仍错** | 代码是 `sha256(public_key \|\| "verification.commitment")`（`:146-152`）；规范要求哈希值是"**ephemeral public key ‖ `m.key.verification.start` 的 canonical JSON**"。注意 §21.1 把它说成"非 SHA-256"**是错的**——它确实是 SHA-256，**错在哈希输入**；且用带 padding 的 base64，规范要求 **unpadded** |
-| `emoji` | ❌ **仍错** | 见 N-1：`byte % 64` 逐字节取模（`:310-322`），非 42-bits 切分 |
-| `decimal` | ❌ **仍错** | 见 N-2：从 emoji 反推（`verification_routes.rs:405-412`），非 5 字节 / 13 bits |
+`synapse-e2ee/src/verification/` 已整目录删除，`verification_routes.rs` 与 `e2ee/devices.rs` 同删，
+SAS 的 ECDH/SAS/MAC 全部由**客户端**计算，服务端私钥永不离开客户端，设备验证回归规范
+to-device 流程。§22.3 表里 `info` / `commitment` / `emoji` / `decimal` 四列的"❌ 仍错"
+是**对象消失**，不是"已修复"——文档口径应统一收口。
+
+⚠️ **但注意**：同路径的**遗留文档**（§7.2 / §11.1 / §14 各处写着"E2EE SAS 仍 4 处偏离规范"、
+"QR 为桩"）已被 §23 的文书同步逐条标注作废，并登记进守卫的
+`HISTORICAL_NEGATIVE_MENTIONS` 白名单。文档与代码对齐。
 
 **高｜客户端撤回不级联** —— 仍存在。客户端路径 `handlers/room/events.rs:920`（`redact_event`）
 只调 `redact_event_content`（`:990`）撤单条；MSC3912 级联入口只有管理端
@@ -1615,3 +1617,5 @@ ledger fixtures（default 与 sdk 两条 lane）、`route_ledger_*.snapshot`。
   实测表会出现两种行序（实测 `room/models.rs` 与 `room_account_data.rs` 互换），在逐行
   diff 里会伪装成"抽取器漂移"。
 - 清理后两张表都与重跑的实测**逐行一致**（字面量 **534 处 / 79 文件**）。
+--- 第五轮已修 / 已同步 ---
+● baselines/指纹：migrations/00000000_unified_schema_v12.sql (7 张 E2EE 表删 + 6 条索引删) → expected 228 → 221；EXPECTED_BASELINE_FINGERPRINT a584... → e151...
