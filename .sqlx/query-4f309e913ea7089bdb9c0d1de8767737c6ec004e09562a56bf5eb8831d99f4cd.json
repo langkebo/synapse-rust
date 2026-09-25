@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT EXISTS (\n                SELECT 1 FROM media_metadata\n                WHERE content_hash = $1\n                  AND quarantine_status IN ('quarantined', 'true', '1', 'yes')\n            )\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4f309e913ea7089bdb9c0d1de8767737c6ec004e09562a56bf5eb8831d99f4cd"
+}

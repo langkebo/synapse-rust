@@ -205,7 +205,13 @@ impl AdminMediaStorage {
     /// this with a real hash, and rows with `content_hash IS NULL` simply do not
     /// match.
     pub async fn get_is_hash_quarantined(&self, content_hash: &str) -> Result<bool, ApiError> {
-        let quarantined = sqlx::query_scalar::<_, bool>(
+        // Static `query_scalar!` on purpose: this is new production SQL, and the
+        // SQLx literal-dynamic ratchet (`scripts/ci/sqlx_literal_production_baseline`,
+        // `scripts/ci/sqlx_dynamic_ratio_baseline`) must not grow for it. The
+        // `EXISTS(...)` column has no relation origin, so sqlx infers it as
+        // nullable; `unwrap_or(false)` is the repo's established C19a pattern for
+        // that case (`query_scalar!` does not accept an `AS "col!"` override).
+        let quarantined = sqlx::query_scalar!(
             r#"
             SELECT EXISTS (
                 SELECT 1 FROM media_metadata
@@ -213,11 +219,12 @@ impl AdminMediaStorage {
                   AND quarantine_status IN ('quarantined', 'true', '1', 'yes')
             )
             "#,
+            content_hash
         )
-        .bind(content_hash)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
+        .map_err(|e| ApiError::internal_with_cause("Database error", e))?
+        .unwrap_or(false);
 
         Ok(quarantined)
     }
