@@ -55,6 +55,11 @@
 #   C20 的 `rendezvous.rs` 行已由 88001b4a9 按"实测 < 基线 ⇒ 同批下调"清掉（其注记见上）。
 #   本批唯一变化是删掉 `synapse-storage/src/widget.rs  16`；表头生成命令重跑后逐行复核，
 #   除该行外与 534/79 表逐行相同（runtime 侧不变，仍 83 处 / 15 文件）。
+#
+# ── 2026-09-25 C22 收紧（`state_groups.rs` 15 处宏化，本批）：literal 518 → **503** / 78 → **77** ──
+#   本批唯一变化是删掉 `synapse-storage/src/state_groups.rs  15`；表头生成命令重跑后
+#   逐行复核，除该行外与 518/78 表逐行相同（runtime 侧不变，仍 83 处 / 15 文件 ——
+#   该文件另有 2 处 `format!` 拼装，属 D-14 允许残差，见本文件末尾摘要）。
 src/server/database.rs	1
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
@@ -127,7 +132,6 @@ synapse-storage/src/room_summary/repository.rs	2
 synapse-storage/src/room_tag/mod.rs	4
 synapse-storage/src/schema_health_check.rs	4
 synapse-storage/src/schema_validator.rs	3
-synapse-storage/src/state_groups.rs	15
 synapse-storage/src/sticky_event.rs	5
 synapse-storage/src/url_preview_storage.rs	3
 synapse-storage/src/user/storage.rs	1

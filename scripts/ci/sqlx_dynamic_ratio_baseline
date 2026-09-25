@@ -1989,11 +1989,17 @@
 # 而**有意暂缓**收紧（见 §8.15/§8.16）；`88001b4a9` 落地后 baseline 恢复干净，本提交一并补齐。
 # `BASELINE_DYNAMIC_TEST_INFRA` 保持 704：C20/C21 的 DB 用例全在既有 `db_tests` 内
 # （rendezvous 新增、widget 复用），**未新增测试夹具动态 SQL**，故 dynamic_test 不变。
-BASELINE_DYNAMIC_PRODUCTION=601
+# ── 2026-09-25 C22 收紧（`synapse-storage/src/state_groups.rs` 15 处宏化）────────
+# dynamic_production 601 → **586**（−15）、static 874 → **889**（+15）、
+# dynamic 1305 → **1290**（= 586 + 704）。census 实测 586 / 704 / 889。
+# 该文件另有 2 处 `format!` 运行期拼装（`STATE_GROUP_STATE_COLS` /
+# `STATE_GROUP_STATE_INNER_COLS`）**保留** —— 属 §7 D-14 允许残差，不入 literal 棘轮。
+# `BASELINE_DYNAMIC_TEST_INFRA` 保持 704（本批复用既有 `db_tests`，未新增夹具动态 SQL）。
+BASELINE_DYNAMIC_PRODUCTION=586
 BASELINE_DYNAMIC_TEST_INFRA=704
-BASELINE_STATIC=874
+BASELINE_STATIC=889
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1305
+BASELINE_DYNAMIC=1290
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #
