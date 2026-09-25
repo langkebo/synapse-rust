@@ -43,7 +43,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use synapse_storage::event::{CreateEventParams, EventReader, EventWriter, RoomEvent, StateEvent};
+use synapse_storage::event::{CreateEventParams, EventStorage, EventWriter, RoomEvent, StateEvent};
 use synapse_storage::room::RoomStoreApi;
 
 use crate::room::state::auth_events::{select_auth_events, AuthStateSnapshot};
@@ -76,32 +76,38 @@ pub trait GraphMetadataSource: Send + Sync {
     async fn room_version(&self, room_id: &str) -> Result<Option<String>, sqlx::Error>;
 }
 
-/// [`GraphMetadataSource`] over the Postgres event/room readers.
+/// [`GraphMetadataSource`] over Postgres `EventStorage` and the room store.
+///
+/// Holds the concrete storage type rather than `Arc<dyn EventReader>`: the
+/// extremity read is a DAG query (`event_edges`), not one of the reader trait's
+/// "latest events" reads, and the two must not be confused — the trait's
+/// timestamp-ordered read would report an *ancestor* as a tip and put it in
+/// `prev_events`.
 pub struct StorageGraphMetadataSource {
-    reader: Arc<dyn EventReader>,
+    events: Arc<EventStorage>,
     rooms: Arc<dyn RoomStoreApi>,
 }
 
 impl StorageGraphMetadataSource {
     /// Builds the source over the storage readers.
-    pub fn new(reader: Arc<dyn EventReader>, rooms: Arc<dyn RoomStoreApi>) -> Self {
-        Self { reader, rooms }
+    pub fn new(events: Arc<EventStorage>, rooms: Arc<dyn RoomStoreApi>) -> Self {
+        Self { events, rooms }
     }
 }
 
 #[async_trait]
 impl GraphMetadataSource for StorageGraphMetadataSource {
     async fn forward_extremities(&self, room_id: &str, limit: i64) -> Result<Vec<String>, sqlx::Error> {
-        self.reader.get_latest_event_ids_in_room(room_id, limit).await
+        self.events.get_forward_extremities_in_room(room_id, limit).await
     }
 
     async fn event_depths(&self, event_ids: &[String]) -> Result<HashMap<String, i64>, sqlx::Error> {
-        let events = self.reader.get_events_map(event_ids).await?;
+        let events = self.events.get_events_map(event_ids).await?;
         Ok(events.into_iter().map(|(event_id, event)| (event_id, event.depth)).collect())
     }
 
     async fn state_events(&self, room_id: &str) -> Result<Vec<StateEvent>, sqlx::Error> {
-        self.reader.get_state_events(room_id).await
+        self.events.get_state_events(room_id).await
     }
 
     async fn room_version(&self, room_id: &str) -> Result<Option<String>, sqlx::Error> {

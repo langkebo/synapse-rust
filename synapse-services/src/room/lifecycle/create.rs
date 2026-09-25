@@ -5,12 +5,12 @@
 
 use super::super::service::CreateRoomConfig;
 use super::super::utils::validate_room_alias_input;
+use super::creation_graph::CreationGraph;
 use super::service::LifecycleService;
 use serde_json::json;
 use synapse_common::current_timestamp_millis;
 use synapse_common::room_versions::{resolve_room_version, DEFAULT_ROOM_VERSION};
-use synapse_common::{generate_event_id, generate_room_id, ApiError, ApiResult};
-use synapse_storage::CreateEventParams;
+use synapse_common::{generate_room_id, ApiError, ApiResult};
 
 impl LifecycleService {
     /// See [`create_room`].
@@ -71,19 +71,21 @@ impl LifecycleService {
 
         let now = current_timestamp_millis();
         let create_content = build_create_event_content(user_id, room_version, &config);
+        // The creation events below are emitted in one linear order inside this
+        // transaction. The write-path decorator cannot resolve their DAG metadata
+        // (transactional reads cannot see uncommitted rows), so the sequence is
+        // tracked here — see `creation_graph`.
+        let mut graph = CreationGraph::new(room_version);
+
         let result = self
-            .event_writer
-            .create_event(
-                CreateEventParams {
-                    event_id: generate_event_id(&self.server_name),
-                    room_id: room_id.clone(),
-                    user_id: user_id.to_string(),
-                    event_type: "m.room.create".to_string(),
-                    content: create_content,
-                    state_key: Some("".to_string()),
-                    origin_server_ts: now,
-                    redacts: None,
-                },
+            .write_creation_event(
+                &mut graph,
+                &room_id,
+                user_id,
+                "m.room.create",
+                Some(""),
+                create_content,
+                now,
                 Some(&mut tx),
             )
             .await;
@@ -112,21 +114,17 @@ impl LifecycleService {
         }
 
         let result = self
-            .event_writer
-            .create_event(
-                CreateEventParams {
-                    event_id: generate_event_id(&self.server_name),
-                    room_id: room_id.clone(),
-                    user_id: user_id.to_string(),
-                    event_type: "m.room.member".to_string(),
-                    content: json!({
-                        "membership": "join",
-                        "displayname": user_id.trim_start_matches('@').split(':').next().unwrap_or(user_id),
-                    }),
-                    state_key: Some(user_id.to_string()),
-                    origin_server_ts: now + 1,
-                    redacts: None,
-                },
+            .write_creation_event(
+                &mut graph,
+                &room_id,
+                user_id,
+                "m.room.member",
+                Some(user_id),
+                json!({
+                    "membership": "join",
+                    "displayname": user_id.trim_start_matches('@').split(':').next().unwrap_or(user_id),
+                }),
+                now + 1,
                 Some(&mut tx),
             )
             .await;
@@ -163,18 +161,14 @@ impl LifecycleService {
             }
         }
         let result = self
-            .event_writer
-            .create_event(
-                CreateEventParams {
-                    event_id: generate_event_id(&self.server_name),
-                    room_id: room_id.clone(),
-                    user_id: user_id.to_string(),
-                    event_type: "m.room.power_levels".to_string(),
-                    content: power_levels,
-                    state_key: Some("".to_string()),
-                    origin_server_ts: now + 2,
-                    redacts: None,
-                },
+            .write_creation_event(
+                &mut graph,
+                &room_id,
+                user_id,
+                "m.room.power_levels",
+                Some(""),
+                power_levels,
+                now + 2,
                 Some(&mut tx),
             )
             .await;
@@ -184,18 +178,14 @@ impl LifecycleService {
         }
 
         let result = self
-            .event_writer
-            .create_event(
-                CreateEventParams {
-                    event_id: generate_event_id(&self.server_name),
-                    room_id: room_id.clone(),
-                    user_id: user_id.to_string(),
-                    event_type: "m.room.join_rules".to_string(),
-                    content: json!({ "join_rule": join_rule }),
-                    state_key: Some("".to_string()),
-                    origin_server_ts: now + 3,
-                    redacts: None,
-                },
+            .write_creation_event(
+                &mut graph,
+                &room_id,
+                user_id,
+                "m.room.join_rules",
+                Some(""),
+                json!({ "join_rule": join_rule }),
+                now + 3,
                 Some(&mut tx),
             )
             .await;
@@ -212,18 +202,14 @@ impl LifecycleService {
             }
         });
         let result = self
-            .event_writer
-            .create_event(
-                CreateEventParams {
-                    event_id: generate_event_id(&self.server_name),
-                    room_id: room_id.clone(),
-                    user_id: user_id.to_string(),
-                    event_type: "m.room.history_visibility".to_string(),
-                    content: json!({ "history_visibility": history_visibility }),
-                    state_key: Some("".to_string()),
-                    origin_server_ts: now + 4,
-                    redacts: None,
-                },
+            .write_creation_event(
+                &mut graph,
+                &room_id,
+                user_id,
+                "m.room.history_visibility",
+                Some(""),
+                json!({ "history_visibility": history_visibility }),
+                now + 4,
                 Some(&mut tx),
             )
             .await;
@@ -234,18 +220,14 @@ impl LifecycleService {
 
         let guest_access = if is_public { "can_join" } else { "forbidden" };
         let result = self
-            .event_writer
-            .create_event(
-                CreateEventParams {
-                    event_id: generate_event_id(&self.server_name),
-                    room_id: room_id.clone(),
-                    user_id: user_id.to_string(),
-                    event_type: "m.room.guest_access".to_string(),
-                    content: json!({ "guest_access": guest_access }),
-                    state_key: Some("".to_string()),
-                    origin_server_ts: now + 5,
-                    redacts: None,
-                },
+            .write_creation_event(
+                &mut graph,
+                &room_id,
+                user_id,
+                "m.room.guest_access",
+                Some(""),
+                json!({ "guest_access": guest_access }),
+                now + 5,
                 Some(&mut tx),
             )
             .await;
@@ -261,6 +243,7 @@ impl LifecycleService {
                 config.name.as_deref(),
                 config.topic.as_deref(),
                 now + 6,
+                &mut graph,
                 Some(&mut tx),
             )
             .await;
@@ -276,6 +259,7 @@ impl LifecycleService {
                 config.invite_reasons.as_ref(),
                 user_id,
                 now + 7,
+                &mut graph,
                 &mut tx,
             )
             .await;
@@ -304,18 +288,14 @@ impl LifecycleService {
                 }
 
                 let result = self
-                    .event_writer
-                    .create_event(
-                        CreateEventParams {
-                            event_id: generate_event_id(&self.server_name),
-                            room_id: room_id.clone(),
-                            user_id: user_id.to_string(),
-                            event_type: event_type.to_string(),
-                            content,
-                            state_key: Some(state_key),
-                            origin_server_ts: now + 9 + idx as i64,
-                            redacts: None,
-                        },
+                    .write_creation_event(
+                        &mut graph,
+                        &room_id,
+                        user_id,
+                        event_type,
+                        Some(&state_key),
+                        content,
+                        now + 9 + idx as i64,
                         Some(&mut tx),
                     )
                     .await;
@@ -346,18 +326,14 @@ impl LifecycleService {
             if !has_encryption_in_initial_state {
                 let encryption_ts = config.initial_state.as_ref().map_or(now + 9, |s| now + 9 + s.len() as i64);
                 let result = self
-                    .event_writer
-                    .create_event(
-                        CreateEventParams {
-                            event_id: generate_event_id(&self.server_name),
-                            room_id: room_id.clone(),
-                            user_id: user_id.to_string(),
-                            event_type: "m.room.encryption".to_string(),
-                            content: json!({ "algorithm": algorithm }),
-                            state_key: Some("".to_string()),
-                            origin_server_ts: encryption_ts,
-                            redacts: None,
-                        },
+                    .write_creation_event(
+                        &mut graph,
+                        &room_id,
+                        user_id,
+                        "m.room.encryption",
+                        Some(""),
+                        json!({ "algorithm": algorithm }),
+                        encryption_ts,
                         Some(&mut tx),
                     )
                     .await;
@@ -378,18 +354,14 @@ impl LifecycleService {
         if is_trusted_private {
             let privacy_content = json!({ "action": "block_screenshot" });
             let result = self
-                .event_writer
-                .create_event(
-                    CreateEventParams {
-                        event_id: generate_event_id(&self.server_name),
-                        room_id: room_id.clone(),
-                        user_id: user_id.to_string(),
-                        event_type: "com.hula.privacy".to_string(),
-                        content: privacy_content,
-                        state_key: Some("".to_string()),
-                        origin_server_ts: now + 8,
-                        redacts: None,
-                    },
+                .write_creation_event(
+                    &mut graph,
+                    &room_id,
+                    user_id,
+                    "com.hula.privacy",
+                    Some(""),
+                    privacy_content,
+                    now + 8,
                     Some(&mut tx),
                 )
                 .await;

@@ -91,7 +91,10 @@ impl RoomSyncServices {
                 event_notifier.clone(),
             ));
         let graph_metadata_resolver = Arc::new(crate::graph_metadata::GraphMetadataResolver::new(Arc::new(
-            crate::graph_metadata::StorageGraphMetadataSource::new(event_reader.clone(), room_storage.clone()),
+            crate::graph_metadata::StorageGraphMetadataSource::new(
+                event_storage_concrete.clone(),
+                room_storage.clone(),
+            ),
         )));
         let event_writer: Arc<dyn synapse_storage::event::EventWriter> =
             Arc::new(crate::graph_metadata::GraphMetadataWriter::new(notifying_writer, graph_metadata_resolver));

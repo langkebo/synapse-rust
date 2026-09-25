@@ -558,11 +558,14 @@ MSC3912 客户端级联与 Content Scanner 接线（高），最后清理中低�
 >   强行解析会产出错误的 `auth_events`/`prev_events`。事务调用方（建房批量写初始状态）
 >   走原行为，由 1e 显式提供图数据。
 >   8 个单测（无需 DB）+ 3 个变异自证（深度算术 / 自环过滤 / 装饰器改走 plain write ⇒ 各自转红）。
-> - **1e（待做，**建房路径**）** `synapse-services/src/room/lifecycle/create.rs`（9 处
->   `event_writer.create_event(..., Some(tx))`）显式传图数据：create 事件 = `( [], [], 1 )`；
->   随后的 member/power_levels/join_rules 是**线性序列**，`prev_events` = 上一个事件 id、
->   `auth_events` = 序列中已建的相关状态事件、`depth` 递增。**这是 `/send_join` 对新房间可签名的
->   关键一步**（装饰器在事务内不解析）。
+> - **1e（已完成，提交见分支）** 建房路径显式提供图数据：新增
+>   `synapse-services/src/room/lifecycle/creation_graph.rs` 的 `CreationGraph`
+>   （线性序列追踪：`prev_events` = 上一个事件、`depth` 递增、`auth_events` 走 1a 的选择算法，
+>   且在**记录自身之前**做选择 ⇒ 事件永不自我授权），并在 `create_events.rs` 加
+>   `write_creation_event(...)` 单一写法；`create.rs` 的 9 处 + `set_room_metadata` 2 处 +
+>   `process_invites` 1 处全部由 `create_event` 改为 `create_event_with_graph`。
+>   6 个纯单测 + 3 个变异自证（深度不递增 / 先记账再选 auth ⇒ 自授权 / prev 恒空 ⇒ 各自转红）。
+>   **这一步才让新房间的 state 具备可签名条件**（装饰器在事务内不解析）。
 > - **1c（待做）** storage 单写入口收敛：`create_event` 与 `create_event_with_graph` 目前是
 >   **两条独立 INSERT**；抽成一个私有 helper，`create_event` 传 `None`（写 SQL `NULL`），
 >   `create_event_with_graph` 传值，**公开签名不变**（避免 1a 之外的第二波 churn）。

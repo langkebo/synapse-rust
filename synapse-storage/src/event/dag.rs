@@ -145,6 +145,44 @@ impl EventStorage {
         Ok(count)
     }
 
+    /// The room's **forward extremities**: events that no other event in the
+    /// room references as a parent.
+    ///
+    /// This is the set a newly-created event must list in `prev_events` to
+    /// extend every branch of the room DAG. It is derived from `event_edges`,
+    /// which the graph write paths populate (`create_event_with_graph` /
+    /// `create_state_event_with_dag`), so it is a real DAG query — unlike
+    /// [`Self::get_latest_event_ids_in_room`], which merely returns the newest
+    /// events by `origin_server_ts` for backfill seeding and would report an
+    /// ancestor as a tip.
+    ///
+    /// ⚠️ Rows written without graph metadata (the plain `create_event` path)
+    /// have no `event_edges` at all and therefore look like extremities. Rooms
+    /// created before graph metadata was persisted can over-report; rooms
+    /// created after (every local write now goes through a graph path) do not.
+    ///
+    /// Ordering is newest-first with a deterministic tie-break so callers get a
+    /// reproducible `prev_events` array.
+    pub async fn get_forward_extremities_in_room(&self, room_id: &str, limit: i64) -> Result<Vec<String>, sqlx::Error> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            r"
+            SELECT e.event_id FROM events e
+            WHERE e.room_id = $1
+              AND NOT EXISTS (
+                  SELECT 1 FROM event_edges g
+                  WHERE g.prev_event_id = e.event_id
+              )
+            ORDER BY e.origin_server_ts DESC NULLS LAST, e.stream_ordering DESC NULLS LAST, e.event_id DESC
+            LIMIT $2
+            ",
+        )
+        .bind(room_id)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|(event_id,)| event_id).collect())
+    }
+
     /// Returns the `event_id`s of the most recent events in a room, ordered
     /// by `origin_server_ts DESC`.  Used to seed outbound `/backfill` requests
     /// — the caller passes these IDs as the `v=` query parameters so the

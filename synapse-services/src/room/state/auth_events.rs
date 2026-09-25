@@ -75,6 +75,14 @@ impl AuthStateSnapshot {
     pub fn event_id(&self, event_type: &str, state_key: &str) -> Option<&str> {
         self.ids.get(&(event_type.to_string(), state_key.to_string())).map(String::as_str)
     }
+
+    /// Records `event_id` as the occupant of `(event_type, state_key)`.
+    ///
+    /// Used by callers that build state incrementally as they emit events (the
+    /// room-creation sequence) rather than reading a snapshot from storage.
+    pub fn insert(&mut self, event_type: &str, state_key: &str, event_id: &str) {
+        self.ids.insert((event_type.to_string(), state_key.to_string()), event_id.to_string());
+    }
 }
 
 /// Whether the given room version supports the MSC3083 restricted join rule.

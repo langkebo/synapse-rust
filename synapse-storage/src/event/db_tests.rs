@@ -631,6 +631,64 @@ async fn test_get_events_batch_empty_input() {
 }
 
 #[tokio::test]
+async fn test_get_forward_extremities_in_room_tracks_the_dag_not_the_clock() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+    let room_id = format!("!extremities_{}:example.com", uuid::Uuid::new_v4());
+    let user_id = "@grapher:example.com";
+
+    ensure_test_room(&pool, &room_id).await;
+    ensure_test_user(&pool, user_id).await;
+
+    let params = |event_id: &str, ts: i64| CreateEventParams {
+        event_id: event_id.to_string(),
+        room_id: room_id.clone(),
+        user_id: user_id.to_string(),
+        event_type: "m.room.message".to_string(),
+        content: serde_json::json!({"body": event_id}),
+        state_key: None,
+        origin_server_ts: ts,
+        redacts: None,
+    };
+    let now = current_timestamp_millis();
+
+    // The events table enforces `ck_events_event_id_format`, so use realistic ids.
+    let id = |name: &str| format!("${name}_{}:example.com", uuid::Uuid::new_v4());
+    let root = id("root");
+    let a = id("a");
+    let b = id("b");
+    let merge = id("merge");
+
+    // A root, then two concurrent children of the root: both children are tips.
+    storage.create_event_with_graph(params(&root, now), &[], &[], 1, None).await.expect("root");
+    storage.create_event_with_graph(params(&a, now + 1), std::slice::from_ref(&root), &[], 2, None).await.expect("a");
+    // `b` is newer by timestamp but must not be treated as the only tip.
+    storage.create_event_with_graph(params(&b, now + 2), std::slice::from_ref(&root), &[], 2, None).await.expect("b");
+
+    let mut tips = storage.get_forward_extremities_in_room(&room_id, 10).await.expect("extremities");
+    tips.sort();
+    let mut expected = vec![a.clone(), b.clone()];
+    expected.sort();
+    assert_eq!(tips, expected, "the root is an ancestor, not a tip");
+
+    // A merge child referencing both branches leaves exactly one tip.
+    storage
+        .create_event_with_graph(params(&merge, now + 3), &[a.clone(), b.clone()], &[], 3, None)
+        .await
+        .expect("merge");
+    let tips = storage.get_forward_extremities_in_room(&room_id, 10).await.expect("extremities");
+    assert_eq!(tips, vec![merge.clone()]);
+
+    // A timestamp-ordered query returns the newest events, which after the merge
+    // included the non-tip `b`; pin the difference so the two reads cannot be
+    // conflated again.
+    let by_clock = storage.get_latest_event_ids_in_room(&room_id, 2).await.expect("latest");
+    assert_eq!(by_clock.first(), Some(&merge));
+    assert_ne!(by_clock.len(), 1, "the clock-ordered query is not an extremity query");
+    assert!(by_clock.contains(&b), "the timestamp read includes the stale branch tip `b`");
+}
+
+#[tokio::test]
 async fn test_get_forward_extremities_count() {
     let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
