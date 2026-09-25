@@ -1,4 +1,4 @@
-# synapse-rust API 覆盖率分析 (v1.5)
+# synapse-rust API 覆盖率分析 (v1.6)
 
 > **对齐基准**：element-hq/synapse **v1.161.0**（发布于 2026-09-15，当前最新稳定版）；上游 `CHANGES.md` 已核对 1.157→1.161 全部条目。
 > Matrix Specification 基线：**v1.19**（上游 v1.161 release notes 引用 `spec.matrix.org/v1.19`）。
@@ -8,6 +8,10 @@
 > 本轮按 §8 配方在 `9e26ee31a` 上重算全部三张分类表（§1.1 / §二 / §三），并把 §五/§六 的
 > 判定推进到当前 HEAD（MSC4512、MSC3912 级联、MSC4140 联邦 EDU、Content Scanner 装配、
 > `rc_reports` 限流、AS 登录均已落地；两处上游条目判据见 §5.1/§5.2）。
+> **v1.6 与 v1.5 的差别**：2026-09-25 的 **E2EE 去服务端私钥重构**删除了服务端侧 SAS / 设备信任的实现
+> （`verification_routes` 24 条 + `e2ee` 路由组 6 条），路由三口径随之由 **1165 / 933 / 813** 变为
+> **1135 / 903 / 795**，Client 分类表在「房间」「设备与密钥」两行相应下调；重算时**顺带修正**了 v1.5
+> 分类表中「打印的配方复现不出打印的表」的 ±5 归类偏差（详见 §二 后的增量复核注）。
 >
 > **权威来源声明（三条，冲突时按此优先级）**：
 > 1. **机器权威（路由）**：[`ROUTE_CONTRACT.md`](./ROUTE_CONTRACT.md) —— 由 `scripts/contract/extract_registered.py` 从真实 `.route()` 注册面抽取，生成于 2026-09-25，
@@ -32,22 +36,23 @@
 
 | 口径 | 含义 | 全部 | `/_matrix/client` | `/_synapse/admin` | 其他命名空间 |
 |---|---|---|---|---|---|
-| **注册条目** | 唯一 `(method, absolute_path)` 对 | **1165** | 665 | 277 | 223 |
-| **唯一路径** | 去掉方法后的唯一 `absolute_path` | **933** | 520 | 218 | 195 |
-| **逻辑端点** | 在上者基础上折叠版本前缀（`v3`/`r0`/`v1`/`unstable/*` → `vX`）后的唯一路径 | **813** | 402 | 216 | 195 |
+| **注册条目** | 唯一 `(method, absolute_path)` 对 | **1135** | 635 | 277 | 223 |
+| **唯一路径** | 去掉方法后的唯一 `absolute_path` | **903** | 490 | 218 | 195 |
+| **逻辑端点** | 在上者基础上折叠版本前缀（`v3`/`r0`/`v1`/`unstable/*` → `vX`）后的唯一路径 | **795** | 384 | 216 | 195 |
 
-- `ROUTE_CONTRACT.md` 总览的 **1165** 与上表「注册条目」一致（该清单本身无 `(method,path)` 重复），
-  66 个含路由注册的模块文件 / 74 个 `registered_by` 标签 / 46 个分类同为该文件的总览数字。
-- 1165 → 933 的差额**不是漂移**，而是"同路径多方法"（如 `summary` 4 个方法）；
-  933 → 813 的差额是"同路径多版本前缀"。
+- `ROUTE_CONTRACT.md` 总览的 **1135** 与上表「注册条目」一致（该清单本身无 `(method,path)` 重复），
+  65 个含路由注册的模块文件 / 73 个 `registered_by` 标签同为该文件的总览数字；
+  生成器（`scripts/contract/gen_contract_doc.py`）另报 **45 个分类**（只出现在它的 stdout，不写进正文）。
+- 1135 → 903 的差额**不是漂移**，而是"同路径多方法"（如 `summary` 4 个方法）；
+  903 → 795 的差额是"同路径多版本前缀"。
 - 「其他命名空间」195（唯一路径）= `/_matrix/`（非 client，如 federation/app/key）143 + `/_synapse/`（非 admin）35 + `/.well-known/` 5 + 根级非命名空间 12。
   其中根级端点按 `(method,path)` 为 **14 条有意注册**（3 条探活 + 11 条 CAS 根协议），该桶由
   `test_extract_registered.py::check_non_namespace_bucket` 守卫钉死（出现新成员即转红）。
-- **相对 2026-09-21 快照（1151 / 931 / 811）的 +14 / +2 / +2**：全部来自此后**已提交**的路由增删 ——
-  主要是 MSC4512 AS 代理的两条 `any()` 路由（`/_matrix/app/v1/proxy/{as_id}/{*path}` 落在「其他命名空间」；
-  `/_matrix/client/v1/proxy/{as_id}/{*path}` 落在 Client 侧 catch-all「房间」类，一条 `any()` 即贡献 7 个注册条目）、
-  MSC3912 的 `POST /_synapse/admin/v1/rooms/{room_id}/cascade_redact`，并**减去** D-12 删除的
-  `GET /_synapse/admin/v1/event_reports/{id}/history`。逐项归因（`git log -S <path>`）属独立文档任务，本表只保证口径可复现。
+- **相对 2026-09-21 快照（1151 / 931 / 811）与 2026-09-22 复核（1165 / 933 / 813）的差额**：2026-09-22 之前的
+  +14 / +2 / +2 来自 MSC4512 AS 代理的两条 `any()` 路由、MSC3912 的 `POST /_synapse/admin/v1/rooms/{room_id}/cascade_redact`，
+  并**减去** D-12 删除的 `GET /_synapse/admin/v1/event_reports/{id}/history`；
+  之后的 **−30 / −30 / −18** 全部来自 2026-09-25 的 **E2EE 去服务端私钥重构**（删 `verification_routes` 24 条 +
+  `e2ee` 路由组 6 条，见 `docs/synapse-rust-vs-synapse-comparison.md` §13）。逐项归因（`git log -S <path>`）属独立文档任务，本表只保证口径可复现。
 
 > 📌 **口径注意**：`/_matrix/client/v1/proxy/{as_id}/{*path}` 被归入「房间」是 §8.1 分类脚本
 > **兜底规则**（`("房间", r".")`）的结果，不代表它是房间 API。引用分类数字时须知这一点。
@@ -68,15 +73,15 @@
 
 | 类别 | 逻辑端点 | 唯一路径 | 注册条目 | 说明 |
 |------|---------:|--------:|--------:|------|
-| **房间** | 207 | 251 | 309 | 含 join/knock/leave/invite/state/tags/relations/threads/summary/spaces；⚠️ 含 MSC4512 的 `/_matrix/client/v1/proxy/{as_id}/{*path}`（`any()` ⇒ 7 条注册条目，属兜底归类，见 §1.1 口径注意） |
-| **设备与密钥** | 71 | 113 | 154 | `/devices`、`/keys/*`、`/room_keys/*`、`cross_signing`、`device_verification`、`dehydrated_device`(MSC3814) |
+| **房间** | 206 | 250 | 308 | 含 join/knock/leave/invite/state/tags/relations/threads/summary/spaces；⚠️ 含 MSC4512 的 `/_matrix/client/v1/proxy/{as_id}/{*path}`（`any()` ⇒ 7 条注册条目，属兜底归类，见 §1.1 口径注意） |
+| **设备与密钥** | 54 | 84 | 125 | `/devices`、`/keys/*`、`/room_keys/*`、`cross_signing`、`dehydrated_device`(MSC3814)。⚠️ `device_verification` / `device_trust` / `security/summary`，以及全部 `/keys/verification/*`、`/keys/device_signing/verify_*`、`/keys/qr_code/*` 已于 2026-09-25 随 E2EE 去服务端私钥重构删除（见 `docs/synapse-rust-vs-synapse-comparison.md` §13） |
 | **认证** | 44 | 60 | 71 | login/logout/register/refresh/oidc/saml/cas/rendezvous(MSC4108)/account(password·3pid·deactivate)/MSC2965 |
 | **用户** | 24 | 28 | 47 | profile/presence/user_directory/thirdparty/capabilities/account_data |
 | **同步** | 20 | 24 | 31 | `/sync`、`notifications`、MSC3575 + simplified MSC3575、pushrules/pushers/push、to_device |
 | **消息** | 20 | 24 | 31 | `sendToDevice`、MSC4140 delayed_events、`/rooms/{id}/event/…` |
 | **搜索** | 8 | 10 | 12 | `/search` |
 | **媒体** | 8 | 10 | 10 | `/media/*`、`/upload`、`thumbnail`、`preview_url` |
-| **合计** | **402** | **520** | **665** | — |
+| **合计** | **384** | **490** | **635** | — |
 
 ## 三、Admin API 分类统计（机器口径，synapse-rust 实测）
 
@@ -99,9 +104,22 @@
 > **房间管理 +1**（50/50/59 → 51/51/60）：来自**已提交**的 `a421e7641`（MSC3912 cascade redaction
 > 的 `POST /_synapse/admin/v1/rooms/{room_id}/cascade_redact`），非 D-12 变更。
 >
-> Client 侧的唯一变化是**房间 +1/+1/+7**（206/250/302 → 207/251/309），来源是 MSC4512 的
-> `/_matrix/client/v1/proxy/{as_id}/{*path}`（`any()` 注册 7 个方法，落在兜底「房间」类）——
-> 见 §1.1 的口径注意。其余七个类别三个口径全部未变。
+> Client 侧在 2026-09-22 的 MSC4512 增量（房间 +1/+1/+7）之后，**再叠加一次净减**（全部来自 2026-09-25
+> 的 E2EE 去服务端私钥重构，见 `docs/synapse-rust-vs-synapse-comparison.md` §13）：
+>
+> | 类别 | 逻辑端点 | 唯一路径 | 注册条目 | 变化来源 |
+> |---|---:|---:|---:|---|
+> | **房间** | −1 | −1 | −1 | 删 `GET /_matrix/client/v3/security/summary`（按 §8.1 规则落入兜底「房间」） |
+> | **设备与密钥** | −17 | −29 | −29 | 删 24 条 `/keys/{verification/*,device_signing/verify_*,qr_code/*}`（折叠版本前缀后 12 条）+ 5 条 `device_trust` / `device_verification/*` |
+> | **合计** | **−18** | **−30** | **−30** | 与 `ROUTE_CONTRACT.md` 的 1165 → 1135 同一批 |
+>
+> ⚠️ **重算时发现并修正一处旧表口径不一致**：上一版 Client 表把 `device_trust` / `device_verification/*`
+> 计在「设备与密钥」，但 §8.1 **打印出的**脚本里「设备」规则只匹配
+> `/devices|/keys|/room_keys|cross_signing|dehydrated_device`，这 5 条实际落入兜底「房间」——
+> 即**打印的配方复现不出打印的表**（旧表：唯一路径 房间 251 / 设备 113；脚本给出 256 / 108）。
+> 本次删除把这 5 条一并移除后，两种归法结果相同，因此上表数字现在可被 §8.1 脚本**逐字复现**。
+>
+> Client 其余六个类别（认证/用户/同步/消息/搜索/媒体）三个口径全部未变。
 
 > 「逻辑端点」低于「唯一路径」是因为 `/v1/*` 与 `/v2/*` 折回同一 `vX` 路径时的合并（Admin 侧表现在 `users` 族与 `rooms` 族）。
 
@@ -244,7 +262,7 @@
 
 | 编号 | 动作 | 验收判据 |
 |---|---|---|
-| A1 | ✅ **v1.5 已完成**：路由总数改为 `ROUTE_CONTRACT.md` 实测（1165 注册条目 / 933 唯一路径 / 813 逻辑端点），删除无源的 883 / 411，并把 2026-09-21 快照全部重算 | §1 的每个数字都能由 §8 命令复现 |
+| A1 | ✅ **v1.5 已完成**：路由总数改为 `ROUTE_CONTRACT.md` 实测（**1135 注册条目 / 903 唯一路径 / 795 逻辑端点**；2026-09-22 为 1165 / 933 / 813，2026-09-25 随 E2EE 去服务端私钥重构净减 30 条路由），删除无源的 883 / 411，并把 2026-09-21 快照全部重算 | §1 的每个数字都能由 §8 命令复现 |
 | A2 | ✅ 本版已修正：删除"34/35（97%）"等不可比口径相除得到的覆盖率百分比，改为显式口径警告 | §四 表格不含未标注口径的百分比 |
 | A3 | ✅ 本版已修正：章节编号重复（v1.3 出现两个"三、"）| 章节编号唯一 |
 | A4 | 把"缺失清单"改为**带证据的清单**：每条必须有 `路径:行号` 或在册证据 | 评审清单项：无证据条目不得出现 |
@@ -299,10 +317,10 @@ grep -n '注册路由条目\|含路由注册的模块文件\|registered_by' docs
 #       锚定 `$` 会静默少 21 条（实测 1144 ≠ 1165，是本表上一版漂移的一个来源）。
 grep -oE '^- `[A-Z]+` `[^`]+`' docs/synapse-rust/ROUTE_CONTRACT.md \
   | sed -E 's/^- `([A-Z]+)` `([^`]+)`$/\1 \2/' > /tmp/mp.txt
-wc -l < /tmp/mp.txt                                          # 1165 注册条目 (method,path)
+wc -l < /tmp/mp.txt                                          # 1135 注册条目 (method,path)
 awk '{print $2}' /tmp/mp.txt | sort -u > /tmp/paths.txt
-wc -l < /tmp/paths.txt                                       #  933 唯一路径
-grep -c '^/_matrix/client' /tmp/paths.txt                    #  520 唯一路径 client
+wc -l < /tmp/paths.txt                                       #  903 唯一路径
+grep -c '^/_matrix/client' /tmp/paths.txt                    #  490 唯一路径 client
 grep -c '^/_synapse/admin' /tmp/paths.txt                    #  218 唯一路径 admin
 # 其他命名空间 195 = /_matrix(非 client) 143 + /_synapse(非 admin) 35 + /.well-known 5 + 根级 12
 grep -cE '^/(?!/_matrix/|/_synapse/|/\.well-known/)' -P /tmp/paths.txt 2>/dev/null \
@@ -319,8 +337,8 @@ def norm(p):
     p=re.sub(r'^/_synapse/admin/v[0-9]+/','/_synapse/admin/vX/',p)
     return p
 L=sorted({norm(p) for p in paths})
-print('逻辑端点(全部) =', len(L))                                                   # 813
-print('逻辑端点(client) =', sum(1 for p in L if p.startswith('/_matrix/client')))   # 402
+print('逻辑端点(全部) =', len(L))                                                   # 795
+print('逻辑端点(client) =', sum(1 for p in L if p.startswith('/_matrix/client')))   # 384
 print('逻辑端点(admin)  =', sum(1 for p in L if p.startswith('/_synapse/admin')))   # 216
 open('/tmp/logical_routes.txt','w').write('\n'.join(L)+'\n')
 PY
@@ -374,7 +392,7 @@ CLIENT = [
     ),
     (
         "设备",
-        r"/devices|/keys|/room_keys|/device_verification|/device_trust"
+        r"/devices|/keys|/room_keys"
         r"|/cross_signing|/dehydrated_device|msc3814",
     ),
     ("搜索", r"/search"),
@@ -434,7 +452,7 @@ for key, rules in (("Client", CLIENT), ("Admin", ADMIN)):
 
 | 文档 | 用途 | 时效性 |
 |---|---|---|
-| [`ROUTE_CONTRACT.md`](./ROUTE_CONTRACT.md) | **路由机器权威**（逐模块 `(method, path)`） | 2026-09-25 生成（1165 条） |
+| [`ROUTE_CONTRACT.md`](./ROUTE_CONTRACT.md) | **路由机器权威**（逐模块 `(method, path)`） | 2026-09-25 生成（1135 条） |
 | [`MSC_SEMANTICS.md`](./MSC_SEMANTICS.md) | **MSC 编号语义唯一真相源**（含"借用编号"登记） | 2026-09-14 |
 | [`ELEMENT_SYNAPSE_GAP_ANALYSIS_2026-07-28.md`](./ELEMENT_SYNAPSE_GAP_ANALYSIS_2026-07-28.md) | 对标 v1.156.0 的功能级差距分析 | 2026-07-28（基准已落后 5 个版本） |
 | [`../audit/COMPARISON_REPORT_REVIEW_2026-09-22.md`](../audit/COMPARISON_REPORT_REVIEW_2026-09-22.md) | 对 `synapse-rust-vs-synapse-comparison.md` 的复核（含 v1.157–1.161 逐条实测） | 2026-09-22 |
@@ -446,7 +464,9 @@ for key, rules in (("Client", CLIENT), ("Admin", ADMIN)):
 ---
 
 *创建日期: 2026-03-19*
-*最后更新: 2026-09-25（v1.5：全表按 §8 配方在 HEAD `9e26ee31a` 重算 —— 三口径 1165 / 933 / 813 与 §二/§三
+*最后更新: 2026-09-25（v1.6：随 E2EE 去服务端私钥重构复算 —— 三口径 **1135 / 903 / 795**，Client 分类表
+房间 206/250/308、设备与密钥 54/84/125，并修正旧表"打印的配方复现不出打印的表"的 ±5 归类偏差；
+v1.5 全表按 §8 配方在 HEAD `9e26ee31a` 重算 —— 当时三口径 1165 / 933 / 813 与 §二/§三
 分类表全部替换 2026-09-21 快照；§五/§六 判定推进到当前 HEAD，MSC4512 / MSC3912 级联 / MSC4140 联邦 EDU /
 Content Scanner 装配 / `rc_reports` / AS 登录六项从「缺失」改为实测状态，其中 Content Scanner 是"已装配但零消费者"；
 修正 §8 抽取配方中会静默少 21 条的锚定错误，并补 §⑦「是否真的接线」核对命令）*

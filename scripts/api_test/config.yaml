@@ -54,8 +54,8 @@ max_response_bytes: 4096  # 报告里保留的响应体最大字节数
 # 路由清单来源：
 #   - "auto": 优先运行 cargo 导出（--export-ledger 显式触发）；否则回退到 ledger_path
 #   - 也可直接指定 JSON 文件路径
-# 注意：默认 ledger.json 使用与 Docker 镜像一致的 features 导出（1292 条）；
-#       tests/unit/fixtures/ledger_export/default.json 是 default-features 构建（1242 条），
+# 注意：默认 ledger.json 使用与 Docker 镜像一致的 features 导出（1096 条）；
+#       tests/unit/fixtures/ledger_export/default.json 是 default-features 构建（1033 条），
 #       仅用于单元测试 golden-file，不含 voice-extended/saml-sso/cas-sso 等扩展路由。
 ledger_path: "ledger.json"
 

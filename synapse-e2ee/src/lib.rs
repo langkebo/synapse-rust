@@ -9,9 +9,11 @@
 //!
 //! Implements Matrix E2EE: Olm (double ratchet) account/session management,
 //! Megolm (group ratchet) outbound sessions, server-side encrypted key
-//! backup, SSSS secret storage, cross-signing keys (MSC1756), and
-//! interactive device verification (SAS / QR-code / numeric per
-//! MSC2246/MSC3326). Public surface is split into per-feature modules
+//! backup, SSSS secret storage, and cross-signing keys (MSC1756).
+//! Interactive device verification (`m.key.verification.*`, SAS / QR-code per
+//! MSC2246/MSC3326) is a **client-to-client** to-device flow: device private
+//! keys never leave the client and the homeserver only relays the events.
+//! Public surface is split into per-feature modules
 //! (e.g. `olm`, `megolm`, `backup`, `ssss`); consumers normally reach
 //! them through the high-level `*Service` types re-exported below.
 
@@ -23,8 +25,6 @@ pub mod cross_signing;
 pub mod crypto;
 /// The `device_keys` module.
 pub mod device_keys;
-/// The `device_trust` module.
-pub mod device_trust;
 /// The `key_request` module.
 pub mod key_request;
 /// The `key_rotation` module.
@@ -78,13 +78,6 @@ pub use cross_signing::service::CrossSigningService;
 pub use cross_signing::storage::CrossSigningStorage;
 pub use device_keys::models::*;
 pub use device_keys::service::DeviceKeyService;
-// Explicit exports for device_trust
-pub use device_trust::models::{
-    DeviceTrustLevel, DeviceTrustStatus, DeviceVerificationRequest, E2eeSecurityEvent, KeyRotationLog, SecuritySummary,
-    VerificationMethod, VerificationRequestStatus,
-};
-pub use device_trust::service::DeviceTrustService;
-pub use device_trust::storage::DeviceTrustStorage;
 pub use key_request::{KeyRequestInfo, KeyRequestService};
 pub use megolm::models::{EncryptedEvent, MegolmSession};
 pub use megolm::service::MegolmProvider;
@@ -94,10 +87,3 @@ pub use signature::EventSignature;
 pub use signature::SignatureService;
 pub use ssss::SecretStorage;
 pub use ssss::SecretStorageService;
-pub use verification::{
-    QrCodeData, QrState, SasData, SasRepresentation, SasResult, SasState, VerificationMethod as VerifMethod,
-    VerificationState,
-};
-
-/// The `verification` module.
-pub mod verification;

@@ -364,10 +364,15 @@ lines.append("")
 lines.append(
     "- 〔仅 `X` profile〕 —— 该路由**只**在 profile `X` 下注册，默认构建里不存在（即上表成员）；"
 )
+# ⚠️ 这两个数必须**算**出来。此处曾硬编码 "1168 行去重为 1166 条"，于是路由面每增删
+# 一次，同一篇文档的总览（动态计算）与这句话（写死）就互相矛盾 —— 实测 2026-09-25
+# 它已比真实值多 1。`RouteEntry::new(` 的解析在文件头已做过 `len(_rows) == _ctors`
+# 的自检，故直接按行数求和即可。
+_derived_row_total = sum(len(_rows) for _rows in profile_rows.values())
 lines.append(
     "- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，"
     "但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，"
-    "**不**计入上表；这类孪生行正是派生表 1168 行去重为 1166 条的来源。"
+    f"**不**计入上表；这类孪生行正是派生表 {_derived_row_total} 行去重为 {len(profiles_of)} 条的来源。"
 )
 lines.append("")
 if _twins:

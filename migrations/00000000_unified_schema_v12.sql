@@ -29,7 +29,6 @@
 --   - 约束类对象没有 IF NOT EXISTS，必须包在 DO $$ ... pg_constraint 判空里
 --
 -- 主要变更 (v10):
---   - device_verification_request.expires_at/completed_at 改 BIGINT 毫秒
 --   - key_rotation_log.rotated_at 改 BIGINT 毫秒
 --   - key_rotation_state.rotated_at 改 BIGINT 毫秒
 --   - megolm_key_shares.shared_at 改 BIGINT 毫秒
@@ -683,30 +682,6 @@ CREATE TABLE IF NOT EXISTS cross_signing_keys (
     CONSTRAINT uq_cross_signing_keys_user_type UNIQUE (user_id, key_type)
 );
 
-CREATE TABLE IF NOT EXISTS device_trust_status (
-    id BIGSERIAL PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    device_id TEXT NOT NULL,
-    trust_level TEXT NOT NULL DEFAULT 'unverified',
-    verified_by_device_id TEXT,
-    verified_at BIGINT,
-    created_ts BIGINT NOT NULL,
-    updated_ts BIGINT,
-    CONSTRAINT uq_device_trust_status_user_device UNIQUE (user_id, device_id)
-);
-
-CREATE TABLE IF NOT EXISTS cross_signing_trust (
-    id BIGSERIAL PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    target_user_id TEXT NOT NULL,
-    master_key_id TEXT,
-    is_trusted BOOLEAN NOT NULL DEFAULT FALSE,
-    trusted_at BIGINT,
-    created_ts BIGINT NOT NULL,
-    updated_ts BIGINT,
-    CONSTRAINT uq_cross_signing_trust_user_target UNIQUE (user_id, target_user_id)
-);
-
 CREATE TABLE IF NOT EXISTS key_signatures (
     id BIGSERIAL PRIMARY KEY,
     target_user_id TEXT NOT NULL,
@@ -728,52 +703,6 @@ CREATE TABLE IF NOT EXISTS key_rotation_log (
     new_key_id TEXT,
     reason TEXT,
     rotated_at BIGINT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS e2ee_security_events (
-    id BIGSERIAL PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    device_id TEXT,
-    event_type TEXT NOT NULL,
-    event_data TEXT,
-    ip_address TEXT,
-    user_agent TEXT,
-    created_ts BIGINT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS verification_requests (
-    transaction_id TEXT PRIMARY KEY,
-    from_user TEXT NOT NULL,
-    from_device TEXT NOT NULL,
-    to_user TEXT NOT NULL,
-    to_device TEXT,
-    method TEXT NOT NULL,
-    state TEXT NOT NULL,
-    created_ts BIGINT NOT NULL,
-    updated_ts BIGINT
-);
-
-CREATE TABLE IF NOT EXISTS verification_sas (
-    tx_id TEXT PRIMARY KEY,
-    from_device TEXT NOT NULL,
-    to_device TEXT,
-    method TEXT NOT NULL,
-    state TEXT NOT NULL,
-    exchange_hashes JSONB NOT NULL DEFAULT '[]',
-    commitment TEXT,
-    pubkey TEXT,
-    secret_key TEXT,
-    sas_bytes BYTEA,
-    mac TEXT
-);
-
-CREATE TABLE IF NOT EXISTS verification_qr (
-    tx_id TEXT PRIMARY KEY,
-    from_device TEXT NOT NULL,
-    to_device TEXT,
-    state TEXT NOT NULL,
-    qr_code_data TEXT,
-    scanned_data TEXT
 );
 
 CREATE TABLE IF NOT EXISTS megolm_sessions (
@@ -899,24 +828,6 @@ CREATE TABLE IF NOT EXISTS e2ee_key_requests (
     created_ts BIGINT NOT NULL,
     updated_ts BIGINT,
     CONSTRAINT uq_e2ee_key_requests_request UNIQUE (request_id)
-);
-
-CREATE TABLE IF NOT EXISTS device_verification_request (
-    id BIGSERIAL,
-    user_id TEXT NOT NULL,
-    new_device_id TEXT NOT NULL,
-    requesting_device_id TEXT,
-    verification_method TEXT NOT NULL,
-    status TEXT NOT NULL,
-    request_token TEXT NOT NULL,
-    commitment TEXT,
-    pubkey TEXT,
-    created_ts BIGINT NOT NULL,
-    expires_at BIGINT NOT NULL,
-    completed_at BIGINT,
-    CONSTRAINT pk_device_verification_request PRIMARY KEY (id),
-    CONSTRAINT uq_device_verification_request_token UNIQUE (request_token),
-    CONSTRAINT fk_device_verification_request_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS one_time_keys (
@@ -3471,23 +3382,11 @@ CREATE INDEX IF NOT EXISTS idx_device_keys_fallback ON device_keys(user_id, devi
 -- Cross signing keys
 CREATE INDEX IF NOT EXISTS idx_cross_signing_keys_user ON cross_signing_keys(user_id);
 
--- Device trust status
-CREATE INDEX IF NOT EXISTS idx_device_trust_status_user_level ON device_trust_status(user_id, trust_level);
-
--- Cross signing trust
-CREATE INDEX IF NOT EXISTS idx_cross_signing_trust_user_trusted ON cross_signing_trust(user_id, is_trusted);
-
 -- Key signatures
 CREATE INDEX IF NOT EXISTS idx_key_signatures_target ON key_signatures(target_user_id, target_key_id);
 
 -- Key rotation log
 CREATE INDEX IF NOT EXISTS idx_key_rotation_log_user_rotated ON key_rotation_log(user_id, rotated_at DESC);
-
--- E2EE security events
-CREATE INDEX IF NOT EXISTS idx_e2ee_security_events_user_created ON e2ee_security_events(user_id, created_ts DESC);
-
--- Verification requests
-CREATE INDEX IF NOT EXISTS idx_verification_requests_to_user_state ON verification_requests(to_user, state, updated_ts DESC);
 
 -- Megolm sessions
 CREATE INDEX IF NOT EXISTS idx_megolm_sessions_room ON megolm_sessions(room_id);
@@ -3517,10 +3416,6 @@ CREATE INDEX IF NOT EXISTS idx_olm_sessions_expires ON olm_sessions(expires_at) 
 CREATE INDEX IF NOT EXISTS idx_e2ee_key_requests_user ON e2ee_key_requests(user_id);
 CREATE INDEX IF NOT EXISTS idx_e2ee_key_requests_session ON e2ee_key_requests(session_id);
 CREATE INDEX IF NOT EXISTS idx_e2ee_key_requests_pending ON e2ee_key_requests(is_fulfilled) WHERE is_fulfilled = FALSE;
-
--- Device verification request
-CREATE INDEX IF NOT EXISTS idx_device_verification_request_user_device_pending ON device_verification_request(user_id, new_device_id) WHERE status = 'pending';
-CREATE INDEX IF NOT EXISTS idx_device_verification_request_expires_pending ON device_verification_request(expires_at) WHERE status = 'pending';
 
 -- One time keys
 CREATE INDEX IF NOT EXISTS idx_one_time_keys_user_device ON one_time_keys(user_id, device_id);

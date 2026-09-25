@@ -44,7 +44,7 @@
 | 编号 | 缺陷 | 实测证据 | 状态 |
 |------|------|----------|------|
 | **P0-1** | **本次更新打破 docs-quality-gate（拼写）** | `bash scripts/check_doc_spelling.sh docs/synapse-rust-vs-synapse-comparison.md` → **exit 1**，未识别 10 词：aliyun / cancellable / clamav / dags / livekit / redactions / sharding / twilio / webhooks / websocket；对 HEAD 版本（v1.1）同命令 **exit 0** → 明确是本次更新引入的回归 | ✅ 已修：`.aspell.ignore.txt` 增补 10 词，复跑 exit 0。门禁已自证能红（修复前红、修复后绿） |
-| **P0-2** | **伪造引用**："`docs/synapse-rust/api-reference.md`（656 端点, 48 模块）" | `ls docs/synapse-rust/` 只有 7 个 md，**不存在 api-reference.md**；全仓 `grep -rn '656'` 仅命中本文档自身；权威口径为 ROUTE_CONTRACT **1151 条 / 66 模块**、API_COVERAGE_REPORT **约 883 条** | ✅ 已修：§3.4 与 §6.3 改为引用 ROUTE_CONTRACT 并加警示 |
+| **P0-2** | **伪造引用**："`docs/synapse-rust/api-reference.md`（656 端点, 48 模块）" | `ls docs/synapse-rust/` 只有 7 个 md，**不存在 api-reference.md**；全仓 `grep -rn '656'` 仅命中本文档自身；权威口径为 ROUTE_CONTRACT **1166 条 / 66 模块**（⚠️ 本行当时写的 **1151 是错值**：其所在提交 `71cfdad74` 的 `ROUTE_CONTRACT.md` 总览逐字为 1166 / 66，1151 无任何来源。2026-09-25 去服务端私钥重构后为 **1135 / 65**）、API_COVERAGE_REPORT **约 883 条**（该数亦无机器来源，2026-09-25 起为 **795 逻辑端点**） | ✅ 已修：§3.4 与 §6.3 改为引用 ROUTE_CONTRACT 并加警示 |
 | **P0-3** | §5.3 代码片段 `default = ["server", ...]` 含**已删除特性** `server` | `Cargo.toml` H-6 注释："`server` feature removed — zero `#[cfg(feature = "server")]` gates"；实际 default 为 `["core-private-chat","widgets","external-services","beacons"]` | ✅ 已修 |
 | **P0-4** | 计数类错误（见 §2.1 明细表） | 逐条命令实测 | ✅ 已修 |
 | **P0-5** | **"sqlx 编译时 SQL 验证"高估** | `scripts/ci/sqlx_dynamic_ratio_baseline`：`BASELINE_STATIC=61` / `BASELINE_DYNAMIC=2147` → 静态占比 **≈2.8%**；其余为动态 SQL | ✅ 已修（改为"待收紧的债务"表述） |
@@ -81,7 +81,7 @@
 
 | 冲突 | 本文档 | 权威来源 | 处理原则 |
 |------|--------|----------|----------|
-| 端点数 | 656 / 48 模块（**无源**） | ROUTE_CONTRACT.md：**1151 条注册路由 / 66 模块文件**；API_COVERAGE_REPORT：约 883 逻辑端点 | 一律引 ROUTE_CONTRACT + ledger 导出；人工文档须与之一致 |
+| 端点数 | 656 / 48 模块（**无源**） | ROUTE_CONTRACT.md：**1135 条注册路由 / 65 模块文件**（2026-09-25 去服务端私钥重构后；撰写时实为 1166 / 66，**本行原写的 1151 是错值**）；API_COVERAGE_REPORT：**795 逻辑端点**（旧写"约 883"无机器来源） | 一律引 ROUTE_CONTRACT + ledger 导出；人工文档须与之一致 |
 | MSC 编号语义 | 直接断言 MSC 标题（4140/4512/4242/3912…） | `MSC_SEMANTICS.md` 是唯一真相源，且显式登记 **MSC4155 / MSC4204 / MSC3967 为"借用编号"** | 写任何编号前先查表；本仓"编号 ≠ 官方语义"是已发生事故 |
 | MSC 覆盖面 | 表内 ~18 行 | 代码中实际出现的 MSC 标识 **≥40 个**，其中 `msc4108`(143) `msc4186`(24) `msc4262`(21) `msc2409`(12) `msc4502`(11) 等**文档未列** | 覆盖率表应按代码 `grep -oE 'msc[0-9]{4}'` 生成，不手工挑选 |
 | 缺失端点清单 | 报告行文暗示 admin 举报端点缺失 | `synapse-web/src/routes/admin/report.rs:20-24` **已实现** `GET/DELETE /_synapse/admin/v1/rooms/{room_id}/reports[...]`；API_COVERAGE_REPORT:126-127 的"缺失"段落停在 2026-05-28 | 引人工文档时必须标注其时间戳并回代码核对 |
@@ -112,11 +112,11 @@
 |------|------|------|
 | Megolm/Olm | **真实**（vodozemac `GroupSession/InboundGroupSession/Account/Session` + 加密 pickle） | `vodozemac_megolm.rs:35-36,140,189-192`；`olm/session.rs:8,44,102,115` |
 | 交叉签名 | **真实**（master→self_signing→device 信任链验证） | `cross_signing/service.rs:354-383` |
-| 设备信任 | **真实** | `device_trust/service.rs:84-433` |
+| 设备信任 | **真实**。⚠️ **2026-09-25 去服务端私钥重构后该模块已整体删除**（服务端不再生成设备密钥对、不再由客户端审批置 `Verified`） | `device_trust/service.rs:84-433`（文件已删除） |
 | 密钥备份 | **真实** | `backup/service.rs:81-700`；`secure_backup/service.rs:26-241` |
 | SSSS | **PARTIAL**：AES-256-GCM 实现，但 curve25519 路径**从密文自身派生 AES 密钥**（非 ECDH） | `ssss/service.rs:251` |
-| **SAS** | **不符合规范**：`derive_sas` 是 `SHA256(shared_secret‖info)` 取前 6 字节，**不是** 规范要求的 HKDF-SHA256；`confirm_sas` 接受**任意非空 MAC** 并置 `Done` | `synapse-e2ee/src/verification/service.rs:82-93`、`:296-351` |
-| **QR 验证** | **桩实现**：`device_ed25519_key` 与 `device_curve25519_key` 复用**同一公钥**，`signature` 为空串；`scan_qr_code` 不做签名校验/ECDH/rendezvous 绑定 | 同上 `:384-390`、`:406-430` |
+| **SAS** | **不符合规范**：`derive_sas` 是 `SHA256(shared_secret‖info)` 取前 6 字节，**不是** 规范要求的 HKDF-SHA256；`confirm_sas` 接受**任意非空 MAC** 并置 `Done`。⚠️ **本条已作废（2026-09-25 去服务端私钥重构）**：`synapse-e2ee/src/verification/` 与 `synapse-web/src/routes/verification_routes.rs` **整模块删除**，服务端不再计算 SAS，流程回归规范的客户端 `m.key.verification.*` to-device 中继 | `synapse-e2ee/src/verification/service.rs:82-93`、`:296-351`（文件已删除） |
+| **QR 验证** | **桩实现**：`device_ed25519_key` 与 `device_curve25519_key` 复用**同一公钥**，`signature` 为空串；`scan_qr_code` 不做签名校验/ECDH/rendezvous 绑定。⚠️ **本条同样已作废（2026-09-25 同上，服务端 QR 端点已删除）** | 同上 `:384-390`、`:406-430`（文件已删除） |
 | **泄漏检测** | **死代码**：`leak_detection` **未在 `synapse-e2ee/src/lib.rs` 声明**（从未编译）；启用后会因未导入的 `Utc::now()` 编译失败；`get_session_device_count` 恒返回 `Ok(1)`；`save_alert` 漏写 NOT NULL 列 | `lib.rs:19-103`（无该模块）、`leak_detection/service.rs:129,267-269,247-264` |
 
 > **教训（写入下轮纪律）**：2026-09-18 那轮把"E2EE 部分实现"**证伪**为"完整"，
@@ -338,7 +338,9 @@ grep -n 'DEFAULT_ROOM_VERSION: &str\|stable_parse_only' synapse-common/src/room_
 sed -n '954,990p' synapse-web/src/routes/handlers/room/events.rs
 grep -n 'pdu\["redacts"\]' synapse-services/src/room/messaging/service.rs
 
-# E2EE 关键点
+# E2EE 关键点（⚠️ 2026-09-25 去服务端私钥重构：`synapse-e2ee/src/verification/` 已整模块删除，
+# 下面两条 `sed` 已无法执行，保留作**历史复现记录**；现行等价核对走
+# `tests/integration/api_verification_relay_tests.rs`）
 sed -n '82,93p' synapse-e2ee/src/verification/service.rs      # derive_sas = SHA256，非 HKDF
 sed -n '384,392p' synapse-e2ee/src/verification/service.rs     # QR 复用公钥/空签名
 grep -n 'leak_detection' synapse-e2ee/src/lib.rs || echo 'leak_detection 未声明（死代码）'

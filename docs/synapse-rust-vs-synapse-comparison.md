@@ -1,8 +1,16 @@
 # Synapse-Rust 与 Synapse (Python) 地址：https://github.com/element-hq/synapse 对比分析报告
 
-> **文档版本**: v1.7
+> **文档版本**: v1.8
 > **更新日期**: 2026-09-25
 > **更新说明**:
+> - **v1.8 E2EE 去服务端私钥重构（2026-09-25）**：删除**全部**"服务端参与 SAS 密码学 / 服务端替客户端
+>   宣布已验证"的实现，回归 Matrix 规范形态 —— SAS 的 ECDH/HKDF/MAC 全在客户端算、**私钥永不离开
+>   客户端**，服务端只做 `PUT /sendToDevice/{event_type}/{transaction_id}` 的中继。删除面：
+>   `synapse-web/src/routes/verification_routes.rs`、`synapse-e2ee/src/{verification,device_trust}/`、
+>   baseline 中 7 张 `device_trust*/verification_*/e2ee_security_events` 表、`CrossSigningVerificationService`
+>   的 device-trust 依赖、6 个 `/device_verification|/device_trust|/security/summary` 端点。
+>   **路由计数随之 1,165 → 1,135、模块 66 → 65（净减 30 条，全为主动删除）**；§3.4/§7 相应改写。
+>   详见 `docs/audit/PROJECT_REMAINING_ISSUES_2026-09-14.md` §23。
 > - **v1.7 P0-1 收窄（2026-09-25，分支 `opt/consolidated`）**：联邦 `/send_join` 的**响应面与 PDU
 >   字段面已修** —— v1 补 `[200, {…}]` 二元组包装、v1/v2 补 `origin`；四条发射路径
 >   （`/send_join` v1+v2、`/state`、`/get_room_auth`、`/get_event_auth`）里各自内联的手工 JSON
@@ -24,7 +32,7 @@
 >   `docs` 203；`tests` 300；per-crate 见 §2.2）并**修正两处严重失真的数字**：
 >   §3.2 的 SQLx 静态化比例实为 **静态 806 / 动态 1396（36.6% / 63.4%）**，而非本文档长期写的
 >   "static 61 / dynamic 2147 ≈ 2.8%"（旧计数含 turbofish 与注释误算，已由棘轮计数器修复后重测）；
->   §3.4 引用的 `API_COVERAGE_REPORT.md` 逻辑端点实为 **813**（旧版 883 无机器来源）。
+>   §3.4 引用的 `API_COVERAGE_REPORT.md` 逻辑端点实为 **813**（旧版 883 无机器来源；2026-09-25 起随路由删除降至 **795**）。
 >   **新增 §15** 记录本轮判定表与"仍然存在"清单（当时口径：P0-1 是唯一未修 P0，**已被 v1.7 收窄**）。
 > - **v1.5（2026-09-23 续）**：P0 收口与规范对齐。**P0-2 OIDC 回调提权已修**
 >   （回调路径写入并复用 OIDC 绑定 `fe35fb0a`；账号接管判定抽成纯函数并补判定表用例 `0a633b89`）；
@@ -187,7 +195,7 @@ synapse-rust 采用 Cargo Workspace：`[workspace] members` 声明 8 个 crate�
 
 ### 3.4 路由覆盖
 
-synapse-rust 的 HTTP 契约以机器抽取的 **`docs/synapse-rust/ROUTE_CONTRACT.md`**（2026-09-25 生成）为准：**1,165 条注册路由条目**（绝对 `(method, path)`，已解析 `.nest()` 前缀并去重），涉及 **66** 个含路由注册的模块文件；人工维护的 `docs/synapse-rust/API_COVERAGE_REPORT.md` 按三种口径记为 **注册条目 1,165 / 唯一路径 933 / 逻辑端点 813**——与前者**同源但口径不同**（后者折叠版本前缀并把同路径多方法合并），两者不可相加。路由文件分布在 **`synapse-web/src/routes/`** 下，共 144 个 `.rs` 文件。
+synapse-rust 的 HTTP 契约以机器抽取的 **`docs/synapse-rust/ROUTE_CONTRACT.md`**（2026-09-25 生成）为准：**1,135 条注册路由条目**（绝对 `(method, path)`，已解析 `.nest()` 前缀并去重），涉及 **65** 个含路由注册的模块文件；人工维护的 `docs/synapse-rust/API_COVERAGE_REPORT.md` 按三种口径记为 **注册条目 1,135 / 唯一路径 903 / 逻辑端点 795**——与前者**同源但口径不同**（后者折叠版本前缀并把同路径多方法合并），两者不可相加。路由文件分布在 **`synapse-web/src/routes/`** 下，共 144 个 `.rs` 文件。⚠️ 计数较 2026-09-22 的 1,165 / 66 **净减 30 条**，全部来自本仓主动删除（2026-09-25 E2EE 去服务端私钥重构：`verification_routes` 24 条 + `e2ee` 路由组 6 条），**不是抽取器漂移**。
 
 > ⚠️ 上一版本此处写"**656 个 API 端点，覆盖 48 个功能模块**，来源为项目 API 参考文档"。本轮复核确认：仓库内**不存在** `docs/synapse-rust/api-reference.md`，该数字无法在仓库中定位来源，且与上述两份权威清单均不一致，已删除。引用端点数量时请以 `ROUTE_CONTRACT.md` 为准。
 
@@ -322,7 +330,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | 维度 | Synapse (Python) | synapse-rust |
 |------|-------------------|--------------|
 | **文档文件数** | 官方文档站 (matrix-org.github.io) | 203 个文件（`git ls-files docs \| wc -l`，其中 `.md` 167 个） |
-| **API 参考** | 在线文档 | `docs/synapse-rust/ROUTE_CONTRACT.md`（1,165 条注册路由 / 66 个模块，机器抽取）+ ledger 导出契约；⚠️ 此前引用的 `docs/synapse-rust/api-reference.md` **不存在** |
+| **API 参考** | 在线文档 | `docs/synapse-rust/ROUTE_CONTRACT.md`（1,135 条注册路由 / 65 个模块，机器抽取）+ ledger 导出契约；⚠️ 此前引用的 `docs/synapse-rust/api-reference.md` **不存在** |
 | **Docker 配置** | docker-compose 示例 | 58 个文件位于 `docker/`（`git ls-files docker \| wc -l`，另有 3 个 `Dockerfile`：`docker/`、`docker/complement/`、`docker/deploy/alert-handler/`） |
 | **数据库标准** | 无统一标准 | `DATABASE_FIELD_STANDARDS.md` 字段命名规范 |
 
@@ -353,7 +361,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 |------|-------------------|--------------|
 | **E2EE 引擎** | libolm (C 库 binding) | vodozemac `>=0.10.0`（Cargo.lock 实锁 **0.11.0**，纯 Rust；Megolm/Olm 走 `GroupSession`/`InboundGroupSession`/`Account`/`Session` + 加密 pickle） |
 | **密钥轮转** | 有 | `synapse-e2ee/src/key_rotation/`（1017 行）+ `synapse-federation/src/key_rotation.rs`（1157 行） |
-| **跨设备验证** | 有（成熟） | ⚠️ **PARTIAL（v1.4 重判）**：交叉签名（`e2ee/cross_signing/`）与设备信任（`e2ee/device_trust/`）**真实**；`derive_sas` 已改为 HKDF-SHA256（`verification/service.rs:105-113`）、`confirm_sas` 已真正校验 MAC（`:316-375`，`secure_compare` + 拒绝空 MAC）。**但 SAS 仍 4 处偏离规范**：① info 串**缺双方公钥且字段顺序错误**（`:41-50`，规范为 `MATRIX_KEY_VERIFICATION_SAS\|发起方 user\|发起方 device\|发起方公钥\|响应方 user\|响应方 device\|响应方公钥\|txn`）；② emoji 由 6 字节各自 `%64` 生成（实产 **6 个**，非规范 42-bit 分组的 7 个）且 decimal 算出后**被丢弃**（`:284-292`，`_decimal` 未使用，返回值只含 `Emoji`）；③ MAC 为裸 `HMAC-SHA256(shared, key_id‖0x00‖value…)` 而非 `hkdf-hmac-sha256.v2`（`:116-129`，`:303-307` 注释自述）；④ commitment 用 HMAC 而非 `SHA-256(公钥‖请求规范 JSON)`（`:206-210`）。**QR 为显式 fail-closed** 返回 `M_UNSUPPORTED`（`:403-424`，非桩） |
+| **跨设备验证** | 有（成熟） | ✅ **规范形态（2026-09-25 去服务端私钥重构）**：服务端**不再参与 SAS 密码学、不再替客户端宣布"已验证"**。原两条违规面已**整模块删除** —— ① `synapse-web/src/routes/verification_routes.rs`（12 条私有 `/_matrix/client/{v1,v3}` 路由：`/keys/device_signing/verify_{start,accept,key_agreement,mac,done}`、`/keys/device_signing/requests`、`/keys/qr_code/{show,scan}`）连同 `synapse-e2ee/src/verification/`（`accept_sas` 在服务端生成 X25519 私钥、`generate_sas` 代算 ECDH 与 SAS、`confirm_sas` 用服务端私钥判 MAC 后置 `Done`）；② `e2ee/devices.rs` 的 `device_verification/{request,respond,status}`·`device_trust`·`security/summary` 6 个 handler 连同 `synapse-e2ee/src/device_trust/`（服务端生成密钥对，且由同一 user 的任意客户端审批后即置 `DeviceTrustLevel::Verified`）。设备验证回归规范流程：客户端经 `PUT /sendToDevice/m.key.verification.*` 互发事件、从 `/sync` 的 `to_device.events` 取走（`tests/integration/api_verification_relay_tests.rs` 以"事件原样中继 + 被删端点返回 404"锁定）；交叉签名仍由 `/keys/signatures/upload`、`/keys/device_signing/upload` 与 `e2ee/cross_signing/` 承载，只读报告 `CrossSigningVerificationService` 的 `is_verified` 已**只**从交叉签名推导。客户端侧 SAS 密码学由 `matrix-sdk-crypto-wasm` 承担（本次仅服务端，客户端接线为独立任务） |
 | **密钥备份** | 有 | `synapse-e2ee/src/backup/` + `synapse-web/src/routes/e2ee/backup.rs`（`synapse-common/src/secure_backup` 摘要派生另有实现，`ssss/service.rs:250` 的 curve25519 路径从密文自身派生 AES 密钥，非 ECDH） |
 | **SSSS** | 有 | ✅ **已对齐规范（2026-09-23 修复，commit `a2375743`）**：`e2ee/ssss/service.rs` 现按 matrix-spec v1.19 `m.secret_storage.v1.aes-hmac-sha2` 实现——HKDF-SHA256（salt = 32 个 0 字节，输出 64 字节拆 AES key/MAC key；密钥校验 info 为空串、加密 info 为 secret name）、**AES-256-CTR**（128 位大端计数器）+ **encrypt-then-MAC**（HMAC-SHA-256 over 密文）、16 字节 IV 且 **bit 63 清零**、`iv/ciphertext/mac` 一律无填充 base64；新增 `decrypt_secret` 先验 MAC 再解密。MSC2697 `curve25519-aes-sha2`（从密文自身派生 AES 密钥、公钥取密文前 32 字节）**已删除**，`create_key`/`encrypt_secret` 对其 fail-closed 400。测试 27 项含 **NIST SP 800-38A F.5.5 CTR-AES256 已知向量**、篡改密文 → 403、错误 secret name → 403、非 32 字节密钥拒绝 |
 | **泄漏检测** | 有 | ❌ **能力不存在**：`synapse-e2ee/src/leak_detection/` 目录**已删除**（`glob 'synapse-e2ee/src/leak_detection/**'` 无结果），仓库内无替代实现 |
@@ -383,7 +391,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | | 优势 | 劣势 |
 |---|------|------|
 | **Synapse** | - 安全审计历史长，CVE 记录完善<br>- libolm 经过专业密码学审计<br>- 生产环境安全事件响应经验丰富 | - C binding 可能引入内存安全漏洞<br>- bcrypt 不如 Argon2 抗 GPU/ASIC 破解<br>- Python 运行时类型安全问题 |
-| **synapse-rust** | - Rust 编译时内存安全保证<br>- Argon2 密码哈希（抗 GPU/ASIC）<br>- 主动跟踪 RUSTSEC 并替换不安全依赖<br>- `zeroize` 清理敏感数据<br>- E2EE 跨设备验证完整（SAS/QR + 交叉签名 + 设备信任） | - vodozemac 审计历史短于 libolm（但已升级至 >=0.10.0，Soatok 2026-02 DH 贡献性问题已修复） |
+| **synapse-rust** | - Rust 编译时内存安全保证<br>- Argon2 密码哈希（抗 GPU/ASIC）<br>- 主动跟踪 RUSTSEC 并替换不安全依赖<br>- `zeroize` 清理敏感数据<br>- E2EE 跨设备验证走**规范形态**（交叉签名 + 密钥备份由服务端承载；SAS/QR 密码学回归客户端 `m.key.verification.*` to-device，服务端只中继 —— 2026-09-25 删除服务端 SAS/设备信任面） | - vodozemac 审计历史短于 libolm（但已升级至 >=0.10.0，Soatok 2026-02 DH 贡献性问题已修复） |
 
 ---
 
@@ -519,9 +527,9 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 
 | MSC / 功能 | Synapse (Python) v1.161 | synapse-rust v6.2.0 | 对齐状态 |
 |------------|--------------------------|----------------------|----------|
-| **核心 CS API** | ✅ 完整 | 路由面完整（`ROUTE_CONTRACT.md` 1,165 条注册路由）；按类别人工统计覆盖率 **80–97%**（`API_COVERAGE_REPORT.md`，2026-05-28 口径，非逐端点实测） | ⚠️ 未逐端点验证 |
+| **核心 CS API** | ✅ 完整 | 路由面完整（`ROUTE_CONTRACT.md` 1,135 条注册路由）；按类别人工统计覆盖率 **80–97%**（`API_COVERAGE_REPORT.md`，2026-05-28 口径，非逐端点实测） | ⚠️ 未逐端点验证 |
 | **联邦协议** | ✅ 完整 | ⚠️ **PARTIAL（2026-09-25 重判）**：`synapse-federation/` 模块存在，`send_*` 已按 `expected_membership` 校验；**`/send_join` 现已返回 `state` + `auth_chain`**（`synapse-web/src/routes/federation/membership/join.rs:209-212`（v1）、`:357-361`（v2）—— 旧版"仅回 `event_id`/`room_id`"已作废）。**但仍不合规**：① 响应体缺规范必需的 `event`（已签名的 join 事件），且 v1 缺 `[200, {…}]` 二元素数组包装；② `state`/`auth_chain` 条目是**手工拼装的 JSON**（`{event_id, sender, type, content, state_key}`，见 `synapse-services/src/room/messaging/events.rs:74-85`），**无 `hashes`/`signatures`/`depth`/`prev_events`/`auth_events`** ⇒ 合规远端无法验签、不能当 PDU 使用（根因见 §14.4）；③ `make_join` 模板仍缺 `origin`/`origin_server_ts`/`room_id`；④ 入房/离房路径**未调用房间 ACL 检查** | ⚠️ 部分对齐 |
-| **E2EE** | ✅ 完整（libolm） | ⚠️ **PARTIAL（v1.4 重判）**：Megolm/Olm、交叉签名、设备信任、密钥备份**真实**；SAS 的 `derive_sas` 已 HKDF（`verification/service.rs:105-113`）、`confirm_sas` 已校验 MAC（`:316-375`），但仍 **4 处偏离规范**（info 串缺公钥+顺序错 / emoji+decimal 非规范 / MAC 非 `hkdf-hmac-sha256.v2` / commitment 非 SHA-256，详见 §7.2）；**QR 为显式 fail-closed 不支持**（`:403-424`）；`leak_detection` 模块**已删除**（能力缺失）；SSSS 用 GCM 且从密文派生密钥（见 §7.2） | ⚠️ 部分对齐 |
+| **E2EE** | ✅ 完整（libolm） | ✅ **服务端侧已对齐规范（v1.8 重判，2026-09-25）**：Megolm/Olm、交叉签名、密钥备份**真实**。原 v1.4 的「设备信任**真实**」与「SAS 已 HKDF 但仍 4 处偏离规范 / QR 为显式 fail-closed」**两条评价均已作废** —— 服务端参与的 SAS/QR/设备信任实现连端点一并**整模块删除**（`synapse-web/src/routes/verification_routes.rs`、`synapse-e2ee/src/verification/`、`synapse-e2ee/src/device_trust/`），设备验证回归规范的客户端 `m.key.verification.*` to-device 中继；`leak_detection` 模块**已删除**（能力缺失）；SSSS 已于 2026-09-23 对齐 `aes-hmac-sha2`（见 §7.2） | ⚠️ 服务端侧对齐；**客户端 SAS 接线为独立任务**（本仓不含客户端源码） |
 | **Sliding Sync** | ✅ 完整 | ✅ 完整（独立 `sliding_sync_service/` 模块 + benchmark；另有 `msc4186` 简化滑动同步引用） | ✅ 已对齐 |
 | **MSC3030** (Timestamp to event) | ✅ | ✅ | ✅ 已对齐 |
 | **MSC2776** (Presence list) | ✅ | ✅（代码中无 `MSC2776` 标识，按路由 `presence.rs` 判定） | ✅ 已对齐 |
@@ -605,7 +613,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | | 优势 | 劣势 |
 |---|------|------|
 | **Synapse** | - 协议覆盖最完整，所有 MSC 均已实现<br>- 官方 SDK 生态完善<br>- 与 Element 客户端深度集成<br>- 社区贡献和 Bug 修复活跃<br>- v1.161 新增 MSC4512（实验性）、MSC4242 联邦客户端（实验性）与 MSC4140 单事件查询端点 | - 不支持业务定制扩展<br>- 好友/阅后即焚等需要外部桥接<br>- 缺乏内置短信推送 |
-| **synapse-rust** | - 好友系统/阅后即焚/信标等独有扩展实现完整（本轮实测为真）<br>- 通用 `HttpSmsProvider` + trait 接缝，便于接第三方短信<br>- Feature Flag 控制功能裁剪<br>- Room Summary 单实现架构清晰<br>- Space/Thread/Rendezvous/Key Rotation/事件报告/背景更新完整 | - **撤回格式与默认房间版本不匹配（v11 默认却用 v10 顶层 `redacts`）**——协议互操作缺陷<br>- **E2EE SAS 派生非规范、QR 为桩、泄漏检测为未编译死代码**<br>- **MSC4140 无联邦/EDU**<br>- **`MSC3912`（关系性撤回）未实现**<br>- Content Scanner 模块未装配（孤儿）、LiveKit `ws_url` 死配置<br>- 无 appservice 登录、无 `rc_reports` 专项限流、Dehydrated `/events` 端点方法落后上游<br>- 生产路径仍有半写窗口、事务去重标记在事件事务外、4 处吞 DB 错误<br>- State DAGs (MSC4242) / App Service 代理 (MSC4512) 缺失（上游均为**实验性**） |
+| **synapse-rust** | - 好友系统/阅后即焚/信标等独有扩展实现完整（本轮实测为真）<br>- 通用 `HttpSmsProvider` + trait 接缝，便于接第三方短信<br>- Feature Flag 控制功能裁剪<br>- Room Summary 单实现架构清晰<br>- Space/Thread/Rendezvous/Key Rotation/事件报告/背景更新完整 | - **撤回格式与默认房间版本不匹配（v11 默认却用 v10 顶层 `redacts`）**——协议互操作缺陷<br>- **泄漏检测为未编译死代码**（原列的两条 —— "E2EE SAS 派生非规范、QR 为桩" —— 已于 2026-09-25 随服务端 SAS/QR 面整模块删除而**不再适用**）<br>- **MSC4140 无联邦/EDU**<br>- **`MSC3912`（关系性撤回）未实现**<br>- Content Scanner 模块未装配（孤儿）、LiveKit `ws_url` 死配置<br>- 无 appservice 登录、无 `rc_reports` 专项限流、Dehydrated `/events` 端点方法落后上游<br>- 生产路径仍有半写窗口、事务去重标记在事件事务外、4 处吞 DB 错误<br>- State DAGs (MSC4242) / App Service 代理 (MSC4512) 缺失（上游均为**实验性**） |
 
 ---
 
@@ -624,7 +632,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | **用户体验** | 运维经验丰富 | 部署简单 + 快速启动 | 平手 |
 | **开发效率** | Python 快速迭代 | 编译保障但迭代慢 | Synapse |
 | **资源利用** | 内存/CPU 利用率低 | 高效利用 | synapse-rust |
-| **业务对齐** | 协议完整但无定制扩展 | 协议大面积对齐 + 独有扩展，但存在**协议正确性缺陷**（v11 撤回格式、E2EE SAS/QR、MSC4140 无联邦）与若干未实现项 | Synapse（对齐质量更高） |
+| **业务对齐** | 协议完整但无定制扩展 | 协议大面积对齐 + 独有扩展，但存在**协议正确性缺陷**（v11 撤回格式、MSC4140 无联邦）与若干未实现项 | Synapse（对齐质量更高） |
 
 ### 12.2 核心发现
 
@@ -641,7 +649,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 6. **（v1.3 新增）协议正确性缺陷比"功能缺失"更值得优先处理**：本仓默认创建房间版本 11，
    但撤回事件仍按 v1–v10 的顶层 `redacts` 格式生成（`handlers/room/events.rs:959-982`），
    而 v11 消费方从 `content.redacts` 读取 → 本服务端发出的撤回可能在合规实现上不生效。
-   同类还有：E2EE SAS 派生未用 HKDF、QR 验证为桩、`leak_detection` 为未编译死代码。
+   同类还有：`leak_detection` 为未编译死代码（原列的"E2EE SAS 派生未用 HKDF、QR 验证为桩"已于 2026-09-25 随服务端 SAS/QR 面整模块删除而不再适用）。
    这些是"已经声称支持、实际不符合规范"的项，风险高于"尚未实现"的 MSC4242/MSC4512（上游均实验性）。
 
 7. **（v1.3 新增）数据一致性存在已知窗口**：`create_event_with_graph` 在无事务时先写 `events`
@@ -686,7 +694,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
   - **【P0｜2026-09-25 重判：部分修复】联邦 `/send_join` 响应**：字段已补 —— `synapse-web/src/routes/federation/membership/join.rs:209-212`（v1）与 `:357-361`（v2）现返回 `state` + `auth_chain`，旧判"仅返回 `event_id`/`room_id`"**已作废**；**但仍不合规**：① 缺规范必需的 `event`（已签名 join 事件），v1 还缺 `[200, {…}]` 包装；② `state`/`auth_chain` 条目是手工拼装（`{event_id, sender, type, content, state_key}`，见 `synapse-services/src/room/messaging/events.rs:74-85`），**无 `hashes`/`signatures`/`depth`/`prev_events`/`auth_events`** ⇒ 合规远端**仍无法验签**。根因（本地事件不落 PDU 图元数据）未动，见 §14.4。**"合规远端无法完成入房"的结论依然成立。**
   - **【新 P0】OIDC 回调提权**：`routes/oidc/sso.rs:215-232` 仅按 `localpart` 命中本地用户即签发令牌，未校验 OIDC subject 绑定；可接管任意同名账号（含 admin）。同仓 `routes/oidc/provider.rs:187-201` 已有正确检查。（2026-09-23 独立复核：属实，两条路径语义不一致。）
   - ~~**【新 P0】`soft_failed` 读路径无过滤**~~ → **已修（2026-09-23，commit `53c43a48` + `7d968f6d`）**。`53c43a48` 只补了 `/messages` 的**无游标**分支；`7d968f6d` 补齐全部面向客户端的读取面：`get_room_events_paginated_cursor` 的**两个带游标分支**（`/messages` 真实生产路径，回归用例证明修复前会返回 loser）、`get_room_events_after_stream_ordering`（sliding sync）、`find_event_by_timestamp`/`find_event_id_by_timestamp`（MSC3030）、`get_room_events_batch_inner`（`/sync`，谓词置于 ROW_NUMBER 之前）、`has_room_events_since`、`get_room_message_counts_batch`、四个 `search_*`、`get_unread_counts(_batch)`、sliding sync bump_stamp、`count_sent_messages`。**行为回归**用例 `test_soft_failed_events_hidden_from_all_consumer_read_paths`（`synapse-storage/src/event/db_tests.rs`）：写入 winner(loser) 后逐个读取方法断言 loser 不出现、winner 仍在；先红后绿。**未覆盖（有意）**：DAG/prev_events/auth/state-resolution/联邦/redaction 目标查找等**内部**读取面——它们必须看到该行；`friend_room` 与 relations 读的是 state/`event_relations`，不属于 soft-fail 事件类型（仅 `send_message_with_txn` 调用 `mark_event_soft_failed`）。**顺带修掉** `search_postgres_messages` 的 `ts_rank`(real) → `f64` 解码缺陷（生产 postgres provider 会 `ColumnDecode` 失败）。
-  - **E2EE**：SAS 仍 4 处偏离规范（info 串缺公钥+顺序错 / emoji 仅 6 个且 decimal 被丢弃 / MAC 非 `hkdf-hmac-sha256.v2` / commitment 非 SHA-256）、SSSS 用 AES-256-GCM（规范要求 CTR + HMAC）、QR 为显式 fail-closed 不支持、`leak_detection` 模块已删除（详见 §7.2）。
+  - **E2EE**：**服务端侧 2026-09-25 已回归规范形态** —— 服务端 SAS/QR/设备信任的实现连端点一并删除（原"4 处偏离规范""QR 为显式 fail-closed 不支持"两条结论随之作废，见 §14.4 item 3），密码学归客户端 `m.key.verification.*` to-device；SSSS 已于 2026-09-23 对齐 `aes-hmac-sha2`；`leak_detection` 模块已删除（详见 §7.2）。
   - **MSC4140**：无 EDU/联邦。
   - ~~撤回格式 × 房间版本~~ → **Phase 1 已修**（服务层按房间版本注入 `content.redacts`，PDU 不再重复写顶层）；关系性级联撤回仍未实现（见 §11.1 MSC3912 行）。
   - ~~Dehydrated device `/events` 仅 POST~~ → **Phase 2 已修**（GET + query 参数，`next_batch` 空页返回 `null`）。
@@ -735,7 +743,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 
 | 项 | 原定级 | 新定级 | 理由 |
 |----|--------|--------|------|
-| E2EE SAS 对齐 HKDF + 真实 MAC 校验 | 未列（误判 ✅ 完整） | **高** | 影响客户端验证互操作；接受任意 MAC 是安全弱化 |
+| E2EE SAS 对齐 HKDF + 真实 MAC 校验 | 未列（误判 ✅ 完整） | ~~**高**~~ **已作废** | 2026-09-25 去服务端私钥重构：服务端 SAS 实现已整模块删除，"对齐规范"不再需要（见 §14.4 item 3）；密码学归客户端 |
 | E2EE QR 实现或声明未实现 | 未列 | **高** | 当前为桩（复用公钥 + 空签名），文档称"完整"属误报 |
 | `leak_detection` 接入或删除 | 误判"已实现" | **高** | 未编译 + 启用即编译失败 + 桩计数 + schema 列缺失（铁律 1） |
 | OIDC `validate_id_token_claims` 接线 | 未列 | **高（安全）** | 死代码，声明校验未生效 |
@@ -791,7 +799,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 
 | 旧结论（v1.3 及更早） | 实测结论 | 证据 |
 |----------------------|----------|------|
-| SAS 用 `SHA256(secret‖info)` 派生，非 HKDF | **已更正**：`derive_sas` 实为 HKDF-SHA256（无 salt、info 为上下文串、取 6 字节） | `synapse-e2ee/src/verification/service.rs` |
+| SAS 用 `SHA256(secret‖info)` 派生，非 HKDF | **已更正**：`derive_sas` 实为 HKDF-SHA256（无 salt、info 为上下文串、取 6 字节）——⚠️ 该实现已于 **2026-09-25 随去服务端私钥重构整模块删除**，本行仅存历史（见 §14.4 item 3） | `synapse-e2ee/src/verification/service.rs`（文件已删除） |
 | `confirm_sas` 接受任意非空 MAC | **已更正**：校验 MAC 非空、要求 `keys`/`peer_pubkey`、`secure_compare` 比对，不符 403 | 同上 |
 | QR 验证为桩（复用同一公钥 + 空 `signature`） | **已更正**：显式 fail-closed，返回 `M_UNSUPPORTED` | 同上 |
 | `leak_detection` 是"未在 `lib.rs` 声明"的死代码 | **已更正**：整个目录**已删除**，即该能力不存在 | `glob 'synapse-e2ee/src/leak_detection/**'` 无结果 |
@@ -827,9 +835,9 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 
 最小正确实现（建议单独分支/里程碑）：① 为本地事件补齐创建期 PDU 管线——选 `auth_events`（按房间版本的 auth 事件选择规则）+ 算 `depth` + 签名/哈希 + 用 `create_event_with_graph` 落库，覆盖房间生命周期、状态、消息、成员等**全部**本地写入口；② 新增 storage 全 PDU 读取（`depth/prev_events/auth_events/hashes/signatures/unsigned`）与 auth 链闭包查询；③ 统一 `serialize_full_pdu`；④ `/send_join` v1 返回 `[200, {...}]`（v1 **必须**是二元素数组）、v2 返回裸对象，二者均含 `state`/`auth_chain`/`event`/`members_omitted:false`；⑤ 顺带修 `make_join` 模板（补 `origin`/`origin_server_ts`）与 `SendJoinResponse.origin` 改为 `Option`（v1.14 起规范已删除响应中的 `origin`，当前客户端结构体把它当必填，解析真实 Synapse 响应会失败）。
 
-**item 3（SAS 4 处偏离）—— 规范修法被私有 API 形状阻塞**
+**item 3（SAS 4 处偏离）—— 已随"去服务端私钥重构"消解（2026-09-25）**
 
-`/keys/device_signing/verify_*` 是本仓私有的非规范 REST 面（`synapse-web/src/routes/verification_routes.rs`），其 `mac` 是单个字符串、`keys` 是 `key_id → 公钥值` 的映射，且**没有算法字段**；规范 `hkdf-hmac-sha256.v2` 的 key-list MAC 需要对"排序后逗号分隔的 `{algorithm}:{keyId}` 列表"做 MAC。因此偏离③（MAC）与④（commitment = `SHA-256(公钥‖start content 规范 JSON)`，且当前**从不校验** commitment）无法在现有 API 形状下正确实现，需先重构该私有面为规范形状（或明确声明不支持 SAS）。偏离①（info 串缺双方公钥且 txn 位置错）与②（emoji 6 个且分组错、decimal 被丢弃、**emoji 表本身与规范表不一致**）可在现有形状内修，但需与 API 重构一起验收。
+原结论是"规范修法被私有 API 形状阻塞"：`/keys/device_signing/verify_*` 是本仓私有的非规范 REST 面，其 `mac` 是单个字符串、`keys` 是 `key_id → 公钥值` 的映射且**没有算法字段**，规范 `hkdf-hmac-sha256.v2` 的 key-list MAC 无法在其形状内表达。**该阻塞已按"删除而非修补"处理**：`synapse-web/src/routes/verification_routes.rs` 与 `synapse-e2ee/src/verification/`（连同 `device_trust` 面）**整模块删除**，服务端不再计算 SAS 的 info 串 / emoji / decimal / MAC / commitment。因此四项偏离**不再适用于本仓** —— 它们描述的服务端实现已不存在；SAS 密码学全部移到客户端（`matrix-sdk-crypto-wasm`）经 `m.key.verification.*` to-device 完成，服务端只中继。
 
 **item 5 其余子项**
 
@@ -887,7 +895,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | N2 | **MSC3912 级联撤回只到管理端** —— 存储/服务/管理端点齐备，但客户端撤回路径不级联 | `synapse-web/src/routes/handlers/room/events.rs:990` 只调 `redact_event_content` |
 | N3 | **`/send_join` 的 `state`/`auth_chain` 是手工拼装的非 PDU JSON** —— "有字段"≠"可验签"，本轮把 P0-1 从"缺字段"重判为"字段在但内容不可用" | `synapse-services/src/room/messaging/events.rs:74-85` 只拼 `{event_id, sender, type, content, state_key}`，无 `hashes`/`signatures`/`depth`/`prev_events`/`auth_events` |
 | N4 | **SQLx 静态化比例被本文档长期低报约 13 倍** | 实测 静态 806 / 动态 1396（`bash scripts/ci/check_sqlx_dynamic_ratio.sh`，`ratio=0.634`）；旧文写的 61 / 2147 来自有缺陷的计数器（漏算 turbofish、误算注释） |
-| N5 | **`API_COVERAGE_REPORT.md` 的逻辑端口径实为 813**（旧引 883 无机器来源；同批已改为 注册条目 1,165 / 唯一路径 933 / 逻辑端点 813） | §3.4 与 `docs/synapse-rust/API_COVERAGE_REPORT.md` §1.1 |
+| N5 | **`API_COVERAGE_REPORT.md` 的逻辑端口径实为 795**（旧引 883 无机器来源；2026-09-25 起为 注册条目 1,135 / 唯一路径 903 / 逻辑端点 795） | §3.4 与 `docs/synapse-rust/API_COVERAGE_REPORT.md` §1.1 |
 
 ### 15.2 已修复（不要再重测）
 
@@ -913,7 +921,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 |--------|----|-------------|
 | **P0（已收窄）** | 联邦 `/send_join`：**响应面已修**（v1 补 `[200,{…}]` 包装、v1/v2 补 `origin`，`state`/`auth_chain` 统一走 `routes/federation/pdu.rs::build_pdus` 真实 PDU 投影）。**残余**：① 本地 `create_event` 不落 `depth`/`prev_events`/`auth_events` ⇒ 本地起源事件仍判 `MissingGraphMetadata` 并**故意不发签名**；② 入站事件不落原服务端 `signatures`；③ 无 `event` 字段（本仓不产 restricted-join 房间，规范允许） | 见 §15.1 N3；写入路径根因见 §14.4；收口记录见 `docs/audit/PROJECT_REMAINING_ISSUES_2026-09-14.md` §21.5 |
 | **P0（新登记）** | PDU **语义**未对齐：`event_id` 为 `$<ms>_<rand>:<server>` 而非 v4+ reference hash ⇒ 字段齐全也不被 v11 对等端接受 | `synapse-common/src/crypto.rs:149` |
-| **高** | E2EE SAS 4 处偏离规范（info 串缺公钥且顺序错 / emoji 仅 6 个且 decimal 被丢弃 / MAC 非 `hkdf-hmac-sha256.v2` / commitment 非 SHA-256） | `/keys/device_signing/verify_*` 是私有非规范 REST 面，**形状阻塞**规范修法（见 §14.4 item 3） |
+| **高** | E2EE SAS 4 处偏离规范（info 串缺公钥且顺序错 / emoji 仅 6 个且 decimal 被丢弃 / MAC 非 `hkdf-hmac-sha256.v2` / commitment 非 SHA-256） | `/keys/device_signing/verify_*` 是私有非规范 REST 面，**形状阻塞**规范修法（见 §14.4 item 3）。⚠️ **2026-09-25 该面已整模块删除**，条目作废 |
 | **高** | 客户端撤回不级联 | `synapse-web/src/routes/handlers/room/events.rs:990` |
 | **高** | Content Scanner 空转（装配了但不扫描） | 见 §15.1 N1 |
 | **中** | MSC4242 仅存储层，且 `dag.rs` 注释声称被 `/send_join`、`/get_missing_events` 使用（实测无调用点） | `synapse-storage/src/event/dag.rs` |
@@ -940,7 +948,8 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
   已单独登记（见 §15.3 两行 P0）：本地写入路径不落图元数据、入站事件不落原签名、`event_id` 非
   reference hash。⚠️ **不要再把"字段在"当成"已合规"**——本批只闭合了字段与签名，未闭合**语义**。
 - **降级**：Content Scanner 由"孤儿模块、从未被构造" → "已装配但**无消费者**"。
-- **口径修正**：SQLx 静态化 2.8% → 36.6%（计数缺陷）；路由逻辑端点 883 → 813；
+- **口径修正**：SQLx 静态化 2.8% → 36.6%（计数缺陷）；路由逻辑端点 883 → 813
+  （2026-09-25 E2EE 去服务端私钥重构删 30 条路由后为 **795**，见 §3.4）；
   `docs`/`tests`/`docker` 计数由 `find` 改为 `git ls-files`（同一提交在两个 worktree 会给出两套数）。
 
 ### 15.5 建议执行顺序

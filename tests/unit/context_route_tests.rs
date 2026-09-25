@@ -365,8 +365,6 @@ fn test_device_context_public_fields_are_accessible() {
         let _ = &ctx.cache;
         let _ = &ctx.event_notifier;
         let _ = &ctx.key_request_service;
-        let _ = &ctx.verification_service;
-        let _ = &ctx.device_trust_service;
         let _ = &ctx.key_rotation_service;
     }
     let _ = assert_fields;

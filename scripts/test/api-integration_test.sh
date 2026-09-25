@@ -2185,29 +2185,6 @@ echo "125. Get Presence List"
 http_json GET "$SERVER_URL/_matrix/client/v3/presence/list/$USER_ID" "$TOKEN"
 GET_PRESENCE_LIST_RESP="$HTTP_BODY"
 assert_success_json "Get Presence List" "$GET_PRESENCE_LIST_RESP" "$HTTP_STATUS" "presences"
-
-# 43. E2EE Routes (Key Verification)
-echo ""
-echo "=========================================="
-echo "126. E2EE Key Verification"
-echo "=========================================="
-echo "126. Get Key Verification Request"
-KEY_VERIFY_RESP=$(curl -s -X POST "$SERVER_URL/_matrix/client/v3/device_verification/request" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"device_id":"SCRIPT_VERIFY_DEVICE","method":"sas"}')
-if echo "$KEY_VERIFY_RESP" | grep -q "request_token\|token"; then
-    pass "Get Key Verification Request"
-else
-    skip "Get Key Verification Request (endpoint not available)"
-fi
-
-echo ""
-echo "127. Get Room Key Request"
-KEY_REQ_RESP=$(curl -s "$SERVER_URL/_matrix/client/v1/keys/qr_code/show" -H "Authorization: Bearer $TOKEN")
-if echo "$KEY_REQ_RESP" | grep -q "user_id\|device_id\|qr"; then
-    pass "Get Room Key Request"
-else
-    skip "Get Room Key Request (endpoint not available)"
-fi
-
 # 44. Thread
 echo ""
 echo "=========================================="
@@ -2970,41 +2947,15 @@ echo ""
 echo "224. Delete Room Key"
 curl -s -X DELETE "$SERVER_URL/_matrix/client/v3/room_keys/$ROOM_ID/session/test_session" -H "Authorization: Bearer $TOKEN" && pass "Delete Room Key" || skip "Delete Room Key (endpoint not available)"
 
-# 78. Verification Routes
-echo ""
-echo "=========================================="
-echo "225. Verification Routes"
-echo "=========================================="
-echo "225. Start Key Verification"
-curl -s -X POST "$SERVER_URL/_matrix/client/v0/keys/request_verification" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"user_id": "'"$USER_ID"'", "device_id": "test_device"}' && pass "Start Key Verification" || skip "Verification (endpoint not available)"
-
-echo ""
-echo "226. Get Key Verification Request"
-curl -s "$SERVER_URL/_matrix/client/v0/keys/verification/request/test_request_id" -H "Authorization: Bearer $TOKEN" && pass "Get Key Verification Request" || skip "Verification (endpoint not available)"
-
-echo ""
-echo "227. Accept Key Verification"
-curl -s -X PUT "$SERVER_URL/_matrix/client/v0/keys/verification/request/test_request_id/accept" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{}' && pass "Accept Key Verification" || skip "Verification (endpoint not available)"
-
-echo ""
-echo "228. Complete Key Verification"
-curl -s -X PUT "$SERVER_URL/_matrix/client/v0/keys/verification/request/test_request_id/complete" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"mac": {}}' && pass "Complete Key Verification" || skip "Verification (endpoint not available)"
-
-echo ""
-echo "229. Cancel Key Verification"
-curl -s -X PUT "$SERVER_URL/_matrix/client/v0/keys/verification/request/test_request_id/cancel" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"code": "user", "reason": "canceled"}' && pass "Cancel Key Verification" || skip "Verification (endpoint not available)"
+# 78. Verification Routes —— 已于 2026-09-25 随「E2EE 去服务端私钥」重构整体移除。
+# 这里原有的 5 个用例（225~229）打的是 `/_matrix/client/v0/keys/request_verification`
+# 与 `/_matrix/client/v0/keys/verification/request/{id}/{accept,complete,cancel}`。两点须记：
+#   1) 服务端**从未注册过 v0 形态** —— 被删的路由只有 v1/v3 双 `nest`
+#      （见 `synapse-web/src/routes/verification_routes.rs` 的 `compat_router`）；
+#   2) 用例写成 `curl -s … && pass … || skip …`，而 `curl -s` 对 HTTP 404 仍返回退出码 0
+#      ⇒ 这些"测试"自诞生起就恒 `pass`，**从未验证过任何东西**（典型纸面门禁）。
+# 删除后规范流程走客户端 `m.key.verification.*` to-device 中继，
+# 由 `tests/integration/api_verification_relay_tests.rs` 两个用例锁定。
 
 # 79. Room Key Request Extended
 echo ""
@@ -5501,68 +5452,6 @@ echo ""
 echo "477. SendToDevice r0"
 http_json PUT "$SERVER_URL/_matrix/client/r0/sendToDevice/m.room_key_request/txn_test" "$TOKEN" '{"messages": {}}'
 assert_success_json "SendToDevice r0" "$HTTP_BODY" "$HTTP_STATUS"
-
-echo ""
-echo "478. Device Trust"
-http_json GET "$SERVER_URL/_matrix/client/v3/device_trust" "$TOKEN"
-assert_success_json "Device Trust" "$HTTP_BODY" "$HTTP_STATUS" "devices"
-TRUST_DEVICE_ID=$(printf '%s' "$HTTP_BODY" | python3 -c 'import json,sys; d=json.load(sys.stdin); devs=d.get("devices") or []; print((devs[0].get("device_id") if devs else ""))' 2>/dev/null)
-if [ -z "$TRUST_DEVICE_ID" ]; then
-    TRUST_DEVICE_ID="$DEVICE_ID"
-fi
-
-echo ""
-echo "479. Device Trust by ID"
-if [ -n "$TRUST_DEVICE_ID" ]; then
-    http_json GET "$SERVER_URL/_matrix/client/v3/device_trust/$TRUST_DEVICE_ID" "$TOKEN"
-    if [[ "$HTTP_STATUS" == 2* ]]; then
-        assert_success_json "Device Trust by ID" "$HTTP_BODY" "$HTTP_STATUS"
-    else
-        err=$(json_err_summary "$HTTP_BODY")
-        if [[ "$HTTP_STATUS" == "404" ]] && echo "$err" | grep -q "M_NOT_FOUND"; then
-            pass "Device Trust by ID" "${err:-HTTP 404}"
-        else
-            fail "Device Trust by ID" "${err:-HTTP $HTTP_STATUS}"
-        fi
-    fi
-else
-    skip "Device Trust by ID" "no device_id"
-fi
-
-echo ""
-echo "480. Device Verification Request"
-if [ -n "$SECOND_DEVICE_ID" ]; then
-    http_json POST "$SERVER_URL/_matrix/client/v3/device_verification/request" "$TOKEN" "{\"new_device_id\": \"$SECOND_DEVICE_ID\", \"method\": \"sas\"}"
-    if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "request_token" "status"; then
-        pass "Device Verification Request"
-        VERIFICATION_REQUEST_TOKEN=$(json_get "$HTTP_BODY" "request_token")
-    else
-        fail "Device Verification Request" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
-        VERIFICATION_REQUEST_TOKEN=""
-    fi
-else
-    skip "Device Verification Request" "no second device"
-    VERIFICATION_REQUEST_TOKEN=""
-fi
-
-echo ""
-echo "481. Device Verification Respond"
-if [ -n "$VERIFICATION_REQUEST_TOKEN" ]; then
-    http_json POST "$SERVER_URL/_matrix/client/v3/device_verification/respond" "$TOKEN" "{\"request_token\": \"$VERIFICATION_REQUEST_TOKEN\", \"approved\": true}"
-    assert_success_json "Device Verification Respond" "$HTTP_BODY" "$HTTP_STATUS" "success"
-else
-    skip "Device Verification Respond" "no request_token"
-fi
-
-echo ""
-echo "482. Device Verification Status"
-if [ -n "$VERIFICATION_REQUEST_TOKEN" ]; then
-    http_json GET "$SERVER_URL/_matrix/client/v3/device_verification/status/$VERIFICATION_REQUEST_TOKEN" "$TOKEN"
-    assert_success_json "Device Verification Status" "$HTTP_BODY" "$HTTP_STATUS" "status"
-else
-    skip "Device Verification Status" "no request_token"
-fi
-
 echo ""
 echo "483. Keys Backup Secure"
 SECURE_BACKUP_PASSPHRASE="passphrase-${RANDOM}-${RANDOM}"
@@ -5645,12 +5534,6 @@ echo ""
 echo "494. Room Keys Distribution v3"
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/keys/distribution" "$TOKEN"
 assert_success_json "Room Keys Distribution v3" "$HTTP_BODY" "$HTTP_STATUS"
-
-echo ""
-echo "495. Security Summary"
-http_json GET "$SERVER_URL/_matrix/client/v3/security/summary" "$TOKEN"
-assert_success_json "Security Summary" "$HTTP_BODY" "$HTTP_STATUS"
-
 echo ""
 echo "496. SendToDevice v3"
 http_json PUT "$SERVER_URL/_matrix/client/v3/sendToDevice/m.room_key_request/txn_test" "$TOKEN" '{"messages": {}}'

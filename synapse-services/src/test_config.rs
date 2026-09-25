@@ -90,6 +90,15 @@ pub fn build_test_config() -> Config {
             media_path: "./data/media".to_string(),
             megolm_encryption_key_path: None,
             enable_burn_after_read_processor: true,
+            // `ServerConfig` derives `Default`, so `..Default::default()` sets every
+            // numeric field to **0** — the `#[serde(default = "...")]` attributes only
+            // apply when deserializing a config file, which tests never do. For the
+            // to-device limits that means "max 0 recipients", i.e. **every**
+            // `PUT /sendToDevice` is rejected with 400 `M_BAD_JSON`. A test container
+            // must therefore state these explicitly, otherwise no to-device flow
+            // (including the spec-defined `m.key.verification.*` relay) is exercisable.
+            to_device_max_recipients: 5000,
+            to_device_max_payload_bytes: 64 * 1024,
             ..Default::default()
         },
         database: DatabaseConfig {

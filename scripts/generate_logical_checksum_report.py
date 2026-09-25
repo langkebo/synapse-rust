@@ -24,7 +24,6 @@ DEFAULT_TABLES = [
     "thread_relations",
     "room_invite_blocklist",
     "room_invite_allowlist",
-    "device_verification_request",
 ]
 
 

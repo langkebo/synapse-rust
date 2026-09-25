@@ -28,8 +28,8 @@ fn unique_user_id(tag: &str) -> String {
     format!("@{}_{}:example.com", tag, uuid::Uuid::new_v4().simple())
 }
 
-/// Insert a minimal row into `users` so that FKs from `devices`,
-/// `device_trust_status`, etc. are satisfied. The user is not password-hashed
+/// Insert a minimal row into `users` so that FKs from `devices`, etc. are
+/// satisfied. The user is not password-hashed
 /// because none of the audit paths need to authenticate; this is purely a
 /// fixture to satisfy foreign key constraints.
 async fn ensure_user_row(pool: &sqlx::PgPool, user_id: &str) {
@@ -403,102 +403,4 @@ async fn cross_signing_verify_user_devices_mixed_verified_and_unverified() {
     assert_eq!(report.verified_count, 1);
     assert_eq!(report.unverified_count, 1);
     assert!(report.cross_signing_setup, "self_signing key exists => cross_signing_setup true");
-}
-
-#[tokio::test]
-async fn cross_signing_mark_device_verified_writes_audit_log_and_trust_row() {
-    // Branch: mark_device_verified -> writes to device_trust_status table and
-    // logs a "mark_verified" audit event.
-    let pool = require_test_pool().await;
-    let audit = Arc::new(E2eeAuditService::new(pool.clone()));
-    let svc = CrossSigningVerificationService::new(pool.clone(), audit.clone());
-
-    let user_id = unique_user_id("markver");
-    let device_storage = DeviceStorage::new(&pool);
-    ensure_user_row(&pool, &user_id).await;
-    device_storage.create_device("TO_VERIFY", &user_id, Some("To Be Verified")).await.expect("create device");
-
-    svc.mark_device_verified(&user_id, "TO_VERIFY", "qr_code_scan").await.expect("mark_device_verified");
-
-    // Verify trust row was written.
-    let trust_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM device_trust_status WHERE user_id = $1 AND device_id = $2 AND trust_level = 'verified'",
-    )
-    .bind(&user_id)
-    .bind("TO_VERIFY")
-    .fetch_one(&*pool)
-    .await
-    .expect("query trust");
-    assert_eq!(trust_count, 1, "verified trust row must be written");
-
-    // Verify audit log entry was written.
-    let history = audit.get_key_history(&user_id).await.expect("audit history");
-    let mark_entry = history.iter().find(|e| e.operation == "mark_verified");
-    assert!(mark_entry.is_some(), "mark_verified audit entry must exist");
-    let details = mark_entry.unwrap().details.clone().expect("details present");
-    assert_eq!(details["method"], "qr_code_scan", "method must be recorded in details");
-}
-
-#[tokio::test]
-async fn cross_signing_mark_device_unverified_writes_audit_log_and_trust_row() {
-    // Branch: mark_device_unverified -> trust_level='unverified', no
-    // verified_by_device_id, audit op="mark_unverified".
-    let pool = require_test_pool().await;
-    let audit = Arc::new(E2eeAuditService::new(pool.clone()));
-    let svc = CrossSigningVerificationService::new(pool.clone(), audit.clone());
-
-    let user_id = unique_user_id("markunver");
-    let device_storage = DeviceStorage::new(&pool);
-    ensure_user_row(&pool, &user_id).await;
-    device_storage.create_device("TO_UNVERIFY", &user_id, Some("To Be Unverified")).await.expect("create device");
-
-    svc.mark_device_unverified(&user_id, "TO_UNVERIFY", "user_revoked").await.expect("mark_device_unverified");
-
-    let trust_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM device_trust_status WHERE user_id = $1 AND device_id = $2 AND trust_level = 'unverified'",
-    )
-    .bind(&user_id)
-    .bind("TO_UNVERIFY")
-    .fetch_one(&*pool)
-    .await
-    .expect("query trust");
-    assert_eq!(trust_count, 1, "unverified trust row must be written");
-
-    let history = audit.get_key_history(&user_id).await.expect("audit history");
-    let mark_entry = history.iter().find(|e| e.operation == "mark_unverified");
-    assert!(mark_entry.is_some(), "mark_unverified audit entry must exist");
-    let details = mark_entry.unwrap().details.clone().expect("details present");
-    assert_eq!(details["reason"], "user_revoked", "reason must be recorded in details");
-}
-
-#[tokio::test]
-async fn cross_signing_mark_verified_then_unverified_updates_trust_level() {
-    // Branch: trust_level must transition verified -> unverified when
-    // mark_device_unverified is called after mark_device_verified.
-    let pool = require_test_pool().await;
-    let audit = Arc::new(E2eeAuditService::new(pool.clone()));
-    let svc = CrossSigningVerificationService::new(pool.clone(), audit.clone());
-
-    let user_id = unique_user_id("transition");
-    let device_storage = DeviceStorage::new(&pool);
-    ensure_user_row(&pool, &user_id).await;
-    device_storage.create_device("TRANSITION_DEV", &user_id, Some("Transition Device")).await.expect("create device");
-
-    svc.mark_device_verified(&user_id, "TRANSITION_DEV", "emoji_verify").await.expect("first verify");
-    svc.mark_device_unverified(&user_id, "TRANSITION_DEV", "key_reset").await.expect("then unverify");
-
-    // Latest trust_level must be 'unverified'.
-    let trust_level: String =
-        sqlx::query_scalar("SELECT trust_level FROM device_trust_status WHERE user_id = $1 AND device_id = $2")
-            .bind(&user_id)
-            .bind("TRANSITION_DEV")
-            .fetch_one(&*pool)
-            .await
-            .expect("query trust level");
-    assert_eq!(trust_level, "unverified", "trust level must reflect latest action");
-
-    // Both audit events should be present in the log.
-    let history = audit.get_key_history(&user_id).await.expect("audit history");
-    assert!(history.iter().any(|e| e.operation == "mark_verified"));
-    assert!(history.iter().any(|e| e.operation == "mark_unverified"));
 }

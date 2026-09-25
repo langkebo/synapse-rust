@@ -112,7 +112,12 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // 2026-09-25（C19b，D-46）：`key_backups.version` 收紧为 `NOT NULL`（唯一写者
 // `create_backup` 恒写该列，Rust 类型非 `Option`），常量同步为 `a58420543eb97db2`；
 // 同样独立复算 FNV-1a 64，并先自检旧值 `0297744eb28ae814` 逐字节吻合后取值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "a58420543eb97db2";
+// 2026-09-25（E2EE 去服务端私钥重构）：基线删除 7 张设备验证/设备信任表
+// （`device_trust_status`、`cross_signing_trust`、`e2ee_security_events`、
+// `verification_requests`、`verification_sas`、`verification_qr`、
+// `device_verification_request`）及 6 条索引，常量同步为 `e151e5956fb64914`；
+// 同样独立复算 FNV-1a 64，并先自检旧值 `a58420543eb97db2` 逐字节吻合后取值。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "e151e5956fb64914";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

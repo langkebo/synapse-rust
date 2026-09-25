@@ -244,15 +244,8 @@ impl DatabaseIntegrityChecker {
     }
 
     async fn check_audit_critical_indexes(&self) -> Result<Vec<String>, sqlx::Error> {
-        let critical_indexes = vec![
-            "idx_room_summary_state_room",
-            "idx_room_summary_update_queue_status_priority_created",
-            "idx_device_trust_status_user_level",
-            "idx_cross_signing_trust_user_trusted",
-            "idx_device_verification_request_user_device_pending",
-            "idx_device_verification_request_expires_pending",
-            "idx_verification_requests_to_user_state",
-        ];
+        let critical_indexes =
+            vec!["idx_room_summary_state_room", "idx_room_summary_update_queue_status_priority_created"];
 
         let existing_indexes: std::collections::HashSet<String> = sqlx::query_scalar(
             r#"
@@ -283,8 +276,6 @@ impl DatabaseIntegrityChecker {
             ("room_summary_state", "fk_room_summary_state_room"),
             ("room_summary_stats", "fk_room_summary_stats_room"),
             ("room_summary_update_queue", "fk_room_summary_update_queue_room"),
-            ("device_trust_status", "uq_device_trust_status_user_device"),
-            ("cross_signing_trust", "uq_cross_signing_trust_user_target"),
         ];
 
         let mut missing = Vec::new();
@@ -318,15 +309,6 @@ mod tests {
     use super::*;
 
     async fn ensure_public_schema_contract_repairs(pool: &Pool<Postgres>) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r#"
-            CREATE INDEX IF NOT EXISTS idx_verification_requests_to_user_state
-            ON verification_requests(to_user, state, updated_ts DESC)
-            "#,
-        )
-        .execute(pool)
-        .await?;
-
         async fn ensure_constraint(
             pool: &Pool<Postgres>,
             table_name: &str,

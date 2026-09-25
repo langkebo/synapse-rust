@@ -3,10 +3,10 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
-use synapse_e2ee::{CrossSigningStorage, DeviceTrustLevel, DeviceTrustStorage};
+use synapse_e2ee::CrossSigningStorage;
 use synapse_storage::{DeviceStorage, E2eeAuditStorage};
 pub use synapse_storage::{KeyAuditEntry, KeyEvent};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// The `DeviceVerificationStatus` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -23,10 +23,6 @@ pub struct DeviceVerificationStatus {
     pub is_cross_signed: bool,
     /// The `signature_valid` field.
     pub signature_valid: bool,
-    /// The `last_verified_ts` field.
-    pub last_verified_ts: Option<i64>,
-    /// The `verification_method` field.
-    pub verification_method: Option<String>,
 }
 
 /// The `DeviceVerificationReport` struct.
@@ -108,7 +104,6 @@ impl E2eeAuditService {
 /// The `CrossSigningVerificationService` struct.
 pub struct CrossSigningVerificationService {
     device_storage: DeviceStorage,
-    device_trust_storage: DeviceTrustStorage,
     cross_signing_storage: CrossSigningStorage,
     audit: Arc<E2eeAuditService>,
 }
@@ -117,10 +112,9 @@ impl CrossSigningVerificationService {
     /// See [`new`].
     pub fn new(pool: Arc<PgPool>, audit: Arc<E2eeAuditService>) -> Self {
         let device_storage = DeviceStorage::new(&pool);
-        let device_trust_storage = DeviceTrustStorage::new(&pool);
         let cross_signing_storage = CrossSigningStorage::new(&pool);
 
-        Self { device_storage, device_trust_storage, cross_signing_storage, audit }
+        Self { device_storage, cross_signing_storage, audit }
     }
 
     /// See [`verify_user_devices`].
@@ -159,8 +153,6 @@ impl CrossSigningVerificationService {
                 is_verified,
                 is_cross_signed: cross_signing_setup,
                 signature_valid,
-                last_verified_ts: device.last_verified_ts,
-                verification_method: device.verification_method.clone(),
             };
 
             if status.is_verified {
@@ -227,8 +219,6 @@ impl CrossSigningVerificationService {
             is_verified,
             is_cross_signed: cross_signed,
             signature_valid,
-            last_verified_ts: device.last_verified_ts,
-            verification_method: device.verification_method.clone(),
         };
 
         self.audit
@@ -251,58 +241,6 @@ impl CrossSigningVerificationService {
         Ok(status)
     }
 
-    /// See [`mark_device_verified`].
-    pub async fn mark_device_verified(&self, user_id: &str, device_id: &str, method: &str) -> Result<(), ApiError> {
-        let now = current_timestamp_millis();
-
-        self.device_trust_storage
-            .set_device_trust(user_id, device_id, DeviceTrustLevel::Verified, Some(method))
-            .await?;
-
-        self.audit
-            .log_key_operation(KeyEvent {
-                user_id: user_id.to_string(),
-                device_id: Some(device_id.to_string()),
-                operation: "mark_verified".to_string(),
-                key_id: None,
-                room_id: None,
-                details: Some(serde_json::json!({
-                    "method": method,
-                })),
-                ip_address: None,
-                timestamp: now,
-            })
-            .await?;
-
-        info!(device_id = %device_id, user_id = %user_id, method = %method, "Marked device as verified");
-        Ok(())
-    }
-
-    /// See [`mark_device_unverified`].
-    pub async fn mark_device_unverified(&self, user_id: &str, device_id: &str, reason: &str) -> Result<(), ApiError> {
-        let now = current_timestamp_millis();
-
-        self.device_trust_storage.set_device_trust(user_id, device_id, DeviceTrustLevel::Unverified, None).await?;
-
-        self.audit
-            .log_key_operation(KeyEvent {
-                user_id: user_id.to_string(),
-                device_id: Some(device_id.to_string()),
-                operation: "mark_unverified".to_string(),
-                key_id: None,
-                room_id: None,
-                details: Some(serde_json::json!({
-                    "reason": reason,
-                })),
-                ip_address: None,
-                timestamp: now,
-            })
-            .await?;
-
-        warn!(device_id = %device_id, user_id = %user_id, reason = %reason, "Marked device as unverified");
-        Ok(())
-    }
-
     async fn get_user_devices(&self, user_id: &str) -> Result<Vec<DeviceInfo>, ApiError> {
         let devices = self
             .device_storage
@@ -310,29 +248,14 @@ impl CrossSigningVerificationService {
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get devices", e))?;
 
-        if devices.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        // Fetch all trust statuses for the user in a single query instead of
-        // one query per device.
-        let trust_statuses = self.device_trust_storage.get_all_devices_with_trust(user_id).await?;
-        let trust_map: std::collections::HashMap<String, _> =
-            trust_statuses.into_iter().map(|status| (status.device_id.clone(), status)).collect();
-
-        let mut results = Vec::with_capacity(devices.len());
-        for device in devices {
-            let trust = trust_map.get(&device.device_id);
-            results.push(DeviceInfo {
+        Ok(devices
+            .into_iter()
+            .map(|device| DeviceInfo {
                 device_id: device.device_id,
                 user_id: device.user_id,
                 display_name: device.display_name,
-                last_verified_ts: trust.and_then(|status| status.verified_at),
-                verification_method: trust.and_then(|status| status.verified_by_device_id.clone()),
-            });
-        }
-
-        Ok(results)
+            })
+            .collect())
     }
 
     async fn verify_device_signature(&self, device: &DeviceInfo) -> Result<bool, ApiError> {
@@ -352,6 +275,4 @@ pub struct DeviceInfo {
     device_id: String,
     user_id: String,
     display_name: Option<String>,
-    last_verified_ts: Option<i64>,
-    verification_method: Option<String>,
 }

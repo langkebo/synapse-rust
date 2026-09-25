@@ -237,12 +237,7 @@ mod tests {
             "/_matrix/client/v3/sendToDevice/{event_type}/{transaction_id}",
         ];
 
-        let v3_only_routes = [
-            "/_matrix/client/v3/device_verification/request",
-            "/_matrix/client/v3/device_trust/{device_id}",
-            "/_matrix/client/v3/security/summary",
-            "/_matrix/client/v3/keys/backup/secure/{backup_id}/verify",
-        ];
+        let v3_only_routes = ["/_matrix/client/v3/keys/backup/secure/{backup_id}/verify"];
 
         assert!(compat_routes.iter().all(|route| route.starts_with("/_matrix/client/")));
         assert!(v3_only_routes.iter().all(|route| route.starts_with("/_matrix/client/v3/")));

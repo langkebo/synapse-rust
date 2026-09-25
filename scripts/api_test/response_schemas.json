@@ -1,7 +1,7 @@
 {
   "summary": {
-    "probed": 138,
-    "got_2xx": 107,
+    "probed": 133,
+    "got_2xx": 102,
     "got_4xx": 31,
     "errors": 0
   },
@@ -5785,55 +5785,6 @@
       },
       "sample_value": {
         "requests": []
-      },
-      "content_type": "application/json"
-    },
-    "get /_matrix/client/r0/keys/qr_code/show": {
-      "method": "get",
-      "path": "/_matrix/client/r0/keys/qr_code/show",
-      "status": 200,
-      "is_2xx": true,
-      "is_4xx": false,
-      "needs_auth": true,
-      "body_size": 276,
-      "schema": {
-        "type": "object",
-        "properties": {
-          "device_curve25519_key": {
-            "type": "string"
-          },
-          "device_ed25519_key": {
-            "type": "string"
-          },
-          "device_id": {
-            "type": "string"
-          },
-          "server_name": {
-            "type": "string"
-          },
-          "transaction_id": {
-            "type": "string"
-          },
-          "user_id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "device_curve25519_key",
-          "device_ed25519_key",
-          "device_id",
-          "server_name",
-          "transaction_id",
-          "user_id"
-        ]
-      },
-      "sample_value": {
-        "device_curve25519_key": "x8W0mSZ/jDuDDly2R4Gq4g2rlyJ8FlBSQO5q302j5Rk=",
-        "device_ed25519_key": "x8W0mSZ/jDuDDly2R4Gq4g2rlyJ8FlBSQO5q302j5Rk=",
-        "device_id": "vkPy71nFKHTx8fKX",
-        "server_name": "matrix.test",
-        "transaction_id": "dNi4hLAe6eTcOr-jm2tPAA",
-        "user_id": "@testuser1:matrix.test"
       },
       "content_type": "application/json"
     },
@@ -27722,55 +27673,6 @@
       },
       "content_type": "application/json"
     },
-    "get /_matrix/client/v1/keys/qr_code/show": {
-      "method": "get",
-      "path": "/_matrix/client/v1/keys/qr_code/show",
-      "status": 200,
-      "is_2xx": true,
-      "is_4xx": false,
-      "needs_auth": true,
-      "body_size": 276,
-      "schema": {
-        "type": "object",
-        "properties": {
-          "device_curve25519_key": {
-            "type": "string"
-          },
-          "device_ed25519_key": {
-            "type": "string"
-          },
-          "device_id": {
-            "type": "string"
-          },
-          "server_name": {
-            "type": "string"
-          },
-          "transaction_id": {
-            "type": "string"
-          },
-          "user_id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "device_curve25519_key",
-          "device_ed25519_key",
-          "device_id",
-          "server_name",
-          "transaction_id",
-          "user_id"
-        ]
-      },
-      "sample_value": {
-        "device_curve25519_key": "CrQytiYC08LpZjSLPVARaCfE2Es3LIjQ3W26Bfo8JCQ=",
-        "device_ed25519_key": "CrQytiYC08LpZjSLPVARaCfE2Es3LIjQ3W26Bfo8JCQ=",
-        "device_id": "vkPy71nFKHTx8fKX",
-        "server_name": "matrix.test",
-        "transaction_id": "s_4hOLFTO9UjfbrWMWm9mA",
-        "user_id": "@testuser1:matrix.test"
-      },
-      "content_type": "application/json"
-    },
     "get /_matrix/client/v1/keys/rotation/check": {
       "method": "get",
       "path": "/_matrix/client/v1/keys/rotation/check",
@@ -29293,96 +29195,6 @@
           "org.matrix.simplified_msc3575": true,
           "uk.tcpip.msc4133": true
         }
-      },
-      "content_type": "application/json"
-    },
-    "get /_matrix/client/v3/device_trust": {
-      "method": "get",
-      "path": "/_matrix/client/v3/device_trust",
-      "status": 200,
-      "is_2xx": true,
-      "is_4xx": false,
-      "needs_auth": true,
-      "body_size": 937,
-      "schema": {
-        "type": "object",
-        "properties": {
-          "devices": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "device_id": {
-                  "type": "string"
-                },
-                "trust_level": {
-                  "type": "string"
-                },
-                "verified_at": {
-                  "type": "integer"
-                },
-                "verified_by": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "device_id",
-                "trust_level",
-                "verified_at",
-                "verified_by"
-              ]
-            }
-          }
-        },
-        "required": [
-          "devices"
-        ]
-      },
-      "sample_value": {
-        "devices": [
-          {
-            "device_id": "api-integration-device2-27035",
-            "trust_level": "verified",
-            "verified_at": 1788246082421,
-            "verified_by": "H78EqvvcW11SIabJ"
-          },
-          {
-            "device_id": "api-integration-device2-13491",
-            "trust_level": "verified",
-            "verified_at": 1788246386896,
-            "verified_by": "r2okhPEqnyQJ7znp"
-          },
-          {
-            "device_id": "api-integration-device2-20359",
-            "trust_level": "verified",
-            "verified_at": 1788246691922,
-            "verified_by": "8FIB8DNh5CQvSUUj"
-          },
-          {
-            "device_id": "api-integration-device2-10447",
-            "trust_level": "verified",
-            "verified_at": 1788247198582,
-            "verified_by": "VyUUTaReQd4kwIT4"
-          },
-          {
-            "device_id": "api-integration-device2-30058",
-            "trust_level": "verified",
-            "verified_at": 1788247634332,
-            "verified_by": "p9mQUxVijLKHBKeW"
-          },
-          {
-            "device_id": "api-integration-device2-31551",
-            "trust_level": "verified",
-            "verified_at": 1788255307149,
-            "verified_by": "Rj6czgVFw5Ohg39y"
-          },
-          {
-            "device_id": "api-integration-device2-25798",
-            "trust_level": "verified",
-            "verified_at": 1788255775256,
-            "verified_by": "RaQ3eIidh6ECGT5j"
-          }
-        ]
       },
       "content_type": "application/json"
     },
@@ -34727,55 +34539,6 @@
       },
       "content_type": "application/json"
     },
-    "get /_matrix/client/v3/keys/qr_code/show": {
-      "method": "get",
-      "path": "/_matrix/client/v3/keys/qr_code/show",
-      "status": 200,
-      "is_2xx": true,
-      "is_4xx": false,
-      "needs_auth": true,
-      "body_size": 276,
-      "schema": {
-        "type": "object",
-        "properties": {
-          "device_curve25519_key": {
-            "type": "string"
-          },
-          "device_ed25519_key": {
-            "type": "string"
-          },
-          "device_id": {
-            "type": "string"
-          },
-          "server_name": {
-            "type": "string"
-          },
-          "transaction_id": {
-            "type": "string"
-          },
-          "user_id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "device_curve25519_key",
-          "device_ed25519_key",
-          "device_id",
-          "server_name",
-          "transaction_id",
-          "user_id"
-        ]
-      },
-      "sample_value": {
-        "device_curve25519_key": "X9sPbXjI/d8CdE2kx1qDFND5oIryYl8laJSam3q8M3Q=",
-        "device_ed25519_key": "X9sPbXjI/d8CdE2kx1qDFND5oIryYl8laJSam3q8M3Q=",
-        "device_id": "vkPy71nFKHTx8fKX",
-        "server_name": "matrix.test",
-        "transaction_id": "BvZ7zPm57b_v0ZXY7YGCtw",
-        "user_id": "@testuser1:matrix.test"
-      },
-      "content_type": "application/json"
-    },
     "get /_matrix/client/v3/login": {
       "method": "get",
       "path": "/_matrix/client/v3/login",
@@ -37544,60 +37307,6 @@
         "count": 0,
         "etag": "6a969e06",
         "version": "1788255750"
-      },
-      "content_type": "application/json"
-    },
-    "get /_matrix/client/v3/security/summary": {
-      "method": "get",
-      "path": "/_matrix/client/v3/security/summary",
-      "status": 200,
-      "is_2xx": true,
-      "is_4xx": false,
-      "needs_auth": true,
-      "body_size": 199,
-      "schema": {
-        "type": "object",
-        "properties": {
-          "blocked_devices": {
-            "type": "integer"
-          },
-          "has_cross_signing_master": {
-            "type": "boolean"
-          },
-          "recommendations": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "security_score": {
-            "type": "number"
-          },
-          "unverified_devices": {
-            "type": "integer"
-          },
-          "verified_devices": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "blocked_devices",
-          "has_cross_signing_master",
-          "recommendations",
-          "security_score",
-          "unverified_devices",
-          "verified_devices"
-        ]
-      },
-      "sample_value": {
-        "blocked_devices": 0,
-        "has_cross_signing_master": false,
-        "recommendations": [
-          "Set up cross-signing to automatically trust your devices"
-        ],
-        "security_score": 80.0,
-        "unverified_devices": 0,
-        "verified_devices": 7
       },
       "content_type": "application/json"
     },

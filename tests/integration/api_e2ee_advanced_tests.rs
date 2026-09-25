@@ -446,7 +446,10 @@ async fn test_e2ee_cross_signing_flow() {
         assert!(user_keys.is_object(), "Should have keys for the queried user");
     }
 
-    // 6. 查询安全摘要（验证交叉签名状态）
+    // 6. `GET /security/summary` 已于 2026-09-25 随 E2EE 去服务端私钥重构**删除**：
+    //    它此前由服务端托管的设备信任推导"设备已验证"，而设备验证在规范里完全属于
+    //    客户端（`m.key.verification.*` to-device）。交叉签名的可观测面保留在
+    //    `/keys/query`（上面第 5 步），故这一步只钉住"端点已不存在"。
     let security_summary_request = Request::builder()
         .method("GET")
         .uri("/_matrix/client/v3/security/summary")
@@ -455,16 +458,7 @@ async fn test_e2ee_cross_signing_flow() {
         .unwrap();
 
     let response = app.clone().oneshot(security_summary_request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK, "Security summary should return 200 OK");
-
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
-    let summary_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-
-    // 验证安全摘要包含交叉签名信息
-    assert!(
-        summary_json["has_cross_signing_master"].is_boolean(),
-        "Should indicate if cross-signing master key exists"
-    );
+    assert_eq!(response.status(), StatusCode::NOT_FOUND, "security/summary 必须已随去服务端私钥重构移除（应 404）");
 }
 
 /// P2-3: 密钥备份错误处理

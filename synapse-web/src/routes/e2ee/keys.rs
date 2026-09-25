@@ -37,12 +37,6 @@ fn create_e2ee_compat_router() -> Router<AppState> {
 
 fn create_e2ee_v3_only_router() -> Router<AppState> {
     Router::new()
-        .route("/device_verification/request", post(request_device_verification))
-        .route("/device_verification/respond", post(respond_device_verification))
-        .route("/device_verification/status/{token}", get(get_verification_status))
-        .route("/device_trust", get(get_device_trust_list))
-        .route("/device_trust/{device_id}", get(get_device_trust))
-        .route("/security/summary", get(get_security_summary))
         .route("/keys/backup/secure", post(create_secure_backup).get(get_secure_backup_list))
         .route("/keys/backup/secure/{backup_id}", get(get_secure_backup).delete(delete_secure_backup))
         .route("/keys/backup/secure/{backup_id}/keys", post(store_secure_backup_keys))

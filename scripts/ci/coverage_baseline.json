@@ -425,18 +425,6 @@
       "line_pct": 72.73
     },
     {
-      "path": "synapse-e2ee/device_trust/models.rs",
-      "line_pct": 90.97
-    },
-    {
-      "path": "synapse-e2ee/device_trust/service.rs",
-      "line_pct": 17.01
-    },
-    {
-      "path": "synapse-e2ee/device_trust/storage.rs",
-      "line_pct": 36.49
-    },
-    {
       "path": "synapse-e2ee/key_request/models.rs",
       "line_pct": 100.0
     },
@@ -527,14 +515,6 @@
     {
       "path": "synapse-e2ee/to_device/storage.rs",
       "line_pct": 58.38
-    },
-    {
-      "path": "synapse-e2ee/verification/service.rs",
-      "line_pct": 50.74
-    },
-    {
-      "path": "synapse-e2ee/verification/storage.rs",
-      "line_pct": 63.52
     },
     {
       "path": "synapse-e2ee/vodozemac_megolm.rs",
@@ -2459,10 +2439,6 @@
     {
       "path": "synapse-web/routes/validators.rs",
       "line_pct": 98.65
-    },
-    {
-      "path": "synapse-web/routes/verification_routes.rs",
-      "line_pct": 36.34
     },
     {
       "path": "synapse-web/routes/voice.rs",

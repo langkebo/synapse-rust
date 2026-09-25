@@ -347,10 +347,6 @@ pub struct DeviceContext {
     pub event_notifier: synapse_services::event_notifier::EventNotifier,
     /// The `key_request_service` field.
     pub key_request_service: synapse_e2ee::key_request::KeyRequestService,
-    /// The `verification_service` field.
-    pub verification_service: synapse_e2ee::verification::VerificationService,
-    /// The `device_trust_service` field.
-    pub device_trust_service: synapse_e2ee::device_trust::DeviceTrustService,
     /// The `key_rotation_service` field.
     pub key_rotation_service: Arc<synapse_services::infra::FederationKeyRotationService>,
 }
@@ -379,8 +375,6 @@ impl FromRef<AppState> for DeviceContext {
             cache: state.cache.clone(),
             event_notifier: state.services.core.event_notifier.clone(),
             key_request_service: state.services.e2ee.key_request_service.clone(),
-            verification_service: state.services.e2ee.verification_service.clone(),
-            device_trust_service: state.services.e2ee.device_trust_service.clone(),
             key_rotation_service: state.services.federation.key_rotation_service.clone(),
         }
     }

@@ -12,8 +12,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-PROFILE="${1:-default}"
+PROFILE="default"
 OUTPUT=""
+
+# 位置参数形式的 profile（`export_ledger.sh oidc`）。⚠️ 必须先判 `--` 前缀：
+# 旧版直接写 `PROFILE="${1:-default}"`，于是 `--output=X` 被当成 profile，
+# 最终以 `--profile=--output=X` 调用导出器而失败。
+if [ $# -gt 0 ] && [ "${1#--}" = "$1" ]; then
+    PROFILE="$1"
+fi
 
 # 简单解析 --key=value
 for arg in "$@"; do
@@ -32,7 +39,10 @@ if [ -z "$OUTPUT" ]; then
 fi
 mkdir -p "$(dirname "$OUTPUT")"
 
-FEATURES="server,core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends"
+# ⚠️ `server` 特性已于 H-6 从根 crate 移除（零 `#[cfg(feature = "server")]` 门控、纯死标志），
+# 继续传它会让 cargo 直接报「does not contain this feature」。该 bug 使本脚本自 H-6 起恒失败，
+# `ledger.json` 因此冻结在 2026-08-12（见 `docs/audit/GATE_INTEGRITY_SWEEP_2026-09-19.md` E8）。
+FEATURES="core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends"
 
 echo "[ledger] profile=$PROFILE features=$FEATURES"
 echo "[ledger] 编译并导出（首次较慢，之后增量秒级）..."

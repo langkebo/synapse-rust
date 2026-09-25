@@ -40,7 +40,7 @@ const EXTENSIONS: [&str; 10] = [".md", ".rs", ".toml", ".yaml", ".yml", ".json",
 /// 它们出现在"该文件不存在 / 已删除"这类**否定陈述**里，用于记录历史误引用本身；
 /// 若把它们也当违规，§13 的修正记录就会自相矛盾。新增条目必须写清用途 ——
 /// 这个清单是"允许文档提到不存在的路径"的**唯一**入口。
-const HISTORICAL_NEGATIVE_MENTIONS: [&str; 3] = [
+const HISTORICAL_NEGATIVE_MENTIONS: [&str; 5] = [
     // §13：记录"已删除的伪造引用"（v1.2 曾把它当证据）。
     "docs/synapse-rust/api-reference.md",
     // §11.2：记录"服务层不存在该文件"，用于纠正旧表述。
@@ -48,6 +48,14 @@ const HISTORICAL_NEGATIVE_MENTIONS: [&str; 3] = [
     // B8/#20119：记录"该模块已于 2026-09-24 W4/D-27 按铁律 1 整模块删除"，
     // 文档引用它是为了说明"死代码已清 + search_index 表成为遗留表（D-39）"。
     "synapse-storage/src/search_index.rs",
+    // v1.8（2026-09-25）：记录"服务端 SAS 路由面已整模块删除"。文档在 §7.2 生效面、
+    // §14.4 item 3 与历史更正表里**必须**点名这个文件才能说明"被删的是什么"，
+    // 否则那条结论无从落地。删除原因见 `.trae/documents/E2EE验证去服务端私钥重构.md`。
+    "synapse-web/src/routes/verification_routes.rs",
+    // v1.8（2026-09-25）：同上，服务端 SAS 密码学实现（`derive_sas` / `confirm_sas` /
+    // QR show/scan）整模块删除。历史更正表要保留"这些函数当时确实存在且被逐一核对过"，
+    // 故按"否定陈述"豁免，而非删掉整行 —— 删了会丢掉"旧结论为何被推翻"的线索。
+    "synapse-e2ee/src/verification/service.rs",
 ];
 
 fn repo_root() -> PathBuf {

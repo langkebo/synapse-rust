@@ -108,8 +108,6 @@ pub mod thirdparty;
 pub mod typing;
 /// The `validators` module.
 pub mod validators;
-/// The `verification_routes` module.
-pub mod verification_routes;
 /// The `worker` module.
 pub mod worker;
 
@@ -256,7 +254,6 @@ pub use validators::{
     validate_event_id, validate_membership, validate_presence_status, validate_receipt_type, validate_room_alias,
     validate_room_id, validate_user_id,
 };
-pub use verification_routes::create_verification_router;
 #[cfg(feature = "voice-extended")]
 pub use voice::create_voice_router;
 #[cfg(feature = "voip-tracking")]

@@ -377,7 +377,8 @@ jobs:
           # exit 0，于是这一条"迁移后索引仍在"的断言从未执行（清查 A3，实测 2026-09-19）。
           # 该索引的覆盖由 test_audit_critical_indexes_exist 与
           # schema_health_check::REQUIRED_INDEXES 承担，故直接删除名字而不是
-          # 编造一个替代断言。
+          # 编造一个替代断言。2026-09-25 随 E2EE 去服务端私钥重构，
+          # `verification_requests` 表与该索引一并从 baseline 删除，此条已无对象。
           tests=(
             "database_integrity_tests::tests::test_audit_critical_indexes_exist"
             "database_integrity_tests::tests::test_audit_critical_constraints_exist"

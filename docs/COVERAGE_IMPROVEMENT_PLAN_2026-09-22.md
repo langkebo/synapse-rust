@@ -313,14 +313,13 @@
 | 19.9% | friend_room_service/groups.rs | 补充 Groups 服务测试 |
 | 20.0% | rtc/metrics.rs | ✅ **已完成** (2026-09-23) |
 
-### 7.4 synapse-e2ee (6 个文件) - P1 优先级
+### 7.4 synapse-e2ee (5 个文件) - P1 优先级
 
 | 覆盖率 | 文件路径 | 建议测试策略 |
 |--------|---------|-------------|
 | 1.3% | key_request/storage.rs | 补充 Key request 存储测试 |
 | 15.4% | olm/session.rs | 补充 Olm session 测试 |
 | 16.3% | megolm/service.rs | 补充 Megolm 服务测试 |
-| 17.0% | device_trust/service.rs | 补充 Device trust 测试 |
 | 19.8% | olm/storage.rs | 补充 Olm 存储测试 |
 | 24.5% | olm/service.rs | **Quick win**: 补充 Olm 服务测试 |
 

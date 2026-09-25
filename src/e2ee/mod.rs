@@ -3,7 +3,6 @@ pub use synapse_e2ee::cross_signing;
 pub use synapse_e2ee::crypto;
 /// The `device_keys` module.
 pub mod device_keys;
-pub use synapse_e2ee::device_trust;
 pub use synapse_e2ee::key_request;
 /// The `key_rotation` module.
 pub mod key_rotation;
@@ -44,13 +43,6 @@ pub use cross_signing::service::CrossSigningService;
 pub use cross_signing::storage::CrossSigningStorage;
 pub use device_keys::models::*;
 pub use device_keys::service::DeviceKeyService;
-// Explicit exports for device_trust
-pub use device_trust::models::{
-    DeviceTrustLevel, DeviceTrustStatus, DeviceVerificationRequest, E2eeSecurityEvent, KeyRotationLog, SecuritySummary,
-    VerificationMethod, VerificationRequestStatus,
-};
-pub use device_trust::service::DeviceTrustService;
-pub use device_trust::storage::DeviceTrustStorage;
 pub use key_request::{KeyRequestInfo, KeyRequestService};
 pub use megolm::models::{EncryptedEvent, MegolmSession};
 pub use megolm::service::MegolmProvider;
@@ -60,8 +52,3 @@ pub use signature::EventSignature;
 pub use signature::SignatureService;
 pub use ssss::SecretStorage;
 pub use ssss::SecretStorageService;
-pub use synapse_e2ee::verification;
-pub use verification::{
-    QrCodeData, QrState, SasData, SasRepresentation, SasResult, SasState, VerificationMethod as VerifMethod,
-    VerificationState,
-};

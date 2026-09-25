@@ -333,7 +333,6 @@ async fn test_schema_contract_p0_tables_exist() {
         "room_account_data",
         "push_rules",
         "room_retention_policies",
-        "device_verification_request",
         "search_index",
     ] {
         assert_table_exists(&pool, table_name).await;
@@ -727,60 +726,6 @@ async fn test_schema_contract_room_retention_policies_shape() {
     assert!(
         has_unique_constraint_on(&pool, "room_retention_policies", &["room_id"]).await,
         "Expected room_retention_policies UNIQUE(room_id)"
-    );
-}
-
-#[tokio::test]
-async fn test_schema_contract_device_verification_request_shape() {
-    let pool = crate::require_test_pool().await;
-
-    assert_column(&pool, "device_verification_request", "user_id", &["text", "character varying"], false, None, None)
-        .await;
-    assert_column(
-        &pool,
-        "device_verification_request",
-        "new_device_id",
-        &["text", "character varying"],
-        false,
-        None,
-        None,
-    )
-    .await;
-    assert_column(&pool, "device_verification_request", "status", &["text", "character varying"], false, None, None)
-        .await;
-    assert_column(
-        &pool,
-        "device_verification_request",
-        "request_token",
-        &["text", "character varying"],
-        false,
-        None,
-        None,
-    )
-    .await;
-    assert_column(&pool, "device_verification_request", "expires_at", &["bigint"], false, None, None).await;
-    assert_column(&pool, "device_verification_request", "completed_at", &["bigint"], true, None, None).await;
-
-    assert!(
-        sqlx::query_scalar::<_, bool>(
-            r#"
-            SELECT EXISTS (
-                SELECT 1
-                FROM information_schema.table_constraints tc
-                JOIN information_schema.key_column_usage kcu
-                  ON tc.constraint_name = kcu.constraint_name
-                 AND tc.table_schema = kcu.table_schema
-                WHERE tc.table_schema = current_schema()
-                  AND tc.table_name = 'device_verification_request'
-                  AND tc.constraint_type IN ('UNIQUE', 'PRIMARY KEY')
-                  AND kcu.column_name = 'request_token'
-            )
-            "#,
-        )
-        .fetch_one(&*pool)
-        .await
-        .unwrap_or(false),
-        "Expected device_verification_request to have uniqueness on request_token"
     );
 }
 

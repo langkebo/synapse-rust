@@ -2,7 +2,6 @@
 # 只允许变短：修好一处后跑 --update 收紧；新增一处会红。
 # 高价值残留：synapse-storage/src/event/* 按 origin_server_ts 排序需补 stream_ordering。
 
-synapse-e2ee/src/device_trust/storage.rs 1
 synapse-e2ee/src/key_request/storage.rs 2
 synapse-e2ee/src/olm/storage.rs 2
 synapse-e2ee/src/secure_backup/service.rs 1

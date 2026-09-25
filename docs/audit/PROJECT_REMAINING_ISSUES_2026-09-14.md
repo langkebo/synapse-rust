@@ -4,9 +4,24 @@
 基线：`main` @ `d56a1d82`（首版基线 `e6ecda02`）
 验证方式：**每条都附实测命令与实测结果**。未实测的明确标注 `[未验证]`。
 
+## 轮次指针（先读这张表，再决定信哪一节）
+
+| 轮次 | 日期 | 基线 | 章节 | 说明 |
+|---|---|---|---|---|
+| 首版 | 2026-09-14 | `main` @ `e6ecda02` | §1–§14 | 首版清单与排序 |
+| 第二轮 | 2026-09-14 | `main` @ `d56a1d82` | §15–§20 | 复核 + 汇总（§18） |
+| 第三轮 | 2026-09-25 | `opt/consolidated` @ `9e26ee31a` | §21 | 全量回源码重判 |
+| **第四轮** | **2026-09-25** | **`opt/consolidated` @ `af2df7913`** | **§22** | **本轮：逐条复核 13 项报项** |
+
+> **当前口径只有一个**：`§0.2 严重度分布` + `§22.3 仍然存在` 是唯一"当前状态"来源；
+> 其余章节（含 §18 / §21.1）均为**历史快照**，保留用于追溯，不得直接引用其状态标记。
+> 判据一律可复现：`路径:行号` 或"命令 + 期望输出"。
+
 ---
 
 ## 0. 图例与验证环境
+
+### 0.1 图例
 
 | 标记 | 含义 |
 |---|---|
@@ -26,6 +41,32 @@ export DATABASE_URL="$TEST_DATABASE_URL"
 unset SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE          # 绝不设置
 # 并发一律 --test-threads 4（容器仅 1.5 CPU，8 线程会触发服务端认证超时）
 ```
+
+### 0.2 严重度分布（第四轮口径，唯一权威）
+
+复核基线 `opt/consolidated` @ `af2df7913`（2026-09-25）。**13 项报项的判定汇总**：
+
+| 严重度 | 项数 | 仍存在 | 部分 | 证伪 | 已修复 |
+|---|---|---|---|---|---|
+| P0 | 1 | 0 | 0 | 0 | **1** |
+| 高 | 3 | 2 | 1 | 0 | 0 |
+| 中 | 6 | 2 | 3 | **1** | 0 |
+| 低 | 3 | 3 | 0 | 0 | 0 |
+| **合计** | **13** | **7** | **4** | **1** | **1** |
+
+（"部分"= 同一项内子结论分裂；"证伪"= 该缺陷不存在。逐条依据见 §22.3 / §22.4。）
+
+**当前仍须处理的项**（按严重度，明细见 §22.3）：
+
+1. 高｜客户端撤回不级联（MSC3912 级联仅管理端可达）；
+2. 高｜Content Scanner 零生产调用点（装配了但永不扫描）；
+3. 高｜E2EE SAS **三处**仍偏离（emoji 映射、decimal 算法、MAC 派生）——另两处已修；
+4. 中｜`dag.rs` 注释声称的被 `/send_join`、`/get_missing_events` 使用，实测无生产调用点；
+5. 中｜`msc2965/auth_issuer` 仍在册（上游 1.161 已删该端点）；
+6. 中｜Profile：停用用户写自定义字段 404、稳定 `/{keyName}` 未注册（account_data 非对象已修为 400）；
+7. 中｜Admin 媒体端点族真缺口（`media/quarantine|unquarantine` POST、房间级媒体列举/删除）；
+8. 中｜缩略图 `animated` 参数未支持；媒体配额拒绝未使用 `M_USER_LIMIT_EXCEEDED`（归因待议）；
+9. 低｜v12/v13 不可创建（**fail-safe 设计使然**）、`search_index` 遗留表、ledger `query_params` 无消费方。
 
 ---
 
@@ -1229,3 +1270,348 @@ grep -n 'StatusCode::' src/web/routes/msc4108_rendezvous.rs
 （d）`origin` 归一化、（e）签名判定表四种边界、（f）stored 对逐字节附着、
 （g）投影结果可被 `sign_and_hash_event` 签名且 `verify_event_content_hash` 通过、
 （h）auth chain 的 5-type 规则。
+
+---
+
+## 22. 第四轮复核（2026-09-25，`opt/consolidated` @ `af2df7913`）
+
+### 22.0 方法与基线
+
+**触发**：用户给出一份 13 项报项清单（P0×1 / 高×3 / 中×6 / 低×3），要求
+"**根据项目实际先确定以上问题是否存在**，更新本文档"。该清单与 §21.1 的表基本同源。
+
+**方法**：不采信任何既有标记，逐条**回到源码取证**（`路径:行号`，或可复现命令 + 实际输出）。
+外部事实（Matrix 规范原文、上游 Synapse 行为）用**主源**核对：
+
+```bash
+# Matrix 客户端-服务端规范 v1.11（本机代理 127.0.0.1:7897）
+curl -sS -o spec.html https://spec.matrix.org/v1.11/client-server-api/
+# 上游 Synapse 1.161 变更日志
+curl -sS -o syn161.md https://raw.githubusercontent.com/element-hq/synapse/release-v1.161/CHANGES.md
+```
+
+**基线**：`af2df7913`（即本文件上一条 P0 收口提交）。工作树有**并发会话**的在建文件
+（`synapse-e2ee/src/verification/service.rs` +42 行、`tests/integration/mod.rs`、
+未跟踪的 `tests/integration/api_verification_relay_tests.rs`），**未纳入本轮判定**；
+凡涉及 SAS 的结论一律取 **HEAD 版本**（`git show HEAD:…`），与工作树 WIP 无关。
+
+**环境侧新事实（会影响取证，写入本条以免误判）**：本仓除主工作树外还有一份
+**并发 worktree `.worktrees/c19b/`**，其内容与 HEAD 同步（同样含 `pdu.rs`）。
+任何全仓 `grep` 若不过滤该目录，会把同一份代码计两次 ⇒ **本轮所有检索均排除 `.worktrees/` 与 `target/`**。
+
+### 22.1 本轮新发现
+
+| 编号 | 级别 | 新发现 | 判据 |
+|---|---|---|---|
+| **N-1** | 高 | SAS 的 `emoji` **不是 6 个**（§21.1 说"仅 6 个"已过期）：`derive_sas` 返回 `[u8; 6]`，代码产出 **7 个**——但用 `byte % 64` 逐字节取模，**不是**规范要求的"前 42 bits 切 7×6bits"。即**数量对了、算法仍错** | 规范 §SAS method: emoji；`verification/service.rs:114-118, 310-322` |
+| **N-2** | 高 | SAS `decimal` 的偏差比"被丢弃"更严重：服务端**从 emoji 反推** decimal（`generate_decimal_from_emoji`），而规范要求 **5 字节切 3×13bits（各 +1000）**。两套算法不可能互为逆运算 ⇒ 即使 emoji 修对，反推仍错 | 规范 §SAS method: decimal；`verification_routes.rs:184, 405-412` |
+| **N-3** | 中 | 媒体配额**确被强制**（§21.1 隐含的"没强制"不成立）：`ensure_upload_allowed` → `check_upload_quota` → `ApiError::bad_request`。真问题只是**错误码**：超限返回 400，未用 `M_USER_LIMIT_EXCEEDED` | `synapse-services/src/media/mod.rs:246-253, 293` |
+| **N-4** | 中 | `M_USER_LIMIT_EXCEEDED` 的**归因可疑**：该码在本仓注册为 MSC4335「服务器达到**用户账户数**上限」 | `synapse-common/src/error/code.rs:83`；`error.rs:1881`（映射 429） |
+| **N-5** | 低 | `event_id` 格式的**描述错**（§21.1 写 `$<ms>_<rand>:<server>`）：实际分隔符是 `$`，即 `$<ts>$<b64>:<server>` | `synapse-common/src/crypto.rs:149-153` |
+
+### 22.2 已修复（不要再重测）
+
+| 项 | 判定 | 证据 |
+|---|---|---|
+| **P0｜`/send_join` 不合规** | ✅ **已修复**（`af2df7913`） | 见下 |
+| 中｜MSC4502 / MSC4262 "未收敛" | ❌ **证伪** | 见 §22.4 |
+| 中｜Profile `account_data` 非对象 ⇒ 500 | ✅ **已修** | `handlers/extended_profile.rs:48-55` 返回 `ApiError::bad_request`（400） |
+
+**P0 收口的取证（逐条可复现）**：
+
+```bash
+# 1) 手工拼装函数已被删除（0 命中）
+/usr/bin/grep -rn "serialize_state_event_minimal" --include='*.rs' .   # → 无输出
+# 2) 四条发射路径全部改走共享投影器（8 处调用点，均在 pdu.rs 之外）
+/usr/bin/grep -rn "build_pdus(" --include='*.rs' . | /usr/bin/grep -v worktrees
+#   events.rs:25,93,665,666   join.rs:200,201,338,339
+# 3) v1 补回了 [200, {…}] 二元组包装
+/usr/bin/grep -n "json!(\[" synapse-web/src/routes/federation/membership/join.rs  # → 205
+```
+
+**关于"缺 `event`"这一半**：v2 `/send_join` 不返回 `event` **不是缺陷**——规范中该字段仅在
+"房间版本支持 restricted join rules"时必需，本仓不产此类房间。**不要再把它立项**。
+
+**P0 的残余三条（本轮复核后仍成立，但口径需收窄）**：
+
+1. **本地 `create_event` 不落图元数据** —— 成立。`synapse-storage/src/event/create.rs:15-19`
+   的 INSERT 列清单为 `event_id, room_id, sender, user_id, event_type, content, state_key,
+   origin_server_ts, is_redacted, redacts`，**无** `depth`/`prev_events`/`auth_events`/`origin`。
+   对比入站路径 `create_event_with_graph`（同文件 `:83-84`）**有**这三列——所以本地起源事件的
+   PDU 会被判 `MissingGraphMetadata`。
+2. **入站事件不落远端 `signatures`** —— **需收窄**：入站**成员**事件已回填
+   （`synapse-web/src/routes/federation/membership/mod.rs:238` →
+   `update_event_signatures_and_hashes`，落库在 `event/signature.rs:10`）；但
+   `create_event_with_graph` 的 INSERT 本身**不含** `signatures`/`hashes`，
+   故其它入站路径（`/send` transaction 等）是否回填**未逐条确认** ⇒ 本条改为
+   "**部分路径未覆盖**"，而不是"完全没落"。
+3. **`event_id` 非 v4+ reference hash** —— 成立（描述见 N-5）。这是**独立于字段完备性**的
+   语义缺口：即便字段齐全，v11 对等端也无法把本仓 PDU 当规范事件接受。
+
+### 22.3 仍然存在（合并清单，按严重度；含"部分"中的未修子项）
+
+**高｜E2EE SAS —— 5 个子项中 1 修 4 存**（`synapse-e2ee/src/verification/service.rs`，HEAD 版）：
+
+| 子项 | 判定 | 判据 |
+|---|---|---|
+| `info` 串 | ✅ **已修** | `sas_info()` 组装 `MATRIX_KEY_VERIFICATION_SAS\|from_user\|from_device\|from_key\|to_user\|to_device\|to_key\|txn_id`，与规范逐字一致（`:44-47`） |
+| SAS 派生 | ✅ **已修** | `derive_sas` 用 `hkdf::Hkdf::<Sha256>::new(None, shared_secret)` + `expand(info)`，取前 6 字节（`:110-118`） |
+| `commitment` | ❌ **仍错** | 代码是 `sha256(public_key \|\| "verification.commitment")`（`:146-152`）；规范要求哈希值是"**ephemeral public key ‖ `m.key.verification.start` 的 canonical JSON**"。注意 §21.1 把它说成"非 SHA-256"**是错的**——它确实是 SHA-256，**错在哈希输入**；且用带 padding 的 base64，规范要求 **unpadded** |
+| `emoji` | ❌ **仍错** | 见 N-1：`byte % 64` 逐字节取模（`:310-322`），非 42-bits 切分 |
+| `decimal` | ❌ **仍错** | 见 N-2：从 emoji 反推（`verification_routes.rs:405-412`），非 5 字节 / 13 bits |
+
+**高｜客户端撤回不级联** —— 仍存在。客户端路径 `handlers/room/events.rs:920`（`redact_event`）
+只调 `redact_event_content`（`:990`）撤单条；MSC3912 级联入口只有管理端
+`admin/room/mod.rs:244,788`（`/_synapse/admin/v1/rooms/{room_id}/cascade_redact`）。
+
+**高｜Content Scanner 零生产调用点** —— 仍存在。`ContentScanner` 有 `scan` / `scan_text` /
+`scan_media` 三个公开方法（`content_scanner/service.rs:25,183,193`），但全仓只有
+**它自己的单测**在调用；生产侧仅 `wiring/core.rs:179` 的构造，无消费者。
+
+**中｜`dag.rs` 注释声称的调用点不存在** —— 仍存在。注释写明
+"Used by `/send_join` (federation) … and by `/get_missing_events`"（`event/dag.rs:203-205`），
+但 `get_state_dag_edges` 的引用**只有 `db_tests.rs`**（`:2059,2144`），生产 0 调用点。
+（同文件的 `find_missing_event_ids` / `get_missing_events_between` **确有**生产调用点——
+`federation/transaction.rs:322`、`federation/events.rs:66`——注释对这两个没说错。）
+
+**中｜`msc2965/auth_issuer` 仍在册** —— 仍存在。本仓注册于
+`routes/assembly.rs:197`（+ `derived_route_table_always.inc.rs:114`）。
+**上游权威证据**（1.161 `CHANGES.md:48`）：`Drop GET
+/_matrix/client/unstable/org.matrix.msc2965/auth_issuer endpoint which never ended up being
+used. (#20163)`。
+⚠️ **口径须收窄**：上游**只删了 `auth_issuer`**，**`auth_metadata` 未删**
+（同文件 `:612` 还专门为它加了缓存）⇒ 本文档不应把两者一起当"已删"。
+
+**中｜Profile 三处偏差 —— 3 个子项中 1 修 2 存**：
+
+| 子项 | 判定 | 判据 |
+|---|---|---|
+| `account_data` 非对象语义 | ✅ 已修（返回 400） | `handlers/extended_profile.rs:54` |
+| 停用但存在用户写自定义字段应成功 | ❌ **仍错** | `user_exists` 的 SQL 带 `AND is_deactivated = FALSE`（`user/storage.rs:698`）⇒ 停用用户被判"不存在"，写路径 `extended_profile.rs:124` 直接 404。**上游 1.161 `CHANGES.md:36`（#20172）**明确："this now **succeeds for existing (e.g. deactivated) users** and returns a 404 error if the user does not exist" |
+| 稳定 `/{keyName}` 未注册 | ❌ **仍错** | 派生路由表里 `/_matrix/client/v3/profile/{user_id}`、`/avatar_url`、`/displayname` 都在，**没有**泛化 `{key_name}`；泛化版只在 `unstable/uk.tcpip.msc4133` 下（`derived_route_table_always.inc.rs:269`）。同时 `/versions` 已声明 `m.profile_fields`（`capability_governance.rs:507`）⇒ **声明与注册面不一致** |
+
+**中｜Admin 媒体端点族缺口 —— 部分成立（已降级）**：
+
+- 本仓 `registered_by == "admin::media"` 实测**恰为 7 条**（`admin/media.rs:16-22`
+  四条 + `quarantine_media/{media_id}/changes` + `users/{user_id}/media` 的 GET/DELETE）——
+  文档的"7"这个数字**可复现**。
+- 但"**上游 18**"在仓内**只有数字、无明细**（`API_COVERAGE_REPORT.md:137`，且该表自带
+  `[人工口径·未机器复核]` 标注）⇒ **不可核验**。
+- **点名示例被证伪**：§6.3 举的"缺 `GET/DELETE /_synapse/admin/v1/users/{user_id}/media`"
+  **实际已注册**（`admin/media.rs:20-21`），且在 §21 基线 `9e26ee31a` 上就已存在。
+- **真缺口**（仓库侧 0 命中）：`POST .../media/quarantine/{server_name}/{media_id}`、
+  `POST .../media/unquarantine/{server_name}/{media_id}`、房间级媒体列举/删除。
+  旁证：鉴权白名单已为**不存在**的路由预留了路径
+  （`utils/admin_auth.rs:386` 的 `/media/quarantine` 前缀）⇒ 缺口真实存在。
+
+**中｜缩略图 `animated` / 媒体配额错误码 —— 部分**：
+
+- `animated`：全仓 `.rs` **0 命中** ⇒ **仍存在**（未支持）。
+- 配额强制：**已实现**（`media/mod.rs:246-253` 的 `ensure_upload_allowed`，被
+  `upload_media` `:293` 调用），超限返回 `ApiError::bad_request`（400）。
+  **未**使用 `M_USER_LIMIT_EXCEEDED` ⇒ 字面成立；但见 N-4，该码语义是账户数上限，
+  "应用于媒体限额"这一期望本身**需要决策**（判为**降级**：口径待议，不是纯缺陷）。
+
+**低｜三项**：
+
+| 项 | 判定 | 判据 |
+|---|---|---|
+| v12/v13 房间不可创建 | **仍存在，但属设计使然** | `room_versions.rs:114-115` 为 `stable_parse_only("12"\|"13")`；同文件 `:108-113` 注释写明理由是"避免创建无法产生合规 PDU 的房间（fail-safe）"。**不是缺陷，是取舍** ⇒ 建议从"问题清单"移入"已知取舍" |
+| `search_index` 遗留表（D-39） | **仍存在** | baseline `migrations/00000000_unified_schema_v12.sql:2839`（+ 4 个索引 `:3840-3843`）仍建表；而 `synapse-storage/src/search_index.rs` **文件已不存在** ⇒ 表无代码消费 |
+| ledger `query_params` 无消费方 | **仍存在** | `route_ledger.rs:84` 定义字段、`:107` 有 builder `with_query_params`，但该 builder **零调用点**（全仓仅它自己的定义）；`ledger_export.rs:156` 只把它序列化进导出 fixture，无任何校验/断言消费 |
+
+### 22.4 证伪 / 降级 / 口径修正
+
+| 原结论 | 本轮判定 | 证据 |
+|---|---|---|
+| 中｜**MSC4502 未收敛（PARTIAL）** | ❌ **证伪** | 端到端完整：客户端路由 `routes/room.rs:53` → handler 解析全部 MSC4502 参数（`handlers/room/members.rs:387-424`）→ 服务层鉴权 + `limit+1` 续页（`room/membership/service.rs:610-706`）→ 存储层游标分页（`membership/mod.rs:716-796`）；另有 `/sync` 的 `not_membership` 消费面（`sync_service/mod.rs:406,423-428`） |
+| 中｜**MSC4262 未收敛（PARTIAL）** | ❌ **证伪** | 双向全链路：EDU 类型（`synapse-federation/src/edu.rs:31`）+ 出站广播（`user_service.rs:220,226`）+ 入站处理（`web/src/federation/edu.rs:628-702`，含 origin 校验）+ 落库（`user/storage.rs:783`）+ 消费方 sliding sync `profile_updates`（`sliding_sync_service/extensions.rs:254`）+ 装配（`container.rs:512`） |
+| 中｜Admin 媒体族"缺失 **users/{user_id}/media**" | ❌ **证伪** | `admin/media.rs:20-21` 已注册；§22 基线之前就已在 |
+| 高｜SAS「`info` 串缺公钥且顺序错」 | ❌ **已修**（描述过期） | `service.rs:44-47` 与规范逐字一致 |
+| 高｜SAS「`commitment` 非 SHA-256」 | ❌ **描述错** | 它**是** SHA-256（`service.rs:146-152`）；真错在哈希输入与 base64 padding |
+| 高｜SAS「`emoji` 仅 6 个」 | ❌ **描述过期** | 现产出 7 个（`service.rs:310`）；真错在 `byte % 64` 映射 |
+| P0｜`event_id` 形如 `$<ms>_<rand>:<server>` | ⚠️ **口径修正** | 实为 `$<ts>$<b64>:<server>`（`crypto.rs:153` 的格式串是 `"${}${}:{}"`） |
+| 中｜`msc2965/auth_issuer`「1.161 已删」 | ⚠️ **口径收窄** | 上游只删了 `auth_issuer`（#20163），`auth_metadata` 未删 |
+| P0 残余②｜入站事件"不落"远端 `signatures` | ⚠️ **口径收窄** | 入站**成员**路径已回填（`federation/membership/mod.rs:238`）；其余入站路径未逐条确认 ⇒ "部分路径未覆盖" |
+| 中｜媒体配额"未强制" | ❌ **证伪**（真问题只是错误码） | `media/mod.rs:246-253,293` |
+| 低｜v12/v13 不可创建 | ⚠️ **降级为设计使然** | `room_versions.rs:108-115` 注释自述 fail-safe |
+
+> **方法论教训（本轮）**：§21.1 的这一行把 **5 个子项塞进一行**，其中 1 个已修、1 个描述错、
+> 1 个数量过期。**复合条目必须拆成子项逐一给判据**——否则一个已修的子项会永久"污染"整行，
+> 让读者以为全都没修（本轮实测正是如此）。同类风险条目：Profile 三项、`animated`+错误码
+> （两项合写）。已在本轮 §22.3 全部拆开。
+>
+> **第二条教训**：`MSC编号 + 命中文件数` **不是收敛度判据**。MSC4502/4262 各命中 8 个文件，
+> 但两条都是端到端完整的（§22.4）。命中数只能证明"有人提过这个编号"。
+
+### 22.5 建议的执行顺序
+
+1. **SAS 三处修正**（高，本仓自有代码、无外部依赖）：`emoji` 改 42-bits 切分、`decimal` 改
+   5 字节 / 13 bits（并用 `SasRepresentation::Decimal` 返回，别从 emoji 反推）、
+   `commitment` 改 `sha256(pubkey ‖ canonical_json(start_event))` + **unpadded** base64。
+   三者可一轮改完，且都能写**已知答案测试**（规范给了逐位公式与 emoji 表）。
+2. **客户端撤回接级联**（高）：`handlers/room/events.rs:990` 之后按
+   `redacts` 关系调 `event_redaction_service.cascade_redact_event`（服务/存储层已具备）。
+3. **Content Scanner 接线**（高）：在媒体/消息落库前调 `scan_media`/`scan_text`，
+   否则"装配了但永不扫描"比纯缺失更危险（配置可开、管理员以为已防护）。
+4. **Profile 两条**（中）：`user_exists` 与实际存在性解耦（停用用户也算存在）；
+   注册稳定 `/{keyName}` 或撤销 `m.profile_fields` 声明——**二选一，不要维持不一致**。
+5. **Admin 媒体缺口**（中）：补 `media/quarantine|unquarantine` POST（鉴权白名单已预留）
+   与房间级媒体端点；**先把"18 条"的来源清单落成可核验的文件**，否则缺口无法收敛。
+6. **`dag.rs` 注释**（中）：改注释或补调用点——注释声称的调用点不存在，属"文档幻觉"，
+   代价极低但会误导后续审计。
+7. **低三项**：`msc2965/auth_issuer` 直接摘除（上游已删）；`search_index` 表删或标注废弃
+   （需同步 baseline 指纹，见 MEMORY.md 硬规则）；v12/v13 从"问题"移入"已知取舍"。
+
+---
+
+## 23. 第五轮：E2EE 设备验证「去服务端私钥」重构（2026-09-25，`opt/consolidated`）
+
+§22.5 第 1 项给出的是"SAS 三处修正（emoji / decimal / commitment）"的**修法**。实际执行时
+判定该路径不可取：偏离项位于本仓**私有非规范 REST 面**（`/keys/device_signing/verify_*` 的
+`mac` 是单字符串、`keys` 是 `key_id → 公钥值` 映射、**无算法字段**），规范
+`hkdf-hmac-sha256.v2` 的 key-list MAC 在该形状内无法表达。故改为**按规范删面**：设备验证回归
+客户端 to-device 流程，服务端只中继、只存交叉签名。
+
+### 23.1 删除面（整模块移除）
+
+| 违规面 | 路径 | 违规行为 |
+|---|---|---|
+| SAS 验证 | `synapse-web/src/routes/verification_routes.rs`（12 条 `.route()` 声明，经 v1/v3 双 `nest` 展开为 **24 条绝对路由**）+ `synapse-e2ee/src/verification/`（4 文件） | `accept_sas` 在服务端生成 X25519 私钥；`generate_sas` 代算 ECDH 与 SAS；`confirm_sas` 用服务端私钥判 MAC 后置 `VerificationState::Done` |
+| 设备信任审批 | `synapse-web/src/routes/e2ee/devices.rs`（6 个 handler）+ `synapse-e2ee/src/device_trust/`（4 文件） | 服务端生成设备密钥对并算 MAC；`respond_to_verification` 由**同一 user 的任意客户端**审批即置 `DeviceTrustLevel::Verified` |
+
+连带删除：`e2ee/keys.rs` 的 6 条 v3-only 路由、`assembly.rs` 的 router merge、
+`synapse-e2ee/src/lib.rs` 与 `src/e2ee/mod.rs` 的再导出、`wiring/e2ee.rs` 与
+`routes/context.rs` 的字段、`e2ee_audit/audit_service.rs` 对 `DeviceTrustStorage` 的依赖
+（含 `mark_device_verified` / `mark_device_unverified`），以及 baseline 中 7 张表 + 6 条索引。
+
+**保留**：`key_rotation_log` 表与 `key_rotation` 模块（另有生产消费者）、`E2eeAuditStorage`、
+`CrossSigningVerificationService`（其 `is_verified` 只从**交叉签名**推导）、`/keys/query`、
+`/keys/signatures/upload`、`/keys/device_signing/upload`。
+
+### 23.2 前提的红证明
+
+重构的前提是"删掉旧面后，规范流程仍可用"。按铁律 8 先加测试、后删除：
+
+- `tests/integration/api_verification_relay_tests.rs::verification_to_device_events_are_relayed_verbatim`
+  —— 删除前后均 **PASS**：`PUT /sendToDevice/m.key.verification.start/{txn}` 的事件在
+  `/sync` 的 `to_device.events` 中原样出现（`sender` / `content` 逐字段相等）。
+- 同文件 `server_side_sas_endpoints_are_gone` —— 删除前 **FAIL**（旧 handler 返回 422
+  `missing field from_device` 而非 404，证明端点当时确实存活），删除后 **PASS**。
+
+### 23.3 连带发现的七个真实缺陷
+
+1. **测试容器 to-device 限额恒为 0**（**已修**）：`synapse-services/src/test_config.rs` 用
+   `ServerConfig::default()` 再 `..Default::default()`，而 `ServerConfig` 是
+   `#[derive(Default)]`（`#[serde(default = "...")]` 只在反序列化路径生效）⇒
+   `to_device_max_recipients = 0` / `to_device_max_payload_bytes = 0`，**任何**
+   `PUT /sendToDevice` 都必然 400 `M_BAD_JSON`。该缺陷此前从未被发现，因为没有任何测试
+   走过 to-device 路径。已在 `build_test_config()` 中显式给值。
+2. **X25519 无贡献性检查**（**随模块删除作废**）：`compute_shared_secret` 直接接受低阶点公钥
+   （RFC 7748 §6.1），共享密钥退化为全零，而该密钥发送方自己就能算出 ⇒ 配合调用方自选的
+   `peer_pubkey`，任何已认证用户都能在**无真实设备参与**下通过 `confirm_sas`。本轮曾加
+   `was_contributory()` 修复；随 `verification` 模块删除，该攻击面已不存在。
+3. **baseline 指纹守卫**（**已同步**）：删表改变了
+   `migrations/00000000_unified_schema_v12.sql` 的字节内容，须同步
+   `test_isolation_unification_tests::EXPECTED_BASELINE_FINGERPRINT`
+   （`a58420543eb97db2` → `e151e5956fb64914`，独立复算 FNV-1a 64 并先用旧值自检）。
+4. **`scripts/api_test/export_ledger.sh` 自 H-6 起恒失败**（**已修**）：脚本固定传
+   `--features server,core-private-chat,…`，而 `server` 特性已被 H-6 删除（注释原文：
+   "零 `#[cfg(feature = "server")]` 门控"，纯死标志）⇒ cargo 直接报
+   `the package 'synapse-rust' does not contain this feature: server`。
+   叠加第二个 bug：`PROFILE="${1:-default}"` 会把 `--output=X` 当成 profile，
+   于是 `--output=` 形式调用必然失败。两个 bug 使 README 里
+   "路由有增删时请重新执行 `./export_ledger.sh` 刷新 `ledger.json`" 这条路径
+   **自 2026-08 起无法执行** ⇒ `ledger.json` 冻结在 2026-08-12（1292 条，含本次删除的
+   全部端点），由它生成的 `docs/openapi/client.yaml` 同样过期（89 处已删端点）。
+   已修两处并重新导出（**1292 → 1096 条**）+ 重生成 `client.yaml`
+   （`gen_client_yaml.py --skip-export --check` 复验通过）。
+5. **`docs/openapi/route-table.json` 与 CI 口径不符（既有红）**（**已修**）：该产物的
+   CI 门禁（`.github/workflows/ci.yml` 的 `openapi-artifact` 作业）是"用
+   `cargo build --bin synapse_ledger_export`（**默认特性**）+ `--profile=default` 的
+   新鲜导出重新生成并逐字节比对"。HEAD 提交的是 **1146** 条，而同一构建在删面之前产
+   **1063** 条（证据：`tests/unit/fixtures/ledger_export/default.json` 由同一条装配路径
+   产出，HEAD 版恰为 1063）——差额 **83** 正是 feature-gated 模块（CAS / SAML /
+   ExternalServices / Voice…），即该文件当时被**全扩展导出**覆盖过。CI 只在 `main` 与
+   PR 触发，而本仓工作在 `opt/consolidated`，故该红从未被跑到。本次重生成后为 **1033** 条，
+   与新鲜导出逐字节一致（`gen_route_table.py --check --ledger <fresh>` 通过）。
+6. **`gen_contract_doc.py` 把两个派生表计数写死**（**已修**）：`ROUTE_CONTRACT.md` 那句
+   "这类孪生行正是派生表 **1168** 行去重为 **1166** 条"里的两个数是**硬编码**，而同一句
+   下一行的"当前共 N 条双档注册"是算出来的 ⇒ 路由面每增删一次，同文档的总览（动态）与这句
+   （写死）就背离。实测本轮开工时它已比真实值多 1（真实 1167 → 1165）。已改为从已解析的
+   `profile_rows` 求和 + `len(profiles_of)`，重生成后为 **1137 行去重为 1135 条**。
+7. **`scripts/test/api-integration_test.sh` 的 5 个 "Verification Routes" 用例自诞生起就是纸面门禁**
+   （**已删**）：第 78 节（用例 225–229）用 `curl -s … && pass … || skip …` 打
+   `/_matrix/client/v0/keys/request_verification` 与
+   `/_matrix/client/v0/keys/verification/request/{id}/{accept,complete,cancel}`。两个独立缺陷
+   叠加使它们**恒 `pass`**，而报告里一直以"通过"出现：
+   - **端点从未存在**：被删的服务端路由只有 **v1/v3 双 `nest`**（`verification_routes.rs`
+     的 `compat_router`），而用例写的是 **v0**。取证：`git grep -c "_matrix/client/v0" HEAD -- synapse-web/`
+     **零命中**，`git show HEAD:…/derived_route_table_always.inc.rs | grep -c "_matrix/client/v0/"`
+     也是 **0** ⇒ v0 形态在本仓历史上从未注册过。
+   - **退出码骗过了断言**：`curl -s` 对 HTTP **404 仍返回 0**，所以 `&& pass` 命中、`|| skip`
+     分支永远走不到。把二者叠加，这 5 行"测试"在任何时刻都不可能失败。
+
+   已整节删除并留说明注释。同批清理 `scripts/api_test/errcode_validator.py` 里 `/keys/qr_code`、
+   `/keys/verification` 两条**死规则** —— `_find_rule` 匹配不到会静默跳过（不报错），但会虚增
+   `total_rules`，并让人以为这两族端点仍在服务面上。
+
+### 23.4 与 §22 的关系
+
+§22.1（N-1/N-2 的 emoji / decimal 算法错）、§22.3（SAS 5 子项：info 已修 / 派生已修 /
+commitment 仍错 / emoji 仍错 / decimal 仍错）以及 §22.5 第 1 项，**均以"服务端存在 SAS 实现"
+为前提**。该前提已不成立：`synapse-e2ee/src/verification/` 已删除，故上述条目**全部作废**
+—— 不是"已修复"，而是"对象消失"。
+
+仍有效的相关遗留只有一个：**客户端接线**。`Tjg` 的 `CryptoDeviceAdapter.ts` 仍短路指向已删的
+`/device_verification/request`，本轮删除后该路径会返回 404；改用
+`m.key.verification.*` to-device 属**独立后续任务**，不在本次范围（本次仅服务端）。
+
+**跨仓 follow-up（本仓无法闭合）**：本轮刷新了两个被下游消费的契约产物 ——
+`docs/openapi/route-table.json`（1146 → 1033）与 `docs/openapi/client.yaml`
+（704 → 477 个 path）。`matrix-sdk-fork` 的 `src/__generated__/route-table.ts` 与任何按
+`client.yaml` 代码生成的调用方**都是过期产物**，须在那两个仓按各自生成器重跑；本仓的
+`gen_route_table.py --check` / `gen_client_yaml.py --check` 只保证**本仓内**的
+"提交的产物 == 可复现的产物"，管不到下游。
+
+### 23.5 门禁与派生产物同步
+
+删路由与删表触发以下派生产物重生成：`derived_route_table_*.inc.rs`、
+`docs/synapse-rust/ROUTE_CONTRACT.md`、`docs/openapi/route-table.json`、
+`docs/openapi/client.yaml`、`scripts/api_test/{ledger,handler_schemas,response_schemas}.json`、
+ledger fixtures（default 与 sdk 两条 lane）、`route_ledger_*.snapshot`。
+
+手工同步：两个 `api-integration_test.sh` 的已删端点用例、
+`check_schema_contract_coverage.py` 的 6 条 `TABLE_CONTRACTS`、`logical_checksum_tables.txt`
+与其生成器、`scripts/ci/` 的四份基线（`coverage_baseline.json` /
+`ts_order_single_key_baseline` / `sqlx_literal_production_baseline` /
+`sqlx_dynamic_ratio_baseline` 的注释）、`db-migration-gate.yml` 的历史说明注释、
+`doc_credibility_guard_tests` 守卫的文档计数，以及上文的 baseline 指纹常量。
+
+其中三件派生物**不只是刷新**，还修掉了既有缺陷（见 §23.3 第 4/5 项与 §23 开头的分类偏差）：
+
+- `scripts/api_test/export_ledger.sh`：修 `server` 死特性 + `$1` 抢占 profile 两个 bug；
+- `scripts/api_test/ledger.json`（**1292 → 1096**）与 `docs/openapi/client.yaml`：随脚本修复首次真正刷新；
+- `docs/openapi/route-table.json`（**1146 → 1033**）：首次与 CI 的"默认特性新鲜导出"口径对齐。
+
+文书口径同步：`docs/synapse-rust/ROUTE_CONTRACT.md`（**1165 → 1135 条 / 66 → 65 模块**）、
+`docs/synapse-rust/API_COVERAGE_REPORT.md`（v1.6，三口径 **1135 / 903 / 795**，并修正 Client
+分类表"打印的配方复现不出打印的表"的 ±5 归类偏差）、
+`docs/synapse-rust-vs-synapse-comparison.md`（v1.8，另把 §7.2/§11.1/§14 各处仍写着"E2EE SAS
+仍 4 处偏离规范 / QR 为桩"的**旧结论逐条标注作废**，并把两条已删模块路径按守卫的
+`HISTORICAL_NEGATIVE_MENTIONS` 白名单显式登记）。
+
+**基线卫生（同批顺手清掉的死条目，两类都不报错）**：
+
+- `scripts/ci/coverage_baseline.json`：6 条 `path` 指向已删文件（3 条 `device_trust/*`、
+  2 条 `verification/*`、1 条 `routes/verification_routes.rs`）。不报错的原因是棘轮里
+  `if cur is None: continue` —— 基线有、lcov 报告没有的路径会被静默跳过。
+- `scripts/ci/sqlx_literal_production_baseline`：2 行。一行是同一批删除的
+  `verification/storage.rs`（8 处）；另一行 `rendezvous.rs`（16 处）**与本批无关** —— 该文件
+  早已全部改用 `sqlx::query!` / `query_as!` **宏**，而生成命令用的 `DYNAMIC_RE` 按定义
+  排除 `!` 形态（`scripts/ci/sqlx_query_census.py:57-61`），故这一行是 C 系列静态化之后
+  **忘了下调**的历史松弛值，实测恒为 0。字面量棘轮只遍历**实测**站点，所以死行既不报错也不生效。
+- 同批给上述生成命令补上 **`LC_ALL=C sort`**：默认 locale 下 `_` 与 `/` 的次序不同，同一份
+  实测表会出现两种行序（实测 `room/models.rs` 与 `room_account_data.rs` 互换），在逐行
+  diff 里会伪装成"抽取器漂移"。
+- 清理后两张表都与重跑的实测**逐行一致**（字面量 **534 处 / 79 文件**）。

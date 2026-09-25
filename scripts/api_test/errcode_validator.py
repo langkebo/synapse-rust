@@ -299,8 +299,10 @@ _RULES: list[tuple[str, set[str], set[str]]] = [
             "M_UIA_REQUIRED",
         },
     ),
-    ("/keys/qr_code", {"GET", "POST"}, _BASE_AUTH),
-    ("/keys/verification", {"POST"}, _BASE_AUTH),
+    # `/keys/qr_code/*` 与 `/keys/verification/*` 的规则已于 2026-09-25 删除：
+    # 这两族端点是「服务端参与 SAS」的产物，随去服务端私钥重构整模块移除。
+    # 留着死规则不会报错（`_find_rule` 匹配不到就静默跳过），但会在报告里虚增
+    # `total_rules`，并让人以为这两族端点仍在服务面上。
     ("/keys/rotation", {"GET", "POST", "PUT"}, _BASE_AUTH),
     ("/keys/backup", {"GET", "POST"}, _BASE_AUTH | {"M_NOT_FOUND"}),
     # ---- 房间 GET (rooms/{room_id}/...) — 不存在的房间返回 M_NOT_FOUND ----
@@ -344,9 +346,6 @@ _RULES: list[tuple[str, set[str], set[str]]] = [
     ("/friendships", {"GET", "POST"}, _BASE_AUTH),
     ("/friends", {"GET", "POST"}, _BASE_AUTH | {"M_NOT_FOUND"}),
     ("/appservice", {"GET"}, _BASE_AUTH),
-    ("/device_trust", {"GET"}, _BASE_AUTH | {"M_NOT_FOUND"}),
-    ("/device_verification", {"POST"}, _BASE_AUTH),
-    ("/security/summary", {"GET"}, _BASE_AUTH),
     ("/translate", {"POST"}, _BASE_AUTH),
     ("/widgets", {"POST"}, _BASE_AUTH),
     ("/external_services", {"GET"}, _BASE_AUTH),
@@ -367,9 +366,8 @@ _RULES: list[tuple[str, set[str], set[str]]] = [
     # ---- 目录查询 (directory/) ----
     ("/directory/list/room/", {"GET"}, _BASE_AUTH | {"M_NOT_FOUND"}),
     ("/directory/room/", {"GET"}, _BASE_AUTH | {"M_NOT_FOUND", "M_BAD_ALIAS"}),
-    # ---- 设备 / device trust ----
+    # ---- 设备 ----
     ("/devices/", {"GET"}, _BASE_AUTH | {"M_NOT_FOUND"}),
-    ("/device_trust/", {"GET"}, _BASE_AUTH | {"M_NOT_FOUND"}),
     # ---- friends (HuLa extended) ----
     # ---- 房间级 (rooms/{room_id}/...) ----
     # GET /rooms/{room_id}/... 返回 M_NOT_FOUND 当 room 不存在是合法行为

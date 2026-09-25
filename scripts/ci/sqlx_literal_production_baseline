@@ -16,7 +16,7 @@
 # ⚠️ 为什么基线是 876 而不是 0：C1–C10 只静态化了计划表点名的模块，
 # 其余生产模块（friend_room / module / sliding_sync / registration_token /
 # media_quota / cas / event_report / beacon / threepid / push_notification /
-# background_update / admin_federation / E2EE key_rotation·backup·device_trust·olm
+# background_update / admin_federation / E2EE key_rotation·backup·olm
 # …）**从未进入迁移范围**，其生产动态调用仍是字面量形态。逐条消除它们属于
 # C11+ 的工作量（876 处 / 98 文件），不在 Phase D（结构性收敛）范围内。
 # 另外 `synapse-common/src/test_isolation.rs`（9）、
@@ -26,7 +26,10 @@
 #
 # 生成命令（唯一实现，勿手工编辑计数）：
 #   python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
-#     | grep ':literal$' | cut -d: -f1 | sort | uniq -c | awk '{print $2"\t"$1}' | sort
+#     | grep ':literal$' | cut -d: -f1 | LC_ALL=C sort | uniq -c | awk '{print $2"\t"$1}' | LC_ALL=C sort
+# ⚠️ 两处 `LC_ALL=C` 是必须的、不是装饰：默认 locale 下 `_` 与 `/` 的次序不同，同一份
+#   实测表会得到两种排序（实测：`room/models.rs` 与 `room_account_data.rs` 互换位置）。
+#   逐行 diff 时那会伪装成"内容漂移"，让人以为抽取器变了。
 #
 # ── 2026-09-25 C19a 后重新收紧：literal 实测 593 处 / 83 文件，runtime 83 处 / 15 文件 ──
 # ── 2026-09-25 C19b 收紧（`backup/storage.rs` 18 处全部宏化）────────────────────
@@ -34,6 +37,19 @@
 #   （本批未新增运行期拼装）。唯一变化是删掉
 #   `synapse-e2ee/src/backup/storage.rs  18`；其余行用文件头部的生成命令重跑后逐行复核，
 #   无其它漂移（对照 `/tmp` 生成表；macro 侧见 sqlx_dynamic_ratio_baseline 的 C19b 段）。
+#
+# ── 2026-09-25 E2EE 去服务端私钥重构（本批）：literal 575 → **534** 处 / 82 → **79** 文件 ──
+#   同比 runtime 侧见 sqlx_dynamic_ratio_baseline 的同日段。−41 处 / −3 文件**逐条归因**：
+#     · `synapse-e2ee/src/device_trust/storage.rs`  **17 处** —— 该模块整模块删除（−1 文件）
+#     · `synapse-e2ee/src/verification/storage.rs`   **8 处** —— 同上（−1 文件）
+#     · `synapse-storage/src/rendezvous.rs`         **16 处** —— ⚠️ **不是本批删除的**：
+#       该文件早已全部改用 `sqlx::query!` / `query_as!` **宏**（`grep -c 'sqlx::query'` = 16，
+#       但本表的生成命令走 `DYNAMIC_RE`，它按定义**排除 `!` 形态**，见
+#       `scripts/ci/sqlx_query_census.py:57-61`）。这一行是 C 系列静态化之后**忘了下调**的
+#       历史松弛值，实测恒为 0；本批按"实测 < 基线 ⇒ 同批下调到实测值"的口径一并清掉，
+#       顺带把 16 处幻影豁免从棘轮里去掉（清掉是**更严**，不是放宽）。
+#   ⚠️ 上两行是**真删除**、本行是**纠错**：若把三者混为一谈，下次有人重跑生成命令时会
+#   以为"基线又漂了 16"，从而怀疑抽取器。其余 79 行用表头生成命令重跑后逐行复核，无其它漂移。
 src/server/database.rs	1
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
@@ -42,7 +58,6 @@ synapse-common/src/test_schema_guard.rs	2
 synapse-common/src/transaction.rs	3
 synapse-e2ee/src/backup/service.rs	5
 synapse-e2ee/src/cross_signing/storage.rs	13
-synapse-e2ee/src/device_trust/storage.rs	17
 synapse-e2ee/src/key_request/storage.rs	9
 synapse-e2ee/src/megolm/storage.rs	10
 synapse-e2ee/src/olm/storage.rs	16
@@ -50,7 +65,6 @@ synapse-e2ee/src/secure_backup/service.rs	10
 synapse-e2ee/src/signature/storage.rs	3
 synapse-e2ee/src/ssss/storage.rs	10
 synapse-e2ee/src/to_device/storage.rs	12
-synapse-e2ee/src/verification/storage.rs	8
 synapse-federation/src/dead_letter_queue.rs	3
 synapse-federation/src/device_sync.rs	3
 synapse-federation/src/event_broadcaster.rs	8
@@ -101,7 +115,6 @@ synapse-storage/src/push/mod.rs	11
 synapse-storage/src/qr_login.rs	5
 synapse-storage/src/rate_limit.rs	3
 synapse-storage/src/relations/mod.rs	11
-synapse-storage/src/rendezvous.rs	16
 synapse-storage/src/retention.rs	12
 synapse-storage/src/room/models.rs	1
 synapse-storage/src/room_account_data.rs	7

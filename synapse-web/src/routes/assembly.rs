@@ -246,7 +246,6 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_e2ee_router(state.clone()))
         .merge(create_key_backup_router(state.clone()))
         .merge(create_key_rotation_router(state.clone()))
-        .merge(create_verification_router(state.clone()))
         .merge(create_relations_router(state.clone()))
         .merge(create_reactions_router(state.clone()))
         .merge(create_admin_module_router(state.clone()))

@@ -167,18 +167,23 @@ fn run_python(script: &Path, args: &[&str]) {
 /// bytes below (AGENTS.md iron law 8). The `--check` red path is exercised too,
 /// so the mechanism is proven rather than declared.
 ///
-/// Measured 2026-09-19 with the exact CI commands (`cargo build --bin
+/// Measured 2026-09-25 with the exact CI commands (`cargo build --bin
 /// synapse_ledger_export`, i.e. the crate's default features):
 ///
-/// - committed `docs/openapi/route-table.json` — **1049** routes (it was 1047
-///   before this deliberate E8 regeneration; `generated_at` unchanged);
-/// - the CI export (`--profile=default`, fixed timestamp) — **1049** routes,
+/// - committed `docs/openapi/route-table.json` — **1033** routes. The file had
+///   drifted to **1146**, which no default-feature export could reproduce: the
+///   delta was exactly the 83 feature-gated routes the comment below warns
+///   about, i.e. an all-extensions export had been committed. Since CI only
+///   triggers on `main`/PRs (this work happens on `opt/consolidated`), that red
+///   was latent. The 2026-09-25 regeneration restored the CI contract;
+/// - the CI export (`--profile=default`, fixed timestamp) — **1033** routes,
 ///   byte-matching the committed artifact;
-/// - an all-extensions build with `--profile=default` — **1132** routes: the
+/// - an all-extensions build with `--profile=default` — **1116** routes: the
 ///   extra 83 are feature-gated modules that must not appear in the default
 ///   artifact, which is why the gate is fed from a default-feature build;
-/// - `scripts/api_test/ledger.json` is a stale 2026-08-12 input yielding 1292
-///   and is deliberately **not** the route-table gate's source.
+/// - `scripts/api_test/ledger.json` uses the Docker feature set (1096 routes as
+///   of 2026-09-25, when `export_ledger.sh` was unbroken) and is deliberately
+///   **not** the route-table gate's source.
 #[test]
 fn test_route_table_generator_is_deterministic_and_shape_pinned() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));

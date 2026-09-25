@@ -1,5 +1,5 @@
 fn all_derived_always_rows() -> Vec<DerivedRoute> {
-    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1146);
+    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1116);
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/", "assembly::create_router");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
@@ -601,72 +601,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(
-            axum::http::Method::GET,
-            "/_matrix/client/v1/keys/device_signing/requests",
-            "verification_routes",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
         let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v1/keys/device_signing/upload", "e2ee");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::PUT,
-            "/_matrix/client/v1/keys/device_signing/verify_accept",
-            "verification_routes",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v1/keys/device_signing/verify_cancel",
-            "verification_routes",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v1/keys/device_signing/verify_done",
-            "verification_routes",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v1/keys/device_signing/verify_key_agreement",
-            "verification_routes",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v1/keys/device_signing/verify_mac",
-            "verification_routes",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v1/keys/device_signing/verify_start",
-            "verification_routes",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e =
-            RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v1/keys/qr_code/scan", "verification_routes");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/keys/qr_code/show", "verification_routes");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -727,30 +662,6 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v1/keys/upload/{device_id}", "e2ee");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v1/keys/verification/request",
-            "verification_routes",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::GET,
-            "/_matrix/client/v1/keys/verification/{transaction_id}",
-            "verification_routes",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v1/keys/verification/{transaction_id}/cancel",
-            "verification_routes",
-        );
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -1758,27 +1669,6 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/device_trust", "e2ee");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/device_trust/{device_id}", "e2ee");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v3/device_verification/request", "e2ee");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v3/device_verification/respond", "e2ee");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e =
-            RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/device_verification/status/{token}", "e2ee");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
         let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/devices", "device");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
@@ -1972,76 +1862,11 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(
-            axum::http::Method::GET,
-            "/_matrix/client/v3/keys/device_signing/requests",
-            "verification_routes",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
         let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v3/keys/device_signing/upload", "e2ee");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(
-            axum::http::Method::PUT,
-            "/_matrix/client/v3/keys/device_signing/verify_accept",
-            "verification_routes",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v3/keys/device_signing/verify_cancel",
-            "verification_routes",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v3/keys/device_signing/verify_done",
-            "verification_routes",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v3/keys/device_signing/verify_key_agreement",
-            "verification_routes",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v3/keys/device_signing/verify_mac",
-            "verification_routes",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v3/keys/device_signing/verify_start",
-            "verification_routes",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
         let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/keys/history", "e2ee");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e =
-            RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v3/keys/qr_code/scan", "verification_routes");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/keys/qr_code/show", "verification_routes");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -2062,30 +1887,6 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v3/keys/upload/{device_id}", "e2ee");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v3/keys/verification/request",
-            "verification_routes",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::GET,
-            "/_matrix/client/v3/keys/verification/{transaction_id}",
-            "verification_routes",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v3/keys/verification/{transaction_id}/cancel",
-            "verification_routes",
-        );
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -3365,10 +3166,6 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v3/search_rooms", "search");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/security/summary", "e2ee");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {

@@ -1,4 +1,4 @@
-//! E2EE assembly — device keys, cross-signing, megolm, backup, verification.
+//! E2EE assembly — device keys, cross-signing, megolm, backup, to-device.
 //!
 //! ARCH-07/08 (2026-08-10): The `to_device_storage` field is "backing
 //! storage" — it is constructed here, injected into `to_device_service` and
@@ -17,7 +17,6 @@ use synapse_e2ee::key_request::KeyRequestService;
 use synapse_e2ee::megolm::MegolmProvider;
 use synapse_e2ee::ssss::SecretStorageService;
 use synapse_e2ee::to_device::ToDeviceService;
-use synapse_e2ee::verification::VerificationService;
 use synapse_storage::UserStore;
 
 /// The `E2eeServices` struct.
@@ -41,10 +40,6 @@ pub struct E2eeServices {
     pub secure_backup_service: synapse_e2ee::secure_backup::SecureBackupService,
     /// The `to_device_service` field.
     pub to_device_service: ToDeviceService,
-    /// The `verification_service` field.
-    pub verification_service: VerificationService,
-    /// The `device_trust_service` field.
-    pub device_trust_service: synapse_e2ee::device_trust::DeviceTrustService,
     /// The `to_device_storage` field.
     pub to_device_storage: synapse_e2ee::to_device::ToDeviceStorage,
 }
@@ -112,17 +107,6 @@ impl E2eeServices {
             as std::sync::Arc<dyn synapse_e2ee::to_device::ToDeviceStorageApi>)
         .with_user_storage(user_storage.clone());
 
-        let verification_storage = synapse_e2ee::verification::VerificationStorage::new(pool);
-        let verification_service = VerificationService::new(std::sync::Arc::new(verification_storage));
-
-        let device_trust_storage = synapse_e2ee::device_trust::DeviceTrustStorage::new(pool);
-        let device_trust_service = synapse_e2ee::device_trust::DeviceTrustService::new(
-            std::sync::Arc::new(device_trust_storage),
-            std::sync::Arc::new(verification_service.clone()),
-            std::sync::Arc::new(cross_signing_service.clone()),
-            std::sync::Arc::new(device_keys_service.clone()),
-        );
-
         Ok(Self {
             device_keys_service,
             key_request_service,
@@ -133,8 +117,6 @@ impl E2eeServices {
             dehydrated_device_service,
             secure_backup_service,
             to_device_service,
-            verification_service,
-            device_trust_service,
             to_device_storage,
         })
     }

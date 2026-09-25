@@ -855,7 +855,7 @@
 #   dynamic            1686 → 1660
 #   本轮门禁实测值与上表一致（并发写者未新增生产动态 SQL）。
 # 收紧方向：C11（synapse-common/src/test_isolation.rs）与 E2EE 其余存储模块
-# （device_trust 17 / key_rotation 18 / backup 18 处动态）继续分批静态化，
+# （key_rotation 18 / backup 18 处动态）继续分批静态化，
 # 直至 dynamic_production = 0。
 # ── 2026-09-23 S1–S3 worker statistics producer（生产 0，静态 +1，测试 +6）────
 #

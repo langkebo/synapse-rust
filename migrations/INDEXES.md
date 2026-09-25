@@ -78,8 +78,6 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | megolm_sessions | idx_megolm_sessions_pickle_format | pickle_format | pickle_format = 'legacy' | 查找旧格式 Megolm 会话（懒迁移） |
 | olm_sessions | idx_olm_sessions_expires | expires_at | expires_at IS NOT NULL | 查找有过期时间的 Olm 会话 |
 | e2ee_key_requests | idx_e2ee_key_requests_pending | is_fulfilled | is_fulfilled = FALSE | 查找未完成的密钥请求 |
-| device_verification_request | idx_device_verification_request_user_device_pending | user_id, new_device_id | status = 'pending' | 查找待处理的设备验证请求 |
-| device_verification_request | idx_device_verification_request_expires_pending | expires_at | status = 'pending' | 查找待处理且有过期时间的验证请求 |
 | one_time_keys | idx_one_time_keys_used | is_used | is_used = FALSE | 查找未使用的 OTK |
 | dehydrated_devices | idx_dehydrated_devices_expires | expires_at | expires_at IS NOT NULL | 查找有过期时间的脱水设备 |
 | leak_alerts | idx_leak_alerts_acknowledged | is_acknowledged | is_acknowledged = FALSE | 查找未确认的泄露告警 |
@@ -160,13 +158,9 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | device_keys | idx_device_keys_user_device | user_id, device_id | 否 | 按用户和设备查找密钥 |
 | device_signatures | idx_device_signatures_user_device | user_id, device_id | 否 | 设备签名按用户+设备查（P1 审计新增） |
 | device_signatures | idx_device_signatures_target | target_user_id, target_device_id | 否 | 设备签名按目标用户+设备查（P1 审计新增） |
-| device_trust_status | idx_device_trust_status_user_level | user_id, trust_level | 否 | 按用户和信任级别查询 |
-| cross_signing_trust | idx_cross_signing_trust_user_trusted | user_id, is_trusted | 否 | 按用户和信任状态查询 |
 | key_signatures | idx_key_signatures_target | target_user_id, target_key_id | 否 | 按目标用户和密钥 ID 查询签名 |
 | key_rotation_log | idx_key_rotation_log_user_rotated | user_id, rotated_at DESC | 否 | 按用户和轮换时间查询日志 |
-| verification_requests | idx_verification_requests_to_user_state | to_user, state, updated_ts DESC | 否 | 按目标用户和状态查询验证请求 |
 | olm_sessions | idx_olm_sessions_user_device | user_id, device_id | 否 | 按用户和设备查找 Olm 会话 |
-| device_verification_request | idx_device_verification_request_user_device_pending | user_id, new_device_id | 否 | 按用户和设备查找待处理验证（Partial） |
 | one_time_keys | idx_one_time_keys_user_device | user_id, device_id | 否 | 按用户和设备查找 OTK |
 | e2ee_audit_log | idx_e2ee_audit_log_user_created | user_id, created_ts DESC | 否 | 按用户和时间查询审计日志 |
 | e2ee_stored_secrets | idx_e2ee_stored_secrets_user_name | user_id, secret_name | UNIQUE | 存储密钥唯一约束 |

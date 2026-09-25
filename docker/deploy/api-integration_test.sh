@@ -6337,67 +6337,6 @@ http_json PUT "$SERVER_URL/_matrix/client/r0/sendToDevice/m.room_key_request/txn
 assert_success_json "SendToDevice r0" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
-echo "478. Device Trust"
-http_json GET "$SERVER_URL/_matrix/client/v3/device_trust" "$TOKEN"
-assert_success_json "Device Trust" "$HTTP_BODY" "$HTTP_STATUS" "devices"
-TRUST_DEVICE_ID=$(printf '%s' "$HTTP_BODY" | python3 -c 'import json,sys; d=json.load(sys.stdin); devs=d.get("devices") or []; print((devs[0].get("device_id") if devs else ""))' 2>/dev/null)
-if [ -z "$TRUST_DEVICE_ID" ]; then
-    TRUST_DEVICE_ID="$DEVICE_ID"
-fi
-
-echo ""
-echo "479. Device Trust by ID"
-if [ -n "$TRUST_DEVICE_ID" ]; then
-    http_json GET "$SERVER_URL/_matrix/client/v3/device_trust/$TRUST_DEVICE_ID" "$TOKEN"
-    if [[ "$HTTP_STATUS" == 2* ]]; then
-        assert_success_json "Device Trust by ID" "$HTTP_BODY" "$HTTP_STATUS"
-    else
-        err=$(json_err_summary "$HTTP_BODY")
-        if [[ "$HTTP_STATUS" == "404" ]] && echo "$err" | grep -q "M_NOT_FOUND"; then
-            pass "Device Trust by ID" "${err:-HTTP 404}"
-        else
-            fail "Device Trust by ID" "${err:-HTTP $HTTP_STATUS}"
-        fi
-    fi
-else
-    skip "Device Trust by ID" "no device_id"
-fi
-
-echo ""
-echo "480. Device Verification Request"
-if [ -n "$SECOND_DEVICE_ID" ]; then
-    http_json POST "$SERVER_URL/_matrix/client/v3/device_verification/request" "$TOKEN" "{\"new_device_id\": \"$SECOND_DEVICE_ID\", \"method\": \"sas\"}"
-    if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "request_token" "status"; then
-        pass "Device Verification Request"
-        VERIFICATION_REQUEST_TOKEN=$(json_get "$HTTP_BODY" "request_token")
-    else
-        fail "Device Verification Request" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
-        VERIFICATION_REQUEST_TOKEN=""
-    fi
-else
-    skip "Device Verification Request" "no second device"
-    VERIFICATION_REQUEST_TOKEN=""
-fi
-
-echo ""
-echo "481. Device Verification Respond"
-if [ -n "$VERIFICATION_REQUEST_TOKEN" ]; then
-    http_json POST "$SERVER_URL/_matrix/client/v3/device_verification/respond" "$TOKEN" "{\"request_token\": \"$VERIFICATION_REQUEST_TOKEN\", \"approved\": true}"
-    assert_success_json "Device Verification Respond" "$HTTP_BODY" "$HTTP_STATUS" "success"
-else
-    skip "Device Verification Respond" "no request_token"
-fi
-
-echo ""
-echo "482. Device Verification Status"
-if [ -n "$VERIFICATION_REQUEST_TOKEN" ]; then
-    http_json GET "$SERVER_URL/_matrix/client/v3/device_verification/status/$VERIFICATION_REQUEST_TOKEN" "$TOKEN"
-    assert_success_json "Device Verification Status" "$HTTP_BODY" "$HTTP_STATUS" "status"
-else
-    skip "Device Verification Status" "no request_token"
-fi
-
-echo ""
 echo "483. Keys Backup Secure"
 # 服务器已移除 passphrase 模式；改用 algorithm + auth_data (m.megolm_backup.v1)
 http_json POST "$SERVER_URL/_matrix/client/v3/keys/backup/secure" "$TOKEN" '{"algorithm": "m.megolm_backup.v1", "auth_data": {"public_key": "AAAAbase64EncodedPubKeyPlaceholderForTest"}}'
@@ -6502,12 +6441,6 @@ if [ -n "$ROOM_ID" ]; then
 else
     skip "Room Keys Distribution v3" "no room id"
 fi
-
-echo ""
-echo "495. Security Summary"
-http_json GET "$SERVER_URL/_matrix/client/v3/security/summary" "$TOKEN"
-assert_success_json "Security Summary" "$HTTP_BODY" "$HTTP_STATUS"
-
 echo ""
 echo "496. SendToDevice v3"
 http_json PUT "$SERVER_URL/_matrix/client/v3/sendToDevice/m.room_key_request/txn_test" "$TOKEN" '{"messages": {}}'

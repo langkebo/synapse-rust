@@ -68,8 +68,8 @@ python3 scripts/api_test/generate_openapi.py --all-profiles
 
 ## Auth 推断策略 (Week 1 Task 2)
 
-`ledger.json` 中仅 1/898 端点有 `auth` 字段标记。
-其余 897 个通过 **启发式规则** 自动补全:
+`ledger.json` 中仅 1/1096 端点有 `auth` 字段标记。
+其余 1095 个通过 **启发式规则** 自动补全:
 
 | 规则 | 推断结果 |
 | --- | --- |
