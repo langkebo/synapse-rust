@@ -71,11 +71,55 @@ pub async fn scan_when_enabled(
     content_type: ContentType,
 ) -> Result<(), ApiError> {
     if !scanner.is_enabled() {
-        metrics.inc_counter("content_scan_skipped_total");
+        skip_scan(metrics);
         return Ok(());
     }
 
-    let verdict = match scanner.scan_media(content_id, data, content_type).await {
+    apply_scan_outcome(metrics, scanner.scan_media(content_id, data, content_type).await)
+}
+
+/// Scan an `m.room.message` body **when the scanner is enabled**, then enforce
+/// the verdict.
+///
+/// This is the text counterpart of [`scan_when_enabled`], and it exists for the
+/// same reason: the room-message path used to call
+/// `ContentScanner::scan_text(..).await?` directly, which propagated
+/// `M_CONTENT_SCAN_DISABLED` (501) whenever scanning was off.  Since
+/// `enabled: false` is the shipped default (`docker/config/homeserver.yaml`),
+/// that made **every message send fail with 501** in the default
+/// configuration — the send path now shares the exact policy the upload path
+/// uses instead of deciding for itself.
+pub async fn scan_text_when_enabled(
+    scanner: &ContentScanner,
+    metrics: &MetricsCollector,
+    content_id: &str,
+    text: &str,
+) -> Result<(), ApiError> {
+    if !scanner.is_enabled() {
+        skip_scan(metrics);
+        return Ok(());
+    }
+
+    apply_scan_outcome(metrics, scanner.scan_text(content_id, text).await)
+}
+
+/// Record the "no filtering configured" outcome (disabled scanner).
+fn skip_scan(metrics: &MetricsCollector) {
+    metrics.inc_counter("content_scan_skipped_total");
+}
+
+/// The single place that turns a scan outcome into an HTTP result and counters.
+///
+/// Three states, and the boundary must not conflate them:
+/// * `Err(error)` — the scanner could not answer (unreachable, timeout,
+///   unparsable reply) ⇒ propagate (fail-closed per `block_on_scan_failure`);
+/// * `Ok(safe: false)` ⇒ [`enforce_scan_verdict`] refuses the content;
+/// * `Ok(safe: true)` ⇒ allow, counted.
+fn apply_scan_outcome(
+    metrics: &MetricsCollector,
+    outcome: Result<ContentScanResult, ApiError>,
+) -> Result<(), ApiError> {
+    let verdict = match outcome {
         Ok(verdict) => verdict,
         Err(error) => {
             // A scanner that cannot answer is not "clean": count it separately

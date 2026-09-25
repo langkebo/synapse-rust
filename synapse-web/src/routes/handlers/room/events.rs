@@ -301,9 +301,25 @@ pub(crate) async fn send_message(
                 body["formatted_body"] = serde_json::Value::String(cleaned);
             }
         }
-        // MSC3806: scan text content of room messages — fail-closed.
+        // MSC3806: scan the message body **when scanning is configured**.
+        //
+        // The policy (disabled ⇒ pass-through, scanner unreachable ⇒ fail-closed,
+        // `safe: false` ⇒ 403) lives in exactly one place,
+        // `content_scanner::scan_text_when_enabled`, the same way the media
+        // upload path uses `scan_when_enabled`.  Calling
+        // `ctx.content_scanner.scan_text(..).await?` directly here propagated
+        // `M_CONTENT_SCAN_DISABLED` (501) whenever scanning was off — and since
+        // `content_scanner.enabled: false` is the shipped default
+        // (`docker/config/homeserver.yaml`), that made **every** `m.room.message`
+        // send fail with 501 in the default configuration.
         let text = body.get("body").and_then(|v| v.as_str()).unwrap_or("");
-        ctx.content_scanner.scan_text(&format!("msg:{}:{}", room_id, auth_user.user_id), text).await?;
+        synapse_services::content_scanner::scan_text_when_enabled(
+            ctx.content_scanner.as_ref(),
+            ctx.metrics.as_ref(),
+            &format!("msg:{}:{}", room_id, auth_user.user_id),
+            text,
+        )
+        .await?;
     }
 
     // MSC4140: If the body contains `org.matrix.msc4140.delay`, schedule the

@@ -612,3 +612,55 @@ async fn test_scanner_is_invoked_for_each_message() {
     let count = SCAN_COUNT.load(Ordering::SeqCst);
     assert_eq!(count, 3, "Scanner should be invoked for each m.room.message");
 }
+
+/// Regression guard for a **shipped-default P0** (2026-09-26): the room-message
+/// path called `ContentScanner::scan_text(..).await?` directly, so with the
+/// default configuration (`content_scanner.enabled: false`, as set explicitly
+/// in `docker/config/homeserver.yaml`) `scan()` returned
+/// `M_CONTENT_SCAN_DISABLED` and **every** `m.room.message` send answered 501.
+/// The send path now shares the upload path's policy
+/// (`scan_text_when_enabled`), whose disabled branch is a pass-through.
+///
+/// The test asserts the disabled precondition explicitly, so it cannot silently
+/// start passing because scanning became enabled in the test fixtures.
+#[tokio::test]
+async fn message_send_succeeds_while_scanner_is_disabled() {
+    let Some((app, state)) = super::setup_fresh_test_app_with_state().await else {
+        return;
+    };
+    assert!(
+        !state.services.core.content_scanner.is_enabled(),
+        "this test must run with scanning disabled — that is the shipped default"
+    );
+
+    let token = register_user(&app, &format!("scan_disabled_send_{}", rand::random::<u32>())).await;
+
+    let create_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/createRoom")
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "name": "scanner-disabled" }).to_string()))
+        .unwrap();
+    let create_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), create_request).await.unwrap();
+    assert_eq!(create_response.status(), StatusCode::OK, "createRoom must succeed");
+    let body = axum::body::to_bytes(create_response.into_body(), 4096).await.unwrap();
+    let create_json: Value = serde_json::from_slice(&body).unwrap();
+    let room_id = create_json["room_id"].as_str().expect("createRoom must return room_id").to_string();
+
+    let txn = format!("txn-{}", rand::random::<u32>());
+    let send_request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/send/m.room.message/{txn}"))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "msgtype": "m.text", "body": "hello" }).to_string()))
+        .unwrap();
+    let send_response = ServiceExt::<Request<Body>>::oneshot(app, send_request).await.unwrap();
+
+    assert_eq!(
+        send_response.status(),
+        StatusCode::OK,
+        "a disabled scanner must not block message sends (this used to answer 501 M_CONTENT_SCAN_DISABLED)"
+    );
+}
