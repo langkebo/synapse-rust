@@ -716,6 +716,8 @@ git diff --cached --stat && git commit -m "fix(federation): persist local event 
 > 接线两处非成员入站路径：`/_matrix/federation/v1/send`（`transaction.rs`）与
 > backfill（`services/room/backfill.rs`），各自在落库成功后从收到的 PDU 提取并持久化**源服务器**的
 > 签名/哈希 —— 此前只有本机签名，转发时对端会因缺少发送方签名而拒绝。
+> 变异自证：删掉 `sha256` 非空校验 ⇒ 该用例转红；删掉"签名对象非空"校验 ⇒ 亦转红；
+> 两次还原后 sha256 与原文一致。
 > 证据：`signature_material` 单测（6 组不可用组合）、
 > `inbound_pdu_signature_material_round_trips` DB 测试（落库 → 提取 → 持久化 → 读回，
 > 从 `get_state_event` 拿到同一对，并再次通过谓词校验）、`federation_state_pdu` 9/9。
