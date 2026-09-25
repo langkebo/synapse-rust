@@ -169,6 +169,22 @@ pub struct UpdateUsageRequest {
     pub operation: String,
 }
 
+/// Why an upload was refused, **as a type**.
+///
+/// The HTTP layer picks the errcode per reason; keeping it a typed field means
+/// a new refusal path cannot silently fall back to a generic 400 by forgetting
+/// to name its reason (string-matching the human message was the old, fragile
+/// way). See `docs/audit/REMAINING_ISSUES_VERIFICATION_AND_OPTIMIZATION_PLAN_2026-09-25.md` §6.4.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QuotaRejection {
+    /// A single file exceeds the per-file cap ⇒ `M_TOO_LARGE` (413).
+    FileTooLarge,
+    /// The write would exceed an aggregate allowance (user or server) ⇒
+    /// `M_RESOURCE_LIMIT_EXCEEDED` (403).
+    StorageExceeded,
+}
+
 /// The `QuotaCheckResult` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuotaCheckResult {
@@ -183,4 +199,7 @@ pub struct QuotaCheckResult {
     pub quota_limit: i64,
     /// The `usage_percent` field.
     pub usage_percent: f64,
+    /// Why this result refuses the upload. `None` iff `is_allowed`.
+    #[serde(default)]
+    pub rejection: Option<QuotaRejection>,
 }

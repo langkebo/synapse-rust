@@ -18,6 +18,7 @@ use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::random_string;
 use synapse_common::ApiError;
+use synapse_storage::media_quota::{QuotaCheckResult, QuotaRejection};
 
 /// The `MediaFinalizationResponse` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,6 +83,27 @@ pub struct MediaDomainService {
     chunked_upload_service: Arc<chunked_upload::ChunkedUploadService>,
     quarantine_change_storage: Option<Arc<dyn synapse_storage::media::QuarantinedMediaChangeStoreApi>>,
     cache_invalidation: Option<Arc<synapse_cache::invalidation::CacheInvalidationManager>>,
+}
+
+/// Map a refused quota check to the errcode the spec prescribes for that reason.
+///
+/// - a single file over the per-file cap ⇒ `M_TOO_LARGE` (413): the request body
+///   is too large, which is exactly what upstream Synapse's `max_upload_size`
+///   enforces;
+/// - an aggregate allowance (user quota, server storage) ⇒
+///   `M_RESOURCE_LIMIT_EXCEEDED` (403): a resource limit, not malformed input.
+///
+/// `M_USER_LIMIT_EXCEEDED` is deliberately **not** used: this repo registers it
+/// as MSC4335's *user account count* limit (`synapse-common/src/error/code.rs`).
+fn quota_error(check: &QuotaCheckResult) -> ApiError {
+    let message = check.reason.clone().unwrap_or_else(|| "Media quota exceeded".to_string());
+    match check.rejection {
+        Some(QuotaRejection::FileTooLarge) => ApiError::too_large(message),
+        // `StorageExceeded`, and any future refusal that forgot to name its
+        // reason, degrade to the conservative resource-limit code rather than
+        // 400 (which would blame the client's JSON).
+        _ => ApiError::resource_limit_exceeded(message),
+    }
 }
 
 impl MediaDomainService {
@@ -247,9 +269,7 @@ impl MediaDomainService {
         let quota_check = self.media_quota_service.check_upload_quota(user_id, file_size).await?;
 
         if !quota_check.is_allowed {
-            return Err(ApiError::bad_request(
-                quota_check.reason.unwrap_or_else(|| "Media quota exceeded".to_string()),
-            ));
+            return Err(quota_error(&quota_check));
         }
 
         Ok(())
@@ -691,6 +711,7 @@ mod tests {
     use crate::media_quota_service::MediaQuotaService;
     use crate::test_utils;
     use std::sync::Arc;
+    use synapse_common::error::MatrixErrorCode;
     use synapse_storage::media_quota::{MediaQuotaStorage, SetUserQuotaRequest};
     use synapse_storage::user::UserStorage;
 
@@ -890,13 +911,94 @@ mod tests {
             .await
             .expect_err("chunked upload start should fail when quota is exceeded");
 
-        assert_eq!(error.http_status(), axum::http::StatusCode::BAD_REQUEST);
+        // The configured limit is the **user's aggregate** allowance (see
+        // `setup_test_media_domain_users_with_quota`), so this is a resource
+        // limit → 403, not 413 (the per-file cap is the server quota's job).
+        assert_eq!(
+            error.http_status(),
+            axum::http::StatusCode::FORBIDDEN,
+            "an aggregate quota refusal is 403 M_RESOURCE_LIMIT_EXCEEDED, not 400 M_BAD_JSON: {error:?}"
+        );
         assert!(
-            error.message().contains("File size 5 exceeds maximum allowed size 4")
-                || error.message().contains("Quota exceeded")
-                || error.message().contains("quota"),
-            "unexpected error message: {}",
-            error.message()
+            error.code_is(MatrixErrorCode::ResourceLimitExceeded),
+            "expected M_RESOURCE_LIMIT_EXCEEDED, got {}",
+            error.code_str()
+        );
+        assert!(error.message().contains("Quota exceeded"), "unexpected error message: {}", error.message());
+    }
+
+    /// The server-level **per-file** cap is the one refusal that maps to 413:
+    /// the request body itself is too large (upstream Synapse's `max_upload_size`).
+    #[tokio::test]
+    async fn test_server_per_file_cap_yields_413_m_too_large() {
+        let pool = prepare_media_test_pool().await.expect("pool");
+        let quota_storage = Arc::new(MediaQuotaStorage::new(&pool));
+        quota_storage
+            .update_server_quota(Some(1_000_000), Some(4), Some(100), Some(95))
+            .await
+            .expect("set server quota");
+        let quota_service = MediaQuotaService::new(quota_storage);
+
+        let check = quota_service.check_upload_quota("@cap:test.server", 5).await.expect("quota check");
+        assert!(!check.is_allowed);
+        assert_eq!(
+            check.rejection,
+            Some(QuotaRejection::FileTooLarge),
+            "the per-file cap must be reported as FileTooLarge"
+        );
+
+        let error = quota_error(&check);
+        assert_eq!(error.http_status(), axum::http::StatusCode::PAYLOAD_TOO_LARGE);
+        assert!(error.code_is(MatrixErrorCode::TooLarge), "expected M_TOO_LARGE, got {}", error.code_str());
+        assert!(error.message().contains("File size 5 exceeds maximum allowed size 4"));
+    }
+
+    /// The mapping is driven by the **typed** rejection, not by the message.
+    #[test]
+    fn test_quota_error_mapping_is_typed() {
+        let base = QuotaCheckResult {
+            is_allowed: false,
+            reason: Some("whatever the message says".to_string()),
+            current_usage: 10,
+            quota_limit: 10,
+            usage_percent: 100.0,
+            rejection: Some(QuotaRejection::FileTooLarge),
+        };
+        assert_eq!(quota_error(&base).http_status(), axum::http::StatusCode::PAYLOAD_TOO_LARGE);
+
+        let aggregate = QuotaCheckResult { rejection: Some(QuotaRejection::StorageExceeded), ..base };
+        assert_eq!(quota_error(&aggregate).http_status(), axum::http::StatusCode::FORBIDDEN);
+
+        // A refusal that forgot to name its reason degrades to the resource
+        // limit, never to 400 (which would blame the client's JSON).
+        let unnamed = QuotaCheckResult { rejection: None, ..aggregate };
+        assert_eq!(quota_error(&unnamed).http_status(), axum::http::StatusCode::FORBIDDEN);
+    }
+
+    /// The aggregate storage quota is a **resource** limit, not a malformed
+    /// request: 403 `M_RESOURCE_LIMIT_EXCEEDED` (upstream Synapse has no
+    /// per-user total, so the code follows the spec's errcode semantics).
+    #[tokio::test]
+    async fn test_upload_rejects_with_resource_limit_when_storage_quota_exceeded() {
+        // helper order is (max_storage_bytes, max_file_size_bytes): the file
+        // fits, the aggregate does not.
+        let (media_domain_service, _media_service, user, _temp_dir) =
+            setup_test_media_domain_with_quota("storage_quota_tester", 4, 1000).await;
+
+        let error = media_domain_service
+            .start_chunked_upload(&user.user_id, Some("fits.txt"), Some("text/plain"), Some(5), 1)
+            .await
+            .expect_err("chunked upload start should fail when the storage quota is exceeded");
+
+        assert_eq!(
+            error.http_status(),
+            axum::http::StatusCode::FORBIDDEN,
+            "an aggregate-quota refusal is 403 M_RESOURCE_LIMIT_EXCEEDED: {error:?}"
+        );
+        assert!(
+            error.code_is(MatrixErrorCode::ResourceLimitExceeded),
+            "expected M_RESOURCE_LIMIT_EXCEEDED, got {}",
+            error.code_str()
         );
     }
 

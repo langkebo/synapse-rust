@@ -294,6 +294,7 @@ impl MediaQuotaStorage {
                 current_usage: user_quota.current_storage_bytes,
                 quota_limit: max_storage,
                 usage_percent: 0.0,
+                rejection: None,
             });
         }
 
@@ -307,6 +308,9 @@ impl MediaQuotaStorage {
             current_usage: user_quota.current_storage_bytes,
             quota_limit: max_storage,
             usage_percent,
+            // The user-level check is an **aggregate** one: it only compares
+            // `current + file_size` against the storage allowance.
+            rejection: if is_allowed { None } else { Some(QuotaRejection::StorageExceeded) },
         })
     }
 
