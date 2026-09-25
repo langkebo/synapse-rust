@@ -1,6 +1,42 @@
 # 当前仍存在的问题列表（基于 docs/audit/PROJECT_REMAINING_ISSUES_2026-09-14.md §22.3）
 
-## 高优先级问题
+> **更新日期**: 2026-09-25
+> **基线**: `opt/consolidated` @ HEAD
+> **状态说明**: ✅ = 本轮已解决；❌ = 仍存在
+
+---
+
+## 已完成的问题
+
+### ✅ 1. 客户端撤回不级联（MSC3912）—— 已修复
+- **位置**: `synapse-web/src/routes/handlers/room/events.rs:993`
+- **修法**: 添加 `cascade_redact_event` 调用，使用 fail-closed 策略
+- **提交**: `76e5f9136`
+
+### ✅ 2. Content Scanner 零生产调用点 —— 已修复
+- **位置**: `synapse-web/src/routes/media/upload.rs` + `synapse-web/src/routes/handlers/room/events.rs`
+- **修法**: 接入 `scan_media` / `scan_text` 到媒体上传和消息发送路径
+- **集成测试**: `tests/integration/api_content_scanner_integration_tests.rs`
+- **提交**: `8cd21a87a`
+
+### ✅ 3. `dag.rs` 注释失真 —— 已修复
+- **位置**: `synapse-storage/src/event/dag.rs:203-205`
+- **修法**: 修正注释，移除错误的 `/send_join` 调用点声明
+- **提交**: `76e5f9136`
+
+### ✅ 4. `msc2965/auth_issuer` 仍在册 —— 已修复
+- **位置**: `synapse-web/src/routes/assembly.rs:197`
+- **修法**: 删除路由注册，标记 `get_auth_issuer` 为 `#[deprecated]`
+- **提交**: `76e5f9136`
+
+### ✅ 5.1 Profile 停用用户写自定义字段 404 —— 已修复
+- **位置**: `synapse-storage/src/user/storage.rs:698`
+- **修法**: 移除 `user_exists` 查询中的 `AND is_deactivated = FALSE` 过滤
+- **提交**: `9e5ca99b5`
+
+---
+
+## 仍存在的问题
 
 ### 1. 客户端撤回不级联（MSC3912 级联仅管理端可达）
 - **位置**：`synapse-web/src/routes/handlers/room/events.rs:990`（`redact_event_content`）

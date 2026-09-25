@@ -226,6 +226,13 @@ pub fn create_router(state: AppState) -> Router {
                 .put(handlers::extended_profile::put_extended_profile_field)
                 .delete(handlers::extended_profile::delete_extended_profile_field),
         )
+        // Stable MSC4133: Extended profile fields
+        .route(
+            "/_matrix/client/v3/profile/{user_id}/{key_name}",
+            get(handlers::extended_profile::get_extended_profile_field)
+                .put(handlers::extended_profile::put_extended_profile_field)
+                .delete(handlers::extended_profile::delete_extended_profile_field),
+        )
         .merge(create_auth_router())
         .merge(create_account_router())
         .merge(create_account_data_router(state.clone()))
