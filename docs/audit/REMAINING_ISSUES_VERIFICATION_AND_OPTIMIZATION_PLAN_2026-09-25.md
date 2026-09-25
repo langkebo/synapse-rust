@@ -524,6 +524,39 @@ MSC3912 客户端级联与 Content Scanner 接线（高），最后清理中低�
 
 #### Task 1：在创建期计算并落库 `depth`/`prev_events`/`auth_events`
 
+> **⚠️ 执行修订（2026-09-25，实施中实测）** —— 原设计（给 `CreateEventParams` 加 3 个字段）
+> 经实测有**两个问题**，已按下方新设计执行：
+>
+> 1. **爆炸半径**：`CreateEventParams {` 字面量全仓 **160 处**（`grep -rn "CreateEventParams {"`），
+>    加必填字段要改 160 处（含 46 处 storage db_tests、15 处 test_mocks）——纯机械 churn，
+>    且每处都要回答"该不该有图数据"，反而更容易错。
+> 2. **缺少前置件**：`auth_events` 的正确性依赖规范的 **Auth events selection** 算法，
+>    而全仓**没有任何实现**（`grep -rn "auth_events" synapse-services/src/room | grep fn` 为空）。
+>    不先补它就无法产出合法 `auth_events`。
+>
+> **修订后的设计（三步，可分别提交）**：
+>
+> - **1a（已完成）** 新增 `synapse-services/src/room/state/auth_events.rs`：纯函数
+>   `auth_types_for_event` / `select_auth_events` + `AuthStateSnapshot`。
+>   算法与上游 Synapse `synapse/event_auth.py::auth_types_for_event`（release-v1.161）逐条对齐，
+>   含 v9 无 restricted join rule、v10/v11 有。9 个已知答案单测（无需 DB）+ 3 个变异自证。
+> - **1b（待做）** 写入侧单一拦截点：`NotifyingEventWriter` 的模块文档已自证
+>   "**Every service (messaging, membership, lifecycle, moderation, federation backfill) persists
+>   through `Arc<dyn EventWriter>`**"（`synapse-services/src/notifying_event_writer.rs:11-13`）。
+>   因此不改 160 处调用点，而是在该 seam 上加一层 `GraphMetadataWriter` 装饰器：
+>   其 `create_event` 先经 resolver 算出 `(prev_events, auth_events, depth)`，再转调
+>   `inner.create_event_with_graph(...)`；`create_event_with_graph` 原样透传（入站路径已有图数据）。
+>   resolver 依赖已存在的能力：`EventReader::get_state_events`、`get_latest_event_ids_in_room`、
+>   `RoomStoreApi::get_room_version_only`；**还缺一个"按 event_id 取 depth"的读方法**（需新增或复用）。
+>   装配点唯一：`synapse-services/src/container.rs` 构造 `Arc<dyn EventWriter>` 处。
+> - **1c（待做）** storage 单写入口收敛：`create_event` 与 `create_event_with_graph` 目前是
+>   **两条独立 INSERT**；抽成一个私有 helper，`create_event` 传 `None`（写 SQL `NULL`），
+>   `create_event_with_graph` 传值，**公开签名不变**（避免 1a 之外的第二波 churn）。
+> - **1d（待做）** `sign_and_broadcast_event` 收敛为一份并补 `depth`/`auth_events`
+>   （见 N-1/N-2），改为复用已落库的图字段而不是重新查 extremities。
+
+**原设计（保留作对照，勿照抄）**：
+
 **Files:**
 - Modify: `synapse-storage/src/event/models.rs`（`CreateEventParams` 增加三个可选图字段）
 - Modify: `synapse-storage/src/event/create.rs:8-49`（`create_event` 写这四列；统一走一条 INSERT）
