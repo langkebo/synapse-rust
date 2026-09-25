@@ -43,7 +43,7 @@
 >
 > 已执行：Phase A/B/D + C1–C18（逐批数字与理由在
 > `scripts/ci/sqlx_dynamic_ratio_baseline` 各段）+ W1–W5（§8.6–§8.11）+
-> **C19a**（§8.12）+ **C19b**（§8.13）+ **C20**（§8.15）。§7 登记 48 条
+> **C19a**（§8.12）+ **C19b**（§8.13）+ **C20**（§8.15）+ **C21**（§8.16）。§7 登记 48 条
 > （已修 34 / 部分已修 2 / 未修 2 / 结构性保留 7 / 文档级 3）。
 > **下一步见 §8.14。**
 
@@ -2342,6 +2342,14 @@ DDL / 动态标识符（后者可能整片属 §3.1 运行期拼装）。
 `synapse-e2ee/src/olm/storage.rs`（16）与 `cross_signing/storage.rs`（13）同属 e2ee，
 但 olm 那处含 D-04 同族死方法，**先按铁律 1 删除再转换**。
 
+> **进度（2026-09-25）**：**C20 = `rendezvous.rs` ✅**（§8.15）、
+> **C21 = `widget.rs` ✅**（§8.16，feature-gated `widgets`）。下批候选顺延为
+> `synapse-storage/src/burn_after_read.rs`（15，门控 `burn-after-read`）、
+> `captcha.rs`（15，**无**门控）、`state_groups.rs`（15，**无**门控）、
+> `matrixrtc.rs`（11，门控 `voip-tracking`）、`oidc_session_storage.rs`（13，无门控）；
+> `synapse-services/src/database_initializer/mod.rs`（15）仍需先判是否整片属 §3.1 运行期拼装。
+> 每批仍须先做 STEP 0 门控检查，feature 集**只增**。
+
 #### C. 批次 procedure（沿用 C19a/C19b，已踩实的坑）
 
 1. **STEP 0 feature 门控**：查 `synapse-storage/src/lib.rs` 的 `#[cfg(feature = …)]`；
@@ -2427,3 +2435,58 @@ fmt 债务 0。
 恢复 815 条 tracked 条目 → `bash scripts/ci/prepare_test_db.sh` 重建 public + 模板
 （228 + 228）→ 重跑 prepare 成功（+16）。**教训**：测试库被并发重置时，
 不要在恢复 public 之前跑 `cargo sqlx prepare`（它清空目标目录）。
+
+### 8.16 C21 执行结果（2026-09-25）
+
+与并发写者不相交的 C 批次之二：`synapse-storage/src/widget.rs`。文件 census 残差 → **0**
+（16 处 → 0）。提交：`8cc43c4cc`（转换）/ `e3fd08ca1`（.sqlx）。
+
+**STEP 0（feature gate）**：`synapse-storage/src/lib.rs:193` 是
+`#[cfg(feature = "widgets")] pub mod widget;` ⇒ 该模块**有**门控，每条
+check / prepare / nextest 命令都必须显式带 `widgets`；`.sqlx` 的 feature 集由
+`server-notifications,saml-sso,cas-sso,beacons` **只增**为 `…,widgets`
+（实测 added=16 / deleted=0，未顺带引入其它模块条目）。
+
+**转换构成**：
+- `query_as!` ×11：`Widget`（`INSERT … RETURNING` 展开 / SELECT ×3 /
+  `UPDATE … RETURNING` 展开）、`WidgetPermission`（`INSERT … ON CONFLICT … RETURNING`
+  展开 / SELECT ×2）、`WidgetSession`（`INSERT … RETURNING` 展开 / SELECT ×2）。
+- `query!` ×5：`delete_widget`、`delete_widget_permission`、`update_session_activity`、
+  `terminate_session`、`cleanup_expired_sessions`。
+- nullability：`widgets` / `widget_permissions` / `widget_sessions` 三张表（psql 实测）的
+  可空列（`updated_ts`、`device_id`、`last_active_ts`、`expires_at`）与结构体的 `Option`
+  字段一一对应 ⇒ **无需任何 `AS "col!"` 覆盖**（与 C20 的 `content` 不同）；
+  4 处 `RETURNING *` 展开为显式列清单（D-22）。
+
+**覆盖**：该模块**已有** `widget::db_tests`（`IsolatedTestPool` 口径，12 例），故本批
+未新增用例 —— 直接跑通即覆盖全部 16 处站点：
+`nextest -p synapse-storage --lib --features test-utils,widgets -E 'test(/widget/)'`
+→ **19/19**（12 DB 往返 + 7 纯单测）：create/get（found+not_found）/ room·user 过滤 /
+update（命中+未命中）/ delete 软删与 not_found / permissions 的 upsert+读+硬删 /
+sessions 的 create·get·activity·terminate / cleanup / full lifecycle。
+
+**门禁（实测）**：`cargo check -p synapse-storage --all-targets --features widgets` EXIT=0；
+`dynamic_production` 642 → **626**（−16）、`static` 858 → **874**（+16）、
+`dynamic` 1346 → **1330**；`check_sqlx_dynamic_ratio.sh` EXIT=0（626 ≤ 658 / 874 ≥ 842）；
+`sqlx_dynamic_literal_guard_tests` **16/16**；`check_sqlx_cache_fresh.sh` EXIT=0
+（`.sqlx` **+16，deleted=0 / modified=0** → 847 条）；两档 clippy（`--features test-utils`、
+`+ --all-features`，`-D warnings`）EXIT=0；fmt 债务 0。**无新增 nullability 不符，故无新 D-NN。**
+
+⚠️ **棘轮仍未同批收紧（同 C20 的原因）**：两个 baseline 文件依旧是 workbuddy 的在途文件。
+待其落地后补做：`BASELINE_DYNAMIC_PRODUCTION` 658 → **626**、`BASELINE_STATIC` 842 → **874**、
+`BASELINE_DYNAMIC` 1362 → **1330**；`sqlx_literal_production_baseline` 删
+`synapse-storage/src/rendezvous.rs	16` 与 `synapse-storage/src/widget.rs	16` 两行
+（生成命令实测 literal 575 → **543** 处 / 82 → **80** 文件）。
+
+⚠️ **环境处置升级为 scratch 库**：C21 的 `cargo sqlx prepare` **再次**被并发写者清空
+`public` 打断（`.sqlx/` 被清空 + 1115 个 E0282）。除按 §8.15 的三步恢复外，本轮起改用
+**独立 scratch 库**做编译期（`DATABASE_URL`）目标，彻底避开对方对 `synapse_test` 的反复重置：
+```
+psql …/postgres -c "CREATE DATABASE synapse_c19b_scratch"
+TEST_DATABASE_URL=postgresql://…/synapse_c19b_scratch RESET_PUBLIC=1 TARGET_SCHEMA=public \
+  bash scripts/init_test_public_schema.sh   # 228 表
+DATABASE_URL=postgresql://…/synapse_c19b_scratch cargo sqlx prepare --workspace -- \
+  --features server-notifications,saml-sso,cas-sso,beacons,widgets
+```
+这正是本仓 `GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md` §E2 的教训（"不要在有扩展的库上
+DROP public CASCADE，用独立 scratch 库"）的又一次应用。
