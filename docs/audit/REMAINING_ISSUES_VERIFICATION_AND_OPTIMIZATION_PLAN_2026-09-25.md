@@ -66,6 +66,43 @@ git worktree list             # 另有 .worktrees/c19b（同 HEAD）、/Users/lj
 
 ---
 
+### 0.3 执行状态总览（2026-09-25 同步）
+
+> **同步基线**：本分支 `fix/local-event-graph-metadata` 的 HEAD（B0+B1 全部完成，9 个提交；
+> 具体哈希见 `git log --oneline fix/local-event-graph-metadata -10`，本文不钉死以避免自我失效）
+> 与 `opt/consolidated` @ `3b1d28598`（并发会话的进展）。§3 各 Task 标题上的状态标记与
+> §5 的未完成清单都由本节派生；main 侧每一条都是**本轮实测**（判据见 §5），不是沿用旧结论。
+>
+> ⚠️ 本分支**尚未合并**：main 目前**仍没有** B1 的任何一项（出站 PDU 仍缺 `depth`/`auth_events`、
+> 仍有 `sign_and_broadcast_event` 两份相反实现、入站仍不落源服务器签名）。
+
+**A. 本分支已完成（9 个提交，工作树干净）**
+
+| 项 | 提交 | 验证 |
+|---|---|---|
+| B0：T0.2 审计文档口径 / T0.3 `pdu.rs:37` / T0.4 `create_event` 注释幻觉 | `281c8f4e4` | fmt ratchet `OK (0)` |
+| B1-1a 规范的 Auth events selection（此前全仓无实现） | `e14be2eb1` | 9 单测 + 3 变异自证 |
+| B1-1b `GraphMetadataWriter`（覆盖全部 auto-commit 本地写入） | `bf90f430f` | 8 单测 + 3 变异 |
+| B1-1e 建房 `CreationGraph` + 真前向极值查询（修 1b 前提错误） | `900938510` | 6 单测 + 3 变异；DB 极值测试 + 变异；建房集成 8/8 |
+| B1-1d 出站 PDU 单实现 + 补 `depth`/`auth_events` + 统一 fail-closed | `864d0f6b2` | 6 单测 + 3 变异；membership 126/126 |
+| Task 2 入站（`/send` + backfill）落源服务器签名材料 | `efbe4af73` | 谓词单测 + DB 回环测试 + 2 变异 |
+| SQL 宏化（Phase B2）+ 两处 §23 失效守卫 + `rand::rng()` baseline | `4bee43fcd` `fbffa58d0` | 守卫 21/21 |
+| **最终门禁（冻结提交）** | — | lib **6308/6308**、unit **1773/1773**、集成子集 **15/15**、clippy exit 0、fmt `OK (0)` |
+
+**B. 并发会话已在 main 完成（`3b1d28598`，本分支不含）**
+
+| 原计划项 | main 现状 | 实测判据 |
+|---|---|---|
+| Task 5 Content Scanner **接线** | ✅ 已接（媒体上传 + 发消息） | `routes/media/upload.rs:87,128 scan_media(...)`；`handlers/room/events.rs:306 scan_text(...)`、`:1007 is_enabled()` |
+| Task 6 稳定 `/{keyName}` 路由 | ✅ 已注册 | `assembly.rs:231 /_matrix/client/v3/profile/{user_id}/{key_name}`（unstable 仍在 `:224`） |
+| Task 6 停用用户写自定义字段 | ✅ 改为"存在即通过" | `synapse-storage/src/user/storage.rs:698` 去掉了 `is_deactivated` 过滤 ⚠️ **见 §5 R-1** |
+| Task 10 `msc2965/auth_issuer` 路由 | ✅ 已摘除 | `assembly.rs` 已无该路由（handler `auth_discovery.rs:66` 成为死码） |
+| Task 10 `dag.rs` 注释幻觉 | ✅ 注释已改 | 原 "Used by `/send_join` …" 文本已不存在 |
+| T11 `search_index` 遗留表 | ✅ 已删表 + 契约用例同步 | 提交 `00271cf91`、`acac1f74c`；baseline `grep -c search_index` = **0** |
+| N-4 ClamAV 失败策略不对称 | ✅ 已统一 | `content_scanner/service.rs:47,48,124-137` 全部走 `on_scan_failure` |
+
+---
+
 ## 1. 逐条核验
 
 ### 1.1 ⚪ E2EE SAS 三处偏离 → **对象消失，整条作废**
@@ -736,7 +773,7 @@ git diff --cached --stat && git commit -m "fix(federation): persist local event 
 - [ ] Step 3: 断言不再需要 `membership/mod.rs:238` 的专用回填（若无其他调用方则删除该方法，铁律 2）。
 - [ ] Step 4: 变异自证 + 门禁同 Task 1 Step 8/9。
 
-#### Task 3（决策项，**不建议本轮动手**）：`event_id` 改 v4+ reference hash
+#### Task 3（决策项，**不建议本轮动手**）：`event_id` 改 v4+ reference hash —— ⬜ **未做**（main 仍为 `$<ts>$<b64>:<server>`）
 
 **为什么单列**：这是**语义级**改动，影响事件 ID 生成、事件去重、`stream_ordering` 下游、
 以及所有以 `event_id` 为外键/缓存的路径（>40 处生成点 + 全库检索）。改动正确性依赖
@@ -751,7 +788,7 @@ canonical JSON + redaction 规则 + room version 判定齐备。
 
 ### 3.2 批次 B2（高）
 
-#### Task 4：MSC3912 客户端级联（规范形状）
+#### Task 4：MSC3912 客户端级联（规范形状）—— ⬜ **未开始**（main 无 `with_rel_types`/`msc3912` 命中）
 
 **决策（已定，理由见 §1.2）**：
 - **实现**：解析 `with_rel_types`（稳定名，按 MSC 原文）**并兼容** `org.matrix.msc3912.with_relations`
@@ -832,7 +869,7 @@ Ok(Json(json!({ "event_id": new_event_id })))
   `gen_route_table.py --check` / `gen_client_yaml.py --check`（本任务不改路由，仅版本列表变化，
   但仍需跑一遍确认无漂移）。
 
-#### Task 5：Content Scanner 接线（上传 + 发消息）
+#### Task 5：Content Scanner 接线（上传 + 发消息）—— 🟡 **main 已接线**（media upload + 发消息两条路径），但 scan 结果**无持久化/无指标**、`docker/config/homeserver.yaml` 无显式 `content_scanner` 键、默认仍 `enabled: false`
 
 **Files:**
 - Modify: `synapse-services/src/wiring/core.rs:66,179`（把 scanner 注入媒体与消息服务，而非只构造）
@@ -870,7 +907,7 @@ Ok(Json(json!({ "event_id": new_event_id })))
 
 ### 3.3 批次 B3（中）
 
-#### Task 6：Profile —— 选定并落地一条路线（**需 owner 决策**）
+#### Task 6：Profile —— 选定并落地一条路线（**需 owner 决策**）—— 🟡 **main 已做**稳定路由与停用用户语义；**未做** v1.16 的 `M_PROFILE_TOO_LARGE`/`M_KEY_TOO_LARGE`、64 KiB 总大小校验、`m.tz`
 
 | 路线 | 内容 | 代价 | 适用 |
 |---|---|---|---|
@@ -893,7 +930,7 @@ Ok(Json(json!({ "event_id": new_event_id })))
 - [ ] Step 5: 路线 B/C 追加 —— `capability_governance.rs:507` 的 key 按决策改/删；
   同步 `tests/unit/` 里 capability 快照与 `docs/synapse-rust-vs-synapse-comparison.md:557,845`。
 
-#### Task 7：Admin 媒体族补齐（按 §1.7 的 15 条清单）
+#### Task 7：Admin 媒体族补齐（按 §1.7 的 15 条清单）—— ⬜ **未开始**（`admin/media.rs` 内 quarantine/unquarantine/房间级媒体路由 0 命中）
 
 - [ ] Step 1: 把上游 15 条**落成仓内可核验文件**（`docs/synapse-rust/ADMIN_MEDIA_ENDPOINT_PARITY.md`，
   含 `media_admin_api.md:行号`），删掉 `API_COVERAGE_REPORT.md` 里裸的"18"或改为引用该文件。
@@ -912,7 +949,7 @@ Ok(Json(json!({ "event_id": new_event_id })))
 - [ ] Step 5: 每条新路由都要进 `route_ledger` + `*_route_manifest()` + 重生成 `derived_route_table_*.inc.rs`、
   `ROUTE_CONTRACT.md`、`route-table.json`、`client.yaml`、ledger fixtures、snapshot。
 
-#### Task 8：缩略图 `animated`（按 spec 语义）
+#### Task 8：缩略图 `animated`（按 spec 语义）—— ⬜ **未开始**（全仓 `.rs` 0 命中）
 
 - [ ] Step 1: RED —— 集成用例：`GET .../thumbnail/...?animated=false` 对 GIF 素材必须**不返回**动画
   （按 spec `content-repo.yaml:436-453`：`false` ⇒ MUST NOT；`true` + 非动画素材 ⇒ 视作 `false`）。
@@ -923,7 +960,7 @@ Ok(Json(json!({ "event_id": new_event_id })))
   则本任务退化为"接受参数并诚实实现 false 分支"，`true` 分支按上游行为（返回静态最优）并由测试钉住。
 - [ ] Step 3: 变异自证：把 `animated=false` 分支改成直通 ⇒ Step 1 转红。
 
-#### Task 9：媒体配额错误码（**需 owner 决策**）
+#### Task 9：媒体配额错误码（**需 owner 决策**）—— ⬜ **未开始**（`media/mod.rs:250` 仍 `ApiError::bad_request` → 400 `M_BAD_JSON`）
 
 - [ ] Step 1: 决策 —— 单文件超限 ⇒ `M_TOO_LARGE`（413，`code.rs:71`，语义最贴）；
   总存储配额超限 ⇒ `M_RESOURCE_LIMIT_EXCEEDED`（403，`:75`）或 `M_LIMIT_EXCEEDED`（429，`:27`，可带 `retry_after_ms`）。
@@ -934,7 +971,7 @@ Ok(Json(json!({ "event_id": new_event_id })))
 - [ ] Step 4: 若 `M_USER_LIMIT_EXCEEDED` 最终**全仓仍无使用点**，按铁律 1 评估删除该变体
   （含 `code.rs:83,131,176,225` + `error.rs` 测试清单），避免"注册了但永不产生"的死码。
 
-#### Task 10：`auth_issuer` 摘除 + `dag.rs` 幻觉清理
+#### Task 10：`auth_issuer` 摘除 + `dag.rs` 幻觉清理 —— 🟡 **main 已完成主体**（路由摘除 + 注释修正）；**残留**：`get_auth_issuer` handler 变死码、`get_state_dag_edges`/`get_prev_state_events`/`find_events_referencing_missing_state` 仍 0 生产调用点
 
 - [ ] **auth_issuer**：删 `assembly.rs:196-199` 的路由、`auth_discovery.rs:62` 的 handler、
   `tests/integration/api_auth_routes_tests.rs:247-254`、`tests/unit/assembly_route_tests.rs:403-405` 的断言；
@@ -950,9 +987,9 @@ Ok(Json(json!({ "event_id": new_event_id })))
 
 | 任务 | 动作 | 注意 |
 |---|---|---|
-| **T11 `search_index`** | 从 baseline 删表 + 4 索引；同步 `EXPECTED_BASELINE_FINGERPRINT`、`scripts/check_schema_contract_coverage.py:177-194`、`logical_checksum_tables.txt` + 生成器、`coverage_baseline.json`（若有对应文件）、`schema_contract_p0_tests_migrated.rs:336,1177-1312`、`synapse-storage/src/lib.rs:253` 的过期注释、**并修 `INDEXES.md` 漂移**（当前 0 条 vs 4 条）；顺带把 N-8 的**单向校验**补成双向（契约缺条目 ⇒ 转红） | 先反向验证：删一行索引 → `check_baseline_consolidation.py` 必须 exit 1；再给契约补上漏掉的 `idx_search_index_content_trgm` → 改双向后必须转红 |
-| **T12 `query_params`** | 二选一：**(a)** 删除 `route_ledger.rs:83-84,106-110` + `ledger_export.rs:156` + 6 份 fixture 的字段 + `gen_route_table.py:64`，并把 `SCHEMA_VERSION` 4→5 与 SDK pin 同步（契约破坏，需跨仓通知）；**(b)** 保留并**真正使用**：给需要 query 参数的路由（如 `messages?dir/limit/from`、`thumbnail?width/height/method/animated`）填值，并加断言"声明了 query 参数的路由，其 handler 必须解析同名参数" | 若选 (b)，本任务与 Task 8 合并做，天然产生消费者 |
-| **T13 v12/v13** | 从问题清单移入"已知取舍"；补守卫测试断言 `can_create == false` 且注释理由存在 | 与 §2.1 残余③ 联动：v12/v13 的 fail-safe 理由正是"产不出合规 PDU" |
+| **T11 `search_index`** ✅ **已修（main `00271cf91`）** | 从 baseline 删表 + 4 索引；同步 `EXPECTED_BASELINE_FINGERPRINT`、`scripts/check_schema_contract_coverage.py:177-194`、`logical_checksum_tables.txt` + 生成器、`coverage_baseline.json`（若有对应文件）、`schema_contract_p0_tests_migrated.rs:336,1177-1312`、`synapse-storage/src/lib.rs:253` 的过期注释、**并修 `INDEXES.md` 漂移**（当前 0 条 vs 4 条）；顺带把 N-8 的**单向校验**补成双向（契约缺条目 ⇒ 转红） | 先反向验证：删一行索引 → `check_baseline_consolidation.py` 必须 exit 1；再给契约补上漏掉的 `idx_search_index_content_trgm` → 改双向后必须转红 |
+| **T12 `query_params`** ⬜ **未做（需决策）** | 二选一：**(a)** 删除 `route_ledger.rs:83-84,106-110` + `ledger_export.rs:156` + 6 份 fixture 的字段 + `gen_route_table.py:64`，并把 `SCHEMA_VERSION` 4→5 与 SDK pin 同步（契约破坏，需跨仓通知）；**(b)** 保留并**真正使用**：给需要 query 参数的路由（如 `messages?dir/limit/from`、`thumbnail?width/height/method/animated`）填值，并加断言"声明了 query 参数的路由，其 handler 必须解析同名参数" | 若选 (b)，本任务与 Task 8 合并做，天然产生消费者 |
+| **T13 v12/v13** ⬜ **未做（仅文档待迁移；代码按设计保持 `parse_only`）** | 从问题清单移入"已知取舍"；补守卫测试断言 `can_create == false` 且注释理由存在 | 与 §2.1 残余③ 联动：v12/v13 的 fail-safe 理由正是"产不出合规 PDU" |
 
 ---
 
@@ -999,6 +1036,46 @@ Task3 (reference hash) —— 仅做可行性验证，不接线
 | 把 v12/v13 打开为可创建 | 与本仓 PDU 能力冲突，是自觉 fail-safe（§1.9） |
 | Content Scanner 的 `scan_media` 全格式解码 | 扫描深度涉及解码/解压炸弹风险，属独立安全立项 |
 | 逐条补齐上游 admin 面到 100% | 先补齐 §1.7 的 9 条真缺口即可；剩余以"上游文档面"为清单持续跟进 |
+
+---
+
+## 5. 未完成任务清单（2026-09-25 同步；main @ `3b1d28598`）
+
+> 判据列是本轮在 **main 工作树实测**的命令/结果，不是沿用旧结论。
+> **归属**：`待合并` = 已在 `fix/local-event-graph-metadata` 完成且验证过；`main` = 尚未动。
+> 原 13 项报项现状：**已修 2**（`search_index`、Client Scanner 接线）／**分支已修待合并 1**（P0 联邦 PDU）／
+> **部分 3**（Profile、`dag.rs`、`auth_issuer`）／**未做 5**（MSC3912 级联、Admin 媒体、`animated`+配额、
+> `query_params`、v12/v13 文档迁移）／**证伪或作废 2**（MSC4502/4262、E2EE SAS）。
+
+### 5.1 待合并（P0 修复不在 main）
+
+| 编号 | 级别 | 任务 | 判据 |
+|---|---|---|---|
+| **M-1** | **P0** | 把 `fix/local-event-graph-metadata`（9 提交，@ `397f3c5f0`）合进 `opt/consolidated` | main `synapse-services/src/room/messaging/service.rs:166` 出站 PDU 仍只有 `prev_events`（无 `depth`/`auth_events`）；`grep -rn "fn sign_and_broadcast_event" synapse-services/src` 仍返回 **2** 份实现 |
+
+### 5.2 main 侧未完成
+
+| 编号 | 级别 | 任务 | 判据（实测） | 前置 / 决策 |
+|---|---|---|---|---|
+| **U-1** | 高 | Task 4 MSC3912 客户端级联 | `grep -rn "with_rel_types\|msc3912" synapse-web/src synapse-services/src` → **0 命中** | 按规范单层语义实现（`org.matrix.msc3912` unstable 标志 + 逐事件鉴权 + 真 redaction 事件），还是只保留管理端 `cascade_redact` 并改注释 |
+| **U-2** | 高 | **R-1** `user_exists` 去掉 `is_deactivated` 过滤后的扩散复核 | `user/storage.rs:698` 已改；生产调用点 **19** 处：`admin/room/management.rs` 5、`membership/moderation.rs` 3、`account_identity_service.rs` 3、`user_service.rs` 2、`handlers/room/members.rs` 1、`handlers/extended_profile.rs` 1、`federation/mod.rs` 1、`auth_compat.rs` 1、`federation/edu.rs` 1、`membership/actions.rs` 1 | 上游 #20172 只针对 profile 字段端点；建议拆两个谓词（`user_exists` 含停用 / `active_user_exists`）并逐点选定，尤其是 auth、federation、moderation 三处 |
+| **U-3** | 中 | Task 5 残留：扫描结果持久化 + 指标 + 显式配置 | 接线已在（`media/upload.rs:87,128`、`handlers/room/events.rs:306`）；但无 `scan_result`/`content_scans_total` 命中，`docker/config/homeserver.yaml` 无 `content_scanner` 键，默认 `enabled: false` | 决策：结果是否落库（新表 vs 仅审计日志 + 指标） |
+| **U-4** | 中 | Task 6 残留：v1.16 profile 面 | `grep -rn "M_PROFILE_TOO_LARGE\|M_KEY_TOO_LARGE" --include=*.rs` → **0 命中**；无 64 KiB 总大小校验、无 `m.tz` | 决策：`/versions` 是否升到 v1.16（连带 v1.15/v1.16 全部变更 + 派生产物） |
+| **U-5** | 中 | Task 7 Admin 媒体族 | `admin/media.rs` 内 `media/quarantine`/`unquarantine`/房间级媒体路由 **0 命中**（仅 `quarantine_media/{media_id}/changes`） | 先按 §1.7 把上游 15 条落成可核验清单文件 |
+| **U-6** | 中 | Task 8 缩略图 `animated` | 全仓 `.rs` **0 命中** | 无 |
+| **U-7** | 中 | Task 9 媒体配额错误码 | `media/mod.rs:250` 仍 `ApiError::bad_request`（400 `M_BAD_JSON`） | 决策：`M_TOO_LARGE`(413) / `M_RESOURCE_LIMIT_EXCEEDED`(403)；**不要**用 `M_USER_LIMIT_EXCEEDED`（MSC4335 账户数语义，`code.rs:83`） |
+| **U-8** | 中 | **R-2** HTTP 层端到端签名断言 | 现有 `api_federation_transaction_tests::test_send_transaction_with_signed_pdu_accepted` 未预建房间、且容忍 success/error 两种结果 | 需先建房再断言 `events.signatures`/`hashes` 非空 |
+| **U-9** | 低 | Task 10 残留死码 | `handlers/auth_discovery.rs:66 get_auth_issuer` 已无路由引用；`dag.rs` 的 `get_state_dag_edges` / `get_prev_state_events` / `find_events_referencing_missing_state` 生产调用点 0 | 铁律 1：直接删（含 MSC4242 的 `create_state_event_with_dag` 若无计划） |
+| **U-10** | 低 | T12 ledger `query_params` | `route_ledger.rs:84,107` 定义仍在；`with_query_params(` 调用点 **0** | 二选一：删字段（`SCHEMA_VERSION` 4→5 + SDK pin + fixture）或真填值（与 Task 8 合并天然产生消费者） |
+| **U-11** | 低 | T13 v12/v13 文档迁移 | `room_versions.rs:114-115` 仍 `stable_parse_only("12"/"13")`（设计使然） | 只需把条目移入"已知取舍" + 补 `can_create == false` 守卫 |
+| **U-12** | 低 | 1c storage 单写入口收敛 | `create.rs` 仍有 **4** 条 `INSERT INTO events`（`:14`/`:83`/`:192`/`:314`） | 反冗余铁律 2；抽私有 helper，公开签名不变 |
+| **U-13** | 低 | Task 3 `event_id` reference hash | `crypto.rs:153` 仍 `format!("${}${}:{}", …)` | 决策项（§2.1 残余③）；只做已知答案测试、不接线 |
+| **U-14** | 中 | **R-3** 跨仓客户端接线 | `CryptoDeviceAdapter.ts` **不在本仓**（`find` 为空） | matrix-sdk-fork 侧改用 `m.key.verification.*` to-device；本仓无法闭合 |
+| **U-15** | 低 | 审计文档同步残余 | `PROJECT_REMAINING_ISSUES_2026-09-14.md` 的 §21.1/§22.3 仍把 `auth_issuer`、`dag.rs`、`search_index`、Content Scanner 列为"未修" | 逐条标注（这些已由 main 或本次复核推翻），避免同一事实第三次漂移 |
+
+### 5.3 不建议现在做
+
+见 §4.4（`event_id` 全量改造、MSC3912"后到事件补撤"、v12/v13 放开创建、scanner 全格式深扫、admin 面 100% 追平）。
 
 ---
 
