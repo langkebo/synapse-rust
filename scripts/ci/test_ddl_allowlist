@@ -77,7 +77,6 @@ synapse-storage/src/event/db_tests.rs::test_create_postgres_fts_index_reports_in
 synapse-storage/src/feature_flags.rs::tests::ensure_feature_flag_tables
 synapse-storage/src/oauth_client_storage.rs::tests::setup_oauth_client_db
 synapse-storage/src/oidc_session_storage.rs::tests::setup_oidc_session_db
-synapse-storage/src/privacy.rs::db_tests::test_batch_can_view_profile_basic
 synapse-storage/src/pruning.rs::db_tests::prune_device_lists_stream_deletes_only_old
 synapse-storage/src/pruning.rs::db_tests::prune_federation_queue_terminal_only
 synapse-storage/src/pruning.rs::db_tests::prune_one_time_keys_used_or_old
