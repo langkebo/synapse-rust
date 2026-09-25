@@ -43,8 +43,8 @@
 >
 > 已执行：Phase A/B/D + C1–C18（逐批数字与理由在
 > `scripts/ci/sqlx_dynamic_ratio_baseline` 各段）+ W1–W5（§8.6–§8.11）+
-> **C19a**（§8.12）+ **C19b**（§8.13）+ **C20**（§8.15）+ **C21**（§8.16）+ **C22**（§8.19）；
-> 另完成 **D-47 ②**（守卫 A′ + (b) 组 31 键逐文件迁模板，§8.17/§8.18）——**D-47 已修**。
+> **C19a**（§8.12）+ **C19b**（§8.13）+ **C20**（§8.15）+ **C21**（§8.16）+ **C22**（§8.19）+
+> **C23**（§8.20）；另完成 **D-47 ②**（守卫 A′ + (b) 组 31 键逐文件迁模板，§8.17/§8.18）——**D-47 已修**。
 > §7 登记 48 条（已修 35 / 部分已修 1 / 未修 2 / 结构性保留 7 / 文档级 3）。
 > **下一步见 §8.14。**
 
@@ -2640,3 +2640,43 @@ DROP public CASCADE，用独立 scratch 库"）的又一次应用。
 
 **遗留**：无。运行期拼装那 2 处（`STATE_GROUP_STATE_COLS` /
 `STATE_GROUP_STATE_INNER_COLS`）为**有意保留**（D-14）。
+
+### 8.20 C23 执行结果（2026-09-25）
+
+与并发写者不相交。文件 `synapse-storage/src/captcha.rs`：**15 处生产字面量动态 SQL → 0**。
+提交：`74fcb6743`（转换）/ `6a0c70542`（.sqlx）/ 本提交（棘轮 + 本文档）。
+
+**转换构成（15 = 6 + 3 + 6）**：
+- `query_as!` ×6：`RegistrationCaptcha` 的 create（`RETURNING *` 展开，D-22）/ get /
+  get_latest；`CaptchaSendLog` 的 `create_send_log`（同为 `RETURNING *` 展开）；
+  `CaptchaTemplate` 的 `get_template` / `get_default_template`。
+- `query_scalar!` ×3：`get_config` 单列读；`check_rate_limit` / `check_ip_rate_limit`
+  的 `SELECT COUNT(*)`（原 `(i64,)` + `count.0`）。
+- `query!` ×6：`verify_captcha` 的四条状态 UPDATE（expired / exhausted /
+  attempt_count+1 / verified）、`invalidate_captcha`、`cleanup_expired_captchas`。
+
+**nullability / 属名收口（本批最多的一类）**：
+- **7 列「可空而结构体非 `Option`」** ⇒ 逐列 `AS "col!"`：
+  `registration_captcha` 的 `attempt_count` / `max_attempts` / `status` / `metadata`、
+  `captcha_template` 的 `variables` / `is_default` / `is_enabled`；
+- **D-19 首次在 C 批次正面命中**：结构体的 `used_ts` / `verified_ts` 对应列名是
+  `used_at` / `verified_at`，靠 `#[sqlx(rename = ...)]` 声明；`query_as!` **不认**该属性
+  ⇒ 在 SQL 里显式 `used_at AS "used_ts"` / `verified_at AS "verified_ts"`；
+- `COUNT(*)` 无 relation origin ⇒ 宏判可空（C19a 同型）⇒ `.unwrap_or(0)`（计数语义恒非空）；
+- 绑定：`&Option<String>` 一律 `.as_deref()`（D-21）。
+
+**门禁（实测）**：`cargo check -p synapse-storage --all-targets` EXIT=0（**首轮零回退**）；
+`nextest -p synapse-storage --lib --features test-utils -E 'test(/captcha/)'` → **35/35**
+（建 / 读 / 最新 / 过期 / 耗尽 / 验证成功 / 错误码 / 失效 / 模板 / 配置 / 清理全覆盖）；
+`dynamic_production` 586 → **571**（−15）、`static` 889 → **904**（+15）、
+`dynamic` 1290 → **1275**；literal 503 → **488** 处 / 77 → **76** 文件
+（runtime 83 / 15 不变）；`.sqlx` **+15，deleted=0 / modified=0** → 876 条；
+`check_sqlx_cache_fresh.sh` EXIT=0；`check_sqlx_dynamic_ratio.sh` EXIT=0
+（571 ≤ 571 / 704 ≤ 704 / 904 ≥ 904）；`sqlx_dynamic_literal_guard_tests` **16/16**；
+两档 clippy（`-D warnings`）EXIT=0；fmt 债务 0。
+
+**棘轮同批收紧**：`BASELINE_DYNAMIC_PRODUCTION` 586 → **571**、`BASELINE_STATIC`
+889 → **904**、`BASELINE_DYNAMIC` 1290 → **1275**；literal 表删
+`synapse-storage/src/captcha.rs	15` 行。
+
+**遗留**：无。captcha.rs 无运行期拼装站点。
