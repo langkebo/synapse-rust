@@ -1040,6 +1040,13 @@ Ok(Json(json!({ "event_id": new_event_id })))
 
 ## 4. 执行顺序、门禁与派生产物
 
+> ⚠️ **集成分支叫什么（实测踩坑，2026-09-26）**：本轮的集成分支是 **`opt/consolidated`**
+> （即 `synapse-rust/` 主工作树的 HEAD）。仓库里**另有一个 `main` ref，它落后 232 个提交**；
+> 在并行分支上执行 `git rebase main`（本会话真实发生）会把 232 个提交当成待重放补丁、
+> 在第一个提交处即冲突。并行 worktree 一律 **`git rebase opt/consolidated`**，
+> 合并用 `git merge --ff-only <branch>`。本文档其他位置沿用的"main"字样指的是
+> 当时的集成分支口径，不再是 `main` ref。
+
 ### 4.1 建议顺序（依赖关系）
 
 ```
@@ -1282,6 +1289,19 @@ Task3 (reference hash) —— 仅做可行性验证，不接线
   在 U-10 之前的树上 **exit 1**——`docs/synapse-rust/ROUTE_CONTRACT.md` 落后于真实路由面
   （差 2 条 `assembly.rs` 条目，即 U-4 的 `GET/PUT /_matrix/client/v3/profile/{user_id}/{key_name}`；
   计数 1135→1137）。U-10 的派生物重生成把该门禁修绿，属净收益而非"顺带刷新"。
+
+- **落地**：rebase 到 `opt/consolidated` 后 ff 合并，tip **`fd178425b`**（4 个提交）。
+  合并后在**干净 worktree**（与集成分支同提交）复验：`check_fmt_ratchet.sh` = `current=0`；
+  `check_route_contract.sh` **exit 0**（54 项守卫 + 变异检查全过、`ROUTE_CONTRACT.md` 已与源一致）；
+  `test_extract_registered.py --mutation-check`、`gen_derived_routes.py --check` 均 exit 0；
+  我的**独立变异**（删掉 `relations/{event_id}` 注解里的 `limit`）⇒ 抽取器 exit 1，
+  同时报出「与 EXPECTED_ANNOTATIONS 不一致 / 与夹具不一致 / handler 实际解析
+  `['dir','from','limit','to']`」三类失败 ⇒ 守卫双向且非自证。
+- 下游消费已生效：`docs/openapi/route-table.json` 由新鲜导出重生成后，
+  **1035 条中 106 条带非空 `query_params`**（此前恒空）。
+- 遗留（诚实登记，非本轮范围）：`scripts/api_test/ledger.json` 仍是旧导出（1096 条、`query_params` 全空）；
+  它未被任何漂移门禁对着新鲜导出校验，且是**受门禁保护的** `docs/openapi/client.yaml` 的输入，
+  刷新它会让 `client.yaml` 的路由计数漂移 ⇒ 本轮**故意不动**，登记为后续独立项。
 
 ### 6.6 U-13 `event_id` reference hash —— **立项（排期在 M-1、U-1 之后）** ✅ 决策
 
