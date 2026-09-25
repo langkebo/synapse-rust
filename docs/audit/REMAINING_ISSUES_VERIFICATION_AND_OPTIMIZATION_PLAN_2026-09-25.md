@@ -929,10 +929,10 @@ Ok(Json(json!({ "event_id": new_event_id })))
   Expected: FAIL（当前 `:62-70` 直接 `Err`）。
 - [x] **Step 2: GREEN** — 已完成：`content_scanner/service.rs:47,48,124-137` 的 ClamAV/webhook 失败路径全部走 `on_scan_failure`
   （把 `on_webhook_failure` 重命名为 `on_scan_failure`，铁律 2：一份失败策略）。
-- [ ] **Step 3: RED（上传接线）** — **未见测试**；且实测接线**丢弃裁定**（见 Step 4）
+- [x] **Step 3: RED（上传接线）** — 已完成：`tests/integration/api_media_routes_tests.rs` 的 `unsafe_scan_verdict_blocks_upload_and_stores_nothing`（wiremock 令扫描判 `unsafe` ⇒ 断言 403 且下载 404）
   调 `PUT /_matrix/media/v3/upload`，断言 **403 `M_FORBIDDEN`** 且媒体**未落库**
   （`SELECT count(*) FROM media` 不变）。
-- [x] ~~**Step 4: GREEN（上传接线）**~~ — 已接线但**不安全**：`routes/media/upload.rs:87,128` 仅用 `?` 传播 scanner **错误**，`Ok(safe=false)`（真检出威胁）**不拦截**，文件照存 ⇒ 修法见 §6.2 与 §5 U-3
+- [x] **Step 4: GREEN（上传接线）** — ✅ 已修（`338395f98`）：`content_scanner/verdict.rs::enforce_scan_verdict`（`safe=false` ⇒ 403 `M_FORBIDDEN`，**不落库**）+ `scan_when_enabled` 接入两条上传路径；默认配置（扫描关闭）不再阻断上传（此前的 501 回归已修）
   持久化之前）调用 `scan_media(content_id, bytes, ContentType::Media)`；
   `safe=false` ⇒ `ApiError::forbidden`；`Err` ⇒ 由 `block_on_scan_failure` 决定放行或拒绝（沿用配置，不新增开关）。
 - [x] **Step 5: 决策** — 已定（§6.2：不新增表、落隔离裁定 + 按内容哈希复用）；**实现待做**
@@ -945,9 +945,9 @@ Ok(Json(json!({ "event_id": new_event_id })))
   不新增第二份提取实现）；`safe=false` ⇒ 403 + 不入库。
   **注意**：这会改变所有消息发送路径的行为，必须先跑全量集成回归确认无既有用例依赖
   "扫描器未接线"（`grep -rn "scan" tests/integration | grep -i message` 预检）。
-- [ ] **Step 7: 配置与文档** — **未做**：实测 `docker/config/homeserver.yaml` 无 `content_scanner` 键
+- [x] **Step 7: 配置与文档** — 已完成：`docker/config/homeserver.yaml:124` 显式 `content_scanner: {enabled: false, block_on_scan_failure: true}`，并给 `ContentScannerConfig` 加结构级 `#[serde(default)]`（保留 `Default` 的 30s 超时与 fail-closed 语义）
   （AGENTS.md：Search 类可选组件必须显式禁用而非缺省）；`docs/` 记录启用前置条件（ClamAV socket / webhook 可达）。
-- [ ] **Step 8: 变异自证** — 未做
+- [x] **Step 8: 变异自证** — 已完成：扫描半批 4 个变异（`enforce_scan_verdict` 恒 Ok / 去掉 `is_enabled` 守卫 / 403→400 / blocked→allowed 计数）各自转红；hash 半批 3 个变异（反查恒 false / upsert 丢 hash 绑定 / NULL 视为隔离）各自转红，全部还原后复跑绿
   ② 删掉 ClamAV 的策略路由 ⇒ Step 1 转红。
 
 ### 3.3 批次 B3（中）
@@ -1216,6 +1216,33 @@ Task3 (reference hash) —— 仅做可行性验证，不接线
 
 **验收**：① 扫描判 `unsafe` ⇒ 403 且 `media` 无新行；② 同一 sha256 二次上传 ⇒ 自动隔离（无需重扫）；
 ③ 指标存在且随判定变化；④ 默认配置下扫描关闭时上传路径行为与今天一致（无回归）。
+
+**执行结果（2026-09-26）——✅ 四项验收全部达成并落地**
+
+- ①③④：`338395f98`（扫描拒绝 403 + 不落库；计数器 `content_scans_{blocked,allowed,skipped,failures}_total`；
+  默认关闭时上传行为不变）。验收①由 `unsafe_scan_verdict_blocks_upload_and_stores_nothing` 覆盖。
+- ②：`4f7299e82` + `cbe6517c5` —— `media_metadata` 新增**可空** `content_hash TEXT` + 索引
+  （baseline 直改，指纹 `24e2c50ee8543673` → `38dcd5e818c7bfc0`，我用独立 FNV-1a 复算核对一致）；
+  `crypto::content_hash`（**标准** Base64、无 padding，对齐上游 `unpaddedbase64`，与 `compute_hash`
+  的 URL-safe 字母表显式区分）；`get_is_hash_quarantined`；上传**写盘前**反查、DB 错误 **fail-closed**、
+  命中则以 `quarantine_status='quarantined'` 落库（下载路径按该字面量拦截 ⇒ 效果链已核对）。
+  验收②由 `hash_level_quarantine_auto_quarantines_identical_reupload` 覆盖（**且断言扫描器处于关闭状态**，
+  证明与扫描无关；另断言命中计数 == 1 与"不同内容不受影响"的负例）。
+- 附带发现：`migrations/INDEXES.md` 的索引计数自约 2026-09-18 起**陈旧 9 条**（记 358，实测 HEAD=349，
+  本批 +1 = 350），已按文件内记载的复现命令重算更正（我独立复算 350/350 一致）。
+
+**SQLx 棘轮归因（本批实测，逐项到个位）**：本批**不新增生产动态 SQL** —— 反查改用
+`sqlx::query_scalar!` 静态宏（`.sqlx` 按基线记载口径用临时已迁移库重刷，added=1/deleted=0，
+并在 `touch` 源文件后用 `SQLX_OFFLINE=true cargo check -p synapse-storage` 反向自证缓存被读取）。
+census 实测 `dynamic_production=516`（与 U-3 之前**同值**）、`static=961`。
+残留红项与归属：
+* `sqlx_ratio_gate`：生产 516 > 基线 513（**+3 全部为并发会话 v12 的既有提交，本批 0**）；
+  测试基础设施 713 > 基线 711（+2 = 既有 +1 + 本批新增 `db_tests` 夹具 +1；`#[cfg(test)]` 内的宏
+  不进 `cargo sqlx prepare`，按仓库既有 D-13/D-14 规则必须保持动态）。
+* `sqlx_dynamic_literal_guard`：仅剩 `synapse-storage/src/event/depth.rs:41`（1 > 基线 0，**既有**）。
+⇒ 两个共享基线文件**不动**：把 test 711 抬到 713 会连另一写者的 +1 一起吸收，
+   违反"跨批次替他批改棘轮会让哪批完成多少不可追溯"的既有纪律；本项目未发布、无生产数据，
+   这些残留是**已知且已归因**的，不由本批扩大。
 
 ### 6.3 U-4 `/versions` 是否升 v1.16 —— **不升** ✅ 决策
 
