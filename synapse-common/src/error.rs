@@ -203,6 +203,29 @@ impl ApiError {
         }
     }
 
+    /// MSC4133: the profile field **name** is longer than the spec's 255 bytes.
+    ///
+    /// 400 with `M_KEY_TOO_LARGE` (not `M_BAD_JSON`): the JSON is well-formed,
+    /// the key is simply too long — clients branch on this to trim it.
+    pub fn key_too_large(message: impl Into<String>) -> Self {
+        Self {
+            kind: ApiErrorKind::BadRequest,
+            code: MatrixErrorCode::KeyTooLarge,
+            message: message.into(),
+            cause: None,
+        }
+    }
+
+    /// MSC4133: storing this value would push the profile past its 64 KiB limit.
+    pub fn profile_too_large(message: impl Into<String>) -> Self {
+        Self {
+            kind: ApiErrorKind::BadRequest,
+            code: MatrixErrorCode::ProfileTooLarge,
+            message: message.into(),
+            cause: None,
+        }
+    }
+
     /// Builds a 401 error with `M_UNAUTHORIZED` Matrix code.
     /// Builds a 401 Unauthorized error with `M_UNAUTHORIZED` errcode.
     pub fn unauthorized(message: impl Into<String>) -> Self {
@@ -1888,6 +1911,8 @@ mod tests {
             MatrixErrorCode::UserLimitExceeded,
             MatrixErrorCode::Unsupported,
             MatrixErrorCode::UnknownPos,
+            MatrixErrorCode::KeyTooLarge,
+            MatrixErrorCode::ProfileTooLarge,
             MatrixErrorCode::BadPagination,
         ]
     }

@@ -24,8 +24,40 @@ use serde_json::json;
 /// We persist a user-scoped JSON object in `account_data` and expose per-field
 /// accessors on top of it. This keeps the implementation small while providing
 /// real interoperability for clients probing the unstable MSC4133 endpoints.
-const EXTENDED_PROFILE_MAX_FIELD_NAME_LEN: usize = 128;
+/// Spec (`M_KEY_TOO_LARGE`: "maximum allowed length of 255 characters") and
+/// upstream Synapse agree on 255 (`synapse/handlers/profile.py:66
+/// MAX_CUSTOM_FIELD_LEN = 255`); this repo previously capped keys at 128, which
+/// rejected keys the spec allows.
+const EXTENDED_PROFILE_MAX_FIELD_NAME_LEN: usize = 255;
+/// Total stored profile limit (spec: "the total profile MUST be under 64 KiB").
 const EXTENDED_PROFILE_MAX_JSON_LEN: usize = 65536;
+
+/// Validate a profile field write before it touches storage.
+///
+/// Both refusals carry a **specific** errcode — the request is well-formed JSON,
+/// so `M_BAD_JSON` would send clients looking for a syntax error that is not
+/// there:
+/// - oversize key ⇒ `M_KEY_TOO_LARGE` (400);
+/// - value that would exceed the profile size limit ⇒ `M_PROFILE_TOO_LARGE` (400).
+///
+/// Kept a pure function so the boundary cases are unit-testable without a
+/// request context.
+fn validate_extended_profile_field(key_name: &str, body_len: usize) -> Result<(), ApiError> {
+    if key_name.is_empty() {
+        return Err(ApiError::missing_param("Profile field name must not be empty".to_string()));
+    }
+    if key_name.len() > EXTENDED_PROFILE_MAX_FIELD_NAME_LEN {
+        return Err(ApiError::key_too_large(format!(
+            "Profile field name exceeds maximum allowed length of {EXTENDED_PROFILE_MAX_FIELD_NAME_LEN} bytes"
+        )));
+    }
+    if body_len > EXTENDED_PROFILE_MAX_JSON_LEN {
+        return Err(ApiError::profile_too_large(format!(
+            "Extended profile field too large (max {EXTENDED_PROFILE_MAX_JSON_LEN} bytes)"
+        )));
+    }
+    Ok(())
+}
 
 async fn ensure_extended_profile_user_exists(ctx: &RoomContext, user_id: &str) -> Result<(), ApiError> {
     let exists = ctx.account_identity_service.user_exists(user_id).await?;
@@ -99,9 +131,7 @@ pub async fn get_extended_profile_field(
     .await?;
     ensure_extended_profile_user_exists(&ctx, &user_id).await?;
 
-    if key_name.is_empty() || key_name.len() > EXTENDED_PROFILE_MAX_FIELD_NAME_LEN {
-        return Err(ApiError::bad_request("Invalid extended profile field name".to_string()));
-    }
+    validate_extended_profile_field(&key_name, 0)?;
 
     let document = load_extended_profile_document(&ctx, &user_id).await?;
     let value = document
@@ -126,14 +156,8 @@ pub async fn put_extended_profile_field(
     if auth_user.user_id != user_id {
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
-    if key_name.is_empty() || key_name.len() > EXTENDED_PROFILE_MAX_FIELD_NAME_LEN {
-        return Err(ApiError::bad_request("Invalid extended profile field name".to_string()));
-    }
-
     let body_str = serde_json::to_string(&body).map_err(|e| ApiError::bad_request(format!("Invalid JSON: {e}")))?;
-    if body_str.len() > EXTENDED_PROFILE_MAX_JSON_LEN {
-        return Err(ApiError::bad_request("Extended profile field too large (max 64KB)".to_string()));
-    }
+    validate_extended_profile_field(&key_name, body_str.len())?;
 
     let mut document = load_extended_profile_document(&ctx, &user_id).await?;
     document.insert(key_name.clone(), body);
@@ -158,9 +182,7 @@ pub async fn delete_extended_profile_field(
     if auth_user.user_id != user_id {
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
-    if key_name.is_empty() || key_name.len() > EXTENDED_PROFILE_MAX_FIELD_NAME_LEN {
-        return Err(ApiError::bad_request("Invalid extended profile field name".to_string()));
-    }
+    validate_extended_profile_field(&key_name, 0)?;
 
     let mut document = load_extended_profile_document(&ctx, &user_id).await?;
     let removed = document.remove(&key_name).is_some();
@@ -172,4 +194,40 @@ pub async fn delete_extended_profile_field(
         "key_name": key_name,
         "deleted": true
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use synapse_common::error::MatrixErrorCode;
+
+    /// 255 bytes is allowed (spec / upstream Synapse `MAX_CUSTOM_FIELD_LEN`);
+    /// 256 is not, and the refusal names the right errcode.
+    #[test]
+    fn field_name_boundary_is_the_spec_limit() {
+        let max_ok = "a".repeat(EXTENDED_PROFILE_MAX_FIELD_NAME_LEN);
+        assert!(validate_extended_profile_field(&max_ok, 2).is_ok());
+        assert_eq!(EXTENDED_PROFILE_MAX_FIELD_NAME_LEN, 255, "spec: max 255 characters");
+
+        let too_long = "a".repeat(EXTENDED_PROFILE_MAX_FIELD_NAME_LEN + 1);
+        let error = validate_extended_profile_field(&too_long, 2).expect_err("256 bytes must be refused");
+        assert_eq!(error.http_status(), axum::http::StatusCode::BAD_REQUEST);
+        assert!(error.code_is(MatrixErrorCode::KeyTooLarge), "got {}", error.code_str());
+        assert_eq!(error.code_str(), "M_KEY_TOO_LARGE");
+    }
+
+    #[test]
+    fn oversize_value_is_profile_too_large_not_bad_json() {
+        let error = validate_extended_profile_field("org.example.job", EXTENDED_PROFILE_MAX_JSON_LEN + 1)
+            .expect_err("over the profile limit must be refused");
+        assert_eq!(error.http_status(), axum::http::StatusCode::BAD_REQUEST);
+        assert!(error.code_is(MatrixErrorCode::ProfileTooLarge), "got {}", error.code_str());
+        assert_eq!(error.code_str(), "M_PROFILE_TOO_LARGE");
+    }
+
+    #[test]
+    fn empty_key_is_missing_param() {
+        let error = validate_extended_profile_field("", 2).expect_err("empty key must be refused");
+        assert!(error.code_is(MatrixErrorCode::MissingParam), "got {}", error.code_str());
+    }
 }
