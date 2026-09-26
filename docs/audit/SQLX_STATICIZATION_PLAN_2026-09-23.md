@@ -30,16 +30,16 @@
 即 `BASELINE_DYNAMIC_PRODUCTION` 单向降到 0；测试基础设施与 DDL 类动态 SQL 走
 书面白名单，不再掩盖生产债务。每批同时下调 dynamic、上调 static。
 
-> **当前进展（2026-09-25，C32 后实测）** —— 上表是 2026-09-23 的**计划时基线**，
+> **当前进展（2026-09-25，C33 后实测）** —— 上表是 2026-09-23 的**计划时基线**，
 > 保留作对照；当前 census 实测：
 >
-> | 指标 | 计划时 | C32 后实测 |
+> | 指标 | 计划时 | C33 后实测 |
 > |---|---|---|
-> | `dynamic_production` | 1532（近似） | **432** |
-> | `static` | 61 | **1037** |
-> | `dynamic`（总） | 2151 | **1143** |
-> | 静态占比 | 2.76% | **47.6%（1037 / 2180）** |
-> | `.sqlx` 离线缓存 | 60 条 | **1005 条** |
+> | `dynamic_production` | 1532（近似） | **421** |
+> | `static` | 61 | **1048** |
+> | `dynamic`（总） | 2151 | **1132** |
+> | 静态占比 | 2.76% | **48.1%（1048 / 2180）** |
+> | `.sqlx` 离线缓存 | 60 条 | **1016 条** |
 >
 > ✅ C28 那笔「`dynamic_production` 反而升到 515」的**待偿债务已在 C29 结清并超额**：
 > 侦察发现「静态 SQL 藏进变量」是 `event/create.rs` 的**整文件**反模式（16 处，
@@ -54,6 +54,11 @@
 > ✅ **C32** 再降到 **432**（`chunked_upload.rs` 11 + `matrixrtc.rs` 11 + `voice.rs` 10），
 > 并新增一条**反向**判据进 R4：宏**不**检查「NOT NULL 列配 `Option` 字段」⇒
 > 字段的 `Option` 形态**不能**当作列可空性的证据（详见 §8.29）。
+> ✅ **C33** 再降到 **421**（`push/mod.rs` 11 处），且这批是"**先修再转**"：先把 4 个方法
+> 泄漏的 `sqlx::postgres::PgRow` 换成 `PusherRow` / `PushRuleRow` / `NotificationRow`，
+> 才转得动宏 —— 顺带修掉 **D-63**（服务层 `.ok().flatten()` 吞掉列解码错误 10 处）、
+> 让内存 mock 从"只能 panic"变成可测；并登记 **D-62**（通知响应把 `notification_type`
+> 渲染成 `profile_tag` 键，**待产品裁定**，本批行为保持）—— 详见 §8.30。
 > §7 的**未修**项目前为 **0**（D-57 记 `部分已修`：①断言锚定已做，②`public` 收敛未做）。
 >
 > 已执行：Phase A/B/D + C1–C18（逐批数字与理由在
@@ -63,7 +68,8 @@
 > **C28**（§8.25，schema 清理批）+ **C29**（§8.26，`event/create.rs` 全文件静态化 + D-57①）+
 > **C30**（§8.27，`retention.rs` 全文件静态化 + D-61）+ **C31**（§8.28，`to_device/storage.rs`
 > + `relations/mod.rs` 静态化 + R4/R5/R6 判据）+ **C32**（§8.29，`chunked_upload.rs` +
-> `matrixrtc.rs` + `voice.rs` 静态化 + R4 反向判据）；
+> `matrixrtc.rs` + `voice.rs` 静态化 + R4 反向判据）+ **C33**（§8.30，`push/mod.rs`
+> 去 `PgRow` 泄漏 + 静态化 + D-62/D-63）；
 > 另完成 **D-47 ②**（守卫 A′ + (b) 组 31 键逐文件迁模板，§8.17/§8.18）——**D-47 已修**。
 > 门禁复跑另抓出并修掉六条既有缺陷：**D-50**（`--all-features` clippy 红）、
 > **D-51**（并发写者遗留的 `.sqlx` 缺口）、**D-52**（守卫 5 夹具路径悬空）、
@@ -72,8 +78,8 @@
 > 断言它的契约用例 ⇒ CI 集成批次必红）、**D-58**（E-12 迁移后的死观测面）；
 > 并发写者的 **D-39** 确认落地（`00271cf91`）。C28 另登记 **D-59**（并发会话把静态 SQL
 > 藏进变量、绕过 literal 棘轮 ⇒ ratio + literal 双门禁红，部分已修）。
-> §7 登记 61 条（已修 49 / 部分已修 2 / **未修 0** / 结构性保留 7 / 文档级 3）。
-> **下一步见 §8.29 末尾的「剩余头部」。**
+> §7 登记 64 条（已修 51 / 部分已修 2 / **未修 1** / 结构性保留 7 / 文档级 3）。
+> **下一步见 §8.30 末尾的「剩余头部」。**
 
 ---
 
@@ -553,20 +559,23 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-59 | **门禁失效 + 反模式（静态 SQL 藏进变量）**（**新登记**） | `synapse-storage/src/event/create.rs::create_event_with_pdu`（2 处 `let query = r"…"` + `sqlx::query_as(query)`）与 `synapse-storage/src/event/depth.rs:41`（纯字面量 `query_scalar`）—— 均由并发会话 `e55588718` 新增 | 前者把**静态 SQL 藏进局部变量**：调用点实参是**标识符**而非字面量 ⇒ 同时**抬高 `dynamic_production`**（ratio 门禁红）并**绕过 literal 棘轮**（census 归为 `runtime`）；后者是纯字面量 ⇒ 直接违反 `no_new_production_literal_dynamic_sql`。两者叠加使 `opt/consolidated` 的 ratio + literal **两道门禁同时红**，而该批次未同步棘轮 | **已修**（2026-09-25 C28 发现 ⇒ C29 偿还；超额完成） | 无（两者都是**可静态化**的 SQL，不属"动态标识符"类） | **已修且超额**（C29）：侦察发现该反模式不在 2 个方法 4 处，而是**整文件** —— `event/create.rs` 的 **16 处生产动态 SQL 全是纯静态 SQL**（14 处被 census 归为 `runtime`、2 处直接字面量），分属 6 个方法；C29 全部宏化（16 动态 → 9 宏调用），`dynamic_production` 515 → **499**（当时预估 ≤511）。棘轮那笔「带归因临时上调 513 → 515」随之撤销并继续下压。转换手法与机械坑（含实测确认 D-19 在此文件成立）见 §8.26。原文其余部分保留作背景：撞 D-19（`RoomEvent` 用 `#[sqlx(rename = "processed_at")] pub processed_ts: i64`，`query_as!` 不认 rename ⇒ 必须改 SQL 别名），另有 `COALESCE(depth,0) as depth` / `'pending' as status` 等合成列，且位于 **v12 事件写入**这一安全敏感路径、是别人刚落地的实现 —— 按 R12 不得与 schema 清理混做 |
 | D-60 | **门禁失效（守卫的魔数下界与目的相反）**（**新登记**） | `tests/unit/sqlx_dynamic_literal_guard_tests.rs` 的 `scan_mode_reports_a_non_empty_production_surface`：`assert!(sites.len() > 500, …扫描面疑似被整体排除（假通过风险）…)` | 该断言**意图**是「扫描面别被整体排除」（下界），但写成了**绝对数 500** —— 而静态化战役的目标正是把这个数压下去。C29 把 `dynamic_production` 降到 **499** 时，这条门禁在「如期达成目标」的时刻变红：**把上界当成了下界**，会逼后来者调大数字或绕开它，正好抵消战役成果 | **已修**（2026-09-25 C29 撞到即修） | 无（纯守卫判据），但它是**唯一一条会随战役成功而失败**的门禁 | 已修：换成**结构性**判据 —— `sites` 非空 + **至少 5 个不同目录**贡献站点（当前实测 7 个；`synapse-cache`/`synapse-web` 合法为 0，故不能要求「每个 SCAN_DIR 都贡献」）。总数与 census 的一致性仍由 `scan_mode_total_matches_census_dynamic_production` 钉住。**自证**：把测试体内站点按目录过滤成只剩 `synapse-storage/` ⇒ 用例 FAIL 报「只有 1 个目录…疑似被部分排除」，还原后 sha256 一致（§7.2 D-60） |
 | D-61 | **文档级（错误的规则注释被当成规则）**（**新登记**） | `synapse-storage/src/admin_media.rs::get_is_hash_quarantined` 的注释：「`EXISTS(...)` 列没有关系来源，sqlx 因此推可空；`unwrap_or(false)` 是仓内既有的 C19a 模式（**`query_scalar!` 不接受 `AS "col!"` 覆盖**）」 | 该断言**与仓内既有代码直接矛盾**：`synapse-storage/src/room/mod.rs:252`（`SELECT creator AS "creator!"`）、`room/mod.rs:341` / `room/admin.rs:340`、`:342`、`:348`、`:353`、`:358`、`:360`、`:389` 共 **8 处**早就在 `query_scalar!` 上用 `AS "count!"`；C30 实测 `SELECT EXISTS(…) AS "exists!"` 亦编译通过。危害不止「注释不准」：该结论被用来选 `Option<bool>` + **`unwrap_or(false)`**，而它落在**隔离状态查询**上 —— 一旦该列返回 `NULL`，调用方读到的是「未隔离」（**fail-open**）。`EXISTS` 永不为 `NULL`，故无可观测差异，但形状本身属于本仓明令禁止的 `unwrap_or_default` 兜底家族 | **已修**（2026-09-25 C30 转换时撞到，独立提交） | 无（原行为无差异；但该注释会误导后续每一次标量宏转换 —— 本批的 `retention.rs` 就是下一个读者） | 已修：改用 `AS "exists!"` 把非空断言交给编译期，删掉 `.unwrap_or(false)`；注释改写为「可空性由 SQL 断言表达，`unwrap_or` 会形成 fail-open」并指明仓内既有用法。`.sqlx` 随交换 1 条。见 §7.2 D-61 |
+| D-62 | **响应形状与 schema 不符（待产品裁定）**（**新登记**） | `synapse-services/src/client_push_service.rs::get_notifications`（`"profile_tag": row.notification_type`）与 `synapse-web/src/routes/handlers/room/events.rs:165`（`"profile_tag": n.notification_type`） | `notifications` 表**同时**有 `notification_type VARCHAR(50)` 与 `profile_tag VARCHAR(255)` 两列，但两条读路径都把 `notification_type` 渲染进 JSON 键 `profile_tag`，**真 `profile_tag` 列从未被 SELECT**。Matrix 规范里 `profile_tag` 是"命中的推送规则的 profile tag"，语义上不是通知类型。**两处独立实现写了同一个映射** ⇒ 更像有意的产品选择而非笔误（`events.rs` 那条路径的 `RoomNotification` 也没有 profile_tag 字段） | **未修（待裁定）** | 无数据/安全影响；但客户端拿到的 `profile_tag` 语义与规范不一致，且真 `profile_tag` 列的**读路径为零** | 两个候选：① 改为 SELECT 真 `profile_tag` 并**另加** `notification_type` 键（信息超集，最贴规范）；② 若产品确实要让该键承载通知类型，则改名并同步 `events.rs`。**需要产品裁定**，故 C33 只做类型化、**行为保持**，并在代码处留注释指向本条 |
+| D-64 | **缓存失效从未执行（`let _ = <future>` 不 await）**（**新登记**） | `synapse-services/src/room/membership/moderation.rs:196`（knock 路径） | 同一行代码在本文件出现 **5 次**，其中 **4 次**（120/286/359/457）写成 `let _ = self.cache.delete(&format!("room_state:{room_id}")).await;`，只有 knock 那条**漏了 `.await`**。`CacheManager::delete` 是 `async fn` ⇒ 不 await 的 future **从不执行**，`let _ =` 直接丢弃它 ⇒ **knock 之后 room_state 缓存永不失效**，后续读可能拿到旧成员态。由 C33 的 clippy 门禁（`clippy::let_underscore_future`）**同样报出**；**并发会话先一步以 `ad90bf844` 修掉**（同批还有 `855708958`） | **已修**（2026-09-25，落地见 `ad90bf844`） | 生产影响：**缓存陈旧**（不是数据损坏）；与同文件另外 4 条路径行为不一致，是典型的复制粘贴漏改 | 已修：`ad90bf844` 把 `let _ = …delete(…);` 改成 `…delete(…).await;`。C33 本批也做了等价修复，**变基到 `ad90bf844` 时因重复而 skip**（同一行、同一意图）—— 归并发提交。见 §7.2 D-64 |
+| D-63 | **吞错（`.ok()` 把列解码错误变成 `None`）**（**新登记**） | `synapse-services/src/client_push_service.rs` 的 `get_pushers` / `get_user_push_rules` / `get_notifications` 共 **10 处** `row.try_get::<Option<T>, _>("col").ok().flatten()` | `.ok()` 把 `try_get` 的**类型/解码错误**静默折叠成 `None`，于是"列类型与代码假设不符"这种真错误会表现为"值为空"（pushers 的 `data` 变 `{}`、push_rules 的 `actions` 变 `[]`、notifications 的 `ts` 变 `null`），与 AGENTS.md「Never `unwrap_or_default()` on DB queries」是同一条铁律的变体 | **已修**（2026-09-25 C33 类型化时一并消掉） | 无（schema 正确时行为相同），但它是"**静默**出错"的形状：真出错时没有任何信号 | 已修：宏 + 行结构体后改为字段访问（`row.data` / `row.actions` / `row.ts` …），类型与可空性由编译期负责，`.ok()` 全部消失。见 §7.2 D-63 |
 
-**状态计数（2026-09-25，C30 完成后）**：已修 **49**
+**状态计数（2026-09-25，C33 完成后）**：已修 **51**
 （D-02/D-03/D-24/D-28/D-35 + W1 的 D-10/D-11/D-31/D-33/D-34 + D-36 守卫 +
 W2 的 D-05/D-07/D-08/D-09 + W3 的 D-29/D-32 + D-38 + W4 的 D-01/D-04/D-06/D-17/D-27/D-30 +
 D-12 + D-42 + W5 的 **D-15**（含六个子项）/**D-25**/**D-40**/**D-41** + C19a 的 **D-43**/**D-44**/**D-45** +
 C19b 的 **D-46**/**D-47** + C25 的 **D-50**/**D-51** + C26 的 **D-48**/**D-49**/**D-52**/**D-54** +
 C27 的 **D-55**/**D-56** + 并发写者的 **D-39**（`00271cf91`）+
-C28 的 **D-53**/**D-58** + C29 的 **D-59**/**D-60** + C30 的 **D-61**）；
+C28 的 **D-53**/**D-58** + C29 的 **D-59**/**D-60** + C30 的 **D-61** + C33 的 **D-63**/**D-64**）；
 **部分已修 2**（D-37：吞错与死包装已修、跨 crate 两份实现的收敛未做；
 **D-57**：断言锚定 `current_schema()` 的①已修，`public` 收敛的②未做 —— 理由见 §7.2 D-57）；
-未修 **0**；
+未修 **1**（**D-62**：通知响应的 `profile_tag` 键取自 `notification_type`，待产品裁定）；
 结构性保留（有意）**7**（D-13/D-14/D-18–D-22）；
 文档级已处置 **3**（D-16/D-23/D-26）。
-合计 **61** 条（D-01…D-61），校验：49 + 2 + **0** + 7 + 3 = **61**。
+合计 **64** 条（D-01…D-64），校验：51 + 2 + **1** + 7 + 3 = **64**。
 
 > 注：本行以下曾残留一段**过期计数**（「合计 36 条（D-01…D-36）」），与当时的实际条数矛盾
 > 且已被后续重写覆盖 —— 本次一并删除，避免出现第三份计数口径（D-35 型漂移）。
@@ -2099,6 +2108,68 @@ C28 的 **D-53**/**D-58** + C29 的 **D-59**/**D-60** + C30 的 **D-61**）；
   的注释如果没人验，就会像失效的门禁一样**长期**把后来者挡在更好的写法外面
   —— 而且比失效门禁更隐蔽，因为它不报错。**凡是注释声称"X 不行/必须 Y"，
   在依赖它做决策之前，先在仓内 `grep` 一遍反例，或花 30 秒实测一次。**
+
+
+#### D-62 通知响应把 `notification_type` 渲染成 `profile_tag` 键（2026-09-25 C33 发现，待裁定）
+
+- 类别：**响应形状与 schema 不符**（无数据/安全影响；**未修**，等产品裁定）。
+- 位置：`synapse-services/src/client_push_service.rs::get_notifications` 与
+  `synapse-web/src/routes/handlers/room/events.rs:165`。
+- 事实：
+  - `notifications` 表**同时**有 `notification_type VARCHAR(50) DEFAULT 'message'` 与
+    `profile_tag VARCHAR(255)` 两列（`v12:1495-1496`）；
+  - `PushStorage::get_notifications` 的 SQL **只** SELECT `notification_type`，
+    真 `profile_tag` 列没有任何读路径；
+  - 两条读路径都把 `notification_type` 放进 JSON 键 **`profile_tag`**。
+- 为什么**没有**当场修：Matrix 规范里 `profile_tag` 是"命中的推送规则的 profile tag"，
+  所以这个映射语义上可疑；但**两处独立实现写了同一个映射**（`events.rs` 那条路径用的
+  `RoomNotification` 根本没有 profile_tag 字段），更像有意的产品选择。改它属于**响应形状变更**，
+  按 R12（禁止夹带）不在静态化批次里做，故 C33 只做类型化、行为保持，并在代码处留注释指向本条。
+- 候选修法（择一，需裁定）：
+  1. SELECT 真 `profile_tag` 填 `profile_tag`，**另加** `notification_type` 键（信息超集，最贴规范）；
+  2. 若确实要让该键承载通知类型，则把键改名为 `notification_type` 并同步 `events.rs`。
+- 附注：`PushStorage::get_notifications` 换成 `NotificationRow` 之后，两个字段已经是**并列的
+  类型化字段**（`profile_tag` / `notification_type`），上面任一修法都只是改一行 JSON 组装。
+
+#### D-63 `.ok()` 把列解码错误静默变成 `None`（10 处，C33 类型化时一并修掉）
+
+- 类别：**吞错**（与 AGENTS.md「Never `unwrap_or_default()` on DB queries」同族）。
+- 位置：`synapse-services/src/client_push_service.rs` 的 `get_pushers`（2 处）、
+  `get_user_push_rules`（3 处）、`get_notifications`（5 处），共 **10 处**：
+  `row.try_get::<Option<T>, _>("col").ok().flatten()`。
+- 为什么是缺陷：`.ok()` 把 `try_get` 的**类型/解码错误**折叠成 `None`，于是"列类型与代码
+  假设不一致"这种**真错误**会以"值为空"的形式出现 —— pushers 的 `data` 变 `{}`、
+  push_rules 的 `actions` 变 `[]`、notifications 的 `ts` 变 `null`。schema 正确时行为相同，
+  所以它此前不显形；一旦某列类型变化，客户端会**静默**收到空值而不是报错。
+  > 与 D-54（`unwrap_or_default` 吞错 + 不可达回退）是同一类：**把"错误"降级成"空"**。
+- 状态：**已修**（C33）。转 `query_as!` + 行结构体后，取值变成字段访问（`row.data` /
+  `row.actions` / `row.ts` …），类型与可空性由宏在编译期负责，10 处 `.ok()` 全部消失。
+- 附带收益：`InMemoryPushStore` 的 4 个方法原先只能 `unimplemented!()`（注释明说
+  "`PgRow` 是活库句柄"），类型化后 `get_pushers` / `get_user_push_rules` 可以如实实现，
+  **首次**能在纯内存里被测到（C33 新增 4 条单测断言整份 JSON 形状）。
+
+
+#### D-64 knock 路径的缓存失效从未执行（`let _ = <future>` 不 await，C33 门禁报出）
+
+- 类别：**功能缺陷**（缓存陈旧；由 clippy lint 报出，与静态化无关）。
+- 位置：`synapse-services/src/room/membership/moderation.rs:196`。
+- 证据链（很干净的一条）：
+  1. **同一行代码在本文件出现 5 次**，4 次带 `.await`、1 次不带 —— 不一致本身就是线索；
+  2. `CacheManager::delete` 的签名是 `pub async fn delete(&self, key: &str)`（无返回值）；
+  3. `let _ = <future>;` **只构造 future、从不轮询** ⇒ 删除从未发生；
+  4. `clippy::let_underscore_future` 正是为这种形状存在，在 C33 的
+     `--all-targets -D warnings` 门禁上直接报红。
+- 影响：**knock 之后 `room_state` 缓存不失效**，后续从缓存读到的可能是变更前的成员态。
+  不是数据损坏（DB 是对的），但会让「刚 knock 完」的窗口读到旧状态 —— 属"读己之写"类问题。
+- 状态：**已修**，落地提交是**并发会话的 `ad90bf844`**（`fix(clippy): 先修既有红门禁 —— knock 广播里的
+  cache.delete 未 await`）。C33 在变基前也做了等价修复（同一行补 `.await`），
+  **变基时因"改动已存在"而 skip** —— 本条的修复归并发提交，不重复计入 C33 的提交清单。
+- 修法：`self.cache.delete(&format!("room_state:{room_id}")).await;`（`delete` 无返回值，
+  故不需要 `let _ =`）。
+- **教训**：这次不是"静态化挖出缺陷"，而是**门禁挖出缺陷** —— 而且**两个会话各自独立**被同一条
+  clippy lint 拦下（并发会话先修，C33 变基时重复 skip）。这比"谁先发现"更值得记：
+  **一条真正在跑的门禁会让不同的人撞上同一个问题**；反过来，长期全绿的门禁连一个人都拦不住。
+  与 R11"红着的门禁等于没有门禁"互为补充。
 
 
 ## 8. 问题优先处理计划（2026-09-23 重排：先修问题，再继续静态化）
@@ -4253,3 +4324,129 @@ C29 的"16→9"、C30 的"12→12"并存** —— 再次说明比例只由**执�
 4. `burn_after_read.rs`(15) 与 `database_initializer/mod.rs`(15) 的障碍不变
    （feature 门控的 CI 等价库成本 / D-14 归属）。
 5. **D-57②**（seed 侧收敛 `public`）仍待独立设计。
+
+### 8.30 C33 执行结果（2026-09-25，`push/mod.rs` 去 `PgRow` 泄漏 + 静态化）
+
+**触发**：§8.29 的「下一批建议」第 2 条 —— `push/mod.rs` 需**先修再转**：4 个方法返回
+`sqlx::postgres::PgRow`，宏无法产出匿名行结构体。基线：`opt/consolidated`（C32 之后）。
+
+#### 8.30.1 为什么这批必须先修
+
+`PushStorage` 的 4 个方法把**活的库句柄**（`PgRow`）交给上层：
+`get_pushers`、`get_user_push_rules`、`get_notifications` 返回 `Vec<PgRow>`，
+`ack_notification` 返回 `Option<PgRow>`。`query_as!` 只能映射到**具名结构体**，
+所以"先修"不是可选项 —— 它是转换的**前置结构**。两层代价也由此显形：
+
+- 上层（`synapse-services`）必须用 `row.try_get(...)` **按列名字符串**手工解码，
+  列名写错、类型不匹配都只能在**运行期**发现，而且还被 `.ok()` 吞成 `None`（→ D-63）；
+- 内存 mock 无法表示 `PgRow`，那 4 个方法只能 `unimplemented!()` ⇒ **这几条映射在单测里
+  结构性测不到**。
+
+#### 8.30.2 结构设计
+
+新增三个行结构体并用它们替换 `PgRow`：`PusherRow`（9 字段）、`PushRuleRow`（6 字段）、
+`NotificationRow`（6 字段）；`ack_notification` 改为 **`Option<i64>`**
+—— 原查询就是 `RETURNING id`，返回"被 ack 的那一行 id"比返回整行更贴语义，
+服务层 `result.is_some()` 一行不用改。
+
+**可空性决策（R4 的两种处置都用到）**：
+
+| 列 | schema | 结构体字段 | 依据 |
+|---|---|---|---|
+| `pushers.lang` | `TEXT DEFAULT 'en'`（**可空**） | `String` + `AS "lang!"` | 唯一写入方 `upsert_pusher` 恒绑该列；DEFAULT 覆盖省略插入 |
+| `push_rules.is_enabled` | `BOOLEAN DEFAULT TRUE`（**可空**） | `bool` + `AS "is_enabled!"` | INSERT 写字面量 `true`，`set_push_rule_enabled` 绑 `bool` |
+| `push_rules.is_default` | `BOOLEAN DEFAULT FALSE`（**可空**） | `bool` + `AS "is_default!"` | INSERT 写字面量 `false`，无其它写入方 |
+| `pushers.data` / `profile_tag` | 可空 | `Option<…>` | 与 schema 一致（旧代码即如此处理） |
+| `push_rules.conditions` / `pattern` / `actions` | 可空 | `Option<…>` | 同上 |
+| `notifications.event_id` / `room_id` / `notification_type` / `is_read` | 可空 | `Option<…>` | 同上 |
+| `notifications.ts` | **NOT NULL** | `i64` | 旧代码读成 `Option<i64>` 再 `flatten()`，输出恒为数字 ⇒ 行为不变 |
+
+**这三处断言的意义**：旧代码用 `row.get::<String,_>("lang")` / `row.get::<bool,_>("is_enabled")`
+—— 遇到 `NULL` 会 **panic**。断言非空后语义不变（写入方恒写非空），但把检查从运行期
+panic 提前到编译期，并且**写清了"谁保证非空"**（R4 的要求）。
+
+#### 8.30.3 顺带修掉的两件事
+
+1. **D-63（已修）**：服务层 10 处 `.ok().flatten()` 吞错全部消失（详见 §7.2 D-63）；
+2. **mock 从"只能 panic"到"真的能用"**：`InMemoryPushStore` 的 `get_pushers` /
+   `get_user_push_rules` 用已有的 `HashMap` 如实实现（含 `device_id IS NOT DISTINCT FROM $2`
+   的语义：该列 `NOT NULL` ⇒ 传 `None` 匹配不到任何行），通知类因 mock 不存通知而如实返回空。
+   **新增 4 条单测**（断言整份 JSON 对象）—— 这两条列→JSON 映射此前在纯内存里
+   **结构性测不到**，现在成了回归网。
+
+#### 8.30.4 门禁又挖出一条既有缺陷：D-64（缓存失效从未执行）
+
+C33 的门禁跑到 clippy 时红了，报的是**与本批无关**的一处：
+`moderation.rs:196` 的 `let _ = self.cache.delete(…);` 漏了 `.await`（同文件另外 4 处都有）
+⇒ knock 之后 `room_state` 缓存**永不失效**。
+
+处理过程本身值得记：按 R11 我先做了等价修复并独立提交；**变基到 `opt/consolidated` 时发现
+并发会话已用 `ad90bf844` 修掉同一行**（他们的 clippy 门禁也报了同一条 lint），于是
+**skip 掉我的重复提交、把修复归并发提交**，并登记为 **D-64**（§7.2）。
+
+⇒ **门禁的价值不在于"通过"，而在于它真的能报出人没写对的地方**：一条在跑的门禁会让
+**两个会话各自独立**撞上同一个 bug；长期全绿的门禁则一个人都拦不住（铁律 8）。
+
+#### 8.30.5 D-62：登记但**不改**（待裁定）
+
+`get_notifications` 把 `notification_type` 渲染到 JSON 键 `profile_tag`，而表里另有一列
+真 `profile_tag` 从未被 SELECT；`synapse-web/src/routes/handlers/room/events.rs:165` 有同样的
+映射。两处一致 ⇒ 更像产品选择而非笔误。改响应形状超出"行为保持的静态化"范围（R12），
+故**只登记**（§7.2 D-62）并在代码处留注释。**§7 的"未修"由 0 变 1**，这里如实记录。
+
+#### 8.30.6 门禁（实测）
+
+| 门禁 | 结果 |
+|---|---|
+| `check_sqlx_dynamic_ratio.sh` | **EXIT=0**（421 ≤ 421 / 711 ≤ 711 / 1048 ≥ 1048） |
+| literal guard（`sqlx_dynamic_literal_guard_tests`） | **16/16** |
+| `check_sqlx_cache_fresh.sh --compile`（权威） | **EXIT=0**（1016 条） |
+| 两档 clippy（`-D warnings`） | **EXIT=0** |
+| `nextest -p synapse-storage --lib -E 'test(/push::/)'`（真 baseline 往返） | **22/22** |
+| `nextest -p synapse-services --lib -E 'test(/client_push_service/)'` | **20/20**（含新增 4 条） |
+| **集成**：`test_push_routes_share_across_r0_and_v3` + `test_admin_pusher_query_requires_existing_user_and_returns_created_pushers` | **2/2**（后者断言从 HTTP 路由拿到的 `pushkey`，端到端证明响应形状未变） |
+| `check_fmt_ratchet.sh` | 债务 **0** |
+
+#### 8.30.7 棘轮与派生缓存
+
+- `BASELINE_DYNAMIC_PRODUCTION` 432 → **421**、`BASELINE_STATIC` 1037 → **1048**、
+  `BASELINE_DYNAMIC` 1143 → **1132**、`BASELINE_DYNAMIC_TEST_INFRA` **保持 711**。
+- `.sqlx`：**1005 → 1016**（+11，与 11 个宏调用一一对应）。
+- literal 基线：**361 → 350 处 / 64 → 63 文件**，删 `synapse-storage/src/push/mod.rs 11`
+  （归零退表）；runtime **不变，仍 71 处 / 14 文件**。
+  > 生成脚本按"逐文件计数"重跑后与实测逐行相同 —— 这条自查本轮已跑 5 次（C30–C33），
+  > 每次都能抓到一行漂移或确认没有，成本极低。
+
+#### 8.30.8 提交清单
+
+**按主题引用，不引用哈希**（理由见 §8.23.7）：
+
+1. `refactor(storage): C33 push 静态化(11) —— 先修 PgRow 泄漏，再转宏`
+   （结构部分与转换部分同在 `push/mod.rs`，无法拆成两个可独立编译的提交，故合并并在信息里分段说明）
+2. `chore(sqlx): C33 同批收紧棘轮 —— dynamic_production 432→421、static 1037→1048`
+3. 本文档（§8.30 + §7 的 D-62/D-63/D-64 + §0）
+> **D-64 的修复不在本批的提交清单里**：并发会话的 `ad90bf844` 先落地了同一处修复，
+> C33 的等价提交在变基时因重复而 skip（§7.2 D-64 有完整归因）。
+
+**累计进展（C 系列 `dynamic_production`）**：… → 487（C30）→ 464（C31）→ 432（C32）→ **421（C33）**。
+`static` 61 → **1048**；`.sqlx` 60 → **1016** 条；literal 逐文件 876（计划时）→ **350 处 / 63 文件**。
+**较战役起点 1532 已降 72.5%**。
+
+**剩余头部（可静态化的，按实测）**：
+`synapse-storage/src/burn_after_read.rs`（15，门控 `burn-after-read`）、
+`synapse-services/src/database_initializer/mod.rs`（15，需先判 D-14 归属）、
+`synapse-storage/src/event/basic.rs`（11）、`synapse-storage/src/event/redaction.rs`（10）、
+`synapse-storage/src/dehydrated_device.rs`（10）、`synapse-e2ee/src/ssss/storage.rs`（10）、
+`synapse-e2ee/src/secure_backup/service.rs`（10）、`synapse-storage/src/pruning.rs`（9）、
+`synapse-storage/src/invite_blocklist.rs`（9）、`synapse-storage/src/event/state.rs`（9）。
+> 口径同前：**结构性保留**（`event/pagination.rs` 15）与**测试基建**（`synapse-test-utils/src/lib.rs` 28、
+> `synapse-common/src/test_isolation.rs` 25、`test_schema_guard.rs`）不在可转换清单内。
+
+**下一批建议**：
+1. **`event/basic.rs`(11) + `event/redaction.rs`(10) + `event/state.rs`(9) = 30** —— 同域一批，
+   宏化后 `event/` 读写路径的类型安全面基本闭合；**动手前先确认并发会话不在这些文件上**（v12 活跃区）。
+2. `dehydrated_device.rs`(10) + `pruning.rs`(9) + `invite_blocklist.rs`(9) = 28，同为
+   `synapse-storage` 的单表模块，风险低。
+3. `ssss/storage.rs`(10) + `secure_backup/service.rs`(10) = 20（`synapse-e2ee`，与 C25–C27 同域）。
+4. `burn_after_read.rs`(15) / `database_initializer/mod.rs`(15) 障碍不变（feature 门控成本 / D-14 归属）。
+5. **D-62 待产品裁定**（通知响应的 `profile_tag` 键）；**D-57②**（seed 侧收敛 `public`）仍待独立设计。
