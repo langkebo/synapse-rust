@@ -155,6 +155,7 @@ impl EventRedactionService {
                     room_id = %room_id,
                     event_id = %event_id,
                     target_event_id = %target_id,
+                    actor_user_id = %actor_user_id,
                     error = %error,
                     "Failed to redact a related event during cascade"
                 );

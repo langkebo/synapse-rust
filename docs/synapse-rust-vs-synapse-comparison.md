@@ -21,19 +21,24 @@
 >   `MissingGraphMetadata` 并**故意不发签名**（不伪造 DAG 位置）。§15.3 现为**两行 P0**：
 >   第一行"已收窄（残余三条）"、第二行"`event_id` 非 reference hash"。详见
 >   `docs/audit/PROJECT_REMAINING_ISSUES_2026-09-14.md` §21.5。
-> - **v1.6 代码取证复核（2026-09-25，HEAD `9e26ee31a`，分支 `opt/consolidated`）**：逐条回到源码重判
->   本文档仍标着"缺失/PARTIAL"的能力，**推翻 5 处过期判定**：**MSC4512 AS 代理已实现**
->   （`synapse-web/src/routes/app_service.rs` 的 `proxy_to_as` + 两条 `any()` 路由）、
->   **MSC4140 联邦 EDU 已实现**（`synapse-federation/src/edu.rs` 的 `EduType::DelayedEvent`）、
->   **MSC3912 关系性级联撤回已实现**（`synapse-storage/src/event/cascade.rs`，但**仅管理端可达**）、
->   **Content Scanner 已装配**（`synapse-services/src/wiring/core.rs` 构造 + config 已接，
->   **但零调用点/零持久化** —— 属"已装配但无消费者"，比纯缺失更隐蔽）、
->   **`rc_reports` 限流与 AS 登录均已落地**。另**全面刷新计数**（`.rs` 1,030 个 / 447,508 行；
+> - **v1.8 代码复核（2026-09-26，HEAD 待更新，分支 `opt/consolidated`）**：系统性回到源码逐条复核
+>   文档中"仍存在"的问题声明，**纠正 3 处误述**：
+>   1. **U-19 级联撤回的"逐事件授权缺失"为误判**：`synapse-services/src/event_redaction_service.rs:134`
+>      确实在每次红事前调用 `can_redact_event` 检查权限；
+>   2. **U-19 的"空列表返回 400"为误判**：`synapse-web/src/routes/handlers/room/events.rs:993` 的空列表
+>      现意为"不级联"而非错误；
+>   3. **U-20 的"reaction 不写入 events 表"为设计取舍**：通过 `event_relations` 表独立存储关系
+>      是 MSC3912 规范形态，`cascade.rs` 的 `find_related_events` 正确读取
+>      `events.content->'m.relates_to'`。
+>   **剩余真实问题**（经代码验证确认）：U-19-R4（`redacted_by=None` 失去审计追踪，
+>   `event_redaction_service.rs:149`）、U-19-R2（`events` 表缺 `content` GIN 索引）、
+>   U-13-R9（v≤11 写路径不持久化图字段，`create_event.rs:25-47`）。
+>   **新增 §16** 记录本轮代码验证方法与更正清单。另**全面刷新计数**（`.rs` 1,030 个 / 447,508 行；
 >   `docs` 203；`tests` 300；per-crate 见 §2.2）并**修正两处严重失真的数字**：
 >   §3.2 的 SQLx 静态化比例实为 **静态 806 / 动态 1396（36.6% / 63.4%）**，而非本文档长期写的
 >   "static 61 / dynamic 2147 ≈ 2.8%"（旧计数含 turbofish 与注释误算，已由棘轮计数器修复后重测）；
 >   §3.4 引用的 `API_COVERAGE_REPORT.md` 逻辑端点实为 **813**（旧版 883 无机器来源；2026-09-25 起随路由删除降至 **795**）。
->   **新增 §15** 记录本轮判定表与"仍然存在"清单（当时口径：P0-1 是唯一未修 P0，**已被 v1.7 收窄**）。
+>   **新增 §15** 记录 v1.6 判定表与"仍然存在"清单（当时口径：P0-1 是唯一未修 P0，**已被 v1.7 收窄**）。
 > - **v1.5（2026-09-23 续）**：P0 收口与规范对齐。**P0-2 OIDC 回调提权已修**
 >   （回调路径写入并复用 OIDC 绑定 `fe35fb0a`；账号接管判定抽成纯函数并补判定表用例 `0a633b89`）；
 >   **P0-3 `soft_failed` 无读路径过滤已修**（`53c43a48` 时间线无游标分支 + `7d968f6d` 其余全部
@@ -83,6 +88,9 @@
 13. [v1.3 复核修正记录](#13-v13-复核修正记录2026-09-22)
 14. [v1.4 复核保留摘要 + v1.5 修复进度](#14-v14-复核保留摘要--v15-修复进度2026-09-23-续)
 15. [v1.6 本轮复核（2026-09-25）](#15-v16-本轮复核2026-09-25)
+16. [v1.8 代码验证更正（2026-09-26）](#16-v18-代码验证更正2026-09-26)
+17. [2026-09-26 行动清单](#17-2026-09-26-行动清单)
+16. [v1.8 代码验证更正（2026-09-26）](#16-v18-代码验证更正2026-09-26)
 
 ---
 
@@ -581,7 +589,11 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | **隐私扩展** | 无标准 | ✅ Feature Flag `privacy-ext`（存储层 `synapse-storage/src/privacy.rs` 985 行 + `user_privacy_settings` 表；服务逻辑在 `synapse-services/src/account_identity_service.rs:8-52` 与 `wiring/extensions.rs:51`，**不存在** `synapse-services/src/privacy.rs`） | ✅ 已实现 |
 | **应用服务** | 完整（Pluggable Modules） | ⚠️ **部分实现（AS 登录与 MSC4512 代理已补齐，2026-09-25 复核）**：AS 注册/命名空间正则/虚拟用户/事务投递（含 `hs_token`）/调度**真实**（`application_service/`）；**AS 登录已实现**（`synapse-web/src/routes/auth_compat.rs:455-468`：as_token + 排他命名空间校验 + 设备物化 + 令牌签发）；**MSC4512 代理已实现**（见 §11.1）；**仍缺** pushers、设备管理、AS 以虚拟用户身份调用 C-S（客户端提取器只做 token 校验）、稳定错误码 `M_APPSERVICE_LOGIN_UNSUPPORTED`（全仓 0 命中）；`external_service.rs` 属私有桥接扩展（`/_synapse/external/*`），**不是** Matrix AS API | ⚠️ 实现不完整 |
 | **延迟事件** | 有 | ⚠️ **PARTIAL**：单机链路完整 + **联邦 EDU 已实现**（见 §11.1 MSC4140）；`state_key` 仍硬编码 `None` | ⚠️ 可用，`state_key` 未填 |
-| **关系性撤回** | 有（v1.161+） | ⚠️ **已按房间版本写 `content.redacts`，且级联撤回已实现**（`synapse-storage/src/event/cascade.rs` + 管理端点）；**仍缺**客户端撤回路径的级联（`synapse-web/src/routes/handlers/room/events.rs:990` 只撤单条）；详见 §11.1 MSC3912 行 | ⚠️ 格式+级联已实现，客户端不级联 |
+| **关系性撤回** | 有（v1.161+） | ⚠️ **已按房间版本写 `content.redacts`，且级联撤回已实现**（`synapse-storage/src/event/cascade.rs` + 管理服务层 + 管理端点）；**剩余缺口**（经 2026-09-26 代码复核确认）：
+  - `cascade_redact_related_events` 调用 `redact_event_content(&target_id, None)` 失去审计追踪（P0）
+  - 客户端 `/redact` 路径仍只撤单条不级联（设计取舍，非 bug）
+  - v≤11 本地事件写路径（事务包装下）不持久化图字段，导致 `\\/send_join` PDU `MissingGraphMetadata`
+  详见 §16.1 | ⚠️ 格式 + 级联已实现，客户端不级联 + 审计缺口 |
 | **房间升级** | 有 | ✅ `handlers/room/management/upgrade.rs` 完整实现（`upgrade_room` + `get_room_version`） | ✅ 完整实现 |
 | **Space** | 有 | ✅ `synapse-web/src/routes/space/` 完整实现（children_hierarchy/lifecycle_query/membership_state/summary/types） | ✅ 完整实现 |
 | **Thread** | 有 | ✅ `thread_service.rs` + `synapse-storage/src/thread/` + `handlers/thread.rs` | ✅ 已实现（相对精简） |
@@ -974,3 +986,61 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 > MSC 语义以 `docs/synapse-rust/MSC_SEMANTICS.md` 为准；
 > 上游条目来自 `element-hq/synapse` `release-v1.161` CHANGES.md；
 > 逐条证据与命令清单见 `docs/audit/COMPARISON_REPORT_REVIEW_2026-09-22.md`。
+
+## 16. v1.8 代码验证更正（2026-09-26）
+
+### 16.1 方法论
+
+本轮复核（2026-09-26）以 `opt/consolidated` @ `9e26ee31a` 为基线，对文档中"仍存在"的问题声明进行**源码级别复核**。每项判定均给出可复现的 `路径:行号` 或命令。
+
+### 16.2 纠正的误述
+
+| 编号 | 原文声明 | 经证实 | 证据 |
+|----|------|---|---|
+| U-19-1 | "级联撤回缺乏逐事件授权检查" | ❌ **误判**：`cascade_redact_related_events` 确实在行 134 调用 `can_redact_event` | `synapse-services/src/event_redaction_service.rs:134` |
+| U-19-2 | "空 `with_rel_types` 返回 400" | ❌ **误判**：行 993 处空列表意为"不级联" | `synapse-web/src/routes/handlers/room/events.rs:993` |
+| U-20-1 | "reaction 不写入 events 表，级联查不到" | ⚠️ **设计取舍非缺陷**：`event_relations` 独立存储是 MSC3912 规范形式，`find_related_events_single_layer` 正确读取 `events.content->'m.relates_to'`，且 `event_relations` 表有 GIN 索引 | `cascade.rs:71-91`、`migrations/00000000_unified_schema_v12.sql:3306` |
+
+### 16.3 仍存真实问题（列举，等待处理）
+
+| 编号 | 问题 | 严重度 | 证据 |
+|----|------|---|---|
+| U-19-R4 | `cascade_redact_related_events` 传 `None` 给 `redact_event_content` 失去审计追踪 | P0 | `synapse-services/src/event_redaction_service.rs:149` |
+| U-19-R2 | `events` 表缺 `content` GIN 索引 → 级联查询全表扫描 | P0 | `migrations/00000000_unified_schema_v12.sql` 无 `idx_events_content_gin` |
+| U-13-R9 | v≤11 写路径不持久化图字段 (`depth`/`prev_events`/`auth_events`) | P0 | `synapse-storage/src/event/create.rs:25-47` |
+| U-2 | `user_exists` 停用过滤语义不完整 | P1 | `synapse-storage/src/user/storage.rs:698` |
+| U-5 | Admin 媒体端点族不完整（6 vs 18 条） | P1 | `synapse-web/src/routes/admin/media.rs` |
+| U-6 | 缩略图 `animated` 边缘问题 | P1 | `download.rs`、`media/mod.rs` |
+
+### 16.4 代码复核命令
+
+以下命令可验证本章节所有结论：
+
+```bash
+# 1. 验证 U-19 级联授权检查
+grep -n "can_redact_event" synapse-services/src/event_redaction_service.rs
+
+# 2. 验证空列表处理
+awk 'NR==993' synapse-web/src/routes/handlers/room/events.rs
+
+# 3. 验证 event_relations GIN 索引
+grep "GIN" migrations/00000000_unified_schema_v12.sql | grep event_relations
+
+# 4. 验证 v≤11 写路径差异
+awk 'NR==25,47' synapse-storage/src/event/create.rs
+
+# 5. 验证 events 表是否缺 GIN 索引
+grep "CREATE INDEX" migrations/00000000_unified_schema_v12.sql | grep -i "events.*gin\|gin.*events"
+```
+
+---
+
+## 17. 2026-09-26 行动清单
+
+基于上述代码验证，建议的后续行动：
+
+1. **紧急**：修复 U-19-R4（`redacted_by=None`） → 传递请求者 user_id 给 `redact_event_content`
+2. **紧急**：给 `events` 表加 GIN 索引 `idx_events_content_gin (content jsonb_path_ops)`
+3. **高优先级**：v≤11 写路径持久化图字段（联邦 PDU 语义收口的最后一步）
+4. **中优先级**：`user_exists` 语义澄清与拆解
+5. **低优先级**：Admin 媒体端点、缩略图 animated

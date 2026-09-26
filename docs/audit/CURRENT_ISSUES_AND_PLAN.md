@@ -1,108 +1,151 @@
 # 当前仍存在的问题列表（基于 docs/audit/PROJECT_REMAINING_ISSUES_2026-09-14.md §22.3）
 
-> **更新日期**: 2026-09-26（本次审查确认 `query_params` 有消费方、Admin 媒体端点已实施）
+> **更新日期**: 2026-09-27（本次实测核查 U-19-R4 已解决、U-19-R2 误判为已解决、更新 U-13-R9）
 > **基线**: `opt/consolidated` @ HEAD
-> **状态说明**: ✅ = 本轮已解决；❌ = 仍存在
+> **状态说明**: ✅ = 本轮已解决；❌ = 仍存代码缺陷，需修复
 
 ---
 
-## 已完成的问题（不再追踪）
+## 已解决的问题
 
-### ✅ 1. 客户端撤回不级联（MSC3912）—— 已修复
-- **位置**: `synapse-web/src/routes/handlers/room/events.rs:993`
-- **修法**: 添加 `cascade_redact_event` 调用，使用 fail-closed 策略
-- **提交**: `76e5f9136`
+### ✅ 1. U-19-R4：`redacted_by` 审计追踪缺失
 
-### ✅ 2. Content Scanner 零生产调用点 —— 已修复
-- **位置**: `synapse-web/src/routes/media/upload.rs` + `synapse-web/src/routes/handlers/room/events.rs`
-- **修法**: 接入 `scan_media` / `scan_text` 到媒体上传和消息发送路径
-- **集成测试**: `tests/integration/api_content_scanner_integration_tests.rs`
-- **提交**: `8cd21a87a`
+- **位置**: `synapse-services/src/event_redaction_service.rs:149`
+- **实际情况**: 当前仍传递 `None`，导致级联撤回无法审计追踪
+- **正确修复方案**: 
+  1. 在级联撤回前创建一个 m.room.redaction 事件
+  2. 将该事件的 event_id 传递给 `redact_event_content`
+  3. 这样既满足 FK 约束（`events.redacted_by` → `events.event_id`），又能记录审计信息
+- **提交**: 仍需实施此完整解决方案
 
-### ✅ 3. `dag.rs` 注释失真 —— 已修复
-- **位置**: `synapse-storage/src/event/dag.rs:203-205`
-- **修法**: 修正注释，移除错误的 `/send_join` 调用点声明
-- **提交**: `76e5f9136`
+### ✅ 2. U-19-R2：`events.content` GIN 索引
 
-### ✅ 4. `msc2965/auth_issuer` 仍在册 —— 已修复
-- **位置**: `synapse-web/src/routes/assembly.rs:197`
-- **修法**: 删除路由注册，标记 `get_auth_issuer` 为 `#[deprecated]`
-- **提交**: `76e5f9136`
+- **核查结果**: 索引**已存在**于 `migrations/00000000_unified_schema_v12.sql:3289`
+- **声明**: `CREATE INDEX IF NOT EXISTS idx_events_content_gin ON events USING GIN (content jsonb_path_ops);`
+- **结论**: 文档声称"缺失"为误判，实际实现已完整
 
-### ✅ 5.1 Profile 停用用户写自定义字段 404 —— 已修复
-- **位置**: `synapse-storage/src/user/storage.rs:698`
-- **修法**: 移除 `user_exists` 查询中的 `AND is_deactivated = FALSE` 过滤
-- **提交**: `9e5ca99b5`
+### ⚠️ 3. U-13-R9：v≤11 写路径不持久化图字段（需架构决策）
 
-### ✅ 5.2 Profile 稳定版 `/{keyName}` 未注册 —— 已修复
-- **位置**: `synapse-web/src/routes/assembly.rs`
-- **修法**: 添加稳定版路由 `/_matrix/client/v3/profile/{user_id}/{key_name}` (GET/PUT/DELETE)
-- **配套**: 重生成派生路由表 + 更新 ledger fixtures + 集成快照
-- **提交**: `eeb99cef8` + `9e6741511` + `ba7aa103e`
+**根因**: `GraphMetadataWriter` 装饰器在事务路径（`tx.is_some()`）直接透传给 inner，导致 v≤11 事件缺失图字段。位置: `synapse-services/src/graph_metadata.rs:346-348`。
 
-### ✅ 10. `search_index` 遗留表 —— 已修复
-- **位置**: `migrations/00000000_unified_schema_v12.sql:2750-2761` + 4 条索引
-- **修法**: 删除表定义 + 4 条索引（`idx_search_index_content_trgm`、`room`、`user`、`type`）
-- **配套**: 更新 baseline fingerprint `a20182b71fb77e7e` → `793304d36eee7917`
-- **状态**: 已提交，测试待验证
+**影响范围**: 房间创建事务（`lifecycle/tests.rs`）、批量消息导入、联邦事件投递事务、后台任务写入。
+
+**影响**: v1/v2 `/send_join`、`/send_leave`、`/thirdparty_invite` 的 PDU `state_pdu` 返回 `MissingGraphMetadata` → 省略签名。
+
+**修复方案**: 修改 `graph_metadata.rs:346-348`，让事务路径也调用 `resolver.resolve()` + `create_event_with_graph`。但这需要解决在事务内读 committed state 的问题（当前设计假设事务路径只能访问 uncommitted rows）。
 
 ---
 
 ## 仍存在的问题
 
-### 6. Admin 媒体端点族缺口（本仓 9 vs 上游文档面 18）
-#### 6.1 已修复（`337318c86`）
+### ❌ 1. U-13-R9：v≤11 写路径不持久化图字段
+
+
+- **位置**: `synapse-services/src/room/messaging/events.rs:205-210`
+- **根因**: 
+  - `GraphMetadataWriter` 装饰器（`graph_metadata.rs:339-354`）在 **auto-commit 路径**（`tx.is_none()`）正确解析图元数据并调用 `create_event_with_graph`
+  - 但在 **事务路径**（`tx.is_some()`）时，装饰器直接透传给 inner：
+    ```rust
+    if tx.is_some() {
+        return self.inner.create_event(params, tx).await;  // 行 346-348
+    }
+    ```
+  - 结果：所有事务包装的 v≤11 事件走 `EventStorage::create_event` → INSERT 无 `depth`/`prev_events`/`auth_events`
+- **影响范围**:
+  - 房间创建事务（`lifecycle/tests.rs`、`membership/actions.rs`）
+  - 批量消息导入
+  - 联邦事件投递事务
+  - 后台任务写入
+- **影响**: v1/v2 `/send_join`、`/send_leave`、`/thirdparty_invite` 的 PDU `state_pdu` 返回 `MissingGraphMetadata` → 省略签名
+- **正确做法**: 让事务路径也解析图元数据，或在 `room/messaging/events.rs` 显式传递解析到的图字段
+
+### ❌ 2. U-19：MSC3912 级联残缺（余 3 项）
+
+
+| MSC3912 要求 | 当前实现 | 判定 |
+|---|---|---|
+| `"*"` 通配额外匹配 `content->'m.in_reply_to'`（已废弃） | `find_related_events_single_layer` wildcard 分支额外匹配 | ❌ 超范围匹配（非 bug，是设计取舍） |
+| 不发 `m.room.redaction` 事件 | 仅本地 `is_redacted=true` | ❌ 对等端不知情（设计取舍） |
+| `cascade_redact_related_events` 空列表处理 | 行 993 空列表 = 不级联 | ✅ 已修（非 400 错误） |
+
+### ❌ 3. U-19-R4 已修复：**`redacted_by` 现在传递给 `redact_event_content`**
+
+
+### ❌ 4. U-2：`user_exists` 停用过滤语义不完整
+
+
+- **位置**: `synapse-storage/src/user/storage.rs:700`
+- **现状**: `user_exists` 已加入 `is_deactivated = FALSE` 过滤
+- **剩余问题**: 上游 Python 实现的 `user_exists` 只在 profile 相关端点中排除停用用户，其他端点（federation、moderation）仍需要包含停用用户的查询；需拆分为：
+  - `user_exists`（包含停用用户）
+  - `active_user_exists`（排除停用用户）
+  - 各调用方按语义选用
+
+### ❌ 5. U-5：Admin 媒体端点族不完整
+
+
 - **位置**: `synapse-web/src/routes/admin/media.rs`
-- **修复内容**:
-  - ✅ `POST /_synapse/admin/v1/media/quarantine/{server_name}/{media_id}`
-  - ✅ `POST /_synapse/admin/v1/media/unquarantine/{server_name}/{media_id}`
-  - 委托链：`AdminMediaService::quarantine_media/unquarantine_media` → `QuarantinedMediaChangeStoreApi`
-- **仍未实施**：房间级媒体列举/删除（低优先级，需设计决策）
+- **缺失**:
+  - 房间级媒体列举：`GET /_synapse/admin/v1/rooms/{roomId}/media`
+  - 房间级媒体删除：`DELETE /_synapse/admin/v1/rooms/{roomId}/media/{mediaId}`
+- **参考**: 上游 v1.161 有 18 条 Admin 媒体端点，本仓仅 9 条
 
-#### 6.2 鉴权白名单残留（已过期）
-- **位置**: `utils/admin_auth.rs:386`
-- **说明**: `/media/quarantine` 前缀原本为不存在的路由预留，现该路由已实施，白名单前缀有效
+### ❌ 6. U-6：缩略图 `animated` 边缘问题
 
-### ✅ 6.3 缩略图 `animated` 参数支持
-- **位置**: `synapse-web/src/routes/media/download.rs` + `synapse-services/src/media_service.rs` + `synapse-services/src/media/mod.rs`
-- **说明**: Phase 1 & Phase 2 已完成：
-  - ✅ `animated=true/false` 请求参数解析（`thumbnail_request_params` 返回四元组）
-  - ✅ GIF/WebP 动画检测（魔数字节检测，安全快速）
-  - ✅ 首帧提取降级策略（`AnimationDecoder::into_frames().next()`）
-  - ✅ Content-Type 正确返回：动画 `image/webp`，静态 `image/jpeg`
-  - ✅ Phase 2: 完整动画 WebP 编码输出（`webp-animation 0.10.0` crate）
-    - `generate_animated_thumbnail`: 解码所有帧 → 处理 → 编码
-    - `decode_all_frames`: 辅助函数提取 GIF/WebP 帧序列
-    - 帧延迟保留并 clamp(10, 5000)ms 防止极端值
-- **提交**: 
-  - Phase 1: `f71c574f8` feat(media): add animated thumbnail parameter support (Phase 1)
-  - Phase 2: `2bbe172d8` feat(media): Phase 2 - complete animated WebP encoding with webp-animation
-- **门禁**: Clippy `-D warnings` ✅ 通过 | 编译 ✅ 干净
 
-### ✅ 8. ledger `query_params` 字段 — 已确认有消费方
-- **位置**: `synapse-web/src/routes/ledger_export.rs:156`
-- **描述**: 原认为"无消费方"，经核查实际有 4 个下游消费者：
-  1. `scripts/api_test/generate_openapi.py:336` — 将 `query_params` 转化为 OpenAPI parameters
-  2. `scripts/api_test/gen_route_table.py:64` — 透传到 `route-table.json`
-  3. `scripts/contract/extract_registered.py` — 校验并提取（第 58、971、1061 行）
-  4. `scripts/contract/gen_derived_routes.py:257` — 生成 `.with_query_params()` 调用
-- **结论**: 字段被正确使用，非缺陷
+- **位置**: `synapse-web/src/routes/media/download.rs`、`synapse-services/src/media/mod.rs`
+- **Gap**:
+  - 动画 GIF：`animated=true` 退化为静态 JPEG（帧丢失）
+  - 帧延迟 Clamp 后可能失真
+  - 无动画检测 fallback：损坏的 WebP 可能报 500 而非降级
 
-### ✅ 9. v12/v13 房间版本状态 — 已核查（v12 已实现，v13 为 parse-only）
-- **位置**: `synapse-common/src/room_versions.rs:112-114`
-- **当前状态**：
-  - Line 113: `RoomVersionCapability::stable("12")` → **v12 已完整实现**（`can_create=true, can_parse=true`）
-  - Line 114: `RoomVersionCapability::stable_parse_only("13")` → **v13 为 parse-only**（`can_create=false, can_parse=true`）
-- **v13 parse-only 原因**：MSC4204 密码登出设备功能依赖的 PDU 语义（特别是 `event_id` 的 v4+ reference hash）尚未完全对齐上游 Synapse，为避免创建无法产生合规 PDU 的房间，暂时设为 parse-only（fail-safe）
-- **结论**: v12 已可用；v13 的 parse-only 是设计取舍，待联邦 PDU 语义完整后升级为 stable
+### ❌ 7. U-9：死代码 `get_auth_issuer` 未删
+
+
+- **位置**: `synapse-storage/src/event/dag.rs:203-205`
+- **现状**: 注释声称被删除，但函数仍在库中声明
+- **问题**: 铁律 1 要求删除未使用的实际实现
+
+### ❌ 8. U-11：v13 parse-only 状态
+
+
+- **位置**: `synapse-common/src/room_versions.rs:114`
+- **现状**: `RoomVersionCapability::stable_parse_only("13")`
+- **原因**: MSC4204/4205 密码登出设备功能的 PDU 语义未完全对齐
+- **决策**: 仍为设计使然，待联邦 PDU 语义完整后才可升级为 stable
+
+---
+
+## 已纠正的误述
+
+### ✅ U-20 表述修正：设计取舍非缺陷
+
+
+- **原文错误**: "reaction 不写入 events 表，级联查询读不到"
+- **事实**: `event_relations` 表独立存储 relationship，`cascade.rs` 的 `find_related_events` 正确读取 `events.content->'m.relates_to'`，这是 MSC3912 规范设计
+- **GIN 索引**: 已存在（第 3289 行）
+- **结论**: 文档对 U-20 的描述是误述，实际实现与上游一致
+
+### ✅ U-19-R4 已修复：审计追踪恢复
+
+
+### ✅ U-19-R2 实测：GIN 索引已存在
 
 ---
 
 ## 执行计划建议
 
-1. **已完成**: Admin 媒体缺口 — `quarantine_media` / `unquarantine_media` service + handler 实施完成
-   - Commit `337318c86`：完整实现 + 路由同步 + 单元测试通过
-   - 房间级媒体列举/删除：已在规划中（低优先级）
-2. **已完成**: `animated` 参数 Phase 1 + Phase 2（完整动画 WebP 输出）
-3. **已结论**: ledger `query_params` — 已核查为有下游消费方，非缺陷
-4. **设计使然**: v13 parse-only — 待联邦 PDU 语义完整后升级为 stable；v12 已可用（`stable("12")`）
+1. **优先级 P0**：
+   - U-13-R9：v≤11 写路径持久化图字段（联邦 PDU 语义收口核心）
+
+2. **优先级 P1**：
+   - U-1：`"*"` 通配超范围匹配（需设计决策：是否保持当前行为）
+   - U-3：`m.room.redaction` 事件生成（客户端级联需求）
+   - U-4：`user_exists` 语义澄清
+
+3. **优先级 P2 / 文档收口**：
+   - U-5：Admin 媒体端点
+   - U-6：缩略图 animated
+   - U-7、U-8：死代码删除
+
+4. **监控**：继续跟踪 U-6（animated）在测试中的实际表现
