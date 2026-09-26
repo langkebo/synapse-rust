@@ -127,7 +127,8 @@ start the stack **by these service names**) and `docker/deploy/docker-compose.ym
 一律以 `docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md` **§0 的实测表**为准（D-16 型
 "双份计数漂移"已发生过一次）。真正值得记住的不是数字：动态 `.bind()` + `FromRow` 会把列名、
 列类型、可空性一路吞到运行期，而 `query!` / `query_as!` 连的是**真库 catalog** —— 一旦改成宏，
-这些错误在**编译期**就被证伪。该战役因此挖出 **64 条**既有缺陷（**已关闭 51 条**），其中十余条是
+这些错误在**编译期**就被证伪。该战役因此挖出数十条既有缺陷（**条数与已关闭数一律以本文档所指
+§7/§0.4 为准，这里不复制**），其中十余条是
 "真 schema 下必然失败"（列名写错、INSERT 漏 NOT NULL 列、两个已注册管理路由背靠一张
 **不存在的表**、`sent_at` 从不写入导致清理**恒删 0 行**、`WHERE $2 != '[]'` 对 `text[]`
 在 **prepare 阶段**就报 22P02 导致整条 DAG 写入必败）。
@@ -146,7 +147,8 @@ start the stack **by these service names**) and `docker/deploy/docker-compose.ym
 
 - **判据/门禁**：`bash scripts/ci/check_sqlx_dynamic_ratio.sh`（生产动态不得增、静态不得减）
   ＋ `cargo nextest run --test unit --features test-utils -E 'test(/sqlx_dynamic_literal_guard/)'`
-  （逐文件 literal 棘轮；新文件里写一个字面量也会红）。
+  （**两道**逐文件棘轮：`literal` 与 `param`；新文件里写一个字面量、或把字面量经形参转手，
+  都会红）。
 
 > ⚠️ **宏的 SQL 实参必须是调用点字面量，不得经中间变量传递。**
 > 把静态 SQL 赋给局部变量再 `sqlx::query_as(query)`，会**同时骗过两道门禁**：
@@ -154,7 +156,12 @@ start the stack **by these service names**) and `docker/deploy/docker-compose.ym
 > 实测（2026-09-25，D-59）：并发会话正是用 `let query = r"…"` + `query_as(query)`
 > 新增了 2 处，使 `opt/consolidated` 的 ratio + literal 双门禁同时红而"看起来只是 runtime 残差"。
 > 需要按 tx/pool 分支执行时，**先把连接收敛成一个 `&mut PgConnection`，再写一次宏调用**
-> —— 宏的绑定实参属于调用点，这正是不能"先建字符串、后分支绑定"的原因。
+> —— 宏的绑定实参属于调用点，这正是不能"先建字符串、后绑定"的原因。
+>
+> ⚠️ 这条规则原先**没有门禁兜住**（D-14 覆盖缺口，2026-09-26 收紧）：census 现在把
+> 「同文件 `const`/`let` 字面量绑定」判为 `literal`（进 literal 棘轮）、把「实参是外层函数的
+> 形参」判为 `param`（进 `scripts/ci/sqlx_param_production_baseline` 这道新棘轮）。
+> 仍无棘轮的只剩 `QueryBuilder` 组装（R7 白名单，只统计 `query_builder` 计数）。
 
 ### R2　改了查询文本 ⇒ 同一提交必须带 `.sqlx` 增量
 
@@ -222,7 +229,7 @@ schema**（`NOT NULL DEFAULT …`），而不是长期留一个断言别名。
 
 只允许两类保留动态 SQL：**动态标识符**（`format!` 拼列清单 / 表名 / 排序方向）与
 **`Vec<Option<T>>` 数组参数**（sqlx 无该映射）。
-例外必须：① 在 §7 **有登记条目**；② **不新增 literal 动态站点**（literal 棘轮）；
+例外必须：① 在 §7 **有登记条目**；② **不新增 literal / param 动态站点**（两道棘轮）；
 ③ 优先按 §7.2 的方向回收（`Vec<Option<T>>` → `jsonb_to_recordset`，D-13 / D-14）。
 
 ### R8　每批必须跑的门禁（四道，缺一不可）

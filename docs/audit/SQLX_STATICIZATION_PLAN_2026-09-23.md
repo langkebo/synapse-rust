@@ -15,18 +15,19 @@
 | 指标 | 战役起点（2026-09-23） | 现在 | 变化 |
 |---|---|---|---|
 | `dynamic_production` | 1532（近似） | **393** | **−74.3%** |
-| `static` | 61 | **1076** | +1015 |
+| `static` | 61 | **1074** | +1013 |
 | `dynamic`（总） | 2151 | **1104** | −1047 |
-| 静态占比 | 2.76% | **49.4%**（1076 / 2180） | +46.6pp |
+| 静态占比 | 2.76% | **49.3%**（1074 / 2178） | +46.6pp |
 | `.sqlx` 离线缓存 | 60 条 | **1043 条** | +983 |
 | literal（逐文件棘轮，处 / 文件） | 876 / 98 | **322 / 60** | −554 |
-| `runtime` 残差 / `query_builder`（白名单） | — | 71 / 14 文件 · 18 | — |
+| `param` 传参（D-14 新棘轮，处 / 文件） | — | **1 / 1** | 新立棘轮（此前混在 `runtime`，两道棘轮都不管） |
+| `runtime` 残差 / `query_builder`（白名单） | — | 70 / 13 文件 · 18 | — |
 
 ### 0.2 残量结构（"还剩多少活"的准确说法）
 
 | 组成 | 处数 | 性质 |
 |---|---|---|
-| **可静态化残量** | **321** | **291 处字面量**（纯机械转换）+ **30 处运行期拼装**（`format!` 拼列清单/`ORDER BY` 方向等，需结构性替代，见 §7.3 D-14） |
+| **可静态化残量** | **321** | **291 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单/`ORDER BY` 方向等，需结构性替代）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转），见 §7.3 D-14 |
 | 测试基建（有意保留） | 57 | `synapse-test-utils/src/lib.rs` 28、`synapse-common/src/test_isolation.rs` 25、`test_schema_guard.rs` 4 |
 | 结构性保留（有意） | 15 | `synapse-storage/src/event/pagination.rs`（9 runtime 游标/排序方向 + 6 literal） |
 | **合计** | **393** | = 321 + 57 + 15 |
@@ -36,14 +37,19 @@
 ```bash
 python3 scripts/ci/sqlx_query_census.py                     # 总量 / 分区 / 静态占比
 bash scripts/ci/check_sqlx_dynamic_ratio.sh                 # 棘轮（内部调用上面的 census）
-python3 scripts/ci/sqlx_query_census.py --list-production-dynamic .   # path:line:kind（literal|runtime）
+python3 scripts/ci/sqlx_query_census.py --list-production-dynamic .   # path:line:kind（literal|param|runtime）
 # literal 棘轮输入（逐文件计数，应与 scripts/ci/sqlx_literal_production_baseline 逐行相同）：
 python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
   | grep ':literal$' | cut -d: -f1 | LC_ALL=C sort | uniq -c \
   | awk '{print $2"\t"$1}' | LC_ALL=C sort
+# param 棘轮输入（D-14；只把 grep 的形态换成 :param$，对应
+# scripts/ci/sqlx_param_production_baseline）：
+python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
+  | grep ':param$' | cut -d: -f1 | LC_ALL=C sort | uniq -c \
+  | awk '{print $2"\t"$1}' | LC_ALL=C sort
 ```
 
-### 0.4 缺陷发现总览（**67 条**；只给统计与去向，不逐条显示）
+### 0.4 缺陷发现总览（**68 条**；只给统计与去向，不逐条显示）
 
 | 类别 | 条数 | 说明 |
 |---|---|---|
@@ -55,11 +61,14 @@ python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
 | ⑥ 覆盖缺口 / 测试基建假绿 | 2 | 静态化后无 DB 往返、自建 schema 掩盖写入端约束 |
 | ⑦ 文档级 | 6 | 计数漂移、过时结论、误导性"规则"注释 |
 | ⑧ 结构性例外（有意保留） | 7 | D-13 / D-14 / D-18–D-22，见 §7.3 |
-| ⑨ 阶段总结后新发现并已关闭 | 3 | D-65（并发改动只改一半 ⇒ 集成+clippy 双红）、D-66（worktree 共享 `CARGO_TARGET_DIR` 跨树复用产物 ⇒ 假红/假绿）、D-67（新增测试里的死常量让 clippy 红） |
-| ⑩ **未关闭** | **1** | **D-62**（见 §7.1） |
+| ⑨ 阶段总结后新发现并已关闭 | 4 | D-62（通知响应的 `profile_tag` 键取自 `notification_type` ⇒ 已按修法① 改成真列 + 独立 `notification_type` 键）、D-65（并发改动只改一半 ⇒ 集成+clippy 双红）、D-66（worktree 共享 `CARGO_TARGET_DIR` ⇒ 跨树复用产物，假红/假绿）、D-67（新增测试里的死常量让 clippy 红） |
+| ⑩ **本表新登记的未修项** | **1** | **D-68**（通知记录层没有生产写入者、也没有清理 ⇒ 三个已注册端点恒为空/恒失败，见 §7.1） |
 
-**去向**：阶段总结前关闭的 57 条逐条明细在 HISTORY §7.2；总结后关闭的 3 条记在各自提交信息里
-（下次阶段总结时并入快照）。**结论：57 已关闭 / 3 未关闭（D-37 部分、D-57 部分、D-62）/ 7 结构性例外。**
+**去向**：阶段总结前关闭的 57 条逐条明细在 HISTORY §7.2；总结后关闭的 5 条（D-37 / D-62 / D-65 /
+D-66 / D-67）记在各自提交信息里（下次阶段总结时并入快照）。本表 ①–⑧ 是**发现时**的归类
+（历史口径，不随修复变动），因此 D-57 仍计入 ⑥、D-37 仍计入 ④、D-62 已改判为"已修" ——
+"还剩哪些没修"看结论行与 §7.1，不看桶号。
+**结论：59 已关闭 / 2 未关闭（D-57 部分、D-68）/ 7 结构性例外。**
 
 ### 0.5 阶段结论
 
@@ -82,25 +91,25 @@ python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
 
 | 编号 | 类别 | 位置 | 问题 | 状态 | 下一步 |
 |---|---|---|---|---|---|
-| **D-62** | 响应形状与 schema 不符 | `synapse-services/src/client_push_service.rs::get_notifications`；`synapse-web/src/routes/handlers/room/events.rs:165` | 两条读路径都把 `notifications.notification_type` 渲染进 JSON 键 `profile_tag`，而表里另有一列**真 `profile_tag` 从未被 SELECT**；规范里该键指"命中的推送规则的 profile tag"。两处独立实现一致 ⇒ 更像产品选择而非笔误 | **未修（待产品裁定）** | 二选一：① SELECT 真 `profile_tag` 填该键并**另加** `notification_type` 键（信息超集，最贴规范）；② 若确要让该键承载通知类型，则改名并同步 `events.rs`。`NotificationRow` 已同时含两字段，任一修法只改一行 JSON 组装 |
+| **D-68** | **产品缺陷（端点空壳 + 无清理）** | `notifications` 表（`v12:1489`）× `synapse-storage/src/push/mod.rs::get_notifications`/`ack_notification` × `push_notification.rs::get_room_notifications` × 三个已注册端点（`GET /_matrix/client/v3/notifications`、`POST …/{id}/ack`、`GET …/rooms/{room_id}/notifications`） | 全仓**没有任何生产写入者**：唯一的 `INSERT INTO notifications` 在 `push/mod.rs` 的 `db_tests` 里，迁移里也没有触发器；`PushService::send_notification` 只写 `push_notification_queue`/`push_notification_log`。⇒ 上述端点**恒返回空列表**、`ack` 恒失败（实测：唯一的端到端断言就是 `notifications == []`）。另外该表**不在任何 pruning/retention 覆盖内** ⇒ 一旦接线会重演 D-33 的无界增长 | **未修（待裁定/排期）** | 二选一：① **接线**——在"推送规则命中、决定给该用户产生通知"的决策点补一条 `record_notification` 写入，**同批**在 `pruning.rs` 加保留期清理（阈值对齐 `push_notification_log`）；② **明确声明为 stub**——按铁律 1 删掉该表与两个读方法（`/notifications` 仍可按规范返回空列表）。**建议 ①**：路由是规范稳定面、客户端会调用，且决策点已存在（成本 = 一条 INSERT + 一条清理） |
 | **D-57** | 测试基建假绿 | `tests/integration/mod.rs::require_test_pool()`（search_path = `<clone>, public`）× `scripts/ci/prepare_test_db.sh:79`（`RESET_PUBLIC=0`）× `to_regclass($1)` 走 search_path | baseline 是 `CREATE TABLE IF NOT EXISTS` 合并脚本、**不含 DROP** ⇒ 从 baseline 删掉的表仍留在长期库 `public` 里，"表存在/可用"类断言**假绿**且污染共享 `public` | **部分已修**（① 已做，② 未做） | ② 让 seed 对 `public` 也收敛（对已从 baseline 删除的对象补 `DROP … IF EXISTS`，或在不误删依赖扩展对象的前提下 `RESET_PUBLIC=1`）。**不能简单改成 1**：`DROP SCHEMA public CASCADE` 会连带删掉依赖 public 扩展的其它 schema 对象 |
-| **D-37** | 冗余实现（铁律 2） | `synapse-storage/src/device/mod.rs:182` vs `synapse-e2ee/src/device_keys/storage.rs` | `DeviceStorage::record_device_list_change` 是**第二份** device-list-change 实现（两份 SQL 逐字相同，分属不同 crate 的不同类型） | **部分已修**（吞错与零调用者包装已修） | 收敛成一份：选共享位置（`synapse-common`，或让 storage 侧成为唯一实现、e2ee 侧委托），并确认 `device_lists_changes` 的同事务可见性不变。属独立设计事项 |
 
 ### 7.2 逐条明细
 
-**D-62**：`notifications` 同时有 `notification_type VARCHAR(50)` 与 `profile_tag VARCHAR(255)`
-（`v12:1495-1496`），但 `PushStorage::get_notifications` 只 SELECT 前者，两条读路径都把它放进
-`profile_tag` 键。改它属于**响应形状变更**（R12 禁止夹带），C33 只做类型化、行为保持，
-并在代码处留注释指向本节。**需要产品/接口 owner 裁定**，两个候选都只改 JSON 组装一行。
+**D-68**：证据链 ——（1）`grep -rn 'INSERT INTO notifications' --include=*.rs .` 全仓只有
+`synapse-storage/src/push/mod.rs:604`（`mod db_tests` 内的夹具助手）；（2）迁移里没有写该表的
+触发器/函数；（3）`PushService::send_notification` 的落点是 `push_notification_queue`
+（+ `push_notification_log`），与 `notifications` 无交集；（4）唯一端到端断言
+`api_enhanced_features_tests::test_push_routes_share_across_r0_and_v3` 断的正是
+`notifications == []`；（5）`pruning.rs`/`retention.rs` 都不含该表。
+⇒ 这不是"键名映射"问题，而是**记录层整体未接线**。建议按修法① 接线并同批加清理；
+若产品决定不做通知收件箱，则按② 删掉假接口（铁律 1）。
 
 **D-57②**：①（已做）三处裸 `to_regclass($1)` 改为 `to_regclass(format('%I.%I', current_schema(), $1))::text`，
 `tests/` 内已无裸 `to_regclass`；自证留了两步判据（陈旧 `public` 里造探针表 ⇒ 旧口径非空假绿、
 新口径 NULL 如实报缺失；把探针表加进 P0 清单 ⇒ 用例 FAIL，随后逐字节还原）。
 ②（未做）见上表。**验收判据**：跑一次 seed 后长期库 `public` 只应剩 baseline 与扩展所需对象；
 用故意残留的表证明收敛确实会删它。
-
-**D-37**：两份实现的类型/事务边界不同（一侧在 `synapse-storage`、一侧在 `synapse-e2ee`），
-收敛需要选一个共享位置并把另一侧改为委托；同时确认 `device_lists_changes` 的写入语义不变。
 
 ### 7.3 结构性例外（有意，不修，但必须遵守）
 
@@ -109,28 +118,37 @@ python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
 | 编号 | 边界 | 出现位置 | 怎么办 |
 |---|---|---|---|
 | D-13 | `Vec<Option<T>>` 元素可空数组**无 sqlx 映射**（SQL 文本本身是字面量） | `room_summary/repository.rs:332`/`:579`；`presence/mod.rs:232` | 保持动态；回收方向：并行数组 → 单个 `jsonb_to_recordset($n)`（独立改造，不排期） |
-| D-14 | 运行期拼装 SQL（`format!` 拼列清单/排序方向）**有意保留**；另含**守卫的已知覆盖缺口**（见下） | `space/repository.rs:572/626`、`user/storage.rs:989/1233`、`src/server/database.rs:43-45`、`event/state.rs`、`membership/mod.rs`、`event/basic.rs`、`event/batch.rs`、`maintenance.rs`、`state_groups.rs`、`event/dag.rs` 等（等于 §0.2 的 30 处） | 保持动态，**不要**为压数字把动态标识符硬编码；逐文件回收方向见 HISTORY §7.2 D-14 |
+| D-14 | 运行期拼装 SQL（`format!` 拼列清单/排序方向）**有意保留**；其守卫覆盖缺口已于 2026-09-26 收紧（见下） | `space/repository.rs:572/626`、`user/storage.rs:989/1233`、`src/server/database.rs:43-45`、`event/state.rs`、`membership/mod.rs`、`event/basic.rs`、`event/batch.rs`、`maintenance.rs`、`state_groups.rs`、`event/dag.rs` 等（`format!` 类共 29 处，见 §0.2） | 保持动态，**不要**为压数字把动态标识符硬编码；逐文件回收方向见 HISTORY §7.2 D-14 |
 | D-18 | 仅排序用列无对应结构体字段 ⇒ 用子查询包裹 | `thread/storage.rs:864` | 沿用子查询写法 |
 | D-19 | `query_as!` 不认 `#[sqlx(rename)]` / `#[sqlx(skip)]` | `event_report/models.rs:29`、`module.rs:255` 等 | SQL 里显式写别名 / 合成 `NULL` 列 |
 | D-20 | LEFT JOIN 外侧列被 PG 透传为 NOT NULL ⇒ sqlx 误推非空 | C6/C8/C9/C13 多处 | 用 `AS "col?"` 覆盖 |
 | D-21 | 宏 `ty_match` 拒绝 `&Option<T>` 绑定 | `device_keys/storage.rs:121` 等 | `.as_deref()` / `.as_ref()` |
 | D-22 | `query_as!` 不走 `FromRow`，`RETURNING *` 必须展开 | 多个批次 | 机械展开为显式列清单 |
 
-> **D-14 的守卫覆盖缺口（仍未收紧）**：literal 棘轮只看调用点实参的 token 形态，因此
-> "把字面量绑到别处再传进来"的写法会被归为 `runtime` 而绕过它。三种已知形状：
-> ①同文件 `const`/`let` 字面量绑定；②**跨函数传参**（实例：`synapse-common/src/transaction.rs:66`
-> 的 `statement: &'static str`，调用方传的是字符串字面量）；③`QueryBuilder` 组装
-> （计入 `query_builder=18`，两侧棘轮都不计）。三者都**不会**绕过 ratio 棘轮，只绕过 literal 棘轮。
-> 收紧方向：在守卫的 `iter_dynamic_sites` 里对同文件建立 `name → 是否字面量绑定` 表
-> （跨函数传参需额外设计）；收紧会让这些站点从 `runtime` 变 `literal`、baseline +N ——
-> 这是**加大**约束而不是放宽。
+> **D-14 的守卫覆盖缺口（2026-09-26 已收紧）**：literal 棘轮原先只看调用点实参的 token 形态，
+> "把字面量绑到别处再传进来"的写法会被归为 `runtime` 而**两道棘轮都不管**。三种形状的处置：
+> ① **同文件 `const`/`let` 字面量绑定** ⇒ census 现判 `literal`（进 literal 棘轮）；
+> ② **跨函数传参**（实例：`synapse-common/src/transaction.rs:66` 的 `statement: &'static str`）
+> ⇒ 新判 `param`，配独立棘轮 `scripts/ci/sqlx_param_production_baseline`；
+> ③ **`QueryBuilder` 组装**（`query_builder=18`）⇒ 仍只统计不设棘轮，因为它的 SQL 文本
+> 确由运行期决定，属 R7 白名单；**唯一残留缺口**，待后续决定是否加"只增不禁"的计数棘轮。
+>
+> 实测（收紧当天）：生产区 `literal` **322 处不变**（同文件字面量绑定在生产区为 0），
+> `runtime` 71 → **70**，新类 `param` **1**（即 ②）；测试区 3 处 `const` 绑定从 runtime 转 literal
+> （`presence/mod.rs` 的三个 `PRESENCE_SELECT_BY_USER` 用例，test 区不入棘轮）。
+> ⇒ 所谓 "baseline +N" 在生产区**没有发生**；收紧的实质是**新增了 `param` 这道此前不存在的约束**
+> （此前 ② 类站点可以被静默新增），而不是把 literal 数字做大。自证见守卫的
+> `same_file_literal_binding_is_classified_as_literal` / `enclosing_fn_parameter_is_classified_as_param`
+> / `macro_call_argument_is_not_mistaken_for_a_parameter` / `param_ratchet_fails_on_a_new_param_site_in_an_unknown_file`。
+> `synapse-common/src/transaction.rs:66` 的回收方向：三个调用点传的都是字面量，
+> 把 `SET TRANSACTION ISOLATION LEVEL …` 分别内联到调用点即可宏化（牵动公共 API 形状，属独立设计事项）。
 
 ### 7.4 计数与口径
 
-- 合计 **67** 条（D-01…D-67）：**未关闭 3**（D-37 部分 / D-57 部分 / D-62 未修）、
-  **结构性例外 7**（D-13 / D-14 / D-18–D-22，有意不修）、**已关闭 57**。
+- 合计 **68** 条（D-01…D-68）：**未关闭 2**（D-57 部分 / D-68 未修）、
+  **结构性例外 7**（D-13 / D-14 / D-18–D-22，有意不修）、**已关闭 59**（含 D-37 收敛与 D-62 修法① 落地）。
 - 本文档**只显示**未关闭项与结构性例外；已关闭项的明细在 HISTORY §7.2（冻结，不参与当前计数），
-  阶段总结后关闭的 3 条在各提交信息里。
+  阶段总结后关闭的 5 条（D-37 / D-62 / D-65 / D-66 / D-67）在各提交信息里。
 - "部分已修"指同一编号下仍有明确未做子项；结构性例外**不计入**待修，其约束力写在 §7.3 与 R1–R13。
 
 ### 7.5 处置约定（改 SQL / 查询前）
@@ -147,13 +165,13 @@ python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
 
 ### 8.1 剩余可静态化清单（按实测，2026-09-25 C34 后）
 
-**可转换残量 321 处**（291 literal / 30 runtime），头部按大小排（前 14）：
+**可转换残量 321 处**（291 literal / 29 runtime / 1 param），头部按大小排（前 14）：
 
 | 文件 | 处数 | 门控 | 备注 |
 |---|---|---|---|
 | `synapse-storage/src/burn_after_read.rs` | 15 | `burn-after-read` | 见 §8.3（需带 feature 的 CI 等价库） |
-| `synapse-services/src/database_initializer/mod.rs` | 15 | — | 见 §8.3（先判 D-14 归属） |
-| `synapse-storage/src/event/basic.rs` | 11 | — | `event/` 同域；**动手前确认并发会话不在途**（v12 PDU 活跃区） |
+| `synapse-services/src/database_initializer/mod.rs` | 15 | — | D-14 归属**已判**：15 处实参全是字面量（无 `format!` 拼装）⇒ 全部可转换，见 §8.3 |
+| `synapse-storage/src/event/basic.rs` | 11 | — | 其中 8 literal / 3 runtime；`event/` 同域；**动手前确认并发会话不在途**（v12 PDU 活跃区） |
 | `synapse-storage/src/event/redaction.rs` | 10 | — | 同上 |
 | `synapse-e2ee/src/secure_backup/service.rs` | 10 | — | 与 C25–C27 同域，可整批 |
 | `synapse-e2ee/src/ssss/storage.rs` | 10 | — | 同上 |
@@ -186,8 +204,9 @@ python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
 
 1. **`burn_after_read.rs`（15，门控 `burn-after-read`）** —— `prepare` 必须 `--all-features`；
    DB 往返要在**带该 feature** 的一次性 CI 等价库上跑（`createdb` + `scripts/ci/prepare_test_db.sh`）。
-2. **`database_initializer/mod.rs`（15）** —— 先判 **D-14 归属**：逐站点看实参是不是 `format!`
-   拼出来的表名/列清单；只有字面量的才转，整体属白名单的应登记为结构性例外。
+2. **`database_initializer/mod.rs`（15）** —— D-14 归属**已判**（2026-09-26）：
+   15 处实参全是**字面量**（含多行 `r"…"`），无一由 `format!` 拼装 ⇒ 15 处全可转换，
+   不需登记结构性例外。（该文件同时含 `#![cfg]` 之外无门控，`prepare` 用 `--all-features` 即可。）
 3. **D-57②（seed 侧收敛 `public`）** —— 见 §7.2：需"枚举 baseline 对象集 + 对多出来的对象逐个
    DROP"式设计，不能简单 `RESET_PUBLIC=1`。
 
@@ -196,7 +215,7 @@ python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
 - `dynamic_production` 的**可转换部分归零**：393 → **72**（只剩测试基建 57 + 结构性 15），
   或每个残留都有 §7.3 那样的登记条目；
 - literal 逐文件表只剩 4 类（3 个测试基建文件 + `event/pagination.rs`）；
-- **D-62 有裁定并落地、D-57② 落地、D-37 收敛**（§7 只剩结构性例外）；
+- **D-68 有裁定并落地、D-57② 落地**（D-62 已落地、D-37 已收敛 ⇒ §7 只剩 D-57② 与 D-68）；
 - 四道门禁与两道棘轮在 CI 常驻，且都留有"能变红"的自证记录。
 
 ### 8.5 每批必须跑的门禁
@@ -219,4 +238,4 @@ python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
 | 计划初稿（影响、Phase A–D、陷阱与反例、工作量与顺序） | HISTORY **§2–§5** |
 | 2026-09-23 的实测分布与残差清单快照 | HISTORY **§1 / §3** |
 | 规则全文（R1–R13、反冗余铁律、已知坑） | `AGENTS.md` |
-| 棘轮基线与逐段理由 | `scripts/ci/sqlx_dynamic_ratio_baseline`、`scripts/ci/sqlx_literal_production_baseline` |
+| 棘轮基线与逐段理由 | `scripts/ci/sqlx_dynamic_ratio_baseline`、`scripts/ci/sqlx_literal_production_baseline`、`scripts/ci/sqlx_param_production_baseline`（D-14 传参棘轮） |
