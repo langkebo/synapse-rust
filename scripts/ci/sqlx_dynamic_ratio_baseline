@@ -2182,9 +2182,23 @@
 # 解码随宏化消失（`claim_to_device_events` 的 5 列 + `claim_one_time_key` 的 2 列）。
 # 可空性：`invite_blocklist` 的两处 `EXISTS(...)` 判定按 R4 断言 `AS "blocked!"` 等
 # （`EXISTS` 恒非 NULL，且断言的是"该行是否存在"这一确定语义）。
+# ── 2026-09-26 D-37 收敛 + D-14 收紧（static −2，动态两侧不变）────────────────
+# 1) **D-37 收敛**（提交 `45739cddf`，铁律 2）：`synapse-e2ee/src/device_keys/storage.rs`
+#    的 `record_device_list_change` 第二份实现改为委托 `synapse-storage::device::DeviceStorage`
+#    ⇒ 该文件删掉 **2 处静态宏站点**（一条 `query_scalar!` + 一条 `query!`），
+#    `static` 1076 → **1074**。这是**删除**而非退化（同一职责只留一份实现），
+#    按 §8.5 不变式 1「同批同向下调」在本批补齐。动态两侧均不受影响
+#    （`dynamic_production` 仍 393、`dynamic_test` 仍 711 —— 被删的两条本就是宏站点，
+#    不在动态计数内）。
+#    ⚠️ 该批次落地时漏了本行下调，是**门禁自己报的红**（static 减少也判违规），
+#    属"棘轮双向都管"的正常工作，不是误报。
+# 2) **D-14 收紧**（本批）：census 新增 `param` 类（实参是外层函数形参），
+#    `dynamic_production` 计数**不变**（393 = 322 literal + 1 param + 70 runtime），
+#    故本文件三个键都不动；`param` 的棘轮在
+#    `scripts/ci/sqlx_param_production_baseline`（独立文件，避免混口径）。
 BASELINE_DYNAMIC_PRODUCTION=393
 BASELINE_DYNAMIC_TEST_INFRA=711
-BASELINE_STATIC=1076
+BASELINE_STATIC=1074
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=1104
 

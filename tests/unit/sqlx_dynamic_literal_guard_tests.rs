@@ -8,10 +8,23 @@
 //! "新写一个 `sqlx::query("SELECT …")`"——`sqlx_ratio_gate_tests.rs` 只看总量
 //! 棘轮，而总量在两个方向都可能被掩盖（同一批里 +1 动态 / +1 静态）。
 //!
-//! 本文件用 `scripts/ci/sqlx_query_census.py` 新增的
-//! `--list-production-dynamic` 模式逐条列出生产区动态调用点，并把每条分成
-//! `literal`（SQL 实参是字符串字面量）与 `runtime`（`&sql` / `&format!(…)`
-//! 运行期拼装）。**只有 `literal` 受棘轮约束**。
+//! 本文件用 `scripts/ci/sqlx_query_census.py` 的
+//! `--list-production-dynamic` 模式逐条列出生产区动态调用点，并把每条分成三类：
+//!
+//! * `literal` —— SQL 实参是字符串**字面量**，**或同文件 `const`/`let` 的字面量绑定**
+//!   （`const SQL: &str = "SELECT …"` / `let sql = "SELECT …";` 后再传变量）；
+//! * `param` —— SQL 实参是**外层函数的形参**（字面量在调用点，单文件解析看不到）；
+//! * `runtime` —— 其它表达式（`&format!(…)` / `format!` 结果的局部变量），运行期拼装。
+//!
+//! **`literal` 与 `param` 各有一份逐文件棘轮**（`scripts/ci/sqlx_literal_production_baseline`
+//! 与 `scripts/ci/sqlx_param_production_baseline`）；`runtime` 不受约束 —— 它是 Phase B2
+//! 明确允许的残差类别。
+//!
+//! ## D-14 收紧（2026-09-26）
+//!
+//! 收紧前只按**调用点实参的 token 形态**判定，于是"把字面量绑到别处再传进来"的写法
+//! 一律落进 `runtime`，**绕过字面量棘轮**。收紧后同文件字面量绑定归 `literal`、
+//! 跨函数传参新立 `param` 类。两者都是**加大**约束：`param` 此前无任何棘轮覆盖。
 //!
 //! ## 基线为什么不是 0
 //!
@@ -51,9 +64,13 @@ const SCAN_DIRS: [&str; 9] = [
 /// 生产区动态调用点的实参形态。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SiteKind {
-    /// SQL 实参是字符串字面量 —— 受棘轮约束（Phase B2 禁止新增）。
+    /// SQL 实参是字符串字面量，**或同文件 `const`/`let` 的字面量绑定**
+    /// —— 受字面量棘轮约束（Phase B2 禁止新增）。
     Literal,
-    /// SQL 实参是运行期拼装的表达式（`&sql` / `&query` / `&format!(…)`）。
+    /// SQL 实参是**外层函数的形参**（字面量在调用点，单文件解析看不到）
+    /// —— 受传参棘轮约束（D-14）。
+    Param,
+    /// SQL 实参是运行期拼装的表达式（`&format!(…)` / `format!` 结果的局部变量）。
     Runtime,
 }
 
@@ -77,6 +94,11 @@ fn baseline_path() -> PathBuf {
     repo_root().join("scripts/ci/sqlx_literal_production_baseline")
 }
 
+/// D-14 收紧后的第二份棘轮：生产区「跨函数传参」动态站点（此前混在 `runtime` 里）。
+fn param_baseline_path() -> PathBuf {
+    repo_root().join("scripts/ci/sqlx_param_production_baseline")
+}
+
 /// 运行普查脚本，返回 `(exit_code, stdout+stderr)`。
 fn run_census(args: &[&str]) -> (i32, String) {
     let out = Command::new("python3")
@@ -97,7 +119,7 @@ fn scan_production_dynamic(root: &Path) -> Vec<Site> {
     parse_sites(&raw)
 }
 
-/// 解析 `path:line:literal|runtime`（允许路径含 `:` 之外的分隔；以最后两个
+/// 解析 `path:line:literal|param|runtime`（允许路径含 `:` 之外的分隔；以最后两个
 /// `:` 切分，避免 Windows 盘符式的误切）。
 fn parse_sites(raw: &str) -> Vec<Site> {
     let mut sites = Vec::new();
@@ -111,8 +133,9 @@ fn parse_sites(raw: &str) -> Vec<Site> {
         let path = parts.next().unwrap_or_default();
         let kind = match kind {
             "literal" => SiteKind::Literal,
+            "param" => SiteKind::Param,
             "runtime" => SiteKind::Runtime,
-            other => panic!("输出行的实参形态只能是 literal|runtime，实际 `{other}`（行：`{line}`）"),
+            other => panic!("输出行的实参形态只能是 literal|param|runtime，实际 `{other}`（行：`{line}`）"),
         };
         let line_no: usize =
             line_no.parse().unwrap_or_else(|_| panic!("输出行的行号必须为数字，实际 `{line_no}`（行：`{line}`）"));
@@ -139,31 +162,41 @@ fn parse_baseline(raw: &str) -> BTreeMap<String, usize> {
     baseline
 }
 
-/// 逐文件计数，返回 `path -> 处数`。
-fn literal_counts(sites: &[Site]) -> BTreeMap<String, usize> {
+/// 逐文件计数指定形态的站点，返回 `path -> 处数`。
+fn kind_counts(sites: &[Site], kind: SiteKind) -> BTreeMap<String, usize> {
     let mut counts: BTreeMap<String, usize> = BTreeMap::new();
-    for site in sites.iter().filter(|s| s.kind == SiteKind::Literal) {
+    for site in sites.iter().filter(|s| s.kind == kind) {
         *counts.entry(site.path.clone()).or_default() += 1;
     }
     counts
 }
 
-/// 棘轮判定：某文件实测字面量站点数 **超过** 基线即违规。
+/// 形态的中文名（用于违规信息）。
+fn kind_label(kind: SiteKind) -> &'static str {
+    match kind {
+        SiteKind::Literal => "字面量",
+        SiteKind::Param => "跨函数传参",
+        SiteKind::Runtime => "运行期拼装",
+    }
+}
+
+/// 棘轮判定：某文件实测 `kind` 形态站点数 **超过** 基线即违规。
 ///
 /// 少于基线**不**违规（棘轮只禁增不禁减）：基线偏高是保守的，收紧应由
 /// 静态化批次在同步提交里完成。
-fn ratchet_violations(sites: &[Site], baseline: &BTreeMap<String, usize>) -> Vec<String> {
+fn ratchet_violations(sites: &[Site], baseline: &BTreeMap<String, usize>, kind: SiteKind) -> Vec<String> {
     let mut violations = Vec::new();
-    for (path, count) in literal_counts(sites) {
+    for (path, count) in kind_counts(sites, kind) {
         let allowed = baseline.get(&path).copied().unwrap_or(0);
         if count > allowed {
             let lines: Vec<String> = sites
                 .iter()
-                .filter(|s| s.kind == SiteKind::Literal && s.path == path)
+                .filter(|s| s.kind == kind && s.path == path)
                 .map(|s| format!("      {}:{}", s.path, s.line))
                 .collect();
             violations.push(format!(
-                "  {path}: 生产区字面量动态 SQL {count} 处 > 基线 {allowed} 处（新增 {} 处）\n{}",
+                "  {path}: 生产区{}动态 SQL {count} 处 > 基线 {allowed} 处（新增 {} 处）\n{}",
+                kind_label(kind),
                 count - allowed,
                 lines.join("\n")
             ));
@@ -226,6 +259,19 @@ fn literal_ratchet_baseline_exists_and_is_parseable() {
     );
 }
 
+/// D-14 收紧引入的第二份棘轮必须存在且可解析（空基线 = 任何传参站点都算新增，
+/// 那在当前树上必然全红，等于"永远失败的门禁"）。
+#[test]
+fn param_ratchet_baseline_exists_and_is_parseable() {
+    let raw = fs::read_to_string(param_baseline_path()).expect("param 棘轮基线必须可读");
+    let baseline = parse_baseline(&raw);
+    assert!(!baseline.is_empty(), "param 棘轮基线不能为空");
+    assert!(
+        baseline.keys().all(|k| !k.starts_with('/') && !k.contains('\\')),
+        "基线路径必须是相对仓库根、且用正斜杠：{baseline:?}"
+    );
+}
+
 // =============================================================================
 // 扫描面必须非空（假通过防线）
 // =============================================================================
@@ -281,7 +327,7 @@ fn scan_mode_total_matches_census_dynamic_production() {
 // 输出形态
 // =============================================================================
 
-/// 输出必须严格是 `path:line:literal|runtime`，且行号与路径非空。
+/// 输出必须严格是 `path:line:literal|param|runtime`，且行号与路径非空。
 #[test]
 fn scan_mode_output_shape_is_path_line_kind() {
     let (_, raw) = run_census(&["--list-production-dynamic", "."]);
@@ -290,7 +336,7 @@ fn scan_mode_output_shape_is_path_line_kind() {
         let kind = parts.next().unwrap_or_default();
         let line_no = parts.next().unwrap_or_default();
         let path = parts.next().unwrap_or_default();
-        assert!(kind == "literal" || kind == "runtime", "形态非法（kind=`{kind}`）：`{line}`");
+        assert!(kind == "literal" || kind == "param" || kind == "runtime", "形态非法（kind=`{kind}`）：`{line}`");
         assert!(line_no.parse::<usize>().is_ok(), "形态非法（line=`{line_no}`）：`{line}`");
         assert!(path.ends_with(".rs"), "形态非法（非 .rs 路径）：`{line}`");
     }
@@ -302,27 +348,100 @@ fn scan_mode_output_shape_is_path_line_kind() {
 
 /// 运行期拼装的实参**必须**判为 runtime —— 这正是 Phase B2 允许的残差类别，
 /// 守卫不得误伤。
+///
+/// ⚠️ 夹具刻意**不**用外层形参做实参：按 D-14 收紧，形参属于 `param` 类
+/// （见 [`enclosing_fn_parameter_is_classified_as_param`]），本类只覆盖
+/// "局部变量是 `format!` 结果"与"直接 `&format!(…)`"两种真运行期形状。
 #[test]
 fn runtime_assembled_sql_is_classified_as_runtime() {
     let sites = scan_temp_tree(&[(
         "src/lib.rs",
         r#"
-async fn f(pool: &sqlx::PgPool, sql: String) -> Result<(), sqlx::Error> {
-    let mut q = String::from("SELECT 1");
+async fn f(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
+    let sql = String::from("SELECT 1");
+    let mut q = sql;
     q.push_str(" WHERE true");
-    sqlx::query(&sql).execute(pool).await?;
     sqlx::query(&q).execute(pool).await?;
     sqlx::query(&format!("SELECT {}", 1)).execute(pool).await?;
-    sqlx::query_as::<_, (i64,)>(&sql).fetch_one(pool).await?;
-    sqlx::query_scalar::<_, i64>(&sql).fetch_one(pool).await?;
+    sqlx::query_as::<_, (i64,)>(&q).fetch_one(pool).await?;
+    sqlx::query_scalar::<_, i64>(&q).fetch_one(pool).await?;
     Ok(())
 }
 "#,
     )]);
     assert_eq!(
         kinds_for(&sites, "src/lib.rs"),
-        vec![SiteKind::Runtime; 5],
-        "运行期拼装（&sql / &q / &format!）必须全部判为 runtime；实际 {sites:?}"
+        vec![SiteKind::Runtime; 4],
+        "运行期拼装（format! 结果的局部变量 / 直接 &format!）必须全部判为 runtime；实际 {sites:?}"
+    );
+}
+
+/// D-14：SQL 实参是**外层函数的形参** ⇒ `param`（此前被误判为 `runtime`）。
+///
+/// 实例：`synapse-common/src/transaction.rs` 的
+/// `begin_with_isolation_level(&self, statement: &'static str)`，调用方传的是
+/// 字符串字面量 —— 单文件解析看不到调用点，因此单列一类并配独立棘轮。
+#[test]
+fn enclosing_fn_parameter_is_classified_as_param() {
+    let sites = scan_temp_tree(&[(
+        "src/lib.rs",
+        r#"
+async fn f(pool: &sqlx::PgPool, statement: &'static str) -> Result<(), sqlx::Error> {
+    sqlx::query(statement).execute(pool).await?;
+    sqlx::query_as::<_, (i64,)>(statement).fetch_one(pool).await?;
+    Ok(())
+}
+"#,
+    )]);
+    assert_eq!(kinds_for(&sites, "src/lib.rs"), vec![SiteKind::Param; 2], "形参实参必须判为 param；实际 {sites:?}");
+}
+
+/// D-14：同文件 `const`/`let` 的**字面量绑定** ⇒ `literal`（此前被误判为 `runtime`），
+/// 因而直接受字面量棘轮约束。
+#[test]
+fn same_file_literal_binding_is_classified_as_literal() {
+    let sites = scan_temp_tree(&[(
+        "src/lib.rs",
+        r#"
+const PRESENCE_SELECT: &str = "SELECT presence FROM presence";
+
+async fn f(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
+    let sql = "SELECT 1";
+    let multiline =
+        "SELECT 2";
+    sqlx::query(sql).execute(pool).await?;
+    sqlx::query(multiline).execute(pool).await?;
+    sqlx::query(PRESENCE_SELECT).execute(pool).await?;
+    Ok(())
+}
+"#,
+    )]);
+    assert_eq!(
+        kinds_for(&sites, "src/lib.rs"),
+        vec![SiteKind::Literal; 3],
+        "const/let 字面量绑定（含初值换行）必须判为 literal；实际 {sites:?}"
+    );
+}
+
+/// 宏调用/函数调用不是"裸标识符"：`&format!(…)` 即使撞上同名形参也必须留 `runtime`。
+///
+/// 这条是 `_arg_identifier` 里 `!`/`(` 拒绝规则的**自证**：去掉该规则，本夹具里
+/// 形参 `format` 会把站点误判成 `param`（从而伪造出"字面量在调用点"的假象）。
+#[test]
+fn macro_call_argument_is_not_mistaken_for_a_parameter() {
+    let sites = scan_temp_tree(&[(
+        "src/lib.rs",
+        r#"
+async fn f(pool: &sqlx::PgPool, format: &str) -> Result<(), sqlx::Error> {
+    sqlx::query(&format!("SELECT {format}")).execute(pool).await?;
+    Ok(())
+}
+"#,
+    )]);
+    assert_eq!(
+        kinds_for(&sites, "src/lib.rs"),
+        vec![SiteKind::Runtime],
+        "宏调用实参不得被当成形参标识符；实际 {sites:?}"
     );
 }
 
@@ -471,7 +590,7 @@ async fn f(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
     )];
     let sites = scan_temp_tree(&files);
     let baseline = parse_baseline("src/lib.rs\t1\n");
-    let violations = ratchet_violations(&sites, &baseline);
+    let violations = ratchet_violations(&sites, &baseline, SiteKind::Literal);
     assert_eq!(violations.len(), 1, "计数 2 > 基线 1 必须判违规；实际 {violations:?}");
     assert!(violations[0].contains("src/lib.rs:4"), "违规信息必须带 `path:line`：{}", violations[0]);
 }
@@ -488,7 +607,7 @@ async fn f(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
 "#,
     )];
     let sites = scan_temp_tree(&files);
-    let violations = ratchet_violations(&sites, &parse_baseline(""));
+    let violations = ratchet_violations(&sites, &parse_baseline(""), SiteKind::Literal);
     assert_eq!(violations.len(), 1, "基线未登记的文件出现字面量站点必须违规；实际 {violations:?}");
     assert!(violations[0].contains("src/lib.rs:3"), "违规信息必须带 `path:line`：{}", violations[0]);
 }
@@ -505,7 +624,10 @@ async fn f(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
 "#,
     )];
     let sites = scan_temp_tree(&files);
-    assert!(ratchet_violations(&sites, &parse_baseline("src/lib.rs\t1\n")).is_empty(), "实测与基线相等不应违规");
+    assert!(
+        ratchet_violations(&sites, &parse_baseline("src/lib.rs\t1\n"), SiteKind::Literal).is_empty(),
+        "实测与基线相等不应违规"
+    );
 }
 
 #[test]
@@ -513,7 +635,8 @@ fn ratchet_allows_runtime_assembled_sites_without_any_baseline_entry() {
     let files = [(
         "src/lib.rs",
         r#"
-async fn f(pool: &sqlx::PgPool, sql: String) -> Result<(), sqlx::Error> {
+async fn f(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
+    let sql = format!("SELECT {}", 1);
     sqlx::query(&sql).execute(pool).await?;
     sqlx::query(&format!("SELECT {sql}")).execute(pool).await?;
     Ok(())
@@ -522,20 +645,61 @@ async fn f(pool: &sqlx::PgPool, sql: String) -> Result<(), sqlx::Error> {
     )];
     let sites = scan_temp_tree(&files);
     assert!(
-        ratchet_violations(&sites, &parse_baseline("")).is_empty(),
+        ratchet_violations(&sites, &parse_baseline(""), SiteKind::Literal).is_empty(),
         "运行期拼装站点是 Phase B2 明确允许的残差，不得触发棘轮：{sites:?}"
     );
 }
 
+/// 传参棘轮的**自证**（AGENTS.md 铁律 8）：未知文件里出现一处 `param` 站点，
+/// 在空 param 基线下必须判违规。
+#[test]
+fn param_ratchet_fails_on_a_new_param_site_in_an_unknown_file() {
+    let files = [(
+        "src/lib.rs",
+        r#"
+async fn f(pool: &sqlx::PgPool, statement: &'static str) -> Result<(), sqlx::Error> {
+    sqlx::query(statement).execute(pool).await?;
+    Ok(())
+}
+"#,
+    )];
+    let sites = scan_temp_tree(&files);
+    let violations = ratchet_violations(&sites, &parse_baseline(""), SiteKind::Param);
+    assert_eq!(violations.len(), 1, "基线未登记的传参站点必须违规；实际 {violations:?}");
+    assert!(violations[0].contains("src/lib.rs:3"), "违规信息必须带 `path:line`：{}", violations[0]);
+}
+
+/// 传参棘轮**不得**误伤 `runtime`：`format!` 结果的局部变量依然不受约束。
+#[test]
+fn param_ratchet_ignores_runtime_assembled_sites() {
+    let files = [(
+        "src/lib.rs",
+        r#"
+async fn f(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
+    let sql = format!("SELECT {}", 1);
+    sqlx::query(&sql).execute(pool).await?;
+    Ok(())
+}
+"#,
+    )];
+    let sites = scan_temp_tree(&files);
+    assert!(
+        ratchet_violations(&sites, &parse_baseline(""), SiteKind::Param).is_empty(),
+        "运行期拼装站点不是传参站点，param 棘轮不得误伤：{sites:?}"
+    );
+}
+
 // =============================================================================
-// 真实树：生产区不得出现**未登记**的字面量动态 SQL
+// 真实树：生产区不得出现**未登记**的字面量 / 传参动态 SQL
 // =============================================================================
 
 /// 主守卫：生产区字面量动态 SQL 只减不增。
 ///
-/// 失败时输出 `path:line:literal` 明细；新增了字面量动态 SQL 的批次应改为
-/// `query!` / `query_as!` / `query_scalar!`（Phase B2），或在极少数确需运行期
-/// 文本时改为 `&sql` 形式（`runtime`，不受本棘轮约束）。
+/// 失败时输出 `path:line:literal` 明细；新增了字面量动态 SQL（含"同文件字面量
+/// 绑定"这一 D-14 收紧后的形状）必须改为 `query!` / `query_as!` / `query_scalar!`
+/// （Phase B2），或在极少数确需运行期文本时改成真正的运行期拼装（`runtime`，
+/// 不受本棘轮约束 —— 但若实参是外层形参，会落进
+/// [`no_new_production_param_dynamic_sql`] 的第二份棘轮）。
 #[test]
 fn no_new_production_literal_dynamic_sql() {
     let sites = scan_production_dynamic(&repo_root());
@@ -543,13 +707,37 @@ fn no_new_production_literal_dynamic_sql() {
 
     let raw = fs::read_to_string(baseline_path()).expect("棘轮基线必须可读");
     let baseline = parse_baseline(&raw);
-    let violations = ratchet_violations(&sites, &baseline);
+    let violations = ratchet_violations(&sites, &baseline, SiteKind::Literal);
     assert!(
         violations.is_empty(),
         "检测到 {} 个文件新增了生产区字面量动态 SQL（Phase B2 违规）。\n\
          修法：改用 query!/query_as!/query_scalar! 宏，或改成运行期拼装的 `&sql`。\n\
          若确属已有站点被合并/移动（不应计数变化），请复核后下调\n\
          `scripts/ci/sqlx_literal_production_baseline` 中对应数字。\n\n{}",
+        violations.len(),
+        violations.join("\n")
+    );
+}
+
+/// D-14 第二道主守卫：生产区「跨函数传参」动态 SQL 只减不增。
+///
+/// 这类站点的 SQL 文本在**调用点**是字面量，只要把字面量内联到调用点即可宏化；
+/// 因此它和字面量站点一样属于"应当回收"的残差，而不是 Phase B2 允许的运行期拼装。
+/// 收紧前它混在 `runtime` 里、两侧棘轮都不管（D-14 的覆盖缺口）。
+#[test]
+fn no_new_production_param_dynamic_sql() {
+    let sites = scan_production_dynamic(&repo_root());
+    assert!(!sites.is_empty(), "扫描面为空 ⇒ 守卫会假通过");
+
+    let raw = fs::read_to_string(param_baseline_path()).expect("param 棘轮基线必须可读");
+    let baseline = parse_baseline(&raw);
+    let violations = ratchet_violations(&sites, &baseline, SiteKind::Param);
+    assert!(
+        violations.is_empty(),
+        "检测到 {} 个文件新增了生产区跨函数传参动态 SQL（D-14 违规）。\n\
+         修法：把字面量内联到调用点后改用 query!/query_as!/query_scalar! 宏；\n\
+         若确有跨层传参的必要（例如基础设施 helper），请复核后上调\n\
+         `scripts/ci/sqlx_param_production_baseline` 中对应数字并登记理由。\n\n{}",
         violations.len(),
         violations.join("\n")
     );

@@ -1,0 +1,24 @@
+# SQLx 生产区「跨函数传参」动态站点棘轮（D-14 收紧，2026-09-26）
+#
+# 语义：`sqlx::query(<ident>)` / `query_as::<_, T>(<ident>)` / `query_scalar(<ident>)`
+#   的实参是**外层函数的形参**（`&ident` 同）。这类站点的 SQL 文本在调用点往往是
+#   字符串字面量，收紧前被判为 `runtime` 而**两侧棘轮都不管** —— 这正是 D-14 登记的
+#   守卫覆盖缺口。现在单列一类并配本棘轮：**只减不增**。
+#
+# 生成命令（与守卫同源，勿手工数）：
+#   python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
+#     | grep ':param$' | cut -d: -f1 | LC_ALL=C sort | uniq -c \
+#     | awk '{print $2"\t"$1}' | LC_ALL=C sort
+#
+# 当前实测 **1 处 / 1 文件**（2026-09-26）：
+#   synapse-common/src/transaction.rs —— `begin_with_isolation_level(&self, statement: &'static str)`
+#   的 `sqlx::query(statement)`（:66）。三个调用方
+#   （`begin_read_committed` / `begin_repeatable_read` / `begin_serializable`，:47/:52/:57）
+#   传的都是字符串字面量，因此**可回收**：把 `SET TRANSACTION ISOLATION LEVEL …`
+#   三份字面量分别内联到三个调用点，或让 helper 只做 `begin` 与错误映射。
+#   未在本批顺手改，是因为它牵动公共 API 形状（属独立设计事项，见 §7.3 D-14 说明）。
+#
+# ⚠️ 同文件里 `transaction.rs` 另有 3 处 `literal` 站点（:250/:256/:272）走**另一份**
+#   棘轮（`scripts/ci/sqlx_literal_production_baseline`），两份基线互不替代：
+#   literal 与 param 是两种不同形状，混在一起会让"哪批完成了多少"不可追溯（§8.5）。
+synapse-common/src/transaction.rs	1

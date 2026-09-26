@@ -28,9 +28,11 @@
     python3 scripts/ci/sqlx_query_census.py --verbose  # 附 Top-N 文件与分区
     python3 scripts/ci/sqlx_query_census.py --json     # 机器可读
     python3 scripts/ci/sqlx_query_census.py --list-production-dynamic <root>
-        # 逐条列出**生产区**动态调用点：`path:line:literal|runtime`
-        # `literal` = SQL 实参是字符串字面量（Phase B2 起禁止新增）
-        # `runtime` = 运行期拼装（`&sql` / `&format!(…)`），即已登记的合法残差
+        # 逐条列出**生产区**动态调用点：`path:line:literal|param|runtime`
+        # `literal` = SQL 实参是字符串字面量，或同文件 `const`/`let` 的字面量绑定
+        #             （Phase B2 起禁止新增；D-14 收紧后含"绑到别处再传进来"）
+        # `param`   = SQL 实参是外层函数的形参（字面量在调用点；D-14 新类，单独棘轮）
+        # `runtime` = 运行期拼装（`&format!(…)` 的结果），即已登记的合法残差
 """
 
 from __future__ import annotations
@@ -347,14 +349,164 @@ def _starts_string_literal(text: str, i: int) -> bool:
     return j < len(text) and text[j] == '"'
 
 
+# ── D-14 收紧：实参形态解析（同文件字面量绑定 / 跨函数传参）─────────────────────
+#
+# 背景：`sqlx::query(&sql)` 里 `sql` 若来自同文件 `const SQL: &str = "…"`，或来自
+# 外层函数的形参（字面量在调用点），旧版一律记 `runtime`，于是**绕过了字面量棘轮**
+# —— 这正是 D-14 的覆盖缺口。本段把两类都识别出来：
+#   * 同文件 `const`/`static`/`let` 的**字面量绑定** ⇒ 归入 `literal`（棘轮覆盖）；
+#   * 外层函数**形参** ⇒ 新类 `param`（单独棘轮，防静默增长/迁移）。
+
+_LITERAL_BINDING_RE = re.compile(
+    r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:const|static)\s+([A-Za-z_]\w*)\s*(?::[^=]+)?=\s*(.*)$"
+)
+_LET_BINDING_RE = re.compile(r"^\s*let\s+(?:mut\s+)?([A-Za-z_]\w*)\s*(?::[^=]+)?=\s*(.*)$")
+_FN_NAME_RE = re.compile(r"\bfn\s+[A-Za-z_]\w*")
+
+
+def _literal_identifiers(text: str) -> set[str]:
+    """同文件里"初值是字符串字面量"的标识符（`const` / `static` / `let`）。
+
+    在**原文**上扫描（`strip_code` 会把字面量内容清成空格，无法判断初值形态）。
+    初值换行到下一行（`let sql =\n    "SELECT …"`）也接受。注释里的同名绑定可能
+    带来极少数假阳性，方向是**更严**（把站点归为 `literal`），可接受。
+    """
+    lines = text.split("\n")
+    names: set[str] = set()
+    for idx, line in enumerate(lines):
+        for pattern in (_LITERAL_BINDING_RE, _LET_BINDING_RE):
+            m = pattern.match(line)
+            if not m:
+                continue
+            rhs = m.group(2).strip()
+            if not rhs:
+                # 初值在下一行：取下一非空行继续判定
+                for follow in lines[idx + 1 : idx + 3]:
+                    if follow.strip():
+                        rhs = follow.strip()
+                        break
+            if _starts_string_literal(rhs, 0):
+                names.add(m.group(1))
+    return names
+
+
+def _split_top_level_commas(segment: str) -> list[str]:
+    """按顶层逗号切分（忽略 `()`/`[]`/`{}`/`<>` 内的逗号）。"""
+    parts: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    angle = 0
+    for ch in segment:
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif ch == "<":
+            angle += 1
+        elif ch == ">":
+            angle = max(0, angle - 1)
+        if ch == "," and depth <= 0 and angle <= 0:
+            parts.append("".join(buf))
+            buf.clear()
+            continue
+        buf.append(ch)
+    parts.append("".join(buf))
+    return parts
+
+
+def _fn_parameters(text: str) -> list[tuple[int, set[str]]]:
+    """`(fn 所在行号, 形参名集合)` 列表（跳过 `self`），按行号升序。
+
+    在**等长剥离**后的文本上定位 `fn` 与配平括号：签名跨行（本项目
+    `begin_with_isolation_level` 就是）、注释/字符串里的括号都不会干扰。
+    站点归属到**最近的、在其之前声明的**函数 —— 站点必然位于该函数体内
+    （闭包/嵌套块也归到外层函数，正是需要的形状）。
+    """
+    code = "\n".join(strip_code(text, pad_comments=True))
+    out: list[tuple[int, set[str]]] = []
+    for m in _FN_NAME_RE.finditer(code):
+        i = m.end()
+        while i < len(code) and code[i] in " \t\r\n":
+            i += 1
+        if i < len(code) and code[i] == "<":
+            angle = 0
+            while i < len(code):
+                if code[i] == "<":
+                    angle += 1
+                elif code[i] == ">":
+                    angle -= 1
+                    if angle == 0:
+                        i += 1
+                        break
+                i += 1
+            while i < len(code) and code[i] in " \t\r\n":
+                i += 1
+        if i >= len(code) or code[i] != "(":
+            continue
+        depth = 0
+        params: str | None = None
+        j = i
+        while j < len(code):
+            if code[j] == "(":
+                depth += 1
+            elif code[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    params = code[i + 1 : j]
+                    break
+            j += 1
+        if params is None:
+            continue
+        names: set[str] = set()
+        for raw in _split_top_level_commas(params):
+            head = raw.split(":", 1)[0].strip()
+            if not head or head[0] in "([":
+                # 解构模式（`(a, b): (u32, u32)`）：拿不到单个名字，跳过
+                continue
+            head = re.sub(r"#\[[^\]]*\]", " ", head)
+            found = re.findall(r"[A-Za-z_]\w*", head)
+            if not found:
+                continue
+            name = found[-1]
+            if name in ("self", "mut", "ref"):
+                continue
+            names.add(name)
+        out.append((code.count("\n", 0, m.start()) + 1, names))
+    return out
+
+
+def _arg_identifier(text: str, i: int) -> str | None:
+    """若实参是裸标识符或 `&ident`（可含空白），返回该标识符；否则 None。
+
+    ⚠️ 宏调用/函数调用（`&format!(…)`、`&sql(x)`）**不算**裸标识符：紧跟 `!` 或
+    `(` 的标识符是调用点本身，其形态与"把字面量绑到别处"无关，误判会伪造
+    `param`/`literal` 归属。
+    """
+    j = i
+    while j < len(text) and text[j] in " \t\r\n":
+        j += 1
+    if j < len(text) and text[j] == "&":
+        j += 1
+        while j < len(text) and text[j] in " \t\r\n":
+            j += 1
+    m = re.match(r"[A-Za-z_]\w*", text[j:])
+    if not m:
+        return None
+    end = j + m.end()
+    if end < len(text) and text[end] in "!(:":
+        return None
+    return m.group(0)
+
 def iter_dynamic_sites(
     path: Path, force_test: bool = False
 ) -> list[tuple[int, str, str]]:
     """列出单文件全部动态 sqlx 调用点：`(行号, 区域, 实参形态)`。
 
     * 区域：`"production"` / `"test"`，口径与 `census_file` 同源；
-    * 实参形态：`"literal"` = SQL 实参是字符串**字面量**；`"runtime"` = 其它
-      表达式（`&sql` / `&query` / `&format!(…)`），即 Phase B2 允许的残差类别。
+    * 实参形态（D-14 收紧后共三类）：
+      - `"literal"` = SQL 实参是字符串**字面量**，或同文件 `const`/`let` 的**字面量绑定**；
+      - `"param"` = 实参是**外层函数的形参**（字面量在调用点，单文件解析看不到）；
+      - `"runtime"` = 其它表达式（`&format!(…)` 等运行期拼装），即 Phase B2 允许的残差。
 
     实参形态靠**等长剥离**（`strip_code(..., pad_comments=True)`）把词法匹配位置
     映射回原文后判定：`(pad_comments=False)` 会删除注释、使列偏移错位。
@@ -369,6 +521,19 @@ def iter_dynamic_sites(
         offsets.append(pos)
         pos += len(line) + 1
 
+    # D-14：同文件字面量绑定 + 跨函数传参解析所需的上下文
+    literal_idents = _literal_identifiers(text)
+    fn_params = _fn_parameters(text)
+
+    def enclosing_params(line_no: int) -> set[str]:
+        params: set[str] = set()
+        for fn_line, names in fn_params:
+            if fn_line <= line_no:
+                params = names
+            else:
+                break
+        return params
+
     sites: list[tuple[int, str, str]] = []
     for li, (line, in_test) in enumerate(iter_region_lines(code, force_test)):
         for match in DYNAMIC_RE.finditer(line):
@@ -378,6 +543,15 @@ def iter_dynamic_sites(
                 arg = _first_arg_offset(text, open_paren + 1)
                 if _starts_string_literal(text, arg):
                     kind = "literal"
+                else:
+                    ident = _arg_identifier(text, arg)
+                    if ident is not None:
+                        if ident in literal_idents:
+                            # 同文件 `const`/`let` 字面量绑定 ⇒ 与直接写字面量同性质
+                            kind = "literal"
+                        elif ident in enclosing_params(li + 1):
+                            # 跨函数传参：字面量在调用点，单文件解析看不到 ⇒ 单列一类
+                            kind = "param"
             sites.append((li + 1, "test" if in_test else "production", kind))
     return sites
 
@@ -425,7 +599,7 @@ def collect_tests_dir_sources(root: Path) -> list[Path]:
 
 
 def list_production_dynamic(root: Path) -> int:
-    """打印生产区每个动态调用点 `path:line:literal|runtime`（供守卫测试消费）。"""
+    """打印生产区每个动态调用点 `path:line:literal|param|runtime`（供守卫测试消费）。"""
     sources = collect_sources(root)
     test_gated = collect_test_gated_files(sources)
     for path in sources:
@@ -712,7 +886,7 @@ def main() -> int:
         const="",
         default=None,
         metavar="ROOT",
-        help="列出生产区每个动态调用点 path:line:literal|runtime（ROOT 缺省取 --root）",
+        help="列出生产区每个动态调用点 path:line:literal|param|runtime（ROOT 缺省取 --root）",
     )
     parser.add_argument(
         "--list-test-ddl",
