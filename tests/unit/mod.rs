@@ -141,3 +141,4 @@ mod event_service_tests;
 mod server_notification_service_tests;
 mod sync_helpers_tests;
 mod user_service_tests;
+mod u13_interop_fixture_tests;

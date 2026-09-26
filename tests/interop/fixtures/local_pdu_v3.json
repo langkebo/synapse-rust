@@ -1,0 +1,35 @@
+{
+  "event_id": "$z0FEyEQ/WO8Ubzi+W+OujYf8uKLy5OCcY7+qQK15Qk8",
+  "pdu": {
+    "auth_events": [
+      "$create:example.com"
+    ],
+    "content": {
+      "body": "U-13 interop fixture",
+      "m.mentions": {},
+      "msgtype": "m.text"
+    },
+    "depth": 24,
+    "hashes": {
+      "sha256": "LXkZ41xTMrP2CPBUC2k7qqHFPzqDTPVJKXEgxBNoXm8"
+    },
+    "origin": "example.com",
+    "origin_server_ts": 1731769874137,
+    "prev_events": [
+      "$prev:example.com"
+    ],
+    "room_id": "!interop:example.com",
+    "sender": "@alice:example.com",
+    "signatures": {
+      "example.com": {
+        "ed25519:1": "nuGODTpR3Um+mmtbyKfY8M4JHbg1BpRvxrulEit5ZPsNBYdBGl+x17IdPEB4Q/OClNAYzYgxXHMjSJrx/cSZBw"
+      }
+    },
+    "type": "m.room.message"
+  },
+  "produced_by": "tests/unit/u13_interop_fixture_tests.rs (build_pdu + finalize_local_pdu + sign_and_hash_event)",
+  "room_version": "3",
+  "signing_key_id": "ed25519:1",
+  "signing_seed_base64": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+  "signing_server_name": "example.com"
+}
