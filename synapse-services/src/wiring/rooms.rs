@@ -221,9 +221,15 @@ impl RoomSyncServices {
             infra.config.server.name.clone(),
         ));
 
+        // Relation senders persist through the room service's messaging write
+        // entry (same graph resolution / id finalization / summary / broadcast
+        // as any other event); `event_relations` stays a pure index. Sharing the
+        // already-constructed `MessagingService` is what keeps that a single
+        // implementation (AGENTS.md iron rule 2).
         let relations_service = Arc::new(crate::relations_service::RelationsService::new(
             relations_storage.clone(),
             infra.config.server.server_name.clone().unwrap_or_default(),
+            Arc::new(room_service.messaging.clone()),
         ));
 
         let thread_storage: Arc<dyn synapse_storage::thread::ThreadStoreApi> =

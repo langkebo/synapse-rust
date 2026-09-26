@@ -3,7 +3,10 @@ use serde_json::Value;
 use std::sync::Arc;
 use synapse_common::error::ApiError;
 use synapse_storage::relations::{EventRelation, RelationQueryParams, RelationsStoreApi};
-use tracing::{debug, info, warn};
+use synapse_storage::CreateEventParams;
+use tracing::{debug, info};
+
+use crate::room::messaging::service::MessagingService;
 
 /// The `SendAnnotationRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,12 +118,53 @@ pub struct RelationTarget {
 pub struct RelationsService {
     storage: Arc<dyn RelationsStoreApi>,
     server_name: String,
+    /// The single local event write entry (`MessagingService::create_event`).
+    ///
+    /// Relation senders must persist a real `events` row: `event_relations` is
+    /// only an index, while the MSC3912 cascade and `/sync` read the event
+    /// itself. Sharing the write entry (rather than re-implementing graph
+    /// resolution, id finalization, summary and broadcast here) is the whole
+    /// point — see AGENTS.md iron rule 2.
+    messaging: Arc<MessagingService>,
 }
 
 impl RelationsService {
     /// See [`new`].
-    pub fn new(storage: Arc<dyn RelationsStoreApi>, server_name: String) -> Self {
-        Self { storage, server_name }
+    pub fn new(storage: Arc<dyn RelationsStoreApi>, server_name: String, messaging: Arc<MessagingService>) -> Self {
+        Self { storage, server_name, messaging }
+    }
+
+    /// Persist a relation as a real room event through the same write entry
+    /// every other locally-produced event uses, and return the stored row.
+    ///
+    /// The returned `event_id` is the finalized one (reference hash for v3+
+    /// rooms, the server-assigned id for v1/v2), so callers must use it for the
+    /// `event_relations` index instead of minting their own placeholder.
+    async fn persist_relation_event(
+        &self,
+        room_id: &str,
+        sender: &str,
+        event_type: &str,
+        content: Value,
+        origin_server_ts: i64,
+    ) -> Result<synapse_storage::RoomEvent, ApiError> {
+        self.messaging
+            .create_event(
+                CreateEventParams {
+                    // Placeholder: the write entry replaces it with the final id
+                    // for room versions where the id is derived from the event.
+                    event_id: synapse_common::crypto::generate_event_id(&self.server_name),
+                    room_id: room_id.to_string(),
+                    user_id: sender.to_string(),
+                    event_type: event_type.to_string(),
+                    content,
+                    state_key: None,
+                    origin_server_ts,
+                    redacts: None,
+                },
+                None,
+            )
+            .await
     }
 
     /// See [`send_annotation`].
@@ -133,19 +177,32 @@ impl RelationsService {
             "Sending annotation"
         );
 
-        let event_id = synapse_common::crypto::generate_event_id(&self.server_name);
-
+        // Spec shape (MSC2677, stable in spec v1.18): the emoji is the
+        // `m.relates_to.key`. The local aggregation read path
+        // (`RelationsStorage::aggregate_annotations`) groups by
+        // `content->>'body'`, so `body` is kept in lockstep for reads.
         let content = serde_json::json!({
             "body": request.key,
             "m.relates_to": {
                 "rel_type": "m.annotation",
-                "event_id": request.relates_to_event_id
+                "event_id": request.relates_to_event_id,
+                "key": request.key
             }
         });
 
+        let event = self
+            .persist_relation_event(
+                &request.room_id,
+                &request.sender,
+                "m.reaction",
+                content.clone(),
+                request.origin_server_ts,
+            )
+            .await?;
+
         let params = synapse_storage::relations::CreateRelationParams {
             room_id: request.room_id,
-            event_id,
+            event_id: event.event_id,
             relates_to_event_id: request.relates_to_event_id,
             relation_type: "m.annotation".to_string(),
             sender: request.sender,
@@ -168,10 +225,6 @@ impl RelationsService {
             "Sending reference"
         );
 
-        // `generate_event_id` already prefixes `$` and takes the *server* name;
-        // the previous `format!("${}", …)` produced `$$…:!room:server`.
-        let event_id = synapse_common::crypto::generate_event_id(&self.server_name);
-
         let mut content = request.content;
         let effective_relation_type = request.relation_type.clone().unwrap_or_else(|| "m.reference".to_string());
 
@@ -192,9 +245,22 @@ impl RelationsService {
             });
         }
 
+        // References and threads are ordinary message events carrying
+        // `m.relates_to`; the relations route authorizes them against
+        // `events["m.room.message"]`.
+        let event = self
+            .persist_relation_event(
+                &request.room_id,
+                &request.sender,
+                "m.room.message",
+                content.clone(),
+                request.origin_server_ts,
+            )
+            .await?;
+
         let params = synapse_storage::relations::CreateRelationParams {
             room_id: request.room_id,
-            event_id,
+            event_id: event.event_id,
             relates_to_event_id: request.relates_to_event_id,
             relation_type: effective_relation_type,
             sender: request.sender,
@@ -217,26 +283,6 @@ impl RelationsService {
             "Sending replacement"
         );
 
-        let existing = self
-            .storage
-            .get_replacement(&request.room_id, &request.relates_to_event_id, &request.sender)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to check existing replacement", e))?;
-
-        let event_id = if let Some(existing) = existing {
-            warn!(
-                sender = %request.sender,
-                room_id = %request.room_id,
-                relates_to = %request.relates_to_event_id,
-                existing_event_id = %existing.event_id,
-                "Replacement already exists for sender, updating existing"
-            );
-            existing.event_id
-        } else {
-            // See `send_reference`: `generate_event_id` already prefixes `$`.
-            synapse_common::crypto::generate_event_id(&self.server_name)
-        };
-
         let content = serde_json::json!({
             "m.new_content": request.new_content,
             "m.relates_to": {
@@ -245,9 +291,24 @@ impl RelationsService {
             }
         });
 
+        // Each edit is its own event, exactly like any other client event. The
+        // previous "reuse the first edit's event id" branch only existed because
+        // this service minted ids locally and never persisted anything; with the
+        // shared write entry the id is produced *by the write*, so reusing it
+        // would collide on the `events` primary key.
+        let event = self
+            .persist_relation_event(
+                &request.room_id,
+                &request.sender,
+                "m.room.message",
+                content.clone(),
+                request.origin_server_ts,
+            )
+            .await?;
+
         let params = synapse_storage::relations::CreateRelationParams {
             room_id: request.room_id,
-            event_id,
+            event_id: event.event_id,
             relates_to_event_id: request.relates_to_event_id,
             relation_type: "m.replace".to_string(),
             sender: request.sender,
@@ -401,11 +462,40 @@ impl RelationsService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::room::messaging::service::{MessagingService, MessagingServiceConfig};
+    use crate::room::summary::RoomSummaryService;
+    use synapse_cache::{CacheConfig, CacheManager};
     use synapse_storage::relations::CreateRelationParams;
-    use synapse_storage::test_mocks::InMemoryRelationsStore;
+    use synapse_storage::test_mocks::{
+        InMemoryEventStore, InMemoryMemberStore, InMemoryRelationsStore, InMemoryRoomStore, InMemoryRoomSummaryStore,
+    };
 
+    /// A `RelationsService` whose write entry is a `MessagingService` backed by
+    /// in-memory stores, mirroring the production wiring.
     fn test_service() -> RelationsService {
-        RelationsService::new(Arc::new(InMemoryRelationsStore::new()), "example.com".to_string())
+        let event_store = Arc::new(InMemoryEventStore::new());
+        let room_summary_service = Arc::new(RoomSummaryService {
+            storage: Arc::new(InMemoryRoomSummaryStore::new()),
+            event_reader: event_store.clone(),
+            member_storage: Some(Arc::new(InMemoryMemberStore::new())),
+        });
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+        let messaging = Arc::new(MessagingService::new(MessagingServiceConfig {
+            event_reader: event_store.clone(),
+            event_writer: event_store,
+            room_storage: Arc::new(InMemoryRoomStore::new()),
+            member_storage: Arc::new(InMemoryMemberStore::new()),
+            server_name: "example.com".to_string(),
+            beacon_service: None,
+            task_queue: None,
+            relations_storage: Arc::new(InMemoryRelationsStore::new()),
+            event_broadcaster: None,
+            app_service_manager: None,
+            key_rotation_manager: None,
+            room_summary_service,
+            cache,
+        }));
+        RelationsService::new(Arc::new(InMemoryRelationsStore::new()), "example.com".to_string(), messaging)
     }
 
     fn annotation_params(room_id: &str, event_id: &str, sender: &str, key: &str) -> CreateRelationParams {
@@ -540,7 +630,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn send_replacement_reuses_event_id_when_replacing_again() {
+    async fn send_replacement_persists_a_new_event_per_edit() {
         let svc = test_service();
 
         // First replacement
@@ -555,7 +645,8 @@ mod tests {
             .await
             .unwrap();
 
-        // Second replacement — should reuse the same event_id
+        // Second replacement — each edit is its own persisted event, so the id
+        // differs and the previous index row is not overwritten.
         let second = svc
             .send_replacement(SendReplacementRequest {
                 room_id: "!r:example.com".to_string(),
@@ -567,7 +658,43 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(second.event_id, first.event_id);
+        assert_ne!(second.event_id, first.event_id, "each edit must be a distinct persisted event");
+        let latest = svc
+            .storage
+            .get_replacement("!r:example.com", "$event:example.com", "@alice:example.com")
+            .await
+            .unwrap()
+            .expect("the latest replacement must be indexed");
+        assert_eq!(latest.event_id, second.event_id);
+    }
+
+    /// U-20: relation senders must persist a real event through the shared write
+    /// entry and index it under the id the write produced.
+    #[tokio::test]
+    async fn send_annotation_persists_event_and_indexes_its_final_id() {
+        let svc = test_service();
+        let result = svc
+            .send_annotation(SendAnnotationRequest {
+                room_id: "!r:example.com".to_string(),
+                relates_to_event_id: "$original:example.com".to_string(),
+                sender: "@alice:example.com".to_string(),
+                key: "👍".to_string(),
+                origin_server_ts: 1_700_000_000_000,
+            })
+            .await
+            .unwrap();
+
+        // The index row carries the persisted id...
+        assert_eq!(
+            result.event_id,
+            svc.storage.get_relation("!r:example.com", &result.event_id).await.unwrap().unwrap().event_id
+        );
+        // ...and the event itself exists with the right type and relation fields.
+        let event = svc.messaging.get_event_record(&result.event_id).await.unwrap().expect("event must be persisted");
+        assert_eq!(event.event_type, "m.reaction");
+        assert_eq!(event.content["m.relates_to"]["rel_type"], "m.annotation");
+        assert_eq!(event.content["m.relates_to"]["event_id"], "$original:example.com");
+        assert_eq!(event.content["m.relates_to"]["key"], "👍");
     }
 
     // ── redact_relation (ACL) ───────────────────────────────────────

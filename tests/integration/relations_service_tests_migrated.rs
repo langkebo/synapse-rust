@@ -1,11 +1,18 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_services::relations_service::{
     AggregationItem, AggregationResponse, RelationsResponse, RelationsService, SendAnnotationRequest,
     SendReferenceRequest, SendReplacementRequest,
 };
+use synapse_services::room::messaging::service::{MessagingService, MessagingServiceConfig};
+use synapse_services::room::summary::RoomSummaryService;
+use synapse_storage::event::EventStorage;
+use synapse_storage::membership::RoomMemberStorage;
 use synapse_storage::relations::RelationsStorage;
+use synapse_storage::room::RoomStorage;
+use synapse_storage::room_summary::RoomSummaryStorage;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -13,9 +20,33 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
+/// Mirrors the production wiring: relation senders persist through the same
+/// `MessagingService` write entry every other local event uses.
 fn create_service(pool: &Arc<sqlx::PgPool>) -> RelationsService {
     let storage = Arc::new(RelationsStorage::new(pool));
-    RelationsService::new(storage, "localhost".to_string())
+    let event_storage: Arc<EventStorage> = Arc::new(EventStorage::new(pool, "localhost".to_string()));
+    let member_storage = Arc::new(RoomMemberStorage::new(pool, "localhost"));
+    let room_summary_service = Arc::new(RoomSummaryService::new(
+        Arc::new(RoomSummaryStorage::new(pool)),
+        event_storage.clone(),
+        Some(member_storage.clone()),
+    ));
+    let messaging = Arc::new(MessagingService::new(MessagingServiceConfig {
+        event_reader: event_storage.clone(),
+        event_writer: event_storage,
+        room_storage: Arc::new(RoomStorage::new(pool)),
+        member_storage,
+        server_name: "localhost".to_string(),
+        beacon_service: None,
+        task_queue: None,
+        relations_storage: storage.clone(),
+        event_broadcaster: None,
+        app_service_manager: None,
+        key_rotation_manager: None,
+        room_summary_service,
+        cache: Arc::new(CacheManager::new(&CacheConfig::default())),
+    }));
+    RelationsService::new(storage, "localhost".to_string(), messaging)
 }
 
 #[tokio::test]
@@ -178,7 +209,7 @@ async fn test_send_replacement() {
 }
 
 #[tokio::test]
-async fn test_send_replacement_updates_existing() {
+async fn test_send_replacement_second_edit_is_a_new_event() {
     let pool = crate::require_test_pool().await;
     let service = create_service(&pool);
     let suffix = unique_id();
@@ -206,7 +237,20 @@ async fn test_send_replacement_updates_existing() {
     };
     let second = service.send_replacement(request2).await.unwrap();
 
-    assert_eq!(second.event_id, first_event_id);
+    // Each edit is its own persisted event; reusing the first edit's id would
+    // collide on the `events` primary key.
+    assert_ne!(second.event_id, first_event_id, "each edit must be a distinct persisted event");
+    let persisted: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE event_id = ANY($1)")
+        .bind(vec![first_event_id.clone(), second.event_id.clone()])
+        .fetch_one(&*pool)
+        .await
+        .unwrap();
+    assert_eq!(persisted, 2, "both edits must exist in `events`");
+
+    // Reads still surface the most recent edit for that sender.
+    let storage = RelationsStorage::new(&pool);
+    let latest = storage.get_replacement(&room_id, &relates_to, &sender).await.unwrap().unwrap();
+    assert_eq!(latest.event_id, second.event_id);
 }
 
 #[tokio::test]
