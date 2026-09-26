@@ -62,14 +62,19 @@
 
 ### ✅ 6.3 缩略图 `animated` 参数支持
 - **位置**: `synapse-web/src/routes/media/download.rs` + `synapse-services/src/media_service.rs` + `synapse-services/src/media/mod.rs`
-- **说明**: Phase 1 已实现：
+- **说明**: Phase 1 & Phase 2 已完成：
   - ✅ `animated=true/false` 请求参数解析（`thumbnail_request_params` 返回四元组）
   - ✅ GIF/WebP 动画检测（魔数字节检测，安全快速）
   - ✅ 首帧提取降级策略（`AnimationDecoder::into_frames().next()`）
   - ✅ Content-Type 正确返回：动画 `image/webp`，静态 `image/jpeg`
-  - ⚠️ Phase 2 待实施：动画 WebP 编码输出（需引入 `webp-animation` crate）
-- **提交**: 本轮实现，Phase 1 完成
-- **后续**: Phase 2 由 @langkebo.5-team 负责，目标引入动画 WebP 编码能力
+  - ✅ Phase 2: 完整动画 WebP 编码输出（`webp-animation 0.10.0` crate）
+    - `generate_animated_thumbnail`: 解码所有帧 → 处理 → 编码
+    - `decode_all_frames`: 辅助函数提取 GIF/WebP 帧序列
+    - 帧延迟保留并 clamp(10, 5000)ms 防止极端值
+- **提交**: 
+  - Phase 1: `f71c574f8` feat(media): add animated thumbnail parameter support (Phase 1)
+  - Phase 2: `2bbe172d8` feat(media): Phase 2 - complete animated WebP encoding with webp-animation
+- **门禁**: Clippy `-D warnings` ✅ 通过 | 编译 ✅ 干净
 
 ### 8. ledger `query_params` 字段无消费方
 - **位置**: `synapse-web/src/routes/ledger_export.rs:156`
@@ -85,6 +90,6 @@
 ## 执行计划建议
 
 1. **中优先级**: Admin 媒体缺口 — 新增 `quarantine_media` / `unquarantine_media` service + handler
-2. **已解决**: `animated` 参数 (Phase 1)，Phase 2 待后续实施
+2. **已完成**: `animated` 参数 Phase 1 + Phase 2（完整动画 WebP 输出）
 3. **低优先级**: ledger `query_params` — 可标注为已知差异
 4. **设计使然**: v12/v13 房间创建限制 — 无需处理

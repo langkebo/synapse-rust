@@ -325,48 +325,79 @@ fn generate_thumbnail(
 
 #### 阶段 2: 完整动画缩略图生成（动画 WebP 输出）
 
-**依赖检查**: 需要引入支持动画 WebP 编码的 crate（如 `webp-animation` 或 libwebp FFI）
+**✅ 已实施 (2026-09-26)**
 
-**步骤 2.1**: 添加 WebP 动画编码依赖
+**依赖引入**: `webp-animation 0.10.0` (基于 `libwebp-sys2`，Google 官方 libwebp C 库包装)
+
+**步骤 2.1 已完成**: 添加 WebP 动画编码依赖
 
 ```toml
-# Cargo.toml
-webp-animation = "..."  # 或其他支持动画 WebP 编码的 crate
+# synapse-services/Cargo.toml
+webp-animation = "0.10.0"
 ```
 
-**步骤 2.2**: 实现帧处理与动画编码
+**步骤 2.2 已完成**: 实现帧处理与动画编码
 
 ```rust
 fn generate_animated_thumbnail(
-    data: &[u8],
-    width: u32,
-    height: u32,
+    image_data: &[u8],
+    target_width: u32,
+    target_height: u32,
     method: ThumbnailMethod,
 ) -> Result<Vec<u8>, ApiError> {
-    use image::{AnimationDecoder, Delay, Frame};
+    use webp_animation::Encoder;
     
-    // 解码所有帧
-    let decoder = /* 按格式选择解码器 */;
-    let frames: Vec<Frame> = decoder.frames().collect_frames()?;
+    // 1. 解码所有帧 (GIF or WebP)
+    let frames = Self::decode_all_frames(image_data, MAX_IMAGE_DIMENSION)?;
     
-    // 处理每帧 (缩放/裁剪)
-    let processed_frames: Vec<Frame> = frames
-        .into_iter()
-        .map(|frame| {
-            let img = DynamicImage::ImageRgba8(frame.buffer());
-            let transformed = apply_transform(img, width, height, method);
-            // 构造新 Frame，保留 delay
-            Frame::new(transformed).with_delay(frame.delay())
-        })
-        .collect();
+    // 2. 提取帧延迟并 clamp(10, 5000)ms
+    let delays_ms: Vec<i32> = frames.iter().map(|frame| {
+        let delay = frame.delay();
+        let (num, denom) = delay.numer_denom_ms();
+        if denom == 0 { 100 } else { ((num as u64 * 1000) / (denom as u64)).clamp(10, 5000) as i32 }
+    }).collect();
     
-    // 编码为带动画的 WebP
-    let mut output = Vec::new();
-    let encoder = WebPAnimationEncoder::new(&mut output);
-    encoder.encode(&processed_frames)?;
+    // 3. 处理每帧 (resize/crop) + 累计时间戳
+    let mut encoder = Encoder::new((out_w, out_h))?;
+    let mut current_timestamp: i32 = 0;
+    for (idx, frame) in frames.iter().enumerate() {
+        let transformed = Self::process_thumbnail_image(img, target_width, target_height, method);
+        let rgba_bytes = /* 转换为 RGBA8 */;
+        current_timestamp += delays_ms[idx];
+        encoder.add_frame(&rgba_bytes, current_timestamp)?;
+    }
     
-    Ok(output)
+    // 4. 编码为动画 WebP
+    let webp_data = encoder.finalize(current_timestamp + 100)?;
+    Ok(webp_data.to_vec())
 }
+
+fn decode_all_frames(image_data: &[u8], max_dimension: u32) -> Result<Vec<image::Frame>, ApiError> {
+    // Try GIF first
+    if let Ok(gif_decoder) = image::codecs::gif::GifDecoder::new(Cursor::new(image_data)) {
+        return gif_decoder.into_frames().collect::<Result<Vec<_>, _>>()
+            .map_err(|e| ApiError::internal_with_cause("Failed to decode GIF frames", e));
+    }
+    
+    // Try WebP
+    if let Ok(webp_decoder) = image::codecs::webp::WebPDecoder::new(Cursor::new(image_data)) {
+        return webp_decoder.into_frames().collect::<Result<Vec<_>, _>>()
+            .map_err(|e| ApiError::internal_with_cause("Failed to decode WebP frames", e));
+    }
+    
+    // Fallback: single frame static image
+    Ok(vec![image::Frame::new(img.into_rgba8())])
+}
+```
+
+**实现说明**：
+- ✅ 完整帧解码（GIF/WebP → 所有帧）
+- ✅ 帧延迟保留并 clamp 到 10-5000ms 防止极端值
+- ✅ 累计时间戳确保动画时序正确
+- ✅ 最终 `finalize()` 调用生成合法动画 WebP 数据
+- ✅ Content-Type: `image/webp`（动画）/ `image/jpeg`（静态）
+
+**提交**: `2bbe172d8` feat(media): Phase 2 - complete animated WebP encoding with webp-animation
 ```
 
 **降级策略**:
