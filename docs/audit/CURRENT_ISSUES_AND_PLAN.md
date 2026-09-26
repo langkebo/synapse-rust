@@ -1,7 +1,7 @@
 # 当前仍存在的问题列表（基于 docs/audit/PROJECT_REMAINING_ISSUES_2026-09-14.md §22.3）
 
-> **更新日期**: 2026-09-27（合并 U-2、U-13-R9、U-20 分支；已知 U-19-R4 仍存）
-> **基线**: `opt/consolidated` @ `7ab85a87f`
+> **更新日期**: 2026-09-27（合并 U-2、U-13-R9、U-20、U-19-R4 分支）
+> **基线**: `opt/consolidated` @ `5d1bfdc3f`
 > **状态说明**: ✅ = 已解决；❌ = 仍存代码缺陷，需修复
 
 ---
@@ -52,15 +52,14 @@
 | `"*"` 通配额外匹配 `content->'m.in_reply_to'`（已废弃） | `find_related_events_single_layer` wildcard 分支额外匹配 | ❌ 超范围匹配（非 bug，是设计取舍） |
 | 不发 `m.room.redaction` 事件 | 仅本地 `is_redacted=true` | ❌ 对等端不知情（设计取舍） |
 
-### ❌ 2. U-19-R4：`redacted_by` 审计追踪缺失
+### ✅ 4. U-19-R4：`redacted_by` 审计追踪已修
 
-- **位置**: `synapse-services/src/event_redaction_service.rs:149`
-- **实际情况**: 当前传递 `None`，导致级联撤回无法审计追踪
-- **正确修复方案**: 
-  1. 在级联撤回前创建一个 m.room.redaction 事件
-  2. 将该事件的 event_id 传递给 `redact_event_content`
-  3. 这样既满足 FK 约束（`events.redacted_by` → `events.event_id`），又能记录审计信息
-- **技术约束**: `events.redacted_by` 是自引用外键，必须是 `events.event_id`
+- **修复**: 级联撤回的 `redact_event_content` 调用现传递 `m.room.redaction` 事件的 `event_id`
+- **实现**: 
+  - `synapse-services/src/event_redaction_service.rs`：`cascade_redact_related_events` 新增 `redaction_event_id` 参数
+  - `synapse-web/src/routes/handlers/room/events.rs`：从已持久化的 redaction 事件克隆 ID 传入
+  - 测试 `api_msc3912_redaction_cascade_tests.rs::msc3912_cascade_redaction_audits_with_redaction_event_id` 验证 `redacted_by` 以 `$` 开头且指向 `m.room.redaction` 行
+- **提交**: `5d1bfdc3f`
 
 ### ❌ 3. U-3：v≤11 端点 `knock.rs`、`voip.rs` 位置问题
 
@@ -112,14 +111,10 @@
 ## 执行计划建议
 
 1. **优先级 P0**：
-   - U-19-R4：级联撤回的 `redacted_by` 审计追踪（需机制设计）
    - U-3：v≤11 端点位置问题（knock、voip）
 
 2. **优先级 P1**：
    - U-1：`"*"` 通配超范围匹配（需设计决策）
    - U-5：Admin 媒体端点
+   - U-6：缩略图 animated 问题
    - U-7、U-9：死代码删除
-
-3. **优先级 P2**：
-   - U-6：缩略图 animated
-   - U-8、U-11：文档/状态维护

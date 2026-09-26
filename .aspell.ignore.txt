@@ -1,19 +1,19 @@
+#     仅登记词条、未改动该文档正文。
+#     且都是真实技术记号：inviter 是 room_invites 的列名、requestToken 是 3pid 端点路径段、ty_match 是 sqlx 宏名（下划线后被切出 ty）。
+#   * eventreport —— EventReport 家族标识符（EventReportHistory／EventReportStats／EventReportAggregateStats）被脚本小写化后切出；
+#   * influxdb —— docs/audit/WORKER_STATS_METRICS_DECISION_2026-09-23.md 的既有拼写红（该文档本轮未被改动）。
+#   * inviter、requesttoken、ty —— SQLX_STATICIZATION_PLAN_2026-09-23.md 的**既有**拼写红（HEAD 版用同一脚本同样失败，非本轮引入），
 # 说明见 docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md §14.7。
 # 不在此列，仍会被 scripts/check_doc_spelling.sh 检出。
 # 追加（2026-09-20，§14.11 独立复核）：ghcr、io（来自 ghcr.io）。
 # 追加（2026-09-20，§14.13）：args、cmd（正文里 "CMD/args" 这类写法）。
-# 项目技术词典：aspell 通用英文词典（en_US）不含本仓技术语料的词汇。
-# 由本轮实测生成：CI run 35494141985 的 577 词 ∪ 本地 aspell 0.60.8.2 的 757 词 ∪ 原有 17 词。
-# 内容为「合法技术词」，不是「忽略拼写错误」：通用英文词的错拼（recieve/seperate/occured…）
 # 追加（2026-09-22，对比报告 v1.2 复核）：aliyun、cancellable、clamav、dags、livekit、redactions、sharding、twilio、webhooks、websocket、bugfix、elementsec、ghsa、noop、glibc。
 # 追加（2026-09-22，Phase 3 安全复核）：alg、aud、iss。
 # 追加（2026-09-24，CI 全门禁修复）：逐文件复核 164 份活跃文档，补入本轮新增文档引入的技术词——监控栈（mimir、victoriametrics、wal）、告警规则名（highcpuusage、megolmshareslow 等 S 大写驼峰被脚本小写化）、GHSA 公告号被 aspell 按连字符切出的片段（chvq、gvpm、hgcg、qcjr、rcpx、xpf…）、以及 SpaceInfoMock／KeyRotationConfig／HMACSHA256／ScheduledTasks 这类标识符。
 # 追加（2026-09-24，D-12 收口 + 关联既有红清理）：
-#   * eventreport —— EventReport 家族标识符（EventReportHistory／EventReportStats／EventReportAggregateStats）被脚本小写化后切出；
-#   * inviter、requesttoken、ty —— SQLX_STATICIZATION_PLAN_2026-09-23.md 的**既有**拼写红（HEAD 版用同一脚本同样失败，非本轮引入），
-#     且都是真实技术记号：inviter 是 room_invites 的列名、requestToken 是 3pid 端点路径段、ty_match 是 sqlx 宏名（下划线后被切出 ty）。
-#     仅登记词条、未改动该文档正文。
-#   * influxdb —— docs/audit/WORKER_STATS_METRICS_DECISION_2026-09-23.md 的既有拼写红（该文档本轮未被改动）。
+# 项目技术词典：aspell 通用英文词典（en_US）不含本仓技术语料的词汇。
+# 由本轮实测生成：CI run 35494141985 的 577 词 ∪ 本地 aspell 0.60.8.2 的 757 词 ∪ 原有 17 词。
+# 内容为「合法技术词」，不是「忽略拼写错误」：通用英文词的错拼（recieve/seperate/occured…）
 abi
 accessexclusivelock
 accessor
@@ -880,6 +880,7 @@ wal
 walkthroughs
 webhook
 webhooks
+webp
 webpush
 webrtc
 websocket
