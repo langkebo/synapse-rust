@@ -2,11 +2,11 @@ use crate::routes::context::AdminContext;
 use crate::routes::AdminUser;
 use axum::{
     extract::{Path, State},
-    routing::{delete, get},
+    routing::{delete, get, post},
     Json, Router,
 };
 use serde_json::{json, Value};
-use synapse_common::types::{MediaId, UserId};
+use synapse_common::types::{MediaId, ServerName, UserId};
 use synapse_common::ApiError;
 use synapse_services::admin_media_service::decode_media_cursor;
 
@@ -20,6 +20,8 @@ pub fn create_media_router() -> Router<crate::routes::AppState> {
         .route("/_synapse/admin/v1/users/{user_id}/media", get(get_user_media))
         .route("/_synapse/admin/v1/users/{user_id}/media", delete(delete_user_media))
         .route("/_synapse/admin/v1/quarantine_media/{media_id}/changes", get(get_media_quarantine_changes))
+        .route("/_synapse/admin/v1/media/quarantine/{server_name}/{media_id}", post(quarantine_media))
+        .route("/_synapse/admin/v1/media/unquarantine/{server_name}/{media_id}", post(unquarantine_media))
 }
 
 /// See [`get_all_media`].
@@ -172,4 +174,44 @@ pub async fn get_media_quarantine_changes(
         .collect();
 
     Ok(Json(json!({ "changes": changes_json, "total": changes_json.len() })))
+}
+
+/// See [`quarantine_media`].
+///
+/// Backs `POST /_synapse/admin/v1/media/quarantine/{server_name}/{media_id}`.
+#[axum::debug_handler]
+pub async fn quarantine_media(
+    admin: AdminUser,
+    State(ctx): State<AdminContext>,
+    Path((server_name, media_id)): Path<(ServerName, MediaId)>,
+) -> Result<Json<Value>, ApiError> {
+    let stream_id = ctx.admin_media_service.quarantine_media(&server_name, &media_id, &admin.user_id).await?;
+
+    Ok(Json(json!({
+        "stream_id": stream_id,
+        "media_id": media_id,
+        "server_name": server_name,
+        "quarantined": true,
+        "changed_by": admin.user_id
+    })))
+}
+
+/// See [`unquarantine_media`].
+///
+/// Backs `POST /_synapse/admin/v1/media/unquarantine/{server_name}/{media_id}`.
+#[axum::debug_handler]
+pub async fn unquarantine_media(
+    admin: AdminUser,
+    State(ctx): State<AdminContext>,
+    Path((server_name, media_id)): Path<(ServerName, MediaId)>,
+) -> Result<Json<Value>, ApiError> {
+    let stream_id = ctx.admin_media_service.unquarantine_media(&server_name, &media_id, &admin.user_id).await?;
+
+    Ok(Json(json!({
+        "stream_id": stream_id,
+        "media_id": media_id,
+        "server_name": server_name,
+        "quarantined": false,
+        "changed_by": admin.user_id
+    })))
 }

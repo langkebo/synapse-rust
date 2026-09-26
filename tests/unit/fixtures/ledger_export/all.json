@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": false
   },
-  "entry_count": 1053,
+  "entry_count": 1055,
   "entries": [
     {
       "method": "GET",
@@ -7718,6 +7718,26 @@
       "path": "/_synapse/admin/v1/jitsi/config",
       "registered_by": "admin::server",
       "path_params": [],
+      "query_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/media/quarantine/{server_name}/{media_id}",
+      "registered_by": "admin::media",
+      "path_params": [
+        "server_name",
+        "media_id"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/media/unquarantine/{server_name}/{media_id}",
+      "registered_by": "admin::media",
+      "path_params": [
+        "server_name",
+        "media_id"
+      ],
       "query_params": []
     },
     {

@@ -1,5 +1,6 @@
 use crate::account::UserService;
 use std::sync::Arc;
+use synapse_common::time::current_timestamp_millis;
 use synapse_common::ApiError;
 pub use synapse_storage::QuarantinedMediaChange;
 pub use synapse_storage::{
@@ -81,6 +82,55 @@ impl AdminMediaService {
         limit: i64,
     ) -> Result<Vec<QuarantinedMediaChange>, ApiError> {
         self.quarantine_change_storage.get_changes_by_media(media_id, since_stream_id, limit).await
+    }
+
+    // ───────────────────────────────────────────────────────────────────────────
+    // Admin quarantine management endpoints
+    // ───────────────────────────────────────────────────────────────────────────
+
+    /// Quarantine a media item for a specific server.
+    ///
+    /// Backs `POST /_synapse/admin/v1/media/quarantine/{server_name}/{media_id}`.
+    /// Returns the stream_id of the quarantine change record.
+    #[instrument(skip(self))]
+    pub async fn quarantine_media(&self, server_name: &str, media_id: &str, changed_by: &str) -> Result<i64, ApiError> {
+        let now_ts = current_timestamp_millis();
+
+        // Record the quarantine change in the stream
+        let stream_id = self
+            .quarantine_change_storage
+            .record_media_quarantine_change(media_id, server_name, "quarantine", changed_by, now_ts)
+            .await?;
+
+        // Update the actual quarantine status on the media record
+        self.quarantine_change_storage.set_media_quarantine_status(media_id, server_name, "quarantined").await?;
+
+        Ok(stream_id)
+    }
+
+    /// Unquarantine a media item for a specific server.
+    ///
+    /// Backs `POST /_synapse/admin/v1/media/unquarantine/{server_name}/{media_id}`.
+    /// Returns the stream_id of the unquarantine change record.
+    #[instrument(skip(self))]
+    pub async fn unquarantine_media(
+        &self,
+        server_name: &str,
+        media_id: &str,
+        changed_by: &str,
+    ) -> Result<i64, ApiError> {
+        let now_ts = current_timestamp_millis();
+
+        // Record the unquarantine change in the stream
+        let stream_id = self
+            .quarantine_change_storage
+            .record_media_quarantine_change(media_id, server_name, "unquarantine", changed_by, now_ts)
+            .await?;
+
+        // Update the actual quarantine status on the media record
+        self.quarantine_change_storage.set_media_quarantine_status(media_id, server_name, "").await?;
+
+        Ok(stream_id)
     }
 }
 

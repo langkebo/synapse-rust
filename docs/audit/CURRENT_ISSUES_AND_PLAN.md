@@ -89,7 +89,10 @@
 
 ## 执行计划建议
 
-1. **中优先级**: Admin 媒体缺口 — 新增 `quarantine_media` / `unquarantine_media` service + handler
+1. **已完成**: Admin 媒体缺口 — `quarantine_media` / `unquarantine_media` service + handler（U-5 部分）
+   - 端点：`POST /_synapse/admin/v1/media/quarantine/{server_name}/{media_id}` / `POST /_synapse/admin/v1/media/unquarantine/{server_name}/{media_id}`
+   - 委托链：`AdminMediaService::quarantine_media/unquarantine_media` → `QuarantinedMediaChangeStoreApi`
+   - 路由 + 派生产物（derived_route_table / route-table.json / ledger / snapshots）已全部同步
 2. **已完成**: `animated` 参数 Phase 1 + Phase 2（完整动画 WebP 输出）
 3. **低优先级**: ledger `query_params` — 可标注为已知差异
 4. **设计使然**: v12/v13 房间创建限制 — 无需处理

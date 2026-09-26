@@ -1,5 +1,5 @@
 # route-ledger snapshot: default
-count: 1118
+count: 1120
 DELETE /_matrix/admin/v1/external_services/{as_id} [external_service]
 DELETE /_matrix/app/v1/proxy/{as_id}/{*path} [app_service]
 DELETE /_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device [assembly::create_router]
@@ -933,6 +933,8 @@ POST /_synapse/admin/v1/federation/destinations/{destination}/reset [admin::fede
 POST /_synapse/admin/v1/federation/destinations/{destination}/reset_connection [admin::federation]
 POST /_synapse/admin/v1/federation/resolve [admin::federation]
 POST /_synapse/admin/v1/federation/rewrite [admin::federation]
+POST /_synapse/admin/v1/media/quarantine/{server_name}/{media_id} [admin::media]
+POST /_synapse/admin/v1/media/unquarantine/{server_name}/{media_id} [admin::media]
 POST /_synapse/admin/v1/media_callbacks [module]
 POST /_synapse/admin/v1/modules [module]
 POST /_synapse/admin/v1/modules/check_spam [module]

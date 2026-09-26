@@ -1,9 +1,9 @@
 {
   "schema_version": "1",
-  "generated_at": "2026-09-16T00:00:00Z",
+  "generated_at": "2026-09-25T02:46:15Z",
   "source": "synapse_ledger_export",
   "profile": "default",
-  "total_routes": 1035,
+  "total_routes": 1098,
   "_meta": {
     "generated_by": "gen_route_table.py",
     "note": "本文件由 CI 自动生成，禁止手改。如需刷新: python3 scripts/api_test/gen_route_table.py"
@@ -70,9 +70,7 @@
       "path": "/_matrix/admin/v1/external_services",
       "registered_by": "external_service",
       "path_params": [],
-      "query_params": [
-        "service_type"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -239,6 +237,14 @@
     },
     {
       "method": "GET",
+      "path": "/_matrix/client/unstable/org.matrix.msc2965/auth_issuer",
+      "registered_by": "assembly::create_router",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
       "path": "/_matrix/client/unstable/org.matrix.msc2965/auth_metadata",
       "registered_by": "assembly::create_router",
       "path_params": [],
@@ -250,11 +256,7 @@
       "path": "/_matrix/client/unstable/org.matrix.msc3575/sync",
       "registered_by": "sliding_sync",
       "path_params": [],
-      "query_params": [
-        "pos",
-        "timeout",
-        "txn_id"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -362,11 +364,7 @@
       "path_params": [
         "room_id"
       ],
-      "query_params": [
-        "from",
-        "include_all",
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -374,11 +372,7 @@
       "path": "/_matrix/client/unstable/org.matrix.msc4156/threads/subscribed",
       "registered_by": "thread",
       "path_params": [],
-      "query_params": [
-        "from",
-        "include_all",
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -386,11 +380,7 @@
       "path": "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync",
       "registered_by": "sliding_sync",
       "path_params": [],
-      "query_params": [
-        "pos",
-        "timeout",
-        "txn_id"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -597,12 +587,7 @@
       "path": "/_matrix/client/v1/friends",
       "registered_by": "friend_room",
       "path_params": [],
-      "query_params": [
-        "from",
-        "limit",
-        "offset",
-        "sort_by"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -778,12 +763,7 @@
       "path": "/_matrix/client/v1/friends/search",
       "registered_by": "friend_room",
       "path_params": [],
-      "query_params": [
-        "limit",
-        "mode",
-        "q",
-        "query"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -791,12 +771,7 @@
       "path": "/_matrix/client/v1/friends/search",
       "registered_by": "friend_room",
       "path_params": [],
-      "query_params": [
-        "limit",
-        "mode",
-        "q",
-        "query"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -804,9 +779,7 @@
       "path": "/_matrix/client/v1/friends/suggestions",
       "registered_by": "friend_room",
       "path_params": [],
-      "query_params": [
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -1349,9 +1322,7 @@
       "path": "/_matrix/client/v1/room_keys/keys",
       "registered_by": "key_backup",
       "path_params": [],
-      "query_params": [
-        "version"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -1359,9 +1330,7 @@
       "path": "/_matrix/client/v1/room_keys/keys",
       "registered_by": "key_backup",
       "path_params": [],
-      "query_params": [
-        "version"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -1369,9 +1338,7 @@
       "path": "/_matrix/client/v1/room_keys/keys",
       "registered_by": "key_backup",
       "path_params": [],
-      "query_params": [
-        "version"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -1381,9 +1348,7 @@
       "path_params": [
         "room_id"
       ],
-      "query_params": [
-        "version"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -1393,9 +1358,7 @@
       "path_params": [
         "room_id"
       ],
-      "query_params": [
-        "version"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -1405,9 +1368,7 @@
       "path_params": [
         "room_id"
       ],
-      "query_params": [
-        "version"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -1418,9 +1379,7 @@
         "room_id",
         "session_id"
       ],
-      "query_params": [
-        "version"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -1431,9 +1390,7 @@
         "room_id",
         "session_id"
       ],
-      "query_params": [
-        "version"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -1444,9 +1401,7 @@
         "room_id",
         "session_id"
       ],
-      "query_params": [
-        "version"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -1495,13 +1450,7 @@
       "path": "/_matrix/client/v1/room_keys/request",
       "registered_by": "e2ee",
       "path_params": [],
-      "query_params": [
-        "from",
-        "limit",
-        "room_id",
-        "session_id",
-        "status"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -1788,12 +1737,7 @@
         "room_id",
         "event_id"
       ],
-      "query_params": [
-        "dir",
-        "from",
-        "limit",
-        "to"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -1805,12 +1749,7 @@
         "event_id",
         "rel_type"
       ],
-      "query_params": [
-        "dir",
-        "from",
-        "limit",
-        "to"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -1907,11 +1846,7 @@
       "path_params": [
         "room_id"
       ],
-      "query_params": [
-        "from",
-        "include_all",
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -1931,10 +1866,7 @@
       "path_params": [
         "room_id"
       ],
-      "query_params": [
-        "limit",
-        "q"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -1966,10 +1898,7 @@
         "room_id",
         "thread_id"
       ],
-      "query_params": [
-        "include_replies",
-        "reply_limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -2013,11 +1942,7 @@
         "room_id",
         "thread_id"
       ],
-      "query_params": [
-        "from",
-        "include_all",
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -2140,10 +2065,7 @@
       "path": "/_matrix/client/v1/spaces/public",
       "registered_by": "space",
       "path_params": [],
-      "query_params": [
-        "from",
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -2171,11 +2093,7 @@
       "path": "/_matrix/client/v1/spaces/search",
       "registered_by": "space",
       "path_params": [],
-      "query_params": [
-        "limit",
-        "query",
-        "search_term"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -2183,9 +2101,7 @@
       "path": "/_matrix/client/v1/spaces/statistics",
       "registered_by": "space",
       "path_params": [],
-      "query_params": [
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -2264,9 +2180,7 @@
       "path_params": [
         "space_id"
       ],
-      "query_params": [
-        "max_depth"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -2276,12 +2190,7 @@
       "path_params": [
         "space_id"
       ],
-      "query_params": [
-        "from",
-        "limit",
-        "max_depth",
-        "suggested_only"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -2321,10 +2230,7 @@
       "path_params": [
         "space_id"
       ],
-      "query_params": [
-        "from",
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -2334,10 +2240,7 @@
       "path_params": [
         "space_id"
       ],
-      "query_params": [
-        "from",
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -2385,11 +2288,7 @@
       "path": "/_matrix/client/v1/sync",
       "registered_by": "sliding_sync",
       "path_params": [],
-      "query_params": [
-        "pos",
-        "timeout",
-        "txn_id"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -2397,11 +2296,7 @@
       "path": "/_matrix/client/v1/threads",
       "registered_by": "thread",
       "path_params": [],
-      "query_params": [
-        "from",
-        "include_all",
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -2417,11 +2312,7 @@
       "path": "/_matrix/client/v1/threads/subscribed",
       "registered_by": "thread",
       "path_params": [],
-      "query_params": [
-        "from",
-        "include_all",
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -2460,6 +2351,58 @@
       "method": "GET",
       "path": "/_matrix/client/v1/user/{user_id}/appservice",
       "registered_by": "app_service",
+      "path_params": [
+        "user_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v1/voice/config",
+      "registered_by": "voice",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v1/voice/register",
+      "registered_by": "voice",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v1/voice/room/{room_id}/stats",
+      "registered_by": "voice",
+      "path_params": [
+        "room_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v1/voice/stats",
+      "registered_by": "voice",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v1/voice/upload",
+      "registered_by": "voice",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v1/voice/user/{user_id}/stats",
+      "registered_by": "voice",
       "path_params": [
         "user_id"
       ],
@@ -2720,9 +2663,7 @@
       "path": "/_matrix/client/v3/appservice/alias",
       "registered_by": "app_service",
       "path_params": [],
-      "query_params": [
-        "alias"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -2730,9 +2671,7 @@
       "path": "/_matrix/client/v3/appservice/user",
       "registered_by": "app_service",
       "path_params": [],
-      "query_params": [
-        "user_id"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -2928,12 +2867,7 @@
       "path": "/_matrix/client/v3/friends",
       "registered_by": "friend_room",
       "path_params": [],
-      "query_params": [
-        "from",
-        "limit",
-        "offset",
-        "sort_by"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -2975,12 +2909,7 @@
       "path": "/_matrix/client/v3/friends/search",
       "registered_by": "friend_room",
       "path_params": [],
-      "query_params": [
-        "limit",
-        "mode",
-        "q",
-        "query"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -2988,12 +2917,7 @@
       "path": "/_matrix/client/v3/friends/search",
       "registered_by": "friend_room",
       "path_params": [],
-      "query_params": [
-        "limit",
-        "mode",
-        "q",
-        "query"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -3135,10 +3059,7 @@
       "path": "/_matrix/client/v3/keys/history",
       "registered_by": "e2ee",
       "path_params": [],
-      "query_params": [
-        "from",
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -3210,6 +3131,46 @@
       "auth": null
     },
     {
+      "method": "GET",
+      "path": "/_matrix/client/v3/login/saml/callback",
+      "registered_by": "saml",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v3/login/saml/callback",
+      "registered_by": "saml",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/login/sso/redirect/cas",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/login/sso/redirect/saml",
+      "registered_by": "saml",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v3/login/sso/redirect/saml",
+      "registered_by": "saml",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
       "method": "POST",
       "path": "/_matrix/client/v3/logout",
       "registered_by": "assembly::auth_compat",
@@ -3221,6 +3182,22 @@
       "method": "POST",
       "path": "/_matrix/client/v3/logout/all",
       "registered_by": "assembly::auth_compat",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/logout/saml",
+      "registered_by": "saml",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/logout/saml/callback",
+      "registered_by": "saml",
       "path_params": [],
       "query_params": [],
       "auth": null
@@ -3361,39 +3338,6 @@
       "registered_by": "assembly::account_compat",
       "path_params": [
         "user_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "DELETE",
-      "path": "/_matrix/client/v3/profile/{user_id}/{key_name}",
-      "registered_by": "assembly::create_router",
-      "path_params": [
-        "user_id",
-        "key_name"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v3/profile/{user_id}/{key_name}",
-      "registered_by": "assembly::create_router",
-      "path_params": [
-        "user_id",
-        "key_name"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/v3/profile/{user_id}/{key_name}",
-      "registered_by": "assembly::create_router",
-      "path_params": [
-        "user_id",
-        "key_name"
       ],
       "query_params": [],
       "auth": null
@@ -3670,9 +3614,7 @@
       "path": "/_matrix/client/v3/register/captcha/status",
       "registered_by": "captcha",
       "path_params": [],
-      "query_params": [
-        "captcha_id"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -3756,9 +3698,7 @@
       "path": "/_matrix/client/v3/room_keys/keys",
       "registered_by": "key_backup",
       "path_params": [],
-      "query_params": [
-        "version"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -3766,9 +3706,7 @@
       "path": "/_matrix/client/v3/room_keys/keys",
       "registered_by": "key_backup",
       "path_params": [],
-      "query_params": [
-        "version"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -3776,9 +3714,7 @@
       "path": "/_matrix/client/v3/room_keys/keys",
       "registered_by": "key_backup",
       "path_params": [],
-      "query_params": [
-        "version"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -3788,9 +3724,7 @@
       "path_params": [
         "room_id"
       ],
-      "query_params": [
-        "version"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -3800,9 +3734,7 @@
       "path_params": [
         "room_id"
       ],
-      "query_params": [
-        "version"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -3812,9 +3744,7 @@
       "path_params": [
         "room_id"
       ],
-      "query_params": [
-        "version"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -3825,9 +3755,7 @@
         "room_id",
         "session_id"
       ],
-      "query_params": [
-        "version"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -3838,9 +3766,7 @@
         "room_id",
         "session_id"
       ],
-      "query_params": [
-        "version"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -3851,9 +3777,7 @@
         "room_id",
         "session_id"
       ],
-      "query_params": [
-        "version"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -3902,13 +3826,7 @@
       "path": "/_matrix/client/v3/room_keys/request",
       "registered_by": "e2ee",
       "path_params": [],
-      "query_params": [
-        "from",
-        "limit",
-        "room_id",
-        "session_id",
-        "status"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -4316,9 +4234,7 @@
       "path_params": [
         "room_id"
       ],
-      "query_params": [
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -4733,12 +4649,7 @@
         "room_id",
         "event_id"
       ],
-      "query_params": [
-        "dir",
-        "from",
-        "limit",
-        "to"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -4750,12 +4661,7 @@
         "event_id",
         "rel_type"
       ],
-      "query_params": [
-        "dir",
-        "from",
-        "limit",
-        "to"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -5232,11 +5138,7 @@
       "path_params": [
         "room_id"
       ],
-      "query_params": [
-        "full_state",
-        "since",
-        "timeout"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -5460,6 +5362,22 @@
       "auth": null
     },
     {
+      "method": "GET",
+      "path": "/_matrix/client/v3/saml/metadata",
+      "registered_by": "saml",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/saml/sp_metadata",
+      "registered_by": "saml",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
       "method": "POST",
       "path": "/_matrix/client/v3/search",
       "registered_by": "search",
@@ -5518,10 +5436,7 @@
       "path": "/_matrix/client/v3/spaces/public",
       "registered_by": "space",
       "path_params": [],
-      "query_params": [
-        "from",
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -5549,11 +5464,7 @@
       "path": "/_matrix/client/v3/spaces/search",
       "registered_by": "space",
       "path_params": [],
-      "query_params": [
-        "limit",
-        "query",
-        "search_term"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -5561,9 +5472,7 @@
       "path": "/_matrix/client/v3/spaces/statistics",
       "registered_by": "space",
       "path_params": [],
-      "query_params": [
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -5642,9 +5551,7 @@
       "path_params": [
         "space_id"
       ],
-      "query_params": [
-        "max_depth"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -5654,12 +5561,7 @@
       "path_params": [
         "space_id"
       ],
-      "query_params": [
-        "from",
-        "limit",
-        "max_depth",
-        "suggested_only"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -5699,10 +5601,7 @@
       "path_params": [
         "space_id"
       ],
-      "query_params": [
-        "from",
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -5712,10 +5611,7 @@
       "path_params": [
         "space_id"
       ],
-      "query_params": [
-        "from",
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -5771,12 +5667,7 @@
       "path": "/_matrix/client/v3/thirdparty/location",
       "registered_by": "thirdparty",
       "path_params": [],
-      "query_params": [
-        "alias",
-        "channel",
-        "search",
-        "server"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -5786,12 +5677,7 @@
       "path_params": [
         "protocol"
       ],
-      "query_params": [
-        "alias",
-        "channel",
-        "search",
-        "server"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -5817,12 +5703,7 @@
       "path": "/_matrix/client/v3/thirdparty/user",
       "registered_by": "thirdparty",
       "path_params": [],
-      "query_params": [
-        "nickname",
-        "search",
-        "server",
-        "userid"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -5832,12 +5713,7 @@
       "path_params": [
         "protocol"
       ],
-      "query_params": [
-        "nickname",
-        "search",
-        "server",
-        "userid"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -6097,11 +5973,7 @@
         "user_id",
         "room_id"
       ],
-      "query_params": [
-        "from",
-        "include_all",
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -6160,6 +6032,118 @@
     },
     {
       "method": "GET",
+      "path": "/_matrix/client/v3/voice/config",
+      "registered_by": "voice",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v3/voice/register",
+      "registered_by": "voice",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/voice/room/{room_id}",
+      "registered_by": "voice",
+      "path_params": [
+        "room_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/voice/room/{room_id}/stats",
+      "registered_by": "voice",
+      "path_params": [
+        "room_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/voice/stats",
+      "registered_by": "voice",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v3/voice/upload",
+      "registered_by": "voice",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/voice/user/{user_id}",
+      "registered_by": "voice",
+      "path_params": [
+        "user_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/voice/user/{user_id}/stats",
+      "registered_by": "voice",
+      "path_params": [
+        "user_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/voice/{media_id}",
+      "registered_by": "voice",
+      "path_params": [
+        "media_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v3/voice/{media_id}/convert",
+      "registered_by": "voice",
+      "path_params": [
+        "media_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v3/voice/{media_id}/optimize",
+      "registered_by": "voice",
+      "path_params": [
+        "media_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v3/voice/{media_id}/transcription",
+      "registered_by": "voice",
+      "path_params": [
+        "media_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
       "path": "/_matrix/client/v3/voip/config",
       "registered_by": "assembly::voip_compat",
       "path_params": [],
@@ -6203,11 +6187,7 @@
       "path": "/_matrix/client/v4/sync",
       "registered_by": "sliding_sync",
       "path_params": [],
-      "query_params": [
-        "pos",
-        "timeout",
-        "txn_id"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -6284,12 +6264,7 @@
       "path_params": [
         "room_id"
       ],
-      "query_params": [
-        "from",
-        "limit",
-        "max_depth",
-        "suggested_only"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -6433,10 +6408,7 @@
       "path": "/_matrix/federation/v1/query/profile",
       "registered_by": "federation",
       "path_params": [],
-      "query_params": [
-        "field",
-        "user_id"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -6446,9 +6418,7 @@
       "path_params": [
         "user_id"
       ],
-      "query_params": [
-        "field"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -6501,9 +6471,7 @@
       "path_params": [
         "room_id"
       ],
-      "query_params": [
-        "event_id"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -6513,9 +6481,7 @@
       "path_params": [
         "room_id"
       ],
-      "query_params": [
-        "event_id"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -7040,12 +7006,7 @@
       "path": "/_matrix/vendor/v1/friends",
       "registered_by": "friend_room",
       "path_params": [],
-      "query_params": [
-        "from",
-        "limit",
-        "offset",
-        "sort_by"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -7221,12 +7182,7 @@
       "path": "/_matrix/vendor/v1/friends/search",
       "registered_by": "friend_room",
       "path_params": [],
-      "query_params": [
-        "limit",
-        "mode",
-        "q",
-        "query"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -7234,12 +7190,7 @@
       "path": "/_matrix/vendor/v1/friends/search",
       "registered_by": "friend_room",
       "path_params": [],
-      "query_params": [
-        "limit",
-        "mode",
-        "q",
-        "query"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -7247,9 +7198,7 @@
       "path": "/_matrix/vendor/v1/friends/suggestions",
       "registered_by": "friend_room",
       "path_params": [],
-      "query_params": [
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -7530,6 +7479,118 @@
     },
     {
       "method": "GET",
+      "path": "/_matrix/vendor/v1/voice/config",
+      "registered_by": "voice",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/vendor/v1/voice/register",
+      "registered_by": "voice",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/voice/room/{room_id}",
+      "registered_by": "voice",
+      "path_params": [
+        "room_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/voice/room/{room_id}/stats",
+      "registered_by": "voice",
+      "path_params": [
+        "room_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/voice/stats",
+      "registered_by": "voice",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/vendor/v1/voice/upload",
+      "registered_by": "voice",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/voice/user/{user_id}",
+      "registered_by": "voice",
+      "path_params": [
+        "user_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/voice/user/{user_id}/stats",
+      "registered_by": "voice",
+      "path_params": [
+        "user_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/voice/{media_id}",
+      "registered_by": "voice",
+      "path_params": [
+        "media_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/vendor/v1/voice/{media_id}/convert",
+      "registered_by": "voice",
+      "path_params": [
+        "media_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/vendor/v1/voice/{media_id}/optimize",
+      "registered_by": "voice",
+      "path_params": [
+        "media_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/vendor/v1/voice/{media_id}/transcription",
+      "registered_by": "voice",
+      "path_params": [
+        "media_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
       "path": "/_synapse/admin/info",
       "registered_by": "admin::server",
       "path_params": [],
@@ -7621,9 +7682,7 @@
       "path": "/_synapse/admin/v1/appservices/query/alias",
       "registered_by": "app_service",
       "path_params": [],
-      "query_params": [
-        "alias"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -7631,9 +7690,7 @@
       "path": "/_synapse/admin/v1/appservices/query/user",
       "registered_by": "app_service",
       "path_params": [],
-      "query_params": [
-        "user_id"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -7681,9 +7738,7 @@
       "path_params": [
         "as_id"
       ],
-      "query_params": [
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -7772,15 +7827,7 @@
       "path": "/_synapse/admin/v1/audit/events",
       "registered_by": "admin::audit",
       "path_params": [],
-      "query_params": [
-        "action",
-        "actor_id",
-        "from",
-        "limit",
-        "resource_id",
-        "resource_type",
-        "result"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -7806,10 +7853,7 @@
       "path": "/_synapse/admin/v1/background_updates",
       "registered_by": "background_update",
       "path_params": [],
-      "query_params": [
-        "from",
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -7873,10 +7917,7 @@
       "path": "/_synapse/admin/v1/background_updates/stats",
       "registered_by": "background_update",
       "path_params": [],
-      "query_params": [
-        "from",
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -7954,10 +7995,7 @@
       "path_params": [
         "job_name"
       ],
-      "query_params": [
-        "from",
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -7985,6 +8023,52 @@
       "path": "/_synapse/admin/v1/captcha/cleanup",
       "registered_by": "captcha",
       "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/cas/services",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/cas/services",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "DELETE",
+      "path": "/_synapse/admin/v1/cas/services/{service_id}",
+      "registered_by": "cas",
+      "path_params": [
+        "service_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/cas/users/{user_id}/attributes",
+      "registered_by": "cas",
+      "path_params": [
+        "user_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/cas/users/{user_id}/attributes",
+      "registered_by": "cas",
+      "path_params": [
+        "user_id"
+      ],
       "query_params": [],
       "auth": null
     },
@@ -8025,12 +8109,7 @@
       "path": "/_synapse/admin/v1/event_reports",
       "registered_by": "event_report",
       "path_params": [],
-      "query_params": [
-        "limit",
-        "since_id",
-        "since_score",
-        "since_ts"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -8096,12 +8175,7 @@
       "path_params": [
         "reporter_user_id"
       ],
-      "query_params": [
-        "limit",
-        "since_id",
-        "since_score",
-        "since_ts"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -8111,12 +8185,7 @@
       "path_params": [
         "room_id"
       ],
-      "query_params": [
-        "limit",
-        "since_id",
-        "since_score",
-        "since_ts"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -8134,12 +8203,7 @@
       "path_params": [
         "status"
       ],
-      "query_params": [
-        "limit",
-        "since_id",
-        "since_score",
-        "since_ts"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -8225,9 +8289,7 @@
       "path": "/_synapse/admin/v1/external_services",
       "registered_by": "external_service",
       "path_params": [],
-      "query_params": [
-        "service_type"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -8291,12 +8353,7 @@
       "path": "/_synapse/admin/v1/feature-flags",
       "registered_by": "feature_flags",
       "path_params": [],
-      "query_params": [
-        "from",
-        "limit",
-        "status",
-        "target_scope"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -8332,10 +8389,7 @@
       "path": "/_synapse/admin/v1/federation/blacklist",
       "registered_by": "admin::federation",
       "path_params": [],
-      "query_params": [
-        "from",
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -8397,11 +8451,7 @@
       "path": "/_synapse/admin/v1/federation/destinations",
       "registered_by": "admin::federation",
       "path_params": [],
-      "query_params": [
-        "from",
-        "limit",
-        "offset"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -8459,10 +8509,7 @@
       "path": "/_synapse/admin/v1/federation/pending",
       "registered_by": "admin::federation",
       "path_params": [],
-      "query_params": [
-        "from",
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -8522,10 +8569,32 @@
       "auth": null
     },
     {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/media/quarantine/{server_name}/{media_id}",
+      "registered_by": "admin::media",
+      "path_params": [
+        "server_name",
+        "media_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
       "method": "GET",
       "path": "/_synapse/admin/v1/media/quota",
       "registered_by": "admin::media",
       "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/media/unquarantine/{server_name}/{media_id}",
+      "registered_by": "admin::media",
+      "path_params": [
+        "server_name",
+        "media_id"
+      ],
       "query_params": [],
       "auth": null
     },
@@ -8580,10 +8649,7 @@
       "path": "/_synapse/admin/v1/modules",
       "registered_by": "module",
       "path_params": [],
-      "query_params": [
-        "from",
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -8617,9 +8683,7 @@
       "path_params": [
         "module_name"
       ],
-      "query_params": [
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -8629,9 +8693,7 @@
       "path_params": [
         "sender"
       ],
-      "query_params": [
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -8765,9 +8827,7 @@
       "path": "/_synapse/admin/v1/push/cleanup",
       "registered_by": "push_notification",
       "path_params": [],
-      "query_params": [
-        "days"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -8791,9 +8851,7 @@
       "path": "/_synapse/admin/v1/push/process",
       "registered_by": "push_notification",
       "path_params": [],
-      "query_params": [
-        "batch_size"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -8835,10 +8893,7 @@
       "path": "/_synapse/admin/v1/registration_tokens",
       "registered_by": "admin::token",
       "path_params": [],
-      "query_params": [
-        "from",
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -9006,15 +9061,7 @@
       "path": "/_synapse/admin/v1/rooms/search",
       "registered_by": "admin::room",
       "path_params": [],
-      "query_params": [
-        "from",
-        "is_encrypted",
-        "is_public",
-        "limit",
-        "offset",
-        "order_by",
-        "search_term"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -9329,11 +9376,7 @@
       "path_params": [
         "room_id"
       ],
-      "query_params": [
-        "from",
-        "limit",
-        "offset"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -9364,6 +9407,76 @@
       "path_params": [
         "room_id"
       ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/saml/config",
+      "registered_by": "saml",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "PUT",
+      "path": "/_synapse/admin/v1/saml/config",
+      "registered_by": "saml",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/saml/logout",
+      "registered_by": "saml",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "DELETE",
+      "path": "/_synapse/admin/v1/saml/mapping/{name_id}",
+      "registered_by": "saml",
+      "path_params": [
+        "name_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/saml/mapping/{name_id}",
+      "registered_by": "saml",
+      "path_params": [
+        "name_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "PUT",
+      "path": "/_synapse/admin/v1/saml/mapping/{name_id}",
+      "registered_by": "saml",
+      "path_params": [
+        "name_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/saml/mappings",
+      "registered_by": "saml",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/saml/metadata/refresh",
+      "registered_by": "saml",
+      "path_params": [],
       "query_params": [],
       "auth": null
     },
@@ -9470,11 +9583,7 @@
       "path": "/_synapse/admin/v1/telemetry/alerts",
       "registered_by": "telemetry",
       "path_params": [],
-      "query_params": [
-        "refresh",
-        "severity",
-        "status"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -10031,9 +10140,7 @@
       "path": "/_synapse/room_summary/v1/updates/process",
       "registered_by": "room_summary",
       "path_params": [],
-      "query_params": [
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -10059,9 +10166,7 @@
       "path": "/_synapse/worker/v1/statistics",
       "registered_by": "worker",
       "path_params": [],
-      "query_params": [
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -10077,9 +10182,7 @@
       "path": "/_synapse/worker/v1/tasks",
       "registered_by": "worker",
       "path_params": [],
-      "query_params": [
-        "limit"
-      ],
+      "query_params": [],
       "auth": null
     },
     {
@@ -10177,8 +10280,102 @@
     },
     {
       "method": "GET",
+      "path": "/admin/services",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/admin/services",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "DELETE",
+      "path": "/admin/services/{service_id}",
+      "registered_by": "cas",
+      "path_params": [
+        "service_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/admin/users/{user_id}/attributes",
+      "registered_by": "cas",
+      "path_params": [
+        "user_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/admin/users/{user_id}/attributes",
+      "registered_by": "cas",
+      "path_params": [
+        "user_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
       "path": "/health",
       "registered_by": "assembly::create_router",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/login",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/logout",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/p3/serviceValidate",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/proxy",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/proxyValidate",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/serviceValidate",
+      "registered_by": "cas",
       "path_params": [],
       "query_params": [],
       "auth": null
