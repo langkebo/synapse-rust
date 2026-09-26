@@ -30,6 +30,8 @@ pub mod edu;
 pub mod event_auth;
 /// The `event_broadcaster` module.
 pub mod event_broadcaster;
+/// Module `event_finalize`.
+pub mod event_finalize;
 #[cfg(feature = "friends")]
 /// The `friend` module.
 pub mod friend;

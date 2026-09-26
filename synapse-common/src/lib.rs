@@ -69,6 +69,8 @@ pub mod membership_transition;
 pub mod metrics;
 /// Module `password_hash_pool`.
 pub mod password_hash_pool;
+/// Module `pdu`.
+pub mod pdu;
 /// Module `push_rules`.
 pub mod push_rules;
 /// Module `rate_limit_config`.
