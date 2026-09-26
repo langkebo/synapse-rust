@@ -442,9 +442,27 @@ impl MembershipService {
 
         let federation_client = self.require_federation_client().await?;
 
-        // 1. Build the invite event.
+        // Build the invite event with complete PDU graph fields (MSC4311).
         let event_id = generate_event_id(&self.server_name);
         let now = current_timestamp_millis();
+
+        // Fail-closed: if the room's graph cannot be read, refuse to send the
+        // invite — fabricating `prev_events: []` / `depth: 1` would make the
+        // event look like a DAG root to a spec-compliant peer (the same rule
+        // the inbound projector applies: `RefuseIncomplete`).
+        let extremities = self.event_reader.get_forward_extremities_in_room(room_id, 10).await.map_err(|e| {
+            ::tracing::warn!(room_id = %room_id, error = %e, "failed to read room graph for invite");
+            ApiError::internal_with_cause("Failed to read room graph for federated invite", e)
+        })?;
+        let depth =
+            self.event_reader.calculate_event_depth(room_id, &extremities).await.map_err(|e| {
+                ApiError::internal_with_cause("Failed to calculate event depth for federated invite", e)
+            })?;
+        // Minimal auth chain: the room's create event authorises the
+        // m.room.member invite (full auth chain assembly is tracked in
+        // docs/audit/MSC4311_INVITE_FIX_DIAGNOSIS_2026-09-26.md).
+        let auth_events = vec![format!("$create:{}", self.server_name)];
+        let prev_events = extremities;
 
         let mut invite_event = json!({
             "event_id": event_id,
@@ -463,9 +481,9 @@ impl MembershipService {
             "state_key": invitee_id,
             "origin_server_ts": now,
             "origin": self.server_name,
-            "prev_events": [],
-            "auth_events": [],
-            "depth": 0,
+            "prev_events": prev_events,
+            "auth_events": auth_events,
+            "depth": depth,
         });
 
         // 2. Sign the event locally.
