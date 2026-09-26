@@ -150,22 +150,12 @@ pub(crate) async fn send_join(
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to persist join event", e))?;
 
-        // F-03: Add the local server's signature to the persisted join PDU so
-        // that third-party origins can verify it via verify_pdu_sender_signature.
-        // `origin` is a signed PDU field; the signer no longer injects it, and
-        // the events row stores origin='self', which projects back as this
-        // server's name.
-        let mut pdu = json!({
-            "event_id": event_id,
-            "room_id": room_id,
-            "sender": user_id,
-            "type": "m.room.member",
-            "state_key": user_id,
-            "origin_server_ts": body.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0),
-            "origin": ctx.server_name,
-            "content": content,
-        });
-        re_sign_pdu_locally(&ctx, &event_id, &mut pdu).await;
+        // F-03: the event row is persisted above; sign the PDU it projects to,
+        // so third-party origins can verify it via verify_pdu_sender_signature.
+        // The helper reads the row back itself — never hand it a partial dict of
+        // hand-picked fields: the hash of such a dict can never be reproduced
+        // from the full PDU a peer receives.
+        re_sign_pdu_locally(&ctx, &event_id).await;
 
         dispatch_federation_member_event_to_appservice(&ctx, &event_id, &room_id, user_id, &content, Some(user_id))
             .await;
@@ -294,19 +284,10 @@ pub(crate) async fn send_join_v2(
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to persist join event", e))?;
 
-        // F-03: re-sign locally for third-party verification. `origin` is part
-        // of the signed bytes and is no longer injected by the signer.
-        let mut pdu = json!({
-            "event_id": event_id,
-            "room_id": room_id,
-            "sender": sender,
-            "type": "m.room.member",
-            "state_key": sender,
-            "origin_server_ts": body.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or_else(current_timestamp_millis),
-            "origin": ctx.server_name,
-            "content": content,
-        });
-        re_sign_pdu_locally(&ctx, &event_id, &mut pdu).await;
+        // F-03: sign the projected persisted row (see the `send_join` note);
+        // `origin` is part of the signed bytes and is owned by the projector,
+        // not by a caller-supplied dict.
+        re_sign_pdu_locally(&ctx, &event_id).await;
 
         dispatch_federation_member_event_to_appservice(&ctx, &event_id, &room_id, sender, &content, Some(sender)).await;
 
@@ -326,11 +307,8 @@ pub(crate) async fn send_join_v2(
             "Federation send_join_v2 processed"
         );
 
-        let state_records = ctx.room_service
-            .messaging()
-            .get_state_event_records(&room_id)
-            .await
-            .map_err(ApiError::from)?;
+        let state_records =
+            ctx.room_service.messaging().get_state_event_records(&room_id).await.map_err(ApiError::from)?;
 
         // 先收集出具体的引用切片再交给 `build_pdus`：把带 `.filter(闭包)` 的泛型迭代器
         // 直接传进去会让 axum handler 的 future 不再 `Send`、也不再对生命周期泛化

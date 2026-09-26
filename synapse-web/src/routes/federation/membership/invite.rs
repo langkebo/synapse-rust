@@ -71,19 +71,10 @@ pub(crate) async fn thirdparty_invite(
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to create invite event", e))?;
-    // F-03: add local server signature so other origins can verify the
-    // invite. We build a minimal PDU from the persisted fields.
-    let mut pdu = json!({
-        "event_id": event_id,
-        "room_id": room_id,
-        "sender": sender,
-        "type": "m.room.member",
-        "state_key": invitee,
-        "content": content,
-        "origin_server_ts": current_timestamp_millis(),
-        "origin": auth.origin,
-    });
-    re_sign_pdu_locally(&ctx, &event_id, &mut pdu).await;
+    // F-03: sign the PDU the persisted row projects to, so other origins can
+    // verify the invite. The helper reads the row back itself — a
+    // hand-assembled partial dict would hash bytes no peer can reproduce.
+    re_sign_pdu_locally(&ctx, &event_id).await;
     dispatch_federation_member_event_to_appservice(&ctx, &event_id, room_id, sender, &content, Some(invitee)).await;
 
     Ok(Json(json!({
@@ -192,19 +183,9 @@ pub(crate) async fn invite_v2(
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to create invite event", e))?;
 
-    // F-03: add local server signature so other origins can verify the
-    // invite. We reconstruct the minimal PDU that was persisted.
-    let mut pdu = json!({
-        "event_id": stored.event_id,
-        "room_id": room_id,
-        "sender": sender,
-        "type": "m.room.member",
-        "state_key": state_key,
-        "content": content_for_as,
-        "origin_server_ts": stored.origin_server_ts,
-        "origin": auth.origin,
-    });
-    re_sign_pdu_locally(&ctx, &stored.event_id, &mut pdu).await;
+    // F-03: sign the PDU the persisted row projects to (see `thirdparty_invite`);
+    // the graph fields the sender supplied above are part of the signed bytes.
+    re_sign_pdu_locally(&ctx, &stored.event_id).await;
 
     dispatch_federation_member_event_to_appservice(
         &ctx,
