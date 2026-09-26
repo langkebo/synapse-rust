@@ -235,7 +235,21 @@ fn literal_ratchet_baseline_exists_and_is_parseable() {
 #[test]
 fn scan_mode_reports_a_non_empty_production_surface() {
     let sites = scan_production_dynamic(&repo_root());
-    assert!(sites.len() > 500, "生产区动态站点仅 {} 处，扫描面疑似被整体排除（假通过风险）", sites.len());
+    // ⚠️ 这里**不写魔数下界**。此前是 `sites.len() > 500`，而静态化战役的目标正是把这个数
+    // 压下去 —— 2026-09-25 C29 把 `dynamic_production` 降到 499 时，这条断言把**上界当成了
+    // 下界**，在"如期达成目标"的时刻变红（§7 D-60）。改为**结构性**判据：
+    // "至少 5 个不同目录贡献了站点" —— 整体排除、或只扫一个目录都会被抓住，
+    // 而某个目录合法地降到 0 不会误报。总数与 census 的一致性由
+    // `scan_mode_total_matches_census_dynamic_production` 单独钉住。
+    assert!(!sites.is_empty(), "生产区动态站点为 0，扫描面疑似被整体排除（假通过风险）");
+    let mut dirs: Vec<&str> = sites.iter().map(|s| s.path.split('/').next().unwrap_or("")).collect();
+    dirs.sort_unstable();
+    dirs.dedup();
+    assert!(
+        dirs.len() >= 5,
+        "只有 {} 个目录有生产动态站点（{dirs:?}），扫描面疑似被部分排除（假通过风险）",
+        dirs.len()
+    );
     assert!(sites.iter().any(|s| s.kind == SiteKind::Literal), "应识别出字面量站点；全部为 runtime 说明实参判定失效");
     assert!(
         sites.iter().any(|s| s.kind == SiteKind::Runtime),
