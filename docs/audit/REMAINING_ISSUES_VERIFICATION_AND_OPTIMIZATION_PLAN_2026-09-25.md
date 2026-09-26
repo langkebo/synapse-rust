@@ -189,7 +189,7 @@ git worktree list             # 另有 .worktrees/c19b（同 HEAD）、/Users/lj
 | U-18 | 扫描失败状态码文档(502)与实现(503)矛盾 + 3 条从未通过的扫描用例 | 已修 `94fc91442`（新增 `BadGateway`） |
 | U-19 | U-1 的 MSC3912 实现 8 点对照：无逐事件授权检查、无有效性校验、空列表 400、`redacted_by` 丢失、无联邦晚到补撤、通配多匹配 `m.in_reply_to`、只清本地内容、缺 GIN 索引 | **未修**（属并发会话交付物；按表登记） |
 | U-20 | **出厂默认（扫描关闭）下发消息恒 501** 的 P0；上传路径已修、发送路径没跟上 | 已修 `a6a77ac03`（11 条既有红转绿，含变异自证与定点回归用例） |
-| U-21 | 并发会话在途签名计划 §1.2 与上游相反（不 redact、含 `event_id`） | **未修**（其文件在途；已给纠正与验收向量） |
+| U-21 | 并发会话在途签名计划 §1.2 与上游相反（不 redact、含 `event_id`） | **已修**（worktree `u13-step2`，`927a49f25`：签名材料改为 `redact_event(room_version, …)` − `age_ts`/`unsigned` −（v3+）`event_id`；上游 v1 两向量逐字节通过；3 个变异转红后还原；详见 §6.6 执行结果） |
 
 **复验命令（本会话实际用过，逐字可跑）**
 
@@ -1202,9 +1202,9 @@ Task3 (reference hash) —— 仅做可行性验证，不接线
 >   **正确终局是把该模块删掉、统一到 `select_auth_events`**（其 `_event_type`/`_state_key`
 >   根本未参与选择，而规范要求按事件类型选择）——因属并发会话在途 v12 工作，未擅自删除。
 >
-> - **U-21（新，未修；对象是并发会话的**在途**计划文档，本轮不得改其文件）**
->   并发会话新写的未跟踪文档 `docs/audit/ed25519-signing-and-hash-implementation.md`
->   （2026-09-26 07:29 实测存在）里：
+> - **U-21（新；**已修**：`927a49f25`，worktree `u13-step2`；对象文档仍未改）**
+>   并发会话新写的文档 `docs/audit/ed25519-signing-and-hash-implementation.md`
+>   （2026-09-26 07:29 实测存在；本分支已跟踪）里：
 >   * §1.1 内容哈希 ✅ 与本仓已落地的 `0880f6a5f` 完全一致（去 age_ts/unsigned/signatures/hashes/outlier/destinations、
 >     canonical JSON、SHA-256、**标准** Base64 无填充、且明确"对未 redact 事件计算"），并引用了同两个上游向量；
 >   * §1.3 事件 ID ✅ 与第 1 步 `64ffc13a6` 一致（redact → 去 signatures/unsigned/age_ts → canonical JSON →
@@ -1216,10 +1216,14 @@ Task3 (reference hash) —— 仅做可行性验证，不接线
 >     判别性例子：`m.room.message` 的 content 会被 redaction 清空 ⇒ 签"未 redact 的 body"与上游签的
 >     `content: {}` **不是同一串字节**；v3+ 的 PDU 还**不应带 `event_id`** 参与签名。
 >     **若照其 §1.2 实施，签名半边仍不可能被对等端校验**（这正是 §6.6 前置②的签名半边）。
->   本会话**不修改**该文档（它是并发会话的在途产物，铁律 9）；此处登记以便接线时立即纠正。
+>   本会话**不修改**该文档（它是并发会话的产物，铁律 9）；此处登记以便接线时立即纠正。
 >   建议的验收：上游 `tests/crypto/test_event_signing.py` 的 `test_sign_minimal`/`test_sign_message`
 >   的 **signatures** 期望值（`18rGIkd4…`、`Ay4aj2b5…`）+ "#3 证明签名材料走了版本化 redaction"
 >   （v10 与 v11 对含 `origin` 的事件必须产出不同签名），见 §6.6 第 2 步验收清单 1–3。
+>   **✅ 已按此验收落地（`927a49f25`）**：`sign_and_hash_event` 现签
+>   `redact_event(room_version, event_with_hashes)` − `age_ts`/`unsigned` −（v3+）`event_id`，
+>   并删除了签名器里的 `origin` 注入；上游两个 v1 向量逐字节通过，v3+/v10-v11 两条性质测试通过。
+>   **该文档 §1.2 的表述自此与实现相反，属待清理的文档残留**（本会话未改其文件，见 §6.6）。
 
 >   `handlers/room/events.rs` 的 `m.room.message` 分支直接
 >   `ctx.content_scanner.scan_text(..).await?`，而 `ContentScanner::scan` 在 `!is_enabled()`
@@ -1576,28 +1580,30 @@ census 实测 `dynamic_production=516`（与 U-3 之前**同值**）、`static=9
        （`mq4QfPPpC+QsBd6eqfVsmJIEz8uvMSVK0+AU67PLESk`、`rDCeYBepPlI891h/RkI2/Lkf9bt7u0TxFku4tMs7WKk`，均通过）；
        变异自证：换回旧实现 ⇒ 两向量转红（**实测证明旧实现产出的 hash 对等端无法复现**）。
        同批删除了只为它存在的 `redaction::redact_event_for_hash` 与 `CANONICAL_JSON_TOP_LEVEL_FIELDS`。
-     - ⬜ **签名半边未修**：`signing.rs:194-224 sign_and_hash_event` 第 3 步用
-       `CanonicalEvent::from_event`（`synapse-common/src/canonical_json.rs:140-148`）签名，
-       而它**只去 `signatures`/`unsigned`、不 redact、且保留 `event_id`**；
-       上游 `compute_event_signature` 用的是 `redact_event_dict(room_version, event_dict)`
-       （并对 v3+ 的联邦 PDU 而言根本没有 `event_id` 可签）。
-       需给 8 个调用点接入房间版本（`federation_broadcast.rs:163`、`pdu.rs:243`、
-       `membership/{invite.rs:237,mod.rs:225,federation.rs:79,346,473}`），
-       故与"单一写入口定 event_id"同批做，避免为同一职责造第二份解析。
-     ⇒ 在签名半边修好前，本仓产出的 `signatures` **不可能被对等端校验通过**；`hashes` 半边已不再
-     是阻塞项。这也是第 3 步互操作门槛不可省的原因。
+     - ✅ **签名半边已修（`927a49f25`，worktree `u13-step2`）**：`signing.rs:194-224 sign_and_hash_event` 第 3 步原先用
+        `CanonicalEvent::from_event`（`synapse-common/src/canonical_json.rs:140-148`）签名，
+        而它**只去 `signatures`/`unsigned`、不 redact、且保留 `event_id`**；
+        上游 `compute_event_signature` 用的是 `redact_event_dict(room_version, event_dict)`
+        （并对 v3+ 的联邦 PDU 而言根本没有 `event_id` 可签）。
+        现签名字节 = `redact_event(room_version, event_with_hashes)` − `age_ts`/`unsigned`
+        −（v3+）`event_id`（`hashes` 仍按未 redact 事件计算，`compute_event_content_hash` 未动），
+        且**删除了签名器内的 `origin` 注入**。7 个生产调用点（文档原记 8 个，实际 grep 为 7 个）
+        均接入房间版本，逐站点来源与验收证据见下方"执行结果"。
+      ⇒ 本仓产出的 `signatures` 现已与上游 v1 向量逐字节一致；但**入站验签半边仍未对齐**
+      （`transaction.rs::verify_pdu_sender_signature` 与 `signing.rs::verify_pdu_signature_with_client`
+      仍按未 redact 的 dict 验签），故第 3 步互操作门槛仍不可省。
 
-     **签名半边逐站点清单（本轮实测，决定 plumb 方式）**：
+     **签名半边逐站点清单（本轮实测，决定 plumb 方式；末列为 `927a49f25` 实际采用）**：
 
-     | # | 站点 | 房间版本是否已在作用域 |
-     |---|---|---|
-     | 1 | `services/room/federation_broadcast.rs:163`（`sign_and_broadcast_event`，B1 新代码） | ❌ 需从 `event.room_id` 解析 |
-     | 2 | `web/routes/federation/pdu.rs:243` | ❌ 需解析 |
-     | 3 | `web/routes/federation/membership/invite.rs:237` | ✅ 变量 `room_version` 已在作用域 |
-     | 4 | `web/routes/federation/membership/mod.rs:225` | ❌ 需解析 |
-     | 5 | `services/room/membership/federation.rs:79`（join 模板） | ✅ `make_join_response.room_version`（⚠️ 缺省值硬编码 `"10"`） |
-     | 6 | `services/room/membership/federation.rs:346`（leave 模板） | ❌（`make_leave_response` 侧应可取） |
-     | 7 | `services/room/membership/federation.rs:473`（federation invite） | ❌（模板还是 `prev_events: []`/`depth: 0`） |
+     | # | 站点 | 房间版本是否已在作用域 | `927a49f25` 采用 |
+     |---|---|---|---|
+     | 1 | `services/room/federation_broadcast.rs:163`（`sign_and_broadcast_event`，B1 新代码） | ❌ 需从 `event.room_id` 解析 | 作用域内已解析的 `room_version`（B1 写入口，未知即跳过广播） |
+     | 2 | `web/routes/federation/pdu.rs:243` | ❌ 需解析 | `ctx.room_service.state().get_room_version(pdu.room_id)`；解析失败/无记录 ⇒ 告警且不签 |
+     | 3 | `web/routes/federation/membership/invite.rs:237` | ✅ 变量 `room_version` 已在作用域 | 直接复用（`federatable_room_version`） |
+     | 4 | `web/routes/federation/membership/mod.rs:225` | ❌ 需解析 | 同 #2（`re_sign_pdu_locally`，best-effort） |
+     | 5 | `services/room/membership/federation.rs:79`（join 模板） | ✅ `make_join_response.room_version`（⚠️ 缺省值硬编码 `"10"`） | `make_join_response.room_version`；**删除 `"10"` 兜底**，缺失即告警 + 拒绝 |
+     | 6 | `services/room/membership/federation.rs:346`（leave 模板） | ❌（`make_leave_response` 侧应可取） | `MakeLeaveResponse` **新增** `room_version`（MSC1813）；缺失回落本房 `room_storage`，再缺即拒绝 |
+     | 7 | `services/room/membership/federation.rs:473`（federation invite） | ❌（模板还是 `prev_events: []`/`depth: 0`） | `room_storage.get_room_version_only(room_id)`；未知即拒绝（该服务确有 room storage） |
 
      设计结论：**先收敛房间版本解析**——本仓现有三份近重复实现
      （`room/state/info.rs:269`、`auth/power_levels.rs:97`、B1 的
@@ -1649,6 +1655,65 @@ census 实测 `dynamic_production=516`（与 U-3 之前**同值**）、`static=9
      5. 出站投影可被本仓入站校验器接受：`verify_event_content_hash` 通过、`verify_pdu_signature_*` 通过；
      6. 回归面：v1/v2 仍走随机 ID 分支且行为不变；30 个调用点改为消费写入口返回的 id 后，
         全部既有事件相关测试（含夹具/快照）复核过。
+
+     **第 2 步「签名半边」执行结果（2026-09-26，worktree `.worktrees/u13-step2`，
+     分支 `feat/u13-step2-reference-hash-ids`，`927a49f25`；另含既有红门禁修复 `26473eed3`）**
+
+     * 实现：`sign_and_hash_event(room_version, server_name, key_id, secret_key_base64, event)`
+       —— `room_version` 置于首位（与 `redact_event` / `compute_event_id` 一致）。
+       `hashes.sha256` 仍按**未 redact**事件算（`compute_event_content_hash` 未动）；
+       签名材料 = `redact_event(room_version, event_with_hashes)` → 去 `age_ts`/`unsigned`
+       →（v3+）去 `event_id`，经 `CanonicalEvent::from_event(&material)` 去 `signatures`
+       （redaction 保留它，上游 `sign_json` 亦 pop）后签名，签名写回原 `event`。
+       **`origin` 注入已删除**（该字段归 `build_pdu`；在签名器里注入会背着他改签名字节）。
+     * 验收清单 1（上游向量）**逐字节通过**：
+       `test_sign_minimal` → `signatures["domain"]["ed25519:1"]` =
+       `18rGIkd4JJXxw9m+1j3BtN+TmqmLip4VHvFbyXLngpBLXOqbxlQViQABRzep2cODQ2aa5FnFgz+Llt2P03WiAw`、
+       `hashes.sha256` = `mq4QfPPpC+QsBd6eqfVsmJIEz8uvMSVK0+AU67PLESk`；
+       `test_sign_message` → `Ay4aj2b5oJ1k8INYZ9n3KnszCflM0emwcmQQ7vxpbdcSv9bkJxIZdWX1IJllcZLq89+D3sSabE+vqPtZs9akDw`、
+       `rDCeYBepPlI891h/RkI2/Lkf9bt7u0TxFku4tMs7WKk`。
+       ⚠️ 上游种子串 `YJDBA9Xnr2sVqXD9Vj7XVUnmFZcZrlw8Md7kMW+3XA1` **不是规范无填充
+       Base64**（末符号 `1` 带 2 个非零尾位）：Python `b64decode` 静默丢弃（signedjson
+       即如此解码），本仓严格解码器报 `Invalid last symbol`。测试内按同一 32 字节重编码为
+       `…MW+3XA0` 后喂给生产解码器（等价，已在测试注释中说明）。
+     * 验收清单 2（v3+ 不含 `event_id`）：**原文"加/去 `event_id` 得到相同签名与相同
+       `hashes`"在数学上不可满足** —— `compute_event_content_hash`（按本项要求保持原样）
+       本身覆盖 `event_id`（上游 `compute_content_hash` 同样不剔除），带 id 与否必然先产生
+       不同 `hashes`，进而不同签名。已改为等价且可变异自证的形式：
+       `v3_signature_material_excludes_event_id` 对**携带** `event_id` 的 v3+ PDU 签名，
+       再断言签名覆盖的材料是「redact 后去掉 `event_id`」的字节。
+     * 验收清单 3（v10 vs v11）：`v10_and_v11_signatures_differ_over_origin` 通过
+       （同一含 `origin` 事件、`hashes` 相同、签名必须不同）。
+     * 变异自证（3 个，均转红后还原）：① 改签 `CanonicalEvent::from_event(event)` ⇒
+       `test_sign_message` 红（minimal 向量 content 本为 `{}`，redaction 无损，该条仍绿）；
+       ② v3+ 材料保留 `event_id` ⇒ 清单 2 的用例红；③ 恢复 `origin` 注入 ⇒ 两向量均红
+       （内容哈希先变：`6TrYBnI5…`/`onLKD1bG…` vs 期望值）。
+     * `origin` 归属核查（8 处调用点实际为 7 处生产 + 2 处测试文件）：`build_pdu`/`state_pdu`
+       恒写；`invite.rs`（3pid）写 `auth.origin`；join/leave 的 4 个 web 站点此前依赖签名器
+       注入，现显式补 `origin = ctx.server_name`（与 events 行 `origin='self'` 的投影字节
+       一致 ⇒ 行为保持）；make_* 模板缺 `origin`（规范必填、由居民服务器填）时在调用点补
+       `destination`。**注**：`invite.rs` 两站点用 `auth.origin`，而 events 行恒为 `'self'`、
+       投影后是 `server_name` ⇒ 其持久化签名对不上投影，属既有缺陷，本轮未改（见下"残余"）。
+     * 门禁（逐字）：`cargo fmt --all` + `./scripts/check_fmt_ratchet.sh` → `current=0`；
+       `SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils
+       --all-features --locked -- -D warnings` → exit 0；
+       `cargo nextest run -p synapse-federation -p synapse-services --lib --features test-utils
+       -E 'test(/signing|sign_and_hash|graph_metadata|federation_broadcast/)'` → 49/49；
+       集成子集（`federation_transaction`/`create_room`/`media`，`--profile ci --all-features
+       --test integration --test-threads 1`）→ 48/48。无 SQL 文本变更 ⇒ `.sqlx` 无增量。
+     * **残余（本切片未修，另行处置）**：
+       (a) **入站验签半边仍按未 redact dict**：`synapse-web/src/routes/federation/transaction.rs::verify_pdu_sender_signature`
+           与 `synapse-federation/src/signing.rs::verify_pdu_signature_with_client` 用
+           `canonical(pdu − signatures/unsigned)` 验签，而上游 `keyring.verify_event_for_server`
+           走 `prune_event`。本仓因此**自己签出的、redaction 会改字节的 PDU 通不过自己的入站验签**
+           （集成用例对此只断言"成功或明确错误"，故未红）。对齐需房间版本：前者可由 `ctx` 解析，
+           后者当前没有房间版本输入，需先补缝。
+       (b) `state_pdu`（`synapse-web/.../pdu.rs`）对 v3+ 仍写出 `event_id`，应统一到 `build_pdu`。
+       (c) `invite.rs`（3pid）把 `"room_version"` 当作**顶层 PDU 字段**发出（见上文本段原记录），
+           现因签名前 redaction 而不再进入签名字节，但字段本身仍会发给对端。
+       (d) 并发会话文档 `docs/audit/ed25519-signing-and-hash-implementation.md` §1.2 的表述
+           与已落地的实现相反，待清理（本会话未改其文件）。
+
   3. ✅ **v12 语义已裁定（2026-09-26，权威来源）**：**MSC4304 = Room Version 12**，
      以 v11 为基座并纳入 MSC4289（creator 特权）、**MSC4291（room ID = create 事件的哈希）**、
      MSC4297（state res v2.1）、MSC4307（`auth_events` 同房间校验）；
