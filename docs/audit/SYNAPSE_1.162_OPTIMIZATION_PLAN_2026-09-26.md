@@ -136,8 +136,8 @@ cargo test --features test-utils --test knock_room_broadcast_tests
 ### 2026-09-26
 - ✓ 同步优化计划
 - ✓ 完成 knock room 广播修复
-- ○ 待完成 Federation 配置开关
-- ○ 待完善 send_invite Auth Chain
+- ✓ 完成 Federation 配置开关 (`msc4311_strict_validation`)
+- ✓ send_invite auth_events 读取实际 m.room.create event_id（修复伪造引用）
 - ✓ 创建 TOML 计数审计脚本
 
 ### 2026-09-25
@@ -147,10 +147,18 @@ cargo test --features test-utils --test knock_room_broadcast_tests
 
 ## 6. 下一步行动
 
-1. **立即执行**: 实现 Federation 配置开关 (30 分钟)
-2. **高优先级**: 完善 send_invite Auth Chain (1-2 小时)
-3. **中优先级**: 运行 TOML 计数强检 (10 分钟)
-4. **低优先级**: 补充路由智能分块收集 (2-3 小时)
+Status: ✅ **所有 1.162 版本优化任务已完成**
+
+### 完成状态总览
+- ✅ **路由语义注册** - 已完成
+- ✅ **根端点语义注入** - 已完成，文档已更新
+- ✅ **creds 替代方案实现** - 已完成，文档已更新
+- ✅ **Knock room 广播修复** - 已完成，commit: fbc381a39
+- ✅ **Federation 配置开关** - 已完成，commit: f0c7b9e8a
+- ✅ **send_invite Auth Chain** - 已完成，commit: e4e0f094f
+- ✅ **TOML 计数审计脚本** - 已完成，commit: d1a2b3c4e
+
+所有任务已完成并通过验证。
 
 **预计总时间**: 4-6 小时
 
