@@ -721,6 +721,7 @@ impl SynapseServer {
                             prune_step!("federation queue", synapse_storage::pruning::prune_old_federation_queue(&pruning_pool));
 
                             prune_step!("quarantined media changes", synapse_storage::pruning::prune_old_quarantined_media_changes(&pruning_pool));
+                            prune_step!("notifications", synapse_storage::pruning::prune_old_notifications(&pruning_pool));
                         }
                         _ = shutdown_rx7.recv() => {
                             ::tracing::info!("Database pruning task shutting down");

@@ -37,16 +37,18 @@ struct PusherEntry {
 /// since C33 they return `PusherRow` / `PushRuleRow` instead of a raw
 /// `sqlx::postgres::PgRow`, so they no longer have to be `unimplemented!()`.
 ///
-/// Notifications are **not** stored by this mock (there is no notification
-/// fixture API); `get_notifications` therefore reports an empty list and
-/// `ack_notification` reports "nothing acked", which is the faithful answer for
-/// a fake with no notifications rather than a panic.
+/// Notifications are stored in a `Vec` since D-68 wired
+/// [`PushStoreApi::record_notification`]: a fake that silently dropped the write
+/// would make the "the push decision is recorded" behaviour untestable off-DB
+/// (the same reason the C33 readers stopped being `unimplemented!()`).
 #[derive(Clone, Debug, Default)]
 pub struct InMemoryPushStore {
     #[allow(clippy::type_complexity)]
     pushers: Arc<RwLock<HashMap<(String, String, String), PusherEntry>>>,
     #[allow(clippy::type_complexity)]
     push_rules: Arc<RwLock<HashMap<(String, String, String, String), PushRuleEntry>>>,
+    notifications: Arc<RwLock<Vec<NotificationRow>>>,
+    next_notification_id: Arc<RwLock<i64>>,
 }
 
 impl InMemoryPushStore {
@@ -252,11 +254,56 @@ impl PushStoreApi for InMemoryPushStore {
         Ok(rows)
     }
 
-    async fn get_notifications(&self, _user_id: &str, _limit: i64) -> Result<Vec<NotificationRow>, sqlx::Error> {
-        Ok(Vec::new())
+    /// Mirrors the real `record_notification` (D-68): deduplicated per user while the
+    /// row is unread, never deduplicated when `event_id` is absent, and it never
+    /// overwrites `profile_tag` (this mock has no push-rule engine).
+    async fn record_notification(
+        &self,
+        _user_id: &str,
+        event_id: Option<&str>,
+        room_id: Option<&str>,
+        notification_type: &str,
+        ts: i64,
+    ) -> Result<(), sqlx::Error> {
+        let mut notifications = self.notifications.write().await;
+        if let Some(event_id) = event_id {
+            let already_unread = notifications
+                .iter()
+                .any(|row| row.event_id.as_deref() == Some(event_id) && !row.is_read.unwrap_or(false));
+            if already_unread {
+                return Ok(());
+            }
+        }
+        let mut next_id = self.next_notification_id.write().await;
+        *next_id += 1;
+        notifications.push(NotificationRow {
+            id: *next_id,
+            event_id: event_id.map(str::to_owned),
+            room_id: room_id.map(str::to_owned),
+            ts,
+            notification_type: Some(notification_type.to_owned()),
+            profile_tag: None,
+            is_read: Some(false),
+        });
+        Ok(())
     }
 
-    async fn ack_notification(&self, _id: i64, _user_id: &str, _now: i64) -> Result<Option<i64>, sqlx::Error> {
-        Ok(None)
+    async fn get_notifications(&self, _user_id: &str, _limit: i64) -> Result<Vec<NotificationRow>, sqlx::Error> {
+        let mut rows = self.notifications.read().await.clone();
+        // Mirrors `ORDER BY ts DESC`. This mock has a single implicit user (the
+        // fixture API never scopes notifications by user).
+        rows.sort_by(|a, b| b.ts.cmp(&a.ts));
+        Ok(rows)
+    }
+
+    async fn ack_notification(&self, id: i64, _user_id: &str, _now: i64) -> Result<Option<i64>, sqlx::Error> {
+        let mut notifications = self.notifications.write().await;
+        match notifications.iter_mut().find(|row| row.id == id) {
+            Some(row) => {
+                row.is_read = Some(true);
+                Ok(Some(id))
+            }
+            None => Ok(None),
+        }
     }
 }

@@ -285,9 +285,15 @@ impl AdminServices {
         let push_notification_storage: Arc<synapse_storage::push_notification::PushNotificationStorage> =
             Arc::new(synapse_storage::push_notification::PushNotificationStorage::new(pool));
         let account_data_storage_for_push = Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool));
+        // D-68: the notification store is the producer behind the client notification
+        // endpoints. Without it `notifications` has no production writer and
+        // `GET /_matrix/client/v3/notifications` is structurally empty.
+        let push_store: Arc<dyn synapse_storage::push::PushStoreApi> =
+            Arc::new(synapse_storage::push::PushStorage::new(pool.clone()));
         let push_notification_service =
             crate::push_notification_service::PushNotificationService::new(push_notification_storage.clone())
                 .with_account_data_storage(account_data_storage_for_push)
+                .with_push_store(push_store)
                 .with_server_metrics(server_metrics.clone());
         // A-10: consume `push.push_gateway_url` — it was parsed and validated but
         // never used to build a gateway, so `PushNotificationService::push_gateway`

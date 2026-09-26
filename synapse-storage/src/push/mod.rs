@@ -162,6 +162,16 @@ pub trait PushStoreApi: Send + Sync {
     /// See [`get_notifications`].
     async fn get_notifications(&self, user_id: &str, limit: i64) -> Result<Vec<NotificationRow>, sqlx::Error>;
 
+    /// See [`record_notification`].
+    async fn record_notification(
+        &self,
+        user_id: &str,
+        event_id: Option<&str>,
+        room_id: Option<&str>,
+        notification_type: &str,
+        ts: i64,
+    ) -> Result<(), sqlx::Error>;
+
     /// See [`ack_notification`].
     async fn ack_notification(&self, id: i64, user_id: &str, now: i64) -> Result<Option<i64>, sqlx::Error>;
 }
@@ -424,6 +434,48 @@ impl PushStorage {
         .await
     }
 
+    /// Record one notification for `user_id` — the **only production writer** of the
+    /// `notifications` table (D-68).
+    ///
+    /// Called by `PushNotificationService::send_notification` *after* the server has
+    /// decided to push, so `GET /_matrix/client/v3/notifications` and
+    /// `GET /_matrix/client/v3/rooms/{room_id}/notifications` read rows a real code
+    /// path produced instead of structurally empty results.
+    ///
+    /// **Idempotent while unread**: if `event_id` is known and the user already has an
+    /// unread row for it, nothing is inserted — repeated attempts for one event do not
+    /// stack up in the inbox. After `ack_notification` the event may notify again.
+    /// `event_id IS NULL` (server-initiated push with no backing event) is never
+    /// deduplicated, otherwise every event-less push would be swallowed by the first.
+    pub async fn record_notification(
+        &self,
+        user_id: &str,
+        event_id: Option<&str>,
+        room_id: Option<&str>,
+        notification_type: &str,
+        ts: i64,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"
+            INSERT INTO notifications (user_id, event_id, room_id, ts, notification_type, is_read, created_ts)
+            SELECT $1, $2, $3, $4, $5, FALSE, $4
+            WHERE $2::text IS NULL
+               OR NOT EXISTS (
+                   SELECT 1 FROM notifications
+                   WHERE user_id = $1 AND event_id = $2 AND COALESCE(is_read, FALSE) = FALSE
+               )
+            "#,
+            user_id,
+            event_id,
+            room_id,
+            ts,
+            notification_type,
+        )
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
     /// See [`ack_notification`].
     pub async fn ack_notification(&self, id: i64, user_id: &str, now: i64) -> Result<Option<i64>, sqlx::Error> {
         sqlx::query_scalar!(
@@ -547,6 +599,17 @@ impl PushStoreApi for PushStorage {
 
     async fn get_notifications(&self, user_id: &str, limit: i64) -> Result<Vec<NotificationRow>, sqlx::Error> {
         self.get_notifications(user_id, limit).await
+    }
+
+    async fn record_notification(
+        &self,
+        user_id: &str,
+        event_id: Option<&str>,
+        room_id: Option<&str>,
+        notification_type: &str,
+        ts: i64,
+    ) -> Result<(), sqlx::Error> {
+        self.record_notification(user_id, event_id, room_id, notification_type, ts).await
     }
 
     async fn ack_notification(&self, id: i64, user_id: &str, now: i64) -> Result<Option<i64>, sqlx::Error> {
@@ -1088,6 +1151,85 @@ mod db_tests {
 
         let rows = storage.get_notifications(&user_id, 10).await.expect("get_notifications should succeed");
         assert!(rows.is_empty(), "unknown user should have no notifications");
+    }
+
+    /// D-68：`record_notification` 必须真的写进 `notifications`，并可从
+    /// `get_notifications` 读回（此前该表在生产路径上**没有任何写入者**，
+    /// 三个已注册端点恒为空）。
+    #[tokio::test]
+    async fn test_record_notification_inserts_a_readable_row() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = PushStorage::new(Arc::clone(&pool));
+        let user_id = unique_user_id("@test");
+        let now = current_timestamp_millis();
+
+        storage
+            .record_notification(&user_id, Some("$ev_record"), Some("!room1:test.com"), "message", now)
+            .await
+            .expect("record_notification must succeed");
+
+        let rows = storage.get_notifications(&user_id, 10).await.expect("get_notifications");
+        assert_eq!(rows.len(), 1, "the recorded notification must be readable");
+        assert_eq!(rows[0].event_id.as_deref(), Some("$ev_record"));
+        assert_eq!(rows[0].room_id.as_deref(), Some("!room1:test.com"));
+        assert_eq!(rows[0].notification_type.as_deref(), Some("message"));
+        assert_eq!(rows[0].is_read, Some(false), "a freshly recorded notification is unread");
+        assert_eq!(rows[0].ts, now);
+
+        cleanup_notifications(&pool, &user_id).await;
+    }
+
+    /// 同一 event 在被 ack 之前重复触发（同一次推送的多次尝试）**不得**累积重复行；
+    /// ack 之后允许重新成为一条新通知。
+    #[tokio::test]
+    async fn test_record_notification_is_idempotent_until_acked() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = PushStorage::new(Arc::clone(&pool));
+        let user_id = unique_user_id("@test");
+        let now = current_timestamp_millis();
+
+        for attempt in 0..3 {
+            storage
+                .record_notification(&user_id, Some("$ev_dup"), Some("!room1:test.com"), "message", now + attempt)
+                .await
+                .expect("record_notification must succeed");
+        }
+        let rows = storage.get_notifications(&user_id, 10).await.expect("get_notifications");
+        assert_eq!(rows.len(), 1, "repeated attempts for one unread event must not duplicate");
+
+        storage.ack_notification(rows[0].id, &user_id, now + 10).await.expect("ack_notification");
+        storage
+            .record_notification(&user_id, Some("$ev_dup"), Some("!room1:test.com"), "message", now + 11)
+            .await
+            .expect("record_notification after ack must succeed");
+        let rows = storage.get_notifications(&user_id, 10).await.expect("get_notifications");
+        assert_eq!(rows.len(), 2, "after ack the event may notify again");
+
+        cleanup_notifications(&pool, &user_id).await;
+    }
+
+    /// `event_id` 缺失（服务端主动推送）时**不做**去重：两次通知各自成行，
+    /// 否则所有无 event 的推送都会被第一条吞掉。
+    #[tokio::test]
+    async fn test_record_notification_without_event_id_never_dedups() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = PushStorage::new(Arc::clone(&pool));
+        let user_id = unique_user_id("@test");
+        let now = current_timestamp_millis();
+
+        storage
+            .record_notification(&user_id, None, None, "message", now)
+            .await
+            .expect("record_notification must succeed");
+        storage
+            .record_notification(&user_id, None, None, "message", now + 1)
+            .await
+            .expect("record_notification must succeed");
+
+        let rows = storage.get_notifications(&user_id, 10).await.expect("get_notifications");
+        assert_eq!(rows.len(), 2, "notifications without an event_id must never be merged");
+
+        cleanup_notifications(&pool, &user_id).await;
     }
 
     #[tokio::test]

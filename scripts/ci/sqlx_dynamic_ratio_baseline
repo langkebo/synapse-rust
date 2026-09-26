@@ -2196,11 +2196,21 @@
 #    `dynamic_production` 计数**不变**（393 = 322 literal + 1 param + 70 runtime），
 #    故本文件三个键都不动；`param` 的棘轮在
 #    `scripts/ci/sqlx_param_production_baseline`（独立文件，避免混口径）。
+# ── 2026-09-26 D-68 接线（static +2、测试基建动态 +1）────────────────────────
+# D-68：`notifications` 表此前**没有任何生产写入者**（唯一 INSERT 在 `db_tests` 里），
+# 三个已注册端点恒为空/恒失败，且该表**不在任何保留期覆盖内**。本批按修法① 落地：
+#   · 新增 2 处**静态**查询 —— `PushStorage::record_notification`（幂等 INSERT）与
+#     `pruning::prune_old_notifications`（保留期 DELETE），故 `static` 1074 → **1076**；
+#   · 新增测试覆盖必须在 `#[cfg(test)]` 内写夹具（宏不进 `cargo sqlx prepare`，
+#     `--all-targets` 会 E0432）⇒ 测试基建动态 711 → **712**（`pruning::db_tests` 里
+#     一条 seed INSERT，循环复用；存活断言改走生产读路径 `get_notifications`，
+#     不再另写 COUNT 查询，把增量压到 1）。
+# `dynamic_production` 不变（393）：两处新查询都是宏，不产生动态站点。
 BASELINE_DYNAMIC_PRODUCTION=393
-BASELINE_DYNAMIC_TEST_INFRA=711
-BASELINE_STATIC=1074
+BASELINE_DYNAMIC_TEST_INFRA=712
+BASELINE_STATIC=1076
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1104
+BASELINE_DYNAMIC=1105
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

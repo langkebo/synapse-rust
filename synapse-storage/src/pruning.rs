@@ -76,6 +76,19 @@ pub const FEDERATION_QUEUE_RETENTION_DAYS: i64 = 7;
 /// because the write rate is bound by *admin actions*, not by traffic.
 pub const QUARANTINED_MEDIA_CHANGES_RETENTION_DAYS: i64 = 30;
 
+/// Retention period for the user-facing notification store (`notifications`, 30 days).
+///
+/// D-68: the table had **no retention at all** — nothing ever deleted a row, so once
+/// a writer was wired in it would have grown without bound (the shape D-33 exposed
+/// for `push_notification_log`). 30 days matches
+/// [`DEVICE_LIST_CHANGES_RETENTION_DAYS`] / [`QUARANTINED_MEDIA_CHANGES_RETENTION_DAYS`].
+///
+/// Consequence worth stating plainly: `/notifications` and
+/// `/rooms/{room_id}/notifications` cannot return entries older than this window.
+/// That is the intended bound for a best-effort inbox — the authoritative unread
+/// counts in `/sync` are computed from `events` + `read_markers`, not from here.
+pub const NOTIFICATIONS_RETENTION_DAYS: i64 = 30;
+
 /// Prune old device list change entries.
 ///
 /// Deletes rows from `device_lists_changes` whose `created_ts` is older
@@ -83,6 +96,21 @@ pub const QUARANTINED_MEDIA_CHANGES_RETENTION_DAYS: i64 = 30;
 pub async fn prune_old_device_list_changes(pool: &PgPool, retention_days: i64) -> Result<u64, sqlx::Error> {
     let cutoff = current_timestamp_millis() - (retention_days * 86400 * 1000);
     let result = sqlx::query!("DELETE FROM device_lists_changes WHERE created_ts < $1", cutoff).execute(pool).await?;
+    Ok(result.rows_affected())
+}
+
+/// Prune old rows from the `notifications` store (D-68).
+///
+/// Deletes rows whose `ts` is older than [`NOTIFICATIONS_RETENTION_DAYS`], regardless
+/// of `is_read`: retention has to bound the table, and a 30-day-old unread entry is
+/// beyond the window the client is expected to catch up on. `ts` is the same column
+/// `record_notification` writes, so — unlike D-33's `sent_at` — the predicate cannot
+/// degenerate into a silent no-op.
+///
+/// Returns the number of rows deleted.
+pub async fn prune_old_notifications(pool: &PgPool) -> Result<u64, sqlx::Error> {
+    let cutoff = current_timestamp_millis() - (NOTIFICATIONS_RETENTION_DAYS * 86400 * 1000);
+    let result = sqlx::query!("DELETE FROM notifications WHERE ts < $1", cutoff).execute(pool).await?;
     Ok(result.rows_affected())
 }
 
@@ -309,6 +337,21 @@ mod db_tests {
             .await
             .map(|r| r.get::<i64, _>("c"))
             .unwrap_or(-1)
+    }
+
+    /// D-68 的新覆盖锚定**真 baseline schema**（R9）：`notifications` 是真表，
+    /// 自建简化表会与迁移漂移（D-31/D-47 的教训）。
+    async fn baseline_pool() -> Option<(crate::test_isolation::IsolatedTestPool, Arc<PgPool>)> {
+        match crate::test_isolation::isolated_test_pool().await {
+            Ok(guard) => {
+                let pool = guard.pool();
+                Some((guard, pool))
+            }
+            Err(error) => {
+                tracing::warn!("Skipping notifications pruning DB test (no test DB): {error}");
+                None
+            }
+        }
     }
 
     /// device_lists_changes: only created_ts drives pruning.
@@ -548,5 +591,55 @@ mod db_tests {
             .unwrap();
         assert_eq!(surviving_max_ts, now - 10 * day_ms);
         assert_eq!(surviving_min_ts, now - 10 * day_ms);
+    }
+    /// D-68：保留期只删过窗的行，窗口内的行必须原样保留 —— 并且存活断言走
+    /// **生产读路径**（`PushStorage::get_notifications`），而不是另写一条 COUNT 查询：
+    /// 这样"行还在但读不出来"（列名/可空性漂移）同样会被抓住。
+    #[tokio::test]
+    async fn prune_old_notifications_deletes_expired_and_keeps_recent() {
+        let Some((_isolated, pool)) = baseline_pool().await else { return };
+        let now = current_timestamp_millis();
+        let day_ms = 86_400_000;
+
+        let expired_user = format!("@notif_expired_{}:test.com", uuid::Uuid::new_v4());
+        let recent_user = format!("@notif_recent_{}:test.com", uuid::Uuid::new_v4());
+        // (user, event_id, ts)：1 条过窗 + 2 条窗口内。单条 INSERT 站点在循环里复用，
+        // 测试夹具动态 SQL 的增量保持为 1（D-13/R9 允许测试夹具动态，但不应顺手放大）。
+        let rows = [
+            (&expired_user, "$notif_expired", now - (NOTIFICATIONS_RETENTION_DAYS + 10) * day_ms),
+            (&recent_user, "$notif_recent0", now),
+            (&recent_user, "$notif_recent1", now - day_ms),
+        ];
+        for (user_id, event_id, ts) in rows {
+            sqlx::query(
+                "INSERT INTO notifications (user_id, event_id, ts, notification_type, is_read, created_ts) \
+                 VALUES ($1, $2, $3, 'message', FALSE, $3)",
+            )
+            .bind(user_id)
+            .bind(event_id)
+            .bind(ts)
+            .execute(&*pool)
+            .await
+            .expect("seed notification");
+        }
+
+        let storage = crate::push::PushStorage::new(Arc::clone(&pool));
+        assert_eq!(
+            storage.get_notifications(&expired_user, 10).await.expect("read expired user").len(),
+            1,
+            "the out-of-window row must exist before pruning"
+        );
+
+        let deleted = prune_old_notifications(&pool).await.expect("prune_old_notifications");
+        assert_eq!(deleted, 1, "only the out-of-window row is deleted");
+        assert!(
+            storage.get_notifications(&expired_user, 10).await.expect("read expired user").is_empty(),
+            "the expired row must be gone"
+        );
+        assert_eq!(
+            storage.get_notifications(&recent_user, 10).await.expect("read recent user").len(),
+            2,
+            "in-window rows survive pruning and stay readable through the production reader"
+        );
     }
 }

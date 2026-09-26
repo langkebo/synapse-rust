@@ -298,6 +298,21 @@ impl PushStoreApi for MockPushStore {
         Ok(Vec::new())
     }
 
+    async fn record_notification(
+        &self,
+        _user_id: &str,
+        _event_id: Option<&str>,
+        _room_id: Option<&str>,
+        _notification_type: &str,
+        _ts: i64,
+    ) -> Result<(), sqlx::Error> {
+        let state = self.state.lock().unwrap().clone();
+        if state.fail_all {
+            return Err(storage_error());
+        }
+        Ok(())
+    }
+
     async fn ack_notification(&self, id: i64, _user_id: &str, _now: i64) -> Result<Option<i64>, sqlx::Error> {
         let state = self.state.lock().unwrap().clone();
         if state.fail_all {

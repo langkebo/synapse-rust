@@ -32,6 +32,10 @@ pub struct PushNotificationService {
     /// Optional account_data storage for looking up `m.ignored_user_list`
     /// so that push notifications from ignored users are suppressed.
     account_data_storage: Option<Arc<dyn synapse_storage::account_data::AccountDataStoreApi>>,
+    /// Optional notification store: when set, every push decision is also recorded as
+    /// a `notifications` row so the client notification endpoints have a producer
+    /// (D-68). `None` in tests that only exercise delivery.
+    push_store: Option<Arc<dyn synapse_storage::push::PushStoreApi>>,
     /// Delivery counters (`push_notifications_total` / `push_notification_errors_total`).
     ///
     /// `None` in unit tests that build the service directly; the container wires
@@ -108,6 +112,7 @@ impl PushNotificationService {
             providers: Arc::new(RwLock::new(PushProviders::default())),
             push_gateway: None,
             account_data_storage: None,
+            push_store: None,
             server_metrics: None,
         }
     }
@@ -167,6 +172,18 @@ impl PushNotificationService {
         account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
     ) -> Self {
         self.account_data_storage = Some(account_data_storage);
+        self
+    }
+
+    /// Record every push decision into the notification store (D-68).
+    ///
+    /// The notification endpoints (`GET /_matrix/client/v3/notifications`,
+    /// `GET /_matrix/client/v3/rooms/{room_id}/notifications`) read the
+    /// `notifications` table; without a producer they are structurally empty. The
+    /// container wires the real store, and the per-call record happens in
+    /// [`send_notification`](Self::send_notification).
+    pub fn with_push_store(mut self, push_store: Arc<dyn synapse_storage::push::PushStoreApi>) -> Self {
+        self.push_store = Some(push_store);
         self
     }
 
@@ -314,6 +331,23 @@ impl PushNotificationService {
             .collect();
 
         self.storage.queue_notifications_batch(&batch_requests).await?;
+
+        // D-68: record the notification **after** the queue write succeeded — a failed
+        // queue write must not leave an inbox entry for a push that never happened.
+        // Errors propagate (no swallowed failure): the caller sees a 5xx instead of a
+        // silently missing notification.
+        if let Some(push_store) = &self.push_store {
+            push_store
+                .record_notification(
+                    &request.user_id,
+                    request.event_id.as_deref(),
+                    request.room_id.as_deref(),
+                    request.notification_type.as_deref().unwrap_or("message"),
+                    synapse_common::current_timestamp_millis(),
+                )
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Failed to record notification", e))?;
+        }
 
         info!(
             user_id = %request.user_id,
@@ -722,6 +756,50 @@ mod db_tests {
         service.initialize_providers().await.expect("initialize_providers must succeed");
 
         assert!(service.initialized_providers().is_empty(), "a disabled provider must not be built");
+    }
+
+    /// D-68：`send_notification` 就是通知记录层缺失的**生产写入者** —— 服务端决定
+    /// 推送时，同一次调用必须在 `notifications` 里留下**一条**可被
+    /// `GET /_matrix/client/v3/notifications` 读到的记录（此前该表只有测试夹具写过）。
+    #[tokio::test]
+    async fn send_notification_records_a_notification_row() {
+        let pool = test_pool().await;
+        let storage = storage_for(&pool);
+
+        let user_id = format!("@push_{}:test.com", uuid::Uuid::new_v4());
+        ensure_user(&pool, &user_id).await;
+        let device_id = "NOTIFDEVICE";
+        storage
+            .register_device(RegisterDeviceRequest {
+                user_id: user_id.clone(),
+                device_id: device_id.to_string(),
+                push_token: "notif-token".to_string(),
+                push_type: "fcm".to_string(),
+                app_id: Some("com.example.app".to_string()),
+                platform: None,
+                platform_version: None,
+                app_version: None,
+                locale: None,
+                timezone: None,
+                metadata: None,
+            })
+            .await
+            .expect("register_device");
+
+        let push_store: Arc<dyn synapse_storage::push::PushStoreApi> =
+            Arc::new(synapse_storage::push::PushStorage::new(pool.clone()));
+        let service = PushNotificationService::new(storage).with_push_store(push_store.clone());
+
+        let mut request = send_request(&user_id, device_id);
+        request.event_id = Some("$notif_ev".to_string());
+        request.room_id = Some("!notif_room:test".to_string());
+        service.send_notification(request).await.expect("send_notification must succeed");
+
+        let rows = push_store.get_notifications(&user_id, 10).await.expect("get_notifications");
+        assert_eq!(rows.len(), 1, "the push decision must be recorded exactly once");
+        assert_eq!(rows[0].event_id.as_deref(), Some("$notif_ev"));
+        assert_eq!(rows[0].room_id.as_deref(), Some("!notif_room:test"));
+        assert_eq!(rows[0].is_read, Some(false));
     }
 
     /// The real delivery path: `process_pending_notifications` must reach the
