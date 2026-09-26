@@ -177,7 +177,7 @@ git worktree list             # 另有 .worktrees/c19b（同 HEAD）、/Users/lj
 | clippy（`--workspace --all-targets --features test-utils --all-features -D warnings`） | exit 0 ✅ |
 | lib 全量 | **6358 / 6358 passed，0 skipped** ✅（U-20 修复后复跑仍全绿） |
 | unit 全量 | 1773 / 1777 passed（4 红＝已逐项归因的 SQLx 棘轮：生产 +3 既有、测试 +2 ＝既有 +1 + U-3 夹具 +1、字面量守卫仅 `event/depth.rs` 既有） |
-| 集成分块 | 1/6 **235/241**、2/6 **236/241**（均在 U-20 之前）、3/6 **240/241**（U-20 之后，唯一红为既有路由 manifest 通配符项）；4/6 运行中 |
+| 集成分块 | 1/6 **235/241**、2/6 **236/241**（均在 U-20 之前）、3/6 **240/241**（U-20 之后，唯一红为既有路由 manifest 通配符项）；4/6 **239/241**（U-20 之后，2 红均为既有快照/manifest 项：`declared_route_manifest_full_snapshot_matches_default_state`、`snapshot_capabilities_v3`）⇒ **四块合计 964 例，红项全部落在既有家族内** |
 | 受影响面集成 | media+quota **34/34**、扫描文件 **11/11**、federation_transaction+create_room **15/15** |
 
 **本会话新登记的发现（U-16…U-21）**
