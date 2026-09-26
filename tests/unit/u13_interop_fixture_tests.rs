@@ -70,21 +70,15 @@ fn build_fixture_pdu(room_version: &str) -> (String, Value) {
         redacts: None,
     };
 
-    let finalized = synapse_federation::event_finalize::finalize_local_pdu(&parts)
-        .expect("the fixture PDU must finalize");
+    let finalized =
+        synapse_federation::event_finalize::finalize_local_pdu(&parts).expect("the fixture PDU must finalize");
 
     let mut pdu = build_pdu(&parts);
     if let Some(object) = pdu.as_object_mut() {
         object.insert("hashes".to_string(), finalized.hashes.clone());
     }
-    synapse_federation::signing::sign_and_hash_event(
-        room_version,
-        SERVER_NAME,
-        KEY_ID,
-        SIGNING_SEED_B64,
-        &mut pdu,
-    )
-    .expect("the fixture PDU must sign");
+    synapse_federation::signing::sign_and_hash_event(room_version, SERVER_NAME, KEY_ID, SIGNING_SEED_B64, &mut pdu)
+        .expect("the fixture PDU must sign");
 
     (finalized.event_id, pdu)
 }
@@ -129,7 +123,8 @@ fn u13_interop_fixtures_match_the_pipeline() {
         });
         let committed: Value = serde_json::from_str(&raw).expect("fixture must be valid JSON");
         assert_eq!(
-            committed, expected,
+            committed,
+            expected,
             "{} is stale — regenerate it with:\n  \
              U13_WRITE_INTEROP_FIXTURE=1 cargo nextest run --test unit -E 'test(/u13_interop_fixture/)'",
             path.display()
