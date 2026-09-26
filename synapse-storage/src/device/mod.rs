@@ -179,7 +179,12 @@ impl DeviceStorage {
         Self { pool: pool.clone() }
     }
 
-    async fn record_device_list_change(
+    /// Record one device-list change (`device_lists_stream` + `device_lists_changes`).
+    ///
+    /// **这是全仓唯一的实现**（D-37 / 铁律 2）：`synapse-e2ee` 的
+    /// `DeviceKeyStoreApi::record_device_list_change` 直接委托到这里，
+    /// 不再自带一份逐字相同的 SQL。返回新写入的 `stream_id`。
+    pub async fn record_device_list_change(
         &self,
         user_id: &str,
         device_id: Option<&str>,

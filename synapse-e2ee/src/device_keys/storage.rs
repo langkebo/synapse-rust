@@ -194,39 +194,14 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         device_id: Option<&str>,
         change_type: &str,
     ) -> Result<(), ApiError> {
-        let now = current_timestamp_millis();
-        // D-07: both statements used to swallow their error (`let Ok(..) else { return }` /
-        // `let _ =`), so a failed device-list change was indistinguishable from success and
-        // peers silently kept a stale device list.
-        let stream_id = sqlx::query_scalar!(
-            r"
-            INSERT INTO device_lists_stream (user_id, device_id, created_ts)
-            VALUES ($1, $2, $3)
-            RETURNING stream_id
-            ",
-            user_id,
-            device_id,
-            now
-        )
-        .fetch_one(&*self.pool)
-        .await
-        .map_err(map_database!("Failed to record device list stream change"))?;
-
-        sqlx::query!(
-            r"
-            INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts)
-            VALUES ($1, $2, $3, $4, $5)
-            ",
-            user_id,
-            device_id,
-            change_type,
-            stream_id,
-            now
-        )
-        .execute(&*self.pool)
-        .await
-        .map_err(map_database!("Failed to record device list change"))?;
-
+        // D-07 保留：两条语句都曾吞错（`let Ok(..) else { return }` / `let _ =`），
+        // 失败的 device-list change 与成功无法区分，对端会一直保留陈旧设备列表。
+        // D-37（铁律 2）：实现已收敛到 `synapse-storage::device::DeviceStorage`，
+        // 本处只做委托 —— 两份逐字相同的 SQL 不再并存。
+        synapse_storage::device::DeviceStorage::new(&self.pool)
+            .record_device_list_change(user_id, device_id, change_type)
+            .await
+            .map_err(map_database!("Failed to record device list change"))?;
         Ok(())
     }
 
