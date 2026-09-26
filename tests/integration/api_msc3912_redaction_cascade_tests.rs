@@ -20,6 +20,7 @@ use axum::{
     http::{Request, StatusCode},
 };
 use serde_json::{json, Value};
+use sqlx::Row;
 use std::sync::Arc;
 use std::time::Duration;
 use tower::ServiceExt;
@@ -427,4 +428,77 @@ async fn reaction_compat_route_reads_spec_key_from_relates_to() {
         .expect("the reaction event must be persisted");
     assert_eq!(content["m.relates_to"]["key"], "🎉");
     assert_eq!(content["body"], "🎉");
+}
+
+/// Helper to get the `redacted_by` field from an event.
+async fn get_redacted_by(pool: &sqlx::PgPool, event_id: &str) -> Option<String> {
+    let row = sqlx::query("SELECT redacted_by FROM events WHERE event_id = $1")
+        .bind(event_id)
+        .fetch_optional(pool)
+        .await
+        .expect("query redacted_by");
+    match row {
+        Some(row) => row.get(0),
+        None => None,
+    }
+}
+
+/// U-19-R4: Cascade redaction must populate `redacted_by` with a valid event ID.
+///
+/// This test verifies that when a moderator performs a cascade redaction,
+/// the `redacted_by` field on each redacted target event carries the ID
+/// of the `m.room.redaction` event (not `None` and not a user_id which
+/// would violate the FK constraint `events.redacted_by -> events.event_id`).
+#[tokio::test]
+async fn msc3912_cascade_redaction_audits_with_redaction_event_id() {
+    let Some((app, pool)) = setup_test_app().await else {
+        return;
+    };
+    let suffix = rand::random::<u32>();
+    let room = three_member_room(&app, suffix, "audit").await;
+
+    let target = send_message(&app, &room.actor_token, &room.room_id).await;
+    // Create an annotation child that will be cascaded redacted
+    let child = send_annotation(&app, &room.actor_token, &room.room_id, &target, "👍").await;
+
+    // Verify the child is not yet redacted
+    assert!(!is_redacted(&pool, &child).await, "the annotation should not be redacted before cascade");
+    assert!(
+        get_redacted_by(&pool, &child).await.is_none(),
+        "the annotation should have redacted_by = NULL before cascade"
+    );
+
+    // Owner performs cascade redaction
+    let response =
+        redact(&app, &room.owner_token, &room.room_id, &target, &json!({ "with_rel_types": ["m.annotation"] })).await;
+    assert_eq!(response.status(), StatusCode::OK, "cascade redaction must succeed");
+
+    // Wait for cascade to complete
+    assert!(wait_until_redacted(&pool, &child).await, "the cascade must finish and redact the annotation");
+
+    // U-19-R4: Verify the child event's `redacted_by` is populated with a valid event_id
+    let redacted_by = get_redacted_by(&pool, &child).await.expect("redacted_by should now be populated");
+    // The redacted_by must be a valid event_id (starts with '$')
+    assert!(redacted_by.starts_with('$'), "redacted_by should be an event_id, got: {}", redacted_by);
+    // The redaction event must exist and be an m.room.redaction
+    let redaction_event_row = sqlx::query("SELECT event_type, redacts FROM events WHERE event_id = $1")
+        .bind(&redacted_by)
+        .fetch_optional(&*pool)
+        .await
+        .expect("query redaction event");
+    let row = redaction_event_row.expect("redaction event must exist");
+    assert_eq!(
+        row.get::<String, _>("event_type"),
+        "m.room.redaction",
+        "redacted_by should point to an m.room.redaction event"
+    );
+    assert_eq!(row.get::<String, _>("redacts"), target, "the redaction event should redact the target");
+
+    // Also verify the target's redacted_by is populated
+    let target_redacted_by = get_redacted_by(&pool, &target).await.expect("target should be redacted");
+    assert!(
+        target_redacted_by.starts_with('$'),
+        "target redacted_by should be an event_id, got: {}",
+        target_redacted_by
+    );
 }

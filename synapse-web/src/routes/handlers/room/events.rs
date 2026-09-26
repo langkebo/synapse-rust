@@ -1070,10 +1070,18 @@ pub(crate) async fn redact_event(
     // nevertheless logged with structured fields rather than swallowed.
     // Per-event authorization happens inside the service.
     if let Some(rel_types) = with_rel_types {
+        // Clone the redaction event ID for the background task
+        let redaction_event_id = redaction_event.event_id.clone();
         let redaction_service = ctx.event_redaction_service.clone();
         tokio::spawn(async move {
             if let Err(error) = redaction_service
-                .cascade_redact_related_events(&room_id, &event_id, &rel_types, &cascade_actor_user_id)
+                .cascade_redact_related_events(
+                    &room_id,
+                    &event_id,
+                    &rel_types,
+                    &cascade_actor_user_id,
+                    &redaction_event_id,
+                )
                 .await
             {
                 ::tracing::warn!(

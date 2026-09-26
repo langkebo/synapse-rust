@@ -87,12 +87,22 @@ impl EventRedactionService {
     /// event to also wipe every related event, including other users'. Denied
     /// events are skipped (never redacted) and logged with structured fields.
     ///
+    /// **Audit tracking.** The `redaction_event_id` parameter carries the ID
+    /// of the `m.room.redaction` event that was already persisted by the caller
+    /// (the redaction handler in `events.rs`). This is what satisfies the
+    /// self-referential FK `events.redacted_by -> events.event_id`, and it is
+    /// what lets an auditor reconstruct who redacted what without joining back
+    /// to a user ID.
+    ///
     /// # Arguments
     /// * `room_id` - Room to search in
     /// * `event_id` - Target event ID
     /// * `rel_types` - List of relationship types to match (use `["*"]` for all)
     /// * `actor_user_id` - The user requesting the redaction, whose permissions
     ///   are evaluated against every related event
+    /// * `redaction_event_id` - The ID of the persisted `m.room.redaction`
+    ///   event; passed to [`EventStorage::redact_event_content`] so that
+    ///   `events.redacted_by` on every cascaded target carries a valid event ID
     ///
     /// # Returns
     /// Number of events actually redacted (denied/skipped events are not counted)
@@ -102,6 +112,7 @@ impl EventRedactionService {
         event_id: &str,
         rel_types: &[String],
         actor_user_id: &str,
+        redaction_event_id: &str,
     ) -> Result<u64, ApiError> {
         let related = self
             .storage
@@ -146,7 +157,7 @@ impl EventRedactionService {
                 continue;
             }
 
-            if let Err(error) = self.storage.redact_event_content(&target_id, None).await {
+            if let Err(error) = self.storage.redact_event_content(&target_id, Some(redaction_event_id)).await {
                 // Keep going: one bad row must not silently drop the rest of the
                 // cascade, but it must not disappear either.
                 ::tracing::error!(
@@ -156,6 +167,7 @@ impl EventRedactionService {
                     event_id = %event_id,
                     target_event_id = %target_id,
                     actor_user_id = %actor_user_id,
+                    redaction_event_id = %redaction_event_id,
                     error = %error,
                     "Failed to redact a related event during cascade"
                 );
