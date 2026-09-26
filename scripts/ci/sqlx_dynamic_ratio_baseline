@@ -2227,12 +2227,26 @@
 #     `schema_migrations` 的 checksum/execution_time_ms 以证明 `ON CONFLICT … DO UPDATE`
 #     真的覆盖（`#[cfg(test)]` 内的宏不进 `cargo sqlx prepare`，按 D-13/R9 保持动态）。
 #   · `dynamic` 总数 1105 → **1105**（−1 生产 +1 测试），`static` 1076 不变。
+# ── 2026-09-26 C35a（`database_initializer/mod.rs` A 类 8 处宏化）─────────────
+# 按 §8.3 的分类，A 类 8 处（`check_cache_valid` / `update_init_timestamp` /
+# `step_connection_test` ×2 / `is_migration_executed` / `record_migration` /
+# `release_migration_lock` / `run_runtime_migrations` 的表数统计）全部静态化：
+#   · `dynamic_production` 392 → **384**（−8）；`static` 1076 → **1084**（+8）
+#   · `dynamic` 总数 1105 → **1097**（= 384 + 713）；`dynamic_test` 713 不变
+#   · `.sqlx` 1045 → **1053**（+8，0 删除）—— 8 条文本互不相同，无哈希合并
+# 本批**不是纯机械**：转换时撞到 3 个宏语义陷阱，已按 R4 断言 + R6 记录（见 AGENTS.md R6）：
+#   ① `SELECT version()` / `count(*)` 这类"无关系来源"的结果按可空推断，而调用方要非空
+#      ⇒ `AS "version!"` / `AS "count!"`；
+#   ② 断言后 `fetch_optional` 仍返回 `Result<Option<T>>`，`.ok()` 再包一层
+#      ⇒ 必须 `.ok().flatten()`（三层 Option 的坑）；
+#   ③ **单列语句的 `query!` 生成 `Map`，没有 `.execute()`** ⇒ 改 `query_scalar!` + `fetch_one`。
+# 行为等价性由 C35a-0 补的 5 条真 baseline 用例验证（`database_initializer` 31/31 全绿）。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=392
+BASELINE_DYNAMIC_PRODUCTION=384
 BASELINE_DYNAMIC_TEST_INFRA=713
-BASELINE_STATIC=1076
+BASELINE_STATIC=1084
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1105
+BASELINE_DYNAMIC=1097
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

@@ -135,6 +135,9 @@
 #   顺带把 `SELECT pg_advisory_unlock($1)` 的**两个同文本调用点**抽成
 #   `release_migration_lock`（可测接缝，行为不变）⇒ 该文件字面量站点 15 → **14**。
 #   本表总处数 322 → **321**、文件数 60 不变（该行未归零，仍在表内）。
+#   ⚠️ 紧随其后的 **C35a** 把该文件的 A 类 8 处一并宏化 ⇒ 本行 14 → **6**（剩下的是
+#   B 类 2 处（锁 key / 取锁，可空性断言待先修）与 C 类 4 处（`CREATE INDEX` / `SET` /
+#   `ROLLBACK` ×2，utility 语句，需一次 `prepare` 实测）⇒ 本表合计 321 → **313**。
 src/server/database.rs	1
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
@@ -150,7 +153,7 @@ synapse-federation/src/dead_letter_queue.rs	3
 synapse-federation/src/device_sync.rs	3
 synapse-federation/src/event_broadcaster.rs	8
 synapse-federation/src/key_rotation.rs	8
-synapse-services/src/database_initializer/mod.rs	14
+synapse-services/src/database_initializer/mod.rs	6
 synapse-storage/src/account_data/mod.rs	4
 synapse-storage/src/admin_media.rs	8
 synapse-storage/src/audit.rs	4

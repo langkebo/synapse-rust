@@ -177,18 +177,21 @@ impl DatabaseInitService {
     }
 
     async fn check_cache_valid(&self) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query_as::<_, (i64,)>(
-            r"
-            SELECT value::BIGINT
+        // `AS "last_init_ts!"`（R4）：`db_metadata.value` 是 `TEXT NOT NULL`，而
+        // `::BIGINT` 对非数字文本是**报错**而不是返回 NULL ⇒ 该列不可能为 NULL；
+        // 断言把"无关系来源的表达式一律推可空"这一步收在编译期（否则匹配分支会变成
+        // `Option<Option<i64>>`）。
+        let result = sqlx::query_scalar!(
+            r#"
+            SELECT value::BIGINT AS "last_init_ts!"
             FROM db_metadata WHERE key = 'last_init_ts'
-            ",
+            "#,
         )
         .fetch_optional(&*self.pool)
         .await;
 
         match result {
-            Ok(Some(row)) => {
-                let last_init_ts: i64 = row.0;
+            Ok(Some(last_init_ts)) => {
                 let now = chrono::Utc::now().timestamp();
                 let elapsed = now - last_init_ts;
 
@@ -209,8 +212,11 @@ impl DatabaseInitService {
 
     async fn update_init_timestamp(&self) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
+        // `value` 是 TEXT 而 `created_ts`/`updated_ts` 是 BIGINT ⇒ 先在调用点算好
+        // 字符串，避免把临时值直接塞进宏实参。
+        let now_text = now.to_string();
 
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO db_metadata (key, value, created_ts, updated_ts)
             VALUES ('last_init_ts', $1, $2, $2)
@@ -218,9 +224,9 @@ impl DatabaseInitService {
                 value = EXCLUDED.value,
                 updated_ts = EXCLUDED.updated_ts
             ",
+            now_text,
+            now,
         )
-        .bind(now.to_string())
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -228,10 +234,14 @@ impl DatabaseInitService {
     }
 
     async fn step_connection_test(&self) -> Result<String, sqlx::Error> {
-        sqlx::query("SELECT 1 as test").fetch_one(&*self.pool).await?;
+        let _ = sqlx::query!("SELECT 1 as test").fetch_one(&*self.pool).await?;
         // 记录 PG 服务端版本, 便于排查兼容性问题 (如 PG14 以下不支持某些 SQL 语法)
+        // `AS "version!"`（R4）：`version()` 无参数、恒返回一行非空 TEXT ⇒ 断言成立。
+        // ⚠️ 断言后 `O = String`，而 `fetch_optional` 仍返回 `Result<Option<String>>`，
+        // `.ok()` 再包一层 ⇒ 必须 `.flatten()`（这是本处原有写法保留的原因）。本处保留原有的
+        // `.ok()` 吞错行为（C35b 再判这是有意的 best-effort 还是缺陷）。
         let pg_version: Option<String> =
-            sqlx::query_scalar("SELECT version()").fetch_optional(&*self.pool).await.ok().flatten();
+            sqlx::query_scalar!(r#"SELECT version() AS "version!""#).fetch_optional(&*self.pool).await.ok().flatten();
         info!(pg_version = ?pg_version, "数据库连接测试通过");
         Ok("数据库连接测试通过".to_string())
     }
@@ -309,7 +319,9 @@ impl DatabaseInitService {
     /// must not turn a completed migration into an error (worst case the session keeps
     /// the lock until it is closed, which is what the retry loop above tolerates).
     async fn release_migration_lock(&self, conn: &mut sqlx::PgConnection, lock_key: i64) {
-        let _ = sqlx::query("SELECT pg_advisory_unlock($1)").bind(lock_key).execute(conn).await;
+        // ⚠️ 单列语句的 `query!` 生成 `Map`（**没有** `.execute()`），必须走 `query_scalar!`
+        // + `fetch_one`；`.execute()` 只在"无结果列"的语句（INSERT/UPDATE/DELETE/DDL）上存在。
+        let _ = sqlx::query_scalar!("SELECT pg_advisory_unlock($1)", lock_key).fetch_one(conn).await;
     }
 
     async fn ensure_schema_migrations_table(&self) -> Result<(), sqlx::Error> {
@@ -347,12 +359,14 @@ impl DatabaseInitService {
     }
 
     async fn is_migration_executed(&self, version: &str) -> Result<bool, sqlx::Error> {
-        let result: Option<(bool,)> = sqlx::query_as("SELECT is_success FROM schema_migrations WHERE version = $1")
-            .bind(version)
-            .fetch_optional(&*self.pool)
-            .await?;
+        // `schema_migrations.is_success` 是 `BOOLEAN NOT NULL DEFAULT TRUE`（见基线 DDL）
+        // ⇒ 宏推断非空 bool，`fetch_optional` 直接给 `Option<bool>`。
+        let result: Option<bool> =
+            sqlx::query_scalar!("SELECT is_success FROM schema_migrations WHERE version = $1", version,)
+                .fetch_optional(&*self.pool)
+                .await?;
 
-        Ok(result.is_some_and(|(success,)| success))
+        Ok(result.unwrap_or(false))
     }
 
     async fn record_migration(
@@ -363,7 +377,7 @@ impl DatabaseInitService {
         success: bool,
     ) -> Result<(), sqlx::Error> {
         let now_ts = current_timestamp_millis();
-        sqlx::query(
+        sqlx::query!(
             r"INSERT INTO schema_migrations (version, checksum, applied_ts, execution_time_ms, is_success)
                VALUES ($1, $2, $3, $4, $5)
                ON CONFLICT (version) DO UPDATE SET
@@ -372,12 +386,12 @@ impl DatabaseInitService {
                    executed_at = (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
                    execution_time_ms = EXCLUDED.execution_time_ms,
                    is_success = EXCLUDED.is_success",
+            version,
+            checksum,
+            now_ts,
+            execution_time_ms,
+            success,
         )
-        .bind(version)
-        .bind(checksum)
-        .bind(now_ts)
-        .bind(execution_time_ms)
-        .bind(success)
         .execute(&*self.pool)
         .await?;
 
@@ -546,8 +560,10 @@ impl DatabaseInitService {
         }
 
         // 迁移后统计表数, 便于对比迁移前后 schema 完整性
-        let table_count: Option<i64> = sqlx::query_scalar(
-            "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'",
+        // `count(*)` 无关系来源 ⇒ 推断可空；按 R4 断言非空（聚合计数恒非 NULL），
+        // 调用方仍是 `Option<i64>`（日志用途，保留原有 `.ok()` 吞错行为）。
+        let table_count: Option<i64> = sqlx::query_scalar!(
+            r#"SELECT count(*) AS "count!" FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"#,
         )
         .fetch_one(&*self.pool)
         .await

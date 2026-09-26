@@ -221,6 +221,18 @@ schema**（`NOT NULL DEFAULT …`），而不是长期留一个断言别名。
 ⚠️ **用了双引号别名的 raw string 必须是 `r#"…"#`**：写成 `r"…"` 开头 + `"#` 收尾会让宏报
 `no rules expected #`（实测一次踩出 9 处）。
 
+⚠️ **三个实测撞到的宏语义陷阱**（C35a，2026-09-26）：
+① **单列语句的 `query!` 生成 `Map`，没有 `.execute()`** —— `.execute()` 只存在于"无结果列"
+   的语句（INSERT/UPDATE/DELETE/DDL）。要丢弃单列 SELECT 的结果，用 `query_scalar!` +
+   `fetch_one`/`fetch_optional`（或 `query_as!` + `fetch_*`）。
+② **`fetch_optional(...).await.ok()` 得到的是 `Option<Option<T>>`**（`Result::ok` 再包一层）——
+   需要 `Option<T>` 时接 `.flatten()`；若宏已按可空推断给 `Option<T>`，就是**三层**。
+   判据：先用 `let _probe: () = …fetch_one(…)` 把推断出的 `Result<T, _>` 打印出来，别靠猜。
+③ **"无关系来源"的结果一律按可空推断**（函数调用如 `version()`、`pg_try_advisory_lock($1)`、
+   `count(*)`）而调用方要非空时，`AS "col!"` 断言必须写清"谁保证非空"（R4）；断言后
+   `fetch_one` 给 `Result<T, _>`，`.ok()` 正好是 `Option<T>`（无需 flatten），
+   而 `fetch_optional` 则要 flatten —— 两者差别就是 ② 的那一层。
+
 ⚠️ **断言别名是"真的列名"，不是给编译器看的注解。** 写 `COUNT(*) AS "count!"` 之后，
 输出列就叫 `count!` —— 同一条 SQL 里的 `ORDER BY count` 会**在 prepare 阶段报
 `column "count" does not exist`**（C31 实测）。要么 `ORDER BY COUNT(*) DESC`，
