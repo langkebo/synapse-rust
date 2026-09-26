@@ -164,6 +164,47 @@ impl MembershipService {
             .add_member(room_id, user_id, "knock", None, reason, None, None)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to create knock event", e))?;
+
+        // Persist the m.room.member PDU so the federation broadcast path can
+        // read back the graph fields (depth / prev_events / auth_events) and
+        // sign a complete PDU for remote servers — the same flow `invite_user`
+        // and `ban_user` use.
+        let event_id = generate_event_id(&self.server_name);
+        let knock_content = json!({
+            "membership": "knock",
+            "reason": reason.unwrap_or_default(),
+        });
+        let knock_event = self
+            .event_writer
+            .create_event(
+                CreateEventParams {
+                    event_id,
+                    room_id: room_id.to_string(),
+                    user_id: user_id.to_string(),
+                    event_type: "m.room.member".to_string(),
+                    content: knock_content,
+                    state_key: Some(user_id.to_string()),
+                    origin_server_ts: current_timestamp_millis(),
+                    redacts: None,
+                },
+                None,
+            )
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to record m.room.member knock event", e))?;
+
+        // Invalidate room-state cache after membership state change.
+        let _ = self.cache.delete(&format!("room_state:{room_id}"));
+
+        // Best-effort: sign and broadcast the knock event to federation peers.
+        if let Err(e) = self.sign_and_broadcast_event(&knock_event).await {
+            ::tracing::warn!(
+                room_id = %room_id,
+                user_id = %user_id,
+                error = %e,
+                "Failed to sign and broadcast knock event"
+            );
+        }
+
         Ok(())
     }
 

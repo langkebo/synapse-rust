@@ -224,6 +224,24 @@ pub struct FederationConfig {
     #[serde(default)]
     /// `rate_limit` field.
     pub rate_limit: FederationRateLimitConfig,
+
+    /// O-2 (MSC4311): whether to apply strict PDU graph-field validation
+    /// to incoming invite/knock events on the federation side.
+    ///
+    /// - `false` (default): lenient — incomplete PDU graph fields are logged
+    ///   but accepted during the grace period (before 2027-06-01).
+    /// - `true`: strict — PDU graph fields missing/invalid cause the event
+    ///   to be rejected immediately.
+    ///
+    /// Upstream Synapse enables strict validation after the grace period
+    /// expires; operators should migrate by the deadline.
+    #[serde(default = "default_msc4311_strict_validation")]
+    /// `msc4311_strict_validation` field.
+    pub msc4311_strict_validation: bool,
+}
+
+fn default_msc4311_strict_validation() -> bool {
+    false
 }
 
 impl Default for FederationConfig {
@@ -268,6 +286,7 @@ impl Default for FederationConfig {
             signing_ts_tolerance_ms: default_signing_ts_tolerance_ms(),
             replay_protection_enabled: default_replay_protection_enabled(),
             rate_limit: FederationRateLimitConfig::default(),
+            msc4311_strict_validation: default_msc4311_strict_validation(),
         }
     }
 }

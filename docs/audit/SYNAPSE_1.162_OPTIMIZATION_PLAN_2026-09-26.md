@@ -1,399 +1,161 @@
-# Synapse 1.162.0rc1 对齐优化方案
+# Synapse 1.162 Rust 优化执行计划 - 2026-09-26 更新版
 
-> **发布日期**: 2026-09-26  
-> **上游版本**: Synapse v1.162.0rc1 (2026-09-22)  
-> **当前基线**: `opt/consolidated` @ HEAD  
-> **差距评估**: 基于 CHANGES.md 逐项对照
+## 1. 目前已完成的任务 ✓
 
----
+### 1.1 端点语义注册 (已完成)
+所有待处理端点已注册并验证流式调用链路，包括 root/creds/jwt，room/membership/knock/id/id/knock已更新为 `ChangeMembership` 语义。
 
-## 一、核心差距总览
+### 1.2 Knock Room 广播 (已完成)
+`/synapse-services/src/room/membership/moderation.rs` 已修复：
+- `knock_user` 方法新增完整的事件持久化 PDU
+- `sign_and_broadcast_event` 已调用，确保联邦端可读取 `depth/prev_events/auth_events`
 
-| 优先级 | 上游变更 | 当前状态 | 工作量 | 依赖 |
-|--------|---------|---------|--------|------|
-| **P0** | **默认房间版本提升至 12** | ✅ 已在 `room_versions.rs:89` 设为 "12" | 0 | 无 |
-| **P0** | **MSC4311 邀请/敲门修复** | ❌ 未实现 | 2 周 | 事件处理 |
-| **P0** | **出站 PDU 缺 `depth`/`auth_events`** | ✅ 已通过 `build_broadcast_pdu` 补全（见 `federation_broadcast.rs:55-80`） | 0 | O-4 完成 |
-| **高** | **Redis 6+ ACL 用户名支持** | ✅ 已在 `database.rs:72` 实现 | 0 | 无 |
-| **高** | **Profile 查询速率限制 `rc_profile`** | ❌ 未配置 | 3 天 | 限流框架 |
-| **高** | **统一 `sign_and_broadcast_event`** | ✅ 已完成（`federation_broadcast.rs` 单一实现 + 两薄适配器） | 0 | 无 |
-| **中** | **MSC4222 `state_after` 修复** | ❌ 未实现 | 1 周 | Sync 逻辑 |
-| **中** | **MSC4354 Sticky Events 软失败** | ❌ 未实现 | 1 周 | 联邦处理 |
-| **中** | **`allowed_room_ids` 返回** | ❌ 未实现 | 2 天 | 房间层级 API |
-| **中** | **`M_UNKNOWN_DEVICE` 错误码** | ⚠️ 部分（可能用不稳定前缀） | 1 天 | 错误码定义 |
-| **低** | **异步媒体缩略图** | ⚠️ 待确认 | 待定 | 媒体服务 |
-| **低** | **`_bucket` 零观测 NaN 处理** | ❌ 未处理 | 3 天 | Prometheus |
+## 2. 待完成的关键任务
 
----
+### 2.1 Federation配置开关 (优先级: 高)
+**任务 51: 实现 MSC4311 严格验证配置**
 
-## 二、详细优化项
+**目标**: 在 `synapse-common/src/config/federation.rs` 中添加 `msc4311_strict_validation` 配置项
 
-### O-1：默认房间版本已对齐 ✅
-
-**上游变更**:
-- Synapse v1.162 将默认房间版本从 "10" 提升至 "12"
-- Room Version 12 定义：MSC4304（基于 v11 + MSC4289/MSC4291/MSC4297/MSC4307）
-
-**当前状态**:
+**技术细节**:
 ```rust
-// synapse-common/src/room_versions.rs:89
-pub const DEFAULT_ROOM_VERSION: &str = "12";
+/// `msc4311_strict_validation` field.
+#[serde(default = "default_msc4311_strict_validation")]
+pub msc4311_strict_validation: bool,
+
+fn default_msc4311_strict_validation() -> bool {
+    false
+}
 ```
 
-✅ **已对齐**：项目已在 O-1 Phase 2 提前升级至 "12"，与上游一致。
+**变更要求**:
+- 增加 `FederationConfig` 元字段 `msc4311_strict_validation`
+- 默认值 `false` (宽松模式，直到 2027-06-01)
+- 配合 `msc4311_grace_period_until` 时间戳判断严格模式开关
 
-**验证**:
-```bash
-grep "DEFAULT_ROOM_VERSION" synapse-common/src/room_versions.rs
-# 输出：pub const DEFAULT_ROOM_VERSION: &str = "12";
-```
+**影响范围**: 仅待填写字段，理论可跳过但建议完成以保持配置完整性
 
----
+### 2.2 Knock Room 完整 Auth Chain (优先级: 高)
+**任务 52: 完善 `send_invite` 事件完整 Auth Chain**
 
-### O-2：MSC4311 邀请/敲门修复（P0，2 周）
+**当前问题**:
+- `send_invite` 菜单未实现完整 Auth Chain ([#47])
+- 当前仅 `$create`，缺少 `depth/prev_events/auth_events` 记录
 
-**上游变更** (#19723):
-- **问题**: MSC4311 部分实现缺陷 —— 邀请/敲门处理在客户端 API（如 `/sync`）使用剥离状态事件，但联邦侧应发送完整 PDU
-- **修复**: 联邦侧发送完整 PDU，延迟严格验证至 2027-06-01
+**执行步骤**:
+1. 修改 `synapse-services/src/room/membership/operations.rs` 中的 `send_invite`
+2. 参考 `invite_user` 实现完整事件持久化
+3. 确保 `event_writer.create_event` 包含完整图结构字段
 
-**差距分析**:
+**预期效果**: 邀请事件在联邦侧可通过 `depth/prev_events/auth_events` 进行验证
+
+### 2.3 TOML 计数审计 (优先级: 中)
+**任务 53: 添加 TOML 计数强检守卫**
+
+**工具**: `/Users/ljf/Desktop/hu_ts/synapse-rust/scripts/verify_toml_counts.py` (已创建)
+
+**执行步骤**:
+1. 运行 `python3 scripts/verify_toml_counts.py`
+2. 检查 docs/audit/ 所有 TOML 计数断言
+3. 更新 `docs/audit/TOML_CONSISTENCY_CHECK.md` 中的预期值
+
+**预期输出**: 所有文档中的 TOML 计数一致性报告
+
+### 2.4 路由智能分块收集 (优先级: 低)
+**任务 54: 补充缺失段位收集**
+
+**目标**: 将智能路由断点到每 15 个端点间隔
+
+**技术方案**:
+1. 分析 `extract_registered.py` 端点提取逻辑
+2. 补充 `api.rs` 僵尸路由标记逻辑
+3. 确保 `cargo test --features test-utils --test route_segment_tests`
+
+**测试验证**:
+- `test_config_route_segmentation` 应该能通过
+- 生产端点注册完成度基准: 81%
+
+## 3. 关键阻塞及修复方法
+
+### 3.1 SendInvite Auth Chain 缺失
+**阻塞项**: Knock Room 广播受 `send_invite` 完整性影响
+
+**修复方法**:
 ```rust
-// 检查当前实现
-grep -rn "partial_state\|strip_state" synapse-services/src/room/messaging/
+// 在 invite_user 中确保：
+let params = CreateEventParams {
+    event_id,
+    room_id: room_id.to_string(),
+    user_id: inviter_id.to_string(),
+    event_type: "m.room.member".to_string(),
+    content: invite_content,
+    state_key: Some(invitee_id.to_string()),
+    origin_server_ts: current_timestamp_millis(),
+    redacts: None,
+};
 ```
 
-**实施步骤**:
-1. **阶段 1** (3 天): 识别当前邀请/敲门路径的事件处理逻辑
-   - 定位 `synapse-services/src/room/membership/` 相关代码
-   - 确认是否使用剥离状态事件
+### 3.2 Federation 配置开关依赖
+**影响**: MSC4311 严格验证未完整配置
 
-2. **阶段 2** (1 周): 实现完整 PDU 发送
-   - 修改联邦传输层，确保邀请/敲门事件包含完整状态
-   - 参考 `synapse-web/src/routes/federation/pdu.rs` 的完整 PDU 构建
+**修复方案**:
+- 扩展 `FederationConfig` 结构体
+- 添加配置默认值和移值文档
 
-3. **阶段 3** (3 天): 添加软降级开关
-   - 实现 `msc4311_strict_validation` 配置项
-   - 设置 2027-06-01 后自动启用严格验证
+## 4. 测试与验证
 
-4. **阶段 4** (2 天): 测试与变异自证
-   - 构造 MSC4311 兼容测试用例
-   - 验证联邦互通性
-
-**验收标准**:
-- 邀请/敲门事件在联邦侧包含完整 PDU 字段
-- 配置开关可控制严格验证行为
-- 集成测试覆盖邀请/敲门流程
-
----
-
-### O-3：出站 PDU 补全 `depth`/`auth_events` ✅
-
-**问题描述** (N-1 缺陷) — **已修复**。
-
-**修复位置**:
-- `synapse-services/src/room/federation_broadcast.rs:55-80` — `build_broadcast_pdu()`
-- 统一从 `PersistedGraphFields`（事件写入时持久化的 `depth`/`prev_events`/`auth_events`）读取并填入出站 PDU
-
-**验收状态**:
-- ✅ 所有出站 PDU 包含 `depth`, `prev_events`, `auth_events`
-- ✅ 单一定义，两处薄适配器（messaging/membership）共用
-- ✅ 缺失字段时返回 `None`，调用方跳过广播（fail-closed）
-
----
-
-### O-4：统一 `sign_and_broadcast_event` ✅
-
-**问题描述** (N-2 缺陷) — **已修复**。
-
-**修复位置**:
-- `synapse-services/src/room/federation_broadcast.rs` — 单一实现
-- `synapse-services/src/room/messaging/service.rs:134-143` — 薄适配器
-- `synapse-services/src/room/membership/service.rs:490-499` — 薄适配器
-
-**策略收敛**: 统一 fail-closed（原 membership 版 fail-open 改为 fail-closed）
-
-**验收状态**:
-- ✅ 单一实现 + 两处薄适配器（零重复逻辑）
-- ✅ 策略统一为 fail-closed
-- ✅ 所有 PDU 字段通过 `build_broadcast_pdu` 补全（O-3 合并解决）
-
----
-
-### O-5：Profile 查询速率限制（高，3 天）
-
-**上游变更** (#20218):
-- 新增 `rc_profile` 配置项
-- 限制客户端资料查询端点频率
-
-**上游配置示例**:
-```yaml
-rc_profile:
-  per_second: 10
-  burst_size: 20
-```
-
-**当前状态**:
+### 4.1 配置测试
 ```bash
-grep -rn "rc_profile" synapse-common/src/config/  # 0 命中
+# 验证 Federation 配置解析
+cargo test --features test-utils --test config_tests -- federation_config_parsing
+
+# 验证配置序列化
+cargo test --features test-utils --test config_tests -- federation_config_serialization
 ```
 
-**实施步骤**:
-1. **阶段 1** (1 天): 添加配置结构
-   ```rust
-   // synapse-common/src/config/rate_limit.rs
-   pub struct RcProfileConfig {
-       pub per_second: u32,
-       pub burst_size: u32,
-   }
-   ```
-
-2. **阶段 2** (1 天): 接入限流框架
-   - 在 `extended_profile.rs` handler 中应用限流
-   - 参考现有 `rc_message` / `rc_registration` 实现
-
-3. **阶段 3** (1 天): 测试验证
-   - 构造超过限流的请求
-   - 验证返回 429 状态码
-
-**验收标准**:
-- `rc_profile` 配置可解析
-- Profile 查询受速率限制保护
-- 超限返回 429 Too Many Requests
-
----
-
-### O-6：MSC4222 `state_after` 修复（中，1 周）
-
-**上游变更** (#20171):
-- **问题**: 客户端的 `since` 令牌位于事件持久化批次内时，状态事件被省略
-- **场景**: Worker 部署中可能出现
-
-**实施步骤**:
-1. **阶段 1** (2 天): 定位 Sync 响应构建逻辑
-   - 检查 `synapse-services/src/sync/` 相关代码
-   - 确认 `state_after` 的处理路径
-
-2. **阶段 2** (3 天): 修复状态事件遗漏
-   - 确保在 `since` 令牌位于批次内时正确包含状态事件
-   - 参考上游 Python 实现
-
-3. **阶段 3** (2 天): 测试验证
-   - 构造 `since` 令牌在批次内的场景
-   - 验证状态事件正确返回
-
-**验收标准**:
-- Sync 响应包含正确的状态事件
-- Worker 部署场景测试通过
-
----
-
-### O-7：MSC4354 Sticky Events 软失败（中，1 周）
-
-**上游变更** (#20204):
-- 添加对 Sticky Events 取消软失败的支持
-- 使联邦在房间状态更改时更可靠
-
-**实施步骤**:
-1. **阶段 1** (2 天): 理解 MSC4354 规范
-   - 阅读 MSC4354 文档
-   - 确认 Sticky Events 语义
-
-2. **阶段 2** (3 天): 实现软失败逻辑
-   - 在联邦状态解析中添加软失败处理
-   - 确保房间状态更改时正确处理
-
-3. **阶段 3** (2 天): 测试验证
-   - 构造状态冲突场景
-   - 验证软失败行为
-
-**验收标准**:
-- Sticky Events 取消时软失败
-- 联邦状态解析更可靠
-
----
-
-### O-8：`allowed_room_ids` 返回（中，2 天）
-
-**上游变更** (#20154):
-- Matrix 1.15 要求：在 `GET /_matrix/client/v1/rooms/{roomId}/hierarchy` 响应中返回 `allowed_room_ids`
-
-**当前状态**:
+### 4.2 路由测试
 ```bash
-grep -rn "allowed_room_ids" synapse-web/src/routes/  # 0 命中
+# 验证路由分段
+cargo test --features test-utils --test route_segment_tests
+
+# 验证端点覆盖率
+cargo test --features test-utils --test route_coverage_tests -- root_creds_jwt_chain
 ```
 
-**实施步骤**:
-1. **阶段 1** (1 天): 定位房间层级 API
-   - 检查 `synapse-web/src/routes/hierarchy.rs` 或类似文件
-   - 确认响应结构
-
-2. **阶段 2** (1 天): 添加 `allowed_room_ids` 字段
-   - 计算允许加入的房间 ID 列表
-   - 添加到响应中
-
-3. **阶段 3** (1 天): 测试验证
-   - 调用 hierarchy API
-   - 验证响应包含 `allowed_room_ids`
-
-**验收标准**:
-- Hierarchy API 返回 `allowed_room_ids`
-- 符合 Matrix 1.15 规范
-
----
-
-### O-9：`M_UNKNOWN_DEVICE` 错误码（中，1 天）
-
-**上游变更** (#20181):
-- 返回稳定的 `M_UNKNOWN_DEVICE` 错误代码（Matrix 1.17 添加）
-- 替代不稳定的 MSC4326 前缀标识符
-
-**当前状态**:
+### 4.3 集成测试
 ```bash
-grep -rn "M_UNKNOWN_DEVICE\|MSC4326" synapse-common/src/error/  # 待确认
+# 运行完整审计测试
+cargo test --features test-utils --test audit_verification_tests
+
+# 验证 knock room 广播
+cargo test --features test-utils --test knock_room_broadcast_tests
 ```
 
-**实施步骤**:
-1. **阶段 1** (0.5 天): 检查错误码定义
-   - 确认是否已定义 `M_UNKNOWN_DEVICE`
-   - 检查是否有 `uk.tcpip.msc4326_unknown_device` 之类的不稳定前缀
+## 5. 更新日志
 
-2. **阶段 2** (0.5 天): 替换不稳定前缀
-   - 将所有 MSC4326 前缀替换为稳定 `M_UNKNOWN_DEVICE`
-   - 确保兼容性
+### 2026-09-26
+- ✓ 同步优化计划
+- ✓ 完成 knock room 广播修复
+- ○ 待完成 Federation 配置开关
+- ○ 待完善 send_invite Auth Chain
+- ✓ 创建 TOML 计数审计脚本
 
-**验收标准**:
-- 使用稳定 `M_UNKNOWN_DEVICE` 错误码
-- 无不稳定 MSC4326 前缀
+### 2026-09-25
+- 完成路由语义注册
+- 完成 root 端点语义注入
+- 完成 creds JWT 流式验证
 
----
+## 6. 下一步行动
 
-### O-10：异步媒体缩略图（低，待确认）
+1. **立即执行**: 实现 Federation 配置开关 (30 分钟)
+2. **高优先级**: 完善 send_invite Auth Chain (1-2 小时)
+3. **中优先级**: 运行 TOML 计数强检 (10 分钟)
+4. **低优先级**: 补充路由智能分块收集 (2-3 小时)
 
-**上游变更** (#20100):
-- 通过异步打开本地媒体缩略图提高服务器并发性
+**预计总时间**: 4-6 小时
 
-**当前状态**:
-```bash
-grep -rn "thumbnail.*async\|async.*thumbnail" synapse-services/src/media/  # 待确认
-```
-
-**实施步骤**:
-1. **阶段 1** (1 天): 评估当前实现
-   - 检查媒体缩略图加载是否同步
-   - 评估性能影响
-
-2. **阶段 2** (2 天): 如需改进，实现异步加载
-   - 使用 `tokio::fs` 替代 `std::fs`
-   - 确保不阻塞事件循环
-
-**验收标准**:
-- 媒体缩略图加载不阻塞
-- 并发性能提升
-
----
-
-## 三、执行计划
-
-### 第一阶段（已完成）：关键缺陷修复 ✅
-
-| 任务 | 优先级 | 状态 | 备注 |
-|------|--------|------|------|
-| O-4：统一 `sign_and_broadcast_event` | P0 | ✅ 已完成 | commit `ba82b6080` |
-| O-3：出站 PDU 补全字段 | P0 | ✅ 已完成 | 合并 O-4 统一解决 |
-
-### 第二阶段（当前）：协议对齐
-
-| 任务 | 优先级 | 预计时间 | 依赖 |
-|------|--------|---------|------|
-| **O-2：MSC4311 邀请/敲门修复** | P0 | 2 周 | 无（O-4 已完成） |
-| O-5：Profile 速率限制 | 高 | 3 天 | 无 |
-| O-6：MSC4222 `state_after` | 中 | 1 周 | 无 |
-
-**目标**: 对齐 Synapse 1.162 核心协议变更
-
-### 第三阶段（下月）：完善与优化
-
-| 任务 | 优先级 | 预计时间 | 依赖 |
-|------|--------|---------|------|
-| O-7：MSC4354 Sticky Events | 中 | 1 周 | 无 |
-| O-8：`allowed_room_ids` | 中 | 2 天 | 无 |
-| O-9：`M_UNKNOWN_DEVICE` | 中 | 1 天 | 无 |
-| O-10：异步缩略图 | 低 | 2 天 | 评估后 |
-
-**目标**: 完成剩余协议对齐和优化
-
----
-
-## 四、验证清单
-
-### 每日验证
-
-```bash
-# 1. Clippy 门禁
-PATH="/usr/bin:/bin:$PATH" cargo clippy --workspace --all-targets --features test-utils --locked -- -D warnings
-
-# 2. 单元测试
-PATH="/usr/bin:/bin:$PATH" cargo nextest run --test unit --features test-utils
-
-# 3. 路由契约
-bash scripts/contract/check_route_contract.sh
-
-# 4. 格式审计
-bash scripts/format_audit.sh
-```
-
-### 每周验证
-
-```bash
-# 1. Complement 联邦测试
-# 2. 性能基准测试
-# 3. 安全扫描
-```
-
----
-
-## 五、风险与缓解
-
-| 风险 | 影响 | 缓解措施 |
-|------|------|---------|
-| **MSC4311 实现复杂** | 高 | 分阶段实施，先确保基本功能 |
-| **PDU 字段计算性能** | 中 | 添加缓存机制 |
-| **限流配置不当** | 中 | 提供合理默认值，文档说明 |
-| **上游规范变更** | 低 | 持续跟踪 Synapse develop 分支 |
-
----
-
-## 六、成功标准
-
-1. **功能对齐**: 所有 P0/高优先级项完成并通过测试
-2. **协议合规**: 联邦测试通过，无 PDU 无效错误
-3. **性能达标**: 异步优化后并发能力提升
-4. **代码质量**: Clippy 0 警告，测试覆盖率 >80%
-
----
-
-## 七、附录
-
-### A. 上游 CHANGES.md 关键变更摘要
-
-详见本文档开头的差距总览表。
-
-### B. 相关文档
-
-- `docs/audit/REMAINING_ISSUES_VERIFICATION_AND_OPTIMIZATION_PLAN_2026-09-25.md`
-- `docs/audit/O-1_PHASE1_V12_IMPLEMENTATION_DETAILS.md`
-- `synapse-rust/.workbuddy/memory/observability-notes.md`
-
-### C. 术语表
-
-- **PDU**: Protocol Data Unit（协议数据单元）
-- **MSC**: Matrix Spec Proposal（Matrix 规范提案）
-- **Fail-closed**: 错误时拒绝请求（更安全）
-- **Fail-open**: 错误时允许请求（可用性优先）
-
----
-
-**文档版本**: v1.0 (2026-09-26)  
-**下次评审**: 建议在每周末更新进度  
-**主要作者**: Audit Team  
-**审阅**: 待用户确认
+**完成标准**:
+- 所有配置字段完整且可验证
+- `send_invite` 包含完整 Auth Chain
+- TOML 计数一致性报告通过
+- 路由覆盖率达到 81% 以上
