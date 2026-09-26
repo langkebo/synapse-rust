@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO event_edges (event_id, prev_event_id, is_state)\n                SELECT $1, unnest($2::text[]), true\n                WHERE cardinality($2) > 0\n                ON CONFLICT DO NOTHING\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a63e67b16344913ef2c4e97ea328eac29bc98957ed439c9fe7ad3ce9586b44eb"
+}

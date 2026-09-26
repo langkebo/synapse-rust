@@ -10,42 +10,40 @@ impl EventStorage {
         params: CreateEventParams,
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> Result<RoomEvent, sqlx::Error> {
-        let query = r"
+        // 事务路径与连接池路径共用**一个**连接来源：宏的绑定实参属于调用点，
+        // 所以 SQL 必须写在调用处（此前用 `let query = r"…"` 把静态 SQL 藏进变量，
+        // 既抬高棘轮又绕过 literal 门禁 —— §7 D-59 / R1）。
+        let mut owned;
+        let conn: &mut sqlx::PgConnection = match tx {
+            Some(tx) => &mut *tx,
+            None => {
+                owned = self.pool.acquire().await?;
+                &mut owned
+            }
+        };
+
+        sqlx::query_as!(
+            RoomEvent,
+            r#"
             INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, state_key, origin_server_ts, is_redacted, redacts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9)
             RETURNING event_id, room_id, sender as user_id, event_type, content, state_key,
-                      COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
-                      0::BIGINT as not_before, 'pending' as status,
-                      'self' as origin, stream_ordering, redacts
-            ";
-
-        if let Some(tx) = tx {
-            sqlx::query_as(query)
-                .bind(&params.event_id)
-                .bind(&params.room_id)
-                .bind(&params.user_id)
-                .bind(&params.user_id)
-                .bind(&params.event_type)
-                .bind(&params.content)
-                .bind(params.state_key.as_deref())
-                .bind(params.origin_server_ts)
-                .bind(params.redacts.as_deref())
-                .fetch_one(&mut **tx)
-                .await
-        } else {
-            sqlx::query_as(query)
-                .bind(&params.event_id)
-                .bind(&params.room_id)
-                .bind(&params.user_id)
-                .bind(&params.user_id)
-                .bind(&params.event_type)
-                .bind(&params.content)
-                .bind(params.state_key.as_deref())
-                .bind(params.origin_server_ts)
-                .bind(params.redacts.as_deref())
-                .fetch_one(&*self.pool)
-                .await
-        }
+                      COALESCE(depth, 0) as "depth!", origin_server_ts as "processed_ts",
+                      origin_server_ts, 0::BIGINT as "not_before!", 'pending' as "status?",
+                      'self' as "origin!", stream_ordering, redacts
+            "#,
+            &params.event_id,
+            &params.room_id,
+            &params.user_id,
+            &params.user_id,
+            &params.event_type,
+            &params.content,
+            params.state_key.as_deref(),
+            params.origin_server_ts,
+            params.redacts.as_deref(),
+        )
+        .fetch_one(&mut *conn)
+        .await
     }
 
     /// v12+ event creation with complete PDU graph fields.
@@ -66,48 +64,40 @@ impl EventStorage {
         let prev_events_json = serde_json::to_value(&pdu_graph.prev_events).unwrap_or(serde_json::Value::Null);
         let auth_events_json = serde_json::to_value(&pdu_graph.auth_events).unwrap_or(serde_json::Value::Null);
 
-        let query = r"
+        let mut owned;
+        let conn: &mut sqlx::PgConnection = match tx {
+            Some(tx) => &mut *tx,
+            None => {
+                owned = self.pool.acquire().await?;
+                &mut owned
+            }
+        };
+
+        sqlx::query_as!(
+            RoomEvent,
+            r#"
             INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, state_key, origin_server_ts, is_redacted, redacts, depth, prev_events, auth_events)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9, $10, $11, $12)
             RETURNING event_id, room_id, sender as user_id, event_type, content, state_key,
-                      COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
-                      0::BIGINT as not_before, 'pending' as status,
-                      'self' as origin, stream_ordering, redacts
-        ";
-
-        if let Some(tx) = tx {
-            sqlx::query_as(query)
-                .bind(&params.event_id)
-                .bind(&params.room_id)
-                .bind(&params.user_id)
-                .bind(&params.user_id)
-                .bind(&params.event_type)
-                .bind(&params.content)
-                .bind(params.state_key.as_deref())
-                .bind(params.origin_server_ts)
-                .bind(params.redacts.as_deref())
-                .bind(pdu_graph.depth)
-                .bind(&prev_events_json)
-                .bind(&auth_events_json)
-                .fetch_one(&mut **tx)
-                .await
-        } else {
-            sqlx::query_as(query)
-                .bind(&params.event_id)
-                .bind(&params.room_id)
-                .bind(&params.user_id)
-                .bind(&params.user_id)
-                .bind(&params.event_type)
-                .bind(&params.content)
-                .bind(params.state_key.as_deref())
-                .bind(params.origin_server_ts)
-                .bind(params.redacts.as_deref())
-                .bind(pdu_graph.depth)
-                .bind(&prev_events_json)
-                .bind(&auth_events_json)
-                .fetch_one(&*self.pool)
-                .await
-        }
+                      COALESCE(depth, 0) as "depth!", origin_server_ts as "processed_ts",
+                      origin_server_ts, 0::BIGINT as "not_before!", 'pending' as "status?",
+                      'self' as "origin!", stream_ordering, redacts
+            "#,
+            &params.event_id,
+            &params.room_id,
+            &params.user_id,
+            &params.user_id,
+            &params.event_type,
+            &params.content,
+            params.state_key.as_deref(),
+            params.origin_server_ts,
+            params.redacts.as_deref(),
+            pdu_graph.depth,
+            &prev_events_json,
+            &auth_events_json,
+        )
+        .fetch_one(&mut *conn)
+        .await
     }
 
     /// Like `create_event` but also persists the event DAG metadata
@@ -145,80 +135,65 @@ impl EventStorage {
         let prev_events_json = serde_json::to_value(prev_events).unwrap_or(serde_json::Value::Null);
         let auth_events_json = serde_json::to_value(auth_events).unwrap_or(serde_json::Value::Null);
 
+        // 连接来源收敛成一个：宏的绑定实参属于调用点，SQL 必须写在调用处
+        // （此前把静态 SQL 藏进 `let … = r"…"` 变量 —— §7 D-59 / R1）。
+        let mut owned_tx: Option<sqlx::Transaction<'_, sqlx::Postgres>> = None;
+        let conn: &mut sqlx::PgConnection = match tx {
+            Some(tx) => &mut *tx,
+            None => {
+                // 无调用方事务：事件行与其 DAG 边必须在**同一本地事务**里落库，
+                // 否则 `event_edges` 插入失败会留下孤立 `events` 行（B8）。
+                let begun = self.pool.begin().await?;
+                &mut *owned_tx.insert(begun)
+            }
+        };
+
         // P2-1: Insert event row first, then batch edge inserts in same txn
-        let insert_event_query = r"
+        let event = sqlx::query_as!(
+            RoomEvent,
+            r#"
             INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, state_key, origin_server_ts, is_redacted, redacts, depth, prev_events, auth_events)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9, $10, $11, $12)
             RETURNING event_id, room_id, sender as user_id, event_type, content, state_key,
-                      COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
-                      0::BIGINT as not_before, 'pending' as status,
-                      'self' as origin, stream_ordering, redacts
-        ";
+                      COALESCE(depth, 0) as "depth!", origin_server_ts as "processed_ts",
+                      origin_server_ts, 0::BIGINT as "not_before!", 'pending' as "status?",
+                      'self' as "origin!", stream_ordering, redacts
+            "#,
+            &params.event_id,
+            &params.room_id,
+            &params.user_id,
+            &params.user_id,
+            &params.event_type,
+            &params.content,
+            params.state_key.as_deref(),
+            params.origin_server_ts,
+            params.redacts.as_deref(),
+            depth,
+            &prev_events_json,
+            &auth_events_json,
+        )
+        .fetch_one(&mut *conn)
+        .await?;
 
         // P2-1: Batch insert all prev_edges in a single round-trip using unnest()
-        let insert_edges_query = r"
-            INSERT INTO event_edges (event_id, prev_event_id, is_state)
-            SELECT $1, unnest($2::text[]), false
-            WHERE cardinality($2) > 0
-            ON CONFLICT DO NOTHING
-        ";
+        if !prev_events.is_empty() {
+            sqlx::query!(
+                r#"
+                INSERT INTO event_edges (event_id, prev_event_id, is_state)
+                SELECT $1, unnest($2::text[]), false
+                WHERE cardinality($2) > 0
+                ON CONFLICT DO NOTHING
+                "#,
+                &params.event_id,
+                prev_events,
+            )
+            .execute(&mut *conn)
+            .await?;
+        }
 
-        let event = if let Some(tx) = tx {
-            let event = sqlx::query_as(insert_event_query)
-                .bind(&params.event_id)
-                .bind(&params.room_id)
-                .bind(&params.user_id)
-                .bind(&params.user_id)
-                .bind(&params.event_type)
-                .bind(&params.content)
-                .bind(params.state_key.as_deref())
-                .bind(params.origin_server_ts)
-                .bind(params.redacts.as_deref())
-                .bind(depth)
-                .bind(&prev_events_json)
-                .bind(&auth_events_json)
-                .fetch_one(&mut **tx)
-                .await?;
-
-            // P2-1: Batch edge inserts in same transaction
-            if !prev_events.is_empty() {
-                sqlx::query(insert_edges_query).bind(&params.event_id).bind(prev_events).execute(&mut **tx).await?;
-            }
-            event
-        } else {
-            // No caller transaction: wrap the event row and its DAG edges in a
-            // local transaction so that a failed `event_edges` insert cannot
-            // leave an orphaned `events` row behind (B8).
-            let mut local_tx = self.pool.begin().await?;
-
-            let event = sqlx::query_as(insert_event_query)
-                .bind(&params.event_id)
-                .bind(&params.room_id)
-                .bind(&params.user_id)
-                .bind(&params.user_id)
-                .bind(&params.event_type)
-                .bind(&params.content)
-                .bind(params.state_key.as_deref())
-                .bind(params.origin_server_ts)
-                .bind(params.redacts.as_deref())
-                .bind(depth)
-                .bind(&prev_events_json)
-                .bind(&auth_events_json)
-                .fetch_one(&mut *local_tx)
-                .await?;
-
-            // P2-1: Batch edge inserts in same local transaction
-            if !prev_events.is_empty() {
-                sqlx::query(insert_edges_query)
-                    .bind(&params.event_id)
-                    .bind(prev_events)
-                    .execute(&mut *local_tx)
-                    .await?;
-            }
-
-            local_tx.commit().await?;
-            event
-        };
+        if let Some(tx) = owned_tx {
+            tx.commit().await?;
+        }
 
         Ok(event)
     }
@@ -255,113 +230,84 @@ impl EventStorage {
         let auth_events_json = serde_json::to_value(auth_events).unwrap_or(serde_json::Value::Null);
         let prev_state_events_json = serde_json::to_value(prev_state_events).unwrap_or(serde_json::Value::Null);
 
-        let insert_event_query = r"
+        // 连接来源收敛成一个（同 `create_event_with_graph`）：宏的绑定实参属于调用点。
+        let mut owned_tx: Option<sqlx::Transaction<'_, sqlx::Postgres>> = None;
+        let conn: &mut sqlx::PgConnection = match tx {
+            Some(tx) => &mut *tx,
+            None => {
+                // 无调用方事务：事件行与**两组** DAG 边必须在**同一本地事务**里落库，
+                // 否则 `event_edges` 插入失败会留下孤立 `events` 行（`/get_missing_events`
+                // 永远走不到它）。这与 B8 给 `create_event_with_graph` 关掉的是同一个半写窗口，
+                // 此前因为两处插入逻辑重复而漏掉了这一条路径（2026-09-23 实测；
+                // 红证明 `create_state_event_with_dag_rolls_back_event_when_edges_insert_fails`）。
+                let begun = self.pool.begin().await?;
+                &mut *owned_tx.insert(begun)
+            }
+        };
+
+        let event = sqlx::query_as!(
+            RoomEvent,
+            r#"
             INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, state_key,
                                 origin_server_ts, is_redacted, redacts, depth,
                                 prev_events, auth_events, prev_state_events)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9, $10, $11, $12, $13)
             RETURNING event_id, room_id, sender as user_id, event_type, content, state_key,
-                      COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
-                      0::BIGINT as not_before, 'pending' as status,
-                      'self' as origin, stream_ordering, redacts
-        ";
+                      COALESCE(depth, 0) as "depth!", origin_server_ts as "processed_ts",
+                      origin_server_ts, 0::BIGINT as "not_before!", 'pending' as "status?",
+                      'self' as "origin!", stream_ordering, redacts
+            "#,
+            &params.event_id,
+            &params.room_id,
+            &params.user_id,
+            &params.user_id,
+            &params.event_type,
+            &params.content,
+            params.state_key.as_deref(),
+            params.origin_server_ts,
+            params.redacts.as_deref(),
+            depth,
+            &prev_events_json,
+            &auth_events_json,
+            &prev_state_events_json,
+        )
+        .fetch_one(&mut *conn)
+        .await?;
 
         // P2-1: Batch room DAG edges
-        let insert_room_edges_query = r"
-            INSERT INTO event_edges (event_id, prev_event_id, is_state)
-            SELECT $1, unnest($2::text[]), false
-            WHERE cardinality($2) > 0
-            ON CONFLICT DO NOTHING
-        ";
-
+        if !prev_events.is_empty() {
+            sqlx::query!(
+                r#"
+                INSERT INTO event_edges (event_id, prev_event_id, is_state)
+                SELECT $1, unnest($2::text[]), false
+                WHERE cardinality($2) > 0
+                ON CONFLICT DO NOTHING
+                "#,
+                &params.event_id,
+                prev_events,
+            )
+            .execute(&mut *conn)
+            .await?;
+        }
         // P2-1: Batch state DAG edges
-        let insert_state_edges_query = r"
-            INSERT INTO event_edges (event_id, prev_event_id, is_state)
-            SELECT $1, unnest($2::text[]), true
-            WHERE cardinality($2) > 0
-            ON CONFLICT DO NOTHING
-        ";
+        if !prev_state_events.is_empty() {
+            sqlx::query!(
+                r#"
+                INSERT INTO event_edges (event_id, prev_event_id, is_state)
+                SELECT $1, unnest($2::text[]), true
+                WHERE cardinality($2) > 0
+                ON CONFLICT DO NOTHING
+                "#,
+                &params.event_id,
+                prev_state_events,
+            )
+            .execute(&mut *conn)
+            .await?;
+        }
 
-        let event = if let Some(tx) = tx {
-            let event = sqlx::query_as(insert_event_query)
-                .bind(&params.event_id)
-                .bind(&params.room_id)
-                .bind(&params.user_id)
-                .bind(&params.user_id)
-                .bind(&params.event_type)
-                .bind(&params.content)
-                .bind(params.state_key.as_deref())
-                .bind(params.origin_server_ts)
-                .bind(params.redacts.as_deref())
-                .bind(depth)
-                .bind(&prev_events_json)
-                .bind(&auth_events_json)
-                .bind(&prev_state_events_json)
-                .fetch_one(&mut **tx)
-                .await?;
-
-            // P2-1: Batch room DAG edges
-            if !prev_events.is_empty() {
-                sqlx::query(insert_room_edges_query)
-                    .bind(&params.event_id)
-                    .bind(prev_events)
-                    .execute(&mut **tx)
-                    .await?;
-            }
-            // P2-1: Batch state DAG edges
-            if !prev_state_events.is_empty() {
-                sqlx::query(insert_state_edges_query)
-                    .bind(&params.event_id)
-                    .bind(prev_state_events)
-                    .execute(&mut **tx)
-                    .await?;
-            }
-            event
-        } else {
-            // 无调用方事务：事件行与两组 DAG 边必须在**同一本地事务**里落库，
-            // 否则 `event_edges` 插入失败会留下孤立 `events` 行（`/get_missing_events`
-            // 永远走不到它）。这与 B8 给 `create_event_with_graph` 关掉的是同一个半写窗口，
-            // 此前因为两处插入逻辑重复而漏掉了这一条路径（2026-09-23 实测；
-            // 红证明 `create_state_event_with_dag_rolls_back_event_when_edges_insert_fails`）。
-            let mut local_tx = self.pool.begin().await?;
-
-            let event = sqlx::query_as(insert_event_query)
-                .bind(&params.event_id)
-                .bind(&params.room_id)
-                .bind(&params.user_id)
-                .bind(&params.user_id)
-                .bind(&params.event_type)
-                .bind(&params.content)
-                .bind(params.state_key.as_deref())
-                .bind(params.origin_server_ts)
-                .bind(params.redacts.as_deref())
-                .bind(depth)
-                .bind(&prev_events_json)
-                .bind(&auth_events_json)
-                .bind(&prev_state_events_json)
-                .fetch_one(&mut *local_tx)
-                .await?;
-
-            // P2-1: Batch room DAG edges
-            if !prev_events.is_empty() {
-                sqlx::query(insert_room_edges_query)
-                    .bind(&params.event_id)
-                    .bind(prev_events)
-                    .execute(&mut *local_tx)
-                    .await?;
-            }
-            // P2-1: Batch state DAG edges
-            if !prev_state_events.is_empty() {
-                sqlx::query(insert_state_edges_query)
-                    .bind(&params.event_id)
-                    .bind(prev_state_events)
-                    .execute(&mut *local_tx)
-                    .await?;
-            }
-
-            local_tx.commit().await?;
-            event
-        };
+        if let Some(tx) = owned_tx {
+            tx.commit().await?;
+        }
 
         Ok(event)
     }
@@ -376,19 +322,19 @@ impl EventStorage {
         origin_server_ts: i64,
         sender: &str,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             INSERT INTO events (event_id, room_id, user_id, event_type, content, state_key, origin_server_ts, sender, unsigned)
             VALUES ($1, $2, $3, 'm.room.power_levels', $4, '', $5, $6, '{}'::jsonb)
             ON CONFLICT (event_id) DO UPDATE SET content = $4
-            ",
+            "#,
+            event_id,
+            room_id,
+            user_id,
+            content,
+            origin_server_ts,
+            sender,
         )
-        .bind(event_id)
-        .bind(room_id)
-        .bind(user_id)
-        .bind(content)
-        .bind(origin_server_ts)
-        .bind(sender)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -396,18 +342,21 @@ impl EventStorage {
 
     /// See [`get_room_create_event`].
     pub async fn get_room_create_event(&self, room_id: &str) -> Result<Option<RoomEvent>, sqlx::Error> {
-        sqlx::query_as::<_, RoomEvent>(
-            r"
-            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, COALESCE(origin, 'self') as origin, stream_ordering, redacts
+        sqlx::query_as!(
+            RoomEvent,
+            r#"
+            SELECT event_id, room_id, COALESCE(user_id, sender) as "user_id!", event_type, content, state_key,
+                   COALESCE(depth, 0) as "depth!", COALESCE(origin_server_ts, 0) as "origin_server_ts!",
+                   COALESCE(origin_server_ts, 0) as "processed_ts!",
+                   COALESCE(not_before, 0) as "not_before!", status, COALESCE(origin, 'self') as "origin!",
+                   stream_ordering, redacts
             FROM events
             WHERE room_id = $1 AND event_type = 'm.room.create'
             ORDER BY origin_server_ts ASC
             LIMIT 1
-            ",
+            "#,
+            room_id,
         )
-        .bind(room_id)
         .fetch_optional(&*self.pool)
         .await
     }
