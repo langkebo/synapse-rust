@@ -2075,11 +2075,28 @@
 # 说明：`dynamic_production` 由 513 调到 **515** 属"**带归因的临时上调**"，**不是**
 # "该 SQL 无法静态化" —— 按本文件体例，只有后者可直接上调；前者必须附**偿还计划**，
 # 即 §7 D-59 的 `event/create.rs` C 批次。
-BASELINE_DYNAMIC_PRODUCTION=515
+# ── 2026-09-25 C29 收紧（`event/create.rs` 16 处静态 SQL 全部宏化；偿还 D-59）──────
+# dynamic_production 515 → **499**（−16）、static 961 → **970**（+9）、
+# dynamic 1226 → **1210**（= 499 + 711）。census 实测 499 / 711 / 970。
+# 该文件此前把**全部**静态 SQL 藏进局部变量（`let x_query = r"…"` + `query_as(x_query)`），
+# 其中 14 处被 census 归为 `runtime`（绕过 literal 棘轮）、2 处是直接字面量：
+#   `create_event`(2) / `create_event_with_pdu`(2) / `create_event_with_graph`(4) /
+#   `create_state_event_with_dag`(6) / `upsert_power_levels_event`(1) /
+#   `get_room_create_event`(1)。
+# 转换后这 16 处动态 → **9 个宏调用**（相差 7 是因为 `if let Some(tx) … else …` 两条分支
+# 收敛成一次调用：先把连接来源收敛成一个 `&mut PgConnection`，再写一次宏 —— 见 R1）。
+# ⇒ **D-59 已偿还且超额**：当时预估"≤511"，实际 **499**（同型反模式在两个 graph/DAG 方法里
+# 也有，一并清掉）。`BASELINE_DYNAMIC_PRODUCTION` 的临时上调（513 → 515）就此撤销并继续下压。
+# nullability 面：`COALESCE(...)` 与合成列（`0::BIGINT`、`'pending'`、`'self'`）
+# 无 relation origin ⇒ 逐个按结构体字段收口（`as "depth!"` / `as "not_before!"` /
+# `as "origin!"`）；`status` / `stream_ordering` 本就是可空列 ⇒ 留 `as "status?"`；
+# `#[sqlx(rename = "processed_at")]` 对 `query_as!` 无效（D-19）⇒ SQL 里改别名
+# `origin_server_ts as "processed_ts"`。
+BASELINE_DYNAMIC_PRODUCTION=499
 BASELINE_DYNAMIC_TEST_INFRA=711
-BASELINE_STATIC=961
+BASELINE_STATIC=970
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1226
+BASELINE_DYNAMIC=1210
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

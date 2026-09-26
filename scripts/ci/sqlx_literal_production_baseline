@@ -84,6 +84,12 @@
 #   变化仅一行，已按文件头生成命令重跑后逐行复核：删
 #   `synapse-e2ee/src/cross_signing/storage.rs  13`（该文件归零退表；其中 1 处随
 #   `save_device_key` 死代码删除回收、12 处宏化）。runtime 侧不变，仍 83 处 / 15 文件。
+# ── 2026-09-25 C29 收紧（`event/create.rs` 16 处静态 SQL 全部宏化，本批）：
+#   literal 430 → **428** / 71 → **70** ──
+#   删 `synapse-storage/src/event/create.rs  2`（该文件归零退表：2 处直接字面量转宏，
+#   另 14 处"藏进变量"的 runtime 站点一并转宏 —— 后者不在本表，只在 ratio 棘轮里）。
+#   runtime 侧：**83（C27）→ 85（并发会话 `e55588718` 在 create.rs 加 2 处）→ 71（本批，−14）**，
+#   15 → **14** 文件（`event/create.rs` 退出该清单）。
 src/server/database.rs	1
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
@@ -113,7 +119,6 @@ synapse-storage/src/email_verification.rs	8
 synapse-storage/src/event/basic.rs	8
 synapse-storage/src/event/batch.rs	7
 synapse-storage/src/event/cascade.rs	2
-synapse-storage/src/event/create.rs	2
 synapse-storage/src/event/dag.rs	8
 synapse-storage/src/event/ephemeral.rs	4
 synapse-storage/src/event/pagination.rs	6
