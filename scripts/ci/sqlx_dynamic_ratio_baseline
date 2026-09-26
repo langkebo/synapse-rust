@@ -2108,11 +2108,32 @@
 # 同批独立提交的 **D-61**（`admin_media.rs` 去掉 fail-open 的 `unwrap_or(false)`）**不改计数**：
 # 该查询本来就是静态的，只是换了断言形态。
 # `#[cfg(test)]` 内 5 处夹具动态 SQL 按 D-13/D-14 保持原样（计入 `dynamic_test`）。
-BASELINE_DYNAMIC_PRODUCTION=487
+# ── 2026-09-25 C31 收紧（`to_device/storage.rs` 12 处 + `relations/mod.rs` 11 处，本批）──
+# dynamic_production 487 → **464**（−23）、static 982 → **1005**（+23）、
+# dynamic 1198 → **1175**（= 464 + 711）。census 实测 464 / 711 / 1005。
+# `to_device/storage.rs`（12 处，`synapse-e2ee`）：`device_exists` / `record_transaction` /
+#   `cleanup_old_transactions` / `add_message` / `device_exists_batch` / `get_messages` /
+#   `get_messages_since` / `get_current_stream_id` / `has_messages_since` /
+#   `get_and_delete_messages` / `delete_messages` / `delete_messages_up_to`。
+# `relations/mod.rs`（11 处）：`create_relation` / `create_relation_in_tx` / `get_relation` /
+#   `count_relations` / `get_annotations` / `get_references` / `get_replacement` /
+#   `aggregate_annotations` / `redact_relation` / `delete_relation` / `relation_exists`。
+# 两文件都**没有** tx/pool 双分支，且 `create_relation` 与其 tx 变体共享同一 SQL 文本
+# ⇒ 23 处动态 → **22 个宏调用 / 22 条缓存条目**（一一对应，唯一例外是那一对同文本）。
+# 本批实测出的三条机械判据（详见 §8.28，后续批次直接照用）：
+#   ① **UNION 的输出列会被推可空**（PG 的 Describe 不给 UNION 结果透传 NOT NULL）
+#      ⇒ `device_exists_batch` 两列要写 `AS "user_id!"` / `AS "device_id!"`；
+#   ② **`LIMIT $n` 在宏下按 `bigint` 定型** ⇒ 形参是 `i32` 时必须 `i64::from(limit)`
+#      （动态路径由 PG 隐式放宽，宏把这一步变成编译期错）；
+#   ③ **断言别名会真的成为输出列名** ⇒ `COUNT(*) AS "count!"` 之后 `ORDER BY count`
+#      解析不到，必须写 `ORDER BY COUNT(*) DESC`。
+# 无 relation origin 的表达式（`COUNT(*)`、`COALESCE(MAX(...),0)`）一律显式断言，
+# 不用 `unwrap_or` 兜底（D-61 的结论）。
+BASELINE_DYNAMIC_PRODUCTION=464
 BASELINE_DYNAMIC_TEST_INFRA=711
-BASELINE_STATIC=982
+BASELINE_STATIC=1005
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1198
+BASELINE_DYNAMIC=1175
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

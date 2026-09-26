@@ -95,6 +95,12 @@
 #   直接字面量全部转宏，文件内 0 处运行期拼装）。runtime 侧不变，仍 **71 处 / 14 文件**。
 #   同批独立提交的 D-61（`admin_media.rs` 改 `AS "exists!"`）也不改本表：该行 8 处
 #   是历史存量，本批一动未动。
+# ── 2026-09-25 C31 收紧（`to_device/storage.rs` 12 + `relations/mod.rs` 11，本批）：
+#   literal 416 → **393** / 69 → **67** ──
+#   本批唯一变化是删两行：`synapse-e2ee/src/to_device/storage.rs  12` 与
+#   `synapse-storage/src/relations/mod.rs  11`（两文件均归零退表）。runtime 侧不变，
+#   仍 **71 处 / 14 文件**（两文件本就没有运行期拼装；`relations` 的键集分页 QueryBuilder
+#   属 D-14 允许残差，不计入本表）。
 # ⚠️ **并修正 C29 遗留的漂移**：本文件末尾的「运行期拼装残差清单」当时没跟着更新，
 #   仍列着 `12  synapse-storage/src/event/create.rs`（合计 83 / 15 文件）。已按实测重写为
 #   71 / 14 文件。教训同 R13：**改了计数就要把所有副本一起改**，否则摘要块会变成第二份计数。
@@ -109,7 +115,6 @@ synapse-e2ee/src/key_request/storage.rs	9
 synapse-e2ee/src/secure_backup/service.rs	10
 synapse-e2ee/src/signature/storage.rs	3
 synapse-e2ee/src/ssss/storage.rs	10
-synapse-e2ee/src/to_device/storage.rs	12
 synapse-federation/src/dead_letter_queue.rs	3
 synapse-federation/src/device_sync.rs	3
 synapse-federation/src/event_broadcaster.rs	8
@@ -155,7 +160,6 @@ synapse-storage/src/pruning.rs	9
 synapse-storage/src/push/mod.rs	11
 synapse-storage/src/qr_login.rs	5
 synapse-storage/src/rate_limit.rs	3
-synapse-storage/src/relations/mod.rs	11
 synapse-storage/src/room/models.rs	1
 synapse-storage/src/room_account_data.rs	7
 synapse-storage/src/room_summary/repository.rs	2
