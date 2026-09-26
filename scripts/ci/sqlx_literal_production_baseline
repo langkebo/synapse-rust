@@ -112,6 +112,10 @@
 # ── 2026-09-25 C33 收紧（`push/mod.rs` 11 处宏化 + 去掉 PgRow 泄漏，本批）：
 #   literal 361 → **350** / 64 → **63** ──
 #   删 `synapse-storage/src/push/mod.rs  11`（归零退表）。runtime 侧不变，仍 **71 处 / 14 文件**。
+# ── 2026-09-25 C34 收紧（`dehydrated_device.rs` 10 + `pruning.rs` 9 + `invite_blocklist.rs` 9）：
+#   literal 350 → **322** / 63 → **60** ──
+#   删三行：`synapse-storage/src/dehydrated_device.rs  10`、`synapse-storage/src/pruning.rs  9`、
+#   `synapse-storage/src/invite_blocklist.rs  9`（三文件均归零退表）。runtime 侧不变，仍 **71 处 / 14 文件**。
 # ⚠️ **并修正 C29 遗留的漂移**：本文件末尾的「运行期拼装残差清单」当时没跟着更新，
 #   仍列着 `12  synapse-storage/src/event/create.rs`（合计 83 / 15 文件）。已按实测重写为
 #   71 / 14 文件。教训同 R13：**改了计数就要把所有副本一起改**，否则摘要块会变成第二份计数。
@@ -136,7 +140,6 @@ synapse-storage/src/admin_media.rs	8
 synapse-storage/src/audit.rs	4
 synapse-storage/src/burn_after_read.rs	15
 synapse-storage/src/call_session.rs	7
-synapse-storage/src/dehydrated_device.rs	10
 synapse-storage/src/delayed_events.rs	7
 synapse-storage/src/e2ee_audit.rs	7
 synapse-storage/src/email_verification.rs	8
@@ -155,7 +158,6 @@ synapse-storage/src/feature_flags.rs	5
 synapse-storage/src/federation_blacklist.rs	7
 synapse-storage/src/federation_queue.rs	8
 synapse-storage/src/filter.rs	5
-synapse-storage/src/invite_blocklist.rs	9
 synapse-storage/src/login_token.rs	3
 synapse-storage/src/maintenance.rs	3
 synapse-storage/src/media/quarantine_stream.rs	6
@@ -165,7 +167,6 @@ synapse-storage/src/oauth_client_storage.rs	2
 synapse-storage/src/oidc_user_mapping.rs	3
 synapse-storage/src/openid_token.rs	7
 synapse-storage/src/presence/mod.rs	1
-synapse-storage/src/pruning.rs	9
 synapse-storage/src/qr_login.rs	5
 synapse-storage/src/rate_limit.rs	3
 synapse-storage/src/room/models.rs	1

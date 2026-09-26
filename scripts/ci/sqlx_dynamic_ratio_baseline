@@ -2168,11 +2168,25 @@
 #   ③ `get_pushers` 的 `lang` 与 push_rules 的 `is_enabled` / `is_default` 在 schema 里可空
 #      （都有 DEFAULT），但写入方唯一且恒写非空值 ⇒ 按 R4 断言 `AS "lang!"` 等，
 #      语义与旧 `row.get::<T>` 的"非空期望"一致，只是把检查提前到编译期。
-BASELINE_DYNAMIC_PRODUCTION=421
+# ── 2026-09-25 C34 收紧（`dehydrated_device.rs` 10 + `pruning.rs` 9 + `invite_blocklist.rs` 9）──
+# dynamic_production 421 → **393**（−28）、static 1048 → **1076**（+28）、
+# dynamic 1132 → **1104**（= 393 + 711）。census 实测 393 / 711 / 1076。
+# 三文件全在 `synapse-storage`，均为单表/管理面模块，无 feature 门控：
+#   `dehydrated_device.rs`（MSC3814；含 `FOR UPDATE` 的 read-modify-write、两条 CTE 外 DELETE）、
+#   `pruning.rs`（9 条保留期 DELETE，全部单参数）、
+#   `invite_blocklist.rs`（两张房间级名单的 clear-then-insert 事务 + EXISTS 单往返判定）。
+# 28 处动态 → 28 个宏调用，但只 **27 条缓存条目**：`DELETE FROM dehydrated_devices WHERE user_id = $1`
+# 在 `upsert_for_user` 与 `delete_by_user` 里各一次、文本相同 ⇒ 共用（同 C31/C32 的先例）。
+# 顺带清理：`dehydrated_device::DehydratedDevice` 的 `sqlx::FromRow` 在宏化后成为死代码（全仓无第二处
+# `query_as::<_, DehydratedDevice>`）⇒ 删除；两处函数内的 `use sqlx::Row;` 与手工 `row.get("…")`
+# 解码随宏化消失（`claim_to_device_events` 的 5 列 + `claim_one_time_key` 的 2 列）。
+# 可空性：`invite_blocklist` 的两处 `EXISTS(...)` 判定按 R4 断言 `AS "blocked!"` 等
+# （`EXISTS` 恒非 NULL，且断言的是"该行是否存在"这一确定语义）。
+BASELINE_DYNAMIC_PRODUCTION=393
 BASELINE_DYNAMIC_TEST_INFRA=711
-BASELINE_STATIC=1048
+BASELINE_STATIC=1076
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1132
+BASELINE_DYNAMIC=1104
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #
