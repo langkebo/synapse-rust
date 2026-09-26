@@ -90,6 +90,14 @@
 #   另 14 处"藏进变量"的 runtime 站点一并转宏 —— 后者不在本表，只在 ratio 棘轮里）。
 #   runtime 侧：**83（C27）→ 85（并发会话 `e55588718` 在 create.rs 加 2 处）→ 71（本批，−14）**，
 #   15 → **14** 文件（`event/create.rs` 退出该清单）。
+# ── 2026-09-25 C30 收紧（`retention.rs` 12 处宏化，本批）：literal 428 → **416** / 70 → **69** ──
+#   本批唯一变化是删掉 `synapse-storage/src/retention.rs  12`（该文件归零退表：12 处
+#   直接字面量全部转宏，文件内 0 处运行期拼装）。runtime 侧不变，仍 **71 处 / 14 文件**。
+#   同批独立提交的 D-61（`admin_media.rs` 改 `AS "exists!"`）也不改本表：该行 8 处
+#   是历史存量，本批一动未动。
+# ⚠️ **并修正 C29 遗留的漂移**：本文件末尾的「运行期拼装残差清单」当时没跟着更新，
+#   仍列着 `12  synapse-storage/src/event/create.rs`（合计 83 / 15 文件）。已按实测重写为
+#   71 / 14 文件。教训同 R13：**改了计数就要把所有副本一起改**，否则摘要块会变成第二份计数。
 src/server/database.rs	1
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
@@ -148,7 +156,6 @@ synapse-storage/src/push/mod.rs	11
 synapse-storage/src/qr_login.rs	5
 synapse-storage/src/rate_limit.rs	3
 synapse-storage/src/relations/mod.rs	11
-synapse-storage/src/retention.rs	12
 synapse-storage/src/room/models.rs	1
 synapse-storage/src/room_account_data.rs	7
 synapse-storage/src/room_summary/repository.rs	2
@@ -161,9 +168,10 @@ synapse-storage/src/user/storage.rs	1
 synapse-storage/src/voice.rs	10
 synapse-test-utils/src/lib.rs	14
 # ── 当前「运行期拼装」残差清单（**允许**，不入棘轮；仅作可读性摘要）────────────
+# 合计 **71 处 / 14 文件**（2026-09-25 C30 后实测；与 ratio 棘轮的
+# `dynamic_production − literal` = 487 − 416 = 71 一致）：
 #    16  synapse-common/src/test_isolation.rs
 #    14  synapse-test-utils/src/lib.rs
-#    12  synapse-storage/src/event/create.rs
 #     9  synapse-storage/src/event/pagination.rs
 #     9  synapse-storage/src/event/state.rs
 #     4  synapse-storage/src/membership/mod.rs

@@ -2092,11 +2092,27 @@
 # `as "origin!"`）；`status` / `stream_ordering` 本就是可空列 ⇒ 留 `as "status?"`；
 # `#[sqlx(rename = "processed_at")]` 对 `query_as!` 无效（D-19）⇒ SQL 里改别名
 # `origin_server_ts as "processed_ts"`。
-BASELINE_DYNAMIC_PRODUCTION=499
+# ── 2026-09-25 C30 收紧（`retention.rs` 12 处静态 SQL 全部宏化，本批）──────────────
+# dynamic_production 499 → **487**（−12）、static 970 → **982**（+12）、
+# dynamic 1210 → **1198**（= 487 + 711）。census 实测 487 / 711 / 982。
+# `retention.rs` 的 12 处**全是**直接字面量（无一处"藏进变量"），分属 8 个方法：
+#   `create_room_policy` / `get_room_policy` / `update_room_policy` / `delete_room_policy` /
+#   `get_server_policy` / `update_server_policy` / `delete_local_messages_before` /
+#   `get_rooms_with_policies` / `get_server_policy_optional` / `upsert_server_policy` /
+#   `count_room_policies` / `has_server_policy`（后两条是 `query_scalar!`）。
+# 无一处需要保留动态（无动态标识符、无 `Vec<Option<T>>` 参数）⇒ 12 动态 → **12 个宏调用**，
+# 与 C29 的"16 → 9"不同，本批是**一一对应**的纯机械重构。
+# 两处 SQL 文本变化（`.sqlx` 随提交）：① `update_room_policy` 的 `RETURNING *` 展开为显式
+# 列清单（R3/D-22）；② `COUNT(*)` / `EXISTS(…)` 无 relation origin、sqlx 推可空 ⇒ 按 **D-61**
+# 显式断言 `AS "count!"` / `AS "exists!"`（"query_scalar! 不接受 AS \"col!\"" 的说法被实测推翻）。
+# 同批独立提交的 **D-61**（`admin_media.rs` 去掉 fail-open 的 `unwrap_or(false)`）**不改计数**：
+# 该查询本来就是静态的，只是换了断言形态。
+# `#[cfg(test)]` 内 5 处夹具动态 SQL 按 D-13/D-14 保持原样（计入 `dynamic_test`）。
+BASELINE_DYNAMIC_PRODUCTION=487
 BASELINE_DYNAMIC_TEST_INFRA=711
-BASELINE_STATIC=970
+BASELINE_STATIC=982
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1210
+BASELINE_DYNAMIC=1198
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #
