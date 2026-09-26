@@ -70,10 +70,13 @@ fi
 : "${BASELINE_DYNAMIC_PRODUCTION:?基线文件必须定义 BASELINE_DYNAMIC_PRODUCTION}"
 : "${BASELINE_DYNAMIC_TEST_INFRA:?基线文件必须定义 BASELINE_DYNAMIC_TEST_INFRA}"
 : "${BASELINE_STATIC:?基线文件必须定义 BASELINE_STATIC}"
+: "${BASELINE_QUERY_BUILDER:?基线文件必须定义 BASELINE_QUERY_BUILDER}"
 
 MAX_PRODUCTION="${SQLX_DYNAMIC_PRODUCTION_MAX:-${BASELINE_DYNAMIC_PRODUCTION}}"
 MAX_TEST="${SQLX_DYNAMIC_TEST_MAX:-${BASELINE_DYNAMIC_TEST_INFRA}}"
 MIN_STATIC="${SQLX_STATIC_MIN_BASELINE:-${BASELINE_STATIC}}"
+# D-14 ③：`QueryBuilder` 组装（运行期决定 SQL 文本，R7 白名单）—— 只禁增。
+MAX_QUERY_BUILDER="${SQLX_QUERY_BUILDER_MAX:-${BASELINE_QUERY_BUILDER}}"
 
 # ---------------------------------------------------------------------------
 # 计数（幂等、无副作用；--json 便于测试与后续工具消费）
@@ -93,7 +96,7 @@ query_builder="$(metric query_builder)"
 
 echo "check_sqlx_dynamic_ratio: dynamic=${dynamic} static=${static} total=${total} ratio=${ratio} query_builder=${query_builder}"
 echo "check_sqlx_dynamic_ratio: 分区 production=${dynamic_production} test=${dynamic_test}"
-echo "check_sqlx_dynamic_ratio: 棘轮基线 production<=${MAX_PRODUCTION} test<=${MAX_TEST} static>=${MIN_STATIC}"
+echo "check_sqlx_dynamic_ratio: 棘轮基线 production<=${MAX_PRODUCTION} test<=${MAX_TEST} static>=${MIN_STATIC} query_builder<=${MAX_QUERY_BUILDER}"
 
 FAILURES=0
 fail() {
@@ -132,6 +135,18 @@ if [[ "${static}" -lt "${MIN_STATIC}" ]]; then
     echo "      编译期校验的查询被改回了动态查询，或迁移成果丢失。" >&2
 else
     echo "OK: 静态 SQL 未减少（${static} >= ${MIN_STATIC}）"
+fi
+
+# ---------------------------------------------------------------------------
+# 棘轮判定：`QueryBuilder` 组装不得增加（D-14 ③；只禁增，不要求转换）
+# ---------------------------------------------------------------------------
+if [[ "${query_builder}" -gt "${MAX_QUERY_BUILDER}" ]]; then
+    fail "QueryBuilder 组装增加 $((query_builder - MAX_QUERY_BUILDER)) 处（${MAX_QUERY_BUILDER} → ${query_builder}）"
+    echo "      QueryBuilder 的运行期 SQL 只能按 R7 例外保留，且必须在 §7 有登记条目；" >&2
+    echo "      新增一处等于新增一处"看不见的动态 SQL" —— 若确有必要，请在" >&2
+    echo "      scripts/ci/sqlx_dynamic_ratio_baseline 里上调 BASELINE_QUERY_BUILDER 并写明理由。" >&2
+else
+    echo "OK: QueryBuilder 组装未增加（${query_builder} <= ${MAX_QUERY_BUILDER}）"
 fi
 
 # ---------------------------------------------------------------------------

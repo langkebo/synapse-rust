@@ -161,7 +161,8 @@ start the stack **by these service names**) and `docker/deploy/docker-compose.ym
 > ⚠️ 这条规则原先**没有门禁兜住**（D-14 覆盖缺口，2026-09-26 收紧）：census 现在把
 > 「同文件 `const`/`let` 字面量绑定」判为 `literal`（进 literal 棘轮）、把「实参是外层函数的
 > 形参」判为 `param`（进 `scripts/ci/sqlx_param_production_baseline` 这道新棘轮）。
-> 仍无棘轮的只剩 `QueryBuilder` 组装（R7 白名单，只统计 `query_builder` 计数）。
+> ③ `QueryBuilder` 组装也已入**计数棘轮**（`BASELINE_QUERY_BUILDER`，只禁增、不要求转换；
+> 口径是总数，含测试区）—— D-14 的三种形状至此全部有约束。
 
 ### R2　改了查询文本 ⇒ 同一提交必须带 `.sqlx` 增量
 
@@ -235,7 +236,7 @@ schema**（`NOT NULL DEFAULT …`），而不是长期留一个断言别名。
 ### R8　每批必须跑的门禁（四道，缺一不可）
 
 ```bash
-# 1) 棘轮：生产动态不得增、静态不得减
+# 1) 棘轮（四道）：生产动态不得增、测试动态不得增、静态不得减、QueryBuilder 不得增
 bash scripts/ci/check_sqlx_dynamic_ratio.sh
 # 2) 离线缓存完整性（权威 —— 不要只跑 --static）
 bash scripts/ci/check_sqlx_cache_fresh.sh --compile

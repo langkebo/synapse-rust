@@ -21,7 +21,7 @@
 | `.sqlx` 离线缓存 | 60 条 | **1045 条** | +985 |
 | literal（逐文件棘轮，处 / 文件） | 876 / 98 | **322 / 60** | −554 |
 | `param` 传参（D-14 新棘轮，处 / 文件） | — | **1 / 1** | 新立棘轮（此前混在 `runtime`，两道棘轮都不管） |
-| `runtime` 残差 / `query_builder`（白名单） | — | 70 / 13 文件 · 18 | — |
+| `runtime` 残差 / `query_builder` | — | 70 / 13 文件 · **18**（已入计数棘轮） | — |
 
 ### 0.2 残量结构（"还剩多少活"的准确说法）
 
@@ -35,8 +35,8 @@
 ### 0.3 复现（唯一入口，勿手工数）
 
 ```bash
-python3 scripts/ci/sqlx_query_census.py                     # 总量 / 分区 / 静态占比
-bash scripts/ci/check_sqlx_dynamic_ratio.sh                 # 棘轮（内部调用上面的 census）
+python3 scripts/ci/sqlx_query_census.py                     # 总量 / 分区 / 静态占比 / query_builder
+bash scripts/ci/check_sqlx_dynamic_ratio.sh                 # 四道棘轮（生产动态 / 测试动态 / 静态 / QueryBuilder）
 python3 scripts/ci/sqlx_query_census.py --list-production-dynamic .   # path:line:kind（literal|param|runtime）
 # literal 棘轮输入（逐文件计数，应与 scripts/ci/sqlx_literal_production_baseline 逐行相同）：
 python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
@@ -125,8 +125,12 @@ D-66 / D-67 / D-68）记在各自提交信息里（下次阶段总结时并入�
 > ① **同文件 `const`/`let` 字面量绑定** ⇒ census 现判 `literal`（进 literal 棘轮）；
 > ② **跨函数传参**（实例：`synapse-common/src/transaction.rs:66` 的 `statement: &'static str`）
 > ⇒ 新判 `param`，配独立棘轮 `scripts/ci/sqlx_param_production_baseline`；
-> ③ **`QueryBuilder` 组装**（`query_builder=18`）⇒ 仍只统计不设棘轮，因为它的 SQL 文本
-> 确由运行期决定，属 R7 白名单；**唯一残留缺口**，待后续决定是否加"只增不禁"的计数棘轮。
+> ③ **`QueryBuilder` 组装**（`query_builder=18`）⇒ SQL 文本确由运行期决定，属 R7 白名单
+> （**不要求转换**），但已加**计数棘轮**：`BASELINE_QUERY_BUILDER=18`、
+> 判据 `query_builder <= 基线`（只禁增；口径是**总数**，含测试区 1 处，比只看生产更严）。
+> 自证：植入一处 `QueryBuilder::new(...)` ⇒ 门禁红（`18 → 19`，`FAIL: QueryBuilder 组装增加 1 处`），
+> 还原后绿；把上限抬到 19（等价于实测值下降）同样放行 —— 即"只禁增不禁减"。
+> ⇒ D-14 的三种形状（① 字面量绑定 / ② 跨函数传参 / ③ QueryBuilder）现已**全部有约束**。
 >
 > 实测（收紧当天）：生产区 `literal` **322 处不变**（同文件字面量绑定在生产区为 0），
 > `runtime` 71 → **70**，新类 `param` **1**（即 ②）；测试区 3 处 `const` 绑定从 runtime 转 literal

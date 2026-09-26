@@ -2206,6 +2206,17 @@
 #     一条 seed INSERT，循环复用；存活断言改走生产读路径 `get_notifications`，
 #     不再另写 COUNT 查询，把增量压到 1）。
 # `dynamic_production` 不变（393）：两处新查询都是宏，不产生动态站点。
+# ── 2026-09-26 D-14 ③ 收口：`QueryBuilder` 计数棘轮（**只禁增**）──────────────
+# 背景：D-14 的三种"绕过 literal 棘轮"的形状里，① 同文件字面量绑定（→ literal）与
+#   ② 跨函数传参（→ param）已在 `a9c2a0382` 收紧；③ `QueryBuilder` 组装此前**两侧
+#   棘轮都不计**（`dynamic_production`/`literal`/`param` 都看不到它），是唯一无约束的形状。
+# 语义：`QueryBuilder` 的 SQL 文本确实由运行期决定（动态列清单/`$n` 占位符），属 R7 白名单，
+#   **不要求转换**；但"数量"必须被看住 —— 新写一处运行期组装就是新写一处动态 SQL，
+#   应当被显式登记而不是静默发生。
+# 口径：`census` 的 `query_builder` 是**总数**（生产 + 测试，共 18 处 / 13 文件，
+#   其中 `synapse-storage/src/sliding_sync/tests.rs` 1 处属测试），因此本棘轮比
+#   "只看生产"更严；收紧（数字下降）由批次自行下调，本棘轮只判"是否增加"。
+BASELINE_QUERY_BUILDER=18
 BASELINE_DYNAMIC_PRODUCTION=393
 BASELINE_DYNAMIC_TEST_INFRA=712
 BASELINE_STATIC=1076
