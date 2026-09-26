@@ -37,6 +37,14 @@
 # `gin_trgm_ops` indexes on the isolation templates), which silently degrades a
 # template that still carries its "ready" marker.
 #
+# Because `RESET_PUBLIC=0` only ever *adds*, a long-lived database keeps objects
+# that were deleted from the baseline — and "the table exists" assertions then pass
+# against a schema the migrations no longer describe (D-57②). Step [3/4] closes that
+# with `scripts/ci/converge_public_schema.sh`: it drops **only** the objects that are
+# not in the baseline, using the just-rebuilt template schema as the reference set
+# (so there is no hard-coded list to drift, and still no `DROP SCHEMA … CASCADE`).
+# `CONVERGE_MODE=report` turns that step into a dry-run that prints what it would drop.
+#
 # The DB-name guard in src/test_utils.rs (`current_database()` contains "test")
 # additionally protects against pointing at a deployed DB. That flag stays OFF
 # everywhere in CI — if a test is ever repointed at the application database
@@ -75,10 +83,10 @@ if ! psql "$TEST_DATABASE_URL" -tAc "SELECT 1" >/dev/null 2>&1; then
     psql "$admin_url" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$db_name\"" >/dev/null
 fi
 
-echo "==> [1/3] applying the migration baseline to public in $TEST_DATABASE_URL"
+echo "==> [1/4] applying the migration baseline to public in $TEST_DATABASE_URL"
 RESET_PUBLIC=0 TARGET_SCHEMA=public bash scripts/init_test_public_schema.sh
 
-echo "==> [2/3] building template schema '$TEMPLATE_SCHEMA' (same migrations, pinned search_path)"
+echo "==> [2/4] building template schema '$TEMPLATE_SCHEMA' (same migrations, pinned search_path)"
 # Rebuild it from scratch. The previous sqlx-based version never dropped it: once
 # `_sqlx_migrations` recorded the baseline as applied, the template pass became a
 # no-op and a template built from an *older* baseline stayed stale forever
@@ -109,7 +117,12 @@ mkdir -p "$MARKER_DIR"
 touch "$MARKER_DIR/synapse_test_template_ready_${TEMPLATE_SCHEMA}"
 echo "==> ready-marker written: $MARKER_DIR/synapse_test_template_ready_${TEMPLATE_SCHEMA}"
 
-echo "==> [3/3] verifying both schemas"
+echo "==> [3/4] converging public onto the baseline (D-57②; CONVERGE_MODE=${CONVERGE_MODE:-apply})"
+# 参考集就是上一步刚重建的模板 schema（同一份迁移、且是干净重建），因此不需要维护
+# 任何"baseline 对象清单"；`CONVERGE_MODE=report` 只打印将删对象，不做任何修改。
+TEMPLATE_SCHEMA="$TEMPLATE_SCHEMA" bash scripts/ci/converge_public_schema.sh
+
+echo "==> [4/4] verifying both schemas"
 # 用 $TEST_DATABASE_URL 而不是硬编码 `-d synapse_test`：库名是本脚本的输入
 # （第 34 行的默认值可在调用处覆盖），硬编码会让 `PUBLIC_TABLES`/`TEMPLATE_TABLES`
 # 静默统计**另一个库**的 schema —— 与 docker/db_migrate.sh 的 H-14 同型。

@@ -46,7 +46,7 @@ const RUST_RESOLVERS: [&str; 5] = [
 
 /// Shell entry points that resolve a test-database target, with the port
 /// default each one must carry.
-const SCRIPT_PORT_DEFAULTS: [(&str, &str); 6] = [
+const SCRIPT_PORT_DEFAULTS: [(&str, &str); 8] = [
     ("scripts/init_test_public_schema.sh", "TEST_DB_PORT:-5432"),
     ("scripts/cleanup_test_schemas.sh", "PGPORT:-5432"),
     ("scripts/tune_test_db.sh", "PGPORT:-5432"),
@@ -55,6 +55,10 @@ const SCRIPT_PORT_DEFAULTS: [(&str, &str); 6] = [
     // 2026-09-22：覆盖率命令收敛为唯一实现 `scripts/ci/run_coverage.sh`
     // （本地那份 `run_local_coverage.sh` 已按裁定删除）。
     ("scripts/ci/run_coverage.sh", "localhost:5432/synapse_test"),
+    // 2026-09-26：CI seed 入口与它调用的 D-57② 收敛脚本都解析测试库目标，
+    // 因此一并纳入守卫 —— "每个副本都要被扫到"是这条约定自己的要求。
+    ("scripts/ci/prepare_test_db.sh", "localhost:5432/synapse_test"),
+    ("scripts/ci/converge_public_schema.sh", "localhost:5432/synapse_test"),
 ];
 
 /// Resolvers that must **delegate** to the single implementation instead of
