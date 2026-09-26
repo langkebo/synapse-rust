@@ -88,10 +88,13 @@
   4. `scripts/contract/gen_derived_routes.py:257` — 生成 `.with_query_params()` 调用
 - **结论**: 字段被正确使用，非缺陷
 
-### 9. v12/v13 房间不可创建（fail-safe 设计使然）
-- **位置**: `synapse-common/src/room_versions.rs:114-115`
-- **描述**: 为 `stable_parse_only("12"|"13")`；注释写明理由是"避免创建无法产生合规 PDU 的房间（fail-safe）"
-- **结论**: 不是缺陷，是取舍
+### ✅ 9. v12/v13 房间版本状态 — 已核查（v12 已实现，v13 为 parse-only）
+- **位置**: `synapse-common/src/room_versions.rs:112-114`
+- **当前状态**：
+  - Line 113: `RoomVersionCapability::stable("12")` → **v12 已完整实现**（`can_create=true, can_parse=true`）
+  - Line 114: `RoomVersionCapability::stable_parse_only("13")` → **v13 为 parse-only**（`can_create=false, can_parse=true`）
+- **v13 parse-only 原因**：MSC4204 密码登出设备功能依赖的 PDU 语义（特别是 `event_id` 的 v4+ reference hash）尚未完全对齐上游 Synapse，为避免创建无法产生合规 PDU 的房间，暂时设为 parse-only（fail-safe）
+- **结论**: v12 已可用；v13 的 parse-only 是设计取舍，待联邦 PDU 语义完整后升级为 stable
 
 ---
 
@@ -102,4 +105,4 @@
    - 房间级媒体列举/删除：已在规划中（低优先级）
 2. **已完成**: `animated` 参数 Phase 1 + Phase 2（完整动画 WebP 输出）
 3. **已结论**: ledger `query_params` — 已核查为有下游消费方，非缺陷
-4. **设计使然**: v12/v13 房间创建限制 — 无需处理
+4. **设计使然**: v13 parse-only — 待联邦 PDU 语义完整后升级为 stable；v12 已可用（`stable("12")`）
