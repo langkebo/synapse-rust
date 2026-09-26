@@ -1,6 +1,6 @@
 # 当前仍存在的问题列表（基于 docs/audit/PROJECT_REMAINING_ISSUES_2026-09-14.md §22.3）
 
-> **更新日期**: 2026-09-25
+> **更新日期**: 2026-09-26（本次审查确认 `query_params` 有消费方、Admin 媒体端点已实施）
 > **基线**: `opt/consolidated` @ HEAD
 > **状态说明**: ✅ = 本轮已解决；❌ = 仍存在
 
@@ -50,15 +50,18 @@
 
 ## 仍存在的问题
 
-### 6. Admin 媒体端点族真缺口（本仓 7 vs 上游文档面 18）
-#### 6.1 真缺口（仓库侧 0 命中）
+### 6. Admin 媒体端点族缺口（本仓 9 vs 上游文档面 18）
+#### 6.1 已修复（`337318c86`）
 - **位置**: `synapse-web/src/routes/admin/media.rs`
-- **描述**:
-  - `POST /_synapse/admin/v1/media/quarantine/{server_name}/{media_id}`
-  - `POST /_synapse/admin/v1/media/unquarantine/{server_name}/{media_id}`
-  - 房间级媒体列举/删除
-- **旁证**: 鉴权白名单已为**不存在**的路由预留了路径（`utils/admin_auth.rs:386` 的 `/media/quarantine` 前缀）
-- **修法**: 需新增 service 方法 + handler
+- **修复内容**:
+  - ✅ `POST /_synapse/admin/v1/media/quarantine/{server_name}/{media_id}`
+  - ✅ `POST /_synapse/admin/v1/media/unquarantine/{server_name}/{media_id}`
+  - 委托链：`AdminMediaService::quarantine_media/unquarantine_media` → `QuarantinedMediaChangeStoreApi`
+- **仍未实施**：房间级媒体列举/删除（低优先级，需设计决策）
+
+#### 6.2 鉴权白名单残留（已过期）
+- **位置**: `utils/admin_auth.rs:386`
+- **说明**: `/media/quarantine` 前缀原本为不存在的路由预留，现该路由已实施，白名单前缀有效
 
 ### ✅ 6.3 缩略图 `animated` 参数支持
 - **位置**: `synapse-web/src/routes/media/download.rs` + `synapse-services/src/media_service.rs` + `synapse-services/src/media/mod.rs`
@@ -76,9 +79,14 @@
   - Phase 2: `2bbe172d8` feat(media): Phase 2 - complete animated WebP encoding with webp-animation
 - **门禁**: Clippy `-D warnings` ✅ 通过 | 编译 ✅ 干净
 
-### 8. ledger `query_params` 字段无消费方
+### ✅ 8. ledger `query_params` 字段 — 已确认有消费方
 - **位置**: `synapse-web/src/routes/ledger_export.rs:156`
-- **描述**: 序列化导出 fixture 时写入但无校验/断言消费
+- **描述**: 原认为"无消费方"，经核查实际有 4 个下游消费者：
+  1. `scripts/api_test/generate_openapi.py:336` — 将 `query_params` 转化为 OpenAPI parameters
+  2. `scripts/api_test/gen_route_table.py:64` — 透传到 `route-table.json`
+  3. `scripts/contract/extract_registered.py` — 校验并提取（第 58、971、1061 行）
+  4. `scripts/contract/gen_derived_routes.py:257` — 生成 `.with_query_params()` 调用
+- **结论**: 字段被正确使用，非缺陷
 
 ### 9. v12/v13 房间不可创建（fail-safe 设计使然）
 - **位置**: `synapse-common/src/room_versions.rs:114-115`
@@ -89,10 +97,9 @@
 
 ## 执行计划建议
 
-1. **已完成**: Admin 媒体缺口 — `quarantine_media` / `unquarantine_media` service + handler（U-5 部分）
-   - 端点：`POST /_synapse/admin/v1/media/quarantine/{server_name}/{media_id}` / `POST /_synapse/admin/v1/media/unquarantine/{server_name}/{media_id}`
-   - 委托链：`AdminMediaService::quarantine_media/unquarantine_media` → `QuarantinedMediaChangeStoreApi`
-   - 路由 + 派生产物（derived_route_table / route-table.json / ledger / snapshots）已全部同步
+1. **已完成**: Admin 媒体缺口 — `quarantine_media` / `unquarantine_media` service + handler 实施完成
+   - Commit `337318c86`：完整实现 + 路由同步 + 单元测试通过
+   - 房间级媒体列举/删除：已在规划中（低优先级）
 2. **已完成**: `animated` 参数 Phase 1 + Phase 2（完整动画 WebP 输出）
-3. **低优先级**: ledger `query_params` — 可标注为已知差异
+3. **已结论**: ledger `query_params` — 已核查为有下游消费方，非缺陷
 4. **设计使然**: v12/v13 房间创建限制 — 无需处理
