@@ -182,24 +182,6 @@ pub struct ServerMetrics {
     pub megolm_session_key_read_total: Counter,
     /// Megolm session key read duration (ms).
     pub megolm_session_key_read_duration_ms: Histogram,
-    // Megolm (E2EE) Metrics — Phase 2 dual-write observability.
-    // Tracks vodozemac pickle persistence success/failure, dual-write promotion
-    // (legacy→dual), and lazy migration scan progress.
-    /// Vodozemac pickle persistence successes.
-    pub megolm_vodozemac_pickle_persist_total: Counter,
-    /// Vodozemac pickle persistence failures.
-    pub megolm_vodozemac_pickle_persist_errors_total: Counter,
-    /// Legacy → dual-write session promotions.
-    pub megolm_dual_write_promotions_total: Counter,
-    /// Dual-write promotion failures.
-    pub megolm_dual_write_promotion_errors_total: Counter,
-    /// Megolm sessions scanned during lazy migration.
-    pub megolm_lazy_migration_sessions_scanned_total: Counter,
-    /// Megolm sessions promoted during lazy migration.
-    pub megolm_lazy_migration_sessions_promoted_total: Counter,
-    /// Megolm pickle persistence duration (ms).
-    pub megolm_pickle_persist_duration_ms: Histogram,
-
     collector: Arc<MetricsCollector>,
 }
 
@@ -331,23 +313,6 @@ impl ServerMetrics {
                 "megolm_session_key_read_duration_ms".to_string(),
                 Self::labels(&[("unit", "ms")]),
             ),
-            megolm_vodozemac_pickle_persist_total: collector
-                .register_counter("megolm_vodozemac_pickle_persist_total".to_string()),
-            megolm_vodozemac_pickle_persist_errors_total: collector
-                .register_counter("megolm_vodozemac_pickle_persist_errors_total".to_string()),
-            megolm_dual_write_promotions_total: collector
-                .register_counter("megolm_dual_write_promotions_total".to_string()),
-            megolm_dual_write_promotion_errors_total: collector
-                .register_counter("megolm_dual_write_promotion_errors_total".to_string()),
-            megolm_lazy_migration_sessions_scanned_total: collector
-                .register_counter("megolm_lazy_migration_sessions_scanned_total".to_string()),
-            megolm_lazy_migration_sessions_promoted_total: collector
-                .register_counter("megolm_lazy_migration_sessions_promoted_total".to_string()),
-            megolm_pickle_persist_duration_ms: collector.register_histogram_with_labels(
-                "megolm_pickle_persist_duration_ms".to_string(),
-                Self::labels(&[("unit", "ms")]),
-            ),
-
             collector,
         }
     }
@@ -545,36 +510,6 @@ impl ServerMetrics {
         // collectors; the current Counter stores a single aggregate. Avoid
         // unused-variable warnings while keeping the call site readable.
         let _ = result;
-    }
-
-    // ========================================================================
-    // Phase 2: Megolm dual-write + 懒迁移 可观测性
-    // ========================================================================
-
-    /// Record a vodozemac pickle persistence attempt.
-    /// `success = false` 时只累加错误计数，避免观察 histogram 污染。
-    pub fn record_megolm_vodozemac_pickle_persist(&self, duration_ms: f64, success: bool) {
-        self.megolm_vodozemac_pickle_persist_total.inc();
-        if success {
-            self.megolm_pickle_persist_duration_ms.observe(duration_ms);
-        } else {
-            self.megolm_vodozemac_pickle_persist_errors_total.inc();
-        }
-    }
-
-    /// Record a legacy→dual 转换（promote_to_dual）的结果
-    pub fn record_megolm_dual_write_promotion(&self, success: bool) {
-        if success {
-            self.megolm_dual_write_promotions_total.inc();
-        } else {
-            self.megolm_dual_write_promotion_errors_total.inc();
-        }
-    }
-
-    /// Record lazy migration scan progress（批量扫描时调用一次）
-    pub fn record_megolm_lazy_migration_batch(&self, scanned: u64, promoted: u64) {
-        self.megolm_lazy_migration_sessions_scanned_total.inc_by(scanned);
-        self.megolm_lazy_migration_sessions_promoted_total.inc_by(promoted);
     }
 
     /// Returns the underlying [`MetricsCollector`] for direct registration of additional metrics.
@@ -1098,55 +1033,6 @@ mod tests {
         metrics.record_megolm_session_key_read("hit", 5.0);
         assert_eq!(metrics.megolm_session_key_read_total.get(), 1);
         assert_eq!(metrics.megolm_session_key_read_duration_ms.get_count(), 1);
-    }
-
-    #[test]
-    fn test_record_megolm_vodozemac_pickle_persist_success() {
-        let collector = Arc::new(MetricsCollector::new());
-        let metrics = ServerMetrics::new(collector);
-
-        metrics.record_megolm_vodozemac_pickle_persist(15.0, true);
-        assert_eq!(metrics.megolm_vodozemac_pickle_persist_total.get(), 1);
-        assert_eq!(metrics.megolm_vodozemac_pickle_persist_errors_total.get(), 0);
-        assert_eq!(metrics.megolm_pickle_persist_duration_ms.get_count(), 1);
-    }
-
-    #[test]
-    fn test_record_megolm_vodozemac_pickle_persist_failure() {
-        let collector = Arc::new(MetricsCollector::new());
-        let metrics = ServerMetrics::new(collector);
-
-        metrics.record_megolm_vodozemac_pickle_persist(15.0, false);
-        assert_eq!(metrics.megolm_vodozemac_pickle_persist_total.get(), 1);
-        assert_eq!(metrics.megolm_vodozemac_pickle_persist_errors_total.get(), 1);
-        assert_eq!(metrics.megolm_pickle_persist_duration_ms.get_count(), 0);
-    }
-
-    #[test]
-    fn test_record_megolm_dual_write_promotion_success_and_failure() {
-        let collector = Arc::new(MetricsCollector::new());
-        let metrics = ServerMetrics::new(collector);
-
-        metrics.record_megolm_dual_write_promotion(true);
-        metrics.record_megolm_dual_write_promotion(true);
-        metrics.record_megolm_dual_write_promotion(false);
-
-        assert_eq!(metrics.megolm_dual_write_promotions_total.get(), 2);
-        assert_eq!(metrics.megolm_dual_write_promotion_errors_total.get(), 1);
-    }
-
-    #[test]
-    fn test_record_megolm_lazy_migration_batch() {
-        let collector = Arc::new(MetricsCollector::new());
-        let metrics = ServerMetrics::new(collector);
-
-        metrics.record_megolm_lazy_migration_batch(100, 30);
-        assert_eq!(metrics.megolm_lazy_migration_sessions_scanned_total.get(), 100);
-        assert_eq!(metrics.megolm_lazy_migration_sessions_promoted_total.get(), 30);
-
-        metrics.record_megolm_lazy_migration_batch(50, 10);
-        assert_eq!(metrics.megolm_lazy_migration_sessions_scanned_total.get(), 150);
-        assert_eq!(metrics.megolm_lazy_migration_sessions_promoted_total.get(), 40);
     }
 
     #[test]
