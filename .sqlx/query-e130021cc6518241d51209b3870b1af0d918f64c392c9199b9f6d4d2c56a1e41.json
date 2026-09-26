@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT pushkey, kind, app_id, app_display_name, device_display_name,\n                   profile_tag, lang AS \"lang!\", data, device_id\n            FROM pushers WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2\n            ORDER BY created_ts DESC, pushkey ASC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pushkey",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "app_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "app_display_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "device_display_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "profile_tag",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "lang!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "data",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "device_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "e130021cc6518241d51209b3870b1af0d918f64c392c9199b9f6d4d2c56a1e41"
+}

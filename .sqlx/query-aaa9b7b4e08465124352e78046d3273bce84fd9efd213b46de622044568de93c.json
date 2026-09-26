@@ -1,0 +1,54 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT rule_id, pattern, conditions, actions,\n                   is_enabled AS \"is_enabled!\", is_default AS \"is_default!\"\n            FROM push_rules\n            WHERE user_id = $1 AND scope = $2 AND kind = $3\n            ORDER BY rule_id ASC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rule_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "pattern",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "conditions",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "actions",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "is_enabled!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "is_default!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "aaa9b7b4e08465124352e78046d3273bce84fd9efd213b46de622044568de93c"
+}

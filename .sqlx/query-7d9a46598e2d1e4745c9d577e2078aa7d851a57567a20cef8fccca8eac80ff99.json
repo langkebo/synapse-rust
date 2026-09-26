@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO push_rules (user_id, scope, kind, rule_id, pattern, conditions, actions,\n             is_enabled, is_default, created_ts)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, true, false, $8)\n            ON CONFLICT (user_id, scope, kind, rule_id) DO UPDATE SET\n             pattern = $5, conditions = $6, actions = $7\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Jsonb",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7d9a46598e2d1e4745c9d577e2078aa7d851a57567a20cef8fccca8eac80ff99"
+}

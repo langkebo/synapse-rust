@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE notifications SET is_read = true, updated_ts = $3\n            WHERE id = $1 AND user_id = $2 RETURNING id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ccb50663699674a4ad8c4b4ef9fdb1781fbd9eb67a693fb8387b6191de4e3d1b"
+}

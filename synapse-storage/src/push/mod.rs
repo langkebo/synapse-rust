@@ -12,15 +12,77 @@ pub use crate::push_notification::{
     QueueNotificationRequest, RegisterDeviceRequest, RoomNotification,
 };
 
+/// A `pushers` row as returned by [`PushStorage::get_pushers`].
+///
+/// Introduced in C33 so the storage layer stops leaking `sqlx::postgres::PgRow`
+/// to callers that then had to decode columns by name at runtime.
+#[derive(Debug, Clone)]
+pub struct PusherRow {
+    /// The `pushkey` field.
+    pub pushkey: String,
+    /// The `kind` field.
+    pub kind: String,
+    /// The `app_id` field.
+    pub app_id: String,
+    /// The `app_display_name` field.
+    pub app_display_name: String,
+    /// The `device_display_name` field.
+    pub device_display_name: String,
+    /// The `profile_tag` field.
+    pub profile_tag: Option<String>,
+    /// The `lang` field. Asserted non-null: `upsert_pusher` is the only writer and
+    /// always binds it; the column's `DEFAULT 'en'` covers inserts that omit it.
+    pub lang: String,
+    /// The `data` field.
+    pub data: Option<Value>,
+    /// The `device_id` field.
+    pub device_id: String,
+}
+
+/// A `push_rules` row as returned by [`PushStorage::get_user_push_rules`].
+#[derive(Debug, Clone)]
+pub struct PushRuleRow {
+    /// The `rule_id` field.
+    pub rule_id: String,
+    /// The `pattern` field.
+    pub pattern: Option<String>,
+    /// The `conditions` field.
+    pub conditions: Option<Value>,
+    /// The `actions` field.
+    pub actions: Option<Value>,
+    /// The `is_enabled` field. Asserted non-null: written as a literal `true` by the
+    /// INSERT and as a bound `bool` by `set_push_rule_enabled`.
+    pub is_enabled: bool,
+    /// The `is_default` field. Asserted non-null: the INSERT always writes literal `false`.
+    pub is_default: bool,
+}
+
+/// A `notifications` row as returned by [`PushStorage::get_notifications`].
+#[derive(Debug, Clone)]
+pub struct NotificationRow {
+    /// The `id` field.
+    pub id: i64,
+    /// The `event_id` field.
+    pub event_id: Option<String>,
+    /// The `room_id` field.
+    pub room_id: Option<String>,
+    /// The `ts` field.
+    pub ts: i64,
+    /// The `notification_type` field.
+    ///
+    /// ⚠️ `ClientPushService::get_notifications` currently renders this value under the
+    /// JSON key `profile_tag` (D-62, 待裁定) — the table also has a real `profile_tag`
+    /// column that the query does not select.
+    pub notification_type: Option<String>,
+    /// The `is_read` field.
+    pub is_read: Option<bool>,
+}
+
 /// Trait abstraction over [`PushStorage`] for testability and service wiring.
 #[async_trait]
 pub trait PushStoreApi: Send + Sync {
     /// See [`get_pushers`].
-    async fn get_pushers(
-        &self,
-        user_id: &str,
-        device_id: Option<&str>,
-    ) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error>;
+    async fn get_pushers(&self, user_id: &str, device_id: Option<&str>) -> Result<Vec<PusherRow>, sqlx::Error>;
 
     #[allow(clippy::too_many_arguments)]
     /// See [`upsert_pusher`].
@@ -95,18 +157,13 @@ pub trait PushStoreApi: Send + Sync {
         user_id: &str,
         scope: &str,
         kind: &str,
-    ) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error>;
+    ) -> Result<Vec<PushRuleRow>, sqlx::Error>;
 
     /// See [`get_notifications`].
-    async fn get_notifications(&self, user_id: &str, limit: i64) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error>;
+    async fn get_notifications(&self, user_id: &str, limit: i64) -> Result<Vec<NotificationRow>, sqlx::Error>;
 
     /// See [`ack_notification`].
-    async fn ack_notification(
-        &self,
-        id: i64,
-        user_id: &str,
-        now: i64,
-    ) -> Result<Option<sqlx::postgres::PgRow>, sqlx::Error>;
+    async fn ack_notification(&self, id: i64, user_id: &str, now: i64) -> Result<Option<i64>, sqlx::Error>;
 }
 
 /// The `PushStorage` struct.
@@ -124,18 +181,18 @@ impl PushStorage {
     // ── pushers ──────────────────────────────────────────────────────────
 
     /// See [`get_pushers`].
-    pub async fn get_pushers(
-        &self,
-        user_id: &str,
-        device_id: Option<&str>,
-    ) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error> {
-        sqlx::query(
-            "SELECT pushkey, kind, app_id, app_display_name, device_display_name, \
-             profile_tag, lang, data, device_id \
-             FROM pushers WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2 ORDER BY created_ts DESC, pushkey ASC",
+    pub async fn get_pushers(&self, user_id: &str, device_id: Option<&str>) -> Result<Vec<PusherRow>, sqlx::Error> {
+        sqlx::query_as!(
+            PusherRow,
+            r#"
+            SELECT pushkey, kind, app_id, app_display_name, device_display_name,
+                   profile_tag, lang AS "lang!", data, device_id
+            FROM pushers WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2
+            ORDER BY created_ts DESC, pushkey ASC
+            "#,
+            user_id,
+            device_id,
         )
-        .bind(user_id)
-        .bind(device_id)
         .fetch_all(&*self.pool)
         .await
     }
@@ -156,27 +213,29 @@ impl PushStorage {
         data: &Option<Value>,
         now: i64,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "INSERT INTO pushers (user_id, device_id, pushkey, pushkey_ts, kind, app_id, app_display_name, \
-             device_display_name, profile_tag, lang, data, created_ts, updated_ts) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) \
-             ON CONFLICT (user_id, device_id, pushkey) DO UPDATE SET \
-             pushkey_ts = $4, kind = $5, app_id = $6, app_display_name = $7, \
-             device_display_name = $8, profile_tag = $9, lang = $10, data = $11, updated_ts = $13",
+        sqlx::query!(
+            r#"
+            INSERT INTO pushers (user_id, device_id, pushkey, pushkey_ts, kind, app_id, app_display_name,
+             device_display_name, profile_tag, lang, data, created_ts, updated_ts)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            ON CONFLICT (user_id, device_id, pushkey) DO UPDATE SET
+             pushkey_ts = $4, kind = $5, app_id = $6, app_display_name = $7,
+             device_display_name = $8, profile_tag = $9, lang = $10, data = $11, updated_ts = $13
+            "#,
+            user_id,
+            device_id,
+            pushkey,
+            now,
+            kind,
+            app_id,
+            app_display_name,
+            device_display_name,
+            profile_tag.as_deref(),
+            lang,
+            data.as_ref(),
+            now,
+            now,
         )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(pushkey)
-        .bind(now)
-        .bind(kind)
-        .bind(app_id)
-        .bind(app_display_name)
-        .bind(device_display_name)
-        .bind(profile_tag)
-        .bind(lang)
-        .bind(data)
-        .bind(now)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -184,12 +243,14 @@ impl PushStorage {
 
     /// See [`delete_pusher`].
     pub async fn delete_pusher(&self, user_id: &str, device_id: &str, pushkey: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM pushers WHERE user_id = $1 AND pushkey = $2 AND device_id = $3")
-            .bind(user_id)
-            .bind(pushkey)
-            .bind(device_id)
-            .execute(&*self.pool)
-            .await?;
+        sqlx::query!(
+            "DELETE FROM pushers WHERE user_id = $1 AND pushkey = $2 AND device_id = $3",
+            user_id,
+            pushkey,
+            device_id,
+        )
+        .execute(&*self.pool)
+        .await?;
         Ok(())
     }
 
@@ -208,21 +269,23 @@ impl PushStorage {
         actions: &Value,
         now: i64,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "INSERT INTO push_rules (user_id, scope, kind, rule_id, pattern, conditions, actions, \
-             is_enabled, is_default, created_ts) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, true, false, $8) \
-             ON CONFLICT (user_id, scope, kind, rule_id) DO UPDATE SET \
-             pattern = $5, conditions = $6, actions = $7",
+        sqlx::query!(
+            r#"
+            INSERT INTO push_rules (user_id, scope, kind, rule_id, pattern, conditions, actions,
+             is_enabled, is_default, created_ts)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, true, false, $8)
+            ON CONFLICT (user_id, scope, kind, rule_id) DO UPDATE SET
+             pattern = $5, conditions = $6, actions = $7
+            "#,
+            user_id,
+            scope,
+            kind,
+            rule_id,
+            pattern.as_deref(),
+            conditions.as_ref(),
+            actions,
+            now,
         )
-        .bind(user_id)
-        .bind(scope)
-        .bind(kind)
-        .bind(rule_id)
-        .bind(pattern)
-        .bind(conditions)
-        .bind(actions)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -236,14 +299,15 @@ impl PushStorage {
         kind: &str,
         rule_id: &str,
     ) -> Result<u64, sqlx::Error> {
-        let result =
-            sqlx::query("DELETE FROM push_rules WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4")
-                .bind(user_id)
-                .bind(scope)
-                .bind(kind)
-                .bind(rule_id)
-                .execute(&*self.pool)
-                .await?;
+        let result = sqlx::query!(
+            "DELETE FROM push_rules WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4",
+            user_id,
+            scope,
+            kind,
+            rule_id,
+        )
+        .execute(&*self.pool)
+        .await?;
         Ok(result.rows_affected())
     }
 
@@ -256,14 +320,14 @@ impl PushStorage {
         rule_id: &str,
         actions: &Value,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             "UPDATE push_rules SET actions = $4 WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $5",
+            user_id,
+            scope,
+            kind,
+            actions,
+            rule_id,
         )
-        .bind(user_id)
-        .bind(scope)
-        .bind(kind)
-        .bind(actions)
-        .bind(rule_id)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -277,13 +341,14 @@ impl PushStorage {
         kind: &str,
         rule_id: &str,
     ) -> Result<Option<bool>, sqlx::Error> {
-        sqlx::query_scalar(
-            "SELECT is_enabled FROM push_rules WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4",
+        sqlx::query_scalar!(
+            r#"SELECT is_enabled AS "is_enabled!" FROM push_rules
+               WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4"#,
+            user_id,
+            scope,
+            kind,
+            rule_id,
         )
-        .bind(user_id)
-        .bind(scope)
-        .bind(kind)
-        .bind(rule_id)
         .fetch_optional(&*self.pool)
         .await
     }
@@ -297,14 +362,14 @@ impl PushStorage {
         rule_id: &str,
         enabled: bool,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             "UPDATE push_rules SET is_enabled = $4 WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $5",
+            user_id,
+            scope,
+            kind,
+            enabled,
+            rule_id,
         )
-        .bind(user_id)
-        .bind(scope)
-        .bind(kind)
-        .bind(enabled)
-        .bind(rule_id)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -324,16 +389,20 @@ impl PushStorage {
         user_id: &str,
         scope: &str,
         kind: &str,
-    ) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error> {
-        sqlx::query(
-            "SELECT rule_id, pattern, conditions, actions, is_enabled, is_default \
-             FROM push_rules \
-             WHERE user_id = $1 AND scope = $2 AND kind = $3 \
-             ORDER BY rule_id ASC",
+    ) -> Result<Vec<PushRuleRow>, sqlx::Error> {
+        sqlx::query_as!(
+            PushRuleRow,
+            r#"
+            SELECT rule_id, pattern, conditions, actions,
+                   is_enabled AS "is_enabled!", is_default AS "is_default!"
+            FROM push_rules
+            WHERE user_id = $1 AND scope = $2 AND kind = $3
+            ORDER BY rule_id ASC
+            "#,
+            user_id,
+            scope,
+            kind,
         )
-        .bind(user_id)
-        .bind(scope)
-        .bind(kind)
         .fetch_all(&*self.pool)
         .await
     }
@@ -341,35 +410,31 @@ impl PushStorage {
     // ── notifications ────────────────────────────────────────────────────
 
     /// See [`get_notifications`].
-    pub async fn get_notifications(
-        &self,
-        user_id: &str,
-        limit: i64,
-    ) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error> {
-        sqlx::query(
-            "SELECT id, event_id, room_id, ts, notification_type, is_read \
-             FROM notifications WHERE user_id = $1 ORDER BY ts DESC LIMIT $2",
+    pub async fn get_notifications(&self, user_id: &str, limit: i64) -> Result<Vec<NotificationRow>, sqlx::Error> {
+        sqlx::query_as!(
+            NotificationRow,
+            r#"
+            SELECT id, event_id, room_id, ts, notification_type, is_read
+            FROM notifications WHERE user_id = $1 ORDER BY ts DESC LIMIT $2
+            "#,
+            user_id,
+            limit,
         )
-        .bind(user_id)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await
     }
 
     /// See [`ack_notification`].
-    pub async fn ack_notification(
-        &self,
-        id: i64,
-        user_id: &str,
-        now: i64,
-    ) -> Result<Option<sqlx::postgres::PgRow>, sqlx::Error> {
-        sqlx::query(
-            "UPDATE notifications SET is_read = true, updated_ts = $3 \
-             WHERE id = $1 AND user_id = $2 RETURNING id",
+    pub async fn ack_notification(&self, id: i64, user_id: &str, now: i64) -> Result<Option<i64>, sqlx::Error> {
+        sqlx::query_scalar!(
+            r#"
+            UPDATE notifications SET is_read = true, updated_ts = $3
+            WHERE id = $1 AND user_id = $2 RETURNING id
+            "#,
+            id,
+            user_id,
+            now,
         )
-        .bind(id)
-        .bind(user_id)
-        .bind(now)
         .fetch_optional(&*self.pool)
         .await
     }
@@ -377,11 +442,7 @@ impl PushStorage {
 
 #[async_trait]
 impl PushStoreApi for PushStorage {
-    async fn get_pushers(
-        &self,
-        user_id: &str,
-        device_id: Option<&str>,
-    ) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error> {
+    async fn get_pushers(&self, user_id: &str, device_id: Option<&str>) -> Result<Vec<PusherRow>, sqlx::Error> {
         self.get_pushers(user_id, device_id).await
     }
 
@@ -480,20 +541,15 @@ impl PushStoreApi for PushStorage {
         user_id: &str,
         scope: &str,
         kind: &str,
-    ) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error> {
+    ) -> Result<Vec<PushRuleRow>, sqlx::Error> {
         self.get_user_push_rules(user_id, scope, kind).await
     }
 
-    async fn get_notifications(&self, user_id: &str, limit: i64) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error> {
+    async fn get_notifications(&self, user_id: &str, limit: i64) -> Result<Vec<NotificationRow>, sqlx::Error> {
         self.get_notifications(user_id, limit).await
     }
 
-    async fn ack_notification(
-        &self,
-        id: i64,
-        user_id: &str,
-        now: i64,
-    ) -> Result<Option<sqlx::postgres::PgRow>, sqlx::Error> {
+    async fn ack_notification(&self, id: i64, user_id: &str, now: i64) -> Result<Option<i64>, sqlx::Error> {
         self.ack_notification(id, user_id, now).await
     }
 }
@@ -502,7 +558,6 @@ impl PushStoreApi for PushStorage {
 mod db_tests {
     use super::*;
     use serde_json::json;
-    use sqlx::Row;
     use std::sync::Arc;
 
     /// 每个测试一个从迁移 baseline 克隆出来的独立 schema（返回 guard 与 pool）。
@@ -595,8 +650,8 @@ mod db_tests {
         assert!(!rows.is_empty(), "should return at least one pusher");
 
         let row = &rows[0];
-        assert_eq!(row.get::<String, _>("pushkey"), "pushkey1");
-        assert_eq!(row.get::<String, _>("device_id"), device_id);
+        assert_eq!(row.pushkey, "pushkey1");
+        assert_eq!(row.device_id, device_id);
 
         cleanup_pushers(&pool, &user_id).await;
     }
@@ -623,12 +678,12 @@ mod db_tests {
         let rows_d1 =
             storage.get_pushers(&user_id, Some("d1")).await.expect("get_pushers with Some(d1) should succeed");
         assert_eq!(rows_d1.len(), 1, "should return exactly one pusher for d1");
-        assert_eq!(rows_d1[0].get::<String, _>("device_id"), "d1");
+        assert_eq!(rows_d1[0].device_id, "d1");
 
         let rows_d2 =
             storage.get_pushers(&user_id, Some("d2")).await.expect("get_pushers with Some(d2) should succeed");
         assert_eq!(rows_d2.len(), 1, "should return exactly one pusher for d2");
-        assert_eq!(rows_d2[0].get::<String, _>("device_id"), "d2");
+        assert_eq!(rows_d2[0].device_id, "d2");
 
         cleanup_pushers(&pool, &user_id).await;
     }
@@ -693,7 +748,7 @@ mod db_tests {
 
         let rows = storage.get_pushers(&user_id, Some(device_id)).await.expect("get_pushers should succeed");
         assert_eq!(rows.len(), 1, "should still have exactly one pusher after upsert");
-        assert_eq!(rows[0].get::<String, _>("app_display_name"), "App2");
+        assert_eq!(rows[0].app_display_name, "App2");
 
         cleanup_pushers(&pool, &user_id).await;
     }
@@ -820,7 +875,7 @@ mod db_tests {
             .await
             .expect("get_user_push_rules should succeed");
         assert_eq!(rows.len(), 1, "should still have exactly one rule after upsert");
-        assert_eq!(rows[0].get::<String, _>("pattern"), "updated");
+        assert_eq!(rows[0].pattern.as_deref(), Some("updated"));
 
         cleanup_push_rules(&pool, &user_id).await;
     }
@@ -855,7 +910,7 @@ mod db_tests {
             .await
             .expect("get_user_push_rules should succeed");
         assert!(!rows.is_empty());
-        let actions: serde_json::Value = rows[0].get("actions");
+        let actions = rows[0].actions.as_ref().expect("actions are stored as JSONB");
         assert!(actions.as_array().is_some_and(|a| a.len() >= 2));
 
         cleanup_push_rules(&pool, &user_id).await;
@@ -968,17 +1023,17 @@ mod db_tests {
         let global_override =
             storage.get_user_push_rules(&user_id, "global", "override").await.expect("get global override");
         assert_eq!(global_override.len(), 1, "should return only global/override rules");
-        assert_eq!(global_override[0].get::<String, _>("rule_id"), "r1");
+        assert_eq!(global_override[0].rule_id, "r1");
 
         let global_content =
             storage.get_user_push_rules(&user_id, "global", "content").await.expect("get global content");
         assert_eq!(global_content.len(), 1);
-        assert_eq!(global_content[0].get::<String, _>("rule_id"), "r2");
+        assert_eq!(global_content[0].rule_id, "r2");
 
         let device_override =
             storage.get_user_push_rules(&user_id, "devices/DEV1", "override").await.expect("get device override");
         assert_eq!(device_override.len(), 1);
-        assert_eq!(device_override[0].get::<String, _>("rule_id"), "r3");
+        assert_eq!(device_override[0].rule_id, "r3");
 
         cleanup_push_rules(&pool, &user_id).await;
     }
@@ -1000,7 +1055,7 @@ mod db_tests {
         let rows = storage.get_notifications(&user_id, 10).await.expect("get_notifications should succeed");
         assert_eq!(rows.len(), 2, "should return both notifications");
         // Results ordered by ts DESC, so newest (ev2) first
-        assert_eq!(rows[0].get::<String, _>("event_id"), "$ev2");
+        assert_eq!(rows[0].event_id.as_deref(), Some("$ev2"));
 
         cleanup_notifications(&pool, &user_id).await;
     }
@@ -1048,8 +1103,8 @@ mod db_tests {
 
         let result =
             storage.ack_notification(nid, &user_id, now + 1000).await.expect("ack_notification should succeed");
-        assert!(result.is_some(), "should return the acknowledged row");
-        assert_eq!(result.unwrap().get::<i64, _>("id"), nid);
+        assert!(result.is_some(), "should return the acknowledged notification id");
+        assert_eq!(result.unwrap(), nid);
 
         cleanup_notifications(&pool, &user_id).await;
     }
@@ -1122,7 +1177,7 @@ mod db_tests {
             .get_user_push_rules(&user_id, "global", "override")
             .await
             .expect("get_user_push_rules should succeed");
-        let got: Vec<String> = rows.iter().map(|r| r.get::<String, _>("rule_id")).collect();
+        let got: Vec<String> = rows.iter().map(|r| r.rule_id.clone()).collect();
         assert_eq!(
             got,
             vec![".m.rule.aaa", ".m.rule.mmm", ".m.rule.zzz"],

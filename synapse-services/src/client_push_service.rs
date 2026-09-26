@@ -1,5 +1,4 @@
 use serde_json::{json, Value};
-use sqlx::Row;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
@@ -70,17 +69,17 @@ impl ClientPushService {
             .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(pushers
-            .iter()
+            .into_iter()
             .map(|row| {
-                let data = row.try_get::<Option<Value>, _>("data").ok().flatten().unwrap_or_else(|| json!({}));
+                let data = row.data.unwrap_or_else(|| json!({}));
                 json!({
-                    "pushkey": row.get::<String, _>("pushkey"),
-                    "kind": row.get::<String, _>("kind"),
-                    "app_id": row.get::<String, _>("app_id"),
-                    "app_display_name": row.get::<String, _>("app_display_name"),
-                    "device_display_name": row.get::<String, _>("device_display_name"),
-                    "profile_tag": row.try_get::<Option<String>, _>("profile_tag").ok().flatten(),
-                    "lang": row.get::<String, _>("lang"),
+                    "pushkey": row.pushkey,
+                    "kind": row.kind,
+                    "app_id": row.app_id,
+                    "app_display_name": row.app_display_name,
+                    "device_display_name": row.device_display_name,
+                    "profile_tag": row.profile_tag,
+                    "lang": row.lang,
                     "data": data
                 })
             })
@@ -157,15 +156,15 @@ impl ClientPushService {
             .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(rules
-            .iter()
+            .into_iter()
             .map(|row| {
-                let actions = row.try_get::<Option<Value>, _>("actions").ok().flatten().unwrap_or_else(|| json!([]));
+                let actions = row.actions.unwrap_or_else(|| json!([]));
                 json!({
-                    "rule_id": row.get::<String, _>("rule_id"),
-                    "default": row.get::<bool, _>("is_default"),
-                    "enabled": row.get::<bool, _>("is_enabled"),
-                    "pattern": row.try_get::<Option<String>, _>("pattern").ok().flatten(),
-                    "conditions": row.try_get::<Option<Value>, _>("conditions").ok().flatten(),
+                    "rule_id": row.rule_id,
+                    "default": row.is_default,
+                    "enabled": row.is_enabled,
+                    "pattern": row.pattern,
+                    "conditions": row.conditions,
                     "actions": actions
                 })
             })
@@ -307,15 +306,19 @@ impl ClientPushService {
             .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(notifications
-            .iter()
+            .into_iter()
             .map(|row| {
                 json!({
-                    "notification_id": row.get::<i64, _>("id"),
-                    "event_id": row.try_get::<Option<String>, _>("event_id").ok().flatten(),
-                    "room_id": row.try_get::<Option<String>, _>("room_id").ok().flatten(),
-                    "ts": row.try_get::<Option<i64>, _>("ts").ok().flatten(),
-                    "profile_tag": row.try_get::<Option<String>, _>("notification_type").ok().flatten(),
-                    "read": row.try_get::<Option<bool>, _>("is_read").ok().flatten().unwrap_or(false)
+                    "notification_id": row.id,
+                    "event_id": row.event_id,
+                    "room_id": row.room_id,
+                    "ts": row.ts,
+                    // D-62（未修，待裁定）：这里把 `notifications.notification_type` 渲染成
+                    // `profile_tag` 键，而表里另有一列真 `profile_tag` 未被 SELECT —— 见
+                    // docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md §7。改响应形状需产品裁定，
+                    // 故 C33 只做"行为保持"的类型化，不在这里顺手改。
+                    "profile_tag": row.notification_type,
+                    "read": row.is_read.unwrap_or(false)
                 })
             })
             .collect())
@@ -350,10 +353,10 @@ mod tests {
     //! Tested via the in-memory mock stores (`InMemoryPushStore`,
     //! `InMemoryAccountDataStore`) so the suite runs without a real
     //! PostgreSQL pool. The four methods that read raw `sqlx::postgres::PgRow`
-    //! values from the trait (`get_pushers`, `get_user_push_rules`,
-    //! `get_notifications`, `ack_notification`) cannot be exercised in
-    //! memory because `PgRow` is a live DB handle; they are covered by the
-    //! integration tests in `tests/integration/`.
+    //! values from the trait (`get_pushers`, `get_user_push_rules`) are now
+    //! typed rows (`PusherRow` / `PushRuleRow`) and **are** exercised here;
+    //! `get_notifications` / `ack_notification` are exercised against a real
+    //! database by the storage-level `db_tests` and the integration suite.
 
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -554,5 +557,72 @@ mod tests {
         let svc = build_service();
         let content = svc.get_push_rules_content("@mia:example.com").await.unwrap();
         assert!(content.is_none(), "no stored rules should yield None");
+    }
+
+    // ── C33: typed-row readers (previously `PgRow` ⇒ mock had to `unimplemented!()`) ──
+
+    /// `get_pushers` 现在返回 `PusherRow`，因此这个映射**第一次**能在纯内存里被测到。
+    /// 断言整份 JSON：这就是响应形状的锁定点。
+    #[tokio::test]
+    async fn test_get_pushers_maps_typed_row_to_json() {
+        let svc = build_service();
+        let mut request = pusher_req("@nina:example.com", "pk1", "https://push.example.com/v1");
+        request.profile_tag = Some("iphone".to_string());
+        svc.upsert_pusher(request).await.expect("upsert should succeed");
+
+        let pushers = svc.get_pushers("@nina:example.com", Some("DEVICE")).await.expect("get_pushers");
+        assert_eq!(
+            pushers,
+            vec![json!({
+                "pushkey": "pk1",
+                "kind": "http",
+                "app_id": "com.example.app",
+                "app_display_name": "Example",
+                "device_display_name": "Device",
+                "profile_tag": "iphone",
+                "lang": "en",
+                "data": {"url": "https://push.example.com/v1"}
+            })]
+        );
+    }
+
+    /// 镜像 SQL 的 `device_id IS NOT DISTINCT FROM $2`：该列 NOT NULL，故 `None` 匹配不到任何行。
+    #[tokio::test]
+    async fn test_get_pushers_with_none_device_id_matches_nothing() {
+        let svc = build_service();
+        svc.upsert_pusher(pusher_req("@omar:example.com", "pk2", "https://push.example.com/v2")).await.unwrap();
+        let pushers = svc.get_pushers("@omar:example.com", None).await.expect("get_pushers with None");
+        assert!(pushers.is_empty(), "device_id is NOT NULL in the table, so NULL matches nothing");
+    }
+
+    /// 同上：`get_user_push_rules` 的列 → JSON 映射首次可测。
+    #[tokio::test]
+    async fn test_get_user_push_rules_maps_typed_row_to_json() {
+        let svc = build_service();
+        svc.upsert_push_rule(rule_req("@pia:example.com", ".m.rule.pia", json!([{"kind": "notify"}])))
+            .await
+            .expect("upsert rule should succeed");
+
+        let rules = svc.get_user_push_rules("@pia:example.com", "global", "room").await.expect("get rules");
+        assert_eq!(
+            rules,
+            vec![json!({
+                "rule_id": ".m.rule.pia",
+                "default": false,
+                "enabled": true,
+                "pattern": "!room:example.com",
+                "conditions": null,
+                "actions": [{"kind": "notify"}]
+            })]
+        );
+    }
+
+    /// 内存 mock **不存**通知 ⇒ 空列表是"这个 fake 里没有通知"的忠实答案（而不是 panic）。
+    #[tokio::test]
+    async fn test_get_notifications_empty_without_a_notification_store() {
+        let svc = build_service();
+        let notifications = svc.get_notifications("@quinn:example.com", 10).await.expect("get_notifications");
+        assert!(notifications.is_empty());
+        assert!(!svc.ack_notification(4242, "@quinn:example.com").await.expect("ack_notification"));
     }
 }

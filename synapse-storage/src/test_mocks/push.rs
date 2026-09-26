@@ -2,22 +2,23 @@ use super::*;
 
 use serde_json::Value;
 
-use crate::push::PushStoreApi;
+use crate::push::{NotificationRow, PushRuleRow, PushStoreApi, PusherRow};
 
 /// Stored push-rule state for the in-memory mock, mirroring the mutable columns
 /// of the `push_rules` table that the typed trait methods touch.
 #[derive(Clone, Debug)]
-#[allow(dead_code)] // `pattern`/`conditions` are only surfaced via raw-row readers, which are unimplemented.
 struct PushRuleEntry {
     pattern: Option<String>,
     conditions: Option<Value>,
     actions: Value,
     is_enabled: bool,
+    /// Mirrors the table's `is_default`; the INSERT always writes `false`.
+    is_default: bool,
 }
 
 /// Stored pusher state for the in-memory mock.
 #[derive(Clone, Debug)]
-#[allow(dead_code)] // Fields are only surfaced via `get_pushers`, a raw-row reader that is unimplemented.
+#[allow(dead_code)] // `updated_ts` mirrors the table but `get_pushers` (typed) does not surface it.
 struct PusherEntry {
     kind: String,
     app_id: String,
@@ -31,11 +32,15 @@ struct PusherEntry {
 
 /// In-memory [`PushStoreApi`].
 ///
-/// Faithfully implements the typed pusher/push-rule methods with `HashMap`
-/// storage. The methods that return raw `sqlx::postgres::PgRow` values
-/// (`get_pushers`, `get_user_push_rules`, `get_notifications`,
-/// `ack_notification`) cannot be represented in memory and are left
-/// `unimplemented!()`.
+/// Faithfully implements the pusher/push-rule methods with `HashMap` storage,
+/// including the two typed readers (`get_pushers`, `get_user_push_rules`) —
+/// since C33 they return `PusherRow` / `PushRuleRow` instead of a raw
+/// `sqlx::postgres::PgRow`, so they no longer have to be `unimplemented!()`.
+///
+/// Notifications are **not** stored by this mock (there is no notification
+/// fixture API); `get_notifications` therefore reports an empty list and
+/// `ack_notification` reports "nothing acked", which is the faithful answer for
+/// a fake with no notifications rather than a panic.
 #[derive(Clone, Debug, Default)]
 pub struct InMemoryPushStore {
     #[allow(clippy::type_complexity)]
@@ -53,12 +58,32 @@ impl InMemoryPushStore {
 
 #[async_trait::async_trait]
 impl PushStoreApi for InMemoryPushStore {
-    async fn get_pushers(
-        &self,
-        _user_id: &str,
-        _device_id: Option<&str>,
-    ) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error> {
-        unimplemented!("in-memory mock does not support raw-row method get_pushers")
+    async fn get_pushers(&self, user_id: &str, device_id: Option<&str>) -> Result<Vec<PusherRow>, sqlx::Error> {
+        // Mirrors `WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2`:
+        // `device_id` is part of the key and non-null, so `None` matches nothing.
+        let Some(device_id) = device_id else {
+            return Ok(Vec::new());
+        };
+        let pushers = self.pushers.read().await;
+        let mut rows: Vec<PusherRow> = pushers
+            .iter()
+            .filter(|((user, device, _), _)| user == user_id && device == device_id)
+            .map(|((_, _, pushkey), entry)| PusherRow {
+                pushkey: pushkey.clone(),
+                kind: entry.kind.clone(),
+                app_id: entry.app_id.clone(),
+                app_display_name: entry.app_display_name.clone(),
+                device_display_name: entry.device_display_name.clone(),
+                profile_tag: entry.profile_tag.clone(),
+                lang: entry.lang.clone(),
+                data: entry.data.clone(),
+                device_id: device_id.to_string(),
+            })
+            .collect();
+        // Mirrors `ORDER BY created_ts DESC, pushkey ASC` (the mock keeps no
+        // created_ts; ordering by pushkey keeps the result deterministic).
+        rows.sort_by(|a, b| a.pushkey.cmp(&b.pushkey));
+        Ok(rows)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -126,6 +151,7 @@ impl PushStoreApi for InMemoryPushStore {
                         conditions: conditions.clone(),
                         actions: actions.clone(),
                         is_enabled: true,
+                        is_default: false,
                     },
                 );
             }
@@ -204,23 +230,33 @@ impl PushStoreApi for InMemoryPushStore {
 
     async fn get_user_push_rules(
         &self,
-        _user_id: &str,
-        _scope: &str,
-        _kind: &str,
-    ) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error> {
-        unimplemented!("in-memory mock does not support raw-row method get_user_push_rules")
+        user_id: &str,
+        scope: &str,
+        kind: &str,
+    ) -> Result<Vec<PushRuleRow>, sqlx::Error> {
+        let rules = self.push_rules.read().await;
+        let mut rows: Vec<PushRuleRow> = rules
+            .iter()
+            .filter(|((user, rule_scope, rule_kind, _), _)| user == user_id && rule_scope == scope && rule_kind == kind)
+            .map(|((_, _, _, rule_id), entry)| PushRuleRow {
+                rule_id: rule_id.clone(),
+                pattern: entry.pattern.clone(),
+                conditions: entry.conditions.clone(),
+                actions: Some(entry.actions.clone()),
+                is_enabled: entry.is_enabled,
+                is_default: entry.is_default,
+            })
+            .collect();
+        // Mirrors `ORDER BY rule_id ASC`.
+        rows.sort_by(|a, b| a.rule_id.cmp(&b.rule_id));
+        Ok(rows)
     }
 
-    async fn get_notifications(&self, _user_id: &str, _limit: i64) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error> {
-        unimplemented!("in-memory mock does not support raw-row method get_notifications")
+    async fn get_notifications(&self, _user_id: &str, _limit: i64) -> Result<Vec<NotificationRow>, sqlx::Error> {
+        Ok(Vec::new())
     }
 
-    async fn ack_notification(
-        &self,
-        _id: i64,
-        _user_id: &str,
-        _now: i64,
-    ) -> Result<Option<sqlx::postgres::PgRow>, sqlx::Error> {
-        unimplemented!("in-memory mock does not support raw-row method ack_notification")
+    async fn ack_notification(&self, _id: i64, _user_id: &str, _now: i64) -> Result<Option<i64>, sqlx::Error> {
+        Ok(None)
     }
 }
