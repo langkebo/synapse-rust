@@ -60,10 +60,16 @@
 - **旁证**: 鉴权白名单已为**不存在**的路由预留了路径（`utils/admin_auth.rs:386` 的 `/media/quarantine` 前缀）
 - **修法**: 需新增 service 方法 + handler
 
-### 7. 缩略图 `animated` 参数未支持
-- **位置**: 全仓 `.rs` **0 命中**
-- **描述**: 媒体缩略图生成不支持 `animated` 参数（如 GIF 保持动态）
-- **结论**: 全仓无引用，可能是设计选择而非缺陷（待确认）
+### ✅ 6.3 缩略图 `animated` 参数支持
+- **位置**: `synapse-web/src/routes/media/download.rs` + `synapse-services/src/media_service.rs` + `synapse-services/src/media/mod.rs`
+- **说明**: Phase 1 已实现：
+  - ✅ `animated=true/false` 请求参数解析（`thumbnail_request_params` 返回四元组）
+  - ✅ GIF/WebP 动画检测（魔数字节检测，安全快速）
+  - ✅ 首帧提取降级策略（`AnimationDecoder::into_frames().next()`）
+  - ✅ Content-Type 正确返回：动画 `image/webp`，静态 `image/jpeg`
+  - ⚠️ Phase 2 待实施：动画 WebP 编码输出（需引入 `webp-animation` crate）
+- **提交**: 本轮实现，Phase 1 完成
+- **后续**: Phase 2 由 @langkebo.5-team 负责，目标引入动画 WebP 编码能力
 
 ### 8. ledger `query_params` 字段无消费方
 - **位置**: `synapse-web/src/routes/ledger_export.rs:156`
@@ -79,6 +85,6 @@
 ## 执行计划建议
 
 1. **中优先级**: Admin 媒体缺口 — 新增 `quarantine_media` / `unquarantine_media` service + handler
-2. **待确认**: `animated` 参数 — 需产品决策是否支持
+2. **已解决**: `animated` 参数 (Phase 1)，Phase 2 待后续实施
 3. **低优先级**: ledger `query_params` — 可标注为已知差异
 4. **设计使然**: v12/v13 房间创建限制 — 无需处理

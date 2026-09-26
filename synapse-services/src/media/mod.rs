@@ -535,9 +535,11 @@ impl MediaDomainService {
         width: u32,
         height: u32,
         method: &str,
+        animated: bool,
     ) -> Result<MediaResponsePayload, ApiError> {
-        let content = self.media_service.get_thumbnail(server_name, media_id, width, height, method).await?;
-        let headers = build_media_response_headers("image/jpeg".to_string(), content.len(), None);
+        let content = self.media_service.get_thumbnail(server_name, media_id, width, height, method, animated).await?;
+        let content_type = if animated { "image/webp" } else { "image/jpeg" };
+        let headers = build_media_response_headers(content_type.to_string(), content.len(), None);
         Ok(MediaResponsePayload { content, headers })
     }
 

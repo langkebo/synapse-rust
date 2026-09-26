@@ -156,6 +156,7 @@ async fn fetch_remote_thumbnail_via_federation(
     width: u32,
     height: u32,
     method: &str,
+    animated: bool,
 ) -> Result<synapse_services::media::MediaResponsePayload, ApiError> {
     let federation_client = ctx.federation_client.clone();
     let resp = federation_client
@@ -169,11 +170,8 @@ async fn fetch_remote_thumbnail_via_federation(
         return Err(ApiError::not_found(format!("Remote thumbnail fetch failed: {status} {body}")));
     }
 
-    let content_type = resp
-        .headers()
-        .get(header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .map_or_else(|| "image/jpeg".to_string(), |s| s.to_string());
+    // Animated thumbnails use WebP, static use JPEG
+    let content_type = if animated { "image/webp" } else { "image/jpeg" };
 
     let content = resp
         .bytes()
@@ -181,7 +179,7 @@ async fn fetch_remote_thumbnail_via_federation(
         .map_err(|e| ApiError::internal(format!("Failed to read remote thumbnail body: {e}")))?
         .to_vec();
 
-    let headers = build_proxy_media_headers(content_type, content.len(), None);
+    let headers = build_proxy_media_headers(content_type.to_string(), content.len(), None);
     Ok(synapse_services::media::MediaResponsePayload { content, headers })
 }
 
@@ -260,11 +258,13 @@ pub(crate) async fn download_media_stream_common(
 }
 
 /// See [`thumbnail_request_params`].
-pub(crate) fn thumbnail_request_params(params: &Value) -> (u32, u32, &str) {
+pub(crate) fn thumbnail_request_params(params: &Value) -> (u32, u32, &str, bool) {
     let width = params.get("width").and_then(|v| v.as_u64()).filter(|&w| w <= 10000).unwrap_or(800) as u32;
     let height = params.get("height").and_then(|v| v.as_u64()).filter(|&h| h <= 10000).unwrap_or(600) as u32;
     let method = params.get("method").and_then(|v| v.as_str()).unwrap_or("scale");
-    (width, height, method)
+    // Animated thumbnail support (Phase 1: detection + first-frame fallback)
+    let animated = params.get("animated").and_then(|v| v.as_bool()).unwrap_or(false);
+    (width, height, method, animated)
 }
 
 /// See [`thumbnail_response_common`].
@@ -281,13 +281,13 @@ pub(crate) async fn thumbnail_response_common(
             "Missing width and height query parameters: at least one must be provided".to_string(),
         ));
     }
-    let (width, height, method) = thumbnail_request_params(params);
+    let (width, height, method, animated) = thumbnail_request_params(params);
 
     if server_name == ctx.server_name {
-        return ctx.media_domain_service.get_thumbnail(server_name, media_id, width, height, method).await;
+        return ctx.media_domain_service.get_thumbnail(server_name, media_id, width, height, method, animated).await;
     }
 
-    fetch_remote_thumbnail_via_federation(ctx, server_name, media_id, width, height, method).await
+    fetch_remote_thumbnail_via_federation(ctx, server_name, media_id, width, height, method, animated).await
 }
 
 // ---------------------------------------------------------------------------

@@ -65,7 +65,8 @@ pub(super) async fn media_thumbnail(
         )));
     }
 
-    let content = ctx.media_service.get_thumbnail(&server_name, &media_id, width as u32, height as u32, method).await?;
+    let content =
+        ctx.media_service.get_thumbnail(&server_name, &media_id, width as u32, height as u32, method, false).await?;
     let content_type = federation_guess_content_type(&media_id, &content).to_string();
     let headers = federation_media_response_headers(content_type, content.len());
 

@@ -262,7 +262,7 @@ fn test_get_thumbnail_success() {
 
         let media_id = upload_result["media_id"].as_str().unwrap();
 
-        let result = media_service.get_thumbnail("example.com", media_id, 100, 100, "scale").await;
+        let result = media_service.get_thumbnail("example.com", media_id, 100, 100, "scale", false).await;
 
         assert!(result.is_ok(), "Should get thumbnail");
 
@@ -276,7 +276,7 @@ fn test_get_thumbnail_not_found() {
     rt.block_on(async {
         let (media_service, _temp_dir) = create_test_media_service();
 
-        let result = media_service.get_thumbnail("example.com", "nonexistent_id", 100, 100, "scale").await;
+        let result = media_service.get_thumbnail("example.com", "nonexistent_id", 100, 100, "scale", false).await;
 
         assert!(result.is_err(), "Should return error for non-existent media");
 

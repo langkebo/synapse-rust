@@ -4,6 +4,7 @@ use synapse_common::media_link_signer::MediaLinkSigner;
 use synapse_common::task_queue::RedisTaskQueue;
 use synapse_common::*;
 
+use image::DynamicImage;
 use sqlx::PgPool;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -483,15 +484,18 @@ impl MediaService {
     /// See [`get_thumbnail`].
     pub async fn get_thumbnail(
         &self,
-        _server_name: &str,
+        server_name: &str,
         media_id: &str,
         width: u32,
         height: u32,
         method: &str,
+        animated: bool,
     ) -> Result<Vec<u8>, ApiError> {
         Self::validate_media_id(media_id)?;
         let thumbnail_method = ThumbnailMethod::from_str(method).map_err(ApiError::bad_request)?;
-        let thumbnail_filename = format!("{media_id}_{width}x{height}_{method}.jpg");
+        // Cache key includes animated flag to distinguish animated vs static thumbnails
+        let animated_suffix = if animated { "_animated" } else { "" };
+        let thumbnail_filename = format!("{media_id}_{width}x{height}_{method}{animated_suffix}.jpg");
         let thumbnail_path = self.thumbnail_path.join(&thumbnail_filename);
 
         if let Ok(content) = tokio::fs::read(&thumbnail_path).await {
@@ -500,18 +504,19 @@ impl MediaService {
                 width,
                 height,
                 method = %method,
+                animated = %animated,
                 thumbnail_filename = %thumbnail_filename,
                 "Serving cached thumbnail"
             );
             return Ok(content);
         }
 
-        let original_content = self.download_media(_server_name, media_id).await?;
+        let original_content = self.download_media(server_name, media_id).await?;
 
-        // 审查 #1：解码+缩放是重 CPU 操作，移入 spawn_blocking 避免阻塞 tokio worker。
+        // Review #1: Decode + scale is CPU intensive, move to spawn_blocking.
         let content_for_thumb = original_content.clone();
         let thumbnail = match tokio::task::spawn_blocking(move || {
-            Self::generate_thumbnail(&content_for_thumb, width, height, thumbnail_method)
+            Self::generate_thumbnail(&content_for_thumb, width, height, thumbnail_method, animated)
         })
         .await
         {
@@ -525,6 +530,7 @@ impl MediaService {
                 width,
                 height,
                 method = %method,
+                animated = %animated,
                 thumbnail_filename = %thumbnail_filename,
                 error = %e,
                 "Failed to cache thumbnail"
@@ -539,22 +545,36 @@ impl MediaService {
         target_width: u32,
         target_height: u32,
         method: ThumbnailMethod,
+        animated: bool,
     ) -> Result<Vec<u8>, ApiError> {
         use image::imageops::FilterType;
         use image::{ImageFormat, ImageReader, Limits};
 
-        // 审查 #1：解压炸弹防护。用 ImageReader + Limits 在解码前限制单边最大
-        // 像素，高压缩比图片（如超宽 PNG）在分配完整解码图前即被拒绝，避免
-        // 内存耗尽。阈值对齐 Synapse max_image_pixels 的保守上界。
+        // Review #1: Decompression bomb protection. Use ImageReader + Limits to limit
+        // max pixels per dimension before decoding, preventing memory exhaustion from
+        // highly compressed images (e.g., ultra-wide PNG). Threshold aligned with
+        // Synapse's conservative max_image_pixels upper bound.
         const MAX_IMAGE_DIMENSION: u32 = 8192;
 
-        // MEDIA-01 (P1): 缩略图输出尺寸上限。即使请求方传入 10000×10000，
-        // 也限制到 2048×2048（人类视觉阈值 + 避免 CPU/内存/磁盘三重耗尽）。
-        // 渲染后尺寸 = target_width * target_height 像素，2048² ≈ 4.2MP，
-        // 既保留细节又把 JPEG 输出大小控制在 < 2MB。
+        // MEDIA-01 (P1): Thumbnail output size limit. Even if client requests 10000×10000,
+        // cap to 2048×2048 (human visual threshold + prevent CPU/memory/disk exhaustion).
+        // Rendered size = target_width * target_height pixels, 2048² ≈ 4.2MP,
+        // keeping JPEG output < 2MB while preserving detail.
         const MAX_THUMB_OUTPUT_DIMENSION: u32 = 2048;
         let target_width = target_width.min(MAX_THUMB_OUTPUT_DIMENSION);
         let target_height = target_height.min(MAX_THUMB_OUTPUT_DIMENSION);
+
+        // Phase 1: Animated thumbnail support
+        // When animated=true and source is animated (GIF/WebP), extract first frame
+        // and generate static thumbnail (degradation strategy). Full animated WebP
+        // encoding will be added in Phase 2 when we introduce webp-animation crate.
+        if animated && Self::is_animated_image(image_data) {
+            ::tracing::info!(
+                "Source image detected as animated; generating first-frame static thumbnail (Phase 1 degradation)"
+            );
+            // Extract first frame and generate static thumbnail from it
+            return Self::generate_first_frame_thumbnail(image_data, target_width, target_height, method);
+        }
 
         let mut reader = ImageReader::new(std::io::Cursor::new(image_data))
             .with_guessed_format()
@@ -592,6 +612,113 @@ impl MediaService {
         Ok(output)
     }
 
+    /// Phase 1: Animated image detection (conservative)
+    /// Returns true if the image data appears to be animated (GIF or WebP)
+    /// Note: We use file format detection rather than full frame counting for performance
+    fn is_animated_image(data: &[u8]) -> bool {
+        // GIF magic bytes: 0x47 0x49 0x46 0x38 0x39 0x61 (GIF89a) or GIF87a
+        if data.len() >= 6 && &data[0..6] == b"GIF89a" || &data[0..6] == b"GIF87a" {
+            return true;
+        }
+        // WebP magic: RIFF....WEBP (check at offset 0 and 8)
+        if data.len() >= 12 && &data[0..4] == b"RIFF" && &data[8..12] == b"WEBP" {
+            return true;
+        }
+        false
+    }
+
+    /// Phase 1: Generate thumbnail from first frame of animated image
+    /// Extracts first frame and processes it as a static image (degradation strategy)
+    fn generate_first_frame_thumbnail(
+        image_data: &[u8],
+        target_width: u32,
+        target_height: u32,
+        method: ThumbnailMethod,
+    ) -> Result<Vec<u8>, ApiError> {
+        use image::{AnimationDecoder, DynamicImage, ImageFormat, ImageReader, Limits};
+
+        // Review #1: Decompression bomb protection
+        const MAX_IMAGE_DIMENSION: u32 = 8192;
+
+        // MEDIA-01 (P1): Thumbnail output size limit
+        const MAX_THUMB_OUTPUT_DIMENSION: u32 = 2048;
+        let target_width = target_width.min(MAX_THUMB_OUTPUT_DIMENSION);
+        let target_height = target_height.min(MAX_THUMB_OUTPUT_DIMENSION);
+
+        // Try GIF first - use into_frames() which implements AnimationDecoder
+        if let Ok(gif_decoder) = image::codecs::gif::GifDecoder::new(std::io::Cursor::new(image_data)) {
+            if let Some(Ok(frame)) = gif_decoder.into_frames().next() {
+                let img = DynamicImage::ImageRgba8(frame.into_buffer());
+                let thumbnail = Self::process_thumbnail_image(img, target_width, target_height, method);
+                let mut output = Vec::new();
+                thumbnail
+                    .write_to(&mut std::io::Cursor::new(&mut output), ImageFormat::Jpeg)
+                    .map_err(|e| ApiError::internal_with_cause("Failed to encode thumbnail", e))?;
+                return Ok(output);
+            }
+        }
+
+        // Try WebP
+        if let Ok(webp_decoder) = image::codecs::webp::WebPDecoder::new(std::io::Cursor::new(image_data)) {
+            if let Some(Ok(frame)) = webp_decoder.into_frames().next() {
+                let img = DynamicImage::ImageRgba8(frame.into_buffer());
+                let thumbnail = Self::process_thumbnail_image(img, target_width, target_height, method);
+                let mut output = Vec::new();
+                thumbnail
+                    .write_to(&mut std::io::Cursor::new(&mut output), ImageFormat::Jpeg)
+                    .map_err(|e| ApiError::internal_with_cause("Failed to encode thumbnail", e))?;
+                return Ok(output);
+            }
+        }
+
+        // Fallback: treat as static image (will handle non-animated or unsupported formats)
+        let mut reader = ImageReader::new(std::io::Cursor::new(image_data))
+            .with_guessed_format()
+            .map_err(|e| ApiError::bad_request(format!("Unsupported image format: {e}")))?;
+        let mut limits = Limits::default();
+        limits.max_image_width = Some(MAX_IMAGE_DIMENSION);
+        limits.max_image_height = Some(MAX_IMAGE_DIMENSION);
+        reader.limits(limits);
+
+        let img = reader.decode().map_err(|e| ApiError::bad_request(format!("Invalid image data: {e}")))?;
+
+        let thumbnail = Self::process_thumbnail_image(img, target_width, target_height, method);
+
+        let mut output = Vec::new();
+        thumbnail
+            .write_to(&mut std::io::Cursor::new(&mut output), ImageFormat::Jpeg)
+            .map_err(|e| ApiError::internal_with_cause("Failed to encode thumbnail", e))?;
+
+        Ok(output)
+    }
+
+    /// Helper function to process a DynamicImage into a thumbnail
+    fn process_thumbnail_image(
+        mut img: DynamicImage,
+        target_width: u32,
+        target_height: u32,
+        method: ThumbnailMethod,
+    ) -> DynamicImage {
+        use image::imageops::FilterType;
+        match method {
+            ThumbnailMethod::Crop => {
+                let (orig_width, orig_height) = (img.width(), img.height());
+                let aspect_ratio =
+                    (orig_width as f32 / target_width as f32).max(orig_height as f32 / target_height as f32);
+
+                let crop_width = (target_width as f32 * aspect_ratio) as u32;
+                let crop_height = (target_height as f32 * aspect_ratio) as u32;
+
+                let x = (orig_width.saturating_sub(crop_width)) / 2;
+                let y = (orig_height.saturating_sub(crop_height)) / 2;
+
+                let cropped = img.crop(x, y, crop_width.min(orig_width), crop_height.min(orig_height));
+                cropped.resize_exact(target_width, target_height, FilterType::Lanczos3)
+            }
+            ThumbnailMethod::Scale => img.resize(target_width, target_height, FilterType::Lanczos3),
+        }
+    }
+
     /// See [`generate_all_thumbnails`].
     pub async fn generate_all_thumbnails(&self, media_id: &str) -> Result<Vec<String>, ApiError> {
         Self::validate_media_id(media_id)?;
@@ -599,12 +726,12 @@ impl MediaService {
         let mut generated = Vec::new();
 
         for config in &self.default_thumbnail_configs {
-            // 审查 #1：重 CPU 解码/缩放移入 spawn_blocking，避免阻塞 tokio worker。
-            // 先复制 Copy 字段，避免闭包捕获 &self 引用导致 'static 约束失败。
+            // Review #1: Heavy CPU decode/scale moves to spawn_blocking to avoid blocking tokio worker.
+            // Copy out the fields first to avoid capturing &self in the closure causing 'static constraint failure.
             let (cfg_width, cfg_height, cfg_method) = (config.width, config.height, config.method);
             let content_for_thumb = original_content.clone();
             let thumbnail = tokio::task::spawn_blocking(move || {
-                Self::generate_thumbnail(&content_for_thumb, cfg_width, cfg_height, cfg_method)
+                Self::generate_thumbnail(&content_for_thumb, cfg_width, cfg_height, cfg_method, false)
             })
             .await
             .map_err(|e| ApiError::internal_with_cause("Thumbnail generation task panicked", e))??;
@@ -1136,7 +1263,7 @@ mod tests {
         let mut buf = Vec::new();
         img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png).unwrap();
 
-        let result = MediaService::generate_thumbnail(&buf, 100, 100, ThumbnailMethod::Scale);
+        let result = MediaService::generate_thumbnail(&buf, 100, 100, ThumbnailMethod::Scale, false);
         assert!(result.is_err(), "oversized image must be rejected");
     }
 
@@ -1150,8 +1277,8 @@ mod tests {
         img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png).unwrap();
 
         // 请求 9999×9999 → 输出应被静默收敛到 2048×2048 而非 panic / 失败。
-        let result =
-            MediaService::generate_thumbnail(&buf, 9999, 9999, ThumbnailMethod::Scale).expect("缩略图生成应成功");
+        let result = MediaService::generate_thumbnail(&buf, 9999, 9999, ThumbnailMethod::Scale, false)
+            .expect("缩略图生成应成功");
         assert!(!result.is_empty(), "应返回非空 JPEG 字节流");
 
         // 用 image crate 解码结果验证尺寸确实 ≤ 2048。
@@ -1167,7 +1294,7 @@ mod tests {
         let mut buf = Vec::new();
         img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png).unwrap();
 
-        let result = MediaService::generate_thumbnail(&buf, 32, 32, ThumbnailMethod::Scale);
+        let result = MediaService::generate_thumbnail(&buf, 32, 32, ThumbnailMethod::Scale, false);
         assert!(result.is_ok(), "normal image must succeed: {result:?}");
     }
 }
