@@ -72,18 +72,22 @@ impl OpenIdTokenStorage {
     pub async fn create_token(&self, request: CreateOpenIdTokenRequest) -> Result<OpenIdToken, ApiError> {
         let now = current_timestamp_millis();
 
-        let token = sqlx::query_as::<_, OpenIdToken>(
-            r"
+        // `device_id` 是 `Option<String>` ⇒ 按 R5 用 `.as_deref()`；
+        // `is_valid` 列可空（只有 DEFAULT TRUE、无 NOT NULL）而字段非 `Option` ⇒ 按 R4 断言：
+        // 唯一写者在本 INSERT 里恒写字面量 `TRUE`，两处 `UPDATE` 也恒写 `TRUE`/`FALSE`。
+        let token = sqlx::query_as!(
+            OpenIdToken,
+            r#"
             INSERT INTO openid_tokens (token, user_id, device_id, created_ts, expires_at, is_valid)
             VALUES ($1, $2, $3, $4, $5, TRUE)
-            RETURNING id, token, user_id, device_id, created_ts, expires_at, is_valid
-            ",
+            RETURNING id, token, user_id, device_id, created_ts, expires_at, is_valid AS "is_valid!"
+            "#,
+            &request.token,
+            &request.user_id,
+            request.device_id.as_deref(),
+            now,
+            request.expires_at,
         )
-        .bind(&request.token)
-        .bind(&request.user_id)
-        .bind(&request.device_id)
-        .bind(now)
-        .bind(request.expires_at)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to create OpenID token", e))?;
@@ -93,14 +97,15 @@ impl OpenIdTokenStorage {
 
     /// See [`get_token`].
     pub async fn get_token(&self, token: &str) -> Result<Option<OpenIdToken>, ApiError> {
-        let token_data = sqlx::query_as::<_, OpenIdToken>(
-            r"
-            SELECT id, token, user_id, device_id, created_ts, expires_at, is_valid
+        let token_data = sqlx::query_as!(
+            OpenIdToken,
+            r#"
+            SELECT id, token, user_id, device_id, created_ts, expires_at, is_valid AS "is_valid!"
             FROM openid_tokens
             WHERE token = $1 AND is_valid = TRUE
-            ",
+            "#,
+            token,
         )
-        .bind(token)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get OpenID token", e))?;
@@ -112,15 +117,16 @@ impl OpenIdTokenStorage {
     pub async fn validate_token(&self, token: &str) -> Result<Option<OpenIdToken>, ApiError> {
         let now = current_timestamp_millis();
 
-        let token_data = sqlx::query_as::<_, OpenIdToken>(
-            r"
-            SELECT id, token, user_id, device_id, created_ts, expires_at, is_valid
+        let token_data = sqlx::query_as!(
+            OpenIdToken,
+            r#"
+            SELECT id, token, user_id, device_id, created_ts, expires_at, is_valid AS "is_valid!"
             FROM openid_tokens
             WHERE token = $1 AND is_valid = TRUE AND expires_at > $2
-            ",
+            "#,
+            token,
+            now,
         )
-        .bind(token)
-        .bind(now)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to validate OpenID token", e))?;
@@ -130,14 +136,14 @@ impl OpenIdTokenStorage {
 
     /// See [`revoke_token`].
     pub async fn revoke_token(&self, token: &str) -> Result<bool, ApiError> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             UPDATE openid_tokens
             SET is_valid = FALSE
             WHERE token = $1
             ",
+            token,
         )
-        .bind(token)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to revoke OpenID token", e))?;
@@ -147,14 +153,14 @@ impl OpenIdTokenStorage {
 
     /// See [`revoke_user_tokens`].
     pub async fn revoke_user_tokens(&self, user_id: &str) -> Result<u64, ApiError> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             UPDATE openid_tokens
             SET is_valid = FALSE
             WHERE user_id = $1 AND is_valid = TRUE
             ",
+            user_id,
         )
-        .bind(user_id)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to revoke user OpenID tokens", e))?;
@@ -166,13 +172,13 @@ impl OpenIdTokenStorage {
     pub async fn cleanup_expired_tokens(&self) -> Result<u64, ApiError> {
         let now = current_timestamp_millis();
 
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             DELETE FROM openid_tokens
             WHERE expires_at < $1 OR is_valid = FALSE
             ",
+            now,
         )
-        .bind(now)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to cleanup expired OpenID tokens", e))?;
@@ -182,15 +188,16 @@ impl OpenIdTokenStorage {
 
     /// See [`get_tokens_by_user`].
     pub async fn get_tokens_by_user(&self, user_id: &str) -> Result<Vec<OpenIdToken>, ApiError> {
-        let tokens = sqlx::query_as::<_, OpenIdToken>(
-            r"
-            SELECT id, token, user_id, device_id, created_ts, expires_at, is_valid
+        let tokens = sqlx::query_as!(
+            OpenIdToken,
+            r#"
+            SELECT id, token, user_id, device_id, created_ts, expires_at, is_valid AS "is_valid!"
             FROM openid_tokens
             WHERE user_id = $1
             ORDER BY created_ts DESC, id DESC
-            ",
+            "#,
+            user_id,
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get user OpenID tokens", e))?;

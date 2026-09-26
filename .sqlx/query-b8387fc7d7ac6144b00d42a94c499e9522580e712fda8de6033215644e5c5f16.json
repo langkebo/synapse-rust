@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM openid_tokens\n            WHERE expires_at < $1 OR is_valid = FALSE\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b8387fc7d7ac6144b00d42a94c499e9522580e712fda8de6033215644e5c5f16"
+}

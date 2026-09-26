@@ -57,64 +57,65 @@ impl FederationQueueStorage {
 
     /// See [`insert`].
     pub async fn insert(&self, req: &InsertFederationQueueRequest) -> Result<i64, sqlx::Error> {
-        let row = sqlx::query_as::<_, (i64,)>(
+        // `room_id` 是 `Option<String>` ⇒ 按 R5 用 `.as_deref()`（宏拒绝 `&Option<String>`）。
+        let id: i64 = sqlx::query_scalar!(
             r"
             INSERT INTO federation_queue (destination, event_id, event_type, room_id, content, created_ts, status)
             VALUES ($1, $2, $3, $4, $5, $6, 'pending')
             RETURNING id
             ",
+            &req.destination,
+            &req.event_id,
+            &req.event_type,
+            req.room_id.as_deref(),
+            &req.content,
+            req.created_ts,
         )
-        .bind(&req.destination)
-        .bind(&req.event_id)
-        .bind(&req.event_type)
-        .bind(&req.room_id)
-        .bind(&req.content)
-        .bind(req.created_ts)
         .fetch_one(&self.pool)
         .await?;
 
-        Ok(row.0)
+        Ok(id)
     }
 
     /// See [`mark_sent`].
     pub async fn mark_sent(&self, id: i64, sent_at: i64) -> Result<PgQueryResult, sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r"
             UPDATE federation_queue
             SET status = 'sent', sent_at = $2
             WHERE id = $1
             ",
+            id,
+            sent_at,
         )
-        .bind(id)
-        .bind(sent_at)
         .execute(&self.pool)
         .await
     }
 
     /// See [`increment_retry`].
     pub async fn increment_retry(&self, id: i64) -> Result<PgQueryResult, sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r"
             UPDATE federation_queue
             SET retry_count = retry_count + 1, status = 'pending'
             WHERE id = $1
             ",
+            id,
         )
-        .bind(id)
         .execute(&self.pool)
         .await
     }
 
     /// See [`mark_failed`].
     pub async fn mark_failed(&self, id: i64) -> Result<PgQueryResult, sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r"
             UPDATE federation_queue
             SET status = 'failed'
             WHERE id = $1
             ",
+            id,
         )
-        .bind(id)
         .execute(&self.pool)
         .await
     }
@@ -125,31 +126,39 @@ impl FederationQueueStorage {
         destination: &str,
         limit: i64,
     ) -> Result<Vec<FederationQueueEntry>, sqlx::Error> {
-        sqlx::query_as::<_, FederationQueueEntry>(
-            r"
-            SELECT id, destination, event_id, event_type, room_id, content, created_ts, sent_at, retry_count, status
+        // `retry_count` / `status` 在 schema 里**可空**（都只有 DEFAULT、无 NOT NULL），
+        // 而 `FederationQueueEntry` 的对应字段是非 `Option`。按 R4 断言非空，"谁保证非空"的
+        // 答案是**唯一写者**：`insert` 省略这两列（走 DEFAULT 0 / `'pending'`），
+        // 而 `increment_retry`/`mark_sent`/`mark_failed` 全部显式写入非空值。
+        sqlx::query_as!(
+            FederationQueueEntry,
+            r#"
+            SELECT id, destination, event_id, event_type, room_id, content, created_ts, sent_at,
+                   retry_count AS "retry_count!", status AS "status!"
             FROM federation_queue
             WHERE destination = $1 AND status = 'pending'
             ORDER BY created_ts ASC, id ASC
             LIMIT $2
-            ",
+            "#,
+            destination,
+            limit,
         )
-        .bind(destination)
-        .bind(limit)
         .fetch_all(&self.pool)
         .await
     }
 
     /// See [`get_all_pending`].
     pub async fn get_all_pending(&self) -> Result<Vec<FederationQueueEntry>, sqlx::Error> {
-        sqlx::query_as::<_, FederationQueueEntry>(
-            r"
-            SELECT id, destination, event_id, event_type, room_id, content, created_ts, sent_at, retry_count, status
+        sqlx::query_as!(
+            FederationQueueEntry,
+            r#"
+            SELECT id, destination, event_id, event_type, room_id, content, created_ts, sent_at,
+                   retry_count AS "retry_count!", status AS "status!"
             FROM federation_queue
             WHERE status = 'pending'
             ORDER BY created_ts ASC, id ASC
             LIMIT 1000
-            ",
+            "#,
         )
         .fetch_all(&self.pool)
         .await
@@ -157,13 +166,13 @@ impl FederationQueueStorage {
 
     /// See [`delete_completed`].
     pub async fn delete_completed(&self, older_than_ts: i64) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             DELETE FROM federation_queue
             WHERE status IN ('sent', 'failed') AND created_ts < $1
             ",
+            older_than_ts,
         )
-        .bind(older_than_ts)
         .execute(&self.pool)
         .await?;
 
@@ -172,12 +181,13 @@ impl FederationQueueStorage {
 
     /// See [`count_pending`].
     pub async fn count_pending(&self) -> Result<i64, sqlx::Error> {
-        let row =
-            sqlx::query_as::<_, (Option<i64>,)>(r"SELECT COUNT(*) FROM federation_queue WHERE status = 'pending'")
-                .fetch_one(&self.pool)
-                .await?;
+        // `COUNT(*)` 无关系来源 ⇒ 宏推可空；这里保留原有的 `Option<i64>` + `unwrap_or(0)` 语义
+        // （而不是断言 `!`），因为聚合"零匹配 ⇒ 0"本就由 PG 保证，无需额外断言。
+        let count: Option<i64> = sqlx::query_scalar!(r"SELECT COUNT(*) FROM federation_queue WHERE status = 'pending'")
+            .fetch_one(&self.pool)
+            .await?;
 
-        Ok(row.0.unwrap_or(0))
+        Ok(count.unwrap_or(0))
     }
 }
 

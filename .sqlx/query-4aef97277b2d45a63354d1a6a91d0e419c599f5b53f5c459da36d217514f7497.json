@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM federation_queue\n            WHERE status IN ('sent', 'failed') AND created_ts < $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4aef97277b2d45a63354d1a6a91d0e419c599f5b53f5c459da36d217514f7497"
+}

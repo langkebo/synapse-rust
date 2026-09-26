@@ -2276,12 +2276,27 @@
 # `UNNEST($1::text[], …)` 按 R5 把 `Vec<&str>` 改成 `Vec<String>`。
 #   · `dynamic_production` 378 → **363**（−15）；`static` 1090 → **1105**（+15）
 #   · `dynamic` 总数 1093 → **1078**；`dynamic_test` 715 不变；`.sqlx` 1058 → **1073**（+15 / 0 删除）
+# ── 2026-09-26 C37（`federation_queue.rs` 8 + `openid_token.rs` 7；两文件生产动态归零）──
+# 两文件都无 feature 门控、都是单表模块，且各自**已有真 baseline db_tests**（R8 第 4 条现成）：
+#   cargo nextest run -p synapse-storage --lib --features test-utils \
+#     -E 'test(/federation_queue/) or test(/openid_token/)'  ⇒ **24/24 通过**
+# 转换要点（两处 R4 + 一处 R5）：
+#   · `federation_queue.retry_count` / `.status` 列**可空**（只有 DEFAULT、无 NOT NULL）而
+#     `FederationQueueEntry` 字段非 `Option` ⇒ 断言 `AS "retry_count!"` / `AS "status!"`；
+#     "谁保证非空"= 唯一写者（`insert` 走 DEFAULT，三个 UPDATE 恒写非空值）。
+#   · `openid_tokens.is_valid` 同理 ⇒ 四处投影断言 `AS "is_valid!"`（INSERT 恒写 TRUE）。
+#   · `insert` 的 `room_id: Option<String>` ⇒ R5 `.as_deref()`；
+#     `create_token` 的 `device_id: Option<String>` 同理。
+#   · `count_pending` 的 `COUNT(*)` 保持 `Option<i64>` + `unwrap_or(0)`（零匹配本就返回 0，
+#     不需要断言）—— 与"无关系来源一律推可空"的规则一致。
+#   · `dynamic_production` 363 → **348**（−15）；`static` 1105 → **1120**（+15）
+#   · `dynamic` 总数 1078 → **1063**；`dynamic_test` 715 不变；`.sqlx` 1073 → **1088**（+15 / 0 删除）
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=363
+BASELINE_DYNAMIC_PRODUCTION=348
 BASELINE_DYNAMIC_TEST_INFRA=715
-BASELINE_STATIC=1105
+BASELINE_STATIC=1120
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1078
+BASELINE_DYNAMIC=1063
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

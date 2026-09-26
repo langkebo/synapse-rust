@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE federation_queue\n            SET retry_count = retry_count + 1, status = 'pending'\n            WHERE id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a4622200548f9c4dfc8fea466156bfa97703c2fbe84d4b6800b4f52ca5a6ce16"
+}

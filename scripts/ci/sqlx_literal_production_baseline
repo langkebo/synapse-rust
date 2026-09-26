@@ -141,6 +141,9 @@
 # ── 2026-09-26 C36（本表一行退表：15 → 0）────────────────────────────────────
 #   `synapse-storage/src/burn_after_read.rs` 15 处全部宏化（门控 `burn-after-read`）
 #   ⇒ 删行退表；本表合计 307 → **292**、文件数 59 → **58**。
+# ── 2026-09-26 C37（本表再退两行：8 + 7）────────────────────────────────────
+#   `synapse-storage/src/federation_queue.rs`（8）与 `openid_token.rs`（7）全部宏化
+#   ⇒ 删两行退表；本表合计 292 → **277**、文件数 58 → **56**。
 src/server/database.rs	1
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
@@ -176,7 +179,6 @@ synapse-storage/src/event/txn_dedup.rs	3
 synapse-storage/src/event/unread.rs	3
 synapse-storage/src/feature_flags.rs	5
 synapse-storage/src/federation_blacklist.rs	7
-synapse-storage/src/federation_queue.rs	8
 synapse-storage/src/filter.rs	5
 synapse-storage/src/login_token.rs	3
 synapse-storage/src/maintenance.rs	3
@@ -185,7 +187,6 @@ synapse-storage/src/migration_checks.rs	2
 synapse-storage/src/monitoring.rs	6
 synapse-storage/src/oauth_client_storage.rs	2
 synapse-storage/src/oidc_user_mapping.rs	3
-synapse-storage/src/openid_token.rs	7
 synapse-storage/src/presence/mod.rs	1
 synapse-storage/src/qr_login.rs	5
 synapse-storage/src/rate_limit.rs	3
