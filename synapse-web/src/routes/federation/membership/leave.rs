@@ -89,19 +89,10 @@ pub(crate) async fn send_leave(
         .map_err(|e| ApiError::internal_with_cause("Failed to persist leave event", e))?;
     let content = event.get("content").cloned().unwrap_or(json!({}));
 
-    // F-03: re-sign locally for third-party verification. `origin` is part of
-    // the signed bytes; the signer no longer injects it.
-    let mut pdu = json!({
-        "event_id": event_id,
-        "room_id": room_id,
-        "sender": user_id,
-        "type": "m.room.member",
-        "state_key": user_id,
-        "origin_server_ts": event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0),
-        "origin": ctx.server_name,
-        "content": content,
-    });
-    re_sign_pdu_locally(&ctx, &event_id, &mut pdu).await;
+    // F-03: sign the PDU the persisted row projects to, so third-party origins
+    // can verify it. The helper reads the row back itself — a hand-assembled
+    // partial dict would hash bytes no peer can reproduce from the full PDU.
+    re_sign_pdu_locally(&ctx, &event_id).await;
 
     dispatch_federation_member_event_to_appservice(&ctx, &event_id, &room_id, user_id, &content, Some(user_id)).await;
 
@@ -172,19 +163,8 @@ pub(crate) async fn send_leave_v2(
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to persist leave event", e))?;
 
-    // F-03: re-sign locally for third-party verification. `origin` is part of
-    // the signed bytes; the signer no longer injects it.
-    let mut pdu = json!({
-        "event_id": event_id,
-        "room_id": room_id,
-        "sender": sender,
-        "type": "m.room.member",
-        "state_key": sender,
-        "origin_server_ts": current_timestamp_millis(),
-        "origin": ctx.server_name,
-        "content": membership_content_for_as,
-    });
-    re_sign_pdu_locally(&ctx, &event_id, &mut pdu).await;
+    // F-03: sign the projected persisted row (see the `send_leave` note).
+    re_sign_pdu_locally(&ctx, &event_id).await;
 
     dispatch_federation_member_event_to_appservice(
         &ctx,

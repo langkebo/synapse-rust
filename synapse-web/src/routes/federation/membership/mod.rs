@@ -10,6 +10,9 @@ pub(crate) mod leave;
 pub(crate) mod query;
 
 use crate::routes::context::FederationContext;
+use crate::routes::federation::pdu::{
+    apply_stored_signature_material, signature_action, state_pdu, PduCompleteness, SignatureAction,
+};
 use crate::routes::AppState;
 use axum::{
     routing::{get, post, put},
@@ -188,96 +191,190 @@ pub(crate) async fn get_effective_room_join_rule(ctx: &FederationContext, room_i
 // F-03: Local re-sign helper for federation-derived events
 // ---------------------------------------------------------------------------
 //
-// Used by `invite`, `join`, and `leave` route handlers after `create_event`
-// to add the local server's ed25519 signature to the persisted PDU.
+// Used by `invite`, `join`, and `leave` route handlers after the event row has
+// been persisted, to add the local server's ed25519 signature to the PDU.
 // Without this, third-party origins in `verify_pdu_sender_signature` would
 // reject the event because only the remote sender's signature is present.
 
-/// Sign the given PDU JSON with the local server's current signing key and
-/// persist `signatures` + `hashes` back into the events row.
+/// Sign the **projected** persisted event with the local server's current
+/// signing key and persist `signatures` + `hashes` back into the events row.
 ///
-/// Best-effort: on any failure logs a warning rather than failing the inbound
-/// federation request. The event is already accepted (invite/join/leave);
-/// re-signing is a downstream concern.
-pub(crate) async fn re_sign_pdu_locally(ctx: &FederationContext, event_id: &str, pdu: &mut Value) {
+/// The signature must cover the exact PDU a peer will receive: the projection
+/// of the stored row ([`state_pdu`], including the row's `depth` /
+/// `prev_events` / `auth_events`), **not** a hand-assembled subset of the
+/// event's fields. Signing a partial dict yields a `hashes.sha256` and a
+/// signature that no verifier can reproduce from the full PDU, so every peer
+/// rejects the event.
+///
+/// Fail-closed, exactly like the other federation projectors: if the room
+/// version cannot be resolved or the projection is incomplete (the row carries
+/// no graph metadata — e.g. an event written by `create_event`), the event is
+/// left unsigned rather than fabricating a DAG position or signing bytes
+/// nobody can reproduce. See `crate::routes::federation::pdu` for the rationale.
+///
+/// Best-effort towards the caller: the inbound federation request has already
+/// been accepted, so failures are logged and swallowed.
+pub(crate) async fn re_sign_pdu_locally(ctx: &FederationContext, event_id: &str) {
     let local_server = &ctx.server_name;
 
-    // Signature material is room-version dependent (the redaction applied before
-    // signing differs per version), so the version must be resolved, never
-    // guessed. Best-effort: if it cannot be resolved the event goes unsigned.
-    let Some(room_id) = pdu.get("room_id").and_then(Value::as_str) else {
-        ::tracing::warn!(
-            event_id = %event_id,
-            server_name = %local_server,
-            "F-03: PDU has no room_id — cannot resolve a room version; event will lack local signature"
-        );
-        return;
+    // 1. The persisted row is the only authority on what a peer will receive.
+    let record = match ctx.room_service.messaging().get_event_record(event_id).await {
+        Ok(Some(record)) => record,
+        Ok(None) => {
+            ::tracing::warn!(
+                event_id = %event_id,
+                server_name = %local_server,
+                "F-03: no persisted row for event — nothing to sign"
+            );
+            return;
+        }
+        Err(error) => {
+            ::tracing::warn!(
+                event_id = %event_id,
+                server_name = %local_server,
+                %error,
+                "F-03: failed to read the persisted event — refusing to sign"
+            );
+            return;
+        }
     };
-    let room_version = match ctx.room_service.state().get_room_version(room_id).await {
+
+    // 2. Signature material is room-version dependent (the redaction applied
+    //    before signing differs per version), so the version must be resolved,
+    //    never guessed.
+    let room_version = match ctx.room_service.state().get_room_version(&record.room_id).await {
         Ok(Some(room_version)) => room_version,
         Ok(None) => {
             ::tracing::warn!(
                 event_id = %event_id,
                 server_name = %local_server,
-                room_id = %room_id,
+                room_id = %record.room_id,
                 "F-03: no room version recorded for room — refusing to sign; event will lack local signature"
             );
             return;
         }
-        Err(e) => {
+        Err(error) => {
             ::tracing::warn!(
                 event_id = %event_id,
                 server_name = %local_server,
-                room_id = %room_id,
-                error = %e,
+                room_id = %record.room_id,
+                %error,
                 "F-03: failed to resolve room version — refusing to sign; event will lack local signature"
             );
             return;
         }
     };
 
-    let key = match ctx.key_rotation_manager.get_current_key().await {
-        Ok(Some(k)) => k,
-        Ok(None) => {
+    // 3. Project the row with the very projector the federation emitters use,
+    //    so the signed bytes and the emitted bytes cannot diverge.
+    let state_records = match ctx.room_service.messaging().get_state_event_records(&record.room_id).await {
+        Ok(records) => records,
+        Err(error) => {
             ::tracing::warn!(
                 event_id = %event_id,
                 server_name = %local_server,
-                "F-03: no signing key available — federation event will lack local signature"
-            );
-            return;
-        }
-        Err(e) => {
-            ::tracing::warn!(
-                event_id = %event_id,
-                server_name = %local_server,
-                error = %e,
-                "F-03: failed to fetch signing key — federation event will lack local signature"
+                room_id = %record.room_id,
+                %error,
+                "F-03: failed to read the room state — refusing to sign; event will lack local signature"
             );
             return;
         }
     };
-
-    if let Err(e) =
-        synapse_federation::signing::sign_and_hash_event(&room_version, local_server, &key.key_id, &key.secret_key, pdu)
-    {
+    let Some(persisted) = state_records.iter().find(|candidate| candidate.event_id == event_id) else {
         ::tracing::warn!(
             event_id = %event_id,
             server_name = %local_server,
-            error = %e,
-            "F-03: sign_and_hash_event failed — federation event will lack local signature"
+            room_id = %record.room_id,
+            "F-03: persisted event is not part of the room's current state — refusing to sign; event will lack local signature"
+        );
+        return;
+    };
+
+    let (mut pdu, completeness) = state_pdu(local_server, persisted, Some(room_version.as_str()));
+    if completeness != PduCompleteness::Complete {
+        ::tracing::warn!(
+            event_id = %event_id,
+            server_name = %local_server,
+            room_id = %record.room_id,
+            "F-03: projected PDU is missing graph metadata (depth/prev_events/auth_events); \
+             refusing to sign — signing a PDU whose bytes we cannot reproduce is worse than \
+             leaving it unsigned (see federation::pdu module docs)"
         );
         return;
     }
 
+    match signature_action(persisted, completeness) {
+        SignatureAction::KeepStored => {
+            // The row already carries the hash/signature pair the origin server
+            // signed; reuse it verbatim so the projection stays byte-identical.
+            if !apply_stored_signature_material(persisted, &mut pdu) {
+                ::tracing::warn!(
+                    event_id = %event_id,
+                    server_name = %local_server,
+                    "F-03: stored hashes/signatures are incomplete — refusing to sign"
+                );
+                return;
+            }
+        }
+        SignatureAction::RefuseIncomplete => {
+            // Unreachable: completeness was checked above. Kept so a future
+            // change to `signature_action` cannot start signing an incomplete PDU.
+            ::tracing::warn!(
+                event_id = %event_id,
+                server_name = %local_server,
+                "F-03: projected PDU incomplete — refusing to sign"
+            );
+            return;
+        }
+        SignatureAction::SignLocally => {
+            let key = match ctx.key_rotation_manager.get_current_key().await {
+                Ok(Some(key)) => key,
+                Ok(None) => {
+                    ::tracing::warn!(
+                        event_id = %event_id,
+                        server_name = %local_server,
+                        "F-03: no signing key available — federation event will lack local signature"
+                    );
+                    return;
+                }
+                Err(error) => {
+                    ::tracing::warn!(
+                        event_id = %event_id,
+                        server_name = %local_server,
+                        %error,
+                        "F-03: failed to fetch signing key — federation event will lack local signature"
+                    );
+                    return;
+                }
+            };
+
+            if let Err(error) = synapse_federation::signing::sign_and_hash_event(
+                &room_version,
+                local_server,
+                &key.key_id,
+                &key.secret_key,
+                &mut pdu,
+            ) {
+                ::tracing::warn!(
+                    event_id = %event_id,
+                    server_name = %local_server,
+                    %error,
+                    "F-03: sign_and_hash_event failed — federation event will lack local signature"
+                );
+                return;
+            }
+        }
+    }
+
     let signatures = pdu.get("signatures").cloned().unwrap_or(Value::Null);
     let hashes = pdu.get("hashes").cloned().unwrap_or(Value::Null);
-    if let Err(e) =
+    if let Err(error) =
         ctx.room_service.messaging().update_event_signatures_and_hashes(event_id, &signatures, &hashes).await
     {
         ::tracing::warn!(
             event_id = %event_id,
             server_name = %local_server,
-            error = %e,
+            %error,
             "F-03: failed to persist local signatures/hashes — event will be missing signatures in subsequent federation"
         );
     }

@@ -14,7 +14,10 @@ use base64::Engine as _;
 use ed25519_dalek::Signer;
 use serde_json::{json, Value};
 use std::sync::Arc;
+use synapse_federation::signing::{compute_event_content_hash, signature_material_bytes};
+use synapse_storage::event::EventStorage;
 use synapse_web::federation::signing::canonical_federation_request_bytes;
+use synapse_web::routes::federation::pdu::{apply_stored_signature_material, state_pdu, PduCompleteness};
 use tower::ServiceExt;
 
 // ---------------------------------------------------------------------------
@@ -43,6 +46,19 @@ async fn setup_federation_app() -> Option<(
     super::config_mut(&mut container).federation.server_name = "localhost".to_string();
     super::config_mut(&mut container).federation.key_id = Some(key_id.to_string());
     super::config_mut(&mut container).federation.signing_key = Some(signing_key_b64.clone());
+    // The key rotation manager is built *inside* `ServiceContainer::new`, so the
+    // config overrides above never reach it: seed it directly, otherwise every
+    // PDU re-signing path silently no-ops for want of a current key.
+    //
+    // `initialize` installs the in-memory key *before* its at-rest persistence
+    // policy check, which refuses plaintext when no master key is configured —
+    // so the key is usable even though that check may fail. Assert on the
+    // installed key rather than on the (deliberately unpersisted) result.
+    let init_result = container.federation.key_rotation_manager.initialize(&signing_key_b64, key_id).await;
+    assert!(
+        container.federation.key_rotation_manager.get_current_key().await.expect("key read").is_some(),
+        "the deterministic test signing key must be installed for PDU signing (initialize returned {init_result:?})"
+    );
     let cache = Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default()));
     let state = synapse_web::routes::state::AppState::new(container, cache.clone());
     let app = synapse_web::create_router(state);
@@ -501,4 +517,123 @@ async fn knock_room_no_existence_leak_remote_server() {
         "knock_room for a private room without access must return 404, not {}",
         private_room_status
     );
+}
+
+// ---------------------------------------------------------------------------
+// Tests: F-03 / U-13-R7 — the persisted signature must cover the PDU a peer
+// actually receives (the projected row), not a hand-assembled partial dict
+// ---------------------------------------------------------------------------
+
+/// Create a room with an explicit room version via the client API.
+async fn create_room_with_version(app: &axum::Router, token: &str, room_version: &str) -> String {
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/createRoom")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "preset": "public_chat", "room_version": room_version }).to_string()))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 2048).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    json["room_id"].as_str().unwrap().to_string()
+}
+
+/// F-03: `re_sign_pdu_locally` must sign the **projected** event row.
+///
+/// The defect: the six membership call sites handed it a hand-assembled dict
+/// holding only `event_id, room_id, sender, type, state_key, origin_server_ts,
+/// origin, content`.  That dict is missing `depth` / `prev_events` /
+/// `auth_events`, so the persisted `hashes.sha256` and `signatures` describe
+/// bytes no peer can reproduce when the row is re-emitted as a full PDU — every
+/// verifying server rejects the signature.
+///
+/// This drives `/invite` v2 (which persists the graph fields it was given, so
+/// the projection is complete and the re-sign path actually runs), then checks
+/// the persisted material against the projection of the same row:
+/// the stored `hashes.sha256` must equal the projected content hash, and the
+/// stored ed25519 signature must verify over the projected signature material.
+#[tokio::test]
+async fn invite_v2_stored_signature_covers_the_projected_pdu() {
+    let Some((app, pool, key_id, _key_b64, signing_key, _cache)) = setup_federation_app().await else {
+        return;
+    };
+
+    // Room version 11 is v3+: `event_id` is a reference hash and is not carried.
+    let (token, creator_id) = register_user(&app, "creator").await;
+    let room_id = create_room_with_version(&app, &token, "11").await;
+
+    // The PDU's graph fields must reference a real persisted event.
+    let create_event_id: String =
+        sqlx::query_scalar("SELECT event_id FROM events WHERE room_id = $1 AND event_type = 'm.room.create' LIMIT 1")
+            .bind(&room_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("the new room must have an m.room.create event");
+
+    let invitee = "@invitee:localhost";
+    let body = json!({
+        "event": {
+            "type": "m.room.member",
+            "content": { "membership": "invite" },
+            "sender": creator_id,
+            "state_key": invitee,
+            "room_id": room_id,
+            "origin": "localhost",
+            "origin_server_ts": chrono::Utc::now().timestamp_millis(),
+            "depth": 3,
+            "prev_events": [create_event_id.clone()],
+            "auth_events": [create_event_id.clone()],
+        },
+        "room_version": "11"
+    });
+    let uri = format!("/_matrix/federation/v2/invite/{}/$path_event_id", room_id);
+    let request = signed_fed_request("PUT", &uri, "localhost", &key_id, &signing_key, Some(&body));
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "invite_v2 must accept and persist the PDU");
+    let response_body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    let response_json: Value = serde_json::from_slice(&response_body).unwrap();
+    let event_id =
+        response_json["event_id"].as_str().expect("invite_v2 must return the persisted event_id").to_string();
+
+    // Read the persisted row back the same way the federation emitters do.
+    let storage = EventStorage::new(&pool, "localhost".to_string());
+    let records = storage.get_state_events(&room_id).await.expect("state rows must be readable");
+    let record = records.iter().find(|r| r.event_id == event_id).expect("the invite row must be persisted");
+
+    // The material must cover exactly the projected PDU a peer will receive.
+    let (projected, completeness) = state_pdu("localhost", record, Some("11"));
+    assert_eq!(completeness, PduCompleteness::Complete, "invite_v2 persisted depth/prev_events/auth_events");
+
+    let stored_hashes = record.hashes.clone().expect("re_sign_pdu_locally must persist hashes");
+    let stored_signatures = record.signatures.clone().expect("re_sign_pdu_locally must persist signatures");
+
+    let expected_hash = compute_event_content_hash(&projected).expect("projected PDU must hash");
+    assert_eq!(
+        stored_hashes["sha256"].as_str(),
+        Some(expected_hash.as_str()),
+        "stored hashes.sha256 must hash the projected PDU, not a hand-built partial dict"
+    );
+
+    let signature_b64 = stored_signatures["localhost"][&key_id]
+        .as_str()
+        .unwrap_or_else(|| panic!("no local signature under {key_id}: {stored_signatures}"));
+    let signature_bytes = STANDARD_NO_PAD.decode(signature_b64).expect("signature must be unpadded base64");
+    let signature = ed25519_dalek::Signature::from_slice(&signature_bytes).expect("signature must be 64 bytes");
+
+    // The signed bytes are the projection *with* its `hashes` attached:
+    // redaction keeps `hashes` (only `signatures`, `unsigned` and `age_ts` are
+    // stripped), so a verifier recomputes the material from the full PDU a peer
+    // receives — exactly what this rebuilds via the production helper.
+    let mut pdu_as_received = projected;
+    assert!(apply_stored_signature_material(record, &mut pdu_as_received), "stored material must attach");
+    let material = signature_material_bytes("11", &pdu_as_received).expect("projected signature material");
+    signing_key
+        .verifying_key()
+        .verify_strict(&material, &signature)
+        .expect("the stored signature must verify over the projected PDU a peer receives");
 }
