@@ -14,12 +14,12 @@
 
 | 指标 | 战役起点（2026-09-23） | 现在 | 变化 |
 |---|---|---|---|
-| `dynamic_production` | 1532（近似） | **393** | **−74.3%** |
+| `dynamic_production` | 1532（近似） | **392** | **−74.4%** |
 | `static` | 61 | **1076** | +1015 |
 | `dynamic`（总） | 2151 | **1105** | −1046 |
 | 静态占比 | 2.76% | **49.3%**（1076 / 2181） | +46.6pp |
 | `.sqlx` 离线缓存 | 60 条 | **1045 条** | +985 |
-| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **322 / 60** | −554 |
+| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **321 / 60** | −555 |
 | `param` 传参（D-14 新棘轮，处 / 文件） | — | **1 / 1** | 新立棘轮（此前混在 `runtime`，两道棘轮都不管） |
 | `runtime` 残差 / `query_builder` | — | 70 / 13 文件 · **18**（已入计数棘轮） | — |
 
@@ -27,10 +27,10 @@
 
 | 组成 | 处数 | 性质 |
 |---|---|---|
-| **可静态化残量** | **321** | **291 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单/`ORDER BY` 方向等，需结构性替代）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转），见 §7.3 D-14 |
+| **可静态化残量** | **320** | **290 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单/`ORDER BY` 方向等，需结构性替代）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转），见 §7.3 D-14 |
 | 测试基建（有意保留） | 57 | `synapse-test-utils/src/lib.rs` 28、`synapse-common/src/test_isolation.rs` 25、`test_schema_guard.rs` 4 |
 | 结构性保留（有意） | 15 | `synapse-storage/src/event/pagination.rs`（9 runtime 游标/排序方向 + 6 literal） |
-| **合计** | **393** | = 321 + 57 + 15 |
+| **合计** | **392** | = 320 + 57 + 15 |
 
 ### 0.3 复现（唯一入口，勿手工数）
 
@@ -71,8 +71,8 @@ D-66 / D-67 / D-68）记在各自提交信息里（下次阶段总结时并入�
 
 ### 0.5 阶段结论
 
-1. 动态 SQL 已从**系统性风险**降为**局部清单**：393 处里 72 处有意保留，待收 **321 处**，
-   其中 291 处是纯机械转换。
+1. 动态 SQL 已从**系统性风险**降为**局部清单**：392 处里 72 处有意保留，待收 **320 处**，
+   其中 290 处是纯机械转换。
 2. **收益性质变了**：早期批次每批都在挖"真 schema 下必败"的硬缺陷（① 类 15 条）；
    现在批次以机械收敛为主，并顺手清理一类残留（C31 清 `FromRow` 死代码、C32 消手工 `Row::get`、
    C33 消 `PgRow` 泄漏与 10 处吞错、C34 消 `Row` 解码与死 derive）。
@@ -132,7 +132,8 @@ D-66 / D-67 / D-68）记在各自提交信息里（下次阶段总结时并入�
 > 还原后绿；把上限抬到 19（等价于实测值下降）同样放行 —— 即"只禁增不禁减"。
 > ⇒ D-14 的三种形状（① 字面量绑定 / ② 跨函数传参 / ③ QueryBuilder）现已**全部有约束**。
 >
-> 实测（收紧当天）：生产区 `literal` **322 处不变**（同文件字面量绑定在生产区为 0），
+> 实测（收紧当天）：生产区 `literal` **322 处不变**（同文件字面量绑定在生产区为 0；
+> 该值随后由 C35a-0 的锁方法去重下调为 321），
 > `runtime` 71 → **70**，新类 `param` **1**（即 ②）；测试区 3 处 `const` 绑定从 runtime 转 literal
 > （`presence/mod.rs` 的三个 `PRESENCE_SELECT_BY_USER` 用例，test 区不入棘轮）。
 > ⇒ 所谓 "baseline +N" 在生产区**没有发生**；收紧的实质是**新增了 `param` 这道此前不存在的约束**
@@ -165,12 +166,12 @@ D-66 / D-67 / D-68）记在各自提交信息里（下次阶段总结时并入�
 
 ### 8.1 剩余可静态化清单（按实测，2026-09-25 C34 后）
 
-**可转换残量 321 处**（291 literal / 29 runtime / 1 param），头部按大小排（前 14）：
+**可转换残量 320 处**（290 literal / 29 runtime / 1 param），头部按大小排（前 14）：
 
 | 文件 | 处数 | 门控 | 备注 |
 |---|---|---|---|
 | `synapse-storage/src/burn_after_read.rs` | 15 | `burn-after-read` | 见 §8.3（需带 feature 的 CI 等价库） |
-| `synapse-services/src/database_initializer/mod.rs` | 15 | — | D-14 归属**已判**：15 处实参全是字面量（无 `format!` 拼装）⇒ 全部可转换，见 §8.3 |
+| `synapse-services/src/database_initializer/mod.rs` | 14 | — | D-14 归属**已判**（全字面量）；**C35a-0 已完成**（补 5 条真 baseline 覆盖 + 抽出锁接缝，−1 去重），见 §8.3 |
 | `synapse-storage/src/event/basic.rs` | 11 | — | 其中 8 literal / 3 runtime；`event/` 同域；**动手前确认并发会话不在途**（v12 PDU 活跃区） |
 | `synapse-storage/src/event/redaction.rs` | 10 | — | 同上 |
 | `synapse-e2ee/src/secure_backup/service.rs` | 10 | — | 与 C25–C27 同域，可整批 |
@@ -204,52 +205,46 @@ D-66 / D-67 / D-68）记在各自提交信息里（下次阶段总结时并入�
 
 1. **`burn_after_read.rs`（15，门控 `burn-after-read`）** —— `prepare` 必须 `--all-features`；
    DB 往返要在**带该 feature** 的一次性 CI 等价库上跑（`createdb` + `scripts/ci/prepare_test_db.sh`）。
-2. **`database_initializer/mod.rs`（15）** —— D-14 归属**已判**（2026-09-26）：15 处实参全是
-   **字面量**（含多行 `r"…"`），无一由 `format!` 拼装；文件无 feature 门控。但 **STEP 0 侦察
-   （同日）发现它不是一个纯机械批次**，按站点分三类，动手前需要先做决定：
-   - **A 类（纯 DML/SELECT，可直接转，9 处）**：`:180` `SELECT value::BIGINT FROM db_metadata`、
-     `:213` upsert `db_metadata`、`:231` `SELECT 1 as test`、`:234` `SELECT version()`、
-     `:273`/`:279` `SELECT pg_advisory_unlock($1)`、`:318` 读 `schema_migrations`、
-     `:334` upsert `schema_migrations`、`:517` `count(*) FROM information_schema.tables`。
-     ✅ `schema_migrations` 与 `db_metadata` 在**已迁移库中真实存在**（实测 `to_regclass` 非空）
-     ⇒ `cargo sqlx prepare` 能 describe 这些站点（这是本批最大的未知项，已排除）。
-     ⚠️ 其中 `:234` 与 `:517` 用了 `.ok().flatten()`（见下面的吞错条目）。
-   - **B 类（可空性断言需理由，2 处）**：`:245` 的 `hashtext(current_database() || ':' ||
-     current_schema())` 与 `:252` 的 `pg_try_advisory_lock($1)` —— 函数结果**无 NOT NULL 信息**
-     ⇒ 宏推可空而调用方声明非 `Option`。`:252` 恒非 NULL（PG 文档语义），可直接按 R4 断言；
-     `:245` 有**真实边界**（`search_path` 为空时 `current_schema()` 为 NULL ⇒ 现行
-     `let lock_key: i64` 会解码失败），断言 `!` 会把该边界藏起来 ⇒ 建议先加
-     `COALESCE(…, current_database() || ':')` 再断言（属**先修**，独立提交）。
-   - **C 类（utility 语句，4 处、需实测）**：`:437` `SET`、`:468`/`:486` `ROLLBACK`、
-     `:305` `CREATE INDEX`。全仓**没有任何宏用在 utility 语句上的先例**（实测 grep 为 0），
-     而 R7/§7.3 的既有注释笼统写着"DDL 无法用 `query!` 静态化" —— 该说法**尚未逐条实测**。
-     sqlx 侧已确认支持"无结果列"的语句（本批 D-68 的 `INSERT … SELECT` 就是），
-     但 utility 语句能否 `Parse`/`Describe` 必须用一次 `cargo sqlx prepare` 证伪或证实：
-     能 ⇒ 4 处照转（顺带修正那句笼统说法）；不能 ⇒ 按 R13 新登记一条结构性例外
-     （utility 语句无宏支持），本批只转 A/B 两类。
-   - ⚠️ 另有 **2 处吞错**（`:234` `.ok().flatten()` 忽略 `version()` 失败、`:517`
-     同样忽略表数统计失败）位于**日志/遥测**路径：按 R12「先修再转」需先判定
-     "这是有意的 best-effort 还是缺陷"（判据：失败后是否有调用方因此做出错误决定），
-     再决定独立修或就地注明理由。
-   - 🔴 **最重要的发现：A 类几乎无 DB 往返覆盖。** 模块内 `mod tests` 共 13 条用例，其中
-     12 条是**纯函数**（SQL 拆分/校验和/schema 归一化），唯一一条 DB 用例
-     `test_schema_migrations_table_has_is_success_column` ① 只覆盖 `ensure_schema_migrations_table`
-     （即 C 类站点 `:305`），② 用的是 `prepare_empty_isolated_test_pool()`（**空 schema**，
-     正是 R9 禁止新增覆盖时使用的那类夹具）。A 类里的 `db_metadata` 缓存读写、
-     advisory lock 取/放、`schema_migrations` 读写、`information_schema` 计数**全无 DB 覆盖**。
-     ⇒ 直接转换会重演 D-15.6（"静态化后无 DB 往返"）——宏只证明"能 describe"，
-     证不了"行为没变"。**C35a 的前置提交必须是"先补覆盖"**：
-     `DatabaseInitService::new(Arc<PgPool>)` 是现成的可测构造（无需 `Config`），
-     用真 baseline 池（`IsolatedTestPool`）补 4–5 条往返用例
-     （cache 命中/未命中、lock 取到/释放、`schema_migrations` upsert 覆盖路径）。
-   ⇒ 结论：拆成 **C35a-0（先补真 baseline DB 覆盖）→ C35a（A 类机械转换）→
-   C35b（B/C 类：先修 + utility 实测）**，三个独立提交，不要混。
+2. **`database_initializer/mod.rs`（转换前 15 → 现 14）** —— D-14 归属**已判**（实参全是
+   字面量，无 `format!` 拼装；文件无 feature 门控）。**按函数分类**（不再用会随 `fmt` 漂移的
+   行号）：
+   - **A 类 / 8 处（纯 DML/SELECT，可直接转）**：`check_cache_valid`、`update_init_timestamp`、
+     `step_connection_test`（2 处）、`is_migration_executed`、`record_migration`、
+     `release_migration_lock`、`run_runtime_migrations` 末尾的表数统计。
+   - **B 类 / 2 处（可空性断言需理由）**：`migration_lock_key` 的
+     `hashtext(current_database() || ':' || current_schema())` 与 `try_acquire_migration_lock`
+     的 `pg_try_advisory_lock($1)` —— 函数结果无 NOT NULL 信息，宏推可空而调用方声明非 `Option`。
+     `pg_try_advisory_lock` 恒非 NULL，可直接按 R4 断言；`hashtext` 有**真实边界**
+     （`search_path` 为空时 `current_schema()` 为 NULL，现行 `let lock_key: i64` 会解码失败）
+     ⇒ 先加 `COALESCE(…, current_database() || ':')` 再断言（属**先修**，独立提交）。
+   - **C 类 / 4 处（utility 语句，需一次实测）**：`ensure_schema_migrations_table` 的
+     `CREATE INDEX`、`run_runtime_migrations` 里的 `SET statement_timeout`、`ROLLBACK` ×2。
+     全仓**没有**宏用在 utility 语句上的先例（grep 实测 0），而既有注释笼统写着
+     "DDL 无法用 query! 静态化"——**该说法尚未逐条实测**。能 describe ⇒ 照转并修正那句注释；
+     不能 ⇒ 按 R13 新登记一条结构性例外，本批只转 A/B。
+   - ⚠️ 另有 **2 处吞错**（`step_connection_test` 的 `.ok().flatten()` 忽略 `version()` 失败、
+     表数统计同样忽略失败）位于**日志/遥测**路径：按 R12「先修再转」需先判定
+     "有意的 best-effort 还是缺陷"（判据：失败后是否有调用方据此做出错误决定）。
+
+   ✅ **C35a-0 已完成（2026-09-26）** —— 该模块此前 13 条用例里 12 条是纯函数，唯一 DB 用例
+   只覆盖 `ensure_schema_migrations_table` 且用的是**空 schema**（R9 禁止的形态）；
+   `db_metadata` 缓存读写、advisory lock 取/放、`schema_migrations` 读写全无覆盖。
+   本批补了 **5 条真 baseline（`IsolatedTestPool`）DB 往返用例**（缓存未命中→写入→命中、
+   TTL 非正不命中、锁互斥+释放后可再取、`record_migration` 的 `ON CONFLICT` 覆盖路径、
+   基线 schema 上 `ensure_schema_migrations_table` 幂等），并把锁协议抽成三个可测方法
+   （`migration_lock_key` / `try_acquire_migration_lock` / `release_migration_lock`，行为不变）。
+   **三条变异自证**：释放改 no-op ⇒ 锁用例红（"释放后必须能被另一会话取到"）；
+   `ON CONFLICT … DO UPDATE` 改 `DO NOTHING` ⇒ upsert 用例红（checksum 未被覆盖）；
+   `update_init_timestamp` 换 key ⇒ 缓存往返红。去重收益：`pg_advisory_unlock` 的两个同文本
+   调用点合并为一处 ⇒ 生产动态 393 → **392**、本表该文件 15 → **14**。
+   ⇒ 剩余 **C35a（A 类 8 处机械转换）** 与 **C35b（B/C 类：先修 + utility 实测）**，两个独立提交。
+
 3. **D-57②（seed 侧收敛 `public`）** —— 见 §7.2：需"枚举 baseline 对象集 + 对多出来的对象逐个
    DROP"式设计，不能简单 `RESET_PUBLIC=1`。
 
 ### 8.4 收尾条件（何时可称"静态化战役结束"）
 
-- `dynamic_production` 的**可转换部分归零**：393 → **72**（只剩测试基建 57 + 结构性 15），
+- `dynamic_production` 的**可转换部分归零**：392 → **72**（只剩测试基建 57 + 结构性 15），
   或每个残留都有 §7.3 那样的登记条目；
 - literal 逐文件表只剩 4 类（3 个测试基建文件 + `event/pagination.rs`）；
 - **D-57② 落地**（D-62 已落地、D-37 已收敛、**D-68 已接线并加保留期** ⇒ §7 只剩 D-57②）；

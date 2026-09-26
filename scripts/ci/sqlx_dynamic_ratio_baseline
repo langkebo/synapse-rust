@@ -2216,9 +2216,20 @@
 # 口径：`census` 的 `query_builder` 是**总数**（生产 + 测试，共 18 处 / 13 文件，
 #   其中 `synapse-storage/src/sliding_sync/tests.rs` 1 处属测试），因此本棘轮比
 #   "只看生产"更严；收紧（数字下降）由批次自行下调，本棘轮只判"是否增加"。
+# ── 2026-09-26 C35a-0（补覆盖 + 抽出可测锁接缝；生产动态 −1、测试动态 +1）──────
+# `database_initializer/mod.rs` 的 A 类转换（C35a）前必须先补 DB 覆盖（R9），
+# 本批只补覆盖 + 抽三个锁方法（`migration_lock_key` / `try_acquire_migration_lock` /
+# `release_migration_lock`，行为完全不变）：
+#   · `dynamic_production` 393 → **392**：`SELECT pg_advisory_unlock($1)` 原有两个
+#     字面量相同的调用点（正常路径 + "无迁移目录"跳过路径）⇒ 抽成一个方法后**只计一处**
+#     （属去重收益，与 D-27/D-30 的"删除类"同向）。
+#   · `dynamic_test` 712 → **713**：新增 5 条真 baseline 用例中有 1 条需要直接读回
+#     `schema_migrations` 的 checksum/execution_time_ms 以证明 `ON CONFLICT … DO UPDATE`
+#     真的覆盖（`#[cfg(test)]` 内的宏不进 `cargo sqlx prepare`，按 D-13/R9 保持动态）。
+#   · `dynamic` 总数 1105 → **1105**（−1 生产 +1 测试），`static` 1076 不变。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=393
-BASELINE_DYNAMIC_TEST_INFRA=712
+BASELINE_DYNAMIC_PRODUCTION=392
+BASELINE_DYNAMIC_TEST_INFRA=713
 BASELINE_STATIC=1076
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=1105

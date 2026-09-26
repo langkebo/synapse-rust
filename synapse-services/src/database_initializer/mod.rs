@@ -241,15 +241,11 @@ impl DatabaseInitService {
 
         self.ensure_schema_migrations_table().await?;
 
-        let lock_key: i64 =
-            sqlx::query_scalar("SELECT hashtext(current_database() || ':' || current_schema())::bigint")
-                .fetch_one(&*self.pool)
-                .await?;
+        let lock_key: i64 = self.migration_lock_key().await?;
         let mut lock_conn = self.pool.acquire().await?;
         let lock_start = std::time::Instant::now();
         loop {
-            let locked: bool =
-                sqlx::query_scalar("SELECT pg_try_advisory_lock($1)").bind(lock_key).fetch_one(&mut *lock_conn).await?;
+            let locked: bool = self.try_acquire_migration_lock(&mut lock_conn, lock_key).await?;
             if locked {
                 break;
             }
@@ -270,14 +266,50 @@ impl DatabaseInitService {
             std::path::Path::new("./migrations")
         } else {
             info!("未找到迁移目录，跳过迁移");
-            let _ = sqlx::query("SELECT pg_advisory_unlock($1)").bind(lock_key).execute(&mut *lock_conn).await;
+            self.release_migration_lock(&mut lock_conn, lock_key).await;
             return Ok("数据库迁移跳过 (无迁移文件)".to_string());
         };
 
         info!(migrations_dir = ?migrations_dir, "使用运行时迁移文件");
         let result = self.run_runtime_migrations(migrations_dir).await;
-        let _ = sqlx::query("SELECT pg_advisory_unlock($1)").bind(lock_key).execute(&mut *lock_conn).await;
+        self.release_migration_lock(&mut lock_conn, lock_key).await;
         result
+    }
+
+    /// The advisory-lock key for runtime migrations (C35a-0 抽出，原为 `step_migrations` 内联).
+    ///
+    /// `hashtext(current_database() || ':' || current_schema())` is stable for a
+    /// (database, schema) pair, so two processes initializing the **same** schema
+    /// contend on one lock while different schemas (e.g. per-test clones) do not.
+    /// Extracted so the lock protocol can be tested without running the whole
+    /// migration directory.
+    async fn migration_lock_key(&self) -> Result<i64, sqlx::Error> {
+        sqlx::query_scalar("SELECT hashtext(current_database() || ':' || current_schema())::bigint")
+            .fetch_one(&*self.pool)
+            .await
+    }
+
+    /// Try to take the migration advisory lock on `conn` without blocking.
+    ///
+    /// Returns `false` when another session already holds it — `step_migrations`
+    /// then retries with a 200 ms backoff up to 10 s before failing closed.
+    async fn try_acquire_migration_lock(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        lock_key: i64,
+    ) -> Result<bool, sqlx::Error> {
+        sqlx::query_scalar("SELECT pg_try_advisory_lock($1)").bind(lock_key).fetch_one(conn).await
+    }
+
+    /// Release the migration advisory lock on `conn`.
+    ///
+    /// Errors are deliberately swallowed — **same behaviour as before the extraction**:
+    /// the lock is session-scoped and `conn` is about to go back to the pool, and the
+    /// unlock runs on both the "no migrations dir" and the normal path. A failed unlock
+    /// must not turn a completed migration into an error (worst case the session keeps
+    /// the lock until it is closed, which is what the retry loop above tolerates).
+    async fn release_migration_lock(&self, conn: &mut sqlx::PgConnection, lock_key: i64) {
+        let _ = sqlx::query("SELECT pg_advisory_unlock($1)").bind(lock_key).execute(conn).await;
     }
 
     async fn ensure_schema_migrations_table(&self) -> Result<(), sqlx::Error> {
@@ -687,6 +719,113 @@ impl DatabaseInitService {
 mod tests {
     use super::*;
     use crate::test_utils;
+
+    // ── C35a-0：启动路径的真 baseline DB 往返覆盖 ─────────────────────────────
+    //
+    // 背景：本模块 13 条既有用例里 12 条是纯函数（SQL 拆分 / 校验和 / schema 归一化），
+    // 唯一 DB 用例用的是 `prepare_empty_isolated_test_pool()`（**空 schema**）且只覆盖
+    // `ensure_schema_migrations_table` ⇒ `db_metadata` 缓存读写、advisory lock 取/放、
+    // `schema_migrations` 读写此前**零 DB 覆盖**。宏只证明"能 describe"，证不了"行为没变"，
+    // 因此 A 类（C35a）转换前必须先补覆盖（R9：一律 `IsolatedTestPool` 真 baseline）。
+
+    /// 真 baseline schema 的隔离池（`db_metadata` / `schema_migrations` 均由基线迁移建立）。
+    async fn baseline_pool() -> Arc<PgPool> {
+        test_utils::prepare_isolated_test_pool().await.expect("isolated baseline test pool must be available")
+    }
+
+    /// 缓存三态：空表未命中 → 写入时间戳后命中（`check_cache_valid` 要求 `elapsed > 0`，
+    /// 故必须跨过一个整秒，否则同秒内读回是 `elapsed == 0` ⇒ 判定未命中，用例会假红）。
+    #[tokio::test]
+    async fn cache_misses_then_hits_after_timestamp_write() {
+        let pool = baseline_pool().await;
+        let init = DatabaseInitService::with_cache_ttl(pool.clone(), 3600);
+
+        assert!(!init.check_cache_valid().await.expect("check_cache_valid on an empty table"), "空表必须判为无缓存");
+
+        init.update_init_timestamp().await.expect("update_init_timestamp must upsert db_metadata");
+        tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+
+        assert!(init.check_cache_valid().await.expect("check_cache_valid after write"), "刚写入的时间戳必须命中");
+    }
+
+    /// TTL 非正时同一行必须判为未命中（`elapsed > 0 && elapsed < ttl` 恒假）。
+    #[tokio::test]
+    async fn cache_is_invalid_when_ttl_is_not_positive() {
+        let pool = baseline_pool().await;
+        DatabaseInitService::with_cache_ttl(pool.clone(), 3600)
+            .update_init_timestamp()
+            .await
+            .expect("update_init_timestamp must upsert db_metadata");
+
+        let reader = DatabaseInitService::with_cache_ttl(pool.clone(), 0);
+        assert!(!reader.check_cache_valid().await.expect("check_cache_valid with ttl=0"), "TTL=0 不得命中");
+    }
+
+    /// advisory lock 协议：同一 (database, schema) 的 key 稳定、锁互斥、释放后可再取。
+    /// 用两条池连接（advisory lock 是**会话级**的）——这是 `step_migrations` 防并发迁移的核心。
+    #[tokio::test]
+    async fn migration_lock_is_exclusive_and_releasable() {
+        let pool = baseline_pool().await;
+        let init = DatabaseInitService::new(pool.clone());
+
+        let key_a = init.migration_lock_key().await.expect("migration_lock_key");
+        let key_b = init.migration_lock_key().await.expect("migration_lock_key again");
+        assert_eq!(key_a, key_b, "同一 (database, schema) 的锁 key 必须稳定");
+
+        let mut conn1 = pool.acquire().await.expect("acquire conn1");
+        let mut conn2 = pool.acquire().await.expect("acquire conn2");
+
+        assert!(init.try_acquire_migration_lock(&mut conn1, key_a).await.expect("lock on conn1"), "首个会话必须取到锁");
+        assert!(
+            !init.try_acquire_migration_lock(&mut conn2, key_a).await.expect("lock on conn2"),
+            "第二个会话在同一 key 上必须取不到锁（互斥）"
+        );
+
+        init.release_migration_lock(&mut conn1, key_a).await;
+        assert!(
+            init.try_acquire_migration_lock(&mut conn2, key_a).await.expect("lock on conn2 after release"),
+            "释放后必须能被另一会话取到"
+        );
+        // 释放掉，避免把会话级锁留在池连接上影响后续用例。
+        init.release_migration_lock(&mut conn2, key_a).await;
+    }
+
+    /// `schema_migrations` 的写读往返 + `ON CONFLICT` 覆盖路径（不新增行）。
+    #[tokio::test]
+    async fn record_migration_upserts_and_reads_back() {
+        let pool = baseline_pool().await;
+        let init = DatabaseInitService::new(pool.clone());
+        let version = "20260101000000_c35a0_probe";
+
+        assert!(!init.is_migration_executed(version).await.expect("read before record"), "未记录前必须为 false");
+
+        init.record_migration(version, "checksum-a", 12, true).await.expect("first record");
+        assert!(init.is_migration_executed(version).await.expect("read after record"), "成功记录后必须为 true");
+
+        // ON CONFLICT 路径：同 version 再写一次必须覆盖而不是报错/新增行。
+        init.record_migration(version, "checksum-b", 34, true).await.expect("upsert path");
+        let rows: Vec<(String, i64)> =
+            sqlx::query_as("SELECT checksum, execution_time_ms FROM schema_migrations WHERE version = $1")
+                .bind(version)
+                .fetch_all(&*pool)
+                .await
+                .expect("read back the upserted row");
+        assert_eq!(rows.len(), 1, "同 version 只允许一行");
+        assert_eq!(rows[0].0, "checksum-b", "checksum 必须被覆盖");
+        assert_eq!(rows[0].1, 34, "execution_time_ms 必须被覆盖");
+    }
+
+    /// C 类站点 `:305` 的**真 baseline** 覆盖：表已由基线迁移建立时，
+    /// `ensure_schema_migrations_table` 必须是幂等的（`IF NOT EXISTS` 两条语句都不报错）。
+    /// 既有用例只在**空 schema** 上验过，掩盖了"基线 schema 上重复执行"这一真实路径。
+    #[tokio::test]
+    async fn ensure_schema_migrations_table_is_idempotent_on_the_baseline_schema() {
+        let pool = baseline_pool().await;
+        let init = DatabaseInitService::new(pool.clone());
+
+        init.ensure_schema_migrations_table().await.expect("first call on the baseline schema");
+        init.ensure_schema_migrations_table().await.expect("second call must be a no-op");
+    }
 
     #[tokio::test]
     async fn test_schema_migrations_table_has_is_success_column() {
