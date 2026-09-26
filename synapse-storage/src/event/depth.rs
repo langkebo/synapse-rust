@@ -38,17 +38,21 @@ impl EventStorage {
 
         // Query the maximum depth among prev_events
         // COALESCE ensures we get 0 if no prev_events have depth set
-        let max_depth: i64 = sqlx::query_scalar(
+        let max_depth: i64 = sqlx::query_scalar!(
             r#"
             SELECT COALESCE(MAX(depth), 0) FROM events
             WHERE room_id = $1
               AND event_id = ANY($2)
             "#,
+            room_id,
+            prev_events,
         )
-        .bind(room_id)
-        .bind(prev_events)
         .fetch_one(&*self.pool)
-        .await?;
+        .await?
+        // `COALESCE(…)` has no relation origin, so sqlx infers a nullable scalar even
+        // though it can never be NULL (no matching rows ⇒ `MAX` is NULL ⇒ 0). Fold
+        // instead of asserting — same shape as C19a's `COUNT(*)`.
+        .unwrap_or(0);
 
         Ok(max_depth + 1)
     }

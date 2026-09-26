@@ -2053,11 +2053,33 @@
 # `BASELINE_DYNAMIC_TEST_INFRA` 保持 **711**：本批新增的覆盖写在
 # `tests/integration/cross_signing_storage_tests_migrated.rs`，而 census 的扫描面是
 # 根 `src/` + 各 crate 的 `src/`，**不含 `tests/`** ⇒ 不进本棘轮。
-BASELINE_DYNAMIC_PRODUCTION=513
+# ── 2026-09-25 C28 收紧/归因（schema 清理批 D-53 + D-54；另修一处并发会话引入的 literal）──
+# 实测：**515 / 711 / 961**（dynamic = 515 + 711 = **1226**）。相对 C27 基线
+# （513 / 711 / 956）的三处偏差**逐项归因**，其中**本批净贡献只有静态 ±0**：
+#   · `dynamic_production` **+2**：**不是本批** —— 并发会话的 `e55588718`
+#     （"enable v12 room creation with PDU graph fields"）在
+#     `synapse-storage/src/event/create.rs::create_event_with_pdu` 新增 2 处
+#     `let query = r"…"` + `sqlx::query_as(query)`。该形态把**静态 SQL 藏进变量**：
+#     既抬高 `dynamic_production`，又**绕过 literal 棘轮**（调用点实参是标识符而非字面量）。
+#     本批**只做到"不增加"**：把这个 +2 记为**待偿债务**（§7 D-59），**未**在别人的
+#     新写入路径上做转换 —— 该转换撞 D-19（`RoomEvent` 用
+#     `#[sqlx(rename = "processed_at")] pub processed_ts: i64`，`query_as!` 不认 rename，
+#     必须改 SQL 别名），且属 v12 事件写入这一安全敏感路径，应是
+#     **`event/create.rs` 的独立 C 批次**（做完能把本数字压回 **≤511**，因为老孪生方法
+#     `create_event` 还有同样 2 处）。
+#   · 本批自身对动态的净贡献：转 `depth.rs:41`（并发会话新增的 **literal** 动态站点 ——
+#     literal 棘轮明令禁增，故必须转）**−1**；删 `count_by_pickle_format`（伴随
+#     `pickle_format` 列删除）**动态 ±0 / 静态 −1**。
+#   · `static` **+5**：**不是本批**（并发会话 U-3/U-13 等批次的静态化成果，见其 §8）；
+#     本批净贡献 **0**（−1 删 `count_by_pickle_format`，+1 转 `depth.rs:41`）。
+# 说明：`dynamic_production` 由 513 调到 **515** 属"**带归因的临时上调**"，**不是**
+# "该 SQL 无法静态化" —— 按本文件体例，只有后者可直接上调；前者必须附**偿还计划**，
+# 即 §7 D-59 的 `event/create.rs` C 批次。
+BASELINE_DYNAMIC_PRODUCTION=515
 BASELINE_DYNAMIC_TEST_INFRA=711
-BASELINE_STATIC=956
+BASELINE_STATIC=961
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1224
+BASELINE_DYNAMIC=1226
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #
