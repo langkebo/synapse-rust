@@ -115,13 +115,15 @@ start the stack **by these service names**) and `docker/deploy/docker-compose.ym
 
 ## SQLx 静态化规则（改任何 SQL / 查询前必读）
 
-**为什么有这一节**：2026-09-23–25 的静态化战役把 `dynamic_production` 从 1532 降到 **513**、
-`static` 从 61 升到 **956**（`.sqlx` 60 → **928** 条），但**最大的收获不是数字**：动态
-`.bind()` + `FromRow` 会把列名、列类型、可空性一路吞到运行期，而 `query!` / `query_as!`
-连的是**真库 catalog** —— 一旦改成宏，这些错误在**编译期**就被证伪。该战役因此挖出
-**57 条**既有缺陷，其中十余条是"真 schema 下必然失败"（列名写错、INSERT 漏 NOT NULL 列、
-两个已注册管理路由背靠一张**不存在的表**、`sent_at` 从不写入导致清理**恒删 0 行**、
-`WHERE $2 != '[]'` 对 `text[]` 在 **prepare 阶段**就报 22P02 导致整条 DAG 写入必败）。
+**为什么有这一节**：2026-09-23–25 的静态化战役把 `dynamic_production` 从 1532 降到 **5xx**、
+`static` 从 61 升到 **9xx**（`.sqlx` 60 → **9xx** 条）—— **具体数字不写在这里**，它是会漂的，
+一律以 `docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md` **§0 的实测表**为准（D-16 型
+"双份计数漂移"已发生过一次）。真正值得记住的不是数字：动态 `.bind()` + `FromRow` 会把列名、
+列类型、可空性一路吞到运行期，而 `query!` / `query_as!` 连的是**真库 catalog** —— 一旦改成宏，
+这些错误在**编译期**就被证伪。该战役因此挖出 **59 条**既有缺陷，其中十余条是
+"真 schema 下必然失败"（列名写错、INSERT 漏 NOT NULL 列、两个已注册管理路由背靠一张
+**不存在的表**、`sent_at` 从不写入导致清理**恒删 0 行**、`WHERE $2 != '[]'` 对 `text[]`
+在 **prepare 阶段**就报 22P02 导致整条 DAG 写入必败）。
 
 > **唯一登记处**：`docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md` **§7**。
 > 新发现的问题追加到那里；状态计数也以 §7 表为准。不要在别处再开第二份清单。
@@ -137,6 +139,14 @@ start the stack **by these service names**) and `docker/deploy/docker-compose.ym
 - **判据/门禁**：`bash scripts/ci/check_sqlx_dynamic_ratio.sh`（生产动态不得增、静态不得减）
   ＋ `cargo nextest run --test unit --features test-utils -E 'test(/sqlx_dynamic_literal_guard/)'`
   （逐文件 literal 棘轮；新文件里写一个字面量也会红）。
+
+> ⚠️ **宏的 SQL 实参必须是调用点字面量，不得经中间变量传递。**
+> 把静态 SQL 赋给局部变量再 `sqlx::query_as(query)`，会**同时骗过两道门禁**：
+> literal 棘轮只看调用点实参形态（变量 ⇒ 看不见），ratio 棘轮只看总数（照样计入）。
+> 实测（2026-09-25，D-59）：并发会话正是用 `let query = r"…"` + `query_as(query)`
+> 新增了 2 处，使 `opt/consolidated` 的 ratio + literal 双门禁同时红而"看起来只是 runtime 残差"。
+> 需要按 tx/pool 分支执行时，**先把连接收敛成一个 `&mut PgConnection`，再写一次宏调用**
+> —— 宏的绑定实参属于调用点，这正是不能"先建字符串、后分支绑定"的原因。
 
 ### R2　改了查询文本 ⇒ 同一提交必须带 `.sqlx` 增量
 
