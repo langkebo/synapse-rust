@@ -207,24 +207,27 @@ impl AdminMediaStorage {
     pub async fn get_is_hash_quarantined(&self, content_hash: &str) -> Result<bool, ApiError> {
         // Static `query_scalar!` on purpose: this is new production SQL, and the
         // SQLx literal-dynamic ratchet (`scripts/ci/sqlx_literal_production_baseline`,
-        // `scripts/ci/sqlx_dynamic_ratio_baseline`) must not grow for it. The
-        // `EXISTS(...)` column has no relation origin, so sqlx infers it as
-        // nullable; `unwrap_or(false)` is the repo's established C19a pattern for
-        // that case (`query_scalar!` does not accept an `AS "col!"` override).
+        // `scripts/ci/sqlx_dynamic_ratio_baseline`) must not grow for it.
+        //
+        // The `EXISTS(...)` column has no relation origin, so sqlx infers it as
+        // nullable. It is asserted non-null with `AS "exists!"` rather than left
+        // as `Option<bool>` + `unwrap_or(false)`: `EXISTS` can never be `NULL`, and
+        // an `unwrap_or` here would be a **fail-open** shape — a `NULL` would read
+        // as "not quarantined". (`query_scalar!` does accept the `AS "col!"`
+        // override; see `room/mod.rs` / `room/admin.rs`.)
         let quarantined = sqlx::query_scalar!(
             r#"
             SELECT EXISTS (
                 SELECT 1 FROM media_metadata
                 WHERE content_hash = $1
                   AND quarantine_status IN ('quarantined', 'true', '1', 'yes')
-            )
+            ) AS "exists!"
             "#,
             content_hash
         )
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_cause("Database error", e))?
-        .unwrap_or(false);
+        .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         Ok(quarantined)
     }
