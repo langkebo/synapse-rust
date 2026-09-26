@@ -637,3 +637,146 @@ async fn invite_v2_stored_signature_covers_the_projected_pdu() {
         .verify_strict(&material, &signature)
         .expect("the stored signature must verify over the projected PDU a peer receives");
 }
+
+// ---------------------------------------------------------------------------
+// Tests: U-13-R9 — the v≤11 write path must persist `depth` / `prev_events` /
+// `auth_events`, not only the v12 `create_event_with_pdu` path
+// ---------------------------------------------------------------------------
+
+/// Read one persisted row back through the same column list the federation
+/// projectors use. Dynamic SQL on purpose: macros inside `tests/` are not part
+/// of the `.sqlx` offline cache (rule R9 / D-13).
+async fn read_persisted_event(pool: &sqlx::PgPool, event_id: &str) -> synapse_storage::event::StateEvent {
+    sqlx::query_as(
+        "SELECT event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key, \
+         unsigned, is_redacted, origin_server_ts, depth, NULL::BIGINT as processed_at, not_before, status, origin, \
+         user_id, stream_ordering, prev_events, auth_events, signatures, hashes \
+         FROM events WHERE event_id = $1",
+    )
+    .bind(event_id)
+    .fetch_one(pool)
+    .await
+    .expect("the persisted event row must be readable")
+}
+
+/// U-13-R9: a client message in a v10/v11 room must persist its graph metadata.
+///
+/// `MessagingService::send_message` (DB-03-a) is the one locally-producing
+/// caller that writes its event inside a caller-managed transaction. The
+/// write-path decorator used to skip graph resolution for **every**
+/// `tx = Some(..)` call, so a v≤11 message landed with `depth` /
+/// `prev_events` / `auth_events` SQL `NULL` even though the v12 branch of
+/// `MessagingService::create_event` supplied them explicitly. Such a row
+/// projects as `PduCompleteness::MissingGraphMetadata`: it is emitted unsigned
+/// and the broadcast path refuses to build its outbound PDU at all.
+#[tokio::test]
+async fn client_message_in_v10_v11_room_persists_graph_metadata() {
+    let Some((app, pool, _key_id, _key_b64, _signing_key, _cache)) = setup_federation_app().await else {
+        return;
+    };
+
+    for room_version in ["10", "11"] {
+        let (token, _creator_id) = register_user(&app, "creator").await;
+        let room_id = create_room_with_version(&app, &token, room_version).await;
+
+        let txn_id = format!("txn_{}", rand::random::<u32>());
+        let request = Request::builder()
+            .method("PUT")
+            .uri(format!("/_matrix/client/v3/rooms/{room_id}/send/m.room.message/{txn_id}"))
+            .header("Authorization", format!("Bearer {token}"))
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({ "msgtype": "m.text", "body": "hello" }).to_string()))
+            .unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "v{room_version}: the message must be accepted");
+        let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+        let event_id = serde_json::from_slice::<Value>(&body).unwrap()["event_id"]
+            .as_str()
+            .expect("send must return the persisted event id")
+            .to_string();
+
+        let record = read_persisted_event(&pool, &event_id).await;
+
+        assert!(record.depth.is_some(), "v{room_version}: `depth` must be persisted for a locally-created event");
+        assert!(
+            record.prev_events.as_ref().and_then(Value::as_array).is_some_and(|parents| !parents.is_empty()),
+            "v{room_version}: `prev_events` must name the room's forward extremities, got {:?}",
+            record.prev_events
+        );
+        assert!(
+            record.auth_events.as_ref().and_then(Value::as_array).is_some_and(|auth| !auth.is_empty()),
+            "v{room_version}: `auth_events` must be persisted, got {:?}",
+            record.auth_events
+        );
+
+        let (pdu, completeness) = state_pdu("localhost", &record, Some(room_version));
+        assert_eq!(
+            completeness,
+            PduCompleteness::Complete,
+            "v{room_version}: a locally-created event must project Complete, got {completeness:?}: {pdu}"
+        );
+        assert_eq!(record.depth, pdu.get("depth").and_then(Value::as_i64));
+    }
+}
+
+/// U-13-R9 (membership path): a `/send_join` v2 into a v11 room must persist the
+/// graph metadata **and** leave a local signature on the stored row.
+///
+/// The join event is created locally by the resident server, so it exercises
+/// the same write path as the client message above; `re_sign_pdu_locally` only
+/// signs a projection that is `Complete`.
+#[tokio::test]
+async fn send_join_v2_in_v11_room_persists_graph_metadata_and_signs_the_member_event() {
+    let Some((app, pool, key_id, _key_b64, _signing_key, _cache)) = setup_federation_app().await else {
+        return;
+    };
+
+    let (token, _creator_id) = register_user(&app, "creator").await;
+    let room_id = create_room_with_version(&app, &token, "11").await;
+
+    let joiner = "@joiner:localhost";
+    // `room_memberships.user_id` has an FK onto `users`: the resident server
+    // records the joining user's membership, so a federated user needs its local
+    // shadow row first (same shape the other federation tests seed).
+    sqlx::query(
+        "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(joiner)
+    .bind("joiner")
+    .bind(chrono::Utc::now().timestamp_millis())
+    .execute(&*pool)
+    .await
+    .expect("the joining user must be seedable as a local shadow row");
+    let path_event_id = format!("$join_{}:localhost", rand::random::<u32>());
+    let body = build_join_event_body(&room_id, &path_event_id, joiner);
+    let uri = format!("/_matrix/federation/v2/send_join/{room_id}/{path_event_id}");
+    let request = signed_fed_request("PUT", &uri, "localhost", &key_id, &_signing_key, Some(&body));
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "a public-room send_join must succeed");
+
+    let storage = EventStorage::new(&pool, "localhost".to_string());
+    let records = storage.get_state_events(&room_id).await.expect("state rows must be readable");
+    let record = records
+        .iter()
+        .find(|candidate| candidate.state_key.as_deref() == Some(joiner))
+        .expect("the join event must be persisted as room state");
+
+    assert!(record.depth.is_some(), "send_join must persist `depth` for the locally-created member event");
+    assert!(
+        record.prev_events.as_ref().and_then(Value::as_array).is_some_and(|parents| !parents.is_empty()),
+        "send_join must persist `prev_events`, got {:?}",
+        record.prev_events
+    );
+    assert!(
+        record.auth_events.as_ref().and_then(Value::as_array).is_some_and(|auth| !auth.is_empty()),
+        "send_join must persist `auth_events`, got {:?}",
+        record.auth_events
+    );
+
+    let (_, completeness) = state_pdu("localhost", record, Some("11"));
+    assert_eq!(completeness, PduCompleteness::Complete, "the persisted join event must project Complete");
+
+    assert!(record.hashes.is_some(), "re_sign_pdu_locally must persist hashes on the join event");
+    assert!(record.signatures.is_some(), "re_sign_pdu_locally must persist signatures on the join event");
+}

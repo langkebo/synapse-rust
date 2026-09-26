@@ -144,11 +144,19 @@ pub(crate) async fn send_join(
             origin_server_ts: event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0),
             redacts: None,
         };
-        ctx.room_service
+        let stored = ctx
+            .room_service
             .messaging()
             .create_event(params, None)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to persist join event", e))?;
+
+        // Decision §4.1: the write entry point owns event identity — v3+ rooms
+        // (including 3–11) get the reference-hash ID while v1/v2 keep the
+        // server-assigned one — so the handler may only consume the ID it
+        // returns. Re-signing the request path's placeholder would look up a row
+        // that does not exist and silently skip the local signature (F-03).
+        let event_id = stored.event_id;
 
         // F-03: the event row is persisted above; sign the PDU it projects to,
         // so third-party origins can verify it via verify_pdu_sender_signature.
@@ -278,11 +286,16 @@ pub(crate) async fn send_join_v2(
                 .unwrap_or_else(current_timestamp_millis),
             redacts: None,
         };
-        ctx.room_service
+        let stored = ctx
+            .room_service
             .messaging()
             .create_event(params, None)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to persist join event", e))?;
+
+        // The write entry point owns event identity (§4.1): consume the ID it
+        // returns instead of the request path's placeholder (see `send_join`).
+        let event_id = stored.event_id;
 
         // F-03: sign the projected persisted row (see the `send_join` note);
         // `origin` is part of the signed bytes and is owned by the projector,

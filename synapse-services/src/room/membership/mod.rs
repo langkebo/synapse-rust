@@ -359,6 +359,21 @@ impl MembershipService {
         // also updating the summary (see callers in actions.rs / create.rs
         // that already do this outside this method).
 
+        // The transaction we opened must be committed *before* anything else
+        // touches `room_summaries`. Dropping it at the end of the function would
+        // silently roll the membership row and its summary row back, and leaving
+        // it open while `recalculate_heroes` updates that same `room_summaries`
+        // row over a separate pooled connection makes the two wait on each other
+        // forever — observed as a `/send_join` hang (the open transaction holds
+        // the row lock, the heroes update blocks on it, and this task awaits the
+        // update).
+        if let Some(own_tx) = own_tx.take() {
+            own_tx
+                .commit()
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Failed to commit member transaction", e))?;
+        }
+
         // Heroes recalc: always best-effort. This is a derived statistic
         // that does not need atomicity with the membership writes — it can
         // be recomputed from the summary_members table at any time.

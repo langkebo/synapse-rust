@@ -25,11 +25,14 @@
 //! produce **wrong** graph data (an incomplete `auth_events`, or
 //! `prev_events: []` for an event that is not the DAG root) — exactly the
 //! fabrication `pdu.rs` documents as actively harmful. This decorator therefore
-//! only resolves on the auto-commit path (`tx.is_none()`); a transactional
-//! caller keeps its existing behaviour and must pass graph data explicitly via
-//! [`EventWriter::create_event_with_graph`]. Room creation — which batches its
-//! initial state in one transaction — is the known caller in that category and
-//! computes its own linear graph metadata.
+//! only resolves on the auto-commit path (`tx.is_none()`). A transactional
+//! caller gets no silent pass: it must supply the graph fields itself, through
+//! [`EventWriter::create_event_with_pdu`] or
+//! [`EventWriter::create_event_with_graph`]. The two known callers are room
+//! creation (`LifecycleService::write_creation_event`, which computes its own
+//! linear graph metadata) and `MessagingService::create_event`, whose only
+//! transactional caller (`send_message`, DB-03-a) writes just the event row and
+//! its relation index — never room state — so its committed-state read is exact.
 //!
 //! # Failure policy
 //!

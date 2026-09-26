@@ -11,16 +11,19 @@
 //! now goes through [`state_pdu`].
 //!
 //! **What the projection can and cannot know.** `depth` / `prev_events` /
-//! `auth_events` are only persisted for events written by the inbound federation
-//! paths (`EventStorage::create_event_with_graph`,
-//! `EventStorage::create_state_event_with_dag`). `EventStorage::create_event` —
-//! which every locally-produced event uses — does **not** write those columns,
-//! and the forward extremities a local event actually had at creation time are
-//! not recoverable afterwards. This module therefore **omits** those keys and
-//! reports [`PduCompleteness::MissingGraphMetadata`] instead of substituting
-//! `[]` / `0`. Substituting would be actively harmful: a peer that trusts a
-//! fabricated `prev_events: []` files the event as a DAG root and corrupts its
-//! own room graph.
+//! `auth_events` are persisted for every known-room-version write: the inbound
+//! federation paths use `EventStorage::create_event_with_graph` /
+//! `EventStorage::create_state_event_with_dag`, and locally-produced events go
+//! through `MessagingService::create_event`, which resolves the graph fields and
+//! persists them via `create_event_with_pdu` (see `graph_metadata`). A row can
+//! still carry SQL `NULL` graph columns — it predates that write path, or its
+//! room version could not be resolved — and the forward extremities such a row
+//! actually had at creation time are not recoverable afterwards. This module
+//! therefore **omits** those keys and reports
+//! [`PduCompleteness::MissingGraphMetadata`] instead of substituting `[]` / `0`.
+//! Substituting would be actively harmful: a peer that trusts a fabricated
+//! `prev_events: []` files the event as a DAG root and corrupts its own room
+//! graph.
 //!
 //! The same reasoning drives [`SignatureAction::RefuseIncomplete`]: an
 //! incomplete PDU is never signed, because a valid content hash would only make
@@ -28,13 +31,10 @@
 //!
 //! Residual gaps that this module does **not** close (tracked in
 //! `docs/audit/PROJECT_REMAINING_ISSUES_2026-09-14.md` §21):
-//!   1. locally-created events never persist graph metadata — closing this needs
-//!      the write path (`create_event`) to record `depth` / `prev_events` /
-//!      `auth_events`;
-//!   2. inbound events do not persist the **origin server's** `signatures` /
+//!   1. inbound events do not persist the **origin server's** `signatures` /
 //!      `hashes`, so a re-emitted remote PDU still lacks the sender signature a
 //!      peer requires — signing here adds the local server's signature only;
-//!   3. `event_id` is `$<ts>$<base64>:<server>` (`synapse_common::crypto::generate_event_id`),
+//!   2. `event_id` is `$<ts>$<base64>:<server>` (`synapse_common::crypto::generate_event_id`),
 //!      not the v4+ reference hash, so a v11 peer cannot accept these PDUs as canonical
 //!      however complete their field set is.
 

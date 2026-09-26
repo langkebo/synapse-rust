@@ -150,12 +150,21 @@ impl MessagingService {
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to read room version", e))?;
 
-        let event = if let Some(room_version_str) = room_version {
-            // Numeric comparison, not string: `"2" >= "12"` is true
-            // lexicographically, which used to send every v2–v9 room down the
-            // v12 PDU-graph path.
-            if synapse_common::room_versions::room_version_at_least(&room_version_str, 12) {
-                // v12+ path: use depth calculation and spec auth-event selection
+        let event = match room_version.as_deref() {
+            // Every *known* room version takes the same graph-aware write:
+            // `depth` / `prev_events` are DAG properties rather than version
+            // features, and `select_auth_events` is itself version-aware. v12 is
+            // not special — it was merely the first version wired to the graph
+            // write. The former separate "v11 or earlier" branch was the U-13-R9
+            // defect: it called `EventWriter::create_event`, whose INSERT has no
+            // graph columns, so those rows landed with SQL `NULL` and
+            // `synapse-web/.../federation/pdu.rs::state_pdu` classified them as
+            // `MissingGraphMetadata` and refused to sign them.
+            //
+            // The version test is numeric (`"2" >= "12"` is true
+            // lexicographically) and a version that does not parse fails closed
+            // into the branch below rather than being granted newer behaviour.
+            Some(room_version_str) if synapse_common::room_versions::room_version_at_least(room_version_str, 1) => {
                 // 1. Get current room state (for auth_events construction)
                 let state_events = self
                     .event_reader
@@ -181,7 +190,7 @@ impl MessagingService {
 
                 // 4. Select auth_events per the spec's "Auth events selection"
                 let auth_events = select_auth_events(
-                    &room_version_str,
+                    room_version_str,
                     &auth_state,
                     &event_type,
                     state_key.as_deref(),
@@ -201,20 +210,18 @@ impl MessagingService {
                         tx,
                     )
                     .await
-                    .map_err(|e| ApiError::internal_with_cause("Failed to create v12 event", e))?
-            } else {
-                // v11 or earlier: use legacy create_event path
-                self.event_writer
-                    .create_event(params, tx)
-                    .await
-                    .map_err(|e| ApiError::internal_with_cause("Failed to create event", e))?
+                    .map_err(|e| ApiError::internal_with_cause("Failed to create event with graph metadata", e))?
             }
-        } else {
-            // Fallback to legacy path if room version is unknown
-            self.event_writer
+            // Unknown or unparsable room version: fail closed. On the
+            // auto-commit path the write-path decorator rejects the write
+            // (`GraphMetadataError::UnknownRoomVersion`) instead of fabricating
+            // a DAG position; a caller-managed transaction keeps the pre-existing
+            // rejection semantics.
+            _ => self
+                .event_writer
                 .create_event(params, tx)
                 .await
-                .map_err(|e| ApiError::internal_with_cause("Failed to create event", e))?
+                .map_err(|e| ApiError::internal_with_cause("Failed to create event", e))?,
         };
 
         // Invalidate room-state cache when a state event is written.
