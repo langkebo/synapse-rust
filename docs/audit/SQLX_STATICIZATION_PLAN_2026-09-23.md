@@ -30,27 +30,28 @@
 即 `BASELINE_DYNAMIC_PRODUCTION` 单向降到 0；测试基础设施与 DDL 类动态 SQL 走
 书面白名单，不再掩盖生产债务。每批同时下调 dynamic、上调 static。
 
-> **当前进展（2026-09-25，C28 后实测）** —— 上表是 2026-09-23 的**计划时基线**，
+> **当前进展（2026-09-25，C29 后实测）** —— 上表是 2026-09-23 的**计划时基线**，
 > 保留作对照；当前 census 实测：
 >
-> | 指标 | 计划时 | C28 后实测 |
+> | 指标 | 计划时 | C29 后实测 |
 > |---|---|---|
-> | `dynamic_production` | 1532（近似） | **515** |
-> | `static` | 61 | **961** |
-> | `dynamic`（总） | 2151 | **1226** |
-> | 静态占比 | 2.76% | **43.9%（961 / 2187）** |
-> | `.sqlx` 离线缓存 | 60 条 | **933 条** |
+> | `dynamic_production` | 1532（近似） | **499** |
+> | `static` | 61 | **970** |
+> | `dynamic`（总） | 2151 | **1210** |
+> | 静态占比 | 2.76% | **44.5%（970 / 2180）** |
+> | `.sqlx` 离线缓存 | 60 条 | **940 条** |
 >
-> ⚠️ `dynamic_production` 从 C27 的 513 **升到** 515，**不是本批造成的**：本批净贡献为
-> **−1**（转 `depth.rs` 的 literal）＋**0**（schema 清理不动动态），另 **+2** 来自并发会话
-> `e55588718` 的 `event/create.rs`（**待偿债务**，§7 D-59）。详见 §8.25 与
-> `scripts/ci/sqlx_dynamic_ratio_baseline` 的 C28 归因段。
+> ✅ C28 那笔「`dynamic_production` 反而升到 515」的**待偿债务已在 C29 结清并超额**：
+> 侦察发现「静态 SQL 藏进变量」是 `event/create.rs` 的**整文件**反模式（16 处，
+> 其中 14 处被 census 归为 `runtime`、绕过 literal 棘轮），C29 全部宏化 ⇒ **499**
+> （当时预估 ≤511）。棘轮基线的临时上调随之撤销（详见 §8.26 与 baseline 的 C29 段）。
+> §7 的**未修**项目前为 **0**（D-57 记 `部分已修`：①断言锚定已做，②`public` 收敛未做）。
 >
 > 已执行：Phase A/B/D + C1–C18（逐批数字与理由在
 > `scripts/ci/sqlx_dynamic_ratio_baseline` 各段）+ W1–W5（§8.6–§8.11）+
 > **C19a**（§8.12）+ **C19b**（§8.13）+ **C20**（§8.15）+ **C21**（§8.16）+ **C22**（§8.19）+
 > **C23**（§8.20）+ **C24**（§8.21）+ **C25**（§8.22）+ **C26**（§8.23）+ **C27**（§8.24）+
-> **C28**（§8.25，schema 清理批）；
+> **C28**（§8.25，schema 清理批）+ **C29**（§8.26，`event/create.rs` 全文件静态化 + D-57①）；
 > 另完成 **D-47 ②**（守卫 A′ + (b) 组 31 键逐文件迁模板，§8.17/§8.18）——**D-47 已修**。
 > 门禁复跑另抓出并修掉六条既有缺陷：**D-50**（`--all-features` clippy 红）、
 > **D-51**（并发写者遗留的 `.sqlx` 缺口）、**D-52**（守卫 5 夹具路径悬空）、
@@ -59,8 +60,8 @@
 > 断言它的契约用例 ⇒ CI 集成批次必红）、**D-58**（E-12 迁移后的死观测面）；
 > 并发写者的 **D-39** 确认落地（`00271cf91`）。C28 另登记 **D-59**（并发会话把静态 SQL
 > 藏进变量、绕过 literal 棘轮 ⇒ ratio + literal 双门禁红，部分已修）。
-> §7 登记 59 条（已修 46 / 部分已修 2 / 未修 1 / 结构性保留 7 / 文档级 3）。
-> **下一步见 §8.25 末尾的「剩余头部」。**
+> §7 登记 60 条（已修 48 / 部分已修 2 / **未修 0** / 结构性保留 7 / 文档级 3）。
+> **下一步见 §8.26 末尾的「剩余头部」。**
 
 ---
 
@@ -535,25 +536,24 @@ cargo nextest run --test unit sqlx_dynamic_literal_guard_tests
 | D-54 | **死代码 / 吞错**（**新登记**） | `synapse-storage/src/privacy.rs` 的 `batch_can_view_profile`（原 `sqlx::query(...)` + `row.try_get(...)` 手工解码） | 两处缺陷：① `row.try_get("user_id").unwrap_or_default()` 在 **PRIMARY KEY** 列上吞掉 DB 错误（本仓"禁止 `unwrap_or_default` 吞错"的已知坑）；② `else if let Ok(allow_lookup) = row.try_get::<bool,_>("allow_profile_lookup")` **不可达** —— `profile_visibility` 是 `TEXT NOT NULL`，第一个 `try_get::<String,_>` 恒成功 ⇒ 该"回退"从未生效。同批发现 `allow_presence_lookup` / `allow_room_invites` **全仓零引用**，且三列都无写入者 | **已修**（2026-09-25 C26 静态化时被编译器证伪） | 无生产影响（两处均**行为等价**：① 的错误路径不可达；② 的回退分支不可达） | 已修：转 `query!` 后 `row.user_id` / `row.profile_visibility` 被定型为**非 `Option`**，等价于编译器**证明**了回退不可达 ⇒ 删除该分支，可见性只由 `profile_visibility` 决定（既有 24 条用例全绿）。三个 `allow_*` 死列（`allow_presence_lookup` / `allow_profile_lookup` / `allow_room_invites`，全仓零引用、均无写入者）**已随 C28 的 schema 清理批删除**（§8.25） |
 | D-55 | **死代码 + 第二份写入实现**（**新登记**） | `synapse-e2ee/src/cross_signing/storage.rs` 的 `CrossSigningStorage::save_device_key`（及只服务它的 `DeviceKeyInfo`，`cross_signing/models.rs`） | 该方法是 `device_keys` 的**第二份写入实现**（铁律 2）：主实现是 `synapse-e2ee/src/device_keys/storage.rs:246`/`:286`（写 12–14 列），它只写 9 列，**漏 `signatures` / `display_name` / `ts_updated_ms` / `is_fallback` / `fallback_used`**。这些列在 baseline 里可空或 `NOT NULL DEFAULT`（`v12:650-670`）⇒ INSERT 不会失败，但 **`ts_updated_ms` 是设备列表变更追踪列**：一旦该实现被复活调用，就会静默造成"写了 `device_keys` 却不推进变更时间戳"的漏唤醒。同时它**全仓零调用者**且 `CrossSigningStorage` 无 trait impl（铁律 1） | **已修**（2026-09-25 C27 静态化前"先修"时发现） | **无**（零调用者；`grep -rn '\.save_device_key('` 仅命中自身定义与自引用注释，无 trait 分发路径） | 已修：删除该方法与只服务它的 `DeviceKeyInfo`（7 字段，删除后全仓零引用），并回收 1 处生产字面量动态 SQL；见 §8.24 |
 | D-56 | **门禁失败（契约用例未随 schema 变更更新）**（**新登记**） | `tests/integration/schema_contract_p0_tests_migrated.rs` 的三条用例：`test_schema_contract_p0_tables_exist`（表清单含 `"search_index"`）、`test_schema_contract_search_index_shape`、`test_schema_contract_search_index_query_and_write_read_closure`（后者直接 `INSERT INTO search_index` / `SELECT … FROM search_index`） | 并发写者的 `00271cf91`（D-39 落地）从 baseline 删除 `search_index` 表与 4 条索引，却**没有**同步这三条断言它存在的用例 ⇒ **集成批次必红**。CI 口径实测（本批新建一次性库 `synapse_c27_ci` + `scripts/ci/prepare_test_db.sh`，等价全新库）：`0 passed / 3 failed` | **已修**（2026-09-25 C27 变基后复跑门禁时发现） | 无生产影响（纯契约用例），但 CI 集成批次 blocking；且**本地只暴露 1/3**（另 2 条被 D-57 的假绿机制掩盖） | 已修：删两条用例 + 从表清单移除该项，并**一并删除只被 `_shape` 使用的 `has_index_on_column` 辅助函数**（不删则 clippy `dead_code` 在 `-D warnings` 下红 —— 实测的连带项）。修后同库 `test(/schema_contract_p0/)` → **20/20**，两档 clippy EXIT=0 |
-| D-57 | **测试基建假绿（search_path 回退到陈旧的 `public`）**（**新登记**） | `tests/integration/mod.rs` 的 `require_test_pool()`（search_path = `<clone>, public`）× `scripts/ci/prepare_test_db.sh:79`（对 `public` 用 `RESET_PUBLIC=0` 增量套 baseline）× `assert_table_exists`（`to_regclass($1)` 走 search_path 解析） | baseline 是 `CREATE TABLE IF NOT EXISTS` 风格的合并脚本、**不含任何 `DROP`** ⇒ 一旦某表被从 baseline 删除，长期存在的本地 `public` **仍留着它**；而 `require_test_pool()` 的 search_path 回退到 `public`，于是 `to_regclass` 解析到陈旧表、`INSERT`/`SELECT` 甚至**写进 `public`** ⇒ 断言"某表存在/可用"的用例**假绿**。CI 全新库无此问题（所以 CI 红、本地不红 —— 实测 `search_index`：本地 3 条只红 1 条） | **未修**（登记；2026-09-25 C27 验证 D-56 时定位） | 无生产影响；但**本地验证结论可能与 CI 不一致**，且用例会污染共享的 `public` 而不自知 —— 与 D-51（`--static` 假绿）、D-47（夹具漂移）同族，机制不同 | 建议二选一或并用：① 让 `assert_table_exists` 类断言**锚定当前 schema**（`i.schemaname = current_schema()`，同文件 `_shape` 用例已是这种写法 —— 它正是唯一如实报红的那条）；② 让 CI seed 对 `public` 也做收敛（`RESET_PUBLIC=1`，或对"已从 baseline 删除的对象"补 `DROP … IF EXISTS`）。**注**：脚本注释说明了 `RESET_PUBLIC=0` 的动机（避免 `DROP SCHEMA public CASCADE` 连带删掉依赖 public 扩展的其它 schema 对象），故②需谨慎设计；①是低风险的第一步。须用"删掉一条 baseline 表定义"的故意违规证明修好后仍能变红 |
+| D-57 | **测试基建假绿（search_path 回退到陈旧的 `public`）**（**新登记**） | `tests/integration/mod.rs` 的 `require_test_pool()`（search_path = `<clone>, public`）× `scripts/ci/prepare_test_db.sh:79`（对 `public` 用 `RESET_PUBLIC=0` 增量套 baseline）× `assert_table_exists`（`to_regclass($1)` 走 search_path 解析） | baseline 是 `CREATE TABLE IF NOT EXISTS` 风格的合并脚本、**不含任何 `DROP`** ⇒ 一旦某表被从 baseline 删除，长期存在的本地 `public` **仍留着它**；而 `require_test_pool()` 的 search_path 回退到 `public`，于是 `to_regclass` 解析到陈旧表、`INSERT`/`SELECT` 甚至**写进 `public`** ⇒ 断言"某表存在/可用"的用例**假绿**。CI 全新库无此问题（所以 CI 红、本地不红 —— 实测 `search_index`：本地 3 条只红 1 条） | **部分已修**（2026-09-25 C29 做①；② 未做，理由见下） | 无生产影响；但**本地验证结论可能与 CI 不一致**，且用例会污染共享的 `public` 而不自知 —— 与 D-51（`--static` 假绿）、D-47（夹具漂移）同族，机制不同 | 建议二选一或并用：① 让 `assert_table_exists` 类断言**锚定当前 schema**（`i.schemaname = current_schema()`，同文件 `_shape` 用例已是这种写法 —— 它正是唯一如实报红的那条）；② 让 CI seed 对 `public` 也做收敛（`RESET_PUBLIC=1`，或对"已从 baseline 删除的对象"补 `DROP … IF EXISTS`）。已修①：`schema_contract_p0` 与 `db_schema_smoke` 的三处 `to_regclass($1)`（`assert_table_exists` ×2 + `assert_view_exists`）改为锚定 `current_schema()`，切断 search_path 回退；`tests/` 内已无裸 `to_regclass($1)`。**②未做**：脚本注释说明了 `RESET_PUBLIC=0` 的动机（避免 `DROP SCHEMA public CASCADE` 连带删掉依赖 public 扩展的其它 schema 对象），改它需独立设计。**自证**：psql 造一张只在 `public` 的表 ⇒ 旧口径非空（假绿）/ 新口径 NULL；再把该表加进用例表清单 ⇒ 用例 FAIL 报 `… to exist in the current schema`、还原后 23/23（§8.26） |
 | D-58 | **死代码（死观测面）**（**新登记**） | `synapse-common/src/server_metrics.rs` 的 "Phase 2: Megolm dual-write + 懒迁移 可观测性" 整块：3 个 recorder + 6 个 `Counter` + 1 个 `Histogram` + 4 条只测它们的单测 | E-12 收敛完成后这一整块**没有任何生产调用方**：`record_megolm_vodozemac_pickle_persist` / `record_megolm_dual_write_promotion` / `record_megolm_lazy_migration_batch` 的调用点 `grep` 全部落在**它们自己的单测**里；而被观测的 `promote_to_dual` API 本身全仓已不存在（只剩 CHANGELOG 与 `docs/synapse-rust/archive/` 归档文档） | **已修**（2026-09-25 C28 schema 清理批顺带） | 无（零调用方） | 已修：删 3 个 recorder + 7 处注册 + 4 条单测。**保留**同名的另一组 live 指标 `megolm_session_key_read_*` 与仍被其使用的 `register_histogram_with_labels`（易混，故特别标注） |
-| D-59 | **门禁失效 + 反模式（静态 SQL 藏进变量）**（**新登记**） | `synapse-storage/src/event/create.rs::create_event_with_pdu`（2 处 `let query = r"…"` + `sqlx::query_as(query)`）与 `synapse-storage/src/event/depth.rs:41`（纯字面量 `query_scalar`）—— 均由并发会话 `e55588718` 新增 | 前者把**静态 SQL 藏进局部变量**：调用点实参是**标识符**而非字面量 ⇒ 同时**抬高 `dynamic_production`**（ratio 门禁红）并**绕过 literal 棘轮**（census 归为 `runtime`）；后者是纯字面量 ⇒ 直接违反 `no_new_production_literal_dynamic_sql`。两者叠加使 `opt/consolidated` 的 ratio + literal **两道门禁同时红**，而该批次未同步棘轮 | **部分已修**（2026-09-25 C28 复跑门禁时发现）：`depth.rs` 已转宏（literal 恢复绿）；`create.rs` 的 2 处**只登记不转**，基线带归因临时上调 513 → 515 | 无（两者都是**可静态化**的 SQL，不属"动态标识符"类） | 一、已修：`depth.rs:41` → `query_scalar!` + `.unwrap_or(0)`（`COALESCE` 无 relation origin，C19a 同型）＝ −1 动态 / +1 静态。二、待偿：`create.rs` 那 2 处应在**独立 C 批次**里连同老孪生方法 `create_event` 的同样 2 处一起转（转完可压回 **≤511**）。**为什么不在本批转**：撞 D-19（`RoomEvent` 用 `#[sqlx(rename = "processed_at")] pub processed_ts: i64`，`query_as!` 不认 rename ⇒ 必须改 SQL 别名），另有 `COALESCE(depth,0) as depth` / `'pending' as status` 等合成列，且位于 **v12 事件写入**这一安全敏感路径、是别人刚落地的实现 —— 按 R12 不得与 schema 清理混做 |
+| D-59 | **门禁失效 + 反模式（静态 SQL 藏进变量）**（**新登记**） | `synapse-storage/src/event/create.rs::create_event_with_pdu`（2 处 `let query = r"…"` + `sqlx::query_as(query)`）与 `synapse-storage/src/event/depth.rs:41`（纯字面量 `query_scalar`）—— 均由并发会话 `e55588718` 新增 | 前者把**静态 SQL 藏进局部变量**：调用点实参是**标识符**而非字面量 ⇒ 同时**抬高 `dynamic_production`**（ratio 门禁红）并**绕过 literal 棘轮**（census 归为 `runtime`）；后者是纯字面量 ⇒ 直接违反 `no_new_production_literal_dynamic_sql`。两者叠加使 `opt/consolidated` 的 ratio + literal **两道门禁同时红**，而该批次未同步棘轮 | **已修**（2026-09-25 C28 发现 ⇒ C29 偿还；超额完成） | 无（两者都是**可静态化**的 SQL，不属"动态标识符"类） | **已修且超额**（C29）：侦察发现该反模式不在 2 个方法 4 处，而是**整文件** —— `event/create.rs` 的 **16 处生产动态 SQL 全是纯静态 SQL**（14 处被 census 归为 `runtime`、2 处直接字面量），分属 6 个方法；C29 全部宏化（16 动态 → 9 宏调用），`dynamic_production` 515 → **499**（当时预估 ≤511）。棘轮那笔「带归因临时上调 513 → 515」随之撤销并继续下压。转换手法与机械坑（含实测确认 D-19 在此文件成立）见 §8.26。原文其余部分保留作背景：撞 D-19（`RoomEvent` 用 `#[sqlx(rename = "processed_at")] pub processed_ts: i64`，`query_as!` 不认 rename ⇒ 必须改 SQL 别名），另有 `COALESCE(depth,0) as depth` / `'pending' as status` 等合成列，且位于 **v12 事件写入**这一安全敏感路径、是别人刚落地的实现 —— 按 R12 不得与 schema 清理混做 |
+| D-60 | **门禁失效（守卫的魔数下界与目的相反）**（**新登记**） | `tests/unit/sqlx_dynamic_literal_guard_tests.rs` 的 `scan_mode_reports_a_non_empty_production_surface`：`assert!(sites.len() > 500, …扫描面疑似被整体排除（假通过风险）…)` | 该断言**意图**是「扫描面别被整体排除」（下界），但写成了**绝对数 500** —— 而静态化战役的目标正是把这个数压下去。C29 把 `dynamic_production` 降到 **499** 时，这条门禁在「如期达成目标」的时刻变红：**把上界当成了下界**，会逼后来者调大数字或绕开它，正好抵消战役成果 | **已修**（2026-09-25 C29 撞到即修） | 无（纯守卫判据），但它是**唯一一条会随战役成功而失败**的门禁 | 已修：换成**结构性**判据 —— `sites` 非空 + **至少 5 个不同目录**贡献站点（当前实测 7 个；`synapse-cache`/`synapse-web` 合法为 0，故不能要求「每个 SCAN_DIR 都贡献」）。总数与 census 的一致性仍由 `scan_mode_total_matches_census_dynamic_production` 钉住。**自证**：把测试体内站点按目录过滤成只剩 `synapse-storage/` ⇒ 用例 FAIL 报「只有 1 个目录…疑似被部分排除」，还原后 sha256 一致（§7.2 D-60） |
 
-**状态计数（2026-09-25，C28 完成后）**：已修 **46**
+**状态计数（2026-09-25，C29 完成后）**：已修 **48**
 （D-02/D-03/D-24/D-28/D-35 + W1 的 D-10/D-11/D-31/D-33/D-34 + D-36 守卫 +
 W2 的 D-05/D-07/D-08/D-09 + W3 的 D-29/D-32 + D-38 + W4 的 D-01/D-04/D-06/D-17/D-27/D-30 +
 D-12 + D-42 + W5 的 **D-15**（含六个子项）/**D-25**/**D-40**/**D-41** + C19a 的 **D-43**/**D-44**/**D-45** +
 C19b 的 **D-46**/**D-47** + C25 的 **D-50**/**D-51** + C26 的 **D-48**/**D-49**/**D-52**/**D-54** +
 C27 的 **D-55**/**D-56** + 并发写者的 **D-39**（`00271cf91`）+
-C28 的 **D-53**/**D-58**）；
+C28 的 **D-53**/**D-58** + C29 的 **D-59**/**D-60**）；
 **部分已修 2**（D-37：吞错与死包装已修、跨 crate 两份实现的收敛未做；
-**D-59**：并发会话引入的 3 处动态 SQL —— `depth.rs` 的 literal 已转宏，
-`create.rs` 的 2 处"静态 SQL 藏进变量"只登记未转，基线带归因临时上调 513 → 515）；
-未修 **1**（**D-57**：`require_test_pool()` 的 search_path 回退到陈旧的 `public`，
-使"表存在/可用"类断言假绿）；
+**D-57**：断言锚定 `current_schema()` 的①已修，`public` 收敛的②未做 —— 理由见 §7.2 D-57）；
+未修 **0**；
 结构性保留（有意）**7**（D-13/D-14/D-18–D-22）；
 文档级已处置 **3**（D-16/D-23/D-26）。
-合计 **59** 条（D-01…D-59），校验：46 + 2 + 1 + 7 + 3 = **59**。
+合计 **60** 条（D-01…D-60），校验：48 + 2 + **0** + 7 + 3 = **60**。
 
 > 注：本行以下曾残留一段**过期计数**（「合计 36 条（D-01…D-36）」），与当时的实际条数矛盾
 > 且已被后续重写覆盖 —— 本次一并删除，避免出现第三份计数口径（D-35 型漂移）。
@@ -1942,7 +1942,16 @@ C28 的 **D-53**/**D-58**）；
   三条用例**只红 1 条**（`_shape`），另两条假绿；而 CI 口径的 `synapse_c27_ci` 上
   **3 条全红**。差别就在 `_shape` 用的是 `i.schemaname = current_schema()` 的
   **schema 锚定**查询（`has_index_on_column`），是唯一如实报红的那条。
-- 状态：**未修**（登记）。
+- 状态：**部分已修**（2026-09-25 C29）。
+  - **①已做**（本批）：三处裸 `to_regclass($1)` 改为锚定 `current_schema()` ——
+    `schema_contract_p0_tests_migrated::assert_table_exists`、
+    `db_schema_smoke_tests_migrated::assert_table_exists` / `assert_view_exists`。
+    同文件的 `assert_column` **本来就**锚定 `current_schema()` —— 这正是 C27 里唯一如实报红的
+    那条 `_shape` 用例的写法，故只需对齐这三处。改后 `tests/` 内**不再有**裸 `to_regclass($1)`。
+  - **②未做**：seed 侧对 `public` 的收敛（`RESET_PUBLIC=1` 或对已删对象补 `DROP … IF EXISTS`）。
+    脚本注释已说明 `RESET_PUBLIC=0` 的动机（`DROP SCHEMA public CASCADE` 会连带删掉依赖 public
+    扩展的其它 schema 对象），改它需独立设计。① 已切断「断言假绿」这条最危险的路径；
+    ② 解决的是「长期库 public 漂移」本身。
 - 建议（① 低风险先做，② 需谨慎设计）：
   ① 让"表存在/可用"类断言**锚定当前 schema**（`to_regclass(format!('{}.{}', current_schema(), $1))`，
      或直接查 `information_schema.tables WHERE table_schema = current_schema()`）——
@@ -1951,7 +1960,15 @@ C28 的 **D-53**/**D-58**）；
      补 `DROP … IF EXISTS`）。注意脚本注释已说明 `RESET_PUBLIC=0` 的动机：
      `DROP SCHEMA public CASCADE` 会连带删掉**依赖 public 扩展**的其它 schema 对象，
      所以②不能简单改成 1。
-- 防复发要求：修好后必须用**故意违规**证明仍能变红（例如临时注释掉 baseline 里某张表的
+- 门禁自证（rule 8，本批**两步都留了判据**）：
+  （1）**机制**：在陈旧 `public` 里造一张只存在于 public 的表 `c28_d57_probe`，
+  `SET search_path TO test_template_ci, public;` 后
+  旧口径 `to_regclass('c28_d57_probe')` → **非空**（回退到 public ⇒ 会假绿通过）；
+  新口径 `to_regclass(format('%I.%I', current_schema(), …))` → **NULL**（如实报缺失）。
+  （2）**用例能变红**：把该表临时加进 `test_schema_contract_p0_tables_exist` 的表清单 ⇒
+  用例 **FAIL** 报 `Expected table 'c28_d57_probe' to exist in the current schema, got: None`
+  （同一探针在修前会 PASS，见（1））。随后逐字节还原（sha256 一致）并 DROP 探针表；
+  `test(/schema_contract_p0|db_schema_smoke/)` → **23/23**。
   `CREATE TABLE`，断言对应用例 FAIL），否则只是把假绿换成另一种假绿。
 
 #### D-58 E-12 迁移完成后遗留的死观测面（2026-09-25 C28 schema 清理批顺带发现）
@@ -1990,7 +2007,7 @@ C28 的 **D-53**/**D-58**）；
 - 后果：`opt/consolidated` 上 **ratio 与 literal 两道门禁同时红**（本批复跑时实测），
   而该批次未同步棘轮 —— 与 D-50/D-52/D-56 同族（"改了 SQL 却不更新门禁"），
   但这一次的机理更隐蔽：**它不是忘记更新门禁，而是让门禁看不见**。
-- 状态：**部分已修**。
+- 状态：**已修**（2026-09-25 C29 偿还，且**超额**）。
   - 已修：`depth.rs:41` → `query_scalar!` + `.unwrap_or(0)`
     （`COALESCE(…)` 无 relation origin ⇒ sqlx 推可空；无匹配行时 `MAX` 为 NULL、
     `COALESCE` 转 0，故 `0` 分支运行期不可达 —— C19a 的 `COUNT(*)` 同型）。
@@ -2015,6 +2032,34 @@ C28 的 **D-53**/**D-58**）；
   literal 棘轮只看调用点实参形态，ratio 棘轮只看总数。故 **R1 的判据应补一条**：
   宏的 SQL 实参必须是**调用点字面量**，不得经由中间变量传递（否则先 `format!` 后 `query_as`
   与"纯静态但过变量"在门禁看来没有区别）。
+
+
+#### D-60 literal 守卫用 `sites.len() > 500` 做下界，把上界当成了下界（2026-09-25 C29 撞到即修）
+
+- 类别：**门禁失效**（判据与其目的相反；无生产影响）。
+- 位置：`tests/unit/sqlx_dynamic_literal_guard_tests.rs` 的
+  `scan_mode_reports_a_non_empty_production_surface`：
+  `assert!(sites.len() > 500, "生产区动态站点仅 {} 处，扫描面疑似被整体排除（假通过风险）", …)`。
+- 为什么是缺陷：该断言的**意图**是「扫描面别被整体排除 / 别假通过」（下界），写法却是**绝对数 500**；
+  而静态化战役的目标正是**把这个数压下去**。C29 把 `dynamic_production` 降到 **499** 时，
+  这条门禁在「如期达成目标」的那一刻变红 —— **把上界当成了下界**。它会逼后来者调大这个数字
+  或绕开它，正好抵消战役成果；与 D-25（「0 tests」假绿）同族，方向相反。
+- 状态：**已修**。
+- 修法：换成**结构性**判据 ——
+  `sites` 非空 ＋ **至少 5 个不同目录**贡献了站点（当前实测 7 个：
+  `synapse-storage` 345 / `synapse-e2ee` 49 / `synapse-common` 34 / `synapse-test-utils` 28 /
+  `synapse-federation` 22 / `synapse-services` 15 / `src` 6）。
+  **不能**要求「每个 `SCAN_DIR` 都贡献」：`synapse-cache` / `synapse-web` 合法地为 0。
+  总数与 census 的一致性仍由 `scan_mode_total_matches_census_dynamic_production` 单独钉住。
+- 自证（rule 8）：把测试体内站点按目录过滤成只剩 `synapse-storage/`
+  （模拟「扫描面被部分排除」）⇒ 该用例 **FAIL**，报
+  `只有 1 个目录有生产动态站点（["synapse-storage"]），扫描面疑似被部分排除（假通过风险）`；
+  还原后 `sha256` 与探针前一致。
+- **附带记一次"探针无效"的教训**：第一次自证是把该测试文件里的 `SCAN_DIRS` 常量缩到 1 个目录，
+  结果用例照旧 PASS —— 因为 `scan_production_dynamic` 实际是 **shell 出去跑
+  `scripts/ci/sqlx_query_census.py`**，那个常量并不参与扫描。
+  **自证失败要区分「门禁确实抓不住」与「我的探针没生效」**；本例是后者，
+  所以换成了"过滤站点"这种真正生效的探针。这条值得进 R11 的判据。
 
 ## 8. 问题优先处理计划（2026-09-23 重排：先修问题，再继续静态化）
 
@@ -3676,3 +3721,146 @@ literal 棘轮只看调用点实参形态（变量 ⇒ 看不见），ratio 棘�
 2. 然后回到常规 C 批次（`retention.rs` / `to_device/storage.rs` / `burn_after_read.rs`）。
 3. **D-57**（陈旧 `public` 造成的假绿）仍**未修** —— 它是当前 §7 里唯一的"未修"，
    建议按 §7.2 D-57 的①先做（断言锚定 `current_schema()`），并用故意违规自证能变红。
+
+### 8.26 C29 执行结果（2026-09-25，`event/create.rs` 全文件静态化 · 偿还 D-59 + D-57①）
+
+**触发**：用户裁定的下一批优先级 —— ①`event/create.rs`（偿还 D-59，消掉"静态 SQL 藏进变量"
+这个**能同时骗过两道门禁**的反模式，并把数字压回 ≤511）；② D-57（§7 里当时唯一的"未修"）
+按 §7.2 的①先做（断言锚定 `current_schema()`），并用故意违规自证能变红。
+基线：`opt/consolidated`（C28 之后的 HEAD）。
+
+#### 8.26.1 范围：为什么这一批"必须一次做完整个文件"
+
+C28 只把 `create_event_with_pdu` 的 2 处变量形态登记为 D-59 而未转（撞 D-19 + v12 写入敏感路径）。
+本批先做侦察，结果**推翻了"只有 2 处"的预估**：
+
+| 方法 | 静态 SQL 站点 | 形态 | 转后宏调用 |
+|---|---|---|---|
+| `create_event` | 2 | pool/tx 分支各一份 | 1 |
+| `create_event_with_pdu` | 2 | `let query = r"…"` + `query_as(query)` | 1 |
+| `create_event_with_graph` | 4 | 同上（2 对） | 2 |
+| `create_state_event_with_dag` | 6 | 同上（3 对） | 3 |
+| `upsert_power_levels_event` | 1 | 直接字面量 | 1 |
+| `get_room_create_event` | 1 | 直接字面量 | 1 |
+| **合计** | **16** | | **9** |
+
+⇒ 同一个"静态 SQL 赋给局部变量再 `query_as(query)`"的反模式在本文件里共有 **14 处**
+（不止 D-59 登记的 2 处）。它同时抬高 `dynamic_production` 并**躲过 literal 棘轮**，
+所以**必须整文件清零**才算把这条面关上：只要还剩一对孪生语句，后面的 C 批次就会被人照着抄。
+
+#### 8.26.2 转换手法：连接源收敛，宏只写一次
+
+双分支（`Option<&mut Transaction>` / 否则 `pool.acquire()`）**正是**当初被迫写变量的原因
+—— 宏的绑定实参必须落在调用点，做不到"先建 SQL 字符串、后按分支绑定"。解法是
+**先把连接收敛成一个 `&mut PgConnection`，再写一次宏调用**（R1 末尾那条判据的落地范式）：
+
+```rust
+let mut owned;                                   // 或 owned_tx: Option<Transaction<'_, Postgres>>
+let conn: &mut sqlx::PgConnection = match tx {
+    Some(tx) => &mut *tx,
+    None => { owned = self.pool.acquire().await?; &mut owned }
+};
+let row = sqlx::query_as!(T, r#"…"#).bind(..).fetch_one(&mut *conn).await?;
+```
+
+- `create_event` / `create_event_with_pdu`：用 `owned`（`PoolConnection`）；
+- `create_event_with_graph` / `create_state_event_with_dag`：用 `owned_tx`
+  （方法内自建 tx 时必须**只提交自己那一份**：`if let Some(tx) = owned_tx { tx.commit().await?; }`，
+  传进来的外部 tx 由调用方提交 —— 这一点与旧代码逐字等价，不是行为改变）；
+- 收尾 `drop(conn)` 的语义也照旧，未合并分支。
+
+**别名（D-19 家族）**：`RoomEvent` 的 `#[sqlx(rename)]` / 合成列对宏无效，故按**字段名**写别名 ——
+`COALESCE(depth,0) as "depth!"`、`0::BIGINT as "not_before!"`、`'self' as "origin!"`、
+`'pending' as "status?"`、`origin_server_ts as "processed_ts"`。
+本批的 5 个 `AS "…"` 都落在 `r#"…"#` 里（R6：双引号别名 + `r"` 开头的 raw string 会报
+`no rules expected #`）。
+
+#### 8.26.3 机械陷阱：宏对"无来源列"一律推可空
+
+首轮 `cargo check` 报 5 个 `E0277: the trait bound i64: From<Option<…>> is not satisfied` /
+`String: From<Option<…>>`。根因是一条**此前没单列过**的宏行为，本批补进规则：
+
+> **合成列（`COALESCE(...)`、`0::BIGINT`、`'pending'`、`'self'`）没有关系来源，
+> 宏对它们一律推断为可空**（与"列本身 NOT NULL"无关）。
+
+⇒ 非 `Option` 字段必须显式 `AS "col!"`；真正可空的列（`status` / `stream_ordering`）
+才用 `?`。这与 D-20（LEFT JOIN 外侧列被推成 **NOT NULL**）**方向相反**，
+两条一起记：*有来源看来源，无来源看断言*。
+
+#### 8.26.4 D-60：literal 守卫把"上界"当成了"下界"（撞到即修）
+
+把 `dynamic_production` 压到 **499** 的那一刻，`sqlx_dynamic_literal_guard_tests` 的
+`scan_mode_reports_a_non_empty_production_surface` **变红** —— 它的断言是
+`assert!(sites.len() > 500, …)`。一个"防扫描面被整体排除"的**下界**保护，被写成了
+**绝对数 500**，而战役的目标正是把这个数压下去：**门禁在目标达成时反向咬人**。
+已换成结构性判据（非空 + 至少 5 个不同目录贡献站点）并留了自证。
+详见 §7.2 D-60（含一次"探针没生效"的教训：改 `SCAN_DIRS` 常量不起作用，
+因为扫描实际是 shell 出去跑 Python census —— **自证失败要先区分"门禁抓不住"还是"探针没生效"**）。
+
+#### 8.26.5 D-57①：三处"表/视图存在"断言锚定 `current_schema()`
+
+`tests/integration/schema_contract_p0_tests_migrated.rs::assert_table_exists`、
+`db_schema_smoke_tests_migrated.rs::assert_table_exists` / `assert_view_exists` 三处
+裸 `to_regclass($1)` 改为 `to_regclass(format('%I.%I', current_schema(), $1))::text`
+（同文件的 `assert_column` 本来就锚定 `current_schema()`，故只需对齐这三处）。
+改后 `tests/` 内**不再有**裸 `to_regclass($1)`。
+**自证留了两步判据**：①机制 —— 在陈旧 `public` 里造只存在于 public 的探针表，
+旧口径返回非空（会假绿）、新口径返回 NULL；②用例能变红 —— 把探针表加进 P0 清单 ⇒
+用例 FAIL 报 `Expected table 'c28_d57_probe' to exist in the current schema, got: None`，
+随后逐字节还原（sha256 一致）。D-57 转 **部分已修**（②seed 侧收敛 `public` 仍未做）。
+本批**其余**契约用例在**一次性 CI 等价库**上复跑通过（R10 ③）。
+
+#### 8.26.6 门禁（实测）
+
+| 门禁 | 结果 |
+|---|---|
+| `check_sqlx_dynamic_ratio.sh` | **EXIT=0**（499 ≤ 499 / 711 ≤ 711 / 970 ≥ 970） |
+| literal guard（`sqlx_dynamic_literal_guard_tests`） | **16/16** |
+| `check_sqlx_cache_fresh.sh --compile`（权威） | **EXIT=0** |
+| 两档 clippy（`-D warnings`） | **EXIT=0** |
+| `nextest -p synapse-storage --lib -E 'test(/event/)'` | **106/106** |
+| 一次性 CI 等价库上 `test(/schema_contract_p0\|db_schema_smoke/)` | **23/23** |
+| `check_fmt_ratchet.sh` | 债务 **0** |
+
+#### 8.26.7 棘轮与派生缓存
+
+- `BASELINE_DYNAMIC_PRODUCTION` 515 → **499**、`BASELINE_STATIC` 961 → **970**、
+  `BASELINE_DYNAMIC` 1226 → **1210**、`BASELINE_DYNAMIC_TEST_INFRA` **保持 711**。
+  **D-59 的临时上调就此撤销**（不是"再上调一次"）—— 这笔账结清了。
+- `.sqlx`：**933 → 940**（+7：16 处动态收敛成 9 个宏，其中 2 个语句文本与既有缓存条目相同 ⇒ 净 7）。
+- literal 基线：**430 → 428 处 / 71 → 70 文件**，删 `synapse-storage/src/event/create.rs 2`
+  一行（该文件归零退表）；同批更正文件头里 runtime 的**谱系**
+  —— 83（C27）→ 85（并发会话 `e55588718`）→ **71（本批 −14）/ 14 文件**。
+  > 教训：**"不变"不能默认写**。此前几段都写"runtime 不变，仍 83 / 15"，而并发会话早已推到 85；
+  > 计数要么写实测值，要么写清归属。
+
+#### 8.26.8 提交清单
+
+**按主题引用，不引用哈希**（理由见 §8.23.7）：
+
+1. `perf(storage): C29 静态化 event/create.rs 全部 16 处静态 SQL（偿还 D-59）`
+2. `fix(guards): literal 守卫的 sites.len() > 500 把"上界"当成了"下界"（D-60）`
+3. `chore(sqlx): C29 同批收紧棘轮 —— dynamic_production 515→499、static 961→970`
+4. `fix(tests): D-57① —— "表/视图存在"类断言锚定 current_schema()`
+5. 本文档（§8.26 + §7 的 D-57/D-59/D-60 + §0）
+
+**累计进展（C 系列 `dynamic_production`）**：706（C18）→ … → 526（C26）→ 513（C27）→
+515（C28，含并发会话的待偿债务）→ **499（C29）**。**首次进入 4xx**：D-59 预估"≤511"被**超额**完成，
+差额来自"同一个变量反模式在 `create_event_with_graph` / `create_state_event_with_dag` 里还有 10 处"。
+`static` 808 → **970**；`.sqlx` 60 → **940** 条；literal 593（C19a 后）→ **428 处 / 70 文件**。
+
+**剩余头部（按实测，`event/create.rs` 已退出）**：
+`burn_after_read.rs`（15，门控 `burn-after-read`）、
+`synapse-services/src/database_initializer/mod.rs`（15，需先判 D-14 归属）、
+`synapse-storage/src/retention.rs`（12）、`synapse-e2ee/src/to_device/storage.rs`（12）、
+`synapse-storage/src/relations/mod.rs`（11）、`synapse-storage/src/push/mod.rs`（11）、
+`synapse-storage/src/media/chunked_upload.rs`（11）、`synapse-storage/src/matrixrtc.rs`（11）。
+
+**下一批建议**：
+1. **D-57②（seed 侧收敛 `public`）** —— 它是 §7 表里**"部分已修"两行之一**的剩余半；
+   ① 已切断"断言假绿"，② 解决的是长期库 public 漂移本身。**需独立设计**
+   （`DROP SCHEMA public CASCADE` 会连带删掉依赖 public 扩展的其它 schema 对象，
+   故脚本注释明确否掉了它；候选是 `RESET_PUBLIC=1` 或对已删对象补 `DROP … IF EXISTS`）。
+2. 回到常规 C 批次：`retention.rs` / `to_device/storage.rs`（12 处级，无门控、无 D-14 待判）
+   优先；`burn_after_read.rs` 与 `database_initializer/mod.rs` 分别先解决 feature 门控
+   与 D-14 归属问题再动。
