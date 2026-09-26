@@ -14,23 +14,29 @@
 
 | 指标 | 战役起点（2026-09-23） | 现在 | 变化 |
 |---|---|---|---|
-| `dynamic_production` | 1532（近似） | **348** | **−77.3%** |
-| `static` | 61 | **1120** | +1059 |
-| `dynamic`（总） | 2151 | **1063** | −1088 |
-| 静态占比 | 2.76% | **51.3%**（1120 / 2183） | +48.5pp |
-| `.sqlx` 离线缓存 | 60 条 | **1088 条** | +1028 |
-| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **277 / 56** | −599 |
+| `dynamic_production` | 1532（近似） | **323** | **−78.9%** |
+| `static` | 61 | **1146** | +1085 |
+| `dynamic`（总） | 2151 | **1039** | −1112 |
+| 静态占比 | 2.76% | **52.4%**（1146 / 2185） | +49.6pp |
+| `.sqlx` 离线缓存 | 60 条 | **1114 条** | +1054 |
+| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **252 / 53** | −624 |
 | `param` 传参（D-14 新棘轮，处 / 文件） | — | **1 / 1** | 新立棘轮（此前混在 `runtime`，两道棘轮都不管） |
 | `runtime` 残差 / `query_builder` | — | 70 / 13 文件 · **18**（已入计数棘轮） | — |
+
+> **并发增益不固化入棘轮（口径说明）**：上表的 `static` 是**实测值**（1146）。其中
+> **1 处来自并发批次的独立提交**（`0bd14ebce` 链条：新增一条静态查询 + 1 条 `.sqlx`），
+> 按 §8.5「同批同向下调/上调」纪律**不由本批次代替它固化**（`BASELINE_STATIC` 仍为 1145，
+> 因此棘轮留有 **1 点余量** —— 与 D-12 记录的先例一致：跨批次替他批改棘轮会让
+> "哪批完成了多少"不可追溯）。该批次应自行把它上调到 1146。
 
 ### 0.2 残量结构（"还剩多少活"的准确说法）
 
 | 组成 | 处数 | 性质 |
 |---|---|---|
-| **可静态化残量** | **276** | **246 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单/`ORDER BY` 方向等，需结构性替代）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转），见 §7.3 D-14 |
+| **可静态化残量** | **251** | **221 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
 | 测试基建（有意保留） | 57 | `synapse-test-utils/src/lib.rs` 28、`synapse-common/src/test_isolation.rs` 25、`test_schema_guard.rs` 4 |
 | 结构性保留（有意） | 15 | `synapse-storage/src/event/pagination.rs`（9 runtime 游标/排序方向 + 6 literal） |
-| **合计** | **348** | = 276 + 57 + 15 |
+| **合计** | **323** | = 251 + 57 + 15 |
 
 ### 0.3 复现（唯一入口，勿手工数）
 
@@ -71,8 +77,8 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71）记在各自提交信息里（�
 
 ### 0.5 阶段结论
 
-1. 动态 SQL 已从**系统性风险**降为**局部清单**：348 处里 72 处有意保留，待收 **276 处**，
-   其中 246 处是纯机械转换。
+1. 动态 SQL 已从**系统性风险**降为**局部清单**：323 处里 72 处有意保留，待收 **251 处** ——
+   其中 **221 处是纯机械转换**，29 处是 D-14 结构性（`format!` 拼列清单）、1 处是跨函数传参。
 2. **收益性质变了**：早期批次每批都在挖"真 schema 下必败"的硬缺陷（① 类 15 条）；
    现在批次以机械收敛为主，并顺手清理一类残留（C31 清 `FromRow` 死代码、C32 消手工 `Row::get`、
    C33 消 `PgRow` 泄漏与 10 处吞错、C34 消 `Row` 解码与死 derive）。
@@ -162,32 +168,43 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71）记在各自提交信息里（�
 
 ## 8. 优化方案
 
-### 8.1 剩余可静态化清单（按实测，2026-09-26 C35a 后）
+### 8.1 剩余可静态化清单（按实测，2026-09-26 C38 后）
 
-**可转换残量 276 处**（246 literal / 29 runtime / 1 param），头部按大小排（前 14）：
+**可转换残量 251 处** = **221 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
+加 **1 处跨函数传参（`param`）**。下表按**字面量**处数排前 14（表内数字是**可机械转换**的站点数；
+`runtime` 已不再混入本表，纯 `runtime` 文件见下方结构性清单）：
 
 | 文件 | 处数 | 门控 | 备注 |
 |---|---|---|---|
-| `synapse-storage/src/event/basic.rs` | 11 | — | 其中 8 literal / 3 runtime；`event/` 同域；**动手前确认并发会话不在途**（v12 PDU 活跃区） |
-| `synapse-storage/src/event/redaction.rs` | 10 | — | 同上 |
-| `synapse-e2ee/src/secure_backup/service.rs` | 10 | — | 与 C25–C27 同域，可整批 |
-| `synapse-e2ee/src/ssss/storage.rs` | 10 | — | 同上 |
-| `synapse-storage/src/event/batch.rs` | 9 | — | `event/` 同域 |
-| `synapse-storage/src/event/state.rs` | 9 | — | `event/` 同域；2026-09-25 刚被 PDU 投影改动过 |
+| `synapse-e2ee/src/ssss/storage.rs` | 10 | — | 与 C25–C27 同域，可整批 |
+| `synapse-e2ee/src/secure_backup/service.rs` | 10 | — | 同上 |
 | `synapse-e2ee/src/key_request/storage.rs` | 9 | — | 与 C25–C27 同域 |
-| `synapse-storage/src/admin_media.rs` | 8 | — | 注意 U-3 的 hash 隔离查询 |
-| `synapse-storage/src/email_verification.rs` | 8 | — | 单表模块 |
-| `synapse-storage/src/event/dag.rs` | 8 | — | `event/` 同域 |
-| `synapse-federation/src/event_broadcaster.rs` | 8 | — | `synapse-federation`，注意广播路径 |
+| `synapse-storage/src/event/dag.rs` | 8 | — | `event/` 同域（**动手前确认并发会话不在途**） |
+| `synapse-storage/src/email_verification.rs` | 8 | — | ⚠️ **需先补覆盖**：该文件只有 1 条 DB 用例 |
+| `synapse-storage/src/admin_media.rs` | 8 | — | 注意 U-3 的 hash 隔离查询；并发会话近期活跃 |
 | `synapse-federation/src/key_rotation.rs` | 8 | — | `synapse-federation`，注意密钥轮换路径 |
+| `synapse-federation/src/event_broadcaster.rs` | 8 | — | `synapse-federation`，注意广播路径 |
 | `synapse-storage/src/room_account_data.rs` | 7 | — | 单表模块（account_data 域） |
 | `synapse-storage/src/federation_blacklist.rs` | 7 | — | 单表模块（与 `admin_federation` 同域） |
+| `synapse-storage/src/e2ee_audit.rs` | 7 | — | 单表模块（审计日志，自带保留期） |
+| `synapse-storage/src/delayed_events.rs` | 7 | — | 单表模块（延迟事件队列） |
+| `synapse-storage/src/call_session.rs` | 7 | — | 门控 `voip-tracking`（见 `gated_module_test_matrix`） |
+| `synapse-storage/src/monitoring.rs` | 6 | — | 单表模块（监控采样） |
 
 > **门控列的判据**：整文件在 `#[cfg(feature = …)]` 下时，`cargo sqlx prepare` 必须 `--all-features`
 > （R2 的教训），且 DB 往返要在带该 feature 的 CI 等价库上跑 ⇒ 门控文件单列一批更省来回。
 
-> **C35 已完成**（`database_initializer/mod.rs` 15 处全部静态化，该文件生产动态**归零**）——
-> 见 §8.3 第 2 条；其中 C35b 的 utility 语句实测**推翻了"DDL 无法宏化"的旧结论**。
+> **D-14 结构性保留（0 处 literal，有意保持动态 —— 不是"还没做的机械转换"）**：
+> `event/state.rs`(9)、`membership/mod.rs`(4)、`event/basic.rs`(3)、`state_groups.rs`(2)、
+> `space/repository.rs`(2)、`event/batch.rs`(2)，以及混在其它文件里的 7 处
+> （`src/server/database.rs` 3、`user/storage.rs` 2、`maintenance.rs` 2）—— 共 **29 处**，
+> 与 §0.2 的 runtime 分项一致。它们的 SQL 文本由 `format!` 拼出（`{ROOM_EVENT_COLS}` /
+> `{STATE_EVENT_OUTER_COLS}` / `ORDER BY` 方向等），而宏要求调用点字面量（R1）；
+> **硬编码会把列清单复制多份**（铁律 2）⇒ 必须**先设计替代方案**再回收
+> （候选：`query_file!` + 每查询一个 `.sql` 文件 —— 全仓尚无先例，属独立设计事项）。
+> **C35/C36/C37/C38 均已完成**：`database_initializer/mod.rs`（15）、`burn_after_read.rs`（15）、
+> `federation_queue.rs`（8）、`openid_token.rs`（7）、`event/basic.rs`+`redaction.rs`+`batch.rs`（25）
+> —— 这些文件的生产区**可机械转换部分已全部归零**。
 
 ### 8.2 每批的标准流程
 
@@ -275,7 +292,29 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71）记在各自提交信息里（�
    （2 处吞错已定性：**有意的 best-effort** —— 失败后没有任何调用方据此做出决定，且都不应阻断
    启动；已在源码就地图注，不单列缺陷。）
 
-3. ✅ **D-57②（seed 侧收敛 `public`）已完成（2026-09-26）** —— 新增
+3. ✅ **C38（event 域 25 处）已完成（2026-09-26）** —— `event/basic.rs`(8) +
+   `event/redaction.rs`(10) + `event/batch.rs`(7) 的字面量站点全部宏化；
+   `cargo nextest run -p synapse-storage --lib --features test-utils -E 'test(/event::/)'`
+   ⇒ **112/112 通过**（含 C38-0 先补的 6 条真 baseline 用例）。
+   **STEP 0 的关键结论（修正了批次预估）**：这 4 个文件（含 `event/state.rs`）合计 39 处生产动态，
+   但**只有 25 处可机械转换**；余下 14 处 = `{ROOM_EVENT_COLS}` / `{STATE_EVENT_OUTER_COLS}`
+   的 `format!` 拼列清单（basic 3 + batch 2 + **state 9**）⇒ 属 D-14 结构性例外。
+   ⇒ **`event/state.rs` 的可转换数为 0**，已从 §8.1 的"可转换"表移入结构性清单；
+   §8.1 自此按 **literal** 处数排序（不再把 runtime 混进"可转换"数字）。
+   **C38-0（先补覆盖）**：该域的 DB 往返集中在本模块的 `event/db_tests.rs`，但目标里有 6 个方法
+   **零引用**（`find_event_ids_for_redaction` 的 4 个时间窗分支 + batch 的 5 个查询）⇒ 先补 6 条
+   真 baseline 用例（夹具 `seed_event_row`）。踩坑：`events` 有 `ck_events_event_id_format`
+   （`$…:<server>`），夹具事件 id 必须带 server name；事件 id 批量改写后**必须重跑 `cargo fmt`**
+   （pre-commit 的 fmt 棘轮实测拦下了这次提交）。
+   **两个新宏陷阱**（已写进 AGENTS.md **R6 ⑤**）：
+   · **`query_as!` 不像 `FromRow` 那样忽略结果集里的多余列**：列名必须与结构体字段一一对应
+     （多列 E0560 / 少列 E0063，即 D-22 的对称面）。`RoomEvent.processed_ts` 带
+     `#[sqlx(rename = "processed_at")]`（D-19），而 `ROOM_EVENT_COLS` 时代写的是
+     `origin_server_ts as processed_at` ⇒ 宏化时必须改写成 `AS "processed_ts"`（本次 3 处）。
+   · **`query_as!` 不能构造元组**（它按字段构造结构体）⇒ 元组投影改 `query_scalar!`（单列）
+     或 `query!`（多列、按字段读）；`redact_event_content` 的 `(String, Value)` 即如此改写。
+
+4. ✅ **D-57②（seed 侧收敛 `public`）已完成（2026-09-26）** —— 新增
    `scripts/ci/converge_public_schema.sh`，并由 `scripts/ci/prepare_test_db.sh` 的
    **第 [3/4] 步**调用（每次 CI seed 都收敛一次）：
    - **参考集不维护清单**：上一步刚重建的模板 schema（同一份迁移、干净重建）就是 baseline 的对象集，
@@ -290,8 +329,8 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71）记在各自提交信息里（�
 
 ### 8.4 收尾条件（何时可称"静态化战役结束"）
 
-- `dynamic_production` 的**可转换部分归零**：348 → **72**（只剩测试基建 57 + 结构性 15），
-  或每个残留都有 §7.3 那样的登记条目；
+- `dynamic_production` 的**可机械转换部分（literal）归零**：323 → **101**
+  （只剩测试基建 57 + 分页结构性 15 + **D-14 结构性 29**），或每个残留都有 §7.3 那样的登记条目；
 - literal 逐文件表只剩 4 类（3 个测试基建文件 + `event/pagination.rs`）；
 - ~~D-68 接线~~、~~D-37 收敛~~、~~D-62 修法①~~、~~D-57② 收敛~~ **均已落地 ⇒ §7 已无未关闭项**；
 - 四道门禁与两道棘轮在 CI 常驻，且都留有"能变红"的自证记录。

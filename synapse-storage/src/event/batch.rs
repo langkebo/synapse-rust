@@ -200,16 +200,21 @@ impl EventStorage {
             return Ok(Vec::new());
         }
 
-        sqlx::query_as(
-            r"
-            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, COALESCE(origin, 'self') as origin, stream_ordering, redacts
+        // R4：`COALESCE(...)` 一律被推成可空而 `RoomEvent` 字段非 `Option` ⇒ 断言非空；
+        // `COALESCE(user_id, sender)` 的非空保证来自 `sender` 是 NOT NULL 列。
+        sqlx::query_as!(
+            RoomEvent,
+            r#"
+            SELECT event_id, room_id, COALESCE(user_id, sender) AS "user_id!", event_type, content, state_key,
+                   COALESCE(depth, 0) AS "depth!", COALESCE(origin_server_ts, 0) AS "origin_server_ts!",
+                   COALESCE(origin_server_ts, 0) AS "processed_ts!",
+                   COALESCE(not_before, 0) AS "not_before!", status, COALESCE(origin, 'self') AS "origin!",
+                   stream_ordering, redacts
             FROM events
             WHERE event_id = ANY($1)
-            ",
+            "#,
+            event_ids,
         )
-        .bind(event_ids)
         .fetch_all(&*self.pool)
         .await
     }
@@ -234,18 +239,19 @@ impl EventStorage {
             return Ok(false);
         }
 
-        let row = sqlx::query_scalar::<_, i32>(
-            r"
-            SELECT 1
+        // R4：字面量 `1` 无关系来源 ⇒ 推可空；它按构造恒非 NULL ⇒ 断言。
+        let row: Option<i32> = sqlx::query_scalar!(
+            r#"
+            SELECT 1 AS "exists!"
             FROM events
             WHERE room_id = ANY($1)
               AND stream_ordering > $2
               AND soft_failed = FALSE
             LIMIT 1
-            ",
+            "#,
+            room_ids,
+            since,
         )
-        .bind(room_ids)
-        .bind(since)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -254,19 +260,22 @@ impl EventStorage {
 
     /// See [`get_max_stream_ordering`].
     pub async fn get_max_stream_ordering(&self) -> Result<i64, sqlx::Error> {
-        let result: Option<(i64,)> =
-            sqlx::query_as("SELECT COALESCE(MAX(stream_ordering), 0) FROM events").fetch_optional(&*self.pool).await?;
-        Ok(result.map_or(0, |r| r.0))
+        let result: Option<i64> =
+            sqlx::query_scalar!(r#"SELECT COALESCE(MAX(stream_ordering), 0) AS "max!" FROM events"#)
+                .fetch_optional(&*self.pool)
+                .await?;
+        Ok(result.unwrap_or(0))
     }
 
     /// See [`get_max_origin_server_ts_for_room`].
     pub async fn get_max_origin_server_ts_for_room(&self, room_id: &str) -> Result<i64, sqlx::Error> {
-        let result: Option<(i64,)> =
-            sqlx::query_as("SELECT COALESCE(MAX(origin_server_ts), 0) FROM events WHERE room_id = $1")
-                .bind(room_id)
-                .fetch_optional(&*self.pool)
-                .await?;
-        Ok(result.map_or(0, |r| r.0))
+        let result: Option<i64> = sqlx::query_scalar!(
+            r#"SELECT COALESCE(MAX(origin_server_ts), 0) AS "max!" FROM events WHERE room_id = $1"#,
+            room_id
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
+        Ok(result.unwrap_or(0))
     }
 
     // -----------------------------------------------------------------------
@@ -275,10 +284,10 @@ impl EventStorage {
 
     /// Check whether a room has an `m.room.encryption` state event.
     pub async fn check_room_has_encryption(&self, room_id: &str) -> Result<bool, sqlx::Error> {
-        let row: Option<(i32,)> = sqlx::query_as(
-            "SELECT 1 FROM events WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL LIMIT 1",
+        let row: Option<i32> = sqlx::query_scalar!(
+            r#"SELECT 1 AS "exists!" FROM events WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL LIMIT 1"#,
+            room_id,
         )
-        .bind(room_id)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -291,32 +300,37 @@ impl EventStorage {
 
     /// Get pending events for a room (used by the message queue endpoint).
     pub async fn get_pending_room_events(&self, room_id: &str, limit: i64) -> Result<Vec<RoomEvent>, sqlx::Error> {
-        sqlx::query_as::<_, RoomEvent>(
-            r"
+        sqlx::query_as!(
+            RoomEvent,
+            r#"
             SELECT event_id, room_id, sender as user_id, event_type, content, state_key,
-                   COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
-                   COALESCE(not_before, 0) as not_before, status,
-                   COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering, redacts
+                   COALESCE(depth, 0) AS "depth!", origin_server_ts,
+                   origin_server_ts AS "processed_ts",
+                   COALESCE(not_before, 0) AS "not_before!", status,
+                   COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') AS "origin!",
+                   stream_ordering, redacts
             FROM events
             WHERE room_id = $1 AND status = 'pending'
             ORDER BY origin_server_ts ASC
             LIMIT $2
-            ",
+            "#,
+            room_id,
+            limit,
         )
-        .bind(room_id)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await
     }
 
     /// Count events in a room by status (e.g. "processing", "failed").
     pub async fn count_room_events_by_status(&self, room_id: &str, status: &str) -> Result<i64, sqlx::Error> {
-        let result: Option<(i64,)> = sqlx::query_as("SELECT COUNT(*) FROM events WHERE room_id = $1 AND status = $2")
-            .bind(room_id)
-            .bind(status)
-            .fetch_optional(&*self.pool)
-            .await?;
-        Ok(result.map_or(0, |r| r.0))
+        let result: Option<i64> = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) AS "count!" FROM events WHERE room_id = $1 AND status = $2"#,
+            room_id,
+            status,
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
+        Ok(result.unwrap_or(0))
     }
 
     // -----------------------------------------------------------------------

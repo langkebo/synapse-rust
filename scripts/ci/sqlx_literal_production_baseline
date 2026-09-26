@@ -144,6 +144,11 @@
 # ── 2026-09-26 C37（本表再退两行：8 + 7）────────────────────────────────────
 #   `synapse-storage/src/federation_queue.rs`（8）与 `openid_token.rs`（7）全部宏化
 #   ⇒ 删两行退表；本表合计 292 → **277**、文件数 58 → **56**。
+# ── 2026-09-26 C38（本表再退三行：8 + 7 + 10）────────────────────────────────
+#   `event/basic.rs`(8)、`event/batch.rs`(7)、`event/redaction.rs`(10) 的字面量站点全部宏化
+#   ⇒ 三行归零退表；本表合计 277 → **252**、文件数 56 → **53**。
+#   ⚠️ 这三个文件**仍留在「运行期拼装」摘要清单里**（basic 3 + batch 2），因为
+#   `{ROOM_EVENT_COLS}` 拼列清单属 D-14 结构性例外，本批有意未动。
 src/server/database.rs	1
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
@@ -166,13 +171,10 @@ synapse-storage/src/call_session.rs	7
 synapse-storage/src/delayed_events.rs	7
 synapse-storage/src/e2ee_audit.rs	7
 synapse-storage/src/email_verification.rs	8
-synapse-storage/src/event/basic.rs	8
-synapse-storage/src/event/batch.rs	7
 synapse-storage/src/event/cascade.rs	2
 synapse-storage/src/event/dag.rs	8
 synapse-storage/src/event/ephemeral.rs	4
 synapse-storage/src/event/pagination.rs	6
-synapse-storage/src/event/redaction.rs	10
 synapse-storage/src/event/search.rs	6
 synapse-storage/src/event/signature.rs	3
 synapse-storage/src/event/txn_dedup.rs	3

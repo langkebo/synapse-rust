@@ -240,6 +240,16 @@ schema**（`NOT NULL DEFAULT …`），而不是长期留一个断言别名。
    编译期常量**的语句（动态标识符拼接、`format!` 拼表名/列清单，R7 白名单）。
    `RETURNING *` / `SELECT *` 属于③（R3 要求展开），与本节无关。
 
+⑤ ⚠️ **`query_as!` 不像 `FromRow` 那样忽略结果集里的多余列**（C38 实测）：
+   `FromRow` 只取它需要的字段，多出来的列**被忽略**；而 `query_as!` 会按**结果集的每一列**
+   构造结构体字面量 ⇒ **多列 E0560、少列 E0063**，投影必须与结构体字段**一一对应**。
+   这正是 R3（`RETURNING *` 必须展开）的对称面。两个直接后果：
+   · `FromRow` 时代的改名投影（`origin_server_ts as processed_at`，配合字段上的
+     `#[sqlx(rename = "processed_at")]`，D-19）在宏化时必须改写成 `AS "真实字段名"`
+     （C38 的 `RoomEvent.processed_ts` 三处）；
+   · **`query_as!` 不能构造元组**（它按字段构造结构体）⇒ 元组投影改 `query_scalar!`（单列）
+     或 `query!`（多列，按字段读）。
+
 ⚠️ **断言别名是"真的列名"，不是给编译器看的注解。** 写 `COUNT(*) AS "count!"` 之后，
 输出列就叫 `count!` —— 同一条 SQL 里的 `ORDER BY count` 会**在 prepare 阶段报
 `column "count" does not exist`**（C31 实测）。要么 `ORDER BY COUNT(*) DESC`，

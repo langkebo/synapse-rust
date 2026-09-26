@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    SELECT event_id FROM events\n                    WHERE room_id = $1\n                      AND is_redacted = false\n                      AND event_type != 'm.room.create'\n                      AND COALESCE(origin_server_ts, 0) < $2\n                    ORDER BY origin_server_ts ASC\n                    LIMIT $3\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "51d5fdb2f4f0fc7329f958301ccf6d0ba8cff8f7c99aaa54ad62bb896e56fb3b"
+}

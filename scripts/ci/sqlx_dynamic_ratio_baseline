@@ -2300,12 +2300,30 @@
 # `#[cfg(test)]` 内的宏不进 `cargo sqlx prepare`，按 D-13/R9 保持动态）。
 #   · `dynamic_production` 348 **不变**（本批未动生产 SQL）
 #   · `dynamic_test` 715 → **716**；`dynamic` 总数 1063 → **1064**；`static` 1120 不变
+# ── 2026-09-26 C38（event 域 25 处宏化：basic 8 + redaction 10 + batch 7）──────────
+# 该域 STEP 0 的关键结论：这 4 个文件（含 `state.rs`）的生产动态站点共 39 处，但**只有 25 处
+# 可机械转换**；余下 14 处是 `{ROOM_EVENT_COLS}` / `{STATE_EVENT_OUTER_COLS}` 的 `format!`
+# 拼列清单（basic 3 + batch 2 + state 9）⇒ 属 §7.3 **D-14 结构性例外**，本批**有意保持动态**
+# （`state.rs` 的 9 处**全部**属此类，因此该文件的可转换数为 0）。
+#   证据：`cargo nextest run -p synapse-storage --lib --features test-utils -E 'test(/event::/)'`
+#   ⇒ **112/112 通过**（含 C38-0 新增的 6 条真 baseline 用例）。
+# 两个新踩到的宏陷阱（已写进 AGENTS.md R6 ⑤）：
+#   · `query_as!` **不像 `FromRow` 那样忽略结果集里的多余列**：多列 E0560、少列 E0063，
+#     投影必须与结构体字段一一对应；`ROOM_EVENT_COLS` 时代的 `origin_server_ts as processed_at`
+#     因为字段带 `#[sqlx(rename = "processed_at")]`（D-19）⇒ 必须改写 `AS "processed_ts"`。
+#   · `query_as!` 不能构造**元组**（它按字段构造结构体）⇒ 元组投影改 `query_scalar!`
+#     （单列）或 `query!`（多列，按字段读）。
+#   · `dynamic_production` 348 → **323**（−25）；`static` 1120 → **1145**（+25）
+#   · `dynamic` 总数 1064 → **1039**；`dynamic_test` 716 不变；`.sqlx` 1088 → **1113**（+25 / 0 删除）
+# ⚠️ 已知 1 点余量（2026-09-26）：rebase 到并发提交 `0bd14ebce` 链条后实测 `static=1146`
+#   （该批次新增 1 条静态查询 + 1 条 `.sqlx`）。按 §8.5「同批同向」纪律**不由 C38 代替它固化**，
+#   故本行仍为 1145 ⇒ 棘轮留有 1 点余量（同 D-12 记录的先例）。该批次应自行上调到 1146。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=348
+BASELINE_DYNAMIC_PRODUCTION=323
 BASELINE_DYNAMIC_TEST_INFRA=716
-BASELINE_STATIC=1120
+BASELINE_STATIC=1145
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1064
+BASELINE_DYNAMIC=1039
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

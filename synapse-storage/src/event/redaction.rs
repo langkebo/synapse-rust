@@ -16,19 +16,20 @@ impl EventStorage {
         score: i32,
     ) -> Result<i64, sqlx::Error> {
         let now = current_timestamp_millis();
-        let row = sqlx::query_as::<_, EventReportId>(
+        let row = sqlx::query_as!(
+            EventReportId,
             r"
             INSERT INTO event_reports (event_id, room_id, reporter_user_id, reason, score, received_ts)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING id
             ",
+            event_id,
+            room_id,
+            reporter_user_id,
+            reason,
+            score,
+            now,
         )
-        .bind(event_id)
-        .bind(room_id)
-        .bind(reporter_user_id)
-        .bind(reason)
-        .bind(score)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await?;
         Ok(row.id)
@@ -36,13 +37,13 @@ impl EventStorage {
 
     /// See [`update_event_report_score`].
     pub async fn update_event_report_score(&self, report_id: i64, score: i32) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r"
             UPDATE event_reports SET score = $1 WHERE id = $2
             ",
+            score,
+            report_id,
         )
-        .bind(score)
-        .bind(report_id)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -50,13 +51,13 @@ impl EventStorage {
 
     /// See [`update_event_report_score_by_event`].
     pub async fn update_event_report_score_by_event(&self, event_id: &str, score: i32) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r"
             UPDATE event_reports SET score = $1 WHERE event_id = $2
             ",
+            score,
+            event_id,
         )
-        .bind(score)
-        .bind(event_id)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -64,13 +65,19 @@ impl EventStorage {
 
     /// See [`get_event_report`].
     pub async fn get_event_report(&self, event_id: &str) -> Result<Vec<EventReport>, sqlx::Error> {
-        sqlx::query_as::<_, EventReport>(
-            r"
-            SELECT id, event_id, room_id, reporter_user_id, reason, score, received_ts, resolved_at, resolved_by
+        // ⚠️ R6/D-19：`EventReport.resolved_ts` 靠 `#[sqlx(rename = "resolved_at")]` 与列对齐，
+        // 而 `query_as!` **不认 rename** ⇒ SQL 里显式写 `resolved_at AS "resolved_ts"`。
+        // R4：`score` 列可空（无 NOT NULL）而字段是非 `Option` 的 `i32` ⇒ 断言 `AS "score!"`；
+        // "谁保证非空"= 唯一写者（`report_event` 的 INSERT 与两处 UPDATE 都显式写入该列）。
+        sqlx::query_as!(
+            EventReport,
+            r#"
+            SELECT id, event_id, room_id, reporter_user_id, reason, score AS "score!", received_ts,
+                   resolved_at AS "resolved_ts", resolved_by
             FROM event_reports WHERE event_id = $1 ORDER BY received_ts DESC
-            ",
+            "#,
+            event_id,
         )
-        .bind(event_id)
         .fetch_all(&*self.pool)
         .await
     }
@@ -88,28 +95,27 @@ impl EventStorage {
     pub async fn redact_event_content(&self, event_id: &str, redacted_by: Option<&str>) -> Result<(), sqlx::Error> {
         // Fetch the event type and content so we can apply the per-type
         // retention table from synapse_common::redaction.
-        let row: Option<(String, serde_json::Value)> =
-            sqlx::query_as("SELECT event_type, content FROM events WHERE event_id = $1")
-                .bind(event_id)
-                .fetch_optional(&*self.pool)
-                .await?;
+        // 用 `query!` 而不是元组版 `query_as!`：`query_as!` 不能构造元组（它按字段构造结构体）。
+        let row = sqlx::query!("SELECT event_type, content FROM events WHERE event_id = $1", event_id)
+            .fetch_optional(&*self.pool)
+            .await?;
 
-        let Some((event_type, content)) = row else {
+        let Some(row) = row else {
             // Event not found — nothing to redact.  This is benign for
             // federation redaction PDUs that target events we don't have.
             return Ok(());
         };
 
-        let redacted_content = synapse_common::redaction::redact_content(&event_type, &content);
+        let redacted_content = synapse_common::redaction::redact_content(&row.event_type, &row.content);
         let now = current_timestamp_millis();
 
-        sqlx::query(
+        sqlx::query!(
             "UPDATE events SET content = $1, is_redacted = true, redacted_at = $2, redacted_by = $3 WHERE event_id = $4",
+            &redacted_content,
+            now,
+            redacted_by,
+            event_id,
         )
-        .bind(&redacted_content)
-        .bind(now)
-        .bind(redacted_by)
-        .bind(event_id)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -131,9 +137,9 @@ impl EventStorage {
         after_ts: Option<i64>,
         limit: i64,
     ) -> Result<Vec<String>, sqlx::Error> {
-        let rows: Vec<(String,)> = match (before_ts, after_ts) {
+        let rows: Vec<String> = match (before_ts, after_ts) {
             (Some(before), Some(after)) => {
-                sqlx::query_as(
+                sqlx::query_scalar!(
                     r"
                     SELECT event_id FROM events
                     WHERE room_id = $1
@@ -144,16 +150,16 @@ impl EventStorage {
                     ORDER BY origin_server_ts ASC
                     LIMIT $4
                     ",
+                    room_id,
+                    before,
+                    after,
+                    limit,
                 )
-                .bind(room_id)
-                .bind(before)
-                .bind(after)
-                .bind(limit)
                 .fetch_all(&*self.pool)
                 .await?
             }
             (Some(before), None) => {
-                sqlx::query_as(
+                sqlx::query_scalar!(
                     r"
                     SELECT event_id FROM events
                     WHERE room_id = $1
@@ -163,15 +169,15 @@ impl EventStorage {
                     ORDER BY origin_server_ts ASC
                     LIMIT $3
                     ",
+                    room_id,
+                    before,
+                    limit,
                 )
-                .bind(room_id)
-                .bind(before)
-                .bind(limit)
                 .fetch_all(&*self.pool)
                 .await?
             }
             (None, Some(after)) => {
-                sqlx::query_as(
+                sqlx::query_scalar!(
                     r"
                     SELECT event_id FROM events
                     WHERE room_id = $1
@@ -181,15 +187,15 @@ impl EventStorage {
                     ORDER BY origin_server_ts ASC
                     LIMIT $3
                     ",
+                    room_id,
+                    after,
+                    limit,
                 )
-                .bind(room_id)
-                .bind(after)
-                .bind(limit)
                 .fetch_all(&*self.pool)
                 .await?
             }
             (None, None) => {
-                sqlx::query_as(
+                sqlx::query_scalar!(
                     r"
                     SELECT event_id FROM events
                     WHERE room_id = $1
@@ -198,14 +204,14 @@ impl EventStorage {
                     ORDER BY origin_server_ts ASC
                     LIMIT $2
                     ",
+                    room_id,
+                    limit,
                 )
-                .bind(room_id)
-                .bind(limit)
                 .fetch_all(&*self.pool)
                 .await?
             }
         };
-        Ok(rows.into_iter().map(|(id,)| id).collect())
+        Ok(rows)
     }
 
     /// Admin Redact API: Batch redact multiple events by event_id.

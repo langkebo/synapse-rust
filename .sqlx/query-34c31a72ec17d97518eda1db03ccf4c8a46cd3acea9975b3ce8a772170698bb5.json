@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT COALESCE(COUNT(*), 0) AS \"count!\" FROM events\n            WHERE room_id = $1 AND event_type = 'm.room.message'\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "34c31a72ec17d97518eda1db03ccf4c8a46cd3acea9975b3ce8a772170698bb5"
+}

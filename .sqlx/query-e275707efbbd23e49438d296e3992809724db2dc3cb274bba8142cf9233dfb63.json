@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM events\n            WHERE room_id = $1\n              AND origin_server_ts < $2\n              AND event_type != 'm.room.create'\n              AND COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') != 'self'\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e275707efbbd23e49438d296e3992809724db2dc3cb274bba8142cf9233dfb63"
+}

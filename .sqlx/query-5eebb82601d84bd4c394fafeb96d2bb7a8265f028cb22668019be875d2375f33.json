@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT 1 AS \"exists!\"\n            FROM events\n            WHERE room_id = ANY($1)\n              AND stream_ordering > $2\n              AND soft_failed = FALSE\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "5eebb82601d84bd4c394fafeb96d2bb7a8265f028cb22668019be875d2375f33"
+}
