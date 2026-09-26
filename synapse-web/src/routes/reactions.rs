@@ -30,6 +30,11 @@ pub struct RelatesTo {
     #[serde(rename = "rel_type")]
     /// The `rel_type` field.
     pub rel_type: String,
+    /// The `key` field — the annotation key (the emoji). Spec shape is
+    /// `m.relates_to.key` (MSC2677 / Matrix v1.18); `body` is accepted as the
+    /// legacy fallback the route used to require.
+    #[serde(default)]
+    pub key: Option<String>,
     #[serde(default)]
     /// The `is_falling_back` field.
     pub is_falling_back: Option<bool>,
@@ -78,7 +83,14 @@ async fn add_reaction(
     }
 
     // 提取 reaction 内容 (emoji)
-    let annotation = body.get("body").and_then(|v| v.as_str()).unwrap_or("👍").to_string();
+    //
+    // 规范的 annotation 形状是 `m.relates_to.key`；旧实现只读顶层 `body`，
+    // 于是规范的 key-only 请求会被静默写成默认 👍。先读 key，再回退 body。
+    let annotation = relates_to
+        .key
+        .clone()
+        .or_else(|| body.get("body").and_then(|v| v.as_str()).map(str::to_string))
+        .unwrap_or_else(|| "👍".to_string());
 
     let origin_server_ts = current_timestamp_millis();
     let relation = ctx
@@ -128,6 +140,20 @@ mod tests {
         let relates: RelatesTo = serde_json::from_str(json).expect("Failed to parse RelatesTo JSON");
         assert_eq!(relates.event_id, "$test_event");
         assert_eq!(relates.rel_type, "m.annotation");
+        assert_eq!(relates.key, None);
+    }
+
+    /// The spec places the annotation key in `m.relates_to.key`; the route must
+    /// parse it (it previously only looked at the top-level `body`).
+    #[test]
+    fn test_relates_to_parse_annotation_key() {
+        let json = r#"{
+            "event_id": "$test_event",
+            "rel_type": "m.annotation",
+            "key": "🎉"
+        }"#;
+        let relates: RelatesTo = serde_json::from_str(json).expect("Failed to parse RelatesTo JSON");
+        assert_eq!(relates.key.as_deref(), Some("🎉"));
     }
 
     /// High-standard router structure test: verify the real derived route
