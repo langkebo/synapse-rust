@@ -12,8 +12,6 @@
 
 /// The `api_trait` module.
 pub mod api_trait;
-/// The `auth` module for v12+ auth event construction.
-pub mod auth;
 /// The `backfill` module.
 pub mod backfill;
 /// Outbound federation PDU construction/broadcast (single implementation).

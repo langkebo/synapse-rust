@@ -1,8 +1,8 @@
 //! Room event operations: state events, event CRUD, signatures, create_event.
 
 use crate::common::error::{ApiError, ApiResult};
-use crate::room::auth;
 use crate::room::messaging::error::RoomMessagingError;
+use crate::room::state::auth_events::{select_auth_events, AuthStateSnapshot};
 use serde_json::json;
 use synapse_common::current_timestamp_millis;
 use synapse_common::generate_event_id;
@@ -155,7 +155,7 @@ impl MessagingService {
             // lexicographically, which used to send every v2–v9 room down the
             // v12 PDU-graph path.
             if synapse_common::room_versions::room_version_at_least(&room_version_str, 12) {
-                // v12+ path: use depth calculation and auth_events builder
+                // v12+ path: use depth calculation and spec auth-event selection
                 // 1. Get current room state (for auth_events construction)
                 let state_events = self
                     .event_reader
@@ -163,7 +163,7 @@ impl MessagingService {
                     .await
                     .map_err(|e| ApiError::internal_with_cause("Failed to get room state", e))?;
 
-                let auth_builder = auth::AuthEventBuilder::new(state_events);
+                let auth_state = AuthStateSnapshot::from_state_events(&state_events);
 
                 // 2. Get forward extremities (prev_events)
                 let prev_events = self
@@ -179,8 +179,15 @@ impl MessagingService {
                     .await
                     .map_err(|e| ApiError::internal_with_cause("Failed to calculate event depth", e))?;
 
-                // 4. Build auth_events
-                let auth_events = auth_builder.build_auth_events(&event_type, state_key.as_deref(), &params.user_id);
+                // 4. Select auth_events per the spec's "Auth events selection"
+                let auth_events = select_auth_events(
+                    &room_version_str,
+                    &auth_state,
+                    &event_type,
+                    state_key.as_deref(),
+                    &params.user_id,
+                    &params.content,
+                );
 
                 // 5. Create event with full PDU graph fields
                 self.event_writer
