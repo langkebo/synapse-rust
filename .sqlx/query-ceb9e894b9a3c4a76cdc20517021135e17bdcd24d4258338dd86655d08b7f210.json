@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE burn_after_read_pending\n            SET is_processed = TRUE\n            WHERE user_id = $1 AND room_id = $2 AND event_id = $3 AND is_processed = FALSE\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ceb9e894b9a3c4a76cdc20517021135e17bdcd24d4258338dd86655d08b7f210"
+}

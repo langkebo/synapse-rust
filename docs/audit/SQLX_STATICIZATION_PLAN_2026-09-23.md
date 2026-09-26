@@ -14,12 +14,12 @@
 
 | 指标 | 战役起点（2026-09-23） | 现在 | 变化 |
 |---|---|---|---|
-| `dynamic_production` | 1532（近似） | **378** | **−75.3%** |
-| `static` | 61 | **1090** | +1029 |
-| `dynamic`（总） | 2151 | **1093** | −1058 |
-| 静态占比 | 2.76% | **50.0%**（1090 / 2181） | +47.2pp |
-| `.sqlx` 离线缓存 | 60 条 | **1058 条** | +998 |
-| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **307 / 59** | −569 |
+| `dynamic_production` | 1532（近似） | **363** | **−76.3%** |
+| `static` | 61 | **1105** | +1044 |
+| `dynamic`（总） | 2151 | **1078** | −1073 |
+| 静态占比 | 2.76% | **50.6%**（1105 / 2183） | +47.8pp |
+| `.sqlx` 离线缓存 | 60 条 | **1073 条** | +1013 |
+| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **292 / 58** | −584 |
 | `param` 传参（D-14 新棘轮，处 / 文件） | — | **1 / 1** | 新立棘轮（此前混在 `runtime`，两道棘轮都不管） |
 | `runtime` 残差 / `query_builder` | — | 70 / 13 文件 · **18**（已入计数棘轮） | — |
 
@@ -27,10 +27,10 @@
 
 | 组成 | 处数 | 性质 |
 |---|---|---|
-| **可静态化残量** | **306** | **276 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单/`ORDER BY` 方向等，需结构性替代）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转），见 §7.3 D-14 |
+| **可静态化残量** | **291** | **261 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单/`ORDER BY` 方向等，需结构性替代）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转），见 §7.3 D-14 |
 | 测试基建（有意保留） | 57 | `synapse-test-utils/src/lib.rs` 28、`synapse-common/src/test_isolation.rs` 25、`test_schema_guard.rs` 4 |
 | 结构性保留（有意） | 15 | `synapse-storage/src/event/pagination.rs`（9 runtime 游标/排序方向 + 6 literal） |
-| **合计** | **378** | = 306 + 57 + 15 |
+| **合计** | **363** | = 291 + 57 + 15 |
 
 ### 0.3 复现（唯一入口，勿手工数）
 
@@ -71,8 +71,8 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70）记在各自提交信息里（下次�
 
 ### 0.5 阶段结论
 
-1. 动态 SQL 已从**系统性风险**降为**局部清单**：378 处里 72 处有意保留，待收 **306 处**，
-   其中 276 处是纯机械转换。
+1. 动态 SQL 已从**系统性风险**降为**局部清单**：363 处里 72 处有意保留，待收 **291 处**，
+   其中 261 处是纯机械转换。
 2. **收益性质变了**：早期批次每批都在挖"真 schema 下必败"的硬缺陷（① 类 15 条）；
    现在批次以机械收敛为主，并顺手清理一类残留（C31 清 `FromRow` 死代码、C32 消手工 `Row::get`、
    C33 消 `PgRow` 泄漏与 10 处吞错、C34 消 `Row` 解码与死 derive）。
@@ -164,11 +164,10 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70）记在各自提交信息里（下次�
 
 ### 8.1 剩余可静态化清单（按实测，2026-09-26 C35a 后）
 
-**可转换残量 306 处**（276 literal / 29 runtime / 1 param），头部按大小排（前 14）：
+**可转换残量 291 处**（261 literal / 29 runtime / 1 param），头部按大小排（前 14）：
 
 | 文件 | 处数 | 门控 | 备注 |
 |---|---|---|---|
-| `synapse-storage/src/burn_after_read.rs` | 15 | `burn-after-read` | 见 §8.3（需带 feature 的 CI 等价库） |
 | `synapse-storage/src/event/basic.rs` | 11 | — | 其中 8 literal / 3 runtime；`event/` 同域；**动手前确认并发会话不在途**（v12 PDU 活跃区） |
 | `synapse-storage/src/event/redaction.rs` | 10 | — | 同上 |
 | `synapse-e2ee/src/secure_backup/service.rs` | 10 | — | 与 C25–C27 同域，可整批 |
@@ -182,6 +181,7 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70）记在各自提交信息里（下次�
 | `synapse-storage/src/federation_queue.rs` | 8 | — | 单表模块（与 `pruning` 同域） |
 | `synapse-federation/src/event_broadcaster.rs` | 8 | — | `synapse-federation`，注意广播路径 |
 | `synapse-federation/src/key_rotation.rs` | 8 | — | `synapse-federation`，注意密钥轮换路径 |
+| `synapse-storage/src/room_account_data.rs` | 7 | — | 单表模块（account_data 域） |
 
 > **门控列的判据**：整文件在 `#[cfg(feature = …)]` 下时，`cargo sqlx prepare` 必须 `--all-features`
 > （R2 的教训），且 DB 往返要在带该 feature 的 CI 等价库上跑 ⇒ 门控文件单列一批更省来回。
@@ -204,8 +204,17 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70）记在各自提交信息里（下次�
 
 ### 8.3 三项需要额外条件的
 
-1. **`burn_after_read.rs`（15，门控 `burn-after-read`）** —— `prepare` 必须 `--all-features`；
-   DB 往返要在**带该 feature** 的一次性 CI 等价库上跑（`createdb` + `scripts/ci/prepare_test_db.sh`）。
+1. ✅ **`burn_after_read.rs`（15，门控 `burn-after-read`）已完成（2026-09-26，C36）** ——
+   `prepare` 用 `--all-features`；**DB 往返必须显式带 feature**：
+   `cargo nextest run -p synapse-storage --lib --features test-utils,burn-after-read -E 'test(/burn_after_read/)'`
+   ⇒ **22/22 通过**（12 条 db_tests 走真 baseline schema，覆盖 upsert/批量/统计/往返等全部转换路径）。
+   转换要点：`get_user_stats` 的三个聚合按 R4 断言 `AS "total_burned!"` 等（子查询 + `COALESCE`
+   自身即非空保证）；`log_burned_event_batch` 的 `UNNEST(...)` 按 R5 把 `Vec<&str>` 改成 `Vec<String>`。
+   ⚠️ **顺带补一个 D-25 类覆盖缺口**：该模块是 `#[cfg(feature = "burn-after-read")]` 门控的
+   （`synapse-storage/src/lib.rs:205-206`），但此前**不在** `scripts/ci/gated_module_test_matrix` 里，
+   于是"门控模块的测试过滤器必须命中"这道守卫从未检查过它 —— feature 未开时
+   0 个用例会被静默当成通过。本批补行后，`check_gated_module_tests.sh burn_after_read`
+   实测 58 tests run + OK（feature 缺失时会以"0 个用例"变红）。
 2. **`database_initializer/mod.rs`（15 处→ 全部完成，该文件生产动态归零）** —— D-14 归属**已判**（实参全是
    字面量，无 `format!` 拼装；文件无 feature 门控）。**按函数分类**（不再用会随 `fmt` 漂移的
    行号）：
@@ -281,7 +290,7 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70）记在各自提交信息里（下次�
 
 ### 8.4 收尾条件（何时可称"静态化战役结束"）
 
-- `dynamic_production` 的**可转换部分归零**：378 → **72**（只剩测试基建 57 + 结构性 15），
+- `dynamic_production` 的**可转换部分归零**：363 → **72**（只剩测试基建 57 + 结构性 15），
   或每个残留都有 §7.3 那样的登记条目；
 - literal 逐文件表只剩 4 类（3 个测试基建文件 + `event/pagination.rs`）；
 - ~~D-68 接线~~、~~D-37 收敛~~、~~D-62 修法①~~、~~D-57② 收敛~~ **均已落地 ⇒ §7 已无未关闭项**；

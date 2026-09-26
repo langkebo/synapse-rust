@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE burn_after_read_pending\n            SET is_dead_letter = TRUE,\n                last_error = COALESCE(last_error, '') || ' [moved to dead-letter]'\n            WHERE id = ANY($1) AND is_processed = FALSE\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c5f1735890f773fa4ad51994e9dc83ebd0673de817f845d2638ae6dc699dc152"
+}

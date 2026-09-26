@@ -138,6 +138,9 @@
 #   ⚠️ 紧随其后的 **C35a** 把该文件的 A 类 8 处一并宏化 ⇒ 本行 14 → **6**（剩下的是
 #   B 类 2 处（锁 key / 取锁，可空性断言待先修）与 C 类 4 处（`CREATE INDEX` / `SET` /
 #   `ROLLBACK` ×2，utility 语句，需一次 `prepare` 实测）⇒ 本表合计 321 → **313**。
+# ── 2026-09-26 C36（本表一行退表：15 → 0）────────────────────────────────────
+#   `synapse-storage/src/burn_after_read.rs` 15 处全部宏化（门控 `burn-after-read`）
+#   ⇒ 删行退表；本表合计 307 → **292**、文件数 59 → **58**。
 src/server/database.rs	1
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
@@ -156,7 +159,6 @@ synapse-federation/src/key_rotation.rs	8
 synapse-storage/src/account_data/mod.rs	4
 synapse-storage/src/admin_media.rs	8
 synapse-storage/src/audit.rs	4
-synapse-storage/src/burn_after_read.rs	15
 synapse-storage/src/call_session.rs	7
 synapse-storage/src/delayed_events.rs	7
 synapse-storage/src/e2ee_audit.rs	7

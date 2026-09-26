@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO burn_after_read_log (user_id, room_id, event_id, burned_ts)\n            SELECT u, r, e, t\n            FROM UNNEST($1::text[], $2::text[], $3::text[], $4::bigint[]) AS x(u, r, e, t)\n            ON CONFLICT (user_id, event_id) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "TextArray",
+        "TextArray",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "84f080afdeba07f16fb19c052a70f5796d2b57f0c918ab8e433df75558405e3d"
+}

@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT user_id, default_burn_ms, created_ts, updated_ts\n            FROM burn_after_read_user_defaults\n            WHERE user_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "default_burn_ms",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "8a788a496d53f34106b63579ce97a90dcd2a55df8605010fc2c308e2cce0f1db"
+}

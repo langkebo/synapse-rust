@@ -2263,12 +2263,25 @@
 #      —— 三条新条目的 `describe` 都是 `columns: []`（无结果列），`query!(…).execute(…)` 正常。
 #      真正**不能**宏化的是：`#[cfg(test)]`/`tests/` 内的语句（不进 `cargo sqlx prepare` 缓存）
 #      与**含动态标识符**的语句（SQL 文本不是编译期常量）。旧说法已按此收窄（见本文件尾部更正）。
+# ── 2026-09-26 C36（`burn_after_read.rs` 15 处全部宏化；该文件生产动态归零）────────
+# 门控：模块在 `synapse-storage/src/lib.rs:205-206` 是 `#[cfg(feature = "burn-after-read")]`
+# （§8.3 第 1 条的"额外条件"），因此 `prepare` 与 DB 往返都必须显式带该 feature：
+#   cargo nextest run -p synapse-storage --lib --features test-utils,burn-after-read -E 'test(/burn_after_read/)'
+#   ⇒ **22/22 通过**（12 条 db_tests 走真 baseline schema + 6 条纯构造 + 4 条 mock）。
+# 顺带补上 D-25 类覆盖缺口：`burn_after_read` 此前**不在** `scripts/ci/gated_module_test_matrix`，
+# 于是"过滤器必须命中"这道守卫从未检查过它（feature 未开时 0 个用例会被静默跳过）；本批补行，
+# `scripts/ci/check_gated_module_tests.sh burn_after_read` ⇒ 58 tests run、OK。
+# 转换要点：`get_user_stats` 的三个聚合是"无关系来源的表达式"（子查询 + COALESCE）⇒ 按 R4
+# 断言 `AS "total_burned!"` 等（COALESCE 自身即非空保证）；`log_burned_event_batch` 的
+# `UNNEST($1::text[], …)` 按 R5 把 `Vec<&str>` 改成 `Vec<String>`。
+#   · `dynamic_production` 378 → **363**（−15）；`static` 1090 → **1105**（+15）
+#   · `dynamic` 总数 1093 → **1078**；`dynamic_test` 715 不变；`.sqlx` 1058 → **1073**（+15 / 0 删除）
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=378
+BASELINE_DYNAMIC_PRODUCTION=363
 BASELINE_DYNAMIC_TEST_INFRA=715
-BASELINE_STATIC=1090
+BASELINE_STATIC=1105
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1093
+BASELINE_DYNAMIC=1078
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

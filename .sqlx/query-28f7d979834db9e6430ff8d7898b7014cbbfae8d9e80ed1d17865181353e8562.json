@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, user_id, room_id, event_id, created_ts, delete_ts, is_processed,\n                   retry_count, last_error, is_dead_letter\n            FROM burn_after_read_pending\n            WHERE delete_ts <= $1\n              AND is_processed = FALSE\n              AND is_dead_letter = FALSE\n            ORDER BY delete_ts ASC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "delete_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_processed",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "retry_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "last_error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "is_dead_letter",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "28f7d979834db9e6430ff8d7898b7014cbbfae8d9e80ed1d17865181353e8562"
+}

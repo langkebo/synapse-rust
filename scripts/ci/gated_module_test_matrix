@@ -25,3 +25,8 @@ cas|cas-sso|synapse-storage/src/lib.rs
 cas_service|cas-sso|synapse-services/src/lib.rs
 beacon|beacons|synapse-storage/src/lib.rs
 beacon_service|beacons|synapse-services/src/lib.rs
+# 2026-09-26 C36：`burn_after_read`（storage）同样是 `#[cfg(feature = "burn-after-read")]`
+# 门控的（synapse-storage/src/lib.rs:205-206），此前的登记表漏了它 —— 而它恰是
+# "静态化后必须有真 baseline DB 往返"的那类模块（12 条 db_tests）。补上后该过滤器
+# 在 feature 未开启时会以"0 个用例"变红，而不是静默跳过。
+burn_after_read|burn-after-read|synapse-storage/src/lib.rs

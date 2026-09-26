@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE burn_after_read_pending SET is_processed = TRUE WHERE id = $1 AND is_processed = FALSE",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "39395a8ff41b0cdd852e4396f3ac97f61007660dbe714f54084c6a37e3e00769"
+}

@@ -1,0 +1,80 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO burn_after_read_pending (user_id, room_id, event_id, created_ts, delete_ts)\n            VALUES ($1, $2, $3, $4, $5)\n            ON CONFLICT (user_id, room_id, event_id) DO UPDATE SET\n                delete_ts = EXCLUDED.delete_ts,\n                created_ts = EXCLUDED.created_ts\n            RETURNING id, user_id, room_id, event_id, created_ts, delete_ts, is_processed,\n                      retry_count, last_error, is_dead_letter\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "delete_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_processed",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "retry_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "last_error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "is_dead_letter",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "4b3e53f32e5ca78bf56f06e1908523274e8ca8dc97190b68196ddff4f11b3d0f"
+}
