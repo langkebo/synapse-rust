@@ -294,9 +294,15 @@ impl DatabaseInitService {
     /// Extracted so the lock protocol can be tested without running the whole
     /// migration directory.
     async fn migration_lock_key(&self) -> Result<i64, sqlx::Error> {
-        sqlx::query_scalar("SELECT hashtext(current_database() || ':' || current_schema())::bigint")
-            .fetch_one(&*self.pool)
-            .await
+        // D-69：`current_schema()` 在 `search_path` 为空（或指向不存在的 schema）时返回 NULL，
+        // 于是 `hashtext(NULL)` 是 NULL，而调用方 `let lock_key: i64` 会以 `UnexpectedNullError`
+        // 失败 ⇒ **运行时迁移直接跑不起来**。这里先 `COALESCE` 掉这个边界（退化为按 database
+        // 取键），再在 C35b 的宏化里按 R4 断言非空。
+        sqlx::query_scalar(
+            "SELECT hashtext(COALESCE(current_database() || ':' || current_schema(), current_database() || ':'))::bigint",
+        )
+        .fetch_one(&*self.pool)
+        .await
     }
 
     /// Try to take the migration advisory lock on `conn` without blocking.
@@ -829,6 +835,37 @@ mod tests {
         assert_eq!(rows.len(), 1, "同 version 只允许一行");
         assert_eq!(rows[0].0, "checksum-b", "checksum 必须被覆盖");
         assert_eq!(rows[0].1, 34, "execution_time_ms 必须被覆盖");
+    }
+
+    /// D-69：`search_path` 为空（`current_schema()` 为 NULL）时，锁 key 必须仍能算出来。
+    ///
+    /// 修复前 `hashtext(NULL)` 是 NULL，`fetch_one` 解成 `i64` 直接报 `UnexpectedNullError`
+    /// ⇒ `step_migrations` 在最需要它的场景（schema 尚未建立/搜索路径为空）反而跑不起来。
+    #[tokio::test]
+    async fn migration_lock_key_survives_an_empty_search_path() {
+        let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL must be set for DB tests");
+        let pool = Arc::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .max_connections(1)
+                .after_connect(|conn, _meta| {
+                    Box::pin(async move {
+                        sqlx::query("SET search_path = ''").execute(conn).await?;
+                        Ok(())
+                    })
+                })
+                .connect(&url)
+                .await
+                .expect("pool with an empty search_path"),
+        );
+
+        // 自证前提：这个池里 `current_schema()` 确实是 NULL。
+        let schema: Option<String> =
+            sqlx::query_scalar("SELECT current_schema()").fetch_one(&*pool).await.expect("current_schema");
+        assert_eq!(schema, None, "夹具必须真的把 search_path 置空，否则本用例证明不了任何事");
+
+        let init = DatabaseInitService::new(pool.clone());
+        let key = init.migration_lock_key().await.expect("lock key must be computable with an empty search_path");
+        assert_ne!(key, 0, "锁 key 应为 hashtext 的真实取值（探针式断言，仅排除 NULL⇒0 之外的回归）");
     }
 
     /// C 类站点 `:305` 的**真 baseline** 覆盖：表已由基线迁移建立时，

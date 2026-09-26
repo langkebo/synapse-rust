@@ -49,7 +49,7 @@ python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
   | awk '{print $2"\t"$1}' | LC_ALL=C sort
 ```
 
-### 0.4 缺陷发现总览（**68 条**；只给统计与去向，不逐条显示）
+### 0.4 缺陷发现总览（**69 条**；只给统计与去向，不逐条显示）
 
 | 类别 | 条数 | 说明 |
 |---|---|---|
@@ -61,13 +61,13 @@ python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
 | ⑥ 覆盖缺口 / 测试基建假绿 | 2 | 静态化后无 DB 往返、自建 schema 掩盖写入端约束 |
 | ⑦ 文档级 | 6 | 计数漂移、过时结论、误导性"规则"注释 |
 | ⑧ 结构性例外（有意保留） | 7 | D-13 / D-14 / D-18–D-22，见 §7.3 |
-| ⑨ 阶段总结后新发现并已关闭 | 5 | D-62（通知响应的 `profile_tag` 键取自 `notification_type` ⇒ 已按修法① 改成真列 + 独立 `notification_type` 键）、**D-68**（通知记录层没有生产写入者、也没有保留期清理 ⇒ 已按修法① 接线 `record_notification` + `prune_old_notifications`，边界见 §0.5、明细见提交信息）、D-65（并发改动只改一半 ⇒ 集成+clippy 双红）、D-66（worktree 共享 `CARGO_TARGET_DIR` ⇒ 跨树复用产物，假红/假绿）、D-67（新增测试里的死常量让 clippy 红） |
+| ⑨ 阶段总结后新发现并已关闭 | 6 | D-62（通知响应的 `profile_tag` 键取自 `notification_type` ⇒ 已按修法① 改成真列 + 独立 `notification_type` 键）、**D-68**（通知记录层没有生产写入者、也没有保留期清理 ⇒ 已按修法① 接线 `record_notification` + `prune_old_notifications`，边界见 §0.5、明细见提交信息）、**D-69**（运行时迁移的 advisory lock key 在 `search_path` 为空时因 `current_schema()` 为 NULL 而**必败** ⇒ 已先 `COALESCE` 并补边界用例，见 §8.3）、D-65（并发改动只改一半 ⇒ 集成+clippy 双红）、D-66（worktree 共享 `CARGO_TARGET_DIR` ⇒ 跨树复用产物，假红/假绿）、D-67（新增测试里的死常量让 clippy 红） |
 
-**去向**：阶段总结前关闭的 57 条逐条明细在 HISTORY §7.2；总结后关闭的 6 条（D-37 / D-62 / D-65 /
-D-66 / D-67 / D-68）记在各自提交信息里（下次阶段总结时并入快照）。本表 ①–⑧ 是**发现时**的归类
-（历史口径，不随修复变动），因此 D-57 仍计入 ⑥、D-37 仍计入 ④、D-62 已改判为"已修" ——
+**去向**：阶段总结前关闭的 57 条逐条明细在 HISTORY §7.2；总结后关闭的 7 条（D-37 / D-62 / D-65 /
+D-66 / D-67 / D-68 / D-69）记在各自提交信息里（下次阶段总结时并入快照）。本表 ①–⑧ 是**发现时**的
+归类（历史口径，不随修复变动），因此 D-57 仍计入 ⑥、D-37 仍计入 ④、D-62 已改判为"已修" ——
 "还剩哪些没修"看结论行与 §7.1，不看桶号。
-**结论：60 已关闭 / 1 未关闭（D-57 部分）/ 7 结构性例外。**
+**结论：61 已关闭 / 1 未关闭（D-57 部分）/ 7 结构性例外。**
 
 ### 0.5 阶段结论
 
@@ -145,11 +145,11 @@ D-66 / D-67 / D-68）记在各自提交信息里（下次阶段总结时并入�
 
 ### 7.4 计数与口径
 
-- 合计 **68** 条（D-01…D-68）：**未关闭 1**（D-57 部分）、
-  **结构性例外 7**（D-13 / D-14 / D-18–D-22，有意不修）、**已关闭 60**（含 D-37 收敛、
-  D-62 修法① 与 D-68 接线落地）。
+- 合计 **69** 条（D-01…D-69）：**未关闭 1**（D-57 部分）、
+  **结构性例外 7**（D-13 / D-14 / D-18–D-22，有意不修）、**已关闭 61**（含 D-37 收敛、
+  D-62 修法① 与 D-68 接线落地、D-69 先修）。
 - 本文档**只显示**未关闭项与结构性例外；已关闭项的明细在 HISTORY §7.2（冻结，不参与当前计数），
-  阶段总结后关闭的 6 条（D-37 / D-62 / D-65 / D-66 / D-67 / D-68）在各提交信息里。
+  阶段总结后关闭的 7 条（D-37 / D-62 / D-65 / D-66 / D-67 / D-68 / D-69）在各提交信息里。
 - "部分已修"指同一编号下仍有明确未做子项；结构性例外**不计入**待修，其约束力写在 §7.3 与 R1–R13。
 
 ### 7.5 处置约定（改 SQL / 查询前）
@@ -249,8 +249,17 @@ D-66 / D-67 / D-68）记在各自提交信息里（下次阶段总结时并入�
    `AS "count!"`；② 断言后 `fetch_optional` 仍给 `Result<Option<T>>`，`.ok()` 再包一层 ⇒ 必须
    `.ok().flatten()`（三层 Option 的坑，用 `let _probe: () = …fetch_one(…)` 打印推断类型才定位到）；
    ③ **单列语句的 `query!` 生成 `Map`，没有 `.execute()`** ⇒ 改 `query_scalar!` + `fetch_one`。
-   ⇒ 剩余 **C35b**：B 类 2 处（先修 `COALESCE` 后断言）+ C 类 4 处（utility 语句一次实测），
-   以及 2 处吞错的定性（有意的 best-effort 还是缺陷）。
+   ✅ **C35b-0 已完成（先修 D-69）** —— `migration_lock_key` 的
+   `hashtext(current_database() || ':' || current_schema())` 在 **`search_path` 为空或指向不存在
+   的 schema** 时 `current_schema()` 为 NULL ⇒ `hashtext(NULL)` 为 NULL ⇒ 调用方
+   `let lock_key: i64` 以 `UnexpectedNullError` 失败 ⇒ **运行时迁移在最需要它的场景
+   （schema 尚未建立）反而跑不起来**。已先 `COALESCE(…, current_database() || ':')` 修掉，
+   并补边界用例（`after_connect` 里 `SET search_path = ''` 的池 + 自证前提
+   `current_schema() IS NULL`）；**RED 已实测**：回退修复后该用例报
+   `ColumnDecode { index: "0", source: UnexpectedNullError }`，修复后 32/32 全绿。
+   ⇒ 剩余 **C35b（B 类宏化 2 处 + C 类 utility 4 处）**，以及 2 处吞错的定性
+   （`step_connection_test` 的版本日志与表数统计：**判为有意的 best-effort** —— 失败后没有任何
+   调用方据此做出决定，且都不应阻断启动；已在源码就地图注，不再单列缺陷）。
 
 3. **D-57②（seed 侧收敛 `public`）** —— 见 §7.2：需"枚举 baseline 对象集 + 对多出来的对象逐个
    DROP"式设计，不能简单 `RESET_PUBLIC=1`。

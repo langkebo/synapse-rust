@@ -2241,12 +2241,21 @@
 #      ⇒ 必须 `.ok().flatten()`（三层 Option 的坑）；
 #   ③ **单列语句的 `query!` 生成 `Map`，没有 `.execute()`** ⇒ 改 `query_scalar!` + `fetch_one`。
 # 行为等价性由 C35a-0 补的 5 条真 baseline 用例验证（`database_initializer` 31/31 全绿）。
+# ── 2026-09-26 C35b-0（先修 D-69：锁 key 在空 search_path 下必败；测试动态 +2）─────
+# `current_schema()` 在 `search_path` 为空/指向不存在的 schema 时返回 NULL ⇒
+# `hashtext(NULL)` 是 NULL ⇒ 调用方 `let lock_key: i64` 以 `UnexpectedNullError` 失败，
+# **运行时迁移在最需要它的场景反而跑不起来**（D-69，已在 C35b-0 修：先 `COALESCE`）。
+#   · `dynamic_production` 384 **不变**（该站点仍是动态 SQL，C35b 才宏化）
+#   · `dynamic_test` 713 → **715**：新增用例要用 2 处测试夹具动态 SQL
+#     （`SET search_path = ''` 与自证前提的 `SELECT current_schema()`；`#[cfg(test)]` 内的宏
+#     不进 `cargo sqlx prepare`，按 D-13/R9 保持动态）
+#   · `dynamic` 总数 1097 → **1099**；`static` 1084 不变
 BASELINE_QUERY_BUILDER=18
 BASELINE_DYNAMIC_PRODUCTION=384
-BASELINE_DYNAMIC_TEST_INFRA=713
+BASELINE_DYNAMIC_TEST_INFRA=715
 BASELINE_STATIC=1084
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1097
+BASELINE_DYNAMIC=1099
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #
