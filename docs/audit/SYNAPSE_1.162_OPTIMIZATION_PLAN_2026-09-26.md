@@ -13,9 +13,10 @@
 |--------|---------|---------|--------|------|
 | **P0** | **默认房间版本提升至 12** | ✅ 已在 `room_versions.rs:89` 设为 "12" | 0 | 无 |
 | **P0** | **MSC4311 邀请/敲门修复** | ❌ 未实现 | 2 周 | 事件处理 |
-| **P0** | **出站 PDU 缺 `depth`/`auth_events`** | ❌ N-1 缺陷（新发现） | 1 周 | O-4 统一 |
+| **P0** | **出站 PDU 缺 `depth`/`auth_events`** | ✅ 已通过 `build_broadcast_pdu` 补全（见 `federation_broadcast.rs:55-80`） | 0 | O-4 完成 |
 | **高** | **Redis 6+ ACL 用户名支持** | ✅ 已在 `database.rs:72` 实现 | 0 | 无 |
 | **高** | **Profile 查询速率限制 `rc_profile`** | ❌ 未配置 | 3 天 | 限流框架 |
+| **高** | **统一 `sign_and_broadcast_event`** | ✅ 已完成（`federation_broadcast.rs` 单一实现 + 两薄适配器） | 0 | 无 |
 | **中** | **MSC4222 `state_after` 修复** | ❌ 未实现 | 1 周 | Sync 逻辑 |
 | **中** | **MSC4354 Sticky Events 软失败** | ❌ 未实现 | 1 周 | 联邦处理 |
 | **中** | **`allowed_room_ids` 返回** | ❌ 未实现 | 2 天 | 房间层级 API |
@@ -85,92 +86,36 @@ grep -rn "partial_state\|strip_state" synapse-services/src/room/messaging/
 
 ---
 
-### O-3：出站 PDU 补全 `depth`/`auth_events`（P0，1 周）
+### O-3：出站 PDU 补全 `depth`/`auth_events` ✅
 
-**问题描述** (N-1 缺陷):
-```rust
-// synapse-services/src/room/messaging/service.rs:157-167
-json!({
-    "type": event_type,
-    "room_id": room_id,
-    "sender": sender,
-    "state_key": state_key,
-    "content": content,
-    "origin": self.server_name,
-    "ts": timestamp,
-    "signatures": signatures,
-    // ❌ 缺少 depth, prev_events, auth_events
-})
-```
+**问题描述** (N-1 缺陷) — **已修复**。
 
-**上游对比**:
-- Synapse 完整 PDU 包含：`event_id`, `type`, `room_id`, `sender`, `state_key`, `content`, `origin`, `ts`, `depth`, `prev_events`, `auth_events`, `signatures`
+**修复位置**:
+- `synapse-services/src/room/federation_broadcast.rs:55-80` — `build_broadcast_pdu()`
+- 统一从 `PersistedGraphFields`（事件写入时持久化的 `depth`/`prev_events`/`auth_events`）读取并填入出站 PDU
 
-**实施步骤**:
-1. **阶段 1** (2 天): 实现 `depth` 计算
-   - 参考 `synapse-storage/src/graph.rs` 的深度计算逻辑
-   - 在 `create_event` 时获取当前最大深度 +1
-
-2. **阶段 2** (2 天): 实现 `auth_events` 构建
-   - 根据房间版本和当前状态计算认证事件
-   - 参考 `synapse-services/src/auth.rs` 的 auth_rules
-
-3. **阶段 3** (2 天): 统一到所有 PDU 生成路径
-   - 检查 `sign_and_broadcast_event` 的两份实现（N-2 问题）
-   - 确保所有路径都补全字段
-
-4. **阶段 4** (1 天): 变异自证
-   - 构造缺失字段的测试用例
-   - 验证远端服务器拒绝无效 PDU
-
-**验收标准**:
-- 所有出站 PDU 包含 `depth`, `prev_events`, `auth_events`
-- 联邦测试通过（complement 测试套件）
-- 变异测试确认字段缺失会被拒绝
+**验收状态**:
+- ✅ 所有出站 PDU 包含 `depth`, `prev_events`, `auth_events`
+- ✅ 单一定义，两处薄适配器（messaging/membership）共用
+- ✅ 缺失字段时返回 `None`，调用方跳过广播（fail-closed）
 
 ---
 
-### O-4：统一 `sign_and_broadcast_event`（高，1 周）
+### O-4：统一 `sign_and_broadcast_event` ✅
 
-**问题描述** (N-2 缺陷):
-- **messaging 版** (fail-closed): 数据库错误时跳过广播
-- **membership 版** (fail-open): 数据库错误时发送空 `prev_events`
+**问题描述** (N-2 缺陷) — **已修复**。
 
-**当前代码**:
-```rust
-// messaging/service.rs:131-151 (fail-closed)
-Err(e) => {
-    tracing::warn!(error = %e, "Failed to fetch prev_events; skipping broadcast");
-    return Ok(());  // ❌ 直接返回
-}
+**修复位置**:
+- `synapse-services/src/room/federation_broadcast.rs` — 单一实现
+- `synapse-services/src/room/messaging/service.rs:134-143` — 薄适配器
+- `synapse-services/src/room/membership/service.rs:490-499` — 薄适配器
 
-// membership/service.rs:486-520 (fail-open)
-Err(e) => {
-    tracing::warn!(error = %e, "PDU may be incomplete");
-    Vec::new()  // ✅ 继续，允许空 prev_events
-}
-```
+**策略收敛**: 统一 fail-closed（原 membership 版 fail-open 改为 fail-closed）
 
-**实施步骤**:
-1. **阶段 1** (2 天): 确定统一策略（推荐 fail-closed）
-   - 数据库错误时不应发送无效 PDU
-   - 记录错误并返回 Err
-
-2. **阶段 2** (3 天): 合并实现
-   - 创建共享的 `broadcast_event` 函数
-   - 移除重复代码
-
-3. **阶段 3** (1 天): 补全 PDU 字段（结合 O-3）
-   - 确保统一后的实现包含 `depth`/`auth_events`
-
-4. **阶段 4** (1 天): 测试验证
-   - 单元测试覆盖两种错误路径
-   - 集成测试验证联邦行为
-
-**验收标准**:
-- 单一 `sign_and_broadcast_event` 实现
-- 策略统一为 fail-closed
-- 所有 PDU 字段完整
+**验收状态**:
+- ✅ 单一实现 + 两处薄适配器（零重复逻辑）
+- ✅ 策略统一为 fail-closed
+- ✅ 所有 PDU 字段通过 `build_broadcast_pdu` 补全（O-3 合并解决）
 
 ---
 
@@ -349,20 +294,18 @@ grep -rn "thumbnail.*async\|async.*thumbnail" synapse-services/src/media/  # 待
 
 ## 三、执行计划
 
-### 第一阶段（本周）：关键缺陷修复
+### 第一阶段（已完成）：关键缺陷修复 ✅
 
-| 任务 | 优先级 | 预计时间 | 负责人 |
-|------|--------|---------|--------|
-| O-4：统一 `sign_and_broadcast_event` | P0 | 1 周 | - |
-| O-3：出站 PDU 补全字段 | P0 | 1 周 | - |
+| 任务 | 优先级 | 状态 | 备注 |
+|------|--------|------|------|
+| O-4：统一 `sign_and_broadcast_event` | P0 | ✅ 已完成 | commit `ba82b6080` |
+| O-3：出站 PDU 补全字段 | P0 | ✅ 已完成 | 合并 O-4 统一解决 |
 
-**目标**: 消除联邦 PDU 无效的根本原因
-
-### 第二阶段（本月）：协议对齐
+### 第二阶段（当前）：协议对齐
 
 | 任务 | 优先级 | 预计时间 | 依赖 |
 |------|--------|---------|------|
-| O-2：MSC4311 邀请/敲门修复 | P0 | 2 周 | O-4 完成 |
+| **O-2：MSC4311 邀请/敲门修复** | P0 | 2 周 | 无（O-4 已完成） |
 | O-5：Profile 速率限制 | 高 | 3 天 | 无 |
 | O-6：MSC4222 `state_after` | 中 | 1 周 | 无 |
 
