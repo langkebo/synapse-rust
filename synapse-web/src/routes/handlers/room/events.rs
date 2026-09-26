@@ -971,7 +971,7 @@ pub(crate) async fn redact_event(
     ctx.room_auth.can_redact_event(&room_id, &auth_user.user_id, &original_event.user_id).await?;
 
     // MSC3912: Parse with_rel_types (stable) and org.matrix.msc3912.with_relations (unstable)
-    let with_rel_types: Option<Vec<String>> = body
+    let requested_rel_types: Option<Vec<String>> = body
         .get("with_rel_types")
         .and_then(|v| v.as_array())
         .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
@@ -981,20 +981,17 @@ pub(crate) async fn redact_event(
                 .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
         });
 
-    // Validate with_rel_types: must be non-empty array of strings
-    if let Some(ref rel_types) = with_rel_types {
-        if rel_types.is_empty() {
-            return Err(ApiError::bad_request("with_rel_types must be a non-empty array".to_string()));
-        }
+    // Strip the MSC3912 parameters from body (per spec: they must not be stored
+    // in event content), whether or not they end up driving a cascade.
+    if let Some(obj) = body.as_object_mut() {
+        obj.remove("with_rel_types");
+        obj.remove("org.matrix.msc3912.with_relations");
     }
 
-    // Strip with_rel_types from body (per spec: must not be stored in event content)
-    if with_rel_types.is_some() {
-        if let Some(obj) = body.as_object_mut() {
-            obj.remove("with_rel_types");
-            obj.remove("org.matrix.msc3912.with_relations");
-        }
-    }
+    // MSC3912: an empty list is equivalent to *not* cascading — it is explicitly
+    // not an error (it previously returned `400 M_BAD_JSON`). The target event is
+    // still redacted, only the related-event cascade is skipped.
+    let with_rel_types: Option<Vec<String>> = requested_rel_types.filter(|rel_types| !rel_types.is_empty());
 
     let reason = body.get("reason").and_then(|v| v.as_str());
 
@@ -1008,6 +1005,9 @@ pub(crate) async fn redact_event(
     });
     let user_id_for_as = auth_user.user_id.clone();
     let content_for_as = content.clone();
+    // Captured before `auth_user.user_id` is moved into `CreateEventParams`; the
+    // cascade authorizes every related event as this user.
+    let cascade_actor_user_id = auth_user.user_id.clone();
 
     let redaction_event = ctx
         .room_service
@@ -1060,14 +1060,32 @@ pub(crate) async fn redact_event(
         },
     )?;
 
-    // MSC3912: Single-layer cascade redaction for related events
-    // (only when with_rel_types is present; otherwise just redact the target)
+    // MSC3912: Single-layer cascade redaction for related events (never parents,
+    // never recursive). Only runs when `with_rel_types` is a non-empty list.
+    //
+    // Best-effort background task, like upstream's `run_as_background_process`:
+    // the client already has the redaction event_id, and a cascade failure must
+    // not turn a successful target redaction into an error. Failures are
+    // nevertheless logged with structured fields rather than swallowed.
+    // Per-event authorization happens inside the service.
     if let Some(rel_types) = with_rel_types {
-        // MSC3912: Run cascade in background (best-effort). Like upstream
-        // (`run_as_background_process`), this does not block the redaction
-        // response — the client already has the redaction event_id.
+        let redaction_service = ctx.event_redaction_service.clone();
         tokio::spawn(async move {
-            let _ = ctx.event_redaction_service.cascade_redact_related_events(&room_id, &event_id, &rel_types).await;
+            if let Err(error) = redaction_service
+                .cascade_redact_related_events(&room_id, &event_id, &rel_types, &cascade_actor_user_id)
+                .await
+            {
+                ::tracing::warn!(
+                    target: "security_audit",
+                    request_id = %request_id,
+                    event = "cascade_redaction_failed",
+                    room_id = %room_id,
+                    event_id = %event_id,
+                    actor_user_id = %cascade_actor_user_id,
+                    error = %error,
+                    "MSC3912 cascade redaction failed"
+                );
+            }
         });
     }
 

@@ -193,39 +193,6 @@ impl EventStorage {
         Ok(redacted_count)
     }
 
-    /// MSC3912: Single-layer cascade redaction – no recursion.
-    ///
-    /// Finds all events that reference the target event via relationship fields
-    /// (m.in_reply_to, m.relates_to, m.replace) and redacts them.
-    ///
-    /// # Arguments
-    /// * `room_id` - Room to search in
-    /// * `event_id` - Target event ID
-    /// * `rel_types` - List of relationship types to match (use `["*"]` for all)
-    ///
-    /// # Returns
-    /// Number of events successfully redacted
-    pub async fn cascade_redact_related_events(
-        &self,
-        room_id: &str,
-        event_id: &str,
-        rel_types: &[String],
-    ) -> Result<u64, sqlx::Error> {
-        let related: Vec<String> = self.find_related_events_single_layer(room_id, event_id, rel_types).await?;
-
-        if related.is_empty() {
-            return Ok(0);
-        }
-
-        let mut count = 0u64;
-        for target_id in related {
-            self.redact_event_content(&target_id, None).await?;
-            count += 1;
-        }
-
-        Ok(count)
-    }
-
     /// Get the full JSON representation of an event for federation redaction.
     ///
     /// This reconstructs the complete PDU including all fields needed for

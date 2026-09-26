@@ -4,20 +4,27 @@
 //! on the persistence-layer `EventStorage`; the admin route needs them, so this
 //! narrow service is the seam that keeps `synapse-web` free of storage types
 //! (B4-5c).
+//!
+//! It also owns the MSC3912 single-layer cascade: the storage layer can find the
+//! related events and redact one, but only this layer holds the `RoomAuth` needed
+//! to decide, per related event, whether the requesting user may redact it.
 
 use std::sync::Arc;
 use synapse_common::error::ApiError;
 use synapse_storage::event::EventStorage;
 
+use crate::auth::RoomAuth;
+
 /// Narrow service over `EventStorage`'s redaction surface.
 pub struct EventRedactionService {
     storage: Arc<EventStorage>,
+    room_auth: Arc<dyn RoomAuth>,
 }
 
 impl EventRedactionService {
     /// See [`new`].
-    pub fn new(storage: Arc<EventStorage>) -> Self {
-        Self { storage }
+    pub fn new(storage: Arc<EventStorage>, room_auth: Arc<dyn RoomAuth>) -> Self {
+        Self { storage, room_auth }
     }
 
     /// Event ids in `room_id` whose `origin_server_ts` falls inside the
@@ -73,22 +80,90 @@ impl EventRedactionService {
     /// (m.in_reply_to, m.relates_to, m.replace) and redacts them at a single
     /// level (no recursion).
     ///
+    /// **Authorization.** Each related event is checked individually with
+    /// [`RoomAuth::can_redact_event`] — the same rule the non-cascade redaction
+    /// path uses. Without that check `with_rel_types` is a privilege-escalation
+    /// primitive: the requester only has to be allowed to redact the *target*
+    /// event to also wipe every related event, including other users'. Denied
+    /// events are skipped (never redacted) and logged with structured fields.
+    ///
     /// # Arguments
     /// * `room_id` - Room to search in
     /// * `event_id` - Target event ID
     /// * `rel_types` - List of relationship types to match (use `["*"]` for all)
+    /// * `actor_user_id` - The user requesting the redaction, whose permissions
+    ///   are evaluated against every related event
     ///
     /// # Returns
-    /// Number of events successfully redacted
+    /// Number of events actually redacted (denied/skipped events are not counted)
     pub async fn cascade_redact_related_events(
         &self,
         room_id: &str,
         event_id: &str,
         rel_types: &[String],
+        actor_user_id: &str,
     ) -> Result<u64, ApiError> {
-        self.storage
-            .cascade_redact_related_events(room_id, event_id, rel_types)
+        let related = self
+            .storage
+            .find_related_events_single_layer(room_id, event_id, rel_types)
             .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to cascade redact related events", e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to query related events for redaction", e))?;
+
+        let mut redacted = 0u64;
+        for target_id in related {
+            // The related event's sender decides whether the actor may redact it.
+            // Look it up the same way the non-cascade path does; a missing row is
+            // fail-closed (skip) rather than an implicit authorization.
+            let Some(target_event) = self
+                .storage
+                .get_event(&target_id)
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Failed to load related event for redaction", e))?
+            else {
+                ::tracing::warn!(
+                    target: "security_audit",
+                    event = "cascade_redaction_target_missing",
+                    room_id = %room_id,
+                    event_id = %event_id,
+                    target_event_id = %target_id,
+                    "Related event disappeared before cascade redaction; skipping"
+                );
+                continue;
+            };
+
+            if let Err(error) = self.room_auth.can_redact_event(room_id, actor_user_id, &target_event.user_id).await {
+                ::tracing::warn!(
+                    target: "security_audit",
+                    event = "cascade_redaction_denied",
+                    room_id = %room_id,
+                    event_id = %event_id,
+                    target_event_id = %target_id,
+                    actor_user_id = %actor_user_id,
+                    target_sender_id = %target_event.user_id,
+                    error = %error,
+                    "Skipping related event: actor is not allowed to redact it"
+                );
+                continue;
+            }
+
+            if let Err(error) = self.storage.redact_event_content(&target_id, None).await {
+                // Keep going: one bad row must not silently drop the rest of the
+                // cascade, but it must not disappear either.
+                ::tracing::error!(
+                    target: "security_audit",
+                    event = "cascade_redaction_target_failed",
+                    room_id = %room_id,
+                    event_id = %event_id,
+                    target_event_id = %target_id,
+                    error = %error,
+                    "Failed to redact a related event during cascade"
+                );
+                continue;
+            }
+
+            redacted += 1;
+        }
+
+        Ok(redacted)
     }
 }

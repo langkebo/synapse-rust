@@ -73,8 +73,10 @@ impl RoomSyncServices {
         let room_storage: Arc<dyn synapse_storage::room::RoomStoreApi> = Arc::new(RoomStorage::new(&infra.pool));
         let event_storage_concrete = Arc::new(EventStorage::new(&infra.pool, server_name_for_storage));
         let event_reader: Arc<dyn synapse_storage::event::EventReader> = event_storage_concrete.clone();
-        let event_redaction_service =
-            Arc::new(crate::event_redaction_service::EventRedactionService::new(event_storage_concrete.clone()));
+        let event_redaction_service = Arc::new(crate::event_redaction_service::EventRedactionService::new(
+            event_storage_concrete.clone(),
+            room_auth.clone(),
+        ));
         // Every room mutation — messages, state, membership, moderation,
         // federation backfill — persists through this trait object. Decorating
         // it here is what releases long-polling sliding-sync clients, and it is
