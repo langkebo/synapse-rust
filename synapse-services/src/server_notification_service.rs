@@ -21,6 +21,11 @@ impl ServerNotificationService {
     }
 
     /// See [`ensure_target_users_exist`].
+    ///
+    /// U-2: notification targets are an *existence* lookup, not an authorization
+    /// one — a deactivated account's row is a legitimate notification target
+    /// (that is how admin notices reach a suspended account's later audit
+    /// trail), so this deliberately stays on the row-existence predicate.
     #[instrument(skip(self))]
     pub async fn ensure_target_users_exist(&self, user_ids: &[String]) -> Result<(), ApiError> {
         for user_id in user_ids {

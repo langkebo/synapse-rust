@@ -169,6 +169,10 @@ impl UserStore for FakeUserStore {
         Ok(self.users.read().await.contains_key(user_id))
     }
 
+    async fn active_user_exists(&self, user_id: &str) -> Result<bool, sqlx::Error> {
+        Ok(self.users.read().await.get(user_id).is_some_and(|user| !user.is_deactivated))
+    }
+
     async fn filter_existing_users(&self, _user_ids: &[String]) -> Result<Vec<String>, sqlx::Error> {
         Ok(vec![])
     }

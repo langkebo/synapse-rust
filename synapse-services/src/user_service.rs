@@ -110,9 +110,24 @@ impl UserService {
     }
 
     /// See [`user_exists`].
+    ///
+    /// Row-existence predicate: `true` for deactivated accounts too. Restrict
+    /// this to existence/reporting lookups (profile fields — upstream #20172,
+    /// username availability, admin notification targets). Every authorization
+    /// path must use [`Self::active_user_exists`].
     #[instrument(skip(self))]
     pub async fn user_exists(&self, user_id: &str) -> Result<bool, ApiError> {
         self.user_storage.user_exists(user_id).await.map_err(Self::db_error)
+    }
+
+    /// See [`active_user_exists`].
+    ///
+    /// "May this account act / be acted upon" predicate: `true` only when the
+    /// row exists **and** `is_deactivated` is false. Every auth, federation and
+    /// moderation caller must go through this one.
+    #[instrument(skip(self))]
+    pub async fn active_user_exists(&self, user_id: &str) -> Result<bool, ApiError> {
+        self.user_storage.active_user_exists(user_id).await.map_err(Self::db_error)
     }
 
     /// Returns `Ok(user)` or `Err(ApiError::not_found)`.
@@ -120,9 +135,21 @@ impl UserService {
         self.get_user_by_identifier(identifier).await?.ok_or_else(|| ApiError::not_found("User not found".to_string()))
     }
 
-    /// Returns `Ok(())` if the user exists, otherwise `Err(ApiError::not_found)`.
+    /// Returns `Ok(())` if the user row exists, otherwise `Err(ApiError::not_found)`.
+    ///
+    /// A deactivated account still exists (upstream #20172). Callers that need
+    /// an account able to act must use [`Self::ensure_active_user_exists`].
     pub async fn ensure_user_exists(&self, user_id: &str) -> Result<(), ApiError> {
         if !self.user_exists(user_id).await? {
+            return Err(ApiError::not_found("User not found".to_string()));
+        }
+        Ok(())
+    }
+
+    /// Returns `Ok(())` if the user row exists **and** is not deactivated,
+    /// otherwise `Err(ApiError::not_found)`.
+    pub async fn ensure_active_user_exists(&self, user_id: &str) -> Result<(), ApiError> {
+        if !self.active_user_exists(user_id).await? {
             return Err(ApiError::not_found("User not found".to_string()));
         }
         Ok(())
@@ -540,5 +567,85 @@ mod tests {
         let profiles = service.get_profiles_batch(&["@alice:example.com".to_string()]).await.unwrap();
         // FakeUserStore returns empty - this is expected stub behavior
         assert!(profiles.is_empty(), "FakeUserStore stub returns empty profiles");
+    }
+
+    // ── U-2: existence vs active predicate ─────────────────────────────
+
+    /// `User` value with `is_deactivated = true` (mirrors what a deactivated
+    /// row looks like coming out of storage).
+    fn deactivated_user(user_id: &str) -> User {
+        User {
+            user_id: user_id.to_string(),
+            username: user_id.trim_start_matches('@').to_string(),
+            password_hash: None,
+            is_admin: false,
+            is_guest: false,
+            is_shadow_banned: false,
+            is_deactivated: true,
+            created_ts: 0,
+            updated_ts: None,
+            displayname: None,
+            avatar_url: None,
+            email: None,
+            phone: None,
+            generation: None,
+            consent_version: None,
+            appservice_id: None,
+            user_type: None,
+            invalid_update_at: None,
+            migration_state: None,
+            password_changed_ts: None,
+            is_password_change_required: false,
+            password_expires_at: None,
+            failed_login_attempts: 0,
+            locked_until: None,
+            must_change_password: false,
+        }
+    }
+
+    async fn build_test_service_with_deactivated(user_id: &str) -> UserService {
+        let store = Arc::new(FakeUserStore::new());
+        store.seed_user(deactivated_user(user_id)).await;
+        UserService::new(store as Arc<dyn UserStore>)
+    }
+
+    #[tokio::test]
+    async fn active_user_exists_true_for_active_and_false_for_unknown() {
+        let service = build_test_service();
+
+        assert!(service.active_user_exists("@alice:example.com").await.expect("should succeed"));
+        assert!(!service.active_user_exists("@unknown:example.com").await.expect("should succeed"));
+    }
+
+    /// The two predicates must disagree exactly on the deactivated row: the row
+    /// exists (upstream #20172) but the account may not act.
+    #[tokio::test]
+    async fn deactivated_user_exists_but_is_not_active() {
+        let service = build_test_service_with_deactivated("@deactivated:example.com").await;
+
+        assert!(
+            service.user_exists("@deactivated:example.com").await.expect("user_exists should succeed"),
+            "a deactivated row still exists"
+        );
+        assert!(
+            !service.active_user_exists("@deactivated:example.com").await.expect("active_user_exists should succeed"),
+            "a deactivated row must not be active"
+        );
+    }
+
+    /// `ensure_active_user_exists` (the predicate the auth/federation/moderation
+    /// call sites use) must reject the deactivated account that
+    /// `ensure_user_exists` accepts.
+    #[tokio::test]
+    async fn ensure_active_user_exists_rejects_deactivated_but_ensure_user_exists_accepts() {
+        let service = build_test_service_with_deactivated("@deactivated:example.com").await;
+
+        service.ensure_user_exists("@deactivated:example.com").await.expect("row exists, so ensure_user_exists is Ok");
+
+        let err = service
+            .ensure_active_user_exists("@deactivated:example.com")
+            .await
+            .expect_err("deactivated account must not pass ensure_active_user_exists");
+        assert_eq!(err.kind, ApiErrorKind::NotFound, "must surface as not_found, got: {err:?}");
     }
 }

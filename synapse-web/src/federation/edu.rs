@@ -235,7 +235,9 @@ async fn handle_presence_edu(ctx: &FederationContext, origin: &str, edu: &Value,
         let presence =
             synapse_common::PresenceState::from_str_opt(presence_str).unwrap_or(synapse_common::PresenceState::Online);
 
-        let exists = match ctx.user_service.user_exists(user_id).await {
+        // Authorization: a deactivated account must not be able to publish
+        // presence over federation (U-2), so this is the *active* predicate.
+        let exists = match ctx.user_service.active_user_exists(user_id).await {
             Ok(exists) => exists,
             Err(error) => {
                 ::tracing::warn!("Failed to validate presence user {} from {}: {}", user_id, origin, error);

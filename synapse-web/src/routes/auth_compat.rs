@@ -115,6 +115,11 @@ pub(crate) async fn check_username_availability(
     }
 
     let user_id = format!("@{}:{}", username, ctx.server_name);
+    // U-2: username availability is an *existence* probe, not an authorization
+    // one. A deactivated account's row still exists and `register_with_device_name`
+    // enforces uniqueness with an INSERT (users.user_id PK), so reporting the
+    // name as available would be a lie that the registration path then rejects
+    // with M_USER_IN_USE. Hence the row-existence predicate here.
     let exists = ctx.account_identity_service.user_exists(&user_id).await?;
 
     Ok(Json(json!({

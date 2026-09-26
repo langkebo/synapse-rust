@@ -58,9 +58,11 @@ impl MembershipService {
             return Err(ApiError::not_found("Room not found".to_string()));
         }
 
+        // U-2: joining is an authorization path ("may this account act") ⇒
+        // active predicate; a deactivated account must not join a room.
         if !self
             .user_storage
-            .user_exists(user_id)
+            .active_user_exists(user_id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to check user existence", e))?
         {
@@ -594,7 +596,7 @@ mod tests {
         let room_storage: Arc<dyn RoomStoreApi> = Arc::new(room_store);
 
         let fake_user_store = FakeUserStore::new();
-        // Seed @bob as a user so user_exists returns true.
+        // Seed @bob as a user so active_user_exists returns true.
         fake_user_store
             .seed_user(synapse_storage::User {
                 user_id: USER_ID.to_string(),

@@ -221,7 +221,7 @@ async fn test_user_exists() {
 }
 
 #[tokio::test]
-async fn test_user_exists_deactivated_returns_false() {
+async fn test_user_exists_true_and_active_user_exists_false_for_deactivated() {
     let pool = crate::require_test_pool().await;
     let storage = create_user_storage(&pool);
     let id = unique_id();
@@ -229,9 +229,16 @@ async fn test_user_exists_deactivated_returns_false() {
     let username = format!("deactivated_exists_{id}");
 
     storage.create_user(&user_id, &username, None, false).await.unwrap();
+    assert!(storage.active_user_exists(&user_id).await.unwrap(), "a fresh account is active");
 
     storage.deactivate_user(&user_id).await.unwrap();
-    assert!(!storage.user_exists(&user_id).await.unwrap());
+
+    // U-2 / upstream #20172: the row still *exists* (profile-field endpoints and
+    // username availability must keep seeing it) …
+    assert!(storage.user_exists(&user_id).await.unwrap());
+    // … but the account may no longer *act*, which is what `active_user_exists`
+    // is for. This used to assert `!user_exists(..)`, the conflated behaviour.
+    assert!(!storage.active_user_exists(&user_id).await.unwrap());
 }
 
 #[tokio::test]

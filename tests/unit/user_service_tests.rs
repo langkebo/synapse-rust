@@ -104,6 +104,14 @@ fn make_user(user_id: &str, displayname: Option<&str>, avatar_url: Option<&str>)
     }
 }
 
+/// Same row as [`make_user`], but deactivated (U-2: the row exists, the account
+/// may not act).
+fn make_deactivated_user(user_id: &str) -> User {
+    let mut user = make_user(user_id, None, None);
+    user.is_deactivated = true;
+    user
+}
+
 #[async_trait]
 impl UserStore for MockUserStore {
     #[allow(clippy::unimplemented)]
@@ -192,6 +200,11 @@ impl UserStore for MockUserStore {
     async fn user_exists(&self, user_id: &str) -> Result<bool, sqlx::Error> {
         self.fail_all_check()?;
         Ok(self.users.lock().unwrap().contains_key(user_id))
+    }
+
+    async fn active_user_exists(&self, user_id: &str) -> Result<bool, sqlx::Error> {
+        self.fail_all_check()?;
+        Ok(self.users.lock().unwrap().get(user_id).is_some_and(|user| !user.is_deactivated))
     }
 
     async fn filter_existing_users(&self, user_ids: &[String]) -> Result<Vec<String>, sqlx::Error> {
@@ -605,6 +618,69 @@ async fn ensure_user_exists_returns_not_found_when_missing() {
 
     let err = svc.ensure_user_exists("@nobody:example.com").await.expect_err("should be not_found");
     assert!(err.is_not_found());
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// active_user_exists / ensure_active_user_exists (U-2 two-predicate split)
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn active_user_exists_returns_true_when_user_seeded() {
+    let svc = build_service_with_user(make_user("@alice:example.com", None, None));
+
+    assert!(svc.active_user_exists("@alice:example.com").await.expect("should succeed"));
+}
+
+#[tokio::test]
+async fn active_user_exists_returns_false_when_user_missing() {
+    let svc = build_service(MockUserStore::new());
+
+    assert!(!svc.active_user_exists("@nobody:example.com").await.expect("should succeed"));
+}
+
+/// The two predicates must disagree exactly on the deactivated row.
+#[tokio::test]
+async fn deactivated_user_exists_but_is_not_active() {
+    let svc = build_service_with_user(make_deactivated_user("@deactivated:example.com"));
+
+    assert!(
+        svc.user_exists("@deactivated:example.com").await.expect("should succeed"),
+        "a deactivated row still exists (upstream #20172)"
+    );
+    assert!(
+        !svc.active_user_exists("@deactivated:example.com").await.expect("should succeed"),
+        "a deactivated row must not be active"
+    );
+}
+
+#[tokio::test]
+async fn ensure_active_user_exists_returns_not_found_for_deactivated_but_ensure_user_exists_is_ok() {
+    let svc = build_service_with_user(make_deactivated_user("@deactivated:example.com"));
+
+    svc.ensure_user_exists("@deactivated:example.com").await.expect("the row exists");
+
+    let err = svc
+        .ensure_active_user_exists("@deactivated:example.com")
+        .await
+        .expect_err("a deactivated account must not pass ensure_active_user_exists");
+    assert!(err.is_not_found(), "must surface as not_found, got: {err:?}");
+}
+
+#[tokio::test]
+async fn ensure_active_user_exists_returns_ok_for_active_user() {
+    let svc = build_service_with_user(make_user("@alice:example.com", None, None));
+
+    svc.ensure_active_user_exists("@alice:example.com").await.expect("active user should pass");
+}
+
+#[tokio::test]
+async fn active_user_exists_maps_storage_error_to_internal() {
+    let store = MockUserStore::new();
+    store.set_fail_all(true);
+    let svc = build_service(store);
+
+    let err = svc.active_user_exists("@alice:example.com").await.expect_err("should error");
+    assert!(err.is_internal());
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -32,9 +32,11 @@ impl MembershipService {
             return self.invite_user_via_federation(room_id, inviter_id, invitee_id).await;
         }
 
+        // U-2: moderation ⇒ active predicate. A deactivated account must not be
+        // invitable (it can never accept).
         if !self
             .user_storage
-            .user_exists(invitee_id)
+            .active_user_exists(invitee_id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to check user existence", e))?
         {
@@ -219,9 +221,10 @@ impl MembershipService {
             return Err(ApiError::not_found("Room not found".to_string()));
         }
 
+        // U-2: moderation ⇒ active predicate (ban).
         if !self
             .user_storage
-            .user_exists(user_id)
+            .active_user_exists(user_id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to check user existence", e))?
         {
@@ -388,9 +391,10 @@ impl MembershipService {
             return Err(ApiError::not_found("Room not found".to_string()));
         }
 
+        // U-2: moderation ⇒ active predicate (kick).
         if !self
             .user_storage
-            .user_exists(target_user_id)
+            .active_user_exists(target_user_id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to check user existence", e))?
         {
@@ -600,7 +604,7 @@ mod tests {
         mem_store.add_member(room_id, moderator, "join", None, None, None, None).await.expect("mod join");
         mem_store.add_member(room_id, target, "join", None, None, None, None).await.expect("target join");
 
-        // Seed the target user so ban_user's user_exists check passes.
+        // Seed the target user so ban_user's active_user_exists check passes.
         let username = target.trim_start_matches('@').split(':').next().unwrap_or(target).to_string();
         user_store.create_user(target, &username, None, false).await.expect("create_user");
 
@@ -672,7 +676,7 @@ mod tests {
         room_store.create_room(room_id, admin, "invite", "1", false).await.expect("create_room");
         mem_store.add_member(room_id, admin, "join", None, None, None, None).await.expect("admin join");
         mem_store.add_member(room_id, target, "ban", None, None, None, None).await.expect("ban");
-        // Seed the user so invite_user's user_exists check passes.
+        // Seed the user so invite_user's active_user_exists check passes.
         let username = target.trim_start_matches('@').split(':').next().unwrap_or(target).to_string();
         user_store.create_user(target, &username, None, false).await.expect("create_user");
 
@@ -703,7 +707,7 @@ mod tests {
         mem_store.add_member(room_id, actor, "join", None, None, None, None).await.expect("mod join");
         mem_store.add_member(room_id, target, "join", None, None, None, None).await.expect("target join");
 
-        // Seed the target user so kick_user's user_exists check passes.
+        // Seed the target user so kick_user's active_user_exists check passes.
         let username = target.trim_start_matches('@').split(':').next().unwrap_or(target).to_string();
         user_store.create_user(target, &username, None, false).await.expect("create_user");
 
@@ -730,7 +734,7 @@ mod tests {
 
         room_store.create_room(room_id, inviter, "invite", "1", false).await.expect("create_room");
         mem_store.add_member(room_id, inviter, "join", None, None, None, None).await.expect("inviter join");
-        // Seed the user so invite_user's user_exists check passes.
+        // Seed the user so invite_user's active_user_exists check passes.
         let username = invitee.trim_start_matches('@').split(':').next().unwrap_or(invitee).to_string();
         user_store.create_user(invitee, &username, None, false).await.expect("create_user");
 

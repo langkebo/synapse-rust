@@ -59,15 +59,23 @@ impl AccountIdentityService {
     }
 
     /// See [`ensure_active_user_exists`].
+    ///
+    /// Rejects both unknown and deactivated accounts: this is the predicate the
+    /// auth / federation / moderation route handlers rely on.
     pub async fn ensure_active_user_exists(&self, user_id: &str) -> Result<(), ApiError> {
-        let user_exists = self.user_service.user_exists(user_id).await?;
-        if !user_exists {
-            return Err(ApiError::not_found("User not found".to_string()));
-        }
-        Ok(())
+        self.user_service.ensure_active_user_exists(user_id).await
+    }
+
+    /// See [`active_user_exists`].
+    pub async fn active_user_exists(&self, user_id: &str) -> Result<bool, ApiError> {
+        self.user_service.active_user_exists(user_id).await
     }
 
     /// See [`user_exists`].
+    ///
+    /// Pure row-existence passthrough — `true` for deactivated accounts too
+    /// (upstream #20172). Authorization callers must use
+    /// [`Self::active_user_exists`].
     pub async fn user_exists(&self, user_id: &str) -> Result<bool, ApiError> {
         self.user_service.user_exists(user_id).await
     }
@@ -270,7 +278,13 @@ mod tests {
     use synapse_storage::test_mocks::{shared_fake_user_store, InMemoryThreepidStore};
 
     fn make_service(threepid_store: Arc<InMemoryThreepidStore>) -> AccountIdentityService {
-        let user_store = shared_fake_user_store();
+        make_service_with_store(shared_fake_user_store(), threepid_store)
+    }
+
+    fn make_service_with_store(
+        user_store: synapse_storage::test_mocks::SharedFakeUserStore,
+        threepid_store: Arc<InMemoryThreepidStore>,
+    ) -> AccountIdentityService {
         let user_service = Arc::new(crate::account::UserService::new(user_store));
         #[cfg(feature = "privacy-ext")]
         {
@@ -291,6 +305,39 @@ mod tests {
         let svc = make_service(Arc::new(InMemoryThreepidStore::new()));
         let err = svc.ensure_active_user_exists("@unknown:example.com").await.unwrap_err();
         assert!(err.to_string().contains("not found"));
+    }
+
+    /// U-2: this is the regression the unit fixes. `ensure_active_user_exists`
+    /// used to call `user_service.user_exists`, which upstream #20172 widened to
+    /// include deactivated rows — so a deactivated account passed every
+    /// auth/federation/moderation gate. It must now reject that row while the
+    /// pure row-existence passthrough still reports it as present.
+    #[tokio::test]
+    async fn ensure_active_user_exists_rejects_deactivated_while_user_exists_is_true() {
+        let user_store = shared_fake_user_store();
+        user_store.seed_user(make_as_user("@deactivated:example.com", true, None)).await;
+        let svc = make_service_with_store(user_store, Arc::new(InMemoryThreepidStore::new()));
+
+        assert!(
+            svc.user_exists("@deactivated:example.com").await.expect("user_exists should succeed"),
+            "a deactivated account still exists as a row (upstream #20172)"
+        );
+
+        let err = svc
+            .ensure_active_user_exists("@deactivated:example.com")
+            .await
+            .expect_err("a deactivated account must not pass ensure_active_user_exists");
+        assert!(err.to_string().contains("not found"), "unexpected error: {err}");
+    }
+
+    #[tokio::test]
+    async fn active_user_exists_is_false_for_deactivated_and_true_for_active() {
+        let user_store = shared_fake_user_store();
+        user_store.seed_user(make_as_user("@deactivated:example.com", true, None)).await;
+        let svc = make_service_with_store(user_store, Arc::new(InMemoryThreepidStore::new()));
+
+        assert!(!svc.active_user_exists("@deactivated:example.com").await.expect("active_user_exists should succeed"));
+        assert!(svc.active_user_exists("@alice:example.com").await.expect("seeded @alice is active"));
     }
 
     // ── get_non_deactivated_user_count ──────────────────────────────

@@ -295,8 +295,13 @@ pub(crate) async fn invite_user(
     // (400) rather than M_NOT_FOUND (404). Only local users can be checked
     // against our database; remote users go through the federation invite
     // path which has its own error handling.
+    //
+    // U-2: the *active* predicate, so a deactivated local account is rejected
+    // here with the same 400 that `MembershipService::invite_user` would raise
+    // as its own not-found — otherwise the route would forward a request the
+    // service is guaranteed to reject.
     if !ctx.room_service.membership().is_remote_user(invitee)
-        && !ctx.account_identity_service.user_exists(invitee).await?
+        && !ctx.account_identity_service.active_user_exists(invitee).await?
     {
         return Err(ApiError::bad_request("User not found".to_string()));
     }
