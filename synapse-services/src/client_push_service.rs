@@ -313,11 +313,11 @@ impl ClientPushService {
                     "event_id": row.event_id,
                     "room_id": row.room_id,
                     "ts": row.ts,
-                    // D-62（未修，待裁定）：这里把 `notifications.notification_type` 渲染成
-                    // `profile_tag` 键，而表里另有一列真 `profile_tag` 未被 SELECT —— 见
-                    // docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md §7。改响应形状需产品裁定，
-                    // 故 C33 只做"行为保持"的类型化，不在这里顺手改。
-                    "profile_tag": row.notification_type,
+                    // D-62 修法①：`profile_tag` 取自同名真列（规范语义："命中的推送规则的
+                    // profile tag"），`notification_type` 作为**独立键**并列暴露 —— 信息是
+                    // 旧形状的超集，不再用错了语义的键承载通知类型。
+                    "profile_tag": row.profile_tag,
+                    "notification_type": row.notification_type,
                     "read": row.is_read.unwrap_or(false)
                 })
             })

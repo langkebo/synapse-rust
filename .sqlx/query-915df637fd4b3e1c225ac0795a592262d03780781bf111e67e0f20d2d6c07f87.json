@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT event_id, room_id, ts, notification_type, is_read\n            FROM notifications\n            WHERE user_id = $1 AND room_id = $2\n            ORDER BY ts DESC\n            LIMIT $3\n            ",
+  "query": "\n            SELECT event_id, room_id, ts, notification_type, profile_tag, is_read\n            FROM notifications\n            WHERE user_id = $1 AND room_id = $2\n            ORDER BY ts DESC\n            LIMIT $3\n            ",
   "describe": {
     "columns": [
       {
@@ -25,6 +25,11 @@
       },
       {
         "ordinal": 4,
+        "name": "profile_tag",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
         "name": "is_read",
         "type_info": "Bool"
       }
@@ -41,8 +46,9 @@
       true,
       false,
       true,
+      true,
       true
     ]
   },
-  "hash": "ba598fd81ac188b95e35d6067b539733e6ba48741094ccc543df77066390eef8"
+  "hash": "915df637fd4b3e1c225ac0795a592262d03780781bf111e67e0f20d2d6c07f87"
 }

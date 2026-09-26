@@ -747,7 +747,7 @@ impl PushNotificationStorage {
         sqlx::query_as!(
             RoomNotification,
             r"
-            SELECT event_id, room_id, ts, notification_type, is_read
+            SELECT event_id, room_id, ts, notification_type, profile_tag, is_read
             FROM notifications
             WHERE user_id = $1 AND room_id = $2
             ORDER BY ts DESC
@@ -777,6 +777,8 @@ pub struct RoomNotification {
     pub ts: Option<i64>,
     /// The `notification_type` field.
     pub notification_type: Option<String>,
+    /// The `profile_tag` field (规范语义：命中的推送规则的 profile tag)。
+    pub profile_tag: Option<String>,
     /// The `is_read` field.
     pub is_read: Option<bool>,
 }

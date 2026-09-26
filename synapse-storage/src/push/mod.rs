@@ -69,11 +69,11 @@ pub struct NotificationRow {
     /// The `ts` field.
     pub ts: i64,
     /// The `notification_type` field.
-    ///
-    /// ⚠️ `ClientPushService::get_notifications` currently renders this value under the
-    /// JSON key `profile_tag` (D-62, 待裁定) — the table also has a real `profile_tag`
-    /// column that the query does not select.
     pub notification_type: Option<String>,
+    /// The `profile_tag` field — "the profile tag of the rule that matched this event"
+    /// (Matrix `GET /_matrix/client/v3/notifications`). Written by the notification
+    /// record layer; see D-68 for its current wiring status.
+    pub profile_tag: Option<String>,
     /// The `is_read` field.
     pub is_read: Option<bool>,
 }
@@ -414,7 +414,7 @@ impl PushStorage {
         sqlx::query_as!(
             NotificationRow,
             r#"
-            SELECT id, event_id, room_id, ts, notification_type, is_read
+            SELECT id, event_id, room_id, ts, notification_type, profile_tag, is_read
             FROM notifications WHERE user_id = $1 ORDER BY ts DESC LIMIT $2
             "#,
             user_id,
