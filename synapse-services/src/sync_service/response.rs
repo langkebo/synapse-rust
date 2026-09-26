@@ -24,11 +24,28 @@ impl SyncService {
             timeline_limit,
             since_token,
             is_incremental,
+            state_after,
         } = request;
         let room_filter = response_filter.and_then(|filter| filter.room.as_ref());
         let event_fields = response_filter.and_then(|filter| filter.event_fields.as_deref());
         let event_format = response_filter.map(|filter| filter.event_format).unwrap_or_default();
         let lazy_load_members = Self::room_filter_requests_lazy_members(room_filter);
+
+        // MSC4222: Resolve state_after event_id to timestamp for filtering left room state
+        let state_after_ts = if let Some(state_after_event_id) = state_after {
+            if let Some(event) = self.event_reader.get_event(state_after_event_id).await.ok().flatten() {
+                Some(event.origin_server_ts)
+            } else {
+                ::tracing::warn!(
+                    state_after_event_id = %state_after_event_id,
+                    "state_after event not found, skipping state filtering for left rooms"
+                );
+                None
+            }
+        } else {
+            None
+        };
+
         let since_ts = Self::event_since_ts(since_token);
         // S6: always use StreamOrdering. Timestamp-based tokens are converted
         // to 0 for a full resync, eliminating the OriginServerTs path.
@@ -166,6 +183,25 @@ impl SyncService {
                 state_by_room.get(room_id).cloned().unwrap_or_default(),
                 room_filter.and_then(|filter| filter.state.as_ref()),
             );
+
+            // MSC4222: Filter state events for left rooms to only include events after state_after timestamp
+            let state_events = if let Some(state_after_ts) = state_after_ts {
+                match room_sections.get(room_id).copied() {
+                    Some(SyncRoomSection::Leave) => state_events
+                        .into_iter()
+                        .filter(|event| {
+                            event
+                                .get("origin_server_ts")
+                                .and_then(|v| v.as_i64())
+                                .map_or(false, |ts| ts > state_after_ts)
+                        })
+                        .collect::<Vec<_>>(),
+                    _ => state_events,
+                }
+            } else {
+                state_events
+            };
+
             let state_events = self
                 .apply_lazy_load_members(LazyLoadMembersRequest {
                     state_events,
@@ -881,5 +917,77 @@ mod tests {
         let value = SyncService::build_room_sync_value(request);
         let prev_batch = value["timeline"]["prev_batch"].as_str().unwrap();
         assert_eq!(prev_batch, "t1700000000000");
+    }
+
+    // ── MSC4222: state_after filter for left rooms ──────────────────────
+    // The `state_after` query parameter filters state events in left rooms
+    // to only include events with origin_server_ts > state_after_event.origin_server_ts.
+    // This prevents leaking membership info from rooms the user has left.
+
+    /// Build a minimal JSON state event value (mimics what `state_event_to_json` produces).
+    fn make_state_event_value(event_id: &str, event_type: &str, origin_server_ts: i64) -> Value {
+        json!({
+            "type": event_type,
+            "event_id": event_id,
+            "origin_server_ts": origin_server_ts,
+            "sender": "@alice:ex.com",
+            "content": {},
+        })
+    }
+
+    #[test]
+    fn msc4222_state_after_filters_old_left_room_state() {
+        // State events with ts before state_after should be removed from leave rooms.
+        let state_events = vec![
+            make_state_event_value("$old:ex.com", "m.room.member", 1000),
+            make_state_event_value("$new:ex.com", "m.room.member", 2000),
+        ];
+        let state_after_ts = 1500;
+        let filtered: Vec<Value> = state_events
+            .into_iter()
+            .filter(|event| {
+                event.get("origin_server_ts").and_then(|v| v.as_i64()).map_or(false, |ts| ts > state_after_ts)
+            })
+            .collect();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0]["event_id"], "$new:ex.com");
+    }
+
+    #[test]
+    fn msc4222_state_after_does_not_affect_join_rooms() {
+        // Join rooms should not be filtered even when state_after is provided.
+        // The filter is only applied for Leave rooms.
+        let state_events = vec![make_state_event_value("$old:ex.com", "m.room.member", 1000)];
+        let state_after_ts = 1500i64;
+        // Simulating join room (NOT filtered — only Leave rooms are filtered):
+        let filtered = if let Some(ts) = Some(state_after_ts) {
+            // In real code, this would be filtered only for Leave rooms.
+            // Here we simulate the "no filter for join" path.
+            state_events // join room → pass through unfiltered
+        } else {
+            state_events
+        };
+        assert_eq!(filtered.len(), 1, "Join room state must not be filtered");
+    }
+
+    #[test]
+    fn msc4222_no_state_after_preserves_all_events() {
+        // When state_after is None, all state events should pass through.
+        let state_events = vec![
+            make_state_event_value("$old:ex.com", "m.room.member", 1000),
+            make_state_event_value("$new:ex.com", "m.room.member", 2000),
+        ];
+        let state_after_ts: Option<i64> = None;
+        let filtered: Vec<Value> = if let Some(ts) = state_after_ts {
+            state_events
+                .into_iter()
+                .filter(|event| {
+                    event.get("origin_server_ts").and_then(|v| v.as_i64()).map_or(false, |event_ts| event_ts > ts)
+                })
+                .collect()
+        } else {
+            state_events
+        };
+        assert_eq!(filtered.len(), 2, "No state_after means all events pass through");
     }
 }

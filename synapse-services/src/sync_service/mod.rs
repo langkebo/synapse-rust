@@ -145,6 +145,7 @@ impl SyncService {
         set_presence: &str,
         filter_id: Option<&str>,
         since: Option<&str>,
+        state_after: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
         self.sync_with_request(SyncServiceRequest {
             user_id,
@@ -154,13 +155,23 @@ impl SyncService {
             set_presence,
             filter_id,
             since,
+            state_after,
         })
         .await
     }
 
     /// See [`sync_with_request`].
     pub async fn sync_with_request(&self, request: SyncServiceRequest<'_>) -> ApiResult<serde_json::Value> {
-        let SyncServiceRequest { user_id, device_id, timeout, is_full_state, set_presence, filter_id, since } = request;
+        let SyncServiceRequest {
+            user_id,
+            device_id,
+            timeout,
+            is_full_state,
+            set_presence,
+            filter_id,
+            since,
+            state_after,
+        } = request;
         let total_started = Instant::now();
         self.update_presence(user_id, set_presence).await?;
 
@@ -218,6 +229,7 @@ impl SyncService {
                 timeline_limit,
                 since_token: &since_token,
                 is_incremental,
+                state_after,
             })
             .await?;
         let response_build_ms = response_build_started.elapsed().as_secs_f64() * 1000.0;

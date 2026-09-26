@@ -32,6 +32,7 @@ struct SyncParams {
     set_presence: String,
     filter: Option<String>,
     since: Option<String>,
+    state_after: Option<String>,
 }
 
 /// Build an effective `SyncRateLimitOverride`-like struct from the context's
@@ -76,6 +77,7 @@ pub(crate) async fn sync(
     let set_presence = params.get("set_presence").and_then(|v| v.as_str()).unwrap_or("online").to_string();
     let filter = params.get("filter").and_then(|v| v.as_str()).map(|s| s.to_string());
     let mut since = params.get("since").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let state_after = params.get("state_after").and_then(|v| v.as_str()).map(|s| s.to_string());
 
     // P-049: Validate timeout is non-negative. `parse_u64_query_param` already
     // rejects negative values (u64 cannot represent them) but silently falls
@@ -159,6 +161,7 @@ pub(crate) async fn sync(
         set_presence,
         filter,
         since,
+        state_after,
     })
     .await
 }
@@ -179,6 +182,7 @@ async fn execute_sync(params: SyncParams) -> Result<Json<Value>, ApiError> {
             set_presence: &params.set_presence,
             filter_id: params.filter.as_deref(),
             since: params.since.as_deref(),
+            state_after: params.state_after.as_deref(),
         }),
     )
     .await;

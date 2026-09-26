@@ -18,6 +18,7 @@ pub trait SyncServiceApi: Send + Sync {
         set_presence: &str,
         filter_id: Option<&str>,
         since: Option<&str>,
+        state_after: Option<&str>,
     ) -> ApiResult<serde_json::Value>;
 
     /// See [`sync_with_request`].
@@ -61,8 +62,19 @@ impl SyncServiceApi for SyncService {
         set_presence: &str,
         filter_id: Option<&str>,
         since: Option<&str>,
+        state_after: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
-        self.sync(user_id, device_id, timeout, full_state, set_presence, filter_id, since).await
+        self.sync_with_request(SyncServiceRequest {
+            user_id,
+            device_id,
+            timeout,
+            is_full_state: full_state,
+            set_presence,
+            filter_id,
+            since,
+            state_after,
+        })
+        .await
     }
 
     async fn sync_with_request(&self, request: SyncServiceRequest<'_>) -> ApiResult<serde_json::Value> {

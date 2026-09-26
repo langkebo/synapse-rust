@@ -185,6 +185,10 @@ pub struct SyncServiceRequest<'a> {
     pub filter_id: Option<&'a str>,
     /// The `since` field.
     pub since: Option<&'a str>,
+    /// MSC4222: The `state_after` field.
+    /// Event ID used to filter state events in left rooms. Only events
+    /// occurring after this event are included.
+    pub state_after: Option<&'a str>,
 }
 
 /// The `FetchEventsRequest` struct.
@@ -227,6 +231,9 @@ pub struct BuildSyncResponseRequest<'a> {
     pub since_token: &'a Option<SyncToken>,
     /// The `is_incremental` field.
     pub is_incremental: bool,
+    /// MSC4222: The `state_after` field.
+    /// Event ID used to filter state events in left rooms.
+    pub state_after: Option<&'a str>,
 }
 
 /// The `BuildRoomSyncRequest` struct.
@@ -376,6 +383,12 @@ pub struct SyncRequest {
     pub set_presence: Option<String>,
     /// The `timeout` field.
     pub timeout: u64,
+    /// MSC4222: The `state_after` field.
+    /// Event ID to use as a reference point for filtering state events in
+    /// left rooms. Only state events occurring after this event will be
+    /// included to prevent leaking membership information.
+    #[serde(rename = "state_after")]
+    pub state_after: Option<String>,
 }
 
 /// The `SyncState` struct.
