@@ -463,13 +463,13 @@ fn megolm_rotation_invalidates_new_receivers() {
 }
 
 // =====================================================================
-// Pickle compatibility: legacy / vodozemac / dual
+// Pickle compatibility: vodozemac
 // =====================================================================
 
 /// Vodozemac 0.9 `GroupSessionPickle` survives a base64+JSON encode
 /// cycle and can be re-hydrated into a `GroupSession`. This is the
-/// serialization format used by `MegolmSession::session_key` when
-/// `PickleFormat::Vodozemac` is stored.
+/// serialization format used by `MegolmSession::session_key` (the only pickle
+/// format `megolm_sessions` carries since the E-12 convergence).
 #[test]
 fn pickle_vodozemac_group_session_roundtrip() {
     if skip_unless_interop() {
@@ -534,47 +534,6 @@ fn pickle_olm_account_roundtrip() {
     let restored_keys = restored.identity_keys();
     assert_eq!(original_keys.ed25519, restored_keys.ed25519);
     assert_eq!(original_keys.curve25519, restored_keys.curve25519);
-}
-
-/// Dual-format rows (`PickleFormat::Dual`) carry both a legacy
-/// AES-256-GCM-encrypted session_key and a vodozemac 0.9 pickle in
-/// `vodozemac_pickle`. We verify that the vodozemac pickle is parseable
-/// independently of the legacy column. This is the contract for the
-/// `MegolmVodozemacService::create_session` dual-write path.
-#[test]
-fn pickle_dual_format_vodozemac_pickle_parses() {
-    if skip_unless_interop() {
-        skip_message("dual-format pickle");
-        return;
-    }
-
-    use vodozemac::megolm::SessionConfig;
-
-    let sender = MegolmSender::new(SessionConfig::default());
-    let pickle = sender.pickle();
-    let json = serde_json::to_vec(&pickle).expect("serialise");
-    // In a Dual row, this is what `MegolmSession::vodozemac_pickle` holds.
-    let stored_vodozemac_pickle = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &json);
-
-    // The legacy `session_key` column is opaque bytes from the
-    // vodozemac path's perspective: trying to base64+JSON parse it as
-    // a vodozemac pickle must fail.
-    // Use a known-valid base64 string (URL-safe, no padding) that
-    // decodes to bytes that are clearly not a JSON GroupSessionPickle.
-    let legacy_blob = "AAAAbm90X2pzb24AAAA";
-    let legacy_bytes = base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, legacy_blob)
-        .expect("legacy blob is valid url-safe base64");
-    assert!(
-        serde_json::from_slice::<vodozemac::megolm::GroupSessionPickle>(&legacy_bytes).is_err(),
-        "the legacy column must not parse as a vodozemac GroupSessionPickle"
-    );
-
-    // The vodozemac_pickle column must roundtrip cleanly.
-    let restored_json =
-        base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &stored_vodozemac_pickle).expect("b64");
-    let restored: vodozemac::megolm::GroupSessionPickle =
-        serde_json::from_slice(&restored_json).expect("Dual row's vodozemac_pickle parses");
-    let _ = MegolmSender::from_pickle(restored);
 }
 
 // =====================================================================

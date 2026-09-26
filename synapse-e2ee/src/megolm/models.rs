@@ -1,37 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
 use uuid::Uuid;
-
-/// Pickle format identifier for megolm sessions.
-/// Since E-12, only Vodozemac pickle format is supported (legacy/dual removed).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum PickleFormat {
-    /// The vodozemac 0.9 pickle format (default).
-    #[default]
-    Vodozemac,
-}
-
-impl PickleFormat {
-    /// See [`as_str`].
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Vodozemac => "vodozemac",
-        }
-    }
-}
-
-impl FromStr for PickleFormat {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(match s {
-            "vodozemac" => Self::Vodozemac,
-            _ => Self::Vodozemac, // All unknown values default to Vodozemac
-        })
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 /// The `MegolmSession` type.
@@ -56,9 +25,6 @@ pub struct MegolmSession {
     pub last_used_ts: DateTime<Utc>,
     /// The `expires_at` field.
     pub expires_at: Option<DateTime<Utc>>,
-    /// Pickle format (default Vodozemac; kept for schema compatibility but always Vodozemac after E-12)
-    #[serde(default)]
-    pub pickle_format: PickleFormat,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -147,13 +113,11 @@ mod tests {
             created_ts: current_timestamp_utc(),
             last_used_ts: current_timestamp_utc(),
             expires_at: None,
-            pickle_format: PickleFormat::Vodozemac,
         };
 
         assert_eq!(session.room_id, "!room:example.com");
         assert_eq!(session.algorithm, "m.megolm.v1.aes-sha2");
         assert_eq!(session.message_index, 0);
-        assert_eq!(session.pickle_format, PickleFormat::Vodozemac);
     }
 
     #[test]
@@ -170,7 +134,6 @@ mod tests {
             created_ts: current_timestamp_utc(),
             last_used_ts: current_timestamp_utc(),
             expires_at: Some(expires),
-            pickle_format: PickleFormat::Vodozemac,
         };
 
         assert!(session.expires_at.is_some());
@@ -211,7 +174,6 @@ mod tests {
             created_ts: current_timestamp_utc(),
             last_used_ts: current_timestamp_utc(),
             expires_at: None,
-            pickle_format: PickleFormat::Vodozemac,
         };
 
         assert!(session.session_id.starts_with("megolm"));
@@ -257,7 +219,6 @@ mod tests {
                 created_ts: current_timestamp_utc(),
                 last_used_ts: current_timestamp_utc(),
                 expires_at: None,
-                pickle_format: PickleFormat::Vodozemac,
             };
 
             assert_eq!(session.algorithm, algo);
@@ -277,7 +238,6 @@ mod tests {
             created_ts: current_timestamp_utc(),
             last_used_ts: current_timestamp_utc(),
             expires_at: None,
-            pickle_format: PickleFormat::Vodozemac,
         };
 
         let json = serde_json::to_string(&session).unwrap();
@@ -286,12 +246,5 @@ mod tests {
         assert_eq!(session.session_id, deserialized.session_id);
         assert_eq!(session.room_id, deserialized.room_id);
         assert_eq!(session.message_index, deserialized.message_index);
-        assert_eq!(deserialized.pickle_format, PickleFormat::Vodozemac);
-    }
-
-    #[test]
-    fn test_pickle_format_default_and_roundtrip() {
-        assert_eq!(PickleFormat::default(), PickleFormat::Vodozemac);
-        assert_eq!(PickleFormat::Vodozemac.as_str(), "vodozemac");
     }
 }

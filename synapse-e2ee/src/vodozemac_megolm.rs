@@ -22,7 +22,7 @@
 //! migration plan.
 
 use crate::crypto::key_at_rest::KeyAtRest;
-use crate::megolm::models::{MegolmSession, PickleFormat, RoomKeyDistributionData};
+use crate::megolm::models::{MegolmSession, RoomKeyDistributionData};
 use crate::megolm::storage::MegolmSessionStorage;
 use std::sync::Arc;
 use std::time::Instant;
@@ -154,7 +154,6 @@ impl MegolmVodozemacService {
             created_ts: current_timestamp_utc(),
             last_used_ts: current_timestamp_utc(),
             expires_at: Some(current_timestamp_utc() + chrono::Duration::days(get_session_max_age_days())),
-            pickle_format: PickleFormat::Vodozemac,
         };
 
         self.storage.create_session(&session).await?;
@@ -204,7 +203,6 @@ impl MegolmVodozemacService {
             created_ts: current_timestamp_utc(),
             last_used_ts: current_timestamp_utc(),
             expires_at: Some(current_timestamp_utc() + chrono::Duration::days(get_session_max_age_days())),
-            pickle_format: PickleFormat::Vodozemac,
         };
 
         self.storage.create_session(&session).await?;
@@ -306,7 +304,6 @@ impl MegolmVodozemacService {
             session_key: new_pickle_str,
             message_index: new_index,
             last_used_ts: current_timestamp_utc(),
-            pickle_format: PickleFormat::Vodozemac,
             ..session
         };
         if let Err(e) = self.cache.set(&cache_key, &updated_session, 600).await {
@@ -383,12 +380,8 @@ impl MegolmVodozemacService {
         let new_pickle_str = inbound_pickle_to_string(&inbound.pickle())?;
 
         let cache_key = format!("megolm_session:{session_id}");
-        let updated_session = MegolmSession {
-            session_key: new_pickle_str,
-            last_used_ts: current_timestamp_utc(),
-            pickle_format: PickleFormat::Vodozemac,
-            ..session
-        };
+        let updated_session =
+            MegolmSession { session_key: new_pickle_str, last_used_ts: current_timestamp_utc(), ..session };
         if let Err(e) = self.cache.set(&cache_key, &updated_session, 600).await {
             ::tracing::warn!(session_id = %session_id, cache_key = %cache_key, error = %e, "Failed to refresh megolm session cache after decrypt");
         }
@@ -649,45 +642,6 @@ mod tests {
             last_index = decrypted.message_index;
         }
         assert_eq!(last_index, 15, "16 messages should yield message_index 0..=15");
-    }
-
-    // ========================================================================
-    // E-12: convergence — only vodozemac pickle format (legacy/dual removed)
-    // ========================================================================
-
-    /// Verify MegolmSession model serializes with Vodozemac format after E-12 convergence
-    #[test]
-    fn megolm_session_e12_convergence_format() {
-        let session = MegolmSession {
-            id: uuid::Uuid::new_v4(),
-            session_id: "e12_convergence".to_string(),
-            room_id: "!room:test.example".to_string(),
-            sender_key: "sender_key_b64".to_string(),
-            session_key: "vodozemac_pickle_string".to_string(),
-            algorithm: "m.megolm.v1.aes-sha2".to_string(),
-            message_index: 0,
-            created_ts: current_timestamp_utc(),
-            last_used_ts: current_timestamp_utc(),
-            expires_at: Some(current_timestamp_utc() + chrono::Duration::days(7)),
-            pickle_format: PickleFormat::Vodozemac,
-        };
-
-        let json = serde_json::to_string(&session).expect("serialize");
-        assert!(json.contains("\"pickle_format\":\"vodozemac\""), "json should include vodozemac format: {json}");
-
-        let deserialized: MegolmSession = serde_json::from_str(&json).expect("deserialize");
-        assert_eq!(deserialized.pickle_format, PickleFormat::Vodozemac);
-    }
-
-    /// Verify PickleFormat enum only has Vodozemac variant after E-12
-    #[test]
-    fn pickle_format_e12_only_vodozemac() {
-        let fmt = PickleFormat::Vodozemac;
-        let s = serde_json::to_string(&fmt).expect("serialize");
-        assert_eq!(s, "\"vodozemac\"", "PickleFormat should only serialize to vodozemac");
-
-        let parsed: PickleFormat = serde_json::from_str(&s).expect("deserialize");
-        assert_eq!(parsed, PickleFormat::Vodozemac);
     }
 
     /// 验证 vodozemac session_key 的 base64 字符串非空且长度合理

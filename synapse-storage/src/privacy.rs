@@ -266,10 +266,9 @@ impl PrivacyStorage {
             let is_self = requester_id == Some(row.user_id.as_str());
 
             // `profile_visibility` is `TEXT NOT NULL`, and `query!` proves it by typing
-            // the field as a non-`Option` `String` — so the `allow_profile_lookup`
-            // fallback the dynamic `row.try_get` chain used to carry was
-            // **unreachable**, and `row.try_get("user_id").unwrap_or_default()` was
-            // swallowing DB errors for a `PRIMARY KEY` column (D-54).
+            // the field as a non-`Option` `String`. The old `allow_profile_lookup`
+            // fallback was therefore unreachable (D-54), and that column has since been
+            // dropped from the baseline (C28) — so this match is the whole policy.
             let visible = match row.profile_visibility.as_str() {
                 "private" | "contacts" => is_self,
                 _ => true,
@@ -934,9 +933,9 @@ mod db_tests {
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
-        // `allow_profile_lookup` 由迁移 baseline 提供（v12:215），而 `test_pool()` 克隆的
-        // 就是该模板 —— 这里原先那条 `ALTER TABLE … ADD COLUMN IF NOT EXISTS` 是自建
-        // schema 时代的残留补丁，恒为 no-op，随 D-04 同族 `create_tables` 一并删除。
+        // 这里原先那条 `ALTER TABLE … ADD COLUMN IF NOT EXISTS allow_profile_lookup` 是自建
+        // schema 时代的残留补丁，恒为 no-op（`test_pool()` 克隆的就是真模板），已随 D-04 同族
+        // `create_tables` 删除；该列本身也已从 baseline 删除（C28，三个 `allow_*` 死列）。
         let storage = PrivacyStorage::new(pool.clone());
         let user_a = format!("@batch_a_{}:test.com", suffix);
         let user_b = format!("@batch_b_{}:test.com", suffix);

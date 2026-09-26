@@ -138,7 +138,13 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // `idx_media_metadata_content_hash` 索引（hash 级自动隔离），常量同步为
 // `38dcd5e818c7bfc0`；同样独立复算 FNV-1a 64，并先自检旧值
 // `24e2c50ee8543673` 逐字节吻合后取值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "38dcd5e818c7bfc0";
+// 2026-09-25（C28，D-53 + D-54）：E-12 迁移词汇表与三个死列清理 ——
+// `megolm_sessions` 删 `pickle_format`（含其注释块、`chk_megolm_sessions_pickle_format`
+// CHECK 与 `idx_megolm_sessions_pickle_format` 部分索引）与 `vodozemac_pickle`；
+// `user_privacy_settings` 删 `allow_presence_lookup` / `allow_profile_lookup` /
+// `allow_room_invites`（三列全仓零引用、无写入者），常量同步为 `beb0fb1facabd2ff`；
+// 同样独立复算 FNV-1a 64，并先自检旧值 `38dcd5e818c7bfc0` 逐字节吻合后取值。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "beb0fb1facabd2ff";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

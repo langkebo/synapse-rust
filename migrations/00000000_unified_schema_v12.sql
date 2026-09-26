@@ -211,9 +211,6 @@ CREATE TABLE IF NOT EXISTS token_blacklist (
 
 CREATE TABLE IF NOT EXISTS user_privacy_settings (
     user_id VARCHAR(255) NOT NULL PRIMARY KEY,
-    allow_presence_lookup BOOLEAN DEFAULT TRUE,
-    allow_profile_lookup BOOLEAN DEFAULT TRUE,
-    allow_room_invites BOOLEAN DEFAULT TRUE,
     profile_visibility TEXT NOT NULL DEFAULT 'public',
     avatar_visibility TEXT NOT NULL DEFAULT 'public',
     displayname_visibility TEXT NOT NULL DEFAULT 'public',
@@ -716,17 +713,8 @@ CREATE TABLE IF NOT EXISTS megolm_sessions (
     created_ts BIGINT NOT NULL,
     last_used_ts BIGINT,
     expires_at BIGINT,
-    -- Phase 2 (E2EE vodozemac 双写): 标识 session_key 列 pickle 格式
-    -- 'legacy' = 自研 AES-256-GCM pickle (历史数据)
-    -- 'vodozemac' = vodozemac 0.9 pickle (新增)
-    -- 'dual' = 同时持有两种 pickle (vodozemac_pickle 列非空 + session_key 仍为 legacy)
-    pickle_format TEXT NOT NULL DEFAULT 'legacy',
-    vodozemac_pickle TEXT,
     CONSTRAINT pk_megolm_sessions PRIMARY KEY (id),
-    CONSTRAINT uq_megolm_sessions_session UNIQUE (session_id),
-    CONSTRAINT chk_megolm_sessions_pickle_format CHECK (
-        pickle_format IN ('legacy', 'vodozemac', 'dual')
-    )
+    CONSTRAINT uq_megolm_sessions_session UNIQUE (session_id)
 );
 
 CREATE TABLE IF NOT EXISTS event_signatures (
@@ -3378,8 +3366,6 @@ CREATE INDEX IF NOT EXISTS idx_key_rotation_log_user_rotated ON key_rotation_log
 
 -- Megolm sessions
 CREATE INDEX IF NOT EXISTS idx_megolm_sessions_room ON megolm_sessions(room_id);
--- Phase 2: 支持按 pickle_format 过滤的懒迁移查询（只查 'legacy' 存量）
-CREATE INDEX IF NOT EXISTS idx_megolm_sessions_pickle_format ON megolm_sessions(pickle_format) WHERE pickle_format = 'legacy';
 
 -- Event signatures
 CREATE INDEX IF NOT EXISTS idx_event_signatures_event ON event_signatures(event_id);

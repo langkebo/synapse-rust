@@ -80,7 +80,6 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | ~~room_invites~~ | ~~uq_room_invites_invite_code~~ | ~~invite_code (UNIQUE)~~ | — | **已删除**：baseline 的 v11-10 去重块（`DO $$` 循环删除非约束 `uq_*`）在建后即删；目录中不存在 |
 | room_retention_policies | idx_room_retention_policies_server_default | is_server_default | is_server_default = TRUE | 查找服务器默认保留策略 |
 | device_keys | idx_device_keys_fallback | user_id, device_id | is_fallback = TRUE | 查找回退设备密钥 |
-| megolm_sessions | idx_megolm_sessions_pickle_format | pickle_format | pickle_format = 'legacy' | 查找旧格式 Megolm 会话（懒迁移） |
 | olm_sessions | idx_olm_sessions_expires | expires_at | expires_at IS NOT NULL | 查找有过期时间的 Olm 会话 |
 | e2ee_key_requests | idx_e2ee_key_requests_pending | is_fulfilled | is_fulfilled = FALSE | 查找未完成的密钥请求 |
 | one_time_keys | idx_one_time_keys_used | is_used | is_used = FALSE | 查找未使用的 OTK |

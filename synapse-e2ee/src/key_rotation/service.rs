@@ -880,7 +880,6 @@ mod tests {
             created_ts: last_used_ts,
             last_used_ts,
             expires_at,
-            pickle_format: crate::megolm::PickleFormat::Vodozemac,
         }
     }
 

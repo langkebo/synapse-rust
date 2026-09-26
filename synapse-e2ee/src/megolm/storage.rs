@@ -1,7 +1,6 @@
 use super::models::*;
 use chrono::Utc;
 use sqlx::PgPool;
-use std::str::FromStr;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::map_database;
@@ -31,8 +30,6 @@ pub struct MegolmSessionRow {
     pub last_used_ts: Option<i64>,
     /// The `expires_at` field.
     pub expires_at: Option<i64>,
-    /// The `pickle_format` field.
-    pub pickle_format: String,
 }
 
 /// Implementation of [`From`] methods.
@@ -63,7 +60,6 @@ impl From<MegolmSessionRow> for MegolmSession {
             created_ts: created_ts_dt,
             last_used_ts: last_used_ts_dt,
             expires_at: expires_at_dt,
-            pickle_format: PickleFormat::from_str(&row.pickle_format).unwrap_or(PickleFormat::Vodozemac),
         }
     }
 }
@@ -88,9 +84,9 @@ impl MegolmSessionStorage {
             r#"
             INSERT INTO megolm_sessions (
                 id, session_id, room_id, sender_key, session_key, algorithm,
-                message_index, created_ts, last_used_ts, expires_at, pickle_format
+                message_index, created_ts, last_used_ts, expires_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             "#,
             session.id,
             &session.session_id,
@@ -102,7 +98,6 @@ impl MegolmSessionStorage {
             session.created_ts.timestamp_millis(),
             session.last_used_ts.timestamp_millis(),
             session.expires_at.map(|t| t.timestamp_millis()),
-            session.pickle_format.as_str(),
         )
         .execute(&*self.pool)
         .await
@@ -126,8 +121,7 @@ impl MegolmSessionStorage {
                 message_index,
                 created_ts,
                 last_used_ts,
-                expires_at,
-                pickle_format
+                expires_at
             FROM megolm_sessions
             WHERE session_id = $1
             "#,
@@ -155,8 +149,7 @@ impl MegolmSessionStorage {
                 message_index,
                 created_ts,
                 last_used_ts,
-                expires_at,
-                pickle_format
+                expires_at
             FROM megolm_sessions
             WHERE room_id = $1
             "#,
@@ -177,8 +170,7 @@ impl MegolmSessionStorage {
             SET session_key = $2,
                 message_index = $3,
                 last_used_ts = $4,
-                expires_at = $5,
-                pickle_format = $6
+                expires_at = $5
             WHERE session_id = $1
             "#,
             &session.session_id,
@@ -186,7 +178,6 @@ impl MegolmSessionStorage {
             session.message_index,
             session.last_used_ts.timestamp_millis(),
             session.expires_at.map(|t| t.timestamp_millis()),
-            session.pickle_format.as_str(),
         )
         .execute(&*self.pool)
         .await
@@ -296,23 +287,6 @@ impl MegolmSessionStorage {
         Ok(row.map(|r| r.encrypted_key))
     }
 
-    /// 统计各 pickle_format 的 session 数量（监控/迁移进度）
-    pub async fn count_by_pickle_format(&self) -> Result<Vec<(String, i64)>, ApiError> {
-        let rows = sqlx::query_as!(
-            PickleFormatCountRow,
-            r#"
-            SELECT pickle_format, COUNT(*) AS "cnt!"
-            FROM megolm_sessions
-            GROUP BY pickle_format
-            "#,
-        )
-        .fetch_all(&*self.pool)
-        .await
-        .map_err(map_database!("Failed to count megolm sessions by pickle format"))?;
-
-        Ok(rows.into_iter().map(|r| (r.pickle_format, r.cnt)).collect())
-    }
-
     /// Clean up expired Megolm sessions.
     ///
     /// Aligned with Synapse v1.153 behavior: sessions with a non-null `expires_at`
@@ -352,15 +326,6 @@ struct MegolmSessionKeyRow {
     encrypted_key: String,
 }
 
-#[derive(Debug, Clone, sqlx::FromRow)]
-/// The `PickleFormatCountRow` type.
-struct PickleFormatCountRow {
-    /// The `pickle_format` field.
-    pickle_format: String,
-    /// The `cnt` field.
-    cnt: i64,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -378,7 +343,6 @@ mod tests {
             created_ts: Utc::now(),
             last_used_ts: Utc::now(),
             expires_at: None,
-            pickle_format: PickleFormat::Vodozemac,
         }
     }
 
@@ -395,7 +359,6 @@ mod tests {
             created_ts: Utc::now(),
             last_used_ts: Utc::now(),
             expires_at: None,
-            pickle_format: PickleFormat::Vodozemac,
         };
 
         assert!(!session.session_id.is_empty());
@@ -403,7 +366,6 @@ mod tests {
         assert!(!session.sender_key.is_empty());
         assert!(!session.session_key.is_empty());
         assert_eq!(session.algorithm, "m.megolm.v1.aes-sha2");
-        assert_eq!(session.pickle_format, PickleFormat::Vodozemac);
     }
 
     #[test]
@@ -419,7 +381,6 @@ mod tests {
             created_ts: Utc::now(),
             last_used_ts: Utc::now(),
             expires_at: None,
-            pickle_format: PickleFormat::Vodozemac,
         };
 
         assert!(session.room_id.starts_with('!'), "Room ID should start with !");
@@ -533,7 +494,6 @@ mod tests {
             created_ts: created,
             last_used_ts: last_used,
             expires_at: Some(expires),
-            pickle_format: PickleFormat::Vodozemac,
         };
 
         assert!(session.created_ts <= session.last_used_ts);
@@ -599,7 +559,6 @@ mod db_tests {
             created_ts: created,
             last_used_ts: created,
             expires_at: None,
-            pickle_format: PickleFormat::Vodozemac,
         }
     }
 
@@ -629,7 +588,6 @@ mod db_tests {
         assert_eq!(loaded.created_ts.timestamp_millis(), s1.created_ts.timestamp_millis());
         assert_eq!(loaded.last_used_ts.timestamp_millis(), s1.last_used_ts.timestamp_millis());
         assert_eq!(loaded.expires_at, None);
-        assert_eq!(loaded.pickle_format, PickleFormat::Vodozemac);
         assert!(storage.get_session("missing").await.unwrap().is_none());
 
         // `session_id` is UNIQUE and `create_session` has no `ON CONFLICT`: the second
@@ -662,7 +620,6 @@ mod db_tests {
         assert_eq!(reloaded.message_index, 42);
         assert_eq!(reloaded.last_used_ts.timestamp_millis(), updated.last_used_ts.timestamp_millis());
         assert_eq!(reloaded.expires_at.map(|t| t.timestamp_millis()), updated.expires_at.map(|t| t.timestamp_millis()));
-        assert_eq!(reloaded.pickle_format, PickleFormat::Vodozemac);
         assert_eq!(reloaded.room_id, room_a, "update_session must not touch room_id");
         assert_eq!(
             reloaded.created_ts.timestamp_millis(),
@@ -726,43 +683,6 @@ mod db_tests {
         let key_rows: i64 =
             sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM megolm_session_keys").fetch_one(&*pool).await.unwrap();
         assert_eq!(key_rows, 4, "(user_id, session_id) is the conflict target, not user_id alone");
-
-        // --- count_by_pickle_format: `COUNT(*)` has no relation origin ---------
-        // `AS "cnt!"` keeps the non-`Option` `i64` contract. `pickle_format` is the
-        // GROUP BY key, and the schema's CHECK still admits the post-E-12 vocabulary
-        // {'legacy','vodozemac','dual'}, so a raw insert can create a second group.
-        let mut counts = storage.count_by_pickle_format().await.unwrap();
-        counts.sort();
-        assert_eq!(counts, vec![("vodozemac".to_string(), 4)], "sess-a1/a2/b1 + sess-future remain after the cleanup");
-
-        let legacy = make_session("sess-legacy", room_a, 0);
-        storage.create_session(&legacy).await.unwrap();
-        sqlx::query("UPDATE megolm_sessions SET pickle_format = 'legacy' WHERE session_id = $1")
-            .bind("sess-legacy")
-            .execute(&*pool)
-            .await
-            .unwrap();
-
-        let mut counts = storage.count_by_pickle_format().await.unwrap();
-        counts.sort();
-        assert_eq!(counts, vec![("legacy".to_string(), 1), ("vodozemac".to_string(), 4)]);
-        // D-53 pin: the schema says 'legacy' but the read path reports `Vodozemac`
-        // (`PickleFormat` has a single variant and `from_str` falls back silently).
-        // Nothing branches on this field today, so there is no behaviour impact —
-        // but if the vocabulary is ever narrowed, this assertion is the one that
-        // must flip.
-        let legacy_row = storage.get_session("sess-legacy").await.unwrap().unwrap();
-        assert_eq!(legacy_row.pickle_format, PickleFormat::Vodozemac);
-
-        // The CHECK constraint is real: a value outside the documented vocabulary is
-        // rejected by Postgres (23514) rather than stored.
-        let bogus = sqlx::query("UPDATE megolm_sessions SET pickle_format = 'bogus' WHERE session_id = $1")
-            .bind("sess-legacy")
-            .execute(&*pool)
-            .await;
-        let error = bogus.expect_err("pickle_format must be constrained to the documented vocabulary");
-        let code = error.as_database_error().and_then(|db| db.code()).map(|c| c.into_owned());
-        assert_eq!(code.as_deref(), Some("23514"), "CHECK violation expected, got {error:?}");
 
         // --- delete_session ---
         storage.delete_session("sess-a1").await.unwrap();

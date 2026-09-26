@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE megolm_sessions\n            SET session_key = $2,\n                message_index = $3,\n                last_used_ts = $4,\n                expires_at = $5\n            WHERE session_id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "778210aa179a6a5a52aa6887498441a89ebcbafccf82ed2be9edd93ddaa4c0aa"
+}

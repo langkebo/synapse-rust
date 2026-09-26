@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                id,\n                session_id,\n                room_id,\n                sender_key,\n                session_key,\n                algorithm,\n                message_index,\n                created_ts,\n                last_used_ts,\n                expires_at,\n                pickle_format\n            FROM megolm_sessions\n            WHERE room_id = $1\n            ",
+  "query": "\n            SELECT\n                id,\n                session_id,\n                room_id,\n                sender_key,\n                session_key,\n                algorithm,\n                message_index,\n                created_ts,\n                last_used_ts,\n                expires_at\n            FROM megolm_sessions\n            WHERE session_id = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -52,11 +52,6 @@
         "ordinal": 9,
         "name": "expires_at",
         "type_info": "Int8"
-      },
-      {
-        "ordinal": 10,
-        "name": "pickle_format",
-        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -74,9 +69,8 @@
       false,
       false,
       true,
-      true,
-      false
+      true
     ]
   },
-  "hash": "87abeb51e9e237fbe9ced6d84fbbf728b2ab5be3c9ef2ae7cd246baf55df1a3b"
+  "hash": "6ae08a7ed59ce29a6bbd99276bb790e5eee28e72b689cd506014ae13984dff63"
 }
