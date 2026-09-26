@@ -183,6 +183,11 @@ schema**（`NOT NULL DEFAULT …`），而不是长期留一个断言别名。
   > **别把这条推广成"所有派生列都可空"**：C31 实测 `DELETE … RETURNING` 的 CTE 外层投影
   > **确实**继承了非空（`get_and_delete_messages` 未加任何断言即可编译）。
   > 判据是**编译器的报错**，不是直觉 —— 先写最直接的列清单，报 `Option<…>` 不匹配再断言。
+- ⚠️ **反向不报错，所以 `Option` 字段不能当作可空性的证据。** 宏只在
+  「列可空 ⇒ 字段非 `Option`」这个方向报错；**NOT NULL 列配 `Option<T>` 字段照过**
+  （C32 实测：`upload_progress.expires_at` 是 `BIGINT NOT NULL`，而 `UploadProgress.expires_at`
+  是 `Option<i64>`，编译无碍）。想知道真实可空性就看 schema（或 `\d <table>`），
+  **不要从字段类型反推** —— 反推会得出"该列可空"的错误结论。
 
 ### R5　绑定表达式
 
