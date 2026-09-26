@@ -30,16 +30,16 @@
 即 `BASELINE_DYNAMIC_PRODUCTION` 单向降到 0；测试基础设施与 DDL 类动态 SQL 走
 书面白名单，不再掩盖生产债务。每批同时下调 dynamic、上调 static。
 
-> **当前进展（2026-09-25，C30 后实测）** —— 上表是 2026-09-23 的**计划时基线**，
+> **当前进展（2026-09-25，C31 后实测）** —— 上表是 2026-09-23 的**计划时基线**，
 > 保留作对照；当前 census 实测：
 >
-> | 指标 | 计划时 | C30 后实测 |
+> | 指标 | 计划时 | C31 后实测 |
 > |---|---|---|
-> | `dynamic_production` | 1532（近似） | **487** |
-> | `static` | 61 | **982** |
-> | `dynamic`（总） | 2151 | **1198** |
-> | 静态占比 | 2.76% | **45.05%（982 / 2180）** |
-> | `.sqlx` 离线缓存 | 60 条 | **952 条** |
+> | `dynamic_production` | 1532（近似） | **464** |
+> | `static` | 61 | **1005** |
+> | `dynamic`（总） | 2151 | **1175** |
+> | 静态占比 | 2.76% | **46.1%（1005 / 2180）** |
+> | `.sqlx` 离线缓存 | 60 条 | **974 条** |
 >
 > ✅ C28 那笔「`dynamic_production` 反而升到 515」的**待偿债务已在 C29 结清并超额**：
 > 侦察发现「静态 SQL 藏进变量」是 `event/create.rs` 的**整文件**反模式（16 处，
@@ -48,6 +48,9 @@
 > ✅ **C30** 继续下压到 **487**（`retention.rs` 12 处纯机械宏化），并在同一批修掉 **D-61**
 > —— 一条断言「`query_scalar!` 不接受 `AS "col!"`」的错误注释（与仓内 8 处既有用法矛盾），
 > 它曾把隔离状态查询写成 fail-open 的 `unwrap_or(false)`（详见 §8.27）。
+> ✅ **C31** 再降到 **464**（`to_device/storage.rs` 12 处 + `relations/mod.rs` 11 处），
+> 并把三条**实测**的宏行为判据写进了 AGENTS.md 的 R4/R5/R6 与本文件 baseline
+> （UNION 输出列推可空 / `LIMIT $n` 按 bigint 定型 / 断言别名即列名）—— 详见 §8.28。
 > §7 的**未修**项目前为 **0**（D-57 记 `部分已修`：①断言锚定已做，②`public` 收敛未做）。
 >
 > 已执行：Phase A/B/D + C1–C18（逐批数字与理由在
@@ -55,7 +58,8 @@
 > **C19a**（§8.12）+ **C19b**（§8.13）+ **C20**（§8.15）+ **C21**（§8.16）+ **C22**（§8.19）+
 > **C23**（§8.20）+ **C24**（§8.21）+ **C25**（§8.22）+ **C26**（§8.23）+ **C27**（§8.24）+
 > **C28**（§8.25，schema 清理批）+ **C29**（§8.26，`event/create.rs` 全文件静态化 + D-57①）+
-> **C30**（§8.27，`retention.rs` 全文件静态化 + D-61）；
+> **C30**（§8.27，`retention.rs` 全文件静态化 + D-61）+ **C31**（§8.28，`to_device/storage.rs`
+> + `relations/mod.rs` 静态化 + R4/R5/R6 判据）；
 > 另完成 **D-47 ②**（守卫 A′ + (b) 组 31 键逐文件迁模板，§8.17/§8.18）——**D-47 已修**。
 > 门禁复跑另抓出并修掉六条既有缺陷：**D-50**（`--all-features` clippy 红）、
 > **D-51**（并发写者遗留的 `.sqlx` 缺口）、**D-52**（守卫 5 夹具路径悬空）、
@@ -65,7 +69,7 @@
 > 并发写者的 **D-39** 确认落地（`00271cf91`）。C28 另登记 **D-59**（并发会话把静态 SQL
 > 藏进变量、绕过 literal 棘轮 ⇒ ratio + literal 双门禁红，部分已修）。
 > §7 登记 61 条（已修 49 / 部分已修 2 / **未修 0** / 结构性保留 7 / 文档级 3）。
-> **下一步见 §8.27 末尾的「剩余头部」。**
+> **下一步见 §8.28 末尾的「剩余头部」。**
 
 ---
 
@@ -4016,3 +4020,113 @@ literal 逐文件 876（计划时）→ **416 处 / 69 文件**。
 3. `database_initializer/mod.rs`（15）**先判 D-14 归属**再动（它是 DDL 类动态 SQL 的
    白名单候选，可能整文件都不该转）。
 4. **D-57②**（seed 侧收敛 `public`）仍需独立设计，可与上述任一批并行评估。
+
+### 8.28 C31 执行结果（2026-09-25，`to_device/storage.rs` + `relations/mod.rs`）
+
+**触发**：§8.27 的「下一批建议」第 1 条（12 处级、无 feature 门控、无归属待判的文件优先，
+并把同属一个 `.sqlx` 往返的批次合并）。基线：`opt/consolidated`（C30 之后）。
+
+#### 8.28.1 范围与"一一对应"的第二次验证
+
+| 文件 | 处数 | 转后宏调用 | 说明 |
+|---|---|---|---|
+| `synapse-e2ee/src/to_device/storage.rs` | 12 | 12 | `device_exists` / `record_transaction` / `cleanup_old_transactions` / `add_message` / `device_exists_batch` / `get_messages` / `get_messages_since` / `get_current_stream_id` / `has_messages_since` / `get_and_delete_messages` / `delete_messages` / `delete_messages_up_to` |
+| `synapse-storage/src/relations/mod.rs` | 11 | **10** | `create_relation` 与 `create_relation_in_tx` **SQL 文本完全相同、只有执行器不同** ⇒ 共用一条缓存 |
+| **合计** | **23** | **22** | `.sqlx` 952 → **974** |
+
+无一处需要保留动态（无动态标识符、无 `Vec<Option<T>>` 参数）。**同一批次里"23→22"与
+C29 的"16→9"、C30 的"12→12"并存** —— 再次说明比例只由**执行路径 / 文本重合**决定，
+不要拿上一批的比例当经验值。
+
+#### 8.28.2 本批实测出的三条宏判据（已写进 AGENTS.md R4/R5/R6 与 baseline）
+
+这三条都不是"看文档知道的"，而是**编译器/ prepare 报出来的**：
+
+1. **UNION 的输出列会被推可空。** `device_exists_batch` 首轮报
+   `HashSet<(Option<String>, Option<String>)>`：两侧 `user_id` / `device_id` 都是 `NOT NULL` 列，
+   但 **PG 的 `Describe` 不给 UNION 结果透传 NOT NULL**。按 R4 断言 ——
+   两列都来自 `NOT NULL` 列（`devices` / `dehydrated_devices`），且投影自表列而非 `unnest` 的元素，
+   故 `AS "user_id!"` / `AS "device_id!"` 结构上成立。
+2. **`LIMIT $n` 在宏下按 `bigint` 定型。** `get_annotations` / `get_references` 的 `limit`
+   形参是 `i32`，动态路径由 PG 隐式放宽，宏报 `expected i64, found i32`（2 处）⇒
+   `i64::from(limit)`。**没有改公共签名去迁就宏**（那是把宏的约束泄漏成 API 变更）。
+3. **断言别名就是输出列名。** `aggregate_annotations` 写 `COUNT(*) AS "count!"` 后，
+   同语句的 `ORDER BY count DESC` 在 prepare 阶段报 `column "count" does not exist`
+   —— 输出列已叫 `count!`。改 `ORDER BY COUNT(*) DESC`（语义等价，且不再依赖别名解析顺序）。
+
+> **顺带校正一条差点被写进规则的说法**：我原本还想写"CTE 外层投影也会被推可空"，
+> 但 `get_and_delete_messages`（`WITH deleted AS (DELETE … RETURNING …)`）**未加任何断言
+> 就编译通过** ⇒ CTE 投影**确实**继承了非空。该条最终以"①无来源表达式、②UNION 结果"
+> 两条 + 一句"判据是编译器报错而非直觉"落进 R4，而不是三条似是而非的断言。
+> 这与 D-61 是同一条纪律：**规则本身也要有实测判据**。
+
+#### 8.28.3 顺带清理
+
+- `to_device/storage.rs`：`use sqlx::…Row` 与 4 处 `row.get("…")` 手工解码随宏化消失，
+  改为直接读字段（`row.event_type` 等）——**类型由宏定型**，运行时"列名拼错"这一类静默失败
+  从这条路径上消失；
+- `relations::AggregationResult` 的 `sqlx::FromRow` 变成死代码，按铁律 1 删除。
+  **`EventRelation` 的 `FromRow` 必须保留**：键集分页 `get_relations` 走
+  `QueryBuilder::build_query_as::<EventRelation>()`（动态方向/游标，D-14 允许残差），
+  它仍然依赖 `FromRow`。两者一删一留，正是"按调用方判断而不是按直觉判断"。
+- `#[cfg(test)]` / `db_tests` 内的夹具动态 SQL 按 D-13/D-14 保持原样（计入 `dynamic_test`，
+  本批保持 711 不变）。
+
+#### 8.28.4 门禁（实测）
+
+| 门禁 | 结果 |
+|---|---|
+| `check_sqlx_dynamic_ratio.sh` | **EXIT=0**（464 ≤ 464 / 711 ≤ 711 / 1005 ≥ 1005） |
+| literal guard（`sqlx_dynamic_literal_guard_tests`） | **16/16** |
+| `check_sqlx_cache_fresh.sh --compile`（权威） | **EXIT=0**（974 条） |
+| 两档 clippy（`-D warnings`） | **EXIT=0** |
+| `nextest -p synapse-storage --lib -E 'test(/relation/)'`（真 baseline 往返） | **30/30** |
+| `nextest -p synapse-e2ee --lib -E 'test(/to_device/)'` | **10/10** |
+| **集成** `--profile ci --all-features --test integration -E 'test(/to_device/)'` | **6/6**（含 `test_record_transaction_atomic_dedup` / `test_to_device_messages_ordered_by_stream_id` / `test_to_device_messages_are_deleted_after_ack` / `test_to_device_next_batch_token_respects_limit`） |
+| `check_fmt_ratchet.sh` | 债务 **0** |
+
+#### 8.28.5 棘轮与派生缓存
+
+- `BASELINE_DYNAMIC_PRODUCTION` 487 → **464**、`BASELINE_STATIC` 982 → **1005**、
+  `BASELINE_DYNAMIC` 1198 → **1175**、`BASELINE_DYNAMIC_TEST_INFRA` **保持 711**。
+- `.sqlx`：**952 → 974**（+22，与本批 22 个宏调用一一对应）。
+- literal 基线：**416 → 393 处 / 69 → 67 文件**，删
+  `synapse-e2ee/src/to_device/storage.rs 12` 与 `synapse-storage/src/relations/mod.rs 11`
+  （两文件归零退表）；runtime **不变，仍 71 处 / 14 文件**（两文件本就没有运行期拼装）。
+
+#### 8.28.6 提交清单
+
+**按主题引用，不引用哈希**（理由见 §8.23.7）：
+
+1. `perf(storage): C31 静态化 to_device/storage.rs（12）+ relations/mod.rs（11）`
+2. `chore(sqlx): C31 同批收紧棘轮 —— dynamic_production 487→464、static 982→1005`
+3. `docs(agents): R4/R5/R6 各补一条 C31 实测判据（可空性来源 / LIMIT 定型 / 断言别名）`
+4. 本文档（§8.28 + §0）
+
+**累计进展（C 系列 `dynamic_production`）**：… → 499（C29）→ 487（C30）→ **464（C31）**。
+`static` 61 → **1005**；`.sqlx` 60 → **974** 条；literal 逐文件 876（计划时）→ **393 处 / 67 文件**。
+**距计划里的"Phase D 结构性收敛"更近了一步**：剩下的可静态化头部已全部低于 16 处。
+
+**剩余头部（可静态化的，按实测）**：
+`synapse-storage/src/burn_after_read.rs`（15，门控 `burn-after-read`）、
+`synapse-services/src/database_initializer/mod.rs`（15，需先判 D-14 归属）、
+`synapse-storage/src/push/mod.rs`（11，**其中 4 处要先做行结构体重构**，见下）、
+`synapse-storage/src/media/chunked_upload.rs`（11）、`synapse-storage/src/matrixrtc.rs`（11）、
+`synapse-storage/src/event/basic.rs`（11）、`synapse-storage/src/voice.rs`（10）、
+`synapse-storage/src/event/redaction.rs`（10）、`synapse-storage/src/dehydrated_device.rs`（10）、
+`synapse-e2ee/src/ssss/storage.rs`（10）、`synapse-e2ee/src/secure_backup/service.rs`（10）。
+> 口径同 §8.26/§8.27：**结构性保留**（`event/pagination.rs` 15）与**测试基建**
+> （`synapse-test-utils/src/lib.rs` 28、`synapse-common/src/test_isolation.rs` 25、
+> `test_schema_guard.rs`）不在可转换清单内。
+
+**下一批建议**：
+1. **`media/chunked_upload.rs` + `matrixrtc.rs` + `voice.rs`（11+11+10 = 32）** ——
+   全在 `synapse-storage`，无门控、无归属待判，是当前最干净的"三文件一批"。
+2. **`push/mod.rs`** 需要**先修再转**：4 个方法（`get_pushers` / `get_push_rules` /
+   `get_notifications` / `mark_notification_read`）的返回类型是
+   `Vec<sqlx::postgres::PgRow>` / `Option<PgRow>`，宏无法产出匿名行结构体 ⇒
+   必须先引入行结构体并改这几处签名（**行为保持的重构，独立提交**），再转换。
+   这同时消掉"存储层把 `PgRow` 泄漏到上层、由调用方 `row.get()` 手工解码"的设计问题。
+3. `burn_after_read.rs`（15）与 `database_initializer/mod.rs`（15）各自的障碍
+   （feature 门控的 CI 等价库成本 / D-14 归属）仍在，建议单独评估。
+4. **D-57②**（seed 侧收敛 `public`）仍待独立设计。
