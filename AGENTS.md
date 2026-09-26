@@ -175,18 +175,35 @@ schema**（`NOT NULL DEFAULT …`），而不是长期留一个断言别名。
   都是靠收紧 schema 才真正关掉的（D-46 / D-48 / D-49）。
 - **两个方向都会错**：sqlx 推**可空**而结构体非 `Option` ⇒ 用 `!` 或收紧 schema；
   sqlx 推**非空**而语义可空 ⇒ 用 `AS "col?"`（LEFT JOIN 外侧列会被 PG 透传成 NOT NULL，D-20）。
+- **两类"看起来非空却推成可空"的来源**（实测，遇到时先怀疑它们，别急着改结构体）：
+  ① **无关系来源的表达式** —— `COALESCE(…)`、`COUNT(*)`、`0::BIGINT`、`'pending'`、`NULL::text`
+     （C29/C30 的 `AS "depth!"` / `AS "count!"` / `AS "exists!"`）；
+  ② **UNION / 集合运算的输出列** —— PG 的 `Describe` **不给 UNION 结果透传 NOT NULL**，
+     即使两侧都是 `NOT NULL` 列（C31 的 `device_exists_batch` ⇒ `AS "user_id!"`）。
+  > **别把这条推广成"所有派生列都可空"**：C31 实测 `DELETE … RETURNING` 的 CTE 外层投影
+  > **确实**继承了非空（`get_and_delete_messages` 未加任何断言即可编译）。
+  > 判据是**编译器的报错**，不是直觉 —— 先写最直接的列清单，报 `Option<…>` 不匹配再断言。
 
 ### R5　绑定表达式
 
 - `&Option<T>` 会被宏的 `ty_match` 拒绝（旧 `.bind()` 接受）⇒ 用 `.as_deref()` / `.as_ref()`（D-21）；
-- 数组参数元素类型写 `Vec<String>`（不要 `Vec<&str>`）；
-- `Option<i64>` 按值直接传。
+- 数组参数元素类型写 `Vec<String>`（不要 `Vec<&str>`）；`&[i64]` / `&Vec<String>` 可直接传
+  （`= ANY($1)` / `unnest($1::text[], …)` 都行）；
+- `Option<i64>` 按值直接传；
+- ⚠️ **`LIMIT $n` / `OFFSET $n` 的参数在宏下按 `bigint` 定型**。形参是 `i32` 时必须显式
+  `i64::from(limit)` —— 动态路径由 PG 隐式放宽，宏把这一步变成编译期错（C31 实测 2 处：
+  `expected i64, found i32`）。别改公共签名去迁就，转换点加一次无损转换即可。
 
 ### R6　别名：`query_as!` 不认 `#[sqlx(rename)]` / `#[sqlx(skip)]`
 
 需要改名或跳过字段时，在 SQL 里显式写 `AS "字段名"`（D-19）。
 ⚠️ **用了双引号别名的 raw string 必须是 `r#"…"#`**：写成 `r"…"` 开头 + `"#` 收尾会让宏报
 `no rules expected #`（实测一次踩出 9 处）。
+
+⚠️ **断言别名是"真的列名"，不是给编译器看的注解。** 写 `COUNT(*) AS "count!"` 之后，
+输出列就叫 `count!` —— 同一条 SQL 里的 `ORDER BY count` 会**在 prepare 阶段报
+`column "count" does not exist`**（C31 实测）。要么 `ORDER BY COUNT(*) DESC`，
+要么给排序单独留一个不带 `!` 的别名。
 
 ### R7　例外白名单（只减不增）
 
