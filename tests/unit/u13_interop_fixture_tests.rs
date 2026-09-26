@@ -26,9 +26,7 @@
 use serde_json::{json, Value};
 use synapse_common::pdu::{build_pdu, PduParts};
 
-/// Deterministic ed25519 signing seed (test key only — never a real key).
-const SIGNING_SEED: [u8; 32] = [7u8; 32];
-/// Canonical unpadded Base64 of [`SIGNING_SEED`] (what `sign_and_hash_event` takes).
+/// Canonical unpadded Base64 of a deterministic test signing key (7u8 x 32).
 const SIGNING_SEED_B64: &str = "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc";
 const SERVER_NAME: &str = "example.com";
 const KEY_ID: &str = "ed25519:1";

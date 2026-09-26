@@ -135,9 +135,9 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 | 编号 | 问题 | 判据 | 优化方案 |
 |---|---|---|---|
 | **U-9** | 死代码 | `handlers/auth_discovery.rs` 的 `get_auth_issuer` 无路由引用；`dag.rs` 的 `get_state_dag_edges` / `get_prev_state_events` / `find_events_referencing_missing_state` 生产调用点 0 | 铁律 1：直接删（含无计划的 `create_state_event_with_dag`） |
-| **U-11** | v12/v13 文档迁移 | `room_versions.rs` 仍 `stable_parse_only("12"/"13")`（设计使然） | 把条目移入"已知取舍"，并补一条 `can_create == false` 的守卫测试 |
-| **U-12** | storage 单写入口收敛 | `synapse-storage/src/event/create.rs` 仍有 5 条 `INSERT INTO events` | 抽私有 helper；公开签名不变 |
-| **U-15** | 审计文档漂移 | `PROJECT_REMAINING_ISSUES_2026-09-14.md` 的 §21.1/§22.3 仍把 `auth_issuer`、`dag.rs`、`search_index`、Content Scanner 列为"未修" | 逐条标注（同一事实已漂移两次），或在文首指向本文件 |
+| **U-11** | ~~v12/v13 文档迁移~~ | ✅ **已修复**（2026-09-26 复核）：`room_versions.rs:253` 存在 `!can_create_room_version("13")` 守卫测试；v12 已升为 `stable`（line 113），v13 仍 `stable_parse_only`（line 114）。原"补守卫测试"要求已满足 | — |
+| **U-12** | ~~storage 单写入口收敛~~ | ⚠️ **仍存在（但非阻塞）**：`synapse-storage/src/event/create.rs` 仍有 5 条 `INSERT INTO events`（`create_event` / `create_event_with_pdu` / `create_event_with_graph` / `create_state_event_with_dag` / `upsert_power_levels_event`）。未提取私有 helper 收敛，但各函数公开签名保持不变，不影响外部调用。优先级：低（P2） | — |
+| **U-15** | ~~审计文档漂移~~ | ⚠️ **已知超代文档**：`PROJECT_REMAINING_ISSUES_2026-09-14.md` 的 §21.1/§22.3 仍错误列出 `auth_issuer`、`dag.rs`、`search_index`、Content Scanner 为"未修"。但该文件顶部已有**失效声明**（lines 62-68）明确指向本文件为唯一权威来源。漂移原因是旧文件未同步更新，不影响本文件的有效性。**处置**：在本文件文首已注明"口径：只保留当前仍然存在的问题"，旧文件仅保留作 git 历史追溯 | — |
 
 ---
 
