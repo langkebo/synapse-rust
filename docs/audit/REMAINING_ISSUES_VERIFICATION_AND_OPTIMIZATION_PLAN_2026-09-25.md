@@ -35,6 +35,14 @@
 | `events.event_id` CHECK 放行 reference hash | U-13 | `75ff09099` | 旧约束只接受 `$opaque:domain` ⇒ v3+ 写路径整体不可用（P0，已修） |
 | SQLx 静态化 C28–C32 | SQLx 战役 | 并发会话（`3ec02b1e9` 等） | 动态 432 / 测试 711 / 静态 1037 |
 | 既有红门禁（与本批无关） | — | `ad90bf844`、`855708958` | clippy `let_underscore_future`、`bool_assert_comparison` |
+| U-13 入站半边：验签按版本 redact（R1） | U-13 | `16c654dcc` | 签名/验签共用 `signature_material`；新增"按旧材料签的名必须验不过"用例 |
+| U-13 入站半边：事件 ID 由 PDU 推导（R2） | U-13 | `16c654dcc` | `resolve_received_event_id`（v3+ 禁止携带 ID、无字段则算 hash；v1/v2 必需）；`/send`、gap-fill、`/backfill` 三处接线 |
+| U-13 `/invite` v2 body 形状（R3） | U-13 | `16c654dcc` | 出站包 `{event, room_version, invite_room_state}`；入站读 `body["event"]` 并校验版本一致 |
+| U-13 入站不再强制顶层 `event_id`（R4） | U-13 | `16c654dcc` | v3+ 由 reference hash 推导；持久化改走显式图路径，回的是落库后的 ID |
+| U-13 出站联邦邀请 PDU 单一组装（R5） | U-13 | `16c654dcc` | `build_pdu` + `finalize_local_pdu`，不再手搓、不再带 `event_id` |
+| U-13 3pid 事件不再带顶层 `room_version`（R8） | U-13 | `16c654dcc` | 版本只属于 `/invite` body |
+| U-13 第 3 步：oracle 互操作门槛 | U-13-S3 | `c43e68b81` | 真实 `matrix-synapse==1.161.0` 复算 v3/v10/v11 fixture 的 hashes/ID/签名，全 PASS；含反向自证 |
+| 并发会话留下的编译 + clippy 红门禁 | — | `cb68220e6` | MSC4222 的 `sync` 第 8 参数未同步两个集成测试；`map_or`/未用绑定 4 条 |
 
 ### 1.2 阶段末门禁快照（本机实测）
 
@@ -46,8 +54,10 @@
 | lib 全量 | `cargo nextest run --workspace --lib --all-features --locked --test-threads 4` | **6368 / 6368 passed, 0 skipped** ✅（在 `ca9464da4` 上实测） |
 | unit 全量 | `cargo nextest run --test unit --features test-utils --locked --test-threads 4` | **未定格** ⚠️ —— 复跑时并发会话正在改 `sync_service/*`（工作树非干净，编译不过的是它的在途状态，不是提交态）。复跑前必须确认 `git status --short` 为空 |
 | 集成（受影响面 + 既有红复核） | `--profile ci --all-features --test integration --test-threads 1` | 定点 15 例：8 过 / 7 红（红项全部是 §3 的既有家族） |
+| 集成（本批受影响面） | 同上，过滤 `api_federation_transaction` \| `federation_existence_leak` | **11/11 绿**（`16c654dcc`） |
+| U-13 定点单测 | `-p synapse-federation --lib`（signing/verify）/ `-p synapse-common --lib`（event_id）/ `-p synapse-services --lib`（backfill） | 32/32、17/17、3/3 |
 | 集成全量 | 同上（无过滤器） | **未跑**（时间预算 + 每轮新建数百 schema 使 DDL 超线性变慢）。不得当作通过 |
-| 联邦互操作 | §2.1 U-13-S3 | **未跑**（本沙箱做不到 live，见 §5.2） |
+| 联邦互操作（oracle） | `tests/unit/u13_interop_fixture_tests.rs` + `scripts/interop/verify_pdu_with_upstream_synapse.py` | **PASS**：真实 Synapse 1.161.0 复算 v3/v10/v11 三个 fixture 的 `hashes`/事件 ID/签名，exit 0；篡改字节后 exit 1（能变红）。live `/send_join`+`/send` 仍被 §5.2 阻塞 |
 
 ### 1.3 本机验证前提（不遵守会得到假红）
 
@@ -80,21 +90,15 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 
 ### 2.1 P0 —— U-13 第 2 步剩余接线：联邦互操作的最后一段
 
-背景：Slice A/B/D/E 已把**本地产生**的事件身份切成 reference hash（v3+），
-但**入站半边与邀请面还没跟上**。下面每条都是"同一份事件的两种算法不一致"，
-后果一致：对等端（或我们自己）无法复现对方的 ID / 签名。
+背景：Slice A/B/D/E 把**本地产生**的事件身份切成 reference hash（v3+），
+入站半边与邀请面已由 `16c654dcc` 补齐（R1–R5、R8 见 §1.1）。下面两条是同一条缝的
+剩余部分，外加仍未跑的 live 传输层门槛。
 
 | 编号 | 问题 | 判据（实测） | 优化方案 |
 |---|---|---|---|
-| **U-13-R1** | **入站验签仍按"未 redact"的字节**，与已修好的签名半边不再自洽 | `synapse-web/src/routes/federation/transaction.rs:639` `verify_pdu_sender_signature`、`synapse-federation/src/signing.rs:277` `verify_pdu_signature_with_client` 都只去 `signatures`/`unsigned`；上游 `keyring.verify_event_for_server` 走 `redact_event(event).get_pdu_json()` | 把签名材料收敛成**一个**函数（`synapse-federation/src/signing.rs` 导出 `signature_material(room_version, event)`：`redact_event` → 去 `age_ts`/`unsigned` → v3+ 去 `event_id`），签名与验签**同一个实现**（铁律 2）。两个验签入口加 `room_version` 参数；`transaction.rs` 用 `ctx.room_service.state().get_room_version(room_id)` 解析，解析不到就**拒绝该 PDU**（不猜） |
-| **U-13-R2** | **入站 `/send` 对无 `event_id` 的 v3+ PDU 编造 ID**，并据此落库 | `synapse-web/src/routes/federation/transaction.rs:108-111`：`map_or_else(\|\| format!("${}", generate_event_id(origin)), …)` ⇒ ① `$$…` 畸形；② v3+ 应按 reference hash 计算。该 ID 经 `create_event_with_graph` 落库（该路径保留调用方 ID）⇒ 与发送方 ID 不一致，后续 `prev_events` 全部悬空 | 在 `synapse-common/src/event_id.rs` 增加入站口径的唯一函数：v3+ **禁止**携带 `event_id`（上游 `Event` 实测抛 `v2/v3 events must not have an explicit event_id`），无字段则 `compute_event_id`；v1/v2 必须有字段。`transaction.rs` 先解析房间版本（房间行，或 `m.room.create` 的 `content.room_version`）再取 ID，解析失败则**该 PDU 记错并跳过** |
-| **U-13-R3** | **`/invite` v2 的 body 形状两侧都不符** | 出站：`synapse-federation/src/client.rs:1046-1058` 把**事件本身**当 body 发出；上游是 `{"event": …, "room_version": …, "invite_room_state": […]}`。入站：`synapse-web/src/routes/federation/membership/invite.rs:97` `invite_v2` 直接把整个 body 当事件解析（`body.get("content")`）⇒ 上游发来的邀请必然 400 | 出站按上游包裹三层字段（`room_version` 必填）；入站读 `body["event"]` + `body["room_version"]`，并对 `invite_room_state` 做类型校验 |
-| **U-13-R4** | **入站 `invite_v2` 强制要求顶层 `event_id`** | `synapse-web/src/routes/federation/membership/invite.rs:260` `validate_federation_invite_event` 在缺字段/与路径不符时返回 400；上游 servlet 明确**不比对**路径 ID（`# TODO(paul): assert that room_id/event_id parsed from path actually match`），且合规 v3+ 发送方**不会**带该字段 ⇒ 拒绝一切上游 v3+ 邀请 | v3+ 不再要求/比对顶层 `event_id`（用本地算出的 reference hash 作为事件 ID）；v1/v2 保留原校验 |
-| **U-13-R5** | **出站联邦邀请 PDU 手搓且带 `event_id`** | `synapse-services/src/room/membership/federation.rs:511` `invite_user_via_federation` 手写 JSON 且含 `"event_id": event_id`；v3+ 的签名材料已把它剔掉 ⇒ 对等端按"收到的事件"重算必然验签失败 | 改为经 `synapse_common::pdu::build_pdu` 组装（v3+ 自动不带 `event_id`），用 `finalize_local_pdu` 取真实 ID，请求路径用该 ID |
 | **U-13-R6** | **`state_pdu` 仍对 v3+ 输出 `event_id`** | `synapse-web/src/routes/federation/pdu.rs:86-88` 无条件 `pdu.insert("event_id", …)`。`send_join`/`send_leave` 响应里的 state/auth_chain 都走它 | 同一函数改为按房间版本决定是否输出（或直接复用 `build_pdu`），保持"单一组装" |
 | **U-13-R7** | **F-03 `re_sign_pdu_locally` 对"手搓的部分 PDU"签名** | `synapse-web/src/routes/federation/membership/mod.rs:202` 的 6 个调用点（`join.rs:168,309`、`leave.rs:104,187`、`invite.rs:86,148`）只给 `event_id/room_id/sender/type/state_key/origin_server_ts/origin/content`，随后把 `hashes`+`signatures` 写回事件行；而事务/投影路径重新发出的是**完整 PDU**（含 depth/prev_events/auth_events）⇒ 对等端重算哈希必然不等 | 签名对象改为"从持久化行投影出的完整 PDU"（与出站事务路径**同一函数**），而不是手搓 dict；投影不完整则拒绝签名（沿用 `PduCompleteness`） |
-| **U-13-R8** | **3pid 响应事件里把 `room_version` 当顶层 PDU 字段发出** | `synapse-web/src/routes/federation/membership/invite.rs:229`。redaction 会丢掉未知顶层字段（所以当前不破坏签名），但规范 PDU 无此字段 | 删除该字段；房间版本只属于 `/invite` 的 **body**，不属于事件 |
-| **U-13-S3** | **第 3 步互操作门槛未跑** | 本沙箱限制见 §5.2（`/etc/hosts` 不可写、`sudo` 被禁、`*.localhost` 不解析、Docker Hub 不可达、本仓联邦客户端无自定义 CA/跳过校验开关） | 已备好替代 oracle：`scripts/interop/verify_pdu_with_upstream_synapse.py`（用真实 `matrix-synapse==1.161.0` 的 `compute_content_hash` / `redact_event_dict` / `verify_signed_json` 逐项复核我们产出的 PDU）+ 一个由本仓流水线生成的 fixture。**待办**：把脚本与 fixture 落到 `opt/consolidated`，并把运行输出记进本文件；live `/send_join`+`/send` 一旦有可解析双主机名与互信 CA 的环境再补 |
+| **U-13-S3** | **live 互操作仍未跑**（oracle 已落地并通过） | 本沙箱限制见 §5.2。已落地替代门槛（`c43e68b81`）：`tests/unit/u13_interop_fixture_tests.rs` 用固定输入跑真实流水线并与提交的 fixture 逐字节比对；`scripts/interop/verify_pdu_with_upstream_synapse.py` 用真实 `matrix-synapse==1.161.0` 复算三个 fixture 的 `hashes`/事件 ID/签名（v3/v10/v11 全 PASS，篡改即 FAIL） | 只剩**传输层**：需要可解析的双主机名 + 互信 CA（本仓联邦客户端目前没有自定义 CA/跳过校验开关）。有该环境时补 `/send_join` + `/send` 实测并把输出记进本文件 |
 
 ### 2.2 P1
 
@@ -210,10 +214,18 @@ cargo nextest run --profile ci --all-features --test integration --test-threads 
 - `/etc/hosts` 不可写、`sudo` 被禁、`*.localhost` 在本机不解析 ⇒ 造不出两个可解析的服务器名；
 - 本仓联邦客户端**没有**自定义 CA / 跳过校验的开关 ⇒ 无法信任自签 CA。
 
-⇒ live `/send_join` + `/send` 在本沙箱**不可能**跑通。已落地/待落地的替代物见 **U-13-S3**：
+⇒ live `/send_join` + `/send` 在本沙箱**不可能**跑通。已落地的替代物见 **U-13-S3**（oracle 已 PASS）：
 用真实安装的 `matrix-synapse==1.161.0` 复算 `hashes` / `event_id` / `signatures`。
 本机已有该环境：`/tmp/peer-synapse/bin/python`（`synapse 1.161.0`，直接读其
 `compute_content_hash`、`redact_event_dict`、`verify_signed_json`）。
+
+```bash
+# 复跑 oracle（三个 fixture 都必须 PASS；篡改任一字节必须 FAIL 且 exit 1）
+for v in 3 10 11; do
+  /tmp/peer-synapse/bin/python scripts/interop/verify_pdu_with_upstream_synapse.py \
+      tests/interop/fixtures/local_pdu_v$v.json || echo "ORACLE FAILED v$v"
+done
+```
 
 ---
 
