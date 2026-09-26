@@ -30,3 +30,20 @@ beacon_service|beacons|synapse-services/src/lib.rs
 # "静态化后必须有真 baseline DB 往返"的那类模块（12 条 db_tests）。补上后该过滤器
 # 在 feature 未开启时会以"0 个用例"变红，而不是静默跳过。
 burn_after_read|burn-after-read|synapse-storage/src/lib.rs
+# ── 2026-09-26 D-25 家族收口：把「有测试但未登记」的 10 个 gated 模块补齐 ──────────
+# 背景：这张表的目的是"门控模块的过滤器必须命中 ≥1 用例"，否则 feature 未开时
+# `test(/m/)` 匹配 0 个用例会被当成通过（D-25 的假绿形态）。C36 补 `burn_after_read`
+# 时做了一次全仓扫描：23 个 `#[cfg(feature = "X")] pub mod m;` 声明里有 **10 个模块
+# 带测试却不在表中**（全在 storage/services），即这道守卫对它们从未生效。
+# 逐条已核对：锚点文件的上一行确实是该 feature 的 `#[cfg]`，且 feature 都在该 crate 的
+# `[features]` 段里（`gated_module_test_gate_tests` 的两条静态断言正是查这两点）。
+voice|voice-extended|synapse-storage/src/lib.rs
+call_session|voip-tracking|synapse-storage/src/lib.rs
+matrixrtc|voip-tracking|synapse-storage/src/lib.rs
+widget|widgets|synapse-storage/src/lib.rs
+privacy|privacy-ext|synapse-storage/src/lib.rs
+burn_after_read_service|burn-after-read|synapse-services/src/lib.rs
+builtin_oidc_provider|builtin-oidc|synapse-services/src/lib.rs
+voice_service|voice-extended|synapse-services/src/lib.rs
+widget_service|widgets|synapse-services/src/lib.rs
+external_service_integration|external-services|synapse-services/src/lib.rs
