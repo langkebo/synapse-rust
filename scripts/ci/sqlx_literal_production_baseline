@@ -101,6 +101,10 @@
 #   `synapse-storage/src/relations/mod.rs  11`（两文件均归零退表）。runtime 侧不变，
 #   仍 **71 处 / 14 文件**（两文件本就没有运行期拼装；`relations` 的键集分页 QueryBuilder
 #   属 D-14 允许残差，不计入本表）。
+# ── 2026-09-25 C32 收紧（`chunked_upload.rs` 11 + `matrixrtc.rs` 11 + `voice.rs` 10）：
+#   literal 393 → **361** / 67 → **64** ──
+#   删三行：`synapse-storage/src/media/chunked_upload.rs  11`、`synapse-storage/src/matrixrtc.rs  11`、
+#   `synapse-storage/src/voice.rs  10`（三文件均归零退表）。runtime 侧不变，仍 **71 处 / 14 文件**。
 # ⚠️ **并修正 C29 遗留的漂移**：本文件末尾的「运行期拼装残差清单」当时没跟着更新，
 #   仍列着 `12  synapse-storage/src/event/create.rs`（合计 83 / 15 文件）。已按实测重写为
 #   71 / 14 文件。教训同 R13：**改了计数就要把所有副本一起改**，否则摘要块会变成第二份计数。
@@ -147,8 +151,6 @@ synapse-storage/src/filter.rs	5
 synapse-storage/src/invite_blocklist.rs	9
 synapse-storage/src/login_token.rs	3
 synapse-storage/src/maintenance.rs	3
-synapse-storage/src/matrixrtc.rs	11
-synapse-storage/src/media/chunked_upload.rs	11
 synapse-storage/src/media/quarantine_stream.rs	6
 synapse-storage/src/migration_checks.rs	2
 synapse-storage/src/monitoring.rs	6
@@ -169,7 +171,6 @@ synapse-storage/src/schema_validator.rs	3
 synapse-storage/src/sticky_event.rs	5
 synapse-storage/src/url_preview_storage.rs	3
 synapse-storage/src/user/storage.rs	1
-synapse-storage/src/voice.rs	10
 synapse-test-utils/src/lib.rs	14
 # ── 当前「运行期拼装」残差清单（**允许**，不入棘轮；仅作可读性摘要）────────────
 # 合计 **71 处 / 14 文件**（2026-09-25 C30 后实测；与 ratio 棘轮的

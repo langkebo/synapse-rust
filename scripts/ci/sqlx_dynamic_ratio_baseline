@@ -2129,11 +2129,27 @@
 #      解析不到，必须写 `ORDER BY COUNT(*) DESC`。
 # 无 relation origin 的表达式（`COUNT(*)`、`COALESCE(MAX(...),0)`）一律显式断言，
 # 不用 `unwrap_or` 兜底（D-61 的结论）。
-BASELINE_DYNAMIC_PRODUCTION=464
+# ── 2026-09-25 C32 收紧（`chunked_upload.rs` 11 + `matrixrtc.rs` 11 + `voice.rs` 10）──
+# dynamic_production 464 → **432**（−32）、static 1005 → **1037**（+32）、
+# dynamic 1175 → **1143**（= 432 + 711）。census 实测 432 / 711 / 1037。
+# 三个文件都在 `synapse-storage`：`media/chunked_upload.rs`（11）、`matrixrtc.rs`（11）、
+# `voice.rs`（10）。32 处动态 → **32 个宏调用**，但只产生 **31 条缓存条目** ——
+# `DELETE FROM upload_chunks WHERE upload_id = $1` 在 `finalize_upload` 与 `delete_upload`
+# 里各出现一次、文本相同，共用一条（同 C31 的 `create_relation` 与其 tx 变体）。
+# 三处 `RETURNING *` 展开为显式列清单（R3/D-22）：`matrixrtc_sessions` /
+# `matrixrtc_memberships` / `matrixrtc_encryption_keys` 的 INSERT，列名逐一对齐结构体字段。
+# **本批实测的绑定判据**：INSERT 的**可空 TEXT 参数**要 `Option<&str>` —— `&Option<String>`
+# 会被宏拒（`expected &str, found &Option<String>`）⇒ `.as_deref()`；可空 JSONB 用 `.as_ref()`
+# （R5/D-21 同族，本批 3 + 5 处）。
+# 另一条**反向**实测（值得记住）：**NOT NULL 列配 `Option<T>` 字段是不报错的** ——
+# `upload_progress.expires_at` 实为 `BIGINT NOT NULL`，而 `UploadProgress.expires_at` 是
+# `Option<i64>`，宏照过。⇒ **字段是不是 `Option` 不能当作列可空性的证据**；判据只有 schema
+# 与宏的报错方向（可空列 ⇒ 非 Option 字段**必**报；反向不报）。
+BASELINE_DYNAMIC_PRODUCTION=432
 BASELINE_DYNAMIC_TEST_INFRA=711
-BASELINE_STATIC=1005
+BASELINE_STATIC=1037
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1175
+BASELINE_DYNAMIC=1143
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #
