@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            CREATE INDEX IF NOT EXISTS idx_schema_migrations_version ON schema_migrations(version)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "397d7c455db6c795b884adb8321b7bafa0f71e952f262b9367b773eab30ddeef"
+}

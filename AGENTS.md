@@ -221,7 +221,7 @@ schema**（`NOT NULL DEFAULT …`），而不是长期留一个断言别名。
 ⚠️ **用了双引号别名的 raw string 必须是 `r#"…"#`**：写成 `r"…"` 开头 + `"#` 收尾会让宏报
 `no rules expected #`（实测一次踩出 9 处）。
 
-⚠️ **三个实测撞到的宏语义陷阱**（C35a，2026-09-26）：
+⚠️ **四个实测撞到的宏语义事实 / 陷阱**（C35a/C35b，2026-09-26）：
 ① **单列语句的 `query!` 生成 `Map`，没有 `.execute()`** —— `.execute()` 只存在于"无结果列"
    的语句（INSERT/UPDATE/DELETE/DDL）。要丢弃单列 SELECT 的结果，用 `query_scalar!` +
    `fetch_one`/`fetch_optional`（或 `query_as!` + `fetch_*`）。
@@ -232,6 +232,13 @@ schema**（`NOT NULL DEFAULT …`），而不是长期留一个断言别名。
    `count(*)`）而调用方要非空时，`AS "col!"` 断言必须写清"谁保证非空"（R4）；断言后
    `fetch_one` 给 `Result<T, _>`，`.ok()` 正好是 `Option<T>`（无需 flatten），
    而 `fetch_optional` 则要 flatten —— 两者差别就是 ② 的那一层。
+④ ⚠️ **"DDL / utility 语句不能用宏"是错的（实测推翻，C35b 2026-09-26）**：生产区的
+   `CREATE INDEX IF NOT EXISTS …`、`SET statement_timeout = '30s'`、`ROLLBACK` 三条都
+   `cargo sqlx prepare` 成功、`describe.columns == []`，`query!(…).execute(…)` 正常编译。
+   **真正不能宏化的只有两类**：① `#[cfg(test)]` / `tests/` 内的语句（测试区的宏不进
+   `cargo sqlx prepare` 缓存 ⇒ 离线 `--all-targets` 编译失败，D-13/R9）；② SQL 文本**不是
+   编译期常量**的语句（动态标识符拼接、`format!` 拼表名/列清单，R7 白名单）。
+   `RETURNING *` / `SELECT *` 属于③（R3 要求展开），与本节无关。
 
 ⚠️ **断言别名是"真的列名"，不是给编译器看的注解。** 写 `COUNT(*) AS "count!"` 之后，
 输出列就叫 `count!` —— 同一条 SQL 里的 `ORDER BY count` 会**在 prepare 阶段报

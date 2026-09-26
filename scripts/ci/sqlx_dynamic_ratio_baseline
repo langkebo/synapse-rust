@@ -2250,12 +2250,25 @@
 #     （`SET search_path = ''` 与自证前提的 `SELECT current_schema()`；`#[cfg(test)]` 内的宏
 #     不进 `cargo sqlx prepare`，按 D-13/R9 保持动态）
 #   · `dynamic` 总数 1097 → **1099**；`static` 1084 不变
+# ── 2026-09-26 C35b（`database_initializer` B 类 2 + C 类 4 宏化；该文件生产动态归零）──
+#    · B 类 2 处（`migration_lock_key` / `try_acquire_migration_lock`）：D-69 的 `COALESCE`
+#      修复后按 R4 断言非空（`AS "lock_key!"` / `AS "locked!"`）即可宏化。
+#    · C 类 4 处 = 3 条文本：`CREATE INDEX IF NOT EXISTS …`、`SET statement_timeout = '30s'`、
+#      `ROLLBACK`（两个调用点共享一条缓存条目）。
+#    · `dynamic_production` 384 → **378**（−6）；`static` 1084 → **1090**（+6）
+#    · `dynamic` 总数 1099 → **1093**；`dynamic_test` 715 不变；`.sqlx` 1053 → **1058**（+5）
+#      （5 = 3 条 C 类 + 2 条 B 类；`ROLLBACK` 两处同文本 ⇒ 合并）
+#  🔴 **本批推翻了一条旧结论**：仓内多处（含本文件历史段落）笼统写着"DDL 无法用 `query!`
+#      静态化 / DDL 无元数据"。**实测：utility 语句在 sqlx 0.8.6 下可以 prepare 并通过宏编译**
+#      —— 三条新条目的 `describe` 都是 `columns: []`（无结果列），`query!(…).execute(…)` 正常。
+#      真正**不能**宏化的是：`#[cfg(test)]`/`tests/` 内的语句（不进 `cargo sqlx prepare` 缓存）
+#      与**含动态标识符**的语句（SQL 文本不是编译期常量）。旧说法已按此收窄（见本文件尾部更正）。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=384
+BASELINE_DYNAMIC_PRODUCTION=378
 BASELINE_DYNAMIC_TEST_INFRA=715
-BASELINE_STATIC=1084
+BASELINE_STATIC=1090
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1099
+BASELINE_DYNAMIC=1093
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #
@@ -2421,8 +2434,10 @@ BASELINE_DYNAMIC=1099
 #   2. 故障注入 `ALTER TABLE room_event_txn_dedup ADD CONSTRAINT … CHECK (false) NOT VALID`
 #      —— 必须只让**标记写入**失败而保留查重读取可用；若整表 DROP，`get_event_id_by_txn`
 #      会在 lookup 阶段就返回，测试根本走不到"事件已提交、标记未写"的目标路径（已实测）。
-#      该 DDL 无法用 `query!` 宏静态化（DDL 无元数据，且 `#[cfg(test)]` 内的宏不进
-#      `cargo sqlx prepare` 缓存，见本文件既有登记）；
+#      该 DDL 无法用 `query!` 宏静态化（**原因收窄**：它在 `#[cfg(test)]` 内联模块里，
+#      而测试区的语句不进 `cargo sqlx prepare` 缓存 —— **不是**"DDL 没有元数据"；
+#      2026-09-26 C35b 实测生产区的 `CREATE INDEX`/`SET`/`ROLLBACK` 都能 prepare 并宏化，
+#      见本文件 C35b 段）；
 #   3. 一条 `SELECT COUNT(*) … AND soft_failed = FALSE` 断言：生产读路径的 soft_failed
 #      过滤行为正是被测对象，直接用计数断言避免依赖读路径的额外过滤层。
 #

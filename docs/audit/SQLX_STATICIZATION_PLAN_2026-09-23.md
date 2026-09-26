@@ -14,12 +14,12 @@
 
 | 指标 | 战役起点（2026-09-23） | 现在 | 变化 |
 |---|---|---|---|
-| `dynamic_production` | 1532（近似） | **384** | **−74.9%** |
-| `static` | 61 | **1084** | +1023 |
-| `dynamic`（总） | 2151 | **1097** | −1054 |
-| 静态占比 | 2.76% | **49.7%**（1084 / 2181） | +47.0pp |
-| `.sqlx` 离线缓存 | 60 条 | **1053 条** | +993 |
-| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **313 / 60** | −563 |
+| `dynamic_production` | 1532（近似） | **378** | **−75.3%** |
+| `static` | 61 | **1090** | +1029 |
+| `dynamic`（总） | 2151 | **1093** | −1058 |
+| 静态占比 | 2.76% | **50.0%**（1090 / 2181） | +47.2pp |
+| `.sqlx` 离线缓存 | 60 条 | **1058 条** | +998 |
+| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **307 / 59** | −569 |
 | `param` 传参（D-14 新棘轮，处 / 文件） | — | **1 / 1** | 新立棘轮（此前混在 `runtime`，两道棘轮都不管） |
 | `runtime` 残差 / `query_builder` | — | 70 / 13 文件 · **18**（已入计数棘轮） | — |
 
@@ -27,10 +27,10 @@
 
 | 组成 | 处数 | 性质 |
 |---|---|---|
-| **可静态化残量** | **312** | **282 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单/`ORDER BY` 方向等，需结构性替代）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转），见 §7.3 D-14 |
+| **可静态化残量** | **306** | **276 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单/`ORDER BY` 方向等，需结构性替代）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转），见 §7.3 D-14 |
 | 测试基建（有意保留） | 57 | `synapse-test-utils/src/lib.rs` 28、`synapse-common/src/test_isolation.rs` 25、`test_schema_guard.rs` 4 |
 | 结构性保留（有意） | 15 | `synapse-storage/src/event/pagination.rs`（9 runtime 游标/排序方向 + 6 literal） |
-| **合计** | **384** | = 312 + 57 + 15 |
+| **合计** | **378** | = 306 + 57 + 15 |
 
 ### 0.3 复现（唯一入口，勿手工数）
 
@@ -71,8 +71,8 @@ D-66 / D-67 / D-68 / D-69）记在各自提交信息里（下次阶段总结时�
 
 ### 0.5 阶段结论
 
-1. 动态 SQL 已从**系统性风险**降为**局部清单**：384 处里 72 处有意保留，待收 **312 处**，
-   其中 282 处是纯机械转换。
+1. 动态 SQL 已从**系统性风险**降为**局部清单**：378 处里 72 处有意保留，待收 **306 处**，
+   其中 276 处是纯机械转换。
 2. **收益性质变了**：早期批次每批都在挖"真 schema 下必败"的硬缺陷（① 类 15 条）；
    现在批次以机械收敛为主，并顺手清理一类残留（C31 清 `FromRow` 死代码、C32 消手工 `Row::get`、
    C33 消 `PgRow` 泄漏与 10 处吞错、C34 消 `Row` 解码与死 derive）。
@@ -166,7 +166,7 @@ D-66 / D-67 / D-68 / D-69）记在各自提交信息里（下次阶段总结时�
 
 ### 8.1 剩余可静态化清单（按实测，2026-09-26 C35a 后）
 
-**可转换残量 312 处**（282 literal / 29 runtime / 1 param），头部按大小排（前 14）：
+**可转换残量 306 处**（276 literal / 29 runtime / 1 param），头部按大小排（前 14）：
 
 | 文件 | 处数 | 门控 | 备注 |
 |---|---|---|---|
@@ -188,9 +188,8 @@ D-66 / D-67 / D-68 / D-69）记在各自提交信息里（下次阶段总结时�
 > **门控列的判据**：整文件在 `#[cfg(feature = …)]` 下时，`cargo sqlx prepare` 必须 `--all-features`
 > （R2 的教训），且 DB 往返要在带该 feature 的 CI 等价库上跑 ⇒ 门控文件单列一批更省来回。
 
-> **C35 剩余的 6 处**（`database_initializer/mod.rs`，已从"前 14"表退出）：B 类 2 处
-> （锁 key / 取锁，可空性断言待**先修**）+ C 类 4 处（`CREATE INDEX` / `SET` / `ROLLBACK` ×2，
-> utility 语句，需一次 `cargo sqlx prepare` 实测）—— 见 §8.3 第 2 条。
+> **C35 已完成**（`database_initializer/mod.rs` 15 处全部静态化，该文件生产动态**归零**）——
+> 见 §8.3 第 2 条；其中 C35b 的 utility 语句实测**推翻了"DDL 无法宏化"的旧结论**。
 
 ### 8.2 每批的标准流程
 
@@ -209,7 +208,7 @@ D-66 / D-67 / D-68 / D-69）记在各自提交信息里（下次阶段总结时�
 
 1. **`burn_after_read.rs`（15，门控 `burn-after-read`）** —— `prepare` 必须 `--all-features`；
    DB 往返要在**带该 feature** 的一次性 CI 等价库上跑（`createdb` + `scripts/ci/prepare_test_db.sh`）。
-2. **`database_initializer/mod.rs`（转换前 15 → 转换后剩 6）** —— D-14 归属**已判**（实参全是
+2. **`database_initializer/mod.rs`（15 处→ 全部完成，该文件生产动态归零）** —— D-14 归属**已判**（实参全是
    字面量，无 `format!` 拼装；文件无 feature 门控）。**按函数分类**（不再用会随 `fmt` 漂移的
    行号）：
    - **A 类 / 8 处（纯 DML/SELECT，可直接转）**：`check_cache_valid`、`update_init_timestamp`、
@@ -221,11 +220,14 @@ D-66 / D-67 / D-68 / D-69）记在各自提交信息里（下次阶段总结时�
      `pg_try_advisory_lock` 恒非 NULL，可直接按 R4 断言；`hashtext` 有**真实边界**
      （`search_path` 为空时 `current_schema()` 为 NULL，现行 `let lock_key: i64` 会解码失败）
      ⇒ 先加 `COALESCE(…, current_database() || ':')` 再断言（属**先修**，独立提交）。
-   - **C 类 / 4 处（utility 语句，需一次实测）**：`ensure_schema_migrations_table` 的
-     `CREATE INDEX`、`run_runtime_migrations` 里的 `SET statement_timeout`、`ROLLBACK` ×2。
-     全仓**没有**宏用在 utility 语句上的先例（grep 实测 0），而既有注释笼统写着
-     "DDL 无法用 query! 静态化"——**该说法尚未逐条实测**。能 describe ⇒ 照转并修正那句注释；
-     不能 ⇒ 按 R13 新登记一条结构性例外，本批只转 A/B。
+   - **C 类 / 4 处（utility 语句）**：`ensure_schema_migrations_table` 的 `CREATE INDEX`、
+     `run_runtime_migrations` 里的 `SET statement_timeout`、`ROLLBACK` ×2。
+     🔴 **已实测（C35b）：这三条文本全部 `cargo sqlx prepare` 成功、`describe.columns == []`、
+     `query!(…).execute(…)` 正常编译 ⇒ 全仓"DDL / utility 语句无法用 query! 静态化"的旧说法
+     被推翻**。真正不能宏化的只有两类：① `#[cfg(test)]`/`tests/` 内的语句（不进缓存，
+     `--all-targets` 离线编译会失败，D-13/R9）；② SQL 文本不是编译期常量的语句（动态标识符 /
+     `format!` 拼接，R7 白名单）。已同步修正 `AGENTS.md` R6 ④ 与
+     `scripts/ci/sqlx_dynamic_ratio_baseline` 里的旧表述（含"DDL 无元数据"那句）。
    - ⚠️ 另有 **2 处吞错**（`step_connection_test` 的 `.ok().flatten()` 忽略 `version()` 失败、
      表数统计同样忽略失败）位于**日志/遥测**路径：按 R12「先修再转」需先判定
      "有意的 best-effort 还是缺陷"（判据：失败后是否有调用方据此做出错误决定）。
@@ -257,16 +259,21 @@ D-66 / D-67 / D-68 / D-69）记在各自提交信息里（下次阶段总结时�
    并补边界用例（`after_connect` 里 `SET search_path = ''` 的池 + 自证前提
    `current_schema() IS NULL`）；**RED 已实测**：回退修复后该用例报
    `ColumnDecode { index: "0", source: UnexpectedNullError }`，修复后 32/32 全绿。
-   ⇒ 剩余 **C35b（B 类宏化 2 处 + C 类 utility 4 处）**，以及 2 处吞错的定性
-   （`step_connection_test` 的版本日志与表数统计：**判为有意的 best-effort** —— 失败后没有任何
-   调用方据此做出决定，且都不应阻断启动；已在源码就地图注，不再单列缺陷）。
+   ✅ **C35b 已完成（2026-09-26，本批）** —— B 类 2 处（`migration_lock_key` / `try_acquire_migration_lock`，
+   在 D-69 的 `COALESCE` 之后按 R4 断言 `AS "lock_key!"` / `AS "locked!"`）与 C 类 4 处
+   （3 条文本：`CREATE INDEX` / `SET statement_timeout` / `ROLLBACK`×2 共享一条缓存条目）全部宏化
+   ⇒ 该文件 15 处**全部完成、生产动态归零**；`dynamic_production` 384 → **378**、
+   `static` 1084 → **1090**、`.sqlx` 1053 → **1058**（+5 / 0 删除）；模块用例 **32/32** 全绿。
+   ⇒ **C35 三个提交（C35a-0 / C35a / C35b-0+C35b）全部落地**，无剩余子项。
+   （2 处吞错已定性：**有意的 best-effort** —— 失败后没有任何调用方据此做出决定，且都不应阻断
+   启动；已在源码就地图注，不单列缺陷。）
 
 3. **D-57②（seed 侧收敛 `public`）** —— 见 §7.2：需"枚举 baseline 对象集 + 对多出来的对象逐个
    DROP"式设计，不能简单 `RESET_PUBLIC=1`。
 
 ### 8.4 收尾条件（何时可称"静态化战役结束"）
 
-- `dynamic_production` 的**可转换部分归零**：384 → **72**（只剩测试基建 57 + 结构性 15），
+- `dynamic_production` 的**可转换部分归零**：378 → **72**（只剩测试基建 57 + 结构性 15），
   或每个残留都有 §7.3 那样的登记条目；
 - literal 逐文件表只剩 4 类（3 个测试基建文件 + `event/pagination.rs`）；
 - **D-57② 落地**（D-62 已落地、D-37 已收敛、**D-68 已接线并加保留期** ⇒ §7 只剩 D-57②）；

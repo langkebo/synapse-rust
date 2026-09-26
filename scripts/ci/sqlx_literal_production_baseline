@@ -153,7 +153,6 @@ synapse-federation/src/dead_letter_queue.rs	3
 synapse-federation/src/device_sync.rs	3
 synapse-federation/src/event_broadcaster.rs	8
 synapse-federation/src/key_rotation.rs	8
-synapse-services/src/database_initializer/mod.rs	6
 synapse-storage/src/account_data/mod.rs	4
 synapse-storage/src/admin_media.rs	8
 synapse-storage/src/audit.rs	4

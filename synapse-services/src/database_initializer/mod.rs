@@ -298,8 +298,10 @@ impl DatabaseInitService {
         // 于是 `hashtext(NULL)` 是 NULL，而调用方 `let lock_key: i64` 会以 `UnexpectedNullError`
         // 失败 ⇒ **运行时迁移直接跑不起来**。这里先 `COALESCE` 掉这个边界（退化为按 database
         // 取键），再在 C35b 的宏化里按 R4 断言非空。
-        sqlx::query_scalar(
-            "SELECT hashtext(COALESCE(current_database() || ':' || current_schema(), current_database() || ':'))::bigint",
+        // `AS "lock_key!"`（R4）：外层 `COALESCE` 保证非空（D-69 的修复），
+        // 而 `hashtext(…)` 作为函数调用自身带不来 NOT NULL 信息。
+        sqlx::query_scalar!(
+            r#"SELECT hashtext(COALESCE(current_database() || ':' || current_schema(), current_database() || ':'))::bigint AS "lock_key!""#,
         )
         .fetch_one(&*self.pool)
         .await
@@ -314,7 +316,9 @@ impl DatabaseInitService {
         conn: &mut sqlx::PgConnection,
         lock_key: i64,
     ) -> Result<bool, sqlx::Error> {
-        sqlx::query_scalar("SELECT pg_try_advisory_lock($1)").bind(lock_key).fetch_one(conn).await
+        // `AS "locked!"`（R4）：`pg_try_advisory_lock` 的成功/失败各返回 true/false，
+        // 不存在 NULL 分支（PG 文档语义）。
+        sqlx::query_scalar!(r#"SELECT pg_try_advisory_lock($1) AS "locked!""#, lock_key).fetch_one(conn).await
     }
 
     /// Release the migration advisory lock on `conn`.
@@ -352,7 +356,7 @@ impl DatabaseInitService {
 
         sqlx::raw_sql(create_table_sql).execute(&*self.pool).await?;
 
-        sqlx::query(
+        sqlx::query!(
             r"
             CREATE INDEX IF NOT EXISTS idx_schema_migrations_version ON schema_migrations(version)
             ",
@@ -486,7 +490,7 @@ impl DatabaseInitService {
                 }
 
                 // Set statement timeout to 30 seconds to prevent indefinite hangs
-                let timeout_result = sqlx::query("SET statement_timeout = '30s'").execute(&mut *conn).await;
+                let timeout_result = sqlx::query!("SET statement_timeout = '30s'").execute(&mut *conn).await;
 
                 if let Err(e) = timeout_result {
                     debug!("无法设置 statement_timeout: {}", e);
@@ -517,7 +521,7 @@ impl DatabaseInitService {
                             // "there is no transaction in progress" NOTICE，被 sqlx 记为
                             // WARN 并污染部署日志与告警门禁。
                             if err_str.contains("current transaction is aborted") {
-                                let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                                let _ = sqlx::query!("ROLLBACK").execute(&mut *conn).await;
                             }
                             break;
                         } else {
@@ -535,7 +539,7 @@ impl DatabaseInitService {
                             // "there is no transaction in progress" NOTICE，被 sqlx 记为
                             // WARN 并污染部署日志与告警门禁。
                             if err_str.contains("current transaction is aborted") {
-                                let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                                let _ = sqlx::query!("ROLLBACK").execute(&mut *conn).await;
                             }
                             break;
                         }
