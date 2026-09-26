@@ -60,6 +60,9 @@ fn validate_extended_profile_field(key_name: &str, body_len: usize) -> Result<()
 }
 
 async fn ensure_extended_profile_user_exists(ctx: &RoomContext, user_id: &str) -> Result<(), ApiError> {
+    // U-2 / upstream #20172: the profile-field family intentionally succeeds for
+    // *existing but deactivated* users, so this stays on the row-existence
+    // predicate. Do not switch it to `active_user_exists`.
     let exists = ctx.account_identity_service.user_exists(user_id).await?;
 
     if exists {

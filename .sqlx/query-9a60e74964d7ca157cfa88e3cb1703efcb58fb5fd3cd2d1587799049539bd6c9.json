@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT 1 FROM users WHERE user_id = $1 AND COALESCE(is_deactivated, FALSE) = FALSE LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9a60e74964d7ca157cfa88e3cb1703efcb58fb5fd3cd2d1587799049539bd6c9"
+}

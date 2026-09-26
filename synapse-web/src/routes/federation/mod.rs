@@ -289,7 +289,9 @@ async fn openid_userinfo(
         return Err(ApiError::not_found("User does not belong to this server".to_string()));
     }
 
-    let user_exists = ctx.account_identity_service.user_exists(&token.user_id).await?;
+    // Authorization: OpenID userinfo must not mint identity for a deactivated
+    // account (U-2) ⇒ active predicate.
+    let user_exists = ctx.account_identity_service.active_user_exists(&token.user_id).await?;
     if !user_exists {
         return Err(ApiError::unauthorized("Invalid or expired OpenID token".to_string()));
     }

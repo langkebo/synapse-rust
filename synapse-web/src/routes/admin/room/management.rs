@@ -377,7 +377,10 @@ async fn join_room_member_internal(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    if !ctx.account_identity_service.user_exists(user_id).await? {
+    // U-2: this admin membership-moderation target must be an account able to
+    // hold membership ⇒ active predicate (row-existence would let deactivated
+    // accounts be force-joined / banned / kicked).
+    if !ctx.account_identity_service.active_user_exists(user_id).await? {
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
@@ -404,7 +407,10 @@ async fn remove_room_member_internal(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    if !ctx.account_identity_service.user_exists(user_id).await? {
+    // U-2: this admin membership-moderation target must be an account able to
+    // hold membership ⇒ active predicate (row-existence would let deactivated
+    // accounts be force-joined / banned / kicked).
+    if !ctx.account_identity_service.active_user_exists(user_id).await? {
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
@@ -437,7 +443,10 @@ async fn ban_user_internal(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    if !ctx.account_identity_service.user_exists(user_id).await? {
+    // U-2: this admin membership-moderation target must be an account able to
+    // hold membership ⇒ active predicate (row-existence would let deactivated
+    // accounts be force-joined / banned / kicked).
+    if !ctx.account_identity_service.active_user_exists(user_id).await? {
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
@@ -493,7 +502,10 @@ async fn unban_user_internal(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    if !ctx.account_identity_service.user_exists(user_id).await? {
+    // U-2: this admin membership-moderation target must be an account able to
+    // hold membership ⇒ active predicate (row-existence would let deactivated
+    // accounts be force-joined / banned / kicked).
+    if !ctx.account_identity_service.active_user_exists(user_id).await? {
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
@@ -522,7 +534,10 @@ async fn kick_user_internal(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    if !ctx.account_identity_service.user_exists(user_id).await? {
+    // U-2: this admin membership-moderation target must be an account able to
+    // hold membership ⇒ active predicate (row-existence would let deactivated
+    // accounts be force-joined / banned / kicked).
+    if !ctx.account_identity_service.active_user_exists(user_id).await? {
         return Err(ApiError::not_found("User not found".to_string()));
     }
 

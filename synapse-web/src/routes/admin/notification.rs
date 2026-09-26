@@ -109,6 +109,10 @@ pub fn create_notification_router() -> Router<crate::routes::AppState> {
 }
 
 #[cfg(feature = "server-notifications")]
+/// U-2: admin notification/pusher maintenance is an *existence* lookup — the
+/// admin operates on the target's stored rows even when the account is
+/// deactivated (cleanup / audit), so this deliberately stays on the
+/// row-existence predicate (`ensure_user_exists`), never the active one.
 async fn ensure_user_exists(ctx: &AdminContext, user_id: &str) -> Result<(), ApiError> {
     ctx.user_service.ensure_user_exists(user_id).await
 }

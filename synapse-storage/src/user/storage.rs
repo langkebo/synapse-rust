@@ -83,7 +83,19 @@ pub trait UserStore: Send + Sync {
     ) -> Result<Vec<User>, sqlx::Error>;
 
     /// See [`user_exists`].
+    ///
+    /// Row-existence predicate: `true` for any row in `users`, including
+    /// deactivated accounts. Use this for existence/reporting lookups
+    /// (username availability, profile fields — upstream #20172).
+    /// Authorization paths must use [`Self::active_user_exists`].
     async fn user_exists(&self, user_id: &str) -> Result<bool, sqlx::Error>;
+
+    /// See [`active_user_exists`].
+    ///
+    /// "May this account act / be acted upon" predicate: `true` only for a row
+    /// whose `is_deactivated` is false. Every auth, federation and moderation
+    /// call site must go through this one.
+    async fn active_user_exists(&self, user_id: &str) -> Result<bool, sqlx::Error>;
 
     /// See [`filter_existing_users`].
     async fn filter_existing_users(&self, user_ids: &[String]) -> Result<Vec<String>, sqlx::Error>;
@@ -693,13 +705,31 @@ impl UserStorage {
 
     /// See [`user_exists`].
     ///
+    /// Row-existence predicate — **true for deactivated accounts too**.
+    ///
     /// ⚠️ **Upstream 1.161 (#20172)**: "this now **succeeds for existing (e.g. deactivated) users**
     /// and returns a 404 error if the user does not exist"
-    /// ⇒ Removed `AND is_deactivated = FALSE` filter so deactivated users are still found.
+    /// ⇒ no `is_deactivated` filter here, so callers that need "an account that
+    /// can act" must use [`Self::active_user_exists`] instead.
     pub async fn user_exists(&self, user_id: &str) -> Result<bool, sqlx::Error> {
         let exists = sqlx::query_scalar!(r#"SELECT 1 FROM users WHERE user_id = $1 LIMIT 1"#, user_id)
             .fetch_optional(&*self.pool)
             .await?;
+        Ok(exists.is_some())
+    }
+
+    /// See [`active_user_exists`].
+    ///
+    /// `true` only when the row exists **and** the account is not deactivated.
+    /// `is_deactivated` is nullable with a `FALSE` default, so the predicate
+    /// uses `COALESCE(…, FALSE)` (same shape as [`Self::filter_existing_users`]).
+    pub async fn active_user_exists(&self, user_id: &str) -> Result<bool, sqlx::Error> {
+        let exists = sqlx::query_scalar!(
+            r#"SELECT 1 FROM users WHERE user_id = $1 AND COALESCE(is_deactivated, FALSE) = FALSE LIMIT 1"#,
+            user_id
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
         Ok(exists.is_some())
     }
 
@@ -1669,6 +1699,10 @@ impl UserStore for UserStorage {
 
     async fn user_exists(&self, user_id: &str) -> Result<bool, sqlx::Error> {
         self.user_exists(user_id).await
+    }
+
+    async fn active_user_exists(&self, user_id: &str) -> Result<bool, sqlx::Error> {
+        self.active_user_exists(user_id).await
     }
 
     async fn filter_existing_users(&self, user_ids: &[String]) -> Result<Vec<String>, sqlx::Error> {

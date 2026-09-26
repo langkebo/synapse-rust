@@ -99,6 +99,67 @@ async fn test_user_exists_returns_false_for_nonexistent() {
     assert!(!storage.user_exists("@nobody:example.com").await.expect("user_exists should succeed"));
 }
 
+/// U-2: the two predicates must be genuinely different. A deactivated row
+/// still *exists* (upstream #20172 semantics, needed by the profile-field
+/// endpoints and by username-availability) but is not an *active* account
+/// (needed by every authorization / "can this account act" path).
+#[tokio::test]
+async fn test_user_exists_true_and_active_user_exists_false_for_deactivated_user() {
+    let (_iso, pool) = test_pool().await;
+    let cache = test_cache();
+    let storage = UserStorage::new(&pool, cache);
+    let user_id = format!("@deactivated_pred_{}:example.com", uuid::Uuid::new_v4());
+    let _ = storage.delete_user(&user_id).await;
+    storage.create_user(&user_id, "deactivated_pred", None, false).await.unwrap();
+
+    assert!(storage.user_exists(&user_id).await.expect("user_exists should succeed"));
+    assert!(
+        storage.active_user_exists(&user_id).await.expect("active_user_exists should succeed"),
+        "an account that was never deactivated must be active"
+    );
+
+    storage.deactivate_user(&user_id).await.expect("deactivate_user should succeed");
+
+    assert!(
+        storage.user_exists(&user_id).await.expect("user_exists should succeed"),
+        "a deactivated account still exists as a row (upstream #20172)"
+    );
+    assert!(
+        !storage.active_user_exists(&user_id).await.expect("active_user_exists should succeed"),
+        "a deactivated account must not be reported as active"
+    );
+
+    let _ = storage.delete_user(&user_id).await;
+}
+
+#[tokio::test]
+async fn test_user_exists_and_active_user_exists_true_for_active_user() {
+    let (_iso, pool) = test_pool().await;
+    let cache = test_cache();
+    let storage = UserStorage::new(&pool, cache);
+    let user_id = format!("@active_pred_{}:example.com", uuid::Uuid::new_v4());
+    let _ = storage.delete_user(&user_id).await;
+    storage.create_user(&user_id, "active_pred", None, false).await.unwrap();
+
+    assert!(storage.user_exists(&user_id).await.expect("user_exists should succeed"));
+    assert!(storage.active_user_exists(&user_id).await.expect("active_user_exists should succeed"));
+
+    let _ = storage.delete_user(&user_id).await;
+}
+
+#[tokio::test]
+async fn test_user_exists_and_active_user_exists_false_for_unknown_user() {
+    let (_iso, pool) = test_pool().await;
+    let cache = test_cache();
+    let storage = UserStorage::new(&pool, cache);
+
+    assert!(!storage.user_exists("@nobody_active:example.com").await.expect("user_exists should succeed"));
+    assert!(!storage
+        .active_user_exists("@nobody_active:example.com")
+        .await
+        .expect("active_user_exists should succeed"));
+}
+
 #[tokio::test]
 async fn test_get_user_by_username_found() {
     let (_iso, pool) = test_pool().await;
