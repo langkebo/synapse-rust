@@ -95,6 +95,8 @@ pub(crate) async fn get_profile(
     Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
+    // O-5: Rate limit per-caller for profile reads.
+    take_rc_profile_for_caller(&ctx, &headers, &user_id).await?;
     enforce_profile_visibility(ctx.token_auth.as_ref(), &ctx.account_identity_service, &headers, &user_id).await?;
 
     // Remote user: proxy profile query via federation.
@@ -113,6 +115,8 @@ pub(crate) async fn get_displayname(
     Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
+    // O-5: Rate limit per-caller for profile reads.
+    take_rc_profile_for_caller(&ctx, &headers, &user_id).await?;
     enforce_profile_visibility(ctx.token_auth.as_ref(), &ctx.account_identity_service, &headers, &user_id).await?;
 
     // Remote user: proxy profile query via federation.
@@ -134,6 +138,8 @@ pub(crate) async fn get_avatar_url(
     Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
+    // O-5: Rate limit per-caller for profile reads.
+    take_rc_profile_for_caller(&ctx, &headers, &user_id).await?;
     enforce_profile_visibility(ctx.token_auth.as_ref(), &ctx.account_identity_service, &headers, &user_id).await?;
 
     // Remote user: proxy profile query via federation.
@@ -183,6 +189,9 @@ pub(crate) async fn update_displayname(
     validate_user_id(&user_id)?;
     let user_id = user_id.as_str();
 
+    // O-5: Rate limit per-caller for profile writes (authenticated caller).
+    take_rc_profile_token(&ctx.cache, &auth_user.user_id, &ctx.config.rate_limit.rc_profile).await?;
+
     let displayname = body
         .get("displayname")
         .and_then(|v| v.as_str())
@@ -212,6 +221,9 @@ pub(crate) async fn update_avatar(
     validate_user_id(&user_id)?;
     let user_id = user_id.as_str();
 
+    // O-5: Rate limit per-caller for profile writes.
+    take_rc_profile_token(&ctx.cache, &auth_user.user_id, &ctx.config.rate_limit.rc_profile).await?;
+
     let avatar_url = body
         .get("avatar_url")
         .and_then(|v| v.as_str())
@@ -229,6 +241,47 @@ pub(crate) async fn update_avatar(
 
     ctx.registration_service.update_user_profile(user_id, None, Some(avatar_url)).await?;
     Ok(Json(json!({})))
+}
+
+/// Apply the `rc_profile` token bucket to a profile handler, keyed by the
+/// authenticated caller (or the path user when anonymous).
+///
+/// The path-based middleware cannot express `/_matrix/client/v3/profile/{user_id}`,
+/// so the limit is enforced here. Upstream #20172 applies `rc_profile` to
+/// profile modification endpoints.
+async fn take_rc_profile_for_caller(
+    ctx: &AuthContext,
+    headers: &HeaderMap,
+    path_user_id: &str,
+) -> Result<(), ApiError> {
+    // Resolve the caller: authenticated user_id, or fall back to the path
+    // user_id (for GET /profile/{user_id} without auth).
+    let caller = match bearer_token(headers).ok() {
+        Some(token) => ctx.token_auth.validate_token(&token).await.ok().map(|(id, _, _, _, _)| id),
+        None => None,
+    };
+    let key_user = caller.as_deref().unwrap_or(path_user_id);
+    let rule = &ctx.config.rate_limit.rc_profile;
+    let key = format!("ratelimit:rc_profile:{key_user}");
+    let decision = ctx.cache.rate_limit_token_bucket_take(&key, rule.per_second, rule.burst_size).await?;
+    if !decision.allowed {
+        return Err(ApiError::rate_limited("Too many profile requests"));
+    }
+    Ok(())
+}
+
+/// Direct token-bucket take for authenticated callers (write endpoints).
+async fn take_rc_profile_token(
+    cache: &synapse_cache::CacheManager,
+    user_id: &str,
+    rule: &synapse_common::rate_limit_config::RateLimitRule,
+) -> Result<(), ApiError> {
+    let key = format!("ratelimit:rc_profile:{user_id}");
+    let decision = cache.rate_limit_token_bucket_take(&key, rule.per_second, rule.burst_size).await?;
+    if !decision.allowed {
+        return Err(ApiError::rate_limited("Too many profile requests"));
+    }
+    Ok(())
 }
 
 /// See [`change_password_uia`].
@@ -699,4 +752,49 @@ pub(crate) async fn unbind_threepid(
     ctx.account_identity_service.remove_threepid(user_id, &body.medium, &body.address).await?;
 
     Ok(Json(json!({})))
+}
+
+// ============================================================================
+// O-5: Profile rate limiting (rc_profile) — tests
+// ============================================================================
+#[cfg(test)]
+mod rc_profile_limit_tests {
+    use super::take_rc_profile_token;
+    use synapse_cache::{CacheConfig, CacheManager};
+    use synapse_common::RateLimitRule;
+
+    fn cache() -> CacheManager {
+        CacheManager::new(&CacheConfig::default())
+    }
+
+    #[tokio::test]
+    async fn rc_profile_bucket_blocks_after_burst() {
+        let cache = cache();
+        let rule = RateLimitRule { per_second: 1, burst_size: 1 };
+        assert!(take_rc_profile_token(&cache, "@alice:example.com", &rule).await.is_ok(), "首个请求应放行");
+        let second = take_rc_profile_token(&cache, "@alice:example.com", &rule).await;
+        let err = second.expect_err("突发额度用尽后必须限流");
+        assert!(err.is_rate_limited(), "必须是 429 M_LIMIT_EXCEEDED，实际：{err}");
+    }
+
+    #[tokio::test]
+    async fn rc_profile_bucket_is_per_user() {
+        let cache = cache();
+        let rule = RateLimitRule { per_second: 1, burst_size: 1 };
+        assert!(take_rc_profile_token(&cache, "@alice:example.com", &rule).await.is_ok());
+        assert!(
+            take_rc_profile_token(&cache, "@bob:example.com", &rule).await.is_ok(),
+            "限流桶必须按用户隔离，否则一个用户可耗尽他人的 profile 额度"
+        );
+    }
+
+    #[test]
+    fn rc_profile_config_key_exists() {
+        // Guard: ensure the `rc_profile` key is present in RateLimitConfig.
+        // If this test fails after a refactor, the default rate limit for
+        // profile endpoints has been lost.
+        let config = synapse_common::config::RateLimitConfig::default();
+        assert_eq!(config.rc_profile.per_second, 1, "rc_profile.per_second 默认值必须为 1");
+        assert_eq!(config.rc_profile.burst_size, 5, "rc_profile.burst_size 默认值必须为 5");
+    }
 }

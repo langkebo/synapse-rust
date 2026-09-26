@@ -86,6 +86,15 @@ pub struct RateLimitConfig {
     #[serde(default = "default_rc_reports")]
     /// `rc_reports` field.
     pub rc_reports: RateLimitRule,
+    /// Per-user limit for profile read/write endpoints.
+    ///
+    /// Enforced in the handlers (`get_profile`, `update_displayname`, etc.)
+    /// rather than by the path-based middleware, which only supports
+    /// exact/prefix path rules. Upstream #20172 applies the `rc_profile` limit
+    /// to profile modification endpoints.
+    #[serde(default = "default_rc_profile")]
+    /// `rc_profile` field.
+    pub rc_profile: RateLimitRule,
 }
 
 /// Conservative default for the report endpoints: a user may file 10 reports in
@@ -93,6 +102,13 @@ pub struct RateLimitConfig {
 /// abuse vector; operators can raise it in `homeserver.yaml`.
 fn default_rc_reports() -> RateLimitRule {
     RateLimitRule { per_second: 1, burst_size: 10 }
+}
+
+/// Conservative default for profile read/write endpoints: a user may perform
+/// 5 profile operations in a burst and then one per second. Upstream #20172
+/// applies the `rc_profile` limit to profile modification endpoints.
+fn default_rc_profile() -> RateLimitRule {
+    RateLimitRule { per_second: 1, burst_size: 5 }
 }
 
 fn default_rate_limit_enabled() -> bool {
@@ -123,6 +139,7 @@ impl Default for RateLimitConfig {
             trusted_proxies: Vec::new(),
             trust_forwarded: false,
             rc_reports: default_rc_reports(),
+            rc_profile: default_rc_profile(),
         }
     }
 }
