@@ -42,6 +42,9 @@
 | U-13 出站联邦邀请 PDU 单一组装（R5） | U-13 | `16c654dcc` | `build_pdu` + `finalize_local_pdu`，不再手搓、不再带 `event_id` |
 | U-13 3pid 事件不再带顶层 `room_version`（R8） | U-13 | `16c654dcc` | 版本只属于 `/invite` body |
 | U-13 第 3 步：oracle 互操作门槛 | U-13-S3 | `c43e68b81` | 真实 `matrix-synapse==1.161.0` 复算 v3/v10/v11 fixture 的 hashes/ID/签名，全 PASS；含反向自证 |
+| U-13-R6：`state_pdu` 按版本输出 `event_id` | U-13 | `10ac3253f` | v3+ 不再发（`/send_join`、`/state`、`/get_room_auth`、`/get_event_auth`）；`build_pdus` 按 room_id 缓存版本解析 |
+| U-13-R7：本地重签覆盖对端真正收到的 PDU | U-13 | `8a7185e05` | `re_sign_pdu_locally` 改为投影持久化行后再签；投影不完整/版本读不到则留空；6 个手搓 dict 删除；DB 级用例 + 变异自证 |
+| 测试夹具 `KeyRotationManager` 从未初始化（签名静默 no-op） | — | `8a7185e05` | `setup_federation_app` 现显式 `initialize(...)`；此前"签名测试"实际没测到 |
 | 并发会话留下的编译 + clippy 红门禁 | — | `cb68220e6` | MSC4222 的 `sync` 第 8 参数未同步两个集成测试；`map_or`/未用绑定 4 条 |
 
 ### 1.2 阶段末门禁快照（本机实测）
@@ -91,13 +94,12 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 ### 2.1 P0 —— U-13 第 2 步剩余接线：联邦互操作的最后一段
 
 背景：Slice A/B/D/E 把**本地产生**的事件身份切成 reference hash（v3+），
-入站半边与邀请面已由 `16c654dcc` 补齐（R1–R5、R8 见 §1.1）。下面两条是同一条缝的
-剩余部分，外加仍未跑的 live 传输层门槛。
+入站半边与邀请面已由 `16c654dcc` 补齐（R1–R5、R8 见 §1.1），R6/R7 亦已收口
+（`10ac3253f`、`8a7185e05`）。剩下一条**新发现**的写入面缺口与仍未跑的 live 传输层门槛。
 
 | 编号 | 问题 | 判据（实测） | 优化方案 |
 |---|---|---|---|
-| **U-13-R6** | **`state_pdu` 仍对 v3+ 输出 `event_id`** | `synapse-web/src/routes/federation/pdu.rs:86-88` 无条件 `pdu.insert("event_id", …)`。`send_join`/`send_leave` 响应里的 state/auth_chain 都走它 | 同一函数改为按房间版本决定是否输出（或直接复用 `build_pdu`），保持"单一组装" |
-| **U-13-R7** | **F-03 `re_sign_pdu_locally` 对"手搓的部分 PDU"签名** | `synapse-web/src/routes/federation/membership/mod.rs:202` 的 6 个调用点（`join.rs:168,309`、`leave.rs:104,187`、`invite.rs:86,148`）只给 `event_id/room_id/sender/type/state_key/origin_server_ts/origin/content`，随后把 `hashes`+`signatures` 写回事件行；而事务/投影路径重新发出的是**完整 PDU**（含 depth/prev_events/auth_events）⇒ 对等端重算哈希必然不等 | 签名对象改为"从持久化行投影出的完整 PDU"（与出站事务路径**同一函数**），而不是手搓 dict；投影不完整则拒绝签名（沿用 `PduCompleteness`） |
+| **U-13-R9（新）** | **v≤11 的写路径不持久化图字段 ⇒ 部分入站成员事件的投影天然不完整，现在按 fail-closed 规则留空不签** | `create_event` 对 v≤11 写 SQL NULL `depth`/`prev_events`/`auth_events`；`send_join` v1/v2、`send_leave` v1/v2、`thirdparty_invite` 都走它 ⇒ `pdu::state_pdu` 返回 `MissingGraphMetadata` ⇒ R7 之后这些事件**没有本地签名**（旧的手搓 dict 签名本来也无法被对端验过，故非正确性回退，但签名覆盖率下降） | 让写路径也持久化这三个字段（v≤11 与 v12 同口径），随后这些投影即可签名；`synapse-web/src/routes/federation/pdu.rs` 模块文档 residual gap 1 已记 |
 | **U-13-S3** | **live 互操作仍未跑**（oracle 已落地并通过） | 本沙箱限制见 §5.2。已落地替代门槛（`c43e68b81`）：`tests/unit/u13_interop_fixture_tests.rs` 用固定输入跑真实流水线并与提交的 fixture 逐字节比对；`scripts/interop/verify_pdu_with_upstream_synapse.py` 用真实 `matrix-synapse==1.161.0` 复算三个 fixture 的 `hashes`/事件 ID/签名（v3/v10/v11 全 PASS，篡改即 FAIL） | 只剩**传输层**：需要可解析的双主机名 + 互信 CA（本仓联邦客户端目前没有自定义 CA/跳过校验开关）。有该环境时补 `/send_join` + `/send` 实测并把输出记进本文件 |
 
 ### 2.2 P1
