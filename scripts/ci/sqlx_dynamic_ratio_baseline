@@ -2145,11 +2145,30 @@
 # `upload_progress.expires_at` 实为 `BIGINT NOT NULL`，而 `UploadProgress.expires_at` 是
 # `Option<i64>`，宏照过。⇒ **字段是不是 `Option` 不能当作列可空性的证据**；判据只有 schema
 # 与宏的报错方向（可空列 ⇒ 非 Option 字段**必**报；反向不报）。
-BASELINE_DYNAMIC_PRODUCTION=432
+# ── 2026-09-25 C33 收紧（`push/mod.rs` 11 处 + 去掉 PgRow 泄漏，本批）────────────
+# dynamic_production 432 → **421**（−11）、static 1037 → **1048**（+11）、
+# dynamic 1143 → **1132**（= 421 + 711）。census 实测 421 / 711 / 1048。
+# 本批**先修再转**：`PushStorage` 的 4 个方法原本返回 `sqlx::postgres::PgRow`
+# （`get_pushers` / `get_user_push_rules` / `get_notifications` / `ack_notification`），
+# 宏无法产出匿名行结构体 ⇒ 先引入 `PusherRow` / `PushRuleRow` / `NotificationRow`
+# （`ack_notification` 改返回 `Option<i64>`，即原 `RETURNING id` 的那一列），
+# 再把这 11 处全部宏化。11 处文本互不相同 ⇒ 11 条缓存条目。
+# 结构化的收益不只是计数：
+#   ① `synapse-services::client_push_service` 原先用
+#      `row.try_get::<Option<T>, _>("col").ok().flatten()` 解码 **10 处** —— `.ok()` 把
+#      列解码错误静默变成 `None`（AGENTS.md「禁止 unwrap_or_default 吞错」同族，D-63）；
+#      改成字段访问后，类型与可空性由宏在编译期负责；
+#   ② `InMemoryPushStore` 的这 4 个方法原先只能 `unimplemented!()`（注释明说"PgRow 是活库句柄"）
+#      ⇒ 现在可以真的实现：`get_pushers` / `get_user_push_rules` 首次能在纯内存里被测到
+#      （新增 4 条单测，断言整份 JSON 形状）；
+#   ③ `get_pushers` 的 `lang` 与 push_rules 的 `is_enabled` / `is_default` 在 schema 里可空
+#      （都有 DEFAULT），但写入方唯一且恒写非空值 ⇒ 按 R4 断言 `AS "lang!"` 等，
+#      语义与旧 `row.get::<T>` 的"非空期望"一致，只是把检查提前到编译期。
+BASELINE_DYNAMIC_PRODUCTION=421
 BASELINE_DYNAMIC_TEST_INFRA=711
-BASELINE_STATIC=1037
+BASELINE_STATIC=1048
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1143
+BASELINE_DYNAMIC=1132
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #
