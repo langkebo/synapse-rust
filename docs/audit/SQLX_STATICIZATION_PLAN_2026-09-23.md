@@ -13,16 +13,16 @@
 
 ## 0. 阶段总结
 
-### 0.1 战果（唯一数字口径，2026-09-25 C33 后实测）
+### 0.1 战果（唯一数字口径，2026-09-25 C34 后实测）
 
 | 指标 | 战役起点（2026-09-23） | 现在 | 变化 |
 |---|---|---|---|
-| `dynamic_production` | 1532（近似） | **421** | **−72.5%** |
-| `static` | 61 | **1048** | +987 |
-| `dynamic`（总） | 2151 | **1132** | −1019 |
-| 静态占比 | 2.76% | **48.1%**（1048 / 2180） | +45.3pp |
-| `.sqlx` 离线缓存 | 60 条 | **1016 条** | +956 |
-| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **350 / 63** | −526 |
+| `dynamic_production` | 1532（近似） | **393** | **−74.3%** |
+| `static` | 61 | **1076** | +1015 |
+| `dynamic`（总） | 2151 | **1104** | −1047 |
+| 静态占比 | 2.76% | **49.4%**（1076 / 2180） | +46.6pp |
+| `.sqlx` 离线缓存 | 60 条 | **1043 条** | +983 |
+| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **322 / 60** | −554 |
 | `query_builder`（白名单，单列统计） | — | 18 | — |
 | `runtime` 残差 | — | 71 / 14 文件 | — |
 
@@ -30,10 +30,10 @@
 
 | 组成 | 处数 | 性质 |
 |---|---|---|
-| **可静态化残量** | **349** | 其中 **319 处是字面量**（纯机械转换）、**30 处是运行期拼装**（`format!` 拼列清单/排序方向等，需结构性替代） |
+| **可静态化残量** | **321** | 其中 **291 处是字面量**（纯机械转换）、**30 处是运行期拼装**（`format!` 拼列清单/排序方向等，需结构性替代） |
 | 测试基建（有意保留） | 57 | `synapse-test-utils/src/lib.rs` 28、`synapse-common/src/test_isolation.rs` 25、`test_schema_guard.rs` 4 —— 无条件编译、按 D-13/D-14 保持动态 |
 | 结构性保留（有意） | 15 | `synapse-storage/src/event/pagination.rs`（9 runtime 游标/`ORDER BY` 方向 + 6 literal） |
-| **合计** | **421** | = 349 + 57 + 15 |
+| **合计** | **393** | = 321 + 57 + 15 |
 
 ### 0.2 复现（唯一入口，勿手工数）
 
@@ -91,10 +91,24 @@ python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
   `rendezvous_session.content` 等。
 - **文档级漂移 / 计数不一致**：双份计数、过时的"不变"表述、落后的状态行。
 
+**阶段总结（本次瘦身）之后新发现并已修的**（明细在提交信息里；下次阶段总结时并入快照）：
+
+> **三条（D-64 / D-65 / D-67）都是"门禁先报出来、并发会话也同时发现"**：等价修复我这边都写了，
+> 但变基时发现上游已修 ⇒ 三次都 `rebase --skip`，归并发提交。
+> 观察：**一条真在跑的门禁会让多个会话独立撞上同一个问题** —— 这比"谁先发现"更值得记；
+> 反过来，**全绿的门禁一个都拦不住**。
+
+| 编号 | 一句话 | 落地 |
+|---|---|---|
+| **D-65** | 并发会话的 O-6/MSC4222 提交给 `SyncService::sync` 加了第 8 个参数 `state_after`，却**没同步调用点** ⇒ `--test integration` 27 处 E0061、两档 clippy 另有 4 条 lint（`unnecessary_map_or` ×3 + `unused_variables` ×1）都在 `opt/consolidated` 上红着。与 D-56 同类（并发改动只改一半） | 并发会话自己在后续提交里修掉（`cb68220e6`「先修并发会话留下的两处既有红门禁（编译 + clippy）」）。C34 也做了等价修复（27 处调用点补 `None` + 3 条 lint），**变基时因改动已存在而 skip** —— 归并发提交，不重复计入 |
+| **D-65** | 并发会话的 O-6/MSC4222 提交给 `SyncService::sync` 加了第 8 个参数 `state_after`，却**没同步调用点** ⇒ `--test integration` 27 处 E0061、两档 clippy 另有 4 条 lint（`unnecessary_map_or` ×3 + `unused_variables` ×1）都在 `opt/consolidated` 上红着。与 D-56 同类（并发改动只改一半） | 并发会话自己在后续提交里修掉（`cb68220e6` "先修并发会话留下的两处既有红门禁（编译 + clippy）"）。C34 也做了等价修复（27 处调用点补 `None` + 3 条 lint），**变基时因改动已存在而 skip** —— 归并发提交，不重复计入 |
+| **D-67** | `tests/unit/u13_interop_fixture_tests.rs` 里 `const SIGNING_SEED: [u8; 32] = [7u8; 32]` **无任何使用者**（只有它的 Base64 形式 `SIGNING_SEED_B64` 被用）⇒ `-D warnings` 下 `dead_code` 让**两档 clippy 都红**（并发会话 U-13 第 3 步新增的 fixture 测试遗留） | 并发会话自己修掉（`20e4b6d0b`「删除 tests/unit 里从未使用的 SIGNING_SEED 常量」）。C34 收尾时也做了等价修复（删常量 + 把值写进注释），**变基时因改动已存在而 skip** —— 归并发提交 |
+| **D-66** | **验证环境本身会骗人**：两个 `git worktree` 共享同一个 `CARGO_TARGET_DIR` 时，cargo 会**跨树复用产物** —— 本次实测在主树（`synapse-web` 新签名 3 参）与本树（`tests/unit` 旧调用点 2 参）之间混出 **9 处假红 E0061**，报错注释指向的路径甚至不在本树。反向同样危险：复用到旧产物 ⇒ 本树改动没被编译却"通过"（假绿） | 已处置：换**私有 `CARGO_TARGET_DIR`** 后同一命令 EXIT=0（`all-targets` 4m34s 冷编译 + C34 模块 41/41）；规则写进 `AGENTS.md`（"一个 worktree 一个 target 目录"） |
+
 ### 0.5 阶段结论
 
-1. 动态 SQL 已从**系统性风险**降为**局部清单**：421 处里 72 处是有意保留（测试基建 + 结构性），
-   真正待收的是 **349 处**，且其中 319 处是纯机械的字面量转换。
+1. 动态 SQL 已从**系统性风险**降为**局部清单**：393 处里 72 处是有意保留（测试基建 + 结构性），
+   真正待收的是 **321 处**，且其中 291 处是纯机械的字面量转换。
 2. **收益性质变了**：早期批次每批都在挖"真 schema 下必败"的硬缺陷；现在批次更多是机械收敛，
    并且每批都顺手清理掉一类残留（最近三批：C31 清理 `FromRow` 死代码、C32 消掉手工
    `Row::get` 解码、C33 消掉 `PgRow` 泄漏与 10 处吞错）。
@@ -182,14 +196,14 @@ python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
 
 ### 7.4 状态计数与口径
 
-**状态计数（2026-09-25，C33 后）**：已修 **51** / 部分已修 **2**（D-37、D-57）/
+**状态计数（2026-09-25，C34 后）**：已修 **53** / 部分已修 **2**（D-37、D-57）/
 未修 **1**（D-62）/ 结构性保留 **7**（D-13、D-14、D-18–D-22）/ 文档级已处置 **3**（D-16、D-23、D-26）
-= 合计 **64**（D-01…D-64）。
+= 合计 **66**（D-01…D-67）。
 
 口径说明（唯一计数，避免 D-16 型双份漂移）：
 
-- 本文档 §7 **只显示未关闭项（3 条）与结构性保留（7 条）**；已关闭的 51 条明细在 HISTORY §7.2，
-  该快照冻结、不参与当前计数。
+- 本文档 §7 **只显示未关闭项（3 条）与结构性保留（7 条）**；阶段总结前已关闭的 51 条明细在
+  HISTORY §7.2（该快照冻结、不参与当前计数），总结后新关闭的（当前是 D-65）记在 §0.4 的附表里。
 - "已修 / 部分已修 / 未修"的分类只按**缺陷是否真的关掉**判定；
   "部分已修"指同一编号下仍有未做的明确子项（D-57②、D-37 的收敛）。
 - 结构性保留是**有意不做**（工具有边界），不计入"待修"，但它们的约束力写在 §7.3 与 R1–R13 里。
@@ -210,27 +224,29 @@ python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
 
 ### 8.1 剩余可静态化清单（按实测排序，2026-09-25）
 
-排除 4 类（测试基建 3 文件 57 处、`event/pagination.rs` 15 处）后，**可转换残量 349 处**
-（literal 319 / runtime 30）。按文件排（前 15）：
+排除 4 类（测试基建 3 文件 57 处、`event/pagination.rs` 15 处）后，**可转换残量 321 处**
+（literal 291 / runtime 30）。按文件排（前 14）：
 
 | 文件 | 处数 | 门控 | 备注 |
 |---|---|---|---|
 | `synapse-storage/src/burn_after_read.rs` | 15 | `burn-after-read` | 见 §8.3（需带 feature 的 CI 等价库） |
 | `synapse-services/src/database_initializer/mod.rs` | 15 | — | 见 §8.3（需先判 D-14 归属） |
-| `synapse-storage/src/event/basic.rs` | 11 | — | 与 `event/` 同域，注意并发会话活跃区 |
+| `synapse-storage/src/event/basic.rs` | 11 | — | 与 `event/` 同域；**先确认并发会话不在途**（v12 PDU 活跃区） |
 | `synapse-storage/src/event/redaction.rs` | 10 | — | 同上 |
-| `synapse-storage/src/dehydrated_device.rs` | 10 | `privacy-ext`? | 单表模块，风险低 |
-| `synapse-e2ee/src/ssss/storage.rs` | 10 | — | 与 C25–C27 同域 |
-| `synapse-e2ee/src/secure_backup/service.rs` | 10 | — | 同上 |
-| `synapse-storage/src/pruning.rs` | 9 | — | 单表模块；注意既有保留期清理测试 |
-| `synapse-storage/src/invite_blocklist.rs` | 9 | — | 单表模块 |
-| `synapse-storage/src/event/state.rs` | 9 | — | `event/` 同域 |
+| `synapse-e2ee/src/secure_backup/service.rs` | 10 | — | 与 C25–C27 同域，可整批 |
+| `synapse-e2ee/src/ssss/storage.rs` | 10 | — | 同上 |
 | `synapse-storage/src/event/batch.rs` | 9 | — | `event/` 同域 |
+| `synapse-storage/src/event/state.rs` | 9 | — | `event/` 同域；**2026-09-25 刚被 PDU 投影改动过**，先确认不在途 |
 | `synapse-e2ee/src/key_request/storage.rs` | 9 | — | 与 C25–C27 同域 |
-| `synapse-storage/src/federation_queue.rs` | 8 | — | |
+| `synapse-storage/src/admin_media.rs` | 8 | — | 注意 U-3 的 hash 隔离查询 |
+| `synapse-storage/src/email_verification.rs` | 8 | — | 单表模块 |
 | `synapse-storage/src/event/dag.rs` | 8 | — | `event/` 同域 |
-| `synapse-storage/src/email_verification.rs` | 8 | — | |
+| `synapse-storage/src/federation_queue.rs` | 8 | — | 单表模块（与 pruning 同域） |
+| `synapse-federation/src/event_broadcaster.rs` | 8 | — | `synapse-federation`，注意广播路径 |
 
+> 已完成（不再出现在上表）：C31–C34 共清掉 `to_device/storage.rs`、`relations/mod.rs`、`retention.rs`、
+> `media/chunked_upload.rs`、`matrixrtc.rs`、`voice.rs`、`push/mod.rs`、`dehydrated_device.rs`、
+> `pruning.rs`、`invite_blocklist.rs`（这些文件在 HISTORY §8.27–§8.31 有批次记录）。
 > **门控列的判据**：整文件在 `#[cfg(feature = …)]` 下时，`cargo sqlx prepare` 必须
 > `--all-features`（R2 的教训：枚举 feature 会漏条目），且 DB 往返要在带该 feature 的
 > CI 等价库上跑；因此门控文件单列一批更省来回。
@@ -262,7 +278,7 @@ python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
 
 ### 8.4 收尾条件（何时可以说"静态化战役结束"）
 
-- `dynamic_production` 的**可转换部分归零**：即 421 → **72**（只剩测试基建 57 + 结构性 15），
+- `dynamic_production` 的**可转换部分归零**：即 393 → **72**（只剩测试基建 57 + 结构性 15），
   或每个残留都有 §7.3 那样的登记条目；
 - literal 逐文件表只剩那 4 类（3 个测试基建文件 + `event/pagination.rs`）；
 - **D-62 有裁定并落地、D-57② 落地、D-37 收敛**（§7 只剩结构性保留）；
