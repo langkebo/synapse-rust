@@ -54,6 +54,20 @@ use crate::room::state::auth_events::{select_auth_events, AuthStateSnapshot};
 /// outbound PDU from a fresh query.
 pub const FORWARD_EXTREMITY_LIMIT: i64 = 10;
 
+/// The room version a newly-created room is being created *as*.
+///
+/// A create event establishes the version, so it comes from the event content;
+/// when the caller states none, this server's own default is the decision (not a
+/// guess about a remote room).
+pub fn create_event_room_version(params: &CreateEventParams) -> String {
+    params
+        .content
+        .get("room_version")
+        .and_then(|value| value.as_str())
+        .unwrap_or(synapse_common::room_versions::DEFAULT_ROOM_VERSION)
+        .to_string()
+}
+
 /// The committed-state reads graph resolution needs.
 ///
 /// Deliberately narrower than [`EventReader`]: three reads with fixed semantics
@@ -118,6 +132,9 @@ impl GraphMetadataSource for StorageGraphMetadataSource {
 /// The graph fields a v3+ PDU requires.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EventGraphMetadata {
+    /// The room version the PDU must be shaped for. v1/v2 carry `event_id` as a
+    /// PDU field; v3+ derive the ID from the reference hash and omit it.
+    pub room_version: String,
     /// `prev_events` — the room's forward extremities at creation time.
     pub prev_events: Vec<String>,
     /// `auth_events` — the state events that authorise the sender.
@@ -129,8 +146,8 @@ pub struct EventGraphMetadata {
 impl EventGraphMetadata {
     /// The DAG-root projection: `m.room.create` has no parents and no auth
     /// events, and sits at depth 1.
-    pub fn root() -> Self {
-        Self { prev_events: Vec::new(), auth_events: Vec::new(), depth: 1 }
+    pub fn root(room_version: &str) -> Self {
+        Self { room_version: room_version.to_string(), prev_events: Vec::new(), auth_events: Vec::new(), depth: 1 }
     }
 }
 
@@ -185,13 +202,22 @@ impl GraphMetadataResolver {
         Self { source }
     }
 
+    /// The room's version, as the resolver's source reports it.
+    pub async fn room_version(&self, room_id: &str) -> Result<Option<String>, GraphMetadataError> {
+        Ok(self.source.room_version(room_id).await?)
+    }
+
     /// Resolves the graph fields for `params`.
     pub async fn resolve(&self, params: &CreateEventParams) -> Result<EventGraphMetadata, GraphMetadataError> {
         // The create event is the DAG root by definition: it has no parents and
         // no auth events, and querying for them would demand exactly the state
         // the event itself establishes.
         if params.event_type == "m.room.create" {
-            return Ok(EventGraphMetadata::root());
+            // A create event *establishes* the room version, so it comes from the
+            // event content (falling back to this server's own default when the
+            // caller did not state one — that is a local decision, not a guess
+            // about a remote room).
+            return Ok(EventGraphMetadata::root(&create_event_room_version(params)));
         }
 
         let room_version = self
@@ -231,7 +257,7 @@ impl GraphMetadataResolver {
             &params.content,
         );
 
-        Ok(EventGraphMetadata { prev_events, auth_events, depth: max_depth + 1 })
+        Ok(EventGraphMetadata { room_version, prev_events, auth_events, depth: max_depth + 1 })
     }
 }
 
@@ -246,12 +272,55 @@ impl GraphMetadataResolver {
 pub struct GraphMetadataWriter {
     inner: Arc<dyn EventWriter>,
     resolver: Arc<GraphMetadataResolver>,
+    server_name: String,
 }
 
 impl GraphMetadataWriter {
     /// Wraps `inner`, resolving graph metadata through `resolver`.
-    pub fn new(inner: Arc<dyn EventWriter>, resolver: Arc<GraphMetadataResolver>) -> Self {
-        Self { inner, resolver }
+    ///
+    /// `server_name` is this server's Matrix name — the PDU's `origin`, which
+    /// participates in the event ID for room versions that still protect it.
+    pub fn new(inner: Arc<dyn EventWriter>, resolver: Arc<GraphMetadataResolver>, server_name: String) -> Self {
+        Self { inner, resolver, server_name }
+    }
+
+    /// U-13 step 2: replace the caller's placeholder ID with the reference-hash
+    /// ID for v3+ (v1/v2 keep their server-assigned ID).
+    ///
+    /// Returns the params carrying the final ID. `hashes` are *not* written
+    /// here: the broadcast path (`federation_broadcast::sign_and_broadcast_event`)
+    /// computes and persists them, and both paths assemble the PDU with the same
+    /// function (`synapse_common::pdu::build_pdu`), so the value it stores is the
+    /// one this ID was derived from. The ID itself must be final *before* the row
+    /// is inserted — a caller can hand it to a client in the same request.
+    fn finalize_event_id(
+        &self,
+        mut params: CreateEventParams,
+        room_version: &str,
+        depth: i64,
+        prev_events: &[String],
+        auth_events: &[String],
+    ) -> Result<CreateEventParams, sqlx::Error> {
+        let parts = synapse_common::pdu::PduParts {
+            room_version,
+            event_id: Some(params.event_id.as_str()),
+            room_id: &params.room_id,
+            sender: &params.user_id,
+            event_type: &params.event_type,
+            content: &params.content,
+            state_key: params.state_key.as_deref(),
+            origin_server_ts: params.origin_server_ts,
+            origin: &self.server_name,
+            depth,
+            prev_events,
+            auth_events,
+            redacts: params.redacts.as_deref(),
+        };
+
+        let finalized = synapse_federation::event_finalize::finalize_local_pdu(&parts)
+            .map_err(|error| sqlx::Error::Protocol(format!("failed to finalize event id: {error}")))?;
+        params.event_id = finalized.event_id;
+        Ok(params)
     }
 }
 
@@ -279,6 +348,8 @@ impl EventWriter for GraphMetadataWriter {
         }
 
         let graph = self.resolver.resolve(&params).await?;
+        let params =
+            self.finalize_event_id(params, &graph.room_version, graph.depth, &graph.prev_events, &graph.auth_events)?;
         self.inner.create_event_with_graph(params, &graph.prev_events, &graph.auth_events, graph.depth, None).await
     }
 
@@ -288,7 +359,25 @@ impl EventWriter for GraphMetadataWriter {
         pdu_graph: synapse_storage::PduGraphFields,
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> Result<RoomEvent, sqlx::Error> {
-        // Delegate to inner writer with graph metadata
+        // The v12+ creation path supplies the complete graph fields, so the ID
+        // can be derived here exactly as on the resolved path. Only the
+        // auto-commit case is finalized: inside a caller's transaction the
+        // version read would race the transaction's own writes.
+        if tx.is_some() {
+            return self.inner.create_event_with_pdu(params, pdu_graph, tx).await;
+        }
+
+        let (Some(depth), Some(prev_events), Some(auth_events)) =
+            (pdu_graph.depth, pdu_graph.prev_events.clone(), pdu_graph.auth_events.clone())
+        else {
+            return Err(sqlx::Error::Protocol(
+                "create_event_with_pdu requires depth/prev_events/auth_events to derive a v3+ event id".to_string(),
+            ));
+        };
+
+        let room_version =
+            self.resolver.room_version(&params.room_id).await?.unwrap_or_else(|| create_event_room_version(&params));
+        let params = self.finalize_event_id(params, &room_version, depth, &prev_events, &auth_events)?;
         self.inner.create_event_with_pdu(params, pdu_graph, tx).await
     }
 
@@ -512,7 +601,7 @@ mod tests {
             .resolve(&params("m.room.create", Some(""), json!({"room_version": "11"})))
             .await
             .expect("resolve");
-        assert_eq!(graph, EventGraphMetadata::root());
+        assert_eq!(graph, EventGraphMetadata::root("11"));
     }
 
     #[tokio::test]
@@ -575,8 +664,11 @@ mod tests {
     #[tokio::test]
     async fn decorator_persists_resolved_graph_metadata() {
         let inner: Arc<dyn EventWriter> = Arc::new(InMemoryEventStore::new());
-        let decorated: Arc<dyn EventWriter> =
-            Arc::new(GraphMetadataWriter::new(inner, Arc::new(resolver(FakeSource::room("11", &[("$e1", 7)])))));
+        let decorated: Arc<dyn EventWriter> = Arc::new(GraphMetadataWriter::new(
+            inner,
+            Arc::new(resolver(FakeSource::room("11", &[("$e1", 7)]))),
+            "example.com".to_string(),
+        ));
 
         let written = decorated
             .create_event(params("m.room.message", None, json!({"body": "hi", "msgtype": "m.text"})), None)
@@ -587,13 +679,75 @@ mod tests {
         assert_eq!(written.status, None, "the plain create_event path would have stamped status=processed");
     }
 
+    /// U-13 step 2 (acceptance items 4 and 6): the auto-commit write path assigns
+    /// the **reference-hash** ID for v3+ — and that ID must equal what a peer
+    /// recomputes from the PDU we later emit — while v1/v2 keep the caller's
+    /// server-assigned ID.
+    #[tokio::test]
+    async fn decorator_assigns_the_reference_hash_event_id_for_v3_plus() {
+        for (version, replaces_placeholder) in [("12", true), ("11", true), ("10", true), ("4", true), ("2", false)] {
+            let inner: Arc<dyn EventWriter> = Arc::new(InMemoryEventStore::new());
+            let decorated: Arc<dyn EventWriter> = Arc::new(GraphMetadataWriter::new(
+                inner,
+                Arc::new(resolver(FakeSource::room(version, &[("$e1", 7)]))),
+                "example.com".to_string(),
+            ));
+
+            let placeholder = format!("$placeholder-{version}:example.com");
+            let mut request = params("m.room.message", None, json!({"body": "hi", "msgtype": "m.text"}));
+            request.event_id = placeholder.clone();
+
+            let written = decorated.create_event(request.clone(), None).await.expect("write");
+
+            if !replaces_placeholder {
+                assert_eq!(written.event_id, placeholder, "v{version} keeps the server-assigned id");
+                continue;
+            }
+
+            assert_ne!(written.event_id, placeholder, "v{version} must replace the placeholder");
+            assert!(written.event_id.starts_with('$'));
+            assert!(
+                !written.event_id.contains(':'),
+                "v{version}: reference-hash IDs carry no origin suffix: {}",
+                written.event_id
+            );
+
+            // The receiver's view: rebuild the PDU from the room's graph plus the
+            // event's own fields, and recompute the ID from it.
+            let graph = resolver(FakeSource::room(version, &[("$e1", 7)])).resolve(&request).await.expect("resolve");
+            let parts = synapse_common::pdu::PduParts {
+                room_version: version,
+                event_id: None,
+                room_id: &written.room_id,
+                sender: &written.user_id,
+                event_type: &written.event_type,
+                content: &written.content,
+                state_key: written.state_key.as_deref(),
+                origin_server_ts: written.origin_server_ts,
+                origin: "example.com",
+                depth: graph.depth,
+                prev_events: &graph.prev_events,
+                auth_events: &graph.auth_events,
+                redacts: None,
+            };
+            let finalized = synapse_federation::event_finalize::finalize_local_pdu(&parts).expect("finalize");
+            assert_eq!(
+                written.event_id, finalized.event_id,
+                "v{version}: the stored ID must equal the reference hash a peer recomputes from the emitted PDU"
+            );
+        }
+    }
+
     /// `create_event_with_graph` must stay byte-faithful: the decorator may not
     /// overwrite graph data an inbound / backfill / room-creation caller supplied.
     #[tokio::test]
     async fn decorator_passes_supplied_graph_data_through() {
         let inner: Arc<dyn EventWriter> = Arc::new(InMemoryEventStore::new());
-        let decorated: Arc<dyn EventWriter> =
-            Arc::new(GraphMetadataWriter::new(inner, Arc::new(resolver(FakeSource::room("11", &[("$e1", 7)])))));
+        let decorated: Arc<dyn EventWriter> = Arc::new(GraphMetadataWriter::new(
+            inner,
+            Arc::new(resolver(FakeSource::room("11", &[("$e1", 7)]))),
+            "example.com".to_string(),
+        ));
 
         let written = decorated
             .create_event_with_graph(

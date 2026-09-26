@@ -97,7 +97,11 @@ impl RoomSyncServices {
             ),
         )));
         let event_writer: Arc<dyn synapse_storage::event::EventWriter> =
-            Arc::new(crate::graph_metadata::GraphMetadataWriter::new(notifying_writer, graph_metadata_resolver));
+            Arc::new(crate::graph_metadata::GraphMetadataWriter::new(
+                notifying_writer,
+                graph_metadata_resolver,
+                infra.config.server.name.clone(),
+            ));
         let device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi> =
             Arc::new(DeviceStorage::new(&infra.pool));
         let relations_storage: Arc<dyn synapse_storage::relations::RelationsStoreApi> =

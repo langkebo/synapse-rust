@@ -75,7 +75,7 @@ impl CreationGraph {
         self.tip = Some(event_id.to_string());
         self.depth = depth;
 
-        EventGraphMetadata { prev_events, auth_events, depth }
+        EventGraphMetadata { room_version: self.room_version.clone(), prev_events, auth_events, depth }
     }
 }
 
@@ -108,7 +108,7 @@ mod tests {
     #[test]
     fn create_event_is_the_root() {
         let graph = linear_creation();
-        assert_eq!(graph[0], EventGraphMetadata::root());
+        assert_eq!(graph[0], EventGraphMetadata::root("11"));
     }
 
     #[test]
