@@ -214,6 +214,12 @@ pub trait EventReader: Send + Sync {
     /// See [`get_event_graph_fields`].
     async fn get_event_graph_fields(&self, event_id: &str) -> Result<Option<PersistedGraphFields>, sqlx::Error>;
 
+    /// See [`calculate_event_depth`].
+    async fn calculate_event_depth(&self, room_id: &str, prev_events: &[String]) -> Result<i64, sqlx::Error>;
+
+    /// See [`get_forward_extremities_in_room`].
+    async fn get_forward_extremities_in_room(&self, room_id: &str, limit: i64) -> Result<Vec<String>, sqlx::Error>;
+
     // ── context / pagination ────────────────────────────────────────────
 
     /// See [`find_event_id_by_timestamp`].
@@ -600,5 +606,13 @@ impl crate::event::reader::EventReader for super::EventStorage {
 
     async fn copy_room_state(&self, source_room_id: &str, target_room_id: &str) -> Result<(), sqlx::Error> {
         self.copy_room_state(source_room_id, target_room_id).await
+    }
+
+    async fn calculate_event_depth(&self, room_id: &str, prev_events: &[String]) -> Result<i64, sqlx::Error> {
+        self.calculate_event_depth(room_id, prev_events).await
+    }
+
+    async fn get_forward_extremities_in_room(&self, room_id: &str, limit: i64) -> Result<Vec<String>, sqlx::Error> {
+        self.get_forward_extremities_in_room(room_id, limit).await
     }
 }

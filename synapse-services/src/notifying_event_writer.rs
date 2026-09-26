@@ -143,6 +143,26 @@ impl EventWriter for NotifyingEventWriter {
         Ok(event)
     }
 
+    async fn create_event_with_pdu(
+        &self,
+        params: CreateEventParams,
+        pdu_graph: synapse_storage::event::PduGraphFields,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<RoomEvent, sqlx::Error> {
+        let room_id = params.room_id.clone();
+        let event_type = params.event_type.clone();
+        let state_key = params.state_key.clone();
+        let autocommit = tx.is_none();
+
+        let event = self.inner.create_event_with_pdu(params, pdu_graph, tx).await?;
+
+        if autocommit {
+            self.publish(&room_id, &event_type, state_key.as_deref());
+        }
+
+        Ok(event)
+    }
+
     async fn save_event_signature(
         &self,
         event_id: &str,

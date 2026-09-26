@@ -282,6 +282,16 @@ impl EventWriter for GraphMetadataWriter {
         self.inner.create_event_with_graph(params, &graph.prev_events, &graph.auth_events, graph.depth, None).await
     }
 
+    async fn create_event_with_pdu(
+        &self,
+        params: CreateEventParams,
+        pdu_graph: synapse_storage::PduGraphFields,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<RoomEvent, sqlx::Error> {
+        // Delegate to inner writer with graph metadata
+        self.inner.create_event_with_pdu(params, pdu_graph, tx).await
+    }
+
     async fn update_event_signatures_and_hashes(
         &self,
         event_id: &str,

@@ -19,6 +19,16 @@ pub trait EventWriter: Send + Sync {
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> Result<RoomEvent, sqlx::Error>;
 
+    /// v12+ event creation with complete PDU graph fields.
+    ///
+    /// See [`create_event_with_pdu`].
+    async fn create_event_with_pdu(
+        &self,
+        params: CreateEventParams,
+        pdu_graph: PduGraphFields,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<RoomEvent, sqlx::Error>;
+
     /// See [`update_event_signatures_and_hashes`].
     async fn update_event_signatures_and_hashes(
         &self,
@@ -146,6 +156,15 @@ impl crate::event::writer::EventWriter for super::EventStorage {
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> Result<RoomEvent, sqlx::Error> {
         self.create_event(params, tx).await
+    }
+
+    async fn create_event_with_pdu(
+        &self,
+        params: CreateEventParams,
+        pdu_graph: PduGraphFields,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<RoomEvent, sqlx::Error> {
+        self.create_event_with_pdu(params, pdu_graph, tx).await
     }
 
     async fn update_event_signatures_and_hashes(

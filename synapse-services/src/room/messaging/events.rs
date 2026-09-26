@@ -1,6 +1,7 @@
 //! Room event operations: state events, event CRUD, signatures, create_event.
 
 use crate::common::error::{ApiError, ApiResult};
+use crate::room::auth;
 use crate::room::messaging::error::RoomMessagingError;
 use serde_json::json;
 use synapse_common::current_timestamp_millis;
@@ -142,11 +143,69 @@ impl MessagingService {
             }
         }
 
-        let event = self
-            .event_writer
-            .create_event(params, tx)
+        // Check room version for v12+ PDU graph fields support
+        let room_version = self
+            .room_storage
+            .get_room_version_only(&params.room_id)
             .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to create event", e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to read room version", e))?;
+
+        let event = if let Some(room_version_str) = room_version {
+            if room_version_str.as_str() >= "12" {
+                // v12+ path: use depth calculation and auth_events builder
+                // 1. Get current room state (for auth_events construction)
+                let state_events = self
+                    .event_reader
+                    .get_state_events(&room_id)
+                    .await
+                    .map_err(|e| ApiError::internal_with_cause("Failed to get room state", e))?;
+
+                let auth_builder = auth::AuthEventBuilder::new(state_events);
+
+                // 2. Get forward extremities (prev_events)
+                let prev_events = self
+                    .event_reader
+                    .get_forward_extremities_in_room(&room_id, 10)
+                    .await
+                    .map_err(|e| ApiError::internal_with_cause("Failed to get forward extremities", e))?;
+
+                // 3. Calculate depth
+                let depth = self
+                    .event_reader
+                    .calculate_event_depth(&room_id, &prev_events)
+                    .await
+                    .map_err(|e| ApiError::internal_with_cause("Failed to calculate event depth", e))?;
+
+                // 4. Build auth_events
+                let auth_events = auth_builder.build_auth_events(&event_type, state_key.as_deref(), &params.user_id);
+
+                // 5. Create event with full PDU graph fields
+                self.event_writer
+                    .create_event_with_pdu(
+                        params,
+                        synapse_storage::event::PduGraphFields {
+                            depth: Some(depth),
+                            prev_events: Some(prev_events),
+                            auth_events: Some(auth_events),
+                        },
+                        tx,
+                    )
+                    .await
+                    .map_err(|e| ApiError::internal_with_cause("Failed to create v12 event", e))?
+            } else {
+                // v11 or earlier: use legacy create_event path
+                self.event_writer
+                    .create_event(params, tx)
+                    .await
+                    .map_err(|e| ApiError::internal_with_cause("Failed to create event", e))?
+            }
+        } else {
+            // Fallback to legacy path if room version is unknown
+            self.event_writer
+                .create_event(params, tx)
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Failed to create event", e))?
+        };
 
         // Invalidate room-state cache when a state event is written.
         // Best-effort: failure to delete is non-fatal.

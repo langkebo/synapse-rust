@@ -149,6 +149,10 @@ pub fn generate_room_id(server_name: &str) -> String {
 }
 
 /// Generates the event.
+///
+/// ⚠️ DEPRECATED: This function generates legacy-style event IDs for backward compatibility.
+/// For room versions 3+, use [`synapse_common::event_id::compute_event_id`] which computes
+/// the event ID from the reference hash (SHA-256 of redacted event canonical JSON).
 pub fn generate_event_id(server_name: &str) -> String {
     let timestamp = current_timestamp_millis();
     let mut bytes = [0u8; 18];

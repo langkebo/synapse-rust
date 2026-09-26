@@ -1001,6 +1001,16 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
         // In-memory mock does not model room_state_events; no-op.
         Ok(())
     }
+
+    async fn calculate_event_depth(&self, _room_id: &str, _prev_events: &[String]) -> Result<i64, sqlx::Error> {
+        // In-memory mock returns depth 1
+        Ok(1)
+    }
+
+    async fn get_forward_extremities_in_room(&self, _room_id: &str, _limit: i64) -> Result<Vec<String>, sqlx::Error> {
+        // In-memory mock returns empty extremities
+        Ok(vec![])
+    }
 }
 
 // ── EventWriter implementation for InMemoryEventStore ──────────────────
@@ -1215,6 +1225,32 @@ impl crate::event::writer::EventWriter for InMemoryEventStore {
         // event from the store to match the same logical effect.
         self.events.write().await.remove(event_id);
         Ok(())
+    }
+
+    async fn create_event_with_pdu(
+        &self,
+        params: crate::event::CreateEventParams,
+        pdu_graph: crate::event::PduGraphFields,
+        _tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<crate::event::RoomEvent, sqlx::Error> {
+        let event = crate::event::RoomEvent {
+            event_id: params.event_id.clone(),
+            room_id: params.room_id,
+            user_id: params.user_id,
+            event_type: params.event_type,
+            content: params.content,
+            state_key: params.state_key,
+            depth: pdu_graph.depth.unwrap_or(0),
+            origin_server_ts: params.origin_server_ts,
+            processed_ts: current_timestamp_millis(),
+            not_before: 0,
+            status: Some("processed".to_string()),
+            origin: "self".to_string(),
+            stream_ordering: Some(0),
+            redacts: params.redacts,
+        };
+        self.events.write().await.insert(event.event_id.clone(), event.clone());
+        Ok(event)
     }
 }
 
