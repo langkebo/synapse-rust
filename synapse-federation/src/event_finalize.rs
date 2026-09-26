@@ -106,7 +106,7 @@ mod tests {
         assert_ne!(finalized.event_id, "$placeholder:example.com");
         assert_eq!(finalized.event_id.len(), 44, "`$` + 43 base64 chars: {}", finalized.event_id);
         assert!(!finalized.event_id.contains(':'), "v4+ IDs carry no origin suffix");
-        assert_eq!(finalized.event_id.contains('='), false);
+        assert!(!finalized.event_id.contains('='), "unpadded Base64 only");
         assert!(finalized.hashes["sha256"].as_str().is_some());
     }
 
