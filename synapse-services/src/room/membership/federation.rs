@@ -458,10 +458,21 @@ impl MembershipService {
             self.event_reader.calculate_event_depth(room_id, &extremities).await.map_err(|e| {
                 ApiError::internal_with_cause("Failed to calculate event depth for federated invite", e)
             })?;
-        // Minimal auth chain: the room's create event authorises the
-        // m.room.member invite (full auth chain assembly is tracked in
-        // docs/audit/MSC4311_INVITE_FIX_DIAGNOSIS_2026-09-26.md).
-        let auth_events = vec![format!("$create:{}", self.server_name)];
+        // Complete auth chain for invite: m.room.create (actual event_id from state)
+        // instead of the hardcoded format "$create:{server_name}".
+        let create_events = self
+            .event_reader
+            .get_state_events_by_type(room_id, "m.room.create")
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to fetch room create event for auth chain", e))?;
+
+        // Fallback to the legacy format if create event is not found in state.
+        let create_event_id = create_events
+            .first()
+            .map(|e| e.event_id.clone())
+            .unwrap_or_else(|| format!("$create:{}", self.server_name));
+
+        let auth_events = vec![create_event_id];
         let prev_events = extremities;
 
         let mut invite_event = json!({
