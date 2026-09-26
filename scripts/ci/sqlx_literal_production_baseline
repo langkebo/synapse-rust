@@ -1,4 +1,8 @@
 # SQLx 生产区「字面量动态 SQL」棘轮基线（D1 守卫输入）
+# ⚠️ 本文件注释里对「方案文档 §7.2 / §8.x」的引用指向 SQLx 静态化**历史快照**：
+#    docs/synapse-rust/archive/SQLX_STATICIZATION_PLAN_2026-09-23_HISTORY.md
+#    （主文档 docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md 现在只保留
+#     阶段总结 / 未关闭项 / 优化方案；批次记录与已关闭缺陷明细已移入快照。）
 # ─────────────────────────────────────────────────────────────────────────────
 # 口径：`python3 scripts/ci/sqlx_query_census.py --list-production-dynamic .`
 # 只统计**生产区**（`#[cfg(test)]` 块外、且不由 `#[cfg(test)] mod x;` 引入）的

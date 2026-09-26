@@ -785,7 +785,7 @@ A 的失败信息同时构成"HEAD 本来就红"的直接证据：`left` 即由�
 | shfmt 未过 | `scripts/ci/check_gated_module_tests.sh`（W5 `ab5949c70`） | `shfmt -d -i 4 -ci` 报 `case "$filter" in ''\|'#'*)` 应为 `'' \| '#'*`（纯间距） |
 | `route-table.json` 落后 | `docs/openapi/route-table.json`（同 `a421e7641` 漏刷） | `gen_route_table.py --check`（`ci.yml:245`）红；本批按 CI recipe 重生成至 **1146** 条后 `--check` 通过 |
 | comparison 报告计数 | `docs/synapse-rust-vs-synapse-comparison.md`（`1,166` 三处） | `doc_credibility_guard_tests::counts_match_the_route_contract` 红（该守卫只认 `**N 条注册路由**` / `**N 个模块**`，且**必须带千分位**）；随 ROUTE_CONTRACT 一并降到 `1,165` |
-| **`workspace lib` 批次 1 例 FAIL**：`event::db_tests::test_create_event_with_graph_with_prev_events` | `synapse-storage/src/event/create.rs` 三处（`8489b4079` P2-1 引入） | **运行时硬故障**：守卫 `WHERE $2 != '[]'` 里的 `$2` 已是 `text[]`，PG 把 `'[]'` 当数组字面量解析 ⇒ 语句在 **prepare 阶段**就报 `22P02`（`psql` 实测 `PREPARE` 直接失败）。改用 `WHERE cardinality($2) > 0` 后该用例转 PASS。**另登记为 D-42**（`SQLX_STATICIZATION_PLAN_2026-09-23.md §7.2`） |
+| **`workspace lib` 批次 1 例 FAIL**：`event::db_tests::test_create_event_with_graph_with_prev_events` | `synapse-storage/src/event/create.rs` 三处（`8489b4079` P2-1 引入） | **运行时硬故障**：守卫 `WHERE $2 != '[]'` 里的 `$2` 已是 `text[]`，PG 把 `'[]'` 当数组字面量解析 ⇒ 语句在 **prepare 阶段**就报 `22P02`（`psql` 实测 `PREPARE` 直接失败）。改用 `WHERE cardinality($2) > 0` 后该用例转 PASS。**另登记为 D-42**（`SQLX_STATICIZATION_PLAN_2026-09-23_HISTORY.md §7.2`，已关闭） |
 
 > 另有 2 处**看似红、实为本机环境伪影**，CI（干净 checkout）不会命中，**未做任何改动**：
 > ① `repo-sanity` 的 "No private keys (key files)"：本机 `docker/nginx/ssl/*.key` 是 `.gitignore:8` 的开发证书；
@@ -824,7 +824,7 @@ A 的失败信息同时构成"HEAD 本来就红"的直接证据：`left` 即由�
 
 - [Element Synapse Event Reports API](https://github.com/element-hq/synapse/blob/develop/docs/admin_api/event_reports.md)
 - [Matrix Spec - Event Reports](https://spec.matrix.org/latest/)
-- 本项目 D-12 问题登记：`SQLX_STATICIZATION_PLAN_2026-09-23.md §7.1`
+- 本项目 D-12 问题登记：`SQLX_STATICIZATION_PLAN_2026-09-23_HISTORY.md §7.1`（已关闭）
 
 ---
 

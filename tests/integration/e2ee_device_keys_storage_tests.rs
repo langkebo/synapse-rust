@@ -1,5 +1,6 @@
 //! DB round-trips for `synapse-e2ee` device-key storage defects registered in
-//! `docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md` §7.2.
+//! `docs/synapse-rust/archive/SQLX_STATICIZATION_PLAN_2026-09-23_HISTORY.md` §7.2
+//! （该缺陷已关闭，因此明细在主文档的历史快照里）。
 //!
 //! * **D-07** `record_device_list_change` used to return `()` and swallow both statements'
 //!   errors (`let Ok(..) else { return }` / `let _ =`), so a device-list change that never
