@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT user_id AS \"user_id!\", device_id AS \"device_id!\" FROM devices\n                WHERE (user_id, device_id) IN (\n                    SELECT * FROM unnest($1::text[], $2::text[]) AS t(user_id, device_id)\n                )\n            UNION\n            SELECT user_id AS \"user_id!\", device_id AS \"device_id!\" FROM dehydrated_devices\n                WHERE (user_id, device_id) IN (\n                    SELECT * FROM unnest($1::text[], $2::text[]) AS t(user_id, device_id)\n                )\n                  AND (expires_at IS NULL OR expires_at > $3)\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "device_id!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "TextArray",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "0c16522db8c7c2038c1a323320bd4bee6f067ef0f023442ba833022574162061"
+}

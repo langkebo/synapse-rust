@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM to_device_messages\n            WHERE id = ANY($1)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5b69fd09c8800769981489dee32229de0e6063bfca966d0c57b3500d87eab3e5"
+}

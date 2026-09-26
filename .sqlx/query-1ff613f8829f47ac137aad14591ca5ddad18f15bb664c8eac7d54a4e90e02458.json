@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH deleted AS (\n                DELETE FROM to_device_messages\n                WHERE recipient_user_id = $1 AND recipient_device_id = $2\n                RETURNING id, stream_id, sender_user_id, event_type, content, message_id, created_ts\n            )\n            SELECT id, stream_id, sender_user_id, event_type, content, message_id, created_ts\n            FROM deleted\n            ORDER BY stream_id ASC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "stream_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "sender_user_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "event_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "content",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "message_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "1ff613f8829f47ac137aad14591ca5ddad18f15bb664c8eac7d54a4e90e02458"
+}

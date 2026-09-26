@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT COALESCE(MAX(stream_id), 0) AS \"max!\"\n            FROM to_device_messages\n            WHERE recipient_user_id = $1\n              AND recipient_device_id = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "max!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "71cf7bf2b2fb9110f7015de79c520c13d33b91041daaf129988c7d2c5a933ac0"
+}

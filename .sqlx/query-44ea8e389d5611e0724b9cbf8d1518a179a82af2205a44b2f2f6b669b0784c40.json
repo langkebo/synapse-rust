@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT 1 AS hit FROM event_relations\n            WHERE room_id = $1 AND relates_to_event_id = $2\n              AND relation_type = $3 AND sender = $4\n              AND is_redacted = FALSE\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "hit",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "44ea8e389d5611e0724b9cbf8d1518a179a82af2205a44b2f2f6b669b0784c40"
+}

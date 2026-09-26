@@ -66,7 +66,7 @@ pub struct RelationQueryParams {
 }
 
 /// The `AggregationResult` struct.
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AggregationResult {
     /// The `relation_type` field.
     pub relation_type: String,
@@ -166,8 +166,9 @@ impl RelationsStorage {
     pub async fn create_relation(&self, params: CreateRelationParams) -> Result<EventRelation, sqlx::Error> {
         let now = current_timestamp_millis();
 
-        sqlx::query_as::<_, EventRelation>(
-            r"
+        sqlx::query_as!(
+            EventRelation,
+            r#"
             INSERT INTO event_relations (
                 room_id, event_id, relates_to_event_id, relation_type,
                 sender, origin_server_ts, content, created_ts
@@ -179,16 +180,16 @@ impl RelationsStorage {
                 is_redacted = FALSE
             RETURNING id, room_id, event_id, relates_to_event_id, relation_type,
                       sender, origin_server_ts, content, is_redacted, created_ts
-            ",
+            "#,
+            &params.room_id,
+            &params.event_id,
+            &params.relates_to_event_id,
+            &params.relation_type,
+            &params.sender,
+            params.origin_server_ts,
+            &params.content,
+            now,
         )
-        .bind(&params.room_id)
-        .bind(&params.event_id)
-        .bind(&params.relates_to_event_id)
-        .bind(&params.relation_type)
-        .bind(&params.sender)
-        .bind(params.origin_server_ts)
-        .bind(&params.content)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await
     }
@@ -202,8 +203,9 @@ impl RelationsStorage {
     ) -> Result<EventRelation, sqlx::Error> {
         let now = current_timestamp_millis();
 
-        sqlx::query_as::<_, EventRelation>(
-            r"
+        sqlx::query_as!(
+            EventRelation,
+            r#"
             INSERT INTO event_relations (
                 room_id, event_id, relates_to_event_id, relation_type,
                 sender, origin_server_ts, content, created_ts
@@ -215,32 +217,33 @@ impl RelationsStorage {
                 is_redacted = FALSE
             RETURNING id, room_id, event_id, relates_to_event_id, relation_type,
                       sender, origin_server_ts, content, is_redacted, created_ts
-            ",
+            "#,
+            &params.room_id,
+            &params.event_id,
+            &params.relates_to_event_id,
+            &params.relation_type,
+            &params.sender,
+            params.origin_server_ts,
+            &params.content,
+            now,
         )
-        .bind(&params.room_id)
-        .bind(&params.event_id)
-        .bind(&params.relates_to_event_id)
-        .bind(&params.relation_type)
-        .bind(&params.sender)
-        .bind(params.origin_server_ts)
-        .bind(&params.content)
-        .bind(now)
         .fetch_one(&mut **tx)
         .await
     }
 
     /// See [`get_relation`].
     pub async fn get_relation(&self, room_id: &str, event_id: &str) -> Result<Option<EventRelation>, sqlx::Error> {
-        sqlx::query_as::<_, EventRelation>(
-            r"
+        sqlx::query_as!(
+            EventRelation,
+            r#"
             SELECT id, room_id, event_id, relates_to_event_id, relation_type,
                    sender, origin_server_ts, content, is_redacted, created_ts
             FROM event_relations
             WHERE room_id = $1 AND event_id = $2 AND is_redacted = FALSE
-            ",
+            "#,
+            room_id,
+            event_id,
         )
-        .bind(room_id)
-        .bind(event_id)
         .fetch_optional(&*self.pool)
         .await
     }
@@ -252,22 +255,22 @@ impl RelationsStorage {
         relates_to_event_id: &str,
         relation_type: Option<&str>,
     ) -> Result<i64, sqlx::Error> {
-        let count: (i64,) = sqlx::query_as(
-            r"
-            SELECT COUNT(*)
+        let count = sqlx::query_scalar!(
+            r#"
+            SELECT COUNT(*) AS "count!"
             FROM event_relations
             WHERE room_id = $1 AND relates_to_event_id = $2
               AND ($3::text IS NULL OR relation_type = $3)
               AND is_redacted = FALSE
-            ",
+            "#,
+            room_id,
+            relates_to_event_id,
+            relation_type,
         )
-        .bind(room_id)
-        .bind(relates_to_event_id)
-        .bind(relation_type)
         .fetch_one(&*self.pool)
         .await?;
 
-        Ok(count.0)
+        Ok(count)
     }
 
     /// See [`get_relations`].
@@ -332,8 +335,9 @@ impl RelationsStorage {
     ) -> Result<Vec<EventRelation>, sqlx::Error> {
         let limit = limit.unwrap_or(50).min(100);
 
-        sqlx::query_as::<_, EventRelation>(
-            r"
+        sqlx::query_as!(
+            EventRelation,
+            r#"
             SELECT id, room_id, event_id, relates_to_event_id, relation_type,
                    sender, origin_server_ts, content, is_redacted, created_ts
             FROM event_relations
@@ -342,11 +346,11 @@ impl RelationsStorage {
               AND is_redacted = FALSE
             ORDER BY origin_server_ts DESC
             LIMIT $3
-            ",
+            "#,
+            room_id,
+            relates_to_event_id,
+            i64::from(limit),
         )
-        .bind(room_id)
-        .bind(relates_to_event_id)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await
     }
@@ -360,8 +364,9 @@ impl RelationsStorage {
     ) -> Result<Vec<EventRelation>, sqlx::Error> {
         let limit = limit.unwrap_or(50).min(100);
 
-        sqlx::query_as::<_, EventRelation>(
-            r"
+        sqlx::query_as!(
+            EventRelation,
+            r#"
             SELECT id, room_id, event_id, relates_to_event_id, relation_type,
                    sender, origin_server_ts, content, is_redacted, created_ts
             FROM event_relations
@@ -370,11 +375,11 @@ impl RelationsStorage {
               AND is_redacted = FALSE
             ORDER BY origin_server_ts DESC
             LIMIT $3
-            ",
+            "#,
+            room_id,
+            relates_to_event_id,
+            i64::from(limit),
         )
-        .bind(room_id)
-        .bind(relates_to_event_id)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await
     }
@@ -386,8 +391,9 @@ impl RelationsStorage {
         relates_to_event_id: &str,
         sender: &str,
     ) -> Result<Option<EventRelation>, sqlx::Error> {
-        sqlx::query_as::<_, EventRelation>(
-            r"
+        sqlx::query_as!(
+            EventRelation,
+            r#"
             SELECT id, room_id, event_id, relates_to_event_id, relation_type,
                    sender, origin_server_ts, content, is_redacted, created_ts
             FROM event_relations
@@ -397,11 +403,11 @@ impl RelationsStorage {
               AND is_redacted = FALSE
             ORDER BY origin_server_ts DESC
             LIMIT 1
-            ",
+            "#,
+            room_id,
+            relates_to_event_id,
+            sender,
         )
-        .bind(room_id)
-        .bind(relates_to_event_id)
-        .bind(sender)
         .fetch_optional(&*self.pool)
         .await
     }
@@ -412,38 +418,39 @@ impl RelationsStorage {
         room_id: &str,
         relates_to_event_id: &str,
     ) -> Result<Vec<AggregationResult>, sqlx::Error> {
-        sqlx::query_as::<_, AggregationResult>(
-            r"
+        sqlx::query_as!(
+            AggregationResult,
+            r#"
             SELECT
                 relation_type,
                 content->>'body' as key,
-                COUNT(*) as count,
+                COUNT(*) AS "count!",
                 NULL::text as sender
             FROM event_relations
             WHERE room_id = $1 AND relates_to_event_id = $2
               AND relation_type = 'm.annotation'
               AND is_redacted = FALSE
             GROUP BY relation_type, content->>'body'
-            ORDER BY count DESC
-            ",
+            ORDER BY COUNT(*) DESC
+            "#,
+            room_id,
+            relates_to_event_id,
         )
-        .bind(room_id)
-        .bind(relates_to_event_id)
         .fetch_all(&*self.pool)
         .await
     }
 
     /// See [`redact_relation`].
     pub async fn redact_relation(&self, room_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             UPDATE event_relations
             SET is_redacted = TRUE, content = '{}'
             WHERE room_id = $1 AND event_id = $2
-            ",
+            "#,
+            room_id,
+            event_id,
         )
-        .bind(room_id)
-        .bind(event_id)
         .execute(&*self.pool)
         .await?;
 
@@ -452,15 +459,15 @@ impl RelationsStorage {
 
     /// See [`delete_relation`].
     pub async fn delete_relation(&self, room_id: &str, event_id: &str, sender: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query(
-            r"
+        let result = sqlx::query!(
+            r#"
             DELETE FROM event_relations
             WHERE room_id = $1 AND event_id = $2 AND sender = $3
-            ",
+            "#,
+            room_id,
+            event_id,
+            sender,
         )
-        .bind(room_id)
-        .bind(event_id)
-        .bind(sender)
         .execute(&*self.pool)
         .await?;
 
@@ -475,19 +482,19 @@ impl RelationsStorage {
         relation_type: &str,
         sender: &str,
     ) -> Result<bool, sqlx::Error> {
-        let result: Option<(i32,)> = sqlx::query_as(
-            r"
-            SELECT 1 FROM event_relations
+        let result = sqlx::query_scalar!(
+            r#"
+            SELECT 1 AS hit FROM event_relations
             WHERE room_id = $1 AND relates_to_event_id = $2
               AND relation_type = $3 AND sender = $4
               AND is_redacted = FALSE
             LIMIT 1
-            ",
+            "#,
+            room_id,
+            relates_to_event_id,
+            relation_type,
+            sender,
         )
-        .bind(room_id)
-        .bind(relates_to_event_id)
-        .bind(relation_type)
-        .bind(sender)
         .fetch_optional(&*self.pool)
         .await?;
 

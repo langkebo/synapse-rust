@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM to_device_transactions\n            WHERE created_ts < $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6ce29ecd02e716274268dd7535bdfcca3092c92837167c0f6d672c87d1dd989c"
+}
