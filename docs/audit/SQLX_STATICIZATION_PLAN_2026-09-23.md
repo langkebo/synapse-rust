@@ -30,16 +30,16 @@
 即 `BASELINE_DYNAMIC_PRODUCTION` 单向降到 0；测试基础设施与 DDL 类动态 SQL 走
 书面白名单，不再掩盖生产债务。每批同时下调 dynamic、上调 static。
 
-> **当前进展（2026-09-25，C31 后实测）** —— 上表是 2026-09-23 的**计划时基线**，
+> **当前进展（2026-09-25，C32 后实测）** —— 上表是 2026-09-23 的**计划时基线**，
 > 保留作对照；当前 census 实测：
 >
-> | 指标 | 计划时 | C31 后实测 |
+> | 指标 | 计划时 | C32 后实测 |
 > |---|---|---|
-> | `dynamic_production` | 1532（近似） | **464** |
-> | `static` | 61 | **1005** |
-> | `dynamic`（总） | 2151 | **1175** |
-> | 静态占比 | 2.76% | **46.1%（1005 / 2180）** |
-> | `.sqlx` 离线缓存 | 60 条 | **974 条** |
+> | `dynamic_production` | 1532（近似） | **432** |
+> | `static` | 61 | **1037** |
+> | `dynamic`（总） | 2151 | **1143** |
+> | 静态占比 | 2.76% | **47.6%（1037 / 2180）** |
+> | `.sqlx` 离线缓存 | 60 条 | **1005 条** |
 >
 > ✅ C28 那笔「`dynamic_production` 反而升到 515」的**待偿债务已在 C29 结清并超额**：
 > 侦察发现「静态 SQL 藏进变量」是 `event/create.rs` 的**整文件**反模式（16 处，
@@ -51,6 +51,9 @@
 > ✅ **C31** 再降到 **464**（`to_device/storage.rs` 12 处 + `relations/mod.rs` 11 处），
 > 并把三条**实测**的宏行为判据写进了 AGENTS.md 的 R4/R5/R6 与本文件 baseline
 > （UNION 输出列推可空 / `LIMIT $n` 按 bigint 定型 / 断言别名即列名）—— 详见 §8.28。
+> ✅ **C32** 再降到 **432**（`chunked_upload.rs` 11 + `matrixrtc.rs` 11 + `voice.rs` 10），
+> 并新增一条**反向**判据进 R4：宏**不**检查「NOT NULL 列配 `Option` 字段」⇒
+> 字段的 `Option` 形态**不能**当作列可空性的证据（详见 §8.29）。
 > §7 的**未修**项目前为 **0**（D-57 记 `部分已修`：①断言锚定已做，②`public` 收敛未做）。
 >
 > 已执行：Phase A/B/D + C1–C18（逐批数字与理由在
@@ -59,7 +62,8 @@
 > **C23**（§8.20）+ **C24**（§8.21）+ **C25**（§8.22）+ **C26**（§8.23）+ **C27**（§8.24）+
 > **C28**（§8.25，schema 清理批）+ **C29**（§8.26，`event/create.rs` 全文件静态化 + D-57①）+
 > **C30**（§8.27，`retention.rs` 全文件静态化 + D-61）+ **C31**（§8.28，`to_device/storage.rs`
-> + `relations/mod.rs` 静态化 + R4/R5/R6 判据）；
+> + `relations/mod.rs` 静态化 + R4/R5/R6 判据）+ **C32**（§8.29，`chunked_upload.rs` +
+> `matrixrtc.rs` + `voice.rs` 静态化 + R4 反向判据）；
 > 另完成 **D-47 ②**（守卫 A′ + (b) 组 31 键逐文件迁模板，§8.17/§8.18）——**D-47 已修**。
 > 门禁复跑另抓出并修掉六条既有缺陷：**D-50**（`--all-features` clippy 红）、
 > **D-51**（并发写者遗留的 `.sqlx` 缺口）、**D-52**（守卫 5 夹具路径悬空）、
@@ -69,7 +73,7 @@
 > 并发写者的 **D-39** 确认落地（`00271cf91`）。C28 另登记 **D-59**（并发会话把静态 SQL
 > 藏进变量、绕过 literal 棘轮 ⇒ ratio + literal 双门禁红，部分已修）。
 > §7 登记 61 条（已修 49 / 部分已修 2 / **未修 0** / 结构性保留 7 / 文档级 3）。
-> **下一步见 §8.28 末尾的「剩余头部」。**
+> **下一步见 §8.29 末尾的「剩余头部」。**
 
 ---
 
@@ -4130,3 +4134,122 @@ C29 的"16→9"、C30 的"12→12"并存** —— 再次说明比例只由**执�
 3. `burn_after_read.rs`（15）与 `database_initializer/mod.rs`（15）各自的障碍
    （feature 门控的 CI 等价库成本 / D-14 归属）仍在，建议单独评估。
 4. **D-57②**（seed 侧收敛 `public`）仍待独立设计。
+
+### 8.29 C32 执行结果（2026-09-25，`chunked_upload.rs` + `matrixrtc.rs` + `voice.rs`）
+
+**触发**：§8.28 的「下一批建议」第 1 条（11+11+10 = 32，全在 `synapse-storage`，无门控、
+无归属待判）。基线：`opt/consolidated`（C31 之后）。
+
+#### 8.29.1 范围
+
+| 文件 | 处数 | 转后宏调用 | 缓存条目 |
+|---|---|---|---|
+| `synapse-storage/src/media/chunked_upload.rs` | 11 | 11 | 10 |
+| `synapse-storage/src/matrixrtc.rs` | 11 | 11 | 11 |
+| `synapse-storage/src/voice.rs` | 10 | 10 | 10 |
+| **合计** | **32** | **32** | **31** |
+
+唯一的"多对一"：`DELETE FROM upload_chunks WHERE upload_id = $1` 在 `finalize_upload` 与
+`delete_upload` 里各一次、文本相同 ⇒ 共用一条缓存（同 C31 的 `create_relation` 对）。
+
+至此**四种比例都出现过**：16→9（C29，6 个 tx/pool 双分支收敛）、12→12（C30）、
+23→22（C31，一对同文本）、32→32 调用/31 缓存（C32）。**比例的成因始终是"执行路径数"与
+"文本重合"，与文件大小无关** —— 这条已经验证四次，可以当结论用了。
+
+**三处 `RETURNING *` 展开为显式列清单**（R3/D-22）：`matrixrtc_sessions`（10 列）、
+`matrixrtc_memberships`（**15 列**，本批最大）、`matrixrtc_encryption_keys`（9 列）。
+
+#### 8.29.2 本批实测的绑定判据：INSERT 的可空参数
+
+`CREATE` 路径首轮报 3 处 `expected &str, found &Option<String>`：
+
+- `chunked_upload::create_upload` 的 `filename` / `content_type`（可空 TEXT）——
+  原来 `.bind(&request.filename)` 直接绑 `&Option<String>`，**宏的 `ty_match` 拒绝**；
+  改 `request.filename.as_deref()` ⇒ `Option<&str>`；
+- `matrixrtc` 的 `RTCSession.call_id`（INSERT sessions 与 INSERT memberships 各一处），同样 `.as_deref()`。
+
+另有 3 处可空 JSONB（`foci_preferred` / `application_data`）与 1 处可空 TEXT（`foci_active`）
+用 `.as_ref()` / `.as_deref()`。**都不是新规则，是 R5/D-21 的同族**（`&Option<T>` 被拒）
+—— 值得记的是它**同样发生在 INSERT 上**，不要以为只有 SELECT 才踩。
+
+#### 8.29.3 一条反向实证：宏**不**检查「NOT NULL 列配 `Option` 字段」
+
+`upload_progress.expires_at` 在 baseline 里是 **`BIGINT NOT NULL`**，而
+`UploadProgress.expires_at` 是 **`Option<i64>`** —— 换成宏之后**编译照过**。
+即：宏只单向报错（**可空列 ⇒ 非 `Option` 字段必报**），反向不报。
+
+⇒ **字段的 `Option` 形态不能当作列可空性的证据。** 这条很容易形成错误直觉
+（"字段是 Option，那列一定可空"），而 R4 的判据用的是"可空列 ⇔ `Option<T>`"的双向表述 ——
+实测说明**只有单向被强制**。已把该判据补进 AGENTS.md R4，并明确"要判断真实可空性就看 schema"。
+
+> 这与 D-61 是同一条纪律的两种表现：**规则里写的判据必须是实测方向上的判据**，
+> 双向表述若只有一向被强制，就得写明是哪一向。
+
+#### 8.29.4 顺带清理
+
+- `chunked_upload::load_chunk_data` 原来的
+  `rows.into_iter().map(|row| sqlx::Row::get::<Vec<u8>, _>(&row, "chunk_data")).collect()`
+  整段删除，改 `query_scalar!` 直接得 `Vec<Vec<u8>>` —— 手工按列名解码从这个模块彻底消失；
+- `voice::record_upload` 去掉 `let row: (i64,)` 元组解包，改 `query_scalar!`；
+- `#[cfg(test)]` / `db_tests` 内的夹具动态 SQL 按 D-13/D-14 保持原样（`dynamic_test` 保持 711）。
+
+#### 8.29.5 门禁（实测）
+
+| 门禁 | 结果 |
+|---|---|
+| `check_sqlx_dynamic_ratio.sh` | **EXIT=0**（432 ≤ 432 / 711 ≤ 711 / 1037 ≥ 1037） |
+| literal guard（`sqlx_dynamic_literal_guard_tests`） | **16/16** |
+| `check_sqlx_cache_fresh.sh --compile`（权威） | **EXIT=0**（1005 条） |
+| 两档 clippy（`-D warnings`） | **EXIT=0** |
+| `nextest -p synapse-storage --lib --all-features -E 'test(/voice\|matrixrtc/)'` | **26/26**（17 matrixrtc + 9 voice） |
+| `nextest -p synapse-storage --lib -E 'test(/chunked_upload/)'` | **11/11** |
+| `check_fmt_ratchet.sh` | 债务 **0** |
+
+> 注意第 5 行**必须加 `--all-features`**：`voice.rs` 的 `db_tests` 只在全 feature 下编译，
+> 不带时那 9 条会被静默跳过（本批实测：先跑 `--features test-utils` 只得 11 条 chunked_upload
+> 结果，加 `--all-features` 才跑出 26 条）。这是"门禁跑少了却看起来通过"的又一实例，与 D-25 同族。
+
+#### 8.29.6 棘轮与派生缓存
+
+- `BASELINE_DYNAMIC_PRODUCTION` 464 → **432**、`BASELINE_STATIC` 1005 → **1037**、
+  `BASELINE_DYNAMIC` 1175 → **1143**、`BASELINE_DYNAMIC_TEST_INFRA` **保持 711**。
+- `.sqlx`：**974 → 1005**（+31，与 32 个宏调用 / 31 条不同文本对应）。
+- literal 基线：**393 → 361 处 / 67 → 64 文件**，删 `media/chunked_upload.rs 11`、
+  `matrixrtc.rs 11`、`voice.rs 10` 三行（均归零退表）；runtime **不变，仍 71 处 / 14 文件**。
+
+#### 8.29.7 提交清单
+
+**按主题引用，不引用哈希**（理由见 §8.23.7）：
+
+1. `perf(storage): C32 静态化 chunked_upload.rs(11) + matrixrtc.rs(11) + voice.rs(10)`
+2. `chore(sqlx): C32 同批收紧棘轮 —— dynamic_production 464→432、static 1005→1037`
+3. `docs(agents): R4 补一条反向判据 —— 宏不检查「NOT NULL 列配 Option 字段」`
+4. 本文档（§8.29 + §0）
+
+**累计进展（C 系列 `dynamic_production`）**：… → 499（C29）→ 487（C30）→ 464（C31）→ **432（C32）**。
+`static` 61 → **1037**；`.sqlx` 60 → **1005** 条；literal 逐文件 876（计划时）→ **361 处 / 64 文件**。
+**距战役开始时的 1532 已降 71.8%**。
+
+**剩余头部（可静态化的，按实测）**：
+`synapse-storage/src/burn_after_read.rs`（15，门控 `burn-after-read`）、
+`synapse-services/src/database_initializer/mod.rs`（15，需先判 D-14 归属）、
+`synapse-storage/src/push/mod.rs`（11，**4 处要先做行结构体重构**）、
+`synapse-storage/src/event/basic.rs`（11）、`synapse-storage/src/event/redaction.rs`（10）、
+`synapse-storage/src/dehydrated_device.rs`（10）、`synapse-e2ee/src/ssss/storage.rs`（10）、
+`synapse-e2ee/src/secure_backup/service.rs`（10）、`synapse-storage/src/pruning.rs`（9）、
+`synapse-storage/src/invite_blocklist.rs`（9）、`synapse-storage/src/event/state.rs`（9）。
+> 口径同前：**结构性保留**（`event/pagination.rs` 15）与**测试基建**
+> （`synapse-test-utils/src/lib.rs` 28、`synapse-common/src/test_isolation.rs` 25、
+> `test_schema_guard.rs`）不在可转换清单内。
+
+**下一批建议**：
+1. **`event/basic.rs`(11) + `event/redaction.rs`(10) + `event/state.rs`(9) = 30** —— 同在
+   `synapse-storage/src/event/`，与 C29/C31 的 `create.rs`/`relations` 同域，宏化后事件读写路径的
+   类型安全面基本闭合；注意 `event/` 是并发会话的活跃区（v12 PDU 工作），动手前先确认它们不在途。
+2. **`push/mod.rs`（先修再转）** —— 4 个方法返回 `Vec<PgRow>` / `Option<PgRow>`，
+   必须先引入行结构体并改签名（行为保持的独立提交），再转换；顺带消掉存储层把 `PgRow`
+   泄漏给上层、由调用方 `row.get()` 手工解码的设计问题。
+3. `dehydrated_device.rs`(10) / `ssss/storage.rs`(10) / `secure_backup/service.rs`(10) 各是一整批。
+4. `burn_after_read.rs`(15) 与 `database_initializer/mod.rs`(15) 的障碍不变
+   （feature 门控的 CI 等价库成本 / D-14 归属）。
+5. **D-57②**（seed 侧收敛 `public`）仍待独立设计。
