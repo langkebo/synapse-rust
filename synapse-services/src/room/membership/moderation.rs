@@ -193,7 +193,7 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_cause("Failed to record m.room.member knock event", e))?;
 
         // Invalidate room-state cache after membership state change.
-        let _ = self.cache.delete(&format!("room_state:{room_id}"));
+        self.cache.delete(&format!("room_state:{room_id}")).await;
 
         // Best-effort: sign and broadcast the knock event to federation peers.
         if let Err(e) = self.sign_and_broadcast_event(&knock_event).await {
